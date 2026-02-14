@@ -619,11 +619,6 @@ export class FPSGameManager {
 
     // === V2 CLIENT: Buffer snapshot for frame-synchronized processing ===
     if (this.v2Client && this.isNetworkMode) {
-      // DEBUG: Log FIRST snapshot position to trace spawn discrepancy
-      if (!this.v2Client.hasValidPosition()) {
-        console.log(`[FPSGameManager] FIRST SNAPSHOT: server pos=(${transform.position.x.toFixed(1)}, ${transform.position.y.toFixed(1)}, ${transform.position.z.toFixed(1)})`);
-        console.log(`[FPSGameManager] FIRST SNAPSHOT: entityId=${player.entityId}, playerId=${this.localPlayerId}`);
-      }
       const snapshot: ServerSnapshot = {
         tick: state.tick,
         ackedInputSeq: state.ackedInputSeq,
