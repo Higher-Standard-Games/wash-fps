@@ -12,7 +12,6 @@ import type { WorldState } from '../../../../engine/server/core/WorldState';
 import type { TickNumber } from '../../../../engine/server/ecs/types';
 import { EntityType } from '../../../../engine/server/ecs/types';
 import { FPSMovementProfile } from '../../simulation/FPSMovementProfile';
-import { InputButtons } from '../../../../engine/network/components/InputComponent';
 import type { MovementInput } from '../../../../engine/network/systems/movement/MovementProfile';
 import type { CollisionWorld } from '../../../../engine/network/systems/collision/CollisionWorld';
 
@@ -25,18 +24,15 @@ const CONFIG: SubsystemConfig = {
 /**
  * Adapts server InputComponent to FPSMovementProfile's MovementInput
  * 
- * NOTE: The client sends WORLD-SPACE direction in command.direction, 
- * which the server stores in input.forward (= direction.z) and input.right (= direction.x).
- * We use these values directly as they're already rotated by yaw on the client.
+ * Uses the stored buttons bitmask directly so ALL button flags
+ * (including SPRINT) are correctly passed through to simulate().
  */
 function adaptInput(input: {
-    forward: number;  // Actually world-space Z component (= direction.z from client)
-    right: number;    // Actually world-space X component (= direction.x from client)
+    forward: number;  // World-space Z component (= direction.z from client)
+    right: number;    // World-space X component (= direction.x from client)
     pitch: number;
     yaw: number;
-    jump: boolean;
-    crouch: boolean;
-    attack: boolean;
+    buttons: number;  // Raw button bitmask from client
 }): MovementInput {
     // Server receives world-space direction from client:
     // input.forward = command.direction.z
@@ -45,16 +41,8 @@ function adaptInput(input: {
     const wishX = input.right;   // X component of world-space wish direction
     const wishZ = input.forward; // Z component of world-space wish direction
 
-    // Build button bitmask
-    let buttons = 0;
-    if (input.jump) buttons |= InputButtons.JUMP;
-    if (input.crouch) buttons |= InputButtons.CROUCH;
-    if (input.attack) buttons |= InputButtons.FIRE;
-    // Use direction values to set directional buttons (for any systems that check them)
-    if (input.forward > 0.1) buttons |= InputButtons.FORWARD;
-    if (input.forward < -0.1) buttons |= InputButtons.BACK;
-    if (input.right > 0.1) buttons |= InputButtons.RIGHT;
-    if (input.right < -0.1) buttons |= InputButtons.LEFT;
+    // Use the stored buttons bitmask directly — preserves SPRINT and all flags
+    const buttons = input.buttons;
 
     return {
         direction: { x: wishX, y: 0, z: wishZ },
@@ -131,10 +119,18 @@ export class FPSMovementSubsystem extends Subsystem {
                 this.collisionWorld
             );
 
-            // Apply results
+            // Apply results — position, velocity, grounded
             transform.position = result.position;
             physics.velocity = result.velocity;
             physics.grounded = result.grounded;
+
+            // Apply advanced movement state (for client effects)
+            physics.isSliding = result.isSliding;
+            physics.isCrouching = result.isCrouching;
+            physics.crouchViewOffset = result.crouchViewOffset ?? 0;
+            physics.wallJumpState = result.wallJumpState ?? 'none';
+            physics.ledgeGrabState = result.ledgeGrabState ?? 'none';
+            physics.actualHorizSpeed = result.actualHorizSpeed ?? 0;
         }
     }
 
@@ -145,3 +141,4 @@ export class FPSMovementSubsystem extends Subsystem {
         this.movementProfiles.delete(entityId);
     }
 }
+

@@ -548,18 +548,13 @@ export class FPSGameManager {
   private onServerStateUpdate(state: GameState): void {
     const player = state.players.get(this.localPlayerId);
     if (!player) {
-      // Debug: log occasionally to avoid spam
-      if (Math.random() < 0.01) {
-        console.log(`[FPSGameManager] onServerStateUpdate: no player for ${this.localPlayerId}, players:`, Array.from(state.players.keys()));
-      }
+
       return;
     }
 
     const entity = state.entities.get(player.entityId);
     if (!entity) {
-      if (Math.random() < 0.01) {
-        console.log(`[FPSGameManager] onServerStateUpdate: no entity for ${player.entityId}, entities:`, Array.from(state.entities.keys()));
-      }
+
       return;
     }
 
@@ -568,19 +563,10 @@ export class FPSGameManager {
     const movementState = entity.getComponent<MovementStateComponent>('movementState');
 
     if (!transform || !velocity) {
-      if (Math.random() < 0.01) {
-        const componentNames = entity.getComponentNames ? entity.getComponentNames() : 'unknown';
-        console.log(`[FPSGameManager] onServerStateUpdate: missing transform/velocity, components:`, componentNames);
-        console.log(`  transform:`, transform);
-        console.log(`  velocity:`, velocity);
-      }
       return;
     }
 
-    // Debug: log position occasionally
-    if (Math.random() < 0.01) {
-      console.log(`[FPSGameManager] State update: pos=(${transform.position.x.toFixed(1)}, ${transform.position.y.toFixed(1)}, ${transform.position.z.toFixed(1)})`);
-    }
+
 
     // === V2 CLIENT: Q3-style reconciliation (reset to server state + replay unacked inputs) ===
     if (this.v2Client && this.isNetworkMode) {

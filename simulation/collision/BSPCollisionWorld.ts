@@ -39,6 +39,11 @@ export class BSPCollisionWorld implements CollisionWorld {
     private static readonly PLAYER_RADIUS = 16;
     private static readonly PLAYER_HEIGHT = 56;
 
+    // Diagnostic counters for collision fallback detection
+    private static uninitializedCount = 0;
+    private static noBackendCount = 0;
+    private static lastWarnTime = 0;
+
     /**
      * Trace a ray from start to end
      */
@@ -82,8 +87,11 @@ export class BSPCollisionWorld implements CollisionWorld {
 
         if (!cm.isInitialized()) {
             // No collision - just apply velocity directly
-            if (Math.random() < 0.01) {
-                console.warn(`[BSPCollisionWorld] stepSlideMove: CollisionManager NOT initialized!`);
+            BSPCollisionWorld.uninitializedCount++;
+            const now = Date.now();
+            if (BSPCollisionWorld.uninitializedCount <= 10 || now - BSPCollisionWorld.lastWarnTime > 1000) {
+                console.warn(`[BSPCollisionWorld] stepSlideMove: CollisionManager NOT initialized! (count: ${BSPCollisionWorld.uninitializedCount}) — NO COLLISION ACTIVE, player will clip through geometry!`);
+                BSPCollisionWorld.lastWarnTime = now;
             }
             return {
                 endPos: {
@@ -131,8 +139,11 @@ export class BSPCollisionWorld implements CollisionWorld {
         }
 
         // Fallback: simple move without collision
-        if (Math.random() < 0.01) {
-            console.warn(`[BSPCollisionWorld] stepSlideMove: Q3 backend NOT available! Falling back to no-collision move. backends=${(cm as any).backends ? 'exists' : 'undefined'}`);
+        BSPCollisionWorld.noBackendCount++;
+        const now = Date.now();
+        if (BSPCollisionWorld.noBackendCount <= 10 || now - BSPCollisionWorld.lastWarnTime > 1000) {
+            console.warn(`[BSPCollisionWorld] stepSlideMove: Q3 backend NOT available! (count: ${BSPCollisionWorld.noBackendCount}) — NO COLLISION ACTIVE! backends=${(cm as any).backends ? 'exists' : 'undefined'}`);
+            BSPCollisionWorld.lastWarnTime = now;
         }
         return {
             endPos: {

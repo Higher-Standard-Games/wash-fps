@@ -314,9 +314,12 @@ export class FPSMovementProfile implements MovementProfile {
     // === INPUT PROCESSING ===
     if (input) {
       // Determine wishspeed
-      const isSprinting = input.isPressed(InputButtons.SPRINT);
+      // Match AdvancedCharacterController: no sprinting while ADS or crouching
+      const isAiming = input.isPressed(InputButtons.ALT_FIRE);
       const isCrouching = input.isPressed(InputButtons.CROUCH);
       const isJumping = input.isPressed(InputButtons.JUMP);
+      const canRun = !isAiming && !isCrouching;
+      const isSprinting = canRun && input.isPressed(InputButtons.SPRINT);
 
       let wishspeed = isSprinting ? this.config.runSpeed : this.config.maxSpeed;
 
