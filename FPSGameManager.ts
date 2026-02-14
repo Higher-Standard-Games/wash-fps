@@ -15,7 +15,7 @@ import { InputButtons } from '../../engine/network/components/InputComponent';
 import type { GameState } from '../../engine/network/core/GameState';
 import type { TransformComponent } from '../../engine/network/components/TransformComponent';
 import type { VelocityComponent } from '../../engine/network/components/VelocityComponent';
-import type { MovementStateComponent } from '../../engine/network/components/MovementStateComponent';
+
 
 import { getCollisionManager } from '../../engine/physics/CollisionManager';
 import { createBSPCollisionWorld } from './simulation/collision/BSPCollisionWorld';
@@ -609,12 +609,14 @@ export class FPSGameManager {
 
     const transform = entity.getComponent<TransformComponent>('transform');
     const velocity = entity.getComponent<VelocityComponent>('velocity');
-    const movementState = entity.getComponent<MovementStateComponent>('movementState');
 
     if (!transform || !velocity) {
       return;
     }
 
+    // Movement state fields are stored on the physics/velocity component by the server
+    // (FPSMovementSubsystem.applyResult writes isSliding, isCrouching, etc. to entity.physics)
+    const physics = velocity as any;
 
 
     // === V2 CLIENT: Buffer snapshot for frame-synchronized processing ===
@@ -631,12 +633,12 @@ export class FPSGameManager {
 
       // Store latest movement state for callbacks (will be used when processing snapshots)
       this.pendingMovementState = {
-        isSliding: movementState?.isSliding ?? false,
-        isCrouching: movementState?.isCrouching ?? false,
-        crouchViewOffset: movementState?.crouchViewOffset ?? 0,
-        wallJumpState: movementState?.wallJumpState ?? 'none',
-        ledgeGrabState: movementState?.ledgeGrabState ?? 'none',
-        actualHorizSpeed: movementState?.actualHorizSpeed ?? 0,
+        isSliding: physics.isSliding ?? false,
+        isCrouching: physics.isCrouching ?? false,
+        crouchViewOffset: physics.crouchViewOffset ?? 0,
+        wallJumpState: physics.wallJumpState ?? 'none',
+        ledgeGrabState: physics.ledgeGrabState ?? 'none',
+        actualHorizSpeed: physics.actualHorizSpeed ?? 0,
       };
       this.pendingTick = state.tick;
       return;
@@ -648,12 +650,12 @@ export class FPSGameManager {
       grounded: velocity.grounded,
       tick: state.tick,
       // Advanced movement state
-      isSliding: movementState?.isSliding ?? false,
-      isCrouching: movementState?.isCrouching ?? false,
-      crouchViewOffset: movementState?.crouchViewOffset ?? 0,
-      wallJumpState: movementState?.wallJumpState ?? 'none',
-      ledgeGrabState: movementState?.ledgeGrabState ?? 'none',
-      actualHorizSpeed: movementState?.actualHorizSpeed ?? 0,
+      isSliding: physics.isSliding ?? false,
+      isCrouching: physics.isCrouching ?? false,
+      crouchViewOffset: physics.crouchViewOffset ?? 0,
+      wallJumpState: physics.wallJumpState ?? 'none',
+      ledgeGrabState: physics.ledgeGrabState ?? 'none',
+      actualHorizSpeed: physics.actualHorizSpeed ?? 0,
     };
 
     // Notify callbacks
