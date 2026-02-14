@@ -68,6 +68,8 @@ export class V2NetworkClient {
     // Track if we've received at least one server snapshot
     // Position is (0,0,0) until first snapshot - camera should wait
     private hasReceivedSnapshot: boolean = false;
+    /** Buffered snapshots waiting to be processed at frame boundary */
+    private pendingSnapshots: ServerSnapshot[] = [];
 
     constructor(config: V2ClientConfig) {
         this.config = config;
@@ -166,14 +168,38 @@ export class V2NetworkClient {
     // ═══════════════════════════════════════════════════════════════════
 
     /**
-     * Handle server snapshot - Q3-style reconciliation
+     * Buffer a server snapshot for processing at next frame boundary.
+     * Called from NetworkGameHost callback (async, any time).
+     */
+    bufferSnapshot(snapshot: ServerSnapshot): void {
+        this.pendingSnapshots.push(snapshot);
+    }
+
+    /**
+     * Process all buffered snapshots. Called once per frame BEFORE input processing.
+     * Processes only the LATEST snapshot (older ones are stale).
+     * Returns true if a snapshot was processed (state may have changed).
+     */
+    processBufferedSnapshots(): boolean {
+        if (this.pendingSnapshots.length === 0) return false;
+
+        // Process only the LATEST snapshot — older ones are stale
+        const latest = this.pendingSnapshots[this.pendingSnapshots.length - 1];
+        this.pendingSnapshots = [];
+
+        this.applySnapshot(latest);
+        return true;
+    }
+
+    /**
+     * Apply a server snapshot — Q3-style reconciliation (internal)
      * 
      * Per V2_NETWORK_CLIENT.md design:
      * 1. Reset to server's authoritative position
      * 2. Replay all unacknowledged inputs
      * 3. Result is our new predicted position
      */
-    onServerSnapshot(snapshot: ServerSnapshot): void {
+    private applySnapshot(snapshot: ServerSnapshot): void {
         // Track that we've received at least one snapshot
         // This is crucial - position is (0,0,0) until first snapshot
         const isFirstSnapshot = !this.hasReceivedSnapshot;
@@ -207,7 +233,19 @@ export class V2NetworkClient {
         this.movement.resetPhysicsState(snapshot.grounded);
 
         // === STEP 2: Replay unacked inputs (re-predict from server state) ===
-        for (const input of unacked) {
+        // DEATH SPIRAL PREVENTION: If too many unacked inputs accumulated,
+        // replaying all of them tanks FPS, causing MORE inputs to accumulate.
+        // Cap at 32 replays — if further behind, just accept server position.
+        const MAX_REPLAY = 32;
+        const inputsToReplay = unacked.length > MAX_REPLAY
+            ? unacked.slice(-MAX_REPLAY)  // Keep only the most recent inputs
+            : unacked;
+
+        if (unacked.length > MAX_REPLAY) {
+            console.warn(`[V2Client] Too many unacked inputs (${unacked.length}), replaying only last ${MAX_REPLAY} to prevent death spiral`);
+        }
+
+        for (const input of inputsToReplay) {
             const movementInput = this.storedToMovementInput(input);
             const result = this.movement.simulate(
                 this.localState.position,
@@ -229,6 +267,16 @@ export class V2NetworkClient {
         // Track reconciliation count and error for diagnostics
         this.reconcileCount++;
         this.lastReconcileError = preError;
+
+        // === DIAGNOSTIC: Log reconciliation stats periodically ===
+        if (this.reconcileCount % 250 === 0) {
+            const postDx = this.localState.position.x - snapshot.position.x;
+            const postDy = this.localState.position.y - snapshot.position.y;
+            const postDz = this.localState.position.z - snapshot.position.z;
+            const postError = Math.sqrt(postDx * postDx + postDy * postDy + postDz * postDz);
+            const hSpeed = Math.sqrt(this.localState.velocity.x * this.localState.velocity.x + this.localState.velocity.z * this.localState.velocity.z);
+            console.log(`[V2Client] RECONCILE #${this.reconcileCount}: unacked=${unacked.length} preErr=${preError.toFixed(2)} postErr=${postError.toFixed(2)} grounded=${this.localState.grounded} hSpeed=${hSpeed.toFixed(1)} ackedSeq=${snapshot.ackedInputSeq} storedInputs=${this.inputHistory.getCount()} collision=${this.collision ? 'YES' : 'NO'}`);
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════

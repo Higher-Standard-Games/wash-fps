@@ -18,7 +18,7 @@ import type { VelocityComponent } from '../../engine/network/components/Velocity
 import type { MovementStateComponent } from '../../engine/network/components/MovementStateComponent';
 
 import { getCollisionManager } from '../../engine/physics/CollisionManager';
-import { BSPCollisionWorld } from './simulation/collision/BSPCollisionWorld';
+import { createBSPCollisionWorld } from './simulation/collision/BSPCollisionWorld';
 import { V2NetworkClient } from './client';
 import type { ServerSnapshot } from './client';
 
@@ -79,6 +79,17 @@ export class FPSGameManager {
 
   // Callbacks
   private onStateUpdateCallbacks: ((state: PlayerStateUpdate) => void)[] = [];
+
+  // Buffered movement state from latest server snapshot (used by processSnapshots)
+  private pendingMovementState: {
+    isSliding: boolean;
+    isCrouching: boolean;
+    crouchViewOffset: number;
+    wallJumpState: string;
+    ledgeGrabState: string;
+    actualHorizSpeed: number;
+  } | null = null;
+  private pendingTick: number = 0;
 
   private constructor() { }
 
@@ -204,41 +215,45 @@ export class FPSGameManager {
             console.log(`[FPSGameManager] CollisionManager.isInitialized() = ${cm.isInitialized()}`);
             console.log(`[FPSGameManager] CollisionManager.getBackendType() = ${cm.getBackendType()}`);
             if (cm.isInitialized()) {
-              const collisionWorld = new BSPCollisionWorld();
-              this.setCollisionWorld(collisionWorld);
-              console.log(`[FPSGameManager] BSP collision injected into client prediction simulation`);
+              const collisionWorld = createBSPCollisionWorld();
+              if (collisionWorld) {
+                this.setCollisionWorld(collisionWorld);
+                console.log(`[FPSGameManager] BSP collision injected into client prediction simulation`);
 
-              // Test trace to verify collision works (use player bounds like server)
-              const PLAYER_RADIUS = 16;
-              const PLAYER_ORIGIN_HEIGHT = 24; // Q3: origin 24 above feet
-              const testBounds = {
-                min: { x: -PLAYER_RADIUS, y: -PLAYER_ORIGIN_HEIGHT, z: -PLAYER_RADIUS },
-                max: { x: PLAYER_RADIUS, y: 32, z: PLAYER_RADIUS }  // 56 total: 24 below + 32 above
-              };
+                // Test trace to verify collision works (use player bounds like server)
+                const PLAYER_RADIUS = 16;
+                const PLAYER_ORIGIN_HEIGHT = 24; // Q3: origin 24 above feet
+                const testBounds = {
+                  min: { x: -PLAYER_RADIUS, y: -PLAYER_ORIGIN_HEIGHT, z: -PLAYER_RADIUS },
+                  max: { x: PLAYER_RADIUS, y: 32, z: PLAYER_RADIUS }  // 56 total: 24 below + 32 above
+                };
 
-              // Floor detection test at known position
-              const testX = 880, testZ = 1508;
-              const testStart = { x: testX, y: 200, z: testZ };
-              const testEnd = { x: testX, y: 0, z: testZ };
-              const testResult = collisionWorld.trace(testStart, testEnd, testBounds);
-              const floorY = 200 - 200 * testResult.fraction;
+                // Floor detection test at known position
+                const testX = 880, testZ = 1508;
+                const testStart = { x: testX, y: 200, z: testZ };
+                const testEnd = { x: testX, y: 0, z: testZ };
+                const testResult = collisionWorld.trace(testStart, testEnd, testBounds);
+                const floorY = 200 - 200 * testResult.fraction;
 
-              // For player physics, origin is at waist (24 above feet), so origin Y = floorY + 24
-              const expectedOriginY = floorY + PLAYER_ORIGIN_HEIGHT;
-              console.log(`[FPSGameManager] FLOOR TEST: traceFloorY=${floorY.toFixed(1)}, expectedOriginY=${expectedOriginY.toFixed(1)}`);
+                // For player physics, origin is at waist (24 above feet), so origin Y = floorY + 24
+                const expectedOriginY = floorY + PLAYER_ORIGIN_HEIGHT;
+                console.log(`[FPSGameManager] FLOOR TEST: traceFloorY=${floorY.toFixed(1)}, expectedOriginY=${expectedOriginY.toFixed(1)}`);
 
-              // Now test stepSlideMove - start above expected position and let gravity pull down
-              const stepSlideTestStart = { x: testX, y: expectedOriginY + 100, z: testZ };
-              const stepSlideTestVel = { x: 0, y: -500, z: 0 };  // Falling velocity
-              const stepSlideResult = collisionWorld.stepSlideMove(stepSlideTestStart, stepSlideTestVel, 0.5, testBounds);
-              console.log(`[FPSGameManager] STEPSLIDEMOVE TEST: startY=${stepSlideTestStart.y.toFixed(1)}, endY=${stepSlideResult.endPos.y.toFixed(1)}, expectedY=${expectedOriginY.toFixed(1)}`);
+                // Now test stepSlideMove - start above expected position and let gravity pull down
+                const stepSlideTestStart = { x: testX, y: expectedOriginY + 100, z: testZ };
+                const stepSlideTestVel = { x: 0, y: -500, z: 0 };  // Falling velocity
+                const stepSlideResult = collisionWorld.stepSlideMove(stepSlideTestStart, stepSlideTestVel, 0.5, testBounds);
+                console.log(`[FPSGameManager] STEPSLIDEMOVE TEST: startY=${stepSlideTestStart.y.toFixed(1)}, endY=${stepSlideResult.endPos.y.toFixed(1)}, expectedY=${expectedOriginY.toFixed(1)}`);
 
-              // Check if there's a Y offset between trace and stepSlideMove results
-              const offset = stepSlideResult.endPos.y - expectedOriginY;
-              if (Math.abs(offset) > 0.5) {
-                console.warn(`[FPSGameManager] Y OFFSET DETECTED: stepSlideMove returned ${stepSlideResult.endPos.y.toFixed(1)} but trace floor says origin should be ${expectedOriginY.toFixed(1)}, offset=${offset.toFixed(1)}`);
+                // Check if there's a Y offset between trace and stepSlideMove results
+                const offset = stepSlideResult.endPos.y - expectedOriginY;
+                if (Math.abs(offset) > 0.5) {
+                  console.warn(`[FPSGameManager] Y OFFSET DETECTED: stepSlideMove returned ${stepSlideResult.endPos.y.toFixed(1)} but trace floor says origin should be ${expectedOriginY.toFixed(1)}, offset=${offset.toFixed(1)}`);
+                }
+                console.log(`[FPSGameManager] Test trace: fraction=${testResult.fraction.toFixed(4)}, hit=${testResult.hit}`);
+              } else {
+                console.warn(`[FPSGameManager] BSP collision world could not be created - backend not available`);
               }
-              console.log(`[FPSGameManager] Test trace: fraction=${testResult.fraction.toFixed(4)}, hit=${testResult.hit}`);
             } else {
               console.warn(`[FPSGameManager] CollisionManager NOT initialized - client prediction will NOT have BSP collision!`);
             }
@@ -433,6 +448,40 @@ export class FPSGameManager {
   }
 
   /**
+   * Process buffered server snapshots (called from frame loop BEFORE input processing)
+   * 
+   * This ensures reconciliation happens at a deterministic point in the frame,
+   * preventing mid-frame camera position discontinuities that cause jitter.
+   */
+  processSnapshots(): void {
+    if (!this.v2Client || !this.isNetworkMode) return;
+
+    // Process buffered snapshots in V2NetworkClient
+    const processed = this.v2Client.processBufferedSnapshots();
+    if (!processed) return;
+
+    // Fire callbacks with reconciled state
+    const v2State = this.v2Client.getState();
+    const ms = this.pendingMovementState;
+    const update: PlayerStateUpdate = {
+      position: v2State.position,
+      velocity: v2State.velocity,
+      grounded: v2State.grounded,
+      tick: this.pendingTick,
+      isSliding: ms?.isSliding ?? false,
+      isCrouching: ms?.isCrouching ?? false,
+      crouchViewOffset: ms?.crouchViewOffset ?? 0,
+      wallJumpState: (ms?.wallJumpState ?? 'none') as any,
+      ledgeGrabState: (ms?.ledgeGrabState ?? 'none') as any,
+      actualHorizSpeed: ms?.actualHorizSpeed ?? 0,
+    };
+
+    for (const callback of this.onStateUpdateCallbacks) {
+      callback(update);
+    }
+  }
+
+  /**
    * Get current local player position from simulation
    * Uses interpolation for smooth rendering between snapshots
    */
@@ -568,7 +617,7 @@ export class FPSGameManager {
 
 
 
-    // === V2 CLIENT: Q3-style reconciliation (reset to server state + replay unacked inputs) ===
+    // === V2 CLIENT: Buffer snapshot for frame-synchronized processing ===
     if (this.v2Client && this.isNetworkMode) {
       // DEBUG: Log FIRST snapshot position to trace spawn discrepancy
       if (!this.v2Client.hasValidPosition()) {
@@ -582,16 +631,11 @@ export class FPSGameManager {
         velocity: { ...velocity.linear },
         grounded: velocity.grounded,
       };
-      this.v2Client.onServerSnapshot(snapshot);
+      // Buffer snapshot — will be processed during processSnapshots() in frame loop
+      this.v2Client.bufferSnapshot(snapshot);
 
-      // Use V2NetworkClient's reconciled position for update
-      const v2State = this.v2Client.getState();
-      const update: PlayerStateUpdate = {
-        position: v2State.position,
-        velocity: v2State.velocity,
-        grounded: v2State.grounded,
-        tick: state.tick,
-        // Advanced movement state (from server - V2 client doesn't track these yet)
+      // Store latest movement state for callbacks (will be used when processing snapshots)
+      this.pendingMovementState = {
         isSliding: movementState?.isSliding ?? false,
         isCrouching: movementState?.isCrouching ?? false,
         crouchViewOffset: movementState?.crouchViewOffset ?? 0,
@@ -599,11 +643,7 @@ export class FPSGameManager {
         ledgeGrabState: movementState?.ledgeGrabState ?? 'none',
         actualHorizSpeed: movementState?.actualHorizSpeed ?? 0,
       };
-
-      // Notify callbacks with V2 reconciled state
-      for (const callback of this.onStateUpdateCallbacks) {
-        callback(update);
-      }
+      this.pendingTick = state.tick;
       return;
     }
 

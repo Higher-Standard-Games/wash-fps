@@ -52,6 +52,23 @@ function adaptInput(input: {
     };
 }
 
+/** Apply movement simulation result to entity transform and physics */
+function applyResult(
+    transform: { position: { x: number; y: number; z: number } },
+    physics: any,
+    result: any
+): void {
+    transform.position = result.position;
+    physics.velocity = result.velocity;
+    physics.grounded = result.grounded;
+    physics.isSliding = result.isSliding;
+    physics.isCrouching = result.isCrouching;
+    physics.crouchViewOffset = result.crouchViewOffset ?? 0;
+    physics.wallJumpState = result.wallJumpState ?? 'none';
+    physics.ledgeGrabState = result.ledgeGrabState ?? 'none';
+    physics.actualHorizSpeed = result.actualHorizSpeed ?? 0;
+}
+
 export class FPSMovementSubsystem extends Subsystem {
     private collisionWorld: CollisionWorld | null = null;
 
@@ -107,30 +124,38 @@ export class FPSMovementSubsystem extends Subsystem {
             // Get movement profile for this entity
             const profile = this.getProfile(entity.id);
 
-            // Convert server input to MovementInput
-            const movementInput = adaptInput(input);
+            const queue = input.inputQueue;
+            if (queue.length === 0) {
+                // No new inputs — simulate with current input state
+                // (keeps physics running for gravity/momentum)
+                const movementInput = adaptInput(input);
+                const result = profile.simulate(
+                    transform.position, physics.velocity,
+                    movementInput, dt, this.collisionWorld
+                );
+                applyResult(transform, physics, result);
+            } else {
+                // Process ALL queued inputs — one simulate() per input
+                // This matches client-side prediction which ran one simulate per input
+                for (const qi of queue) {
+                    // Update current input state from queued input
+                    input.forward = qi.forward;
+                    input.right = qi.right;
+                    input.pitch = qi.pitch;
+                    input.yaw = qi.yaw;
+                    input.buttons = qi.buttons;
+                    input.sequence = qi.sequence;
 
-            // Run movement simulation
-            const result = profile.simulate(
-                transform.position,
-                physics.velocity,
-                movementInput,
-                dt,
-                this.collisionWorld
-            );
-
-            // Apply results — position, velocity, grounded
-            transform.position = result.position;
-            physics.velocity = result.velocity;
-            physics.grounded = result.grounded;
-
-            // Apply advanced movement state (for client effects)
-            physics.isSliding = result.isSliding;
-            physics.isCrouching = result.isCrouching;
-            physics.crouchViewOffset = result.crouchViewOffset ?? 0;
-            physics.wallJumpState = result.wallJumpState ?? 'none';
-            physics.ledgeGrabState = result.ledgeGrabState ?? 'none';
-            physics.actualHorizSpeed = result.actualHorizSpeed ?? 0;
+                    const movementInput = adaptInput(input);
+                    const result = profile.simulate(
+                        transform.position, physics.velocity,
+                        movementInput, dt, this.collisionWorld
+                    );
+                    applyResult(transform, physics, result);
+                }
+                // Clear queue after processing
+                input.inputQueue = [];
+            }
         }
     }
 
