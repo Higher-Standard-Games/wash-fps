@@ -179,8 +179,6 @@ export class FPSMovementProfile implements MovementProfile {
   private static readonly DETECTION_GRACE = 0.1;  // 100ms grace period
 
   // Speed tracking
-  private lastPosX: number = 0;
-  private lastPosZ: number = 0;
   private actualHorizSpeed: number = 0;
   private smoothedY: number = 0;
 
@@ -457,13 +455,8 @@ export class FPSMovementProfile implements MovementProfile {
     }
 
     // === UPDATE SPEED TRACKING ===
-    if (deltaTime > 0) {
-      const dx = newPos.x - this.lastPosX;
-      const dz = newPos.z - this.lastPosZ;
-      this.actualHorizSpeed = Math.sqrt(dx * dx + dz * dz) / deltaTime;
-    }
-    this.lastPosX = newPos.x;
-    this.lastPosZ = newPos.z;
+    // Use velocity magnitude directly (immune to position resets during reconciliation)
+    this.actualHorizSpeed = Math.sqrt(newVel.x * newVel.x + newVel.z * newVel.z);
 
     // === SMOOTHED Y ===
     const heightDiff = Math.abs(newPos.y - this.smoothedY);
