@@ -175,6 +175,7 @@ export class FPSMovementProfile implements MovementProfile {
   private lastWallJumpTime: number = 0;
   private wallJumpKeyReleased: boolean = true;
   private wallJumpGraceTime: number = 0;  // Grace timer to prevent flicker
+  private wallJumpGroundGrace: number = 0;  // Grace timer for ground proximity check (prevents prediction mismatch shaking)
 
   // Ledge grab state
   private ledgeGrabState: 'none' | 'grabbing' | 'pulling' = 'none';
@@ -770,11 +771,23 @@ export class FPSMovementProfile implements MovementProfile {
       return;
     }
 
-    // Check minimum height above ground
+    // Check minimum height above ground — use grace timer to prevent
+    // client/server prediction mismatch oscillation (shaking).
+    // Once we detect clearance, allow it for a short window even if
+    // reconciliation briefly brings us closer to ground.
     const groundCheck = collision.trace(pos, { x: pos.x, y: pos.y - this.config.wallJumpMinHeight, z: pos.z });
-    if (groundCheck.hit && groundCheck.fraction < 1) {
-      this.wallJumpState = 'none';
-      return;
+    const hasGroundClearance = !(groundCheck.hit && groundCheck.fraction < 1);
+
+    if (hasGroundClearance) {
+      this.wallJumpGroundGrace = FPSMovementProfile.DETECTION_GRACE; // 100ms
+    } else {
+      this.wallJumpGroundGrace -= deltaTime;
+      if (this.wallJumpGroundGrace <= 0) {
+        // Too close to ground for too long — can't walljump
+        this.wallJumpState = 'none';
+        return;
+      }
+      // Still within grace period — allow walljump detection to continue
     }
 
     // Check for wall in multiple directions (like local implementation)
