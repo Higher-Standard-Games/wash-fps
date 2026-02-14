@@ -69,7 +69,7 @@ export class FPSGameManager {
   private gameHost: IGameHost | null = null;
   private simulation: FPSSimulation | null = null;
   private localPlayerId: string = '';
-  private commandSeq: number = 0;
+  private commandSeq: number = 1; // Must match InputHistory.nextSeq (starts at 1)
   private isRunning: boolean = false;
   private isNetworkMode: boolean = false;
   private serverUrl: string | null = null;
@@ -536,7 +536,7 @@ export class FPSGameManager {
     this.isRunning = false;
     this.isNetworkMode = false;
     this.serverUrl = null;
-    this.commandSeq = 0;
+    this.commandSeq = 1; // Must match InputHistory.nextSeq (starts at 1)
     this.onStateUpdateCallbacks = [];
 
     console.log('[FPSGameManager] Shutdown complete');
