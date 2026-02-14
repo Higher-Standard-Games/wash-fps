@@ -61,6 +61,8 @@ export interface PlayerStateUpdate {
   wallJumpState: 'none' | 'available' | 'charging';
   ledgeGrabState: 'none' | 'grabbing' | 'pulling';
   actualHorizSpeed: number;
+  slidePhase: number;
+  ledgeGrabPhase: number;
 }
 
 export class FPSGameManager {
@@ -468,6 +470,8 @@ export class FPSGameManager {
       wallJumpState: ms.wallJumpState as any,
       ledgeGrabState: ms.ledgeGrabState as any,
       actualHorizSpeed: ms.actualHorizSpeed,
+      slidePhase: ms.slidePhase,
+      ledgeGrabPhase: ms.ledgeGrabPhase,
     };
 
     for (const callback of this.onStateUpdateCallbacks) {
@@ -642,6 +646,8 @@ export class FPSGameManager {
       wallJumpState: physics.wallJumpState ?? 'none',
       ledgeGrabState: physics.ledgeGrabState ?? 'none',
       actualHorizSpeed: physics.actualHorizSpeed ?? 0,
+      slidePhase: physics.slidePhase ?? 0,
+      ledgeGrabPhase: physics.ledgeGrabPhase ?? 0,
     };
 
     // Notify callbacks

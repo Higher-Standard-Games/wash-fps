@@ -122,6 +122,10 @@ export interface AdvancedMovementResult extends MovementResult {
   ledgeGrabState: 'none' | 'grabbing' | 'pulling';
   actualHorizSpeed: number;
   crouchViewOffset: number;
+  /** Slide camera tilt intensity (0-1, smoothstep fade in/out) */
+  slidePhase: number;
+  /** Ledge grab/pull camera phase (0-1 progress through grab+pull) */
+  ledgeGrabPhase: number;
 }
 
 // ================== Movement Profile Class ==================
@@ -156,6 +160,11 @@ export class FPSMovementProfile implements MovementProfile {
   private lastSlideEndTime: number = 0;
   private slideVelocity: Vec3 = vec3Zero();
   private crouchViewOffset: number = 0;
+  private slidePhase: number = 0;  // Camera tilt intensity (0-1)
+
+  // Slide camera constants (matched from AdvancedCharacterController)
+  private static readonly SLIDE_FADE_MS = 400;
+  private static readonly SLIDE_PITCH_TILT = -0.22; // ~12 degrees
 
   // Wall jump state
   private wallJumpState: 'none' | 'available' | 'charging' = 'none';
@@ -174,6 +183,7 @@ export class FPSMovementProfile implements MovementProfile {
   private ledgeStartPos: Vec3 = vec3Zero();
   private ledgeWallNormal: Vec3 = vec3Zero();  // Wall direction for cancel detection
   private ledgeGrabGraceTime: number = 0;  // Grace timer to prevent flicker
+  private ledgeGrabPhase: number = 0;  // Camera phase (0-1)
 
   // Detection hysteresis constants
   private static readonly DETECTION_GRACE = 0.1;  // 100ms grace period
@@ -304,6 +314,8 @@ export class FPSMovementProfile implements MovementProfile {
           ledgeGrabState: this.ledgeGrabState,
           actualHorizSpeed: 0,
           crouchViewOffset: this.crouchViewOffset,
+          slidePhase: 0,
+          ledgeGrabPhase: this.ledgeGrabPhase,
         };
       }
     }
@@ -476,6 +488,8 @@ export class FPSMovementProfile implements MovementProfile {
       ledgeGrabState: this.ledgeGrabState,
       actualHorizSpeed: this.actualHorizSpeed,
       crouchViewOffset: this.crouchViewOffset,
+      slidePhase: this.slidePhase,
+      ledgeGrabPhase: this.ledgeGrabPhase,
     };
   }
 
@@ -883,6 +897,8 @@ export class FPSMovementProfile implements MovementProfile {
         ledgeGrabState: this.ledgeGrabState,
         actualHorizSpeed: this.actualHorizSpeed,
         crouchViewOffset: this.crouchViewOffset,
+        slidePhase: this.slidePhase,
+        ledgeGrabPhase: this.ledgeGrabPhase,
       };
     }
 
@@ -906,6 +922,8 @@ export class FPSMovementProfile implements MovementProfile {
       ledgeGrabState: this.ledgeGrabState,
       actualHorizSpeed: 0,
       crouchViewOffset: this.crouchViewOffset,
+      slidePhase: 0,
+      ledgeGrabPhase: this.ledgeGrabPhase,
     };
   }
 
@@ -1001,16 +1019,38 @@ export class FPSMovementProfile implements MovementProfile {
         this.isSliding = true;
         this.slideStartTime = now;
         this.slideVelocity = vec3Clone(vel);
+        this.slidePhase = 0;  // Will ramp up
 
         // Boost on entry
         const boost = this.config.slideSpeedMultiplier;
         vel.x *= boost;
         vel.z *= boost;
+      } else {
+        // Not sliding - decay phase
+        this.slidePhase *= 0.85;
+        if (this.slidePhase < 0.01) this.slidePhase = 0;
       }
     } else {
       // Currently sliding
       const slideElapsed = now - this.slideStartTime;
       const slideDuration = this.config.slideDuration;
+
+      // === COMPUTE SLIDE PHASE (camera tilt intensity) ===
+      const fadeMs = FPSMovementProfile.SLIDE_FADE_MS;
+      const timeRemaining = slideDuration - slideElapsed;
+
+      if (slideElapsed < fadeMs) {
+        // Fade in: smoothstep 0 → 1
+        const t = slideElapsed / fadeMs;
+        this.slidePhase = t * t * (3 - 2 * t);
+      } else if (timeRemaining < fadeMs) {
+        // Fade out: smoothstep 1 → 0
+        const t = Math.max(0, timeRemaining) / fadeMs;
+        this.slidePhase = t * t * (3 - 2 * t);
+      } else {
+        // Full tilt in the middle
+        this.slidePhase = 1;
+      }
 
       // Exit conditions
       const slideExpired = slideElapsed >= slideDuration;
@@ -1043,6 +1083,7 @@ export class FPSMovementProfile implements MovementProfile {
   private exitSlide(vel: Vec3, now: number): void {
     this.isSliding = false;
     this.lastSlideEndTime = now;
+    // slidePhase will decay naturally in the non-sliding branch
   }
 
   // ================== Crouch ==================
@@ -1082,6 +1123,10 @@ export class FPSMovementProfile implements MovementProfile {
       vel.y = 0;
       vel.z = 0;
 
+      // Compute ledge grab phase (0→0.3 during grab pause)
+      const grabPauseTime = 0.12;
+      this.ledgeGrabPhase = Math.min(0.3, (this.ledgeGrabTime / grabPauseTime) * 0.3);
+
       // Only allow cancel after minimum grab time (prevents flicker from brief input glitches)
       const minGrabTime = 0.05; // 50ms minimum before cancel allowed
       if (this.ledgeGrabTime > minGrabTime) {
@@ -1091,13 +1136,13 @@ export class FPSMovementProfile implements MovementProfile {
 
         if (input.isPressed(InputButtons.CROUCH) || input.isPressed(InputButtons.SPRINT) || pushingAway) {
           this.ledgeGrabState = 'none';
+          this.ledgeGrabPhase = 0;
           vel.y = -100; // Drop
           return false;
         }
       }
 
-      // Auto-climb after brief pause
-      const grabPauseTime = 0.12;
+      // Auto-climb after brief pause (grabPauseTime declared above)
       if (this.ledgeGrabTime >= grabPauseTime) {
         this.ledgeGrabState = 'pulling';
         this.ledgeGrabTime = 0;
@@ -1115,6 +1160,9 @@ export class FPSMovementProfile implements MovementProfile {
       // Ease in-out
       const t = progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
 
+      // Compute ledge grab phase (0.3→1 during pull, then 1→0 on completion)
+      this.ledgeGrabPhase = 0.3 + t * 0.7;
+
       // Interpolate position
       pos.x = this.ledgeStartPos.x + (this.ledgeTargetPos.x - this.ledgeStartPos.x) * t;
       pos.y = this.ledgeStartPos.y + (this.ledgeTargetPos.y - this.ledgeStartPos.y) * t;
@@ -1126,6 +1174,7 @@ export class FPSMovementProfile implements MovementProfile {
       if (progress >= 1.0) {
         // Done climbing
         this.ledgeGrabState = 'none';
+        this.ledgeGrabPhase = 0;
         // Small forward momentum
         const forward = vec3Normalize(input.direction);
         vel.x = forward.x * 100;

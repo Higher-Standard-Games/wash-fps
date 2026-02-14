@@ -33,6 +33,8 @@ export interface PredictedMovementState {
     wallJumpState: 'none' | 'available' | 'charging';
     ledgeGrabState: 'none' | 'grabbing' | 'pulling';
     actualHorizSpeed: number;
+    slidePhase: number;
+    ledgeGrabPhase: number;
 }
 
 export interface ServerSnapshot {
@@ -71,6 +73,8 @@ export class V2NetworkClient {
         wallJumpState: 'none',
         ledgeGrabState: 'none',
         actualHorizSpeed: 0,
+        slidePhase: 0,
+        ledgeGrabPhase: 0,
     };
 
     // Server sync
@@ -388,5 +392,7 @@ export class V2NetworkClient {
         this.predictedMovement.wallJumpState = result.wallJumpState;
         this.predictedMovement.ledgeGrabState = result.ledgeGrabState;
         this.predictedMovement.actualHorizSpeed = result.actualHorizSpeed;
+        this.predictedMovement.slidePhase = result.slidePhase;
+        this.predictedMovement.ledgeGrabPhase = result.ledgeGrabPhase;
     }
 }
