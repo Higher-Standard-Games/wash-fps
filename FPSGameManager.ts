@@ -80,15 +80,6 @@ export class FPSGameManager {
   // Callbacks
   private onStateUpdateCallbacks: ((state: PlayerStateUpdate) => void)[] = [];
 
-  // Buffered movement state from latest server snapshot (used by processSnapshots)
-  private pendingMovementState: {
-    isSliding: boolean;
-    isCrouching: boolean;
-    crouchViewOffset: number;
-    wallJumpState: string;
-    ledgeGrabState: string;
-    actualHorizSpeed: number;
-  } | null = null;
   private pendingTick: number = 0;
 
   private constructor() { }
@@ -462,18 +453,21 @@ export class FPSGameManager {
 
     // Fire callbacks with reconciled state
     const v2State = this.v2Client.getState();
-    const ms = this.pendingMovementState;
+    // Use client-predicted movement state for visual effects (crouchslide, walljump, etc.)
+    // These come from the local FPSMovementProfile.simulate() - same code as server,
+    // zero bandwidth cost, zero latency for visual feedback.
+    const ms = this.v2Client.getMovementState();
     const update: PlayerStateUpdate = {
       position: v2State.position,
       velocity: v2State.velocity,
       grounded: v2State.grounded,
       tick: this.pendingTick,
-      isSliding: ms?.isSliding ?? false,
-      isCrouching: ms?.isCrouching ?? false,
-      crouchViewOffset: ms?.crouchViewOffset ?? 0,
-      wallJumpState: (ms?.wallJumpState ?? 'none') as any,
-      ledgeGrabState: (ms?.ledgeGrabState ?? 'none') as any,
-      actualHorizSpeed: ms?.actualHorizSpeed ?? 0,
+      isSliding: ms.isSliding,
+      isCrouching: ms.isCrouching,
+      crouchViewOffset: ms.crouchViewOffset,
+      wallJumpState: ms.wallJumpState as any,
+      ledgeGrabState: ms.ledgeGrabState as any,
+      actualHorizSpeed: ms.actualHorizSpeed,
     };
 
     for (const callback of this.onStateUpdateCallbacks) {
@@ -630,16 +624,8 @@ export class FPSGameManager {
       };
       // Buffer snapshot — will be processed during processSnapshots() in frame loop
       this.v2Client.bufferSnapshot(snapshot);
-
-      // Store latest movement state for callbacks (will be used when processing snapshots)
-      this.pendingMovementState = {
-        isSliding: physics.isSliding ?? false,
-        isCrouching: physics.isCrouching ?? false,
-        crouchViewOffset: physics.crouchViewOffset ?? 0,
-        wallJumpState: physics.wallJumpState ?? 'none',
-        ledgeGrabState: physics.ledgeGrabState ?? 'none',
-        actualHorizSpeed: physics.actualHorizSpeed ?? 0,
-      };
+      // Movement state (crouchslide, walljump, etc.) comes from client prediction
+      // via v2Client.getMovementState() - no wire protocol needed.
       this.pendingTick = state.tick;
       return;
     }

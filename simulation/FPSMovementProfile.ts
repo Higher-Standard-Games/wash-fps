@@ -137,6 +137,12 @@ export class FPSMovementProfile implements MovementProfile {
     min: { x: -16, y: -24, z: -16 },  // Bottom/back/left from origin
     max: { x: 16, y: 32, z: 16 }       // Top/front/right from origin
   };
+  // Crouched bounds: head drops from 32 to 8 (Q3 pm_duckscale style)
+  // Origin stays at waist, feet stay at -24, only headroom shrinks
+  private static readonly PLAYER_BOUNDS_CROUCHED = {
+    min: { x: -16, y: -24, z: -16 },
+    max: { x: 16, y: 8, z: 16 }
+  };
 
   // Persistent state (carried between frames)
   private isGrounded: boolean = false;
@@ -416,7 +422,7 @@ export class FPSMovementProfile implements MovementProfile {
         newPos,
         newVel,
         deltaTime,
-        FPSMovementProfile.PLAYER_BOUNDS
+        this.getCurrentBounds()
       );
 
       // Apply results (CRITICAL: update BOTH position AND velocity!)
@@ -478,6 +484,13 @@ export class FPSMovementProfile implements MovementProfile {
       actualHorizSpeed: this.actualHorizSpeed,
       crouchViewOffset: this.crouchViewOffset,
     };
+  }
+
+  /** Get current player bounds based on crouch state */
+  private getCurrentBounds() {
+    return (this.isCrouching || this.isSliding)
+      ? FPSMovementProfile.PLAYER_BOUNDS_CROUCHED
+      : FPSMovementProfile.PLAYER_BOUNDS;
   }
 
   // ================== Ground Check ==================

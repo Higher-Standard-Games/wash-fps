@@ -12,7 +12,7 @@
 import type { Vec3 } from '../../../engine/network/components/TransformComponent';
 import type { CollisionWorld } from '../../../engine/network/systems/collision/CollisionWorld';
 import type { MovementInput } from '../../../engine/network/systems/movement/MovementProfile';
-import { FPSMovementProfile } from '../simulation/FPSMovementProfile';
+import { FPSMovementProfile, type AdvancedMovementResult } from '../simulation/FPSMovementProfile';
 import { InputHistory, type StoredInput } from './InputHistory';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -23,6 +23,16 @@ export interface PlayerState {
     position: Vec3;
     velocity: Vec3;
     grounded: boolean;
+}
+
+/** Movement state predicted locally (for visual effects) */
+export interface PredictedMovementState {
+    isSliding: boolean;
+    isCrouching: boolean;
+    crouchViewOffset: number;
+    wallJumpState: 'none' | 'available' | 'charging';
+    ledgeGrabState: 'none' | 'grabbing' | 'pulling';
+    actualHorizSpeed: number;
 }
 
 export interface ServerSnapshot {
@@ -52,6 +62,16 @@ export class V2NetworkClient {
 
     // Local predicted state
     private localState: PlayerState;
+
+    // Predicted movement state for visual effects (from latest simulate())
+    private predictedMovement: PredictedMovementState = {
+        isSliding: false,
+        isCrouching: false,
+        crouchViewOffset: 0,
+        wallJumpState: 'none',
+        ledgeGrabState: 'none',
+        actualHorizSpeed: 0,
+    };
 
     // Server sync
     private lastAckedSeq: number = 0;
@@ -160,6 +180,9 @@ export class V2NetworkClient {
         this.localState.velocity = result.velocity;
         this.localState.grounded = result.grounded;
 
+        // 4. Store predicted movement state for visual effects
+        this.updatePredictedMovement(result);
+
         return seq;
     }
 
@@ -258,6 +281,9 @@ export class V2NetworkClient {
             this.localState.position = result.position;
             this.localState.velocity = result.velocity;
             this.localState.grounded = result.grounded;
+
+            // Update predicted movement state from final replay result
+            this.updatePredictedMovement(result);
         }
 
         // === STEP 3: Prune acknowledged inputs ===
@@ -311,6 +337,14 @@ export class V2NetworkClient {
         return this.hasReceivedSnapshot;
     }
 
+    /**
+     * Get predicted movement state for visual effects (crouchslide, walljump, etc.)
+     * These come from the client's local simulation, not from the server wire protocol.
+     */
+    getMovementState(): PredictedMovementState {
+        return this.predictedMovement;
+    }
+
     getDebugInfo(): { reconcileCount: number; lastError: number; pendingInputs: number } {
         return {
             reconcileCount: this.reconcileCount,
@@ -344,5 +378,15 @@ export class V2NetworkClient {
             buttons: stored.buttons,
             isPressed: (btn: number) => (stored.buttons & btn) !== 0,
         };
+    }
+
+    /** Update predicted movement state from simulate() result */
+    private updatePredictedMovement(result: AdvancedMovementResult): void {
+        this.predictedMovement.isSliding = result.isSliding;
+        this.predictedMovement.isCrouching = result.isCrouching;
+        this.predictedMovement.crouchViewOffset = result.crouchViewOffset;
+        this.predictedMovement.wallJumpState = result.wallJumpState;
+        this.predictedMovement.ledgeGrabState = result.ledgeGrabState;
+        this.predictedMovement.actualHorizSpeed = result.actualHorizSpeed;
     }
 }
