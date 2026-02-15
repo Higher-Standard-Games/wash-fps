@@ -118,7 +118,7 @@ export class ProjectileSystem extends Subsystem {
                 const hitRadius = 50; // Projectile + player radius
                 if (distSq < hitRadius ** 2) {
                     // Direct hit! Use plasma damage (20) or fallback to rocket
-                    const damage = WEAPONS.plasmagun?.damage || WEAPONS.rocketLauncher.damage;
+                    const damage = WEAPONS.plasmagun?.damage || WEAPONS.rlauncher.damage;
                     this.pendingDamage.push({
                         victimId: target.id,
                         attackerId: projectile.ownerId ? state.getEntityByOwner(projectile.ownerId)?.id : undefined,
@@ -165,7 +165,7 @@ export class ProjectileSystem extends Subsystem {
             if (dist < radius) {
                 // Damage falls off with distance
                 const falloff = 1 - (dist / radius);
-                const damage = Math.round(WEAPONS.rocketLauncher.damage * 0.5 * falloff);
+                const damage = Math.round(WEAPONS.rlauncher.damage * 0.5 * falloff);
 
                 if (damage > 0) {
                     // Allow self-damage but reduced

@@ -1,5 +1,7 @@
 /**
- * Weapon Definition Interface
+ * Weapon Definition Interface (Server-side gameplay)
+ * 
+ * All weapon stats from Warsow gs_weapondefs.c
  */
 
 export interface WeaponDef {
@@ -32,63 +34,131 @@ export interface WeaponDef {
 
     /** Whether to use lag compensation */
     useLagCompensation: boolean;
+
+    /** Number of pellets per shot (for shotguns) */
+    pelletCount?: number;
+
+    /** Spread angle (for hitscan with spread) */
+    spread?: number;
+
+    /** Splash radius */
+    splashRadius?: number;
+
+    /** Splash damage */
+    splashDamage?: number;
 }
 
-// Example weapon definitions
+// Warsow weapon definitions — stats from gs_weapondefs.c
 export const WEAPONS: Record<string, WeaponDef> = {
+    gunblade: {
+        id: 'gunblade',
+        name: 'Gunblade',
+        type: 'projectile',
+        damage: 35,
+        fireRate: 1.67,          // 600ms reload
+        ammoCapacity: 1,
+        reloadTime: 0.6,
+        projectileSpeed: 3000,
+        splashRadius: 80,
+        splashDamage: 8,
+        useLagCompensation: false,
+    },
     machinegun: {
         id: 'machinegun',
-        name: 'Machine Gun',
+        name: 'Machinegun',
         type: 'hitscan',
-        damage: 7,
-        fireRate: 10,
+        damage: 10,
+        fireRate: 10,            // 100ms reload
         ammoCapacity: 100,
-        reloadTime: 2,
-        maxRange: 5000,
+        reloadTime: 0.1,
+        maxRange: 6000,
+        spread: 10,
         useLagCompensation: true,
     },
-    shotgun: {
-        id: 'shotgun',
-        name: 'Shotgun',
+    riotgun: {
+        id: 'riotgun',
+        name: 'Riotgun',
         type: 'hitscan',
-        damage: 10, // per pellet
-        fireRate: 1,
-        ammoCapacity: 12,
-        reloadTime: 1.5,
-        maxRange: 800,
+        damage: 5,               // per pellet
+        fireRate: 1.11,          // 900ms reload
+        ammoCapacity: 20,
+        reloadTime: 0.9,
+        maxRange: 8192,
+        pelletCount: 20,
+        spread: 160,
         useLagCompensation: true,
     },
-    rocketLauncher: {
-        id: 'rocketLauncher',
+    glauncher: {
+        id: 'glauncher',
+        name: 'Grenade Launcher',
+        type: 'projectile',
+        damage: 80,
+        fireRate: 1.25,          // 800ms reload
+        ammoCapacity: 20,
+        reloadTime: 0.8,
+        projectileSpeed: 1000,
+        splashRadius: 125,
+        splashDamage: 15,
+        useLagCompensation: false,
+    },
+    rlauncher: {
+        id: 'rlauncher',
         name: 'Rocket Launcher',
         type: 'projectile',
-        damage: 100,
-        fireRate: 0.8,
-        ammoCapacity: 25,
-        reloadTime: 2.5,
-        projectileSpeed: 1000,
-        useLagCompensation: false, // Projectiles don't use lag comp
-    },
-    railgun: {
-        id: 'railgun',
-        name: 'Railgun',
-        type: 'hitscan',
         damage: 80,
-        fireRate: 0.67, // 1.5s between shots
-        ammoCapacity: 10,
-        reloadTime: 3,
-        maxRange: 10000,
-        useLagCompensation: true,
+        fireRate: 1.05,          // 950ms reload
+        ammoCapacity: 20,
+        reloadTime: 0.95,
+        projectileSpeed: 1150,
+        splashRadius: 125,
+        splashDamage: 15,
+        useLagCompensation: false,
     },
     plasmagun: {
         id: 'plasmagun',
         name: 'Plasma Gun',
         type: 'projectile',
-        damage: 20,
-        fireRate: 10, // 10 shots per second
-        ammoCapacity: 50,
-        reloadTime: 2,
-        projectileSpeed: 2000, // Fast plasma bolts
+        damage: 15,
+        fireRate: 10,            // 100ms reload
+        ammoCapacity: 150,
+        reloadTime: 0.1,
+        projectileSpeed: 2500,
+        splashRadius: 45,
+        splashDamage: 5,
         useLagCompensation: false,
+    },
+    lasergun: {
+        id: 'lasergun',
+        name: 'Lasergun',
+        type: 'hitscan',
+        damage: 7,
+        fireRate: 20,            // 50ms reload (beam)
+        ammoCapacity: 150,
+        reloadTime: 0.05,
+        maxRange: 850,
+        useLagCompensation: true,
+    },
+    electrobolt: {
+        id: 'electrobolt',
+        name: 'Electrobolt',
+        type: 'hitscan',
+        damage: 75,
+        fireRate: 0.8,           // 1250ms reload
+        ammoCapacity: 10,
+        reloadTime: 1.25,
+        maxRange: 10000,
+        useLagCompensation: true,
+    },
+    instagun: {
+        id: 'instagun',
+        name: 'Instagun',
+        type: 'hitscan',
+        damage: 200,
+        fireRate: 0.77,          // 1300ms reload
+        ammoCapacity: 5,
+        reloadTime: 1.3,
+        maxRange: 8024,
+        splashRadius: 80,
+        useLagCompensation: true,
     },
 };

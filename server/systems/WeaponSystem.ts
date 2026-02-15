@@ -59,13 +59,17 @@ export class WeaponSystem extends Subsystem {
      */
     initializeWeapon(entityId: EntityId): void {
         this.weaponStates.set(entityId, {
-            currentWeapon: 'plasmagun',
+            currentWeapon: 'gunblade',
             ammo: new Map([
+                ['gunblade', 1],
                 ['machinegun', 100],
-                ['shotgun', 12],
-                ['rocketLauncher', 10],
-                ['railgun', 10],
-                ['plasmagun', 50],
+                ['riotgun', 20],
+                ['glauncher', 20],
+                ['rlauncher', 20],
+                ['plasmagun', 150],
+                ['lasergun', 150],
+                ['electrobolt', 10],
+                ['instagun', 5],
             ]),
             lastFireTick: 0,
             reloading: false,
@@ -251,10 +255,15 @@ export class WeaponSystem extends Subsystem {
 
     private weaponToDamageType(weaponId: string): DamageType {
         switch (weaponId) {
+            case 'gunblade': return DamageType.Melee;
             case 'machinegun': return DamageType.Bullet;
-            case 'shotgun': return DamageType.Bullet;
-            case 'rocketLauncher': return DamageType.Explosion;
-            case 'railgun': return DamageType.Rail;
+            case 'riotgun': return DamageType.Bullet;
+            case 'glauncher': return DamageType.Explosion;
+            case 'rlauncher': return DamageType.Explosion;
+            case 'plasmagun': return DamageType.Plasma;
+            case 'lasergun': return DamageType.Plasma;
+            case 'electrobolt': return DamageType.Rail;
+            case 'instagun': return DamageType.Rail;
             default: return DamageType.Bullet;
         }
     }
