@@ -240,6 +240,9 @@ export class GameServer {
         console.log(`[GameServer] Player ${client.playerId} disconnected: ${reason} (${this.clients.size}/${this.config.maxClients})`);
     }
 
+    // Debug counters for message type tracking
+    private msgCounts = { input: 0, ack: 0, join: 0, ready: 0, other: 0, error: 0 };
+
     private handleDatagram(conn: ClientConnection, data: Uint8Array): void {
         if (data.length === 0) return;
 
@@ -248,12 +251,14 @@ export class GameServer {
 
             // Handle Join message
             if (msgType === MessageType.Join) {
+                this.msgCounts.join++;
                 this.handleJoin(conn, data);
                 return;
             }
 
             // Handle Ready message
             if (msgType === MessageType.Ready) {
+                this.msgCounts.ready++;
                 this.handleReady(conn);
                 return;
             }
@@ -262,15 +267,29 @@ export class GameServer {
             if (!client) return;
 
             if (msgType === MessageType.Input) {
+                this.msgCounts.input++;
                 this.handleInput(client, data);
             } else if (msgType === MessageType.Ack) {
+                this.msgCounts.ack++;
                 const { tick } = MessageCodec.decodeAck(data);
                 if (tick % 1000 === 0) {
                     console.log(`[GameServer] Client ${client.playerId} acked tick ${tick}`);
                 }
+            } else {
+                this.msgCounts.other++;
             }
-        } catch {
-            // Silently ignore malformed packets
+
+            // Log message distribution every 500 messages
+            const total = this.msgCounts.input + this.msgCounts.ack + this.msgCounts.join + this.msgCounts.ready + this.msgCounts.other + this.msgCounts.error;
+            if (total % 500 === 0) {
+                console.log(`[GameServer] Message distribution (${total} total): Input=${this.msgCounts.input}, Ack=${this.msgCounts.ack}, Join=${this.msgCounts.join}, Ready=${this.msgCounts.ready}, Other=${this.msgCounts.other}, Errors=${this.msgCounts.error}`);
+            }
+        } catch (err) {
+            this.msgCounts.error++;
+            // Log first 5 errors then every 100th
+            if (this.msgCounts.error <= 5 || this.msgCounts.error % 100 === 0) {
+                console.error(`[GameServer] Datagram error #${this.msgCounts.error}: ${err}, data[0]=0x${data[0]?.toString(16)}, len=${data.length}`);
+            }
         }
     }
 
@@ -359,6 +378,10 @@ export class GameServer {
         const mutEntity = state.getEntityMut(client.entityId);
         if (mutEntity?.input) {
             const buttons = command.buttons || 0;
+            // Debug: log every 200th input to trace button values
+            if (client.lastInputSeq % 200 === 0) {
+                console.log(`[GameServer.handleInput] Player ${client.playerId}: buttons=${buttons} (raw command.buttons=${command.buttons}), seq=${command.seq}`);
+            }
             mutEntity.input.inputQueue.push({
                 forward: command.direction?.z || 0,
                 right: command.direction?.x || 0,
@@ -457,6 +480,21 @@ export class GameServer {
             type: 'match_state',
             ...matchSnapshot,
         });
+
+        // Add weapon fire events (so other clients can see shots)
+        for (const fireEvent of this.weaponSystem.getPendingFireEvents()) {
+            gameState.events.push({
+                type: 'weapon_fire',
+                entityId: `player_${fireEvent.entityId}`,
+                weaponId: fireEvent.weaponId,
+                originX: fireEvent.originX,
+                originY: fireEvent.originY,
+                originZ: fireEvent.originZ,
+                dirX: fireEvent.dirX,
+                dirY: fireEvent.dirY,
+                dirZ: fireEvent.dirZ,
+            });
+        }
 
         return gameState;
     }

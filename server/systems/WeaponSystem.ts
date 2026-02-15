@@ -15,6 +15,23 @@ import { WEAPONS, type WeaponDef } from '../weapons/WeaponDef';
 import { DamageType, type DamageEvent, HitLocation } from './CombatSystem';
 import type { WeaponLoadout } from '@shared/server/gametype';
 
+/** Must match InputButtons.FIRE from engine/network/components/InputComponent.ts */
+const FIRE_BUTTON = 1 << 8;
+
+/**
+ * Event emitted when a weapon is fired, for network broadcast
+ */
+export interface WeaponFireEvent {
+    entityId: EntityId;  // shooter entity
+    weaponId: string;    // weapon id
+    originX: number;     // fire origin
+    originY: number;
+    originZ: number;
+    dirX: number;        // fire direction (normalized)
+    dirY: number;
+    dirZ: number;
+}
+
 const CONFIG: SubsystemConfig = {
     name: 'Weapon',
     priority: 25, // After input, before combat
@@ -42,6 +59,7 @@ export class WeaponSystem extends Subsystem {
     private weaponStates: Map<EntityId, WeaponState> = new Map();
     private nextProjectileId: number = 10000;
     private pendingDamage: DamageEvent[] = [];
+    private pendingFireEvents: WeaponFireEvent[] = [];
 
     constructor() {
         super(CONFIG);
@@ -53,6 +71,15 @@ export class WeaponSystem extends Subsystem {
     getPendingDamage(): DamageEvent[] {
         const events = this.pendingDamage;
         this.pendingDamage = [];
+        return events;
+    }
+
+    /**
+     * Get pending fire events to broadcast to clients
+     */
+    getPendingFireEvents(): WeaponFireEvent[] {
+        const events = this.pendingFireEvents;
+        this.pendingFireEvents = [];
         return events;
     }
 
@@ -99,10 +126,14 @@ export class WeaponSystem extends Subsystem {
 
     update(state: WorldState, _dt: number, tick: TickNumber): void {
         const tickNum = tick as number;
+        const debugTick = tickNum % 1000 === 0; // Log every 1000 ticks (~8s)
 
         // Process all player entities
         for (const entity of state.entitiesByType(EntityType.Player)) {
-            if (!entity.input || !entity.health || entity.health.dead) continue;
+            if (!entity.input || !entity.health || entity.health.dead) {
+                if (debugTick) console.log(`[WeaponSystem] Entity ${entity.id}: skip (input=${!!entity.input}, health=${!!entity.health}, dead=${entity.health?.dead})`);
+                continue;
+            }
 
             let weaponState = this.weaponStates.get(entity.id);
             if (!weaponState) {
@@ -130,8 +161,11 @@ export class WeaponSystem extends Subsystem {
                 }
             }
 
-            // Handle firing
-            if (entity.input.attack && !weaponState.reloading) {
+            // Handle firing — check raw buttons bitmask (entity.input.attack is never set;
+            // FPSMovementSubsystem only populates input.buttons from the inputQueue)
+            const isFiring = (entity.input.buttons & FIRE_BUTTON) !== 0;
+            if (debugTick) console.log(`[WeaponSystem] Entity ${entity.id}: buttons=${entity.input.buttons}, isFiring=${isFiring}, weapon=${weaponState.currentWeapon}, ammo=${weaponState.ammo.get(weaponState.currentWeapon)}`);
+            if (isFiring && !weaponState.reloading) {
                 const weapon = WEAPONS[weaponState.currentWeapon];
                 if (weapon) {
                     const fireInterval = Math.floor(125 / weapon.fireRate); // ticks between shots
@@ -156,6 +190,22 @@ export class WeaponSystem extends Subsystem {
         weapon: WeaponDef,
         tick: TickNumber
     ): void {
+        // Emit fire event for network broadcast
+        if (shooter.transform && shooter.input) {
+            const yawRad = (shooter.input.yaw * Math.PI) / 180;
+            const pitchRad = (shooter.input.pitch * Math.PI) / 180;
+            this.pendingFireEvents.push({
+                entityId: shooter.id,
+                weaponId: weapon.id,
+                originX: shooter.transform.position.x,
+                originY: shooter.transform.position.y,
+                originZ: shooter.transform.position.z,
+                dirX: Math.sin(yawRad) * Math.cos(pitchRad),
+                dirY: Math.sin(pitchRad),
+                dirZ: Math.cos(yawRad) * Math.cos(pitchRad),
+            });
+        }
+
         if (weapon.type === 'hitscan') {
             this.fireHitscan(state, shooter, weapon, tick);
         } else {
@@ -229,9 +279,9 @@ export class WeaponSystem extends Subsystem {
                     hitLocation,
                 });
 
-                // For shotgun, continue checking (pellets can hit multiple)
-                // For railgun, could pierce through
-                if (weapon.id !== 'shotgun') break;
+                // Pellet weapons (riotgun) continue checking — pellets can hit multiple
+                // All other hitscan weapons break on first hit
+                if (!weapon.pelletCount) break;
             }
         }
     }

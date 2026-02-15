@@ -24,6 +24,8 @@ import type { ServerSnapshot } from './client';
 import { MatchStateManager } from './client/MatchStateManager';
 import { MatchHUD } from './client/MatchHUD';
 import { MessageCodec } from '../../engine/network/protocol/MessageCodec';
+import { getHitscanEffects } from '../../engine/weapon/HitscanEffects';
+import { Vector3, Color3 } from '@babylonjs/core';
 
 export interface FPSGameConfig {
   tickRate?: number;
@@ -296,17 +298,19 @@ export class FPSGameManager {
       // Tell NetworkGameHost to skip its prediction - V2NetworkClient handles it
       networkHost.setExternalPrediction(true);
 
+      // Subscribe to state updates BEFORE connect so we don't miss snapshots
+      // during the handshake. onServerStateUpdate() will use this.localPlayerId,
+      // which gets updated to the server-assigned ID after connect resolves.
+      this.gameHost.onStateUpdate((state: GameState) => {
+        this.onServerStateUpdate(state);
+      });
+
       // Connect to server (this triggers onServerInfo callback which loads map and sets collision)
       await networkHost.connect(url);
 
       // Update player ID after connect (server assigns it during handshake)
       this.localPlayerId = networkHost.localPlayerId;
       this.simulation = null; // No direct simulation access in network mode
-
-      // Subscribe to state updates - feed to V2NetworkClient for reconciliation
-      this.gameHost.onStateUpdate((state: GameState) => {
-        this.onServerStateUpdate(state);
-      });
 
       console.log(`[FPSGameManager] Connected to ${url}, player: ${this.localPlayerId}`);
       console.log(`[FPSGameManager] V2 client ready for Q3-style prediction/reconciliation`);
@@ -358,12 +362,24 @@ export class FPSGameManager {
     console.log(`[FPSGameManager] Spawned local player: ${entity.id}`);
   }
 
+  // Debug counter for sendInput tracing
+  private sendInputCallCount = 0;
+
   /**
    * Send player input to simulation
    * Call this each frame from FPSController
    */
   sendInput(input: PlayerInputState): void {
-    if (!this.gameHost || !this.isRunning) return;
+    this.sendInputCallCount++;
+    if (!this.gameHost || !this.isRunning) {
+      if (this.sendInputCallCount % 500 === 1) {
+        console.warn(`[FPSGameManager] sendInput SKIPPED #${this.sendInputCallCount}: gameHost=${!!this.gameHost}, isRunning=${this.isRunning}, isNetworkMode=${this.isNetworkMode}`);
+      }
+      return;
+    }
+    if (this.sendInputCallCount % 500 === 1) {
+      console.log(`[FPSGameManager] sendInput ACTIVE #${this.sendInputCallCount}: gameHost=${!!this.gameHost}, isRunning=${this.isRunning}, connected=${this.gameHost.isConnected()}`);
+    }
 
     // Convert input state to button flags
     let buttons = 0;
@@ -630,29 +646,60 @@ export class FPSGameManager {
     console.log('[FPSGameManager] Shutdown complete');
   }
 
+  // Diagnostic counter for onServerStateUpdate
+  private _stateUpdateCount = 0;
+
   /**
    * Handle state update from simulation
    */
   private onServerStateUpdate(state: GameState): void {
+    this._stateUpdateCount++;
+
+    // Dynamically sync localPlayerId from the game host.
+    // JoinAccept sets networkHost.localPlayerId DURING connect(), but
+    // FPSGameManager.localPlayerId is only copied AFTER connect() resolves.
+    // This ensures we pick up the server-assigned ID as soon as JoinAccept arrives.
+    if (this.gameHost && this.localPlayerId !== this.gameHost.localPlayerId) {
+      console.log(`[FPSGameManager] Syncing localPlayerId: '${this.localPlayerId}' → '${this.gameHost.localPlayerId}'`);
+      this.localPlayerId = this.gameHost.localPlayerId;
+    }
+
+    // === DIAGNOSTIC: Log first few calls ===
+    if (this._stateUpdateCount <= 3) {
+      const playerKeys = Array.from(state.players.keys());
+      const entityKeys = Array.from(state.entities.keys());
+      console.log(`[FPSGameManager] onServerStateUpdate #${this._stateUpdateCount}: tick=${state.tick}, localPlayerId='${this.localPlayerId}', players=[${playerKeys.join(',')}], entities=[${entityKeys.join(',')}], v2Client=${!!this.v2Client}, isNetworkMode=${this.isNetworkMode}`);
+    }
+
     // Process match_state events before anything else
     if (state.events && state.events.length > 0) {
       const matchMgr = MatchStateManager.getInstance();
+      const localEntityId = state.players.get(this.localPlayerId)?.entityId;
+
       for (const event of state.events) {
         if (event.type === 'match_state') {
           matchMgr.processEvent(event);
+        } else if (event.type === 'weapon_fire') {
+          // Skip our own fire events — we already display our own effects locally
+          if (event.entityId === localEntityId) continue;
+          this.handleRemoteWeaponFire(event);
         }
       }
     }
 
     const player = state.players.get(this.localPlayerId);
     if (!player) {
-
+      if (this._stateUpdateCount <= 5 || this._stateUpdateCount % 500 === 0) {
+        console.warn(`[FPSGameManager] onServerStateUpdate #${this._stateUpdateCount}: NO PLAYER for '${this.localPlayerId}'. Player keys: [${Array.from(state.players.keys()).join(',')}]`);
+      }
       return;
     }
 
     const entity = state.entities.get(player.entityId);
     if (!entity) {
-
+      if (this._stateUpdateCount <= 5 || this._stateUpdateCount % 500 === 0) {
+        console.warn(`[FPSGameManager] onServerStateUpdate #${this._stateUpdateCount}: NO ENTITY for '${player.entityId}'. Entity keys: [${Array.from(state.entities.keys()).join(',')}]`);
+      }
       return;
     }
 
@@ -660,6 +707,9 @@ export class FPSGameManager {
     const velocity = entity.getComponent<VelocityComponent>('velocity');
 
     if (!transform || !velocity) {
+      if (this._stateUpdateCount <= 5) {
+        console.warn(`[FPSGameManager] onServerStateUpdate #${this._stateUpdateCount}: MISSING COMPONENTS transform=${!!transform} velocity=${!!velocity}`);
+      }
       return;
     }
 
@@ -679,6 +729,11 @@ export class FPSGameManager {
       };
       // Buffer snapshot — will be processed during processSnapshots() in frame loop
       this.v2Client.bufferSnapshot(snapshot);
+
+      if (this._stateUpdateCount <= 3) {
+        console.log(`[FPSGameManager] BUFFERED snapshot #${this._stateUpdateCount}: tick=${state.tick}, pos=(${transform.position.x.toFixed(1)},${transform.position.y.toFixed(1)},${transform.position.z.toFixed(1)})`);
+      }
+
       // Movement state (crouchslide, walljump, etc.) comes from client prediction
       // via v2Client.getMovementState() - no wire protocol needed.
       this.pendingTick = state.tick;
@@ -704,6 +759,67 @@ export class FPSGameManager {
     // Notify callbacks
     for (const callback of this.onStateUpdateCallbacks) {
       callback(update);
+    }
+  }
+
+  // ── Remote weapon fire effects ──────────────────────────────────
+
+  /** Color palette per weapon ID (Warsow-inspired) */
+  private static WEAPON_EFFECT_COLORS: Record<string, [number, number, number]> = {
+    machinegun: [1.0, 0.9, 0.3],   // warm yellow
+    riotgun: [1.0, 0.6, 0.2],   // orange
+    lasergun: [0.2, 1.0, 0.4],   // green
+    electrobolt: [0.3, 0.6, 1.0],   // blue
+    instagun: [0.8, 0.2, 1.0],   // purple
+  };
+
+  /**
+   * Spawn visual effects for another player's weapon fire.
+   * Called when we receive a weapon_fire event for a remote player.
+   */
+  private handleRemoteWeaponFire(event: any): void {
+    const fx = getHitscanEffects();
+    const origin = new Vector3(event.originX, event.originY, event.originZ);
+    const dir = new Vector3(event.dirX, event.dirY, event.dirZ);
+    const rgb = FPSGameManager.WEAPON_EFFECT_COLORS[event.weaponId];
+    const color = rgb ? new Color3(rgb[0], rgb[1], rgb[2]) : new Color3(1, 1, 0.5);
+
+    switch (event.weaponId) {
+      case 'machinegun':
+        fx.fireTracer({ origin, direction: dir, color, maxRange: 6000 });
+        break;
+
+      case 'riotgun':
+        fx.firePellets({
+          origin, direction: dir, color,
+          pelletCount: 20,
+          spreadAngle: 12,
+          maxRange: 8192,
+        });
+        break;
+
+      case 'lasergun':
+        // Beam weapons update continuously — for now just spawn a tracer
+        // Full beam sync will come in Phase 1b (weapon_stop events)
+        fx.fireTracer({ origin, direction: dir, color, maxRange: 850 });
+        break;
+
+      case 'electrobolt':
+      case 'instagun':
+        fx.fireBolt({ origin, direction: dir, color, maxRange: 10000 });
+        break;
+
+      // Projectile weapons — visual projectile entities come in Phase 3
+      case 'gunblade':
+      case 'glauncher':
+      case 'rlauncher':
+      case 'plasmagun':
+        // TODO: Spawn client-side projectile entity from event origin & direction
+        break;
+
+      default:
+        fx.fireTracer({ origin, direction: dir, color, maxRange: 5000 });
+        break;
     }
   }
 

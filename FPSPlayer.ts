@@ -4,6 +4,7 @@ import { FPSController } from "../../engine/camera/controllers/FPSController";
 import { InventoryManager } from "../../engine/game/InventoryManager";
 import { Pickup } from "../../engine/game/Pickup";
 import { WeaponViewManager } from "../../engine/weapon/WeaponViewManager";
+import { getHitscanEffects } from "../../engine/weapon/HitscanEffects";
 import { WeaponDef } from "../../shared/entities";
 import { EntityManager } from "../../engine/entities/EntityManager";
 
@@ -169,6 +170,10 @@ export class FPSPlayer {
         // Input check from Controller
         if (!this.controller.isFiring()) {
             this.fireReleased = true;
+            // Stop continuous beam when fire is released (lasergun)
+            if (currentWeapon.hitscanType === 'beam') {
+                getHitscanEffects().stopBeam();
+            }
             return;
         }
 
