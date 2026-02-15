@@ -21,6 +21,9 @@ import { getCollisionManager } from '../../engine/physics/CollisionManager';
 import { createBSPCollisionWorld } from './simulation/collision/BSPCollisionWorld';
 import { V2NetworkClient } from './client';
 import type { ServerSnapshot } from './client';
+import { MatchStateManager } from './client/MatchStateManager';
+import { MatchHUD } from './client/MatchHUD';
+import { MessageCodec } from '../../engine/network/protocol/MessageCodec';
 
 export interface FPSGameConfig {
   tickRate?: number;
@@ -307,6 +310,10 @@ export class FPSGameManager {
 
       console.log(`[FPSGameManager] Connected to ${url}, player: ${this.localPlayerId}`);
       console.log(`[FPSGameManager] V2 client ready for Q3-style prediction/reconciliation`);
+
+      // Initialize MatchHUD for match lifecycle display
+      MatchHUD.getInstance().init();
+      console.log(`[FPSGameManager] MatchHUD initialized`);
     } catch (error) {
       console.error(`[FPSGameManager] Failed to connect to ${url}:`, error);
       throw error;
@@ -579,6 +586,25 @@ export class FPSGameManager {
   }
 
   /**
+   * Send ready signal to server (for warmup phase)
+   */
+  sendReady(): void {
+    if (!this.isNetworkMode || !this.gameHost) {
+      console.log('[FPSGameManager] Cannot send ready — not connected');
+      return;
+    }
+
+    const data = MessageCodec.encodeReady();
+    // Send via the NetworkGameHost's transport
+    const networkHost = this.gameHost as any;
+    if (networkHost.transport && typeof networkHost.transport.send === 'function') {
+      networkHost.transport.send(data, true); // Reliable
+      MatchStateManager.getInstance().setReady(true);
+      console.log('[FPSGameManager] Sent ready signal to server');
+    }
+  }
+
+  /**
    * Shutdown game
    */
   shutdown(): void {
@@ -597,6 +623,10 @@ export class FPSGameManager {
     this.commandSeq = 1; // Must match InputHistory.nextSeq (starts at 1)
     this.onStateUpdateCallbacks = [];
 
+    // Cleanup match state and HUD
+    MatchHUD.getInstance().destroy();
+    MatchStateManager.destroy();
+
     console.log('[FPSGameManager] Shutdown complete');
   }
 
@@ -604,6 +634,16 @@ export class FPSGameManager {
    * Handle state update from simulation
    */
   private onServerStateUpdate(state: GameState): void {
+    // Process match_state events before anything else
+    if (state.events && state.events.length > 0) {
+      const matchMgr = MatchStateManager.getInstance();
+      for (const event of state.events) {
+        if (event.type === 'match_state') {
+          matchMgr.processEvent(event);
+        }
+      }
+    }
+
     const player = state.players.get(this.localPlayerId);
     if (!player) {
 

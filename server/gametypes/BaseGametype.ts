@@ -1,12 +1,23 @@
 /**
  * Base Gametype
- * Abstract base class for game modes
+ * Abstract base class for game modes.
+ * 
+ * The gametype is an event-driven orchestrator that:
+ * - Defines match rules (score limit, time limit, loadouts)
+ * - Reacts to lifecycle events (spawn, death, pickup)
+ * - Controls item spawn behavior
+ * - Runs AFTER the simulation tick, not inside it
  */
 
 import type { WorldState } from '@engine/server/core/WorldState';
 import type { Entity } from '@engine/server/ecs/Entity';
 import type { PlayerId } from '@engine/server/ecs/types';
-import type { Vec3 } from '@shared/server/simulation/types';
+import type {
+    MatchConfig,
+    WeaponLoadout,
+    ItemSpawnRules,
+    SpawnStrategyType,
+} from '@shared/server/gametype';
 
 export interface GameResult {
     winner?: PlayerId | 'team1' | 'team2' | 'draw';
@@ -18,32 +29,56 @@ export abstract class BaseGametype {
     abstract readonly maxPlayers: number;
     abstract readonly teamBased: boolean;
 
-    /**
-     * Check win conditions
-     */
-    abstract checkWinCondition(state: WorldState): GameResult | null;
+    // ========================================================================
+    // Configuration — gametype defines these
+    // ========================================================================
 
-    /**
-     * Handle player spawn
-     */
+    /** Match configuration (warmup, countdown, time/score limits) */
+    abstract getMatchConfig(): MatchConfig;
+
+    /** Weapons and ammo given to players on spawn */
+    abstract getSpawnLoadout(): WeaponLoadout;
+
+    /** How items spawn on the map */
+    abstract getItemSpawnRules(): ItemSpawnRules;
+
+    /** Spawn point selection algorithm */
+    abstract getSpawnStrategy(): SpawnStrategyType;
+
+    // ========================================================================
+    // Events — GametypeController calls these
+    // ========================================================================
+
+    /** Called when a player spawns (initial or respawn) */
     abstract onSpawn(player: Entity, state: WorldState): void;
 
-    /**
-     * Handle player death
-     */
+    /** Called when a player dies */
     abstract onDeath(
         victim: Entity,
         killer: Entity | null,
         state: WorldState
     ): void;
 
-    /**
-     * Get score for player
+    /** 
+     * Called when a player touches an item pickup.
+     * Return true to allow pickup, false to deny.
      */
-    abstract getScore(playerId: PlayerId): number;
+    onPickup(_player: Entity, _itemClassname: string, _state: WorldState): boolean {
+        return true; // Default: allow all pickups
+    }
 
-    /**
-     * Choose spawn point for player
-     */
-    abstract chooseSpawnPoint(player: Entity, state: WorldState): Vec3;
+    /** Called when match phase changes */
+    onMatchPhaseChange(_phase: number, _state: WorldState): void {
+        // Default: no-op
+    }
+
+    // ========================================================================
+    // Queries
+    // ========================================================================
+
+    /** Check if a win condition has been met */
+    abstract checkWinCondition(state: WorldState): GameResult | null;
+
+    /** Get score for a player */
+    abstract getScore(playerId: PlayerId): number;
 }

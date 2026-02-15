@@ -13,6 +13,7 @@ import type { Entity } from '@engine/server/ecs/Entity';
 import { createProjectileEntity } from '@engine/server/ecs/Entity';
 import { WEAPONS, type WeaponDef } from '../weapons/WeaponDef';
 import { DamageType, type DamageEvent, HitLocation } from './CombatSystem';
+import type { WeaponLoadout } from '@shared/server/gametype';
 
 const CONFIG: SubsystemConfig = {
     name: 'Weapon',
@@ -26,6 +27,7 @@ const CONFIG: SubsystemConfig = {
 
 export interface WeaponState {
     currentWeapon: string;
+    weapons: string[]; // Owned weapons (max 2, COD-style)
     ammo: Map<string, number>;
     lastFireTick: number;
     reloading: boolean;
@@ -55,25 +57,43 @@ export class WeaponSystem extends Subsystem {
     }
 
     /**
-     * Initialize weapon state for an entity
+     * Initialize weapon state from a gametype-defined loadout.
+     * Called by GametypeController on spawn/respawn.
      */
-    initializeWeapon(entityId: EntityId): void {
-        this.weaponStates.set(entityId, {
-            currentWeapon: 'gunblade',
-            ammo: new Map([
-                ['gunblade', 1],
-                ['machinegun', 100],
-                ['riotgun', 20],
-                ['glauncher', 20],
-                ['rlauncher', 20],
-                ['plasmagun', 150],
-                ['lasergun', 150],
-                ['electrobolt', 10],
-                ['instagun', 5],
-            ]),
+    initializeWeaponFromLoadout(id: EntityId, loadout: WeaponLoadout): void {
+        const ammoMap = new Map<string, number>();
+        for (const [weaponId, amount] of Object.entries(loadout.ammo)) {
+            ammoMap.set(weaponId, amount);
+        }
+        this.weaponStates.set(id, {
+            currentWeapon: loadout.weapons[0] || 'gunblade',
+            weapons: [...loadout.weapons].slice(0, 2), // Max 2 weapons
+            ammo: ammoMap,
             lastFireTick: 0,
             reloading: false,
             reloadEndTick: 0,
+        });
+    }
+
+    /**
+     * Initialize weapon state for an entity (fallback with default loadout)
+     */
+    initializeWeapon(entityId: EntityId): void {
+        this.initializeWeaponFromLoadout(entityId, {
+            weapons: ['gunblade'],
+            ammo: {
+                gunblade: 1,
+                machinegun: 100,
+                riotgun: 20,
+                glauncher: 20,
+                rlauncher: 20,
+                plasmagun: 150,
+                lasergun: 150,
+                electrobolt: 10,
+                instagun: 5,
+            },
+            health: 100,
+            armor: 0,
         });
     }
 
@@ -90,11 +110,10 @@ export class WeaponSystem extends Subsystem {
                 weaponState = this.weaponStates.get(entity.id)!;
             }
 
-            // Handle weapon switch
+            // Handle weapon switch — validate against owned weapons
             const weaponSlot = entity.input.weaponSlot;
-            const weapons = Object.keys(WEAPONS);
-            if (weaponSlot > 0 && weaponSlot <= weapons.length) {
-                const newWeapon = weapons[weaponSlot - 1];
+            if (weaponSlot > 0 && weaponSlot <= weaponState.weapons.length) {
+                const newWeapon = weaponState.weapons[weaponSlot - 1];
                 if (newWeapon && newWeapon !== weaponState.currentWeapon) {
                     weaponState.currentWeapon = newWeapon;
                     weaponState.reloading = false; // Cancel reload on switch

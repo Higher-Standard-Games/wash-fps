@@ -70,9 +70,8 @@ export interface KillEvent {
 export class CombatSystem extends Subsystem {
     private pendingDamage: DamageEvent[] = [];
     private kills: KillEvent[] = [];
-    private respawnQueue: Map<EntityId, number> = new Map(); // Entity -> respawn tick
 
-    constructor(private respawnDelayTicks: number = 375) { // 3 seconds at 125Hz
+    constructor() {
         super(CONFIG);
     }
 
@@ -84,10 +83,21 @@ export class CombatSystem extends Subsystem {
     }
 
     /**
-     * Get kills from last tick
+     * Get kills from last tick.
+     * GametypeController drains these via drainKills().
      */
     getRecentKills(): KillEvent[] {
         return [...this.kills];
+    }
+
+    /**
+     * Drain kills — returns kills and clears the buffer.
+     * Called by GametypeController after processing.
+     */
+    drainKills(): KillEvent[] {
+        const drained = this.kills;
+        this.kills = [];
+        return drained;
     }
 
     /**
@@ -103,9 +113,7 @@ export class CombatSystem extends Subsystem {
             this.processDamage(state, damage, tick);
         }
         this.pendingDamage = [];
-
-        // Process respawns
-        this.processRespawns(state, tick);
+        // NOTE: Respawning is now handled by GametypeController.postTick()
     }
 
     private processDamage(state: WorldState, event: DamageEvent, tick: TickNumber): void {
@@ -128,52 +136,7 @@ export class CombatSystem extends Subsystem {
                 tick,
             };
             this.kills.push(killEvent);
-
-            // Queue respawn
-            this.respawnQueue.set(event.victimId, (tick as number) + this.respawnDelayTicks);
-        }
-    }
-
-    private processRespawns(state: WorldState, tick: TickNumber): void {
-        const toRespawn: EntityId[] = [];
-
-        for (const [entityId, respawnTick] of this.respawnQueue) {
-            if ((tick as number) >= respawnTick) {
-                toRespawn.push(entityId);
-            }
-        }
-
-        for (const id of toRespawn) {
-            this.respawnQueue.delete(id);
-            this.respawnPlayer(state, id);
-        }
-    }
-
-    private respawnPlayer(state: WorldState, id: EntityId): void {
-        const entity = state.getEntityMut(id);
-        if (!entity) return;
-
-        // Reset health
-        if (entity.health) {
-            entity.health.health = entity.health.maxHealth;
-            entity.health.armor = 0;
-            entity.health.dead = false;
-        }
-
-        // Reset position (TODO: use spawn point selection)
-        if (entity.transform) {
-            entity.transform.position = {
-                x: (Math.random() - 0.5) * 500,
-                y: 100,
-                z: (Math.random() - 0.5) * 500,
-            };
-        }
-
-        // Reset velocity
-        if (entity.physics) {
-            entity.physics.velocity = { x: 0, y: 0, z: 0 };
-            entity.physics.grounded = false;
-            entity.physics.jumping = false;
+            // NOTE: Respawn queuing is now handled by GametypeController
         }
     }
 }

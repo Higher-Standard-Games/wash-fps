@@ -2,6 +2,7 @@
 // import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { FPSController } from "../../engine/camera/controllers/FPSController";
 import { InventoryManager } from "../../engine/game/InventoryManager";
+import { Pickup } from "../../engine/game/Pickup";
 import { WeaponViewManager } from "../../engine/weapon/WeaponViewManager";
 import { WeaponDef } from "../../shared/entities";
 import { EntityManager } from "../../engine/entities/EntityManager";
@@ -41,6 +42,11 @@ export class FPSPlayer {
         // Listen for reload key (R)
         this.controller.onReload = () => {
             this.checkReload();
+        };
+
+        // Listen for use/interact key (F) — weapon pickup
+        this.controller.onUse = () => {
+            Pickup.triggerUseAction();
         };
     }
 
@@ -217,6 +223,7 @@ export class FPSPlayer {
     public dispose(): void {
         this.controller.onWeaponSelect = null;
         this.controller.onReload = null;
+        this.controller.onUse = null;
         // this.inventory.dispose()? If it has one.
     }
 }

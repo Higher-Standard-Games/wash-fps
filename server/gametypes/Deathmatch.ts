@@ -1,51 +1,75 @@
 /**
  * Deathmatch Gametype
- * Free-for-all deathmatch
+ * Free-for-all deathmatch with Warsow-style rules:
+ * - Furthest spawn selection
+ * - Gunblade on spawn
+ * - All items from BSP spawn on map
+ * - 30s weapon respawn
  */
 
 import { BaseGametype, type GameResult } from './BaseGametype';
 import type { WorldState } from '@engine/server/core/WorldState';
 import type { Entity } from '@engine/server/ecs/Entity';
 import type { PlayerId } from '@engine/server/ecs/types';
-import type { Vec3 } from '@shared/server/simulation/types';
-
-export interface DeathmatchConfig {
-    /** Score limit for win */
-    scoreLimit: number;
-    /** Time limit in seconds (0 = no limit) */
-    timeLimit: number;
-}
-
-const DEFAULT_CONFIG: DeathmatchConfig = {
-    scoreLimit: 25,
-    timeLimit: 600, // 10 minutes
-};
+import type {
+    MatchConfig,
+    WeaponLoadout,
+    ItemSpawnRules,
+    SpawnStrategyType,
+} from '@shared/server/gametype';
 
 export class Deathmatch extends BaseGametype {
     readonly name = 'Deathmatch';
     readonly maxPlayers = 16;
     readonly teamBased = false;
 
-    private config: DeathmatchConfig;
     private scores: Map<PlayerId, number> = new Map();
 
-    constructor(config: Partial<DeathmatchConfig> = {}) {
-        super();
-        this.config = { ...DEFAULT_CONFIG, ...config };
+    // ========================================================================
+    // Configuration
+    // ========================================================================
+
+    getMatchConfig(): MatchConfig {
+        return {
+            warmupTimeout: 120,     // 2 minutes
+            countdownDuration: 3,   // 3-2-1
+            scoreLimit: 20,         // frags to win
+            timeLimit: 600,         // 10 minutes
+            postGameDuration: 10,   // scoreboard duration
+            respawnDelay: 3,        // seconds after death
+        };
     }
 
-    checkWinCondition(_state: WorldState): GameResult | null {
-        // Check if anyone reached score limit
-        for (const [playerId, score] of this.scores) {
-            if (score >= this.config.scoreLimit) {
-                return { winner: playerId, scores: new Map(this.scores) };
-            }
-        }
-        return null;
+    getSpawnLoadout(): WeaponLoadout {
+        return {
+            weapons: ['gunblade'],
+            ammo: { gunblade: 1 },
+            health: 100,
+            armor: 0,
+        };
     }
+
+    getItemSpawnRules(): ItemSpawnRules {
+        return {
+            spawnFromBsp: true,
+            weaponRespawnTime: 30,
+            ammoRespawnTime: 15,
+            armorRespawnTime: 25,
+            healthRespawnTime: 20,
+            megaHealthRespawnTime: 60,
+        };
+    }
+
+    getSpawnStrategy(): SpawnStrategyType {
+        return 'furthest';
+    }
+
+    // ========================================================================
+    // Events
+    // ========================================================================
 
     onSpawn(_player: Entity, _state: WorldState): void {
-        // TODO: Reset player loadout
+        // Loadout is handled by GametypeController using getSpawnLoadout()
     }
 
     onDeath(
@@ -53,19 +77,24 @@ export class Deathmatch extends BaseGametype {
         killer: Entity | null,
         _state: WorldState
     ): void {
+        // Score is tracked by MatchState.addScore() called from GametypeController
+        // We just log here for debugging
         if (killer && killer.ownerId && killer.ownerId !== victim.ownerId) {
-            // Killer gets a point
-            const current = this.scores.get(killer.ownerId) || 0;
-            this.scores.set(killer.ownerId, current + 1);
+            console.log(`[Deathmatch] Kill: player ${killer.ownerId} → player ${victim.ownerId}`);
         }
+    }
+
+    // ========================================================================
+    // Queries
+    // ========================================================================
+
+    checkWinCondition(_state: WorldState): GameResult | null {
+        // Win condition is checked by GametypeController using MatchState scores
+        // This is called by the controller which passes in its own scores
+        return null;
     }
 
     getScore(playerId: PlayerId): number {
         return this.scores.get(playerId) || 0;
-    }
-
-    chooseSpawnPoint(_player: Entity, _state: WorldState): Vec3 {
-        // TODO: Implement spawn point selection
-        return { x: 0, y: 100, z: 0 };
     }
 }
