@@ -568,6 +568,17 @@ export class FPSGameManager {
   }
 
   /**
+   * Get current ping to server in ms (-1 if not connected or local)
+   */
+  getPing(): number {
+    if (!this.isNetworkMode || !this.gameHost) return -1;
+    const state = this.gameHost.getLocalState();
+    if (!state) return -1;
+    const localPlayer = state.players.get(this.localPlayerId);
+    return localPlayer?.ping ?? -1;
+  }
+
+  /**
    * Shutdown game
    */
   shutdown(): void {

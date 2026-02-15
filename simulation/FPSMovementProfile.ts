@@ -428,6 +428,31 @@ export class FPSMovementProfile implements MovementProfile {
     // === APPLY VELOCITY USING STEP-SLIDE MOVE ===
     // Uses same collision as local AdvancedCharacterController
     if (collision) {
+      // Q3-style ground plane clipping (PM_GroundMove):
+      // When grounded, clip velocity against the ground surface normal
+      // so movement is PARALLEL to the slope. Without this, horizontal
+      // velocity hits the slope face immediately, wasting a bump iteration
+      // and potentially getting killed by two-plane clipping.
+      if (this.isGrounded) {
+        const groundTrace = collision.trace(
+          newPos,
+          { x: newPos.x, y: newPos.y - 2, z: newPos.z },
+          this.getCurrentBounds()
+        );
+        if (groundTrace.hit && groundTrace.normal) {
+          const n = groundTrace.normal;
+          // Only clip if it's a walkable slope (normal.y > 0.7)
+          if (n.y > 0.7 && n.y < 0.99) {
+            // clipVelocity: remove the into-surface component
+            const dot = newVel.x * n.x + newVel.y * n.y + newVel.z * n.z;
+            const OVERCLIP = 1.001;
+            newVel.x -= n.x * dot * OVERCLIP;
+            newVel.y -= n.y * dot * OVERCLIP;
+            newVel.z -= n.z * dot * OVERCLIP;
+          }
+        }
+      }
+
       // Use Q3-style stepSlideMove for proper collision handling
       const result = collision.stepSlideMove(
         newPos,
@@ -468,8 +493,11 @@ export class FPSMovementProfile implements MovementProfile {
     }
 
     // === UPDATE SPEED TRACKING ===
-    // Use velocity magnitude directly (immune to position resets during reconciliation)
-    this.actualHorizSpeed = Math.sqrt(newVel.x * newVel.x + newVel.z * newVel.z);
+    // Use actual position delta (immune to velocity reporting when stuck against walls)
+    const dx = newPos.x - position.x;
+    const dz = newPos.z - position.z;
+    const posDeltaSpeed = Math.sqrt(dx * dx + dz * dz) / deltaTime;
+    this.actualHorizSpeed = posDeltaSpeed;
 
     // === SMOOTHED Y ===
     const heightDiff = Math.abs(newPos.y - this.smoothedY);
