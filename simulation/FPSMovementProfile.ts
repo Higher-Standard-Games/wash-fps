@@ -803,7 +803,10 @@ export class FPSMovementProfile implements MovementProfile {
     // client/server prediction mismatch oscillation (shaking).
     // Once we detect clearance, allow it for a short window even if
     // reconciliation briefly brings us closer to ground.
-    const groundCheck = collision.trace(pos, { x: pos.x, y: pos.y - this.config.wallJumpMinHeight, z: pos.z });
+    // Trace from FEET level (origin - 24 in Q3 asymmetric box) so
+    // wallJumpMinHeight directly represents clearance above the floor.
+    const feetY = pos.y - 24; // Q3: origin is 24 units above feet
+    const groundCheck = collision.trace(pos, { x: pos.x, y: feetY - this.config.wallJumpMinHeight, z: pos.z });
     const hasGroundClearance = !(groundCheck.hit && groundCheck.fraction < 1);
 
     if (hasGroundClearance) {
