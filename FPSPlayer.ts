@@ -19,6 +19,10 @@ export class FPSPlayer {
     private controller: FPSController;
     // private scene: Scene;
 
+    // Static instance for access from FPSGameManager
+    private static _instance: FPSPlayer | null = null;
+    static getInstance(): FPSPlayer | null { return FPSPlayer._instance; }
+
     // Weapon State
     private isReloading: boolean = false;
     private reloadTimer: number = 0;
@@ -30,6 +34,7 @@ export class FPSPlayer {
         this.controller = controller;
         this.inventory = new InventoryManager();
         this.controller.setInventory(this.inventory);
+        FPSPlayer._instance = this;
 
         this.setupControllerEvents();
     }
@@ -229,6 +234,7 @@ export class FPSPlayer {
         this.controller.onWeaponSelect = null;
         this.controller.onReload = null;
         this.controller.onUse = null;
+        if (FPSPlayer._instance === this) FPSPlayer._instance = null;
         // this.inventory.dispose()? If it has one.
     }
 }

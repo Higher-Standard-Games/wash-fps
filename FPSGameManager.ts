@@ -25,7 +25,13 @@ import { MatchStateManager } from './client/MatchStateManager';
 import { MatchHUD } from './client/MatchHUD';
 import { MessageCodec } from '../../engine/network/protocol/MessageCodec';
 import { getHitscanEffects } from '../../engine/weapon/HitscanEffects';
+import { getProjectileManager } from '../../engine/weapon/ProjectileManager';
+import { getWeaponViewManager } from '../../engine/weapon/WeaponViewManager';
 import { Vector3, Color3 } from '@babylonjs/core';
+import { EngineStore } from '@babylonjs/core/Engines/engineStore';
+import { RemotePlayerRenderer } from './client/RemotePlayerRenderer';
+import { getExplosionEffect, ROCKET_EXPLOSION, GRENADE_EXPLOSION, PLASMA_EXPLOSION } from '../../engine/weapon/ExplosionEffect';
+import { FPSPlayer } from './FPSPlayer';
 
 export interface FPSGameConfig {
   tickRate?: number;
@@ -46,6 +52,7 @@ export interface PlayerInputState {
   sprint: boolean;
   fire: boolean;
   altFire: boolean;
+  use: boolean;
   pitch: number;  // Camera X rotation
   yaw: number;    // Camera Y rotation
 }
@@ -83,6 +90,12 @@ export class FPSGameManager {
 
   // V2 Network Client for prediction/reconciliation
   private v2Client: V2NetworkClient | null = null;
+
+  // Remote player model renderer
+  private remoteRenderer: RemotePlayerRenderer | null = null;
+
+  // Weapon state sync
+  private _lastServerWeapon: string = '';
 
   // Callbacks
   private onStateUpdateCallbacks: ((state: PlayerStateUpdate) => void)[] = [];
@@ -392,6 +405,7 @@ export class FPSGameManager {
     if (input.sprint) buttons |= InputButtons.SPRINT;
     if (input.fire) buttons |= InputButtons.FIRE;
     if (input.altFire) buttons |= InputButtons.ALT_FIRE;
+    if (input.use) buttons |= InputButtons.USE;
 
     // Build world-space direction from buttons using Babylon.js LEFT-HANDED coordinate system
     // In left-handed Y rotation: forward = (sin(yaw), 0, cos(yaw)), right = (cos(yaw), 0, -sin(yaw))
@@ -672,18 +686,41 @@ export class FPSGameManager {
     }
 
     // Process match_state events before anything else
+    const localEntityId = state.players.get(this.localPlayerId)?.entityId;
+
     if (state.events && state.events.length > 0) {
       const matchMgr = MatchStateManager.getInstance();
-      const localEntityId = state.players.get(this.localPlayerId)?.entityId;
 
       for (const event of state.events) {
         if (event.type === 'match_state') {
           matchMgr.processEvent(event);
+        } else if (event.type === 'weapon_state' && event.entityId === localEntityId) {
+          // Sync local player weapon from server
+          this.handleWeaponStateSync(event);
         } else if (event.type === 'weapon_fire') {
-          // Skip our own fire events — we already display our own effects locally
+          // Skip our own weapon_fire events — local prediction already handles our visuals
           if (event.entityId === localEntityId) continue;
           this.handleRemoteWeaponFire(event);
+        } else if (event.type === 'projectile_impact') {
+          // Server-authoritative explosion: spawn for ALL clients
+          const pos = new Vector3(event.x, event.y, event.z);
+          const normal = new Vector3(event.normalX, event.normalY, event.normalZ);
+          const config = event.defId === 'glauncher' ? GRENADE_EXPLOSION
+            : event.defId === 'plasmagun' ? PLASMA_EXPLOSION
+              : ROCKET_EXPLOSION;
+          getExplosionEffect().spawn(pos, config, normal);
         }
+      }
+    }
+
+    // === Remote player model rendering ===
+    if (localEntityId) {
+      // Lazy-init renderer with scene
+      if (!this.remoteRenderer && EngineStore.LastCreatedScene) {
+        this.remoteRenderer = new RemotePlayerRenderer(EngineStore.LastCreatedScene);
+      }
+      if (this.remoteRenderer) {
+        this.remoteRenderer.update(state, localEntityId);
       }
     }
 
@@ -762,6 +799,56 @@ export class FPSGameManager {
     }
   }
 
+  // ── Server weapon state sync ──────────────────────────────────
+
+  /**
+   * Handle weapon_state event from server for the local player.
+   * Syncs the client's inventory and weapon view with server state.
+   */
+  private handleWeaponStateSync(event: any): void {
+    const player = FPSPlayer.getInstance();
+    if (!player) return;
+
+    const serverWeapon = event.currentWeapon as string;
+    const serverWeapons = event.weapons as string[];
+    const serverAmmo = event.ammo as Record<string, number>;
+
+    // Sync weapons list - give any weapons we don't have
+    for (const weaponId of serverWeapons) {
+      if (!player.inventory.hasWeapon(weaponId)) {
+        player.inventory.giveWeapon(weaponId);
+      }
+    }
+
+    // Sync ammo counts from server (keyed by weapon ID, map to ammo type)
+    for (const [weaponId, count] of Object.entries(serverAmmo)) {
+      // Server tracks ammo by weapon ID; client inventory uses ammo type.
+      // Look up the weapon def to get the ammo type.
+      const def = player.inventory.getWeaponDef(weaponId);
+      const ammoType = def?.ammoType || weaponId; // fallback to weapon ID
+      player.inventory.setAmmo(ammoType, count as number);
+    }
+
+    // Weapon switch: only trigger if server weapon actually changed
+    if (serverWeapon !== this._lastServerWeapon) {
+      console.log(`[FPSGameManager] Server weapon changed: ${this._lastServerWeapon || 'none'} → ${serverWeapon}`);
+      this._lastServerWeapon = serverWeapon;
+
+      // Equip in inventory
+      player.inventory.equipWeapon(serverWeapon);
+
+      // Load weapon view model (async, fire-and-forget)
+      const wvm = getWeaponViewManager();
+      wvm.loadWeapon(serverWeapon).then(success => {
+        if (success) {
+          console.log(`[FPSGameManager] Weapon model loaded: ${serverWeapon}`);
+        }
+      }).catch(err => {
+        console.error(`[FPSGameManager] Failed to load weapon model: ${serverWeapon}`, err);
+      });
+    }
+  }
+
   // ── Remote weapon fire effects ──────────────────────────────────
 
   /** Color palette per weapon ID (Warsow-inspired) */
@@ -779,6 +866,14 @@ export class FPSGameManager {
    */
   private handleRemoteWeaponFire(event: any): void {
     const fx = getHitscanEffects();
+    const projMgr = getProjectileManager();
+
+    // Lazy-init ProjectileManager if it hasn't been initialized yet
+    // (WeaponViewManager.init normally does this, but may not have run)
+    if (!projMgr['scene'] && EngineStore.LastCreatedScene) {
+      projMgr.init(EngineStore.LastCreatedScene);
+    }
+
     const origin = new Vector3(event.originX, event.originY, event.originZ);
     const dir = new Vector3(event.dirX, event.dirY, event.dirZ);
     const rgb = FPSGameManager.WEAPON_EFFECT_COLORS[event.weaponId];
@@ -809,12 +904,18 @@ export class FPSGameManager {
         fx.fireBolt({ origin, direction: dir, color, maxRange: 10000 });
         break;
 
-      // Projectile weapons — visual projectile entities come in Phase 3
-      case 'gunblade':
-      case 'glauncher':
-      case 'rlauncher':
+      // Projectile weapons — spawn visual projectile for remote player
       case 'plasmagun':
-        // TODO: Spawn client-side projectile entity from event origin & direction
+        getProjectileManager().spawn('plasma_bolt', origin, dir);
+        break;
+      case 'rlauncher':
+        getProjectileManager().spawn('rocket', origin, dir);
+        break;
+      case 'glauncher':
+        getProjectileManager().spawn('grenade', origin, dir);
+        break;
+      case 'gunblade':
+        getProjectileManager().spawn('gunblade_blast', origin, dir);
         break;
 
       default:

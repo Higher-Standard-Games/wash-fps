@@ -9,7 +9,7 @@
 
 import { Subsystem, type SubsystemConfig } from '../../../../engine/server/core/Subsystem';
 import type { WorldState } from '../../../../engine/server/core/WorldState';
-import type { TickNumber } from '../../../../engine/server/ecs/types';
+import type { TickNumber, EntityId } from '../../../../engine/server/ecs/types';
 import { EntityType } from '../../../../engine/server/ecs/types';
 import { FPSMovementProfile } from '../../simulation/FPSMovementProfile';
 import type { MovementInput } from '../../../../engine/network/systems/movement/MovementProfile';
@@ -157,6 +157,90 @@ export class FPSMovementSubsystem extends Subsystem {
                 input.inputQueue = [];
             }
         }
+
+        // After all movement: push overlapping players apart (Q3-style)
+        this.separatePlayers(state);
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Player-vs-player collision (post-movement separation)
+    // ────────────────────────────────────────────────────────────────
+
+    /** Player cylinder radius for entity-entity blocking */
+    private static readonly PLAYER_RADIUS = 16;
+    /** Combined radius: two players touching */
+    private static readonly SEPARATION_DIST = FPSMovementSubsystem.PLAYER_RADIUS * 2; // 32
+    /** Player bounds Y: origin at waist, -24 feet to +32 head */
+    private static readonly PLAYER_MIN_Y = -24;
+    private static readonly PLAYER_MAX_Y = 32;
+
+    /**
+     * Block overlapping players without pushing — Q3-style entity blocking.
+     * Each entity is independently pushed back from all others it overlaps.
+     * Uses immutable position snapshots so iteration order doesn't matter.
+     */
+    private separatePlayers(state: WorldState): void {
+        const players: { id: EntityId; x: number; y: number; z: number }[] = [];
+        for (const entity of state.entitiesByType(EntityType.Player)) {
+            if (!entity.transform || entity.health?.dead) continue;
+            // Snapshot positions (immutable during resolution)
+            players.push({
+                id: entity.id,
+                x: entity.transform.position.x,
+                y: entity.transform.position.y,
+                z: entity.transform.position.z,
+            });
+        }
+
+        const sepDist = FPSMovementSubsystem.SEPARATION_DIST;
+        const sepDistSq = sepDist * sepDist;
+
+        // For each entity, resolve against all others independently
+        for (let i = 0; i < players.length; i++) {
+            const me = players[i];
+            let pushX = 0;
+            let pushZ = 0;
+
+            for (let j = 0; j < players.length; j++) {
+                if (i === j) continue;
+                const other = players[j];
+
+                // Y overlap check (cylinder)
+                const meBottom = me.y + FPSMovementSubsystem.PLAYER_MIN_Y;
+                const meTop = me.y + FPSMovementSubsystem.PLAYER_MAX_Y;
+                const otherBottom = other.y + FPSMovementSubsystem.PLAYER_MIN_Y;
+                const otherTop = other.y + FPSMovementSubsystem.PLAYER_MAX_Y;
+                if (meTop <= otherBottom || otherTop <= meBottom) continue;
+
+                // XZ distance
+                const dx = me.x - other.x;
+                const dz = me.z - other.z;
+                const distSq = dx * dx + dz * dz;
+                if (distSq >= sepDistSq) continue;
+
+                const dist = Math.sqrt(distSq);
+                const overlap = sepDist - dist;
+
+                if (dist > 0.001) {
+                    const nx = dx / dist;
+                    const nz = dz / dist;
+                    pushX += nx * overlap;
+                    pushZ += nz * overlap;
+                } else {
+                    // Exactly overlapping — push in arbitrary direction
+                    pushX += overlap;
+                }
+            }
+
+            // Apply accumulated push to this entity only
+            if (pushX !== 0 || pushZ !== 0) {
+                const mut = state.getEntityMut(me.id);
+                if (mut?.transform) {
+                    mut.transform.position.x += pushX;
+                    mut.transform.position.z += pushZ;
+                }
+            }
+        }
     }
 
     /**
@@ -166,4 +250,3 @@ export class FPSMovementSubsystem extends Subsystem {
         this.movementProfiles.delete(entityId);
     }
 }
-

@@ -14,6 +14,7 @@ import { createProjectileEntity } from '@engine/server/ecs/Entity';
 import { WEAPONS, type WeaponDef } from '../weapons/WeaponDef';
 import { DamageType, type DamageEvent, HitLocation } from './CombatSystem';
 import type { WeaponLoadout } from '@shared/server/gametype';
+import type { ProjectileSystem } from './ProjectileSystem';
 
 /** Must match InputButtons.FIRE from engine/network/components/InputComponent.ts */
 const FIRE_BUTTON = 1 << 8;
@@ -57,9 +58,11 @@ export interface WeaponState {
 
 export class WeaponSystem extends Subsystem {
     private weaponStates: Map<EntityId, WeaponState> = new Map();
+    private lastWeaponSlot: Map<EntityId, number> = new Map(); // Edge detection for slot changes
     private nextProjectileId: number = 10000;
     private pendingDamage: DamageEvent[] = [];
     private pendingFireEvents: WeaponFireEvent[] = [];
+    private projectileSystem: ProjectileSystem | null = null;
 
     constructor() {
         super(CONFIG);
@@ -84,6 +87,86 @@ export class WeaponSystem extends Subsystem {
     }
 
     /**
+     * Get weapon state for a specific entity (used for game state broadcast)
+     */
+    getWeaponState(entityId: EntityId): WeaponState | undefined {
+        return this.weaponStates.get(entityId);
+    }
+
+    /**
+     * Set reference to ProjectileSystem (for registering projectile types)
+     */
+    setProjectileSystem(system: ProjectileSystem): void {
+        this.projectileSystem = system;
+    }
+
+    /**
+     * Add a weapon to a player's inventory (server-side pickup).
+     * Rules:
+     *   - Gunblade is permanent (slot 0), never dropped
+     *   - Players can carry gunblade + 2 picked-up weapons
+     *   - If at capacity, drop current weapon; if holding gunblade, drop first non-gunblade
+     * @returns { added: true, dropped?: weaponId } or { added: false } if already owned
+     */
+    addWeapon(entityId: EntityId, weaponId: string): { added: boolean; dropped?: string } {
+        const state = this.weaponStates.get(entityId);
+        if (!state) return { added: false };
+
+        // Already has this weapon — no-op (could give ammo instead)
+        if (state.weapons.includes(weaponId)) return { added: false };
+
+        const MAX_PICKABLE = 2; // not counting gunblade
+        const nonGunbladeWeapons = state.weapons.filter(w => w !== 'gunblade');
+
+        if (nonGunbladeWeapons.length < MAX_PICKABLE) {
+            // Have room — just add
+            state.weapons.push(weaponId);
+            state.currentWeapon = weaponId; // auto-switch to new weapon
+            // Give ammo if not already present
+            if (!state.ammo.has(weaponId) || state.ammo.get(weaponId)! <= 0) {
+                const weapon = WEAPONS[weaponId];
+                if (weapon) state.ammo.set(weaponId, weapon.ammoCapacity);
+            }
+            console.log(`[WeaponSystem] Entity ${entityId}: picked up ${weaponId} (${state.weapons.length} weapons, ammo=${state.ammo.get(weaponId)})`);
+            return { added: true };
+        }
+
+        // At capacity — need to drop one
+        let droppedWeapon: string;
+
+        if (state.currentWeapon === 'gunblade') {
+            // Holding gunblade → drop first non-gunblade weapon
+            droppedWeapon = nonGunbladeWeapons[0];
+        } else {
+            // Drop currently held weapon
+            droppedWeapon = state.currentWeapon;
+        }
+
+        // Remove dropped weapon from inventory
+        const dropIdx = state.weapons.indexOf(droppedWeapon);
+        if (dropIdx >= 0) state.weapons.splice(dropIdx, 1);
+
+        // Add new weapon and switch to it
+        state.weapons.push(weaponId);
+        state.currentWeapon = weaponId;
+        // Give ammo if not already present
+        if (!state.ammo.has(weaponId) || state.ammo.get(weaponId)! <= 0) {
+            const weapon = WEAPONS[weaponId];
+            if (weapon) state.ammo.set(weaponId, weapon.ammoCapacity);
+        }
+
+        console.log(`[WeaponSystem] Entity ${entityId}: picked up ${weaponId}, dropped ${droppedWeapon}`);
+        return { added: true, dropped: droppedWeapon };
+    }
+
+    /**
+     * Get a player's current weapon list (for sync/debug)
+     */
+    getWeapons(entityId: EntityId): string[] {
+        return this.weaponStates.get(entityId)?.weapons || [];
+    }
+
+    /**
      * Initialize weapon state from a gametype-defined loadout.
      * Called by GametypeController on spawn/respawn.
      */
@@ -94,7 +177,7 @@ export class WeaponSystem extends Subsystem {
         }
         this.weaponStates.set(id, {
             currentWeapon: loadout.weapons[0] || 'gunblade',
-            weapons: [...loadout.weapons].slice(0, 2), // Max 2 weapons
+            weapons: [...loadout.weapons].slice(0, 2), // Max 2 pickable weapons
             ammo: ammoMap,
             lastFireTick: 0,
             reloading: false,
@@ -141,13 +224,19 @@ export class WeaponSystem extends Subsystem {
                 weaponState = this.weaponStates.get(entity.id)!;
             }
 
-            // Handle weapon switch — validate against owned weapons
+            // Handle weapon switch — only on CHANGE (edge detection)
+            // This prevents the client's weaponSlot from overriding server-side
+            // pickup auto-switch every tick.
             const weaponSlot = entity.input.weaponSlot;
-            if (weaponSlot > 0 && weaponSlot <= weaponState.weapons.length) {
+            const prevSlot = this.lastWeaponSlot.get(entity.id) || 0;
+            this.lastWeaponSlot.set(entity.id, weaponSlot);
+
+            if (weaponSlot !== prevSlot && weaponSlot > 0 && weaponSlot <= weaponState.weapons.length) {
                 const newWeapon = weaponState.weapons[weaponSlot - 1];
                 if (newWeapon && newWeapon !== weaponState.currentWeapon) {
                     weaponState.currentWeapon = newWeapon;
                     weaponState.reloading = false; // Cancel reload on switch
+                    console.log(`[WeaponSystem] Entity ${entity.id}: switched to ${newWeapon} (slot ${weaponSlot})`);
                 }
             }
 
@@ -192,17 +281,19 @@ export class WeaponSystem extends Subsystem {
     ): void {
         // Emit fire event for network broadcast
         if (shooter.transform && shooter.input) {
-            const yawRad = (shooter.input.yaw * Math.PI) / 180;
-            const pitchRad = (shooter.input.pitch * Math.PI) / 180;
+            // yaw/pitch are already in radians from the client (Babylon.js camera)
+            // Negate pitch: Babylon uses negative rotationX for looking UP
+            const yaw = shooter.input.yaw;
+            const pitch = -shooter.input.pitch;
             this.pendingFireEvents.push({
                 entityId: shooter.id,
                 weaponId: weapon.id,
                 originX: shooter.transform.position.x,
                 originY: shooter.transform.position.y,
                 originZ: shooter.transform.position.z,
-                dirX: Math.sin(yawRad) * Math.cos(pitchRad),
-                dirY: Math.sin(pitchRad),
-                dirZ: Math.cos(yawRad) * Math.cos(pitchRad),
+                dirX: Math.sin(yaw) * Math.cos(pitch),
+                dirY: Math.sin(pitch),
+                dirZ: Math.cos(yaw) * Math.cos(pitch),
             });
         }
 
@@ -221,14 +312,15 @@ export class WeaponSystem extends Subsystem {
     ): void {
         if (!shooter.transform || !shooter.input) return;
 
-        // Calculate fire direction from view angles
-        const yawRad = (shooter.input.yaw * Math.PI) / 180;
-        const pitchRad = (shooter.input.pitch * Math.PI) / 180;
+        // Calculate fire direction from view angles (already in radians)
+        // Negate pitch: Babylon uses negative rotationX for looking UP
+        const yaw = shooter.input.yaw;
+        const pitch = -shooter.input.pitch;
 
         const dir = {
-            x: Math.sin(yawRad) * Math.cos(pitchRad),
-            y: Math.sin(pitchRad),
-            z: Math.cos(yawRad) * Math.cos(pitchRad),
+            x: Math.sin(yaw) * Math.cos(pitch),
+            y: Math.sin(pitch),
+            z: Math.cos(yaw) * Math.cos(pitch),
         };
 
         const start = shooter.transform.position;
@@ -293,23 +385,24 @@ export class WeaponSystem extends Subsystem {
     ): void {
         if (!shooter.transform || !shooter.input || !shooter.ownerId) return;
 
-        // Calculate fire direction
-        const yawRad = (shooter.input.yaw * Math.PI) / 180;
-        const pitchRad = (shooter.input.pitch * Math.PI) / 180;
+        // Calculate fire direction (already in radians from client)
+        // Negate pitch: Babylon uses negative rotationX for looking UP
+        const yaw = shooter.input.yaw;
+        const pitch = -shooter.input.pitch;
 
         const speed = weapon.projectileSpeed || 1000;
         const velocity = {
-            x: Math.sin(yawRad) * Math.cos(pitchRad) * speed,
-            y: Math.sin(pitchRad) * speed,
-            z: Math.cos(yawRad) * Math.cos(pitchRad) * speed,
+            x: Math.sin(yaw) * Math.cos(pitch) * speed,
+            y: Math.sin(pitch) * speed,
+            z: Math.cos(yaw) * Math.cos(pitch) * speed,
         };
 
         // Spawn projectile slightly in front of shooter
         const offset = 50;
         const position = {
-            x: shooter.transform.position.x + Math.sin(yawRad) * offset,
-            y: shooter.transform.position.y + 20, // Eye height
-            z: shooter.transform.position.z + Math.cos(yawRad) * offset,
+            x: shooter.transform.position.x + Math.sin(yaw) * offset,
+            y: shooter.transform.position.y + 24, // Eye height (matches client camera offset)
+            z: shooter.transform.position.z + Math.cos(yaw) * offset,
         };
 
         const projectile = createProjectileEntity(
@@ -320,6 +413,11 @@ export class WeaponSystem extends Subsystem {
         );
 
         state.addEntity(projectile);
+
+        // Register projectile type with ProjectileSystem for impact events
+        if (this.projectileSystem) {
+            this.projectileSystem.registerProjectileType(projectile.id, weapon.id);
+        }
     }
 
     private weaponToDamageType(weaponId: string): DamageType {

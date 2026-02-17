@@ -13,6 +13,19 @@ import { DamageType, type DamageEvent, HitLocation } from './CombatSystem';
 import { WEAPONS } from '../weapons/WeaponDef';
 import type { CollisionWorld } from '../../../../engine/network/systems/collision/CollisionWorld';
 
+/**
+ * Event emitted when a projectile impacts, for network broadcast
+ */
+export interface ProjectileImpactEvent {
+    defId: string;    // weapon definition id (e.g. 'rlauncher', 'glauncher')
+    x: number;        // impact position
+    y: number;
+    z: number;
+    normalX: number;  // surface normal at impact
+    normalY: number;
+    normalZ: number;
+}
+
 const CONFIG: SubsystemConfig = {
     name: 'Projectile',
     priority: 20, // Early, so explosions happen before combat
@@ -25,9 +38,11 @@ const CONFIG: SubsystemConfig = {
 
 export class ProjectileSystem extends Subsystem {
     private pendingDamage: DamageEvent[] = [];
+    private pendingImpacts: ProjectileImpactEvent[] = [];
     private projectilesToRemove: EntityId[] = [];
     private maxLifetimeTicks: number = 500; // 4 seconds at 125Hz
     private projectileAges: Map<EntityId, number> = new Map();
+    private projectileTypes: Map<EntityId, string> = new Map();
     private collisionWorld: CollisionWorld | null = null;
 
     constructor(collisionWorld?: CollisionWorld) {
@@ -49,6 +64,22 @@ export class ProjectileSystem extends Subsystem {
         const events = this.pendingDamage;
         this.pendingDamage = [];
         return events;
+    }
+
+    /**
+     * Get pending impact events (consumed by GameServer for broadcast)
+     */
+    getPendingImpacts(): ProjectileImpactEvent[] {
+        const events = this.pendingImpacts;
+        this.pendingImpacts = [];
+        return events;
+    }
+
+    /**
+     * Register a projectile's weapon type (called by WeaponSystem on spawn)
+     */
+    registerProjectileType(entityId: EntityId, defId: string): void {
+        this.projectileTypes.set(entityId, defId);
     }
 
     update(state: WorldState, dt: number, _tick: TickNumber): void {
@@ -83,6 +114,7 @@ export class ProjectileSystem extends Subsystem {
                 z: oldPos.z + moveZ,
             };
             let hitWorld = false;
+            let hitNormal = { x: 0, y: 1, z: 0 };
 
             // Check BSP collision if available
             if (this.collisionWorld) {
@@ -96,7 +128,13 @@ export class ProjectileSystem extends Subsystem {
                     // Hit something in the world
                     newPos = traceResult.hitPoint;
                     hitWorld = true;
+                    if (traceResult.normal) {
+                        hitNormal = traceResult.normal;
+                    }
+                    console.log(`[ProjectileSystem] World hit! fraction=${traceResult.fraction.toFixed(3)} pos=(${newPos.x.toFixed(1)},${newPos.y.toFixed(1)},${newPos.z.toFixed(1)}) normal=(${hitNormal.x.toFixed(2)},${hitNormal.y.toFixed(2)},${hitNormal.z.toFixed(2)})`);
                 }
+            } else {
+                if (age === 1) console.warn('[ProjectileSystem] No collision world set!');
             }
 
             mutable.transform.position = newPos;
@@ -128,14 +166,35 @@ export class ProjectileSystem extends Subsystem {
                         hitLocation: HitLocation.Body,
                     });
 
+                    // Emit impact event (direction from projectile to target as normal)
+                    const defId = this.projectileTypes.get(projectile.id) || 'rlauncher';
+                    const dist = Math.sqrt(distSq) || 1;
+                    this.pendingImpacts.push({
+                        defId,
+                        x: newPos.x, y: newPos.y, z: newPos.z,
+                        normalX: (target.transform!.position.x - newPos.x) / dist,
+                        normalY: (target.transform!.position.y - newPos.y) / dist,
+                        normalZ: (target.transform!.position.z - newPos.z) / dist,
+                    });
+
                     this.projectilesToRemove.push(projectile.id);
                     break;
                 }
             }
 
             // Check world collision
-            if (hitWorld || newPos.y < -1000) {
-                // Hit world geometry or fell out of world
+            if (hitWorld) {
+                // Emit impact event for world hit
+                const defId = this.projectileTypes.get(projectile.id) || 'rlauncher';
+                console.log(`[ProjectileSystem] Emitting impact event: defId=${defId} pos=(${newPos.x.toFixed(1)},${newPos.y.toFixed(1)},${newPos.z.toFixed(1)})`);
+                this.pendingImpacts.push({
+                    defId,
+                    x: newPos.x, y: newPos.y, z: newPos.z,
+                    normalX: hitNormal.x, normalY: hitNormal.y, normalZ: hitNormal.z,
+                });
+                this.projectilesToRemove.push(projectile.id);
+            } else if (newPos.y < -1000) {
+                // Fell out of world — no explosion needed
                 this.projectilesToRemove.push(projectile.id);
             }
         }
@@ -144,6 +203,7 @@ export class ProjectileSystem extends Subsystem {
         for (const id of this.projectilesToRemove) {
             state.removeEntity(id);
             this.projectileAges.delete(id);
+            this.projectileTypes.delete(id);
         }
     }
 

@@ -11,7 +11,7 @@
 
 import { Simulation } from '@engine/server/core/Simulation';
 import { createPlayerEntity } from '@engine/server/ecs/Entity';
-import { playerId as createPlayerId } from '@engine/server/ecs/types';
+import { playerId as createPlayerId, EntityType } from '@engine/server/ecs/types';
 import type { PlayerId, EntityId } from '@engine/server/ecs/types';
 import type { CollisionWorld } from '../../../engine/network/systems/collision/CollisionWorld';
 import type { Vec3 } from '@shared/server/simulation/types';
@@ -26,6 +26,7 @@ import { FPSMovementSubsystem } from './systems/FPSMovementSubsystem';
 import { ProjectileSystem } from './systems/ProjectileSystem';
 import { WeaponSystem } from './systems/WeaponSystem';
 import { CombatSystem } from './systems/CombatSystem';
+import { PickupSystem } from './systems/PickupSystem';
 
 // Gametype
 import { GametypeController } from './gametypes/GametypeController';
@@ -73,6 +74,7 @@ export class GameServer {
     private transport: Transport;
     private clients: Map<string, ClientInfo> = new Map();
     private nextPlayerId: number = 1;
+    private nextBotId: number = 900; // Bot IDs start high to avoid collisions
     private running: boolean = false;
     private tickTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -81,6 +83,7 @@ export class GameServer {
     private projectileSystem: ProjectileSystem;
     private weaponSystem: WeaponSystem;
     private combatSystem: CombatSystem;
+    private pickupSystem: PickupSystem;
 
     // Gametype
     private gametypeController: GametypeController;
@@ -98,12 +101,20 @@ export class GameServer {
         this.projectileSystem = new ProjectileSystem();
         this.weaponSystem = new WeaponSystem();
         this.combatSystem = new CombatSystem();
+        this.pickupSystem = new PickupSystem();
 
         // Add subsystems to simulation
         this.simulation.addSubsystem(this.physicsSystem);
         this.simulation.addSubsystem(this.projectileSystem);
         this.simulation.addSubsystem(this.weaponSystem);
         this.simulation.addSubsystem(this.combatSystem);
+        this.simulation.addSubsystem(this.pickupSystem);
+
+        // Wire weapon → projectile system for type tracking
+        this.weaponSystem.setProjectileSystem(this.projectileSystem);
+
+        // Wire pickup → weapon system for inventory management
+        this.pickupSystem.setWeaponSystem(this.weaponSystem);
 
         // Create gametype controller
         const gt = gametype || new Deathmatch();
@@ -144,8 +155,61 @@ export class GameServer {
         this.gametypeController.setSpawnPoints(points);
     }
 
+    /**
+     * Set weapon/item pickup locations from BSP entity data
+     */
+    setPickupItems(items: Array<{ classname: string; position: { x: number; y: number; z: number } }>): void {
+        this.pickupSystem.setPickupItems(items);
+    }
+
+    /**
+     * Set pickup respawn time (in seconds), typically called by gametype
+     */
+    setPickupRespawnTime(seconds: number): void {
+        this.pickupSystem.setRespawnTime(seconds);
+    }
+
     getGametypeController(): GametypeController {
         return this.gametypeController;
+    }
+
+    // ========================================================================
+    // Bot Spawning
+    // ========================================================================
+
+    /**
+     * Spawn a single bot at a spawn point.
+     * Bots are server entities with physics and health but no input.
+     */
+    spawnBot(): EntityId | null {
+        const state = this.simulation.getStateMut();
+        const pid = createPlayerId(this.nextBotId++);
+        const eid = state.generateEntityId();
+
+        // Use the gametype spawn strategy
+        const spawnPoint = this.gametypeController.getSpawnPoint(state, eid);
+
+        // Create entity (same as a real player — full physics, health, etc.)
+        const entity = createPlayerEntity(eid, pid, spawnPoint);
+        state.addEntity(entity);
+
+        console.log(`[GameServer] Bot ${pid} (entity ${eid}) spawned at (${spawnPoint.x.toFixed(1)}, ${spawnPoint.y.toFixed(1)}, ${spawnPoint.z.toFixed(1)})`);
+        return eid;
+    }
+
+    /**
+     * Spawn N bots at random spawn points.
+     */
+    spawnBots(count: number): EntityId[] {
+        const spawned: EntityId[] = [];
+
+        for (let i = 0; i < count; i++) {
+            const eid = this.spawnBot();
+            if (eid !== null) spawned.push(eid);
+        }
+
+        console.log(`[GameServer] Spawned ${spawned.length} bots`);
+        return spawned;
     }
 
     getPhysicsSystem(): FPSMovementSubsystem {
@@ -209,11 +273,19 @@ export class GameServer {
         // 1. Run simulation (physics, weapons, combat)
         this.simulation.tick();
 
-        // 2. Run gametype controller post-tick (kills, respawns, match state)
+        // 2. Forward weapon & projectile damage → combat system
+        for (const dmg of this.weaponSystem.getPendingDamage()) {
+            this.combatSystem.queueDamage(dmg);
+        }
+        for (const dmg of this.projectileSystem.getPendingDamage()) {
+            this.combatSystem.queueDamage(dmg);
+        }
+
+        // 3. Run gametype controller post-tick (kills, respawns, match state)
         const state = this.simulation.getStateMut();
         this.gametypeController.postTick(state, dt, this.simulation.currentTick);
 
-        // 3. Broadcast snapshot to clients
+        // 4. Broadcast snapshot to clients
         this.broadcastSnapshot();
     }
 
@@ -403,8 +475,11 @@ export class GameServer {
         const gameState = new GameState();
         gameState.tick = Number(state.tick);
 
-        // Convert entities
+        // Convert entities (skip projectiles — server-only;
+        // clients use weapon_fire + projectile_impact events for visuals)
         for (const entity of state.allEntities()) {
+            if (entity.type === EntityType.Projectile) continue;
+
             const clientEntity = new Entity(`player_${entity.id}`);
 
             if (entity.transform) {
@@ -481,6 +556,23 @@ export class GameServer {
             ...matchSnapshot,
         });
 
+        // Add per-player weapon state events (so clients know which weapon they have)
+        for (const entity of state.allEntities()) {
+            if (entity.type === EntityType.Projectile) continue;
+            if (entity.ownerId === undefined) continue;
+
+            const weaponState = this.weaponSystem.getWeaponState(entity.id);
+            if (weaponState) {
+                gameState.events.push({
+                    type: 'weapon_state',
+                    entityId: `player_${entity.id}`,
+                    currentWeapon: weaponState.currentWeapon,
+                    weapons: weaponState.weapons,
+                    ammo: Object.fromEntries(weaponState.ammo),
+                });
+            }
+        }
+
         // Add weapon fire events (so other clients can see shots)
         for (const fireEvent of this.weaponSystem.getPendingFireEvents()) {
             gameState.events.push({
@@ -493,6 +585,37 @@ export class GameServer {
                 dirX: fireEvent.dirX,
                 dirY: fireEvent.dirY,
                 dirZ: fireEvent.dirZ,
+            });
+        }
+
+        // Add projectile impact events (so all clients see explosions)
+        const impacts = this.projectileSystem.getPendingImpacts();
+        if (impacts.length > 0) console.log(`[GameServer] Broadcasting ${impacts.length} impact event(s)`);
+        for (const impact of impacts) {
+            gameState.events.push({
+                type: 'projectile_impact',
+                defId: impact.defId,
+                x: impact.x,
+                y: impact.y,
+                z: impact.z,
+                normalX: impact.normalX,
+                normalY: impact.normalY,
+                normalZ: impact.normalZ,
+            });
+        }
+
+        // Add pickup events (so clients can sync pickup visibility and weapon changes)
+        const pickups = this.pickupSystem.getPendingPickupEvents();
+        for (const pickup of pickups) {
+            gameState.events.push({
+                type: 'item_pickup',
+                pickupId: pickup.pickupId,
+                weaponId: pickup.weaponId,
+                entityId: pickup.entityId,
+                droppedWeaponId: pickup.droppedWeaponId || '',
+                x: pickup.x,
+                y: pickup.y,
+                z: pickup.z,
             });
         }
 
