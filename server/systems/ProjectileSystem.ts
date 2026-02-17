@@ -2,7 +2,8 @@
  * Projectile System
  * 
  * Handles projectile movement and collision.
- * Works for any projectile-based combat system.
+ * Supports per-projectile behavior: bouncing (grenades), instant-explode (rockets),
+ * gravity, and time-based lifetime.
  */
 
 import { Subsystem, type SubsystemConfig } from '@engine/server/core/Subsystem';
@@ -26,6 +27,23 @@ export interface ProjectileImpactEvent {
     normalZ: number;
 }
 
+/**
+ * Per-projectile metadata for bounce/lifetime/gravity behavior
+ */
+interface ProjectileMeta {
+    defId: string;       // weapon definition id
+    bouncesLeft: number; // remaining bounces before explode (0 = explode on first hit)
+    lifetime: number;    // max lifetime in seconds
+    gravity: number;     // gravity multiplier (0 = none, 1 = full)
+    age: number;         // accumulated time alive (seconds)
+}
+
+/** Velocity retention on bounce (Warsow-style) */
+const BOUNCE_FACTOR = 0.65;
+
+/** Gravity acceleration (units/sec²) */
+const GRAVITY_ACCEL = 800;
+
 const CONFIG: SubsystemConfig = {
     name: 'Projectile',
     priority: 20, // Early, so explosions happen before combat
@@ -40,9 +58,7 @@ export class ProjectileSystem extends Subsystem {
     private pendingDamage: DamageEvent[] = [];
     private pendingImpacts: ProjectileImpactEvent[] = [];
     private projectilesToRemove: EntityId[] = [];
-    private maxLifetimeTicks: number = 500; // 4 seconds at 125Hz
-    private projectileAges: Map<EntityId, number> = new Map();
-    private projectileTypes: Map<EntityId, string> = new Map();
+    private projectileMeta: Map<EntityId, ProjectileMeta> = new Map();
     private collisionWorld: CollisionWorld | null = null;
 
     constructor(collisionWorld?: CollisionWorld) {
@@ -76,10 +92,20 @@ export class ProjectileSystem extends Subsystem {
     }
 
     /**
-     * Register a projectile's weapon type (called by WeaponSystem on spawn)
+     * Register a projectile's weapon type and behavior (called by WeaponSystem on spawn)
      */
-    registerProjectileType(entityId: EntityId, defId: string): void {
-        this.projectileTypes.set(entityId, defId);
+    registerProjectileType(entityId: EntityId, defId: string, opts?: {
+        bounces?: number;
+        lifetime?: number;
+        gravity?: number;
+    }): void {
+        this.projectileMeta.set(entityId, {
+            defId,
+            bouncesLeft: opts?.bounces ?? 0,
+            lifetime: opts?.lifetime ?? 10.0,
+            gravity: opts?.gravity ?? 0,
+            age: 0,
+        });
     }
 
     update(state: WorldState, dt: number, _tick: TickNumber): void {
@@ -92,14 +118,45 @@ export class ProjectileSystem extends Subsystem {
             const mutable = state.getEntityMut(projectile.id);
             if (!mutable?.transform || !mutable?.physics) continue;
 
-            // Track age
-            const age = (this.projectileAges.get(projectile.id) || 0) + 1;
-            this.projectileAges.set(projectile.id, age);
-
-            // Remove if too old
-            if (age > this.maxLifetimeTicks) {
+            const meta = this.projectileMeta.get(projectile.id);
+            if (!meta) {
+                // No metadata — legacy fallback, remove after a while
                 this.projectilesToRemove.push(projectile.id);
                 continue;
+            }
+
+            // Track age (real seconds, not ticks)
+            meta.age += dt;
+
+            // Check lifetime expiry — bouncing projectiles explode on timeout
+            if (meta.age >= meta.lifetime) {
+                const pos = mutable.transform.position;
+
+                if (meta.bouncesLeft >= 0) {
+                    // Grenade-type: explode on timeout
+                    this.pendingImpacts.push({
+                        defId: meta.defId,
+                        x: pos.x, y: pos.y, z: pos.z,
+                        normalX: 0, normalY: 1, normalZ: 0,
+                    });
+
+                    // Apply splash damage
+                    const weaponDef = WEAPONS[meta.defId];
+                    if (weaponDef?.splashRadius) {
+                        this.applySplashDamage(state, pos, projectile.ownerId, weaponDef.splashRadius);
+                    }
+                }
+
+                this.projectilesToRemove.push(projectile.id);
+                continue;
+            }
+
+            // Apply gravity
+            if (meta.gravity > 0) {
+                mutable.physics.velocity.y -= GRAVITY_ACCEL * meta.gravity * dt;
+            } else {
+                // Slight gravity for non-grenade projectiles (rockets etc)
+                mutable.physics.velocity.y -= 50 * dt;
             }
 
             // Calculate movement delta
@@ -125,24 +182,20 @@ export class ProjectileSystem extends Subsystem {
                 );
 
                 if (traceResult.fraction < 1.0 && traceResult.hitPoint) {
-                    // Hit something in the world
                     newPos = traceResult.hitPoint;
                     hitWorld = true;
                     if (traceResult.normal) {
                         hitNormal = traceResult.normal;
                     }
-                    console.log(`[ProjectileSystem] World hit! fraction=${traceResult.fraction.toFixed(3)} pos=(${newPos.x.toFixed(1)},${newPos.y.toFixed(1)},${newPos.z.toFixed(1)}) normal=(${hitNormal.x.toFixed(2)},${hitNormal.y.toFixed(2)},${hitNormal.z.toFixed(2)})`);
                 }
             } else {
-                if (age === 1) console.warn('[ProjectileSystem] No collision world set!');
+                if (meta.age < dt * 2) console.warn('[ProjectileSystem] No collision world set!');
             }
 
             mutable.transform.position = newPos;
 
-            // Apply gravity to rockets (slight drop), plasma has less gravity
-            mutable.physics.velocity.y -= 50 * dt;
-
-            // Check collisions with players
+            // Check collisions with players (direct hit)
+            let hitPlayer = false;
             for (const target of state.entitiesByType(EntityType.Player)) {
                 if (target.ownerId === projectile.ownerId) continue; // No self-damage
                 if (!target.transform || !target.health || target.health.dead) continue;
@@ -155,44 +208,77 @@ export class ProjectileSystem extends Subsystem {
 
                 const hitRadius = 50; // Projectile + player radius
                 if (distSq < hitRadius ** 2) {
-                    // Direct hit! Use plasma damage (20) or fallback to rocket
-                    const damage = WEAPONS.plasmagun?.damage || WEAPONS.rlauncher.damage;
+                    // Direct hit!
+                    const weaponDef = WEAPONS[meta.defId];
+                    const damage = weaponDef?.damage || 80;
+
                     this.pendingDamage.push({
                         victimId: target.id,
                         attackerId: projectile.ownerId ? state.getEntityByOwner(projectile.ownerId)?.id : undefined,
                         damage,
                         armorPiercing: 0,
-                        damageType: DamageType.Plasma,
+                        damageType: this.defIdToDamageType(meta.defId),
                         hitLocation: HitLocation.Body,
                     });
 
-                    // Emit impact event (direction from projectile to target as normal)
-                    const defId = this.projectileTypes.get(projectile.id) || 'rlauncher';
+                    // Emit impact event
                     const dist = Math.sqrt(distSq) || 1;
                     this.pendingImpacts.push({
-                        defId,
+                        defId: meta.defId,
                         x: newPos.x, y: newPos.y, z: newPos.z,
                         normalX: (target.transform!.position.x - newPos.x) / dist,
                         normalY: (target.transform!.position.y - newPos.y) / dist,
                         normalZ: (target.transform!.position.z - newPos.z) / dist,
                     });
 
+                    // Apply splash damage on direct hit too (for weapons with splash)
+                    if (weaponDef?.splashRadius) {
+                        this.applySplashDamage(state, newPos, projectile.ownerId, weaponDef.splashRadius);
+                    }
+
+                    hitPlayer = true;
                     this.projectilesToRemove.push(projectile.id);
                     break;
                 }
             }
 
-            // Check world collision
+            if (hitPlayer) continue;
+
+            // Handle world collision
             if (hitWorld) {
-                // Emit impact event for world hit
-                const defId = this.projectileTypes.get(projectile.id) || 'rlauncher';
-                console.log(`[ProjectileSystem] Emitting impact event: defId=${defId} pos=(${newPos.x.toFixed(1)},${newPos.y.toFixed(1)},${newPos.z.toFixed(1)})`);
-                this.pendingImpacts.push({
-                    defId,
-                    x: newPos.x, y: newPos.y, z: newPos.z,
-                    normalX: hitNormal.x, normalY: hitNormal.y, normalZ: hitNormal.z,
-                });
-                this.projectilesToRemove.push(projectile.id);
+                if (meta.bouncesLeft > 0) {
+                    // ── BOUNCE ──
+                    meta.bouncesLeft--;
+
+                    // Reflect velocity: v' = v - 2(v·n)n, scaled by bounce factor
+                    const vel = mutable.physics.velocity;
+                    const dotVN = vel.x * hitNormal.x + vel.y * hitNormal.y + vel.z * hitNormal.z;
+                    vel.x = (vel.x - 2 * dotVN * hitNormal.x) * BOUNCE_FACTOR;
+                    vel.y = (vel.y - 2 * dotVN * hitNormal.y) * BOUNCE_FACTOR;
+                    vel.z = (vel.z - 2 * dotVN * hitNormal.z) * BOUNCE_FACTOR;
+
+                    // Nudge position slightly off the surface to prevent re-collision
+                    mutable.transform.position.x += hitNormal.x * 2;
+                    mutable.transform.position.y += hitNormal.y * 2;
+                    mutable.transform.position.z += hitNormal.z * 2;
+
+                    // Don't remove — projectile continues bouncing
+                } else {
+                    // ── EXPLODE ON WORLD HIT ──
+                    this.pendingImpacts.push({
+                        defId: meta.defId,
+                        x: newPos.x, y: newPos.y, z: newPos.z,
+                        normalX: hitNormal.x, normalY: hitNormal.y, normalZ: hitNormal.z,
+                    });
+
+                    // Apply splash damage
+                    const weaponDef = WEAPONS[meta.defId];
+                    if (weaponDef?.splashRadius) {
+                        this.applySplashDamage(state, newPos, projectile.ownerId, weaponDef.splashRadius);
+                    }
+
+                    this.projectilesToRemove.push(projectile.id);
+                }
             } else if (newPos.y < -1000) {
                 // Fell out of world — no explosion needed
                 this.projectilesToRemove.push(projectile.id);
@@ -202,8 +288,19 @@ export class ProjectileSystem extends Subsystem {
         // Remove expired/exploded projectiles
         for (const id of this.projectilesToRemove) {
             state.removeEntity(id);
-            this.projectileAges.delete(id);
-            this.projectileTypes.delete(id);
+            this.projectileMeta.delete(id);
+        }
+    }
+
+    /**
+     * Map weapon def ID to damage type
+     */
+    private defIdToDamageType(defId: string): DamageType {
+        switch (defId) {
+            case 'plasmagun': return DamageType.Plasma;
+            case 'glauncher':
+            case 'rlauncher': return DamageType.Explosion;
+            default: return DamageType.Bullet;
         }
     }
 
@@ -225,7 +322,9 @@ export class ProjectileSystem extends Subsystem {
             if (dist < radius) {
                 // Damage falls off with distance
                 const falloff = 1 - (dist / radius);
-                const damage = Math.round(WEAPONS.rlauncher.damage * 0.5 * falloff);
+                const weaponDef = WEAPONS['rlauncher'];
+                const baseDamage = weaponDef?.damage || 80;
+                const damage = Math.round(baseDamage * 0.5 * falloff);
 
                 if (damage > 0) {
                     // Allow self-damage but reduced

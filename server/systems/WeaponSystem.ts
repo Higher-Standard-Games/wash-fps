@@ -416,7 +416,13 @@ export class WeaponSystem extends Subsystem {
 
         // Register projectile type with ProjectileSystem for impact events
         if (this.projectileSystem) {
-            this.projectileSystem.registerProjectileType(projectile.id, weapon.id);
+            // Per-projectile behavior based on weapon type
+            const isGrenade = weapon.id === 'glauncher';
+            this.projectileSystem.registerProjectileType(projectile.id, weapon.id, {
+                bounces: isGrenade ? 3 : 0,
+                lifetime: isGrenade ? 1.25 : 10.0,
+                gravity: isGrenade ? 1 : 0,
+            });
         }
     }
 
