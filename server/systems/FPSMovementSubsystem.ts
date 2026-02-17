@@ -54,9 +54,10 @@ function adaptInput(input: {
 
 /** Apply movement simulation result to entity transform and physics */
 function applyResult(
-    transform: { position: { x: number; y: number; z: number } },
+    transform: { position: { x: number; y: number; z: number }; rotation?: { x: number; y: number; z: number } },
     physics: any,
-    result: any
+    result: any,
+    input?: { pitch: number; yaw: number },
 ): void {
     transform.position = result.position;
     physics.velocity = result.velocity;
@@ -67,6 +68,12 @@ function applyResult(
     physics.wallJumpState = result.wallJumpState ?? 'none';
     physics.ledgeGrabState = result.ledgeGrabState ?? 'none';
     physics.actualHorizSpeed = result.actualHorizSpeed ?? 0;
+
+    // Sync player rotation so remote clients can orient the model
+    if (input && transform.rotation) {
+        transform.rotation.x = input.pitch;
+        transform.rotation.y = input.yaw;
+    }
 }
 
 export class FPSMovementSubsystem extends Subsystem {
@@ -133,7 +140,7 @@ export class FPSMovementSubsystem extends Subsystem {
                     transform.position, physics.velocity,
                     movementInput, dt, this.collisionWorld
                 );
-                applyResult(transform, physics, result);
+                applyResult(transform, physics, result, input);
             } else {
                 // Process ALL queued inputs — one simulate() per input
                 // This matches client-side prediction which ran one simulate per input
@@ -151,7 +158,7 @@ export class FPSMovementSubsystem extends Subsystem {
                         transform.position, physics.velocity,
                         movementInput, dt, this.collisionWorld
                     );
-                    applyResult(transform, physics, result);
+                    applyResult(transform, physics, result, input);
                 }
                 // Clear queue after processing
                 input.inputQueue = [];
