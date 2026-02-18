@@ -47,6 +47,8 @@ export interface GameServerConfig {
     mapName: string;
     maxClients: number;
     tickRate: number;
+    /** Snapshot broadcast rate in Hz (default: 30). Must be <= tickRate. */
+    snapshotRate?: number;
     certPath: string;
     keyPath: string;
 }
@@ -88,6 +90,10 @@ export class GameServer {
     // Gametype
     private gametypeController: GametypeController;
 
+    // Snapshot throttling: only broadcast every N ticks
+    private snapshotTickCounter: number = 0;
+    private ticksPerSnapshot: number = 1;
+
     constructor(config: GameServerConfig, gametype?: BaseGametype) {
         this.config = config;
 
@@ -95,6 +101,11 @@ export class GameServer {
         this.simulation = new Simulation({
             tickMs: 1000 / config.tickRate,
         });
+
+        // Calculate ticks-per-snapshot for decoupled snapshot rate
+        const snapshotRate = config.snapshotRate ?? 30;
+        this.ticksPerSnapshot = Math.max(1, Math.round(config.tickRate / snapshotRate));
+        console.log(`[GameServer] Tick rate: ${config.tickRate}Hz, Snapshot rate: ${snapshotRate}Hz (every ${this.ticksPerSnapshot} ticks)`);
 
         // Create subsystems
         this.physicsSystem = new FPSMovementSubsystem();
@@ -285,8 +296,12 @@ export class GameServer {
         const state = this.simulation.getStateMut();
         this.gametypeController.postTick(state, dt, this.simulation.currentTick);
 
-        // 4. Broadcast snapshot to clients
-        this.broadcastSnapshot();
+        // 4. Broadcast snapshot to clients (throttled to snapshot rate)
+        this.snapshotTickCounter++;
+        if (this.snapshotTickCounter >= this.ticksPerSnapshot) {
+            this.snapshotTickCounter = 0;
+            this.broadcastSnapshot();
+        }
     }
 
     // ========================================================================
@@ -445,14 +460,22 @@ export class GameServer {
 
     private handleInput(client: ClientInfo, data: Uint8Array): void {
         const { command } = MessageCodec.decodeCommand(data);
+        const seq = command.seq || 0;
+
+        // Deduplicate: reject commands already processed (from command redundancy)
+        // Client sends last 3 commands per tick for packet loss resilience.
+        // Without this guard, each command would be applied 3x → triple movement speed.
+        if (seq <= client.lastInputSeq) {
+            return; // Already processed this or an older command
+        }
 
         const state = this.simulation.getStateMut();
         const mutEntity = state.getEntityMut(client.entityId);
         if (mutEntity?.input) {
             const buttons = command.buttons || 0;
             // Debug: log every 200th input to trace button values
-            if (client.lastInputSeq % 200 === 0) {
-                console.log(`[GameServer.handleInput] Player ${client.playerId}: buttons=${buttons} (raw command.buttons=${command.buttons}), seq=${command.seq}`);
+            if (seq % 200 === 0) {
+                console.log(`[GameServer.handleInput] Player ${client.playerId}: buttons=${buttons} (raw command.buttons=${command.buttons}), seq=${seq}`);
             }
             mutEntity.input.inputQueue.push({
                 forward: command.direction?.z || 0,
@@ -460,9 +483,9 @@ export class GameServer {
                 pitch: command.pitch || 0,
                 yaw: command.yaw || 0,
                 buttons,
-                sequence: command.seq || 0,
+                sequence: seq,
             });
-            client.lastInputSeq = command.seq || 0;
+            client.lastInputSeq = seq;
         }
     }
 

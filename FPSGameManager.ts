@@ -32,6 +32,7 @@ import { EngineStore } from '@babylonjs/core/Engines/engineStore';
 import { RemotePlayerRenderer } from './client/RemotePlayerRenderer';
 import { getExplosionEffect, ROCKET_EXPLOSION, GRENADE_EXPLOSION, PLASMA_EXPLOSION } from '../../engine/weapon/ExplosionEffect';
 import { FPSPlayer } from './FPSPlayer';
+import { NetGraph } from '../../engine/network/client/NetGraph';
 
 export interface FPSGameConfig {
   tickRate?: number;
@@ -331,6 +332,10 @@ export class FPSGameManager {
       // Initialize MatchHUD for match lifecycle display
       MatchHUD.getInstance().init();
       console.log(`[FPSGameManager] MatchHUD initialized`);
+
+      // Initialize NetGraph overlay (cl_netgraph CVar)
+      NetGraph.init();
+      console.log(`[FPSGameManager] NetGraph initialized`);
     } catch (error) {
       console.error(`[FPSGameManager] Failed to connect to ${url}:`, error);
       throw error;
@@ -461,6 +466,7 @@ export class FPSGameManager {
 
     // Send to host (runs simulation tick)
     this.gameHost.sendCommand(cmd);
+    NetGraph.recordCommandSent();
   }
 
   /**
@@ -517,6 +523,18 @@ export class FPSGameManager {
   }
 
   /**
+   * Render remote player models using interpolated positions from the snapshot buffer.
+   * Call once per frame AFTER processSnapshots() for smooth remote player movement.
+   */
+  renderRemotePlayers(): void {
+    if (this.remoteRenderer) {
+      this.remoteRenderer.render();
+    }
+    // Render network diagnostics overlay (if cl_netgraph > 0)
+    NetGraph.render();
+  }
+
+  /**
    * Get current local player position from simulation
    * Uses interpolation for smooth rendering between snapshots
    */
@@ -533,7 +551,12 @@ export class FPSGameManager {
       if (!this.v2Client.hasValidPosition()) {
         return null;  // Camera will wait for valid position
       }
-      const pos = this.v2Client.getPosition();
+      // Decay the visual smoothing offset each frame (absorbs reconciliation jitter)
+      const engine = EngineStore.LastCreatedEngine;
+      const dt = engine ? engine.getDeltaTime() / 1000 : 0.016;
+      this.v2Client.decayVisualOffset(dt);
+      // Use visually smoothed position for camera rendering
+      const pos = this.v2Client.getVisualPosition();
       return { x: pos.x, y: pos.y, z: pos.z };
     }
 
@@ -669,6 +692,10 @@ export class FPSGameManager {
   private onServerStateUpdate(state: GameState): void {
     this._stateUpdateCount++;
 
+    // Record snapshot for NetGraph
+    const localPlayer = state.players.get(this.localPlayerId);
+    NetGraph.recordSnapshot(localPlayer?.ping ?? 0);
+
     // Dynamically sync localPlayerId from the game host.
     // JoinAccept sets networkHost.localPlayerId DURING connect(), but
     // FPSGameManager.localPlayerId is only copied AFTER connect() resolves.
@@ -702,8 +729,19 @@ export class FPSGameManager {
           if (event.entityId === localEntityId) continue;
           this.handleRemoteWeaponFire(event);
         } else if (event.type === 'projectile_impact') {
-          // Server-authoritative explosion: spawn for ALL clients
           const pos = new Vector3(event.x, event.y, event.z);
+
+          // Map weapon defId (server) → projectile defId (client prediction tracking)
+          const projDefId = event.defId === 'glauncher' ? 'grenade'
+            : event.defId === 'plasmagun' ? 'plasma_bolt'
+              : 'rocket'; // rlauncher and others → rocket
+
+          // Deduplicate: if client already predicted this explosion locally, skip
+          if (getProjectileManager().hasRecentPrediction(pos, projDefId)) {
+            continue;
+          }
+
+          // Server-authoritative explosion (remote player's projectile, or correction)
           const normal = new Vector3(event.normalX, event.normalY, event.normalZ);
           const config = event.defId === 'glauncher' ? GRENADE_EXPLOSION
             : event.defId === 'plasmagun' ? PLASMA_EXPLOSION
@@ -713,14 +751,14 @@ export class FPSGameManager {
       }
     }
 
-    // === Remote player model rendering ===
+    // === Remote player snapshot buffering (push only — rendering is per-frame) ===
     if (localEntityId) {
       // Lazy-init renderer with scene
       if (!this.remoteRenderer && EngineStore.LastCreatedScene) {
         this.remoteRenderer = new RemotePlayerRenderer(EngineStore.LastCreatedScene);
       }
       if (this.remoteRenderer) {
-        this.remoteRenderer.update(state, localEntityId);
+        this.remoteRenderer.pushSnapshot(state, localEntityId);
       }
     }
 

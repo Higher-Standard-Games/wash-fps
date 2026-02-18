@@ -89,6 +89,10 @@ export class V2NetworkClient {
     private reconcileCount: number = 0;
     private lastReconcileError: number = 0;
 
+    // Visual smoothing for reconciliation corrections
+    // Instead of teleporting on correction, store the error and decay it
+    private visualOffset: Vec3 = { x: 0, y: 0, z: 0 };
+
     // Track if we've received at least one server snapshot
     // Position is (0,0,0) until first snapshot - camera should wait
     private hasReceivedSnapshot: boolean = false;
@@ -249,7 +253,10 @@ export class V2NetworkClient {
         const preDz = this.localState.position.z - snapshot.position.z;
         const preError = Math.sqrt(preDx * preDx + preDy * preDy + preDz * preDz);
 
-        // === STEP 1: Reset to server state (authoritative) ===
+        // === STEP 1: Save pre-reconciliation position for visual smoothing ===
+        const preReconcilePos = { ...this.localState.position };
+
+        // === STEP 2: Reset to server state (authoritative) ===
         this.localState.position = { ...snapshot.position };
         this.localState.velocity = { ...snapshot.velocity };
         this.localState.grounded = snapshot.grounded;
@@ -290,9 +297,18 @@ export class V2NetworkClient {
             this.updatePredictedMovement(result);
         }
 
-        // === STEP 3: Prune acknowledged inputs ===
+        // === STEP 4: Prune acknowledged inputs ===
         this.inputHistory.pruneAcked(snapshot.ackedInputSeq);
         this.lastAckedSeq = snapshot.ackedInputSeq;
+
+        // === STEP 5: Compute visual offset for smoothing ===
+        // The difference between where we were visually and where we are now
+        // after reconciliation. This gets decayed over time for smooth camera.
+        if (!isFirstSnapshot) {
+            this.visualOffset.x += preReconcilePos.x - this.localState.position.x;
+            this.visualOffset.y += preReconcilePos.y - this.localState.position.y;
+            this.visualOffset.z += preReconcilePos.z - this.localState.position.z;
+        }
 
         // Track reconciliation count and error for diagnostics
         this.reconcileCount++;
@@ -315,6 +331,31 @@ export class V2NetworkClient {
 
     getPosition(): Vec3 {
         return { ...this.localState.position };
+    }
+
+    /**
+     * Get visually smoothed position for camera rendering.
+     * This is the logical position + a decaying visual offset that
+     * absorbs reconciliation corrections to prevent jitter.
+     */
+    getVisualPosition(): Vec3 {
+        return {
+            x: this.localState.position.x + this.visualOffset.x,
+            y: this.localState.position.y + this.visualOffset.y,
+            z: this.localState.position.z + this.visualOffset.z,
+        };
+    }
+
+    /**
+     * Decay the visual smoothing offset toward zero.
+     * Call once per frame with frame delta time.
+     * ~83ms to fully decay (factor of 12/sec).
+     */
+    decayVisualOffset(dt: number): void {
+        const factor = Math.min(1.0, dt * 12);
+        this.visualOffset.x *= (1 - factor);
+        this.visualOffset.y *= (1 - factor);
+        this.visualOffset.z *= (1 - factor);
     }
 
     getVelocity(): Vec3 {
