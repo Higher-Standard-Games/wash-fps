@@ -398,6 +398,49 @@ export class V2NetworkClient {
         };
     }
 
+    /**
+     * Apply knockback impulse to local predicted state (client-side prediction).
+     * Called when client detects self-damage — provides immediate KB feedback
+     * without waiting for server snapshot confirmation.
+     *
+     * Uses same formula as server CombatSystem.processDamage():
+     * 1. Stun: strip horizontal speed proportional to damage
+     * 2. KB: push in direction with upward bias
+     *
+     * @param damage - Final damage amount
+     * @param dir - Knockback direction (from explosion/shot to victim)
+     * @param kbScale - Weapon's knockback scale
+     * @param isSelf - Whether this is self-inflicted damage
+     */
+    applyKnockback(damage: number, dir: { x: number; y: number; z: number }, kbScale: number, isSelf: boolean): void {
+        const vel = this.localState.velocity;
+
+        // 1. STUN — strip horizontal speed (same as server)
+        const stunFraction = Math.min(damage / 100, 0.8);
+        vel.x *= (1 - stunFraction);
+        vel.z *= (1 - stunFraction);
+
+        // 2. KNOCKBACK — direction with upward bias
+        const kbDir = { x: dir.x, y: Math.max(dir.y, 0.4), z: dir.z };
+        const len = Math.sqrt(kbDir.x * kbDir.x + kbDir.y * kbDir.y + kbDir.z * kbDir.z);
+        if (len > 0.001) {
+            kbDir.x /= len;
+            kbDir.y /= len;
+            kbDir.z /= len;
+        }
+
+        const selfMult = isSelf ? 1.2 : 1.0;
+        const force = damage * kbScale * selfMult;
+
+        vel.x += kbDir.x * force;
+        vel.y += kbDir.y * force;
+        vel.z += kbDir.z * force;
+
+        // 3. Reset grounded so movement sim doesn't friction-cancel the impulse
+        this.localState.grounded = false;
+        this.movement.resetPhysicsState(false);
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // HELPERS
     // ═══════════════════════════════════════════════════════════════════

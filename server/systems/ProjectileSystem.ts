@@ -221,6 +221,8 @@ export class ProjectileSystem extends Subsystem {
                         : baseDamage;
 
                     if (damage > 0) {
+                        // KB direction = projectile velocity (momentum transfer)
+                        const vel = mutable.physics.velocity;
                         this.pendingDamage.push({
                             victimId: target.id,
                             attackerId: projectile.ownerId ? state.getEntityByOwner(projectile.ownerId)?.id : undefined,
@@ -228,6 +230,8 @@ export class ProjectileSystem extends Subsystem {
                             armorPiercing: 0,
                             damageType: this.defIdToDamageType(meta.defId),
                             hitLocation: HitLocation.Body,
+                            knockbackDir: { x: vel.x, y: vel.y, z: vel.z },
+                            knockbackScale: weaponDef?.knockbackScale,
                         });
                     }
 
@@ -346,6 +350,10 @@ export class ProjectileSystem extends Subsystem {
                 }
 
                 if (damage > 0) {
+                    // KB direction = explosion center → victim (radial push)
+                    const dx = target.transform.position.x - center.x;
+                    const dy = target.transform.position.y - center.y;
+                    const dz = target.transform.position.z - center.z;
                     this.pendingDamage.push({
                         victimId: target.id,
                         attackerId: attackerOwnerId ? state.getEntityByOwner(attackerOwnerId)?.id : undefined,
@@ -353,6 +361,8 @@ export class ProjectileSystem extends Subsystem {
                         armorPiercing: 0,
                         damageType: DamageType.Explosion,
                         hitLocation: HitLocation.Body,
+                        knockbackDir: { x: dx, y: dy, z: dz },
+                        knockbackScale: weaponDef?.knockbackScale,
                     });
                 }
             }

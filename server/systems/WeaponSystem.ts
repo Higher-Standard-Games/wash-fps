@@ -369,6 +369,8 @@ export class WeaponSystem extends Subsystem {
                     armorPiercing: 0,
                     damageType: this.weaponToDamageType(weapon.id),
                     hitLocation,
+                    knockbackDir: { x: dir.x, y: dir.y, z: dir.z },
+                    knockbackScale: weapon.knockbackScale,
                 });
 
                 // Pellet weapons (riotgun) continue checking — pellets can hit multiple

@@ -143,6 +143,9 @@ export class GameServer {
         // Wire pickup → weapon system for inventory management
         this.pickupSystem.setWeaponSystem(this.weaponSystem);
 
+        // Wire combat → movement system for KB grounded state reset
+        this.combatSystem.setMovementSubsystem(this.physicsSystem);
+
         // Create gametype controller
         const gt = gametype || new Deathmatch();
         this.gametypeController = new GametypeController(gt);

@@ -114,6 +114,14 @@ export class FPSMovementSubsystem extends Subsystem {
         return profile;
     }
 
+    /**
+     * Reset grounded state for an entity (called by CombatSystem after knockback
+     * so friction doesn't eat the impulse on the next movement tick)
+     */
+    resetGroundedState(entityId: number, grounded: boolean): void {
+        this.getProfile(entityId).resetPhysicsState(grounded);
+    }
+
     update(state: WorldState, dt: number, _tick: TickNumber): void {
         // Process all player entities
         for (const entity of state.entitiesByType(EntityType.Player)) {
