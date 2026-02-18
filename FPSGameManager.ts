@@ -694,7 +694,13 @@ export class FPSGameManager {
 
     // Record snapshot for NetGraph
     const localPlayer = state.players.get(this.localPlayerId);
-    NetGraph.recordSnapshot(localPlayer?.ping ?? 0);
+    NetGraph.recordSnapshot(localPlayer?.ping ?? 0, state.tick);
+
+    // Feed ClockSync offset to NetGraph for display
+    const networkHost = this.gameHost as any;
+    if (networkHost?.clockSync?.isSynced()) {
+      NetGraph.setClockOffset(networkHost.clockSync.getOffset());
+    }
 
     // Dynamically sync localPlayerId from the game host.
     // JoinAccept sets networkHost.localPlayerId DURING connect(), but
@@ -758,7 +764,14 @@ export class FPSGameManager {
         this.remoteRenderer = new RemotePlayerRenderer(EngineStore.LastCreatedScene);
       }
       if (this.remoteRenderer) {
-        this.remoteRenderer.pushSnapshot(state, localEntityId);
+        // Convert server timestamp to local time via ClockSync for accurate interpolation
+        let serverLocalTime: number | undefined;
+        const networkHost = this.gameHost as any;
+        if (state.serverTimestamp && networkHost?.clockSync?.isSynced()) {
+          serverLocalTime = networkHost.clockSync.toLocalTime(state.serverTimestamp);
+        }
+
+        this.remoteRenderer.pushSnapshot(state, localEntityId, serverLocalTime);
       }
     }
 

@@ -53,8 +53,12 @@ export class RemotePlayerRenderer {
     /**
      * Push a new snapshot into the interpolation buffer.
      * Called once per server state update (~30Hz).
+     *
+     * @param state Server game state
+     * @param localEntityId ID of local player's entity (excluded from rendering)
+     * @param serverLocalTime Optional server timestamp converted to local time via ClockSync
      */
-    pushSnapshot(state: GameState, localEntityId: string): void {
+    pushSnapshot(state: GameState, localEntityId: string, serverLocalTime?: number): void {
         this.localEntityId = localEntityId;
 
         // Extract entity data into snapshot format
@@ -80,7 +84,7 @@ export class RemotePlayerRenderer {
             });
         }
 
-        this.snapshotBuffer.push(state.tick, entities);
+        this.snapshotBuffer.push(state.tick, entities, serverLocalTime);
     }
 
     /**
