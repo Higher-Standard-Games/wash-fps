@@ -165,22 +165,12 @@ export class CombatSystem extends Subsystem {
         // Apply damage
         applyDamage(victim.health, finalDamage, event.armorPiercing);
 
-        // ── STUN + KNOCKBACK ──
-        // Stun: strip horizontal speed proportional to damage (Warsow-style)
-        // KB: push victim away from damage source with upward bias
-        if (victim.physics && event.knockbackDir) {
-            const vel = victim.physics.velocity;
-
-            // 1. STUN — strip horizontal speed (cripple momentum)
-            //    Cap at 80% speed loss to prevent full freeze
-            const stunFraction = Math.min(finalDamage / 100, 0.8);
-            vel.x *= (1 - stunFraction);
-            vel.z *= (1 - stunFraction);
-            // Y untouched — don't cancel gravity or upward KB
-
-            // 2. KNOCKBACK — calculate direction with upward bias
+        // ── KNOCKBACK (queued for movement system) ──
+        // Queue impulse for FPSMovementSubsystem to apply BEFORE simulate().
+        // This ensures KB bypasses ground friction/clipping.
+        if (event.knockbackDir && this.movementSubsystem) {
+            // Calculate direction with upward bias
             const kbDir = { ...event.knockbackDir };
-            // Apply upward bias (always launch upward)
             kbDir.y = Math.max(kbDir.y, KB_UPWARD_BIAS);
             // Normalize
             const len = Math.sqrt(kbDir.x * kbDir.x + kbDir.y * kbDir.y + kbDir.z * kbDir.z);
@@ -196,15 +186,15 @@ export class CombatSystem extends Subsystem {
             const selfMult = isSelf ? SELF_KB_MULTIPLIER : 1.0;
             const force = finalDamage * kbScale * selfMult;
 
-            // Apply impulse
-            vel.x += kbDir.x * force;
-            vel.y += kbDir.y * force;
-            vel.z += kbDir.z * force;
+            // Stun fraction: strip horizontal speed proportional to damage (cap 80%)
+            const stunFraction = Math.min(finalDamage / 100, 0.8);
 
-            // 3. Reset grounded state so friction doesn't eat the impulse
-            if (this.movementSubsystem) {
-                this.movementSubsystem.resetGroundedState(event.victimId as number, false);
-            }
+            this.movementSubsystem.queueImpulse({
+                entityId: event.victimId,
+                dirX: kbDir.x, dirY: kbDir.y, dirZ: kbDir.z,
+                force,
+                stunFraction,
+            });
         }
 
         // Store for network forwarding (with final damage value)

@@ -76,11 +76,27 @@ function applyResult(
     }
 }
 
+/** Queued knockback impulse (applied before simulate to bypass ground friction/clipping) */
+interface KnockbackImpulse {
+    entityId: EntityId;
+    /** Normalized direction (already has upward bias) */
+    dirX: number;
+    dirY: number;
+    dirZ: number;
+    /** Total force = damage × kbScale × selfMult */
+    force: number;
+    /** Fraction of horizontal speed to strip (0–0.8) */
+    stunFraction: number;
+}
+
 export class FPSMovementSubsystem extends Subsystem {
     private collisionWorld: CollisionWorld | null = null;
 
     // Per-entity movement profiles (each has its own state)
     private movementProfiles: Map<number, FPSMovementProfile> = new Map();
+
+    /** Pending knockback impulses queued by CombatSystem */
+    private pendingImpulses: KnockbackImpulse[] = [];
 
     constructor(collisionWorld?: CollisionWorld) {
         super(CONFIG);
@@ -122,7 +138,47 @@ export class FPSMovementSubsystem extends Subsystem {
         this.getProfile(entityId).resetPhysicsState(grounded);
     }
 
+    /**
+     * Queue a knockback impulse to be applied at the start of the next movement tick.
+     * This ensures KB bypasses ground friction/clipping by being applied BEFORE simulate().
+     */
+    queueImpulse(impulse: {
+        entityId: EntityId;
+        dirX: number; dirY: number; dirZ: number;
+        force: number;
+        stunFraction: number;
+    }): void {
+        this.pendingImpulses.push(impulse);
+    }
+
     update(state: WorldState, dt: number, _tick: TickNumber): void {
+        // === DRAIN KNOCKBACK IMPULSES (before simulate!) ===
+        // Apply queued impulses to entity velocity and set airborne.
+        // This MUST happen before simulate() so the movement profile
+        // processes the KB'd velocity as airborne (no ground friction/clipping).
+        if (this.pendingImpulses.length > 0) {
+            for (const impulse of this.pendingImpulses) {
+                const ent = state.getEntityMut(impulse.entityId);
+                if (!ent?.physics || ent.health?.dead) continue;
+
+                const vel = ent.physics.velocity;
+
+                // 1. STUN — strip horizontal speed
+                vel.x *= (1 - impulse.stunFraction);
+                vel.z *= (1 - impulse.stunFraction);
+
+                // 2. KB — add impulse
+                vel.x += impulse.dirX * impulse.force;
+                vel.y += impulse.dirY * impulse.force;
+                vel.z += impulse.dirZ * impulse.force;
+
+                // 3. Mark airborne so simulate() uses air physics (no ground friction)
+                ent.physics.grounded = false;
+                this.getProfile(impulse.entityId as number).resetPhysicsState(false);
+            }
+            this.pendingImpulses = [];
+        }
+
         // Process all player entities
         for (const entity of state.entitiesByType(EntityType.Player)) {
             if (!entity.transform || !entity.physics || !entity.input) continue;
