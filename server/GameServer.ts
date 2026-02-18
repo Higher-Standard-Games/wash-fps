@@ -28,6 +28,9 @@ import { WeaponSystem } from './systems/WeaponSystem';
 import { CombatSystem } from './systems/CombatSystem';
 import { PickupSystem } from './systems/PickupSystem';
 
+// Anti-cheat
+import { MovementValidator } from './MovementValidator';
+
 // Gametype
 import { GametypeController } from './gametypes/GametypeController';
 import { Deathmatch } from './gametypes/Deathmatch';
@@ -91,6 +94,9 @@ export class GameServer {
 
     // Gametype
     private gametypeController: GametypeController;
+
+    // Anti-warp: rate-limit client inputs to prevent speed hacking
+    private movementValidator: MovementValidator;
 
     // Snapshot throttling: only broadcast every N ticks
     private snapshotTickCounter: number = 0;
@@ -158,6 +164,8 @@ export class GameServer {
 
         console.log(`[GameServer] Created with ${this.simulation.getSubsystems().length} subsystems`);
         console.log(`[GameServer] Gametype: ${gt.name}`);
+        // Anti-warp: init with expected client rate and server tick rate
+        this.movementValidator = new MovementValidator(144, config.tickRate);
     }
 
     // ========================================================================
@@ -289,6 +297,9 @@ export class GameServer {
     private tick(): void {
         const dt = 1 / this.config.tickRate;
 
+        // 0. Reset anti-warp per-tick counters
+        this.movementValidator.onTick();
+
         // 1. Run simulation (physics, weapons, combat)
         this.simulation.tick();
 
@@ -330,6 +341,9 @@ export class GameServer {
 
         // Notify gametype
         this.gametypeController.onPlayerDisconnect(client.playerId);
+
+        // Remove from anti-warp tracker
+        this.movementValidator.removeClient(client.playerId);
 
         this.clients.delete(conn.id);
         console.log(`[GameServer] Player ${client.playerId} disconnected: ${reason} (${this.clients.size}/${this.config.maxClients})`);
@@ -464,6 +478,9 @@ export class GameServer {
             };
             this.clients.set(conn.id, client);
 
+            // Register with anti-warp validator
+            this.movementValidator.addClient(pid);
+
             console.log(`[GameServer] Player ${pid} spawned at (${spawnPoint.x.toFixed(1)}, ${spawnPoint.y.toFixed(1)}, ${spawnPoint.z.toFixed(1)})`);
 
             // Debug floor trace
@@ -485,6 +502,11 @@ export class GameServer {
         // Without this guard, each command would be applied 3x → triple movement speed.
         if (seq <= client.lastInputSeq) {
             return; // Already processed this or an older command
+        }
+
+        // Anti-warp: validate input rate (rate cap + time budget)
+        if (!this.movementValidator.validateInput(client.playerId)) {
+            return; // Silently drop — don't inform cheater
         }
 
         const state = this.simulation.getStateMut();
