@@ -64,6 +64,8 @@ export interface ClientInfo {
     entityId: EntityId;
     /** Last processed input sequence (for reconciliation) */
     lastInputSeq: number;
+    /** Last snapshot tick the client has acknowledged receiving (for delta compression) */
+    lastAckedTick: number;
 }
 
 // ============================================================================
@@ -93,6 +95,12 @@ export class GameServer {
     // Snapshot throttling: only broadcast every N ticks
     private snapshotTickCounter: number = 0;
     private ticksPerSnapshot: number = 1;
+
+    // Snapshot history for delta compression baselines
+    // Ring buffer keyed by tick — stores recent GameStates so we can delta
+    // each client's snapshot against the last state they acknowledged.
+    private snapshotHistory: Map<number, GameState> = new Map();
+    private readonly SNAPSHOT_HISTORY_SIZE = 64;
 
     constructor(config: GameServerConfig, gametype?: BaseGametype) {
         this.config = config;
@@ -359,9 +367,18 @@ export class GameServer {
             } else if (msgType === MessageType.Ack) {
                 this.msgCounts.ack++;
                 const { tick } = MessageCodec.decodeAck(data);
+                // Store acked tick for per-client delta compression baselines
+                if (tick > client.lastAckedTick) {
+                    client.lastAckedTick = tick;
+                }
                 if (tick % 1000 === 0) {
                     console.log(`[GameServer] Client ${client.playerId} acked tick ${tick}`);
                 }
+            } else if (msgType === MessageType.Ping) {
+                // ClockSync: reply with Pong containing client's send time + server time
+                const { clientSendTime } = MessageCodec.decodePing(data);
+                const pong = MessageCodec.encodePong(clientSendTime, Date.now());
+                client.connection.sendDatagram(pong);
             } else {
                 this.msgCounts.other++;
             }
@@ -443,6 +460,7 @@ export class GameServer {
                 playerId: pid,
                 entityId: eid,
                 lastInputSeq: 0,
+                lastAckedTick: 0,
             };
             this.clients.set(conn.id, client);
 
@@ -654,10 +672,29 @@ export class GameServer {
 
         const gameState = this.toGameState();
 
+        // Store in snapshot history for delta compression
+        const tick = gameState.tick;
+        this.snapshotHistory.set(tick, gameState);
+
+        // Prune old snapshots beyond history window
+        if (this.snapshotHistory.size > this.SNAPSHOT_HISTORY_SIZE) {
+            // Delete oldest entries
+            for (const key of this.snapshotHistory.keys()) {
+                if (this.snapshotHistory.size <= this.SNAPSHOT_HISTORY_SIZE) break;
+                this.snapshotHistory.delete(key);
+            }
+        }
+
         for (const client of this.clients.values()) {
             try {
                 gameState.ackedInputSeq = client.lastInputSeq;
-                const snapshotBytes = MessageCodec.encodeSnapshot(gameState);
+
+                // Look up client's last acked snapshot as delta baseline
+                const baseline = client.lastAckedTick > 0
+                    ? this.snapshotHistory.get(client.lastAckedTick)
+                    : undefined;
+
+                const snapshotBytes = MessageCodec.encodeSnapshot(gameState, baseline);
                 client.connection.sendDatagram(snapshotBytes);
             } catch {
                 // Client may have disconnected
