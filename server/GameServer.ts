@@ -65,6 +65,8 @@ export interface ClientInfo {
     connection: ClientConnection;
     playerId: PlayerId;
     entityId: EntityId;
+    /** Player display name from join message */
+    playerName: string;
     /** Last processed input sequence (for reconciliation) */
     lastInputSeq: number;
     /** Last snapshot tick the client has acknowledged receiving (for delta compression) */
@@ -145,6 +147,10 @@ export class GameServer {
         const gt = gametype || new Deathmatch();
         this.gametypeController = new GametypeController(gt);
         this.gametypeController.setSubsystems(this.combatSystem, this.weaponSystem);
+
+        // Wire gametype self-damage config into projectile system
+        const matchConfig = this.gametypeController.getMatchState().getConfig();
+        this.projectileSystem.selfDamageMultiplier = matchConfig.selfDamage;
 
         // Create transport
         const transportConfig: TransportConfig = {
@@ -473,6 +479,7 @@ export class GameServer {
                 connection: conn,
                 playerId: pid,
                 entityId: eid,
+                playerName: playerName || `Player ${pid}`,
                 lastInputSeq: 0,
                 lastAckedTick: 0,
             };
@@ -595,19 +602,45 @@ export class GameServer {
             if (entity.ownerId !== undefined) {
                 const playerId = `player_${entity.ownerId}`;
                 if (!gameState.players.has(playerId)) {
-                    // Get score from gametype controller
-                    const score = this.gametypeController.getMatchState().getScore(entity.ownerId);
+                    // Get score and deaths from gametype controller
+                    const matchState = this.gametypeController.getMatchState();
+                    const score = matchState.getScore(entity.ownerId);
+                    const deaths = matchState.getDeaths(entity.ownerId);
+
+                    // Find real player name and ping from client info
+                    let displayName = `Player ${entity.ownerId}`;
+                    let ping = 0;
+                    for (const client of this.clients.values()) {
+                        if (client.playerId === entity.ownerId) {
+                            displayName = client.playerName;
+                            ping = Math.round(client.connection.latency ?? 0);
+                            break;
+                        }
+                    }
+
                     const playerState: PlayerState = {
                         entityId: clientEntity.id,
-                        name: `Player ${entity.ownerId}`,
+                        name: displayName,
                         team: '',
                         score,
-                        ping: 0,
+                        deaths,
+                        ping,
                         serialize: () => ({}),
                         deserialize: () => { },
                         clone() { return { ...this, serialize: this.serialize, deserialize: this.deserialize, clone: this.clone }; }
                     };
                     gameState.players.set(playerId, playerState);
+
+                    // Emit combat_state event (health/armor — private to owning player)
+                    if (entity.health) {
+                        gameState.events.push({
+                            type: 'combat_state',
+                            entityId: clientEntity.id,
+                            health: Math.max(0, Math.round(entity.health.health)),
+                            armor: Math.max(0, Math.round(entity.health.armor)),
+                            dead: entity.health.dead,
+                        });
+                    }
                 }
             }
         }
@@ -679,6 +712,30 @@ export class GameServer {
                 x: pickup.x,
                 y: pickup.y,
                 z: pickup.z,
+            });
+        }
+
+        // Add damage events (forwarded from CombatSystem for floating damage numbers)
+        const damageEvents = this.combatSystem.getProcessedDamage();
+        for (const dmg of damageEvents) {
+            gameState.events.push({
+                type: 'damage',
+                entityId: `player_${dmg.victimId}`,
+                attackerId: dmg.attackerId !== undefined ? `player_${dmg.attackerId}` : '',
+                damage: dmg.damage,
+                weaponId: dmg.damageType, // Use damageType as weapon identifier for now
+            });
+        }
+        this.combatSystem.clearProcessedDamage();
+
+        // Add death events (forwarded from CombatSystem for kill feed)
+        const killEvents = this.combatSystem.getRecentKills();
+        for (const kill of killEvents) {
+            gameState.events.push({
+                type: 'death',
+                entityId: `player_${kill.victimId}`,
+                killerId: kill.killerId !== undefined ? `player_${kill.killerId}` : '',
+                weaponId: kill.damageType, // Use damageType as weapon identifier
             });
         }
 

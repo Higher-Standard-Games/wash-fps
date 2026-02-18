@@ -18,6 +18,7 @@ const DEFAULT_MATCH_CONFIG: MatchConfig = {
     timeLimit: 600,        // 10 minutes
     postGameDuration: 10,  // 10 seconds scoreboard
     respawnDelay: 3,       // 3 seconds
+    selfDamage: 1.0,       // full self-damage (rocket jumping!)
 };
 
 export class MatchState {
@@ -26,6 +27,7 @@ export class MatchState {
     private _readyPlayers: Set<PlayerId> = new Set();
     private _totalPlayers: number = 0;
     private _scores: Map<PlayerId, number> = new Map();
+    private _deaths: Map<PlayerId, number> = new Map();
     private config: MatchConfig;
     private gametypeName: string;
 
@@ -44,6 +46,7 @@ export class MatchState {
     get readyCount(): number { return this._readyPlayers.size; }
     get totalPlayers(): number { return this._totalPlayers; }
     get scores(): ReadonlyMap<PlayerId, number> { return this._scores; }
+    get deaths(): ReadonlyMap<PlayerId, number> { return this._deaths; }
 
     // ========================================================================
     // Match Configuration
@@ -60,12 +63,14 @@ export class MatchState {
     addPlayer(playerId: PlayerId): void {
         this._totalPlayers++;
         this._scores.set(playerId, 0);
+        this._deaths.set(playerId, 0);
     }
 
     removePlayer(playerId: PlayerId): void {
         this._totalPlayers = Math.max(0, this._totalPlayers - 1);
         this._readyPlayers.delete(playerId);
         this._scores.delete(playerId);
+        this._deaths.delete(playerId);
     }
 
     playerReady(playerId: PlayerId): void {
@@ -93,6 +98,15 @@ export class MatchState {
 
     getScore(playerId: PlayerId): number {
         return this._scores.get(playerId) || 0;
+    }
+
+    addDeath(playerId: PlayerId): void {
+        const current = this._deaths.get(playerId) || 0;
+        this._deaths.set(playerId, current + 1);
+    }
+
+    getDeaths(playerId: PlayerId): number {
+        return this._deaths.get(playerId) || 0;
     }
 
     // ========================================================================
@@ -183,9 +197,10 @@ export class MatchState {
                 break;
             case MatchPhase.Active:
                 this._timeRemaining = this.config.timeLimit;
-                // Reset scores on match start
+                // Reset scores and deaths on match start
                 for (const [id] of this._scores) {
                     this._scores.set(id, 0);
+                    this._deaths.set(id, 0);
                 }
                 break;
             case MatchPhase.PostGame:
@@ -225,6 +240,7 @@ export class MatchState {
             readyCount: this._readyPlayers.size,
             totalPlayers: this._totalPlayers,
             gametypeName: this.gametypeName,
+            scoreLimit: this.config.scoreLimit,
         };
     }
 }

@@ -60,6 +60,8 @@ export class ProjectileSystem extends Subsystem {
     private projectilesToRemove: EntityId[] = [];
     private projectileMeta: Map<EntityId, ProjectileMeta> = new Map();
     private collisionWorld: CollisionWorld | null = null;
+    /** Gametype self-damage multiplier (1.0 = full, 0.0 = none) */
+    selfDamageMultiplier: number = 1.0;
 
     constructor(collisionWorld?: CollisionWorld) {
         super(CONFIG);
@@ -143,7 +145,7 @@ export class ProjectileSystem extends Subsystem {
                     // Apply splash damage
                     const weaponDef = WEAPONS[meta.defId];
                     if (weaponDef?.splashRadius) {
-                        this.applySplashDamage(state, pos, projectile.ownerId, weaponDef.splashRadius);
+                        this.applySplashDamage(state, pos, projectile.ownerId, weaponDef.splashRadius, meta.defId);
                     }
                 }
 
@@ -197,8 +199,11 @@ export class ProjectileSystem extends Subsystem {
             // Check collisions with players (direct hit)
             let hitPlayer = false;
             for (const target of state.entitiesByType(EntityType.Player)) {
-                if (target.ownerId === projectile.ownerId) continue; // No self-damage
                 if (!target.transform || !target.health || target.health.dead) continue;
+
+                // Self-damage: skip if selfDamage multiplier is 0
+                const isSelf = target.ownerId === projectile.ownerId;
+                if (isSelf && this.selfDamageMultiplier <= 0) continue;
 
                 // Simple sphere collision
                 const distSq =
@@ -210,16 +215,21 @@ export class ProjectileSystem extends Subsystem {
                 if (distSq < hitRadius ** 2) {
                     // Direct hit!
                     const weaponDef = WEAPONS[meta.defId];
-                    const damage = weaponDef?.damage || 80;
+                    const baseDamage = weaponDef?.damage || 80;
+                    const damage = isSelf
+                        ? Math.round(baseDamage * this.selfDamageMultiplier)
+                        : baseDamage;
 
-                    this.pendingDamage.push({
-                        victimId: target.id,
-                        attackerId: projectile.ownerId ? state.getEntityByOwner(projectile.ownerId)?.id : undefined,
-                        damage,
-                        armorPiercing: 0,
-                        damageType: this.defIdToDamageType(meta.defId),
-                        hitLocation: HitLocation.Body,
-                    });
+                    if (damage > 0) {
+                        this.pendingDamage.push({
+                            victimId: target.id,
+                            attackerId: projectile.ownerId ? state.getEntityByOwner(projectile.ownerId)?.id : undefined,
+                            damage,
+                            armorPiercing: 0,
+                            damageType: this.defIdToDamageType(meta.defId),
+                            hitLocation: HitLocation.Body,
+                        });
+                    }
 
                     // Emit impact event
                     const dist = Math.sqrt(distSq) || 1;
@@ -233,7 +243,7 @@ export class ProjectileSystem extends Subsystem {
 
                     // Apply splash damage on direct hit too (for weapons with splash)
                     if (weaponDef?.splashRadius) {
-                        this.applySplashDamage(state, newPos, projectile.ownerId, weaponDef.splashRadius);
+                        this.applySplashDamage(state, newPos, projectile.ownerId, weaponDef.splashRadius, meta.defId);
                     }
 
                     hitPlayer = true;
@@ -274,7 +284,7 @@ export class ProjectileSystem extends Subsystem {
                     // Apply splash damage
                     const weaponDef = WEAPONS[meta.defId];
                     if (weaponDef?.splashRadius) {
-                        this.applySplashDamage(state, newPos, projectile.ownerId, weaponDef.splashRadius);
+                        this.applySplashDamage(state, newPos, projectile.ownerId, weaponDef.splashRadius, meta.defId);
                     }
 
                     this.projectilesToRemove.push(projectile.id);
@@ -308,8 +318,12 @@ export class ProjectileSystem extends Subsystem {
         state: WorldState,
         center: { x: number; y: number; z: number },
         attackerOwnerId: number | undefined,
-        radius: number
+        radius: number,
+        defId: string
     ): void {
+        const weaponDef = WEAPONS[defId];
+        const baseSplashDamage = weaponDef?.splashDamage ?? weaponDef?.damage ?? 80;
+
         for (const target of state.entitiesByType(EntityType.Player)) {
             if (!target.transform || !target.health || target.health.dead) continue;
 
@@ -320,21 +334,22 @@ export class ProjectileSystem extends Subsystem {
             );
 
             if (dist < radius) {
-                // Damage falls off with distance
+                // Damage falls off linearly with distance
                 const falloff = 1 - (dist / radius);
-                const weaponDef = WEAPONS['rlauncher'];
-                const baseDamage = weaponDef?.damage || 80;
-                const damage = Math.round(baseDamage * 0.5 * falloff);
+                let damage = Math.round(baseSplashDamage * falloff);
+
+                // Apply self-damage multiplier from gametype config
+                const isSelf = target.ownerId === attackerOwnerId;
+                if (isSelf) {
+                    if (this.selfDamageMultiplier <= 0) continue;
+                    damage = Math.round(damage * this.selfDamageMultiplier);
+                }
 
                 if (damage > 0) {
-                    // Allow self-damage but reduced
-                    const isSelf = target.ownerId === attackerOwnerId;
-                    const finalDamage = isSelf ? Math.round(damage * 0.5) : damage;
-
                     this.pendingDamage.push({
                         victimId: target.id,
                         attackerId: attackerOwnerId ? state.getEntityByOwner(attackerOwnerId)?.id : undefined,
-                        damage: finalDamage,
+                        damage,
                         armorPiercing: 0,
                         damageType: DamageType.Explosion,
                         hitLocation: HitLocation.Body,

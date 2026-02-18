@@ -19,6 +19,7 @@ export interface MatchStateSnapshot {
     readyCount: number;
     totalPlayers: number;
     gametypeName: string;
+    scoreLimit: number;
 }
 
 export type PhaseChangeCallback = (newPhase: MatchPhase, oldPhase: MatchPhase) => void;
@@ -31,6 +32,7 @@ export class MatchStateManager {
     private _readyCount: number = 0;
     private _totalPlayers: number = 0;
     private _gametypeName: string = '';
+    private _scoreLimit: number = 0;
     private _isReady: boolean = false;
     private _phaseCallbacks: PhaseChangeCallback[] = [];
 
@@ -58,6 +60,7 @@ export class MatchStateManager {
         this._readyCount = event.readyCount ?? 0;
         this._totalPlayers = event.totalPlayers ?? 0;
         this._gametypeName = event.gametypeName ?? '';
+        this._scoreLimit = event.scoreLimit ?? 0;
 
         // Fire phase change callbacks
         if (oldPhase !== this._phase) {
@@ -81,6 +84,7 @@ export class MatchStateManager {
     get readyCount(): number { return this._readyCount; }
     get totalPlayers(): number { return this._totalPlayers; }
     get gametypeName(): string { return this._gametypeName; }
+    get scoreLimit(): number { return this._scoreLimit; }
     get isReady(): boolean { return this._isReady; }
 
     isWarmup(): boolean { return this._phase === MatchPhase.Warmup; }
@@ -155,6 +159,7 @@ export class MatchStateManager {
         this._readyCount = 0;
         this._totalPlayers = 0;
         this._gametypeName = '';
+        this._scoreLimit = 0;
         this._isReady = false;
     }
 

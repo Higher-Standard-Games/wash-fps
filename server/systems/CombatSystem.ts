@@ -70,6 +70,8 @@ export interface KillEvent {
 export class CombatSystem extends Subsystem {
     private pendingDamage: DamageEvent[] = [];
     private kills: KillEvent[] = [];
+    /** Processed damage events (with final damage) for network forwarding */
+    private processedDamage: { victimId: EntityId; attackerId?: EntityId; damage: number; damageType: DamageType }[] = [];
 
     constructor() {
         super(CONFIG);
@@ -107,6 +109,21 @@ export class CombatSystem extends Subsystem {
         this.kills = [];
     }
 
+    /**
+     * Get processed damage events for network forwarding.
+     * Contains final damage values (after location multipliers).
+     */
+    getProcessedDamage(): readonly { victimId: EntityId; attackerId?: EntityId; damage: number; damageType: DamageType }[] {
+        return this.processedDamage;
+    }
+
+    /**
+     * Clear processed damage buffer (call after forwarding to network).
+     */
+    clearProcessedDamage(): void {
+        this.processedDamage = [];
+    }
+
     update(state: WorldState, _dt: number, tick: TickNumber): void {
         // Process pending damage
         for (const damage of this.pendingDamage) {
@@ -126,6 +143,14 @@ export class CombatSystem extends Subsystem {
 
         // Apply damage
         applyDamage(victim.health, finalDamage, event.armorPiercing);
+
+        // Store for network forwarding (with final damage value)
+        this.processedDamage.push({
+            victimId: event.victimId,
+            attackerId: event.attackerId,
+            damage: finalDamage,
+            damageType: event.damageType,
+        });
 
         // Check for kill
         if (victim.health.dead) {

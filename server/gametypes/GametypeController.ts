@@ -152,6 +152,10 @@ export class GametypeController {
                         if (killer?.ownerId && killer.ownerId !== victim.ownerId) {
                             this.matchState.addScore(killer.ownerId, 1);
                         }
+                        // Track deaths
+                        if (victim.ownerId) {
+                            this.matchState.addDeath(victim.ownerId);
+                        }
                     }
 
                     // Queue respawn (instant during warmup, normal delay otherwise)

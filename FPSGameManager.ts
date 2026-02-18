@@ -23,6 +23,7 @@ import { V2NetworkClient } from './client';
 import type { ServerSnapshot } from './client';
 import { MatchStateManager } from './client/MatchStateManager';
 import { MatchHUD } from './client/MatchHUD';
+import { HUDState } from './client/HUDState';
 import { MessageCodec } from '../../engine/network/protocol/MessageCodec';
 import { getHitscanEffects } from '../../engine/weapon/HitscanEffects';
 import { getProjectileManager } from '../../engine/weapon/ProjectileManager';
@@ -679,6 +680,7 @@ export class FPSGameManager {
     // Cleanup match state and HUD
     MatchHUD.getInstance().destroy();
     MatchStateManager.destroy();
+    HUDState.destroy();
 
     console.log('[FPSGameManager] Shutdown complete');
   }
@@ -713,6 +715,10 @@ export class FPSGameManager {
 
     // === DIAGNOSTIC: Log first few calls ===
     if (this._stateUpdateCount <= 3) {
+      // Auto-enable HUD debug overlay on first update
+      if (this._stateUpdateCount === 1) {
+        HUDState.getInstance().setDebug(true);
+      }
       const playerKeys = Array.from(state.players.keys());
       const entityKeys = Array.from(state.entities.keys());
       console.log(`[FPSGameManager] onServerStateUpdate #${this._stateUpdateCount}: tick=${state.tick}, localPlayerId='${this.localPlayerId}', players=[${playerKeys.join(',')}], entities=[${entityKeys.join(',')}], v2Client=${!!this.v2Client}, isNetworkMode=${this.isNetworkMode}`);
@@ -753,9 +759,24 @@ export class FPSGameManager {
             : event.defId === 'plasmagun' ? PLASMA_EXPLOSION
               : ROCKET_EXPLOSION;
           getExplosionEffect().spawn(pos, config, normal);
+        } else if (event.type === 'combat_state' && event.entityId === localEntityId) {
+          // Combat state for local player (health/armor)
+          HUDState.getInstance().processCombatState(event);
+        } else if (event.type === 'damage') {
+          // Damage event (floating damage numbers)
+          HUDState.getInstance().processDamage(event);
+        } else if (event.type === 'death') {
+          // Death event (kill feed)
+          HUDState.getInstance().processDeath(event);
         }
       }
     }
+
+    // Update HUD state aggregator
+    const hudState = HUDState.getInstance();
+    hudState.updateScoreboard(state);
+    hudState.expireTransients();
+    hudState.updateDebugOverlay();
 
     // === Remote player snapshot buffering (push only — rendering is per-frame) ===
     if (localEntityId) {
