@@ -152,6 +152,9 @@ export class FPSMovementSubsystem extends Subsystem {
     }
 
     update(state: WorldState, dt: number, _tick: TickNumber): void {
+        // Track KB'd entities for post-simulate debug logging
+        const kbEntities = new Set<number>();
+
         // === DRAIN KNOCKBACK IMPULSES (before simulate!) ===
         // Apply queued impulses to entity velocity and set airborne.
         // This MUST happen before simulate() so the movement profile
@@ -162,6 +165,7 @@ export class FPSMovementSubsystem extends Subsystem {
                 if (!ent?.physics || ent.health?.dead) continue;
 
                 const vel = ent.physics.velocity;
+                const beforeY = vel.y;
 
                 // 1. STUN — strip horizontal speed
                 vel.x *= (1 - impulse.stunFraction);
@@ -175,6 +179,9 @@ export class FPSMovementSubsystem extends Subsystem {
                 // 3. Mark airborne so simulate() uses air physics (no ground friction)
                 ent.physics.grounded = false;
                 this.getProfile(impulse.entityId as number).resetPhysicsState(false);
+
+                kbEntities.add(impulse.entityId as number);
+                console.log(`[KB] Applied to entity=${impulse.entityId}: vel=(${vel.x.toFixed(1)},${vel.y.toFixed(1)},${vel.z.toFixed(1)}) beforeY=${beforeY.toFixed(1)} grounded=false pos=(${ent.transform?.position.x.toFixed(1)},${ent.transform?.position.y.toFixed(1)},${ent.transform?.position.z.toFixed(1)})`);
             }
             this.pendingImpulses = [];
         }
@@ -205,6 +212,9 @@ export class FPSMovementSubsystem extends Subsystem {
                     movementInput, dt, this.collisionWorld
                 );
                 applyResult(transform, physics, result, input);
+                if (kbEntities.has(entity.id as number)) {
+                    console.log(`[KB POST-SIM] entity=${entity.id}: pos=(${transform.position.x.toFixed(1)},${transform.position.y.toFixed(1)},${transform.position.z.toFixed(1)}) vel=(${physics.velocity.x.toFixed(1)},${physics.velocity.y.toFixed(1)},${physics.velocity.z.toFixed(1)}) grounded=${physics.grounded} queue=empty`);
+                }
             } else {
                 // Process ALL queued inputs — one simulate() per input
                 // This matches client-side prediction which ran one simulate per input
@@ -223,6 +233,9 @@ export class FPSMovementSubsystem extends Subsystem {
                         movementInput, dt, this.collisionWorld
                     );
                     applyResult(transform, physics, result, input);
+                    if (kbEntities.has(entity.id as number)) {
+                        console.log(`[KB POST-SIM] entity=${entity.id}: pos=(${transform.position.x.toFixed(1)},${transform.position.y.toFixed(1)},${transform.position.z.toFixed(1)}) vel=(${physics.velocity.x.toFixed(1)},${physics.velocity.y.toFixed(1)},${physics.velocity.z.toFixed(1)}) grounded=${physics.grounded} queue=${queue.length}`);
+                    }
                 }
                 // Clear queue after processing
                 input.inputQueue = [];

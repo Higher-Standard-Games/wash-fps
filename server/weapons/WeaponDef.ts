@@ -64,7 +64,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
         projectileSpeed: 3000,
         splashRadius: 80,
         splashDamage: 8,
-        knockbackScale: 6.0,
+        knockbackScale: 8.0,   // Strong melee KB
         useLagCompensation: false,
     },
     machinegun: {
@@ -77,7 +77,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
         reloadTime: 0.1,
         maxRange: 6000,
         spread: 10,
-        knockbackScale: 1.5,
+        knockbackScale: 2.0,   // Bullet pushback
         useLagCompensation: true,
     },
     riotgun: {
@@ -91,7 +91,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
         maxRange: 8192,
         pelletCount: 20,
         spread: 160,
-        knockbackScale: 2.0,
+        knockbackScale: 2.5,   // Shotgun spread push
         useLagCompensation: true,
     },
     glauncher: {
@@ -105,7 +105,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
         projectileSpeed: 1000,
         splashRadius: 125,
         splashDamage: 15,
-        knockbackScale: 8.0,
+        knockbackScale: 10.0,  // Grenade launcher — dramatic launches
         useLagCompensation: false,
     },
     rlauncher: {
@@ -119,7 +119,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
         projectileSpeed: 1150,
         splashRadius: 125,
         splashDamage: 15,
-        knockbackScale: 8.0,
+        knockbackScale: 10.0,  // Rocket launcher — dramatic launches
         useLagCompensation: false,
     },
     plasmagun: {
@@ -133,7 +133,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
         projectileSpeed: 2500,
         splashRadius: 45,
         splashDamage: 5,
-        knockbackScale: 4.0,
+        knockbackScale: 4.5,   // Plasma push
         useLagCompensation: false,
     },
     lasergun: {
@@ -145,7 +145,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
         ammoCapacity: 150,
         reloadTime: 0.05,
         maxRange: 850,
-        knockbackScale: 1.0,
+        knockbackScale: 1.5,   // Lasergun beam push
         useLagCompensation: true,
     },
     electrobolt: {
@@ -157,7 +157,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
         ammoCapacity: 10,
         reloadTime: 1.25,
         maxRange: 10000,
-        knockbackScale: 3.0,
+        knockbackScale: 3.5,   // Electrobolt sniper push
         useLagCompensation: true,
     },
     instagun: {
@@ -170,7 +170,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
         reloadTime: 1.3,
         maxRange: 8024,
         splashRadius: 80,
-        knockbackScale: 12.0,
+        knockbackScale: 12.0,  // Instagun — massive KB
         useLagCompensation: true,
     },
 };

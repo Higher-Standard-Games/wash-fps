@@ -305,9 +305,28 @@ export class V2NetworkClient {
         // The difference between where we were visually and where we are now
         // after reconciliation. This gets decayed over time for smooth camera.
         if (!isFirstSnapshot) {
-            this.visualOffset.x += preReconcilePos.x - this.localState.position.x;
-            this.visualOffset.y += preReconcilePos.y - this.localState.position.y;
-            this.visualOffset.z += preReconcilePos.z - this.localState.position.z;
+            const corrX = preReconcilePos.x - this.localState.position.x;
+            const corrY = preReconcilePos.y - this.localState.position.y;
+            const corrZ = preReconcilePos.z - this.localState.position.z;
+            const corrMag = Math.sqrt(corrX * corrX + corrY * corrY + corrZ * corrZ);
+
+            // Large correction = KB, teleport, or respawn → SNAP camera immediately.
+            // Without this, KB causes the visual offset to accumulate faster than
+            // decay can drain it (each 30Hz reconciliation re-adds the full KB
+            // displacement), creating a seconds-long delay and jitter.
+            const SNAP_THRESHOLD = 50;
+            if (corrMag > SNAP_THRESHOLD) {
+                // Snap: reset offset to zero — camera jumps to new position instantly
+                this.visualOffset.x = 0;
+                this.visualOffset.y = 0;
+                this.visualOffset.z = 0;
+                console.log(`[V2Client] SNAP: correction=${corrMag.toFixed(1)} > ${SNAP_THRESHOLD}, resetting visual offset (KB/teleport)`);
+            } else {
+                // Normal: accumulate for smooth correction
+                this.visualOffset.x += corrX;
+                this.visualOffset.y += corrY;
+                this.visualOffset.z += corrZ;
+            }
         }
 
         // Track reconciliation count and error for diagnostics

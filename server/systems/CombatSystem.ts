@@ -19,10 +19,10 @@ const CONFIG: SubsystemConfig = {
 
 /** Default KB scale if weapon doesn't specify one */
 const DEFAULT_KB_SCALE = 5.0;
-/** Self-KB multiplier (slightly stronger for rocket jumping feel) */
-const SELF_KB_MULTIPLIER = 1.2;
-/** Minimum upward bias for KB direction (ensures launches feel "up") */
-const KB_UPWARD_BIAS = 0.4;
+/** Self-KB multiplier (halved for rocket jumping — base KB is already strong) */
+const SELF_KB_MULTIPLIER = 0.5;
+/** Minimum upward bias for KB direction (ensures dramatic vertical launches) */
+const KB_UPWARD_BIAS = 0.65;
 
 // ═══════════════════════════════════════════════════════════════════
 // DAMAGE EVENT
@@ -169,16 +169,21 @@ export class CombatSystem extends Subsystem {
         // Queue impulse for FPSMovementSubsystem to apply BEFORE simulate().
         // This ensures KB bypasses ground friction/clipping.
         if (event.knockbackDir && this.movementSubsystem) {
-            // Calculate direction with upward bias
-            const kbDir = { ...event.knockbackDir };
+            // 1. Normalize raw direction first
+            const raw = event.knockbackDir;
+            let len = Math.sqrt(raw.x * raw.x + raw.y * raw.y + raw.z * raw.z);
+            const kbDir = len > 0.001
+                ? { x: raw.x / len, y: raw.y / len, z: raw.z / len }
+                : { x: 0, y: 1, z: 0 }; // fallback: straight up
+
+            // 2. Apply upward bias to the UNIT vector (guarantees meaningful Y)
             kbDir.y = Math.max(kbDir.y, KB_UPWARD_BIAS);
-            // Normalize
-            const len = Math.sqrt(kbDir.x * kbDir.x + kbDir.y * kbDir.y + kbDir.z * kbDir.z);
-            if (len > 0.001) {
-                kbDir.x /= len;
-                kbDir.y /= len;
-                kbDir.z /= len;
-            }
+
+            // 3. Re-normalize after bias
+            len = Math.sqrt(kbDir.x * kbDir.x + kbDir.y * kbDir.y + kbDir.z * kbDir.z);
+            kbDir.x /= len;
+            kbDir.y /= len;
+            kbDir.z /= len;
 
             // Calculate force: damage × weapon KB scale
             const kbScale = event.knockbackScale ?? DEFAULT_KB_SCALE;
@@ -195,6 +200,7 @@ export class CombatSystem extends Subsystem {
                 force,
                 stunFraction,
             });
+            console.log(`[KB] Queued impulse: victim=${event.victimId} dir=(${kbDir.x.toFixed(2)},${kbDir.y.toFixed(2)},${kbDir.z.toFixed(2)}) force=${force.toFixed(1)} stun=${stunFraction.toFixed(2)} self=${isSelf}`);
         }
 
         // Store for network forwarding (with final damage value)
