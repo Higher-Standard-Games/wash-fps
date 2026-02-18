@@ -707,6 +707,7 @@ export class GameServer {
             }
         }
 
+        let totalEncodeMs = 0;
         for (const client of this.clients.values()) {
             try {
                 gameState.ackedInputSeq = client.lastInputSeq;
@@ -716,11 +717,19 @@ export class GameServer {
                     ? this.snapshotHistory.get(client.lastAckedTick)
                     : undefined;
 
+                const t0 = performance.now();
                 const snapshotBytes = MessageCodec.encodeSnapshot(gameState, baseline);
+                totalEncodeMs += performance.now() - t0;
+
                 client.connection.sendDatagram(snapshotBytes);
             } catch {
                 // Client may have disconnected
             }
+        }
+
+        // Perf: log encoding cost periodically to assess Network Worker need
+        if (tick % 100 === 0 && this.clients.size > 0) {
+            console.log(`[Perf] snapshot encode: ${totalEncodeMs.toFixed(2)}ms total, ${(totalEncodeMs / this.clients.size).toFixed(2)}ms/client, clients: ${this.clients.size}`);
         }
     }
 
