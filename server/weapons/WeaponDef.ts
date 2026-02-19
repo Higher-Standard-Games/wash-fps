@@ -49,6 +49,9 @@ export interface WeaponDef {
 
     /** Knockback scale (multiplied by damage to get impulse force) */
     knockbackScale?: number;
+
+    /** Ammo given on pickup (defaults to ammoCapacity if unset) */
+    pickupAmmo?: number;
 }
 
 // Warsow weapon definitions — stats from gs_weapondefs.c
@@ -106,6 +109,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
         splashRadius: 125,
         splashDamage: 15,
         knockbackScale: 10.0,  // Grenade launcher — dramatic launches
+        pickupAmmo: 10,
         useLagCompensation: false,
     },
     rlauncher: {
@@ -120,6 +124,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
         splashRadius: 125,
         splashDamage: 15,
         knockbackScale: 10.0,  // Rocket launcher — dramatic launches
+        pickupAmmo: 10,
         useLagCompensation: false,
     },
     plasmagun: {
@@ -158,6 +163,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
         reloadTime: 1.25,
         maxRange: 10000,
         knockbackScale: 3.5,   // Electrobolt sniper push
+        pickupAmmo: 5,
         useLagCompensation: true,
     },
     instagun: {

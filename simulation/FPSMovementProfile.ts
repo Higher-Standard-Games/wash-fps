@@ -73,6 +73,7 @@ export interface FPSMovementConfig {
   friction: number;
   stopSpeed: number;
   gravity: number;
+  fallingGravityMultiplier: number;
   jumpVelocity: number;
   crouchMultiplier: number;
   stepHeight: number;
@@ -208,6 +209,7 @@ export class FPSMovementProfile implements MovementProfile {
       friction: 6,
       stopSpeed: 100,
       gravity: 1000,
+      fallingGravityMultiplier: 1.8,
       jumpVelocity: 320,
       crouchMultiplier: 0.5,
       stepHeight: 18,
@@ -321,9 +323,10 @@ export class FPSMovementProfile implements MovementProfile {
       }
     }
 
-    // === GRAVITY ===
+    // === GRAVITY (asymmetric: stronger when falling) ===
     if (!this.isGrounded) {
-      newVel.y -= this.config.gravity * deltaTime;
+      const gravScale = newVel.y < 0 ? this.config.fallingGravityMultiplier : 1.0;
+      newVel.y -= this.config.gravity * gravScale * deltaTime;
     } else if (newVel.y < 0) {
       newVel.y = 0;
     }

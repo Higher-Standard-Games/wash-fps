@@ -125,7 +125,7 @@ export class WeaponSystem extends Subsystem {
             // Give ammo if not already present
             if (!state.ammo.has(weaponId) || state.ammo.get(weaponId)! <= 0) {
                 const weapon = WEAPONS[weaponId];
-                if (weapon) state.ammo.set(weaponId, weapon.ammoCapacity);
+                if (weapon) state.ammo.set(weaponId, weapon.pickupAmmo ?? weapon.ammoCapacity);
             }
             console.log(`[WeaponSystem] Entity ${entityId}: picked up ${weaponId} (${state.weapons.length} weapons, ammo=${state.ammo.get(weaponId)})`);
             return { added: true };
@@ -209,12 +209,10 @@ export class WeaponSystem extends Subsystem {
 
     update(state: WorldState, _dt: number, tick: TickNumber): void {
         const tickNum = tick as number;
-        const debugTick = tickNum % 1000 === 0; // Log every 1000 ticks (~8s)
 
         // Process all player entities
         for (const entity of state.entitiesByType(EntityType.Player)) {
             if (!entity.input || !entity.health || entity.health.dead) {
-                if (debugTick) console.log(`[WeaponSystem] Entity ${entity.id}: skip (input=${!!entity.input}, health=${!!entity.health}, dead=${entity.health?.dead})`);
                 continue;
             }
 
@@ -253,7 +251,6 @@ export class WeaponSystem extends Subsystem {
             // Handle firing — check raw buttons bitmask (entity.input.attack is never set;
             // FPSMovementSubsystem only populates input.buttons from the inputQueue)
             const isFiring = (entity.input.buttons & FIRE_BUTTON) !== 0;
-            if (debugTick) console.log(`[WeaponSystem] Entity ${entity.id}: buttons=${entity.input.buttons}, isFiring=${isFiring}, weapon=${weaponState.currentWeapon}, ammo=${weaponState.ammo.get(weaponState.currentWeapon)}`);
             if (isFiring && !weaponState.reloading) {
                 const weapon = WEAPONS[weaponState.currentWeapon];
                 if (weapon) {
@@ -264,8 +261,15 @@ export class WeaponSystem extends Subsystem {
                         const ammo = weaponState.ammo.get(weaponState.currentWeapon) || 0;
                         if (ammo > 0) {
                             this.fireWeapon(state, entity, weapon, tick);
-                            weaponState.ammo.set(weaponState.currentWeapon, ammo - 1);
+                            const newAmmo = ammo - 1;
+                            weaponState.ammo.set(weaponState.currentWeapon, newAmmo);
                             weaponState.lastFireTick = tickNum;
+
+                            // Auto-reload when ammo depleted
+                            if (newAmmo <= 0) {
+                                weaponState.reloading = true;
+                                weaponState.reloadEndTick = tickNum + Math.ceil(weapon.reloadTime * 125);
+                            }
                         }
                     }
                 }

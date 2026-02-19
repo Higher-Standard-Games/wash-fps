@@ -72,8 +72,8 @@ export class PickupSystem extends Subsystem {
     private respawnTicks: number = 25 * 125; // 25 seconds at 125Hz (default)
 
     // Pickup detection parameters (matching client-side Pickup.ts)
-    private readonly PICKUP_RADIUS = 48;
-    private readonly PICKUP_RADIUS_SQ = 48 * 48;
+    private readonly PICKUP_RADIUS = 96;
+    private readonly PICKUP_RADIUS_SQ = 96 * 96;
     private readonly VERTICAL_RANGE_MIN = -24;
     private readonly VERTICAL_RANGE_MAX = 88;
 
@@ -180,11 +180,17 @@ export class PickupSystem extends Subsystem {
 
                 if (!inRange) continue;
 
-                // Weapon pickups require USE key press
-                if (!useJustPressed) continue;
+                // Auto-pickup when player has room (< 2 non-gunblade weapons)
+                // Only require USE key when at capacity (swap needed)
+                if (!this.weaponSystem) continue;
+
+                const playerWeapons = this.weaponSystem.getWeapons(player.id);
+                const nonGunbladeCount = playerWeapons.filter(w => w !== 'gunblade').length;
+                const hasRoom = nonGunbladeCount < 2;
+
+                if (!hasRoom && !useJustPressed) continue;
 
                 // Try to add weapon to player's inventory
-                if (!this.weaponSystem) continue;
 
                 const result = this.weaponSystem.addWeapon(player.id, pickup.weaponId);
                 if (!result.added) continue;
