@@ -78,6 +78,8 @@ export interface ClientInfo {
 // ============================================================================
 
 export class GameServer {
+    /** Track projectile entity IDs we've already sent projectile_spawn events for */
+    private knownProjectileIds: Set<number> = new Set();
     private config: GameServerConfig;
     private simulation: Simulation;
     private transport: Transport;
@@ -548,10 +550,58 @@ export class GameServer {
         const gameState = new GameState();
         gameState.tick = Number(state.tick);
 
-        // Convert entities (skip projectiles — server-only;
-        // clients use weapon_fire + projectile_impact events for visuals)
+        // Convert entities (including projectiles — Q3-style server-rendered)
         for (const entity of state.allEntities()) {
-            if (entity.type === EntityType.Projectile) continue;
+            // Projectile entities get a separate path (proj_ prefix, no player state)
+            if (entity.type === EntityType.Projectile) {
+                const projEntity = new Entity(`proj_${entity.id}`);
+                if (entity.transform) {
+                    projEntity.addComponent('transform', {
+                        position: { ...entity.transform.position },
+                        rotation: { x: 0, y: 0, z: 0, w: 1 },
+                        serialize: () => ({}),
+                        deserialize: () => { },
+                        clone: function () { return { ...this }; }
+                    });
+                    projEntity.addComponent('position', {
+                        x: entity.transform.position.x,
+                        y: entity.transform.position.y,
+                        z: entity.transform.position.z,
+                        serialize: () => ({}),
+                        deserialize: () => { },
+                        clone: function () { return { ...this }; }
+                    });
+                }
+                if (entity.physics) {
+                    projEntity.addComponent('velocity', {
+                        x: entity.physics.velocity.x,
+                        y: entity.physics.velocity.y,
+                        z: entity.physics.velocity.z,
+                        linear: { ...entity.physics.velocity },
+                        angular: { x: 0, y: 0, z: 0 },
+                        grounded: false,
+                        serialize: () => ({}),
+                        deserialize: () => { },
+                        clone: function () { return { ...this }; }
+                    });
+                }
+                gameState.entities.set(projEntity.id, projEntity);
+
+                // Emit projectile_spawn event for newly created projectiles
+                const numId = entity.id as number;
+                if (!this.knownProjectileIds.has(numId)) {
+                    this.knownProjectileIds.add(numId);
+                    const defId = this.projectileSystem.getDefId(entity.id);
+                    if (defId) {
+                        gameState.events.push({
+                            type: 'projectile_spawn',
+                            entityId: `proj_${entity.id}`,
+                            defId,
+                        });
+                    }
+                }
+                continue;
+            }
 
             const clientEntity = new Entity(`player_${entity.id}`);
 
@@ -689,7 +739,6 @@ export class GameServer {
 
         // Add projectile impact events (so all clients see explosions)
         const impacts = this.projectileSystem.getPendingImpacts();
-        if (impacts.length > 0) console.log(`[GameServer] Broadcasting ${impacts.length} impact event(s)`);
         for (const impact of impacts) {
             gameState.events.push({
                 type: 'projectile_impact',

@@ -209,7 +209,7 @@ export class FPSMovementProfile implements MovementProfile {
       friction: 6,
       stopSpeed: 100,
       gravity: 1000,
-      fallingGravityMultiplier: 1.8,
+      fallingGravityMultiplier: 1.25,
       jumpVelocity: 320,
       crouchMultiplier: 0.5,
       stepHeight: 18,

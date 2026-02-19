@@ -96,6 +96,12 @@ export class FPSGameManager {
   // Remote player model renderer
   private remoteRenderer: RemotePlayerRenderer | null = null;
 
+  // Server-driven projectile tracking (Q3-style)
+  /** Maps server projectile entity ID (e.g. 'proj_10001') → weapon defId */
+  private serverProjectileDefIds: Map<string, string> = new Map();
+  /** Set of server entity IDs that already have client-side visuals spawned */
+  private activeServerProjectiles: Set<string> = new Set();
+
   // Weapon state sync
   private _lastServerWeapon: string = '';
 
@@ -741,25 +747,16 @@ export class FPSGameManager {
           if (event.entityId === localEntityId) continue;
           this.handleRemoteWeaponFire(event);
         } else if (event.type === 'projectile_impact') {
+          // Server-authoritative explosion (Q3-style — no local prediction to deduplicate)
           const pos = new Vector3(event.x, event.y, event.z);
-
-          // Map weapon defId (server) → projectile defId (client prediction tracking)
-          const projDefId = event.defId === 'glauncher' ? 'grenade'
-            : event.defId === 'plasmagun' ? 'plasma_bolt'
-              : 'rocket'; // rlauncher and others → rocket
-
-          // Deduplicate: if client already predicted this explosion locally, skip
-          // Use 200-unit tolerance: server BSP and client Babylon.js raycasts can diverge
-          if (getProjectileManager().hasRecentPrediction(pos, projDefId, 200)) {
-            continue;
-          }
-
-          // Server-authoritative explosion (remote player's projectile, or correction)
           const normal = new Vector3(event.normalX, event.normalY, event.normalZ);
           const config = event.defId === 'glauncher' ? GRENADE_EXPLOSION
             : event.defId === 'plasmagun' ? PLASMA_EXPLOSION
               : ROCKET_EXPLOSION;
           getExplosionEffect().spawn(pos, config, normal);
+        } else if (event.type === 'projectile_spawn') {
+          // Server tells us about a new projectile entity — record defId mapping
+          this.serverProjectileDefIds.set(event.entityId, event.defId);
         } else if (event.type === 'combat_state' && event.entityId === localEntityId) {
           // Combat state for local player (health/armor)
           HUDState.getInstance().processCombatState(event);
@@ -794,6 +791,53 @@ export class FPSGameManager {
         }
 
         this.remoteRenderer.pushSnapshot(state, localEntityId, serverLocalTime);
+      }
+    }
+
+    // === Server-driven projectile entity processing (Q3-style) ===
+    {
+      const projMgr = getProjectileManager();
+      // Lazy-init ProjectileManager if needed
+      if (!projMgr['scene'] && EngineStore.LastCreatedScene) {
+        projMgr.init(EngineStore.LastCreatedScene);
+      }
+
+      // Track which server projectiles are still alive this snapshot
+      const aliveThisSnapshot = new Set<string>();
+
+      for (const [entityId, entity] of state.entities) {
+        if (!entityId.startsWith('proj_')) continue;
+        aliveThisSnapshot.add(entityId);
+
+        const posComp = entity.getComponent('position') as any;
+        const velComp = entity.getComponent('velocity') as any;
+        if (!posComp) continue;
+
+        const pos = new Vector3(posComp.x, posComp.y, posComp.z);
+        const vel = velComp
+          ? new Vector3(velComp.x, velComp.y, velComp.z)
+          : Vector3.Zero();
+
+        if (this.activeServerProjectiles.has(entityId)) {
+          // Already spawned — update position from server
+          projMgr.updateServerPosition(entityId, pos, vel);
+        } else {
+          // New entity — spawn visual
+          const defId = this.serverProjectileDefIds.get(entityId);
+          if (defId) {
+            projMgr.spawnFromServer(entityId, defId, pos, vel);
+            this.activeServerProjectiles.add(entityId);
+          }
+        }
+      }
+
+      // Despawn visuals for projectiles that disappeared from snapshot
+      for (const entityId of this.activeServerProjectiles) {
+        if (!aliveThisSnapshot.has(entityId)) {
+          projMgr.despawnByEntityId(entityId);
+          this.activeServerProjectiles.delete(entityId);
+          this.serverProjectileDefIds.delete(entityId);
+        }
       }
     }
 
@@ -977,18 +1021,12 @@ export class FPSGameManager {
         fx.fireBolt({ origin, direction: dir, color, maxRange: 10000 });
         break;
 
-      // Projectile weapons — spawn visual projectile for remote player
+      // Projectile weapons — visuals now come from server entities (Q3-style)
+      // No need to spawn client-side predictions here
       case 'plasmagun':
-        getProjectileManager().spawn('plasma_bolt', origin, dir);
-        break;
       case 'rlauncher':
-        getProjectileManager().spawn('rocket', origin, dir);
-        break;
       case 'glauncher':
-        getProjectileManager().spawn('grenade', origin, dir);
-        break;
       case 'gunblade':
-        getProjectileManager().spawn('gunblade_blast', origin, dir);
         break;
 
       default:

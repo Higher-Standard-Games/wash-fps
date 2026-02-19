@@ -110,6 +110,13 @@ export class ProjectileSystem extends Subsystem {
         });
     }
 
+    /**
+     * Get the defId for a projectile entity (used by GameServer for snapshot events)
+     */
+    getDefId(entityId: EntityId): string | undefined {
+        return this.projectileMeta.get(entityId)?.defId;
+    }
+
     update(state: WorldState, dt: number, _tick: TickNumber): void {
         this.projectilesToRemove = [];
 

@@ -66,6 +66,7 @@ export class RemotePlayerRenderer {
 
         for (const [entityId, entity] of state.entities) {
             if (entityId === localEntityId) continue;
+            if (entityId.startsWith('proj_')) continue; // Skip projectile entities
 
             const transform = entity.getComponent('transform') as any;
             const velocity = entity.getComponent('velocity') as any;
