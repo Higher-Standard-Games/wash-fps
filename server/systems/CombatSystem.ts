@@ -73,6 +73,14 @@ export interface KillEvent {
     killerId?: EntityId;
     damageType: DamageType;
     tick: TickNumber;
+    /** Victim position at death (for gibs) */
+    victimX: number;
+    victimY: number;
+    victimZ: number;
+    /** Victim velocity at death (for gibs) */
+    victimVelX: number;
+    victimVelY: number;
+    victimVelZ: number;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -83,7 +91,7 @@ export class CombatSystem extends Subsystem {
     private pendingDamage: DamageEvent[] = [];
     private kills: KillEvent[] = [];
     /** Processed damage events (with final damage) for network forwarding */
-    private processedDamage: { victimId: EntityId; attackerId?: EntityId; damage: number; damageType: DamageType }[] = [];
+    private processedDamage: { victimId: EntityId; attackerId?: EntityId; damage: number; damageType: DamageType; x: number; y: number; z: number }[] = [];
     /** Movement subsystem ref for grounded state reset after KB */
     private movementSubsystem: FPSMovementSubsystem | null = null;
 
@@ -134,7 +142,7 @@ export class CombatSystem extends Subsystem {
      * Get processed damage events for network forwarding.
      * Contains final damage values (after location multipliers).
      */
-    getProcessedDamage(): readonly { victimId: EntityId; attackerId?: EntityId; damage: number; damageType: DamageType }[] {
+    getProcessedDamage(): readonly { victimId: EntityId; attackerId?: EntityId; damage: number; damageType: DamageType; x: number; y: number; z: number }[] {
         return this.processedDamage;
     }
 
@@ -163,7 +171,9 @@ export class CombatSystem extends Subsystem {
         const finalDamage = Math.round(event.damage * multiplier);
 
         // Apply damage
+        const healthBefore = victim.health.health;
         applyDamage(victim.health, finalDamage, event.armorPiercing);
+        console.log(`[CombatSystem] Damage: victim=${event.victimId} hp=${healthBefore}→${victim.health.health} dead=${victim.health.dead} dmg=${finalDamage} type=${event.damageType}`);
 
         // ── KNOCKBACK (queued for movement system) ──
         // Queue impulse for FPSMovementSubsystem to apply BEFORE simulate().
@@ -209,17 +219,30 @@ export class CombatSystem extends Subsystem {
             attackerId: event.attackerId,
             damage: finalDamage,
             damageType: event.damageType,
+            x: victim.transform?.position.x ?? 0,
+            y: victim.transform?.position.y ?? 0,
+            z: victim.transform?.position.z ?? 0,
         });
 
         // Check for kill
         if (victim.health.dead) {
+            // Get victim position and velocity for gibs
+            const pos = victim.transform?.position ?? { x: 0, y: 0, z: 0 };
+            const vel = victim.physics?.velocity ?? { x: 0, y: 0, z: 0 };
             const killEvent: KillEvent = {
                 victimId: event.victimId,
                 killerId: event.attackerId,
                 damageType: event.damageType,
                 tick,
+                victimX: pos.x,
+                victimY: pos.y,
+                victimZ: pos.z,
+                victimVelX: vel.x,
+                victimVelY: vel.y,
+                victimVelZ: vel.z,
             };
             this.kills.push(killEvent);
+            console.log(`[CombatSystem] KILL: victim=${event.victimId} killer=${event.attackerId} pos=(${pos.x.toFixed(0)},${pos.y.toFixed(0)},${pos.z.toFixed(0)})`);
             // NOTE: Respawn queuing is now handled by GametypeController
         }
     }

@@ -27,6 +27,7 @@ import { ProjectileSystem } from './systems/ProjectileSystem';
 import { WeaponSystem } from './systems/WeaponSystem';
 import { CombatSystem } from './systems/CombatSystem';
 import { PickupSystem } from './systems/PickupSystem';
+import { DroppedWeaponSystem } from './systems/DroppedWeaponSystem';
 
 // Anti-cheat
 import { MovementValidator } from './MovementValidator';
@@ -95,6 +96,7 @@ export class GameServer {
     private weaponSystem: WeaponSystem;
     private combatSystem: CombatSystem;
     private pickupSystem: PickupSystem;
+    private droppedWeaponSystem: DroppedWeaponSystem;
 
     // Gametype
     private gametypeController: GametypeController;
@@ -105,6 +107,9 @@ export class GameServer {
     // Snapshot throttling: only broadcast every N ticks
     private snapshotTickCounter: number = 0;
     private ticksPerSnapshot: number = 1;
+
+    // Kill events cached for snapshot broadcast (postTick drains them from CombatSystem)
+    private pendingKillEvents: import('./systems/CombatSystem').KillEvent[] = [];
 
     // Snapshot history for delta compression baselines
     // Ring buffer keyed by tick — stores recent GameStates so we can delta
@@ -131,6 +136,7 @@ export class GameServer {
         this.weaponSystem = new WeaponSystem();
         this.combatSystem = new CombatSystem();
         this.pickupSystem = new PickupSystem();
+        this.droppedWeaponSystem = new DroppedWeaponSystem();
 
         // Add subsystems to simulation
         this.simulation.addSubsystem(this.physicsSystem);
@@ -138,12 +144,19 @@ export class GameServer {
         this.simulation.addSubsystem(this.weaponSystem);
         this.simulation.addSubsystem(this.combatSystem);
         this.simulation.addSubsystem(this.pickupSystem);
+        this.simulation.addSubsystem(this.droppedWeaponSystem);
 
         // Wire weapon → projectile system for type tracking
         this.weaponSystem.setProjectileSystem(this.projectileSystem);
 
+        // Wire weapon → dropped weapon system for physical drops
+        this.weaponSystem.setDroppedWeaponSystem(this.droppedWeaponSystem);
+
         // Wire pickup → weapon system for inventory management
         this.pickupSystem.setWeaponSystem(this.weaponSystem);
+
+        // Wire pickup → dropped weapon system for picking up dropped weapons
+        this.pickupSystem.setDroppedWeaponSystem(this.droppedWeaponSystem);
 
         // Wire combat → movement system for KB grounded state reset
         this.combatSystem.setMovementSubsystem(this.physicsSystem);
@@ -311,6 +324,14 @@ export class GameServer {
         // 0. Reset anti-warp per-tick counters
         this.movementValidator.onTick();
 
+        // 0.5. Cache entity positions for weapon drop spawning
+        const preTickState = this.simulation.getState();
+        for (const entity of preTickState.allEntities()) {
+            if (entity.transform && entity.ownerId !== undefined) {
+                this.weaponSystem.cacheEntityPosition(entity.id, entity.transform.position);
+            }
+        }
+
         // 1. Run simulation (physics, weapons, combat)
         this.simulation.tick();
 
@@ -320,6 +341,13 @@ export class GameServer {
         }
         for (const dmg of this.projectileSystem.getPendingDamage()) {
             this.combatSystem.queueDamage(dmg);
+        }
+
+        // 2b. Accumulate kills (snapshots only send every N ticks, so we must not overwrite)
+        const recentKills = this.combatSystem.getRecentKills();
+        if (recentKills.length > 0) {
+            this.pendingKillEvents.push(...recentKills);
+            console.log(`[GameServer] Cached ${recentKills.length} kill events for snapshot broadcast (total pending: ${this.pendingKillEvents.length})`);
         }
 
         // 3. Run gametype controller post-tick (kills, respawns, match state)
@@ -536,6 +564,7 @@ export class GameServer {
                 yaw: command.yaw || 0,
                 buttons,
                 sequence: seq,
+                weaponSlot: command.weaponSlot || 0,
             });
             client.lastInputSeq = seq;
         }
@@ -603,57 +632,89 @@ export class GameServer {
                 continue;
             }
 
-            const clientEntity = new Entity(`player_${entity.id}`);
+            // Dropped weapon entities (position only, no velocity)
+            if (entity.type === EntityType.Item) {
+                const itemEntity = new Entity(`item_${entity.id}`);
+                if (entity.transform) {
+                    itemEntity.addComponent('transform', {
+                        position: { ...entity.transform.position },
+                        rotation: { x: 0, y: 0, z: 0, w: 1 },
+                        serialize: () => ({}),
+                        deserialize: () => { },
+                        clone: function () { return { ...this }; }
+                    });
+                    itemEntity.addComponent('position', {
+                        x: entity.transform.position.x,
+                        y: entity.transform.position.y,
+                        z: entity.transform.position.z,
+                        serialize: () => ({}),
+                        deserialize: () => { },
+                        clone: function () { return { ...this }; }
+                    });
+                }
+                gameState.entities.set(itemEntity.id, itemEntity);
+                continue;
+            }
+            // Skip dead player entity RENDERING DATA — don't send position/velocity
+            // (death events handle gibs/kill feed; entity reappears after respawn)
+            // BUT still emit combat_state and player state for HUD/scoreboard
+            const isDead = !!entity.health?.dead;
 
-            if (entity.transform) {
-                clientEntity.addComponent('transform', {
-                    position: { ...entity.transform.position },
-                    rotation: { x: entity.transform.rotation.x, y: entity.transform.rotation.y, z: entity.transform.rotation.z, w: 1 },
-                    serialize: () => ({}),
-                    deserialize: () => { },
-                    clone: function () { return { ...this }; }
-                });
-                clientEntity.addComponent('position', {
-                    x: entity.transform.position.x,
-                    y: entity.transform.position.y,
-                    z: entity.transform.position.z,
-                    serialize: () => ({}),
-                    deserialize: () => { },
-                    clone: function () { return { ...this }; }
-                });
+            if (!isDead) {
+                const clientEntity = new Entity(`player_${entity.id}`);
+
+                if (entity.transform) {
+                    clientEntity.addComponent('transform', {
+                        position: { ...entity.transform.position },
+                        rotation: { x: entity.transform.rotation.x, y: entity.transform.rotation.y, z: entity.transform.rotation.z, w: 1 },
+                        serialize: () => ({}),
+                        deserialize: () => { },
+                        clone: function () { return { ...this }; }
+                    });
+                    clientEntity.addComponent('position', {
+                        x: entity.transform.position.x,
+                        y: entity.transform.position.y,
+                        z: entity.transform.position.z,
+                        serialize: () => ({}),
+                        deserialize: () => { },
+                        clone: function () { return { ...this }; }
+                    });
+                }
+
+                if (entity.physics) {
+                    clientEntity.addComponent('velocity', {
+                        x: entity.physics.velocity.x,
+                        y: entity.physics.velocity.y,
+                        z: entity.physics.velocity.z,
+                        linear: { ...entity.physics.velocity },
+                        angular: { x: 0, y: 0, z: 0 },
+                        grounded: entity.physics.grounded,
+                        serialize: () => ({}),
+                        deserialize: () => { },
+                        clone: function () { return { ...this }; }
+                    });
+
+                    clientEntity.addComponent('movementState', {
+                        isSliding: entity.physics.isSliding ?? false,
+                        isCrouching: entity.physics.isCrouching ?? false,
+                        crouchViewOffset: entity.physics.crouchViewOffset ?? 0,
+                        wallJumpState: entity.physics.wallJumpState ?? 'none',
+                        ledgeGrabState: entity.physics.ledgeGrabState ?? 'none',
+                        actualHorizSpeed: entity.physics.actualHorizSpeed ?? 0,
+                        serialize: () => ({}),
+                        deserialize: () => { },
+                        clone: function () { return { ...this }; }
+                    });
+                }
+
+                gameState.entities.set(clientEntity.id, clientEntity);
             }
 
-            if (entity.physics) {
-                clientEntity.addComponent('velocity', {
-                    x: entity.physics.velocity.x,
-                    y: entity.physics.velocity.y,
-                    z: entity.physics.velocity.z,
-                    linear: { ...entity.physics.velocity },
-                    angular: { x: 0, y: 0, z: 0 },
-                    grounded: entity.physics.grounded,
-                    serialize: () => ({}),
-                    deserialize: () => { },
-                    clone: function () { return { ...this }; }
-                });
-
-                clientEntity.addComponent('movementState', {
-                    isSliding: entity.physics.isSliding ?? false,
-                    isCrouching: entity.physics.isCrouching ?? false,
-                    crouchViewOffset: entity.physics.crouchViewOffset ?? 0,
-                    wallJumpState: entity.physics.wallJumpState ?? 'none',
-                    ledgeGrabState: entity.physics.ledgeGrabState ?? 'none',
-                    actualHorizSpeed: entity.physics.actualHorizSpeed ?? 0,
-                    serialize: () => ({}),
-                    deserialize: () => { },
-                    clone: function () { return { ...this }; }
-                });
-            }
-
-            gameState.entities.set(clientEntity.id, clientEntity);
-
-            // Player state
+            // Player state (scoreboard + combat_state) — always emit, even for dead players
             if (entity.ownerId !== undefined) {
                 const playerId = `player_${entity.ownerId}`;
+                // Use entity ID for client entity reference (needed for combat_state)
+                const entityClientId = `player_${entity.id}`;
                 if (!gameState.players.has(playerId)) {
                     // Get score and deaths from gametype controller
                     const matchState = this.gametypeController.getMatchState();
@@ -672,7 +733,7 @@ export class GameServer {
                     }
 
                     const playerState: PlayerState = {
-                        entityId: clientEntity.id,
+                        entityId: entityClientId,
                         name: displayName,
                         team: '',
                         score,
@@ -688,7 +749,7 @@ export class GameServer {
                     if (entity.health) {
                         gameState.events.push({
                             type: 'combat_state',
-                            entityId: clientEntity.id,
+                            entityId: entityClientId,
                             health: Math.max(0, Math.round(entity.health.health)),
                             armor: Math.max(0, Math.round(entity.health.armor)),
                             dead: entity.health.dead,
@@ -767,6 +828,21 @@ export class GameServer {
             });
         }
 
+        // Add weapon drop events (so clients can render dropped weapon models)
+        for (const dropEvt of this.droppedWeaponSystem.getPendingDropEvents()) {
+            gameState.events.push({
+                type: 'weapon_drop',
+                entityId: dropEvt.entityId,
+                weaponId: dropEvt.weaponId,
+                x: dropEvt.x,
+                y: dropEvt.y,
+                z: dropEvt.z,
+                velX: dropEvt.velX,
+                velY: dropEvt.velY,
+                velZ: dropEvt.velZ,
+            });
+        }
+
         // Add damage events (forwarded from CombatSystem for floating damage numbers)
         const damageEvents = this.combatSystem.getProcessedDamage();
         for (const dmg of damageEvents) {
@@ -776,20 +852,31 @@ export class GameServer {
                 attackerId: dmg.attackerId !== undefined ? `player_${dmg.attackerId}` : '',
                 damage: dmg.damage,
                 weaponId: dmg.damageType, // Use damageType as weapon identifier for now
+                x: dmg.x,
+                y: dmg.y,
+                z: dmg.z,
             });
         }
         this.combatSystem.clearProcessedDamage();
 
-        // Add death events (forwarded from CombatSystem for kill feed)
-        const killEvents = this.combatSystem.getRecentKills();
-        for (const kill of killEvents) {
+        // Add death events from cached kills (cached before postTick clears them)
+        for (const kill of this.pendingKillEvents) {
             gameState.events.push({
                 type: 'death',
                 entityId: `player_${kill.victimId}`,
                 killerId: kill.killerId !== undefined ? `player_${kill.killerId}` : '',
                 weaponId: kill.damageType, // Use damageType as weapon identifier
+                // Victim position + velocity for gib spawning
+                x: kill.victimX,
+                y: kill.victimY,
+                z: kill.victimZ,
+                velX: kill.victimVelX,
+                velY: kill.victimVelY,
+                velZ: kill.victimVelZ,
             });
         }
+        // Clear cached kills after they've been sent
+        this.pendingKillEvents = [];
 
         return gameState;
     }

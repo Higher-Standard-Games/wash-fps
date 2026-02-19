@@ -55,6 +55,11 @@ export class HUDState {
     armor: number = 0;
     dead: boolean = false;
 
+    // === Weapon state (private to local player) ===
+    currentWeapon: string = 'gunblade';
+    weapons: string[] = ['gunblade'];
+    ammo: Record<string, number> = {};
+
     // === Damage numbers (recent, for floating display) ===
     damageNumbers: DamageNumber[] = [];
     private static readonly DAMAGE_EXPIRE_MS = 2000;
@@ -89,6 +94,15 @@ export class HUDState {
         this.health = event.health ?? 100;
         this.armor = event.armor ?? 0;
         this.dead = event.dead ?? false;
+    }
+
+    /**
+     * Process a weapon_state event (current weapon, inventory, ammo for local player).
+     */
+    processWeaponState(event: { currentWeapon: string; weapons: string[]; ammo: Record<string, number> }): void {
+        this.currentWeapon = event.currentWeapon;
+        this.weapons = [...event.weapons];
+        this.ammo = { ...event.ammo };
     }
 
     /**
@@ -191,6 +205,13 @@ export class HUDState {
     updateDebugOverlay(): void {
         if (!this.debugEnabled || !this.debugElement) return;
 
+        // Weapon inventory with ammo
+        const wpnList = this.weapons.map(w => {
+            const active = w === this.currentWeapon ? '▸' : ' ';
+            const ammo = this.ammo[w] ?? 0;
+            return `  ${active} ${w}: ${ammo}`;
+        }).join('\n');
+
         const sb = this.scoreboard.map(
             p => `  ${p.name}: ${p.score}/${p.deaths} (${p.ping}ms)`
         ).join('\n');
@@ -206,6 +227,7 @@ export class HUDState {
         this.debugElement.textContent =
             `━━━ HUD DATA ━━━\n` +
             `HP: ${this.health}  Armor: ${this.armor}  Dead: ${this.dead}\n` +
+            `\n━━━ WEAPONS ━━━\n${wpnList || '  (none)'}\n` +
             `\n━━━ SCOREBOARD ━━━\n${sb || '  (empty)'}\n` +
             `\n━━━ KILL FEED ━━━\n${feed || '  (empty)'}\n` +
             `\n━━━ DAMAGE ━━━\n${dmg || '  (empty)'}`;

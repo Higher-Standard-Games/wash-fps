@@ -4,6 +4,20 @@
  * All weapon stats from Warsow gs_weapondefs.c
  */
 
+/** Crosshair visual config per weapon */
+export interface CrosshairConfig {
+    /** Draw style */
+    style: 'cross' | 'dot' | 'circle' | 'cross_dot';
+    /** Center gap in pixels (hip-fire spread) */
+    baseGap: number;
+    /** Arm length in pixels */
+    lineLength: number;
+    /** Arm thickness in pixels */
+    lineWidth: number;
+    /** Override color (hex without #). Falls back to cg_crosshairColor cvar */
+    color?: string;
+}
+
 export interface WeaponDef {
     /** Weapon ID */
     id: string;
@@ -44,14 +58,20 @@ export interface WeaponDef {
     /** Splash radius */
     splashRadius?: number;
 
-    /** Splash damage */
+    /** Max splash damage (at center) */
     splashDamage?: number;
+
+    /** Min splash damage (at outer edge of radius, Warsow-style floor) */
+    minSplashDamage?: number;
 
     /** Knockback scale (multiplied by damage to get impulse force) */
     knockbackScale?: number;
 
     /** Ammo given on pickup (defaults to ammoCapacity if unset) */
     pickupAmmo?: number;
+
+    /** Crosshair visual config */
+    crosshair?: CrosshairConfig;
 }
 
 // Warsow weapon definitions — stats from gs_weapondefs.c
@@ -66,9 +86,11 @@ export const WEAPONS: Record<string, WeaponDef> = {
         reloadTime: 0.6,
         projectileSpeed: 3000,
         splashRadius: 80,
-        splashDamage: 8,
+        splashDamage: 50,
+        minSplashDamage: 10,
         knockbackScale: 8.0,   // Strong melee KB
         useLagCompensation: false,
+        crosshair: { style: 'dot', baseGap: 0, lineLength: 0, lineWidth: 2 },
     },
     machinegun: {
         id: 'machinegun',
@@ -82,6 +104,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
         spread: 10,
         knockbackScale: 2.0,   // Bullet pushback
         useLagCompensation: true,
+        crosshair: { style: 'cross', baseGap: 4, lineLength: 6, lineWidth: 2 },
     },
     riotgun: {
         id: 'riotgun',
@@ -96,6 +119,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
         spread: 160,
         knockbackScale: 2.5,   // Shotgun spread push
         useLagCompensation: true,
+        crosshair: { style: 'cross', baseGap: 12, lineLength: 8, lineWidth: 2 },
     },
     glauncher: {
         id: 'glauncher',
@@ -107,10 +131,12 @@ export const WEAPONS: Record<string, WeaponDef> = {
         reloadTime: 0.8,
         projectileSpeed: 1560,
         splashRadius: 125,
-        splashDamage: 15,
+        splashDamage: 80,
+        minSplashDamage: 15,
         knockbackScale: 10.0,  // Grenade launcher — dramatic launches
         pickupAmmo: 10,
         useLagCompensation: false,
+        crosshair: { style: 'cross_dot', baseGap: 6, lineLength: 6, lineWidth: 2 },
     },
     rlauncher: {
         id: 'rlauncher',
@@ -122,10 +148,12 @@ export const WEAPONS: Record<string, WeaponDef> = {
         reloadTime: 0.95,
         projectileSpeed: 1800,
         splashRadius: 125,
-        splashDamage: 15,
+        splashDamage: 80,
+        minSplashDamage: 15,
         knockbackScale: 10.0,  // Rocket launcher — dramatic launches
         pickupAmmo: 10,
         useLagCompensation: false,
+        crosshair: { style: 'cross_dot', baseGap: 6, lineLength: 6, lineWidth: 2 },
     },
     plasmagun: {
         id: 'plasmagun',
@@ -137,9 +165,11 @@ export const WEAPONS: Record<string, WeaponDef> = {
         reloadTime: 0.1,
         projectileSpeed: 2500,
         splashRadius: 45,
-        splashDamage: 5,
+        splashDamage: 15,
+        minSplashDamage: 5,
         knockbackScale: 4.5,   // Plasma push
         useLagCompensation: false,
+        crosshair: { style: 'cross_dot', baseGap: 4, lineLength: 5, lineWidth: 2 },
     },
     lasergun: {
         id: 'lasergun',
@@ -152,6 +182,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
         maxRange: 850,
         knockbackScale: 1.5,   // Lasergun beam push
         useLagCompensation: true,
+        crosshair: { style: 'dot', baseGap: 0, lineLength: 0, lineWidth: 3 },
     },
     electrobolt: {
         id: 'electrobolt',
@@ -165,6 +196,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
         knockbackScale: 3.5,   // Electrobolt sniper push
         pickupAmmo: 5,
         useLagCompensation: true,
+        crosshair: { style: 'cross_dot', baseGap: 2, lineLength: 5, lineWidth: 1 },
     },
     instagun: {
         id: 'instagun',
@@ -178,5 +210,6 @@ export const WEAPONS: Record<string, WeaponDef> = {
         splashRadius: 80,
         knockbackScale: 12.0,  // Instagun — massive KB
         useLagCompensation: true,
+        crosshair: { style: 'circle', baseGap: 0, lineLength: 0, lineWidth: 2 },
     },
 };
