@@ -15,6 +15,7 @@ import { InputButtons } from '../../engine/network/components/InputComponent';
 import type { GameState } from '../../engine/network/core/GameState';
 import type { TransformComponent } from '../../engine/network/components/TransformComponent';
 import type { VelocityComponent } from '../../engine/network/components/VelocityComponent';
+import { SnapshotBuffer, EntitySnapshot } from '../../engine/network/client/SnapshotBuffer';
 
 
 import { getCollisionManager } from '../../engine/physics/CollisionManager';
@@ -101,6 +102,8 @@ export class FPSGameManager {
   private serverProjectileDefIds: Map<string, string> = new Map();
   /** Set of server entity IDs that already have client-side visuals spawned */
   private activeServerProjectiles: Set<string> = new Set();
+  /** SnapshotBuffer for projectile entity interpolation (Q3-style lerp between snapshots) */
+  private projectileBuffer: SnapshotBuffer = new SnapshotBuffer();
 
   // Weapon state sync
   private _lastServerWeapon: string = '';
@@ -537,8 +540,30 @@ export class FPSGameManager {
     if (this.remoteRenderer) {
       this.remoteRenderer.render();
     }
+
+    // Render server-driven projectiles with interpolated positions (Q3-style)
+    this.renderServerProjectiles();
+
     // Render network diagnostics overlay (if cl_netgraph > 0)
     NetGraph.render();
+  }
+
+  /**
+   * Per-frame interpolated rendering of server-driven projectiles.
+   * Samples the SnapshotBuffer for each active projectile entity,
+   * giving smooth lerp between two snapshots (same as remote players).
+   */
+  private renderServerProjectiles(): void {
+    const projMgr = getProjectileManager();
+    for (const entityId of this.activeServerProjectiles) {
+      const interp = this.projectileBuffer.sample(entityId);
+      if (!interp) continue;
+      projMgr.updateServerPosition(
+        entityId,
+        new Vector3(interp.x, interp.y, interp.z),
+        new Vector3(interp.vx, interp.vy, interp.vz)
+      );
+    }
   }
 
   /**
@@ -795,14 +820,9 @@ export class FPSGameManager {
     }
 
     // === Server-driven projectile entity processing (Q3-style) ===
+    // Push proj_ entities into SnapshotBuffer for smooth interpolation
     {
-      const projMgr = getProjectileManager();
-      // Lazy-init ProjectileManager if needed
-      if (!projMgr['scene'] && EngineStore.LastCreatedScene) {
-        projMgr.init(EngineStore.LastCreatedScene);
-      }
-
-      // Track which server projectiles are still alive this snapshot
+      const projEntities = new Map<string, EntitySnapshot>();
       const aliveThisSnapshot = new Set<string>();
 
       for (const [entityId, entity] of state.entities) {
@@ -813,28 +833,47 @@ export class FPSGameManager {
         const velComp = entity.getComponent('velocity') as any;
         if (!posComp) continue;
 
-        const pos = new Vector3(posComp.x, posComp.y, posComp.z);
-        const vel = velComp
-          ? new Vector3(velComp.x, velComp.y, velComp.z)
-          : Vector3.Zero();
+        projEntities.set(entityId, {
+          x: posComp.x,
+          y: posComp.y,
+          z: posComp.z,
+          yaw: 0,
+          vx: velComp?.x ?? 0,
+          vy: velComp?.y ?? 0,
+          vz: velComp?.z ?? 0,
+          grounded: false,
+        });
 
-        if (this.activeServerProjectiles.has(entityId)) {
-          // Already spawned — update position from server
-          projMgr.updateServerPosition(entityId, pos, vel);
-        } else {
-          // New entity — spawn visual
+        // Spawn visual if this is a new projectile
+        if (!this.activeServerProjectiles.has(entityId)) {
           const defId = this.serverProjectileDefIds.get(entityId);
           if (defId) {
+            const projMgr = getProjectileManager();
+            if (!projMgr['scene'] && EngineStore.LastCreatedScene) {
+              projMgr.init(EngineStore.LastCreatedScene);
+            }
+            const pos = new Vector3(posComp.x, posComp.y, posComp.z);
+            const vel = velComp
+              ? new Vector3(velComp.x, velComp.y, velComp.z)
+              : Vector3.Zero();
             projMgr.spawnFromServer(entityId, defId, pos, vel);
             this.activeServerProjectiles.add(entityId);
           }
         }
       }
 
+      // Push to interpolation buffer (using same ClockSync timing as remote players)
+      let serverLocalTime: number | undefined;
+      const networkHost = this.gameHost as any;
+      if (state.serverTimestamp && networkHost?.clockSync?.isSynced()) {
+        serverLocalTime = networkHost.clockSync.toLocalTime(state.serverTimestamp);
+      }
+      this.projectileBuffer.push(state.tick, projEntities, serverLocalTime);
+
       // Despawn visuals for projectiles that disappeared from snapshot
       for (const entityId of this.activeServerProjectiles) {
         if (!aliveThisSnapshot.has(entityId)) {
-          projMgr.despawnByEntityId(entityId);
+          getProjectileManager().despawnByEntityId(entityId);
           this.activeServerProjectiles.delete(entityId);
           this.serverProjectileDefIds.delete(entityId);
         }
