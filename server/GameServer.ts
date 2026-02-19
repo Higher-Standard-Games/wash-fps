@@ -121,7 +121,7 @@ export class GameServer {
         });
 
         // Calculate ticks-per-snapshot for decoupled snapshot rate
-        const snapshotRate = config.snapshotRate ?? 30;
+        const snapshotRate = config.snapshotRate ?? 60;
         this.ticksPerSnapshot = Math.max(1, Math.round(config.tickRate / snapshotRate));
         console.log(`[GameServer] Tick rate: ${config.tickRate}Hz, Snapshot rate: ${snapshotRate}Hz (every ${this.ticksPerSnapshot} ticks)`);
 

@@ -105,7 +105,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
         fireRate: 1.25,          // 800ms reload
         ammoCapacity: 20,
         reloadTime: 0.8,
-        projectileSpeed: 1000,
+        projectileSpeed: 1560,
         splashRadius: 125,
         splashDamage: 15,
         knockbackScale: 10.0,  // Grenade launcher — dramatic launches
@@ -120,7 +120,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
         fireRate: 1.05,          // 950ms reload
         ammoCapacity: 20,
         reloadTime: 0.95,
-        projectileSpeed: 1150,
+        projectileSpeed: 1800,
         splashRadius: 125,
         splashDamage: 15,
         knockbackScale: 10.0,  // Rocket launcher — dramatic launches
