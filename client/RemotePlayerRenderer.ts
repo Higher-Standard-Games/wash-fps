@@ -106,11 +106,6 @@ export class RemotePlayerRenderer {
             const interp = this.snapshotBuffer.sample(entityId);
             if (!interp) continue;
 
-            // === KB RENDER DIAGNOSTIC: Log when interpolated vy is large ===
-            if (Math.abs(interp.vy) > 100) {
-                console.log(`[KB-RENDER] t=${performance.now().toFixed(0)} entity=${entityId} vy=${interp.vy.toFixed(1)} y=${interp.y.toFixed(1)} interpDelay=${this.snapshotBuffer.getInterpDelay().toFixed(0)}ms bufSize=${this.snapshotBuffer.getBufferSize()}`);
-            }
-
             let model = this.models.get(entityId);
 
             // Create model for new entity

@@ -738,11 +738,7 @@ export class FPSGameManager {
           this.handleWeaponStateSync(event);
         } else if (event.type === 'weapon_fire') {
           // Skip our own weapon_fire events — local prediction already handles our visuals
-          if (event.entityId === localEntityId) {
-            console.log(`[WPN-FIRE] Skipped own fire: entityId=${event.entityId} localEntityId=${localEntityId} weapon=${event.weaponId}`);
-            continue;
-          }
-          console.log(`[WPN-FIRE] Remote fire: entityId=${event.entityId} localEntityId=${localEntityId} weapon=${event.weaponId}`);
+          if (event.entityId === localEntityId) continue;
           this.handleRemoteWeaponFire(event);
         } else if (event.type === 'projectile_impact') {
           const pos = new Vector3(event.x, event.y, event.z);
@@ -755,11 +751,8 @@ export class FPSGameManager {
           // Deduplicate: if client already predicted this explosion locally, skip
           // Use 200-unit tolerance: server BSP and client Babylon.js raycasts can diverge
           if (getProjectileManager().hasRecentPrediction(pos, projDefId, 200)) {
-            console.log(`[EXPLOSION-DEDUP] Skipped duplicate ${projDefId} at (${pos.x.toFixed(0)}, ${pos.y.toFixed(0)}, ${pos.z.toFixed(0)})`);
             continue;
           }
-
-          console.log(`[EXPLOSION] Spawning ${projDefId} at (${pos.x.toFixed(0)}, ${pos.y.toFixed(0)}, ${pos.z.toFixed(0)}) tick=${state.tick}`);
 
           // Server-authoritative explosion (remote player's projectile, or correction)
           const normal = new Vector3(event.normalX, event.normalY, event.normalZ);
@@ -801,17 +794,6 @@ export class FPSGameManager {
         }
 
         this.remoteRenderer.pushSnapshot(state, localEntityId, serverLocalTime);
-      }
-
-      // === KB DIAGNOSTIC: Log when ANY entity has significant upward velocity ===
-      for (const [eid, entity] of state.entities) {
-        const vel = entity.getComponent('velocity') as any;
-        if (vel) {
-          const vy = vel.linear?.y ?? vel.y ?? 0;
-          if (Math.abs(vy) > 100) {
-            console.log(`[KB-DIAG] t=${performance.now().toFixed(0)} tick=${state.tick} entity=${eid} vy=${vy.toFixed(1)} isLocal=${eid === localEntityId}`);
-          }
-        }
       }
     }
 
