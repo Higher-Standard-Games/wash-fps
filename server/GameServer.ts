@@ -75,6 +75,8 @@ export interface ClientInfo {
     lastInputSeq: number;
     /** Last snapshot tick the client has acknowledged receiving (for delta compression) */
     lastAckedTick: number;
+    /** The actual filtered GameState last sent to this client (PVS baseline) */
+    lastSentState?: GameState;
 }
 
 // ============================================================================
@@ -924,23 +926,35 @@ export class GameServer {
         for (const client of this.clients.values()) {
             try {
                 // PVS filtering: build per-client filtered state if PVS is available
-                const clientState = (this.pvs && this.pvs.enabled)
+                const pvsActive = !!(this.pvs && this.pvs.enabled);
+                const clientState = pvsActive
                     ? this.filterStateForClient(gameState, client)
                     : gameState;
 
                 clientState.ackedInputSeq = client.lastInputSeq;
 
-                // Look up client's last acked snapshot as delta baseline
-                const baseline = client.lastAckedTick > 0
-                    ? this.snapshotHistory.get(client.lastAckedTick)
-                    : undefined;
+                // Delta baseline: when PVS is active, use the per-client baseline
+                // (the actual filtered state the client received), not the global
+                // history which contains entities the client may never have seen.
+                let baseline: GameState | undefined;
+                if (pvsActive) {
+                    // Use the last state we ACTUALLY sent this client
+                    baseline = client.lastSentState;
+                } else {
+                    // Without PVS, all clients get the same full state
+                    baseline = client.lastAckedTick > 0
+                        ? this.snapshotHistory.get(client.lastAckedTick)
+                        : undefined;
+                }
 
                 const t0 = performance.now();
                 const snapshotBytes = MessageCodec.encodeSnapshot(clientState, baseline);
                 totalEncodeMs += performance.now() - t0;
 
-                if (clientState !== gameState) {
+                if (pvsActive) {
                     totalCulled += gameState.entities.size - clientState.entities.size;
+                    // Store per-client baseline: the filtered state we actually sent
+                    client.lastSentState = clientState;
                 }
 
                 client.connection.sendDatagram(snapshotBytes);
