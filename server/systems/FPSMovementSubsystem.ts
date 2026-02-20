@@ -194,6 +194,8 @@ export class FPSMovementSubsystem extends Subsystem {
             // Get mutable entity (COW)
             const mutable = state.getEntityMut(entity.id);
             if (!mutable || !mutable.transform || !mutable.physics || !mutable.input) continue;
+            // Skip dead entities — no physics simulation on corpses
+            if (mutable.health?.dead) continue;
 
             const input = mutable.input;
             const physics = mutable.physics;
@@ -226,6 +228,10 @@ export class FPSMovementSubsystem extends Subsystem {
                     input.yaw = qi.yaw;
                     input.buttons = qi.buttons;
                     input.sequence = qi.sequence;
+                    // Weapon slot: only update if client specified one (0 = no change)
+                    if (qi.weaponSlot > 0) {
+                        input.weaponSlot = qi.weaponSlot;
+                    }
 
                     const movementInput = adaptInput(input);
                     const result = profile.simulate(

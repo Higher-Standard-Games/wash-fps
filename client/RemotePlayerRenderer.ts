@@ -25,6 +25,8 @@ interface RemotePlayerModel {
     instance: PlayerModelInstance;
     smoothedPos: Vector3;
     smoothedYaw: number;
+    /** Smoothed horizontal speed for stable animation selection */
+    smoothedSpeed: number;
 }
 
 // ─── Constants ───────────────────────────────────────────────────
@@ -42,7 +44,8 @@ export class RemotePlayerRenderer {
     private models: Map<string, RemotePlayerModel> = new Map();
     private loadingStarted = false;
     private snapshotBuffer: SnapshotBuffer = new SnapshotBuffer();
-    private localEntityId: string = '';
+    /** Entities marked dead — value is death timestamp (performance.now) */
+    private deadEntities: Map<string, number> = new Map();
 
     constructor(scene: Scene) {
         this.manager = new PlayerModelManager(scene);
@@ -59,14 +62,13 @@ export class RemotePlayerRenderer {
      * @param serverLocalTime Optional server timestamp converted to local time via ClockSync
      */
     pushSnapshot(state: GameState, localEntityId: string, serverLocalTime?: number): void {
-        this.localEntityId = localEntityId;
 
         // Extract entity data into snapshot format
         const entities = new Map<string, EntitySnapshot>();
 
         for (const [entityId, entity] of state.entities) {
             if (entityId === localEntityId) continue;
-            if (entityId.startsWith('proj_')) continue; // Skip projectile entities
+            if (!entityId.startsWith('player_')) continue; // Only render player entities (skip items, projectiles, etc.)
 
             const transform = entity.getComponent('transform') as any;
             const velocity = entity.getComponent('velocity') as any;
@@ -86,6 +88,15 @@ export class RemotePlayerRenderer {
         }
 
         this.snapshotBuffer.push(state.tick, entities, serverLocalTime);
+
+        // Clear dead status ONLY when entity reappears in a fresh snapshot
+        // (meaning the server has confirmed respawn with valid position data)
+        for (const [entityId] of this.deadEntities) {
+            if (entities.has(entityId)) {
+                this.deadEntities.delete(entityId);
+                // Model will re-enable on next render frame via anchor.setEnabled(true)
+            }
+        }
     }
 
     /**
@@ -104,6 +115,9 @@ export class RemotePlayerRenderer {
 
         // Sample interpolated state for each alive entity
         for (const entityId of aliveIds) {
+            // Skip dead entities — their model is hidden until entity leaves snapshot
+            if (this.deadEntities.has(entityId)) continue;
+
             const interp = this.snapshotBuffer.sample(entityId);
             if (!interp) continue;
 
@@ -120,6 +134,9 @@ export class RemotePlayerRenderer {
 
             if (!model) continue;
 
+            // Ensure model is visible (may have been hidden during death)
+            model.instance.anchor.setEnabled(true);
+
             // Update position/rotation from interpolated data
             this.updatePositionInterpolated(model, interp);
             this.updateAnimationInterpolated(model, interp);
@@ -130,6 +147,7 @@ export class RemotePlayerRenderer {
             if (!aliveIds.has(entityId)) {
                 this.manager.disposeInstance(model.instance);
                 this.models.delete(entityId);
+                this.deadEntities.delete(entityId); // cleanup
             }
         }
     }
@@ -150,7 +168,32 @@ export class RemotePlayerRenderer {
             this.manager.disposeInstance(model.instance);
         }
         this.models.clear();
+        this.deadEntities.clear();
         this.manager.dispose();
+    }
+
+    /**
+     * Mark an entity as dead — dispose its model immediately.
+     * Called from FPSGameManager on death events.
+     * A fresh model will be created when the entity respawns and reappears in snapshots.
+     */
+    markDead(entityId: string): void {
+        this.deadEntities.set(entityId, performance.now());
+        // Fully dispose the model — not just hide it
+        // This prevents stale snapshot interpolation from re-enabling the mesh
+        const model = this.models.get(entityId);
+        if (model) {
+            this.manager.disposeInstance(model.instance);
+            this.models.delete(entityId);
+        }
+    }
+
+    /**
+     * Mark an entity as alive — model will reappear on next render.
+     * Called when a respawn/combat_state event clears dead status.
+     */
+    markAlive(entityId: string): void {
+        this.deadEntities.delete(entityId);
     }
 
     /** Get diagnostics */
@@ -182,6 +225,7 @@ export class RemotePlayerRenderer {
             instance,
             smoothedPos,
             smoothedYaw: initialState.yaw,
+            smoothedSpeed: 0,
         };
     }
 
@@ -207,17 +251,28 @@ export class RemotePlayerRenderer {
     }
 
     private updateAnimationInterpolated(model: RemotePlayerModel, interp: InterpolatedEntity): void {
-        // Derive animation from interpolated velocity
-        let anim = 'idle';
+        // Smooth speed with exponential moving average to prevent animation oscillation
+        const rawSpeed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz);
+        const alpha = 0.15; // smoothing factor (lower = smoother, higher = more responsive)
+        model.smoothedSpeed = model.smoothedSpeed * (1 - alpha) + rawSpeed * alpha;
+        const speed = model.smoothedSpeed;
 
-        const speed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz);
+        // Derive animation from smoothed velocity with hysteresis
+        // Use higher threshold to START an anim, lower to MAINTAIN it
+        let anim = 'idle';
+        const currentAnim = model.instance.currentAnim || 'idle';
 
         if (!interp.grounded && interp.vy > 50) {
             anim = 'jump';
-        } else if (speed > 300) {
-            anim = 'run';
-        } else if (speed > 50) {
-            anim = 'walk';
+        } else if (currentAnim === 'run') {
+            // Already running: keep running until speed drops well below threshold
+            anim = speed > 120 ? 'run' : (speed > 30 ? 'walk' : 'idle');
+        } else if (currentAnim === 'walk') {
+            // Already walking: go up to run at 250, down to idle at 30
+            anim = speed > 250 ? 'run' : (speed > 30 ? 'walk' : 'idle');
+        } else {
+            // From idle: need higher speed to start moving
+            anim = speed > 250 ? 'run' : (speed > 60 ? 'walk' : 'idle');
         }
 
         this.manager.playAnimation(model.instance, anim);

@@ -146,10 +146,10 @@ export class FPSPlayer {
         // Cancel reload
         this.isReloading = false;
         this.reloadTimer = 0;
-        WeaponViewManager.getInstance().cancelReload();
 
         if (this.inventory.equipWeapon(weaponId)) {
-            await WeaponViewManager.getInstance().loadWeapon(weaponId);
+            // Use animated switch (slide-down → swap model → slide-up)
+            await WeaponViewManager.getInstance().switchWeaponAnimated(weaponId);
             console.log(`Switched to weapon: ${weaponId}`);
         }
     }
@@ -157,7 +157,9 @@ export class FPSPlayer {
     private updateFiring(deltaTime: number): void {
         if (this.isReloading) return;
 
+        // Block firing during weapon switch animation
         const weaponMgr = WeaponViewManager.getInstance();
+        if (weaponMgr.isSwitching()) return;
         const currentWeapon = this.inventory.getCurrentWeapon();
         if (!currentWeapon) return;
 

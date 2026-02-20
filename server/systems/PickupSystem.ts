@@ -17,6 +17,7 @@ import type { WorldState } from '@engine/server/core/WorldState';
 import type { TickNumber, EntityId } from '@engine/server/ecs/types';
 import { EntityType } from '@engine/server/ecs/types';
 import type { WeaponSystem } from './WeaponSystem';
+import type { DroppedWeaponSystem } from './DroppedWeaponSystem';
 
 /** Must match InputButtons.USE from engine/network/components/InputComponent.ts */
 const USE_BUTTON = 1 << 11;
@@ -69,6 +70,7 @@ export class PickupSystem extends Subsystem {
     private pickups: PickupItem[] = [];
     private pendingPickupEvents: PickupEvent[] = [];
     private weaponSystem: WeaponSystem | null = null;
+    private droppedWeaponSystem: DroppedWeaponSystem | null = null;
     private respawnTicks: number = 25 * 125; // 25 seconds at 125Hz (default)
 
     // Pickup detection parameters (matching client-side Pickup.ts)
@@ -89,6 +91,13 @@ export class PickupSystem extends Subsystem {
      */
     setWeaponSystem(ws: WeaponSystem): void {
         this.weaponSystem = ws;
+    }
+
+    /**
+     * Set reference to DroppedWeaponSystem for picking up dropped weapons
+     */
+    setDroppedWeaponSystem(dws: DroppedWeaponSystem): void {
+        this.droppedWeaponSystem = dws;
     }
 
     /**
@@ -214,6 +223,60 @@ export class PickupSystem extends Subsystem {
 
                 // Only pick up one weapon per tick
                 break;
+            }
+
+            // Check dropped weapons (EntityType.Item) — always require USE key
+            if (this.droppedWeaponSystem && useJustPressed) {
+                for (const itemEntity of state.entitiesByType(EntityType.Item)) {
+                    if (!itemEntity.transform) continue;
+
+                    const dx = px - itemEntity.transform.position.x;
+                    const dz = pz - itemEntity.transform.position.z;
+                    const dy = py - itemEntity.transform.position.y;
+
+                    const horizDistSq = dx * dx + dz * dz;
+                    const inRange = horizDistSq < this.PICKUP_RADIUS_SQ
+                        && dy > this.VERTICAL_RANGE_MIN
+                        && dy < this.VERTICAL_RANGE_MAX;
+
+                    if (!inRange) continue;
+                    if (!this.weaponSystem) continue;
+
+                    const meta = this.droppedWeaponSystem.getDroppedWeaponMeta(itemEntity.id);
+                    if (!meta) continue;
+
+                    // Add weapon to player's inventory
+                    const result = this.weaponSystem.addWeapon(player.id, meta.weaponId);
+                    if (!result.added) {
+                        // Already has weapon — addWeapon already gave pickupAmmo for duplicate
+                        // Remove the dropped entity anyway
+                    }
+
+                    // Transfer dropped weapon's remaining ammo (override default pickupAmmo)
+                    if (meta.ammo > 0) {
+                        this.weaponSystem.setAmmo(player.id, meta.weaponId, meta.ammo);
+                    }
+
+                    // Remove from world
+                    state.removeEntity(itemEntity.id);
+                    this.droppedWeaponSystem.removeDroppedWeapon(itemEntity.id);
+
+                    console.log(`[PickupSystem] Player ${player.id} picked up dropped ${meta.weaponId} (ammo=${meta.ammo})`);
+
+                    // Emit event
+                    this.pendingPickupEvents.push({
+                        pickupId: -1, // Negative ID = dropped weapon pickup
+                        weaponId: meta.weaponId,
+                        entityId: player.id,
+                        droppedWeaponId: result.dropped,
+                        x: itemEntity.transform.position.x,
+                        y: itemEntity.transform.position.y,
+                        z: itemEntity.transform.position.z,
+                    });
+
+                    // Only pick up one item per tick
+                    break;
+                }
             }
         }
     }

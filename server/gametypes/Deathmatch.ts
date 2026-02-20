@@ -36,7 +36,9 @@ export class Deathmatch extends BaseGametype {
             scoreLimit: 20,         // frags to win
             timeLimit: 600,         // 10 minutes
             postGameDuration: 10,   // scoreboard duration
-            respawnDelay: 3,        // seconds after death
+            respawnDelay: 3,        // seconds min before respawn input accepted
+            maxRespawnDelay: 6,     // seconds auto-respawn deadline
+            selfDamage: 1.0,        // full self-damage (standard DM)
         };
     }
 

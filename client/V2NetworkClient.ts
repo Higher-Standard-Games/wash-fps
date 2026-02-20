@@ -88,6 +88,7 @@ export class V2NetworkClient {
     // Debug stats
     private reconcileCount: number = 0;
     private lastReconcileError: number = 0;
+    private _diagOffsetLogTimer: number = 0;
 
     // Visual smoothing for reconciliation corrections
     // Instead of teleporting on correction, store the error and decay it
@@ -253,6 +254,10 @@ export class V2NetworkClient {
         const preDz = this.localState.position.z - snapshot.position.z;
         const preError = Math.sqrt(preDx * preDx + preDy * preDy + preDz * preDz);
 
+        // === DIAGNOSTIC: Capture pre-reconciliation movement state ===
+        const preGrounded = this.localState.grounded;
+        const preHSpeed = this.predictedMovement.actualHorizSpeed;
+
         // === STEP 1: Save pre-reconciliation position for visual smoothing ===
         const preReconcilePos = { ...this.localState.position };
 
@@ -297,6 +302,19 @@ export class V2NetworkClient {
             this.updatePredictedMovement(result);
         }
 
+        // === FIX: Preserve client grounded state when no inputs were replayed ===
+        // When unacked=0, reconciliation adopts the server's grounded state directly.
+        // But the server snapshot can report grounded=false even when the player is
+        // clearly on the ground (standing still, velY=0). This causes WalkBobEffect
+        // to decay bobCycle on every snapshot frame → animation restarts.
+        // The client's 125Hz simulation is more accurate for this cosmetic state
+        // than the server's 60Hz snapshots, so trust the client when there's
+        // nothing to replay and the position divergence is small.
+        if (inputsToReplay.length === 0 && preError < 1.0) {
+            this.localState.grounded = preGrounded;
+            this.movement.resetPhysicsState(preGrounded);
+        }
+
         // === STEP 4: Prune acknowledged inputs ===
         this.inputHistory.pruneAcked(snapshot.ackedInputSeq);
         this.lastAckedSeq = snapshot.ackedInputSeq;
@@ -333,7 +351,18 @@ export class V2NetworkClient {
         this.reconcileCount++;
         this.lastReconcileError = preError;
 
-        // === DIAGNOSTIC: Log reconciliation stats periodically ===
+        // === DIAGNOSTIC: Detect state changes that could cause animation jitter ===
+        const postGrounded = this.localState.grounded;
+        const postHSpeed = this.predictedMovement.actualHorizSpeed;
+        if (preGrounded !== postGrounded) {
+            console.warn(`[V2Client] RECONCILE GROUNDED FLIP: ${preGrounded} → ${postGrounded} (unacked=${unacked.length} preErr=${preError.toFixed(2)} posY=${this.localState.position.y.toFixed(3)} velY=${this.localState.velocity.y.toFixed(1)})`);
+        }
+        // Log speed changes > 20% (could cause bob intensity stutter)
+        if (preHSpeed > 10 && Math.abs(postHSpeed - preHSpeed) / preHSpeed > 0.2) {
+            console.warn(`[V2Client] RECONCILE SPEED CHANGE: ${preHSpeed.toFixed(1)} → ${postHSpeed.toFixed(1)} (delta=${(postHSpeed - preHSpeed).toFixed(1)}, unacked=${unacked.length})`);
+        }
+
+        // Log reconciliation stats every 4 seconds (~250 at 60Hz)
         if (this.reconcileCount % 250 === 0) {
             const postDx = this.localState.position.x - snapshot.position.x;
             const postDy = this.localState.position.y - snapshot.position.y;
@@ -368,13 +397,31 @@ export class V2NetworkClient {
     /**
      * Decay the visual smoothing offset toward zero.
      * Call once per frame with frame delta time.
-     * ~83ms to fully decay (factor of 12/sec).
+     * Uses fast decay (dt*20 ≈ 50ms) so offset settles before next snapshot.
+     * Snaps to zero when below threshold to prevent endless micro-drift.
      */
     decayVisualOffset(dt: number): void {
-        const factor = Math.min(1.0, dt * 12);
+        const factor = Math.min(1.0, dt * 20);
         this.visualOffset.x *= (1 - factor);
         this.visualOffset.y *= (1 - factor);
         this.visualOffset.z *= (1 - factor);
+
+        // Snap to zero when offset is sub-perceptual (prevents endless asymptotic decay)
+        const mag = Math.abs(this.visualOffset.x) + Math.abs(this.visualOffset.y) + Math.abs(this.visualOffset.z);
+        if (mag < 0.05) {
+            this.visualOffset.x = 0;
+            this.visualOffset.y = 0;
+            this.visualOffset.z = 0;
+        }
+
+        // Periodic diagnostic: log visual offset magnitude
+        this._diagOffsetLogTimer += dt;
+        if (this._diagOffsetLogTimer >= 2.0) {
+            this._diagOffsetLogTimer = 0;
+            if (mag > 0.001) {
+                console.log(`[V2Client] visualOffset: (${this.visualOffset.x.toFixed(4)}, ${this.visualOffset.y.toFixed(4)}, ${this.visualOffset.z.toFixed(4)}) mag=${mag.toFixed(4)}`);
+            }
+        }
     }
 
     getVelocity(): Vec3 {

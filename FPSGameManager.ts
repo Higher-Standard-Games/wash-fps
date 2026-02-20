@@ -32,6 +32,7 @@ import { getWeaponViewManager } from '../../engine/weapon/WeaponViewManager';
 import { Vector3, Color3 } from '@babylonjs/core';
 import { EngineStore } from '@babylonjs/core/Engines/engineStore';
 import { RemotePlayerRenderer } from './client/RemotePlayerRenderer';
+import { DroppedWeaponRenderer } from './client/DroppedWeaponRenderer';
 import { getExplosionEffect, ROCKET_EXPLOSION, GRENADE_EXPLOSION, PLASMA_EXPLOSION } from '../../engine/weapon/ExplosionEffect';
 import { FPSPlayer } from './FPSPlayer';
 import { NetGraph } from '../../engine/network/client/NetGraph';
@@ -58,6 +59,8 @@ export interface PlayerInputState {
   use: boolean;
   pitch: number;  // Camera X rotation
   yaw: number;    // Camera Y rotation
+  /** Weapon slot (1-based, 0 = no change) */
+  weaponSlot: number;
 }
 
 /**
@@ -96,6 +99,7 @@ export class FPSGameManager {
 
   // Remote player model renderer
   private remoteRenderer: RemotePlayerRenderer | null = null;
+  private droppedWeaponRenderer: DroppedWeaponRenderer | null = null;
 
   // Server-driven projectile tracking (Q3-style)
   /** Maps server projectile entity ID (e.g. 'proj_10001') → weapon defId */
@@ -107,11 +111,22 @@ export class FPSGameManager {
 
   // Weapon state sync
   private _lastServerWeapon: string = '';
+  /** Maps remote player entityId → currentWeapon string (for third-person rendering) */
+  public readonly enemyWeapons: Map<string, string> = new Map();
 
   // Callbacks
   private onStateUpdateCallbacks: ((state: PlayerStateUpdate) => void)[] = [];
 
+  // Death state tracking (for death camera)
+  private _isPlayerDead: boolean = false;
+
   private pendingTick: number = 0;
+
+  // Cached effect system singletons (lazy-resolved, avoids per-frame import())
+  private _gibSystem: any = null;
+  private _gibSystemLoading = false;  // true while import() is pending
+  private _pendingGibSpawns: { x: number; y: number; z: number; vx: number; vy: number; vz: number }[] = [];
+  private _damageNumbers: any = null;
 
   private constructor() { }
 
@@ -360,6 +375,20 @@ export class FPSGameManager {
   }
 
   /**
+   * Check if local player is currently dead (for death camera)
+   */
+  isPlayerDead(): boolean {
+    return this._isPlayerDead;
+  }
+
+  /**
+   * Get current weapon ID (for crosshair lookup)
+   */
+  getCurrentWeaponId(): string {
+    return this._lastServerWeapon || 'gunblade';
+  }
+
+  /**
    * Get current server URL (if connected)
    */
   getServerUrl(): string | null {
@@ -406,7 +435,17 @@ export class FPSGameManager {
       return;
     }
     if (this.sendInputCallCount % 500 === 1) {
-      console.log(`[FPSGameManager] sendInput ACTIVE #${this.sendInputCallCount}: gameHost=${!!this.gameHost}, isRunning=${this.isRunning}, connected=${this.gameHost.isConnected()}`);
+      console.log(`[FPSGameManager] sendInput ACTIVE #${this.sendInputCallCount}: gameHost=${!!this.gameHost}, isRunning=${this.isRunning}, connected=${this.gameHost!.isConnected?.() ?? 'unknown'}`);
+    }
+
+    // While dead, strip movement input — only allow fire/jump/use for respawn
+    if (this._isPlayerDead) {
+      input.forward = false;
+      input.backward = false;
+      input.left = false;
+      input.right = false;
+      input.crouch = false;
+      input.sprint = false;
     }
 
     // Convert input state to button flags
@@ -460,6 +499,7 @@ export class FPSGameManager {
       pitch: input.pitch,
       yaw: input.yaw,
       buttons,
+      weaponSlot: input.weaponSlot || 0,
       serialize: () => new Uint8Array(), // TODO: Implement for network
     };
 
@@ -544,6 +584,49 @@ export class FPSGameManager {
     // Render server-driven projectiles with interpolated positions (Q3-style)
     this.renderServerProjectiles();
 
+    // Update particle/effect systems that need per-frame ticking
+    const dtSec = (EngineStore.LastCreatedEngine?.getDeltaTime() ?? 16) / 1000;
+
+    // Update gib physics (gravity, bouncing, tumble, fade)
+    if (!this._gibSystem && !this._gibSystemLoading) {
+      // Eagerly init on first frame so it's ready for death events
+      this._gibSystemLoading = true;
+      import('./client/GibSystem').then(m => {
+        const gibs = m.GibSystem.getInstance();
+        if (!gibs['scene'] && EngineStore.LastCreatedScene) {
+          gibs.init(EngineStore.LastCreatedScene);
+        }
+        if (gibs['scene']) {
+          this._gibSystem = gibs;
+          console.log(`[GibSystem] Initialized, flushing ${this._pendingGibSpawns.length} pending spawns`);
+          // Flush any gib spawns that queued while loading
+          for (const pending of this._pendingGibSpawns) {
+            gibs.spawn(pending.x, pending.y, pending.z, pending.vx, pending.vy, pending.vz);
+          }
+          this._pendingGibSpawns = [];
+        } else {
+          // Scene not ready yet — allow retry on next frame
+          console.log(`[GibSystem] Scene not ready, will retry next frame`);
+          this._gibSystemLoading = false;
+        }
+      }).catch(e => {
+        console.error('[GibSystem] Failed to load GibSystem module:', e);
+        this._gibSystemLoading = false;
+      });
+    } else if (this._gibSystem) {
+      this._gibSystem.update(dtSec);
+    }
+
+    // Update floating damage numbers (float upward, fade out)
+    if (this._damageNumbers) {
+      this._damageNumbers.update(dtSec);
+    } else {
+      import('./client/DamageNumbers').then(m => {
+        const dn = m.DamageNumbers.getInstance();
+        if (dn['scene']) this._damageNumbers = dn;
+      });
+    }
+
     // Render network diagnostics overlay (if cl_netgraph > 0)
     NetGraph.render();
   }
@@ -564,6 +647,32 @@ export class FPSGameManager {
         new Vector3(interp.vx, interp.vy, interp.vz)
       );
     }
+  }
+
+  /**
+   * Get V2Client's current predicted movement state.
+   * Unlike onPlayerStateUpdate (which fires only on snapshot frames, BEFORE the tick loop),
+   * this returns the CURRENT state AFTER the tick loop, in sync with getLocalPlayerPosition().
+   * Essential for keeping view bob, animations, and camera effects aligned with camera position.
+   */
+  getCurrentMovementState(): PlayerStateUpdate | null {
+    if (!this.v2Client) return null;
+    const v2State = this.v2Client.getState();
+    const ms = this.v2Client.getMovementState();
+    return {
+      position: v2State.position,
+      velocity: v2State.velocity,
+      grounded: v2State.grounded,
+      tick: 0, // Not used for view effects
+      isSliding: ms.isSliding,
+      isCrouching: ms.isCrouching,
+      crouchViewOffset: ms.crouchViewOffset,
+      wallJumpState: ms.wallJumpState as any,
+      ledgeGrabState: ms.ledgeGrabState as any,
+      actualHorizSpeed: ms.actualHorizSpeed,
+      slidePhase: ms.slidePhase,
+      ledgeGrabPhase: ms.ledgeGrabPhase,
+    };
   }
 
   /**
@@ -767,6 +876,11 @@ export class FPSGameManager {
         } else if (event.type === 'weapon_state' && event.entityId === localEntityId) {
           // Sync local player weapon from server
           this.handleWeaponStateSync(event);
+        } else if (event.type === 'weapon_state' && event.entityId !== localEntityId) {
+          // Track enemy weapon for third-person rendering
+          if (event.currentWeapon) {
+            this.enemyWeapons.set(event.entityId, event.currentWeapon);
+          }
         } else if (event.type === 'weapon_fire') {
           // Skip our own weapon_fire events — local prediction already handles our visuals
           if (event.entityId === localEntityId) continue;
@@ -785,12 +899,83 @@ export class FPSGameManager {
         } else if (event.type === 'combat_state' && event.entityId === localEntityId) {
           // Combat state for local player (health/armor)
           HUDState.getInstance().processCombatState(event);
+          // Track death state for death camera
+          if (event.dead && !this._isPlayerDead) {
+            this._isPlayerDead = true;
+            console.log('[FPSGameManager] Local player died');
+            // Hide weapon view model on death
+            import('../../engine/weapon/WeaponViewManager').then(m => {
+              m.getWeaponViewManager().setVisible(false);
+            });
+          } else if (!event.dead && this._isPlayerDead) {
+            this._isPlayerDead = false;
+            console.log('[FPSGameManager] Local player respawned');
+            // Show weapon on respawn
+            import('../../engine/weapon/WeaponViewManager').then(m => {
+              m.getWeaponViewManager().setVisible(true);
+            });
+          }
         } else if (event.type === 'damage') {
           // Damage event (floating damage numbers)
           HUDState.getInstance().processDamage(event);
+          // Hit confirmation: flash crosshair when LOCAL player deals damage
+          if (event.attackerId && event.attackerId === localEntityId) {
+            import('./client/Crosshair').then(m => m.Crosshair.getInstance().notifyHit());
+            // Spawn floating damage number at victim position
+            if (event.x !== undefined && event.damage > 0) {
+              import('./client/DamageNumbers').then(m => {
+                const dn = m.DamageNumbers.getInstance();
+                if (!dn['scene'] && EngineStore.LastCreatedScene) {
+                  dn.init(EngineStore.LastCreatedScene);
+                }
+                dn.spawn(event.x, event.y, event.z, event.damage);
+              });
+            }
+          }
         } else if (event.type === 'death') {
-          // Death event (kill feed)
-          HUDState.getInstance().processDeath(event);
+          console.log(`[Death] Event received: entity=${event.entityId} killer=${event.killerId} pos=(${event.x}, ${event.y}, ${event.z})`);
+          // Death event (kill feed + gibs)
+          try {
+            HUDState.getInstance().processDeath(event);
+          } catch (e) {
+            console.error('[Death] HUD processDeath error:', e);
+          }
+          // Hide remote player model on death
+          try {
+            if (this.remoteRenderer && event.entityId) {
+              this.remoteRenderer.markDead(event.entityId);
+            }
+          } catch (e) {
+            console.error('[Death] markDead error:', e);
+          }
+          // Spawn gibs at death position (always attempted regardless of above errors)
+          if (event.x !== undefined) {
+            console.log(`[GibSystem] Spawning gibs at (${event.x.toFixed(0)}, ${event.y.toFixed(0)}, ${event.z.toFixed(0)}) vel=(${(event.velX || 0).toFixed(0)}, ${(event.velY || 0).toFixed(0)}, ${(event.velZ || 0).toFixed(0)})`);
+            if (this._gibSystem) {
+              this._gibSystem.spawn(
+                event.x, event.y, event.z,
+                event.velX || 0, event.velY || 0, event.velZ || 0,
+              );
+            } else {
+              // Queue for when GibSystem finishes loading
+              this._pendingGibSpawns.push({
+                x: event.x, y: event.y, z: event.z,
+                vx: event.velX || 0, vy: event.velY || 0, vz: event.velZ || 0,
+              });
+            }
+          } else {
+            console.warn('[GibSystem] Death event missing/zero position data:', event);
+          }
+        } else if (event.type === 'weapon_drop') {
+          // Spawn dropped weapon visual with Havok physics
+          if (!this.droppedWeaponRenderer && EngineStore.LastCreatedScene) {
+            this.droppedWeaponRenderer = new DroppedWeaponRenderer(EngineStore.LastCreatedScene);
+          }
+          if (this.droppedWeaponRenderer) {
+            const pos = new Vector3(event.x, event.y, event.z);
+            const vel = new Vector3(event.velX || 0, event.velY || 0, event.velZ || 0);
+            this.droppedWeaponRenderer.spawn(event.entityId, event.weaponId, pos, vel);
+          }
         }
       }
     }
@@ -817,6 +1002,20 @@ export class FPSGameManager {
 
         this.remoteRenderer.pushSnapshot(state, localEntityId, serverLocalTime);
       }
+    }
+
+    // === Dropped weapon entity sync (position convergence + cleanup) ===
+    if (this.droppedWeaponRenderer) {
+      const itemPositions = new Map<string, { x: number; y: number; z: number }>();
+      for (const [id, entity] of state.entities) {
+        if (id.startsWith('item_')) {
+          const t = entity.getComponent('transform') as any;
+          if (t?.position) {
+            itemPositions.set(id, { x: t.position.x, y: t.position.y, z: t.position.z });
+          }
+        }
+      }
+      this.droppedWeaponRenderer.syncServerEntities(itemPositions);
     }
 
     // === Server-driven projectile entity processing (Q3-style) ===
@@ -969,29 +1168,21 @@ export class FPSGameManager {
     const serverWeapons = event.weapons as string[];
     const serverAmmo = event.ammo as Record<string, number>;
 
-    // Sync weapons list - give any weapons we don't have
-    for (const weaponId of serverWeapons) {
-      if (!player.inventory.hasWeapon(weaponId)) {
-        player.inventory.giveWeapon(weaponId);
-      }
-    }
+    // Authoritative sync: add/remove weapons, sync ammo, equip server's weapon
+    const weaponChanged = player.inventory.syncFromServer(serverWeapons, serverAmmo, serverWeapon);
 
-    // Sync ammo counts from server (keyed by weapon ID, map to ammo type)
-    for (const [weaponId, count] of Object.entries(serverAmmo)) {
-      // Server tracks ammo by weapon ID; client inventory uses ammo type.
-      // Look up the weapon def to get the ammo type.
-      const def = player.inventory.getWeaponDef(weaponId);
-      const ammoType = def?.ammoType || weaponId; // fallback to weapon ID
-      player.inventory.setAmmo(ammoType, count as number);
-    }
+    // Update HUD with weapon state
+    const hudState = HUDState.getInstance();
+    hudState.processWeaponState({
+      currentWeapon: serverWeapon,
+      weapons: serverWeapons,
+      ammo: serverAmmo,
+    });
 
-    // Weapon switch: only trigger if server weapon actually changed
-    if (serverWeapon !== this._lastServerWeapon) {
+    // Load new weapon model if weapon changed
+    if (weaponChanged) {
       console.log(`[FPSGameManager] Server weapon changed: ${this._lastServerWeapon || 'none'} → ${serverWeapon}`);
       this._lastServerWeapon = serverWeapon;
-
-      // Equip in inventory
-      player.inventory.equipWeapon(serverWeapon);
 
       // Load weapon view model (async, fire-and-forget)
       const wvm = getWeaponViewManager();

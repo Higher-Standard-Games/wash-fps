@@ -30,7 +30,10 @@ import type { WeaponSystem } from '../systems/WeaponSystem';
 
 interface RespawnEntry {
     entityId: EntityId;
-    respawnTick: number;
+    /** Earliest tick the player CAN respawn (input-gated) */
+    minRespawnTick: number;
+    /** Tick at which player is auto-respawned (deadline) */
+    maxRespawnTick: number;
 }
 
 // ============================================================================
@@ -158,13 +161,20 @@ export class GametypeController {
                         }
                     }
 
-                    // Queue respawn (instant during warmup, normal delay otherwise)
+                    // Queue respawn with min/max timers (Warsow-style)
                     const config = this.gametype.getMatchConfig();
-                    const isWarmup = this.matchState.phase === MatchPhase.Warmup;
-                    const respawnTicks = isWarmup ? 0 : Math.floor(config.respawnDelay * 125);
+                    const minDelay = Math.floor(config.respawnDelay * 125);
+                    const maxDelay = Math.floor((config.maxRespawnDelay ?? config.respawnDelay * 2) * 125);
+
+                    // Drop all weapons on death
+                    if (this.weaponSystem) {
+                        this.weaponSystem.dropAllWeapons(kill.victimId);
+                    }
+
                     this.respawnQueue.push({
                         entityId: kill.victimId,
-                        respawnTick: tickNum + respawnTicks,
+                        minRespawnTick: tickNum + minDelay,
+                        maxRespawnTick: tickNum + maxDelay,
                     });
                 }
             }
@@ -209,8 +219,17 @@ export class GametypeController {
         const remaining: RespawnEntry[] = [];
 
         for (const entry of this.respawnQueue) {
-            if (tickNum >= entry.respawnTick) {
+            if (tickNum >= entry.maxRespawnTick) {
+                // Auto-respawn deadline reached
                 this.respawnPlayer(state, entry.entityId);
+            } else if (tickNum >= entry.minRespawnTick) {
+                // Input-gated window: respawn if player presses fire or jump
+                const entity = state.getEntity(entry.entityId);
+                if (entity?.input && (entity.input.attack || entity.input.jump)) {
+                    this.respawnPlayer(state, entry.entityId);
+                } else {
+                    remaining.push(entry);
+                }
             } else {
                 remaining.push(entry);
             }

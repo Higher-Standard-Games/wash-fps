@@ -19,6 +19,8 @@ export interface FPSInputCommand extends Command {
   pitch: number;
   yaw: number;
   buttons: number;
+  /** Weapon slot the player wants to switch to (1-based, 0 = no change) */
+  weaponSlot: number;
 }
 
 /**

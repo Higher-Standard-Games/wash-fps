@@ -253,8 +253,9 @@ export class ProjectileSystem extends Subsystem {
                     });
 
                     // Apply splash damage on direct hit too (for weapons with splash)
+                    // Skip the direct-hit entity to prevent stacking
                     if (weaponDef?.splashRadius) {
-                        this.applySplashDamage(state, newPos, projectile.ownerId, weaponDef.splashRadius, meta.defId);
+                        this.applySplashDamage(state, newPos, projectile.ownerId, weaponDef.splashRadius, meta.defId, target.id);
                     }
 
                     hitPlayer = true;
@@ -330,13 +331,15 @@ export class ProjectileSystem extends Subsystem {
         center: { x: number; y: number; z: number },
         attackerOwnerId: number | undefined,
         radius: number,
-        defId: string
+        defId: string,
+        skipEntityId?: number
     ): void {
         const weaponDef = WEAPONS[defId];
         const baseSplashDamage = weaponDef?.splashDamage ?? weaponDef?.damage ?? 80;
 
         for (const target of state.entitiesByType(EntityType.Player)) {
             if (!target.transform || !target.health || target.health.dead) continue;
+            if (target.id === skipEntityId) continue; // Skip this entity if it was directly hit
 
             const dist = Math.sqrt(
                 (center.x - target.transform.position.x) ** 2 +
@@ -345,9 +348,10 @@ export class ProjectileSystem extends Subsystem {
             );
 
             if (dist < radius) {
-                // Damage falls off linearly with distance
+                // Damage interpolates: max at center, min at edge (Warsow-style floor)
+                const minSplash = weaponDef?.minSplashDamage ?? 0;
                 const falloff = 1 - (dist / radius);
-                let damage = Math.round(baseSplashDamage * falloff);
+                let damage = Math.round(minSplash + (baseSplashDamage - minSplash) * falloff);
 
                 // Apply self-damage multiplier from gametype config
                 const isSelf = target.ownerId === attackerOwnerId;

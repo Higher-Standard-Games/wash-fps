@@ -15,6 +15,7 @@ import { WEAPONS, type WeaponDef } from '../weapons/WeaponDef';
 import { DamageType, type DamageEvent, HitLocation } from './CombatSystem';
 import type { WeaponLoadout } from '@shared/server/gametype';
 import type { ProjectileSystem } from './ProjectileSystem';
+import type { DroppedWeaponSystem } from './DroppedWeaponSystem';
 
 /** Must match InputButtons.FIRE from engine/network/components/InputComponent.ts */
 const FIRE_BUTTON = 1 << 8;
@@ -63,6 +64,9 @@ export class WeaponSystem extends Subsystem {
     private pendingDamage: DamageEvent[] = [];
     private pendingFireEvents: WeaponFireEvent[] = [];
     private projectileSystem: ProjectileSystem | null = null;
+    private droppedWeaponSystem: DroppedWeaponSystem | null = null;
+    /** Pending drop positions — set by GameServer before tick when a swap happens */
+    private entityPositions: Map<EntityId, { x: number; y: number; z: number }> = new Map();
 
     constructor() {
         super(CONFIG);
@@ -101,6 +105,20 @@ export class WeaponSystem extends Subsystem {
     }
 
     /**
+     * Set reference to DroppedWeaponSystem (for spawning dropped weapons)
+     */
+    setDroppedWeaponSystem(system: DroppedWeaponSystem): void {
+        this.droppedWeaponSystem = system;
+    }
+
+    /**
+     * Cache entity position (called by GameServer before tick for drop spawning)
+     */
+    cacheEntityPosition(eId: EntityId, pos: { x: number; y: number; z: number }): void {
+        this.entityPositions.set(eId, pos);
+    }
+
+    /**
      * Add a weapon to a player's inventory (server-side pickup).
      * Rules:
      *   - Gunblade is permanent (slot 0), never dropped
@@ -112,8 +130,20 @@ export class WeaponSystem extends Subsystem {
         const state = this.weaponStates.get(entityId);
         if (!state) return { added: false };
 
-        // Already has this weapon — no-op (could give ammo instead)
-        if (state.weapons.includes(weaponId)) return { added: false };
+        // Already has this weapon — give ammo instead (Warsow behavior)
+        if (state.weapons.includes(weaponId)) {
+            const weapon = WEAPONS[weaponId];
+            if (weapon) {
+                const currentAmmo = state.ammo.get(weaponId) || 0;
+                const pickupAmount = weapon.pickupAmmo ?? weapon.ammoCapacity;
+                const newAmmo = Math.min(weapon.ammoCapacity, currentAmmo + pickupAmount);
+                if (newAmmo > currentAmmo) {
+                    state.ammo.set(weaponId, newAmmo);
+                    console.log(`[WeaponSystem] Entity ${entityId}: already has ${weaponId}, gave ammo ${currentAmmo} → ${newAmmo}`);
+                }
+            }
+            return { added: false };
+        }
 
         const MAX_PICKABLE = 2; // not counting gunblade
         const nonGunbladeWeapons = state.weapons.filter(w => w !== 'gunblade');
@@ -122,6 +152,8 @@ export class WeaponSystem extends Subsystem {
             // Have room — just add
             state.weapons.push(weaponId);
             state.currentWeapon = weaponId; // auto-switch to new weapon
+            // Reset slot edge detection so manual switch back works after auto-switch
+            this.lastWeaponSlot.delete(entityId);
             // Give ammo if not already present
             if (!state.ammo.has(weaponId) || state.ammo.get(weaponId)! <= 0) {
                 const weapon = WEAPONS[weaponId];
@@ -135,27 +167,51 @@ export class WeaponSystem extends Subsystem {
         let droppedWeapon: string;
 
         if (state.currentWeapon === 'gunblade') {
-            // Holding gunblade → drop first non-gunblade weapon
-            droppedWeapon = nonGunbladeWeapons[0];
+            // Holding gunblade — can't swap (gunblade is permanent)
+            // Player must switch to the weapon they want to drop first
+            console.log(`[WeaponSystem] Entity ${entityId}: can't swap while holding gunblade`);
+            return { added: false };
         } else {
             // Drop currently held weapon
             droppedWeapon = state.currentWeapon;
         }
 
+        // Queue physical drop (spawn world entity) before removing from inventory
+        const droppedAmmo = state.ammo.get(droppedWeapon) || 0;
+        const pos = this.entityPositions.get(entityId);
+        if (this.droppedWeaponSystem && pos) {
+            // Random toss: upward + random horizontal scatter
+            const angle = Math.random() * Math.PI * 2;
+            const hSpeed = 80 + Math.random() * 60; // 80-140 horizontal
+            this.droppedWeaponSystem.queueDrop({
+                weaponId: droppedWeapon,
+                ammo: droppedAmmo,
+                position: { x: pos.x, y: pos.y + 20, z: pos.z },
+                velocity: {
+                    x: Math.cos(angle) * hSpeed,
+                    y: 180 + Math.random() * 60,  // 180-240 upward
+                    z: Math.sin(angle) * hSpeed,
+                },
+            });
+        }
+
         // Remove dropped weapon from inventory
         const dropIdx = state.weapons.indexOf(droppedWeapon);
         if (dropIdx >= 0) state.weapons.splice(dropIdx, 1);
+        state.ammo.delete(droppedWeapon);
 
         // Add new weapon and switch to it
         state.weapons.push(weaponId);
         state.currentWeapon = weaponId;
+        // Reset slot edge detection so manual switch back works after auto-switch
+        this.lastWeaponSlot.delete(entityId);
         // Give ammo if not already present
         if (!state.ammo.has(weaponId) || state.ammo.get(weaponId)! <= 0) {
             const weapon = WEAPONS[weaponId];
             if (weapon) state.ammo.set(weaponId, weapon.ammoCapacity);
         }
 
-        console.log(`[WeaponSystem] Entity ${entityId}: picked up ${weaponId}, dropped ${droppedWeapon}`);
+        console.log(`[WeaponSystem] Entity ${entityId}: picked up ${weaponId}, dropped ${droppedWeapon} (ammo=${droppedAmmo})`);
         return { added: true, dropped: droppedWeapon };
     }
 
@@ -164,6 +220,56 @@ export class WeaponSystem extends Subsystem {
      */
     getWeapons(entityId: EntityId): string[] {
         return this.weaponStates.get(entityId)?.weapons || [];
+    }
+
+    /**
+     * Set ammo for a specific weapon (used for dropped weapon ammo transfer)
+     */
+    setAmmo(entityId: EntityId, weaponId: string, ammo: number): void {
+        const state = this.weaponStates.get(entityId);
+        if (!state) return;
+        const weapon = WEAPONS[weaponId];
+        if (weapon) {
+            state.ammo.set(weaponId, Math.min(weapon.ammoCapacity, ammo));
+        }
+    }
+
+    /**
+     * Drop all non-gunblade weapons (on death).
+     * Queues drop requests and strips weapons from inventory.
+     */
+    dropAllWeapons(eId: EntityId): void {
+        const state = this.weaponStates.get(eId);
+        if (!state) return;
+
+        const pos = this.entityPositions.get(eId);
+        if (!pos || !this.droppedWeaponSystem) return;
+
+        const toDrop = state.weapons.filter(w => w !== 'gunblade');
+        for (let i = 0; i < toDrop.length; i++) {
+            const weaponId = toDrop[i];
+            const ammo = state.ammo.get(weaponId) || 0;
+            // Death scatter: spread weapons in different directions
+            const angle = (i / toDrop.length) * Math.PI * 2 + Math.random() * 0.5;
+            const hSpeed = 60 + Math.random() * 80;
+            this.droppedWeaponSystem.queueDrop({
+                weaponId,
+                ammo,
+                position: { x: pos.x, y: pos.y + 20, z: pos.z },
+                velocity: {
+                    x: Math.cos(angle) * hSpeed,
+                    y: 200 + Math.random() * 80,  // 200-280 upward
+                    z: Math.sin(angle) * hSpeed,
+                },
+            });
+
+            const idx = state.weapons.indexOf(weaponId);
+            if (idx >= 0) state.weapons.splice(idx, 1);
+            state.ammo.delete(weaponId);
+        }
+
+        // Reset to gunblade
+        state.currentWeapon = 'gunblade';
     }
 
     /**
@@ -183,6 +289,8 @@ export class WeaponSystem extends Subsystem {
             reloading: false,
             reloadEndTick: 0,
         });
+        // Reset edge detection so weapon slot changes are detected cleanly after respawn
+        this.lastWeaponSlot.delete(id);
     }
 
     /**
@@ -403,12 +511,13 @@ export class WeaponSystem extends Subsystem {
             z: Math.cos(yaw) * Math.cos(pitch) * speed,
         };
 
-        // Spawn projectile slightly in front of shooter
+        // Spawn projectile slightly in front of shooter, along look direction
+        // Q3-style: spawn point follows crosshair (pitch-aware), not fixed eye height
         const offset = 50;
         const position = {
-            x: shooter.transform.position.x + Math.sin(yaw) * offset,
-            y: shooter.transform.position.y + 24, // Eye height (matches client camera offset)
-            z: shooter.transform.position.z + Math.cos(yaw) * offset,
+            x: shooter.transform.position.x + Math.sin(yaw) * Math.cos(pitch) * offset,
+            y: shooter.transform.position.y + 24 + Math.sin(pitch) * offset,
+            z: shooter.transform.position.z + Math.cos(yaw) * Math.cos(pitch) * offset,
         };
 
         const projectile = createProjectileEntity(
