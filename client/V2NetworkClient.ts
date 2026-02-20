@@ -254,6 +254,10 @@ export class V2NetworkClient {
         const preDz = this.localState.position.z - snapshot.position.z;
         const preError = Math.sqrt(preDx * preDx + preDy * preDy + preDz * preDz);
 
+        // === DIAGNOSTIC: Capture pre-reconciliation movement state ===
+        const preGrounded = this.localState.grounded;
+        const preHSpeed = this.predictedMovement.actualHorizSpeed;
+
         // === STEP 1: Save pre-reconciliation position for visual smoothing ===
         const preReconcilePos = { ...this.localState.position };
 
@@ -298,6 +302,19 @@ export class V2NetworkClient {
             this.updatePredictedMovement(result);
         }
 
+        // === FIX: Preserve client grounded state when no inputs were replayed ===
+        // When unacked=0, reconciliation adopts the server's grounded state directly.
+        // But the server snapshot can report grounded=false even when the player is
+        // clearly on the ground (standing still, velY=0). This causes WalkBobEffect
+        // to decay bobCycle on every snapshot frame → animation restarts.
+        // The client's 125Hz simulation is more accurate for this cosmetic state
+        // than the server's 60Hz snapshots, so trust the client when there's
+        // nothing to replay and the position divergence is small.
+        if (inputsToReplay.length === 0 && preError < 1.0) {
+            this.localState.grounded = preGrounded;
+            this.movement.resetPhysicsState(preGrounded);
+        }
+
         // === STEP 4: Prune acknowledged inputs ===
         this.inputHistory.pruneAcked(snapshot.ackedInputSeq);
         this.lastAckedSeq = snapshot.ackedInputSeq;
@@ -334,7 +351,18 @@ export class V2NetworkClient {
         this.reconcileCount++;
         this.lastReconcileError = preError;
 
-        // === DIAGNOSTIC: Log reconciliation stats periodically ===
+        // === DIAGNOSTIC: Detect state changes that could cause animation jitter ===
+        const postGrounded = this.localState.grounded;
+        const postHSpeed = this.predictedMovement.actualHorizSpeed;
+        if (preGrounded !== postGrounded) {
+            console.warn(`[V2Client] RECONCILE GROUNDED FLIP: ${preGrounded} → ${postGrounded} (unacked=${unacked.length} preErr=${preError.toFixed(2)} posY=${this.localState.position.y.toFixed(3)} velY=${this.localState.velocity.y.toFixed(1)})`);
+        }
+        // Log speed changes > 20% (could cause bob intensity stutter)
+        if (preHSpeed > 10 && Math.abs(postHSpeed - preHSpeed) / preHSpeed > 0.2) {
+            console.warn(`[V2Client] RECONCILE SPEED CHANGE: ${preHSpeed.toFixed(1)} → ${postHSpeed.toFixed(1)} (delta=${(postHSpeed - preHSpeed).toFixed(1)}, unacked=${unacked.length})`);
+        }
+
+        // Log reconciliation stats every 4 seconds (~250 at 60Hz)
         if (this.reconcileCount % 250 === 0) {
             const postDx = this.localState.position.x - snapshot.position.x;
             const postDy = this.localState.position.y - snapshot.position.y;
