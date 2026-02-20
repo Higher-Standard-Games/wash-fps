@@ -88,6 +88,7 @@ export class V2NetworkClient {
     // Debug stats
     private reconcileCount: number = 0;
     private lastReconcileError: number = 0;
+    private _diagOffsetLogTimer: number = 0;
 
     // Visual smoothing for reconciliation corrections
     // Instead of teleporting on correction, store the error and decay it
@@ -368,13 +369,31 @@ export class V2NetworkClient {
     /**
      * Decay the visual smoothing offset toward zero.
      * Call once per frame with frame delta time.
-     * ~83ms to fully decay (factor of 12/sec).
+     * Uses fast decay (dt*20 ≈ 50ms) so offset settles before next snapshot.
+     * Snaps to zero when below threshold to prevent endless micro-drift.
      */
     decayVisualOffset(dt: number): void {
-        const factor = Math.min(1.0, dt * 12);
+        const factor = Math.min(1.0, dt * 20);
         this.visualOffset.x *= (1 - factor);
         this.visualOffset.y *= (1 - factor);
         this.visualOffset.z *= (1 - factor);
+
+        // Snap to zero when offset is sub-perceptual (prevents endless asymptotic decay)
+        const mag = Math.abs(this.visualOffset.x) + Math.abs(this.visualOffset.y) + Math.abs(this.visualOffset.z);
+        if (mag < 0.05) {
+            this.visualOffset.x = 0;
+            this.visualOffset.y = 0;
+            this.visualOffset.z = 0;
+        }
+
+        // Periodic diagnostic: log visual offset magnitude
+        this._diagOffsetLogTimer += dt;
+        if (this._diagOffsetLogTimer >= 2.0) {
+            this._diagOffsetLogTimer = 0;
+            if (mag > 0.001) {
+                console.log(`[V2Client] visualOffset: (${this.visualOffset.x.toFixed(4)}, ${this.visualOffset.y.toFixed(4)}, ${this.visualOffset.z.toFixed(4)}) mag=${mag.toFixed(4)}`);
+            }
+        }
     }
 
     getVelocity(): Vec3 {

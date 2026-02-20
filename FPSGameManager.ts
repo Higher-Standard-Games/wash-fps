@@ -650,6 +650,32 @@ export class FPSGameManager {
   }
 
   /**
+   * Get V2Client's current predicted movement state.
+   * Unlike onPlayerStateUpdate (which fires only on snapshot frames, BEFORE the tick loop),
+   * this returns the CURRENT state AFTER the tick loop, in sync with getLocalPlayerPosition().
+   * Essential for keeping view bob, animations, and camera effects aligned with camera position.
+   */
+  getCurrentMovementState(): PlayerStateUpdate | null {
+    if (!this.v2Client) return null;
+    const v2State = this.v2Client.getState();
+    const ms = this.v2Client.getMovementState();
+    return {
+      position: v2State.position,
+      velocity: v2State.velocity,
+      grounded: v2State.grounded,
+      tick: 0, // Not used for view effects
+      isSliding: ms.isSliding,
+      isCrouching: ms.isCrouching,
+      crouchViewOffset: ms.crouchViewOffset,
+      wallJumpState: ms.wallJumpState as any,
+      ledgeGrabState: ms.ledgeGrabState as any,
+      actualHorizSpeed: ms.actualHorizSpeed,
+      slidePhase: ms.slidePhase,
+      ledgeGrabPhase: ms.ledgeGrabPhase,
+    };
+  }
+
+  /**
    * Get current local player position from simulation
    * Uses interpolation for smooth rendering between snapshots
    */
