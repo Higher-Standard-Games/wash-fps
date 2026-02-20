@@ -438,14 +438,16 @@ export class FPSGameManager {
       console.log(`[FPSGameManager] sendInput ACTIVE #${this.sendInputCallCount}: gameHost=${!!this.gameHost}, isRunning=${this.isRunning}, connected=${this.gameHost!.isConnected?.() ?? 'unknown'}`);
     }
 
-    // While dead, strip movement input — only allow fire/jump/use for respawn
+    // While dead, strip ALL gameplay input — no movement, jumping, or firing
     if (this._isPlayerDead) {
       input.forward = false;
       input.backward = false;
       input.left = false;
       input.right = false;
+      input.jump = false;
       input.crouch = false;
       input.sprint = false;
+      input.fire = false;
     }
 
     // Convert input state to button flags
@@ -1163,6 +1165,10 @@ export class FPSGameManager {
   private handleWeaponStateSync(event: any): void {
     const player = FPSPlayer.getInstance();
     if (!player) return;
+
+    // Don't sync weapon model while dead — weapon view is hidden,
+    // and loading a new model could race with the hide/show logic
+    if (this._isPlayerDead) return;
 
     const serverWeapon = event.currentWeapon as string;
     const serverWeapons = event.weapons as string[];

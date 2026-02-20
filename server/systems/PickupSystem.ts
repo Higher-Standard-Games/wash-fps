@@ -225,8 +225,9 @@ export class PickupSystem extends Subsystem {
                 break;
             }
 
-            // Check dropped weapons (EntityType.Item) — always require USE key
-            if (this.droppedWeaponSystem && useJustPressed) {
+            // Check dropped weapons (EntityType.Item)
+            // Auto-pickup when player has room, require USE key when at capacity
+            if (this.droppedWeaponSystem) {
                 for (const itemEntity of state.entitiesByType(EntityType.Item)) {
                     if (!itemEntity.transform) continue;
 
@@ -245,23 +246,29 @@ export class PickupSystem extends Subsystem {
                     const meta = this.droppedWeaponSystem.getDroppedWeaponMeta(itemEntity.id);
                     if (!meta) continue;
 
+                    // Check inventory capacity for pickup gating
+                    const playerWeapons = this.weaponSystem.getWeapons(player.id);
+                    const nonGunbladeCount = playerWeapons.filter(w => w !== 'gunblade').length;
+                    const alreadyHasWeapon = playerWeapons.includes(meta.weaponId);
+                    const hasRoom = nonGunbladeCount < 2;
+
+                    // Auto-pickup if: player has room OR already owns weapon (ammo pickup)
+                    // Require USE key only for weapon swap (at capacity + new weapon)
+                    if (!hasRoom && !alreadyHasWeapon && !useJustPressed) continue;
+
                     // Add weapon to player's inventory
                     const result = this.weaponSystem.addWeapon(player.id, meta.weaponId);
-                    if (!result.added) {
-                        // Already has weapon — addWeapon already gave pickupAmmo for duplicate
-                        // Remove the dropped entity anyway
-                    }
 
                     // Transfer dropped weapon's remaining ammo (override default pickupAmmo)
                     if (meta.ammo > 0) {
                         this.weaponSystem.setAmmo(player.id, meta.weaponId, meta.ammo);
                     }
 
-                    // Remove from world
+                    // Always remove from world — even if weapon wasn't added (ammo was given)
                     state.removeEntity(itemEntity.id);
                     this.droppedWeaponSystem.removeDroppedWeapon(itemEntity.id);
 
-                    console.log(`[PickupSystem] Player ${player.id} picked up dropped ${meta.weaponId} (ammo=${meta.ammo})`);
+                    console.log(`[PickupSystem] Player ${player.id} picked up dropped ${meta.weaponId} (ammo=${meta.ammo}${result.added ? '' : ', ammo-only'})`);
 
                     // Emit event
                     this.pendingPickupEvents.push({

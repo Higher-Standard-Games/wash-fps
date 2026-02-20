@@ -61,7 +61,7 @@ const CONFIG: SubsystemConfig = {
 };
 
 /** Despawn time in seconds */
-const DESPAWN_TIME = 30;
+const DESPAWN_TIME = 15;
 
 /** Server gravity for ballistic arc (units/s²) — matches game gravity */
 const DROP_GRAVITY = 800;

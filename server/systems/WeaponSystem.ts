@@ -281,9 +281,14 @@ export class WeaponSystem extends Subsystem {
         for (const [weaponId, amount] of Object.entries(loadout.ammo)) {
             ammoMap.set(weaponId, amount);
         }
+        // Always include gunblade, limit non-gunblade weapons to MAX_PICKABLE (2)
+        const nonGunblade = loadout.weapons.filter(w => w !== 'gunblade').slice(0, 2);
+        const weapons = loadout.weapons.includes('gunblade')
+            ? ['gunblade', ...nonGunblade]
+            : nonGunblade;
         this.weaponStates.set(id, {
-            currentWeapon: loadout.weapons[0] || 'gunblade',
-            weapons: [...loadout.weapons].slice(0, 2), // Max 2 pickable weapons
+            currentWeapon: weapons[0] || 'gunblade',
+            weapons,
             ammo: ammoMap,
             lastFireTick: 0,
             reloading: false,
