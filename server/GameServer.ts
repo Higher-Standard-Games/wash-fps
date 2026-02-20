@@ -37,6 +37,9 @@ import { GametypeController } from './gametypes/GametypeController';
 import { Deathmatch } from './gametypes/Deathmatch';
 import type { BaseGametype } from './gametypes/BaseGametype';
 
+// PVS (Potentially Visible Set) for network culling
+import { ServerPVS, type ServerPVSData } from '../../../engine/server/ServerPVS';
+
 // Transport
 import type { Transport, TransportConfig, ClientConnection } from '@engine/server/network/transport/WebSocketTransport';
 import { WebSocketServerTransport } from '@engine/server/network/transport/WebSocketTransport';
@@ -116,6 +119,9 @@ export class GameServer {
     // each client's snapshot against the last state they acknowledged.
     private snapshotHistory: Map<number, GameState> = new Map();
     private readonly SNAPSHOT_HISTORY_SIZE = 64;
+
+    // PVS (Potentially Visible Set) for per-client entity filtering
+    private pvs: ServerPVS | null = null;
 
     constructor(config: GameServerConfig, gametype?: BaseGametype) {
         this.config = config;
@@ -218,6 +224,16 @@ export class GameServer {
      */
     setPickupRespawnTime(seconds: number): void {
         this.pickupSystem.setRespawnTime(seconds);
+    }
+
+    /**
+     * Set PVS data for server-side network visibility culling.
+     * When set, broadcastSnapshot() will filter entities per-client,
+     * only sending entities that are in the client's potentially visible set.
+     */
+    setPVSData(data: ServerPVSData): void {
+        this.pvs = new ServerPVS(data);
+        console.log(`[GameServer] PVS configured: ${this.pvs.numClusters} clusters, enabled: ${this.pvs.enabled}`);
     }
 
     getGametypeController(): GametypeController {
@@ -904,9 +920,15 @@ export class GameServer {
         }
 
         let totalEncodeMs = 0;
+        let totalCulled = 0;
         for (const client of this.clients.values()) {
             try {
-                gameState.ackedInputSeq = client.lastInputSeq;
+                // PVS filtering: build per-client filtered state if PVS is available
+                const clientState = (this.pvs && this.pvs.enabled)
+                    ? this.filterStateForClient(gameState, client)
+                    : gameState;
+
+                clientState.ackedInputSeq = client.lastInputSeq;
 
                 // Look up client's last acked snapshot as delta baseline
                 const baseline = client.lastAckedTick > 0
@@ -914,8 +936,12 @@ export class GameServer {
                     : undefined;
 
                 const t0 = performance.now();
-                const snapshotBytes = MessageCodec.encodeSnapshot(gameState, baseline);
+                const snapshotBytes = MessageCodec.encodeSnapshot(clientState, baseline);
                 totalEncodeMs += performance.now() - t0;
+
+                if (clientState !== gameState) {
+                    totalCulled += gameState.entities.size - clientState.entities.size;
+                }
 
                 client.connection.sendDatagram(snapshotBytes);
             } catch {
@@ -925,8 +951,63 @@ export class GameServer {
 
         // Perf: log encoding cost periodically to assess Network Worker need
         if (tick % 100 === 0 && this.clients.size > 0) {
-            console.log(`[Perf] snapshot encode: ${totalEncodeMs.toFixed(2)}ms total, ${(totalEncodeMs / this.clients.size).toFixed(2)}ms/client, clients: ${this.clients.size}`);
+            const pvsInfo = this.pvs?.enabled
+                ? `, pvs_culled: ${totalCulled} entities across ${this.clients.size} clients`
+                : '';
+            console.log(`[Perf] snapshot encode: ${totalEncodeMs.toFixed(2)}ms total, ${(totalEncodeMs / this.clients.size).toFixed(2)}ms/client, clients: ${this.clients.size}${pvsInfo}`);
         }
+    }
+
+    /**
+     * Filter a GameState for a specific client based on PVS visibility.
+     * Entities not visible from the client's player position are culled.
+     *
+     * Always includes:
+     * - The client's own player entity
+     * - All player states (scoreboard)
+     * - All events (kill feed, combat_state, projectile_spawn, etc.)
+     * - Entities without position data (non-spatial)
+     */
+    private filterStateForClient(state: GameState, client: ClientInfo): GameState {
+        if (!this.pvs) return state;
+
+        // Get client's player position from simulation
+        const simState = this.simulation.getState();
+        const clientEntity = simState.getEntity(client.entityId);
+        if (!clientEntity?.transform) return state; // No position = send everything
+
+        const viewerPos = clientEntity.transform.position;
+
+        // Build filtered state — shallow copy with filtered entities
+        const filtered = new GameState();
+        filtered.tick = state.tick;
+        filtered.players = state.players;   // Always send all player states (scoreboard)
+        filtered.events = [...state.events]; // Always send all events
+
+        for (const [id, entity] of state.entities) {
+            // Always include own player
+            if (id === `player_${client.entityId}`) {
+                filtered.entities.set(id, entity);
+                continue;
+            }
+
+            // Get entity position for PVS check
+            const posComp = entity.getComponent('position') as { x: number; y: number; z: number } | undefined;
+            if (!posComp) {
+                // No position = always include (non-spatial entity)
+                filtered.entities.set(id, entity);
+                continue;
+            }
+
+            // PVS visibility check
+            const targetPos = { x: posComp.x, y: posComp.y, z: posComp.z };
+            if (this.pvs.isVisible(viewerPos, targetPos)) {
+                filtered.entities.set(id, entity);
+            }
+            // else: entity is culled — not visible from client's position
+        }
+
+        return filtered;
     }
 
     private sendWelcome(client: ClientInfo): void {
