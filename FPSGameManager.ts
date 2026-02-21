@@ -110,7 +110,7 @@ export class FPSGameManager {
   private projectileBuffer: SnapshotBuffer = new SnapshotBuffer();
 
   // Weapon state sync
-  private _lastServerWeapon: string = '';
+  private _lastServerWeapon: string | undefined = undefined;
   /** Maps remote player entityId → currentWeapon string (for third-person rendering) */
   public readonly enemyWeapons: Map<string, string> = new Map();
 
@@ -1179,7 +1179,7 @@ export class FPSGameManager {
     const serverAmmo = event.ammo as Record<string, number>;
 
     // Authoritative sync: add/remove weapons, sync ammo, equip server's weapon
-    const weaponChanged = player.inventory.syncFromServer(serverWeapons, serverAmmo, serverWeapon);
+    player.inventory.syncFromServer(serverWeapons, serverAmmo, serverWeapon);
 
     // Update HUD with weapon state
     const hudState = HUDState.getInstance();
@@ -1189,16 +1189,24 @@ export class FPSGameManager {
       ammo: serverAmmo,
     });
 
-    // Load new weapon model if weapon changed
-    if (weaponChanged) {
+    // Detect weapon change using _lastServerWeapon (reliable, one source of truth)
+    if (serverWeapon !== this._lastServerWeapon) {
+      const isFirstWeapon = this._lastServerWeapon === undefined;
       console.log(`[FPSGameManager] Server weapon changed: ${this._lastServerWeapon || 'none'} → ${serverWeapon}`);
       this._lastServerWeapon = serverWeapon;
 
-      // Play weapon switch animation (slide-down old → load new → slide-up)
       const wvm = getWeaponViewManager();
-      wvm.switchWeaponAnimated(serverWeapon).catch(err => {
-        console.error(`[FPSGameManager] Failed to switch weapon model: ${serverWeapon}`, err);
-      });
+      if (isFirstWeapon) {
+        // First weapon (initial spawn) — load directly without animation
+        wvm.loadWeapon(serverWeapon).catch(err => {
+          console.error(`[FPSGameManager] Failed to load initial weapon: ${serverWeapon}`, err);
+        });
+      } else {
+        // Subsequent changes — play switch animation (slide-down → load → slide-up)
+        wvm.switchWeaponAnimated(serverWeapon).catch(err => {
+          console.error(`[FPSGameManager] Failed to switch weapon: ${serverWeapon}`, err);
+        });
+      }
     }
   }
 
