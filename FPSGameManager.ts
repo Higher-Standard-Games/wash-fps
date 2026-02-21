@@ -1194,14 +1194,10 @@ export class FPSGameManager {
       console.log(`[FPSGameManager] Server weapon changed: ${this._lastServerWeapon || 'none'} → ${serverWeapon}`);
       this._lastServerWeapon = serverWeapon;
 
-      // Load weapon view model (async, fire-and-forget)
+      // Play weapon switch animation (slide-down old → load new → slide-up)
       const wvm = getWeaponViewManager();
-      wvm.loadWeapon(serverWeapon).then(success => {
-        if (success) {
-          console.log(`[FPSGameManager] Weapon model loaded: ${serverWeapon}`);
-        }
-      }).catch(err => {
-        console.error(`[FPSGameManager] Failed to load weapon model: ${serverWeapon}`, err);
+      wvm.switchWeaponAnimated(serverWeapon).catch(err => {
+        console.error(`[FPSGameManager] Failed to switch weapon model: ${serverWeapon}`, err);
       });
     }
   }
