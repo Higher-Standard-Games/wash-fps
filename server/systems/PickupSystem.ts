@@ -174,6 +174,8 @@ export class PickupSystem extends Subsystem {
             this.useButtonPrev.set(player.id, usePressed);
             const useJustPressed = usePressed && !wasPressing;
 
+            let pickedUpThisTick = false;
+
             for (const pickup of this.pickups) {
                 if (!pickup.active) continue;
 
@@ -225,12 +227,14 @@ export class PickupSystem extends Subsystem {
                 });
 
                 // Only pick up one weapon per tick
+                pickedUpThisTick = true;
                 break;
             }
 
             // Check dropped weapons (EntityType.Item)
+            // Skip if a static pickup already happened this tick (one pickup per tick)
             // Auto-pickup when player has room, require USE key when at capacity
-            if (this.droppedWeaponSystem) {
+            if (!pickedUpThisTick && this.droppedWeaponSystem) {
                 for (const itemEntity of state.entitiesByType(EntityType.Item)) {
                     if (!itemEntity.transform) continue;
 
