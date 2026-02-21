@@ -21,6 +21,7 @@ export class FPSPlayer {
     // Static instance for access from FPSGameManager
     private static _instance: FPSPlayer | null = null;
     static getInstance(): FPSPlayer | null { return FPSPlayer._instance; }
+    public getController(): FPSController { return this.controller; }
 
     // Weapon State
     private isReloading: boolean = false;

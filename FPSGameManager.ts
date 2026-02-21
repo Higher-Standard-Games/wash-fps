@@ -1181,6 +1181,13 @@ export class FPSGameManager {
     // Authoritative sync: add/remove weapons, sync ammo, equip server's weapon
     player.inventory.syncFromServer(serverWeapons, serverAmmo, serverWeapon);
 
+    // Keep FPSController's currentWeaponSlot in sync with server (every tick).
+    // This ensures mouse scroll cycling and key switching reference the correct slot.
+    const slotIndex = serverWeapons.indexOf(serverWeapon);
+    if (slotIndex >= 0) {
+      player.getController().currentWeaponSlot = slotIndex;
+    }
+
     // Update HUD with weapon state
     const hudState = HUDState.getInstance();
     hudState.processWeaponState({
