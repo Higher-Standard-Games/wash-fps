@@ -189,26 +189,29 @@ export class PickupSystem extends Subsystem {
 
                 if (!inRange) continue;
 
-                // Auto-pickup when player has room (< 2 non-gunblade weapons)
-                // Only require USE key when at capacity (swap needed)
                 if (!this.weaponSystem) continue;
 
                 const playerWeapons = this.weaponSystem.getWeapons(player.id);
                 const nonGunbladeCount = playerWeapons.filter(w => w !== 'gunblade').length;
+                const alreadyHasWeapon = playerWeapons.includes(pickup.weaponId);
                 const hasRoom = nonGunbladeCount < 2;
 
-                if (!hasRoom && !useJustPressed) continue;
+                // Auto-pickup if: player has room OR already owns weapon (ammo pickup)
+                // Require USE key only for weapon swap (at capacity + new weapon)
+                if (!hasRoom && !alreadyHasWeapon && !useJustPressed) continue;
 
                 // Try to add weapon to player's inventory
-
                 const result = this.weaponSystem.addWeapon(player.id, pickup.weaponId);
-                if (!result.added) continue;
 
-                // Success — deactivate pickup and start respawn timer
+                // addWeapon returns added=false when player already owns it (ammo was given internally)
+                // In that case, still deactivate the pickup and start respawn timer
+                // Only skip if there was genuinely no effect (shouldn't happen given our gating above)
+
+                // Deactivate pickup and start respawn timer
                 pickup.active = false;
                 pickup.respawnTick = tickNum + this.respawnTicks;
 
-                console.log(`[PickupSystem] Player ${player.id} picked up ${pickup.weaponId}${result.dropped ? ` (dropped ${result.dropped})` : ''}`);
+                console.log(`[PickupSystem] Player ${player.id} picked up ${pickup.weaponId}${result.added ? '' : ' (ammo)'}${result.dropped ? ` (dropped ${result.dropped})` : ''}`);
 
                 // Emit event for client sync
                 this.pendingPickupEvents.push({

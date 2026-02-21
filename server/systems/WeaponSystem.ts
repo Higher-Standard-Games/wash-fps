@@ -176,8 +176,12 @@ export class WeaponSystem extends Subsystem {
             droppedWeapon = state.currentWeapon;
         }
 
-        // Queue physical drop (spawn world entity) before removing from inventory
-        const droppedAmmo = state.ammo.get(droppedWeapon) || 0;
+        // Queue physical drop — cap ammo at pickupAmmo (one clip worth)
+        const weaponDef = WEAPONS[droppedWeapon];
+        const playerAmmo = state.ammo.get(droppedWeapon) || 0;
+        const droppedAmmo = weaponDef
+            ? Math.min(playerAmmo, weaponDef.pickupAmmo ?? weaponDef.ammoCapacity)
+            : playerAmmo;
         const pos = this.entityPositions.get(entityId);
         if (this.droppedWeaponSystem && pos) {
             // Random toss: upward + random horizontal scatter
@@ -248,7 +252,12 @@ export class WeaponSystem extends Subsystem {
         const toDrop = state.weapons.filter(w => w !== 'gunblade');
         for (let i = 0; i < toDrop.length; i++) {
             const weaponId = toDrop[i];
-            const ammo = state.ammo.get(weaponId) || 0;
+            const weaponDef = WEAPONS[weaponId];
+            const playerAmmo = state.ammo.get(weaponId) || 0;
+            // Cap dropped ammo at pickupAmmo (one clip worth)
+            const ammo = weaponDef
+                ? Math.min(playerAmmo, weaponDef.pickupAmmo ?? weaponDef.ammoCapacity)
+                : playerAmmo;
             // Death scatter: spread weapons in different directions
             const angle = (i / toDrop.length) * Math.PI * 2 + Math.random() * 0.5;
             const hSpeed = 60 + Math.random() * 80;
