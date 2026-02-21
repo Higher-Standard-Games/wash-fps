@@ -110,7 +110,7 @@ export class FPSGameManager {
   private projectileBuffer: SnapshotBuffer = new SnapshotBuffer();
 
   // Weapon state sync
-  private _lastServerWeapon: string = '';
+  private _lastServerWeapon: string | undefined = undefined;
   /** Maps remote player entityId → currentWeapon string (for third-person rendering) */
   public readonly enemyWeapons: Map<string, string> = new Map();
 
@@ -438,14 +438,16 @@ export class FPSGameManager {
       console.log(`[FPSGameManager] sendInput ACTIVE #${this.sendInputCallCount}: gameHost=${!!this.gameHost}, isRunning=${this.isRunning}, connected=${this.gameHost!.isConnected?.() ?? 'unknown'}`);
     }
 
-    // While dead, strip movement input — only allow fire/jump/use for respawn
+    // While dead, strip ALL gameplay input — no movement, jumping, or firing
     if (this._isPlayerDead) {
       input.forward = false;
       input.backward = false;
       input.left = false;
       input.right = false;
+      input.jump = false;
       input.crouch = false;
       input.sprint = false;
+      input.fire = false;
     }
 
     // Convert input state to button flags
@@ -893,6 +895,11 @@ export class FPSGameManager {
             : event.defId === 'plasmagun' ? PLASMA_EXPLOSION
               : ROCKET_EXPLOSION;
           getExplosionEffect().spawn(pos, config, normal);
+        } else if (event.type === 'item_pickup') {
+          // Server confirms a pickup — deactivate the client-side Pickup visual
+          import('../../engine/game/Pickup').then(({ Pickup }) => {
+            Pickup.deactivateByPosition(event.weaponId, event.x, event.y, event.z);
+          });
         } else if (event.type === 'projectile_spawn') {
           // Server tells us about a new projectile entity — record defId mapping
           this.serverProjectileDefIds.set(event.entityId, event.defId);
@@ -1164,12 +1171,22 @@ export class FPSGameManager {
     const player = FPSPlayer.getInstance();
     if (!player) return;
 
+    // Server is authoritative — always sync weapon state regardless of death flag.
+    // Weapon VIEW visibility is controlled separately by combat_state death/respawn events.
+
     const serverWeapon = event.currentWeapon as string;
     const serverWeapons = event.weapons as string[];
     const serverAmmo = event.ammo as Record<string, number>;
 
     // Authoritative sync: add/remove weapons, sync ammo, equip server's weapon
-    const weaponChanged = player.inventory.syncFromServer(serverWeapons, serverAmmo, serverWeapon);
+    player.inventory.syncFromServer(serverWeapons, serverAmmo, serverWeapon);
+
+    // Keep FPSController's currentWeaponSlot in sync with server (every tick).
+    // This ensures mouse scroll cycling and key switching reference the correct slot.
+    const slotIndex = serverWeapons.indexOf(serverWeapon);
+    if (slotIndex >= 0) {
+      player.getController().currentWeaponSlot = slotIndex;
+    }
 
     // Update HUD with weapon state
     const hudState = HUDState.getInstance();
@@ -1179,20 +1196,24 @@ export class FPSGameManager {
       ammo: serverAmmo,
     });
 
-    // Load new weapon model if weapon changed
-    if (weaponChanged) {
+    // Detect weapon change using _lastServerWeapon (reliable, one source of truth)
+    if (serverWeapon !== this._lastServerWeapon) {
+      const isFirstWeapon = this._lastServerWeapon === undefined;
       console.log(`[FPSGameManager] Server weapon changed: ${this._lastServerWeapon || 'none'} → ${serverWeapon}`);
       this._lastServerWeapon = serverWeapon;
 
-      // Load weapon view model (async, fire-and-forget)
       const wvm = getWeaponViewManager();
-      wvm.loadWeapon(serverWeapon).then(success => {
-        if (success) {
-          console.log(`[FPSGameManager] Weapon model loaded: ${serverWeapon}`);
-        }
-      }).catch(err => {
-        console.error(`[FPSGameManager] Failed to load weapon model: ${serverWeapon}`, err);
-      });
+      if (isFirstWeapon) {
+        // First weapon (initial spawn) — load directly without animation
+        wvm.loadWeapon(serverWeapon).catch(err => {
+          console.error(`[FPSGameManager] Failed to load initial weapon: ${serverWeapon}`, err);
+        });
+      } else {
+        // Subsequent changes — play switch animation (slide-down → load → slide-up)
+        wvm.switchWeaponAnimated(serverWeapon).catch(err => {
+          console.error(`[FPSGameManager] Failed to switch weapon: ${serverWeapon}`, err);
+        });
+      }
     }
   }
 

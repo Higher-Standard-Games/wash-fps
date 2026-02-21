@@ -174,6 +174,8 @@ export class PickupSystem extends Subsystem {
             this.useButtonPrev.set(player.id, usePressed);
             const useJustPressed = usePressed && !wasPressing;
 
+            let pickedUpThisTick = false;
+
             for (const pickup of this.pickups) {
                 if (!pickup.active) continue;
 
@@ -189,26 +191,29 @@ export class PickupSystem extends Subsystem {
 
                 if (!inRange) continue;
 
-                // Auto-pickup when player has room (< 2 non-gunblade weapons)
-                // Only require USE key when at capacity (swap needed)
                 if (!this.weaponSystem) continue;
 
                 const playerWeapons = this.weaponSystem.getWeapons(player.id);
                 const nonGunbladeCount = playerWeapons.filter(w => w !== 'gunblade').length;
+                const alreadyHasWeapon = playerWeapons.includes(pickup.weaponId);
                 const hasRoom = nonGunbladeCount < 2;
 
-                if (!hasRoom && !useJustPressed) continue;
+                // Auto-pickup if: player has room OR already owns weapon (ammo pickup)
+                // Require USE key only for weapon swap (at capacity + new weapon)
+                if (!hasRoom && !alreadyHasWeapon && !useJustPressed) continue;
 
                 // Try to add weapon to player's inventory
-
                 const result = this.weaponSystem.addWeapon(player.id, pickup.weaponId);
-                if (!result.added) continue;
 
-                // Success — deactivate pickup and start respawn timer
+                // addWeapon returns added=false when player already owns it (ammo was given internally)
+                // In that case, still deactivate the pickup and start respawn timer
+                // Only skip if there was genuinely no effect (shouldn't happen given our gating above)
+
+                // Deactivate pickup and start respawn timer
                 pickup.active = false;
                 pickup.respawnTick = tickNum + this.respawnTicks;
 
-                console.log(`[PickupSystem] Player ${player.id} picked up ${pickup.weaponId}${result.dropped ? ` (dropped ${result.dropped})` : ''}`);
+                console.log(`[PickupSystem] Player ${player.id} picked up ${pickup.weaponId}${result.added ? '' : ' (ammo)'}${result.dropped ? ` (dropped ${result.dropped})` : ''}`);
 
                 // Emit event for client sync
                 this.pendingPickupEvents.push({
@@ -222,11 +227,14 @@ export class PickupSystem extends Subsystem {
                 });
 
                 // Only pick up one weapon per tick
+                pickedUpThisTick = true;
                 break;
             }
 
-            // Check dropped weapons (EntityType.Item) — always require USE key
-            if (this.droppedWeaponSystem && useJustPressed) {
+            // Check dropped weapons (EntityType.Item)
+            // Skip if a static pickup already happened this tick (one pickup per tick)
+            // Auto-pickup when player has room, require USE key when at capacity
+            if (!pickedUpThisTick && this.droppedWeaponSystem) {
                 for (const itemEntity of state.entitiesByType(EntityType.Item)) {
                     if (!itemEntity.transform) continue;
 
@@ -245,23 +253,29 @@ export class PickupSystem extends Subsystem {
                     const meta = this.droppedWeaponSystem.getDroppedWeaponMeta(itemEntity.id);
                     if (!meta) continue;
 
+                    // Check inventory capacity for pickup gating
+                    const playerWeapons = this.weaponSystem.getWeapons(player.id);
+                    const nonGunbladeCount = playerWeapons.filter(w => w !== 'gunblade').length;
+                    const alreadyHasWeapon = playerWeapons.includes(meta.weaponId);
+                    const hasRoom = nonGunbladeCount < 2;
+
+                    // Auto-pickup if: player has room OR already owns weapon (ammo pickup)
+                    // Require USE key only for weapon swap (at capacity + new weapon)
+                    if (!hasRoom && !alreadyHasWeapon && !useJustPressed) continue;
+
                     // Add weapon to player's inventory
                     const result = this.weaponSystem.addWeapon(player.id, meta.weaponId);
-                    if (!result.added) {
-                        // Already has weapon — addWeapon already gave pickupAmmo for duplicate
-                        // Remove the dropped entity anyway
-                    }
 
                     // Transfer dropped weapon's remaining ammo (override default pickupAmmo)
                     if (meta.ammo > 0) {
                         this.weaponSystem.setAmmo(player.id, meta.weaponId, meta.ammo);
                     }
 
-                    // Remove from world
+                    // Always remove from world — even if weapon wasn't added (ammo was given)
                     state.removeEntity(itemEntity.id);
                     this.droppedWeaponSystem.removeDroppedWeapon(itemEntity.id);
 
-                    console.log(`[PickupSystem] Player ${player.id} picked up dropped ${meta.weaponId} (ammo=${meta.ammo})`);
+                    console.log(`[PickupSystem] Player ${player.id} picked up dropped ${meta.weaponId} (ammo=${meta.ammo}${result.added ? '' : ', ammo-only'})`);
 
                     // Emit event
                     this.pendingPickupEvents.push({

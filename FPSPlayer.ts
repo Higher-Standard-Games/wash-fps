@@ -6,7 +6,6 @@ import { Pickup } from "../../engine/game/Pickup";
 import { WeaponViewManager } from "../../engine/weapon/WeaponViewManager";
 import { getHitscanEffects } from "../../engine/weapon/HitscanEffects";
 import { WeaponDef } from "../../shared/entities";
-import { EntityManager } from "../../engine/entities/EntityManager";
 
 /**
  * FPSPlayer - High-level game entity for FPS mode
@@ -22,6 +21,7 @@ export class FPSPlayer {
     // Static instance for access from FPSGameManager
     private static _instance: FPSPlayer | null = null;
     static getInstance(): FPSPlayer | null { return FPSPlayer._instance; }
+    public getController(): FPSController { return this.controller; }
 
     // Weapon State
     private isReloading: boolean = false;
@@ -54,6 +54,11 @@ export class FPSPlayer {
         this.controller.onUse = () => {
             Pickup.triggerUseAction();
         };
+
+        // Block weapon switching input during animation (prevents scroll stutter)
+        this.controller.setWeaponSwitchBlockedCheck(() => {
+            return WeaponViewManager.getInstance().isSwitching();
+        });
     }
 
     public update(deltaTime: number): void {
@@ -69,25 +74,8 @@ export class FPSPlayer {
             // Current logic: return early from firing check if reloading
         }
 
-        // Check for pickups
-        // We use the controller's camera position for pickup checking
-        const playerPos = this.controller.getPlayerPosition();
-        // Note: getPlayerPosition returns origin level. 
-        // Pickups usually check against feet or center? 
-        // Original code used camera.position (eyes).
-        // Let's us camera position if possible, or build it from physics pos
-        // But since FPSController owns the camera, we can maybe access it? 
-        // Actually FPSController exposes getPlayerPosition() which is consistent.
-
-        // BETTER: Use the camera position from controller if available, strictly for "eye" based pickup?
-        // Or just use the physics position.
-        // Original code: EntityManager.getInstance().checkPickups(this.camera.position, this.inventory);
-        // We'll trust that getPlayerPosition() is close enough or add an eye position getter if needed.
-        // Actually, let's grab the feet position, pickups usually are on ground.
-        // But original code used camera pos. Let's stick to what we have or expose camera pos?
-        // FPSController has no public camera accessor? 
-        // It has `getPlayerPosition()` (origin).
-        EntityManager.getInstance().checkPickups(playerPos, this.inventory);
+        // Pickup checking is now server-authoritative (PickupSystem.ts)
+        // Client-side Pickup.ts is display-only, no inventory changes needed here
 
         // Update Firing Logic
         this.updateFiring(deltaTime);
@@ -137,7 +125,7 @@ export class FPSPlayer {
         }
     }
 
-    private async switchWeapon(slotIndex: number): Promise<void> {
+    private switchWeapon(slotIndex: number): void {
         const weaponId = this.inventory.getWeaponByIndex(slotIndex);
         if (!weaponId) return;
 
@@ -147,11 +135,12 @@ export class FPSPlayer {
         this.isReloading = false;
         this.reloadTimer = 0;
 
-        if (this.inventory.equipWeapon(weaponId)) {
-            // Use animated switch (slide-down → swap model → slide-up)
-            await WeaponViewManager.getInstance().switchWeaponAnimated(weaponId);
-            console.log(`Switched to weapon: ${weaponId}`);
-        }
+        // Play animated switch immediately for responsiveness (client prediction).
+        // Don't call equipWeapon() — let the server confirm the switch via weapon_state,
+        // which will update currentWeaponId in syncFromServer().
+        // Animation blocking is handled by setWeaponSwitchBlockedCheck callback.
+        WeaponViewManager.getInstance().switchWeaponAnimated(weaponId);
+        console.log(`Switching to weapon: ${weaponId}`);
     }
 
     private updateFiring(deltaTime: number): void {
