@@ -895,6 +895,11 @@ export class FPSGameManager {
             : event.defId === 'plasmagun' ? PLASMA_EXPLOSION
               : ROCKET_EXPLOSION;
           getExplosionEffect().spawn(pos, config, normal);
+        } else if (event.type === 'item_pickup') {
+          // Server confirms a pickup — deactivate the client-side Pickup visual
+          import('../../engine/game/Pickup').then(({ Pickup }) => {
+            Pickup.deactivateByPosition(event.weaponId, event.x, event.y, event.z);
+          });
         } else if (event.type === 'projectile_spawn') {
           // Server tells us about a new projectile entity — record defId mapping
           this.serverProjectileDefIds.set(event.entityId, event.defId);
@@ -1166,9 +1171,8 @@ export class FPSGameManager {
     const player = FPSPlayer.getInstance();
     if (!player) return;
 
-    // Don't sync weapon model while dead — weapon view is hidden,
-    // and loading a new model could race with the hide/show logic
-    if (this._isPlayerDead) return;
+    // Server is authoritative — always sync weapon state regardless of death flag.
+    // Weapon VIEW visibility is controlled separately by combat_state death/respawn events.
 
     const serverWeapon = event.currentWeapon as string;
     const serverWeapons = event.weapons as string[];

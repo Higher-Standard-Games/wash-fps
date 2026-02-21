@@ -199,13 +199,15 @@ export class WeaponSystem extends Subsystem {
             });
         }
 
-        // Remove dropped weapon from inventory
+        // Remove dropped weapon and insert new weapon at same slot position
         const dropIdx = state.weapons.indexOf(droppedWeapon);
-        if (dropIdx >= 0) state.weapons.splice(dropIdx, 1);
+        if (dropIdx >= 0) {
+            // Replace in-place to maintain stable slot indices (keys 1-2-3)
+            state.weapons.splice(dropIdx, 1, weaponId);
+        } else {
+            state.weapons.push(weaponId);
+        }
         state.ammo.delete(droppedWeapon);
-
-        // Add new weapon and switch to it
-        state.weapons.push(weaponId);
         state.currentWeapon = weaponId;
         // Reset slot edge detection so manual switch back works after auto-switch
         this.lastWeaponSlot.delete(entityId);
