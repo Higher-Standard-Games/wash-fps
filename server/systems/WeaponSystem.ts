@@ -16,6 +16,7 @@ import { DamageType, type DamageEvent, HitLocation } from './CombatSystem';
 import type { WeaponLoadout } from '@shared/server/gametype';
 import type { ProjectileSystem } from './ProjectileSystem';
 import type { DroppedWeaponSystem } from './DroppedWeaponSystem';
+import { computeSpreadSeed, generateSpreadDirections } from '../../../../shared/SpreadUtils';
 
 /** Must match InputButtons.FIRE from engine/network/components/InputComponent.ts */
 const FIRE_BUTTON = 1 << 8;
@@ -67,6 +68,8 @@ export class WeaponSystem extends Subsystem {
     private droppedWeaponSystem: DroppedWeaponSystem | null = null;
     /** Pending drop positions — set by GameServer before tick when a swap happens */
     private entityPositions: Map<EntityId, { x: number; y: number; z: number }> = new Map();
+    /** Per-entity shot counter for deterministic pellet spread seeds */
+    private shotCounts: Map<EntityId, number> = new Map();
 
     constructor() {
         super(CONFIG);
@@ -445,15 +448,52 @@ export class WeaponSystem extends Subsystem {
         const yaw = shooter.input.yaw;
         const pitch = -shooter.input.pitch;
 
-        const dir = {
-            x: Math.sin(yaw) * Math.cos(pitch),
-            y: Math.sin(pitch),
-            z: Math.cos(yaw) * Math.cos(pitch),
-        };
-
         const start = shooter.transform.position;
         const maxRange = weapon.maxRange || 5000;
 
+        // Pellet weapons (riotgun): fire N rays with seeded spread
+        if (weapon.pelletCount && weapon.pelletCount > 1 && weapon.spread) {
+            // Increment shot count for seed uniqueness
+            const shotCount = (this.shotCounts.get(shooter.id) || 0) + 1;
+            this.shotCounts.set(shooter.id, shotCount);
+
+            // Server spread is in Warsow units — convert to degrees
+            // Warsow spread 160 ≈ 12° cone (spread / 13.33)
+            const spreadDeg = weapon.spread / 13.33;
+
+            const seed = computeSpreadSeed(_tick as number, shooter.id as number, shotCount);
+            const directions = generateSpreadDirections(
+                seed, weapon.pelletCount, spreadDeg, yaw, shooter.input.pitch
+            );
+
+            // Trace each pellet individually
+            for (const dir of directions) {
+                this.traceHitscanRay(state, shooter, weapon, start, dir, maxRange);
+            }
+            return;
+        }
+
+        // Standard single-ray hitscan (machinegun, electrobolt, etc.)
+        const p = -pitch;
+        const dir = {
+            x: Math.sin(yaw) * Math.cos(p),
+            y: Math.sin(p),
+            z: Math.cos(yaw) * Math.cos(p),
+        };
+        this.traceHitscanRay(state, shooter, weapon, start, dir, maxRange);
+    }
+
+    /**
+     * Trace a single hitscan ray and register damage for hit targets.
+     */
+    private traceHitscanRay(
+        state: WorldState,
+        shooter: Readonly<Entity>,
+        weapon: WeaponDef,
+        start: { x: number; y: number; z: number },
+        dir: { x: number; y: number; z: number },
+        maxRange: number
+    ): void {
         // Check all potential targets
         for (const target of state.entitiesByType(EntityType.Player)) {
             if (target.id === shooter.id) continue;
@@ -501,9 +541,9 @@ export class WeaponSystem extends Subsystem {
                     knockbackScale: weapon.knockbackScale,
                 });
 
-                // Pellet weapons (riotgun) continue checking — pellets can hit multiple
-                // All other hitscan weapons break on first hit
-                if (!weapon.pelletCount) break;
+                // Single-ray weapons break on first hit; pellet rays always break
+                // (each pellet is its own ray call)
+                break;
             }
         }
     }
