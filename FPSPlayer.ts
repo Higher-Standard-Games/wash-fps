@@ -54,6 +54,11 @@ export class FPSPlayer {
         this.controller.onUse = () => {
             Pickup.triggerUseAction();
         };
+
+        // Block weapon switching input during animation (prevents scroll stutter)
+        this.controller.setWeaponSwitchBlockedCheck(() => {
+            return WeaponViewManager.getInstance().isSwitching();
+        });
     }
 
     public update(deltaTime: number): void {
@@ -120,7 +125,7 @@ export class FPSPlayer {
         }
     }
 
-    private async switchWeapon(slotIndex: number): Promise<void> {
+    private switchWeapon(slotIndex: number): void {
         const weaponId = this.inventory.getWeaponByIndex(slotIndex);
         if (!weaponId) return;
 
@@ -133,8 +138,9 @@ export class FPSPlayer {
         // Play animated switch immediately for responsiveness (client prediction).
         // Don't call equipWeapon() — let the server confirm the switch via weapon_state,
         // which will update currentWeaponId in syncFromServer().
-        await WeaponViewManager.getInstance().switchWeaponAnimated(weaponId);
-        console.log(`Switched to weapon: ${weaponId}`);
+        // Animation blocking is handled by setWeaponSwitchBlockedCheck callback.
+        WeaponViewManager.getInstance().switchWeaponAnimated(weaponId);
+        console.log(`Switching to weapon: ${weaponId}`);
     }
 
     private updateFiring(deltaTime: number): void {
