@@ -212,6 +212,10 @@ export class ProjectileSystem extends Subsystem {
                 const isSelf = target.ownerId === projectile.ownerId;
                 if (isSelf && this.selfDamageMultiplier <= 0) continue;
 
+                // Grenades (bouncing projectiles) pass through their owner —
+                // prevents self-triggering on throw. Splash damage still applies.
+                if (isSelf && meta.bouncesLeft >= 0) continue;
+
                 // Simple sphere collision
                 const distSq =
                     (newPos.x - target.transform.position.x) ** 2 +
