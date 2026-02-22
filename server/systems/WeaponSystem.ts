@@ -138,8 +138,8 @@ export class WeaponSystem extends Subsystem {
             const weapon = WEAPONS[weaponId];
             if (weapon) {
                 const currentAmmo = state.ammo.get(weaponId) || 0;
-                const pickupAmount = weapon.pickupAmmo ?? weapon.ammoCapacity;
-                const newAmmo = Math.min(weapon.ammoCapacity, currentAmmo + pickupAmount);
+                const pickupAmount = weapon.pickupAmmo ?? weapon.maxAmmo;
+                const newAmmo = Math.min(weapon.maxAmmo, currentAmmo + pickupAmount);
                 if (newAmmo > currentAmmo) {
                     state.ammo.set(weaponId, newAmmo);
                     console.log(`[WeaponSystem] Entity ${entityId}: already has ${weaponId}, gave ammo ${currentAmmo} → ${newAmmo}`);
@@ -160,7 +160,7 @@ export class WeaponSystem extends Subsystem {
             // Give ammo if not already present
             if (!state.ammo.has(weaponId) || state.ammo.get(weaponId)! <= 0) {
                 const weapon = WEAPONS[weaponId];
-                if (weapon) state.ammo.set(weaponId, weapon.pickupAmmo ?? weapon.ammoCapacity);
+                if (weapon) state.ammo.set(weaponId, weapon.pickupAmmo ?? weapon.maxAmmo);
             }
             console.log(`[WeaponSystem] Entity ${entityId}: picked up ${weaponId} (${state.weapons.length} weapons, ammo=${state.ammo.get(weaponId)})`);
             return { added: true };
@@ -183,7 +183,7 @@ export class WeaponSystem extends Subsystem {
         const weaponDef = WEAPONS[droppedWeapon];
         const playerAmmo = state.ammo.get(droppedWeapon) || 0;
         const droppedAmmo = weaponDef
-            ? Math.min(playerAmmo, weaponDef.pickupAmmo ?? weaponDef.ammoCapacity)
+            ? Math.min(playerAmmo, weaponDef.pickupAmmo ?? weaponDef.maxAmmo)
             : playerAmmo;
         const pos = this.entityPositions.get(entityId);
         if (this.droppedWeaponSystem && pos) {
@@ -217,7 +217,7 @@ export class WeaponSystem extends Subsystem {
         // Give ammo if not already present
         if (!state.ammo.has(weaponId) || state.ammo.get(weaponId)! <= 0) {
             const weapon = WEAPONS[weaponId];
-            if (weapon) state.ammo.set(weaponId, weapon.ammoCapacity);
+            if (weapon) state.ammo.set(weaponId, weapon.maxAmmo);
         }
 
         console.log(`[WeaponSystem] Entity ${entityId}: picked up ${weaponId}, dropped ${droppedWeapon} (ammo=${droppedAmmo})`);
@@ -239,8 +239,17 @@ export class WeaponSystem extends Subsystem {
         if (!state) return;
         const weapon = WEAPONS[weaponId];
         if (weapon) {
-            state.ammo.set(weaponId, Math.min(weapon.ammoCapacity, ammo));
+            state.ammo.set(weaponId, Math.min(weapon.maxAmmo, ammo));
         }
+    }
+
+    /**
+     * Get current ammo for a specific weapon
+     */
+    getAmmo(entityId: EntityId, weaponId: string): number {
+        const state = this.weaponStates.get(entityId);
+        if (!state) return 0;
+        return state.ammo.get(weaponId) || 0;
     }
 
     /**
@@ -261,7 +270,7 @@ export class WeaponSystem extends Subsystem {
             const playerAmmo = state.ammo.get(weaponId) || 0;
             // Cap dropped ammo at pickupAmmo (one clip worth)
             const ammo = weaponDef
-                ? Math.min(playerAmmo, weaponDef.pickupAmmo ?? weaponDef.ammoCapacity)
+                ? Math.min(playerAmmo, weaponDef.pickupAmmo ?? weaponDef.maxAmmo)
                 : playerAmmo;
             // Death scatter: spread weapons in different directions
             const angle = (i / toDrop.length) * Math.PI * 2 + Math.random() * 0.5;
@@ -371,7 +380,7 @@ export class WeaponSystem extends Subsystem {
                 // Refill ammo (simplified - would normally pull from reserve)
                 const weapon = WEAPONS[weaponState.currentWeapon];
                 if (weapon) {
-                    weaponState.ammo.set(weaponState.currentWeapon, weapon.ammoCapacity);
+                    weaponState.ammo.set(weaponState.currentWeapon, weapon.maxAmmo);
                 }
             }
 
@@ -390,6 +399,7 @@ export class WeaponSystem extends Subsystem {
                             this.fireWeapon(state, entity, weapon, tick);
                             const newAmmo = ammo - 1;
                             weaponState.ammo.set(weaponState.currentWeapon, newAmmo);
+                            console.log(`[WeaponSystem] FIRE ${weaponState.currentWeapon} tick=${tickNum} sinceLast=${timeSinceFire} ticks (${(timeSinceFire * 8).toFixed(0)}ms) interval=${fireInterval} ticks (${(fireInterval * 8).toFixed(0)}ms) ammo=${newAmmo} reloading=${weaponState.reloading}`);
                             weaponState.lastFireTick = tickNum;
 
                             // Auto-reload when ammo depleted
@@ -428,7 +438,7 @@ export class WeaponSystem extends Subsystem {
             });
         }
 
-        if (weapon.type === 'hitscan') {
+        if (weapon.hitscan) {
             this.fireHitscan(state, shooter, weapon, tick);
         } else {
             this.fireProjectile(state, shooter, weapon);
@@ -449,7 +459,7 @@ export class WeaponSystem extends Subsystem {
         const pitch = -shooter.input.pitch;
 
         const start = shooter.transform.position;
-        const maxRange = weapon.maxRange || 5000;
+        const maxRange = weapon.range || 5000;
 
         // Pellet weapons (riotgun): fire N rays with seeded spread
         if (weapon.pelletCount && weapon.pelletCount > 1 && weapon.spread) {
@@ -457,9 +467,8 @@ export class WeaponSystem extends Subsystem {
             const shotCount = (this.shotCounts.get(shooter.id) || 0) + 1;
             this.shotCounts.set(shooter.id, shotCount);
 
-            // Server spread is in Warsow units — convert to degrees
-            // Warsow spread 160 ≈ 12° cone (spread / 13.33)
-            const spreadDeg = weapon.spread / 13.33;
+            // weapon.spread is already in degrees (e.g., 6° cone)
+            const spreadDeg = weapon.spread;
 
             const seed = computeSpreadSeed(_tick as number, shooter.id as number, shotCount);
             const directions = generateSpreadDirections(
@@ -591,8 +600,8 @@ export class WeaponSystem extends Subsystem {
             const isGrenade = weapon.id === 'glauncher';
             this.projectileSystem.registerProjectileType(projectile.id, weapon.id, {
                 bounces: isGrenade ? 3 : 0,
-                lifetime: isGrenade ? 1.25 : 10.0,
-                gravity: isGrenade ? 1 : 0,
+                lifetime: isGrenade ? 2.0 : 10.0,
+                gravity: isGrenade ? 3 : 0,
             });
         }
     }

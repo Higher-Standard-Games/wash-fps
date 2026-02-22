@@ -39,7 +39,7 @@ interface ProjectileMeta {
 }
 
 /** Velocity retention on bounce (Warsow-style) */
-const BOUNCE_FACTOR = 0.65;
+const BOUNCE_FACTOR = 0.45;
 
 /** Gravity acceleration (units/sec²) */
 const GRAVITY_ACCEL = 800;

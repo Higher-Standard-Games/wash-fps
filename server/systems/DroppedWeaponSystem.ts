@@ -13,6 +13,7 @@ import type { EntityId, TickNumber } from '@shared/server/simulation/types';
 import { entityId } from '@shared/server/simulation/types';
 import type { WorldState } from '@engine/server/core/WorldState';
 import type { SubsystemConfig } from '@engine/server/core/Subsystem';
+import type { CollisionWorld } from '../../../../engine/network/systems/collision/CollisionWorld';
 import { Subsystem } from '@engine/server/core/Subsystem';
 import { createDroppedWeaponEntity } from '@engine/server/ecs/Entity';
 
@@ -98,10 +99,22 @@ export class DroppedWeaponSystem extends Subsystem {
     /** Seconds per tick */
     private dt: number;
 
+    /** Collision world for floor detection (optional) */
+    private collisionWorld: CollisionWorld | null = null;
+
     constructor() {
         super(CONFIG);
         this.despawnTicks = DESPAWN_TIME * CONFIG.tickRate;
         this.dt = 1 / CONFIG.tickRate;
+    }
+
+    /**
+     * Set the collision world for accurate floor detection.
+     * When set, dropped weapons trace downward to find the real BSP floor
+     * instead of estimating from the dropper's Y position.
+     */
+    setCollisionWorld(collision: CollisionWorld): void {
+        this.collisionWorld = collision;
     }
 
     // ────────────────────────────────────────────────────────────────
@@ -152,10 +165,16 @@ export class DroppedWeaponSystem extends Subsystem {
             const entity = createDroppedWeaponEntity(id, drop.position, vel);
             state.addEntity(entity);
 
-            // Use spawn position Y minus player origin height as floor reference
-            // (since we don't have BSP collision on server, this ensures weapons settle
-            // near where the player dropped them, not at Y=-500)
-            const floorY = drop.position.y - PLAYER_ORIGIN_HEIGHT;
+            // Find real floor Y using BSP collision trace (if available)
+            let floorY = drop.position.y - PLAYER_ORIGIN_HEIGHT; // Fallback estimate
+            if (this.collisionWorld) {
+                const traceStart = { x: drop.position.x, y: drop.position.y, z: drop.position.z };
+                const traceEnd = { x: drop.position.x, y: drop.position.y - 2000, z: drop.position.z };
+                const result = this.collisionWorld.trace(traceStart, traceEnd);
+                if (result.hit && result.hitPoint) {
+                    floorY = result.hitPoint.y;
+                }
+            }
             const meta: DroppedWeaponMeta = {
                 entityId: id,
                 weaponId: drop.weaponId,

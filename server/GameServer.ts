@@ -94,6 +94,8 @@ export class GameServer {
     private nextBotId: number = 900; // Bot IDs start high to avoid collisions
     private running: boolean = false;
     private tickTimer: ReturnType<typeof setTimeout> | null = null;
+    /** Clients that need initial pickup state sync (pickups deactivated before they joined) */
+    private needsPickupSync: Set<string> = new Set();
 
     // Subsystems
     private physicsSystem: FPSMovementSubsystem;
@@ -207,6 +209,7 @@ export class GameServer {
     setCollisionWorld(collision: CollisionWorld): void {
         this.physicsSystem.setCollisionWorld(collision);
         this.projectileSystem.setCollisionWorld(collision);
+        this.droppedWeaponSystem.setCollisionWorld(collision);
         console.log(`[GameServer] Collision world configured`);
     }
 
@@ -260,6 +263,7 @@ export class GameServer {
 
         // Create entity (same as a real player — full physics, health, etc.)
         const entity = createPlayerEntity(eid, pid, spawnPoint);
+        entity.spawnTick = this.simulation.currentTick as number;
         state.addEntity(entity);
 
         console.log(`[GameServer] Bot ${pid} (entity ${eid}) spawned at (${spawnPoint.x.toFixed(1)}, ${spawnPoint.y.toFixed(1)}, ${spawnPoint.z.toFixed(1)})`);
@@ -522,6 +526,7 @@ export class GameServer {
 
             // Create entity
             const entity = createPlayerEntity(eid, pid, spawnPoint);
+            entity.spawnTick = this.simulation.currentTick as number;
             state.addEntity(entity);
 
             // Track client
@@ -549,6 +554,9 @@ export class GameServer {
 
         this.sendWelcome(client);
         this.sendJoinAccept(client);
+
+        // Mark client for initial pickup state sync
+        this.needsPickupSync.add(client.id);
     }
 
     private handleInput(client: ClientInfo, data: Uint8Array): void {
@@ -797,6 +805,8 @@ export class GameServer {
                     currentWeapon: weaponState.currentWeapon,
                     weapons: weaponState.weapons,
                     ammo: Object.fromEntries(weaponState.ammo),
+                    reloading: weaponState.reloading,
+                    lastFireTick: weaponState.lastFireTick,
                 });
             }
         }
@@ -844,6 +854,28 @@ export class GameServer {
                 y: pickup.y,
                 z: pickup.z,
             });
+        }
+
+        // Inject initial inactive pickup state for newly joined clients
+        // (pickups consumed by bots/other players before this client connected)
+        if (this.needsPickupSync.size > 0) {
+            const inactivePickups = this.pickupSystem.getInactivePickups();
+            if (inactivePickups.length > 0) {
+                console.log(`[GameServer] Syncing ${inactivePickups.length} inactive pickups to ${this.needsPickupSync.size} new client(s)`);
+                for (const pickup of inactivePickups) {
+                    gameState.events.push({
+                        type: 'item_pickup',
+                        pickupId: pickup.pickupId,
+                        weaponId: pickup.weaponId,
+                        entityId: pickup.entityId,
+                        droppedWeaponId: '',
+                        x: pickup.x,
+                        y: pickup.y,
+                        z: pickup.z,
+                    });
+                }
+            }
+            this.needsPickupSync.clear();
         }
 
         // Add weapon drop events (so clients can render dropped weapon models)
