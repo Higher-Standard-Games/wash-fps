@@ -89,6 +89,22 @@ interface KnockbackImpulse {
     stunFraction: number;
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// KNOCKBACK AIR DRAG CONSTANTS (Warsow-style)
+// ═══════════════════════════════════════════════════════════════════
+
+/** Ticks after KB before drag kicks in (~0.4s at 125Hz) */
+const KB_DRAG_DELAY_TICKS = 50;
+
+/** Duration over which drag ramps from 0→max (~0.6s at 125Hz) */
+const KB_DRAG_RAMP_TICKS = 75;
+
+/** Max per-tick horizontal speed multiplier during full drag (0.96 = loses ~4%/tick) */
+const KB_HORIZ_DRAG = 0.96;
+
+/** Extra downward acceleration during drag phase (units/s²) */
+const KB_EXTRA_GRAVITY = 600;
+
 export class FPSMovementSubsystem extends Subsystem {
     private collisionWorld: CollisionWorld | null = null;
 
@@ -97,6 +113,9 @@ export class FPSMovementSubsystem extends Subsystem {
 
     /** Pending knockback impulses queued by CombatSystem */
     private pendingImpulses: KnockbackImpulse[] = [];
+
+    /** Last tick each entity received knockback (for air drag timing) */
+    private lastKBTick: Map<number, number> = new Map();
 
     constructor(collisionWorld?: CollisionWorld) {
         super(CONFIG);
@@ -151,7 +170,8 @@ export class FPSMovementSubsystem extends Subsystem {
         this.pendingImpulses.push(impulse);
     }
 
-    update(state: WorldState, dt: number, _tick: TickNumber): void {
+    update(state: WorldState, dt: number, tick: TickNumber): void {
+        const tickNum = tick as number;
         // Track KB'd entities for post-simulate debug logging
         const kbEntities = new Set<number>();
 
@@ -181,9 +201,50 @@ export class FPSMovementSubsystem extends Subsystem {
                 this.getProfile(impulse.entityId as number).resetPhysicsState(false);
 
                 kbEntities.add(impulse.entityId as number);
+                this.lastKBTick.set(impulse.entityId as number, tickNum);
                 console.log(`[KB] Applied to entity=${impulse.entityId}: vel=(${vel.x.toFixed(1)},${vel.y.toFixed(1)},${vel.z.toFixed(1)}) beforeY=${beforeY.toFixed(1)} grounded=false pos=(${ent.transform?.position.x.toFixed(1)},${ent.transform?.position.y.toFixed(1)},${ent.transform?.position.z.toFixed(1)})`);
             }
             this.pendingImpulses = [];
+        }
+
+        // === KNOCKBACK AIR DRAG (Warsow-style) ===
+        // After a free-fly window, smoothly decay horizontal velocity
+        // and add extra gravity so players arc down instead of floating.
+        for (const [entityId, kbTick] of this.lastKBTick) {
+            const ent = state.getEntityMut(entityId as unknown as EntityId);
+            if (!ent?.physics) continue;
+
+            // Landing cancels drag
+            if (ent.physics.grounded || ent.health?.dead) {
+                this.lastKBTick.delete(entityId);
+                continue;
+            }
+
+            const elapsed = tickNum - kbTick;
+
+            // Expired (past delay + ramp window)
+            if (elapsed > KB_DRAG_DELAY_TICKS + KB_DRAG_RAMP_TICKS) {
+                this.lastKBTick.delete(entityId);
+                continue;
+            }
+
+            // Still in free-fly window
+            if (elapsed < KB_DRAG_DELAY_TICKS) continue;
+
+            // Drag phase: ramp 0→1 over KB_DRAG_RAMP_TICKS
+            const dragT = (elapsed - KB_DRAG_DELAY_TICKS) / KB_DRAG_RAMP_TICKS;
+            // Smooth ease-in (quadratic)
+            const dragStrength = dragT * dragT;
+
+            const vel = ent.physics.velocity;
+
+            // Horizontal drag: lerp multiplier from 1.0 → KB_HORIZ_DRAG
+            const horizMult = 1.0 - dragStrength * (1.0 - KB_HORIZ_DRAG);
+            vel.x *= horizMult;
+            vel.z *= horizMult;
+
+            // Extra downward pull (increases with drag strength)
+            vel.y -= KB_EXTRA_GRAVITY * dragStrength * dt;
         }
 
         // Process all player entities
@@ -338,5 +399,6 @@ export class FPSMovementSubsystem extends Subsystem {
      */
     removeEntity(entityId: number): void {
         this.movementProfiles.delete(entityId);
+        this.lastKBTick.delete(entityId);
     }
 }

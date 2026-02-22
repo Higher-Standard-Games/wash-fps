@@ -191,7 +191,7 @@ export class GametypeController {
 
             // On match start (countdown → active), respawn all players
             if (this.matchState.phase === MatchPhase.Active) {
-                this.respawnAllPlayers(state);
+                this.respawnAllPlayers(state, tickNum);
             }
         }
 
@@ -221,12 +221,12 @@ export class GametypeController {
         for (const entry of this.respawnQueue) {
             if (tickNum >= entry.maxRespawnTick) {
                 // Auto-respawn deadline reached
-                this.respawnPlayer(state, entry.entityId);
+                this.respawnPlayer(state, entry.entityId, tickNum);
             } else if (tickNum >= entry.minRespawnTick) {
                 // Input-gated window: respawn if player presses fire or jump
                 const entity = state.getEntity(entry.entityId);
                 if (entity?.input && (entity.input.attack || entity.input.jump)) {
-                    this.respawnPlayer(state, entry.entityId);
+                    this.respawnPlayer(state, entry.entityId, tickNum);
                 } else {
                     remaining.push(entry);
                 }
@@ -238,7 +238,7 @@ export class GametypeController {
         this.respawnQueue = remaining;
     }
 
-    private respawnPlayer(state: WorldState, entityId: EntityId): void {
+    private respawnPlayer(state: WorldState, entityId: EntityId, tickNum: number): void {
         const entity = state.getEntityMut(entityId);
         if (!entity) return;
 
@@ -267,6 +267,10 @@ export class GametypeController {
             entity.physics.jumping = false;
         }
 
+        // Spawn protection: freeze physics for a few ticks to prevent
+        // falling through the world before collision is ready
+        entity.spawnTick = tickNum;
+
         // Reset weapon loadout
         if (this.weaponSystem) {
             this.weaponSystem.initializeWeaponFromLoadout(entityId, loadout);
@@ -278,11 +282,11 @@ export class GametypeController {
         console.log(`[GametypeController] Respawned entity ${entityId} at (${spawn.x.toFixed(0)}, ${spawn.y.toFixed(0)}, ${spawn.z.toFixed(0)})`);
     }
 
-    private respawnAllPlayers(state: WorldState): void {
+    private respawnAllPlayers(state: WorldState, tickNum: number): void {
         console.log(`[GametypeController] Match start — respawning all players`);
         for (const entity of state.allEntities()) {
             if (entity.ownerId !== undefined) {
-                this.respawnPlayer(state, entity.id);
+                this.respawnPlayer(state, entity.id, tickNum);
             }
         }
         // Clear any pending respawns

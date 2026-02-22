@@ -74,10 +74,10 @@ export class PickupSystem extends Subsystem {
     private respawnTicks: number = 25 * 125; // 25 seconds at 125Hz (default)
 
     // Pickup detection parameters (matching client-side Pickup.ts)
-    private readonly PICKUP_RADIUS = 96;
-    private readonly PICKUP_RADIUS_SQ = 96 * 96;
-    private readonly VERTICAL_RANGE_MIN = -24;
-    private readonly VERTICAL_RANGE_MAX = 88;
+    private readonly PICKUP_RADIUS = 128;
+    private readonly PICKUP_RADIUS_SQ = 128 * 128;
+    private readonly VERTICAL_RANGE_MIN = -48;
+    private readonly VERTICAL_RANGE_MAX = 96;
 
     // Track USE button edge detection per player (prevent multi-pickup)
     private useButtonPrev: Map<EntityId, boolean> = new Map();
@@ -148,6 +148,27 @@ export class PickupSystem extends Subsystem {
         return events;
     }
 
+    /**
+     * Get all currently inactive pickups (for initial state sync when a client joins).
+     * Returns pickup events so the client can deactivate visuals for already-consumed pickups.
+     */
+    getInactivePickups(): PickupEvent[] {
+        const events: PickupEvent[] = [];
+        for (const pickup of this.pickups) {
+            if (!pickup.active) {
+                events.push({
+                    pickupId: pickup.id,
+                    weaponId: pickup.weaponId,
+                    entityId: 0 as any, // Not relevant for initial state
+                    x: pickup.position.x,
+                    y: pickup.position.y,
+                    z: pickup.position.z,
+                });
+            }
+        }
+        return events;
+    }
+
     update(state: WorldState, _dt: number, tick: TickNumber): void {
         const tickNum = tick as number;
 
@@ -205,9 +226,12 @@ export class PickupSystem extends Subsystem {
                 // Try to add weapon to player's inventory
                 const result = this.weaponSystem.addWeapon(player.id, pickup.weaponId);
 
-                // addWeapon returns added=false when player already owns it (ammo was given internally)
-                // In that case, still deactivate the pickup and start respawn timer
-                // Only skip if there was genuinely no effect (shouldn't happen given our gating above)
+                // addWeapon returns added=false for BOTH "already owned (ammo given)" AND "can't swap (holding gunblade)"
+                // Only consume pickup if weapon was added or ammo was given (player already had it)
+                if (!result.added && !alreadyHasWeapon) {
+                    // Swap failed (e.g., holding gunblade at capacity) — don't consume the pickup
+                    continue;
+                }
 
                 // Deactivate pickup and start respawn timer
                 pickup.active = false;
@@ -243,9 +267,11 @@ export class PickupSystem extends Subsystem {
                     const dy = py - itemEntity.transform.position.y;
 
                     const horizDistSq = dx * dx + dz * dz;
+                    // Slightly wider vertical range for dropped weapons
+                    // (server ballistic sim may have minor Y drift from real floor)
                     const inRange = horizDistSq < this.PICKUP_RADIUS_SQ
-                        && dy > this.VERTICAL_RANGE_MIN
-                        && dy < this.VERTICAL_RANGE_MAX;
+                        && dy > -96
+                        && dy < 128;
 
                     if (!inRange) continue;
                     if (!this.weaponSystem) continue;
@@ -266,9 +292,10 @@ export class PickupSystem extends Subsystem {
                     // Add weapon to player's inventory
                     const result = this.weaponSystem.addWeapon(player.id, meta.weaponId);
 
-                    // Transfer dropped weapon's remaining ammo (override default pickupAmmo)
+                    // Transfer dropped weapon's remaining ammo (ADD to existing, don't overwrite)
                     if (meta.ammo > 0) {
-                        this.weaponSystem.setAmmo(player.id, meta.weaponId, meta.ammo);
+                        const currentAmmo = this.weaponSystem.getAmmo(player.id, meta.weaponId);
+                        this.weaponSystem.setAmmo(player.id, meta.weaponId, currentAmmo + meta.ammo);
                     }
 
                     // Always remove from world — even if weapon wasn't added (ammo was given)

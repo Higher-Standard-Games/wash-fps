@@ -22,7 +22,7 @@ const DEFAULT_KB_SCALE = 5.0;
 /** Self-KB multiplier (halved for rocket jumping — base KB is already strong) */
 const SELF_KB_MULTIPLIER = 0.5;
 /** Minimum upward bias for KB direction (ensures dramatic vertical launches) */
-const KB_UPWARD_BIAS = 0.65;
+const KB_UPWARD_BIAS = 0.80;
 
 // ═══════════════════════════════════════════════════════════════════
 // DAMAGE EVENT
@@ -159,7 +159,37 @@ export class CombatSystem extends Subsystem {
             this.processDamage(state, damage, tick);
         }
         this.pendingDamage = [];
+
+        // Aggregate same-tick damage to the same victim from the same attacker+type
+        // (merges 20 pellet hits into one combined damage number for client display)
+        this.aggregateProcessedDamage();
         // NOTE: Respawning is now handled by GametypeController.postTick()
+    }
+
+    /**
+     * Merge processedDamage entries that share the same victim + attacker + damageType.
+     * Combines damage values and keeps the last position.
+     */
+    private aggregateProcessedDamage(): void {
+        if (this.processedDamage.length <= 1) return;
+
+        const merged = new Map<string, { victimId: EntityId; attackerId?: EntityId; damage: number; damageType: DamageType; x: number; y: number; z: number }>();
+
+        for (const entry of this.processedDamage) {
+            const key = `${entry.victimId}_${entry.attackerId ?? 'env'}_${entry.damageType}`;
+            const existing = merged.get(key);
+            if (existing) {
+                existing.damage += entry.damage;
+                // Keep latest position
+                existing.x = entry.x;
+                existing.y = entry.y;
+                existing.z = entry.z;
+            } else {
+                merged.set(key, { ...entry });
+            }
+        }
+
+        this.processedDamage = Array.from(merged.values());
     }
 
     private processDamage(state: WorldState, event: DamageEvent, tick: TickNumber): void {

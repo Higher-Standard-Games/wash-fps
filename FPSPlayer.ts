@@ -29,6 +29,7 @@ export class FPSPlayer {
     private lastFireTime: number = 0;
     private fireReleased: boolean = true;
     private burstShotsRemaining: number = 0;
+    private _serverLastFireTick: number = 0;  // track server fire tick for drift correction
 
     constructor(controller: FPSController) {
         this.controller = controller;
@@ -207,17 +208,40 @@ export class FPSPlayer {
         }
     }
 
-    private executeFire(mgr: WeaponViewManager): void {
-        const weaponId = this.inventory.getCurrentWeaponId();
-        if (!weaponId) return;
+    private executeFire(_mgr: WeaponViewManager): void {
+        // Don't predict fire effects locally — they are triggered by server's weapon_fire event.
+        // We only track cooldown timing here to prevent spamming the server with rapid inputs.
+        this.lastFireTime = performance.now() / 1000;
+    }
 
-        if (this.inventory.consumeLoadedAmmo(weaponId, 1)) {
-            mgr.fire();
-            this.lastFireTime = performance.now() / 1000;
+    /**
+     * Sync reload state from server — if server is still reloading,
+     * block client-side firing to prevent ghost shots.
+     */
+    public setServerReloadState(reloading: boolean): void {
+        if (reloading && !this.isReloading) {
+            // Server is reloading but client isn't — force client into reload state
+            this.isReloading = true;
+        } else if (!reloading && this.isReloading) {
+            // Server finished reloading — allow client to fire again
+            this.isReloading = false;
+            this.reloadTimer = 0;
+        }
+    }
 
-            // Notify controller/effects? 
-            // Ideally we fire an event that the controller listens to for recoil?
-            // For now, simple fire.
+    /**
+     * Sync fire timing from server tick — if the server's lastFireTick
+     * is newer than what the client expects, push lastFireTime forward
+     * so the client's cooldown matches the server's.
+     */
+    public syncFireTiming(serverLastFireTick: number): void {
+        if (serverLastFireTick > this._serverLastFireTick) {
+            this._serverLastFireTick = serverLastFireTick;
+            // Convert server tick to approximate wall-clock time
+            // Server runs at 125 ticks/sec
+            const serverFireAge = 0; // Just fired — reset cooldown
+            const now = performance.now() / 1000;
+            this.lastFireTime = Math.max(this.lastFireTime, now - serverFireAge);
         }
     }
 

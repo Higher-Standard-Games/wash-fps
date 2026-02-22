@@ -16,6 +16,7 @@ import { DamageType, type DamageEvent, HitLocation } from './CombatSystem';
 import type { WeaponLoadout } from '@shared/server/gametype';
 import type { ProjectileSystem } from './ProjectileSystem';
 import type { DroppedWeaponSystem } from './DroppedWeaponSystem';
+import { computeSpreadSeed, generateSpreadDirections } from '../../../../shared/SpreadUtils';
 
 /** Must match InputButtons.FIRE from engine/network/components/InputComponent.ts */
 const FIRE_BUTTON = 1 << 8;
@@ -67,6 +68,8 @@ export class WeaponSystem extends Subsystem {
     private droppedWeaponSystem: DroppedWeaponSystem | null = null;
     /** Pending drop positions — set by GameServer before tick when a swap happens */
     private entityPositions: Map<EntityId, { x: number; y: number; z: number }> = new Map();
+    /** Per-entity shot counter for deterministic pellet spread seeds */
+    private shotCounts: Map<EntityId, number> = new Map();
 
     constructor() {
         super(CONFIG);
@@ -135,8 +138,8 @@ export class WeaponSystem extends Subsystem {
             const weapon = WEAPONS[weaponId];
             if (weapon) {
                 const currentAmmo = state.ammo.get(weaponId) || 0;
-                const pickupAmount = weapon.pickupAmmo ?? weapon.ammoCapacity;
-                const newAmmo = Math.min(weapon.ammoCapacity, currentAmmo + pickupAmount);
+                const pickupAmount = weapon.pickupAmmo ?? weapon.maxAmmo;
+                const newAmmo = Math.min(weapon.maxAmmo, currentAmmo + pickupAmount);
                 if (newAmmo > currentAmmo) {
                     state.ammo.set(weaponId, newAmmo);
                     console.log(`[WeaponSystem] Entity ${entityId}: already has ${weaponId}, gave ammo ${currentAmmo} → ${newAmmo}`);
@@ -157,7 +160,7 @@ export class WeaponSystem extends Subsystem {
             // Give ammo if not already present
             if (!state.ammo.has(weaponId) || state.ammo.get(weaponId)! <= 0) {
                 const weapon = WEAPONS[weaponId];
-                if (weapon) state.ammo.set(weaponId, weapon.pickupAmmo ?? weapon.ammoCapacity);
+                if (weapon) state.ammo.set(weaponId, weapon.pickupAmmo ?? weapon.maxAmmo);
             }
             console.log(`[WeaponSystem] Entity ${entityId}: picked up ${weaponId} (${state.weapons.length} weapons, ammo=${state.ammo.get(weaponId)})`);
             return { added: true };
@@ -180,7 +183,7 @@ export class WeaponSystem extends Subsystem {
         const weaponDef = WEAPONS[droppedWeapon];
         const playerAmmo = state.ammo.get(droppedWeapon) || 0;
         const droppedAmmo = weaponDef
-            ? Math.min(playerAmmo, weaponDef.pickupAmmo ?? weaponDef.ammoCapacity)
+            ? Math.min(playerAmmo, weaponDef.pickupAmmo ?? weaponDef.maxAmmo)
             : playerAmmo;
         const pos = this.entityPositions.get(entityId);
         if (this.droppedWeaponSystem && pos) {
@@ -214,7 +217,7 @@ export class WeaponSystem extends Subsystem {
         // Give ammo if not already present
         if (!state.ammo.has(weaponId) || state.ammo.get(weaponId)! <= 0) {
             const weapon = WEAPONS[weaponId];
-            if (weapon) state.ammo.set(weaponId, weapon.ammoCapacity);
+            if (weapon) state.ammo.set(weaponId, weapon.maxAmmo);
         }
 
         console.log(`[WeaponSystem] Entity ${entityId}: picked up ${weaponId}, dropped ${droppedWeapon} (ammo=${droppedAmmo})`);
@@ -236,8 +239,17 @@ export class WeaponSystem extends Subsystem {
         if (!state) return;
         const weapon = WEAPONS[weaponId];
         if (weapon) {
-            state.ammo.set(weaponId, Math.min(weapon.ammoCapacity, ammo));
+            state.ammo.set(weaponId, Math.min(weapon.maxAmmo, ammo));
         }
+    }
+
+    /**
+     * Get current ammo for a specific weapon
+     */
+    getAmmo(entityId: EntityId, weaponId: string): number {
+        const state = this.weaponStates.get(entityId);
+        if (!state) return 0;
+        return state.ammo.get(weaponId) || 0;
     }
 
     /**
@@ -258,7 +270,7 @@ export class WeaponSystem extends Subsystem {
             const playerAmmo = state.ammo.get(weaponId) || 0;
             // Cap dropped ammo at pickupAmmo (one clip worth)
             const ammo = weaponDef
-                ? Math.min(playerAmmo, weaponDef.pickupAmmo ?? weaponDef.ammoCapacity)
+                ? Math.min(playerAmmo, weaponDef.pickupAmmo ?? weaponDef.maxAmmo)
                 : playerAmmo;
             // Death scatter: spread weapons in different directions
             const angle = (i / toDrop.length) * Math.PI * 2 + Math.random() * 0.5;
@@ -368,7 +380,7 @@ export class WeaponSystem extends Subsystem {
                 // Refill ammo (simplified - would normally pull from reserve)
                 const weapon = WEAPONS[weaponState.currentWeapon];
                 if (weapon) {
-                    weaponState.ammo.set(weaponState.currentWeapon, weapon.ammoCapacity);
+                    weaponState.ammo.set(weaponState.currentWeapon, weapon.maxAmmo);
                 }
             }
 
@@ -387,6 +399,7 @@ export class WeaponSystem extends Subsystem {
                             this.fireWeapon(state, entity, weapon, tick);
                             const newAmmo = ammo - 1;
                             weaponState.ammo.set(weaponState.currentWeapon, newAmmo);
+                            console.log(`[WeaponSystem] FIRE ${weaponState.currentWeapon} tick=${tickNum} sinceLast=${timeSinceFire} ticks (${(timeSinceFire * 8).toFixed(0)}ms) interval=${fireInterval} ticks (${(fireInterval * 8).toFixed(0)}ms) ammo=${newAmmo} reloading=${weaponState.reloading}`);
                             weaponState.lastFireTick = tickNum;
 
                             // Auto-reload when ammo depleted
@@ -425,7 +438,7 @@ export class WeaponSystem extends Subsystem {
             });
         }
 
-        if (weapon.type === 'hitscan') {
+        if (weapon.hitscan) {
             this.fireHitscan(state, shooter, weapon, tick);
         } else {
             this.fireProjectile(state, shooter, weapon);
@@ -445,15 +458,51 @@ export class WeaponSystem extends Subsystem {
         const yaw = shooter.input.yaw;
         const pitch = -shooter.input.pitch;
 
-        const dir = {
-            x: Math.sin(yaw) * Math.cos(pitch),
-            y: Math.sin(pitch),
-            z: Math.cos(yaw) * Math.cos(pitch),
-        };
-
         const start = shooter.transform.position;
-        const maxRange = weapon.maxRange || 5000;
+        const maxRange = weapon.range || 5000;
 
+        // Pellet weapons (riotgun): fire N rays with seeded spread
+        if (weapon.pelletCount && weapon.pelletCount > 1 && weapon.spread) {
+            // Increment shot count for seed uniqueness
+            const shotCount = (this.shotCounts.get(shooter.id) || 0) + 1;
+            this.shotCounts.set(shooter.id, shotCount);
+
+            // weapon.spread is already in degrees (e.g., 6° cone)
+            const spreadDeg = weapon.spread;
+
+            const seed = computeSpreadSeed(_tick as number, shooter.id as number, shotCount);
+            const directions = generateSpreadDirections(
+                seed, weapon.pelletCount, spreadDeg, yaw, shooter.input.pitch
+            );
+
+            // Trace each pellet individually
+            for (const dir of directions) {
+                this.traceHitscanRay(state, shooter, weapon, start, dir, maxRange);
+            }
+            return;
+        }
+
+        // Standard single-ray hitscan (machinegun, electrobolt, etc.)
+        const p = -pitch;
+        const dir = {
+            x: Math.sin(yaw) * Math.cos(p),
+            y: Math.sin(p),
+            z: Math.cos(yaw) * Math.cos(p),
+        };
+        this.traceHitscanRay(state, shooter, weapon, start, dir, maxRange);
+    }
+
+    /**
+     * Trace a single hitscan ray and register damage for hit targets.
+     */
+    private traceHitscanRay(
+        state: WorldState,
+        shooter: Readonly<Entity>,
+        weapon: WeaponDef,
+        start: { x: number; y: number; z: number },
+        dir: { x: number; y: number; z: number },
+        maxRange: number
+    ): void {
         // Check all potential targets
         for (const target of state.entitiesByType(EntityType.Player)) {
             if (target.id === shooter.id) continue;
@@ -501,9 +550,9 @@ export class WeaponSystem extends Subsystem {
                     knockbackScale: weapon.knockbackScale,
                 });
 
-                // Pellet weapons (riotgun) continue checking — pellets can hit multiple
-                // All other hitscan weapons break on first hit
-                if (!weapon.pelletCount) break;
+                // Single-ray weapons break on first hit; pellet rays always break
+                // (each pellet is its own ray call)
+                break;
             }
         }
     }
@@ -551,8 +600,8 @@ export class WeaponSystem extends Subsystem {
             const isGrenade = weapon.id === 'glauncher';
             this.projectileSystem.registerProjectileType(projectile.id, weapon.id, {
                 bounces: isGrenade ? 3 : 0,
-                lifetime: isGrenade ? 1.25 : 10.0,
-                gravity: isGrenade ? 1 : 0,
+                lifetime: isGrenade ? 2.0 : 10.0,
+                gravity: isGrenade ? 3 : 0,
             });
         }
     }

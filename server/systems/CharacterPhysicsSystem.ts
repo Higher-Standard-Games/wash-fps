@@ -26,6 +26,14 @@ const CONFIG: SubsystemConfig = {
     tickRate: 125,
 };
 
+/**
+ * Number of ticks after spawn/respawn during which physics is frozen.
+ * Prevents the entity from falling through the world before collision
+ * is ready, which causes the blank-screen bug on join.
+ * 5 ticks @ 125Hz = 40ms — invisible to the player.
+ */
+const SPAWN_FREEZE_TICKS = 5;
+
 // Default player bounds (Q3-style: origin at waist, 24 units above feet)
 // CRITICAL: Must match FPSMovementProfile.PLAYER_BOUNDS exactly!
 // Total height = 56 units: 24 below origin (to feet) + 32 above (to head)
@@ -49,11 +57,21 @@ export class CharacterPhysicsSystem extends Subsystem {
         this.collisionWorld = world;
     }
 
-    update(state: WorldState, dt: number, _tick: TickNumber): void {
+    update(state: WorldState, dt: number, tick: TickNumber): void {
+        const tickNum = tick as number;
+
         // Process all player entities
         for (const entity of state.entitiesByType(EntityType.Player)) {
             if (!entity.transform || !entity.physics || !entity.input) continue;
             if (entity.health?.dead) continue;
+
+            // Spawn freeze: skip physics for the first few ticks after spawn/respawn
+            // This ensures the entity stays at its spawn position until collision
+            // is fully ready and the first snapshots contain a valid position.
+            const ticksSinceSpawn = tickNum - entity.spawnTick;
+            if (ticksSinceSpawn < SPAWN_FREEZE_TICKS) {
+                continue;
+            }
 
             // Get mutable entity (COW)
             const mutable = state.getEntityMut(entity.id);

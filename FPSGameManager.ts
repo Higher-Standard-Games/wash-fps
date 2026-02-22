@@ -884,9 +884,13 @@ export class FPSGameManager {
             this.enemyWeapons.set(event.entityId, event.currentWeapon);
           }
         } else if (event.type === 'weapon_fire') {
-          // Skip our own weapon_fire events — local prediction already handles our visuals
-          if (event.entityId === localEntityId) continue;
-          this.handleRemoteWeaponFire(event);
+          if (event.entityId === localEntityId) {
+            // Server confirmed our fire — trigger local muzzle flash, recoil, and hitscan effects
+            const wvm = getWeaponViewManager();
+            wvm.fire();
+          } else {
+            this.handleRemoteWeaponFire(event);
+          }
         } else if (event.type === 'projectile_impact') {
           // Server-authoritative explosion (Q3-style — no local prediction to deduplicate)
           const pos = new Vector3(event.x, event.y, event.z);
@@ -1180,6 +1184,15 @@ export class FPSGameManager {
 
     // Authoritative sync: add/remove weapons, sync ammo, equip server's weapon
     player.inventory.syncFromServer(serverWeapons, serverAmmo, serverWeapon);
+
+    // Sync reload state from server — prevents ghost shots during server reload
+    if (event.reloading !== undefined) {
+      player.setServerReloadState(event.reloading as boolean);
+    }
+    // Sync fire timing from server tick to prevent client firing ahead of server cooldown
+    if (event.lastFireTick !== undefined) {
+      player.syncFireTiming(event.lastFireTick as number);
+    }
 
     // Keep FPSController's currentWeaponSlot in sync with server (every tick).
     // This ensures mouse scroll cycling and key switching reference the correct slot.
