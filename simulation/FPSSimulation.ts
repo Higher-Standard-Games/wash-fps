@@ -116,7 +116,9 @@ export class FPSSimulation extends Simulation<GameState, FPSInputCommand> {
       input.buttons = cmd.buttons;
       input.viewAngles.pitch = cmd.pitch;
       input.viewAngles.yaw = cmd.yaw;
-      input.moveDirection = { ...cmd.direction };
+      input.moveDirection.x = cmd.direction.x;
+      input.moveDirection.y = cmd.direction.y;
+      input.moveDirection.z = cmd.direction.z;
       input.sequence = cmd.seq;
       input.tick = cmd.tick;
     }

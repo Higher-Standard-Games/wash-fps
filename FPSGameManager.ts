@@ -1050,7 +1050,7 @@ export class FPSGameManager {
     const player = state.players.get(this.localPlayerId);
     if (!player) {
       if (this._stateUpdateCount <= 5 || this._stateUpdateCount % 500 === 0) {
-        console.warn(`[FPSGameManager] onServerStateUpdate #${this._stateUpdateCount}: NO PLAYER for '${this.localPlayerId}'. Player keys: [${Array.from(state.players.keys()).join(',')}]`);
+        console.warn(`[FPSGameManager] onServerStateUpdate #${this._stateUpdateCount}: NO PLAYER for '${this.localPlayerId}'. Player keys: [${[...state.players.keys()].join(',')}]`);
       }
       return;
     }
@@ -1058,7 +1058,7 @@ export class FPSGameManager {
     const entity = state.entities.get(player.entityId);
     if (!entity) {
       if (this._stateUpdateCount <= 5 || this._stateUpdateCount % 500 === 0) {
-        console.warn(`[FPSGameManager] onServerStateUpdate #${this._stateUpdateCount}: NO ENTITY for '${player.entityId}'. Entity keys: [${Array.from(state.entities.keys()).join(',')}]`);
+        console.warn(`[FPSGameManager] onServerStateUpdate #${this._stateUpdateCount}: NO ENTITY for '${player.entityId}'. Entity keys: [${[...state.entities.keys()].join(',')}]`);
       }
       return;
     }

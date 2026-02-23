@@ -155,8 +155,8 @@ export class FPSMovementProfile implements MovementProfile {
   // Crouch/Slide state
   private isCrouching: boolean = false;
   private isSliding: boolean = false;
-  private slideStartTime: number = 0;
-  private lastSlideEndTime: number = 0;
+  private slideElapsedTime: number = 0;  // Accumulated slide duration (ms)
+  private slideCooldownRemaining: number = 0;  // Countdown timer (ms)
   // @ts-ignore TS6133 — slideVelocity is written during slide entry and read indirectly
   private slideVelocity: Vec3 = vec3Zero();
   private crouchViewOffset: number = 0;
@@ -172,7 +172,7 @@ export class FPSMovementProfile implements MovementProfile {
   private wallJumpNormal: Vec3 = vec3Zero();
   private wallJumpPosition: Vec3 = vec3Zero();  // Position when grab started
   private wallJumpPreVelocity: Vec3 = vec3Zero();  // Velocity before charging
-  private lastWallJumpTime: number = 0;
+  private wallJumpCooldownRemaining: number = 0;  // Countdown timer (ms)
   private wallJumpKeyReleased: boolean = true;
   private wallJumpGraceTime: number = 0;  // Grace timer to prevent flicker
   private wallJumpGroundGrace: number = 0;  // Grace timer for ground proximity check (prevents prediction mismatch shaking)
@@ -288,7 +288,11 @@ export class FPSMovementProfile implements MovementProfile {
   ): AdvancedMovementResult {
     const newPos = vec3Clone(position);
     const newVel = vec3Clone(velocity);
-    const now = Date.now();
+    const dtMs = deltaTime * 1000;  // Convert to ms for cooldown timers
+
+    // Tick down cooldown timers
+    if (this.slideCooldownRemaining > 0) this.slideCooldownRemaining -= dtMs;
+    if (this.wallJumpCooldownRemaining > 0) this.wallJumpCooldownRemaining -= dtMs;
 
     // NOTE: Do NOT set wasGroundedLastFrame here!
     // It's set AFTER stepSlideMove, BEFORE updating isGrounded (like local checkGrounded does).
@@ -298,7 +302,7 @@ export class FPSMovementProfile implements MovementProfile {
     // === WALL JUMP CHARGING STATE ===
     // If charging, we freeze physics - player hangs on wall
     if (this.wallJumpState === 'charging') {
-      return this.handleWallJumpCharging(position, input, deltaTime, now);
+      return this.handleWallJumpCharging(position, input, deltaTime);
     }
 
     // === LEDGE GRAB ===
@@ -345,7 +349,7 @@ export class FPSMovementProfile implements MovementProfile {
       // Crouch speed reduction (if not sliding)
       if (isCrouching && !this.isSliding) {
         const horizSpeed = vec3LengthXZ(newVel);
-        const cooldownPassed = (now - this.lastSlideEndTime) >= this.config.slideCooldown;
+        const cooldownPassed = this.slideCooldownRemaining <= 0;
 
         if (horizSpeed < this.config.slideMinSpeed || !cooldownPassed) {
           wishspeed *= this.config.crouchMultiplier;
@@ -367,7 +371,7 @@ export class FPSMovementProfile implements MovementProfile {
 
         // Exit slide on jump
         if (this.isSliding) {
-          this.exitSlide(newVel, now);
+          this.exitSlide(newVel);
         }
       }
 
@@ -413,13 +417,13 @@ export class FPSMovementProfile implements MovementProfile {
 
         // === WALL JUMP (in air) ===
         if (this.config.wallJumpEnabled && !this.isSliding) {
-          this.updateWallJump(newPos, newVel, input, collision, deltaTime, now);
+          this.updateWallJump(newPos, newVel, input, collision, deltaTime);
         }
       }
 
       // === CROUCHSLIDE ===
       if (this.config.slideEnabled) {
-        this.updateSlide(newVel, input, deltaTime, now);
+        this.updateSlide(newVel, input, deltaTime);
       }
 
       // === CROUCH STATE ===
@@ -592,17 +596,7 @@ export class FPSMovementProfile implements MovementProfile {
     const curvelZ = vel.z;
     const curspeed = Math.sqrt(curvelX * curvelX + curvelZ * curvelZ);
 
-    // Calculate accel falloff at high speeds
-    let accelFalloff = 1.0;
-    if (curspeed > runSpeed) {
-      if (curspeed < radicalSpeed) {
-        const ratio = (curspeed - runSpeed) / (radicalSpeed - runSpeed);
-        accelFalloff = 1 - ratio * 0.5;
-      } else {
-        const ratio = (curspeed - radicalSpeed) / (topspeed - radicalSpeed);
-        accelFalloff = Math.max(0, 0.5 * (1 - ratio * ratio * ratio));
-      }
-    }
+    const accelFalloff = this.calcAccelFalloff(curspeed, runSpeed, radicalSpeed, topspeed);
 
     let targetWishspeed: number;
     if (wishSpeed > curspeed * 1.01) {
@@ -654,17 +648,7 @@ export class FPSMovementProfile implements MovementProfile {
     const radicalSpeed = 600;
     const topspeed = this.config.topSpeed;
 
-    // Calculate accel falloff at high speeds
-    let accelFalloff = 1.0;
-    if (curSpeed > runSpeed) {
-      if (curSpeed < radicalSpeed) {
-        const ratio = (curSpeed - runSpeed) / (radicalSpeed - runSpeed);
-        accelFalloff = 1 - ratio * 0.5;
-      } else {
-        const ratio = (curSpeed - radicalSpeed) / (topspeed - radicalSpeed);
-        accelFalloff = Math.max(0, 0.5 * (1 - ratio * ratio * ratio));
-      }
-    }
+    const accelFalloff = this.calcAccelFalloff(curSpeed, runSpeed, radicalSpeed, topspeed);
 
     const strafeBunnyAccel = baseStrafeBunnyAccel * accelFalloff;
     const currentspeed = vel.x * wishDir.x + vel.z * wishDir.z;
@@ -689,17 +673,7 @@ export class FPSMovementProfile implements MovementProfile {
     const topspeed = this.config.topSpeed;
     const airaccelerate = this.config.airAcceleration;
 
-    // Calculate accel falloff at high speeds
-    let accelFalloff = 1.0;
-    if (curSpeed > runSpeed) {
-      if (curSpeed < radicalSpeed) {
-        const ratio = (curSpeed - runSpeed) / (radicalSpeed - runSpeed);
-        accelFalloff = 1 - ratio * 0.5;
-      } else {
-        const ratio = (curSpeed - radicalSpeed) / (topspeed - radicalSpeed);
-        accelFalloff = Math.max(0, 0.5 * (1 - ratio * ratio * ratio));
-      }
-    }
+    const accelFalloff = this.calcAccelFalloff(curSpeed, runSpeed, radicalSpeed, topspeed);
 
     const currentspeed = vel.x * wishDir.x + vel.z * wishDir.z;
     const addspeed = wishSpeed - currentspeed;
@@ -713,6 +687,21 @@ export class FPSMovementProfile implements MovementProfile {
   }
 
 
+  /**
+   * Calculate acceleration falloff at high speeds.
+   * Shared by airAccelerateForward, strafeBunnyAccelerate, and normalAirAccelerate.
+   */
+  private calcAccelFalloff(curSpeed: number, runSpeed: number, radicalSpeed: number, topSpeed: number): number {
+    if (curSpeed <= runSpeed) return 1.0;
+    if (curSpeed < radicalSpeed) {
+      const ratio = (curSpeed - runSpeed) / (radicalSpeed - runSpeed);
+      return 1 - ratio * 0.5;
+    }
+    const ratio = (curSpeed - radicalSpeed) / (topSpeed - radicalSpeed);
+    return Math.max(0, 0.5 * (1 - ratio * ratio * ratio));
+  }
+
+
 
   // ================== Wall Jump ==================
 
@@ -721,8 +710,7 @@ export class FPSMovementProfile implements MovementProfile {
     vel: Vec3,
     input: MovementInput,
     collision: CollisionWorld | null,
-    deltaTime: number,
-    now: number
+    deltaTime: number
   ): void {
     if (!collision) return;
 
@@ -734,7 +722,7 @@ export class FPSMovementProfile implements MovementProfile {
     }
 
     // Check cooldown
-    const cooldownPassed = (now - this.lastWallJumpTime) >= this.config.wallJumpCooldown * 1000;
+    const cooldownPassed = this.wallJumpCooldownRemaining <= 0;
     if (!cooldownPassed) {
       this.wallJumpState = 'none';
       return;
@@ -837,7 +825,7 @@ export class FPSMovementProfile implements MovementProfile {
           this.startWallJumpCharge(pos, vel, wallNormal);
         } else {
           // Instant bounce (no grab)
-          this.executeWallJump(vel, wallNormal, now);
+          this.executeWallJump(vel, wallNormal);
         }
       }
     } else {
@@ -857,8 +845,7 @@ export class FPSMovementProfile implements MovementProfile {
   private handleWallJumpCharging(
     _position: Vec3,
     input: MovementInput | null,
-    deltaTime: number,
-    now: number
+    deltaTime: number
   ): AdvancedMovementResult {
     // Increment charge time
     this.wallJumpChargeTime += deltaTime;
@@ -869,7 +856,7 @@ export class FPSMovementProfile implements MovementProfile {
     // Check for release or timeout
     if (!isJumping || this.wallJumpChargeTime >= chargeTime) {
       // Execute the boost push
-      this.executeWallJumpBoost(now);
+      this.executeWallJumpBoost();
 
       // Return with the new velocity after boost
       return {
@@ -916,7 +903,7 @@ export class FPSMovementProfile implements MovementProfile {
    * Execute wall jump boost after charging
    * Uses reflection formula to preserve momentum direction: R = V - 2(V.N)N
    */
-  private executeWallJumpBoost(now: number): void {
+  private executeWallJumpBoost(): void {
     const baseVel = this.wallJumpPreVelocity;
     const normal = this.wallJumpNormal;
     const bounce = this.config.wallJumpBounce;
@@ -941,7 +928,7 @@ export class FPSMovementProfile implements MovementProfile {
     // Apply vertical jump with boost multiplier
     baseVel.y = this.config.wallJumpHeight * boost;
 
-    this.lastWallJumpTime = now;
+    this.wallJumpCooldownRemaining = this.config.wallJumpCooldown * 1000;
     this.wallJumpState = 'none';
     this.wallJumpChargeTime = 0;
   }
@@ -961,7 +948,7 @@ export class FPSMovementProfile implements MovementProfile {
    * Instant wall jump (no charging)
    * Uses reflection formula to preserve momentum direction: R = V - 2(V.N)N
    */
-  private executeWallJump(vel: Vec3, normal: Vec3, now: number): void {
+  private executeWallJump(vel: Vec3, normal: Vec3): void {
     const bounce = this.config.wallJumpBounce;
 
     // Calculate reflection: R = V - 2(V.N)N
@@ -982,27 +969,28 @@ export class FPSMovementProfile implements MovementProfile {
 
     vel.y = this.config.wallJumpHeight;
 
-    this.lastWallJumpTime = now;
+    this.wallJumpCooldownRemaining = this.config.wallJumpCooldown * 1000;
     this.wallJumpState = 'none';
   }
 
   // ================== Crouchslide ==================
 
-  private updateSlide(vel: Vec3, input: MovementInput, deltaTime: number, now: number): void {
+  private updateSlide(vel: Vec3, input: MovementInput, deltaTime: number): void {
     const isCrouching = input.isPressed(InputButtons.CROUCH);
     const isJumping = input.isPressed(InputButtons.JUMP);
     const horizSpeed = vec3LengthXZ(vel);
+    const dtMs = deltaTime * 1000;
 
     if (!this.isSliding) {
       // Check if we should enter slide
       const canSlide = this.isGrounded
         && isCrouching
         && horizSpeed >= this.config.slideMinSpeed
-        && (now - this.lastSlideEndTime) >= this.config.slideCooldown;
+        && this.slideCooldownRemaining <= 0;
 
       if (canSlide) {
         this.isSliding = true;
-        this.slideStartTime = now;
+        this.slideElapsedTime = 0;
         this.slideVelocity = vec3Clone(vel);
         this.slidePhase = 0;  // Will ramp up
 
@@ -1016,8 +1004,9 @@ export class FPSMovementProfile implements MovementProfile {
         if (this.slidePhase < 0.01) this.slidePhase = 0;
       }
     } else {
-      // Currently sliding
-      const slideElapsed = now - this.slideStartTime;
+      // Currently sliding — accumulate elapsed time
+      this.slideElapsedTime += dtMs;
+      const slideElapsed = this.slideElapsedTime;
       const slideDuration = this.config.slideDuration;
 
       // === COMPUTE SLIDE PHASE (camera tilt intensity) ===
@@ -1044,7 +1033,7 @@ export class FPSMovementProfile implements MovementProfile {
       const jumpCancel = isJumping && slideElapsed > 100; // Grace period
 
       if (slideExpired || tooSlow || releasedCrouch || jumpCancel) {
-        this.exitSlide(vel, now);
+        this.exitSlide(vel);
 
         // Jump boost on cancel
         if (jumpCancel) {
@@ -1065,9 +1054,9 @@ export class FPSMovementProfile implements MovementProfile {
     }
   }
 
-  private exitSlide(_vel: Vec3, now: number): void {
+  private exitSlide(_vel: Vec3): void {
     this.isSliding = false;
-    this.lastSlideEndTime = now;
+    this.slideCooldownRemaining = this.config.slideCooldown;
     // slidePhase will decay naturally in the non-sliding branch
   }
 
