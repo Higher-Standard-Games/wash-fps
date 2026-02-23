@@ -8,7 +8,7 @@ import { VelocityComponent } from '../../../engine/network/components/VelocityCo
 import { InputComponent } from '../../../engine/network/components/InputComponent';
 import { MovementStateComponent } from '../../../engine/network/components/MovementStateComponent';
 import { NullCollisionWorld, type CollisionWorld } from '../../../engine/network/systems/collision/CollisionWorld';
-import { FPSMovementProfile } from './FPSMovementProfile';
+import { MovementProfile as FPSMovementProfile } from './MovementProfile';
 
 /**
  * FPS-specific command for player input
@@ -61,7 +61,7 @@ export class FPSSimulation extends Simulation<GameState, FPSInputCommand> {
       { x: -100, y: 10, z: -100 },
     ];
 
-    console.log('[FPSSimulation] Initialized with FPSMovementProfile');
+
   }
 
   protected createInitialState(): GameState {
@@ -77,11 +77,11 @@ export class FPSSimulation extends Simulation<GameState, FPSInputCommand> {
       const ms = new MovementSystem(movementProfile, collisionWorld);
       this.movementSystem = ms;
       this.addSystem(ms);
-      console.log('[FPSSimulation] registerSystems completed, movementSystem:', !!this.movementSystem);
+
 
       // Apply any pending collision world
       if (this.pendingCollisionWorld) {
-        console.log('[FPSSimulation] Applying pending collision world');
+
         ms.setCollisionWorld(this.pendingCollisionWorld);
         this.pendingCollisionWorld = null;
       }
@@ -116,7 +116,9 @@ export class FPSSimulation extends Simulation<GameState, FPSInputCommand> {
       input.buttons = cmd.buttons;
       input.viewAngles.pitch = cmd.pitch;
       input.viewAngles.yaw = cmd.yaw;
-      input.moveDirection = { ...cmd.direction };
+      input.moveDirection.x = cmd.direction.x;
+      input.moveDirection.y = cmd.direction.y;
+      input.moveDirection.z = cmd.direction.z;
       input.sequence = cmd.seq;
       input.tick = cmd.tick;
     }
@@ -165,7 +167,7 @@ export class FPSSimulation extends Simulation<GameState, FPSInputCommand> {
     playerState.name = playerId;
     this.state.players.set(playerId, playerState);
 
-    console.log(`[FPSSimulation] Spawned player ${playerId} at entity ${entityId}`, spawnPoint);
+
 
     return entity;
   }
@@ -178,7 +180,7 @@ export class FPSSimulation extends Simulation<GameState, FPSInputCommand> {
     if (player) {
       this.state.entities.delete(player.entityId);
       this.state.players.delete(playerId);
-      console.log(`[FPSSimulation] Despawned player ${playerId}`);
+
     }
   }
 
@@ -187,7 +189,7 @@ export class FPSSimulation extends Simulation<GameState, FPSInputCommand> {
    */
   setSpawnPoints(points: Array<{ x: number; y: number; z: number }>): void {
     this.spawnPoints = points;
-    console.log(`[FPSSimulation] Set ${points.length} spawn points`);
+
   }
 
   /**
@@ -201,7 +203,7 @@ export class FPSSimulation extends Simulation<GameState, FPSInputCommand> {
    * Set the collision world (called when map loads)
    */
   setCollisionWorld(collision: CollisionWorld | null): void {
-    console.log(`[FPSSimulation] setCollisionWorld called with: ${collision ? collision.constructor.name : 'null'}`);
+
     if (!this.movementSystem) {
       // Store for later - will be applied when movementSystem is ready
       console.warn('[FPSSimulation] movementSystem not ready, storing pending collision world');
@@ -209,6 +211,6 @@ export class FPSSimulation extends Simulation<GameState, FPSInputCommand> {
       return;
     }
     this.movementSystem.setCollisionWorld(collision);
-    console.log(`[FPSSimulation] Collision world forwarded to MovementSystem`);
+
   }
 }

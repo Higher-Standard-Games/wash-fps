@@ -121,6 +121,11 @@ export class FPSGameManager {
   // Death state tracking (for death camera)
   private _isPlayerDead: boolean = false;
 
+  // Spectator state
+  private playerState: 'spectator' | 'playing' = 'spectator';
+  private spectatorOverlay: import('./client/SpectatorOverlay').SpectatorOverlay | null = null;
+  private _joinKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+
   private pendingTick: number = 0;
 
   // Cached effect system singletons (lazy-resolved, avoids per-frame import())
@@ -151,7 +156,7 @@ export class FPSGameManager {
     const tickRate = config.tickRate ?? 20;
     const maxPlayers = config.maxPlayers ?? 16;
 
-    console.log(`[FPSGameManager] Initializing local game at ${tickRate}Hz`);
+
 
     // Create simulation config
     const simConfig = {
@@ -180,7 +185,7 @@ export class FPSGameManager {
     this.gameHost.start?.();
     this.isRunning = true;
 
-    console.log(`[FPSGameManager] Local game initialized, player: ${this.localPlayerId}`);
+
   }
 
   /**
@@ -190,14 +195,14 @@ export class FPSGameManager {
   async initializeNetwork(url: string, config: FPSGameConfig = {}): Promise<void> {
     // Guard against multiple initializations - shutdown first if already running
     if (this.isRunning) {
-      console.log('[FPSGameManager] Shutting down existing game before connecting...');
+
       this.shutdown();
     }
 
     const tickRate = config.tickRate ?? 125;  // Must match server tick rate (125Hz)
     const maxPlayers = config.maxPlayers ?? 16;
 
-    console.log(`[FPSGameManager] Connecting to server: ${url}`);
+
 
     // Create simulation config for client-side prediction
     const simConfig = {
@@ -222,7 +227,7 @@ export class FPSGameManager {
       networkHost.onServerInfo(async (serverInfo) => {
         // Prevent duplicate map loading (Welcome can be received multiple times)
         if (mapLoadStarted) {
-          console.log(`[FPSGameManager] Ignoring duplicate Welcome message for map: ${serverInfo.map}`);
+
           return;
         }
         mapLoadStarted = true;
@@ -234,7 +239,7 @@ export class FPSGameManager {
           const { CommandRegistry } = await import('../../engine/console/CommandRegistry');
           const registry = CommandRegistry.getInstance();
           const result = await registry.execute(`map ${serverInfo.map}`);
-          console.log(`[FPSGameManager] Map load result: ${result}`);
+
 
           // Check if map load failed
           if (typeof result === 'string' && result.includes('Failed')) {
@@ -249,46 +254,11 @@ export class FPSGameManager {
             // Set up BSP collision for client prediction
             // This is critical for movement responsiveness (avoids "flying through walls" in prediction)
             const cm = getCollisionManager();
-            console.log(`[FPSGameManager] CollisionManager instance: ${cm.getInstanceId()}`);
-            console.log(`[FPSGameManager] CollisionManager.isInitialized() = ${cm.isInitialized()}`);
-            console.log(`[FPSGameManager] CollisionManager.getBackendType() = ${cm.getBackendType()}`);
             if (cm.isInitialized()) {
               const collisionWorld = createBSPCollisionWorld();
               if (collisionWorld) {
                 this.setCollisionWorld(collisionWorld);
-                console.log(`[FPSGameManager] BSP collision injected into client prediction simulation`);
 
-                // Test trace to verify collision works (use player bounds like server)
-                const PLAYER_RADIUS = 16;
-                const PLAYER_ORIGIN_HEIGHT = 24; // Q3: origin 24 above feet
-                const testBounds = {
-                  min: { x: -PLAYER_RADIUS, y: -PLAYER_ORIGIN_HEIGHT, z: -PLAYER_RADIUS },
-                  max: { x: PLAYER_RADIUS, y: 32, z: PLAYER_RADIUS }  // 56 total: 24 below + 32 above
-                };
-
-                // Floor detection test at known position
-                const testX = 880, testZ = 1508;
-                const testStart = { x: testX, y: 200, z: testZ };
-                const testEnd = { x: testX, y: 0, z: testZ };
-                const testResult = collisionWorld.trace(testStart, testEnd, testBounds);
-                const floorY = 200 - 200 * testResult.fraction;
-
-                // For player physics, origin is at waist (24 above feet), so origin Y = floorY + 24
-                const expectedOriginY = floorY + PLAYER_ORIGIN_HEIGHT;
-                console.log(`[FPSGameManager] FLOOR TEST: traceFloorY=${floorY.toFixed(1)}, expectedOriginY=${expectedOriginY.toFixed(1)}`);
-
-                // Now test stepSlideMove - start above expected position and let gravity pull down
-                const stepSlideTestStart = { x: testX, y: expectedOriginY + 100, z: testZ };
-                const stepSlideTestVel = { x: 0, y: -500, z: 0 };  // Falling velocity
-                const stepSlideResult = collisionWorld.stepSlideMove(stepSlideTestStart, stepSlideTestVel, 0.5, testBounds);
-                console.log(`[FPSGameManager] STEPSLIDEMOVE TEST: startY=${stepSlideTestStart.y.toFixed(1)}, endY=${stepSlideResult.endPos.y.toFixed(1)}, expectedY=${expectedOriginY.toFixed(1)}`);
-
-                // Check if there's a Y offset between trace and stepSlideMove results
-                const offset = stepSlideResult.endPos.y - expectedOriginY;
-                if (Math.abs(offset) > 0.5) {
-                  console.warn(`[FPSGameManager] Y OFFSET DETECTED: stepSlideMove returned ${stepSlideResult.endPos.y.toFixed(1)} but trace floor says origin should be ${expectedOriginY.toFixed(1)}, offset=${offset.toFixed(1)}`);
-                }
-                console.log(`[FPSGameManager] Test trace: fraction=${testResult.fraction.toFixed(4)}, hit=${testResult.hit}`);
               } else {
                 console.warn(`[FPSGameManager] BSP collision world could not be created - backend not available`);
               }
@@ -298,21 +268,20 @@ export class FPSGameManager {
 
             const { CameraSystem } = await import('../../engine/camera/CameraSystem');
             const { FPSController } = await import('../../engine/camera/controllers/FPSController');
+            const { FreeflyController } = await import('../../engine/camera/controllers/FreeflyController');
             const cameraSystem = CameraSystem.getInstance();
 
-            // Ensure FPS controller is registered and active
+            // Register FPS controller (but don't activate — player starts as spectator)
             if (!cameraSystem.getController('fps')) {
               cameraSystem.registerController('fps', new FPSController());
             }
-            cameraSystem.setController('fps');
-            console.log(`[FPSGameManager] Switched to FPS camera mode after map load`);
 
-            // Enable network mode on the FPSController
-            const controller = cameraSystem.getActiveController();
-            if (controller && controller.type === 'fps' && typeof (controller as any).enableNetworkMode === 'function') {
-              (controller as any).enableNetworkMode();
-              console.log(`[FPSGameManager] Enabled network mode on FPSController`);
+            // Register and activate freefly controller for spectator mode
+            if (!cameraSystem.getController('freefly')) {
+              cameraSystem.registerController('freefly', new FreeflyController());
             }
+            // Start in freefly mode (spectator default)
+            cameraSystem.setController('freefly');
           } catch (e) {
             console.warn(`[FPSGameManager] Could not set up FPS controller after map load:`, e);
           }
@@ -333,7 +302,7 @@ export class FPSGameManager {
       // sets up collision world. This fixes the race condition where setCollisionWorld()
       // was called while v2Client was null.
       this.v2Client = new V2NetworkClient({ tickRate });
-      console.log(`[FPSGameManager] Created V2NetworkClient for prediction (before connect)`);
+
 
       // Tell NetworkGameHost to skip its prediction - V2NetworkClient handles it
       networkHost.setExternalPrediction(true);
@@ -352,8 +321,7 @@ export class FPSGameManager {
       this.localPlayerId = networkHost.localPlayerId;
       this.simulation = null; // No direct simulation access in network mode
 
-      console.log(`[FPSGameManager] Connected to ${url}, player: ${this.localPlayerId}`);
-      console.log(`[FPSGameManager] V2 client ready for Q3-style prediction/reconciliation`);
+
 
 
 
@@ -361,11 +329,34 @@ export class FPSGameManager {
       const fpsHud = FPSHud.getInstance();
       await fpsHud.init();
       fpsHud.start();
-      console.log(`[FPSGameManager] FPSHud initialized and started`);
 
       // Initialize NetGraph overlay (cl_netgraph CVar)
       NetGraph.init();
-      console.log(`[FPSGameManager] NetGraph initialized`);
+
+      // ── Spectator Mode: show join overlay on connect ──────────
+      this.playerState = 'spectator';
+      const { SpectatorOverlay } = await import('./client/SpectatorOverlay');
+      this.spectatorOverlay = new SpectatorOverlay();
+      this.spectatorOverlay.setMode('join-overlay');
+
+      this.spectatorOverlay.onJoinGame(() => {
+        this.joinGame();
+      });
+      this.spectatorOverlay.onSpectate(() => {
+        // Switch to freefly spectator (no entity, just camera)
+        this.spectatorOverlay?.setMode('freefly');
+        this.switchToFreeflyCamera();
+      });
+
+      // ── J key shortcut to join game from spectator mode ──
+      this._joinKeyHandler = (e: KeyboardEvent) => {
+        if (e.code === 'KeyJ' && this.playerState === 'spectator') {
+          e.preventDefault();
+          this.joinGame();
+        }
+      };
+      document.addEventListener('keydown', this._joinKeyHandler);
+
     } catch (error) {
       console.error(`[FPSGameManager] Failed to connect to ${url}:`, error);
       throw error;
@@ -401,6 +392,159 @@ export class FPSGameManager {
   }
 
   /**
+   * Check if currently spectating
+   */
+  isSpectating(): boolean {
+    return this.playerState === 'spectator';
+  }
+
+  /**
+   * Get current player state
+   */
+  getPlayerState(): 'spectator' | 'playing' {
+    return this.playerState;
+  }
+
+  // ========================================================================
+  // Spectator Mode
+  // ========================================================================
+
+  /**
+   * joinGame — transition from spectator to playing.
+   * Sends JoinGame to server, switches camera to FPS, hides overlay.
+   */
+  async joinGame(): Promise<void> {
+    if (this.playerState === 'playing') return;
+    if (!this.gameHost || !this.isNetworkMode) return;
+
+    const networkHost = this.gameHost as import('../../engine/network/client/hosts/NetworkGameHost').NetworkGameHost;
+
+    // Tell server to create our entity
+    networkHost.sendJoinGame();
+
+    // Switch to FPS camera controller
+    try {
+      const { CameraSystem } = await import('../../engine/camera/CameraSystem');
+      const { FPSController } = await import('../../engine/camera/controllers/FPSController');
+      const cameraSystem = CameraSystem.getInstance();
+
+      if (!cameraSystem.getController('fps')) {
+        cameraSystem.registerController('fps', new FPSController());
+      }
+      cameraSystem.setController('fps');
+
+      // Enable network mode on FPS controller
+      const controller = cameraSystem.getActiveController();
+      if (controller && controller.type === 'fps' && typeof (controller as any).enableNetworkMode === 'function') {
+        (controller as any).enableNetworkMode();
+      }
+    } catch (e) {
+      console.warn('[FPSGameManager] Could not switch to FPS camera:', e);
+    }
+
+    // Update state
+    this.playerState = 'playing';
+    this.spectatorOverlay?.setMode('hidden');
+
+    // Initialize weapon view manager with the now-active FPS camera
+    try {
+      const { CameraSystem } = await import('../../engine/camera/CameraSystem');
+      const { getWeaponViewManager } = await import('../../engine/weapon/WeaponViewManager');
+      const { getProjectileManager } = await import('../../engine/weapon/ProjectileManager');
+      const { initializeEntityDefs } = await import('../../shared/entities');
+      const { FreeCamera } = await import('@babylonjs/core/Cameras/freeCamera');
+
+      const camera = CameraSystem.getInstance().getCamera();
+      const scene = camera?.getScene();
+
+      if (scene && camera instanceof FreeCamera) {
+        initializeEntityDefs();
+        const wvm = getWeaponViewManager();
+        wvm.init(scene, camera);
+        wvm.loadWeapon('gunblade', 'data/data0_21pure.pk3').then(async success => {
+          if (success) {
+            console.log('[FPSGameManager] Weapon loaded for join');
+            const projMgr = getProjectileManager();
+            await Promise.all([
+              projMgr.preloadModel('plasma_bolt'),
+              projMgr.preloadModel('grenade'),
+              projMgr.preloadModel('rocket'),
+              projMgr.preloadModel('gunblade_blast'),
+            ]);
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('[FPSGameManager] Failed to init weapon view:', e);
+    }
+
+    // Request pointer lock for FPS controls
+    const canvas = document.querySelector('canvas');
+    if (canvas) {
+      canvas.requestPointerLock();
+    }
+
+    console.log('[FPSGameManager] Joined game');
+  }
+
+  /**
+   * goSpectator — transition from playing to spectator.
+   * Sends Spectate to server, switches camera to freefly, shows overlay.
+   */
+  async goSpectator(): Promise<void> {
+    if (this.playerState === 'spectator') return;
+    if (!this.gameHost || !this.isNetworkMode) return;
+
+    const networkHost = this.gameHost as import('../../engine/network/client/hosts/NetworkGameHost').NetworkGameHost;
+
+    // Tell server to remove our entity
+    networkHost.sendSpectate();
+
+    // Switch to freefly camera
+    this.switchToFreeflyCamera();
+
+    // Update state
+    this.playerState = 'spectator';
+    this.spectatorOverlay?.setMode('freefly');
+
+    // Hide weapon view model
+    import('../../engine/weapon/WeaponViewManager').then(m => {
+      m.getWeaponViewManager().setVisible(false);
+    });
+
+    // Hide speedometer (prevent overlap with spectator overlay)
+    const speedEl = document.getElementById('fps-speed-display');
+    if (speedEl) speedEl.remove();
+    // Reset static refs so a fresh widget is created on rejoin
+    (await import('../../engine/camera/controllers/FPSController')).FPSController.resetSpeedDisplay?.();
+
+    // Release pointer lock
+    document.exitPointerLock();
+
+    console.log('[FPSGameManager] Now spectating');
+  }
+
+  /**
+   * Switch the active camera to freefly controller (for spectator mode).
+   */
+  private async switchToFreeflyCamera(): Promise<void> {
+    try {
+      const { CameraSystem } = await import('../../engine/camera/CameraSystem');
+      const { FreeflyController } = await import('../../engine/camera/controllers/FreeflyController');
+      const cameraSystem = CameraSystem.getInstance();
+
+      if (!cameraSystem.getController('freefly')) {
+        cameraSystem.registerController('freefly', new FreeflyController());
+      }
+      cameraSystem.setController('freefly');
+
+      console.log('[FPSGameManager] Switched to freefly camera');
+    } catch (e) {
+      console.warn('[FPSGameManager] Could not switch to freefly camera:', e);
+    }
+  }
+
+  /**
    * Spawn local player in simulation
    * @param spawnPosition Optional spawn position (uses random spawn point if not provided)
    */
@@ -421,26 +565,21 @@ export class FPSGameManager {
       }
     }
 
-    console.log(`[FPSGameManager] Spawned local player: ${entity.id}`);
-  }
 
-  // Debug counter for sendInput tracing
-  private sendInputCallCount = 0;
+  }
 
   /**
    * Send player input to simulation
    * Call this each frame from FPSController
    */
   sendInput(input: PlayerInputState): void {
-    this.sendInputCallCount++;
     if (!this.gameHost || !this.isRunning) {
-      if (this.sendInputCallCount % 500 === 1) {
-        console.warn(`[FPSGameManager] sendInput SKIPPED #${this.sendInputCallCount}: gameHost=${!!this.gameHost}, isRunning=${this.isRunning}, isNetworkMode=${this.isNetworkMode}`);
-      }
       return;
     }
-    if (this.sendInputCallCount % 500 === 1) {
-      console.log(`[FPSGameManager] sendInput ACTIVE #${this.sendInputCallCount}: gameHost=${!!this.gameHost}, isRunning=${this.isRunning}, connected=${this.gameHost!.isConnected?.() ?? 'unknown'}`);
+
+    // Spectators don't send input at all
+    if (this.playerState === 'spectator') {
+      return;
     }
 
     // While dead, strip ALL gameplay input — no movement, jumping, or firing
@@ -857,7 +996,6 @@ export class FPSGameManager {
     // FPSGameManager.localPlayerId is only copied AFTER connect() resolves.
     // This ensures we pick up the server-assigned ID as soon as JoinAccept arrives.
     if (this.gameHost && this.localPlayerId !== this.gameHost.localPlayerId) {
-      console.log(`[FPSGameManager] Syncing localPlayerId: '${this.localPlayerId}' → '${this.gameHost.localPlayerId}'`);
       this.localPlayerId = this.gameHost.localPlayerId;
     }
 
@@ -867,9 +1005,6 @@ export class FPSGameManager {
       if (this._stateUpdateCount === 1) {
         // HUDState.getInstance().setDebug(true);
       }
-      const playerKeys = Array.from(state.players.keys());
-      const entityKeys = Array.from(state.entities.keys());
-      console.log(`[FPSGameManager] onServerStateUpdate #${this._stateUpdateCount}: tick=${state.tick}, localPlayerId='${this.localPlayerId}', players=[${playerKeys.join(',')}], entities=[${entityKeys.join(',')}], v2Client=${!!this.v2Client}, isNetworkMode=${this.isNetworkMode}`);
     }
 
     // Process match_state events before anything else
@@ -1005,7 +1140,8 @@ export class FPSGameManager {
     hudState.updateDebugOverlay();
 
     // === Remote player snapshot buffering (push only — rendering is per-frame) ===
-    if (localEntityId) {
+    // Always init renderer (spectators need to see other players/bots too)
+    {
       // Lazy-init renderer with scene
       if (!this.remoteRenderer && EngineStore.LastCreatedScene) {
         this.remoteRenderer = new RemotePlayerRenderer(EngineStore.LastCreatedScene);
@@ -1018,7 +1154,13 @@ export class FPSGameManager {
           serverLocalTime = networkHost.clockSync.toLocalTime(state.serverTimestamp);
         }
 
-        this.remoteRenderer.pushSnapshot(state, localEntityId, serverLocalTime);
+        // Pass localEntityId (empty string for spectators — no entity excluded)
+        this.remoteRenderer.pushSnapshot(state, localEntityId || '', serverLocalTime);
+
+        // If spectating, render here since FPSController won't call renderRemotePlayers()
+        if (this.playerState === 'spectator') {
+          this.remoteRenderer.render();
+        }
       }
     }
 
@@ -1100,7 +1242,7 @@ export class FPSGameManager {
     const player = state.players.get(this.localPlayerId);
     if (!player) {
       if (this._stateUpdateCount <= 5 || this._stateUpdateCount % 500 === 0) {
-        console.warn(`[FPSGameManager] onServerStateUpdate #${this._stateUpdateCount}: NO PLAYER for '${this.localPlayerId}'. Player keys: [${Array.from(state.players.keys()).join(',')}]`);
+        console.warn(`[FPSGameManager] onServerStateUpdate #${this._stateUpdateCount}: NO PLAYER for '${this.localPlayerId}'. Player keys: [${[...state.players.keys()].join(',')}]`);
       }
       return;
     }
@@ -1108,7 +1250,7 @@ export class FPSGameManager {
     const entity = state.entities.get(player.entityId);
     if (!entity) {
       if (this._stateUpdateCount <= 5 || this._stateUpdateCount % 500 === 0) {
-        console.warn(`[FPSGameManager] onServerStateUpdate #${this._stateUpdateCount}: NO ENTITY for '${player.entityId}'. Entity keys: [${Array.from(state.entities.keys()).join(',')}]`);
+        console.warn(`[FPSGameManager] onServerStateUpdate #${this._stateUpdateCount}: NO ENTITY for '${player.entityId}'. Entity keys: [${[...state.entities.keys()].join(',')}]`);
       }
       return;
     }
@@ -1140,9 +1282,7 @@ export class FPSGameManager {
       // Buffer snapshot — will be processed during processSnapshots() in frame loop
       this.v2Client.bufferSnapshot(snapshot);
 
-      if (this._stateUpdateCount <= 3) {
-        console.log(`[FPSGameManager] BUFFERED snapshot #${this._stateUpdateCount}: tick=${state.tick}, pos=(${transform.position.x.toFixed(1)},${transform.position.y.toFixed(1)},${transform.position.z.toFixed(1)})`);
-      }
+
 
       // Movement state (crouchslide, walljump, etc.) comes from client prediction
       // via v2Client.getMovementState() - no wire protocol needed.

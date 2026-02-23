@@ -4,7 +4,7 @@
  */
 
 import { Simulation } from '@engine/server/core/Simulation';
-import { FPSPhysicsSystem } from './systems/FPSPhysicsSystem';
+import { CharacterPhysicsSystem } from './systems/CharacterPhysicsSystem';
 import { Deathmatch } from './gametypes/Deathmatch';
 import type { BaseGametype } from './gametypes/BaseGametype';
 import { FPS_TICK_CONFIG } from '@engine/server/tick/TickConfig';
@@ -38,7 +38,7 @@ export class FPSServerGame {
 
     private setupSubsystems(): void {
         // Add physics system
-        this.simulation.addSubsystem(new FPSPhysicsSystem());
+        this.simulation.addSubsystem(new CharacterPhysicsSystem());
 
         // TODO: Add more systems
         // this.simulation.addSubsystem(new FPSCombatSystem());

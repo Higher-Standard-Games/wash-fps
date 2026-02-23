@@ -142,7 +142,7 @@ export class WeaponSystem extends Subsystem {
                 const newAmmo = Math.min(weapon.maxAmmo, currentAmmo + pickupAmount);
                 if (newAmmo > currentAmmo) {
                     state.ammo.set(weaponId, newAmmo);
-                    console.log(`[WeaponSystem] Entity ${entityId}: already has ${weaponId}, gave ammo ${currentAmmo} → ${newAmmo}`);
+
                 }
             }
             return { added: false };
@@ -162,7 +162,7 @@ export class WeaponSystem extends Subsystem {
                 const weapon = WEAPONS[weaponId];
                 if (weapon) state.ammo.set(weaponId, weapon.pickupAmmo ?? weapon.maxAmmo);
             }
-            console.log(`[WeaponSystem] Entity ${entityId}: picked up ${weaponId} (${state.weapons.length} weapons, ammo=${state.ammo.get(weaponId)})`);
+
             return { added: true };
         }
 
@@ -172,7 +172,7 @@ export class WeaponSystem extends Subsystem {
         if (state.currentWeapon === 'gunblade') {
             // Holding gunblade — can't swap (gunblade is permanent)
             // Player must switch to the weapon they want to drop first
-            console.log(`[WeaponSystem] Entity ${entityId}: can't swap while holding gunblade`);
+
             return { added: false };
         } else {
             // Drop currently held weapon
@@ -220,7 +220,7 @@ export class WeaponSystem extends Subsystem {
             if (weapon) state.ammo.set(weaponId, weapon.maxAmmo);
         }
 
-        console.log(`[WeaponSystem] Entity ${entityId}: picked up ${weaponId}, dropped ${droppedWeapon} (ammo=${droppedAmmo})`);
+
         return { added: true, dropped: droppedWeapon };
     }
 
@@ -370,7 +370,7 @@ export class WeaponSystem extends Subsystem {
                 if (newWeapon && newWeapon !== weaponState.currentWeapon) {
                     weaponState.currentWeapon = newWeapon;
                     weaponState.reloading = false; // Cancel reload on switch
-                    console.log(`[WeaponSystem] Entity ${entity.id}: switched to ${newWeapon} (slot ${weaponSlot})`);
+
                 }
             }
 
@@ -399,7 +399,8 @@ export class WeaponSystem extends Subsystem {
                             this.fireWeapon(state, entity, weapon, tick);
                             const newAmmo = ammo - 1;
                             weaponState.ammo.set(weaponState.currentWeapon, newAmmo);
-                            console.log(`[WeaponSystem] FIRE ${weaponState.currentWeapon} tick=${tickNum} sinceLast=${timeSinceFire} ticks (${(timeSinceFire * 8).toFixed(0)}ms) interval=${fireInterval} ticks (${(fireInterval * 8).toFixed(0)}ms) ammo=${newAmmo} reloading=${weaponState.reloading}`);
+
+
                             weaponState.lastFireTick = tickNum;
 
                             // Auto-reload when ammo depleted

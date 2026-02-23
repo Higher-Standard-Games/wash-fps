@@ -198,7 +198,7 @@ export class DroppedWeaponSystem extends Subsystem {
                 velZ: vel.z,
             });
 
-            console.log(`[DroppedWeaponSystem] Spawned ${drop.weaponId} at (${drop.position.x.toFixed(1)}, ${drop.position.y.toFixed(1)}, ${drop.position.z.toFixed(1)}) vel=(${vel.x.toFixed(0)}, ${vel.y.toFixed(0)}, ${vel.z.toFixed(0)})`);
+
         }
         this.pendingDrops = [];
 
@@ -259,7 +259,7 @@ export class DroppedWeaponSystem extends Subsystem {
         for (const eId of entitiesToRemove) {
             state.removeEntity(eId);
             this.droppedWeapons.delete(eId);
-            console.log(`[DroppedWeaponSystem] Despawned entity ${eId} (timeout)`);
+
         }
     }
 }

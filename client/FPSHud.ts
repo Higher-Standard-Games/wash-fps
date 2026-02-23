@@ -13,6 +13,7 @@
 import { UIStyles } from '../../../engine/ui/UIStyles';
 import { UITheme } from '../../../engine/ui/UITheme';
 import { GamePaths } from '../../../engine/core/GamePaths';
+import { CameraSystem } from '../../../engine/camera/CameraSystem';
 import { HUDState } from './HUDState';
 import { MatchStateManager, MatchPhase } from './MatchStateManager';
 
@@ -122,12 +123,24 @@ export class FPSHud {
             window.location.reload();
         });
 
+        // Wire Go Spectator -> switch to spectator mode
+        this._pauseMenu.onGoSpectate(async () => {
+            const { FPSGameManager } = await import('../FPSGameManager');
+            const gm = FPSGameManager.getInstance();
+            gm.goSpectator();
+        });
+
         // 7. Listen for pointer lock changes (ESC releases pointer lock -> show pause menu)
         this._pointerLockHandler = () => {
             if (!document.pointerLockElement) {
                 // Pointer lock was lost (ESC pressed) — show pause menu
                 // Don't show if scoreboard or settings are open
                 if (!this._scoreboard?.isVisible() && !this._settings?.isOpen()) {
+                    // Show/hide 'Go Spectator' based on player state
+                    import('../FPSGameManager').then(({ FPSGameManager }) => {
+                        const gm = FPSGameManager.getInstance();
+                        this._pauseMenu?.setSpectateVisible(gm.getPlayerState() === 'playing');
+                    }).catch(() => { /* ignore */ });
                     this._pauseMenu?.open();
                 }
             } else {
@@ -322,8 +335,8 @@ export class FPSHud {
         this.addWidget('death', new FPSDeathScreen(), 'center');
 
         // Match lifecycle widgets (replacing standalone MatchHUD)
-        this.addWidget('phase', new FPSPhaseMessage(), 'center');
-        this.addWidget('ready', new FPSReadyBar(), 'center');
+        this.addWidget('phase', new FPSPhaseMessage(), 'top-center');
+        this.addWidget('ready', new FPSReadyBar(), 'top-center');
         this.addWidget('gametype', new FPSGametypeBadge(), 'top-left');
     }
 
@@ -466,8 +479,8 @@ interface FPSValueBarConfig {
  */
 export class FPSValueBar implements FPSHudWidget {
     private element: HTMLElement;
-    private numberEl: HTMLElement;
-    private fillEl: HTMLElement;
+    private numberEl!: HTMLElement;
+    private fillEl!: HTMLElement;
     private config: FPSValueBarConfig;
     private currentValue: number = 0;
 
@@ -1908,16 +1921,30 @@ class FPSReadyBar implements FPSHudWidget {
 
     public update(_state: HUDState): void {
         const mgr = MatchStateManager.getInstance();
+        const controller = CameraSystem.getInstance()?.getActiveController();
+        const isSpectating = controller?.type === 'freefly';
 
         if (mgr.isWarmup()) {
             this.element.classList.remove('hidden');
 
-            const readyText = mgr.isReady
-                ? '✓ Ready'
-                : `Press <span class="fps-ready-key">F4</span> when ready`;
+            if (isSpectating) {
+                // Spectator mode: show "SPECTATING" (or player name when chasing)
+                this.element.innerHTML = 'SPECTATING';
+                this.element.classList.remove('fps-ready-bar--ready');
+            } else {
+                // Joined player: show ready counter and F4 prompt
+                const readyText = mgr.isReady
+                    ? '✓ Ready'
+                    : `Press <span class="fps-ready-key">F4</span> when ready`;
 
-            this.element.innerHTML = `${mgr.getReadyStatus()} — ${readyText}`;
-            this.element.classList.toggle('fps-ready-bar--ready', mgr.isReady);
+                this.element.innerHTML = `${mgr.getReadyStatus()} — ${readyText}`;
+                this.element.classList.toggle('fps-ready-bar--ready', mgr.isReady);
+            }
+        } else if (isSpectating) {
+            // Outside warmup but spectating: still show "SPECTATING"
+            this.element.classList.remove('hidden');
+            this.element.innerHTML = 'SPECTATING';
+            this.element.classList.remove('fps-ready-bar--ready');
         } else {
             this.element.classList.add('hidden');
         }
@@ -2103,6 +2130,8 @@ export class FPSPauseMenu extends MangaPanelDialog {
     private onResumeCallback: (() => void) | null = null;
     private onSettingsCallback: (() => void) | null = null;
     private onDisconnectCallback: (() => void) | null = null;
+    private onSpectateCallback: (() => void) | null = null;
+    private spectateBtn: HTMLElement;
 
     constructor() {
         super('PAUSED', 'fps-pause-menu');
@@ -2123,6 +2152,13 @@ export class FPSPauseMenu extends MangaPanelDialog {
             this.onSettingsCallback?.();
         });
 
+        // Go Spectator button (only visible when playing)
+        this.spectateBtn = this.createButton('Go Spectator', 'fps-btn--wide', () => {
+            this.close();
+            this.onSpectateCallback?.();
+        });
+        this.spectateBtn.style.display = 'none'; // Hidden by default
+
         const separator = document.createElement('div');
         separator.className = 'fps-pause-separator';
 
@@ -2141,6 +2177,7 @@ export class FPSPauseMenu extends MangaPanelDialog {
 
         this.bodyEl.appendChild(resumeBtn);
         this.bodyEl.appendChild(settingsBtn);
+        this.bodyEl.appendChild(this.spectateBtn);
         this.bodyEl.appendChild(separator);
         this.bodyEl.appendChild(disconnectBtn);
     }
@@ -2155,6 +2192,15 @@ export class FPSPauseMenu extends MangaPanelDialog {
 
     public onDisconnect(callback: () => void): void {
         this.onDisconnectCallback = callback;
+    }
+
+    public onGoSpectate(callback: () => void): void {
+        this.onSpectateCallback = callback;
+    }
+
+    /** Show/hide the Go Spectator button (only visible when playing) */
+    public setSpectateVisible(visible: boolean): void {
+        this.spectateBtn.style.display = visible ? '' : 'none';
     }
 }
 

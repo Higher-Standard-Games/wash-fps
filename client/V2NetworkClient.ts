@@ -12,7 +12,8 @@
 import type { Vec3 } from '../../../engine/network/components/TransformComponent';
 import type { CollisionWorld } from '../../../engine/network/systems/collision/CollisionWorld';
 import type { MovementInput } from '../../../engine/network/systems/movement/MovementProfile';
-import { FPSMovementProfile, type AdvancedMovementResult } from '../simulation/FPSMovementProfile';
+import { MovementProfile as FPSMovementProfile } from '../simulation/MovementProfile';
+import type { AdvancedMovementResult } from '../simulation/MovementConfig';
 import { InputHistory, type StoredInput } from './InputHistory';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -78,11 +79,10 @@ export class V2NetworkClient {
     };
 
     // Server sync
-    private lastAckedSeq: number = 0;
-    private serverTick: number = 0;
+
 
     // Config
-    private config: V2ClientConfig;
+
     private dt: number; // Fixed timestep
 
     // Debug stats
@@ -101,7 +101,7 @@ export class V2NetworkClient {
     private pendingSnapshots: ServerSnapshot[] = [];
 
     constructor(config: V2ClientConfig) {
-        this.config = config;
+
         this.dt = 1 / config.tickRate;
 
         // Same movement profile as server (CRITICAL for parity)
@@ -140,7 +140,6 @@ export class V2NetworkClient {
             grounded: false,
         };
         this.inputHistory.clear();
-        this.lastAckedSeq = 0;
         console.log('[V2Client] Reset to', position);
     }
 
@@ -243,7 +242,7 @@ export class V2NetworkClient {
         }
 
         // Track server tick
-        this.serverTick = snapshot.tick;
+
 
         // Get inputs we need to replay (those after server's acked sequence)
         const unacked = this.inputHistory.getUnacked(snapshot.ackedInputSeq);
@@ -317,7 +316,6 @@ export class V2NetworkClient {
 
         // === STEP 4: Prune acknowledged inputs ===
         this.inputHistory.pruneAcked(snapshot.ackedInputSeq);
-        this.lastAckedSeq = snapshot.ackedInputSeq;
 
         // === STEP 5: Compute visual offset for smoothing ===
         // The difference between where we were visually and where we are now

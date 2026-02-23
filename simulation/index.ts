@@ -5,4 +5,7 @@
  */
 
 export { FPSSimulation, type FPSInputCommand } from './FPSSimulation';
-export { FPSMovementProfile, type FPSMovementConfig } from './FPSMovementProfile';
+
+// Movement profile — game-agnostic names with backward-compat aliases
+export { MovementProfile, MovementProfile as FPSMovementProfile } from './MovementProfile';
+export { type MovementConfig, type MovementConfig as FPSMovementConfig, type AdvancedMovementResult } from './MovementConfig';
