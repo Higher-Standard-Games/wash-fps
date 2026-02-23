@@ -19,6 +19,9 @@ import { InputButtons } from '../../../engine/network/components/InputComponent'
 
 // ================== Vec3 Math Helpers ==================
 
+// Shared frozen zero — never allocate a new { x:0, y:0, z:0 }
+const VEC3_ZERO: Readonly<Vec3> = Object.freeze({ x: 0, y: 0, z: 0 });
+
 function vec3Zero(): Vec3 {
   return { x: 0, y: 0, z: 0 };
 }
@@ -30,8 +33,6 @@ function vec3Clone(v: Vec3): Vec3 {
 function vec3Add(a: Vec3, b: Vec3): Vec3 {
   return { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z };
 }
-
-
 
 function vec3Scale(v: Vec3, s: number): Vec3 {
   return { x: v.x * s, y: v.y * s, z: v.z * s };
@@ -57,6 +58,15 @@ function vec3Dot(a: Vec3, b: Vec3): number {
 
 function vec3DotXZ(a: Vec3, b: Vec3): number {
   return a.x * b.x + a.z * b.z;
+}
+
+// --- Mutating variants (zero-alloc, for hot paths) ---
+
+/** out = origin + dir * scale  (writes into out, no allocation) */
+function vec3MulAdd(out: Vec3, origin: Vec3, dir: Vec3, scale: number): void {
+  out.x = origin.x + dir.x * scale;
+  out.y = origin.y + dir.y * scale;
+  out.z = origin.z + dir.z * scale;
 }
 
 // ================== Configuration ==================
@@ -196,6 +206,10 @@ export class FPSMovementProfile implements MovementProfile {
   // Constants
   private static readonly CROUCH_HEIGHT_OFFSET = -24;
   private static readonly CROUCH_TRANSITION_SPEED = 0.2;
+
+  // Pre-allocated scratch vectors (avoid per-tick allocations in wall-jump traces)
+  private readonly _scratchTraceEnd: Vec3 = { x: 0, y: 0, z: 0 };
+  private readonly _scratchTraceEnd2: Vec3 = { x: 0, y: 0, z: 0 };
 
   constructor(config?: Partial<FPSMovementConfig>) {
     this.config = {
@@ -382,7 +396,7 @@ export class FPSMovementProfile implements MovementProfile {
 
       const normalizedWish = hasInput
         ? { x: wishDir.x / wishLen, y: 0, z: wishDir.z / wishLen }
-        : vec3Zero();
+        : VEC3_ZERO;
 
       if (this.isGrounded) {
         // === GROUND MOVEMENT ===
@@ -780,17 +794,18 @@ export class FPSMovementProfile implements MovementProfile {
     ];
 
     let foundWall = false;
-    let wallNormal: Vec3 = vec3Zero();
+    let wallNormal: Vec3 = VEC3_ZERO as Vec3;
 
     for (const dir of directions) {
-      const wallCheck = collision.trace(pos, vec3Add(pos, vec3Scale(dir, reach)));
+      vec3MulAdd(this._scratchTraceEnd, pos, dir, reach);
+      const wallCheck = collision.trace(pos, this._scratchTraceEnd);
 
       if (wallCheck.hit && wallCheck.normal) {
         // Found a wall - check if wall extends to eye level
         const eyeHeight = 32;
         const eyeCheckStart = { x: pos.x, y: pos.y + eyeHeight - 10, z: pos.z };
-        const eyeCheckEnd = vec3Add(eyeCheckStart, vec3Scale(dir, reach));
-        const eyeTrace = collision.trace(eyeCheckStart, eyeCheckEnd);
+        vec3MulAdd(this._scratchTraceEnd2, eyeCheckStart, dir, reach);
+        const eyeTrace = collision.trace(eyeCheckStart, this._scratchTraceEnd2);
 
         if (!eyeTrace.hit) {
           // No wall at eye level - low obstacle, skip
