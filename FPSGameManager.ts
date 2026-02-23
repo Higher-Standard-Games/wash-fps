@@ -23,8 +23,9 @@ import { createBSPCollisionWorld } from './simulation/collision/BSPCollisionWorl
 import { V2NetworkClient } from './client';
 import type { ServerSnapshot } from './client';
 import { MatchStateManager } from './client/MatchStateManager';
-import { MatchHUD } from './client/MatchHUD';
+
 import { HUDState } from './client/HUDState';
+import { FPSHud } from './client/FPSHud';
 import { MessageCodec } from '../../engine/network/protocol/MessageCodec';
 import { getHitscanEffects } from '../../engine/weapon/HitscanEffects';
 import { getProjectileManager } from '../../engine/weapon/ProjectileManager';
@@ -354,9 +355,13 @@ export class FPSGameManager {
       console.log(`[FPSGameManager] Connected to ${url}, player: ${this.localPlayerId}`);
       console.log(`[FPSGameManager] V2 client ready for Q3-style prediction/reconciliation`);
 
-      // Initialize MatchHUD for match lifecycle display
-      MatchHUD.getInstance().init();
-      console.log(`[FPSGameManager] MatchHUD initialized`);
+
+
+      // Initialize FPSHud (Washiki HUD system)
+      const fpsHud = FPSHud.getInstance();
+      await fpsHud.init();
+      fpsHud.start();
+      console.log(`[FPSGameManager] FPSHud initialized and started`);
 
       // Initialize NetGraph overlay (cl_netgraph CVar)
       NetGraph.init();
@@ -820,7 +825,8 @@ export class FPSGameManager {
     this.onStateUpdateCallbacks = [];
 
     // Cleanup match state and HUD
-    MatchHUD.getInstance().destroy();
+
+    FPSHud.getInstance().destroy();
     MatchStateManager.destroy();
     HUDState.destroy();
 
@@ -857,9 +863,9 @@ export class FPSGameManager {
 
     // === DIAGNOSTIC: Log first few calls ===
     if (this._stateUpdateCount <= 3) {
-      // Auto-enable HUD debug overlay on first update
+      // Auto-enable HUD debug overlay on first update (disabled — using FPSHud now)
       if (this._stateUpdateCount === 1) {
-        HUDState.getInstance().setDebug(true);
+        // HUDState.getInstance().setDebug(true);
       }
       const playerKeys = Array.from(state.players.keys());
       const entityKeys = Array.from(state.entities.keys());
@@ -993,6 +999,7 @@ export class FPSGameManager {
 
     // Update HUD state aggregator
     const hudState = HUDState.getInstance();
+    hudState.localPlayerId = this.localPlayerId;
     hudState.updateScoreboard(state);
     hudState.expireTransients();
     hudState.updateDebugOverlay();

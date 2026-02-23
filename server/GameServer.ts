@@ -258,13 +258,16 @@ export class GameServer {
         const pid = createPlayerId(this.nextBotId++);
         const eid = state.generateEntityId();
 
-        // Use the gametype spawn strategy
-        const spawnPoint = this.gametypeController.getSpawnPoint(state, eid);
+        // Use the full player join flow (spawn point, weapon loadout, match registration)
+        const spawnPoint = this.gametypeController.onPlayerJoin(pid, eid, state);
 
         // Create entity (same as a real player — full physics, health, etc.)
         const entity = createPlayerEntity(eid, pid, spawnPoint);
         entity.spawnTick = this.simulation.currentTick as number;
         state.addEntity(entity);
+
+        // Track as bot for auto-ready
+        this.gametypeController.registerBot(pid);
 
         console.log(`[GameServer] Bot ${pid} (entity ${eid}) spawned at (${spawnPoint.x.toFixed(1)}, ${spawnPoint.y.toFixed(1)}, ${spawnPoint.z.toFixed(1)})`);
         return eid;

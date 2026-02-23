@@ -71,6 +71,7 @@ export class HUDState {
 
     // === Scoreboard ===
     scoreboard: ScoreboardEntry[] = [];
+    localPlayerId: string = '';
 
     // === Debug overlay ===
     private debugElement: HTMLDivElement | null = null;
