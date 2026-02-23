@@ -46,6 +46,7 @@ export class GametypeController {
     private spawnStrategy: SpawnPointStrategy;
     private spawnPoints: Vec3[] = [];
     private respawnQueue: RespawnEntry[] = [];
+    private botPlayerIds: Set<PlayerId> = new Set();
 
     // Subsystem references (set after construction)
     private combatSystem: CombatSystem | null = null;
@@ -118,9 +119,28 @@ export class GametypeController {
 
     /**
      * Handle player ready (F4 press).
+     * When a human player readies, all bots auto-ready after a random 0-5s delay.
      */
     onPlayerReady(playerId: PlayerId): void {
         this.matchState.playerReady(playerId);
+
+        // If a human player readied, schedule all bots to ready up too
+        if (!this.botPlayerIds.has(playerId)) {
+            for (const botId of this.botPlayerIds) {
+                const delay = Math.random() * 5000; // 0-5 seconds
+                setTimeout(() => {
+                    this.matchState.playerReady(botId);
+                }, delay);
+            }
+        }
+    }
+
+    /**
+     * Register a bot player ID for auto-ready tracking.
+     * Note: onPlayerJoin() must be called first to add bot to match state.
+     */
+    registerBot(playerId: PlayerId): void {
+        this.botPlayerIds.add(playerId);
     }
 
     // ========================================================================
