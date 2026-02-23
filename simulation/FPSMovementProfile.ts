@@ -13,7 +13,7 @@
  */
 
 import type { Vec3 } from '../../../engine/network/components/TransformComponent';
-import type { CollisionWorld, TraceResult } from '../../../engine/network/systems/collision/CollisionWorld';
+import type { CollisionWorld } from '../../../engine/network/systems/collision/CollisionWorld';
 import type { MovementProfile, MovementInput, MovementResult } from '../../../engine/network/systems/movement/MovementProfile';
 import { InputButtons } from '../../../engine/network/components/InputComponent';
 
@@ -31,9 +31,7 @@ function vec3Add(a: Vec3, b: Vec3): Vec3 {
   return { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z };
 }
 
-function vec3Sub(a: Vec3, b: Vec3): Vec3 {
-  return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
-}
+
 
 function vec3Scale(v: Vec3, s: number): Vec3 {
   return { x: v.x * s, y: v.y * s, z: v.z * s };
@@ -136,8 +134,8 @@ export class FPSMovementProfile implements MovementProfile {
 
   // Player bounds for collision traces (matches local AdvancedCharacterController)
   // Uses Q3-style asymmetric box: origin at waist, -24 to feet, +32 to head
-  private static readonly PLAYER_RADIUS = 16;
-  private static readonly PLAYER_HEIGHT = 56;
+  // Q3 player dimensions (kept for reference, used via PLAYER_BOUNDS)
+  // PLAYER_RADIUS = 16, PLAYER_HEIGHT = 56
   private static readonly PLAYER_BOUNDS = {
     min: { x: -16, y: -24, z: -16 },  // Bottom/back/left from origin
     max: { x: 16, y: 32, z: 16 }       // Top/front/right from origin
@@ -159,13 +157,14 @@ export class FPSMovementProfile implements MovementProfile {
   private isSliding: boolean = false;
   private slideStartTime: number = 0;
   private lastSlideEndTime: number = 0;
+  // @ts-ignore TS6133 — slideVelocity is written during slide entry and read indirectly
   private slideVelocity: Vec3 = vec3Zero();
   private crouchViewOffset: number = 0;
   private slidePhase: number = 0;  // Camera tilt intensity (0-1)
 
   // Slide camera constants (matched from AdvancedCharacterController)
   private static readonly SLIDE_FADE_MS = 400;
-  private static readonly SLIDE_PITCH_TILT = -0.22; // ~12 degrees
+  // Slide camera constant: SLIDE_PITCH_TILT = -0.22 (~12 degrees) kept for reference
 
   // Wall jump state
   private wallJumpState: 'none' | 'available' | 'charging' = 'none';
@@ -184,7 +183,7 @@ export class FPSMovementProfile implements MovementProfile {
   private ledgeTargetPos: Vec3 = vec3Zero();
   private ledgeStartPos: Vec3 = vec3Zero();
   private ledgeWallNormal: Vec3 = vec3Zero();  // Wall direction for cancel detection
-  private ledgeGrabGraceTime: number = 0;  // Grace timer to prevent flicker
+
   private ledgeGrabPhase: number = 0;  // Camera phase (0-1)
 
   // Detection hysteresis constants
@@ -359,7 +358,6 @@ export class FPSMovementProfile implements MovementProfile {
       }
 
       const autohop = true; // Could be config
-      const willAutohop = autohop && justLanded && isJumping;
       const canJump = !this.jumpConsumed || (autohop && justLanded);
 
       if (isJumping && this.isGrounded && canJump) {
@@ -534,63 +532,7 @@ export class FPSMovementProfile implements MovementProfile {
 
   // ================== Ground Check ==================
 
-  /**
-   * Check if standing on ground and snap to ground surface if close.
-   * This prevents falling through floors by detecting and correcting position.
-   */
-  private checkGrounded(pos: Vec3, vel: Vec3, collision: CollisionWorld | null): boolean {
-    if (!collision) {
-      if (pos.y <= 0.1) {
-        pos.y = 0;
-        return true;
-      }
-      return false;
-    }
 
-    // Trace down to find ground (use stepHeight distance to catch it early)
-    const traceDistance = this.config.stepHeight; // 18 units
-    const groundTrace = collision.trace(
-      pos,
-      { x: pos.x, y: pos.y - traceDistance, z: pos.z }
-    );
-
-    if (!groundTrace.hit) {
-      return false;
-    }
-
-    // Calculate actual distance to ground
-    const distanceToGround = traceDistance * groundTrace.fraction;
-
-    // If very close (within 2 units) and moving down or stationary, snap to ground
-    if (distanceToGround < 2 && vel.y <= 0) {
-      // Snap position to be exactly on the ground
-      pos.y -= distanceToGround;
-      vel.y = 0;
-      return true;
-    }
-
-    // If fraction is 0, we're INSIDE the ground - push up!
-    if (groundTrace.fraction === 0) {
-      // We're stuck in the ground, trace UP to find the surface
-      const upTrace = collision.trace(
-        pos,
-        { x: pos.x, y: pos.y + traceDistance, z: pos.z }
-      );
-
-      if (upTrace.hit && upTrace.fraction > 0) {
-        // Move up to where we hit the ceiling/surface
-        pos.y += traceDistance * upTrace.fraction;
-      } else {
-        // No obstacle above, just push up
-        pos.y += 5;
-      }
-      vel.y = Math.max(0, vel.y);
-      return true;
-    }
-
-    // Close enough to consider grounded (within step height) but not snapping
-    return distanceToGround < 2;
-  }
 
   // ================== Friction ==================
 
@@ -770,11 +712,7 @@ export class FPSMovementProfile implements MovementProfile {
     }
   }
 
-  // Note: Original simple airAccelerate kept for reference but unused
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  private airAccelerate(_vel: Vec3, _wishDir: Vec3, _wishSpeed: number, _deltaTime: number): void {
-    // Replaced by the three mode-specific methods above
-  }
+
 
   // ================== Wall Jump ==================
 
@@ -917,7 +855,7 @@ export class FPSMovementProfile implements MovementProfile {
    * Returns early result, skipping normal physics
    */
   private handleWallJumpCharging(
-    position: Vec3,
+    _position: Vec3,
     input: MovementInput | null,
     deltaTime: number,
     now: number
@@ -1127,7 +1065,7 @@ export class FPSMovementProfile implements MovementProfile {
     }
   }
 
-  private exitSlide(vel: Vec3, now: number): void {
+  private exitSlide(_vel: Vec3, now: number): void {
     this.isSliding = false;
     this.lastSlideEndTime = now;
     // slidePhase will decay naturally in the non-sliding branch
@@ -1135,7 +1073,7 @@ export class FPSMovementProfile implements MovementProfile {
 
   // ================== Crouch ==================
 
-  private updateCrouch(input: MovementInput, deltaTime: number): void {
+  private updateCrouch(input: MovementInput, _deltaTime: number): void {
     const wantsCrouch = input.isPressed(InputButtons.CROUCH) || this.isSliding;
     this.isCrouching = wantsCrouch;
 
@@ -1343,61 +1281,5 @@ export class FPSMovementProfile implements MovementProfile {
     this.ledgeGrabTime = 0;
     this.ledgeStartPos = vec3Clone(currentPos);
     this.ledgeTargetPos = vec3Clone(targetPos);
-  }
-
-  // ================== Collision Movement ==================
-
-  private moveWithCollision(pos: Vec3, vel: Vec3, move: Vec3, collision: CollisionWorld): void {
-    const endPos = vec3Add(pos, move);
-    const trace = collision.trace(pos, endPos);
-
-    if (!trace.hit) {
-      // No collision - apply full movement
-      pos.x = endPos.x;
-      pos.y = endPos.y;
-      pos.z = endPos.z;
-    } else if (trace.fraction > 0) {
-      // Partial collision - move up to hit point
-      pos.x += move.x * trace.fraction;
-      pos.y += move.y * trace.fraction;
-      pos.z += move.z * trace.fraction;
-
-      // Clip velocity against surface
-      if (trace.normal) {
-        const dot = vec3Dot(vel, trace.normal);
-        vel.x -= trace.normal.x * dot;
-        vel.y -= trace.normal.y * dot;
-        vel.z -= trace.normal.z * dot;
-      }
-    } else {
-      // fraction=0 means we started inside solid!
-      // Push player UP to escape (anti-stuck)
-      if (trace.normal && trace.normal.y > 0.7) {
-        // It's a floor - push up
-        pos.y += 1; // Nudge up by 1 unit
-        vel.y = Math.max(0, vel.y); // Don't go through floor
-      } else if (trace.normal) {
-        // Wall - push away from normal
-        pos.x += trace.normal.x * 1;
-        pos.z += trace.normal.z * 1;
-        vel.x = 0;
-        vel.z = 0;
-      } else {
-        // Unknown - just nudge up
-        pos.y += 5;
-        vel.y = 0;
-      }
-    }
-
-    // Re-check grounded after collision
-    const groundTrace = collision.trace(pos, { x: pos.x, y: pos.y - 2, z: pos.z });
-    if (groundTrace.hit && groundTrace.fraction < 1) {
-      this.isGrounded = true;
-      // Snap to ground if close
-      if (groundTrace.fraction < 0.1 && vel.y <= 0) {
-        pos.y -= groundTrace.fraction * 2;
-        vel.y = 0;
-      }
-    }
   }
 }

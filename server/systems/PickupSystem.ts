@@ -74,7 +74,7 @@ export class PickupSystem extends Subsystem {
     private respawnTicks: number = 25 * 125; // 25 seconds at 125Hz (default)
 
     // Pickup detection parameters (matching client-side Pickup.ts)
-    private readonly PICKUP_RADIUS = 128;
+
     private readonly PICKUP_RADIUS_SQ = 128 * 128;
     private readonly VERTICAL_RANGE_MIN = -48;
     private readonly VERTICAL_RANGE_MAX = 96;
@@ -105,7 +105,7 @@ export class PickupSystem extends Subsystem {
      */
     setRespawnTime(seconds: number): void {
         this.respawnTicks = Math.floor(seconds * 125);
-        console.log(`[PickupSystem] Respawn time set to ${seconds}s (${this.respawnTicks} ticks)`);
+
     }
 
     /**
@@ -119,7 +119,7 @@ export class PickupSystem extends Subsystem {
         for (const item of items) {
             const weaponId = CLASSNAME_TO_WEAPON[item.classname];
             if (!weaponId) {
-                console.log(`[PickupSystem] Skipping unknown classname: ${item.classname}`);
+
                 continue;
             }
 
@@ -133,10 +133,7 @@ export class PickupSystem extends Subsystem {
             });
         }
 
-        console.log(`[PickupSystem] Registered ${this.pickups.length} pickup items`);
-        for (const p of this.pickups) {
-            console.log(`  [${p.id}] ${p.weaponId} at (${p.position.x.toFixed(1)}, ${p.position.y.toFixed(1)}, ${p.position.z.toFixed(1)})`);
-        }
+
     }
 
     /**
@@ -177,7 +174,7 @@ export class PickupSystem extends Subsystem {
             if (!pickup.active && pickup.respawnTick > 0 && tickNum >= pickup.respawnTick) {
                 pickup.active = true;
                 pickup.respawnTick = 0;
-                console.log(`[PickupSystem] ${pickup.weaponId} respawned at (${pickup.position.x.toFixed(1)}, ${pickup.position.y.toFixed(1)}, ${pickup.position.z.toFixed(1)})`);
+
             }
         }
 
@@ -237,7 +234,7 @@ export class PickupSystem extends Subsystem {
                 pickup.active = false;
                 pickup.respawnTick = tickNum + this.respawnTicks;
 
-                console.log(`[PickupSystem] Player ${player.id} picked up ${pickup.weaponId}${result.added ? '' : ' (ammo)'}${result.dropped ? ` (dropped ${result.dropped})` : ''}`);
+
 
                 // Emit event for client sync
                 this.pendingPickupEvents.push({
@@ -302,7 +299,7 @@ export class PickupSystem extends Subsystem {
                     state.removeEntity(itemEntity.id);
                     this.droppedWeaponSystem.removeDroppedWeapon(itemEntity.id);
 
-                    console.log(`[PickupSystem] Player ${player.id} picked up dropped ${meta.weaponId} (ammo=${meta.ammo}${result.added ? '' : ', ammo-only'})`);
+
 
                     // Emit event
                     this.pendingPickupEvents.push({

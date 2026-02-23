@@ -466,8 +466,8 @@ interface FPSValueBarConfig {
  */
 export class FPSValueBar implements FPSHudWidget {
     private element: HTMLElement;
-    private numberEl: HTMLElement;
-    private fillEl: HTMLElement;
+    private numberEl!: HTMLElement;
+    private fillEl!: HTMLElement;
     private config: FPSValueBarConfig;
     private currentValue: number = 0;
 

@@ -144,7 +144,7 @@ export class FPSPlayer {
         console.log(`Switching to weapon: ${weaponId}`);
     }
 
-    private updateFiring(deltaTime: number): void {
+    private updateFiring(_deltaTime: number): void {
         if (this.isReloading) return;
 
         // Block firing during weapon switch animation
