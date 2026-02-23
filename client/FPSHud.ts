@@ -61,6 +61,7 @@ export class FPSHud {
     // Phase 4: Dialogs & Menus
     private _pauseMenu: FPSPauseMenu | null = null;
     private _settings: FPSSettingsOverlay | null = null;
+    private _pointerLockHandler: (() => void) | null = null;
 
     private constructor() { }
 
@@ -107,6 +108,34 @@ export class FPSHud {
             this._pauseMenu?.close();
             this._settings?.open();
         });
+
+        // Wire Resume -> re-request pointer lock (closes menu via onClose callback)
+        this._pauseMenu.onResume(() => {
+            const canvas = document.querySelector('canvas');
+            if (canvas) {
+                canvas.requestPointerLock();
+            }
+        });
+
+        // Wire Disconnect -> reload page (return to lobby)
+        this._pauseMenu.onDisconnect(() => {
+            window.location.reload();
+        });
+
+        // 7. Listen for pointer lock changes (ESC releases pointer lock -> show pause menu)
+        this._pointerLockHandler = () => {
+            if (!document.pointerLockElement) {
+                // Pointer lock was lost (ESC pressed) — show pause menu
+                // Don't show if scoreboard or settings are open
+                if (!this._scoreboard?.isVisible() && !this._settings?.isOpen()) {
+                    this._pauseMenu?.open();
+                }
+            } else {
+                // Pointer lock was acquired — close pause menu
+                this._pauseMenu?.close();
+            }
+        };
+        document.addEventListener('pointerlockchange', this._pointerLockHandler);
 
         console.log(`[FPSHud] Initialized with ${this.widgets.size} widgets + overlays + dialogs`);
     }
