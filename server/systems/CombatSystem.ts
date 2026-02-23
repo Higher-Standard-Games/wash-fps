@@ -201,9 +201,8 @@ export class CombatSystem extends Subsystem {
         const finalDamage = Math.round(event.damage * multiplier);
 
         // Apply damage
-        const healthBefore = victim.health.health;
         applyDamage(victim.health, finalDamage, event.armorPiercing);
-        console.log(`[CombatSystem] Damage: victim=${event.victimId} hp=${healthBefore}→${victim.health.health} dead=${victim.health.dead} dmg=${finalDamage} type=${event.damageType}`);
+
 
         // ── KNOCKBACK (queued for movement system) ──
         // Queue impulse for FPSMovementSubsystem to apply BEFORE simulate().
@@ -240,7 +239,7 @@ export class CombatSystem extends Subsystem {
                 force,
                 stunFraction,
             });
-            console.log(`[KB] Queued impulse: victim=${event.victimId} dir=(${kbDir.x.toFixed(2)},${kbDir.y.toFixed(2)},${kbDir.z.toFixed(2)}) force=${force.toFixed(1)} stun=${stunFraction.toFixed(2)} self=${isSelf}`);
+
         }
 
         // Store for network forwarding (with final damage value)
@@ -272,7 +271,6 @@ export class CombatSystem extends Subsystem {
                 victimVelZ: vel.z,
             };
             this.kills.push(killEvent);
-            console.log(`[CombatSystem] KILL: victim=${event.victimId} killer=${event.attackerId} pos=(${pos.x.toFixed(0)},${pos.y.toFixed(0)},${pos.z.toFixed(0)})`);
             // NOTE: Respawn queuing is now handled by GametypeController
         }
     }
