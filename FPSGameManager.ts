@@ -121,6 +121,11 @@ export class FPSGameManager {
   // Death state tracking (for death camera)
   private _isPlayerDead: boolean = false;
 
+  // Spectator state
+  private playerState: 'spectator' | 'playing' = 'spectator';
+  private spectatorOverlay: import('./client/SpectatorOverlay').SpectatorOverlay | null = null;
+  private _joinKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+
   private pendingTick: number = 0;
 
   // Cached effect system singletons (lazy-resolved, avoids per-frame import())
@@ -263,21 +268,20 @@ export class FPSGameManager {
 
             const { CameraSystem } = await import('../../engine/camera/CameraSystem');
             const { FPSController } = await import('../../engine/camera/controllers/FPSController');
+            const { FreeflyController } = await import('../../engine/camera/controllers/FreeflyController');
             const cameraSystem = CameraSystem.getInstance();
 
-            // Ensure FPS controller is registered and active
+            // Register FPS controller (but don't activate — player starts as spectator)
             if (!cameraSystem.getController('fps')) {
               cameraSystem.registerController('fps', new FPSController());
             }
-            cameraSystem.setController('fps');
 
-
-            // Enable network mode on the FPSController
-            const controller = cameraSystem.getActiveController();
-            if (controller && controller.type === 'fps' && typeof (controller as any).enableNetworkMode === 'function') {
-              (controller as any).enableNetworkMode();
-
+            // Register and activate freefly controller for spectator mode
+            if (!cameraSystem.getController('freefly')) {
+              cameraSystem.registerController('freefly', new FreeflyController());
             }
+            // Start in freefly mode (spectator default)
+            cameraSystem.setController('freefly');
           } catch (e) {
             console.warn(`[FPSGameManager] Could not set up FPS controller after map load:`, e);
           }
@@ -326,9 +330,32 @@ export class FPSGameManager {
       await fpsHud.init();
       fpsHud.start();
 
-
       // Initialize NetGraph overlay (cl_netgraph CVar)
       NetGraph.init();
+
+      // ── Spectator Mode: show join overlay on connect ──────────
+      this.playerState = 'spectator';
+      const { SpectatorOverlay } = await import('./client/SpectatorOverlay');
+      this.spectatorOverlay = new SpectatorOverlay();
+      this.spectatorOverlay.setMode('join-overlay');
+
+      this.spectatorOverlay.onJoinGame(() => {
+        this.joinGame();
+      });
+      this.spectatorOverlay.onSpectate(() => {
+        // Switch to freefly spectator (no entity, just camera)
+        this.spectatorOverlay?.setMode('freefly');
+        this.switchToFreeflyCamera();
+      });
+
+      // ── J key shortcut to join game from spectator mode ──
+      this._joinKeyHandler = (e: KeyboardEvent) => {
+        if (e.code === 'KeyJ' && this.playerState === 'spectator') {
+          e.preventDefault();
+          this.joinGame();
+        }
+      };
+      document.addEventListener('keydown', this._joinKeyHandler);
 
     } catch (error) {
       console.error(`[FPSGameManager] Failed to connect to ${url}:`, error);
@@ -365,6 +392,159 @@ export class FPSGameManager {
   }
 
   /**
+   * Check if currently spectating
+   */
+  isSpectating(): boolean {
+    return this.playerState === 'spectator';
+  }
+
+  /**
+   * Get current player state
+   */
+  getPlayerState(): 'spectator' | 'playing' {
+    return this.playerState;
+  }
+
+  // ========================================================================
+  // Spectator Mode
+  // ========================================================================
+
+  /**
+   * joinGame — transition from spectator to playing.
+   * Sends JoinGame to server, switches camera to FPS, hides overlay.
+   */
+  async joinGame(): Promise<void> {
+    if (this.playerState === 'playing') return;
+    if (!this.gameHost || !this.isNetworkMode) return;
+
+    const networkHost = this.gameHost as import('../../engine/network/client/hosts/NetworkGameHost').NetworkGameHost;
+
+    // Tell server to create our entity
+    networkHost.sendJoinGame();
+
+    // Switch to FPS camera controller
+    try {
+      const { CameraSystem } = await import('../../engine/camera/CameraSystem');
+      const { FPSController } = await import('../../engine/camera/controllers/FPSController');
+      const cameraSystem = CameraSystem.getInstance();
+
+      if (!cameraSystem.getController('fps')) {
+        cameraSystem.registerController('fps', new FPSController());
+      }
+      cameraSystem.setController('fps');
+
+      // Enable network mode on FPS controller
+      const controller = cameraSystem.getActiveController();
+      if (controller && controller.type === 'fps' && typeof (controller as any).enableNetworkMode === 'function') {
+        (controller as any).enableNetworkMode();
+      }
+    } catch (e) {
+      console.warn('[FPSGameManager] Could not switch to FPS camera:', e);
+    }
+
+    // Update state
+    this.playerState = 'playing';
+    this.spectatorOverlay?.setMode('hidden');
+
+    // Initialize weapon view manager with the now-active FPS camera
+    try {
+      const { CameraSystem } = await import('../../engine/camera/CameraSystem');
+      const { getWeaponViewManager } = await import('../../engine/weapon/WeaponViewManager');
+      const { getProjectileManager } = await import('../../engine/weapon/ProjectileManager');
+      const { initializeEntityDefs } = await import('../../shared/entities');
+      const { FreeCamera } = await import('@babylonjs/core/Cameras/freeCamera');
+
+      const camera = CameraSystem.getInstance().getCamera();
+      const scene = camera?.getScene();
+
+      if (scene && camera instanceof FreeCamera) {
+        initializeEntityDefs();
+        const wvm = getWeaponViewManager();
+        wvm.init(scene, camera);
+        wvm.loadWeapon('gunblade', 'data/data0_21pure.pk3').then(async success => {
+          if (success) {
+            console.log('[FPSGameManager] Weapon loaded for join');
+            const projMgr = getProjectileManager();
+            await Promise.all([
+              projMgr.preloadModel('plasma_bolt'),
+              projMgr.preloadModel('grenade'),
+              projMgr.preloadModel('rocket'),
+              projMgr.preloadModel('gunblade_blast'),
+            ]);
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('[FPSGameManager] Failed to init weapon view:', e);
+    }
+
+    // Request pointer lock for FPS controls
+    const canvas = document.querySelector('canvas');
+    if (canvas) {
+      canvas.requestPointerLock();
+    }
+
+    console.log('[FPSGameManager] Joined game');
+  }
+
+  /**
+   * goSpectator — transition from playing to spectator.
+   * Sends Spectate to server, switches camera to freefly, shows overlay.
+   */
+  async goSpectator(): Promise<void> {
+    if (this.playerState === 'spectator') return;
+    if (!this.gameHost || !this.isNetworkMode) return;
+
+    const networkHost = this.gameHost as import('../../engine/network/client/hosts/NetworkGameHost').NetworkGameHost;
+
+    // Tell server to remove our entity
+    networkHost.sendSpectate();
+
+    // Switch to freefly camera
+    this.switchToFreeflyCamera();
+
+    // Update state
+    this.playerState = 'spectator';
+    this.spectatorOverlay?.setMode('freefly');
+
+    // Hide weapon view model
+    import('../../engine/weapon/WeaponViewManager').then(m => {
+      m.getWeaponViewManager().setVisible(false);
+    });
+
+    // Hide speedometer (prevent overlap with spectator overlay)
+    const speedEl = document.getElementById('fps-speed-display');
+    if (speedEl) speedEl.remove();
+    // Reset static refs so a fresh widget is created on rejoin
+    (await import('../../engine/camera/controllers/FPSController')).FPSController.resetSpeedDisplay?.();
+
+    // Release pointer lock
+    document.exitPointerLock();
+
+    console.log('[FPSGameManager] Now spectating');
+  }
+
+  /**
+   * Switch the active camera to freefly controller (for spectator mode).
+   */
+  private async switchToFreeflyCamera(): Promise<void> {
+    try {
+      const { CameraSystem } = await import('../../engine/camera/CameraSystem');
+      const { FreeflyController } = await import('../../engine/camera/controllers/FreeflyController');
+      const cameraSystem = CameraSystem.getInstance();
+
+      if (!cameraSystem.getController('freefly')) {
+        cameraSystem.registerController('freefly', new FreeflyController());
+      }
+      cameraSystem.setController('freefly');
+
+      console.log('[FPSGameManager] Switched to freefly camera');
+    } catch (e) {
+      console.warn('[FPSGameManager] Could not switch to freefly camera:', e);
+    }
+  }
+
+  /**
    * Spawn local player in simulation
    * @param spawnPosition Optional spawn position (uses random spawn point if not provided)
    */
@@ -394,6 +574,11 @@ export class FPSGameManager {
    */
   sendInput(input: PlayerInputState): void {
     if (!this.gameHost || !this.isRunning) {
+      return;
+    }
+
+    // Spectators don't send input at all
+    if (this.playerState === 'spectator') {
       return;
     }
 
@@ -955,7 +1140,8 @@ export class FPSGameManager {
     hudState.updateDebugOverlay();
 
     // === Remote player snapshot buffering (push only — rendering is per-frame) ===
-    if (localEntityId) {
+    // Always init renderer (spectators need to see other players/bots too)
+    {
       // Lazy-init renderer with scene
       if (!this.remoteRenderer && EngineStore.LastCreatedScene) {
         this.remoteRenderer = new RemotePlayerRenderer(EngineStore.LastCreatedScene);
@@ -968,7 +1154,13 @@ export class FPSGameManager {
           serverLocalTime = networkHost.clockSync.toLocalTime(state.serverTimestamp);
         }
 
-        this.remoteRenderer.pushSnapshot(state, localEntityId, serverLocalTime);
+        // Pass localEntityId (empty string for spectators — no entity excluded)
+        this.remoteRenderer.pushSnapshot(state, localEntityId || '', serverLocalTime);
+
+        // If spectating, render here since FPSController won't call renderRemotePlayers()
+        if (this.playerState === 'spectator') {
+          this.remoteRenderer.render();
+        }
       }
     }
 

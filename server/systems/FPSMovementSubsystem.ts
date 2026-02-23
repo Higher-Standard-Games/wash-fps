@@ -11,7 +11,7 @@ import { Subsystem, type SubsystemConfig } from '../../../../engine/server/core/
 import type { WorldState } from '../../../../engine/server/core/WorldState';
 import type { TickNumber, EntityId } from '../../../../engine/server/ecs/types';
 import { EntityType } from '../../../../engine/server/ecs/types';
-import { FPSMovementProfile } from '../../simulation/FPSMovementProfile';
+import { MovementProfile as FPSMovementProfile } from '../../simulation/MovementProfile';
 import type { MovementInput } from '../../../../engine/network/systems/movement/MovementProfile';
 import type { CollisionWorld } from '../../../../engine/network/systems/collision/CollisionWorld';
 

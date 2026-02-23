@@ -1,0 +1,411 @@
+/**
+ * SpectatorOverlay - Fullscreen spectator mode UI
+ *
+ * Shows:
+ * 1. Initial join overlay (JOIN GAME / Spectate buttons) on connect
+ * 2. "SPECTATING: PlayerName" bar during first-person spectate
+ * 3. Freefly spectator minimal UI
+ *
+ * Uses Washiki theme styling consistent with FPSHud.
+ */
+
+export type SpectatorMode = 'join-overlay' | 'freefly' | 'first-person' | 'hidden';
+
+export class SpectatorOverlay {
+    private container: HTMLElement;
+    private joinOverlay: HTMLElement;
+    private spectatingBar: HTMLElement;
+    private spectatingNameEl: HTMLElement;
+    private freeflyCue: HTMLElement;
+    private mode: SpectatorMode = 'hidden';
+
+    private onJoinGameCallback: (() => void) | null = null;
+    private onSpectateCallback: (() => void) | null = null;
+    // Reserved for first-person spectating (future)
+    private _onNextPlayerCallback: (() => void) | null = null;
+    private _onPrevPlayerCallback: (() => void) | null = null;
+
+    constructor() {
+        // Main container (always present, visibility controlled by mode)
+        this.container = document.createElement('div');
+        this.container.id = 'spectator-overlay';
+        this.container.style.cssText = `
+            position: fixed;
+            inset: 0;
+            z-index: 500;
+            pointer-events: none;
+        `;
+
+        // ── Join Overlay (fullscreen blur + Washiki panel dialog) ──
+        this.joinOverlay = document.createElement('div');
+        this.joinOverlay.id = 'spectator-join-overlay';
+        this.joinOverlay.style.cssText = `
+            position: absolute;
+            inset: 0;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            background: radial-gradient(ellipse at center, rgba(0,0,0,0.45), rgba(0,0,0,0.7));
+            pointer-events: all;
+        `;
+
+        // Washiki-style dialog panel
+        const panel = document.createElement('div');
+        panel.style.cssText = `
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            padding: 40px 56px;
+            background: linear-gradient(180deg, rgba(10,8,16,0.92) 0%, rgba(6,4,12,0.88) 100%);
+            border: 1px solid rgba(255,100,0,0.35);
+            border-radius: 4px;
+            box-shadow: 0 0 40px rgba(255,80,0,0.08), 0 8px 32px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,140,0,0.08);
+        `;
+
+        // Corner brackets (top-left, top-right, bottom-left, bottom-right)
+        const cornerCSS = (top: boolean, left: boolean) => `
+            position: absolute;
+            ${top ? 'top: -1px' : 'bottom: -1px'};
+            ${left ? 'left: -1px' : 'right: -1px'};
+            width: 14px; height: 14px;
+            border-${top ? 'top' : 'bottom'}: 2px solid rgba(255,120,0,0.7);
+            border-${left ? 'left' : 'right'}: 2px solid rgba(255,120,0,0.7);
+            pointer-events: none;
+        `;
+        for (const [t, l] of [[true, true], [true, false], [false, true], [false, false]]) {
+            const c = document.createElement('div');
+            c.style.cssText = cornerCSS(t as boolean, l as boolean);
+            panel.appendChild(c);
+        }
+
+        // Game title
+        const titleEl = document.createElement('div');
+        titleEl.style.cssText = `
+            font-family: 'Orbitron', 'Rajdhani', 'Outfit', sans-serif;
+            font-size: 36px;
+            font-weight: 800;
+            color: #fff;
+            text-transform: uppercase;
+            letter-spacing: 8px;
+            margin-bottom: 8px;
+            text-shadow: 0 0 24px rgba(255,100,0,0.4), 0 2px 6px rgba(0,0,0,0.5);
+            background: linear-gradient(180deg, #fff 20%, rgba(255,160,80,0.8) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        `;
+        titleEl.textContent = 'SHAG';
+        panel.appendChild(titleEl);
+
+        // Subtle divider
+        const divider = document.createElement('div');
+        divider.style.cssText = `
+            width: 80%; height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255,100,0,0.3), transparent);
+            margin: 4px 0 12px 0;
+        `;
+        panel.appendChild(divider);
+
+        // JOIN GAME button
+        const joinBtn = this.createButton('JOIN GAME', true);
+        joinBtn.addEventListener('click', () => this.onJoinGameCallback?.());
+        panel.appendChild(joinBtn);
+
+        // Spectate button
+        const specBtn = this.createButton('SPECTATE', false);
+        specBtn.addEventListener('click', () => this.onSpectateCallback?.());
+        panel.appendChild(specBtn);
+
+        // Hint text
+        const hint = document.createElement('div');
+        hint.style.cssText = `
+            font-family: 'Rajdhani', 'Outfit', sans-serif;
+            font-size: 11px;
+            color: rgba(255,140,0,0.45);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-top: 8px;
+        `;
+        hint.textContent = 'Press J to join';
+        panel.appendChild(hint);
+
+        this.joinOverlay.appendChild(panel);
+        this.container.appendChild(this.joinOverlay);
+
+        // ── Spectating Bar (top center, shows during first-person spec) ──
+        this.spectatingBar = document.createElement('div');
+        this.spectatingBar.id = 'spectator-bar';
+        this.spectatingBar.style.cssText = `
+            position: absolute;
+            top: 8px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: none;
+            align-items: center;
+            gap: 12px;
+            padding: 6px 24px;
+            background: rgba(0, 0, 0, 0.7);
+            border: 1px solid rgba(255, 100, 0, 0.4);
+            border-radius: 4px;
+            font-family: 'Outfit', 'Segoe UI', sans-serif;
+            pointer-events: none;
+        `;
+
+        const specLabel = document.createElement('span');
+        specLabel.style.cssText = `
+            font-size: 12px;
+            font-weight: 600;
+            color: rgba(255, 140, 0, 0.9);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        `;
+        specLabel.textContent = 'SPECTATING';
+        this.spectatingBar.appendChild(specLabel);
+
+        this.spectatingNameEl = document.createElement('span');
+        this.spectatingNameEl.style.cssText = `
+            font-size: 16px;
+            font-weight: 700;
+            color: #fff;
+        `;
+        this.spectatingBar.appendChild(this.spectatingNameEl);
+
+        this.container.appendChild(this.spectatingBar);
+
+        // ── Freefly cue (left sidebar panel, below weapon list) ─────
+        this.freeflyCue = document.createElement('div');
+        this.freeflyCue.id = 'spectator-freefly-cue';
+        this.freeflyCue.style.cssText = `
+            position: absolute;
+            bottom: calc(145px * var(--ui-scale, 1));
+            left: calc(28px * var(--ui-scale, 1));
+            display: none;
+            flex-direction: column;
+            width: calc(450px * var(--ui-scale, 1));
+            padding: calc(14px * var(--ui-scale, 1)) calc(16px * var(--ui-scale, 1)) calc(12px * var(--ui-scale, 1));
+            background: linear-gradient(180deg, rgba(10,8,16,0.92) 0%, rgba(6,4,12,0.88) 100%);
+            border: 1px solid rgba(255,100,0,0.3);
+            border-radius: calc(3px * var(--ui-scale, 1));
+            font-family: 'Orbitron', 'Rajdhani', 'Outfit', sans-serif;
+            pointer-events: none;
+            box-sizing: border-box;
+            box-shadow: 0 0 24px rgba(255,80,0,0.06), 0 4px 16px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,140,0,0.06);
+        `;
+
+        // Corner brackets
+        const cueCornerCSS = (top: boolean, left: boolean) => `
+            position: absolute;
+            ${top ? 'top: -1px' : 'bottom: -1px'};
+            ${left ? 'left: -1px' : 'right: -1px'};
+            width: calc(10px * var(--ui-scale, 1)); height: calc(10px * var(--ui-scale, 1));
+            border-${top ? 'top' : 'bottom'}: 2px solid rgba(255,120,0,0.5);
+            border-${left ? 'left' : 'right'}: 2px solid rgba(255,120,0,0.5);
+            pointer-events: none;
+        `;
+        for (const [t, l] of [[true, true], [true, false], [false, true], [false, false]]) {
+            const c = document.createElement('div');
+            c.style.cssText = cueCornerCSS(t as boolean, l as boolean);
+            this.freeflyCue.appendChild(c);
+        }
+
+        // Header: "SPECTATOR"
+        const header = document.createElement('div');
+        header.style.cssText = `
+            font-size: calc(10px * var(--ui-scale, 1));
+            font-weight: 700;
+            color: rgba(255,140,0,0.7);
+            letter-spacing: calc(3px * var(--ui-scale, 1));
+            text-transform: uppercase;
+            margin-bottom: calc(8px * var(--ui-scale, 1));
+            text-align: center;
+        `;
+        header.textContent = 'SPECTATOR';
+        this.freeflyCue.appendChild(header);
+
+        // Divider
+        const div = document.createElement('div');
+        div.style.cssText = `
+            width: 100%; height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255,100,0,0.25), transparent);
+            margin-bottom: calc(10px * var(--ui-scale, 1));
+        `;
+        this.freeflyCue.appendChild(div);
+
+        // Key binding rows (grid: key | action)
+        const bindings: [string, string][] = [
+            ['WASD', 'Fly'],
+            ['MOUSE', 'Look'],
+            ['SHIFT', 'Fast'],
+            ['MOUSE1', 'Chase Player'],
+            ['J', 'Join Game'],
+            ['ESC', 'Menu'],
+        ];
+
+        // Split into two columns of 3
+        const half = Math.ceil(bindings.length / 2);
+        const leftCol = bindings.slice(0, half);
+        const rightCol = bindings.slice(half);
+
+        const grid = document.createElement('div');
+        grid.style.cssText = `
+            display: grid;
+            grid-template-columns: calc(58px * var(--ui-scale, 1)) 1fr calc(20px * var(--ui-scale, 1)) calc(58px * var(--ui-scale, 1)) 1fr;
+            row-gap: calc(6px * var(--ui-scale, 1));
+            column-gap: calc(8px * var(--ui-scale, 1));
+            align-items: center;
+        `;
+
+        const keyCSS = `
+            font-family: 'Orbitron', 'Rajdhani', monospace;
+            font-size: calc(10px * var(--ui-scale, 1));
+            font-weight: 700;
+            color: rgba(255,150,50,0.95);
+            letter-spacing: calc(1px * var(--ui-scale, 1));
+            text-align: right;
+            text-shadow: 0 0 8px rgba(255,100,0,0.25);
+        `;
+        const actionCSS = `
+            font-family: 'Rajdhani', 'Outfit', sans-serif;
+            font-size: calc(11px * var(--ui-scale, 1));
+            font-weight: 500;
+            color: rgba(255,255,255,0.55);
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        `;
+
+        for (let i = 0; i < half; i++) {
+            // Left column
+            const lk = document.createElement('div');
+            lk.style.cssText = keyCSS;
+            lk.textContent = leftCol[i][0];
+            const la = document.createElement('div');
+            la.style.cssText = actionCSS;
+            la.textContent = leftCol[i][1];
+
+            // Vertical divider cell
+            const sep = document.createElement('div');
+            sep.style.cssText = `
+                width: 1px; height: 100%;
+                justify-self: center;
+                background: rgba(255,100,0,0.15);
+            `;
+
+            // Right column
+            const rk = document.createElement('div');
+            rk.style.cssText = keyCSS;
+            rk.textContent = rightCol[i]?.[0] ?? '';
+            const ra = document.createElement('div');
+            ra.style.cssText = actionCSS;
+            ra.textContent = rightCol[i]?.[1] ?? '';
+
+            grid.appendChild(lk);
+            grid.appendChild(la);
+            grid.appendChild(sep);
+            grid.appendChild(rk);
+            grid.appendChild(ra);
+        }
+
+        this.freeflyCue.appendChild(grid);
+        this.container.appendChild(this.freeflyCue);
+
+        document.body.appendChild(this.container);
+    }
+
+    // ── Public API ──────────────────────────────────────────────
+
+    /**
+     * Set the current spectator mode — controls what UI is visible
+     */
+    public setMode(mode: SpectatorMode): void {
+        this.mode = mode;
+
+        // Hide everything first
+        this.joinOverlay.style.display = 'none';
+        this.spectatingBar.style.display = 'none';
+        this.freeflyCue.style.display = 'none';
+
+        switch (mode) {
+            case 'join-overlay':
+                this.joinOverlay.style.display = 'flex';
+                break;
+            case 'freefly':
+                this.freeflyCue.style.display = 'flex';
+                break;
+            case 'first-person':
+                this.spectatingBar.style.display = 'flex';
+                break;
+            case 'hidden':
+                break;
+        }
+    }
+
+    public getMode(): SpectatorMode { return this.mode; }
+
+    /** Set the target player name for first-person spectating bar */
+    public setSpectatingTarget(playerName: string): void {
+        this.spectatingNameEl.textContent = playerName;
+    }
+
+    // ── Callbacks ───────────────────────────────────────────────
+
+    public onJoinGame(cb: () => void): void { this.onJoinGameCallback = cb; }
+    public onSpectate(cb: () => void): void { this.onSpectateCallback = cb; }
+    public onNextPlayer(cb: () => void): void { this._onNextPlayerCallback = cb; }
+    public onPrevPlayer(cb: () => void): void { this._onPrevPlayerCallback = cb; }
+
+    // ── Cleanup ─────────────────────────────────────────────────
+
+    public destroy(): void {
+        this.container.remove();
+    }
+
+    // ── Private ─────────────────────────────────────────────────
+
+    private createButton(text: string, primary: boolean): HTMLElement {
+        const btn = document.createElement('button');
+        btn.textContent = text;
+        btn.style.cssText = `
+            font-family: 'Orbitron', 'Rajdhani', 'Outfit', sans-serif;
+            font-size: ${primary ? '16px' : '13px'};
+            font-weight: ${primary ? '800' : '600'};
+            text-transform: uppercase;
+            letter-spacing: ${primary ? '5px' : '3px'};
+            padding: ${primary ? '14px 48px' : '10px 36px'};
+            border: ${primary ? '2px solid rgba(255,100,0,0.7)' : '1px solid rgba(255,255,255,0.2)'};
+            border-radius: 3px;
+            background: ${primary
+                ? 'linear-gradient(180deg, rgba(255,80,0,0.25) 0%, rgba(255,120,0,0.1) 100%)'
+                : 'rgba(255,255,255,0.04)'};
+            color: ${primary ? '#fff' : 'rgba(255,255,255,0.7)'};
+            cursor: pointer;
+            transition: all 0.2s ease;
+            min-width: 220px;
+            ${primary ? 'box-shadow: 0 0 20px rgba(255,80,0,0.12), inset 0 1px 0 rgba(255,140,0,0.1);' : ''}
+        `;
+
+        btn.addEventListener('mouseenter', () => {
+            btn.style.background = primary
+                ? 'linear-gradient(180deg, rgba(255,80,0,0.4) 0%, rgba(255,120,0,0.2) 100%)'
+                : 'rgba(255,255,255,0.1)';
+            btn.style.borderColor = primary ? 'rgba(255,100,0,1)' : 'rgba(255,255,255,0.4)';
+            btn.style.transform = 'scale(1.02)';
+            if (primary) btn.style.boxShadow = '0 0 30px rgba(255,80,0,0.2), inset 0 1px 0 rgba(255,140,0,0.15)';
+        });
+
+        btn.addEventListener('mouseleave', () => {
+            btn.style.background = primary
+                ? 'linear-gradient(180deg, rgba(255,80,0,0.25) 0%, rgba(255,120,0,0.1) 100%)'
+                : 'rgba(255,255,255,0.04)';
+            btn.style.borderColor = primary ? 'rgba(255,100,0,0.7)' : 'rgba(255,255,255,0.2)';
+            btn.style.transform = 'scale(1)';
+            if (primary) btn.style.boxShadow = '0 0 20px rgba(255,80,0,0.12), inset 0 1px 0 rgba(255,140,0,0.1)';
+        });
+
+        return btn;
+    }
+}

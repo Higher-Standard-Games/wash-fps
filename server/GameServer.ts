@@ -77,6 +77,8 @@ export interface ClientInfo {
     lastAckedTick: number;
     /** The actual filtered GameState last sent to this client (PVS baseline) */
     lastSentState?: GameState;
+    /** true = spectating (no entity in simulation), false = playing */
+    isSpectator: boolean;
 }
 
 // ============================================================================
@@ -399,22 +401,25 @@ export class GameServer {
         const client = this.clients.get(conn.id);
         if (!client) return;
 
-        // Remove player entity
-        const state = this.simulation.getStateMut();
-        state.removeEntity(client.entityId);
+        // Only remove entity and game state if client was actually playing
+        if (!client.isSpectator) {
+            // Remove player entity
+            const state = this.simulation.getStateMut();
+            state.removeEntity(client.entityId);
 
-        // Notify gametype
-        this.gametypeController.onPlayerDisconnect(client.playerId);
+            // Notify gametype
+            this.gametypeController.onPlayerDisconnect(client.playerId);
 
-        // Remove from anti-warp tracker
-        this.movementValidator.removeClient(client.playerId);
+            // Remove from anti-warp tracker
+            this.movementValidator.removeClient(client.playerId);
+        }
 
         this.clients.delete(conn.id);
-        console.log(`[GameServer] Player ${client.playerId} disconnected: ${reason} (${this.clients.size}/${this.config.maxClients})`);
+        console.log(`[GameServer] Player ${client.playerId} disconnected (${client.isSpectator ? 'spectator' : 'player'}): ${reason} (${this.clients.size}/${this.config.maxClients})`);
     }
 
     // Debug counters for message type tracking
-    private msgCounts = { input: 0, ack: 0, join: 0, ready: 0, other: 0, error: 0 };
+    private msgCounts = { input: 0, ack: 0, join: 0, ready: 0, joinGame: 0, spectate: 0, other: 0, error: 0 };
 
     private handleDatagram(conn: ClientConnection, data: Uint8Array): void {
         if (data.length === 0) return;
@@ -422,7 +427,7 @@ export class GameServer {
         try {
             const msgType = MessageCodec.peekMessageType(data);
 
-            // Handle Join message
+            // Handle Join message (initial connect — registers as spectator)
             if (msgType === MessageType.Join) {
                 this.msgCounts.join++;
                 this.handleJoin(conn, data);
@@ -433,6 +438,20 @@ export class GameServer {
             if (msgType === MessageType.Ready) {
                 this.msgCounts.ready++;
                 this.handleReady(conn);
+                return;
+            }
+
+            // Handle JoinGame message (spectator → player)
+            if (msgType === MessageType.JoinGame) {
+                this.msgCounts.joinGame++;
+                this.handleJoinGame(conn);
+                return;
+            }
+
+            // Handle Spectate message (player → spectator)
+            if (msgType === MessageType.Spectate) {
+                this.msgCounts.spectate++;
+                this.handleSpectate(conn);
                 return;
             }
 
@@ -462,9 +481,9 @@ export class GameServer {
             }
 
             // Log message distribution every 500 messages
-            const total = this.msgCounts.input + this.msgCounts.ack + this.msgCounts.join + this.msgCounts.ready + this.msgCounts.other + this.msgCounts.error;
+            const total = this.msgCounts.input + this.msgCounts.ack + this.msgCounts.join + this.msgCounts.ready + this.msgCounts.joinGame + this.msgCounts.spectate + this.msgCounts.other + this.msgCounts.error;
             if (total % 500 === 0) {
-                console.log(`[GameServer] Message distribution (${total} total): Input=${this.msgCounts.input}, Ack=${this.msgCounts.ack}, Join=${this.msgCounts.join}, Ready=${this.msgCounts.ready}, Other=${this.msgCounts.other}, Errors=${this.msgCounts.error}`);
+                console.log(`[GameServer] Message distribution (${total} total): Input=${this.msgCounts.input}, Ack=${this.msgCounts.ack}, Join=${this.msgCounts.join}, Ready=${this.msgCounts.ready}, JoinGame=${this.msgCounts.joinGame}, Spectate=${this.msgCounts.spectate}, Other=${this.msgCounts.other}, Errors=${this.msgCounts.error}`);
             }
         } catch (err) {
             this.msgCounts.error++;
@@ -491,6 +510,10 @@ export class GameServer {
                 }
             } else if (msgType === MessageType.Ready) {
                 this.handleReady(conn);
+            } else if (msgType === MessageType.JoinGame) {
+                this.handleJoinGame(conn);
+            } else if (msgType === MessageType.Spectate) {
+                this.handleSpectate(conn);
             }
         } catch {
             // Silently ignore malformed packets
@@ -513,26 +536,22 @@ export class GameServer {
     // Player Management
     // ========================================================================
 
+    /**
+     * handleJoin — initial connect handshake.
+     * Registers the client as a SPECTATOR (no entity created).
+     * The client must send JoinGame to enter the match.
+     */
     private handleJoin(conn: ClientConnection, data: Uint8Array): void {
         const { playerName } = MessageCodec.decodeJoin(data);
         console.log(`[GameServer] Join request from: ${playerName}`);
 
         let client = this.clients.get(conn.id);
         if (!client) {
-            // Create player
+            // Register client as spectator — NO entity created yet
             const pid = createPlayerId(this.nextPlayerId++);
+            // Reserve an entity ID for when they join the game
             const eid = this.simulation.getStateMut().generateEntityId();
-            const state = this.simulation.getStateMut();
 
-            // Get spawn point from gametype controller (uses spawn strategy)
-            const spawnPoint = this.gametypeController.onPlayerJoin(pid, eid, state);
-
-            // Create entity
-            const entity = createPlayerEntity(eid, pid, spawnPoint);
-            entity.spawnTick = this.simulation.currentTick as number;
-            state.addEntity(entity);
-
-            // Track client
             client = {
                 id: conn.id,
                 connection: conn,
@@ -541,18 +560,12 @@ export class GameServer {
                 playerName: playerName || `Player ${pid}`,
                 lastInputSeq: 0,
                 lastAckedTick: 0,
+                isSpectator: true,  // Start as spectator
             };
             this.clients.set(conn.id, client);
 
-            // Register with anti-warp validator
-            this.movementValidator.addClient(pid);
-
-            console.log(`[GameServer] Player ${pid} spawned at (${spawnPoint.x.toFixed(1)}, ${spawnPoint.y.toFixed(1)}, ${spawnPoint.z.toFixed(1)})`);
-
-            // Debug floor trace
-            this.debugFloorTrace(spawnPoint);
-
-            console.log(`[GameServer] Players: ${this.clients.size}/${this.config.maxClients}`);
+            console.log(`[GameServer] Player ${pid} connected as spectator`);
+            console.log(`[GameServer] Connected clients: ${this.clients.size}/${this.config.maxClients}`);
         }
 
         this.sendWelcome(client);
@@ -562,7 +575,77 @@ export class GameServer {
         this.needsPickupSync.add(client.id);
     }
 
+    /**
+     * handleJoinGame — spectator → player transition.
+     * Creates the player entity and spawns them into the match.
+     */
+    private handleJoinGame(conn: ClientConnection): void {
+        const client = this.clients.get(conn.id);
+        if (!client) return;
+        if (!client.isSpectator) {
+            console.log(`[GameServer] Player ${client.playerId} tried to JoinGame but is already playing`);
+            return;
+        }
+
+        const state = this.simulation.getStateMut();
+
+        // Get spawn point from gametype controller (uses spawn strategy)
+        const spawnPoint = this.gametypeController.onPlayerJoin(client.playerId, client.entityId, state);
+
+        // Create entity
+        const entity = createPlayerEntity(client.entityId, client.playerId, spawnPoint);
+        entity.spawnTick = this.simulation.currentTick as number;
+        state.addEntity(entity);
+
+        // Register with anti-warp validator
+        this.movementValidator.addClient(client.playerId);
+
+        // Mark as playing
+        client.isSpectator = false;
+
+        console.log(`[GameServer] Player ${client.playerId} joined game at (${spawnPoint.x.toFixed(1)}, ${spawnPoint.y.toFixed(1)}, ${spawnPoint.z.toFixed(1)})`);
+
+        // Debug floor trace
+        this.debugFloorTrace(spawnPoint);
+
+        // Re-send JoinAccept so client gets the entity ID confirmation
+        this.sendJoinAccept(client);
+    }
+
+    /**
+     * handleSpectate — player → spectator transition.
+     * Removes the player entity and resets match stats.
+     */
+    private handleSpectate(conn: ClientConnection): void {
+        const client = this.clients.get(conn.id);
+        if (!client) return;
+        if (client.isSpectator) {
+            console.log(`[GameServer] Player ${client.playerId} tried to Spectate but is already spectating`);
+            return;
+        }
+
+        // Remove player entity from simulation
+        const state = this.simulation.getStateMut();
+        state.removeEntity(client.entityId);
+
+        // Remove from gametype tracking (resets scores/deaths)
+        this.gametypeController.onPlayerDisconnect(client.playerId);
+
+        // Remove from anti-warp tracker
+        this.movementValidator.removeClient(client.playerId);
+
+        // Mark as spectator and reserve a fresh entity ID for potential rejoin
+        client.isSpectator = true;
+        client.entityId = state.generateEntityId();
+        client.lastInputSeq = 0;
+
+        console.log(`[GameServer] Player ${client.playerId} is now spectating`);
+    }
+
     private handleInput(client: ClientInfo, data: Uint8Array): void {
+        // Spectators don't send input — skip silently
+        if (client.isSpectator) return;
+
         const { command } = MessageCodec.decodeCommand(data);
         const seq = command.seq || 0;
 

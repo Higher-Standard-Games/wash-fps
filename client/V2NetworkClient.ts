@@ -12,7 +12,8 @@
 import type { Vec3 } from '../../../engine/network/components/TransformComponent';
 import type { CollisionWorld } from '../../../engine/network/systems/collision/CollisionWorld';
 import type { MovementInput } from '../../../engine/network/systems/movement/MovementProfile';
-import { FPSMovementProfile, type AdvancedMovementResult } from '../simulation/FPSMovementProfile';
+import { MovementProfile as FPSMovementProfile } from '../simulation/MovementProfile';
+import type { AdvancedMovementResult } from '../simulation/MovementConfig';
 import { InputHistory, type StoredInput } from './InputHistory';
 
 // ═══════════════════════════════════════════════════════════════════

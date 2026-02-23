@@ -8,7 +8,7 @@ import { VelocityComponent } from '../../../engine/network/components/VelocityCo
 import { InputComponent } from '../../../engine/network/components/InputComponent';
 import { MovementStateComponent } from '../../../engine/network/components/MovementStateComponent';
 import { NullCollisionWorld, type CollisionWorld } from '../../../engine/network/systems/collision/CollisionWorld';
-import { FPSMovementProfile } from './FPSMovementProfile';
+import { MovementProfile as FPSMovementProfile } from './MovementProfile';
 
 /**
  * FPS-specific command for player input

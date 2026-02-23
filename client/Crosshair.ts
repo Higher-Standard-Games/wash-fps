@@ -82,6 +82,13 @@ export class Crosshair {
         this.ctx = this.canvas.getContext('2d')!;
         this.container.appendChild(this.canvas);
         document.body.appendChild(this.container);
+
+        // Hide crosshair when pointer lock is lost (pause menu / ESC)
+        document.addEventListener('pointerlockchange', () => {
+            if (!document.pointerLockElement && this.container) {
+                this.container.style.display = 'none';
+            }
+        });
     }
 
     /**
@@ -133,8 +140,9 @@ export class Crosshair {
         // Cvar: crosshair enabled?
         const enabled = (Cvar.get('cg_crosshair') as number ?? 1) > 0;
 
-        // Hide conditions: disabled, dead, not joined
-        const shouldShow = enabled && !isDead && isJoined;
+        // Hide conditions: disabled, dead, not joined, or pointer lock lost (pause menu)
+        const hasPointerLock = !!document.pointerLockElement;
+        const shouldShow = enabled && !isDead && isJoined && hasPointerLock;
         this.container.style.display = shouldShow ? '' : 'none';
         if (!shouldShow) return;
 
