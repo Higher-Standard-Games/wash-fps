@@ -39,6 +39,7 @@ import { FPSPlayer } from './FPSPlayer';
 import { NetGraph } from '../../engine/network/client/NetGraph';
 import { InputSystem } from '../../engine/input/InputSystem';
 import { registerFPSActions } from './client/FPSActions';
+import { PlayerProfile } from '../../engine/player/PlayerProfile';
 
 export interface FPSGameConfig {
   tickRate?: number;
@@ -127,6 +128,8 @@ export class FPSGameManager {
   private playerState: 'spectator' | 'playing' = 'spectator';
   private spectatorOverlay: import('./client/SpectatorOverlay').SpectatorOverlay | null = null;
   private _joinKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+  private _scoreboardKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+  private _scoreboardKeyUpHandler: ((e: KeyboardEvent) => void) | null = null;
 
   private pendingTick: number = 0;
 
@@ -319,8 +322,12 @@ export class FPSGameManager {
         this.onServerStateUpdate(state);
       });
 
+      // Load player profile and connect with display name
+      const profile = PlayerProfile.load();
+      console.log(`[FPSGameManager] Connecting as "${profile.name}" (id: ${profile.id.substring(0, 8)}...)`);
+
       // Connect to server (this triggers onServerInfo callback which loads map and sets collision)
-      await networkHost.connect(url);
+      await networkHost.connect(url, profile.name);
 
       // Update player ID after connect (server assigns it during handshake)
       this.localPlayerId = networkHost.localPlayerId;
@@ -362,6 +369,24 @@ export class FPSGameManager {
         }
       };
       document.addEventListener('keydown', this._joinKeyHandler);
+
+      // ── Tab key: hold-to-show scoreboard (Quake style) ──
+      this._scoreboardKeyHandler = (e: KeyboardEvent) => {
+        if (e.code === 'Tab') {
+          e.preventDefault();
+          const hud = FPSHud.getInstance();
+          hud.scoreboard?.show();
+        }
+      };
+      this._scoreboardKeyUpHandler = (e: KeyboardEvent) => {
+        if (e.code === 'Tab') {
+          e.preventDefault();
+          const hud = FPSHud.getInstance();
+          hud.scoreboard?.hide();
+        }
+      };
+      document.addEventListener('keydown', this._scoreboardKeyHandler);
+      document.addEventListener('keyup', this._scoreboardKeyUpHandler);
 
     } catch (error) {
       console.error(`[FPSGameManager] Failed to connect to ${url}:`, error);
@@ -968,6 +993,20 @@ export class FPSGameManager {
     this.serverUrl = null;
     this.commandSeq = 1; // Must match InputHistory.nextSeq (starts at 1)
     this.onStateUpdateCallbacks = [];
+
+    // Cleanup event listeners
+    if (this._joinKeyHandler) {
+      document.removeEventListener('keydown', this._joinKeyHandler);
+      this._joinKeyHandler = null;
+    }
+    if (this._scoreboardKeyHandler) {
+      document.removeEventListener('keydown', this._scoreboardKeyHandler);
+      this._scoreboardKeyHandler = null;
+    }
+    if (this._scoreboardKeyUpHandler) {
+      document.removeEventListener('keyup', this._scoreboardKeyUpHandler);
+      this._scoreboardKeyUpHandler = null;
+    }
 
     // Cleanup match state and HUD
 

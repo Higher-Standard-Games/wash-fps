@@ -37,6 +37,9 @@ import { GametypeController } from './gametypes/GametypeController';
 import { Deathmatch } from './gametypes/Deathmatch';
 import type { BaseGametype } from './gametypes/BaseGametype';
 
+// Bot names
+import { getNextBotName } from '../../../engine/player/BotNames';
+
 // PVS (Potentially Visible Set) for network culling
 import { ServerPVS, type ServerPVSData } from '../../../engine/server/ServerPVS';
 
@@ -98,6 +101,10 @@ export class GameServer {
     private tickTimer: ReturnType<typeof setTimeout> | null = null;
     /** Clients that need initial pickup state sync (pickups deactivated before they joined) */
     private needsPickupSync: Set<string> = new Set();
+    /** Bot player ID → display name */
+    private botNames: Map<PlayerId, string> = new Map();
+    /** Set of bot names currently in use (for dedup) */
+    private usedBotNames: Set<string> = new Set();
 
     // Subsystems
     private physicsSystem: FPSMovementSubsystem;
@@ -271,7 +278,12 @@ export class GameServer {
         // Track as bot for auto-ready
         this.gametypeController.registerBot(pid);
 
-        console.log(`[GameServer] Bot ${pid} (entity ${eid}) spawned at (${spawnPoint.x.toFixed(1)}, ${spawnPoint.y.toFixed(1)}, ${spawnPoint.z.toFixed(1)})`);
+        // Assign a themed bot name
+        const botName = getNextBotName(this.usedBotNames);
+        this.botNames.set(pid, botName);
+        this.usedBotNames.add(botName);
+
+        console.log(`[GameServer] Bot "${botName}" (${pid}, entity ${eid}) spawned at (${spawnPoint.x.toFixed(1)}, ${spawnPoint.y.toFixed(1)}, ${spawnPoint.z.toFixed(1)})`);
         return eid;
     }
 
@@ -834,7 +846,7 @@ export class GameServer {
                     const deaths = matchState.getDeaths(entity.ownerId);
 
                     // Find real player name and ping from client info
-                    let displayName = `Player ${entity.ownerId}`;
+                    let displayName = this.botNames.get(entity.ownerId) || `Player ${entity.ownerId}`;
                     let ping = 0;
                     for (const client of this.clients.values()) {
                         if (client.playerId === entity.ownerId) {
