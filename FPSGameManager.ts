@@ -37,6 +37,8 @@ import { DroppedWeaponRenderer } from './client/DroppedWeaponRenderer';
 import { getExplosionEffect, ROCKET_EXPLOSION, GRENADE_EXPLOSION, PLASMA_EXPLOSION } from '../../engine/weapon/ExplosionEffect';
 import { FPSPlayer } from './FPSPlayer';
 import { NetGraph } from '../../engine/network/client/NetGraph';
+import { InputSystem } from '../../engine/input/InputSystem';
+import { registerFPSActions } from './client/FPSActions';
 
 export interface FPSGameConfig {
   tickRate?: number;
@@ -134,7 +136,10 @@ export class FPSGameManager {
   private _pendingGibSpawns: { x: number; y: number; z: number; vx: number; vy: number; vz: number }[] = [];
   private _damageNumbers: any = null;
 
-  private constructor() { }
+  private constructor() {
+    // Register all FPS actions + contexts with InputSystem
+    registerFPSActions();
+  }
 
   static getInstance(): FPSGameManager {
     if (!FPSGameManager.instance) {
@@ -349,9 +354,10 @@ export class FPSGameManager {
       });
 
       // ── J key shortcut to join game from spectator mode ──
-      this._joinKeyHandler = (e: KeyboardEvent) => {
-        if (e.code === 'KeyJ' && this.playerState === 'spectator') {
-          e.preventDefault();
+      // Uses InputSystem's raw key state (this runs in an event handler, not per-frame)
+      this._joinKeyHandler = (_e: KeyboardEvent) => {
+        const input = InputSystem.getInstance();
+        if (input.isKeyDown('KeyJ') && this.playerState === 'spectator') {
           this.joinGame();
         }
       };

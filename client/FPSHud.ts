@@ -16,6 +16,7 @@ import { GamePaths } from '../../../engine/core/GamePaths';
 import { CameraSystem } from '../../../engine/camera/CameraSystem';
 import { HUDState } from './HUDState';
 import { MatchStateManager, MatchPhase } from './MatchStateManager';
+import { FPS, getActionKeyLabel } from './FPSActions';
 
 // Import CSS as raw string (Vite)
 import washikiTheme from '../../../engine/ui/hud/styles/WashikiTheme.css?raw';
@@ -665,7 +666,9 @@ export class FPSWeaponSlots implements FPSHudWidget {
 
             const key = document.createElement('div');
             key.className = 'fps-weapon-slot-key';
-            key.textContent = String(i + 1);
+            // Dynamic label from InputSystem bindings (e.g. '1', 'Q')
+            const weaponActionId = `fps_weapon_${i + 1}`;
+            key.textContent = getActionKeyLabel(weaponActionId);
             slot.appendChild(key);
 
             const name = document.createElement('div');
@@ -1122,16 +1125,16 @@ export class FPSKillFeed implements FPSHudWidget {
 /**
  * All weapon IDs in slot order (matches number key bindings 1-9)
  */
-const WEAPON_SLOTS: { id: string; key: string; name: string }[] = [
-    { id: 'gunblade', key: '1', name: 'GB' },
-    { id: 'machinegun', key: '2', name: 'MG' },
-    { id: 'riotgun', key: '3', name: 'RG' },
-    { id: 'glauncher', key: '4', name: 'GL' },
-    { id: 'rlauncher', key: '5', name: 'RL' },
-    { id: 'plasmagun', key: '6', name: 'PG' },
-    { id: 'lasergun', key: '7', name: 'LG' },
-    { id: 'electrobolt', key: '8', name: 'EB' },
-    { id: 'instagun', key: '9', name: 'IG' },
+const WEAPON_SLOTS: { id: string; slot: number; name: string }[] = [
+    { id: 'gunblade', slot: 1, name: 'GB' },
+    { id: 'machinegun', slot: 2, name: 'MG' },
+    { id: 'riotgun', slot: 3, name: 'RG' },
+    { id: 'glauncher', slot: 4, name: 'GL' },
+    { id: 'rlauncher', slot: 5, name: 'RL' },
+    { id: 'plasmagun', slot: 6, name: 'PG' },
+    { id: 'lasergun', slot: 7, name: 'LG' },
+    { id: 'electrobolt', slot: 8, name: 'EB' },
+    { id: 'instagun', slot: 9, name: 'IG' },
 ];
 
 /**
@@ -1157,7 +1160,7 @@ export class FPSWeaponRack implements FPSHudWidget {
 
             const key = document.createElement('span');
             key.className = 'fps-weapon-slot-key';
-            key.textContent = slot.key;
+            key.textContent = getActionKeyLabel(`fps_weapon_${slot.slot}`);
 
             const name = document.createElement('span');
             name.className = 'fps-weapon-slot-name';
