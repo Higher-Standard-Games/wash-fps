@@ -9,6 +9,8 @@
  * Uses Washiki theme styling consistent with FPSHud.
  */
 
+import { FPS, getActionKeyLabel } from './FPSActions';
+
 export type SpectatorMode = 'join-overlay' | 'freefly' | 'first-person' | 'hidden';
 
 export class SpectatorOverlay {
@@ -131,7 +133,8 @@ export class SpectatorOverlay {
             letter-spacing: 2px;
             margin-top: 8px;
         `;
-        hint.textContent = 'Press J to join';
+        const joinKey = getActionKeyLabel(FPS.JOIN_GAME);
+        hint.textContent = `Press ${joinKey} to join`;
         panel.appendChild(hint);
 
         this.joinOverlay.appendChild(panel);
@@ -236,13 +239,27 @@ export class SpectatorOverlay {
         `;
         this.freeflyCue.appendChild(div);
 
-        // Key binding rows (grid: key | action)
+        // Dynamic key labels from InputSystem
+        const moveKeys = [
+            getActionKeyLabel(FPS.MOVE_FORWARD),
+            getActionKeyLabel(FPS.MOVE_LEFT),
+            getActionKeyLabel(FPS.MOVE_BACKWARD),
+            getActionKeyLabel(FPS.MOVE_RIGHT),
+        ].join('');
+        const sprintKey = getActionKeyLabel(FPS.SPRINT);
+        const fireKey = getActionKeyLabel(FPS.FIRE);
+        const joinKey2 = getActionKeyLabel(FPS.JOIN_GAME);
+        const jumpKey = getActionKeyLabel(FPS.JUMP);
+        const crouchKey = getActionKeyLabel(FPS.CROUCH);
+
         const bindings: [string, string][] = [
-            ['WASD', 'Fly'],
+            [moveKeys, 'Fly'],
             ['MOUSE', 'Look'],
-            ['SHIFT', 'Fast'],
-            ['MOUSE1', 'Chase Player'],
-            ['J', 'Join Game'],
+            [sprintKey, 'Fast'],
+            [jumpKey, 'Fly Up'],
+            [crouchKey, 'Fly Down'],
+            [fireKey, 'Chase Player'],
+            [joinKey2, 'Join Game'],
             ['ESC', 'Menu'],
         ];
 
