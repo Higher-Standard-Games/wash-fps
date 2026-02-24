@@ -49,6 +49,14 @@ export abstract class BaseGametype {
     // Events — GametypeController calls these
     // ========================================================================
 
+    /** Called when a player first joins the game */
+    abstract onPlayerJoin(
+        playerId: PlayerId,
+        entityId: string,
+        state: WorldState,
+        teamId?: string
+    ): void;
+
     /** Called when a player spawns (initial or respawn) */
     abstract onSpawn(player: Entity, state: WorldState): void;
 

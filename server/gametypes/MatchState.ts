@@ -6,7 +6,7 @@
  */
 
 import type { PlayerId } from '@engine/server/ecs/types';
-import { MatchPhase, type MatchConfig, type MatchStateSnapshot } from '@shared/server/gametype';
+import { MatchPhase, type MatchConfig, type MatchStateSnapshot, type TeamId } from '@shared/server/gametype';
 
 /**
  * Default match config (can be overridden by gametype)
@@ -28,6 +28,9 @@ export class MatchState {
     private _totalPlayers: number = 0;
     private _scores: Map<PlayerId, number> = new Map();
     private _deaths: Map<PlayerId, number> = new Map();
+    private _teamScores: Map<TeamId, number> = new Map([['udon', 0], ['soba', 0]]);
+    private _playerTeams: Map<PlayerId, TeamId> = new Map();
+    private _teamNames: Map<TeamId, string> = new Map([['udon', 'Team Udon'], ['soba', 'Team Soba']]);
     private config: MatchConfig;
     private gametypeName: string;
 
@@ -47,6 +50,9 @@ export class MatchState {
     get totalPlayers(): number { return this._totalPlayers; }
     get scores(): ReadonlyMap<PlayerId, number> { return this._scores; }
     get deaths(): ReadonlyMap<PlayerId, number> { return this._deaths; }
+    get teamScores(): ReadonlyMap<TeamId, number> { return this._teamScores; }
+    get playerTeams(): ReadonlyMap<PlayerId, TeamId> { return this._playerTeams; }
+    get teamNames(): ReadonlyMap<TeamId, string> { return this._teamNames; }
 
     // ========================================================================
     // Match Configuration
@@ -64,6 +70,7 @@ export class MatchState {
         this._totalPlayers++;
         this._scores.set(playerId, 0);
         this._deaths.set(playerId, 0);
+        this._playerTeams.set(playerId, 'spectator'); // default to spec
     }
 
     removePlayer(playerId: PlayerId): void {
@@ -71,6 +78,7 @@ export class MatchState {
         this._readyPlayers.delete(playerId);
         this._scores.delete(playerId);
         this._deaths.delete(playerId);
+        this._playerTeams.delete(playerId);
     }
 
     playerReady(playerId: PlayerId): void {
@@ -107,6 +115,51 @@ export class MatchState {
 
     getDeaths(playerId: PlayerId): number {
         return this._deaths.get(playerId) || 0;
+    }
+
+    addTeamScore(teamId: TeamId, points: number = 1): void {
+        if (this._phase !== MatchPhase.Active) return;
+        const current = this._teamScores.get(teamId) || 0;
+        this._teamScores.set(teamId, current + points);
+    }
+
+    getTeamScore(teamId: TeamId): number {
+        return this._teamScores.get(teamId) || 0;
+    }
+
+    setPlayerTeam(playerId: PlayerId, teamId: TeamId): void {
+        this._playerTeams.set(playerId, teamId);
+    }
+
+    getPlayerTeam(playerId: PlayerId): TeamId {
+        return this._playerTeams.get(playerId) || 'spectator';
+    }
+
+    setTeamName(teamId: TeamId, name: string): void {
+        this._teamNames.set(teamId, name);
+    }
+
+    getTeamName(teamId: TeamId): string {
+        return this._teamNames.get(teamId) || (teamId === 'udon' ? 'Team Udon' : teamId === 'soba' ? 'Team Soba' : 'Spectator');
+    }
+
+    assignTeamBalance(playerId: PlayerId, gametypeName?: string): TeamId {
+        let udonCount = 0;
+        let sobaCount = 0;
+        for (const team of this._playerTeams.values()) {
+            if (team === 'udon') udonCount++;
+            if (team === 'soba') sobaCount++;
+        }
+
+        let assignedTeam: TeamId;
+        if (gametypeName === 'Duel' && (udonCount + sobaCount) >= 2) {
+            assignedTeam = 'spectator';
+        } else {
+            assignedTeam = udonCount <= sobaCount ? 'udon' : 'soba';
+        }
+
+        this.setPlayerTeam(playerId, assignedTeam);
+        return assignedTeam;
     }
 
     // ========================================================================
@@ -202,6 +255,8 @@ export class MatchState {
                     this._scores.set(id, 0);
                     this._deaths.set(id, 0);
                 }
+                this._teamScores.set('udon', 0);
+                this._teamScores.set('soba', 0);
                 break;
             case MatchPhase.PostGame:
                 this._timeRemaining = this.config.postGameDuration;
@@ -234,6 +289,22 @@ export class MatchState {
      * Create a lightweight snapshot for sending to clients
      */
     toSnapshot(): MatchStateSnapshot {
+        // Convert Maps to Records for simpler JSON serialization
+        const teamScoresRec: Record<TeamId, number> = {
+            udon: this._teamScores.get('udon') || 0,
+            soba: this._teamScores.get('soba') || 0,
+            spectator: 0
+        };
+        const playerTeamsRec: Record<string, TeamId> = {};
+        for (const [playerId, teamId] of this._playerTeams) {
+            playerTeamsRec[playerId.toString()] = teamId;
+        }
+        const teamNamesRec: Record<TeamId, string> = {
+            udon: this._teamNames.get('udon') || 'Team Udon',
+            soba: this._teamNames.get('soba') || 'Team Soba',
+            spectator: 'Spectator'
+        };
+
         return {
             phase: this._phase,
             timeRemaining: Math.max(0, this._timeRemaining),
@@ -241,6 +312,9 @@ export class MatchState {
             totalPlayers: this._totalPlayers,
             gametypeName: this.gametypeName,
             scoreLimit: this.config.scoreLimit,
+            teamScores: teamScoresRec,
+            playerTeams: playerTeamsRec,
+            teamNames: teamNamesRec,
         };
     }
 }

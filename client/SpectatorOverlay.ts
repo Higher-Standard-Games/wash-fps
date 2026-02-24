@@ -9,6 +9,7 @@
  * Uses Washiki theme styling consistent with FPSHud.
  */
 
+import { MatchStateManager } from './MatchStateManager';
 import { FPS, getActionKeyLabel } from './FPSActions';
 
 export type SpectatorMode = 'join-overlay' | 'freefly' | 'first-person' | 'hidden';
@@ -21,8 +22,11 @@ export class SpectatorOverlay {
     private freeflyCue: HTMLElement;
     private mode: SpectatorMode = 'hidden';
 
-    private onJoinGameCallback: (() => void) | null = null;
+    private onJoinGameCallback: ((teamId?: string) => void) | null = null;
     private onSpectateCallback: (() => void) | null = null;
+    private buttonsContainer: HTMLElement;
+    private hintEl: HTMLElement;
+
     // Reserved for first-person spectating (future)
     private _onNextPlayerCallback: (() => void) | null = null;
     private _onPrevPlayerCallback: (() => void) | null = null;
@@ -113,19 +117,19 @@ export class SpectatorOverlay {
         `;
         panel.appendChild(divider);
 
-        // JOIN GAME button
-        const joinBtn = this.createButton('JOIN GAME', true);
-        joinBtn.addEventListener('click', () => this.onJoinGameCallback?.());
-        panel.appendChild(joinBtn);
-
-        // Spectate button
-        const specBtn = this.createButton('SPECTATE', false);
-        specBtn.addEventListener('click', () => this.onSpectateCallback?.());
-        panel.appendChild(specBtn);
+        // Buttons container
+        this.buttonsContainer = document.createElement('div');
+        this.buttonsContainer.style.cssText = `
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            align-items: center;
+        `;
+        panel.appendChild(this.buttonsContainer);
 
         // Hint text
-        const hint = document.createElement('div');
-        hint.style.cssText = `
+        this.hintEl = document.createElement('div');
+        this.hintEl.style.cssText = `
             font-family: 'Rajdhani', 'Outfit', sans-serif;
             font-size: 11px;
             color: rgba(255,140,0,0.45);
@@ -133,12 +137,12 @@ export class SpectatorOverlay {
             letter-spacing: 2px;
             margin-top: 8px;
         `;
-        const joinKey = getActionKeyLabel(FPS.JOIN_GAME);
-        hint.textContent = `Press ${joinKey} to join`;
-        panel.appendChild(hint);
+        panel.appendChild(this.hintEl);
 
         this.joinOverlay.appendChild(panel);
         this.container.appendChild(this.joinOverlay);
+
+        this.refreshJoinPanel();
 
         // ── Spectating Bar (top center, shows during first-person spec) ──
         this.spectatingBar = document.createElement('div');
@@ -348,6 +352,7 @@ export class SpectatorOverlay {
 
         switch (mode) {
             case 'join-overlay':
+                this.refreshJoinPanel();
                 this.joinOverlay.style.display = 'flex';
                 break;
             case 'freefly':
@@ -370,10 +375,18 @@ export class SpectatorOverlay {
 
     // ── Callbacks ───────────────────────────────────────────────
 
-    public onJoinGame(cb: () => void): void { this.onJoinGameCallback = cb; }
+    public onJoinGame(cb: (teamId?: string) => void): void { this.onJoinGameCallback = cb; }
     public onSpectate(cb: () => void): void { this.onSpectateCallback = cb; }
-    public onNextPlayer(cb: () => void): void { this._onNextPlayerCallback = cb; }
-    public onPrevPlayer(cb: () => void): void { this._onPrevPlayerCallback = cb; }
+
+    // Suppress TS unused warnings for future callbacks
+    public onNextPlayer(cb: () => void): void {
+        this._onNextPlayerCallback = cb;
+        if (this._onNextPlayerCallback !== null) { } // TS hack to mark as read
+    }
+    public onPrevPlayer(cb: () => void): void {
+        this._onPrevPlayerCallback = cb;
+        if (this._onPrevPlayerCallback !== null) { } // TS hack to mark as read
+    }
 
     // ── Cleanup ─────────────────────────────────────────────────
 
@@ -424,5 +437,46 @@ export class SpectatorOverlay {
         });
 
         return btn;
+    }
+
+    private refreshJoinPanel(): void {
+        if (!this.buttonsContainer || !this.hintEl) return;
+
+        this.buttonsContainer.innerHTML = '';
+
+        const state = MatchStateManager.getInstance();
+        const hasTeams = Object.keys(state.teamScores).length > 0;
+
+        if (hasTeams) {
+            // Team Udon btn
+            const udonBtn = this.createButton('JOIN TEAM UDON', true);
+            udonBtn.style.borderColor = 'rgba(255, 0, 200, 0.7)';
+            udonBtn.style.background = 'linear-gradient(180deg, rgba(255,0,200,0.25) 0%, rgba(255,0,200,0.1) 100%)';
+            udonBtn.addEventListener('click', () => this.onJoinGameCallback?.('udon'));
+            this.buttonsContainer.appendChild(udonBtn);
+
+            // Team Soba btn
+            const sobaBtn = this.createButton('JOIN TEAM SOBA', true);
+            sobaBtn.style.borderColor = 'rgba(0, 255, 255, 0.7)';
+            sobaBtn.style.background = 'linear-gradient(180deg, rgba(0,255,255,0.25) 0%, rgba(0,255,255,0.1) 100%)';
+            sobaBtn.addEventListener('click', () => this.onJoinGameCallback?.('soba'));
+            this.buttonsContainer.appendChild(sobaBtn);
+
+            const joinKey = getActionKeyLabel(FPS.JOIN_GAME);
+            this.hintEl.textContent = `Press ${joinKey} to auto-assign`;
+        } else {
+            // Standard FFA btn
+            const joinBtn = this.createButton('JOIN GAME', true);
+            joinBtn.addEventListener('click', () => this.onJoinGameCallback?.());
+            this.buttonsContainer.appendChild(joinBtn);
+
+            const joinKey = getActionKeyLabel(FPS.JOIN_GAME);
+            this.hintEl.textContent = `Press ${joinKey} to join`;
+        }
+
+        // Shared spectate button
+        const specBtn = this.createButton('SPECTATE', false);
+        specBtn.addEventListener('click', () => this.onSpectateCallback?.());
+        this.buttonsContainer.appendChild(specBtn);
     }
 }

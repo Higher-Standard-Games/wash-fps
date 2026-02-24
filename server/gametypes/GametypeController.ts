@@ -92,9 +92,45 @@ export class GametypeController {
      * Handle a new player joining.
      * Returns a spawn position for the player entity.
      */
-    onPlayerJoin(playerId: PlayerId, entityId: EntityId, state: WorldState): Vec3 {
+    onPlayerJoin(playerId: PlayerId, entityId: EntityId, state: WorldState, teamId?: string, playerName?: string): Vec3 | null {
         // Track in match state
         this.matchState.addPlayer(playerId);
+
+        // Auto-balance teams if team-based
+        if (this.gametype.teamBased) {
+            // For Duel, rename the team to the player's name
+            if (this.gametype.name === 'Duel') {
+                const assignedPlayerName = playerName || `Player ${playerId}`;
+                let assignedTeam = teamId as any;
+
+                // If they didn't pick a team, or if they picked a team but Duel is full
+                if (!assignedTeam || assignedTeam !== 'spectator') {
+                    // Let assignTeamBalance handle spectator forcing if full
+                    assignedTeam = this.matchState.assignTeamBalance(playerId, this.gametype.name);
+                } else {
+                    this.matchState.setPlayerTeam(playerId, assignedTeam);
+                }
+
+                if (assignedTeam !== 'spectator') {
+                    this.matchState.setTeamName(assignedTeam, assignedPlayerName);
+                }
+            } else {
+                if (teamId) {
+                    this.matchState.setPlayerTeam(playerId, teamId as any);
+                } else {
+                    this.matchState.assignTeamBalance(playerId, this.gametype.name);
+                }
+            }
+        }
+
+        const finalTeamId = this.matchState.getPlayerTeam(playerId);
+        if (finalTeamId === 'spectator') {
+            console.log(`[GametypeController] Player ${playerId} observing as spectator (${this.matchState.totalPlayers} total)`);
+            return null;
+        }
+
+        // Delegate to gametype for specific logic (e.g. initial loadout)
+        this.gametype.onPlayerJoin(playerId, String(entityId), state, teamId);
 
         // Choose spawn point
         const spawn = this.spawnStrategy.choose(this.spawnPoints, state, entityId);
@@ -173,10 +209,38 @@ export class GametypeController {
                     // Update score (only during Active phase)
                     if (this.matchState.phase === MatchPhase.Active) {
                         if (killer?.ownerId && killer.ownerId !== victim.ownerId) {
-                            this.matchState.addScore(killer.ownerId, 1);
+                            if (this.gametype.teamBased) {
+                                const killerTeam = this.matchState.getPlayerTeam(killer.ownerId);
+                                const victimTeam = victim.ownerId ? this.matchState.getPlayerTeam(victim.ownerId) : 'spectator';
+
+                                if (killerTeam === victimTeam) {
+                                    // Friendly fire / Team kill
+                                    this.matchState.addScore(killer.ownerId, -1);
+                                    this.matchState.addTeamScore(killerTeam, -1);
+                                } else if (killerTeam !== 'spectator') {
+                                    // Enemy kill
+                                    this.matchState.addScore(killer.ownerId, 1);
+                                    this.matchState.addTeamScore(killerTeam, 1);
+                                }
+                            } else {
+                                // FFA: any kill is +1
+                                this.matchState.addScore(killer.ownerId, 1);
+                            }
+                        } else if (killer?.ownerId === victim.ownerId) {
+                            // Suicide
+                            if (victim.ownerId !== undefined) {
+                                this.matchState.addScore(victim.ownerId, -1);
+                                if (this.gametype.teamBased) {
+                                    const victimTeam = this.matchState.getPlayerTeam(victim.ownerId);
+                                    if (victimTeam !== 'spectator') {
+                                        this.matchState.addTeamScore(victimTeam, -1);
+                                    }
+                                }
+                            }
                         }
+
                         // Track deaths
-                        if (victim.ownerId) {
+                        if (victim.ownerId !== undefined) {
                             this.matchState.addDeath(victim.ownerId);
                         }
                     }
@@ -219,13 +283,27 @@ export class GametypeController {
         if (this.matchState.phase === MatchPhase.Active) {
             const config = this.gametype.getMatchConfig();
             if (config.scoreLimit > 0) {
-                // Check if any player reached score limit
-                for (const [_playerId, score] of this.matchState.scores) {
-                    if (score >= config.scoreLimit) {
-                        console.log(`[GametypeController] Score limit reached!`);
-                        this.matchState.endMatch();
-                        break;
+                let limitReached = false;
+
+                if (this.gametype.teamBased) {
+                    for (const [_teamId, score] of this.matchState.teamScores) {
+                        if (score >= config.scoreLimit) {
+                            limitReached = true;
+                            break;
+                        }
                     }
+                } else {
+                    for (const [_playerId, score] of this.matchState.scores) {
+                        if (score >= config.scoreLimit) {
+                            limitReached = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (limitReached) {
+                    console.log(`[GametypeController] Score limit reached!`);
+                    this.matchState.endMatch();
                 }
             }
         }

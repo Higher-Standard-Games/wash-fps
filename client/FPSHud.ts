@@ -16,7 +16,7 @@ import { GamePaths } from '../../../engine/core/GamePaths';
 import { CameraSystem } from '../../../engine/camera/CameraSystem';
 import { HUDState } from './HUDState';
 import { MatchStateManager, MatchPhase } from './MatchStateManager';
-import { FPS, getActionKeyLabel } from './FPSActions';
+import { getActionKeyLabel } from './FPSActions';
 
 // Import CSS as raw string (Vite)
 import washikiTheme from '../../../engine/ui/hud/styles/WashikiTheme.css?raw';
@@ -1409,40 +1409,31 @@ export class FPSScoreboard {
     private titleEl: HTMLElement;
     private visible: boolean = false;
     private localPlayerId: string = '';
+    private board: HTMLElement;
 
     constructor() {
         this.overlay = document.createElement('div');
         this.overlay.className = 'fps-scoreboard-overlay';
         this.overlay.style.display = 'none';
 
-        const board = document.createElement('div');
-        board.className = 'fps-scoreboard manga-panel';
+        this.board = document.createElement('div');
+        this.board.className = 'fps-scoreboard manga-panel';
 
         const corners = document.createElement('div');
         corners.className = 'manga-panel-corners';
-        board.appendChild(corners);
+        this.board.appendChild(corners);
 
         this.titleEl = document.createElement('div');
         this.titleEl.className = 'fps-scoreboard-title';
         this.titleEl.textContent = 'SCOREBOARD';
-        board.appendChild(this.titleEl);
+        this.board.appendChild(this.titleEl);
 
-        // Header
-        const header = document.createElement('div');
-        header.className = 'fps-scoreboard-header';
-        header.innerHTML = `
-            <span class="fps-scoreboard-col-name">Player</span>
-            <span class="fps-scoreboard-col-score">Score</span>
-            <span class="fps-scoreboard-col-deaths">Deaths</span>
-            <span class="fps-scoreboard-col-ping">Ping</span>
-        `;
-        board.appendChild(header);
-
+        // Header and layout generated dynamically in refresh()
         this.bodyEl = document.createElement('div');
         this.bodyEl.className = 'fps-scoreboard-body';
-        board.appendChild(this.bodyEl);
+        this.board.appendChild(this.bodyEl);
 
-        this.overlay.appendChild(board);
+        this.overlay.appendChild(this.board);
         document.body.appendChild(this.overlay);
     }
 
@@ -1484,22 +1475,136 @@ export class FPSScoreboard {
         if (!this.visible) return;
 
         const state = HUDState.getInstance();
-        this.bodyEl.innerHTML = '';
+        const hasTeams = Object.keys(state.teamScores).length > 0;
 
-        for (const entry of state.scoreboard) {
-            const row = document.createElement('div');
-            row.className = 'fps-scoreboard-row';
-            if (entry.playerId === this.localPlayerId) {
-                row.classList.add('fps-scoreboard-row--self');
+        // Clear existing layout
+        this.board.innerHTML = '';
+
+        // Add corners
+        const corners = document.createElement('div');
+        corners.className = 'manga-panel-corners';
+        this.board.appendChild(corners);
+
+        // Add title
+        this.board.appendChild(this.titleEl);
+
+        if (hasTeams) {
+            const teamsContainer = document.createElement('div');
+            teamsContainer.className = 'fps-scoreboard-teams';
+
+            const createTeamScoreboard = (teamId: string, cssClass: string) => {
+                const teamEl = document.createElement('div');
+                teamEl.className = `fps-scoreboard-team ${cssClass}`;
+
+                const teamName = state.teamNames[teamId] || `Team ${teamId}`;
+
+                // Hide score from header since it's redundant with the columns below
+                const title = document.createElement('div');
+                title.className = 'fps-scoreboard-team-title';
+                title.textContent = teamName;
+                teamEl.appendChild(title);
+
+                const header = document.createElement('div');
+                header.className = 'fps-scoreboard-header';
+                header.innerHTML = `
+                    <span class="fps-scoreboard-col-name">Player</span>
+                    <span class="fps-scoreboard-col-score">Score</span>
+                    <span class="fps-scoreboard-col-ping">Ping</span>
+                `;
+                teamEl.appendChild(header);
+
+                const body = document.createElement('div');
+                body.className = 'fps-scoreboard-body';
+                teamEl.appendChild(body);
+
+                return { container: teamEl, body };
+            };
+
+            const udon = createTeamScoreboard('udon', 'fps-scoreboard-team--udon');
+            const soba = createTeamScoreboard('soba', 'fps-scoreboard-team--soba');
+            const specs: any[] = []; // Collect spectators to show later if needed
+
+            for (const entry of state.scoreboard) {
+                const row = document.createElement('div');
+                row.className = 'fps-scoreboard-row';
+                if (entry.playerId === this.localPlayerId) {
+                    row.classList.add('fps-scoreboard-row--self');
+                }
+                row.innerHTML = `
+                    <span class="fps-scoreboard-col-name">${this.escapeHtml(entry.name)}</span>
+                    <span class="fps-scoreboard-col-score">${entry.score}</span>
+                    <span class="fps-scoreboard-col-ping">${entry.ping}ms</span>
+                `;
+
+                if (entry.teamId === 'udon') udon.body.appendChild(row);
+                else if (entry.teamId === 'soba') soba.body.appendChild(row);
+                else specs.push(entry);
             }
 
-            row.innerHTML = `
-                <span class="fps-scoreboard-col-name">${this.escapeHtml(entry.name)}</span>
-                <span class="fps-scoreboard-col-score">${entry.score}</span>
-                <span class="fps-scoreboard-col-deaths">${entry.deaths}</span>
-                <span class="fps-scoreboard-col-ping">${entry.ping}ms</span>
+            teamsContainer.appendChild(udon.container);
+            teamsContainer.appendChild(soba.container);
+            this.board.appendChild(teamsContainer);
+
+            // Add spectators row if any
+            if (specs.length > 0) {
+                const specsContainer = document.createElement('div');
+                specsContainer.className = 'fps-scoreboard-spectators';
+
+                const title = document.createElement('div');
+                title.className = 'fps-scoreboard-spectators-title';
+                title.textContent = `SPECTATORS (${specs.length})`;
+                specsContainer.appendChild(title);
+
+                const body = document.createElement('div');
+                body.className = 'fps-scoreboard-spectators-body';
+
+                for (const entry of specs) {
+                    const row = document.createElement('div');
+                    row.className = 'fps-scoreboard-spectator-row';
+                    if (entry.playerId === this.localPlayerId) {
+                        row.classList.add('fps-scoreboard-row--self');
+                    }
+                    row.innerHTML = `<span class="fps-scoreboard-col-name">${this.escapeHtml(entry.name)}</span>`;
+                    body.appendChild(row);
+                }
+
+                specsContainer.appendChild(body);
+                this.board.appendChild(specsContainer);
+            }
+
+            // Keep reference for standard destroy/updates
+            this.bodyEl = udon.body; // Just as a fallback for the instance property
+        } else {
+            // Standard FFA
+            const header = document.createElement('div');
+            header.className = 'fps-scoreboard-header';
+            header.innerHTML = `
+                <span class="fps-scoreboard-col-name">Player</span>
+                <span class="fps-scoreboard-col-score">Score</span>
+                <span class="fps-scoreboard-col-deaths">Deaths</span>
+                <span class="fps-scoreboard-col-ping">Ping</span>
             `;
-            this.bodyEl.appendChild(row);
+            this.board.appendChild(header);
+
+            this.bodyEl = document.createElement('div');
+            this.bodyEl.className = 'fps-scoreboard-body';
+            this.board.appendChild(this.bodyEl);
+
+            for (const entry of state.scoreboard) {
+                const row = document.createElement('div');
+                row.className = 'fps-scoreboard-row';
+                if (entry.playerId === this.localPlayerId) {
+                    row.classList.add('fps-scoreboard-row--self');
+                }
+
+                row.innerHTML = `
+                    <span class="fps-scoreboard-col-name">${this.escapeHtml(entry.name)}</span>
+                    <span class="fps-scoreboard-col-score">${entry.score}</span>
+                    <span class="fps-scoreboard-col-deaths">${entry.deaths}</span>
+                    <span class="fps-scoreboard-col-ping">${entry.ping}ms</span>
+                `;
+                this.bodyEl.appendChild(row);
+            }
         }
     }
 

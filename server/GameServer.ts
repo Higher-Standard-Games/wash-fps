@@ -269,6 +269,10 @@ export class GameServer {
 
         // Use the full player join flow (spawn point, weapon loadout, match registration)
         const spawnPoint = this.gametypeController.onPlayerJoin(pid, eid, state);
+        if (!spawnPoint) {
+            console.log(`[GameServer] Bot spawn rejected (spectator)`);
+            return null;
+        }
 
         // Create entity (same as a real player — full physics, health, etc.)
         const entity = createPlayerEntity(eid, pid, spawnPoint);
@@ -456,7 +460,8 @@ export class GameServer {
             // Handle JoinGame message (spectator → player)
             if (msgType === MessageType.JoinGame) {
                 this.msgCounts.joinGame++;
-                this.handleJoinGame(conn);
+                const { teamId } = MessageCodec.decodeJoinGame(data);
+                this.handleJoinGame(conn, teamId);
                 return;
             }
 
@@ -523,7 +528,8 @@ export class GameServer {
             } else if (msgType === MessageType.Ready) {
                 this.handleReady(conn);
             } else if (msgType === MessageType.JoinGame) {
-                this.handleJoinGame(conn);
+                const { teamId } = MessageCodec.decodeJoinGame(data);
+                this.handleJoinGame(conn, teamId);
             } else if (msgType === MessageType.Spectate) {
                 this.handleSpectate(conn);
             }
@@ -591,7 +597,7 @@ export class GameServer {
      * handleJoinGame — spectator → player transition.
      * Creates the player entity and spawns them into the match.
      */
-    private handleJoinGame(conn: ClientConnection): void {
+    private handleJoinGame(conn: ClientConnection, teamId?: string): void {
         const client = this.clients.get(conn.id);
         if (!client) return;
         if (!client.isSpectator) {
@@ -602,7 +608,11 @@ export class GameServer {
         const state = this.simulation.getStateMut();
 
         // Get spawn point from gametype controller (uses spawn strategy)
-        const spawnPoint = this.gametypeController.onPlayerJoin(client.playerId, client.entityId, state);
+        const spawnPoint = this.gametypeController.onPlayerJoin(client.playerId, client.entityId, state, teamId, client.playerName);
+        if (!spawnPoint) {
+            console.log(`[GameServer] Player ${client.playerId} assigned to spectator, skipped physical spawn.`);
+            return;
+        }
 
         // Create entity
         const entity = createPlayerEntity(client.entityId, client.playerId, spawnPoint);

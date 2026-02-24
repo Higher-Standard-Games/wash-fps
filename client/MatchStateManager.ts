@@ -20,6 +20,9 @@ export interface MatchStateSnapshot {
     totalPlayers: number;
     gametypeName: string;
     scoreLimit: number;
+    teamScores?: Record<string, number>;
+    playerTeams?: Record<string, string>;
+    teamNames?: Record<string, string>;
 }
 
 export type PhaseChangeCallback = (newPhase: MatchPhase, oldPhase: MatchPhase) => void;
@@ -33,6 +36,9 @@ export class MatchStateManager {
     private _totalPlayers: number = 0;
     private _gametypeName: string = '';
     private _scoreLimit: number = 0;
+    private _teamScores: Record<string, number> = {};
+    private _playerTeams: Record<string, string> = {};
+    private _teamNames: Record<string, string> = {};
     private _isReady: boolean = false;
     private _phaseCallbacks: PhaseChangeCallback[] = [];
 
@@ -61,6 +67,9 @@ export class MatchStateManager {
         this._totalPlayers = event.totalPlayers ?? 0;
         this._gametypeName = event.gametypeName ?? '';
         this._scoreLimit = event.scoreLimit ?? 0;
+        this._teamScores = event.teamScores ?? {};
+        this._playerTeams = event.playerTeams ?? {};
+        this._teamNames = event.teamNames ?? {};
 
         // Fire phase change callbacks
         if (oldPhase !== this._phase) {
@@ -85,6 +94,9 @@ export class MatchStateManager {
     get totalPlayers(): number { return this._totalPlayers; }
     get gametypeName(): string { return this._gametypeName; }
     get scoreLimit(): number { return this._scoreLimit; }
+    get teamScores(): Record<string, number> { return this._teamScores; }
+    get playerTeams(): Record<string, string> { return this._playerTeams; }
+    get teamNames(): Record<string, string> { return this._teamNames; }
     get isReady(): boolean { return this._isReady; }
 
     isWarmup(): boolean { return this._phase === MatchPhase.Warmup; }

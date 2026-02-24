@@ -70,6 +70,10 @@ export class Deathmatch extends BaseGametype {
     // Events
     // ========================================================================
 
+    onPlayerJoin(_playerId: PlayerId, _entityId: string, _state: WorldState, _teamId?: string): void {
+        // No special action required
+    }
+
     onSpawn(_player: Entity, _state: WorldState): void {
         // Loadout is handled by GametypeController using getSpawnLoadout()
     }

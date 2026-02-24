@@ -13,6 +13,7 @@
  * - players map   → scoreboard data
  */
 
+import { MatchStateManager } from './MatchStateManager';
 import type { GameState } from '../../../engine/network/core/GameState';
 
 // ============================================================================
@@ -41,6 +42,7 @@ export interface ScoreboardEntry {
     score: number;
     deaths: number;
     ping: number;
+    teamId?: string;
 }
 
 // ============================================================================
@@ -69,9 +71,12 @@ export class HUDState {
     private static readonly KILL_FEED_EXPIRE_MS = 5000;
     private static readonly KILL_FEED_MAX = 5;
 
-    // === Scoreboard ===
+    // === Scoreboard & Match State ===
     scoreboard: ScoreboardEntry[] = [];
     localPlayerId: string = '';
+    gametypeName: string = '';
+    teamScores: Record<string, number> = {};
+    teamNames: Record<string, string> = {};
 
     // === Debug overlay ===
     private debugElement: HTMLDivElement | null = null;
@@ -141,7 +146,20 @@ export class HUDState {
      */
     updateScoreboard(state: GameState): void {
         this.scoreboard = [];
+
+        // Extract match snapshot data
+        const matchState = MatchStateManager.getInstance();
+        this.gametypeName = matchState.gametypeName || '';
+        this.teamScores = matchState.teamScores || {};
+        this.teamNames = matchState.teamNames || {};
+
         for (const [playerId, player] of state.players) {
+            // Strip the 'player_' prefix safely string manipulation
+            let rawPlayerId = playerId;
+            if (playerId.startsWith('player_')) {
+                rawPlayerId = playerId.substring(7);
+            }
+            const teamId = matchState.playerTeams?.[rawPlayerId];
             this.scoreboard.push({
                 playerId,
                 entityId: player.entityId,
@@ -149,6 +167,7 @@ export class HUDState {
                 score: player.score,
                 deaths: player.deaths,
                 ping: player.ping,
+                teamId,
             });
         }
         // Sort by score descending
