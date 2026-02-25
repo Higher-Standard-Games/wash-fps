@@ -224,12 +224,28 @@ export class MovementProfile implements IMovementProfile {
             const canJump = !this.jumpConsumed || (autohop && justLanded);
 
             if (isJumping && this.isGrounded && canJump) {
-                newVel.y = this.config.jumpVelocity;
-                this.jumpConsumed = true;
-                this.isGrounded = false;
+                // Check slope angle — don't allow jumping on steep ramps (Warsow behavior)
+                // Only allow jumping on surfaces flatter than ~32° (normal.y > 0.85)
+                let canJumpOnSlope = true;
+                if (collision) {
+                    const jumpGroundTrace = collision.trace(
+                        newPos,
+                        { x: newPos.x, y: newPos.y - 2, z: newPos.z },
+                        this.getCurrentBounds()
+                    );
+                    if (jumpGroundTrace.hit && jumpGroundTrace.normal && jumpGroundTrace.normal.y < 0.85) {
+                        canJumpOnSlope = false;
+                    }
+                }
 
-                if (this.slide.isSliding) {
-                    this.slide.exit(newVel, this.config);
+                if (canJumpOnSlope) {
+                    newVel.y = this.config.jumpVelocity;
+                    this.jumpConsumed = true;
+                    this.isGrounded = false;
+
+                    if (this.slide.isSliding) {
+                        this.slide.exit(newVel, this.config);
+                    }
                 }
             }
 
@@ -285,7 +301,7 @@ export class MovementProfile implements IMovementProfile {
 
         // === APPLY VELOCITY USING STEP-SLIDE MOVE ===
         if (collision) {
-            // Q3-style ground plane clipping
+            // Q3-style ground plane clipping + slope physics
             if (this.isGrounded) {
                 const groundTrace = collision.trace(
                     newPos,
@@ -294,12 +310,24 @@ export class MovementProfile implements IMovementProfile {
                 );
                 if (groundTrace.hit && groundTrace.normal) {
                     const n = groundTrace.normal;
+                    // MIN_WALK_NORMAL = 0.7 — matches Q3/Warsow (45° ramps are walkable)
                     if (n.y > 0.7 && n.y < 0.99) {
+                        // Walkable slope — clip velocity to slope surface
                         const dot = newVel.x * n.x + newVel.y * n.y + newVel.z * n.z;
                         const OVERCLIP = 1.001;
                         newVel.x -= n.x * dot * OVERCLIP;
                         newVel.y -= n.y * dot * OVERCLIP;
                         newVel.z -= n.z * dot * OVERCLIP;
+                    } else if (n.y > 0 && n.y <= 0.7) {
+                        // Non-walkable steep slope (includes 45°) — slide physics
+                        // Player slides down/along the slope instead of stopping
+                        this.isGrounded = false; // Treat as airborne (no friction)
+                        const gravSlope = this.config.gravity * deltaTime;
+                        // Project (0, -gravSlope, 0) onto the slope plane
+                        const gravDot = -gravSlope * n.y;
+                        newVel.x -= n.x * gravDot;
+                        newVel.y -= gravSlope - n.y * gravDot;
+                        newVel.z -= n.z * gravDot;
                     }
                 }
             }

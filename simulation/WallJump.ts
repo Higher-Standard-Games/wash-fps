@@ -124,6 +124,12 @@ export class WallJump {
             const wallCheck = collision.trace(pos, this._scratchTraceEnd);
 
             if (wallCheck.hit && wallCheck.normal) {
+                // Skip slopes and ramps — only near-vertical surfaces count as walls
+                // Q3/Warsow: wall jump only on surfaces where normal.y < 0.3 (~73°+)
+                if (Math.abs(wallCheck.normal.y) > 0.3) {
+                    continue;
+                }
+
                 // Check if wall extends to eye level
                 const eyeHeight = 32;
                 const eyeCheckStart = { x: pos.x, y: pos.y + eyeHeight - 10, z: pos.z };

@@ -205,6 +205,13 @@ export class LedgeGrab {
 
         // === SUCCESS: Start grabbing! ===
         this.startGrab(targetPos, pos);
+
+        // Immediately freeze position and velocity on detection tick
+        // (grab handler freezes on subsequent ticks, but we need frame 0 clean too)
+        vel.x = 0;
+        vel.y = 0;
+        vel.z = 0;
+
         return true;
     }
 

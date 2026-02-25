@@ -136,14 +136,17 @@ export class FPSHud {
             if (!document.pointerLockElement) {
                 // Pointer lock was lost (ESC pressed) — show pause menu
                 // Don't show if scoreboard or settings are open
-                if (!this._scoreboard?.isVisible() && !this._settings?.isOpen()) {
-                    // Show/hide 'Go Spectator' based on player state
-                    import('../FPSGameManager').then(({ FPSGameManager }) => {
-                        const gm = FPSGameManager.getInstance();
-                        this._pauseMenu?.setSpectateVisible(gm.getPlayerState() === 'playing');
-                    }).catch(() => { /* ignore */ });
-                    this._pauseMenu?.open();
-                }
+                import('../FPSGameManager').then(({ FPSGameManager }) => {
+                    const gm = FPSGameManager.getInstance();
+                    const state = gm.getPlayerState();
+                    if (!this._scoreboard?.isVisible() && !this._settings?.isOpen()) {
+                        // In spectator mode: hide Resume and Go Spectator (already spectating)
+                        // In playing mode: show Go Spectator, hide Resume only if not in-game
+                        this._pauseMenu?.setSpectateVisible(state === 'playing');
+                        this._pauseMenu?.setResumeVisible(state !== 'spectator');
+                        this._pauseMenu?.open();
+                    }
+                }).catch(() => { /* ignore */ });
             } else {
                 // Pointer lock was acquired — close pause menu
                 this._pauseMenu?.close();
@@ -2240,6 +2243,7 @@ export class FPSPauseMenu extends MangaPanelDialog {
     private onDisconnectCallback: (() => void) | null = null;
     private onSpectateCallback: (() => void) | null = null;
     private spectateBtn: HTMLElement;
+    private resumeBtn: HTMLElement;
 
     constructor() {
         super('PAUSED', 'fps-pause-menu');
@@ -2251,7 +2255,7 @@ export class FPSPauseMenu extends MangaPanelDialog {
         this.footerEl.style.display = 'none';
 
         // Add menu buttons
-        const resumeBtn = this.createButton('Resume', 'fps-btn--primary fps-btn--wide', () => {
+        this.resumeBtn = this.createButton('Resume', 'fps-btn--primary fps-btn--wide', () => {
             this.close();
             this.onResumeCallback?.();
         });
@@ -2283,7 +2287,7 @@ export class FPSPauseMenu extends MangaPanelDialog {
         title.textContent = 'PAUSED';
         this.bodyEl.appendChild(title);
 
-        this.bodyEl.appendChild(resumeBtn);
+        this.bodyEl.appendChild(this.resumeBtn);
         this.bodyEl.appendChild(settingsBtn);
         this.bodyEl.appendChild(this.spectateBtn);
         this.bodyEl.appendChild(separator);
@@ -2309,6 +2313,11 @@ export class FPSPauseMenu extends MangaPanelDialog {
     /** Show/hide the Go Spectator button (only visible when playing) */
     public setSpectateVisible(visible: boolean): void {
         this.spectateBtn.style.display = visible ? '' : 'none';
+    }
+
+    /** Show/hide the Resume button (hidden in spectator mode) */
+    public setResumeVisible(visible: boolean): void {
+        this.resumeBtn.style.display = visible ? '' : 'none';
     }
 }
 
