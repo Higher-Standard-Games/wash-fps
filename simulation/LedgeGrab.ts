@@ -10,7 +10,7 @@ import type { CollisionWorld } from '../../../engine/network/systems/collision/C
 import type { MovementInput } from '../../../engine/network/systems/movement/MovementProfile';
 import { InputButtons } from '../../../engine/network/components/InputComponent';
 import type { MovementConfig } from './MovementConfig';
-import { vec3Zero, vec3Clone, vec3Add, vec3Scale, vec3Normalize, vec3Dot, vec3LengthXZ } from './Vec3Helpers';
+import { vec3Zero, vec3Clone, vec3Add, vec3Scale, vec3Normalize } from './Vec3Helpers';
 
 export class LedgeGrab {
     state: 'none' | 'grabbing' | 'pulling' = 'none';
@@ -20,7 +20,6 @@ export class LedgeGrab {
     private cooldownRemaining: number = 0;
     private targetPos: Vec3 = vec3Zero();
     private startPos: Vec3 = vec3Zero();
-    private wallNormal: Vec3 = vec3Zero();
 
     /** Reset state for reconciliation */
     reset(): void {
@@ -72,13 +71,10 @@ export class LedgeGrab {
             const grabPauseTime = 0.12;
             this.phase = Math.min(0.3, (this.grabTime / grabPauseTime) * 0.3);
 
-            // Only allow cancel after minimum grab time
+            // Only allow cancel after minimum grab time (only crouch cancels)
             const minGrabTime = 0.05;
             if (this.grabTime > minGrabTime) {
-                const wishDir = vec3Normalize(input.direction);
-                const pushingAway = vec3Dot(wishDir, this.wallNormal) > 0.5 && vec3LengthXZ(wishDir) > 0.1;
-
-                if (input.isPressed(InputButtons.CROUCH) || input.isPressed(InputButtons.SPRINT) || pushingAway) {
+                if (input.isPressed(InputButtons.CROUCH)) {
                     this.state = 'none';
                     this.phase = 0;
                     vel.y = -100;
@@ -160,12 +156,6 @@ export class LedgeGrab {
             return false;
         }
 
-        // Store wall normal for cancel detection
-        if (waistTrace.normal) {
-            this.wallNormal = vec3Clone(waistTrace.normal);
-        } else {
-            this.wallNormal = { x: -forwardDir.x, y: 0, z: -forwardDir.z };
-        }
 
         // === TRACE 2: Check if space is clear above eye level ===
         const headStart = { x: pos.x, y: eyeY + 8, z: pos.z };
