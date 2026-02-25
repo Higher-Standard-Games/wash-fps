@@ -267,8 +267,9 @@ export class MovementProfile implements IMovementProfile {
                     }
                 }
 
-                // === WALL JUMP (in air) ===
-                if (this.config.wallJumpEnabled && !this.slide.isSliding) {
+                // === WALL JUMP (in air, not during/after ledge grab) ===
+                if (this.config.wallJumpEnabled && !this.slide.isSliding
+                    && this.ledgeGrab.state === 'none' && !this.ledgeGrab.isOnCooldown()) {
                     this.wallJump.update(newPos, newVel, input, collision, deltaTime, this.config);
                 }
             }

@@ -17,6 +17,7 @@ export class LedgeGrab {
     phase: number = 0;  // Camera phase (0-1)
 
     private grabTime: number = 0;
+    private cooldownRemaining: number = 0;
     private targetPos: Vec3 = vec3Zero();
     private startPos: Vec3 = vec3Zero();
     private wallNormal: Vec3 = vec3Zero();
@@ -25,6 +26,12 @@ export class LedgeGrab {
     reset(): void {
         this.state = 'none';
         this.phase = 0;
+        this.cooldownRemaining = 0;
+    }
+
+    /** Check if ledge grab is on cooldown (used by orchestrator to suppress wall jump) */
+    isOnCooldown(): boolean {
+        return this.cooldownRemaining > 0;
     }
 
     /**
@@ -42,6 +49,12 @@ export class LedgeGrab {
         isGrounded: boolean
     ): boolean {
         if (!config.ledgeGrabEnabled) return false;
+
+        // Tick down post-pull cooldown
+        if (this.cooldownRemaining > 0) {
+            this.cooldownRemaining -= deltaTime;
+            if (this.state === 'none') return false;
+        }
 
         // === STATE: GRABBING (pause at ledge) ===
         if (this.state === 'grabbing') {
@@ -103,11 +116,13 @@ export class LedgeGrab {
             vel.z = 0;
 
             if (progress >= 1.0) {
-                // Done climbing
+                // Done climbing — cooldown prevents re-detection
                 this.state = 'none';
                 this.phase = 0;
+                this.cooldownRemaining = 0.3;
                 const forward = vec3Normalize(input.direction);
                 vel.x = forward.x * 100;
+                vel.y = 50;  // Small upward boost to clear ledge surface
                 vel.z = forward.z * 100;
             }
 
