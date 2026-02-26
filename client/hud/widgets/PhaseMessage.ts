@@ -1,6 +1,6 @@
 // Extracted from FPSHud.ts
-import type { FPSHudWidget } from '../FPSHudWidget';
-import type { HUDState } from '../FPSHudWidget';
+import type { FPSHudWidget } from '../HudWidget';
+import type { HUDState } from '../HudWidget';
 import { MatchStateManager, MatchPhase } from '../../MatchStateManager';
 
 
@@ -15,7 +15,7 @@ import { MatchStateManager, MatchPhase } from '../../MatchStateManager';
  * Subscribes to MatchStateManager.onPhaseChange() for:
  * - Warmup: "WARMUP" + gametype subtitle
  * - Countdown: 3, 2, 1 with pulse animation
- * - Active: "FIGHT!" flash Ã¢â€ â€™ auto-hide after 2s
+ * - Active: "FIGHT!" flash ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ auto-hide after 2s
  * - PostGame: "MATCH OVER"
  */
 export class FPSPhaseMessage implements FPSHudWidget {

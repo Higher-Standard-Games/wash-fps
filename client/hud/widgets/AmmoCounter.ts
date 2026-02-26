@@ -1,6 +1,6 @@
 // Extracted from FPSHud.ts
-import type { FPSHudWidget } from '../FPSHudWidget';
-import type { HUDState } from '../FPSHudWidget';
+import type { FPSHudWidget } from '../HudWidget';
+import type { HUDState } from '../HudWidget';
 
 
 
@@ -44,7 +44,7 @@ export class FPSAmmoCounter implements FPSHudWidget {
         // Icon on the left (same layout as health/armor bar)
         const icon = document.createElement('div');
         icon.className = 'fps-value-bar-icon';
-        icon.textContent = 'Ã¢Â¬Â¡';
+        icon.textContent = 'ÃƒÂ¢Ã‚Â¬Ã‚Â¡';
         wrapper.appendChild(icon);
 
         // Content column (number + label on top, track underneath)
@@ -59,7 +59,7 @@ export class FPSAmmoCounter implements FPSHudWidget {
 
         this.numberEl = document.createElement('div');
         this.numberEl.className = 'fps-ammo-number';
-        this.numberEl.textContent = 'Ã¢â‚¬â€';
+        this.numberEl.textContent = 'ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â';
         top.appendChild(this.numberEl);
 
         this.weaponEl = document.createElement('div');
@@ -100,7 +100,7 @@ export class FPSAmmoCounter implements FPSHudWidget {
             this.currentAmmo = ammo;
 
             if (ammo < 0) {
-                this.numberEl.textContent = 'Ã¢Ë†Å¾';
+                this.numberEl.textContent = 'ÃƒÂ¢Ã‹â€ Ã…Â¾';
                 this.fillEl.style.width = '100%';
             } else {
                 this.numberEl.textContent = String(ammo);

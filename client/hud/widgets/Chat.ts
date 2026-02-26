@@ -16,7 +16,7 @@ export interface ChatMessage {
  * FPSChat - In-game chat with message log and input
  *
  * Messages auto-fade after a timeout. Input is shown by pressing T/Enter.
- * Not a regular HudWidget Ã¢â‚¬â€ managed separately.
+ * Not a regular HudWidget ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â managed separately.
  */
 export class FPSChat {
     private container: HTMLElement;

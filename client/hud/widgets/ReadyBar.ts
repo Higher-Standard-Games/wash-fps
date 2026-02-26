@@ -1,6 +1,6 @@
 // Extracted from FPSHud.ts
-import type { FPSHudWidget } from '../FPSHudWidget';
-import type { HUDState } from '../FPSHudWidget';
+import type { FPSHudWidget } from '../HudWidget';
+import type { HUDState } from '../HudWidget';
 import { MatchStateManager } from '../../MatchStateManager';
 import { CameraSystem } from '../../../../../engine/camera/CameraSystem';
 
@@ -42,10 +42,10 @@ export class FPSReadyBar implements FPSHudWidget {
             } else {
                 // Joined player: show ready counter and F4 prompt
                 const readyText = mgr.isReady
-                    ? 'Ã¢Å“â€œ Ready'
+                    ? 'ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ Ready'
                     : `Press <span class="fps-ready-key">F4</span> when ready`;
 
-                this.element.innerHTML = `${mgr.getReadyStatus()} Ã¢â‚¬â€ ${readyText}`;
+                this.element.innerHTML = `${mgr.getReadyStatus()} ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â ${readyText}`;
                 this.element.classList.toggle('fps-ready-bar--ready', mgr.isReady);
             }
         } else if (isSpectating) {

@@ -1,6 +1,6 @@
 // Extracted from FPSHud.ts
-import type { FPSHudWidget } from '../FPSHudWidget';
-import type { HUDState } from '../FPSHudWidget';
+import type { FPSHudWidget } from '../HudWidget';
+import type { HUDState } from '../HudWidget';
 
 
 

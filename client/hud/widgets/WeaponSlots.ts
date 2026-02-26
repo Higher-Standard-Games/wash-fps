@@ -1,15 +1,15 @@
 // Extracted from FPSHud.ts
-import type { FPSHudWidget } from '../FPSHudWidget';
-import type { HUDState } from '../FPSHudWidget';
+import type { FPSHudWidget } from '../HudWidget';
+import type { HUDState } from '../HudWidget';
 import { getActionKeyLabel } from '../../FPSActions';
 
 
 
 // =============================================================================
-// Weapon Slots Ã¢â‚¬â€ 3-slot loadout indicator
+// Weapon Slots ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 3-slot loadout indicator
 // =============================================================================
 
-/** Map weapon ID Ã¢â€ â€™ color variant class */
+/** Map weapon ID ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ color variant class */
 const WEAPON_COLOR_MAP: Record<string, string> = {
     gunblade: 'cyan',
     machinegun: 'gold',
@@ -22,7 +22,7 @@ const WEAPON_COLOR_MAP: Record<string, string> = {
     instagun: 'magenta',
 };
 
-/** Map weapon ID Ã¢â€ â€™ 2-letter abbreviation */
+/** Map weapon ID ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 2-letter abbreviation */
 const WEAPON_ABBR: Record<string, string> = {
     gunblade: 'GB',
     machinegun: 'MG',
@@ -36,7 +36,7 @@ const WEAPON_ABBR: Record<string, string> = {
 };
 
 /**
- * FPSWeaponSlots Ã¢â‚¬â€ 3-slot loadout indicator in bottom bar
+ * FPSWeaponSlots ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 3-slot loadout indicator in bottom bar
  *
  * Shows 3 boxes: slot 1 (gunblade, always), slots 2-3 (picked-up weapons).
  * Active weapon gets a bright glow border. Color-coded by weapon type.
@@ -73,7 +73,7 @@ export class FPSWeaponSlots implements FPSHudWidget {
 
             const name = document.createElement('div');
             name.className = 'fps-weapon-slot-name';
-            name.textContent = 'Ã¢â‚¬â€';
+            name.textContent = 'ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â';
             slot.appendChild(name);
 
             wrapper.appendChild(slot);
@@ -117,7 +117,7 @@ export class FPSWeaponSlots implements FPSHudWidget {
             const isActive = weaponId !== null && weaponId === current;
             const isEmpty = weaponId === null;
             const color = weaponId ? (WEAPON_COLOR_MAP[weaponId] || 'cyan') : '';
-            const abbr = weaponId ? (WEAPON_ABBR[weaponId] || weaponId.slice(0, 2).toUpperCase()) : 'Ã¢â‚¬â€';
+            const abbr = weaponId ? (WEAPON_ABBR[weaponId] || weaponId.slice(0, 2).toUpperCase()) : 'ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â';
 
             // Update name
             slot.nameEl.textContent = abbr;

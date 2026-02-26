@@ -1,11 +1,11 @@
 // Extracted from FPSHud.ts
-import type { FPSHudWidget } from '../FPSHudWidget';
-import type { HUDState } from '../FPSHudWidget';
+import type { FPSHudWidget } from '../HudWidget';
+import type { HUDState } from '../HudWidget';
 
 
 
 // =============================================================================
-// Frag Counter Ã¢â‚¬â€ displays local player's score next to the timer
+// Frag Counter ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â displays local player's score next to the timer
 // =============================================================================
 
 export class FPSFragCounter implements FPSHudWidget {

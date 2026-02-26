@@ -1,6 +1,6 @@
 // Extracted from FPSHud.ts
-import type { FPSHudWidget } from '../FPSHudWidget';
-import type { HUDState } from '../FPSHudWidget';
+import type { FPSHudWidget } from '../HudWidget';
+import type { HUDState } from '../HudWidget';
 
 
 
@@ -47,7 +47,7 @@ export class FPSDeathScreen implements FPSHudWidget {
 
     public update(state: HUDState): void {
         if (state.dead && this.wasAlive) {
-            // Just died Ã¢â‚¬â€ show death screen
+            // Just died ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â show death screen
             this.wasAlive = false;
 
             // Try to find killer from latest kill feed entry
@@ -61,7 +61,7 @@ export class FPSDeathScreen implements FPSHudWidget {
 
             this.element.style.display = '';
         } else if (!state.dead && !this.wasAlive) {
-            // Respawned Ã¢â‚¬â€ hide death screen
+            // Respawned ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â hide death screen
             this.wasAlive = true;
             this.element.style.display = 'none';
         }

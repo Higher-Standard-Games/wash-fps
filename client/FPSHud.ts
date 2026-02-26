@@ -21,30 +21,30 @@ import { HUDState } from './HUDState';
 import washikiTheme from '../../../engine/ui/hud/styles/WashikiTheme.css?raw';
 
 // Re-export FPSHudWidget interface for backwards compatibility
-export type { FPSHudWidget } from './hud/FPSHudWidget';
-import type { FPSHudWidget } from './hud/FPSHudWidget';
+export type { FPSHudWidget } from './hud/HudWidget';
+import type { FPSHudWidget } from './hud/HudWidget';
 
 // Import widget classes
-import { FPSValueBar } from './hud/widgets/FPSValueBar';
-import { FPSWeaponSlots } from './hud/widgets/FPSWeaponSlots';
-import { FPSAmmoCounter } from './hud/widgets/FPSAmmoCounter';
-import { FPSTimer } from './hud/widgets/FPSTimer';
-import { FPSFragCounter } from './hud/widgets/FPSFragCounter';
-import { FPSKillFeed } from './hud/widgets/FPSKillFeed';
-import { FPSWeaponRack } from './hud/widgets/FPSWeaponRack';
-import { FPSFragMessage } from './hud/widgets/FPSFragMessage';
-import { FPSPickupToast } from './hud/widgets/FPSPickupToast';
-import { FPSDeathScreen } from './hud/widgets/FPSDeathScreen';
-import { FPSPhaseMessage } from './hud/widgets/FPSPhaseMessage';
-import { FPSReadyBar } from './hud/widgets/FPSReadyBar';
-import { FPSGametypeBadge } from './hud/widgets/FPSGametypeBadge';
+import { FPSValueBar } from './hud/widgets/ValueBar';
+import { FPSWeaponSlots } from './hud/widgets/WeaponSlots';
+import { FPSAmmoCounter } from './hud/widgets/AmmoCounter';
+import { FPSTimer } from './hud/widgets/Timer';
+import { FPSFragCounter } from './hud/widgets/FragCounter';
+import { FPSKillFeed } from './hud/widgets/KillFeed';
+import { FPSWeaponRack } from './hud/widgets/WeaponRack';
+import { FPSFragMessage } from './hud/widgets/FragMessage';
+import { FPSPickupToast } from './hud/widgets/PickupToast';
+import { FPSDeathScreen } from './hud/widgets/DeathScreen';
+import { FPSPhaseMessage } from './hud/widgets/PhaseMessage';
+import { FPSReadyBar } from './hud/widgets/ReadyBar';
+import { FPSGametypeBadge } from './hud/widgets/GametypeBadge';
 
 // Overlay / dialog widgets
-import { FPSScoreboard } from './hud/widgets/FPSScoreboard';
-import { FPSChat } from './hud/widgets/FPSChat';
-import { FPSDamageIndicators } from './hud/widgets/FPSDamageIndicators';
-import { FPSPauseMenu } from './hud/widgets/FPSPauseMenu';
-import { FPSSettingsOverlay } from './hud/widgets/FPSSettingsOverlay';
+import { FPSScoreboard } from './hud/widgets/Scoreboard';
+import { FPSChat } from './hud/widgets/Chat';
+import { FPSDamageIndicators } from './hud/widgets/DamageIndicators';
+import { FPSPauseMenu } from './hud/widgets/PauseMenu';
+import { FPSSettingsOverlay } from './hud/widgets/SettingsOverlay';
 
 /**
  * HUD anchor positions
@@ -143,7 +143,7 @@ export class FPSHud {
         // 7. Listen for pointer lock changes (ESC releases pointer lock -> show pause menu)
         this._pointerLockHandler = () => {
             if (!document.pointerLockElement) {
-                // Pointer lock was lost (ESC pressed) â€” show pause menu
+                // Pointer lock was lost (ESC pressed) Ã¢â‚¬â€ show pause menu
                 // Don't show if scoreboard or settings are open
                 import('../FPSGameManager').then(({ FPSGameManager }) => {
                     const gm = FPSGameManager.getInstance();
@@ -157,7 +157,7 @@ export class FPSHud {
                     }
                 }).catch(() => { /* ignore */ });
             } else {
-                // Pointer lock was acquired â€” close pause menu
+                // Pointer lock was acquired Ã¢â‚¬â€ close pause menu
                 this._pauseMenu?.close();
             }
         };
@@ -210,7 +210,7 @@ export class FPSHud {
 
         this.fontsLoaded = (orbitronLoaded > 0 && rajdhaniLoaded > 0);
         if (!this.fontsLoaded) {
-            console.warn('[FPSHud] Some fonts failed to load â€” HUD will use fallback fonts');
+            console.warn('[FPSHud] Some fonts failed to load Ã¢â‚¬â€ HUD will use fallback fonts');
         }
     }
 
@@ -241,7 +241,7 @@ export class FPSHud {
             this.areas.set(pos, area);
         }
 
-        // Bottom bar wrapper â€” spans full width, contains bottom zones
+        // Bottom bar wrapper Ã¢â‚¬â€ spans full width, contains bottom zones
         const bottomBar = document.createElement('div');
         bottomBar.className = 'fps-hud-bottom-bar';
         this.container.appendChild(bottomBar);
@@ -307,7 +307,7 @@ export class FPSHud {
         // Health bar - bottom left
         this.addWidget('health', new FPSValueBar({
             label: 'HP',
-            icon: 'â™¥',
+            icon: 'Ã¢â„¢Â¥',
             color: 'cyan',
             maxValue: 100,
         }), 'bottom-left');
@@ -315,7 +315,7 @@ export class FPSHud {
         // Armor bar - bottom left (added above health)
         this.addWidget('armor', new FPSValueBar({
             label: 'ARMOR',
-            icon: 'ðŸ›¡',
+            icon: 'Ã°Å¸â€ºÂ¡',
             color: 'magenta',
             maxValue: 100,
         }), 'bottom-left');

@@ -9,7 +9,7 @@ import { HUDState } from '../../HUDState';
 /**
  * FPSScoreboard - Tab-toggle scoreboard overlay
  *
- * Not a regular HudWidget Ã¢â‚¬â€ it's a full-screen overlay managed by FPSHud.
+ * Not a regular HudWidget ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â it's a full-screen overlay managed by FPSHud.
  * Call toggle() or show/hide to control visibility.
  */
 export class FPSScoreboard {

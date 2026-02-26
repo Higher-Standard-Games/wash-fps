@@ -1,6 +1,6 @@
 // Extracted from FPSHud.ts
-import type { FPSHudWidget } from '../FPSHudWidget';
-import type { HUDState } from '../FPSHudWidget';
+import type { FPSHudWidget } from '../HudWidget';
+import type { HUDState } from '../HudWidget';
 import { getActionKeyLabel } from '../../FPSActions';
 
 
@@ -99,7 +99,7 @@ export class FPSWeaponRack implements FPSHudWidget {
             if (hasWeapon) {
                 const ammoCount = ammoMap[slot.id];
                 if (ammoCount === undefined || ammoCount < 0) {
-                    ammoEl.textContent = 'Ã¢Ë†Å¾'; // Infinite (gunblade)
+                    ammoEl.textContent = 'ÃƒÂ¢Ã‹â€ Ã…Â¾'; // Infinite (gunblade)
                 } else {
                     ammoEl.textContent = String(ammoCount);
                 }

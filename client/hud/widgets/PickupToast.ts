@@ -1,7 +1,7 @@
 // Extracted from FPSHud.ts
-import type { FPSHudWidget } from '../FPSHudWidget';
-import type { HUDState } from '../FPSHudWidget';
-import { WEAPON_SLOTS } from './FPSWeaponRack';
+import type { FPSHudWidget } from '../HudWidget';
+import type { HUDState } from '../HudWidget';
+import { WEAPON_SLOTS } from './WeaponRack';
 
 
 
