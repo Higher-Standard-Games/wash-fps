@@ -38,7 +38,7 @@ import { Deathmatch } from './gametypes/Deathmatch';
 import type { BaseGametype } from './gametypes/BaseGametype';
 
 // Bot names
-import { getNextBotName } from '../../../engine/player/BotNames';
+import { getNextBotName } from './BotNames';
 
 // PVS (Potentially Visible Set) for network culling
 import { ServerPVS, type ServerPVSData } from '../../../engine/server/ServerPVS';
