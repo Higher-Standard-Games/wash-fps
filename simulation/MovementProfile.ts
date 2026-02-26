@@ -133,7 +133,11 @@ export class MovementProfile implements IMovementProfile {
             this.jumpConsumed = false;
         }
         this.wallJump.reset();
-        this.slide.reset();
+        // NOTE: Do NOT reset slide here. Slide state (isSliding, slidePhase) is purely
+        // cosmetic (camera tilt) and is maintained by the client's 125Hz simulation.
+        // Resetting it during reconciliation (~60Hz) kills the slide and camera animation
+        // because the replay cannot reliably reconstruct it (elapsedTime resets,
+        // server grounded may disagree with client → slide re-entry fails).
         this.ledgeGrab.reset();
     }
 
