@@ -468,8 +468,10 @@ export class WeaponSystem extends Subsystem {
             const shotCount = (this.shotCounts.get(shooter.id) || 0) + 1;
             this.shotCounts.set(shooter.id, shotCount);
 
-            // weapon.spread is already in degrees (e.g., 6° cone)
-            const spreadDeg = weapon.spread;
+            // Use adsSpread when player is aiming down sights (ALT_FIRE button)
+            const ALT_FIRE_BUTTON = 1 << 9;
+            const isADS = (shooter.input.buttons & ALT_FIRE_BUTTON) !== 0;
+            const spreadDeg = (isADS && weapon.adsSpread !== undefined) ? weapon.adsSpread : weapon.spread;
 
             const seed = computeSpreadSeed(_tick as number, shooter.id as number, shotCount);
             const directions = generateSpreadDirections(
