@@ -582,7 +582,7 @@ export class WeaponSystem extends Subsystem {
         const offset = 50;
         const position = {
             x: shooter.transform.position.x + Math.sin(yaw) * Math.cos(pitch) * offset,
-            y: shooter.transform.position.y + 24 + Math.sin(pitch) * offset,
+            y: shooter.transform.position.y + 48 + Math.sin(pitch) * offset,
             z: shooter.transform.position.z + Math.cos(yaw) * Math.cos(pitch) * offset,
         };
 
