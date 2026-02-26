@@ -342,8 +342,14 @@ export class V2NetworkClient {
             } else {
                 // Normal: accumulate for smooth correction
                 this.visualOffset.x += corrX;
-                this.visualOffset.y += corrY;
                 this.visualOffset.z += corrZ;
+
+                // Suppress Y correction during crouch slides — diagnostic showed
+                // server/client Y desync oscillates ±0.07u every snapshot, creating
+                // camera bobbing. On a flat slide the client Y is trustworthy.
+                if (!this.predictedMovement.isSliding) {
+                    this.visualOffset.y += corrY;
+                }
             }
         }
 
