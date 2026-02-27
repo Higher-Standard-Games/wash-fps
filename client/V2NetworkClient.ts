@@ -244,6 +244,20 @@ export class V2NetworkClient {
         // Track server tick
 
 
+        // === LEDGE GRAB: Skip reconciliation while grab is active ===
+        // The server doesn't simulate ledge grabs — it's a purely client-side
+        // cosmetic state machine. During a grab, the client controls position
+        // absolutely (freeze at startPos, interpolate to targetPos). Reconciliation
+        // would reset position to the server's (which is falling/moving normally),
+        // causing either shake (re-detection at different pos) or warp (jump to
+        // targetPos at end of pull). Just prune acked inputs and wait for the
+        // grab to finish — normal reconciliation resumes automatically.
+        const inActiveGrab = this.predictedMovement.ledgeGrabState !== 'none';
+        if (inActiveGrab && !isFirstSnapshot) {
+            this.inputHistory.pruneAcked(snapshot.ackedInputSeq);
+            return;
+        }
+
         // Get inputs we need to replay (those after server's acked sequence)
         const unacked = this.inputHistory.getUnacked(snapshot.ackedInputSeq);
 
