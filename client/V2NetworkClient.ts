@@ -94,9 +94,11 @@ export class V2NetworkClient {
     // Instead of teleporting on correction, store the error and decay it
     private visualOffset: Vec3 = { x: 0, y: 0, z: 0 };
 
-    // Track if we were in a ledge grab on the previous reconciliation cycle.
-    // Used to snap visual offset on the first post-grab reconciliation.
-    private wasInLedgeGrab: boolean = false;
+    // Cooldown counter for post-grab reconciliation skip.
+    // Set to N when grab is active, decrements each reconciliation cycle after grab ends.
+    // Reconciliation stays skipped until counter reaches 0, giving server and client
+    // time to converge in normal movement before corrections resume.
+    private grabReconcileSkipCount: number = 0;
 
     // Track if we've received at least one server snapshot
     // Position is (0,0,0) until first snapshot - camera should wait
@@ -248,18 +250,20 @@ export class V2NetworkClient {
         // Track server tick
 
 
-        // === LEDGE GRAB: Skip reconciliation while grab is active ===
-        // The server doesn't simulate ledge grabs — it's a purely client-side
-        // cosmetic state machine. During a grab, the client controls position
-        // absolutely (freeze at startPos, interpolate to targetPos). Reconciliation
-        // would reset position to the server's (which is falling/moving normally),
-        // causing either shake (re-detection at different pos) or warp (jump to
-        // targetPos at end of pull). Just prune acked inputs and wait for the
-        // grab to finish — normal reconciliation resumes automatically.
+        // === LEDGE GRAB: Skip reconciliation while grab is active + cooldown ===
+        // Both server and client simulate ledge grabs (same MovementProfile), but
+        // sub-tick timing differences cause position divergence during the grab.
+        // Skip reconciliation during the grab AND for ~10 cycles after (~0.33s at
+        // 30Hz), giving both sides time to converge in normal movement.
         const inActiveGrab = this.predictedMovement.ledgeGrabState !== 'none';
-        if (inActiveGrab && !isFirstSnapshot) {
+        if (inActiveGrab) {
+            this.grabReconcileSkipCount = 10; // Reset counter while grab is active
+        }
+        if (this.grabReconcileSkipCount > 0 && !isFirstSnapshot) {
             this.inputHistory.pruneAcked(snapshot.ackedInputSeq);
-            this.wasInLedgeGrab = true;
+            if (!inActiveGrab) {
+                this.grabReconcileSkipCount--; // Decrement during post-grab cooldown
+            }
             return;
         }
 
@@ -351,12 +355,8 @@ export class V2NetworkClient {
             // displacement), creating a seconds-long delay and jitter.
             const SNAP_THRESHOLD = 50;
             const inLedgeGrab = this.predictedMovement.ledgeGrabState !== 'none';
-            const justExitedGrab = this.wasInLedgeGrab && !inLedgeGrab;
-            this.wasInLedgeGrab = inLedgeGrab;
-            if (corrMag > SNAP_THRESHOLD || inLedgeGrab || justExitedGrab) {
+            if (corrMag > SNAP_THRESHOLD || inLedgeGrab) {
                 // Snap: reset offset to zero — camera jumps to new position instantly
-                // During/after ledge grab, position divergence from skipped reconciliation
-                // should be absorbed immediately, not smoothed (prevents end-of-grab warp).
                 this.visualOffset.x = 0;
                 this.visualOffset.y = 0;
                 this.visualOffset.z = 0;
