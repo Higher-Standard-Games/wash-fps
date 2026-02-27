@@ -94,6 +94,10 @@ export class V2NetworkClient {
     // Instead of teleporting on correction, store the error and decay it
     private visualOffset: Vec3 = { x: 0, y: 0, z: 0 };
 
+    // Track if we were in a ledge grab on the previous reconciliation cycle.
+    // Used to snap visual offset on the first post-grab reconciliation.
+    private wasInLedgeGrab: boolean = false;
+
     // Track if we've received at least one server snapshot
     // Position is (0,0,0) until first snapshot - camera should wait
     private hasReceivedSnapshot: boolean = false;
@@ -255,6 +259,7 @@ export class V2NetworkClient {
         const inActiveGrab = this.predictedMovement.ledgeGrabState !== 'none';
         if (inActiveGrab && !isFirstSnapshot) {
             this.inputHistory.pruneAcked(snapshot.ackedInputSeq);
+            this.wasInLedgeGrab = true;
             return;
         }
 
@@ -346,10 +351,12 @@ export class V2NetworkClient {
             // displacement), creating a seconds-long delay and jitter.
             const SNAP_THRESHOLD = 50;
             const inLedgeGrab = this.predictedMovement.ledgeGrabState !== 'none';
-            if (corrMag > SNAP_THRESHOLD || inLedgeGrab) {
+            const justExitedGrab = this.wasInLedgeGrab && !inLedgeGrab;
+            this.wasInLedgeGrab = inLedgeGrab;
+            if (corrMag > SNAP_THRESHOLD || inLedgeGrab || justExitedGrab) {
                 // Snap: reset offset to zero — camera jumps to new position instantly
-                // During ledge grab, position is deterministic (frozen), so any
-                // correction should be absorbed immediately, not smoothed.
+                // During/after ledge grab, position divergence from skipped reconciliation
+                // should be absorbed immediately, not smoothed (prevents end-of-grab warp).
                 this.visualOffset.x = 0;
                 this.visualOffset.y = 0;
                 this.visualOffset.z = 0;
