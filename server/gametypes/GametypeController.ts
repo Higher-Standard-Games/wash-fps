@@ -135,17 +135,23 @@ export class GametypeController {
             }
         }
 
-        const finalTeamId = this.matchState.getPlayerTeam(playerId);
-        if (finalTeamId === 'spectator') {
-            console.log(`[GametypeController] Player ${playerId} observing as spectator (${this.matchState.totalPlayers} total)`);
-            return null;
+        // For team-based gametypes, spectators don't get spawned
+        // For FFA/DM, skip this check — all players spawn
+        if (this.gametype.teamBased) {
+            const finalTeamId = this.matchState.getPlayerTeam(playerId);
+            if (finalTeamId === 'spectator') {
+                console.log(`[GametypeController] Player ${playerId} observing as spectator (${this.matchState.totalPlayers} total)`);
+                return null;
+            }
         }
 
         // Delegate to gametype for specific logic (e.g. initial loadout)
         this.gametype.onPlayerJoin(playerId, String(entityId), state, teamId);
 
         // Choose spawn point
+        console.log(`[GametypeController] Choosing from ${this.spawnPoints.length} spawn points, collision=${!!this.collisionWorld}`);
         const baseSpawn = this.spawnStrategy.choose(this.spawnPoints, state, entityId);
+        console.log(`[GametypeController] Base spawn: (${baseSpawn.x.toFixed(0)}, ${baseSpawn.y.toFixed(0)}, ${baseSpawn.z.toFixed(0)})`);
         const spawn = this.jitterSpawn(baseSpawn);
 
         // Apply weapon loadout
