@@ -93,7 +93,7 @@ export class MovementProfile implements IMovementProfile {
             ledgeHeight: 64,
             ledgeMinFall: -50,
             ledgeTimeout: 2.0,
-            ledgePullTime: 0.35,
+            ledgePullTime: 0.5,
 
             // Crouchslide
             slideEnabled: true,

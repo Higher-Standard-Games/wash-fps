@@ -117,9 +117,9 @@ export class LedgeGrab {
                 this.phase = 0;
                 this.cooldownRemaining = 0.3;
                 const forward = vec3Normalize(input.direction);
-                vel.x = forward.x * 100;
-                vel.y = 50;  // Small upward boost to clear ledge surface
-                vel.z = forward.z * 100;
+                vel.x = forward.x * 50;
+                vel.y = 0;   // No upward boost — targetPos already has Y clearance
+                vel.z = forward.z * 50;
             }
 
             return true;
@@ -195,7 +195,7 @@ export class LedgeGrab {
         const wallNormal = waistTrace.normal || { x: -forwardDir.x, y: 0, z: -forwardDir.z };
         const targetPos = {
             x: pos.x + forwardDir.x * (reach * 0.3) + wallNormal.x * 2,
-            y: ledgeSurfaceY + 24 + 4,
+            y: ledgeSurfaceY + 24 + 8,
             z: pos.z + forwardDir.z * (reach * 0.3) + wallNormal.z * 2,
         };
 
