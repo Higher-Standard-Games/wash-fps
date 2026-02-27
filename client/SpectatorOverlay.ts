@@ -397,8 +397,18 @@ export class SpectatorOverlay {
     // ── Private ─────────────────────────────────────────────────
 
     private createButton(text: string, primary: boolean): HTMLElement {
+        const defaultBg = primary
+            ? 'linear-gradient(180deg, rgba(255,80,0,0.25) 0%, rgba(255,120,0,0.1) 100%)'
+            : 'rgba(255,255,255,0.04)';
+        const defaultBorder = primary ? 'rgba(255,100,0,0.7)' : 'rgba(255,255,255,0.2)';
+        const defaultShadow = primary ? '0 0 20px rgba(255,80,0,0.12), inset 0 1px 0 rgba(255,140,0,0.1)' : '';
+
         const btn = document.createElement('button');
         btn.textContent = text;
+        // Store base colors as data attributes so team overrides are preserved on hover/leave
+        btn.dataset.baseBg = defaultBg;
+        btn.dataset.baseBorder = defaultBorder;
+        btn.dataset.baseShadow = defaultShadow;
         btn.style.cssText = `
             font-family: 'Orbitron', 'Rajdhani', 'Outfit', sans-serif;
             font-size: ${primary ? '16px' : '13px'};
@@ -406,34 +416,31 @@ export class SpectatorOverlay {
             text-transform: uppercase;
             letter-spacing: ${primary ? '5px' : '3px'};
             padding: ${primary ? '14px 48px' : '10px 36px'};
-            border: ${primary ? '2px solid rgba(255,100,0,0.7)' : '1px solid rgba(255,255,255,0.2)'};
+            border: ${primary ? '2px solid ' + defaultBorder : '1px solid ' + defaultBorder};
             border-radius: 3px;
-            background: ${primary
-                ? 'linear-gradient(180deg, rgba(255,80,0,0.25) 0%, rgba(255,120,0,0.1) 100%)'
-                : 'rgba(255,255,255,0.04)'};
+            background: ${defaultBg};
             color: ${primary ? '#fff' : 'rgba(255,255,255,0.7)'};
             cursor: pointer;
             transition: all 0.2s ease;
             min-width: 220px;
-            ${primary ? 'box-shadow: 0 0 20px rgba(255,80,0,0.12), inset 0 1px 0 rgba(255,140,0,0.1);' : ''}
+            ${defaultShadow ? 'box-shadow: ' + defaultShadow + ';' : ''}
         `;
 
         btn.addEventListener('mouseenter', () => {
             btn.style.background = primary
-                ? 'linear-gradient(180deg, rgba(255,80,0,0.4) 0%, rgba(255,120,0,0.2) 100%)'
+                ? 'linear-gradient(180deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.05) 100%)'
                 : 'rgba(255,255,255,0.1)';
-            btn.style.borderColor = primary ? 'rgba(255,100,0,1)' : 'rgba(255,255,255,0.4)';
+            btn.style.filter = 'brightness(1.3)';
             btn.style.transform = 'scale(1.02)';
-            if (primary) btn.style.boxShadow = '0 0 30px rgba(255,80,0,0.2), inset 0 1px 0 rgba(255,140,0,0.15)';
         });
 
         btn.addEventListener('mouseleave', () => {
-            btn.style.background = primary
-                ? 'linear-gradient(180deg, rgba(255,80,0,0.25) 0%, rgba(255,120,0,0.1) 100%)'
-                : 'rgba(255,255,255,0.04)';
-            btn.style.borderColor = primary ? 'rgba(255,100,0,0.7)' : 'rgba(255,255,255,0.2)';
+            // Restore from data attributes (respects team color overrides)
+            btn.style.background = btn.dataset.baseBg || defaultBg;
+            btn.style.borderColor = btn.dataset.baseBorder || defaultBorder;
+            btn.style.filter = '';
             btn.style.transform = 'scale(1)';
-            if (primary) btn.style.boxShadow = '0 0 20px rgba(255,80,0,0.12), inset 0 1px 0 rgba(255,140,0,0.1)';
+            if (primary) btn.style.boxShadow = btn.dataset.baseShadow || defaultShadow;
         });
 
         return btn;
@@ -448,17 +455,21 @@ export class SpectatorOverlay {
         const hasTeams = Object.keys(state.teamScores).length > 0;
 
         if (hasTeams) {
-            // Team Udon btn
+            // Team Udon btn (pink)
             const udonBtn = this.createButton('JOIN TEAM UDON', true);
             udonBtn.style.borderColor = 'rgba(255, 0, 200, 0.7)';
             udonBtn.style.background = 'linear-gradient(180deg, rgba(255,0,200,0.25) 0%, rgba(255,0,200,0.1) 100%)';
+            udonBtn.dataset.baseBg = udonBtn.style.background;
+            udonBtn.dataset.baseBorder = udonBtn.style.borderColor;
             udonBtn.addEventListener('click', () => this.onJoinGameCallback?.('udon'));
             this.buttonsContainer.appendChild(udonBtn);
 
-            // Team Soba btn
+            // Team Soba btn (cyan)
             const sobaBtn = this.createButton('JOIN TEAM SOBA', true);
             sobaBtn.style.borderColor = 'rgba(0, 255, 255, 0.7)';
             sobaBtn.style.background = 'linear-gradient(180deg, rgba(0,255,255,0.25) 0%, rgba(0,255,255,0.1) 100%)';
+            sobaBtn.dataset.baseBg = sobaBtn.style.background;
+            sobaBtn.dataset.baseBorder = sobaBtn.style.borderColor;
             sobaBtn.addEventListener('click', () => this.onJoinGameCallback?.('soba'));
             this.buttonsContainer.appendChild(sobaBtn);
 
