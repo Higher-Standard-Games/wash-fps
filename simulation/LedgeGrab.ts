@@ -189,11 +189,21 @@ export class LedgeGrab {
         if (eyeToLedge > climbHeight) return false;
 
         // === TRACE 4: Verify room to stand on ledge ===
+        // IMPORTANT: Use the wall normal to offset the target X,Z AWAY from the wall face.
+        // Previously, targetPos used aboveLedgeStart.x/z which pushes the player
+        // forward into/past the wall → player gets stuck inside geometry after pull.
+        const wallNormal = waistTrace.normal || { x: -forwardDir.x, y: 0, z: -forwardDir.z };
         const targetPos = {
-            x: aboveLedgeStart.x,
+            x: pos.x + forwardDir.x * (reach * 0.3) + wallNormal.x * 2,
             y: ledgeSurfaceY + 24 + 4,
-            z: aboveLedgeStart.z
+            z: pos.z + forwardDir.z * (reach * 0.3) + wallNormal.z * 2,
         };
+
+        // Verify the target position is not inside solid
+        const solidCheck = collision.trace(targetPos, targetPos);
+        if (solidCheck.hit && solidCheck.fraction < 1.0) {
+            return false;
+        }
 
         const standStart = { x: targetPos.x, y: targetPos.y, z: targetPos.z };
         const standEnd = { x: targetPos.x, y: targetPos.y + 32, z: targetPos.z };
