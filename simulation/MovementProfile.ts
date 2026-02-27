@@ -138,7 +138,12 @@ export class MovementProfile implements IMovementProfile {
         // Resetting it during reconciliation (~60Hz) kills the slide and camera animation
         // because the replay cannot reliably reconstruct it (elapsedTime resets,
         // server grounded may disagree with client → slide re-entry fails).
-        this.ledgeGrab.reset();
+
+        // NOTE: Do NOT reset ledge grab here either. Ledge grab is a client-side cosmetic
+        // state machine (server doesn't simulate it). Resetting during reconciliation
+        // forces the replay to re-detect the grab at a slightly different sub-unit position
+        // (FP drift through air-accel → slideMove → clip from different server start pos),
+        // causing 2-3 frame camera shake when the startPos differs between predictions.
     }
 
     /**
