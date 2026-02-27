@@ -42,10 +42,10 @@ export class FPSReadyBar implements FPSHudWidget {
             } else {
                 // Joined player: show ready counter and F4 prompt
                 const readyText = mgr.isReady
-                    ? 'ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ Ready'
+                    ? '✓ Ready'
                     : `Press <span class="fps-ready-key">F4</span> when ready`;
 
-                this.element.innerHTML = `${mgr.getReadyStatus()} ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â ${readyText}`;
+                this.element.innerHTML = `${mgr.getReadyStatus()} — ${readyText}`;
                 this.element.classList.toggle('fps-ready-bar--ready', mgr.isReady);
             }
         } else if (isSpectating) {

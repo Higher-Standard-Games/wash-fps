@@ -143,7 +143,7 @@ export class FPSHud {
         // 7. Listen for pointer lock changes (ESC releases pointer lock -> show pause menu)
         this._pointerLockHandler = () => {
             if (!document.pointerLockElement) {
-                // Pointer lock was lost (ESC pressed) Ã¢â‚¬â€ show pause menu
+                // Pointer lock was lost (ESC pressed) — show pause menu
                 // Don't show if scoreboard or settings are open
                 import('../FPSGameManager').then(({ FPSGameManager }) => {
                     const gm = FPSGameManager.getInstance();
@@ -157,7 +157,7 @@ export class FPSHud {
                     }
                 }).catch(() => { /* ignore */ });
             } else {
-                // Pointer lock was acquired Ã¢â‚¬â€ close pause menu
+                // Pointer lock was acquired — close pause menu
                 this._pauseMenu?.close();
             }
         };
@@ -210,7 +210,7 @@ export class FPSHud {
 
         this.fontsLoaded = (orbitronLoaded > 0 && rajdhaniLoaded > 0);
         if (!this.fontsLoaded) {
-            console.warn('[FPSHud] Some fonts failed to load Ã¢â‚¬â€ HUD will use fallback fonts');
+            console.warn('[FPSHud] Some fonts failed to load — HUD will use fallback fonts');
         }
     }
 
@@ -241,7 +241,7 @@ export class FPSHud {
             this.areas.set(pos, area);
         }
 
-        // Bottom bar wrapper Ã¢â‚¬â€ spans full width, contains bottom zones
+        // Bottom bar wrapper — spans full width, contains bottom zones
         const bottomBar = document.createElement('div');
         bottomBar.className = 'fps-hud-bottom-bar';
         this.container.appendChild(bottomBar);
@@ -307,7 +307,7 @@ export class FPSHud {
         // Health bar - bottom left
         this.addWidget('health', new FPSValueBar({
             label: 'HP',
-            icon: 'Ã¢â„¢Â¥',
+            icon: '♥',
             color: 'cyan',
             maxValue: 100,
         }), 'bottom-left');
@@ -315,7 +315,7 @@ export class FPSHud {
         // Armor bar - bottom left (added above health)
         this.addWidget('armor', new FPSValueBar({
             label: 'ARMOR',
-            icon: 'Ã°Å¸â€ºÂ¡',
+            icon: '🛡',
             color: 'magenta',
             maxValue: 100,
         }), 'bottom-left');

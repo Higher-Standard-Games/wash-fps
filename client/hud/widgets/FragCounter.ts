@@ -5,7 +5,7 @@ import type { HUDState } from '../HudWidget';
 
 
 // =============================================================================
-// Frag Counter ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â displays local player's score next to the timer
+// Frag Counter — displays local player's score next to the timer
 // =============================================================================
 
 export class FPSFragCounter implements FPSHudWidget {

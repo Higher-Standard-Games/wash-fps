@@ -52,7 +52,7 @@ export class MangaPanelDialog {
 
         const closeBtn = document.createElement('button');
         closeBtn.className = 'fps-dialog-close';
-        closeBtn.textContent = 'ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¢';
+        closeBtn.textContent = '✕';
         closeBtn.addEventListener('click', () => this.close());
         this.headerEl.appendChild(closeBtn);
 

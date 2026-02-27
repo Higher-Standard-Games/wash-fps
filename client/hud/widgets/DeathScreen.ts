@@ -47,7 +47,7 @@ export class FPSDeathScreen implements FPSHudWidget {
 
     public update(state: HUDState): void {
         if (state.dead && this.wasAlive) {
-            // Just died ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â show death screen
+            // Just died — show death screen
             this.wasAlive = false;
 
             // Try to find killer from latest kill feed entry
@@ -61,7 +61,7 @@ export class FPSDeathScreen implements FPSHudWidget {
 
             this.element.style.display = '';
         } else if (!state.dead && !this.wasAlive) {
-            // Respawned ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â hide death screen
+            // Respawned — hide death screen
             this.wasAlive = true;
             this.element.style.display = 'none';
         }
