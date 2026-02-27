@@ -15,6 +15,8 @@ import type { Entity } from '@engine/server/ecs/Entity';
 import type { EntityId, PlayerId } from '@engine/server/ecs/types';
 import type { TickNumber } from '@engine/server/ecs/types';
 import type { Vec3 } from '@shared/server/simulation/types';
+import type { CollisionWorld } from '../../../../engine/network/systems/collision/CollisionWorld';
+import { Contents } from '../../../../engine/network/systems/collision/CollisionWorld';
 import { MatchPhase } from '@shared/server/gametype';
 import type { MatchStateSnapshot } from '@shared/server/gametype';
 
@@ -46,6 +48,7 @@ export class GametypeController {
     private spawnStrategy: SpawnPointStrategy;
     private spawnPoints: Vec3[] = [];
     private respawnQueue: RespawnEntry[] = [];
+    private collisionWorld: CollisionWorld | null = null;
     private botPlayerIds: Set<PlayerId> = new Set();
 
     // Subsystem references (set after construction)
@@ -82,6 +85,15 @@ export class GametypeController {
     setSpawnPoints(points: Vec3[]): void {
         this.spawnPoints = points;
         console.log(`[GametypeController] ${points.length} spawn points loaded`);
+    }
+
+    /**
+     * Set collision world for spawn validation.
+     * Enables jitter to trace-check candidate positions against BSP geometry.
+     */
+    setCollisionWorld(world: CollisionWorld): void {
+        this.collisionWorld = world;
+        console.log(`[GametypeController] Collision world set for spawn validation`);
     }
 
     // ========================================================================
@@ -133,7 +145,8 @@ export class GametypeController {
         this.gametype.onPlayerJoin(playerId, String(entityId), state, teamId);
 
         // Choose spawn point
-        const spawn = this.spawnStrategy.choose(this.spawnPoints, state, entityId);
+        const baseSpawn = this.spawnStrategy.choose(this.spawnPoints, state, entityId);
+        const spawn = this.jitterSpawn(baseSpawn);
 
         // Apply weapon loadout
         if (this.weaponSystem) {
@@ -341,7 +354,8 @@ export class GametypeController {
         if (!entity) return;
 
         // Choose spawn point using strategy
-        const spawn = this.spawnStrategy.choose(this.spawnPoints, state, entityId);
+        const baseSpawn = this.spawnStrategy.choose(this.spawnPoints, state, entityId);
+        const spawn = this.jitterSpawn(baseSpawn);
 
         // Get loadout from gametype
         const loadout = this.gametype.getSpawnLoadout();
@@ -412,6 +426,87 @@ export class GametypeController {
     }
 
     getSpawnPoint(state: WorldState, entityId?: EntityId): Vec3 {
-        return this.spawnStrategy.choose(this.spawnPoints, state, entityId);
+        const base = this.spawnStrategy.choose(this.spawnPoints, state, entityId);
+        return this.jitterSpawn(base);
+    }
+
+    // ========================================================================
+    // Spawn Jitter — Collision-Validated Position Randomization
+    // ========================================================================
+
+    /** Player collision bounds (ORIGIN at waist, -24 feet, +32 head) */
+    private static readonly PLAYER_BOUNDS = {
+        min: { x: -16, y: -24, z: -16 },
+        max: { x: 16, y: 32, z: 16 },
+    };
+
+    /** Candidate offsets: 8 compass points around spawn + center */
+    private static readonly JITTER_OFFSETS: Vec3[] = [
+        { x: 0, y: 0, z: 0 },  // center (original)
+        { x: -24, y: 0, z: -24 },  // NW
+        { x: 0, y: 0, z: -24 },  // N
+        { x: 24, y: 0, z: -24 },  // NE
+        { x: -24, y: 0, z: 0 },  // W
+        { x: 24, y: 0, z: 0 },  // E
+        { x: -24, y: 0, z: 24 },  // SW
+        { x: 0, y: 0, z: 24 },  // S
+        { x: 24, y: 0, z: 24 },  // SE
+    ];
+
+    /**
+     * Jitter a spawn point by generating candidates around it,
+     * validating each against BSP collision, and picking a random valid one.
+     *
+     * If no collision world is set, returns the original point unchanged.
+     */
+    private jitterSpawn(base: Vec3): Vec3 {
+        if (!this.collisionWorld) return base;
+
+        const valid: Vec3[] = [];
+        const bounds = GametypeController.PLAYER_BOUNDS;
+
+        for (const offset of GametypeController.JITTER_OFFSETS) {
+            const candidate: Vec3 = {
+                x: base.x + offset.x,
+                y: base.y,
+                z: base.z + offset.z,
+            };
+
+            // 1. Check if candidate position is inside solid geometry
+            const contents = this.collisionWorld.pointContents(candidate);
+            if (contents & Contents.SOLID) continue;
+
+            // 2. Box trace: try to "stand" at the candidate with player hull
+            //    Trace a tiny downward move — if it starts stuck (fraction=0, hit=true),
+            //    the position overlaps geometry
+            const traceStart = { ...candidate };
+            const traceEnd = { x: candidate.x, y: candidate.y - 1, z: candidate.z };
+            const trace = this.collisionWorld.trace(traceStart, traceEnd, bounds);
+
+            // If trace starts in solid (allsolid — fraction=0), skip
+            if (trace.fraction === 0 && trace.hit) continue;
+
+            // 3. Find ground: trace downward to snap Y
+            const groundStart = { x: candidate.x, y: candidate.y + 8, z: candidate.z };
+            const groundEnd = { x: candidate.x, y: candidate.y - 64, z: candidate.z };
+            const groundTrace = this.collisionWorld.trace(groundStart, groundEnd, bounds);
+
+            if (groundTrace.hit && groundTrace.hitPoint) {
+                // Snap to ground + ORIGIN height (24 units above feet)
+                candidate.y = groundTrace.hitPoint.y + 24;
+            }
+
+            valid.push(candidate);
+        }
+
+        if (valid.length === 0) {
+            console.warn(`[GametypeController] All spawn candidates rejected! Using base at (${base.x.toFixed(0)}, ${base.y.toFixed(0)}, ${base.z.toFixed(0)})`);
+            return base;
+        }
+
+        // Pick a random valid candidate
+        const chosen = valid[Math.floor(Math.random() * valid.length)];
+        console.log(`[GametypeController] Spawn jitter: ${valid.length}/9 valid, chose (${chosen.x.toFixed(0)}, ${chosen.y.toFixed(0)}, ${chosen.z.toFixed(0)}) from base (${base.x.toFixed(0)}, ${base.y.toFixed(0)}, ${base.z.toFixed(0)})`);
+        return chosen;
     }
 }

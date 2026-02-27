@@ -219,6 +219,7 @@ export class GameServer {
         this.physicsSystem.setCollisionWorld(collision);
         this.projectileSystem.setCollisionWorld(collision);
         this.droppedWeaponSystem.setCollisionWorld(collision);
+        this.gametypeController.setCollisionWorld(collision);
         console.log(`[GameServer] Collision world configured`);
     }
 
