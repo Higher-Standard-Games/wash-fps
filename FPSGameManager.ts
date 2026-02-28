@@ -1078,8 +1078,19 @@ export class FPSGameManager {
             this.handleRemoteWeaponFire(event);
           }
         } else if (event.type === 'projectile_impact') {
-          // Server-authoritative explosion (Q3-style — no local prediction to deduplicate)
+          // Server-authoritative explosion — deduplicate against client-predicted explosions
           const pos = new Vector3(event.x, event.y, event.z);
+          const projDefId = event.defId === 'glauncher' ? 'grenade'
+            : event.defId === 'plasmagun' ? 'plasma_bolt'
+              : event.defId === 'rlauncher' ? 'rocket'
+                : event.defId;
+
+          // Check if client already predicted this explosion (same position + defId within tolerance)
+          if (getProjectileManager().hasRecentPrediction(pos, projDefId)) {
+            // Already shown client-side — skip duplicate
+            continue;
+          }
+
           const normal = new Vector3(event.normalX, event.normalY, event.normalZ);
           const config = event.defId === 'glauncher' ? GRENADE_EXPLOSION
             : event.defId === 'plasmagun' ? PLASMA_EXPLOSION

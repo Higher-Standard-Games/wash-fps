@@ -140,6 +140,13 @@ export class FPSHud {
             gm.goSpectator();
         });
 
+        // Wire Join Game -> join from spectator mode (same as SpectatorOverlay)
+        this._pauseMenu.onJoinGame(async (_teamId?: string) => {
+            const { FPSGameManager } = await import('../FPSGameManager');
+            const gm = FPSGameManager.getInstance();
+            gm.joinGame();
+        });
+
         // 7. Listen for pointer lock changes (ESC releases pointer lock -> show pause menu)
         this._pointerLockHandler = () => {
             if (!document.pointerLockElement) {
@@ -153,6 +160,7 @@ export class FPSHud {
                         // In playing mode: show Go Spectator, hide Resume only if not in-game
                         this._pauseMenu?.setSpectateVisible(state === 'playing');
                         this._pauseMenu?.setResumeVisible(state !== 'spectator');
+                        this._pauseMenu?.setJoinVisible(state === 'spectator');
                         this._pauseMenu?.open();
                     }
                 }).catch(() => { /* ignore */ });

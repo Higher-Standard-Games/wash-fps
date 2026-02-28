@@ -1,5 +1,5 @@
-// Extracted from FPSHud.ts
-import { MangaPanelDialog } from './MangaPanelDialog';
+// Settings Overlay — Full-screen settings panel using GamePanel system
+import { GamePanel } from '../../../../../engine/ui/panels/GamePanel';
 
 
 
@@ -14,19 +14,17 @@ export interface SettingsTab {
 }
 
 /**
- * FPSSettingsOverlay - Tabbed settings dialog
+ * FPSSettingsOverlay — Immersive full-screen settings panel
  *
- * Provides a tabbed interface for Video, Audio, and Controls settings.
- * Each tab can contain sections with sliders, toggles, and keybinds.
+ * Extends GamePanel for the full-screen experience with floating particles,
+ * neon dividers, and blurred gameplay edges. Provides tabbed interface for
+ * Video, Audio, and Controls settings.
  */
-export class FPSSettingsOverlay extends MangaPanelDialog {
-    private tabs: SettingsTab[] = [];
-    private tabBar: HTMLElement;
-    private contentContainer: HTMLElement;
+export class FPSSettingsOverlay extends GamePanel {
     private onChangeCallback: ((key: string, value: any) => void) | null = null;
 
     constructor() {
-        super('SETTINGS', 'fps-settings');
+        super('SETTINGS');
 
         // Footer with Apply/Close
         const applyBtn = this.createButton('Apply', 'fps-btn--primary', () => {
@@ -35,18 +33,10 @@ export class FPSSettingsOverlay extends MangaPanelDialog {
         const closeBtn = this.createButton('Close', '', () => {
             this.close();
         });
-        this.footerEl.appendChild(closeBtn);
-        this.footerEl.appendChild(applyBtn);
+        this.footerArea.appendChild(closeBtn);
+        this.footerArea.appendChild(applyBtn);
 
-        // Tab bar (inserted above body)
-        this.tabBar = document.createElement('div');
-        this.tabBar.className = 'fps-settings-tabs';
-        this.dialog.insertBefore(this.tabBar, this.bodyEl);
-
-        // Content container (replaces body padding for tab content)
-        this.contentContainer = this.bodyEl;
-
-        // Create default tabs
+        // Create tabs
         this.addTab('video', 'Video', this.createVideoTab());
         this.addTab('audio', 'Audio', this.createAudioTab());
         this.addTab('controls', 'Controls', this.createControlsTab());
@@ -57,34 +47,6 @@ export class FPSSettingsOverlay extends MangaPanelDialog {
 
     public onChange(callback: (key: string, value: any) => void): void {
         this.onChangeCallback = callback;
-    }
-
-    private addTab(id: string, label: string, content: HTMLElement): void {
-        const tab: SettingsTab = { id, label, content };
-        this.tabs.push(tab);
-
-        const btn = document.createElement('button');
-        btn.className = 'fps-settings-tab';
-        btn.textContent = label;
-        btn.dataset.tabId = id;
-        btn.addEventListener('click', () => this.switchTab(id));
-        this.tabBar.appendChild(btn);
-    }
-
-    private switchTab(tabId: string): void {
-
-        // Update tab bar
-        for (const btn of this.tabBar.children) {
-            const el = btn as HTMLElement;
-            el.classList.toggle('fps-settings-tab--active', el.dataset.tabId === tabId);
-        }
-
-        // Update content
-        this.contentContainer.innerHTML = '';
-        const tab = this.tabs.find(t => t.id === tabId);
-        if (tab) {
-            this.contentContainer.appendChild(tab.content);
-        }
     }
 
     // =========================================================================
@@ -177,23 +139,37 @@ export class FPSSettingsOverlay extends MangaPanelDialog {
         labelEl.textContent = label;
         row.appendChild(labelEl);
 
+        // Control container (grid column 3)
+        const control = document.createElement('div');
+        control.className = 'fps-settings-control';
+
         const slider = document.createElement('input');
         slider.className = 'fps-settings-slider';
         slider.type = 'range';
         slider.min = String(min);
         slider.max = String(max);
         slider.value = String(value);
-        row.appendChild(slider);
 
         const valueEl = document.createElement('span');
         valueEl.className = 'fps-settings-value';
         valueEl.textContent = `${value}${suffix}`;
-        row.appendChild(valueEl);
+
+        // Apply slider track glow
+        const updateTrack = () => {
+            const pct = ((Number(slider.value) - min) / (max - min)) * 100;
+            slider.style.background = `linear-gradient(90deg, hsla(180, 100%, 50%, 0.4) 0%, hsla(180, 100%, 50%, 0.25) ${pct}%, hsla(180, 40%, 30%, 0.2) ${pct}%)`;
+        };
+        updateTrack();
 
         slider.addEventListener('input', () => {
             valueEl.textContent = `${slider.value}${suffix}`;
+            updateTrack();
             this.onChangeCallback?.(key, Number(slider.value));
         });
+
+        control.appendChild(slider);
+        control.appendChild(valueEl);
+        row.appendChild(control);
 
         return row;
     }
@@ -207,6 +183,10 @@ export class FPSSettingsOverlay extends MangaPanelDialog {
         labelEl.textContent = label;
         row.appendChild(labelEl);
 
+        // Control container (grid column 3)
+        const control = document.createElement('div');
+        control.className = 'fps-settings-control';
+
         const toggle = document.createElement('button');
         toggle.className = `fps-settings-toggle ${value ? 'fps-settings-toggle--on' : ''}`;
         toggle.addEventListener('click', () => {
@@ -214,7 +194,9 @@ export class FPSSettingsOverlay extends MangaPanelDialog {
             toggle.classList.toggle('fps-settings-toggle--on', value);
             this.onChangeCallback?.(key, value);
         });
-        row.appendChild(toggle);
+
+        control.appendChild(toggle);
+        row.appendChild(control);
 
         return row;
     }
@@ -227,6 +209,10 @@ export class FPSSettingsOverlay extends MangaPanelDialog {
         labelEl.className = 'fps-settings-label';
         labelEl.textContent = label;
         row.appendChild(labelEl);
+
+        // Control container (grid column 3)
+        const control = document.createElement('div');
+        control.className = 'fps-settings-control';
 
         const keybindBtn = document.createElement('button');
         keybindBtn.className = 'fps-settings-keybind';
@@ -256,7 +242,8 @@ export class FPSSettingsOverlay extends MangaPanelDialog {
             }
         });
 
-        row.appendChild(keybindBtn);
+        control.appendChild(keybindBtn);
+        row.appendChild(control);
         return row;
     }
 }
