@@ -61,6 +61,8 @@ export interface GameServerConfig {
     snapshotRate?: number;
     certPath: string;
     keyPath: string;
+    /** When true, server auto-exits when all clients disconnect (used by lobby spawner) */
+    shutdownOnEmpty?: boolean;
 }
 
 // ============================================================================
@@ -135,6 +137,10 @@ export class GameServer {
 
     // PVS (Potentially Visible Set) for per-client entity filtering
     private pvs: ServerPVS | null = null;
+
+    // Auto-shutdown: track if any client has ever connected
+    private hasHadClients = false;
+    private shutdownTimer: ReturnType<typeof setTimeout> | null = null;
 
     constructor(config: GameServerConfig, gametype?: BaseGametype) {
         this.config = config;
@@ -411,6 +417,13 @@ export class GameServer {
     // ========================================================================
 
     private handleConnect(conn: ClientConnection): void {
+        this.hasHadClients = true;
+        // Cancel any pending shutdown timer
+        if (this.shutdownTimer) {
+            clearTimeout(this.shutdownTimer);
+            this.shutdownTimer = null;
+            console.log('[GameServer] Shutdown timer cancelled — client connected');
+        }
         console.log(`[GameServer] WebSocket connected: ${conn.id}`);
     }
 
@@ -433,6 +446,17 @@ export class GameServer {
 
         this.clients.delete(conn.id);
         console.log(`[GameServer] Player ${client.playerId} disconnected (${client.isSpectator ? 'spectator' : 'player'}): ${reason} (${this.clients.size}/${this.config.maxClients})`);
+
+        // Auto-shutdown when all clients are gone (lobby-spawned mode)
+        if (this.config.shutdownOnEmpty && this.hasHadClients && this.clients.size === 0) {
+            console.log('[GameServer] All clients disconnected — shutting down in 5 seconds...');
+            this.shutdownTimer = setTimeout(() => {
+                if (this.clients.size === 0) {
+                    console.log('[GameServer] Auto-shutdown: no clients remaining');
+                    this.stop().then(() => process.exit(0));
+                }
+            }, 5000);
+        }
     }
 
     // Debug counters for message type tracking

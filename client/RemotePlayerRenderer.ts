@@ -46,6 +46,8 @@ export class RemotePlayerRenderer {
     private snapshotBuffer: SnapshotBuffer = new SnapshotBuffer();
     /** Entities marked dead — value is death timestamp (performance.now) */
     private deadEntities: Map<string, number> = new Map();
+    /** Diagnostic frame counter */
+    private _diagCount = 0;
 
     constructor(scene: Scene) {
         this.manager = new PlayerModelManager(scene);
@@ -65,6 +67,13 @@ export class RemotePlayerRenderer {
 
         // Extract entity data into snapshot format
         const entities = new Map<string, EntitySnapshot>();
+
+        // Diagnostic: log entity IDs periodically
+        this._diagCount++;
+        if (this._diagCount % 60 === 1) {
+            const allIds = [...state.entities.keys()];
+            console.log(`[RemotePlayerRenderer] pushSnapshot: ${allIds.length} entities: [${allIds.join(', ')}], localEntityId="${localEntityId}", models=${this.models.size}, loaded=${this.manager.isLoaded}`);
+        }
 
         for (const [entityId, entity] of state.entities) {
             if (entityId === localEntityId) continue;
