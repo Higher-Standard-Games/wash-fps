@@ -378,19 +378,18 @@ export class V2NetworkClient {
         this.reconcileCount++;
         this.lastReconcileError = preError;
 
-        // === DIAGNOSTIC: Detect state changes that could cause animation jitter ===
-        const postGrounded = this.localState.grounded;
-        const postHSpeed = this.predictedMovement.actualHorizSpeed;
-        if (preGrounded !== postGrounded) {
-            console.warn(`[V2Client] RECONCILE GROUNDED FLIP: ${preGrounded} → ${postGrounded} (unacked=${unacked.length} preErr=${preError.toFixed(2)} posY=${this.localState.position.y.toFixed(3)} velY=${this.localState.velocity.y.toFixed(1)})`);
-        }
-        // Log speed changes > 20% (could cause bob intensity stutter)
-        if (preHSpeed > 10 && Math.abs(postHSpeed - preHSpeed) / preHSpeed > 0.2) {
-            console.warn(`[V2Client] RECONCILE SPEED CHANGE: ${preHSpeed.toFixed(1)} → ${postHSpeed.toFixed(1)} (delta=${(postHSpeed - preHSpeed).toFixed(1)}, unacked=${unacked.length})`);
-        }
-
-        // Log reconciliation stats every 4 seconds (~250 at 60Hz)
+        // === PERIODIC DIAGNOSTIC (every ~4 seconds) ===
+        // Grounded-flip and speed-change warnings moved here to prevent console spam
+        // during crouchslide (previously fired every reconciliation → 30-60Hz log storm)
         if (this.reconcileCount % 250 === 0) {
+            const postGrounded = this.localState.grounded;
+            const postHSpeed = this.predictedMovement.actualHorizSpeed;
+            if (preGrounded !== postGrounded) {
+                console.warn(`[V2Client] RECONCILE GROUNDED FLIP: ${preGrounded} → ${postGrounded} (unacked=${unacked.length} preErr=${preError.toFixed(2)} posY=${this.localState.position.y.toFixed(3)} velY=${this.localState.velocity.y.toFixed(1)})`);
+            }
+            if (preHSpeed > 10 && Math.abs(postHSpeed - preHSpeed) / preHSpeed > 0.2) {
+                console.warn(`[V2Client] RECONCILE SPEED CHANGE: ${preHSpeed.toFixed(1)} → ${postHSpeed.toFixed(1)} (delta=${(postHSpeed - preHSpeed).toFixed(1)}, unacked=${unacked.length})`);
+            }
             const postDx = this.localState.position.x - snapshot.position.x;
             const postDy = this.localState.position.y - snapshot.position.y;
             const postDz = this.localState.position.z - snapshot.position.z;
