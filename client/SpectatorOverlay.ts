@@ -11,6 +11,7 @@
 
 import { MatchStateManager } from './MatchStateManager';
 import { FPS, getActionKeyLabel } from './FPSActions';
+import { LogoCanvas } from '../../../engine/ui/components/LogoCanvas';
 
 export type SpectatorMode = 'join-overlay' | 'freefly' | 'first-person' | 'hidden';
 
@@ -26,6 +27,7 @@ export class SpectatorOverlay {
     private onSpectateCallback: (() => void) | null = null;
     private buttonsContainer: HTMLElement;
     private hintEl: HTMLElement;
+    private logoCanvas: LogoCanvas | null = null;
 
     // Reserved for first-person spectating (future)
     private _onNextPlayerCallback: (() => void) | null = null;
@@ -89,24 +91,11 @@ export class SpectatorOverlay {
             panel.appendChild(c);
         }
 
-        // Game title
-        const titleEl = document.createElement('div');
-        titleEl.style.cssText = `
-            font-family: 'Orbitron', 'Rajdhani', 'Outfit', sans-serif;
-            font-size: 36px;
-            font-weight: 800;
-            color: #fff;
-            text-transform: uppercase;
-            letter-spacing: 8px;
-            margin-bottom: 8px;
-            text-shadow: 0 0 24px rgba(255,100,0,0.4), 0 2px 6px rgba(0,0,0,0.5);
-            background: linear-gradient(180deg, #fff 20%, rgba(255,160,80,0.8) 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        `;
-        titleEl.textContent = 'SHAG';
-        panel.appendChild(titleEl);
+        // 3D Washoi logo (replaces the old "SHAG" text)
+        this.logoCanvas = new LogoCanvas({ width: 500, height: 160, showGlow: false, cameraRadius: 2.8 });
+        const logoEl = this.logoCanvas.getElement();
+        logoEl.style.marginBottom = '4px';
+        panel.appendChild(logoEl);
 
         // Subtle divider
         const divider = document.createElement('div');
@@ -349,11 +338,16 @@ export class SpectatorOverlay {
         this.joinOverlay.style.display = 'none';
         this.spectatingBar.style.display = 'none';
         this.freeflyCue.style.display = 'none';
+        if (this.logoCanvas) this.logoCanvas.pause();
 
         switch (mode) {
             case 'join-overlay':
                 this.refreshJoinPanel();
                 this.joinOverlay.style.display = 'flex';
+                // Init/resume 3D logo
+                if (this.logoCanvas) {
+                    this.logoCanvas.init().catch(() => { });
+                }
                 break;
             case 'freefly':
                 this.freeflyCue.style.display = 'flex';
@@ -391,6 +385,10 @@ export class SpectatorOverlay {
     // ── Cleanup ─────────────────────────────────────────────────
 
     public destroy(): void {
+        if (this.logoCanvas) {
+            this.logoCanvas.dispose();
+            this.logoCanvas = null;
+        }
         this.container.remove();
     }
 

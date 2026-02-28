@@ -27,6 +27,9 @@ export class FPSPauseMenu extends GamePanel {
     constructor() {
         super('PAUSED');
 
+        // 3D Logo floating above panel
+        this.enableLogo();
+
         // Hide the tab bar (no tabs in pause menu)
         this.tabBar.style.display = 'none';
 
