@@ -44,6 +44,8 @@ import { PlayerProfile } from '../../engine/player/PlayerProfile';
 export interface FPSGameConfig {
   tickRate?: number;
   maxPlayers?: number;
+  /** When true, auto-join the game after map loads (skip spectator overlay) */
+  autoJoin?: boolean;
 }
 
 
@@ -290,6 +292,13 @@ export class FPSGameManager {
             }
             // Start in freefly mode (spectator default)
             cameraSystem.setController('freefly');
+
+            // Auto-join if requested (lobby flow — skip spectator overlay)
+            if (config.autoJoin) {
+              console.log('[FPSGameManager] Auto-joining game (lobby flow)');
+              // Small delay to ensure everything is settled
+              setTimeout(() => this.joinGame(), 200);
+            }
           } catch (e) {
             console.warn(`[FPSGameManager] Could not set up FPS controller after map load:`, e);
           }
@@ -347,18 +356,22 @@ export class FPSGameManager {
 
       // ── Spectator Mode: show join overlay on connect ──────────
       this.playerState = 'spectator';
-      const { SpectatorOverlay } = await import('./client/SpectatorOverlay');
-      this.spectatorOverlay = new SpectatorOverlay();
-      this.spectatorOverlay.setMode('join-overlay');
 
-      this.spectatorOverlay.onJoinGame(() => {
-        this.joinGame();
-      });
-      this.spectatorOverlay.onSpectate(() => {
-        // Switch to freefly spectator (no entity, just camera)
-        this.spectatorOverlay?.setMode('freefly');
-        this.switchToFreeflyCamera();
-      });
+      // Only show spectator overlay if NOT auto-joining
+      if (!config.autoJoin) {
+        const { SpectatorOverlay } = await import('./client/SpectatorOverlay');
+        this.spectatorOverlay = new SpectatorOverlay();
+        this.spectatorOverlay.setMode('join-overlay');
+
+        this.spectatorOverlay.onJoinGame(() => {
+          this.joinGame();
+        });
+        this.spectatorOverlay.onSpectate(() => {
+          // Switch to freefly spectator (no entity, just camera)
+          this.spectatorOverlay?.setMode('freefly');
+          this.switchToFreeflyCamera();
+        });
+      } // end if (!config.autoJoin)
 
       // ── J key shortcut to join game from spectator mode ──
       // Uses InputSystem's raw key state (this runs in an event handler, not per-frame)
