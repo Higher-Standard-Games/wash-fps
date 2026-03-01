@@ -1225,11 +1225,6 @@ export class FPSGameManager {
 
         // Pass localEntityId (empty string for spectators — no entity excluded)
         this.remoteRenderer.pushSnapshot(state, localEntityId || '', serverLocalTime);
-
-        // If spectating, render here since FPSController won't call renderRemotePlayers()
-        if (this.playerState === 'spectator') {
-          this.remoteRenderer.render();
-        }
       }
     }
 

@@ -1203,7 +1203,7 @@ export class GameServer {
 
     private sendJoinAccept(client: ClientInfo): void {
         const playerId = `player_${client.playerId}`;
-        const entityId = `player_${client.playerId}`;
+        const entityId = `player_${client.entityId}`;
 
         const acceptBytes = MessageCodec.encodeJoinAccept(
             client.id,
