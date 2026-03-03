@@ -17,6 +17,7 @@ import type { WeaponLoadout } from '@shared/server/gametype';
 import type { ProjectileSystem } from './ProjectileSystem';
 import type { DroppedWeaponSystem } from './DroppedWeaponSystem';
 import { computeSpreadSeed, generateSpreadDirections } from '../../../../shared/SpreadUtils';
+import { DEFAULT_VIEWHEIGHT } from '../../../../engine/physics/PlayerPhysicsConstants';
 
 /** Must match InputButtons.FIRE from engine/network/components/InputComponent.ts */
 const FIRE_BUTTON = 1 << 8;
@@ -431,7 +432,7 @@ export class WeaponSystem extends Subsystem {
                 entityId: shooter.id,
                 weaponId: weapon.id,
                 originX: shooter.transform.position.x,
-                originY: shooter.transform.position.y,
+                originY: shooter.transform.position.y + DEFAULT_VIEWHEIGHT,
                 originZ: shooter.transform.position.z,
                 dirX: Math.sin(yaw) * Math.cos(pitch),
                 dirY: Math.sin(pitch),
@@ -459,7 +460,11 @@ export class WeaponSystem extends Subsystem {
         const yaw = shooter.input.yaw;
         const pitch = -shooter.input.pitch;
 
-        const start = shooter.transform.position;
+        const start = {
+            x: shooter.transform.position.x,
+            y: shooter.transform.position.y + DEFAULT_VIEWHEIGHT,
+            z: shooter.transform.position.z,
+        };
         const maxRange = weapon.range || 5000;
 
         // Pellet weapons (riotgun): fire N rays with seeded spread
@@ -584,7 +589,7 @@ export class WeaponSystem extends Subsystem {
         const offset = 50;
         const position = {
             x: shooter.transform.position.x + Math.sin(yaw) * Math.cos(pitch) * offset,
-            y: shooter.transform.position.y + 26 + Math.sin(pitch) * offset, // DEFAULT_VIEWHEIGHT (origin is at waist, not feet)
+            y: shooter.transform.position.y + DEFAULT_VIEWHEIGHT + Math.sin(pitch) * offset,
             z: shooter.transform.position.z + Math.cos(yaw) * Math.cos(pitch) * offset,
         };
 
