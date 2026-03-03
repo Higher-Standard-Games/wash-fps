@@ -1091,10 +1091,14 @@ export class GameServer {
         for (const client of this.clients.values()) {
             try {
                 // PVS filtering: build per-client filtered state if PVS is available
+                // CRITICAL: Always create a per-client copy for ackedInputSeq.
+                // Without this, all clients share the same gameState reference and
+                // get the LAST client's lastInputSeq — causing V2NetworkClient to
+                // replay wrong inputs → position desync → collision world shift.
                 const pvsActive = !!(this.pvs && this.pvs.enabled);
                 const clientState = pvsActive
                     ? this.filterStateForClient(gameState, client)
-                    : gameState;
+                    : gameState.shallowCopy();
 
                 clientState.ackedInputSeq = client.lastInputSeq;
 
