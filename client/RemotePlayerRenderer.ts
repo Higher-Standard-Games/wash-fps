@@ -416,10 +416,13 @@ export class RemotePlayerRenderer {
         inst.anchor.rotation.set(0, interp.yaw, 0);
         inst.anchor.setEnabled(true);
 
-        // Reset root motion each frame
+        // Reset root motion each frame (position + rotation drift from anims)
         this.modelManager.resetRootMotion(inst);
+        inst.mesh.scaling.set(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE);
+        if (inst.mesh.rotationQuaternion) inst.mesh.rotationQuaternion = null;
+        inst.mesh.rotation.set(0, 0, 0);
 
-        // Ensure mesh is visible + correct scale
+        // Ensure mesh is visible
         inst.mesh.isVisible = true;
         inst.mesh.getChildMeshes().forEach(m => m.isVisible = true);
 
