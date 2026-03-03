@@ -38,6 +38,7 @@ import { getExplosionEffect, ROCKET_EXPLOSION, GRENADE_EXPLOSION, PLASMA_EXPLOSI
 import { FPSPlayer } from './FPSPlayer';
 import { NetGraph } from '../../engine/network/client/NetGraph';
 import { InputSystem } from '../../engine/input/InputSystem';
+import { CameraSystem } from '../../engine/camera';
 import { registerFPSActions } from './client/FPSActions';
 import { PlayerProfile } from '../../engine/player/PlayerProfile';
 
@@ -1211,9 +1212,14 @@ export class FPSGameManager {
     // === Remote player snapshot buffering (push only — rendering is per-frame) ===
     // Always init renderer (spectators need to see other players/bots too)
     {
-      // Lazy-init renderer with scene
-      if (!this.remoteRenderer && EngineStore.LastCreatedScene) {
-        this.remoteRenderer = new RemotePlayerRenderer(EngineStore.LastCreatedScene);
+      // Lazy-init renderer with the GAMEPLAY scene (NOT EngineStore.LastCreatedScene
+      // which may point to LogoCanvas or other UI scenes!)
+      if (!this.remoteRenderer) {
+        const cam = CameraSystem.getInstance().getCamera();
+        const gameScene = cam?.getScene();
+        if (gameScene) {
+          this.remoteRenderer = new RemotePlayerRenderer(gameScene);
+        }
       }
       if (this.remoteRenderer) {
         // Convert server timestamp to local time via ClockSync for accurate interpolation
@@ -1265,6 +1271,7 @@ export class FPSGameManager {
           vy: velComp?.y ?? 0,
           vz: velComp?.z ?? 0,
           grounded: false,
+          crouching: false,
         });
 
         // Spawn visual if this is a new projectile
