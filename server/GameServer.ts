@@ -733,7 +733,20 @@ export class GameServer {
     // State Conversion
     // ========================================================================
 
+    /**
+     * Quantize a float64 to float32 precision.
+     * BinaryProtocol encodes positions/velocities as float32 on the wire.
+     * Without pre-quantization, the server's snapshot history stores float64
+     * values while the client decodes float32 — causing a tiny but systematic
+     * error every reconciliation cycle that accumulates into visualOffset,
+     * progressively drifting the camera away from the collision world.
+     */
+    private static f32(v: number): number {
+        return Math.fround(v);
+    }
+
     private toGameState(): GameState {
+        const f = GameServer.f32;
         const state = this.simulation.getState();
         const gameState = new GameState();
         gameState.tick = Number(state.tick);
@@ -745,16 +758,16 @@ export class GameServer {
                 const projEntity = new Entity(`proj_${entity.id}`);
                 if (entity.transform) {
                     projEntity.addComponent('transform', {
-                        position: { ...entity.transform.position },
+                        position: { x: f(entity.transform.position.x), y: f(entity.transform.position.y), z: f(entity.transform.position.z) },
                         rotation: { x: 0, y: 0, z: 0, w: 1 },
                         serialize: () => ({}),
                         deserialize: () => { },
                         clone: function () { return { ...this }; }
                     });
                     projEntity.addComponent('position', {
-                        x: entity.transform.position.x,
-                        y: entity.transform.position.y,
-                        z: entity.transform.position.z,
+                        x: f(entity.transform.position.x),
+                        y: f(entity.transform.position.y),
+                        z: f(entity.transform.position.z),
                         serialize: () => ({}),
                         deserialize: () => { },
                         clone: function () { return { ...this }; }
@@ -762,10 +775,10 @@ export class GameServer {
                 }
                 if (entity.physics) {
                     projEntity.addComponent('velocity', {
-                        x: entity.physics.velocity.x,
-                        y: entity.physics.velocity.y,
-                        z: entity.physics.velocity.z,
-                        linear: { ...entity.physics.velocity },
+                        x: f(entity.physics.velocity.x),
+                        y: f(entity.physics.velocity.y),
+                        z: f(entity.physics.velocity.z),
+                        linear: { x: f(entity.physics.velocity.x), y: f(entity.physics.velocity.y), z: f(entity.physics.velocity.z) },
                         angular: { x: 0, y: 0, z: 0 },
                         grounded: false,
                         serialize: () => ({}),
@@ -796,16 +809,16 @@ export class GameServer {
                 const itemEntity = new Entity(`item_${entity.id}`);
                 if (entity.transform) {
                     itemEntity.addComponent('transform', {
-                        position: { ...entity.transform.position },
+                        position: { x: f(entity.transform.position.x), y: f(entity.transform.position.y), z: f(entity.transform.position.z) },
                         rotation: { x: 0, y: 0, z: 0, w: 1 },
                         serialize: () => ({}),
                         deserialize: () => { },
                         clone: function () { return { ...this }; }
                     });
                     itemEntity.addComponent('position', {
-                        x: entity.transform.position.x,
-                        y: entity.transform.position.y,
-                        z: entity.transform.position.z,
+                        x: f(entity.transform.position.x),
+                        y: f(entity.transform.position.y),
+                        z: f(entity.transform.position.z),
                         serialize: () => ({}),
                         deserialize: () => { },
                         clone: function () { return { ...this }; }
@@ -824,16 +837,16 @@ export class GameServer {
 
                 if (entity.transform) {
                     clientEntity.addComponent('transform', {
-                        position: { ...entity.transform.position },
-                        rotation: { x: entity.transform.rotation.x, y: entity.transform.rotation.y, z: entity.transform.rotation.z, w: 1 },
+                        position: { x: f(entity.transform.position.x), y: f(entity.transform.position.y), z: f(entity.transform.position.z) },
+                        rotation: { x: f(entity.transform.rotation.x), y: f(entity.transform.rotation.y), z: f(entity.transform.rotation.z), w: 1 },
                         serialize: () => ({}),
                         deserialize: () => { },
                         clone: function () { return { ...this }; }
                     });
                     clientEntity.addComponent('position', {
-                        x: entity.transform.position.x,
-                        y: entity.transform.position.y,
-                        z: entity.transform.position.z,
+                        x: f(entity.transform.position.x),
+                        y: f(entity.transform.position.y),
+                        z: f(entity.transform.position.z),
                         serialize: () => ({}),
                         deserialize: () => { },
                         clone: function () { return { ...this }; }
@@ -842,10 +855,10 @@ export class GameServer {
 
                 if (entity.physics) {
                     clientEntity.addComponent('velocity', {
-                        x: entity.physics.velocity.x,
-                        y: entity.physics.velocity.y,
-                        z: entity.physics.velocity.z,
-                        linear: { ...entity.physics.velocity },
+                        x: f(entity.physics.velocity.x),
+                        y: f(entity.physics.velocity.y),
+                        z: f(entity.physics.velocity.z),
+                        linear: { x: f(entity.physics.velocity.x), y: f(entity.physics.velocity.y), z: f(entity.physics.velocity.z) },
                         angular: { x: 0, y: 0, z: 0 },
                         grounded: entity.physics.grounded,
                         serialize: () => ({}),
