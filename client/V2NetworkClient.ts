@@ -364,18 +364,26 @@ export class V2NetworkClient {
         this.inputHistory.pruneAcked(snapshot.ackedInputSeq);
 
         // === STEP 5: Compute visual offset for smoothing ===
-        // The difference between where we were visually and where we are now
-        // after reconciliation. This gets decayed over time for smooth camera.
+        // Maintain visual position continuity: camera stays where it was,
+        // then decays toward the new physics position.
         if (!isFirstSnapshot) {
-            const corrX = preReconcilePos.x - this.localState.position.x;
-            const corrY = preReconcilePos.y - this.localState.position.y;
-            const corrZ = preReconcilePos.z - this.localState.position.z;
+            // Where camera was visually BEFORE reconciliation
+            const preVisualX = preReconcilePos.x + this.visualOffset.x;
+            const preVisualY = preReconcilePos.y + this.visualOffset.y;
+            const preVisualZ = preReconcilePos.z + this.visualOffset.z;
+
+            // New physics position after reconciliation
+            const postX = this.localState.position.x;
+            const postY = this.localState.position.y;
+            const postZ = this.localState.position.z;
+
+            // Correction magnitude for snap threshold
+            const corrX = preVisualX - postX;
+            const corrY = preVisualY - postY;
+            const corrZ = preVisualZ - postZ;
             const corrMag = Math.sqrt(corrX * corrX + corrY * corrY + corrZ * corrZ);
 
             // Large correction = KB, teleport, or respawn → SNAP camera immediately.
-            // Without this, KB causes the visual offset to accumulate faster than
-            // decay can drain it (each 30Hz reconciliation re-adds the full KB
-            // displacement), creating a seconds-long delay and jitter.
             const SNAP_THRESHOLD = 50;
             const inLedgeGrab = this.predictedMovement.ledgeGrabState !== 'none';
             if (corrMag > SNAP_THRESHOLD || inLedgeGrab) {
@@ -384,16 +392,22 @@ export class V2NetworkClient {
                 this.visualOffset.y = 0;
                 this.visualOffset.z = 0;
             } else {
-                // Normal: accumulate for smooth correction
-                this.visualOffset.x += corrX;
-                this.visualOffset.z += corrZ;
+                // SET offset to maintain visual position continuity
+                this.visualOffset.x = corrX;
+                this.visualOffset.z = corrZ;
 
-                // Suppress Y correction during crouch slides — diagnostic showed
-                // server/client Y desync oscillates ±0.07u every snapshot, creating
-                // camera bobbing. On a flat slide the client Y is trustworthy.
+                // Suppress Y correction during crouch slides
                 if (!this.predictedMovement.isSliding) {
-                    this.visualOffset.y += corrY;
+                    this.visualOffset.y = corrY;
                 }
+
+                // HARD CAP: prevent unbounded drift from systematic simulation bias
+                // (server float64 vs client float32 start positions diverge slightly
+                // each cycle, and the bias accumulates faster than decay can drain it)
+                const MAX_OFFSET = 5;
+                this.visualOffset.x = Math.max(-MAX_OFFSET, Math.min(MAX_OFFSET, this.visualOffset.x));
+                this.visualOffset.y = Math.max(-MAX_OFFSET, Math.min(MAX_OFFSET, this.visualOffset.y));
+                this.visualOffset.z = Math.max(-MAX_OFFSET, Math.min(MAX_OFFSET, this.visualOffset.z));
             }
         }
 
