@@ -52,6 +52,19 @@ export interface V2ClientConfig {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// KNOCKBACK AIR DRAG CONSTANTS (must match FPSMovementSubsystem)
+// ═══════════════════════════════════════════════════════════════════
+
+/** Ticks after KB before drag kicks in (~0.4s at 125Hz) */
+const KB_DRAG_DELAY_TICKS = 50;
+/** Duration over which drag ramps from 0→max (~0.6s at 125Hz) */
+const KB_DRAG_RAMP_TICKS = 75;
+/** Max per-tick horizontal speed multiplier during full drag */
+const KB_HORIZ_DRAG = 0.96;
+/** Extra downward acceleration during drag phase (units/s²) */
+const KB_EXTRA_GRAVITY = 600;
+
+// ═══════════════════════════════════════════════════════════════════
 // V2 NETWORK CLIENT
 // ═══════════════════════════════════════════════════════════════════
 
@@ -93,6 +106,10 @@ export class V2NetworkClient {
     // Visual smoothing for reconciliation corrections
     // Instead of teleporting on correction, store the error and decay it
     private visualOffset: Vec3 = { x: 0, y: 0, z: 0 };
+
+    // Knockback air drag tracking (matches server FPSMovementSubsystem)
+    // Tracks how many ticks since last KB to apply drag at the right time
+    private kbTickCounter: number = -1; // -1 = no active KB
 
     // Cooldown counter for post-grab reconciliation skip.
     // Set to N when grab is active, decrements each reconciliation cycle after grab ends.
@@ -194,7 +211,10 @@ export class V2NetworkClient {
         this.localState.velocity = result.velocity;
         this.localState.grounded = result.grounded;
 
-        // 4. Store predicted movement state for visual effects
+        // 4. Apply KB air drag (matches server FPSMovementSubsystem)
+        this.applyKBDrag(this.localState.velocity, this.localState.grounded);
+
+        // 5. Store predicted movement state for visual effects
         this.updatePredictedMovement(result);
 
         return seq;
@@ -319,6 +339,9 @@ export class V2NetworkClient {
             this.localState.position = result.position;
             this.localState.velocity = result.velocity;
             this.localState.grounded = result.grounded;
+
+            // Apply KB air drag during replay (matches server)
+            this.applyKBDrag(this.localState.velocity, this.localState.grounded);
 
             // Update predicted movement state from final replay result
             this.updatePredictedMovement(result);
@@ -531,6 +554,42 @@ export class V2NetworkClient {
         // 3. Reset grounded so movement sim doesn't friction-cancel the impulse
         this.localState.grounded = false;
         this.movement.resetPhysicsState(false);
+
+        // 4. Start KB air drag timer
+        this.kbTickCounter = 0;
+    }
+
+    /**
+     * Apply Warsow-style KB air drag (must match server FPSMovementSubsystem).
+     * After a free-fly window, smoothly decays horizontal velocity and
+     * adds extra gravity so players arc down instead of floating.
+     * Called once per tick during both live prediction and reconciliation replay.
+     */
+    private applyKBDrag(velocity: Vec3, grounded: boolean): void {
+        if (this.kbTickCounter < 0) return; // No active KB
+
+        this.kbTickCounter++;
+
+        // Landing or expired → cancel drag
+        if (grounded || this.kbTickCounter > KB_DRAG_DELAY_TICKS + KB_DRAG_RAMP_TICKS) {
+            this.kbTickCounter = -1;
+            return;
+        }
+
+        // Still in free-fly window
+        if (this.kbTickCounter < KB_DRAG_DELAY_TICKS) return;
+
+        // Drag phase: ramp 0→1 over KB_DRAG_RAMP_TICKS
+        const dragT = (this.kbTickCounter - KB_DRAG_DELAY_TICKS) / KB_DRAG_RAMP_TICKS;
+        const dragStrength = dragT * dragT; // Quadratic ease-in
+
+        // Horizontal drag
+        const horizMult = 1.0 - dragStrength * (1.0 - KB_HORIZ_DRAG);
+        velocity.x *= horizMult;
+        velocity.z *= horizMult;
+
+        // Extra downward pull
+        velocity.y -= KB_EXTRA_GRAVITY * dragStrength * this.dt;
     }
 
     // ═══════════════════════════════════════════════════════════════════
