@@ -66,8 +66,16 @@ const MODEL_SCALE = 36;
 // ─── Animation derivation constants ─────────────────────────────
 const IDLE_SPEED_THRESHOLD = 50;
 const RUN_SPEED_THRESHOLD = 300;
-const WALK_NATURAL_SPEED = 50;
-const RUN_NATURAL_SPEED = 400;
+
+// Mixamo animation natural speeds (Q3 units/s at 1x playback)
+// Lower values → higher speedRatio → faster feet to match actual movement.
+// Tuned so feet track the ground at game speeds (maxSpeed=280, runSpeed=350).
+const WALK_NATURAL_SPEED = 40;
+const RUN_NATURAL_SPEED = 100;
+const STRAFE_NATURAL_SPEED = 29;
+
+// Jump velocity for normalizing animation scrub (matches MovementProfile.jumpVelocity)
+const JUMP_VELOCITY = 320;
 
 export class RemotePlayerRenderer {
     private scene: Scene;
@@ -414,9 +422,10 @@ export class RemotePlayerRenderer {
         const animName = this.deriveAnimation(interp);
         this.modelManager.playAnimation(inst, animName);
 
-        // Scale animation speed to match movement speed
+        // Scale animation speed to match movement speed (eliminate foot sliding)
         if (inst.masterGroup) {
             const speed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz);
+
             if (animName === 'run' || animName === 'walk') {
                 const naturalSpeed = animName === 'run' ? RUN_NATURAL_SPEED : WALK_NATURAL_SPEED;
 
@@ -429,6 +438,33 @@ export class RemotePlayerRenderer {
                 let speedRatio = speed / naturalSpeed;
                 if (isBackward) speedRatio = -speedRatio;
                 inst.masterGroup.speedRatio = Math.max(-3.0, Math.min(3.0, speedRatio));
+
+            } else if (animName === 'strafe_l' || animName === 'strafe_r') {
+                // Use lateral speed for strafe ratio
+                const fwdX = Math.sin(interp.yaw);
+                const fwdZ = Math.cos(interp.yaw);
+                const rightX = fwdZ;
+                const rightZ = -fwdX;
+                const rightDot = rightX * interp.vx + rightZ * interp.vz;
+                const lateralSpeed = Math.abs(rightDot);
+                const speedRatio = lateralSpeed / STRAFE_NATURAL_SPEED;
+                inst.masterGroup.speedRatio = Math.max(0.3, Math.min(3.0, speedRatio));
+
+            } else if (animName === 'jump') {
+                // Warsow-style: ascending plays forward to tucked pose,
+                // descending reverses back to extended pose.
+                // Freeze at peak (vy ≈ 0).
+                if (interp.vy > 10) {
+                    // Ascending — play forward, speed proportional to upward velocity
+                    inst.masterGroup.speedRatio = Math.max(0.3, interp.vy / JUMP_VELOCITY * 2.0);
+                } else if (interp.vy < -10) {
+                    // Descending — play in reverse, speed proportional to downward velocity
+                    inst.masterGroup.speedRatio = Math.min(-0.2, interp.vy / JUMP_VELOCITY * 1.5);
+                } else {
+                    // At peak — freeze
+                    inst.masterGroup.speedRatio = 0;
+                }
+
             } else {
                 inst.masterGroup.speedRatio = 1.0;
             }
@@ -440,8 +476,8 @@ export class RemotePlayerRenderer {
      * Uses velocity, grounded state, and yaw — all available from SnapshotBuffer.
      */
     private deriveAnimation(interp: InterpolatedEntity): string {
-        // Airborne
-        if (!interp.grounded && interp.vy > 50) return 'jump';
+        // Airborne — use jump for entire air time (Warsow-style)
+        if (!interp.grounded) return 'jump';
 
         const speed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz);
 
@@ -458,7 +494,7 @@ export class RemotePlayerRenderer {
         const rightDot = rightX * interp.vx + rightZ * interp.vz;
 
         if (Math.abs(rightDot) > Math.abs(forwardDot) * 1.5) {
-            return rightDot > 0 ? 'strafe_r' : 'strafe_l';
+            return rightDot > 0 ? 'strafe_l' : 'strafe_r';
         }
 
         // Run vs walk
