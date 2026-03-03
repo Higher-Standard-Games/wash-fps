@@ -75,8 +75,7 @@ export class RemotePlayerRenderer {
     private snapshotBuffer: SnapshotBuffer = new SnapshotBuffer();
     /** Entities marked dead — value is death timestamp (performance.now) */
     private deadEntities: Map<string, number> = new Map();
-    /** Diagnostic frame counter */
-    private _diagCount = 0;
+
 
     /** Shared model manager — loads vanguard.glb once, creates cloned instances */
     private modelManager: PlayerModelManager | null = null;
@@ -135,15 +134,6 @@ export class RemotePlayerRenderer {
         // Extract entity data into snapshot format
         const entities = new Map<string, EntitySnapshot>();
 
-        // Diagnostic: log entity IDs periodically
-        this._diagCount++;
-        if (this._diagCount % 300 === 1) {
-            const allIds = [...state.entities.keys()];
-            const playerIds = allIds.filter(id => id.startsWith('player_'));
-            const nonLocalPlayers = playerIds.filter(id => id !== localEntityId);
-            console.log(`[RemotePlayerRenderer] pushSnapshot #${this._diagCount}: total=${allIds.length}, players=${playerIds.length}, remotes=${nonLocalPlayers.length}, hitboxes=${this.hitboxes.size}`);
-        }
-
         for (const [entityId, entity] of state.entities) {
             if (entityId === localEntityId) continue;
             if (!entityId.startsWith('player_')) continue;
@@ -185,11 +175,6 @@ export class RemotePlayerRenderer {
         // Get all entities from latest snapshot for lifecycle management
         const aliveIds = this.snapshotBuffer.getLatestEntityIds();
 
-        // Diagnostic: log render state periodically
-        if (this._diagCount % 300 === 1) {
-            console.log(`[RemotePlayerRenderer] render: aliveIds=${aliveIds.size}, hitboxes=${this.hitboxes.size}, bufferSize=${this.snapshotBuffer.getBufferSize()}`);
-        }
-
         // Sample interpolated state for each alive entity
         for (const entityId of aliveIds) {
             // Skip dead entities — their mesh is hidden until entity leaves snapshot
@@ -206,7 +191,6 @@ export class RemotePlayerRenderer {
                 if (created) {
                     this.hitboxes.set(entityId, created);
                     hitbox = created;
-                    console.log(`[RemotePlayerRenderer] Created for ${entityId} at (${created.mesh.position.x.toFixed(1)}, ${created.mesh.position.y.toFixed(1)}, ${created.mesh.position.z.toFixed(1)})`);
                     // Trigger async model load on first remote player
                     this.ensureModelLoaded();
                 }

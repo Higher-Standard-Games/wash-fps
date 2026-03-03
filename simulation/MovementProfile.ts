@@ -210,7 +210,8 @@ export class MovementProfile implements IMovementProfile {
             const isCrouching = input.isPressed(InputButtons.CROUCH);
             const isJumping = input.isPressed(InputButtons.JUMP);
             const canRun = !isAiming && !isCrouching;
-            const isSprinting = canRun && input.isPressed(InputButtons.SPRINT);
+            const isSprinting = canRun && input.isPressed(InputButtons.SPRINT)
+                && input.isPressed(InputButtons.FORWARD) && !input.isPressed(InputButtons.BACK);
 
             // Sprint only applies to pure forward movement — strafe, back, and diagonal use walk speed
             const forwardOnly = input.isPressed(InputButtons.FORWARD)
