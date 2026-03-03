@@ -1,16 +1,14 @@
 /**
- * RemotePlayerRenderer — Renders hitbox boxes for all non-local entities
+ * RemotePlayerRenderer — Renders 3D models + hitbox wireframes for remote entities
  *
- * Instead of loading 3D models, draws accurate Q3-style hitboxes (boxes)
- * sized to match the server's collision geometry exactly.
- * Crouch state is transmitted via BinaryProtocol flag 0x10.
+ * Each remote player gets:
+ * - A `PlayerModelInstance` (vanguard.glb clone) with animation state machine
+ * - An optional wireframe hitbox overlay (toggled via `cl_remotehitbox` cvar)
  *
- * Architecture (V2):
- * - pushSnapshot() is called once per server state update (snapshot rate, ~30Hz)
- *   to feed entity data into the SnapshotBuffer
- * - render() is called every frame to sample interpolated positions via the buffer
- * - This decouples snapshot reception from rendering, giving smooth, framerate-
- *   independent interpolation with velocity-based extrapolation on packet loss
+ * Architecture:
+ * - pushSnapshot() feeds entity data into SnapshotBuffer (~30Hz from server)
+ * - render() samples interpolated positions every frame, positions models,
+ *   derives animation state from velocity/grounded/yaw, and plays animations
  */
 
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
@@ -20,6 +18,8 @@ import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import type { GameState } from '../../../engine/network/core/GameState';
 import { SnapshotBuffer, type EntitySnapshot, type InterpolatedEntity } from '../../../engine/network/client/SnapshotBuffer';
+import { PlayerModelManager, type PlayerModelInstance } from '../../../engine/animation/PlayerModelManager';
+import { Cvar } from '../../../engine/core/Cvar';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -30,6 +30,12 @@ interface RemotePlayerHitbox {
     smoothedYaw: number;
     /** Current hitbox height (56 standing, 36 crouching) */
     currentHeight: number;
+    /** 3D model instance (null until model loads) */
+    model: PlayerModelInstance | null;
+    /** Weapon mesh attached to hand bone (null until weaponId sent over wire) */
+    weaponMesh: Mesh | null;
+    /** Current weapon ID (for detecting weapon switches) */
+    currentWeaponId: number;
 }
 
 // ─── Constants (Q3-style player bounds) ──────────────────────────
@@ -54,6 +60,15 @@ const CROUCH_HEIGHT = PLAYER_MAXS_Z - CROUCH_MINS_Z;
 
 // ─── Renderer ────────────────────────────────────────────────────
 
+// ─── Model scale (Mixamo → Q3/BSP units) ────────────────────────
+const MODEL_SCALE = 36;
+
+// ─── Animation derivation constants ─────────────────────────────
+const IDLE_SPEED_THRESHOLD = 50;
+const RUN_SPEED_THRESHOLD = 300;
+const WALK_NATURAL_SPEED = 50;
+const RUN_NATURAL_SPEED = 400;
+
 export class RemotePlayerRenderer {
     private scene: Scene;
     private hitboxes: Map<string, RemotePlayerHitbox> = new Map();
@@ -63,8 +78,46 @@ export class RemotePlayerRenderer {
     /** Diagnostic frame counter */
     private _diagCount = 0;
 
+    /** Shared model manager — loads vanguard.glb once, creates cloned instances */
+    private modelManager: PlayerModelManager | null = null;
+    private modelLoading = false;
+
     constructor(scene: Scene) {
         this.scene = scene;
+    }
+
+    // ── Model Loading ────────────────────────────────────────────
+
+    private async ensureModelLoaded(): Promise<void> {
+        if (this.modelManager?.isLoaded || this.modelLoading) return;
+        this.modelLoading = true;
+
+        this.modelManager = new PlayerModelManager(this.scene);
+        try {
+            await this.modelManager.loadModel();
+            console.log('[RemotePlayerRenderer] Player model loaded');
+
+            // Create model instances for any hitboxes that were created before model loaded
+            for (const [entityId, hitbox] of this.hitboxes) {
+                if (!hitbox.model) {
+                    hitbox.model = this.createModelInstance(entityId);
+                }
+            }
+        } catch (err) {
+            console.error('[RemotePlayerRenderer] Failed to load player model:', err);
+        } finally {
+            this.modelLoading = false;
+        }
+    }
+
+    private createModelInstance(entityId: string): PlayerModelInstance | null {
+        if (!this.modelManager?.isLoaded) return null;
+        const instance = this.modelManager.createInstance(entityId, MODEL_SCALE);
+        if (instance) {
+            // Start with idle animation
+            this.modelManager.playAnimation(instance, 'idle');
+        }
+        return instance;
     }
 
     // ── Public API ───────────────────────────────────────────────
@@ -153,16 +206,19 @@ export class RemotePlayerRenderer {
                 if (created) {
                     this.hitboxes.set(entityId, created);
                     hitbox = created;
-                    console.log(`[RemotePlayerRenderer] Hitbox created for ${entityId} at (${created.mesh.position.x.toFixed(1)}, ${created.mesh.position.y.toFixed(1)}, ${created.mesh.position.z.toFixed(1)})`);
+                    console.log(`[RemotePlayerRenderer] Created for ${entityId} at (${created.mesh.position.x.toFixed(1)}, ${created.mesh.position.y.toFixed(1)}, ${created.mesh.position.z.toFixed(1)})`);
+                    // Trigger async model load on first remote player
+                    this.ensureModelLoaded();
                 }
             }
 
             if (!hitbox) continue;
 
             // Ensure hitbox is visible (may have been hidden during death)
-            hitbox.mesh.setEnabled(true);
+            const showHitbox = Cvar.get('cl_remotehitbox');
+            hitbox.mesh.setEnabled(showHitbox !== undefined ? Number(showHitbox) > 0 : true);
 
-            // Check if height changed (crouch/uncrouch) — rebuild mesh if so
+            // Check if height changed (crouch/uncrouch) — rebuild hitbox mesh if so
             const targetHeight = interp.crouching ? CROUCH_HEIGHT : PLAYER_HEIGHT;
             if (hitbox.currentHeight !== targetHeight) {
                 hitbox.mesh.dispose();
@@ -173,14 +229,20 @@ export class RemotePlayerRenderer {
 
             // Update position/rotation from interpolated data
             this.updatePosition(hitbox, interp);
+
+            // Update model position + animation
+            this.updateModel(hitbox, interp);
         }
 
         // Remove hitboxes for entities no longer alive
         for (const [entityId, hitbox] of this.hitboxes) {
             if (!aliveIds.has(entityId)) {
                 hitbox.mesh.dispose();
+                if (hitbox.model && this.modelManager) {
+                    this.modelManager.disposeInstance(hitbox.model);
+                }
                 this.hitboxes.delete(entityId);
-                this.deadEntities.delete(entityId); // cleanup
+                this.deadEntities.delete(entityId);
             }
         }
     }
@@ -195,13 +257,20 @@ export class RemotePlayerRenderer {
         this.render();
     }
 
-    /** Clean up all hitboxes */
+    /** Clean up all hitboxes and models */
     dispose(): void {
         for (const hitbox of this.hitboxes.values()) {
             hitbox.mesh.dispose();
+            if (hitbox.model && this.modelManager) {
+                this.modelManager.disposeInstance(hitbox.model);
+            }
         }
         this.hitboxes.clear();
         this.deadEntities.clear();
+        if (this.modelManager) {
+            this.modelManager.dispose();
+            this.modelManager = null;
+        }
     }
 
     /**
@@ -211,10 +280,12 @@ export class RemotePlayerRenderer {
      */
     markDead(entityId: string): void {
         this.deadEntities.set(entityId, performance.now());
-        // Fully dispose the hitbox
         const hitbox = this.hitboxes.get(entityId);
         if (hitbox) {
             hitbox.mesh.dispose();
+            if (hitbox.model && this.modelManager) {
+                this.modelManager.disposeInstance(hitbox.model);
+            }
             this.hitboxes.delete(entityId);
         }
     }
@@ -288,11 +359,17 @@ export class RemotePlayerRenderer {
         // Position mesh at correct Y (box center relative to origin)
         this.positionMesh(mesh, smoothedPos, height);
 
+        // Create model instance if manager is loaded
+        const model = this.createModelInstance(entityId);
+
         return {
             mesh,
             smoothedPos,
             smoothedYaw: initialState.yaw,
             currentHeight: height,
+            model,
+            weaponMesh: null,
+            currentWeaponId: -1,
         };
     }
 
@@ -323,4 +400,90 @@ export class RemotePlayerRenderer {
         if (hitbox.mesh.rotationQuaternion) hitbox.mesh.rotationQuaternion = null;
         hitbox.mesh.rotation.set(0, hitbox.smoothedYaw, 0);
     }
+
+    // ── Model Update ─────────────────────────────────────────────
+
+    private updateModel(hitbox: RemotePlayerHitbox, interp: InterpolatedEntity): void {
+        const inst = hitbox.model;
+        if (!inst || !this.modelManager) return;
+
+        // Position the model anchor at player feet (Q3 origin - 24 = feet level)
+        const feetY = interp.y + PLAYER_MINS_Z;
+        inst.anchor.position.set(interp.x, feetY, interp.z);
+
+        // Rotation
+        if (inst.anchor.rotationQuaternion) inst.anchor.rotationQuaternion = null;
+        inst.anchor.rotation.set(0, interp.yaw, 0);
+        inst.anchor.setEnabled(true);
+
+        // Reset root motion each frame
+        this.modelManager.resetRootMotion(inst);
+
+        // Ensure mesh is visible + correct scale
+        inst.mesh.isVisible = true;
+        inst.mesh.getChildMeshes().forEach(m => m.isVisible = true);
+
+        // Derive animation from network data
+        const animName = this.deriveAnimation(interp);
+        this.modelManager.playAnimation(inst, animName);
+
+        // Scale animation speed to match movement speed
+        if (inst.masterGroup) {
+            const speed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz);
+            if (animName === 'run' || animName === 'walk') {
+                const naturalSpeed = animName === 'run' ? RUN_NATURAL_SPEED : WALK_NATURAL_SPEED;
+
+                // Detect backward movement
+                const fwdX = Math.sin(interp.yaw);
+                const fwdZ = Math.cos(interp.yaw);
+                const forwardDot = fwdX * interp.vx + fwdZ * interp.vz;
+                const isBackward = forwardDot < 0;
+
+                let speedRatio = speed / naturalSpeed;
+                if (isBackward) speedRatio = -speedRatio;
+                inst.masterGroup.speedRatio = Math.max(-3.0, Math.min(3.0, speedRatio));
+            } else {
+                inst.masterGroup.speedRatio = 1.0;
+            }
+        }
+    }
+
+    /**
+     * Derive animation name from interpolated network data.
+     * Uses velocity, grounded state, and yaw — all available from SnapshotBuffer.
+     */
+    private deriveAnimation(interp: InterpolatedEntity): string {
+        // Airborne
+        if (!interp.grounded && interp.vy > 50) return 'jump';
+
+        const speed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz);
+
+        // Idle
+        if (speed < IDLE_SPEED_THRESHOLD) return 'idle';
+
+        // Strafe detection
+        const fwdX = Math.sin(interp.yaw);
+        const fwdZ = Math.cos(interp.yaw);
+        const rightX = fwdZ;
+        const rightZ = -fwdX;
+
+        const forwardDot = fwdX * interp.vx + fwdZ * interp.vz;
+        const rightDot = rightX * interp.vx + rightZ * interp.vz;
+
+        if (Math.abs(rightDot) > Math.abs(forwardDot) * 1.5) {
+            return rightDot > 0 ? 'strafe_r' : 'strafe_l';
+        }
+
+        // Run vs walk
+        return speed > RUN_SPEED_THRESHOLD ? 'run' : 'walk';
+    }
 }
+
+// ─── Cvar Registration ───────────────────────────────────────────
+
+Cvar.register('cl_remotehitbox', 1, {
+    type: 'int',
+    min: 0,
+    max: 1,
+    description: 'Show wireframe hitbox outlines on remote players',
+});
