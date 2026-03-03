@@ -212,7 +212,12 @@ export class MovementProfile implements IMovementProfile {
             const canRun = !isAiming && !isCrouching;
             const isSprinting = canRun && input.isPressed(InputButtons.SPRINT);
 
-            let wishspeed = isSprinting ? this.config.runSpeed : this.config.maxSpeed;
+            // Sprint only applies to pure forward movement — strafe, back, and diagonal use walk speed
+            const forwardOnly = input.isPressed(InputButtons.FORWARD)
+                && !input.isPressed(InputButtons.BACK)
+                && !input.isPressed(InputButtons.LEFT)
+                && !input.isPressed(InputButtons.RIGHT);
+            let wishspeed = (isSprinting && forwardOnly) ? this.config.runSpeed : this.config.maxSpeed;
 
             // Crouch speed reduction (if not sliding)
             if (isCrouching && !this.slide.isSliding) {
