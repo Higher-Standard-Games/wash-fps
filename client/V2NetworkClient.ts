@@ -117,6 +117,10 @@ export class V2NetworkClient {
     // time to converge in normal movement before corrections resume.
     private grabReconcileSkipCount: number = 0;
 
+    // Same pattern for walljumps — WallJump state machine replay diverges because
+    // wall traces hit at slightly different sub-tick positions after server reset.
+    private wallJumpReconcileSkipCount: number = 0;
+
     // Track if we've received at least one server snapshot
     // Position is (0,0,0) until first snapshot - camera should wait
     private hasReceivedSnapshot: boolean = false;
@@ -279,10 +283,25 @@ export class V2NetworkClient {
         if (inActiveGrab) {
             this.grabReconcileSkipCount = 10; // Reset counter while grab is active
         }
-        if (this.grabReconcileSkipCount > 0 && !isFirstSnapshot) {
+
+        // === WALLJUMP: Same skip pattern ===
+        // WallJump state machine runs wall traces during input replay. After server
+        // reset, traces hit at slightly different sub-tick positions, causing the
+        // replayed walljump to produce different velocity/position than the server.
+        // Each walljump compounds the error. Skip reconciliation during + after.
+        const inActiveWallJump = this.predictedMovement.wallJumpState !== 'none';
+        if (inActiveWallJump) {
+            this.wallJumpReconcileSkipCount = 10;
+        }
+
+        const skipReconcile = (this.grabReconcileSkipCount > 0 || this.wallJumpReconcileSkipCount > 0) && !isFirstSnapshot;
+        if (skipReconcile) {
             this.inputHistory.pruneAcked(snapshot.ackedInputSeq);
-            if (!inActiveGrab) {
-                this.grabReconcileSkipCount--; // Decrement during post-grab cooldown
+            if (!inActiveGrab && this.grabReconcileSkipCount > 0) {
+                this.grabReconcileSkipCount--;
+            }
+            if (!inActiveWallJump && this.wallJumpReconcileSkipCount > 0) {
+                this.wallJumpReconcileSkipCount--;
             }
             return;
         }
