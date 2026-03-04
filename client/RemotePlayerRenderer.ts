@@ -289,6 +289,27 @@ export class RemotePlayerRenderer {
     }
 
     /**
+     * Detach a player model from the renderer WITHOUT disposing it.
+     * Returns the PlayerModelInstance for ragdoll use.
+     * The hitbox mesh is disposed but the model (skeleton + mesh + anchor) is preserved.
+     */
+    detachModel(entityId: string): import('../../../engine/animation/PlayerModelManager').PlayerModelInstance | null {
+        this.deadEntities.set(entityId, performance.now());
+        const hitbox = this.hitboxes.get(entityId);
+        if (!hitbox || !hitbox.model) {
+            if (hitbox) {
+                hitbox.mesh.dispose();
+                this.hitboxes.delete(entityId);
+            }
+            return null;
+        }
+        const model = hitbox.model;
+        hitbox.mesh.dispose();
+        this.hitboxes.delete(entityId);
+        return model;
+    }
+
+    /**
      * Mark an entity as alive — hitbox will reappear on next render.
      * Called when a respawn/combat_state event clears dead status.
      */

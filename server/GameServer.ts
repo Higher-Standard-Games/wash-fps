@@ -1062,13 +1062,19 @@ export class GameServer {
                 entityId: `player_${kill.victimId}`,
                 killerId: kill.killerId !== undefined ? `player_${kill.killerId}` : '',
                 weaponId: kill.damageType, // Use damageType as weapon identifier
-                // Victim position + velocity for gib spawning
+                damageType: kill.damageType, // Explicit damage type for gib/ragdoll decision
+                finalDamage: kill.finalDamage, // Killing blow damage for gib threshold
+                // Victim position + velocity for gib/ragdoll spawning
                 x: kill.victimX,
                 y: kill.victimY,
                 z: kill.victimZ,
                 velX: kill.victimVelX,
                 velY: kill.victimVelY,
                 velZ: kill.victimVelZ,
+                // Knockback direction from damage source
+                kbDirX: kill.kbDirX,
+                kbDirY: kill.kbDirY,
+                kbDirZ: kill.kbDirZ,
             });
         }
         // Clear cached kills after they've been sent

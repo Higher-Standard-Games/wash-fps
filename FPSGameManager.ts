@@ -141,6 +141,8 @@ export class FPSGameManager {
   private _gibSystemLoading = false;  // true while import() is pending
   private _pendingGibSpawns: { x: number; y: number; z: number; vx: number; vy: number; vz: number }[] = [];
   private _damageNumbers: any = null;
+  private _ragdollSystem: any = null;
+  private _ragdollSystemLoading = false;
 
   private constructor() {
     // Register all FPS actions + contexts with InputSystem
@@ -809,6 +811,34 @@ export class FPSGameManager {
       this._gibSystem.update(dtSec);
     }
 
+    // Update ragdoll physics (Havok-driven skeleton ragdolls)
+    if (!this._ragdollSystem && !this._ragdollSystemLoading) {
+      this._ragdollSystemLoading = true;
+      import('./client/RagdollSystem').then(m => {
+        const ragdolls = m.RagdollSystem.getInstance();
+        const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
+        if (gameScene) {
+          ragdolls.init(gameScene);
+          // Wire gib explosion callback (Warsow-style ragdoll cleanup)
+          if (this._gibSystem) {
+            ragdolls.setGibCallback((x: number, y: number, z: number, vx: number, vy: number, vz: number) => {
+              this._gibSystem?.spawn(x, y, z, vx, vy, vz);
+            });
+          }
+          this._ragdollSystem = ragdolls;
+          console.log('[RagdollSystem] Initialized');
+        } else {
+          console.log('[RagdollSystem] Scene not ready, will retry');
+          this._ragdollSystemLoading = false;
+        }
+      }).catch(e => {
+        console.error('[RagdollSystem] Failed to load:', e);
+        this._ragdollSystemLoading = false;
+      });
+    } else if (this._ragdollSystem) {
+      this._ragdollSystem.update(dtSec);
+    }
+
     // Update floating damage numbers (float upward, fade out)
     if (this._damageNumbers) {
       this._damageNumbers.update(dtSec);
@@ -1157,38 +1187,87 @@ export class FPSGameManager {
             }
           }
         } else if (event.type === 'death') {
-          console.log(`[Death] Event received: entity=${event.entityId} killer=${event.killerId} pos=(${event.x}, ${event.y}, ${event.z})`);
-          // Death event (kill feed + gibs)
+          console.log(`[Death] Event received: entity=${event.entityId} killer=${event.killerId} damageType=${event.damageType} finalDamage=${event.finalDamage} pos=(${event.x}, ${event.y}, ${event.z})`);
+          // Death event (kill feed)
           try {
             HUDState.getInstance().processDeath(event);
           } catch (e) {
             console.error('[Death] HUD processDeath error:', e);
           }
-          // Hide remote player model on death
-          try {
-            if (this.remoteRenderer && event.entityId) {
-              this.remoteRenderer.markDead(event.entityId);
+
+          // === GIB vs RAGDOLL DECISION ===
+          // Rail (EB) → always gibs
+          // Explosion with finalDamage >= 50 → gibs
+          // Everything else → ragdoll
+          const damageType = event.damageType || event.weaponId || '';
+          const finalDamage = event.finalDamage || 0;
+          const shouldGib = damageType === 'rail'
+            || (damageType === 'explosion' && finalDamage >= 50);
+
+          if (shouldGib) {
+            // === GIB DEATH: dispose model + spawn gib particles ===
+            try {
+              if (this.remoteRenderer && event.entityId) {
+                this.remoteRenderer.markDead(event.entityId);
+              }
+            } catch (e) {
+              console.error('[Death] markDead error:', e);
             }
-          } catch (e) {
-            console.error('[Death] markDead error:', e);
-          }
-          // Spawn gibs at death position (always attempted regardless of above errors)
-          if (event.x !== undefined) {
-            console.log(`[GibSystem] Spawning gibs at (${event.x.toFixed(0)}, ${event.y.toFixed(0)}, ${event.z.toFixed(0)}) vel=(${(event.velX || 0).toFixed(0)}, ${(event.velY || 0).toFixed(0)}, ${(event.velZ || 0).toFixed(0)})`);
-            if (this._gibSystem) {
-              this._gibSystem.spawn(
-                event.x, event.y, event.z,
-                event.velX || 0, event.velY || 0, event.velZ || 0,
-              );
-            } else {
-              // Queue for when GibSystem finishes loading
-              this._pendingGibSpawns.push({
-                x: event.x, y: event.y, z: event.z,
-                vx: event.velX || 0, vy: event.velY || 0, vz: event.velZ || 0,
-              });
+            if (event.x !== undefined) {
+              console.log(`[GibSystem] Gib death: dmgType=${damageType} dmg=${finalDamage}`);
+              if (this._gibSystem) {
+                this._gibSystem.spawn(
+                  event.x, event.y, event.z,
+                  event.velX || 0, event.velY || 0, event.velZ || 0,
+                );
+              } else {
+                this._pendingGibSpawns.push({
+                  x: event.x, y: event.y, z: event.z,
+                  vx: event.velX || 0, vy: event.velY || 0, vz: event.velZ || 0,
+                });
+              }
             }
           } else {
-            console.warn('[GibSystem] Death event missing/zero position data:', event);
+            // === RAGDOLL DEATH: detach model + start physics ===
+            console.log(`[RagdollSystem] Ragdoll death: dmgType=${damageType} dmg=${finalDamage}`);
+            let model = null;
+            try {
+              if (this.remoteRenderer && event.entityId) {
+                model = this.remoteRenderer.detachModel(event.entityId);
+              }
+            } catch (e) {
+              console.error('[Death] detachModel error:', e);
+            }
+
+            if (model && this._ragdollSystem) {
+              // Use server-provided knockback direction (from damage source)
+              this._ragdollSystem.spawn(
+                model,
+                event.kbDirX || 0,
+                event.kbDirY || 0,
+                event.kbDirZ || 0,
+              );
+            } else if (model) {
+              // RagdollSystem not ready — fall back to gibs
+              console.warn('[Death] RagdollSystem not ready, falling back to gibs');
+              // Dispose the detached model manually
+              if (model.mesh) model.mesh.dispose();
+              if (model.skeleton) model.skeleton.dispose();
+              if (model.anchor) model.anchor.dispose();
+              if (event.x !== undefined && this._gibSystem) {
+                this._gibSystem.spawn(
+                  event.x, event.y, event.z,
+                  event.velX || 0, event.velY || 0, event.velZ || 0,
+                );
+              }
+            } else {
+              // No model available (might be local player) — just mark dead
+              try {
+                if (this.remoteRenderer && event.entityId) {
+                  this.remoteRenderer.markDead(event.entityId);
+                }
+              } catch (e) { /* noop */ }
+            }
           }
         } else if (event.type === 'weapon_drop') {
           // Spawn dropped weapon visual with Havok physics

@@ -72,6 +72,8 @@ export interface KillEvent {
     victimId: EntityId;
     killerId?: EntityId;
     damageType: DamageType;
+    /** Final damage of the killing blow (used for gib vs ragdoll decision) */
+    finalDamage: number;
     tick: TickNumber;
     /** Victim position at death (for gibs) */
     victimX: number;
@@ -81,6 +83,10 @@ export interface KillEvent {
     victimVelX: number;
     victimVelY: number;
     victimVelZ: number;
+    /** Knockback direction (from damage source → victim) */
+    kbDirX: number;
+    kbDirY: number;
+    kbDirZ: number;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -262,6 +268,7 @@ export class CombatSystem extends Subsystem {
                 victimId: event.victimId,
                 killerId: event.attackerId,
                 damageType: event.damageType,
+                finalDamage,
                 tick,
                 victimX: pos.x,
                 victimY: pos.y,
@@ -269,6 +276,9 @@ export class CombatSystem extends Subsystem {
                 victimVelX: vel.x,
                 victimVelY: vel.y,
                 victimVelZ: vel.z,
+                kbDirX: event.knockbackDir?.x ?? 0,
+                kbDirY: event.knockbackDir?.y ?? 0,
+                kbDirZ: event.knockbackDir?.z ?? 0,
             };
             this.kills.push(killEvent);
             // NOTE: Respawn queuing is now handled by GametypeController
