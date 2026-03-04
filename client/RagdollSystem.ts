@@ -42,6 +42,9 @@ const KNOCKBACK_SPEED = 600;
 /** Max linear velocity for Havok physics engine — must be raised to allow ragdoll launches */
 const HAVOK_MAX_LINEAR_VELOCITY = 10000;
 
+/** Ragdoll gravity multiplier (1.0 = normal, 0.4 = floaty/slower arcs) */
+const RAGDOLL_GRAVITY_FACTOR = 0.4;
+
 /** Speed trail settings */
 const TRAIL_LIFETIME = 1.0;      // seconds before trail fades
 const TRAIL_DIAMETER = 8;        // trail ribbon width
@@ -407,10 +410,11 @@ export class RagdollSystem {
                     const agg = ragdollInstance.getAggregate(b);
                     if (agg?.body) {
                         agg.body.setLinearVelocity(launchVel);
+                        agg.body.setGravityFactor(RAGDOLL_GRAVITY_FACTOR);
                     }
                 } catch { /* skip */ }
             }
-            console.log(`[RagdollSystem] Applied velocity (${kbX.toFixed(0)}, ${POP_UP}, ${kbZ.toFixed(0)}) to ${boneConfig.length} bones`);
+            console.log(`[RagdollSystem] Applied velocity (${kbX.toFixed(0)}, ${POP_UP}, ${kbZ.toFixed(0)}) gravity=${RAGDOLL_GRAVITY_FACTOR} to ${boneConfig.length} bones`);
 
             // 9. Create speed trail attached to hips bone
             let trail: TrailMesh | null = null;
