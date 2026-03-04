@@ -123,6 +123,12 @@ export class RemotePlayerRenderer {
         if (instance) {
             // Start with idle animation
             this.modelManager.playAnimation(instance, 'idle');
+
+            // PROTOTYPE: Apply team color based on entity ID hash
+            // TODO: Use actual team assignment from server
+            const hash = entityId.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+            const team = hash % 2 === 0 ? 'alpha' : 'bravo';
+            this.modelManager.applyTeamColor(instance, team);
         }
         return instance;
     }
