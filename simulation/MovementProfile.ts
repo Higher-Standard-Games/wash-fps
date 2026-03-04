@@ -79,8 +79,8 @@ export class MovementProfile implements IMovementProfile {
 
             // Wall jump
             wallJumpEnabled: true,
-            wallJumpHeight: 300,
-            wallJumpBounce: 1.0,
+            wallJumpHeight: 280,
+            wallJumpBounce: 1.2,
             wallJumpReach: 20,
             wallJumpCooldown: 1.0,
             wallJumpMinHeight: 32,
