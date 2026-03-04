@@ -16,6 +16,13 @@ import { vec3Zero, vec3Clone, vec3LengthXZ, vec3MulAdd, VEC3_ZERO } from './Vec3
 /** Grace period for detection hysteresis (seconds) */
 const DETECTION_GRACE = 0.1;
 
+/** Bounding box for wall detection traces — small box catches angled BSP faces
+ *  that point rays miss. Q3/Warsow used full player hull for wall detection. */
+const WALL_TRACE_BOUNDS = {
+    min: { x: -4, y: -16, z: -4 },
+    max: { x: 4, y: 16, z: 4 },
+};
+
 export class WallJump {
     state: 'none' | 'available' | 'charging' = 'none';
     chargeTime: number = 0;
@@ -107,13 +114,16 @@ export class WallJump {
             }
         }
 
-        // Check multiple directions for walls
+        // Check 8 directions for walls (full rose — catches 45° walls reliably)
         const directions = [
-            forward,
-            { x: forward.x * 0.707 - forward.z * 0.707, y: 0, z: forward.x * 0.707 + forward.z * 0.707 },
-            { x: forward.x * 0.707 + forward.z * 0.707, y: 0, z: -forward.x * 0.707 + forward.z * 0.707 },
-            { x: -forward.z, y: 0, z: forward.x },
-            { x: forward.z, y: 0, z: -forward.x },
+            forward,                                                                            // Forward
+            { x: forward.x * 0.924 - forward.z * 0.383, y: 0, z: forward.x * 0.383 + forward.z * 0.924 }, // +22.5°
+            { x: forward.x * 0.924 + forward.z * 0.383, y: 0, z: -forward.x * 0.383 + forward.z * 0.924 }, // -22.5°
+            { x: forward.x * 0.707 - forward.z * 0.707, y: 0, z: forward.x * 0.707 + forward.z * 0.707 }, // +45°
+            { x: forward.x * 0.707 + forward.z * 0.707, y: 0, z: -forward.x * 0.707 + forward.z * 0.707 }, // -45°
+            { x: -forward.z, y: 0, z: forward.x },                                             // +90° (left)
+            { x: forward.z, y: 0, z: -forward.x },                                             // -90° (right)
+            { x: -forward.x, y: 0, z: -forward.z },                                            // Backward
         ];
 
         let foundWall = false;
@@ -121,7 +131,7 @@ export class WallJump {
 
         for (const dir of directions) {
             vec3MulAdd(this._scratchTraceEnd, pos, dir, reach);
-            const wallCheck = collision.trace(pos, this._scratchTraceEnd);
+            const wallCheck = collision.trace(pos, this._scratchTraceEnd, WALL_TRACE_BOUNDS);
 
             if (wallCheck.hit && wallCheck.normal) {
                 // Skip slopes and ramps — only near-vertical surfaces count as walls
@@ -134,16 +144,17 @@ export class WallJump {
                 const eyeHeight = 32;
                 const eyeCheckStart = { x: pos.x, y: pos.y + eyeHeight - 10, z: pos.z };
                 vec3MulAdd(this._scratchTraceEnd2, eyeCheckStart, dir, reach);
-                const eyeTrace = collision.trace(eyeCheckStart, this._scratchTraceEnd2);
+                const eyeTrace = collision.trace(eyeCheckStart, this._scratchTraceEnd2, WALL_TRACE_BOUNDS);
 
                 if (!eyeTrace.hit) {
                     continue; // Low obstacle, skip
                 }
 
-                // Verify we're moving toward the wall
+                // Verify we're not moving strongly away from the wall
+                // Relaxed threshold to support 45° wall approaches (Warsow-style)
                 const velDot = vel.x * wallCheck.normal.x + vel.z * wallCheck.normal.z;
-                if (velDot > -10) {
-                    continue; // Moving away or parallel
+                if (velDot > 5) {
+                    continue; // Moving away from wall
                 }
 
                 foundWall = true;

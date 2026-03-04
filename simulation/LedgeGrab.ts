@@ -147,27 +147,50 @@ export class LedgeGrab {
         // Eye position (physics origin + 24)
         const eyeY = pos.y + 24;
 
-        // === TRACE 1: Check for wall at waist level ===
-        const waistStart = { x: pos.x, y: eyeY - 16, z: pos.z };
-        const waistEnd = vec3Add(waistStart, vec3Scale(forwardDir, reach));
-        const waistTrace = collision.trace(waistStart, waistEnd);
+        // === MULTI-DIRECTION WALL PROBE ===
+        // Fan out ±30° and ±60° from forward to catch angled ledges (45° walls etc.)
+        const cos30 = 0.866, sin30 = 0.5;
+        const cos60 = 0.5, sin60 = 0.866;
+        const probeDirections = [
+            forwardDir,
+            { x: forwardDir.x * cos30 - forwardDir.z * sin30, y: 0, z: forwardDir.x * sin30 + forwardDir.z * cos30 },
+            { x: forwardDir.x * cos30 + forwardDir.z * sin30, y: 0, z: -forwardDir.x * sin30 + forwardDir.z * cos30 },
+            { x: forwardDir.x * cos60 - forwardDir.z * sin60, y: 0, z: forwardDir.x * sin60 + forwardDir.z * cos60 },
+            { x: forwardDir.x * cos60 + forwardDir.z * sin60, y: 0, z: -forwardDir.x * sin60 + forwardDir.z * cos60 },
+        ];
 
-        if (!waistTrace.hit || waistTrace.fraction >= 1.0) {
-            return false;
+        // Find the closest wall across all probe directions
+        let bestWaistTrace: ReturnType<typeof collision.trace> | null = null;
+        let bestProbeDir = forwardDir;
+        let bestFraction = 1.0;
+
+        for (const probeDir of probeDirections) {
+            // === TRACE 1: Check for wall at waist level ===
+            const waistStart = { x: pos.x, y: eyeY - 16, z: pos.z };
+            const waistEnd = vec3Add(waistStart, vec3Scale(probeDir, reach));
+            const waistTrace = collision.trace(waistStart, waistEnd);
+
+            if (waistTrace.hit && waistTrace.fraction < 1.0 && waistTrace.fraction < bestFraction) {
+                // === TRACE 2: Check if space is clear above eye level ===
+                const headStart = { x: pos.x, y: eyeY + 8, z: pos.z };
+                const headEnd = vec3Add(headStart, vec3Scale(probeDir, reach));
+                const headTrace = collision.trace(headStart, headEnd);
+
+                if (!headTrace.hit || headTrace.fraction >= 0.9) {
+                    bestWaistTrace = waistTrace;
+                    bestProbeDir = probeDir;
+                    bestFraction = waistTrace.fraction;
+                }
+            }
         }
 
-
-        // === TRACE 2: Check if space is clear above eye level ===
-        const headStart = { x: pos.x, y: eyeY + 8, z: pos.z };
-        const headEnd = vec3Add(headStart, vec3Scale(forwardDir, reach));
-        const headTrace = collision.trace(headStart, headEnd);
-
-        if (headTrace.hit && headTrace.fraction < 0.9) {
+        if (!bestWaistTrace) {
             return false;
         }
 
         // === TRACE 3: Find ledge surface by tracing down from above ===
-        const aboveLedgeStart = vec3Add({ x: pos.x, y: eyeY, z: pos.z }, vec3Scale(forwardDir, reach * 0.7));
+        // Use the best probe direction (may be angled for 45° walls)
+        const aboveLedgeStart = vec3Add({ x: pos.x, y: eyeY, z: pos.z }, vec3Scale(bestProbeDir, reach * 0.7));
         aboveLedgeStart.y += climbHeight;
 
         const aboveLedgeEnd = { x: aboveLedgeStart.x, y: aboveLedgeStart.y - climbHeight - 48, z: aboveLedgeStart.z };
@@ -192,11 +215,11 @@ export class LedgeGrab {
         // IMPORTANT: Use the wall normal to offset the target X,Z AWAY from the wall face.
         // Previously, targetPos used aboveLedgeStart.x/z which pushes the player
         // forward into/past the wall → player gets stuck inside geometry after pull.
-        const wallNormal = waistTrace.normal || { x: -forwardDir.x, y: 0, z: -forwardDir.z };
+        const wallNormal = bestWaistTrace.normal || { x: -bestProbeDir.x, y: 0, z: -bestProbeDir.z };
         const targetPos = {
-            x: pos.x + forwardDir.x * (reach * 0.3) + wallNormal.x * 2,
+            x: pos.x + bestProbeDir.x * (reach * 0.3) + wallNormal.x * 2,
             y: ledgeSurfaceY + 24 + 8,
-            z: pos.z + forwardDir.z * (reach * 0.3) + wallNormal.z * 2,
+            z: pos.z + bestProbeDir.z * (reach * 0.3) + wallNormal.z * 2,
         };
 
         // Verify the target position is not inside solid
