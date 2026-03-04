@@ -42,8 +42,8 @@ const KNOCKBACK_SPEED = 600;
 /** Max linear velocity for Havok physics engine — must be raised to allow ragdoll launches */
 const HAVOK_MAX_LINEAR_VELOCITY = 10000;
 
-/** Ragdoll gravity multiplier (1.0 = normal, 0.4 = floaty/slower arcs) */
-const RAGDOLL_GRAVITY_FACTOR = 0.4;
+/** Ragdoll gravity multiplier (1.0 = normal, 0.8 = slightly floatier arcs) */
+const RAGDOLL_GRAVITY_FACTOR = 0.8;
 
 /** Speed trail settings */
 const TRAIL_LIFETIME = 1.0;      // seconds before trail fades
