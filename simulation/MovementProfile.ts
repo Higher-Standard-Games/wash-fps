@@ -62,7 +62,7 @@ export class MovementProfile implements IMovementProfile {
         this.config = {
             // Core movement (defaults from MovementVars)
             maxSpeed: 280,
-            runSpeed: 350,
+            runSpeed: 400,
             groundAcceleration: 10,
             airAcceleration: 1,
             maxAirSpeed: 30,
@@ -79,13 +79,13 @@ export class MovementProfile implements IMovementProfile {
 
             // Wall jump
             wallJumpEnabled: true,
-            wallJumpHeight: 280,
-            wallJumpBounce: 0.8,
+            wallJumpHeight: 300,
+            wallJumpBounce: 1.0,
             wallJumpReach: 20,
             wallJumpCooldown: 1.0,
             wallJumpMinHeight: 32,
             wallJumpChargeTime: 0.2,
-            wallJumpBoost: 1.2,
+            wallJumpBoost: 1.5,
 
             // Ledge grab
             ledgeGrabEnabled: true,
@@ -98,7 +98,7 @@ export class MovementProfile implements IMovementProfile {
             // Crouchslide
             slideEnabled: true,
             slideDuration: 800,
-            slideSpeedMultiplier: 1.2,
+            slideSpeedMultiplier: 1.4,
             slideDecay: 0.5,
             slideJumpBoost: 1.3,
             slideMinSpeed: 375,

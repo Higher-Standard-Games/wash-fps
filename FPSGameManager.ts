@@ -143,6 +143,8 @@ export class FPSGameManager {
   private _damageNumbers: any = null;
   private _ragdollSystem: any = null;
   private _ragdollSystemLoading = false;
+  private _cartoonHit: any = null;
+  private _cartoonHitLoading = false;
 
   private constructor() {
     // Register all FPS actions + contexts with InputSystem
@@ -849,6 +851,27 @@ export class FPSGameManager {
       });
     }
 
+    // Update cartoon hit effects (Warsow-style POW! sprites)
+    if (!this._cartoonHit && !this._cartoonHitLoading) {
+      this._cartoonHitLoading = true;
+      import('./client/CartoonHitEffect').then(m => {
+        const ch = m.CartoonHitEffect.getInstance();
+        const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
+        if (gameScene) {
+          ch.init(gameScene);
+          this._cartoonHit = ch;
+          console.log('[CartoonHitEffect] Initialized');
+        } else {
+          this._cartoonHitLoading = false;
+        }
+      }).catch(e => {
+        console.error('[CartoonHitEffect] Failed to load:', e);
+        this._cartoonHitLoading = false;
+      });
+    } else if (this._cartoonHit) {
+      this._cartoonHit.update(dtSec);
+    }
+
     // Render network diagnostics overlay (if cl_netgraph > 0)
     NetGraph.render();
   }
@@ -1184,6 +1207,10 @@ export class FPSGameManager {
                 }
                 dn.spawn(event.x, event.y, event.z, event.damage);
               });
+            }
+            // Cartoon hit effect (Warsow POW!) on hard hits
+            if (event.x !== undefined && this._cartoonHit) {
+              this._cartoonHit.spawn(event.x, event.y, event.z, event.damage);
             }
           }
         } else if (event.type === 'death') {
