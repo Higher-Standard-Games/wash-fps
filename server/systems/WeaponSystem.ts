@@ -539,7 +539,7 @@ export class WeaponSystem extends Subsystem {
                 // Hit! Determine location based on Y offset
                 const yOffset = closestPoint.y - target.transform.position.y;
                 let hitLocation = HitLocation.Body;
-                if (yOffset > 24) hitLocation = HitLocation.Head;
+                if (yOffset > 32) hitLocation = HitLocation.Head;
                 else if (yOffset < -20) hitLocation = HitLocation.Legs;
 
                 this.pendingDamage.push({
@@ -584,7 +584,7 @@ export class WeaponSystem extends Subsystem {
         const offset = 50;
         const position = {
             x: shooter.transform.position.x + Math.sin(yaw) * Math.cos(pitch) * offset,
-            y: shooter.transform.position.y + 26 + Math.sin(pitch) * offset, // DEFAULT_VIEWHEIGHT (origin is at waist, not feet)
+            y: shooter.transform.position.y + 31 + Math.sin(pitch) * offset, // Between eye (34) and muzzle (28)
             z: shooter.transform.position.z + Math.cos(yaw) * Math.cos(pitch) * offset,
         };
 

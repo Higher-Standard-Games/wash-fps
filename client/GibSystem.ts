@@ -104,7 +104,24 @@ export class GibSystem {
     // ========================================================================
 
     init(scene: Scene): void {
-        if (this.scene) return;
+        // Allow re-initialization if scene changes (e.g., stale UI scene → game scene)
+        if (this.scene === scene) return;
+        if (this.scene) {
+            // Dispose old resources from previous scene
+            console.log(`[GibSystem] Re-initializing with new scene (old scene was stale)`);
+            for (const gib of this.gibs) {
+                gib.mesh.dispose();
+            }
+            this.gibs = [];
+            for (const mat of this.materials) {
+                mat.dispose();
+            }
+            this.materials = [];
+            if (this.templateMesh) {
+                this.templateMesh.dispose();
+                this.templateMesh = null;
+            }
+        }
         this.scene = scene;
 
         // Create materials for each color
@@ -122,6 +139,7 @@ export class GibSystem {
         this.templateMesh = this.createTriangleMesh(scene);
         this.templateMesh.setEnabled(false);
         this.templateMesh.isPickable = false;
+        console.log(`[GibSystem] Initialized in scene: ${scene.uid}`);
     }
 
     dispose(): void {
@@ -175,6 +193,8 @@ export class GibSystem {
             gib.velZ = velZ + spreadZ;
 
             this.initGibCommon(gib, y, i < TRACED_GIB_COUNT, false);
+            // Sync mesh position immediately so gib is visible on spawn frame
+            gib.mesh.position.set(gib.posX, gib.posY, gib.posZ);
         }
 
         // === BODY-PART DROP GIBS ===
@@ -197,6 +217,8 @@ export class GibSystem {
             gib.mesh.scaling.setAll(scale * (DROP_GIB_SIZE / GIB_SIZE));
 
             this.initGibCommon(gib, y, false, true);
+            // Sync mesh position immediately
+            gib.mesh.position.set(gib.posX, gib.posY, gib.posZ);
         }
     }
 
@@ -341,8 +363,9 @@ export class GibSystem {
             if (!gib.active) return gib;
         }
 
-        // Create new gib mesh (clone from template)
-        const mesh = this.templateMesh!.clone(`gib_${this.gibs.length}`)!;
+        // Create new gib mesh — fresh geometry each time (avoid clone issues)
+        const mesh = this.createTriangleMesh(this.scene!);
+        mesh.name = `gib_${this.gibs.length}`;
         mesh.setEnabled(false);
         mesh.isPickable = false;
 

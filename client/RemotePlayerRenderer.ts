@@ -46,10 +46,10 @@ const PLAYER_RADIUS = 16;
 /** Box extends 24 units below origin (to feet) */
 const PLAYER_MINS_Z = -24;
 
-/** Box extends 32 units above origin (to head) */
-const PLAYER_MAXS_Z = 32;
+/** Box extends 40 units above origin (to head) */
+const PLAYER_MAXS_Z = 40;
 
-/** Total standing height: 56 */
+/** Total standing height: 64 */
 const PLAYER_HEIGHT = PLAYER_MAXS_Z - PLAYER_MINS_Z;
 
 /** Crouched mins Z — box extends 4 units below origin */

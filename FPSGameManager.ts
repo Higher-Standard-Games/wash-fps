@@ -784,8 +784,9 @@ export class FPSGameManager {
       this._gibSystemLoading = true;
       import('./client/GibSystem').then(m => {
         const gibs = m.GibSystem.getInstance();
-        if (!gibs['scene'] && EngineStore.LastCreatedScene) {
-          gibs.init(EngineStore.LastCreatedScene);
+        const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
+        if (gameScene) {
+          gibs.init(gameScene); // init() handles scene changes gracefully
         }
         if (gibs['scene']) {
           this._gibSystem = gibs;
@@ -1147,8 +1148,9 @@ export class FPSGameManager {
             if (event.x !== undefined && event.damage > 0) {
               import('./client/DamageNumbers').then(m => {
                 const dn = m.DamageNumbers.getInstance();
-                if (!dn['scene'] && EngineStore.LastCreatedScene) {
-                  dn.init(EngineStore.LastCreatedScene);
+                if (!dn['scene']) {
+                  const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
+                  if (gameScene) dn.init(gameScene);
                 }
                 dn.spawn(event.x, event.y, event.z, event.damage);
               });
@@ -1190,8 +1192,9 @@ export class FPSGameManager {
           }
         } else if (event.type === 'weapon_drop') {
           // Spawn dropped weapon visual with Havok physics
-          if (!this.droppedWeaponRenderer && EngineStore.LastCreatedScene) {
-            this.droppedWeaponRenderer = new DroppedWeaponRenderer(EngineStore.LastCreatedScene);
+          const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
+          if (!this.droppedWeaponRenderer && gameScene) {
+            this.droppedWeaponRenderer = new DroppedWeaponRenderer(gameScene);
           }
           if (this.droppedWeaponRenderer) {
             const pos = new Vector3(event.x, event.y, event.z);
@@ -1279,8 +1282,9 @@ export class FPSGameManager {
           const defId = this.serverProjectileDefIds.get(entityId);
           if (defId) {
             const projMgr = getProjectileManager();
-            if (!projMgr['scene'] && EngineStore.LastCreatedScene) {
-              projMgr.init(EngineStore.LastCreatedScene);
+            if (!projMgr['scene']) {
+              const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
+              if (gameScene) projMgr.init(gameScene);
             }
             const pos = new Vector3(posComp.x, posComp.y, posComp.z);
             const vel = velComp
@@ -1469,8 +1473,9 @@ export class FPSGameManager {
 
     // Lazy-init ProjectileManager if it hasn't been initialized yet
     // (WeaponViewManager.init normally does this, but may not have run)
-    if (!projMgr['scene'] && EngineStore.LastCreatedScene) {
-      projMgr.init(EngineStore.LastCreatedScene);
+    if (!projMgr['scene']) {
+      const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
+      if (gameScene) projMgr.init(gameScene);
     }
 
     const origin = new Vector3(event.originX, event.originY, event.originZ);

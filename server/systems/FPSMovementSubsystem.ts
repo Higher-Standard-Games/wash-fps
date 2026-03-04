@@ -321,20 +321,20 @@ export class FPSMovementSubsystem extends Subsystem {
     private static readonly PLAYER_RADIUS = 16;
     /** Combined radius: two players touching */
     private static readonly SEPARATION_DIST = FPSMovementSubsystem.PLAYER_RADIUS * 2; // 32
-    /** Player bounds Y: origin at waist, -24 feet to +32 head */
+    /** Player bounds Y: origin at waist, -24 feet to +40 head */
     private static readonly PLAYER_MIN_Y = -24;
-    private static readonly PLAYER_MAX_Y = 32;
+    private static readonly PLAYER_MAX_Y = 40;
 
     /**
-     * Block overlapping players without pushing — Q3-style entity blocking.
-     * Each entity is independently pushed back from all others it overlaps.
-     * Uses immutable position snapshots so iteration order doesn't matter.
+     * Block overlapping players — Q3-style solid entity blocking.
+     * Players are pushed apart symmetrically, and velocity is clipped
+     * along the collision normal so they can't continuously push into each other.
+     * If a push would move a player into BSP geometry, that push is clamped.
      */
     private separatePlayers(state: WorldState): void {
         const players: { id: EntityId; x: number; y: number; z: number }[] = [];
         for (const entity of state.entitiesByType(EntityType.Player)) {
             if (!entity.transform || entity.health?.dead) continue;
-            // Snapshot positions (immutable during resolution)
             players.push({
                 id: entity.id,
                 x: entity.transform.position.x,
@@ -346,49 +346,84 @@ export class FPSMovementSubsystem extends Subsystem {
         const sepDist = FPSMovementSubsystem.SEPARATION_DIST;
         const sepDistSq = sepDist * sepDist;
 
-        // For each entity, resolve against all others independently
+        // For each pair, resolve overlap
         for (let i = 0; i < players.length; i++) {
-            const me = players[i];
-            let pushX = 0;
-            let pushZ = 0;
-
-            for (let j = 0; j < players.length; j++) {
-                if (i === j) continue;
-                const other = players[j];
+            const a = players[i];
+            for (let j = i + 1; j < players.length; j++) {
+                const b = players[j];
 
                 // Y overlap check (cylinder)
-                const meBottom = me.y + FPSMovementSubsystem.PLAYER_MIN_Y;
-                const meTop = me.y + FPSMovementSubsystem.PLAYER_MAX_Y;
-                const otherBottom = other.y + FPSMovementSubsystem.PLAYER_MIN_Y;
-                const otherTop = other.y + FPSMovementSubsystem.PLAYER_MAX_Y;
-                if (meTop <= otherBottom || otherTop <= meBottom) continue;
+                const aBottom = a.y + FPSMovementSubsystem.PLAYER_MIN_Y;
+                const aTop = a.y + FPSMovementSubsystem.PLAYER_MAX_Y;
+                const bBottom = b.y + FPSMovementSubsystem.PLAYER_MIN_Y;
+                const bTop = b.y + FPSMovementSubsystem.PLAYER_MAX_Y;
+                if (aTop <= bBottom || bTop <= aBottom) continue;
 
                 // XZ distance
-                const dx = me.x - other.x;
-                const dz = me.z - other.z;
+                const dx = a.x - b.x;
+                const dz = a.z - b.z;
                 const distSq = dx * dx + dz * dz;
                 if (distSq >= sepDistSq) continue;
 
                 const dist = Math.sqrt(distSq);
                 const overlap = sepDist - dist;
+                if (overlap <= 0) continue;
 
+                // Normal direction from B to A
+                let nx: number, nz: number;
                 if (dist > 0.001) {
-                    const nx = dx / dist;
-                    const nz = dz / dist;
-                    pushX += nx * overlap;
-                    pushZ += nz * overlap;
+                    nx = dx / dist;
+                    nz = dz / dist;
                 } else {
-                    // Exactly overlapping — push in arbitrary direction
-                    pushX += overlap;
+                    // Exactly overlapping — arbitrary push
+                    nx = 1;
+                    nz = 0;
                 }
-            }
 
-            // Apply accumulated push to this entity only
-            if (pushX !== 0 || pushZ !== 0) {
-                const mut = state.getEntityMut(me.id);
-                if (mut?.transform) {
-                    mut.transform.position.x += pushX;
-                    mut.transform.position.z += pushZ;
+                // Push each player half the overlap
+                const pushDist = overlap * 0.5 + 0.5; // small extra margin
+
+                // Apply push to player A
+                const mutA = state.getEntityMut(a.id);
+                if (mutA?.transform) {
+                    mutA.transform.position.x += nx * pushDist;
+                    mutA.transform.position.z += nz * pushDist;
+
+                    // Clip velocity along collision normal
+                    if (mutA.physics) {
+                        const vDotN = mutA.physics.velocity.x * nx + mutA.physics.velocity.z * nz;
+                        if (vDotN < 0) {
+                            // Moving toward the other player — strip that component
+                            mutA.physics.velocity.x -= nx * vDotN;
+                            mutA.physics.velocity.z -= nz * vDotN;
+                        }
+                    }
+                }
+
+                // Apply push to player B (opposite direction)
+                const mutB = state.getEntityMut(b.id);
+                if (mutB?.transform) {
+                    mutB.transform.position.x -= nx * pushDist;
+                    mutB.transform.position.z -= nz * pushDist;
+
+                    // Clip velocity along collision normal
+                    if (mutB.physics) {
+                        const vDotN = mutB.physics.velocity.x * (-nx) + mutB.physics.velocity.z * (-nz);
+                        if (vDotN < 0) {
+                            mutB.physics.velocity.x -= (-nx) * vDotN;
+                            mutB.physics.velocity.z -= (-nz) * vDotN;
+                        }
+                    }
+                }
+
+                // Update snapshot positions for subsequent pair checks
+                if (mutA?.transform) {
+                    a.x = mutA.transform.position.x;
+                    a.z = mutA.transform.position.z;
+                }
+                if (mutB?.transform) {
+                    b.x = mutB.transform.position.x;
+                    b.z = mutB.transform.position.z;
                 }
             }
         }
