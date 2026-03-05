@@ -408,7 +408,7 @@ export class WeaponSystem extends Subsystem {
 
             if (weapon && !weaponState.reloading) {
                 // === MELEE WEAPON LOGIC (blade) ===
-                // FIRE = melee slash, ALT_FIRE = projectile (blade blast)
+                // FIRE = melee slash, ALT_FIRE = hold-to-charge projectile
                 if (weapon.meleeRadius && weapon.chargedProjectileId) {
                     // Keep ammo at max (infinite melee)
                     weaponState.ammo.set(weaponState.currentWeapon, weapon.maxAmmo);
@@ -424,15 +424,34 @@ export class WeaponSystem extends Subsystem {
                     }
                     weaponState.wasFireButtonDown = isFiring;
 
-                    // --- Alt fire: blade blast projectile (semi-auto on press) ---
-                    if (isAltFiring && !weaponState.wasAltFireDown) {
-                        const altFireRate = weapon.chargeTime ? (1.0 / weapon.chargeTime) : 1.0; // chargeTime as cooldown
-                        const altFireInterval = Math.floor(125 / altFireRate);
-                        const timeSinceAltFire = tickNum - weaponState.lastAltFireTick;
-                        if (timeSinceAltFire >= altFireInterval) {
-                            this.fireChargedProjectile(state, entity, weapon);
+                    // --- Alt fire: hold-to-charge projectile ---
+                    const chargeMaxTicks = Math.ceil((weapon.chargeTime || 1.0) * 125);
+                    const chargeMinTicks = Math.ceil((weapon.chargeMinTime || 0.5) * 125);
+
+                    if (isAltFiring) {
+                        if (!weaponState.wasAltFireDown) {
+                            // ALT_FIRE just pressed — start charging
+                            weaponState.chargeStartTick = tickNum;
+                        }
+                        // While held: charging (no action)
+                    } else if (weaponState.wasAltFireDown) {
+                        // ALT_FIRE just released — fire if charged enough
+                        const heldTicks = tickNum - weaponState.chargeStartTick;
+
+                        if (heldTicks >= chargeMinTicks) {
+                            // Clamp charge to max
+                            const clampedTicks = Math.min(heldTicks, chargeMaxTicks);
+                            // Linear damage: min at chargeMinTicks, max at chargeMaxTicks
+                            const chargeRatio = (clampedTicks - chargeMinTicks) / Math.max(1, chargeMaxTicks - chargeMinTicks);
+                            const dmgMin = weapon.chargedDamageMin ?? 25;
+                            const dmgMax = weapon.chargedDamageMax ?? weapon.chargedDamage ?? 50;
+                            const damage = Math.round(dmgMin + chargeRatio * (dmgMax - dmgMin));
+
+                            this.fireChargedProjectile(state, entity, weapon, damage);
                             weaponState.lastAltFireTick = tickNum;
                         }
+                        // If released too early, charge cancelled — no fire
+                        weaponState.chargeStartTick = 0;
                     }
                     weaponState.wasAltFireDown = isAltFiring;
                 } else {
@@ -593,11 +612,13 @@ export class WeaponSystem extends Subsystem {
     /**
      * Fire the charged projectile (blade blast).
      * Uses the weapon's chargedProjectileId to spawn a projectile.
+     * @param damageOverride - scaled damage based on charge time
      */
     private fireChargedProjectile(
         state: WorldState,
         shooter: Readonly<Entity>,
-        weapon: WeaponDef
+        weapon: WeaponDef,
+        damageOverride?: number
     ): void {
         if (!shooter.transform || !shooter.input || !shooter.ownerId) return;
 
@@ -639,12 +660,13 @@ export class WeaponSystem extends Subsystem {
 
         state.addEntity(projectile);
 
-        // Register with ProjectileSystem
+        // Register with ProjectileSystem (pass damageOverride for charge scaling)
         if (this.projectileSystem) {
             this.projectileSystem.registerProjectileType(projectile.id, weapon.chargedProjectileId || weapon.id, {
                 bounces: 0,
                 lifetime: 5.0,
                 gravity: 0,
+                damageOverride,
             });
         }
     }

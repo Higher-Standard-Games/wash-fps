@@ -36,6 +36,7 @@ interface ProjectileMeta {
     lifetime: number;    // max lifetime in seconds
     gravity: number;     // gravity multiplier (0 = none, 1 = full)
     age: number;         // accumulated time alive (seconds)
+    damageOverride?: number; // override base damage (for charge-scaled projectiles)
 }
 
 /** Velocity retention on bounce (Warsow-style) */
@@ -100,6 +101,7 @@ export class ProjectileSystem extends Subsystem {
         bounces?: number;
         lifetime?: number;
         gravity?: number;
+        damageOverride?: number;
     }): void {
         this.projectileMeta.set(entityId, {
             defId,
@@ -107,6 +109,7 @@ export class ProjectileSystem extends Subsystem {
             lifetime: opts?.lifetime ?? 10.0,
             gravity: opts?.gravity ?? 0,
             age: 0,
+            damageOverride: opts?.damageOverride,
         });
     }
 
@@ -226,7 +229,7 @@ export class ProjectileSystem extends Subsystem {
                 if (distSq < hitRadius ** 2) {
                     // Direct hit!
                     const weaponDef = WEAPONS[meta.defId];
-                    const baseDamage = weaponDef?.damage || 80;
+                    const baseDamage = meta.damageOverride ?? weaponDef?.damage ?? 80;
                     const damage = isSelf
                         ? Math.round(baseDamage * this.selfDamageMultiplier)
                         : baseDamage;
@@ -336,10 +339,11 @@ export class ProjectileSystem extends Subsystem {
         attackerOwnerId: number | undefined,
         radius: number,
         defId: string,
-        skipEntityId?: number
+        skipEntityId?: number,
+        damageOverride?: number
     ): void {
         const weaponDef = WEAPONS[defId];
-        const baseSplashDamage = weaponDef?.splashDamage ?? weaponDef?.damage ?? 80;
+        const baseSplashDamage = damageOverride ?? weaponDef?.splashDamage ?? weaponDef?.damage ?? 80;
 
         for (const target of state.entitiesByType(EntityType.Player)) {
             if (!target.transform || !target.health || target.health.dead) continue;
