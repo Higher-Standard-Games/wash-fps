@@ -13,7 +13,7 @@ import { getActionKeyLabel } from '../../FPSActions';
  * All weapon IDs in slot order (matches number key bindings 1-9)
  */
 export const WEAPON_SLOTS: { id: string; slot: number; name: string }[] = [
-    { id: 'gunblade', slot: 1, name: 'GB' },
+    { id: 'blade', slot: 1, name: 'BL' },
     { id: 'machinegun', slot: 2, name: 'MG' },
     { id: 'riotgun', slot: 3, name: 'RG' },
     { id: 'glauncher', slot: 4, name: 'GL' },

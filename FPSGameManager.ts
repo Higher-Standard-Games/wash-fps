@@ -463,8 +463,15 @@ export class FPSGameManager {
    * Sends JoinGame to server, switches camera to FPS, hides overlay.
    */
   async joinGame(): Promise<void> {
-    if (this.playerState === 'playing') return;
-    if (!this.gameHost || !this.isNetworkMode) return;
+    if (this.playerState === 'playing') {
+      console.log('[FPSGameManager] joinGame() — already playing, skipping');
+      return;
+    }
+    if (!this.gameHost || !this.isNetworkMode) {
+      console.log('[FPSGameManager] joinGame() — no gameHost or not network mode');
+      return;
+    }
+    console.log('[FPSGameManager] joinGame() — transitioning from spectator to playing');
 
     const networkHost = this.gameHost as import('../../engine/network/client/hosts/NetworkGameHost').NetworkGameHost;
 
@@ -510,18 +517,23 @@ export class FPSGameManager {
         initializeEntityDefs();
         const wvm = getWeaponViewManager();
         wvm.init(scene, camera);
-        wvm.loadWeapon('gunblade', 'data/data0_21pure.pk3').then(async success => {
-          if (success) {
-            console.log('[FPSGameManager] Weapon loaded for join');
-            const projMgr = getProjectileManager();
-            await Promise.all([
-              projMgr.preloadModel('plasma_bolt'),
-              projMgr.preloadModel('grenade'),
-              projMgr.preloadModel('rocket'),
-              projMgr.preloadModel('gunblade_blast'),
-            ]);
-          }
+        console.log('[FPSGameManager] joinGame() — WVM initialized');
+        // Don't load a default weapon here — let processWeaponState handle
+        // the initial weapon load to avoid racing with the server's weapon.
+        // Load the server's current weapon, or blade as the default spawn weapon
+        wvm.loadWeapon(this._lastServerWeapon || 'blade').then((success) => {
+          console.log(`[FPSGameManager] joinGame() — initial weapon loadWeapon result: ${success}`);
         });
+
+        // Preload projectile models (independent of weapon load)
+        const projMgr = getProjectileManager();
+        Promise.all([
+          projMgr.preloadModel('plasma_bolt'),
+          projMgr.preloadModel('grenade'),
+          projMgr.preloadModel('rocket'),
+          projMgr.preloadModel('gunblade_blast'),
+          projMgr.preloadModel('blade_blast'),
+        ]).catch(err => console.warn('[FPSGameManager] Projectile preload error:', err));
       }
     } catch (e) {
       console.warn('[FPSGameManager] Failed to init weapon view:', e);
@@ -1540,10 +1552,19 @@ export class FPSGameManager {
     // Detect weapon change using _lastServerWeapon (reliable, one source of truth)
     if (serverWeapon !== this._lastServerWeapon) {
       const isFirstWeapon = this._lastServerWeapon === undefined;
+
+      const wvm = getWeaponViewManager();
+
+      // Skip if WVM not initialized yet — DON'T update _lastServerWeapon so we
+      // re-trigger the weapon change on the next snapshot after WVM becomes ready.
+      // joinGame() also calls wvm.loadWeapon('gunblade') as a fallback.
+      if (!wvm.isReady) {
+        return;
+      }
+
       console.log(`[FPSGameManager] Server weapon changed: ${this._lastServerWeapon || 'none'} → ${serverWeapon}`);
       this._lastServerWeapon = serverWeapon;
 
-      const wvm = getWeaponViewManager();
       if (isFirstWeapon) {
         // First weapon (initial spawn) — load directly without animation
         wvm.loadWeapon(serverWeapon).catch(err => {

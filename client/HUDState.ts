@@ -58,8 +58,8 @@ export class HUDState {
     dead: boolean = false;
 
     // === Weapon state (private to local player) ===
-    currentWeapon: string = 'gunblade';
-    weapons: string[] = ['gunblade'];
+    currentWeapon: string = 'blade';
+    weapons: string[] = ['blade'];
     ammo: Record<string, number> = {};
 
     // === Damage numbers (recent, for floating display) ===

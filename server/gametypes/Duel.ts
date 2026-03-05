@@ -43,8 +43,8 @@ export class Duel extends BaseGametype {
 
     getSpawnLoadout(): WeaponLoadout {
         return {
-            weapons: ['gunblade'],
-            ammo: { gunblade: 1 },
+            weapons: ['blade'],
+            ammo: { blade: 1 },
             health: 100,
             armor: 0,
         };

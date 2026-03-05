@@ -9,6 +9,7 @@ import type { HUDState } from '../HudWidget';
  */
 /** Max ammo per weapon (mirrors shared/entities/definitions/weapons) */
 const WEAPON_MAX_AMMO: Record<string, number> = {
+    blade: 1,
     gunblade: 1,
     machinegun: 100,
     riotgun: 20,

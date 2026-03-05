@@ -19,6 +19,11 @@ import { EntityType } from '@engine/server/ecs/types';
 import type { WeaponSystem } from './WeaponSystem';
 import type { DroppedWeaponSystem } from './DroppedWeaponSystem';
 
+/** Check if a weapon ID is a permanent default weapon (blade/gunblade) */
+function isDefaultWeapon(w: string): boolean {
+    return w === 'blade' || w === 'gunblade';
+}
+
 /** Must match InputButtons.USE from engine/network/components/InputComponent.ts */
 const USE_BUTTON = 1 << 11;
 
@@ -212,9 +217,9 @@ export class PickupSystem extends Subsystem {
                 if (!this.weaponSystem) continue;
 
                 const playerWeapons = this.weaponSystem.getWeapons(player.id);
-                const nonGunbladeCount = playerWeapons.filter(w => w !== 'gunblade').length;
+                const nonDefaultCount = playerWeapons.filter(w => !isDefaultWeapon(w)).length;
                 const alreadyHasWeapon = playerWeapons.includes(pickup.weaponId);
-                const hasRoom = nonGunbladeCount < 2;
+                const hasRoom = nonDefaultCount < 2;
 
                 // Auto-pickup if: player has room OR already owns weapon (ammo pickup)
                 // Require USE key only for weapon swap (at capacity + new weapon)
@@ -223,10 +228,10 @@ export class PickupSystem extends Subsystem {
                 // Try to add weapon to player's inventory
                 const result = this.weaponSystem.addWeapon(player.id, pickup.weaponId);
 
-                // addWeapon returns added=false for BOTH "already owned (ammo given)" AND "can't swap (holding gunblade)"
+                // addWeapon returns added=false for BOTH "already owned (ammo given)" AND "can't swap (holding default weapon)"
                 // Only consume pickup if weapon was added or ammo was given (player already had it)
                 if (!result.added && !alreadyHasWeapon) {
-                    // Swap failed (e.g., holding gunblade at capacity) — don't consume the pickup
+                    // Swap failed (e.g., holding default weapon at capacity) — don't consume the pickup
                     continue;
                 }
 
@@ -278,9 +283,9 @@ export class PickupSystem extends Subsystem {
 
                     // Check inventory capacity for pickup gating
                     const playerWeapons = this.weaponSystem.getWeapons(player.id);
-                    const nonGunbladeCount = playerWeapons.filter(w => w !== 'gunblade').length;
+                    const nonDefaultCount = playerWeapons.filter(w => !isDefaultWeapon(w)).length;
                     const alreadyHasWeapon = playerWeapons.includes(meta.weaponId);
-                    const hasRoom = nonGunbladeCount < 2;
+                    const hasRoom = nonDefaultCount < 2;
 
                     // Auto-pickup if: player has room OR already owns weapon (ammo pickup)
                     // Require USE key only for weapon swap (at capacity + new weapon)
