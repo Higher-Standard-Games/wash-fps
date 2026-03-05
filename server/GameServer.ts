@@ -972,6 +972,16 @@ export class GameServer {
             });
         }
 
+        // Add weapon charge events (so other clients see charge visual)
+        for (const chargeEvent of this.weaponSystem.getPendingChargeEvents()) {
+            gameState.events.push({
+                type: 'weapon_charge',
+                entityId: `player_${chargeEvent.entityId}`,
+                weaponId: chargeEvent.weaponId,
+                charging: chargeEvent.charging,
+            });
+        }
+
         // Add projectile impact events (so all clients see explosions)
         const impacts = this.projectileSystem.getPendingImpacts();
         for (const impact of impacts) {

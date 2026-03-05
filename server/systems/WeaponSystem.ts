@@ -41,6 +41,15 @@ export interface WeaponFireEvent {
     dirZ: number;
 }
 
+/**
+ * Event emitted when a player starts or stops charging a weapon
+ */
+export interface WeaponChargeEvent {
+    entityId: EntityId;
+    weaponId: string;
+    charging: boolean;
+}
+
 const CONFIG: SubsystemConfig = {
     name: 'Weapon',
     priority: 25, // After input, before combat
@@ -76,6 +85,7 @@ export class WeaponSystem extends Subsystem {
     private nextProjectileId: number = 10000;
     private pendingDamage: DamageEvent[] = [];
     private pendingFireEvents: WeaponFireEvent[] = [];
+    private pendingChargeEvents: WeaponChargeEvent[] = [];
     private projectileSystem: ProjectileSystem | null = null;
     private droppedWeaponSystem: DroppedWeaponSystem | null = null;
     /** Pending drop positions — set by GameServer before tick when a swap happens */
@@ -109,6 +119,15 @@ export class WeaponSystem extends Subsystem {
     getPendingFireEvents(): WeaponFireEvent[] {
         const events = this.pendingFireEvents;
         this.pendingFireEvents = [];
+        return events;
+    }
+
+    /**
+     * Get pending charge events to broadcast to clients
+     */
+    getPendingChargeEvents(): WeaponChargeEvent[] {
+        const events = this.pendingChargeEvents;
+        this.pendingChargeEvents = [];
         return events;
     }
 
@@ -482,6 +501,12 @@ export class WeaponSystem extends Subsystem {
                         if (!weaponState.wasAltFireDown) {
                             // ALT_FIRE just pressed — start charging
                             weaponState.chargeStartTick = tickNum;
+                            // Emit charge start event
+                            this.pendingChargeEvents.push({
+                                entityId: entity.id,
+                                weaponId: weapon.id,
+                                charging: true,
+                            });
                         }
                         // While held: charging (no action)
                     } else if (weaponState.wasAltFireDown) {
@@ -502,6 +527,12 @@ export class WeaponSystem extends Subsystem {
                         }
                         // If released too early, charge cancelled — no fire
                         weaponState.chargeStartTick = 0;
+                        // Emit charge stop event (whether fired or cancelled)
+                        this.pendingChargeEvents.push({
+                            entityId: entity.id,
+                            weaponId: weapon.id,
+                            charging: false,
+                        });
                     }
                     weaponState.wasAltFireDown = isAltFiring;
                 } else {

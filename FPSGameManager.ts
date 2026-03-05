@@ -31,10 +31,11 @@ import { getHitscanEffects } from '../../engine/weapon/HitscanEffects';
 import { getProjectileManager } from '../../engine/weapon/ProjectileManager';
 import { getWeaponViewManager } from '../../engine/weapon/WeaponViewManager';
 import { Vector3, Color3 } from '@babylonjs/core';
+import { PointLight } from '@babylonjs/core/Lights/pointLight';
 import { EngineStore } from '@babylonjs/core/Engines/engineStore';
 import { RemotePlayerRenderer } from './client/RemotePlayerRenderer';
 import { DroppedWeaponRenderer } from './client/DroppedWeaponRenderer';
-import { getExplosionEffect, ROCKET_EXPLOSION, GRENADE_EXPLOSION, PLASMA_EXPLOSION } from '../../engine/weapon/ExplosionEffect';
+import { getExplosionEffect, ROCKET_EXPLOSION, GRENADE_EXPLOSION, PLASMA_EXPLOSION, BLADE_EXPLOSION } from '../../engine/weapon/ExplosionEffect';
 import { FPSPlayer } from './FPSPlayer';
 import { NetGraph } from '../../engine/network/client/NetGraph';
 import { InputSystem } from '../../engine/input/InputSystem';
@@ -120,6 +121,12 @@ export class FPSGameManager {
   private _lastServerWeapon: string | undefined = undefined;
   /** Maps remote player entityId → currentWeapon string (for third-person rendering) */
   public readonly enemyWeapons: Map<string, string> = new Map();
+
+  // Remote blade charge glow tracking
+  /** Entity IDs currently charging their blade (for third-person glow) */
+  private chargingPlayers: Set<string> = new Set();
+  /** Active charge glow lights — one per charging entity */
+  private chargingGlows: Map<string, PointLight> = new Map();
 
   // Callbacks
   private onStateUpdateCallbacks: ((state: PlayerStateUpdate) => void)[] = [];
@@ -884,6 +891,16 @@ export class FPSGameManager {
       this._cartoonHit.update(dtSec);
     }
 
+    // Update charge glow lights (pulsing red glow for remote players charging blade)
+    if (this.chargingPlayers.size > 0) {
+      const now = performance.now() / 1000;
+      // Pulse: intensity oscillates between 4 and 12
+      const pulse = 8 + 4 * Math.sin(now * 8);
+      for (const [, light] of this.chargingGlows) {
+        light.intensity = pulse;
+      }
+    }
+
     // Render network diagnostics overlay (if cl_netgraph > 0)
     NetGraph.render();
   }
@@ -1157,6 +1174,21 @@ export class FPSGameManager {
           } else {
             this.handleRemoteWeaponFire(event);
           }
+        } else if (event.type === 'weapon_charge') {
+          // Remote player charge start/stop
+          if (event.entityId !== localEntityId) {
+            if (event.charging) {
+              this.chargingPlayers.add(event.entityId);
+            } else {
+              this.chargingPlayers.delete(event.entityId);
+              // Dispose glow light
+              const glow = this.chargingGlows.get(event.entityId);
+              if (glow) {
+                glow.dispose();
+                this.chargingGlows.delete(event.entityId);
+              }
+            }
+          }
         } else if (event.type === 'projectile_impact') {
           // Server-authoritative explosion — deduplicate against client-predicted explosions
           const pos = new Vector3(event.x, event.y, event.z);
@@ -1174,7 +1206,8 @@ export class FPSGameManager {
           const normal = new Vector3(event.normalX, event.normalY, event.normalZ);
           const config = event.defId === 'glauncher' ? GRENADE_EXPLOSION
             : event.defId === 'plasmagun' ? PLASMA_EXPLOSION
-              : ROCKET_EXPLOSION;
+              : event.defId === 'blade_blast' ? BLADE_EXPLOSION
+                : ROCKET_EXPLOSION;
           getExplosionEffect().spawn(pos, config, normal);
         } else if (event.type === 'item_pickup') {
           // Server confirms a pickup — deactivate the client-side Pickup visual
@@ -1318,6 +1351,29 @@ export class FPSGameManager {
             const pos = new Vector3(event.x, event.y, event.z);
             const vel = new Vector3(event.velX || 0, event.velY || 0, event.velZ || 0);
             this.droppedWeaponRenderer.spawn(event.entityId, event.weaponId, pos, vel);
+          }
+        }
+      }
+    }
+
+    // === Update charge glow positions from entity data ===
+    if (this.chargingPlayers.size > 0) {
+      const scene = CameraSystem.getInstance().getCamera()?.getScene();
+      if (scene) {
+        for (const entityId of this.chargingPlayers) {
+          const entity = state.entities.get(entityId);
+          const pos = entity?.getComponent('position') as { x: number; y: number; z: number } | undefined;
+          if (pos) {
+            let light = this.chargingGlows.get(entityId);
+            if (!light) {
+              light = new PointLight(`charge_glow_${entityId}`, new Vector3(pos.x, pos.y + 30, pos.z), scene);
+              light.diffuse = new Color3(1.0, 0.15, 0.05);
+              light.specular = new Color3(1.0, 0.1, 0.0);
+              light.range = 60;
+              light.intensity = 8;
+              this.chargingGlows.set(entityId, light);
+            }
+            light.position.set(pos.x, pos.y + 30, pos.z);
           }
         }
       }
@@ -1641,6 +1697,10 @@ export class FPSGameManager {
       case 'rlauncher':
       case 'glauncher':
       case 'gunblade':
+        break;
+
+      case 'blade':
+        fx.fireSlash({ origin, direction: dir, color: new Color3(1.0, 0.15, 0.05) });
         break;
 
       default:
