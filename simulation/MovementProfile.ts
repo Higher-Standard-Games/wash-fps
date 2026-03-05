@@ -58,6 +58,9 @@ export class MovementProfile implements IMovementProfile {
     private slide = new Slide();
     private ledgeGrab = new LedgeGrab();
 
+    /** External speed bonus (e.g., +25 for blade weapon). Applied to both walk and run speed. */
+    public speedBonus: number = 0;
+
     constructor(config?: Partial<MovementConfig>) {
         this.config = {
             // Core movement (defaults from MovementVars)
@@ -218,7 +221,7 @@ export class MovementProfile implements IMovementProfile {
                 && !input.isPressed(InputButtons.BACK)
                 && !input.isPressed(InputButtons.LEFT)
                 && !input.isPressed(InputButtons.RIGHT);
-            let wishspeed = (isSprinting && forwardOnly) ? this.config.runSpeed : this.config.maxSpeed;
+            let wishspeed = (isSprinting && forwardOnly) ? (this.config.runSpeed + this.speedBonus) : (this.config.maxSpeed + this.speedBonus);
 
             // Crouch speed reduction (if not sliding)
             if (isCrouching && !this.slide.isSliding) {

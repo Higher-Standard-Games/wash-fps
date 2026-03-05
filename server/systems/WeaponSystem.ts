@@ -88,6 +88,7 @@ export class WeaponSystem extends Subsystem {
     private pendingChargeEvents: WeaponChargeEvent[] = [];
     private projectileSystem: ProjectileSystem | null = null;
     private droppedWeaponSystem: DroppedWeaponSystem | null = null;
+    private movementSubsystem: import('./FPSMovementSubsystem').FPSMovementSubsystem | null = null;
     /** Pending drop positions — set by GameServer before tick when a swap happens */
     private entityPositions: Map<EntityId, { x: number; y: number; z: number }> = new Map();
     /** Per-entity shot counter for deterministic pellet spread seeds */
@@ -150,6 +151,13 @@ export class WeaponSystem extends Subsystem {
      */
     setDroppedWeaponSystem(system: DroppedWeaponSystem): void {
         this.droppedWeaponSystem = system;
+    }
+
+    /**
+     * Set reference to FPSMovementSubsystem (for weapon speed bonuses)
+     */
+    setMovementSubsystem(sub: import('./FPSMovementSubsystem').FPSMovementSubsystem): void {
+        this.movementSubsystem = sub;
     }
 
     /**
@@ -446,6 +454,11 @@ export class WeaponSystem extends Subsystem {
             const isFiring = (entity.input.buttons & FIRE_BUTTON) !== 0;
             const isAltFiring = (entity.input.buttons & ALT_FIRE_BUTTON) !== 0;
             const weapon = WEAPONS[weaponState.currentWeapon];
+
+            // Set weapon speed bonus on movement subsystem
+            if (this.movementSubsystem) {
+                this.movementSubsystem.setSpeedBonus(entity.id as number, weapon?.speedBonus ?? 0);
+            }
 
             if (weapon && !weaponState.reloading) {
                 // === MELEE WEAPON LOGIC (blade) ===

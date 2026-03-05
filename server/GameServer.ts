@@ -186,6 +186,9 @@ export class GameServer {
         // Wire combat → movement system for KB grounded state reset
         this.combatSystem.setMovementSubsystem(this.physicsSystem);
 
+        // Wire weapon → movement system for weapon speed bonuses (e.g., blade +25)
+        this.weaponSystem.setMovementSubsystem(this.physicsSystem);
+
         // Create gametype controller
         const gt = gametype || new Deathmatch();
         this.gametypeController = new GametypeController(gt);
