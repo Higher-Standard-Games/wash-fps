@@ -18,6 +18,7 @@ import {
     LASERGUN,
     ELECTROBOLT,
     INSTAGUN,
+    BLADE,
 } from '../../../../shared/entities/definitions/weapons';
 import type { WeaponDef, CrosshairConfig } from '../../../../shared/entities/WeaponDef';
 
@@ -38,4 +39,5 @@ export const WEAPONS: Record<string, WeaponDef> = {
     [LASERGUN.id]: LASERGUN,
     [ELECTROBOLT.id]: ELECTROBOLT,
     [INSTAGUN.id]: INSTAGUN,
+    [BLADE.id]: BLADE,
 };
