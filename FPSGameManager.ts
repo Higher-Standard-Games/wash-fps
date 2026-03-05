@@ -1236,6 +1236,11 @@ export class FPSGameManager {
               m.getWeaponViewManager().setVisible(true);
             });
           }
+        } else if (event.type === 'combat_state' && event.entityId !== localEntityId) {
+          // Remote player combat state — clear dead flag on respawn so model re-creates
+          if (!event.dead && this.remoteRenderer) {
+            this.remoteRenderer.markAlive(event.entityId);
+          }
         } else if (event.type === 'damage') {
           // Damage event (floating damage numbers)
           HUDState.getInstance().processDamage(event);
