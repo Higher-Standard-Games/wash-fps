@@ -261,6 +261,10 @@ export class MovementProfile implements IMovementProfile {
                     this.jumpConsumed = true;
                     this.isGrounded = false;
 
+                    // Consume walljump key state — walljump requires its own
+                    // fresh press, not a held space from bunny hopping
+                    this.wallJump.keyReleased = false;
+
                     if (this.slide.isSliding) {
                         this.slide.exit(newVel, this.config);
                     }
