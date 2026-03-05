@@ -222,27 +222,33 @@ export class LedgeGrab {
             z: pos.z + bestProbeDir.z * (reach * 0.3) + wallNormal.z * 2,
         };
 
-        // Verify the target position is not inside solid
-        const solidCheck = collision.trace(targetPos, targetPos);
+        // === TRACE 4: Verify player hull fits at target position ===
+        // Use full player bounding box — point traces miss corners where the
+        // center is clear but the 32×64 hull clips adjacent walls.
+        const playerBounds = {
+            min: { x: -16, y: -24, z: -16 },
+            max: { x: 16, y: 32, z: 16 },
+        };
+        const solidCheck = collision.trace(targetPos, targetPos, playerBounds);
         if (solidCheck.hit && solidCheck.fraction < 1.0) {
             return false;
         }
 
         // === TRACE 5: Verify vertical clearance for pull-up path ===
-        // The player is lifted from startPos.y → targetPos.y during the pull animation.
-        // Without this check, the player can be pulled through ceilings or out of the map.
-        // Trace straight up from current position to the target height + standing room.
+        // Trace full player hull upward from current position to target height.
+        // Prevents climbing through ceilings or into tight overhangs.
         const ceilingStart = { x: pos.x, y: pos.y, z: pos.z };
         const ceilingEnd = { x: pos.x, y: targetPos.y + 16, z: pos.z };
-        const ceilingTrace = collision.trace(ceilingStart, ceilingEnd);
+        const ceilingTrace = collision.trace(ceilingStart, ceilingEnd, playerBounds);
 
         if (ceilingTrace.hit && ceilingTrace.fraction < 0.9) {
             return false;
         }
 
+        // === TRACE 6: Verify standing room above target with full hull ===
         const standStart = { x: targetPos.x, y: targetPos.y, z: targetPos.z };
         const standEnd = { x: targetPos.x, y: targetPos.y + 32, z: targetPos.z };
-        const standTrace = collision.trace(standStart, standEnd);
+        const standTrace = collision.trace(standStart, standEnd, playerBounds);
 
         if (standTrace.hit && standTrace.fraction < 0.8) {
             return false;
