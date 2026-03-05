@@ -47,7 +47,10 @@ export class WallJump {
     reset(): void {
         this.state = 'none';
         this.chargeTime = 0;
-        this.keyReleased = false; // Require fresh press after reconciliation (prevents prediction walljumps from held space)
+        // NOTE: Do NOT reset keyReleased here. The prediction's keyReleased state
+        // is the best approximation of the server's state. Resetting to true causes
+        // accidental walljumps from held space; resetting to false causes prediction
+        // snaps when the server has true (player genuinely released jump).
         this.graceTime = 0;
         this.groundGrace = 0;
     }
