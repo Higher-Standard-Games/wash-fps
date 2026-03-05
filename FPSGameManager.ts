@@ -127,6 +127,8 @@ export class FPSGameManager {
   private chargingPlayers: Set<string> = new Set();
   /** Active charge glow lights — one per charging entity */
   private chargingGlows: Map<string, PointLight> = new Map();
+  /** Whether the local player is currently charging (for skipping slash trail on projectile fire) */
+  private _localCharging: boolean = false;
 
   // Callbacks
   private onStateUpdateCallbacks: ((state: PlayerStateUpdate) => void)[] = [];
@@ -1170,13 +1172,18 @@ export class FPSGameManager {
           if (event.entityId === localEntityId) {
             // Server confirmed our fire — trigger local muzzle flash, recoil, and hitscan effects
             const wvm = getWeaponViewManager();
-            wvm.fire();
+            // If local player was charging, this is a projectile fire — skip slash trail
+            const isProjectileFire = this._localCharging;
+            if (this._localCharging) this._localCharging = false;
+            wvm.fire({ isProjectileFire });
           } else {
             this.handleRemoteWeaponFire(event);
           }
         } else if (event.type === 'weapon_charge') {
-          // Remote player charge start/stop
-          if (event.entityId !== localEntityId) {
+          // Track charge state for local + remote players
+          if (event.entityId === localEntityId) {
+            this._localCharging = event.charging;
+          } else {
             if (event.charging) {
               this.chargingPlayers.add(event.entityId);
             } else {
@@ -1705,8 +1712,6 @@ export class FPSGameManager {
         break;
 
       case 'blade':
-        // Raise origin to eye/weapon level (+32 from Q3 waist origin)
-        fx.fireSlash({ origin: origin.add(new Vector3(0, 32, 0)), direction: dir, color: new Color3(1.0, 0.15, 0.05) });
         // Play third-person slash animation on remote player model
         this.remoteRenderer?.playAttackAnim(event.entityId, 'blade_slash');
         break;
