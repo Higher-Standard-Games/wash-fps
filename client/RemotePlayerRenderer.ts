@@ -325,6 +325,16 @@ export class RemotePlayerRenderer {
         };
     }
 
+    /**
+     * Play a one-shot attack animation on a remote player entity.
+     * Used for blade slash animation on weapon_fire events.
+     */
+    playAttackAnim(entityId: string, animName: string): void {
+        const hitbox = this.hitboxes.get(entityId);
+        if (!hitbox?.model || !this.modelManager) return;
+        this.modelManager.playOnce(hitbox.model, animName);
+    }
+
     // ── Hitbox Creation ─────────────────────────────────────────
 
     private createHitboxMesh(entityId: string, height: number): Mesh {

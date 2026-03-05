@@ -1702,6 +1702,8 @@ export class FPSGameManager {
       case 'blade':
         // Raise origin to eye/weapon level (+32 from Q3 waist origin)
         fx.fireSlash({ origin: origin.add(new Vector3(0, 32, 0)), direction: dir, color: new Color3(1.0, 0.15, 0.05) });
+        // Play third-person slash animation on remote player model
+        this.remoteRenderer?.playAttackAnim(event.entityId, 'blade_slash');
         break;
 
       default:
