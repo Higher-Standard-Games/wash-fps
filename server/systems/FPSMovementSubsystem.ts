@@ -117,6 +117,9 @@ export class FPSMovementSubsystem extends Subsystem {
     /** Last tick each entity received knockback (for air drag timing) */
     private lastKBTick: Map<number, number> = new Map();
 
+    /** Per-entity speed bonus from weapon (e.g., +25 for blade) */
+    private weaponSpeedBonuses: Map<number, number> = new Map();
+
     constructor(collisionWorld?: CollisionWorld) {
         super(CONFIG);
         this.collisionWorld = collisionWorld ?? null;
@@ -168,6 +171,13 @@ export class FPSMovementSubsystem extends Subsystem {
         stunFraction: number;
     }): void {
         this.pendingImpulses.push(impulse);
+    }
+
+    /**
+     * Set a per-entity speed bonus (called by WeaponSystem based on equipped weapon).
+     */
+    setSpeedBonus(entityId: number, bonus: number): void {
+        this.weaponSpeedBonuses.set(entityId, bonus);
     }
 
     update(state: WorldState, dt: number, tick: TickNumber): void {
@@ -264,6 +274,8 @@ export class FPSMovementSubsystem extends Subsystem {
 
             // Get movement profile for this entity
             const profile = this.getProfile(entity.id);
+            // Apply weapon speed bonus (e.g., blade = +25)
+            profile.speedBonus = this.weaponSpeedBonuses.get(entity.id as number) ?? 0;
 
             const queue = input.inputQueue;
             if (queue.length === 0) {

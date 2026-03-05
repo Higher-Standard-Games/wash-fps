@@ -325,6 +325,17 @@ export class RemotePlayerRenderer {
         };
     }
 
+    /**
+     * Play a one-shot attack animation on a remote player entity.
+     * Used for blade slash animation on weapon_fire events.
+     * @param speedRatio - Playback speed multiplier (default 1.0, higher = faster)
+     */
+    playAttackAnim(entityId: string, animName: string, speedRatio: number = 1.0): void {
+        const hitbox = this.hitboxes.get(entityId);
+        if (!hitbox?.model || !this.modelManager) return;
+        this.modelManager.playOnce(hitbox.model, animName, speedRatio);
+    }
+
     // ── Hitbox Creation ─────────────────────────────────────────
 
     private createHitboxMesh(entityId: string, height: number): Mesh {
@@ -531,7 +542,7 @@ export class RemotePlayerRenderer {
 
 // ─── Cvar Registration ───────────────────────────────────────────
 
-Cvar.register('cl_remotehitbox', 1, {
+Cvar.register('cl_remotehitbox', 0, {
     type: 'int',
     min: 0,
     max: 1,

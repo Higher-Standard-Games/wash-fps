@@ -11,6 +11,7 @@ import { getActionKeyLabel } from '../../FPSActions';
 
 /** Map weapon ID → color variant class */
 const WEAPON_COLOR_MAP: Record<string, string> = {
+    blade: 'cyan',
     gunblade: 'cyan',
     machinegun: 'gold',
     riotgun: 'gold',
@@ -24,6 +25,7 @@ const WEAPON_COLOR_MAP: Record<string, string> = {
 
 /** Map weapon ID → 2-letter abbreviation */
 const WEAPON_ABBR: Record<string, string> = {
+    blade: 'BL',
     gunblade: 'GB',
     machinegun: 'MG',
     riotgun: 'RG',
@@ -34,6 +36,11 @@ const WEAPON_ABBR: Record<string, string> = {
     electrobolt: 'EB',
     instagun: 'IG',
 };
+
+/** Check if a weapon ID is the permanent default weapon */
+function isDefaultWeapon(w: string): boolean {
+    return w === 'blade' || w === 'gunblade';
+}
 
 /**
  * FPSWeaponSlots — 3-slot loadout indicator in bottom bar
@@ -98,18 +105,18 @@ export class FPSWeaponSlots implements FPSHudWidget {
         this.cachedWeapons = weaponKey;
         this.cachedCurrent = current;
 
-        // Ordered loadout: slot 0 = gunblade, slots 1-2 = picked up weapons
+        // Ordered loadout: slot 0 = default weapon, slots 1-2 = picked up weapons
         const loadout: (string | null)[] = [null, null, null];
         let pickSlot = 1;
         for (const w of weapons) {
-            if (w === 'gunblade') {
+            if (isDefaultWeapon(w)) {
                 loadout[0] = w;
             } else if (pickSlot <= 2) {
                 loadout[pickSlot++] = w;
             }
         }
-        // Gunblade is always slot 1
-        if (!loadout[0]) loadout[0] = 'gunblade';
+        // Default weapon is always slot 1
+        if (!loadout[0]) loadout[0] = 'blade';
 
         for (let i = 0; i < 3; i++) {
             const slot = this.slots[i];

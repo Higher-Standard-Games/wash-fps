@@ -18,6 +18,7 @@ import {
     LASERGUN,
     ELECTROBOLT,
     INSTAGUN,
+    BLADE,
 } from '../../../../shared/entities/definitions/weapons';
 import type { WeaponDef, CrosshairConfig } from '../../../../shared/entities/WeaponDef';
 
@@ -38,4 +39,8 @@ export const WEAPONS: Record<string, WeaponDef> = {
     [LASERGUN.id]: LASERGUN,
     [ELECTROBOLT.id]: ELECTROBOLT,
     [INSTAGUN.id]: INSTAGUN,
+    [BLADE.id]: BLADE,
+    // Alias: ProjectileSystem looks up WEAPONS[defId] and blade_blast is the projectile defId
+    // KB force = damage × knockbackScale. RL: 100×10=1000. Blade blast max: 50×20=1000 (RL-equal)
+    'blade_blast': { ...BLADE, knockbackScale: 20.0 },
 };

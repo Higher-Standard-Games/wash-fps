@@ -31,16 +31,18 @@ import { getHitscanEffects } from '../../engine/weapon/HitscanEffects';
 import { getProjectileManager } from '../../engine/weapon/ProjectileManager';
 import { getWeaponViewManager } from '../../engine/weapon/WeaponViewManager';
 import { Vector3, Color3 } from '@babylonjs/core';
+import { PointLight } from '@babylonjs/core/Lights/pointLight';
 import { EngineStore } from '@babylonjs/core/Engines/engineStore';
 import { RemotePlayerRenderer } from './client/RemotePlayerRenderer';
 import { DroppedWeaponRenderer } from './client/DroppedWeaponRenderer';
-import { getExplosionEffect, ROCKET_EXPLOSION, GRENADE_EXPLOSION, PLASMA_EXPLOSION } from '../../engine/weapon/ExplosionEffect';
+import { getExplosionEffect, ROCKET_EXPLOSION, GRENADE_EXPLOSION, PLASMA_EXPLOSION, BLADE_EXPLOSION } from '../../engine/weapon/ExplosionEffect';
 import { FPSPlayer } from './FPSPlayer';
 import { NetGraph } from '../../engine/network/client/NetGraph';
 import { InputSystem } from '../../engine/input/InputSystem';
 import { CameraSystem } from '../../engine/camera';
 import { registerFPSActions } from './client/FPSActions';
 import { PlayerProfile } from '../../engine/player/PlayerProfile';
+import { WEAPONS } from './server/weapons/WeaponDef';
 
 export interface FPSGameConfig {
   tickRate?: number;
@@ -120,6 +122,14 @@ export class FPSGameManager {
   private _lastServerWeapon: string | undefined = undefined;
   /** Maps remote player entityId → currentWeapon string (for third-person rendering) */
   public readonly enemyWeapons: Map<string, string> = new Map();
+
+  // Remote blade charge glow tracking
+  /** Entity IDs currently charging their blade (for third-person glow) */
+  private chargingPlayers: Set<string> = new Set();
+  /** Active charge glow lights — one per charging entity */
+  private chargingGlows: Map<string, PointLight> = new Map();
+  /** Whether the local player is currently charging (for skipping slash trail on projectile fire) */
+  private _localCharging: boolean = false;
 
   // Callbacks
   private onStateUpdateCallbacks: ((state: PlayerStateUpdate) => void)[] = [];
@@ -463,8 +473,15 @@ export class FPSGameManager {
    * Sends JoinGame to server, switches camera to FPS, hides overlay.
    */
   async joinGame(): Promise<void> {
-    if (this.playerState === 'playing') return;
-    if (!this.gameHost || !this.isNetworkMode) return;
+    if (this.playerState === 'playing') {
+      console.log('[FPSGameManager] joinGame() — already playing, skipping');
+      return;
+    }
+    if (!this.gameHost || !this.isNetworkMode) {
+      console.log('[FPSGameManager] joinGame() — no gameHost or not network mode');
+      return;
+    }
+    console.log('[FPSGameManager] joinGame() — transitioning from spectator to playing');
 
     const networkHost = this.gameHost as import('../../engine/network/client/hosts/NetworkGameHost').NetworkGameHost;
 
@@ -510,18 +527,23 @@ export class FPSGameManager {
         initializeEntityDefs();
         const wvm = getWeaponViewManager();
         wvm.init(scene, camera);
-        wvm.loadWeapon('gunblade', 'data/data0_21pure.pk3').then(async success => {
-          if (success) {
-            console.log('[FPSGameManager] Weapon loaded for join');
-            const projMgr = getProjectileManager();
-            await Promise.all([
-              projMgr.preloadModel('plasma_bolt'),
-              projMgr.preloadModel('grenade'),
-              projMgr.preloadModel('rocket'),
-              projMgr.preloadModel('gunblade_blast'),
-            ]);
-          }
+        console.log('[FPSGameManager] joinGame() — WVM initialized');
+        // Don't load a default weapon here — let processWeaponState handle
+        // the initial weapon load to avoid racing with the server's weapon.
+        // Load the server's current weapon, or blade as the default spawn weapon
+        wvm.loadWeapon(this._lastServerWeapon || 'blade').then((success) => {
+          console.log(`[FPSGameManager] joinGame() — initial weapon loadWeapon result: ${success}`);
         });
+
+        // Preload projectile models (independent of weapon load)
+        const projMgr = getProjectileManager();
+        Promise.all([
+          projMgr.preloadModel('plasma_bolt'),
+          projMgr.preloadModel('grenade'),
+          projMgr.preloadModel('rocket'),
+          projMgr.preloadModel('gunblade_blast'),
+          projMgr.preloadModel('blade_blast'),
+        ]).catch(err => console.warn('[FPSGameManager] Projectile preload error:', err));
       }
     } catch (e) {
       console.warn('[FPSGameManager] Failed to init weapon view:', e);
@@ -872,6 +894,16 @@ export class FPSGameManager {
       this._cartoonHit.update(dtSec);
     }
 
+    // Update charge glow lights (pulsing red glow for remote players charging blade)
+    if (this.chargingPlayers.size > 0) {
+      const now = performance.now() / 1000;
+      // Pulse: intensity oscillates between 4 and 12
+      const pulse = 8 + 4 * Math.sin(now * 8);
+      for (const [, light] of this.chargingGlows) {
+        light.intensity = pulse;
+      }
+    }
+
     // Render network diagnostics overlay (if cl_netgraph > 0)
     NetGraph.render();
   }
@@ -1141,9 +1173,29 @@ export class FPSGameManager {
           if (event.entityId === localEntityId) {
             // Server confirmed our fire — trigger local muzzle flash, recoil, and hitscan effects
             const wvm = getWeaponViewManager();
-            wvm.fire();
+            // If local player was charging, this is a projectile fire — skip slash trail
+            const isProjectileFire = this._localCharging;
+            if (this._localCharging) this._localCharging = false;
+            wvm.fire({ isProjectileFire });
           } else {
             this.handleRemoteWeaponFire(event);
+          }
+        } else if (event.type === 'weapon_charge') {
+          // Track charge state for local + remote players
+          if (event.entityId === localEntityId) {
+            this._localCharging = event.charging;
+          } else {
+            if (event.charging) {
+              this.chargingPlayers.add(event.entityId);
+            } else {
+              this.chargingPlayers.delete(event.entityId);
+              // Dispose glow light
+              const glow = this.chargingGlows.get(event.entityId);
+              if (glow) {
+                glow.dispose();
+                this.chargingGlows.delete(event.entityId);
+              }
+            }
           }
         } else if (event.type === 'projectile_impact') {
           // Server-authoritative explosion — deduplicate against client-predicted explosions
@@ -1162,7 +1214,8 @@ export class FPSGameManager {
           const normal = new Vector3(event.normalX, event.normalY, event.normalZ);
           const config = event.defId === 'glauncher' ? GRENADE_EXPLOSION
             : event.defId === 'plasmagun' ? PLASMA_EXPLOSION
-              : ROCKET_EXPLOSION;
+              : event.defId === 'blade_blast' ? BLADE_EXPLOSION
+                : ROCKET_EXPLOSION;
           getExplosionEffect().spawn(pos, config, normal);
         } else if (event.type === 'item_pickup') {
           // Server confirms a pickup — deactivate the client-side Pickup visual
@@ -1190,6 +1243,11 @@ export class FPSGameManager {
             import('../../engine/weapon/WeaponViewManager').then(m => {
               m.getWeaponViewManager().setVisible(true);
             });
+          }
+        } else if (event.type === 'combat_state' && event.entityId !== localEntityId) {
+          // Remote player combat state — clear dead flag on respawn so model re-creates
+          if (!event.dead && this.remoteRenderer) {
+            this.remoteRenderer.markAlive(event.entityId);
           }
         } else if (event.type === 'damage') {
           // Damage event (floating damage numbers)
@@ -1306,6 +1364,29 @@ export class FPSGameManager {
             const pos = new Vector3(event.x, event.y, event.z);
             const vel = new Vector3(event.velX || 0, event.velY || 0, event.velZ || 0);
             this.droppedWeaponRenderer.spawn(event.entityId, event.weaponId, pos, vel);
+          }
+        }
+      }
+    }
+
+    // === Update charge glow positions from entity data ===
+    if (this.chargingPlayers.size > 0) {
+      const scene = CameraSystem.getInstance().getCamera()?.getScene();
+      if (scene) {
+        for (const entityId of this.chargingPlayers) {
+          const entity = state.entities.get(entityId);
+          const pos = entity?.getComponent('position') as { x: number; y: number; z: number } | undefined;
+          if (pos) {
+            let light = this.chargingGlows.get(entityId);
+            if (!light) {
+              light = new PointLight(`charge_glow_${entityId}`, new Vector3(pos.x, pos.y + 30, pos.z), scene);
+              light.diffuse = new Color3(1.0, 0.15, 0.05);
+              light.specular = new Color3(1.0, 0.1, 0.0);
+              light.range = 60;
+              light.intensity = 8;
+              this.chargingGlows.set(entityId, light);
+            }
+            light.position.set(pos.x, pos.y + 30, pos.z);
           }
         }
       }
@@ -1513,6 +1594,12 @@ export class FPSGameManager {
     // Authoritative sync: add/remove weapons, sync ammo, equip server's weapon
     player.inventory.syncFromServer(serverWeapons, serverAmmo, serverWeapon);
 
+    // Sync weapon speed bonus to client-side prediction (ensures prediction parity)
+    const weaponDef = WEAPONS[serverWeapon];
+    if (this.v2Client) {
+      this.v2Client.setSpeedBonus(weaponDef?.speedBonus ?? 0);
+    }
+
     // Sync reload state from server — prevents ghost shots during server reload
     if (event.reloading !== undefined) {
       player.setServerReloadState(event.reloading as boolean);
@@ -1540,10 +1627,19 @@ export class FPSGameManager {
     // Detect weapon change using _lastServerWeapon (reliable, one source of truth)
     if (serverWeapon !== this._lastServerWeapon) {
       const isFirstWeapon = this._lastServerWeapon === undefined;
+
+      const wvm = getWeaponViewManager();
+
+      // Skip if WVM not initialized yet — DON'T update _lastServerWeapon so we
+      // re-trigger the weapon change on the next snapshot after WVM becomes ready.
+      // joinGame() also calls wvm.loadWeapon('gunblade') as a fallback.
+      if (!wvm.isReady) {
+        return;
+      }
+
       console.log(`[FPSGameManager] Server weapon changed: ${this._lastServerWeapon || 'none'} → ${serverWeapon}`);
       this._lastServerWeapon = serverWeapon;
 
-      const wvm = getWeaponViewManager();
       if (isFirstWeapon) {
         // First weapon (initial spawn) — load directly without animation
         wvm.loadWeapon(serverWeapon).catch(err => {
@@ -1620,6 +1716,11 @@ export class FPSGameManager {
       case 'rlauncher':
       case 'glauncher':
       case 'gunblade':
+        break;
+
+      case 'blade':
+        // Play third-person slash animation on remote player model
+        this.remoteRenderer?.playAttackAnim(event.entityId, 'blade_slash', 2.0);
         break;
 
       default:
