@@ -653,16 +653,17 @@ export class FPSGameManager {
       return;
     }
 
-    // While dead, strip ALL gameplay input — no movement, jumping, or firing
+    // While dead, strip movement input but keep fire/jump for respawn triggering.
+    // Server's GametypeController.processRespawns() checks entity.input.attack/jump
+    // to allow early respawn after the minimum protection delay.
     if (this._isPlayerDead) {
       input.forward = false;
       input.backward = false;
       input.left = false;
       input.right = false;
-      input.jump = false;
       input.crouch = false;
       input.sprint = false;
-      input.fire = false;
+      // fire and jump are intentionally kept — server uses them for respawn input
     }
 
     // Convert input state to button flags
