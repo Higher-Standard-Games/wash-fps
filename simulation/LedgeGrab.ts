@@ -228,6 +228,18 @@ export class LedgeGrab {
             return false;
         }
 
+        // === TRACE 5: Verify vertical clearance for pull-up path ===
+        // The player is lifted from startPos.y → targetPos.y during the pull animation.
+        // Without this check, the player can be pulled through ceilings or out of the map.
+        // Trace straight up from current position to the target height + standing room.
+        const ceilingStart = { x: pos.x, y: pos.y, z: pos.z };
+        const ceilingEnd = { x: pos.x, y: targetPos.y + 16, z: pos.z };
+        const ceilingTrace = collision.trace(ceilingStart, ceilingEnd);
+
+        if (ceilingTrace.hit && ceilingTrace.fraction < 0.9) {
+            return false;
+        }
+
         const standStart = { x: targetPos.x, y: targetPos.y, z: targetPos.z };
         const standEnd = { x: targetPos.x, y: targetPos.y + 32, z: targetPos.z };
         const standTrace = collision.trace(standStart, standEnd);

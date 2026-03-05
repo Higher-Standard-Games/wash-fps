@@ -328,11 +328,12 @@ export class RemotePlayerRenderer {
     /**
      * Play a one-shot attack animation on a remote player entity.
      * Used for blade slash animation on weapon_fire events.
+     * @param speedRatio - Playback speed multiplier (default 1.0, higher = faster)
      */
-    playAttackAnim(entityId: string, animName: string): void {
+    playAttackAnim(entityId: string, animName: string, speedRatio: number = 1.0): void {
         const hitbox = this.hitboxes.get(entityId);
         if (!hitbox?.model || !this.modelManager) return;
-        this.modelManager.playOnce(hitbox.model, animName);
+        this.modelManager.playOnce(hitbox.model, animName, speedRatio);
     }
 
     // ── Hitbox Creation ─────────────────────────────────────────

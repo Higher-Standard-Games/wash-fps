@@ -1720,7 +1720,7 @@ export class FPSGameManager {
 
       case 'blade':
         // Play third-person slash animation on remote player model
-        this.remoteRenderer?.playAttackAnim(event.entityId, 'blade_slash');
+        this.remoteRenderer?.playAttackAnim(event.entityId, 'blade_slash', 2.0);
         break;
 
       default:
