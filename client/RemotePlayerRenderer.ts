@@ -531,7 +531,7 @@ export class RemotePlayerRenderer {
 
 // ─── Cvar Registration ───────────────────────────────────────────
 
-Cvar.register('cl_remotehitbox', 1, {
+Cvar.register('cl_remotehitbox', 0, {
     type: 'int',
     min: 0,
     max: 1,

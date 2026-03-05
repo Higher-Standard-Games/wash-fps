@@ -41,6 +41,6 @@ export const WEAPONS: Record<string, WeaponDef> = {
     [INSTAGUN.id]: INSTAGUN,
     [BLADE.id]: BLADE,
     // Alias: ProjectileSystem looks up WEAPONS[defId] and blade_blast is the projectile defId
-    // Uses BLADE stats but with 75% of RL knockback (7.5 vs RL's 10.0) — melee keeps its own KB
-    'blade_blast': { ...BLADE, knockbackScale: 7.5 },
+    // Uses BLADE stats but with RL-matching knockback (10.0) for blade blast projectile
+    'blade_blast': { ...BLADE, knockbackScale: 10.0 },
 };
