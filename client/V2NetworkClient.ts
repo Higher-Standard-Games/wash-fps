@@ -547,6 +547,14 @@ export class V2NetworkClient {
     }
 
     /**
+     * Set weapon speed bonus on the client-side movement profile.
+     * Must match server's per-entity speed bonus for prediction parity.
+     */
+    setSpeedBonus(bonus: number): void {
+        this.movement.speedBonus = bonus;
+    }
+
+    /**
      * Apply knockback impulse to local predicted state (client-side prediction).
      * Called when client detects self-damage — provides immediate KB feedback
      * without waiting for server snapshot confirmation.

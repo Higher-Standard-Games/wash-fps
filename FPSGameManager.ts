@@ -42,6 +42,7 @@ import { InputSystem } from '../../engine/input/InputSystem';
 import { CameraSystem } from '../../engine/camera';
 import { registerFPSActions } from './client/FPSActions';
 import { PlayerProfile } from '../../engine/player/PlayerProfile';
+import { WEAPONS } from './server/weapons/WeaponDef';
 
 export interface FPSGameConfig {
   tickRate?: number;
@@ -1592,6 +1593,12 @@ export class FPSGameManager {
 
     // Authoritative sync: add/remove weapons, sync ammo, equip server's weapon
     player.inventory.syncFromServer(serverWeapons, serverAmmo, serverWeapon);
+
+    // Sync weapon speed bonus to client-side prediction (ensures prediction parity)
+    const weaponDef = WEAPONS[serverWeapon];
+    if (this.v2Client) {
+      this.v2Client.setSpeedBonus(weaponDef?.speedBonus ?? 0);
+    }
 
     // Sync reload state from server — prevents ghost shots during server reload
     if (event.reloading !== undefined) {
