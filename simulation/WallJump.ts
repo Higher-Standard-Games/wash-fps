@@ -47,7 +47,7 @@ export class WallJump {
     reset(): void {
         this.state = 'none';
         this.chargeTime = 0;
-        this.keyReleased = true;
+        this.keyReleased = false; // Require fresh press after reconciliation (prevents prediction walljumps from held space)
         this.graceTime = 0;
         this.groundGrace = 0;
     }
