@@ -72,7 +72,7 @@ const FPS_ACTION_DEFS: ActionDefinition[] = [
     { id: FPS.MOVE_LEFT, type: 'button', name: 'Strafe Left', defaultBindings: [{ key: 'KeyA' }] },
     { id: FPS.MOVE_RIGHT, type: 'button', name: 'Strafe Right', defaultBindings: [{ key: 'KeyD' }] },
     { id: FPS.JUMP, type: 'button', name: 'Jump', defaultBindings: [{ key: 'Space' }] },
-    { id: FPS.CROUCH, type: 'button', name: 'Crouch', defaultBindings: [{ key: 'KeyC' }, { key: 'ControlLeft' }, { key: 'ControlRight' }] },
+    { id: FPS.CROUCH, type: 'button', name: 'Crouch', defaultBindings: [{ mouseButton: 'middle' }, { key: 'KeyC' }, { key: 'ControlLeft' }, { key: 'ControlRight' }] },
     { id: FPS.SPRINT, type: 'button', name: 'Sprint', defaultBindings: [{ key: 'ShiftLeft' }, { key: 'ShiftRight' }] },
     { id: FPS.FLY_UP, type: 'button', name: 'Fly Up (Spectator)', defaultBindings: [{ key: 'Space' }] },
     { id: FPS.FLY_DOWN, type: 'button', name: 'Fly Down (Spectator)', defaultBindings: [{ key: 'ShiftLeft' }, { key: 'ShiftRight' }] },
