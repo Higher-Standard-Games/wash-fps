@@ -82,6 +82,13 @@ export class WeaponSystem extends Subsystem {
     private entityPositions: Map<EntityId, { x: number; y: number; z: number }> = new Map();
     /** Per-entity shot counter for deterministic pellet spread seeds */
     private shotCounts: Map<EntityId, number> = new Map();
+    /** Delayed melee damage checks — fires visual immediately, checks damage later */
+    private pendingMeleeChecks: {
+        fireTick: number;           // Tick when fire was pressed
+        checkTick: number;          // Tick when damage should be checked
+        shooterId: EntityId;        // Who fired
+        weapon: WeaponDef;          // Weapon definition
+    }[] = [];
 
     constructor() {
         super(CONFIG);
@@ -362,6 +369,21 @@ export class WeaponSystem extends Subsystem {
     update(state: WorldState, _dt: number, tick: TickNumber): void {
         const tickNum = tick as number;
 
+        // Process delayed melee damage checks
+        // Damage is checked using the shooter's CURRENT aim, not aim at fire time
+        // This gives targets a dodge window (meleeDamageDelay)
+        for (let i = this.pendingMeleeChecks.length - 1; i >= 0; i--) {
+            const check = this.pendingMeleeChecks[i];
+            if (tickNum >= check.checkTick) {
+                // Find shooter entity at current tick
+                const shooter = state.getEntity(check.shooterId);
+                if (shooter && shooter.transform && shooter.input && !shooter.health?.dead) {
+                    this.fireMelee(state, shooter, check.weapon);
+                }
+                this.pendingMeleeChecks.splice(i, 1);
+            }
+        }
+
         // Process all player entities
         for (const entity of state.entitiesByType(EntityType.Player)) {
             if (!entity.input || !entity.health || entity.health.dead) {
@@ -418,7 +440,35 @@ export class WeaponSystem extends Subsystem {
                         const fireInterval = Math.floor(125 / weapon.fireRate);
                         const timeSinceFire = tickNum - weaponState.lastFireTick;
                         if (timeSinceFire >= fireInterval) {
-                            this.fireWeapon(state, entity, weapon, tick);
+                            // Fire visual event immediately (animation + sound)
+                            if (entity.transform && entity.input) {
+                                const yaw = entity.input.yaw;
+                                const pitch = -entity.input.pitch;
+                                this.pendingFireEvents.push({
+                                    entityId: entity.id,
+                                    weaponId: weapon.id,
+                                    originX: entity.transform.position.x,
+                                    originY: entity.transform.position.y,
+                                    originZ: entity.transform.position.z,
+                                    dirX: Math.sin(yaw) * Math.cos(pitch),
+                                    dirY: Math.sin(pitch),
+                                    dirZ: Math.cos(yaw) * Math.cos(pitch),
+                                });
+                            }
+
+                            // Queue delayed melee damage check
+                            const delayTicks = Math.ceil((weapon.meleeDamageDelay || 0) * 125);
+                            if (delayTicks > 0) {
+                                this.pendingMeleeChecks.push({
+                                    fireTick: tickNum,
+                                    checkTick: tickNum + delayTicks,
+                                    shooterId: entity.id,
+                                    weapon: weapon,
+                                });
+                            } else {
+                                // No delay — fire immediately
+                                this.fireMelee(state, entity, weapon);
+                            }
                             weaponState.lastFireTick = tickNum;
                         }
                     }
