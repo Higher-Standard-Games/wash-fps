@@ -500,6 +500,12 @@ export class GameServer {
                 return;
             }
 
+            // Handle RequestSpawn message (dead player requests respawn)
+            if (msgType === MessageType.RequestSpawn) {
+                this.handleRequestSpawn(conn);
+                return;
+            }
+
             const client = this.clients.get(conn.id);
             if (!client) return;
 
