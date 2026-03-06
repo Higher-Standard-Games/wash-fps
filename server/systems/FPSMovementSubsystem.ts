@@ -261,18 +261,9 @@ export class FPSMovementSubsystem extends Subsystem {
         for (const entity of state.entitiesByType(EntityType.Player)) {
             if (!entity.transform || !entity.physics || !entity.input) continue;
 
-            // Dead entities: drain inputQueue to update input.buttons
-            // (GametypeController.processRespawns uses InputButtons.FIRE for respawn),
-            // but skip actual physics simulation — no corpse movement.
+            // Dead entities: skip physics entirely (no corpse movement).
+            // Respawn is now handled by RequestSpawn reliable message → wantsRespawn flag.
             if (entity.health?.dead) {
-                const mutable = state.getEntityMut(entity.id);
-                if (mutable?.input && mutable.input.inputQueue.length > 0) {
-                    const queue = mutable.input.inputQueue;
-                    const lastInput = queue[queue.length - 1];
-                    mutable.input.buttons = lastInput.buttons;
-                    mutable.input.sequence = lastInput.sequence;
-                    mutable.input.inputQueue = [];
-                }
                 continue;
             }
 

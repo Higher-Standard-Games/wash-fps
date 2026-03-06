@@ -560,6 +560,8 @@ export class GameServer {
                 this.handleJoinGame(conn, teamId);
             } else if (msgType === MessageType.Spectate) {
                 this.handleSpectate(conn);
+            } else if (msgType === MessageType.RequestSpawn) {
+                this.handleRequestSpawn(conn);
             }
         } catch {
             // Silently ignore malformed packets
@@ -572,6 +574,22 @@ export class GameServer {
 
         console.log(`[GameServer] Player ${client.playerId} pressed Ready`);
         this.gametypeController.onPlayerReady(client.playerId);
+    }
+
+    private handleRequestSpawn(conn: ClientConnection): void {
+        const client = this.clients.get(conn.id);
+        if (!client) return;
+
+        // Set wantsRespawn flag on the entity — GametypeController.processRespawns() will check it
+        const state = this.simulation.getStateMut();
+        const entity = state.getEntityMut(client.entityId);
+        if (!entity?.input || !entity.health?.dead) {
+            // Not dead or no entity — ignore
+            return;
+        }
+
+        entity.input.wantsRespawn = true;
+        console.log(`[GameServer] RequestSpawn from player ${client.playerId}`);
     }
 
     private handleError(conn: ClientConnection, error: Error): void {

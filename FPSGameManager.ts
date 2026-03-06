@@ -136,6 +136,8 @@ export class FPSGameManager {
 
   // Death state tracking (for death camera)
   private _isPlayerDead: boolean = false;
+  private _respawnRequested: boolean = false;
+  private _respawnCooldownEnd: number = 0;
 
   // Spectator state
   private playerState: 'spectator' | 'playing' = 'spectator';
@@ -653,11 +655,18 @@ export class FPSGameManager {
       return;
     }
 
-    // While dead, strip ALL gameplay input except fire (for respawn triggering).
-    // Server's GametypeController.processRespawns() checks InputButtons.FIRE
-    // from the buttons bitmask to allow early respawn after the min protection delay.
-    // Jump is stripped to prevent corpse from jumping around.
+    // While dead, check for respawn input and strip ALL gameplay input.
+    // Respawn is triggered via a dedicated RequestSpawn reliable message.
     if (this._isPlayerDead) {
+      // Send RequestSpawn if cooldown expired and fire/jump pressed
+      if (!this._respawnRequested && Date.now() >= this._respawnCooldownEnd) {
+        if (input.fire || input.jump) {
+          this.sendRequestSpawn();
+          this._respawnRequested = true;
+        }
+      }
+
+      // Strip ALL input — no corpse movement, no fire processing
       input.forward = false;
       input.backward = false;
       input.left = false;
@@ -665,7 +674,8 @@ export class FPSGameManager {
       input.jump = false;
       input.crouch = false;
       input.sprint = false;
-      // fire is intentionally kept — server uses it for respawn input
+      input.fire = false;
+      input.altFire = false;
     }
 
     // Convert input state to button flags
@@ -1079,6 +1089,20 @@ export class FPSGameManager {
   }
 
   /**
+   * Send respawn request to server (after death cooldown)
+   */
+  private sendRequestSpawn(): void {
+    if (!this.isNetworkMode || !this.gameHost) return;
+
+    const data = MessageCodec.encodeRequestSpawn();
+    const networkHost = this.gameHost as any;
+    if (networkHost.transport && typeof networkHost.transport.send === 'function') {
+      networkHost.transport.send(data, true); // Reliable
+      console.log('[FPSGameManager] Sent RequestSpawn to server');
+    }
+  }
+
+  /**
    * Shutdown game
    */
   shutdown(): void {
@@ -1234,6 +1258,8 @@ export class FPSGameManager {
           // Track death state for death camera
           if (event.dead && !this._isPlayerDead) {
             this._isPlayerDead = true;
+            this._respawnRequested = false;
+            this._respawnCooldownEnd = Date.now() + 3000; // 3s cooldown before allowing RequestSpawn
             console.log('[FPSGameManager] Local player died');
             // Hide weapon view model on death
             import('../../engine/weapon/WeaponViewManager').then(m => {
@@ -1241,6 +1267,7 @@ export class FPSGameManager {
             });
           } else if (!event.dead && this._isPlayerDead) {
             this._isPlayerDead = false;
+            this._respawnRequested = false;
             console.log('[FPSGameManager] Local player respawned');
             // Force camera to snap to new spawn position on next snapshot
             // (prevents ghost spawn at death location for a few frames)

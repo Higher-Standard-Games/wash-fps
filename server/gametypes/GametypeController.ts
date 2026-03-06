@@ -17,7 +17,6 @@ import type { TickNumber } from '@engine/server/ecs/types';
 import type { Vec3 } from '@shared/server/simulation/types';
 import type { CollisionWorld } from '../../../../engine/network/systems/collision/CollisionWorld';
 import { Contents } from '../../../../engine/network/systems/collision/CollisionWorld';
-import { InputButtons } from '../../../../engine/network/components/InputComponent';
 import { MatchPhase } from '@shared/server/gametype';
 import type { MatchStateSnapshot } from '@shared/server/gametype';
 
@@ -335,26 +334,20 @@ export class GametypeController {
 
     private processRespawns(state: WorldState, tickNum: number): void {
         const remaining: RespawnEntry[] = [];
-        const RESPAWN_BUTTONS = InputButtons.FIRE | InputButtons.JUMP;
 
         for (const entry of this.respawnQueue) {
             if (tickNum >= entry.maxRespawnTick) {
                 // Auto-respawn deadline reached
                 this.respawnPlayer(state, entry.entityId, tickNum);
             } else if (tickNum >= entry.minRespawnTick) {
-                // Input-gated window: respawn if player presses fire or jump
-                // MUST use getEntityMut() — getEntity() returns a COW snapshot
-                // from BEFORE FPSMovementSubsystem updated input.buttons this tick.
+                // Input-gated window: respawn if player sent RequestSpawn message
                 const entity = state.getEntityMut(entry.entityId);
                 if (!entity?.input) {
                     remaining.push(entry);
                     continue;
                 }
 
-                // Check buttons bitmask (set by FPSMovementSubsystem's dead entity drain)
-                const wantsRespawn = (entity.input.buttons & RESPAWN_BUTTONS) !== 0;
-
-                if (wantsRespawn) {
+                if (entity.input.wantsRespawn) {
                     this.respawnPlayer(state, entry.entityId, tickNum);
                 } else {
                     remaining.push(entry);
@@ -408,6 +401,11 @@ export class GametypeController {
 
         // Tell gametype
         this.gametype.onSpawn(entity, state);
+
+        // Clear respawn request flag
+        if (entity.input) {
+            entity.input.wantsRespawn = false;
+        }
 
         console.log(`[GametypeController] Respawned entity ${entityId} at (${spawn.x.toFixed(0)}, ${spawn.y.toFixed(0)}, ${spawn.z.toFixed(0)})`);
     }
