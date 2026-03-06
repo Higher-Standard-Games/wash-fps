@@ -202,7 +202,7 @@ export class DroppedWeaponSystem extends Subsystem {
         }
         this.pendingDrops = [];
 
-        // 2. Tick ballistic arc for unsettled weapons
+        // 2. Tick physics for unsettled weapons using BSP collision
         for (const [eId, meta] of this.droppedWeapons) {
             if (meta.settled) continue;
 
@@ -215,32 +215,57 @@ export class DroppedWeaponSystem extends Subsystem {
             // Apply gravity
             vel.y -= DROP_GRAVITY * this.dt;
 
-            // Move
-            pos.x += vel.x * this.dt;
-            pos.y += vel.y * this.dt;
-            pos.z += vel.z * this.dt;
+            if (this.collisionWorld) {
+                // Q3-style stepSlideMove — handles walls, floors, ceilings, step-up
+                // Small AABB for weapon (~8x8x8 units)
+                const bounds = { min: { x: -4, y: -4, z: -4 }, max: { x: 4, y: 4, z: 4 } };
+                const result = this.collisionWorld.stepSlideMove(
+                    { x: pos.x, y: pos.y, z: pos.z },
+                    { x: vel.x, y: vel.y, z: vel.z },
+                    this.dt,
+                    bounds
+                );
 
-            // Simple floor collision — bounce or settle
-            // TODO: use BSP collision for accurate floor detection
-            if (pos.y <= meta.floorY) {
-                pos.y = meta.floorY;
-                if (Math.abs(vel.y) < SETTLE_SPEED * 3) {
-                    // Settle
+                pos.x = result.endPos.x;
+                pos.y = result.endPos.y;
+                pos.z = result.endPos.z;
+                vel.x = result.velocity.x;
+                vel.y = result.velocity.y;
+                vel.z = result.velocity.z;
+
+                // Grounded: apply friction and check settle
+                if (result.grounded) {
+                    vel.x *= 0.82;
+                    vel.z *= 0.82;
+                    const horizSpeed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+                    if (horizSpeed < SETTLE_SPEED && Math.abs(vel.y) < SETTLE_SPEED) {
+                        vel.x = 0; vel.y = 0; vel.z = 0;
+                        meta.settled = true;
+                    }
+                }
+            } else {
+                // Fallback: simple gravity with estimated floor (no BSP)
+                pos.x += vel.x * this.dt;
+                pos.y += vel.y * this.dt;
+                pos.z += vel.z * this.dt;
+
+                if (pos.y <= meta.floorY) {
+                    pos.y = meta.floorY;
+                    if (Math.abs(vel.y) < SETTLE_SPEED * 3) {
+                        vel.x = 0; vel.y = 0; vel.z = 0;
+                        meta.settled = true;
+                    } else {
+                        vel.y = -vel.y * BOUNCE_COEFF;
+                        vel.x *= BOUNCE_COEFF;
+                        vel.z *= BOUNCE_COEFF;
+                    }
+                }
+
+                const speed = Math.sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z);
+                if (speed < SETTLE_SPEED && pos.y <= meta.floorY + 1) {
                     vel.x = 0; vel.y = 0; vel.z = 0;
                     meta.settled = true;
-                } else {
-                    // Bounce
-                    vel.y = -vel.y * BOUNCE_COEFF;
-                    vel.x *= BOUNCE_COEFF;
-                    vel.z *= BOUNCE_COEFF;
                 }
-            }
-
-            // Speed check — settle if moving very slowly
-            const speed = Math.sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z);
-            if (speed < SETTLE_SPEED && pos.y <= meta.floorY + 1) {
-                vel.x = 0; vel.y = 0; vel.z = 0;
-                meta.settled = true;
             }
 
             // Update entity physics velocity for serialization

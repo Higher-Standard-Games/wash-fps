@@ -296,6 +296,11 @@ export class FPSMovementSubsystem extends Subsystem {
             } else {
                 // Process ALL queued inputs — one simulate() per input
                 // This matches client-side prediction which ran one simulate per input
+                // Track USE button across queue — brief presses can be overwritten
+                // by a later entry without USE. OR-accumulate to prevent loss.
+                const USE_BUTTON = 1 << 11; // Must match InputButtons.USE
+                let usePressedInQueue = false;
+
                 for (const qi of queue) {
                     // Update current input state from queued input
                     input.forward = qi.forward;
@@ -309,6 +314,9 @@ export class FPSMovementSubsystem extends Subsystem {
                         input.weaponSlot = qi.weaponSlot;
                     }
 
+                    // Track USE across queue entries (sticky — don't lose brief presses)
+                    if (qi.buttons & USE_BUTTON) usePressedInQueue = true;
+
                     const movementInput = adaptInput(input);
                     const result = profile.simulate(
                         transform.position, physics.velocity,
@@ -319,6 +327,10 @@ export class FPSMovementSubsystem extends Subsystem {
                         console.log(`[KB POST-SIM] entity=${entity.id}: pos=(${transform.position.x.toFixed(1)},${transform.position.y.toFixed(1)},${transform.position.z.toFixed(1)}) vel=(${physics.velocity.x.toFixed(1)},${physics.velocity.y.toFixed(1)},${physics.velocity.z.toFixed(1)}) grounded=${physics.grounded} queue=${queue.length}`);
                     }
                 }
+
+                // Ensure USE flag survives queue drain (prevents lost F-presses)
+                if (usePressedInQueue) input.buttons |= USE_BUTTON;
+
                 // Clear queue after processing
                 input.inputQueue = [];
             }
