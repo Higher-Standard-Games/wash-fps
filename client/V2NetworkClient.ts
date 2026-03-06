@@ -126,6 +126,8 @@ export class V2NetworkClient {
     private hasReceivedSnapshot: boolean = false;
     /** Buffered snapshots waiting to be processed at frame boundary */
     private pendingSnapshots: ServerSnapshot[] = [];
+    /** When true, next snapshot will snap position instantly (respawn, teleport) */
+    private forceTeleportOnNextSnapshot: boolean = false;
 
     constructor(config: V2ClientConfig) {
 
@@ -405,11 +407,15 @@ export class V2NetworkClient {
             // Large correction = KB, teleport, or respawn → SNAP camera immediately.
             const SNAP_THRESHOLD = 50;
             const inLedgeGrab = this.predictedMovement.ledgeGrabState !== 'none';
-            if (corrMag > SNAP_THRESHOLD || inLedgeGrab) {
+            if (corrMag > SNAP_THRESHOLD || inLedgeGrab || this.forceTeleportOnNextSnapshot) {
                 // Snap: reset offset to zero — camera jumps to new position instantly
                 this.visualOffset.x = 0;
                 this.visualOffset.y = 0;
                 this.visualOffset.z = 0;
+                if (this.forceTeleportOnNextSnapshot) {
+                    console.log(`[V2Client] Force teleport on snapshot: snapping to (${postX.toFixed(1)}, ${postY.toFixed(1)}, ${postZ.toFixed(1)})`);
+                    this.forceTeleportOnNextSnapshot = false;
+                }
             } else {
                 // SET offset to maintain visual position continuity
                 this.visualOffset.x = corrX;
@@ -458,6 +464,18 @@ export class V2NetworkClient {
     // ═══════════════════════════════════════════════════════════════════
     // GETTERS
     // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Signal that the next server snapshot should snap the camera instantly
+     * (zero visual offset). Used on respawn to avoid ghost spawn at death location.
+     */
+    forceTeleport(): void {
+        this.forceTeleportOnNextSnapshot = true;
+        // Also clear visual offset immediately so we don't render at stale position
+        this.visualOffset.x = 0;
+        this.visualOffset.y = 0;
+        this.visualOffset.z = 0;
+    }
 
     getPosition(): Vec3 {
         return { ...this.localState.position };

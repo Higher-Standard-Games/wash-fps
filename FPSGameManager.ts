@@ -1242,6 +1242,11 @@ export class FPSGameManager {
           } else if (!event.dead && this._isPlayerDead) {
             this._isPlayerDead = false;
             console.log('[FPSGameManager] Local player respawned');
+            // Force camera to snap to new spawn position on next snapshot
+            // (prevents ghost spawn at death location for a few frames)
+            if (this.v2Client) {
+              this.v2Client.forceTeleport();
+            }
             // Show weapon on respawn
             import('../../engine/weapon/WeaponViewManager').then(m => {
               m.getWeaponViewManager().setVisible(true);
