@@ -199,6 +199,28 @@ export class FPSGameManager {
 
     // 4. Force local player to snap to next server position (no interpolation lag)
     this.v2Client?.forceTeleport();
+
+    // 5. Revalidate textures/materials — GPU may have dropped them while hidden
+    //    (async, runs in background — textures pop back in over 1-2 frames)
+    this.revalidateAfterTabReturn();
+  }
+
+  /**
+   * Revalidate GPU resources after tab return.
+   * Separated from onTabReturn() because it's async.
+   */
+  private async revalidateAfterTabReturn(): Promise<void> {
+    try {
+      const { CameraSystem } = await import('../../engine/camera/CameraSystem');
+      const scene = CameraSystem.getInstance().getCamera()?.getScene();
+      if (!scene) return;
+
+      const { revalidateMaterials } = await import('../../engine/weapon/EffectPreloader');
+      await revalidateMaterials(scene);
+      console.log('[FPSGameManager] Material revalidation complete');
+    } catch (err) {
+      console.warn('[FPSGameManager] Material revalidation failed:', err);
+    }
   }
 
   /**
