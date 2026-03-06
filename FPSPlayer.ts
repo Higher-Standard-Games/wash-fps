@@ -6,6 +6,9 @@ import { Pickup } from "../../engine/game/Pickup";
 import { WeaponViewManager } from "../../engine/weapon/WeaponViewManager";
 import { getHitscanEffects } from "../../engine/weapon/HitscanEffects";
 import { WeaponDef } from "../../shared/entities";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { Color3 } from "@babylonjs/core/Maths/math.color";
+import { CameraSystem } from "../../engine/camera/CameraSystem";
 
 /**
  * FPSPlayer - High-level game entity for FPS mode
@@ -167,11 +170,30 @@ export class FPSPlayer {
         // Input check from Controller
         if (!this.controller.isFiring()) {
             this.fireReleased = true;
-            // Stop continuous beam when fire is released (lasergun)
+            // Stop continuous beam when fire is released
             if (currentWeapon.hitscanType === 'beam') {
                 getHitscanEffects().stopBeam();
             }
             return;
+        }
+
+        // Per-frame beam rendering — smooth continuous beam from camera
+        if (currentWeapon.hitscanType === 'beam') {
+            const cam = CameraSystem.getInstance().getCamera();
+            if (cam) {
+                const origin = cam.position.clone();
+                const forward = cam.getDirection(Vector3.Forward());
+                origin.addInPlace(forward.scale(2));
+                const mfColor = currentWeapon.muzzleFlash?.color;
+                const color = mfColor
+                    ? new Color3(mfColor.r, mfColor.g, mfColor.b)
+                    : new Color3(1.0, 0.7, 0.1);
+                getHitscanEffects().updateBeam({
+                    origin, direction: forward,
+                    maxRange: currentWeapon.range ?? 850,
+                    color,
+                });
+            }
         }
 
         // Cooldown check

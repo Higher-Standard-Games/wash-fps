@@ -1777,7 +1777,7 @@ export class FPSGameManager {
   private static WEAPON_EFFECT_COLORS: Record<string, [number, number, number]> = {
     machinegun: [1.0, 0.9, 0.3],   // warm yellow
     riotgun: [1.0, 0.6, 0.2],   // orange
-    voltaic: [0.2, 0.8, 1.0],    // electric cyan
+    voltaic: [1.0, 0.7, 0.1],    // warm orange (beam)
     electrobolt: [0.3, 0.6, 1.0],   // blue
     instagun: [0.8, 0.2, 1.0],   // purple
   };
@@ -1817,9 +1817,11 @@ export class FPSGameManager {
         break;
 
       case 'voltaic':
-        // Beam weapons update continuously — for now just spawn a tracer
-        // Full beam sync will come in Phase 1b (weapon_stop events)
-        fx.fireTracer({ origin, direction: dir, color, maxRange: 850 });
+        // Continuous beam — update remote beam (auto-cleaned after 150ms timeout)
+        fx.updateRemoteBeam(event.entityId, {
+          origin, direction: dir, color, maxRange: 850,
+          diameterStart: 0.6, diameterEnd: 0.15,
+        });
         break;
 
       case 'electrobolt':
