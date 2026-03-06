@@ -343,25 +343,16 @@ export class GametypeController {
                 this.respawnPlayer(state, entry.entityId, tickNum);
             } else if (tickNum >= entry.minRespawnTick) {
                 // Input-gated window: respawn if player presses fire or jump
-                const entity = state.getEntity(entry.entityId);
+                // MUST use getEntityMut() — getEntity() returns a COW snapshot
+                // from BEFORE FPSMovementSubsystem updated input.buttons this tick.
+                const entity = state.getEntityMut(entry.entityId);
                 if (!entity?.input) {
                     remaining.push(entry);
                     continue;
                 }
 
-                // Check current buttons bitmask
-                let wantsRespawn = (entity.input.buttons & RESPAWN_BUTTONS) !== 0;
-
-                // Also check the raw inputQueue — COW getEntity() may return
-                // a stale snapshot where buttons haven't been updated yet
-                if (!wantsRespawn && entity.input.inputQueue.length > 0) {
-                    for (const qi of entity.input.inputQueue) {
-                        if ((qi.buttons & RESPAWN_BUTTONS) !== 0) {
-                            wantsRespawn = true;
-                            break;
-                        }
-                    }
-                }
+                // Check buttons bitmask (set by FPSMovementSubsystem's dead entity drain)
+                const wantsRespawn = (entity.input.buttons & RESPAWN_BUTTONS) !== 0;
 
                 if (wantsRespawn) {
                     this.respawnPlayer(state, entry.entityId, tickNum);
