@@ -18,7 +18,7 @@ const WEAPON_COLOR_MAP: Record<string, string> = {
     glauncher: 'gold',
     rlauncher: 'gold',
     plasmagun: 'green',
-    lasergun: 'green',
+    voltaic: 'cyan',
     electrobolt: 'magenta',
     instagun: 'magenta',
 };
@@ -32,7 +32,7 @@ const WEAPON_ABBR: Record<string, string> = {
     glauncher: 'GL',
     rlauncher: 'RL',
     plasmagun: 'PG',
-    lasergun: 'LG',
+    voltaic: 'VT',
     electrobolt: 'EB',
     instagun: 'IG',
 };

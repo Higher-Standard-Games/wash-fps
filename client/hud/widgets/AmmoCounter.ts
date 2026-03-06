@@ -16,7 +16,7 @@ const WEAPON_MAX_AMMO: Record<string, number> = {
     glauncher: 20,
     rlauncher: 20,
     plasmagun: 200,
-    lasergun: 150,
+    voltaic: 150,
     electrobolt: 10,
     instagun: 5,
 };

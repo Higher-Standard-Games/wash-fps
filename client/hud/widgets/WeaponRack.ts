@@ -19,7 +19,7 @@ export const WEAPON_SLOTS: { id: string; slot: number; name: string }[] = [
     { id: 'glauncher', slot: 4, name: 'GL' },
     { id: 'rlauncher', slot: 5, name: 'RL' },
     { id: 'plasmagun', slot: 6, name: 'PG' },
-    { id: 'lasergun', slot: 7, name: 'LG' },
+    { id: 'voltaic', slot: 7, name: 'VT' },
     { id: 'electrobolt', slot: 8, name: 'EB' },
     { id: 'instagun', slot: 9, name: 'IG' },
 ];

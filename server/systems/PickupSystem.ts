@@ -35,7 +35,8 @@ const CLASSNAME_TO_WEAPON: Record<string, string> = {
     'weapon_grenadelauncher': 'glauncher',
     'weapon_rocketlauncher': 'rlauncher',
     'weapon_plasmagun': 'plasmagun',
-    'weapon_lasergun': 'lasergun',
+    'weapon_voltaic': 'voltaic',
+    'weapon_lasergun': 'voltaic',       // Backward compat alias
     'weapon_electrobolt': 'electrobolt',
     'weapon_instagun': 'instagun',
 };

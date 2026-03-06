@@ -384,7 +384,7 @@ export class WeaponSystem extends Subsystem {
                 glauncher: 20,
                 rlauncher: 20,
                 plasmagun: 150,
-                lasergun: 150,
+                voltaic: 150,
                 electrobolt: 10,
                 instagun: 5,
             },
@@ -937,7 +937,7 @@ export class WeaponSystem extends Subsystem {
             case 'glauncher': return DamageType.Explosion;
             case 'rlauncher': return DamageType.Explosion;
             case 'plasmagun': return DamageType.Plasma;
-            case 'lasergun': return DamageType.Plasma;
+            case 'voltaic': return DamageType.Plasma;
             case 'electrobolt': return DamageType.Rail;
             case 'instagun': return DamageType.Rail;
             default: return DamageType.Bullet;

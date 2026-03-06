@@ -1777,7 +1777,7 @@ export class FPSGameManager {
   private static WEAPON_EFFECT_COLORS: Record<string, [number, number, number]> = {
     machinegun: [1.0, 0.9, 0.3],   // warm yellow
     riotgun: [1.0, 0.6, 0.2],   // orange
-    lasergun: [0.2, 1.0, 0.4],   // green
+    voltaic: [0.2, 0.8, 1.0],    // electric cyan
     electrobolt: [0.3, 0.6, 1.0],   // blue
     instagun: [0.8, 0.2, 1.0],   // purple
   };
@@ -1816,7 +1816,7 @@ export class FPSGameManager {
         });
         break;
 
-      case 'lasergun':
+      case 'voltaic':
         // Beam weapons update continuously — for now just spawn a tracer
         // Full beam sync will come in Phase 1b (weapon_stop events)
         fx.fireTracer({ origin, direction: dir, color, maxRange: 850 });
