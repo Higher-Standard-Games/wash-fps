@@ -139,6 +139,9 @@ export class FPSGameManager {
   private _respawnRequested: boolean = false;
   private _respawnCooldownEnd: number = 0;
 
+  // Tab-recovery: clamp deltaTime for N frames after tab-return
+  private _tabReturnFrameSkips: number = 0;
+
   // Spectator state
   private playerState: 'spectator' | 'playing' = 'spectator';
   private spectatorOverlay: import('./client/SpectatorOverlay').SpectatorOverlay | null = null;
@@ -161,6 +164,11 @@ export class FPSGameManager {
   private constructor() {
     // Register all FPS actions + contexts with InputSystem
     registerFPSActions();
+
+    // Tab-recovery: snap everything to clean state when returning from background
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') this.onTabReturn();
+    });
   }
 
   static getInstance(): FPSGameManager {
@@ -168,6 +176,29 @@ export class FPSGameManager {
       FPSGameManager.instance = new FPSGameManager();
     }
     return FPSGameManager.instance;
+  }
+
+  /**
+   * Tab-recovery: snap to clean state when returning from a background tab.
+   * Browsers throttle rAF to ~1fps in hidden tabs, causing massive deltaTime
+   * accumulation, stale interpolation buffers, and broken trails.
+   */
+  private onTabReturn(): void {
+    if (!this.isRunning) return;
+    console.log('[FPSGameManager] Tab returned — resetting visual state');
+
+    // 1. Clamp dt for next 3 frames (prevents catch-up stutter)
+    this._tabReturnFrameSkips = 3;
+
+    // 2. Clear all projectile visuals (trails, lights, meshes)
+    //    Server will re-broadcast any that still exist in next snapshot
+    try { getProjectileManager().clear(); } catch { /* not initialized */ }
+
+    // 3. Flush projectile interpolation buffer (discard stale data)
+    this.projectileBuffer.flush();
+
+    // 4. Force local player to snap to next server position (no interpolation lag)
+    this.v2Client?.forceTeleport();
   }
 
   /**
@@ -815,7 +846,12 @@ export class FPSGameManager {
     this.renderServerProjectiles();
 
     // Update particle/effect systems that need per-frame ticking
-    const dtSec = (EngineStore.LastCreatedEngine?.getDeltaTime() ?? 16) / 1000;
+    let dtSec = (EngineStore.LastCreatedEngine?.getDeltaTime() ?? 16) / 1000;
+    // Tab-recovery: clamp dt to prevent catch-up stutter
+    if (this._tabReturnFrameSkips > 0) {
+      dtSec = 0.016;
+      this._tabReturnFrameSkips--;
+    }
 
     // Update gib physics (gravity, bouncing, tumble, fade)
     if (!this._gibSystem && !this._gibSystemLoading) {
@@ -984,7 +1020,9 @@ export class FPSGameManager {
       }
       // Decay the visual smoothing offset each frame (absorbs reconciliation jitter)
       const engine = EngineStore.LastCreatedEngine;
-      const dt = engine ? engine.getDeltaTime() / 1000 : 0.016;
+      let dt = engine ? engine.getDeltaTime() / 1000 : 0.016;
+      // Tab-recovery: clamp dt for visual offset decay too
+      if (this._tabReturnFrameSkips > 0) dt = 0.016;
       this.v2Client.decayVisualOffset(dt);
       // Use visually smoothed position for camera rendering
       const pos = this.v2Client.getVisualPosition();
