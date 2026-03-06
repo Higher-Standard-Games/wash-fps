@@ -512,6 +512,24 @@ export class RemotePlayerRenderer {
                 const slideRatio = slideSpeed / 400; // Normalize to max slide speed
                 inst.masterGroup.speedRatio = Math.max(0.3, Math.min(2.0, slideRatio));
 
+            } else if (animName === 'crouch_walk' || animName === 'crouch_walk_back') {
+                // Crouch walk: speed proportional to horizontal velocity
+                const crouchSpeed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz);
+                let crouchRatio = crouchSpeed / WALK_NATURAL_SPEED;
+                if (animName === 'crouch_walk_back') crouchRatio = -crouchRatio;
+                inst.masterGroup.speedRatio = Math.max(-3.0, Math.min(3.0, crouchRatio));
+
+            } else if (animName === 'crouch_strafe_l' || animName === 'crouch_strafe_r') {
+                // Crouch strafe: same as standing strafe
+                const fwdX = Math.sin(interp.yaw);
+                const fwdZ = Math.cos(interp.yaw);
+                const rightX = fwdZ;
+                const rightZ = -fwdX;
+                const rightDot = rightX * interp.vx + rightZ * interp.vz;
+                const lateralSpeed = Math.abs(rightDot);
+                const crouchStrafeRatio = lateralSpeed / STRAFE_NATURAL_SPEED;
+                inst.masterGroup.speedRatio = Math.max(0.3, Math.min(3.0, crouchStrafeRatio));
+
             } else {
                 inst.masterGroup.speedRatio = 1.0;
             }
@@ -530,6 +548,23 @@ export class RemotePlayerRenderer {
         if (interp.sliding) return 'slide';
 
         const speed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz);
+
+        // Crouching (not sliding) — use crouch walk animations
+        if (interp.crouching) {
+            if (speed < IDLE_SPEED_THRESHOLD) return 'idle'; // No crouch idle anim yet
+
+            const fwdX = Math.sin(interp.yaw);
+            const fwdZ = Math.cos(interp.yaw);
+            const rightX = fwdZ;
+            const rightZ = -fwdX;
+            const forwardDot = fwdX * interp.vx + fwdZ * interp.vz;
+            const rightDot = rightX * interp.vx + rightZ * interp.vz;
+
+            if (Math.abs(rightDot) > Math.abs(forwardDot) * 1.5) {
+                return rightDot > 0 ? 'crouch_strafe_l' : 'crouch_strafe_r';
+            }
+            return forwardDot >= 0 ? 'crouch_walk' : 'crouch_walk_back';
+        }
 
         // Idle
         if (speed < IDLE_SPEED_THRESHOLD) return 'idle';
