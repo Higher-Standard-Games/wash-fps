@@ -173,27 +173,47 @@ export class DroppedWeaponRenderer {
             const modelPath = def?.modelPath
                 || `models/weapons/${visual.weaponId}/${visual.weaponId}.md3`;
 
-            // Try AssetPreloader cache first
-            let result = null;
-            try {
-                const { AssetPreloader } = await import('../../../engine/loader/AssetPreloader');
-                const preloader = AssetPreloader.getInstance();
-                if (preloader.hasModel(modelPath)) {
-                    result = preloader.cloneCachedModel(modelPath, this.scene);
-                }
-            } catch {
-                // Preloader not available
-            }
+            let result: any = null;
 
-            // Fall back to fresh loading
-            if (!result) {
-                const loader = ModelLoader.getInstance();
-                if (!loader.isInitialized()) loader.init(this.scene);
-                result = await loader.loadModel(modelPath, {
-                    position: Vector3.Zero(),
-                    scale: DROP_MODEL_SCALE,
-                    hasCollision: false,
-                });
+            // === GLB MODEL PATH ===
+            if (modelPath.endsWith('.glb') || modelPath.endsWith('.gltf')) {
+                const { SceneLoader } = await import('@babylonjs/core/Loading/sceneLoader');
+                await import('@babylonjs/loaders/glTF');
+
+                const lastSlash = modelPath.lastIndexOf('/');
+                const dir = modelPath.substring(0, lastSlash + 1);
+                const file = modelPath.substring(lastSlash + 1);
+
+                const glbResult = await SceneLoader.ImportMeshAsync('', dir, file, this.scene);
+
+                // Build result matching MD3 loader shape
+                result = {
+                    root: glbResult.meshes[0],
+                    meshes: glbResult.meshes.filter(m => m.getTotalVertices() > 0),
+                };
+            } else {
+                // === MD3/PK3 MODEL PATH ===
+                // Try AssetPreloader cache first
+                try {
+                    const { AssetPreloader } = await import('../../../engine/loader/AssetPreloader');
+                    const preloader = AssetPreloader.getInstance();
+                    if (preloader.hasModel(modelPath)) {
+                        result = preloader.cloneCachedModel(modelPath, this.scene);
+                    }
+                } catch {
+                    // Preloader not available
+                }
+
+                // Fall back to fresh loading
+                if (!result) {
+                    const loader = ModelLoader.getInstance();
+                    if (!loader.isInitialized()) loader.init(this.scene);
+                    result = await loader.loadModel(modelPath, {
+                        position: Vector3.Zero(),
+                        scale: DROP_MODEL_SCALE,
+                        hasCollision: false,
+                    });
+                }
             }
 
             // Bail if removed while loading
