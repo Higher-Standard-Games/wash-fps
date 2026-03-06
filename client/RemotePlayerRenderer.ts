@@ -168,6 +168,7 @@ export class RemotePlayerRenderer {
                 vz: velocity?.linear?.z ?? velocity?.z ?? 0,
                 grounded: velocity?.grounded ?? true,
                 crouching: movementState?.isCrouching ?? false,
+                sliding: movementState?.isSliding ?? false,
             });
         }
 
@@ -504,6 +505,13 @@ export class RemotePlayerRenderer {
                     inst.masterGroup.speedRatio = 0;
                 }
 
+            } else if (animName === 'slide') {
+                // Crouchslide: play forward proportional to horizontal speed
+                // Animation naturally decelerates as slide velocity drops
+                const slideSpeed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz);
+                const slideRatio = slideSpeed / 400; // Normalize to max slide speed
+                inst.masterGroup.speedRatio = Math.max(0.3, Math.min(2.0, slideRatio));
+
             } else {
                 inst.masterGroup.speedRatio = 1.0;
             }
@@ -517,6 +525,9 @@ export class RemotePlayerRenderer {
     private deriveAnimation(interp: InterpolatedEntity): string {
         // Airborne — use jump for entire air time (Warsow-style)
         if (!interp.grounded) return 'jump';
+
+        // Crouchslide — takes priority over walk/run/strafe
+        if (interp.sliding) return 'slide';
 
         const speed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz);
 
