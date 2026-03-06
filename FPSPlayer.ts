@@ -4,11 +4,8 @@ import { FPSController } from "../../engine/camera/controllers/FPSController";
 import { InventoryManager } from "../../engine/game/InventoryManager";
 import { Pickup } from "../../engine/game/Pickup";
 import { WeaponViewManager } from "../../engine/weapon/WeaponViewManager";
-import { getHitscanEffects } from "../../engine/weapon/HitscanEffects";
 import { WeaponDef } from "../../shared/entities";
-import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
-import { CameraSystem } from "../../engine/camera/CameraSystem";
 
 /**
  * FPSPlayer - High-level game entity for FPS mode
@@ -33,6 +30,11 @@ export class FPSPlayer {
     private fireReleased: boolean = true;
     private burstShotsRemaining: number = 0;
     private _serverLastFireTick: number = 0;  // track server fire tick for drift correction
+
+    // Beam charge state
+    private static readonly BEAM_CHARGE_TIME = 0.25;  // 250ms charge in hipfire
+    private beamChargeTimer: number = 0;
+    private beamCharged: boolean = false;
 
     constructor(controller: FPSController) {
         this.controller = controller;
@@ -170,29 +172,42 @@ export class FPSPlayer {
         // Input check from Controller
         if (!this.controller.isFiring()) {
             this.fireReleased = true;
-            // Stop continuous beam when fire is released
+            // Stop continuous beam and reset charge when fire is released
             if (currentWeapon.hitscanType === 'beam') {
-                getHitscanEffects().stopBeam();
+                if (this.beamCharged || this.beamChargeTimer > 0) {
+                    WeaponViewManager.getInstance().setBeamActive(false);
+                }
+                this.beamChargeTimer = 0;
+                this.beamCharged = false;
             }
             return;
         }
 
-        // Per-frame beam rendering — smooth continuous beam from camera
+        // Beam charge-up / activation
         if (currentWeapon.hitscanType === 'beam') {
-            const cam = CameraSystem.getInstance().getCamera();
-            if (cam) {
-                const origin = cam.position.clone();
-                const forward = cam.getDirection(Vector3.Forward());
-                origin.addInPlace(forward.scale(2));
-                const mfColor = currentWeapon.muzzleFlash?.color;
-                const color = mfColor
-                    ? new Color3(mfColor.r, mfColor.g, mfColor.b)
-                    : new Color3(1.0, 0.7, 0.1);
-                getHitscanEffects().updateBeam({
-                    origin, direction: forward,
-                    maxRange: currentWeapon.range ?? 850,
-                    color,
-                });
+            const wvm = WeaponViewManager.getInstance();
+            const mfColor = currentWeapon.muzzleFlash?.color;
+            const color = mfColor
+                ? new Color3(mfColor.r, mfColor.g, mfColor.b)
+                : new Color3(1.0, 0.7, 0.1);
+
+            if (this.controller.isAiming()) {
+                // ADS: fire immediately, no charge needed
+                this.beamCharged = true;
+                this.beamChargeTimer = FPSPlayer.BEAM_CHARGE_TIME;
+                wvm.setBeamActive(true, color);
+            } else if (!this.beamCharged) {
+                // Hipfire: charge up 250ms before beam fires
+                this.beamChargeTimer += _deltaTime;
+                const progress = Math.min(1, this.beamChargeTimer / FPSPlayer.BEAM_CHARGE_TIME);
+                wvm.setBeamCharging(progress);
+                if (this.beamChargeTimer >= FPSPlayer.BEAM_CHARGE_TIME) {
+                    this.beamCharged = true;
+                    wvm.setBeamActive(true, color);
+                }
+            } else {
+                // Already charged — keep beam active
+                wvm.setBeamActive(true, color);
             }
         }
 
