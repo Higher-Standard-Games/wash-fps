@@ -260,13 +260,25 @@ export class FPSMovementSubsystem extends Subsystem {
         // Process all player entities
         for (const entity of state.entitiesByType(EntityType.Player)) {
             if (!entity.transform || !entity.physics || !entity.input) continue;
-            if (entity.health?.dead) continue;
+
+            // Dead entities: drain inputQueue to update input.buttons
+            // (GametypeController.processRespawns uses InputButtons.FIRE for respawn),
+            // but skip actual physics simulation — no corpse movement.
+            if (entity.health?.dead) {
+                const mutable = state.getEntityMut(entity.id);
+                if (mutable?.input && mutable.input.inputQueue.length > 0) {
+                    const queue = mutable.input.inputQueue;
+                    const lastInput = queue[queue.length - 1];
+                    mutable.input.buttons = lastInput.buttons;
+                    mutable.input.sequence = lastInput.sequence;
+                    mutable.input.inputQueue = [];
+                }
+                continue;
+            }
 
             // Get mutable entity (COW)
             const mutable = state.getEntityMut(entity.id);
             if (!mutable || !mutable.transform || !mutable.physics || !mutable.input) continue;
-            // Skip dead entities — no physics simulation on corpses
-            if (mutable.health?.dead) continue;
 
             const input = mutable.input;
             const physics = mutable.physics;
