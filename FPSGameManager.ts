@@ -208,12 +208,31 @@ export class FPSGameManager {
   /**
    * Revalidate GPU resources after tab return.
    * Separated from onTabReturn() because it's async.
+   * Also installs WebGL context loss/restore handlers on first call.
    */
+  private _contextLossHandlersInstalled = false;
   private async revalidateAfterTabReturn(): Promise<void> {
     try {
       const { CameraSystem } = await import('../../engine/camera/CameraSystem');
       const scene = CameraSystem.getInstance().getCamera()?.getScene();
       if (!scene) return;
+
+      // Install WebGL context loss/restore handlers (once)
+      if (!this._contextLossHandlersInstalled) {
+        const canvas = scene.getEngine().getRenderingCanvas();
+        if (canvas) {
+          canvas.addEventListener('webglcontextlost', (e) => {
+            console.error('[FPSGameManager] ⚠️ WebGL context LOST — GPU resources destroyed');
+            e.preventDefault(); // Allow browser to attempt restore
+          });
+          canvas.addEventListener('webglcontextrestored', () => {
+            console.log('[FPSGameManager] WebGL context RESTORED — revalidating materials');
+            this.revalidateAfterTabReturn();
+          });
+          this._contextLossHandlersInstalled = true;
+          console.log('[FPSGameManager] WebGL context loss/restore handlers installed');
+        }
+      }
 
       const { revalidateMaterials } = await import('../../engine/weapon/EffectPreloader');
       await revalidateMaterials(scene);
