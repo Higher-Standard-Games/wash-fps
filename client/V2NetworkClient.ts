@@ -477,6 +477,53 @@ export class V2NetworkClient {
         this.visualOffset.z = 0;
     }
 
+    /**
+     * Full reset for respawn — clears ALL stale state from the death period.
+     *
+     * During death the server omits the player entity from snapshots, so
+     * V2NetworkClient receives ZERO snapshots for 3-6 seconds. This causes:
+     * - inputHistory to accumulate hundreds of unacked entries
+     * - skipReconcile counters to freeze (never decremented)
+     * - localState.position to stay at death location
+     *
+     * This method nukes everything so the first post-respawn snapshot
+     * is treated like a fresh spawn (first-snapshot path in applySnapshot).
+     */
+    resetForRespawn(): void {
+        // Clear stale inputs from death period
+        this.inputHistory.clear();
+
+        // Reset skip counters (may have frozen during death)
+        this.grabReconcileSkipCount = 0;
+        this.wallJumpReconcileSkipCount = 0;
+
+        // Force first-snapshot path: bypasses skipReconcile, snaps camera
+        this.hasReceivedSnapshot = false;
+        this.forceTeleportOnNextSnapshot = true;
+
+        // Zero visual offset
+        this.visualOffset.x = 0;
+        this.visualOffset.y = 0;
+        this.visualOffset.z = 0;
+
+        // Reset KB tracking
+        this.kbTickCounter = -1;
+
+        // Reset predicted movement state
+        this.predictedMovement = {
+            isSliding: false,
+            isCrouching: false,
+            crouchViewOffset: 0,
+            wallJumpState: 'none',
+            ledgeGrabState: 'none',
+            actualHorizSpeed: 0,
+            slidePhase: 0,
+            ledgeGrabPhase: 0,
+        };
+
+        console.log('[V2Client] resetForRespawn: cleared all death-period state');
+    }
+
     getPosition(): Vec3 {
         return { ...this.localState.position };
     }

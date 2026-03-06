@@ -1269,10 +1269,13 @@ export class FPSGameManager {
             this._isPlayerDead = false;
             this._respawnRequested = false;
             console.log('[FPSGameManager] Local player respawned');
-            // Force camera to snap to new spawn position on next snapshot
-            // (prevents ghost spawn at death location for a few frames)
+            // Nuclear reset: clear all stale death-period state in V2Client.
+            // During death, server omits entity from snapshots → V2Client gets
+            // ZERO snapshots → localState stuck at death pos, inputHistory stale,
+            // skipReconcile counters frozen. resetForRespawn() nukes everything
+            // and forces first-snapshot path so next snapshot snaps to spawn pos.
             if (this.v2Client) {
-              this.v2Client.forceTeleport();
+              this.v2Client.resetForRespawn();
             }
             // Show weapon on respawn
             import('../../engine/weapon/WeaponViewManager').then(m => {
