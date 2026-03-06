@@ -335,6 +335,7 @@ export class GametypeController {
 
     private processRespawns(state: WorldState, tickNum: number): void {
         const remaining: RespawnEntry[] = [];
+        const RESPAWN_BUTTONS = InputButtons.FIRE | InputButtons.JUMP;
 
         for (const entry of this.respawnQueue) {
             if (tickNum >= entry.maxRespawnTick) {
@@ -343,8 +344,26 @@ export class GametypeController {
             } else if (tickNum >= entry.minRespawnTick) {
                 // Input-gated window: respawn if player presses fire or jump
                 const entity = state.getEntity(entry.entityId);
-                const buttons = entity?.input?.buttons ?? 0;
-                if (buttons & (InputButtons.FIRE | InputButtons.JUMP)) {
+                if (!entity?.input) {
+                    remaining.push(entry);
+                    continue;
+                }
+
+                // Check current buttons bitmask
+                let wantsRespawn = (entity.input.buttons & RESPAWN_BUTTONS) !== 0;
+
+                // Also check the raw inputQueue — COW getEntity() may return
+                // a stale snapshot where buttons haven't been updated yet
+                if (!wantsRespawn && entity.input.inputQueue.length > 0) {
+                    for (const qi of entity.input.inputQueue) {
+                        if ((qi.buttons & RESPAWN_BUTTONS) !== 0) {
+                            wantsRespawn = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (wantsRespawn) {
                     this.respawnPlayer(state, entry.entityId, tickNum);
                 } else {
                     remaining.push(entry);
