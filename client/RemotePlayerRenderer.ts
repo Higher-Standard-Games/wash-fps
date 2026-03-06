@@ -154,6 +154,7 @@ export class RemotePlayerRenderer {
 
             const transform = entity.getComponent('transform') as any;
             const velocity = entity.getComponent('velocity') as any;
+            const movementState = entity.getComponent('movementState') as any;
 
             if (!transform?.position) continue;
 
@@ -166,7 +167,7 @@ export class RemotePlayerRenderer {
                 vy: velocity?.linear?.y ?? velocity?.y ?? 0,
                 vz: velocity?.linear?.z ?? velocity?.z ?? 0,
                 grounded: velocity?.grounded ?? true,
-                crouching: velocity?.isCrouching ?? false,
+                crouching: movementState?.isCrouching ?? false,
             });
         }
 
