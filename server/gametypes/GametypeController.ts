@@ -17,6 +17,7 @@ import type { TickNumber } from '@engine/server/ecs/types';
 import type { Vec3 } from '@shared/server/simulation/types';
 import type { CollisionWorld } from '../../../../engine/network/systems/collision/CollisionWorld';
 import { Contents } from '../../../../engine/network/systems/collision/CollisionWorld';
+import { InputButtons } from '../../../../engine/network/components/InputComponent';
 import { MatchPhase } from '@shared/server/gametype';
 import type { MatchStateSnapshot } from '@shared/server/gametype';
 
@@ -342,7 +343,8 @@ export class GametypeController {
             } else if (tickNum >= entry.minRespawnTick) {
                 // Input-gated window: respawn if player presses fire or jump
                 const entity = state.getEntity(entry.entityId);
-                if (entity?.input && (entity.input.attack || entity.input.jump)) {
+                const buttons = entity?.input?.buttons ?? 0;
+                if (buttons & (InputButtons.FIRE | InputButtons.JUMP)) {
                     this.respawnPlayer(state, entry.entityId, tickNum);
                 } else {
                     remaining.push(entry);
