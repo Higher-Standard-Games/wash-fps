@@ -104,12 +104,7 @@ export class DroppedWeaponRenderer {
             PhysicsSystem.getInstance().removeBody(visual.mesh.name);
         }
 
-        // Dispose the unparented physics proxy (GLB path)
-        if (visual.mesh && !visual.mesh.parent) {
-            visual.mesh.dispose();
-        }
-
-        // Dispose visual meshes — do NOT dispose materials (they're shared by cloneCachedModel)
+        // Dispose visual tree — do NOT dispose materials (shared by cloneCachedModel)
         visual.root.dispose(false, false);
         this.weapons.delete(entityId);
     }
@@ -133,7 +128,8 @@ export class DroppedWeaponRenderer {
 
         // Converge settled weapons to server position
         for (const [entityId, visual] of this.weapons) {
-            // During physics phase: sync visual.root from physics mesh position
+            // During physics phase: sync visual.root from physics mesh position.
+            // The merged mesh IS the physics body, so its position is authoritative.
             if (!visual.settled && visual.mesh && visual.hasPhysics) {
                 visual.root.position.copyFrom(visual.mesh.position);
 
@@ -188,7 +184,6 @@ export class DroppedWeaponRenderer {
             if (modelPath.endsWith('.glb') || modelPath.endsWith('.gltf')) {
                 const { SceneLoader } = await import('@babylonjs/core/Loading/sceneLoader');
                 await import('@babylonjs/loaders/glTF');
-                const { MeshBuilder } = await import('@babylonjs/core/Meshes/meshBuilder');
 
                 const lastSlash = modelPath.lastIndexOf('/');
                 const dir = modelPath.substring(0, lastSlash + 1);
@@ -203,15 +198,18 @@ export class DroppedWeaponRenderer {
                 }
 
                 // Flatten GLB hierarchy: re-parent all renderable meshes
-                // directly under visual.root so physics can move them together.
-                // GLB produces __root__ → child meshes; we skip __root__.
+                // directly under visual.root so we can merge them.
                 const glbRoot = glbResult.meshes[0];
+                const renderableMeshes: Mesh[] = [];
 
                 for (const m of glbResult.meshes) {
                     if (m === glbRoot) continue; // skip __root__ container
-                    m.parent = visual.root;
-                    m.rotationQuaternion = null; // allow euler rotation
-                    m.scaling.scaleInPlace(defScale);
+                    if (m instanceof Mesh && m.getTotalVertices() > 0) {
+                        m.parent = visual.root;
+                        m.rotationQuaternion = null; // allow euler rotation
+                        m.scaling.scaleInPlace(defScale);
+                        renderableMeshes.push(m);
+                    }
                 }
 
                 // Dispose the now-empty __root__ node
@@ -220,21 +218,29 @@ export class DroppedWeaponRenderer {
                     glbRoot.dispose(false, false);
                 }
 
-                // Create an invisible bounding-box proxy mesh for physics.
-                // Havok moves meshes in world space ignoring parents, so the
-                // proxy is NOT parented to visual.root.  Instead we sync
-                // visual.root.position ← proxy.position every frame while
-                // physics is active.  Visual meshes (children of visual.root)
-                // follow naturally via parenting.
-                const proxy = MeshBuilder.CreateBox(
-                    `dropped_${visual.entityId}_physics`,
-                    { width: 16 * defScale, height: 8 * defScale, depth: 32 * defScale },
-                    this.scene,
-                );
-                proxy.position = visual.root.position.clone();
-                proxy.isVisible = false;
-                proxy.isPickable = false;
-                primaryMesh = proxy;
+                // Merge all GLB meshes into a single Mesh so Havok can move
+                // the entire weapon as one body with proper tumble rotation.
+                // (MD3 is already a single mesh, so this is only needed for GLB)
+                if (renderableMeshes.length > 1) {
+                    const merged = Mesh.MergeMeshes(
+                        renderableMeshes,
+                        true,   // disposeSource
+                        true,   // allow32BitsIndices
+                        undefined,
+                        false,  // subdivideWithSubMeshes
+                        true,   // multiMultiMaterial (preserve materials)
+                    );
+                    if (merged) {
+                        merged.parent = visual.root;
+                        merged.position.setAll(0);
+                        merged.rotationQuaternion = null;
+                        merged.rotation.setAll(0);
+                        merged.name = `dropped_${visual.entityId}_merged`;
+                        primaryMesh = merged;
+                    }
+                } else if (renderableMeshes.length === 1) {
+                    primaryMesh = renderableMeshes[0];
+                }
             } else {
                 // === MD3/PK3 MODEL PATH ===
                 let result: any = null;
@@ -272,7 +278,7 @@ export class DroppedWeaponRenderer {
                     return;
                 }
 
-                // Parent meshes to root node (MD3 style)
+                // Parent meshes to root node (MD3 style — already single mesh)
                 for (const m of result.meshes) {
                     m.parent = visual.root;
                     m.position.setAll(0);
@@ -293,7 +299,7 @@ export class DroppedWeaponRenderer {
 
             visual.mesh = primaryMesh;
 
-            // Create Havok physics body
+            // Create Havok physics body on the visual mesh (merged for GLB)
             if (primaryMesh) {
                 this._createPhysicsBody(visual, primaryMesh, velocity);
             }
