@@ -36,7 +36,7 @@ const CLASSNAME_TO_WEAPON: Record<string, string> = {
     'weapon_rocketlauncher': 'rlauncher',
     'weapon_plasmagun': 'plasmagun',
     'weapon_voltaic': 'voltaic',
-    'weapon_lasergun': 'voltaic',       // Backward compat alias
+    'weapon_lasergun': 'lasergun',       // Legacy Warsow maps → LG
     'weapon_electrobolt': 'electrobolt',
     'weapon_instagun': 'instagun',
 };

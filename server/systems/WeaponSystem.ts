@@ -73,6 +73,8 @@ export interface WeaponState {
     // Alt-fire state (blade projectile)
     lastAltFireTick: number;    // Last tick alt-fire was used
     wasAltFireDown: boolean;    // Edge detection for alt-fire release
+    // hipfireBlocked: tick when fire was first pressed without ADS (0 = not pending)
+    hipfireAdsStartTick: number;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -366,6 +368,7 @@ export class WeaponSystem extends Subsystem {
             wasFireButtonDown: false,
             lastAltFireTick: 0,
             wasAltFireDown: false,
+            hipfireAdsStartTick: 0,
         });
         // Reset edge detection so weapon slot changes are detected cleanly after respawn
         this.lastWeaponSlot.delete(id);
@@ -549,8 +552,33 @@ export class WeaponSystem extends Subsystem {
                     }
                     weaponState.wasAltFireDown = isAltFiring;
                 } else {
-                    // === STANDARD WEAPON LOGIC (unchanged) ===
-                    if (isFiring) {
+                    // === STANDARD WEAPON LOGIC ===
+                    // hipfireBlocked: determine if fire is allowed this tick
+                    let hipfireAllowFire = true;
+
+                    if (isFiring && weapon.hipfireBlocked) {
+                        // On fire button edge (just pressed), decide: was player already ADS?
+                        if (!weaponState.wasFireButtonDown) {
+                            if (weaponState.wasAltFireDown) {
+                                // Player was holding ADS BEFORE pressing fire — no delay
+                                weaponState.hipfireAdsStartTick = -1; // sentinel: pre-ADS
+                            } else {
+                                // Fire pressed from hip — start ADS delay
+                                weaponState.hipfireAdsStartTick = tickNum;
+                            }
+                        }
+
+                        // If started from hip, enforce ADS transition delay
+                        if (weaponState.hipfireAdsStartTick > 0) {
+                            const adsTimeTicks = Math.ceil((weapon.ads?.time || 0.08) * 125);
+                            if (tickNum - weaponState.hipfireAdsStartTick < adsTimeTicks) {
+                                hipfireAllowFire = false; // Still in ADS transition
+                            }
+                        }
+                        // hipfireAdsStartTick === -1 means pre-ADS, fire immediately
+                    }
+
+                    if (isFiring && hipfireAllowFire) {
                         const fireInterval = Math.floor(125 / weapon.fireRate); // ticks between shots
                         const timeSinceFire = tickNum - weaponState.lastFireTick;
 
@@ -571,6 +599,15 @@ export class WeaponSystem extends Subsystem {
                             }
                         }
                     }
+
+                    if (!isFiring) {
+                        // Fire released — reset hipfire ADS timer
+                        weaponState.hipfireAdsStartTick = 0;
+                    }
+
+                    // Always track fire + alt-fire state for edge detection
+                    weaponState.wasFireButtonDown = isFiring;
+                    weaponState.wasAltFireDown = isAltFiring;
                 }
             }
         }
@@ -888,8 +925,19 @@ export class WeaponSystem extends Subsystem {
 
         // Calculate fire direction (already in radians from client)
         // Negate pitch: Babylon uses negative rotationX for looking UP
-        const yaw = shooter.input.yaw;
-        const pitch = -shooter.input.pitch;
+        let yaw = shooter.input.yaw;
+        let pitch = -shooter.input.pitch;
+
+        // Apply random spread if weapon has it (e.g. plasmagun hipfire)
+        if (weapon.spread) {
+            const isADS = (shooter.input.buttons & ALT_FIRE_BUTTON) !== 0;
+            const spreadDeg = (isADS && weapon.adsSpread !== undefined) ? weapon.adsSpread : weapon.spread;
+            if (spreadDeg > 0) {
+                const spreadRad = spreadDeg * Math.PI / 180;
+                yaw += (Math.random() - 0.5) * spreadRad;
+                pitch += (Math.random() - 0.5) * spreadRad;
+            }
+        }
 
         const speed = weapon.projectileSpeed || 1000;
         const velocity = {

@@ -104,7 +104,12 @@ export class DroppedWeaponRenderer {
             PhysicsSystem.getInstance().removeBody(visual.mesh.name);
         }
 
-        // Dispose meshes — do NOT dispose materials (they're shared by cloneCachedModel)
+        // Dispose the unparented physics proxy (GLB path)
+        if (visual.mesh && !visual.mesh.parent) {
+            visual.mesh.dispose();
+        }
+
+        // Dispose visual meshes — do NOT dispose materials (they're shared by cloneCachedModel)
         visual.root.dispose(false, false);
         this.weapons.delete(entityId);
     }
@@ -128,7 +133,10 @@ export class DroppedWeaponRenderer {
 
         // Converge settled weapons to server position
         for (const [entityId, visual] of this.weapons) {
-            if (!visual.settled) {
+            // During physics phase: sync visual.root from physics mesh position
+            if (!visual.settled && visual.mesh && visual.hasPhysics) {
+                visual.root.position.copyFrom(visual.mesh.position);
+
                 // Check for timeout settle
                 if (Date.now() - visual.spawnTime > SETTLE_TIMEOUT) {
                     visual.settled = true;
@@ -172,13 +180,15 @@ export class DroppedWeaponRenderer {
             const def = registry.get(visual.weaponId) as any;
             const modelPath = def?.modelPath
                 || `models/weapons/${visual.weaponId}/${visual.weaponId}.md3`;
+            const defScale = def?.scale ?? DROP_MODEL_SCALE;
 
-            let result: any = null;
+            let primaryMesh: Mesh | null = null;
 
             // === GLB MODEL PATH ===
             if (modelPath.endsWith('.glb') || modelPath.endsWith('.gltf')) {
                 const { SceneLoader } = await import('@babylonjs/core/Loading/sceneLoader');
                 await import('@babylonjs/loaders/glTF');
+                const { MeshBuilder } = await import('@babylonjs/core/Meshes/meshBuilder');
 
                 const lastSlash = modelPath.lastIndexOf('/');
                 const dir = modelPath.substring(0, lastSlash + 1);
@@ -186,13 +196,49 @@ export class DroppedWeaponRenderer {
 
                 const glbResult = await SceneLoader.ImportMeshAsync('', dir, file, this.scene);
 
-                // Build result matching MD3 loader shape
-                result = {
-                    root: glbResult.meshes[0],
-                    meshes: glbResult.meshes.filter(m => m.getTotalVertices() > 0),
-                };
+                // Bail if removed while loading
+                if (!this.weapons.has(visual.entityId)) {
+                    glbResult.meshes[0]?.dispose(false, false);
+                    return;
+                }
+
+                // Flatten GLB hierarchy: re-parent all renderable meshes
+                // directly under visual.root so physics can move them together.
+                // GLB produces __root__ → child meshes; we skip __root__.
+                const glbRoot = glbResult.meshes[0];
+
+                for (const m of glbResult.meshes) {
+                    if (m === glbRoot) continue; // skip __root__ container
+                    m.parent = visual.root;
+                    m.rotationQuaternion = null; // allow euler rotation
+                    m.scaling.scaleInPlace(defScale);
+                }
+
+                // Dispose the now-empty __root__ node
+                if (glbRoot) {
+                    glbRoot.parent = null;
+                    glbRoot.dispose(false, false);
+                }
+
+                // Create an invisible bounding-box proxy mesh for physics.
+                // Havok moves meshes in world space ignoring parents, so the
+                // proxy is NOT parented to visual.root.  Instead we sync
+                // visual.root.position ← proxy.position every frame while
+                // physics is active.  Visual meshes (children of visual.root)
+                // follow naturally via parenting.
+                const proxy = MeshBuilder.CreateBox(
+                    `dropped_${visual.entityId}_physics`,
+                    { width: 16 * defScale, height: 8 * defScale, depth: 32 * defScale },
+                    this.scene,
+                );
+                proxy.position = visual.root.position.clone();
+                proxy.isVisible = false;
+                proxy.isPickable = false;
+                primaryMesh = proxy;
             } else {
                 // === MD3/PK3 MODEL PATH ===
+                let result: any = null;
+
                 // Try AssetPreloader cache first
                 try {
                     const { AssetPreloader } = await import('../../../engine/loader/AssetPreloader');
@@ -214,36 +260,35 @@ export class DroppedWeaponRenderer {
                         hasCollision: false,
                     });
                 }
-            }
 
-            // Bail if removed while loading
-            if (!this.weapons.has(visual.entityId)) {
-                result?.root?.dispose(false, false);
-                return;
-            }
-
-            if (!result?.meshes?.length) {
-                console.warn(`[DroppedWeaponRenderer] No meshes loaded for ${visual.weaponId}`);
-                return;
-            }
-
-            // Parent meshes to root node
-            let primaryMesh: Mesh | null = null;
-            for (const m of result.meshes) {
-                m.parent = visual.root;
-                m.position.setAll(0);
-                m.rotationQuaternion = null;
-                m.rotation.setAll(0);
-                m.isVisible = true;
-                m.scaling.setAll(DROP_MODEL_SCALE);
-                if (!primaryMesh && m instanceof Mesh) {
-                    primaryMesh = m;
+                // Bail if removed while loading
+                if (!this.weapons.has(visual.entityId)) {
+                    result?.root?.dispose(false, false);
+                    return;
                 }
-            }
 
-            // Dispose loader root
-            if (result.root && result.root !== (result.meshes[0] as any)) {
-                result.root.dispose();
+                if (!result?.meshes?.length) {
+                    console.warn(`[DroppedWeaponRenderer] No meshes loaded for ${visual.weaponId}`);
+                    return;
+                }
+
+                // Parent meshes to root node (MD3 style)
+                for (const m of result.meshes) {
+                    m.parent = visual.root;
+                    m.position.setAll(0);
+                    m.rotationQuaternion = null;
+                    m.rotation.setAll(0);
+                    m.isVisible = true;
+                    m.scaling.setAll(DROP_MODEL_SCALE);
+                    if (!primaryMesh && m instanceof Mesh) {
+                        primaryMesh = m;
+                    }
+                }
+
+                // Dispose loader root
+                if (result.root && result.root !== (result.meshes[0] as any)) {
+                    result.root.dispose();
+                }
             }
 
             visual.mesh = primaryMesh;
@@ -253,7 +298,7 @@ export class DroppedWeaponRenderer {
                 this._createPhysicsBody(visual, primaryMesh, velocity);
             }
 
-            console.log(`[DroppedWeaponRenderer] Spawned ${visual.weaponId} at ${visual.root.position}`);
+            console.log(`[DroppedWeaponRenderer] Spawned ${visual.weaponId} (scale=${defScale}) at ${visual.root.position}`);
         } catch (e) {
             console.error(`[DroppedWeaponRenderer] Failed to load model for ${visual.weaponId}:`, e);
         }
@@ -315,6 +360,9 @@ export class DroppedWeaponRenderer {
 
     private _freezePhysics(visual: DroppedWeaponVisual): void {
         if (!visual.mesh || !visual.hasPhysics) return;
+
+        // Snap visual.root to final physics position
+        visual.root.position.copyFrom(visual.mesh.position);
 
         // Freeze the physics body (stop simulation, save final position)
         if (visual.mesh.physicsBody) {
