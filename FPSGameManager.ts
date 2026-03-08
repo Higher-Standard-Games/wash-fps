@@ -1480,10 +1480,7 @@ export class FPSGameManager {
           if (this.droppedWeaponRenderer) {
             const pos = new Vector3(event.x, event.y, event.z);
             const vel = new Vector3(event.velX || 0, event.velY || 0, event.velZ || 0);
-            // Strip 'item_' prefix — DroppedWeaponRenderer stores by raw ID string
-            // to match state.entities keys (which are raw EntityId numbers/strings)
-            const rawId = String(event.entityId).replace(/^item_/, '');
-            this.droppedWeaponRenderer.spawn(rawId, event.weaponId, pos, vel);
+            this.droppedWeaponRenderer.spawn(event.entityId, event.weaponId, pos, vel);
           }
         }
       }
@@ -1548,13 +1545,10 @@ export class FPSGameManager {
     if (this.droppedWeaponRenderer) {
       const itemPositions = new Map<string, { x: number; y: number; z: number }>();
       for (const [id, entity] of state.entities) {
-        // Use String(id) to normalize — DroppedWeaponRenderer also uses raw string IDs.
-        // Only include entities that DroppedWeaponRenderer knows about (fast set lookup).
-        const idStr = String(id);
-        if (this.droppedWeaponRenderer.has(idStr)) {
+        if (id.startsWith('item_')) {
           const t = entity.getComponent('transform') as any;
           if (t?.position) {
-            itemPositions.set(idStr, { x: t.position.x, y: t.position.y, z: t.position.z });
+            itemPositions.set(id, { x: t.position.x, y: t.position.y, z: t.position.z });
           }
         }
       }
