@@ -1480,7 +1480,10 @@ export class FPSGameManager {
           if (this.droppedWeaponRenderer) {
             const pos = new Vector3(event.x, event.y, event.z);
             const vel = new Vector3(event.velX || 0, event.velY || 0, event.velZ || 0);
-            this.droppedWeaponRenderer.spawn(event.entityId, event.weaponId, pos, vel);
+            // Strip 'item_' prefix — DroppedWeaponRenderer stores by raw ID string
+            // to match state.entities keys (which are raw EntityId numbers/strings)
+            const rawId = String(event.entityId).replace(/^item_/, '');
+            this.droppedWeaponRenderer.spawn(rawId, event.weaponId, pos, vel);
           }
         }
       }
@@ -1545,16 +1548,13 @@ export class FPSGameManager {
     if (this.droppedWeaponRenderer) {
       const itemPositions = new Map<string, { x: number; y: number; z: number }>();
       for (const [id, entity] of state.entities) {
-        // Entity IDs from server are raw numbers (e.g. 50001).
-        // DroppedWeaponRenderer uses 'item_' prefix (from weapon_drop event format).
-        // Check entity type instead of ID prefix, then add prefix for map key.
-        const entityType = entity.getComponent('entityType') as any;
-        const isItem = entityType?.type === 'item' || entityType?.value === 'item'
-          || (typeof id === 'number' && id >= 50000); // Fallback: dropped weapon IDs start at 50001
-        if (isItem) {
+        // Use String(id) to normalize — DroppedWeaponRenderer also uses raw string IDs.
+        // Only include entities that DroppedWeaponRenderer knows about (fast set lookup).
+        const idStr = String(id);
+        if (this.droppedWeaponRenderer.has(idStr)) {
           const t = entity.getComponent('transform') as any;
           if (t?.position) {
-            itemPositions.set(`item_${id}`, { x: t.position.x, y: t.position.y, z: t.position.z });
+            itemPositions.set(idStr, { x: t.position.x, y: t.position.y, z: t.position.z });
           }
         }
       }

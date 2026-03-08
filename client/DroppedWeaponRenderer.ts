@@ -97,6 +97,13 @@ export class DroppedWeaponRenderer {
     }
 
     /**
+     * Check if a dropped weapon entity is tracked.
+     */
+    has(entityId: string): boolean {
+        return this.weapons.has(entityId);
+    }
+
+    /**
      * Get count of active dropped weapons (for debug).
      */
     get count(): number {
