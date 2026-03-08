@@ -282,6 +282,13 @@ export class PickupSystem extends Subsystem {
                     const meta = this.droppedWeaponSystem.getDroppedWeaponMeta(itemEntity.id);
                     if (!meta) continue;
 
+                    // Grace period: don't allow pickup within 1 second of spawn.
+                    // Without this, DroppedWeaponSystem (priority 12) creates the entity
+                    // and PickupSystem (priority 15) removes it in the SAME tick —
+                    // the entity never appears in any network snapshot, and the client
+                    // Pickup's async model load completes after dispose(), leaking meshes.
+                    if (tickNum - meta.spawnTick < 125) continue; // 125 ticks = 1 second at 125Hz
+
                     // Check inventory capacity for pickup gating
                     const playerWeapons = this.weaponSystem.getWeapons(player.id);
                     const nonDefaultCount = playerWeapons.filter(w => !isDefaultWeapon(w)).length;
