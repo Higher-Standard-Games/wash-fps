@@ -293,12 +293,21 @@ export class PickupSystem extends Subsystem {
                     if (!hasRoom && !alreadyHasWeapon && !useJustPressed) continue;
 
                     // Add weapon to player's inventory
+                    const alreadyHadWeapon = this.weaponSystem.getWeapons(player.id).includes(meta.weaponId);
                     const result = this.weaponSystem.addWeapon(player.id, meta.weaponId);
 
-                    // Transfer dropped weapon's remaining ammo (ADD to existing, don't overwrite)
-                    if (meta.ammo > 0) {
-                        const currentAmmo = this.weaponSystem.getAmmo(player.id, meta.weaponId);
-                        this.weaponSystem.setAmmo(player.id, meta.weaponId, currentAmmo + meta.ammo);
+                    // Set correct ammo from dropped weapon:
+                    // - New weapon: override addWeapon's default ammo with exact meta.ammo
+                    // - Already owned: add meta.ammo to existing (ammo pickup behavior)
+                    if (alreadyHadWeapon) {
+                        // Player already has this weapon — add dropped ammo to existing
+                        if (meta.ammo > 0) {
+                            const currentAmmo = this.weaponSystem.getAmmo(player.id, meta.weaponId);
+                            this.weaponSystem.setAmmo(player.id, meta.weaponId, currentAmmo + meta.ammo);
+                        }
+                    } else {
+                        // New weapon — set to exactly the dropped weapon's ammo (not default)
+                        this.weaponSystem.setAmmo(player.id, meta.weaponId, meta.ammo);
                     }
 
                     // Always remove from world — even if weapon wasn't added (ammo was given)
