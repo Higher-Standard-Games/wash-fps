@@ -1545,10 +1545,16 @@ export class FPSGameManager {
     if (this.droppedWeaponRenderer) {
       const itemPositions = new Map<string, { x: number; y: number; z: number }>();
       for (const [id, entity] of state.entities) {
-        if (id.startsWith('item_')) {
+        // Entity IDs from server are raw numbers (e.g. 50001).
+        // DroppedWeaponRenderer uses 'item_' prefix (from weapon_drop event format).
+        // Check entity type instead of ID prefix, then add prefix for map key.
+        const entityType = entity.getComponent('entityType') as any;
+        const isItem = entityType?.type === 'item' || entityType?.value === 'item'
+          || (typeof id === 'number' && id >= 50000); // Fallback: dropped weapon IDs start at 50001
+        if (isItem) {
           const t = entity.getComponent('transform') as any;
           if (t?.position) {
-            itemPositions.set(id, { x: t.position.x, y: t.position.y, z: t.position.z });
+            itemPositions.set(`item_${id}`, { x: t.position.x, y: t.position.y, z: t.position.z });
           }
         }
       }
