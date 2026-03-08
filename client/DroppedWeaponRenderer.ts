@@ -218,6 +218,10 @@ export class DroppedWeaponRenderer {
                         m.parent = visual.root;
                         m.rotationQuaternion = null; // allow euler rotation
                         m.scaling.scaleInPlace(defScale);
+                        // Cap lights to prevent shader uniform block overflow
+                        if (m.material && 'maxSimultaneousLights' in m.material) {
+                            (m.material as any).maxSimultaneousLights = 4;
+                        }
                     }
                 }
 
