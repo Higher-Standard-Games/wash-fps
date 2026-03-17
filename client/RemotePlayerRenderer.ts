@@ -63,6 +63,12 @@ const CROUCH_HEIGHT = PLAYER_MAXS_Z - CROUCH_MINS_Z;
 // ─── Model scale (Mixamo → Q3/BSP units) ────────────────────────
 const MODEL_SCALE = 36;
 
+// ─── Model Y offset (compensates for mesh extending below Y=0) ──
+// The Mixamo vanguard mesh origin isn't exactly at feet level.
+// This raises the model anchor so the visual feet align with the
+// hitbox bottom (floor level). Tunable per model.
+const MODEL_Y_OFFSET = 12;
+
 // ─── Animation derivation constants ─────────────────────────────
 const IDLE_SPEED_THRESHOLD = 50;
 const RUN_SPEED_THRESHOLD = 300;
@@ -440,7 +446,8 @@ export class RemotePlayerRenderer {
         if (!inst || !this.modelManager) return;
 
         // Position the model anchor at player feet (Q3 origin - 24 = feet level)
-        const feetY = interp.y + PLAYER_MINS_Z;
+        // MODEL_Y_OFFSET raises the model so visual feet align with hitbox bottom
+        const feetY = interp.y + PLAYER_MINS_Z + MODEL_Y_OFFSET;
         inst.anchor.position.set(interp.x, feetY, interp.z);
 
         // Rotation
