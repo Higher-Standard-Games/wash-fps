@@ -6,6 +6,7 @@
  */
 
 import { Subsystem, type SubsystemConfig } from '@engine/server/core/Subsystem';
+import { DEFAULT_VIEWHEIGHT } from '../../../../engine/physics/PlayerPhysicsConstants';
 import type { WorldState } from '@engine/server/core/WorldState';
 import type { TickNumber, EntityId } from '@engine/server/ecs/types';
 import { EntityType, entityId } from '@engine/server/ecs/types';
@@ -778,7 +779,7 @@ export class WeaponSystem extends Subsystem {
         const offset = 50;
         const position = {
             x: shooter.transform.position.x + Math.sin(yaw) * Math.cos(pitch) * offset,
-            y: shooter.transform.position.y + 31 + Math.sin(pitch) * offset,
+            y: shooter.transform.position.y + DEFAULT_VIEWHEIGHT + Math.sin(pitch) * offset,
             z: shooter.transform.position.z + Math.cos(yaw) * Math.cos(pitch) * offset,
         };
 
@@ -815,7 +816,11 @@ export class WeaponSystem extends Subsystem {
         const yaw = shooter.input.yaw;
         const pitch = -shooter.input.pitch;
 
-        const start = shooter.transform.position;
+        const start = {
+            x: shooter.transform.position.x,
+            y: shooter.transform.position.y + DEFAULT_VIEWHEIGHT,
+            z: shooter.transform.position.z,
+        };
         const maxRange = weapon.range || 5000;
 
         // Pellet weapons (riotgun): fire N rays with seeded spread
@@ -951,7 +956,7 @@ export class WeaponSystem extends Subsystem {
         const offset = 50;
         const position = {
             x: shooter.transform.position.x + Math.sin(yaw) * Math.cos(pitch) * offset,
-            y: shooter.transform.position.y + 31 + Math.sin(pitch) * offset, // Between eye (34) and muzzle (28)
+            y: shooter.transform.position.y + DEFAULT_VIEWHEIGHT + Math.sin(pitch) * offset,
             z: shooter.transform.position.z + Math.cos(yaw) * Math.cos(pitch) * offset,
         };
 
