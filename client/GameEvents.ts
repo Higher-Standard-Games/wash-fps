@@ -30,7 +30,7 @@ import { Vector3, Color3 } from '@babylonjs/core';
 import { PointLight } from '@babylonjs/core/Lights/pointLight';
 import { WEAPONS } from '../server/weapons/WeaponDef';
 import type { RemotePlayerRenderer } from '../client/RemotePlayerRenderer';
-import type { DroppedWeaponRenderer } from '../client/DroppedWeaponRenderer';
+import type { DroppedWeaponRenderer, DroppedWeaponInfo } from '../client/DroppedWeaponRenderer';
 import type { IGameHost } from '../../../engine/network/core/IGameHost';
 import type { PlayerStateUpdate } from '../Game';
 
@@ -179,7 +179,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
                 getExplosionEffect().spawn(pos, config, normal);
             } else if (event.type === 'item_pickup') {
                 import('../../../engine/game/Pickup').then(({ Pickup }) => {
-                    Pickup.deactivateByPosition(event.weaponId, event.x, event.y, event.z);
+                    Pickup.deactivateById(event.pickupId, event.weaponId, event.x, event.y, event.z);
                 });
             } else if (event.type === 'projectile_spawn') {
                 ctx.serverProjectileDefIds.set(event.entityId, event.defId);
@@ -274,18 +274,23 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
         ctx.remoteRenderer.pushSnapshot(state, localEntityId || '', serverLocalTime);
     }
 
-    // === Dropped weapon entity sync ===
+    // === Dropped weapon entity sync (entity-driven: spawn/position/dispose from snapshot data) ===
     if (ctx.droppedWeaponRenderer) {
-        const itemPositions = new Map<string, { x: number; y: number; z: number }>();
+        const itemEntities = new Map<string, DroppedWeaponInfo>();
         for (const [id, entity] of state.entities) {
             if (id.startsWith('item_')) {
                 const t = entity.getComponent('transform') as any;
+                const wm = entity.getComponent('weaponMeta') as any;
                 if (t?.position) {
-                    itemPositions.set(id, { x: t.position.x, y: t.position.y, z: t.position.z });
+                    itemEntities.set(id, {
+                        x: t.position.x, y: t.position.y, z: t.position.z,
+                        weaponId: wm?.weaponId,
+                        settled: wm?.settled ?? false,
+                    });
                 }
             }
         }
-        ctx.droppedWeaponRenderer.syncServerEntities(itemPositions);
+        ctx.droppedWeaponRenderer.syncServerEntities(itemEntities);
     }
 
     // === Server-driven projectile entity processing (Q3-style) ===
@@ -414,27 +419,18 @@ function handleDeathEvent(ctx: GameEventContext, event: any, localEntityId: stri
     }
 }
 
-function handleWeaponDrop(ctx: GameEventContext, event: any): void {
-    const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
-    if (!ctx.droppedWeaponRenderer && gameScene) {
-        // Lazy-init needs to be done by Game since it owns the renderer ref.
-        // For now, just import and create inline (context has the ref).
-        import('../client/DroppedWeaponRenderer').then(({ DroppedWeaponRenderer }) => {
-            if (!ctx.droppedWeaponRenderer && gameScene) {
-                ctx.droppedWeaponRenderer = new DroppedWeaponRenderer(gameScene);
-            }
-            if (ctx.droppedWeaponRenderer) {
-                const pos = new Vector3(event.x, event.y, event.z);
-                const vel = new Vector3(event.velX || 0, event.velY || 0, event.velZ || 0);
-                ctx.droppedWeaponRenderer.spawn(event.entityId, event.weaponId, pos, vel);
-            }
-        });
-        return;
-    }
-    if (ctx.droppedWeaponRenderer) {
-        const pos = new Vector3(event.x, event.y, event.z);
-        const vel = new Vector3(event.velX || 0, event.velY || 0, event.velZ || 0);
-        ctx.droppedWeaponRenderer.spawn(event.entityId, event.weaponId, pos, vel);
+function handleWeaponDrop(ctx: GameEventContext, _event: any): void {
+    // Entity-driven system: weapon_drop event only used for lazy-init of renderer.
+    // Actual model spawning/positioning is driven by syncServerEntities() from snapshot data.
+    if (!ctx.droppedWeaponRenderer) {
+        const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
+        if (gameScene) {
+            import('../client/DroppedWeaponRenderer').then(({ DroppedWeaponRenderer }) => {
+                if (!ctx.droppedWeaponRenderer && gameScene) {
+                    ctx.droppedWeaponRenderer = new DroppedWeaponRenderer(gameScene);
+                }
+            });
+        }
     }
 }
 

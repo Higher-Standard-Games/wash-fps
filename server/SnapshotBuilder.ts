@@ -148,7 +148,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
             continue;
         }
 
-        // Dropped weapon entities (position only, no velocity)
+        // Dropped weapon entities (position + weaponMeta for model spawning)
         if (entity.type === EntityType.Item) {
             const itemEntity = new Entity(`item_${entity.id}`);
             if (entity.transform) {
@@ -163,6 +163,17 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
                     x: f32(entity.transform.position.x),
                     y: f32(entity.transform.position.y),
                     z: f32(entity.transform.position.z),
+                    serialize: _noopSerialize,
+                    deserialize: _noopDeserialize,
+                    clone: _shallowClone,
+                });
+            }
+            // Carry weaponId so client can spawn correct model from snapshot data
+            const meta = ctx.droppedWeaponSystem.getDroppedWeaponMeta(entity.id);
+            if (meta) {
+                itemEntity.addComponent('weaponMeta', {
+                    weaponId: meta.weaponId,
+                    settled: meta.settled,
                     serialize: _noopSerialize,
                     deserialize: _noopDeserialize,
                     clone: _shallowClone,

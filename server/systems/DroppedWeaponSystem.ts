@@ -162,7 +162,7 @@ export class DroppedWeaponSystem extends Subsystem {
         for (const drop of this.pendingDrops) {
             const vel = drop.velocity || { x: 0, y: 150, z: 0 };
             const id = entityId(this.nextDropId++);
-            const entity = createDroppedWeaponEntity(id, drop.position, vel);
+            const entity = createDroppedWeaponEntity(id, drop.position, vel, drop.weaponId);
             state.addEntity(entity);
 
             // Find real floor Y using BSP collision trace (if available)
