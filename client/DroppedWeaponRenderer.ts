@@ -19,6 +19,7 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { PhysicsShapeType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin';
 import { EntityRegistry } from '../../../shared/entities/EntityRegistry';
+import { showPickupPrompt, hidePickupPrompt } from '../../../engine/game/PickupPrompt';
 
 /** Data passed from GameEvents per item_ entity in snapshot */
 export interface DroppedWeaponInfo {
@@ -252,6 +253,9 @@ export class DroppedWeaponRenderer {
     /** Stashed initial velocities from weapon_drop events (entityId → velocity) */
     private pendingVelocities: Map<string, Vector3> = new Map();
 
+    /** Currently tracked nearby dropped weapon for F prompt */
+    private static nearbyDroppedWeapon: DroppedWeaponVisual | null = null;
+
     constructor(scene: Scene) {
         this.scene = scene;
     }
@@ -286,6 +290,11 @@ export class DroppedWeaponRenderer {
         for (const entityId of toRemove) {
             const visual = this.weapons.get(entityId);
             if (visual) {
+                // Clear prompt if this weapon was the nearby one
+                if (DroppedWeaponRenderer.nearbyDroppedWeapon === visual) {
+                    DroppedWeaponRenderer.nearbyDroppedWeapon = null;
+                    hidePickupPrompt('dropped');
+                }
                 visual.dispose();
                 this.weapons.delete(entityId);
             }
@@ -313,6 +322,120 @@ export class DroppedWeaponRenderer {
                 this.weapons.set(entityId, visual);
             }
         }
+
+        // 3. Check pickup proximity for swap prompt
+        this.checkPickupProximity();
+    }
+
+    /**
+     * Check player proximity to dropped weapons and show/hide swap prompt.
+     * Same cylindrical distance check as Pickup.checkPickup().
+     */
+    private checkPickupProximity(): void {
+        // Lazy-import to avoid circular dependencies
+        const cameraSystem = (globalThis as any).__cameraSystem;
+        if (!cameraSystem) {
+            // Try dynamic import cache
+            this._checkPickupProximityAsync();
+            return;
+        }
+    }
+
+    private _cachedCameraModule: any = null;
+    private _cachedInventoryModule: any = null;
+
+    private async _checkPickupProximityAsync(): Promise<void> {
+        if (!this._cachedCameraModule) {
+            try {
+                this._cachedCameraModule = await import('../../../engine/camera/CameraSystem');
+                this._cachedInventoryModule = await import('../../../engine/game/InventoryManager');
+            } catch { return; }
+        }
+
+        const { CameraSystem } = this._cachedCameraModule;
+        const { InventoryManager } = this._cachedInventoryModule;
+
+        const camera = CameraSystem.getInstance().getCamera();
+        if (!camera) return;
+
+        const activeController = CameraSystem.getInstance().getActiveController();
+        if (activeController?.type === 'freefly' || !document.pointerLockElement) {
+            if (DroppedWeaponRenderer.nearbyDroppedWeapon) {
+                DroppedWeaponRenderer.nearbyDroppedWeapon = null;
+                hidePickupPrompt('dropped');
+            }
+            return;
+        }
+
+        // Get player position
+        let playerPos = camera.position;
+        if (activeController && 'getPlayerPosition' in activeController &&
+            typeof (activeController as any).getPlayerPosition === 'function') {
+            playerPos = (activeController as any).getPlayerPosition();
+        }
+
+        // Get inventory
+        const inventory = activeController && (activeController as any).inventory as InstanceType<typeof InventoryManager> | null;
+
+        // Find nearest dropped weapon in range
+        let nearest: DroppedWeaponVisual | null = null;
+        let nearestDistSq = Infinity;
+
+        const pickupRadius = 96;
+        const pickupRadiusSq = pickupRadius * pickupRadius;
+        const verticalRangeMin = -24;
+        const verticalRangeMax = 88;
+
+        for (const visual of this.weapons.values()) {
+            if (!visual.mesh) continue;
+            const meshPos = visual.mesh.getAbsolutePosition();
+
+            const dx = playerPos.x - meshPos.x;
+            const dz = playerPos.z - meshPos.z;
+            const dy = playerPos.y - meshPos.y;
+            const horizDistSq = dx * dx + dz * dz;
+
+            if (horizDistSq < pickupRadiusSq && dy > verticalRangeMin && dy < verticalRangeMax) {
+                if (horizDistSq < nearestDistSq) {
+                    nearestDistSq = horizDistSq;
+                    nearest = visual;
+                }
+            }
+        }
+
+        if (nearest) {
+            // Check if player needs to swap (at capacity + doesn't have weapon + not gunblade)
+            const alreadyHas = inventory ? inventory.hasWeapon(nearest.weaponId) : false;
+            const hasRoom = inventory ? inventory.getSlotCount() < InventoryManager.MAX_WEAPONS : false;
+
+            if (alreadyHas || hasRoom) {
+                // Auto-pickup by server, no prompt needed
+                if (DroppedWeaponRenderer.nearbyDroppedWeapon) {
+                    DroppedWeaponRenderer.nearbyDroppedWeapon = null;
+                    hidePickupPrompt('dropped');
+                }
+            } else {
+                const currentWeapon = inventory ? inventory.getCurrentWeaponId() : null;
+                if (currentWeapon === 'gunblade') {
+                    if (DroppedWeaponRenderer.nearbyDroppedWeapon) {
+                        DroppedWeaponRenderer.nearbyDroppedWeapon = null;
+                        hidePickupPrompt('dropped');
+                    }
+                } else {
+                    // Show swap prompt
+                    if (DroppedWeaponRenderer.nearbyDroppedWeapon !== nearest) {
+                        DroppedWeaponRenderer.nearbyDroppedWeapon = nearest;
+                        const weaponName = nearest.weaponId.replace(/_/g, ' ').toUpperCase();
+                        showPickupPrompt('dropped', `PRESS [F] TO SWAP TO ${weaponName}`);
+                    }
+                }
+            }
+        } else {
+            if (DroppedWeaponRenderer.nearbyDroppedWeapon) {
+                DroppedWeaponRenderer.nearbyDroppedWeapon = null;
+                hidePickupPrompt('dropped');
+            }
+        }
     }
 
     /** Get count of active dropped weapons (for debug). */
@@ -322,6 +445,8 @@ export class DroppedWeaponRenderer {
 
     /** Dispose all weapons. */
     dispose(): void {
+        DroppedWeaponRenderer.nearbyDroppedWeapon = null;
+        hidePickupPrompt('dropped');
         for (const visual of this.weapons.values()) {
             visual.dispose();
         }
