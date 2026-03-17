@@ -123,6 +123,8 @@ class DroppedWeaponVisual {
                     // CRITICAL: Havok needs root-level mesh (no parent).
                     // This is identical to how Pickup.loadModel works.
                     leaderMesh.parent = null;
+                    // Unique name so PhysicsSystem body map doesn't collide
+                    leaderMesh.name = `droppedWeapon_${this.entityId}`;
                     leaderMesh.position.copyFrom(position);
                     leaderMesh.rotationQuaternion = null;
                     leaderMesh.rotation.setAll(0);
@@ -247,11 +249,25 @@ class DroppedWeaponVisual {
             this.glowLight = null;
         }
         if (this.mesh) {
-            // Remove Havok body if present
+            const meshName = this.mesh.name;
+            // Remove Havok body first
             if (this.mesh.physicsBody) {
                 this.mesh.physicsBody.dispose();
             }
-            this.mesh.dispose(false, true);
+            // Clean up PhysicsSystem body map reference
+            import('../../../engine/physics/PhysicsSystem').then(({ PhysicsSystem }) => {
+                PhysicsSystem.getInstance().removeBody(meshName);
+            }).catch(() => { });
+            // Dispose child meshes (other weapon parts parented to leader)
+            const children = this.mesh.getChildMeshes();
+            for (const child of children) {
+                child.parent = null;
+                // CRITICAL: dispose(false, false) — do NOT dispose shared materials!
+                // Materials are shared with AssetPreloader cache and other clones.
+                child.dispose(false, false);
+            }
+            // Dispose leader mesh — also don't dispose materials
+            this.mesh.dispose(false, false);
             this.mesh = null;
         }
     }
