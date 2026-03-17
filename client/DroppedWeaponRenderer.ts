@@ -17,8 +17,6 @@
 import { Scene } from '@babylonjs/core/scene';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
-import { PointLight } from '@babylonjs/core/Lights/pointLight';
-import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { PhysicsShapeType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin';
 import { EntityRegistry } from '../../../shared/entities/EntityRegistry';
 
@@ -36,7 +34,6 @@ class DroppedWeaponVisual {
     readonly entityId: string;
     readonly weaponId: string;
     mesh: Mesh | null = null;
-    glowLight: PointLight | null = null;
     private scene: Scene;
     private disposed: boolean = false;
     private settled: boolean = false;
@@ -67,7 +64,6 @@ class DroppedWeaponVisual {
             const def = registry.get(this.weaponId) as any;
             const modelPath = def?.modelPath || `models/weapons/${this.weaponId}/${this.weaponId}.md3`;
             const defScale = def?.scale ?? 1.5;
-            const glowColor = def?.glowColor as { r: number; g: number; b: number } | undefined;
 
             // Try AssetPreloader cache first for instant spawn
             let result: any = null;
@@ -174,20 +170,6 @@ class DroppedWeaponVisual {
                     result.root.parent = null;
                     result.root.setEnabled(false);
                 }
-
-                // Create glow light
-                if (glowColor && leaderMesh) {
-                    const light = new PointLight(
-                        `droppedGlow_${this.entityId}`,
-                        leaderMesh.position.clone(),
-                        this.scene,
-                    );
-                    light.diffuse = new Color3(glowColor.r, glowColor.g, glowColor.b);
-                    light.specular = new Color3(glowColor.r * 0.5, glowColor.g * 0.5, glowColor.b * 0.5);
-                    light.intensity = 2.0;
-                    light.range = 30;
-                    this.glowLight = light;
-                }
             }
         } catch (e) {
             console.error(`[DroppedWeaponVisual] Failed to load model for ${this.weaponId}:`, e);
@@ -218,7 +200,7 @@ class DroppedWeaponVisual {
         this.serverPosition.set(x, y, z);
     }
 
-    /** Update each frame: lerp to server position after settle + glow follow */
+    /** Update each frame: lerp to server position after settle */
     update(): void {
         if (!this.mesh) return;
 
@@ -230,12 +212,6 @@ class DroppedWeaponVisual {
             this.mesh.position.y += (this.serverPosition.y - this.mesh.position.y) * lerpFactor;
             this.mesh.position.z += (this.serverPosition.z - this.mesh.position.z) * lerpFactor;
         }
-
-        // Update glow light to follow mesh
-        if (this.glowLight) {
-            this.glowLight.position.copyFrom(this.mesh.position);
-            this.glowLight.position.y += 5;
-        }
     }
 
     dispose(): void {
@@ -243,10 +219,6 @@ class DroppedWeaponVisual {
         if (this.settleCheckTimer) {
             clearInterval(this.settleCheckTimer);
             this.settleCheckTimer = null;
-        }
-        if (this.glowLight) {
-            this.glowLight.dispose();
-            this.glowLight = null;
         }
         if (this.mesh) {
             const meshName = this.mesh.name;
