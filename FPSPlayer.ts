@@ -18,7 +18,7 @@ export class FPSPlayer {
     private controller: FPSController;
     // private scene: Scene;
 
-    // Static instance for access from FPSGameManager
+    // Static instance for access from Game
     private static _instance: FPSPlayer | null = null;
     static getInstance(): FPSPlayer | null { return FPSPlayer._instance; }
     public getController(): FPSController { return this.controller; }

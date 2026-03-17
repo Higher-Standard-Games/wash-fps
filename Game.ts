@@ -1,5 +1,5 @@
 /**
- * FPSGameManager - Manages network simulation for FPS game
+ * Game - Manages network simulation for FPS game
  *
  * Bridges FPSPlayer/FPSController with the authoritative simulation.
  * In single-player, runs LocalGameHost with FPSSimulation.
@@ -88,8 +88,8 @@ export interface PlayerStateUpdate {
   ledgeGrabPhase: number;
 }
 
-export class FPSGameManager {
-  private static instance: FPSGameManager | null = null;
+export class Game {
+  private static instance: Game | null = null;
 
   private gameHost: IGameHost | null = null;
   private simulation: FPSSimulation | null = null;
@@ -167,11 +167,11 @@ export class FPSGameManager {
     });
   }
 
-  static getInstance(): FPSGameManager {
-    if (!FPSGameManager.instance) {
-      FPSGameManager.instance = new FPSGameManager();
+  static getInstance(): Game {
+    if (!Game.instance) {
+      Game.instance = new Game();
     }
-    return FPSGameManager.instance;
+    return Game.instance;
   }
 
   /**
@@ -181,7 +181,7 @@ export class FPSGameManager {
    */
   private onTabReturn(): void {
     if (!this.isRunning) return;
-    console.log('[FPSGameManager] Tab returned — resetting visual state');
+    console.log('[Game] Tab returned — resetting visual state');
 
     // 1. Clamp dt for next 3 frames (prevents catch-up stutter)
     this._tabReturnFrameSkips = 3;
@@ -218,23 +218,23 @@ export class FPSGameManager {
         const canvas = scene.getEngine().getRenderingCanvas();
         if (canvas) {
           canvas.addEventListener('webglcontextlost', (e) => {
-            console.error('[FPSGameManager] ⚠️ WebGL context LOST — GPU resources destroyed');
+            console.error('[Game] ⚠️ WebGL context LOST — GPU resources destroyed');
             e.preventDefault(); // Allow browser to attempt restore
           });
           canvas.addEventListener('webglcontextrestored', () => {
-            console.log('[FPSGameManager] WebGL context RESTORED — revalidating materials');
+            console.log('[Game] WebGL context RESTORED — revalidating materials');
             this.revalidateAfterTabReturn();
           });
           this._contextLossHandlersInstalled = true;
-          console.log('[FPSGameManager] WebGL context loss/restore handlers installed');
+          console.log('[Game] WebGL context loss/restore handlers installed');
         }
       }
 
       const { revalidateMaterials } = await import('../../engine/weapon/EffectPreloader');
       await revalidateMaterials(scene);
-      console.log('[FPSGameManager] Material revalidation complete');
+      console.log('[Game] Material revalidation complete');
     } catch (err) {
-      console.warn('[FPSGameManager] Material revalidation failed:', err);
+      console.warn('[Game] Material revalidation failed:', err);
     }
   }
 
@@ -244,7 +244,7 @@ export class FPSGameManager {
   async initializeLocal(config: FPSGameConfig = {}): Promise<void> {
     // Guard against multiple initializations
     if (this.isRunning) {
-      console.warn('[FPSGameManager] Already initialized, skipping');
+      console.warn('[Game] Already initialized, skipping');
       return;
     }
 
@@ -327,7 +327,7 @@ export class FPSGameManager {
         }
         mapLoadStarted = true;
 
-        console.log(`[FPSGameManager] Server map: ${serverInfo.map}`);
+        console.log(`[Game] Server map: ${serverInfo.map}`);
 
         // Load the server's map via console command
         try {
@@ -338,7 +338,7 @@ export class FPSGameManager {
 
           // Check if map load failed
           if (typeof result === 'string' && result.includes('Failed')) {
-            console.error(`[FPSGameManager] Map load failed, disconnecting...`);
+            console.error(`[Game] Map load failed, disconnecting...`);
             this.shutdown();
             return;
           }
@@ -355,10 +355,10 @@ export class FPSGameManager {
                 this.setCollisionWorld(collisionWorld);
 
               } else {
-                console.warn(`[FPSGameManager] BSP collision world could not be created - backend not available`);
+                console.warn(`[Game] BSP collision world could not be created - backend not available`);
               }
             } else {
-              console.warn(`[FPSGameManager] CollisionManager NOT initialized - client prediction will NOT have BSP collision!`);
+              console.warn(`[Game] CollisionManager NOT initialized - client prediction will NOT have BSP collision!`);
             }
 
             const { CameraSystem } = await import('../../engine/camera/CameraSystem');
@@ -380,16 +380,16 @@ export class FPSGameManager {
 
             // Auto-join if requested (lobby flow — skip spectator overlay)
             if (config.autoJoin) {
-              console.log('[FPSGameManager] Auto-joining game (lobby flow)');
+              console.log('[Game] Auto-joining game (lobby flow)');
               // Small delay to ensure everything is settled
               setTimeout(() => this.joinGame(), 200);
             }
           } catch (e) {
-            console.warn(`[FPSGameManager] Could not set up FPS controller after map load:`, e);
+            console.warn(`[Game] Could not set up FPS controller after map load:`, e);
           }
         } catch (error) {
-          console.error(`[FPSGameManager] Failed to load map ${serverInfo.map}:`, error);
-          console.log(`[FPSGameManager] Disconnecting due to map load error...`);
+          console.error(`[Game] Failed to load map ${serverInfo.map}:`, error);
+          console.log(`[Game] Disconnecting due to map load error...`);
           this.shutdown();
         }
       });
@@ -418,7 +418,7 @@ export class FPSGameManager {
 
       // Load player profile and connect with display name
       const profile = PlayerProfile.load();
-      console.log(`[FPSGameManager] Connecting as "${profile.name}" (id: ${profile.id.substring(0, 8)}...)`);
+      console.log(`[Game] Connecting as "${profile.name}" (id: ${profile.id.substring(0, 8)}...)`);
 
       // Connect to server (this triggers onServerInfo callback which loads map and sets collision)
       await networkHost.connect(url, profile.name);
@@ -487,7 +487,7 @@ export class FPSGameManager {
       document.addEventListener('keyup', this._scoreboardKeyUpHandler);
 
     } catch (error) {
-      console.error(`[FPSGameManager] Failed to connect to ${url}:`, error);
+      console.error(`[Game] Failed to connect to ${url}:`, error);
       throw error;
     }
   }
@@ -544,14 +544,14 @@ export class FPSGameManager {
    */
   async joinGame(): Promise<void> {
     if (this.playerState === 'playing') {
-      console.log('[FPSGameManager] joinGame() — already playing, skipping');
+      console.log('[Game] joinGame() — already playing, skipping');
       return;
     }
     if (!this.gameHost || !this.isNetworkMode) {
-      console.log('[FPSGameManager] joinGame() — no gameHost or not network mode');
+      console.log('[Game] joinGame() — no gameHost or not network mode');
       return;
     }
-    console.log('[FPSGameManager] joinGame() — transitioning from spectator to playing');
+    console.log('[Game] joinGame() — transitioning from spectator to playing');
 
     const networkHost = this.gameHost as import('../../engine/network/client/hosts/NetworkGameHost').NetworkGameHost;
 
@@ -575,7 +575,7 @@ export class FPSGameManager {
         (controller as any).enableNetworkMode();
       }
     } catch (e) {
-      console.warn('[FPSGameManager] Could not switch to FPS camera:', e);
+      console.warn('[Game] Could not switch to FPS camera:', e);
     }
 
     // Update state
@@ -597,12 +597,12 @@ export class FPSGameManager {
         initializeEntityDefs();
         const wvm = getWeaponViewManager();
         wvm.init(scene, camera);
-        console.log('[FPSGameManager] joinGame() — WVM initialized');
+        console.log('[Game] joinGame() — WVM initialized');
         // Don't load a default weapon here — let processWeaponState handle
         // the initial weapon load to avoid racing with the server's weapon.
         // Load the server's current weapon, or blade as the default spawn weapon
         wvm.loadWeapon(this._lastServerWeapon || 'blade').then((success) => {
-          console.log(`[FPSGameManager] joinGame() — initial weapon loadWeapon result: ${success}`);
+          console.log(`[Game] joinGame() — initial weapon loadWeapon result: ${success}`);
         });
 
         // Preload projectile models (independent of weapon load)
@@ -613,10 +613,10 @@ export class FPSGameManager {
           projMgr.preloadModel('rocket'),
           projMgr.preloadModel('gunblade_blast'),
           projMgr.preloadModel('blade_blast'),
-        ]).catch(err => console.warn('[FPSGameManager] Projectile preload error:', err));
+        ]).catch(err => console.warn('[Game] Projectile preload error:', err));
       }
     } catch (e) {
-      console.warn('[FPSGameManager] Failed to init weapon view:', e);
+      console.warn('[Game] Failed to init weapon view:', e);
     }
 
     // Request pointer lock for FPS controls
@@ -625,7 +625,7 @@ export class FPSGameManager {
       canvas.requestPointerLock();
     }
 
-    console.log('[FPSGameManager] Joined game');
+    console.log('[Game] Joined game');
   }
 
   /**
@@ -662,7 +662,7 @@ export class FPSGameManager {
     // Release pointer lock
     document.exitPointerLock();
 
-    console.log('[FPSGameManager] Now spectating');
+    console.log('[Game] Now spectating');
   }
 
   /**
@@ -679,9 +679,9 @@ export class FPSGameManager {
       }
       cameraSystem.setController('freefly');
 
-      console.log('[FPSGameManager] Switched to freefly camera');
+      console.log('[Game] Switched to freefly camera');
     } catch (e) {
-      console.warn('[FPSGameManager] Could not switch to freefly camera:', e);
+      console.warn('[Game] Could not switch to freefly camera:', e);
     }
   }
 
@@ -691,7 +691,7 @@ export class FPSGameManager {
    */
   spawnLocalPlayer(spawnPosition?: { x: number; y: number; z: number }): void {
     if (!this.simulation) {
-      console.error('[FPSGameManager] Cannot spawn - not initialized');
+      console.error('[Game] Cannot spawn - not initialized');
       return;
     }
 
@@ -1070,7 +1070,7 @@ export class FPSGameManager {
     const player = state.players.get(this.localPlayerId);
     if (!player) {
       if (Math.random() < 0.01) {
-        console.log(`[FPSGameManager] getLocalPlayerPosition: no player for ${this.localPlayerId}`);
+        console.log(`[Game] getLocalPlayerPosition: no player for ${this.localPlayerId}`);
       }
       return null;
     }
@@ -1149,7 +1149,7 @@ export class FPSGameManager {
    */
   sendReady(): void {
     if (!this.isNetworkMode || !this.gameHost) {
-      console.log('[FPSGameManager] Cannot send ready — not connected');
+      console.log('[Game] Cannot send ready — not connected');
       return;
     }
 
@@ -1159,7 +1159,7 @@ export class FPSGameManager {
     if (networkHost.transport && typeof networkHost.transport.send === 'function') {
       networkHost.transport.send(data, true); // Reliable
       MatchStateManager.getInstance().setReady(true);
-      console.log('[FPSGameManager] Sent ready signal to server');
+      console.log('[Game] Sent ready signal to server');
     }
   }
 
@@ -1173,7 +1173,7 @@ export class FPSGameManager {
     const networkHost = this.gameHost as any;
     if (networkHost.transport && typeof networkHost.transport.send === 'function') {
       networkHost.transport.send(data, true); // Reliable
-      console.log('[FPSGameManager] Sent RequestSpawn to server');
+      console.log('[Game] Sent RequestSpawn to server');
     }
   }
 
@@ -1216,7 +1216,7 @@ export class FPSGameManager {
     MatchStateManager.destroy();
     HUDState.destroy();
 
-    console.log('[FPSGameManager] Shutdown complete');
+    console.log('[Game] Shutdown complete');
   }  // ========================================================================
   // Event Context
   // ========================================================================
@@ -1227,15 +1227,15 @@ export class FPSGameManager {
   private getEventContext(): GameEventContext {
     if (!this._eventCtx) {
       this._eventCtx = {
-        get localPlayerId() { return FPSGameManager.getInstance().localPlayerId; },
-        set localPlayerId(v) { FPSGameManager.getInstance().localPlayerId = v; },
+        get localPlayerId() { return Game.getInstance().localPlayerId; },
+        set localPlayerId(v) { Game.getInstance().localPlayerId = v; },
         isNetworkMode: this.isNetworkMode,
         gameHost: this.gameHost,
         v2Client: this.v2Client,
-        get remoteRenderer() { return FPSGameManager.getInstance().remoteRenderer; },
-        set remoteRenderer(v) { FPSGameManager.getInstance().remoteRenderer = v; },
-        get droppedWeaponRenderer() { return FPSGameManager.getInstance().droppedWeaponRenderer; },
-        set droppedWeaponRenderer(v) { FPSGameManager.getInstance().droppedWeaponRenderer = v; },
+        get remoteRenderer() { return Game.getInstance().remoteRenderer; },
+        set remoteRenderer(v) { Game.getInstance().remoteRenderer = v; },
+        get droppedWeaponRenderer() { return Game.getInstance().droppedWeaponRenderer; },
+        set droppedWeaponRenderer(v) { Game.getInstance().droppedWeaponRenderer = v; },
         _lastServerWeapon: this._lastServerWeapon,
         enemyWeapons: this.enemyWeapons,
         _localCharging: this._localCharging,
@@ -1244,21 +1244,21 @@ export class FPSGameManager {
         serverProjectileDefIds: this.serverProjectileDefIds,
         activeServerProjectiles: this.activeServerProjectiles,
         projectileBuffer: this.projectileBuffer,
-        get _isPlayerDead() { return FPSGameManager.getInstance()._isPlayerDead; },
-        set _isPlayerDead(v) { FPSGameManager.getInstance()._isPlayerDead = v; },
-        get _respawnRequested() { return FPSGameManager.getInstance()._respawnRequested; },
-        set _respawnRequested(v) { FPSGameManager.getInstance()._respawnRequested = v; },
-        get _respawnCooldownEnd() { return FPSGameManager.getInstance()._respawnCooldownEnd; },
-        set _respawnCooldownEnd(v) { FPSGameManager.getInstance()._respawnCooldownEnd = v; },
+        get _isPlayerDead() { return Game.getInstance()._isPlayerDead; },
+        set _isPlayerDead(v) { Game.getInstance()._isPlayerDead = v; },
+        get _respawnRequested() { return Game.getInstance()._respawnRequested; },
+        set _respawnRequested(v) { Game.getInstance()._respawnRequested = v; },
+        get _respawnCooldownEnd() { return Game.getInstance()._respawnCooldownEnd; },
+        set _respawnCooldownEnd(v) { Game.getInstance()._respawnCooldownEnd = v; },
         _gibSystem: this._gibSystem,
         _pendingGibSpawns: this._pendingGibSpawns,
         _ragdollSystem: this._ragdollSystem,
         _cartoonHit: this._cartoonHit,
         onStateUpdateCallbacks: this.onStateUpdateCallbacks,
-        get pendingTick() { return FPSGameManager.getInstance().pendingTick; },
-        set pendingTick(v) { FPSGameManager.getInstance().pendingTick = v; },
-        get _tabReturnFrameSkips() { return FPSGameManager.getInstance()._tabReturnFrameSkips; },
-        set _tabReturnFrameSkips(v) { FPSGameManager.getInstance()._tabReturnFrameSkips = v; },
+        get pendingTick() { return Game.getInstance().pendingTick; },
+        set pendingTick(v) { Game.getInstance().pendingTick = v; },
+        get _tabReturnFrameSkips() { return Game.getInstance()._tabReturnFrameSkips; },
+        set _tabReturnFrameSkips(v) { Game.getInstance()._tabReturnFrameSkips = v; },
         _stateUpdateCount: 0,
         sendRequestSpawn: () => this.sendRequestSpawn(),
       };
@@ -1305,20 +1305,20 @@ export class FPSGameManager {
     // Set on local simulation (for local mode)
     if (this.simulation) {
       this.simulation.setCollisionWorld(collision);
-      console.log('[FPSGameManager] Collision world set on local simulation');
+      console.log('[Game] Collision world set on local simulation');
     }
 
     // Also set on NetworkGameHost's prediction simulation (for network mode)
     const networkHost = this.gameHost as any;
     if (networkHost && typeof networkHost.setCollisionWorld === 'function') {
       networkHost.setCollisionWorld(collision);
-      console.log('[FPSGameManager] Collision world set on network prediction simulation');
+      console.log('[Game] Collision world set on network prediction simulation');
     }
 
     // Set on V2NetworkClient for Q3-style prediction (network mode)
     if (this.v2Client) {
       this.v2Client.setCollisionWorld(collision);
-      console.log('[FPSGameManager] Collision world set on V2NetworkClient');
+      console.log('[Game] Collision world set on V2NetworkClient');
     }
   }
 }

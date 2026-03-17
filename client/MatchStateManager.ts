@@ -55,7 +55,7 @@ export class MatchStateManager {
 
     /**
      * Process a match_state event from snapshot.
-     * Called by FPSGameManager when it receives state updates.
+     * Called by Game when it receives state updates.
      */
     processEvent(event: any): void {
         if (event.type !== 'match_state') return;

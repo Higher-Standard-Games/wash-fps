@@ -9,7 +9,7 @@
  *   - Sized ~2-3x player model height for visibility
  *
  * Self-updating: registers its own onBeforeRender observer so it doesn't
- * depend on external update() calls from FPSGameManager.
+ * depend on external update() calls from Game.
  */
 
 import {

@@ -6,7 +6,7 @@
  * 
  * Aggregates:
  * - combat_state  → health, armor, dead
- * - weapon_state  → handled by FPSGameManager directly
+ * - weapon_state  → handled by Game directly
  * - match_state   → handled by MatchStateManager
  * - damage events → recent damage numbers (for floating numbers)
  * - death events  → kill feed entries

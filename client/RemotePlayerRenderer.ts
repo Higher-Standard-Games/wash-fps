@@ -275,7 +275,7 @@ export class RemotePlayerRenderer {
 
     /**
      * Mark an entity as dead — dispose its mesh immediately.
-     * Called from FPSGameManager on death events.
+     * Called from Game on death events.
      * A fresh hitbox will be created when the entity respawns and reappears in snapshots.
      */
     markDead(entityId: string): void {

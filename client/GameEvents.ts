@@ -1,7 +1,7 @@
 /**
  * GameEvents — Processes server game state updates and dispatches visual effects.
  *
- * Extracted from FPSGameManager. Handles:
+ * Extracted from Game. Handles:
  * - 12 event types from server snapshots
  * - Weapon state sync (local + remote)
  * - Remote weapon fire effects (hitscan, beams, projectiles)
@@ -32,10 +32,10 @@ import { WEAPONS } from '../server/weapons/WeaponDef';
 import type { RemotePlayerRenderer } from '../client/RemotePlayerRenderer';
 import type { DroppedWeaponRenderer } from '../client/DroppedWeaponRenderer';
 import type { IGameHost } from '../../../engine/network/core/IGameHost';
-import type { PlayerStateUpdate } from '../FPSGameManager';
+import type { PlayerStateUpdate } from '../Game';
 
 /**
- * Mutable context shared with FPSGameManager.
+ * Mutable context shared with Game.
  * Fields are references (Maps, Sets, arrays) — mutations are visible to both sides.
  */
 export interface GameEventContext {
@@ -86,7 +86,7 @@ export interface GameEventContext {
     // Diagnostic
     _stateUpdateCount: number;
 
-    // Methods to call back into FPSGameManager
+    // Methods to call back into Game
     sendRequestSpawn(): void;
 }
 
@@ -417,7 +417,7 @@ function handleDeathEvent(ctx: GameEventContext, event: any, localEntityId: stri
 function handleWeaponDrop(ctx: GameEventContext, event: any): void {
     const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
     if (!ctx.droppedWeaponRenderer && gameScene) {
-        // Lazy-init needs to be done by FPSGameManager since it owns the renderer ref.
+        // Lazy-init needs to be done by Game since it owns the renderer ref.
         // For now, just import and create inline (context has the ref).
         import('../client/DroppedWeaponRenderer').then(({ DroppedWeaponRenderer }) => {
             if (!ctx.droppedWeaponRenderer && gameScene) {
@@ -571,7 +571,7 @@ function processProjectileEntities(ctx: GameEventContext, state: GameState): voi
             x: posComp.x, y: posComp.y, z: posComp.z,
             yaw: 0,
             vx: velComp?.x ?? 0, vy: velComp?.y ?? 0, vz: velComp?.z ?? 0,
-            grounded: false, crouching: false,
+            grounded: false, crouching: false, sliding: false,
         });
 
         if (!ctx.activeServerProjectiles.has(entityId)) {

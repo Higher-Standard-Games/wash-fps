@@ -5,6 +5,7 @@
 ## Features
 
 ### Implemented ✅
+
 - **Q3-Style Movement** - Strafe jumping, air control, crouch sliding
 - **Server-Authoritative Networking** - 125Hz tick rate, client prediction, reconciliation
 - **BSP Collision** - Full support for Quake 3 / Warsow FBSP maps
@@ -12,6 +13,7 @@
 - **Dedicated Server** - Headless CLI server with WebSocket/WebTransport
 
 ### In Progress 🚧
+
 - HUD system (health, armor, ammo)
 - Scoreboard and match timer
 - Weapon switching UI
@@ -22,6 +24,7 @@
 This game requires the [SHAG Engine](https://github.com/Higher-Standard-Games/shag).
 
 ### Clone with Engine
+
 ```bash
 git clone --recursive https://github.com/Higher-Standard-Games/shag.git
 cd shag
@@ -30,12 +33,14 @@ npm run dev
 ```
 
 ### Add to Existing Engine Clone
+
 ```bash
 git submodule add git@github.com:Higher-Standard-Games/wash-fps.git src/games/fps
 git submodule update --init
 ```
 
 ### Update to Latest
+
 ```bash
 cd src/games/fps
 git pull origin main
@@ -47,6 +52,7 @@ git commit -m "chore: update fps submodule"
 ## Running
 
 ### Development Server
+
 ```bash
 npm run dev
 # Open http://localhost:3000
@@ -54,11 +60,13 @@ npm run dev
 ```
 
 ### Dedicated Server
+
 ```bash
 npm run net:server -- --map wdm2 --port 7777
 ```
 
 ### Connect to Server
+
 ```bash
 # In game console (~):
 connect localhost:7777
@@ -69,7 +77,7 @@ connect localhost:7777
 ```
 wash-fps/
 ├── FPSPlayer.ts              # Client player controller
-├── FPSGameManager.ts         # Network game manager
+├── Game.ts         # Network game manager
 ├── client/
 │   ├── V2NetworkClient.ts    # Q3-style prediction & reconciliation
 │   └── InputHistory.ts       # Input replay buffer

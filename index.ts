@@ -5,4 +5,4 @@
  * It exports the game manager and shared types/utilities.
  */
 
-export { FPSGameManager } from './FPSGameManager';
+export { Game } from './Game';

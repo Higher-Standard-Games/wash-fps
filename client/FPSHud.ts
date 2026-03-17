@@ -135,15 +135,15 @@ export class FPSHud {
 
         // Wire Go Spectator -> switch to spectator mode
         this._pauseMenu.onGoSpectate(async () => {
-            const { FPSGameManager } = await import('../FPSGameManager');
-            const gm = FPSGameManager.getInstance();
+            const { Game } = await import('../Game');
+            const gm = Game.getInstance();
             gm.goSpectator();
         });
 
         // Wire Join Game -> join from spectator mode (same as SpectatorOverlay)
         this._pauseMenu.onJoinGame(async (_teamId?: string) => {
-            const { FPSGameManager } = await import('../FPSGameManager');
-            const gm = FPSGameManager.getInstance();
+            const { Game } = await import('../Game');
+            const gm = Game.getInstance();
             gm.joinGame();
         });
 
@@ -152,8 +152,8 @@ export class FPSHud {
             if (!document.pointerLockElement) {
                 // Pointer lock was lost (ESC pressed) — show pause menu
                 // Don't show if scoreboard or settings are open
-                import('../FPSGameManager').then(({ FPSGameManager }) => {
-                    const gm = FPSGameManager.getInstance();
+                import('../Game').then(({ Game }) => {
+                    const gm = Game.getInstance();
                     const state = gm.getPlayerState();
                     if (!this._scoreboard?.isVisible() && !this._settings?.isOpen()) {
                         // In spectator mode: hide Resume and Go Spectator (already spectating)
