@@ -439,18 +439,31 @@ function handleDeathEvent(ctx: GameEventContext, event: any, localEntityId: stri
     }
 }
 
-function handleWeaponDrop(ctx: GameEventContext, _event: any): void {
-    // Entity-driven system: weapon_drop event only used for lazy-init of renderer.
-    // Actual model spawning/positioning is driven by syncServerEntities() from snapshot data.
-    if (!ctx.droppedWeaponRenderer) {
-        const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
-        if (gameScene) {
-            import('../client/DroppedWeaponRenderer').then(({ DroppedWeaponRenderer }) => {
-                if (!ctx.droppedWeaponRenderer && gameScene) {
-                    ctx.droppedWeaponRenderer = new DroppedWeaponRenderer(gameScene);
-                }
-            });
-        }
+function handleWeaponDrop(ctx: GameEventContext, event: any): void {
+    // Capture velocity from weapon_drop event for Havok physics.
+    // The entity-driven system spawns the visual when the item_ entity
+    // appears in snapshot, but needs the initial toss velocity from this event.
+    const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
+
+    // Lazy-init renderer
+    if (!ctx.droppedWeaponRenderer && gameScene) {
+        import('../client/DroppedWeaponRenderer').then(({ DroppedWeaponRenderer }) => {
+            if (!ctx.droppedWeaponRenderer && gameScene) {
+                ctx.droppedWeaponRenderer = new DroppedWeaponRenderer(gameScene);
+            }
+            // Stash velocity for when entity appears in snapshot
+            if (ctx.droppedWeaponRenderer && event.entityId) {
+                const vel = new Vector3(event.velX || 0, event.velY || 0, event.velZ || 0);
+                ctx.droppedWeaponRenderer.stashVelocity(event.entityId, vel);
+            }
+        });
+        return;
+    }
+
+    // Stash velocity for Havok body creation
+    if (ctx.droppedWeaponRenderer && event.entityId) {
+        const vel = new Vector3(event.velX || 0, event.velY || 0, event.velZ || 0);
+        ctx.droppedWeaponRenderer.stashVelocity(event.entityId, vel);
     }
 }
 
