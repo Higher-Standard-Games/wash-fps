@@ -275,22 +275,42 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
     }
 
     // === Dropped weapon entity sync (entity-driven: spawn/position/dispose from snapshot data) ===
-    if (ctx.droppedWeaponRenderer) {
-        const itemEntities = new Map<string, DroppedWeaponInfo>();
-        for (const [id, entity] of state.entities) {
-            if (id.startsWith('item_')) {
-                const t = entity.getComponent('transform') as any;
-                const wm = entity.getComponent('weaponMeta') as any;
-                if (t?.position) {
-                    itemEntities.set(id, {
-                        x: t.position.x, y: t.position.y, z: t.position.z,
-                        weaponId: wm?.weaponId,
-                        settled: wm?.settled ?? false,
+    {
+        // Lazy-init: create renderer on first item_ entity sight (covers late-join + event timing)
+        let hasItemEntities = false;
+        if (!ctx.droppedWeaponRenderer) {
+            for (const id of state.entities.keys()) {
+                if (id.startsWith('item_')) { hasItemEntities = true; break; }
+            }
+            if (hasItemEntities) {
+                const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
+                if (gameScene) {
+                    // Synchronous import — DroppedWeaponRenderer is a small file, already bundled
+                    import('../client/DroppedWeaponRenderer').then(({ DroppedWeaponRenderer }) => {
+                        if (!ctx.droppedWeaponRenderer && gameScene) {
+                            ctx.droppedWeaponRenderer = new DroppedWeaponRenderer(gameScene);
+                        }
                     });
                 }
             }
         }
-        ctx.droppedWeaponRenderer.syncServerEntities(itemEntities);
+        if (ctx.droppedWeaponRenderer) {
+            const itemEntities = new Map<string, DroppedWeaponInfo>();
+            for (const [id, entity] of state.entities) {
+                if (id.startsWith('item_')) {
+                    const t = entity.getComponent('transform') as any;
+                    const wm = entity.getComponent('weaponMeta') as any;
+                    if (t?.position) {
+                        itemEntities.set(id, {
+                            x: t.position.x, y: t.position.y, z: t.position.z,
+                            weaponId: wm?.weaponId,
+                            settled: wm?.settled ?? false,
+                        });
+                    }
+                }
+            }
+            ctx.droppedWeaponRenderer.syncServerEntities(itemEntities);
+        }
     }
 
     // === Server-driven projectile entity processing (Q3-style) ===
