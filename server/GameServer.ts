@@ -11,15 +11,17 @@
 
 import { Simulation } from '@engine/server/core/Simulation';
 import { createPlayerEntity } from '@engine/server/ecs/Entity';
-import { playerId as createPlayerId, EntityType } from '@engine/server/ecs/types';
+import { playerId as createPlayerId } from '@engine/server/ecs/types';
 import type { PlayerId, EntityId } from '@engine/server/ecs/types';
 import type { CollisionWorld } from '../../../engine/network/systems/collision/CollisionWorld';
 import type { Vec3 } from '@shared/server/simulation/types';
 
 // Protocol (client-compatible)
 import { MessageCodec, MessageType } from '../../../engine/network/protocol/MessageCodec';
-import { GameState, type PlayerState } from '../../../engine/network/core/GameState';
-import { Entity } from '../../../engine/network/core/Entity';
+
+// Snapshot building (extracted from this file)
+import { type SnapshotContext } from './SnapshotBuilder';
+import { SnapshotBroadcaster } from './SnapshotBroadcaster';
 
 // Subsystems
 import { FPSMovementSubsystem } from './systems/FPSMovementSubsystem';
@@ -47,44 +49,9 @@ import { ServerPVS, type ServerPVSData } from '../../../engine/server/ServerPVS'
 import type { Transport, TransportConfig, ClientConnection } from '@engine/server/network/transport/WebSocketTransport';
 import { WebSocketServerTransport } from '@engine/server/network/transport/WebSocketTransport';
 
-// ============================================================================
-// Configuration
-// ============================================================================
-
-export interface GameServerConfig {
-    port: number;
-    serverName: string;
-    mapName: string;
-    maxClients: number;
-    tickRate: number;
-    /** Snapshot broadcast rate in Hz (default: 30). Must be <= tickRate. */
-    snapshotRate?: number;
-    certPath: string;
-    keyPath: string;
-    /** When true, server auto-exits when all clients disconnect (used by lobby spawner) */
-    shutdownOnEmpty?: boolean;
-}
-
-// ============================================================================
-// Client State
-// ============================================================================
-
-export interface ClientInfo {
-    id: string;
-    connection: ClientConnection;
-    playerId: PlayerId;
-    entityId: EntityId;
-    /** Player display name from join message */
-    playerName: string;
-    /** Last processed input sequence (for reconciliation) */
-    lastInputSeq: number;
-    /** Last snapshot tick the client has acknowledged receiving (for delta compression) */
-    lastAckedTick: number;
-    /** The actual filtered GameState last sent to this client (PVS baseline) */
-    lastSentState?: GameState;
-    /** true = spectating (no entity in simulation), false = playing */
-    isSpectator: boolean;
-}
+// Client types (shared with SnapshotBuilder, SnapshotBroadcaster)
+import { type ClientInfo, type GameServerConfig } from './Client';
+export type { ClientInfo, GameServerConfig };
 
 // ============================================================================
 // Game Server
@@ -129,14 +96,8 @@ export class GameServer {
     // Kill events cached for snapshot broadcast (postTick drains them from CombatSystem)
     private pendingKillEvents: import('./systems/CombatSystem').KillEvent[] = [];
 
-    // Snapshot history for delta compression baselines
-    // Ring buffer keyed by tick — stores recent GameStates so we can delta
-    // each client's snapshot against the last state they acknowledged.
-    private snapshotHistory: Map<number, GameState> = new Map();
-    private readonly SNAPSHOT_HISTORY_SIZE = 64;
-
-    // PVS (Potentially Visible Set) for per-client entity filtering
-    private pvs: ServerPVS | null = null;
+    // Snapshot broadcaster (owns snapshot history, PVS, delta baselines)
+    private broadcaster: SnapshotBroadcaster;
 
     // Auto-shutdown: track if any client has ever connected
     private hasHadClients = false;
@@ -218,6 +179,9 @@ export class GameServer {
         console.log(`[GameServer] Gametype: ${gt.name}`);
         // Anti-warp: init with expected client rate and server tick rate
         this.movementValidator = new MovementValidator(144, config.tickRate);
+
+        // Snapshot broadcaster
+        this.broadcaster = new SnapshotBroadcaster(this.simulation);
     }
 
     // ========================================================================
@@ -256,8 +220,9 @@ export class GameServer {
      * only sending entities that are in the client's potentially visible set.
      */
     setPVSData(data: ServerPVSData): void {
-        this.pvs = new ServerPVS(data);
-        console.log(`[GameServer] PVS configured: ${this.pvs.numClusters} clusters, enabled: ${this.pvs.enabled}`);
+        const pvs = new ServerPVS(data);
+        this.broadcaster.setPVS(pvs);
+        console.log(`[GameServer] PVS configured: ${pvs.numClusters} clusters, enabled: ${pvs.enabled}`);
     }
 
     getGametypeController(): GametypeController {
@@ -411,7 +376,7 @@ export class GameServer {
         this.snapshotTickCounter++;
         if (this.snapshotTickCounter >= this.ticksPerSnapshot) {
             this.snapshotTickCounter = 0;
-            this.broadcastSnapshot();
+            this.broadcaster.broadcast(this.clients, this.getSnapshotContext());
         }
     }
 
@@ -757,497 +722,37 @@ export class GameServer {
     }
 
     // ========================================================================
-    // State Conversion
+    // Snapshot Context
     // ========================================================================
 
-    /**
-     * Quantize a float64 to float32 precision.
-     * BinaryProtocol encodes positions/velocities as float32 on the wire.
-     * Without pre-quantization, the server's snapshot history stores float64
-     * values while the client decodes float32 — causing a tiny but systematic
-     * error every reconciliation cycle that accumulates into visualOffset,
-     * progressively drifting the camera away from the collision world.
-     */
-    private static f32(v: number): number {
-        return Math.fround(v);
-    }
+    /** Lazily provide the snapshot context (avoids creating a new object each tick) */
+    private _snapshotCtx: SnapshotContext | null = null;
 
-    private toGameState(): GameState {
-        const f = GameServer.f32;
-        const state = this.simulation.getState();
-        const gameState = new GameState();
-        gameState.tick = Number(state.tick);
-
-        // Convert entities (including projectiles — Q3-style server-rendered)
-        for (const entity of state.allEntities()) {
-            // Projectile entities get a separate path (proj_ prefix, no player state)
-            if (entity.type === EntityType.Projectile) {
-                const projEntity = new Entity(`proj_${entity.id}`);
-                if (entity.transform) {
-                    projEntity.addComponent('transform', {
-                        position: { x: f(entity.transform.position.x), y: f(entity.transform.position.y), z: f(entity.transform.position.z) },
-                        rotation: { x: 0, y: 0, z: 0, w: 1 },
-                        serialize: () => ({}),
-                        deserialize: () => { },
-                        clone: function () { return { ...this }; }
-                    });
-                    projEntity.addComponent('position', {
-                        x: f(entity.transform.position.x),
-                        y: f(entity.transform.position.y),
-                        z: f(entity.transform.position.z),
-                        serialize: () => ({}),
-                        deserialize: () => { },
-                        clone: function () { return { ...this }; }
-                    });
-                }
-                if (entity.physics) {
-                    projEntity.addComponent('velocity', {
-                        x: f(entity.physics.velocity.x),
-                        y: f(entity.physics.velocity.y),
-                        z: f(entity.physics.velocity.z),
-                        linear: { x: f(entity.physics.velocity.x), y: f(entity.physics.velocity.y), z: f(entity.physics.velocity.z) },
-                        angular: { x: 0, y: 0, z: 0 },
-                        grounded: false,
-                        serialize: () => ({}),
-                        deserialize: () => { },
-                        clone: function () { return { ...this }; }
-                    });
-                }
-                gameState.entities.set(projEntity.id, projEntity);
-
-                // Emit projectile_spawn event for newly created projectiles
-                const numId = entity.id as number;
-                if (!this.knownProjectileIds.has(numId)) {
-                    this.knownProjectileIds.add(numId);
-                    const defId = this.projectileSystem.getDefId(entity.id);
-                    if (defId) {
-                        gameState.events.push({
-                            type: 'projectile_spawn',
-                            entityId: `proj_${entity.id}`,
-                            defId,
-                        });
-                    }
-                }
-                continue;
-            }
-
-            // Dropped weapon entities (position only, no velocity)
-            if (entity.type === EntityType.Item) {
-                const itemEntity = new Entity(`item_${entity.id}`);
-                if (entity.transform) {
-                    itemEntity.addComponent('transform', {
-                        position: { x: f(entity.transform.position.x), y: f(entity.transform.position.y), z: f(entity.transform.position.z) },
-                        rotation: { x: 0, y: 0, z: 0, w: 1 },
-                        serialize: () => ({}),
-                        deserialize: () => { },
-                        clone: function () { return { ...this }; }
-                    });
-                    itemEntity.addComponent('position', {
-                        x: f(entity.transform.position.x),
-                        y: f(entity.transform.position.y),
-                        z: f(entity.transform.position.z),
-                        serialize: () => ({}),
-                        deserialize: () => { },
-                        clone: function () { return { ...this }; }
-                    });
-                }
-                gameState.entities.set(itemEntity.id, itemEntity);
-                continue;
-            }
-            // Skip dead player entity RENDERING DATA — don't send position/velocity
-            // (death events handle gibs/kill feed; entity reappears after respawn)
-            // BUT still emit combat_state and player state for HUD/scoreboard
-            const isDead = !!entity.health?.dead;
-
-            if (!isDead) {
-                const clientEntity = new Entity(`player_${entity.id}`);
-
-                if (entity.transform) {
-                    clientEntity.addComponent('transform', {
-                        position: { x: f(entity.transform.position.x), y: f(entity.transform.position.y), z: f(entity.transform.position.z) },
-                        rotation: { x: f(entity.transform.rotation.x), y: f(entity.transform.rotation.y), z: f(entity.transform.rotation.z), w: 1 },
-                        serialize: () => ({}),
-                        deserialize: () => { },
-                        clone: function () { return { ...this }; }
-                    });
-                    clientEntity.addComponent('position', {
-                        x: f(entity.transform.position.x),
-                        y: f(entity.transform.position.y),
-                        z: f(entity.transform.position.z),
-                        serialize: () => ({}),
-                        deserialize: () => { },
-                        clone: function () { return { ...this }; }
-                    });
-                }
-
-                if (entity.physics) {
-                    clientEntity.addComponent('velocity', {
-                        x: f(entity.physics.velocity.x),
-                        y: f(entity.physics.velocity.y),
-                        z: f(entity.physics.velocity.z),
-                        linear: { x: f(entity.physics.velocity.x), y: f(entity.physics.velocity.y), z: f(entity.physics.velocity.z) },
-                        angular: { x: 0, y: 0, z: 0 },
-                        grounded: entity.physics.grounded,
-                        serialize: () => ({}),
-                        deserialize: () => { },
-                        clone: function () { return { ...this }; }
-                    });
-
-                    clientEntity.addComponent('movementState', {
-                        isSliding: entity.physics.isSliding ?? false,
-                        isCrouching: entity.physics.isCrouching ?? false,
-                        crouchViewOffset: entity.physics.crouchViewOffset ?? 0,
-                        wallJumpState: entity.physics.wallJumpState ?? 'none',
-                        ledgeGrabState: entity.physics.ledgeGrabState ?? 'none',
-                        actualHorizSpeed: entity.physics.actualHorizSpeed ?? 0,
-                        serialize: () => ({}),
-                        deserialize: () => { },
-                        clone: function () { return { ...this }; }
-                    });
-                }
-
-                gameState.entities.set(clientEntity.id, clientEntity);
-            }
-
-            // Player state (scoreboard + combat_state) — always emit, even for dead players
-            if (entity.ownerId !== undefined) {
-                const playerId = `player_${entity.ownerId}`;
-                // Use entity ID for client entity reference (needed for combat_state)
-                const entityClientId = `player_${entity.id}`;
-                if (!gameState.players.has(playerId)) {
-                    // Get score and deaths from gametype controller
-                    const matchState = this.gametypeController.getMatchState();
-                    const score = matchState.getScore(entity.ownerId);
-                    const deaths = matchState.getDeaths(entity.ownerId);
-
-                    // Find real player name and ping from client info
-                    let displayName = this.botNames.get(entity.ownerId) || `Player ${entity.ownerId}`;
-                    let ping = 0;
-                    for (const client of this.clients.values()) {
-                        if (client.playerId === entity.ownerId) {
-                            displayName = client.playerName;
-                            ping = Math.round(client.connection.latency ?? 0);
-                            break;
-                        }
-                    }
-
-                    const playerState: PlayerState = {
-                        entityId: entityClientId,
-                        name: displayName,
-                        team: '',
-                        score,
-                        deaths,
-                        ping,
-                        serialize: () => ({}),
-                        deserialize: () => { },
-                        clone() { return { ...this, serialize: this.serialize, deserialize: this.deserialize, clone: this.clone }; }
-                    };
-                    gameState.players.set(playerId, playerState);
-
-                    // Emit combat_state event (health/armor — private to owning player)
-                    if (entity.health) {
-                        gameState.events.push({
-                            type: 'combat_state',
-                            entityId: entityClientId,
-                            health: Math.max(0, Math.round(entity.health.health)),
-                            armor: Math.max(0, Math.round(entity.health.armor)),
-                            dead: entity.health.dead,
-                        });
-                    }
-                }
-            }
+    private getSnapshotContext(): SnapshotContext {
+        if (!this._snapshotCtx) {
+            this._snapshotCtx = {
+                simulation: this.simulation,
+                weaponSystem: this.weaponSystem,
+                projectileSystem: this.projectileSystem,
+                combatSystem: this.combatSystem,
+                pickupSystem: this.pickupSystem,
+                droppedWeaponSystem: this.droppedWeaponSystem,
+                gametypeController: this.gametypeController,
+                clients: this.clients,
+                botNames: this.botNames,
+                knownProjectileIds: this.knownProjectileIds,
+                pendingKillEvents: this.pendingKillEvents,
+                needsPickupSync: this.needsPickupSync,
+            };
         }
-
-        // Add match state as event (client can read this for HUD)
-        const matchSnapshot = this.gametypeController.getMatchSnapshot();
-        gameState.events.push({
-            type: 'match_state',
-            ...matchSnapshot,
-        });
-
-        // Add per-player weapon state events (so clients know which weapon they have)
-        for (const entity of state.allEntities()) {
-            if (entity.type === EntityType.Projectile) continue;
-            if (entity.ownerId === undefined) continue;
-
-            const weaponState = this.weaponSystem.getWeaponState(entity.id);
-            if (weaponState) {
-                gameState.events.push({
-                    type: 'weapon_state',
-                    entityId: `player_${entity.id}`,
-                    currentWeapon: weaponState.currentWeapon,
-                    weapons: weaponState.weapons,
-                    ammo: Object.fromEntries(weaponState.ammo),
-                    reloading: weaponState.reloading,
-                    lastFireTick: weaponState.lastFireTick,
-                });
-            }
-        }
-
-        // Add weapon fire events (so other clients can see shots)
-        for (const fireEvent of this.weaponSystem.getPendingFireEvents()) {
-            gameState.events.push({
-                type: 'weapon_fire',
-                entityId: `player_${fireEvent.entityId}`,
-                weaponId: fireEvent.weaponId,
-                originX: fireEvent.originX,
-                originY: fireEvent.originY,
-                originZ: fireEvent.originZ,
-                dirX: fireEvent.dirX,
-                dirY: fireEvent.dirY,
-                dirZ: fireEvent.dirZ,
-            });
-        }
-
-        // Add weapon charge events (so other clients see charge visual)
-        for (const chargeEvent of this.weaponSystem.getPendingChargeEvents()) {
-            gameState.events.push({
-                type: 'weapon_charge',
-                entityId: `player_${chargeEvent.entityId}`,
-                weaponId: chargeEvent.weaponId,
-                charging: chargeEvent.charging,
-            });
-        }
-
-        // Add projectile impact events (so all clients see explosions)
-        const impacts = this.projectileSystem.getPendingImpacts();
-        for (const impact of impacts) {
-            gameState.events.push({
-                type: 'projectile_impact',
-                defId: impact.defId,
-                x: impact.x,
-                y: impact.y,
-                z: impact.z,
-                normalX: impact.normalX,
-                normalY: impact.normalY,
-                normalZ: impact.normalZ,
-            });
-        }
-
-        // Add pickup events (so clients can sync pickup visibility and weapon changes)
-        const pickups = this.pickupSystem.getPendingPickupEvents();
-        for (const pickup of pickups) {
-            gameState.events.push({
-                type: 'item_pickup',
-                pickupId: pickup.pickupId,
-                weaponId: pickup.weaponId,
-                entityId: pickup.entityId,
-                droppedWeaponId: pickup.droppedWeaponId || '',
-                x: pickup.x,
-                y: pickup.y,
-                z: pickup.z,
-            });
-        }
-
-        // Inject initial inactive pickup state for newly joined clients
-        // (pickups consumed by bots/other players before this client connected)
-        if (this.needsPickupSync.size > 0) {
-            const inactivePickups = this.pickupSystem.getInactivePickups();
-            if (inactivePickups.length > 0) {
-                console.log(`[GameServer] Syncing ${inactivePickups.length} inactive pickups to ${this.needsPickupSync.size} new client(s)`);
-                for (const pickup of inactivePickups) {
-                    gameState.events.push({
-                        type: 'item_pickup',
-                        pickupId: pickup.pickupId,
-                        weaponId: pickup.weaponId,
-                        entityId: pickup.entityId,
-                        droppedWeaponId: '',
-                        x: pickup.x,
-                        y: pickup.y,
-                        z: pickup.z,
-                    });
-                }
-            }
-            this.needsPickupSync.clear();
-        }
-
-        // Add weapon drop events (so clients can render dropped weapon models)
-        for (const dropEvt of this.droppedWeaponSystem.getPendingDropEvents()) {
-            gameState.events.push({
-                type: 'weapon_drop',
-                entityId: dropEvt.entityId,
-                weaponId: dropEvt.weaponId,
-                x: dropEvt.x,
-                y: dropEvt.y,
-                z: dropEvt.z,
-                velX: dropEvt.velX,
-                velY: dropEvt.velY,
-                velZ: dropEvt.velZ,
-            });
-        }
-
-        // Add damage events (forwarded from CombatSystem for floating damage numbers)
-        const damageEvents = this.combatSystem.getProcessedDamage();
-        for (const dmg of damageEvents) {
-            gameState.events.push({
-                type: 'damage',
-                entityId: `player_${dmg.victimId}`,
-                attackerId: dmg.attackerId !== undefined ? `player_${dmg.attackerId}` : '',
-                damage: dmg.damage,
-                weaponId: dmg.damageType, // Use damageType as weapon identifier for now
-                x: dmg.x,
-                y: dmg.y,
-                z: dmg.z,
-            });
-        }
-        this.combatSystem.clearProcessedDamage();
-
-        // Add death events from cached kills (cached before postTick clears them)
-        for (const kill of this.pendingKillEvents) {
-            gameState.events.push({
-                type: 'death',
-                entityId: `player_${kill.victimId}`,
-                killerId: kill.killerId !== undefined ? `player_${kill.killerId}` : '',
-                weaponId: kill.damageType, // Use damageType as weapon identifier
-                damageType: kill.damageType, // Explicit damage type for gib/ragdoll decision
-                finalDamage: kill.finalDamage, // Killing blow damage for gib threshold
-                // Victim position + velocity for gib/ragdoll spawning
-                x: kill.victimX,
-                y: kill.victimY,
-                z: kill.victimZ,
-                velX: kill.victimVelX,
-                velY: kill.victimVelY,
-                velZ: kill.victimVelZ,
-                // Knockback direction from damage source
-                kbDirX: kill.kbDirX,
-                kbDirY: kill.kbDirY,
-                kbDirZ: kill.kbDirZ,
-            });
-        }
-        // Clear cached kills after they've been sent
-        this.pendingKillEvents = [];
-
-        return gameState;
+        // Update mutable references that may change between snapshots
+        this._snapshotCtx.pendingKillEvents = this.pendingKillEvents;
+        return this._snapshotCtx;
     }
 
     // ========================================================================
     // Network Messages
     // ========================================================================
-
-    private broadcastSnapshot(): void {
-        if (this.clients.size === 0) return;
-
-        const gameState = this.toGameState();
-
-        // Store in snapshot history for delta compression
-        const tick = gameState.tick;
-        this.snapshotHistory.set(tick, gameState);
-
-        // Prune old snapshots beyond history window
-        if (this.snapshotHistory.size > this.SNAPSHOT_HISTORY_SIZE) {
-            // Delete oldest entries
-            for (const key of this.snapshotHistory.keys()) {
-                if (this.snapshotHistory.size <= this.SNAPSHOT_HISTORY_SIZE) break;
-                this.snapshotHistory.delete(key);
-            }
-        }
-
-        let totalEncodeMs = 0;
-        let totalCulled = 0;
-        for (const client of this.clients.values()) {
-            try {
-                // PVS filtering: build per-client filtered state if PVS is available
-                // CRITICAL: Always create a per-client copy for ackedInputSeq.
-                // Without this, all clients share the same gameState reference and
-                // get the LAST client's lastInputSeq — causing V2NetworkClient to
-                // replay wrong inputs → position desync → collision world shift.
-                const pvsActive = !!(this.pvs && this.pvs.enabled);
-                const clientState = pvsActive
-                    ? this.filterStateForClient(gameState, client)
-                    : gameState.shallowCopy();
-
-                clientState.ackedInputSeq = client.lastInputSeq;
-
-                // Delta baseline: when PVS is active, use the per-client baseline
-                // (the actual filtered state the client received), not the global
-                // history which contains entities the client may never have seen.
-                let baseline: GameState | undefined;
-                if (pvsActive) {
-                    // Use the last state we ACTUALLY sent this client
-                    baseline = client.lastSentState;
-                } else {
-                    // Without PVS, all clients get the same full state
-                    baseline = client.lastAckedTick > 0
-                        ? this.snapshotHistory.get(client.lastAckedTick)
-                        : undefined;
-                }
-
-                const t0 = performance.now();
-                const snapshotBytes = MessageCodec.encodeSnapshot(clientState, baseline);
-                totalEncodeMs += performance.now() - t0;
-
-                if (pvsActive) {
-                    totalCulled += gameState.entities.size - clientState.entities.size;
-                    // Store per-client baseline: the filtered state we actually sent
-                    client.lastSentState = clientState;
-                }
-
-                client.connection.sendDatagram(snapshotBytes);
-            } catch {
-                // Client may have disconnected
-            }
-        }
-
-        // Perf: log encoding cost periodically to assess Network Worker need
-        if (tick % 100 === 0 && this.clients.size > 0) {
-            const pvsInfo = this.pvs?.enabled
-                ? `, pvs_culled: ${totalCulled} entities across ${this.clients.size} clients`
-                : '';
-            console.log(`[Perf] snapshot encode: ${totalEncodeMs.toFixed(2)}ms total, ${(totalEncodeMs / this.clients.size).toFixed(2)}ms/client, clients: ${this.clients.size}${pvsInfo}`);
-        }
-    }
-
-    /**
-     * Filter a GameState for a specific client based on PVS visibility.
-     * Entities not visible from the client's player position are culled.
-     *
-     * Always includes:
-     * - The client's own player entity
-     * - All player states (scoreboard)
-     * - All events (kill feed, combat_state, projectile_spawn, etc.)
-     * - Entities without position data (non-spatial)
-     */
-    private filterStateForClient(state: GameState, client: ClientInfo): GameState {
-        if (!this.pvs) return state;
-
-        // Get client's player position from simulation
-        const simState = this.simulation.getState();
-        const clientEntity = simState.getEntity(client.entityId);
-        if (!clientEntity?.transform) return state; // No position = send everything
-
-        const viewerPos = clientEntity.transform.position;
-
-        // Build filtered state — shallow copy with filtered entities
-        const filtered = new GameState();
-        filtered.tick = state.tick;
-        filtered.players = state.players;   // Always send all player states (scoreboard)
-        filtered.events = [...state.events]; // Always send all events
-
-        for (const [id, entity] of state.entities) {
-            // Always include own player
-            if (id === `player_${client.entityId}`) {
-                filtered.entities.set(id, entity);
-                continue;
-            }
-
-            // Get entity position for PVS check
-            const posComp = entity.getComponent('position') as { x: number; y: number; z: number } | undefined;
-            if (!posComp) {
-                // No position = always include (non-spatial entity)
-                filtered.entities.set(id, entity);
-                continue;
-            }
-
-            // PVS visibility check
-            const targetPos = { x: posComp.x, y: posComp.y, z: posComp.z };
-            if (this.pvs.isVisible(viewerPos, targetPos)) {
-                filtered.entities.set(id, entity);
-            }
-            // else: entity is culled — not visible from client's position
-        }
-
-        return filtered;
-    }
 
     private sendWelcome(client: ClientInfo): void {
         const welcomeBytes = MessageCodec.encodeWelcome(
