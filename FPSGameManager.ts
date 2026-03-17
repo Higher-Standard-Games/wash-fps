@@ -14,35 +14,31 @@ import { FPSSimulation, FPSInputCommand } from './simulation/FPSSimulation';
 import { InputButtons } from '../../engine/network/components/InputComponent';
 import type { GameState } from '../../engine/network/core/GameState';
 import type { TransformComponent } from '../../engine/network/components/TransformComponent';
-import type { VelocityComponent } from '../../engine/network/components/VelocityComponent';
-import { SnapshotBuffer, EntitySnapshot } from '../../engine/network/client/SnapshotBuffer';
-
+import { SnapshotBuffer } from '../../engine/network/client/SnapshotBuffer';
 
 import { getCollisionManager } from '../../engine/physics/CollisionManager';
 import { createBSPCollisionWorld } from './simulation/collision/BSPCollisionWorld';
 import { V2NetworkClient } from './client';
-import type { ServerSnapshot } from './client';
-import { MatchStateManager } from './client/MatchStateManager';
 
 import { HUDState } from './client/HUDState';
+import { MatchStateManager } from './client/MatchStateManager';
 import { FPSHud } from './client/FPSHud';
 import { MessageCodec } from '../../engine/network/protocol/MessageCodec';
-import { getHitscanEffects } from '../../engine/weapon/HitscanEffects';
 import { getProjectileManager } from '../../engine/weapon/ProjectileManager';
 import { getWeaponViewManager } from '../../engine/weapon/WeaponViewManager';
-import { Vector3, Color3 } from '@babylonjs/core';
+import { Vector3 } from '@babylonjs/core';
 import { PointLight } from '@babylonjs/core/Lights/pointLight';
 import { EngineStore } from '@babylonjs/core/Engines/engineStore';
 import { RemotePlayerRenderer } from './client/RemotePlayerRenderer';
 import { DroppedWeaponRenderer } from './client/DroppedWeaponRenderer';
-import { getExplosionEffect, ROCKET_EXPLOSION, GRENADE_EXPLOSION, PLASMA_EXPLOSION, BLADE_EXPLOSION } from '../../engine/weapon/ExplosionEffect';
-import { FPSPlayer } from './FPSPlayer';
 import { NetGraph } from '../../engine/network/client/NetGraph';
 import { InputSystem } from '../../engine/input/InputSystem';
 import { CameraSystem } from '../../engine/camera';
 import { registerFPSActions } from './client/FPSActions';
 import { PlayerProfile } from '../../engine/player/PlayerProfile';
-import { WEAPONS } from './server/weapons/WeaponDef';
+
+// Game event handling (extracted from this file)
+import { handleServerStateUpdate, type GameEventContext } from './client/GameEvents';
 
 export interface FPSGameConfig {
   tickRate?: number;
@@ -1221,631 +1217,75 @@ export class FPSGameManager {
     HUDState.destroy();
 
     console.log('[FPSGameManager] Shutdown complete');
+  }  // ========================================================================
+  // Event Context
+  // ========================================================================
+
+  /** Lazily provide the event context (avoids creating a new object each snapshot) */
+  private _eventCtx: GameEventContext | null = null;
+
+  private getEventContext(): GameEventContext {
+    if (!this._eventCtx) {
+      this._eventCtx = {
+        get localPlayerId() { return FPSGameManager.getInstance().localPlayerId; },
+        set localPlayerId(v) { FPSGameManager.getInstance().localPlayerId = v; },
+        isNetworkMode: this.isNetworkMode,
+        gameHost: this.gameHost,
+        v2Client: this.v2Client,
+        get remoteRenderer() { return FPSGameManager.getInstance().remoteRenderer; },
+        set remoteRenderer(v) { FPSGameManager.getInstance().remoteRenderer = v; },
+        get droppedWeaponRenderer() { return FPSGameManager.getInstance().droppedWeaponRenderer; },
+        set droppedWeaponRenderer(v) { FPSGameManager.getInstance().droppedWeaponRenderer = v; },
+        _lastServerWeapon: this._lastServerWeapon,
+        enemyWeapons: this.enemyWeapons,
+        _localCharging: this._localCharging,
+        chargingPlayers: this.chargingPlayers,
+        chargingGlows: this.chargingGlows,
+        serverProjectileDefIds: this.serverProjectileDefIds,
+        activeServerProjectiles: this.activeServerProjectiles,
+        projectileBuffer: this.projectileBuffer,
+        get _isPlayerDead() { return FPSGameManager.getInstance()._isPlayerDead; },
+        set _isPlayerDead(v) { FPSGameManager.getInstance()._isPlayerDead = v; },
+        get _respawnRequested() { return FPSGameManager.getInstance()._respawnRequested; },
+        set _respawnRequested(v) { FPSGameManager.getInstance()._respawnRequested = v; },
+        get _respawnCooldownEnd() { return FPSGameManager.getInstance()._respawnCooldownEnd; },
+        set _respawnCooldownEnd(v) { FPSGameManager.getInstance()._respawnCooldownEnd = v; },
+        _gibSystem: this._gibSystem,
+        _pendingGibSpawns: this._pendingGibSpawns,
+        _ragdollSystem: this._ragdollSystem,
+        _cartoonHit: this._cartoonHit,
+        onStateUpdateCallbacks: this.onStateUpdateCallbacks,
+        get pendingTick() { return FPSGameManager.getInstance().pendingTick; },
+        set pendingTick(v) { FPSGameManager.getInstance().pendingTick = v; },
+        get _tabReturnFrameSkips() { return FPSGameManager.getInstance()._tabReturnFrameSkips; },
+        set _tabReturnFrameSkips(v) { FPSGameManager.getInstance()._tabReturnFrameSkips = v; },
+        _stateUpdateCount: 0,
+        sendRequestSpawn: () => this.sendRequestSpawn(),
+      };
+    }
+    // Update refs that may change
+    this._eventCtx.gameHost = this.gameHost;
+    this._eventCtx.v2Client = this.v2Client;
+    this._eventCtx.isNetworkMode = this.isNetworkMode;
+    this._eventCtx._gibSystem = this._gibSystem;
+    this._eventCtx._ragdollSystem = this._ragdollSystem;
+    this._eventCtx._cartoonHit = this._cartoonHit;
+    return this._eventCtx;
   }
 
-  // Diagnostic counter for onServerStateUpdate
-  private _stateUpdateCount = 0;
-
   /**
-   * Handle state update from simulation
+   * Handle state update from simulation — delegates to GameEvents module
    */
   private onServerStateUpdate(state: GameState): void {
-    this._stateUpdateCount++;
-
-    // Record snapshot for NetGraph
-    const localPlayer = state.players.get(this.localPlayerId);
-    NetGraph.recordSnapshot(localPlayer?.ping ?? 0, state.tick);
-
-    // Feed ClockSync offset to NetGraph for display
-    const networkHost = this.gameHost as any;
-    if (networkHost?.clockSync?.isSynced()) {
-      NetGraph.setClockOffset(networkHost.clockSync.getOffset());
-    }
-
-    // Dynamically sync localPlayerId from the game host.
-    // JoinAccept sets networkHost.localPlayerId DURING connect(), but
-    // FPSGameManager.localPlayerId is only copied AFTER connect() resolves.
-    // This ensures we pick up the server-assigned ID as soon as JoinAccept arrives.
-    if (this.gameHost && this.localPlayerId !== this.gameHost.localPlayerId) {
-      this.localPlayerId = this.gameHost.localPlayerId;
-    }
-
-    // === DIAGNOSTIC: Log first few calls ===
-    if (this._stateUpdateCount <= 3) {
-      // Auto-enable HUD debug overlay on first update (disabled — using FPSHud now)
-      if (this._stateUpdateCount === 1) {
-        // HUDState.getInstance().setDebug(true);
+    // Lazy-init remote renderer if not yet created
+    if (!this.remoteRenderer) {
+      const cam = CameraSystem.getInstance().getCamera();
+      const gameScene = cam?.getScene();
+      if (gameScene) {
+        this.remoteRenderer = new RemotePlayerRenderer(gameScene);
       }
     }
-
-    // Process match_state events before anything else
-    const localEntityId = state.players.get(this.localPlayerId)?.entityId;
-
-    if (state.events && state.events.length > 0) {
-      const matchMgr = MatchStateManager.getInstance();
-
-      for (const event of state.events) {
-        if (event.type === 'match_state') {
-          matchMgr.processEvent(event);
-        } else if (event.type === 'weapon_state' && event.entityId === localEntityId) {
-          // Sync local player weapon from server
-          this.handleWeaponStateSync(event);
-        } else if (event.type === 'weapon_state' && event.entityId !== localEntityId) {
-          // Track enemy weapon for third-person rendering
-          if (event.currentWeapon) {
-            this.enemyWeapons.set(event.entityId, event.currentWeapon);
-          }
-        } else if (event.type === 'weapon_fire') {
-          if (event.entityId === localEntityId) {
-            // Server confirmed our fire — trigger local muzzle flash, recoil, and hitscan effects
-            const wvm = getWeaponViewManager();
-            // If local player was charging, this is a projectile fire — skip slash trail
-            const isProjectileFire = this._localCharging;
-            if (this._localCharging) this._localCharging = false;
-            wvm.fire({ isProjectileFire });
-          } else {
-            this.handleRemoteWeaponFire(event);
-          }
-        } else if (event.type === 'weapon_charge') {
-          // Track charge state for local + remote players
-          if (event.entityId === localEntityId) {
-            this._localCharging = event.charging;
-          } else {
-            if (event.charging) {
-              this.chargingPlayers.add(event.entityId);
-            } else {
-              this.chargingPlayers.delete(event.entityId);
-              // Dispose glow light
-              const glow = this.chargingGlows.get(event.entityId);
-              if (glow) {
-                glow.dispose();
-                this.chargingGlows.delete(event.entityId);
-              }
-            }
-          }
-        } else if (event.type === 'projectile_impact') {
-          // Server-authoritative explosion — deduplicate against client-predicted explosions
-          const pos = new Vector3(event.x, event.y, event.z);
-          const projDefId = event.defId === 'glauncher' ? 'grenade'
-            : event.defId === 'plasmagun' ? 'plasma_bolt'
-              : event.defId === 'rlauncher' ? 'rocket'
-                : event.defId;
-
-          // Check if client already predicted this explosion (same position + defId within tolerance)
-          if (getProjectileManager().hasRecentPrediction(pos, projDefId)) {
-            // Already shown client-side — skip duplicate
-            continue;
-          }
-
-          const normal = new Vector3(event.normalX, event.normalY, event.normalZ);
-          const config = event.defId === 'glauncher' ? GRENADE_EXPLOSION
-            : event.defId === 'plasmagun' ? PLASMA_EXPLOSION
-              : event.defId === 'blade_blast' ? BLADE_EXPLOSION
-                : ROCKET_EXPLOSION;
-          getExplosionEffect().spawn(pos, config, normal);
-        } else if (event.type === 'item_pickup') {
-          // Server confirms a pickup — deactivate the client-side Pickup visual
-          import('../../engine/game/Pickup').then(({ Pickup }) => {
-            Pickup.deactivateByPosition(event.weaponId, event.x, event.y, event.z);
-          });
-        } else if (event.type === 'projectile_spawn') {
-          // Server tells us about a new projectile entity — record defId mapping
-          this.serverProjectileDefIds.set(event.entityId, event.defId);
-        } else if (event.type === 'combat_state' && event.entityId === localEntityId) {
-          // Combat state for local player (health/armor)
-          HUDState.getInstance().processCombatState(event);
-          // Track death state for death camera
-          if (event.dead && !this._isPlayerDead) {
-            this._isPlayerDead = true;
-            this._respawnRequested = false;
-            this._respawnCooldownEnd = Date.now() + 3000; // 3s cooldown before allowing RequestSpawn
-            console.log('[FPSGameManager] Local player died');
-            // Hide weapon view model on death
-            import('../../engine/weapon/WeaponViewManager').then(m => {
-              m.getWeaponViewManager().setVisible(false);
-            });
-          } else if (!event.dead && this._isPlayerDead) {
-            this._isPlayerDead = false;
-            this._respawnRequested = false;
-            console.log('[FPSGameManager] Local player respawned');
-            // Nuclear reset: clear all stale death-period state in V2Client.
-            // During death, server omits entity from snapshots → V2Client gets
-            // ZERO snapshots → localState stuck at death pos, inputHistory stale,
-            // skipReconcile counters frozen. resetForRespawn() nukes everything
-            // and forces first-snapshot path so next snapshot snaps to spawn pos.
-            if (this.v2Client) {
-              this.v2Client.resetForRespawn();
-            }
-            // Show weapon on respawn
-            import('../../engine/weapon/WeaponViewManager').then(m => {
-              m.getWeaponViewManager().setVisible(true);
-            });
-          }
-        } else if (event.type === 'combat_state' && event.entityId !== localEntityId) {
-          // Remote player combat state — clear dead flag on respawn so model re-creates
-          if (!event.dead && this.remoteRenderer) {
-            this.remoteRenderer.markAlive(event.entityId);
-          }
-        } else if (event.type === 'damage') {
-          // Damage event (floating damage numbers)
-          HUDState.getInstance().processDamage(event);
-          // Hit confirmation: flash crosshair when LOCAL player deals damage
-          if (event.attackerId && event.attackerId === localEntityId) {
-            import('./client/Crosshair').then(m => m.Crosshair.getInstance().notifyHit());
-            // Spawn floating damage number at victim position
-            if (event.x !== undefined && event.damage > 0) {
-              import('./client/DamageNumbers').then(m => {
-                const dn = m.DamageNumbers.getInstance();
-                if (!dn['scene']) {
-                  const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
-                  if (gameScene) dn.init(gameScene);
-                }
-                dn.spawn(event.x, event.y, event.z, event.damage);
-              });
-            }
-            // Cartoon hit effect (Warsow POW!) on hard hits
-            if (event.x !== undefined && this._cartoonHit) {
-              this._cartoonHit.spawn(event.x, event.y, event.z, event.damage);
-            }
-          }
-        } else if (event.type === 'death') {
-          console.log(`[Death] Event received: entity=${event.entityId} killer=${event.killerId} damageType=${event.damageType} finalDamage=${event.finalDamage} pos=(${event.x}, ${event.y}, ${event.z})`);
-          // Death event (kill feed)
-          try {
-            HUDState.getInstance().processDeath(event);
-          } catch (e) {
-            console.error('[Death] HUD processDeath error:', e);
-          }
-
-          // === GIB vs RAGDOLL DECISION ===
-          // Rail (EB) → always gibs
-          // Explosion with finalDamage >= 50 → gibs
-          // Everything else → ragdoll
-          const damageType = event.damageType || event.weaponId || '';
-          const finalDamage = event.finalDamage || 0;
-          const shouldGib = damageType === 'rail'
-            || (damageType === 'explosion' && finalDamage >= 50);
-
-          if (shouldGib) {
-            // === GIB DEATH: dispose model + spawn gib particles ===
-            try {
-              if (this.remoteRenderer && event.entityId) {
-                this.remoteRenderer.markDead(event.entityId);
-              }
-            } catch (e) {
-              console.error('[Death] markDead error:', e);
-            }
-            if (event.x !== undefined) {
-              console.log(`[GibSystem] Gib death: dmgType=${damageType} dmg=${finalDamage}`);
-              if (this._gibSystem) {
-                this._gibSystem.spawn(
-                  event.x, event.y, event.z,
-                  event.velX || 0, event.velY || 0, event.velZ || 0,
-                );
-              } else {
-                this._pendingGibSpawns.push({
-                  x: event.x, y: event.y, z: event.z,
-                  vx: event.velX || 0, vy: event.velY || 0, vz: event.velZ || 0,
-                });
-              }
-            }
-          } else {
-            // === RAGDOLL DEATH: detach model + start physics ===
-            console.log(`[RagdollSystem] Ragdoll death: dmgType=${damageType} dmg=${finalDamage}`);
-            let model = null;
-            try {
-              if (this.remoteRenderer && event.entityId) {
-                model = this.remoteRenderer.detachModel(event.entityId);
-              }
-            } catch (e) {
-              console.error('[Death] detachModel error:', e);
-            }
-
-            if (model && this._ragdollSystem) {
-              // Use server-provided knockback direction (from damage source)
-              this._ragdollSystem.spawn(
-                model,
-                event.kbDirX || 0,
-                event.kbDirY || 0,
-                event.kbDirZ || 0,
-              );
-            } else if (model) {
-              // RagdollSystem not ready — fall back to gibs
-              console.warn('[Death] RagdollSystem not ready, falling back to gibs');
-              // Dispose the detached model manually
-              if (model.mesh) model.mesh.dispose();
-              if (model.skeleton) model.skeleton.dispose();
-              if (model.anchor) model.anchor.dispose();
-              if (event.x !== undefined && this._gibSystem) {
-                this._gibSystem.spawn(
-                  event.x, event.y, event.z,
-                  event.velX || 0, event.velY || 0, event.velZ || 0,
-                );
-              }
-            } else {
-              // No model available (might be local player) — just mark dead
-              try {
-                if (this.remoteRenderer && event.entityId) {
-                  this.remoteRenderer.markDead(event.entityId);
-                }
-              } catch (e) { /* noop */ }
-            }
-          }
-        } else if (event.type === 'weapon_drop') {
-          // Spawn dropped weapon visual with Havok physics
-          const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
-          if (!this.droppedWeaponRenderer && gameScene) {
-            this.droppedWeaponRenderer = new DroppedWeaponRenderer(gameScene);
-          }
-          if (this.droppedWeaponRenderer) {
-            const pos = new Vector3(event.x, event.y, event.z);
-            const vel = new Vector3(event.velX || 0, event.velY || 0, event.velZ || 0);
-            this.droppedWeaponRenderer.spawn(event.entityId, event.weaponId, pos, vel);
-          }
-        }
-      }
-    }
-
-    // === Update charge glow positions from entity data ===
-    if (this.chargingPlayers.size > 0) {
-      const scene = CameraSystem.getInstance().getCamera()?.getScene();
-      if (scene) {
-        for (const entityId of this.chargingPlayers) {
-          const entity = state.entities.get(entityId);
-          const pos = entity?.getComponent('position') as { x: number; y: number; z: number } | undefined;
-          if (pos) {
-            let light = this.chargingGlows.get(entityId);
-            if (!light) {
-              light = new PointLight(`charge_glow_${entityId}`, new Vector3(pos.x, pos.y + 30, pos.z), scene);
-              light.diffuse = new Color3(1.0, 0.15, 0.05);
-              light.specular = new Color3(1.0, 0.1, 0.0);
-              light.range = 60;
-              light.intensity = 8;
-              this.chargingGlows.set(entityId, light);
-            }
-            light.position.set(pos.x, pos.y + 30, pos.z);
-          }
-        }
-      }
-    }
-
-    // Update HUD state aggregator
-    const hudState = HUDState.getInstance();
-    hudState.localPlayerId = this.localPlayerId;
-    hudState.updateScoreboard(state);
-    hudState.expireTransients();
-    hudState.updateDebugOverlay();
-
-    // === Remote player snapshot buffering (push only — rendering is per-frame) ===
-    // Always init renderer (spectators need to see other players/bots too)
-    {
-      // Lazy-init renderer with the GAMEPLAY scene (NOT EngineStore.LastCreatedScene
-      // which may point to LogoCanvas or other UI scenes!)
-      if (!this.remoteRenderer) {
-        const cam = CameraSystem.getInstance().getCamera();
-        const gameScene = cam?.getScene();
-        if (gameScene) {
-          this.remoteRenderer = new RemotePlayerRenderer(gameScene);
-        }
-      }
-      if (this.remoteRenderer) {
-        // Convert server timestamp to local time via ClockSync for accurate interpolation
-        let serverLocalTime: number | undefined;
-        const networkHost = this.gameHost as any;
-        if (state.serverTimestamp && networkHost?.clockSync?.isSynced()) {
-          serverLocalTime = networkHost.clockSync.toLocalTime(state.serverTimestamp);
-        }
-
-        // Pass localEntityId (empty string for spectators — no entity excluded)
-        this.remoteRenderer.pushSnapshot(state, localEntityId || '', serverLocalTime);
-      }
-    }
-
-    // === Dropped weapon entity sync (position convergence + cleanup) ===
-    if (this.droppedWeaponRenderer) {
-      const itemPositions = new Map<string, { x: number; y: number; z: number }>();
-      for (const [id, entity] of state.entities) {
-        if (id.startsWith('item_')) {
-          const t = entity.getComponent('transform') as any;
-          if (t?.position) {
-            itemPositions.set(id, { x: t.position.x, y: t.position.y, z: t.position.z });
-          }
-        }
-      }
-      this.droppedWeaponRenderer.syncServerEntities(itemPositions);
-    }
-
-    // === Server-driven projectile entity processing (Q3-style) ===
-    // Push proj_ entities into SnapshotBuffer for smooth interpolation
-    {
-      const projEntities = new Map<string, EntitySnapshot>();
-      const aliveThisSnapshot = new Set<string>();
-
-      for (const [entityId, entity] of state.entities) {
-        if (!entityId.startsWith('proj_')) continue;
-        aliveThisSnapshot.add(entityId);
-
-        const posComp = entity.getComponent('position') as any;
-        const velComp = entity.getComponent('velocity') as any;
-        if (!posComp) continue;
-
-        projEntities.set(entityId, {
-          x: posComp.x,
-          y: posComp.y,
-          z: posComp.z,
-          yaw: 0,
-          vx: velComp?.x ?? 0,
-          vy: velComp?.y ?? 0,
-          vz: velComp?.z ?? 0,
-          grounded: false,
-          crouching: false,
-        });
-
-        // Spawn visual if this is a new projectile
-        if (!this.activeServerProjectiles.has(entityId)) {
-          const defId = this.serverProjectileDefIds.get(entityId);
-          if (defId) {
-            const projMgr = getProjectileManager();
-            if (!projMgr['scene']) {
-              const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
-              if (gameScene) projMgr.init(gameScene);
-            }
-            const pos = new Vector3(posComp.x, posComp.y, posComp.z);
-            const vel = velComp
-              ? new Vector3(velComp.x, velComp.y, velComp.z)
-              : Vector3.Zero();
-            projMgr.spawnFromServer(entityId, defId, pos, vel);
-            this.activeServerProjectiles.add(entityId);
-          }
-        }
-      }
-
-      // Push to interpolation buffer (using same ClockSync timing as remote players)
-      let serverLocalTime: number | undefined;
-      const networkHost = this.gameHost as any;
-      if (state.serverTimestamp && networkHost?.clockSync?.isSynced()) {
-        serverLocalTime = networkHost.clockSync.toLocalTime(state.serverTimestamp);
-      }
-      this.projectileBuffer.push(state.tick, projEntities, serverLocalTime);
-
-      // Despawn visuals for projectiles that disappeared from snapshot
-      for (const entityId of this.activeServerProjectiles) {
-        if (!aliveThisSnapshot.has(entityId)) {
-          getProjectileManager().despawnByEntityId(entityId);
-          this.activeServerProjectiles.delete(entityId);
-          this.serverProjectileDefIds.delete(entityId);
-        }
-      }
-    }
-
-    const player = state.players.get(this.localPlayerId);
-    if (!player) {
-      if (this._stateUpdateCount <= 5 || this._stateUpdateCount % 500 === 0) {
-        console.warn(`[FPSGameManager] onServerStateUpdate #${this._stateUpdateCount}: NO PLAYER for '${this.localPlayerId}'. Player keys: [${[...state.players.keys()].join(',')}]`);
-      }
-      return;
-    }
-
-    const entity = state.entities.get(player.entityId);
-    if (!entity) {
-      if (this._stateUpdateCount <= 5 || this._stateUpdateCount % 500 === 0) {
-        console.warn(`[FPSGameManager] onServerStateUpdate #${this._stateUpdateCount}: NO ENTITY for '${player.entityId}'. Entity keys: [${[...state.entities.keys()].join(',')}]`);
-      }
-      return;
-    }
-
-    const transform = entity.getComponent<TransformComponent>('transform');
-    const velocity = entity.getComponent<VelocityComponent>('velocity');
-
-    if (!transform || !velocity) {
-      if (this._stateUpdateCount <= 5) {
-        console.warn(`[FPSGameManager] onServerStateUpdate #${this._stateUpdateCount}: MISSING COMPONENTS transform=${!!transform} velocity=${!!velocity}`);
-      }
-      return;
-    }
-
-    // Movement state fields are stored on the physics/velocity component by the server
-    // (FPSMovementSubsystem.applyResult writes isSliding, isCrouching, etc. to entity.physics)
-    const physics = velocity as any;
-
-
-    // === V2 CLIENT: Buffer snapshot for frame-synchronized processing ===
-    if (this.v2Client && this.isNetworkMode) {
-      const snapshot: ServerSnapshot = {
-        tick: state.tick,
-        ackedInputSeq: state.ackedInputSeq,
-        position: { ...transform.position },
-        velocity: { ...velocity.linear },
-        grounded: velocity.grounded,
-      };
-      // Buffer snapshot — will be processed during processSnapshots() in frame loop
-      this.v2Client.bufferSnapshot(snapshot);
-
-
-
-      // Movement state (crouchslide, walljump, etc.) comes from client prediction
-      // via v2Client.getMovementState() - no wire protocol needed.
-      this.pendingTick = state.tick;
-      return;
-    }
-
-    const update: PlayerStateUpdate = {
-      position: { ...transform.position },
-      velocity: { ...velocity.linear },
-      grounded: velocity.grounded,
-      tick: state.tick,
-      // Advanced movement state
-      isSliding: physics.isSliding ?? false,
-      isCrouching: physics.isCrouching ?? false,
-      crouchViewOffset: physics.crouchViewOffset ?? 0,
-      wallJumpState: physics.wallJumpState ?? 'none',
-      ledgeGrabState: physics.ledgeGrabState ?? 'none',
-      actualHorizSpeed: physics.actualHorizSpeed ?? 0,
-      slidePhase: physics.slidePhase ?? 0,
-      ledgeGrabPhase: physics.ledgeGrabPhase ?? 0,
-    };
-
-    // Notify callbacks
-    for (const callback of this.onStateUpdateCallbacks) {
-      callback(update);
-    }
-  }
-
-  // ── Server weapon state sync ──────────────────────────────────
-
-  /**
-   * Handle weapon_state event from server for the local player.
-   * Syncs the client's inventory and weapon view with server state.
-   */
-  private handleWeaponStateSync(event: any): void {
-    const player = FPSPlayer.getInstance();
-    if (!player) return;
-
-    // Server is authoritative — always sync weapon state regardless of death flag.
-    // Weapon VIEW visibility is controlled separately by combat_state death/respawn events.
-
-    const serverWeapon = event.currentWeapon as string;
-    const serverWeapons = event.weapons as string[];
-    const serverAmmo = event.ammo as Record<string, number>;
-
-    // Authoritative sync: add/remove weapons, sync ammo, equip server's weapon
-    player.inventory.syncFromServer(serverWeapons, serverAmmo, serverWeapon);
-
-    // Sync weapon speed bonus to client-side prediction (ensures prediction parity)
-    const weaponDef = WEAPONS[serverWeapon];
-    if (this.v2Client) {
-      this.v2Client.setSpeedBonus(weaponDef?.speedBonus ?? 0);
-    }
-
-    // Sync reload state from server — prevents ghost shots during server reload
-    if (event.reloading !== undefined) {
-      player.setServerReloadState(event.reloading as boolean);
-    }
-    // Sync fire timing from server tick to prevent client firing ahead of server cooldown
-    if (event.lastFireTick !== undefined) {
-      player.syncFireTiming(event.lastFireTick as number);
-    }
-
-    // Keep FPSController's currentWeaponSlot in sync with server (every tick).
-    // This ensures mouse scroll cycling and key switching reference the correct slot.
-    const slotIndex = serverWeapons.indexOf(serverWeapon);
-    if (slotIndex >= 0) {
-      player.getController().currentWeaponSlot = slotIndex;
-    }
-
-    // Update HUD with weapon state
-    const hudState = HUDState.getInstance();
-    hudState.processWeaponState({
-      currentWeapon: serverWeapon,
-      weapons: serverWeapons,
-      ammo: serverAmmo,
-    });
-
-    // Detect weapon change using _lastServerWeapon (reliable, one source of truth)
-    if (serverWeapon !== this._lastServerWeapon) {
-      const isFirstWeapon = this._lastServerWeapon === undefined;
-
-      const wvm = getWeaponViewManager();
-
-      // Skip if WVM not initialized yet — DON'T update _lastServerWeapon so we
-      // re-trigger the weapon change on the next snapshot after WVM becomes ready.
-      // joinGame() also calls wvm.loadWeapon('gunblade') as a fallback.
-      if (!wvm.isReady) {
-        return;
-      }
-
-      console.log(`[FPSGameManager] Server weapon changed: ${this._lastServerWeapon || 'none'} → ${serverWeapon}`);
-      this._lastServerWeapon = serverWeapon;
-
-      if (isFirstWeapon) {
-        // First weapon (initial spawn) — load directly without animation
-        wvm.loadWeapon(serverWeapon).catch(err => {
-          console.error(`[FPSGameManager] Failed to load initial weapon: ${serverWeapon}`, err);
-        });
-      } else {
-        // Subsequent changes — play switch animation (slide-down → load → slide-up)
-        wvm.switchWeaponAnimated(serverWeapon).catch(err => {
-          console.error(`[FPSGameManager] Failed to switch weapon: ${serverWeapon}`, err);
-        });
-      }
-    }
-  }
-
-  // ── Remote weapon fire effects ──────────────────────────────────
-
-  /** Color palette per weapon ID (Warsow-inspired) */
-  private static WEAPON_EFFECT_COLORS: Record<string, [number, number, number]> = {
-    machinegun: [1.0, 0.9, 0.3],   // warm yellow
-    riotgun: [1.0, 0.6, 0.2],   // orange
-    voltaic: [1.0, 0.7, 0.1],    // warm orange (beam)
-    electrobolt: [0.3, 0.6, 1.0],   // blue
-    instagun: [0.8, 0.2, 1.0],   // purple
-  };
-
-  /**
-   * Spawn visual effects for another player's weapon fire.
-   * Called when we receive a weapon_fire event for a remote player.
-   */
-  private handleRemoteWeaponFire(event: any): void {
-    const fx = getHitscanEffects();
-    const projMgr = getProjectileManager();
-
-    // Lazy-init ProjectileManager if it hasn't been initialized yet
-    // (WeaponViewManager.init normally does this, but may not have run)
-    if (!projMgr['scene']) {
-      const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
-      if (gameScene) projMgr.init(gameScene);
-    }
-
-    const origin = new Vector3(event.originX, event.originY, event.originZ);
-    const dir = new Vector3(event.dirX, event.dirY, event.dirZ);
-    const rgb = FPSGameManager.WEAPON_EFFECT_COLORS[event.weaponId];
-    const color = rgb ? new Color3(rgb[0], rgb[1], rgb[2]) : new Color3(1, 1, 0.5);
-
-    switch (event.weaponId) {
-      case 'machinegun':
-        fx.fireTracer({ origin, direction: dir, color, maxRange: 6000 });
-        break;
-
-      case 'riotgun':
-        fx.firePellets({
-          origin, direction: dir, color,
-          pelletCount: 20,
-          spreadAngle: 12,
-          maxRange: 8192,
-        });
-        break;
-
-      case 'voltaic':
-        // Continuous beam — update remote beam (auto-cleaned after 150ms timeout)
-        fx.updateRemoteBeam(event.entityId, {
-          origin, direction: dir, color, maxRange: 850,
-          diameterStart: 0.6, diameterEnd: 0.15,
-        });
-        break;
-
-      case 'electrobolt':
-      case 'instagun':
-        fx.fireBolt({ origin, direction: dir, color, maxRange: 10000 });
-        break;
-
-      // Projectile weapons — visuals now come from server entities (Q3-style)
-      // No need to spawn client-side predictions here
-      case 'plasmagun':
-      case 'rlauncher':
-      case 'glauncher':
-      case 'gunblade':
-        break;
-
-      case 'blade':
-        // Play third-person slash animation on remote player model
-        this.remoteRenderer?.playAttackAnim(event.entityId, 'blade_slash', 2.0);
-        break;
-
-      default:
-        fx.fireTracer({ origin, direction: dir, color, maxRange: 5000 });
-        break;
-    }
+    handleServerStateUpdate(this.getEventContext(), state);
   }
 
   /**
