@@ -417,13 +417,14 @@ export class RemotePlayerRenderer {
     /**
      * Position the hitbox mesh correctly relative to Q3 origin.
      *
-     * Q3 origin is at "waist" level. Box extends:
-     * - Standing: -24 to +32 from origin → center at +4 from origin
-     * - Crouching: -4 to +32 from origin → center at +14 from origin
+     * Q3 origin is at "waist" level. The box bottom should ALWAYS
+     * be at feet level (origin + PLAYER_MINS_Z), regardless of crouch.
+     * Crouching shrinks the box from the TOP (head lowers), not the bottom.
      */
     private positionMesh(mesh: Mesh, origin: Vector3, height: number): void {
-        const minsZ = height === CROUCH_HEIGHT ? CROUCH_MINS_Z : PLAYER_MINS_Z;
-        const centerY = origin.y + (PLAYER_MAXS_Z + minsZ) / 2;
+        // Bottom always at feet level
+        const bottomY = origin.y + PLAYER_MINS_Z;
+        const centerY = bottomY + height / 2;
         mesh.position.set(origin.x, centerY, origin.z);
     }
 
