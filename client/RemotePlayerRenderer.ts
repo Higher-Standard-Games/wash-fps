@@ -453,9 +453,12 @@ export class RemotePlayerRenderer {
 
         // Crouch/slide Y offset: Mixamo animations don't lower the skeleton
         // enough to match the shorter hitbox. Drop the model anchor to compensate.
-        // Applies to ALL crouch states (crouch idle, crouch walk, crouchslide).
-        if (interp.crouching || interp.sliding) {
+        // Slide needs full -20 (Mixamo slide anim doesn't lower at all).
+        // Crouch walk needs only -10 (Mixamo crouch walk partially lowers).
+        if (interp.sliding) {
             feetY -= 20;
+        } else if (interp.crouching) {
+            feetY -= 10;
         }
 
         inst.anchor.position.set(interp.x, feetY, interp.z);
@@ -539,15 +542,22 @@ export class RemotePlayerRenderer {
                 const slideRatio = slideSpeed / 400; // Normalize to max slide speed
                 inst.masterGroup.speedRatio = Math.max(0.3, Math.min(2.0, slideRatio));
 
-            } else if (animName === 'crouch_walk' || animName === 'crouch_walk_back') {
+            } else if (animName === 'crouch_walk') {
                 // Crouch walk: speed proportional to horizontal velocity
                 // When speed is very low (crouch idle), freeze on first frame
+                // When walking backward, reverse the animation (negative speedRatio)
                 const crouchSpeed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz);
                 if (crouchSpeed < IDLE_SPEED_THRESHOLD) {
                     inst.masterGroup.speedRatio = 0; // Freeze first frame = crouch idle
                 } else {
+                    // Detect backward movement
+                    const fwdX = Math.sin(interp.yaw);
+                    const fwdZ = Math.cos(interp.yaw);
+                    const forwardDot = fwdX * interp.vx + fwdZ * interp.vz;
+                    const isBackward = forwardDot < 0;
+
                     let crouchRatio = crouchSpeed / WALK_NATURAL_SPEED;
-                    if (animName === 'crouch_walk_back') crouchRatio = -crouchRatio;
+                    if (isBackward) crouchRatio = -crouchRatio;
                     inst.masterGroup.speedRatio = Math.max(-3.0, Math.min(3.0, crouchRatio));
                 }
 
@@ -627,7 +637,7 @@ export class RemotePlayerRenderer {
             if (Math.abs(rightDot) > Math.abs(forwardDot) * 1.5) {
                 return rightDot > 0 ? 'crouch_strafe_l' : 'crouch_strafe_r';
             }
-            return forwardDot >= 0 ? 'crouch_walk' : 'crouch_walk_back';
+            return 'crouch_walk'; // Backward handled by negative speedRatio
         }
 
         // Idle
