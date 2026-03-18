@@ -451,10 +451,10 @@ export class RemotePlayerRenderer {
         // MODEL_Y_OFFSET raises the model so visual feet align with hitbox bottom
         let feetY = interp.y + PLAYER_MINS_Z + MODEL_Y_OFFSET;
 
-        // Crouchslide Y offset: the Mixamo slide animation doesn't lower the skeleton,
-        // so we drop the model anchor to match the shorter hitbox.
-        // Only for SLIDE — crouch walk animations are already at correct height.
-        if (interp.sliding) {
+        // Crouch/slide Y offset: Mixamo animations don't lower the skeleton
+        // enough to match the shorter hitbox. Drop the model anchor to compensate.
+        // Applies to ALL crouch states (crouch idle, crouch walk, crouchslide).
+        if (interp.crouching || interp.sliding) {
             feetY -= 20;
         }
 
