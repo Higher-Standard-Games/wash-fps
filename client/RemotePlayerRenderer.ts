@@ -448,7 +448,16 @@ export class RemotePlayerRenderer {
 
         // Position the model anchor at player feet (Q3 origin - 24 = feet level)
         // MODEL_Y_OFFSET raises the model so visual feet align with hitbox bottom
-        const feetY = interp.y + PLAYER_MINS_Z + MODEL_Y_OFFSET;
+        let feetY = interp.y + PLAYER_MINS_Z + MODEL_Y_OFFSET;
+
+        // Crouch/slide Y offset: Mixamo animations don't lower the skeleton,
+        // so we drop the model anchor to match the shorter hitbox.
+        // Standing: feet at origin-24. Crouching: feet at origin-4.
+        // Difference: 20 units. Lower the model so it visually "squats".
+        if (interp.crouching || interp.sliding) {
+            feetY -= 20;
+        }
+
         inst.anchor.position.set(interp.x, feetY, interp.z);
 
         // Rotation
@@ -555,12 +564,23 @@ export class RemotePlayerRenderer {
     }
 
     private _lastSlideLog: number = 0;
+    private _lastFlagLog: number = 0;
 
     /**
      * Derive animation name from interpolated network data.
      * Uses velocity, grounded state, and yaw — all available from SnapshotBuffer.
      */
     private deriveAnimation(interp: InterpolatedEntity): string {
+        // Debug: log all movement flags periodically (every 2s) regardless of state
+        const now = performance.now();
+        if (now - this._lastFlagLog > 2000) {
+            this._lastFlagLog = now;
+            const speed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz);
+            if (interp.crouching || interp.sliding || interp.wallJumping) {
+                console.log(`[RemoteAnim] flags: crouching=${interp.crouching} sliding=${interp.sliding} wallJumping=${interp.wallJumping} grounded=${interp.grounded} speed=${speed.toFixed(0)}`);
+            }
+        }
+
         // Walljump — player is on a wall, play wallrun animation
         // Check BEFORE grounded/airborne since walljump happens while !grounded
         if (interp.wallJumping) return 'walljump';
