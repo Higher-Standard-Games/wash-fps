@@ -450,11 +450,10 @@ export class RemotePlayerRenderer {
         // MODEL_Y_OFFSET raises the model so visual feet align with hitbox bottom
         let feetY = interp.y + PLAYER_MINS_Z + MODEL_Y_OFFSET;
 
-        // Crouch/slide Y offset: Mixamo animations don't lower the skeleton,
+        // Crouchslide Y offset: the Mixamo slide animation doesn't lower the skeleton,
         // so we drop the model anchor to match the shorter hitbox.
-        // Standing: feet at origin-24. Crouching: feet at origin-4.
-        // Difference: 20 units. Lower the model so it visually "squats".
-        if (interp.crouching || interp.sliding) {
+        // Only for SLIDE — crouch walk animations are already at correct height.
+        if (interp.sliding) {
             feetY -= 20;
         }
 
@@ -541,10 +540,15 @@ export class RemotePlayerRenderer {
 
             } else if (animName === 'crouch_walk' || animName === 'crouch_walk_back') {
                 // Crouch walk: speed proportional to horizontal velocity
+                // When speed is very low (crouch idle), freeze on first frame
                 const crouchSpeed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz);
-                let crouchRatio = crouchSpeed / WALK_NATURAL_SPEED;
-                if (animName === 'crouch_walk_back') crouchRatio = -crouchRatio;
-                inst.masterGroup.speedRatio = Math.max(-3.0, Math.min(3.0, crouchRatio));
+                if (crouchSpeed < IDLE_SPEED_THRESHOLD) {
+                    inst.masterGroup.speedRatio = 0; // Freeze first frame = crouch idle
+                } else {
+                    let crouchRatio = crouchSpeed / WALK_NATURAL_SPEED;
+                    if (animName === 'crouch_walk_back') crouchRatio = -crouchRatio;
+                    inst.masterGroup.speedRatio = Math.max(-3.0, Math.min(3.0, crouchRatio));
+                }
 
             } else if (animName === 'crouch_strafe_l' || animName === 'crouch_strafe_r') {
                 // Crouch strafe: same as standing strafe
@@ -610,7 +614,7 @@ export class RemotePlayerRenderer {
                 this._lastSlideLog = now;
                 console.log(`[RemoteAnim] CROUCH detected: crouching=${interp.crouching} speed=${speed.toFixed(0)}`);
             }
-            if (speed < IDLE_SPEED_THRESHOLD) return 'idle'; // No crouch idle anim yet
+            if (speed < IDLE_SPEED_THRESHOLD) return 'crouch_walk'; // Frozen first frame = crouch idle
 
             const fwdX = Math.sin(interp.yaw);
             const fwdZ = Math.cos(interp.yaw);
