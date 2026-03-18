@@ -578,24 +578,13 @@ export class RemotePlayerRenderer {
         }
     }
 
-    private _lastSlideLog: number = 0;
-    private _lastFlagLog: number = 0;
+
 
     /**
      * Derive animation name from interpolated network data.
      * Uses velocity, grounded state, and yaw — all available from SnapshotBuffer.
      */
     private deriveAnimation(interp: InterpolatedEntity): string {
-        // Debug: log all movement flags periodically (every 2s) regardless of state
-        const now = performance.now();
-        if (now - this._lastFlagLog > 2000) {
-            this._lastFlagLog = now;
-            const speed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz);
-            if (interp.crouching || interp.sliding || interp.wallJumping) {
-                console.log(`[RemoteAnim] flags: crouching=${interp.crouching} sliding=${interp.sliding} wallJumping=${interp.wallJumping} grounded=${interp.grounded} speed=${speed.toFixed(0)}`);
-            }
-        }
-
         // Walljump — player is on a wall, play wallrun animation
         // Check BEFORE grounded/airborne since walljump happens while !grounded
         if (interp.wallJumping) return 'walljump';
@@ -605,13 +594,6 @@ export class RemotePlayerRenderer {
 
         // Crouchslide — takes priority over walk/run/strafe
         if (interp.sliding) {
-            // Debug: log crouchslide detection (throttled to 1/sec)
-            const now = performance.now();
-            if (now - this._lastSlideLog > 1000) {
-                this._lastSlideLog = now;
-                const speed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz);
-                console.log(`[RemoteAnim] SLIDE detected: sliding=${interp.sliding} crouching=${interp.crouching} speed=${speed.toFixed(0)}`);
-            }
             return 'slide';
         }
 
@@ -619,12 +601,6 @@ export class RemotePlayerRenderer {
 
         // Crouching (not sliding) — use crouch walk animations
         if (interp.crouching) {
-            // Debug: log crouch detection (throttled to 1/sec)
-            const now = performance.now();
-            if (now - this._lastSlideLog > 1000) {
-                this._lastSlideLog = now;
-                console.log(`[RemoteAnim] CROUCH detected: crouching=${interp.crouching} speed=${speed.toFixed(0)}`);
-            }
             if (speed < IDLE_SPEED_THRESHOLD) return 'crouch_walk'; // Frozen first frame = crouch idle
 
             const fwdX = Math.sin(interp.yaw);
