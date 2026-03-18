@@ -139,6 +139,72 @@ class DroppedWeaponVisual {
 
                     this.mesh = leaderMesh;
 
+                    // === BARREL SUB-MODELS ===
+                    // Load barrel GLBs (e.g. plasmagun dual chambers) and parent to leader
+                    const barrelDefs = (def as any)?.barrels as Array<{ modelPath: string; offset?: { x: number; y: number; z: number } }> | undefined;
+                    if (barrelDefs?.length) {
+                        // Load tags.txt for bone-based positioning
+                        const firstPath = barrelDefs[0].modelPath;
+                        const modelDir = firstPath.substring(0, firstPath.lastIndexOf('/') + 1);
+                        const { loadTags, findTag } = await import('../../../engine/loader/model/TagsLoader');
+                        const tags = await loadTags(modelDir);
+                        const barrelTag = findTag(tags, 'tag_barrel');
+
+                        // Find bone position if tag references a bone
+                        let boneOffX = 0, boneOffY = 0, boneOffZ = 0;
+                        if (barrelTag?.boneName) {
+                            for (const skeleton of this.scene.skeletons) {
+                                const bone = skeleton.bones.find(b => b.name === barrelTag.boneName);
+                                if (bone) {
+                                    const boneNode = bone.getTransformNode();
+                                    if (boneNode) {
+                                        boneOffX = boneNode.position.x;
+                                        boneOffY = boneNode.position.y;
+                                        boneOffZ = boneNode.position.z;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        const { SceneLoader } = await import('@babylonjs/core/Loading/sceneLoader');
+                        for (const barrelDef of barrelDefs) {
+                            if (this.disposed) break;
+                            try {
+                                const lastSlash = barrelDef.modelPath.lastIndexOf('/');
+                                const dir = barrelDef.modelPath.substring(0, lastSlash + 1);
+                                const file = barrelDef.modelPath.substring(lastSlash + 1);
+                                const barrelResult = await SceneLoader.ImportMeshAsync('', dir, file, this.scene);
+                                if (this.disposed) { barrelResult.meshes[0]?.dispose(false, false); break; }
+                                const barrelRoot = barrelResult.meshes[0];
+                                if (barrelRoot) {
+                                    barrelRoot.parent = leaderMesh;
+                                    if (barrelRoot.rotationQuaternion) barrelRoot.rotationQuaternion = null;
+                                    // Apply: bone position + tag offset + per-barrel def offset
+                                    const tagOff = barrelTag?.offset;
+                                    const defOff = barrelDef.offset;
+                                    barrelRoot.position.set(
+                                        boneOffX + (tagOff?.x ?? 0) + (defOff?.x ?? 0),
+                                        boneOffY + (tagOff?.y ?? 0) + (defOff?.y ?? 0),
+                                        boneOffZ + (tagOff?.z ?? 0) + (defOff?.z ?? 0)
+                                    );
+                                    if (tagOff) {
+                                        barrelRoot.rotation.set(barrelTag!.rotation.x, barrelTag!.rotation.y, barrelTag!.rotation.z);
+                                    } else {
+                                        barrelRoot.rotation.setAll(0);
+                                    }
+                                    for (const bm of barrelResult.meshes) {
+                                        if (bm.material && 'maxSimultaneousLights' in bm.material) {
+                                            (bm.material as any).maxSimultaneousLights = 4;
+                                        }
+                                    }
+                                }
+                            } catch (e) {
+                                console.warn(`[DroppedWeapon] Barrel load failed:`, e);
+                            }
+                        }
+                    }
+
                     // === HAVOK PHYSICS ===
                     // Create dynamic body identical to Pickup.loadModel()
                     const { PhysicsSystem } = await import('../../../engine/physics/PhysicsSystem');
