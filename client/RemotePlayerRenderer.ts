@@ -466,6 +466,16 @@ export class RemotePlayerRenderer {
         inst.mesh.getChildMeshes().forEach(m => m.isVisible = true);
 
         // Derive animation from network data
+        // Skip if a one-shot animation (e.g. blade slash) is still playing
+        if (inst.oneshotUntil > 0 && performance.now() < inst.oneshotUntil) {
+            // One-shot is playing — don't override with locomotion
+            return;
+        }
+        // Clear expired one-shot flag and force locomotion re-evaluation
+        if (inst.oneshotUntil > 0) {
+            inst.oneshotUntil = 0;
+            inst.currentAnim = ''; // Force playAnimation to re-apply locomotion
+        }
         const animName = this.deriveAnimation(interp);
         this.modelManager.playAnimation(inst, animName);
 
@@ -543,6 +553,8 @@ export class RemotePlayerRenderer {
         }
     }
 
+    private _lastSlideLog: number = 0;
+
     /**
      * Derive animation name from interpolated network data.
      * Uses velocity, grounded state, and yaw — all available from SnapshotBuffer.
@@ -552,12 +564,27 @@ export class RemotePlayerRenderer {
         if (!interp.grounded) return 'jump';
 
         // Crouchslide — takes priority over walk/run/strafe
-        if (interp.sliding) return 'slide';
+        if (interp.sliding) {
+            // Debug: log crouchslide detection (throttled to 1/sec)
+            const now = performance.now();
+            if (now - this._lastSlideLog > 1000) {
+                this._lastSlideLog = now;
+                const speed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz);
+                console.log(`[RemoteAnim] SLIDE detected: sliding=${interp.sliding} crouching=${interp.crouching} speed=${speed.toFixed(0)}`);
+            }
+            return 'slide';
+        }
 
         const speed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz);
 
         // Crouching (not sliding) — use crouch walk animations
         if (interp.crouching) {
+            // Debug: log crouch detection (throttled to 1/sec)
+            const now = performance.now();
+            if (now - this._lastSlideLog > 1000) {
+                this._lastSlideLog = now;
+                console.log(`[RemoteAnim] CROUCH detected: crouching=${interp.crouching} speed=${speed.toFixed(0)}`);
+            }
             if (speed < IDLE_SPEED_THRESHOLD) return 'idle'; // No crouch idle anim yet
 
             const fwdX = Math.sin(interp.yaw);
