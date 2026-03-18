@@ -14,12 +14,14 @@
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Scene } from '@babylonjs/core/scene';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import type { GameState } from '../../../engine/network/core/GameState';
 import { SnapshotBuffer, type EntitySnapshot, type InterpolatedEntity } from '../../../engine/network/client/SnapshotBuffer';
 import { PlayerModelManager, type PlayerModelInstance } from '../../../engine/animation/PlayerModelManager';
 import { Cvar } from '../../../engine/core/Cvar';
+import { WEAPONS } from '../server/weapons/WeaponDef';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -32,10 +34,12 @@ interface RemotePlayerHitbox {
     currentHeight: number;
     /** 3D model instance (null until model loads) */
     model: PlayerModelInstance | null;
-    /** Weapon mesh attached to hand bone (null until weaponId sent over wire) */
-    weaponMesh: Mesh | null;
-    /** Current weapon ID (for detecting weapon switches) */
-    currentWeaponId: number;
+    /** Root node of weapon model attached to hand bone */
+    weaponRoot: TransformNode | null;
+    /** Reference to RightHand bone transform node for per-frame tracking */
+    handBone: TransformNode | null;
+    /** Current weapon ID string (for detecting weapon switches) */
+    currentWeaponId: string;
 }
 
 // ─── Constants (Q3-style player bounds) ──────────────────────────
@@ -90,13 +94,20 @@ export class RemotePlayerRenderer {
     /** Entities marked dead — value is death timestamp (performance.now) */
     private deadEntities: Map<string, number> = new Map();
 
-
     /** Shared model manager — loads vanguard.glb once, creates cloned instances */
     private modelManager: PlayerModelManager | null = null;
     private modelLoading = false;
 
+    /** Reference to enemyWeapons from GameEventContext — maps entityId → weaponId */
+    private enemyWeapons: Map<string, string> = new Map();
+
     constructor(scene: Scene) {
         this.scene = scene;
+    }
+
+    /** Set reference to enemy weapons map from GameEventContext */
+    setEnemyWeapons(weapons: Map<string, string>): void {
+        this.enemyWeapons = weapons;
     }
 
     // ── Model Loading ────────────────────────────────────────────
@@ -238,13 +249,16 @@ export class RemotePlayerRenderer {
             this.updatePosition(hitbox, interp);
 
             // Update model position + animation
-            this.updateModel(hitbox, interp);
+            this.updateModel(hitbox, interp, entityId);
         }
 
         // Remove hitboxes for entities no longer alive
         for (const [entityId, hitbox] of this.hitboxes) {
             if (!aliveIds.has(entityId)) {
                 hitbox.mesh.dispose();
+                if (hitbox.weaponRoot) {
+                    hitbox.weaponRoot.dispose(false, true);
+                }
                 if (hitbox.model && this.modelManager) {
                     this.modelManager.disposeInstance(hitbox.model);
                 }
@@ -407,8 +421,9 @@ export class RemotePlayerRenderer {
             smoothedYaw: initialState.yaw,
             currentHeight: height,
             model,
-            weaponMesh: null,
-            currentWeaponId: -1,
+            weaponRoot: null,
+            handBone: null,
+            currentWeaponId: '',
         };
     }
 
@@ -443,9 +458,12 @@ export class RemotePlayerRenderer {
 
     // ── Model Update ─────────────────────────────────────────────
 
-    private updateModel(hitbox: RemotePlayerHitbox, interp: InterpolatedEntity): void {
+    private updateModel(hitbox: RemotePlayerHitbox, interp: InterpolatedEntity, entityId: string): void {
         const inst = hitbox.model;
         if (!inst || !this.modelManager) return;
+
+        // ── Weapon model on hand ──
+        this.updateWeaponModel(hitbox, inst, entityId);
 
         // Position the model anchor at player feet (Q3 origin - 24 = feet level)
         // MODEL_Y_OFFSET raises the model so visual feet align with hitbox bottom
@@ -578,7 +596,146 @@ export class RemotePlayerRenderer {
         }
     }
 
+    // ── Weapon Model on Hand ─────────────────────────────────────
+    /**
+     * Load and attach the correct weapon model to the player's right hand bone.
+     * Called each frame from updateModel; only acts when weaponId changes.
+     *
+     * Uses ModelLoader — same proven code path as DroppedWeaponRenderer.
+     */
+    private updateWeaponModel(hitbox: RemotePlayerHitbox, inst: PlayerModelInstance, entityId: string): void {
+        const weaponId = this.enemyWeapons.get(entityId);
+        if (!weaponId) return;
 
+        // No change — nothing to do
+        if (weaponId === hitbox.currentWeaponId) return;
+
+        console.log(`[RemoteWeapon] ★ Weapon change: ${entityId} → ${weaponId}`);
+        hitbox.currentWeaponId = weaponId;
+
+        // Dispose previous weapon
+        if (hitbox.weaponRoot) {
+            hitbox.weaponRoot.dispose(false, true);
+            hitbox.weaponRoot = null;
+        }
+
+        // Look up weapon def for model path
+        const weaponDef = WEAPONS[weaponId];
+        const modelPath = weaponDef?.modelPath;
+        if (!modelPath) {
+            console.warn(`[RemoteWeapon] No modelPath for '${weaponId}'`);
+            return;
+        }
+
+        const defScale = weaponDef.scale ?? 1.5;
+
+        // Load weapon via ModelLoader — same approach as DroppedWeaponRenderer.loadModel()
+        import('../../../engine/loader/model/ModelLoader').then(async ({ ModelLoader }) => {
+            const loader = ModelLoader.getInstance();
+            if (!loader.isInitialized()) loader.init(this.scene);
+
+            const result = await loader.loadModel(modelPath, {
+                position: Vector3.Zero(),
+                scale: defScale,
+                hasCollision: false,
+                applyLighting: false,
+            });
+
+            if (!result?.root) {
+                console.warn(`[RemoteWeapon] ModelLoader returned null for ${weaponId}`);
+                return;
+            }
+
+            // Find leader mesh (first mesh with geometry) — same as DroppedWeaponRenderer
+            let leaderMesh: Mesh | null = null;
+            for (const m of result.meshes) {
+                if (m instanceof Mesh && m.getTotalVertices() > 0) {
+                    if (!leaderMesh) {
+                        leaderMesh = m;
+                    }
+                    // Cap lights to prevent shader overflow
+                    if (m.material && 'maxSimultaneousLights' in m.material) {
+                        (m.material as any).maxSimultaneousLights = 4;
+                    }
+                    // Disable frustum culling
+                    m.alwaysSelectAsActiveMesh = true;
+                    m.isVisible = true;
+                }
+            }
+
+            if (!leaderMesh) {
+                console.warn(`[RemoteWeapon] No meshes with geometry for ${weaponId}`);
+                result.root.dispose();
+                return;
+            }
+
+            if (leaderMesh.rotationQuaternion) leaderMesh.rotationQuaternion = null;
+
+            // Use Babylon.js attachToBone() API — the official way to attach
+            // external meshes to animated skeleton bones.
+            // attachToBone(bone, affectedTransformNode) where affectedTransformNode
+            // is the mesh that owns the skeleton.
+            let attached = false;
+            if (inst.skeleton) {
+                for (const bone of inst.skeleton.bones) {
+                    if (bone.name === 'mixamorig:RightHand') {
+                        leaderMesh.attachToBone(bone, inst.mesh);
+                        leaderMesh.position.set(0, 0, 0);
+                        // Scale: compensate for 36x mesh + shrink for 3rd person
+                        const thirdPersonScale = defScale / MODEL_SCALE * 0.5;
+                        leaderMesh.scaling.setAll(thirdPersonScale);
+
+                        // Weapon-specific rotation in bone-local space
+                        // (differs from first-person loadGlbWeapon rotations)
+                        if (weaponId === 'blade') {
+                            leaderMesh.rotation.set(Math.PI, 0.9, 0);
+                        } else {
+                            // IQM→GLB guns: barrel along +X in model space
+                            // Bone +Y = along fingers (forward), so Z rot of -90° aligns barrel
+                            // X rot of π flips right-side up
+                            leaderMesh.rotation.set(Math.PI, 0, -Math.PI / 2);
+                        }
+
+                        attached = true;
+                        console.log(`[RemoteWeapon] ✓ attachToBone: ${weaponId} → RightHand, scale: ${(defScale / MODEL_SCALE).toFixed(4)}`);
+                        break;
+                    }
+                }
+            }
+
+            if (!attached) {
+                // Fallback: parent to anchor
+                leaderMesh.parent = inst.anchor;
+                leaderMesh.position.set(0, 30, 0);
+                leaderMesh.rotation.setAll(0);
+                leaderMesh.scaling.setAll(defScale);
+                console.warn(`[RemoteWeapon] No RightHand bone, using anchor for ${entityId}`);
+            }
+
+            // Parent other meshes under leader
+            for (const m of result.meshes) {
+                if (m instanceof Mesh && m !== leaderMesh && m.getTotalVertices() > 0) {
+                    m.parent = leaderMesh;
+                    m.position.setAll(0);
+                    if (m.rotationQuaternion) m.rotationQuaternion = null;
+                    m.rotation.setAll(0);
+                    m.isVisible = true;
+                    m.alwaysSelectAsActiveMesh = true;
+                }
+            }
+
+            // Detach loader root
+            if (result.root) {
+                result.root.parent = null;
+                result.root.setEnabled(false);
+            }
+
+            hitbox.weaponRoot = leaderMesh as unknown as TransformNode;
+            console.log(`[RemoteWeapon] ✓ Done: ${weaponId} for ${entityId}, bone: ${attached}, scale: ${attached ? defScale / MODEL_SCALE : defScale}`);
+        }).catch(err => {
+            console.warn(`[RemoteWeapon] Failed to load ${weaponId} for ${entityId}:`, err);
+        });
+    }
 
     /**
      * Derive animation name from interpolated network data.

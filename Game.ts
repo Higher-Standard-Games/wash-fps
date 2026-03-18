@@ -1283,6 +1283,7 @@ export class Game {
       const gameScene = cam?.getScene();
       if (gameScene) {
         this.remoteRenderer = new RemotePlayerRenderer(gameScene);
+        this.remoteRenderer.setEnemyWeapons(this.enemyWeapons);
       }
     }
     handleServerStateUpdate(this.getEventContext(), state);
