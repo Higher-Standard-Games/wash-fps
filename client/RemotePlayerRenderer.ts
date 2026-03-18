@@ -175,6 +175,7 @@ export class RemotePlayerRenderer {
                 grounded: velocity?.grounded ?? true,
                 crouching: movementState?.isCrouching ?? false,
                 sliding: movementState?.isSliding ?? false,
+                wallJumping: movementState?.wallJumpState === 'charging',
             });
         }
 
@@ -560,6 +561,10 @@ export class RemotePlayerRenderer {
      * Uses velocity, grounded state, and yaw — all available from SnapshotBuffer.
      */
     private deriveAnimation(interp: InterpolatedEntity): string {
+        // Walljump — player is on a wall, play wallrun animation
+        // Check BEFORE grounded/airborne since walljump happens while !grounded
+        if (interp.wallJumping) return 'walljump';
+
         // Airborne — use jump for entire air time (Warsow-style)
         if (!interp.grounded) return 'jump';
 
