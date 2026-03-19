@@ -151,6 +151,12 @@ export class DemoRecorder {
 
         console.log(`[DemoRecorder] Stopping... ${this._frameCount} frames, ${(duration / 1000).toFixed(1)}s`);
 
+        // Guard: don't write an empty demo file
+        if (this._frameCount === 0) {
+            console.warn('[DemoRecorder] No frames recorded, skipping file write');
+            return '';
+        }
+
         // Generate filename: map_gametype_YYYYMMDD_HHmmss.shagdemo
         const filename = this._generateFilename();
         const dir = this._config.outputDir!;
