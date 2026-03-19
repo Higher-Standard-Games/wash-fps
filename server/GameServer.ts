@@ -20,8 +20,11 @@ import type { Vec3 } from '@shared/server/simulation/types';
 import { MessageCodec, MessageType } from '../../../engine/network/protocol/MessageCodec';
 
 // Snapshot building (extracted from this file)
-import { type SnapshotContext } from './SnapshotBuilder';
+import { buildSnapshot, type SnapshotContext } from './SnapshotBuilder';
 import { SnapshotBroadcaster } from './SnapshotBroadcaster';
+
+// Demo recording
+import { DemoRecorder } from './DemoRecorder';
 
 // Subsystems
 import { FPSMovementSubsystem } from './systems/FPSMovementSubsystem';
@@ -44,6 +47,9 @@ import { getNextBotName } from './BotNames';
 
 // PVS (Potentially Visible Set) for network culling
 import { ServerPVS, type ServerPVSData } from '../../../engine/server/ServerPVS';
+
+// Match phase tracking (for auto-recording)
+import { MatchPhase } from '../../../shared/server/gametype/GametypeTypes';
 
 // Transport
 import type { Transport, TransportConfig, ClientConnection } from '@engine/server/network/transport/WebSocketTransport';
@@ -102,6 +108,10 @@ export class GameServer {
     // Auto-shutdown: track if any client has ever connected
     private hasHadClients = false;
     private shutdownTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // Demo recording (optional)
+    private demoRecorder: DemoRecorder | null = null;
+    private _lastMatchPhase: MatchPhase = MatchPhase.Warmup;
 
     constructor(config: GameServerConfig, gametype?: BaseGametype) {
         this.config = config;
@@ -286,6 +296,65 @@ export class GameServer {
     }
 
     // ========================================================================
+    // Demo Recording
+    // ========================================================================
+
+    /**
+     * Start recording the match to a .shagdemo file.
+     */
+    startRecording(): void {
+        if (this.demoRecorder?.isRecording) {
+            console.log('[GameServer] Already recording');
+            return;
+        }
+
+        const snapshotRate = this.config.snapshotRate ?? 60;
+        const gametypeName = this.gametypeController.getGametype()?.constructor?.name?.toLowerCase() || 'deathmatch';
+
+        this.demoRecorder = new DemoRecorder({
+            map: this.config.mapName,
+            gametype: gametypeName,
+            tickRate: this.config.tickRate,
+            snapshotRate,
+        });
+
+        // Add existing players to roster
+        for (const client of this.clients.values()) {
+            if (!client.isSpectator) {
+                this.demoRecorder.addPlayer(
+                    String(client.playerId),
+                    client.playerName,
+                    '',
+                );
+            }
+        }
+
+        console.log(`[GameServer] 🔴 Demo recording started`);
+    }
+
+    /**
+     * Stop recording and save the demo file.
+     * Returns the filepath of the saved demo, or null if not recording.
+     */
+    async stopRecording(): Promise<string | null> {
+        if (!this.demoRecorder?.isRecording) {
+            console.log('[GameServer] Not recording');
+            return null;
+        }
+
+        try {
+            const filepath = await this.demoRecorder.stop();
+            console.log(`[GameServer] 🟢 Demo saved: ${filepath}`);
+            this.demoRecorder = null;
+            return filepath;
+        } catch (err) {
+            console.error('[GameServer] Failed to save demo:', err);
+            this.demoRecorder = null;
+            return null;
+        }
+    }
+
+    // ========================================================================
     // Lifecycle
     // ========================================================================
 
@@ -312,6 +381,17 @@ export class GameServer {
         await this.transport.stop();
         this.running = false;
         this.simulation.cleanup();
+
+        // Finalize demo recording if active
+        if (this.demoRecorder?.isRecording) {
+            try {
+                const filepath = await this.demoRecorder.stop();
+                console.log(`[GameServer] Demo saved: ${filepath}`);
+            } catch (err) {
+                console.error(`[GameServer] Failed to save demo:`, err);
+            }
+            this.demoRecorder = null;
+        }
 
         console.log(`[GameServer] Stopped`);
     }
@@ -372,11 +452,33 @@ export class GameServer {
         const state = this.simulation.getStateMut();
         this.gametypeController.postTick(state, dt, this.simulation.currentTick);
 
+        // 3b. Auto-record on match phase transition (skip warmup)
+        const currentPhase = this.gametypeController.getPhase();
+        if (currentPhase !== this._lastMatchPhase) {
+            // Match started → begin recording
+            if (currentPhase === MatchPhase.Active && !this.demoRecorder?.isRecording) {
+                this.startRecording();
+            }
+            // Match ended → stop recording
+            if (currentPhase === MatchPhase.PostGame && this.demoRecorder?.isRecording) {
+                this.stopRecording();
+            }
+            this._lastMatchPhase = currentPhase;
+        }
+
         // 4. Broadcast snapshot to clients (throttled to snapshot rate)
         this.snapshotTickCounter++;
         if (this.snapshotTickCounter >= this.ticksPerSnapshot) {
             this.snapshotTickCounter = 0;
-            this.broadcaster.broadcast(this.clients, this.getSnapshotContext());
+
+            const snapshotCtx = this.getSnapshotContext();
+            this.broadcaster.broadcast(this.clients, snapshotCtx);
+
+            // 4b. Record frame for demo (if recording)
+            if (this.demoRecorder?.isRecording) {
+                const gameState = buildSnapshot(snapshotCtx);
+                this.demoRecorder.recordFrame(gameState);
+            }
         }
     }
 
@@ -641,6 +743,15 @@ export class GameServer {
 
         // Mark as playing
         client.isSpectator = false;
+
+        // Record player in demo roster
+        if (this.demoRecorder?.isRecording) {
+            this.demoRecorder.addPlayer(
+                String(client.playerId),
+                client.playerName,
+                '', // team assigned by gametype
+            );
+        }
 
         console.log(`[GameServer] Player ${client.playerId} joined game at (${spawnPoint.x.toFixed(1)}, ${spawnPoint.y.toFixed(1)}, ${spawnPoint.z.toFixed(1)})`);
 
