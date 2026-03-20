@@ -120,6 +120,10 @@ export class FPSMovementSubsystem extends Subsystem {
     /** Per-entity speed bonus from weapon (e.g., +25 for blade) */
     private weaponSpeedBonuses: Map<number, number> = new Map();
 
+    /** DIAGNOSTIC: track when each entity went airborne (tick number) */
+    private jumpStartTick: Map<number, number> = new Map();
+    private jumpStartY: Map<number, number> = new Map();
+
     constructor(collisionWorld?: CollisionWorld) {
         super(CONFIG);
         this.collisionWorld = collisionWorld ?? null;
@@ -294,10 +298,19 @@ export class FPSMovementSubsystem extends Subsystem {
                     console.log(`[KB POST-SIM] entity=${entity.id}: pos=(${transform.position.x.toFixed(1)},${transform.position.y.toFixed(1)},${transform.position.z.toFixed(1)}) vel=(${physics.velocity.x.toFixed(1)},${physics.velocity.y.toFixed(1)},${physics.velocity.z.toFixed(1)}) grounded=${physics.grounded} queue=empty`);
                 }
             } else {
-                // Process ALL queued inputs — one simulate() per input
-                // This matches client-side prediction which ran one simulate per input
-                // Track USE button across queue — brief presses can be overwritten
-                // by a later entry without USE. OR-accumulate to prevent loss.
+                // Process all queued inputs for STATE (buttons, direction, yaw)
+                // but simulate() only ONCE with dt.
+                //
+                // WHY: Previously, each queued input got its own simulate() with
+                // full dt=0.008. With queue=2, an entity got DOUBLE physics per
+                // tick — 2x gravity, 2x acceleration. This caused bots (and fast
+                // clients) to experience more physics time than 1x.
+                //
+                // NOW: We apply all input state changes (so button presses,
+                // direction changes, weapon switches aren't lost) and then
+                // simulate once. Every entity gets exactly 1 simulate per tick
+                // regardless of command rate. Client-side prediction reconciliation
+                // handles the slight drift for 144Hz players.
                 const USE_BUTTON = 1 << 11; // Must match InputButtons.USE
                 let usePressedInQueue = false;
 
@@ -316,16 +329,17 @@ export class FPSMovementSubsystem extends Subsystem {
 
                     // Track USE across queue entries (sticky — don't lose brief presses)
                     if (qi.buttons & USE_BUTTON) usePressedInQueue = true;
+                }
 
-                    const movementInput = adaptInput(input);
-                    const result = profile.simulate(
-                        transform.position, physics.velocity,
-                        movementInput, dt, this.collisionWorld
-                    );
-                    applyResult(transform, physics, result, input);
-                    if (kbEntities.has(entity.id as number)) {
-                        console.log(`[KB POST-SIM] entity=${entity.id}: pos=(${transform.position.x.toFixed(1)},${transform.position.y.toFixed(1)},${transform.position.z.toFixed(1)}) vel=(${physics.velocity.x.toFixed(1)},${physics.velocity.y.toFixed(1)},${physics.velocity.z.toFixed(1)}) grounded=${physics.grounded} queue=${queue.length}`);
-                    }
+                // Simulate ONCE with the latest input state
+                const movementInput = adaptInput(input);
+                const result = profile.simulate(
+                    transform.position, physics.velocity,
+                    movementInput, dt, this.collisionWorld
+                );
+                applyResult(transform, physics, result, input);
+                if (kbEntities.has(entity.id as number)) {
+                    console.log(`[KB POST-SIM] entity=${entity.id}: pos=(${transform.position.x.toFixed(1)},${transform.position.y.toFixed(1)},${transform.position.z.toFixed(1)}) vel=(${physics.velocity.x.toFixed(1)},${physics.velocity.y.toFixed(1)},${physics.velocity.z.toFixed(1)}) grounded=${physics.grounded} queue=${queue.length}`);
                 }
 
                 // Ensure USE flag survives queue drain (prevents lost F-presses)
@@ -333,6 +347,54 @@ export class FPSMovementSubsystem extends Subsystem {
 
                 // Clear queue after processing
                 input.inputQueue = [];
+            }
+        }
+
+        // ── DIAGNOSTIC: track jump durations per entity ──
+        for (const entity of state.entitiesByType(EntityType.Player)) {
+            if (!entity.transform || !entity.physics || entity.health?.dead) continue;
+            const eid = entity.id as number;
+            const grounded = entity.physics.grounded;
+            const py = entity.transform.position.y;
+            const vy = entity.physics.velocity.y;
+
+            if (!grounded && !this.jumpStartTick.has(eid)) {
+                // Just went airborne
+                this.jumpStartTick.set(eid, tickNum);
+                this.jumpStartY.set(eid, py);
+            } else if (grounded && this.jumpStartTick.has(eid)) {
+                // Just landed
+                const startTick = this.jumpStartTick.get(eid)!;
+                const startY = this.jumpStartY.get(eid)!;
+                const duration = tickNum - startTick;
+                const durationMs = duration * 8;
+                const peakDelta = py - startY;
+                console.log(`[JUMP] eid=${entity.id} owner=${entity.ownerId} airborne=${duration}ticks (${durationMs}ms) startY=${startY.toFixed(0)} landY=${py.toFixed(0)} deltaY=${peakDelta.toFixed(0)}`);
+                this.jumpStartTick.delete(eid);
+                this.jumpStartY.delete(eid);
+            }
+
+            // Log per-tick Y when airborne (every 5 ticks to avoid spam)
+            if (!grounded && this.jumpStartTick.has(eid)) {
+                const elapsed = tickNum - this.jumpStartTick.get(eid)!;
+                if (elapsed % 5 === 0) {
+                    console.log(`[AIR] eid=${entity.id} t+${elapsed} y=${py.toFixed(1)} vy=${vy.toFixed(1)}`);
+                }
+            }
+        }
+
+        // ── DIAGNOSTIC: log per-entity physics every 125 ticks (1 second) ──
+        if (tickNum % 125 === 0) {
+            for (const entity of state.entitiesByType(EntityType.Player)) {
+                if (!entity.transform || !entity.physics || entity.health?.dead) continue;
+                const v = entity.physics.velocity;
+                const p = entity.transform.position;
+                const hSpeed = Math.sqrt(v.x * v.x + v.z * v.z);
+                const qLen = entity.input?.inputQueue.length ?? -1;
+                const fwd = entity.input?.forward?.toFixed(2) ?? '?';
+                const rt = entity.input?.right?.toFixed(2) ?? '?';
+                const btns = entity.input?.buttons ?? 0;
+                console.log(`[PHYS] eid=${entity.id} owner=${entity.ownerId} hSpeed=${hSpeed.toFixed(1)} vy=${v.y.toFixed(1)} grounded=${entity.physics.grounded} pos=(${p.x.toFixed(0)},${p.y.toFixed(0)},${p.z.toFixed(0)}) fwd=${fwd} rt=${rt} btns=${btns} qLen=${qLen}`);
             }
         }
 
