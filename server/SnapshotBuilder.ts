@@ -95,6 +95,14 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
     const gameState = new GameState();
     gameState.tick = Number(state.tick);
 
+    // Build O(1) player-to-client lookup map (avoids O(clients) scan per entity)
+    const clientByPlayerId = new Map<PlayerId, ClientInfo>();
+    for (const client of ctx.clients.values()) {
+        if (client.playerId !== undefined) {
+            clientByPlayerId.set(client.playerId, client);
+        }
+    }
+
     // Convert entities (including projectiles — Q3-style server-rendered)
     for (const entity of state.allEntities()) {
         // Projectile entities get a separate path (proj_ prefix, no player state)
@@ -249,15 +257,13 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
                 const score = matchState.getScore(entity.ownerId);
                 const deaths = matchState.getDeaths(entity.ownerId);
 
-                // Find real player name and ping from client info
+                // Find real player name and ping from client info (O(1) map lookup)
                 let displayName = ctx.botNames.get(entity.ownerId) || `Player ${entity.ownerId}`;
                 let ping = 0;
-                for (const client of ctx.clients.values()) {
-                    if (client.playerId === entity.ownerId) {
-                        displayName = client.playerName;
-                        ping = Math.round(client.connection.latency ?? 0);
-                        break;
-                    }
+                const clientInfo = clientByPlayerId.get(entity.ownerId);
+                if (clientInfo) {
+                    displayName = clientInfo.playerName;
+                    ping = Math.round(clientInfo.connection.latency ?? 0);
                 }
 
                 const playerState: PlayerState = {
@@ -285,6 +291,22 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
                 }
             }
         }
+
+        // Emit weapon state for this entity (merged from second pass — avoids double iteration)
+        if (entity.ownerId !== undefined) {
+            const weaponState = ctx.weaponSystem.getWeaponState(entity.id);
+            if (weaponState) {
+                gameState.events.push({
+                    type: 'weapon_state',
+                    entityId: `player_${entity.id}`,
+                    currentWeapon: weaponState.currentWeapon,
+                    weapons: weaponState.weapons,
+                    ammo: Object.fromEntries(weaponState.ammo),
+                    reloading: weaponState.reloading,
+                    lastFireTick: weaponState.lastFireTick,
+                });
+            }
+        }
     }
 
     // Add match state as event (client can read this for HUD)
@@ -294,24 +316,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
         ...matchSnapshot,
     });
 
-    // Add per-player weapon state events (so clients know which weapon they have)
-    for (const entity of state.allEntities()) {
-        if (entity.type === EntityType.Projectile) continue;
-        if (entity.ownerId === undefined) continue;
 
-        const weaponState = ctx.weaponSystem.getWeaponState(entity.id);
-        if (weaponState) {
-            gameState.events.push({
-                type: 'weapon_state',
-                entityId: `player_${entity.id}`,
-                currentWeapon: weaponState.currentWeapon,
-                weapons: weaponState.weapons,
-                ammo: Object.fromEntries(weaponState.ammo),
-                reloading: weaponState.reloading,
-                lastFireTick: weaponState.lastFireTick,
-            });
-        }
-    }
 
     // Add weapon fire events (so other clients can see shots)
     for (const fireEvent of ctx.weaponSystem.getPendingFireEvents()) {
