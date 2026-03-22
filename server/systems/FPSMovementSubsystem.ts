@@ -298,21 +298,22 @@ export class FPSMovementSubsystem extends Subsystem {
                     console.log(`[KB POST-SIM] entity=${entity.id}: pos=(${transform.position.x.toFixed(1)},${transform.position.y.toFixed(1)},${transform.position.z.toFixed(1)}) vel=(${physics.velocity.x.toFixed(1)},${physics.velocity.y.toFixed(1)},${physics.velocity.z.toFixed(1)}) grounded=${physics.grounded} queue=empty`);
                 }
             } else {
-                // Process all queued inputs for STATE (buttons, direction, yaw)
-                // but simulate() only ONCE with dt.
+                // Process each queued command with its own simulate() call,
+                // matching client-side prediction (which runs predict() per command).
                 //
-                // WHY: Previously, each queued input got its own simulate() with
-                // full dt=0.008. With queue=2, an entity got DOUBLE physics per
-                // tick — 2x gravity, 2x acceleration. This caused bots (and fast
-                // clients) to experience more physics time than 1x.
+                // CRITICAL: dt is divided by queue length so total physics time
+                // per tick stays at exactly 1 tick. This fixes the original bug
+                // (d64d4fa) where bots with queue=2 got 2x gravity/acceleration
+                // from running simulate() twice with full dt, while also fixing
+                // the prediction parity issue where "one simulate per tick"
+                // caused constant reconciliation drag (client predicts N steps,
+                // server did 1).
                 //
-                // NOW: We apply all input state changes (so button presses,
-                // direction changes, weapon switches aren't lost) and then
-                // simulate once. Every entity gets exactly 1 simulate per tick
-                // regardless of command rate. Client-side prediction reconciliation
-                // handles the slight drift for 144Hz players.
+                // With dt/N per command: sum of physics = dt (correct total),
+                // and command count matches client prediction count (no desync).
                 const USE_BUTTON = 1 << 11; // Must match InputButtons.USE
                 let usePressedInQueue = false;
+                const perCommandDt = dt / queue.length;
 
                 for (const qi of queue) {
                     // Update current input state from queued input
@@ -329,15 +330,16 @@ export class FPSMovementSubsystem extends Subsystem {
 
                     // Track USE across queue entries (sticky — don't lose brief presses)
                     if (qi.buttons & USE_BUTTON) usePressedInQueue = true;
+
+                    // Simulate with fractional dt (total across all commands = dt)
+                    const movementInput = adaptInput(input);
+                    const result = profile.simulate(
+                        transform.position, physics.velocity,
+                        movementInput, perCommandDt, this.collisionWorld
+                    );
+                    applyResult(transform, physics, result, input);
                 }
 
-                // Simulate ONCE with the latest input state
-                const movementInput = adaptInput(input);
-                const result = profile.simulate(
-                    transform.position, physics.velocity,
-                    movementInput, dt, this.collisionWorld
-                );
-                applyResult(transform, physics, result, input);
                 if (kbEntities.has(entity.id as number)) {
                     console.log(`[KB POST-SIM] entity=${entity.id}: pos=(${transform.position.x.toFixed(1)},${transform.position.y.toFixed(1)},${transform.position.z.toFixed(1)}) vel=(${physics.velocity.x.toFixed(1)},${physics.velocity.y.toFixed(1)},${physics.velocity.z.toFixed(1)}) grounded=${physics.grounded} queue=${queue.length}`);
                 }
