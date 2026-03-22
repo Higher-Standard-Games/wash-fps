@@ -1,0 +1,54 @@
+{
+  "config": {
+    "map": "wdm2",
+    "rounds": 3,
+    "botCount": 2,
+    "matchDurationMs": 60000,
+    "serverPort": 17777,
+    "modelDir": "./models",
+    "checkpointInterval": 10,
+    "epochs": 5,
+    "batchSize": 32,
+    "learningRate": 0.001,
+    "difficulty": "medium",
+    "resumeTraining": false,
+    "gametype": "duel"
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "duration": 60588,
+      "totalFrames": 1370,
+      "totalKills": 2,
+      "totalDeaths": 2,
+      "avgReward": -0.27149794493717133,
+      "tacticalLoss": 0.05020962283015251,
+      "combatLoss": 0.05814178287982941
+    },
+    {
+      "round": 2,
+      "duration": 60624,
+      "totalFrames": 1460,
+      "totalKills": 1,
+      "totalDeaths": 1,
+      "avgReward": -0.30268637153681566,
+      "tacticalLoss": 0.04097726196050644,
+      "combatLoss": 0.056562334299087524
+    },
+    {
+      "round": 3,
+      "duration": 60748,
+      "totalFrames": 1642,
+      "totalKills": 2,
+      "totalDeaths": 2,
+      "avgReward": -0.11392140948022923,
+      "tacticalLoss": 0.0022939874324947596,
+      "combatLoss": 0.005091843660920858
+    }
+  ],
+  "lastRound": 3,
+  "timestamp": "2026-03-22T11:45:46.366Z",
+  "completedTiers": [
+    "easy"
+  ]
+}
