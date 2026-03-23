@@ -269,9 +269,11 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
                     }
                 }
             } else if (event.type === 'death') {
-                handleDeathEvent(ctx, event, localEntityId);
+                handleDeathEvent(ctx, event, localEntityId, state);
             } else if (event.type === 'weapon_drop') {
                 handleWeaponDrop(ctx, event);
+            } else if (event.type === 'award') {
+                handleAwardEvent(ctx, event);
             }
         }
     }
@@ -407,12 +409,25 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
 
 // ── Internal helpers ───────────────────────────────────────────────
 
-function handleDeathEvent(ctx: GameEventContext, event: any, localEntityId: string | undefined): void {
+function handleDeathEvent(ctx: GameEventContext, event: any, localEntityId: string | undefined, state: GameState): void {
     console.log(`[Death] Event received: entity=${event.entityId} killer=${event.killerId} damageType=${event.damageType} finalDamage=${event.finalDamage} pos=(${event.x}, ${event.y}, ${event.z})`);
     try {
         HUDState.getInstance().processDeath(event);
     } catch (e) {
         console.error('[Death] HUD processDeath error:', e);
+    }
+
+    // Push kill message to EventFeed
+    try {
+        const victimName = resolvePlayerName(event.entityId, state) || 'unknown';
+        const killerName = event.killerId ? resolvePlayerName(event.killerId, state) : null;
+        if (killerName && event.killerId !== event.entityId) {
+            import('../../../engine/ui/hud/EventFeed').then(m => {
+                m.EventFeed.getInstance().addKill(killerName, victimName, event.damageType);
+            });
+        }
+    } catch (e) {
+        console.error('[Death] EventFeed error:', e);
     }
 
     const damageType = event.damageType || event.weaponId || '';
@@ -680,3 +695,53 @@ function processProjectileEntities(ctx: GameEventContext, state: GameState): voi
         }
     }
 }
+
+// ── Award Event Handler ────────────────────────────────────────────
+
+function handleAwardEvent(ctx: GameEventContext, event: any): void {
+    const awardType: string = event.awardType || '';
+    const playerId: string = event.playerId || '';
+    const playerName: string = event.playerName || '';
+    const targetName: string = event.targetName || '';
+
+    console.log(`[Award] ${playerName}: ${awardType} (target=${targetName}, value=${event.value})`);
+    console.log(`[Award] Compare: event.playerId='${playerId}' ctx.localPlayerId='${ctx.localPlayerId}'`);
+
+    // Match against multiple ID formats since server/client may use different formats
+    const isLocalPlayer =
+        playerId === ctx.localPlayerId ||
+        playerId === `player_${ctx.localPlayerId}` ||
+        `player_${playerId}` === ctx.localPlayerId;
+
+    // Personal award banner (only for local player)
+    if (isLocalPlayer) {
+        import('../../../engine/ui/hud/AwardBanner').then(m => {
+            m.AwardBanner.getInstance().show(awardType, playerName, targetName);
+        });
+    }
+
+    // Global event feed (everyone sees streak/first blood awards, skip frag spam)
+    if (awardType !== 'frag') {
+        import('../../../engine/ui/hud/EventFeed').then(m => {
+            m.EventFeed.getInstance().addAward(playerName, awardType, event.value || 0);
+        });
+    }
+}
+
+// ── Name Resolution Helper ─────────────────────────────────────────
+
+/**
+ * Resolve a player entity ID (e.g., 'player_3') to a display name
+ * by looking up the GameState.players map.
+ */
+function resolvePlayerName(entityId: string, state: GameState): string {
+    // Try direct match via players map (keyed by 'player_N' where N is ownerId)
+    for (const [_pid, player] of state.players) {
+        if (player.entityId === entityId) {
+            return player.name;
+        }
+    }
+    // Fallback: strip prefix
+    return entityId?.replace('player_', 'Player ') || 'unknown';
+}
+

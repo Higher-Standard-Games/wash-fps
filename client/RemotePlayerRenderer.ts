@@ -232,6 +232,14 @@ export class RemotePlayerRenderer {
 
             if (!hitbox) continue;
 
+            // Ensure model is assigned — catches any timing gaps during initial load
+            if (!hitbox.model && this.modelManager?.isLoaded) {
+                hitbox.model = this.createModelInstance(entityId);
+                if (hitbox.model) {
+                    console.log(`[RemotePlayerRenderer] Late model assign for ${entityId}`);
+                }
+            }
+
             // Ensure hitbox is visible (may have been hidden during death)
             const showHitbox = Cvar.get('cl_remotehitbox');
             hitbox.mesh.setEnabled(showHitbox !== undefined ? Number(showHitbox) > 0 : true);

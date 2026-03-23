@@ -41,6 +41,7 @@ import { MovementValidator } from './MovementValidator';
 import { GametypeController } from './gametypes/GametypeController';
 import { Deathmatch } from './gametypes/Deathmatch';
 import type { BaseGametype } from './gametypes/BaseGametype';
+import type { AwardEvent } from './gametypes/AwardTracker';
 
 // Bot names
 import { getNextBotName } from './BotNames';
@@ -101,6 +102,8 @@ export class GameServer {
 
     // Kill events cached for snapshot broadcast (postTick drains them from CombatSystem)
     private pendingKillEvents: import('./systems/CombatSystem').KillEvent[] = [];
+    // Award events cached for snapshot broadcast (postTick generates them via AwardTracker)
+    private pendingAwards: AwardEvent[] = [];
 
     // Snapshot broadcaster (owns snapshot history, PVS, delta baselines)
     private broadcaster: SnapshotBroadcaster;
@@ -164,6 +167,17 @@ export class GameServer {
         const gt = gametype || new Deathmatch();
         this.gametypeController = new GametypeController(gt);
         this.gametypeController.setSubsystems(this.combatSystem, this.weaponSystem);
+
+        // Wire name resolver for awards (resolves PlayerId → display name)
+        this.gametypeController.setNameResolver((playerId) => {
+            // Check bot names first, then connected clients
+            const botName = this.botNames.get(playerId);
+            if (botName) return botName;
+            for (const client of this.clients.values()) {
+                if (client.playerId === playerId) return client.playerName;
+            }
+            return `Player ${playerId}`;
+        });
 
         // Wire gametype self-damage config into projectile system
         const matchConfig = this.gametypeController.getMatchState().getConfig();
@@ -451,6 +465,12 @@ export class GameServer {
         // 3. Run gametype controller post-tick (kills, respawns, match state)
         const state = this.simulation.getStateMut();
         this.gametypeController.postTick(state, dt, this.simulation.currentTick);
+
+        // 3a. Accumulate awards from AwardTracker
+        const awards = this.gametypeController.drainAwards();
+        if (awards.length > 0) {
+            this.pendingAwards.push(...awards);
+        }
 
         // 3b. Auto-record on match phase transition (skip warmup)
         const currentPhase = this.gametypeController.getPhase();
@@ -853,11 +873,12 @@ export class GameServer {
                 botNames: this.botNames,
                 knownProjectileIds: this.knownProjectileIds,
                 pendingKillEvents: this.pendingKillEvents,
+                pendingAwards: this.pendingAwards,
                 needsPickupSync: this.needsPickupSync,
             };
         }
-        // Update mutable references that may change between snapshots
         this._snapshotCtx.pendingKillEvents = this.pendingKillEvents;
+        this._snapshotCtx.pendingAwards = this.pendingAwards;
         return this._snapshotCtx;
     }
 

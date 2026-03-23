@@ -30,7 +30,8 @@ import { FPSWeaponSlots } from './hud/widgets/WeaponSlots';
 import { FPSAmmoCounter } from './hud/widgets/AmmoCounter';
 import { FPSTimer } from './hud/widgets/Timer';
 import { FPSFragCounter } from './hud/widgets/FragCounter';
-import { FPSKillFeed } from './hud/widgets/KillFeed';
+// Old KillFeed disabled — replaced by EventFeed
+// import { FPSKillFeed } from './hud/widgets/KillFeed';
 import { FPSWeaponRack } from './hud/widgets/WeaponRack';
 import { FPSFragMessage } from './hud/widgets/FragMessage';
 import { FPSPickupToast } from './hud/widgets/PickupToast';
@@ -340,8 +341,8 @@ export class FPSHud {
         // Frag counter - top center (next to timer)
         this.addWidget('frags', new FPSFragCounter(), 'top-center');
 
-        // Kill feed - top right
-        this.addWidget('killfeed', new FPSKillFeed(), 'top-right');
+        // Kill feed - disabled, replaced by engine EventFeed
+        // this.addWidget('killfeed', new FPSKillFeed(), 'top-right');
 
         // Weapon rack - left side
         this.addWidget('weapons', new FPSWeaponRack(), 'left');

@@ -18,6 +18,7 @@ import type { CombatSystem, KillEvent } from './systems/CombatSystem';
 import type { PickupSystem } from './systems/PickupSystem';
 import type { DroppedWeaponSystem } from './systems/DroppedWeaponSystem';
 import type { GametypeController } from './gametypes/GametypeController';
+import type { AwardEvent } from './gametypes/AwardTracker';
 import type { ClientInfo } from './Client';
 
 // ── Hoisted closures (same pattern as BinaryProtocol decode side) ──
@@ -68,6 +69,8 @@ export interface SnapshotContext {
     knownProjectileIds: Set<number>;
     /** Mutable: kill events cached since last snapshot */
     pendingKillEvents: KillEvent[];
+    /** Mutable: award events cached since last snapshot */
+    pendingAwards: AwardEvent[];
     /** Mutable: clients that need initial pickup state sync */
     needsPickupSync: Set<string>;
 }
@@ -450,6 +453,19 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
     }
     // Clear cached kills after they've been sent
     ctx.pendingKillEvents.length = 0;
+
+    // Add award events
+    for (const award of ctx.pendingAwards) {
+        gameState.events.push({
+            type: 'award',
+            awardType: award.awardType,
+            playerId: `player_${award.playerId}`,
+            playerName: award.playerName,
+            targetName: award.targetName,
+            value: award.value,
+        });
+    }
+    ctx.pendingAwards.length = 0;
 
     return gameState;
 }

@@ -23,6 +23,7 @@ import type { MatchStateSnapshot } from '@shared/server/gametype';
 import type { BaseGametype } from './BaseGametype';
 import { MatchState } from './MatchState';
 import { createSpawnStrategy, type SpawnPointStrategy } from './SpawnPointStrategy';
+import { AwardTracker, type AwardEvent } from './AwardTracker';
 import type { CombatSystem } from '../systems/CombatSystem';
 import type { WeaponSystem } from '../systems/WeaponSystem';
 
@@ -51,9 +52,11 @@ export class GametypeController {
     private collisionWorld: CollisionWorld | null = null;
     private botPlayerIds: Set<PlayerId> = new Set();
 
-    // Subsystem references (set after construction)
     private combatSystem: CombatSystem | null = null;
     private weaponSystem: WeaponSystem | null = null;
+    private awardTracker = new AwardTracker();
+    /** Resolves PlayerId → display name (set by GameServer) */
+    private nameResolver: ((playerId: PlayerId) => string) | null = null;
 
     constructor(gametype: BaseGametype) {
         this.gametype = gametype;
@@ -77,6 +80,28 @@ export class GametypeController {
     setSubsystems(combat: CombatSystem, weapon: WeaponSystem): void {
         this.combatSystem = combat;
         this.weaponSystem = weapon;
+    }
+
+    /**
+     * Set name resolver for player display names.
+     * Called by GameServer after construction.
+     */
+    setNameResolver(resolver: (playerId: PlayerId) => string): void {
+        this.nameResolver = resolver;
+    }
+
+    /**
+     * Get the award tracker (for gametype scripts to emit custom awards).
+     */
+    getAwardTracker(): AwardTracker {
+        return this.awardTracker;
+    }
+
+    /**
+     * Drain pending awards (called by SnapshotBuilder).
+     */
+    drainAwards(): AwardEvent[] {
+        return this.awardTracker.drainAwards();
     }
 
     /**
@@ -258,10 +283,22 @@ export class GametypeController {
                             }
                         }
 
-                        // Track deaths
+                        // Track deaths (score only)
                         if (victim.ownerId !== undefined) {
                             this.matchState.addDeath(victim.ownerId);
                         }
+                    }
+
+                    // Track awards (frag notifications, streaks — always, including warmup)
+                    if (victim.ownerId !== undefined) {
+                        this.awardTracker.onDeath(victim.ownerId);
+                    }
+                    if (killer?.ownerId && killer.ownerId !== victim.ownerId) {
+                        const killerName = this.resolvePlayerName(killer.ownerId);
+                        const victimName = victim.ownerId !== undefined
+                            ? this.resolvePlayerName(victim.ownerId)
+                            : 'unknown';
+                        this.awardTracker.onKill(killer.ownerId, victim.ownerId ?? (0 as PlayerId), killerName, victimName);
                     }
 
                     // Queue respawn with min/max timers (Warsow-style)
@@ -295,6 +332,7 @@ export class GametypeController {
             // On match start (countdown → active), respawn all players
             if (this.matchState.phase === MatchPhase.Active) {
                 this.respawnAllPlayers(state, tickNum);
+                this.awardTracker.onMatchStart();
             }
         }
 
@@ -419,6 +457,14 @@ export class GametypeController {
         }
         // Clear any pending respawns
         this.respawnQueue = [];
+    }
+
+    // ========================================================================
+    // Helpers
+    // ========================================================================
+
+    private resolvePlayerName(playerId: PlayerId): string {
+        return this.nameResolver?.(playerId) ?? `Player ${playerId}`;
     }
 
     // ========================================================================
