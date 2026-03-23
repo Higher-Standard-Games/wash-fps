@@ -286,34 +286,32 @@ export class FPSMovementSubsystem extends Subsystem {
 
             const queue = input.inputQueue;
             if (queue.length === 0) {
-                // No new inputs — simulate with current input state
-                // (keeps physics running for gravity/momentum)
-                const movementInput = adaptInput(input);
-                const result = profile.simulate(
-                    transform.position, physics.velocity,
-                    movementInput, dt, this.collisionWorld
-                );
-                applyResult(transform, physics, result, input);
+                // No commands arrived this tick.
+                // QUAKE/WARSOW MODEL: physics only advances when commands arrive.
+                // All entities (humans + bots) send at 125Hz, so this path only
+                // fires during brief network hiccups. Gravity/momentum resume on
+                // the next command's simulate().
+                //
+                // This eliminates the 60Hz fps-dependency bug where stale-input
+                // simulation added ~50% extra physics for low-fps players.
                 if (kbEntities.has(entity.id as number)) {
-                    console.log(`[KB POST-SIM] entity=${entity.id}: pos=(${transform.position.x.toFixed(1)},${transform.position.y.toFixed(1)},${transform.position.z.toFixed(1)}) vel=(${physics.velocity.x.toFixed(1)},${physics.velocity.y.toFixed(1)},${physics.velocity.z.toFixed(1)}) grounded=${physics.grounded} queue=empty`);
+                    console.log(`[KB POST-SIM] entity=${entity.id}: SKIP (queue=0, no physics step)`);
                 }
             } else {
                 // Process each queued command with its own simulate() call,
-                // matching client-side prediction (which runs predict() per command).
+                // matching client-side prediction exactly.
                 //
-                // CRITICAL: dt is divided by queue length so total physics time
-                // per tick stays at exactly 1 tick. This fixes the original bug
-                // (d64d4fa) where bots with queue=2 got 2x gravity/acceleration
-                // from running simulate() twice with full dt, while also fixing
-                // the prediction parity issue where "one simulate per tick"
-                // caused constant reconciliation drag (client predicts N steps,
-                // server did 1).
+                // CRITICAL: use FULL dt per command (not dt/queue.length).
+                // The client (V2NetworkClient.processInput) predicts with this.dt
+                // (full dt = 0.008s) for each command. If we use fractional dt here,
+                // the server moves LESS than the client predicted → constant
+                // reconciliation snap-backs → "slow/jerky" movement.
                 //
-                // With dt/N per command: sum of physics = dt (correct total),
-                // and command count matches client prediction count (no desync).
+                // With full dt: client and server agree on physics per command.
+                // Total physics time may exceed dt when queue>1, but this only
+                // happens during network bursts and is consistent between both sides.
                 const USE_BUTTON = 1 << 11; // Must match InputButtons.USE
                 let usePressedInQueue = false;
-                const perCommandDt = dt / queue.length;
 
                 for (const qi of queue) {
                     // Update current input state from queued input
@@ -331,11 +329,11 @@ export class FPSMovementSubsystem extends Subsystem {
                     // Track USE across queue entries (sticky — don't lose brief presses)
                     if (qi.buttons & USE_BUTTON) usePressedInQueue = true;
 
-                    // Simulate with fractional dt (total across all commands = dt)
+                    // Simulate with FULL dt (matches client prediction)
                     const movementInput = adaptInput(input);
                     const result = profile.simulate(
                         transform.position, physics.velocity,
-                        movementInput, perCommandDt, this.collisionWorld
+                        movementInput, dt, this.collisionWorld
                     );
                     applyResult(transform, physics, result, input);
                 }
