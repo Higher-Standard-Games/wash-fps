@@ -210,6 +210,48 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
                 }
             } else if (event.type === 'damage') {
                 HUDState.getInstance().processDamage(event);
+
+                // === INCOMING DAMAGE: local player is the victim ===
+                if (event.entityId === localEntityId && event.damage > 0) {
+                    // Compute direction angle from attacker to local player
+                    let damageAngle = Math.random() * Math.PI * 2; // fallback: random
+
+                    if (event.attackerId && event.attackerId !== localEntityId) {
+                        // Get attacker position from state entities
+                        const attackerEntity = state.entities.get(event.attackerId);
+                        const attackerPos = attackerEntity?.getComponent('position') as { x: number; y: number; z: number } | undefined;
+                        const localEntity = state.entities.get(localEntityId || '');
+                        const localPos = localEntity?.getComponent('position') as { x: number; y: number; z: number } | undefined;
+
+                        if (attackerPos && localPos) {
+                            // World-space direction from attacker to victim
+                            const worldDx = attackerPos.x - localPos.x;
+                            const worldDz = attackerPos.z - localPos.z;
+                            const worldAngle = Math.atan2(worldDz, worldDx);
+
+                            // Get camera yaw to convert to screen-space
+                            const cam = CameraSystem.getInstance().getCamera() as any;
+                            const cameraYaw = cam?.rotation?.y ?? 0;
+
+                            // Screen-space angle: positive X = right, positive Y = down
+                            damageAngle = worldAngle - cameraYaw;
+                        }
+                    }
+
+                    // Trigger damage overlay (directional red triangles + vignette)
+                    import('../../../engine/ui/hud/DamageOverlay').then(m => {
+                        m.DamageOverlay.getInstance().show(event.damage, damageAngle);
+                    });
+
+                    // Trigger pain camera shake (all weapon types)
+                    const painIntensity = Math.min(Math.max(event.damage / 100, 0.05), 0.6);
+                    const fpsCtrl = CameraSystem.getInstance().getController('fps');
+                    if (fpsCtrl && 'shakeCamera' in fpsCtrl) {
+                        (fpsCtrl as any).shakeCamera(painIntensity);
+                    }
+                }
+
+                // === OUTGOING DAMAGE: local player is the attacker ===
                 if (event.attackerId && event.attackerId === localEntityId) {
                     import('../client/Crosshair').then(m => m.Crosshair.getInstance().notifyHit());
                     if (event.x !== undefined && event.damage > 0) {

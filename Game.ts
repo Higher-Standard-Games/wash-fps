@@ -152,6 +152,7 @@ export class Game {
   private _gibSystemLoading = false;  // true while import() is pending
   private _pendingGibSpawns: { x: number; y: number; z: number; vx: number; vy: number; vz: number }[] = [];
   private _damageNumbers: any = null;
+  private _damageOverlay: any = null;
   private _ragdollSystem: any = null;
   private _ragdollSystemLoading = false;
   private _cartoonHit: any = null;
@@ -956,6 +957,15 @@ export class Game {
       import('./client/DamageNumbers').then(m => {
         const dn = m.DamageNumbers.getInstance();
         if (dn['scene']) this._damageNumbers = dn;
+      });
+    }
+
+    // Update damage overlay (directional red triangles + vignette)
+    if (this._damageOverlay) {
+      this._damageOverlay.update(dtSec);
+    } else {
+      import('../../engine/ui/hud/DamageOverlay').then(m => {
+        this._damageOverlay = m.DamageOverlay.getInstance();
       });
     }
 
