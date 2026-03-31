@@ -116,6 +116,9 @@ export class GameServer {
     private demoRecorder: DemoRecorder | null = null;
     private _lastMatchPhase: MatchPhase = MatchPhase.Warmup;
 
+    // Challengers queue: spectators waiting to join (FIFO by conn.id)
+    private challengersQueue: string[] = [];
+
     constructor(config: GameServerConfig, gametype?: BaseGametype) {
         this.config = config;
 
@@ -184,9 +187,12 @@ export class GameServer {
         this.projectileSystem.selfDamageMultiplier = matchConfig.selfDamage;
 
         // Create transport
+        // Allow extra connection slots for spectators beyond the player limit.
+        // Player enforcement happens in handleJoinGame(), not at WS level.
+        const maxSpectators = config.maxSpectators ?? 8;
         const transportConfig: TransportConfig = {
             port: config.port,
-            maxClients: config.maxClients,
+            maxClients: config.maxClients + maxSpectators,
             certPath: config.certPath,
             keyPath: config.keyPath,
         };
@@ -535,7 +541,16 @@ export class GameServer {
         }
 
         this.clients.delete(conn.id);
+
+        // Remove from challengers queue if queued
+        this.removeFromQueue(conn.id);
+
         console.log(`[GameServer] Player ${client.playerId} disconnected (${client.isSpectator ? 'spectator' : 'player'}): ${reason} (${this.clients.size}/${this.config.maxClients})`);
+
+        // If a playing client disconnected, try to promote from queue
+        if (!client.isSpectator) {
+            this.processQueue();
+        }
 
         // Auto-shutdown when all clients are gone (lobby-spawned mode)
         if (this.config.shutdownOnEmpty && this.hasHadClients && this.clients.size === 0) {
@@ -546,6 +561,41 @@ export class GameServer {
                     this.stop().then(() => process.exit(0));
                 }
             }, 5000);
+        }
+    }
+
+    /**
+     * Process the challengers queue — promote the next spectator to player.
+     * Called when a playing client disconnects and a slot opens.
+     */
+    private processQueue(): void {
+        while (this.challengersQueue.length > 0) {
+            const nextConnId = this.challengersQueue.shift()!;
+            const nextClient = this.clients.get(nextConnId);
+            if (!nextClient || !nextClient.isSpectator) continue; // disconnected or already playing
+
+            // Find the connection object
+            const nextConn = nextClient.connection;
+            console.log(`[GameServer] Promoting queued player ${nextClient.playerId} (${nextClient.playerName}) from queue`);
+
+            // Auto-join them (same flow as handleJoinGame)
+            this.handleJoinGame(nextConn);
+
+            // Notify them
+            const msg = 'You have been promoted from the challengers queue!';
+            const data = MessageCodec.encodeServerMessage(msg, 'info');
+            nextConn.sendDatagram(data);
+            return; // Only promote one at a time
+        }
+    }
+
+    /**
+     * Remove a connection from the challengers queue.
+     */
+    private removeFromQueue(connId: string): void {
+        const idx = this.challengersQueue.indexOf(connId);
+        if (idx !== -1) {
+            this.challengersQueue.splice(idx, 1);
         }
     }
 
@@ -741,6 +791,26 @@ export class GameServer {
         if (!client) return;
         if (!client.isSpectator) {
             console.log(`[GameServer] Player ${client.playerId} tried to JoinGame but is already playing`);
+            return;
+        }
+
+        // Guard: count active (non-spectator) players — reject if full
+        let activePlayers = 0;
+        for (const c of this.clients.values()) {
+            if (!c.isSpectator) activePlayers++;
+        }
+        if (activePlayers >= this.config.maxClients) {
+            // Add to challengers queue if not already queued
+            if (!this.challengersQueue.includes(conn.id)) {
+                this.challengersQueue.push(conn.id);
+            }
+            const queuePos = this.challengersQueue.indexOf(conn.id) + 1;
+            const msg = `Teams are full. You are #${queuePos} in the challengers queue.`;
+            console.log(`[GameServer] Player ${client.playerId} queued (position ${queuePos})`);
+
+            // Send rejection message to client
+            const data = MessageCodec.encodeServerMessage(msg, 'queue');
+            conn.sendDatagram(data);
             return;
         }
 

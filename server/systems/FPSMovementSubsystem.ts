@@ -369,7 +369,7 @@ export class FPSMovementSubsystem extends Subsystem {
                 const duration = tickNum - startTick;
                 const durationMs = duration * 8;
                 const peakDelta = py - startY;
-                console.log(`[JUMP] eid=${entity.id} owner=${entity.ownerId} airborne=${duration}ticks (${durationMs}ms) startY=${startY.toFixed(0)} landY=${py.toFixed(0)} deltaY=${peakDelta.toFixed(0)}`);
+                // console.log(`[JUMP] eid=${entity.id} owner=${entity.ownerId} airborne=${duration}ticks (${durationMs}ms) startY=${startY.toFixed(0)} landY=${py.toFixed(0)} deltaY=${peakDelta.toFixed(0)}`);
                 this.jumpStartTick.delete(eid);
                 this.jumpStartY.delete(eid);
             }
@@ -378,7 +378,7 @@ export class FPSMovementSubsystem extends Subsystem {
             if (!grounded && this.jumpStartTick.has(eid)) {
                 const elapsed = tickNum - this.jumpStartTick.get(eid)!;
                 if (elapsed % 5 === 0) {
-                    console.log(`[AIR] eid=${entity.id} t+${elapsed} y=${py.toFixed(1)} vy=${vy.toFixed(1)}`);
+                    // console.log(`[AIR] eid=${entity.id} t+${elapsed} y=${py.toFixed(1)} vy=${vy.toFixed(1)}`);
                 }
             }
         }

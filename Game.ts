@@ -45,6 +45,8 @@ export interface FPSGameConfig {
   maxPlayers?: number;
   /** When true, auto-join the game after map loads (skip spectator overlay) */
   autoJoin?: boolean;
+  /** When true, enter pure spectator mode with auto-chase-cam (no join option) */
+  watchOnly?: boolean;
 }
 
 
@@ -140,10 +142,19 @@ export class Game {
 
   // Spectator state
   private playerState: 'spectator' | 'playing' = 'spectator';
+  private _joinPending: boolean = false;
+  private _joinPendingTimeout: ReturnType<typeof setTimeout> | null = null;
   private spectatorOverlay: import('./client/SpectatorOverlay').SpectatorOverlay | null = null;
   private _joinKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+  private _specMouseHandler: ((e: MouseEvent) => void) | null = null;
   private _scoreboardKeyHandler: ((e: KeyboardEvent) => void) | null = null;
   private _scoreboardKeyUpHandler: ((e: KeyboardEvent) => void) | null = null;
+  private _specCycleKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+
+  // Chase-cam spectator (Phase 1)
+  private spectatorCycling: import('./../../engine/camera/controllers/SpectatorCycling').SpectatorCycling | null = null;
+  private spectatorController: import('./../../engine/camera/controllers/SpectatorController').SpectatorController | null = null;
+  private _latestGameState: GameState | null = null;
 
   private pendingTick: number = 0;
 
@@ -379,6 +390,19 @@ export class Game {
             // Start in freefly mode (spectator default)
             cameraSystem.setController('freefly');
 
+            // WATCH mode: start auto-chase polling AFTER map loads
+            // (must be here, not earlier — otherwise the freefly reset above overwrites the spectator camera)
+            if (config.watchOnly) {
+              const autoChaseInterval = setInterval(() => {
+                if (this.spectatorCycling && this.spectatorCycling.getAliveCount() > 0) {
+                  clearInterval(autoChaseInterval);
+                  this.nextSpectateTarget();
+                }
+              }, 200);
+              // Safety: stop polling after 30s
+              setTimeout(() => clearInterval(autoChaseInterval), 30000);
+            }
+
             // Auto-join if requested (lobby flow — skip spectator overlay)
             if (config.autoJoin) {
               console.log('[Game] Auto-joining game (lobby flow)');
@@ -417,6 +441,19 @@ export class Game {
         this.onServerStateUpdate(state);
       });
 
+      // Listen for server messages (queue notifications, join rejections)
+      networkHost.onServerMessage((msg) => {
+        console.log(`[Game] Server message [${msg.type}]: ${msg.message}`);
+        // If server rejected our join, clear pending state
+        if (msg.type === 'queue' || msg.type === 'error') {
+          this._joinPending = false;
+          if (this._joinPendingTimeout) {
+            clearTimeout(this._joinPendingTimeout);
+            this._joinPendingTimeout = null;
+          }
+        }
+      });
+
       // Load player profile and connect with display name
       const profile = PlayerProfile.load();
       console.log(`[Game] Connecting as "${profile.name}" (id: ${profile.id.substring(0, 8)}...)`);
@@ -447,7 +484,14 @@ export class Game {
       if (!config.autoJoin) {
         const { SpectatorOverlay } = await import('./client/SpectatorOverlay');
         this.spectatorOverlay = new SpectatorOverlay();
-        this.spectatorOverlay.setMode('join-overlay');
+
+        if (config.watchOnly) {
+          // WATCH mode: pure spectator, start in freefly until chase-cam target available
+          this.spectatorOverlay.setMode('freefly');
+        } else {
+          // Normal connect: show join/spectate choice
+          this.spectatorOverlay.setMode('join-overlay');
+        }
 
         this.spectatorOverlay.onJoinGame(() => {
           this.joinGame();
@@ -457,7 +501,80 @@ export class Game {
           this.spectatorOverlay?.setMode('freefly');
           this.switchToFreeflyCamera();
         });
+
+        // Wire next/prev player cycling
+        this.spectatorOverlay.onNextPlayer(() => {
+          this.nextSpectateTarget();
+        });
+        this.spectatorOverlay.onPrevPlayer(() => {
+          this.prevSpectateTarget();
+        });
+
       } // end if (!config.autoJoin)
+
+      // ── Initialize SpectatorCycling and SpectatorController ──
+      const { SpectatorCycling } = await import('../../engine/camera/controllers/SpectatorCycling');
+      const { SpectatorController } = await import('../../engine/camera/controllers/SpectatorController');
+      this.spectatorCycling = new SpectatorCycling();
+      this.spectatorController = new SpectatorController();
+
+      // Register the spectator camera controller
+      const camSys = CameraSystem.getInstance();
+      camSys.registerController('spectator', this.spectatorController);
+
+      // Set up target provider — reads entity position/rotation from latest GameState
+      this.spectatorController.setTargetProvider((entityId: string) => {
+        const state = this._latestGameState;
+        if (!state) return null;
+        const entity = state.entities.get(entityId);
+        if (!entity) return null;
+        const transform = entity.getComponent('transform') as
+          | { position?: { x: number; y: number; z: number }; rotation?: { x: number; y: number; z: number } }
+          | undefined;
+        if (!transform?.position) return null;
+        return {
+          x: transform.position.x,
+          y: transform.position.y,
+          z: transform.position.z,
+          yaw: transform.rotation?.y ?? 0,
+          pitch: transform.rotation?.x ?? 0,
+        };
+      });
+
+      // ── Spectator cycling keyboard handler (arrows + Space) ──
+      this._specCycleKeyHandler = (e: KeyboardEvent) => {
+        if (this.playerState !== 'spectator') return;
+        if (e.code === 'ArrowRight') {
+          e.preventDefault();
+          this.nextSpectateTarget();
+        } else if (e.code === 'ArrowLeft') {
+          e.preventDefault();
+          this.prevSpectateTarget();
+        } else if (e.code === 'Space' || e.code === 'Backspace') {
+          // Return to freefly from chase-cam
+          if (this.spectatorCycling?.getTargetEntityId()) {
+            e.preventDefault();
+            this.exitChaseCam();
+          }
+        }
+      };
+      document.addEventListener('keydown', this._specCycleKeyHandler);
+
+      // ── Mouse3 (middle click) handler: toggle chase-cam ──
+      this._specMouseHandler = (e: MouseEvent) => {
+        if (this.playerState !== 'spectator') return;
+        if (e.button === 1) { // Middle mouse button
+          e.preventDefault();
+          if (this.spectatorCycling?.getTargetEntityId()) {
+            // Currently in chase → exit to freefly
+            this.exitChaseCam();
+          } else {
+            // Currently in freefly → enter chase
+            this.nextSpectateTarget();
+          }
+        }
+      };
+      document.addEventListener('mousedown', this._specMouseHandler);
 
       // ── J key shortcut to join game from spectator mode ──
       // Uses InputSystem's raw key state (this runs in an event handler, not per-frame)
@@ -540,24 +657,56 @@ export class Game {
   // ========================================================================
 
   /**
-   * joinGame — transition from spectator to playing.
-   * Sends JoinGame to server, switches camera to FPS, hides overlay.
+   * joinGame — request to transition from spectator to playing.
+   * Sends JoinGame to server. Actual transition happens server-confirmed
+   * when our entity appears in the snapshot (see completeJoinGame).
    */
   async joinGame(): Promise<void> {
     if (this.playerState === 'playing') {
       console.log('[Game] joinGame() — already playing, skipping');
       return;
     }
+    if (this._joinPending) {
+      console.log('[Game] joinGame() — join already pending, skipping');
+      return;
+    }
     if (!this.gameHost || !this.isNetworkMode) {
       console.log('[Game] joinGame() — no gameHost or not network mode');
       return;
     }
-    console.log('[Game] joinGame() — transitioning from spectator to playing');
+    console.log('[Game] joinGame() — sending join request to server');
 
     const networkHost = this.gameHost as import('../../engine/network/client/hosts/NetworkGameHost').NetworkGameHost;
 
-    // Tell server to create our entity
+    // Tell server we want to join — server decides if we can
     networkHost.sendJoinGame();
+    this._joinPending = true;
+
+    // Timeout: revert if server doesn't respond within 5 seconds
+    this._joinPendingTimeout = setTimeout(() => {
+      if (this._joinPending) {
+        console.log('[Game] joinGame() — timed out waiting for server confirmation');
+        this._joinPending = false;
+      }
+    }, 5000);
+  }
+
+  /**
+   * completeJoinGame — called when server confirmed our join
+   * (our entity appeared in snapshot). Switches camera and state.
+   */
+  private async completeJoinGame(): Promise<void> {
+    this._joinPending = false;
+    if (this._joinPendingTimeout) {
+      clearTimeout(this._joinPendingTimeout);
+      this._joinPendingTimeout = null;
+    }
+
+    console.log('[Game] completeJoinGame() — server confirmed, transitioning to playing');
+
+    // Clear any active chase-cam state before switching
+    this.spectatorCycling?.clearTarget();
+    this.spectatorController?.clearSpectateTarget();
 
     // Switch to FPS camera controller
     try {
@@ -598,12 +747,9 @@ export class Game {
         initializeEntityDefs();
         const wvm = getWeaponViewManager();
         wvm.init(scene, camera);
-        console.log('[Game] joinGame() — WVM initialized');
-        // Don't load a default weapon here — let processWeaponState handle
-        // the initial weapon load to avoid racing with the server's weapon.
-        // Load the server's current weapon, or blade as the default spawn weapon
+        console.log('[Game] completeJoinGame() — WVM initialized');
         wvm.loadWeapon(this._lastServerWeapon || 'blade').then((success) => {
-          console.log(`[Game] joinGame() — initial weapon loadWeapon result: ${success}`);
+          console.log(`[Game] completeJoinGame() — initial weapon loadWeapon result: ${success}`);
         });
 
         // Preload projectile models (independent of weapon load)
@@ -626,7 +772,7 @@ export class Game {
       canvas.requestPointerLock();
     }
 
-    console.log('[Game] Joined game');
+    console.log('[Game] Joined game (server-confirmed)');
   }
 
   /**
@@ -664,6 +810,52 @@ export class Game {
     document.exitPointerLock();
 
     console.log('[Game] Now spectating');
+  }
+
+  /**
+   * Chase-cam: start following a specific player entity.
+   */
+  spectatePlayer(entityId: string): void {
+    if (!this.spectatorController || !this.spectatorCycling) return;
+    this.spectatorCycling.setTarget(entityId);
+    this.spectatorController.setSpectateTarget(entityId);
+    this.spectatorOverlay?.setMode('first-person');
+    this.spectatorOverlay?.setSpectatingTarget(this.spectatorCycling.getPlayerName(entityId));
+    CameraSystem.getInstance().setController('spectator');
+    console.log(`[Game] Now spectating player: ${entityId}`);
+  }
+
+  /**
+   * Chase-cam: cycle to next alive player.
+   */
+  nextSpectateTarget(): void {
+    if (!this.spectatorCycling) return;
+    const next = this.spectatorCycling.next();
+    if (next) {
+      this.spectatePlayer(next);
+    }
+  }
+
+  /**
+   * Chase-cam: cycle to previous alive player.
+   */
+  prevSpectateTarget(): void {
+    if (!this.spectatorCycling) return;
+    const prev = this.spectatorCycling.prev();
+    if (prev) {
+      this.spectatePlayer(prev);
+    }
+  }
+
+  /**
+   * Exit chase-cam: return to freefly spectator mode.
+   */
+  exitChaseCam(): void {
+    this.spectatorCycling?.clearTarget();
+    this.spectatorController?.clearSpectateTarget();
+    this.spectatorOverlay?.setMode('freefly');
+    this.switchToFreeflyCamera();
+    console.log('[Game] Returned to freefly spectator');
   }
 
   /**
@@ -1205,6 +1397,11 @@ export class Game {
     this.serverUrl = null;
     this.commandSeq = 1; // Must match InputHistory.nextSeq (starts at 1)
     this.onStateUpdateCallbacks = [];
+    this._latestGameState = null;
+    this.spectatorCycling?.reset();
+    this.spectatorCycling = null;
+    this.spectatorController?.dispose();
+    this.spectatorController = null;
 
     // Cleanup event listeners
     if (this._joinKeyHandler) {
@@ -1218,6 +1415,14 @@ export class Game {
     if (this._scoreboardKeyUpHandler) {
       document.removeEventListener('keyup', this._scoreboardKeyUpHandler);
       this._scoreboardKeyUpHandler = null;
+    }
+    if (this._specCycleKeyHandler) {
+      document.removeEventListener('keydown', this._specCycleKeyHandler);
+      this._specCycleKeyHandler = null;
+    }
+    if (this._specMouseHandler) {
+      document.removeEventListener('mousedown', this._specMouseHandler);
+      this._specMouseHandler = null;
     }
 
     // Cleanup match state and HUD
@@ -1287,6 +1492,29 @@ export class Game {
    * Handle state update from simulation — delegates to GameEvents module
    */
   private onServerStateUpdate(state: GameState): void {
+    // Store latest state for spectator target provider
+    this._latestGameState = state;
+
+    // Update spectator cycling list (if spectating)
+    if (this.playerState === 'spectator' && this.spectatorCycling) {
+      this.spectatorCycling.updateFromGameState(state);
+
+      // Update SpectatorOverlay with target player name
+      const targetId = this.spectatorCycling.getTargetEntityId();
+      if (targetId && this.spectatorOverlay) {
+        this.spectatorOverlay.setSpectatingTarget(this.spectatorCycling.getTargetName());
+      }
+    }
+
+    // Detect server-confirmed join: our entity appeared in snapshot
+    if (this._joinPending && this.localPlayerId) {
+      const myPlayer = state.players.get(this.localPlayerId);
+      if (myPlayer && myPlayer.entityId && state.entities.has(myPlayer.entityId)) {
+        console.log(`[Game] Server confirmed join — entity ${myPlayer.entityId} found in snapshot`);
+        this.completeJoinGame();
+      }
+    }
+
     // Lazy-init remote renderer if not yet created
     if (!this.remoteRenderer) {
       const cam = CameraSystem.getInstance().getCamera();

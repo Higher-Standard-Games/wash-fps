@@ -149,8 +149,21 @@ export class SpectatorOverlay {
             border: 1px solid rgba(255, 100, 0, 0.4);
             border-radius: 4px;
             font-family: 'Outfit', 'Segoe UI', sans-serif;
-            pointer-events: none;
+            pointer-events: auto;
         `;
+
+        // Prev player button
+        const prevBtn = document.createElement('span');
+        prevBtn.style.cssText = `
+            font-size: 14px;
+            color: rgba(255, 140, 0, 0.7);
+            cursor: pointer;
+            padding: 0 6px;
+            user-select: none;
+        `;
+        prevBtn.textContent = '◄ [←]';
+        prevBtn.addEventListener('click', () => this._onPrevPlayerCallback?.());
+        this.spectatingBar.appendChild(prevBtn);
 
         const specLabel = document.createElement('span');
         specLabel.style.cssText = `
@@ -171,6 +184,19 @@ export class SpectatorOverlay {
         `;
         this.spectatingBar.appendChild(this.spectatingNameEl);
 
+        // Next player button
+        const nextBtn = document.createElement('span');
+        nextBtn.style.cssText = `
+            font-size: 14px;
+            color: rgba(255, 140, 0, 0.7);
+            cursor: pointer;
+            padding: 0 6px;
+            user-select: none;
+        `;
+        nextBtn.textContent = '[→] ►';
+        nextBtn.addEventListener('click', () => this._onNextPlayerCallback?.());
+        this.spectatingBar.appendChild(nextBtn);
+
         this.container.appendChild(this.spectatingBar);
 
         // ── Freefly cue (left sidebar panel, below weapon list) ─────
@@ -178,7 +204,7 @@ export class SpectatorOverlay {
         this.freeflyCue.id = 'spectator-freefly-cue';
         this.freeflyCue.style.cssText = `
             position: absolute;
-            bottom: calc(145px * var(--ui-scale, 1));
+            bottom: calc(200px * var(--ui-scale, 1));
             left: calc(28px * var(--ui-scale, 1));
             display: none;
             flex-direction: column;
