@@ -9,45 +9,45 @@
  * Uses Washiki theme styling consistent with FPSHud.
  */
 
-import { MatchStateManager } from './MatchStateManager';
-import { FPS, getActionKeyLabel } from './FPSActions';
-import { LogoCanvas } from '../../../engine/ui/components/LogoCanvas';
+import { LogoCanvas } from "../../../engine/ui/components/LogoCanvas";
+import { FPS, getActionKeyLabel } from "./FPSActions";
+import { MatchStateManager } from "./MatchStateManager";
 
-export type SpectatorMode = 'join-overlay' | 'freefly' | 'first-person' | 'hidden';
+export type SpectatorMode = "join-overlay" | "freefly" | "first-person" | "hidden";
 
 export class SpectatorOverlay {
-    private container: HTMLElement;
-    private joinOverlay: HTMLElement;
-    private spectatingBar: HTMLElement;
-    private spectatingNameEl: HTMLElement;
-    private freeflyCue: HTMLElement;
-    private mode: SpectatorMode = 'hidden';
+  private container: HTMLElement;
+  private joinOverlay: HTMLElement;
+  private spectatingBar: HTMLElement;
+  private spectatingNameEl: HTMLElement;
+  private freeflyCue: HTMLElement;
+  private mode: SpectatorMode = "hidden";
 
-    private onJoinGameCallback: ((teamId?: string) => void) | null = null;
-    private onSpectateCallback: (() => void) | null = null;
-    private buttonsContainer: HTMLElement;
-    private hintEl: HTMLElement;
-    private logoCanvas: LogoCanvas | null = null;
+  private onJoinGameCallback: ((teamId?: string) => void) | null = null;
+  private onSpectateCallback: (() => void) | null = null;
+  private buttonsContainer: HTMLElement;
+  private hintEl: HTMLElement;
+  private logoCanvas: LogoCanvas | null = null;
 
-    // Reserved for first-person spectating (future)
-    private _onNextPlayerCallback: (() => void) | null = null;
-    private _onPrevPlayerCallback: (() => void) | null = null;
+  // Reserved for first-person spectating (future)
+  private _onNextPlayerCallback: (() => void) | null = null;
+  private _onPrevPlayerCallback: (() => void) | null = null;
 
-    constructor() {
-        // Main container (always present, visibility controlled by mode)
-        this.container = document.createElement('div');
-        this.container.id = 'spectator-overlay';
-        this.container.style.cssText = `
+  constructor() {
+    // Main container (always present, visibility controlled by mode)
+    this.container = document.createElement("div");
+    this.container.id = "spectator-overlay";
+    this.container.style.cssText = `
             position: fixed;
             inset: 0;
             z-index: 500;
             pointer-events: none;
         `;
 
-        // ── Join Overlay (fullscreen blur + Washiki panel dialog) ──
-        this.joinOverlay = document.createElement('div');
-        this.joinOverlay.id = 'spectator-join-overlay';
-        this.joinOverlay.style.cssText = `
+    // ── Join Overlay (fullscreen blur + Washiki panel dialog) ──
+    this.joinOverlay = document.createElement("div");
+    this.joinOverlay.id = "spectator-join-overlay";
+    this.joinOverlay.style.cssText = `
             position: absolute;
             inset: 0;
             display: none;
@@ -60,9 +60,9 @@ export class SpectatorOverlay {
             pointer-events: all;
         `;
 
-        // Washiki-style dialog panel
-        const panel = document.createElement('div');
-        panel.style.cssText = `
+    // Washiki-style dialog panel
+    const panel = document.createElement("div");
+    panel.style.cssText = `
             position: relative;
             display: flex;
             flex-direction: column;
@@ -75,50 +75,55 @@ export class SpectatorOverlay {
             box-shadow: 0 0 40px rgba(255,80,0,0.08), 0 8px 32px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,140,0,0.08);
         `;
 
-        // Corner brackets (top-left, top-right, bottom-left, bottom-right)
-        const cornerCSS = (top: boolean, left: boolean) => `
+    // Corner brackets (top-left, top-right, bottom-left, bottom-right)
+    const cornerCSS = (top: boolean, left: boolean) => `
             position: absolute;
-            ${top ? 'top: -1px' : 'bottom: -1px'};
-            ${left ? 'left: -1px' : 'right: -1px'};
+            ${top ? "top: -1px" : "bottom: -1px"};
+            ${left ? "left: -1px" : "right: -1px"};
             width: 14px; height: 14px;
-            border-${top ? 'top' : 'bottom'}: 2px solid rgba(255,120,0,0.7);
-            border-${left ? 'left' : 'right'}: 2px solid rgba(255,120,0,0.7);
+            border-${top ? "top" : "bottom"}: 2px solid rgba(255,120,0,0.7);
+            border-${left ? "left" : "right"}: 2px solid rgba(255,120,0,0.7);
             pointer-events: none;
         `;
-        for (const [t, l] of [[true, true], [true, false], [false, true], [false, false]]) {
-            const c = document.createElement('div');
-            c.style.cssText = cornerCSS(t as boolean, l as boolean);
-            panel.appendChild(c);
-        }
+    for (const [t, l] of [
+      [true, true],
+      [true, false],
+      [false, true],
+      [false, false],
+    ]) {
+      const c = document.createElement("div");
+      c.style.cssText = cornerCSS(t as boolean, l as boolean);
+      panel.appendChild(c);
+    }
 
-        // 3D Washoi logo (replaces the old "SHAG" text)
-        this.logoCanvas = new LogoCanvas({ width: 500, height: 160, showGlow: false, cameraRadius: 2.8 });
-        const logoEl = this.logoCanvas.getElement();
-        logoEl.style.marginBottom = '4px';
-        panel.appendChild(logoEl);
+    // 3D Washoi logo (replaces the old "SHAG" text)
+    this.logoCanvas = new LogoCanvas({ width: 500, height: 160, showGlow: false, cameraRadius: 2.8 });
+    const logoEl = this.logoCanvas.getElement();
+    logoEl.style.marginBottom = "4px";
+    panel.appendChild(logoEl);
 
-        // Subtle divider
-        const divider = document.createElement('div');
-        divider.style.cssText = `
+    // Subtle divider
+    const divider = document.createElement("div");
+    divider.style.cssText = `
             width: 80%; height: 1px;
             background: linear-gradient(90deg, transparent, rgba(255,100,0,0.3), transparent);
             margin: 4px 0 12px 0;
         `;
-        panel.appendChild(divider);
+    panel.appendChild(divider);
 
-        // Buttons container
-        this.buttonsContainer = document.createElement('div');
-        this.buttonsContainer.style.cssText = `
+    // Buttons container
+    this.buttonsContainer = document.createElement("div");
+    this.buttonsContainer.style.cssText = `
             display: flex;
             flex-direction: column;
             gap: 12px;
             align-items: center;
         `;
-        panel.appendChild(this.buttonsContainer);
+    panel.appendChild(this.buttonsContainer);
 
-        // Hint text
-        this.hintEl = document.createElement('div');
-        this.hintEl.style.cssText = `
+    // Hint text
+    this.hintEl = document.createElement("div");
+    this.hintEl.style.cssText = `
             font-family: 'Rajdhani', 'Outfit', sans-serif;
             font-size: 11px;
             color: rgba(255,140,0,0.45);
@@ -126,17 +131,17 @@ export class SpectatorOverlay {
             letter-spacing: 2px;
             margin-top: 8px;
         `;
-        panel.appendChild(this.hintEl);
+    panel.appendChild(this.hintEl);
 
-        this.joinOverlay.appendChild(panel);
-        this.container.appendChild(this.joinOverlay);
+    this.joinOverlay.appendChild(panel);
+    this.container.appendChild(this.joinOverlay);
 
-        this.refreshJoinPanel();
+    this.refreshJoinPanel();
 
-        // ── Spectating Bar (top center, shows during first-person spec) ──
-        this.spectatingBar = document.createElement('div');
-        this.spectatingBar.id = 'spectator-bar';
-        this.spectatingBar.style.cssText = `
+    // ── Spectating Bar (top center, shows during first-person spec) ──
+    this.spectatingBar = document.createElement("div");
+    this.spectatingBar.id = "spectator-bar";
+    this.spectatingBar.style.cssText = `
             position: absolute;
             top: 8px;
             left: 50%;
@@ -152,57 +157,57 @@ export class SpectatorOverlay {
             pointer-events: auto;
         `;
 
-        // Prev player button
-        const prevBtn = document.createElement('span');
-        prevBtn.style.cssText = `
+    // Prev player button
+    const prevBtn = document.createElement("span");
+    prevBtn.style.cssText = `
             font-size: 14px;
             color: rgba(255, 140, 0, 0.7);
             cursor: pointer;
             padding: 0 6px;
             user-select: none;
         `;
-        prevBtn.textContent = '◄ [←]';
-        prevBtn.addEventListener('click', () => this._onPrevPlayerCallback?.());
-        this.spectatingBar.appendChild(prevBtn);
+    prevBtn.textContent = "◄ [←]";
+    prevBtn.addEventListener("click", () => this._onPrevPlayerCallback?.());
+    this.spectatingBar.appendChild(prevBtn);
 
-        const specLabel = document.createElement('span');
-        specLabel.style.cssText = `
+    const specLabel = document.createElement("span");
+    specLabel.style.cssText = `
             font-size: 12px;
             font-weight: 600;
             color: rgba(255, 140, 0, 0.9);
             text-transform: uppercase;
             letter-spacing: 2px;
         `;
-        specLabel.textContent = 'SPECTATING';
-        this.spectatingBar.appendChild(specLabel);
+    specLabel.textContent = "SPECTATING";
+    this.spectatingBar.appendChild(specLabel);
 
-        this.spectatingNameEl = document.createElement('span');
-        this.spectatingNameEl.style.cssText = `
+    this.spectatingNameEl = document.createElement("span");
+    this.spectatingNameEl.style.cssText = `
             font-size: 16px;
             font-weight: 700;
             color: #fff;
         `;
-        this.spectatingBar.appendChild(this.spectatingNameEl);
+    this.spectatingBar.appendChild(this.spectatingNameEl);
 
-        // Next player button
-        const nextBtn = document.createElement('span');
-        nextBtn.style.cssText = `
+    // Next player button
+    const nextBtn = document.createElement("span");
+    nextBtn.style.cssText = `
             font-size: 14px;
             color: rgba(255, 140, 0, 0.7);
             cursor: pointer;
             padding: 0 6px;
             user-select: none;
         `;
-        nextBtn.textContent = '[→] ►';
-        nextBtn.addEventListener('click', () => this._onNextPlayerCallback?.());
-        this.spectatingBar.appendChild(nextBtn);
+    nextBtn.textContent = "[→] ►";
+    nextBtn.addEventListener("click", () => this._onNextPlayerCallback?.());
+    this.spectatingBar.appendChild(nextBtn);
 
-        this.container.appendChild(this.spectatingBar);
+    this.container.appendChild(this.spectatingBar);
 
-        // ── Freefly cue (left sidebar panel, below weapon list) ─────
-        this.freeflyCue = document.createElement('div');
-        this.freeflyCue.id = 'spectator-freefly-cue';
-        this.freeflyCue.style.cssText = `
+    // ── Freefly cue (left sidebar panel, below weapon list) ─────
+    this.freeflyCue = document.createElement("div");
+    this.freeflyCue.id = "spectator-freefly-cue";
+    this.freeflyCue.style.cssText = `
             position: absolute;
             bottom: calc(200px * var(--ui-scale, 1));
             left: calc(28px * var(--ui-scale, 1));
@@ -219,25 +224,30 @@ export class SpectatorOverlay {
             box-shadow: 0 0 24px rgba(255,80,0,0.06), 0 4px 16px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,140,0,0.06);
         `;
 
-        // Corner brackets
-        const cueCornerCSS = (top: boolean, left: boolean) => `
+    // Corner brackets
+    const cueCornerCSS = (top: boolean, left: boolean) => `
             position: absolute;
-            ${top ? 'top: -1px' : 'bottom: -1px'};
-            ${left ? 'left: -1px' : 'right: -1px'};
+            ${top ? "top: -1px" : "bottom: -1px"};
+            ${left ? "left: -1px" : "right: -1px"};
             width: calc(10px * var(--ui-scale, 1)); height: calc(10px * var(--ui-scale, 1));
-            border-${top ? 'top' : 'bottom'}: 2px solid rgba(255,120,0,0.5);
-            border-${left ? 'left' : 'right'}: 2px solid rgba(255,120,0,0.5);
+            border-${top ? "top" : "bottom"}: 2px solid rgba(255,120,0,0.5);
+            border-${left ? "left" : "right"}: 2px solid rgba(255,120,0,0.5);
             pointer-events: none;
         `;
-        for (const [t, l] of [[true, true], [true, false], [false, true], [false, false]]) {
-            const c = document.createElement('div');
-            c.style.cssText = cueCornerCSS(t as boolean, l as boolean);
-            this.freeflyCue.appendChild(c);
-        }
+    for (const [t, l] of [
+      [true, true],
+      [true, false],
+      [false, true],
+      [false, false],
+    ]) {
+      const c = document.createElement("div");
+      c.style.cssText = cueCornerCSS(t as boolean, l as boolean);
+      this.freeflyCue.appendChild(c);
+    }
 
-        // Header: "SPECTATOR"
-        const header = document.createElement('div');
-        header.style.cssText = `
+    // Header: "SPECTATOR"
+    const header = document.createElement("div");
+    header.style.cssText = `
             font-size: calc(10px * var(--ui-scale, 1));
             font-weight: 700;
             color: rgba(255,140,0,0.7);
@@ -246,49 +256,49 @@ export class SpectatorOverlay {
             margin-bottom: calc(8px * var(--ui-scale, 1));
             text-align: center;
         `;
-        header.textContent = 'SPECTATOR';
-        this.freeflyCue.appendChild(header);
+    header.textContent = "SPECTATOR";
+    this.freeflyCue.appendChild(header);
 
-        // Divider
-        const div = document.createElement('div');
-        div.style.cssText = `
+    // Divider
+    const div = document.createElement("div");
+    div.style.cssText = `
             width: 100%; height: 1px;
             background: linear-gradient(90deg, transparent, rgba(255,100,0,0.25), transparent);
             margin-bottom: calc(10px * var(--ui-scale, 1));
         `;
-        this.freeflyCue.appendChild(div);
+    this.freeflyCue.appendChild(div);
 
-        // Dynamic key labels from InputSystem
-        const moveKeys = [
-            getActionKeyLabel(FPS.MOVE_FORWARD),
-            getActionKeyLabel(FPS.MOVE_LEFT),
-            getActionKeyLabel(FPS.MOVE_BACKWARD),
-            getActionKeyLabel(FPS.MOVE_RIGHT),
-        ].join('');
-        const sprintKey = getActionKeyLabel(FPS.SPRINT);
-        const fireKey = getActionKeyLabel(FPS.FIRE);
-        const joinKey2 = getActionKeyLabel(FPS.JOIN_GAME);
-        const jumpKey = getActionKeyLabel(FPS.JUMP);
-        const crouchKey = getActionKeyLabel(FPS.CROUCH);
+    // Dynamic key labels from InputSystem
+    const moveKeys = [
+      getActionKeyLabel(FPS.MOVE_FORWARD),
+      getActionKeyLabel(FPS.MOVE_LEFT),
+      getActionKeyLabel(FPS.MOVE_BACKWARD),
+      getActionKeyLabel(FPS.MOVE_RIGHT),
+    ].join("");
+    const sprintKey = getActionKeyLabel(FPS.SPRINT);
+    const fireKey = getActionKeyLabel(FPS.FIRE);
+    const joinKey2 = getActionKeyLabel(FPS.JOIN_GAME);
+    const jumpKey = getActionKeyLabel(FPS.JUMP);
+    const crouchKey = getActionKeyLabel(FPS.CROUCH);
 
-        const bindings: [string, string][] = [
-            [moveKeys, 'Fly'],
-            ['MOUSE', 'Look'],
-            [sprintKey, 'Fast'],
-            [jumpKey, 'Fly Up'],
-            [crouchKey, 'Fly Down'],
-            [fireKey, 'Chase Player'],
-            [joinKey2, 'Join Game'],
-            ['ESC', 'Menu'],
-        ];
+    const bindings: [string, string][] = [
+      [moveKeys, "Fly"],
+      ["MOUSE", "Look"],
+      [sprintKey, "Fast"],
+      [jumpKey, "Fly Up"],
+      [crouchKey, "Fly Down"],
+      [fireKey, "Chase Player"],
+      [joinKey2, "Join Game"],
+      ["ESC", "Menu"],
+    ];
 
-        // Split into two columns of 3
-        const half = Math.ceil(bindings.length / 2);
-        const leftCol = bindings.slice(0, half);
-        const rightCol = bindings.slice(half);
+    // Split into two columns of 3
+    const half = Math.ceil(bindings.length / 2);
+    const leftCol = bindings.slice(0, half);
+    const rightCol = bindings.slice(half);
 
-        const grid = document.createElement('div');
-        grid.style.cssText = `
+    const grid = document.createElement("div");
+    grid.style.cssText = `
             display: grid;
             grid-template-columns: calc(58px * var(--ui-scale, 1)) 1fr calc(20px * var(--ui-scale, 1)) calc(58px * var(--ui-scale, 1)) 1fr;
             row-gap: calc(6px * var(--ui-scale, 1));
@@ -296,7 +306,7 @@ export class SpectatorOverlay {
             align-items: center;
         `;
 
-        const keyCSS = `
+    const keyCSS = `
             font-family: 'Orbitron', 'Rajdhani', monospace;
             font-size: calc(10px * var(--ui-scale, 1));
             font-weight: 700;
@@ -305,7 +315,7 @@ export class SpectatorOverlay {
             text-align: right;
             text-shadow: 0 0 8px rgba(255,100,0,0.25);
         `;
-        const actionCSS = `
+    const actionCSS = `
             font-family: 'Rajdhani', 'Outfit', sans-serif;
             font-size: calc(11px * var(--ui-scale, 1));
             font-weight: 500;
@@ -314,204 +324,212 @@ export class SpectatorOverlay {
             text-transform: uppercase;
         `;
 
-        for (let i = 0; i < half; i++) {
-            // Left column
-            const lk = document.createElement('div');
-            lk.style.cssText = keyCSS;
-            lk.textContent = leftCol[i][0];
-            const la = document.createElement('div');
-            la.style.cssText = actionCSS;
-            la.textContent = leftCol[i][1];
+    for (let i = 0; i < half; i++) {
+      // Left column
+      const lk = document.createElement("div");
+      lk.style.cssText = keyCSS;
+      lk.textContent = leftCol[i][0];
+      const la = document.createElement("div");
+      la.style.cssText = actionCSS;
+      la.textContent = leftCol[i][1];
 
-            // Vertical divider cell
-            const sep = document.createElement('div');
-            sep.style.cssText = `
+      // Vertical divider cell
+      const sep = document.createElement("div");
+      sep.style.cssText = `
                 width: 1px; height: 100%;
                 justify-self: center;
                 background: rgba(255,100,0,0.15);
             `;
 
-            // Right column
-            const rk = document.createElement('div');
-            rk.style.cssText = keyCSS;
-            rk.textContent = rightCol[i]?.[0] ?? '';
-            const ra = document.createElement('div');
-            ra.style.cssText = actionCSS;
-            ra.textContent = rightCol[i]?.[1] ?? '';
+      // Right column
+      const rk = document.createElement("div");
+      rk.style.cssText = keyCSS;
+      rk.textContent = rightCol[i]?.[0] ?? "";
+      const ra = document.createElement("div");
+      ra.style.cssText = actionCSS;
+      ra.textContent = rightCol[i]?.[1] ?? "";
 
-            grid.appendChild(lk);
-            grid.appendChild(la);
-            grid.appendChild(sep);
-            grid.appendChild(rk);
-            grid.appendChild(ra);
-        }
-
-        this.freeflyCue.appendChild(grid);
-        this.container.appendChild(this.freeflyCue);
-
-        document.body.appendChild(this.container);
+      grid.appendChild(lk);
+      grid.appendChild(la);
+      grid.appendChild(sep);
+      grid.appendChild(rk);
+      grid.appendChild(ra);
     }
 
-    // ── Public API ──────────────────────────────────────────────
+    this.freeflyCue.appendChild(grid);
+    this.container.appendChild(this.freeflyCue);
 
-    /**
-     * Set the current spectator mode — controls what UI is visible
-     */
-    public setMode(mode: SpectatorMode): void {
-        this.mode = mode;
+    document.body.appendChild(this.container);
+  }
 
-        // Hide everything first
-        this.joinOverlay.style.display = 'none';
-        this.spectatingBar.style.display = 'none';
-        this.freeflyCue.style.display = 'none';
-        if (this.logoCanvas) this.logoCanvas.pause();
+  // ── Public API ──────────────────────────────────────────────
 
-        switch (mode) {
-            case 'join-overlay':
-                this.refreshJoinPanel();
-                this.joinOverlay.style.display = 'flex';
-                // Init/resume 3D logo
-                if (this.logoCanvas) {
-                    this.logoCanvas.init().catch(() => { });
-                }
-                break;
-            case 'freefly':
-                this.freeflyCue.style.display = 'flex';
-                break;
-            case 'first-person':
-                this.spectatingBar.style.display = 'flex';
-                break;
-            case 'hidden':
-                break;
-        }
-    }
+  /**
+   * Set the current spectator mode — controls what UI is visible
+   */
+  public setMode(mode: SpectatorMode): void {
+    this.mode = mode;
 
-    public getMode(): SpectatorMode { return this.mode; }
+    // Hide everything first
+    this.joinOverlay.style.display = "none";
+    this.spectatingBar.style.display = "none";
+    this.freeflyCue.style.display = "none";
+    if (this.logoCanvas) this.logoCanvas.pause();
 
-    /** Set the target player name for first-person spectating bar */
-    public setSpectatingTarget(playerName: string): void {
-        this.spectatingNameEl.textContent = playerName;
-    }
-
-    // ── Callbacks ───────────────────────────────────────────────
-
-    public onJoinGame(cb: (teamId?: string) => void): void { this.onJoinGameCallback = cb; }
-    public onSpectate(cb: () => void): void { this.onSpectateCallback = cb; }
-
-    // Suppress TS unused warnings for future callbacks
-    public onNextPlayer(cb: () => void): void {
-        this._onNextPlayerCallback = cb;
-        if (this._onNextPlayerCallback !== null) { } // TS hack to mark as read
-    }
-    public onPrevPlayer(cb: () => void): void {
-        this._onPrevPlayerCallback = cb;
-        if (this._onPrevPlayerCallback !== null) { } // TS hack to mark as read
-    }
-
-    // ── Cleanup ─────────────────────────────────────────────────
-
-    public destroy(): void {
+    switch (mode) {
+      case "join-overlay":
+        this.refreshJoinPanel();
+        this.joinOverlay.style.display = "flex";
+        // Init/resume 3D logo
         if (this.logoCanvas) {
-            this.logoCanvas.dispose();
-            this.logoCanvas = null;
+          this.logoCanvas.init().catch(() => {});
         }
-        this.container.remove();
+        break;
+      case "freefly":
+        this.freeflyCue.style.display = "flex";
+        break;
+      case "first-person":
+        this.spectatingBar.style.display = "flex";
+        break;
+      case "hidden":
+        break;
     }
+  }
 
-    // ── Private ─────────────────────────────────────────────────
+  public getMode(): SpectatorMode {
+    return this.mode;
+  }
 
-    private createButton(text: string, primary: boolean): HTMLElement {
-        const defaultBg = primary
-            ? 'linear-gradient(180deg, rgba(255,80,0,0.25) 0%, rgba(255,120,0,0.1) 100%)'
-            : 'rgba(255,255,255,0.04)';
-        const defaultBorder = primary ? 'rgba(255,100,0,0.7)' : 'rgba(255,255,255,0.2)';
-        const defaultShadow = primary ? '0 0 20px rgba(255,80,0,0.12), inset 0 1px 0 rgba(255,140,0,0.1)' : '';
+  /** Set the target player name for first-person spectating bar */
+  public setSpectatingTarget(playerName: string): void {
+    this.spectatingNameEl.textContent = playerName;
+  }
 
-        const btn = document.createElement('button');
-        btn.textContent = text;
-        // Store base colors as data attributes so team overrides are preserved on hover/leave
-        btn.dataset.baseBg = defaultBg;
-        btn.dataset.baseBorder = defaultBorder;
-        btn.dataset.baseShadow = defaultShadow;
-        btn.style.cssText = `
+  // ── Callbacks ───────────────────────────────────────────────
+
+  public onJoinGame(cb: (teamId?: string) => void): void {
+    this.onJoinGameCallback = cb;
+  }
+  public onSpectate(cb: () => void): void {
+    this.onSpectateCallback = cb;
+  }
+
+  // Suppress TS unused warnings for future callbacks
+  public onNextPlayer(cb: () => void): void {
+    this._onNextPlayerCallback = cb;
+    if (this._onNextPlayerCallback !== null) {
+    } // TS hack to mark as read
+  }
+  public onPrevPlayer(cb: () => void): void {
+    this._onPrevPlayerCallback = cb;
+    if (this._onPrevPlayerCallback !== null) {
+    } // TS hack to mark as read
+  }
+
+  // ── Cleanup ─────────────────────────────────────────────────
+
+  public destroy(): void {
+    if (this.logoCanvas) {
+      this.logoCanvas.dispose();
+      this.logoCanvas = null;
+    }
+    this.container.remove();
+  }
+
+  // ── Private ─────────────────────────────────────────────────
+
+  private createButton(text: string, primary: boolean): HTMLElement {
+    const defaultBg = primary
+      ? "linear-gradient(180deg, rgba(255,80,0,0.25) 0%, rgba(255,120,0,0.1) 100%)"
+      : "rgba(255,255,255,0.04)";
+    const defaultBorder = primary ? "rgba(255,100,0,0.7)" : "rgba(255,255,255,0.2)";
+    const defaultShadow = primary ? "0 0 20px rgba(255,80,0,0.12), inset 0 1px 0 rgba(255,140,0,0.1)" : "";
+
+    const btn = document.createElement("button");
+    btn.textContent = text;
+    // Store base colors as data attributes so team overrides are preserved on hover/leave
+    btn.dataset.baseBg = defaultBg;
+    btn.dataset.baseBorder = defaultBorder;
+    btn.dataset.baseShadow = defaultShadow;
+    btn.style.cssText = `
             font-family: 'Orbitron', 'Rajdhani', 'Outfit', sans-serif;
-            font-size: ${primary ? '16px' : '13px'};
-            font-weight: ${primary ? '800' : '600'};
+            font-size: ${primary ? "16px" : "13px"};
+            font-weight: ${primary ? "800" : "600"};
             text-transform: uppercase;
-            letter-spacing: ${primary ? '5px' : '3px'};
-            padding: ${primary ? '14px 48px' : '10px 36px'};
-            border: ${primary ? '2px solid ' + defaultBorder : '1px solid ' + defaultBorder};
+            letter-spacing: ${primary ? "5px" : "3px"};
+            padding: ${primary ? "14px 48px" : "10px 36px"};
+            border: ${primary ? "2px solid " + defaultBorder : "1px solid " + defaultBorder};
             border-radius: 3px;
             background: ${defaultBg};
-            color: ${primary ? '#fff' : 'rgba(255,255,255,0.7)'};
+            color: ${primary ? "#fff" : "rgba(255,255,255,0.7)"};
             cursor: pointer;
             transition: all 0.2s ease;
             min-width: 220px;
-            ${defaultShadow ? 'box-shadow: ' + defaultShadow + ';' : ''}
+            ${defaultShadow ? "box-shadow: " + defaultShadow + ";" : ""}
         `;
 
-        btn.addEventListener('mouseenter', () => {
-            btn.style.background = primary
-                ? 'linear-gradient(180deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.05) 100%)'
-                : 'rgba(255,255,255,0.1)';
-            btn.style.filter = 'brightness(1.3)';
-            btn.style.transform = 'scale(1.02)';
-        });
+    btn.addEventListener("mouseenter", () => {
+      btn.style.background = primary
+        ? "linear-gradient(180deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.05) 100%)"
+        : "rgba(255,255,255,0.1)";
+      btn.style.filter = "brightness(1.3)";
+      btn.style.transform = "scale(1.02)";
+    });
 
-        btn.addEventListener('mouseleave', () => {
-            // Restore from data attributes (respects team color overrides)
-            btn.style.background = btn.dataset.baseBg || defaultBg;
-            btn.style.borderColor = btn.dataset.baseBorder || defaultBorder;
-            btn.style.filter = '';
-            btn.style.transform = 'scale(1)';
-            if (primary) btn.style.boxShadow = btn.dataset.baseShadow || defaultShadow;
-        });
+    btn.addEventListener("mouseleave", () => {
+      // Restore from data attributes (respects team color overrides)
+      btn.style.background = btn.dataset.baseBg || defaultBg;
+      btn.style.borderColor = btn.dataset.baseBorder || defaultBorder;
+      btn.style.filter = "";
+      btn.style.transform = "scale(1)";
+      if (primary) btn.style.boxShadow = btn.dataset.baseShadow || defaultShadow;
+    });
 
-        return btn;
+    return btn;
+  }
+
+  private refreshJoinPanel(): void {
+    if (!this.buttonsContainer || !this.hintEl) return;
+
+    this.buttonsContainer.innerHTML = "";
+
+    const state = MatchStateManager.getInstance();
+    const hasTeams = Object.keys(state.teamScores).length > 0;
+
+    if (hasTeams) {
+      // Team Udon btn (pink)
+      const udonBtn = this.createButton("JOIN TEAM UDON", true);
+      udonBtn.style.borderColor = "rgba(255, 0, 200, 0.7)";
+      udonBtn.style.background = "linear-gradient(180deg, rgba(255,0,200,0.25) 0%, rgba(255,0,200,0.1) 100%)";
+      udonBtn.dataset.baseBg = udonBtn.style.background;
+      udonBtn.dataset.baseBorder = udonBtn.style.borderColor;
+      udonBtn.addEventListener("click", () => this.onJoinGameCallback?.("udon"));
+      this.buttonsContainer.appendChild(udonBtn);
+
+      // Team Soba btn (cyan)
+      const sobaBtn = this.createButton("JOIN TEAM SOBA", true);
+      sobaBtn.style.borderColor = "rgba(0, 255, 255, 0.7)";
+      sobaBtn.style.background = "linear-gradient(180deg, rgba(0,255,255,0.25) 0%, rgba(0,255,255,0.1) 100%)";
+      sobaBtn.dataset.baseBg = sobaBtn.style.background;
+      sobaBtn.dataset.baseBorder = sobaBtn.style.borderColor;
+      sobaBtn.addEventListener("click", () => this.onJoinGameCallback?.("soba"));
+      this.buttonsContainer.appendChild(sobaBtn);
+
+      const joinKey = getActionKeyLabel(FPS.JOIN_GAME);
+      this.hintEl.textContent = `Press ${joinKey} to auto-assign`;
+    } else {
+      // Standard FFA btn
+      const joinBtn = this.createButton("JOIN GAME", true);
+      joinBtn.addEventListener("click", () => this.onJoinGameCallback?.());
+      this.buttonsContainer.appendChild(joinBtn);
+
+      const joinKey = getActionKeyLabel(FPS.JOIN_GAME);
+      this.hintEl.textContent = `Press ${joinKey} to join`;
     }
 
-    private refreshJoinPanel(): void {
-        if (!this.buttonsContainer || !this.hintEl) return;
-
-        this.buttonsContainer.innerHTML = '';
-
-        const state = MatchStateManager.getInstance();
-        const hasTeams = Object.keys(state.teamScores).length > 0;
-
-        if (hasTeams) {
-            // Team Udon btn (pink)
-            const udonBtn = this.createButton('JOIN TEAM UDON', true);
-            udonBtn.style.borderColor = 'rgba(255, 0, 200, 0.7)';
-            udonBtn.style.background = 'linear-gradient(180deg, rgba(255,0,200,0.25) 0%, rgba(255,0,200,0.1) 100%)';
-            udonBtn.dataset.baseBg = udonBtn.style.background;
-            udonBtn.dataset.baseBorder = udonBtn.style.borderColor;
-            udonBtn.addEventListener('click', () => this.onJoinGameCallback?.('udon'));
-            this.buttonsContainer.appendChild(udonBtn);
-
-            // Team Soba btn (cyan)
-            const sobaBtn = this.createButton('JOIN TEAM SOBA', true);
-            sobaBtn.style.borderColor = 'rgba(0, 255, 255, 0.7)';
-            sobaBtn.style.background = 'linear-gradient(180deg, rgba(0,255,255,0.25) 0%, rgba(0,255,255,0.1) 100%)';
-            sobaBtn.dataset.baseBg = sobaBtn.style.background;
-            sobaBtn.dataset.baseBorder = sobaBtn.style.borderColor;
-            sobaBtn.addEventListener('click', () => this.onJoinGameCallback?.('soba'));
-            this.buttonsContainer.appendChild(sobaBtn);
-
-            const joinKey = getActionKeyLabel(FPS.JOIN_GAME);
-            this.hintEl.textContent = `Press ${joinKey} to auto-assign`;
-        } else {
-            // Standard FFA btn
-            const joinBtn = this.createButton('JOIN GAME', true);
-            joinBtn.addEventListener('click', () => this.onJoinGameCallback?.());
-            this.buttonsContainer.appendChild(joinBtn);
-
-            const joinKey = getActionKeyLabel(FPS.JOIN_GAME);
-            this.hintEl.textContent = `Press ${joinKey} to join`;
-        }
-
-        // Shared spectate button
-        const specBtn = this.createButton('SPECTATE', false);
-        specBtn.addEventListener('click', () => this.onSpectateCallback?.());
-        this.buttonsContainer.appendChild(specBtn);
-    }
+    // Shared spectate button
+    const specBtn = this.createButton("SPECTATE", false);
+    specBtn.addEventListener("click", () => this.onSpectateCallback?.());
+    this.buttonsContainer.appendChild(specBtn);
+  }
 }

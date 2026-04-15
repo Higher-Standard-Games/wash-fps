@@ -11,13 +11,17 @@
  *   4. `demoplay cinematic <min>` → loadAndPlayCinematic(viewer, cameraSystem, minutes)
  */
 
+import { CameraSystem } from "../../../engine/camera/CameraSystem";
+import { CommandRegistry } from "../../../engine/console/CommandRegistry";
+import type { GameState } from "../../../engine/network/core/GameState";
 import type { LobbyClient } from "../../../lobby/LobbyClient";
 import type { DemoInfo } from "../../../lobby/types";
 import { DemoAnalyzer } from "../../../shared/demo/DemoAnalyzer";
 import { DemoReader } from "../../../shared/demo/DemoReader";
-import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import { CinematicDemoPlayer } from "./CinematicDemoPlayer";
-import { DemoViewer } from "./DemoViewer";
+import type { DemoViewer } from "./DemoViewer";
+import type { DemoViewerHUD } from "./DemoViewerHUD";
+import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
 
 export class DemoService {
   private static _instance: DemoService | null = null;
@@ -40,6 +44,11 @@ export class DemoService {
   activeCinematicPlayer: CinematicDemoPlayer | null = null;
 
   private lobbyClient: LobbyClient | null = null;
+  private remoteRenderer: RemotePlayerRenderer | null = null;
+  private demoHud: DemoViewerHUD | null = null;
+  private playbackRaf: number | null = null;
+  private lastFrameTimeMs: number = 0;
+  private latestState: GameState | null = null;
 
   private constructor() {}
 
@@ -109,10 +118,14 @@ export class DemoService {
   async loadAndPlayNormal(viewer: DemoViewer): Promise<void> {
     if (!this.loadedDemoData) throw new Error("No demo loaded. Use `demo <filename>` first.");
 
+    await this.ensureDemoMapLoaded();
     this.stopAll();
     this.activeDemoViewer = viewer;
+    await this.ensureRuntimeWiring(viewer);
+    await this.ensureCinematicControllers(CameraSystem.getInstance());
     await viewer.load(this.loadedDemoData);
     viewer.play();
+    this.startPlaybackLoop();
   }
 
   // ── Cinematic playback ─────────────────────────────────────────────────────
@@ -121,18 +134,18 @@ export class DemoService {
    * Start cinematic highlight reel.
    * viewer + cameraSystem are injected so callers control the rendering context.
    */
-  async loadAndPlayCinematic(
-    viewer: DemoViewer,
-    cameraSystem: CameraSystem,
-    durationMinutes: number,
-  ): Promise<void> {
+  async loadAndPlayCinematic(viewer: DemoViewer, cameraSystem: CameraSystem, durationMinutes: number): Promise<void> {
     if (!this.loadedDemoData) throw new Error("No demo loaded. Use `demo <filename>` first.");
 
+    await this.ensureDemoMapLoaded();
     this.stopAll();
     this.activeDemoViewer = viewer;
+    await this.ensureRuntimeWiring(viewer);
+    await this.ensureCinematicControllers(cameraSystem);
     const player = new CinematicDemoPlayer(viewer, cameraSystem);
     this.activeCinematicPlayer = player;
     await player.loadAndPlay(this.loadedDemoData, durationMinutes);
+    this.startPlaybackLoop();
   }
 
   // ── Analysis ──────────────────────────────────────────────────────────────
@@ -189,11 +202,180 @@ export class DemoService {
   // ── Stop ──────────────────────────────────────────────────────────────────
 
   stopAll(): void {
+    this.stopPlaybackLoop();
     this.activeCinematicPlayer?.dispose();
     this.activeCinematicPlayer = null;
 
     this.activeDemoViewer?.pause();
+    this.activeDemoViewer?.dispose();
     this.activeDemoViewer = null;
+
+    this.remoteRenderer?.dispose();
+    this.remoteRenderer = null;
+
+    this.demoHud?.dispose();
+    this.demoHud = null;
+
+    this.latestState = null;
+  }
+
+  private async ensureDemoMapLoaded(): Promise<void> {
+    const header = this.loadedDemoReader?.readHeader();
+    if (!header?.map) return;
+
+    const result = await CommandRegistry.getInstance().execute(`map ${header.map}`);
+    if (result && /failed to load map|no scene available|camerasystem not available|unknown command/i.test(result)) {
+      throw new Error(result);
+    }
+  }
+
+  private async ensureRuntimeWiring(viewer: DemoViewer): Promise<void> {
+    const camera = CameraSystem.getInstance().getCamera();
+    const scene = camera?.getScene();
+    if (!scene) {
+      throw new Error("No active scene available for demo playback.");
+    }
+
+    const { RemotePlayerRenderer } = await import("./RemotePlayerRenderer");
+    this.remoteRenderer = new RemotePlayerRenderer(scene);
+
+    viewer.onFrame((state) => {
+      this.latestState = state;
+      this.remoteRenderer?.pushSnapshot(state, "");
+      this.refreshHudPlayerList();
+    });
+
+    if (typeof document === "undefined") return;
+    const { DemoViewerHUD } = await import("./DemoViewerHUD");
+    this.demoHud = new DemoViewerHUD();
+    this.demoHud.onSeek((progress) => this.activeDemoViewer?.seekToProgress(progress));
+    this.demoHud.onPlayPause(() => {
+      if (this.activeCinematicPlayer) {
+        this.activeCinematicPlayer.togglePlayPause();
+      } else {
+        this.activeDemoViewer?.togglePlayPause();
+      }
+    });
+    this.demoHud.onSpeedChange(() => {
+      this.activeDemoViewer?.cycleSpeed();
+    });
+    this.demoHud.onPlayerSelect((entityId) => {
+      const spectator = CameraSystem.getInstance().getController("spectator") as {
+        setSpectateTarget?: (id: string) => void;
+      } | null;
+      spectator?.setSpectateTarget?.(entityId);
+      CameraSystem.getInstance().setController("spectator");
+    });
+  }
+
+  private startPlaybackLoop(): void {
+    if (typeof window === "undefined" || typeof window.requestAnimationFrame !== "function") return;
+    this.stopPlaybackLoop();
+    this.lastFrameTimeMs = performance.now();
+
+    const tick = (now: number): void => {
+      if (!this.activeDemoViewer) {
+        this.playbackRaf = null;
+        return;
+      }
+
+      const deltaMs = Math.max(0, now - this.lastFrameTimeMs);
+      this.lastFrameTimeMs = now;
+
+      this.activeDemoViewer.update(deltaMs);
+      this.activeCinematicPlayer?.update(deltaMs);
+      this.remoteRenderer?.render();
+      this.demoHud?.update(this.activeDemoViewer.getInfo());
+
+      this.playbackRaf = window.requestAnimationFrame(tick);
+    };
+
+    this.playbackRaf = window.requestAnimationFrame(tick);
+  }
+
+  private stopPlaybackLoop(): void {
+    if (typeof window === "undefined" || this.playbackRaf === null) return;
+    window.cancelAnimationFrame(this.playbackRaf);
+    this.playbackRaf = null;
+  }
+
+  private refreshHudPlayerList(): void {
+    if (!this.demoHud || !this.latestState) return;
+
+    const playersByEntity = new Map<string, string>();
+    for (const player of this.latestState.players.values()) {
+      playersByEntity.set(player.entityId, player.name || player.entityId);
+    }
+
+    const cameraSystem = CameraSystem.getInstance();
+    const spectator = cameraSystem.getController("spectator") as {
+      getTargetEntityId?: () => string | null;
+      setSpectateTarget?: (id: string) => void;
+    } | null;
+    let currentTarget = spectator?.getTargetEntityId?.() ?? null;
+
+    const rows: Array<{ entityId: string; name: string; isTarget: boolean }> = [];
+    for (const [entityId] of this.latestState.entities) {
+      if (!entityId.startsWith("player_")) continue;
+      rows.push({
+        entityId,
+        name: playersByEntity.get(entityId) ?? entityId,
+        isTarget: currentTarget === entityId,
+      });
+    }
+
+    rows.sort((a, b) => a.name.localeCompare(b.name));
+    if (!currentTarget && rows.length > 0) {
+      const first = rows[0].entityId;
+      spectator?.setSpectateTarget?.(first);
+      cameraSystem.setController("spectator");
+      currentTarget = first;
+      for (const row of rows) {
+        row.isTarget = row.entityId === currentTarget;
+      }
+    }
+    this.demoHud.setPlayerList(rows);
+  }
+
+  private async ensureCinematicControllers(cameraSystem: CameraSystem): Promise<void> {
+    if (!cameraSystem.getController("freefly")) {
+      const { FreeflyController } = await import("../../../engine/camera/controllers/FreeflyController");
+      cameraSystem.registerController("freefly", new FreeflyController());
+    }
+
+    const spectatorProvider = (entityId: string) => {
+      const state = this.latestState;
+      if (!state) return null;
+      const entity = state.entities.get(entityId);
+      const transform = entity?.getComponent("transform") as
+        | {
+            position?: { x: number; y: number; z: number };
+            rotation?: { x?: number; y?: number };
+          }
+        | undefined;
+      if (!transform?.position) return null;
+
+      return {
+        x: transform.position.x,
+        y: transform.position.y,
+        z: transform.position.z,
+        yaw: transform.rotation?.y ?? 0,
+        pitch: transform.rotation?.x ?? 0,
+      };
+    };
+
+    if (!cameraSystem.getController("spectator")) {
+      const { SpectatorController } = await import("../../../engine/camera/controllers/SpectatorController");
+      const spectator = new SpectatorController();
+      spectator.setTargetProvider(spectatorProvider);
+      cameraSystem.registerController("spectator", spectator);
+      return;
+    }
+
+    const existingSpectator = cameraSystem.getController("spectator") as {
+      setTargetProvider?: (provider: (entityId: string) => unknown) => void;
+    } | null;
+    existingSpectator?.setTargetProvider?.(spectatorProvider);
   }
 
   // ── Demo list helpers ──────────────────────────────────────────────────────
@@ -220,9 +402,7 @@ export class DemoService {
         if (filter) {
           const f = filter.toLowerCase();
           demos = demos.filter(
-            (d) =>
-              d.map.toLowerCase().includes(f) ||
-              d.players.some((p) => p.toLowerCase().includes(f)),
+            (d) => d.map.toLowerCase().includes(f) || d.players.some((p) => p.toLowerCase().includes(f)),
           );
         }
         this.cachedDemoList = demos;

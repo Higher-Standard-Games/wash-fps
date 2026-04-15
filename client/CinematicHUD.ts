@@ -97,16 +97,13 @@ export class CinematicHUD {
 
     // Highlight type
     const killCount = h.killCount && h.killCount > 1 ? ` (×${h.killCount})` : "";
-    this.highlightTypeLabel.textContent =
-      (HIGHLIGHT_LABELS[h.type] ?? h.type.toUpperCase()) + killCount;
+    this.highlightTypeLabel.textContent = (HIGHLIGHT_LABELS[h.type] ?? h.type.toUpperCase()) + killCount;
 
     // Player
     this.playerLabel.textContent = h.primaryPlayerName;
 
     // Weapon
-    this.weaponLabel.textContent = h.weaponId
-      ? h.weaponId.replace(/_/g, " ").toUpperCase()
-      : "";
+    this.weaponLabel.textContent = h.weaponId ? h.weaponId.replace(/_/g, " ").toUpperCase() : "";
     this.weaponLabel.style.display = h.weaponId ? "block" : "none";
 
     // Tags
@@ -147,8 +144,7 @@ export class CinematicHUD {
     this.timeLabel.textContent = `${this._fmtMs(info.reelElapsedMs)} / ${this._fmtMs(info.reelTotalMs)}`;
 
     // Speed
-    this.speedLabel.textContent =
-      info.currentSpeed !== 1.0 ? `${info.currentSpeed}×` : "";
+    this.speedLabel.textContent = info.currentSpeed !== 1.0 ? `${info.currentSpeed}×` : "";
     this.speedLabel.style.display = info.currentSpeed !== 1.0 ? "inline" : "none";
 
     // Replay badge

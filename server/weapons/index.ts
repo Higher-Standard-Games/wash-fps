@@ -1,7 +1,7 @@
 /**
  * Weapon definitions
  */
-export type { WeaponDef } from './WeaponDef';
+export type { WeaponDef } from "./WeaponDef";
 // Future:
 // export { Machinegun } from './Machinegun';
 // export { Shotgun } from './Shotgun';

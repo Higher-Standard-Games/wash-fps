@@ -48,7 +48,5 @@
   ],
   "lastRound": 3,
   "timestamp": "2026-03-22T11:45:46.366Z",
-  "completedTiers": [
-    "easy"
-  ]
+  "completedTiers": ["easy"]
 }

@@ -15,18 +15,14 @@
  */
 
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
-import type { DemoAnalysis, HighlightCandidate } from "../../../shared/demo/DemoAnalyzer";
-import { DemoAnalyzer } from "../../../shared/demo/DemoAnalyzer";
-import { DemoReader } from "../../../shared/demo/DemoReader";
-import {
-  generateCameraPath,
-  interpolatePath,
-  type CameraPathResult,
-} from "../../../shared/demo/CinematicCameraPaths";
-import { SequenceBuilder, type CinematicReel, type CinematicSegment } from "../../../shared/demo/SequenceBuilder";
 import type { CameraSystem } from "../../../engine/camera/CameraSystem";
 import type { FreeflyController } from "../../../engine/camera/controllers/FreeflyController";
 import type { SpectatorController } from "../../../engine/camera/controllers/SpectatorController";
+import { type CameraPathResult, generateCameraPath, interpolatePath } from "../../../shared/demo/CinematicCameraPaths";
+import type { DemoAnalysis, HighlightCandidate } from "../../../shared/demo/DemoAnalyzer";
+import { DemoAnalyzer } from "../../../shared/demo/DemoAnalyzer";
+import { DemoReader } from "../../../shared/demo/DemoReader";
+import { type CinematicReel, type CinematicSegment, SequenceBuilder } from "../../../shared/demo/SequenceBuilder";
 import type { DemoViewer } from "./DemoViewer";
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -61,9 +57,7 @@ export class CinematicDemoPlayer {
   private segmentElapsedMs = 0;
 
   // Callbacks
-  private onSegmentChangeCb:
-    | ((segment: CinematicSegment, index: number) => void)
-    | null = null;
+  private onSegmentChangeCb: ((segment: CinematicSegment, index: number) => void) | null = null;
   private onReelEndCb: (() => void) | null = null;
   private onStateChangeCb: ((state: CinematicPlayerState) => void) | null = null;
 
@@ -101,28 +95,13 @@ export class CinematicDemoPlayer {
     await this.demoViewer.load(data);
 
     const frames = reader.readAllFrames();
-    const analysis: DemoAnalysis = new DemoAnalyzer().analyze(
-      frames,
-      header,
-      index.durationMs,
-    );
+    const analysis: DemoAnalysis = new DemoAnalyzer().analyze(frames, header, index.durationMs);
 
-    this.reel = new SequenceBuilder().build(
-      analysis,
-      durationMinutes,
-      header.snapshotRate,
-      header,
-    );
+    this.reel = new SequenceBuilder().build(analysis, durationMinutes, header.snapshotRate, header);
 
     // Pre-generate camera paths for every segment
     this.cameraPaths = this.reel.segments.map((seg) =>
-      generateCameraPath(
-        seg.cameraPreset,
-        seg.highlight,
-        seg.startTick,
-        seg.endTick,
-        header.snapshotRate,
-      ),
+      generateCameraPath(seg.cameraPreset, seg.highlight, seg.startTick, seg.endTick, header.snapshotRate),
     );
 
     this._startPlayback();
@@ -170,9 +149,7 @@ export class CinematicDemoPlayer {
     if (path?.type === "freefly" && path.keyframes?.length) {
       const { position, lookAt, fov } = interpolatePath(path.keyframes, currentTick);
 
-      const freeflyCtrl = this.cameraSystem.getController("freefly") as
-        | FreeflyController
-        | undefined;
+      const freeflyCtrl = this.cameraSystem.getController("freefly") as FreeflyController | undefined;
       freeflyCtrl?.setPosition(new Vector3(position.x, position.y, position.z));
 
       const cam = this.cameraSystem.getFreeCamera();
@@ -284,21 +261,15 @@ export class CinematicDemoPlayer {
 
     if (path?.type === "chase") {
       this.cameraSystem.setController("spectator");
-      const spectator = this.cameraSystem.getController("spectator") as
-        | SpectatorController
-        | undefined;
+      const spectator = this.cameraSystem.getController("spectator") as SpectatorController | undefined;
       spectator?.setSpectateTarget(path.targetEntityId ?? segment.cameraTarget ?? "");
     } else {
       this.cameraSystem.setController("freefly");
       // Snap to first keyframe position immediately
       if (path?.keyframes?.length) {
         const first = path.keyframes[0];
-        const freeflyCtrl = this.cameraSystem.getController("freefly") as
-          | FreeflyController
-          | undefined;
-        freeflyCtrl?.setPosition(
-          new Vector3(first.position.x, first.position.y, first.position.z),
-        );
+        const freeflyCtrl = this.cameraSystem.getController("freefly") as FreeflyController | undefined;
+        freeflyCtrl?.setPosition(new Vector3(first.position.x, first.position.y, first.position.z));
       }
     }
 

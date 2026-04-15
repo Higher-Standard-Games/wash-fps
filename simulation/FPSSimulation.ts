@@ -1,20 +1,20 @@
-import { Simulation, SimulationConfig } from '../../../engine/network/core/Simulation';
-import { GameState, PlayerState } from '../../../engine/network/core/GameState';
-import { Entity } from '../../../engine/network/core/Entity';
-import type { Command } from '../../../engine/network/core/Command';
-import { MovementSystem } from '../../../engine/network/systems/MovementSystem';
-import { TransformComponent } from '../../../engine/network/components/TransformComponent';
-import { VelocityComponent } from '../../../engine/network/components/VelocityComponent';
-import { InputComponent } from '../../../engine/network/components/InputComponent';
-import { MovementStateComponent } from '../../../engine/network/components/MovementStateComponent';
-import { NullCollisionWorld, type CollisionWorld } from '../../../engine/network/systems/collision/CollisionWorld';
-import { MovementProfile as FPSMovementProfile } from './MovementProfile';
+import { InputComponent } from "../../../engine/network/components/InputComponent";
+import { MovementStateComponent } from "../../../engine/network/components/MovementStateComponent";
+import { TransformComponent } from "../../../engine/network/components/TransformComponent";
+import { VelocityComponent } from "../../../engine/network/components/VelocityComponent";
+import type { Command } from "../../../engine/network/core/Command";
+import { Entity } from "../../../engine/network/core/Entity";
+import { GameState, PlayerState } from "../../../engine/network/core/GameState";
+import { Simulation, type SimulationConfig } from "../../../engine/network/core/Simulation";
+import { type CollisionWorld, NullCollisionWorld } from "../../../engine/network/systems/collision/CollisionWorld";
+import { MovementSystem } from "../../../engine/network/systems/MovementSystem";
+import { MovementProfile as FPSMovementProfile } from "./MovementProfile";
 
 /**
  * FPS-specific command for player input
  */
 export interface FPSInputCommand extends Command {
-  type: 'fps_input';
+  type: "fps_input";
   direction: { x: number; y: number; z: number };
   pitch: number;
   yaw: number;
@@ -41,7 +41,7 @@ export class FPSSimulation extends Simulation<GameState, FPSInputCommand> {
   // ES2022 class field initializers run AFTER super() returns, which would overwrite
   // the value set during registerSystems(). By using 'declare', we tell TypeScript
   // the field exists but don't emit any initialization code.
-  declare private movementSystem: MovementSystem;
+  private declare movementSystem: MovementSystem;
   private pendingCollisionWorld: CollisionWorld | null = null;
   private spawnPoints: Array<{ x: number; y: number; z: number }> = [];
   private nextEntityId: number = 1;
@@ -51,7 +51,7 @@ export class FPSSimulation extends Simulation<GameState, FPSInputCommand> {
 
     // Verify movementSystem was set during registerSystems (called by super)
     if (!this.movementSystem) {
-      throw new Error('[FPSSimulation] movementSystem was not initialized by registerSystems!');
+      throw new Error("[FPSSimulation] movementSystem was not initialized by registerSystems!");
     }
 
     // Default spawn points (will be loaded from map later)
@@ -60,8 +60,6 @@ export class FPSSimulation extends Simulation<GameState, FPSInputCommand> {
       { x: 100, y: 10, z: 100 },
       { x: -100, y: 10, z: -100 },
     ];
-
-
   }
 
   protected createInitialState(): GameState {
@@ -78,20 +76,18 @@ export class FPSSimulation extends Simulation<GameState, FPSInputCommand> {
       this.movementSystem = ms;
       this.addSystem(ms);
 
-
       // Apply any pending collision world
       if (this.pendingCollisionWorld) {
-
         ms.setCollisionWorld(this.pendingCollisionWorld);
         this.pendingCollisionWorld = null;
       }
     } catch (err) {
-      console.error('[FPSSimulation] ERROR in registerSystems:', err);
+      console.error("[FPSSimulation] ERROR in registerSystems:", err);
     }
   }
 
   protected registerCommandHandlers(): void {
-    this.onCommand('fps_input', this.handleInputCommand.bind(this));
+    this.onCommand("fps_input", this.handleInputCommand.bind(this));
   }
 
   /**
@@ -111,7 +107,7 @@ export class FPSSimulation extends Simulation<GameState, FPSInputCommand> {
     }
 
     // Update input component
-    const input = entity.getComponent<InputComponent>('input');
+    const input = entity.getComponent<InputComponent>("input");
     if (input) {
       input.buttons = cmd.buttons;
       input.viewAngles.pitch = cmd.pitch;
@@ -124,7 +120,7 @@ export class FPSSimulation extends Simulation<GameState, FPSInputCommand> {
     }
 
     // Update transform rotation to match view
-    const transform = entity.getComponent<TransformComponent>('transform');
+    const transform = entity.getComponent<TransformComponent>("transform");
     if (transform) {
       transform.rotation.x = cmd.pitch;
       transform.rotation.y = cmd.yaw;
@@ -147,16 +143,16 @@ export class FPSSimulation extends Simulation<GameState, FPSInputCommand> {
       position: { ...spawnPoint },
       rotation: { x: 0, y: 0, z: 0 },
     });
-    entity.addComponent('transform', transform);
+    entity.addComponent("transform", transform);
 
     const velocity = new VelocityComponent();
-    entity.addComponent('velocity', velocity);
+    entity.addComponent("velocity", velocity);
 
     const input = new InputComponent();
-    entity.addComponent('input', input);
+    entity.addComponent("input", input);
 
     const movementState = new MovementStateComponent();
-    entity.addComponent('movementState', movementState);
+    entity.addComponent("movementState", movementState);
 
     // Add to state
     this.state.entities.set(entityId, entity);
@@ -166,8 +162,6 @@ export class FPSSimulation extends Simulation<GameState, FPSInputCommand> {
     playerState.entityId = entityId;
     playerState.name = playerId;
     this.state.players.set(playerId, playerState);
-
-
 
     return entity;
   }
@@ -180,7 +174,6 @@ export class FPSSimulation extends Simulation<GameState, FPSInputCommand> {
     if (player) {
       this.state.entities.delete(player.entityId);
       this.state.players.delete(playerId);
-
     }
   }
 
@@ -189,7 +182,6 @@ export class FPSSimulation extends Simulation<GameState, FPSInputCommand> {
    */
   setSpawnPoints(points: Array<{ x: number; y: number; z: number }>): void {
     this.spawnPoints = points;
-
   }
 
   /**
@@ -203,14 +195,12 @@ export class FPSSimulation extends Simulation<GameState, FPSInputCommand> {
    * Set the collision world (called when map loads)
    */
   setCollisionWorld(collision: CollisionWorld | null): void {
-
     if (!this.movementSystem) {
       // Store for later - will be applied when movementSystem is ready
-      console.warn('[FPSSimulation] movementSystem not ready, storing pending collision world');
+      console.warn("[FPSSimulation] movementSystem not ready, storing pending collision world");
       this.pendingCollisionWorld = collision;
       return;
     }
     this.movementSystem.setCollisionWorld(collision);
-
   }
 }

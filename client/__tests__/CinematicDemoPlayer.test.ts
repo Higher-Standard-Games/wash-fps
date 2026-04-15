@@ -131,7 +131,10 @@ function makeMockFreeCamera() {
 }
 
 function makeMockCameraSystem(freeCamera = makeMockFreeCamera()) {
-  const controllers = new Map<string, { setSpectateTarget?: (id: string) => void; setPosition?: (v: unknown) => void }>();
+  const controllers = new Map<
+    string,
+    { setSpectateTarget?: (id: string) => void; setPosition?: (v: unknown) => void }
+  >();
   controllers.set("spectator", { setSpectateTarget: vi.fn() });
   controllers.set("freefly", { setPosition: vi.fn() });
 
@@ -267,7 +270,9 @@ describe("CinematicDemoPlayer", () => {
     await player.loadAndPlay(new Uint8Array(8), 2);
 
     let reelEnded = false;
-    player.onReelEnd(() => { reelEnded = true; });
+    player.onReelEnd(() => {
+      reelEnded = true;
+    });
 
     const reel = (player as unknown as { reel: import("../../../../shared/demo/SequenceBuilder").CinematicReel }).reel!;
 

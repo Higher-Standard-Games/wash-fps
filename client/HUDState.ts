@@ -1,9 +1,9 @@
 /**
  * HUDState — Client-side HUD data aggregator
- * 
+ *
  * Collects all HUD-relevant data from GameState events each frame.
  * UI components read from this singleton (pull model).
- * 
+ *
  * Aggregates:
  * - combat_state  → health, armor, dead
  * - weapon_state  → handled by Game directly
@@ -13,36 +13,36 @@
  * - players map   → scoreboard data
  */
 
-import { MatchStateManager } from './MatchStateManager';
-import type { GameState } from '../../../engine/network/core/GameState';
+import type { GameState } from "../../../engine/network/core/GameState";
+import { MatchStateManager } from "./MatchStateManager";
 
 // ============================================================================
 // Data Shapes
 // ============================================================================
 
 export interface DamageNumber {
-    entityId: string;
-    attackerId: string;
-    damage: number;
-    weaponId: string;
-    timestamp: number;
+  entityId: string;
+  attackerId: string;
+  damage: number;
+  weaponId: string;
+  timestamp: number;
 }
 
 export interface KillFeedEntry {
-    victimId: string;
-    killerId: string;
-    weaponId: string;
-    timestamp: number;
+  victimId: string;
+  killerId: string;
+  weaponId: string;
+  timestamp: number;
 }
 
 export interface ScoreboardEntry {
-    playerId: string;
-    entityId: string;
-    name: string;
-    score: number;
-    deaths: number;
-    ping: number;
-    teamId?: string;
+  playerId: string;
+  entityId: string;
+  name: string;
+  score: number;
+  deaths: number;
+  ping: number;
+  teamId?: string;
 }
 
 // ============================================================================
@@ -50,259 +50,253 @@ export interface ScoreboardEntry {
 // ============================================================================
 
 export class HUDState {
-    private static instance: HUDState | null = null;
+  private static instance: HUDState | null = null;
 
-    // === Combat (private to local player) ===
-    health: number = 100;
-    armor: number = 0;
-    dead: boolean = false;
+  // === Combat (private to local player) ===
+  health: number = 100;
+  armor: number = 0;
+  dead: boolean = false;
 
-    // === Weapon state (private to local player) ===
-    currentWeapon: string = 'blade';
-    weapons: string[] = ['blade'];
-    ammo: Record<string, number> = {};
+  // === Weapon state (private to local player) ===
+  currentWeapon: string = "blade";
+  weapons: string[] = ["blade"];
+  ammo: Record<string, number> = {};
 
-    // === Damage numbers (recent, for floating display) ===
-    damageNumbers: DamageNumber[] = [];
-    private static readonly DAMAGE_EXPIRE_MS = 2000;
+  // === Damage numbers (recent, for floating display) ===
+  damageNumbers: DamageNumber[] = [];
+  private static readonly DAMAGE_EXPIRE_MS = 2000;
 
-    // === Kill feed (recent kills) ===
-    killFeed: KillFeedEntry[] = [];
-    private static readonly KILL_FEED_EXPIRE_MS = 5000;
-    private static readonly KILL_FEED_MAX = 5;
+  // === Kill feed (recent kills) ===
+  killFeed: KillFeedEntry[] = [];
+  private static readonly KILL_FEED_EXPIRE_MS = 5000;
+  private static readonly KILL_FEED_MAX = 5;
 
-    // === Scoreboard & Match State ===
-    scoreboard: ScoreboardEntry[] = [];
-    localPlayerId: string = '';
-    gametypeName: string = '';
-    teamScores: Record<string, number> = {};
-    teamNames: Record<string, string> = {};
+  // === Scoreboard & Match State ===
+  scoreboard: ScoreboardEntry[] = [];
+  localPlayerId: string = "";
+  gametypeName: string = "";
+  teamScores: Record<string, number> = {};
+  teamNames: Record<string, string> = {};
 
-    // === Debug overlay ===
-    private debugElement: HTMLDivElement | null = null;
-    private debugEnabled: boolean = false;
+  // === Debug overlay ===
+  private debugElement: HTMLDivElement | null = null;
+  private debugEnabled: boolean = false;
 
-    static getInstance(): HUDState {
-        if (!HUDState.instance) {
-            HUDState.instance = new HUDState();
-        }
-        return HUDState.instance;
+  static getInstance(): HUDState {
+    if (!HUDState.instance) {
+      HUDState.instance = new HUDState();
     }
+    return HUDState.instance;
+  }
 
-    // ========================================================================
-    // Event Processing
-    // ========================================================================
+  // ========================================================================
+  // Event Processing
+  // ========================================================================
 
-    /**
-     * Process a combat_state event (health/armor for local player).
-     */
-    processCombatState(event: any): void {
-        this.health = event.health ?? 100;
-        this.armor = event.armor ?? 0;
-        this.dead = event.dead ?? false;
+  /**
+   * Process a combat_state event (health/armor for local player).
+   */
+  processCombatState(event: any): void {
+    this.health = event.health ?? 100;
+    this.armor = event.armor ?? 0;
+    this.dead = event.dead ?? false;
+  }
+
+  /**
+   * Process a weapon_state event (current weapon, inventory, ammo for local player).
+   */
+  processWeaponState(event: { currentWeapon: string; weapons: string[]; ammo: Record<string, number> }): void {
+    this.currentWeapon = event.currentWeapon;
+    this.weapons = [...event.weapons];
+    this.ammo = { ...event.ammo };
+  }
+
+  /**
+   * Process a damage event (for floating damage numbers).
+   */
+  processDamage(event: any): void {
+    this.damageNumbers.push({
+      entityId: event.entityId ?? "",
+      attackerId: event.attackerId ?? "",
+      damage: event.damage ?? 0,
+      weaponId: event.weaponId ?? "",
+      timestamp: performance.now(),
+    });
+  }
+
+  /**
+   * Process a death event (kill feed).
+   */
+  processDeath(event: any): void {
+    this.killFeed.push({
+      victimId: event.entityId ?? "",
+      killerId: event.killerId ?? "",
+      weaponId: event.weaponId ?? "",
+      timestamp: performance.now(),
+    });
+
+    // Cap kill feed length
+    if (this.killFeed.length > HUDState.KILL_FEED_MAX) {
+      this.killFeed.shift();
     }
+  }
 
-    /**
-     * Process a weapon_state event (current weapon, inventory, ammo for local player).
-     */
-    processWeaponState(event: { currentWeapon: string; weapons: string[]; ammo: Record<string, number> }): void {
-        this.currentWeapon = event.currentWeapon;
-        this.weapons = [...event.weapons];
-        this.ammo = { ...event.ammo };
+  /**
+   * Update scoreboard from GameState players map.
+   */
+  updateScoreboard(state: GameState): void {
+    this.scoreboard = [];
+
+    // Extract match snapshot data
+    const matchState = MatchStateManager.getInstance();
+    this.gametypeName = matchState.gametypeName || "";
+    this.teamScores = matchState.teamScores || {};
+    this.teamNames = matchState.teamNames || {};
+
+    for (const [playerId, player] of state.players) {
+      // Strip the 'player_' prefix safely string manipulation
+      let rawPlayerId = playerId;
+      if (playerId.startsWith("player_")) {
+        rawPlayerId = playerId.substring(7);
+      }
+      const teamId = matchState.playerTeams?.[rawPlayerId];
+      this.scoreboard.push({
+        playerId,
+        entityId: player.entityId,
+        name: player.name,
+        score: player.score,
+        deaths: player.deaths,
+        ping: player.ping,
+        teamId,
+      });
     }
+    // Sort by score descending
+    this.scoreboard.sort((a, b) => b.score - a.score);
+  }
 
-    /**
-     * Process a damage event (for floating damage numbers).
-     */
-    processDamage(event: any): void {
-        this.damageNumbers.push({
-            entityId: event.entityId ?? '',
-            attackerId: event.attackerId ?? '',
-            damage: event.damage ?? 0,
-            weaponId: event.weaponId ?? '',
-            timestamp: performance.now(),
-        });
+  /**
+   * Expire old transients (call once per frame).
+   */
+  expireTransients(): void {
+    const now = performance.now();
+
+    // Expire damage numbers
+    this.damageNumbers = this.damageNumbers.filter((d) => now - d.timestamp < HUDState.DAMAGE_EXPIRE_MS);
+
+    // Expire kill feed
+    this.killFeed = this.killFeed.filter((k) => now - k.timestamp < HUDState.KILL_FEED_EXPIRE_MS);
+  }
+
+  // ========================================================================
+  // Debug Overlay
+  // ========================================================================
+
+  /**
+   * Toggle debug overlay visibility.
+   */
+  toggleDebug(): void {
+    this.debugEnabled = !this.debugEnabled;
+    if (this.debugEnabled) {
+      this.createDebugElement();
+    } else {
+      this.destroyDebugElement();
     }
+  }
 
-    /**
-     * Process a death event (kill feed).
-     */
-    processDeath(event: any): void {
-        this.killFeed.push({
-            victimId: event.entityId ?? '',
-            killerId: event.killerId ?? '',
-            weaponId: event.weaponId ?? '',
-            timestamp: performance.now(),
-        });
-
-        // Cap kill feed length
-        if (this.killFeed.length > HUDState.KILL_FEED_MAX) {
-            this.killFeed.shift();
-        }
+  /**
+   * Enable/disable debug overlay.
+   */
+  setDebug(enabled: boolean): void {
+    this.debugEnabled = enabled;
+    if (enabled) {
+      this.createDebugElement();
+    } else {
+      this.destroyDebugElement();
     }
+  }
 
-    /**
-     * Update scoreboard from GameState players map.
-     */
-    updateScoreboard(state: GameState): void {
-        this.scoreboard = [];
+  /**
+   * Update debug overlay (call once per frame if enabled).
+   */
+  updateDebugOverlay(): void {
+    if (!this.debugEnabled || !this.debugElement) return;
 
-        // Extract match snapshot data
-        const matchState = MatchStateManager.getInstance();
-        this.gametypeName = matchState.gametypeName || '';
-        this.teamScores = matchState.teamScores || {};
-        this.teamNames = matchState.teamNames || {};
+    // Weapon inventory with ammo
+    const wpnList = this.weapons
+      .map((w) => {
+        const active = w === this.currentWeapon ? "▸" : " ";
+        const ammo = this.ammo[w] ?? 0;
+        return `  ${active} ${w}: ${ammo}`;
+      })
+      .join("\n");
 
-        for (const [playerId, player] of state.players) {
-            // Strip the 'player_' prefix safely string manipulation
-            let rawPlayerId = playerId;
-            if (playerId.startsWith('player_')) {
-                rawPlayerId = playerId.substring(7);
-            }
-            const teamId = matchState.playerTeams?.[rawPlayerId];
-            this.scoreboard.push({
-                playerId,
-                entityId: player.entityId,
-                name: player.name,
-                score: player.score,
-                deaths: player.deaths,
-                ping: player.ping,
-                teamId,
-            });
-        }
-        // Sort by score descending
-        this.scoreboard.sort((a, b) => b.score - a.score);
+    const sb = this.scoreboard.map((p) => `  ${p.name}: ${p.score}/${p.deaths} (${p.ping}ms)`).join("\n");
+
+    const feed = this.killFeed.map((k) => `  ${k.killerId} → ${k.victimId} [${k.weaponId}]`).join("\n");
+
+    const dmg = this.damageNumbers
+      .map((d) => `  ${d.attackerId} → ${d.entityId}: ${d.damage} [${d.weaponId}]`)
+      .join("\n");
+
+    this.debugElement.textContent =
+      `━━━ HUD DATA ━━━\n` +
+      `HP: ${this.health}  Armor: ${this.armor}  Dead: ${this.dead}\n` +
+      `\n━━━ WEAPONS ━━━\n${wpnList || "  (none)"}\n` +
+      `\n━━━ SCOREBOARD ━━━\n${sb || "  (empty)"}\n` +
+      `\n━━━ KILL FEED ━━━\n${feed || "  (empty)"}\n` +
+      `\n━━━ DAMAGE ━━━\n${dmg || "  (empty)"}`;
+  }
+
+  private createDebugElement(): void {
+    if (this.debugElement) return;
+
+    this.debugElement = document.createElement("div");
+    this.debugElement.id = "hud-debug-overlay";
+    Object.assign(this.debugElement.style, {
+      position: "fixed",
+      top: "10px",
+      right: "10px",
+      backgroundColor: "rgba(0, 0, 0, 0.75)",
+      color: "#00ff88",
+      fontFamily: '"Consolas", "Courier New", monospace',
+      fontSize: "12px",
+      padding: "12px 16px",
+      borderRadius: "6px",
+      border: "1px solid rgba(0, 255, 136, 0.3)",
+      zIndex: "10000",
+      whiteSpace: "pre",
+      lineHeight: "1.5",
+      pointerEvents: "none",
+      minWidth: "280px",
+      maxHeight: "400px",
+      overflow: "hidden",
+    });
+    document.body.appendChild(this.debugElement);
+  }
+
+  private destroyDebugElement(): void {
+    if (this.debugElement) {
+      this.debugElement.remove();
+      this.debugElement = null;
     }
+  }
 
-    /**
-     * Expire old transients (call once per frame).
-     */
-    expireTransients(): void {
-        const now = performance.now();
+  // ========================================================================
+  // Cleanup
+  // ========================================================================
 
-        // Expire damage numbers
-        this.damageNumbers = this.damageNumbers.filter(
-            d => now - d.timestamp < HUDState.DAMAGE_EXPIRE_MS
-        );
+  reset(): void {
+    this.health = 100;
+    this.armor = 0;
+    this.dead = false;
+    this.damageNumbers = [];
+    this.killFeed = [];
+    this.scoreboard = [];
+    this.destroyDebugElement();
+  }
 
-        // Expire kill feed
-        this.killFeed = this.killFeed.filter(
-            k => now - k.timestamp < HUDState.KILL_FEED_EXPIRE_MS
-        );
-    }
-
-    // ========================================================================
-    // Debug Overlay
-    // ========================================================================
-
-    /**
-     * Toggle debug overlay visibility.
-     */
-    toggleDebug(): void {
-        this.debugEnabled = !this.debugEnabled;
-        if (this.debugEnabled) {
-            this.createDebugElement();
-        } else {
-            this.destroyDebugElement();
-        }
-    }
-
-    /**
-     * Enable/disable debug overlay.
-     */
-    setDebug(enabled: boolean): void {
-        this.debugEnabled = enabled;
-        if (enabled) {
-            this.createDebugElement();
-        } else {
-            this.destroyDebugElement();
-        }
-    }
-
-    /**
-     * Update debug overlay (call once per frame if enabled).
-     */
-    updateDebugOverlay(): void {
-        if (!this.debugEnabled || !this.debugElement) return;
-
-        // Weapon inventory with ammo
-        const wpnList = this.weapons.map(w => {
-            const active = w === this.currentWeapon ? '▸' : ' ';
-            const ammo = this.ammo[w] ?? 0;
-            return `  ${active} ${w}: ${ammo}`;
-        }).join('\n');
-
-        const sb = this.scoreboard.map(
-            p => `  ${p.name}: ${p.score}/${p.deaths} (${p.ping}ms)`
-        ).join('\n');
-
-        const feed = this.killFeed.map(
-            k => `  ${k.killerId} → ${k.victimId} [${k.weaponId}]`
-        ).join('\n');
-
-        const dmg = this.damageNumbers.map(
-            d => `  ${d.attackerId} → ${d.entityId}: ${d.damage} [${d.weaponId}]`
-        ).join('\n');
-
-        this.debugElement.textContent =
-            `━━━ HUD DATA ━━━\n` +
-            `HP: ${this.health}  Armor: ${this.armor}  Dead: ${this.dead}\n` +
-            `\n━━━ WEAPONS ━━━\n${wpnList || '  (none)'}\n` +
-            `\n━━━ SCOREBOARD ━━━\n${sb || '  (empty)'}\n` +
-            `\n━━━ KILL FEED ━━━\n${feed || '  (empty)'}\n` +
-            `\n━━━ DAMAGE ━━━\n${dmg || '  (empty)'}`;
-    }
-
-    private createDebugElement(): void {
-        if (this.debugElement) return;
-
-        this.debugElement = document.createElement('div');
-        this.debugElement.id = 'hud-debug-overlay';
-        Object.assign(this.debugElement.style, {
-            position: 'fixed',
-            top: '10px',
-            right: '10px',
-            backgroundColor: 'rgba(0, 0, 0, 0.75)',
-            color: '#00ff88',
-            fontFamily: '"Consolas", "Courier New", monospace',
-            fontSize: '12px',
-            padding: '12px 16px',
-            borderRadius: '6px',
-            border: '1px solid rgba(0, 255, 136, 0.3)',
-            zIndex: '10000',
-            whiteSpace: 'pre',
-            lineHeight: '1.5',
-            pointerEvents: 'none',
-            minWidth: '280px',
-            maxHeight: '400px',
-            overflow: 'hidden',
-        });
-        document.body.appendChild(this.debugElement);
-    }
-
-    private destroyDebugElement(): void {
-        if (this.debugElement) {
-            this.debugElement.remove();
-            this.debugElement = null;
-        }
-    }
-
-    // ========================================================================
-    // Cleanup
-    // ========================================================================
-
-    reset(): void {
-        this.health = 100;
-        this.armor = 0;
-        this.dead = false;
-        this.damageNumbers = [];
-        this.killFeed = [];
-        this.scoreboard = [];
-        this.destroyDebugElement();
-    }
-
-    static destroy(): void {
-        HUDState.instance?.reset();
-        HUDState.instance = null;
-    }
+  static destroy(): void {
+    HUDState.instance?.reset();
+    HUDState.instance = null;
+  }
 }

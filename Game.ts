@@ -6,39 +6,36 @@
  * In multiplayer, uses NetworkGameHost to connect to a dedicated server.
  */
 
-import type { IGameHost } from '../../engine/network/core/IGameHost';
-import { LocalGameHost } from '../../engine/network/client/hosts/LocalGameHost';
-import { NetworkGameHost } from '../../engine/network/client/hosts/NetworkGameHost';
-import { TransportFactory } from '../../engine/network/client/transport/Transport';
-import { FPSSimulation, FPSInputCommand } from './simulation/FPSSimulation';
-import { InputButtons } from '../../engine/network/components/InputComponent';
-import type { GameState } from '../../engine/network/core/GameState';
-import type { TransformComponent } from '../../engine/network/components/TransformComponent';
-import { SnapshotBuffer } from '../../engine/network/client/SnapshotBuffer';
-
-import { getCollisionManager } from '../../engine/physics/CollisionManager';
-import { createBSPCollisionWorld } from './simulation/collision/BSPCollisionWorld';
-import { V2NetworkClient } from './client';
-
-import { HUDState } from './client/HUDState';
-import { MatchStateManager } from './client/MatchStateManager';
-import { FPSHud } from './client/FPSHud';
-import { MessageCodec } from '../../engine/network/protocol/MessageCodec';
-import { getProjectileManager } from '../../engine/weapon/ProjectileManager';
-import { getWeaponViewManager } from '../../engine/weapon/WeaponViewManager';
-import { Vector3 } from '@babylonjs/core';
-import { PointLight } from '@babylonjs/core/Lights/pointLight';
-import { EngineStore } from '@babylonjs/core/Engines/engineStore';
-import { RemotePlayerRenderer } from './client/RemotePlayerRenderer';
-import { DroppedWeaponRenderer } from './client/DroppedWeaponRenderer';
-import { NetGraph } from '../../engine/network/client/NetGraph';
-import { InputSystem } from '../../engine/input/InputSystem';
-import { CameraSystem } from '../../engine/camera';
-import { registerFPSActions } from './client/FPSActions';
-import { PlayerProfile } from '../../engine/player/PlayerProfile';
-
+import { Vector3 } from "@babylonjs/core";
+import { EngineStore } from "@babylonjs/core/Engines/engineStore";
+import type { PointLight } from "@babylonjs/core/Lights/pointLight";
+import { CameraSystem } from "../../engine/camera";
+import { InputSystem } from "../../engine/input/InputSystem";
+import { LocalGameHost } from "../../engine/network/client/hosts/LocalGameHost";
+import { NetworkGameHost } from "../../engine/network/client/hosts/NetworkGameHost";
+import { NetGraph } from "../../engine/network/client/NetGraph";
+import { SnapshotBuffer } from "../../engine/network/client/SnapshotBuffer";
+import { TransportFactory } from "../../engine/network/client/transport/Transport";
+import { InputButtons } from "../../engine/network/components/InputComponent";
+import type { TransformComponent } from "../../engine/network/components/TransformComponent";
+import type { GameState } from "../../engine/network/core/GameState";
+import type { IGameHost } from "../../engine/network/core/IGameHost";
+import { MessageCodec } from "../../engine/network/protocol/MessageCodec";
+import { getCollisionManager } from "../../engine/physics/CollisionManager";
+import { PlayerProfile } from "../../engine/player/PlayerProfile";
+import { getProjectileManager } from "../../engine/weapon/ProjectileManager";
+import { getWeaponViewManager } from "../../engine/weapon/WeaponViewManager";
+import { V2NetworkClient } from "./client";
+import type { DroppedWeaponRenderer } from "./client/DroppedWeaponRenderer";
+import { registerFPSActions } from "./client/FPSActions";
+import { FPSHud } from "./client/FPSHud";
 // Game event handling (extracted from this file)
-import { handleServerStateUpdate, type GameEventContext } from './client/GameEvents';
+import { type GameEventContext, handleServerStateUpdate } from "./client/GameEvents";
+import { HUDState } from "./client/HUDState";
+import { MatchStateManager } from "./client/MatchStateManager";
+import { RemotePlayerRenderer } from "./client/RemotePlayerRenderer";
+import { createBSPCollisionWorld } from "./simulation/collision/BSPCollisionWorld";
+import { type FPSInputCommand, FPSSimulation } from "./simulation/FPSSimulation";
 
 export interface FPSGameConfig {
   tickRate?: number;
@@ -48,7 +45,6 @@ export interface FPSGameConfig {
   /** When true, enter pure spectator mode with auto-chase-cam (no join option) */
   watchOnly?: boolean;
 }
-
 
 /**
  * Player input captured from FPSController
@@ -64,8 +60,8 @@ export interface PlayerInputState {
   fire: boolean;
   altFire: boolean;
   use: boolean;
-  pitch: number;  // Camera X rotation
-  yaw: number;    // Camera Y rotation
+  pitch: number; // Camera X rotation
+  yaw: number; // Camera Y rotation
   /** Weapon slot (1-based, 0 = no change) */
   weaponSlot: number;
 }
@@ -83,8 +79,8 @@ export interface PlayerStateUpdate {
   isSliding: boolean;
   isCrouching: boolean;
   crouchViewOffset: number;
-  wallJumpState: 'none' | 'available' | 'charging';
-  ledgeGrabState: 'none' | 'grabbing' | 'pulling';
+  wallJumpState: "none" | "available" | "charging";
+  ledgeGrabState: "none" | "grabbing" | "pulling";
   actualHorizSpeed: number;
   slidePhase: number;
   ledgeGrabPhase: number;
@@ -95,7 +91,7 @@ export class Game {
 
   private gameHost: IGameHost | null = null;
   private simulation: FPSSimulation | null = null;
-  private localPlayerId: string = '';
+  private localPlayerId: string = "";
   private commandSeq: number = 1; // Must match InputHistory.nextSeq (starts at 1)
   private isRunning: boolean = false;
   private isNetworkMode: boolean = false;
@@ -141,10 +137,10 @@ export class Game {
   private _tabReturnFrameSkips: number = 0;
 
   // Spectator state
-  private playerState: 'spectator' | 'playing' = 'spectator';
+  private playerState: "spectator" | "playing" = "spectator";
   private _joinPending: boolean = false;
   private _joinPendingTimeout: ReturnType<typeof setTimeout> | null = null;
-  private spectatorOverlay: import('./client/SpectatorOverlay').SpectatorOverlay | null = null;
+  private spectatorOverlay: import("./client/SpectatorOverlay").SpectatorOverlay | null = null;
   private _joinKeyHandler: ((e: KeyboardEvent) => void) | null = null;
   private _specMouseHandler: ((e: MouseEvent) => void) | null = null;
   private _scoreboardKeyHandler: ((e: KeyboardEvent) => void) | null = null;
@@ -152,15 +148,17 @@ export class Game {
   private _specCycleKeyHandler: ((e: KeyboardEvent) => void) | null = null;
 
   // Chase-cam spectator (Phase 1)
-  private spectatorCycling: import('./../../engine/camera/controllers/SpectatorCycling').SpectatorCycling | null = null;
-  private spectatorController: import('./../../engine/camera/controllers/SpectatorController').SpectatorController | null = null;
+  private spectatorCycling: import("./../../engine/camera/controllers/SpectatorCycling").SpectatorCycling | null = null;
+  private spectatorController:
+    | import("./../../engine/camera/controllers/SpectatorController").SpectatorController
+    | null = null;
   private _latestGameState: GameState | null = null;
 
   private pendingTick: number = 0;
 
   // Cached effect system singletons (lazy-resolved, avoids per-frame import())
   private _gibSystem: any = null;
-  private _gibSystemLoading = false;  // true while import() is pending
+  private _gibSystemLoading = false; // true while import() is pending
   private _pendingGibSpawns: { x: number; y: number; z: number; vx: number; vy: number; vz: number }[] = [];
   private _damageNumbers: any = null;
   private _damageOverlay: any = null;
@@ -174,8 +172,8 @@ export class Game {
     registerFPSActions();
 
     // Tab-recovery: snap everything to clean state when returning from background
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') this.onTabReturn();
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") this.onTabReturn();
     });
   }
 
@@ -193,14 +191,18 @@ export class Game {
    */
   private onTabReturn(): void {
     if (!this.isRunning) return;
-    console.log('[Game] Tab returned — resetting visual state');
+    console.log("[Game] Tab returned — resetting visual state");
 
     // 1. Clamp dt for next 3 frames (prevents catch-up stutter)
     this._tabReturnFrameSkips = 3;
 
     // 2. Clear all projectile visuals (trails, lights, meshes)
     //    Server will re-broadcast any that still exist in next snapshot
-    try { getProjectileManager().clear(); } catch { /* not initialized */ }
+    try {
+      getProjectileManager().clear();
+    } catch {
+      /* not initialized */
+    }
 
     // 3. Flush projectile interpolation buffer (discard stale data)
     this.projectileBuffer.flush();
@@ -221,7 +223,7 @@ export class Game {
   private _contextLossHandlersInstalled = false;
   private async revalidateAfterTabReturn(): Promise<void> {
     try {
-      const { CameraSystem } = await import('../../engine/camera/CameraSystem');
+      const { CameraSystem } = await import("../../engine/camera/CameraSystem");
       const scene = CameraSystem.getInstance().getCamera()?.getScene();
       if (!scene) return;
 
@@ -229,24 +231,24 @@ export class Game {
       if (!this._contextLossHandlersInstalled) {
         const canvas = scene.getEngine().getRenderingCanvas();
         if (canvas) {
-          canvas.addEventListener('webglcontextlost', (e) => {
-            console.error('[Game] ⚠️ WebGL context LOST — GPU resources destroyed');
+          canvas.addEventListener("webglcontextlost", (e) => {
+            console.error("[Game] ⚠️ WebGL context LOST — GPU resources destroyed");
             e.preventDefault(); // Allow browser to attempt restore
           });
-          canvas.addEventListener('webglcontextrestored', () => {
-            console.log('[Game] WebGL context RESTORED — revalidating materials');
+          canvas.addEventListener("webglcontextrestored", () => {
+            console.log("[Game] WebGL context RESTORED — revalidating materials");
             this.revalidateAfterTabReturn();
           });
           this._contextLossHandlersInstalled = true;
-          console.log('[Game] WebGL context loss/restore handlers installed');
+          console.log("[Game] WebGL context loss/restore handlers installed");
         }
       }
 
-      const { revalidateMaterials } = await import('../../engine/weapon/EffectPreloader');
+      const { revalidateMaterials } = await import("../../engine/weapon/EffectPreloader");
       await revalidateMaterials(scene);
-      console.log('[Game] Material revalidation complete');
+      console.log("[Game] Material revalidation complete");
     } catch (err) {
-      console.warn('[Game] Material revalidation failed:', err);
+      console.warn("[Game] Material revalidation failed:", err);
     }
   }
 
@@ -256,14 +258,12 @@ export class Game {
   async initializeLocal(config: FPSGameConfig = {}): Promise<void> {
     // Guard against multiple initializations
     if (this.isRunning) {
-      console.warn('[Game] Already initialized, skipping');
+      console.warn("[Game] Already initialized, skipping");
       return;
     }
 
     const tickRate = config.tickRate ?? 20;
     const maxPlayers = config.maxPlayers ?? 16;
-
-
 
     // Create simulation config
     const simConfig = {
@@ -291,8 +291,6 @@ export class Game {
     // Start the host
     this.gameHost.start?.();
     this.isRunning = true;
-
-
   }
 
   /**
@@ -302,14 +300,11 @@ export class Game {
   async initializeNetwork(url: string, config: FPSGameConfig = {}): Promise<void> {
     // Guard against multiple initializations - shutdown first if already running
     if (this.isRunning) {
-
       this.shutdown();
     }
 
-    const tickRate = config.tickRate ?? 125;  // Must match server tick rate (125Hz)
+    const tickRate = config.tickRate ?? 125; // Must match server tick rate (125Hz)
     const maxPlayers = config.maxPlayers ?? 16;
-
-
 
     // Create simulation config for client-side prediction
     const simConfig = {
@@ -334,7 +329,6 @@ export class Game {
       networkHost.onServerInfo(async (serverInfo) => {
         // Prevent duplicate map loading (Welcome can be received multiple times)
         if (mapLoadStarted) {
-
           return;
         }
         mapLoadStarted = true;
@@ -343,13 +337,12 @@ export class Game {
 
         // Load the server's map via console command
         try {
-          const { CommandRegistry } = await import('../../engine/console/CommandRegistry');
+          const { CommandRegistry } = await import("../../engine/console/CommandRegistry");
           const registry = CommandRegistry.getInstance();
           const result = await registry.execute(`map ${serverInfo.map}`);
 
-
           // Check if map load failed
-          if (typeof result === 'string' && result.includes('Failed')) {
+          if (typeof result === "string" && result.includes("Failed")) {
             console.error(`[Game] Map load failed, disconnecting...`);
             this.shutdown();
             return;
@@ -365,7 +358,6 @@ export class Game {
               const collisionWorld = createBSPCollisionWorld();
               if (collisionWorld) {
                 this.setCollisionWorld(collisionWorld);
-
               } else {
                 console.warn(`[Game] BSP collision world could not be created - backend not available`);
               }
@@ -373,22 +365,22 @@ export class Game {
               console.warn(`[Game] CollisionManager NOT initialized - client prediction will NOT have BSP collision!`);
             }
 
-            const { CameraSystem } = await import('../../engine/camera/CameraSystem');
-            const { FPSController } = await import('../../engine/camera/controllers/FPSController');
-            const { FreeflyController } = await import('../../engine/camera/controllers/FreeflyController');
+            const { CameraSystem } = await import("../../engine/camera/CameraSystem");
+            const { FPSController } = await import("../../engine/camera/controllers/FPSController");
+            const { FreeflyController } = await import("../../engine/camera/controllers/FreeflyController");
             const cameraSystem = CameraSystem.getInstance();
 
             // Register FPS controller (but don't activate — player starts as spectator)
-            if (!cameraSystem.getController('fps')) {
-              cameraSystem.registerController('fps', new FPSController());
+            if (!cameraSystem.getController("fps")) {
+              cameraSystem.registerController("fps", new FPSController());
             }
 
             // Register and activate freefly controller for spectator mode
-            if (!cameraSystem.getController('freefly')) {
-              cameraSystem.registerController('freefly', new FreeflyController());
+            if (!cameraSystem.getController("freefly")) {
+              cameraSystem.registerController("freefly", new FreeflyController());
             }
             // Start in freefly mode (spectator default)
-            cameraSystem.setController('freefly');
+            cameraSystem.setController("freefly");
 
             // WATCH mode: start auto-chase polling AFTER map loads
             // (must be here, not earlier — otherwise the freefly reset above overwrites the spectator camera)
@@ -405,7 +397,7 @@ export class Game {
 
             // Auto-join if requested (lobby flow — skip spectator overlay)
             if (config.autoJoin) {
-              console.log('[Game] Auto-joining game (lobby flow)');
+              console.log("[Game] Auto-joining game (lobby flow)");
               // Small delay to ensure everything is settled
               setTimeout(() => this.joinGame(), 200);
             }
@@ -430,7 +422,6 @@ export class Game {
       // was called while v2Client was null.
       this.v2Client = new V2NetworkClient({ tickRate });
 
-
       // Tell NetworkGameHost to skip its prediction - V2NetworkClient handles it
       networkHost.setExternalPrediction(true);
 
@@ -445,7 +436,7 @@ export class Game {
       networkHost.onServerMessage((msg) => {
         console.log(`[Game] Server message [${msg.type}]: ${msg.message}`);
         // If server rejected our join, clear pending state
-        if (msg.type === 'queue' || msg.type === 'error') {
+        if (msg.type === "queue" || msg.type === "error") {
           this._joinPending = false;
           if (this._joinPendingTimeout) {
             clearTimeout(this._joinPendingTimeout);
@@ -465,10 +456,6 @@ export class Game {
       this.localPlayerId = networkHost.localPlayerId;
       this.simulation = null; // No direct simulation access in network mode
 
-
-
-
-
       // Initialize FPSHud (Washiki HUD system)
       const fpsHud = FPSHud.getInstance();
       await fpsHud.init();
@@ -478,19 +465,19 @@ export class Game {
       NetGraph.init();
 
       // ── Spectator Mode: show join overlay on connect ──────────
-      this.playerState = 'spectator';
+      this.playerState = "spectator";
 
       // Only show spectator overlay if NOT auto-joining
       if (!config.autoJoin) {
-        const { SpectatorOverlay } = await import('./client/SpectatorOverlay');
+        const { SpectatorOverlay } = await import("./client/SpectatorOverlay");
         this.spectatorOverlay = new SpectatorOverlay();
 
         if (config.watchOnly) {
           // WATCH mode: pure spectator, start in freefly until chase-cam target available
-          this.spectatorOverlay.setMode('freefly');
+          this.spectatorOverlay.setMode("freefly");
         } else {
           // Normal connect: show join/spectate choice
-          this.spectatorOverlay.setMode('join-overlay');
+          this.spectatorOverlay.setMode("join-overlay");
         }
 
         this.spectatorOverlay.onJoinGame(() => {
@@ -498,7 +485,7 @@ export class Game {
         });
         this.spectatorOverlay.onSpectate(() => {
           // Switch to freefly spectator (no entity, just camera)
-          this.spectatorOverlay?.setMode('freefly');
+          this.spectatorOverlay?.setMode("freefly");
           this.switchToFreeflyCamera();
         });
 
@@ -509,18 +496,17 @@ export class Game {
         this.spectatorOverlay.onPrevPlayer(() => {
           this.prevSpectateTarget();
         });
-
       } // end if (!config.autoJoin)
 
       // ── Initialize SpectatorCycling and SpectatorController ──
-      const { SpectatorCycling } = await import('../../engine/camera/controllers/SpectatorCycling');
-      const { SpectatorController } = await import('../../engine/camera/controllers/SpectatorController');
+      const { SpectatorCycling } = await import("../../engine/camera/controllers/SpectatorCycling");
+      const { SpectatorController } = await import("../../engine/camera/controllers/SpectatorController");
       this.spectatorCycling = new SpectatorCycling();
       this.spectatorController = new SpectatorController();
 
       // Register the spectator camera controller
       const camSys = CameraSystem.getInstance();
-      camSys.registerController('spectator', this.spectatorController);
+      camSys.registerController("spectator", this.spectatorController);
 
       // Set up target provider — reads entity position/rotation from latest GameState
       this.spectatorController.setTargetProvider((entityId: string) => {
@@ -528,7 +514,7 @@ export class Game {
         if (!state) return null;
         const entity = state.entities.get(entityId);
         if (!entity) return null;
-        const transform = entity.getComponent('transform') as
+        const transform = entity.getComponent("transform") as
           | { position?: { x: number; y: number; z: number }; rotation?: { x: number; y: number; z: number } }
           | undefined;
         if (!transform?.position) return null;
@@ -543,14 +529,14 @@ export class Game {
 
       // ── Spectator cycling keyboard handler (arrows + Space) ──
       this._specCycleKeyHandler = (e: KeyboardEvent) => {
-        if (this.playerState !== 'spectator') return;
-        if (e.code === 'ArrowRight') {
+        if (this.playerState !== "spectator") return;
+        if (e.code === "ArrowRight") {
           e.preventDefault();
           this.nextSpectateTarget();
-        } else if (e.code === 'ArrowLeft') {
+        } else if (e.code === "ArrowLeft") {
           e.preventDefault();
           this.prevSpectateTarget();
-        } else if (e.code === 'Space' || e.code === 'Backspace') {
+        } else if (e.code === "Space" || e.code === "Backspace") {
           // Return to freefly from chase-cam
           if (this.spectatorCycling?.getTargetEntityId()) {
             e.preventDefault();
@@ -558,12 +544,13 @@ export class Game {
           }
         }
       };
-      document.addEventListener('keydown', this._specCycleKeyHandler);
+      document.addEventListener("keydown", this._specCycleKeyHandler);
 
       // ── Mouse3 (middle click) handler: toggle chase-cam ──
       this._specMouseHandler = (e: MouseEvent) => {
-        if (this.playerState !== 'spectator') return;
-        if (e.button === 1) { // Middle mouse button
+        if (this.playerState !== "spectator") return;
+        if (e.button === 1) {
+          // Middle mouse button
           e.preventDefault();
           if (this.spectatorCycling?.getTargetEntityId()) {
             // Currently in chase → exit to freefly
@@ -574,36 +561,35 @@ export class Game {
           }
         }
       };
-      document.addEventListener('mousedown', this._specMouseHandler);
+      document.addEventListener("mousedown", this._specMouseHandler);
 
       // ── J key shortcut to join game from spectator mode ──
       // Uses InputSystem's raw key state (this runs in an event handler, not per-frame)
       this._joinKeyHandler = (_e: KeyboardEvent) => {
         const input = InputSystem.getInstance();
-        if (input.isKeyDown('KeyJ') && this.playerState === 'spectator') {
+        if (input.isKeyDown("KeyJ") && this.playerState === "spectator") {
           this.joinGame();
         }
       };
-      document.addEventListener('keydown', this._joinKeyHandler);
+      document.addEventListener("keydown", this._joinKeyHandler);
 
       // ── Tab key: hold-to-show scoreboard (Quake style) ──
       this._scoreboardKeyHandler = (e: KeyboardEvent) => {
-        if (e.code === 'Tab') {
+        if (e.code === "Tab") {
           e.preventDefault();
           const hud = FPSHud.getInstance();
           hud.scoreboard?.show();
         }
       };
       this._scoreboardKeyUpHandler = (e: KeyboardEvent) => {
-        if (e.code === 'Tab') {
+        if (e.code === "Tab") {
           e.preventDefault();
           const hud = FPSHud.getInstance();
           hud.scoreboard?.hide();
         }
       };
-      document.addEventListener('keydown', this._scoreboardKeyHandler);
-      document.addEventListener('keyup', this._scoreboardKeyUpHandler);
-
+      document.addEventListener("keydown", this._scoreboardKeyHandler);
+      document.addEventListener("keyup", this._scoreboardKeyUpHandler);
     } catch (error) {
       console.error(`[Game] Failed to connect to ${url}:`, error);
       throw error;
@@ -628,7 +614,7 @@ export class Game {
    * Get current weapon ID (for crosshair lookup)
    */
   getCurrentWeaponId(): string {
-    return this._lastServerWeapon || 'gunblade';
+    return this._lastServerWeapon || "gunblade";
   }
 
   /**
@@ -642,13 +628,13 @@ export class Game {
    * Check if currently spectating
    */
   isSpectating(): boolean {
-    return this.playerState === 'spectator';
+    return this.playerState === "spectator";
   }
 
   /**
    * Get current player state
    */
-  getPlayerState(): 'spectator' | 'playing' {
+  getPlayerState(): "spectator" | "playing" {
     return this.playerState;
   }
 
@@ -662,21 +648,21 @@ export class Game {
    * when our entity appears in the snapshot (see completeJoinGame).
    */
   async joinGame(): Promise<void> {
-    if (this.playerState === 'playing') {
-      console.log('[Game] joinGame() — already playing, skipping');
+    if (this.playerState === "playing") {
+      console.log("[Game] joinGame() — already playing, skipping");
       return;
     }
     if (this._joinPending) {
-      console.log('[Game] joinGame() — join already pending, skipping');
+      console.log("[Game] joinGame() — join already pending, skipping");
       return;
     }
     if (!this.gameHost || !this.isNetworkMode) {
-      console.log('[Game] joinGame() — no gameHost or not network mode');
+      console.log("[Game] joinGame() — no gameHost or not network mode");
       return;
     }
-    console.log('[Game] joinGame() — sending join request to server');
+    console.log("[Game] joinGame() — sending join request to server");
 
-    const networkHost = this.gameHost as import('../../engine/network/client/hosts/NetworkGameHost').NetworkGameHost;
+    const networkHost = this.gameHost as import("../../engine/network/client/hosts/NetworkGameHost").NetworkGameHost;
 
     // Tell server we want to join — server decides if we can
     networkHost.sendJoinGame();
@@ -685,7 +671,7 @@ export class Game {
     // Timeout: revert if server doesn't respond within 5 seconds
     this._joinPendingTimeout = setTimeout(() => {
       if (this._joinPending) {
-        console.log('[Game] joinGame() — timed out waiting for server confirmation');
+        console.log("[Game] joinGame() — timed out waiting for server confirmation");
         this._joinPending = false;
       }
     }, 5000);
@@ -702,7 +688,7 @@ export class Game {
       this._joinPendingTimeout = null;
     }
 
-    console.log('[Game] completeJoinGame() — server confirmed, transitioning to playing');
+    console.log("[Game] completeJoinGame() — server confirmed, transitioning to playing");
 
     // Clear any active chase-cam state before switching
     this.spectatorCycling?.clearTarget();
@@ -710,35 +696,35 @@ export class Game {
 
     // Switch to FPS camera controller
     try {
-      const { CameraSystem } = await import('../../engine/camera/CameraSystem');
-      const { FPSController } = await import('../../engine/camera/controllers/FPSController');
+      const { CameraSystem } = await import("../../engine/camera/CameraSystem");
+      const { FPSController } = await import("../../engine/camera/controllers/FPSController");
       const cameraSystem = CameraSystem.getInstance();
 
-      if (!cameraSystem.getController('fps')) {
-        cameraSystem.registerController('fps', new FPSController());
+      if (!cameraSystem.getController("fps")) {
+        cameraSystem.registerController("fps", new FPSController());
       }
-      cameraSystem.setController('fps');
+      cameraSystem.setController("fps");
 
       // Enable network mode on FPS controller
       const controller = cameraSystem.getActiveController();
-      if (controller && controller.type === 'fps' && typeof (controller as any).enableNetworkMode === 'function') {
+      if (controller && controller.type === "fps" && typeof (controller as any).enableNetworkMode === "function") {
         (controller as any).enableNetworkMode();
       }
     } catch (e) {
-      console.warn('[Game] Could not switch to FPS camera:', e);
+      console.warn("[Game] Could not switch to FPS camera:", e);
     }
 
     // Update state
-    this.playerState = 'playing';
-    this.spectatorOverlay?.setMode('hidden');
+    this.playerState = "playing";
+    this.spectatorOverlay?.setMode("hidden");
 
     // Initialize weapon view manager with the now-active FPS camera
     try {
-      const { CameraSystem } = await import('../../engine/camera/CameraSystem');
-      const { getWeaponViewManager } = await import('../../engine/weapon/WeaponViewManager');
-      const { getProjectileManager } = await import('../../engine/weapon/ProjectileManager');
-      const { initializeEntityDefs } = await import('../../shared/entities');
-      const { FreeCamera } = await import('@babylonjs/core/Cameras/freeCamera');
+      const { CameraSystem } = await import("../../engine/camera/CameraSystem");
+      const { getWeaponViewManager } = await import("../../engine/weapon/WeaponViewManager");
+      const { getProjectileManager } = await import("../../engine/weapon/ProjectileManager");
+      const { initializeEntityDefs } = await import("../../shared/entities");
+      const { FreeCamera } = await import("@babylonjs/core/Cameras/freeCamera");
 
       const camera = CameraSystem.getInstance().getCamera();
       const scene = camera?.getScene();
@@ -747,32 +733,32 @@ export class Game {
         initializeEntityDefs();
         const wvm = getWeaponViewManager();
         wvm.init(scene, camera);
-        console.log('[Game] completeJoinGame() — WVM initialized');
-        wvm.loadWeapon(this._lastServerWeapon || 'blade').then((success) => {
+        console.log("[Game] completeJoinGame() — WVM initialized");
+        wvm.loadWeapon(this._lastServerWeapon || "blade").then((success) => {
           console.log(`[Game] completeJoinGame() — initial weapon loadWeapon result: ${success}`);
         });
 
         // Preload projectile models (independent of weapon load)
         const projMgr = getProjectileManager();
         Promise.all([
-          projMgr.preloadModel('plasma_bolt'),
-          projMgr.preloadModel('grenade'),
-          projMgr.preloadModel('rocket'),
-          projMgr.preloadModel('gunblade_blast'),
-          projMgr.preloadModel('blade_blast'),
-        ]).catch(err => console.warn('[Game] Projectile preload error:', err));
+          projMgr.preloadModel("plasma_bolt"),
+          projMgr.preloadModel("grenade"),
+          projMgr.preloadModel("rocket"),
+          projMgr.preloadModel("gunblade_blast"),
+          projMgr.preloadModel("blade_blast"),
+        ]).catch((err) => console.warn("[Game] Projectile preload error:", err));
       }
     } catch (e) {
-      console.warn('[Game] Failed to init weapon view:', e);
+      console.warn("[Game] Failed to init weapon view:", e);
     }
 
     // Request pointer lock for FPS controls
-    const canvas = document.querySelector('canvas');
+    const canvas = document.querySelector("canvas");
     if (canvas) {
       canvas.requestPointerLock();
     }
 
-    console.log('[Game] Joined game (server-confirmed)');
+    console.log("[Game] Joined game (server-confirmed)");
   }
 
   /**
@@ -780,10 +766,10 @@ export class Game {
    * Sends Spectate to server, switches camera to freefly, shows overlay.
    */
   async goSpectator(): Promise<void> {
-    if (this.playerState === 'spectator') return;
+    if (this.playerState === "spectator") return;
     if (!this.gameHost || !this.isNetworkMode) return;
 
-    const networkHost = this.gameHost as import('../../engine/network/client/hosts/NetworkGameHost').NetworkGameHost;
+    const networkHost = this.gameHost as import("../../engine/network/client/hosts/NetworkGameHost").NetworkGameHost;
 
     // Tell server to remove our entity
     networkHost.sendSpectate();
@@ -792,24 +778,24 @@ export class Game {
     this.switchToFreeflyCamera();
 
     // Update state
-    this.playerState = 'spectator';
-    this.spectatorOverlay?.setMode('freefly');
+    this.playerState = "spectator";
+    this.spectatorOverlay?.setMode("freefly");
 
     // Hide weapon view model
-    import('../../engine/weapon/WeaponViewManager').then(m => {
+    import("../../engine/weapon/WeaponViewManager").then((m) => {
       m.getWeaponViewManager().setVisible(false);
     });
 
     // Hide speedometer (prevent overlap with spectator overlay)
-    const speedEl = document.getElementById('fps-speed-display');
+    const speedEl = document.getElementById("fps-speed-display");
     if (speedEl) speedEl.remove();
     // Reset static refs so a fresh widget is created on rejoin
-    (await import('../../engine/camera/controllers/FPSController')).FPSController.resetSpeedDisplay?.();
+    (await import("../../engine/camera/controllers/FPSController")).FPSController.resetSpeedDisplay?.();
 
     // Release pointer lock
     document.exitPointerLock();
 
-    console.log('[Game] Now spectating');
+    console.log("[Game] Now spectating");
   }
 
   /**
@@ -819,9 +805,9 @@ export class Game {
     if (!this.spectatorController || !this.spectatorCycling) return;
     this.spectatorCycling.setTarget(entityId);
     this.spectatorController.setSpectateTarget(entityId);
-    this.spectatorOverlay?.setMode('first-person');
+    this.spectatorOverlay?.setMode("first-person");
     this.spectatorOverlay?.setSpectatingTarget(this.spectatorCycling.getPlayerName(entityId));
-    CameraSystem.getInstance().setController('spectator');
+    CameraSystem.getInstance().setController("spectator");
     console.log(`[Game] Now spectating player: ${entityId}`);
   }
 
@@ -853,9 +839,9 @@ export class Game {
   exitChaseCam(): void {
     this.spectatorCycling?.clearTarget();
     this.spectatorController?.clearSpectateTarget();
-    this.spectatorOverlay?.setMode('freefly');
+    this.spectatorOverlay?.setMode("freefly");
     this.switchToFreeflyCamera();
-    console.log('[Game] Returned to freefly spectator');
+    console.log("[Game] Returned to freefly spectator");
   }
 
   /**
@@ -863,18 +849,18 @@ export class Game {
    */
   private async switchToFreeflyCamera(): Promise<void> {
     try {
-      const { CameraSystem } = await import('../../engine/camera/CameraSystem');
-      const { FreeflyController } = await import('../../engine/camera/controllers/FreeflyController');
+      const { CameraSystem } = await import("../../engine/camera/CameraSystem");
+      const { FreeflyController } = await import("../../engine/camera/controllers/FreeflyController");
       const cameraSystem = CameraSystem.getInstance();
 
-      if (!cameraSystem.getController('freefly')) {
-        cameraSystem.registerController('freefly', new FreeflyController());
+      if (!cameraSystem.getController("freefly")) {
+        cameraSystem.registerController("freefly", new FreeflyController());
       }
-      cameraSystem.setController('freefly');
+      cameraSystem.setController("freefly");
 
-      console.log('[Game] Switched to freefly camera');
+      console.log("[Game] Switched to freefly camera");
     } catch (e) {
-      console.warn('[Game] Could not switch to freefly camera:', e);
+      console.warn("[Game] Could not switch to freefly camera:", e);
     }
   }
 
@@ -884,7 +870,7 @@ export class Game {
    */
   spawnLocalPlayer(spawnPosition?: { x: number; y: number; z: number }): void {
     if (!this.simulation) {
-      console.error('[Game] Cannot spawn - not initialized');
+      console.error("[Game] Cannot spawn - not initialized");
       return;
     }
 
@@ -893,13 +879,11 @@ export class Game {
 
     // Override spawn position if provided
     if (spawnPosition) {
-      const transform = entity.getComponent<TransformComponent>('transform');
+      const transform = entity.getComponent<TransformComponent>("transform");
       if (transform) {
         transform.position = { ...spawnPosition };
       }
     }
-
-
   }
 
   /**
@@ -912,7 +896,7 @@ export class Game {
     }
 
     // Spectators don't send input at all
-    if (this.playerState === 'spectator') {
+    if (this.playerState === "spectator") {
       return;
     }
 
@@ -968,10 +952,22 @@ export class Game {
     // Build world direction from local input
     let dirX = 0;
     let dirZ = 0;
-    if (input.forward) { dirX += forwardX; dirZ += forwardZ; }
-    if (input.backward) { dirX -= forwardX; dirZ -= forwardZ; }
-    if (input.left) { dirX -= rightX; dirZ -= rightZ; }
-    if (input.right) { dirX += rightX; dirZ += rightZ; }
+    if (input.forward) {
+      dirX += forwardX;
+      dirZ += forwardZ;
+    }
+    if (input.backward) {
+      dirX -= forwardX;
+      dirZ -= forwardZ;
+    }
+    if (input.left) {
+      dirX -= rightX;
+      dirZ -= rightZ;
+    }
+    if (input.right) {
+      dirX += rightX;
+      dirZ += rightZ;
+    }
 
     // Normalize the final direction
     const dirLen = Math.sqrt(dirX * dirX + dirZ * dirZ);
@@ -982,7 +978,7 @@ export class Game {
 
     // Create input command
     const cmd: FPSInputCommand = {
-      type: 'fps_input',
+      type: "fps_input",
       playerId: this.localPlayerId,
       tick: this.gameHost.currentTick,
       seq: this.commandSeq++,
@@ -1026,7 +1022,7 @@ export class Game {
 
   /**
    * Process buffered server snapshots (called from frame loop BEFORE input processing)
-   * 
+   *
    * This ensures reconciliation happens at a deterministic point in the frame,
    * preventing mid-frame camera position discontinuities that cause jitter.
    */
@@ -1087,29 +1083,31 @@ export class Game {
     if (!this._gibSystem && !this._gibSystemLoading) {
       // Eagerly init on first frame so it's ready for death events
       this._gibSystemLoading = true;
-      import('./client/GibSystem').then(m => {
-        const gibs = m.GibSystem.getInstance();
-        const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
-        if (gameScene) {
-          gibs.init(gameScene); // init() handles scene changes gracefully
-        }
-        if (gibs['scene']) {
-          this._gibSystem = gibs;
-          console.log(`[GibSystem] Initialized, flushing ${this._pendingGibSpawns.length} pending spawns`);
-          // Flush any gib spawns that queued while loading
-          for (const pending of this._pendingGibSpawns) {
-            gibs.spawn(pending.x, pending.y, pending.z, pending.vx, pending.vy, pending.vz);
+      import("./client/GibSystem")
+        .then((m) => {
+          const gibs = m.GibSystem.getInstance();
+          const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
+          if (gameScene) {
+            gibs.init(gameScene); // init() handles scene changes gracefully
           }
-          this._pendingGibSpawns = [];
-        } else {
-          // Scene not ready yet — allow retry on next frame
-          console.log(`[GibSystem] Scene not ready, will retry next frame`);
+          if (gibs["scene"]) {
+            this._gibSystem = gibs;
+            console.log(`[GibSystem] Initialized, flushing ${this._pendingGibSpawns.length} pending spawns`);
+            // Flush any gib spawns that queued while loading
+            for (const pending of this._pendingGibSpawns) {
+              gibs.spawn(pending.x, pending.y, pending.z, pending.vx, pending.vy, pending.vz);
+            }
+            this._pendingGibSpawns = [];
+          } else {
+            // Scene not ready yet — allow retry on next frame
+            console.log(`[GibSystem] Scene not ready, will retry next frame`);
+            this._gibSystemLoading = false;
+          }
+        })
+        .catch((e) => {
+          console.error("[GibSystem] Failed to load GibSystem module:", e);
           this._gibSystemLoading = false;
-        }
-      }).catch(e => {
-        console.error('[GibSystem] Failed to load GibSystem module:', e);
-        this._gibSystemLoading = false;
-      });
+        });
     } else if (this._gibSystem) {
       this._gibSystem.update(dtSec);
     }
@@ -1117,27 +1115,29 @@ export class Game {
     // Update ragdoll physics (Havok-driven skeleton ragdolls)
     if (!this._ragdollSystem && !this._ragdollSystemLoading) {
       this._ragdollSystemLoading = true;
-      import('./client/RagdollSystem').then(m => {
-        const ragdolls = m.RagdollSystem.getInstance();
-        const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
-        if (gameScene) {
-          ragdolls.init(gameScene);
-          // Wire gib explosion callback (Warsow-style ragdoll cleanup)
-          if (this._gibSystem) {
-            ragdolls.setGibCallback((x: number, y: number, z: number, vx: number, vy: number, vz: number) => {
-              this._gibSystem?.spawn(x, y, z, vx, vy, vz);
-            });
+      import("./client/RagdollSystem")
+        .then((m) => {
+          const ragdolls = m.RagdollSystem.getInstance();
+          const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
+          if (gameScene) {
+            ragdolls.init(gameScene);
+            // Wire gib explosion callback (Warsow-style ragdoll cleanup)
+            if (this._gibSystem) {
+              ragdolls.setGibCallback((x: number, y: number, z: number, vx: number, vy: number, vz: number) => {
+                this._gibSystem?.spawn(x, y, z, vx, vy, vz);
+              });
+            }
+            this._ragdollSystem = ragdolls;
+            console.log("[RagdollSystem] Initialized");
+          } else {
+            console.log("[RagdollSystem] Scene not ready, will retry");
+            this._ragdollSystemLoading = false;
           }
-          this._ragdollSystem = ragdolls;
-          console.log('[RagdollSystem] Initialized');
-        } else {
-          console.log('[RagdollSystem] Scene not ready, will retry');
+        })
+        .catch((e) => {
+          console.error("[RagdollSystem] Failed to load:", e);
           this._ragdollSystemLoading = false;
-        }
-      }).catch(e => {
-        console.error('[RagdollSystem] Failed to load:', e);
-        this._ragdollSystemLoading = false;
-      });
+        });
     } else if (this._ragdollSystem) {
       this._ragdollSystem.update(dtSec);
     }
@@ -1146,9 +1146,9 @@ export class Game {
     if (this._damageNumbers) {
       this._damageNumbers.update(dtSec);
     } else {
-      import('./client/DamageNumbers').then(m => {
+      import("./client/DamageNumbers").then((m) => {
         const dn = m.DamageNumbers.getInstance();
-        if (dn['scene']) this._damageNumbers = dn;
+        if (dn["scene"]) this._damageNumbers = dn;
       });
     }
 
@@ -1156,7 +1156,7 @@ export class Game {
     if (this._damageOverlay) {
       this._damageOverlay.update(dtSec);
     } else {
-      import('../../engine/ui/hud/DamageOverlay').then(m => {
+      import("../../engine/ui/hud/DamageOverlay").then((m) => {
         this._damageOverlay = m.DamageOverlay.getInstance();
       });
     }
@@ -1164,20 +1164,22 @@ export class Game {
     // Update cartoon hit effects (Warsow-style POW! sprites)
     if (!this._cartoonHit && !this._cartoonHitLoading) {
       this._cartoonHitLoading = true;
-      import('./client/CartoonHitEffect').then(m => {
-        const ch = m.CartoonHitEffect.getInstance();
-        const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
-        if (gameScene) {
-          ch.init(gameScene);
-          this._cartoonHit = ch;
-          console.log('[CartoonHitEffect] Initialized');
-        } else {
+      import("./client/CartoonHitEffect")
+        .then((m) => {
+          const ch = m.CartoonHitEffect.getInstance();
+          const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
+          if (gameScene) {
+            ch.init(gameScene);
+            this._cartoonHit = ch;
+            console.log("[CartoonHitEffect] Initialized");
+          } else {
+            this._cartoonHitLoading = false;
+          }
+        })
+        .catch((e) => {
+          console.error("[CartoonHitEffect] Failed to load:", e);
           this._cartoonHitLoading = false;
-        }
-      }).catch(e => {
-        console.error('[CartoonHitEffect] Failed to load:', e);
-        this._cartoonHitLoading = false;
-      });
+        });
     } else if (this._cartoonHit) {
       this._cartoonHit.update(dtSec);
     }
@@ -1209,7 +1211,7 @@ export class Game {
       projMgr.updateServerPosition(
         entityId,
         new Vector3(interp.x, interp.y, interp.z),
-        new Vector3(interp.vx, interp.vy, interp.vz)
+        new Vector3(interp.vx, interp.vy, interp.vz),
       );
     }
   }
@@ -1255,7 +1257,7 @@ export class Game {
     if (this.v2Client && this.isNetworkMode) {
       // Wait for first server snapshot - position is (0,0,0) until then
       if (!this.v2Client.hasValidPosition()) {
-        return null;  // Camera will wait for valid position
+        return null; // Camera will wait for valid position
       }
       // Decay the visual smoothing offset each frame (absorbs reconciliation jitter)
       const engine = EngineStore.LastCreatedEngine;
@@ -1279,15 +1281,15 @@ export class Game {
 
     // For NetworkGameHost (legacy path without V2Client), use interpolated entity
     const networkHost = this.gameHost as any;
-    if (typeof networkHost.getInterpolatedEntity === 'function') {
+    if (typeof networkHost.getInterpolatedEntity === "function") {
       const interpolatedEntity = networkHost.getInterpolatedEntity(player.entityId);
       if (interpolatedEntity) {
-        const transform = interpolatedEntity.getComponent('transform') as any;
+        const transform = interpolatedEntity.getComponent("transform") as any;
         if (transform?.position) {
           return {
             x: transform.position.x,
             y: transform.position.y,
-            z: transform.position.z
+            z: transform.position.z,
           };
         }
       }
@@ -1306,7 +1308,7 @@ export class Game {
       return null;
     }
 
-    const transform = entity.getComponent<TransformComponent>('transform');
+    const transform = entity.getComponent<TransformComponent>("transform");
     if (!transform) {
       return null;
     }
@@ -1351,17 +1353,17 @@ export class Game {
    */
   sendReady(): void {
     if (!this.isNetworkMode || !this.gameHost) {
-      console.log('[Game] Cannot send ready — not connected');
+      console.log("[Game] Cannot send ready — not connected");
       return;
     }
 
     const data = MessageCodec.encodeReady();
     // Send via the NetworkGameHost's transport
     const networkHost = this.gameHost as any;
-    if (networkHost.transport && typeof networkHost.transport.send === 'function') {
+    if (networkHost.transport && typeof networkHost.transport.send === "function") {
       networkHost.transport.send(data, true); // Reliable
       MatchStateManager.getInstance().setReady(true);
-      console.log('[Game] Sent ready signal to server');
+      console.log("[Game] Sent ready signal to server");
     }
   }
 
@@ -1373,9 +1375,9 @@ export class Game {
 
     const data = MessageCodec.encodeRequestSpawn();
     const networkHost = this.gameHost as any;
-    if (networkHost.transport && typeof networkHost.transport.send === 'function') {
+    if (networkHost.transport && typeof networkHost.transport.send === "function") {
       networkHost.transport.send(data, true); // Reliable
-      console.log('[Game] Sent RequestSpawn to server');
+      console.log("[Game] Sent RequestSpawn to server");
     }
   }
 
@@ -1385,7 +1387,7 @@ export class Game {
   shutdown(): void {
     if (this.gameHost) {
       // Disconnect if in network mode
-      if (this.isNetworkMode && 'disconnect' in this.gameHost) {
+      if (this.isNetworkMode && "disconnect" in this.gameHost) {
         (this.gameHost as any).disconnect();
       }
       this.gameHost.stop?.();
@@ -1405,23 +1407,23 @@ export class Game {
 
     // Cleanup event listeners
     if (this._joinKeyHandler) {
-      document.removeEventListener('keydown', this._joinKeyHandler);
+      document.removeEventListener("keydown", this._joinKeyHandler);
       this._joinKeyHandler = null;
     }
     if (this._scoreboardKeyHandler) {
-      document.removeEventListener('keydown', this._scoreboardKeyHandler);
+      document.removeEventListener("keydown", this._scoreboardKeyHandler);
       this._scoreboardKeyHandler = null;
     }
     if (this._scoreboardKeyUpHandler) {
-      document.removeEventListener('keyup', this._scoreboardKeyUpHandler);
+      document.removeEventListener("keyup", this._scoreboardKeyUpHandler);
       this._scoreboardKeyUpHandler = null;
     }
     if (this._specCycleKeyHandler) {
-      document.removeEventListener('keydown', this._specCycleKeyHandler);
+      document.removeEventListener("keydown", this._specCycleKeyHandler);
       this._specCycleKeyHandler = null;
     }
     if (this._specMouseHandler) {
-      document.removeEventListener('mousedown', this._specMouseHandler);
+      document.removeEventListener("mousedown", this._specMouseHandler);
       this._specMouseHandler = null;
     }
 
@@ -1431,8 +1433,8 @@ export class Game {
     MatchStateManager.destroy();
     HUDState.destroy();
 
-    console.log('[Game] Shutdown complete');
-  }  // ========================================================================
+    console.log("[Game] Shutdown complete");
+  } // ========================================================================
   // Event Context
   // ========================================================================
 
@@ -1442,15 +1444,27 @@ export class Game {
   private getEventContext(): GameEventContext {
     if (!this._eventCtx) {
       this._eventCtx = {
-        get localPlayerId() { return Game.getInstance().localPlayerId; },
-        set localPlayerId(v) { Game.getInstance().localPlayerId = v; },
+        get localPlayerId() {
+          return Game.getInstance().localPlayerId;
+        },
+        set localPlayerId(v) {
+          Game.getInstance().localPlayerId = v;
+        },
         isNetworkMode: this.isNetworkMode,
         gameHost: this.gameHost,
         v2Client: this.v2Client,
-        get remoteRenderer() { return Game.getInstance().remoteRenderer; },
-        set remoteRenderer(v) { Game.getInstance().remoteRenderer = v; },
-        get droppedWeaponRenderer() { return Game.getInstance().droppedWeaponRenderer; },
-        set droppedWeaponRenderer(v) { Game.getInstance().droppedWeaponRenderer = v; },
+        get remoteRenderer() {
+          return Game.getInstance().remoteRenderer;
+        },
+        set remoteRenderer(v) {
+          Game.getInstance().remoteRenderer = v;
+        },
+        get droppedWeaponRenderer() {
+          return Game.getInstance().droppedWeaponRenderer;
+        },
+        set droppedWeaponRenderer(v) {
+          Game.getInstance().droppedWeaponRenderer = v;
+        },
         _lastServerWeapon: this._lastServerWeapon,
         enemyWeapons: this.enemyWeapons,
         _localCharging: this._localCharging,
@@ -1459,21 +1473,41 @@ export class Game {
         serverProjectileDefIds: this.serverProjectileDefIds,
         activeServerProjectiles: this.activeServerProjectiles,
         projectileBuffer: this.projectileBuffer,
-        get _isPlayerDead() { return Game.getInstance()._isPlayerDead; },
-        set _isPlayerDead(v) { Game.getInstance()._isPlayerDead = v; },
-        get _respawnRequested() { return Game.getInstance()._respawnRequested; },
-        set _respawnRequested(v) { Game.getInstance()._respawnRequested = v; },
-        get _respawnCooldownEnd() { return Game.getInstance()._respawnCooldownEnd; },
-        set _respawnCooldownEnd(v) { Game.getInstance()._respawnCooldownEnd = v; },
+        get _isPlayerDead() {
+          return Game.getInstance()._isPlayerDead;
+        },
+        set _isPlayerDead(v) {
+          Game.getInstance()._isPlayerDead = v;
+        },
+        get _respawnRequested() {
+          return Game.getInstance()._respawnRequested;
+        },
+        set _respawnRequested(v) {
+          Game.getInstance()._respawnRequested = v;
+        },
+        get _respawnCooldownEnd() {
+          return Game.getInstance()._respawnCooldownEnd;
+        },
+        set _respawnCooldownEnd(v) {
+          Game.getInstance()._respawnCooldownEnd = v;
+        },
         _gibSystem: this._gibSystem,
         _pendingGibSpawns: this._pendingGibSpawns,
         _ragdollSystem: this._ragdollSystem,
         _cartoonHit: this._cartoonHit,
         onStateUpdateCallbacks: this.onStateUpdateCallbacks,
-        get pendingTick() { return Game.getInstance().pendingTick; },
-        set pendingTick(v) { Game.getInstance().pendingTick = v; },
-        get _tabReturnFrameSkips() { return Game.getInstance()._tabReturnFrameSkips; },
-        set _tabReturnFrameSkips(v) { Game.getInstance()._tabReturnFrameSkips = v; },
+        get pendingTick() {
+          return Game.getInstance().pendingTick;
+        },
+        set pendingTick(v) {
+          Game.getInstance().pendingTick = v;
+        },
+        get _tabReturnFrameSkips() {
+          return Game.getInstance()._tabReturnFrameSkips;
+        },
+        set _tabReturnFrameSkips(v) {
+          Game.getInstance()._tabReturnFrameSkips = v;
+        },
         _stateUpdateCount: 0,
         sendRequestSpawn: () => this.sendRequestSpawn(),
       };
@@ -1496,7 +1530,7 @@ export class Game {
     this._latestGameState = state;
 
     // Update spectator cycling list (if spectating)
-    if (this.playerState === 'spectator' && this.spectatorCycling) {
+    if (this.playerState === "spectator" && this.spectatorCycling) {
       this.spectatorCycling.updateFromGameState(state);
 
       // Update SpectatorOverlay with target player name
@@ -1540,24 +1574,26 @@ export class Game {
    * Set collision world (from loaded BSP)
    * This sets collision on BOTH the local simulation AND the network prediction simulation
    */
-  setCollisionWorld(collision: import('../../engine/network/systems/collision/CollisionWorld').CollisionWorld | null): void {
+  setCollisionWorld(
+    collision: import("../../engine/network/systems/collision/CollisionWorld").CollisionWorld | null,
+  ): void {
     // Set on local simulation (for local mode)
     if (this.simulation) {
       this.simulation.setCollisionWorld(collision);
-      console.log('[Game] Collision world set on local simulation');
+      console.log("[Game] Collision world set on local simulation");
     }
 
     // Also set on NetworkGameHost's prediction simulation (for network mode)
     const networkHost = this.gameHost as any;
-    if (networkHost && typeof networkHost.setCollisionWorld === 'function') {
+    if (networkHost && typeof networkHost.setCollisionWorld === "function") {
       networkHost.setCollisionWorld(collision);
-      console.log('[Game] Collision world set on network prediction simulation');
+      console.log("[Game] Collision world set on network prediction simulation");
     }
 
     // Set on V2NetworkClient for Q3-style prediction (network mode)
     if (this.v2Client) {
       this.v2Client.setCollisionWorld(collision);
-      console.log('[Game] Collision world set on V2NetworkClient');
+      console.log("[Game] Collision world set on V2NetworkClient");
     }
   }
 }

@@ -1,17 +1,17 @@
 /**
  * FPS Gametypes
  */
-export { BaseGametype, type GameResult } from './BaseGametype';
-export { Deathmatch } from './Deathmatch';
-export { MatchState } from './MatchState';
+export { BaseGametype, type GameResult } from "./BaseGametype";
+export { Deathmatch } from "./Deathmatch";
+export { GametypeController } from "./GametypeController";
+export { MatchState } from "./MatchState";
 export {
-    type SpawnPointStrategy,
-    RandomSpawnStrategy,
-    FurthestSpawnStrategy,
-    TeamSpawnStrategy,
-    createSpawnStrategy,
-} from './SpawnPointStrategy';
-export { GametypeController } from './GametypeController';
+  createSpawnStrategy,
+  FurthestSpawnStrategy,
+  RandomSpawnStrategy,
+  type SpawnPointStrategy,
+  TeamSpawnStrategy,
+} from "./SpawnPointStrategy";
 // Future:
 // export { TeamDeathmatch } from './TeamDeathmatch';
 // export { CaptureTheFlag } from './CaptureTheFlag';

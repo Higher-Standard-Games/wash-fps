@@ -8,12 +8,12 @@
  * Transport controls: play/pause, speed (0.25x–4x), seek, timeline.
  */
 
-import type { GameState } from '../../../engine/network/core/GameState';
-import { DemoReader, type DemoHeader, type DemoIndex } from '../../../shared/demo/DemoReader';
+import type { GameState } from "../../../engine/network/core/GameState";
+import { type DemoHeader, type DemoIndex, DemoReader } from "../../../shared/demo/DemoReader";
 
 // ─── Types ───────────────────────────────────────────────────────
 
-export type DemoViewerState = 'idle' | 'loaded' | 'playing' | 'paused' | 'ended';
+export type DemoViewerState = "idle" | "loaded" | "playing" | "paused" | "ended";
 
 export interface DemoViewerInfo {
   state: DemoViewerState;
@@ -40,7 +40,7 @@ export class DemoViewer {
   private header: DemoHeader | null = null;
   private index: DemoIndex | null = null;
 
-  private state: DemoViewerState = 'idle';
+  private state: DemoViewerState = "idle";
   private currentFrameIndex: number = 0;
   private playbackSpeed: number = DEFAULT_SPEED;
   private elapsedSinceLastFrame: number = 0;
@@ -62,7 +62,7 @@ export class DemoViewer {
 
     this.currentFrameIndex = 0;
     this.elapsedSinceLastFrame = 0;
-    this.setState('loaded');
+    this.setState("loaded");
 
     console.log(`[DemoViewer] Loaded demo: ${this.reader.getSummary()}`);
   }
@@ -82,13 +82,13 @@ export class DemoViewer {
   play(): void {
     if (!this.isLoaded()) return;
 
-    if (this.state === 'ended') {
+    if (this.state === "ended") {
       // Restart from beginning
       this.currentFrameIndex = 0;
       this.elapsedSinceLastFrame = 0;
     }
 
-    this.setState('playing');
+    this.setState("playing");
 
     // Deliver current frame immediately on play
     this.deliverCurrentFrame();
@@ -98,15 +98,15 @@ export class DemoViewer {
    * Pause playback.
    */
   pause(): void {
-    if (this.state !== 'playing') return;
-    this.setState('paused');
+    if (this.state !== "playing") return;
+    this.setState("paused");
   }
 
   /**
    * Toggle play/pause.
    */
   togglePlayPause(): void {
-    if (this.state === 'playing') {
+    if (this.state === "playing") {
       this.pause();
     } else {
       this.play();
@@ -126,8 +126,8 @@ export class DemoViewer {
     this.deliverCurrentFrame();
 
     // If ended and seeking back, switch to paused
-    if (this.state === 'ended') {
-      this.setState('paused');
+    if (this.state === "ended") {
+      this.setState("paused");
     }
   }
 
@@ -173,7 +173,7 @@ export class DemoViewer {
     if (idx === -1) {
       // Current speed not in presets — snap to nearest
       const closest = SPEED_OPTIONS.reduce((a, b) =>
-        Math.abs(b - this.playbackSpeed) < Math.abs(a - this.playbackSpeed) ? b : a
+        Math.abs(b - this.playbackSpeed) < Math.abs(a - this.playbackSpeed) ? b : a,
       );
       this.playbackSpeed = closest;
     } else {
@@ -197,7 +197,7 @@ export class DemoViewer {
    * @param deltaMs Delta time in milliseconds
    */
   update(deltaMs: number): void {
-    if (this.state !== 'playing' || !this.reader || !this.header || !this.index) {
+    if (this.state !== "playing" || !this.reader || !this.header || !this.index) {
       return;
     }
 
@@ -221,7 +221,7 @@ export class DemoViewer {
       if (this.currentFrameIndex >= this.index.frameCount) {
         this.currentFrameIndex = this.index.frameCount - 1;
         this.elapsedSinceLastFrame = 0;
-        this.setState('ended');
+        this.setState("ended");
         return;
       }
 
@@ -279,9 +279,7 @@ export class DemoViewer {
     const totalFrames = this.index?.frameCount ?? 0;
     // snapshotRate available via header if needed for display
     const durationMs = this.index?.durationMs ?? 0;
-    const elapsedMs = totalFrames > 1
-      ? (this.currentFrameIndex / (totalFrames - 1)) * durationMs
-      : 0;
+    const elapsedMs = totalFrames > 1 ? (this.currentFrameIndex / (totalFrames - 1)) * durationMs : 0;
 
     return {
       state: this.state,
@@ -341,7 +339,7 @@ export class DemoViewer {
     this.reader = null;
     this.header = null;
     this.index = null;
-    this.state = 'idle';
+    this.state = "idle";
     this.currentFrameIndex = 0;
     this.onFrameCallback = null;
     this.onStateChangeCallback = null;
