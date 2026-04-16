@@ -105,6 +105,9 @@ export class RemotePlayerRenderer {
   /** Reference to enemyWeapons from GameEventContext — maps entityId → weaponId */
   private enemyWeapons: Map<string, string> = new Map();
 
+  /** Entity whose mesh+model should be hidden (e.g. followed player in demo POV) */
+  private _hiddenEntityId: string | null = null;
+
   constructor(scene: Scene) {
     this.scene = scene;
   }
@@ -112,6 +115,30 @@ export class RemotePlayerRenderer {
   /** Set reference to enemy weapons map from GameEventContext */
   setEnemyWeapons(weapons: Map<string, string>): void {
     this.enemyWeapons = weapons;
+  }
+
+  /**
+   * Hide the mesh + model for a specific entity (e.g. the followed player in demo POV).
+   * Restores the previously hidden entity before hiding the new one.
+   * Pass null to unhide all.
+   */
+  setHiddenEntity(entityId: string | null): void {
+    // Restore previously hidden entity
+    if (this._hiddenEntityId !== null) {
+      const old = this.hitboxes.get(this._hiddenEntityId);
+      if (old) {
+        if (old.model) old.model.anchor.setEnabled(true);
+      }
+    }
+    this._hiddenEntityId = entityId;
+    // Immediately hide the new target if its hitbox already exists
+    if (entityId !== null) {
+      const hitbox = this.hitboxes.get(entityId);
+      if (hitbox) {
+        hitbox.mesh.setEnabled(false);
+        if (hitbox.model) hitbox.model.anchor.setEnabled(false);
+      }
+    }
   }
 
   // ── Model Loading ────────────────────────────────────────────
@@ -234,6 +261,13 @@ export class RemotePlayerRenderer {
       }
 
       if (!hitbox) continue;
+
+      // Hidden entity (followed player in demo POV) — keep invisible every frame
+      if (entityId === this._hiddenEntityId) {
+        hitbox.mesh.setEnabled(false);
+        if (hitbox.model) hitbox.model.anchor.setEnabled(false);
+        continue;
+      }
 
       // Ensure model is assigned — catches any timing gaps during initial load
       if (!hitbox.model && this.modelManager?.isLoaded) {

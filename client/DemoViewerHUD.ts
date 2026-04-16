@@ -16,11 +16,16 @@ export class DemoViewerHUD {
   private timelineBar: HTMLDivElement | null = null;
   private timelineFill: HTMLDivElement | null = null;
   private timelineHandle: HTMLDivElement | null = null;
+  private controlsRow: HTMLDivElement | null = null;
   private playPauseBtn: HTMLButtonElement | null = null;
   private speedLabel: HTMLSpanElement | null = null;
   private timeLabel: HTMLSpanElement | null = null;
   private playerList: HTMLDivElement | null = null;
   private statusLabel: HTMLSpanElement | null = null;
+  private collapseBtn: HTMLButtonElement | null = null;
+
+  // Collapse state
+  private collapsed = false;
 
   // Callbacks
   private _onSeek: ((progress: number) => void) | null = null;
@@ -99,8 +104,8 @@ export class DemoViewerHUD {
     this.container.appendChild(this.timelineBar);
 
     // ── Controls row ────────────────────────────
-    const controlsRow = document.createElement("div");
-    controlsRow.style.cssText = `
+    this.controlsRow = document.createElement("div");
+    this.controlsRow.style.cssText = `
       display: flex;
       align-items: center;
       gap: 12px;
@@ -118,7 +123,7 @@ export class DemoViewerHUD {
       border-radius: 4px;
       cursor: pointer;
     `;
-    controlsRow.appendChild(this.playPauseBtn);
+    this.controlsRow.appendChild(this.playPauseBtn);
 
     // Speed
     this.speedLabel = document.createElement("span");
@@ -131,7 +136,7 @@ export class DemoViewerHUD {
       min-width: 40px;
       text-align: center;
     `;
-    controlsRow.appendChild(this.speedLabel);
+    this.controlsRow.appendChild(this.speedLabel);
 
     // Time
     this.timeLabel = document.createElement("span");
@@ -140,12 +145,12 @@ export class DemoViewerHUD {
       opacity: 0.7;
       font-variant-numeric: tabular-nums;
     `;
-    controlsRow.appendChild(this.timeLabel);
+    this.controlsRow.appendChild(this.timeLabel);
 
     // Spacer
     const spacer = document.createElement("div");
     spacer.style.flex = "1";
-    controlsRow.appendChild(spacer);
+    this.controlsRow.appendChild(spacer);
 
     // Status label (PLAYING / PAUSED / DEMO)
     this.statusLabel = document.createElement("span");
@@ -156,9 +161,26 @@ export class DemoViewerHUD {
       letter-spacing: 1px;
       opacity: 0.5;
     `;
-    controlsRow.appendChild(this.statusLabel);
+    this.controlsRow.appendChild(this.statusLabel);
 
-    this.container.appendChild(controlsRow);
+    // Collapse toggle button
+    this.collapseBtn = document.createElement("button");
+    this.collapseBtn.textContent = "▼";
+    this.collapseBtn.title = "Minimize HUD";
+    this.collapseBtn.style.cssText = `
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15);
+      color: rgba(255,255,255,0.6);
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 3px;
+      cursor: pointer;
+      margin-left: 4px;
+    `;
+    this.collapseBtn.addEventListener("click", () => this._toggleCollapse());
+    this.controlsRow.appendChild(this.collapseBtn);
+
+    this.container.appendChild(this.controlsRow);
 
     // ── Player list (hidden by default) ─────────
     this.playerList = document.createElement("div");
@@ -304,6 +326,29 @@ export class DemoViewerHUD {
     this._onPlayerSelect = callback;
   }
 
+  // ── Collapse ────────────────────────────────────────────────────
+
+  private _toggleCollapse(): void {
+    this.collapsed = !this.collapsed;
+    if (!this.controlsRow || !this.playerList || !this.container || !this.collapseBtn) return;
+    if (this.collapsed) {
+      this.controlsRow.style.display = "none";
+      this.playerList.style.display = "none";
+      this.container.style.padding = "0";
+      this.collapseBtn.textContent = "▲";
+      this.collapseBtn.title = "Expand HUD";
+      // Keep the timeline bar visible but compact the container
+      this.container.style.background = "transparent";
+    } else {
+      this.controlsRow.style.display = "flex";
+      // playerList visibility is managed by setPlayerList — restore only if non-empty
+      this.container.style.padding = "12px 20px 16px";
+      this.collapseBtn.textContent = "▼";
+      this.collapseBtn.title = "Minimize HUD";
+      this.container.style.background = "linear-gradient(to top, rgba(0,0,0,0.85), rgba(0,0,0,0.3))";
+    }
+  }
+
   // ── Visibility ──────────────────────────────────────────────────
 
   show(): void {
@@ -342,11 +387,13 @@ export class DemoViewerHUD {
     this.timelineBar = null;
     this.timelineFill = null;
     this.timelineHandle = null;
+    this.controlsRow = null;
     this.playPauseBtn = null;
     this.speedLabel = null;
     this.timeLabel = null;
     this.playerList = null;
     this.statusLabel = null;
+    this.collapseBtn = null;
     this._onSeek = null;
     this._onPlayPause = null;
     this._onSpeedChange = null;

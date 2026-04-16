@@ -14,6 +14,7 @@
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import { CommandRegistry } from "../../../engine/console/CommandRegistry";
 import type { GameState } from "../../../engine/network/core/GameState";
+import { WeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
 import type { LobbyClient } from "../../../lobby/LobbyClient";
 import type { DemoInfo } from "../../../lobby/types";
 import { DemoAnalyzer } from "../../../shared/demo/DemoAnalyzer";
@@ -49,6 +50,11 @@ export class DemoService {
   private playbackRaf: number | null = null;
   private lastFrameTimeMs: number = 0;
   private latestState: GameState | null = null;
+
+  // Demo spectator state
+  private _followedEntityId: string | null = null;
+  private _lastDemoWeapon: string | null = null;
+  private _isSeeking = false;
 
   private constructor() {}
 
@@ -217,6 +223,15 @@ export class DemoService {
     this.demoHud = null;
 
     this.latestState = null;
+    this._followedEntityId = null;
+    this._lastDemoWeapon = null;
+    this._isSeeking = false;
+
+    const wvm = WeaponViewManager.getInstance();
+    if (wvm.isInitialized()) {
+      wvm.setVisible(false);
+      wvm.restoreToFPSCamera();
+    }
   }
 
   private async ensureDemoMapLoaded(): Promise<void> {
@@ -243,12 +258,13 @@ export class DemoService {
       this.latestState = state;
       this.remoteRenderer?.pushSnapshot(state, "");
       this.refreshHudPlayerList();
+      this._updateDemoWeapon(state);
+      this._updateDemoRecoil(state);
     });
 
     if (typeof document === "undefined") return;
     const { DemoViewerHUD } = await import("./DemoViewerHUD");
     this.demoHud = new DemoViewerHUD();
-    this.demoHud.onSeek((progress) => this.activeDemoViewer?.seekToProgress(progress));
     this.demoHud.onPlayPause(() => {
       if (this.activeCinematicPlayer) {
         this.activeCinematicPlayer.togglePlayPause();
@@ -259,12 +275,25 @@ export class DemoService {
     this.demoHud.onSpeedChange(() => {
       this.activeDemoViewer?.cycleSpeed();
     });
+    this.demoHud.onSeek((progress) => {
+      this._isSeeking = true;
+      this.activeDemoViewer?.seekToProgress(progress);
+      this._isSeeking = false;
+    });
     this.demoHud.onPlayerSelect((entityId) => {
-      const spectator = CameraSystem.getInstance().getController("spectator") as {
+      const cam = CameraSystem.getInstance();
+      const spectator = cam.getController("spectator") as {
         setSpectateTarget?: (id: string) => void;
+        type?: string;
       } | null;
       spectator?.setSpectateTarget?.(entityId);
-      CameraSystem.getInstance().setController("spectator");
+      // Only trigger full attach/detach if not already in spectator mode
+      if ((cam.getActiveController() as { type?: string } | null)?.type !== "spectator") {
+        cam.setController("spectator");
+      }
+      this._followedEntityId = entityId;
+      this._lastDemoWeapon = null;
+      this.remoteRenderer?.setHiddenEntity(entityId);
     });
   }
 
@@ -330,6 +359,10 @@ export class DemoService {
       spectator?.setSpectateTarget?.(first);
       cameraSystem.setController("spectator");
       currentTarget = first;
+      this._followedEntityId = first;
+      this._lastDemoWeapon = null;
+      this.remoteRenderer?.setHiddenEntity(first);
+      this._attachWeaponViewToSpectatorCam();
       for (const row of rows) {
         row.isTarget = row.entityId === currentTarget;
       }
@@ -376,6 +409,72 @@ export class DemoService {
       setTargetProvider?: (provider: (entityId: string) => unknown) => void;
     } | null;
     existingSpectator?.setTargetProvider?.(spectatorProvider);
+  }
+
+  // ── Weapon viewmodel helpers (demo spectator mode) ────────────────────────
+
+  /**
+   * Attach WeaponViewManager to the spectator camera after setController("spectator") runs.
+   * Only acts when WVM is initialized (i.e. a live FPS session has run first).
+   */
+  private _attachWeaponViewToSpectatorCam(): void {
+    const cam = CameraSystem.getInstance();
+    const spectatorCtrl = cam.getController("spectator") as {
+      getCamera?: () => import("@babylonjs/core/Cameras/freeCamera").FreeCamera | null;
+    } | null;
+    const spectatorCam = spectatorCtrl?.getCamera?.();
+    if (!spectatorCam) return;
+    const wvm = WeaponViewManager.getInstance();
+    if (!wvm.isInitialized()) return;
+    wvm.attachToCamera(spectatorCam);
+    wvm.setVisible(true);
+  }
+
+  /**
+   * Check for weapon changes on the followed entity and load/switch the viewmodel.
+   * Uses instant loadWeapon during seeks, animated switchWeaponAnimated during normal play.
+   */
+  private _updateDemoWeapon(state: GameState): void {
+    if (!this._followedEntityId) return;
+    const wvm = WeaponViewManager.getInstance();
+    if (!wvm.isInitialized()) return;
+    for (const event of state.events) {
+      if (event.type !== "weapon_state") continue;
+      if (event.entityId !== this._followedEntityId) continue;
+      const weapon = event.currentWeapon as string;
+      if (weapon === this._lastDemoWeapon) return;
+      this._lastDemoWeapon = weapon;
+      if (this._isSeeking) {
+        wvm.loadWeapon(weapon).catch(() => {});
+      } else {
+        wvm.switchWeaponAnimated(weapon).catch(() => {});
+      }
+      return;
+    }
+  }
+
+  /**
+   * Trigger recoil on weapon_fire events and feed velocity into weapon bob each frame.
+   */
+  private _updateDemoRecoil(state: GameState): void {
+    if (!this._followedEntityId) return;
+    const wvm = WeaponViewManager.getInstance();
+    if (!wvm.isInitialized()) return;
+    for (const event of state.events) {
+      if (event.type !== "weapon_fire") continue;
+      if (event.entityId !== this._followedEntityId) continue;
+      wvm.triggerRecoil(1.0);
+    }
+    // Weapon bob from entity velocity
+    const entity = state.entities.get(this._followedEntityId);
+    const velocity = entity?.getComponent("velocity") as
+      | { linear?: { x: number; y: number; z: number }; x?: number; y?: number; z?: number }
+      | undefined;
+    if (velocity) {
+      const v = velocity.linear ?? velocity;
+      const hSpeed = Math.sqrt(((v.x ?? 0) ** 2) + ((v.z ?? 0) ** 2));
+      wvm.updateBob(hSpeed, v.y ?? 0);
+    }
   }
 
   // ── Demo list helpers ──────────────────────────────────────────────────────
