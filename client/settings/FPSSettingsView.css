@@ -1,0 +1,870 @@
+.game-panel .fps-settings-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 100%;
+  padding-right: 18px;
+}
+
+.game-panel:has(.fps-settings-shell) .game-panel__scroll {
+  max-width: min(1140px, calc(100vw - 140px));
+  padding: 14px 30px 14px 0;
+  overflow-x: visible;
+  box-sizing: border-box;
+}
+
+.game-panel .fps-settings-top-tabs,
+.game-panel .fps-settings-subtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.game-panel .fps-settings-top-tabs {
+  justify-content: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid hsla(180, 35%, 25%, 0.4);
+}
+
+.game-panel .fps-settings-subtabs {
+  justify-content: flex-start;
+}
+
+.game-panel .fps-settings-tab-btn,
+.game-panel .fps-settings-subtab-btn {
+  position: relative;
+  border: 1px solid hsla(180, 35%, 30%, 0.42);
+  background: linear-gradient(180deg, hsla(222, 28%, 10%, 0.9), hsla(222, 24%, 7%, 0.9));
+  color: hsla(180, 44%, 82%, 0.72);
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.game-panel .fps-settings-tab-btn {
+  min-width: 140px;
+  padding: 10px 18px;
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.game-panel .fps-settings-subtab-btn {
+  padding: 8px 14px;
+  font-family: var(--w-font-body, "Rajdhani", sans-serif);
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.game-panel .fps-settings-tab-btn:hover,
+.game-panel .fps-settings-subtab-btn:hover {
+  border-color: hsla(180, 100%, 50%, 0.42);
+  color: hsla(180, 88%, 92%, 0.98);
+  transform: translateY(-1px);
+}
+
+.game-panel .fps-settings-tab-btn--active,
+.game-panel .fps-settings-subtab-btn--active {
+  border-color: hsla(180, 100%, 50%, 0.58);
+  color: var(--w-cyan, hsl(180, 100%, 50%));
+  box-shadow:
+    inset 0 0 0 1px hsla(180, 100%, 50%, 0.2),
+    0 0 14px hsla(180, 100%, 50%, 0.12);
+}
+
+.game-panel .fps-settings-tab-btn--active::after,
+.game-panel .fps-settings-subtab-btn--active::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: -1px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, hsla(180, 100%, 50%, 0.9), transparent);
+}
+
+.game-panel .fps-settings-subtab-btn[disabled] {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.game-panel .fps-settings-panels {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.game-panel .fps-settings-panel {
+  display: none;
+}
+
+.game-panel .fps-settings-panel--active {
+  display: block;
+}
+
+.game-panel .fps-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 24px;
+}
+
+.game-panel .fps-settings-section-note {
+  margin-top: -6px;
+  margin-bottom: 14px;
+  color: hsla(180, 24%, 74%, 0.58);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.game-panel .fps-settings-toggle-label {
+  min-width: 46px;
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  color: hsla(180, 60%, 84%, 0.66);
+}
+
+.game-panel .fps-settings-segmented,
+.game-panel .fps-settings-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.game-panel .fps-settings-segmented-btn,
+.game-panel .fps-settings-swatch {
+  position: relative;
+  border: 1px solid hsla(180, 35%, 32%, 0.38);
+  background: hsla(220, 24%, 11%, 0.88);
+  color: hsla(180, 42%, 82%, 0.72);
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    color 0.18s ease,
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.game-panel .fps-settings-segmented-btn {
+  min-width: 64px;
+  padding: 8px 12px;
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.72rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.game-panel .fps-settings-segmented-btn:hover,
+.game-panel .fps-settings-swatch:hover {
+  border-color: hsla(180, 100%, 50%, 0.42);
+  color: hsla(180, 90%, 94%, 0.98);
+  transform: translateY(-1px);
+}
+
+.game-panel .fps-settings-segmented-btn--active,
+.game-panel .fps-settings-swatch--active {
+  border-color: hsla(180, 100%, 50%, 0.56);
+  color: var(--w-cyan, hsl(180, 100%, 50%));
+  box-shadow: 0 0 12px hsla(180, 100%, 50%, 0.16);
+}
+
+.game-panel .fps-settings-select {
+  min-width: 168px;
+  padding: 9px 34px 9px 12px;
+  border: 1px solid hsla(180, 35%, 32%, 0.38);
+  background:
+    linear-gradient(180deg, hsla(222, 24%, 12%, 0.96), hsla(222, 22%, 8%, 0.96));
+  color: hsla(180, 84%, 94%, 0.92);
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, hsla(180, 100%, 50%, 0.8) 50%),
+    linear-gradient(135deg, hsla(180, 100%, 50%, 0.8) 50%, transparent 50%),
+    linear-gradient(180deg, hsla(222, 24%, 12%, 0.96), hsla(222, 22%, 8%, 0.96));
+  background-position:
+    calc(100% - 18px) calc(50% - 2px),
+    calc(100% - 12px) calc(50% - 2px),
+    0 0;
+  background-size:
+    6px 6px,
+    6px 6px,
+    100% 100%;
+  background-repeat: no-repeat;
+}
+
+.game-panel .fps-settings-select:hover,
+.game-panel .fps-settings-select:focus {
+  border-color: hsla(180, 100%, 50%, 0.46);
+  box-shadow: 0 0 12px hsla(180, 100%, 50%, 0.12);
+  outline: none;
+}
+
+.game-panel .fps-settings-select option {
+  background: hsla(222, 24%, 10%, 0.98);
+  color: hsla(180, 84%, 94%, 0.92);
+}
+
+.game-panel .fps-settings-color-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.game-panel .fps-settings-color-preview {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid hsla(0, 0%, 100%, 0.32);
+  box-shadow:
+    0 0 0 1px hsla(180, 100%, 50%, 0.08),
+    0 0 10px rgba(255, 255, 255, 0.08);
+  flex: 0 0 auto;
+}
+
+.game-panel .fps-settings-swatch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+}
+
+.game-panel .fps-settings-swatch-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid hsla(0, 0%, 100%, 0.28);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.12);
+}
+
+.game-panel .fps-settings-swatch-label {
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-family: var(--w-font-display, "Orbitron", monospace);
+}
+
+.game-panel .fps-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 0;
+}
+
+.game-panel .fps-settings-controls-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.game-panel .fps-settings-controls-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  align-items: start;
+}
+
+.game-panel .fps-settings-card {
+  position: relative;
+  border: 1px solid hsla(180, 35%, 26%, 0.4);
+  background:
+    linear-gradient(180deg, hsla(228, 26%, 10%, 0.92), hsla(228, 22%, 7%, 0.92)),
+    radial-gradient(circle at top, hsla(180, 100%, 50%, 0.06), transparent 60%);
+  padding: 14px 16px 16px;
+  box-shadow: inset 0 0 0 1px hsla(180, 100%, 50%, 0.04);
+}
+
+.game-panel .fps-settings-card::before,
+.game-panel .fps-settings-card::after {
+  content: "";
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-color: hsla(180, 100%, 50%, 0.38);
+}
+
+.game-panel .fps-settings-card::before {
+  top: -1px;
+  left: -1px;
+  border-top: 2px solid;
+  border-left: 2px solid;
+}
+
+.game-panel .fps-settings-card::after {
+  right: -1px;
+  bottom: -1px;
+  border-right: 2px solid;
+  border-bottom: 2px solid;
+}
+
+.game-panel .fps-settings-card-title {
+  margin-bottom: 10px;
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.78rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: hsla(180, 68%, 84%, 0.72);
+}
+
+.game-panel .fps-settings-card--mouse,
+.game-panel .fps-settings-card--keyboard {
+  width: 100%;
+}
+
+.game-panel .fps-settings-card-note {
+  margin-bottom: 10px;
+  color: hsla(180, 24%, 76%, 0.58);
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.game-panel .fps-settings-mouse-layout {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(248px, 292px) minmax(280px, 340px);
+  gap: 16px 28px;
+  align-items: start;
+  justify-content: space-between;
+}
+
+.game-panel .fps-settings-mouse-visual {
+  position: relative;
+  width: 280px;
+  height: 242px;
+  margin: 0 auto;
+}
+
+.game-panel .fps-settings-mouse-shell {
+  position: absolute;
+  inset: 24px 58px 8px;
+  border: 1px solid hsla(180, 40%, 28%, 0.44);
+  border-radius: 78px 78px 66px 66px;
+  background:
+    linear-gradient(180deg, hsla(214, 18%, 18%, 0.98), hsla(214, 18%, 10%, 0.98)),
+    radial-gradient(circle at top, hsla(180, 100%, 50%, 0.05), transparent 50%);
+  box-shadow:
+    inset 0 0 0 1px hsla(180, 100%, 50%, 0.05),
+    0 16px 32px rgba(0, 0, 0, 0.22);
+}
+
+.game-panel .fps-settings-mouse-divider {
+  position: absolute;
+  top: 62px;
+  left: 50%;
+  width: 1px;
+  height: 74px;
+  background: linear-gradient(180deg, hsla(180, 100%, 50%, 0.26), transparent);
+  transform: translateX(-50%);
+}
+
+.game-panel .fps-settings-mouse-wheel {
+  position: absolute;
+  top: 68px;
+  left: 50%;
+  width: 20px;
+  height: 52px;
+  transform: translateX(-50%);
+  border-radius: 14px;
+  border: 1px solid hsla(180, 40%, 34%, 0.44);
+  background: linear-gradient(180deg, hsla(215, 20%, 20%, 0.95), hsla(215, 20%, 12%, 0.95));
+  overflow: hidden;
+}
+
+.game-panel .fps-settings-mouse-wheel::after {
+  content: "";
+  position: absolute;
+  inset: 50% 2px auto;
+  height: 1px;
+  background: hsla(180, 100%, 50%, 0.22);
+}
+
+.game-panel .fps-settings-mouse-hotspot {
+  position: absolute;
+  border: 1px solid hsla(180, 40%, 32%, 0.22);
+  background: hsla(180, 100%, 50%, 0.04);
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.game-panel .fps-settings-mouse-hotspot:hover,
+.game-panel .fps-settings-mouse-hotspot--selected {
+  border-color: hsla(180, 100%, 50%, 0.44);
+  background: hsla(180, 100%, 50%, 0.08);
+  box-shadow: 0 0 14px hsla(180, 100%, 50%, 0.12);
+}
+
+.game-panel .fps-settings-mouse-hotspot--bound {
+  background: hsla(180, 100%, 50%, 0.08);
+}
+
+.game-panel .fps-settings-mouse-hotspot[data-slot="left"] {
+  top: 36px;
+  left: 58px;
+  width: 42px;
+  height: 88px;
+  border-radius: 50px 0 16px 18px;
+}
+
+.game-panel .fps-settings-mouse-hotspot[data-slot="right"] {
+  top: 36px;
+  right: 58px;
+  width: 42px;
+  height: 88px;
+  border-radius: 0 50px 18px 16px;
+}
+
+.game-panel .fps-settings-mouse-hotspot[data-slot="middle"] {
+  top: 66px;
+  left: 50%;
+  width: 22px;
+  height: 52px;
+  transform: translateX(-50%);
+  border-radius: 14px;
+}
+
+.game-panel .fps-settings-mouse-hotspot[data-slot="wheel-up"] {
+  top: 64px;
+  left: 50%;
+  width: 26px;
+  height: 24px;
+  transform: translateX(-50%);
+  border-radius: 16px 16px 10px 10px;
+}
+
+.game-panel .fps-settings-mouse-hotspot[data-slot="wheel-down"] {
+  top: 88px;
+  left: 50%;
+  width: 26px;
+  height: 24px;
+  transform: translateX(-50%);
+  border-radius: 10px 10px 16px 16px;
+}
+
+.game-panel .fps-settings-mouse-callout {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.game-panel .fps-settings-mouse-callout::before {
+  content: "";
+  position: absolute;
+  height: 1px;
+  background: linear-gradient(90deg, hsla(180, 100%, 50%, 0.34), transparent);
+  opacity: 0.9;
+}
+
+.game-panel .fps-settings-mouse-callout-card {
+  min-width: 110px;
+  padding: 7px 10px;
+  border: 1px solid hsla(180, 35%, 30%, 0.36);
+  background: hsla(225, 24%, 12%, 0.92);
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    color 0.18s ease,
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.game-panel .fps-settings-mouse-callout-card:hover,
+.game-panel .fps-settings-mouse-callout-card--selected {
+  border-color: hsla(180, 100%, 50%, 0.44);
+  transform: translateY(-1px);
+  box-shadow: 0 0 12px hsla(180, 100%, 50%, 0.12);
+}
+
+.game-panel .fps-settings-mouse-callout-slot {
+  display: block;
+  margin-bottom: 3px;
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.64rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: hsla(180, 46%, 82%, 0.56);
+}
+
+.game-panel .fps-settings-mouse-callout-action {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: hsla(180, 88%, 94%, 0.92);
+}
+
+.game-panel .fps-settings-mouse-callout--left {
+  top: 42px;
+  left: -2px;
+}
+
+.game-panel .fps-settings-mouse-callout--left::before {
+  top: 50%;
+  right: -38px;
+  width: 40px;
+}
+
+.game-panel .fps-settings-mouse-callout--right {
+  top: 42px;
+  right: -4px;
+}
+
+.game-panel .fps-settings-mouse-callout--right::before {
+  top: 50%;
+  left: -38px;
+  width: 40px;
+  background: linear-gradient(90deg, transparent, hsla(180, 100%, 50%, 0.34));
+}
+
+.game-panel .fps-settings-mouse-callout--middle {
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.game-panel .fps-settings-mouse-callout--middle::before {
+  top: 100%;
+  left: 50%;
+  width: 1px;
+  height: 28px;
+  background: linear-gradient(180deg, hsla(180, 100%, 50%, 0.34), transparent);
+}
+
+.game-panel .fps-settings-mouse-callout--wheel-up {
+  top: 122px;
+  left: 8px;
+}
+
+.game-panel .fps-settings-mouse-callout--wheel-up::before {
+  top: 50%;
+  right: -48px;
+  width: 50px;
+}
+
+.game-panel .fps-settings-mouse-callout--wheel-down {
+  top: 122px;
+  right: 6px;
+}
+
+.game-panel .fps-settings-mouse-callout--wheel-down::before {
+  top: 50%;
+  left: -48px;
+  width: 50px;
+  background: linear-gradient(90deg, transparent, hsla(180, 100%, 50%, 0.34));
+}
+
+.game-panel .fps-settings-mouse-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  max-width: 340px;
+  justify-self: start;
+  padding-top: 8px;
+}
+
+.game-panel .fps-settings-inline-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.game-panel .fps-settings-placeholder-btn {
+  opacity: 0.66;
+}
+
+.game-panel .fps-settings-placeholder-caption {
+  color: hsla(180, 20%, 74%, 0.46);
+  font-size: 0.82rem;
+}
+
+.game-panel .fps-settings-keyboard-wrap {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 2px;
+}
+
+.game-panel .fps-settings-keyboard-board {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: max-content;
+  min-width: 100%;
+}
+
+.game-panel .fps-settings-keyboard-row {
+  display: flex;
+  gap: 6px;
+  width: max-content;
+}
+
+.game-panel .fps-settings-key {
+  --key-width: 1;
+  --key-unit: 50px;
+  flex: 0 0 calc(var(--key-width) * var(--key-unit));
+  width: calc(var(--key-width) * var(--key-unit));
+  min-width: calc(var(--key-width) * var(--key-unit));
+  min-height: 56px;
+  padding: 7px 7px 6px;
+  border: 1px solid hsla(180, 30%, 26%, 0.42);
+  background:
+    linear-gradient(180deg, hsla(224, 22%, 11%, 0.98), hsla(224, 20%, 7%, 0.98)),
+    linear-gradient(180deg, hsla(180, 100%, 50%, 0.03), transparent);
+  color: hsla(180, 28%, 82%, 0.58);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    color 0.18s ease,
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.game-panel .fps-settings-key:hover,
+.game-panel .fps-settings-key--selected {
+  border-color: hsla(180, 100%, 50%, 0.44);
+  color: hsla(180, 88%, 92%, 0.92);
+  transform: translateY(-1px);
+  box-shadow: 0 0 14px hsla(180, 100%, 50%, 0.12);
+}
+
+.game-panel .fps-settings-key--bound {
+  border-color: hsla(180, 100%, 50%, 0.34);
+  background:
+    linear-gradient(180deg, hsla(184, 54%, 16%, 0.98), hsla(214, 20%, 7%, 0.98)),
+    linear-gradient(180deg, hsla(180, 100%, 50%, 0.08), transparent);
+  color: hsla(180, 92%, 94%, 0.94);
+}
+
+.game-panel .fps-settings-keycap {
+  display: block;
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.game-panel .fps-settings-key-action {
+  display: block;
+  margin-top: 8px;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-panel .fps-settings-key--empty .fps-settings-key-action {
+  color: hsla(180, 20%, 72%, 0.28);
+}
+
+.game-panel .fps-settings-controller-placeholder {
+  display: grid;
+  gap: 14px;
+  justify-items: center;
+  text-align: center;
+  padding: 32px 20px;
+}
+
+.game-panel .fps-settings-controller-icon {
+  width: 180px;
+  height: 90px;
+  border-radius: 46px;
+  border: 1px solid hsla(180, 36%, 28%, 0.3);
+  background:
+    radial-gradient(circle at 24% 50%, hsla(180, 100%, 50%, 0.06), transparent 22%),
+    radial-gradient(circle at 76% 50%, hsla(320, 100%, 60%, 0.06), transparent 22%),
+    linear-gradient(180deg, hsla(224, 20%, 12%, 0.92), hsla(224, 18%, 8%, 0.92));
+  position: relative;
+}
+
+.game-panel .fps-settings-controller-icon::before,
+.game-panel .fps-settings-controller-icon::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid hsla(180, 34%, 30%, 0.34);
+  transform: translateY(-50%);
+}
+
+.game-panel .fps-settings-controller-icon::before {
+  left: 28px;
+}
+
+.game-panel .fps-settings-controller-icon::after {
+  right: 28px;
+}
+
+.game-panel .fps-settings-controller-tag {
+  padding: 6px 10px;
+  border: 1px solid hsla(320, 100%, 60%, 0.3);
+  color: hsla(320, 100%, 82%, 0.84);
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.game-panel .fps-settings-menu {
+  position: fixed;
+  z-index: 1400;
+  display: grid;
+  grid-template-columns: 160px minmax(190px, 240px);
+  border: 1px solid hsla(180, 40%, 34%, 0.48);
+  background:
+    linear-gradient(180deg, hsla(226, 28%, 10%, 0.98), hsla(226, 24%, 6%, 0.98)),
+    radial-gradient(circle at top, hsla(180, 100%, 50%, 0.08), transparent 55%);
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.4),
+    0 0 24px hsla(180, 100%, 50%, 0.08);
+  overflow: hidden;
+}
+
+.game-panel .fps-settings-menu-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.game-panel .fps-settings-menu-column + .fps-settings-menu-column {
+  border-left: 1px solid hsla(180, 35%, 24%, 0.42);
+}
+
+.game-panel .fps-settings-menu-header {
+  padding: 10px 12px 8px;
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: hsla(180, 64%, 84%, 0.52);
+  border-bottom: 1px solid hsla(180, 35%, 22%, 0.42);
+}
+
+.game-panel .fps-settings-menu-btn {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  color: hsla(180, 30%, 88%, 0.74);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    color 0.16s ease,
+    background 0.16s ease;
+}
+
+.game-panel .fps-settings-menu-btn:hover,
+.game-panel .fps-settings-menu-btn--active {
+  background: hsla(180, 100%, 50%, 0.08);
+  color: hsla(180, 90%, 94%, 1);
+}
+
+.game-panel .fps-settings-menu-btn--danger {
+  color: hsla(355, 88%, 84%, 0.86);
+  border-top: 1px solid hsla(180, 32%, 22%, 0.42);
+}
+
+.game-panel .fps-settings-menu-btn--danger:hover {
+  background: hsla(355, 88%, 60%, 0.1);
+  color: hsla(355, 100%, 92%, 1);
+}
+
+.game-panel .fps-settings-menu-arrow {
+  opacity: 0.58;
+}
+
+.fps-settings-confirm .fps-dialog {
+  width: min(520px, 92vw);
+}
+
+.fps-settings-confirm-copy {
+  color: hsla(180, 20%, 84%, 0.86);
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+@media (max-width: 1100px) {
+  .game-panel:has(.fps-settings-shell) .game-panel__scroll {
+    max-width: calc(100vw - 72px);
+    padding-right: 20px;
+  }
+
+  .game-panel .fps-settings-mouse-layout {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .game-panel .fps-settings-key {
+    --key-unit: 46px;
+    min-height: 52px;
+  }
+
+  .game-panel .fps-settings-mouse-settings {
+    max-width: none;
+    justify-self: stretch;
+    padding-top: 0;
+  }
+}
+
+@media (max-width: 820px) {
+  .game-panel:has(.fps-settings-shell) .game-panel__content {
+    padding: 0 20px;
+  }
+
+  .game-panel:has(.fps-settings-shell) .game-panel__scroll {
+    max-width: 100%;
+  }
+
+  .game-panel .fps-settings-top-tabs {
+    justify-content: flex-start;
+  }
+
+  .game-panel .fps-settings-tab-btn {
+    min-width: 112px;
+    padding: 9px 14px;
+  }
+
+  .game-panel .fps-settings-mouse-visual {
+    width: 292px;
+    transform: scale(0.94);
+    transform-origin: top center;
+  }
+
+  .game-panel .fps-settings-key {
+    --key-unit: 44px;
+    padding: 8px 6px 7px;
+  }
+
+  .game-panel .fps-settings-keycap {
+    font-size: 0.62rem;
+  }
+
+  .game-panel .fps-settings-key-action {
+    font-size: 0.64rem;
+  }
+
+  .game-panel .fps-settings-menu {
+    grid-template-columns: 140px minmax(180px, 220px);
+  }
+}
