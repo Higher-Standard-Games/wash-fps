@@ -352,7 +352,7 @@ export class RagdollSystem {
   // Spawn ragdoll
   // ========================================================================
 
-  spawn(model: PlayerModelInstance, velX: number, velY: number, velZ: number): void {
+  spawn(model: PlayerModelInstance, velX: number, _velY: number, velZ: number): void {
     if (!this.scene) {
       console.warn("[RagdollSystem] Not initialized — disposing model");
       this.disposeModel(model);

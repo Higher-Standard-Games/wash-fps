@@ -24,7 +24,6 @@ import { MessageCodec } from "../../engine/network/protocol/MessageCodec";
 import { getCollisionManager } from "../../engine/physics/CollisionManager";
 import { PlayerProfile } from "../../engine/player/PlayerProfile";
 import { getProjectileManager } from "../../engine/weapon/ProjectileManager";
-import { getWeaponViewManager } from "../../engine/weapon/WeaponViewManager";
 import { V2NetworkClient } from "./client";
 import type { DroppedWeaponRenderer } from "./client/DroppedWeaponRenderer";
 import { registerFPSActions } from "./client/FPSActions";

@@ -359,20 +359,12 @@ export class FPSMovementSubsystem extends Subsystem {
       const eid = entity.id as number;
       const grounded = entity.physics.grounded;
       const py = entity.transform.position.y;
-      const vy = entity.physics.velocity.y;
-
       if (!grounded && !this.jumpStartTick.has(eid)) {
         // Just went airborne
         this.jumpStartTick.set(eid, tickNum);
         this.jumpStartY.set(eid, py);
       } else if (grounded && this.jumpStartTick.has(eid)) {
         // Just landed
-        const startTick = this.jumpStartTick.get(eid)!;
-        const startY = this.jumpStartY.get(eid)!;
-        const duration = tickNum - startTick;
-        const durationMs = duration * 8;
-        const peakDelta = py - startY;
-        // console.log(`[JUMP] eid=${entity.id} owner=${entity.ownerId} airborne=${duration}ticks (${durationMs}ms) startY=${startY.toFixed(0)} landY=${py.toFixed(0)} deltaY=${peakDelta.toFixed(0)}`);
         this.jumpStartTick.delete(eid);
         this.jumpStartY.delete(eid);
       }
