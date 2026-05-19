@@ -3,9 +3,9 @@
 
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import type { FPSController } from "../../engine/camera/controllers/FPSController";
-import { InventoryManager } from "../../engine/game/InventoryManager";
-import { Pickup } from "../../engine/game/Pickup";
+import { InventoryManager } from "./world/InventoryManager";
 import { WeaponViewManager } from "../../engine/weapon/WeaponViewManager";
+import { FPSPickup } from "./world/FPSPickup";
 import type { WeaponDef } from "../../shared/entities";
 
 /**
@@ -63,7 +63,7 @@ export class FPSPlayer {
 
     // Listen for use/interact key (F) — weapon pickup
     this.controller.onUse = () => {
-      Pickup.triggerUseAction();
+      FPSPickup.triggerUseAction();
     };
 
     // Block weapon switching input during animation (prevents scroll stutter)

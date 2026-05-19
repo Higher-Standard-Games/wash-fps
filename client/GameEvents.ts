@@ -190,8 +190,8 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
                 : ROCKET_EXPLOSION;
         getExplosionEffect().spawn(pos, config, normal);
       } else if (event.type === "item_pickup") {
-        import("../../../engine/game/Pickup").then(({ Pickup }) => {
-          Pickup.deactivateById(event.pickupId, event.weaponId, event.x, event.y, event.z);
+        import("../world/FPSPickup").then(({ FPSPickup }) => {
+          FPSPickup.deactivateById(event.pickupId, event.weaponId, event.x, event.y, event.z);
         });
       } else if (event.type === "projectile_spawn") {
         ctx.serverProjectileDefIds.set(event.entityId, event.defId);
@@ -283,7 +283,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
           }
         }
       } else if (event.type === "death") {
-        handleDeathEvent(ctx, event, localEntityId, state);
+        handleDeathEvent(ctx, event, state);
       } else if (event.type === "weapon_drop") {
         handleWeaponDrop(ctx, event);
       } else if (event.type === "award") {
@@ -428,12 +428,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
 
 // ── Internal helpers ───────────────────────────────────────────────
 
-function handleDeathEvent(
-  ctx: GameEventContext,
-  event: any,
-  localEntityId: string | undefined,
-  state: GameState,
-): void {
+function handleDeathEvent(ctx: GameEventContext, event: any, state: GameState): void {
   console.log(
     `[Death] Event received: entity=${event.entityId} killer=${event.killerId} damageType=${event.damageType} finalDamage=${event.finalDamage} pos=(${event.x}, ${event.y}, ${event.z})`,
   );
@@ -692,6 +687,7 @@ function processProjectileEntities(ctx: GameEventContext, state: GameState): voi
       grounded: false,
       crouching: false,
       sliding: false,
+      wallJumping: false,
     });
 
     if (!ctx.activeServerProjectiles.has(entityId)) {

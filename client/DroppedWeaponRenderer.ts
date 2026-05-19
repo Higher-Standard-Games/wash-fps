@@ -18,7 +18,7 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import type { Scene } from "@babylonjs/core/scene";
-import { hidePickupPrompt, showPickupPrompt } from "../../../engine/game/PickupPrompt";
+import { hidePickupPrompt, showPickupPrompt } from "../world/PickupPrompt";
 import { EntityRegistry } from "../../../shared/entities/EntityRegistry";
 
 /** Data passed from GameEvents per item_ entity in snapshot */
@@ -417,7 +417,7 @@ export class DroppedWeaponRenderer {
     if (!this._cachedCameraModule) {
       try {
         this._cachedCameraModule = await import("../../../engine/camera/CameraSystem");
-        this._cachedInventoryModule = await import("../../../engine/game/InventoryManager");
+        this._cachedInventoryModule = await import("../world/InventoryManager");
       } catch {
         return;
       }
