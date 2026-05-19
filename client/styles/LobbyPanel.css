@@ -1,0 +1,1151 @@
+/**
+ * LobbyPanel.css — Lobby layout inside GamePanel
+ *
+ * LEFT:   Full-height game mode cards (with background effects)
+ * CENTER: Players Online + Live Matches
+ * RIGHT:  Lobby Chat
+ */
+
+/* ============================================================================
+   Override GamePanel content area for full-width lobby layout
+   ============================================================================ */
+
+.game-panel:has(.lobby__layout) .game-panel__content,
+.game-panel:has(.lobby__leaderboard) .game-panel__content,
+.game-panel:has(.lobby__profile) .game-panel__content {
+  padding: 0;
+}
+
+.game-panel:has(.lobby__layout) .game-panel__scroll,
+.game-panel:has(.lobby__leaderboard) .game-panel__scroll,
+.game-panel:has(.lobby__profile) .game-panel__scroll {
+  max-width: 100%;
+  padding: 0;
+  overflow: hidden;
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+
+/* Header action buttons (Console, Settings) — right-aligned in tab row */
+.game-panel__tabs:has(.lobby__header-actions) {
+  position: relative;
+}
+
+.lobby__header-actions {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  gap: 6px;
+}
+
+.lobby__header-actions .fps-btn {
+  font-size: 0.95rem;
+  padding: 7px 16px;
+}
+
+/* Hide footer when lobby is active */
+.game-panel:has(.lobby__layout) .game-panel__footer {
+  display: none;
+}
+
+/* ============================================================================
+   Main Layout — 3 columns
+   ============================================================================ */
+
+.lobby__layout {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 12px 0 10px;
+  box-sizing: border-box;
+}
+
+/* Shared column styles */
+.lobby__col {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.lobby__col--social {
+  flex: 0 0 280px;
+  border-left: 1px solid hsla(180, 100%, 50%, 0.06);
+  border-right: 1px solid hsla(180, 100%, 50%, 0.06);
+  padding: 4px 0;
+}
+
+.lobby__col--chat {
+  flex: 0 0 300px;
+  padding: 4px 0;
+}
+
+/* ============================================================================
+   Full-Height Game Mode Cards (left side)
+   ============================================================================ */
+
+.lobby__modes {
+  flex: 1;
+  display: flex;
+  gap: 2px;
+  min-width: 0;
+}
+
+.lobby__mode-card {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  border-right: 1px solid hsla(180, 60%, 30%, 0.08);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.lobby__mode-card:last-child {
+  border-right: none;
+}
+
+.lobby__mode-card:hover {
+  flex: 1.2;
+}
+
+/* Corner brackets */
+.lobby__mode-card::before,
+.lobby__mode-card::after {
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  z-index: 5;
+  transition: all 0.35s ease;
+  opacity: 0.4;
+}
+
+.lobby__mode-card::before {
+  top: 8px;
+  left: 8px;
+  border-top: 2px solid hsl(calc(var(--card-hue, 180)), 100%, 50%);
+  border-left: 2px solid hsl(calc(var(--card-hue, 180)), 100%, 50%);
+}
+
+.lobby__mode-card::after {
+  bottom: 8px;
+  right: 8px;
+  border-bottom: 2px solid hsl(calc(var(--card-hue, 180)), 100%, 50%);
+  border-right: 2px solid hsl(calc(var(--card-hue, 180)), 100%, 50%);
+}
+
+.lobby__mode-card:hover::before,
+.lobby__mode-card:hover::after {
+  opacity: 0.8;
+  width: 18px;
+  height: 18px;
+}
+
+/* Searching state */
+.lobby__mode-card--searching {
+  box-shadow: inset 0 0 40px hsla(calc(var(--card-hue, 180)), 100%, 50%, 0.06);
+}
+
+.lobby__mode-card--searching::before,
+.lobby__mode-card--searching::after {
+  opacity: 0.7;
+  animation: lobby-bracket-pulse 2s ease-in-out infinite;
+}
+
+/* Background fill (will show map screenshots later) */
+.lobby__mode-bg {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    hsla(calc(var(--card-hue, 180)), 40%, 8%, 1) 0%,
+    hsla(calc(var(--card-hue, 180)), 30%, 5%, 1) 60%,
+    hsla(240, 20%, 4%, 1) 100%
+  );
+  transition: all 0.5s ease;
+}
+
+.lobby__mode-card:hover .lobby__mode-bg {
+  background: linear-gradient(
+    135deg,
+    hsla(calc(var(--card-hue, 180)), 50%, 12%, 1) 0%,
+    hsla(calc(var(--card-hue, 180)), 35%, 7%, 1) 60%,
+    hsla(240, 20%, 5%, 1) 100%
+  );
+}
+
+/* Card with background image — fill without stretching */
+.lobby__mode-bg--image {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  filter: brightness(0.7) saturate(1.1);
+  transition:
+    all 0.5s ease,
+    filter 0.4s ease;
+}
+
+.lobby__mode-card:hover .lobby__mode-bg--image {
+  background-size: cover;
+  background-position: center;
+  transform: scale(1.08);
+  filter: brightness(0.85) saturate(1.3);
+}
+
+/* CRT scanlines overlay on image cards */
+.lobby__mode-card:has(.lobby__mode-bg--image) .lobby__mode-overlay::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 2px,
+    rgba(0, 0, 0, 0.08) 2px,
+    rgba(0, 0, 0, 0.08) 4px
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Diagonal shimmer sweep on hover */
+.lobby__mode-card:has(.lobby__mode-bg--image)::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(
+    105deg,
+    transparent 20%,
+    hsla(calc(var(--card-hue, 180)), 100%, 80%, 0.06) 40%,
+    hsla(calc(var(--card-hue, 180)), 100%, 90%, 0.12) 50%,
+    hsla(calc(var(--card-hue, 180)), 100%, 80%, 0.06) 60%,
+    transparent 80%
+  );
+  z-index: 3;
+  pointer-events: none;
+  transition: none;
+  /* Override the corner bracket styles for image cards */
+  border: none;
+  width: 60%;
+  height: 100%;
+  opacity: 1;
+}
+
+.lobby__mode-card:has(.lobby__mode-bg--image):hover::after {
+  left: 130%;
+  transition: left 0.8s ease;
+  /* Override corner bracket hover */
+  border: none;
+  width: 60%;
+  height: 100%;
+  opacity: 1;
+}
+
+/* Bottom gradient overlay */
+.lobby__mode-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, hsla(calc(var(--card-hue, 180)), 15%, 4%, 0.9) 0%, transparent 50%);
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* Content pinned to bottom */
+.lobby__mode-content {
+  position: relative;
+  z-index: 2;
+  padding: 20px 16px;
+  text-align: center;
+}
+
+.lobby__mode-title {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 1.8rem;
+  font-weight: 700;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: hsl(calc(var(--card-hue, 180)), 100%, 78%);
+  text-shadow:
+    0 0 15px hsla(calc(var(--card-hue, 180)), 100%, 50%, 0.3),
+    0 0 40px hsla(calc(var(--card-hue, 180)), 100%, 50%, 0.1);
+  margin-bottom: 4px;
+  transition: all 0.35s ease;
+}
+
+.lobby__mode-card:hover .lobby__mode-title {
+  letter-spacing: 0.35em;
+  text-shadow:
+    0 0 20px hsla(calc(var(--card-hue, 180)), 100%, 50%, 0.45),
+    0 0 50px hsla(calc(var(--card-hue, 180)), 100%, 50%, 0.15);
+}
+
+.lobby__mode-sub {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.9rem;
+  color: hsla(calc(var(--card-hue, 180)), 40%, 60%, 0.45);
+  letter-spacing: 0.15em;
+  margin-bottom: 14px;
+}
+
+.lobby__mode-queue {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.8rem;
+  color: hsla(180, 30%, 50%, 0.25);
+  letter-spacing: 0.1em;
+  margin-bottom: 10px;
+}
+
+.lobby__mode-queue--active {
+  color: hsla(calc(var(--card-hue, 180)), 80%, 60%, 0.55);
+}
+
+/* FIND MATCH button */
+.lobby__find-btn {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  padding: 10px 20px;
+  border: 1px solid hsla(calc(var(--card-hue, 180)), 100%, 50%, 0.25);
+  background: hsla(calc(var(--card-hue, 180)), 100%, 50%, 0.05);
+  color: hsl(calc(var(--card-hue, 180)), 100%, 65%);
+  cursor: pointer;
+  transition: all 0.25s ease;
+  width: 100%;
+}
+
+.lobby__find-btn:hover {
+  background: hsla(calc(var(--card-hue, 180)), 100%, 50%, 0.12);
+  border-color: hsla(calc(var(--card-hue, 180)), 100%, 50%, 0.45);
+  box-shadow: 0 0 16px hsla(calc(var(--card-hue, 180)), 100%, 50%, 0.15);
+  text-shadow: 0 0 8px hsla(calc(var(--card-hue, 180)), 100%, 50%, 0.4);
+}
+
+.lobby__find-btn--searching {
+  border-color: hsla(calc(var(--card-hue, 180)), 100%, 60%, 0.4);
+  color: hsl(calc(var(--card-hue, 180)), 100%, 75%);
+  background: hsla(calc(var(--card-hue, 180)), 100%, 50%, 0.08);
+  animation: lobby-pulse 1.5s ease-in-out infinite;
+}
+
+/* ============================================================================
+   Section Titles  ────── TITLE ──────
+   ============================================================================ */
+
+.lobby__section-title {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: hsla(180, 60%, 65%, 0.45);
+  padding: 12px 16px 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.lobby__section-title::before,
+.lobby__section-title::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, hsla(180, 100%, 50%, 0.12), transparent);
+}
+
+.lobby__section-badge {
+  font-size: 0.8rem;
+  color: hsla(180, 100%, 60%, 0.5);
+  background: hsla(180, 100%, 50%, 0.06);
+  padding: 1px 8px;
+  border: 1px solid hsla(180, 100%, 50%, 0.12);
+}
+
+.lobby__divider {
+  height: 1px;
+  margin: 6px 16px;
+  background: linear-gradient(90deg, transparent, hsla(180, 100%, 50%, 0.1), transparent);
+}
+
+/* ============================================================================
+   Players List
+   ============================================================================ */
+
+.lobby__players {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 10px;
+}
+
+.lobby__player {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px;
+  border-radius: 2px;
+  transition: background 0.15s ease;
+}
+
+.lobby__player:hover {
+  background: hsla(180, 40%, 20%, 0.08);
+}
+
+.lobby__player-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.lobby__player-dot--online {
+  background: hsla(120, 70%, 50%, 0.7);
+  box-shadow: 0 0 4px hsla(120, 70%, 50%, 0.3);
+}
+
+.lobby__player-dot--searching {
+  background: hsla(45, 100%, 55%, 0.8);
+  box-shadow: 0 0 5px hsla(45, 100%, 55%, 0.3);
+  animation: lobby-dot-pulse 1.5s ease-in-out infinite;
+}
+
+.lobby__player-dot--ingame {
+  background: hsla(320, 100%, 60%, 0.7);
+  box-shadow: 0 0 4px hsla(320, 100%, 60%, 0.3);
+}
+
+.lobby__player-name {
+  font-size: 1.05rem;
+  color: hsla(180, 25%, 78%, 0.7);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lobby__player-badge {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  padding: 1px 6px;
+}
+
+.lobby__player-badge--search {
+  color: hsla(45, 100%, 65%, 0.8);
+  border: 1px solid hsla(45, 100%, 55%, 0.2);
+  background: hsla(45, 100%, 50%, 0.05);
+}
+
+.lobby__player-badge--ingame {
+  color: hsla(320, 100%, 70%, 0.6);
+  border: 1px solid hsla(320, 100%, 60%, 0.15);
+  background: hsla(320, 100%, 50%, 0.04);
+}
+
+/* ============================================================================
+   Live Matches
+   ============================================================================ */
+
+.lobby__matches {
+  flex: 0 0 auto;
+  padding: 0 10px;
+  overflow-y: auto;
+}
+
+.lobby__match {
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  border: 1px solid hsla(180, 40%, 25%, 0.08);
+  background: hsla(180, 20%, 10%, 0.1);
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.lobby__match:hover {
+  border-color: hsla(180, 60%, 40%, 0.2);
+  background: hsla(180, 20%, 12%, 0.18);
+}
+
+.lobby__match-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.lobby__match-live {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.75rem;
+  color: hsla(0, 85%, 58%, 0.9);
+  animation: lobby-dot-pulse 2s ease-in-out infinite;
+}
+
+.lobby__match-type {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: hsla(180, 60%, 70%, 0.6);
+}
+
+.lobby__match-time {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.8rem;
+  color: hsla(180, 40%, 55%, 0.4);
+  margin-left: auto;
+}
+
+.lobby__match-players {
+  font-size: 1rem;
+  color: hsla(180, 25%, 78%, 0.6);
+  margin-bottom: 4px;
+}
+
+.lobby__match-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lobby__match-map {
+  font-size: 0.8rem;
+  color: hsla(180, 30%, 55%, 0.3);
+}
+
+.lobby__match-score {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.9rem;
+  color: hsla(180, 60%, 70%, 0.55);
+  flex: 1;
+  text-align: center;
+}
+
+.lobby__watch-btn {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border: 1px solid hsla(180, 60%, 40%, 0.15);
+  background: transparent;
+  color: hsla(180, 80%, 65%, 0.5);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.lobby__watch-btn:hover {
+  border-color: hsla(180, 100%, 50%, 0.35);
+  color: var(--w-cyan, hsl(180, 100%, 50%));
+  background: hsla(180, 100%, 50%, 0.05);
+  box-shadow: 0 0 8px hsla(180, 100%, 50%, 0.1);
+}
+
+/* ============================================================================
+   Chat Column
+   ============================================================================ */
+
+.lobby__chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  mask-image: linear-gradient(to bottom, transparent 0%, black 5%, black 95%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 5%, black 95%, transparent 100%);
+}
+
+.lobby__chat-msg {
+  font-size: 1rem;
+  line-height: 1.5;
+  color: hsla(180, 18%, 74%, 0.6);
+  padding: 3px 0;
+}
+
+.lobby__chat-name {
+  font-weight: 600;
+  color: hsla(180, 55%, 68%, 0.75);
+  margin-right: 8px;
+}
+
+.lobby__chat-msg--system {
+  font-style: italic;
+  color: hsla(180, 35%, 55%, 0.3);
+  font-size: 0.9rem;
+}
+
+.lobby__chat-input-wrap {
+  flex: 0 0 auto;
+  padding: 8px 14px 10px;
+  border-top: 1px solid hsla(180, 100%, 50%, 0.05);
+}
+
+.lobby__chat-input {
+  width: 100%;
+  padding: 8px 12px;
+  font-family: var(--w-font-body, "Rajdhani", sans-serif);
+  font-size: 1rem;
+  background: hsla(180, 20%, 8%, 0.4);
+  border: 1px solid hsla(180, 40%, 25%, 0.15);
+  color: hsla(180, 30%, 85%, 0.8);
+  outline: none;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.lobby__chat-input::placeholder {
+  color: hsla(180, 30%, 50%, 0.25);
+}
+
+.lobby__chat-input:focus {
+  border-color: hsla(180, 100%, 50%, 0.25);
+  box-shadow: 0 0 10px hsla(180, 100%, 50%, 0.06);
+  background: hsla(180, 20%, 8%, 0.55);
+}
+
+/* ============================================================================
+   Scrollbars
+   ============================================================================ */
+
+.lobby__players::-webkit-scrollbar,
+.lobby__matches::-webkit-scrollbar,
+.lobby__chat-messages::-webkit-scrollbar {
+  width: 3px;
+}
+
+.lobby__players::-webkit-scrollbar-track,
+.lobby__matches::-webkit-scrollbar-track,
+.lobby__chat-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.lobby__players::-webkit-scrollbar-thumb,
+.lobby__matches::-webkit-scrollbar-thumb,
+.lobby__chat-messages::-webkit-scrollbar-thumb {
+  background: hsla(180, 100%, 50%, 0.1);
+  border-radius: 2px;
+}
+
+/* ============================================================================
+   LEADERBOARD TAB
+   ============================================================================ */
+
+.lobby__leaderboard {
+  padding: 16px 24px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+/* Season bar */
+.lobby__lb-season {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  margin-bottom: 14px;
+  border: 1px solid hsla(180, 100%, 50%, 0.08);
+  background: hsla(180, 30%, 10%, 0.15);
+}
+
+.lobby__lb-season-label {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: hsla(180, 100%, 70%, 0.8);
+}
+
+.lobby__lb-season-mode {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.85rem;
+  letter-spacing: 0.1em;
+  color: hsla(180, 50%, 60%, 0.4);
+  border-left: 1px solid hsla(180, 100%, 50%, 0.1);
+  padding-left: 16px;
+}
+
+.lobby__lb-season-ends {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.8rem;
+  color: hsla(45, 80%, 60%, 0.5);
+  margin-left: auto;
+}
+
+/* Table */
+.lobby__lb-table {
+  flex: 1;
+  min-height: 0;
+}
+
+.lobby__lb-row {
+  display: grid;
+  grid-template-columns: 40px 1fr 80px 90px 55px 95px 55px 90px 65px;
+  align-items: center;
+  padding: 7px 12px;
+  border-bottom: 1px solid hsla(180, 40%, 25%, 0.06);
+  transition: background 0.15s ease;
+}
+
+.lobby__lb-row:hover:not(.lobby__lb-row--header) {
+  background: hsla(180, 30%, 15%, 0.1);
+}
+
+.lobby__lb-row--header {
+  border-bottom: 1px solid hsla(180, 100%, 50%, 0.1);
+  margin-bottom: 4px;
+}
+
+.lobby__lb-row--header .lobby__lb-cell {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  color: hsla(180, 60%, 60%, 0.35);
+}
+
+/* Top 3 row accents */
+.lobby__lb-row--top1 {
+  border-left: 2px solid hsla(45, 100%, 55%, 0.5);
+}
+
+.lobby__lb-row--top2 {
+  border-left: 2px solid hsla(180, 60%, 70%, 0.4);
+}
+
+.lobby__lb-row--top3 {
+  border-left: 2px solid hsla(320, 80%, 60%, 0.3);
+}
+
+.lobby__lb-cell {
+  font-size: 1rem;
+  color: hsla(180, 25%, 75%, 0.6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lobby__lb-cell--rank {
+  text-align: center;
+}
+
+.lobby__lb-cell--name {
+  font-weight: 600;
+  color: hsla(180, 35%, 80%, 0.7);
+}
+
+.lobby__lb-cell--rating {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.95rem;
+  color: hsla(180, 80%, 70%, 0.7);
+  text-align: center;
+}
+
+.lobby__lb-cell--wl {
+  text-align: center;
+}
+
+.lobby__lb-cell--kd {
+  text-align: center;
+}
+
+.lobby__lb-cell--acc {
+  text-align: center;
+}
+
+.lobby__lb-cell--speed {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.85rem;
+  color: hsla(45, 80%, 60%, 0.5);
+  text-align: center;
+}
+
+.lobby__lb-cell--streak {
+  text-align: center;
+}
+
+/* Rank badges */
+.lobby__lb-rank {
+  display: inline-block;
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.9rem;
+  font-weight: 700;
+  width: 22px;
+  height: 22px;
+  line-height: 22px;
+  text-align: center;
+  color: hsla(180, 30%, 60%, 0.5);
+}
+
+.lobby__lb-rank--1 {
+  color: hsla(45, 100%, 65%, 0.9);
+  text-shadow: 0 0 8px hsla(45, 100%, 55%, 0.4);
+}
+
+.lobby__lb-rank--2 {
+  color: hsla(180, 70%, 70%, 0.8);
+  text-shadow: 0 0 6px hsla(180, 100%, 50%, 0.3);
+}
+
+.lobby__lb-rank--3 {
+  color: hsla(320, 80%, 70%, 0.7);
+  text-shadow: 0 0 6px hsla(320, 100%, 60%, 0.25);
+}
+
+/* Win/loss coloring */
+.lobby__lb-wins {
+  color: hsla(120, 60%, 60%, 0.7);
+}
+
+.lobby__lb-losses {
+  color: hsla(0, 60%, 55%, 0.5);
+}
+
+/* Fun stats cards at bottom */
+.lobby__lb-fun {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid hsla(180, 100%, 50%, 0.08);
+}
+
+.lobby__lb-fun-stat {
+  flex: 1;
+  padding: 12px 14px;
+  border: 1px solid hsla(180, 100%, 50%, 0.06);
+  background: hsla(180, 20%, 8%, 0.2);
+  text-align: center;
+}
+
+.lobby__lb-fun-value {
+  display: block;
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: hsla(45, 100%, 65%, 0.75);
+  text-shadow: 0 0 10px hsla(45, 100%, 55%, 0.2);
+  margin-bottom: 4px;
+}
+
+.lobby__lb-fun-label {
+  display: block;
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: hsla(180, 50%, 60%, 0.4);
+  margin-bottom: 3px;
+}
+
+.lobby__lb-fun-by {
+  display: block;
+  font-size: 0.85rem;
+  color: hsla(180, 30%, 55%, 0.3);
+  font-style: italic;
+}
+
+/* ============================================================================
+   MY PROFILE TAB
+   ============================================================================ */
+
+.lobby__profile {
+  display: flex;
+  padding: 20px;
+  gap: 20px;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+/* Left: Identity */
+.lobby__profile-identity {
+  flex: 0 0 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 16px;
+  border: 1px solid hsla(180, 100%, 50%, 0.06);
+  background: hsla(180, 20%, 8%, 0.15);
+}
+
+.lobby__profile-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lobby__profile-rank-badge {
+  width: 80px;
+  height: 80px;
+  border: 2px solid hsla(180, 100%, 50%, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  background: hsla(180, 30%, 10%, 0.3);
+}
+
+/* Corner accents on rank badge */
+.lobby__profile-rank-badge::before,
+.lobby__profile-rank-badge::after {
+  content: "";
+  position: absolute;
+  width: 8px;
+  height: 8px;
+}
+
+.lobby__profile-rank-badge::before {
+  top: -1px;
+  left: -1px;
+  border-top: 2px solid hsla(45, 100%, 55%, 0.5);
+  border-left: 2px solid hsla(45, 100%, 55%, 0.5);
+}
+
+.lobby__profile-rank-badge::after {
+  bottom: -1px;
+  right: -1px;
+  border-bottom: 2px solid hsla(45, 100%, 55%, 0.5);
+  border-right: 2px solid hsla(45, 100%, 55%, 0.5);
+}
+
+.lobby__profile-rank-num {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: hsla(45, 100%, 65%, 0.8);
+  text-shadow: 0 0 12px hsla(45, 100%, 55%, 0.3);
+}
+
+.lobby__profile-name-section {
+  text-align: center;
+  width: 100%;
+}
+
+.lobby__profile-label {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  color: hsla(180, 60%, 60%, 0.4);
+  margin-bottom: 6px;
+}
+
+.lobby__profile-name-input {
+  width: 100%;
+  padding: 8px 12px;
+  text-align: center;
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  background: hsla(180, 20%, 8%, 0.4);
+  border: 1px solid hsla(180, 100%, 50%, 0.15);
+  color: hsla(180, 80%, 80%, 0.85);
+  outline: none;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.lobby__profile-name-input:focus {
+  border-color: hsla(180, 100%, 50%, 0.35);
+  box-shadow: 0 0 10px hsla(180, 100%, 50%, 0.08);
+}
+
+.lobby__profile-hint {
+  font-size: 0.8rem;
+  color: hsla(180, 30%, 50%, 0.2);
+  margin-top: 4px;
+}
+
+/* Rating */
+.lobby__profile-rating {
+  text-align: center;
+  width: 100%;
+}
+
+.lobby__profile-rating-value {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 2rem;
+  font-weight: 700;
+  color: hsla(180, 100%, 70%, 0.8);
+  text-shadow: 0 0 15px hsla(180, 100%, 50%, 0.2);
+  margin: 4px 0;
+}
+
+.lobby__profile-rating-change {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.8rem;
+  color: hsla(120, 70%, 60%, 0.6);
+  letter-spacing: 0.05em;
+}
+
+/* Center: Stats grid */
+.lobby__profile-stats {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.lobby__profile-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.lobby__profile-stat {
+  padding: 12px 10px;
+  border: 1px solid hsla(180, 100%, 50%, 0.05);
+  background: hsla(180, 20%, 8%, 0.12);
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.lobby__profile-stat:hover {
+  border-color: hsla(180, 100%, 50%, 0.12);
+  background: hsla(180, 20%, 10%, 0.2);
+}
+
+.lobby__profile-stat-value {
+  display: block;
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 1rem;
+  font-weight: 700;
+  color: hsla(180, 80%, 75%, 0.75);
+  text-shadow: 0 0 6px hsla(180, 100%, 50%, 0.1);
+  margin-bottom: 4px;
+}
+
+.lobby__profile-stat-label {
+  display: block;
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: hsla(180, 40%, 55%, 0.35);
+}
+
+/* Right: Quick settings */
+.lobby__profile-settings {
+  flex: 0 0 200px;
+  display: flex;
+  flex-direction: column;
+}
+
+.lobby__profile-settings-list {
+  flex: 0 0 auto;
+  padding: 0 8px;
+}
+
+.lobby__profile-setting-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid hsla(180, 100%, 50%, 0.04);
+}
+
+.lobby__profile-setting-label {
+  font-size: 1rem;
+  color: hsla(180, 25%, 75%, 0.6);
+}
+
+.lobby__profile-setting-value {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.95rem;
+  color: hsla(180, 70%, 70%, 0.65);
+}
+
+.lobby__profile-settings-btn {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 10px 16px;
+  margin: auto 8px 0;
+  border: 1px solid hsla(180, 100%, 50%, 0.2);
+  background: hsla(180, 100%, 50%, 0.04);
+  color: hsla(180, 80%, 65%, 0.7);
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.lobby__profile-settings-btn:hover {
+  border-color: hsla(180, 100%, 50%, 0.35);
+  background: hsla(180, 100%, 50%, 0.1);
+  color: var(--w-cyan, hsl(180, 100%, 50%));
+  box-shadow: 0 0 12px hsla(180, 100%, 50%, 0.12);
+}
+
+/* Leaderboard + Profile scrollbars */
+.lobby__leaderboard::-webkit-scrollbar,
+.lobby__profile::-webkit-scrollbar {
+  width: 3px;
+}
+
+.lobby__leaderboard::-webkit-scrollbar-track,
+.lobby__profile::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.lobby__leaderboard::-webkit-scrollbar-thumb,
+.lobby__profile::-webkit-scrollbar-thumb {
+  background: hsla(180, 100%, 50%, 0.1);
+  border-radius: 2px;
+}
+
+/* ============================================================================
+   Animations
+   ============================================================================ */
+
+@keyframes lobby-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes lobby-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.4;
+    transform: scale(0.7);
+  }
+}
+
+@keyframes lobby-bracket-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
