@@ -5,4 +5,5 @@
  * It exports the game manager and shared types/utilities.
  */
 
+export { registerFpsCommands } from "./console";
 export { Game } from "./Game";
