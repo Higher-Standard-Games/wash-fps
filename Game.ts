@@ -336,9 +336,8 @@ export class Game {
 
         // Load the server's map via console command
         try {
-          const { CommandRegistry } = await import("../../engine/console/CommandRegistry");
-          const registry = CommandRegistry.getInstance();
-          const result = await registry.execute(`map ${serverInfo.map}`);
+          const { loadClientMap } = await import("../../engine/loader/map/ClientMapLoader");
+          const result = await loadClientMap(serverInfo.map);
 
           // Check if map load failed
           if (typeof result === "string" && result.includes("Failed")) {

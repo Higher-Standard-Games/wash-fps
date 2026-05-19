@@ -6,5 +6,6 @@
  */
 
 export { fpsNetworkConnector } from "./client/FpsNetworkConnector";
+export { fpsMapLauncher } from "./client/FpsMapLauncher";
 export { registerFpsCommands } from "./console";
 export { Game } from "./Game";

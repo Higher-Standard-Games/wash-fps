@@ -10,8 +10,9 @@
 import { DemoService } from "./DemoService";
 import { DemoViewer } from "./DemoViewer";
 import { DurationPickerModal } from "./DurationPickerModal";
+import { ensureFpsLobbyConnection, getFpsLobbyClient } from "./FpsLobbyService";
 import { FPSSettingsView } from "./settings/FPSSettingsView";
-import { LobbyClient } from "../../../lobby/LobbyClient";
+import type { LobbyClient } from "../../../lobby/LobbyClient";
 import type { DemoInfo, LiveMatchInfo, MatchLobbyInfo, PlayerInfo } from "../../../lobby/types";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import { DebugConsole } from "../../../engine/debug/DebugConsole";
@@ -259,8 +260,8 @@ export class LobbyPanel extends GamePanel {
     // 3D Logo floating above panel
     this.enableLogo();
 
-    // Initialize lobby client
-    this.lobbyClient = new LobbyClient();
+    // Initialize shared lobby client
+    this.lobbyClient = getFpsLobbyClient();
     this.initLobbyConnection();
 
     // Tabs — Settings is now a tab alongside the others
@@ -294,15 +295,6 @@ export class LobbyPanel extends GamePanel {
 
   private async initLobbyConnection(): Promise<void> {
     try {
-      await this.lobbyClient.connect("ws://localhost:9000");
-
-      // Share lobby client with DemoService so console `demolist` command works
-      DemoService.getInstance().setLobbyClient(this.lobbyClient);
-
-      // Generate a player name (later: from profile/login)
-      const name = `player_${Math.random().toString(36).slice(2, 6)}`;
-      this.lobbyClient.auth(name);
-
       // Handle welcome — initial data dump
       this.unsubscribers.push(
         this.lobbyClient.on("welcome", (msg) => {
@@ -404,6 +396,11 @@ export class LobbyPanel extends GamePanel {
           this.refreshDemosGrid();
         }),
       );
+
+      await ensureFpsLobbyConnection();
+
+      // Share lobby client with DemoService so console `demolist` command works
+      DemoService.getInstance().setLobbyClient(this.lobbyClient);
     } catch (err) {
       console.warn("[LobbyPanel] Could not connect to lobby server:", err);
       console.log("[LobbyPanel] Falling back to mock data");
@@ -1324,4 +1321,3 @@ export class LobbyPanel extends GamePanel {
     super.destroy();
   }
 }
-
