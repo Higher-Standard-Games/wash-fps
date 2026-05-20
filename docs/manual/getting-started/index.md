@@ -1,0 +1,101 @@
+# Getting Started
+
+Washiki Washoi runs as a git submodule under `src/games/fps/` inside the SHAG engine repo. The engine handles BSP / PK3 / shaders / rendering / physics; this submodule is the game on top.
+
+## Requirements
+
+- **Node.js 18+** (22 LTS recommended)
+- **Git** with submodule support
+- A modern WebGL2-capable browser
+
+## Setup
+
+### Clone the engine + this submodule together
+
+```bash
+git clone --recursive https://github.com/Higher-Standard-Games/shag.git
+cd shag
+npm install
+```
+
+### Add to an existing engine clone
+
+```bash
+git submodule add <fps-repo-url> src/games/fps
+git submodule update --init
+```
+
+### Game data
+
+PK3 files (maps, textures, models, sounds) are **not** in this repo or the engine repo. Drop them into `public/data/` in the engine repo root:
+
+```
+public/data/
+├── maps/         # .bsp and .map files
+├── textures/
+├── music/
+└── *.pk3
+```
+
+This directory is gitignored — each developer downloads or builds their own game data.
+
+## First Run
+
+```bash
+# In the engine repo root
+npm run dev
+```
+
+Open `http://localhost:5173`. You should see the lobby UI. Press **Play** to enter a match.
+
+For the developer flow with a one-keystroke server-backed map launch:
+
+```
+# In a separate terminal
+npm run lobby:server
+
+# Then in the browser console (`~` or `F1`):
+map wdm2 duel
+```
+
+See the engine's [Map Launching Guide](../../../../../docs/manual/guides/map-launching.md) for the full developer flow.
+
+## Dedicated Server
+
+The engine ships a headless dedicated server that runs this game's `GameServer` orchestrator:
+
+```bash
+npm run net:server -- --map wdm2 --port 7777 --gametype duel
+```
+
+Available flags:
+
+| Flag | Default | Notes |
+|------|---------|-------|
+| `--map` | `wdm7` | Map name (must exist in `public/data/`) |
+| `--port` | `7777` | WebSocket port |
+| `--gametype` | `deathmatch` | `duel`, `deathmatch`, `tdm` |
+| `--max` | `16` | Max clients |
+| `--shutdown` | off | Auto-exit when all clients disconnect |
+
+Connect to it from the in-game console:
+
+```
+connect ws://localhost:7777
+```
+
+## Bot Intelligence Server
+
+Bots run as a separate Node.js process and connect to game servers as real WebSocket clients — at the protocol level they are indistinguishable from human players.
+
+```bash
+npm run bot:server
+```
+
+See [Tools → Bot Server](../tools/bot-server.md) for the full bot lifecycle, difficulty presets, and training pipeline.
+
+## Next
+
+- [Project Structure](./project-structure.md) — what lives where in this submodule
+- [Player Manual](../player/) — controls, movement, weapons
+- [Multiplayer](../multiplayer/) — lobby flow + console networking commands
