@@ -20,6 +20,7 @@ import type { Vec3 } from "@shared/server/simulation/types";
 // Protocol (client-compatible)
 import { MessageCodec, MessageType } from "../../../engine/network/protocol/MessageCodec";
 import type { CollisionWorld } from "../../../engine/network/systems/collision/CollisionWorld";
+import type { PickupEntry } from "../../../shared/bsp/PickupTable";
 // PVS (Potentially Visible Set) for network culling
 import { ServerPVS, type ServerPVSData } from "../../../engine/server/ServerPVS";
 // Match phase tracking (for auto-recording)
@@ -224,10 +225,11 @@ export class GameServer {
   }
 
   /**
-   * Set weapon/item pickup locations from BSP entity data
+   * Set weapon/armor/health pickup locations from the shared pickup table
+   * (extractPickups — ids are authoritative and shared with the client).
    */
-  setPickupItems(items: Array<{ classname: string; position: { x: number; y: number; z: number } }>): void {
-    this.pickupSystem.setPickupItems(items);
+  setPickupItems(entries: PickupEntry[]): void {
+    this.pickupSystem.setPickupItems(entries);
   }
 
   /**

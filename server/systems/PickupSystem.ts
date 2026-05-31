@@ -16,8 +16,15 @@ import { Subsystem, type SubsystemConfig } from "@engine/server/core/Subsystem";
 import type { WorldState } from "@engine/server/core/WorldState";
 import type { EntityId, TickNumber } from "@engine/server/ecs/types";
 import { EntityType } from "@engine/server/ecs/types";
-// Canonical classname→weapon map shared with the client so pickup ids agree.
-import { CLASSNAME_TO_WEAPON } from "../../../../shared/bsp/PickupTable";
+// Shared pickup table (client+server agree on ids) + pure grant math.
+import type { PickupEntry, PickupType } from "../../../../shared/bsp/PickupTable";
+import {
+  type ArmorKind,
+  armorAfterPickup,
+  decayOverheal,
+  type HealthKind,
+  healthAfterPickup,
+} from "../../../../shared/items/ItemGrants";
 import type { DroppedWeaponSystem } from "./DroppedWeaponSystem";
 import type { WeaponSystem } from "./WeaponSystem";
 
@@ -29,14 +36,30 @@ function isDefaultWeapon(w: string): boolean {
 /** Must match InputButtons.USE from engine/network/components/InputComponent.ts */
 const USE_BUTTON = 1 << 11;
 
+const TICK_RATE = 125;
+
+/** Default per-type respawn times (seconds). Weapons overridable via setRespawnTime. */
+const DEFAULT_RESPAWN_SECONDS = {
+  weapon: 15,
+  armor: 25,
+  health: 20,
+  megaHealth: 60,
+} as const;
+
+/** Armor pickups don't exist for the first N seconds of a match. */
+const ARMOR_FIRST_SPAWN_DELAY_SECONDS = 15;
+
 /** A pickup item on the map */
 interface PickupItem {
   id: number;
-  weaponId: string; // Game weapon ID (e.g. 'rlauncher')
+  type: PickupType;
+  /** weapon id (weapons), ArmorKind (armor), or HealthKind (health). */
+  kind: string;
   classname: string; // BSP classname (e.g. 'weapon_rocketlauncher')
   position: { x: number; y: number; z: number };
   active: boolean; // Whether it can be picked up
-  respawnTick: number; // Tick when it respawns (0 = active)
+  respawnTick: number; // Tick when it respawns (0 = active / no pending respawn)
+  respawnTicks: number; // Per-type respawn duration in ticks
 }
 
 /** Event emitted when a pickup is taken */
@@ -65,7 +88,8 @@ export class PickupSystem extends Subsystem {
   private pendingPickupEvents: PickupEvent[] = [];
   private weaponSystem: WeaponSystem | null = null;
   private droppedWeaponSystem: DroppedWeaponSystem | null = null;
-  private respawnTicks: number = 25 * 125; // 25 seconds at 125Hz (default)
+  /** Weapon respawn time (seconds); overridable via setRespawnTime. Armor/health use defaults. */
+  private weaponRespawnSeconds: number = DEFAULT_RESPAWN_SECONDS.weapon;
 
   // Pickup detection parameters (matching client-side Pickup.ts)
 
@@ -95,35 +119,54 @@ export class PickupSystem extends Subsystem {
   }
 
   /**
-   * Set pickup respawn time in seconds
+   * Set the WEAPON respawn time in seconds (armor/health use built-in defaults).
    */
   setRespawnTime(seconds: number): void {
-    this.respawnTicks = Math.floor(seconds * 125);
+    this.weaponRespawnSeconds = seconds;
+  }
+
+  /** Resolve the respawn duration (ticks) for a pickup entry by type/kind. */
+  private respawnTicksFor(entry: PickupEntry): number {
+    let seconds: number;
+    if (entry.type === "weapon") {
+      seconds = this.weaponRespawnSeconds;
+    } else if (entry.type === "armor") {
+      seconds = DEFAULT_RESPAWN_SECONDS.armor;
+    } else {
+      // health: mega/ultra respawn slower than small/large
+      seconds = entry.kind === "mega" || entry.kind === "ultra" ? DEFAULT_RESPAWN_SECONDS.megaHealth : DEFAULT_RESPAWN_SECONDS.health;
+    }
+    return Math.floor(seconds * TICK_RATE);
   }
 
   /**
-   * Register pickup items from BSP entity data.
-   * Called during server initialization after BSP loading.
+   * Register pickup items from the shared pickup table (extractPickups). Ids are
+   * authoritative and shared with the client. Armor items spawn after a delay
+   * (they're absent at match start, then appear).
    */
-  setPickupItems(items: Array<{ classname: string; position: { x: number; y: number; z: number } }>): void {
-    this.pickups = [];
-    let id = 0;
+  setPickupItems(entries: PickupEntry[]): void {
+    const armorDelayTicks = Math.floor(ARMOR_FIRST_SPAWN_DELAY_SECONDS * TICK_RATE);
 
-    for (const item of items) {
-      const weaponId = CLASSNAME_TO_WEAPON[item.classname];
-      if (!weaponId) {
-        continue;
-      }
+    this.pickups = entries.map((e) => {
+      const delayed = e.type === "armor";
+      return {
+        id: e.id,
+        type: e.type,
+        kind: e.kind,
+        classname: e.classname,
+        position: { ...e.position },
+        // Armor isn't present at match start — it first spawns after the delay.
+        active: !delayed,
+        respawnTick: delayed ? armorDelayTicks : 0,
+        respawnTicks: this.respawnTicksFor(e),
+      };
+    });
+  }
 
-      this.pickups.push({
-        id: id++,
-        weaponId,
-        classname: item.classname,
-        position: { ...item.position },
-        active: true,
-        respawnTick: 0,
-      });
-    }
+  /** Deactivate a consumed pickup and schedule its per-type respawn. */
+  private consumePickup(pickup: PickupItem, _playerId: EntityId, tickNum: number): void {
+    pickup.active = false;
+    pickup.respawnTick = tickNum + pickup.respawnTicks;
   }
 
   /**
@@ -158,7 +201,7 @@ export class PickupSystem extends Subsystem {
       if (!pickup.active) {
         events.push({
           pickupId: pickup.id,
-          weaponId: pickup.weaponId,
+          weaponId: pickup.type === "weapon" ? pickup.kind : "",
           entityId: 0 as any, // Not relevant for initial state
           x: pickup.position.x,
           y: pickup.position.y,
@@ -177,6 +220,16 @@ export class PickupSystem extends Subsystem {
       if (!pickup.active && pickup.respawnTick > 0 && tickNum >= pickup.respawnTick) {
         pickup.active = true;
         pickup.respawnTick = 0;
+      }
+    }
+
+    // Mega-health overheal decay: once per second, bleed overhealed players
+    // (health > 100) back toward 100 at 1 HP/s.
+    if (tickNum % TICK_RATE === 0) {
+      for (const player of state.entitiesByType(EntityType.Player)) {
+        if (player.health && !player.health.dead) {
+          player.health.health = decayOverheal(player.health.health, 1);
+        }
       }
     }
 
@@ -210,11 +263,32 @@ export class PickupSystem extends Subsystem {
 
         if (!inRange) continue;
 
+        // ── ARMOR / HEALTH: auto-pickup when beneficial (no USE key, no capacity) ──
+        if (pickup.type === "armor") {
+          const before = player.health.armor;
+          const after = armorAfterPickup(before, pickup.kind as ArmorKind);
+          if (after <= before) continue; // full / no benefit — leave it
+          player.health.armor = after;
+          this.consumePickup(pickup, player.id, tickNum);
+          pickedUpThisTick = true;
+          break;
+        }
+        if (pickup.type === "health") {
+          const before = player.health.health;
+          const after = healthAfterPickup(before, pickup.kind as HealthKind);
+          if (after <= before) continue;
+          player.health.health = after;
+          this.consumePickup(pickup, player.id, tickNum);
+          pickedUpThisTick = true;
+          break;
+        }
+
+        // ── WEAPON ──
         if (!this.weaponSystem) continue;
 
         const playerWeapons = this.weaponSystem.getWeapons(player.id);
         const nonDefaultCount = playerWeapons.filter((w) => !isDefaultWeapon(w)).length;
-        const alreadyHasWeapon = playerWeapons.includes(pickup.weaponId);
+        const alreadyHasWeapon = playerWeapons.includes(pickup.kind);
         const hasRoom = nonDefaultCount < 2;
 
         // Auto-pickup if: player has room OR already owns weapon (ammo pickup)
@@ -222,7 +296,7 @@ export class PickupSystem extends Subsystem {
         if (!hasRoom && !alreadyHasWeapon && !useJustPressed) continue;
 
         // Try to add weapon to player's inventory
-        const result = this.weaponSystem.addWeapon(player.id, pickup.weaponId);
+        const result = this.weaponSystem.addWeapon(player.id, pickup.kind);
 
         // addWeapon returns added=false for BOTH "already owned (ammo given)" AND "can't swap (holding default weapon)"
         // Only consume pickup if weapon was added or ammo was given (player already had it)
@@ -233,12 +307,13 @@ export class PickupSystem extends Subsystem {
 
         // Deactivate pickup and start respawn timer
         pickup.active = false;
-        pickup.respawnTick = tickNum + this.respawnTicks;
+        pickup.respawnTick = tickNum + pickup.respawnTicks;
 
-        // Emit event for client sync
+        // Emit event for client sync (weapons only — armor/health visibility is
+        // driven entirely by the active-set mask; weapon events still feed bots).
         this.pendingPickupEvents.push({
           pickupId: pickup.id,
-          weaponId: pickup.weaponId,
+          weaponId: pickup.kind,
           entityId: player.id,
           droppedWeaponId: result.dropped,
           x: pickup.position.x,
