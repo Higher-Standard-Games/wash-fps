@@ -324,6 +324,7 @@ export class FPSHud {
         icon: "♥",
         color: "cyan",
         maxValue: 100,
+        valueKey: "health",
       }),
       "bottom-left",
     );
@@ -336,6 +337,7 @@ export class FPSHud {
         icon: "🛡",
         color: "magenta",
         maxValue: 100,
+        valueKey: "armor",
       }),
       "bottom-left",
     );

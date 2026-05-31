@@ -9,6 +9,10 @@ export interface FPSValueBarConfig {
   icon: string;
   color: "cyan" | "magenta" | "gold";
   maxValue: number;
+  /** Which HUDState field this bar displays. Decouples the value source from the
+   * display label (a previous label-string match — "ARM" vs "ARMOR" — silently
+   * broke the armor bar). */
+  valueKey: "health" | "armor";
 }
 
 /**
@@ -81,15 +85,7 @@ export class FPSValueBar implements FPSHudWidget {
   }
 
   public update(state: HUDState): void {
-    let newValue: number;
-
-    if (this.config.label === "HP") {
-      newValue = state.health;
-    } else if (this.config.label === "ARM") {
-      newValue = state.armor;
-    } else {
-      return;
-    }
+    const newValue = this.config.valueKey === "armor" ? state.armor : state.health;
 
     if (newValue === this.currentValue) return;
 
@@ -118,7 +114,7 @@ export class FPSValueBar implements FPSHudWidget {
     if (newValue <= 25) {
       this.element.classList.add("fps-value-low");
       // Critical pulse for health bar only
-      if (this.config.label === "HP") {
+      if (this.config.valueKey === "health") {
         this.element.classList.add("fps-value-bar--critical");
       }
     } else {
