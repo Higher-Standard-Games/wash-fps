@@ -46,8 +46,8 @@ const DEFAULT_RESPAWN_SECONDS = {
   megaHealth: 60,
 } as const;
 
-/** Armor pickups don't exist for the first N seconds of a match. */
-const ARMOR_FIRST_SPAWN_DELAY_SECONDS = 15;
+/** Armor + mega/ultra health don't exist for the first N seconds of a match. */
+const FIRST_SPAWN_DELAY_SECONDS = 15;
 
 /** A pickup item on the map */
 interface PickupItem {
@@ -141,23 +141,24 @@ export class PickupSystem extends Subsystem {
 
   /**
    * Register pickup items from the shared pickup table (extractPickups). Ids are
-   * authoritative and shared with the client. Armor items spawn after a delay
-   * (they're absent at match start, then appear).
+   * authoritative and shared with the client. Armor AND mega/ultra health spawn
+   * after a delay (absent at match start, then appear) to prevent an instant
+   * grab off spawn.
    */
   setPickupItems(entries: PickupEntry[]): void {
-    const armorDelayTicks = Math.floor(ARMOR_FIRST_SPAWN_DELAY_SECONDS * TICK_RATE);
+    const firstSpawnDelayTicks = Math.floor(FIRST_SPAWN_DELAY_SECONDS * TICK_RATE);
 
     this.pickups = entries.map((e) => {
-      const delayed = e.type === "armor";
+      const delayed = e.type === "armor" || (e.type === "health" && (e.kind === "mega" || e.kind === "ultra"));
       return {
         id: e.id,
         type: e.type,
         kind: e.kind,
         classname: e.classname,
         position: { ...e.position },
-        // Armor isn't present at match start — it first spawns after the delay.
+        // Delayed items aren't present at match start — they first spawn later.
         active: !delayed,
-        respawnTick: delayed ? armorDelayTicks : 0,
+        respawnTick: delayed ? firstSpawnDelayTicks : 0,
         respawnTicks: this.respawnTicksFor(e),
       };
     });
