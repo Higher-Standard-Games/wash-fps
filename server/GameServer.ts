@@ -67,6 +67,14 @@ export class GameServer {
   private nextBotId: number = 900; // Bot IDs start high to avoid collisions
   private running: boolean = false;
   private tickTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Absolute wall-clock deadline (performance.now ms) for the next tick. The
+   * scheduler targets this so the simulation stays aligned to real time
+   * regardless of setTimeout jitter or tick work duration. */
+  private nextTickAt: number = 0;
+  /** Tick-rate diagnostic accumulators (wall-clock). */
+  private diagLastLog: number = 0;
+  private diagTickCount: number = 0;
+  private diagMaxTickMs: number = 0;
   /** Clients that need initial pickup state sync (pickups deactivated before they joined) */
   private needsPickupSync: Set<string> = new Set();
   /** Bot player ID → display name */
@@ -378,7 +386,12 @@ export class GameServer {
     await this.transport.start();
 
     this.running = true;
-    this.scheduleNextTick(performance.now());
+    const now = performance.now();
+    this.nextTickAt = now + 1000 / this.config.tickRate;
+    this.diagLastLog = now;
+    this.diagTickCount = 0;
+    this.diagMaxTickMs = 0;
+    this.scheduleNextTick();
 
     console.log(`[GameServer] Tick loop started at ${this.config.tickRate}Hz`);
   }
@@ -413,20 +426,62 @@ export class GameServer {
   // Tick Loop
   // ========================================================================
 
-  private scheduleNextTick(lastTickTime: number): void {
+  /**
+   * Schedule the next tick against an absolute wall-clock deadline (nextTickAt),
+   * so the simulation tracks real time regardless of setTimeout jitter or tick
+   * work duration.
+   *
+   * (Previously this measured `elapsed = now - lastTickTime` AFTER tick() ran,
+   * where lastTickTime was the current tick's start — so `elapsed` was the tick
+   * work time (~1ms), and the drift compensation scheduled ~16ms start-to-start
+   * at 125Hz, running the whole server at ~62.5Hz / half real-time.)
+   */
+  private scheduleNextTick(): void {
     if (!this.running) return;
 
     const tickMs = 1000 / this.config.tickRate;
-    const now = performance.now();
-    const elapsed = now - lastTickTime;
-    const drift = elapsed - tickMs;
-    const nextDelay = Math.max(1, Math.min(tickMs * 2, tickMs - drift));
+    const delay = Math.max(0, this.nextTickAt - performance.now());
 
     this.tickTimer = setTimeout(() => {
-      const tickStart = performance.now();
-      this.tick();
-      this.scheduleNextTick(tickStart);
-    }, nextDelay);
+      if (!this.running) return;
+
+      // Run every tick whose deadline has passed (catch up after jitter/stalls),
+      // capped to avoid a spiral of death if the event loop fell far behind.
+      const MAX_CATCHUP = 5;
+      let ran = 0;
+      while (performance.now() >= this.nextTickAt && ran < MAX_CATCHUP) {
+        const t0 = performance.now();
+        this.tick();
+        this.diagMaxTickMs = Math.max(this.diagMaxTickMs, performance.now() - t0);
+        this.diagTickCount++;
+        this.nextTickAt += tickMs;
+        ran++;
+      }
+
+      // If still behind after the catch-up cap, we hit a real stall — resync the
+      // deadline to now (drop the lost game time) rather than spiral.
+      if (performance.now() - this.nextTickAt > tickMs) {
+        this.nextTickAt = performance.now() + tickMs;
+      }
+
+      this.logTickRateDiagnostic();
+      this.scheduleNextTick();
+    }, delay);
+  }
+
+  /** Log actual wall-clock tick rate every ~5s so timing regressions are visible. */
+  private logTickRateDiagnostic(): void {
+    const now = performance.now();
+    const elapsed = now - this.diagLastLog;
+    if (elapsed < 5000) return;
+    const hz = (this.diagTickCount * 1000) / elapsed;
+    console.log(
+      `[GameServer] tickrate: ${hz.toFixed(1)}Hz actual (target ${this.config.tickRate}Hz), ` +
+        `${this.diagTickCount} ticks / ${(elapsed / 1000).toFixed(1)}s, maxTickWork ${this.diagMaxTickMs.toFixed(1)}ms`,
+    );
+    this.diagLastLog = now;
+    this.diagTickCount = 0;
+    this.diagMaxTickMs = 0;
   }
 
   private tick(): void {
