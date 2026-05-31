@@ -5,8 +5,9 @@
  *   - Weapon/ammo/health/armor type taxonomy
  *   - Weapon-barrel sub-model loading
  *   - Inventory-aware proximity prompt ("PRESS [F] TO PICKUP/SWAP")
- *   - Static server-deactivation registry (allPickups + pickupById + pendingDeactivations)
- *   - Server-driven deactivation by id or position with weapon-id prefix matching
+ *   - Static id registry (pickupById) + reconcileActiveSet(), which toggles
+ *     pickup visibility from the server's authoritative snapshot active-set
+ *     (GameState.pickupActiveMask). See docs/research/SERVER_AUTHORITATIVE_PICKUPS.md.
  *
  * The generic in-world collectible behavior (model loading, physics toss,
  * dropToGround, glow pulse, respawn, dispose) lives in
@@ -38,24 +39,12 @@ export class FPSPickup extends Pickup {
   declare protected options: FPSPickupOptions;
 
   // ═════════════════════════════════════════════════════════════════
-  // STATIC: server-deactivation registry
+  // STATIC: pickup registry (for server-authoritative active-set reconcile)
   // ═════════════════════════════════════════════════════════════════
 
-  /** Registry of all FPSPickup instances for server-driven deactivation. */
-  private static allPickups: FPSPickup[] = [];
-
-  /** ID-based lookup map for deterministic deactivation (server pickupId → pickup). */
+  /** Map-spawn pickups by authoritative server pickup id → instance. Used by
+   * reconcileActiveSet() to toggle visibility from the snapshot active-set. */
   private static pickupById: Map<number, FPSPickup> = new Map();
-
-  /** Deferred deactivation queue — for item_pickup events that arrive before the client Pickup is constructed. */
-  private static pendingDeactivations: {
-    weaponId: string;
-    x: number;
-    y: number;
-    z: number;
-    pickupId?: number;
-    timestamp: number;
-  }[] = [];
 
   /** Currently-tracked nearby weapon pickup (for HUD swap prompt). */
   private static nearbyWeaponPickup: FPSPickup | null = null;
@@ -65,14 +54,11 @@ export class FPSPickup extends Pickup {
   }
 
   protected override onConstructed(): void {
-    // Only register map-spawn pickups (no entityId) on the static registry.
-    // Dropped weapons (with entityId) are managed by DroppedWeaponRenderer.
-    if (!this.options.entityId) {
-      FPSPickup.allPickups.push(this);
-      if (this.options.pickupId !== undefined) {
-        FPSPickup.pickupById.set(this.options.pickupId, this);
-      }
-      FPSPickup.checkDeferredDeactivation(this);
+    // Register map-spawn pickups (no entityId) by their authoritative server id
+    // so the active-set reconcile can find them. Dropped weapons (with entityId)
+    // are managed by DroppedWeaponRenderer and aren't part of the static set.
+    if (!this.options.entityId && this.options.pickupId !== undefined) {
+      FPSPickup.pickupById.set(this.options.pickupId, this);
     }
   }
 
@@ -265,101 +251,11 @@ export class FPSPickup extends Pickup {
     hidePickupPrompt("pickup");
   }
 
-  /**
-   * Deactivate a pickup by server-assigned ID (O(1) deterministic lookup).
-   * Falls back to position-based matching if pickupId is not registered.
-   */
-  public static deactivateById(pickupId: number, weaponId: string, x: number, y: number, z: number): void {
-    const pickup = FPSPickup.pickupById.get(pickupId);
-    if (pickup?.isActive) {
-      pickup.deactivateFromServer();
-      return;
-    }
-    FPSPickup.deactivateByPosition(weaponId, x, y, z);
-  }
-
-  /**
-   * Deactivate a pickup by position match (called from Game on item_pickup event).
-   * Uses XZ-only proximity since dropToGround changes server-vs-client Y.
-   */
-  public static deactivateByPosition(weaponId: string, x: number, y: number, z: number): void {
-    const MATCH_DIST_SQ = 200 * 200;
-    let bestPickup: FPSPickup | null = null;
-    let bestDistSq = Infinity;
-
-    for (const pickup of FPSPickup.allPickups) {
-      if (!pickup.isActive) continue;
-      const val = String(pickup.options.value || "");
-      const id = String(pickup.options.id || "");
-      const matchesWeapon =
-        val === weaponId ||
-        id === weaponId ||
-        val === `weapon_${weaponId}` ||
-        id === `weapon_${weaponId}` ||
-        val.replace("weapon_", "") === weaponId ||
-        id.replace("weapon_", "") === weaponId;
-      if (!matchesWeapon) continue;
-
-      const dx = pickup.position.x - x;
-      const dz = pickup.position.z - z;
-      const distSq = dx * dx + dz * dz;
-
-      if (distSq < MATCH_DIST_SQ && distSq < bestDistSq) {
-        bestDistSq = distSq;
-        bestPickup = pickup;
-      }
-    }
-
-    if (bestPickup) {
-      bestPickup.deactivateFromServer();
-    } else {
-      console.warn(
-        `[FPSPickup] Server deactivate MISS: ${weaponId} at (${x.toFixed(0)}, ${y.toFixed(0)}, ${z.toFixed(0)}) — queuing for deferred deactivation (${FPSPickup.allPickups.filter((p) => p.isActive).length} active pickups)`,
-      );
-      FPSPickup.pendingDeactivations.push({ weaponId, x, y, z, timestamp: Date.now() });
-      FPSPickup.pendingDeactivations = FPSPickup.pendingDeactivations.filter((d) => Date.now() - d.timestamp < 10000);
-    }
-  }
-
-  /**
-   * Check the deferred deactivation queue when a new FPSPickup is created.
-   * If there's a pending deactivation that matches this pickup, deactivate it immediately.
-   */
-  private static checkDeferredDeactivation(pickup: FPSPickup): void {
-    const MATCH_DIST_SQ = 200 * 200;
-    const val = String(pickup.options.value || "");
-    const id = String(pickup.options.id || "");
-
-    for (let i = FPSPickup.pendingDeactivations.length - 1; i >= 0; i--) {
-      const pending = FPSPickup.pendingDeactivations[i];
-      const matchesWeapon =
-        val === pending.weaponId ||
-        id === pending.weaponId ||
-        val === `weapon_${pending.weaponId}` ||
-        id === `weapon_${pending.weaponId}` ||
-        val.replace("weapon_", "") === pending.weaponId ||
-        id.replace("weapon_", "") === pending.weaponId;
-      if (!matchesWeapon) continue;
-
-      const dx = pickup.position.x - pending.x;
-      const dz = pickup.position.z - pending.z;
-      const distSq = dx * dx + dz * dz;
-
-      if (distSq < MATCH_DIST_SQ) {
-        FPSPickup.pendingDeactivations.splice(i, 1);
-        setTimeout(() => pickup.deactivateFromServer(), 100);
-        return;
-      }
-    }
-  }
-
   // ═════════════════════════════════════════════════════════════════
   // Dispose: unregister from the static registry
   // ═════════════════════════════════════════════════════════════════
 
   public override dispose(): void {
-    const idx = FPSPickup.allPickups.indexOf(this);
-    if (idx >= 0) FPSPickup.allPickups.splice(idx, 1);
     if (this.options.pickupId !== undefined) {
       FPSPickup.pickupById.delete(this.options.pickupId);
     }

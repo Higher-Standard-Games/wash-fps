@@ -1,23 +1,18 @@
 /**
- * FPSPickup static-registry tests
+ * FPSPickup static-API tests
  *
- * Targets the static server-deactivation API on FPSPickup:
- *   - allPickups / pickupById registries
- *   - deactivateById (O(1) id lookup + fallback)
- *   - deactivateByPosition (XZ proximity + weapon-id prefix variants)
- *   - pendingDeactivations queue (for race where a deactivate-event arrives
- *     before the client FPSPickup constructs)
+ * Targets the live static API on FPSPickup:
+ *   - pickupById registry (keyed by authoritative server pickup id)
+ *   - reconcileActiveSet(mask) — toggles each registered pickup's visibility to
+ *     match the server's authoritative snapshot active-set (the convergent,
+ *     self-healing replacement for the old item_pickup deactivation registry).
  *   - triggerUseAction (HUD prompt clearing)
  *
- * Constructing a real FPSPickup requires a Babylon Scene + async model
- * loading, which we can't spin up in vitest. Instead we inject
- * fake-pickup-shaped objects into the static registries via the
- * `as any` escape hatch, the same pattern used by other tests in the
- * outer SHAG engine repo (e.g. BuildableSystem.test.ts).
+ * Constructing a real FPSPickup requires a Babylon Scene + async model loading,
+ * which we can't spin up in vitest. Instead we inject fake-pickup-shaped objects
+ * into the static registry via the `as any` escape hatch.
  *
- * Originally lived at `src/engine/__tests__/Pickup.test.ts` in the outer
- * repo; relocated here as part of the v0.9.14 QA pass once the static
- * registry moved from engine `Pickup` to fps `FPSPickup` (matrix Q5b).
+ * See docs/research/SERVER_AUTHORITATIVE_PICKUPS.md.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,25 +20,17 @@ import { FPSPickup } from "../FPSPickup";
 
 interface FakePickup {
   isActive: boolean;
-  options: { value?: string | number; id: string; pickupId?: number };
-  position: { x: number; y: number; z: number };
-  deactivateFromServer: ReturnType<typeof vi.fn>;
+  options: { id: string; pickupId?: number };
+  setActiveState: ReturnType<typeof vi.fn>;
 }
 
-function makeFakePickup(opts: {
-  id: string;
-  value?: string;
-  pickupId?: number;
-  x?: number;
-  y?: number;
-  z?: number;
-}): FakePickup {
+function makeFakePickup(id: string, pickupId: number): FakePickup {
   return {
     isActive: true,
-    options: { id: opts.id, value: opts.value, pickupId: opts.pickupId },
-    position: { x: opts.x ?? 0, y: opts.y ?? 0, z: opts.z ?? 0 },
-    deactivateFromServer: vi.fn(function (this: FakePickup) {
-      this.isActive = false;
+    options: { id, pickupId },
+    // Mirror Pickup.setActiveState's idempotent contract for assertions.
+    setActiveState: vi.fn(function (this: FakePickup, active: boolean) {
+      this.isActive = active;
     }),
   };
 }
@@ -51,178 +38,80 @@ function makeFakePickup(opts: {
 function resetRegistry() {
   // biome-ignore lint/suspicious/noExplicitAny: tests reach into private statics intentionally
   const P = FPSPickup as any;
-  P.allPickups = [];
   P.pickupById = new Map();
-  P.pendingDeactivations = [];
   P.nearbyWeaponPickup = null;
 }
 
-function injectPickup(p: FakePickup) {
+function register(p: FakePickup) {
   // biome-ignore lint/suspicious/noExplicitAny: tests reach into private statics intentionally
-  const P = FPSPickup as any;
-  P.allPickups.push(p);
-  if (p.options.pickupId !== undefined) {
-    P.pickupById.set(p.options.pickupId, p);
-  }
+  (FPSPickup as any).pickupById.set(p.options.pickupId, p);
 }
 
-describe("FPSPickup — server-driven deactivation registry", () => {
-  beforeEach(() => {
-    resetRegistry();
-    vi.useFakeTimers();
+describe("FPSPickup.reconcileActiveSet", () => {
+  beforeEach(resetRegistry);
+
+  it("toggles each registered pickup to its bit in the active-set", () => {
+    const a = makeFakePickup("rlauncher", 0);
+    const b = makeFakePickup("plasmagun", 1);
+    const c = makeFakePickup("electrobolt", 2);
+    register(a);
+    register(b);
+    register(c);
+
+    FPSPickup.reconcileActiveSet([true, false, true]);
+
+    expect(a.setActiveState).toHaveBeenCalledWith(true);
+    expect(b.setActiveState).toHaveBeenCalledWith(false);
+    expect(c.setActiveState).toHaveBeenCalledWith(true);
+    expect(b.isActive).toBe(false);
   });
 
-  describe("deactivateById (O(1) lookup)", () => {
-    it("deactivates the pickup matching the registered pickupId", () => {
-      const p = makeFakePickup({ id: "weapon_riotgun", value: "riotgun", pickupId: 42, x: 100, z: 100 });
-      injectPickup(p);
+  it("maps mask index → pickup id (id is the bit index)", () => {
+    const p = makeFakePickup("riotgun", 5);
+    register(p);
 
-      FPSPickup.deactivateById(42, "riotgun", 100, 0, 100);
+    // Only index 5 is false; everything else true/absent.
+    const mask = [true, true, true, true, true, false];
+    FPSPickup.reconcileActiveSet(mask);
 
-      expect(p.deactivateFromServer).toHaveBeenCalledOnce();
-      expect(p.isActive).toBe(false);
-    });
-
-    it("does NOT call deactivateFromServer twice if the pickup is already inactive", () => {
-      const p = makeFakePickup({ id: "weapon_riotgun", value: "riotgun", pickupId: 7, x: 0, z: 0 });
-      p.isActive = false;
-      injectPickup(p);
-
-      FPSPickup.deactivateById(7, "riotgun", 0, 0, 0);
-
-      expect(p.deactivateFromServer).not.toHaveBeenCalled();
-    });
-
-    it("falls back to position match when pickupId is not registered", () => {
-      const p = makeFakePickup({ id: "weapon_rocket", value: "rocket", x: 50, z: 50 });
-      injectPickup(p); // No pickupId registered
-
-      FPSPickup.deactivateById(999, "rocket", 50, 0, 50);
-
-      // The id-lookup misses, the position-match path picks it up
-      expect(p.deactivateFromServer).toHaveBeenCalledOnce();
-    });
+    expect(p.setActiveState).toHaveBeenCalledWith(false);
   });
 
-  describe("deactivateByPosition — weapon-id prefix variants", () => {
-    it.each<[string, string]>([
-      ["weapon_riotgun", "riotgun"], // pickup prefixed, server bare
-      ["riotgun", "riotgun"], // both bare
-      ["weapon_riotgun", "weapon_riotgun"], // both prefixed
-    ])("matches when pickup.value=%s and server weaponId=%s", (pickupValue, serverWeaponId) => {
-      const p = makeFakePickup({ id: pickupValue, value: pickupValue, x: 0, z: 0 });
-      injectPickup(p);
+  it("ignores ids with no registered pickup (still loading) without throwing", () => {
+    const p = makeFakePickup("rlauncher", 1);
+    register(p); // only id 1 registered; id 0 has no pickup yet
 
-      FPSPickup.deactivateByPosition(serverWeaponId, 0, 0, 0);
-
-      expect(p.deactivateFromServer).toHaveBeenCalledOnce();
-    });
-
-    it("known asymmetry: pickup.value=bare + server=prefixed does NOT match (server sends bare in practice)", () => {
-      const p = makeFakePickup({ id: "riotgun", value: "riotgun", x: 0, z: 0 });
-      injectPickup(p);
-
-      FPSPickup.deactivateByPosition("weapon_riotgun", 0, 0, 0);
-
-      // Documents current behavior: matching is one-directional. The server-side
-      // contract is "always send bare weapon id". If the server ever sends a
-      // `weapon_`-prefixed id, this asymmetry is exposed.
-      expect(p.deactivateFromServer).not.toHaveBeenCalled();
-    });
-
-    it("does NOT match when weapon id is different", () => {
-      const p = makeFakePickup({ id: "weapon_rocket", value: "rocket", x: 0, z: 0 });
-      injectPickup(p);
-
-      FPSPickup.deactivateByPosition("plasma", 0, 0, 0);
-
-      expect(p.deactivateFromServer).not.toHaveBeenCalled();
-    });
-
-    it("matches the CLOSEST candidate when multiple pickups share the same weaponId", () => {
-      const near = makeFakePickup({ id: "weapon_rocket", value: "rocket", x: 10, z: 10 });
-      const far = makeFakePickup({ id: "weapon_rocket", value: "rocket", x: 150, z: 150 });
-      injectPickup(near);
-      injectPickup(far);
-
-      // Server says deactivate the rocket at (5, _, 5)
-      FPSPickup.deactivateByPosition("rocket", 5, 0, 5);
-
-      expect(near.deactivateFromServer).toHaveBeenCalledOnce();
-      expect(far.deactivateFromServer).not.toHaveBeenCalled();
-    });
-
-    it("uses XZ-only distance (ignores Y) since dropToGround changes server-vs-client Y", () => {
-      const p = makeFakePickup({ id: "weapon_rocket", value: "rocket", x: 0, y: 500, z: 0 });
-      injectPickup(p);
-
-      // Server sends Y=0 (raw entity y), client placed it at y=500 after dropToGround
-      FPSPickup.deactivateByPosition("rocket", 0, 0, 0);
-
-      expect(p.deactivateFromServer).toHaveBeenCalledOnce();
-    });
-
-    it("does NOT match when XZ distance exceeds the 200-unit tolerance", () => {
-      const p = makeFakePickup({ id: "weapon_rocket", value: "rocket", x: 0, z: 0 });
-      injectPickup(p);
-
-      FPSPickup.deactivateByPosition("rocket", 500, 0, 500);
-
-      expect(p.deactivateFromServer).not.toHaveBeenCalled();
-    });
-
-    it("skips inactive pickups even when weapon and position match", () => {
-      const p = makeFakePickup({ id: "weapon_rocket", value: "rocket", x: 0, z: 0 });
-      p.isActive = false;
-      injectPickup(p);
-
-      FPSPickup.deactivateByPosition("rocket", 0, 0, 0);
-
-      expect(p.deactivateFromServer).not.toHaveBeenCalled();
-    });
+    expect(() => FPSPickup.reconcileActiveSet([false, true])).not.toThrow();
+    expect(p.setActiveState).toHaveBeenCalledWith(true);
   });
 
-  describe("pendingDeactivations queue (race-window safety)", () => {
-    it("queues a deactivation when no matching pickup exists yet", () => {
-      FPSPickup.deactivateByPosition("rocket", 0, 0, 0);
+  it("does nothing for an empty or missing mask", () => {
+    const p = makeFakePickup("rlauncher", 0);
+    register(p);
 
-      // biome-ignore lint/suspicious/noExplicitAny: inspecting private static
-      const queued = (FPSPickup as any).pendingDeactivations as Array<{ weaponId: string }>;
-      expect(queued).toHaveLength(1);
-      expect(queued[0]?.weaponId).toBe("rocket");
-    });
+    FPSPickup.reconcileActiveSet([]);
+    // biome-ignore lint/suspicious/noExplicitAny: exercising the nullish guard
+    FPSPickup.reconcileActiveSet(undefined as any);
 
-    it("prunes queue entries older than 10 seconds on next deactivate call", () => {
-      // biome-ignore lint/suspicious/noExplicitAny: inspecting/seeding private static
-      const P = FPSPickup as any;
-      P.pendingDeactivations = [
-        { weaponId: "old", x: 0, y: 0, z: 0, timestamp: Date.now() - 11_000 },
-      ];
+    expect(p.setActiveState).not.toHaveBeenCalled();
+  });
+});
 
-      // Trigger a fresh deactivate-by-position (which itself queues + prunes)
-      FPSPickup.deactivateByPosition("fresh", 100, 0, 100);
+describe("FPSPickup.triggerUseAction", () => {
+  beforeEach(resetRegistry);
 
-      const queued = P.pendingDeactivations as Array<{ weaponId: string }>;
-      // Old entry pruned; fresh one queued (no matching pickup yet)
-      expect(queued.find((q) => q.weaponId === "old")).toBeUndefined();
-      expect(queued.find((q) => q.weaponId === "fresh")).toBeDefined();
-    });
+  it("clears the tracked nearby weapon prompt", () => {
+    const p = makeFakePickup("rlauncher", 0);
+    // biome-ignore lint/suspicious/noExplicitAny: set the private static for the test
+    (FPSPickup as any).nearbyWeaponPickup = p;
+
+    FPSPickup.triggerUseAction();
+
+    // biome-ignore lint/suspicious/noExplicitAny: read the private static
+    expect((FPSPickup as any).nearbyWeaponPickup).toBeNull();
   });
 
-  describe("triggerUseAction", () => {
-    it("clears nearbyWeaponPickup when one is set", () => {
-      // biome-ignore lint/suspicious/noExplicitAny: seeding private static
-      (FPSPickup as any).nearbyWeaponPickup = makeFakePickup({ id: "weapon_rocket", value: "rocket" });
-
-      FPSPickup.triggerUseAction();
-
-      // biome-ignore lint/suspicious/noExplicitAny: inspecting private static
-      expect((FPSPickup as any).nearbyWeaponPickup).toBeNull();
-    });
-
-    it("is a no-op when no nearbyWeaponPickup is set", () => {
-      // Nothing set — should not throw
-      expect(() => FPSPickup.triggerUseAction()).not.toThrow();
-    });
+  it("is a no-op when nothing is nearby", () => {
+    expect(() => FPSPickup.triggerUseAction()).not.toThrow();
   });
 });
