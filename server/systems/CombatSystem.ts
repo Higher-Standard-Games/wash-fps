@@ -23,6 +23,8 @@ const DEFAULT_KB_SCALE = 5.0;
 const SELF_KB_MULTIPLIER = 0.5;
 /** Minimum upward bias for KB direction (ensures dramatic vertical launches) */
 const KB_UPWARD_BIAS = 0.8;
+/** Fraction of incoming damage absorbed by armor at 0 armor-piercing (Q3/Warsow ~2/3). */
+const BASE_ARMOR_ABSORPTION = 0.66;
 
 // ═══════════════════════════════════════════════════════════════════
 // DAMAGE EVENT
@@ -233,8 +235,13 @@ export class CombatSystem extends Subsystem {
     const multiplier = LOCATION_MULTIPLIER[event.hitLocation] || 1.0;
     const finalDamage = Math.round(event.damage * multiplier);
 
-    // Apply damage
-    applyDamage(victim.health, finalDamage, event.armorPiercing);
+    // Apply damage. NOTE: applyDamage's 3rd arg is armorABSORPTION (fraction of
+    // damage soaked by armor), not armor-piercing. Passing event.armorPiercing
+    // (0 = normal) directly made armor absorb 0% — so armor never degraded and
+    // gave no protection. Convert piercing → absorption: 0 piercing = normal
+    // 0.66 absorption, 1 piercing = full bypass (0 absorption).
+    const armorAbsorption = BASE_ARMOR_ABSORPTION * (1 - event.armorPiercing);
+    applyDamage(victim.health, finalDamage, armorAbsorption);
 
     // ── KNOCKBACK (queued for movement system) ──
     // Queue impulse for FPSMovementSubsystem to apply BEFORE simulate().

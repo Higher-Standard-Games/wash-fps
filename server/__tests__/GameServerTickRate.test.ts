@@ -32,11 +32,13 @@ import { GameServer, type GameServerConfig } from "../GameServer";
 
 const config: GameServerConfig = {
   port: 0,
+  serverName: "test",
+  mapName: "test",
   maxClients: 8,
   tickRate: 125,
   snapshotRate: 60,
-  mapName: "test",
-  gamePath: "",
+  certPath: "",
+  keyPath: "",
 };
 
 let server: GameServer | null = null;
