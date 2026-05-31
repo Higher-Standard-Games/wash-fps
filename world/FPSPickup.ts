@@ -219,6 +219,20 @@ export class FPSPickup extends Pickup {
   // Static API: nearby weapon tracking + server-driven deactivation
   // ═════════════════════════════════════════════════════════════════
 
+  /**
+   * Reconcile all registered map pickups to the server's authoritative
+   * active-set (GameState.pickupActiveMask, indexed by pickup id). Called every
+   * snapshot. Idempotent — only pickups whose state changed are toggled. This is
+   * the convergent, self-healing replacement for item_pickup events + the old
+   * client respawn timer.
+   */
+  public static reconcileActiveSet(mask: boolean[]): void {
+    if (!mask || mask.length === 0) return;
+    for (let id = 0; id < mask.length; id++) {
+      FPSPickup.pickupById.get(id)?.setActiveState(mask[id]);
+    }
+  }
+
   /** Called by FPSController.onUse (F key) — clears the prompt; server handles the actual swap. */
   public static triggerUseAction(): void {
     if (FPSPickup.nearbyWeaponPickup) {

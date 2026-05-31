@@ -392,6 +392,11 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
     });
   }
 
+  // Authoritative pickup active-set (full mask every snapshot). This is the
+  // source of truth for client pickup visibility — convergent and self-healing,
+  // unlike the one-shot item_pickup events below.
+  gameState.pickupActiveMask = ctx.pickupSystem.getActiveMask();
+
   // Add pickup events (so clients can sync pickup visibility and weapon changes)
   const pickups = ctx.pickupSystem.getPendingPickupEvents();
   for (const pickup of pickups) {

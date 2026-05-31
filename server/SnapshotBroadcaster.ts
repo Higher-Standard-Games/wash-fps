@@ -124,6 +124,7 @@ export class SnapshotBroadcaster {
     filtered.tick = state.tick;
     filtered.players = state.players;
     filtered.events = [...state.events];
+    filtered.pickupActiveMask = state.pickupActiveMask; // global, not PVS-filtered
 
     for (const [id, entity] of state.entities) {
       if (id === `player_${client.entityId}`) {

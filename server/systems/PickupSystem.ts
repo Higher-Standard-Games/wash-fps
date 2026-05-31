@@ -16,6 +16,8 @@ import { Subsystem, type SubsystemConfig } from "@engine/server/core/Subsystem";
 import type { WorldState } from "@engine/server/core/WorldState";
 import type { EntityId, TickNumber } from "@engine/server/ecs/types";
 import { EntityType } from "@engine/server/ecs/types";
+// Canonical classname→weapon map shared with the client so pickup ids agree.
+import { CLASSNAME_TO_WEAPON } from "../../../../shared/bsp/PickupTable";
 import type { DroppedWeaponSystem } from "./DroppedWeaponSystem";
 import type { WeaponSystem } from "./WeaponSystem";
 
@@ -26,20 +28,6 @@ function isDefaultWeapon(w: string): boolean {
 
 /** Must match InputButtons.USE from engine/network/components/InputComponent.ts */
 const USE_BUTTON = 1 << 11;
-
-/** Classname → weapon ID mapping (BSP entity classnames to game weapon IDs) */
-const CLASSNAME_TO_WEAPON: Record<string, string> = {
-  weapon_gunblade: "gunblade",
-  weapon_machinegun: "machinegun",
-  weapon_riotgun: "riotgun",
-  weapon_grenadelauncher: "glauncher",
-  weapon_rocketlauncher: "rlauncher",
-  weapon_plasmagun: "plasmagun",
-  weapon_voltaic: "voltaic",
-  weapon_lasergun: "lasergun", // Legacy Warsow maps → LG
-  weapon_electrobolt: "electrobolt",
-  weapon_instagun: "instagun",
-};
 
 /** A pickup item on the map */
 interface PickupItem {
@@ -136,6 +124,19 @@ export class PickupSystem extends Subsystem {
         respawnTick: 0,
       });
     }
+  }
+
+  /**
+   * Authoritative active-state of every tracked pickup, indexed by pickup id.
+   * Replicated in full each snapshot (GameState.pickupActiveMask) so the client
+   * converges on the server's truth — no events, no client respawn timer.
+   */
+  getActiveMask(): boolean[] {
+    const mask: boolean[] = [];
+    for (const pickup of this.pickups) {
+      mask[pickup.id] = pickup.active;
+    }
+    return mask;
   }
 
   /**

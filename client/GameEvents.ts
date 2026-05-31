@@ -37,6 +37,7 @@ import type { RemotePlayerRenderer } from "../client/RemotePlayerRenderer";
 import { FPSPlayer } from "../FPSPlayer";
 import type { PlayerStateUpdate } from "../Game";
 import { WEAPONS } from "../server/weapons/WeaponDef";
+import { FPSPickup } from "../world/FPSPickup";
 
 /**
  * Mutable context shared with Game.
@@ -125,6 +126,11 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
     ctx.localPlayerId = ctx.gameHost.localPlayerId;
   }
 
+  // Reconcile server-authoritative pickup visibility every snapshot. This is the
+  // convergent source of truth (replaces one-shot item_pickup events + the old
+  // client-local respawn timer); a dropped snapshot self-heals on the next one.
+  FPSPickup.reconcileActiveSet(state.pickupActiveMask);
+
   // Process match_state events before anything else
   const localEntityId = state.players.get(ctx.localPlayerId)?.entityId;
 
@@ -189,10 +195,6 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
                 ? BLADE_EXPLOSION
                 : ROCKET_EXPLOSION;
         getExplosionEffect().spawn(pos, config, normal);
-      } else if (event.type === "item_pickup") {
-        import("../world/FPSPickup").then(({ FPSPickup }) => {
-          FPSPickup.deactivateById(event.pickupId, event.weaponId, event.x, event.y, event.z);
-        });
       } else if (event.type === "projectile_spawn") {
         ctx.serverProjectileDefIds.set(event.entityId, event.defId);
       } else if (event.type === "combat_state" && event.entityId === localEntityId) {
