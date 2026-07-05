@@ -170,3 +170,52 @@ describe("WeaponSystem — F4 instagun insta-jump (hitscan splash-knockback)", (
     expect(sys.getPendingDamage()).toHaveLength(0);
   });
 });
+
+describe("WeaponSystem — F5 voltaic chain lightning", () => {
+  /** Plain living target at an absolute position (no input → never fires). */
+  function targetAt(id: number, x: number, y: number, z: number) {
+    return {
+      id,
+      transform: { position: { x, y, z } },
+      health: { dead: false, health: 100, armor: 0, maxHealth: 100, maxArmor: 100 },
+    };
+  }
+
+  const voltaicLoadout = { weapons: ["voltaic"], ammo: { voltaic: 150 }, health: 100, armor: 0 };
+
+  it("arcs from the primary hit to nearby enemies with per-hop falloff", () => {
+    const sys = new WeaponSystem();
+    sys.initializeWeaponFromLoadout(1 as never, voltaicLoadout as never);
+
+    const shooter = makeShooter(0, 0); // aim level +z
+    const primary = targetAt(2, 0, DEFAULT_VIEWHEIGHT, 500); // on the ray
+    const chain1 = targetAt(3, 100, DEFAULT_VIEWHEIGHT, 500); // off-ray, near primary
+    const chain2 = targetAt(4, 100, DEFAULT_VIEWHEIGHT, 620); // near chain1, not primary
+
+    sys.update(makeState([shooter, primary, chain1, chain2]) as never, 1 / 125, 100 as never);
+
+    const dmg = sys.getPendingDamage();
+    const byVictim = new Map(dmg.map((d) => [d.victimId as unknown as number, d.damage]));
+
+    // voltaic damage 7; chainFalloff 0.5 → primary 7, hop1 round(3.5)=4, hop2 round(1.75)=2
+    expect(byVictim.get(2)).toBe(7);
+    expect(byVictim.get(3)).toBe(4);
+    expect(byVictim.get(4)).toBe(2);
+    expect(dmg).toHaveLength(3); // primary + 2 chained (chainCount 2), no double-hits
+  });
+
+  it("does not chain past chainRadius", () => {
+    const sys = new WeaponSystem();
+    sys.initializeWeaponFromLoadout(1 as never, voltaicLoadout as never);
+
+    const shooter = makeShooter(0, 0);
+    const primary = targetAt(2, 0, DEFAULT_VIEWHEIGHT, 500);
+    const farAway = targetAt(3, 5000, DEFAULT_VIEWHEIGHT, 500); // > chainRadius from primary
+
+    sys.update(makeState([shooter, primary, farAway]) as never, 1 / 125, 100 as never);
+
+    const dmg = sys.getPendingDamage();
+    expect(dmg).toHaveLength(1); // only the primary hit
+    expect(dmg[0].victimId as unknown as number).toBe(2);
+  });
+});

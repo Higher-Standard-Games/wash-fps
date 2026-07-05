@@ -857,7 +857,12 @@ export class WeaponSystem extends Subsystem {
       y: Math.sin(pitch),
       z: Math.cos(yaw) * Math.cos(pitch),
     };
-    this.traceHitscanRay(state, shooter, weapon, start, dir, maxRange);
+    const primaryHit = this.traceHitscanRay(state, shooter, weapon, start, dir, maxRange);
+
+    // Chain lightning (voltaic): arc from the primary hit to nearby enemies.
+    if (weapon.chainCount && primaryHit) {
+      this.applyChainLightning(state, shooter, weapon, primaryHit);
+    }
 
     // Splash-knockback hitscan (instagun): shooting a surface launches players
     // near the world-impact point. This is what makes instagib "insta-jump" work
@@ -933,7 +938,8 @@ export class WeaponSystem extends Subsystem {
   }
 
   /**
-   * Trace a single hitscan ray and register damage for hit targets.
+   * Trace a single hitscan ray and register damage for the first target hit.
+   * Returns the hit target (id + position) for chain-lightning follow-up, or null.
    */
   private traceHitscanRay(
     state: WorldState,
@@ -942,7 +948,7 @@ export class WeaponSystem extends Subsystem {
     start: { x: number; y: number; z: number },
     dir: { x: number; y: number; z: number },
     maxRange: number,
-  ): void {
+  ): { id: EntityId; position: { x: number; y: number; z: number } } | null {
     // Check all potential targets
     for (const target of state.entitiesByType(EntityType.Player)) {
       if (target.id === shooter.id) continue;
@@ -990,11 +996,72 @@ export class WeaponSystem extends Subsystem {
           knockbackScale: weapon.knockbackScale,
         });
 
-        // Single-ray weapons break on first hit; pellet rays always break
-        // (each pellet is its own ray call)
-        break;
+        // Single-ray weapons stop on first hit; pellet rays always stop
+        // (each pellet is its own ray call). Return the hit for chain follow-up.
+        return { id: target.id, position: { ...target.transform.position } };
       }
     }
+    return null;
+  }
+
+  /**
+   * Chain lightning (voltaic): after the primary beam hit, arc to the nearest
+   * not-yet-hit enemies within `chainRadius`, dealing damage that falls off by
+   * `chainFalloff` per hop (e.g. 0.5 → 100% / 50% / 25%). Returns the ordered
+   * chain of hit world-positions (primary first) so the visual layer can draw arcs.
+   */
+  private applyChainLightning(
+    state: WorldState,
+    shooter: Readonly<Entity>,
+    weapon: WeaponDef,
+    primary: { id: EntityId; position: { x: number; y: number; z: number } },
+  ): { x: number; y: number; z: number }[] {
+    const maxChains = weapon.chainCount ?? 0;
+    const radius = weapon.chainRadius ?? 250;
+    const falloff = weapon.chainFalloff ?? 0.5;
+
+    const positions: { x: number; y: number; z: number }[] = [{ ...primary.position }];
+    const hit = new Set<EntityId>([shooter.id, primary.id]);
+    let from = primary.position;
+    let damage = weapon.damage;
+
+    for (let hop = 0; hop < maxChains; hop++) {
+      damage *= falloff;
+      const dmg = Math.round(damage);
+      if (dmg <= 0) break;
+
+      // Nearest unhit, living enemy within radius of the previous link.
+      let nearest: Readonly<Entity> | null = null;
+      let nearestDist = radius;
+      for (const target of state.entitiesByType(EntityType.Player)) {
+        if (hit.has(target.id)) continue;
+        if (!target.transform || !target.health || target.health.dead) continue;
+        const p = target.transform.position;
+        const d = Math.sqrt((p.x - from.x) ** 2 + (p.y - from.y) ** 2 + (p.z - from.z) ** 2);
+        if (d < nearestDist) {
+          nearest = target;
+          nearestDist = d;
+        }
+      }
+      if (!nearest?.transform) break;
+
+      hit.add(nearest.id);
+      const p = nearest.transform.position;
+      this.pendingDamage.push({
+        victimId: nearest.id,
+        attackerId: shooter.id,
+        damage: dmg,
+        armorPiercing: 0,
+        damageType: this.weaponToDamageType(weapon.id),
+        hitLocation: HitLocation.Body,
+        knockbackDir: { x: p.x - from.x, y: p.y - from.y, z: p.z - from.z },
+        knockbackScale: weapon.knockbackScale,
+      });
+      positions.push({ ...p });
+      from = p;
+    }
+
+    return positions;
   }
 
   private fireProjectile(state: WorldState, shooter: Readonly<Entity>, weapon: WeaponDef): void {
