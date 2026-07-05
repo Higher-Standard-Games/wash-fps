@@ -636,13 +636,11 @@ function handleRemoteWeaponFire(ctx: GameEventContext, event: any): void {
       });
       break;
     case "voltaic":
-      fx.updateRemoteBeam(event.entityId, {
+      fx.updateRemoteLightningBeam(event.entityId, {
         origin,
         direction: dir,
         color,
         maxRange: 850,
-        diameterStart: 0.6,
-        diameterEnd: 0.15,
       });
       break;
     case "electrobolt":
