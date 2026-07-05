@@ -41,6 +41,13 @@ export interface DamageEvent {
   knockbackDir?: { x: number; y: number; z: number };
   /** Knockback scale override (defaults to weapon's knockbackScale) */
   knockbackScale?: number;
+  /**
+   * Knockback magnitude source, decoupled from applied `damage`. When set, force
+   * uses this instead of the dealt damage — so a hit can push a target it barely
+   * (or doesn't) damage. Enables instagib "insta-jump" (self-knockback at 0
+   * self-damage) and no-death shoves. Defaults to the final applied damage.
+   */
+  knockbackDamage?: number;
 }
 
 export enum DamageType {
@@ -261,13 +268,16 @@ export class CombatSystem extends Subsystem {
       kbDir.y /= len;
       kbDir.z /= len;
 
-      // Calculate force: damage × weapon KB scale
+      // Calculate force: knockback magnitude × weapon KB scale.
+      // knockbackDamage decouples the push from the dealt damage (0-damage shoves,
+      // instagib insta-jump); falls back to the applied damage for normal hits.
+      const kbMagnitude = event.knockbackDamage ?? finalDamage;
       const kbScale = event.knockbackScale ?? DEFAULT_KB_SCALE;
       const isSelf = event.attackerId !== undefined && event.attackerId === event.victimId;
       const selfMult = isSelf ? SELF_KB_MULTIPLIER : 1.0;
-      const force = finalDamage * kbScale * selfMult;
+      const force = kbMagnitude * kbScale * selfMult;
 
-      // Stun fraction: strip horizontal speed proportional to damage (cap 80%)
+      // Stun fraction: strip horizontal speed proportional to dealt damage (cap 80%)
       const stunFraction = Math.min(finalDamage / 100, 0.8);
 
       this.movementSubsystem.queueImpulse({

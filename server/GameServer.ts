@@ -184,9 +184,10 @@ export class GameServer {
       return `Player ${playerId}`;
     });
 
-    // Wire gametype self-damage config into projectile system
+    // Wire gametype self-damage config into projectile + weapon systems
     const matchConfig = this.gametypeController.getMatchState().getConfig();
     this.projectileSystem.selfDamageMultiplier = matchConfig.selfDamage;
+    this.weaponSystem.selfDamageMultiplier = matchConfig.selfDamage;
 
     // Create transport
     // Allow extra connection slots for spectators beyond the player limit.
@@ -223,6 +224,7 @@ export class GameServer {
   setCollisionWorld(collision: CollisionWorld): void {
     this.physicsSystem.setCollisionWorld(collision);
     this.projectileSystem.setCollisionWorld(collision);
+    this.weaponSystem.setCollisionWorld(collision);
     this.droppedWeaponSystem.setCollisionWorld(collision);
     this.gametypeController.setCollisionWorld(collision);
     console.log(`[GameServer] Collision world configured`);

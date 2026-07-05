@@ -14,6 +14,7 @@ import { EntityType, entityId } from "@engine/server/ecs/types";
 import type { WeaponLoadout } from "@shared/server/gametype";
 import { DEFAULT_VIEWHEIGHT } from "../../../../engine/physics/PlayerPhysicsConstants";
 import { computeSpreadSeed, generateSpreadDirections } from "../../../../shared/SpreadUtils";
+import type { CollisionWorld } from "../../../../engine/network/systems/collision/CollisionWorld";
 import { WEAPONS, type WeaponDef } from "../weapons/WeaponDef";
 import { type DamageEvent, DamageType, HitLocation } from "./CombatSystem";
 import type { DroppedWeaponSystem } from "./DroppedWeaponSystem";
@@ -105,6 +106,9 @@ export class WeaponSystem extends Subsystem {
   private pendingChargeEvents: WeaponChargeEvent[] = [];
   private projectileSystem: ProjectileSystem | null = null;
   private droppedWeaponSystem: DroppedWeaponSystem | null = null;
+  private collisionWorld: CollisionWorld | null = null;
+  /** Gametype self-damage multiplier (1.0 = full, 0 = none). Mirrors ProjectileSystem. */
+  selfDamageMultiplier: number = 1.0;
   private movementSubsystem: import("./FPSMovementSubsystem").FPSMovementSubsystem | null = null;
   /** Pending drop positions — set by GameServer before tick when a swap happens */
   private entityPositions: Map<EntityId, { x: number; y: number; z: number }> = new Map();
@@ -168,6 +172,14 @@ export class WeaponSystem extends Subsystem {
    */
   setDroppedWeaponSystem(system: DroppedWeaponSystem): void {
     this.droppedWeaponSystem = system;
+  }
+
+  /**
+   * Set collision world (for hitscan splash weapons — instagun world-impact
+   * knockback / insta-jump).
+   */
+  setCollisionWorld(world: CollisionWorld): void {
+    this.collisionWorld = world;
   }
 
   /**
@@ -846,6 +858,78 @@ export class WeaponSystem extends Subsystem {
       z: Math.cos(yaw) * Math.cos(pitch),
     };
     this.traceHitscanRay(state, shooter, weapon, start, dir, maxRange);
+
+    // Splash-knockback hitscan (instagun): shooting a surface launches players
+    // near the world-impact point. This is what makes instagib "insta-jump" work
+    // (shoot the floor/wall to rocket-jump without a projectile). Knockback is
+    // applied even at 0 self-damage via DamageEvent.knockbackDamage (F4).
+    if (weapon.splashRadius && this.collisionWorld) {
+      const impact = this.traceWorldImpact(start, dir, maxRange);
+      if (impact) this.applyHitscanSplash(state, shooter, weapon, impact);
+    }
+  }
+
+  /** Trace a ray against the BSP world; returns the impact point or null. */
+  private traceWorldImpact(
+    start: { x: number; y: number; z: number },
+    dir: { x: number; y: number; z: number },
+    maxRange: number,
+  ): { x: number; y: number; z: number } | null {
+    if (!this.collisionWorld) return null;
+    const end = { x: start.x + dir.x * maxRange, y: start.y + dir.y * maxRange, z: start.z + dir.z * maxRange };
+    const res = this.collisionWorld.trace(start, end, {
+      min: { x: -2, y: -2, z: -2 },
+      max: { x: 2, y: 2, z: 2 },
+    });
+    if (res.fraction < 1.0 && res.hitPoint) return res.hitPoint;
+    return null;
+  }
+
+  /**
+   * Radial splash-knockback at a hitscan world-impact point (instagun).
+   * Health damage is self-gated by selfDamageMultiplier (instagib self = 0), but
+   * the knockback magnitude is decoupled (knockbackDamage), so the shooter still
+   * launches — the whole point of insta-jump.
+   */
+  private applyHitscanSplash(
+    state: WorldState,
+    shooter: Readonly<Entity>,
+    weapon: WeaponDef,
+    center: { x: number; y: number; z: number },
+  ): void {
+    const radius = weapon.splashRadius ?? 0;
+    if (radius <= 0) return;
+    const baseSplash = weapon.splashDamage ?? weapon.damage;
+    const minSplash = weapon.minSplashDamage ?? 0;
+
+    for (const target of state.entitiesByType(EntityType.Player)) {
+      if (!target.transform || !target.health || target.health.dead) continue;
+
+      const dx = target.transform.position.x - center.x;
+      const dy = target.transform.position.y - center.y;
+      const dz = target.transform.position.z - center.z;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (dist >= radius) continue;
+
+      const falloff = 1 - dist / radius;
+      const magnitude = Math.round(minSplash + (baseSplash - minSplash) * falloff);
+      if (magnitude <= 0) continue;
+
+      const isSelf = target.id === shooter.id;
+      const healthDamage = isSelf ? Math.round(magnitude * this.selfDamageMultiplier) : magnitude;
+
+      this.pendingDamage.push({
+        victimId: target.id,
+        attackerId: shooter.id,
+        damage: healthDamage,
+        knockbackDamage: magnitude, // push regardless of self-damage gating (insta-jump)
+        armorPiercing: 0,
+        damageType: this.weaponToDamageType(weapon.id),
+        hitLocation: HitLocation.Body,
+        knockbackDir: { x: dx, y: dy, z: dz },
+        knockbackScale: weapon.knockbackScale,
+      });
+    }
   }
 
   /**
