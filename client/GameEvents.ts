@@ -170,6 +170,16 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
             }
           }
         }
+      } else if (event.type === "weapon_chain") {
+        // Draw the chain-lightning arcs between the server-provided link points
+        // (primary → hop1 → hop2). Shown for all players, including the shooter.
+        const fx = getHitscanEffects();
+        const pts = (event.points ?? []).map((p: { x: number; y: number; z: number }) => new Vector3(p.x, p.y, p.z));
+        const rgb = WEAPON_EFFECT_COLORS.voltaic;
+        const color = new Color3(rgb[0], rgb[1], rgb[2]);
+        for (let i = 0; i < pts.length - 1; i++) {
+          fx.fireLightningArc(pts[i], pts[i + 1], color);
+        }
       } else if (event.type === "projectile_impact") {
         const pos = new Vector3(event.x, event.y, event.z);
         const projDefId =

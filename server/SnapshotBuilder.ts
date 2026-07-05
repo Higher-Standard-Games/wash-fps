@@ -367,6 +367,15 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
     });
   }
 
+  // Add chain-lightning arc events (so all clients draw the arcs between targets)
+  for (const chainEvent of ctx.weaponSystem.getPendingChainEvents()) {
+    gameState.events.push({
+      type: "weapon_chain",
+      entityId: `player_${chainEvent.entityId}`,
+      points: chainEvent.points,
+    });
+  }
+
   // Add weapon charge events (so other clients see charge visual)
   for (const chargeEvent of ctx.weaponSystem.getPendingChargeEvents()) {
     gameState.events.push({

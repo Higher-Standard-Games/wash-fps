@@ -66,6 +66,15 @@ export interface WeaponChargeEvent {
   charging: boolean;
 }
 
+/**
+ * Event emitted when a chain-lightning beam arcs between targets, so clients can
+ * draw the arcs. `points` is the ordered link chain (primary hit first, then hops).
+ */
+export interface WeaponChainEvent {
+  entityId: EntityId; // shooter
+  points: { x: number; y: number; z: number }[];
+}
+
 const CONFIG: SubsystemConfig = {
   name: "Weapon",
   priority: 25, // After input, before combat
@@ -104,6 +113,7 @@ export class WeaponSystem extends Subsystem {
   private pendingDamage: DamageEvent[] = [];
   private pendingFireEvents: WeaponFireEvent[] = [];
   private pendingChargeEvents: WeaponChargeEvent[] = [];
+  private pendingChainEvents: WeaponChainEvent[] = [];
   private projectileSystem: ProjectileSystem | null = null;
   private droppedWeaponSystem: DroppedWeaponSystem | null = null;
   private collisionWorld: CollisionWorld | null = null;
@@ -150,6 +160,15 @@ export class WeaponSystem extends Subsystem {
   getPendingChargeEvents(): WeaponChargeEvent[] {
     const events = this.pendingChargeEvents;
     this.pendingChargeEvents = [];
+    return events;
+  }
+
+  /**
+   * Get pending chain-lightning arc events to broadcast to clients
+   */
+  getPendingChainEvents(): WeaponChainEvent[] {
+    const events = this.pendingChainEvents;
+    this.pendingChainEvents = [];
     return events;
   }
 
@@ -890,7 +909,10 @@ export class WeaponSystem extends Subsystem {
 
     // Chain lightning (voltaic): arc from the primary hit to nearby enemies.
     if (weapon.chainCount && primaryHit) {
-      this.applyChainLightning(state, shooter, weapon, primaryHit);
+      const links = this.applyChainLightning(state, shooter, weapon, primaryHit);
+      if (links.length >= 2) {
+        this.pendingChainEvents.push({ entityId: shooter.id, points: links });
+      }
     }
 
     // Splash-knockback hitscan (instagun): shooting a surface launches players
