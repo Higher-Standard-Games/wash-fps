@@ -28,6 +28,20 @@ function isDefaultWeapon(weaponId: string): boolean {
   return weaponId === "blade" || weaponId === "gunblade";
 }
 
+/** Server tick rate (Hz). Fire/reload/charge timing is quantized to these ticks. */
+const TICK_RATE = 125;
+
+/**
+ * Refire interval in ticks for a weapon. Prefers an explicit `fireIntervalTicks`
+ * override, else the *nearest* tick to the authored `fireRate`. Previously this
+ * was `Math.floor(125 / fireRate)`, which truncated and made every weapon whose
+ * rate doesn't divide 125 fire slightly fast (F1). `round` is the nearest
+ * representable cadence; min 1 tick.
+ */
+export function fireIntervalTicks(weapon: Pick<WeaponDef, "fireRate" | "fireIntervalTicks">): number {
+  return Math.max(1, weapon.fireIntervalTicks ?? Math.round(TICK_RATE / weapon.fireRate));
+}
+
 /**
  * Event emitted when a weapon is fired, for network broadcast
  */
@@ -468,7 +482,7 @@ export class WeaponSystem extends Subsystem {
 
           // --- Primary fire: melee slash (semi-auto on press) ---
           if (isFiring && !weaponState.wasFireButtonDown) {
-            const fireInterval = Math.floor(125 / weapon.fireRate);
+            const fireInterval = fireIntervalTicks(weapon);
             const timeSinceFire = tickNum - weaponState.lastFireTick;
             if (timeSinceFire >= fireInterval) {
               // Fire visual event immediately (animation + sound)
@@ -575,7 +589,7 @@ export class WeaponSystem extends Subsystem {
           }
 
           if (isFiring && hipfireAllowFire) {
-            const fireInterval = Math.floor(125 / weapon.fireRate); // ticks between shots
+            const fireInterval = fireIntervalTicks(weapon); // ticks between shots
             const timeSinceFire = tickNum - weaponState.lastFireTick;
 
             if (timeSinceFire >= fireInterval) {
@@ -821,11 +835,15 @@ export class WeaponSystem extends Subsystem {
     }
 
     // Standard single-ray hitscan (machinegun, electrobolt, etc.)
-    const p = -pitch;
+    // Use the same look-direction convention as fireProjectile/fireMelee and the
+    // pendingFireEvents tracer visual: dir.y = sin(-input.pitch). This previously
+    // double-negated (`const p = -pitch`, where pitch is already -input.pitch),
+    // inverting vertical aim so the damage ray disagreed with the tracer and every
+    // other fire path — machinegun/electrobolt/instagun hit low when aiming up (F2).
     const dir = {
-      x: Math.sin(yaw) * Math.cos(p),
-      y: Math.sin(p),
-      z: Math.cos(yaw) * Math.cos(p),
+      x: Math.sin(yaw) * Math.cos(pitch),
+      y: Math.sin(pitch),
+      z: Math.cos(yaw) * Math.cos(pitch),
     };
     this.traceHitscanRay(state, shooter, weapon, start, dir, maxRange);
   }
