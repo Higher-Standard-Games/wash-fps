@@ -188,6 +188,7 @@ describe("WeaponSystem — F5 voltaic chain lightning", () => {
     sys.initializeWeaponFromLoadout(1 as never, voltaicLoadout as never);
 
     const shooter = makeShooter(0, 0); // aim level +z
+    shooter.input.buttons |= 1 << 9; // ADS → beam locked straight (isolate chaining from wander)
     const primary = targetAt(2, 0, DEFAULT_VIEWHEIGHT, 500); // on the ray
     const chain1 = targetAt(3, 100, DEFAULT_VIEWHEIGHT, 500); // off-ray, near primary
     const chain2 = targetAt(4, 100, DEFAULT_VIEWHEIGHT, 620); // near chain1, not primary
@@ -209,6 +210,7 @@ describe("WeaponSystem — F5 voltaic chain lightning", () => {
     sys.initializeWeaponFromLoadout(1 as never, voltaicLoadout as never);
 
     const shooter = makeShooter(0, 0);
+    shooter.input.buttons |= 1 << 9; // ADS → straight beam
     const primary = targetAt(2, 0, DEFAULT_VIEWHEIGHT, 500);
     const farAway = targetAt(3, 5000, DEFAULT_VIEWHEIGHT, 500); // > chainRadius from primary
 
@@ -217,5 +219,43 @@ describe("WeaponSystem — F5 voltaic chain lightning", () => {
     const dmg = sys.getPendingDamage();
     expect(dmg).toHaveLength(1); // only the primary hit
     expect(dmg[0].victimId as unknown as number).toBe(2);
+  });
+});
+
+describe("WeaponSystem — voltaic hipfire beam wander (ADS downside)", () => {
+  const ALT_FIRE = 1 << 9;
+  const voltaicLoadout = { weapons: ["voltaic"], ammo: { voltaic: 150 }, health: 100, armor: 0 };
+
+  /** Fire voltaic for 600 ticks at a small target 800u out; return the hit count. */
+  function countHits(ads: boolean): number {
+    const sys = new WeaponSystem();
+    sys.initializeWeaponFromLoadout(1 as never, voltaicLoadout as never);
+    const shooter = {
+      id: 1,
+      ownerId: 1,
+      transform: { position: { x: 0, y: 0, z: 0 } },
+      input: { buttons: (1 << 8) | (ads ? ALT_FIRE : 0), yaw: 0, pitch: 0, weaponSlot: 0 },
+      health: { dead: false, health: 100, armor: 0, maxHealth: 100, maxArmor: 100 },
+    };
+    const target = {
+      id: 2,
+      transform: { position: { x: 0, y: DEFAULT_VIEWHEIGHT, z: 800 } }, // on the straight ray
+      health: { dead: false, health: 100, armor: 0, maxHealth: 100, maxArmor: 100 },
+    };
+    let hits = 0;
+    for (let tick = 1; tick <= 600; tick++) {
+      sys.update(makeState([shooter, target]) as never, 1 / 125, tick as never);
+      hits += sys.getPendingDamage().filter((d) => (d.victimId as unknown as number) === 2).length;
+    }
+    return hits;
+  }
+
+  it("ADS is pinpoint (every shot hits) while hipfire drifts off a distant target", () => {
+    const adsHits = countHits(true);
+    const hipHits = countHits(false);
+
+    expect(adsHits).toBe(100); // 600 ticks / 6-tick interval, all on-axis
+    expect(hipHits).toBeLessThan(adsHits); // wander makes the hip beam miss at range
+    expect(hipHits).toBeGreaterThan(0); // still lands near the wander zero-crossings
   });
 });

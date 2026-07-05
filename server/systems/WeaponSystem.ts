@@ -635,13 +635,35 @@ export class WeaponSystem extends Subsystem {
     }
   }
 
+  /**
+   * Deterministic smooth "wander" deflection for unstable beams (voltaic). Hipfire
+   * only — a slow lissajous sweep of the aim (not random jitter), so the beam bends
+   * and drifts off distant targets. ADS (ALT_FIRE held) zeroes it → pinpoint.
+   * Stateless (function of tick + shooter id) so the damage ray and the fire-event
+   * direction agree without extra network state.
+   */
+  private beamWanderOffset(
+    weapon: WeaponDef,
+    shooterId: EntityId,
+    tick: TickNumber,
+    isADS: boolean,
+  ): { dYaw: number; dPitch: number } {
+    if (!weapon.beamWanderDeg || isADS) return { dYaw: 0, dPitch: 0 };
+    const w = (weapon.beamWanderDeg * Math.PI) / 180;
+    const t = (tick as number) * 0.35 + (shooterId as number);
+    return { dYaw: Math.sin(t) * w, dPitch: Math.sin(t * 1.7 + 1.3) * w };
+  }
+
   private fireWeapon(state: WorldState, shooter: Readonly<Entity>, weapon: WeaponDef, tick: TickNumber): void {
     // Emit fire event for network broadcast
     if (shooter.transform && shooter.input) {
       // yaw/pitch are already in radians from the client (Babylon.js camera)
-      // Negate pitch: Babylon uses negative rotationX for looking UP
-      const yaw = shooter.input.yaw;
-      const pitch = -shooter.input.pitch;
+      // Negate pitch: Babylon uses negative rotationX for looking UP.
+      // Apply beam wander so remote beams bend to match the (deflected) damage ray.
+      const isADS = (shooter.input.buttons & ALT_FIRE_BUTTON) !== 0;
+      const wander = this.beamWanderOffset(weapon, shooter.id, tick, isADS);
+      const yaw = shooter.input.yaw + wander.dYaw;
+      const pitch = -shooter.input.pitch + wander.dPitch;
       this.pendingFireEvents.push({
         entityId: shooter.id,
         weaponId: weapon.id,
@@ -852,10 +874,17 @@ export class WeaponSystem extends Subsystem {
     // double-negated (`const p = -pitch`, where pitch is already -input.pitch),
     // inverting vertical aim so the damage ray disagreed with the tracer and every
     // other fire path — machinegun/electrobolt/instagun hit low when aiming up (F2).
+    // Unstable-beam wander (voltaic hipfire): deflect the aim by a smooth,
+    // deterministic sweep unless ADS — the beam bends and drifts off distant
+    // targets from the hip; ADS locks it straight. Same offset as the fire event.
+    const isADS = (shooter.input.buttons & ALT_FIRE_BUTTON) !== 0;
+    const wander = this.beamWanderOffset(weapon, shooter.id, _tick, isADS);
+    const wYaw = yaw + wander.dYaw;
+    const wPitch = pitch + wander.dPitch;
     const dir = {
-      x: Math.sin(yaw) * Math.cos(pitch),
-      y: Math.sin(pitch),
-      z: Math.cos(yaw) * Math.cos(pitch),
+      x: Math.sin(wYaw) * Math.cos(wPitch),
+      y: Math.sin(wPitch),
+      z: Math.cos(wYaw) * Math.cos(wPitch),
     };
     const primaryHit = this.traceHitscanRay(state, shooter, weapon, start, dir, maxRange);
 
