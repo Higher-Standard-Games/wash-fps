@@ -171,12 +171,12 @@ export class ProjectileSystem extends Subsystem {
         continue;
       }
 
-      // Apply gravity
+      // Apply gravity — per-weapon (meta.gravity comes from WeaponDef.projectileGravity).
+      // Direct-fire projectiles (rockets, plasma, blasts) have gravity 0 and fly
+      // perfectly straight along the crosshair; only arcing weapons (grenades) drop.
+      // Previously a blanket `-50 * dt` sagged every non-grenade projectile below aim (F6).
       if (meta.gravity > 0) {
         mutable.physics.velocity.y -= GRAVITY_ACCEL * meta.gravity * dt;
-      } else {
-        // Slight gravity for non-grenade projectiles (rockets etc)
-        mutable.physics.velocity.y -= 50 * dt;
       }
 
       // Calculate movement delta

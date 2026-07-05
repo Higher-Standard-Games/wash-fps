@@ -959,7 +959,7 @@ export class WeaponSystem extends Subsystem {
       this.projectileSystem.registerProjectileType(projectile.id, weapon.id, {
         bounces: isGrenade ? 3 : 0,
         lifetime: isGrenade ? 2.0 : 10.0,
-        gravity: isGrenade ? 3 : 0,
+        gravity: weapon.projectileGravity ?? 0, // 0 = straight (F6); grenades set it explicitly
       });
     }
   }
