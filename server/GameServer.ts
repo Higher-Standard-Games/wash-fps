@@ -613,6 +613,17 @@ export class GameServer {
       this.processQueue();
     }
 
+    // Save-on-leave: finalize any active demo recording as soon as the last
+    // playing client leaves, instead of waiting for the match to formally end
+    // (frag/time limit). Makes recording a demo as easy as "play, then leave".
+    if (!client.isSpectator && this.demoRecorder?.isRecording) {
+      const stillPlaying = [...this.clients.values()].some((c) => !c.isSpectator);
+      if (!stillPlaying) {
+        console.log("[GameServer] Last player left — finalizing demo recording");
+        this.stopRecording().catch((err) => console.error("[GameServer] Save-on-leave failed:", err));
+      }
+    }
+
     // Auto-shutdown when all clients are gone (lobby-spawned mode)
     if (this.config.shutdownOnEmpty && this.hasHadClients && this.clients.size === 0) {
       console.log("[GameServer] All clients disconnected — shutting down in 5 seconds...");
