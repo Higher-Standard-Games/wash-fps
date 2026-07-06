@@ -351,3 +351,27 @@ describe("WeaponSystem — voltaic hipfire beam wander (ADS downside)", () => {
     expect(hipHits).toBeGreaterThan(0); // still lands near the wander zero-crossings
   });
 });
+
+describe("WeaponSystem — F8 projectiles registered by projectileId", () => {
+  it("firing rlauncher registers the projectile as 'rocket' (not the weapon id)", () => {
+    const sys = new WeaponSystem();
+    let registeredDefId = "";
+    sys.setProjectileSystem({
+      registerProjectileType: (_id: unknown, defId: string) => {
+        registeredDefId = defId;
+      },
+    } as never);
+    sys.initializeWeaponFromLoadout(
+      1 as never,
+      { weapons: ["rlauncher"], ammo: { rlauncher: 5 }, health: 100, armor: 0 } as never,
+    );
+
+    const shooter = makeShooter(0, 0);
+    shooter.input.buttons = 1 << 9; // hold ADS first to bypass rlauncher's hipfireBlocked delay
+    sys.update(makeState([shooter]) as never, 1 / 125, 99 as never);
+    shooter.input.buttons = FIRE_BUTTON | (1 << 9);
+    sys.update(makeState([shooter]) as never, 1 / 125, 100 as never);
+
+    expect(registeredDefId).toBe("rocket");
+  });
+});

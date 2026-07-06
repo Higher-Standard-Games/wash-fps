@@ -1255,11 +1255,13 @@ export class WeaponSystem extends Subsystem {
 
     state.addEntity(projectile);
 
-    // Register projectile type with ProjectileSystem for impact events
+    // Register projectile type with ProjectileSystem for impact events.
+    // Identify the projectile by its own projectileId (F8) — the WEAPONS map has a
+    // matching alias, so damage/splash lookup and client effects share one identity.
     if (this.projectileSystem) {
       // Per-projectile behavior based on weapon type
       const isGrenade = weapon.id === "glauncher";
-      this.projectileSystem.registerProjectileType(projectile.id, weapon.id, {
+      this.projectileSystem.registerProjectileType(projectile.id, weapon.projectileId ?? weapon.id, {
         bounces: isGrenade ? 3 : 0,
         lifetime: isGrenade ? 2.0 : 10.0,
         gravity: weapon.projectileGravity ?? 0, // 0 = straight (F6); grenades set it explicitly

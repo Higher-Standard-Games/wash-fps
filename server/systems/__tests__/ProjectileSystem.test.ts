@@ -10,6 +10,8 @@
 
 import { describe, expect, it } from "vitest";
 import { EntityType } from "@engine/server/ecs/types";
+import { WEAPONS } from "../../weapons/WeaponDef";
+import { DamageType } from "../CombatSystem";
 import { ProjectileSystem } from "../ProjectileSystem";
 
 function makeProjectile(id: number, vy: number) {
@@ -54,5 +56,45 @@ describe("ProjectileSystem — F6 per-weapon gravity", () => {
 
     // 800 * 3 * (10/125) = 192 u/s downward
     expect(proj.physics.velocity.y).toBeCloseTo(-192, 3);
+  });
+});
+
+describe("ProjectileSystem — F8 projectile identity", () => {
+  it("projectile-id aliases resolve to their owning weapon's stats", () => {
+    expect(WEAPONS.rocket).toBe(WEAPONS.rlauncher);
+    expect(WEAPONS.grenade).toBe(WEAPONS.glauncher);
+    expect(WEAPONS.plasma_bolt).toBe(WEAPONS.plasmagun);
+    expect(WEAPONS.gunblade_blast).toBe(WEAPONS.gunblade);
+  });
+
+  it("a projectile registered by projectileId deals its weapon's damage on direct hit", () => {
+    const sys = new ProjectileSystem();
+    const proj = {
+      id: 1,
+      ownerId: 99,
+      transform: { position: { x: 0, y: 1000, z: 0 } },
+      physics: { velocity: { x: 0, y: 0, z: 1000 } },
+    };
+    const player = {
+      id: 2,
+      ownerId: 1,
+      transform: { position: { x: 0, y: 1000, z: 6 } }, // ~8u ahead after one tick → direct hit
+      health: { dead: false, health: 100, armor: 0, maxHealth: 100, maxArmor: 100 },
+    };
+    const state = {
+      entitiesByType: (t: EntityType) =>
+        t === EntityType.Projectile ? [proj] : t === EntityType.Player ? [player] : [],
+      getEntityMut: (id: number) => (id === 1 ? proj : undefined),
+      getEntityByOwner: () => undefined,
+      removeEntity: () => {},
+    };
+
+    sys.registerProjectileType(1 as never, "rocket", { gravity: 0, lifetime: 10 });
+    sys.update(state as never, 1 / 125, 1 as never);
+
+    const direct = sys.getPendingDamage().find((d) => (d.victimId as unknown as number) === 2);
+    expect(direct).toBeDefined();
+    expect(direct!.damage).toBe(WEAPONS.rlauncher.damage); // resolved via the "rocket" alias, not the 80 fallback
+    expect(direct!.damageType).toBe(DamageType.Explosion);
   });
 });

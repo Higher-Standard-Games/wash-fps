@@ -197,10 +197,13 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
         }
 
         const normal = new Vector3(event.normalX, event.normalY, event.normalZ);
+        // Projectiles are now identified by projectileId (F8: grenade/plasma_bolt/…);
+        // weapon-id forms kept as fallbacks for older demos. rocket + gunblade_blast
+        // (and unknowns) use the rocket explosion.
         const config =
-          event.defId === "glauncher"
+          event.defId === "grenade" || event.defId === "glauncher"
             ? GRENADE_EXPLOSION
-            : event.defId === "plasmagun"
+            : event.defId === "plasma_bolt" || event.defId === "plasmagun"
               ? PLASMA_EXPLOSION
               : event.defId === "blade_blast"
                 ? BLADE_EXPLOSION

@@ -42,7 +42,15 @@ export const WEAPONS: Record<string, WeaponDef> = {
   [ELECTROBOLT.id]: ELECTROBOLT,
   [INSTAGUN.id]: INSTAGUN,
   [BLADE.id]: BLADE,
-  // Alias: ProjectileSystem looks up WEAPONS[defId] and blade_blast is the projectile defId
-  // KB force = damage × knockbackScale. RL: 100×10=1000. Blade blast max: 50×20=1000 (RL-equal)
+  // ── Projectile aliases (F8) ──
+  // Projectiles register under their own `projectileId` (not the firing weapon's id),
+  // so ProjectileSystem's WEAPONS[defId] damage/splash lookup and the client's
+  // impact/model selection key off a single, stable projectile identity. Each alias
+  // carries the owning weapon's stats (a projectile inherits its weapon's damage/splash).
+  rocket: ROCKET_LAUNCHER,
+  grenade: GRENADE_LAUNCHER,
+  plasma_bolt: PLASMAGUN,
+  gunblade_blast: GUNBLADE,
+  // Blade's charged blast gets RL-equal knockback (KB = damage × scale: 50×20 = 1000).
   blade_blast: { ...BLADE, knockbackScale: 20.0 },
 };

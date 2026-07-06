@@ -18,7 +18,7 @@ import { type DamageEvent, DamageType, HitLocation } from "./CombatSystem";
  * Event emitted when a projectile impacts, for network broadcast
  */
 export interface ProjectileImpactEvent {
-  defId: string; // weapon definition id (e.g. 'rlauncher', 'glauncher')
+  defId: string; // projectile id (e.g. 'rocket', 'grenade') — F8; keyed into WEAPONS via alias
   x: number; // impact position
   y: number;
   z: number;
@@ -31,7 +31,7 @@ export interface ProjectileImpactEvent {
  * Per-projectile metadata for bounce/lifetime/gravity behavior
  */
 interface ProjectileMeta {
-  defId: string; // weapon definition id
+  defId: string; // projectile id (F8) — resolves to weapon stats via the WEAPONS alias
   bouncesLeft: number; // remaining bounces before explode (0 = explode on first hit)
   lifetime: number; // max lifetime in seconds
   gravity: number; // gravity multiplier (0 = none, 1 = full)
@@ -338,8 +338,12 @@ export class ProjectileSystem extends Subsystem {
    */
   private defIdToDamageType(defId: string): DamageType {
     switch (defId) {
+      // Projectile ids (F8); weapon ids kept as fallback aliases.
+      case "plasma_bolt":
       case "plasmagun":
         return DamageType.Plasma;
+      case "grenade":
+      case "rocket":
       case "glauncher":
       case "rlauncher":
         return DamageType.Explosion;
