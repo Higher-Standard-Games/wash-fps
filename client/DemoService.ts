@@ -13,6 +13,7 @@
 
 import { Color3, Vector3 } from "@babylonjs/core";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
+import { SnapshotBuffer } from "../../../engine/network/client/SnapshotBuffer";
 import type { GameState } from "../../../engine/network/core/GameState";
 import {
   BLADE_EXPLOSION,
@@ -32,7 +33,12 @@ import { DemoReader } from "../../../shared/demo/DemoReader";
 import { CinematicDemoPlayer } from "./CinematicDemoPlayer";
 import type { DemoViewer } from "./DemoViewer";
 import type { DemoViewerHUD } from "./DemoViewerHUD";
-import { handleRemoteWeaponFire, WEAPON_EFFECT_COLORS } from "./GameEvents";
+import {
+  handleRemoteWeaponFire,
+  type ProjectileSyncState,
+  processProjectileEntities,
+  WEAPON_EFFECT_COLORS,
+} from "./GameEvents";
 import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
 
 export class DemoService {
@@ -74,6 +80,13 @@ export class DemoService {
   private _specArmor = 0;
   private _specWeapon = "";
   private _specAmmo = "";
+
+  /** In-flight server projectile visuals (rockets/plasma/grenades mid-air) */
+  private _projectiles: ProjectileSyncState = {
+    active: new Set<string>(),
+    defIds: new Map<string, string>(),
+    buffer: new SnapshotBuffer(),
+  };
 
   private constructor() {}
 
@@ -274,6 +287,7 @@ export class DemoService {
     this._lastDemoWeapon = null;
     this._isSeeking = false;
     this._enemyWeapons.clear();
+    this._clearDemoProjectiles();
     this._specHealth = 0;
     this._specArmor = 0;
     this._specWeapon = "";
@@ -370,6 +384,9 @@ export class DemoService {
       this._updateDemoRecoil(state);
       this._updateDemoHud(state);
       this._processDemoEffects(state);
+      // Spawn/despawn in-flight projectile visuals + buffer them for interpolation.
+      // (runs after _processDemoEffects so projectile_spawn defIds are set first)
+      processProjectileEntities(state, this._projectiles);
     });
 
     if (typeof document === "undefined") return;
@@ -387,6 +404,9 @@ export class DemoService {
     });
     this.demoHud.onSeek((progress) => {
       this._isSeeking = true;
+      // Drop in-flight projectiles before the jump — their spawn events are
+      // one-shots that a seek skips, and their positions/buffer are now stale.
+      this._clearDemoProjectiles();
       this.activeDemoViewer?.seekToProgress(progress);
       // Collapse the interpolation buffer so models snap to the seeked position
       // instead of interpolating across the discontinuous tick jump.
@@ -438,6 +458,7 @@ export class DemoService {
       this.activeDemoViewer.update(deltaMs);
       this.activeCinematicPlayer?.update(deltaMs);
       this.remoteRenderer?.render();
+      this._renderDemoProjectiles();
       this.demoHud?.update(this.activeDemoViewer.getInfo());
 
       this.playbackRaf = window.requestAnimationFrame(tick);
@@ -601,6 +622,9 @@ export class DemoService {
     for (const event of state.events) {
       if (event.type === "weapon_fire") {
         handleRemoteWeaponFire(event, this.remoteRenderer);
+      } else if (event.type === "projectile_spawn") {
+        const e = event as unknown as { entityId?: string; defId?: string };
+        if (e.entityId && e.defId) this._projectiles.defIds.set(e.entityId, e.defId);
       } else if (event.type === "weapon_chain") {
         const fx = getHitscanEffects();
         const pts = ((event as { points?: Array<{ x: number; y: number; z: number }> }).points ?? []).map(
@@ -634,6 +658,36 @@ export class DemoService {
         getExplosionEffect().spawn(pos, config, normal);
       }
     }
+  }
+
+  /**
+   * Sample interpolated positions for active in-flight projectiles and push them
+   * to the ProjectileManager visuals. Per-frame projectile animation/trails are
+   * driven by WeaponViewManager's update loop (initialized on spectate).
+   */
+  private _renderDemoProjectiles(): void {
+    if (this._projectiles.active.size === 0) return;
+    const projMgr = getProjectileManager();
+    for (const id of this._projectiles.active) {
+      const interp = this._projectiles.buffer.sample(id);
+      if (!interp) continue;
+      projMgr.updateServerPosition(
+        id,
+        new Vector3(interp.x, interp.y, interp.z),
+        new Vector3(interp.vx, interp.vy, interp.vz),
+      );
+    }
+  }
+
+  /** Despawn all demo projectile visuals and reset their sync state. */
+  private _clearDemoProjectiles(): void {
+    const projMgr = getProjectileManager();
+    for (const id of this._projectiles.active) {
+      projMgr.despawnByEntityId(id);
+    }
+    this._projectiles.active.clear();
+    this._projectiles.defIds.clear();
+    this._projectiles.buffer.flush();
   }
 
   /** Format a weapon's ammo value ({clip,reserve} or number) for the HUD. */

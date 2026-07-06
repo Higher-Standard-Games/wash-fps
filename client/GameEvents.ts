@@ -393,7 +393,19 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
   }
 
   // === Server-driven projectile entity processing (Q3-style) ===
-  processProjectileEntities(ctx, state);
+  {
+    let projectileSLT: number | undefined;
+    // biome-ignore lint/suspicious/noExplicitAny: gameHost clockSync is duck-typed
+    const projNh = ctx.gameHost as any;
+    if (state.serverTimestamp && projNh?.clockSync?.isSynced()) {
+      projectileSLT = projNh.clockSync.toLocalTime(state.serverTimestamp);
+    }
+    processProjectileEntities(
+      state,
+      { active: ctx.activeServerProjectiles, defIds: ctx.serverProjectileDefIds, buffer: ctx.projectileBuffer },
+      projectileSLT,
+    );
+  }
 
   // === Local player position update ===
   const player = state.players.get(ctx.localPlayerId);
@@ -678,7 +690,17 @@ export function handleRemoteWeaponFire(event: any, remoteRenderer: RemotePlayerR
 /**
  * Process server-driven projectile entities (Q3-style spawn/despawn/interpolation).
  */
-function processProjectileEntities(ctx: GameEventContext, state: GameState): void {
+/** Mutable projectile-sync collections, shared by live play and demo playback. */
+export interface ProjectileSyncState {
+  /** Server entity ids we've spawned a visual for */
+  active: Set<string>;
+  /** proj_ entityId → defId (from projectile_spawn events) */
+  defIds: Map<string, string>;
+  /** Interpolation buffer for smooth in-flight motion */
+  buffer: SnapshotBuffer;
+}
+
+export function processProjectileEntities(state: GameState, sync: ProjectileSyncState, serverLocalTime?: number): void {
   const projEntities = new Map<string, EntitySnapshot>();
   const aliveThisSnapshot = new Set<string>();
 
@@ -686,7 +708,9 @@ function processProjectileEntities(ctx: GameEventContext, state: GameState): voi
     if (!entityId.startsWith("proj_")) continue;
     aliveThisSnapshot.add(entityId);
 
+    // biome-ignore lint/suspicious/noExplicitAny: duck-typed snapshot components
     const posComp = entity.getComponent("position") as any;
+    // biome-ignore lint/suspicious/noExplicitAny: duck-typed snapshot components
     const velComp = entity.getComponent("velocity") as any;
     if (!posComp) continue;
 
@@ -704,8 +728,8 @@ function processProjectileEntities(ctx: GameEventContext, state: GameState): voi
       wallJumping: false,
     });
 
-    if (!ctx.activeServerProjectiles.has(entityId)) {
-      const defId = ctx.serverProjectileDefIds.get(entityId);
+    if (!sync.active.has(entityId)) {
+      const defId = sync.defIds.get(entityId);
       if (defId) {
         const projMgr = getProjectileManager();
         if (!projMgr["scene"]) {
@@ -715,25 +739,20 @@ function processProjectileEntities(ctx: GameEventContext, state: GameState): voi
         const pos = new Vector3(posComp.x, posComp.y, posComp.z);
         const vel = velComp ? new Vector3(velComp.x, velComp.y, velComp.z) : Vector3.Zero();
         projMgr.spawnFromServer(entityId, defId, pos, vel);
-        ctx.activeServerProjectiles.add(entityId);
+        sync.active.add(entityId);
       }
     }
   }
 
   // Push to interpolation buffer
-  let serverLocalTime: number | undefined;
-  const nh = ctx.gameHost as any;
-  if (state.serverTimestamp && nh?.clockSync?.isSynced()) {
-    serverLocalTime = nh.clockSync.toLocalTime(state.serverTimestamp);
-  }
-  ctx.projectileBuffer.push(state.tick, projEntities, serverLocalTime);
+  sync.buffer.push(state.tick, projEntities, serverLocalTime);
 
   // Despawn visuals for projectiles that disappeared
-  for (const entityId of ctx.activeServerProjectiles) {
+  for (const entityId of sync.active) {
     if (!aliveThisSnapshot.has(entityId)) {
       getProjectileManager().despawnByEntityId(entityId);
-      ctx.activeServerProjectiles.delete(entityId);
-      ctx.serverProjectileDefIds.delete(entityId);
+      sync.active.delete(entityId);
+      sync.defIds.delete(entityId);
     }
   }
 }
