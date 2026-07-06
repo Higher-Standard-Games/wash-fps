@@ -76,8 +76,10 @@ describe("Demo recording captures broadcast events", () => {
     // The recorder and broadcaster must receive the exact same GameState object,
     // built once per tick — otherwise the recorder's copy would be missing the
     // one-shot events the first build already drained.
-    const recordedState = recordSpy.mock.calls.at(-1)?.[0] as { events?: unknown[] };
-    const broadcastState = broadcastSpy.mock.calls.at(-1)?.[1];
+    const recordCalls = recordSpy.mock.calls;
+    const broadcastCalls = broadcastSpy.mock.calls;
+    const recordedState = recordCalls[recordCalls.length - 1]?.[0] as { events?: unknown[] };
+    const broadcastState = broadcastCalls[broadcastCalls.length - 1]?.[1];
     expect(recordedState).toBe(broadcastState);
 
     // And it is a real snapshot carrying events (match_state is emitted every tick).
