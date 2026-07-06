@@ -55,6 +55,8 @@ export class DemoService {
   private _followedEntityId: string | null = null;
   private _lastDemoWeapon: string | null = null;
   private _isSeeking = false;
+  /** entityId → currentWeapon, fed to RemotePlayerRenderer for 3rd-person weapon models */
+  private _enemyWeapons: Map<string, string> = new Map();
 
   private constructor() {}
 
@@ -245,6 +247,7 @@ export class DemoService {
     this._followedEntityId = null;
     this._lastDemoWeapon = null;
     this._isSeeking = false;
+    this._enemyWeapons.clear();
 
     const wvm = WeaponViewManager.getInstance();
     if (wvm.isInitialized()) {
@@ -317,9 +320,13 @@ export class DemoService {
 
     const { RemotePlayerRenderer } = await import("./RemotePlayerRenderer");
     this.remoteRenderer = new RemotePlayerRenderer(scene);
+    // Feed 3rd-person weapon models. In live play GameEvents populates this map;
+    // in demo playback we own it and fill it from weapon_state events per frame.
+    this.remoteRenderer.setEnemyWeapons(this._enemyWeapons);
 
     viewer.onFrame((state) => {
       this.latestState = state;
+      this._updateEnemyWeapons(state);
       this.remoteRenderer?.pushSnapshot(state, "");
       this.refreshHudPlayerList();
       this._updateDemoWeapon(state);
@@ -342,6 +349,9 @@ export class DemoService {
     this.demoHud.onSeek((progress) => {
       this._isSeeking = true;
       this.activeDemoViewer?.seekToProgress(progress);
+      // Collapse the interpolation buffer so models snap to the seeked position
+      // instead of interpolating across the discontinuous tick jump.
+      this.remoteRenderer?.flushInterpolation();
       this._isSeeking = false;
     });
     this.demoHud.onPlayerSelect((entityId) => {
@@ -492,6 +502,19 @@ export class DemoService {
     if (!wvm.isInitialized()) return;
     wvm.attachToCamera(spectatorCam);
     wvm.setVisible(true);
+  }
+
+  /**
+   * Populate the entityId → currentWeapon map from per-frame weapon_state events
+   * so RemotePlayerRenderer can attach the correct 3rd-person weapon model.
+   */
+  private _updateEnemyWeapons(state: GameState): void {
+    for (const event of state.events) {
+      if (event.type !== "weapon_state") continue;
+      const weapon = (event as { entityId?: string; currentWeapon?: string }).currentWeapon;
+      const entityId = (event as { entityId?: string }).entityId;
+      if (entityId && weapon) this._enemyWeapons.set(entityId, weapon);
+    }
   }
 
   /**

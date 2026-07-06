@@ -385,6 +385,15 @@ export class RemotePlayerRenderer {
     this.deadEntities.delete(entityId);
   }
 
+  /**
+   * Collapse the interpolation buffer to its latest snapshot.
+   * Used by demo playback on seek so models snap to the new timeline position
+   * instead of interpolating across the (large, discontinuous) tick gap.
+   */
+  flushInterpolation(): void {
+    this.snapshotBuffer.flush();
+  }
+
   /** Get diagnostics */
   getDiagnostics(): { bufferSize: number; interpDelay: number } {
     return {
