@@ -22,6 +22,7 @@ import { DEFAULT_VIEWHEIGHT } from "../../../../../engine/physics/PlayerPhysicsC
 import { fireIntervalTicks, WeaponSystem } from "../WeaponSystem";
 
 const FIRE_BUTTON = 1 << 8; // must match InputComponent.FIRE
+const RELOAD_BUTTON = 1 << 10; // must match InputComponent.RELOAD
 
 /** Canonical look direction (matches fireProjectile / fireMelee / fire-event). */
 function look(yaw: number, pitchInput: number) {
@@ -69,7 +70,7 @@ function makeState(entities: unknown[]) {
   };
 }
 
-const mgLoadout = { weapons: ["machinegun"], ammo: { machinegun: 100 }, health: 100, armor: 0 };
+const mgLoadout = { weapons: ["machinegun"], ammo: { machinegun: 160 }, health: 100, armor: 0 };
 
 describe("WeaponSystem — F2 hitscan vertical aim", () => {
   for (const [label, pitchInput] of [
@@ -102,6 +103,97 @@ describe("WeaponSystem — F2 hitscan vertical aim", () => {
     sys.update(makeState([shooter, targetBelow]) as never, 1 / 125, 100 as never);
 
     expect(sys.getPendingDamage()).toHaveLength(0);
+  });
+});
+
+describe("WeaponSystem - F3 reload models", () => {
+  it("clip weapons deduct from clip and manual reload moves reserve into the magazine", () => {
+    const sys = new WeaponSystem();
+    sys.initializeWeaponFromLoadout(1 as never, mgLoadout as never);
+
+    const shooter = makeShooter(0, 0);
+    const target = makeTargetAlongRay(0, 0, 1000);
+
+    sys.update(makeState([shooter, target]) as never, 1 / 125, 13 as never);
+    expect(sys.getPendingDamage()).toHaveLength(1);
+
+    let ammo = sys.getWeaponState(1 as never)!.ammo.get("machinegun")!;
+    expect(ammo).toEqual({ clip: 39, reserve: 120 });
+
+    shooter.input.buttons = RELOAD_BUTTON;
+    sys.update(makeState([shooter, target]) as never, 1 / 125, 14 as never);
+    expect(sys.getWeaponState(1 as never)!.reloading).toBe(true);
+
+    shooter.input.buttons = FIRE_BUTTON;
+    sys.update(makeState([shooter, target]) as never, 1 / 125, 26 as never);
+    expect(sys.getPendingDamage()).toHaveLength(0);
+
+    shooter.input.buttons = 0;
+    sys.update(makeState([shooter, target]) as never, 1 / 125, 31 as never);
+    ammo = sys.getWeaponState(1 as never)!.ammo.get("machinegun")!;
+    expect(sys.getWeaponState(1 as never)!.reloading).toBe(false);
+    expect(ammo).toEqual({ clip: 40, reserve: 119 });
+  });
+
+  it("auto-reloads clip weapons when the magazine is emptied", () => {
+    const sys = new WeaponSystem();
+    sys.initializeWeaponFromLoadout(
+      1 as never,
+      { weapons: ["machinegun"], ammo: { machinegun: 41 }, health: 100, armor: 0 } as never,
+    );
+
+    const shooter = makeShooter(0, 0);
+    const target = makeTargetAlongRay(0, 0, 1000);
+    const interval = fireIntervalTicks({ fireRate: 10 });
+
+    for (let shot = 1; shot <= 40; shot++) {
+      sys.update(makeState([shooter, target]) as never, 1 / 125, (shot * interval) as never);
+      sys.getPendingDamage();
+    }
+
+    let state = sys.getWeaponState(1 as never)!;
+    expect(state.reloading).toBe(true);
+    expect(state.ammo.get("machinegun")).toEqual({ clip: 0, reserve: 1 });
+
+    shooter.input.buttons = 0;
+    sys.update(makeState([shooter, target]) as never, 1 / 125, (40 * interval + 17) as never);
+    state = sys.getWeaponState(1 as never)!;
+    expect(state.reloading).toBe(false);
+    expect(state.ammo.get("machinegun")).toEqual({ clip: 1, reserve: 0 });
+  });
+
+  it("pool weapons deduct from the pool and never start reload", () => {
+    const sys = new WeaponSystem();
+    sys.initializeWeaponFromLoadout(
+      1 as never,
+      { weapons: ["rlauncher"], ammo: { rlauncher: 1 }, health: 100, armor: 0 } as never,
+    );
+
+    const shooter = makeShooter(0, 0);
+    shooter.input.buttons = 1 << 9; // Hold ADS before pressing fire to bypass hipfireBlocked delay.
+    sys.update(makeState([shooter]) as never, 1 / 125, 99 as never);
+    shooter.input.buttons = FIRE_BUTTON | (1 << 9);
+    sys.update(makeState([shooter]) as never, 1 / 125, 100 as never);
+
+    const state = sys.getWeaponState(1 as never)!;
+    expect(state.reloading).toBe(false);
+    expect(state.ammo.get("rlauncher")).toEqual({ clip: 0, reserve: 0 });
+
+    sys.update(makeState([shooter]) as never, 1 / 125, 200 as never);
+    expect(sys.getWeaponState(1 as never)!.reloading).toBe(false);
+    expect(sys.getPendingFireEvents()).toHaveLength(1);
+  });
+
+  it("none weapons keep infinite ammo semantics", () => {
+    const sys = new WeaponSystem();
+    sys.initializeWeaponFromLoadout(1 as never, { weapons: ["blade"], ammo: { blade: 1 }, health: 100, armor: 0 } as never);
+
+    const shooter = makeShooter(0, 0);
+    sys.update(makeState([shooter]) as never, 1 / 125, 100 as never);
+
+    const state = sys.getWeaponState(1 as never)!;
+    expect(state.reloading).toBe(false);
+    expect(state.ammo.get("blade")).toEqual({ clip: 1, reserve: 0 });
   });
 });
 
@@ -254,7 +346,7 @@ describe("WeaponSystem — voltaic hipfire beam wander (ADS downside)", () => {
     const adsHits = countHits(true);
     const hipHits = countHits(false);
 
-    expect(adsHits).toBe(100); // 600 ticks / 6-tick interval, all on-axis
+    expect(adsHits).toBe(99); // 600 ticks / 6-tick interval, minus one reload pause
     expect(hipHits).toBeLessThan(adsHits); // wander makes the hip beam miss at range
     expect(hipHits).toBeGreaterThan(0); // still lands near the wander zero-crossings
   });

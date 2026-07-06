@@ -58,6 +58,7 @@ export interface PlayerInputState {
   sprint: boolean;
   fire: boolean;
   altFire: boolean;
+  reload?: boolean;
   use: boolean;
   pitch: number; // Camera X rotation
   yaw: number; // Camera Y rotation
@@ -919,6 +920,7 @@ export class Game {
       input.sprint = false;
       input.fire = false;
       input.altFire = false;
+      input.reload = false;
     }
 
     // Convert input state to button flags
@@ -932,6 +934,7 @@ export class Game {
     if (input.sprint) buttons |= InputButtons.SPRINT;
     if (input.fire) buttons |= InputButtons.FIRE;
     if (input.altFire) buttons |= InputButtons.ALT_FIRE;
+    if (input.reload) buttons |= InputButtons.RELOAD;
     if (input.use) buttons |= InputButtons.USE;
 
     // Build world-space direction from buttons using Babylon.js LEFT-HANDED coordinate system

@@ -1,29 +1,18 @@
 // Extracted from FPSHud.ts
+import { WEAPONS } from "../../../server/weapons/WeaponDef";
 import type { FPSHudWidget, HUDState } from "../HudWidget";
 
 /**
  * FPSAmmoCounter - Ammo count + weapon name display
  */
-/** Max ammo per weapon (mirrors shared/entities/definitions/weapons) */
-const WEAPON_MAX_AMMO: Record<string, number> = {
-  blade: 1,
-  gunblade: 1,
-  machinegun: 100,
-  riotgun: 20,
-  glauncher: 20,
-  rlauncher: 20,
-  plasmagun: 200,
-  voltaic: 150,
-  electrobolt: 10,
-  instagun: 5,
-};
 
 export class FPSAmmoCounter implements FPSHudWidget {
   private element: HTMLElement;
   private numberEl!: HTMLElement;
   private weaponEl!: HTMLElement;
   private fillEl!: HTMLElement;
-  private currentAmmo: number = -1;
+  private currentAmmo: string = "";
+  private currentPrimaryAmmo: number = -1;
   private currentWeapon: string = "";
 
   constructor() {
@@ -85,6 +74,11 @@ export class FPSAmmoCounter implements FPSHudWidget {
   public update(state: HUDState): void {
     const weapon = state.currentWeapon;
     const ammo = state.ammo[weapon] ?? -1;
+    const def = WEAPONS[weapon];
+    const structuredAmmo = typeof ammo === "object" && ammo !== null ? ammo : null;
+    const primaryAmmo: number = structuredAmmo ? structuredAmmo.clip : (ammo as number);
+    const displayAmmo =
+      structuredAmmo && def?.reloadModel === "clip" ? `${structuredAmmo.clip} / ${structuredAmmo.reserve}` : String(primaryAmmo);
 
     // Update weapon name
     if (weapon !== this.currentWeapon) {
@@ -93,30 +87,30 @@ export class FPSAmmoCounter implements FPSHudWidget {
     }
 
     // Update ammo count
-    if (ammo !== this.currentAmmo) {
-      const oldAmmo = this.currentAmmo;
-      this.currentAmmo = ammo;
+    if (displayAmmo !== this.currentAmmo) {
+      const oldAmmo = this.currentPrimaryAmmo;
+      this.currentAmmo = displayAmmo;
+      this.currentPrimaryAmmo = primaryAmmo;
 
-      if (ammo < 0) {
+      if (primaryAmmo < 0) {
         this.numberEl.textContent = "∞";
         this.fillEl.style.width = "100%";
       } else {
-        this.numberEl.textContent = String(ammo);
-        // Fill bar based on max ammo for current weapon
-        const maxAmmo = WEAPON_MAX_AMMO[weapon] ?? 100;
-        const percent = Math.max(0, Math.min(100, (ammo / maxAmmo) * 100));
+        this.numberEl.textContent = displayAmmo;
+        const maxAmmo = def?.reloadModel === "clip" ? (def.clipSize ?? 1) : (def?.maxAmmo ?? 100);
+        const percent = Math.max(0, Math.min(100, (primaryAmmo / maxAmmo) * 100));
         this.fillEl.style.width = `${percent}%`;
       }
 
       // Flash on change
-      if (oldAmmo >= 0 && ammo < oldAmmo) {
+      if (oldAmmo >= 0 && primaryAmmo < oldAmmo) {
         this.element.classList.remove("fps-flash-loss");
         void this.element.offsetWidth;
         this.element.classList.add("fps-flash-loss");
       }
 
       // Low ammo warning
-      if (ammo >= 0 && ammo <= 5) {
+      if (primaryAmmo >= 0 && primaryAmmo <= 5) {
         this.element.classList.add("fps-value-low");
       } else {
         this.element.classList.remove("fps-value-low");

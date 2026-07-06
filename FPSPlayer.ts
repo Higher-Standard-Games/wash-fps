@@ -106,6 +106,8 @@ export class FPSPlayer {
     if (this.isReloading) return;
 
     // Peek if reload is possible
+    if (weapon.reloadModel !== "clip") return;
+
     const clipSize = weapon.clipSize || 0;
     if (clipSize <= 0) return; // No clip
 
@@ -126,14 +128,9 @@ export class FPSPlayer {
 
   private finishReload(): void {
     this.isReloading = false;
-    const currentId = this.inventory.getCurrentWeaponId();
-    if (currentId) {
-      if (this.inventory.reloadWeapon(currentId)) {
-        console.log("Reload complete.");
-      } else {
-        console.log("Reload failed.");
-      }
-    }
+    // Ammo movement is server-authoritative; weapon_state reconciliation updates
+    // InventoryManager once the server finishes the reload.
+    console.log("Reload animation complete.");
   }
 
   private switchWeapon(slotIndex: number): void {
@@ -240,7 +237,7 @@ export class FPSPlayer {
     if (readyToFire) {
       // Auto-reload check
       const weaponId = this.inventory.getCurrentWeaponId();
-      if (weaponId && this.inventory.getLoadedAmmo(weaponId) <= 0 && currentWeapon.clipSize > 0) {
+      if (weaponId && currentWeapon.reloadModel === "clip" && this.inventory.getLoadedAmmo(weaponId) <= 0) {
         this.startReload(currentWeapon, weaponId);
       } else {
         this.executeFire(weaponMgr);
@@ -262,10 +259,14 @@ export class FPSPlayer {
     if (reloading && !this.isReloading) {
       // Server is reloading but client isn't — force client into reload state
       this.isReloading = true;
+      const duration = this.inventory.getCurrentWeapon()?.reloadTime || 0.6;
+      this.reloadTimer = duration;
+      WeaponViewManager.getInstance().startReload(duration);
     } else if (!reloading && this.isReloading) {
       // Server finished reloading — allow client to fire again
       this.isReloading = false;
       this.reloadTimer = 0;
+      WeaponViewManager.getInstance().cancelReload();
     }
   }
 

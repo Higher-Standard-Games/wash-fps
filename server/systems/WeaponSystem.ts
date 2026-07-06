@@ -23,6 +23,7 @@ import type { ProjectileSystem } from "./ProjectileSystem";
 /** Must match InputButtons.FIRE from engine/network/components/InputComponent.ts */
 const FIRE_BUTTON = 1 << 8;
 const ALT_FIRE_BUTTON = 1 << 9;
+const RELOAD_BUTTON = 1 << 10;
 
 /** Check if a weapon ID is a permanent default weapon (blade/gunblade — slot 0, never dropped) */
 function isDefaultWeapon(weaponId: string): boolean {
@@ -88,7 +89,7 @@ const CONFIG: SubsystemConfig = {
 export interface WeaponState {
   currentWeapon: string;
   weapons: string[]; // Owned weapons (max 2, COD-style)
-  ammo: Map<string, number>;
+  ammo: Map<string, WeaponAmmo>;
   lastFireTick: number;
   reloading: boolean;
   reloadEndTick: number;
@@ -98,8 +99,14 @@ export interface WeaponState {
   // Alt-fire state (blade projectile)
   lastAltFireTick: number; // Last tick alt-fire was used
   wasAltFireDown: boolean; // Edge detection for alt-fire release
+  wasReloadButtonDown: boolean; // Edge detection for manual reload
   // hipfireBlocked: tick when fire was first pressed without ADS (0 = not pending)
   hipfireAdsStartTick: number;
+}
+
+export interface WeaponAmmo {
+  clip: number;
+  reserve: number;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -215,6 +222,92 @@ export class WeaponSystem extends Subsystem {
     this.entityPositions.set(eId, pos);
   }
 
+  private reloadModel(weapon: WeaponDef): "clip" | "pool" | "none" {
+    return weapon.reloadModel ?? "pool";
+  }
+
+  private maxTotalAmmo(weapon: WeaponDef): number {
+    const model = this.reloadModel(weapon);
+    if (model === "none") return weapon.maxAmmo || 1;
+    if (model === "clip") return Math.max(0, weapon.clipSize) + Math.max(0, weapon.maxAmmo);
+    return Math.max(0, weapon.maxAmmo);
+  }
+
+  private createAmmoState(weapon: WeaponDef, amount: number): WeaponAmmo {
+    const total = Math.max(0, Math.min(this.maxTotalAmmo(weapon), Math.floor(amount)));
+    const model = this.reloadModel(weapon);
+
+    if (model === "none") {
+      return { clip: weapon.maxAmmo || 1, reserve: 0 };
+    }
+
+    if (model === "clip") {
+      const clip = Math.min(Math.max(0, weapon.clipSize), total);
+      return { clip, reserve: Math.min(Math.max(0, weapon.maxAmmo), Math.max(0, total - clip)) };
+    }
+
+    return { clip: Math.min(Math.max(0, weapon.maxAmmo), total), reserve: 0 };
+  }
+
+  private ammoTotal(ammo: WeaponAmmo | undefined): number {
+    return ammo ? ammo.clip + ammo.reserve : 0;
+  }
+
+  private getAmmoState(state: WeaponState, weapon: WeaponDef): WeaponAmmo {
+    let ammo = state.ammo.get(weapon.id);
+    if (!ammo) {
+      ammo = this.createAmmoState(weapon, 0);
+      state.ammo.set(weapon.id, ammo);
+    }
+    return ammo;
+  }
+
+  private addAmmo(state: WeaponState, weapon: WeaponDef, amount: number): void {
+    const add = Math.max(0, Math.floor(amount));
+    if (add <= 0 || this.reloadModel(weapon) === "none") return;
+
+    const ammo = this.getAmmoState(state, weapon);
+    if (this.reloadModel(weapon) === "clip") {
+      ammo.reserve = Math.min(weapon.maxAmmo, ammo.reserve + add);
+      return;
+    }
+
+    ammo.clip = Math.min(weapon.maxAmmo, ammo.clip + add);
+  }
+
+  private consumeShot(state: WeaponState, weapon: WeaponDef): boolean {
+    const model = this.reloadModel(weapon);
+    if (model === "none") return true;
+
+    const ammo = this.getAmmoState(state, weapon);
+    if (ammo.clip < 1) return false;
+    ammo.clip -= 1;
+    return true;
+  }
+
+  private canReload(state: WeaponState, weapon: WeaponDef): boolean {
+    if (this.reloadModel(weapon) !== "clip") return false;
+    const ammo = this.getAmmoState(state, weapon);
+    return ammo.clip < weapon.clipSize && ammo.reserve > 0;
+  }
+
+  private startReload(state: WeaponState, weapon: WeaponDef, tickNum: number): void {
+    if (state.reloading || !this.canReload(state, weapon)) return;
+    state.reloading = true;
+    state.reloadEndTick = tickNum + Math.ceil(weapon.reloadTime * TICK_RATE);
+  }
+
+  private finishReload(state: WeaponState, weapon: WeaponDef): void {
+    state.reloading = false;
+    if (this.reloadModel(weapon) !== "clip") return;
+
+    const ammo = this.getAmmoState(state, weapon);
+    const needed = Math.max(0, weapon.clipSize - ammo.clip);
+    const moved = Math.min(needed, ammo.reserve);
+    ammo.clip += moved;
+    ammo.reserve -= moved;
+  }
+
   /**
    * Add a weapon to a player's inventory (server-side pickup).
    * Rules:
@@ -231,12 +324,8 @@ export class WeaponSystem extends Subsystem {
     if (state.weapons.includes(weaponId)) {
       const weapon = WEAPONS[weaponId];
       if (weapon) {
-        const currentAmmo = state.ammo.get(weaponId) || 0;
         const pickupAmount = weapon.pickupAmmo ?? weapon.maxAmmo;
-        const newAmmo = Math.min(weapon.maxAmmo, currentAmmo + pickupAmount);
-        if (newAmmo > currentAmmo) {
-          state.ammo.set(weaponId, newAmmo);
-        }
+        this.addAmmo(state, weapon, pickupAmount);
       }
       return { added: false };
     }
@@ -251,9 +340,9 @@ export class WeaponSystem extends Subsystem {
       // Reset slot edge detection so manual switch back works after auto-switch
       this.lastWeaponSlot.delete(entityId);
       // Give ammo if not already present
-      if (!state.ammo.has(weaponId) || state.ammo.get(weaponId)! <= 0) {
+      if (!state.ammo.has(weaponId) || this.ammoTotal(state.ammo.get(weaponId)) <= 0) {
         const weapon = WEAPONS[weaponId];
-        if (weapon) state.ammo.set(weaponId, weapon.pickupAmmo ?? weapon.maxAmmo);
+        if (weapon) state.ammo.set(weaponId, this.createAmmoState(weapon, weapon.pickupAmmo ?? this.maxTotalAmmo(weapon)));
       }
 
       return { added: true };
@@ -274,7 +363,7 @@ export class WeaponSystem extends Subsystem {
 
     // Queue physical drop — cap ammo at pickupAmmo (one clip worth)
     const weaponDef = WEAPONS[droppedWeapon];
-    const playerAmmo = state.ammo.get(droppedWeapon) || 0;
+    const playerAmmo = this.ammoTotal(state.ammo.get(droppedWeapon));
     const droppedAmmo = weaponDef ? Math.min(playerAmmo, weaponDef.pickupAmmo ?? weaponDef.maxAmmo) : playerAmmo;
     const pos = this.entityPositions.get(entityId);
     if (this.droppedWeaponSystem && pos) {
@@ -306,9 +395,9 @@ export class WeaponSystem extends Subsystem {
     // Reset slot edge detection so manual switch back works after auto-switch
     this.lastWeaponSlot.delete(entityId);
     // Give ammo if not already present
-    if (!state.ammo.has(weaponId) || state.ammo.get(weaponId)! <= 0) {
+    if (!state.ammo.has(weaponId) || this.ammoTotal(state.ammo.get(weaponId)) <= 0) {
       const weapon = WEAPONS[weaponId];
-      if (weapon) state.ammo.set(weaponId, weapon.maxAmmo);
+      if (weapon) state.ammo.set(weaponId, this.createAmmoState(weapon, weapon.pickupAmmo ?? this.maxTotalAmmo(weapon)));
     }
 
     return { added: true, dropped: droppedWeapon };
@@ -329,7 +418,7 @@ export class WeaponSystem extends Subsystem {
     if (!state) return;
     const weapon = WEAPONS[weaponId];
     if (weapon) {
-      state.ammo.set(weaponId, Math.min(weapon.maxAmmo, ammo));
+      state.ammo.set(weaponId, this.createAmmoState(weapon, ammo));
     }
   }
 
@@ -339,7 +428,7 @@ export class WeaponSystem extends Subsystem {
   getAmmo(entityId: EntityId, weaponId: string): number {
     const state = this.weaponStates.get(entityId);
     if (!state) return 0;
-    return state.ammo.get(weaponId) || 0;
+    return this.ammoTotal(state.ammo.get(weaponId));
   }
 
   /**
@@ -357,7 +446,7 @@ export class WeaponSystem extends Subsystem {
     for (let i = 0; i < toDrop.length; i++) {
       const weaponId = toDrop[i];
       const weaponDef = WEAPONS[weaponId];
-      const playerAmmo = state.ammo.get(weaponId) || 0;
+      const playerAmmo = this.ammoTotal(state.ammo.get(weaponId));
       // Cap dropped ammo at pickupAmmo (one clip worth)
       const ammo = weaponDef ? Math.min(playerAmmo, weaponDef.pickupAmmo ?? weaponDef.maxAmmo) : playerAmmo;
       // Death scatter: spread weapons in different directions
@@ -389,9 +478,12 @@ export class WeaponSystem extends Subsystem {
    * Called by GametypeController on spawn/respawn.
    */
   initializeWeaponFromLoadout(id: EntityId, loadout: WeaponLoadout): void {
-    const ammoMap = new Map<string, number>();
+    const ammoMap = new Map<string, WeaponAmmo>();
     for (const [weaponId, amount] of Object.entries(loadout.ammo)) {
-      ammoMap.set(weaponId, amount);
+      const weapon = WEAPONS[weaponId];
+      if (weapon) {
+        ammoMap.set(weaponId, this.createAmmoState(weapon, amount));
+      }
     }
     // Always include default weapon (blade or gunblade), limit pickable weapons to MAX_PICKABLE (2)
     const defaultWeapon =
@@ -409,6 +501,7 @@ export class WeaponSystem extends Subsystem {
       wasFireButtonDown: false,
       lastAltFireTick: 0,
       wasAltFireDown: false,
+      wasReloadButtonDown: false,
       hipfireAdsStartTick: 0,
     });
     // Reset edge detection so weapon slot changes are detected cleanly after respawn
@@ -423,12 +516,13 @@ export class WeaponSystem extends Subsystem {
       weapons: ["blade"],
       ammo: {
         blade: 1,
-        machinegun: 100,
-        riotgun: 20,
+        machinegun: 160,
+        riotgun: 32,
         glauncher: 20,
         rlauncher: 20,
-        plasmagun: 150,
-        voltaic: 150,
+        plasmagun: 200,
+        voltaic: 180,
+        lasergun: 225,
         electrobolt: 10,
         instagun: 5,
       },
@@ -479,17 +573,18 @@ export class WeaponSystem extends Subsystem {
         if (newWeapon && newWeapon !== weaponState.currentWeapon) {
           weaponState.currentWeapon = newWeapon;
           weaponState.reloading = false; // Cancel reload on switch
+          weaponState.reloadEndTick = 0;
           weaponState.chargeStartTick = 0; // Cancel charge on switch
         }
       }
 
       // Handle reload completion
       if (weaponState.reloading && tickNum >= weaponState.reloadEndTick) {
-        weaponState.reloading = false;
-        // Refill ammo (simplified - would normally pull from reserve)
         const weapon = WEAPONS[weaponState.currentWeapon];
         if (weapon) {
-          weaponState.ammo.set(weaponState.currentWeapon, weapon.maxAmmo);
+          this.finishReload(weaponState, weapon);
+        } else {
+          weaponState.reloading = false;
         }
       }
 
@@ -497,6 +592,7 @@ export class WeaponSystem extends Subsystem {
       // FPSMovementSubsystem only populates input.buttons from the inputQueue)
       const isFiring = (entity.input.buttons & FIRE_BUTTON) !== 0;
       const isAltFiring = (entity.input.buttons & ALT_FIRE_BUTTON) !== 0;
+      const isReloading = (entity.input.buttons & RELOAD_BUTTON) !== 0;
       const weapon = WEAPONS[weaponState.currentWeapon];
 
       // Set weapon speed bonus on movement subsystem
@@ -504,12 +600,17 @@ export class WeaponSystem extends Subsystem {
         this.movementSubsystem.setSpeedBonus(entity.id as number, weapon?.speedBonus ?? 0);
       }
 
+      if (weapon && !weaponState.reloading && isReloading && !weaponState.wasReloadButtonDown) {
+        this.startReload(weaponState, weapon, tickNum);
+      }
+      weaponState.wasReloadButtonDown = isReloading;
+
       if (weapon && !weaponState.reloading) {
         // === MELEE WEAPON LOGIC (blade) ===
         // FIRE = melee slash, ALT_FIRE = hold-to-charge projectile
         if (weapon.meleeRadius && weapon.chargedProjectileId) {
           // Keep ammo at max (infinite melee)
-          weaponState.ammo.set(weaponState.currentWeapon, weapon.maxAmmo);
+          weaponState.ammo.set(weaponState.currentWeapon, this.createAmmoState(weapon, weapon.maxAmmo || 1));
 
           // --- Primary fire: melee slash (semi-auto on press) ---
           if (isFiring && !weaponState.wasFireButtonDown) {
@@ -624,19 +725,19 @@ export class WeaponSystem extends Subsystem {
             const timeSinceFire = tickNum - weaponState.lastFireTick;
 
             if (timeSinceFire >= fireInterval) {
-              const ammo = weaponState.ammo.get(weaponState.currentWeapon) || 0;
-              if (ammo > 0) {
+              const ammo = this.getAmmoState(weaponState, weapon);
+              if (ammo.clip > 0 || this.reloadModel(weapon) === "none") {
                 this.fireWeapon(state, entity, weapon, tick);
-                const newAmmo = ammo - 1;
-                weaponState.ammo.set(weaponState.currentWeapon, newAmmo);
+                this.consumeShot(weaponState, weapon);
 
                 weaponState.lastFireTick = tickNum;
 
-                // Auto-reload when ammo depleted
-                if (newAmmo <= 0) {
-                  weaponState.reloading = true;
-                  weaponState.reloadEndTick = tickNum + Math.ceil(weapon.reloadTime * 125);
+                // Auto-reload clip weapons when the magazine is depleted.
+                if (this.reloadModel(weapon) === "clip" && ammo.clip <= 0) {
+                  this.startReload(weaponState, weapon, tickNum);
                 }
+              } else if (this.canReload(weaponState, weapon)) {
+                this.startReload(weaponState, weapon, tickNum);
               }
             }
           }

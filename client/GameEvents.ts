@@ -38,6 +38,7 @@ import { FPSPlayer } from "../FPSPlayer";
 import type { PlayerStateUpdate } from "../Game";
 import { WEAPONS } from "../server/weapons/WeaponDef";
 import { FPSPickup } from "../world/FPSPickup";
+import type { ServerAmmoState } from "../world/InventoryManager";
 
 /**
  * Mutable context shared with Game.
@@ -561,7 +562,7 @@ function handleWeaponStateSync(ctx: GameEventContext, event: any): void {
 
   const serverWeapon = event.currentWeapon as string;
   const serverWeapons = event.weapons as string[];
-  const serverAmmo = event.ammo as Record<string, number>;
+  const serverAmmo = event.ammo as Record<string, ServerAmmoState>;
 
   player.inventory.syncFromServer(serverWeapons, serverAmmo, serverWeapon);
 

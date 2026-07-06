@@ -45,6 +45,13 @@ export interface ScoreboardEntry {
   teamId?: string;
 }
 
+export interface WeaponAmmoState {
+  clip: number;
+  reserve: number;
+}
+
+export type HUDWeaponAmmo = number | WeaponAmmoState;
+
 // ============================================================================
 // HUDState Singleton
 // ============================================================================
@@ -60,7 +67,7 @@ export class HUDState {
   // === Weapon state (private to local player) ===
   currentWeapon: string = "blade";
   weapons: string[] = ["blade"];
-  ammo: Record<string, number> = {};
+  ammo: Record<string, HUDWeaponAmmo> = {};
 
   // === Damage numbers (recent, for floating display) ===
   damageNumbers: DamageNumber[] = [];
@@ -105,10 +112,16 @@ export class HUDState {
   /**
    * Process a weapon_state event (current weapon, inventory, ammo for local player).
    */
-  processWeaponState(event: { currentWeapon: string; weapons: string[]; ammo: Record<string, number> }): void {
+  processWeaponState(event: { currentWeapon: string; weapons: string[]; ammo: Record<string, HUDWeaponAmmo> }): void {
     this.currentWeapon = event.currentWeapon;
     this.weapons = [...event.weapons];
     this.ammo = { ...event.ammo };
+  }
+
+  getAmmoDisplay(weaponId: string): string {
+    const ammo = this.ammo[weaponId];
+    if (typeof ammo === "object" && ammo !== null) return `${ammo.clip} / ${ammo.reserve}`;
+    return String(ammo ?? 0);
   }
 
   /**
@@ -225,8 +238,7 @@ export class HUDState {
     const wpnList = this.weapons
       .map((w) => {
         const active = w === this.currentWeapon ? "▸" : " ";
-        const ammo = this.ammo[w] ?? 0;
-        return `  ${active} ${w}: ${ammo}`;
+        return `  ${active} ${w}: ${this.getAmmoDisplay(w)}`;
       })
       .join("\n");
 

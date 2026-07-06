@@ -96,10 +96,11 @@ export class FPSWeaponRack implements FPSHudWidget {
       // Update ammo
       if (hasWeapon) {
         const ammoCount = ammoMap[slot.id];
-        if (ammoCount === undefined || ammoCount < 0) {
+        const primaryAmmo = typeof ammoCount === "object" && ammoCount !== null ? ammoCount.clip : ammoCount;
+        if (primaryAmmo === undefined || primaryAmmo < 0) {
           ammoEl.textContent = "∞"; // Infinite (gunblade)
         } else {
-          ammoEl.textContent = String(ammoCount);
+          ammoEl.textContent = String(primaryAmmo);
         }
       } else {
         ammoEl.textContent = "";

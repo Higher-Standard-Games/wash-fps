@@ -10,6 +10,13 @@ export interface AmmoState {
   [ammoType: string]: number;
 }
 
+export interface WeaponAmmoState {
+  clip: number;
+  reserve: number;
+}
+
+export type ServerAmmoState = number | WeaponAmmoState;
+
 export class InventoryManager {
   private weapons: Map<string, WeaponDef> = new Map();
   private slots: string[] = [];
@@ -94,7 +101,7 @@ export class InventoryManager {
    */
   public syncFromServer(
     serverWeapons: string[],
-    serverAmmo: Record<string, number>,
+    serverAmmo: Record<string, ServerAmmoState>,
     serverCurrentWeapon: string,
   ): boolean {
     // Capture previous weapon BEFORE any mutations
@@ -124,23 +131,24 @@ export class InventoryManager {
     this.slots = serverWeapons.filter((w) => this.weapons.has(w));
 
     // Sync ammo — server sends ammo keyed by weaponId, but client reserve uses ammoType
-    for (const [weaponId, count] of Object.entries(serverAmmo)) {
+    for (const [weaponId, rawAmmo] of Object.entries(serverAmmo)) {
+      const def = this.weapons.get(weaponId);
+      const ammo = this.normalizeServerAmmo(rawAmmo, def);
       // Set by weaponId directly (for HUD display compatibility)
-      this.setAmmo(weaponId, count);
+      this.setAmmo(weaponId, ammo.clip + ammo.reserve);
 
       // Also set by ammoType (for reload/consumeLoadedAmmo compatibility)
-      const def = this.weapons.get(weaponId);
       if (def?.ammoType) {
-        this.setAmmo(def.ammoType, count);
+        this.setAmmo(def.ammoType, def.reloadModel === "clip" ? ammo.reserve : ammo.clip);
       }
 
       // Sync loaded ammo (clip) — if server says we have ammo, ensure clip is loaded
-      if (def?.clipSize) {
+      if (def) {
         this.ensureWeaponState(weaponId, def.clipSize);
         const state = this.weaponStates.get(weaponId);
-        if (state && state.loadedAmmo <= 0 && count > 0) {
+        if (state) {
           // Server has ammo but client clip is empty — refill clip
-          state.loadedAmmo = Math.min(def.clipSize, count);
+          state.loadedAmmo = ammo.clip;
         }
       }
     }
@@ -201,6 +209,23 @@ export class InventoryManager {
     }
   }
 
+  private normalizeServerAmmo(raw: ServerAmmoState, def?: WeaponDef): WeaponAmmoState {
+    if (typeof raw === "object" && raw !== null) {
+      return { clip: Math.max(0, raw.clip ?? 0), reserve: Math.max(0, raw.reserve ?? 0) };
+    }
+
+    const total = Math.max(0, raw ?? 0);
+    if (!def) return { clip: total, reserve: 0 };
+    if (def.reloadModel === "clip") {
+      const clip = Math.min(def.clipSize, total);
+      return { clip, reserve: Math.max(0, total - clip) };
+    }
+    if (def.reloadModel === "none") {
+      return { clip: def.maxAmmo || 1, reserve: 0 };
+    }
+    return { clip: total, reserve: 0 };
+  }
+
   /**
    * Get loaded ammo for a weapon
    */
@@ -208,9 +233,8 @@ export class InventoryManager {
     const def = this.weapons.get(weaponId);
     if (!def) return 0;
 
-    // If no clip size (or 0), assume infinite/direct from reserve?
-    // For now let's assume if clipSize is defined and > 0, we use it.
-    if (!def.clipSize) return this.getAmmoCount(def.ammoType || "");
+    if (def.reloadModel === "none") return Number.MAX_SAFE_INTEGER;
+    if (def.reloadModel !== "clip") return this.getAmmoCount(def.ammoType || "");
 
     this.ensureWeaponState(weaponId, def.clipSize);
     return this.weaponStates.get(weaponId)!.loadedAmmo;
@@ -228,12 +252,14 @@ export class InventoryManager {
     const def = this.weapons.get(weaponId);
     if (!def) return false;
 
-    // If no clip usage, consume from reserve directly
-    if (!def.clipSize) {
+    if (def.reloadModel === "none") return true;
+
+    // Pool weapons consume from the single ammo count directly.
+    if (def.reloadModel !== "clip") {
       if (def.ammoType) {
         return this.consumeAmmo(def.ammoType, amount);
       }
-      return true; // Infinite ammo if no type?
+      return false;
     }
 
     this.ensureWeaponState(weaponId, def.clipSize);
@@ -252,7 +278,7 @@ export class InventoryManager {
    */
   public reloadWeapon(weaponId: string): boolean {
     const def = this.weapons.get(weaponId);
-    if (!def || !def.clipSize || !def.ammoType) return false;
+    if (!def || def.reloadModel !== "clip" || !def.clipSize || !def.ammoType) return false;
 
     this.ensureWeaponState(weaponId, def.clipSize);
     const state = this.weaponStates.get(weaponId)!;
@@ -281,7 +307,7 @@ export class InventoryManager {
    */
   public needsReload(weaponId: string): boolean {
     const def = this.weapons.get(weaponId);
-    if (!def || !def.clipSize) return false;
+    if (!def || def.reloadModel !== "clip" || !def.clipSize) return false;
 
     this.ensureWeaponState(weaponId, def.clipSize);
     const state = this.weaponStates.get(weaponId)!;
