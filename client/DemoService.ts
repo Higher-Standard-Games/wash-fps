@@ -11,8 +11,18 @@
  *   4. `demoplay cinematic <min>` → loadAndPlayCinematic(viewer, cameraSystem, minutes)
  */
 
+import { Color3, Vector3 } from "@babylonjs/core";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import type { GameState } from "../../../engine/network/core/GameState";
+import {
+  BLADE_EXPLOSION,
+  GRENADE_EXPLOSION,
+  getExplosionEffect,
+  PLASMA_EXPLOSION,
+  ROCKET_EXPLOSION,
+} from "../../../engine/weapon/ExplosionEffect";
+import { getHitscanEffects } from "../../../engine/weapon/HitscanEffects";
+import { getProjectileManager } from "../../../engine/weapon/ProjectileManager";
 import { WeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
 import type { LobbyClient } from "../../../lobby/LobbyClient";
 import type { DemoInfo } from "../../../lobby/types";
@@ -22,6 +32,7 @@ import { DemoReader } from "../../../shared/demo/DemoReader";
 import { CinematicDemoPlayer } from "./CinematicDemoPlayer";
 import type { DemoViewer } from "./DemoViewer";
 import type { DemoViewerHUD } from "./DemoViewerHUD";
+import { handleRemoteWeaponFire, WEAPON_EFFECT_COLORS } from "./GameEvents";
 import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
 
 export class DemoService {
@@ -343,6 +354,13 @@ export class DemoService {
     // in demo playback we own it and fill it from weapon_state events per frame.
     this.remoteRenderer.setEnemyWeapons(this._enemyWeapons);
 
+    // Initialize the shared effect systems against the demo scene so replayed
+    // weapon_fire / projectile_impact / weapon_chain events render (these guard
+    // on a scene being set and no-op otherwise).
+    getHitscanEffects().init(scene);
+    getExplosionEffect().init(scene);
+    getProjectileManager().init(scene);
+
     viewer.onFrame((state) => {
       this.latestState = state;
       this._updateEnemyWeapons(state);
@@ -351,6 +369,7 @@ export class DemoService {
       this._updateDemoWeapon(state);
       this._updateDemoRecoil(state);
       this._updateDemoHud(state);
+      this._processDemoEffects(state);
     });
 
     if (typeof document === "undefined") return;
@@ -573,6 +592,50 @@ export class DemoService {
     });
   }
 
+  /**
+   * Replay this frame's combat events as visuals: weapon fire (hitscan tracers /
+   * beams / pellets / blade slash), chain lightning, and projectile impacts.
+   * Reuses the same effect singletons + fire handler as live play.
+   */
+  private _processDemoEffects(state: GameState): void {
+    for (const event of state.events) {
+      if (event.type === "weapon_fire") {
+        handleRemoteWeaponFire(event, this.remoteRenderer);
+      } else if (event.type === "weapon_chain") {
+        const fx = getHitscanEffects();
+        const pts = ((event as { points?: Array<{ x: number; y: number; z: number }> }).points ?? []).map(
+          (p) => new Vector3(p.x, p.y, p.z),
+        );
+        const rgb = WEAPON_EFFECT_COLORS.voltaic;
+        const color = new Color3(rgb[0], rgb[1], rgb[2]);
+        for (let i = 0; i < pts.length - 1; i++) {
+          fx.fireLightningArc(pts[i], pts[i + 1], color);
+        }
+      } else if (event.type === "projectile_impact") {
+        const e = event as unknown as {
+          x: number;
+          y: number;
+          z: number;
+          normalX: number;
+          normalY: number;
+          normalZ: number;
+          defId: string;
+        };
+        const pos = new Vector3(e.x, e.y, e.z);
+        const normal = new Vector3(e.normalX, e.normalY, e.normalZ);
+        const config =
+          e.defId === "grenade" || e.defId === "glauncher"
+            ? GRENADE_EXPLOSION
+            : e.defId === "plasma_bolt" || e.defId === "plasmagun"
+              ? PLASMA_EXPLOSION
+              : e.defId === "blade_blast"
+                ? BLADE_EXPLOSION
+                : ROCKET_EXPLOSION;
+        getExplosionEffect().spawn(pos, config, normal);
+      }
+    }
+  }
+
   /** Format a weapon's ammo value ({clip,reserve} or number) for the HUD. */
   private _formatAmmo(ammo: unknown): string {
     if (ammo && typeof ammo === "object") {
@@ -638,7 +701,7 @@ export class DemoService {
       | undefined;
     if (velocity) {
       const v = velocity.linear ?? velocity;
-      const hSpeed = Math.sqrt(((v.x ?? 0) ** 2) + ((v.z ?? 0) ** 2));
+      const hSpeed = Math.sqrt((v.x ?? 0) ** 2 + (v.z ?? 0) ** 2);
       wvm.updateBob(hSpeed, v.y ?? 0);
     }
   }

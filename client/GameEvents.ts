@@ -97,7 +97,7 @@ export interface GameEventContext {
 }
 
 /** Color palette per weapon ID (Warsow-inspired) */
-const WEAPON_EFFECT_COLORS: Record<string, [number, number, number]> = {
+export const WEAPON_EFFECT_COLORS: Record<string, [number, number, number]> = {
   machinegun: [1.0, 0.9, 0.3], // warm yellow
   riotgun: [1.0, 0.6, 0.2], // orange
   voltaic: [1.0, 0.7, 0.1], // warm orange (beam)
@@ -154,7 +154,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
           if (ctx._localCharging) ctx._localCharging = false;
           wvm.fire({ isProjectileFire });
         } else {
-          handleRemoteWeaponFire(ctx, event);
+          handleRemoteWeaponFire(event, ctx.remoteRenderer);
         }
       } else if (event.type === "weapon_charge") {
         if (event.entityId === localEntityId) {
@@ -621,7 +621,7 @@ function handleWeaponStateSync(ctx: GameEventContext, event: any): void {
 /**
  * Spawn visual effects for another player's weapon fire.
  */
-function handleRemoteWeaponFire(ctx: GameEventContext, event: any): void {
+export function handleRemoteWeaponFire(event: any, remoteRenderer: RemotePlayerRenderer | null): void {
   const fx = getHitscanEffects();
   const projMgr = getProjectileManager();
 
@@ -667,7 +667,7 @@ function handleRemoteWeaponFire(ctx: GameEventContext, event: any): void {
     case "gunblade":
       break;
     case "blade":
-      ctx.remoteRenderer?.playAttackAnim(event.entityId, "blade_slash", 2.0);
+      remoteRenderer?.playAttackAnim(event.entityId, "blade_slash", 2.0);
       break;
     default:
       fx.fireTracer({ origin, direction: dir, color, maxRange: 5000 });

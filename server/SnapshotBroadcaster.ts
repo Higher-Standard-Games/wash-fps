@@ -13,7 +13,6 @@ import { GameState } from "../../../engine/network/core/GameState";
 import { MessageCodec } from "../../../engine/network/protocol/MessageCodec";
 import type { ServerPVS } from "../../../engine/server/ServerPVS";
 import type { ClientInfo } from "./Client";
-import { buildSnapshot, type SnapshotContext } from "./SnapshotBuilder";
 
 export class SnapshotBroadcaster {
   private snapshotHistory: Map<number, GameState> = new Map();
@@ -32,12 +31,13 @@ export class SnapshotBroadcaster {
   }
 
   /**
-   * Build a snapshot, encode it per-client (with delta + PVS), and send.
+   * Encode a prebuilt snapshot per-client (with delta + PVS) and send.
+   *
+   * The caller builds the GameState (via buildSnapshot) so it can be shared with
+   * demo recording — buildSnapshot drains one-shot events, so it must run once.
    */
-  broadcast(clients: Map<string, ClientInfo>, snapshotCtx: SnapshotContext): void {
+  broadcast(clients: Map<string, ClientInfo>, gameState: GameState): void {
     if (clients.size === 0) return;
-
-    const gameState = buildSnapshot(snapshotCtx);
 
     // Store in snapshot history for delta compression
     const tick = gameState.tick;

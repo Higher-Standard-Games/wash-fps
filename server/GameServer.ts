@@ -549,13 +549,20 @@ export class GameServer {
     if (this.snapshotTickCounter >= this.ticksPerSnapshot) {
       this.snapshotTickCounter = 0;
 
-      const snapshotCtx = this.getSnapshotContext();
-      this.broadcaster.broadcast(this.clients, snapshotCtx);
-
-      // 4b. Record frame for demo (if recording)
-      if (this.demoRecorder?.isRecording) {
+      const recording = !!this.demoRecorder?.isRecording;
+      if (this.clients.size > 0 || recording) {
+        // Build the snapshot ONCE and share it between broadcast + recording.
+        // buildSnapshot() drains one-shot events (weapon_fire, projectile_*,
+        // damage, death, …) from the subsystems as a side effect. The old code
+        // built it twice — the broadcaster's build drained those events, so the
+        // recorder's second build only captured persistent state (combat/weapon/
+        // match), and demos never contained any shooting/impact events.
+        const snapshotCtx = this.getSnapshotContext();
         const gameState = buildSnapshot(snapshotCtx);
-        this.demoRecorder.recordFrame(gameState);
+        this.broadcaster.broadcast(this.clients, gameState);
+        if (recording) {
+          this.demoRecorder?.recordFrame(gameState);
+        }
       }
     }
   }
