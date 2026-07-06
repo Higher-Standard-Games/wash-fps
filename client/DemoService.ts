@@ -12,12 +12,12 @@
  */
 
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
-import { CommandRegistry } from "../../../engine/console/CommandRegistry";
 import type { GameState } from "../../../engine/network/core/GameState";
 import { WeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
 import type { LobbyClient } from "../../../lobby/LobbyClient";
 import type { DemoInfo } from "../../../lobby/types";
 import { DemoAnalyzer } from "../../../shared/demo/DemoAnalyzer";
+import { normalizeDemoMapName } from "../../../shared/demo/DemoMapName";
 import { DemoReader } from "../../../shared/demo/DemoReader";
 import { CinematicDemoPlayer } from "./CinematicDemoPlayer";
 import type { DemoViewer } from "./DemoViewer";
@@ -124,11 +124,21 @@ export class DemoService {
   async loadAndPlayNormal(viewer: DemoViewer): Promise<void> {
     if (!this.loadedDemoData) throw new Error("No demo loaded. Use `demo <filename>` first.");
 
-    await this.ensureDemoMapLoaded();
+    // 1. Own the scene: stop any live game + any prior demo playback.
+    await this.teardownLiveSession();
     this.stopAll();
+
+    // 2. Register demo controllers + take a deterministic camera before load.
+    const cameraSystem = CameraSystem.getInstance();
+    await this.ensureCinematicControllers(cameraSystem);
+    this.beginDemoCamera(cameraSystem);
+
+    // 3. Render the recorded map locally (no server).
+    await this.ensureDemoMapLoaded();
+
+    // 4. Wire the frame callback → renderer/HUD, then play.
     this.activeDemoViewer = viewer;
     await this.ensureRuntimeWiring(viewer);
-    await this.ensureCinematicControllers(CameraSystem.getInstance());
     await viewer.load(this.loadedDemoData);
     viewer.play();
     this.startPlaybackLoop();
@@ -143,11 +153,20 @@ export class DemoService {
   async loadAndPlayCinematic(viewer: DemoViewer, cameraSystem: CameraSystem, durationMinutes: number): Promise<void> {
     if (!this.loadedDemoData) throw new Error("No demo loaded. Use `demo <filename>` first.");
 
-    await this.ensureDemoMapLoaded();
+    // 1. Own the scene: stop any live game + any prior demo playback.
+    await this.teardownLiveSession();
     this.stopAll();
+
+    // 2. Register demo controllers + take a deterministic camera before load.
+    await this.ensureCinematicControllers(cameraSystem);
+    this.beginDemoCamera(cameraSystem);
+
+    // 3. Render the recorded map locally (no server).
+    await this.ensureDemoMapLoaded();
+
+    // 4. Wire the frame callback, then start the cinematic player.
     this.activeDemoViewer = viewer;
     await this.ensureRuntimeWiring(viewer);
-    await this.ensureCinematicControllers(cameraSystem);
     const player = new CinematicDemoPlayer(viewer, cameraSystem);
     this.activeCinematicPlayer = player;
     await player.loadAndPlay(this.loadedDemoData, durationMinutes);
@@ -234,14 +253,59 @@ export class DemoService {
     }
   }
 
+  /**
+   * Render the recorded map LOCALLY — geometry + worldspawn lighting only,
+   * with no server and no gameplay.
+   *
+   * This deliberately does NOT use the `map` console command: that command
+   * delegates to the gameplay launcher, which spawns a live dev server via the
+   * lobby and joins it as a player. A demo just needs the world rendered so the
+   * replayed frames have somewhere to be drawn.
+   */
   private async ensureDemoMapLoaded(): Promise<void> {
     const header = this.loadedDemoReader?.readHeader();
     if (!header?.map) return;
 
-    const result = await CommandRegistry.getInstance().execute(`map ${header.map}`);
-    if (result && /failed to load map|no scene available|camerasystem not available|unknown command/i.test(result)) {
-      throw new Error(result);
+    const mapName = normalizeDemoMapName(header.map);
+    if (!mapName) {
+      throw new Error(`Demo has no usable map name (recorded: "${header.map}").`);
     }
+
+    const { loadClientMap } = await import("../../../engine/loader/map/ClientMapLoader");
+    const result = await loadClientMap(mapName);
+    if (/failed to load map|no scene available|camerasystem not available/i.test(result)) {
+      throw new Error(`Demo map load failed for "${mapName}": ${result}`);
+    }
+  }
+
+  /**
+   * Shut down any live game/network session before demo playback so live
+   * snapshots and the live FPS camera don't fight the replay in the same scene.
+   */
+  private async teardownLiveSession(): Promise<void> {
+    try {
+      const { Game } = await import("../Game");
+      const game = Game.getInstance();
+      if (game.isConnectedToServer()) {
+        console.log("[DemoService] Shutting down live game session before demo playback");
+        game.shutdown();
+      }
+    } catch (err) {
+      console.warn("[DemoService] teardownLiveSession failed (non-fatal):", err);
+    }
+  }
+
+  /**
+   * Deterministic camera handoff: make freefly the active controller before the
+   * map loads (so the map-load teleport frames a real camera at spawn instead of
+   * leaving a stale FPS/live controller in place). Once the first frame arrives,
+   * refreshHudPlayerList auto-switches to spectator on the first player.
+   */
+  private beginDemoCamera(cameraSystem: CameraSystem): void {
+    if (!cameraSystem.getController("freefly")) return;
+    const active = cameraSystem.getActiveController() as { type?: string } | null;
+    if (active?.type === "freefly" || active?.type === "spectator") return;
+    cameraSystem.setController("freefly");
   }
 
   private async ensureRuntimeWiring(viewer: DemoViewer): Promise<void> {
