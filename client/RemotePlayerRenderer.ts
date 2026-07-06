@@ -44,6 +44,8 @@ interface RemotePlayerHitbox {
   handBone: TransformNode | null;
   /** Current weapon ID string (for detecting weapon switches) */
   currentWeaponId: string;
+  /** Last team color applied ("alpha"/"bravo") — re-applied when team changes */
+  appliedTeam: "alpha" | "bravo" | null;
 }
 
 // ─── Constants (Q3-style player bounds) ──────────────────────────
@@ -104,6 +106,9 @@ export class RemotePlayerRenderer {
 
   /** Reference to enemyWeapons from GameEventContext — maps entityId → weaponId */
   private enemyWeapons: Map<string, string> = new Map();
+
+  /** entityId → server team id ("udon"/"soba"/"spectator"), from snapshot players */
+  private teams: Map<string, string> = new Map();
 
   /** Entity whose mesh+model should be hidden (e.g. followed player in demo POV) */
   private _hiddenEntityId: string | null = null;
@@ -171,14 +176,23 @@ export class RemotePlayerRenderer {
     if (instance) {
       // Start with idle animation
       this.modelManager.playAnimation(instance, "idle");
-
-      // PROTOTYPE: Apply team color based on entity ID hash
-      // TODO: Use actual team assignment from server
-      const hash = entityId.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
-      const team = hash % 2 === 0 ? "alpha" : "bravo";
-      this.modelManager.applyTeamColor(instance, team);
+      this.modelManager.applyTeamColor(instance, this.resolveTeamColor(entityId));
     }
     return instance;
+  }
+
+  /**
+   * Resolve the model tint for an entity.
+   * Team-based gametypes map udon→alpha (teal) and soba→bravo (magenta). For FFA
+   * (no team / spectator) fall back to a stable per-entity color from the id hash
+   * so players are still visually distinct.
+   */
+  private resolveTeamColor(entityId: string): "alpha" | "bravo" {
+    const team = this.teams.get(entityId);
+    if (team === "udon") return "alpha";
+    if (team === "soba") return "bravo";
+    const hash = entityId.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+    return hash % 2 === 0 ? "alpha" : "bravo";
   }
 
   // ── Public API ───────────────────────────────────────────────
@@ -192,6 +206,11 @@ export class RemotePlayerRenderer {
    * @param serverLocalTime Optional server timestamp converted to local time via ClockSync
    */
   pushSnapshot(state: GameState, localEntityId: string, serverLocalTime?: number): void {
+    // Track team per entity for team-colored models (keyed by client entityId)
+    for (const player of state.players.values()) {
+      if (player.team) this.teams.set(player.entityId, player.team);
+    }
+
     // Extract entity data into snapshot format
     const entities = new Map<string, EntitySnapshot>();
 
@@ -333,6 +352,7 @@ export class RemotePlayerRenderer {
     }
     this.hitboxes.clear();
     this.deadEntities.clear();
+    this.teams.clear();
     if (this.modelManager) {
       this.modelManager.dispose();
       this.modelManager = null;
@@ -491,6 +511,7 @@ export class RemotePlayerRenderer {
       weaponRoot: null,
       handBone: null,
       currentWeaponId: "",
+      appliedTeam: model ? this.resolveTeamColor(entityId) : null,
     };
   }
 
@@ -528,6 +549,13 @@ export class RemotePlayerRenderer {
   private updateModel(hitbox: RemotePlayerHitbox, interp: InterpolatedEntity, entityId: string): void {
     const inst = hitbox.model;
     if (!inst || !this.modelManager) return;
+
+    // Re-apply team tint if the player's team changed (e.g. spectator → team).
+    const desiredTeam = this.resolveTeamColor(entityId);
+    if (hitbox.appliedTeam !== desiredTeam) {
+      this.modelManager.applyTeamColor(inst, desiredTeam);
+      hitbox.appliedTeam = desiredTeam;
+    }
 
     // ── Weapon model on hand ──
     this.updateWeaponModel(hitbox, inst, entityId);

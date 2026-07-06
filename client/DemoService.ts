@@ -88,12 +88,21 @@ export class DemoService {
    * Returns a short summary string for console output.
    */
   async fetchAndLoad(filename: string): Promise<string> {
-    const response = await fetch(`/data/demos/${filename}`);
+    const response = await fetch(`${DemoService.demoBaseUrl()}/${filename}`);
     if (!response.ok) {
       throw new Error(`HTTP ${response.status} fetching ${filename}`);
     }
     const data = new Uint8Array(await response.arrayBuffer());
     return this._loadData(data, filename);
+  }
+
+  /**
+   * Base URL demos are fetched from. Defaults to the dev/Vite static path
+   * (`/data/demos`); override with `VITE_DEMO_BASE_URL` for lobby/prod hosting.
+   */
+  static demoBaseUrl(): string {
+    const base = import.meta.env.VITE_DEMO_BASE_URL || "/data/demos";
+    return base.replace(/\/+$/, "");
   }
 
   /**

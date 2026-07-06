@@ -40,9 +40,9 @@ export interface DemoConfig {
   map: string;
   /** Gametype (duel, ffa, tdm, etc.) */
   gametype: string;
-  /** Server tick rate (e.g. 60) */
+  /** Server tick rate in Hz (currently 125). Stored as uint8 in the header. */
   tickRate: number;
-  /** Snapshot rate (e.g. 20) */
+  /** Snapshot rate in Hz (currently 60). Stored as uint8 in the header. */
   snapshotRate: number;
   /** Output directory for demo files */
   outputDir?: string;
