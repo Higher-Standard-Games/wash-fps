@@ -113,6 +113,9 @@ export class RemotePlayerRenderer {
   /** Entity whose mesh+model should be hidden (e.g. followed player in demo POV) */
   private _hiddenEntityId: string | null = null;
 
+  /** Per-entity throttle timestamps for cl_animdebug logging */
+  private _lastAnimLog: Map<string, number> = new Map();
+
   constructor(scene: Scene) {
     this.scene = scene;
   }
@@ -604,6 +607,7 @@ export class RemotePlayerRenderer {
     }
     const animName = this.deriveAnimation(interp);
     this.modelManager.playAnimation(inst, animName);
+    this._animDebug(entityId, animName, interp, inst);
 
     // Scale animation speed to match movement speed (eliminate foot sliding)
     if (inst.masterGroup) {
@@ -833,6 +837,28 @@ export class RemotePlayerRenderer {
   }
 
   /**
+   * Diagnostic (cl_animdebug 1): logs the derived animation, movement inputs, and
+   * — crucially — the animation group's master frame, which only advances when the
+   * scene is stepping AnimationGroups. If `frame` is stuck across logs while the
+   * player is moving, skeletal animation isn't advancing (a render/scene issue);
+   * if `frame` advances but you see no motion, it's elsewhere.
+   */
+  private _animDebug(entityId: string, animName: string, interp: InterpolatedEntity, inst: PlayerModelInstance): void {
+    if (Number(Cvar.get("cl_animdebug") ?? 0) <= 0) return;
+    const now = performance.now();
+    if (now - (this._lastAnimLog.get(entityId) ?? 0) < 1000) return; // throttle: 1/s per entity
+    this._lastAnimLog.set(entityId, now);
+    const speed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz);
+    const g = inst.masterGroup;
+    const frame = g?.animatables?.[0]?.masterFrame;
+    console.log(
+      `[AnimDebug] ${entityId} anim=${animName} speed=${speed.toFixed(0)} grounded=${interp.grounded} ` +
+        `vy=${interp.vy.toFixed(0)} ratio=${g?.speedRatio?.toFixed(2) ?? "—"} ` +
+        `playing=${g?.isPlaying ?? false} frame=${frame?.toFixed(1) ?? "—"}`,
+    );
+  }
+
+  /**
    * Derive animation name from interpolated network data.
    * Uses velocity, grounded state, and yaw — all available from SnapshotBuffer.
    */
@@ -896,4 +922,12 @@ Cvar.register("cl_remotehitbox", 0, {
   min: 0,
   max: 1,
   description: "Show wireframe hitbox outlines on remote players",
+});
+
+Cvar.register("cl_animdebug", 0, {
+  type: "int",
+  min: 0,
+  max: 1,
+  description:
+    "Log remote/demo player animation state (derived anim, speed, grounded, whether the anim group advances)",
 });
