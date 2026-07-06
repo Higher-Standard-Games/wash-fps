@@ -58,6 +58,12 @@ export class DemoService {
   /** entityId → currentWeapon, fed to RemotePlayerRenderer for 3rd-person weapon models */
   private _enemyWeapons: Map<string, string> = new Map();
 
+  // Followed-player HUD stats (health/armor/weapon/ammo)
+  private _specHealth = 0;
+  private _specArmor = 0;
+  private _specWeapon = "";
+  private _specAmmo = "";
+
   private constructor() {}
 
   static getInstance(): DemoService {
@@ -257,6 +263,10 @@ export class DemoService {
     this._lastDemoWeapon = null;
     this._isSeeking = false;
     this._enemyWeapons.clear();
+    this._specHealth = 0;
+    this._specArmor = 0;
+    this._specWeapon = "";
+    this._specAmmo = "";
 
     const wvm = WeaponViewManager.getInstance();
     if (wvm.isInitialized()) {
@@ -340,6 +350,7 @@ export class DemoService {
       this.refreshHudPlayerList();
       this._updateDemoWeapon(state);
       this._updateDemoRecoil(state);
+      this._updateDemoHud(state);
     });
 
     if (typeof document === "undefined") return;
@@ -364,20 +375,31 @@ export class DemoService {
       this._isSeeking = false;
     });
     this.demoHud.onPlayerSelect((entityId) => {
-      const cam = CameraSystem.getInstance();
-      const spectator = cam.getController("spectator") as {
-        setSpectateTarget?: (id: string) => void;
-        type?: string;
-      } | null;
-      spectator?.setSpectateTarget?.(entityId);
-      // Only trigger full attach/detach if not already in spectator mode
-      if ((cam.getActiveController() as { type?: string } | null)?.type !== "spectator") {
-        cam.setController("spectator");
-      }
-      this._followedEntityId = entityId;
-      this._lastDemoWeapon = null;
-      this.remoteRenderer?.setHiddenEntity(entityId);
+      this._selectSpectateTarget(entityId);
     });
+  }
+
+  /**
+   * Follow a player entity in POV: point the spectator camera at it, hide its own
+   * model, and (re)attach the first-person weapon viewmodel to the spectator cam.
+   * Shared by manual player-list clicks and the first-frame auto-select.
+   */
+  private _selectSpectateTarget(entityId: string): void {
+    if (!entityId) return;
+    const cam = CameraSystem.getInstance();
+    const spectator = cam.getController("spectator") as {
+      setSpectateTarget?: (id: string) => void;
+      type?: string;
+    } | null;
+    spectator?.setSpectateTarget?.(entityId);
+    // Only trigger full attach/detach if not already in spectator mode
+    if ((cam.getActiveController() as { type?: string } | null)?.type !== "spectator") {
+      cam.setController("spectator");
+    }
+    this._followedEntityId = entityId;
+    this._lastDemoWeapon = null;
+    this.remoteRenderer?.setHiddenEntity(entityId);
+    this._attachWeaponViewToSpectatorCam();
   }
 
   private startPlaybackLoop(): void {
@@ -439,13 +461,8 @@ export class DemoService {
     rows.sort((a, b) => a.name.localeCompare(b.name));
     if (!currentTarget && rows.length > 0) {
       const first = rows[0].entityId;
-      spectator?.setSpectateTarget?.(first);
-      cameraSystem.setController("spectator");
+      this._selectSpectateTarget(first);
       currentTarget = first;
-      this._followedEntityId = first;
-      this._lastDemoWeapon = null;
-      this.remoteRenderer?.setHiddenEntity(first);
-      this._attachWeaponViewToSpectatorCam();
       for (const row of rows) {
         row.isTarget = row.entityId === currentTarget;
       }
@@ -497,8 +514,10 @@ export class DemoService {
   // ── Weapon viewmodel helpers (demo spectator mode) ────────────────────────
 
   /**
-   * Attach WeaponViewManager to the spectator camera after setController("spectator") runs.
-   * Only acts when WVM is initialized (i.e. a live FPS session has run first).
+   * Attach WeaponViewManager to the spectator camera so the POV weapon renders.
+   * Cold-start demos (no prior live FPS session) have an uninitialized WVM — we
+   * initialize it against the spectator camera + scene here so the viewmodel
+   * shows even when the demo is the first thing loaded this session.
    */
   private _attachWeaponViewToSpectatorCam(): void {
     const cam = CameraSystem.getInstance();
@@ -508,9 +527,60 @@ export class DemoService {
     const spectatorCam = spectatorCtrl?.getCamera?.();
     if (!spectatorCam) return;
     const wvm = WeaponViewManager.getInstance();
+    if (!wvm.isInitialized()) {
+      const scene = spectatorCam.getScene();
+      if (scene) wvm.init(scene, spectatorCam);
+    }
     if (!wvm.isInitialized()) return;
     wvm.attachToCamera(spectatorCam);
     wvm.setVisible(true);
+  }
+
+  /**
+   * Feed the demo HUD the followed player's live stats (health/armor/weapon/ammo)
+   * from the per-frame combat_state + weapon_state events.
+   */
+  private _updateDemoHud(state: GameState): void {
+    if (!this.demoHud) return;
+    if (!this._followedEntityId) {
+      this.demoHud.setSpectatorStats(null);
+      return;
+    }
+    for (const event of state.events) {
+      if (event.entityId !== this._followedEntityId) continue;
+      if (event.type === "combat_state") {
+        this._specHealth = (event as { health?: number }).health ?? this._specHealth;
+        this._specArmor = (event as { armor?: number }).armor ?? this._specArmor;
+      } else if (event.type === "weapon_state") {
+        const we = event as { currentWeapon?: string; ammo?: Record<string, unknown> };
+        this._specWeapon = we.currentWeapon ?? this._specWeapon;
+        this._specAmmo = this._formatAmmo(we.ammo?.[this._specWeapon]);
+      }
+    }
+    let name = this._followedEntityId;
+    for (const player of state.players.values()) {
+      if (player.entityId === this._followedEntityId) {
+        name = player.name || this._followedEntityId;
+        break;
+      }
+    }
+    this.demoHud.setSpectatorStats({
+      name,
+      health: this._specHealth,
+      armor: this._specArmor,
+      weapon: this._specWeapon,
+      ammo: this._specAmmo,
+    });
+  }
+
+  /** Format a weapon's ammo value ({clip,reserve} or number) for the HUD. */
+  private _formatAmmo(ammo: unknown): string {
+    if (ammo && typeof ammo === "object") {
+      const a = ammo as { clip?: number; reserve?: number };
+      if (a.clip !== undefined || a.reserve !== undefined) return `${a.clip ?? 0} / ${a.reserve ?? 0}`;
+    }
+    if (typeof ammo === "number") return String(ammo);
+    return "";
   }
 
   /**
