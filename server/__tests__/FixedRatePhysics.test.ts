@@ -8,14 +8,16 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { InputButtons } from "../../../../engine/network/components/InputComponent";
 import { Simulation } from "../../../../engine/server/core/Simulation";
 import { createPlayerEntity } from "../../../../engine/server/ecs/Entity";
 import { type EntityId, entityId, playerId } from "../../../../engine/server/ecs/types";
 import type { QueuedInput } from "../../../../shared/server/simulation/components/InputComponent";
 import { FPSMovementSubsystem } from "../systems/FPSMovementSubsystem";
+import { WeaponSystem } from "../systems/WeaponSystem";
 
-function cmd(seq: number): QueuedInput {
-  return { forward: 0, right: 0, pitch: 0, yaw: 0, buttons: 0, sequence: seq, weaponSlot: 0 };
+function cmd(seq: number, overrides: Partial<QueuedInput> = {}): QueuedInput {
+  return { forward: 0, right: 0, pitch: 0, yaw: 0, buttons: 0, sequence: seq, weaponSlot: 0, ...overrides };
 }
 
 function makeSim() {
@@ -47,6 +49,7 @@ function queueCmds(sim: Simulation, id: EntityId, ...cmds: QueuedInput[]) {
 // Always read the CURRENT tick's entity (sim swaps state each tick).
 const cur = (sim: Simulation, id: EntityId) => sim.getStateMut().getEntity(id)!;
 const vy = (sim: Simulation, id: EntityId) => cur(sim, id).physics!.velocity.y;
+const buttons = (sim: Simulation, id: EntityId) => cur(sim, id).input!.buttons;
 
 describe("Server-authoritative fixed-rate physics", () => {
   it("applies gravity every tick even with NO input commands (no skip)", () => {
@@ -90,5 +93,65 @@ describe("Server-authoritative fixed-rate physics", () => {
     expect(cur(sim, id).input!.lastProcessedSeq).toBe(10); // consumed exactly one
     sim.tick();
     expect(cur(sim, id).input!.lastProcessedSeq).toBe(11);
+  });
+
+  it("keeps stale action buttons only through the starvation grace window", () => {
+    const sim = makeSim();
+    const id = spawnAirborne(sim, 1);
+    queueCmds(
+      sim,
+      id,
+      cmd(1, {
+        forward: 1,
+        yaw: 0.5,
+        buttons: InputButtons.FIRE | InputButtons.JUMP | InputButtons.FORWARD,
+      }),
+    );
+
+    sim.tick();
+    expect(buttons(sim, id) & InputButtons.FIRE).not.toBe(0);
+    expect(buttons(sim, id) & InputButtons.JUMP).not.toBe(0);
+
+    for (let i = 0; i < 3; i++) sim.tick();
+    expect(buttons(sim, id) & InputButtons.FIRE).not.toBe(0);
+    expect(buttons(sim, id) & InputButtons.JUMP).not.toBe(0);
+    expect(cur(sim, id).input!.forward).toBe(1);
+    expect(cur(sim, id).input!.yaw).toBe(0.5);
+
+    const beforeStripVy = vy(sim, id);
+    sim.tick();
+    expect(buttons(sim, id) & InputButtons.FIRE).toBe(0);
+    expect(buttons(sim, id) & InputButtons.JUMP).toBe(0);
+    expect(buttons(sim, id) & InputButtons.FORWARD).not.toBe(0);
+    expect(cur(sim, id).input!.forward).toBe(1);
+    expect(cur(sim, id).input!.yaw).toBe(0.5);
+    expect(vy(sim, id)).toBeLessThan(beforeStripVy);
+  });
+
+  it("does not keep firing from one stale FIRE command after the grace window", () => {
+    const weaponSystem = new WeaponSystem();
+    const sim = new Simulation({ tickMs: 8 });
+    sim.addSubsystem(new FPSMovementSubsystem());
+    sim.addSubsystem(weaponSystem);
+    sim.initialize();
+
+    const id = spawnAirborne(sim, 1);
+    weaponSystem.initializeWeaponFromLoadout(
+      1 as never,
+      {
+        weapons: ["machinegun"],
+        ammo: { machinegun: 160 },
+        health: 100,
+        armor: 0,
+      } as never,
+    );
+    weaponSystem.getWeaponState(1 as never)!.lastFireTick = -100;
+
+    queueCmds(sim, id, cmd(1, { buttons: InputButtons.FIRE, forward: 0, right: 0 }));
+    sim.tick();
+    expect(weaponSystem.getPendingFireEvents()).toHaveLength(1);
+
+    for (let i = 0; i < 20; i++) sim.tick();
+    expect(weaponSystem.getPendingFireEvents()).toHaveLength(0);
   });
 });
