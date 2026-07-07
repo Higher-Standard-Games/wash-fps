@@ -506,10 +506,16 @@ export class GameServer {
       const m = this.telemetry.get(client.playerId);
       if (!m || m.inputs === 0) continue;
       const strikes = this.movementValidator.getStrikes(client.playerId);
+      // Accuracy (WO-AC1) lives in WeaponSystem (keyed by entity); compose here.
+      // Min-sample gated — small samples are noise (see ANTICHEAT_FEATURES.md §0.3).
+      const acc = this.weaponSystem.getAccuracy(client.entityId);
+      const accStr = acc.shots >= 30 ? `${((acc.hits / acc.shots) * 100).toFixed(1)}%` : "n/a";
+      const hsStr = acc.hits >= 10 ? `${((acc.headshots / acc.hits) * 100).toFixed(1)}%` : "n/a";
       console.log(
         `[Telemetry] player=${client.playerId} inputs=${m.inputs} loss=${(m.inputLoss * 100).toFixed(1)}% ` +
           `jitter=${m.jitterMs.toFixed(1)}ms viewSpeed=${m.viewSpeedDps.toFixed(0)}dps ` +
-          `peakFlick=${m.peakViewSpeedDps.toFixed(0)}dps warpStrikes=${strikes}`,
+          `peakFlick=${m.peakViewSpeedDps.toFixed(0)}dps warpStrikes=${strikes} ` +
+          `acc=${accStr} hs=${hsStr} shots=${acc.shots}`,
       );
     }
   }

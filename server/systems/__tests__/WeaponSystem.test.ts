@@ -378,6 +378,44 @@ describe("WeaponSystem — F8 projectiles registered by projectileId", () => {
     expect(registeredDefId).toBe("rocket");
   });
 });
+describe("WeaponSystem - WO-AC1 single-ray hitscan accuracy", () => {
+  it("counts a shot per trigger pull and a hit when the ray lands", () => {
+    const sys = new WeaponSystem();
+    sys.initializeWeaponFromLoadout(1 as never, mgLoadout as never);
+    const shooter = makeShooter(0, 0);
+    const target = makeTargetAlongRay(0, 0, 1000);
+
+    sys.update(makeState([shooter, target]) as never, 1 / 125, 100 as never);
+
+    const acc = sys.getAccuracy(1 as never);
+    expect(acc.shots).toBe(1);
+    expect(acc.hits).toBe(1);
+    expect(acc.headshots).toBe(0); // body hit along the level ray
+  });
+
+  it("counts a shot but no hit on a miss, and accumulates across shots", () => {
+    const sys = new WeaponSystem();
+    sys.initializeWeaponFromLoadout(1 as never, mgLoadout as never);
+    const shooter = makeShooter(0, 0);
+    const target = makeTargetAlongRay(0, 0, 1000);
+    const interval = fireIntervalTicks({ fireRate: 10 });
+
+    // shot 1: hit
+    sys.update(makeState([shooter, target]) as never, 1 / 125, interval as never);
+    // shot 2: no target in the world → miss
+    sys.update(makeState([shooter]) as never, 1 / 125, (interval * 2) as never);
+
+    const acc = sys.getAccuracy(1 as never);
+    expect(acc.shots).toBe(2);
+    expect(acc.hits).toBe(1);
+  });
+
+  it("reports zero accuracy for an entity that never fired", () => {
+    const sys = new WeaponSystem();
+    expect(sys.getAccuracy(99 as never)).toEqual({ shots: 0, hits: 0, headshots: 0 });
+  });
+});
+
 describe("WeaponSystem - WO-5 weapon switch gate", () => {
   it("rate-limits manual weapon switches while requiring a fresh edge after cooldown", () => {
     const sys = new WeaponSystem();

@@ -117,6 +117,15 @@ export class WeaponSystem extends Subsystem {
   private weaponStates: Map<EntityId, WeaponState> = new Map();
   private lastWeaponSlot: Map<EntityId, number> = new Map(); // Edge detection for slot changes
   private lastSwitchTick: Map<EntityId, number> = new Map();
+  /**
+   * Per-entity accuracy accounting for anti-cheat telemetry (WO-AC1). Scoped to
+   * **single-ray hitscan** (machinegun/electrobolt/instagun/lasergun/voltaic) — the
+   * cleanest signal, where one trigger pull = one ray = 0 or 1 hit. Pellet and
+   * projectile/splash weapons are excluded (a blast has no clean shot↔hit mapping).
+   * Cumulative per entity id (≈ per-match), composed into the [Telemetry] log by
+   * GameServer, which owns the entity→player mapping.
+   */
+  private accuracy: Map<EntityId, { shots: number; hits: number; headshots: number }> = new Map();
   private nextProjectileId: number = 10000;
   private pendingDamage: DamageEvent[] = [];
   private pendingFireEvents: WeaponFireEvent[] = [];
@@ -186,6 +195,14 @@ export class WeaponSystem extends Subsystem {
    */
   getWeaponState(entityId: EntityId): WeaponState | undefined {
     return this.weaponStates.get(entityId);
+  }
+
+  /**
+   * Cumulative single-ray-hitscan accuracy for an entity (WO-AC1). GameServer maps
+   * entity→player and composes accuracy%/headshot% (min-sample gated) into telemetry.
+   */
+  getAccuracy(entityId: EntityId): { shots: number; hits: number; headshots: number } {
+    return this.accuracy.get(entityId) ?? { shots: 0, hits: 0, headshots: 0 };
   }
 
   /**
@@ -1019,6 +1036,16 @@ export class WeaponSystem extends Subsystem {
     };
     const primaryHit = this.traceHitscanRay(state, shooter, weapon, start, dir, maxRange);
 
+    // Accuracy telemetry (WO-AC1): single-ray hitscan only — one trigger pull = one
+    // ray = 0/1 hit. (Pellet weapons return above; projectiles never reach here.)
+    const acc = this.accuracy.get(shooter.id) ?? { shots: 0, hits: 0, headshots: 0 };
+    acc.shots++;
+    if (primaryHit) {
+      acc.hits++;
+      if (primaryHit.hitLocation === HitLocation.Head) acc.headshots++;
+    }
+    this.accuracy.set(shooter.id, acc);
+
     // Chain lightning (voltaic): arc from the primary hit to nearby enemies.
     if (weapon.chainCount && primaryHit) {
       const links = this.applyChainLightning(state, shooter, weapon, primaryHit);
@@ -1111,7 +1138,7 @@ export class WeaponSystem extends Subsystem {
     start: { x: number; y: number; z: number },
     dir: { x: number; y: number; z: number },
     maxRange: number,
-  ): { id: EntityId; position: { x: number; y: number; z: number } } | null {
+  ): { id: EntityId; position: { x: number; y: number; z: number }; hitLocation: HitLocation } | null {
     // Check all potential targets
     for (const target of state.entitiesByType(EntityType.Player)) {
       if (target.id === shooter.id) continue;
@@ -1161,7 +1188,7 @@ export class WeaponSystem extends Subsystem {
 
         // Single-ray weapons stop on first hit; pellet rays always stop
         // (each pellet is its own ray call). Return the hit for chain follow-up.
-        return { id: target.id, position: { ...target.transform.position } };
+        return { id: target.id, position: { ...target.transform.position }, hitLocation };
       }
     }
     return null;
