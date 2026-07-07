@@ -12,9 +12,9 @@ import { createProjectileEntity } from "@engine/server/ecs/Entity";
 import type { EntityId, TickNumber } from "@engine/server/ecs/types";
 import { EntityType, entityId } from "@engine/server/ecs/types";
 import type { WeaponLoadout } from "@shared/server/gametype";
+import type { CollisionWorld } from "../../../../engine/network/systems/collision/CollisionWorld";
 import { DEFAULT_VIEWHEIGHT } from "../../../../engine/physics/PlayerPhysicsConstants";
 import { computeSpreadSeed, generateSpreadDirections } from "../../../../shared/SpreadUtils";
-import type { CollisionWorld } from "../../../../engine/network/systems/collision/CollisionWorld";
 import { WEAPONS, type WeaponDef } from "../weapons/WeaponDef";
 import { type DamageEvent, DamageType, HitLocation } from "./CombatSystem";
 import type { DroppedWeaponSystem } from "./DroppedWeaponSystem";
@@ -116,6 +116,7 @@ export interface WeaponAmmo {
 export class WeaponSystem extends Subsystem {
   private weaponStates: Map<EntityId, WeaponState> = new Map();
   private lastWeaponSlot: Map<EntityId, number> = new Map(); // Edge detection for slot changes
+  private lastSwitchTick: Map<EntityId, number> = new Map();
   private nextProjectileId: number = 10000;
   private pendingDamage: DamageEvent[] = [];
   private pendingFireEvents: WeaponFireEvent[] = [];
@@ -138,6 +139,7 @@ export class WeaponSystem extends Subsystem {
     shooterId: EntityId; // Who fired
     weapon: WeaponDef; // Weapon definition
   }[] = [];
+  private static readonly SWITCH_INTERVAL_TICKS = 25;
 
   constructor() {
     super(CONFIG);
@@ -342,7 +344,8 @@ export class WeaponSystem extends Subsystem {
       // Give ammo if not already present
       if (!state.ammo.has(weaponId) || this.ammoTotal(state.ammo.get(weaponId)) <= 0) {
         const weapon = WEAPONS[weaponId];
-        if (weapon) state.ammo.set(weaponId, this.createAmmoState(weapon, weapon.pickupAmmo ?? this.maxTotalAmmo(weapon)));
+        if (weapon)
+          state.ammo.set(weaponId, this.createAmmoState(weapon, weapon.pickupAmmo ?? this.maxTotalAmmo(weapon)));
       }
 
       return { added: true };
@@ -397,7 +400,8 @@ export class WeaponSystem extends Subsystem {
     // Give ammo if not already present
     if (!state.ammo.has(weaponId) || this.ammoTotal(state.ammo.get(weaponId)) <= 0) {
       const weapon = WEAPONS[weaponId];
-      if (weapon) state.ammo.set(weaponId, this.createAmmoState(weapon, weapon.pickupAmmo ?? this.maxTotalAmmo(weapon)));
+      if (weapon)
+        state.ammo.set(weaponId, this.createAmmoState(weapon, weapon.pickupAmmo ?? this.maxTotalAmmo(weapon)));
     }
 
     return { added: true, dropped: droppedWeapon };
@@ -506,6 +510,7 @@ export class WeaponSystem extends Subsystem {
     });
     // Reset edge detection so weapon slot changes are detected cleanly after respawn
     this.lastWeaponSlot.delete(id);
+    this.lastSwitchTick.delete(id);
   }
 
   /**
@@ -542,7 +547,7 @@ export class WeaponSystem extends Subsystem {
       if (tickNum >= check.checkTick) {
         // Find shooter entity at current tick
         const shooter = state.getEntity(check.shooterId);
-        if (shooter && shooter.transform && shooter.input && !shooter.health?.dead) {
+        if (shooter?.transform && shooter.input && !shooter.health?.dead) {
           this.fireMelee(state, shooter, check.weapon);
         }
         this.pendingMeleeChecks.splice(i, 1);
@@ -570,11 +575,17 @@ export class WeaponSystem extends Subsystem {
 
       if (weaponSlot !== prevSlot && weaponSlot > 0 && weaponSlot <= weaponState.weapons.length) {
         const newWeapon = weaponState.weapons[weaponSlot - 1];
-        if (newWeapon && newWeapon !== weaponState.currentWeapon) {
+        const lastSwitch = this.lastSwitchTick.get(entity.id) ?? Number.NEGATIVE_INFINITY;
+        if (
+          newWeapon &&
+          newWeapon !== weaponState.currentWeapon &&
+          tickNum - lastSwitch >= WeaponSystem.SWITCH_INTERVAL_TICKS
+        ) {
           weaponState.currentWeapon = newWeapon;
           weaponState.reloading = false; // Cancel reload on switch
           weaponState.reloadEndTick = 0;
           weaponState.chargeStartTick = 0; // Cancel charge on switch
+          this.lastSwitchTick.set(entity.id, tickNum);
         }
       }
 

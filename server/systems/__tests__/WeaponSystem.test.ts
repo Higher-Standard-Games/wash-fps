@@ -16,8 +16,8 @@
  * WeaponSystem.update touches for hitscan is entitiesByType + transform/input/health.
  */
 
-import { describe, expect, it } from "vitest";
 import { EntityType } from "@engine/server/ecs/types";
+import { describe, expect, it } from "vitest";
 import { DEFAULT_VIEWHEIGHT } from "../../../../../engine/physics/PlayerPhysicsConstants";
 import { fireIntervalTicks, WeaponSystem } from "../WeaponSystem";
 
@@ -186,7 +186,10 @@ describe("WeaponSystem - F3 reload models", () => {
 
   it("none weapons keep infinite ammo semantics", () => {
     const sys = new WeaponSystem();
-    sys.initializeWeaponFromLoadout(1 as never, { weapons: ["blade"], ammo: { blade: 1 }, health: 100, armor: 0 } as never);
+    sys.initializeWeaponFromLoadout(
+      1 as never,
+      { weapons: ["blade"], ammo: { blade: 1 }, health: 100, armor: 0 } as never,
+    );
 
     const shooter = makeShooter(0, 0);
     sys.update(makeState([shooter]) as never, 1 / 125, 100 as never);
@@ -373,5 +376,37 @@ describe("WeaponSystem — F8 projectiles registered by projectileId", () => {
     sys.update(makeState([shooter]) as never, 1 / 125, 100 as never);
 
     expect(registeredDefId).toBe("rocket");
+  });
+});
+describe("WeaponSystem - WO-5 weapon switch gate", () => {
+  it("rate-limits manual weapon switches while requiring a fresh edge after cooldown", () => {
+    const sys = new WeaponSystem();
+    const shooter = {
+      id: 1,
+      ownerId: 1,
+      transform: { position: { x: 0, y: 0, z: 0 } },
+      input: { buttons: 0, yaw: 0, pitch: 0, weaponSlot: 0 },
+      health: { dead: false, health: 100, armor: 0, maxHealth: 100, maxArmor: 100 },
+    };
+    const state = makeState([shooter]);
+    sys.initializeWeaponFromLoadout(
+      1 as never,
+      { weapons: ["blade", "machinegun"], ammo: { blade: 1, machinegun: 160 }, health: 100, armor: 0 } as never,
+    );
+    const weapon = () => sys.getWeaponState(1 as never)!.currentWeapon;
+
+    shooter.input.weaponSlot = 2;
+    sys.update(state as never, 1 / 125, 100 as never);
+    expect(weapon()).toBe("machinegun");
+
+    shooter.input.weaponSlot = 1;
+    sys.update(state as never, 1 / 125, 110 as never);
+    expect(weapon()).toBe("machinegun");
+
+    shooter.input.weaponSlot = 2;
+    sys.update(state as never, 1 / 125, 120 as never);
+    shooter.input.weaponSlot = 1;
+    sys.update(state as never, 1 / 125, 130 as never);
+    expect(weapon()).toBe("blade");
   });
 });

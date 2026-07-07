@@ -7,7 +7,7 @@
  * physics — e.g. "half gravity / moon jump" — by sending fewer/more commands.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { InputButtons } from "../../../../engine/network/components/InputComponent";
 import { Simulation } from "../../../../engine/server/core/Simulation";
 import { createPlayerEntity } from "../../../../engine/server/ecs/Entity";
@@ -153,5 +153,46 @@ describe("Server-authoritative fixed-rate physics", () => {
 
     for (let i = 0; i < 20; i++) sim.tick();
     expect(weaponSystem.getPendingFireEvents()).toHaveLength(0);
+  });
+
+  it("does not log authority tripwire warnings for normal movement", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const sim = makeSim();
+    spawnAirborne(sim, 1);
+
+    for (let i = 0; i < 5; i++) sim.tick();
+
+    const authorityWarnings = warn.mock.calls.filter(([msg]) => String(msg).includes("[Authority]"));
+    expect(authorityWarnings).toHaveLength(0);
+    warn.mockRestore();
+  });
+
+  it("logs authority tripwire warnings for impossible single-tick deltas", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const movement = new FPSMovementSubsystem();
+    const sim = new Simulation({ tickMs: 8 });
+    sim.addSubsystem(movement);
+    sim.initialize();
+    const id = spawnAirborne(sim, 1);
+
+    // biome-ignore lint/suspicious/noExplicitAny: inject a test profile to force an impossible delta
+    (movement as any).movementProfiles.set(id as unknown as number, {
+      speedBonus: 0,
+      simulate: (position: { x: number; y: number; z: number }, velocity: { x: number; y: number; z: number }) => ({
+        position: { x: position.x + 5000, y: position.y, z: position.z },
+        velocity: { ...velocity },
+        grounded: false,
+        isSliding: false,
+        isCrouching: false,
+        wallJumpState: "none",
+        ledgeGrabState: "none",
+        actualHorizSpeed: 0,
+      }),
+    });
+
+    sim.tick();
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("[Authority] entity 1 moved 5000u in one tick"));
+    warn.mockRestore();
   });
 });

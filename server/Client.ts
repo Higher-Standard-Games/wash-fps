@@ -36,6 +36,10 @@ export interface ClientInfo {
   lastInputSeq: number;
   /** Last snapshot tick the client has acknowledged receiving (for delta compression) */
   lastAckedTick: number;
+  /** Wall-clock (performance.now) of the last accepted respawn request. */
+  lastRespawnReqMs?: number;
+  /** Wall-clock (performance.now) of the last accepted team/spectate switch. */
+  lastTeamSwitchMs?: number;
   /** The actual filtered GameState last sent to this client (PVS baseline) */
   lastSentState?: GameState;
   /** true = spectating (no entity in simulation), false = playing */

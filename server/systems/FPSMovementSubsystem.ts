@@ -15,6 +15,8 @@ import type { WorldState } from "../../../../engine/server/core/WorldState";
 import type { EntityId, TickNumber } from "../../../../engine/server/ecs/types";
 import { EntityType } from "../../../../engine/server/ecs/types";
 import type { QueuedInput } from "../../../../shared/server/simulation/components/InputComponent";
+import type { PhysicsComponent } from "../../../../shared/server/simulation/components/PhysicsComponent";
+import type { AdvancedMovementResult } from "../../simulation/MovementConfig";
 import { MovementProfile as FPSMovementProfile } from "../../simulation/MovementProfile";
 
 const CONFIG: SubsystemConfig = {
@@ -57,8 +59,8 @@ function adaptInput(input: {
 /** Apply movement simulation result to entity transform and physics */
 function applyResult(
   transform: { position: { x: number; y: number; z: number }; rotation?: { x: number; y: number; z: number } },
-  physics: any,
-  result: any,
+  physics: PhysicsComponent,
+  result: AdvancedMovementResult,
   input?: { pitch: number; yaw: number },
 ): void {
   transform.position = result.position;
@@ -150,6 +152,8 @@ export class FPSMovementSubsystem extends Subsystem {
    */
   private static readonly ACTION_BUTTON_MASK =
     InputButtons.FIRE | InputButtons.ALT_FIRE | InputButtons.RELOAD | InputButtons.USE | InputButtons.JUMP;
+  /** Log-only authority tripwire; high enough to avoid normal movement/KB false positives. */
+  private static readonly MAX_TICK_STEP = 128;
 
   /** DIAGNOSTIC: track when each entity went airborne (tick number) */
   private jumpStartTick: Map<number, number> = new Map();
@@ -368,8 +372,22 @@ export class FPSMovementSubsystem extends Subsystem {
       }
 
       // Always simulate exactly one dt (even with no command ever — gravity applies).
+      const px = transform.position.x;
+      const py = transform.position.y;
+      const pz = transform.position.z;
       const result = profile.simulate(transform.position, physics.velocity, adaptInput(input), dt, this.collisionWorld);
       applyResult(transform, physics, result, input);
+
+      const mdx = transform.position.x - px;
+      const mdy = transform.position.y - py;
+      const mdz = transform.position.z - pz;
+      const moved = Math.sqrt(mdx * mdx + mdy * mdy + mdz * mdz);
+      if (moved > FPSMovementSubsystem.MAX_TICK_STEP) {
+        console.warn(
+          `[Authority] entity ${eid} moved ${moved.toFixed(0)}u in one tick ` +
+            `(max ${FPSMovementSubsystem.MAX_TICK_STEP}) pos=(${transform.position.x.toFixed(0)},${transform.position.y.toFixed(0)},${transform.position.z.toFixed(0)}) - log-only`,
+        );
+      }
 
       if (kbEntities.has(eid)) {
         console.log(

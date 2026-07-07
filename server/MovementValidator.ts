@@ -52,8 +52,8 @@ export class MovementValidator {
     this.inputCostMs = 1000 / expectedClientRate;
     // ceil(clientRate/serverRate) + 2 for jitter tolerance
     this.maxInputsPerTick = Math.ceil(expectedClientRate / serverTickRate) + 2;
-    // Allow banking up to ~200ms of time (handles small network bursts)
-    this.maxBudgetMs = 200;
+    // Allow banking up to ~500ms of time (handles bursty/jittery links)
+    this.maxBudgetMs = 500;
     this.strikeWarnThreshold = 50;
   }
 
@@ -102,25 +102,19 @@ export class MovementValidator {
     const elapsed = now - state.lastInputTime;
     state.lastInputTime = now;
 
-    // Earn time credit for real time that passed
-    state.timeBudget += elapsed;
-
-    // Cap budget — can't bank unlimited time by idling
-    if (state.timeBudget > this.maxBudgetMs) {
-      state.timeBudget = this.maxBudgetMs;
-    }
+    // Earn time credit for real time that passed, capped at maxBudgetMs so a
+    // client can't bank unlimited time by idling.
+    state.timeBudget = Math.min(this.maxBudgetMs, state.timeBudget + elapsed);
 
     // Spend time credit for this input
     if (state.timeBudget < this.inputCostMs) {
       // Not enough budget — client is sending faster than real time
       state.warpStrikes++;
-      state.totalRejected++;
       this.logStrike(playerId, state, "time_budget");
-      return false;
+    } else {
+      state.timeBudget -= this.inputCostMs;
     }
 
-    // Accept: deduct cost
-    state.timeBudget -= this.inputCostMs;
     state.inputsThisTick++;
     state.totalAccepted++;
     return true;
