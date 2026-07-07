@@ -12,6 +12,7 @@
 import type { Vec3 } from "../../../engine/network/components/TransformComponent";
 import type { CollisionWorld } from "../../../engine/network/systems/collision/CollisionWorld";
 import type { MovementInput } from "../../../engine/network/systems/movement/MovementProfile";
+import { sanitizeMovementOrZero } from "../../../shared/server/simulation/InputSanitizer";
 import type { AdvancedMovementResult } from "../simulation/MovementConfig";
 import { MovementProfile as FPSMovementProfile } from "../simulation/MovementProfile";
 import { InputHistory, type StoredInput } from "./InputHistory";
@@ -185,17 +186,22 @@ export class V2NetworkClient {
    * @returns The sequence number assigned to this input (send to server)
    */
   processInput(input: { direction: Vec3; pitch: number; yaw: number; buttons: number; clientTick: number }): number {
+    // Apply the SAME clamp the server applies on ingest, so predicted and
+    // server-simulated states never diverge (steep pitch / oversized wish dir).
+    const clean = sanitizeMovementOrZero(input);
+    const sanitizedInput = { ...clean, clientTick: input.clientTick };
+
     // 1. Store input for potential replay during reconciliation
     const seq = this.inputHistory.add({
-      direction: { ...input.direction },
-      pitch: input.pitch,
-      yaw: input.yaw,
-      buttons: input.buttons,
-      clientTick: input.clientTick,
+      direction: { ...sanitizedInput.direction },
+      pitch: sanitizedInput.pitch,
+      yaw: sanitizedInput.yaw,
+      buttons: sanitizedInput.buttons,
+      clientTick: sanitizedInput.clientTick,
     });
 
     // 2. Apply locally for instant feedback (same physics as server)
-    const movementInput = this.toMovementInput(input);
+    const movementInput = this.toMovementInput(sanitizedInput);
     const result = this.movement.simulate(
       this.localState.position,
       this.localState.velocity,

@@ -20,11 +20,12 @@ import type { Vec3 } from "@shared/server/simulation/types";
 // Protocol (client-compatible)
 import { MessageCodec, MessageType } from "../../../engine/network/protocol/MessageCodec";
 import type { CollisionWorld } from "../../../engine/network/systems/collision/CollisionWorld";
-import type { PickupEntry } from "../../../shared/bsp/PickupTable";
 // PVS (Potentially Visible Set) for network culling
 import { ServerPVS, type ServerPVSData } from "../../../engine/server/ServerPVS";
+import type { PickupEntry } from "../../../shared/bsp/PickupTable";
 // Match phase tracking (for auto-recording)
 import { MatchPhase } from "../../../shared/server/gametype/GametypeTypes";
+import { sanitizeCommand } from "../../../shared/server/simulation/InputSanitizer";
 // Bot names
 import { getNextBotName } from "./BotNames";
 // Client types (shared with SnapshotBuilder, SnapshotBroadcaster)
@@ -993,10 +994,16 @@ export class GameServer {
       return; // Silently drop — don't inform cheater
     }
 
+    const clean = sanitizeCommand(command);
+    if (!clean) {
+      client.lastInputSeq = seq;
+      return;
+    }
+
     const state = this.simulation.getStateMut();
     const mutEntity = state.getEntityMut(client.entityId);
     if (mutEntity?.input) {
-      const buttons = command.buttons || 0;
+      const buttons = clean.buttons;
       // Debug: log every 200th input to trace button values
       if (seq % 200 === 0) {
         console.log(
@@ -1004,13 +1011,13 @@ export class GameServer {
         );
       }
       mutEntity.input.inputQueue.push({
-        forward: command.direction?.z || 0,
-        right: command.direction?.x || 0,
-        pitch: command.pitch || 0,
-        yaw: command.yaw || 0,
+        forward: clean.direction.z,
+        right: clean.direction.x,
+        pitch: clean.pitch,
+        yaw: clean.yaw,
         buttons,
         sequence: seq,
-        weaponSlot: command.weaponSlot || 0,
+        weaponSlot: clean.weaponSlot,
       });
       client.lastInputSeq = seq;
     }

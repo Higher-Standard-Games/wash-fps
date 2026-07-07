@@ -7,6 +7,7 @@
  * Replaces the simpler CharacterPhysicsSystem.
  */
 
+import { InputButtons } from "../../../../engine/network/components/InputComponent";
 import type { CollisionWorld } from "../../../../engine/network/systems/collision/CollisionWorld";
 import type { MovementInput } from "../../../../engine/network/systems/movement/MovementProfile";
 import { Subsystem, type SubsystemConfig } from "../../../../engine/server/core/Subsystem";
@@ -128,9 +129,27 @@ export class FPSMovementSubsystem extends Subsystem {
    */
   private lastInput: Map<number, QueuedInput> = new Map();
 
+  /** Number of consecutive ticks where each entity has repeated stale input. */
+  private starvationTicks: Map<number, number> = new Map();
+
   /** Max buffered commands per entity — extras are dropped so a fast/flooding
    *  client can't bank physics time (each server tick consumes exactly one). */
   private static readonly MAX_INPUT_BUFFER = 6;
+  /** Ticks of repeated stale input tolerated before action buttons are cleared —
+   *  ~24ms @125Hz, enough to ride out one dropped packet without stuttering. */
+  private static readonly BUTTON_HOLD_GRACE_TICKS = 3;
+  /**
+   * Action buttons stripped once an entity starves past the grace window, so a
+   * frozen/silent client stops *acting* (movement axes are still repeated). Trade-offs:
+   *  - JUMP: prevents a silent client from auto-bunny-hopping forever. Cost: a real
+   *    bhopper who drops >grace ticks of packets falls out of the hop — acceptable
+   *    (no fresh input ⇒ we don't assume the key is still held).
+   *  - ALT_FIRE: for the blade's hold-to-charge alt, stripping mid-charge reads as a
+   *    release and may auto-fire one charged shot. Deliberate: it fires along the last
+   *    aim and can't repeat, which still satisfies "no continuous fire from a frozen client."
+   */
+  private static readonly ACTION_BUTTON_MASK =
+    InputButtons.FIRE | InputButtons.ALT_FIRE | InputButtons.RELOAD | InputButtons.USE | InputButtons.JUMP;
 
   /** DIAGNOSTIC: track when each entity went airborne (tick number) */
   private jumpStartTick: Map<number, number> = new Map();
@@ -318,7 +337,22 @@ export class FPSMovementSubsystem extends Subsystem {
       }
 
       // Consume one command this tick (FIFO); fall back to the last one we used.
-      const cmd = queue.shift() ?? this.lastInput.get(eid);
+      // On starvation (no fresh command) we keep repeating movement/aim so gravity
+      // and momentum still advance, but strip the action buttons past a short grace
+      // so a silent/frozen client can't keep firing/jumping (see ACTION_BUTTON_MASK).
+      const fresh = queue.shift();
+      let cmd = fresh ?? this.lastInput.get(eid);
+      if (fresh) {
+        this.starvationTicks.set(eid, 0);
+      } else if (cmd) {
+        const starved = (this.starvationTicks.get(eid) ?? 0) + 1;
+        this.starvationTicks.set(eid, starved);
+        if (starved > FPSMovementSubsystem.BUTTON_HOLD_GRACE_TICKS) {
+          // New object (don't mutate the shared lastInput in place); the stripped
+          // version is then stored back as lastInput so buttons stay cleared.
+          cmd = { ...cmd, buttons: cmd.buttons & ~FPSMovementSubsystem.ACTION_BUTTON_MASK };
+        }
+      }
       if (cmd) {
         input.forward = cmd.forward;
         input.right = cmd.right;
@@ -512,5 +546,6 @@ export class FPSMovementSubsystem extends Subsystem {
   removeEntity(entityId: number): void {
     this.movementProfiles.delete(entityId);
     this.lastKBTick.delete(entityId);
+    this.starvationTicks.delete(entityId);
   }
 }
