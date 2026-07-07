@@ -14,6 +14,7 @@ import { EntityType, entityId } from "@engine/server/ecs/types";
 import type { WeaponLoadout } from "@shared/server/gametype";
 import type { CollisionWorld } from "../../../../engine/network/systems/collision/CollisionWorld";
 import { DEFAULT_VIEWHEIGHT } from "../../../../engine/physics/PlayerPhysicsConstants";
+import { rngFrom } from "../../../../shared/DeterministicRng";
 import { computeSpreadSeed, generateSpreadDirections } from "../../../../shared/SpreadUtils";
 import { WEAPONS, type WeaponDef } from "../weapons/WeaponDef";
 import { type DamageEvent, DamageType, HitLocation } from "./CombatSystem";
@@ -126,6 +127,9 @@ export class WeaponSystem extends Subsystem {
    * GameServer, which owns the entity→player mapping.
    */
   private accuracy: Map<EntityId, { shots: number; hits: number; headshots: number }> = new Map();
+  /** Current sim tick, captured each update() — seeds deterministic RNG for drop
+   *  scatter / projectile spread so the sim is reproducible for demo re-sim (R3). */
+  private currentTick = 0;
   private nextProjectileId: number = 10000;
   private pendingDamage: DamageEvent[] = [];
   private pendingFireEvents: WeaponFireEvent[] = [];
@@ -387,16 +391,17 @@ export class WeaponSystem extends Subsystem {
     const droppedAmmo = weaponDef ? Math.min(playerAmmo, weaponDef.pickupAmmo ?? weaponDef.maxAmmo) : playerAmmo;
     const pos = this.entityPositions.get(entityId);
     if (this.droppedWeaponSystem && pos) {
-      // Random toss: upward + random horizontal scatter
-      const angle = Math.random() * Math.PI * 2;
-      const hSpeed = 80 + Math.random() * 60; // 80-140 horizontal
+      // Deterministic toss, seeded from tick+entity so demo re-sim reproduces it (R3).
+      const rng = rngFrom(this.currentTick, entityId as number, 1);
+      const angle = rng() * Math.PI * 2;
+      const hSpeed = 80 + rng() * 60; // 80-140 horizontal
       this.droppedWeaponSystem.queueDrop({
         weaponId: droppedWeapon,
         ammo: droppedAmmo,
         position: { x: pos.x, y: pos.y + 20, z: pos.z },
         velocity: {
           x: Math.cos(angle) * hSpeed,
-          y: 180 + Math.random() * 60, // 180-240 upward
+          y: 180 + rng() * 60, // 180-240 upward
           z: Math.sin(angle) * hSpeed,
         },
       });
@@ -470,16 +475,17 @@ export class WeaponSystem extends Subsystem {
       const playerAmmo = this.ammoTotal(state.ammo.get(weaponId));
       // Cap dropped ammo at pickupAmmo (one clip worth)
       const ammo = weaponDef ? Math.min(playerAmmo, weaponDef.pickupAmmo ?? weaponDef.maxAmmo) : playerAmmo;
-      // Death scatter: spread weapons in different directions
-      const angle = (i / toDrop.length) * Math.PI * 2 + Math.random() * 0.5;
-      const hSpeed = 60 + Math.random() * 80;
+      // Deterministic death scatter (seeded from tick+entity+slot, R3).
+      const rng = rngFrom(this.currentTick, eId as number, i);
+      const angle = (i / toDrop.length) * Math.PI * 2 + rng() * 0.5;
+      const hSpeed = 60 + rng() * 80;
       this.droppedWeaponSystem.queueDrop({
         weaponId,
         ammo,
         position: { x: pos.x, y: pos.y + 20, z: pos.z },
         velocity: {
           x: Math.cos(angle) * hSpeed,
-          y: 200 + Math.random() * 80, // 200-280 upward
+          y: 200 + rng() * 80, // 200-280 upward
           z: Math.sin(angle) * hSpeed,
         },
       });
@@ -555,6 +561,7 @@ export class WeaponSystem extends Subsystem {
 
   update(state: WorldState, _dt: number, tick: TickNumber): void {
     const tickNum = tick as number;
+    this.currentTick = tickNum;
 
     // Process delayed melee damage checks
     // Damage is checked using the shooter's CURRENT aim, not aim at fire time
@@ -1268,8 +1275,9 @@ export class WeaponSystem extends Subsystem {
       const spreadDeg = isADS && weapon.adsSpread !== undefined ? weapon.adsSpread : weapon.spread;
       if (spreadDeg > 0) {
         const spreadRad = (spreadDeg * Math.PI) / 180;
-        yaw += (Math.random() - 0.5) * spreadRad;
-        pitch += (Math.random() - 0.5) * spreadRad;
+        const rng = rngFrom(this.currentTick, shooter.id as number, 3);
+        yaw += (rng() - 0.5) * spreadRad;
+        pitch += (rng() - 0.5) * spreadRad;
       }
     }
 
