@@ -193,6 +193,8 @@ describe("Server-authoritative fixed-rate physics", () => {
     sim.tick();
 
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("[Authority] entity 1 moved 5000u in one tick"));
+    // WO-AC2: the tripwire also bumps a per-entity counter for anti-cheat telemetry.
+    expect(movement.getTripwireHits(id as unknown as number)).toBeGreaterThan(0);
     warn.mockRestore();
   });
 });

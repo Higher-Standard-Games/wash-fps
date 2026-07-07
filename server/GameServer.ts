@@ -511,11 +511,15 @@ export class GameServer {
       const acc = this.weaponSystem.getAccuracy(client.entityId);
       const accStr = acc.shots >= 30 ? `${((acc.hits / acc.shots) * 100).toFixed(1)}%` : "n/a";
       const hsStr = acc.hits >= 10 ? `${((acc.headshots / acc.hits) * 100).toFixed(1)}%` : "n/a";
+      // Impossible-input counters (WO-AC2): near-zero for honest clients. rejected/
+      // clamped from the sanitizer (Telemetry), tripwire from the physics subsystem.
+      const tripwire = this.physicsSystem.getTripwireHits(client.entityId as number);
       console.log(
         `[Telemetry] player=${client.playerId} inputs=${m.inputs} loss=${(m.inputLoss * 100).toFixed(1)}% ` +
           `jitter=${m.jitterMs.toFixed(1)}ms viewSpeed=${m.viewSpeedDps.toFixed(0)}dps ` +
           `peakFlick=${m.peakViewSpeedDps.toFixed(0)}dps warpStrikes=${strikes} ` +
-          `acc=${accStr} hs=${hsStr} shots=${acc.shots}`,
+          `acc=${accStr} hs=${hsStr} shots=${acc.shots} ` +
+          `rejected=${m.rejectedCmds} clamped=${m.clampedCmds} tripwire=${tripwire}`,
       );
     }
   }
@@ -1046,8 +1050,17 @@ export class GameServer {
 
     const clean = sanitizeCommand(command);
     if (!clean) {
+      // Non-finite usercmd — a hard contract violation (WO-AC2). Count + drop.
+      this.telemetry.recordViolation(client.playerId, "rejected");
       client.lastInputSeq = seq;
       return;
+    }
+    // Accepted but the sanitizer had to clamp an out-of-range field (pitch beyond
+    // ±90° or |wishdir|>1) — also a contract violation an honest client never sends.
+    const rawDx = command.direction?.x ?? 0;
+    const rawDz = command.direction?.z ?? 0;
+    if (Math.abs(command.pitch ?? 0) > Math.PI / 2 + 1e-4 || Math.hypot(rawDx, rawDz) > 1 + 1e-4) {
+      this.telemetry.recordViolation(client.playerId, "clamped");
     }
 
     const state = this.simulation.getStateMut();

@@ -154,6 +154,8 @@ export class FPSMovementSubsystem extends Subsystem {
     InputButtons.FIRE | InputButtons.ALT_FIRE | InputButtons.RELOAD | InputButtons.USE | InputButtons.JUMP;
   /** Log-only authority tripwire; high enough to avoid normal movement/KB false positives. */
   private static readonly MAX_TICK_STEP = 128;
+  /** Per-entity count of tripwire firings, surfaced as an anti-cheat signal (WO-AC2). */
+  private tripwireHits: Map<number, number> = new Map();
 
   /** DIAGNOSTIC: track when each entity went airborne (tick number) */
   private jumpStartTick: Map<number, number> = new Map();
@@ -383,6 +385,7 @@ export class FPSMovementSubsystem extends Subsystem {
       const mdz = transform.position.z - pz;
       const moved = Math.sqrt(mdx * mdx + mdy * mdy + mdz * mdz);
       if (moved > FPSMovementSubsystem.MAX_TICK_STEP) {
+        this.tripwireHits.set(eid, (this.tripwireHits.get(eid) ?? 0) + 1);
         console.warn(
           `[Authority] entity ${eid} moved ${moved.toFixed(0)}u in one tick ` +
             `(max ${FPSMovementSubsystem.MAX_TICK_STEP}) pos=(${transform.position.x.toFixed(0)},${transform.position.y.toFixed(0)},${transform.position.z.toFixed(0)}) - log-only`,
@@ -565,5 +568,11 @@ export class FPSMovementSubsystem extends Subsystem {
     this.movementProfiles.delete(entityId);
     this.lastKBTick.delete(entityId);
     this.starvationTicks.delete(entityId);
+    this.tripwireHits.delete(entityId);
+  }
+
+  /** Cumulative authority-tripwire firings for an entity (anti-cheat signal, WO-AC2). */
+  getTripwireHits(entityId: number): number {
+    return this.tripwireHits.get(entityId) ?? 0;
   }
 }

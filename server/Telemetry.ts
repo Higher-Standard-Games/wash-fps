@@ -39,6 +39,12 @@ export interface ClientMetrics {
   peakViewSpeedDps: number;
   /** usercmds actually observed by the server. */
   inputs: number;
+  /** usercmds rejected outright (non-finite dir/pitch/yaw) — a hard contract
+   *  violation an honest client never produces (WO-AC2). */
+  rejectedCmds: number;
+  /** usercmds the sanitizer had to clamp (pitch beyond ±90° or |wishdir|>1) —
+   *  also a contract violation; honest clients stay in range (WO-AC2). */
+  clampedCmds: number;
 }
 
 interface ClientState {
@@ -53,6 +59,8 @@ interface ClientState {
   peakViewSpeedDps: number;
   /** count of usercmds recorded (unique forward-progress seqs). */
   received: number;
+  rejectedCmds: number;
+  clampedCmds: number;
 }
 
 /** Shortest angular distance between two angles (radians), in degrees. */
@@ -85,12 +93,27 @@ export class Telemetry {
       viewSpeedDps: 0,
       peakViewSpeedDps: 0,
       received: 0,
+      rejectedCmds: 0,
+      clampedCmds: 0,
     });
   }
 
   /** Stop tracking a client (on disconnect). */
   remove(playerId: PlayerId): void {
     this.clients.delete(playerId);
+  }
+
+  /**
+   * Record an input-contract violation (WO-AC2): a usercmd the sanitizer rejected
+   * ("rejected", non-finite) or had to clamp ("clamped", out-of-range). Honest
+   * clients essentially never trip these, so a nonzero count is a near-zero-FP
+   * signal — but still only ever *one input to a score*, never a solo verdict (§0.3).
+   */
+  recordViolation(playerId: PlayerId, kind: "rejected" | "clamped"): void {
+    const s = this.clients.get(playerId);
+    if (!s) return;
+    if (kind === "rejected") s.rejectedCmds++;
+    else s.clampedCmds++;
   }
 
   /**
@@ -150,6 +173,8 @@ export class Telemetry {
       viewSpeedDps: s.viewSpeedDps,
       peakViewSpeedDps: s.peakViewSpeedDps,
       inputs: s.received,
+      rejectedCmds: s.rejectedCmds,
+      clampedCmds: s.clampedCmds,
     };
   }
 }

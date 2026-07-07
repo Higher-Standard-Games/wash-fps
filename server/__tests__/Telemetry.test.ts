@@ -82,6 +82,24 @@ describe("Telemetry", () => {
     expect(t.get(P)!.jitterMs).toBeGreaterThan(steady);
   });
 
+  it("counts input-contract violations (rejected / clamped), zero by default", () => {
+    const t = new Telemetry();
+    t.add(P);
+    let m = t.get(P)!;
+    expect(m.rejectedCmds).toBe(0);
+    expect(m.clampedCmds).toBe(0);
+
+    t.recordViolation(P, "rejected");
+    t.recordViolation(P, "rejected");
+    t.recordViolation(P, "clamped");
+    m = t.get(P)!;
+    expect(m.rejectedCmds).toBe(2);
+    expect(m.clampedCmds).toBe(1);
+
+    // untracked player is a silent no-op (no throw)
+    t.recordViolation(playerId(999), "rejected");
+  });
+
   it("measures view angular speed and tracks the peak flick", () => {
     const t = new Telemetry();
     t.add(P);
