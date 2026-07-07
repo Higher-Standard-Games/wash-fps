@@ -286,10 +286,11 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
       // Use entity ID for client entity reference (needed for combat_state)
       const entityClientId = `player_${entity.id}`;
       if (!gameState.players.has(playerId)) {
-        // Get score and deaths from gametype controller
+        // Get score, deaths and team from gametype controller
         const matchState = ctx.gametypeController.getMatchState();
         const score = matchState.getScore(entity.ownerId);
         const deaths = matchState.getDeaths(entity.ownerId);
+        const team = matchState.getPlayerTeam(entity.ownerId);
 
         // Find real player name and ping from client info (O(1) map lookup)
         let displayName = ctx.botNames.get(entity.ownerId) || `Player ${entity.ownerId}`;
@@ -303,7 +304,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
         const playerState: PlayerState = {
           entityId: entityClientId,
           name: displayName,
-          team: "",
+          team,
           score,
           deaths,
           ping,

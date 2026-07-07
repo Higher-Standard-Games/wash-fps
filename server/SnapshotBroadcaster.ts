@@ -13,7 +13,6 @@ import { GameState } from "../../../engine/network/core/GameState";
 import { MessageCodec } from "../../../engine/network/protocol/MessageCodec";
 import type { ServerPVS } from "../../../engine/server/ServerPVS";
 import type { ClientInfo } from "./Client";
-import { buildSnapshot, type SnapshotContext } from "./SnapshotBuilder";
 
 export class SnapshotBroadcaster {
   private snapshotHistory: Map<number, GameState> = new Map();
@@ -32,12 +31,13 @@ export class SnapshotBroadcaster {
   }
 
   /**
-   * Build a snapshot, encode it per-client (with delta + PVS), and send.
+   * Encode a prebuilt snapshot per-client (with delta + PVS) and send.
+   *
+   * The caller builds the GameState (via buildSnapshot) so it can be shared with
+   * demo recording — buildSnapshot drains one-shot events, so it must run once.
    */
-  broadcast(clients: Map<string, ClientInfo>, snapshotCtx: SnapshotContext): void {
+  broadcast(clients: Map<string, ClientInfo>, gameState: GameState): void {
     if (clients.size === 0) return;
-
-    const gameState = buildSnapshot(snapshotCtx);
 
     // Store in snapshot history for delta compression
     const tick = gameState.tick;
@@ -63,7 +63,13 @@ export class SnapshotBroadcaster {
         const pvsActive = !!(this.pvs && this.pvs.enabled);
         const clientState = pvsActive ? this.filterStateForClient(gameState, client) : gameState.shallowCopy();
 
-        clientState.ackedInputSeq = client.lastInputSeq;
+        // Ack the last command the SERVER actually SIMULATED for this client's
+        // entity (one-command-per-tick model) — not the last one received — so
+        // reconciliation replays exactly the un-simulated inputs. Falls back to
+        // the received seq if the entity has no input yet.
+        const simEntity = this.simulation.getState().getEntity(client.entityId);
+        const processedSeq = (simEntity?.input as { lastProcessedSeq?: number } | undefined)?.lastProcessedSeq;
+        clientState.ackedInputSeq = processedSeq ?? client.lastInputSeq;
 
         // Delta baseline: when PVS is active, use the per-client baseline
         // (the actual filtered state the client received), not the global

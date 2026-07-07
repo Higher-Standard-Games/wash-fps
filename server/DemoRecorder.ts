@@ -40,12 +40,18 @@ export interface DemoConfig {
   map: string;
   /** Gametype (duel, ffa, tdm, etc.) */
   gametype: string;
-  /** Server tick rate (e.g. 60) */
+  /** Server tick rate in Hz (currently 125). Stored as uint8 in the header. */
   tickRate: number;
-  /** Snapshot rate (e.g. 20) */
+  /** Snapshot rate in Hz (currently 60). Stored as uint8 in the header. */
   snapshotRate: number;
   /** Output directory for demo files */
   outputDir?: string;
+  /**
+   * Minimum recorded match duration (ms) below which the demo is discarded on
+   * stop() instead of written. Prevents demo flood from aborted / instant-end
+   * matches. Defaults to {@link DemoRecorder.DEFAULT_MIN_DURATION_MS}.
+   */
+  minDurationMs?: number;
 }
 
 export interface DemoPlayerEntry {
@@ -62,6 +68,9 @@ interface FrameIndex {
 // ── DemoRecorder ────────────────────────────────────────────────────────
 
 export class DemoRecorder {
+  /** Default floor for a keepable match: shorter recordings are discarded on stop(). */
+  static readonly DEFAULT_MIN_DURATION_MS = 10_000;
+
   private _config: DemoConfig;
   private _players: Map<string, DemoPlayerEntry> = new Map();
   private _frames: Uint8Array[] = [];
@@ -154,6 +163,18 @@ export class DemoRecorder {
     // Guard: don't write an empty demo file
     if (this._frameCount === 0) {
       console.warn("[DemoRecorder] No frames recorded, skipping file write");
+      return "";
+    }
+
+    // Guard: discard trivially short matches (aborted / instant-end) so casual
+    // testing doesn't flood the demo folder. Only real matches are kept.
+    const minDurationMs = this._config.minDurationMs ?? DemoRecorder.DEFAULT_MIN_DURATION_MS;
+    if (duration < minDurationMs) {
+      console.log(
+        `[DemoRecorder] Match too short (${(duration / 1000).toFixed(1)}s < ${(minDurationMs / 1000).toFixed(
+          0,
+        )}s) — discarding demo`,
+      );
       return "";
     }
 

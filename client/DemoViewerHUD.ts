@@ -23,6 +23,10 @@ export class DemoViewerHUD {
   private playerList: HTMLDivElement | null = null;
   private statusLabel: HTMLSpanElement | null = null;
   private collapseBtn: HTMLButtonElement | null = null;
+  private specStats: HTMLDivElement | null = null;
+
+  /** Signature of the last-rendered player list — avoids rebuilding buttons every frame (eats clicks) */
+  private _playerListSig = "";
 
   // Collapse state
   private collapsed = false;
@@ -182,6 +186,18 @@ export class DemoViewerHUD {
 
     this.container.appendChild(this.controlsRow);
 
+    // ── Spectated-player stats (hidden until a target is followed) ──
+    this.specStats = document.createElement("div");
+    this.specStats.style.cssText = `
+      display: none;
+      align-items: center;
+      gap: 16px;
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+      padding: 2px 2px 0;
+    `;
+    this.container.appendChild(this.specStats);
+
     // ── Player list (hidden by default) ─────────
     this.playerList = document.createElement("div");
     this.playerList.style.cssText = `
@@ -286,6 +302,13 @@ export class DemoViewerHUD {
   setPlayerList(players: Array<{ entityId: string; name: string; isTarget: boolean }>): void {
     if (!this.playerList) return;
 
+    // Skip the rebuild when nothing changed. This is called every frame; without
+    // the guard, innerHTML="" destroys the button between mousedown and mouseup so
+    // clicks never register (can't switch spectate target).
+    const sig = players.map((p) => `${p.entityId}:${p.isTarget ? 1 : 0}:${p.name}`).join("|");
+    if (sig === this._playerListSig) return;
+    this._playerListSig = sig;
+
     this.playerList.innerHTML = "";
     this.playerList.style.display = players.length > 0 ? "flex" : "none";
 
@@ -306,6 +329,30 @@ export class DemoViewerHUD {
       });
       this.playerList.appendChild(btn);
     }
+  }
+
+  /**
+   * Show the currently-spectated player's live stats (health / armor / weapon / ammo).
+   * Pass null to hide the row.
+   */
+  setSpectatorStats(stats: { name: string; health: number; armor: number; weapon: string; ammo: string } | null): void {
+    if (!this.specStats) return;
+    if (!stats) {
+      this.specStats.style.display = "none";
+      return;
+    }
+    this.specStats.style.display = "flex";
+    const weaponLabel = stats.weapon ? stats.weapon.replace(/_/g, " ") : "—";
+    const ammo = stats.ammo ? ` <span style="opacity:0.7">${this.escape(stats.ammo)}</span>` : "";
+    this.specStats.innerHTML =
+      `<span style="font-weight:600">${this.escape(stats.name)}</span>` +
+      `<span style="color:#ff6b6b">♥ ${Math.max(0, Math.round(stats.health))}</span>` +
+      `<span style="color:#ffd93d">▲ ${Math.max(0, Math.round(stats.armor))}</span>` +
+      `<span style="text-transform:uppercase;letter-spacing:0.5px">${this.escape(weaponLabel)}${ammo}</span>`;
+  }
+
+  private escape(s: string): string {
+    return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c);
   }
 
   // ── Callbacks ───────────────────────────────────────────────────
@@ -394,6 +441,7 @@ export class DemoViewerHUD {
     this.playerList = null;
     this.statusLabel = null;
     this.collapseBtn = null;
+    this.specStats = null;
     this._onSeek = null;
     this._onPlayPause = null;
     this._onSpeedChange = null;

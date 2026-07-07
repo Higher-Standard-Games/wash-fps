@@ -13,6 +13,7 @@ import { Subsystem, type SubsystemConfig } from "../../../../engine/server/core/
 import type { WorldState } from "../../../../engine/server/core/WorldState";
 import type { EntityId, TickNumber } from "../../../../engine/server/ecs/types";
 import { EntityType } from "../../../../engine/server/ecs/types";
+import type { QueuedInput } from "../../../../shared/server/simulation/components/InputComponent";
 import { MovementProfile as FPSMovementProfile } from "../../simulation/MovementProfile";
 
 const CONFIG: SubsystemConfig = {
@@ -119,6 +120,17 @@ export class FPSMovementSubsystem extends Subsystem {
 
   /** Per-entity speed bonus from weapon (e.g., +25 for blade) */
   private weaponSpeedBonuses: Map<number, number> = new Map();
+
+  /**
+   * Last input consumed per entity — repeated when no fresh command arrives this
+   * tick, so physics advances at the fixed server rate regardless of a client's
+   * input rate (server-authoritative; no client can slow/skip its own physics).
+   */
+  private lastInput: Map<number, QueuedInput> = new Map();
+
+  /** Max buffered commands per entity — extras are dropped so a fast/flooding
+   *  client can't bank physics time (each server tick consumes exactly one). */
+  private static readonly MAX_INPUT_BUFFER = 6;
 
   /** DIAGNOSTIC: track when each entity went airborne (tick number) */
   private jumpStartTick: Map<number, number> = new Map();
@@ -288,68 +300,47 @@ export class FPSMovementSubsystem extends Subsystem {
       // Apply weapon speed bonus (e.g., blade = +25)
       profile.speedBonus = this.weaponSpeedBonuses.get(entity.id as number) ?? 0;
 
+      // ── SERVER-AUTHORITATIVE FIXED-RATE PHYSICS ──────────────────────────
+      // Advance physics EXACTLY ONE dt per server tick, consuming at most one
+      // buffered command (in sequence order). If none arrived this tick, repeat
+      // the last input so gravity/momentum still advance. This decouples an
+      // entity's physics RATE from its input arrival RATE, so no client — human
+      // or bot, slow, laggy, or malicious — can slow, skip, or bank its own
+      // physics by sending fewer/more commands. Input *content* still matters;
+      // input *rate* cannot.
+      const eid = entity.id as number;
       const queue = input.inputQueue;
-      if (queue.length === 0) {
-        // No commands arrived this tick.
-        // QUAKE/WARSOW MODEL: physics only advances when commands arrive.
-        // All entities (humans + bots) send at 125Hz, so this path only
-        // fires during brief network hiccups. Gravity/momentum resume on
-        // the next command's simulate().
-        //
-        // This eliminates the 60Hz fps-dependency bug where stale-input
-        // simulation added ~50% extra physics for low-fps players.
-        if (kbEntities.has(entity.id as number)) {
-          console.log(`[KB POST-SIM] entity=${entity.id}: SKIP (queue=0, no physics step)`);
-        }
-      } else {
-        // Process each queued command with its own simulate() call,
-        // matching client-side prediction exactly.
-        //
-        // CRITICAL: use FULL dt per command (not dt/queue.length).
-        // The client (V2NetworkClient.processInput) predicts with this.dt
-        // (full dt = 0.008s) for each command. If we use fractional dt here,
-        // the server moves LESS than the client predicted → constant
-        // reconciliation snap-backs → "slow/jerky" movement.
-        //
-        // With full dt: client and server agree on physics per command.
-        // Total physics time may exceed dt when queue>1, but this only
-        // happens during network bursts and is consistent between both sides.
-        const USE_BUTTON = 1 << 11; // Must match InputButtons.USE
-        let usePressedInQueue = false;
 
-        for (const qi of queue) {
-          // Update current input state from queued input
-          input.forward = qi.forward;
-          input.right = qi.right;
-          input.pitch = qi.pitch;
-          input.yaw = qi.yaw;
-          input.buttons = qi.buttons;
-          input.sequence = qi.sequence;
-          // Weapon slot: only update if client specified one (0 = no change)
-          if (qi.weaponSlot > 0) {
-            input.weaponSlot = qi.weaponSlot;
-          }
+      // Cap the buffer: a client sending faster than the tick rate can't hoard
+      // commands to gain extra physics later — keep the newest, drop old excess.
+      if (queue.length > FPSMovementSubsystem.MAX_INPUT_BUFFER) {
+        queue.splice(0, queue.length - FPSMovementSubsystem.MAX_INPUT_BUFFER);
+      }
 
-          // Track USE across queue entries (sticky — don't lose brief presses)
-          if (qi.buttons & USE_BUTTON) usePressedInQueue = true;
+      // Consume one command this tick (FIFO); fall back to the last one we used.
+      const cmd = queue.shift() ?? this.lastInput.get(eid);
+      if (cmd) {
+        input.forward = cmd.forward;
+        input.right = cmd.right;
+        input.pitch = cmd.pitch;
+        input.yaw = cmd.yaw;
+        input.buttons = cmd.buttons;
+        input.sequence = cmd.sequence;
+        if (cmd.weaponSlot > 0) input.weaponSlot = cmd.weaponSlot;
+        this.lastInput.set(eid, cmd);
+        // Ack the command we actually simulated (not the last one received), so
+        // client reconciliation stays aligned under the one-per-tick model.
+        input.lastProcessedSeq = cmd.sequence;
+      }
 
-          // Simulate with FULL dt (matches client prediction)
-          const movementInput = adaptInput(input);
-          const result = profile.simulate(transform.position, physics.velocity, movementInput, dt, this.collisionWorld);
-          applyResult(transform, physics, result, input);
-        }
+      // Always simulate exactly one dt (even with no command ever — gravity applies).
+      const result = profile.simulate(transform.position, physics.velocity, adaptInput(input), dt, this.collisionWorld);
+      applyResult(transform, physics, result, input);
 
-        if (kbEntities.has(entity.id as number)) {
-          console.log(
-            `[KB POST-SIM] entity=${entity.id}: pos=(${transform.position.x.toFixed(1)},${transform.position.y.toFixed(1)},${transform.position.z.toFixed(1)}) vel=(${physics.velocity.x.toFixed(1)},${physics.velocity.y.toFixed(1)},${physics.velocity.z.toFixed(1)}) grounded=${physics.grounded} queue=${queue.length}`,
-          );
-        }
-
-        // Ensure USE flag survives queue drain (prevents lost F-presses)
-        if (usePressedInQueue) input.buttons |= USE_BUTTON;
-
-        // Clear queue after processing
-        input.inputQueue = [];
+      if (kbEntities.has(eid)) {
+        console.log(
+          `[KB POST-SIM] entity=${entity.id}: pos=(${transform.position.x.toFixed(1)},${transform.position.y.toFixed(1)},${transform.position.z.toFixed(1)}) vel=(${physics.velocity.x.toFixed(1)},${physics.velocity.y.toFixed(1)},${physics.velocity.z.toFixed(1)}) grounded=${physics.grounded} queue=${queue.length}`,
+        );
       }
     }
 

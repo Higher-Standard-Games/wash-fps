@@ -11,17 +11,34 @@
  *   4. `demoplay cinematic <min>` → loadAndPlayCinematic(viewer, cameraSystem, minutes)
  */
 
+import { Color3, Vector3 } from "@babylonjs/core";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
-import { CommandRegistry } from "../../../engine/console/CommandRegistry";
+import { SnapshotBuffer } from "../../../engine/network/client/SnapshotBuffer";
 import type { GameState } from "../../../engine/network/core/GameState";
+import {
+  BLADE_EXPLOSION,
+  GRENADE_EXPLOSION,
+  getExplosionEffect,
+  PLASMA_EXPLOSION,
+  ROCKET_EXPLOSION,
+} from "../../../engine/weapon/ExplosionEffect";
+import { getHitscanEffects } from "../../../engine/weapon/HitscanEffects";
+import { getProjectileManager } from "../../../engine/weapon/ProjectileManager";
 import { WeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
 import type { LobbyClient } from "../../../lobby/LobbyClient";
 import type { DemoInfo } from "../../../lobby/types";
 import { DemoAnalyzer } from "../../../shared/demo/DemoAnalyzer";
+import { normalizeDemoMapName } from "../../../shared/demo/DemoMapName";
 import { DemoReader } from "../../../shared/demo/DemoReader";
 import { CinematicDemoPlayer } from "./CinematicDemoPlayer";
 import type { DemoViewer } from "./DemoViewer";
 import type { DemoViewerHUD } from "./DemoViewerHUD";
+import {
+  handleRemoteWeaponFire,
+  type ProjectileSyncState,
+  processProjectileEntities,
+  WEAPON_EFFECT_COLORS,
+} from "./GameEvents";
 import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
 
 export class DemoService {
@@ -55,6 +72,21 @@ export class DemoService {
   private _followedEntityId: string | null = null;
   private _lastDemoWeapon: string | null = null;
   private _isSeeking = false;
+  /** entityId → currentWeapon, fed to RemotePlayerRenderer for 3rd-person weapon models */
+  private _enemyWeapons: Map<string, string> = new Map();
+
+  // Followed-player HUD stats (health/armor/weapon/ammo)
+  private _specHealth = 0;
+  private _specArmor = 0;
+  private _specWeapon = "";
+  private _specAmmo = "";
+
+  /** In-flight server projectile visuals (rockets/plasma/grenades mid-air) */
+  private _projectiles: ProjectileSyncState = {
+    active: new Set<string>(),
+    defIds: new Map<string, string>(),
+    buffer: new SnapshotBuffer(),
+  };
 
   private constructor() {}
 
@@ -86,12 +118,21 @@ export class DemoService {
    * Returns a short summary string for console output.
    */
   async fetchAndLoad(filename: string): Promise<string> {
-    const response = await fetch(`/data/demos/${filename}`);
+    const response = await fetch(`${DemoService.demoBaseUrl()}/${filename}`);
     if (!response.ok) {
       throw new Error(`HTTP ${response.status} fetching ${filename}`);
     }
     const data = new Uint8Array(await response.arrayBuffer());
     return this._loadData(data, filename);
+  }
+
+  /**
+   * Base URL demos are fetched from. Defaults to the dev/Vite static path
+   * (`/data/demos`); override with `VITE_DEMO_BASE_URL` for lobby/prod hosting.
+   */
+  static demoBaseUrl(): string {
+    const base = import.meta.env.VITE_DEMO_BASE_URL || "/data/demos";
+    return base.replace(/\/+$/, "");
   }
 
   /**
@@ -124,11 +165,21 @@ export class DemoService {
   async loadAndPlayNormal(viewer: DemoViewer): Promise<void> {
     if (!this.loadedDemoData) throw new Error("No demo loaded. Use `demo <filename>` first.");
 
-    await this.ensureDemoMapLoaded();
+    // 1. Own the scene: stop any live game + any prior demo playback.
+    await this.teardownLiveSession();
     this.stopAll();
+
+    // 2. Register demo controllers + take a deterministic camera before load.
+    const cameraSystem = CameraSystem.getInstance();
+    await this.ensureCinematicControllers(cameraSystem);
+    this.beginDemoCamera(cameraSystem);
+
+    // 3. Render the recorded map locally (no server).
+    await this.ensureDemoMapLoaded();
+
+    // 4. Wire the frame callback → renderer/HUD, then play.
     this.activeDemoViewer = viewer;
     await this.ensureRuntimeWiring(viewer);
-    await this.ensureCinematicControllers(CameraSystem.getInstance());
     await viewer.load(this.loadedDemoData);
     viewer.play();
     this.startPlaybackLoop();
@@ -143,11 +194,20 @@ export class DemoService {
   async loadAndPlayCinematic(viewer: DemoViewer, cameraSystem: CameraSystem, durationMinutes: number): Promise<void> {
     if (!this.loadedDemoData) throw new Error("No demo loaded. Use `demo <filename>` first.");
 
-    await this.ensureDemoMapLoaded();
+    // 1. Own the scene: stop any live game + any prior demo playback.
+    await this.teardownLiveSession();
     this.stopAll();
+
+    // 2. Register demo controllers + take a deterministic camera before load.
+    await this.ensureCinematicControllers(cameraSystem);
+    this.beginDemoCamera(cameraSystem);
+
+    // 3. Render the recorded map locally (no server).
+    await this.ensureDemoMapLoaded();
+
+    // 4. Wire the frame callback, then start the cinematic player.
     this.activeDemoViewer = viewer;
     await this.ensureRuntimeWiring(viewer);
-    await this.ensureCinematicControllers(cameraSystem);
     const player = new CinematicDemoPlayer(viewer, cameraSystem);
     this.activeCinematicPlayer = player;
     await player.loadAndPlay(this.loadedDemoData, durationMinutes);
@@ -226,6 +286,12 @@ export class DemoService {
     this._followedEntityId = null;
     this._lastDemoWeapon = null;
     this._isSeeking = false;
+    this._enemyWeapons.clear();
+    this._clearDemoProjectiles();
+    this._specHealth = 0;
+    this._specArmor = 0;
+    this._specWeapon = "";
+    this._specAmmo = "";
 
     const wvm = WeaponViewManager.getInstance();
     if (wvm.isInitialized()) {
@@ -234,14 +300,59 @@ export class DemoService {
     }
   }
 
+  /**
+   * Render the recorded map LOCALLY — geometry + worldspawn lighting only,
+   * with no server and no gameplay.
+   *
+   * This deliberately does NOT use the `map` console command: that command
+   * delegates to the gameplay launcher, which spawns a live dev server via the
+   * lobby and joins it as a player. A demo just needs the world rendered so the
+   * replayed frames have somewhere to be drawn.
+   */
   private async ensureDemoMapLoaded(): Promise<void> {
     const header = this.loadedDemoReader?.readHeader();
     if (!header?.map) return;
 
-    const result = await CommandRegistry.getInstance().execute(`map ${header.map}`);
-    if (result && /failed to load map|no scene available|camerasystem not available|unknown command/i.test(result)) {
-      throw new Error(result);
+    const mapName = normalizeDemoMapName(header.map);
+    if (!mapName) {
+      throw new Error(`Demo has no usable map name (recorded: "${header.map}").`);
     }
+
+    const { loadClientMap } = await import("../../../engine/loader/map/ClientMapLoader");
+    const result = await loadClientMap(mapName);
+    if (/failed to load map|no scene available|camerasystem not available/i.test(result)) {
+      throw new Error(`Demo map load failed for "${mapName}": ${result}`);
+    }
+  }
+
+  /**
+   * Shut down any live game/network session before demo playback so live
+   * snapshots and the live FPS camera don't fight the replay in the same scene.
+   */
+  private async teardownLiveSession(): Promise<void> {
+    try {
+      const { Game } = await import("../Game");
+      const game = Game.getInstance();
+      if (game.isConnectedToServer()) {
+        console.log("[DemoService] Shutting down live game session before demo playback");
+        game.shutdown();
+      }
+    } catch (err) {
+      console.warn("[DemoService] teardownLiveSession failed (non-fatal):", err);
+    }
+  }
+
+  /**
+   * Deterministic camera handoff: make freefly the active controller before the
+   * map loads (so the map-load teleport frames a real camera at spawn instead of
+   * leaving a stale FPS/live controller in place). Once the first frame arrives,
+   * refreshHudPlayerList auto-switches to spectator on the first player.
+   */
+  private beginDemoCamera(cameraSystem: CameraSystem): void {
+    if (!cameraSystem.getController("freefly")) return;
+    const active = cameraSystem.getActiveController() as { type?: string } | null;
+    if (active?.type === "freefly" || active?.type === "spectator") return;
+    cameraSystem.setController("freefly");
   }
 
   private async ensureRuntimeWiring(viewer: DemoViewer): Promise<void> {
@@ -253,13 +364,29 @@ export class DemoService {
 
     const { RemotePlayerRenderer } = await import("./RemotePlayerRenderer");
     this.remoteRenderer = new RemotePlayerRenderer(scene);
+    // Feed 3rd-person weapon models. In live play GameEvents populates this map;
+    // in demo playback we own it and fill it from weapon_state events per frame.
+    this.remoteRenderer.setEnemyWeapons(this._enemyWeapons);
+
+    // Initialize the shared effect systems against the demo scene so replayed
+    // weapon_fire / projectile_impact / weapon_chain events render (these guard
+    // on a scene being set and no-op otherwise).
+    getHitscanEffects().init(scene);
+    getExplosionEffect().init(scene);
+    getProjectileManager().init(scene);
 
     viewer.onFrame((state) => {
       this.latestState = state;
+      this._updateEnemyWeapons(state);
       this.remoteRenderer?.pushSnapshot(state, "");
       this.refreshHudPlayerList();
       this._updateDemoWeapon(state);
       this._updateDemoRecoil(state);
+      this._updateDemoHud(state);
+      this._processDemoEffects(state);
+      // Spawn/despawn in-flight projectile visuals + buffer them for interpolation.
+      // (runs after _processDemoEffects so projectile_spawn defIds are set first)
+      processProjectileEntities(state, this._projectiles);
     });
 
     if (typeof document === "undefined") return;
@@ -277,24 +404,41 @@ export class DemoService {
     });
     this.demoHud.onSeek((progress) => {
       this._isSeeking = true;
+      // Drop in-flight projectiles before the jump — their spawn events are
+      // one-shots that a seek skips, and their positions/buffer are now stale.
+      this._clearDemoProjectiles();
       this.activeDemoViewer?.seekToProgress(progress);
+      // Collapse the interpolation buffer so models snap to the seeked position
+      // instead of interpolating across the discontinuous tick jump.
+      this.remoteRenderer?.flushInterpolation();
       this._isSeeking = false;
     });
     this.demoHud.onPlayerSelect((entityId) => {
-      const cam = CameraSystem.getInstance();
-      const spectator = cam.getController("spectator") as {
-        setSpectateTarget?: (id: string) => void;
-        type?: string;
-      } | null;
-      spectator?.setSpectateTarget?.(entityId);
-      // Only trigger full attach/detach if not already in spectator mode
-      if ((cam.getActiveController() as { type?: string } | null)?.type !== "spectator") {
-        cam.setController("spectator");
-      }
-      this._followedEntityId = entityId;
-      this._lastDemoWeapon = null;
-      this.remoteRenderer?.setHiddenEntity(entityId);
+      this._selectSpectateTarget(entityId);
     });
+  }
+
+  /**
+   * Follow a player entity in POV: point the spectator camera at it, hide its own
+   * model, and (re)attach the first-person weapon viewmodel to the spectator cam.
+   * Shared by manual player-list clicks and the first-frame auto-select.
+   */
+  private _selectSpectateTarget(entityId: string): void {
+    if (!entityId) return;
+    const cam = CameraSystem.getInstance();
+    const spectator = cam.getController("spectator") as {
+      setSpectateTarget?: (id: string) => void;
+      type?: string;
+    } | null;
+    spectator?.setSpectateTarget?.(entityId);
+    // Only trigger full attach/detach if not already in spectator mode
+    if ((cam.getActiveController() as { type?: string } | null)?.type !== "spectator") {
+      cam.setController("spectator");
+    }
+    this._followedEntityId = entityId;
+    this._lastDemoWeapon = null;
+    this.remoteRenderer?.setHiddenEntity(entityId);
+    this._attachWeaponViewToSpectatorCam();
   }
 
   private startPlaybackLoop(): void {
@@ -314,6 +458,7 @@ export class DemoService {
       this.activeDemoViewer.update(deltaMs);
       this.activeCinematicPlayer?.update(deltaMs);
       this.remoteRenderer?.render();
+      this._renderDemoProjectiles();
       this.demoHud?.update(this.activeDemoViewer.getInfo());
 
       this.playbackRaf = window.requestAnimationFrame(tick);
@@ -356,13 +501,8 @@ export class DemoService {
     rows.sort((a, b) => a.name.localeCompare(b.name));
     if (!currentTarget && rows.length > 0) {
       const first = rows[0].entityId;
-      spectator?.setSpectateTarget?.(first);
-      cameraSystem.setController("spectator");
+      this._selectSpectateTarget(first);
       currentTarget = first;
-      this._followedEntityId = first;
-      this._lastDemoWeapon = null;
-      this.remoteRenderer?.setHiddenEntity(first);
-      this._attachWeaponViewToSpectatorCam();
       for (const row of rows) {
         row.isTarget = row.entityId === currentTarget;
       }
@@ -414,8 +554,10 @@ export class DemoService {
   // ── Weapon viewmodel helpers (demo spectator mode) ────────────────────────
 
   /**
-   * Attach WeaponViewManager to the spectator camera after setController("spectator") runs.
-   * Only acts when WVM is initialized (i.e. a live FPS session has run first).
+   * Attach WeaponViewManager to the spectator camera so the POV weapon renders.
+   * Cold-start demos (no prior live FPS session) have an uninitialized WVM — we
+   * initialize it against the spectator camera + scene here so the viewmodel
+   * shows even when the demo is the first thing loaded this session.
    */
   private _attachWeaponViewToSpectatorCam(): void {
     const cam = CameraSystem.getInstance();
@@ -425,9 +567,150 @@ export class DemoService {
     const spectatorCam = spectatorCtrl?.getCamera?.();
     if (!spectatorCam) return;
     const wvm = WeaponViewManager.getInstance();
+    if (!wvm.isInitialized()) {
+      const scene = spectatorCam.getScene();
+      if (scene) wvm.init(scene, spectatorCam);
+    }
     if (!wvm.isInitialized()) return;
     wvm.attachToCamera(spectatorCam);
     wvm.setVisible(true);
+  }
+
+  /**
+   * Feed the demo HUD the followed player's live stats (health/armor/weapon/ammo)
+   * from the per-frame combat_state + weapon_state events.
+   */
+  private _updateDemoHud(state: GameState): void {
+    if (!this.demoHud) return;
+    if (!this._followedEntityId) {
+      this.demoHud.setSpectatorStats(null);
+      return;
+    }
+    for (const event of state.events) {
+      if (event.entityId !== this._followedEntityId) continue;
+      if (event.type === "combat_state") {
+        this._specHealth = (event as { health?: number }).health ?? this._specHealth;
+        this._specArmor = (event as { armor?: number }).armor ?? this._specArmor;
+      } else if (event.type === "weapon_state") {
+        const we = event as { currentWeapon?: string; ammo?: Record<string, unknown> };
+        this._specWeapon = we.currentWeapon ?? this._specWeapon;
+        this._specAmmo = this._formatAmmo(we.ammo?.[this._specWeapon]);
+      }
+    }
+    let name = this._followedEntityId;
+    for (const player of state.players.values()) {
+      if (player.entityId === this._followedEntityId) {
+        name = player.name || this._followedEntityId;
+        break;
+      }
+    }
+    this.demoHud.setSpectatorStats({
+      name,
+      health: this._specHealth,
+      armor: this._specArmor,
+      weapon: this._specWeapon,
+      ammo: this._specAmmo,
+    });
+  }
+
+  /**
+   * Replay this frame's combat events as visuals: weapon fire (hitscan tracers /
+   * beams / pellets / blade slash), chain lightning, and projectile impacts.
+   * Reuses the same effect singletons + fire handler as live play.
+   */
+  private _processDemoEffects(state: GameState): void {
+    for (const event of state.events) {
+      if (event.type === "weapon_fire") {
+        handleRemoteWeaponFire(event, this.remoteRenderer);
+      } else if (event.type === "projectile_spawn") {
+        const e = event as unknown as { entityId?: string; defId?: string };
+        if (e.entityId && e.defId) this._projectiles.defIds.set(e.entityId, e.defId);
+      } else if (event.type === "weapon_chain") {
+        const fx = getHitscanEffects();
+        const pts = ((event as { points?: Array<{ x: number; y: number; z: number }> }).points ?? []).map(
+          (p) => new Vector3(p.x, p.y, p.z),
+        );
+        const rgb = WEAPON_EFFECT_COLORS.voltaic;
+        const color = new Color3(rgb[0], rgb[1], rgb[2]);
+        for (let i = 0; i < pts.length - 1; i++) {
+          fx.fireLightningArc(pts[i], pts[i + 1], color);
+        }
+      } else if (event.type === "projectile_impact") {
+        const e = event as unknown as {
+          x: number;
+          y: number;
+          z: number;
+          normalX: number;
+          normalY: number;
+          normalZ: number;
+          defId: string;
+        };
+        const pos = new Vector3(e.x, e.y, e.z);
+        const normal = new Vector3(e.normalX, e.normalY, e.normalZ);
+        const config =
+          e.defId === "grenade" || e.defId === "glauncher"
+            ? GRENADE_EXPLOSION
+            : e.defId === "plasma_bolt" || e.defId === "plasmagun"
+              ? PLASMA_EXPLOSION
+              : e.defId === "blade_blast"
+                ? BLADE_EXPLOSION
+                : ROCKET_EXPLOSION;
+        getExplosionEffect().spawn(pos, config, normal);
+      }
+    }
+  }
+
+  /**
+   * Sample interpolated positions for active in-flight projectiles and push them
+   * to the ProjectileManager visuals. Per-frame projectile animation/trails are
+   * driven by WeaponViewManager's update loop (initialized on spectate).
+   */
+  private _renderDemoProjectiles(): void {
+    if (this._projectiles.active.size === 0) return;
+    const projMgr = getProjectileManager();
+    for (const id of this._projectiles.active) {
+      const interp = this._projectiles.buffer.sample(id);
+      if (!interp) continue;
+      projMgr.updateServerPosition(
+        id,
+        new Vector3(interp.x, interp.y, interp.z),
+        new Vector3(interp.vx, interp.vy, interp.vz),
+      );
+    }
+  }
+
+  /** Despawn all demo projectile visuals and reset their sync state. */
+  private _clearDemoProjectiles(): void {
+    const projMgr = getProjectileManager();
+    for (const id of this._projectiles.active) {
+      projMgr.despawnByEntityId(id);
+    }
+    this._projectiles.active.clear();
+    this._projectiles.defIds.clear();
+    this._projectiles.buffer.flush();
+  }
+
+  /** Format a weapon's ammo value ({clip,reserve} or number) for the HUD. */
+  private _formatAmmo(ammo: unknown): string {
+    if (ammo && typeof ammo === "object") {
+      const a = ammo as { clip?: number; reserve?: number };
+      if (a.clip !== undefined || a.reserve !== undefined) return `${a.clip ?? 0} / ${a.reserve ?? 0}`;
+    }
+    if (typeof ammo === "number") return String(ammo);
+    return "";
+  }
+
+  /**
+   * Populate the entityId → currentWeapon map from per-frame weapon_state events
+   * so RemotePlayerRenderer can attach the correct 3rd-person weapon model.
+   */
+  private _updateEnemyWeapons(state: GameState): void {
+    for (const event of state.events) {
+      if (event.type !== "weapon_state") continue;
+      const weapon = (event as { entityId?: string; currentWeapon?: string }).currentWeapon;
+      const entityId = (event as { entityId?: string }).entityId;
+      if (entityId && weapon) this._enemyWeapons.set(entityId, weapon);
+    }
   }
 
   /**
@@ -472,7 +755,7 @@ export class DemoService {
       | undefined;
     if (velocity) {
       const v = velocity.linear ?? velocity;
-      const hSpeed = Math.sqrt(((v.x ?? 0) ** 2) + ((v.z ?? 0) ** 2));
+      const hSpeed = Math.sqrt((v.x ?? 0) ** 2 + (v.z ?? 0) ** 2);
       wvm.updateBob(hSpeed, v.y ?? 0);
     }
   }

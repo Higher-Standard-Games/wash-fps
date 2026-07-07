@@ -549,13 +549,20 @@ export class GameServer {
     if (this.snapshotTickCounter >= this.ticksPerSnapshot) {
       this.snapshotTickCounter = 0;
 
-      const snapshotCtx = this.getSnapshotContext();
-      this.broadcaster.broadcast(this.clients, snapshotCtx);
-
-      // 4b. Record frame for demo (if recording)
-      if (this.demoRecorder?.isRecording) {
+      const recording = !!this.demoRecorder?.isRecording;
+      if (this.clients.size > 0 || recording) {
+        // Build the snapshot ONCE and share it between broadcast + recording.
+        // buildSnapshot() drains one-shot events (weapon_fire, projectile_*,
+        // damage, death, …) from the subsystems as a side effect. The old code
+        // built it twice — the broadcaster's build drained those events, so the
+        // recorder's second build only captured persistent state (combat/weapon/
+        // match), and demos never contained any shooting/impact events.
+        const snapshotCtx = this.getSnapshotContext();
         const gameState = buildSnapshot(snapshotCtx);
-        this.demoRecorder.recordFrame(gameState);
+        this.broadcaster.broadcast(this.clients, gameState);
+        if (recording) {
+          this.demoRecorder?.recordFrame(gameState);
+        }
       }
     }
   }
@@ -604,6 +611,17 @@ export class GameServer {
     // If a playing client disconnected, try to promote from queue
     if (!client.isSpectator) {
       this.processQueue();
+    }
+
+    // Save-on-leave: finalize any active demo recording as soon as the last
+    // playing client leaves, instead of waiting for the match to formally end
+    // (frag/time limit). Makes recording a demo as easy as "play, then leave".
+    if (!client.isSpectator && this.demoRecorder?.isRecording) {
+      const stillPlaying = [...this.clients.values()].some((c) => !c.isSpectator);
+      if (!stillPlaying) {
+        console.log("[GameServer] Last player left — finalizing demo recording");
+        this.stopRecording().catch((err) => console.error("[GameServer] Save-on-leave failed:", err));
+      }
     }
 
     // Auto-shutdown when all clients are gone (lobby-spawned mode)
