@@ -26,6 +26,7 @@ import type { PickupEntry } from "../../../shared/bsp/PickupTable";
 // Match phase tracking (for auto-recording)
 import { MatchPhase } from "../../../shared/server/gametype/GametypeTypes";
 import { sanitizeCommand } from "../../../shared/server/simulation/InputSanitizer";
+import { nextAckedTick, rateLimited } from "./AuthorityGuards";
 // Bot names
 import { getNextBotName } from "./BotNames";
 // Client types (shared with SnapshotBuilder, SnapshotBroadcaster)
@@ -651,8 +652,9 @@ export class GameServer {
       const nextConn = nextClient.connection;
       console.log(`[GameServer] Promoting queued player ${nextClient.playerId} (${nextClient.playerName}) from queue`);
 
-      // Auto-join them (same flow as handleJoinGame)
-      this.handleJoinGame(nextConn);
+      // Auto-join them (same flow as handleJoinGame), bypassing the
+      // client-initiated team-switch gate for server queue promotion.
+      this.handleJoinGame(nextConn, undefined, true);
 
       // Notify them
       const msg = "You have been promoted from the challengers queue!";
@@ -725,10 +727,7 @@ export class GameServer {
       } else if (msgType === MessageType.Ack) {
         this.msgCounts.ack++;
         const { tick } = MessageCodec.decodeAck(data);
-        // Store acked tick for per-client delta compression baselines
-        if (tick > client.lastAckedTick) {
-          client.lastAckedTick = tick;
-        }
+        client.lastAckedTick = nextAckedTick(client.lastAckedTick, tick, Number(this.simulation.currentTick));
         if (tick % 1000 === 0) {
           console.log(`[GameServer] Client ${client.playerId} acked tick ${tick}`);
         }
@@ -816,6 +815,10 @@ export class GameServer {
       return;
     }
 
+    const now = performance.now();
+    if (rateLimited(client.lastRespawnReqMs, now, 500)) return;
+    client.lastRespawnReqMs = now;
+
     entity.input.wantsRespawn = true;
     console.log(`[GameServer] RequestSpawn from player ${client.playerId}`);
   }
@@ -871,12 +874,21 @@ export class GameServer {
    * handleJoinGame — spectator → player transition.
    * Creates the player entity and spawns them into the match.
    */
-  private handleJoinGame(conn: ClientConnection, teamId?: string): void {
+  private handleJoinGame(conn: ClientConnection, teamId?: string, fromQueue = false): void {
     const client = this.clients.get(conn.id);
     if (!client) return;
     if (!client.isSpectator) {
       console.log(`[GameServer] Player ${client.playerId} tried to JoinGame but is already playing`);
       return;
+    }
+    // Rate-gate client-initiated joins/switches (server queue promotion bypasses).
+    // The timestamp is stamped on the accepted *attempt*, not on a successful
+    // spawn: a join that then falls through to the challengers queue (server full)
+    // must still count, or a client could spam JoinGame against a full server.
+    if (!fromQueue) {
+      const now = performance.now();
+      if (rateLimited(client.lastTeamSwitchMs, now, 3000)) return;
+      client.lastTeamSwitchMs = now;
     }
 
     // Guard: count active (non-spectator) players — reject if full
@@ -956,6 +968,9 @@ export class GameServer {
       console.log(`[GameServer] Player ${client.playerId} tried to Spectate but is already spectating`);
       return;
     }
+    const now = performance.now();
+    if (rateLimited(client.lastTeamSwitchMs, now, 3000)) return;
+    client.lastTeamSwitchMs = now;
 
     // Remove player entity from simulation
     const state = this.simulation.getStateMut();
