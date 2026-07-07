@@ -51,6 +51,7 @@ import { FPSMovementSubsystem } from "./systems/FPSMovementSubsystem";
 import { PickupSystem } from "./systems/PickupSystem";
 import { ProjectileSystem } from "./systems/ProjectileSystem";
 import { WeaponSystem } from "./systems/WeaponSystem";
+import { Telemetry } from "./Telemetry";
 
 export type { ClientInfo, GameServerConfig };
 
@@ -97,6 +98,10 @@ export class GameServer {
 
   // Anti-warp: rate-limit client inputs to prevent speed hacking
   private movementValidator: MovementValidator;
+
+  // Per-client telemetry (WO-12): uplink jitter/loss + aim-flick signal. Derived
+  // from the usercmd stream the server already receives; no sim-state coupling.
+  private telemetry = new Telemetry();
 
   // Snapshot throttling: only broadcast every N ticks
   private snapshotTickCounter: number = 0;
@@ -483,9 +488,30 @@ export class GameServer {
       `[GameServer] tickrate: ${hz.toFixed(1)}Hz actual (target ${this.config.tickRate}Hz), ` +
         `${this.diagTickCount} ticks / ${(elapsed / 1000).toFixed(1)}s, maxTickWork ${this.diagMaxTickMs.toFixed(1)}ms`,
     );
+    this.logClientTelemetry();
     this.diagLastLog = now;
     this.diagTickCount = 0;
     this.diagMaxTickMs = 0;
+  }
+
+  /**
+   * Emit one structured [Telemetry] line per playing client (~every 5s, on the
+   * tick-rate diagnostic cadence): uplink jitter/loss, the view-angular-speed
+   * aim-flick signal, and the anti-warp strike count composed from
+   * MovementValidator. Shape is stable for a future admin view / WO-13 to parse.
+   */
+  private logClientTelemetry(): void {
+    for (const client of this.clients.values()) {
+      if (client.isSpectator) continue;
+      const m = this.telemetry.get(client.playerId);
+      if (!m || m.inputs === 0) continue;
+      const strikes = this.movementValidator.getStrikes(client.playerId);
+      console.log(
+        `[Telemetry] player=${client.playerId} inputs=${m.inputs} loss=${(m.inputLoss * 100).toFixed(1)}% ` +
+          `jitter=${m.jitterMs.toFixed(1)}ms viewSpeed=${m.viewSpeedDps.toFixed(0)}dps ` +
+          `peakFlick=${m.peakViewSpeedDps.toFixed(0)}dps warpStrikes=${strikes}`,
+      );
+    }
   }
 
   private tick(): void {
@@ -599,6 +625,7 @@ export class GameServer {
 
       // Remove from anti-warp tracker
       this.movementValidator.removeClient(client.playerId);
+      this.telemetry.remove(client.playerId);
     }
 
     this.clients.delete(conn.id);
@@ -933,6 +960,7 @@ export class GameServer {
 
     // Register with anti-warp validator
     this.movementValidator.addClient(client.playerId);
+    this.telemetry.add(client.playerId);
 
     // Mark as playing
     client.isSpectator = false;
@@ -981,6 +1009,7 @@ export class GameServer {
 
     // Remove from anti-warp tracker
     this.movementValidator.removeClient(client.playerId);
+    this.telemetry.remove(client.playerId);
 
     // Mark as spectator and reserve a fresh entity ID for potential rejoin
     client.isSpectator = true;
@@ -1035,6 +1064,9 @@ export class GameServer {
         weaponSlot: clean.weaponSlot,
       });
       client.lastInputSeq = seq;
+      // Telemetry (WO-12): sample this accepted usercmd — arrival time for jitter,
+      // seq for loss, sanitized view angles for the aim-flick signal.
+      this.telemetry.recordInput(client.playerId, performance.now(), seq, clean.pitch, clean.yaw);
     }
   }
 
