@@ -63,7 +63,13 @@ export class SnapshotBroadcaster {
         const pvsActive = !!(this.pvs && this.pvs.enabled);
         const clientState = pvsActive ? this.filterStateForClient(gameState, client) : gameState.shallowCopy();
 
-        clientState.ackedInputSeq = client.lastInputSeq;
+        // Ack the last command the SERVER actually SIMULATED for this client's
+        // entity (one-command-per-tick model) — not the last one received — so
+        // reconciliation replays exactly the un-simulated inputs. Falls back to
+        // the received seq if the entity has no input yet.
+        const simEntity = this.simulation.getState().getEntity(client.entityId);
+        const processedSeq = (simEntity?.input as { lastProcessedSeq?: number } | undefined)?.lastProcessedSeq;
+        clientState.ackedInputSeq = processedSeq ?? client.lastInputSeq;
 
         // Delta baseline: when PVS is active, use the per-client baseline
         // (the actual filtered state the client received), not the global
