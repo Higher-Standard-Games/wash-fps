@@ -19,10 +19,49 @@
  */
 
 import { Simulation } from "@engine/server/core/Simulation";
+import type { WorldState } from "@engine/server/core/WorldState";
 import { createPlayerEntity } from "@engine/server/ecs/Entity";
 import { entityId, playerId } from "@engine/server/ecs/types";
 import type { QueuedInput } from "@shared/server/simulation/components/InputComponent";
+import { CombatSystem } from "./systems/CombatSystem";
 import { FPSMovementSubsystem } from "./systems/FPSMovementSubsystem";
+import { ProjectileSystem } from "./systems/ProjectileSystem";
+import { WeaponSystem } from "./systems/WeaponSystem";
+
+/**
+ * Richer state checksum than `WorldState.checksum()` (which hashes position only):
+ * folds in velocity, grounded, and health/dead so **combat and knockback** are
+ * observable for re-sim reconciliation — essential for full-stack verification.
+ * Quantized to ints to avoid cross-run float noise. Deterministic (sorted by id).
+ */
+export function stateChecksum(state: Readonly<WorldState>): number {
+  let hash = 2166136261;
+  const prime = 16777619;
+  const mix = (v: number) => {
+    hash ^= v | 0;
+    hash = Math.imul(hash, prime);
+  };
+  const ents = [...state.allEntities()].sort((a, b) => (a.id as number) - (b.id as number));
+  for (const e of ents) {
+    mix(e.id as number);
+    if (e.transform) {
+      mix(Math.round(e.transform.position.x * 100));
+      mix(Math.round(e.transform.position.y * 100));
+      mix(Math.round(e.transform.position.z * 100));
+    }
+    if (e.physics) {
+      mix(Math.round(e.physics.velocity.x * 100));
+      mix(Math.round(e.physics.velocity.y * 100));
+      mix(Math.round(e.physics.velocity.z * 100));
+      mix(e.physics.grounded ? 1 : 0);
+    }
+    if (e.health) {
+      mix(Math.round(e.health.health));
+      mix(e.health.dead ? 1 : 0);
+    }
+  }
+  return hash >>> 0;
+}
 
 /** Initial spawn state for a re-simulated player. */
 export interface ReSimSpawn {
@@ -79,10 +118,77 @@ export function resimulate(spawns: ReSimSpawn[], log: RecordedCmd[], ticks: numb
       }
     }
     sim.tick();
-    perTickChecksum.push(sim.getState().checksum());
+    perTickChecksum.push(stateChecksum(sim.getState()));
   }
 
-  return { perTickChecksum, finalChecksum: sim.getState().checksum() };
+  return { perTickChecksum, finalChecksum: stateChecksum(sim.getState()) };
+}
+
+/**
+ * Full-stack re-sim: movement + weapons + combat + projectiles (the subsystems a
+ * real match runs, minus network/gametype/collision). Proves the *combat* stack —
+ * not just movement — is deterministic under replay, the key prerequisite for
+ * verifying full recorded matches (R10). Each player gets a machinegun loadout;
+ * pending weapon/projectile damage is forwarded to combat each tick exactly as
+ * `GameServer.tick` does.
+ *
+ * Scope: no collision world (player-vs-player combat + gravity only) and no
+ * gametype respawn — enough to exercise weapon→combat→health→knockback→movement
+ * deterministically. Full parity (collision, respawns, pickups) is the remaining
+ * R10 work.
+ */
+export function resimulateFull(spawns: ReSimSpawn[], log: RecordedCmd[], ticks: number): ReSimResult {
+  const sim = new Simulation({ tickMs: 8 });
+  const movement = new FPSMovementSubsystem();
+  const weapon = new WeaponSystem();
+  const combat = new CombatSystem();
+  const projectile = new ProjectileSystem();
+  weapon.setProjectileSystem(projectile);
+  weapon.setMovementSubsystem(movement);
+  combat.setMovementSubsystem(movement);
+  sim.addSubsystem(movement);
+  sim.addSubsystem(weapon);
+  sim.addSubsystem(combat);
+  sim.addSubsystem(projectile);
+  sim.initialize();
+
+  const state = sim.getStateMut();
+  for (const s of spawns) {
+    state.addEntity(createPlayerEntity(entityId(s.entityId), playerId(s.playerId), { x: s.x, y: s.y, z: s.z }));
+    weapon.initializeWeaponFromLoadout(entityId(s.entityId), {
+      weapons: ["machinegun"],
+      ammo: { machinegun: 10000 },
+      health: 100,
+      armor: 0,
+    } as never);
+  }
+
+  const byTick = new Map<number, RecordedCmd[]>();
+  for (const c of log) {
+    const arr = byTick.get(c.tick);
+    if (arr) arr.push(c);
+    else byTick.set(c.tick, [c]);
+  }
+
+  const perTickChecksum: number[] = [];
+  for (let t = 0; t < ticks; t++) {
+    const cmds = byTick.get(t);
+    if (cmds) {
+      const cur = sim.getStateMut();
+      for (const { entityId: eid, cmd } of cmds) {
+        const e = cur.getEntityMut(entityId(eid));
+        if (e?.input) e.input.inputQueue.push({ ...cmd });
+      }
+    }
+    sim.tick();
+    // Forward weapon + projectile damage into combat (applied next tick), exactly
+    // as GameServer.tick does — deterministic ordering.
+    for (const dmg of weapon.getPendingDamage()) combat.queueDamage(dmg);
+    for (const dmg of projectile.getPendingDamage()) combat.queueDamage(dmg);
+    perTickChecksum.push(stateChecksum(sim.getState()));
+  }
+
+  return { perTickChecksum, finalChecksum: stateChecksum(sim.getState()) };
 }
 
 export interface VerifyResult {

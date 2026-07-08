@@ -1,6 +1,9 @@
 import type { QueuedInput } from "@shared/server/simulation/components/InputComponent";
 import { describe, expect, it } from "vitest";
-import { type RecordedCmd, type ReSimSpawn, resimulate, verifyAgainst } from "../ReSim";
+import { DEFAULT_VIEWHEIGHT } from "../../../../engine/physics/PlayerPhysicsConstants";
+import { type RecordedCmd, type ReSimSpawn, resimulate, resimulateFull, verifyAgainst } from "../ReSim";
+
+const FIRE_BUTTON = 1 << 8;
 
 const spawns: ReSimSpawn[] = [{ entityId: 1, playerId: 1, x: 0, y: 500, z: 0 }];
 
@@ -66,5 +69,37 @@ describe("ReSim — deterministic demo re-simulation (WO-AC4)", () => {
     const still = resimulate(spawns, [], 60).finalChecksum;
     const moving = resimulate(spawns, makeLog(), 60).finalChecksum;
     expect(moving).not.toBe(still);
+  });
+});
+
+describe("ReSim — full combat-stack determinism (R10)", () => {
+  // Player 2's centre sits at player 1's eye height + same z-line, so a level
+  // machinegun ray from player 1 hits it (both fall together, so it stays aligned).
+  const combatSpawns: ReSimSpawn[] = [
+    { entityId: 1, playerId: 1, x: 0, y: 500, z: 0 },
+    { entityId: 2, playerId: 2, x: 0, y: 500 + DEFAULT_VIEWHEIGHT, z: 100 },
+  ];
+
+  function firingLog(): RecordedCmd[] {
+    const log: RecordedCmd[] = [];
+    // Player 1 holds fire, aimed +z at player 2. Player 2 idle.
+    for (let t = 0; t < 60; t++) {
+      log.push({ tick: t, entityId: 1, cmd: cmd(t + 1, { buttons: FIRE_BUTTON, yaw: 0, pitch: 0 }) });
+    }
+    return log;
+  }
+
+  it("is deterministic across the full weapon+combat+projectile stack", () => {
+    const a = resimulateFull(combatSpawns, firingLog(), 60);
+    const b = resimulateFull(combatSpawns, firingLog(), 60);
+    expect(a.perTickChecksum).toEqual(b.perTickChecksum);
+    expect(a.finalChecksum).toBe(b.finalChecksum);
+  });
+
+  it("actually exercises combat (firing diverges from idle — a hit landed)", () => {
+    const idle = resimulateFull(combatSpawns, [], 60).finalChecksum;
+    const firing = resimulateFull(combatSpawns, firingLog(), 60).finalChecksum;
+    // Damage + knockback move/hurt player 2, so the state (health/velocity/pos) differs.
+    expect(firing).not.toBe(idle);
   });
 });
