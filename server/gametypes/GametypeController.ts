@@ -18,6 +18,7 @@ import { MatchPhase } from "@shared/server/gametype";
 import type { Vec3 } from "@shared/server/simulation/types";
 import type { CollisionWorld } from "../../../../engine/network/systems/collision/CollisionWorld";
 import { Contents } from "../../../../engine/network/systems/collision/CollisionWorld";
+import { rngFrom } from "../../../../shared/DeterministicRng";
 import type { CombatSystem } from "../systems/CombatSystem";
 import type { WeaponSystem } from "../systems/WeaponSystem";
 import { type AwardEvent, AwardTracker } from "./AwardTracker";
@@ -48,6 +49,9 @@ export class GametypeController {
   private spawnPoints: Vec3[] = [];
   private respawnQueue: RespawnEntry[] = [];
   private collisionWorld: CollisionWorld | null = null;
+  /** Latest sim tick (from postTick) — seeds deterministic spawn selection for
+   *  join-time spawns, which happen outside the tick loop (R3b / demo re-sim). */
+  private currentTick = 0;
   private botPlayerIds: Set<PlayerId> = new Set();
 
   private combatSystem: CombatSystem | null = null;
@@ -183,11 +187,14 @@ export class GametypeController {
     console.log(
       `[GametypeController] Choosing from ${this.spawnPoints.length} spawn points, collision=${!!this.collisionWorld}`,
     );
-    const baseSpawn = this.spawnStrategy.choose(this.spawnPoints, state, entityId);
+    // Seeded from (lastTick, entity) so spawn selection is deterministic for demo
+    // re-sim (R3b). Join happens outside the tick loop, so use the latest tick.
+    const spawnRng = rngFrom(this.currentTick, entityId as number, 0);
+    const baseSpawn = this.spawnStrategy.choose(this.spawnPoints, state, entityId, spawnRng);
     console.log(
       `[GametypeController] Base spawn: (${baseSpawn.x.toFixed(0)}, ${baseSpawn.y.toFixed(0)}, ${baseSpawn.z.toFixed(0)})`,
     );
-    const spawn = this.jitterSpawn(baseSpawn);
+    const spawn = this.jitterSpawn(baseSpawn, spawnRng);
 
     // Apply weapon loadout
     if (this.weaponSystem) {
@@ -243,6 +250,7 @@ export class GametypeController {
    */
   postTick(state: WorldState, dt: number, tick: TickNumber): void {
     const tickNum = tick as number;
+    this.currentTick = tickNum;
 
     // 1. Process kills from CombatSystem
     if (this.combatSystem) {
@@ -406,9 +414,10 @@ export class GametypeController {
     const entity = state.getEntityMut(entityId);
     if (!entity) return;
 
-    // Choose spawn point using strategy
-    const baseSpawn = this.spawnStrategy.choose(this.spawnPoints, state, entityId);
-    const spawn = this.jitterSpawn(baseSpawn);
+    // Choose spawn point using strategy — seeded for deterministic re-sim (R3b).
+    const spawnRng = rngFrom(tickNum, entityId as number, 0);
+    const baseSpawn = this.spawnStrategy.choose(this.spawnPoints, state, entityId, spawnRng);
+    const spawn = this.jitterSpawn(baseSpawn, spawnRng);
 
     // Get loadout from gametype
     const loadout = this.gametype.getSpawnLoadout();
@@ -494,8 +503,9 @@ export class GametypeController {
   }
 
   getSpawnPoint(state: WorldState, entityId?: EntityId): Vec3 {
-    const base = this.spawnStrategy.choose(this.spawnPoints, state, entityId);
-    return this.jitterSpawn(base);
+    const spawnRng = rngFrom(this.currentTick, (entityId ?? 0) as number, 0);
+    const base = this.spawnStrategy.choose(this.spawnPoints, state, entityId, spawnRng);
+    return this.jitterSpawn(base, spawnRng);
   }
 
   // ========================================================================
@@ -527,7 +537,7 @@ export class GametypeController {
    *
    * If no collision world is set, returns the original point unchanged.
    */
-  private jitterSpawn(base: Vec3): Vec3 {
+  private jitterSpawn(base: Vec3, rng: () => number = Math.random): Vec3 {
     if (!this.collisionWorld) return base;
 
     const valid: Vec3[] = [];
@@ -574,8 +584,8 @@ export class GametypeController {
       return base;
     }
 
-    // Pick a random valid candidate
-    const chosen = valid[Math.floor(Math.random() * valid.length)];
+    // Pick a valid candidate (seeded → deterministic for demo re-sim, R3b).
+    const chosen = valid[Math.floor(rng() * valid.length)];
     console.log(
       `[GametypeController] Spawn jitter: ${valid.length}/9 valid, chose (${chosen.x.toFixed(0)}, ${chosen.y.toFixed(0)}, ${chosen.z.toFixed(0)}) from base (${base.x.toFixed(0)}, ${base.y.toFixed(0)}, ${base.z.toFixed(0)})`,
     );
