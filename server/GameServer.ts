@@ -517,7 +517,8 @@ export class GameServer {
       console.log(
         `[Telemetry] player=${client.playerId} inputs=${m.inputs} loss=${(m.inputLoss * 100).toFixed(1)}% ` +
           `jitter=${m.jitterMs.toFixed(1)}ms viewSpeed=${m.viewSpeedDps.toFixed(0)}dps ` +
-          `peakFlick=${m.peakViewSpeedDps.toFixed(0)}dps warpStrikes=${strikes} ` +
+          `peakFlick=${m.peakViewSpeedDps.toFixed(0)}dps flickHist=${m.flickHistogram.join(",")} ` +
+          `warpStrikes=${strikes} ` +
           `acc=${accStr} hs=${hsStr} shots=${acc.shots} ` +
           `rejected=${m.rejectedCmds} clamped=${m.clampedCmds} tripwire=${tripwire}`,
       );

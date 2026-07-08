@@ -1,6 +1,6 @@
 import { playerId } from "@engine/server/ecs/types";
 import { describe, expect, it } from "vitest";
-import { angularDeltaDeg, Telemetry, updateJitter } from "../Telemetry";
+import { angularDeltaDeg, FLICK_SPEED_BUCKETS_DPS, Telemetry, updateJitter } from "../Telemetry";
 
 const P = playerId(1);
 
@@ -119,5 +119,59 @@ describe("Telemetry", () => {
     const after = t.get(P)!;
     expect(after.viewSpeedDps).toBeLessThan(m.viewSpeedDps);
     expect(after.peakViewSpeedDps).toBeCloseTo(11250, 0);
+  });
+  it("does not bucket the first input because no speed sample exists yet", () => {
+    const t = new Telemetry();
+    t.add(P);
+    t.recordInput(P, 1000, 1, 0, 0);
+
+    expect(t.get(P)!.flickHistogram).toEqual(new Array(FLICK_SPEED_BUCKETS_DPS.length).fill(0));
+  });
+
+  it("buckets steady low-speed aim into the lowest flick bucket", () => {
+    const t = new Telemetry();
+    t.add(P);
+    t.recordInput(P, 1000, 1, 0, 0);
+    t.recordInput(P, 2000, 2, 0, Math.PI / 180); // 1 deg/s
+
+    const hist = t.get(P)!.flickHistogram;
+    expect(hist[0]).toBe(1);
+    expect(hist.reduce((sum, count) => sum + count, 0)).toBe(1);
+  });
+
+  it("buckets a 90 degree / 8ms flick into the <=11520 dps bucket", () => {
+    const t = new Telemetry();
+    t.add(P);
+    t.recordInput(P, 1000, 1, 0, 0);
+    t.recordInput(P, 1008, 2, 0, Math.PI / 2);
+
+    const hist = t.get(P)!.flickHistogram;
+    const bucket = FLICK_SPEED_BUCKETS_DPS.indexOf(11520);
+    expect(hist[bucket]).toBe(1);
+    expect(hist.reduce((sum, count) => sum + count, 0)).toBe(1);
+  });
+
+  it("buckets yaw wraparound using the shortest angular path", () => {
+    const t = new Telemetry();
+    t.add(P);
+    const tenDeg = (10 * Math.PI) / 180;
+    t.recordInput(P, 1000, 1, 0, Math.PI * 2 - tenDeg);
+    t.recordInput(P, 2000, 2, 0, 0);
+
+    const m = t.get(P)!;
+    expect(m.peakViewSpeedDps).toBeCloseTo(10, 4);
+    expect(m.flickHistogram[0]).toBe(1);
+  });
+
+  it("returns a defensive copy of the flick histogram", () => {
+    const t = new Telemetry();
+    t.add(P);
+    t.recordInput(P, 1000, 1, 0, 0);
+    t.recordInput(P, 2000, 2, 0, Math.PI / 180);
+
+    const first = t.get(P)!.flickHistogram as number[];
+    first[0] = 999;
+
+    expect(t.get(P)!.flickHistogram[0]).toBe(1);
   });
 });

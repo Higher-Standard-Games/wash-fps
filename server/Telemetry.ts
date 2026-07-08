@@ -16,6 +16,7 @@
  *  - viewSpeedDps    — EWMA of view angular speed (deg/s) between usercmds; the
  *                      aim-flick signal WO-13 keys off.
  *  - peakViewSpeedDps— largest single-sample angular speed seen.
+ *  - flickHistogram  - fixed-bucket per-usercmd angular-speed shape (log-only).
  *
  * Anti-warp strikes are NOT stored here — they live in MovementValidator; the
  * caller composes both at log time (keeps this module a pure function of the
@@ -31,12 +32,15 @@ const JITTER_GAIN = 1 / 16;
 const RAD_TO_DEG = 180 / Math.PI;
 const TWO_PI = Math.PI * 2;
 
+export const FLICK_SPEED_BUCKETS_DPS = [90, 180, 360, 720, 1440, 2880, 5760, 11520, Number.POSITIVE_INFINITY] as const;
+
 /** A point-in-time read of a client's derived metrics. */
 export interface ClientMetrics {
   jitterMs: number;
   inputLoss: number;
   viewSpeedDps: number;
   peakViewSpeedDps: number;
+  flickHistogram: readonly number[];
   /** usercmds actually observed by the server. */
   inputs: number;
   /** usercmds rejected outright (non-finite dir/pitch/yaw) — a hard contract
@@ -57,6 +61,7 @@ interface ClientState {
   jitterMs: number;
   viewSpeedDps: number;
   peakViewSpeedDps: number;
+  flickHistogram: number[];
   /** count of usercmds recorded (unique forward-progress seqs). */
   received: number;
   rejectedCmds: number;
@@ -76,6 +81,15 @@ export function updateJitter(prevJitter: number, interArrivalMs: number, lastInt
   return prevJitter + (d - prevJitter) * JITTER_GAIN;
 }
 
+function bucketFlickSpeed(histogram: number[], speedDps: number): void {
+  for (let i = 0; i < FLICK_SPEED_BUCKETS_DPS.length; i++) {
+    if (speedDps <= FLICK_SPEED_BUCKETS_DPS[i]) {
+      histogram[i]++;
+      return;
+    }
+  }
+}
+
 export class Telemetry {
   private clients = new Map<PlayerId, ClientState>();
 
@@ -92,6 +106,7 @@ export class Telemetry {
       jitterMs: 0,
       viewSpeedDps: 0,
       peakViewSpeedDps: 0,
+      flickHistogram: new Array(FLICK_SPEED_BUCKETS_DPS.length).fill(0),
       received: 0,
       rejectedCmds: 0,
       clampedCmds: 0,
@@ -145,6 +160,7 @@ export class Telemetry {
         const speed = Math.hypot(dPitchDeg, dYawDeg) / dtSec;
         s.viewSpeedDps = s.viewSpeedDps + (speed - s.viewSpeedDps) * VIEW_EWMA_ALPHA;
         if (speed > s.peakViewSpeedDps) s.peakViewSpeedDps = speed;
+        bucketFlickSpeed(s.flickHistogram, speed);
       }
     }
 
@@ -172,6 +188,7 @@ export class Telemetry {
       inputLoss,
       viewSpeedDps: s.viewSpeedDps,
       peakViewSpeedDps: s.peakViewSpeedDps,
+      flickHistogram: [...s.flickHistogram],
       inputs: s.received,
       rejectedCmds: s.rejectedCmds,
       clampedCmds: s.clampedCmds,
