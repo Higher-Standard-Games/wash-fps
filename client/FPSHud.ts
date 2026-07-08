@@ -39,10 +39,9 @@ import { FPSScoreboard } from "./hud/widgets/Scoreboard";
 import { FPSSettingsOverlay } from "./hud/widgets/SettingsOverlay";
 import { FPSTimer } from "./hud/widgets/Timer";
 // Import widget classes
-import { FPSValueBar } from "./hud/widgets/ValueBar";
+import { FPSVitalsBlock } from "./hud/widgets/VitalsBlock";
 // Old KillFeed disabled — replaced by EventFeed
 // import { FPSKillFeed } from './hud/widgets/KillFeed';
-import { FPSWeaponRack } from "./hud/widgets/WeaponRack";
 import { FPSWeaponSlots } from "./hud/widgets/WeaponSlots";
 
 /**
@@ -316,31 +315,8 @@ export class FPSHud {
    * Create the core HUD widgets (health, armor, ammo)
    */
   private createCoreWidgets(): void {
-    // Health bar - bottom left
-    this.addWidget(
-      "health",
-      new FPSValueBar({
-        label: "HP",
-        icon: "♥",
-        color: "cyan",
-        maxValue: 100,
-        valueKey: "health",
-      }),
-      "bottom-left",
-    );
-
-    // Armor bar - bottom left (added above health)
-    this.addWidget(
-      "armor",
-      new FPSValueBar({
-        label: "ARMOR",
-        icon: "🛡",
-        color: "magenta",
-        maxValue: 100,
-        valueKey: "armor",
-      }),
-      "bottom-left",
-    );
+    // Combined Washoi manga vitals block - bottom left
+    this.addWidget("vitals", new FPSVitalsBlock(), "bottom-left");
 
     // Weapon slots - bottom right (before ammo)
     this.addWidget("weaponslots", new FPSWeaponSlots(), "bottom-right");
@@ -357,8 +333,8 @@ export class FPSHud {
     // Kill feed - disabled, replaced by engine EventFeed
     // this.addWidget('killfeed', new FPSKillFeed(), 'top-right');
 
-    // Weapon rack - left side
-    this.addWidget("weapons", new FPSWeaponRack(), "left");
+    // Weapon rack - disabled, redundant with bottom-right weapon slots
+    // this.addWidget("weapons", new FPSWeaponRack(), "left");
 
     // Frag message - center screen
     this.addWidget("frag", new FPSFragMessage(), "center");
@@ -372,7 +348,8 @@ export class FPSHud {
     // Match lifecycle widgets (replacing standalone MatchHUD)
     this.addWidget("phase", new FPSPhaseMessage(), "top-center");
     this.addWidget("ready", new FPSReadyBar(), "top-center");
-    this.addWidget("gametype", new FPSGametypeBadge(), "top-left");
+    // Gametype badge joins the top-center scoreline (cyan tab right of timer)
+    this.addWidget("gametype", new FPSGametypeBadge(), "top-center");
   }
 
   // ===========================================================================

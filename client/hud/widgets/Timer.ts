@@ -8,22 +8,23 @@ import type { FPSHudWidget, HUDState } from "../HudWidget";
  */
 export class FPSTimer implements FPSHudWidget {
   private element: HTMLElement;
+  private textEl: HTMLElement;
   private currentTime: string = "";
 
   constructor() {
-    this.element = this.createElement();
-  }
-
-  private createElement(): HTMLElement {
     const el = document.createElement("div");
-    el.className = "fps-timer manga-panel";
+    el.className = "fps-timer";
 
-    // Corner brackets
-    const corners = document.createElement("div");
-    corners.className = "manga-panel-corners";
-    el.appendChild(corners);
+    const caption = document.createElement("span");
+    caption.className = "fps-timer-caption";
+    caption.textContent = "TIME";
+    el.appendChild(caption);
 
-    return el;
+    this.textEl = document.createElement("span");
+    this.textEl.className = "fps-timer-text";
+    el.appendChild(this.textEl);
+
+    this.element = el;
   }
 
   public getElement(): HTMLElement {
@@ -34,11 +35,12 @@ export class FPSTimer implements FPSHudWidget {
     const match = MatchStateManager.getInstance();
     const timeRemaining = match.timeRemaining;
     if (timeRemaining <= 0 && match.isWarmup()) {
-      // No time limit during warmup
-      if (this.currentTime !== "") {
-        this.currentTime = "";
-        const textNode = this.element.querySelector(".fps-timer-text");
-        if (textNode) textNode.textContent = "";
+      // No time limit during warmup — dimmed idle plate
+      if (this.currentTime !== "--:--") {
+        this.currentTime = "--:--";
+        this.textEl.textContent = "--:--";
+        this.element.classList.add("fps-timer--idle");
+        this.element.classList.remove("fps-timer--warning", "fps-timer--critical");
       }
       return;
     }
@@ -47,21 +49,10 @@ export class FPSTimer implements FPSHudWidget {
 
     if (timeStr === this.currentTime) return;
     this.currentTime = timeStr;
-
-    // Keep corners, update text
-    // Re-create inner text node without destroying corners
-    const textNode =
-      this.element.querySelector(".fps-timer-text") ||
-      (() => {
-        const span = document.createElement("span");
-        span.className = "fps-timer-text";
-        this.element.appendChild(span);
-        return span;
-      })();
-    (textNode as HTMLElement).textContent = timeStr;
+    this.textEl.textContent = timeStr;
 
     // Warning states
-    this.element.classList.remove("fps-timer--warning", "fps-timer--critical");
+    this.element.classList.remove("fps-timer--idle", "fps-timer--warning", "fps-timer--critical");
     if (timeRemaining <= 10) {
       this.element.classList.add("fps-timer--critical");
     } else if (timeRemaining <= 30) {

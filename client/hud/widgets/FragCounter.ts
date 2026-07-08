@@ -16,12 +16,7 @@ export class FPSFragCounter implements FPSHudWidget {
 
   private createElement(): HTMLElement {
     const wrapper = document.createElement("div");
-    wrapper.className = "fps-frag-counter manga-panel";
-
-    // Corner brackets
-    const corners = document.createElement("div");
-    corners.className = "manga-panel-corners";
-    wrapper.appendChild(corners);
+    wrapper.className = "fps-frag-counter";
 
     // Frag number
     this.numberEl = document.createElement("span");
@@ -50,8 +45,16 @@ export class FPSFragCounter implements FPSHudWidget {
     const score = entry ? entry.score : 0;
 
     if (score === this.currentScore) return;
+    const wasInitial = this.currentScore === -1;
     this.currentScore = score;
     this.numberEl.textContent = String(score);
+
+    // Stamp-punch the number on score changes (not on the initial render)
+    if (!wasInitial) {
+      this.element.classList.remove("fps-frag-counter--bump");
+      void this.element.offsetWidth;
+      this.element.classList.add("fps-frag-counter--bump");
+    }
   }
 
   public show(): void {

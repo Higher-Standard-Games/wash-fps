@@ -78,7 +78,7 @@ export class FPSWeaponSlots implements FPSHudWidget {
 
       const name = document.createElement("div");
       name.className = "fps-weapon-slot-name";
-      name.textContent = "—";
+      name.textContent = "--";
       slot.appendChild(name);
 
       wrapper.appendChild(slot);
@@ -122,7 +122,7 @@ export class FPSWeaponSlots implements FPSHudWidget {
       const isActive = weaponId !== null && weaponId === current;
       const isEmpty = weaponId === null;
       const color = weaponId ? WEAPON_COLOR_MAP[weaponId] || "cyan" : "";
-      const abbr = weaponId ? WEAPON_ABBR[weaponId] || weaponId.slice(0, 2).toUpperCase() : "—";
+      const abbr = weaponId ? WEAPON_ABBR[weaponId] || weaponId.slice(0, 2).toUpperCase() : "--";
 
       // Update name
       slot.nameEl.textContent = abbr;
