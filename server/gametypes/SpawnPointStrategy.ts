@@ -21,8 +21,10 @@ export interface SpawnPointStrategy {
    * @param points Available spawn points from BSP
    * @param state Current world state (for checking enemy positions)
    * @param excludeEntityId Entity ID of the spawning player (to exclude self)
+   * @param rng Seeded PRNG for deterministic selection (demo re-sim, R3b). Defaults
+   *   to `Math.random` for non-sim callers; the server passes `rngFrom(tick,entity)`.
    */
-  choose(points: Vec3[], state: WorldState, excludeEntityId?: EntityId): Vec3;
+  choose(points: Vec3[], state: WorldState, excludeEntityId?: EntityId, rng?: () => number): Vec3;
 }
 
 // ============================================================================
@@ -34,11 +36,11 @@ export interface SpawnPointStrategy {
  * Suitable for casual modes or as fallback.
  */
 export class RandomSpawnStrategy implements SpawnPointStrategy {
-  choose(points: Vec3[], _state: WorldState): Vec3 {
+  choose(points: Vec3[], _state: WorldState, _excludeEntityId?: EntityId, rng: () => number = Math.random): Vec3 {
     if (points.length === 0) {
       return { x: 0, y: 100, z: 0 };
     }
-    const index = Math.floor(Math.random() * points.length);
+    const index = Math.floor(rng() * points.length);
     return { ...points[index] };
   }
 }
@@ -64,7 +66,7 @@ export class FurthestSpawnStrategy implements SpawnPointStrategy {
     this.candidateCount = candidateCount;
   }
 
-  choose(points: Vec3[], state: WorldState, excludeEntityId?: EntityId): Vec3 {
+  choose(points: Vec3[], state: WorldState, excludeEntityId?: EntityId, rng: () => number = Math.random): Vec3 {
     if (points.length === 0) {
       return { x: 0, y: 100, z: 0 };
     }
@@ -74,7 +76,7 @@ export class FurthestSpawnStrategy implements SpawnPointStrategy {
 
     // If no enemies, just pick random
     if (enemyPositions.length === 0) {
-      const index = Math.floor(Math.random() * points.length);
+      const index = Math.floor(rng() * points.length);
       return { ...points[index] };
     }
 
@@ -89,7 +91,7 @@ export class FurthestSpawnStrategy implements SpawnPointStrategy {
 
     // Pick randomly from top candidates
     const count = Math.min(this.candidateCount, scored.length);
-    const chosen = scored[Math.floor(Math.random() * count)];
+    const chosen = scored[Math.floor(rng() * count)];
     return { ...points[chosen.index] };
   }
 
@@ -142,13 +144,13 @@ export class TeamSpawnStrategy implements SpawnPointStrategy {
     this.teamPoints.set(team, points);
   }
 
-  choose(points: Vec3[], _state: WorldState): Vec3 {
+  choose(points: Vec3[], _state: WorldState, _excludeEntityId?: EntityId, rng: () => number = Math.random): Vec3 {
     // For now, use all points as fallback
     // TODO: Use player's team to select from team-specific points
     if (points.length === 0) {
       return { x: 0, y: 100, z: 0 };
     }
-    const index = Math.floor(Math.random() * points.length);
+    const index = Math.floor(rng() * points.length);
     return { ...points[index] };
   }
 }

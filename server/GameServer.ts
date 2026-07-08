@@ -51,6 +51,7 @@ import { FPSMovementSubsystem } from "./systems/FPSMovementSubsystem";
 import { PickupSystem } from "./systems/PickupSystem";
 import { ProjectileSystem } from "./systems/ProjectileSystem";
 import { WeaponSystem } from "./systems/WeaponSystem";
+import { Telemetry } from "./Telemetry";
 
 export type { ClientInfo, GameServerConfig };
 
@@ -97,6 +98,10 @@ export class GameServer {
 
   // Anti-warp: rate-limit client inputs to prevent speed hacking
   private movementValidator: MovementValidator;
+
+  // Per-client telemetry (WO-12): uplink jitter/loss + aim-flick signal. Derived
+  // from the usercmd stream the server already receives; no sim-state coupling.
+  private telemetry = new Telemetry();
 
   // Snapshot throttling: only broadcast every N ticks
   private snapshotTickCounter: number = 0;
@@ -483,9 +488,41 @@ export class GameServer {
       `[GameServer] tickrate: ${hz.toFixed(1)}Hz actual (target ${this.config.tickRate}Hz), ` +
         `${this.diagTickCount} ticks / ${(elapsed / 1000).toFixed(1)}s, maxTickWork ${this.diagMaxTickMs.toFixed(1)}ms`,
     );
+    this.logClientTelemetry();
     this.diagLastLog = now;
     this.diagTickCount = 0;
     this.diagMaxTickMs = 0;
+  }
+
+  /**
+   * Emit one structured [Telemetry] line per playing client (~every 5s, on the
+   * tick-rate diagnostic cadence): uplink jitter/loss, the view-angular-speed
+   * aim-flick signal, and the anti-warp strike count composed from
+   * MovementValidator. Shape is stable for a future admin view / WO-13 to parse.
+   */
+  private logClientTelemetry(): void {
+    for (const client of this.clients.values()) {
+      if (client.isSpectator) continue;
+      const m = this.telemetry.get(client.playerId);
+      if (!m || m.inputs === 0) continue;
+      const strikes = this.movementValidator.getStrikes(client.playerId);
+      // Accuracy (WO-AC1) lives in WeaponSystem (keyed by entity); compose here.
+      // Min-sample gated — small samples are noise (see ANTICHEAT_FEATURES.md §0.3).
+      const acc = this.weaponSystem.getAccuracy(client.entityId);
+      const accStr = acc.shots >= 30 ? `${((acc.hits / acc.shots) * 100).toFixed(1)}%` : "n/a";
+      const hsStr = acc.hits >= 10 ? `${((acc.headshots / acc.hits) * 100).toFixed(1)}%` : "n/a";
+      // Impossible-input counters (WO-AC2): near-zero for honest clients. rejected/
+      // clamped from the sanitizer (Telemetry), tripwire from the physics subsystem.
+      const tripwire = this.physicsSystem.getTripwireHits(client.entityId as number);
+      console.log(
+        `[Telemetry] player=${client.playerId} inputs=${m.inputs} loss=${(m.inputLoss * 100).toFixed(1)}% ` +
+          `jitter=${m.jitterMs.toFixed(1)}ms viewSpeed=${m.viewSpeedDps.toFixed(0)}dps ` +
+          `peakFlick=${m.peakViewSpeedDps.toFixed(0)}dps flickHist=${m.flickHistogram.join(",")} ` +
+          `warpStrikes=${strikes} ` +
+          `acc=${accStr} hs=${hsStr} shots=${acc.shots} ` +
+          `rejected=${m.rejectedCmds} clamped=${m.clampedCmds} tripwire=${tripwire}`,
+      );
+    }
   }
 
   private tick(): void {
@@ -599,6 +636,7 @@ export class GameServer {
 
       // Remove from anti-warp tracker
       this.movementValidator.removeClient(client.playerId);
+      this.telemetry.remove(client.playerId);
     }
 
     this.clients.delete(conn.id);
@@ -933,6 +971,7 @@ export class GameServer {
 
     // Register with anti-warp validator
     this.movementValidator.addClient(client.playerId);
+    this.telemetry.add(client.playerId);
 
     // Mark as playing
     client.isSpectator = false;
@@ -981,6 +1020,7 @@ export class GameServer {
 
     // Remove from anti-warp tracker
     this.movementValidator.removeClient(client.playerId);
+    this.telemetry.remove(client.playerId);
 
     // Mark as spectator and reserve a fresh entity ID for potential rejoin
     client.isSpectator = true;
@@ -1011,8 +1051,17 @@ export class GameServer {
 
     const clean = sanitizeCommand(command);
     if (!clean) {
+      // Non-finite usercmd — a hard contract violation (WO-AC2). Count + drop.
+      this.telemetry.recordViolation(client.playerId, "rejected");
       client.lastInputSeq = seq;
       return;
+    }
+    // Accepted but the sanitizer had to clamp an out-of-range field (pitch beyond
+    // ±90° or |wishdir|>1) — also a contract violation an honest client never sends.
+    const rawDx = command.direction?.x ?? 0;
+    const rawDz = command.direction?.z ?? 0;
+    if (Math.abs(command.pitch ?? 0) > Math.PI / 2 + 1e-4 || Math.hypot(rawDx, rawDz) > 1 + 1e-4) {
+      this.telemetry.recordViolation(client.playerId, "clamped");
     }
 
     const state = this.simulation.getStateMut();
@@ -1035,6 +1084,9 @@ export class GameServer {
         weaponSlot: clean.weaponSlot,
       });
       client.lastInputSeq = seq;
+      // Telemetry (WO-12): sample this accepted usercmd — arrival time for jitter,
+      // seq for loss, sanitized view angles for the aim-flick signal.
+      this.telemetry.recordInput(client.playerId, performance.now(), seq, clean.pitch, clean.yaw);
     }
   }
 
