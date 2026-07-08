@@ -25,11 +25,7 @@ export class FPSScoreboard {
     this.overlay.style.display = "none";
 
     this.board = document.createElement("div");
-    this.board.className = "fps-scoreboard manga-panel";
-
-    const corners = document.createElement("div");
-    corners.className = "manga-panel-corners";
-    this.board.appendChild(corners);
+    this.board.className = "fps-scoreboard";
 
     this.titleEl = document.createElement("div");
     this.titleEl.className = "fps-scoreboard-title";
@@ -87,11 +83,6 @@ export class FPSScoreboard {
 
     // Clear existing layout
     this.board.innerHTML = "";
-
-    // Add corners
-    const corners = document.createElement("div");
-    corners.className = "manga-panel-corners";
-    this.board.appendChild(corners);
 
     // Add title
     this.board.appendChild(this.titleEl);

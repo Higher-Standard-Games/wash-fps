@@ -28,25 +28,20 @@ export class FPSReadyBar implements FPSHudWidget {
     const controller = CameraSystem.getInstance()?.getActiveController();
     const isSpectating = controller?.type === "freefly";
 
-    if (mgr.isWarmup()) {
-      this.element.classList.remove("hidden");
+    if (mgr.isWarmup() && !isSpectating) {
+      // Joined player: gold count cell + prompt with keycap chip
+      const readyText = mgr.isReady
+        ? `<span class="fps-ready-text">Ready! Waiting for others</span>`
+        : `<span class="fps-ready-text">Press <span class="fps-ready-key">F4</span> when ready</span>`;
 
-      if (isSpectating) {
-        // Spectator mode: show "SPECTATING" (or player name when chasing)
-        this.element.innerHTML = "SPECTATING";
-        this.element.classList.remove("fps-ready-bar--ready");
-      } else {
-        // Joined player: show ready counter and F4 prompt
-        const readyText = mgr.isReady ? "✓ Ready" : `Press <span class="fps-ready-key">F4</span> when ready`;
-
-        this.element.innerHTML = `${mgr.getReadyStatus()} — ${readyText}`;
-        this.element.classList.toggle("fps-ready-bar--ready", mgr.isReady);
-      }
+      this.element.classList.remove("hidden", "fps-ready-bar--spectating");
+      this.element.innerHTML = `<span class="fps-ready-count">${mgr.getReadyStatus()}</span>${readyText}`;
+      this.element.classList.toggle("fps-ready-bar--ready", mgr.isReady);
     } else if (isSpectating) {
-      // Outside warmup but spectating: still show "SPECTATING"
-      this.element.classList.remove("hidden");
-      this.element.innerHTML = "SPECTATING";
-      this.element.classList.remove("fps-ready-bar--ready");
+      // Spectating (in or out of warmup): magenta plate, no count cell
+      this.element.classList.remove("hidden", "fps-ready-bar--ready");
+      this.element.classList.add("fps-ready-bar--spectating");
+      this.element.innerHTML = `<span class="fps-ready-text">Spectating</span>`;
     } else {
       this.element.classList.add("hidden");
     }

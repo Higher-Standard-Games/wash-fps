@@ -597,9 +597,6 @@ export class FPSSettingsView {
     this.addColorRow(crosshair.rows, "Hit Color", "cg_crosshairDmgColor", "interface");
     grid.appendChild(crosshair.section);
 
-    const hud = this.createSection("HUD");
-    this.addCvarToggle(hud.rows, "Show Speed", "cl_showspeed", "interface");
-    grid.appendChild(hud.section);
 
     const network = this.createSection("Network");
     this.addSelectRow(
