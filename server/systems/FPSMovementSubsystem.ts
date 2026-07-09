@@ -37,6 +37,7 @@ function adaptInput(input: {
   pitch: number;
   yaw: number;
   buttons: number; // Raw button bitmask from client
+  sequence?: number; // Client command seq — drives the profile's sim clock
 }): MovementInput {
   // Server receives world-space direction from client:
   // input.forward = command.direction.z
@@ -52,6 +53,11 @@ function adaptInput(input: {
     direction: { x: wishX, y: 0, z: wishZ },
     viewAngles: { pitch: input.pitch, yaw: input.yaw },
     buttons,
+    // Same seq-derived sim clock as client prediction: 1 seq = one fixed-dt
+    // step (the fixed-rate tick model consumes exactly one command per tick),
+    // so slide/walljump/ledge timelines agree between client, server, and
+    // deterministic re-sim.
+    sequence: input.sequence,
     isPressed: (button: number) => (buttons & button) !== 0,
   };
 }

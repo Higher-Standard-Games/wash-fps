@@ -57,6 +57,16 @@ export class MovementProfile implements IMovementProfile {
   private wasGroundedLastFrame: boolean = false;
   private jumpConsumed: boolean = false;
 
+  /**
+   * Sim clock (ms). Derived from the input's sequence number when available
+   * (`sequence * dtMs`) — sequences are monotonic and each maps to exactly one
+   * fixed-dt step on both client and server, so reconciliation replays that
+   * re-simulate old inputs recompute the SAME timestamps instead of advancing
+   * time again. Falls back to dt accumulation for inputs without a sequence
+   * (offline/bot paths that never replay).
+   */
+  private simNowMs: number = 0;
+
   // Speed tracking
   private actualHorizSpeed: number = 0;
   private smoothedY: number = 0;
@@ -144,11 +154,12 @@ export class MovementProfile implements IMovementProfile {
       this.jumpConsumed = false;
     }
     this.wallJump.reset();
-    // NOTE: Do NOT reset slide here. Slide state (isSliding, slidePhase) is purely
-    // cosmetic (camera tilt) and is maintained by the client's 125Hz simulation.
-    // Resetting it during reconciliation (~60Hz) kills the slide and camera animation
-    // because the replay cannot reliably reconstruct it (elapsedTime resets,
-    // server grounded may disagree with client → slide re-entry fails).
+    // NOTE: Do NOT reset slide here. Resetting it during reconciliation kills the
+    // slide and camera animation because the replay cannot reliably reconstruct it
+    // (server grounded may disagree with client → slide re-entry fails). Since all
+    // slide timers are sequence-derived absolute timestamps (see simNowMs), replays
+    // re-simulating old inputs recompute identical timelines anyway — surviving
+    // reconciliation is safe by construction.
 
     // NOTE: Do NOT reset ledge grab here either. Ledge grab is a client-side cosmetic
     // state machine (server doesn't simulate it). Resetting during reconciliation
@@ -171,9 +182,13 @@ export class MovementProfile implements IMovementProfile {
     const newVel = vec3Clone(velocity);
     const dtMs = deltaTime * 1000;
 
-    // Tick down cooldown timers
-    this.slide.tickCooldown(dtMs);
-    this.wallJump.tickCooldown(dtMs);
+    // Advance the sim clock (sequence-derived when available — see field doc)
+    if (input?.sequence !== undefined && input.sequence > 0) {
+      this.simNowMs = input.sequence * dtMs;
+    } else {
+      this.simNowMs += dtMs;
+    }
+    const nowMs = this.simNowMs;
 
     const justLanded = !this.wasGroundedLastFrame && this.isGrounded;
 
@@ -182,6 +197,7 @@ export class MovementProfile implements IMovementProfile {
       return this.wallJump.handleCharging(
         position,
         input,
+        nowMs,
         deltaTime,
         this.config,
         {
@@ -198,7 +214,7 @@ export class MovementProfile implements IMovementProfile {
 
     // === LEDGE GRAB ===
     if (this.config.ledgeGrabEnabled && input) {
-      if (this.ledgeGrab.update(newPos, newVel, input, collision, deltaTime, this.config, this.isGrounded)) {
+      if (this.ledgeGrab.update(newPos, newVel, input, collision, nowMs, this.config, this.isGrounded)) {
         return {
           position: newPos,
           velocity: newVel,
@@ -248,7 +264,7 @@ export class MovementProfile implements IMovementProfile {
       // Crouch speed reduction (if not sliding)
       if (isCrouching && !this.slide.isSliding) {
         const horizSpeed = vec3LengthXZ(newVel);
-        const cooldownPassed = this.slide.cooldownRemaining <= 0;
+        const cooldownPassed = !this.slide.isOnCooldown(nowMs);
 
         if (horizSpeed < this.config.slideMinSpeed || !cooldownPassed) {
           wishspeed *= this.config.crouchMultiplier;
@@ -288,7 +304,7 @@ export class MovementProfile implements IMovementProfile {
           this.wallJump.keyReleased = false;
 
           if (this.slide.isSliding) {
-            this.slide.exit(newVel, this.config);
+            this.slide.exit(newVel, nowMs, this.config);
           }
         }
       }
@@ -330,15 +346,15 @@ export class MovementProfile implements IMovementProfile {
           this.config.wallJumpEnabled &&
           !this.slide.isSliding &&
           this.ledgeGrab.state === "none" &&
-          !this.ledgeGrab.isOnCooldown()
+          !this.ledgeGrab.isOnCooldown(nowMs)
         ) {
-          this.wallJump.update(newPos, newVel, input, collision, deltaTime, this.config);
+          this.wallJump.update(newPos, newVel, input, collision, nowMs, this.config);
         }
       }
 
       // === CROUCHSLIDE ===
       if (this.config.slideEnabled) {
-        this.slide.update(newVel, input, this.isGrounded, deltaTime, this.config);
+        this.slide.update(newVel, input, this.isGrounded, nowMs, deltaTime, this.config);
       }
 
       // === CROUCH STATE ===

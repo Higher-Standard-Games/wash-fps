@@ -16,8 +16,11 @@ export class LedgeGrab {
   state: "none" | "grabbing" | "pulling" = "none";
   phase: number = 0; // Camera phase (0-1)
 
-  private grabTime: number = 0;
-  private cooldownRemaining: number = 0;
+  // Absolute sim-clock anchors (ms) — derived from the sequence-based sim
+  // clock so reconciliation replays recompute identical elapsed times
+  // instead of double-advancing (same fix as Slide/WallJump).
+  private stateStartMs: number = 0; // Sim time when grabbing/pulling began
+  private cooldownUntilMs: number = 0; // Re-detection lockout deadline
   private targetPos: Vec3 = vec3Zero();
   private startPos: Vec3 = vec3Zero();
 
@@ -25,39 +28,36 @@ export class LedgeGrab {
   reset(): void {
     this.state = "none";
     this.phase = 0;
-    this.cooldownRemaining = 0;
+    this.stateStartMs = 0;
+    this.cooldownUntilMs = 0;
   }
 
   /** Check if ledge grab is on cooldown (used by orchestrator to suppress wall jump) */
-  isOnCooldown(): boolean {
-    return this.cooldownRemaining > 0;
+  isOnCooldown(nowMs: number): boolean {
+    return nowMs < this.cooldownUntilMs;
   }
 
   /**
    * Update ledge grab state machine.
    * Returns true if ledge grab is active (consuming movement).
    * Mutates pos and vel in-place.
+   *
+   * @param nowMs Absolute sim time (sequence-derived; replay-idempotent)
    */
   update(
     pos: Vec3,
     vel: Vec3,
     input: MovementInput,
     collision: CollisionWorld | null,
-    deltaTime: number,
+    nowMs: number,
     config: MovementConfig,
     isGrounded: boolean,
   ): boolean {
     if (!config.ledgeGrabEnabled) return false;
 
-    // Tick down post-pull cooldown
-    if (this.cooldownRemaining > 0) {
-      this.cooldownRemaining -= deltaTime;
-      if (this.state === "none") return false;
-    }
-
     // === STATE: GRABBING (pause at ledge) ===
     if (this.state === "grabbing") {
-      this.grabTime += deltaTime;
+      const grabElapsedSec = (nowMs - this.stateStartMs) / 1000;
 
       // Freeze position
       pos.x = this.startPos.x;
@@ -69,11 +69,11 @@ export class LedgeGrab {
 
       // Compute ledge grab phase (0→0.3 during grab pause)
       const grabPauseTime = 0.12;
-      this.phase = Math.min(0.3, (this.grabTime / grabPauseTime) * 0.3);
+      this.phase = Math.min(0.3, (grabElapsedSec / grabPauseTime) * 0.3);
 
       // Only allow cancel after minimum grab time (only crouch cancels)
       const minGrabTime = 0.05;
-      if (this.grabTime > minGrabTime) {
+      if (grabElapsedSec > minGrabTime) {
         if (input.isPressed(InputButtons.CROUCH)) {
           this.state = "none";
           this.phase = 0;
@@ -83,9 +83,9 @@ export class LedgeGrab {
       }
 
       // Auto-climb after brief pause
-      if (this.grabTime >= grabPauseTime) {
+      if (grabElapsedSec >= grabPauseTime) {
         this.state = "pulling";
-        this.grabTime = 0;
+        this.stateStartMs = nowMs;
       }
 
       return true;
@@ -93,9 +93,9 @@ export class LedgeGrab {
 
     // === STATE: PULLING (climbing animation) ===
     if (this.state === "pulling") {
-      this.grabTime += deltaTime;
+      const pullElapsedSec = (nowMs - this.stateStartMs) / 1000;
       const pullTime = config.ledgePullTime;
-      const progress = Math.min(1.0, this.grabTime / pullTime);
+      const progress = Math.min(1.0, pullElapsedSec / pullTime);
 
       // Ease in-out
       const t = progress < 0.5 ? 2 * progress * progress : 1 - (-2 * progress + 2) ** 2 / 2;
@@ -115,7 +115,7 @@ export class LedgeGrab {
         // Done climbing — cooldown prevents re-detection
         this.state = "none";
         this.phase = 0;
-        this.cooldownRemaining = 0.3;
+        this.cooldownUntilMs = nowMs + 300;
         const forward = vec3Normalize(input.direction);
         vel.x = forward.x * 50;
         vel.y = 0; // No upward boost — targetPos already has Y clearance
@@ -126,6 +126,7 @@ export class LedgeGrab {
     }
 
     // === STATE: DETECTION ===
+    if (this.isOnCooldown(nowMs)) return false;
     if (!collision) return false;
     if (isGrounded) return false;
     if (vel.y > 200) return false;
@@ -257,7 +258,7 @@ export class LedgeGrab {
     }
 
     // === SUCCESS: Start grabbing! ===
-    this.startGrab(targetPos, pos);
+    this.startGrab(targetPos, pos, nowMs);
 
     // Immediately freeze position and velocity on detection tick
     // (grab handler freezes on subsequent ticks, but we need frame 0 clean too)
@@ -269,9 +270,9 @@ export class LedgeGrab {
   }
 
   /** Start the grab state */
-  private startGrab(targetPos: Vec3, currentPos: Vec3): void {
+  private startGrab(targetPos: Vec3, currentPos: Vec3, nowMs: number): void {
     this.state = "grabbing";
-    this.grabTime = 0;
+    this.stateStartMs = nowMs;
     this.startPos = vec3Clone(currentPos);
     this.targetPos = vec3Clone(targetPos);
   }

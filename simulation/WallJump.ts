@@ -12,8 +12,8 @@ import type { MovementInput } from "../../../engine/network/systems/movement/Mov
 import type { AdvancedMovementResult, MovementConfig } from "./MovementConfig";
 import { VEC3_ZERO, vec3Clone, vec3LengthXZ, vec3MulAdd, vec3Zero } from "./Vec3Helpers";
 
-/** Grace period for detection hysteresis (seconds) */
-const DETECTION_GRACE = 0.1;
+/** Grace period for detection hysteresis (ms of sim time) */
+const DETECTION_GRACE_MS = 100;
 
 /** Bounding box for wall detection traces — small box catches angled BSP faces
  *  that point rays miss. Q3/Warsow used full player hull for wall detection. */
@@ -24,34 +24,38 @@ const WALL_TRACE_BOUNDS = {
 
 export class WallJump {
   state: "none" | "available" | "charging" = "none";
-  chargeTime: number = 0;
   normal: Vec3 = vec3Zero();
   position: Vec3 = vec3Zero(); // Position when grab started
   preVelocity: Vec3 = vec3Zero(); // Velocity before charging
-  cooldownRemaining: number = 0; // Countdown timer (ms)
   keyReleased: boolean = true;
-  graceTime: number = 0; // Grace timer to prevent flicker
-  groundGrace: number = 0; // Grace timer for ground proximity check
+
+  // Absolute sim-clock anchors (ms). Derived deadlines instead of accumulated
+  // dt so reconciliation replays (which re-simulate old sequence numbers)
+  // recompute identical values instead of double-advancing timers.
+  private chargeStartMs: number = 0; // Sim time when charging began
+  private cooldownUntilMs: number = 0; // Sim time when next walljump is allowed
+  private graceUntilMs: number = 0; // Wall-detection hysteresis deadline
+  private groundGraceUntilMs: number = 0; // Ground-clearance hysteresis deadline
 
   // Pre-allocated scratch vectors (avoid per-tick allocations in traces)
   private readonly _scratchTraceEnd: Vec3 = { x: 0, y: 0, z: 0 };
   private readonly _scratchTraceEnd2: Vec3 = { x: 0, y: 0, z: 0 };
 
-  /** Tick down cooldown timer (called by orchestrator) */
-  tickCooldown(dtMs: number): void {
-    if (this.cooldownRemaining > 0) this.cooldownRemaining -= dtMs;
+  /** True while the post-walljump cooldown deadline is in the future */
+  isOnCooldown(nowMs: number): boolean {
+    return nowMs < this.cooldownUntilMs;
   }
 
   /** Reset state for reconciliation */
   reset(): void {
     this.state = "none";
-    this.chargeTime = 0;
+    this.chargeStartMs = 0;
     // NOTE: Do NOT reset keyReleased here. The prediction's keyReleased state
     // is the best approximation of the server's state. Resetting to true causes
     // accidental walljumps from held space; resetting to false causes prediction
     // snaps when the server has true (player genuinely released jump).
-    this.graceTime = 0;
-    this.groundGrace = 0;
+    this.graceUntilMs = 0;
+    this.groundGraceUntilMs = 0;
   }
 
   /**
@@ -63,7 +67,7 @@ export class WallJump {
     vel: Vec3,
     input: MovementInput,
     collision: CollisionWorld | null,
-    deltaTime: number,
+    nowMs: number,
     config: MovementConfig,
   ): void {
     if (!collision) return;
@@ -76,26 +80,22 @@ export class WallJump {
     }
 
     // Check cooldown
-    const cooldownPassed = this.cooldownRemaining <= 0;
-    if (!cooldownPassed) {
+    if (this.isOnCooldown(nowMs)) {
       this.state = "none";
       return;
     }
 
-    // Check minimum height above ground — use grace timer to prevent
+    // Check minimum height above ground — use grace deadline to prevent
     // client/server prediction mismatch oscillation (shaking).
     const feetY = pos.y - 24; // Q3: origin is 24 units above feet
     const groundCheck = collision.trace(pos, { x: pos.x, y: feetY - config.wallJumpMinHeight, z: pos.z });
     const hasGroundClearance = !(groundCheck.hit && groundCheck.fraction < 1);
 
     if (hasGroundClearance) {
-      this.groundGrace = DETECTION_GRACE;
-    } else {
-      this.groundGrace -= deltaTime;
-      if (this.groundGrace <= 0) {
-        this.state = "none";
-        return;
-      }
+      this.groundGraceUntilMs = nowMs + DETECTION_GRACE_MS;
+    } else if (nowMs >= this.groundGraceUntilMs) {
+      this.state = "none";
+      return;
     }
 
     // Check for wall in multiple directions
@@ -168,24 +168,21 @@ export class WallJump {
     if (foundWall) {
       this.normal = wallNormal;
       this.state = "available";
-      this.graceTime = DETECTION_GRACE;
+      this.graceUntilMs = nowMs + DETECTION_GRACE_MS;
 
       // Execute wall jump on fresh press
       if (isJumping && this.keyReleased) {
         this.keyReleased = false;
 
         if (config.wallJumpChargeTime > 0) {
-          this.startCharge(pos, vel, wallNormal);
+          this.startCharge(pos, vel, wallNormal, nowMs);
         } else {
-          this.executeInstant(vel, wallNormal, config);
+          this.executeInstant(vel, wallNormal, config, nowMs);
         }
       }
-    } else {
-      // No wall found - use grace timer to prevent flicker
-      this.graceTime -= deltaTime;
-      if (this.graceTime <= 0) {
-        this.state = "none";
-      }
+    } else if (nowMs >= this.graceUntilMs) {
+      // No wall found and grace deadline passed — clear (prevents flicker)
+      this.state = "none";
     }
   }
 
@@ -196,6 +193,7 @@ export class WallJump {
   handleCharging(
     _position: Vec3,
     input: MovementInput | null,
+    nowMs: number,
     deltaTime: number,
     config: MovementConfig,
     slideState: { isSliding: boolean; isCrouching: boolean; crouchViewOffset: number; slidePhase: number },
@@ -203,15 +201,15 @@ export class WallJump {
     actualHorizSpeed: number,
     updateCrouch: (input: MovementInput, deltaTime: number) => void,
   ): AdvancedMovementResult {
-    // Increment charge time
-    this.chargeTime += deltaTime;
+    // Charge time derives from the sim clock (replay-idempotent)
+    const chargeElapsedMs = nowMs - this.chargeStartMs;
 
     const isJumping = input?.isPressed(InputButtons.JUMP) ?? false;
-    const chargeTime = config.wallJumpChargeTime;
+    const chargeTimeMs = config.wallJumpChargeTime * 1000;
 
     // Check for release or timeout
-    if (!isJumping || this.chargeTime >= chargeTime) {
-      this.executeBoost(config);
+    if (!isJumping || chargeElapsedMs >= chargeTimeMs) {
+      this.executeBoost(config, nowMs);
 
       return {
         position: vec3Clone(this.position),
@@ -253,16 +251,16 @@ export class WallJump {
   }
 
   /** Start charging state - grab the wall */
-  private startCharge(pos: Vec3, vel: Vec3, normal: Vec3): void {
+  private startCharge(pos: Vec3, vel: Vec3, normal: Vec3, nowMs: number): void {
     this.state = "charging";
-    this.chargeTime = 0;
+    this.chargeStartMs = nowMs;
     this.normal = vec3Clone(normal);
     this.position = vec3Clone(pos);
     this.preVelocity = vec3Clone(vel);
   }
 
   /** Execute wall jump boost after charging (reflection formula) */
-  private executeBoost(config: MovementConfig): void {
+  private executeBoost(config: MovementConfig, nowMs: number): void {
     const baseVel = this.preVelocity;
     const normal = this.normal;
     const bounce = config.wallJumpBounce;
@@ -284,13 +282,13 @@ export class WallJump {
 
     baseVel.y = config.wallJumpHeight * boost;
 
-    this.cooldownRemaining = config.wallJumpCooldown * 1000;
+    this.cooldownUntilMs = nowMs + config.wallJumpCooldown * 1000;
     this.state = "none";
-    this.chargeTime = 0;
+    this.chargeStartMs = 0;
   }
 
   /** Instant wall jump (no charging) — reflection formula */
-  private executeInstant(vel: Vec3, normal: Vec3, config: MovementConfig): void {
+  private executeInstant(vel: Vec3, normal: Vec3, config: MovementConfig, nowMs: number): void {
     const bounce = config.wallJumpBounce;
 
     const dot = vel.x * normal.x + vel.z * normal.z;
@@ -308,7 +306,7 @@ export class WallJump {
 
     vel.y = config.wallJumpHeight;
 
-    this.cooldownRemaining = config.wallJumpCooldown * 1000;
+    this.cooldownUntilMs = nowMs + config.wallJumpCooldown * 1000;
     this.state = "none";
   }
 }

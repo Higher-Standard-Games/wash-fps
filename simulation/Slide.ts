@@ -3,13 +3,21 @@
  *
  * Manages slide entry/exit, speed decay, camera phase,
  * and crouch view offset transitions.
+ *
+ * TIMELINE MODEL: all timers are ABSOLUTE sim-clock deadlines/anchors
+ * (`nowMs` = sequence-derived sim time from MovementProfile), never
+ * accumulated deltaTime. Reconciliation replays re-simulate old inputs
+ * with their original sequence numbers, so recomputing `nowMs - startMs`
+ * is idempotent — the v0.9.16 "superfast slide camera" bug was exactly
+ * an accumulated `elapsedTime += dt` advancing once per replay on top of
+ * real time.
  */
 
 import { InputButtons } from "../../../engine/network/components/InputComponent";
 import type { Vec3 } from "../../../engine/network/components/TransformComponent";
 import type { MovementInput } from "../../../engine/network/systems/movement/MovementProfile";
 import type { MovementConfig } from "./MovementConfig";
-import { vec3Clone, vec3LengthXZ } from "./Vec3Helpers";
+import { vec3LengthXZ } from "./Vec3Helpers";
 
 // Slide camera constants (matched from AdvancedCharacterController)
 const SLIDE_FADE_MS = 400;
@@ -22,15 +30,13 @@ export class Slide {
   crouchViewOffset: number = 0;
   slidePhase: number = 0; // Camera tilt intensity (0-1)
 
-  // Internal slide state
-  private elapsedTime: number = 0; // Accumulated slide duration (ms)
-  cooldownRemaining: number = 0; // Countdown timer (ms)
-  // @ts-expect-error TS6133 — slideVelocity is written during slide entry and read indirectly
-  private slideVelocity: Vec3 = { x: 0, y: 0, z: 0 };
+  // Absolute sim-clock anchors (ms) — see header note
+  private slideStartMs: number = 0; // Sim time when current slide began
+  private cooldownUntilMs: number = 0; // Sim time when next slide is allowed
 
-  /** Tick down cooldown timer (called by orchestrator) */
-  tickCooldown(dtMs: number): void {
-    if (this.cooldownRemaining > 0) this.cooldownRemaining -= dtMs;
+  /** True while the post-slide cooldown deadline is in the future */
+  isOnCooldown(nowMs: number): boolean {
+    return nowMs < this.cooldownUntilMs;
   }
 
   /** Reset state for reconciliation */
@@ -38,26 +44,35 @@ export class Slide {
     this.isSliding = false;
     this.isCrouching = false;
     this.slidePhase = 0;
+    this.slideStartMs = 0;
+    this.cooldownUntilMs = 0;
   }
 
   /**
    * Update slide state machine.
    * Mutates vel in-place for slide boost/decay.
+   *
+   * @param nowMs Absolute sim time (sequence-derived; replay-idempotent)
    */
-  update(vel: Vec3, input: MovementInput, isGrounded: boolean, deltaTime: number, config: MovementConfig): void {
+  update(
+    vel: Vec3,
+    input: MovementInput,
+    isGrounded: boolean,
+    nowMs: number,
+    deltaTime: number,
+    config: MovementConfig,
+  ): void {
     const isCrouching = input.isPressed(InputButtons.CROUCH);
     const isJumping = input.isPressed(InputButtons.JUMP);
     const horizSpeed = vec3LengthXZ(vel);
-    const dtMs = deltaTime * 1000;
 
     if (!this.isSliding) {
       // Check if we should enter slide
-      const canSlide = isGrounded && isCrouching && horizSpeed >= config.slideMinSpeed && this.cooldownRemaining <= 0;
+      const canSlide = isGrounded && isCrouching && horizSpeed >= config.slideMinSpeed && !this.isOnCooldown(nowMs);
 
       if (canSlide) {
         this.isSliding = true;
-        this.elapsedTime = 0;
-        this.slideVelocity = vec3Clone(vel);
+        this.slideStartMs = nowMs;
         this.slidePhase = 0;
 
         // Boost on entry
@@ -70,9 +85,8 @@ export class Slide {
         if (this.slidePhase < 0.01) this.slidePhase = 0;
       }
     } else {
-      // Currently sliding — accumulate elapsed time
-      this.elapsedTime += dtMs;
-      const slideElapsed = this.elapsedTime;
+      // Currently sliding — elapsed derives from the sim clock, not accumulation
+      const slideElapsed = nowMs - this.slideStartMs;
       const slideDuration = config.slideDuration;
 
       // === COMPUTE SLIDE PHASE (camera tilt intensity) ===
@@ -80,7 +94,7 @@ export class Slide {
       const timeRemaining = slideDuration - slideElapsed;
 
       if (slideElapsed < fadeMs) {
-        const t = slideElapsed / fadeMs;
+        const t = Math.max(0, slideElapsed) / fadeMs;
         this.slidePhase = t * t * (3 - 2 * t);
       } else if (timeRemaining < fadeMs) {
         const t = Math.max(0, timeRemaining) / fadeMs;
@@ -96,7 +110,7 @@ export class Slide {
       const jumpCancel = isJumping && slideElapsed > 100;
 
       if (slideExpired || tooSlow || releasedCrouch || jumpCancel) {
-        this.exit(vel, config);
+        this.exit(vel, nowMs, config);
 
         // Jump boost on cancel
         if (jumpCancel) {
@@ -118,10 +132,10 @@ export class Slide {
   }
 
   /** Exit slide and start cooldown */
-  exit(_vel: Vec3, config?: MovementConfig): void {
+  exit(_vel: Vec3, nowMs: number, config?: MovementConfig): void {
     this.isSliding = false;
     if (config) {
-      this.cooldownRemaining = config.slideCooldown;
+      this.cooldownUntilMs = nowMs + config.slideCooldown;
     }
     // slidePhase will decay naturally in the non-sliding branch
   }

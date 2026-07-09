@@ -201,7 +201,7 @@ export class V2NetworkClient {
     });
 
     // 2. Apply locally for instant feedback (same physics as server)
-    const movementInput = this.toMovementInput(sanitizedInput);
+    const movementInput = this.toMovementInput(sanitizedInput, seq);
     const result = this.movement.simulate(
       this.localState.position,
       this.localState.velocity,
@@ -717,11 +717,17 @@ export class V2NetworkClient {
   // HELPERS
   // ═══════════════════════════════════════════════════════════════════
 
-  private toMovementInput(input: { direction: Vec3; pitch: number; yaw: number; buttons: number }): MovementInput {
+  private toMovementInput(
+    input: { direction: Vec3; pitch: number; yaw: number; buttons: number },
+    seq: number,
+  ): MovementInput {
     return {
       direction: input.direction,
       viewAngles: { pitch: input.pitch, yaw: input.yaw },
       buttons: input.buttons,
+      // Sequence drives the profile's sim clock — replays with the same seq
+      // recompute the same slide/walljump/ledge timelines (no double-advance)
+      sequence: seq,
       isPressed: (btn: number) => (input.buttons & btn) !== 0,
     };
   }
@@ -731,6 +737,7 @@ export class V2NetworkClient {
       direction: stored.direction,
       viewAngles: { pitch: stored.pitch, yaw: stored.yaw },
       buttons: stored.buttons,
+      sequence: stored.seq,
       isPressed: (btn: number) => (stored.buttons & btn) !== 0,
     };
   }
