@@ -7,6 +7,7 @@
  * Replaces the simpler CharacterPhysicsSystem.
  */
 
+import { MovementVars } from "../../../../engine/movement/MovementVars";
 import { InputButtons } from "../../../../engine/network/components/InputComponent";
 import type { CollisionWorld } from "../../../../engine/network/systems/collision/CollisionWorld";
 import type { MovementInput } from "../../../../engine/network/systems/movement/MovementProfile";
@@ -18,6 +19,7 @@ import type { QueuedInput } from "../../../../shared/server/simulation/component
 import type { PhysicsComponent } from "../../../../shared/server/simulation/components/PhysicsComponent";
 import type { AdvancedMovementResult } from "../../simulation/MovementConfig";
 import { MovementProfile as FPSMovementProfile } from "../../simulation/MovementProfile";
+import { DamageType, HitLocation, type CombatSystem } from "./CombatSystem";
 
 const CONFIG: SubsystemConfig = {
   name: "FPSMovement",
@@ -163,9 +165,23 @@ export class FPSMovementSubsystem extends Subsystem {
   /** Per-entity count of tripwire firings, surfaced as an anti-cheat signal (WO-AC2). */
   private tripwireHits: Map<number, number> = new Map();
 
-  /** DIAGNOSTIC: track when each entity went airborne (tick number) */
-  private jumpStartTick: Map<number, number> = new Map();
-  private jumpStartY: Map<number, number> = new Map();
+  /** Combat system ref for server-authoritative landing damage. */
+  private combatSystem: CombatSystem | null = null;
+
+  /**
+   * Airborne fall tracking: presence in fallPeakY means "airborne, tracking";
+   * the value is the highest Y reached (drop = peak − landing Y). Single map —
+   * one source of truth for the airborne state.
+   */
+  private fallPeakY: Map<number, number> = new Map();
+  /**
+   * Entities that have touched the ground at least once since (re)spawn.
+   * Spawns place players airborne (grounded=false) and the spawn-point floor
+   * snap only covers ~72u, so an elevated spawn would otherwise register as a
+   * damaging fall. Tracking is armed by the first grounded tick after spawn.
+   */
+  private fallArmed: Set<number> = new Set();
+  private lastSpawnTick: Map<number, number> = new Map();
 
   constructor(collisionWorld?: CollisionWorld) {
     super(CONFIG);
@@ -205,6 +221,87 @@ export class FPSMovementSubsystem extends Subsystem {
    */
   resetGroundedState(entityId: number, grounded: boolean): void {
     this.getProfile(entityId).resetPhysicsState(grounded);
+  }
+
+  /** Wire combat so movement can enqueue fall damage on landing. */
+  setCombatSystem(combat: CombatSystem): void {
+    this.combatSystem = combat;
+  }
+
+  private clearFallTracking(entityId: number): void {
+    this.fallPeakY.delete(entityId);
+  }
+
+  private updateFallDamageTracking(entityId: EntityId, positionY: number, grounded: boolean, buttons: number): void {
+    const eid = entityId as number;
+
+    if (!grounded) {
+      // Not armed = still in the post-spawn drop → never a damaging fall.
+      if (!this.fallArmed.has(eid)) return;
+      const peak = this.fallPeakY.get(eid);
+      this.fallPeakY.set(eid, peak === undefined ? positionY : Math.max(peak, positionY));
+      return;
+    }
+
+    this.fallArmed.add(eid);
+
+    const peakY = this.fallPeakY.get(eid);
+    if (peakY === undefined) return;
+    this.fallPeakY.delete(eid);
+    this.queueFallDamage(entityId, peakY - positionY, buttons);
+  }
+
+  private queueFallDamage(victimId: EntityId, rawDrop: number, buttons: number): void {
+    if (!this.combatSystem || rawDrop <= 0) return;
+
+    const vars = MovementVars.getInstance();
+    if (vars.get("sv_falldamage") <= 0) return;
+
+    const minDrop = Math.max(0, vars.get("sv_falldamage_min"));
+    const fullDrop = Math.max(minDrop + 1, vars.get("sv_falldamage_full"));
+    const fatalDrop = Math.max(fullDrop + 1, vars.get("sv_falldamage_fatal"));
+    const crouchSoften = Math.max(0, vars.get("sv_falldamage_crouchsoften"));
+    const effectiveDrop = Math.max(0, rawDrop - ((buttons & InputButtons.CROUCH) !== 0 ? crouchSoften : 0));
+
+    if (effectiveDrop < minDrop) return;
+
+    if (effectiveDrop >= fatalDrop) {
+      this.combatSystem.queueDamage({
+        victimId,
+        attackerId: victimId,
+        damage: 9999,
+        armorPiercing: 1,
+        damageType: DamageType.Fall,
+        hitLocation: HitLocation.Body,
+      });
+      return;
+    }
+
+    if (effectiveDrop >= fullDrop) {
+      this.combatSystem.queueDamage({
+        victimId,
+        attackerId: victimId,
+        damage: 0,
+        armorPiercing: 0,
+        damageType: DamageType.FallCrush,
+        hitLocation: HitLocation.Body,
+      });
+      return;
+    }
+
+    const t = (effectiveDrop - minDrop) / (fullDrop - minDrop);
+    const damage = Math.round(Math.max(0, Math.min(100, t * 100)));
+    // Skip sub-1 damage at the band's low edge — a 0-damage event would still
+    // emit a processed-damage entry (pain flash/indicator) for no effect.
+    if (damage < 1) return;
+    this.combatSystem.queueDamage({
+      victimId,
+      attackerId: victimId,
+      damage,
+      armorPiercing: 0,
+      damageType: DamageType.Fall,
+      hitLocation: HitLocation.Body,
+    });
   }
 
   /**
@@ -312,9 +409,18 @@ export class FPSMovementSubsystem extends Subsystem {
     for (const entity of state.entitiesByType(EntityType.Player)) {
       if (!entity.transform || !entity.physics || !entity.input) continue;
 
+      const eid = entity.id as number;
+      const spawnTick = entity.spawnTick ?? 0;
+      if (this.lastSpawnTick.get(eid) !== spawnTick) {
+        this.clearFallTracking(eid);
+        this.fallArmed.delete(eid); // re-arm on first grounded tick after spawn
+        this.lastSpawnTick.set(eid, spawnTick);
+      }
+
       // Dead entities: skip physics entirely (no corpse movement).
-      // Respawn is now handled by RequestSpawn reliable message → wantsRespawn flag.
+      // Respawn is now handled by RequestSpawn reliable message -> wantsRespawn flag.
       if (entity.health?.dead) {
+        this.clearFallTracking(eid);
         continue;
       }
 
@@ -339,7 +445,6 @@ export class FPSMovementSubsystem extends Subsystem {
       // or bot, slow, laggy, or malicious — can slow, skip, or bank its own
       // physics by sending fewer/more commands. Input *content* still matters;
       // input *rate* cannot.
-      const eid = entity.id as number;
       const queue = input.inputQueue;
 
       // Cap the buffer: a client sending faster than the tick rate can't hoard
@@ -385,6 +490,7 @@ export class FPSMovementSubsystem extends Subsystem {
       const pz = transform.position.z;
       const result = profile.simulate(transform.position, physics.velocity, adaptInput(input), dt, this.collisionWorld);
       applyResult(transform, physics, result, input);
+      this.updateFallDamageTracking(entity.id, transform.position.y, physics.grounded, input.buttons);
 
       const mdx = transform.position.x - px;
       const mdy = transform.position.y - py;
@@ -405,30 +511,9 @@ export class FPSMovementSubsystem extends Subsystem {
       }
     }
 
-    // ── DIAGNOSTIC: track jump durations per entity ──
-    for (const entity of state.entitiesByType(EntityType.Player)) {
-      if (!entity.transform || !entity.physics || entity.health?.dead) continue;
-      const eid = entity.id as number;
-      const grounded = entity.physics.grounded;
-      const py = entity.transform.position.y;
-      if (!grounded && !this.jumpStartTick.has(eid)) {
-        // Just went airborne
-        this.jumpStartTick.set(eid, tickNum);
-        this.jumpStartY.set(eid, py);
-      } else if (grounded && this.jumpStartTick.has(eid)) {
-        // Just landed
-        this.jumpStartTick.delete(eid);
-        this.jumpStartY.delete(eid);
-      }
-
-      // Log per-tick Y when airborne (every 5 ticks to avoid spam)
-      if (!grounded && this.jumpStartTick.has(eid)) {
-        const elapsed = tickNum - this.jumpStartTick.get(eid)!;
-        if (elapsed % 5 === 0) {
-          // console.log(`[AIR] eid=${entity.id} t+${elapsed} y=${py.toFixed(1)} vy=${vy.toFixed(1)}`);
-        }
-      }
-    }
+    // NOTE: the old "track jump durations" diagnostic loop was removed — it
+    // double-wrote the airborne-tracking maps the fall-damage path now owns
+    // (two writers on shared state), and its only output was commented out.
 
     // ── DIAGNOSTIC: log per-entity physics every 125 ticks (1 second) ──
     if (tickNum % 125 === 0) {
@@ -572,6 +657,9 @@ export class FPSMovementSubsystem extends Subsystem {
    */
   removeEntity(entityId: number): void {
     this.movementProfiles.delete(entityId);
+    this.clearFallTracking(entityId);
+    this.fallArmed.delete(entityId);
+    this.lastSpawnTick.delete(entityId);
     this.lastKBTick.delete(entityId);
     this.starvationTicks.delete(entityId);
     this.tripwireHits.delete(entityId);

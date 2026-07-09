@@ -46,6 +46,12 @@ export class FPSPickup extends Pickup {
    * reconcileActiveSet() to toggle visibility from the snapshot active-set. */
   private static pickupById: Map<number, FPSPickup> = new Map();
 
+  /** All FPSPickup instances currently alive, including unregistered diagnostics targets. */
+  private static allPickups: Set<FPSPickup> = new Set();
+
+  /** Last authoritative active-set received from the server snapshot. */
+  private static latestMask: boolean[] = [];
+
   /** Currently-tracked nearby weapon pickup (for HUD swap prompt). */
   private static nearbyWeaponPickup: FPSPickup | null = null;
 
@@ -53,7 +59,20 @@ export class FPSPickup extends Pickup {
     super(name, scene, position, options);
   }
 
+  /** A server-managed MAP pickup (not a dropped-weapon visual) that never got a
+   *  shared table id — the exact shape of the "ghost pickup" bug. Used by both
+   *  the construction-time warn and the pickup_audit report. */
+  private static isUnidentifiedServerPickup(p: FPSPickup): boolean {
+    return Boolean(p.options.serverManagedRespawn) && !p.options.entityId && p.options.pickupId === undefined;
+  }
+
   protected override onConstructed(): void {
+    FPSPickup.allPickups.add(this);
+
+    if (FPSPickup.isUnidentifiedServerPickup(this)) {
+      console.warn(`[FPSPickup] Server-managed map pickup has no pickupId: ${this.options.id}`);
+    }
+
     // Register map-spawn pickups (no entityId) by their authoritative server id
     // so the active-set reconcile can find them. Dropped weapons (with entityId)
     // are managed by DroppedWeaponRenderer and aren't part of the static set.
@@ -213,10 +232,64 @@ export class FPSPickup extends Pickup {
    * client respawn timer.
    */
   public static reconcileActiveSet(mask: boolean[]): void {
+    // Store the reference, not a copy — each snapshot decode allocates a fresh
+    // mask array, and copying it every snapshot was pure GC churn for a value
+    // only the on-demand pickup_audit command reads.
+    FPSPickup.latestMask = mask ?? [];
     if (!mask || mask.length === 0) return;
     for (let id = 0; id < mask.length; id++) {
       FPSPickup.pickupById.get(id)?.setActiveState(mask[id]);
     }
+  }
+
+  /** Developer diagnostic for live client/server pickup reconciliation. */
+  public static auditActiveSet(mask: boolean[] = FPSPickup.latestMask): string {
+    const lines: string[] = [
+      `pickup_audit: instances=${FPSPickup.allPickups.size} registered=${FPSPickup.pickupById.size} mask=${mask?.length ?? 0}`,
+    ];
+    const issues: string[] = [];
+
+    const noId = [...FPSPickup.allPickups].filter((p) => FPSPickup.isUnidentifiedServerPickup(p));
+    if (noId.length > 0) {
+      issues.push(`server-managed pickups without pickupId: ${noId.map((p) => FPSPickup.describeForAudit(p)).join("; ")}`);
+    }
+
+    const missing: number[] = [];
+    for (let id = 0; id < (mask?.length ?? 0); id++) {
+      if (!FPSPickup.pickupById.has(id)) missing.push(id);
+    }
+    if (missing.length > 0) {
+      issues.push(`mask ids without client pickup: ${missing.join(", ")}`);
+    }
+
+    const outside = [...FPSPickup.pickupById.keys()].filter((id) => id >= (mask?.length ?? 0));
+    if (outside.length > 0) {
+      issues.push(`client pickups outside mask: ${outside.join(", ")}`);
+    }
+
+    const visualMismatches: string[] = [];
+    for (const pickup of FPSPickup.allPickups) {
+      const mesh = (pickup as unknown as { mesh?: { isEnabled?: () => boolean } | null }).mesh;
+      const meshEnabled = mesh?.isEnabled?.();
+      if (meshEnabled !== undefined && meshEnabled !== pickup.isActive) {
+        visualMismatches.push(FPSPickup.describeForAudit(pickup));
+      }
+    }
+    if (visualMismatches.length > 0) {
+      issues.push(`active/mesh mismatches: ${visualMismatches.join("; ")}`);
+    }
+
+    if (issues.length === 0) {
+      lines.push("pickup_audit: clean");
+    } else {
+      lines.push(...issues);
+    }
+    return lines.join("\n");
+  }
+
+  private static describeForAudit(pickup: FPSPickup): string {
+    const pos = pickup.position;
+    return `${pickup.options.id}#${pickup.options.pickupId ?? "none"}@${pos.x.toFixed(1)},${pos.y.toFixed(1)},${pos.z.toFixed(1)} active=${pickup.isActive}`;
   }
 
   /** Called by FPSController.onUse (F key) — clears the prompt; server handles the actual swap. */
@@ -256,6 +329,7 @@ export class FPSPickup extends Pickup {
   // ═════════════════════════════════════════════════════════════════
 
   public override dispose(): void {
+    FPSPickup.allPickups.delete(this);
     if (this.options.pickupId !== undefined) {
       FPSPickup.pickupById.delete(this.options.pickupId);
     }

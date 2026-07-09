@@ -10,6 +10,7 @@
 
 import { describe, expect, it } from "vitest";
 import { EntityType } from "@engine/server/ecs/types";
+import { GRENADE } from "../../../../../shared/entities/definitions/projectiles/grenade";
 import { WEAPONS } from "../../weapons/WeaponDef";
 import { DamageType } from "../CombatSystem";
 import { ProjectileSystem } from "../ProjectileSystem";
@@ -48,14 +49,44 @@ describe("ProjectileSystem — F6 per-weapon gravity", () => {
   it("gravity>0 projectile arcs downward", () => {
     const sys = new ProjectileSystem();
     const proj = makeProjectile(2, 0);
-    sys.registerProjectileType(2 as never, "glauncher", { gravity: 3, lifetime: 10 });
+    sys.registerProjectileType(2 as never, "glauncher", { gravity: GRENADE.gravity, lifetime: 10 });
 
     for (let tick = 1; tick <= 10; tick++) {
       sys.update(makeState([proj]) as never, 1 / 125, tick as never);
     }
 
-    // 800 * 3 * (10/125) = 192 u/s downward
-    expect(proj.physics.velocity.y).toBeCloseTo(-192, 3);
+    const grenadeGravity = GRENADE.gravity ?? 0;
+    const expectedDrop = 800 * grenadeGravity * (10 / 125);
+    expect(proj.physics.velocity.y).toBeCloseTo(-expectedDrop, 3);
+  });
+
+  it("grenade defaults travel in the Warsow-like 45-degree range before timeout", () => {
+    const sys = new ProjectileSystem({ trace: () => ({ fraction: 1 }) } as never);
+    const grenadeGravity = GRENADE.gravity ?? 0;
+    const component = GRENADE.speed / Math.SQRT2;
+    const proj = {
+      id: 3,
+      ownerId: 99,
+      transform: { position: { x: 0, y: 0, z: 0 } },
+      physics: { velocity: { x: 0, y: component, z: component } },
+    };
+
+    sys.registerProjectileType(3 as never, GRENADE.id, {
+      bounces: GRENADE.bounces,
+      lifetime: GRENADE.lifetime,
+      gravity: grenadeGravity,
+      bounceFactor: GRENADE.bounceFactor,
+    });
+
+    const state = makeState([proj]);
+    const ticksBeforeTimeout = Math.floor((GRENADE.lifetime - 1 / 125) * 125);
+    for (let tick = 1; tick <= ticksBeforeTimeout; tick++) {
+      sys.update(state as never, 1 / 125, tick as never);
+    }
+
+    const horizontalDistance = Math.hypot(proj.transform.position.x, proj.transform.position.z);
+    expect(horizontalDistance).toBeGreaterThanOrEqual(940);
+    expect(horizontalDistance).toBeLessThanOrEqual(1100);
   });
 });
 

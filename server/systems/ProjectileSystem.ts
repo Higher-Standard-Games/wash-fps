@@ -11,6 +11,7 @@ import type { WorldState } from "@engine/server/core/WorldState";
 import type { EntityId, TickNumber } from "@engine/server/ecs/types";
 import { EntityType } from "@engine/server/ecs/types";
 import type { CollisionWorld } from "../../../../engine/network/systems/collision/CollisionWorld";
+import { DEFAULT_PROJECTILE_BOUNCE_FACTOR } from "../../../../shared/entities/ProjectileDef";
 import { WEAPONS } from "../weapons/WeaponDef";
 import { type DamageEvent, DamageType, HitLocation } from "./CombatSystem";
 
@@ -35,12 +36,10 @@ interface ProjectileMeta {
   bouncesLeft: number; // remaining bounces before explode (0 = explode on first hit)
   lifetime: number; // max lifetime in seconds
   gravity: number; // gravity multiplier (0 = none, 1 = full)
+  bounceFactor: number; // velocity retention after reflecting off world geometry
   age: number; // accumulated time alive (seconds)
   damageOverride?: number; // override base damage (for charge-scaled projectiles)
 }
-
-/** Velocity retention on bounce (Warsow-style) */
-const BOUNCE_FACTOR = 0.45;
 
 /** Gravity acceleration (units/sec²) */
 const GRAVITY_ACCEL = 800;
@@ -104,6 +103,7 @@ export class ProjectileSystem extends Subsystem {
       bounces?: number;
       lifetime?: number;
       gravity?: number;
+      bounceFactor?: number;
       damageOverride?: number;
     },
   ): void {
@@ -112,6 +112,7 @@ export class ProjectileSystem extends Subsystem {
       bouncesLeft: opts?.bounces ?? 0,
       lifetime: opts?.lifetime ?? 10.0,
       gravity: opts?.gravity ?? 0,
+      bounceFactor: opts?.bounceFactor ?? DEFAULT_PROJECTILE_BOUNCE_FACTOR,
       age: 0,
       damageOverride: opts?.damageOverride,
     });
@@ -290,9 +291,9 @@ export class ProjectileSystem extends Subsystem {
           // Reflect velocity: v' = v - 2(v·n)n, scaled by bounce factor
           const vel = mutable.physics.velocity;
           const dotVN = vel.x * hitNormal.x + vel.y * hitNormal.y + vel.z * hitNormal.z;
-          vel.x = (vel.x - 2 * dotVN * hitNormal.x) * BOUNCE_FACTOR;
-          vel.y = (vel.y - 2 * dotVN * hitNormal.y) * BOUNCE_FACTOR;
-          vel.z = (vel.z - 2 * dotVN * hitNormal.z) * BOUNCE_FACTOR;
+          vel.x = (vel.x - 2 * dotVN * hitNormal.x) * meta.bounceFactor;
+          vel.y = (vel.y - 2 * dotVN * hitNormal.y) * meta.bounceFactor;
+          vel.z = (vel.z - 2 * dotVN * hitNormal.z) * meta.bounceFactor;
 
           // Nudge position slightly off the surface to prevent re-collision
           mutable.transform.position.x += hitNormal.x * 2;

@@ -57,6 +57,7 @@ export enum DamageType {
   Rail = "rail",
   Melee = "melee",
   Fall = "fall",
+  FallCrush = "fall_crush",
   World = "world",
 }
 
@@ -237,6 +238,27 @@ export class CombatSystem extends Subsystem {
   private processDamage(state: WorldState, event: DamageEvent, tick: TickNumber): void {
     const victim = state.getEntityMut(event.victimId);
     if (!victim?.health || victim.health.dead) return;
+
+    // FallCrush is a hard set (exactly 1 HP + 0 armor), not a computed hit —
+    // the incoming event's damage/armorPiercing/hitLocation fields are inert.
+    if (event.damageType === DamageType.FallCrush) {
+      const healthBefore = victim.health.health;
+      const armorBefore = victim.health.armor;
+      victim.health.armor = 0;
+      victim.health.health = Math.min(victim.health.health, 1);
+      const actualDamage = Math.round(healthBefore - victim.health.health + armorBefore);
+
+      this.processedDamage.push({
+        victimId: event.victimId,
+        attackerId: event.attackerId,
+        damage: actualDamage,
+        damageType: event.damageType,
+        x: victim.transform?.position.x ?? 0,
+        y: victim.transform?.position.y ?? 0,
+        z: victim.transform?.position.z ?? 0,
+      });
+      return;
+    }
 
     // Calculate final damage with location multiplier
     const multiplier = LOCATION_MULTIPLIER[event.hitLocation] || 1.0;
