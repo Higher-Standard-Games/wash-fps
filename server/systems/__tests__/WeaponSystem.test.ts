@@ -18,6 +18,8 @@
 
 import { EntityType } from "@engine/server/ecs/types";
 import { describe, expect, it } from "vitest";
+import { GRENADE } from "../../../../../shared/entities/definitions/projectiles/grenade";
+import { GRENADE_LAUNCHER } from "../../../../../shared/entities/definitions/weapons/glauncher";
 import { DEFAULT_VIEWHEIGHT } from "../../../../../engine/physics/PlayerPhysicsConstants";
 import { fireIntervalTicks, WeaponSystem } from "../WeaponSystem";
 
@@ -376,6 +378,66 @@ describe("WeaponSystem — F8 projectiles registered by projectileId", () => {
     sys.update(makeState([shooter]) as never, 1 / 125, 100 as never);
 
     expect(registeredDefId).toBe("rocket");
+  });
+
+  it("firing glauncher registers the grenade projectile definition ballistics", () => {
+    const sys = new WeaponSystem();
+    let registeredDefId = "";
+    let registeredOpts: Record<string, unknown> | undefined;
+    let spawnedProjectile: { physics?: { velocity?: { z?: number } } } | undefined;
+    sys.setProjectileSystem({
+      registerProjectileType: (_id: unknown, defId: string, opts: Record<string, unknown>) => {
+        registeredDefId = defId;
+        registeredOpts = opts;
+      },
+    } as never);
+    sys.initializeWeaponFromLoadout(
+      1 as never,
+      { weapons: ["glauncher"], ammo: { glauncher: 5 }, health: 100, armor: 0 } as never,
+    );
+
+    const shooter = makeShooter(0, 0);
+    const state = {
+      ...makeState([shooter]),
+      addEntity: (entity: { physics?: { velocity?: { z?: number } } }) => {
+        spawnedProjectile = entity;
+      },
+    };
+
+    shooter.input.buttons = 1 << 9; // hold ADS first to bypass glauncher's hipfireBlocked delay
+    sys.update(state as never, 1 / 125, 99 as never);
+    shooter.input.buttons = FIRE_BUTTON | (1 << 9);
+    sys.update(state as never, 1 / 125, 100 as never);
+
+    expect(GRENADE_LAUNCHER.projectileId).toBe(GRENADE.id);
+    expect(GRENADE_LAUNCHER.projectileSpeed).toBe(GRENADE.speed);
+    expect(GRENADE_LAUNCHER.projectileGravity).toBe(GRENADE.gravity);
+    expect(registeredDefId).toBe(GRENADE.id);
+    expect(registeredOpts).toMatchObject({
+      bounces: GRENADE.bounces,
+      lifetime: GRENADE.lifetime,
+      gravity: GRENADE.gravity,
+      bounceFactor: GRENADE.bounceFactor,
+    });
+    expect(spawnedProjectile?.physics?.velocity?.z).toBeCloseTo(GRENADE.speed, 6);
+  });
+});
+describe("WeaponSystem - ammo type pickups", () => {
+  it("adds ammo to owned weapons by ammo type and caps at max ammo", () => {
+    const sys = new WeaponSystem();
+    sys.initializeWeaponFromLoadout(
+      1 as never,
+      { weapons: ["rlauncher"], ammo: { rlauncher: 0 }, health: 100, armor: 0 } as never,
+    );
+
+    expect(sys.addAmmoByType(1 as never, "rockets", 10)).toBe(true);
+    expect(sys.getAmmo(1 as never, "rlauncher")).toBe(10);
+
+    expect(sys.addAmmoByType(1 as never, "rockets", 99)).toBe(true);
+    expect(sys.getAmmo(1 as never, "rlauncher")).toBe(20);
+
+    expect(sys.addAmmoByType(1 as never, "rockets", 1)).toBe(false);
+    expect(sys.addAmmoByType(1 as never, "cells", 10)).toBe(false);
   });
 });
 describe("WeaponSystem - WO-AC1 single-ray hitscan accuracy", () => {

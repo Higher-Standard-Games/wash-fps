@@ -41,6 +41,7 @@ const TICK_RATE = 125;
 /** Default per-type respawn times (seconds). Weapons overridable via setRespawnTime. */
 const DEFAULT_RESPAWN_SECONDS = {
   weapon: 15,
+  ammo: 15,
   armor: 25,
   health: 20,
   megaHealth: 60,
@@ -53,8 +54,9 @@ const FIRST_SPAWN_DELAY_SECONDS = 15;
 interface PickupItem {
   id: number;
   type: PickupType;
-  /** weapon id (weapons), ArmorKind (armor), or HealthKind (health). */
+  /** weapon id (weapons), ammo type (ammo), ArmorKind (armor), or HealthKind (health). */
   kind: string;
+  amount?: number;
   classname: string; // BSP classname (e.g. 'weapon_rocketlauncher')
   position: { x: number; y: number; z: number };
   active: boolean; // Whether it can be picked up
@@ -130,6 +132,8 @@ export class PickupSystem extends Subsystem {
     let seconds: number;
     if (entry.type === "weapon") {
       seconds = this.weaponRespawnSeconds;
+    } else if (entry.type === "ammo") {
+      seconds = DEFAULT_RESPAWN_SECONDS.ammo;
     } else if (entry.type === "armor") {
       seconds = DEFAULT_RESPAWN_SECONDS.armor;
     } else {
@@ -154,6 +158,7 @@ export class PickupSystem extends Subsystem {
         id: e.id,
         type: e.type,
         kind: e.kind,
+        amount: e.amount,
         classname: e.classname,
         position: { ...e.position },
         // Delayed items aren't present at match start — they first spawn later.
@@ -202,7 +207,7 @@ export class PickupSystem extends Subsystem {
       if (!pickup.active) {
         events.push({
           pickupId: pickup.id,
-          weaponId: pickup.type === "weapon" ? pickup.kind : "",
+          weaponId: pickup.type === "weapon" || pickup.type === "ammo" ? pickup.kind : "",
           entityId: 0 as any, // Not relevant for initial state
           x: pickup.position.x,
           y: pickup.position.y,
@@ -280,6 +285,23 @@ export class PickupSystem extends Subsystem {
           if (after <= before) continue;
           player.health.health = after;
           this.consumePickup(pickup, player.id, tickNum);
+          pickedUpThisTick = true;
+          break;
+        }
+
+        if (pickup.type === "ammo") {
+          if (!this.weaponSystem) continue;
+          const granted = this.weaponSystem.addAmmoByType(player.id, pickup.kind, pickup.amount ?? 0);
+          if (!granted) continue;
+          this.consumePickup(pickup, player.id, tickNum);
+          this.pendingPickupEvents.push({
+            pickupId: pickup.id,
+            weaponId: pickup.kind,
+            entityId: player.id,
+            x: pickup.position.x,
+            y: pickup.position.y,
+            z: pickup.position.z,
+          });
           pickedUpThisTick = true;
           break;
         }

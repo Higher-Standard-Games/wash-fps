@@ -1,18 +1,8 @@
 /**
- * FPSPickup static-API tests
+ * FPSPickup static-API tests.
  *
- * Targets the live static API on FPSPickup:
- *   - pickupById registry (keyed by authoritative server pickup id)
- *   - reconcileActiveSet(mask) — toggles each registered pickup's visibility to
- *     match the server's authoritative snapshot active-set (the convergent,
- *     self-healing replacement for the old item_pickup deactivation registry).
- *   - triggerUseAction (HUD prompt clearing)
- *
- * Constructing a real FPSPickup requires a Babylon Scene + async model loading,
- * which we can't spin up in vitest. Instead we inject fake-pickup-shaped objects
- * into the static registry via the `as any` escape hatch.
- *
- * See docs/research/SERVER_AUTHORITATIVE_PICKUPS.md.
+ * Real FPSPickup construction needs a Babylon scene, so these tests inject
+ * fake-pickup-shaped objects into the private static registries.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,31 +10,45 @@ import { FPSPickup } from "../FPSPickup";
 
 interface FakePickup {
   isActive: boolean;
-  options: { id: string; pickupId?: number };
+  options: { id: string; pickupId?: number; serverManagedRespawn?: boolean; entityId?: string };
+  position: { x: number; y: number; z: number };
+  mesh?: { isEnabled: () => boolean };
   setActiveState: ReturnType<typeof vi.fn>;
 }
 
-function makeFakePickup(id: string, pickupId: number): FakePickup {
+function makeFakePickup(id: string, pickupId: number | undefined, extra: Partial<FakePickup> = {}): FakePickup {
+  const { options, ...rest } = extra;
   return {
     isActive: true,
-    options: { id, pickupId },
-    // Mirror Pickup.setActiveState's idempotent contract for assertions.
+    position: { x: 0, y: 0, z: 0 },
     setActiveState: vi.fn(function (this: FakePickup, active: boolean) {
       this.isActive = active;
     }),
+    ...rest,
+    options: { id, pickupId, ...options },
   };
 }
 
 function resetRegistry() {
-  // biome-ignore lint/suspicious/noExplicitAny: tests reach into private statics intentionally
-  const P = FPSPickup as any;
+  const P = FPSPickup as unknown as {
+    pickupById: Map<number, FakePickup>;
+    allPickups: Set<FakePickup>;
+    latestMask: boolean[];
+    nearbyWeaponPickup: FakePickup | null;
+  };
   P.pickupById = new Map();
+  P.allPickups = new Set();
+  P.latestMask = [];
   P.nearbyWeaponPickup = null;
 }
 
 function register(p: FakePickup) {
-  // biome-ignore lint/suspicious/noExplicitAny: tests reach into private statics intentionally
-  (FPSPickup as any).pickupById.set(p.options.pickupId, p);
+  const P = FPSPickup as unknown as {
+    pickupById: Map<number, FakePickup>;
+    allPickups: Set<FakePickup>;
+  };
+  P.allPickups.add(p);
+  if (p.options.pickupId !== undefined) P.pickupById.set(p.options.pickupId, p);
 }
 
 describe("FPSPickup.reconcileActiveSet", () => {
@@ -66,20 +70,18 @@ describe("FPSPickup.reconcileActiveSet", () => {
     expect(b.isActive).toBe(false);
   });
 
-  it("maps mask index → pickup id (id is the bit index)", () => {
+  it("maps mask index to pickup id", () => {
     const p = makeFakePickup("riotgun", 5);
     register(p);
 
-    // Only index 5 is false; everything else true/absent.
-    const mask = [true, true, true, true, true, false];
-    FPSPickup.reconcileActiveSet(mask);
+    FPSPickup.reconcileActiveSet([true, true, true, true, true, false]);
 
     expect(p.setActiveState).toHaveBeenCalledWith(false);
   });
 
-  it("ignores ids with no registered pickup (still loading) without throwing", () => {
+  it("ignores ids with no registered pickup without throwing", () => {
     const p = makeFakePickup("rlauncher", 1);
-    register(p); // only id 1 registered; id 0 has no pickup yet
+    register(p);
 
     expect(() => FPSPickup.reconcileActiveSet([false, true])).not.toThrow();
     expect(p.setActiveState).toHaveBeenCalledWith(true);
@@ -90,10 +92,49 @@ describe("FPSPickup.reconcileActiveSet", () => {
     register(p);
 
     FPSPickup.reconcileActiveSet([]);
-    // biome-ignore lint/suspicious/noExplicitAny: exercising the nullish guard
-    FPSPickup.reconcileActiveSet(undefined as any);
+    FPSPickup.reconcileActiveSet(undefined as never);
 
     expect(p.setActiveState).not.toHaveBeenCalled();
+  });
+});
+
+describe("FPSPickup.auditActiveSet", () => {
+  beforeEach(resetRegistry);
+
+  it("reports clean when all mask ids have matching client pickups", () => {
+    register(makeFakePickup("rlauncher", 0));
+
+    const report = FPSPickup.auditActiveSet([true]);
+
+    expect(report).toContain("pickup_audit: clean");
+  });
+
+  it("reports authoritative mask bits without client pickups", () => {
+    const report = FPSPickup.auditActiveSet([true]);
+
+    expect(report).toContain("mask ids without client pickup: 0");
+  });
+
+  it("reports server-managed map pickups that have no pickupId", () => {
+    register(
+      makeFakePickup("ammo_rockets", undefined, {
+        options: { id: "ammo_rockets", serverManagedRespawn: true },
+      }),
+    );
+
+    const report = FPSPickup.auditActiveSet([]);
+
+    expect(report).toContain("server-managed pickups without pickupId");
+    expect(report).toContain("ammo_rockets#none");
+  });
+
+  it("reports active/mesh mismatches", () => {
+    register(makeFakePickup("rlauncher", 0, { isActive: true, mesh: { isEnabled: () => false } }));
+
+    const report = FPSPickup.auditActiveSet([true]);
+
+    expect(report).toContain("active/mesh mismatches");
+    expect(report).toContain("rlauncher#0");
   });
 });
 
@@ -102,13 +143,11 @@ describe("FPSPickup.triggerUseAction", () => {
 
   it("clears the tracked nearby weapon prompt", () => {
     const p = makeFakePickup("rlauncher", 0);
-    // biome-ignore lint/suspicious/noExplicitAny: set the private static for the test
-    (FPSPickup as any).nearbyWeaponPickup = p;
+    (FPSPickup as unknown as { nearbyWeaponPickup: FakePickup | null }).nearbyWeaponPickup = p;
 
     FPSPickup.triggerUseAction();
 
-    // biome-ignore lint/suspicious/noExplicitAny: read the private static
-    expect((FPSPickup as any).nearbyWeaponPickup).toBeNull();
+    expect((FPSPickup as unknown as { nearbyWeaponPickup: FakePickup | null }).nearbyWeaponPickup).toBeNull();
   });
 
   it("is a no-op when nothing is nearby", () => {

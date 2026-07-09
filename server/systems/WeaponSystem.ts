@@ -15,6 +15,8 @@ import type { WeaponLoadout } from "@shared/server/gametype";
 import type { CollisionWorld } from "../../../../engine/network/systems/collision/CollisionWorld";
 import { DEFAULT_VIEWHEIGHT } from "../../../../engine/physics/PlayerPhysicsConstants";
 import { rngFrom } from "../../../../shared/DeterministicRng";
+import { GRENADE } from "../../../../shared/entities/definitions/projectiles/grenade";
+import type { ProjectileDef } from "../../../../shared/entities/ProjectileDef";
 import { computeSpreadSeed, generateSpreadDirections } from "../../../../shared/SpreadUtils";
 import { WEAPONS, type WeaponDef } from "../weapons/WeaponDef";
 import { type DamageEvent, DamageType, HitLocation } from "./CombatSystem";
@@ -33,6 +35,10 @@ function isDefaultWeapon(weaponId: string): boolean {
 
 /** Server tick rate (Hz). Fire/reload/charge timing is quantized to these ticks. */
 const TICK_RATE = 125;
+
+const PROJECTILE_DEFS: Record<string, ProjectileDef> = {
+  [GRENADE.id]: GRENADE,
+};
 
 /**
  * Refire interval in ticks for a weapon. Prefers an explicit `fireIntervalTicks`
@@ -331,6 +337,25 @@ export class WeaponSystem extends Subsystem {
     ammo.reserve -= moved;
   }
 
+
+  /** Add ammo to owned weapons that use the given ammo type. Returns true if any ammo increased. */
+  addAmmoByType(entityId: EntityId, ammoType: string, amount: number): boolean {
+    const state = this.weaponStates.get(entityId);
+    if (!state) return false;
+
+    let changed = false;
+    for (const weaponId of state.weapons) {
+      const weapon = WEAPONS[weaponId];
+      if (!weapon || weapon.ammoType !== ammoType || this.reloadModel(weapon) === "none") continue;
+
+      const before = this.ammoTotal(state.ammo.get(weaponId));
+      this.addAmmo(state, weapon, amount);
+      const after = this.ammoTotal(state.ammo.get(weaponId));
+      if (after > before) changed = true;
+    }
+
+    return changed;
+  }
   /**
    * Add a weapon to a player's inventory (server-side pickup).
    * Rules:
@@ -1281,7 +1306,8 @@ export class WeaponSystem extends Subsystem {
       }
     }
 
-    const speed = weapon.projectileSpeed || 1000;
+    const projectileDef = weapon.projectileId ? PROJECTILE_DEFS[weapon.projectileId] : undefined;
+    const speed = projectileDef?.speed ?? weapon.projectileSpeed ?? 1000;
     const velocity = {
       x: Math.sin(yaw) * Math.cos(pitch) * speed,
       y: Math.sin(pitch) * speed,
@@ -1305,12 +1331,11 @@ export class WeaponSystem extends Subsystem {
     // Identify the projectile by its own projectileId (F8) — the WEAPONS map has a
     // matching alias, so damage/splash lookup and client effects share one identity.
     if (this.projectileSystem) {
-      // Per-projectile behavior based on weapon type
-      const isGrenade = weapon.id === "glauncher";
       this.projectileSystem.registerProjectileType(projectile.id, weapon.projectileId ?? weapon.id, {
-        bounces: isGrenade ? 3 : 0,
-        lifetime: isGrenade ? 2.0 : 10.0,
-        gravity: weapon.projectileGravity ?? 0, // 0 = straight (F6); grenades set it explicitly
+        bounces: projectileDef?.bounces ?? 0,
+        lifetime: projectileDef?.lifetime ?? 10.0,
+        gravity: projectileDef?.gravity ?? weapon.projectileGravity ?? 0, // 0 = straight (F6); grenades set it explicitly
+        bounceFactor: projectileDef?.bounceFactor,
       });
     }
   }

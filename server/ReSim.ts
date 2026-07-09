@@ -146,6 +146,7 @@ export function resimulateFull(spawns: ReSimSpawn[], log: RecordedCmd[], ticks: 
   weapon.setProjectileSystem(projectile);
   weapon.setMovementSubsystem(movement);
   combat.setMovementSubsystem(movement);
+  movement.setCombatSystem(combat);
   sim.addSubsystem(movement);
   sim.addSubsystem(weapon);
   sim.addSubsystem(combat);
