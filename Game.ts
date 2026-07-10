@@ -369,14 +369,22 @@ export class Game {
                 const { extractTriggerVolumes } = await import("../../shared/bsp/TriggerTable");
                 this.v2Client.setTriggerVolumes(extractTriggerVolumes(bsp.entities, bsp.models));
                 // Rotate the local camera to the exit yaw when our own
-                // prediction teleports (fresh inputs only, not replays).
-                this.v2Client.onTeleport((exitYaw) => {
+                // prediction teleports (fresh inputs only, not replays), and
+                // pop the entry/exit speed-line bursts (ghosts of US are drawn
+                // by other clients from their remote view).
+                this.v2Client.onTeleport((exitYaw, from, to) => {
                   import("../../engine/camera/CameraSystem").then(({ CameraSystem: cs }) => {
                     const controller = cs.getInstance().getController("fps");
                     if (controller && "setViewYaw" in controller) {
                       (
                         controller as import("../../engine/camera/controllers/FPSController").FPSController
                       ).setViewYaw(exitYaw);
+                    }
+                    const scene = cs.getInstance().getCamera()?.getScene();
+                    if (scene) {
+                      import("./client/TeleportEffect").then(({ TeleportEffect }) => {
+                        TeleportEffect.getInstance().localTeleported(scene, from, to);
+                      });
                     }
                   });
                 });

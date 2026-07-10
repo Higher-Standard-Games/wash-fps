@@ -518,10 +518,13 @@ export class MovementProfile implements IMovementProfile {
       newPos.z + bounds.min.z <= vMax.z &&
       newPos.z + bounds.max.z >= vMin.z;
 
+    let teleportFrom: Vec3 | undefined;
     for (const tele of this.teleporters) {
       if (!overlaps(tele.min, tele.max)) continue;
 
-      // Exit at the destination, origin lifted to waist height (+1u clearance).
+      // Entry position (for exit/entry VFX), then exit at the destination,
+      // origin lifted to waist height (+1u clearance).
+      teleportFrom = { x: newPos.x, y: newPos.y, z: newPos.z };
       newPos.x = tele.dest.x;
       newPos.y = tele.dest.y + MovementProfile.TELEPORT_EXIT_LIFT;
       newPos.z = tele.dest.z;
@@ -594,6 +597,7 @@ export class MovementProfile implements IMovementProfile {
       jumppadLaunch,
       teleported,
       teleportYaw,
+      teleportFrom,
       triggerId: firedTriggerId,
     };
   }

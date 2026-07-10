@@ -129,8 +129,8 @@ export class V2NetworkClient {
   private pendingSnapshots: ServerSnapshot[] = [];
   /** When true, next snapshot will snap position instantly (respawn, teleport) */
   private forceTeleportOnNextSnapshot: boolean = false;
-  /** Fired when a FRESH predicted input teleports the local player (camera yaw). */
-  private onTeleportCallback: ((exitYaw: number) => void) | null = null;
+  /** Fired when a FRESH predicted input teleports the local player (camera yaw + VFX). */
+  private onTeleportCallback: ((exitYaw: number, from: Vec3, to: Vec3) => void) | null = null;
 
   constructor(config: V2ClientConfig) {
     this.dt = 1 / config.tickRate;
@@ -174,9 +174,10 @@ export class V2NetworkClient {
   /**
    * Called when a FRESH predicted input teleports the local player (not
    * reconciliation replays — those recompute past steps and must not touch
-   * the camera). The game rotates the view to the teleporter's exit yaw.
+   * the camera). The game rotates the view to the teleporter's exit yaw and
+   * plays the entry/exit VFX.
    */
-  onTeleport(callback: (exitYaw: number) => void): void {
+  onTeleport(callback: (exitYaw: number, from: Vec3, to: Vec3) => void): void {
     this.onTeleportCallback = callback;
   }
 
@@ -237,11 +238,16 @@ export class V2NetworkClient {
     this.localState.velocity = result.velocity;
     this.localState.grounded = result.grounded;
 
-    // Fresh prediction teleported → rotate the local camera to the exit yaw.
-    // Only here, never in the reconciliation replay loop (replays recompute
-    // past steps; re-firing the camera there would fight the mouse).
+    // Fresh prediction teleported → rotate the local camera to the exit yaw
+    // + play VFX. Only here, never in the reconciliation replay loop (replays
+    // recompute past steps; re-firing there would fight the mouse and
+    // double-spawn effects).
     if (result.teleported && this.onTeleportCallback) {
-      this.onTeleportCallback(result.teleportYaw ?? 0);
+      this.onTeleportCallback(
+        result.teleportYaw ?? 0,
+        result.teleportFrom ?? this.localState.position,
+        result.position,
+      );
     }
 
     // 4. Apply KB air drag (matches server FPSMovementSubsystem)

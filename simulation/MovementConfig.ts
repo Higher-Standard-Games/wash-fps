@@ -105,6 +105,8 @@ export interface AdvancedMovementResult extends MovementResult {
   teleported?: boolean;
   /** Exit yaw (game radians) of the teleporter that fired — the client rotates its camera to this. */
   teleportYaw?: number;
+  /** Entry position (player origin the step the teleporter fired) — for entry/exit VFX. */
+  teleportFrom?: { x: number; y: number; z: number };
   /** TriggerVolume id that fired this step (jumppad or teleporter). */
   triggerId?: number;
 }
