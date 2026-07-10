@@ -121,6 +121,11 @@ export class TeleportEffect {
   /**
    * Full teleport effect for a player with a visible model (remote players):
    * ghost + burst at the entry, ghost + burst at the exit.
+   *
+   * Called BEFORE the renderer moves the model, so the source anchor still
+   * stands at the ENTRY — the entry ghost clones it in place (zero delta) and
+   * the exit ghost is offset by (to − from). Exact placement by construction,
+   * no anchor-offset math.
    */
   playerTeleported(
     scene: Scene,
@@ -133,46 +138,60 @@ export class TeleportEffect {
   ): void {
     this.ensureScene(scene);
     if (model) {
-      this.spawnGhost(model, from, fromYaw, team);
-      this.spawnGhost(model, to, toYaw, team);
+      this.spawnGhost(model, { x: 0, y: 0, z: 0 }, fromYaw, team);
+      this.spawnGhost(model, { x: to.x - from.x, y: to.y - from.y, z: to.z - from.z }, toYaw, team);
     }
     this.spawnBurst(from);
     this.spawnBurst(to);
   }
 
   /**
-   * Burst-only effect (local player — no third-person model to ghost;
-   * other clients render our ghosts from their own remote view).
+   * Local-player effect (no third-person model to ghost — other clients
+   * render our ghosts from their own remote view): burst at the entry, and
+   * the exit burst thrown ~90u ahead along the exit yaw at eye height so the
+   * player flies THROUGH the speed-lines instead of leaving them at their
+   * own chest (invisible from first person).
    */
   localTeleported(
     scene: Scene,
     from: { x: number; y: number; z: number },
     to: { x: number; y: number; z: number },
+    exitYaw: number,
   ): void {
     this.ensureScene(scene);
     this.spawnBurst(from);
-    this.spawnBurst(to);
+    this.spawnBurst({
+      x: to.x + Math.sin(exitYaw) * 90,
+      y: to.y + 26, // chest offset (8) + up to eye line (34)
+      z: to.z + Math.cos(exitYaw) * 90,
+    });
   }
 
   // ──────────────────────────────────────────────────────────────
   // Ghost
   // ──────────────────────────────────────────────────────────────
 
-  private spawnGhost(model: PlayerModelInstance, pos: { x: number; y: number; z: number }, yaw: number, team: "alpha" | "bravo"): void {
+  private spawnGhost(
+    model: PlayerModelInstance,
+    delta: { x: number; y: number; z: number },
+    yaw: number,
+    team: "alpha" | "bravo",
+  ): void {
     if (!this.scene || this.effects.length >= MAX_EFFECTS) return;
 
     try {
       // Clone the anchor hierarchy (anchor transform + skinned mesh children).
       // Cloned meshes share the source skeleton → the ghost holds a live pose.
+      // The clone starts EXACTLY where the source model stands (the entry);
+      // `delta` relocates it (zero for the entry ghost, to−from for the exit).
       const ghostRoot = model.anchor.clone(`tp_ghost_${Date.now()}`, null, false);
       if (!ghostRoot) return;
 
-      // Match the source anchor's world placement, relocated to the effect
-      // position (anchor Y offset is preserved by copying the delta the
-      // source uses between its anchor and the player origin — the caller
-      // passes player-origin positions on both ends, so reusing the anchor's
-      // own local offset keeps feet on the floor).
-      ghostRoot.position.set(pos.x, ghostRoot.position.y - model.anchor.position.y + pos.y, pos.z);
+      ghostRoot.position.set(
+        model.anchor.position.x + delta.x,
+        model.anchor.position.y + delta.y,
+        model.anchor.position.z + delta.z,
+      );
       ghostRoot.rotation = model.anchor.rotation.clone();
       ghostRoot.rotation.y = yaw;
       ghostRoot.scaling = model.anchor.scaling.clone();

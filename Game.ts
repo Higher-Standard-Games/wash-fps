@@ -383,7 +383,7 @@ export class Game {
                     const scene = cs.getInstance().getCamera()?.getScene();
                     if (scene) {
                       import("./client/TeleportEffect").then(({ TeleportEffect }) => {
-                        TeleportEffect.getInstance().localTeleported(scene, from, to);
+                        TeleportEffect.getInstance().localTeleported(scene, from, to, exitYaw);
                       });
                     }
                   });
