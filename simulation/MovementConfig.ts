@@ -76,4 +76,13 @@ export interface AdvancedMovementResult extends MovementResult {
   slidePhase: number;
   /** Ledge grab/pull camera phase (0-1 progress through grab+pull) */
   ledgeGrabPhase: number;
+  /**
+   * A jumppad (trigger_push) replaced velocity this step. Set every step the
+   * player overlaps the pad (velocity replace is idempotent) — one-shot
+   * effects/sounds must edge-detect on the consumer side (server subsystem /
+   * client), NOT in the profile, so reconciliation replays stay stateless.
+   */
+  jumppadLaunch?: boolean;
+  /** TriggerVolume id that fired this step (jumppad; teleporters follow in T3). */
+  triggerId?: number;
 }

@@ -32,11 +32,20 @@ import {
   normalAirAccelerate,
   strafeBunnyAccelerate,
 } from "./Acceleration";
+import type { TriggerVolume } from "../../../shared/bsp/TriggerTable";
 import { LedgeGrab } from "./LedgeGrab";
 import type { AdvancedMovementResult, MovementConfig } from "./MovementConfig";
 import { Slide } from "./Slide";
 import { VEC3_ZERO, vec3Clone, vec3LengthXZ } from "./Vec3Helpers";
 import { WallJump } from "./WallJump";
+
+/** Jumppad volume with its ballistic target (launch solved per-fire — see setTriggerVolumes). */
+interface JumppadVolume {
+  id: number;
+  min: Vec3;
+  max: Vec3;
+  dest: Vec3;
+}
 
 export class MovementProfile implements IMovementProfile {
   private config: MovementConfig;
@@ -78,6 +87,58 @@ export class MovementProfile implements IMovementProfile {
 
   /** External speed bonus (e.g., +25 for blade weapon). Applied to both walk and run speed. */
   public speedBonus: number = 0;
+
+  /**
+   * Static map trigger volumes (set once at map load — identical on server and
+   * client, extracted via the shared TriggerTable). Jumppad launch velocities
+   * are precomputed here from this profile's gravity. STATELESS at simulate
+   * time: evaluation is a pure function of position, so reconciliation replays
+   * are idempotent by construction.
+   */
+  private jumppads: JumppadVolume[] = [];
+
+  /**
+   * Install the map's trigger volumes (from TriggerTable.extractTriggerVolumes).
+   *
+   * Jumppad launch is solved Q3 AimAtTarget-style, but from the PLAYER's
+   * current position each fire (not the pad center like Q3):
+   *   time = sqrt(height / (0.5·g));  v_xy = Δxz/time;  v_y = g·time
+   * Q3 precomputes a fixed velocity and suppresses re-fires with per-pad
+   * contact state (`ps->jumppadEnt`); state like that is a replay hazard here
+   * (a stale contact flag on the first reconciliation-replay step would
+   * suppress or double a launch). Per-position solving is stateless AND
+   * re-fire-safe: every fire re-aims at the target, so the last tick inside
+   * the volume wins and the player lands ON dest instead of overshooting by
+   * the re-fire accumulation. Deviation from Q3 documented in
+   * docs/research/triggerbrushes-and-targets.md §3.4.
+   *
+   * Pads whose target is not above the pad are invalid and dropped (warn).
+   */
+  setTriggerVolumes(volumes: TriggerVolume[]): void {
+    this.jumppads = [];
+
+    for (const v of volumes) {
+      if (v.type === "teleport") {
+        // Teleporter evaluation lands in T3 (docs/research/triggerbrushes-and-targets.md).
+        continue;
+      }
+
+      const centerY = (v.min.y + v.max.y) / 2;
+      if (v.dest.y - centerY <= 0) {
+        console.warn(
+          `[MovementProfile] jumppad ${v.id}: target not above pad (height ${(v.dest.y - centerY).toFixed(1)}) — dropped`,
+        );
+        continue;
+      }
+
+      this.jumppads.push({
+        id: v.id,
+        min: { ...v.min },
+        max: { ...v.max },
+        dest: { ...v.dest },
+      });
+    }
+  }
 
   constructor(config?: Partial<MovementConfig>) {
     this.config = {
@@ -421,6 +482,40 @@ export class MovementProfile implements IMovementProfile {
       }
     }
 
+    // === MAP TRIGGERS: JUMPPADS (trigger_push) ===
+    // Evaluated at the end-of-step position: touched this tick → launch
+    // velocity takes effect next tick (1 fixed-dt staging, same on both
+    // sides). Velocity is REPLACED (Q3) with a per-position AimAtTarget
+    // solve (see setTriggerVolumes), so re-touching while still inside the
+    // volume just re-aims at the target — no per-pad state, replay-safe.
+    let jumppadLaunch = false;
+    let firedTriggerId: number | undefined;
+    if (this.jumppads.length > 0) {
+      const bounds = this.getCurrentBounds();
+      for (const pad of this.jumppads) {
+        if (
+          newPos.x + bounds.min.x <= pad.max.x &&
+          newPos.x + bounds.max.x >= pad.min.x &&
+          newPos.y + bounds.min.y <= pad.max.y &&
+          newPos.y + bounds.max.y >= pad.min.y &&
+          newPos.z + bounds.min.z <= pad.max.z &&
+          newPos.z + bounds.max.z >= pad.min.z
+        ) {
+          const height = pad.dest.y - newPos.y;
+          if (height <= 0) break; // above the target — nothing sane to solve
+
+          const time = Math.sqrt(height / (0.5 * this.config.gravity));
+          newVel.x = (pad.dest.x - newPos.x) / time;
+          newVel.y = this.config.gravity * time;
+          newVel.z = (pad.dest.z - newPos.z) / time;
+          this.isGrounded = false;
+          jumppadLaunch = true;
+          firedTriggerId = pad.id;
+          break; // one pad per step
+        }
+      }
+    }
+
     // === UPDATE SPEED TRACKING ===
     const dx = newPos.x - position.x;
     const dz = newPos.z - position.z;
@@ -447,6 +542,8 @@ export class MovementProfile implements IMovementProfile {
       crouchViewOffset: this.slide.crouchViewOffset,
       slidePhase: this.slide.slidePhase,
       ledgeGrabPhase: this.ledgeGrab.phase,
+      jumppadLaunch,
+      triggerId: firedTriggerId,
     };
   }
 
