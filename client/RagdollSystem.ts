@@ -651,6 +651,16 @@ export class RagdollSystem {
   }
 
   private disposeModel(model: PlayerModelInstance): void {
+    // Bone-attached weapon (e.g. the blade) isn't a scene-graph child, so dispose
+    // it explicitly — otherwise it leaks a floating mesh when the ragdoll expires.
+    if (model.attachedWeapon) {
+      try {
+        model.attachedWeapon.dispose(false, true);
+      } catch (_) {
+        /* noop */
+      }
+      model.attachedWeapon = null;
+    }
     if (model.masterGroup) {
       try {
         model.masterGroup.stop();
