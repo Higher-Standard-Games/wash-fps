@@ -711,6 +711,7 @@ export class RemotePlayerRenderer {
       hitbox.weaponRoot.dispose(false, true);
       hitbox.weaponRoot = null;
     }
+    inst.attachedWeapon = null;
 
     // Look up weapon def for model path
     const weaponDef = WEAPONS[weaponId];
@@ -831,6 +832,11 @@ export class RemotePlayerRenderer {
         }
 
         hitbox.weaponRoot = leaderMesh as unknown as TransformNode;
+        // Track the weapon on the model instance so it is disposed WITH the model
+        // (bone-attached meshes aren't scene-graph children). This makes a dropped
+        // blade ride the death ragdoll and vanish with it instead of leaking a
+        // floating mesh that piles up over a match.
+        inst.attachedWeapon = leaderMesh as unknown as TransformNode;
         console.log(
           `[RemoteWeapon] ✓ Done: ${weaponId} for ${entityId}, bone: ${attached}, scale: ${attached ? visualScale / MODEL_SCALE : visualScale}`,
         );
