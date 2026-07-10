@@ -1371,7 +1371,10 @@ export class LobbyPanel extends GamePanel {
   private sectionTitle(text: string, badge?: string): HTMLElement {
     const el = document.createElement("div");
     el.className = "lobby__section-title";
-    el.appendChild(document.createTextNode(text));
+    const label = document.createElement("span");
+    label.className = "lobby__section-label";
+    label.textContent = text;
+    el.appendChild(label);
     if (badge) {
       const b = document.createElement("span");
       b.className = "lobby__section-badge";
