@@ -23,6 +23,7 @@ import type { CollisionWorld } from "../../../engine/network/systems/collision/C
 // PVS (Potentially Visible Set) for network culling
 import { ServerPVS, type ServerPVSData } from "../../../engine/server/ServerPVS";
 import type { PickupEntry } from "../../../shared/bsp/PickupTable";
+import type { TriggerVolume } from "../../../shared/bsp/TriggerTable";
 // Match phase tracking (for auto-recording)
 import { MatchPhase } from "../../../shared/server/gametype/GametypeTypes";
 import { sanitizeCommand } from "../../../shared/server/simulation/InputSanitizer";
@@ -248,6 +249,16 @@ export class GameServer {
    */
   setPickupItems(entries: PickupEntry[]): void {
     this.pickupSystem.setPickupItems(entries);
+  }
+
+  /**
+   * Set the map's trigger volumes (teleporters/jumppads) from the shared
+   * TriggerTable (extractTriggerVolumes — same ids and evaluation as client
+   * prediction). Applied to every player MovementProfile.
+   */
+  setTriggerVolumes(volumes: TriggerVolume[]): void {
+    this.physicsSystem.setTriggerVolumes(volumes);
+    console.log(`[GameServer] ${volumes.length} trigger volumes configured`);
   }
 
   /**

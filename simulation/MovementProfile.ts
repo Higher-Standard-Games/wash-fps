@@ -32,11 +32,20 @@ import {
   normalAirAccelerate,
   strafeBunnyAccelerate,
 } from "./Acceleration";
+import type { TriggerVolume } from "../../../shared/bsp/TriggerTable";
 import { LedgeGrab } from "./LedgeGrab";
 import type { AdvancedMovementResult, MovementConfig } from "./MovementConfig";
 import { Slide } from "./Slide";
-import { VEC3_ZERO, vec3Clone, vec3LengthXZ } from "./Vec3Helpers";
+import { VEC3_ZERO, vec3Clone, vec3Length, vec3LengthXZ } from "./Vec3Helpers";
 import { WallJump } from "./WallJump";
+
+/** Jumppad volume with its ballistic target (launch solved per-fire — see setTriggerVolumes). */
+interface JumppadVolume {
+  id: number;
+  min: Vec3;
+  max: Vec3;
+  dest: Vec3;
+}
 
 export class MovementProfile implements IMovementProfile {
   private config: MovementConfig;
@@ -78,6 +87,67 @@ export class MovementProfile implements IMovementProfile {
 
   /** External speed bonus (e.g., +25 for blade weapon). Applied to both walk and run speed. */
   public speedBonus: number = 0;
+
+  /**
+   * Static map trigger volumes (set once at map load — identical on server and
+   * client, extracted via the shared TriggerTable). Jumppad launch velocities
+   * are precomputed here from this profile's gravity. STATELESS at simulate
+   * time: evaluation is a pure function of position, so reconciliation replays
+   * are idempotent by construction.
+   */
+  private jumppads: JumppadVolume[] = [];
+  /** Teleporter volumes (evaluated before pads; at most one trigger fires per step). */
+  private teleporters: TriggerVolume[] = [];
+
+  /**
+   * Distance from player origin to feet (24) + 1u clearance: teleporter dest
+   * origins sit at floor level, the player origin is at the waist.
+   */
+  private static readonly TELEPORT_EXIT_LIFT = 25;
+
+  /**
+   * Install the map's trigger volumes (from TriggerTable.extractTriggerVolumes).
+   *
+   * Jumppad launch is solved Q3 AimAtTarget-style, but from the PLAYER's
+   * current position each fire (not the pad center like Q3):
+   *   time = sqrt(height / (0.5·g));  v_xy = Δxz/time;  v_y = g·time
+   * Q3 precomputes a fixed velocity and suppresses re-fires with per-pad
+   * contact state (`ps->jumppadEnt`); state like that is a replay hazard here
+   * (a stale contact flag on the first reconciliation-replay step would
+   * suppress or double a launch). Per-position solving is stateless AND
+   * re-fire-safe: every fire re-aims at the target, so the last tick inside
+   * the volume wins and the player lands ON dest instead of overshooting by
+   * the re-fire accumulation. Deviation from Q3 documented in
+   * docs/research/triggerbrushes-and-targets.md §3.4.
+   *
+   * Pads whose target is not above the pad are invalid and dropped (warn).
+   */
+  setTriggerVolumes(volumes: TriggerVolume[]): void {
+    this.jumppads = [];
+    this.teleporters = [];
+
+    for (const v of volumes) {
+      if (v.type === "teleport") {
+        this.teleporters.push(v);
+        continue;
+      }
+
+      const centerY = (v.min.y + v.max.y) / 2;
+      if (v.dest.y - centerY <= 0) {
+        console.warn(
+          `[MovementProfile] jumppad ${v.id}: target not above pad (height ${(v.dest.y - centerY).toFixed(1)}) — dropped`,
+        );
+        continue;
+      }
+
+      this.jumppads.push({
+        id: v.id,
+        min: { ...v.min },
+        max: { ...v.max },
+        dest: { ...v.dest },
+      });
+    }
+  }
 
   constructor(config?: Partial<MovementConfig>) {
     this.config = {
@@ -125,6 +195,10 @@ export class MovementProfile implements IMovementProfile {
       slideMinSpeed: 375,
       slideFriction: 0.1,
       slideCooldown: 1500,
+
+      // Teleporters
+      teleportSpeedMode: 1, // redirect FULL momentum magnitude along the exit yaw (Warsow)
+      teleportExitSpeed: 400, // Q3 exit speed, used when teleportSpeedMode = 0
 
       ...config,
     };
@@ -208,7 +282,7 @@ export class MovementProfile implements IMovementProfile {
         },
         { state: this.ledgeGrab.state, phase: this.ledgeGrab.phase },
         this.actualHorizSpeed,
-        (inp: MovementInput, dt: number) => this.slide.updateCrouch(inp, dt),
+        (inp: MovementInput, t: number) => this.slide.updateCrouch(inp, t),
       );
     }
 
@@ -357,8 +431,8 @@ export class MovementProfile implements IMovementProfile {
         this.slide.update(newVel, input, this.isGrounded, nowMs, deltaTime, this.config);
       }
 
-      // === CROUCH STATE ===
-      this.slide.updateCrouch(input, deltaTime);
+      // === CROUCH STATE (sim-clock anchored — replay-idempotent) ===
+      this.slide.updateCrouch(input, nowMs);
     }
 
     // === APPLY VELOCITY USING STEP-SLIDE MOVE ===
@@ -421,9 +495,82 @@ export class MovementProfile implements IMovementProfile {
       }
     }
 
-    // === UPDATE SPEED TRACKING ===
-    const dx = newPos.x - position.x;
-    const dz = newPos.z - position.z;
+    // === MAP TRIGGERS (trigger_teleport / trigger_push) ===
+    // Evaluated at the end-of-step position: touched this tick → effect takes
+    // hold next tick (1 fixed-dt staging, same on both sides). Stateless pure
+    // functions of position — replay-safe. AT MOST ONE trigger fires per step
+    // (teleporters first), so a dest inside another trigger chains one step at
+    // a time instead of looping inside a single tick.
+    let jumppadLaunch = false;
+    let teleported = false;
+    let teleportYaw: number | undefined;
+    let firedTriggerId: number | undefined;
+    // Speed tracking measures actual MOVEMENT — sample before a teleport can
+    // relocate the origin (a teleport is not a 50k-ups animation frame).
+    const preTriggerX = newPos.x;
+    const preTriggerZ = newPos.z;
+    const bounds = this.getCurrentBounds();
+    const overlaps = (vMin: Vec3, vMax: Vec3): boolean =>
+      newPos.x + bounds.min.x <= vMax.x &&
+      newPos.x + bounds.max.x >= vMin.x &&
+      newPos.y + bounds.min.y <= vMax.y &&
+      newPos.y + bounds.max.y >= vMin.y &&
+      newPos.z + bounds.min.z <= vMax.z &&
+      newPos.z + bounds.max.z >= vMin.z;
+
+    let teleportFrom: Vec3 | undefined;
+    for (const tele of this.teleporters) {
+      if (!overlaps(tele.min, tele.max)) continue;
+
+      // Entry position (for exit/entry VFX), then exit at the destination,
+      // origin lifted to waist height (+1u clearance).
+      teleportFrom = { x: newPos.x, y: newPos.y, z: newPos.z };
+      newPos.x = tele.dest.x;
+      newPos.y = tele.dest.y + MovementProfile.TELEPORT_EXIT_LIFT;
+      newPos.z = tele.dest.z;
+
+      // Exit velocity along the destination yaw (see MovementConfig.teleportSpeedMode).
+      // Mode 1 redirects the FULL 3D momentum magnitude (Warsow): falling into
+      // a tele converts drop speed into exit speed. Horizontal-only turned out
+      // to dead-stop players on wdm2's drop-in teles (entry velocity is nearly
+      // all vertical) — browser-test feedback 2026-07-10.
+      const yaw = tele.destYaw ?? 0;
+      const speed = this.config.teleportSpeedMode === 0 ? this.config.teleportExitSpeed : vec3Length(newVel);
+      newVel.x = Math.sin(yaw) * speed;
+      newVel.y = 0;
+      newVel.z = Math.cos(yaw) * speed;
+
+      this.isGrounded = false;
+      teleported = true;
+      teleportYaw = yaw;
+      firedTriggerId = tele.id;
+      break; // one trigger per step
+    }
+
+    if (!teleported && this.jumppads.length > 0) {
+      // Jumppad velocity is REPLACED (Q3) with a per-position AimAtTarget
+      // solve (see setTriggerVolumes), so re-touching while still inside the
+      // volume just re-aims at the target — no per-pad state.
+      for (const pad of this.jumppads) {
+        if (!overlaps(pad.min, pad.max)) continue;
+
+        const height = pad.dest.y - newPos.y;
+        if (height <= 0) break; // above the target — nothing sane to solve
+
+        const time = Math.sqrt(height / (0.5 * this.config.gravity));
+        newVel.x = (pad.dest.x - newPos.x) / time;
+        newVel.y = this.config.gravity * time;
+        newVel.z = (pad.dest.z - newPos.z) / time;
+        this.isGrounded = false;
+        jumppadLaunch = true;
+        firedTriggerId = pad.id;
+        break; // one pad per step
+      }
+    }
+
+    // === UPDATE SPEED TRACKING (pre-teleport position — see above) ===
+    const dx = preTriggerX - position.x;
+    const dz = preTriggerZ - position.z;
     const posDeltaSpeed = Math.sqrt(dx * dx + dz * dz) / deltaTime;
     this.actualHorizSpeed = posDeltaSpeed;
 
@@ -447,6 +594,11 @@ export class MovementProfile implements IMovementProfile {
       crouchViewOffset: this.slide.crouchViewOffset,
       slidePhase: this.slide.slidePhase,
       ledgeGrabPhase: this.ledgeGrab.phase,
+      jumppadLaunch,
+      teleported,
+      teleportYaw,
+      teleportFrom,
+      triggerId: firedTriggerId,
     };
   }
 

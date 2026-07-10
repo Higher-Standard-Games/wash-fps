@@ -360,6 +360,47 @@ export class Game {
               } else {
                 console.warn(`[Game] BSP collision world could not be created - backend not available`);
               }
+
+              // Trigger volumes (teleporters/jumppads) for client prediction —
+              // the SAME shared TriggerTable extraction the server runs, so
+              // pads and teleporters are predicted with zero reconciliation snap.
+              const bsp = cm.getBsp();
+              if (bsp && this.v2Client) {
+                const { extractTriggerVolumes } = await import("../../shared/bsp/TriggerTable");
+                this.v2Client.setTriggerVolumes(extractTriggerVolumes(bsp.entities, bsp.models));
+
+                // Prewarm the generic teleport-ghost pool so the FIRST
+                // teleport already has its afterimage.
+                import("../../engine/camera/CameraSystem").then(({ CameraSystem: cs }) => {
+                  const scene = cs.getInstance().getCamera()?.getScene();
+                  if (scene) {
+                    import("./client/TeleportEffect").then(({ TeleportEffect }) => {
+                      TeleportEffect.getInstance().prewarm(scene);
+                    });
+                  }
+                });
+
+                // Rotate the local camera to the exit yaw when our own
+                // prediction teleports (fresh inputs only, not replays), and
+                // play the generic VFX: your OWN afterimage at the entry
+                // (turn around and you're standing there) + speed-line bursts.
+                this.v2Client.onTeleport((exitYaw, from, to, entryYaw) => {
+                  import("../../engine/camera/CameraSystem").then(({ CameraSystem: cs }) => {
+                    const controller = cs.getInstance().getController("fps");
+                    if (controller && "setViewYaw" in controller) {
+                      (
+                        controller as import("../../engine/camera/controllers/FPSController").FPSController
+                      ).setViewYaw(exitYaw);
+                    }
+                    const scene = cs.getInstance().getCamera()?.getScene();
+                    if (scene) {
+                      import("./client/TeleportEffect").then(({ TeleportEffect }) => {
+                        TeleportEffect.getInstance().localTeleported(scene, from, to, entryYaw, exitYaw);
+                      });
+                    }
+                  });
+                });
+              }
             } else {
               console.warn(`[Game] CollisionManager NOT initialized - client prediction will NOT have BSP collision!`);
             }

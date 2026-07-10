@@ -58,6 +58,8 @@ export enum DamageType {
   Melee = "melee",
   Fall = "fall",
   FallCrush = "fall_crush",
+  /** Squashed by a player exiting a teleporter on top of you. */
+  Telefrag = "telefrag",
   World = "world",
 }
 

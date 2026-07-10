@@ -312,6 +312,17 @@ export class RemotePlayerRenderer {
         hitbox.currentHeight = targetHeight;
       }
 
+      // Teleport detection: SnapshotBuffer snaps (no lerp) across >256u
+      // inter-snapshot jumps, so a teleport arrives here as one huge
+      // frame-to-frame delta. Play the washoi ghost + burst at both ends.
+      // (Respawns create a fresh hitbox via markDead, so they don't fire.)
+      const jdx = interp.x - hitbox.smoothedPos.x;
+      const jdy = interp.y - hitbox.smoothedPos.y;
+      const jdz = interp.z - hitbox.smoothedPos.z;
+      if (jdx * jdx + jdy * jdy + jdz * jdz > RemotePlayerRenderer.TELEPORT_FX_DIST_SQ) {
+        this.playTeleportEffect(hitbox, entityId, interp);
+      }
+
       // Update position/rotation from interpolated data
       this.updatePosition(hitbox, interp);
 
@@ -532,6 +543,24 @@ export class RemotePlayerRenderer {
     const bottomY = origin.y + PLAYER_MINS_Z;
     const centerY = bottomY + height / 2;
     mesh.position.set(origin.x, centerY, origin.z);
+  }
+
+  /** Frame-to-frame displacement (squared) treated as a teleport for VFX. */
+  private static readonly TELEPORT_FX_DIST_SQ = 256 * 256;
+
+  /** Washoi teleport VFX: generic pooled team-color ghost + speed-line burst at both ends. */
+  private playTeleportEffect(hitbox: RemotePlayerHitbox, entityId: string, interp: InterpolatedEntity): void {
+    const from = { x: hitbox.smoothedPos.x, y: hitbox.smoothedPos.y, z: hitbox.smoothedPos.z };
+    const to = { x: interp.x, y: interp.y, z: interp.z };
+    const fromYaw = hitbox.smoothedYaw;
+    const team = this.resolveTeamColor(entityId);
+    import("./TeleportEffect")
+      .then(({ TeleportEffect }) => {
+        TeleportEffect.getInstance().playerTeleported(this.scene, from, to, fromYaw, interp.yaw, team);
+      })
+      .catch(() => {
+        /* effect is cosmetic — never break the render loop */
+      });
   }
 
   private updatePosition(hitbox: RemotePlayerHitbox, interp: InterpolatedEntity): void {

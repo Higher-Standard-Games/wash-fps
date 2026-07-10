@@ -58,6 +58,20 @@ export interface MovementConfig {
   slideMinSpeed: number;
   slideFriction: number;
   slideCooldown: number;
+
+  // Teleporters (trigger_teleport)
+  /**
+   * Exit velocity policy: 0 = Q3 (fixed teleportExitSpeed along the exit yaw),
+   * 1 = redirect the FULL 3D momentum magnitude along the exit yaw (Warsow —
+   * falling into a tele converts drop speed into exit speed; the default for
+   * a movement game, and required for wdm2's drop-in teles where entry
+   * velocity is nearly all vertical). Deliberately a CONFIG value, not a live
+   * cvar: profiles read config only, so demo re-simulation stays exact
+   * without snapshotting cvars (the F8 caveat).
+   */
+  teleportSpeedMode: number;
+  /** Exit speed for teleportSpeedMode 0 (Q3: 400 ups). */
+  teleportExitSpeed: number;
 }
 
 // Backward-compat alias
@@ -76,4 +90,23 @@ export interface AdvancedMovementResult extends MovementResult {
   slidePhase: number;
   /** Ledge grab/pull camera phase (0-1 progress through grab+pull) */
   ledgeGrabPhase: number;
+  /**
+   * A jumppad (trigger_push) replaced velocity this step. Set every step the
+   * player overlaps the pad (velocity replace is idempotent) — one-shot
+   * effects/sounds must edge-detect on the consumer side (server subsystem /
+   * client), NOT in the profile, so reconciliation replays stay stateless.
+   */
+  jumppadLaunch?: boolean;
+  /**
+   * A teleporter (trigger_teleport) moved the player this step. Like
+   * jumppadLaunch, one-shot side effects (telefrag, events, camera yaw) are
+   * the consumer's job. At most one trigger fires per step.
+   */
+  teleported?: boolean;
+  /** Exit yaw (game radians) of the teleporter that fired — the client rotates its camera to this. */
+  teleportYaw?: number;
+  /** Entry position (player origin the step the teleporter fired) — for entry/exit VFX. */
+  teleportFrom?: { x: number; y: number; z: number };
+  /** TriggerVolume id that fired this step (jumppad or teleporter). */
+  triggerId?: number;
 }
