@@ -194,12 +194,12 @@ export class WallJump {
     _position: Vec3,
     input: MovementInput | null,
     nowMs: number,
-    deltaTime: number,
+    _deltaTime: number,
     config: MovementConfig,
     slideState: { isSliding: boolean; isCrouching: boolean; crouchViewOffset: number; slidePhase: number },
     ledgeState: { state: "none" | "grabbing" | "pulling"; phase: number },
     actualHorizSpeed: number,
-    updateCrouch: (input: MovementInput, deltaTime: number) => void,
+    updateCrouch: (input: MovementInput, nowMs: number) => void,
   ): AdvancedMovementResult {
     // Charge time derives from the sim clock (replay-idempotent)
     const chargeElapsedMs = nowMs - this.chargeStartMs;
@@ -230,9 +230,9 @@ export class WallJump {
     const frozenPos = vec3Clone(this.position);
     const frozenVel = vec3Zero();
 
-    // Update crouch visuals even while charging
+    // Update crouch visuals even while charging (sim-clock anchored)
     if (input) {
-      updateCrouch(input, deltaTime);
+      updateCrouch(input, nowMs);
     }
 
     return {

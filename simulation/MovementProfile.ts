@@ -282,7 +282,7 @@ export class MovementProfile implements IMovementProfile {
         },
         { state: this.ledgeGrab.state, phase: this.ledgeGrab.phase },
         this.actualHorizSpeed,
-        (inp: MovementInput, dt: number) => this.slide.updateCrouch(inp, dt),
+        (inp: MovementInput, t: number) => this.slide.updateCrouch(inp, t),
       );
     }
 
@@ -431,8 +431,8 @@ export class MovementProfile implements IMovementProfile {
         this.slide.update(newVel, input, this.isGrounded, nowMs, deltaTime, this.config);
       }
 
-      // === CROUCH STATE ===
-      this.slide.updateCrouch(input, deltaTime);
+      // === CROUCH STATE (sim-clock anchored — replay-idempotent) ===
+      this.slide.updateCrouch(input, nowMs);
     }
 
     // === APPLY VELOCITY USING STEP-SLIDE MOVE ===

@@ -21,8 +21,18 @@ import { vec3LengthXZ } from "./Vec3Helpers";
 
 // Slide camera constants (matched from AdvancedCharacterController)
 const SLIDE_FADE_MS = 400;
+/** Slide-exit camera tilt fade (sim-clock anchored — see header note). */
+const SLIDE_EXIT_FADE_MS = 250;
 const CROUCH_HEIGHT_OFFSET = -24;
-const CROUCH_TRANSITION_SPEED = 0.2;
+/** Crouch view transitions: snappy going down, deliberate standing up. */
+const CROUCH_DOWN_MS = 140;
+const CROUCH_UP_MS = 260;
+
+/** Hermite ease-in-out. */
+function smoothstep01(t: number): number {
+  const c = Math.max(0, Math.min(1, t));
+  return c * c * (3 - 2 * c);
+}
 
 export class Slide {
   isSliding: boolean = false;
@@ -33,6 +43,11 @@ export class Slide {
   // Absolute sim-clock anchors (ms) — see header note
   private slideStartMs: number = 0; // Sim time when current slide began
   private cooldownUntilMs: number = 0; // Sim time when next slide is allowed
+  private slideEndMs: number = 0; // Sim time the last slide ended (exit tilt fade)
+  private slideEndPhase: number = 0; // slidePhase captured at slide exit
+  private crouchAnchorMs: number = 0; // Sim time the crouch target last flipped
+  private crouchFromOffset: number = 0; // Offset value at the flip
+  private crouchTargetOffset: number = 0; // Current transition target
 
   /** True while the post-slide cooldown deadline is in the future */
   isOnCooldown(nowMs: number): boolean {
@@ -46,6 +61,11 @@ export class Slide {
     this.slidePhase = 0;
     this.slideStartMs = 0;
     this.cooldownUntilMs = 0;
+    this.slideEndMs = 0;
+    this.slideEndPhase = 0;
+    this.crouchAnchorMs = 0;
+    this.crouchFromOffset = 0;
+    this.crouchTargetOffset = 0;
   }
 
   /**
@@ -80,9 +100,17 @@ export class Slide {
         vel.x *= boost;
         vel.z *= boost;
       } else {
-        // Not sliding - decay phase
-        this.slidePhase *= 0.85;
-        if (this.slidePhase < 0.01) this.slidePhase = 0;
+        // Not sliding — fade the exit tilt from a sim-clock anchor. The old
+        // per-call decay (`slidePhase *= 0.85`) advanced once per simulate()
+        // call, so reconciliation replays fast-forwarded it (same class of
+        // bug as the v0.9.16 slide-timer fix) — the get-up read as a flick.
+        if (this.slideEndPhase > 0) {
+          const t = (nowMs - this.slideEndMs) / SLIDE_EXIT_FADE_MS;
+          this.slidePhase = t >= 1 ? 0 : this.slideEndPhase * (1 - smoothstep01(t));
+          if (this.slidePhase === 0) this.slideEndPhase = 0;
+        } else {
+          this.slidePhase = 0;
+        }
       }
     } else {
       // Currently sliding — elapsed derives from the sim clock, not accumulation
@@ -137,15 +165,33 @@ export class Slide {
     if (config) {
       this.cooldownUntilMs = nowMs + config.slideCooldown;
     }
-    // slidePhase will decay naturally in the non-sliding branch
+    // Anchor the exit tilt fade (resolved in the non-sliding branch)
+    this.slideEndMs = nowMs;
+    this.slideEndPhase = this.slidePhase;
   }
 
-  /** Update crouch state and view offset transitions */
-  updateCrouch(input: MovementInput, _deltaTime: number): void {
+  /**
+   * Update crouch state and view offset transitions.
+   *
+   * The offset is a pure function of the sim clock: when the crouch target
+   * flips, we anchor (nowMs, current offset) and smoothstep toward the new
+   * target over a fixed duration — snappy down, deliberate up. The previous
+   * per-call exponential lerp (`+= delta * 0.2`) advanced on every simulate()
+   * call, so reconciliation replays fast-forwarded the get-up into a flick.
+   */
+  updateCrouch(input: MovementInput, nowMs: number): void {
     const wantsCrouch = input.isPressed(InputButtons.CROUCH) || this.isSliding;
     this.isCrouching = wantsCrouch;
 
     const targetOffset = this.isCrouching ? CROUCH_HEIGHT_OFFSET : 0;
-    this.crouchViewOffset += (targetOffset - this.crouchViewOffset) * CROUCH_TRANSITION_SPEED;
+    if (targetOffset !== this.crouchTargetOffset) {
+      this.crouchFromOffset = this.crouchViewOffset;
+      this.crouchTargetOffset = targetOffset;
+      this.crouchAnchorMs = nowMs;
+    }
+
+    const durationMs = this.crouchTargetOffset === 0 ? CROUCH_UP_MS : CROUCH_DOWN_MS;
+    const t = smoothstep01((nowMs - this.crouchAnchorMs) / durationMs);
+    this.crouchViewOffset = this.crouchFromOffset + (this.crouchTargetOffset - this.crouchFromOffset) * t;
   }
 }
