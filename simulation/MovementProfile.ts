@@ -36,7 +36,7 @@ import type { TriggerVolume } from "../../../shared/bsp/TriggerTable";
 import { LedgeGrab } from "./LedgeGrab";
 import type { AdvancedMovementResult, MovementConfig } from "./MovementConfig";
 import { Slide } from "./Slide";
-import { VEC3_ZERO, vec3Clone, vec3LengthXZ } from "./Vec3Helpers";
+import { VEC3_ZERO, vec3Clone, vec3Length, vec3LengthXZ } from "./Vec3Helpers";
 import { WallJump } from "./WallJump";
 
 /** Jumppad volume with its ballistic target (launch solved per-fire — see setTriggerVolumes). */
@@ -197,7 +197,7 @@ export class MovementProfile implements IMovementProfile {
       slideCooldown: 1500,
 
       // Teleporters
-      teleportSpeedMode: 1, // preserve horizontal speed through the exit (movement game)
+      teleportSpeedMode: 1, // redirect FULL momentum magnitude along the exit yaw (Warsow)
       teleportExitSpeed: 400, // Q3 exit speed, used when teleportSpeedMode = 0
 
       ...config,
@@ -527,9 +527,12 @@ export class MovementProfile implements IMovementProfile {
       newPos.z = tele.dest.z;
 
       // Exit velocity along the destination yaw (see MovementConfig.teleportSpeedMode).
+      // Mode 1 redirects the FULL 3D momentum magnitude (Warsow): falling into
+      // a tele converts drop speed into exit speed. Horizontal-only turned out
+      // to dead-stop players on wdm2's drop-in teles (entry velocity is nearly
+      // all vertical) — browser-test feedback 2026-07-10.
       const yaw = tele.destYaw ?? 0;
-      const speed =
-        this.config.teleportSpeedMode === 0 ? this.config.teleportExitSpeed : vec3LengthXZ(newVel);
+      const speed = this.config.teleportSpeedMode === 0 ? this.config.teleportExitSpeed : vec3Length(newVel);
       newVel.x = Math.sin(yaw) * speed;
       newVel.y = 0;
       newVel.z = Math.cos(yaw) * speed;

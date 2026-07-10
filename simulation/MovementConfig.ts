@@ -62,10 +62,12 @@ export interface MovementConfig {
   // Teleporters (trigger_teleport)
   /**
    * Exit velocity policy: 0 = Q3 (fixed teleportExitSpeed along the exit yaw),
-   * 1 = preserve horizontal speed magnitude, redirected along the exit yaw
-   * (Warsow-ish — the default for a movement game). Deliberately a CONFIG
-   * value, not a live cvar: profiles read config only, so demo re-simulation
-   * stays exact without snapshotting cvars (the F8 caveat).
+   * 1 = redirect the FULL 3D momentum magnitude along the exit yaw (Warsow —
+   * falling into a tele converts drop speed into exit speed; the default for
+   * a movement game, and required for wdm2's drop-in teles where entry
+   * velocity is nearly all vertical). Deliberately a CONFIG value, not a live
+   * cvar: profiles read config only, so demo re-simulation stays exact
+   * without snapshotting cvars (the F8 caveat).
    */
   teleportSpeedMode: number;
   /** Exit speed for teleportSpeedMode 0 (Q3: 400 ups). */

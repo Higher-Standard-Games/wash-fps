@@ -64,14 +64,30 @@ describe("MovementProfile teleporters (WO-T3)", () => {
     expect(result.grounded).toBe(false);
   });
 
-  it("default policy preserves horizontal speed, redirected along the exit yaw (vy zeroed)", () => {
+  it("default policy redirects the FULL momentum magnitude along the exit yaw (vy zeroed)", () => {
     const profile = new MovementProfile();
     profile.setTriggerVolumes([TELE_1]);
-    // hypot(300, 400) = 500 ups horizontal, plus downward fall to discard.
     const result = profile.simulate(IN_TELE_1, { x: 300, y: -350, z: 400 }, input(1), DT, null);
 
+    // Full 3D speed at fire time: gravity ran one falling tick before the
+    // trigger check (vy = −350 − 1000·1.25·dt = −360) → |v| = √(300²+360²+400²).
+    const expectedSpeed = Math.hypot(300, 360, 400);
     // Exit yaw π/2 → forward = (sin, 0, cos) = (+x)
-    expect(result.velocity.x).toBeCloseTo(500, 6);
+    expect(result.velocity.x).toBeCloseTo(expectedSpeed, 6);
+    expect(result.velocity.y).toBe(0);
+    expect(result.velocity.z).toBeCloseTo(0, 6);
+  });
+
+  it("converts a pure vertical drop into exit speed (wdm2 drop-in teles stay reachable)", () => {
+    const profile = new MovementProfile();
+    profile.setTriggerVolumes([TELE_1]);
+    // Falling straight down into the tele — horizontal speed ≈ 0. The old
+    // horizontal-only policy exited at ~0 ups and the player dropped at the
+    // exit (browser-test finding); full-momentum must carry them out.
+    const result = profile.simulate(IN_TELE_1, { x: 0, y: -600, z: 0 }, input(1), DT, null);
+
+    expect(result.teleported).toBe(true);
+    expect(result.velocity.x).toBeGreaterThan(590); // ≈ 610 (one more gravity tick)
     expect(result.velocity.y).toBe(0);
     expect(result.velocity.z).toBeCloseTo(0, 6);
   });
@@ -93,9 +109,9 @@ describe("MovementProfile teleporters (WO-T3)", () => {
     const result = profile.simulate(IN_TELE_1, { x: 100, y: 0, z: 0 }, input(1), DT, null);
 
     expect(result.teleportYaw).toBe(0);
-    // yaw 0 → forward = (0, 0, 1)
+    // yaw 0 → forward = (0, 0, 1); |v| at fire = hypot(100, one gravity tick of 8)
     expect(result.velocity.x).toBeCloseTo(0, 6);
-    expect(result.velocity.z).toBeCloseTo(100, 6);
+    expect(result.velocity.z).toBeCloseTo(Math.hypot(100, 8), 6);
   });
 
   it("fires at most ONE trigger per step: a teleport into a pad volume launches on the NEXT step", () => {
