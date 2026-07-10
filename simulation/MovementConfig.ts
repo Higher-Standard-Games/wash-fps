@@ -58,6 +58,18 @@ export interface MovementConfig {
   slideMinSpeed: number;
   slideFriction: number;
   slideCooldown: number;
+
+  // Teleporters (trigger_teleport)
+  /**
+   * Exit velocity policy: 0 = Q3 (fixed teleportExitSpeed along the exit yaw),
+   * 1 = preserve horizontal speed magnitude, redirected along the exit yaw
+   * (Warsow-ish — the default for a movement game). Deliberately a CONFIG
+   * value, not a live cvar: profiles read config only, so demo re-simulation
+   * stays exact without snapshotting cvars (the F8 caveat).
+   */
+  teleportSpeedMode: number;
+  /** Exit speed for teleportSpeedMode 0 (Q3: 400 ups). */
+  teleportExitSpeed: number;
 }
 
 // Backward-compat alias
@@ -83,6 +95,14 @@ export interface AdvancedMovementResult extends MovementResult {
    * client), NOT in the profile, so reconciliation replays stay stateless.
    */
   jumppadLaunch?: boolean;
-  /** TriggerVolume id that fired this step (jumppad; teleporters follow in T3). */
+  /**
+   * A teleporter (trigger_teleport) moved the player this step. Like
+   * jumppadLaunch, one-shot side effects (telefrag, events, camera yaw) are
+   * the consumer's job. At most one trigger fires per step.
+   */
+  teleported?: boolean;
+  /** Exit yaw (game radians) of the teleporter that fired — the client rotates its camera to this. */
+  teleportYaw?: number;
+  /** TriggerVolume id that fired this step (jumppad or teleporter). */
   triggerId?: number;
 }

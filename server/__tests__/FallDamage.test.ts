@@ -17,7 +17,12 @@ function cmd(seq: number, buttons = 0): QueuedInput {
  * Each entry = one tick: { y, grounded }. Fall tracking arms on the first
  * grounded tick after spawn, so damage sequences must start grounded.
  */
-function makeScriptedSim(steps: Array<{ y: number; grounded: boolean }>, buttons = 0, health = 100, armor = 0) {
+function makeScriptedSim(
+  steps: Array<{ y: number; grounded: boolean; teleported?: boolean }>,
+  buttons = 0,
+  health = 100,
+  armor = 0,
+) {
   const sim = new Simulation({ tickMs: 8 });
   const movement = new FPSMovementSubsystem();
   const combat = new CombatSystem();
@@ -53,6 +58,7 @@ function makeScriptedSim(steps: Array<{ y: number; grounded: boolean }>, buttons
         wallJumpState: "none",
         ledgeGrabState: "none",
         actualHorizSpeed: 0,
+        teleported: s.teleported ?? false,
       };
     },
   });
@@ -152,6 +158,26 @@ describe("server fall damage", () => {
     expect(normal.health!.health).toBe(1);
     expect(crouched.health!.health).toBeGreaterThan(1);
     expect(crouched.health!.dead).toBe(false);
+  });
+
+  it("teleporting mid-fall clears fall tracking — the drop restarts from the exit (WO-T3)", () => {
+    // Fall from 600u, teleport near the floor mid-fall, land: without the
+    // teleport-clears-tracking rule this measures a 600u fatal drop.
+    const { entity } = makeScriptedSim(
+      [
+        { y: 600, grounded: true }, // standing high (arms tracking)
+        { y: 600, grounded: false }, // falling
+        { y: 400, grounded: false }, // still falling
+        { y: 25, grounded: false, teleported: true }, // teleporter exit near floor
+        { y: 0, grounded: true }, // land: 25u from the exit — harmless
+      ],
+      0,
+      100,
+      0,
+    );
+
+    expect(entity.health!.health).toBe(100);
+    expect(entity.health!.dead).toBe(false);
   });
 
   it("does not damage the post-spawn drop (tracking arms on first grounded tick)", () => {

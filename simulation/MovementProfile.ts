@@ -96,6 +96,14 @@ export class MovementProfile implements IMovementProfile {
    * are idempotent by construction.
    */
   private jumppads: JumppadVolume[] = [];
+  /** Teleporter volumes (evaluated before pads; at most one trigger fires per step). */
+  private teleporters: TriggerVolume[] = [];
+
+  /**
+   * Distance from player origin to feet (24) + 1u clearance: teleporter dest
+   * origins sit at floor level, the player origin is at the waist.
+   */
+  private static readonly TELEPORT_EXIT_LIFT = 25;
 
   /**
    * Install the map's trigger volumes (from TriggerTable.extractTriggerVolumes).
@@ -116,10 +124,11 @@ export class MovementProfile implements IMovementProfile {
    */
   setTriggerVolumes(volumes: TriggerVolume[]): void {
     this.jumppads = [];
+    this.teleporters = [];
 
     for (const v of volumes) {
       if (v.type === "teleport") {
-        // Teleporter evaluation lands in T3 (docs/research/triggerbrushes-and-targets.md).
+        this.teleporters.push(v);
         continue;
       }
 
@@ -186,6 +195,10 @@ export class MovementProfile implements IMovementProfile {
       slideMinSpeed: 375,
       slideFriction: 0.1,
       slideCooldown: 1500,
+
+      // Teleporters
+      teleportSpeedMode: 1, // preserve horizontal speed through the exit (movement game)
+      teleportExitSpeed: 400, // Q3 exit speed, used when teleportSpeedMode = 0
 
       ...config,
     };
@@ -482,43 +495,76 @@ export class MovementProfile implements IMovementProfile {
       }
     }
 
-    // === MAP TRIGGERS: JUMPPADS (trigger_push) ===
-    // Evaluated at the end-of-step position: touched this tick → launch
-    // velocity takes effect next tick (1 fixed-dt staging, same on both
-    // sides). Velocity is REPLACED (Q3) with a per-position AimAtTarget
-    // solve (see setTriggerVolumes), so re-touching while still inside the
-    // volume just re-aims at the target — no per-pad state, replay-safe.
+    // === MAP TRIGGERS (trigger_teleport / trigger_push) ===
+    // Evaluated at the end-of-step position: touched this tick → effect takes
+    // hold next tick (1 fixed-dt staging, same on both sides). Stateless pure
+    // functions of position — replay-safe. AT MOST ONE trigger fires per step
+    // (teleporters first), so a dest inside another trigger chains one step at
+    // a time instead of looping inside a single tick.
     let jumppadLaunch = false;
+    let teleported = false;
+    let teleportYaw: number | undefined;
     let firedTriggerId: number | undefined;
-    if (this.jumppads.length > 0) {
-      const bounds = this.getCurrentBounds();
-      for (const pad of this.jumppads) {
-        if (
-          newPos.x + bounds.min.x <= pad.max.x &&
-          newPos.x + bounds.max.x >= pad.min.x &&
-          newPos.y + bounds.min.y <= pad.max.y &&
-          newPos.y + bounds.max.y >= pad.min.y &&
-          newPos.z + bounds.min.z <= pad.max.z &&
-          newPos.z + bounds.max.z >= pad.min.z
-        ) {
-          const height = pad.dest.y - newPos.y;
-          if (height <= 0) break; // above the target — nothing sane to solve
+    // Speed tracking measures actual MOVEMENT — sample before a teleport can
+    // relocate the origin (a teleport is not a 50k-ups animation frame).
+    const preTriggerX = newPos.x;
+    const preTriggerZ = newPos.z;
+    const bounds = this.getCurrentBounds();
+    const overlaps = (vMin: Vec3, vMax: Vec3): boolean =>
+      newPos.x + bounds.min.x <= vMax.x &&
+      newPos.x + bounds.max.x >= vMin.x &&
+      newPos.y + bounds.min.y <= vMax.y &&
+      newPos.y + bounds.max.y >= vMin.y &&
+      newPos.z + bounds.min.z <= vMax.z &&
+      newPos.z + bounds.max.z >= vMin.z;
 
-          const time = Math.sqrt(height / (0.5 * this.config.gravity));
-          newVel.x = (pad.dest.x - newPos.x) / time;
-          newVel.y = this.config.gravity * time;
-          newVel.z = (pad.dest.z - newPos.z) / time;
-          this.isGrounded = false;
-          jumppadLaunch = true;
-          firedTriggerId = pad.id;
-          break; // one pad per step
-        }
+    for (const tele of this.teleporters) {
+      if (!overlaps(tele.min, tele.max)) continue;
+
+      // Exit at the destination, origin lifted to waist height (+1u clearance).
+      newPos.x = tele.dest.x;
+      newPos.y = tele.dest.y + MovementProfile.TELEPORT_EXIT_LIFT;
+      newPos.z = tele.dest.z;
+
+      // Exit velocity along the destination yaw (see MovementConfig.teleportSpeedMode).
+      const yaw = tele.destYaw ?? 0;
+      const speed =
+        this.config.teleportSpeedMode === 0 ? this.config.teleportExitSpeed : vec3LengthXZ(newVel);
+      newVel.x = Math.sin(yaw) * speed;
+      newVel.y = 0;
+      newVel.z = Math.cos(yaw) * speed;
+
+      this.isGrounded = false;
+      teleported = true;
+      teleportYaw = yaw;
+      firedTriggerId = tele.id;
+      break; // one trigger per step
+    }
+
+    if (!teleported && this.jumppads.length > 0) {
+      // Jumppad velocity is REPLACED (Q3) with a per-position AimAtTarget
+      // solve (see setTriggerVolumes), so re-touching while still inside the
+      // volume just re-aims at the target — no per-pad state.
+      for (const pad of this.jumppads) {
+        if (!overlaps(pad.min, pad.max)) continue;
+
+        const height = pad.dest.y - newPos.y;
+        if (height <= 0) break; // above the target — nothing sane to solve
+
+        const time = Math.sqrt(height / (0.5 * this.config.gravity));
+        newVel.x = (pad.dest.x - newPos.x) / time;
+        newVel.y = this.config.gravity * time;
+        newVel.z = (pad.dest.z - newPos.z) / time;
+        this.isGrounded = false;
+        jumppadLaunch = true;
+        firedTriggerId = pad.id;
+        break; // one pad per step
       }
     }
 
-    // === UPDATE SPEED TRACKING ===
-    const dx = newPos.x - position.x;
-    const dz = newPos.z - position.z;
+    // === UPDATE SPEED TRACKING (pre-teleport position — see above) ===
+    const dx = preTriggerX - position.x;
+    const dz = preTriggerZ - position.z;
     const posDeltaSpeed = Math.sqrt(dx * dx + dz * dz) / deltaTime;
     this.actualHorizSpeed = posDeltaSpeed;
 
@@ -543,6 +589,8 @@ export class MovementProfile implements IMovementProfile {
       slidePhase: this.slide.slidePhase,
       ledgeGrabPhase: this.ledgeGrab.phase,
       jumppadLaunch,
+      teleported,
+      teleportYaw,
       triggerId: firedTriggerId,
     };
   }

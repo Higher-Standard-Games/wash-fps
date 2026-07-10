@@ -285,6 +285,38 @@ export class FPSMovementSubsystem extends Subsystem {
     this.queueFallDamage(entityId, mapDrop, buttons);
   }
 
+  /**
+   * Telefrag: kill any living player whose bounding box overlaps the
+   * teleporter exit the moment someone comes through (Q3 behavior). Credits
+   * the frag to the teleporting player.
+   */
+  private telefragAtExit(state: WorldState, teleporterId: EntityId, exitPos: { x: number; y: number; z: number }): void {
+    if (!this.combatSystem) return;
+
+    // Q3 player box: radius 16, −24 feet / +40 head around the origin.
+    const R2 = 32; // sum of both players' radii
+    for (const other of state.entitiesByType(EntityType.Player)) {
+      if (other.id === teleporterId || !other.transform || other.health?.dead) continue;
+
+      const o = other.transform.position;
+      if (
+        Math.abs(o.x - exitPos.x) < R2 &&
+        Math.abs(o.z - exitPos.z) < R2 &&
+        exitPos.y - 24 < o.y + 40 &&
+        exitPos.y + 40 > o.y - 24
+      ) {
+        this.combatSystem.queueDamage({
+          victimId: other.id,
+          attackerId: teleporterId,
+          damage: 9999,
+          armorPiercing: 1,
+          damageType: DamageType.Telefrag,
+          hitLocation: HitLocation.Body,
+        });
+      }
+    }
+  }
+
   private queueFallDamage(victimId: EntityId, rawDrop: number, buttons: number): void {
     if (!this.combatSystem || rawDrop <= 0) return;
 
@@ -576,13 +608,24 @@ export class FPSMovementSubsystem extends Subsystem {
       const pz = transform.position.z;
       const result = profile.simulate(transform.position, physics.velocity, adaptInput(input), dt, this.collisionWorld);
       applyResult(transform, physics, result, input);
+
+      if (result.teleported) {
+        // A teleport is not a fall: measure any post-teleport drop from the
+        // exit, not from wherever the player left the ground pre-teleport.
+        this.clearFallTracking(eid);
+        this.lastGroundY.delete(eid);
+        // Server-only side effect: telefrag players occupying the exit (Q3).
+        this.telefragAtExit(state, entity.id, transform.position);
+      }
       this.updateFallDamageTracking(entity.id, transform.position.y, physics.grounded, input.buttons);
 
       const mdx = transform.position.x - px;
       const mdy = transform.position.y - py;
       const mdz = transform.position.z - pz;
       const moved = Math.sqrt(mdx * mdx + mdy * mdy + mdz * mdz);
-      if (moved > FPSMovementSubsystem.MAX_TICK_STEP) {
+      // Teleports legitimately move the whole map in one tick — whitelisted
+      // from the position-delta tripwire (the profile applied them itself).
+      if (moved > FPSMovementSubsystem.MAX_TICK_STEP && !result.teleported) {
         this.tripwireHits.set(eid, (this.tripwireHits.get(eid) ?? 0) + 1);
         console.warn(
           `[Authority] entity ${eid} moved ${moved.toFixed(0)}u in one tick ` +
