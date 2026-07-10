@@ -244,6 +244,16 @@ export class WeaponSystem extends Subsystem {
     this.movementSubsystem = sub;
   }
 
+  private getFireViewOrigin(shooter: Readonly<Entity>): { x: number; y: number; z: number } | null {
+    if (!shooter.transform) return null;
+    const pos = shooter.transform.position;
+    return {
+      x: pos.x,
+      y: pos.y + DEFAULT_VIEWHEIGHT + (shooter.physics?.crouchViewOffset ?? 0),
+      z: pos.z,
+    };
+  }
+
   /**
    * Cache entity position (called by GameServer before tick for drop spawning)
    */
@@ -678,20 +688,25 @@ export class WeaponSystem extends Subsystem {
             const timeSinceFire = tickNum - weaponState.lastFireTick;
             if (timeSinceFire >= fireInterval) {
               // Fire visual event immediately (animation + sound)
-              if (entity.transform && entity.input) {
+              if (entity.input) {
+                const origin = this.getFireViewOrigin(entity);
                 const yaw = entity.input.yaw;
                 const pitch = -entity.input.pitch;
-                this.pendingFireEvents.push({
-                  entityId: entity.id,
-                  weaponId: weapon.id,
-                  originX: entity.transform.position.x,
-                  originY: entity.transform.position.y,
-                  originZ: entity.transform.position.z,
-                  dirX: Math.sin(yaw) * Math.cos(pitch),
-                  dirY: Math.sin(pitch),
-                  dirZ: Math.cos(yaw) * Math.cos(pitch),
-                });
+                if (origin) {
+                  this.pendingFireEvents.push({
+                    entityId: entity.id,
+                    weaponId: weapon.id,
+                    originX: origin.x,
+                    originY: origin.y,
+                    originZ: origin.z,
+                    dirX: Math.sin(yaw) * Math.cos(pitch),
+                    dirY: Math.sin(pitch),
+                    dirZ: Math.cos(yaw) * Math.cos(pitch),
+                  });
+                }
               }
+
+              this.queueMeleeDash(entity, weapon);
 
               // Queue delayed melee damage check
               const delayTicks = Math.ceil((weapon.meleeDamageDelay || 0) * 125);
@@ -836,7 +851,8 @@ export class WeaponSystem extends Subsystem {
 
   private fireWeapon(state: WorldState, shooter: Readonly<Entity>, weapon: WeaponDef, tick: TickNumber): void {
     // Emit fire event for network broadcast
-    if (shooter.transform && shooter.input) {
+    if (shooter.input) {
+      const origin = this.getFireViewOrigin(shooter);
       // yaw/pitch are already in radians from the client (Babylon.js camera)
       // Negate pitch: Babylon uses negative rotationX for looking UP.
       // Apply beam wander so remote beams bend to match the (deflected) damage ray.
@@ -844,16 +860,18 @@ export class WeaponSystem extends Subsystem {
       const wander = this.beamWanderOffset(weapon, shooter.id, tick, isADS);
       const yaw = shooter.input.yaw + wander.dYaw;
       const pitch = -shooter.input.pitch + wander.dPitch;
-      this.pendingFireEvents.push({
-        entityId: shooter.id,
-        weaponId: weapon.id,
-        originX: shooter.transform.position.x,
-        originY: shooter.transform.position.y,
-        originZ: shooter.transform.position.z,
-        dirX: Math.sin(yaw) * Math.cos(pitch),
-        dirY: Math.sin(pitch),
-        dirZ: Math.cos(yaw) * Math.cos(pitch),
-      });
+      if (origin) {
+        this.pendingFireEvents.push({
+          entityId: shooter.id,
+          weaponId: weapon.id,
+          originX: origin.x,
+          originY: origin.y,
+          originZ: origin.z,
+          dirX: Math.sin(yaw) * Math.cos(pitch),
+          dirY: Math.sin(pitch),
+          dirZ: Math.cos(yaw) * Math.cos(pitch),
+        });
+      }
     }
 
     // Route to melee or ranged
@@ -870,6 +888,19 @@ export class WeaponSystem extends Subsystem {
    * Melee attack — cone check for all players within range and meleeRadius.
    * Hits all targets in the forward cone (~60° half-angle).
    */
+  private queueMeleeDash(shooter: Readonly<Entity>, weapon: WeaponDef): void {
+    const distance = weapon.meleeDashDistance ?? 0;
+    if (distance <= 0 || !this.movementSubsystem || !shooter.input) return;
+
+    const yaw = shooter.input.yaw;
+    this.movementSubsystem.queueMeleeDash({
+      entityId: shooter.id,
+      dirX: Math.sin(yaw),
+      dirZ: Math.cos(yaw),
+      distance,
+    });
+  }
+
   private fireMelee(state: WorldState, shooter: Readonly<Entity>, weapon: WeaponDef): void {
     if (!shooter.transform || !shooter.input) return;
 
@@ -971,12 +1002,15 @@ export class WeaponSystem extends Subsystem {
     // Emit fire event for network broadcast
     const yaw = shooter.input.yaw;
     const pitch = -shooter.input.pitch;
+    const origin = this.getFireViewOrigin(shooter);
+    if (!origin) return;
+
     this.pendingFireEvents.push({
       entityId: shooter.id,
       weaponId: weapon.id,
-      originX: shooter.transform.position.x,
-      originY: shooter.transform.position.y,
-      originZ: shooter.transform.position.z,
+      originX: origin.x,
+      originY: origin.y,
+      originZ: origin.z,
       dirX: Math.sin(yaw) * Math.cos(pitch),
       dirY: Math.sin(pitch),
       dirZ: Math.cos(yaw) * Math.cos(pitch),
@@ -992,9 +1026,9 @@ export class WeaponSystem extends Subsystem {
 
     const offset = 50;
     const position = {
-      x: shooter.transform.position.x + Math.sin(yaw) * Math.cos(pitch) * offset,
-      y: shooter.transform.position.y + DEFAULT_VIEWHEIGHT + Math.sin(pitch) * offset,
-      z: shooter.transform.position.z + Math.cos(yaw) * Math.cos(pitch) * offset,
+      x: origin.x + Math.sin(yaw) * Math.cos(pitch) * offset,
+      y: origin.y + Math.sin(pitch) * offset,
+      z: origin.z + Math.cos(yaw) * Math.cos(pitch) * offset,
     };
 
     const projectile = createProjectileEntity(entityId(this.nextProjectileId++), shooter.ownerId, position, velocity);
@@ -1020,11 +1054,8 @@ export class WeaponSystem extends Subsystem {
     const yaw = shooter.input.yaw;
     const pitch = -shooter.input.pitch;
 
-    const start = {
-      x: shooter.transform.position.x,
-      y: shooter.transform.position.y + DEFAULT_VIEWHEIGHT,
-      z: shooter.transform.position.z,
-    };
+    const start = this.getFireViewOrigin(shooter);
+    if (!start) return;
     const maxRange = weapon.range || 5000;
 
     // Pellet weapons (riotgun): fire N rays with seeded spread
@@ -1317,10 +1348,12 @@ export class WeaponSystem extends Subsystem {
     // Spawn projectile slightly in front of shooter, along look direction
     // Q3-style: spawn point follows crosshair (pitch-aware), not fixed eye height
     const offset = 50;
+    const origin = this.getFireViewOrigin(shooter);
+    if (!origin) return;
     const position = {
-      x: shooter.transform.position.x + Math.sin(yaw) * Math.cos(pitch) * offset,
-      y: shooter.transform.position.y + DEFAULT_VIEWHEIGHT + Math.sin(pitch) * offset,
-      z: shooter.transform.position.z + Math.cos(yaw) * Math.cos(pitch) * offset,
+      x: origin.x + Math.sin(yaw) * Math.cos(pitch) * offset,
+      y: origin.y + Math.sin(pitch) * offset,
+      z: origin.z + Math.cos(yaw) * Math.cos(pitch) * offset,
     };
 
     const projectile = createProjectileEntity(entityId(this.nextProjectileId++), shooter.ownerId, position, velocity);

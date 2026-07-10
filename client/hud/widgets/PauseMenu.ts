@@ -1,19 +1,13 @@
-// Pause Menu — Full-screen pause overlay using GamePanel system
-import { GamePanel } from "../../../../../engine/ui/panels/GamePanel";
+import { GameDialogPanel } from "../../../../../engine/ui/panels/GameDialogPanel";
 import { MatchStateManager } from "../../MatchStateManager";
 
-// =============================================================================
-// Pause Menu — Immersive full-screen pause overlay
-// =============================================================================
-
 /**
- * FPSPauseMenu - ESC key pause menu
+ * FPSPauseMenu - ESC key pause menu.
  *
- * Extends GamePanel for the full-screen experience with floating particles,
- * neon dividers, and blurred gameplay edges. Shows centered action buttons:
- * Resume, Settings, Go Spectator, Join Game, Disconnect.
+ * Keeps FPS-specific actions here while using the engine compact dialog panel
+ * for modal behavior and lifecycle.
  */
-export class FPSPauseMenu extends GamePanel {
+export class FPSPauseMenu extends GameDialogPanel {
   private onResumeCallback: (() => void) | null = null;
   private onSettingsCallback: (() => void) | null = null;
   private onDisconnectCallback: (() => void) | null = null;
@@ -25,54 +19,58 @@ export class FPSPauseMenu extends GamePanel {
   private buttonStack: HTMLElement;
 
   constructor() {
-    super("PAUSED");
+    // The pause menu mirrors pointer-lock state (unlocked = shown, Resume re-locks).
+    // Backdrop-click dismiss would hide the menu WITHOUT re-locking the pointer,
+    // stranding the player with a free cursor and no menu — so disable it. ESC is
+    // left enabled to match the previous GamePanel behavior.
+    super({
+      title: "ESC MENU",
+      extraClass: "fps-pause-menu fps-pause-menu--cartoon",
+      closeOnBackdrop: false,
+    });
 
-    // 3D Logo floating above panel
-    this.enableLogo();
+    this.dialog.classList.add("fps-pause-dialog");
+    this.footerEl.style.display = "none";
 
-    // Hide the tab bar (no tabs in pause menu)
-    this.tabBar.style.display = "none";
-
-    // Hide footer (buttons are in content area)
-    this.footerArea.style.display = "none";
-
-    // Create centered button stack
     this.buttonStack = document.createElement("div");
-    this.buttonStack.className = "game-panel__menu-buttons";
+    this.buttonStack.className = "fps-pause-actions";
 
-    // Resume button (primary)
-    this.resumeBtn = this.createButton("Resume", "fps-btn--primary fps-btn--menu", () => {
+    const hero = document.createElement("div");
+    hero.className = "fps-pause-hero";
+    hero.innerHTML = `
+      <div class="fps-pause-kicker">Match Control</div>
+      <div class="fps-pause-heading">Paused</div>
+      <div class="fps-pause-subtitle">Pick your next move.</div>
+    `;
+
+    this.resumeBtn = this.createPauseButton("Resume", "Back to fight", "fps-btn--primary", () => {
       this.close();
       this.onResumeCallback?.();
     });
 
-    // Join Game container (dynamically populated based on team mode)
     this.joinContainer = document.createElement("div");
-    this.joinContainer.className = "game-panel__join-group";
-    this.joinContainer.style.display = "none"; // Hidden by default (shown in spectator mode)
+    this.joinContainer.className = "fps-pause-join-group";
+    this.joinContainer.style.display = "none";
 
-    // Settings button
-    const settingsBtn = this.createButton("Settings", "fps-btn--menu", () => {
+    const settingsBtn = this.createPauseButton("Settings", "Controls and video", "", () => {
       this.onSettingsCallback?.();
     });
 
-    // Go Spectator button (conditionally visible)
-    this.spectateBtn = this.createButton("Go Spectator", "fps-btn--menu", () => {
+    this.spectateBtn = this.createPauseButton("Go Spectator", "Watch the duel", "", () => {
       this.close();
       this.onSpectateCallback?.();
     });
-    this.spectateBtn.style.display = "none"; // Hidden by default
+    this.spectateBtn.style.display = "none";
 
-    // Separator
     const separator = document.createElement("div");
-    separator.className = "game-panel__menu-separator";
+    separator.className = "fps-pause-separator";
 
-    // Disconnect button (danger)
-    const disconnectBtn = this.createButton("Disconnect", "fps-btn--danger fps-btn--menu", () => {
+    const disconnectBtn = this.createPauseButton("Disconnect", "Leave server", "fps-btn--danger", () => {
       this.close();
       this.onDisconnectCallback?.();
     });
 
+    this.buttonStack.appendChild(hero);
     this.buttonStack.appendChild(this.resumeBtn);
     this.buttonStack.appendChild(this.joinContainer);
     this.buttonStack.appendChild(settingsBtn);
@@ -80,13 +78,8 @@ export class FPSPauseMenu extends GamePanel {
     this.buttonStack.appendChild(separator);
     this.buttonStack.appendChild(disconnectBtn);
 
-    // Put buttons in scroll container (centered vertically + horizontally)
     this.setContent(this.buttonStack);
   }
-
-  // =========================================================================
-  // Callbacks
-  // =========================================================================
 
   public onResume(callback: () => void): void {
     this.onResumeCallback = callback;
@@ -108,17 +101,14 @@ export class FPSPauseMenu extends GamePanel {
     this.onJoinGameCallback = callback;
   }
 
-  /** Show/hide the Go Spectator button (only visible when playing) */
   public setSpectateVisible(visible: boolean): void {
     this.spectateBtn.style.display = visible ? "" : "none";
   }
 
-  /** Show/hide the Resume button (hidden in spectator mode) */
   public setResumeVisible(visible: boolean): void {
     this.resumeBtn.style.display = visible ? "" : "none";
   }
 
-  /** Show/hide join game buttons and refresh them based on gametype */
   public setJoinVisible(visible: boolean): void {
     this.joinContainer.style.display = visible ? "" : "none";
     if (visible) {
@@ -126,9 +116,14 @@ export class FPSPauseMenu extends GamePanel {
     }
   }
 
-  // =========================================================================
-  // Join Buttons — dynamically populated based on team/FFA mode
-  // =========================================================================
+  private createPauseButton(label: string, hint: string, variant: string, onClick: () => void): HTMLButtonElement {
+    const btn = this.createButton("", `fps-btn--pause ${variant}`.trim(), onClick);
+    btn.innerHTML = `
+      <span class="fps-pause-btn-label">${label}</span>
+      <span class="fps-pause-btn-hint">${hint}</span>
+    `;
+    return btn;
+  }
 
   private refreshJoinButtons(): void {
     this.joinContainer.innerHTML = "";
@@ -137,13 +132,12 @@ export class FPSPauseMenu extends GamePanel {
     const hasTeams = Object.keys(state.teamScores).length > 0;
 
     if (hasTeams) {
-      // Team mode: show team-colored join buttons
-      const udonBtn = this.createButton("Join Team Udon", "fps-btn--menu fps-btn--team-udon", () => {
+      const udonBtn = this.createPauseButton("Join Team Udon", "Pink side", "fps-btn--team-udon", () => {
         this.close();
         this.onJoinGameCallback?.("udon");
       });
 
-      const sobaBtn = this.createButton("Join Team Soba", "fps-btn--menu fps-btn--team-soba", () => {
+      const sobaBtn = this.createPauseButton("Join Team Soba", "Blue side", "fps-btn--team-soba", () => {
         this.close();
         this.onJoinGameCallback?.("soba");
       });
@@ -151,8 +145,7 @@ export class FPSPauseMenu extends GamePanel {
       this.joinContainer.appendChild(udonBtn);
       this.joinContainer.appendChild(sobaBtn);
     } else {
-      // FFA mode: single join button
-      const joinBtn = this.createButton("Join Game", "fps-btn--primary fps-btn--menu", () => {
+      const joinBtn = this.createPauseButton("Join Game", "Enter arena", "fps-btn--primary", () => {
         this.close();
         this.onJoinGameCallback?.();
       });

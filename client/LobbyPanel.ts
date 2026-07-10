@@ -34,13 +34,54 @@ interface GameMode {
   subtitle: string;
   hue: string;
   queued: number;
-  image?: string;
+  ticketNo: string;
+  format: string;
+  pace: string;
+  hook: string;
+  stamps: string[];
+  weaponTags: string[];
 }
 
 const GAME_MODES: GameMode[] = [
-  { id: "duel", title: "DUEL", subtitle: "1 vs 1", hue: "180", queued: 4, image: "/data/ui/card_duel_opt.png" },
-  { id: "team", title: "TEAM", subtitle: "2 vs 2", hue: "320", queued: 1, image: "/data/ui/card_2v2_opt.png" },
-  { id: "ffa", title: "FFA", subtitle: "FREE FOR ALL", hue: "45", queued: 0, image: "/data/ui/card_ffa_opt.png" },
+  {
+    id: "duel",
+    title: "DUEL",
+    subtitle: "1 vs 1",
+    hue: "180",
+    queued: 4,
+    ticketNo: "01",
+    format: "ONE ON ONE",
+    pace: "CONTROL",
+    hook: "Timing, aim, and nerve. Nothing extra.",
+    stamps: ["1V1", "ITEM TIMING", "NO EXCUSES"],
+    weaponTags: ["RAIL", "ROCKET", "BLADE"],
+  },
+  {
+    id: "team",
+    title: "TEAM",
+    subtitle: "2 vs 2",
+    hue: "320",
+    queued: 1,
+    ticketNo: "02",
+    format: "DUO SQUADS",
+    pace: "TRADE FRAGS",
+    hook: "Pair up, lock resources, swing the map.",
+    stamps: ["2V2", "COMMS", "POWER PLAY"],
+    weaponTags: ["ROCKET", "ARMOR", "PLASMA"],
+  },
+  {
+    id: "ffa",
+    title: "FFA",
+    subtitle: "FREE FOR ALL",
+    hue: "45",
+    queued: 0,
+    ticketNo: "03",
+    format: "OPEN PIT",
+    pace: "FAST CHAOS",
+    hook: "Spawn hot, scrap hard, steal the lead.",
+    stamps: ["MAYHEM", "FAST RESPAWN", "ANY ANGLE"],
+    weaponTags: ["GL", "ROCKET", "BLADE"],
+  },
 ];
 
 const MOCK_PLAYERS = [
@@ -549,52 +590,112 @@ export class LobbyPanel extends GamePanel {
     card.dataset.mode = mode.id;
     card.style.setProperty("--card-hue", mode.hue);
 
-    const bg = document.createElement("div");
-    bg.className = "lobby__mode-bg";
-    if (mode.image) {
-      bg.style.backgroundImage = `url(${mode.image})`;
-      bg.classList.add("lobby__mode-bg--image");
-    }
-    card.appendChild(bg);
+    const top = document.createElement("div");
+    top.className = "lobby__mode-ticket-top";
 
-    const overlay = document.createElement("div");
-    overlay.className = "lobby__mode-overlay";
-    card.appendChild(overlay);
+    const kicker = document.createElement("span");
+    kicker.className = "lobby__mode-kicker";
+    kicker.textContent = "Match Ticket";
+    top.appendChild(kicker);
 
-    const content = document.createElement("div");
-    content.className = "lobby__mode-content";
+    const ticket = document.createElement("span");
+    ticket.className = "lobby__mode-ticket-no";
+    ticket.textContent = `NO. ${mode.ticketNo}`;
+    top.appendChild(ticket);
+
+    const queueEl = document.createElement("span");
+    queueEl.className = "lobby__mode-queue";
+    queueEl.textContent = mode.queued > 0 ? `${mode.queued} QUEUED` : "QUEUE CLEAR";
+    if (mode.queued > 0) queueEl.classList.add("lobby__mode-queue--active");
+    top.appendChild(queueEl);
+
+    card.appendChild(top);
+
+    const titleWrap = document.createElement("div");
+    titleWrap.className = "lobby__mode-title-wrap";
 
     const title = document.createElement("div");
     title.className = "lobby__mode-title";
     title.textContent = mode.title;
-    content.appendChild(title);
+    titleWrap.appendChild(title);
 
     const sub = document.createElement("div");
     sub.className = "lobby__mode-sub";
     sub.textContent = mode.subtitle;
-    content.appendChild(sub);
+    titleWrap.appendChild(sub);
 
-    const queueEl = document.createElement("div");
-    queueEl.className = "lobby__mode-queue";
-    queueEl.textContent = mode.queued > 0 ? `${mode.queued} IN QUEUE` : "NO QUEUE";
-    if (mode.queued > 0) queueEl.classList.add("lobby__mode-queue--active");
-    content.appendChild(queueEl);
+    card.appendChild(titleWrap);
+
+    const diagram = document.createElement("div");
+    diagram.className = `lobby__mode-diagram lobby__mode-diagram--${mode.id}`;
+    for (let i = 0; i < 6; i++) {
+      const node = document.createElement("span");
+      node.className = "lobby__mode-node";
+      diagram.appendChild(node);
+    }
+    card.appendChild(diagram);
+
+    const meta = document.createElement("div");
+    meta.className = "lobby__mode-meta";
+    meta.appendChild(this.buildModeMetaRow("FORMAT", mode.format));
+    meta.appendChild(this.buildModeMetaRow("PACE", mode.pace));
+    card.appendChild(meta);
+
+    const hook = document.createElement("p");
+    hook.className = "lobby__mode-hook";
+    hook.textContent = mode.hook;
+    card.appendChild(hook);
+
+    const stamps = document.createElement("div");
+    stamps.className = "lobby__mode-stamps";
+    for (const stamp of mode.stamps) {
+      const el = document.createElement("span");
+      el.className = "lobby__mode-stamp";
+      el.textContent = stamp;
+      stamps.appendChild(el);
+    }
+    card.appendChild(stamps);
+
+    const weapons = document.createElement("div");
+    weapons.className = "lobby__mode-weapons";
+    for (const tag of mode.weaponTags) {
+      const el = document.createElement("span");
+      el.className = "lobby__mode-weapon";
+      el.textContent = tag;
+      weapons.appendChild(el);
+    }
+    card.appendChild(weapons);
 
     const btn = document.createElement("button");
     btn.className = "lobby__find-btn";
     btn.id = `lobby-find-${mode.id}`;
-    btn.textContent = "FIND MATCH";
-
+    btn.textContent = `Find ${mode.title}`;
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       this.showMatchLobby(mode.id);
     });
-    content.appendChild(btn);
+    card.appendChild(btn);
 
-    card.appendChild(content);
     card.addEventListener("click", () => this.showMatchLobby(mode.id));
 
     return card;
+  }
+
+  private buildModeMetaRow(label: string, value: string): HTMLElement {
+    const row = document.createElement("div");
+    row.className = "lobby__mode-meta-row";
+
+    const labelEl = document.createElement("span");
+    labelEl.className = "lobby__mode-meta-label";
+    labelEl.textContent = label;
+    row.appendChild(labelEl);
+
+    const valueEl = document.createElement("span");
+    valueEl.className = "lobby__mode-meta-value";
+    valueEl.textContent = value;
+    row.appendChild(valueEl);
+
+    return row;
   }
 
   // ── Social column ──
