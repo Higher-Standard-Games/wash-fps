@@ -88,7 +88,7 @@ afterEach(() => {
 
 describe("server fall damage", () => {
   it("does not damage drops below the minimum threshold", () => {
-    const { entity } = makeFallSim(120, 0, 100, 50);
+    const { entity } = makeFallSim(248, 0, 100, 50);
 
     expect(entity.health!.health).toBe(100);
     expect(entity.health!.armor).toBe(50);
@@ -98,8 +98,8 @@ describe("server fall damage", () => {
   it("does not count a jump arc as extra fall distance", () => {
     const { entity } = makeScriptedSim(
       [
-        { y: 90, grounded: true },
-        { y: 141, grounded: false },
+        { y: 200, grounded: true },
+        { y: 300, grounded: false },
         { y: 0, grounded: true },
       ],
       0,
@@ -111,8 +111,8 @@ describe("server fall damage", () => {
     expect(entity.health!.dead).toBe(false);
   });
 
-  it("ramps 128u to 256u falls through normal armor absorption", () => {
-    const { entity } = makeFallSim(192, 0, 100, 50);
+  it("ramps 256u to 384u falls through normal armor absorption", () => {
+    const { entity } = makeFallSim(320, 0, 100, 50);
 
     expect(entity.health!.health).toBeCloseTo(83, 1);
     expect(entity.health!.armor).toBeCloseTo(17, 1);
@@ -120,7 +120,7 @@ describe("server fall damage", () => {
   });
 
   it("crush-band falls leave the player at exactly 1 health and 0 armor", () => {
-    const { entity } = makeFallSim(300, 0, 100, 200);
+    const { entity } = makeFallSim(428, 0, 100, 200);
 
     expect(entity.health!.health).toBe(1);
     expect(entity.health!.armor).toBe(0);
@@ -128,7 +128,7 @@ describe("server fall damage", () => {
   });
 
   it("fatal falls self-frag through armor", () => {
-    const { entity, combat } = makeFallSim(384, 0, 100, 200);
+    const { entity, combat } = makeFallSim(512, 0, 100, 200);
     const [kill] = combat.getRecentKills();
 
     expect(entity.health!.health).toBe(0);
@@ -146,8 +146,8 @@ describe("server fall damage", () => {
   });
 
   it("holding crouch on landing softens the effective drop", () => {
-    const normal = makeFallSim(300, 0, 100, 0).entity;
-    const crouched = makeFallSim(300, InputButtons.CROUCH, 100, 0).entity;
+    const normal = makeFallSim(428, 0, 100, 0).entity;
+    const crouched = makeFallSim(428, InputButtons.CROUCH, 100, 0).entity;
 
     expect(normal.health!.health).toBe(1);
     expect(crouched.health!.health).toBeGreaterThan(1);
@@ -161,8 +161,8 @@ describe("server fall damage", () => {
       [
         { y: 500, grounded: false }, // spawn drop - unarmed, no tracking
         { y: 0, grounded: true }, // first landing: arms tracking, no damage
-        { y: 200, grounded: true }, // later standing on a high ledge
-        { y: 200, grounded: false }, // real fall afterwards
+        { y: 320, grounded: true }, // later standing on a high ledge
+        { y: 320, grounded: false }, // real fall afterwards
         { y: 0, grounded: true }, // ramp-band landing -> damage
       ],
       0,

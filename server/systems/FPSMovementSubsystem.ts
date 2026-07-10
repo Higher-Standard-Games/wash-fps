@@ -295,7 +295,18 @@ export class FPSMovementSubsystem extends Subsystem {
     const fullDrop = Math.max(minDrop + 1, vars.get("sv_falldamage_full"));
     const fatalDrop = Math.max(fullDrop + 1, vars.get("sv_falldamage_fatal"));
     const crouchSoften = Math.max(0, vars.get("sv_falldamage_crouchsoften"));
-    const effectiveDrop = Math.max(0, rawDrop - ((buttons & InputButtons.CROUCH) !== 0 ? crouchSoften : 0));
+    const crouched = (buttons & InputButtons.CROUCH) !== 0;
+    const effectiveDrop = Math.max(0, rawDrop - (crouched ? crouchSoften : 0));
+
+    // DIAGNOSTIC: ground-truth the fall distance in raw sim units (= BSP units, 1:1
+    // with the sv_falldamage_* thresholds — no Babylon scaling in the sim path).
+    // Server-console only; read these against how big the drop *looked* in-game.
+    const band =
+      effectiveDrop >= fatalDrop ? "FATAL" : effectiveDrop >= fullDrop ? "CRUSH" : effectiveDrop >= minDrop ? "RAMP" : "SAFE";
+    console.log(
+      `[FallDamage] eid=${victimId} rawDrop=${rawDrop.toFixed(1)}u effective=${effectiveDrop.toFixed(1)}u` +
+        ` crouched=${crouched} band=${band} (min=${minDrop} full=${fullDrop} fatal=${fatalDrop})`,
+    );
 
     if (effectiveDrop < minDrop) return;
 
