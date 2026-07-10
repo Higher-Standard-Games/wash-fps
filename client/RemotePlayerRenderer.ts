@@ -721,6 +721,8 @@ export class RemotePlayerRenderer {
     }
 
     const defScale = weaponDef.scale ?? 1.5;
+    const isGlbWeapon = weaponDef.viewModel.viewModelFormat === "glb" || modelPath.toLowerCase().endsWith(".glb");
+    const visualScale = isGlbWeapon ? (weaponDef.viewModel.scale ?? defScale) : defScale;
 
     // Load weapon via ModelLoader — same approach as DroppedWeaponRenderer.loadModel()
     import("../../../engine/loader/model/ModelLoader")
@@ -773,10 +775,12 @@ export class RemotePlayerRenderer {
         if (inst.skeleton) {
           for (const bone of inst.skeleton.bones) {
             if (bone.name === "mixamorig:RightHand") {
+              leaderMesh.parent = null;
               leaderMesh.attachToBone(bone, inst.mesh);
               leaderMesh.position.set(0, 0, 0);
-              // Scale: compensate for 36x mesh + shrink for 3rd person
-              const thirdPersonScale = (defScale / MODEL_SCALE) * 0.5;
+              // Scale: compensate for 36x player mesh + shrink for 3rd person.
+              // GLB weapons (blade) use their authored view-model scale; MD3s use world scale.
+              const thirdPersonScale = (visualScale / MODEL_SCALE) * 0.5;
               leaderMesh.scaling.setAll(thirdPersonScale);
 
               // Weapon-specific rotation in bone-local space
@@ -792,7 +796,7 @@ export class RemotePlayerRenderer {
 
               attached = true;
               console.log(
-                `[RemoteWeapon] ✓ attachToBone: ${weaponId} → RightHand, scale: ${(defScale / MODEL_SCALE).toFixed(4)}`,
+                `[RemoteWeapon] ✓ attachToBone: ${weaponId} → RightHand, scale: ${(visualScale / MODEL_SCALE).toFixed(4)}`,
               );
               break;
             }
@@ -804,7 +808,7 @@ export class RemotePlayerRenderer {
           leaderMesh.parent = inst.anchor;
           leaderMesh.position.set(0, 30, 0);
           leaderMesh.rotation.setAll(0);
-          leaderMesh.scaling.setAll(defScale);
+          leaderMesh.scaling.setAll(visualScale);
           console.warn(`[RemoteWeapon] No RightHand bone, using anchor for ${entityId}`);
         }
 
@@ -828,7 +832,7 @@ export class RemotePlayerRenderer {
 
         hitbox.weaponRoot = leaderMesh as unknown as TransformNode;
         console.log(
-          `[RemoteWeapon] ✓ Done: ${weaponId} for ${entityId}, bone: ${attached}, scale: ${attached ? defScale / MODEL_SCALE : defScale}`,
+          `[RemoteWeapon] ✓ Done: ${weaponId} for ${entityId}, bone: ${attached}, scale: ${attached ? visualScale / MODEL_SCALE : visualScale}`,
         );
       })
       .catch((err) => {

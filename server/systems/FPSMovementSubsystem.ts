@@ -101,6 +101,23 @@ interface KnockbackImpulse {
   stunFraction: number;
 }
 
+/** Queued melee lunge (server-authoritative horizontal displacement). */
+interface MeleeDash {
+  entityId: EntityId;
+  /** Normalized horizontal direction. */
+  dirX: number;
+  dirZ: number;
+  /** Distance in world units. */
+  distance: number;
+}
+
+const MELEE_DASH_BOUNDS = {
+  min: { x: -16, y: -24, z: -16 },
+  max: { x: 16, y: 40, z: 16 },
+};
+const MAX_MELEE_DASH_DISTANCE = 96;
+const MELEE_DASH_COLLISION_EPSILON = 0.02;
+
 // ═══════════════════════════════════════════════════════════════════
 // KNOCKBACK AIR DRAG CONSTANTS (Warsow-style)
 // ═══════════════════════════════════════════════════════════════════
@@ -125,6 +142,9 @@ export class FPSMovementSubsystem extends Subsystem {
 
   /** Pending knockback impulses queued by CombatSystem */
   private pendingImpulses: KnockbackImpulse[] = [];
+
+  /** Pending blade/melee dashes queued by WeaponSystem. */
+  private pendingMeleeDashes: MeleeDash[] = [];
 
   /** Last tick each entity received knockback (for air drag timing) */
   private lastKBTick: Map<number, number> = new Map();
@@ -169,11 +189,14 @@ export class FPSMovementSubsystem extends Subsystem {
   private combatSystem: CombatSystem | null = null;
 
   /**
-   * Airborne fall tracking: presence in fallPeakY means "airborne, tracking";
-   * the value is the highest Y reached (drop = peak − landing Y). Single map —
-   * one source of truth for the airborne state.
+   * Airborne fall tracking: last grounded Y is the BSP/map height the player
+   * actually left. Peak Y is retained for diagnostics/fallback, but damage uses
+   * floor-to-floor drop so a normal jump arc does not inflate a short ledge.
    */
+  private fallStartY: Map<number, number> = new Map();
   private fallPeakY: Map<number, number> = new Map();
+  private lastGroundY: Map<number, number> = new Map();
+
   /**
    * Entities that have touched the ground at least once since (re)spawn.
    * Spawns place players airborne (grounded=false) and the spawn-point floor
@@ -229,6 +252,7 @@ export class FPSMovementSubsystem extends Subsystem {
   }
 
   private clearFallTracking(entityId: number): void {
+    this.fallStartY.delete(entityId);
     this.fallPeakY.delete(entityId);
   }
 
@@ -236,8 +260,11 @@ export class FPSMovementSubsystem extends Subsystem {
     const eid = entityId as number;
 
     if (!grounded) {
-      // Not armed = still in the post-spawn drop → never a damaging fall.
+      // Not armed = still in the post-spawn drop -> never a damaging fall.
       if (!this.fallArmed.has(eid)) return;
+      if (!this.fallStartY.has(eid)) {
+        this.fallStartY.set(eid, this.lastGroundY.get(eid) ?? positionY);
+      }
       const peak = this.fallPeakY.get(eid);
       this.fallPeakY.set(eid, peak === undefined ? positionY : Math.max(peak, positionY));
       return;
@@ -246,9 +273,16 @@ export class FPSMovementSubsystem extends Subsystem {
     this.fallArmed.add(eid);
 
     const peakY = this.fallPeakY.get(eid);
-    if (peakY === undefined) return;
-    this.fallPeakY.delete(eid);
-    this.queueFallDamage(entityId, peakY - positionY, buttons);
+    const startY = this.fallStartY.get(eid);
+    this.clearFallTracking(eid);
+    this.lastGroundY.set(eid, positionY);
+    if (peakY === undefined && startY === undefined) return;
+
+    // Use the map height the player left, not jump/knockback apex height. This
+    // keeps thresholds in BSP units: a short ledge remains short even if the
+    // player hops before landing.
+    const mapDrop = (startY ?? peakY ?? positionY) - positionY;
+    this.queueFallDamage(entityId, mapDrop, buttons);
   }
 
   private queueFallDamage(victimId: EntityId, rawDrop: number, buttons: number): void {
@@ -291,7 +325,7 @@ export class FPSMovementSubsystem extends Subsystem {
 
     const t = (effectiveDrop - minDrop) / (fullDrop - minDrop);
     const damage = Math.round(Math.max(0, Math.min(100, t * 100)));
-    // Skip sub-1 damage at the band's low edge — a 0-damage event would still
+    // Skip sub-1 damage at the band's low edge - a 0-damage event would still
     // emit a processed-damage entry (pain flash/indicator) for no effect.
     if (damage < 1) return;
     this.combatSystem.queueDamage({
@@ -317,6 +351,19 @@ export class FPSMovementSubsystem extends Subsystem {
     stunFraction: number;
   }): void {
     this.pendingImpulses.push(impulse);
+  }
+
+  /** Queue a server-authoritative melee lunge for the next movement tick. */
+  queueMeleeDash(dash: { entityId: EntityId; dirX: number; dirZ: number; distance: number }): void {
+    const len = Math.hypot(dash.dirX, dash.dirZ);
+    if (len <= 0.001 || dash.distance <= 0) return;
+
+    this.pendingMeleeDashes.push({
+      entityId: dash.entityId,
+      dirX: dash.dirX / len,
+      dirZ: dash.dirZ / len,
+      distance: Math.min(MAX_MELEE_DASH_DISTANCE, Math.max(0, dash.distance)),
+    });
   }
 
   /**
@@ -363,6 +410,33 @@ export class FPSMovementSubsystem extends Subsystem {
         );
       }
       this.pendingImpulses = [];
+    }
+
+    // === DRAIN MELEE DASHES (position step, not knockback velocity) ===
+    if (this.pendingMeleeDashes.length > 0) {
+      for (const dash of this.pendingMeleeDashes) {
+        const ent = state.getEntityMut(dash.entityId);
+        if (!ent?.transform || ent.health?.dead) continue;
+
+        const pos = ent.transform.position;
+        const end = {
+          x: pos.x + dash.dirX * dash.distance,
+          y: pos.y,
+          z: pos.z + dash.dirZ * dash.distance,
+        };
+
+        let fraction = 1;
+        if (this.collisionWorld) {
+          const trace = this.collisionWorld.trace(pos, end, MELEE_DASH_BOUNDS);
+          if (trace.hit) {
+            fraction = Math.max(0, Math.min(1, trace.fraction) - MELEE_DASH_COLLISION_EPSILON);
+          }
+        }
+
+        pos.x += dash.dirX * dash.distance * fraction;
+        pos.z += dash.dirZ * dash.distance * fraction;
+      }
+      this.pendingMeleeDashes = [];
     }
 
     // === KNOCKBACK AIR DRAG (Warsow-style) ===
@@ -413,6 +487,7 @@ export class FPSMovementSubsystem extends Subsystem {
       const spawnTick = entity.spawnTick ?? 0;
       if (this.lastSpawnTick.get(eid) !== spawnTick) {
         this.clearFallTracking(eid);
+        this.lastGroundY.delete(eid);
         this.fallArmed.delete(eid); // re-arm on first grounded tick after spawn
         this.lastSpawnTick.set(eid, spawnTick);
       }
@@ -660,7 +735,9 @@ export class FPSMovementSubsystem extends Subsystem {
     this.clearFallTracking(entityId);
     this.fallArmed.delete(entityId);
     this.lastSpawnTick.delete(entityId);
+    this.lastGroundY.delete(entityId);
     this.lastKBTick.delete(entityId);
+    this.pendingMeleeDashes = this.pendingMeleeDashes.filter((dash) => (dash.entityId as number) !== entityId);
     this.starvationTicks.delete(entityId);
     this.tripwireHits.delete(entityId);
   }

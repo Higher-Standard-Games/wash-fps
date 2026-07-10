@@ -17,7 +17,7 @@
  */
 
 import { EntityType } from "@engine/server/ecs/types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { GRENADE } from "../../../../../shared/entities/definitions/projectiles/grenade";
 import { GRENADE_LAUNCHER } from "../../../../../shared/entities/definitions/weapons/glauncher";
 import { DEFAULT_VIEWHEIGHT } from "../../../../../engine/physics/PlayerPhysicsConstants";
@@ -202,6 +202,88 @@ describe("WeaponSystem - F3 reload models", () => {
   });
 });
 
+describe("WeaponSystem - fire view origin", () => {
+  it("emits hitscan fire events from the crouched view height", () => {
+    const sys = new WeaponSystem();
+    sys.initializeWeaponFromLoadout(1 as never, mgLoadout as never);
+
+    const shooter = makeShooter(0, 0);
+    (shooter as any).physics = { crouchViewOffset: -20 };
+
+    sys.update(makeState([shooter]) as never, 1 / 125, 100 as never);
+
+    const fire = sys.getPendingFireEvents()[0];
+    expect(fire.originX).toBeCloseTo(0, 6);
+    expect(fire.originY).toBeCloseTo(DEFAULT_VIEWHEIGHT - 20, 6);
+    expect(fire.originZ).toBeCloseTo(0, 6);
+  });
+
+  it("spawns projectile entities from the crouched view height", () => {
+    const sys = new WeaponSystem();
+    let spawnedProjectile: { transform?: { position?: { x?: number; y?: number; z?: number } } } | undefined;
+    sys.setProjectileSystem({ registerProjectileType: () => {} } as never);
+    sys.initializeWeaponFromLoadout(
+      1 as never,
+      { weapons: ["glauncher"], ammo: { glauncher: 5 }, health: 100, armor: 0 } as never,
+    );
+
+    const shooter = makeShooter(0, 0);
+    (shooter as any).physics = { crouchViewOffset: -20 };
+    const state = {
+      ...makeState([shooter]),
+      addEntity: (entity: { transform?: { position?: { x?: number; y?: number; z?: number } } }) => {
+        spawnedProjectile = entity;
+      },
+    };
+
+    shooter.input.buttons = 1 << 9; // hold ADS first to bypass glauncher's hipfireBlocked delay
+    sys.update(state as never, 1 / 125, 99 as never);
+    shooter.input.buttons = FIRE_BUTTON | (1 << 9);
+    sys.update(state as never, 1 / 125, 100 as never);
+
+    expect(spawnedProjectile?.transform?.position?.x).toBeCloseTo(0, 6);
+    expect(spawnedProjectile?.transform?.position?.y).toBeCloseTo(DEFAULT_VIEWHEIGHT - 20, 6);
+    expect(spawnedProjectile?.transform?.position?.z).toBeCloseTo(50, 6);
+  });
+});
+describe("WeaponSystem - blade dash", () => {
+  const bladeLoadout = { weapons: ["blade"], ammo: { blade: 1 }, health: 100, armor: 0 };
+
+  it("queues a server-side melee dash when a blade primary swing is accepted", () => {
+    const sys = new WeaponSystem();
+    const queueMeleeDash = vi.fn();
+    sys.setMovementSubsystem({ setSpeedBonus: vi.fn(), queueMeleeDash } as never);
+    sys.initializeWeaponFromLoadout(1 as never, bladeLoadout as never);
+
+    const shooter = makeShooter(Math.PI / 2, 0);
+    sys.update(makeState([shooter]) as never, 1 / 125, 100 as never);
+
+    expect(queueMeleeDash).toHaveBeenCalledTimes(1);
+    const dash = queueMeleeDash.mock.calls[0][0];
+    expect(dash).toMatchObject({ entityId: 1, distance: 48 });
+    expect(dash.dirX).toBeCloseTo(1, 6);
+    expect(dash.dirZ).toBeCloseTo(0, 6);
+  });
+
+  it("does not queue extra dashes while fire is held or cooldown-gated", () => {
+    const sys = new WeaponSystem();
+    const queueMeleeDash = vi.fn();
+    sys.setMovementSubsystem({ setSpeedBonus: vi.fn(), queueMeleeDash } as never);
+    sys.initializeWeaponFromLoadout(1 as never, bladeLoadout as never);
+
+    const shooter = makeShooter(0, 0);
+    const state = makeState([shooter]);
+
+    sys.update(state as never, 1 / 125, 100 as never);
+    sys.update(state as never, 1 / 125, 101 as never);
+    shooter.input.buttons = 0;
+    sys.update(state as never, 1 / 125, 102 as never);
+    shooter.input.buttons = FIRE_BUTTON;
+    sys.update(state as never, 1 / 125, 103 as never);
+
+    expect(queueMeleeDash).toHaveBeenCalledTimes(1);
+  });
+});
 describe("WeaponSystem — F1 fire cadence", () => {
   it("uses nearest tick (round), not floor, and respects an explicit override", () => {
     // machinegun fireRate 10 → 125/10 = 12.5 → round 13 (floor would be 12)

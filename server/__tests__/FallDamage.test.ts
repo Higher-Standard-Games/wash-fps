@@ -62,11 +62,11 @@ function makeScriptedSim(steps: Array<{ y: number; grounded: boolean }>, buttons
   return { entity: sim.getStateMut().getEntity(id)!, combat };
 }
 
-/** Standard fall: grounded (arms tracking) → airborne at `drop` → land at 0. */
+/** Standard fall: grounded at ledge height -> airborne -> land at 0. */
 function makeFallSim(drop: number, buttons = 0, health = 100, armor = 0) {
   return makeScriptedSim(
     [
-      { y: 0, grounded: true },
+      { y: drop, grounded: true },
       { y: drop, grounded: false },
       { y: 0, grounded: true },
     ],
@@ -92,6 +92,22 @@ describe("server fall damage", () => {
 
     expect(entity.health!.health).toBe(100);
     expect(entity.health!.armor).toBe(50);
+    expect(entity.health!.dead).toBe(false);
+  });
+
+  it("does not count a jump arc as extra fall distance", () => {
+    const { entity } = makeScriptedSim(
+      [
+        { y: 90, grounded: true },
+        { y: 141, grounded: false },
+        { y: 0, grounded: true },
+      ],
+      0,
+      100,
+      0,
+    );
+
+    expect(entity.health!.health).toBe(100);
     expect(entity.health!.dead).toBe(false);
   });
 
@@ -139,14 +155,15 @@ describe("server fall damage", () => {
   });
 
   it("does not damage the post-spawn drop (tracking arms on first grounded tick)", () => {
-    // Spawned airborne at 500u (elevated spawn pad) — first landing is free,
+    // Spawned airborne at 500u (elevated spawn pad) - first landing is free,
     // but a subsequent fall from the same height damages normally.
     const { entity } = makeScriptedSim(
       [
-        { y: 500, grounded: false }, // spawn drop — unarmed, no tracking
+        { y: 500, grounded: false }, // spawn drop - unarmed, no tracking
         { y: 0, grounded: true }, // first landing: arms tracking, no damage
+        { y: 200, grounded: true }, // later standing on a high ledge
         { y: 200, grounded: false }, // real fall afterwards
-        { y: 0, grounded: true }, // ramp-band landing → damage
+        { y: 0, grounded: true }, // ramp-band landing -> damage
       ],
       0,
       100,
