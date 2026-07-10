@@ -360,6 +360,27 @@ export class Game {
               } else {
                 console.warn(`[Game] BSP collision world could not be created - backend not available`);
               }
+
+              // Trigger volumes (teleporters/jumppads) for client prediction —
+              // the SAME shared TriggerTable extraction the server runs, so
+              // pads and teleporters are predicted with zero reconciliation snap.
+              const bsp = cm.getBsp();
+              if (bsp && this.v2Client) {
+                const { extractTriggerVolumes } = await import("../../shared/bsp/TriggerTable");
+                this.v2Client.setTriggerVolumes(extractTriggerVolumes(bsp.entities, bsp.models));
+                // Rotate the local camera to the exit yaw when our own
+                // prediction teleports (fresh inputs only, not replays).
+                this.v2Client.onTeleport((exitYaw) => {
+                  import("../../engine/camera/CameraSystem").then(({ CameraSystem: cs }) => {
+                    const controller = cs.getInstance().getController("fps");
+                    if (controller && "setViewYaw" in controller) {
+                      (
+                        controller as import("../../engine/camera/controllers/FPSController").FPSController
+                      ).setViewYaw(exitYaw);
+                    }
+                  });
+                });
+              }
             } else {
               console.warn(`[Game] CollisionManager NOT initialized - client prediction will NOT have BSP collision!`);
             }

@@ -15,6 +15,7 @@ import { Subsystem, type SubsystemConfig } from "../../../../engine/server/core/
 import type { WorldState } from "../../../../engine/server/core/WorldState";
 import type { EntityId, TickNumber } from "../../../../engine/server/ecs/types";
 import { EntityType } from "../../../../engine/server/ecs/types";
+import type { TriggerVolume } from "../../../../shared/bsp/TriggerTable";
 import type { QueuedInput } from "../../../../shared/server/simulation/components/InputComponent";
 import type { PhysicsComponent } from "../../../../shared/server/simulation/components/PhysicsComponent";
 import type { AdvancedMovementResult } from "../../simulation/MovementConfig";
@@ -146,6 +147,9 @@ export class FPSMovementSubsystem extends Subsystem {
   /** Pending blade/melee dashes queued by WeaponSystem. */
   private pendingMeleeDashes: MeleeDash[] = [];
 
+  /** Map trigger volumes (teleporters/jumppads) installed into every profile. */
+  private triggerVolumes: TriggerVolume[] = [];
+
   /** Last tick each entity received knockback (for air drag timing) */
   private lastKBTick: Map<number, number> = new Map();
 
@@ -233,9 +237,21 @@ export class FPSMovementSubsystem extends Subsystem {
     let profile = this.movementProfiles.get(entityId);
     if (!profile) {
       profile = new FPSMovementProfile();
+      profile.setTriggerVolumes(this.triggerVolumes);
       this.movementProfiles.set(entityId, profile);
     }
     return profile;
+  }
+
+  /**
+   * Set the map's trigger volumes (teleporters/jumppads, shared TriggerTable).
+   * Applied to every existing profile and to profiles created later.
+   */
+  setTriggerVolumes(volumes: TriggerVolume[]): void {
+    this.triggerVolumes = volumes;
+    for (const profile of this.movementProfiles.values()) {
+      profile.setTriggerVolumes(volumes);
+    }
   }
 
   /**

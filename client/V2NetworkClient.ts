@@ -12,6 +12,7 @@
 import type { Vec3 } from "../../../engine/network/components/TransformComponent";
 import type { CollisionWorld } from "../../../engine/network/systems/collision/CollisionWorld";
 import type { MovementInput } from "../../../engine/network/systems/movement/MovementProfile";
+import type { TriggerVolume } from "../../../shared/bsp/TriggerTable";
 import { sanitizeMovementOrZero } from "../../../shared/server/simulation/InputSanitizer";
 import type { AdvancedMovementResult } from "../simulation/MovementConfig";
 import { MovementProfile as FPSMovementProfile } from "../simulation/MovementProfile";
@@ -128,6 +129,8 @@ export class V2NetworkClient {
   private pendingSnapshots: ServerSnapshot[] = [];
   /** When true, next snapshot will snap position instantly (respawn, teleport) */
   private forceTeleportOnNextSnapshot: boolean = false;
+  /** Fired when a FRESH predicted input teleports the local player (camera yaw). */
+  private onTeleportCallback: ((exitYaw: number) => void) | null = null;
 
   constructor(config: V2ClientConfig) {
     this.dt = 1 / config.tickRate;
@@ -156,6 +159,25 @@ export class V2NetworkClient {
   setCollisionWorld(collision: CollisionWorld | null): void {
     this.collision = collision;
     console.log("[V2Client] Collision world set:", collision ? "yes" : "no");
+  }
+
+  /**
+   * Install the map's trigger volumes (teleporters/jumppads) into the
+   * prediction profile — MUST match what the server installs (same shared
+   * TriggerTable extraction) or prediction diverges on every pad/teleporter.
+   */
+  setTriggerVolumes(volumes: TriggerVolume[]): void {
+    this.movement.setTriggerVolumes(volumes);
+    console.log(`[V2Client] ${volumes.length} trigger volumes set`);
+  }
+
+  /**
+   * Called when a FRESH predicted input teleports the local player (not
+   * reconciliation replays — those recompute past steps and must not touch
+   * the camera). The game rotates the view to the teleporter's exit yaw.
+   */
+  onTeleport(callback: (exitYaw: number) => void): void {
+    this.onTeleportCallback = callback;
   }
 
   /**
@@ -214,6 +236,13 @@ export class V2NetworkClient {
     this.localState.position = result.position;
     this.localState.velocity = result.velocity;
     this.localState.grounded = result.grounded;
+
+    // Fresh prediction teleported → rotate the local camera to the exit yaw.
+    // Only here, never in the reconciliation replay loop (replays recompute
+    // past steps; re-firing the camera there would fight the mouse).
+    if (result.teleported && this.onTeleportCallback) {
+      this.onTeleportCallback(result.teleportYaw ?? 0);
+    }
 
     // 4. Apply KB air drag (matches server FPSMovementSubsystem)
     this.applyKBDrag(this.localState.velocity, this.localState.grounded);
