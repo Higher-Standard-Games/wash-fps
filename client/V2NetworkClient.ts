@@ -130,7 +130,7 @@ export class V2NetworkClient {
   /** When true, next snapshot will snap position instantly (respawn, teleport) */
   private forceTeleportOnNextSnapshot: boolean = false;
   /** Fired when a FRESH predicted input teleports the local player (camera yaw + VFX). */
-  private onTeleportCallback: ((exitYaw: number, from: Vec3, to: Vec3) => void) | null = null;
+  private onTeleportCallback: ((exitYaw: number, from: Vec3, to: Vec3, entryYaw: number) => void) | null = null;
 
   constructor(config: V2ClientConfig) {
     this.dt = 1 / config.tickRate;
@@ -177,7 +177,7 @@ export class V2NetworkClient {
    * the camera). The game rotates the view to the teleporter's exit yaw and
    * plays the entry/exit VFX.
    */
-  onTeleport(callback: (exitYaw: number, from: Vec3, to: Vec3) => void): void {
+  onTeleport(callback: (exitYaw: number, from: Vec3, to: Vec3, entryYaw: number) => void): void {
     this.onTeleportCallback = callback;
   }
 
@@ -247,6 +247,7 @@ export class V2NetworkClient {
         result.teleportYaw ?? 0,
         result.teleportFrom ?? this.localState.position,
         result.position,
+        sanitizedInput.yaw, // view yaw at entry — the self-afterimage faces the way you walked in
       );
     }
 

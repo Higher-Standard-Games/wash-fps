@@ -548,7 +548,7 @@ export class RemotePlayerRenderer {
   /** Frame-to-frame displacement (squared) treated as a teleport for VFX. */
   private static readonly TELEPORT_FX_DIST_SQ = 256 * 256;
 
-  /** Washoi teleport VFX: posterized team-color ghost + speed-line burst at both ends. */
+  /** Washoi teleport VFX: generic pooled team-color ghost + speed-line burst at both ends. */
   private playTeleportEffect(hitbox: RemotePlayerHitbox, entityId: string, interp: InterpolatedEntity): void {
     const from = { x: hitbox.smoothedPos.x, y: hitbox.smoothedPos.y, z: hitbox.smoothedPos.z };
     const to = { x: interp.x, y: interp.y, z: interp.z };
@@ -556,7 +556,7 @@ export class RemotePlayerRenderer {
     const team = this.resolveTeamColor(entityId);
     import("./TeleportEffect")
       .then(({ TeleportEffect }) => {
-        TeleportEffect.getInstance().playerTeleported(this.scene, hitbox.model, from, to, fromYaw, interp.yaw, team);
+        TeleportEffect.getInstance().playerTeleported(this.scene, from, to, fromYaw, interp.yaw, team);
       })
       .catch(() => {
         /* effect is cosmetic — never break the render loop */

@@ -3,19 +3,23 @@
  *
  * Two pieces, both cheap and print-styled (docs/research/triggerbrushes-and-targets.md):
  *
- * 1. GHOST — a posterized afterimage of the player model (Warsow's transparent
- *    outline, celified): the model hierarchy is cloned with a single flat unlit
- *    team-color material and fades out in DISCRETE alpha steps (print/anime
- *    frames, not a smooth ghost). Spawned at BOTH the entry (tells a duelist
- *    where you went — deliberate arcade info) and the exit (materialize flash
- *    over the arriving model). Clones share the source skeleton, so the ghost
- *    holds a live pose for its short life.
+ * 1. GHOST — a posterized afterimage silhouette (Warsow's transparent outline,
+ *    celified): a flat unlit team-color player figure fading out in DISCRETE
+ *    alpha steps (print/anime frames, not a smooth ghost). GENERIC by design:
+ *    the effect owns a small POOL of dedicated vanguard instances (everyone
+ *    uses the same model), so it works identically for remote players AND for
+ *    yourself — turn around after a tele and your own afterimage is standing
+ *    at the entry. Spawned at BOTH entry and exit for remote players (arcade
+ *    info: tele usage is trackable); entry-only for the local player (the
+ *    exit ghost would sit inside your camera).
  *
- * 2. BURST — a radial manga speed-line starburst (procedural triangle fan,
- *    camera-billboarded) that pops and vanishes.
+ * 2. BURST — a radial manga speed-line starburst (two interleaved procedural
+ *    fans, camera-billboarded, the inner one spinning) that pops and vanishes.
  *
  * Self-updating via an onBeforeRender observer (same pattern as
- * CartoonHitEffect). All effects hard-cap + self-dispose.
+ * CartoonHitEffect). All effects hard-cap + self-dispose. Call prewarm()
+ * after map load so the first teleport doesn't miss its ghost while the
+ * pool model streams in.
  */
 
 import { Color3 } from "@babylonjs/core/Maths/math.color";
@@ -25,27 +29,39 @@ import type { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import type { Observer } from "@babylonjs/core/Misc/observable";
 import type { Scene } from "@babylonjs/core/scene";
-import type { PlayerModelInstance } from "../../../engine/animation/PlayerModelManager";
+import { type PlayerModelInstance, PlayerModelManager } from "../../../engine/animation/PlayerModelManager";
 
 // ============================================================================
 // Constants
 // ============================================================================
 
 /** Ghost lifetime (ms) and its discrete alpha steps (posterized fade). */
-const GHOST_LIFETIME_MS = 360;
+const GHOST_LIFETIME_MS = 450;
 const GHOST_ALPHA_STEPS = [0.85, 0.55, 0.3, 0.12];
 
+/** Pooled ghost model instances (entry+exit × a couple of simultaneous teles). */
+const GHOST_POOL_SIZE = 4;
+
+/** Model anchor offset from the player origin (feet − MODEL_Y_OFFSET; matches RemotePlayerRenderer). */
+const GHOST_ANCHOR_Y_OFFSET = -12;
+
+/** Player model scale (Mixamo → Q3 units; matches RemotePlayerRenderer.MODEL_SCALE). */
+const GHOST_MODEL_SCALE = 36;
+
 /** Burst lifetime (ms), alpha steps, and scale ramp. */
-const BURST_LIFETIME_MS = 240;
-const BURST_ALPHA_STEPS = [0.9, 0.55, 0.2];
-const BURST_START_SCALE = 0.55;
-const BURST_END_SCALE = 1.35;
+const BURST_LIFETIME_MS = 420;
+const BURST_ALPHA_STEPS = [0.95, 0.7, 0.45, 0.2];
+const BURST_START_SCALE = 0.5;
+const BURST_END_SCALE = 1.6;
+
+/** Slow spin over the burst's life (radians) — reads as motion, not a static star. */
+const BURST_SPIN_RAD = 0.9;
 
 /** Starburst geometry: N tapered spikes between the two radii. */
-const BURST_SPIKES = 12;
-const BURST_INNER_RADIUS = 16;
-const BURST_OUTER_RADIUS = 56;
-const BURST_BASE_HALF_WIDTH = 4;
+const BURST_SPIKES = 16;
+const BURST_INNER_RADIUS = 20;
+const BURST_OUTER_RADIUS = 84;
+const BURST_BASE_HALF_WIDTH = 2.5;
 
 /** Burst vertical offset — chest height above the player origin. */
 const BURST_Y_OFFSET = 8;
@@ -75,6 +91,16 @@ interface ActiveEffect {
   /** Bursts scale up over their lifetime; ghosts stay put. */
   scaleFrom?: number;
   scaleTo?: number;
+  /** Burst child that spins in view space (parent is billboarded; its own rotation is overridden). */
+  spinMesh?: Mesh;
+  /** Pooled ghost slot to release (disable, not dispose) when the effect ends. */
+  ghostSlot?: GhostSlot;
+}
+
+interface GhostSlot {
+  instance: PlayerModelInstance;
+  material: StandardMaterial;
+  busy: boolean;
 }
 
 // ============================================================================
@@ -87,6 +113,11 @@ export class TeleportEffect {
   private effects: ActiveEffect[] = [];
   private observer: Observer<Scene> | null = null;
   private lastTime = 0;
+
+  // Generic ghost pool (own vanguard instances — see header)
+  private ghostManager: PlayerModelManager | null = null;
+  private ghostPool: GhostSlot[] = [];
+  private ghostPoolLoading = false;
 
   private constructor() {}
 
@@ -103,8 +134,9 @@ export class TeleportEffect {
     if (this.scene && this.observer) {
       this.scene.onBeforeRenderObservable.remove(this.observer);
     }
-    // Effects belong to the old scene — drop them.
+    // Effects + pool belong to the old scene — drop them.
     for (const fx of this.effects) {
+      if (fx.ghostSlot) continue; // pool instances are torn down below
       try {
         fx.root.dispose();
         fx.material.dispose();
@@ -113,23 +145,89 @@ export class TeleportEffect {
       }
     }
     this.effects = [];
+    this.disposeGhostPool();
     this.scene = scene;
     this.lastTime = performance.now();
     this.observer = scene.onBeforeRenderObservable.add(() => this.update());
   }
 
   /**
-   * Full teleport effect for a player with a visible model (remote players):
-   * ghost + burst at the entry, ghost + burst at the exit.
-   *
-   * Called BEFORE the renderer moves the model, so the source anchor still
-   * stands at the ENTRY — the entry ghost clones it in place (zero delta) and
-   * the exit ghost is offset by (to − from). Exact placement by construction,
-   * no anchor-offset math.
+   * Load the ghost model pool ahead of time (call after map load) so the
+   * FIRST teleport already has its afterimage. Without prewarm the pool
+   * lazy-loads on first use and that teleport shows bursts only.
+   */
+  prewarm(scene: Scene): void {
+    this.ensureScene(scene);
+    void this.ensureGhostPool();
+  }
+
+  private async ensureGhostPool(): Promise<void> {
+    if (!this.scene || this.ghostPoolLoading || this.ghostPool.length > 0) return;
+    this.ghostPoolLoading = true;
+
+    try {
+      // Own manager, idle-only animation set (vanguard.glb + one anim GLB —
+      // both already browser-cached by the remote-player renderer).
+      this.ghostManager = new PlayerModelManager(this.scene);
+      await this.ghostManager.loadModel(undefined, undefined, [{ name: "idle", file: "rifle aiming idle.glb" }]);
+
+      for (let i = 0; i < GHOST_POOL_SIZE; i++) {
+        const instance = this.ghostManager.createInstance(`tp_ghost_${i}`, GHOST_MODEL_SCALE);
+        if (!instance) continue;
+        this.ghostManager.playAnimation(instance, "idle");
+
+        // One flat unlit silhouette material per slot (recolored per use).
+        const mat = new StandardMaterial(`tp_ghost_mat_${i}`, this.scene);
+        mat.emissiveColor = TEAM_COLORS.alpha;
+        mat.diffuseColor = Color3.Black();
+        mat.specularColor = Color3.Black();
+        mat.disableLighting = true;
+        mat.alpha = GHOST_ALPHA_STEPS[0];
+        mat.backFaceCulling = false;
+
+        instance.mesh.material = mat;
+        for (const m of instance.mesh.getChildMeshes()) {
+          m.material = mat;
+          m.isPickable = false;
+        }
+        instance.anchor.setEnabled(false);
+
+        this.ghostPool.push({ instance, material: mat, busy: false });
+      }
+      console.log(`[TeleportEffect] ghost pool ready (${this.ghostPool.length} instances)`);
+    } catch (e) {
+      console.warn("[TeleportEffect] ghost pool load failed:", e);
+      this.ghostManager = null;
+      this.ghostPool = [];
+    } finally {
+      this.ghostPoolLoading = false;
+    }
+  }
+
+  private disposeGhostPool(): void {
+    for (const slot of this.ghostPool) {
+      try {
+        this.ghostManager?.disposeInstance(slot.instance);
+        slot.material.dispose();
+      } catch (_) {
+        /* noop */
+      }
+    }
+    this.ghostPool = [];
+    try {
+      this.ghostManager?.dispose();
+    } catch (_) {
+      /* noop */
+    }
+    this.ghostManager = null;
+  }
+
+  /**
+   * Full teleport effect for a REMOTE player: generic pooled ghost + burst
+   * at the entry, and again at the exit (arcade info both ways).
    */
   playerTeleported(
     scene: Scene,
-    model: PlayerModelInstance | null,
     from: { x: number; y: number; z: number },
     to: { x: number; y: number; z: number },
     fromYaw: number,
@@ -137,28 +235,29 @@ export class TeleportEffect {
     team: "alpha" | "bravo",
   ): void {
     this.ensureScene(scene);
-    if (model) {
-      this.spawnGhost(model, { x: 0, y: 0, z: 0 }, fromYaw, team);
-      this.spawnGhost(model, { x: to.x - from.x, y: to.y - from.y, z: to.z - from.z }, toYaw, team);
-    }
+    this.spawnGhost(from, fromYaw, team);
+    this.spawnGhost(to, toYaw, team);
     this.spawnBurst(from);
     this.spawnBurst(to);
   }
 
   /**
-   * Local-player effect (no third-person model to ghost — other clients
-   * render our ghosts from their own remote view): burst at the entry, and
-   * the exit burst thrown ~90u ahead along the exit yaw at eye height so the
-   * player flies THROUGH the speed-lines instead of leaving them at their
-   * own chest (invisible from first person).
+   * Local-player effect: your OWN afterimage at the entry (turn around after
+   * the tele and you're standing there — the effect is generic, pool-based,
+   * not tied to remote rendering), burst at the entry, and the exit burst
+   * thrown ~90u ahead along the exit yaw at eye height so you fly THROUGH
+   * the speed-lines. No exit ghost for self — it would sit inside the camera.
    */
   localTeleported(
     scene: Scene,
     from: { x: number; y: number; z: number },
     to: { x: number; y: number; z: number },
+    entryYaw: number,
     exitYaw: number,
+    team: "alpha" | "bravo" = "alpha",
   ): void {
     this.ensureScene(scene);
+    this.spawnGhost(from, entryYaw, team);
     this.spawnBurst(from);
     this.spawnBurst({
       x: to.x + Math.sin(exitYaw) * 90,
@@ -171,55 +270,46 @@ export class TeleportEffect {
   // Ghost
   // ──────────────────────────────────────────────────────────────
 
-  private spawnGhost(
-    model: PlayerModelInstance,
-    delta: { x: number; y: number; z: number },
-    yaw: number,
-    team: "alpha" | "bravo",
-  ): void {
-    if (!this.scene || this.effects.length >= MAX_EFFECTS) return;
+  /**
+   * Place a pooled ghost instance at a player-origin position. If the pool
+   * isn't loaded yet, kick the load and skip (bursts still play; the next
+   * teleport has ghosts — prewarm() avoids even that).
+   */
+  private spawnGhost(pos: { x: number; y: number; z: number }, yaw: number, team: "alpha" | "bravo"): void {
+    if (!this.scene) return;
+    if (this.ghostPool.length === 0) {
+      void this.ensureGhostPool();
+      return;
+    }
+
+    const slot = this.ghostPool.find((s) => !s.busy);
+    if (!slot) return; // all ghosts on stage — skip rather than steal mid-fade
 
     try {
-      // Clone the anchor hierarchy (anchor transform + skinned mesh children).
-      // Cloned meshes share the source skeleton → the ghost holds a live pose.
-      // The clone starts EXACTLY where the source model stands (the entry);
-      // `delta` relocates it (zero for the entry ghost, to−from for the exit).
-      const ghostRoot = model.anchor.clone(`tp_ghost_${Date.now()}`, null, false);
-      if (!ghostRoot) return;
+      slot.busy = true;
+      slot.material.emissiveColor = TEAM_COLORS[team];
+      slot.material.alpha = GHOST_ALPHA_STEPS[0];
 
-      ghostRoot.position.set(
-        model.anchor.position.x + delta.x,
-        model.anchor.position.y + delta.y,
-        model.anchor.position.z + delta.z,
-      );
-      ghostRoot.rotation = model.anchor.rotation.clone();
-      ghostRoot.rotation.y = yaw;
-      ghostRoot.scaling = model.anchor.scaling.clone();
-
-      // Flat unlit team-color silhouette — one shared material for the ghost.
-      const mat = new StandardMaterial(`tp_ghost_mat_${Date.now()}`, this.scene);
-      mat.emissiveColor = TEAM_COLORS[team];
-      mat.diffuseColor = Color3.Black();
-      mat.specularColor = Color3.Black();
-      mat.disableLighting = true;
-      mat.alpha = GHOST_ALPHA_STEPS[0];
-      mat.backFaceCulling = false;
-
-      const meshes = ghostRoot instanceof Mesh ? [ghostRoot, ...ghostRoot.getChildMeshes()] : ghostRoot.getChildMeshes();
-      for (const m of meshes) {
-        m.material = mat;
-        m.isPickable = false;
-        m.alwaysSelectAsActiveMesh = true;
+      const anchor = slot.instance.anchor;
+      anchor.position.set(pos.x, pos.y + GHOST_ANCHOR_Y_OFFSET, pos.z);
+      if (anchor.rotationQuaternion) anchor.rotationQuaternion = null;
+      anchor.rotation.set(0, yaw, 0);
+      anchor.setEnabled(true);
+      slot.instance.mesh.isVisible = true;
+      for (const m of slot.instance.mesh.getChildMeshes()) {
+        m.isVisible = true;
       }
 
       this.effects.push({
-        root: ghostRoot,
-        material: mat,
+        root: anchor,
+        material: slot.material,
         elapsedMs: 0,
         lifetimeMs: GHOST_LIFETIME_MS,
         alphaSteps: GHOST_ALPHA_STEPS,
+        ghostSlot: slot,
       });
     } catch (e) {
+      slot.busy = false;
       console.warn("[TeleportEffect] ghost spawn failed:", e);
     }
   }
@@ -232,12 +322,23 @@ export class TeleportEffect {
     if (!this.scene || this.effects.length >= MAX_EFFECTS) return;
 
     try {
+      // Billboard the PARENT and spin the child: with billboardMode set,
+      // Babylon overrides the node's own rotation, so the spin must live one
+      // level below the billboarded transform.
       const mesh = this.buildStarburstMesh();
-      mesh.position.set(pos.x, pos.y + BURST_Y_OFFSET, pos.z);
-      mesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
-      mesh.scaling.setAll(BURST_START_SCALE);
       mesh.isPickable = false;
       mesh.alwaysSelectAsActiveMesh = true;
+      mesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
+      mesh.position.set(pos.x, pos.y + BURST_Y_OFFSET, pos.z);
+      mesh.scaling.setAll(BURST_START_SCALE);
+
+      const spin = this.buildStarburstMesh();
+      spin.parent = mesh;
+      spin.position.setAll(0);
+      spin.rotation.z = Math.PI / BURST_SPIKES; // interleave the two fans
+      spin.scaling.setAll(0.8);
+      spin.isPickable = false;
+      spin.alwaysSelectAsActiveMesh = true;
 
       const mat = new StandardMaterial(`tp_burst_mat_${Date.now()}`, this.scene);
       mat.emissiveColor = BURST_COLOR;
@@ -247,6 +348,7 @@ export class TeleportEffect {
       mat.alpha = BURST_ALPHA_STEPS[0];
       mat.backFaceCulling = false;
       mesh.material = mat;
+      spin.material = mat;
 
       this.effects.push({
         root: mesh,
@@ -256,6 +358,7 @@ export class TeleportEffect {
         alphaSteps: BURST_ALPHA_STEPS,
         scaleFrom: BURST_START_SCALE,
         scaleTo: BURST_END_SCALE,
+        spinMesh: spin,
       });
     } catch (e) {
       console.warn("[TeleportEffect] burst spawn failed:", e);
@@ -315,11 +418,21 @@ export class TeleportEffect {
       fx.elapsedMs += dtMs;
 
       if (fx.elapsedMs >= fx.lifetimeMs) {
-        try {
-          fx.root.dispose(false, false);
-          fx.material.dispose();
-        } catch (_) {
-          /* noop */
+        if (fx.ghostSlot) {
+          // Pooled ghost: hide + release, never dispose.
+          try {
+            fx.ghostSlot.instance.anchor.setEnabled(false);
+          } catch (_) {
+            /* noop */
+          }
+          fx.ghostSlot.busy = false;
+        } else {
+          try {
+            fx.root.dispose(false, false);
+            fx.material.dispose();
+          } catch (_) {
+            /* noop */
+          }
         }
         this.effects.splice(i, 1);
         continue;
@@ -329,10 +442,15 @@ export class TeleportEffect {
       const step = Math.min(fx.alphaSteps.length - 1, Math.floor((fx.elapsedMs / fx.lifetimeMs) * fx.alphaSteps.length));
       fx.material.alpha = fx.alphaSteps[step];
 
-      // Bursts scale up smoothly (motion reads better continuous).
+      // Bursts scale up + spin smoothly (motion reads better continuous).
       if (fx.scaleFrom !== undefined && fx.scaleTo !== undefined && fx.root instanceof Mesh) {
         const t = fx.elapsedMs / fx.lifetimeMs;
         fx.root.scaling.setAll(fx.scaleFrom + (fx.scaleTo - fx.scaleFrom) * t);
+        // The parent is billboarded (its rotation is overridden by Babylon) —
+        // spin the CHILD fan around the view axis instead.
+        if (fx.spinMesh) {
+          fx.spinMesh.rotation.z = Math.PI / BURST_SPIKES + BURST_SPIN_RAD * t;
+        }
       }
     }
   }
@@ -343,6 +461,7 @@ export class TeleportEffect {
       this.observer = null;
     }
     for (const fx of this.effects) {
+      if (fx.ghostSlot) continue; // pool instances are torn down below
       try {
         fx.root.dispose();
         fx.material.dispose();
@@ -351,6 +470,7 @@ export class TeleportEffect {
       }
     }
     this.effects = [];
+    this.disposeGhostPool();
     this.scene = null;
   }
 }

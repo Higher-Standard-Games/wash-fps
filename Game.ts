@@ -368,11 +368,23 @@ export class Game {
               if (bsp && this.v2Client) {
                 const { extractTriggerVolumes } = await import("../../shared/bsp/TriggerTable");
                 this.v2Client.setTriggerVolumes(extractTriggerVolumes(bsp.entities, bsp.models));
+
+                // Prewarm the generic teleport-ghost pool so the FIRST
+                // teleport already has its afterimage.
+                import("../../engine/camera/CameraSystem").then(({ CameraSystem: cs }) => {
+                  const scene = cs.getInstance().getCamera()?.getScene();
+                  if (scene) {
+                    import("./client/TeleportEffect").then(({ TeleportEffect }) => {
+                      TeleportEffect.getInstance().prewarm(scene);
+                    });
+                  }
+                });
+
                 // Rotate the local camera to the exit yaw when our own
                 // prediction teleports (fresh inputs only, not replays), and
-                // pop the entry/exit speed-line bursts (ghosts of US are drawn
-                // by other clients from their remote view).
-                this.v2Client.onTeleport((exitYaw, from, to) => {
+                // play the generic VFX: your OWN afterimage at the entry
+                // (turn around and you're standing there) + speed-line bursts.
+                this.v2Client.onTeleport((exitYaw, from, to, entryYaw) => {
                   import("../../engine/camera/CameraSystem").then(({ CameraSystem: cs }) => {
                     const controller = cs.getInstance().getController("fps");
                     if (controller && "setViewYaw" in controller) {
@@ -383,7 +395,7 @@ export class Game {
                     const scene = cs.getInstance().getCamera()?.getScene();
                     if (scene) {
                       import("./client/TeleportEffect").then(({ TeleportEffect }) => {
-                        TeleportEffect.getInstance().localTeleported(scene, from, to, exitYaw);
+                        TeleportEffect.getInstance().localTeleported(scene, from, to, entryYaw, exitYaw);
                       });
                     }
                   });
