@@ -82,7 +82,33 @@ Sprint into a crouch to slide along the ground with a temporary speed bonus.
 | Friction while sliding | 0.1 | `slideFriction`; much lower than normal ground friction |
 | Cooldown between slides | 1.5 s | `slideCooldown` |
 
-Practical: build speed (run + strafe jumps), tap **Ctrl** while at full sprint to enter slide, then either ride it out for the speed boost or jump out to chain into more strafe gains. The camera tilts in the slide direction.
+Practical: build speed (run + strafe jumps), tap **Ctrl** while at full sprint to enter slide, then either ride it out for the speed boost or jump out to chain into more strafe gains. The camera tilts in the slide direction. Standing up from a slide/crouch is a **deliberate ~260 ms rise** (crouching down is snappier at ~140 ms) — both are sim-clock anchored, so they never "flick" during reconciliation.
+
+## Teleporters
+
+Maps place **`trigger_teleport`** brush volumes linked to a **`misc_teleporter_dest`** exit point. Walk into one and you're instantly relocated to the exit, facing the exit's authored direction.
+
+- **Momentum carries.** Your full 3D speed is redirected along the exit yaw (Warsow-style) — so **falling into a drop-in teleporter converts your fall speed into exit speed.** Dive in with speed and you rocket out the other side.
+- **Predicted, no snap.** Teleport is evaluated in the shared movement code, so the client predicts it — you don't rubber-band, and your view snaps cleanly to the exit direction the instant you cross the trigger.
+- **Telefrag.** If someone is standing on the exit when you come through, they die instantly and you get the frag (Q3 rule). Camping a teleporter exit is dangerous.
+- A washoi afterimage "ghost" is left at both the entry and the exit — a readable tell that a teleport just happened (and where you went).
+
+## Jumppads
+
+**`trigger_push`** brushes launch you at a fixed target (a `target_position`) — the classic accelerator pad. The launch is solved so your arc lands on the pad's target, and it's client-predicted like everything else. Velocity is **replaced**, not added, so you can't "pre-load" a pad by jumping into it — step on, get launched, and aim your air-strafe on the way up.
+
+## Fall Damage
+
+Falling too far hurts. Distance is measured **floor-to-floor** in map units (a normal jump arc never counts — only the height you actually drop between surfaces):
+
+| Drop | Effect |
+|------|--------|
+| **< 256u** | Safe (about five jump-heights) |
+| **256–384u** | Ramps 0→100 damage, absorbed by armor like a normal hit |
+| **384–512u** | Drains all armor and leaves you at exactly 1 HP |
+| **≥ 512u** | Fatal — a self-frag |
+
+**Hold crouch as you land** to soften the effective drop (`sv_falldamage_crouchsoften`, default 64u). Servers can retune the bands or disable fall damage entirely (`sv_falldamage 0`); the values above are the defaults (`sv_falldamage_min` / `_full` / `_fatal`). Post-spawn drops and mid-fall teleports never count.
 
 ## Tips & Common Mistakes
 

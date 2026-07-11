@@ -2,6 +2,8 @@
 
 The heads-up display. Everything you need to read at a glance during a fight.
 
+The HUD (and the whole front-end) uses the **"Washoi" manga print-slab** look — dark-navy panels with cyan/magenta/gold neon accents, halftone scanlines, hard offset shadows, and stamped labels. Health/armor/ammo render as print-slab vitals; the same visual language runs through the ESC menu, lobby, and ready-room.
+
 ## Default Layout
 
 ```
@@ -70,7 +72,11 @@ Per-weapon style. Configurable via cvars:
 
 The crosshair briefly flashes to `cg_crosshairHitColor` when your shot deals damage — this is a server-confirmed hit indicator, not a client-side guess.
 
-## Kill Feed (top-right)
+## Chat (bottom-left)
+
+Recent chat messages float here and fade after ~8 seconds. Press **T** to talk — the panel expands into a scrollable history dialog. See [In-Game Chat](../multiplayer/chat.md).
+
+## Event Feed / Kill Feed (top-right)
 
 Recent kills, last ~5 lines:
 

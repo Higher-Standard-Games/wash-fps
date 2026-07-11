@@ -62,7 +62,9 @@ The analyser runs as `DemoService.analyzeLoadedDemo()` and outputs a list of tim
 
 - All player inputs (movement, aim, fire flags)
 - All entity state deltas (position, velocity, health, animation state)
-- Server events (kills, pickups, match-state transitions)
+- Server events (kills, pickups, match-state transitions, **chat**, weapon fire, projectile impacts, chain arcs) — captured verbatim, so replays show the full action *and* the match chatter at the right moments.
+
+Because the simulation is RNG-deterministic, a recorded run can be **re-simulated** and checksum-verified (`demo:verify`) — tamper-evident ground truth used by the anti-cheat substrate.
 
 For full schema, read `src/games/fps/client/DemoReader.ts` (TODO: extract this into a public doc page).
 

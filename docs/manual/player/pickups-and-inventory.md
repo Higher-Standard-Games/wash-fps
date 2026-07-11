@@ -24,10 +24,29 @@ The total ammo pool is shared across weapons of the same ammo type. Ammo pickups
 
 | Type | Effect | Examples |
 |------|--------|----------|
-| **Weapon** | Adds the weapon to your inventory if you have room; otherwise prompts you to swap. | rocket, riotgun, plasmagun |
+| **Weapon** | Adds the weapon to your inventory if you have room; otherwise prompts you to swap. | `weapon_rocketlauncher`, `weapon_riotgun` |
 | **Ammo** | Adds to your ammo pool. Auto-pickup on touch. | `ammo_rockets`, `ammo_shells` |
-| **Health** | Restores HP. | `item_health_25`, `item_health_50` |
-| **Armor** | Adds armor. | `item_armor_green` (50), `item_armor_yellow` (100), `item_armor_red` (200) |
+| **Health** | Restores HP (see below). | `item_health_small/large/mega/ultra` |
+| **Armor** | Adds armor plates (see below). | `item_armor_shard/ga/ya/ra` |
+
+### Armor — plate model
+
+Armor is **one 0–100 pool** presented as **four plates × 25** (Call-of-Duty style, masked behind the classic Quake armor names). Damage depletes the pool continuously (~66% of incoming damage is absorbed by armor); plates only matter at *pickup* time — inserting a plate tops your current partial plate up to its 25-boundary:
+
+| Pickup | Classname | Effect |
+|--------|-----------|--------|
+| Shard | `item_armor_shard` | +5 flat |
+| Green Armor | `item_armor_ga` | +1 plate (round up to the next 25, then +25) — e.g. 58 → 75 |
+| Yellow Armor | `item_armor_ya` | +2 plates |
+| Red Armor | `item_armor_ra` | fill to 100 |
+
+### Health
+
+| Pickup | Classname | Effect |
+|--------|-----------|--------|
+| Small | `item_health_small` | +25, capped at 100 |
+| Large | `item_health_large` | +50, capped at 100 |
+| Mega / Ultra | `item_health_mega` / `_ultra` | +100 **overhealing to 200**, then decaying 1 HP/s back toward 100 |
 
 ## Walking Over a Weapon Pickup
 
@@ -48,21 +67,16 @@ When a player dies, their non-Blade weapons drop as physical entities with Havok
 
 ## Pickup Respawn
 
-Map-spawned pickups have a respawn timer (default 30 seconds for weapons, varies per pickup definition). The mesh hides on pickup, the pickup is marked inactive, and a `setTimeout` fires to make it active and visible again. Dropped weapons do **not** respawn — they're one-and-done.
+Map-spawned pickups respawn on a per-type timer: **weapons 15s, armor 25s, health 20s, mega health 60s.** Armor and mega/ultra health are also **absent for the first 15s of a match** so nobody grabs a power item off spawn. Dropped weapons do **not** respawn — they're one-and-done.
 
-## Server-Authoritative Deactivation
+## Server-Authoritative Active Set
 
-The technical contract (for completeness; players never see this):
+Pickups are fully server-authoritative and *convergent*. Rather than one-shot "you took it" events, **every snapshot carries a packed bitmask of which pickups are currently active** (`pickupActiveMask`, bit index = pickup id). The client reconciles each pickup's visibility to the mask every frame.
 
-1. The server's `PickupSystem` decides a pickup is taken.
-2. It emits an `item_pickup` event with `pickupId`, `weaponId`, and `x/y/z` over the network.
-3. The client routes the event to `FPSPickup.deactivateById(...)`.
-4. The static registry on `FPSPickup` looks up the pickup by id (or falls back to position match if the id missed — this can happen during map load races).
-5. The matching pickup's `deactivateFromServer()` runs: plays the sound, hides the mesh, freezes physics, schedules the respawn timer.
+Two properties fall out of this:
 
-Position matching is XZ-only (Y is ignored because the client's `dropToGround` raycast usually puts pickups at a different Y than the server's raw entity position). Closest-match wins when multiple pickups share a weapon id.
-
-There's a 10-second deferred-deactivation queue for the race where a pickup-event arrives before the client has constructed the pickup (during map load). After 10 s, queued events are dropped.
+- **Self-healing.** A dropped packet can't cause a "ghost weapon" (visible but ungrantable) — the next snapshot re-states the truth and the client converges.
+- **Provably matching ids.** Both server and client derive the pickup list and its ids from the *same* BSP entity table (`extractPickups` in `src/shared/bsp/PickupTable.ts`), so pickup id N means the same object on both sides with no handshake. Unresolved ids fail *closed* (no phantom pickup) rather than guessing by position.
 
 ## Inventory API (for developers)
 

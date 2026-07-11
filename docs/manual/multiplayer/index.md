@@ -5,6 +5,7 @@ How matches happen.
 | Page | Covers |
 |------|--------|
 | [Connecting](./connecting.md) | `connect` / `disconnect` console, lobby UI flow, NetGraph |
+| [In-Game Chat](./chat.md) | **T** to talk, history dialog, chat in demos |
 | [Demos](./demos.md) | Server-side recording, demo list, playback (normal + cinematic) |
 
 ## High-Level Flow
