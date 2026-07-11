@@ -118,6 +118,11 @@ const MELEE_DASH_BOUNDS = {
 };
 const MAX_MELEE_DASH_DISTANCE = 96;
 const MELEE_DASH_COLLISION_EPSILON = 0.02;
+const PLAYER_SEPARATION_BOUNDS = {
+  min: { x: -16, y: -24, z: -16 },
+  max: { x: 16, y: 40, z: 16 },
+};
+const PLAYER_SEPARATION_COLLISION_EPSILON = 0.02;
 
 // ═══════════════════════════════════════════════════════════════════
 // KNOCKBACK AIR DRAG CONSTANTS (Warsow-style)
@@ -693,6 +698,23 @@ export class FPSMovementSubsystem extends Subsystem {
   private static readonly PLAYER_MIN_Y = -24;
   private static readonly PLAYER_MAX_Y = 40;
 
+  private clampPlayerSeparationPush(
+    start: { x: number; y: number; z: number },
+    end: { x: number; y: number; z: number },
+  ): { x: number; y: number; z: number } {
+    if (!this.collisionWorld) return end;
+
+    const trace = this.collisionWorld.trace(start, end, PLAYER_SEPARATION_BOUNDS);
+    if (!trace.hit || trace.fraction >= 1) return end;
+
+    const safeFraction = Math.max(0, trace.fraction - PLAYER_SEPARATION_COLLISION_EPSILON);
+    return {
+      x: start.x + (end.x - start.x) * safeFraction,
+      y: start.y + (end.y - start.y) * safeFraction,
+      z: start.z + (end.z - start.z) * safeFraction,
+    };
+  }
+
   /**
    * Block overlapping players — Q3-style solid entity blocking.
    * Players are pushed apart symmetrically, and velocity is clipped
@@ -751,11 +773,12 @@ export class FPSMovementSubsystem extends Subsystem {
         // Push each player half the overlap
         const pushDist = overlap * 0.5 + 0.5; // small extra margin
 
-        // Apply push to player A
+        // Apply push to player A, clamped against BSP/world geometry.
         const mutA = state.getEntityMut(a.id);
         if (mutA?.transform) {
-          mutA.transform.position.x += nx * pushDist;
-          mutA.transform.position.z += nz * pushDist;
+          const start = { ...mutA.transform.position };
+          const end = { x: start.x + nx * pushDist, y: start.y, z: start.z + nz * pushDist };
+          mutA.transform.position = this.clampPlayerSeparationPush(start, end);
 
           // Clip velocity along collision normal
           if (mutA.physics) {
@@ -768,11 +791,12 @@ export class FPSMovementSubsystem extends Subsystem {
           }
         }
 
-        // Apply push to player B (opposite direction)
+        // Apply push to player B (opposite direction), clamped against BSP/world geometry.
         const mutB = state.getEntityMut(b.id);
         if (mutB?.transform) {
-          mutB.transform.position.x -= nx * pushDist;
-          mutB.transform.position.z -= nz * pushDist;
+          const start = { ...mutB.transform.position };
+          const end = { x: start.x - nx * pushDist, y: start.y, z: start.z - nz * pushDist };
+          mutB.transform.position = this.clampPlayerSeparationPush(start, end);
 
           // Clip velocity along collision normal
           if (mutB.physics) {

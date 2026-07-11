@@ -107,6 +107,59 @@ function makeTwoPlayerState(p1: ReturnType<typeof makePlayer>, p2: ReturnType<ty
   };
 }
 
+describe("FPSMovementSubsystem - player separation", () => {
+  it("clamps player push-out against collision traces", () => {
+    const p1 = makePlayer();
+    const p2 = { ...makePlayer(), id: 2, ownerId: 2 };
+    p1.transform.position = { x: 0, y: 64, z: 0 };
+    p2.transform = { position: { x: 20, y: 64, z: 0 }, rotation: { x: 0, y: 0, z: 0 } };
+    p2.physics = { ...p1.physics, velocity: { x: 0, y: 0, z: 0 } };
+    p2.input = { ...p1.input, inputQueue: [] };
+
+    const collisionWorld = {
+      trace: vi.fn(() => ({ hit: true, fraction: 0.5 })),
+      stepSlideMove: (_start: unknown, velocity: unknown) => ({ endPos: p1.transform.position, velocity, grounded: true }),
+      pointContents: () => 0,
+      findEntitiesInRadius: () => [],
+      getWorldBounds: () => ({ min: { x: -999, y: -999, z: -999 }, max: { x: 999, y: 999, z: 999 } }),
+    };
+    const subsystem = new FPSMovementSubsystem(collisionWorld as never);
+
+    // biome-ignore lint/suspicious/noExplicitAny: exercise private separation regression directly
+    (subsystem as any).separatePlayers(makeTwoPlayerState(p1, p2));
+
+    const fullPush = (32 - 20) * 0.5 + 0.5;
+    const clampedPush = fullPush * 0.48;
+    expect(collisionWorld.trace).toHaveBeenCalledTimes(2);
+    expect(p1.transform.position.x).toBeCloseTo(-clampedPush, 6);
+    expect(p2.transform.position.x).toBeCloseTo(20 + clampedPush, 6);
+  });
+
+  it("does not push a player farther into geometry when separation starts blocked", () => {
+    const p1 = makePlayer();
+    const p2 = { ...makePlayer(), id: 2, ownerId: 2 };
+    p1.transform.position = { x: 0, y: 64, z: 0 };
+    p2.transform = { position: { x: 20, y: 64, z: 0 }, rotation: { x: 0, y: 0, z: 0 } };
+    p2.physics = { ...p1.physics, velocity: { x: 0, y: 0, z: 0 } };
+    p2.input = { ...p1.input, inputQueue: [] };
+
+    const collisionWorld = {
+      trace: vi.fn(() => ({ hit: true, fraction: 0 })),
+      stepSlideMove: (_start: unknown, velocity: unknown) => ({ endPos: p1.transform.position, velocity, grounded: true }),
+      pointContents: () => 0,
+      findEntitiesInRadius: () => [],
+      getWorldBounds: () => ({ min: { x: -999, y: -999, z: -999 }, max: { x: 999, y: 999, z: 999 } }),
+    };
+    const subsystem = new FPSMovementSubsystem(collisionWorld as never);
+
+    // biome-ignore lint/suspicious/noExplicitAny: exercise private separation regression directly
+    (subsystem as any).separatePlayers(makeTwoPlayerState(p1, p2));
+
+    expect(p1.transform.position.x).toBeCloseTo(0, 6);
+    expect(p2.transform.position.x).toBeCloseTo(20, 6);
+  });
+});
+
 describe("FPSMovementSubsystem - teleporter side effects (WO-T3)", () => {
   beforeEach(() => {
     vi.spyOn(console, "log").mockImplementation(() => {});
