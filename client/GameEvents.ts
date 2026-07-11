@@ -304,6 +304,8 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
         handleWeaponDrop(ctx, event);
       } else if (event.type === "award") {
         handleAwardEvent(ctx, event);
+      } else if (event.type === "chat") {
+        handleChatEvent(event);
       }
     }
   }
@@ -759,6 +761,23 @@ export function processProjectileEntities(state: GameState, sync: ProjectileSync
 
 // ── Award Event Handler ────────────────────────────────────────────
 
+/** In-game chat event → HUD chat log (also fires during demo playback). */
+// biome-ignore lint/suspicious/noExplicitAny: duck-typed snapshot event
+function handleChatEvent(event: any): void {
+  try {
+    const name = event.senderName || "unknown";
+    const prefix = event.team === "spectator" ? "[SPEC] " : "";
+    import("./FPSHud")
+      .then(({ FPSHud }) => {
+        FPSHud.getInstance().chat?.addMessage(prefix + name, String(event.text ?? ""), event.team ?? "");
+      })
+      .catch(() => {});
+  } catch (e) {
+    console.error("[Chat] event error:", e);
+  }
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: duck-typed snapshot event
 function handleAwardEvent(ctx: GameEventContext, event: any): void {
   const awardType: string = event.awardType || "";
   const playerId: string = event.playerId || "";

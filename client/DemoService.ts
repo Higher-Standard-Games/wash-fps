@@ -33,6 +33,7 @@ import { DemoReader } from "../../../shared/demo/DemoReader";
 import { CinematicDemoPlayer } from "./CinematicDemoPlayer";
 import type { DemoViewer } from "./DemoViewer";
 import type { DemoViewerHUD } from "./DemoViewerHUD";
+import { FPSChat } from "./hud/widgets/Chat";
 import {
   handleRemoteWeaponFire,
   type ProjectileSyncState,
@@ -64,6 +65,8 @@ export class DemoService {
   private lobbyClient: LobbyClient | null = null;
   private remoteRenderer: RemotePlayerRenderer | null = null;
   private demoHud: DemoViewerHUD | null = null;
+  /** Read-only chat log for replayed `chat` events (no input wiring). */
+  private demoChat: FPSChat | null = null;
   private playbackRaf: number | null = null;
   private lastFrameTimeMs: number = 0;
   private latestState: GameState | null = null;
@@ -281,6 +284,8 @@ export class DemoService {
 
     this.demoHud?.dispose();
     this.demoHud = null;
+    this.demoChat?.destroy();
+    this.demoChat = null;
 
     this.latestState = null;
     this._followedEntityId = null;
@@ -620,7 +625,16 @@ export class DemoService {
    */
   private _processDemoEffects(state: GameState): void {
     for (const event of state.events) {
-      if (event.type === "weapon_fire") {
+      if (event.type === "chat") {
+        // Replay recorded chat at its original tick (chat lands in demos via
+        // the shared snapshot instance — see docs/research/ingame-chat.md).
+        const e = event as unknown as { senderName?: string; team?: string; text?: string };
+        if (!this.demoChat) {
+          this.demoChat = new FPSChat();
+        }
+        const prefix = e.team === "spectator" ? "[SPEC] " : "";
+        this.demoChat.addMessage(prefix + (e.senderName || "unknown"), String(e.text ?? ""), e.team ?? "");
+      } else if (event.type === "weapon_fire") {
         handleRemoteWeaponFire(event, this.remoteRenderer);
       } else if (event.type === "projectile_spawn") {
         const e = event as unknown as { entityId?: string; defId?: string };

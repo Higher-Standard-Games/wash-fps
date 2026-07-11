@@ -40,6 +40,10 @@ export interface ClientInfo {
   lastRespawnReqMs?: number;
   /** Wall-clock (performance.now) of the last accepted team/spectate switch. */
   lastTeamSwitchMs?: number;
+  /** Wall-clock (performance.now) of the last accepted chat message. */
+  lastChatMs?: number;
+  /** Accepted chat timestamps inside the burst window (sliding). */
+  chatStamps?: number[];
   /** The actual filtered GameState last sent to this client (PVS baseline) */
   lastSentState?: GameState;
   /** true = spectating (no entity in simulation), false = playing */

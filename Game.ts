@@ -802,6 +802,16 @@ export class Game {
   }
 
   /**
+   * Send an in-game chat message (server sanitizes/rate-limits and
+   * rebroadcasts as a `chat` snapshot event). Called by the HUD chat widget.
+   */
+  sendChat(text: string): void {
+    if (!this.gameHost || !this.isNetworkMode) return;
+    const networkHost = this.gameHost as import("../../engine/network/client/hosts/NetworkGameHost").NetworkGameHost;
+    networkHost.sendChat(text);
+  }
+
+  /**
    * goSpectator — transition from playing to spectator.
    * Sends Spectate to server, switches camera to freefly, shows overlay.
    */

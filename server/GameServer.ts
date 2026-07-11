@@ -110,6 +110,14 @@ export class GameServer {
 
   // Kill events cached for snapshot broadcast (postTick drains them from CombatSystem)
   private pendingKillEvents: import("./systems/CombatSystem").KillEvent[] = [];
+  // Chat messages queued for snapshot broadcast (handleChat sanitizes + rate-limits)
+  private pendingChatEvents: Array<{ senderId: string; senderName: string; team: string; text: string }> = [];
+
+  // Chat limits (server-authoritative; over-limit messages dropped, log-only)
+  private static readonly CHAT_MAX_LENGTH = 128;
+  private static readonly CHAT_MIN_INTERVAL_MS = 600;
+  private static readonly CHAT_BURST_WINDOW_MS = 5000;
+  private static readonly CHAT_BURST_MAX = 5;
   // Award events cached for snapshot broadcast (postTick generates them via AwardTracker)
   private pendingAwards: AwardEvent[] = [];
 
@@ -839,10 +847,60 @@ export class GameServer {
         this.handleSpectate(conn);
       } else if (msgType === MessageType.RequestSpawn) {
         this.handleRequestSpawn(conn);
+      } else if (msgType === MessageType.Chat) {
+        this.handleChat(conn, data);
       }
     } catch {
       // Silently ignore malformed packets
     }
+  }
+
+  /**
+   * In-game chat (reliable channel). Server-authoritative: sanitize, rate
+   * limit, then queue for the next snapshot as a one-shot `chat` event —
+   * which also lands in demo recordings for free (post-D16 the recorder gets
+   * the same snapshot instance as the broadcaster).
+   */
+  private handleChat(conn: ClientConnection, data: Uint8Array): void {
+    const client = this.clients.get(conn.id);
+    if (!client) return;
+
+    // Sanitize: strip control chars/newlines (charCode filter — no regex
+    // escapes), collapse whitespace, cap length.
+    const raw = MessageCodec.decodeChat(data).text;
+    let cleaned = "";
+    for (const ch of raw) {
+      const code = ch.charCodeAt(0);
+      cleaned += code < 32 || code === 127 ? " " : ch;
+    }
+    const text = cleaned
+      .replace(/ {2,}/g, " ")
+      .trim()
+      .slice(0, GameServer.CHAT_MAX_LENGTH);
+    if (!text) return;
+
+    // Rate limit (log-only drop, consistent with authority conventions):
+    // min interval between messages + burst cap over a sliding window.
+    const now = performance.now();
+    if (rateLimited(client.lastChatMs, now, GameServer.CHAT_MIN_INTERVAL_MS)) return;
+    const stamps = (client.chatStamps ?? []).filter((t) => now - t < GameServer.CHAT_BURST_WINDOW_MS);
+    if (stamps.length >= GameServer.CHAT_BURST_MAX) {
+      console.log(`[Chat] rate-limited ${client.playerName} (burst)`);
+      return;
+    }
+    stamps.push(now);
+    client.chatStamps = stamps;
+    client.lastChatMs = now;
+
+    const team = client.isSpectator
+      ? "spectator"
+      : (this.gametypeController.getMatchState().getPlayerTeam(client.playerId) ?? "");
+    this.pendingChatEvents.push({
+      senderId: `player_${client.entityId}`,
+      senderName: client.playerName,
+      team,
+      text,
+    });
   }
 
   private handleReady(conn: ClientConnection): void {
@@ -1123,11 +1181,13 @@ export class GameServer {
         botNames: this.botNames,
         knownProjectileIds: this.knownProjectileIds,
         pendingKillEvents: this.pendingKillEvents,
+        pendingChatEvents: this.pendingChatEvents,
         pendingAwards: this.pendingAwards,
         needsPickupSync: this.needsPickupSync,
       };
     }
     this._snapshotCtx.pendingKillEvents = this.pendingKillEvents;
+    this._snapshotCtx.pendingChatEvents = this.pendingChatEvents;
     this._snapshotCtx.pendingAwards = this.pendingAwards;
     return this._snapshotCtx;
   }

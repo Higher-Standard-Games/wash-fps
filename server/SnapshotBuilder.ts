@@ -75,6 +75,8 @@ export interface SnapshotContext {
   knownProjectileIds: Set<number>;
   /** Mutable: kill events cached since last snapshot */
   pendingKillEvents: KillEvent[];
+  /** Chat messages queued by GameServer.handleChat (sanitized + rate-limited). */
+  pendingChatEvents: Array<{ senderId: string; senderName: string; team: string; text: string }>;
   /** Mutable: award events cached since last snapshot */
   pendingAwards: AwardEvent[];
   /** Mutable: clients that need initial pickup state sync */
@@ -501,6 +503,18 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
   }
   // Clear cached kills after they've been sent
   ctx.pendingKillEvents.length = 0;
+
+  // Add chat events (one-shots; recorded into demos automatically post-D16)
+  for (const chat of ctx.pendingChatEvents) {
+    gameState.events.push({
+      type: "chat",
+      senderId: chat.senderId,
+      senderName: chat.senderName,
+      team: chat.team,
+      text: chat.text,
+    });
+  }
+  ctx.pendingChatEvents.length = 0;
 
   // Add award events
   for (const award of ctx.pendingAwards) {

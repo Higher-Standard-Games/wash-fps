@@ -77,6 +77,7 @@ export class FPSHud {
   private _pauseMenu: FPSPauseMenu | null = null;
   private _settings: FPSSettingsOverlay | null = null;
   private _pointerLockHandler: (() => void) | null = null;
+  private _chatKeyHandler: ((e: KeyboardEvent) => void) | null = null;
 
   private constructor() {}
 
@@ -113,6 +114,29 @@ export class FPSHud {
     this._scoreboard = new FPSScoreboard();
     this._chat = new FPSChat();
     this._damageIndicators = new FPSDamageIndicators();
+
+    // Wire chat: T opens talk mode (Q3 messagemode — pointer lock stays held,
+    // mouse look keeps working; game binds are suppressed by the InputSystem
+    // text-field guard while the input has focus). Enter sends via the server
+    // round-trip (no local echo), Esc cancels — both handled inside FPSChat.
+    this._chat.onSend((text) => {
+      import("../Game")
+        .then(({ Game }) => Game.getInstance().sendChat(text))
+        .catch(() => {});
+    });
+    this._chatKeyHandler = (e: KeyboardEvent) => {
+      if (e.code !== "KeyT" || e.repeat || e.altKey || e.ctrlKey || e.metaKey) return;
+      if (!this._chat || this._chat.isInputActive()) return;
+      // Only in gameplay: pointer locked, no menus/console/text fields open
+      if (!document.pointerLockElement) return;
+      if (this._pauseMenu?.isOpen() || this._settings?.isOpen()) return;
+      const active = document.activeElement;
+      if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) return;
+      e.preventDefault(); // don't leak the "t" into the input
+      e.stopPropagation();
+      this._chat.openInput();
+    };
+    document.addEventListener("keydown", this._chatKeyHandler, true);
 
     // 6. Create dialogs & menus
     this._pauseMenu = new FPSPauseMenu();
@@ -449,6 +473,11 @@ export class FPSHud {
    */
   public destroy(): void {
     this.stop();
+
+    if (this._chatKeyHandler) {
+      document.removeEventListener("keydown", this._chatKeyHandler, true);
+      this._chatKeyHandler = null;
+    }
 
     for (const widget of this.widgets.values()) {
       widget.destroy();
