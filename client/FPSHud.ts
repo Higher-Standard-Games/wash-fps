@@ -17,6 +17,7 @@ import { GamePaths } from "../../../engine/core/GamePaths";
 import washikiTheme from "../../../engine/ui/hud/styles/WashikiTheme.css?raw";
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import { UITheme } from "../../../engine/ui/UITheme";
+import { getWeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
 import { HUDState } from "./HUDState";
 
 // Re-export FPSHudWidget interface for backwards compatibility
@@ -121,9 +122,7 @@ export class FPSHud {
     // text-field guard while the input has focus). Enter sends via the server
     // round-trip (no local echo), Esc cancels — both handled inside FPSChat.
     this._chat.onSend((text) => {
-      import("../Game")
-        .then(({ Game }) => Game.getInstance().sendChat(text))
-        .catch(() => {});
+      import("../Game").then(({ Game }) => Game.getInstance().sendChat(text)).catch(() => {});
     });
     this._chatKeyHandler = (e: KeyboardEvent) => {
       if (e.code !== "KeyT" || e.repeat || e.altKey || e.ctrlKey || e.metaKey) return;
@@ -415,6 +414,12 @@ export class FPSHud {
     for (const widget of this.widgets.values()) {
       widget.update(state);
     }
+
+    // Drive the on-weapon ammo counter with the same number the HUD shows
+    // (clip for clip weapons). No-op for weapons without a counter.
+    const a = state.ammo[state.currentWeapon];
+    const clip = a && typeof a === "object" ? a.clip : typeof a === "number" ? a : 0;
+    getWeaponViewManager().setAmmoCount(clip);
   }
 
   // ===========================================================================
