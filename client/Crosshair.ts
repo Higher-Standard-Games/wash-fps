@@ -127,6 +127,7 @@ export class Crosshair {
    * @param weaponConfig Per-weapon crosshair config (or null for default)
    * @param isDead       Hide crosshair when dead
    * @param isJoined     Only show when actually in-game
+   * @param outOfAmmo    Draw a large red X instead of the normal reticle
    */
   update(
     adsProgress: number,
@@ -134,6 +135,7 @@ export class Crosshair {
     weaponConfig: CrosshairConfig | null | undefined,
     isDead: boolean,
     isJoined: boolean,
+    outOfAmmo: boolean = false,
   ): void {
     if (!this.ctx || !this.canvas || !this.container) return;
 
@@ -194,28 +196,31 @@ export class Crosshair {
     const cx = canvasSize / 2;
     const cy = canvasSize / 2;
 
-    ctx.fillStyle = color;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = lineW;
+    // Out of ammo: override everything with a bold red X (visible at a glance).
+    if (outOfAmmo) {
+      this.drawBigX(ctx, cx, cy, size, alpha);
+      return;
+    }
 
-    // Draw based on style
+    // Draw based on style. Each primitive paints a dark 1px underlay first so the
+    // reticle reads on any background (COD/Quake style contrast outline).
     switch (config.style) {
       case "dot":
-        this.drawDot(ctx, cx, cy, lineW);
+        this.drawDot(ctx, cx, cy, lineW, color);
         break;
 
       case "cross":
-        this.drawCross(ctx, cx, cy, gap, lineLen, lineW);
+        this.drawCross(ctx, cx, cy, gap, lineLen, lineW, color);
         break;
 
       case "cross_dot":
-        this.drawCross(ctx, cx, cy, gap, lineLen, lineW);
-        this.drawDot(ctx, cx, cy, lineW);
+        this.drawCross(ctx, cx, cy, gap, lineLen, lineW, color);
+        this.drawDot(ctx, cx, cy, lineW, color);
         break;
 
       case "circle":
-        this.drawCircle(ctx, cx, cy, Math.max(3, gap + 3), lineW);
-        this.drawDot(ctx, cx, cy, lineW);
+        this.drawCircle(ctx, cx, cy, Math.max(3, gap + 3), lineW, color);
+        this.drawDot(ctx, cx, cy, lineW, color);
         break;
     }
   }
@@ -224,9 +229,27 @@ export class Crosshair {
   // Drawing Primitives
   // ========================================================================
 
-  private drawDot(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number): void {
+  /** Dark contrast outline drawn under every reticle stroke. */
+  private static readonly OUTLINE = "rgba(0, 0, 0, 0.85)";
+
+  /** Fill a rect with a 1px dark border underneath (crisp contrast halo). */
+  private outlinedRect(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    color: string,
+  ): void {
+    ctx.fillStyle = Crosshair.OUTLINE;
+    ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, w, h);
+  }
+
+  private drawDot(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number, color: string): void {
     const half = Math.max(1, Math.floor(size / 2));
-    ctx.fillRect(cx - half, cy - half, half * 2, half * 2);
+    this.outlinedRect(ctx, cx - half, cy - half, half * 2, half * 2, color);
   }
 
   private drawCross(
@@ -236,24 +259,65 @@ export class Crosshair {
     gap: number,
     length: number,
     width: number,
+    color: string,
   ): void {
     const half = Math.max(1, Math.floor(width / 2));
 
-    // Top
-    ctx.fillRect(cx - half, cy - gap - length, width, length);
-    // Bottom
-    ctx.fillRect(cx - half, cy + gap, width, length);
-    // Left
-    ctx.fillRect(cx - gap - length, cy - half, length, width);
-    // Right
-    ctx.fillRect(cx + gap, cy - half, length, width);
+    // Top / Bottom / Left / Right arms
+    this.outlinedRect(ctx, cx - half, cy - gap - length, width, length, color);
+    this.outlinedRect(ctx, cx - half, cy + gap, width, length, color);
+    this.outlinedRect(ctx, cx - gap - length, cy - half, length, width, color);
+    this.outlinedRect(ctx, cx + gap, cy - half, length, width, color);
   }
 
-  private drawCircle(ctx: CanvasRenderingContext2D, cx: number, cy: number, radius: number, lineWidth: number): void {
+  private drawCircle(
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    radius: number,
+    lineWidth: number,
+    color: string,
+  ): void {
+    // Dark underlay ring, then the colored ring on top.
     ctx.beginPath();
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = Crosshair.OUTLINE;
+    ctx.lineWidth = lineWidth + 2;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = color;
     ctx.lineWidth = lineWidth;
     ctx.stroke();
+  }
+
+  /** Out-of-ammo reticle: a bold red X with a dark contrast outline. */
+  private drawBigX(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number, alpha: number): void {
+    const reach = size * 0.7; // spans most of the canvas
+    const gap = Math.max(3, size * 0.18); // small hole at the center
+    const w = Math.max(3, Math.round(size / 8));
+
+    const drawStroke = (color: string, lineWidth: number) => {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = lineWidth;
+      ctx.lineCap = "round";
+      // Two diagonals, each split around the center gap.
+      ctx.beginPath();
+      ctx.moveTo(cx - reach, cy - reach);
+      ctx.lineTo(cx - gap, cy - gap);
+      ctx.moveTo(cx + gap, cy + gap);
+      ctx.lineTo(cx + reach, cy + reach);
+      ctx.moveTo(cx + reach, cy - reach);
+      ctx.lineTo(cx + gap, cy - gap);
+      ctx.moveTo(cx - gap, cy + gap);
+      ctx.lineTo(cx - reach, cy + reach);
+      ctx.stroke();
+    };
+
+    drawStroke(Crosshair.OUTLINE, w + 4);
+    drawStroke(`rgba(255, 40, 40, ${Math.max(alpha, 0.9)})`, w);
+    ctx.lineCap = "butt";
   }
 }
 

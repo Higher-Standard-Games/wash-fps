@@ -24,7 +24,10 @@ import { MessageCodec } from "../../engine/network/protocol/MessageCodec";
 import { getCollisionManager } from "../../engine/physics/CollisionManager";
 import { PlayerProfile } from "../../engine/player/PlayerProfile";
 import { getProjectileManager } from "../../engine/weapon/ProjectileManager";
+import { getWeaponViewManager } from "../../engine/weapon/WeaponViewManager";
 import { V2NetworkClient } from "./client";
+import { getAmmoStatus } from "./client/AmmoStatus";
+import { Crosshair } from "./client/Crosshair";
 import type { DroppedWeaponRenderer } from "./client/DroppedWeaponRenderer";
 import { registerFPSActions } from "./client/FPSActions";
 import { FPSHud } from "./client/FPSHud";
@@ -33,6 +36,7 @@ import { type GameEventContext, handleServerStateUpdate } from "./client/GameEve
 import { HUDState } from "./client/HUDState";
 import { MatchStateManager } from "./client/MatchStateManager";
 import { RemotePlayerRenderer } from "./client/RemotePlayerRenderer";
+import { WEAPONS } from "./server/weapons/WeaponDef";
 import { createBSPCollisionWorld } from "./simulation/collision/BSPCollisionWorld";
 import { type FPSInputCommand, FPSSimulation } from "./simulation/FPSSimulation";
 
@@ -500,6 +504,10 @@ export class Game {
       const fpsHud = FPSHud.getInstance();
       await fpsHud.init();
       fpsHud.start();
+
+      // Initialize the dynamic canvas crosshair (spread + ADS-converge + hit flash).
+      // Driven per-frame from renderRemotePlayers(); update() handles its own visibility.
+      import("./client/Crosshair").then((m) => m.Crosshair.getInstance().init());
 
       // Initialize NetGraph overlay (cl_netgraph CVar)
       NetGraph.init();
@@ -1248,6 +1256,23 @@ export class Game {
 
     // Render network diagnostics overlay (if cl_netgraph > 0)
     NetGraph.render();
+
+    // Drive the dynamic crosshair: COD-style spread that widens with movement and
+    // converges to center when ADS'ing, plus a red-X override when out of ammo.
+    const hud = HUDState.getInstance();
+    const weaponId = this.getCurrentWeaponId();
+    const crosshairCfg = WEAPONS[weaponId]?.crosshair ?? null;
+    const adsProgress = getWeaponViewManager().getAdsProgress();
+    const horizSpeed = this.v2Client?.getMovementState().actualHorizSpeed ?? 0;
+    const ammoStatus = getAmmoStatus(weaponId, hud.ammo[weaponId]);
+    Crosshair.getInstance().update(
+      adsProgress,
+      horizSpeed,
+      crosshairCfg,
+      this._isPlayerDead,
+      this.playerState === "playing",
+      ammoStatus.outOfAmmo,
+    );
   }
 
   /**
@@ -1482,6 +1507,7 @@ export class Game {
     // Cleanup match state and HUD
 
     FPSHud.getInstance().destroy();
+    Crosshair.getInstance().dispose();
     MatchStateManager.destroy();
     HUDState.destroy();
 

@@ -24,6 +24,7 @@ export type { FPSHudWidget } from "./hud/HudWidget";
 
 import type { FPSHudWidget } from "./hud/HudWidget";
 import { FPSAmmoCounter } from "./hud/widgets/AmmoCounter";
+import { FPSAmmoWarning } from "./hud/widgets/AmmoWarning";
 import { FPSChat } from "./hud/widgets/Chat";
 import { FPSDamageIndicators } from "./hud/widgets/DamageIndicators";
 import { FPSDeathScreen } from "./hud/widgets/DeathScreen";
@@ -347,6 +348,9 @@ export class FPSHud {
 
     // Ammo counter - bottom right
     this.addWidget("ammo", new FPSAmmoCounter(), "bottom-right");
+
+    // Ammo warning banner (OUT OF AMMO / RELOAD) - fixed above the speedometer
+    this.addWidget("ammowarning", new FPSAmmoWarning(), "bottom-center");
 
     // Match timer - top center
     this.addWidget("timer", new FPSTimer(), "top-center");
