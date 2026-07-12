@@ -74,7 +74,11 @@ export function showPickupPrompt(owner: string, text: string): void {
   currentOwner = owner;
   renderPromptContent(el, text);
   el.style.opacity = "1";
-  el.style.display = "inline-flex";
+  // inline-block (not inline-flex): the prompt is position:fixed, so inline-flex
+  // blockifies to flex, and each text span becomes a flex item whose trailing
+  // whitespace is trimmed at the item's line-box edge — that ate the space in
+  // "TO SWAP TO<space>PLASMAGUN". Block-level inline flow preserves it.
+  el.style.display = "inline-block";
 }
 
 /**
