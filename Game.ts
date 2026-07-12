@@ -594,20 +594,20 @@ export class Game {
       };
       document.addEventListener("keydown", this._specCycleKeyHandler);
 
-      // ── Mouse3 (middle click) handler: toggle chase-cam ──
+      // ── Mouse1 (left click) handler: chase-cam ──
+      // Matches the freefly cue label ("MOUSE1 Chase Player"). Enter chase from
+      // freefly, or advance to the next player while already chasing; ←/→ cycle
+      // and Space/Backspace returns to freefly. Ignored until the pointer is
+      // locked so the click that engages mouselook doesn't jump straight into a
+      // chase. Middle-click is reserved for "fly down" (crouch), so it is NOT a
+      // chase alias here.
       this._specMouseHandler = (e: MouseEvent) => {
         if (this.playerState !== "spectator") return;
-        if (e.button === 1) {
-          // Middle mouse button
-          e.preventDefault();
-          if (this.spectatorCycling?.getTargetEntityId()) {
-            // Currently in chase → exit to freefly
-            this.exitChaseCam();
-          } else {
-            // Currently in freefly → enter chase
-            this.nextSpectateTarget();
-          }
-        }
+        if (e.button !== 0) return;
+        // Only once the pointer is locked (freefly mouselook active).
+        if (!document.pointerLockElement) return;
+        e.preventDefault();
+        this.nextSpectateTarget();
       };
       document.addEventListener("mousedown", this._specMouseHandler);
 

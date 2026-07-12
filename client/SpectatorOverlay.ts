@@ -141,63 +141,27 @@ export class SpectatorOverlay {
     // ── Spectating Bar (top center, shows during first-person spec) ──
     this.spectatingBar = document.createElement("div");
     this.spectatingBar.id = "spectator-bar";
-    this.spectatingBar.style.cssText = `
-            position: absolute;
-            top: 8px;
-            left: 50%;
-            transform: translateX(-50%);
-            display: none;
-            align-items: center;
-            gap: 12px;
-            padding: 6px 24px;
-            background: rgba(0, 0, 0, 0.7);
-            border: 1px solid rgba(255, 100, 0, 0.4);
-            border-radius: 4px;
-            font-family: 'Outfit', 'Segoe UI', sans-serif;
-            pointer-events: auto;
-        `;
+    this.spectatingBar.className = "fps-spectator-bar";
 
     // Prev player button
     const prevBtn = document.createElement("span");
-    prevBtn.style.cssText = `
-            font-size: 14px;
-            color: rgba(255, 140, 0, 0.7);
-            cursor: pointer;
-            padding: 0 6px;
-            user-select: none;
-        `;
+    prevBtn.className = "fps-spectator-bar-nav";
     prevBtn.textContent = "◄ [←]";
     prevBtn.addEventListener("click", () => this._onPrevPlayerCallback?.());
     this.spectatingBar.appendChild(prevBtn);
 
     const specLabel = document.createElement("span");
-    specLabel.style.cssText = `
-            font-size: 12px;
-            font-weight: 600;
-            color: rgba(255, 140, 0, 0.9);
-            text-transform: uppercase;
-            letter-spacing: 2px;
-        `;
+    specLabel.className = "fps-spectator-bar-label";
     specLabel.textContent = "SPECTATING";
     this.spectatingBar.appendChild(specLabel);
 
     this.spectatingNameEl = document.createElement("span");
-    this.spectatingNameEl.style.cssText = `
-            font-size: 16px;
-            font-weight: 700;
-            color: #fff;
-        `;
+    this.spectatingNameEl.className = "fps-spectator-bar-name";
     this.spectatingBar.appendChild(this.spectatingNameEl);
 
     // Next player button
     const nextBtn = document.createElement("span");
-    nextBtn.style.cssText = `
-            font-size: 14px;
-            color: rgba(255, 140, 0, 0.7);
-            cursor: pointer;
-            padding: 0 6px;
-            user-select: none;
-        `;
+    nextBtn.className = "fps-spectator-bar-nav";
     nextBtn.textContent = "[→] ►";
     nextBtn.addEventListener("click", () => this._onNextPlayerCallback?.());
     this.spectatingBar.appendChild(nextBtn);
@@ -207,65 +171,17 @@ export class SpectatorOverlay {
     // ── Freefly cue (left sidebar panel, below weapon list) ─────
     this.freeflyCue = document.createElement("div");
     this.freeflyCue.id = "spectator-freefly-cue";
-    this.freeflyCue.style.cssText = `
-            position: absolute;
-            bottom: calc(200px * var(--ui-scale, 1));
-            left: calc(28px * var(--ui-scale, 1));
-            display: none;
-            flex-direction: column;
-            width: calc(450px * var(--ui-scale, 1));
-            padding: calc(14px * var(--ui-scale, 1)) calc(16px * var(--ui-scale, 1)) calc(12px * var(--ui-scale, 1));
-            background: linear-gradient(180deg, rgba(10,8,16,0.92) 0%, rgba(6,4,12,0.88) 100%);
-            border: 1px solid rgba(255,100,0,0.3);
-            border-radius: calc(3px * var(--ui-scale, 1));
-            font-family: 'Orbitron', 'Rajdhani', 'Outfit', sans-serif;
-            pointer-events: none;
-            box-sizing: border-box;
-            box-shadow: 0 0 24px rgba(255,80,0,0.06), 0 4px 16px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,140,0,0.06);
-        `;
-
-    // Corner brackets
-    const cueCornerCSS = (top: boolean, left: boolean) => `
-            position: absolute;
-            ${top ? "top: -1px" : "bottom: -1px"};
-            ${left ? "left: -1px" : "right: -1px"};
-            width: calc(10px * var(--ui-scale, 1)); height: calc(10px * var(--ui-scale, 1));
-            border-${top ? "top" : "bottom"}: 2px solid rgba(255,120,0,0.5);
-            border-${left ? "left" : "right"}: 2px solid rgba(255,120,0,0.5);
-            pointer-events: none;
-        `;
-    for (const [t, l] of [
-      [true, true],
-      [true, false],
-      [false, true],
-      [false, false],
-    ]) {
-      const c = document.createElement("div");
-      c.style.cssText = cueCornerCSS(t as boolean, l as boolean);
-      this.freeflyCue.appendChild(c);
-    }
+    this.freeflyCue.className = "fps-spectator-cue";
 
     // Header: "SPECTATOR"
     const header = document.createElement("div");
-    header.style.cssText = `
-            font-size: calc(10px * var(--ui-scale, 1));
-            font-weight: 700;
-            color: rgba(255,140,0,0.7);
-            letter-spacing: calc(3px * var(--ui-scale, 1));
-            text-transform: uppercase;
-            margin-bottom: calc(8px * var(--ui-scale, 1));
-            text-align: center;
-        `;
+    header.className = "fps-spectator-cue-header";
     header.textContent = "SPECTATOR";
     this.freeflyCue.appendChild(header);
 
     // Divider
     const div = document.createElement("div");
-    div.style.cssText = `
-            width: 100%; height: 1px;
-            background: linear-gradient(90deg, transparent, rgba(255,100,0,0.25), transparent);
-            margin-bottom: calc(10px * var(--ui-scale, 1));
-        `;
+    div.className = "fps-spectator-cue-divider";
     this.freeflyCue.appendChild(div);
 
     // Dynamic key labels from InputSystem
@@ -298,55 +214,27 @@ export class SpectatorOverlay {
     const rightCol = bindings.slice(half);
 
     const grid = document.createElement("div");
-    grid.style.cssText = `
-            display: grid;
-            grid-template-columns: calc(58px * var(--ui-scale, 1)) 1fr calc(20px * var(--ui-scale, 1)) calc(58px * var(--ui-scale, 1)) 1fr;
-            row-gap: calc(6px * var(--ui-scale, 1));
-            column-gap: calc(8px * var(--ui-scale, 1));
-            align-items: center;
-        `;
-
-    const keyCSS = `
-            font-family: 'Orbitron', 'Rajdhani', monospace;
-            font-size: calc(10px * var(--ui-scale, 1));
-            font-weight: 700;
-            color: rgba(255,150,50,0.95);
-            letter-spacing: calc(1px * var(--ui-scale, 1));
-            text-align: right;
-            text-shadow: 0 0 8px rgba(255,100,0,0.25);
-        `;
-    const actionCSS = `
-            font-family: 'Rajdhani', 'Outfit', sans-serif;
-            font-size: calc(11px * var(--ui-scale, 1));
-            font-weight: 500;
-            color: rgba(255,255,255,0.55);
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-        `;
+    grid.className = "fps-spectator-cue-grid";
 
     for (let i = 0; i < half; i++) {
       // Left column
       const lk = document.createElement("div");
-      lk.style.cssText = keyCSS;
+      lk.className = "fps-spectator-key";
       lk.textContent = leftCol[i][0];
       const la = document.createElement("div");
-      la.style.cssText = actionCSS;
+      la.className = "fps-spectator-action";
       la.textContent = leftCol[i][1];
 
       // Vertical divider cell
       const sep = document.createElement("div");
-      sep.style.cssText = `
-                width: 1px; height: 100%;
-                justify-self: center;
-                background: rgba(255,100,0,0.15);
-            `;
+      sep.className = "fps-spectator-sep";
 
       // Right column
       const rk = document.createElement("div");
-      rk.style.cssText = keyCSS;
+      rk.className = "fps-spectator-key";
       rk.textContent = rightCol[i]?.[0] ?? "";
       const ra = document.createElement("div");
-      ra.style.cssText = actionCSS;
+      ra.className = "fps-spectator-action";
       ra.textContent = rightCol[i]?.[1] ?? "";
 
       grid.appendChild(lk);
