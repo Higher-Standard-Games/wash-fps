@@ -526,7 +526,14 @@ function handleDeathEvent(ctx: GameEventContext, event: any, state: GameState): 
   // Gib deaths bind to the live gib burst centroid when the gib system is ready.
   const localEntityId = state.players.get(ctx.localPlayerId)?.entityId;
   const isLocalDeath = event.entityId === localEntityId;
-  if (!shouldGib && isLocalDeath && event.x !== undefined && ctx.remoteRenderer && ctx._ragdollSystem && ctx._deathCamera) {
+  if (
+    !shouldGib &&
+    isLocalDeath &&
+    event.x !== undefined &&
+    ctx.remoteRenderer &&
+    ctx._ragdollSystem &&
+    ctx._deathCamera
+  ) {
     startLocalRagdollDeathCamera(ctx, event);
   }
 

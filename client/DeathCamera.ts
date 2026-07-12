@@ -105,7 +105,10 @@ export class DeathCamera {
   private sanitizeTarget(target: Vector3 | null): Vector3 {
     if (!target || !this.isFiniteVector(target)) return this.lastTarget;
     if (target.y < this.deathPos.y - MAX_TARGET_DROP_BELOW_DEATH) return this.lastTarget;
-    if (Vector3.DistanceSquared(target, this.deathPos) > MAX_TARGET_DISTANCE_FROM_DEATH * MAX_TARGET_DISTANCE_FROM_DEATH) {
+    if (
+      Vector3.DistanceSquared(target, this.deathPos) >
+      MAX_TARGET_DISTANCE_FROM_DEATH * MAX_TARGET_DISTANCE_FROM_DEATH
+    ) {
       return this.lastTarget;
     }
     return target;
@@ -132,7 +135,9 @@ export class DeathCamera {
   private isMapMesh(mesh: AbstractMesh): boolean {
     if (mesh.isPickable === false) return false;
     const metadata = mesh.metadata as { mapOwned?: boolean } | null;
-    return metadata?.mapOwned === true || mesh.name.startsWith("bsp_") || mesh.name === "brush" || mesh.name === "patch";
+    return (
+      metadata?.mapOwned === true || mesh.name.startsWith("bsp_") || mesh.name === "brush" || mesh.name === "patch"
+    );
   }
 
   private isFiniteVector(v: Vector3): boolean {

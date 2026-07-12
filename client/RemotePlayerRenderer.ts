@@ -17,9 +17,9 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import type { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Scene } from "@babylonjs/core/scene";
-import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
 import { type PlayerModelInstance, PlayerModelManager } from "../../../engine/animation/PlayerModelManager";
 import { Cvar } from "../../../engine/core/Cvar";
+import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
 import {
   type EntitySnapshot,
   type InterpolatedEntity,
@@ -842,7 +842,11 @@ export class RemotePlayerRenderer {
           return;
         }
 
-        if (this.hitboxes.get(entityId) !== hitbox || this.deadEntities.has(entityId) || hitbox.currentWeaponId !== weaponId) {
+        if (
+          this.hitboxes.get(entityId) !== hitbox ||
+          this.deadEntities.has(entityId) ||
+          hitbox.currentWeaponId !== weaponId
+        ) {
           result.root.dispose(false, true);
           return;
         }

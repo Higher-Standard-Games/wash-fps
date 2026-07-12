@@ -28,6 +28,7 @@ import { getWeaponViewManager } from "../../engine/weapon/WeaponViewManager";
 import { V2NetworkClient } from "./client";
 import { getAmmoStatus } from "./client/AmmoStatus";
 import { Crosshair } from "./client/Crosshair";
+import { DeathCamera } from "./client/DeathCamera";
 import type { DroppedWeaponRenderer } from "./client/DroppedWeaponRenderer";
 import { registerFPSActions } from "./client/FPSActions";
 import { FPSHud } from "./client/FPSHud";
@@ -39,7 +40,6 @@ import { RemotePlayerRenderer } from "./client/RemotePlayerRenderer";
 import { WEAPONS } from "./server/weapons/WeaponDef";
 import { createBSPCollisionWorld } from "./simulation/collision/BSPCollisionWorld";
 import { type FPSInputCommand, FPSSimulation } from "./simulation/FPSSimulation";
-import { DeathCamera } from "./client/DeathCamera";
 
 export interface FPSGameConfig {
   tickRate?: number;
@@ -405,9 +405,9 @@ export class Game {
                   import("../../engine/camera/CameraSystem").then(({ CameraSystem: cs }) => {
                     const controller = cs.getInstance().getController("fps");
                     if (controller && "setViewYaw" in controller) {
-                      (
-                        controller as import("../../engine/camera/controllers/FPSController").FPSController
-                      ).setViewYaw(exitYaw);
+                      (controller as import("../../engine/camera/controllers/FPSController").FPSController).setViewYaw(
+                        exitYaw,
+                      );
                     }
                     const scene = cs.getInstance().getCamera()?.getScene();
                     if (scene) {
