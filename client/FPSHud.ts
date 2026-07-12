@@ -427,6 +427,11 @@ export class FPSHud {
     return this._chat;
   }
 
+  /** Get the pickup toast widget (bottom-center notifications). */
+  public get pickupToast(): FPSPickupToast | undefined {
+    return this.getWidget("pickup") as FPSPickupToast | undefined;
+  }
+
   /** Get the damage indicators overlay */
   public get damageIndicators(): FPSDamageIndicators | null {
     return this._damageIndicators;

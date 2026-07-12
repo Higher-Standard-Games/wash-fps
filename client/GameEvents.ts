@@ -306,6 +306,11 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
         handleAwardEvent(ctx, event);
       } else if (event.type === "chat") {
         handleChatEvent(event);
+      } else if (event.type === "pickup_notify" && event.entityId === localEntityId) {
+        // Server-authoritative pickup label for the local player (any item type).
+        import("./FPSHud")
+          .then(({ FPSHud }) => FPSHud.getInstance().pickupToast?.showPickup(String(event.label ?? "")))
+          .catch(() => {});
       }
     }
   }

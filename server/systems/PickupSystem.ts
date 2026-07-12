@@ -88,6 +88,8 @@ const CONFIG: SubsystemConfig = {
 export class PickupSystem extends Subsystem {
   private pickups: PickupItem[] = [];
   private pendingPickupEvents: PickupEvent[] = [];
+  /** Per-player pickup notifications (label) for the HUD toast + demos. */
+  private pendingPickupNotifies: Array<{ entityId: number; label: string }> = [];
   private weaponSystem: WeaponSystem | null = null;
   private droppedWeaponSystem: DroppedWeaponSystem | null = null;
   /** Weapon respawn time (seconds); overridable via setRespawnTime. Armor/health use defaults. */
@@ -197,6 +199,18 @@ export class PickupSystem extends Subsystem {
     return events;
   }
 
+  /** Drain per-player pickup notifications (HUD toast labels). */
+  getPendingPickupNotifies(): Array<{ entityId: number; label: string }> {
+    const n = this.pendingPickupNotifies;
+    this.pendingPickupNotifies = [];
+    return n;
+  }
+
+  /** Queue a human-readable pickup label for the grabbing player. */
+  private notifyPickup(entityId: EntityId, type: PickupType, kind: string): void {
+    this.pendingPickupNotifies.push({ entityId: entityId as number, label: pickupLabel(type, kind) });
+  }
+
   /**
    * Get all currently inactive pickups (for initial state sync when a client joins).
    * Returns pickup events so the client can deactivate visuals for already-consumed pickups.
@@ -276,6 +290,7 @@ export class PickupSystem extends Subsystem {
           if (after <= before) continue; // full / no benefit — leave it
           player.health.armor = after;
           this.consumePickup(pickup, player.id, tickNum);
+          this.notifyPickup(player.id, pickup.type, pickup.kind);
           pickedUpThisTick = true;
           break;
         }
@@ -285,6 +300,7 @@ export class PickupSystem extends Subsystem {
           if (after <= before) continue;
           player.health.health = after;
           this.consumePickup(pickup, player.id, tickNum);
+          this.notifyPickup(player.id, pickup.type, pickup.kind);
           pickedUpThisTick = true;
           break;
         }
@@ -294,6 +310,7 @@ export class PickupSystem extends Subsystem {
           const granted = this.weaponSystem.addAmmoByType(player.id, pickup.kind, pickup.amount ?? 0);
           if (!granted) continue;
           this.consumePickup(pickup, player.id, tickNum);
+          this.notifyPickup(player.id, pickup.type, pickup.kind);
           this.pendingPickupEvents.push({
             pickupId: pickup.id,
             weaponId: pickup.kind,
@@ -343,6 +360,7 @@ export class PickupSystem extends Subsystem {
           y: pickup.position.y,
           z: pickup.position.z,
         });
+        if (result.added) this.notifyPickup(player.id, "weapon", pickup.kind);
 
         // Only pick up one weapon per tick
         pickedUpThisTick = true;
@@ -413,11 +431,47 @@ export class PickupSystem extends Subsystem {
             y: itemEntity.transform.position.y,
             z: itemEntity.transform.position.z,
           });
+          if (result.added) this.notifyPickup(player.id, "weapon", meta.weaponId);
 
           // Only pick up one item per tick
           break;
         }
       }
     }
+  }
+}
+
+/** Human-readable pickup label for the HUD toast. */
+const WEAPON_DISPLAY: Record<string, string> = {
+  gunblade: "Gunblade",
+  machinegun: "Machinegun",
+  riotgun: "Riotgun",
+  glauncher: "Grenade Launcher",
+  rlauncher: "Rocket Launcher",
+  plasmagun: "Plasma Gun",
+  voltaic: "Voltaic",
+  electrobolt: "Electrobolt",
+  instagun: "Instagun",
+  lasergun: "Lasergun",
+};
+const ARMOR_DISPLAY: Record<string, string> = {
+  shard: "Armor Shard",
+  ga: "Green Armor",
+  ya: "Yellow Armor",
+  ra: "Red Armor",
+};
+function pickupLabel(type: PickupType, kind: string): string {
+  const titleCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+  switch (type) {
+    case "weapon":
+      return WEAPON_DISPLAY[kind] ?? titleCase(kind);
+    case "ammo":
+      return `${titleCase(kind)} Ammo`;
+    case "armor":
+      return ARMOR_DISPLAY[kind] ?? "Armor";
+    case "health":
+      return kind === "mega" ? "Mega Health" : kind === "ultra" ? "Ultra Health" : "Health";
+    default:
+      return titleCase(kind);
   }
 }

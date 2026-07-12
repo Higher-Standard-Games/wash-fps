@@ -1,28 +1,24 @@
 // Extracted from FPSHud.ts
 import type { FPSHudWidget, HUDState } from "../HudWidget";
-import { WEAPON_SLOTS } from "./WeaponRack";
 
 // =============================================================================
 // Phase 2: Pickup Toast
 // =============================================================================
 
 /**
- * FPSPickupToast - Shows pickup notifications (weapon, health, armor)
+ * FPSPickupToast — cartoonish "picked up X" banners (weapon/ammo/armor/health).
  *
- * Call showPickup() externally when a pickup event occurs.
- * Messages auto-fade via CSS animation.
+ * Driven by the server `pickup_notify` event (GameEvents calls showPickup with
+ * the server-formatted label, for the local player only) — exact for every item
+ * type and demo-faithful. The old client-side weapon-array diff heuristic is
+ * gone (it missed armor/health/ammo and could double-fire).
  */
 export class FPSPickupToast implements FPSHudWidget {
   private element: HTMLElement;
-  private lastWeapons: string[] = [];
 
   constructor() {
     this.element = document.createElement("div");
     this.element.className = "fps-toast-container";
-    this.element.style.display = "flex";
-    this.element.style.flexDirection = "column";
-    this.element.style.alignItems = "center";
-    this.element.style.gap = "4px";
   }
 
   public getElement(): HTMLElement {
@@ -30,40 +26,26 @@ export class FPSPickupToast implements FPSHudWidget {
   }
 
   /**
-   * Show a pickup notification
+   * Show a pickup notification — a gold "clock-slab" banner that pops in and
+   * floats up.
    */
   public showPickup(text: string): void {
     const toast = document.createElement("div");
-    toast.className = "fps-toast manga-panel";
+    toast.className = "fps-pickup-toast";
 
-    const corners = document.createElement("div");
-    corners.className = "manga-panel-corners";
-    toast.appendChild(corners);
-
-    const textEl = document.createElement("span");
-    textEl.textContent = text;
-    toast.appendChild(textEl);
+    const label = document.createElement("span");
+    label.className = "fps-pickup-toast-label";
+    label.textContent = text;
+    toast.appendChild(label);
 
     this.element.appendChild(toast);
 
-    // Remove after animation (2s float-up)
-    setTimeout(() => toast.remove(), 2100);
+    // Remove after the float-up animation (~2.2s)
+    setTimeout(() => toast.remove(), 2300);
   }
 
-  public update(state: HUDState): void {
-    // Auto-detect weapon pickups by comparing weapon arrays
-    const weapons = state.weapons;
-    if (this.lastWeapons.length > 0 && weapons.length > this.lastWeapons.length) {
-      // Find new weapons
-      for (const wpn of weapons) {
-        if (!this.lastWeapons.includes(wpn)) {
-          const slot = WEAPON_SLOTS.find((s) => s.id === wpn);
-          const name = slot ? slot.name : wpn.toUpperCase();
-          this.showPickup(`Picked up ${name}`);
-        }
-      }
-    }
-    this.lastWeapons = [...weapons];
+  public update(_state: HUDState): void {
+    // No per-frame work — toasts are driven by the server `pickup_notify` event.
   }
 
   public show(): void {

@@ -437,6 +437,17 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
     });
   }
 
+  // Per-player pickup notifications (labelled) for the HUD toast — fires for
+  // weapons/ammo/armor/health. The client shows it only for the local player;
+  // captured into demos like every other event.
+  for (const notify of ctx.pickupSystem.getPendingPickupNotifies()) {
+    gameState.events.push({
+      type: "pickup_notify",
+      entityId: `player_${notify.entityId}`,
+      label: notify.label,
+    });
+  }
+
   // Inject initial inactive pickup state for newly joined clients
   // (pickups consumed by bots/other players before this client connected)
   if (ctx.needsPickupSync.size > 0) {
