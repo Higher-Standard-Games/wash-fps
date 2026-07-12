@@ -33,14 +33,21 @@ export class FPSPickupToast implements FPSHudWidget {
     const toast = document.createElement("div");
     toast.className = "fps-pickup-toast";
 
+    // Leading "+" badge so a pickup instantly reads as "you gained something".
+    const plus = document.createElement("span");
+    plus.className = "fps-pickup-toast-plus";
+    plus.textContent = "+";
+    toast.appendChild(plus);
+
     const label = document.createElement("span");
     label.className = "fps-pickup-toast-label";
-    label.textContent = text;
+    // Strip any leading "+" the server label may already carry (avoid "+ +").
+    label.textContent = text.replace(/^\s*\+\s*/, "");
     toast.appendChild(label);
 
     this.element.appendChild(toast);
 
-    // Remove after the float-up animation (~2.2s)
+    // Remove after the slam → hold → tumble animation completes.
     setTimeout(() => toast.remove(), 2300);
   }
 

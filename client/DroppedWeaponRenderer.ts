@@ -18,8 +18,9 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import type { Scene } from "@babylonjs/core/scene";
-import { hidePickupPrompt, showPickupPrompt } from "../world/PickupPrompt";
 import { EntityRegistry } from "../../../shared/entities/EntityRegistry";
+import { hidePickupPrompt, showPickupPrompt } from "../world/PickupPrompt";
+import { FPS, getActionKeyLabel } from "./FPSActions";
 
 /** Permanent default melee weapon (slot 0) — always free to drop, never prompts. */
 function isDefaultWeapon(w: string | null): boolean {
@@ -510,7 +511,7 @@ export class DroppedWeaponRenderer {
           if (DroppedWeaponRenderer.nearbyDroppedWeapon !== nearest) {
             DroppedWeaponRenderer.nearbyDroppedWeapon = nearest;
             const weaponName = nearest.weaponId.replace(/_/g, " ").toUpperCase();
-            showPickupPrompt("dropped", `PRESS [F] TO SWAP TO ${weaponName}`);
+            showPickupPrompt("dropped", `PRESS [${getActionKeyLabel(FPS.USE)}] TO SWAP TO ${weaponName}`);
           }
         }
       }

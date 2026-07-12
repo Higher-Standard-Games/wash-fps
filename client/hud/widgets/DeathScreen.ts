@@ -1,4 +1,5 @@
 // Extracted from FPSHud.ts
+import { FPS, getActionKeyLabel } from "../../FPSActions";
 import type { FPSHudWidget, HUDState } from "../HudWidget";
 
 // Respawn protection delay in seconds (must match server config)
@@ -114,7 +115,14 @@ export class FPSDeathScreen implements FPSHudWidget {
       this.respawnEl.style.display = "none";
     } else {
       this.timerEl.style.display = "none";
-      this.respawnEl.textContent = "PRESS FIRE TO RESPAWN";
+      // "PRESS [MOUSE1] TO RESPAWN" — the fire keybind rendered as a keycap.
+      this.respawnEl.textContent = "";
+      this.respawnEl.appendChild(document.createTextNode("PRESS "));
+      const keycap = document.createElement("span");
+      keycap.className = "fps-keycap";
+      keycap.textContent = getActionKeyLabel(FPS.FIRE);
+      this.respawnEl.appendChild(keycap);
+      this.respawnEl.appendChild(document.createTextNode(" TO RESPAWN"));
       this.respawnEl.style.display = "";
       this.stopCountdown();
     }

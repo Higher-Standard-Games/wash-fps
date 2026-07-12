@@ -18,9 +18,10 @@ import type { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Scene } from "@babylonjs/core/scene";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
+import { Pickup, type PickupOptions } from "../../../engine/world/Pickup";
+import { FPS, getActionKeyLabel } from "../client/FPSActions";
 import { InventoryManager } from "./InventoryManager";
 import { hidePickupPrompt, showPickupPrompt } from "./PickupPrompt";
-import { Pickup, type PickupOptions } from "../../../engine/world/Pickup";
 
 export type FPSPickupType = "weapon" | "ammo" | "health" | "armor";
 
@@ -36,7 +37,7 @@ export interface FPSPickupOptions extends PickupOptions {
 
 export class FPSPickup extends Pickup {
   // Narrow the inherited options type.
-  declare protected options: FPSPickupOptions;
+  protected declare options: FPSPickupOptions;
 
   // ═════════════════════════════════════════════════════════════════
   // STATIC: pickup registry (for server-authoritative active-set reconcile)
@@ -251,7 +252,9 @@ export class FPSPickup extends Pickup {
 
     const noId = [...FPSPickup.allPickups].filter((p) => FPSPickup.isUnidentifiedServerPickup(p));
     if (noId.length > 0) {
-      issues.push(`server-managed pickups without pickupId: ${noId.map((p) => FPSPickup.describeForAudit(p)).join("; ")}`);
+      issues.push(
+        `server-managed pickups without pickupId: ${noId.map((p) => FPSPickup.describeForAudit(p)).join("; ")}`,
+      );
     }
 
     const missing: number[] = [];
@@ -309,11 +312,12 @@ export class FPSPickup extends Pickup {
     const inventory = controller && ((controller as any).inventory as InventoryManager | null);
     const weaponName = pickup.options.id.replace(/_/g, " ").toUpperCase();
 
+    const useKey = getActionKeyLabel(FPS.USE);
     let promptText: string;
     if (inventory && inventory.getSlotCount() >= InventoryManager.MAX_WEAPONS) {
-      promptText = `PRESS [F] TO SWAP TO ${weaponName}`;
+      promptText = `PRESS [${useKey}] TO SWAP TO ${weaponName}`;
     } else {
-      promptText = `PRESS [F] TO PICKUP ${weaponName}`;
+      promptText = `PRESS [${useKey}] TO PICKUP ${weaponName}`;
     }
 
     showPickupPrompt("pickup", promptText);

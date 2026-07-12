@@ -1,4 +1,5 @@
 import { getAmmoStatus } from "../../AmmoStatus";
+import { FPS, getActionKeyLabel } from "../../FPSActions";
 import type { FPSHudWidget, HUDState } from "../HudWidget";
 
 // =============================================================================
@@ -54,7 +55,18 @@ export class FPSAmmoWarning implements FPSHudWidget {
       return;
     }
 
-    this.label.textContent = kind === "out" ? "OUT OF AMMO" : "RELOAD";
+    // Build label content. RELOAD is actionable, so it shows the live reload
+    // keybind as a keycap chip after the word.
+    this.label.textContent = "";
+    if (kind === "out") {
+      this.label.textContent = "OUT OF AMMO";
+    } else {
+      this.label.appendChild(document.createTextNode("RELOAD "));
+      const keycap = document.createElement("span");
+      keycap.className = "fps-keycap";
+      keycap.textContent = getActionKeyLabel(FPS.RELOAD);
+      this.label.appendChild(keycap);
+    }
     this.element.classList.toggle("fps-ammo-warning--out", kind === "out");
     this.element.classList.toggle("fps-ammo-warning--reload", kind === "reload");
     this.element.style.display = "";

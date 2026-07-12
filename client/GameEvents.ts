@@ -219,7 +219,12 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
           ctx._respawnCooldownEnd = Date.now() + 3000;
           console.log("[GameEvents] Local player died");
           import("../../../engine/weapon/WeaponViewManager").then((m) => {
-            m.getWeaponViewManager().setVisible(false);
+            const wvm = m.getWeaponViewManager();
+            wvm.setVisible(false);
+            // Kill any continuous beam (lasergun/voltaic) still rendering — death
+            // cuts fire input without firing the normal beam-stop edge, so it
+            // would otherwise stay stuck on screen through the respawn.
+            wvm.setBeamActive(false);
           });
         } else if (!event.dead && ctx._isPlayerDead) {
           ctx._isPlayerDead = false;
