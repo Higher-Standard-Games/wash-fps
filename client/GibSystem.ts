@@ -84,6 +84,14 @@ interface Gib {
   floorY: number; // approximate floor level (death Y)
   traced: boolean; // hero gibs get real raycasts for wall/ceiling bounce
   isDrop: boolean; // body-part drop gib (falls from body position)
+  generation: number;
+}
+
+export interface GibHandle {
+  /** Average live world position for one gib burst, or null once all shards expire. */
+  getPosition(): Vector3 | null;
+  /** Whether at least one shard from this burst is still active. */
+  isAlive(): boolean;
 }
 
 // ============================================================================
@@ -97,6 +105,7 @@ export class GibSystem {
   private gibs: Gib[] = [];
   private materials: StandardMaterial[] = [];
   private templateMesh: Mesh | null = null;
+  private nextGibGeneration = 0;
 
   static getInstance(): GibSystem {
     if (!GibSystem.instance) {
@@ -174,16 +183,20 @@ export class GibSystem {
   /**
    * Spawn gibs at death position with victim velocity.
    */
-  spawn(x: number, y: number, z: number, velX: number, velY: number, velZ: number): void {
-    if (!this.scene || !this.templateMesh) return;
+  spawn(x: number, y: number, z: number, velX: number, velY: number, velZ: number): GibHandle | null {
+    if (!this.scene || !this.templateMesh) return null;
 
     // Enforce hard cap
     const activeCount = this.gibs.filter((g) => g.active).length;
-    if (activeCount >= MAX_ACTIVE_GIBS) return;
+    if (activeCount >= MAX_ACTIVE_GIBS) return null;
+
+    const generation = ++this.nextGibGeneration;
+    const spawned: Gib[] = [];
 
     // === FLYING GIBS (hero + normal) ===
     for (let i = 0; i < GIB_COUNT; i++) {
       const gib = this.getOrCreateGib();
+      spawned.push(gib);
 
       // Position: at death center with slight random spread
       gib.posX = x + (Math.random() - 0.5) * 10;
@@ -200,7 +213,7 @@ export class GibSystem {
       gib.velY = velY + upward + spreadY;
       gib.velZ = velZ + spreadZ;
 
-      this.initGibCommon(gib, y, i < TRACED_GIB_COUNT, false);
+      this.initGibCommon(gib, y, i < TRACED_GIB_COUNT, false, generation);
       // Sync mesh position immediately so gib is visible on spawn frame
       gib.mesh.position.set(gib.posX, gib.posY, gib.posZ);
     }
@@ -208,6 +221,7 @@ export class GibSystem {
     // === BODY-PART DROP GIBS ===
     for (let i = 0; i < DROP_GIB_COUNT; i++) {
       const gib = this.getOrCreateGib();
+      spawned.push(gib);
       const offset = BODY_PART_OFFSETS[i % BODY_PART_OFFSETS.length];
 
       // Position: at body-part offset from death center
@@ -224,14 +238,16 @@ export class GibSystem {
       const scale = 0.9 + Math.random() * 0.4;
       gib.mesh.scaling.setAll(scale * (DROP_GIB_SIZE / GIB_SIZE));
 
-      this.initGibCommon(gib, y, false, true);
+      this.initGibCommon(gib, y, false, true, generation);
       // Sync mesh position immediately
       gib.mesh.position.set(gib.posX, gib.posY, gib.posZ);
     }
+
+    return this.createHandle(spawned, generation);
   }
 
   /** Shared gib initialization */
-  private initGibCommon(gib: Gib, floorY: number, traced: boolean, isDrop: boolean): void {
+  private initGibCommon(gib: Gib, floorY: number, traced: boolean, isDrop: boolean, generation: number): void {
     gib.rotX = Math.random() * Math.PI * 2;
     gib.rotY = Math.random() * Math.PI * 2;
     gib.rotZ = Math.random() * Math.PI * 2;
@@ -258,6 +274,7 @@ export class GibSystem {
     gib.floorY = floorY;
     gib.traced = traced;
     gib.isDrop = isDrop;
+    gib.generation = generation;
     gib.mesh.setEnabled(true);
   }
 
@@ -397,10 +414,30 @@ export class GibSystem {
       floorY: 0,
       traced: false,
       isDrop: false,
+      generation: 0,
     };
 
     this.gibs.push(gib);
     return gib;
+  }
+
+  private createHandle(spawned: Gib[], generation: number): GibHandle {
+    return {
+      getPosition: (): Vector3 | null => {
+        const sum = new Vector3(0, 0, 0);
+        let count = 0;
+        for (const gib of spawned) {
+          if (!gib.active || gib.generation !== generation) continue;
+          sum.x += gib.posX;
+          sum.y += gib.posY;
+          sum.z += gib.posZ;
+          count++;
+        }
+        if (count === 0) return null;
+        return sum.scaleInPlace(1 / count);
+      },
+      isAlive: (): boolean => spawned.some((gib) => gib.active && gib.generation === generation),
+    };
   }
 
   private createTriangleMesh(scene: Scene): Mesh {

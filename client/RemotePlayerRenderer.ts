@@ -17,6 +17,7 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import type { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Scene } from "@babylonjs/core/scene";
+import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
 import { type PlayerModelInstance, PlayerModelManager } from "../../../engine/animation/PlayerModelManager";
 import { Cvar } from "../../../engine/core/Cvar";
 import {
@@ -104,7 +105,7 @@ export class RemotePlayerRenderer {
 
   /** Shared model manager — loads vanguard.glb once, creates cloned instances */
   private modelManager: PlayerModelManager | null = null;
-  private modelLoading = false;
+  private modelLoadPromise: Promise<void> | null = null;
 
   /** Reference to enemyWeapons from GameEventContext — maps entityId → weaponId */
   private enemyWeapons: Map<string, string> = new Map();
@@ -138,6 +139,7 @@ export class RemotePlayerRenderer {
       const old = this.hitboxes.get(this._hiddenEntityId);
       if (old) {
         if (old.model) old.model.anchor.setEnabled(true);
+        if (old.weaponRoot) old.weaponRoot.setEnabled(true);
       }
     }
     this._hiddenEntityId = entityId;
@@ -147,6 +149,7 @@ export class RemotePlayerRenderer {
       if (hitbox) {
         hitbox.mesh.setEnabled(false);
         if (hitbox.model) hitbox.model.anchor.setEnabled(false);
+        if (hitbox.weaponRoot) hitbox.weaponRoot.setEnabled(false);
       }
     }
   }
@@ -154,12 +157,15 @@ export class RemotePlayerRenderer {
   // ── Model Loading ────────────────────────────────────────────
 
   private async ensureModelLoaded(): Promise<void> {
-    if (this.modelManager?.isLoaded || this.modelLoading) return;
-    this.modelLoading = true;
+    if (this.modelManager?.isLoaded) return;
+    if (this.modelLoadPromise) {
+      await this.modelLoadPromise;
+      return;
+    }
 
     this.modelManager = new PlayerModelManager(this.scene);
-    try {
-      await this.modelManager.loadModel();
+    this.modelLoadPromise = (async () => {
+      await this.modelManager!.loadModel();
       console.log("[RemotePlayerRenderer] Player model loaded");
 
       // Create model instances for any hitboxes that were created before model loaded
@@ -168,10 +174,14 @@ export class RemotePlayerRenderer {
           hitbox.model = this.createModelInstance(entityId);
         }
       }
+    })();
+
+    try {
+      await this.modelLoadPromise;
     } catch (err) {
       console.error("[RemotePlayerRenderer] Failed to load player model:", err);
     } finally {
-      this.modelLoading = false;
+      this.modelLoadPromise = null;
     }
   }
 
@@ -286,10 +296,12 @@ export class RemotePlayerRenderer {
 
       if (!hitbox) continue;
 
-      // Hidden entity (followed player in demo POV) — keep invisible every frame
+      // Hidden entity (followed player in demo POV) — keep invisible every frame.
+      // Third-person weapons are bone-driven external roots, so hide them too.
       if (entityId === this._hiddenEntityId) {
         hitbox.mesh.setEnabled(false);
         if (hitbox.model) hitbox.model.anchor.setEnabled(false);
+        if (hitbox.weaponRoot) hitbox.weaponRoot.setEnabled(false);
         continue;
       }
 
@@ -338,6 +350,7 @@ export class RemotePlayerRenderer {
         hitbox.mesh.dispose();
         if (hitbox.weaponRoot) {
           hitbox.weaponRoot.dispose(false, true);
+          hitbox.weaponRoot = null;
         }
         if (hitbox.model && this.modelManager) {
           this.modelManager.disposeInstance(hitbox.model);
@@ -362,6 +375,10 @@ export class RemotePlayerRenderer {
   dispose(): void {
     for (const hitbox of this.hitboxes.values()) {
       hitbox.mesh.dispose();
+      if (hitbox.weaponRoot) {
+        hitbox.weaponRoot.dispose(false, true);
+        hitbox.weaponRoot = null;
+      }
       if (hitbox.model && this.modelManager) {
         this.modelManager.disposeInstance(hitbox.model);
       }
@@ -385,11 +402,46 @@ export class RemotePlayerRenderer {
     const hitbox = this.hitboxes.get(entityId);
     if (hitbox) {
       hitbox.mesh.dispose();
+      if (hitbox.weaponRoot) {
+        hitbox.weaponRoot.dispose(false, true);
+        hitbox.weaponRoot = null;
+      }
       if (hitbox.model && this.modelManager) {
         this.modelManager.disposeInstance(hitbox.model);
       }
       this.hitboxes.delete(entityId);
     }
+  }
+
+  /**
+   * Create a standalone player model at a world position — used for the LOCAL
+   * player's death ragdoll (the local player is otherwise excluded from
+   * third-person rendering, so there's no existing model to detach). Not tracked
+   * as a remote entity; ownership passes to the caller (RagdollSystem disposes it).
+   */
+  createDetachedModelAt(
+    entityId: string,
+    x: number,
+    y: number,
+    z: number,
+    yaw: number,
+  ): import("../../../engine/animation/PlayerModelManager").PlayerModelInstance | null {
+    const model = this.createModelInstance(entityId);
+    if (!model) return null;
+    model.anchor.position.set(x, y + PLAYER_MINS_Z + MODEL_Y_OFFSET, z);
+    model.anchor.rotation.y = yaw;
+    return model;
+  }
+
+  async createDetachedModelAtAsync(
+    entityId: string,
+    x: number,
+    y: number,
+    z: number,
+    yaw: number,
+  ): Promise<import("../../../engine/animation/PlayerModelManager").PlayerModelInstance | null> {
+    await this.ensureModelLoaded();
+    return this.createDetachedModelAt(entityId, x, y, z, yaw);
   }
 
   /**
@@ -403,11 +455,17 @@ export class RemotePlayerRenderer {
     if (!hitbox || !hitbox.model) {
       if (hitbox) {
         hitbox.mesh.dispose();
+        if (hitbox.weaponRoot) {
+          hitbox.weaponRoot.dispose(false, true);
+          hitbox.weaponRoot = null;
+        }
         this.hitboxes.delete(entityId);
       }
       return null;
     }
     const model = hitbox.model;
+    model.attachedWeapon = hitbox.weaponRoot;
+    hitbox.weaponRoot = null;
     hitbox.mesh.dispose();
     this.hitboxes.delete(entityId);
     return model;
@@ -621,9 +679,19 @@ export class RemotePlayerRenderer {
     if (inst.mesh.rotationQuaternion) inst.mesh.rotationQuaternion = null;
     inst.mesh.rotation.set(0, 0, 0);
 
-    // Ensure mesh is visible
+    // Ensure the body is renderable. The weapon mesh is separately attached to
+    // a bone and already disables frustum culling; keep the player body in the
+    // same safe state so stale skinned bounds cannot hide it.
+    inst.mesh.setEnabled(true);
     inst.mesh.isVisible = true;
-    inst.mesh.getChildMeshes().forEach((m) => (m.isVisible = true));
+    inst.mesh.visibility = 1;
+    inst.mesh.alwaysSelectAsActiveMesh = true;
+    inst.mesh.getChildMeshes().forEach((m) => {
+      m.setEnabled(true);
+      m.isVisible = true;
+      m.visibility = 1;
+      m.alwaysSelectAsActiveMesh = true;
+    });
 
     // Derive animation from network data
     // Skip if a one-shot animation (e.g. blade slash) is still playing
@@ -774,6 +842,11 @@ export class RemotePlayerRenderer {
           return;
         }
 
+        if (this.hitboxes.get(entityId) !== hitbox || this.deadEntities.has(entityId) || hitbox.currentWeaponId !== weaponId) {
+          result.root.dispose(false, true);
+          return;
+        }
+
         // Find leader mesh (first mesh with geometry) — same as DroppedWeaponRenderer
         let leaderMesh: Mesh | null = null;
         for (const m of result.meshes) {
@@ -783,7 +856,7 @@ export class RemotePlayerRenderer {
             }
             // Cap lights to prevent shader overflow
             if (m.material && "maxSimultaneousLights" in m.material) {
-              (m.material as any).maxSimultaneousLights = 4;
+              applySafeMaxSimultaneousLights(m.material as any);
             }
             // Disable frustum culling
             m.alwaysSelectAsActiveMesh = true;

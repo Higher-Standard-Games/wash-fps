@@ -17,6 +17,7 @@
 import type { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Scene } from "@babylonjs/core/scene";
+import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import { Pickup, type PickupOptions } from "../../../engine/world/Pickup";
 import { FPS, getActionKeyLabel } from "../client/FPSActions";
@@ -157,7 +158,7 @@ export class FPSPickup extends Pickup {
             for (const bm of barrelResult.meshes) {
               if (bm.material && "maxSimultaneousLights" in bm.material) {
                 // biome-ignore lint/suspicious/noExplicitAny: Babylon material introspection
-                (bm.material as any).maxSimultaneousLights = 4;
+                applySafeMaxSimultaneousLights(bm.material as any);
               }
             }
           }

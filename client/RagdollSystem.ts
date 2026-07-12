@@ -292,6 +292,17 @@ interface ActiveRagdoll {
   trailMat: StandardMaterial | null;
 }
 
+/**
+ * Handle returned from spawn() so a caller (e.g. the death camera) can follow a
+ * ragdoll's live position without reaching into its physics internals.
+ */
+export interface RagdollHandle {
+  /** World position of the hips bone, or null once the ragdoll is disposed. */
+  getPosition(): Vector3 | null;
+  /** Whether the ragdoll is still simulating. */
+  isAlive(): boolean;
+}
+
 // ============================================================================
 // RagdollSystem
 // ============================================================================
@@ -352,23 +363,23 @@ export class RagdollSystem {
   // Spawn ragdoll
   // ========================================================================
 
-  spawn(model: PlayerModelInstance, velX: number, _velY: number, velZ: number): void {
+  spawn(model: PlayerModelInstance, velX: number, _velY: number, velZ: number): RagdollHandle | null {
     if (!this.scene) {
       console.warn("[RagdollSystem] Not initialized — disposing model");
       this.disposeModel(model);
-      return;
+      return null;
     }
 
     if (!this.physicsReady) {
       console.warn("[RagdollSystem] Havok physics not ready — disposing model");
       this.disposeModel(model);
-      return;
+      return null;
     }
 
     if (!model.skeleton) {
       console.warn("[RagdollSystem] Model has no skeleton — disposing");
       this.disposeModel(model);
-      return;
+      return null;
     }
 
     // Enforce max ragdolls
@@ -419,7 +430,7 @@ export class RagdollSystem {
       if (missingBones.length > 0) {
         console.warn(`[RagdollSystem] Missing bones: ${missingBones.map((b) => b.bone).join(", ")}`);
         this.disposeModel(model);
-        return;
+        return null;
       }
 
       // 5. Create BabylonJS Ragdoll
@@ -524,9 +535,25 @@ export class RagdollSystem {
       console.log(
         `[RagdollSystem] Spawned per-bone ragdoll at (${worldPos.x.toFixed(0)}, ${worldPos.y.toFixed(0)}, ${worldPos.z.toFixed(0)}) (${this.ragdolls.length} active)`,
       );
+
+      // Follow handle — lets the death camera trail the hips bone without touching
+      // physics internals. Returns null once this ragdoll is disposed.
+      return {
+        getPosition: (): Vector3 | null => {
+          if (active.disposed) return null;
+          try {
+            const hips = ragdollInstance.getAggregate(0);
+            return hips?.body?.transformNode?.getAbsolutePosition() ?? null;
+          } catch {
+            return null;
+          }
+        },
+        isAlive: (): boolean => !active.disposed,
+      };
     } catch (e) {
       console.error("[RagdollSystem] Failed to create ragdoll:", e);
       this.disposeModel(model);
+      return null;
     }
   }
 

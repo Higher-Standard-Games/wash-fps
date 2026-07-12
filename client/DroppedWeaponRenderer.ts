@@ -18,6 +18,7 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import type { Scene } from "@babylonjs/core/scene";
+import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
 import { EntityRegistry } from "../../../shared/entities/EntityRegistry";
 import { hidePickupPrompt, showPickupPrompt } from "../world/PickupPrompt";
 import { FPS, getActionKeyLabel } from "./FPSActions";
@@ -106,7 +107,7 @@ class DroppedWeaponVisual {
           if (m instanceof Mesh && m.getTotalVertices() > 0) {
             // Cap lights to prevent shader uniform block overflow
             if (m.material && "maxSimultaneousLights" in m.material) {
-              (m.material as any).maxSimultaneousLights = 4;
+              applySafeMaxSimultaneousLights(m.material as any);
             }
             if (!leaderMesh) {
               leaderMesh = m;
@@ -202,7 +203,7 @@ class DroppedWeaponVisual {
                   }
                   for (const bm of barrelResult.meshes) {
                     if (bm.material && "maxSimultaneousLights" in bm.material) {
-                      (bm.material as any).maxSimultaneousLights = 4;
+                      applySafeMaxSimultaneousLights(bm.material as any);
                     }
                   }
                 }

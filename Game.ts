@@ -39,6 +39,7 @@ import { RemotePlayerRenderer } from "./client/RemotePlayerRenderer";
 import { WEAPONS } from "./server/weapons/WeaponDef";
 import { createBSPCollisionWorld } from "./simulation/collision/BSPCollisionWorld";
 import { type FPSInputCommand, FPSSimulation } from "./simulation/FPSSimulation";
+import { DeathCamera } from "./client/DeathCamera";
 
 export interface FPSGameConfig {
   tickRate?: number;
@@ -170,6 +171,18 @@ export class Game {
   private _ragdollSystemLoading = false;
   private _cartoonHit: any = null;
   private _cartoonHitLoading = false;
+  /** Smoothed corpse-follow death camera. Driven by FPSController each frame. */
+  private _deathCamera: DeathCamera = new DeathCamera();
+
+  /**
+   * Drive the corpse-follow death camera. Called by FPSController at the very end
+   * of its update (after all its own camera writes). Returns true when the death
+   * camera took over the camera, so the controller skips its fallback roll/drop
+   * and the view-bob pass.
+   */
+  public applyDeathCamera(camera: import("./client/DeathCamera").DeathCameraTarget, dt: number): boolean {
+    return this._deathCamera.update(dt, camera);
+  }
 
   private constructor() {
     // Register all FPS actions + contexts with InputSystem
@@ -1573,6 +1586,7 @@ export class Game {
         _pendingGibSpawns: this._pendingGibSpawns,
         _ragdollSystem: this._ragdollSystem,
         _cartoonHit: this._cartoonHit,
+        _deathCamera: this._deathCamera,
         onStateUpdateCallbacks: this.onStateUpdateCallbacks,
         get pendingTick() {
           return Game.getInstance().pendingTick;

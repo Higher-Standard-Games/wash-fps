@@ -81,6 +81,8 @@ export interface GameEventContext {
   _pendingGibSpawns: { x: number; y: number; z: number; vx: number; vy: number; vz: number }[];
   _ragdollSystem: any;
   _cartoonHit: any;
+  /** Smoothed corpse-follow death camera (driven by FPSController via Game). */
+  _deathCamera: import("./DeathCamera").DeathCamera | null;
 
   // State update dispatch
   onStateUpdateCallbacks: ((state: PlayerStateUpdate) => void)[];
@@ -104,6 +106,8 @@ export const WEAPON_EFFECT_COLORS: Record<string, [number, number, number]> = {
   electrobolt: [0.3, 0.6, 1.0], // blue
   instagun: [0.8, 0.2, 1.0], // purple
 };
+
+const MAX_REMOTE_CHARGE_GLOW_LIGHTS = 2;
 
 /**
  * Process a server state update: dispatch events, sync weapon state,
@@ -230,6 +234,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
           ctx._isPlayerDead = false;
           ctx._respawnRequested = false;
           console.log("[GameEvents] Local player respawned");
+          ctx._deathCamera?.stop();
           if (ctx.v2Client) {
             ctx.v2Client.resetForRespawn();
           }
@@ -321,24 +326,45 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
   }
 
   // === Update charge glow positions from entity data ===
+  // These are intentionally capped outside the pooled projectile/explosion light
+  // system. A cluster of charging remote players should never increase the scene
+  // light count enough to compile an unsafe WebGL2 shader variant.
+  for (const [entityId, glow] of ctx.chargingGlows) {
+    if (!ctx.chargingPlayers.has(entityId) || !state.entities.has(entityId)) {
+      glow.dispose();
+      ctx.chargingGlows.delete(entityId);
+    }
+  }
+
   if (ctx.chargingPlayers.size > 0) {
     const scene = CameraSystem.getInstance().getCamera()?.getScene();
     if (scene) {
+      let glowSlots = 0;
       for (const entityId of ctx.chargingPlayers) {
         const entity = state.entities.get(entityId);
         const pos = entity?.getComponent("position") as { x: number; y: number; z: number } | undefined;
-        if (pos) {
-          let light = ctx.chargingGlows.get(entityId);
-          if (!light) {
-            light = new PointLight(`charge_glow_${entityId}`, new Vector3(pos.x, pos.y + 30, pos.z), scene);
-            light.diffuse = new Color3(1.0, 0.15, 0.05);
-            light.specular = new Color3(1.0, 0.1, 0.0);
-            light.range = 60;
-            light.intensity = 8;
-            ctx.chargingGlows.set(entityId, light);
+        if (!pos) continue;
+
+        if (glowSlots >= MAX_REMOTE_CHARGE_GLOW_LIGHTS) {
+          const overflowGlow = ctx.chargingGlows.get(entityId);
+          if (overflowGlow) {
+            overflowGlow.dispose();
+            ctx.chargingGlows.delete(entityId);
           }
-          light.position.set(pos.x, pos.y + 30, pos.z);
+          continue;
         }
+        glowSlots++;
+
+        let light = ctx.chargingGlows.get(entityId);
+        if (!light) {
+          light = new PointLight(`charge_glow_${entityId}`, new Vector3(pos.x, pos.y + 30, pos.z), scene);
+          light.diffuse = new Color3(1.0, 0.15, 0.05);
+          light.specular = new Color3(1.0, 0.1, 0.0);
+          light.range = 60;
+          light.intensity = 8;
+          ctx.chargingGlows.set(entityId, light);
+        }
+        light.position.set(pos.x, pos.y + 30, pos.z);
       }
     }
   }
@@ -495,6 +521,15 @@ function handleDeathEvent(ctx: GameEventContext, event: any, state: GameState): 
   const finalDamage = event.finalDamage || 0;
   const shouldGib = damageType === "rail" || (damageType === "explosion" && finalDamage >= 50);
 
+  // Local player death: the local player has no normal third-person model, so
+  // create one for ragdoll deaths and bind the camera to the live ragdoll handle.
+  // Gib deaths bind to the live gib burst centroid when the gib system is ready.
+  const localEntityId = state.players.get(ctx.localPlayerId)?.entityId;
+  const isLocalDeath = event.entityId === localEntityId;
+  if (!shouldGib && isLocalDeath && event.x !== undefined && ctx.remoteRenderer && ctx._ragdollSystem && ctx._deathCamera) {
+    startLocalRagdollDeathCamera(ctx, event);
+  }
+
   if (shouldGib) {
     try {
       if (ctx.remoteRenderer && event.entityId) {
@@ -505,8 +540,9 @@ function handleDeathEvent(ctx: GameEventContext, event: any, state: GameState): 
     }
     if (event.x !== undefined) {
       console.log(`[GibSystem] Gib death: dmgType=${damageType} dmg=${finalDamage}`);
+      let gibHandle: { getPosition(): Vector3 | null } | null = null;
       if (ctx._gibSystem) {
-        ctx._gibSystem.spawn(event.x, event.y, event.z, event.velX || 0, event.velY || 0, event.velZ || 0);
+        gibHandle = ctx._gibSystem.spawn(event.x, event.y, event.z, event.velX || 0, event.velY || 0, event.velZ || 0);
       } else {
         ctx._pendingGibSpawns.push({
           x: event.x,
@@ -516,6 +552,11 @@ function handleDeathEvent(ctx: GameEventContext, event: any, state: GameState): 
           vy: event.velY || 0,
           vz: event.velZ || 0,
         });
+      }
+      if (isLocalDeath && gibHandle && ctx._deathCamera) {
+        const camYaw = getCurrentCameraYaw();
+        const deathPos = new Vector3(event.x, event.y, event.z);
+        ctx._deathCamera.start(() => gibHandle?.getPosition() ?? null, deathPos, camYaw);
       }
     }
   } else {
@@ -548,6 +589,53 @@ function handleDeathEvent(ctx: GameEventContext, event: any, state: GameState): 
         /* noop */
       }
     }
+  }
+}
+
+function startLocalRagdollDeathCamera(ctx: GameEventContext, event: any): void {
+  const renderer = ctx.remoteRenderer;
+  const ragdolls = ctx._ragdollSystem;
+  const deathCamera = ctx._deathCamera;
+  if (!renderer || !ragdolls || !deathCamera || event.x === undefined) return;
+
+  const camYaw = getCurrentCameraYaw();
+  const deathPos = new Vector3(event.x, event.y, event.z);
+  const createModel = renderer.createDetachedModelAtAsync
+    ? renderer.createDetachedModelAtAsync(event.entityId, event.x, event.y, event.z, camYaw)
+    : Promise.resolve(renderer.createDetachedModelAt(event.entityId, event.x, event.y, event.z, camYaw));
+
+  createModel
+    .then((model: any) => {
+      if (!model) return;
+      if (!ctx._isPlayerDead) {
+        disposeDetachedModel(model);
+        return;
+      }
+      const handle = ragdolls.spawn(model, event.kbDirX || 0, event.kbDirY || 0, event.kbDirZ || 0);
+      if (handle && ctx._isPlayerDead) {
+        deathCamera.start(() => handle.getPosition(), deathPos, camYaw);
+      }
+    })
+    .catch((e: unknown) => {
+      console.error("[Death] Local corpse-cam setup error:", e);
+    });
+}
+
+function getCurrentCameraYaw(): number {
+  const cam = CameraSystem.getInstance().getCamera() as { rotation?: { y?: number } } | null;
+  return cam?.rotation?.y ?? 0;
+}
+
+function disposeDetachedModel(model: any): void {
+  try {
+    model.attachedWeapon?.dispose?.(false, true);
+    model.masterGroup?.stop?.();
+    model.masterGroup?.dispose?.();
+    model.mesh?.dispose?.();
+    model.skeleton?.dispose?.();
+    model.anchor?.dispose?.();
+  } catch {
+    /* model cleanup is best-effort after an async death-camera race */
   }
 }
 
