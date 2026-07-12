@@ -14,8 +14,8 @@
  * `src/engine/world/Pickup.ts`.
  */
 
-import type { Vector3 } from "@babylonjs/core/Maths/math.vector";
-import type { Mesh } from "@babylonjs/core/Meshes/mesh";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Scene } from "@babylonjs/core/scene";
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
@@ -57,6 +57,19 @@ export class FPSPickup extends Pickup {
   /** Currently-tracked nearby weapon pickup (for HUD swap prompt). */
   private static nearbyWeaponPickup: FPSPickup | null = null;
 
+  /** Ammo pool (weapon.ammoType) → Warsow simpleitem icon shown on the ammo box. */
+  private static readonly AMMO_ICONS: Record<string, string> = {
+    bullets: "gfx/hud/icons/ammo/bulletsammo",
+    shells: "gfx/hud/icons/ammo/riotammo",
+    grenades: "gfx/hud/icons/ammo/grenadeammo",
+    rockets: "gfx/hud/icons/ammo/rocketammo",
+    cells: "gfx/hud/icons/ammo/plasmaammo",
+    lasers: "gfx/hud/icons/ammo/laserammo",
+    bolts: "gfx/hud/icons/ammo/electroammo",
+    instas: "gfx/hud/icons/ammo/instaammo",
+    gunblade: "gfx/hud/icons/ammo/gunbladeammo",
+  };
+
   constructor(name: string, scene: Scene, position: Vector3, options: FPSPickupOptions) {
     super(name, scene, position, options);
   }
@@ -92,6 +105,67 @@ export class FPSPickup extends Pickup {
     // After base model is loaded, attach weapon barrel sub-models (weapons only)
     if (this.options.type === "weapon" && this.options.value && this.mesh) {
       this._loadBarrels(this.mesh, this.options.value as string).catch(() => {});
+    }
+    // Ammo boxes share one generic model; overlay the per-ammo icon quad so each
+    // box reads as its ammo type (Warsow ammobox_icon.md3 + simpleitem icon).
+    if (this.options.type === "ammo" && this.options.value && this.mesh) {
+      this._loadAmmoIcon(this.mesh, this.options.value as string).catch(() => {});
+    }
+  }
+
+  /** Load the ammobox icon quad and skin it with the ammo type's simpleitem icon. */
+  private async _loadAmmoIcon(leaderMesh: Mesh, ammoType: string): Promise<void> {
+    const iconPath = FPSPickup.AMMO_ICONS[ammoType];
+    if (!iconPath) return; // unknown ammo type — leave the plain box
+
+    const scene = this.getScene();
+    const [{ ModelLoader }, { PK3TextureLoader }, { StandardMaterial }, { Color3 }] = await Promise.all([
+      import("../../../engine/loader/model/ModelLoader"),
+      import("../../../engine/loader/pk3/PK3TextureLoader"),
+      import("@babylonjs/core/Materials/standardMaterial"),
+      import("@babylonjs/core/Maths/math.color"),
+    ]);
+
+    // Load the icon quad (separate model, authored in the ammobox's own space).
+    const loader = ModelLoader.getInstance();
+    if (!loader.isInitialized()) loader.init(scene);
+    const iconResult = await loader.loadModel("models/items/ammo/ammobox/ammobox_icon.md3", {
+      position: Vector3.Zero(),
+      scale: 1.0,
+      hasCollision: false,
+      applyLighting: false,
+    });
+    if (!iconResult?.meshes?.length) return;
+
+    // The simpleitem icon, rendered unlit so it stays legible on the box like a decal.
+    const tex = await PK3TextureLoader.getInstance().resolveAndLoadTexture(iconPath);
+    const mat = new StandardMaterial(`ammo_icon_${ammoType}`, scene);
+    mat.backFaceCulling = false;
+    mat.disableLighting = true;
+    mat.emissiveColor = Color3.White();
+    if (tex) {
+      tex.hasAlpha = true;
+      mat.diffuseTexture = tex;
+      mat.emissiveTexture = tex;
+      mat.useAlphaFromDiffuseTexture = true;
+      mat.transparencyMode = 2; // ALPHABLEND
+    }
+
+    for (const m of iconResult.meshes) {
+      if (!(m instanceof Mesh) || m.getTotalVertices() === 0) continue;
+      m.parent = leaderMesh;
+      m.position.setAll(0);
+      m.rotationQuaternion = null;
+      m.rotation.setAll(0);
+      m.scaling.setAll(1);
+      m.isVisible = true;
+      m.material = mat;
+    }
+
+    // Detach the loader root so it doesn't linger enabled in the scene graph.
+    if (iconResult.root) {
+      iconResult.root.parent = null;
+      iconResult.root.setEnabled(false);
     }
   }
 
