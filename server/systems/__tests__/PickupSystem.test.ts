@@ -100,12 +100,29 @@ describe("PickupSystem - health", () => {
     sys = new PickupSystem();
   });
 
-  it("small health grants immediately", () => {
+  it("small bubble grants +5 immediately", () => {
     sys.setPickupItems([healthEntry("small")]);
     const player = makePlayer();
     player.health.health = 50;
     sys.update(makeState(player) as never, 0.008, 10 as never);
+    expect(player.health.health).toBe(55);
+    expect(sys.getActiveMask()[0]).toBe(false);
+  });
+
+  it("medium health grants +25 immediately", () => {
+    sys.setPickupItems([healthEntry("medium")]);
+    const player = makePlayer();
+    player.health.health = 50;
+    sys.update(makeState(player) as never, 0.008, 10 as never);
     expect(player.health.health).toBe(75);
+    expect(sys.getActiveMask()[0]).toBe(false);
+  });
+
+  it("small bubble overheals past 100 (Warsow)", () => {
+    sys.setPickupItems([healthEntry("small")]);
+    const player = makePlayer(); // starts at 100
+    sys.update(makeState(player) as never, 0.008, 10 as never);
+    expect(player.health.health).toBe(105);
     expect(sys.getActiveMask()[0]).toBe(false);
   });
 
