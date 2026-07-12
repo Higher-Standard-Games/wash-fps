@@ -348,11 +348,24 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
     }
   }
 
-  // Add match state as event (client can read this for HUD)
+  // Add match state as event (client can read this for HUD). Spectators have
+  // no simulation entity, so they never appear in gameState.players — attach a
+  // roster here (from the client list) so the scoreboard can list them.
   const matchSnapshot = ctx.gametypeController.getMatchSnapshot();
+  const spectators: Array<{ playerId: string; name: string; ping: number }> = [];
+  for (const client of ctx.clients.values()) {
+    if (client.isSpectator) {
+      spectators.push({
+        playerId: `player_${client.entityId}`,
+        name: client.playerName,
+        ping: 0,
+      });
+    }
+  }
   gameState.events.push({
     type: "match_state",
     ...matchSnapshot,
+    spectators,
   });
 
   // Add weapon fire events (so other clients can see shots)

@@ -185,6 +185,23 @@ export class HUDState {
     }
     // Sort by score descending
     this.scoreboard.sort((a, b) => b.score - a.score);
+
+    // Append spectators (no sim entity, so absent from state.players) — the
+    // server sends their roster on the match_state event. teamId "spectator"
+    // routes them into the scoreboard's SPECTATORS block.
+    const seen = new Set(this.scoreboard.map((e) => e.playerId));
+    for (const spec of matchState.spectators) {
+      if (seen.has(spec.playerId)) continue;
+      this.scoreboard.push({
+        playerId: spec.playerId,
+        entityId: "",
+        name: spec.name,
+        score: 0,
+        deaths: 0,
+        ping: spec.ping,
+        teamId: "spectator",
+      });
+    }
   }
 
   /**

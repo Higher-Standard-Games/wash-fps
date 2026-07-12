@@ -21,6 +21,11 @@ import type { Scene } from "@babylonjs/core/scene";
 import { hidePickupPrompt, showPickupPrompt } from "../world/PickupPrompt";
 import { EntityRegistry } from "../../../shared/entities/EntityRegistry";
 
+/** Permanent default melee weapon (slot 0) — always free to drop, never prompts. */
+function isDefaultWeapon(w: string | null): boolean {
+  return w === "blade" || w === "gunblade";
+}
+
 /** Data passed from GameEvents per item_ entity in snapshot */
 export interface DroppedWeaponInfo {
   x: number;
@@ -479,7 +484,8 @@ export class DroppedWeaponRenderer {
     }
 
     if (nearest) {
-      // Check if player needs to swap (at capacity + doesn't have weapon + not gunblade)
+      // Check if player needs to swap (at capacity + doesn't have weapon + not
+      // holding the default weapon — which is always free to drop).
       const alreadyHas = inventory ? inventory.hasWeapon(nearest.weaponId) : false;
       const hasRoom = inventory ? inventory.getSlotCount() < InventoryManager.MAX_WEAPONS : false;
 
@@ -491,7 +497,10 @@ export class DroppedWeaponRenderer {
         }
       } else {
         const currentWeapon = inventory ? inventory.getCurrentWeaponId() : null;
-        if (currentWeapon === "gunblade") {
+        // Holding the default melee (blade/gunblade) → server auto-swaps
+        // silently, so never show the swap prompt. (Was hardcoded to
+        // "gunblade" and missed the current default "blade".)
+        if (isDefaultWeapon(currentWeapon)) {
           if (DroppedWeaponRenderer.nearbyDroppedWeapon) {
             DroppedWeaponRenderer.nearbyDroppedWeapon = null;
             hidePickupPrompt("dropped");

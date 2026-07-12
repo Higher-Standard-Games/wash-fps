@@ -189,7 +189,12 @@ export class FPSScoreboard {
       this.bodyEl.className = "fps-scoreboard-body";
       this.board.appendChild(this.bodyEl);
 
+      const ffaSpecs: typeof state.scoreboard = [];
       for (const entry of state.scoreboard) {
+        if (entry.teamId === "spectator") {
+          ffaSpecs.push(entry);
+          continue;
+        }
         const row = document.createElement("div");
         row.className = "fps-scoreboard-row";
         if (entry.playerId === this.localPlayerId) {
@@ -204,7 +209,35 @@ export class FPSScoreboard {
                 `;
         this.bodyEl.appendChild(row);
       }
+
+      this.appendSpectators(ffaSpecs);
     }
+  }
+
+  /** Render a "SPECTATORS (n)" block at the bottom of the board. */
+  private appendSpectators(specs: Array<{ playerId: string; name: string }>): void {
+    if (specs.length === 0) return;
+    const specsContainer = document.createElement("div");
+    specsContainer.className = "fps-scoreboard-spectators";
+
+    const title = document.createElement("div");
+    title.className = "fps-scoreboard-spectators-title";
+    title.textContent = `SPECTATORS (${specs.length})`;
+    specsContainer.appendChild(title);
+
+    const body = document.createElement("div");
+    body.className = "fps-scoreboard-spectators-body";
+    for (const entry of specs) {
+      const row = document.createElement("div");
+      row.className = "fps-scoreboard-spectator-row";
+      if (entry.playerId === this.localPlayerId) {
+        row.classList.add("fps-scoreboard-row--self");
+      }
+      row.innerHTML = `<span class="fps-scoreboard-col-name">${this.escapeHtml(entry.name)}</span>`;
+      body.appendChild(row);
+    }
+    specsContainer.appendChild(body);
+    this.board.appendChild(specsContainer);
   }
 
   private escapeHtml(text: string): string {

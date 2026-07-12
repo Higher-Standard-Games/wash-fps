@@ -73,11 +73,13 @@ const CROUCH_HEIGHT = PLAYER_MAXS_Z - CROUCH_MINS_Z;
 // ─── Model scale (Mixamo → Q3/BSP units) ────────────────────────
 const MODEL_SCALE = 36;
 
-// ─── Model Y offset (compensates for mesh extending below Y=0) ──
-// The Mixamo vanguard mesh origin isn't exactly at feet level.
-// This raises the model anchor so the visual feet align with the
-// hitbox bottom (floor level). Tunable per model.
-const MODEL_Y_OFFSET = 12;
+// ─── Model Y offset (fine-tune feet vs floor alignment) ──
+// The anchor is placed at the player's feet (origin + PLAYER_MINS_Z = origin−24)
+// plus this offset. The Mixamo vanguard mesh's local origin sits at its feet, so
+// the offset should be ~0. It was previously 12, which floated remote players
+// ~12u off the floor while walking (reported 2026-07-12). Browser-confirm the
+// exact value if feet clip into / hover above the floor.
+const MODEL_Y_OFFSET = 0;
 
 // ─── Animation derivation constants ─────────────────────────────
 const IDLE_SPEED_THRESHOLD = 50;
