@@ -48,4 +48,7 @@ export interface ClientInfo {
   lastSentState?: GameState;
   /** true = spectating (no entity in simulation), false = playing */
   isSpectator: boolean;
+  /** true = AI bot client (from the bot server), false = human. Used to gate
+   *  demo recording and auto-shutdown on the presence of real players. */
+  isBot?: boolean;
 }

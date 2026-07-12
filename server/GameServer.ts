@@ -56,6 +56,23 @@ import { Telemetry } from "./Telemetry";
 
 export type { ClientInfo, GameServerConfig };
 
+/**
+ * Whether a socket address is loopback. Used to only trust a client's self-
+ * declared bot flag from localhost — the bot server always runs locally, so a
+ * remote client cannot claim bot status (which would let it dodge the human-
+ * presence accounting that gates demo recording and auto-shutdown).
+ */
+function isLoopbackAddress(address: string | undefined): boolean {
+  if (!address) return false;
+  return (
+    address === "127.0.0.1" ||
+    address === "::1" ||
+    address === "localhost" ||
+    address.startsWith("::ffff:127.") ||
+    address.startsWith("127.")
+  );
+}
+
 // ============================================================================
 // Game Server
 // ============================================================================
@@ -673,23 +690,27 @@ export class GameServer {
       this.processQueue();
     }
 
+    // Count remaining human (non-bot) players. Bots left alone must not keep a
+    // match — or its demo recording — alive, which was flooding the demo archive
+    // with 10-minute bot-only recordings.
+    const humansPlaying = [...this.clients.values()].some((c) => !c.isSpectator && !c.isBot);
+
     // Save-on-leave: finalize any active demo recording as soon as the last
-    // playing client leaves, instead of waiting for the match to formally end
-    // (frag/time limit). Makes recording a demo as easy as "play, then leave".
-    if (!client.isSpectator && this.demoRecorder?.isRecording) {
-      const stillPlaying = [...this.clients.values()].some((c) => !c.isSpectator);
-      if (!stillPlaying) {
-        console.log("[GameServer] Last player left — finalizing demo recording");
-        this.stopRecording().catch((err) => console.error("[GameServer] Save-on-leave failed:", err));
-      }
+    // HUMAN playing client leaves, instead of waiting for the match to formally
+    // end (frag/time limit). Makes recording a demo as easy as "play, then leave".
+    if (!client.isSpectator && this.demoRecorder?.isRecording && !humansPlaying) {
+      console.log("[GameServer] Last human left — finalizing demo recording");
+      this.stopRecording().catch((err) => console.error("[GameServer] Save-on-leave failed:", err));
     }
 
-    // Auto-shutdown when all clients are gone (lobby-spawned mode)
-    if (this.config.shutdownOnEmpty && this.hasHadClients && this.clients.size === 0) {
-      console.log("[GameServer] All clients disconnected — shutting down in 5 seconds...");
+    // Auto-shutdown (lobby-spawned mode) when no humans remain — even if bots are
+    // still connected — so a lone/bot-only match tears down instead of idling.
+    const humansConnected = [...this.clients.values()].some((c) => !c.isBot);
+    if (this.config.shutdownOnEmpty && this.hasHadClients && !humansConnected) {
+      console.log("[GameServer] No human clients remaining — shutting down in 5 seconds...");
       this.shutdownTimer = setTimeout(() => {
-        if (this.clients.size === 0) {
-          console.log("[GameServer] Auto-shutdown: no clients remaining");
+        if (![...this.clients.values()].some((c) => !c.isBot)) {
+          console.log("[GameServer] Auto-shutdown: no human clients remaining");
           this.stop().then(() => process.exit(0));
         }
       }, 5000);
@@ -873,10 +894,7 @@ export class GameServer {
       const code = ch.charCodeAt(0);
       cleaned += code < 32 || code === 127 ? " " : ch;
     }
-    const text = cleaned
-      .replace(/ {2,}/g, " ")
-      .trim()
-      .slice(0, GameServer.CHAT_MAX_LENGTH);
+    const text = cleaned.replace(/ {2,}/g, " ").trim().slice(0, GameServer.CHAT_MAX_LENGTH);
     if (!text) return;
 
     // Rate limit (log-only drop, consistent with authority conventions):
@@ -945,8 +963,10 @@ export class GameServer {
    * The client must send JoinGame to enter the match.
    */
   private handleJoin(conn: ClientConnection, data: Uint8Array): void {
-    const { playerName } = MessageCodec.decodeJoin(data);
-    console.log(`[GameServer] Join request from: ${playerName}`);
+    const { playerName, isBot: claimedBot } = MessageCodec.decodeJoin(data);
+    // Only trust the bot flag from loopback (bots always connect locally).
+    const isBot = claimedBot && isLoopbackAddress(conn.address);
+    console.log(`[GameServer] Join request from: ${playerName}${isBot ? " (bot)" : ""}`);
 
     let client = this.clients.get(conn.id);
     if (!client) {
@@ -964,6 +984,7 @@ export class GameServer {
         lastInputSeq: 0,
         lastAckedTick: 0,
         isSpectator: true, // Start as spectator
+        isBot,
       };
       this.clients.set(conn.id, client);
 

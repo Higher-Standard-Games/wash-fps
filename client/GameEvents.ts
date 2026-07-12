@@ -615,21 +615,32 @@ function handleWeaponStateSync(ctx: GameEventContext, event: any): void {
     ammo: serverAmmo,
   });
 
-  // Detect weapon change
-  if (serverWeapon !== ctx._lastServerWeapon) {
-    const isFirstWeapon = ctx._lastServerWeapon === undefined;
-    const wvm = getWeaponViewManager();
-
-    if (!wvm.isReady) return;
-
-    console.log(`[GameEvents] Server weapon changed: ${ctx._lastServerWeapon || "none"} → ${serverWeapon}`);
+  // Reconcile the first-person viewmodel against the authoritative server weapon.
+  //
+  // This is deliberately LEVEL-triggered against the weapon the viewmodel is
+  // actually displaying — not edge-triggered on _lastServerWeapon. A client-
+  // predicted switch (scroll/number key) that never lands server-side leaves the
+  // server weapon unchanged, so an edge-triggered check would never fire and the
+  // viewmodel stayed stuck on the mispredicted weapon (fired RL while showing PG).
+  // Comparing to the displayed weapon self-heals that: once the predicted switch
+  // animation settles, any disagreement with the server is corrected.
+  const wvm = getWeaponViewManager();
+  if (wvm.isReady) {
+    const hadServerWeapon = ctx._lastServerWeapon !== undefined;
+    const displayed = wvm.getDisplayedWeaponId();
     ctx._lastServerWeapon = serverWeapon;
 
-    if (isFirstWeapon) {
+    if (!hadServerWeapon || displayed === null) {
+      // Initial equip — load instantly (no slide animation on spawn).
       wvm.loadWeapon(serverWeapon).catch((err) => {
         console.error(`[GameEvents] Failed to load initial weapon: ${serverWeapon}`, err);
       });
-    } else {
+    } else if (displayed !== serverWeapon && !wvm.isSwitching()) {
+      // Viewmodel settled on a weapon the server disagrees with (mispredicted or
+      // dropped switch input) — animate to the authoritative weapon. The
+      // !isSwitching guard leaves an in-flight predicted switch alone so normal
+      // switching stays responsive.
+      console.log(`[GameEvents] Reconciling viewmodel ${displayed} → server ${serverWeapon}`);
       wvm.switchWeaponAnimated(serverWeapon).catch((err) => {
         console.error(`[GameEvents] Failed to switch weapon: ${serverWeapon}`, err);
       });
