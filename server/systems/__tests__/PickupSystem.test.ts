@@ -118,11 +118,20 @@ describe("PickupSystem - health", () => {
     expect(sys.getActiveMask()[0]).toBe(false);
   });
 
-  it("small bubble overheals past 100 (Warsow)", () => {
+  it("small health is left on the map at full HP (stays visible, not consumed)", () => {
     sys.setPickupItems([healthEntry("small")]);
     const player = makePlayer(); // starts at 100
     sys.update(makeState(player) as never, 0.008, 10 as never);
-    expect(player.health.health).toBe(105);
+    expect(player.health.health).toBe(100); // no benefit → not taken
+    expect(sys.getActiveMask()[0]).toBe(true); // still active/visible
+  });
+
+  it("small health grants +5 when the player is hurt", () => {
+    sys.setPickupItems([healthEntry("small")]);
+    const player = makePlayer();
+    player.health.health = 90;
+    sys.update(makeState(player) as never, 0.008, 10 as never);
+    expect(player.health.health).toBe(95);
     expect(sys.getActiveMask()[0]).toBe(false);
   });
 
