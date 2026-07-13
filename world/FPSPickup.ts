@@ -126,12 +126,15 @@ export class FPSPickup extends Pickup {
       import("@babylonjs/core/Maths/math.color"),
     ]);
 
-    // Load the simpleitem icon FIRST — if it isn't available (the icons live in
-    // the non-pure data0_21.pk3, which isn't in the loaded set), skip the quad
-    // entirely rather than render a fullbright white placeholder on the box.
-    const tex = await PK3TextureLoader.getInstance().resolveAndLoadTexture(iconPath);
+    // Load the simpleitem icon FIRST. The Warsow icons live in the non-pure
+    // data0_21.pk3 (not in the loaded set), so we ship them loose under
+    // public/data/gfx/hud/icons/ammo/. Try the pk3 index, then fall back to the
+    // loose file (loadTexture fetches /data/<path> directly). Skip the quad
+    // entirely if neither resolves — never render a fullbright white placeholder.
+    const texLoader = PK3TextureLoader.getInstance();
+    const tex = (await texLoader.resolveAndLoadTexture(iconPath)) ?? (await texLoader.loadTexture(`${iconPath}.tga`));
     if (!tex) {
-      console.warn(`[FPSPickup] Ammo icon not found (pk3 not loaded?): ${iconPath} — showing plain box`);
+      console.warn(`[FPSPickup] Ammo icon not found: ${iconPath} — showing plain box`);
       return;
     }
 
