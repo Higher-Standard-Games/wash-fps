@@ -1,5 +1,10 @@
 import { AudioManager } from "../../../../engine/AudioManager";
 import { Cvar } from "../../../../engine/core/Cvar";
+import {
+  hexToRgbCvar,
+  registerPlayerModelVisualCvars,
+  rgbCvarToHexValue,
+} from "../PlayerModelVisualSettings";
 import { InputSystem } from "../../../../engine/input/InputSystem";
 import type { InputBinding, MouseButton } from "../../../../engine/input/InputTypes";
 import { MovementVars } from "../../../../engine/movement/MovementVars";
@@ -333,6 +338,7 @@ export class FPSSettingsView {
   constructor() {
     UIStyles.injectCSS("fps-settings-view", settingsCss);
     Cvar.init();
+    registerPlayerModelVisualCvars();
     RenderVars.getInstance();
     AudioManager.getInstance();
     MovementVars.getInstance();
@@ -515,6 +521,28 @@ export class FPSSettingsView {
     this.addCvarSlider(graphics.rows, "Anisotropy", "r_anisotropy", "graphics", { min: 1, max: 16, step: 1 });
     grid.appendChild(graphics.section);
 
+
+    const playerVisibility = this.createSection("Player Visibility");
+    this.addRgbColorPickerRow(playerVisibility.rows, "Team Udon", "cl_team_alpha_color", "graphics");
+    this.addRgbColorPickerRow(playerVisibility.rows, "Team Soba", "cl_team_beta_color", "graphics");
+    this.addRgbColorPickerRow(playerVisibility.rows, "FFA Enemy", "cl_team_ffa_color", "graphics");
+    this.addCvarToggle(playerVisibility.rows, "Outline", "cl_player_outline", "graphics");
+    this.addRgbColorPickerRow(playerVisibility.rows, "Udon Outline", "cl_team_alpha_outline_color", "graphics");
+    this.addRgbColorPickerRow(playerVisibility.rows, "Soba Outline", "cl_team_beta_outline_color", "graphics");
+    this.addRgbColorPickerRow(playerVisibility.rows, "FFA Outline", "cl_team_ffa_outline_color", "graphics");
+    this.addCvarSlider(playerVisibility.rows, "Outline Size", "cl_player_outline_size", "graphics", {
+      min: 0,
+      max: 100,
+      step: 1,
+    });
+    this.addCvarToggle(playerVisibility.rows, "Fullbright Boost", "cl_player_fullbright", "graphics");
+    this.addCvarSlider(playerVisibility.rows, "Boost Amount", "cl_player_fullbright_intensity", "graphics", {
+      min: 0,
+      max: 1,
+      step: 0.05,
+      suffix: "%",
+    });
+    grid.appendChild(playerVisibility.section);
     return panel;
   }
 
@@ -1007,6 +1035,49 @@ export class FPSSettingsView {
       const current = Cvar.getString(cvarName).toUpperCase();
       select.value = current;
       preview.style.background = `#${current}`;
+    });
+    this.addReset(tabId, () => {
+      Cvar.reset(cvarName);
+    });
+    container.appendChild(row);
+  }
+
+
+  private addRgbColorPickerRow(container: HTMLElement, label: string, cvarName: string, tabId: SettingsTabId): void {
+    const row = document.createElement("div");
+    row.className = "fps-settings-row";
+
+    const labelEl = document.createElement("span");
+    labelEl.className = "fps-settings-label";
+    labelEl.textContent = label;
+    row.appendChild(labelEl);
+
+    const control = document.createElement("div");
+    control.className = "fps-settings-control";
+    row.appendChild(control);
+
+    const pickerControl = document.createElement("div");
+    pickerControl.className = "fps-settings-color-select";
+    control.appendChild(pickerControl);
+
+    const input = document.createElement("input");
+    input.className = "fps-settings-color-input";
+    input.type = "color";
+    pickerControl.appendChild(input);
+
+    const valueEl = document.createElement("span");
+    valueEl.className = "fps-settings-color-value";
+    pickerControl.appendChild(valueEl);
+
+    input.addEventListener("input", () => {
+      Cvar.set(cvarName, hexToRgbCvar(input.value));
+      void this.refresh();
+    });
+
+    this.addRefresh(() => {
+      const current = Cvar.getString(cvarName);
+      input.value = rgbCvarToHexValue(current);
+      valueEl.textContent = current.trim();
     });
     this.addReset(tabId, () => {
       Cvar.reset(cvarName);
