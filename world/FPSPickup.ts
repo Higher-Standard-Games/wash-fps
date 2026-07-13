@@ -126,6 +126,15 @@ export class FPSPickup extends Pickup {
       import("@babylonjs/core/Maths/math.color"),
     ]);
 
+    // Load the simpleitem icon FIRST — if it isn't available (the icons live in
+    // the non-pure data0_21.pk3, which isn't in the loaded set), skip the quad
+    // entirely rather than render a fullbright white placeholder on the box.
+    const tex = await PK3TextureLoader.getInstance().resolveAndLoadTexture(iconPath);
+    if (!tex) {
+      console.warn(`[FPSPickup] Ammo icon not found (pk3 not loaded?): ${iconPath} — showing plain box`);
+      return;
+    }
+
     // Load the icon quad (separate model, authored in the ammobox's own space).
     const loader = ModelLoader.getInstance();
     if (!loader.isInitialized()) loader.init(scene);
@@ -138,18 +147,15 @@ export class FPSPickup extends Pickup {
     if (!iconResult?.meshes?.length) return;
 
     // The simpleitem icon, rendered unlit so it stays legible on the box like a decal.
-    const tex = await PK3TextureLoader.getInstance().resolveAndLoadTexture(iconPath);
+    tex.hasAlpha = true;
     const mat = new StandardMaterial(`ammo_icon_${ammoType}`, scene);
     mat.backFaceCulling = false;
     mat.disableLighting = true;
     mat.emissiveColor = Color3.White();
-    if (tex) {
-      tex.hasAlpha = true;
-      mat.diffuseTexture = tex;
-      mat.emissiveTexture = tex;
-      mat.useAlphaFromDiffuseTexture = true;
-      mat.transparencyMode = 2; // ALPHABLEND
-    }
+    mat.diffuseTexture = tex;
+    mat.emissiveTexture = tex;
+    mat.useAlphaFromDiffuseTexture = true;
+    mat.transparencyMode = 2; // ALPHABLEND
 
     for (const m of iconResult.meshes) {
       if (!(m instanceof Mesh) || m.getTotalVertices() === 0) continue;
