@@ -971,6 +971,23 @@ export class Game {
       return;
     }
 
+    // Post-game screen: gameplay is over — strip movement/actions locally so
+    // prediction matches the server's input freeze (look-around stays free).
+    if (MatchStateManager.getInstance().isPostGame()) {
+      input.forward = false;
+      input.backward = false;
+      input.left = false;
+      input.right = false;
+      input.jump = false;
+      input.crouch = false;
+      input.sprint = false;
+      input.fire = false;
+      input.altFire = false;
+      input.reload = false;
+      input.use = false;
+      input.weaponSlot = 0; // no weapon switching either
+    }
+
     // While dead, check for respawn input and strip ALL gameplay input.
     // Respawn is triggered via a dedicated RequestSpawn reliable message.
     if (this._isPlayerDead) {

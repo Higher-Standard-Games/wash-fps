@@ -1,0 +1,153 @@
+/**
+ * Post-game screen server behavior:
+ *  - winner computation (FFA top score, team score, ties → draw)
+ *  - winner lifecycle (set entering PostGame, in snapshot, cleared on warmup)
+ *  - input freeze while the post-game screen is up
+ */
+
+import type { PlayerId } from "@engine/server/ecs/types";
+import { MatchPhase } from "@shared/server/gametype";
+import { beforeEach, describe, expect, it } from "vitest";
+import { Deathmatch } from "../Deathmatch";
+import { GametypeController } from "../GametypeController";
+import { MatchState } from "../MatchState";
+
+const P1 = 1 as PlayerId;
+const P2 = 2 as PlayerId;
+
+/** Drive a MatchState into the Active phase (so addScore counts). */
+function activate(ms: MatchState): void {
+  ms.transition(MatchPhase.Countdown);
+  ms.transition(MatchPhase.Active);
+}
+
+describe("MatchState.computeWinner", () => {
+  let ms: MatchState;
+
+  beforeEach(() => {
+    ms = new MatchState("Test");
+    ms.addPlayer(P1);
+    ms.addPlayer(P2);
+    activate(ms);
+  });
+
+  it("FFA: top scorer wins with resolved name", () => {
+    ms.addScore(P1, 12);
+    ms.addScore(P2, 7);
+    const w = ms.computeWinner(false, (pid) => (pid === P1 ? "Wraith" : "Other"));
+    expect(w).toEqual({ kind: "player", id: "1", name: "Wraith" });
+  });
+
+  it("FFA: tied top score is a draw", () => {
+    ms.addScore(P1, 5);
+    ms.addScore(P2, 5);
+    expect(ms.computeWinner(false).kind).toBe("draw");
+  });
+
+  it("FFA: negative scores still produce a winner (selfkill duels)", () => {
+    ms.addScore(P1, -1);
+    ms.addScore(P2, -3);
+    const w = ms.computeWinner(false);
+    expect(w.kind).toBe("player");
+    expect(w.id).toBe("1");
+  });
+
+  it("team: higher team score wins with team name", () => {
+    ms.setPlayerTeam(P1, "udon");
+    ms.setPlayerTeam(P2, "soba");
+    ms.addTeamScore("udon", 10);
+    ms.addTeamScore("soba", 4);
+    const w = ms.computeWinner(true);
+    expect(w).toEqual({ kind: "team", id: "udon", name: "Team Udon" });
+  });
+
+  it("team: equal team scores are a draw", () => {
+    ms.addTeamScore("udon", 6);
+    ms.addTeamScore("soba", 6);
+    expect(ms.computeWinner(true).kind).toBe("draw");
+  });
+});
+
+describe("winner lifecycle", () => {
+  it("is exposed in the snapshot during PostGame and cleared on warmup restart", () => {
+    const ms = new MatchState("Test");
+    ms.addPlayer(P1);
+    ms.addPlayer(P2);
+    activate(ms);
+    ms.addScore(P1, 3);
+
+    ms.endMatch();
+    ms.computeWinner(false, () => "Wraith");
+    expect(ms.phase).toBe(MatchPhase.PostGame);
+    expect(ms.toSnapshot().winner).toEqual({ kind: "player", id: "1", name: "Wraith" });
+
+    ms.restart(); // PostGame → Warmup
+    expect(ms.winner).toBeNull();
+    expect(ms.toSnapshot().winner).toBeUndefined();
+  });
+});
+
+describe("PostGame input freeze", () => {
+  function makePlayerEntity(id: number) {
+    return {
+      id,
+      ownerId: id as PlayerId,
+      input: {
+        forward: 1,
+        right: -1,
+        pitch: 0.2,
+        yaw: 1.5,
+        jump: true,
+        crouch: true,
+        attack: true,
+        altAttack: true,
+        use: true,
+        buttons: 0xffff,
+        weaponSlot: 2,
+        sequence: 41,
+        inputQueue: [{ forward: 1, right: 1, pitch: 0.2, yaw: 1.5, buttons: 0xffff, sequence: 42, weaponSlot: 3 }],
+        lastProcessedSeq: 40,
+        wantsRespawn: false,
+      },
+    };
+  }
+
+  function makeState(entities: ReturnType<typeof makePlayerEntity>[]) {
+    return { allEntities: () => entities } as never;
+  }
+
+  it("zeroes movement/actions but keeps view angles and sequences", () => {
+    const controller = new GametypeController(new Deathmatch());
+    const ms = controller.getMatchState();
+    ms.transition(MatchPhase.Countdown);
+    ms.transition(MatchPhase.Active);
+    ms.endMatch(); // → PostGame
+
+    const player = makePlayerEntity(1);
+    controller.applyPostGameInputFreeze(makeState([player]));
+
+    expect(player.input.forward).toBe(0);
+    expect(player.input.right).toBe(0);
+    expect(player.input.buttons).toBe(0);
+    expect(player.input.jump).toBe(false);
+    expect(player.input.attack).toBe(false);
+    expect(player.input.inputQueue[0].forward).toBe(0);
+    expect(player.input.inputQueue[0].buttons).toBe(0);
+    expect(player.input.inputQueue[0].weaponSlot).toBe(0);
+    // Free-look + reconciliation must survive the freeze:
+    expect(player.input.pitch).toBe(0.2);
+    expect(player.input.yaw).toBe(1.5);
+    expect(player.input.inputQueue[0].pitch).toBe(0.2);
+    expect(player.input.inputQueue[0].sequence).toBe(42);
+  });
+
+  it("does nothing outside PostGame (warmup free-fight stays free)", () => {
+    const controller = new GametypeController(new Deathmatch());
+    const player = makePlayerEntity(1);
+    controller.applyPostGameInputFreeze(makeState([player])); // phase = Warmup
+
+    expect(player.input.forward).toBe(1);
+    expect(player.input.buttons).toBe(0xffff);
+    expect(player.input.inputQueue[0].buttons).toBe(0xffff);
+  });
+});

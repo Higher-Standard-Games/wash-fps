@@ -19,6 +19,7 @@ import { UIStyles } from "../../../engine/ui/UIStyles";
 import { UITheme } from "../../../engine/ui/UITheme";
 import { getWeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
 import { HUDState } from "./HUDState";
+import { MatchPhase, MatchStateManager } from "./MatchStateManager";
 
 // Re-export FPSHudWidget interface for backwards compatibility
 export type { FPSHudWidget } from "./hud/HudWidget";
@@ -116,6 +117,18 @@ export class FPSHud {
     this._scoreboard = new FPSScoreboard();
     this._chat = new FPSChat();
     this._damageIndicators = new FPSDamageIndicators();
+
+    // Post-game screen: hold the scoreboard open for the whole PostGame phase
+    // (Tab-release can't close it), then close it when the next warmup begins.
+    MatchStateManager.getInstance().onPhaseChange((newPhase) => {
+      if (!this._scoreboard) return;
+      if (newPhase === MatchPhase.PostGame) {
+        this._scoreboard.setLocked(true);
+      } else {
+        this._scoreboard.setLocked(false);
+        this._scoreboard.hide();
+      }
+    });
 
     // Wire chat: T opens talk mode (Q3 messagemode — pointer lock stays held,
     // mouse look keeps working; game binds are suppressed by the InputSystem

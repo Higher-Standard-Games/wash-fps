@@ -13,6 +13,13 @@ export enum MatchPhase {
   PostGame = 3,
 }
 
+/** Authoritative match result (set by the server during PostGame). */
+export interface MatchWinner {
+  kind: "player" | "team" | "draw";
+  id?: string;
+  name?: string;
+}
+
 export interface MatchStateSnapshot {
   phase: MatchPhase;
   timeRemaining: number;
@@ -24,6 +31,7 @@ export interface MatchStateSnapshot {
   playerTeams?: Record<string, string>;
   teamNames?: Record<string, string>;
   spectators?: Array<{ playerId: string; name: string; ping: number }>;
+  winner?: MatchWinner;
 }
 
 export type PhaseChangeCallback = (newPhase: MatchPhase, oldPhase: MatchPhase) => void;
@@ -41,6 +49,7 @@ export class MatchStateManager {
   private _playerTeams: Record<string, string> = {};
   private _teamNames: Record<string, string> = {};
   private _spectators: Array<{ playerId: string; name: string; ping: number }> = [];
+  private _winner: MatchWinner | null = null;
   private _isReady: boolean = false;
   private _phaseCallbacks: PhaseChangeCallback[] = [];
 
@@ -73,6 +82,8 @@ export class MatchStateManager {
     this._playerTeams = event.playerTeams ?? {};
     this._teamNames = event.teamNames ?? {};
     this._spectators = event.spectators ?? [];
+    // Parse winner BEFORE firing phase callbacks so PostGame subscribers see it.
+    this._winner = event.winner ?? null;
 
     // Fire phase change callbacks
     if (oldPhase !== this._phase) {
@@ -121,6 +132,10 @@ export class MatchStateManager {
   /** Spectator roster (no sim entity) — for the scoreboard. */
   get spectators(): Array<{ playerId: string; name: string; ping: number }> {
     return this._spectators;
+  }
+  /** Match result — set only while in PostGame. */
+  get winner(): MatchWinner | null {
+    return this._winner;
   }
   get isReady(): boolean {
     return this._isReady;

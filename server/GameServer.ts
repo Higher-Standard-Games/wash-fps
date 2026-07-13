@@ -576,6 +576,10 @@ export class GameServer {
       }
     }
 
+    // 0.7. Post-game input freeze — zero movement/actions (keep look) while the
+    // scoreboard screen is up, so the fight visibly ends when the match does.
+    this.gametypeController.applyPostGameInputFreeze(this.simulation.getStateMut());
+
     // 1. Run simulation (physics, weapons, combat)
     this.simulation.tick();
 

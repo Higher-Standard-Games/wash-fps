@@ -6,7 +6,13 @@
  */
 
 import type { PlayerId } from "@engine/server/ecs/types";
-import { type MatchConfig, MatchPhase, type MatchStateSnapshot, type TeamId } from "@shared/server/gametype";
+import {
+  type MatchConfig,
+  MatchPhase,
+  type MatchStateSnapshot,
+  type MatchWinner,
+  type TeamId,
+} from "@shared/server/gametype";
 
 /**
  * Default match config (can be overridden by gametype)
@@ -16,7 +22,7 @@ const DEFAULT_MATCH_CONFIG: MatchConfig = {
   countdownDuration: 3, // 3-2-1
   scoreLimit: 20,
   timeLimit: 600, // 10 minutes
-  postGameDuration: 10, // 10 seconds scoreboard
+  postGameDuration: 15, // post-game screen (winner banner + scoreboard)
   respawnDelay: 3, // 3 seconds
   selfDamage: 1.0, // full self-damage (rocket jumping!)
 };
@@ -39,6 +45,8 @@ export class MatchState {
   ]);
   private config: MatchConfig;
   private gametypeName: string;
+  /** Match result, set on entering PostGame; cleared when warmup restarts. */
+  private _winner: MatchWinner | null = null;
 
   constructor(gametypeName: string, config: Partial<MatchConfig> = {}) {
     this.config = { ...DEFAULT_MATCH_CONFIG, ...config };
@@ -76,6 +84,54 @@ export class MatchState {
   }
   get teamNames(): ReadonlyMap<TeamId, string> {
     return this._teamNames;
+  }
+  get winner(): MatchWinner | null {
+    return this._winner;
+  }
+
+  // ========================================================================
+  // Winner
+  // ========================================================================
+
+  /**
+   * Compute and store the match result from current scores. Called by the
+   * controller when the match enters PostGame (both time-out and score-limit
+   * paths). Team-based: highest team score wins; else highest player score.
+   * Ties are a draw. `resolveName` maps a winning playerId to a display name.
+   */
+  computeWinner(teamBased: boolean, resolveName?: (playerId: PlayerId) => string): MatchWinner {
+    if (teamBased) {
+      const udon = this._teamScores.get("udon") ?? 0;
+      const soba = this._teamScores.get("soba") ?? 0;
+      if (udon === soba) {
+        this._winner = { kind: "draw" };
+      } else {
+        const teamId: TeamId = udon > soba ? "udon" : "soba";
+        this._winner = { kind: "team", id: teamId, name: this._teamNames.get(teamId) ?? teamId };
+      }
+      return this._winner;
+    }
+
+    // FFA/duel: top player score; only actual players (spectators hold no score entry).
+    let best: PlayerId | null = null;
+    let bestScore = Number.NEGATIVE_INFINITY;
+    let tied = false;
+    for (const [playerId, score] of this._scores) {
+      if (score > bestScore) {
+        best = playerId;
+        bestScore = score;
+        tied = false;
+      } else if (score === bestScore) {
+        tied = true;
+      }
+    }
+
+    if (best === null || tied) {
+      this._winner = { kind: "draw" };
+    } else {
+      this._winner = { kind: "player", id: best.toString(), name: resolveName?.(best) ?? `Player ${best}` };
+    }
+    return this._winner;
   }
 
   // ========================================================================
@@ -270,6 +326,7 @@ export class MatchState {
       case MatchPhase.Warmup:
         this._timeRemaining = this.config.warmupTimeout;
         this._readyPlayers.clear();
+        this._winner = null; // previous match's result is over
         break;
       case MatchPhase.Countdown:
         this._timeRemaining = this.config.countdownDuration;
@@ -341,6 +398,7 @@ export class MatchState {
       teamScores: teamScoresRec,
       playerTeams: playerTeamsRec,
       teamNames: teamNamesRec,
+      winner: this._winner ?? undefined,
     };
   }
 }

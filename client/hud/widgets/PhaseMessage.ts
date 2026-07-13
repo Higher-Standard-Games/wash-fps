@@ -59,18 +59,30 @@ export class FPSPhaseMessage implements FPSHudWidget {
         this.hideTimeout = setTimeout(() => this.hideMessage(), 2000);
         break;
 
-      case MatchPhase.PostGame:
+      case MatchPhase.PostGame: {
+        // Winner banner — FIGHT!-style slam with the authoritative match result.
+        const winner = mgr.winner;
+        const title =
+          winner && winner.kind !== "draw" && winner.name ? `${this.escapeHtml(winner.name)} wins!` : "Draw!";
         this.showHtml(
-          `<div class="fps-phase-title">Match Over</div>` +
-            `<div class="fps-phase-subtitle">Next match starting soon...</div>`,
+          `<div class="fps-phase-fight">${title}</div>` +
+            `<div class="fps-phase-subtitle">Match over — next match starting soon...</div>`,
         );
         break;
+      }
     }
   }
 
   private showHtml(html: string): void {
     this.element.innerHTML = html;
     this.element.classList.remove("hidden");
+  }
+
+  /** Escape user-controlled text (player names) before innerHTML interpolation. */
+  private escapeHtml(text: string): string {
+    const div = document.createElement("div");
+    div.textContent = text;
+    return div.innerHTML;
   }
 
   private hideMessage(): void {

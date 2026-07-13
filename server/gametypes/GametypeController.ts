@@ -346,6 +346,11 @@ export class GametypeController {
         this.respawnAllPlayers(state, tickNum);
         this.awardTracker.onMatchStart();
       }
+
+      // Match ended on the time limit — record who won for the post-game screen.
+      if (this.matchState.phase === MatchPhase.PostGame) {
+        this.recordMatchWinner();
+      }
     }
 
     // 4. Check win condition during active phase
@@ -373,6 +378,9 @@ export class GametypeController {
         if (limitReached) {
           console.log(`[GametypeController] Score limit reached!`);
           this.matchState.endMatch();
+          // Score-limit path enters PostGame outside matchState.update(), so the
+          // phaseChanged block above didn't see it — record the winner here.
+          this.recordMatchWinner();
         }
       }
     }
@@ -480,6 +488,42 @@ export class GametypeController {
 
   private resolvePlayerName(playerId: PlayerId): string {
     return this.nameResolver?.(playerId) ?? `Player ${playerId}`;
+  }
+
+  /** Compute + store the match result (for the post-game screen banner). */
+  private recordMatchWinner(): void {
+    const winner = this.matchState.computeWinner(this.gametype.teamBased, (pid) => this.resolvePlayerName(pid));
+    console.log(`[GametypeController] Match result: ${winner.kind}${winner.name ? ` — ${winner.name}` : ""}`);
+  }
+
+  /**
+   * Freeze gameplay input while the post-game screen is up: zero movement and
+   * action buttons on every player entity (current state AND queued usercmds)
+   * but keep view angles + sequence numbers, so players can still look around
+   * and client reconciliation acks stay intact. Called by GameServer each tick
+   * BEFORE simulation.tick(). Deterministic — driven only by match phase.
+   */
+  applyPostGameInputFreeze(state: WorldState): void {
+    if (this.matchState.phase !== MatchPhase.PostGame) return;
+
+    for (const entity of state.allEntities()) {
+      if (entity.ownerId === undefined || !entity.input) continue;
+      const input = entity.input;
+      input.forward = 0;
+      input.right = 0;
+      input.buttons = 0;
+      input.jump = false;
+      input.crouch = false;
+      input.attack = false;
+      input.altAttack = false;
+      input.use = false;
+      for (const queued of input.inputQueue) {
+        queued.forward = 0;
+        queued.right = 0;
+        queued.buttons = 0;
+        queued.weaponSlot = 0; // 0 = no weapon change
+      }
+    }
   }
 
   // ========================================================================

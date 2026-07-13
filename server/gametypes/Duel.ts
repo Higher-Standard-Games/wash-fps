@@ -29,7 +29,7 @@ export class Duel extends BaseGametype {
       countdownDuration: 3, // 3-2-1
       scoreLimit: 0, // no score limit
       timeLimit: 600, // 10 minutes
-      postGameDuration: 10, // scoreboard duration
+      postGameDuration: 18, // post-game screen duration (duel savors the result)
       respawnDelay: 3, // seconds min before respawn input accepted
       maxRespawnDelay: 6, // seconds auto-respawn deadline
       selfDamage: 1.0, // full self-damage

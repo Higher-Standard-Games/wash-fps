@@ -16,6 +16,8 @@ export class FPSScoreboard {
   private bodyEl: HTMLElement;
   private titleEl: HTMLElement;
   private visible: boolean = false;
+  /** While true (post-game screen), hide() is ignored — board stays open. */
+  private locked: boolean = false;
   private localPlayerId: string = "";
   private board: HTMLElement;
 
@@ -64,8 +66,19 @@ export class FPSScoreboard {
   }
 
   public hide(): void {
+    if (this.locked) return; // post-game screen holds the board open
     this.visible = false;
     this.overlay.style.display = "none";
+  }
+
+  /**
+   * Lock the scoreboard open (post-game screen). While locked, hide() —
+   * including the Tab-release handler — is ignored. Unlocking does not hide;
+   * the caller decides (so warmup can close it explicitly).
+   */
+  public setLocked(locked: boolean): void {
+    this.locked = locked;
+    if (locked) this.show();
   }
 
   public isVisible(): boolean {
