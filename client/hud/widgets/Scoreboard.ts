@@ -20,6 +20,11 @@ export class FPSScoreboard {
   private locked: boolean = false;
   /** Data signature of the last rebuild — refresh() skips when unchanged. */
   private lastSignature: string = "";
+  /** Post-game roster memory: players seen on the board since the lock. When a
+   *  client disconnects during the post-game (bots leave at +10s, ragequits),
+   *  their row stays — dimmed — instead of vanishing from the final board. */
+  // biome-ignore lint/suspicious/noExplicitAny: mirrors HUDState scoreboard entry shape
+  private postGameRoster: Map<string, any> | null = null;
   private localPlayerId: string = "";
   private board: HTMLElement;
   private returnBtn: HTMLButtonElement;
@@ -113,11 +118,13 @@ export class FPSScoreboard {
       // Light, un-blurred veil + board shifted right so the 3D winner showcase
       // (left third of the view) stays readable.
       this.overlay.classList.add("fps-scoreboard-overlay--postgame");
+      this.postGameRoster = new Map(); // remember departing players' final rows
       this.setTitle(winnerTitle);
       this.setLocked(true);
     } else {
       this.board.classList.remove("fps-scoreboard--postgame");
       this.overlay.classList.remove("fps-scoreboard-overlay--postgame");
+      this.postGameRoster = null;
       this.setTitle("SCOREBOARD");
       this.setLocked(false);
       this.setReturnAction(null);
@@ -141,7 +148,25 @@ export class FPSScoreboard {
     if (!this.visible) return;
 
     const state = HUDState.getInstance();
-    const signature = JSON.stringify([state.teamNames, state.teamScores, state.scoreboard, this.localPlayerId]);
+
+    // Post-game roster union: remember everyone seen since the lock, and keep
+    // players who have since disconnected (bots leave at +10s, ragequits) as
+    // dimmed rows with their final score instead of dropping them.
+    // biome-ignore lint/suspicious/noExplicitAny: mirrors HUDState scoreboard entry shape
+    const entries: any[] = [...state.scoreboard];
+    if (this.postGameRoster) {
+      for (const entry of entries) {
+        this.postGameRoster.set(entry.playerId, { ...entry });
+      }
+      const liveIds = new Set(entries.map((e) => e.playerId));
+      for (const [playerId, remembered] of this.postGameRoster) {
+        if (!liveIds.has(playerId)) {
+          entries.push({ ...remembered, departed: true });
+        }
+      }
+    }
+
+    const signature = JSON.stringify([state.teamNames, state.teamScores, entries, this.localPlayerId]);
     if (signature === this.lastSignature) return;
     this.lastSignature = signature;
 
@@ -189,16 +214,19 @@ export class FPSScoreboard {
       const soba = createTeamScoreboard("soba", "fps-scoreboard-team--soba");
       const specs: any[] = []; // Collect spectators to show later if needed
 
-      for (const entry of state.scoreboard) {
+      for (const entry of entries) {
         const row = document.createElement("div");
         row.className = "fps-scoreboard-row";
         if (entry.playerId === this.localPlayerId) {
           row.classList.add("fps-scoreboard-row--self");
         }
+        if (entry.departed) {
+          row.classList.add("fps-scoreboard-row--departed");
+        }
         row.innerHTML = `
                     <span class="fps-scoreboard-col-name">${this.escapeHtml(entry.name)}</span>
                     <span class="fps-scoreboard-col-score">${entry.score}</span>
-                    <span class="fps-scoreboard-col-ping">${entry.ping}ms</span>
+                    <span class="fps-scoreboard-col-ping">${entry.departed ? "LEFT" : `${entry.ping}ms`}</span>
                 `;
 
         if (entry.teamId === "udon") udon.body.appendChild(row);
@@ -256,7 +284,7 @@ export class FPSScoreboard {
       this.board.appendChild(this.bodyEl);
 
       const ffaSpecs: typeof state.scoreboard = [];
-      for (const entry of state.scoreboard) {
+      for (const entry of entries) {
         if (entry.teamId === "spectator") {
           ffaSpecs.push(entry);
           continue;
@@ -266,12 +294,15 @@ export class FPSScoreboard {
         if (entry.playerId === this.localPlayerId) {
           row.classList.add("fps-scoreboard-row--self");
         }
+        if (entry.departed) {
+          row.classList.add("fps-scoreboard-row--departed");
+        }
 
         row.innerHTML = `
                     <span class="fps-scoreboard-col-name">${this.escapeHtml(entry.name)}</span>
                     <span class="fps-scoreboard-col-score">${entry.score}</span>
                     <span class="fps-scoreboard-col-deaths">${entry.deaths}</span>
-                    <span class="fps-scoreboard-col-ping">${entry.ping}ms</span>
+                    <span class="fps-scoreboard-col-ping">${entry.departed ? "LEFT" : `${entry.ping}ms`}</span>
                 `;
         this.bodyEl.appendChild(row);
       }
