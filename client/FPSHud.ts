@@ -155,9 +155,16 @@ export class FPSHud {
             document.exitPointerLock();
             this._chat?.openInput();
             this._scoreboard?.setReturnAction(() => {
-              // Same path as pause-menu Disconnect: reload lands back in the
-              // lobby UI; the emptied server exits via shutdownOnEmpty.
-              window.location.reload();
+              // Navigate to the lobby deep link (?lobby=<id>, stashed by
+              // MatchLobbyView at match start) — LobbyPanel auto-joins it on
+              // boot. The emptied server exits via shutdownOnEmpty. Fall back
+              // to a plain reload when no lobby is known (dev CLI joins).
+              const returnLobby = sessionStorage.getItem("shag.return_lobby");
+              if (returnLobby) {
+                window.location.href = `${window.location.origin}/?lobby=${encodeURIComponent(returnLobby)}`;
+              } else {
+                window.location.reload();
+              }
             });
           }, 6000);
         }
@@ -192,8 +199,10 @@ export class FPSHud {
       if ((e.code !== "KeyT" && e.code !== "Enter" && e.code !== "NumpadEnter") || e.repeat) return;
       if (e.altKey || e.ctrlKey || e.metaKey) return;
       if (!this._chat || this._chat.isInputActive()) return;
-      // Only in gameplay: pointer locked, no menus/console/text fields open
-      if (!document.pointerLockElement) return;
+      // Only in gameplay: pointer locked, no menus/console/text fields open.
+      // Exception: the single-match post-game deliberately releases pointer
+      // lock (open-up beat) — chat must stay reopenable for the banter.
+      if (!document.pointerLockElement && !MatchStateManager.getInstance().isPostGame()) return;
       if (this._pauseMenu?.isOpen() || this._settings?.isOpen()) return;
       const active = document.activeElement;
       if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) return;
