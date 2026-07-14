@@ -32,6 +32,8 @@ export interface MatchStateSnapshot {
   teamNames?: Record<string, string>;
   spectators?: Array<{ playerId: string; name: string; ping: number }>;
   winner?: MatchWinner;
+  /** Overtime extensions this match (0/undefined = regulation). */
+  overtime?: number;
 }
 
 export type PhaseChangeCallback = (newPhase: MatchPhase, oldPhase: MatchPhase) => void;
@@ -50,6 +52,7 @@ export class MatchStateManager {
   private _teamNames: Record<string, string> = {};
   private _spectators: Array<{ playerId: string; name: string; ping: number }> = [];
   private _winner: MatchWinner | null = null;
+  private _overtime: number = 0;
   private _isReady: boolean = false;
   private _phaseCallbacks: PhaseChangeCallback[] = [];
 
@@ -84,6 +87,7 @@ export class MatchStateManager {
     this._spectators = event.spectators ?? [];
     // Parse winner BEFORE firing phase callbacks so PostGame subscribers see it.
     this._winner = event.winner ?? null;
+    this._overtime = event.overtime ?? 0;
 
     // Fire phase change callbacks
     if (oldPhase !== this._phase) {
@@ -136,6 +140,10 @@ export class MatchStateManager {
   /** Match result — set only while in PostGame. */
   get winner(): MatchWinner | null {
     return this._winner;
+  }
+  /** Overtime extensions this match (0 = regulation). */
+  get overtime(): number {
+    return this._overtime;
   }
   get isReady(): boolean {
     return this._isReady;

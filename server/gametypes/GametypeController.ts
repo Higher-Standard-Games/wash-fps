@@ -65,7 +65,7 @@ export class GametypeController {
   constructor(gametype: BaseGametype) {
     this.gametype = gametype;
     this.matchConfig = GametypeController.applyEnvOverrides(gametype.getMatchConfig());
-    this.matchState = new MatchState(gametype.name, this.matchConfig);
+    this.matchState = new MatchState(gametype.name, this.matchConfig, gametype.teamBased);
     this.spawnStrategy = createSpawnStrategy(gametype.getSpawnStrategy());
 
     console.log(`[GametypeController] Initialized: ${gametype.name}`);
@@ -77,11 +77,11 @@ export class GametypeController {
 
   /**
    * Dev/test overrides for match pacing via environment variables:
-   *   SHAG_TIMELIMIT — match time limit    SHAG_SCORELIMIT — frag/score limit
-   *   SHAG_WARMUP    — warmup timeout
-   * Time values accept unit suffixes: "2m" = 2 minutes, "90s" or bare "90" =
-   * seconds. (Quake's g_timelimit tradition is MINUTES, so a bare tiny value
-   * like "2" is almost always a unit mistake — it gets a loud warning.)
+   *   SHAG_TIMELIMIT — match time limit. Bare number = MINUTES (Quake
+   *     g_timelimit semantics): "2" = 2 minutes. Suffix for seconds: "90s".
+   *   SHAG_WARMUP    — warmup timeout. Bare number = SECONDS: "10" = 10s.
+   *     Suffix for minutes: "2m".
+   *   SHAG_SCORELIMIT — frag/score limit (plain number).
    * Read once at server boot; inert when unset. Lobby-spawned servers inherit
    * the lobby process env, so one export covers the whole dev session.
    */
@@ -89,37 +89,36 @@ export class GametypeController {
     const env = typeof process !== "undefined" ? process.env : undefined;
     if (!env) return config;
 
-    /** Parse "2m" → 120, "90s"/"90" → 90. Returns null for garbage. */
-    const parseSeconds = (raw: string): number | null => {
+    /** Parse a time value to seconds. `defaultUnit` applies to bare numbers. */
+    const parseTime = (raw: string, defaultUnit: "s" | "m"): number | null => {
       const m = raw.trim().match(/^(\d+(?:\.\d+)?)\s*(m|min|s|sec)?$/i);
       if (!m) return null;
       const value = Number(m[1]);
       if (!Number.isFinite(value) || value < 0) return null;
-      const unit = (m[2] ?? "s").toLowerCase();
+      const unit = (m[2] ?? defaultUnit).toLowerCase();
       return unit.startsWith("m") ? value * 60 : value;
     };
 
     const overridden = { ...config };
-    const apply = (key: string, field: "timeLimit" | "scoreLimit" | "warmupTimeout", isTime: boolean) => {
+    const apply = (
+      key: string,
+      field: "timeLimit" | "scoreLimit" | "warmupTimeout",
+      timeDefaultUnit: "s" | "m" | null,
+    ) => {
       const raw = env[key];
       if (raw === undefined || raw === "") return;
-      const value = isTime ? parseSeconds(raw) : Number(raw);
+      const value = timeDefaultUnit ? parseTime(raw, timeDefaultUnit) : Number(raw);
       if (value === null || !Number.isFinite(value) || value < 0) {
         console.warn(`[GametypeController] Ignoring invalid ${key}="${raw}"`);
         return;
       }
       overridden[field] = value;
-      console.log(`[GametypeController] Env override: ${field} = ${value}s (${key}="${raw}")`);
-      if (field === "timeLimit" && value > 0 && value < 30) {
-        console.warn(
-          `[GametypeController] ⚠ ${key}="${raw}" is ${value} SECONDS — the match will end almost immediately. ` +
-            `Did you mean "${raw}m" (${value} minutes)?`,
-        );
-      }
+      const unitNote = timeDefaultUnit ? `${value}s` : `${value}`;
+      console.log(`[GametypeController] Env override: ${field} = ${unitNote} (${key}="${raw}")`);
     };
-    apply("SHAG_TIMELIMIT", "timeLimit", true);
-    apply("SHAG_SCORELIMIT", "scoreLimit", false);
-    apply("SHAG_WARMUP", "warmupTimeout", true);
+    apply("SHAG_TIMELIMIT", "timeLimit", "m"); // bare = minutes, like g_timelimit
+    apply("SHAG_SCORELIMIT", "scoreLimit", null);
+    apply("SHAG_WARMUP", "warmupTimeout", "s"); // bare = seconds, like g_warmup
     return overridden;
   }
 

@@ -135,10 +135,10 @@ describe("match pacing env overrides (dev/test)", () => {
     }
   });
 
-  it("SHAG_TIMELIMIT/SCORELIMIT/WARMUP override the gametype config", () => {
-    process.env.SHAG_TIMELIMIT = "120";
+  it("SHAG_TIMELIMIT bare number is MINUTES (g_timelimit), SHAG_WARMUP is seconds", () => {
+    process.env.SHAG_TIMELIMIT = "2"; // 2 minutes — the natural Quake habit
     process.env.SHAG_SCORELIMIT = "3";
-    process.env.SHAG_WARMUP = "10";
+    process.env.SHAG_WARMUP = "10"; // 10 seconds
     const controller = new GametypeController(new Deathmatch());
     const config = controller.getMatchState().getConfig();
     expect(config.timeLimit).toBe(120);
@@ -146,13 +146,13 @@ describe("match pacing env overrides (dev/test)", () => {
     expect(config.warmupTimeout).toBe(10);
   });
 
-  it("time values accept minute suffixes (Quake g_timelimit habit)", () => {
-    process.env.SHAG_TIMELIMIT = "2m";
-    process.env.SHAG_WARMUP = "30s";
+  it("explicit unit suffixes override the defaults", () => {
+    process.env.SHAG_TIMELIMIT = "90s";
+    process.env.SHAG_WARMUP = "2m";
     const controller = new GametypeController(new Deathmatch());
     const config = controller.getMatchState().getConfig();
-    expect(config.timeLimit).toBe(120); // 2 minutes
-    expect(config.warmupTimeout).toBe(30);
+    expect(config.timeLimit).toBe(90);
+    expect(config.warmupTimeout).toBe(120);
   });
 
   it("ignores invalid values and stays inert when unset", () => {
@@ -161,6 +161,50 @@ describe("match pacing env overrides (dev/test)", () => {
     const config = controller.getMatchState().getConfig();
     expect(config.timeLimit).toBe(new Deathmatch().getMatchConfig().timeLimit);
     expect(config.scoreLimit).toBe(new Deathmatch().getMatchConfig().scoreLimit);
+  });
+});
+
+describe("overtime (duel: no draws)", () => {
+  function makeOvertimeState(): MatchState {
+    // teamBased like duel, tiny time limit, overtime enabled
+    const ms = new MatchState("Duel", { timeLimit: 10, overtimeOnDraw: true, overtimeDuration: 60 }, true);
+    ms.addPlayer(P1);
+    ms.addPlayer(P2);
+    ms.setPlayerTeam(P1, "udon");
+    ms.setPlayerTeam(P2, "soba");
+    activate(ms);
+    return ms;
+  }
+
+  it("a tie at the time limit extends the match instead of ending it", () => {
+    const ms = makeOvertimeState(); // 0-0
+    ms.update(11); // past the 10s limit
+    expect(ms.phase).toBe(MatchPhase.Active); // still playing
+    expect(ms.overtimeCount).toBe(1);
+    expect(ms.timeRemaining).toBeGreaterThan(0);
+    expect(ms.toSnapshot().overtime).toBe(1);
+  });
+
+  it("stacks extensions while still tied, ends once someone leads", () => {
+    const ms = makeOvertimeState();
+    ms.update(11); // OT #1
+    ms.update(61); // still 0-0 → OT #2
+    expect(ms.overtimeCount).toBe(2);
+
+    ms.addScore(P1, 1);
+    ms.addTeamScore("udon", 1);
+    ms.update(61); // limit hit with a leader → match over
+    expect(ms.phase).toBe(MatchPhase.PostGame);
+  });
+
+  it("no overtime without the flag (deathmatch can draw)", () => {
+    const ms = new MatchState("DM", { timeLimit: 10 });
+    ms.addPlayer(P1);
+    ms.addPlayer(P2);
+    activate(ms);
+    ms.update(11);
+    expect(ms.phase).toBe(MatchPhase.PostGame);
+    expect(ms.overtimeCount).toBe(0);
   });
 });
 

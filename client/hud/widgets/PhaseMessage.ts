@@ -19,6 +19,7 @@ import type { FPSHudWidget, HUDState } from "../HudWidget";
 export class FPSPhaseMessage implements FPSHudWidget {
   private element: HTMLElement;
   private lastCountdown: number = 0;
+  private lastOvertime: number = 0;
   private hideTimeout: ReturnType<typeof setTimeout> | null = null;
   private unsubPhase: (() => void) | null = null;
 
@@ -112,6 +113,20 @@ export class FPSPhaseMessage implements FPSHudWidget {
       if (num !== this.lastCountdown && num > 0) {
         this.lastCountdown = num;
         this.showHtml(`<div class="fps-phase-countdown">${num}</div>`);
+      }
+    }
+
+    // Overtime (duel): the phase doesn't change, so watch the counter — a tie
+    // at the limit extends the match with a slam instead of ending it.
+    const overtime = mgr.overtime;
+    if (overtime !== this.lastOvertime) {
+      this.lastOvertime = overtime;
+      if (overtime > 0 && mgr.phase === MatchPhase.Active) {
+        if (this.hideTimeout) clearTimeout(this.hideTimeout);
+        this.showHtml(
+          `<div class="fps-phase-fight">Overtime!</div><div class="fps-phase-subtitle">+1 minute — no draws</div>`,
+        );
+        this.hideTimeout = setTimeout(() => this.hideMessage(), 3000);
       }
     }
   }

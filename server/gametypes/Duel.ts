@@ -33,6 +33,8 @@ export class Duel extends BaseGametype {
       respawnDelay: 3, // seconds min before respawn input accepted
       maxRespawnDelay: 6, // seconds auto-respawn deadline
       selfDamage: 1.0, // full self-damage
+      overtimeOnDraw: true, // duel never draws — tied at the limit extends the match
+      overtimeDuration: 60, // +1 minute per extension
     };
   }
 

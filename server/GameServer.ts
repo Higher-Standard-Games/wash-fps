@@ -1071,6 +1071,13 @@ export class GameServer {
     // Mark as playing
     client.isSpectator = false;
 
+    // Lobby/network bots enter through this normal join flow — register them
+    // for auto-ready (spawnBot() only covers server-spawned entity bots, so
+    // invited bots previously never readied and warmup always timed out).
+    if (client.isBot) {
+      this.gametypeController.registerBot(client.playerId);
+    }
+
     // Record player in demo roster
     if (this.demoRecorder?.isRecording) {
       this.demoRecorder.addPlayer(

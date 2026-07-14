@@ -45,12 +45,17 @@ export class MatchState {
   ]);
   private config: MatchConfig;
   private gametypeName: string;
+  /** Whether the owning gametype scores by team (drives tie/winner checks). */
+  private teamBased: boolean;
   /** Match result, set on entering PostGame; cleared when warmup restarts. */
   private _winner: MatchWinner | null = null;
+  /** Overtime extensions granted this match (0 = regulation). */
+  private _overtimeCount = 0;
 
-  constructor(gametypeName: string, config: Partial<MatchConfig> = {}) {
+  constructor(gametypeName: string, config: Partial<MatchConfig> = {}, teamBased = false) {
     this.config = { ...DEFAULT_MATCH_CONFIG, ...config };
     this.gametypeName = gametypeName;
+    this.teamBased = teamBased;
     this._timeRemaining = this.config.warmupTimeout;
   }
 
@@ -87,6 +92,27 @@ export class MatchState {
   }
   get winner(): MatchWinner | null {
     return this._winner;
+  }
+  get overtimeCount(): number {
+    return this._overtimeCount;
+  }
+
+  /** True when the current scores would end the match as a draw. */
+  isTiedAtTop(): boolean {
+    if (this.teamBased) {
+      return (this._teamScores.get("udon") ?? 0) === (this._teamScores.get("soba") ?? 0);
+    }
+    let best = Number.NEGATIVE_INFINITY;
+    let tied = false;
+    for (const score of this._scores.values()) {
+      if (score > best) {
+        best = score;
+        tied = false;
+      } else if (score === best) {
+        tied = true;
+      }
+    }
+    return tied || this._scores.size === 0;
   }
 
   // ========================================================================
@@ -293,7 +319,16 @@ export class MatchState {
         if (this.config.timeLimit > 0) {
           this._timeRemaining -= dt;
           if (this._timeRemaining <= 0) {
-            this.transition(MatchPhase.PostGame);
+            // Overtime (duel): a tie at the limit never ends the match — extend
+            // it until someone takes the lead.
+            if (this.config.overtimeOnDraw && this.isTiedAtTop()) {
+              const extension = this.config.overtimeDuration ?? 60;
+              this._timeRemaining += extension;
+              this._overtimeCount++;
+              console.log(`[MatchState] OVERTIME #${this._overtimeCount} — tied at the limit, +${extension}s`);
+            } else {
+              this.transition(MatchPhase.PostGame);
+            }
           }
         }
         // Win condition checked externally by GametypeController
@@ -333,6 +368,7 @@ export class MatchState {
         break;
       case MatchPhase.Active:
         this._timeRemaining = this.config.timeLimit;
+        this._overtimeCount = 0;
         // Reset scores and deaths on match start
         for (const [id] of this._scores) {
           this._scores.set(id, 0);
@@ -399,6 +435,7 @@ export class MatchState {
       playerTeams: playerTeamsRec,
       teamNames: teamNamesRec,
       winner: this._winner ?? undefined,
+      overtime: this._overtimeCount > 0 ? this._overtimeCount : undefined,
     };
   }
 }
