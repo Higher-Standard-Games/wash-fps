@@ -87,6 +87,19 @@ describe("winner lifecycle", () => {
   });
 });
 
+describe("bot auto-ready", () => {
+  it("a registered bot readies up immediately (no waiting out warmup)", () => {
+    const controller = new GametypeController(new Deathmatch());
+    const ms = controller.getMatchState();
+    ms.addPlayer(P1); // human
+    ms.addPlayer(P2); // bot
+    expect(ms.readyCount).toBe(0);
+
+    controller.registerBot(P2);
+    expect(ms.readyCount).toBe(1); // bot ready on join; match starts once the human readies
+  });
+});
+
 describe("match pacing env overrides (dev/test)", () => {
   const ENV_KEYS = ["SHAG_TIMELIMIT", "SHAG_SCORELIMIT", "SHAG_WARMUP"] as const;
   const saved: Record<string, string | undefined> = {};

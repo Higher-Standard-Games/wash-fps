@@ -268,9 +268,15 @@ export class GametypeController {
   /**
    * Register a bot player ID for auto-ready tracking.
    * Note: onPlayerJoin() must be called first to add bot to match state.
+   *
+   * Bots ready up IMMEDIATELY on join — a bot never has a reason to stay
+   * unready, and without this a bot invited after the human pressed F4 left
+   * warmup waiting out its full timeout (match then started silently, warmup
+   * frags didn't count, and the result read as a baffling 0-0 draw).
    */
   registerBot(playerId: PlayerId): void {
     this.botPlayerIds.add(playerId);
+    this.matchState.playerReady(playerId);
   }
 
   // ========================================================================

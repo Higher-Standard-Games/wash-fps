@@ -202,15 +202,31 @@ export class Game {
             stopPostGameShowcase();
             return;
           }
-          const winner = MatchStateManager.getInstance().winner;
-          if (!winner || winner.kind !== "player" || !winner.id) return;
-          const entityId = this._latestGameState?.players.get(winner.id)?.entityId ?? null;
+          const mgr = MatchStateManager.getInstance();
+          const winner = mgr.winner;
+          if (!winner || winner.kind === "draw" || !winner.id) return;
+
+          // Resolve the winning PLAYER. Duel reports a team win (it rides the
+          // team infrastructure with one player per side) — map a single-member
+          // team to its player. Multi-member team wins (TDM MVP) come later.
+          let winnerPlayerId: string | null = null;
+          if (winner.kind === "player") {
+            winnerPlayerId = winner.id;
+          } else {
+            const members = Object.entries(mgr.playerTeams)
+              .filter(([, teamId]) => teamId === winner.id)
+              .map(([playerId]) => playerId);
+            if (members.length === 1) winnerPlayerId = members[0];
+          }
+          if (!winnerPlayerId) return;
+
+          const entityId = this._latestGameState?.players.get(winnerPlayerId)?.entityId ?? null;
           if (!entityId) return;
 
           // Winner's gun: local player → the view model's weapon; remote →
           // last weapon seen in snapshots.
           const resolveWeapon = async (): Promise<string | null> => {
-            if (winner.id === this.localPlayerId) {
+            if (winnerPlayerId === this.localPlayerId) {
               const { getWeaponViewManager } = await import("../../engine/weapon/WeaponViewManager");
               return getWeaponViewManager().getDisplayedWeaponId?.() ?? null;
             }
