@@ -18,6 +18,8 @@ export class FPSScoreboard {
   private visible: boolean = false;
   /** While true (post-game screen), hide() is ignored — board stays open. */
   private locked: boolean = false;
+  /** Data signature of the last rebuild — refresh() skips when unchanged. */
+  private lastSignature: string = "";
   private localPlayerId: string = "";
   private board: HTMLElement;
 
@@ -108,12 +110,21 @@ export class FPSScoreboard {
   }
 
   /**
-   * Refresh the scoreboard rows from HUDState
+   * Refresh the scoreboard rows from HUDState.
+   *
+   * Safe to call every HUD tick: the rebuild only runs when the underlying
+   * data actually changed. Rebuilding unconditionally re-inserts elements,
+   * which restarts their CSS entrance animations — a constant strobe on the
+   * post-game board.
    */
   public refresh(): void {
     if (!this.visible) return;
 
     const state = HUDState.getInstance();
+    const signature = JSON.stringify([state.teamNames, state.teamScores, state.scoreboard, this.localPlayerId]);
+    if (signature === this.lastSignature) return;
+    this.lastSignature = signature;
+
     const hasTeams = Object.keys(state.teamScores).length > 0;
 
     // Clear existing layout

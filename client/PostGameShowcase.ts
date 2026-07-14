@@ -18,8 +18,10 @@ import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
 
 /** Distance in front of the camera to place the model (world/Quake units). */
 const SHOWCASE_DISTANCE = 150;
-/** Camera eye sits ~this far above the entity origin the model spawner expects. */
-const EYE_TO_ORIGIN = 28;
+/** Camera eye sits ~this far above the entity origin the model spawner
+ *  expects. Empirically tuned: 28 (nominal standing view height) sank the
+ *  model knee-deep into the floor. */
+const EYE_TO_ORIGIN = 14;
 /** Yaw offset from camera forward (radians) — stand the model in the LEFT
  *  third of the view; the post-game board occupies the right side. */
 const SHOWCASE_ANGLE = -0.55; // ~31° left

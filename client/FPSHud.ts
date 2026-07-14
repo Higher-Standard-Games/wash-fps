@@ -118,9 +118,11 @@ export class FPSHud {
     this._chat = new FPSChat();
     this._damageIndicators = new FPSDamageIndicators();
 
-    // Post-game screen: hold the enlarged scoreboard open for the whole
-    // PostGame phase, titled with the match result, with aim locked (pointer
-    // lock stays held). All undone when the next warmup begins.
+    // Post-game screen: the match result takes over the screen. The gameplay
+    // HUD (vitals/ammo/timer/death screen/kill feed — the whole container) is
+    // hidden; only the winner slam + locked board (outside the container) and
+    // the 3D showcase remain. Aim is locked (pointer lock stays held). All
+    // undone when the next warmup begins.
     MatchStateManager.getInstance().onPhaseChange((newPhase) => {
       if (!this._scoreboard) return;
       const postGame = newPhase === MatchPhase.PostGame;
@@ -129,8 +131,18 @@ export class FPSHud {
         const winner = MatchStateManager.getInstance().winner;
         const title = winner && winner.kind !== "draw" && winner.name ? `${winner.name} wins!` : "Draw!";
         this._scoreboard.setPostGame(title.toUpperCase());
+        this.hide(); // gameplay HUD off — the result owns the screen
+        // The pickup prompt is body-appended (outside the container) and its
+        // proximity driver is frozen with input — force it away for the screen.
+        import("../world/PickupPrompt")
+          .then(({ hidePickupPrompt }) => {
+            hidePickupPrompt("pickup");
+            hidePickupPrompt("dropped");
+          })
+          .catch(() => {});
       } else {
         this._scoreboard.setPostGame(null);
+        this.show();
       }
 
       // Freeze/unfreeze mouse-look on the active FPS camera controller.
@@ -151,7 +163,9 @@ export class FPSHud {
       import("../Game").then(({ Game }) => Game.getInstance().sendChat(text)).catch(() => {});
     });
     this._chatKeyHandler = (e: KeyboardEvent) => {
-      if (e.code !== "KeyT" || e.repeat || e.altKey || e.ctrlKey || e.metaKey) return;
+      // T (Q3 messagemode habit) or Enter (modern habit) both open talk mode.
+      if ((e.code !== "KeyT" && e.code !== "Enter" && e.code !== "NumpadEnter") || e.repeat) return;
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
       if (!this._chat || this._chat.isInputActive()) return;
       // Only in gameplay: pointer locked, no menus/console/text fields open
       if (!document.pointerLockElement) return;
