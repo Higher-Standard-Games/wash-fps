@@ -7,7 +7,7 @@
 
 import type { PlayerId } from "@engine/server/ecs/types";
 import { MatchPhase } from "@shared/server/gametype";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Deathmatch } from "../Deathmatch";
 import { GametypeController } from "../GametypeController";
 import { MatchState } from "../MatchState";
@@ -84,6 +84,44 @@ describe("winner lifecycle", () => {
     ms.restart(); // PostGame → Warmup
     expect(ms.winner).toBeNull();
     expect(ms.toSnapshot().winner).toBeUndefined();
+  });
+});
+
+describe("match pacing env overrides (dev/test)", () => {
+  const ENV_KEYS = ["SHAG_TIMELIMIT", "SHAG_SCORELIMIT", "SHAG_WARMUP"] as const;
+  const saved: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    for (const k of ENV_KEYS) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+  });
+
+  afterEach(() => {
+    for (const k of ENV_KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  it("SHAG_TIMELIMIT/SCORELIMIT/WARMUP override the gametype config", () => {
+    process.env.SHAG_TIMELIMIT = "120";
+    process.env.SHAG_SCORELIMIT = "3";
+    process.env.SHAG_WARMUP = "10";
+    const controller = new GametypeController(new Deathmatch());
+    const config = controller.getMatchState().getConfig();
+    expect(config.timeLimit).toBe(120);
+    expect(config.scoreLimit).toBe(3);
+    expect(config.warmupTimeout).toBe(10);
+  });
+
+  it("ignores invalid values and stays inert when unset", () => {
+    process.env.SHAG_TIMELIMIT = "banana";
+    const controller = new GametypeController(new Deathmatch());
+    const config = controller.getMatchState().getConfig();
+    expect(config.timeLimit).toBe(new Deathmatch().getMatchConfig().timeLimit);
+    expect(config.scoreLimit).toBe(new Deathmatch().getMatchConfig().scoreLimit);
   });
 });
 

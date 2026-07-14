@@ -13,7 +13,7 @@
 import type { WorldState } from "@engine/server/core/WorldState";
 import type { Entity } from "@engine/server/ecs/Entity";
 import type { EntityId, PlayerId, TickNumber } from "@engine/server/ecs/types";
-import type { MatchStateSnapshot } from "@shared/server/gametype";
+import type { MatchConfig, MatchStateSnapshot } from "@shared/server/gametype";
 import { MatchPhase } from "@shared/server/gametype";
 import type { Vec3 } from "@shared/server/simulation/types";
 import type { CollisionWorld } from "../../../../engine/network/systems/collision/CollisionWorld";
@@ -44,6 +44,8 @@ interface RespawnEntry {
 
 export class GametypeController {
   private gametype: BaseGametype;
+  /** Match config with dev env overrides applied — use this, not gametype.getMatchConfig(). */
+  private matchConfig: MatchConfig;
   private matchState: MatchState;
   private spawnStrategy: SpawnPointStrategy;
   private spawnPoints: Vec3[] = [];
@@ -62,13 +64,44 @@ export class GametypeController {
 
   constructor(gametype: BaseGametype) {
     this.gametype = gametype;
-    const config = gametype.getMatchConfig();
-    this.matchState = new MatchState(gametype.name, config);
+    this.matchConfig = GametypeController.applyEnvOverrides(gametype.getMatchConfig());
+    this.matchState = new MatchState(gametype.name, this.matchConfig);
     this.spawnStrategy = createSpawnStrategy(gametype.getSpawnStrategy());
 
     console.log(`[GametypeController] Initialized: ${gametype.name}`);
     console.log(`[GametypeController] Spawn strategy: ${gametype.getSpawnStrategy()}`);
-    console.log(`[GametypeController] Score limit: ${config.scoreLimit}, Time limit: ${config.timeLimit}s`);
+    console.log(
+      `[GametypeController] Score limit: ${this.matchConfig.scoreLimit}, Time limit: ${this.matchConfig.timeLimit}s`,
+    );
+  }
+
+  /**
+   * Dev/test overrides for match pacing via environment variables (seconds):
+   *   SHAG_TIMELIMIT — match time limit    SHAG_SCORELIMIT — frag/score limit
+   *   SHAG_WARMUP    — warmup timeout
+   * Read once at server boot; inert when unset. Lobby-spawned servers inherit
+   * the lobby process env, so one export covers the whole dev session.
+   */
+  private static applyEnvOverrides(config: MatchConfig): MatchConfig {
+    const env = typeof process !== "undefined" ? process.env : undefined;
+    if (!env) return config;
+
+    const overridden = { ...config };
+    const apply = (key: string, field: "timeLimit" | "scoreLimit" | "warmupTimeout") => {
+      const raw = env[key];
+      if (raw === undefined || raw === "") return;
+      const value = Number(raw);
+      if (!Number.isFinite(value) || value < 0) {
+        console.warn(`[GametypeController] Ignoring invalid ${key}="${raw}"`);
+        return;
+      }
+      overridden[field] = value;
+      console.log(`[GametypeController] Env override: ${field} = ${value} (${key})`);
+    };
+    apply("SHAG_TIMELIMIT", "timeLimit");
+    apply("SHAG_SCORELIMIT", "scoreLimit");
+    apply("SHAG_WARMUP", "warmupTimeout");
+    return overridden;
   }
 
   // ========================================================================
@@ -314,7 +347,7 @@ export class GametypeController {
           }
 
           // Queue respawn with min/max timers (Warsow-style)
-          const config = this.gametype.getMatchConfig();
+          const config = this.matchConfig;
           const minDelay = Math.floor(config.respawnDelay * 125);
           const maxDelay = Math.floor((config.maxRespawnDelay ?? config.respawnDelay * 2) * 125);
 
@@ -355,7 +388,7 @@ export class GametypeController {
 
     // 4. Check win condition during active phase
     if (this.matchState.phase === MatchPhase.Active) {
-      const config = this.gametype.getMatchConfig();
+      const config = this.matchConfig;
       if (config.scoreLimit > 0) {
         let limitReached = false;
 
