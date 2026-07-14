@@ -25,6 +25,10 @@ const EYE_TO_ORIGIN = 14;
 /** Yaw offset from camera forward (radians) — stand the model in the LEFT
  *  third of the view; the post-game board occupies the right side. */
 const SHOWCASE_ANGLE = -0.55; // ~31° left
+/** Never place the model closer than this (nose-to-wall endings). */
+const SHOWCASE_MIN_DISTANCE = 60;
+/** Keep the model this far in front of a blocking wall. */
+const SHOWCASE_WALL_PADDING = 24;
 
 let currentModel: PlayerModelInstance | null = null;
 let generation = 0;
@@ -58,9 +62,40 @@ export async function startPostGameShowcase(
   // Stand the model left-forward of the camera (the board sits on the right).
   const camYaw = cam.rotation?.y ?? 0;
   const placeYaw = camYaw + SHOWCASE_ANGLE;
+
+  // Wall clamp: the player can end the match nose-to-wall, which would put the
+  // camera-relative spot inside/behind geometry ("model missing"). Raycast
+  // toward the spot and pull the model in front of whatever it hits.
+  let distance = SHOWCASE_DISTANCE;
+  try {
+    const [{ Ray }, { Vector3 }] = await Promise.all([
+      import("@babylonjs/core/Culling/ray"),
+      import("@babylonjs/core/Maths/math.vector"),
+    ]);
+    const scene = (cam as { getScene?: () => import("@babylonjs/core/scene").Scene }).getScene?.();
+    if (scene) {
+      const origin = new Vector3(cam.position.x, cam.position.y, cam.position.z);
+      const dir = new Vector3(Math.sin(placeYaw), 0, Math.cos(placeYaw));
+      const hit = scene.pickWithRay(new Ray(origin, dir, SHOWCASE_DISTANCE), (mesh) => {
+        if (mesh.isPickable === false) return false;
+        const metadata = mesh.metadata as { mapOwned?: boolean } | null;
+        return (
+          metadata?.mapOwned === true || mesh.name.startsWith("bsp_") || mesh.name === "brush" || mesh.name === "patch"
+        );
+      });
+      if (hit?.hit && hit.pickedPoint) {
+        const hitDistance = Vector3.Distance(origin, hit.pickedPoint);
+        distance = Math.max(SHOWCASE_MIN_DISTANCE, hitDistance - SHOWCASE_WALL_PADDING);
+        console.log(`[PostGameShowcase] wall at ${hitDistance.toFixed(0)} — clamped to ${distance.toFixed(0)}`);
+      }
+    }
+  } catch {
+    /* raycast unavailable — keep the nominal distance */
+  }
+
   // Babylon left-handed: forward = (sin(yaw), 0, cos(yaw)).
-  const x = cam.position.x + Math.sin(placeYaw) * SHOWCASE_DISTANCE;
-  const z = cam.position.z + Math.cos(placeYaw) * SHOWCASE_DISTANCE;
+  const x = cam.position.x + Math.sin(placeYaw) * distance;
+  const z = cam.position.z + Math.cos(placeYaw) * distance;
   const y = cam.position.y - EYE_TO_ORIGIN;
   // Face the camera exactly (yaw from model position back to the camera).
   const facingCameraYaw = Math.atan2(cam.position.x - x, cam.position.z - z);
