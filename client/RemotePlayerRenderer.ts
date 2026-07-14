@@ -466,6 +466,88 @@ export class RemotePlayerRenderer {
     return this.createDetachedModelAt(entityId, x, y, z, yaw);
   }
 
+  /** Last known weapon id for a remote entity (from snapshots), or null. */
+  getKnownWeaponId(entityId: string): string | null {
+    return this.enemyWeapons.get(entityId) ?? null;
+  }
+
+  /**
+   * Attach a weapon model to a DETACHED player model's right hand (post-game
+   * winner showcase). Same recipe as updateWeaponModel (ModelLoader → leader
+   * mesh → attachToBone RightHand → third-person scale/rotation) but without
+   * the live-hitbox lifecycle guards — the caller owns the instance and must
+   * dispose it (attachedWeapon is set so disposal cleans the gun too).
+   */
+  async attachShowcaseWeapon(inst: PlayerModelInstance, weaponId: string): Promise<void> {
+    const weaponDef = WEAPONS[weaponId];
+    const modelPath = weaponDef?.modelPath;
+    if (!modelPath) return;
+
+    const defScale = weaponDef.scale ?? 1.5;
+    const isGlbWeapon = weaponDef.viewModel.viewModelFormat === "glb" || modelPath.toLowerCase().endsWith(".glb");
+    const visualScale = isGlbWeapon ? (weaponDef.viewModel.scale ?? defScale) : defScale;
+
+    const { ModelLoader } = await import("../../../engine/loader/model/ModelLoader");
+    const loader = ModelLoader.getInstance();
+    if (!loader.isInitialized()) loader.init(this.scene);
+
+    const result = await loader.loadModel(modelPath, {
+      position: Vector3.Zero(),
+      scale: defScale,
+      hasCollision: false,
+      applyLighting: false,
+    });
+    if (!result?.root) return;
+
+    let leaderMesh: Mesh | null = null;
+    for (const m of result.meshes) {
+      if (m instanceof Mesh && m.getTotalVertices() > 0) {
+        if (!leaderMesh) leaderMesh = m;
+        if (m.material && "maxSimultaneousLights" in m.material) {
+          // biome-ignore lint/suspicious/noExplicitAny: Babylon material introspection
+          applySafeMaxSimultaneousLights(m.material as any);
+        }
+        m.alwaysSelectAsActiveMesh = true;
+        m.isVisible = true;
+      }
+    }
+    if (!leaderMesh) {
+      result.root.dispose(false, true);
+      return;
+    }
+    if (leaderMesh.rotationQuaternion) leaderMesh.rotationQuaternion = null;
+
+    const hand = inst.skeleton?.bones.find((b) => b.name === "mixamorig:RightHand");
+    if (hand) {
+      leaderMesh.parent = null;
+      leaderMesh.attachToBone(hand, inst.mesh);
+      leaderMesh.position.set(0, 0, 0);
+      leaderMesh.scaling.setAll((visualScale / MODEL_SCALE) * 0.5);
+      if (weaponId === "blade") {
+        leaderMesh.rotation.set(Math.PI, 0.9, 0);
+      } else {
+        leaderMesh.rotation.set(Math.PI, 0, -Math.PI / 2);
+      }
+    } else {
+      leaderMesh.parent = inst.anchor;
+      leaderMesh.position.set(0, 30, 0);
+      leaderMesh.scaling.setAll(visualScale);
+    }
+
+    for (const m of result.meshes) {
+      if (m instanceof Mesh && m !== leaderMesh && m.getTotalVertices() > 0) {
+        m.parent = leaderMesh;
+        m.position.setAll(0);
+        if (m.rotationQuaternion) m.rotationQuaternion = null;
+        m.rotation.setAll(0);
+        m.isVisible = true;
+        m.alwaysSelectAsActiveMesh = true;
+      }
+    }
+
+    inst.attachedWeapon = leaderMesh;
+  }
+
   /**
    * Detach a player model from the renderer WITHOUT disposing it.
    * Returns the PlayerModelInstance for ragdoll use.

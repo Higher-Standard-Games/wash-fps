@@ -81,6 +81,24 @@ export class FPSScoreboard {
     if (locked) this.show();
   }
 
+  /**
+   * Enter/exit post-game presentation: locked open, enlarged (--postgame
+   * variant), and titled with the match result ("WRAITH WINS!").
+   * Pass null to return to the plain Tab scoreboard.
+   */
+  public setPostGame(winnerTitle: string | null): void {
+    if (winnerTitle !== null) {
+      this.board.classList.add("fps-scoreboard--postgame");
+      this.setTitle(winnerTitle);
+      this.setLocked(true);
+    } else {
+      this.board.classList.remove("fps-scoreboard--postgame");
+      this.setTitle("SCOREBOARD");
+      this.setLocked(false);
+      this.hide();
+    }
+  }
+
   public isVisible(): boolean {
     return this.visible;
   }

@@ -61,6 +61,8 @@ export class FPSPhaseMessage implements FPSHudWidget {
 
       case MatchPhase.PostGame: {
         // Winner banner — FIGHT!-style slam with the authoritative match result.
+        // Auto-hides after the slam lands; the post-game scoreboard (also titled
+        // with the winner) then owns the screen.
         const winner = mgr.winner;
         const title =
           winner && winner.kind !== "draw" && winner.name ? `${this.escapeHtml(winner.name)} wins!` : "Draw!";
@@ -68,6 +70,7 @@ export class FPSPhaseMessage implements FPSHudWidget {
           `<div class="fps-phase-fight">${title}</div>` +
             `<div class="fps-phase-subtitle">Match over — next match starting soon...</div>`,
         );
+        this.hideTimeout = setTimeout(() => this.hideMessage(), 3500);
         break;
       }
     }

@@ -35,7 +35,7 @@ import { FPSHud } from "./client/FPSHud";
 // Game event handling (extracted from this file)
 import { type GameEventContext, handleServerStateUpdate } from "./client/GameEvents";
 import { HUDState } from "./client/HUDState";
-import { MatchStateManager } from "./client/MatchStateManager";
+import { MatchPhase, MatchStateManager } from "./client/MatchStateManager";
 import { RemotePlayerRenderer } from "./client/RemotePlayerRenderer";
 import { WEAPONS } from "./server/weapons/WeaponDef";
 import { createBSPCollisionWorld } from "./simulation/collision/BSPCollisionWorld";
@@ -191,6 +191,36 @@ export class Game {
     // Tab-recovery: snap everything to clean state when returning from background
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") this.onTabReturn();
+    });
+
+    // Post-game winner showcase: spawn the winner's model (with weapon) in
+    // front of the camera during PostGame; remove it when warmup begins.
+    MatchStateManager.getInstance().onPhaseChange((newPhase) => {
+      import("./client/PostGameShowcase")
+        .then(({ startPostGameShowcase, stopPostGameShowcase }) => {
+          if (newPhase !== MatchPhase.PostGame) {
+            stopPostGameShowcase();
+            return;
+          }
+          const winner = MatchStateManager.getInstance().winner;
+          if (!winner || winner.kind !== "player" || !winner.id) return;
+          const entityId = this._latestGameState?.players.get(winner.id)?.entityId ?? null;
+          if (!entityId) return;
+
+          // Winner's gun: local player → the view model's weapon; remote →
+          // last weapon seen in snapshots.
+          const resolveWeapon = async (): Promise<string | null> => {
+            if (winner.id === this.localPlayerId) {
+              const { getWeaponViewManager } = await import("../../engine/weapon/WeaponViewManager");
+              return getWeaponViewManager().getDisplayedWeaponId?.() ?? null;
+            }
+            return this.remoteRenderer?.getKnownWeaponId(entityId) ?? null;
+          };
+          resolveWeapon()
+            .then((weaponId) => startPostGameShowcase(this.remoteRenderer, entityId, weaponId))
+            .catch(() => {});
+        })
+        .catch(() => {});
     });
   }
 

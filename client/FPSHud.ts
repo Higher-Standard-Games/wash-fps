@@ -118,16 +118,29 @@ export class FPSHud {
     this._chat = new FPSChat();
     this._damageIndicators = new FPSDamageIndicators();
 
-    // Post-game screen: hold the scoreboard open for the whole PostGame phase
-    // (Tab-release can't close it), then close it when the next warmup begins.
+    // Post-game screen: hold the enlarged scoreboard open for the whole
+    // PostGame phase, titled with the match result, with aim locked (pointer
+    // lock stays held). All undone when the next warmup begins.
     MatchStateManager.getInstance().onPhaseChange((newPhase) => {
       if (!this._scoreboard) return;
-      if (newPhase === MatchPhase.PostGame) {
-        this._scoreboard.setLocked(true);
+      const postGame = newPhase === MatchPhase.PostGame;
+
+      if (postGame) {
+        const winner = MatchStateManager.getInstance().winner;
+        const title = winner && winner.kind !== "draw" && winner.name ? `${winner.name} wins!` : "Draw!";
+        this._scoreboard.setPostGame(title.toUpperCase());
       } else {
-        this._scoreboard.setLocked(false);
-        this._scoreboard.hide();
+        this._scoreboard.setPostGame(null);
       }
+
+      // Freeze/unfreeze mouse-look on the active FPS camera controller.
+      import("../../../engine/camera/CameraSystem")
+        .then(({ CameraSystem }) => {
+          const controller = CameraSystem.getInstance().getActiveController();
+          // biome-ignore lint/suspicious/noExplicitAny: optional controller capability
+          (controller as any)?.setLookFrozen?.(postGame);
+        })
+        .catch(() => {});
     });
 
     // Wire chat: T opens talk mode (Q3 messagemode — pointer lock stays held,
