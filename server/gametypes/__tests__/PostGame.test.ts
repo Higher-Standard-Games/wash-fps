@@ -208,6 +208,45 @@ describe("overtime (duel: no draws)", () => {
   });
 });
 
+describe("single-match flow (terminal post-game)", () => {
+  it("holds PostGame past postGameDuration instead of restarting", () => {
+    const ms = new MatchState("Duel", { postGameDuration: 15 });
+    ms.setFlow("single");
+    ms.addPlayer(P1);
+    ms.addPlayer(P2);
+    ms.transition(MatchPhase.PostGame);
+
+    ms.update(1000); // way past any duration
+    expect(ms.phase).toBe(MatchPhase.PostGame); // terminal — no warmup restart
+    expect(ms.timeRemaining).toBe(0); // clamped, not negative
+    expect(ms.toSnapshot().flow).toBe("single");
+  });
+
+  it("stays terminal even with zero players (shutdownOnEmpty owns cleanup)", () => {
+    const ms = new MatchState("Duel", {});
+    ms.setFlow("single");
+    ms.transition(MatchPhase.PostGame);
+    ms.update(1000);
+    expect(ms.phase).toBe(MatchPhase.PostGame);
+  });
+
+  it("continuous flow still restarts to warmup (default)", () => {
+    const ms = new MatchState("DM", { postGameDuration: 15 });
+    ms.addPlayer(P1);
+    ms.addPlayer(P2);
+    ms.transition(MatchPhase.PostGame);
+    ms.update(16);
+    expect(ms.phase).toBe(MatchPhase.Warmup);
+    expect(ms.toSnapshot().flow).toBe("continuous");
+  });
+
+  it("controller wires the flow through to match state", () => {
+    const controller = new GametypeController(new Deathmatch());
+    controller.setMatchFlow("single");
+    expect(controller.getMatchState().flow).toBe("single");
+  });
+});
+
 describe("PostGame input freeze", () => {
   function makePlayerEntity(id: number) {
     return {

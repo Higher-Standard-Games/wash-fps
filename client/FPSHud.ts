@@ -81,6 +81,8 @@ export class FPSHud {
   private _settings: FPSSettingsOverlay | null = null;
   private _pointerLockHandler: (() => void) | null = null;
   private _chatKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+  /** Single-match post-game: timer for the ~6s "open up" beat (mouse+chat+return). */
+  private _openUpTimer: number | null = null;
 
   private constructor() {}
 
@@ -128,7 +130,8 @@ export class FPSHud {
       const postGame = newPhase === MatchPhase.PostGame;
 
       if (postGame) {
-        const winner = MatchStateManager.getInstance().winner;
+        const mgr = MatchStateManager.getInstance();
+        const winner = mgr.winner;
         const title = winner && winner.kind !== "draw" && winner.name ? `${winner.name} wins!` : "Draw!";
         this._scoreboard.setPostGame(title.toUpperCase());
         this.hide(); // gameplay HUD off — the result owns the screen
@@ -140,7 +143,29 @@ export class FPSHud {
             hidePickupPrompt("dropped");
           })
           .catch(() => {});
+
+        // Single-match flow: after the celebration beat, the screen "opens up"
+        // — mouse cursor back (pause menu stays suppressed while the board is
+        // up), chat ready for banter, and the way home. The server releases
+        // bots at +10s and closes stragglers at +120s; the lobby is already
+        // reset and waiting (docs/research/single_game_server_lobby.md).
+        if (mgr.flow === "single") {
+          this._openUpTimer = window.setTimeout(() => {
+            this._openUpTimer = null;
+            document.exitPointerLock();
+            this._chat?.openInput();
+            this._scoreboard?.setReturnAction(() => {
+              // Same path as pause-menu Disconnect: reload lands back in the
+              // lobby UI; the emptied server exits via shutdownOnEmpty.
+              window.location.reload();
+            });
+          }, 6000);
+        }
       } else {
+        if (this._openUpTimer !== null) {
+          clearTimeout(this._openUpTimer);
+          this._openUpTimer = null;
+        }
         this._scoreboard.setPostGame(null);
         this.show();
       }

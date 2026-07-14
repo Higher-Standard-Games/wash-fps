@@ -22,6 +22,7 @@ export class FPSScoreboard {
   private lastSignature: string = "";
   private localPlayerId: string = "";
   private board: HTMLElement;
+  private returnBtn: HTMLButtonElement;
 
   constructor() {
     this.overlay = document.createElement("div");
@@ -41,8 +42,26 @@ export class FPSScoreboard {
     this.bodyEl.className = "fps-scoreboard-body";
     this.board.appendChild(this.bodyEl);
 
+    // RETURN TO LOBBY — shown by the single-match post-game open-up beat.
+    // Lives on the OVERLAY (refresh() wipes the board's innerHTML) and is the
+    // only interactive element there (overlay itself is pointer-events: none).
+    this.returnBtn = document.createElement("button");
+    this.returnBtn.className = "fps-scoreboard-return";
+    this.returnBtn.textContent = "RETURN TO LOBBY";
+    this.returnBtn.style.display = "none";
+    this.overlay.appendChild(this.returnBtn);
+
     this.overlay.appendChild(this.board);
     document.body.appendChild(this.overlay);
+  }
+
+  /**
+   * Show the RETURN TO LOBBY button with the given action, or hide it (null).
+   * Single-match flow only — the post-game is terminal and this is the exit.
+   */
+  public setReturnAction(onReturn: (() => void) | null): void {
+    this.returnBtn.onclick = onReturn;
+    this.returnBtn.style.display = onReturn ? "" : "none";
   }
 
   public setLocalPlayerId(id: string): void {
@@ -101,6 +120,7 @@ export class FPSScoreboard {
       this.overlay.classList.remove("fps-scoreboard-overlay--postgame");
       this.setTitle("SCOREBOARD");
       this.setLocked(false);
+      this.setReturnAction(null);
       this.hide();
     }
   }

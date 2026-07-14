@@ -149,6 +149,16 @@ export class GameServer {
   private demoRecorder: DemoRecorder | null = null;
   private _lastMatchPhase: MatchPhase = MatchPhase.Warmup;
 
+  // Single-match post-game lifecycle (see docs/research/single_game_server_lobby.md)
+  /** Tick at which the current PostGame began (null outside PostGame). */
+  private _postGameEnterTick: number | null = null;
+  /** One-shot latch for the +10s bot release. */
+  private _postGameBotsKicked = false;
+  /** Bots are released this many ticks into a terminal post-game (10s @125Hz). */
+  private static readonly POSTGAME_BOT_KICK_TICKS = 10 * 125;
+  /** All remaining clients are closed out after this grace (120s @125Hz). */
+  private static readonly POSTGAME_GRACE_TICKS = 120 * 125;
+
   // Challengers queue: spectators waiting to join (FIFO by conn.id)
   private challengersQueue: string[] = [];
 
@@ -206,6 +216,8 @@ export class GameServer {
     const gt = gametype || new Deathmatch();
     this.gametypeController = new GametypeController(gt);
     this.gametypeController.setSubsystems(this.combatSystem, this.weaponSystem);
+    // Per-match server mode: post-game is terminal (lobby return flow).
+    this.gametypeController.setMatchFlow(this.config.singleMatch ? "single" : "continuous");
 
     // Wire name resolver for awards (resolves PlayerId → display name)
     this.gametypeController.setNameResolver((playerId) => {
@@ -621,7 +633,33 @@ export class GameServer {
       if (currentPhase === MatchPhase.PostGame && this.demoRecorder?.isRecording) {
         this.stopRecording();
       }
+      // Single-match mode: remember when post-game began (drives bot kick +
+      // grace close below). Reset if the phase ever leaves PostGame.
+      this._postGameEnterTick = currentPhase === MatchPhase.PostGame ? (this.simulation.currentTick as number) : null;
+      this._postGameBotsKicked = false;
       this._lastMatchPhase = currentPhase;
+    }
+
+    // 3c. Single-match post-game lifecycle: bots leave at +10s (they never
+    // hold a server open); any stragglers are closed out at +120s so the
+    // process ALWAYS exits (shutdownOnEmpty reaps it once empty).
+    if (this.config.singleMatch && this._postGameEnterTick !== null) {
+      const ticksInPostGame = (this.simulation.currentTick as number) - this._postGameEnterTick;
+      if (!this._postGameBotsKicked && ticksInPostGame >= GameServer.POSTGAME_BOT_KICK_TICKS) {
+        this._postGameBotsKicked = true;
+        for (const client of this.clients.values()) {
+          if (client.isBot) {
+            console.log(`[GameServer] Post-game: releasing bot ${client.playerName}`);
+            client.connection.close("match over");
+          }
+        }
+      }
+      if (ticksInPostGame === GameServer.POSTGAME_GRACE_TICKS) {
+        console.log(`[GameServer] Post-game grace elapsed — closing remaining connections`);
+        for (const client of this.clients.values()) {
+          client.connection.close("match over — returning to lobby");
+        }
+      }
     }
 
     // 4. Broadcast snapshot to clients (throttled to snapshot rate)

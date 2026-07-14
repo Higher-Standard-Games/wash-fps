@@ -67,9 +67,11 @@ export class FPSPhaseMessage implements FPSHudWidget {
         const winner = mgr.winner;
         const title =
           winner && winner.kind !== "draw" && winner.name ? `${this.escapeHtml(winner.name)} wins!` : "Draw!";
+        // Single-match servers are terminal: the way forward is the lobby.
+        const subtitle =
+          mgr.flow === "single" ? "GG — return to lobby for the next one" : "Match over — next match starting soon...";
         this.showHtml(
-          `<div class="fps-phase-fight">${title}</div>` +
-            `<div class="fps-phase-subtitle">Match over — next match starting soon...</div>`,
+          `<div class="fps-phase-fight">${title}</div>` + `<div class="fps-phase-subtitle">${subtitle}</div>`,
         );
         this.hideTimeout = setTimeout(() => this.hideMessage(), 3500);
         break;

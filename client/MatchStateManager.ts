@@ -34,6 +34,9 @@ export interface MatchStateSnapshot {
   winner?: MatchWinner;
   /** Overtime extensions this match (0/undefined = regulation). */
   overtime?: number;
+  /** "single" = per-match server (post-game is terminal, return to lobby);
+   *  "continuous" = classic warmup loop. */
+  flow?: "single" | "continuous";
 }
 
 export type PhaseChangeCallback = (newPhase: MatchPhase, oldPhase: MatchPhase) => void;
@@ -53,6 +56,7 @@ export class MatchStateManager {
   private _spectators: Array<{ playerId: string; name: string; ping: number }> = [];
   private _winner: MatchWinner | null = null;
   private _overtime: number = 0;
+  private _flow: "single" | "continuous" = "continuous";
   private _isReady: boolean = false;
   private _phaseCallbacks: PhaseChangeCallback[] = [];
 
@@ -88,6 +92,7 @@ export class MatchStateManager {
     // Parse winner BEFORE firing phase callbacks so PostGame subscribers see it.
     this._winner = event.winner ?? null;
     this._overtime = event.overtime ?? 0;
+    this._flow = event.flow ?? "continuous";
 
     // Fire phase change callbacks
     if (oldPhase !== this._phase) {
@@ -144,6 +149,10 @@ export class MatchStateManager {
   /** Overtime extensions this match (0 = regulation). */
   get overtime(): number {
     return this._overtime;
+  }
+  /** Match flow mode — "single" post-games are terminal (return to lobby). */
+  get flow(): "single" | "continuous" {
+    return this._flow;
   }
   get isReady(): boolean {
     return this._isReady;

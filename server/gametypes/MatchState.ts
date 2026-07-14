@@ -47,6 +47,9 @@ export class MatchState {
   private gametypeName: string;
   /** Whether the owning gametype scores by team (drives tie/winner checks). */
   private teamBased: boolean;
+  /** "single": per-match server — PostGame is terminal (no warmup restart);
+   *  "continuous": classic warmup loop (default). */
+  private _flow: "single" | "continuous" = "continuous";
   /** Match result, set on entering PostGame; cleared when warmup restarts. */
   private _winner: MatchWinner | null = null;
   /** Overtime extensions granted this match (0 = regulation). */
@@ -95,6 +98,15 @@ export class MatchState {
   }
   get overtimeCount(): number {
     return this._overtimeCount;
+  }
+  get flow(): "single" | "continuous" {
+    return this._flow;
+  }
+
+  /** Set the match flow mode (once, at server boot). */
+  setFlow(flow: "single" | "continuous"): void {
+    this._flow = flow;
+    console.log(`[MatchState] Match flow: ${flow}`);
   }
 
   /** True when the current scores would end the match as a draw. */
@@ -335,7 +347,14 @@ export class MatchState {
         break;
 
       case MatchPhase.PostGame:
-        // Skip straight to warmup if no players
+        // Single-match server: PostGame is terminal. Players chat and return
+        // to the lobby; the process exits when the last client leaves
+        // (shutdownOnEmpty) or via the GameServer grace close. Never restart.
+        if (this._flow === "single") {
+          this._timeRemaining = Math.max(0, this._timeRemaining - dt);
+          break;
+        }
+        // Continuous: classic loop — skip straight to warmup if no players
         if (this._totalPlayers === 0) {
           this.restart();
           break;
@@ -436,6 +455,7 @@ export class MatchState {
       teamNames: teamNamesRec,
       winner: this._winner ?? undefined,
       overtime: this._overtimeCount > 0 ? this._overtimeCount : undefined,
+      flow: this._flow,
     };
   }
 }

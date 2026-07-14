@@ -144,6 +144,14 @@ export class GametypeController {
   }
 
   /**
+   * Set the match flow mode (from GameServerConfig.singleMatch, at boot).
+   * "single" makes PostGame terminal — see docs/research/single_game_server_lobby.md.
+   */
+  setMatchFlow(flow: "single" | "continuous"): void {
+    this.matchState.setFlow(flow);
+  }
+
+  /**
    * Get the award tracker (for gametype scripts to emit custom awards).
    */
   getAwardTracker(): AwardTracker {
