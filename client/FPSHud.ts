@@ -133,7 +133,10 @@ export class FPSHud {
         const mgr = MatchStateManager.getInstance();
         const winner = mgr.winner;
         const title = winner && winner.kind !== "draw" && winner.name ? `${winner.name} wins!` : "Draw!";
-        this._scoreboard.setPostGame(title.toUpperCase());
+        // Winner key in the scoreboard's playerId format ("player_<id>") — the
+        // board renders the winner's stat panel next to the showcase model.
+        const winnerId = mgr.resolveWinnerPlayerId();
+        this._scoreboard.setPostGame(title.toUpperCase(), winnerId ? `player_${winnerId}` : null);
         this.hide(); // gameplay HUD off — the result owns the screen
         // The pickup prompt is body-appended (outside the container) and its
         // proximity driver is frozen with input — force it away for the screen.

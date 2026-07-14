@@ -88,6 +88,22 @@ export async function startPostGameShowcase(
       .then(() => console.log(`[PostGameShowcase] weapon attached: ${weaponId}`))
       .catch((e) => console.warn("[PostGameShowcase] weapon attach failed", e));
   }
+
+  // Victory dance! Random pick from whichever Mixamo dance clips are shipped
+  // (missing clips are skipped at load; playAnimation returns false → the
+  // model simply keeps its idle pose).
+  try {
+    const { DANCE_ANIMS, PlayerModelManager } = await import("../../../engine/animation/PlayerModelManager");
+    const dances = [...DANCE_ANIMS].sort(() => Math.random() - 0.5);
+    for (const dance of dances) {
+      if (PlayerModelManager.playAnimationOn(model, dance)) {
+        console.log(`[PostGameShowcase] victory dance: ${dance}`);
+        break;
+      }
+    }
+  } catch {
+    /* dances are a flourish — idle pose is fine */
+  }
 }
 
 /** Remove the showcase model (next warmup / disconnect). Idempotent. */

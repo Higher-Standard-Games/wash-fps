@@ -203,26 +203,11 @@ export class Game {
             return;
           }
           const mgr = MatchStateManager.getInstance();
-          const winner = mgr.winner;
-          if (!winner || winner.kind === "draw" || !winner.id) {
-            console.log(`[PostGameShowcase] no showcase — winner=${JSON.stringify(winner)}`);
+          const winnerPlayerId = mgr.resolveWinnerPlayerId();
+          if (!winnerPlayerId) {
+            console.log(`[PostGameShowcase] no showcase — winner=${JSON.stringify(mgr.winner)}`);
             return;
           }
-
-          // Resolve the winning PLAYER. Duel reports a team win (it rides the
-          // team infrastructure with one player per side) — map a single-member
-          // team to its player. Multi-member team wins (TDM MVP) come later.
-          let winnerPlayerId: string | null = null;
-          if (winner.kind === "player") {
-            winnerPlayerId = winner.id;
-          } else {
-            const members = Object.entries(mgr.playerTeams)
-              .filter(([, teamId]) => teamId === winner.id)
-              .map(([playerId]) => playerId);
-            if (members.length === 1) winnerPlayerId = members[0];
-            else console.log(`[PostGameShowcase] team win with ${members.length} members — showcase skipped`);
-          }
-          if (!winnerPlayerId) return;
 
           // Snapshot players are keyed "player_<id>" while match-state ids are
           // bare ("3") — normalize before the lookup.

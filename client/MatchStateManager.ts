@@ -154,6 +154,22 @@ export class MatchStateManager {
   get flow(): "single" | "continuous" {
     return this._flow;
   }
+
+  /**
+   * Resolve the winning PLAYER id (bare, e.g. "3"), or null for draws/none.
+   * Duel reports a team win (it rides the team infrastructure with one player
+   * per side) — a single-member winning team maps to its player. Multi-member
+   * team wins return null (TDM MVP selection comes with proper stats).
+   */
+  resolveWinnerPlayerId(): string | null {
+    const winner = this._winner;
+    if (!winner || winner.kind === "draw" || !winner.id) return null;
+    if (winner.kind === "player") return winner.id;
+    const members = Object.entries(this._playerTeams)
+      .filter(([, teamId]) => teamId === winner.id)
+      .map(([playerId]) => playerId);
+    return members.length === 1 ? members[0] : null;
+  }
   get isReady(): boolean {
     return this._isReady;
   }

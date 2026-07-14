@@ -28,6 +28,9 @@ export class FPSScoreboard {
   private localPlayerId: string = "";
   private board: HTMLElement;
   private returnBtn: HTMLButtonElement;
+  private statsEl: HTMLElement;
+  /** Winner's playerId ("player_<id>") while the post-game board is up. */
+  private winnerPlayerId: string | null = null;
 
   constructor() {
     this.overlay = document.createElement("div");
@@ -55,6 +58,13 @@ export class FPSScoreboard {
     this.returnBtn.textContent = "RETURN TO LOBBY";
     this.returnBtn.style.display = "none";
     this.overlay.appendChild(this.returnBtn);
+
+    // Winner stat panel — stands next to the 3D showcase model (left third)
+    // during the post-game. Also overlay-mounted so refresh() can't wipe it.
+    this.statsEl = document.createElement("div");
+    this.statsEl.className = "fps-postgame-stats";
+    this.statsEl.style.display = "none";
+    this.overlay.appendChild(this.statsEl);
 
     this.overlay.appendChild(this.board);
     document.body.appendChild(this.overlay);
@@ -112,19 +122,22 @@ export class FPSScoreboard {
    * variant), and titled with the match result ("WRAITH WINS!").
    * Pass null to return to the plain Tab scoreboard.
    */
-  public setPostGame(winnerTitle: string | null): void {
+  public setPostGame(winnerTitle: string | null, winnerPlayerId: string | null = null): void {
     if (winnerTitle !== null) {
       this.board.classList.add("fps-scoreboard--postgame");
       // Light, un-blurred veil + board shifted right so the 3D winner showcase
       // (left third of the view) stays readable.
       this.overlay.classList.add("fps-scoreboard-overlay--postgame");
       this.postGameRoster = new Map(); // remember departing players' final rows
+      this.winnerPlayerId = winnerPlayerId;
       this.setTitle(winnerTitle);
       this.setLocked(true);
     } else {
       this.board.classList.remove("fps-scoreboard--postgame");
       this.overlay.classList.remove("fps-scoreboard-overlay--postgame");
       this.postGameRoster = null;
+      this.winnerPlayerId = null;
+      this.statsEl.style.display = "none";
       this.setTitle("SCOREBOARD");
       this.setLocked(false);
       this.setReturnAction(null);
@@ -169,6 +182,9 @@ export class FPSScoreboard {
     const signature = JSON.stringify([state.teamNames, state.teamScores, entries, this.localPlayerId]);
     if (signature === this.lastSignature) return;
     this.lastSignature = signature;
+
+    // Winner stat panel (post-game): frags / deaths / K-D next to the model.
+    this.renderWinnerStats(entries);
 
     const hasTeams = Object.keys(state.teamScores).length > 0;
 
@@ -309,6 +325,32 @@ export class FPSScoreboard {
 
       this.appendSpectators(ffaSpecs);
     }
+  }
+
+  /**
+   * Winner stat panel next to the showcase model (post-game only). Values come
+   * from the same entry union as the board, so they show the final score even
+   * mid-refresh and survive the winner disconnecting.
+   */
+  // biome-ignore lint/suspicious/noExplicitAny: mirrors HUDState scoreboard entry shape
+  private renderWinnerStats(entries: any[]): void {
+    if (!this.winnerPlayerId) return;
+    const entry = entries.find((e) => e.playerId === this.winnerPlayerId);
+    if (!entry) {
+      this.statsEl.style.display = "none";
+      return;
+    }
+
+    const frags = Number(entry.score ?? 0);
+    const deaths = Number(entry.deaths ?? 0);
+    const kd = deaths > 0 ? (frags / deaths).toFixed(2) : frags.toFixed(2);
+
+    this.statsEl.innerHTML = `
+      <div class="fps-postgame-stats-row"><span class="fps-postgame-stats-label">Frags</span><span class="fps-postgame-stats-value">${frags}</span></div>
+      <div class="fps-postgame-stats-row"><span class="fps-postgame-stats-label">Deaths</span><span class="fps-postgame-stats-value">${deaths}</span></div>
+      <div class="fps-postgame-stats-row"><span class="fps-postgame-stats-label">K/D</span><span class="fps-postgame-stats-value">${kd}</span></div>
+    `;
+    this.statsEl.style.display = "";
   }
 
   /** Render a "SPECTATORS (n)" block at the bottom of the board. */
