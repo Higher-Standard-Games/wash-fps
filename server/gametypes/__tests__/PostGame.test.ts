@@ -98,6 +98,23 @@ describe("bot auto-ready", () => {
     controller.registerBot(P2);
     expect(ms.readyCount).toBe(1); // bot ready on join; match starts once the human readies
   });
+
+  it("bots re-ready when post-game rolls over to a new warmup", () => {
+    const controller = new GametypeController(new Deathmatch());
+    const ms = controller.getMatchState();
+    ms.addPlayer(P1);
+    ms.addPlayer(P2);
+    controller.registerBot(P2);
+
+    ms.transition(MatchPhase.PostGame); // simulate a finished match
+    const emptyState = { allEntities: () => [], getEntity: () => null, entitiesByType: () => [] } as never;
+    // Tick past postGameDuration → restart() → Warmup (clears ready set),
+    // then the controller's phase-change hook re-readies bots.
+    controller.postTick(emptyState, ms.getConfig().postGameDuration + 1, 1 as never);
+
+    expect(ms.phase).toBe(MatchPhase.Warmup);
+    expect(ms.readyCount).toBe(1); // bot ready again for match #2
+  });
 });
 
 describe("match pacing env overrides (dev/test)", () => {
@@ -127,6 +144,15 @@ describe("match pacing env overrides (dev/test)", () => {
     expect(config.timeLimit).toBe(120);
     expect(config.scoreLimit).toBe(3);
     expect(config.warmupTimeout).toBe(10);
+  });
+
+  it("time values accept minute suffixes (Quake g_timelimit habit)", () => {
+    process.env.SHAG_TIMELIMIT = "2m";
+    process.env.SHAG_WARMUP = "30s";
+    const controller = new GametypeController(new Deathmatch());
+    const config = controller.getMatchState().getConfig();
+    expect(config.timeLimit).toBe(120); // 2 minutes
+    expect(config.warmupTimeout).toBe(30);
   });
 
   it("ignores invalid values and stays inert when unset", () => {

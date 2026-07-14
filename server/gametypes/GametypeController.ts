@@ -76,9 +76,12 @@ export class GametypeController {
   }
 
   /**
-   * Dev/test overrides for match pacing via environment variables (seconds):
+   * Dev/test overrides for match pacing via environment variables:
    *   SHAG_TIMELIMIT — match time limit    SHAG_SCORELIMIT — frag/score limit
    *   SHAG_WARMUP    — warmup timeout
+   * Time values accept unit suffixes: "2m" = 2 minutes, "90s" or bare "90" =
+   * seconds. (Quake's g_timelimit tradition is MINUTES, so a bare tiny value
+   * like "2" is almost always a unit mistake — it gets a loud warning.)
    * Read once at server boot; inert when unset. Lobby-spawned servers inherit
    * the lobby process env, so one export covers the whole dev session.
    */
@@ -86,21 +89,37 @@ export class GametypeController {
     const env = typeof process !== "undefined" ? process.env : undefined;
     if (!env) return config;
 
+    /** Parse "2m" → 120, "90s"/"90" → 90. Returns null for garbage. */
+    const parseSeconds = (raw: string): number | null => {
+      const m = raw.trim().match(/^(\d+(?:\.\d+)?)\s*(m|min|s|sec)?$/i);
+      if (!m) return null;
+      const value = Number(m[1]);
+      if (!Number.isFinite(value) || value < 0) return null;
+      const unit = (m[2] ?? "s").toLowerCase();
+      return unit.startsWith("m") ? value * 60 : value;
+    };
+
     const overridden = { ...config };
-    const apply = (key: string, field: "timeLimit" | "scoreLimit" | "warmupTimeout") => {
+    const apply = (key: string, field: "timeLimit" | "scoreLimit" | "warmupTimeout", isTime: boolean) => {
       const raw = env[key];
       if (raw === undefined || raw === "") return;
-      const value = Number(raw);
-      if (!Number.isFinite(value) || value < 0) {
+      const value = isTime ? parseSeconds(raw) : Number(raw);
+      if (value === null || !Number.isFinite(value) || value < 0) {
         console.warn(`[GametypeController] Ignoring invalid ${key}="${raw}"`);
         return;
       }
       overridden[field] = value;
-      console.log(`[GametypeController] Env override: ${field} = ${value} (${key})`);
+      console.log(`[GametypeController] Env override: ${field} = ${value}s (${key}="${raw}")`);
+      if (field === "timeLimit" && value > 0 && value < 30) {
+        console.warn(
+          `[GametypeController] ⚠ ${key}="${raw}" is ${value} SECONDS — the match will end almost immediately. ` +
+            `Did you mean "${raw}m" (${value} minutes)?`,
+        );
+      }
     };
-    apply("SHAG_TIMELIMIT", "timeLimit");
-    apply("SHAG_SCORELIMIT", "scoreLimit");
-    apply("SHAG_WARMUP", "warmupTimeout");
+    apply("SHAG_TIMELIMIT", "timeLimit", true);
+    apply("SHAG_SCORELIMIT", "scoreLimit", false);
+    apply("SHAG_WARMUP", "warmupTimeout", true);
     return overridden;
   }
 
@@ -389,6 +408,14 @@ export class GametypeController {
       // Match ended on the time limit — record who won for the post-game screen.
       if (this.matchState.phase === MatchPhase.PostGame) {
         this.recordMatchWinner();
+      }
+
+      // New warmup (post-game rollover): transition cleared the ready set, so
+      // re-ready the bots — otherwise match #2 waits out the whole warmup.
+      if (this.matchState.phase === MatchPhase.Warmup) {
+        for (const botId of this.botPlayerIds) {
+          this.matchState.playerReady(botId);
+        }
       }
     }
 
