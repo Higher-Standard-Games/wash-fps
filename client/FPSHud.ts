@@ -441,6 +441,13 @@ export class FPSHud {
       widget.update(state);
     }
 
+    // Keep the scoreboard live while open — it's a standalone overlay (not a
+    // widget), and a one-shot refresh at open time can miss the final frag
+    // whose score lands in the same snapshot as the phase change.
+    if (this._scoreboard?.isVisible()) {
+      this._scoreboard.refresh();
+    }
+
     // Drive the on-weapon ammo counter with the same number the HUD shows
     // (clip for clip weapons). No-op for weapons without a counter.
     const a = state.ammo[state.currentWeapon];

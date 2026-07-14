@@ -204,7 +204,10 @@ export class Game {
           }
           const mgr = MatchStateManager.getInstance();
           const winner = mgr.winner;
-          if (!winner || winner.kind === "draw" || !winner.id) return;
+          if (!winner || winner.kind === "draw" || !winner.id) {
+            console.log(`[PostGameShowcase] no showcase — winner=${JSON.stringify(winner)}`);
+            return;
+          }
 
           // Resolve the winning PLAYER. Duel reports a team win (it rides the
           // team infrastructure with one player per side) — map a single-member
@@ -217,16 +220,26 @@ export class Game {
               .filter(([, teamId]) => teamId === winner.id)
               .map(([playerId]) => playerId);
             if (members.length === 1) winnerPlayerId = members[0];
+            else console.log(`[PostGameShowcase] team win with ${members.length} members — showcase skipped`);
           }
           if (!winnerPlayerId) return;
 
-          const entityId = this._latestGameState?.players.get(winnerPlayerId)?.entityId ?? null;
-          if (!entityId) return;
+          // Snapshot players are keyed "player_<id>" while match-state ids are
+          // bare ("3") — normalize before the lookup.
+          const winnerKey = winnerPlayerId.startsWith("player_") ? winnerPlayerId : `player_${winnerPlayerId}`;
+          const entityId = this._latestGameState?.players.get(winnerKey)?.entityId ?? null;
+          if (!entityId) {
+            console.log(
+              `[PostGameShowcase] no entity for winner ${winnerKey} (players: ${[...(this._latestGameState?.players.keys() ?? [])].join(", ")})`,
+            );
+            return;
+          }
 
           // Winner's gun: local player → the view model's weapon; remote →
-          // last weapon seen in snapshots.
+          // last weapon seen in snapshots. (localPlayerId uses the "player_<id>"
+          // form, hence the normalized key.)
           const resolveWeapon = async (): Promise<string | null> => {
-            if (winnerPlayerId === this.localPlayerId) {
+            if (winnerKey === this.localPlayerId) {
               const { getWeaponViewManager } = await import("../../engine/weapon/WeaponViewManager");
               return getWeaponViewManager().getDisplayedWeaponId?.() ?? null;
             }

@@ -89,10 +89,14 @@ export class FPSScoreboard {
   public setPostGame(winnerTitle: string | null): void {
     if (winnerTitle !== null) {
       this.board.classList.add("fps-scoreboard--postgame");
+      // Light, un-blurred veil + board shifted right so the 3D winner showcase
+      // (left third of the view) stays readable.
+      this.overlay.classList.add("fps-scoreboard-overlay--postgame");
       this.setTitle(winnerTitle);
       this.setLocked(true);
     } else {
       this.board.classList.remove("fps-scoreboard--postgame");
+      this.overlay.classList.remove("fps-scoreboard-overlay--postgame");
       this.setTitle("SCOREBOARD");
       this.setLocked(false);
       this.hide();

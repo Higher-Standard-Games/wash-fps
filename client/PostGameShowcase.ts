@@ -17,9 +17,12 @@ import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
 
 /** Distance in front of the camera to place the model (world/Quake units). */
-const SHOWCASE_DISTANCE = 140;
+const SHOWCASE_DISTANCE = 150;
 /** Camera eye sits ~this far above the entity origin the model spawner expects. */
 const EYE_TO_ORIGIN = 28;
+/** Yaw offset from camera forward (radians) — stand the model in the LEFT
+ *  third of the view; the post-game board occupies the right side. */
+const SHOWCASE_ANGLE = -0.55; // ~31° left
 
 let currentModel: PlayerModelInstance | null = null;
 let generation = 0;
@@ -34,7 +37,10 @@ export async function startPostGameShowcase(
   weaponId: string | null,
 ): Promise<void> {
   stopPostGameShowcase();
-  if (!renderer || !winnerEntityId) return;
+  if (!renderer || !winnerEntityId) {
+    console.log(`[PostGameShowcase] skipped — renderer=${!!renderer} entityId=${winnerEntityId}`);
+    return;
+  }
 
   const gen = ++generation;
 
@@ -42,17 +48,29 @@ export async function startPostGameShowcase(
     position?: { x: number; y: number; z: number };
     rotation?: { y?: number };
   } | null;
-  if (!cam?.position) return;
+  if (!cam?.position) {
+    console.log("[PostGameShowcase] skipped — no camera");
+    return;
+  }
 
+  // Stand the model left-forward of the camera (the board sits on the right).
   const camYaw = cam.rotation?.y ?? 0;
+  const placeYaw = camYaw + SHOWCASE_ANGLE;
   // Babylon left-handed: forward = (sin(yaw), 0, cos(yaw)).
-  const x = cam.position.x + Math.sin(camYaw) * SHOWCASE_DISTANCE;
-  const z = cam.position.z + Math.cos(camYaw) * SHOWCASE_DISTANCE;
+  const x = cam.position.x + Math.sin(placeYaw) * SHOWCASE_DISTANCE;
+  const z = cam.position.z + Math.cos(placeYaw) * SHOWCASE_DISTANCE;
   const y = cam.position.y - EYE_TO_ORIGIN;
-  const facingCameraYaw = camYaw + Math.PI;
+  // Face the camera exactly (yaw from model position back to the camera).
+  const facingCameraYaw = Math.atan2(cam.position.x - x, cam.position.z - z);
 
+  console.log(
+    `[PostGameShowcase] spawning winner model: entity=${winnerEntityId} weapon=${weaponId ?? "none"} at (${x.toFixed(0)}, ${y.toFixed(0)}, ${z.toFixed(0)})`,
+  );
   const model = await renderer.createDetachedModelAtAsync(winnerEntityId, x, y, z, facingCameraYaw);
-  if (!model) return;
+  if (!model) {
+    console.warn("[PostGameShowcase] model creation returned null");
+    return;
+  }
 
   // A newer showcase/stop superseded us while the model loaded.
   if (gen !== generation) {
@@ -60,9 +78,13 @@ export async function startPostGameShowcase(
     return;
   }
   currentModel = model;
+  console.log("[PostGameShowcase] winner model spawned");
 
   if (weaponId) {
-    renderer.attachShowcaseWeapon(model, weaponId).catch(() => {});
+    renderer
+      .attachShowcaseWeapon(model, weaponId)
+      .then(() => console.log(`[PostGameShowcase] weapon attached: ${weaponId}`))
+      .catch((e) => console.warn("[PostGameShowcase] weapon attach failed", e));
   }
 }
 
