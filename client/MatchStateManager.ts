@@ -5,39 +5,17 @@
  * match phase, timer, and ready status for HUD consumption.
  */
 
-// Match phases must mirror shared/server/gametype/GametypeTypes.ts
-export enum MatchPhase {
-  Warmup = 0,
-  Countdown = 1,
-  Active = 2,
-  PostGame = 3,
-}
+// Match types are the shared gametype contract (server-authored). They used to
+// be hand-copied here and silently drifted from the server (QA-4: the client
+// weakened team records to string and added `spectators`). Import the single
+// source and re-export so existing `./MatchStateManager` consumers keep their
+// imports.
+import { MatchPhase } from "../../../shared/server/gametype/GametypeTypes";
+import type { MatchWinner } from "../../../shared/server/gametype/GametypeTypes";
 
-/** Authoritative match result (set by the server during PostGame). */
-export interface MatchWinner {
-  kind: "player" | "team" | "draw";
-  id?: string;
-  name?: string;
-}
-
-export interface MatchStateSnapshot {
-  phase: MatchPhase;
-  timeRemaining: number;
-  readyCount: number;
-  totalPlayers: number;
-  gametypeName: string;
-  scoreLimit: number;
-  teamScores?: Record<string, number>;
-  playerTeams?: Record<string, string>;
-  teamNames?: Record<string, string>;
-  spectators?: Array<{ playerId: string; name: string; ping: number }>;
-  winner?: MatchWinner;
-  /** Overtime extensions this match (0/undefined = regulation). */
-  overtime?: number;
-  /** "single" = per-match server (post-game is terminal, return to lobby);
-   *  "continuous" = classic warmup loop. */
-  flow?: "single" | "continuous";
-}
+export { MatchPhase };
+export type { MatchWinner };
+export type { MatchStateSnapshot } from "../../../shared/server/gametype/GametypeTypes";
 
 export type PhaseChangeCallback = (newPhase: MatchPhase, oldPhase: MatchPhase) => void;
 
