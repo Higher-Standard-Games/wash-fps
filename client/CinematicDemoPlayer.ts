@@ -97,11 +97,11 @@ export class CinematicDemoPlayer {
     const frames = reader.readAllFrames();
     const analysis: DemoAnalysis = new DemoAnalyzer().analyze(frames, header, index.durationMs);
 
-    this.reel = new SequenceBuilder().build(analysis, durationMinutes, header.snapshotRate, header);
+    this.reel = new SequenceBuilder().build(analysis, durationMinutes, header.tickRate, header);
 
     // Pre-generate camera paths for every segment
     this.cameraPaths = this.reel.segments.map((seg) =>
-      generateCameraPath(seg.cameraPreset, seg.highlight, seg.startTick, seg.endTick, header.snapshotRate),
+      generateCameraPath(seg.cameraPreset, seg.highlight, seg.startTick, seg.endTick, header.tickRate),
     );
 
     this._startPlayback();

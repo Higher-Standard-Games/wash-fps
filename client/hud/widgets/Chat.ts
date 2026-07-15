@@ -163,6 +163,14 @@ export class FPSChat {
     return this.inputActive;
   }
 
+  public show(): void {
+    this.container.style.display = "";
+  }
+
+  public hide(): void {
+    this.container.style.display = "none";
+  }
+
   private handleKey(e: KeyboardEvent): void {
     // Keystrokes belong to the input while typing — never the game.
     e.stopPropagation();

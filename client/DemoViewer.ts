@@ -1,7 +1,7 @@
 /**
  * DemoViewer — In-browser .shagdemo playback controller
  *
- * Loads a demo file, plays back frames at the recorded snapshotRate,
+ * Loads a demo file, plays back frames at their recorded server ticks,
  * and feeds them to RemotePlayerRenderer for visual playback.
  * Reuses SpectatorController for chase-cam (same code as live spectator).
  *
@@ -9,7 +9,7 @@
  */
 
 import type { GameState } from "../../../engine/network/core/GameState";
-import { type DemoHeader, type DemoIndex, DemoReader } from "../../../shared/demo/DemoReader";
+import { type DemoFrame, type DemoHeader, type DemoIndex, DemoReader } from "../../../shared/demo/DemoReader";
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -21,9 +21,13 @@ export interface DemoViewerInfo {
   currentFrame: number;
   totalFrames: number;
   currentTick: number;
+  /** Continuous server-tick position between the current and next frame. */
+  playheadTick: number;
   durationMs: number;
   elapsedMs: number;
   playbackSpeed: number;
+  /** Increments whenever playback jumps discontinuously. */
+  discontinuityId: number;
 }
 
 export type DemoViewerCallback = (state: GameState, tick: number) => void;
@@ -32,6 +36,7 @@ export type DemoViewerCallback = (state: GameState, tick: number) => void;
 
 const SPEED_OPTIONS = [0.25, 0.5, 1.0, 2.0, 4.0];
 const DEFAULT_SPEED = 1.0;
+const MAX_FRAMES_PER_UPDATE = 4;
 
 // ─── DemoViewer ──────────────────────────────────────────────────
 
@@ -43,7 +48,10 @@ export class DemoViewer {
   private state: DemoViewerState = "idle";
   private currentFrameIndex: number = 0;
   private playbackSpeed: number = DEFAULT_SPEED;
-  private elapsedSinceLastFrame: number = 0;
+  /** Current position on the recorded timeline, relative to the first frame. */
+  private playheadMs: number = 0;
+  private discontinuityId: number = 0;
+  private frameCache: Map<number, DemoFrame> = new Map();
 
   // Callbacks
   private onFrameCallback: DemoViewerCallback | null = null;
@@ -58,10 +66,22 @@ export class DemoViewer {
   async load(data: Uint8Array | ArrayBuffer): Promise<void> {
     this.reader = await DemoReader.fromFile(data);
     this.header = this.reader.readHeader();
+
+    // Recorded ticks are the playback time source; a header without a positive
+    // tickRate is a legacy recording whose playhead can't advance — the models
+    // would render frozen while the scrubber moves. Refuse it cleanly instead.
+    if (!this.header.tickRate || this.header.tickRate <= 0) {
+      this.reader = null;
+      this.header = null;
+      throw new Error("Legacy demo (no tickRate in header) — re-record with a current server.");
+    }
+
     this.index = this.reader.readIndex();
 
     this.currentFrameIndex = 0;
-    this.elapsedSinceLastFrame = 0;
+    this.playheadMs = 0;
+    this.discontinuityId++;
+    this.frameCache.clear();
     this.setState("loaded");
 
     console.log(`[DemoViewer] Loaded demo: ${this.reader.getSummary()}`);
@@ -85,7 +105,8 @@ export class DemoViewer {
     if (this.state === "ended") {
       // Restart from beginning
       this.currentFrameIndex = 0;
-      this.elapsedSinceLastFrame = 0;
+      this.playheadMs = 0;
+      this.discontinuityId++;
     }
 
     this.setState("playing");
@@ -120,7 +141,8 @@ export class DemoViewer {
     if (!this.index) return;
 
     this.currentFrameIndex = Math.max(0, Math.min(frameIndex, this.index.frameCount - 1));
-    this.elapsedSinceLastFrame = 0;
+    this.playheadMs = this.getFrameTimeMs(this.currentFrameIndex);
+    this.discontinuityId++;
 
     // Deliver the frame at the new position
     this.deliverCurrentFrame();
@@ -144,9 +166,12 @@ export class DemoViewer {
    * Seek to a position in the timeline (0.0 – 1.0).
    */
   seekToProgress(progress: number): void {
-    if (!this.index) return;
-    const frameIndex = Math.round(progress * (this.index.frameCount - 1));
-    this.seekToFrame(frameIndex);
+    if (!this.reader || !this.index || this.index.frameCount === 0) return;
+    const clampedProgress = Math.max(0, Math.min(progress, 1));
+    const firstTick = this.index.entries[0].tick;
+    const lastTick = this.index.entries[this.index.frameCount - 1].tick;
+    const targetTick = Math.round(firstTick + (lastTick - firstTick) * clampedProgress);
+    this.seekToFrame(this.reader.findFrameByTick(targetTick));
   }
 
   // ── Speed Control ───────────────────────────────────────────────
@@ -201,37 +226,65 @@ export class DemoViewer {
       return;
     }
 
-    // Calculate frame interval based on snapshot rate
-    const frameInterval = 1000 / this.header.snapshotRate;
+    const durationMs = this.getTimelineDurationMs();
+    this.playheadMs = Math.min(durationMs, this.playheadMs + Math.max(0, deltaMs) * this.playbackSpeed);
 
-    this.elapsedSinceLastFrame += deltaMs * this.playbackSpeed;
+    const targetFrameIndex = this.findFrameAtPlayhead(this.playheadMs);
+    if (targetFrameIndex > this.currentFrameIndex) {
+      // Full snapshots make it safe to skip old intermediate frames after a long
+      // browser stall. Deliver the newest few so presentation catches up without
+      // replaying thousands of stale transient events in one render update.
+      const firstFrameToDeliver = Math.max(this.currentFrameIndex + 1, targetFrameIndex - MAX_FRAMES_PER_UPDATE + 1);
+      this.currentFrameIndex = firstFrameToDeliver - 1;
 
-    // Cap frame advances per update to prevent tab-return freeze.
-    // Without this, a 60s tab-away at 4× speed / 20Hz = 4800 readFrame() calls
-    // in one render frame, freezing the browser.
-    const MAX_FRAMES_PER_UPDATE = 4;
-    let framesAdvanced = 0;
-
-    // Advance frames as needed (capped)
-    while (this.elapsedSinceLastFrame >= frameInterval && framesAdvanced < MAX_FRAMES_PER_UPDATE) {
-      this.elapsedSinceLastFrame -= frameInterval;
-      this.currentFrameIndex++;
-      framesAdvanced++;
-
-      if (this.currentFrameIndex >= this.index.frameCount) {
-        this.currentFrameIndex = this.index.frameCount - 1;
-        this.elapsedSinceLastFrame = 0;
-        this.setState("ended");
-        return;
+      while (this.currentFrameIndex < targetFrameIndex) {
+        this.currentFrameIndex++;
+        this.deliverCurrentFrame();
       }
-
-      this.deliverCurrentFrame();
     }
 
-    // If we hit the cap, drain leftover to prevent accumulation snowball
-    if (framesAdvanced >= MAX_FRAMES_PER_UPDATE) {
-      this.elapsedSinceLastFrame = 0;
+    if (this.currentFrameIndex >= this.index.frameCount - 1 && this.playheadMs >= durationMs) {
+      this.playheadMs = durationMs;
+      this.setState("ended");
     }
+  }
+
+  /** Recorded time of a frame relative to the first frame. Recorded ticks are
+   *  the single time source; load() rejects headers without a tickRate. */
+  private getFrameTimeMs(frameIndex: number): number {
+    if (!this.header || !this.index || this.index.frameCount === 0) return 0;
+    const safeIndex = Math.max(0, Math.min(frameIndex, this.index.frameCount - 1));
+    const firstTick = this.index.entries[0].tick;
+    const frameTick = this.index.entries[safeIndex].tick;
+    return (Math.max(0, frameTick - firstTick) / this.header.tickRate) * 1000;
+  }
+
+  private getTimelineDurationMs(): number {
+    if (!this.index || this.index.frameCount <= 1) return 0;
+    return this.getFrameTimeMs(this.index.frameCount - 1);
+  }
+
+  private getPlayheadTick(): number {
+    if (!this.header || !this.index || this.index.frameCount === 0) return 0;
+    const firstTick = this.index.entries[0].tick;
+    return firstTick + (this.playheadMs / 1000) * this.header.tickRate;
+  }
+
+  /** Find the newest frame whose recorded timestamp is not after the playhead. */
+  private findFrameAtPlayhead(playheadMs: number): number {
+    if (!this.index || this.index.frameCount === 0) return 0;
+
+    let low = 0;
+    let high = this.index.frameCount - 1;
+    while (low < high) {
+      const middle = Math.ceil((low + high) / 2);
+      if (this.getFrameTimeMs(middle) <= playheadMs) {
+        low = middle;
+      } else {
+        high = middle - 1;
+      }
+    }
+    return low;
   }
 
   // ── Frame Delivery ──────────────────────────────────────────────
@@ -240,12 +293,27 @@ export class DemoViewer {
    * Deliver the current frame to the callback.
    */
   private deliverCurrentFrame(): void {
-    if (!this.reader || !this.onFrameCallback) return;
-
-    const frame = this.reader.readFrame(this.currentFrameIndex);
+    if (!this.onFrameCallback) return;
+    const frame = this.readFrameCached(this.currentFrameIndex);
     if (frame) {
       this.onFrameCallback(frame.state, frame.tick);
     }
+  }
+
+  private readFrameCached(frameIndex: number): DemoFrame | null {
+    if (!this.reader || !this.index || frameIndex < 0 || frameIndex >= this.index.frameCount) return null;
+    const cached = this.frameCache.get(frameIndex);
+    if (cached) return cached;
+
+    const frame = this.reader.readFrame(frameIndex);
+    if (!frame) return null;
+    this.frameCache.set(frameIndex, frame);
+    while (this.frameCache.size > 4) {
+      const oldest = this.frameCache.keys().next().value as number | undefined;
+      if (oldest === undefined) break;
+      this.frameCache.delete(oldest);
+    }
+    return frame;
   }
 
   // ── Callbacks ───────────────────────────────────────────────────
@@ -277,9 +345,8 @@ export class DemoViewer {
    */
   getInfo(): DemoViewerInfo {
     const totalFrames = this.index?.frameCount ?? 0;
-    // snapshotRate available via header if needed for display
-    const durationMs = this.index?.durationMs ?? 0;
-    const elapsedMs = totalFrames > 1 ? (this.currentFrameIndex / (totalFrames - 1)) * durationMs : 0;
+    const durationMs = this.getTimelineDurationMs();
+    const elapsedMs = this.getFrameTimeMs(this.currentFrameIndex);
 
     return {
       state: this.state,
@@ -287,9 +354,11 @@ export class DemoViewer {
       currentFrame: this.currentFrameIndex,
       totalFrames,
       currentTick: this.index?.entries[this.currentFrameIndex]?.tick ?? 0,
+      playheadTick: this.getPlayheadTick(),
       durationMs,
       elapsedMs,
       playbackSpeed: this.playbackSpeed,
+      discontinuityId: this.discontinuityId,
     };
   }
 
@@ -321,13 +390,18 @@ export class DemoViewer {
     return this.index?.frameCount ?? 0;
   }
 
+  /** Decode the next full frame for deterministic render lookahead. */
+  getNextFrame(): DemoFrame | null {
+    return this.readFrameCached(this.currentFrameIndex + 1);
+  }
+
   /**
    * Get playback progress (0.0 – 1.0).
    */
   getProgress(): number {
-    const total = this.index?.frameCount ?? 0;
-    if (total <= 1) return 0;
-    return this.currentFrameIndex / (total - 1);
+    const durationMs = this.getTimelineDurationMs();
+    if (durationMs <= 0) return 0;
+    return Math.min(1, this.getFrameTimeMs(this.currentFrameIndex) / durationMs);
   }
 
   // ── Cleanup ─────────────────────────────────────────────────────
@@ -341,6 +415,9 @@ export class DemoViewer {
     this.index = null;
     this.state = "idle";
     this.currentFrameIndex = 0;
+    this.playheadMs = 0;
+    this.discontinuityId = 0;
+    this.frameCache.clear();
     this.onFrameCallback = null;
     this.onStateChangeCallback = null;
   }

@@ -37,6 +37,7 @@ demo aerowalk_duel_20260319.shagdemo        # Load by filename
 demoplay                          # Start normal playback from the beginning
 demoplay cinematic <minutes>      # Generate + play a highlight reel
 demoplay analyze                  # Print the highlight detection output
+demoplay hud <on|off|toggle>      # Control demo presentation overlays
 demoplay stop                     # Stop active playback
 ```
 
@@ -46,15 +47,25 @@ The demo loads as a tick stream. The client replays each tick's snapshot through
 
 You can scrub, pause, and speed-adjust via additional commands (TODO: document these).
 
+Press `H` during playback to toggle the complete demo presentation layer. The
+same setting is available through `demoplay hud on`, `demoplay hud off`, and
+`demoplay hud toggle`. It covers the transport/player HUD, replay chat, and
+the cinematic reel overlay, but leaves the weapon viewmodel and world effects
+visible.
+
 ### Cinematic mode
 
 `demoplay cinematic 2` analyses the demo for highlight moments (kills, sprees, environmental kills, near-misses) and assembles a 2-minute auto-edited reel with camera tracking, dramatic angles, and slow motion on key events.
+
+Cinematic playback uses its reel progress/highlight overlay instead of the
+normal interactive transport HUD. The shared `H`/`demoplay hud` setting
+applies to both modes.
 
 The analyser runs as `DemoService.analyzeLoadedDemo()` and outputs a list of timestamped highlights with scores. `demoplay analyze` prints this list without starting playback — useful for debugging the heuristics.
 
 ### Stop / cleanup
 
-`demoplay stop` cleanly halts playback, releases the `DemoViewer`, and returns the camera + HUD to spectator-like state. The currently-loaded demo stays loaded — you can `demoplay` again to restart, or `demo <other>` to load a different one.
+`demoplay stop` cleanly halts playback, releases the viewer/renderers/HUD, clears the followed target, and returns the camera to neutral freefly. Demo-owned viewmodel cameras, lights, scene observers, and input listeners are released as well. The currently-loaded demo stays loaded — you can `demoplay` again to restart, or `demo <other>` to load a different one.
 
 ## File Format Reference
 

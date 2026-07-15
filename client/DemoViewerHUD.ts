@@ -27,6 +27,7 @@ export class DemoViewerHUD {
 
   /** Signature of the last-rendered player list — avoids rebuilding buttons every frame (eats clicks) */
   private _playerListSig = "";
+  private _hasSpectatorStats = false;
 
   // Collapse state
   private collapsed = false;
@@ -310,7 +311,7 @@ export class DemoViewerHUD {
     this._playerListSig = sig;
 
     this.playerList.innerHTML = "";
-    this.playerList.style.display = players.length > 0 ? "flex" : "none";
+    this.playerList.style.display = !this.collapsed && players.length > 0 ? "flex" : "none";
 
     for (const player of players) {
       const btn = document.createElement("button");
@@ -338,10 +339,12 @@ export class DemoViewerHUD {
   setSpectatorStats(stats: { name: string; health: number; armor: number; weapon: string; ammo: string } | null): void {
     if (!this.specStats) return;
     if (!stats) {
+      this._hasSpectatorStats = false;
       this.specStats.style.display = "none";
       return;
     }
-    this.specStats.style.display = "flex";
+    this._hasSpectatorStats = true;
+    this.specStats.style.display = this.collapsed ? "none" : "flex";
     const weaponLabel = stats.weapon ? stats.weapon.replace(/_/g, " ") : "—";
     const ammo = stats.ammo ? ` <span style="opacity:0.7">${this.escape(stats.ammo)}</span>` : "";
     this.specStats.innerHTML =
@@ -377,21 +380,29 @@ export class DemoViewerHUD {
 
   private _toggleCollapse(): void {
     this.collapsed = !this.collapsed;
-    if (!this.controlsRow || !this.playerList || !this.container || !this.collapseBtn) return;
+    if (!this.controlsRow || !this.playerList || !this.specStats || !this.container || !this.collapseBtn) return;
+    for (const child of Array.from(this.controlsRow.children)) {
+      if (child === this.collapseBtn) continue;
+      (child as HTMLElement).style.display = this.collapsed ? "none" : "";
+    }
+    // The collapse button must stay reachable so the compact HUD can expand.
+    this.controlsRow.style.display = "flex";
     if (this.collapsed) {
-      this.controlsRow.style.display = "none";
       this.playerList.style.display = "none";
+      this.specStats.style.display = "none";
       this.container.style.padding = "0";
       this.collapseBtn.textContent = "▲";
       this.collapseBtn.title = "Expand HUD";
+      this.collapseBtn.style.marginLeft = "auto";
       // Keep the timeline bar visible but compact the container
       this.container.style.background = "transparent";
     } else {
-      this.controlsRow.style.display = "flex";
-      // playerList visibility is managed by setPlayerList — restore only if non-empty
+      this.playerList.style.display = this.playerList.childElementCount > 0 ? "flex" : "none";
+      this.specStats.style.display = this._hasSpectatorStats ? "flex" : "none";
       this.container.style.padding = "12px 20px 16px";
       this.collapseBtn.textContent = "▼";
       this.collapseBtn.title = "Minimize HUD";
+      this.collapseBtn.style.marginLeft = "4px";
       this.container.style.background = "linear-gradient(to top, rgba(0,0,0,0.85), rgba(0,0,0,0.3))";
     }
   }
