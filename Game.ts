@@ -871,7 +871,11 @@ export class Game {
    * rebroadcasts as a `chat` snapshot event). Called by the HUD chat widget.
    */
   sendChat(text: string): void {
-    if (!this.gameHost || !this.isNetworkMode) return;
+    if (!this.gameHost || !this.isNetworkMode) {
+      console.warn(`[Chat] send dropped — gameHost=${!!this.gameHost} networkMode=${this.isNetworkMode}`);
+      return;
+    }
+    console.log(`[Chat] send → server: "${text}"`);
     const networkHost = this.gameHost as import("../../engine/network/client/hosts/NetworkGameHost").NetworkGameHost;
     networkHost.sendChat(text);
   }

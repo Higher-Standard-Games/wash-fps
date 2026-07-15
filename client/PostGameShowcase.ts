@@ -115,6 +115,17 @@ export async function startPostGameShowcase(
     return;
   }
   currentModel = model;
+
+  // Anti-culling: the model is a SKINNED mesh playing an animation — Babylon
+  // frustum-culls by the static bind-pose bounds, which can hide the whole
+  // model depending on camera angle (the known "stale bounds culling" class;
+  // the live renderer forces this every frame, a detached model gets it once).
+  model.mesh.alwaysSelectAsActiveMesh = true;
+  model.mesh.isVisible = true;
+  for (const child of model.mesh.getChildMeshes()) {
+    child.alwaysSelectAsActiveMesh = true;
+    child.isVisible = true;
+  }
   console.log("[PostGameShowcase] winner model spawned");
 
   if (weaponId) {

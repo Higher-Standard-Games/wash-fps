@@ -955,6 +955,7 @@ export class GameServer {
     const team = client.isSpectator
       ? "spectator"
       : (this.gametypeController.getMatchState().getPlayerTeam(client.playerId) ?? "");
+    console.log(`[Chat] ${client.playerName}: ${text}`);
     this.pendingChatEvents.push({
       senderId: `player_${client.entityId}`,
       senderName: client.playerName,

@@ -881,6 +881,7 @@ export function processProjectileEntities(state: GameState, sync: ProjectileSync
 // biome-ignore lint/suspicious/noExplicitAny: duck-typed snapshot event
 function handleChatEvent(event: any): void {
   try {
+    console.log(`[Chat] event ← server: ${event.senderName}: "${event.text}"`);
     const name = event.senderName || "unknown";
     const prefix = event.team === "spectator" ? "[SPEC] " : "";
     import("./FPSHud")
