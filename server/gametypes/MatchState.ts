@@ -6,7 +6,13 @@
  */
 
 import type { PlayerId } from "@engine/server/ecs/types";
-import { type MatchConfig, MatchPhase, type MatchStateSnapshot, type TeamId } from "@shared/server/gametype";
+import {
+  type MatchConfig,
+  MatchPhase,
+  type MatchStateSnapshot,
+  type MatchWinner,
+  type TeamId,
+} from "@shared/server/gametype";
 
 /**
  * Default match config (can be overridden by gametype)
@@ -16,7 +22,7 @@ const DEFAULT_MATCH_CONFIG: MatchConfig = {
   countdownDuration: 3, // 3-2-1
   scoreLimit: 20,
   timeLimit: 600, // 10 minutes
-  postGameDuration: 10, // 10 seconds scoreboard
+  postGameDuration: 15, // post-game screen (winner banner + scoreboard)
   respawnDelay: 3, // 3 seconds
   selfDamage: 1.0, // full self-damage (rocket jumping!)
 };
@@ -39,10 +45,20 @@ export class MatchState {
   ]);
   private config: MatchConfig;
   private gametypeName: string;
+  /** Whether the owning gametype scores by team (drives tie/winner checks). */
+  private teamBased: boolean;
+  /** "single": per-match server — PostGame is terminal (no warmup restart);
+   *  "continuous": classic warmup loop (default). */
+  private _flow: "single" | "continuous" = "continuous";
+  /** Match result, set on entering PostGame; cleared when warmup restarts. */
+  private _winner: MatchWinner | null = null;
+  /** Overtime extensions granted this match (0 = regulation). */
+  private _overtimeCount = 0;
 
-  constructor(gametypeName: string, config: Partial<MatchConfig> = {}) {
+  constructor(gametypeName: string, config: Partial<MatchConfig> = {}, teamBased = false) {
     this.config = { ...DEFAULT_MATCH_CONFIG, ...config };
     this.gametypeName = gametypeName;
+    this.teamBased = teamBased;
     this._timeRemaining = this.config.warmupTimeout;
   }
 
@@ -76,6 +92,84 @@ export class MatchState {
   }
   get teamNames(): ReadonlyMap<TeamId, string> {
     return this._teamNames;
+  }
+  get winner(): MatchWinner | null {
+    return this._winner;
+  }
+  get overtimeCount(): number {
+    return this._overtimeCount;
+  }
+  get flow(): "single" | "continuous" {
+    return this._flow;
+  }
+
+  /** Set the match flow mode (once, at server boot). */
+  setFlow(flow: "single" | "continuous"): void {
+    this._flow = flow;
+    console.log(`[MatchState] Match flow: ${flow}`);
+  }
+
+  /** True when the current scores would end the match as a draw. */
+  isTiedAtTop(): boolean {
+    if (this.teamBased) {
+      return (this._teamScores.get("udon") ?? 0) === (this._teamScores.get("soba") ?? 0);
+    }
+    let best = Number.NEGATIVE_INFINITY;
+    let tied = false;
+    for (const score of this._scores.values()) {
+      if (score > best) {
+        best = score;
+        tied = false;
+      } else if (score === best) {
+        tied = true;
+      }
+    }
+    return tied || this._scores.size === 0;
+  }
+
+  // ========================================================================
+  // Winner
+  // ========================================================================
+
+  /**
+   * Compute and store the match result from current scores. Called by the
+   * controller when the match enters PostGame (both time-out and score-limit
+   * paths). Team-based: highest team score wins; else highest player score.
+   * Ties are a draw. `resolveName` maps a winning playerId to a display name.
+   */
+  computeWinner(teamBased: boolean, resolveName?: (playerId: PlayerId) => string): MatchWinner {
+    if (teamBased) {
+      const udon = this._teamScores.get("udon") ?? 0;
+      const soba = this._teamScores.get("soba") ?? 0;
+      if (udon === soba) {
+        this._winner = { kind: "draw" };
+      } else {
+        const teamId: TeamId = udon > soba ? "udon" : "soba";
+        this._winner = { kind: "team", id: teamId, name: this._teamNames.get(teamId) ?? teamId };
+      }
+      return this._winner;
+    }
+
+    // FFA/duel: top player score; only actual players (spectators hold no score entry).
+    let best: PlayerId | null = null;
+    let bestScore = Number.NEGATIVE_INFINITY;
+    let tied = false;
+    for (const [playerId, score] of this._scores) {
+      if (score > bestScore) {
+        best = playerId;
+        bestScore = score;
+        tied = false;
+      } else if (score === bestScore) {
+        tied = true;
+      }
+    }
+
+    if (best === null || tied) {
+      this._winner = { kind: "draw" };
+    } else {
+      this._winner = { kind: "player", id: best.toString(), name: resolveName?.(best) ?? `Player ${best}` };
+    }
+    return this._winner;
   }
 
   // ========================================================================
@@ -237,14 +331,30 @@ export class MatchState {
         if (this.config.timeLimit > 0) {
           this._timeRemaining -= dt;
           if (this._timeRemaining <= 0) {
-            this.transition(MatchPhase.PostGame);
+            // Overtime (duel): a tie at the limit never ends the match — extend
+            // it until someone takes the lead.
+            if (this.config.overtimeOnDraw && this.isTiedAtTop()) {
+              const extension = this.config.overtimeDuration ?? 60;
+              this._timeRemaining += extension;
+              this._overtimeCount++;
+              console.log(`[MatchState] OVERTIME #${this._overtimeCount} — tied at the limit, +${extension}s`);
+            } else {
+              this.transition(MatchPhase.PostGame);
+            }
           }
         }
         // Win condition checked externally by GametypeController
         break;
 
       case MatchPhase.PostGame:
-        // Skip straight to warmup if no players
+        // Single-match server: PostGame is terminal. Players chat and return
+        // to the lobby; the process exits when the last client leaves
+        // (shutdownOnEmpty) or via the GameServer grace close. Never restart.
+        if (this._flow === "single") {
+          this._timeRemaining = Math.max(0, this._timeRemaining - dt);
+          break;
+        }
+        // Continuous: classic loop — skip straight to warmup if no players
         if (this._totalPlayers === 0) {
           this.restart();
           break;
@@ -270,12 +380,14 @@ export class MatchState {
       case MatchPhase.Warmup:
         this._timeRemaining = this.config.warmupTimeout;
         this._readyPlayers.clear();
+        this._winner = null; // previous match's result is over
         break;
       case MatchPhase.Countdown:
         this._timeRemaining = this.config.countdownDuration;
         break;
       case MatchPhase.Active:
         this._timeRemaining = this.config.timeLimit;
+        this._overtimeCount = 0;
         // Reset scores and deaths on match start
         for (const [id] of this._scores) {
           this._scores.set(id, 0);
@@ -341,6 +453,9 @@ export class MatchState {
       teamScores: teamScoresRec,
       playerTeams: playerTeamsRec,
       teamNames: teamNamesRec,
+      winner: this._winner ?? undefined,
+      overtime: this._overtimeCount > 0 ? this._overtimeCount : undefined,
+      flow: this._flow,
     };
   }
 }

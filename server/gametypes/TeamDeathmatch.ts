@@ -33,7 +33,7 @@ export class TeamDeathmatch extends BaseGametype {
       countdownDuration: 3, // 3-2-1
       scoreLimit: 50, // frags to win
       timeLimit: 900, // 15 minutes
-      postGameDuration: 10, // scoreboard duration
+      postGameDuration: 15, // post-game screen duration
       respawnDelay: 3, // seconds min before respawn input accepted
       maxRespawnDelay: 6, // seconds auto-respawn deadline
       selfDamage: 1.0, // full self-damage

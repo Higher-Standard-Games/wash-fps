@@ -19,6 +19,7 @@ import { UIStyles } from "../../../engine/ui/UIStyles";
 import { UITheme } from "../../../engine/ui/UITheme";
 import { getWeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
 import { HUDState } from "./HUDState";
+import { MatchPhase, MatchStateManager } from "./MatchStateManager";
 
 // Re-export FPSHudWidget interface for backwards compatibility
 export type { FPSHudWidget } from "./hud/HudWidget";
@@ -80,6 +81,8 @@ export class FPSHud {
   private _settings: FPSSettingsOverlay | null = null;
   private _pointerLockHandler: (() => void) | null = null;
   private _chatKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+  /** Single-match post-game: timer for the ~6s "open up" beat (mouse+chat+return). */
+  private _openUpTimer: number | null = null;
 
   private constructor() {}
 
@@ -117,6 +120,77 @@ export class FPSHud {
     this._chat = new FPSChat();
     this._damageIndicators = new FPSDamageIndicators();
 
+    // Post-game screen: the match result takes over the screen. The gameplay
+    // HUD (vitals/ammo/timer/death screen/kill feed — the whole container) is
+    // hidden; only the winner slam + locked board (outside the container) and
+    // the 3D showcase remain. Aim is locked (pointer lock stays held). All
+    // undone when the next warmup begins.
+    MatchStateManager.getInstance().onPhaseChange((newPhase) => {
+      if (!this._scoreboard) return;
+      const postGame = newPhase === MatchPhase.PostGame;
+
+      if (postGame) {
+        const mgr = MatchStateManager.getInstance();
+        const winner = mgr.winner;
+        const title = winner && winner.kind !== "draw" && winner.name ? `${winner.name} wins!` : "Draw!";
+        // Winner key in the scoreboard's playerId format ("player_<id>") — the
+        // board renders the winner's stat panel next to the showcase model.
+        const winnerId = mgr.resolveWinnerPlayerId();
+        const winnerName = winner && winner.kind !== "draw" ? (winner.name ?? null) : null;
+        this._scoreboard.setPostGame(title.toUpperCase(), winnerId ? `player_${winnerId}` : null, winnerName);
+        this.hide(); // gameplay HUD off — the result owns the screen
+        // The pickup prompt is body-appended (outside the container) and its
+        // proximity driver is frozen with input — force it away for the screen.
+        import("../world/PickupPrompt")
+          .then(({ hidePickupPrompt }) => {
+            hidePickupPrompt("pickup");
+            hidePickupPrompt("dropped");
+          })
+          .catch(() => {});
+
+        // Single-match flow: after the celebration beat, the screen "opens up"
+        // — mouse cursor back (pause menu stays suppressed while the board is
+        // up), chat ready for banter, and the way home. The server releases
+        // bots at +10s and closes stragglers at +120s; the lobby is already
+        // reset and waiting (docs/research/single_game_server_lobby.md).
+        if (mgr.flow === "single") {
+          this._openUpTimer = window.setTimeout(() => {
+            this._openUpTimer = null;
+            document.exitPointerLock();
+            this._chat?.openInput();
+            this._scoreboard?.setReturnAction(() => {
+              // Navigate to the lobby deep link (?lobby=<id>, stashed by
+              // MatchLobbyView at match start) — LobbyPanel auto-joins it on
+              // boot. The emptied server exits via shutdownOnEmpty. Fall back
+              // to a plain reload when no lobby is known (dev CLI joins).
+              const returnLobby = sessionStorage.getItem("shag.return_lobby");
+              if (returnLobby) {
+                window.location.href = `${window.location.origin}/?lobby=${encodeURIComponent(returnLobby)}`;
+              } else {
+                window.location.reload();
+              }
+            });
+          }, 6000);
+        }
+      } else {
+        if (this._openUpTimer !== null) {
+          clearTimeout(this._openUpTimer);
+          this._openUpTimer = null;
+        }
+        this._scoreboard.setPostGame(null);
+        this.show();
+      }
+
+      // Freeze/unfreeze mouse-look on the active FPS camera controller.
+      import("../../../engine/camera/CameraSystem")
+        .then(({ CameraSystem }) => {
+          const controller = CameraSystem.getInstance().getActiveController();
+          // biome-ignore lint/suspicious/noExplicitAny: optional controller capability
+          (controller as any)?.setLookFrozen?.(postGame);
+        })
+        .catch(() => {});
+    });
+
     // Wire chat: T opens talk mode (Q3 messagemode — pointer lock stays held,
     // mouse look keeps working; game binds are suppressed by the InputSystem
     // text-field guard while the input has focus). Enter sends via the server
@@ -125,10 +199,14 @@ export class FPSHud {
       import("../Game").then(({ Game }) => Game.getInstance().sendChat(text)).catch(() => {});
     });
     this._chatKeyHandler = (e: KeyboardEvent) => {
-      if (e.code !== "KeyT" || e.repeat || e.altKey || e.ctrlKey || e.metaKey) return;
+      // T (Q3 messagemode habit) or Enter (modern habit) both open talk mode.
+      if ((e.code !== "KeyT" && e.code !== "Enter" && e.code !== "NumpadEnter") || e.repeat) return;
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
       if (!this._chat || this._chat.isInputActive()) return;
-      // Only in gameplay: pointer locked, no menus/console/text fields open
-      if (!document.pointerLockElement) return;
+      // Only in gameplay: pointer locked, no menus/console/text fields open.
+      // Exception: the single-match post-game deliberately releases pointer
+      // lock (open-up beat) — chat must stay reopenable for the banter.
+      if (!document.pointerLockElement && !MatchStateManager.getInstance().isPostGame()) return;
       if (this._pauseMenu?.isOpen() || this._settings?.isOpen()) return;
       const active = document.activeElement;
       if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) return;
@@ -413,6 +491,13 @@ export class FPSHud {
     const state = HUDState.getInstance();
     for (const widget of this.widgets.values()) {
       widget.update(state);
+    }
+
+    // Keep the scoreboard live while open — it's a standalone overlay (not a
+    // widget), and a one-shot refresh at open time can miss the final frag
+    // whose score lands in the same snapshot as the phase change.
+    if (this._scoreboard?.isVisible()) {
+      this._scoreboard.refresh();
     }
 
     // Drive the on-weapon ammo counter with the same number the HUD shows

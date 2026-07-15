@@ -23,6 +23,11 @@ export interface GameServerConfig {
   keyPath: string;
   /** When true, server auto-exits when all clients disconnect (used by lobby spawner) */
   shutdownOnEmpty?: boolean;
+  /** When true, this server hosts exactly ONE match: post-game is terminal
+   *  (players return to the lobby, bots are kicked, process exits when empty).
+   *  Default false = classic continuous warmup loop.
+   *  See docs/research/single_game_server_lobby.md. */
+  singleMatch?: boolean;
 }
 
 export interface ClientInfo {

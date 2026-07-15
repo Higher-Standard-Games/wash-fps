@@ -13,6 +13,13 @@ export enum MatchPhase {
   PostGame = 3,
 }
 
+/** Authoritative match result (set by the server during PostGame). */
+export interface MatchWinner {
+  kind: "player" | "team" | "draw";
+  id?: string;
+  name?: string;
+}
+
 export interface MatchStateSnapshot {
   phase: MatchPhase;
   timeRemaining: number;
@@ -24,6 +31,12 @@ export interface MatchStateSnapshot {
   playerTeams?: Record<string, string>;
   teamNames?: Record<string, string>;
   spectators?: Array<{ playerId: string; name: string; ping: number }>;
+  winner?: MatchWinner;
+  /** Overtime extensions this match (0/undefined = regulation). */
+  overtime?: number;
+  /** "single" = per-match server (post-game is terminal, return to lobby);
+   *  "continuous" = classic warmup loop. */
+  flow?: "single" | "continuous";
 }
 
 export type PhaseChangeCallback = (newPhase: MatchPhase, oldPhase: MatchPhase) => void;
@@ -41,6 +54,9 @@ export class MatchStateManager {
   private _playerTeams: Record<string, string> = {};
   private _teamNames: Record<string, string> = {};
   private _spectators: Array<{ playerId: string; name: string; ping: number }> = [];
+  private _winner: MatchWinner | null = null;
+  private _overtime: number = 0;
+  private _flow: "single" | "continuous" = "continuous";
   private _isReady: boolean = false;
   private _phaseCallbacks: PhaseChangeCallback[] = [];
 
@@ -73,6 +89,10 @@ export class MatchStateManager {
     this._playerTeams = event.playerTeams ?? {};
     this._teamNames = event.teamNames ?? {};
     this._spectators = event.spectators ?? [];
+    // Parse winner BEFORE firing phase callbacks so PostGame subscribers see it.
+    this._winner = event.winner ?? null;
+    this._overtime = event.overtime ?? 0;
+    this._flow = event.flow ?? "continuous";
 
     // Fire phase change callbacks
     if (oldPhase !== this._phase) {
@@ -121,6 +141,34 @@ export class MatchStateManager {
   /** Spectator roster (no sim entity) — for the scoreboard. */
   get spectators(): Array<{ playerId: string; name: string; ping: number }> {
     return this._spectators;
+  }
+  /** Match result — set only while in PostGame. */
+  get winner(): MatchWinner | null {
+    return this._winner;
+  }
+  /** Overtime extensions this match (0 = regulation). */
+  get overtime(): number {
+    return this._overtime;
+  }
+  /** Match flow mode — "single" post-games are terminal (return to lobby). */
+  get flow(): "single" | "continuous" {
+    return this._flow;
+  }
+
+  /**
+   * Resolve the winning PLAYER id (bare, e.g. "3"), or null for draws/none.
+   * Duel reports a team win (it rides the team infrastructure with one player
+   * per side) — a single-member winning team maps to its player. Multi-member
+   * team wins return null (TDM MVP selection comes with proper stats).
+   */
+  resolveWinnerPlayerId(): string | null {
+    const winner = this._winner;
+    if (!winner || winner.kind === "draw" || !winner.id) return null;
+    if (winner.kind === "player") return winner.id;
+    const members = Object.entries(this._playerTeams)
+      .filter(([, teamId]) => teamId === winner.id)
+      .map(([playerId]) => playerId);
+    return members.length === 1 ? members[0] : null;
   }
   get isReady(): boolean {
     return this._isReady;

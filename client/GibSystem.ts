@@ -114,6 +114,13 @@ export class GibSystem {
     return GibSystem.instance;
   }
 
+  /** Create an independently-owned instance for demo playback. */
+  static create(scene: Scene): GibSystem {
+    const system = new GibSystem();
+    system.init(scene);
+    return system;
+  }
+
   private constructor() {}
 
   // ========================================================================
@@ -173,7 +180,16 @@ export class GibSystem {
       this.templateMesh = null;
     }
     this.scene = null;
-    GibSystem.instance = null;
+    if (GibSystem.instance === this) GibSystem.instance = null;
+  }
+
+  /** Remove active shards on seeks while keeping the mesh pool allocated. */
+  clear(): void {
+    this.nextGibGeneration++;
+    for (const gib of this.gibs) {
+      gib.active = false;
+      gib.mesh.setEnabled(false);
+    }
   }
 
   // ========================================================================

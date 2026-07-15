@@ -5,6 +5,7 @@
  *   demoplay                    — normal playback
  *   demoplay cinematic <min>    — highlight reel for <min> minutes
  *   demoplay analyze            — print highlight analysis to console
+ *   demoplay hud <mode>         — show, hide, or toggle demo overlays
  *   demoplay stop               — stop any active playback
  *
  * Requires a demo to be loaded via `demo <number|filename>` first.
@@ -20,16 +21,36 @@ import { DemoViewer } from "../../client/DemoViewer";
 export default class DemoPlayCommand extends Command {
   readonly definition: CommandDef = {
     name: "demoplay",
-    description: "Control demo playback (normal, cinematic, analyze, stop)",
-    usage: "demoplay [cinematic <minutes> | analyze | stop]",
+    description: "Control demo playback (normal, cinematic, HUD, analyze, stop)",
+    usage: "demoplay [cinematic <minutes> | hud <on|off|toggle> | analyze | stop]",
   };
 
   async execute(args: string[]): Promise<string> {
     const service = DemoService.getInstance();
     const subcommand = args[0]?.toLowerCase();
 
+    // ── demoplay hud <on|off|toggle> ──────────────────────────────
+    if (subcommand === "hud") {
+      if (!service.hasActivePlayback()) {
+        return "No demo playback is active.";
+      }
+      const action = args[1]?.toLowerCase();
+      let visible: boolean;
+      if (action === "on") visible = service.setDemoOverlayVisible(true);
+      else if (action === "off") visible = service.setDemoOverlayVisible(false);
+      else if (action === "toggle") visible = service.toggleDemoOverlay();
+      else return "Usage: demoplay hud <on|off|toggle>";
+      return `Demo HUD ${visible ? "on" : "off"}.`;
+    }
+
     // ── demoplay stop ─────────────────────────────────────────────
     if (subcommand === "stop") {
+      // Guard like `hud` does: stopAll() tears down shared live infrastructure
+      // (WeaponViewManager view, spectator target provider) — invoking it with
+      // no demo running would destroy a LIVE session's viewmodel/chase-cam.
+      if (!service.hasActivePlayback()) {
+        return "No demo playback is active.";
+      }
       service.stopAll();
       return "Demo playback stopped.";
     }
@@ -47,7 +68,7 @@ export default class DemoPlayCommand extends Command {
     if (subcommand === "cinematic") {
       const minutesArg = args[1];
       const minutes = parseFloat(minutesArg ?? "");
-      if (isNaN(minutes) || minutes <= 0) {
+      if (Number.isNaN(minutes) || minutes <= 0) {
         return "Usage: demoplay cinematic <minutes>\nExample: demoplay cinematic 2";
       }
 
@@ -72,12 +93,15 @@ export default class DemoPlayCommand extends Command {
       }
     }
 
-    return `Unknown subcommand '${args[0]}'. Usage: demoplay [cinematic <minutes> | analyze | stop]`;
+    return `Unknown subcommand '${args[0]}'. Usage: demoplay [cinematic <minutes> | hud <on|off|toggle> | analyze | stop]`;
   }
 
   getCompletions(_input: string, args: string[]): string[] {
+    if (args[0]?.toLowerCase() === "hud") {
+      return ["on", "off", "toggle"];
+    }
     if (args.length <= 1) {
-      return ["cinematic", "analyze", "stop"];
+      return ["cinematic", "hud", "analyze", "stop"];
     }
     return [];
   }

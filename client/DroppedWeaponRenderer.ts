@@ -46,14 +46,24 @@ class DroppedWeaponVisual {
   private disposed: boolean = false;
   private settled: boolean = false;
   private settleCheckTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly useServerTransforms: boolean;
   hasPhysics: boolean = false;
   /** Server's authoritative position — used to align visual after Havok settles */
   private serverPosition: Vector3 = Vector3.Zero();
 
-  constructor(entityId: string, weaponId: string, scene: Scene, position: Vector3, velocity?: Vector3) {
+  constructor(
+    entityId: string,
+    weaponId: string,
+    scene: Scene,
+    position: Vector3,
+    velocity?: Vector3,
+    useServerTransforms = false,
+  ) {
     this.entityId = entityId;
     this.weaponId = weaponId;
     this.scene = scene;
+    this.useServerTransforms = useServerTransforms;
+    this.serverPosition.copyFrom(position);
     this.loadModel(position, velocity);
   }
 
@@ -217,7 +227,7 @@ class DroppedWeaponVisual {
           // Create dynamic body identical to Pickup.loadModel()
           const { PhysicsSystem } = await import("../../../engine/physics/PhysicsSystem");
           const physics = PhysicsSystem.getInstance();
-          if (physics.isInitialized() && !this.disposed) {
+          if (!this.useServerTransforms && physics.isInitialized() && !this.disposed) {
             physics.createDynamicBody(leaderMesh, PhysicsShapeType.CONVEX_HULL, 10, 0.3);
             this.hasPhysics = true;
 
@@ -273,6 +283,9 @@ class DroppedWeaponVisual {
   /** Update server position from snapshot data */
   setServerPosition(x: number, y: number, z: number): void {
     this.serverPosition.set(x, y, z);
+    if (this.useServerTransforms && this.mesh) {
+      this.mesh.position.copyFrom(this.serverPosition);
+    }
   }
 
   /** Update each frame: lerp to server position after settle */
@@ -332,7 +345,10 @@ export class DroppedWeaponRenderer {
   /** Currently tracked nearby dropped weapon for F prompt */
   private static nearbyDroppedWeapon: DroppedWeaponVisual | null = null;
 
-  constructor(scene: Scene) {
+  constructor(
+    scene: Scene,
+    private readonly useServerTransforms = false,
+  ) {
     this.scene = scene;
   }
 
@@ -394,13 +410,15 @@ export class DroppedWeaponRenderer {
           this.scene,
           new Vector3(info.x, info.y, info.z),
           vel, // Initial toss velocity from weapon_drop event
+          this.useServerTransforms,
         );
         this.weapons.set(entityId, visual);
       }
     }
 
-    // 3. Check pickup proximity for swap prompt
-    this.checkPickupProximity();
+    // 3. Check pickup proximity for live play only. Demo snapshot mode is
+    // presentation-only and must never expose an interactive swap prompt.
+    if (!this.useServerTransforms) this.checkPickupProximity();
   }
 
   /**

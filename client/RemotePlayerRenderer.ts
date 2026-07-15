@@ -27,12 +27,14 @@ import {
 } from "../../../engine/network/client/SnapshotBuffer";
 import type { GameState } from "../../../engine/network/core/GameState";
 import { WEAPONS } from "../server/weapons/WeaponDef";
+import { DemoAnimationTimeline } from "./DemoAnimationTimeline";
+import { DemoEntityTimeline } from "./DemoEntityTimeline";
 import {
   getPlayerModelVisualStyle,
   getPlayerModelVisualStyleKey,
   getPlayerTeamSlot,
-  registerPlayerModelVisualCvars,
   type PlayerTeamSlot,
+  registerPlayerModelVisualCvars,
 } from "./PlayerModelVisualSettings";
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -107,6 +109,11 @@ export class RemotePlayerRenderer {
   private scene: Scene;
   private hitboxes: Map<string, RemotePlayerHitbox> = new Map();
   private snapshotBuffer: SnapshotBuffer = new SnapshotBuffer();
+  private demoTimeline: DemoEntityTimeline | null = null;
+  private demoPlayheadTick: number = 0;
+  private demoAnimationTimeScale: number = 1;
+  private demoDiscontinuityId: number = -1;
+  private demoAnimationTimeline: DemoAnimationTimeline | null = null;
   /** Entities marked dead — value is death timestamp (performance.now) */
   private deadEntities: Map<string, number> = new Map();
 
@@ -126,6 +133,9 @@ export class RemotePlayerRenderer {
   /** Per-entity throttle timestamps for cl_animdebug logging */
   private _lastAnimLog: Map<string, number> = new Map();
 
+  /** Per-playhead memo for getDemoEntitySample (followed entity is sampled 3×/frame). */
+  private _demoSampleCache: { entityId: string; tick: number; sample: InterpolatedEntity | null } | null = null;
+
   constructor(scene: Scene) {
     this.scene = scene;
     registerPlayerModelVisualCvars();
@@ -134,6 +144,43 @@ export class RemotePlayerRenderer {
   /** Set reference to enemy weapons map from GameEventContext */
   setEnemyWeapons(weapons: Map<string, string>): void {
     this.enemyWeapons = weapons;
+  }
+
+  /** Enable deterministic recorded-tick sampling instead of live network buffering. */
+  enableDemoPlayback(): void {
+    this.demoTimeline = new DemoEntityTimeline();
+    this.demoAnimationTimeline = new DemoAnimationTimeline();
+    this.demoDiscontinuityId = -1;
+  }
+
+  setDemoPlaybackState(
+    playheadTick: number,
+    playbackSpeed: number,
+    paused: boolean,
+    discontinuityId: number,
+    tickRate: number = 60,
+  ): void {
+    if (!this.demoTimeline) this.enableDemoPlayback();
+    // Called from both the frame-delivery path and the render loop — skip the
+    // full one-shot reconcile (a walk over every model) when nothing changed.
+    if (
+      playheadTick === this.demoPlayheadTick &&
+      discontinuityId === this.demoDiscontinuityId &&
+      this.demoAnimationTimeScale === (paused ? 0 : playbackSpeed)
+    ) {
+      return;
+    }
+    if (discontinuityId !== this.demoDiscontinuityId) {
+      this.demoTimeline?.clear();
+      this.demoDiscontinuityId = discontinuityId;
+    }
+    this.demoPlayheadTick = playheadTick;
+    this.demoAnimationTimeScale = paused ? 0 : playbackSpeed;
+    this._demoSampleCache = null; // playhead moved — per-frame sample memo is stale
+    const animationDiscontinuity =
+      this.demoAnimationTimeline?.setClock(playheadTick, tickRate, playbackSpeed, paused, discontinuityId) ?? false;
+    if (animationDiscontinuity) this.stopAllDemoOneShots();
+    this.syncDemoOneShots();
   }
 
   /**
@@ -231,7 +278,6 @@ export class RemotePlayerRenderer {
     hitbox.appliedVisualStyleKey = this.applyModelVisualStyle(hitbox.model, entityId);
   }
 
-
   // ── Public API ───────────────────────────────────────────────
 
   /**
@@ -248,9 +294,32 @@ export class RemotePlayerRenderer {
       this.teams.set(player.entityId, player.team || "ffa");
     }
 
-    // Extract entity data into snapshot format
-    const entities = new Map<string, EntitySnapshot>();
+    const entities = this.extractEntities(state, localEntityId);
+    this.snapshotBuffer.push(state.tick, entities, serverLocalTime);
+    this.clearRespawnedEntities(entities);
+  }
 
+  /** Push a full recorded frame into the deterministic demo timeline. */
+  /**
+   * @param lookahead - true when buffering a FUTURE frame for interpolation
+   *   (render-loop getNextFrame). Lookahead pushes must not touch life-state
+   *   bookkeeping: clearing deadEntities from a future frame un-hides corpses
+   *   before the delivery path (_updateDemoLifeState) can re-mark them.
+   */
+  pushDemoSnapshot(state: GameState, localEntityId: string, lookahead = false): void {
+    if (!this.demoTimeline) this.enableDemoPlayback();
+    for (const player of state.players.values()) {
+      this.teams.set(player.entityId, player.team || "ffa");
+    }
+    const entities = this.extractEntities(state, localEntityId);
+    this.demoTimeline?.push(state.tick, entities);
+    if (!lookahead) {
+      this.clearRespawnedEntities(entities);
+    }
+  }
+
+  private extractEntities(state: GameState, localEntityId: string): Map<string, EntitySnapshot> {
+    const entities = new Map<string, EntitySnapshot>();
     for (const [entityId, entity] of state.entities) {
       if (entityId === localEntityId) continue;
       if (!entityId.startsWith("player_")) continue;
@@ -273,11 +342,13 @@ export class RemotePlayerRenderer {
         crouching: movementState?.isCrouching ?? false,
         sliding: movementState?.isSliding ?? false,
         wallJumping: movementState?.wallJumpState === "charging",
+        crouchViewOffset: movementState?.crouchViewOffset ?? 0,
       });
     }
+    return entities;
+  }
 
-    this.snapshotBuffer.push(state.tick, entities, serverLocalTime);
-
+  private clearRespawnedEntities(entities: Map<string, EntitySnapshot>): void {
     // Clear dead status ONLY when entity reappears in a fresh snapshot
     // (meaning the server has confirmed respawn with valid position data)
     for (const [entityId] of this.deadEntities) {
@@ -293,14 +364,18 @@ export class RemotePlayerRenderer {
    */
   render(): void {
     // Get all entities from latest snapshot for lifecycle management
-    const aliveIds = this.snapshotBuffer.getLatestEntityIds();
+    const aliveIds = this.demoTimeline
+      ? this.demoTimeline.getEntityIds(this.demoPlayheadTick)
+      : this.snapshotBuffer.getLatestEntityIds();
 
     // Sample interpolated state for each alive entity
     for (const entityId of aliveIds) {
       // Skip dead entities — their mesh is hidden until entity leaves snapshot
       if (this.deadEntities.has(entityId)) continue;
 
-      const interp = this.snapshotBuffer.sample(entityId);
+      const interp = this.demoTimeline
+        ? this.demoTimeline.sample(entityId, this.demoPlayheadTick)
+        : this.snapshotBuffer.sample(entityId);
       if (!interp) continue;
 
       let hitbox = this.hitboxes.get(entityId);
@@ -363,7 +438,7 @@ export class RemotePlayerRenderer {
       this.updatePosition(hitbox, interp);
 
       // Update model position + animation
-      this.updateModel(hitbox, interp, entityId);
+      this.updateModel(hitbox, interp, entityId, this.demoTimeline ? this.demoAnimationTimeScale : 1);
     }
 
     // Remove hitboxes for entities no longer alive
@@ -379,8 +454,10 @@ export class RemotePlayerRenderer {
         }
         this.hitboxes.delete(entityId);
         this.deadEntities.delete(entityId);
+        this.demoAnimationTimeline?.delete(entityId);
       }
     }
+    this.demoAnimationTimeline?.finishPresentationFrame();
   }
 
   /**
@@ -408,6 +485,10 @@ export class RemotePlayerRenderer {
     this.hitboxes.clear();
     this.deadEntities.clear();
     this.teams.clear();
+    this.demoTimeline?.clear();
+    this.demoTimeline = null;
+    this.demoAnimationTimeline?.clear();
+    this.demoAnimationTimeline = null;
     if (this.modelManager) {
       this.modelManager.dispose();
       this.modelManager = null;
@@ -421,6 +502,7 @@ export class RemotePlayerRenderer {
    */
   markDead(entityId: string): void {
     this.deadEntities.set(entityId, performance.now());
+    this.demoAnimationTimeline?.delete(entityId);
     const hitbox = this.hitboxes.get(entityId);
     if (hitbox) {
       hitbox.mesh.dispose();
@@ -466,6 +548,88 @@ export class RemotePlayerRenderer {
     return this.createDetachedModelAt(entityId, x, y, z, yaw);
   }
 
+  /** Last known weapon id for a remote entity (from snapshots), or null. */
+  getKnownWeaponId(entityId: string): string | null {
+    return this.enemyWeapons.get(entityId) ?? null;
+  }
+
+  /**
+   * Attach a weapon model to a DETACHED player model's right hand (post-game
+   * winner showcase). Same recipe as updateWeaponModel (ModelLoader → leader
+   * mesh → attachToBone RightHand → third-person scale/rotation) but without
+   * the live-hitbox lifecycle guards — the caller owns the instance and must
+   * dispose it (attachedWeapon is set so disposal cleans the gun too).
+   */
+  async attachShowcaseWeapon(inst: PlayerModelInstance, weaponId: string): Promise<void> {
+    const weaponDef = WEAPONS[weaponId];
+    const modelPath = weaponDef?.modelPath;
+    if (!modelPath) return;
+
+    const defScale = weaponDef.scale ?? 1.5;
+    const isGlbWeapon = weaponDef.viewModel.viewModelFormat === "glb" || modelPath.toLowerCase().endsWith(".glb");
+    const visualScale = isGlbWeapon ? (weaponDef.viewModel.scale ?? defScale) : defScale;
+
+    const { ModelLoader } = await import("../../../engine/loader/model/ModelLoader");
+    const loader = ModelLoader.getInstance();
+    if (!loader.isInitialized()) loader.init(this.scene);
+
+    const result = await loader.loadModel(modelPath, {
+      position: Vector3.Zero(),
+      scale: defScale,
+      hasCollision: false,
+      applyLighting: false,
+    });
+    if (!result?.root) return;
+
+    let leaderMesh: Mesh | null = null;
+    for (const m of result.meshes) {
+      if (m instanceof Mesh && m.getTotalVertices() > 0) {
+        if (!leaderMesh) leaderMesh = m;
+        if (m.material && "maxSimultaneousLights" in m.material) {
+          // biome-ignore lint/suspicious/noExplicitAny: Babylon material introspection
+          applySafeMaxSimultaneousLights(m.material as any);
+        }
+        m.alwaysSelectAsActiveMesh = true;
+        m.isVisible = true;
+      }
+    }
+    if (!leaderMesh) {
+      result.root.dispose(false, true);
+      return;
+    }
+    if (leaderMesh.rotationQuaternion) leaderMesh.rotationQuaternion = null;
+
+    const hand = inst.skeleton?.bones.find((b) => b.name === "mixamorig:RightHand");
+    if (hand) {
+      leaderMesh.parent = null;
+      leaderMesh.attachToBone(hand, inst.mesh);
+      leaderMesh.position.set(0, 0, 0);
+      leaderMesh.scaling.setAll((visualScale / MODEL_SCALE) * 0.5);
+      if (weaponId === "blade") {
+        leaderMesh.rotation.set(Math.PI, 0.9, 0);
+      } else {
+        leaderMesh.rotation.set(Math.PI, 0, -Math.PI / 2);
+      }
+    } else {
+      leaderMesh.parent = inst.anchor;
+      leaderMesh.position.set(0, 30, 0);
+      leaderMesh.scaling.setAll(visualScale);
+    }
+
+    for (const m of result.meshes) {
+      if (m instanceof Mesh && m !== leaderMesh && m.getTotalVertices() > 0) {
+        m.parent = leaderMesh;
+        m.position.setAll(0);
+        if (m.rotationQuaternion) m.rotationQuaternion = null;
+        m.rotation.setAll(0);
+        m.isVisible = true;
+        m.alwaysSelectAsActiveMesh = true;
+      }
+    }
+
+    inst.attachedWeapon = leaderMesh;
+  }
+
   /**
    * Detach a player model from the renderer WITHOUT disposing it.
    * Returns the PlayerModelInstance for ragdoll use.
@@ -508,13 +672,27 @@ export class RemotePlayerRenderer {
    */
   flushInterpolation(): void {
     this.snapshotBuffer.flush();
+    this.demoTimeline?.flush();
+  }
+
+  /** Current deterministic demo sample for camera/diagnostic consumers. */
+  getDemoEntitySample(entityId: string): InterpolatedEntity | null {
+    // Memo: the followed entity is sampled by the spectator target provider,
+    // the POV update, AND render() within one frame — same (entity, playhead)
+    // → same result. Invalidated when the playhead moves.
+    if (this._demoSampleCache?.entityId === entityId && this._demoSampleCache.tick === this.demoPlayheadTick) {
+      return this._demoSampleCache.sample;
+    }
+    const sample = this.demoTimeline?.sample(entityId, this.demoPlayheadTick) ?? null;
+    this._demoSampleCache = { entityId, tick: this.demoPlayheadTick, sample };
+    return sample;
   }
 
   /** Get diagnostics */
   getDiagnostics(): { bufferSize: number; interpDelay: number } {
     return {
-      bufferSize: this.snapshotBuffer.getBufferSize(),
-      interpDelay: this.snapshotBuffer.getInterpDelay(),
+      bufferSize: this.demoTimeline?.getSize() ?? this.snapshotBuffer.getBufferSize(),
+      interpDelay: this.demoTimeline ? 0 : this.snapshotBuffer.getInterpDelay(),
     };
   }
 
@@ -526,7 +704,42 @@ export class RemotePlayerRenderer {
   playAttackAnim(entityId: string, animName: string, speedRatio: number = 1.0): void {
     const hitbox = this.hitboxes.get(entityId);
     if (!hitbox?.model || !this.modelManager) return;
-    this.modelManager.playOnce(hitbox.model, animName, speedRatio);
+    if (!this.demoAnimationTimeline) {
+      this.modelManager.playOnce(hitbox.model, animName, speedRatio);
+      return;
+    }
+
+    const durationMs = this.modelManager.getOneShotDurationMs(hitbox.model, animName, speedRatio);
+    if (!this.demoAnimationTimeline.start(entityId, animName, durationMs, speedRatio)) return;
+    if (!this.modelManager.playOnce(hitbox.model, animName, speedRatio)) {
+      this.demoAnimationTimeline.delete(entityId);
+      return;
+    }
+    const shot = this.demoAnimationTimeline.get(entityId);
+    this.modelManager.setOneShotTimeScale(hitbox.model, shot?.timeScale ?? 0);
+  }
+
+  private syncDemoOneShots(): void {
+    if (!this.demoAnimationTimeline || !this.modelManager) return;
+    for (const [entityId, hitbox] of this.hitboxes) {
+      if (!hitbox.model) continue;
+      const shot = this.demoAnimationTimeline.get(entityId);
+      if (shot) {
+        this.modelManager.setOneShotTimeScale(hitbox.model, shot.timeScale);
+      } else if (this.modelManager.isOneShotPlaying(hitbox.model)) {
+        this.modelManager.stopOneShot(hitbox.model);
+        hitbox.model.currentAnim = "";
+      }
+    }
+  }
+
+  private stopAllDemoOneShots(): void {
+    if (!this.modelManager) return;
+    for (const hitbox of this.hitboxes.values()) {
+      if (!hitbox.model || !this.modelManager.isOneShotPlaying(hitbox.model)) continue;
+      this.modelManager.stopOneShot(hitbox.model);
+      hitbox.model.currentAnim = "";
+    }
   }
 
   // ── Hitbox Creation ─────────────────────────────────────────
@@ -660,7 +873,12 @@ export class RemotePlayerRenderer {
 
   // ── Model Update ─────────────────────────────────────────────
 
-  private updateModel(hitbox: RemotePlayerHitbox, interp: InterpolatedEntity, entityId: string): void {
+  private updateModel(
+    hitbox: RemotePlayerHitbox,
+    interp: InterpolatedEntity,
+    entityId: string,
+    animationTimeScale: number,
+  ): void {
     const inst = hitbox.model;
     if (!inst || !this.modelManager) return;
 
@@ -713,14 +931,22 @@ export class RemotePlayerRenderer {
 
     // Derive animation from network data
     // Skip if a one-shot animation (e.g. blade slash) is still playing
-    if (inst.oneshotUntil > 0 && performance.now() < inst.oneshotUntil) {
-      // One-shot is playing — don't override with locomotion
-      return;
-    }
-    // Clear expired one-shot flag and force locomotion re-evaluation
-    if (inst.oneshotUntil > 0) {
-      inst.oneshotUntil = 0;
-      inst.currentAnim = ""; // Force playAnimation to re-apply locomotion
+    if (this.demoAnimationTimeline) {
+      const demoShot = this.demoAnimationTimeline.get(entityId);
+      if (demoShot) {
+        this.modelManager.setOneShotTimeScale(inst, demoShot.timeScale);
+        return;
+      }
+    } else {
+      if (inst.oneshotUntil > 0 && performance.now() < inst.oneshotUntil) {
+        // One-shot is playing — don't override with locomotion
+        return;
+      }
+      // Clear expired one-shot flag and force locomotion re-evaluation
+      if (inst.oneshotUntil > 0) {
+        inst.oneshotUntil = 0;
+        inst.currentAnim = ""; // Force playAnimation to re-apply locomotion
+      }
     }
     const animName = this.deriveAnimation(interp);
     this.modelManager.playAnimation(inst, animName);
@@ -803,6 +1029,7 @@ export class RemotePlayerRenderer {
       } else {
         inst.masterGroup.speedRatio = 1.0;
       }
+      inst.masterGroup.speedRatio *= animationTimeScale;
     }
   }
 

@@ -280,6 +280,8 @@ export class LobbyPanel extends GamePanel {
   private chatMessagesEl: HTMLElement | null = null;
 
   private currentLobbyId: string | null = null;
+  /** One-shot guard: the URL deep-link join runs on the first welcome only. */
+  private urlLobbyJoinAttempted = false;
   private unsubscribers: (() => void)[] = [];
 
   // Live matches
@@ -359,6 +361,22 @@ export class LobbyPanel extends GamePanel {
           if (msg.chatHistory && this.chatMessagesEl) {
             for (const c of msg.chatHistory) {
               this.appendChatMessage(c.from, c.text, false);
+            }
+          }
+
+          // Deep link: /lobby/<id> or ?lobby=<id> — auto-join once after the
+          // welcome. Covers shared lobby links AND the post-game RETURN TO
+          // LOBBY navigation (docs/research/single_game_server_lobby.md).
+          // The server replies with lobby:created (full state dump), which
+          // opens the match lobby view through the normal handler.
+          if (!this.urlLobbyJoinAttempted) {
+            this.urlLobbyJoinAttempted = true;
+            const url = new URL(window.location.href);
+            const pathMatch = url.pathname.match(/\/lobby\/([A-Za-z0-9_-]+)/);
+            const deepLinkLobby = url.searchParams.get("lobby") || pathMatch?.[1];
+            if (deepLinkLobby) {
+              console.log(`[LobbyPanel] Deep link → joining lobby ${deepLinkLobby}`);
+              this.lobbyClient.joinLobby(deepLinkLobby);
             }
           }
         }),

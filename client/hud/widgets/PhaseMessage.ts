@@ -19,6 +19,7 @@ import type { FPSHudWidget, HUDState } from "../HudWidget";
 export class FPSPhaseMessage implements FPSHudWidget {
   private element: HTMLElement;
   private lastCountdown: number = 0;
+  private lastOvertime: number = 0;
   private hideTimeout: ReturnType<typeof setTimeout> | null = null;
   private unsubPhase: (() => void) | null = null;
 
@@ -59,18 +60,35 @@ export class FPSPhaseMessage implements FPSHudWidget {
         this.hideTimeout = setTimeout(() => this.hideMessage(), 2000);
         break;
 
-      case MatchPhase.PostGame:
+      case MatchPhase.PostGame: {
+        // Winner banner — FIGHT!-style slam with the authoritative match result.
+        // Auto-hides after the slam lands; the post-game scoreboard (also titled
+        // with the winner) then owns the screen.
+        const winner = mgr.winner;
+        const title =
+          winner && winner.kind !== "draw" && winner.name ? `${this.escapeHtml(winner.name)} wins!` : "Draw!";
+        // Single-match servers are terminal: the way forward is the lobby.
+        const subtitle =
+          mgr.flow === "single" ? "GG — return to lobby for the next one" : "Match over — next match starting soon...";
         this.showHtml(
-          `<div class="fps-phase-title">Match Over</div>` +
-            `<div class="fps-phase-subtitle">Next match starting soon...</div>`,
+          `<div class="fps-phase-fight">${title}</div>` + `<div class="fps-phase-subtitle">${subtitle}</div>`,
         );
+        this.hideTimeout = setTimeout(() => this.hideMessage(), 3500);
         break;
+      }
     }
   }
 
   private showHtml(html: string): void {
     this.element.innerHTML = html;
     this.element.classList.remove("hidden");
+  }
+
+  /** Escape user-controlled text (player names) before innerHTML interpolation. */
+  private escapeHtml(text: string): string {
+    const div = document.createElement("div");
+    div.textContent = text;
+    return div.innerHTML;
   }
 
   private hideMessage(): void {
@@ -97,6 +115,20 @@ export class FPSPhaseMessage implements FPSHudWidget {
       if (num !== this.lastCountdown && num > 0) {
         this.lastCountdown = num;
         this.showHtml(`<div class="fps-phase-countdown">${num}</div>`);
+      }
+    }
+
+    // Overtime (duel): the phase doesn't change, so watch the counter — a tie
+    // at the limit extends the match with a slam instead of ending it.
+    const overtime = mgr.overtime;
+    if (overtime !== this.lastOvertime) {
+      this.lastOvertime = overtime;
+      if (overtime > 0 && mgr.phase === MatchPhase.Active) {
+        if (this.hideTimeout) clearTimeout(this.hideTimeout);
+        this.showHtml(
+          `<div class="fps-phase-fight">Overtime!</div><div class="fps-phase-subtitle">+1 minute — no draws</div>`,
+        );
+        this.hideTimeout = setTimeout(() => this.hideMessage(), 3000);
       }
     }
   }

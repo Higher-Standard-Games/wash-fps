@@ -68,6 +68,13 @@ export class DamageNumbers {
     return DamageNumbers.instance;
   }
 
+  /** Create an independently-owned instance for demo playback. */
+  static create(scene: Scene): DamageNumbers {
+    const system = new DamageNumbers();
+    system.init(scene);
+    return system;
+  }
+
   private constructor() {}
 
   // ========================================================================
@@ -87,7 +94,15 @@ export class DamageNumbers {
     }
     this.numbers = [];
     this.scene = null;
-    DamageNumbers.instance = null;
+    if (DamageNumbers.instance === this) DamageNumbers.instance = null;
+  }
+
+  /** Remove active presentation without releasing scene-owned pool resources. */
+  clear(): void {
+    for (const num of this.numbers) {
+      num.active = false;
+      num.mesh.setEnabled(false);
+    }
   }
 
   // ========================================================================

@@ -13,7 +13,7 @@
 import type { WorldState } from "@engine/server/core/WorldState";
 import type { Entity } from "@engine/server/ecs/Entity";
 import type { EntityId, PlayerId, TickNumber } from "@engine/server/ecs/types";
-import type { MatchStateSnapshot } from "@shared/server/gametype";
+import type { MatchConfig, MatchStateSnapshot } from "@shared/server/gametype";
 import { MatchPhase } from "@shared/server/gametype";
 import type { Vec3 } from "@shared/server/simulation/types";
 import type { CollisionWorld } from "../../../../engine/network/systems/collision/CollisionWorld";
@@ -44,6 +44,8 @@ interface RespawnEntry {
 
 export class GametypeController {
   private gametype: BaseGametype;
+  /** Match config with dev env overrides applied — use this, not gametype.getMatchConfig(). */
+  private matchConfig: MatchConfig;
   private matchState: MatchState;
   private spawnStrategy: SpawnPointStrategy;
   private spawnPoints: Vec3[] = [];
@@ -62,13 +64,62 @@ export class GametypeController {
 
   constructor(gametype: BaseGametype) {
     this.gametype = gametype;
-    const config = gametype.getMatchConfig();
-    this.matchState = new MatchState(gametype.name, config);
+    this.matchConfig = GametypeController.applyEnvOverrides(gametype.getMatchConfig());
+    this.matchState = new MatchState(gametype.name, this.matchConfig, gametype.teamBased);
     this.spawnStrategy = createSpawnStrategy(gametype.getSpawnStrategy());
 
     console.log(`[GametypeController] Initialized: ${gametype.name}`);
     console.log(`[GametypeController] Spawn strategy: ${gametype.getSpawnStrategy()}`);
-    console.log(`[GametypeController] Score limit: ${config.scoreLimit}, Time limit: ${config.timeLimit}s`);
+    console.log(
+      `[GametypeController] Score limit: ${this.matchConfig.scoreLimit}, Time limit: ${this.matchConfig.timeLimit}s`,
+    );
+  }
+
+  /**
+   * Dev/test overrides for match pacing via environment variables:
+   *   SHAG_TIMELIMIT — match time limit. Bare number = MINUTES (Quake
+   *     g_timelimit semantics): "2" = 2 minutes. Suffix for seconds: "90s".
+   *   SHAG_WARMUP    — warmup timeout. Bare number = SECONDS: "10" = 10s.
+   *     Suffix for minutes: "2m".
+   *   SHAG_SCORELIMIT — frag/score limit (plain number).
+   * Read once at server boot; inert when unset. Lobby-spawned servers inherit
+   * the lobby process env, so one export covers the whole dev session.
+   */
+  private static applyEnvOverrides(config: MatchConfig): MatchConfig {
+    const env = typeof process !== "undefined" ? process.env : undefined;
+    if (!env) return config;
+
+    /** Parse a time value to seconds. `defaultUnit` applies to bare numbers. */
+    const parseTime = (raw: string, defaultUnit: "s" | "m"): number | null => {
+      const m = raw.trim().match(/^(\d+(?:\.\d+)?)\s*(m|min|s|sec)?$/i);
+      if (!m) return null;
+      const value = Number(m[1]);
+      if (!Number.isFinite(value) || value < 0) return null;
+      const unit = (m[2] ?? defaultUnit).toLowerCase();
+      return unit.startsWith("m") ? value * 60 : value;
+    };
+
+    const overridden = { ...config };
+    const apply = (
+      key: string,
+      field: "timeLimit" | "scoreLimit" | "warmupTimeout",
+      timeDefaultUnit: "s" | "m" | null,
+    ) => {
+      const raw = env[key];
+      if (raw === undefined || raw === "") return;
+      const value = timeDefaultUnit ? parseTime(raw, timeDefaultUnit) : Number(raw);
+      if (value === null || !Number.isFinite(value) || value < 0) {
+        console.warn(`[GametypeController] Ignoring invalid ${key}="${raw}"`);
+        return;
+      }
+      overridden[field] = value;
+      const unitNote = timeDefaultUnit ? `${value}s` : `${value}`;
+      console.log(`[GametypeController] Env override: ${field} = ${unitNote} (${key}="${raw}")`);
+    };
+    apply("SHAG_TIMELIMIT", "timeLimit", "m"); // bare = minutes, like g_timelimit
+    apply("SHAG_SCORELIMIT", "scoreLimit", null);
+    apply("SHAG_WARMUP", "warmupTimeout", "s"); // bare = seconds, like g_warmup
+    return overridden;
   }
 
   // ========================================================================
@@ -90,6 +141,14 @@ export class GametypeController {
    */
   setNameResolver(resolver: (playerId: PlayerId) => string): void {
     this.nameResolver = resolver;
+  }
+
+  /**
+   * Set the match flow mode (from GameServerConfig.singleMatch, at boot).
+   * "single" makes PostGame terminal — see docs/research/single_game_server_lobby.md.
+   */
+  setMatchFlow(flow: "single" | "continuous"): void {
+    this.matchState.setFlow(flow);
   }
 
   /**
@@ -235,9 +294,15 @@ export class GametypeController {
   /**
    * Register a bot player ID for auto-ready tracking.
    * Note: onPlayerJoin() must be called first to add bot to match state.
+   *
+   * Bots ready up IMMEDIATELY on join — a bot never has a reason to stay
+   * unready, and without this a bot invited after the human pressed F4 left
+   * warmup waiting out its full timeout (match then started silently, warmup
+   * frags didn't count, and the result read as a baffling 0-0 draw).
    */
   registerBot(playerId: PlayerId): void {
     this.botPlayerIds.add(playerId);
+    this.matchState.playerReady(playerId);
   }
 
   // ========================================================================
@@ -314,7 +379,7 @@ export class GametypeController {
           }
 
           // Queue respawn with min/max timers (Warsow-style)
-          const config = this.gametype.getMatchConfig();
+          const config = this.matchConfig;
           const minDelay = Math.floor(config.respawnDelay * 125);
           const maxDelay = Math.floor((config.maxRespawnDelay ?? config.respawnDelay * 2) * 125);
 
@@ -346,11 +411,24 @@ export class GametypeController {
         this.respawnAllPlayers(state, tickNum);
         this.awardTracker.onMatchStart();
       }
+
+      // Match ended on the time limit — record who won for the post-game screen.
+      if (this.matchState.phase === MatchPhase.PostGame) {
+        this.recordMatchWinner();
+      }
+
+      // New warmup (post-game rollover): transition cleared the ready set, so
+      // re-ready the bots — otherwise match #2 waits out the whole warmup.
+      if (this.matchState.phase === MatchPhase.Warmup) {
+        for (const botId of this.botPlayerIds) {
+          this.matchState.playerReady(botId);
+        }
+      }
     }
 
     // 4. Check win condition during active phase
     if (this.matchState.phase === MatchPhase.Active) {
-      const config = this.gametype.getMatchConfig();
+      const config = this.matchConfig;
       if (config.scoreLimit > 0) {
         let limitReached = false;
 
@@ -373,6 +451,9 @@ export class GametypeController {
         if (limitReached) {
           console.log(`[GametypeController] Score limit reached!`);
           this.matchState.endMatch();
+          // Score-limit path enters PostGame outside matchState.update(), so the
+          // phaseChanged block above didn't see it — record the winner here.
+          this.recordMatchWinner();
         }
       }
     }
@@ -480,6 +561,42 @@ export class GametypeController {
 
   private resolvePlayerName(playerId: PlayerId): string {
     return this.nameResolver?.(playerId) ?? `Player ${playerId}`;
+  }
+
+  /** Compute + store the match result (for the post-game screen banner). */
+  private recordMatchWinner(): void {
+    const winner = this.matchState.computeWinner(this.gametype.teamBased, (pid) => this.resolvePlayerName(pid));
+    console.log(`[GametypeController] Match result: ${winner.kind}${winner.name ? ` — ${winner.name}` : ""}`);
+  }
+
+  /**
+   * Freeze gameplay input while the post-game screen is up: zero movement and
+   * action buttons on every player entity (current state AND queued usercmds)
+   * but keep view angles + sequence numbers, so players can still look around
+   * and client reconciliation acks stay intact. Called by GameServer each tick
+   * BEFORE simulation.tick(). Deterministic — driven only by match phase.
+   */
+  applyPostGameInputFreeze(state: WorldState): void {
+    if (this.matchState.phase !== MatchPhase.PostGame) return;
+
+    for (const entity of state.allEntities()) {
+      if (entity.ownerId === undefined || !entity.input) continue;
+      const input = entity.input;
+      input.forward = 0;
+      input.right = 0;
+      input.buttons = 0;
+      input.jump = false;
+      input.crouch = false;
+      input.attack = false;
+      input.altAttack = false;
+      input.use = false;
+      for (const queued of input.inputQueue) {
+        queued.forward = 0;
+        queued.right = 0;
+        queued.buttons = 0;
+        queued.weaponSlot = 0; // 0 = no weapon change
+      }
+    }
   }
 
   // ========================================================================

@@ -35,7 +35,7 @@ import { FPSHud } from "./client/FPSHud";
 // Game event handling (extracted from this file)
 import { type GameEventContext, handleServerStateUpdate } from "./client/GameEvents";
 import { HUDState } from "./client/HUDState";
-import { MatchStateManager } from "./client/MatchStateManager";
+import { MatchPhase, MatchStateManager } from "./client/MatchStateManager";
 import { RemotePlayerRenderer } from "./client/RemotePlayerRenderer";
 import { WEAPONS } from "./server/weapons/WeaponDef";
 import { createBSPCollisionWorld } from "./simulation/collision/BSPCollisionWorld";
@@ -191,6 +191,50 @@ export class Game {
     // Tab-recovery: snap everything to clean state when returning from background
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") this.onTabReturn();
+    });
+
+    // Post-game winner showcase: spawn the winner's model (with weapon) in
+    // front of the camera during PostGame; remove it when warmup begins.
+    MatchStateManager.getInstance().onPhaseChange((newPhase) => {
+      import("./client/PostGameShowcase")
+        .then(({ startPostGameShowcase, stopPostGameShowcase }) => {
+          if (newPhase !== MatchPhase.PostGame) {
+            stopPostGameShowcase();
+            return;
+          }
+          const mgr = MatchStateManager.getInstance();
+          const winnerPlayerId = mgr.resolveWinnerPlayerId();
+          if (!winnerPlayerId) {
+            console.log(`[PostGameShowcase] no showcase — winner=${JSON.stringify(mgr.winner)}`);
+            return;
+          }
+
+          // Snapshot players are keyed "player_<id>" while match-state ids are
+          // bare ("3") — normalize before the lookup.
+          const winnerKey = winnerPlayerId.startsWith("player_") ? winnerPlayerId : `player_${winnerPlayerId}`;
+          const entityId = this._latestGameState?.players.get(winnerKey)?.entityId ?? null;
+          if (!entityId) {
+            console.log(
+              `[PostGameShowcase] no entity for winner ${winnerKey} (players: ${[...(this._latestGameState?.players.keys() ?? [])].join(", ")})`,
+            );
+            return;
+          }
+
+          // Winner's gun: local player → the view model's weapon; remote →
+          // last weapon seen in snapshots. (localPlayerId uses the "player_<id>"
+          // form, hence the normalized key.)
+          const resolveWeapon = async (): Promise<string | null> => {
+            if (winnerKey === this.localPlayerId) {
+              const { getWeaponViewManager } = await import("../../engine/weapon/WeaponViewManager");
+              return getWeaponViewManager().getDisplayedWeaponId?.() ?? null;
+            }
+            return this.remoteRenderer?.getKnownWeaponId(entityId) ?? null;
+          };
+          resolveWeapon()
+            .then((weaponId) => startPostGameShowcase(this.remoteRenderer, entityId, weaponId))
+            .catch(() => {});
+        })
+        .catch(() => {});
     });
   }
 
@@ -827,7 +871,11 @@ export class Game {
    * rebroadcasts as a `chat` snapshot event). Called by the HUD chat widget.
    */
   sendChat(text: string): void {
-    if (!this.gameHost || !this.isNetworkMode) return;
+    if (!this.gameHost || !this.isNetworkMode) {
+      console.warn(`[Chat] send dropped — gameHost=${!!this.gameHost} networkMode=${this.isNetworkMode}`);
+      return;
+    }
+    console.log(`[Chat] send → server: "${text}"`);
     const networkHost = this.gameHost as import("../../engine/network/client/hosts/NetworkGameHost").NetworkGameHost;
     networkHost.sendChat(text);
   }
@@ -969,6 +1017,23 @@ export class Game {
     // Spectators don't send input at all
     if (this.playerState === "spectator") {
       return;
+    }
+
+    // Post-game screen: gameplay is over — strip movement/actions locally so
+    // prediction matches the server's input freeze (look-around stays free).
+    if (MatchStateManager.getInstance().isPostGame()) {
+      input.forward = false;
+      input.backward = false;
+      input.left = false;
+      input.right = false;
+      input.jump = false;
+      input.crouch = false;
+      input.sprint = false;
+      input.fire = false;
+      input.altFire = false;
+      input.reload = false;
+      input.use = false;
+      input.weaponSlot = 0; // no weapon switching either
     }
 
     // While dead, check for respawn input and strip ALL gameplay input.
