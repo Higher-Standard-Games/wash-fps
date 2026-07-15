@@ -16,8 +16,9 @@ import type { PlayerModelInstance } from "../../../engine/animation/PlayerModelM
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
 
-/** Distance in front of the camera to place the model (world/Quake units). */
-const SHOWCASE_DISTANCE = 150;
+/** Distance in front of the camera to place the model (world/Quake units).
+ *  200u frames the full body with headroom (150 filled the screen edge-to-edge). */
+const SHOWCASE_DISTANCE = 200;
 /** Camera eye sits ~this far above the entity origin the model spawner
  *  expects. Empirically tuned: 28 (nominal standing view height) sank the
  *  model knee-deep into the floor. */
@@ -85,7 +86,7 @@ export async function startPostGameShowcase(
       });
       if (hit?.hit && hit.pickedPoint) {
         const hitDistance = Vector3.Distance(origin, hit.pickedPoint);
-        distance = Math.max(SHOWCASE_MIN_DISTANCE, hitDistance - SHOWCASE_WALL_PADDING);
+        distance = Math.min(distance, Math.max(SHOWCASE_MIN_DISTANCE, hitDistance - SHOWCASE_WALL_PADDING));
         console.log(`[PostGameShowcase] wall at ${hitDistance.toFixed(0)} — clamped to ${distance.toFixed(0)}`);
       }
     }
@@ -125,6 +126,14 @@ export async function startPostGameShowcase(
   for (const child of model.mesh.getChildMeshes()) {
     child.alwaysSelectAsActiveMesh = true;
     child.isVisible = true;
+  }
+
+  // When a wall forced the model closer than the nominal distance, scale it
+  // down proportionally — otherwise a close model fills the whole screen.
+  if (distance < SHOWCASE_DISTANCE) {
+    const shrink = Math.max(0.45, distance / SHOWCASE_DISTANCE);
+    model.anchor.scaling.setAll(shrink);
+    console.log(`[PostGameShowcase] close placement — model scaled to ${shrink.toFixed(2)}`);
   }
   console.log("[PostGameShowcase] winner model spawned");
 
