@@ -437,6 +437,20 @@ export class GameServer {
   // Lifecycle
   // ========================================================================
 
+  /**
+   * Actual bound port. Resolves the OS-assigned ephemeral port when the server
+   * was constructed with `port: 0` (used by the protocol smoke tests to connect
+   * a real client). Valid only after {@link start}.
+   */
+  getPort(): number {
+    return this.transport.getPort();
+  }
+
+  /** Number of registered clients (spectators + players). Used by smoke tests. */
+  getClientCount(): number {
+    return this.clients.size;
+  }
+
   async start(): Promise<void> {
     if (this.running) return;
 
