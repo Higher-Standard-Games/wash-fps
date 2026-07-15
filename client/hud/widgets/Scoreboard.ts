@@ -29,6 +29,7 @@ export class FPSScoreboard {
   private board: HTMLElement;
   private returnBtn: HTMLButtonElement;
   private statsEl: HTMLElement;
+  private nameEl: HTMLElement;
   /** Winner's playerId ("player_<id>") while the post-game board is up. */
   private winnerPlayerId: string | null = null;
 
@@ -65,6 +66,12 @@ export class FPSScoreboard {
     this.statsEl.className = "fps-postgame-stats";
     this.statsEl.style.display = "none";
     this.overlay.appendChild(this.statsEl);
+
+    // Giant winner nameplate rising behind the showcase model.
+    this.nameEl = document.createElement("div");
+    this.nameEl.className = "fps-postgame-name";
+    this.nameEl.style.display = "none";
+    this.overlay.appendChild(this.nameEl);
 
     this.overlay.appendChild(this.board);
     document.body.appendChild(this.overlay);
@@ -122,7 +129,11 @@ export class FPSScoreboard {
    * variant), and titled with the match result ("WRAITH WINS!").
    * Pass null to return to the plain Tab scoreboard.
    */
-  public setPostGame(winnerTitle: string | null, winnerPlayerId: string | null = null): void {
+  public setPostGame(
+    winnerTitle: string | null,
+    winnerPlayerId: string | null = null,
+    winnerName: string | null = null,
+  ): void {
     if (winnerTitle !== null) {
       this.board.classList.add("fps-scoreboard--postgame");
       // Light, un-blurred veil + board shifted right so the 3D winner showcase
@@ -131,6 +142,10 @@ export class FPSScoreboard {
       this.postGameRoster = new Map(); // remember departing players' final rows
       this.winnerPlayerId = winnerPlayerId;
       this.setTitle(winnerTitle);
+      if (winnerName) {
+        this.nameEl.textContent = winnerName;
+        this.nameEl.style.display = "";
+      }
       this.setLocked(true);
     } else {
       this.board.classList.remove("fps-scoreboard--postgame");
@@ -138,6 +153,7 @@ export class FPSScoreboard {
       this.postGameRoster = null;
       this.winnerPlayerId = null;
       this.statsEl.style.display = "none";
+      this.nameEl.style.display = "none";
       this.setTitle("SCOREBOARD");
       this.setLocked(false);
       this.setReturnAction(null);
