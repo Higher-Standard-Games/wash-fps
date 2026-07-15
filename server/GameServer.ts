@@ -839,6 +839,17 @@ export class GameServer {
         return;
       }
 
+      // In-game chat. Reliable-by-nature over WebSocket: the WS transport
+      // delivers ALL messages via onDatagram ("use onDatagram for all game
+      // messages"), so Chat MUST be routed here — the handleReliable router
+      // is only reached by transports with a distinct reliable channel.
+      // (This was the silent hop: chat existed only in handleReliable and
+      // never fired over WS.)
+      if (msgType === MessageType.Chat) {
+        this.handleChat(conn, data);
+        return;
+      }
+
       const client = this.clients.get(conn.id);
       if (!client) return;
 
