@@ -251,7 +251,12 @@ export class GameServer {
       onConnect: (conn) => this.handleConnect(conn),
       onDisconnect: (conn, reason) => this.handleDisconnect(conn, reason),
       onDatagram: (conn, data) => this.handleDatagram(conn, data),
-      onReliable: (conn, data) => this.handleReliable(conn, data),
+      // One router for BOTH channels. The old separate handleReliable router was
+      // an armed trap: unreachable over WebSocket (the WS transport delivers
+      // everything via onDatagram), so a message wired only there died silently
+      // — that's exactly how chat shipped broken (QA-7). A future WebTransport
+      // reliable channel flows through the same complete router.
+      onReliable: (conn, data) => this.handleDatagram(conn, data),
       onError: (conn, error) => this.handleError(conn, error),
     });
 
@@ -854,12 +859,9 @@ export class GameServer {
         return;
       }
 
-      // In-game chat. Reliable-by-nature over WebSocket: the WS transport
-      // delivers ALL messages via onDatagram ("use onDatagram for all game
-      // messages"), so Chat MUST be routed here — the handleReliable router
-      // is only reached by transports with a distinct reliable channel.
-      // (This was the silent hop: chat existed only in handleReliable and
-      // never fired over WS.)
+      // In-game chat. This is the ONE router for both channels (onDatagram and
+      // onReliable both land here) — the old separate handleReliable router was
+      // where chat silently died over WS, and it has been removed (QA-7).
       if (msgType === MessageType.Chat) {
         this.handleChat(conn, data);
         return;
@@ -913,39 +915,8 @@ export class GameServer {
     }
   }
 
-  private handleReliable(conn: ClientConnection, data: Uint8Array): void {
-    if (data.length === 0) return;
-
-    try {
-      const msgType = MessageCodec.peekMessageType(data);
-
-      if (msgType === MessageType.Join) {
-        const { playerName } = MessageCodec.decodeJoin(data);
-        console.log(`[GameServer] Reliable join request from: ${playerName}`);
-
-        const client = this.clients.get(conn.id);
-        if (client) {
-          this.sendJoinAccept(client);
-        }
-      } else if (msgType === MessageType.Ready) {
-        this.handleReady(conn);
-      } else if (msgType === MessageType.JoinGame) {
-        const { teamId } = MessageCodec.decodeJoinGame(data);
-        this.handleJoinGame(conn, teamId);
-      } else if (msgType === MessageType.Spectate) {
-        this.handleSpectate(conn);
-      } else if (msgType === MessageType.RequestSpawn) {
-        this.handleRequestSpawn(conn);
-      } else if (msgType === MessageType.Chat) {
-        this.handleChat(conn, data);
-      }
-    } catch {
-      // Silently ignore malformed packets
-    }
-  }
-
   /**
-   * In-game chat (reliable channel). Server-authoritative: sanitize, rate
+   * In-game chat. Server-authoritative: sanitize, rate
    * limit, then queue for the next snapshot as a one-shot `chat` event —
    * which also lands in demo recordings for free (post-D16 the recorder gets
    * the same snapshot instance as the broadcaster).

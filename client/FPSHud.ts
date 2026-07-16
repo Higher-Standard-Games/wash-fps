@@ -44,8 +44,6 @@ import { FPSSettingsOverlay } from "./hud/widgets/SettingsOverlay";
 import { FPSTimer } from "./hud/widgets/Timer";
 // Import widget classes
 import { FPSVitalsBlock } from "./hud/widgets/VitalsBlock";
-// Old KillFeed disabled — replaced by EventFeed
-// import { FPSKillFeed } from './hud/widgets/KillFeed';
 import { FPSWeaponSlots } from "./hud/widgets/WeaponSlots";
 
 /**
@@ -435,9 +433,6 @@ export class FPSHud {
 
     // Frag counter - top center (next to timer)
     this.addWidget("frags", new FPSFragCounter(), "top-center");
-
-    // Kill feed - disabled, replaced by engine EventFeed
-    // this.addWidget('killfeed', new FPSKillFeed(), 'top-right');
 
     // Weapon rack - disabled, redundant with bottom-right weapon slots
     // this.addWidget("weapons", new FPSWeaponRack(), "left");
