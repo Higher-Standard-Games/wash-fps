@@ -12,6 +12,7 @@
 
 import { Color3, Vector3 } from "@babylonjs/core";
 import { toClientKey } from "../ClientEntityKey";
+import { assertUnroutedEvent, type SnapshotEvent } from "../../../engine/network/core/SnapshotEvent";
 import { PointLight } from "@babylonjs/core/Lights/pointLight";
 import { CameraSystem } from "../../../engine/camera";
 import { NetGraph } from "../../../engine/network/client/NetGraph";
@@ -143,29 +144,39 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
   if (state.events && state.events.length > 0) {
     const matchMgr = MatchStateManager.getInstance();
 
-    for (const event of state.events) {
-      if (event.type === "match_state") {
-        matchMgr.processEvent(event);
-      } else if (event.type === "weapon_state" && event.entityId === localEntityId) {
-        handleWeaponStateSync(ctx, event);
-      } else if (event.type === "weapon_state" && event.entityId !== localEntityId) {
-        if (event.currentWeapon) {
-          ctx.enemyWeapons.set(event.entityId, event.currentWeapon);
-        }
-      } else if (event.type === "weapon_fire") {
-        if (event.entityId === localEntityId) {
-          const wvm = getWeaponViewManager();
-          const isProjectileFire = ctx._localCharging;
-          if (ctx._localCharging) ctx._localCharging = false;
-          wvm.fire({ isProjectileFire });
-        } else {
-          handleRemoteWeaponFire(event, ctx.remoteRenderer);
-        }
-      } else if (event.type === "weapon_charge") {
-        if (event.entityId === localEntityId) {
-          ctx._localCharging = event.charging;
-        } else {
-          if (event.charging) {
+    // Dispatch by event type. Switching on the discriminated `type` (rather than
+    // the old if/else-if chain with compound conditions) narrows each `event` so
+    // field access is compiler-checked, and the exhaustive `default` catches an
+    // unrouted type instead of letting it vanish silently (QA-6).
+    for (const event of state.events as SnapshotEvent[]) {
+      switch (event.type) {
+        case "match_state":
+          matchMgr.processEvent(event);
+          break;
+
+        case "weapon_state":
+          if (event.entityId === localEntityId) {
+            handleWeaponStateSync(ctx, event);
+          } else if (event.currentWeapon) {
+            ctx.enemyWeapons.set(event.entityId, event.currentWeapon);
+          }
+          break;
+
+        case "weapon_fire":
+          if (event.entityId === localEntityId) {
+            const wvm = getWeaponViewManager();
+            const isProjectileFire = ctx._localCharging;
+            if (ctx._localCharging) ctx._localCharging = false;
+            wvm.fire({ isProjectileFire });
+          } else {
+            handleRemoteWeaponFire(event, ctx.remoteRenderer);
+          }
+          break;
+
+        case "weapon_charge":
+          if (event.entityId === localEntityId) {
+            ctx._localCharging = event.charging;
+          } else if (event.charging) {
             ctx.chargingPlayers.add(event.entityId);
           } else {
             ctx.chargingPlayers.delete(event.entityId);
@@ -175,153 +186,189 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
               ctx.chargingGlows.delete(event.entityId);
             }
           }
-        }
-      } else if (event.type === "weapon_chain") {
-        // Draw the chain-lightning arcs between the server-provided link points
-        // (primary → hop1 → hop2). Shown for all players, including the shooter.
-        const fx = getHitscanEffects();
-        const pts = (event.points ?? []).map((p: { x: number; y: number; z: number }) => new Vector3(p.x, p.y, p.z));
-        const rgb = WEAPON_EFFECT_COLORS.voltaic;
-        const color = new Color3(rgb[0], rgb[1], rgb[2]);
-        for (let i = 0; i < pts.length - 1; i++) {
-          fx.fireLightningArc(pts[i], pts[i + 1], color);
-        }
-      } else if (event.type === "projectile_impact") {
-        const pos = new Vector3(event.x, event.y, event.z);
-        const projDefId =
-          event.defId === "glauncher"
-            ? "grenade"
-            : event.defId === "plasmagun"
-              ? "plasma_bolt"
-              : event.defId === "rlauncher"
-                ? "rocket"
-                : event.defId;
+          break;
 
-        if (getProjectileManager().hasRecentPrediction(pos, projDefId)) {
-          continue;
-        }
-
-        const normal = new Vector3(event.normalX, event.normalY, event.normalZ);
-        // Projectiles are now identified by projectileId (F8: grenade/plasma_bolt/…);
-        // weapon-id forms kept as fallbacks for older demos. rocket + gunblade_blast
-        // (and unknowns) use the rocket explosion.
-        const config =
-          event.defId === "grenade" || event.defId === "glauncher"
-            ? GRENADE_EXPLOSION
-            : event.defId === "plasma_bolt" || event.defId === "plasmagun"
-              ? PLASMA_EXPLOSION
-              : event.defId === "blade_blast"
-                ? BLADE_EXPLOSION
-                : ROCKET_EXPLOSION;
-        getExplosionEffect().spawn(pos, config, normal);
-      } else if (event.type === "projectile_spawn") {
-        ctx.serverProjectileDefIds.set(event.entityId, event.defId);
-      } else if (event.type === "combat_state" && event.entityId === localEntityId) {
-        HUDState.getInstance().processCombatState(event);
-        if (event.dead && !ctx._isPlayerDead) {
-          ctx._isPlayerDead = true;
-          ctx._respawnRequested = false;
-          ctx._respawnCooldownEnd = Date.now() + 3000;
-          console.log("[GameEvents] Local player died");
-          import("../../../engine/weapon/WeaponViewManager").then((m) => {
-            const wvm = m.getWeaponViewManager();
-            wvm.setVisible(false);
-            // Kill any continuous beam (lasergun/voltaic) still rendering — death
-            // cuts fire input without firing the normal beam-stop edge, so it
-            // would otherwise stay stuck on screen through the respawn.
-            wvm.setBeamActive(false);
-          });
-        } else if (!event.dead && ctx._isPlayerDead) {
-          ctx._isPlayerDead = false;
-          ctx._respawnRequested = false;
-          console.log("[GameEvents] Local player respawned");
-          ctx._deathCamera?.stop();
-          if (ctx.v2Client) {
-            ctx.v2Client.resetForRespawn();
+        case "weapon_chain": {
+          // Draw the chain-lightning arcs between the server-provided link points
+          // (primary → hop1 → hop2). Shown for all players, including the shooter.
+          const fx = getHitscanEffects();
+          const pts = event.points.map((p) => new Vector3(p.x, p.y, p.z));
+          const rgb = WEAPON_EFFECT_COLORS.voltaic;
+          const color = new Color3(rgb[0], rgb[1], rgb[2]);
+          for (let i = 0; i < pts.length - 1; i++) {
+            fx.fireLightningArc(pts[i], pts[i + 1], color);
           }
-          import("../../../engine/weapon/WeaponViewManager").then((m) => {
-            m.getWeaponViewManager().setVisible(true);
-          });
+          break;
         }
-      } else if (event.type === "combat_state" && event.entityId !== localEntityId) {
-        if (!event.dead && ctx.remoteRenderer) {
-          ctx.remoteRenderer.markAlive(event.entityId);
+
+        case "projectile_impact": {
+          const pos = new Vector3(event.x, event.y, event.z);
+          const projDefId =
+            event.defId === "glauncher"
+              ? "grenade"
+              : event.defId === "plasmagun"
+                ? "plasma_bolt"
+                : event.defId === "rlauncher"
+                  ? "rocket"
+                  : event.defId;
+
+          if (getProjectileManager().hasRecentPrediction(pos, projDefId)) {
+            continue;
+          }
+
+          const normal = new Vector3(event.normalX, event.normalY, event.normalZ);
+          // Projectiles are now identified by projectileId (F8: grenade/plasma_bolt/…);
+          // weapon-id forms kept as fallbacks for older demos. rocket + gunblade_blast
+          // (and unknowns) use the rocket explosion.
+          const config =
+            event.defId === "grenade" || event.defId === "glauncher"
+              ? GRENADE_EXPLOSION
+              : event.defId === "plasma_bolt" || event.defId === "plasmagun"
+                ? PLASMA_EXPLOSION
+                : event.defId === "blade_blast"
+                  ? BLADE_EXPLOSION
+                  : ROCKET_EXPLOSION;
+          getExplosionEffect().spawn(pos, config, normal);
+          break;
         }
-      } else if (event.type === "damage") {
-        HUDState.getInstance().processDamage(event);
 
-        // === INCOMING DAMAGE: local player is the victim ===
-        if (event.entityId === localEntityId && event.damage > 0) {
-          // Compute direction angle from attacker to local player
-          let damageAngle = Math.random() * Math.PI * 2; // fallback: random
+        case "projectile_spawn":
+          ctx.serverProjectileDefIds.set(event.entityId, event.defId);
+          break;
 
-          if (event.attackerId && event.attackerId !== localEntityId) {
-            // Get attacker position from state entities
-            const attackerEntity = state.entities.get(event.attackerId);
-            const attackerPos = attackerEntity?.getComponent("position") as
-              | { x: number; y: number; z: number }
-              | undefined;
-            const localEntity = state.entities.get(localEntityId || "");
-            const localPos = localEntity?.getComponent("position") as { x: number; y: number; z: number } | undefined;
+        case "combat_state":
+          if (event.entityId === localEntityId) {
+            HUDState.getInstance().processCombatState(event);
+            if (event.dead && !ctx._isPlayerDead) {
+              ctx._isPlayerDead = true;
+              ctx._respawnRequested = false;
+              ctx._respawnCooldownEnd = Date.now() + 3000;
+              console.log("[GameEvents] Local player died");
+              import("../../../engine/weapon/WeaponViewManager").then((m) => {
+                const wvm = m.getWeaponViewManager();
+                wvm.setVisible(false);
+                // Kill any continuous beam (lasergun/voltaic) still rendering — death
+                // cuts fire input without firing the normal beam-stop edge, so it
+                // would otherwise stay stuck on screen through the respawn.
+                wvm.setBeamActive(false);
+              });
+            } else if (!event.dead && ctx._isPlayerDead) {
+              ctx._isPlayerDead = false;
+              ctx._respawnRequested = false;
+              console.log("[GameEvents] Local player respawned");
+              ctx._deathCamera?.stop();
+              if (ctx.v2Client) {
+                ctx.v2Client.resetForRespawn();
+              }
+              import("../../../engine/weapon/WeaponViewManager").then((m) => {
+                m.getWeaponViewManager().setVisible(true);
+              });
+            }
+          } else if (!event.dead && ctx.remoteRenderer) {
+            ctx.remoteRenderer.markAlive(event.entityId);
+          }
+          break;
 
-            if (attackerPos && localPos) {
-              // World-space direction from attacker to victim
-              const worldDx = attackerPos.x - localPos.x;
-              const worldDz = attackerPos.z - localPos.z;
-              const worldAngle = Math.atan2(worldDz, worldDx);
+        case "damage": {
+          HUDState.getInstance().processDamage(event);
 
-              // Get camera yaw to convert to screen-space
-              const cam = CameraSystem.getInstance().getCamera() as any;
-              const cameraYaw = cam?.rotation?.y ?? 0;
+          // === INCOMING DAMAGE: local player is the victim ===
+          if (event.entityId === localEntityId && event.damage > 0) {
+            // Compute direction angle from attacker to local player
+            let damageAngle = Math.random() * Math.PI * 2; // fallback: random
 
-              // Screen-space angle: positive X = right, positive Y = down
-              damageAngle = worldAngle - cameraYaw;
+            if (event.attackerId && event.attackerId !== localEntityId) {
+              // Get attacker position from state entities
+              const attackerEntity = state.entities.get(event.attackerId);
+              const attackerPos = attackerEntity?.getComponent("position") as
+                | { x: number; y: number; z: number }
+                | undefined;
+              const localEntity = state.entities.get(localEntityId || "");
+              const localPos = localEntity?.getComponent("position") as { x: number; y: number; z: number } | undefined;
+
+              if (attackerPos && localPos) {
+                // World-space direction from attacker to victim
+                const worldDx = attackerPos.x - localPos.x;
+                const worldDz = attackerPos.z - localPos.z;
+                const worldAngle = Math.atan2(worldDz, worldDx);
+
+                // Get camera yaw to convert to screen-space
+                const cam = CameraSystem.getInstance().getCamera() as any;
+                const cameraYaw = cam?.rotation?.y ?? 0;
+
+                // Screen-space angle: positive X = right, positive Y = down
+                damageAngle = worldAngle - cameraYaw;
+              }
+            }
+
+            // Trigger damage overlay (directional red triangles + vignette)
+            import("../../../engine/ui/hud/DamageOverlay").then((m) => {
+              m.DamageOverlay.getInstance().show(event.damage, damageAngle);
+            });
+
+            // Trigger pain camera shake (all weapon types)
+            const painIntensity = Math.min(Math.max(event.damage / 100, 0.05), 0.6);
+            const fpsCtrl = CameraSystem.getInstance().getController("fps");
+            if (fpsCtrl && "shakeCamera" in fpsCtrl) {
+              (fpsCtrl as any).shakeCamera(painIntensity);
             }
           }
 
-          // Trigger damage overlay (directional red triangles + vignette)
-          import("../../../engine/ui/hud/DamageOverlay").then((m) => {
-            m.DamageOverlay.getInstance().show(event.damage, damageAngle);
-          });
-
-          // Trigger pain camera shake (all weapon types)
-          const painIntensity = Math.min(Math.max(event.damage / 100, 0.05), 0.6);
-          const fpsCtrl = CameraSystem.getInstance().getController("fps");
-          if (fpsCtrl && "shakeCamera" in fpsCtrl) {
-            (fpsCtrl as any).shakeCamera(painIntensity);
+          // === OUTGOING DAMAGE: local player is the attacker ===
+          if (event.attackerId && event.attackerId === localEntityId) {
+            import("../client/Crosshair").then((m) => m.Crosshair.getInstance().notifyHit());
+            if (event.x !== undefined && event.damage > 0) {
+              import("../client/DamageNumbers").then((m) => {
+                const dn = m.DamageNumbers.getInstance();
+                if (!(dn as any)["scene"]) {
+                  const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
+                  if (gameScene) dn.init(gameScene);
+                }
+                dn.spawn(event.x, event.y, event.z, event.damage);
+              });
+            }
+            if (event.x !== undefined && ctx._cartoonHit) {
+              ctx._cartoonHit.spawn(event.x, event.y, event.z, event.damage);
+            }
           }
+          break;
         }
 
-        // === OUTGOING DAMAGE: local player is the attacker ===
-        if (event.attackerId && event.attackerId === localEntityId) {
-          import("../client/Crosshair").then((m) => m.Crosshair.getInstance().notifyHit());
-          if (event.x !== undefined && event.damage > 0) {
-            import("../client/DamageNumbers").then((m) => {
-              const dn = m.DamageNumbers.getInstance();
-              if (!(dn as any)["scene"]) {
-                const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
-                if (gameScene) dn.init(gameScene);
-              }
-              dn.spawn(event.x, event.y, event.z, event.damage);
-            });
+        case "death":
+          handleDeathEvent(ctx, event, state);
+          break;
+
+        case "weapon_drop":
+          handleWeaponDrop(ctx, event);
+          break;
+
+        case "award":
+          handleAwardEvent(ctx, event);
+          break;
+
+        case "chat":
+          handleChatEvent(event);
+          break;
+
+        case "pickup_notify":
+          if (event.entityId === localEntityId) {
+            // Server-authoritative pickup label for the local player (any item type).
+            import("./FPSHud")
+              .then(({ FPSHud }) => FPSHud.getInstance().pickupToast?.showPickup(String(event.label ?? "")))
+              .catch(() => {});
           }
-          if (event.x !== undefined && ctx._cartoonHit) {
-            ctx._cartoonHit.spawn(event.x, event.y, event.z, event.damage);
-          }
-        }
-      } else if (event.type === "death") {
-        handleDeathEvent(ctx, event, state);
-      } else if (event.type === "weapon_drop") {
-        handleWeaponDrop(ctx, event);
-      } else if (event.type === "award") {
-        handleAwardEvent(ctx, event);
-      } else if (event.type === "chat") {
-        handleChatEvent(event);
-      } else if (event.type === "pickup_notify" && event.entityId === localEntityId) {
-        // Server-authoritative pickup label for the local player (any item type).
-        import("./FPSHud")
-          .then(({ FPSHud }) => FPSHud.getInstance().pickupToast?.showPickup(String(event.label ?? "")))
-          .catch(() => {});
+          break;
+
+        case "item_pickup":
+          // Pickup visibility is reconciled from state.pickupActiveMask above; the
+          // one-shot item_pickup event is intentionally not dispatched here.
+          break;
+
+        default:
+          // Exhaustive: adding a SnapshotEvent member without a case above is a
+          // compile error here; an unknown runtime type warns instead of vanishing.
+          assertUnroutedEvent(event);
+          break;
       }
     }
   }
