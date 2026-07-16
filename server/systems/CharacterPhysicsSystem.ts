@@ -23,7 +23,7 @@ import type { AABB, CollisionWorld } from "../../../../engine/network/systems/co
 const CONFIG: SubsystemConfig = {
   name: "CharacterPhysics",
   priority: 10,
-  tickRate: 125,
+  tickRate: 0, // every base tick — the rate comes from ServerTiming, not a per-subsystem literal (QA-24)
 };
 
 /**

@@ -25,7 +25,7 @@ import { DamageType, HitLocation, type CombatSystem } from "./CombatSystem";
 const CONFIG: SubsystemConfig = {
   name: "FPSMovement",
   priority: 10,
-  tickRate: 125,
+  tickRate: 0, // every base tick — the rate comes from ServerTiming, not a per-subsystem literal (QA-24)
 };
 
 /**

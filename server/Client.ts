@@ -17,7 +17,7 @@ export interface GameServerConfig {
   /** Max spectator connections on top of maxClients (default: 8) */
   maxSpectators?: number;
   tickRate: number;
-  /** Snapshot broadcast rate in Hz (default: 30). Must be <= tickRate. */
+  /** Snapshot broadcast rate in Hz (default: 60). Must be <= tickRate. */
   snapshotRate?: number;
   certPath: string;
   keyPath: string;

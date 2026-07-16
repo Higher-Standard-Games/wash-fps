@@ -47,7 +47,7 @@ const GRAVITY_ACCEL = 800;
 const CONFIG: SubsystemConfig = {
   name: "Projectile",
   priority: 20, // Early, so explosions happen before combat
-  tickRate: 125,
+  tickRate: 0, // every base tick — the rate comes from ServerTiming, not a per-subsystem literal (QA-24)
 };
 
 // ═══════════════════════════════════════════════════════════════════

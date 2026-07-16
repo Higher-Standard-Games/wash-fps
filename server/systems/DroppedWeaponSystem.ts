@@ -58,7 +58,7 @@ export interface WeaponDropEvent {
 const CONFIG: SubsystemConfig = {
   name: "DroppedWeapon",
   priority: 12, // Before PickupSystem (15) so drops are visible for pickup same tick
-  tickRate: 125,
+  tickRate: 0, // every base tick — the rate comes from ServerTiming, not a per-subsystem literal (QA-24)
 };
 
 /** Despawn time in seconds */

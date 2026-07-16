@@ -78,7 +78,7 @@ export interface PickupEvent {
 const CONFIG: SubsystemConfig = {
   name: "Pickup",
   priority: 15, // Before weapon system (20), so pickups are processed first
-  tickRate: 125,
+  tickRate: 0, // every base tick — the rate comes from ServerTiming, not a per-subsystem literal (QA-24)
 };
 
 // ═══════════════════════════════════════════════════════════════════

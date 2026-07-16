@@ -27,6 +27,7 @@ import type { TriggerVolume } from "../../../shared/bsp/TriggerTable";
 // Match phase tracking (for auto-recording)
 import { MatchPhase } from "../../../shared/server/gametype/GametypeTypes";
 import { sanitizeCommand } from "../../../shared/server/simulation/InputSanitizer";
+import { toClientKey } from "../ClientEntityKey";
 import { nextAckedTick, rateLimited } from "./AuthorityGuards";
 // Bot names
 import { getNextBotName } from "./BotNames";
@@ -37,12 +38,11 @@ import { DemoRecorder } from "./DemoRecorder";
 import type { AwardEvent } from "./gametypes/AwardTracker";
 import type { BaseGametype } from "./gametypes/BaseGametype";
 import { Deathmatch } from "./gametypes/Deathmatch";
-
 // Gametype
 import { GametypeController } from "./gametypes/GametypeController";
 // Anti-cheat
 import { MovementValidator } from "./MovementValidator";
-import { toClientKey } from "../ClientEntityKey";
+import { createServerTiming, type ServerTiming } from "./ServerTiming";
 import { SnapshotBroadcaster } from "./SnapshotBroadcaster";
 // Snapshot building (extracted from this file)
 import { buildSnapshot, type SnapshotContext } from "./SnapshotBuilder";
@@ -155,10 +155,9 @@ export class GameServer {
   private _postGameEnterTick: number | null = null;
   /** One-shot latch for the +10s bot release. */
   private _postGameBotsKicked = false;
-  /** Bots are released this many ticks into a terminal post-game (10s @125Hz). */
-  private static readonly POSTGAME_BOT_KICK_TICKS = 10 * 125;
-  /** All remaining clients are closed out after this grace (120s @125Hz). */
-  private static readonly POSTGAME_GRACE_TICKS = 120 * 125;
+
+  /** The one timing contract every time-based value derives from (QA-24). */
+  readonly timing: ServerTiming;
 
   // Challengers queue: spectators waiting to join (FIFO by conn.id)
   private challengersQueue: string[] = [];
@@ -166,16 +165,19 @@ export class GameServer {
   constructor(config: GameServerConfig, gametype?: BaseGametype) {
     this.config = config;
 
+    // One immutable timing contract: tick, snapshot cadence, lifecycle timers.
+    // Validates the config up front (rejects unrepresentable rates) and owns
+    // the requested-vs-effective snapshot distinction (QA-24).
+    this.timing = createServerTiming(config);
+
     // Create simulation
     this.simulation = new Simulation({
-      tickMs: 1000 / config.tickRate,
+      tickMs: this.timing.tickMs,
     });
 
-    // Calculate ticks-per-snapshot for decoupled snapshot rate
-    const snapshotRate = config.snapshotRate ?? 60;
-    this.ticksPerSnapshot = Math.max(1, Math.round(config.tickRate / snapshotRate));
+    this.ticksPerSnapshot = this.timing.ticksPerSnapshot;
     console.log(
-      `[GameServer] Tick rate: ${config.tickRate}Hz, Snapshot rate: ${snapshotRate}Hz (every ${this.ticksPerSnapshot} ticks)`,
+      `[GameServer] Tick rate: ${this.timing.tickRate}Hz, Snapshot rate: ${this.timing.effectiveSnapshotRate}Hz (every ${this.timing.ticksPerSnapshot} ticks)`,
     );
 
     // Create subsystems
@@ -397,14 +399,18 @@ export class GameServer {
       return;
     }
 
-    const snapshotRate = this.config.snapshotRate ?? 60;
     const gametypeName = this.gametypeController.getGametype()?.constructor?.name?.toLowerCase() || "deathmatch";
 
     this.demoRecorder = new DemoRecorder({
       map: this.config.mapName,
       gametype: gametypeName,
-      tickRate: this.config.tickRate,
-      snapshotRate,
+      tickRate: this.timing.tickRate,
+      // Record the EFFECTIVE cadence, never the requested one: at 125/60 the
+      // server broadcasts every 2 ticks = 62.5Hz, and recording "60" made
+      // nominal demo playback ~4.17% slow (QA-24). Rounded because the header
+      // field is a uint8; playback itself is driven by recorded frame ticks
+      // (WO-DP1), so the header rate is informational.
+      snapshotRate: Math.round(this.timing.effectiveSnapshotRate),
     });
 
     // Add existing players to roster
@@ -665,7 +671,7 @@ export class GameServer {
     // process ALWAYS exits (shutdownOnEmpty reaps it once empty).
     if (this.config.singleMatch && this._postGameEnterTick !== null) {
       const ticksInPostGame = (this.simulation.currentTick as number) - this._postGameEnterTick;
-      if (!this._postGameBotsKicked && ticksInPostGame >= GameServer.POSTGAME_BOT_KICK_TICKS) {
+      if (!this._postGameBotsKicked && ticksInPostGame >= this.timing.postGameBotKickTicks) {
         this._postGameBotsKicked = true;
         for (const client of this.clients.values()) {
           if (client.isBot) {
@@ -674,7 +680,7 @@ export class GameServer {
           }
         }
       }
-      if (ticksInPostGame === GameServer.POSTGAME_GRACE_TICKS) {
+      if (ticksInPostGame === this.timing.postGameGraceTicks) {
         console.log(`[GameServer] Post-game grace elapsed — closing remaining connections`);
         for (const client of this.clients.values()) {
           client.connection.close("match over — returning to lobby");

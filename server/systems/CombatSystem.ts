@@ -14,7 +14,7 @@ import type { FPSMovementSubsystem } from "./FPSMovementSubsystem";
 const CONFIG: SubsystemConfig = {
   name: "Combat",
   priority: 30, // After physics
-  tickRate: 125,
+  tickRate: 0, // every base tick — the rate comes from ServerTiming, not a per-subsystem literal (QA-24)
 };
 
 /** Default KB scale if weapon doesn't specify one */

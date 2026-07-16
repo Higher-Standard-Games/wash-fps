@@ -86,7 +86,7 @@ export interface WeaponChainEvent {
 const CONFIG: SubsystemConfig = {
   name: "Weapon",
   priority: 25, // After input, before combat
-  tickRate: 125,
+  tickRate: 0, // every base tick — the rate comes from ServerTiming, not a per-subsystem literal (QA-24)
 };
 
 // ═══════════════════════════════════════════════════════════════════
