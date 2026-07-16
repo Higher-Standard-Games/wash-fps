@@ -12,6 +12,7 @@
  */
 
 import { Color3, Vector3 } from "@babylonjs/core";
+import { isClientKey } from "../ClientEntityKey";
 import { PointLight } from "@babylonjs/core/Lights/pointLight";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import { SnapshotBuffer } from "../../../engine/network/client/SnapshotBuffer";
@@ -636,7 +637,7 @@ export class DemoService {
 
     const rows: Array<{ entityId: string; name: string; isTarget: boolean }> = [];
     for (const [entityId] of this.latestState.entities) {
-      if (!entityId.startsWith("player_")) continue;
+      if (!isClientKey(entityId)) continue;
       rows.push({
         entityId,
         name: playersByEntity.get(entityId) ?? entityId,

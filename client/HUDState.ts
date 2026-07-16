@@ -13,6 +13,7 @@
  * - players map   → scoreboard data
  */
 
+import { clientKeyDisplayId } from "../ClientEntityKey";
 import type { GameState } from "../../../engine/network/core/GameState";
 import { MatchStateManager } from "./MatchStateManager";
 
@@ -167,11 +168,7 @@ export class HUDState {
     this.teamNames = matchState.teamNames || {};
 
     for (const [playerId, player] of state.players) {
-      // Strip the 'player_' prefix safely string manipulation
-      let rawPlayerId = playerId;
-      if (playerId.startsWith("player_")) {
-        rawPlayerId = playerId.substring(7);
-      }
+      const rawPlayerId = clientKeyDisplayId(playerId);
       const teamId = matchState.playerTeams?.[rawPlayerId];
       this.scoreboard.push({
         playerId,

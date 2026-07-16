@@ -11,6 +11,7 @@
  */
 
 import { Color3, Vector3 } from "@babylonjs/core";
+import { toClientKey } from "../ClientEntityKey";
 import { PointLight } from "@babylonjs/core/Lights/pointLight";
 import { CameraSystem } from "../../../engine/camera";
 import { NetGraph } from "../../../engine/network/client/NetGraph";
@@ -907,8 +908,8 @@ function handleAwardEvent(ctx: GameEventContext, event: any): void {
   // Match against multiple ID formats since server/client may use different formats
   const isLocalPlayer =
     playerId === ctx.localPlayerId ||
-    playerId === `player_${ctx.localPlayerId}` ||
-    `player_${playerId}` === ctx.localPlayerId;
+    playerId === toClientKey(ctx.localPlayerId) ||
+    toClientKey(playerId) === ctx.localPlayerId;
 
   // Personal award banner (only for local player)
   if (isLocalPlayer) {

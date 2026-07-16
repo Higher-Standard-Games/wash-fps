@@ -26,6 +26,7 @@ import { PlayerProfile } from "../../engine/player/PlayerProfile";
 import { getProjectileManager } from "../../engine/weapon/ProjectileManager";
 import { getWeaponViewManager } from "../../engine/weapon/WeaponViewManager";
 import { V2NetworkClient } from "./client";
+import { ensureClientKey } from "./ClientEntityKey";
 import { getAmmoStatus } from "./client/AmmoStatus";
 import { Crosshair } from "./client/Crosshair";
 import { DeathCamera } from "./client/DeathCamera";
@@ -211,7 +212,7 @@ export class Game {
 
           // Snapshot players are keyed "player_<id>" while match-state ids are
           // bare ("3") — normalize before the lookup.
-          const winnerKey = winnerPlayerId.startsWith("player_") ? winnerPlayerId : `player_${winnerPlayerId}`;
+          const winnerKey = ensureClientKey(winnerPlayerId);
           const entityId = this._latestGameState?.players.get(winnerKey)?.entityId ?? null;
           if (!entityId) {
             console.log(

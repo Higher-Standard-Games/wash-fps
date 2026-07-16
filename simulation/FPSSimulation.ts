@@ -8,6 +8,7 @@ import { GameState, PlayerState } from "../../../engine/network/core/GameState";
 import { Simulation, type SimulationConfig } from "../../../engine/network/core/Simulation";
 import { type CollisionWorld, NullCollisionWorld } from "../../../engine/network/systems/collision/CollisionWorld";
 import { MovementSystem } from "../../../engine/network/systems/MovementSystem";
+import { toClientKey } from "../ClientEntityKey";
 import { MovementProfile as FPSMovementProfile } from "./MovementProfile";
 
 /**
@@ -131,7 +132,7 @@ export class FPSSimulation extends Simulation<GameState, FPSInputCommand> {
    * Create a player entity when they join
    */
   spawnPlayer(playerId: string): Entity {
-    const entityId = `player_${this.nextEntityId++}`;
+    const entityId = toClientKey(this.nextEntityId++);
     const entity = new Entity(entityId);
 
     // Get spawn point

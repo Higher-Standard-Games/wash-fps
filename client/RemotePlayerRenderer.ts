@@ -12,6 +12,7 @@
  */
 
 import { Color3 } from "@babylonjs/core/Maths/math.color";
+import { isClientKey } from "../ClientEntityKey";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
@@ -322,7 +323,7 @@ export class RemotePlayerRenderer {
     const entities = new Map<string, EntitySnapshot>();
     for (const [entityId, entity] of state.entities) {
       if (entityId === localEntityId) continue;
-      if (!entityId.startsWith("player_")) continue;
+      if (!isClientKey(entityId)) continue;
 
       const transform = entity.getComponent("transform") as any;
       const velocity = entity.getComponent("velocity") as any;

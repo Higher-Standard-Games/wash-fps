@@ -12,6 +12,7 @@ import type { PlayerId } from "@engine/server/ecs/types";
 import { EntityType } from "@engine/server/ecs/types";
 import { Entity } from "../../../engine/network/core/Entity";
 import { GameState, type PlayerState } from "../../../engine/network/core/GameState";
+import { toClientKey } from "../ClientEntityKey";
 import type { ClientInfo } from "./Client";
 import type { AwardEvent } from "./gametypes/AwardTracker";
 import type { GametypeController } from "./gametypes/GametypeController";
@@ -220,7 +221,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
     const isDead = !!entity.health?.dead;
 
     if (!isDead) {
-      const clientEntity = new Entity(`player_${entity.id}`);
+      const clientEntity = new Entity(toClientKey(entity.id));
 
       if (entity.transform) {
         clientEntity.addComponent("transform", {
@@ -284,9 +285,9 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
 
     // Player state (scoreboard + combat_state) — always emit, even for dead players
     if (entity.ownerId !== undefined) {
-      const playerId = `player_${entity.ownerId}`;
+      const playerId = toClientKey(entity.ownerId);
       // Use entity ID for client entity reference (needed for combat_state)
-      const entityClientId = `player_${entity.id}`;
+      const entityClientId = toClientKey(entity.id);
       if (!gameState.players.has(playerId)) {
         // Get score, deaths and team from gametype controller
         const matchState = ctx.gametypeController.getMatchState();
@@ -337,7 +338,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
       if (weaponState) {
         gameState.events.push({
           type: "weapon_state",
-          entityId: `player_${entity.id}`,
+          entityId: toClientKey(entity.id),
           currentWeapon: weaponState.currentWeapon,
           weapons: weaponState.weapons,
           ammo: Object.fromEntries(weaponState.ammo),
@@ -356,7 +357,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
   for (const client of ctx.clients.values()) {
     if (client.isSpectator) {
       spectators.push({
-        playerId: `player_${client.entityId}`,
+        playerId: toClientKey(client.entityId),
         name: client.playerName,
         ping: 0,
       });
@@ -372,7 +373,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
   for (const fireEvent of ctx.weaponSystem.getPendingFireEvents()) {
     gameState.events.push({
       type: "weapon_fire",
-      entityId: `player_${fireEvent.entityId}`,
+      entityId: toClientKey(fireEvent.entityId),
       weaponId: fireEvent.weaponId,
       originX: fireEvent.originX,
       originY: fireEvent.originY,
@@ -387,7 +388,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
   for (const chainEvent of ctx.weaponSystem.getPendingChainEvents()) {
     gameState.events.push({
       type: "weapon_chain",
-      entityId: `player_${chainEvent.entityId}`,
+      entityId: toClientKey(chainEvent.entityId),
       points: chainEvent.points,
     });
   }
@@ -396,7 +397,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
   for (const chargeEvent of ctx.weaponSystem.getPendingChargeEvents()) {
     gameState.events.push({
       type: "weapon_charge",
-      entityId: `player_${chargeEvent.entityId}`,
+      entityId: toClientKey(chargeEvent.entityId),
       weaponId: chargeEvent.weaponId,
       charging: chargeEvent.charging,
     });
@@ -443,7 +444,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
   for (const notify of ctx.pickupSystem.getPendingPickupNotifies()) {
     gameState.events.push({
       type: "pickup_notify",
-      entityId: `player_${notify.entityId}`,
+      entityId: toClientKey(notify.entityId),
       label: notify.label,
     });
   }
@@ -492,8 +493,8 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
   for (const dmg of damageEvents) {
     gameState.events.push({
       type: "damage",
-      entityId: `player_${dmg.victimId}`,
-      attackerId: dmg.attackerId !== undefined ? `player_${dmg.attackerId}` : "",
+      entityId: toClientKey(dmg.victimId),
+      attackerId: dmg.attackerId !== undefined ? toClientKey(dmg.attackerId) : "",
       damage: dmg.damage,
       weaponId: dmg.damageType, // Use damageType as weapon identifier for now
       x: dmg.x,
@@ -507,8 +508,8 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
   for (const kill of ctx.pendingKillEvents) {
     gameState.events.push({
       type: "death",
-      entityId: `player_${kill.victimId}`,
-      killerId: kill.killerId !== undefined ? `player_${kill.killerId}` : "",
+      entityId: toClientKey(kill.victimId),
+      killerId: kill.killerId !== undefined ? toClientKey(kill.killerId) : "",
       weaponId: kill.damageType, // Use damageType as weapon identifier
       damageType: kill.damageType, // Explicit damage type for gib/ragdoll decision
       finalDamage: kill.finalDamage, // Killing blow damage for gib threshold
@@ -545,7 +546,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
     gameState.events.push({
       type: "award",
       awardType: award.awardType,
-      playerId: `player_${award.playerId}`,
+      playerId: toClientKey(award.playerId),
       playerName: award.playerName,
       targetName: award.targetName,
       value: award.value,

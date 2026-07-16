@@ -13,6 +13,7 @@
  */
 
 import { GamePaths } from "../../../engine/core/GamePaths";
+import { toClientKey } from "../ClientEntityKey";
 // Import CSS as raw string (Vite)
 import washikiTheme from "../../../engine/ui/hud/styles/WashikiTheme.css?raw";
 import { UIStyles } from "../../../engine/ui/UIStyles";
@@ -137,7 +138,7 @@ export class FPSHud {
         // board renders the winner's stat panel next to the showcase model.
         const winnerId = mgr.resolveWinnerPlayerId();
         const winnerName = winner && winner.kind !== "draw" ? (winner.name ?? null) : null;
-        this._scoreboard.setPostGame(title.toUpperCase(), winnerId ? `player_${winnerId}` : null, winnerName);
+        this._scoreboard.setPostGame(title.toUpperCase(), winnerId ? toClientKey(winnerId) : null, winnerName);
         this.hide(); // gameplay HUD off — the result owns the screen
         // The pickup prompt is body-appended (outside the container) and its
         // proximity driver is frozen with input — force it away for the screen.

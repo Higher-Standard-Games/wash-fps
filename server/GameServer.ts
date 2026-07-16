@@ -42,6 +42,7 @@ import { Deathmatch } from "./gametypes/Deathmatch";
 import { GametypeController } from "./gametypes/GametypeController";
 // Anti-cheat
 import { MovementValidator } from "./MovementValidator";
+import { toClientKey } from "../ClientEntityKey";
 import { SnapshotBroadcaster } from "./SnapshotBroadcaster";
 // Snapshot building (extracted from this file)
 import { buildSnapshot, type SnapshotContext } from "./SnapshotBuilder";
@@ -982,7 +983,7 @@ export class GameServer {
       : (this.gametypeController.getMatchState().getPlayerTeam(client.playerId) ?? "");
     console.log(`[Chat] ${client.playerName}: ${text}`);
     this.pendingChatEvents.push({
-      senderId: `player_${client.entityId}`,
+      senderId: toClientKey(client.entityId),
       senderName: client.playerName,
       team,
       text,
@@ -1305,8 +1306,8 @@ export class GameServer {
   }
 
   private sendJoinAccept(client: ClientInfo): void {
-    const playerId = `player_${client.playerId}`;
-    const entityId = `player_${client.entityId}`;
+    const playerId = toClientKey(client.playerId);
+    const entityId = toClientKey(client.entityId);
 
     const acceptBytes = MessageCodec.encodeJoinAccept(client.id, playerId, entityId);
     client.connection.sendReliable(acceptBytes);

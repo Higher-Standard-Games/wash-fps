@@ -12,6 +12,7 @@ import type { Simulation } from "@engine/server/core/Simulation";
 import { GameState } from "../../../engine/network/core/GameState";
 import { MessageCodec } from "../../../engine/network/protocol/MessageCodec";
 import type { ServerPVS } from "../../../engine/server/ServerPVS";
+import { toClientKey } from "../ClientEntityKey";
 import type { ClientInfo } from "./Client";
 
 export class SnapshotBroadcaster {
@@ -133,7 +134,7 @@ export class SnapshotBroadcaster {
     filtered.pickupActiveMask = state.pickupActiveMask; // global, not PVS-filtered
 
     for (const [id, entity] of state.entities) {
-      if (id === `player_${client.entityId}`) {
+      if (id === toClientKey(client.entityId)) {
         filtered.entities.set(id, entity);
         continue;
       }
