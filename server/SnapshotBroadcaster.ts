@@ -9,6 +9,7 @@
  */
 
 import type { Simulation } from "@engine/server/core/Simulation";
+import { log } from "../../../engine/core/Log";
 import { GameState } from "../../../engine/network/core/GameState";
 import { MessageCodec } from "../../../engine/network/protocol/MessageCodec";
 import type { ServerPVS } from "../../../engine/server/ServerPVS";
@@ -92,8 +93,10 @@ export class SnapshotBroadcaster {
         }
 
         client.connection.sendDatagram(snapshotBytes);
-      } catch {
-        // Client may have disconnected
+      } catch (err) {
+        // Usually a disconnected client — but a persistent encode/send fault
+        // here must be visible, not silent (QA-16). Rate-limited: hot path.
+        log.warnRateLimited("SnapshotBroadcaster", `snapshot send failed for ${client.id}:`, err);
       }
     }
 

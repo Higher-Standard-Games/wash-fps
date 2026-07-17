@@ -13,12 +13,13 @@
  */
 
 import { GamePaths } from "../../../engine/core/GamePaths";
-import { toClientKey } from "../ClientEntityKey";
+import { log } from "../../../engine/core/Log";
 // Import CSS as raw string (Vite)
 import washikiTheme from "../../../engine/ui/hud/styles/WashikiTheme.css?raw";
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import { UITheme } from "../../../engine/ui/UITheme";
 import { getWeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
+import { toClientKey } from "../ClientEntityKey";
 import { HUDState } from "./HUDState";
 import { MatchPhase, MatchStateManager } from "./MatchStateManager";
 
@@ -195,7 +196,9 @@ export class FPSHud {
     // text-field guard while the input has focus). Enter sends via the server
     // round-trip (no local echo), Esc cancels — both handled inside FPSChat.
     this._chat.onSend((text) => {
-      import("../Game").then(({ Game }) => Game.getInstance().sendChat(text)).catch(() => {});
+      import("../Game")
+        .then(({ Game }) => Game.getInstance().sendChat(text))
+        .catch((e) => log.warn("FPSChat", "chat send failed:", e));
     });
     this._chatKeyHandler = (e: KeyboardEvent) => {
       // T (Q3 messagemode habit) or Enter (modern habit) both open talk mode.

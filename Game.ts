@@ -10,6 +10,7 @@ import { Vector3 } from "@babylonjs/core";
 import { EngineStore } from "@babylonjs/core/Engines/engineStore";
 import type { PointLight } from "@babylonjs/core/Lights/pointLight";
 import { CameraSystem } from "../../engine/camera";
+import { log } from "../../engine/core/Log";
 import { InputSystem } from "../../engine/input/InputSystem";
 import { LocalGameHost } from "../../engine/network/client/hosts/LocalGameHost";
 import { NetworkGameHost } from "../../engine/network/client/hosts/NetworkGameHost";
@@ -25,8 +26,8 @@ import { getCollisionManager } from "../../engine/physics/CollisionManager";
 import { PlayerProfile } from "../../engine/player/PlayerProfile";
 import { getProjectileManager } from "../../engine/weapon/ProjectileManager";
 import { getWeaponViewManager } from "../../engine/weapon/WeaponViewManager";
-import { V2NetworkClient } from "./client";
 import { ensureClientKey } from "./ClientEntityKey";
+import { V2NetworkClient } from "./client";
 import { getAmmoStatus } from "./client/AmmoStatus";
 import { Crosshair } from "./client/Crosshair";
 import { DeathCamera } from "./client/DeathCamera";
@@ -233,9 +234,9 @@ export class Game {
           };
           resolveWeapon()
             .then((weaponId) => startPostGameShowcase(this.remoteRenderer, entityId, weaponId))
-            .catch(() => {});
+            .catch((e) => log.warn("PostGameShowcase", "showcase failed:", e));
         })
-        .catch(() => {});
+        .catch((e) => log.warn("PostGameShowcase", "module load failed:", e));
     });
   }
 
