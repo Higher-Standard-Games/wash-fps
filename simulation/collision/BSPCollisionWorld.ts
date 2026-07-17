@@ -5,8 +5,9 @@
  * and wraps it in SharedCollisionWorld for physics parity with the server.
  */
 
-import type { CollisionWorld } from "../../../../engine/network/systems/collision/CollisionWorld";
 import { getCollisionManager } from "../../../../engine/physics/CollisionManager";
+import { SweepBackendAdapter } from "../../../../engine/physics/SweepBackendAdapter";
+import type { CollisionWorld } from "../../../../shared/collision/CollisionWorld";
 import { SharedCollisionWorld } from "../../../../shared/collision/SharedCollisionWorld";
 
 /**
@@ -31,7 +32,8 @@ export function createBSPCollisionWorld(): CollisionWorld | null {
   }
 
   console.log("[BSPCollisionWorld] Created SharedCollisionWorld with Q3 backend");
-  return new SharedCollisionWorld(backend);
+  // Adapter converts structural Vec3 <-> Babylon at the engine boundary (QA-WO8)
+  return new SharedCollisionWorld(new SweepBackendAdapter(backend));
 }
 
 // Re-export SharedCollisionWorld as BSPCollisionWorld for backward compat
