@@ -10,6 +10,7 @@ import { Vector3 } from "@babylonjs/core";
 import { EngineStore } from "@babylonjs/core/Engines/engineStore";
 import type { PointLight } from "@babylonjs/core/Lights/pointLight";
 import { CameraSystem } from "../../engine/camera";
+import { setGameFrameHook } from "../../engine/camera/GameFrameHook";
 import { log } from "../../engine/core/Log";
 import { InputSystem } from "../../engine/input/InputSystem";
 import { LocalGameHost } from "../../engine/network/client/hosts/LocalGameHost";
@@ -187,6 +188,10 @@ export class Game {
   }
 
   private constructor() {
+    // Register as the engine's per-frame game hook so camera controllers can
+    // tick the network + render remotes without importing this game (QA-WO7).
+    setGameFrameHook(this);
+
     // Register all FPS actions + contexts with InputSystem
     registerFPSActions();
 
