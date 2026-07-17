@@ -95,6 +95,13 @@ export class DemoService {
   // Demo spectator state
   private _followedEntityId: string | null = null;
   private _followedDead = false;
+  /**
+   * Demo playback's OWN viewmodel instance, bound to the spectator camera
+   * (QA-8). Never the live getInstance() — sharing one WeaponViewManager
+   * between live play and demo playback is how `demoplay stop` destroyed the
+   * live viewmodel. Created on first spectate, disposed in stopAll().
+   */
+  private _demoWvm: WeaponViewManager | null = null;
   private readonly _demoPov = new DemoPovState();
   private _demoPovPresentation: DemoPovPresentation | null = null;
   private _lastDemoWeapon: string | null = null;
@@ -379,10 +386,13 @@ export class DemoService {
     this._specWeapon = "";
     this._specAmmo = "";
 
-    const wvm = WeaponViewManager.getInstance();
-    if (wvm.isInitialized()) {
-      wvm.resetDemoPlayback();
-    }
+    this._demoWvm?.dispose();
+    this._demoWvm = null;
+    // In-game playback shared scene.activeCameras with the demo instance —
+    // let the live viewmodel (a separate instance, untouched by the demo)
+    // re-assert its own camera pair. No-op on the standalone demo page.
+    const liveWvm = WeaponViewManager.getInstance();
+    if (liveWvm.isReady) liveWvm.reassertCameras();
   }
 
   private stopForPlaybackTransition(): void {
@@ -570,8 +580,7 @@ export class DemoService {
     this._demoPov.reset();
     this._demoPovPresentation = null;
     this._lastDemoWeapon = null;
-    const wvm = WeaponViewManager.getInstance();
-    if (wvm.isInitialized()) wvm.clearDemoBob();
+    this._demoWvm?.clearDemoBob();
     this.remoteRenderer?.setHiddenEntity(entityId);
     this._attachWeaponViewToSpectatorCam();
   }
@@ -712,10 +721,10 @@ export class DemoService {
   // ── Weapon viewmodel helpers (demo spectator mode) ────────────────────────
 
   /**
-   * Attach WeaponViewManager to the spectator camera so the POV weapon renders.
-   * Cold-start demos (no prior live FPS session) have an uninitialized WVM — we
-   * initialize it against the spectator camera + scene here so the viewmodel
-   * shows even when the demo is the first thing loaded this session.
+   * Ensure the demo's OWN WeaponViewManager instance exists, bound to the
+   * spectator camera, so the POV weapon renders. This never touches the live
+   * instance (QA-8): the demo viewmodel is constructed fresh against the
+   * spectator camera and disposed wholesale when playback stops.
    */
   private _attachWeaponViewToSpectatorCam(): void {
     const cam = CameraSystem.getInstance();
@@ -724,14 +733,13 @@ export class DemoService {
     } | null;
     const spectatorCam = spectatorCtrl?.getCamera?.();
     if (!spectatorCam) return;
-    const wvm = WeaponViewManager.getInstance();
-    if (!wvm.isInitialized()) {
+    if (!this._demoWvm) {
       const scene = spectatorCam.getScene();
-      if (scene) wvm.init(scene, spectatorCam);
+      if (!scene) return;
+      this._demoWvm = new WeaponViewManager();
+      this._demoWvm.init(scene, spectatorCam);
     }
-    if (!wvm.isInitialized()) return;
-    wvm.attachToCamera(spectatorCam);
-    wvm.setVisible(!this._followedDead);
+    this._demoWvm.setVisible(!this._followedDead);
   }
 
   private _isDemoEntityDead(entityId: string): boolean {
@@ -758,8 +766,7 @@ export class DemoService {
       }
       if (event.entityId !== this._followedEntityId) continue;
       this._followedDead = dead;
-      const wvm = WeaponViewManager.getInstance();
-      if (wvm.isInitialized()) wvm.setVisible(!dead);
+      this._demoWvm?.setVisible(!dead);
     }
   }
 
@@ -822,8 +829,7 @@ export class DemoService {
           this.remoteRenderer?.markDead(event.entityId);
           if (event.entityId === this._followedEntityId) {
             this._followedDead = true;
-            const wvm = WeaponViewManager.getInstance();
-            if (wvm.isInitialized()) wvm.setVisible(false);
+            this._demoWvm?.setVisible(false);
           }
         }
         const victim = this._resolveDemoPlayerName(event.entityId, state);
@@ -1108,8 +1114,8 @@ export class DemoService {
    */
   private _updateDemoWeapon(state: GameState, discontinuous = false): void {
     if (!this._followedEntityId) return;
-    const wvm = WeaponViewManager.getInstance();
-    if (!wvm.isInitialized()) return;
+    const wvm = this._demoWvm;
+    if (!wvm) return;
     for (const event of state.events) {
       if (event.type !== "weapon_state") continue;
       if (event.entityId !== this._followedEntityId) continue;
@@ -1128,8 +1134,8 @@ export class DemoService {
   /** Trigger recoil on weapon_fire events for the followed player. */
   private _updateDemoRecoil(state: GameState): void {
     if (!this._followedEntityId) return;
-    const wvm = WeaponViewManager.getInstance();
-    if (!wvm.isInitialized()) return;
+    const wvm = this._demoWvm;
+    if (!wvm) return;
     for (const event of state.events) {
       if (event.type !== "weapon_fire") continue;
       if (event.entityId !== this._followedEntityId) continue;
@@ -1163,8 +1169,8 @@ export class DemoService {
     });
     this._demoPovPresentation = presentation;
 
-    const wvm = WeaponViewManager.getInstance();
-    if (!wvm.isInitialized()) return;
+    const wvm = this._demoWvm;
+    if (!wvm) return;
     wvm.updateDemoBob({
       deltaTime: presentation.demoDeltaSeconds,
       grounded: presentation.grounded,

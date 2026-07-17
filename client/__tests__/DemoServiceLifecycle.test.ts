@@ -16,9 +16,12 @@ const lifecycle = vi.hoisted(() => {
       return true;
     }),
   };
+  // The LIVE instance (getInstance) — demo playback owns a separate instance
+  // (seeded per generation below); stopAll only asks the live one to re-assert
+  // its cameras (QA-8).
   const weaponView = {
-    isInitialized: vi.fn(() => true),
-    resetDemoPlayback: vi.fn(),
+    isReady: true,
+    reassertCameras: vi.fn(),
   };
   return {
     cameraSystem,
@@ -36,11 +39,13 @@ vi.mock("../../../../engine/camera/CameraSystem", () => ({
   },
 }));
 
-vi.mock("../../../../engine/weapon/WeaponViewManager", () => ({
-  WeaponViewManager: {
-    getInstance: () => lifecycle.weaponView,
-  },
-}));
+vi.mock("../../../../engine/weapon/WeaponViewManager", () => {
+  // Constructible (DemoService may `new` its own demo instance) with the
+  // static live-instance accessor — as a function to satisfy noStaticOnlyClass.
+  function WeaponViewManager(): void {}
+  WeaponViewManager.getInstance = () => lifecycle.weaponView;
+  return { WeaponViewManager };
+});
 
 import { DemoService } from "../DemoService";
 
@@ -70,6 +75,7 @@ function seedPlayback(
   damage: DisposableSpy;
   drops: DisposableSpy;
   glow: { dispose: ReturnType<typeof vi.fn> };
+  demoWvm: { dispose: ReturnType<typeof vi.fn> };
 } {
   const viewer = { ...disposable(), pause: vi.fn() };
   const cinematic = disposable();
@@ -87,8 +93,10 @@ function seedPlayback(
   const damage = disposable();
   const drops = disposable();
   const glow = { dispose: vi.fn() };
+  const demoWvm = { dispose: vi.fn(), clearDemoBob: vi.fn(), setVisible: vi.fn() };
 
   Object.assign(service as unknown as Record<string, unknown>, {
+    _demoWvm: demoWvm,
     activeDemoViewer: viewer,
     activeCinematicPlayer: cinematic,
     remoteRenderer: renderer,
@@ -123,7 +131,7 @@ function seedPlayback(
   internals._enemyWeapons.set(`player_${generation}`, "rocket");
   lifecycle.setActiveController("spectator");
 
-  return { viewer, cinematic, renderer, hud, cinematicHud, eventOverlay, gibs, damage, drops, glow };
+  return { viewer, cinematic, renderer, hud, cinematicHud, eventOverlay, gibs, damage, drops, glow, demoWvm };
 }
 
 describe("DemoService playback lifecycle", () => {
@@ -170,7 +178,12 @@ describe("DemoService playback lifecycle", () => {
     expect(lifecycle.spectator.clearSpectateTarget).toHaveBeenCalledTimes(2);
     expect(lifecycle.spectator.clearTargetProvider).toHaveBeenCalledTimes(2);
     expect(lifecycle.cameraSystem.setController).toHaveBeenCalledTimes(2);
-    expect(lifecycle.weaponView.resetDemoPlayback).toHaveBeenCalledTimes(2);
+    // Each generation's OWN demo viewmodel instance is disposed and released;
+    // the live instance is only asked to re-assert its cameras (QA-8).
+    expect(normal.demoWvm.dispose).toHaveBeenCalledOnce();
+    expect(cinematic.demoWvm.dispose).toHaveBeenCalledOnce();
+    expect((service as unknown as { _demoWvm: unknown })._demoWvm).toBeNull();
+    expect(lifecycle.weaponView.reassertCameras).toHaveBeenCalledTimes(2);
   });
 
   it("removes the global HUD key listener and clears playback identity", () => {
