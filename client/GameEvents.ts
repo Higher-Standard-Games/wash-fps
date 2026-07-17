@@ -11,8 +11,6 @@
  */
 
 import { Color3, Vector3 } from "@babylonjs/core";
-import { toClientKey } from "../ClientEntityKey";
-import { assertUnroutedEvent, type SnapshotEvent } from "../../../engine/network/core/SnapshotEvent";
 import { PointLight } from "@babylonjs/core/Lights/pointLight";
 import { CameraSystem } from "../../../engine/camera";
 import { NetGraph } from "../../../engine/network/client/NetGraph";
@@ -21,6 +19,7 @@ import type { TransformComponent } from "../../../engine/network/components/Tran
 import type { VelocityComponent } from "../../../engine/network/components/VelocityComponent";
 import type { GameState } from "../../../engine/network/core/GameState";
 import type { IGameHost } from "../../../engine/network/core/IGameHost";
+import { assertUnroutedEvent, type SnapshotEvent } from "../../../engine/network/core/SnapshotEvent";
 import {
   BLADE_EXPLOSION,
   GRENADE_EXPLOSION,
@@ -31,6 +30,8 @@ import {
 import { getHitscanEffects } from "../../../engine/weapon/HitscanEffects";
 import { getProjectileManager } from "../../../engine/weapon/ProjectileManager";
 import { getWeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
+import { WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
+import { toClientKey } from "../ClientEntityKey";
 import type { ServerSnapshot, V2NetworkClient } from "../client";
 import type { DroppedWeaponInfo, DroppedWeaponRenderer } from "../client/DroppedWeaponRenderer";
 import { HUDState } from "../client/HUDState";
@@ -38,7 +39,6 @@ import { MatchStateManager } from "../client/MatchStateManager";
 import type { RemotePlayerRenderer } from "../client/RemotePlayerRenderer";
 import { FPSPlayer } from "../FPSPlayer";
 import type { PlayerStateUpdate } from "../Game";
-import { WEAPONS } from "../server/weapons/WeaponDef";
 import { FPSPickup } from "../world/FPSPickup";
 import type { ServerAmmoState } from "../world/InventoryManager";
 

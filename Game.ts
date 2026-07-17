@@ -27,6 +27,7 @@ import { getCollisionManager } from "../../engine/physics/CollisionManager";
 import { PlayerProfile } from "../../engine/player/PlayerProfile";
 import { getProjectileManager } from "../../engine/weapon/ProjectileManager";
 import { getWeaponViewManager } from "../../engine/weapon/WeaponViewManager";
+import { WEAPONS } from "../../shared/entities/definitions/weapons/WeaponsTable";
 import { ensureClientKey } from "./ClientEntityKey";
 import { V2NetworkClient } from "./client";
 import { getAmmoStatus } from "./client/AmmoStatus";
@@ -40,7 +41,6 @@ import { type GameEventContext, handleServerStateUpdate } from "./client/GameEve
 import { HUDState } from "./client/HUDState";
 import { MatchPhase, MatchStateManager } from "./client/MatchStateManager";
 import { RemotePlayerRenderer } from "./client/RemotePlayerRenderer";
-import { WEAPONS } from "./server/weapons/WeaponDef";
 import { createBSPCollisionWorld } from "./simulation/collision/BSPCollisionWorld";
 import { type FPSInputCommand, FPSSimulation } from "./simulation/FPSSimulation";
 

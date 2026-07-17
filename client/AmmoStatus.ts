@@ -8,8 +8,8 @@
  * widget read through here so the two signals never drift apart.
  */
 
+import { WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
 import type { HUDWeaponAmmo } from "./HUDState";
-import { WEAPONS } from "../server/weapons/WeaponDef";
 
 export interface AmmoStatus {
   /** Weapon cannot fire — no clip and no reserve. Drives the red-X crosshair + banner. */

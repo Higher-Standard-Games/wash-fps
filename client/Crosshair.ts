@@ -10,7 +10,7 @@
  */
 
 import { Cvar } from "../../../engine/core/Cvar";
-import type { CrosshairConfig } from "../server/weapons/WeaponDef";
+import type { CrosshairConfig } from "../../../shared/entities/WeaponDef";
 
 // ============================================================================
 // Default Crosshair Config (fallback when weapon has no crosshair field)
@@ -233,14 +233,7 @@ export class Crosshair {
   private static readonly OUTLINE = "rgba(0, 0, 0, 0.85)";
 
   /** Fill a rect with a 1px dark border underneath (crisp contrast halo). */
-  private outlinedRect(
-    ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    color: string,
-  ): void {
+  private outlinedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, color: string): void {
     ctx.fillStyle = Crosshair.OUTLINE;
     ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
     ctx.fillStyle = color;

@@ -12,7 +12,6 @@
  */
 
 import { Color3 } from "@babylonjs/core/Maths/math.color";
-import { isClientKey } from "../ClientEntityKey";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
@@ -27,7 +26,8 @@ import {
   SnapshotBuffer,
 } from "../../../engine/network/client/SnapshotBuffer";
 import type { GameState } from "../../../engine/network/core/GameState";
-import { WEAPONS } from "../server/weapons/WeaponDef";
+import { WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
+import { isClientKey } from "../ClientEntityKey";
 import { DemoAnimationTimeline } from "./DemoAnimationTimeline";
 import { DemoEntityTimeline } from "./DemoEntityTimeline";
 import {

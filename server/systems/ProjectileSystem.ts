@@ -11,8 +11,8 @@ import type { WorldState } from "@engine/server/core/WorldState";
 import type { EntityId, TickNumber } from "@engine/server/ecs/types";
 import { EntityType } from "@engine/server/ecs/types";
 import type { CollisionWorld } from "../../../../engine/network/systems/collision/CollisionWorld";
+import { WEAPONS } from "../../../../shared/entities/definitions/weapons/WeaponsTable";
 import { DEFAULT_PROJECTILE_BOUNCE_FACTOR } from "../../../../shared/entities/ProjectileDef";
-import { WEAPONS } from "../weapons/WeaponDef";
 import { type DamageEvent, DamageType, HitLocation } from "./CombatSystem";
 
 /**

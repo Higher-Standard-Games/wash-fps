@@ -16,9 +16,10 @@ import type { CollisionWorld } from "../../../../engine/network/systems/collisio
 import { DEFAULT_VIEWHEIGHT } from "../../../../engine/physics/PlayerPhysicsConstants";
 import { rngFrom } from "../../../../shared/DeterministicRng";
 import { GRENADE } from "../../../../shared/entities/definitions/projectiles/grenade";
+import { WEAPONS } from "../../../../shared/entities/definitions/weapons/WeaponsTable";
 import type { ProjectileDef } from "../../../../shared/entities/ProjectileDef";
+import type { WeaponDef } from "../../../../shared/entities/WeaponDef";
 import { computeSpreadSeed, generateSpreadDirections } from "../../../../shared/SpreadUtils";
-import { WEAPONS, type WeaponDef } from "../weapons/WeaponDef";
 import { type DamageEvent, DamageType, HitLocation } from "./CombatSystem";
 import type { DroppedWeaponSystem } from "./DroppedWeaponSystem";
 import type { ProjectileSystem } from "./ProjectileSystem";
@@ -346,7 +347,6 @@ export class WeaponSystem extends Subsystem {
     ammo.clip += moved;
     ammo.reserve -= moved;
   }
-
 
   /** Add ammo to owned weapons that use the given ammo type. Returns true if any ammo increased. */
   addAmmoByType(entityId: EntityId, ammoType: string, amount: number): boolean {
