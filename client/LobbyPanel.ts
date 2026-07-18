@@ -432,16 +432,17 @@ export class LobbyPanel extends GamePanel {
         }),
       );
 
-      // Match ended — server exited, return to lobby
+      // Match ended — the game server exited. In the single-match flow the
+      // lobby IS the rematch screen: LobbyServer.handleServerExit resets it to
+      // "waiting" and keeps everyone in it (docs/research/single_game_server_lobby.md).
+      // So STAY in the match lobby view. Kicking to the gametype cards here
+      // raced the ?lobby= deep-link return — a player who reloaded back into the
+      // lobby got bounced to the cards 1-2s later when the old server's exit
+      // broadcast arrived. (Manual "leave" still returns to the cards.)
       this.unsubscribers.push(
         this.lobbyClient.on("match:ended", (msg) => {
-          console.log(`[LobbyPanel] Match ended (${msg.matchId})`);
-          this.appendChatMessage("", "⚔ Match ended — returning to lobby", true);
-          this.currentLobbyId = null;
-          // Return to gametype cards if in match lobby view
-          if (this.matchLobbyView) {
-            this.showGametypeCards();
-          }
+          console.log(`[LobbyPanel] Match ended (${msg.matchId}) — staying in rematch lobby`);
+          this.appendChatMessage("", "⚔ Match ended — ready up to rematch", true);
         }),
       );
 
