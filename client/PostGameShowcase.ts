@@ -117,6 +117,11 @@ export async function startPostGameShowcase(
   }
   currentModel = model;
 
+  // Self-lit hero styling: the camera-relative spawn can land in a dark part of
+  // the map, where a scene-lit model renders as a black silhouette. Force
+  // fullbright emissive (team tint kept) so the winner always reads.
+  renderer.applyShowcaseVisualStyle(model, winnerEntityId);
+
   // Anti-culling: the model is a SKINNED mesh playing an animation — Babylon
   // frustum-culls by the static bind-pose bounds, which can hide the whole
   // model depending on camera angle (the known "stale bounds culling" class;
