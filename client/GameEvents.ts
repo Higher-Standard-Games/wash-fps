@@ -207,6 +207,14 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
           break;
         }
 
+        case "electro_rail":
+          // Authoritative Electrobolt rail truth (endpoint/normal/kind). The
+          // procedural rail renderer consumes this in WO-EB3; wired here so the
+          // exhaustive dispatch stays complete and the wire can be tested on its
+          // own. No-op for now — the current fireBolt rail still renders via the
+          // weapon_fire path, so there is no double-draw.
+          break;
+
         case "weapon_charge":
           if (event.entityId === localEntityId) {
             ctx._localCharging = event.charging;

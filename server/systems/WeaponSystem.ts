@@ -102,6 +102,9 @@ export interface VoltaicBeamEvent {
   impactKind: 0 | 1 | 2;
 }
 
+/** Authoritative rail truth for the Electrobolt presentation — identical shape to {@link VoltaicBeamEvent}. */
+export type ElectroRailEvent = VoltaicBeamEvent;
+
 interface HitscanHitResult {
   id: EntityId;
   position: { x: number; y: number; z: number };
@@ -170,6 +173,7 @@ export class WeaponSystem extends Subsystem {
   private pendingChargeEvents: WeaponChargeEvent[] = [];
   private pendingChainEvents: WeaponChainEvent[] = [];
   private pendingVoltaicBeamEvents: VoltaicBeamEvent[] = [];
+  private pendingElectroRailEvents: ElectroRailEvent[] = [];
   private projectileSystem: ProjectileSystem | null = null;
   private droppedWeaponSystem: DroppedWeaponSystem | null = null;
   private collisionWorld: CollisionWorld | null = null;
@@ -232,6 +236,12 @@ export class WeaponSystem extends Subsystem {
   getPendingVoltaicBeamEvents(): VoltaicBeamEvent[] {
     const events = this.pendingVoltaicBeamEvents;
     this.pendingVoltaicBeamEvents = [];
+    return events;
+  }
+
+  getPendingElectroRailEvents(): ElectroRailEvent[] {
+    const events = this.pendingElectroRailEvents;
+    this.pendingElectroRailEvents = [];
     return events;
   }
 
@@ -1152,6 +1162,9 @@ export class WeaponSystem extends Subsystem {
     // Continuous beam compatibility IDs have already normalized to Voltaic.
     if (weapon.hitscanType === "beam") {
       this.emitVoltaicBeamEvent(shooter.id, start, dir, maxRange, primaryHit);
+    } else if (weapon.hitscanType === "bolt") {
+      // Instant rail truth (Electrobolt). Presentation-only, like the Voltaic beam.
+      this.emitElectroRailEvent(shooter.id, start, dir, maxRange, primaryHit);
     }
 
     // Accuracy telemetry (WO-AC1): single-ray hitscan only — one trigger pull = one
@@ -1182,13 +1195,19 @@ export class WeaponSystem extends Subsystem {
     }
   }
 
-  private emitVoltaicBeamEvent(
+  /**
+   * Resolve the authoritative endpoint/normal/kind of a hitscan ray for
+   * presentation events (Voltaic beam, Electrobolt rail): a player hit wins,
+   * else the world impact, else a max-range miss. Presentation-only — never
+   * feeds back into the deterministic simulation.
+   */
+  private buildHitscanTruthEvent(
     shooterId: EntityId,
     start: { x: number; y: number; z: number },
     dir: { x: number; y: number; z: number },
     maxRange: number,
     primaryHit: HitscanHitResult | null,
-  ): void {
+  ): VoltaicBeamEvent {
     const worldHit = primaryHit ? null : this.traceWorldImpactDetails(start, dir, maxRange);
     const endpoint = primaryHit?.impactPoint ??
       worldHit?.point ?? {
@@ -1198,7 +1217,7 @@ export class WeaponSystem extends Subsystem {
       };
     const normal = primaryHit?.impactNormal ?? worldHit?.normal ?? { x: -dir.x, y: -dir.y, z: -dir.z };
 
-    this.pendingVoltaicBeamEvents.push({
+    return {
       entityId: shooterId,
       originX: start.x,
       originY: start.y,
@@ -1213,7 +1232,27 @@ export class WeaponSystem extends Subsystem {
       normalY: normal.y,
       normalZ: normal.z,
       impactKind: primaryHit ? 2 : worldHit ? 1 : 0,
-    });
+    };
+  }
+
+  private emitVoltaicBeamEvent(
+    shooterId: EntityId,
+    start: { x: number; y: number; z: number },
+    dir: { x: number; y: number; z: number },
+    maxRange: number,
+    primaryHit: HitscanHitResult | null,
+  ): void {
+    this.pendingVoltaicBeamEvents.push(this.buildHitscanTruthEvent(shooterId, start, dir, maxRange, primaryHit));
+  }
+
+  private emitElectroRailEvent(
+    shooterId: EntityId,
+    start: { x: number; y: number; z: number },
+    dir: { x: number; y: number; z: number },
+    maxRange: number,
+    primaryHit: HitscanHitResult | null,
+  ): void {
+    this.pendingElectroRailEvents.push(this.buildHitscanTruthEvent(shooterId, start, dir, maxRange, primaryHit));
   }
 
   private traceWorldImpactDetails(

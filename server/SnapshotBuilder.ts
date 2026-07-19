@@ -405,6 +405,27 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
     });
   }
 
+  // Exact Electrobolt rail endpoint (WO-EB2). Rail presentation stays client-side.
+  for (const railEvent of ctx.weaponSystem.getPendingElectroRailEvents()) {
+    gameState.events.push({
+      type: "electro_rail",
+      entityId: toClientKey(railEvent.entityId),
+      originX: railEvent.originX,
+      originY: railEvent.originY,
+      originZ: railEvent.originZ,
+      dirX: railEvent.dirX,
+      dirY: railEvent.dirY,
+      dirZ: railEvent.dirZ,
+      endX: railEvent.endX,
+      endY: railEvent.endY,
+      endZ: railEvent.endZ,
+      normalX: railEvent.normalX,
+      normalY: railEvent.normalY,
+      normalZ: railEvent.normalZ,
+      impactKind: railEvent.impactKind,
+    });
+  }
+
   // Add chain-lightning arc events (so all clients draw the arcs between targets)
   for (const chainEvent of ctx.weaponSystem.getPendingChainEvents()) {
     gameState.events.push({
