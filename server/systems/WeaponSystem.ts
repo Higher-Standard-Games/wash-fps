@@ -1341,7 +1341,29 @@ export class WeaponSystem extends Subsystem {
     dir: { x: number; y: number; z: number },
     maxRange: number,
   ): HitscanHitResult | null {
-    // Check all potential targets
+    // World occlusion: a hitscan ray stops at the first solid surface, so find
+    // where it meets the BSP world. Any target beyond that distance is standing
+    // behind a wall/floor and must NOT be hit (the "bots shoot through the floor"
+    // bug — the sphere test alone had no notion of world geometry). With no
+    // collision world wired in (unit tests, headless), this stays +Infinity and
+    // the trace behaves exactly as before.
+    const worldBlock = this.traceWorldImpactDetails(start, dir, maxRange);
+    const worldBlockDist = worldBlock
+      ? Math.hypot(worldBlock.point.x - start.x, worldBlock.point.y - start.y, worldBlock.point.z - start.z)
+      : Number.POSITIVE_INFINITY;
+
+    // The ray stops at whichever target it enters FIRST, so a body between the
+    // shooter and a farther enemy shields that enemy. Track the nearest valid
+    // (non-occluded) hit rather than the first one in iteration order.
+    let best: {
+      entryDistance: number;
+      id: EntityId;
+      position: { x: number; y: number; z: number };
+      hitLocation: HitLocation;
+      impactPoint: { x: number; y: number; z: number };
+      impactNormal: { x: number; y: number; z: number };
+    } | null = null;
+
     for (const target of state.entitiesByType(EntityType.Player)) {
       if (target.id === shooter.id) continue;
       if (!target.transform || !target.health || target.health.dead) continue;
@@ -1370,50 +1392,60 @@ export class WeaponSystem extends Subsystem {
         (closestPoint.z - target.transform.position.z) ** 2;
 
       const hitRadius = 32; // Player capsule radius
-      if (distSq < hitRadius ** 2) {
-        const entryDistance = Math.max(0, dot - Math.sqrt(Math.max(0, hitRadius ** 2 - distSq)));
-        const impactPoint = {
-          x: start.x + dir.x * entryDistance,
-          y: start.y + dir.y * entryDistance,
-          z: start.z + dir.z * entryDistance,
-        };
-        const normalX = impactPoint.x - target.transform.position.x;
-        const normalY = impactPoint.y - target.transform.position.y;
-        const normalZ = impactPoint.z - target.transform.position.z;
-        const normalLength = Math.sqrt(normalX * normalX + normalY * normalY + normalZ * normalZ) || 1;
-        // Hit! Determine location based on Y offset
-        const yOffset = closestPoint.y - target.transform.position.y;
-        let hitLocation = HitLocation.Body;
-        if (yOffset > 32) hitLocation = HitLocation.Head;
-        else if (yOffset < -20) hitLocation = HitLocation.Legs;
+      if (distSq >= hitRadius ** 2) continue;
 
-        this.pendingDamage.push({
-          victimId: target.id,
-          attackerId: shooter.id,
-          damage: weapon.damage,
-          armorPiercing: 0,
-          damageType: this.weaponToDamageType(weapon.id),
-          hitLocation,
-          knockbackDir: { x: dir.x, y: dir.y, z: dir.z },
-          knockbackScale: weapon.knockbackScale,
-        });
+      const entryDistance = Math.max(0, dot - Math.sqrt(Math.max(0, hitRadius ** 2 - distSq)));
+      // Occluded: the ray hit world geometry before reaching this target.
+      if (entryDistance > worldBlockDist) continue;
+      // A nearer target already absorbs the ray.
+      if (best && entryDistance >= best.entryDistance) continue;
 
-        // Single-ray weapons stop on first hit; pellet rays always stop
-        // (each pellet is its own ray call). Return the hit for chain follow-up.
-        return {
-          id: target.id,
-          position: { ...target.transform.position },
-          hitLocation,
-          impactPoint,
-          impactNormal: {
-            x: normalX / normalLength,
-            y: normalY / normalLength,
-            z: normalZ / normalLength,
-          },
-        };
-      }
+      const impactPoint = {
+        x: start.x + dir.x * entryDistance,
+        y: start.y + dir.y * entryDistance,
+        z: start.z + dir.z * entryDistance,
+      };
+      const normalX = impactPoint.x - target.transform.position.x;
+      const normalY = impactPoint.y - target.transform.position.y;
+      const normalZ = impactPoint.z - target.transform.position.z;
+      const normalLength = Math.sqrt(normalX * normalX + normalY * normalY + normalZ * normalZ) || 1;
+      // Hit! Determine location based on Y offset
+      const yOffset = closestPoint.y - target.transform.position.y;
+      let hitLocation = HitLocation.Body;
+      if (yOffset > 32) hitLocation = HitLocation.Head;
+      else if (yOffset < -20) hitLocation = HitLocation.Legs;
+
+      best = {
+        entryDistance,
+        id: target.id,
+        position: { ...target.transform.position },
+        hitLocation,
+        impactPoint,
+        impactNormal: { x: normalX / normalLength, y: normalY / normalLength, z: normalZ / normalLength },
+      };
     }
-    return null;
+
+    if (!best) return null;
+
+    this.pendingDamage.push({
+      victimId: best.id,
+      attackerId: shooter.id,
+      damage: weapon.damage,
+      armorPiercing: 0,
+      damageType: this.weaponToDamageType(weapon.id),
+      hitLocation: best.hitLocation,
+      knockbackDir: { x: dir.x, y: dir.y, z: dir.z },
+      knockbackScale: weapon.knockbackScale,
+    });
+
+    // Return the hit for chain follow-up.
+    return {
+      id: best.id,
+      position: best.position,
+      hitLocation: best.hitLocation,
+      impactPoint: best.impactPoint,
+      impactNormal: best.impactNormal,
+    };
   }
 
   /**
