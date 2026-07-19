@@ -64,6 +64,14 @@ const CONFIG: SubsystemConfig = {
 /** Despawn time in seconds */
 const DESPAWN_TIME = 15;
 
+/**
+ * Simulation base tick rate (Hz). Subsystems run every base tick (`CONFIG.tickRate`
+ * is 0, QA-24), so time-derived values must use the base rate, NOT the per-subsystem
+ * rate — otherwise `1 / CONFIG.tickRate` is Infinity and `DESPAWN_TIME * CONFIG.tickRate`
+ * is 0 (weapons get NaN physics and despawn the same tick they drop).
+ */
+const BASE_TICK_RATE = 125;
+
 /** Server gravity for ballistic arc (units/s²) — matches game gravity */
 const DROP_GRAVITY = 800;
 
@@ -104,8 +112,8 @@ export class DroppedWeaponSystem extends Subsystem {
 
   constructor() {
     super(CONFIG);
-    this.despawnTicks = DESPAWN_TIME * CONFIG.tickRate;
-    this.dt = 1 / CONFIG.tickRate;
+    this.despawnTicks = DESPAWN_TIME * BASE_TICK_RATE;
+    this.dt = 1 / BASE_TICK_RATE;
   }
 
   /**
