@@ -12,6 +12,7 @@
  * replace this with the diorama/vista composition later.
  */
 
+import type { Camera } from "@babylonjs/core/Cameras/camera";
 import type { PlayerModelInstance } from "../../../engine/animation/PlayerModelManager";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
@@ -19,13 +20,13 @@ import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
 /** Distance in front of the camera to place the model (world/Quake units).
  *  200u frames the full body with headroom (150 filled the screen edge-to-edge). */
 const SHOWCASE_DISTANCE = 200;
-/** Camera eye sits ~this far above the entity origin the model spawner
- *  expects. Empirically tuned: 28 (nominal standing view height) sank the
- *  model knee-deep into the floor. */
-const EYE_TO_ORIGIN = 14;
-/** Yaw offset from camera forward (radians) — stand the model in the LEFT
- *  third of the view; the post-game board occupies the right side. */
-const SHOWCASE_ANGLE = -0.55; // ~31° left
+/** Fixed screen anchor for the model's origin (feet), as a fraction of the
+ *  render viewport — so the winner always lands in the SAME on-screen spot
+ *  regardless of window size, aspect, or where the camera happened to face at
+ *  match end (#5). X from the left, Y from the top. The post-game board sits on
+ *  the right, so the model anchors into the padded upper-left. Tune to taste. */
+const SHOWCASE_SCREEN_X = 0.22;
+const SHOWCASE_SCREEN_Y = 0.72;
 /** Never place the model closer than this (nose-to-wall endings). */
 const SHOWCASE_MIN_DISTANCE = 60;
 /** Keep the model this far in front of a blocking wall. */
@@ -53,51 +54,52 @@ export async function startPostGameShowcase(
 
   const cam = CameraSystem.getInstance().getCamera() as {
     position?: { x: number; y: number; z: number };
-    rotation?: { y?: number };
+    getScene?: () => import("@babylonjs/core/scene").Scene;
   } | null;
   if (!cam?.position) {
     console.log("[PostGameShowcase] skipped — no camera");
     return;
   }
-
-  // Stand the model left-forward of the camera (the board sits on the right).
-  const camYaw = cam.rotation?.y ?? 0;
-  const placeYaw = camYaw + SHOWCASE_ANGLE;
-
-  // Wall clamp: the player can end the match nose-to-wall, which would put the
-  // camera-relative spot inside/behind geometry ("model missing"). Raycast
-  // toward the spot and pull the model in front of whatever it hits.
-  let distance = SHOWCASE_DISTANCE;
-  try {
-    const [{ Ray }, { Vector3 }] = await Promise.all([
-      import("@babylonjs/core/Culling/ray"),
-      import("@babylonjs/core/Maths/math.vector"),
-    ]);
-    const scene = (cam as { getScene?: () => import("@babylonjs/core/scene").Scene }).getScene?.();
-    if (scene) {
-      const origin = new Vector3(cam.position.x, cam.position.y, cam.position.z);
-      const dir = new Vector3(Math.sin(placeYaw), 0, Math.cos(placeYaw));
-      const hit = scene.pickWithRay(new Ray(origin, dir, SHOWCASE_DISTANCE), (mesh) => {
-        if (mesh.isPickable === false) return false;
-        const metadata = mesh.metadata as { mapOwned?: boolean } | null;
-        return (
-          metadata?.mapOwned === true || mesh.name.startsWith("bsp_") || mesh.name === "brush" || mesh.name === "patch"
-        );
-      });
-      if (hit?.hit && hit.pickedPoint) {
-        const hitDistance = Vector3.Distance(origin, hit.pickedPoint);
-        distance = Math.min(distance, Math.max(SHOWCASE_MIN_DISTANCE, hitDistance - SHOWCASE_WALL_PADDING));
-        console.log(`[PostGameShowcase] wall at ${hitDistance.toFixed(0)} — clamped to ${distance.toFixed(0)}`);
-      }
-    }
-  } catch {
-    /* raycast unavailable — keep the nominal distance */
+  const scene = cam.getScene?.();
+  if (!scene) {
+    console.log("[PostGameShowcase] skipped — no scene");
+    return;
   }
 
-  // Babylon left-handed: forward = (sin(yaw), 0, cos(yaw)).
-  const x = cam.position.x + Math.sin(placeYaw) * distance;
-  const z = cam.position.z + Math.cos(placeYaw) * distance;
-  const y = cam.position.y - EYE_TO_ORIGIN;
+  const [{ Ray }, { Vector3, Matrix }] = await Promise.all([
+    import("@babylonjs/core/Culling/ray"),
+    import("@babylonjs/core/Maths/math.vector"),
+  ]);
+
+  // Place the model along a picking ray through a FIXED screen anchor, so it
+  // always lands in the same on-screen spot regardless of window size/FOV or
+  // where the camera faced at match end (#5) — not a camera-relative yaw offset.
+  const engine = scene.getEngine();
+  const anchorX = engine.getRenderWidth() * SHOWCASE_SCREEN_X;
+  const anchorY = engine.getRenderHeight() * SHOWCASE_SCREEN_Y;
+  const dir = scene.createPickingRay(anchorX, anchorY, Matrix.Identity(), cam as unknown as Camera).direction;
+  const origin = new Vector3(cam.position.x, cam.position.y, cam.position.z);
+
+  // Wall clamp: the player can end the match nose-to-wall, which would put the
+  // spot inside/behind geometry ("model missing"). Raycast along the placement
+  // ray and pull the model in front of whatever it hits.
+  let distance = SHOWCASE_DISTANCE;
+  const hit = scene.pickWithRay(new Ray(origin, dir, SHOWCASE_DISTANCE), (mesh) => {
+    if (mesh.isPickable === false) return false;
+    const metadata = mesh.metadata as { mapOwned?: boolean } | null;
+    return (
+      metadata?.mapOwned === true || mesh.name.startsWith("bsp_") || mesh.name === "brush" || mesh.name === "patch"
+    );
+  });
+  if (hit?.hit && hit.pickedPoint) {
+    const hitDistance = Vector3.Distance(origin, hit.pickedPoint);
+    distance = Math.min(distance, Math.max(SHOWCASE_MIN_DISTANCE, hitDistance - SHOWCASE_WALL_PADDING));
+    console.log(`[PostGameShowcase] wall at ${hitDistance.toFixed(0)} — clamped to ${distance.toFixed(0)}`);
+  }
+
+  const x = cam.position.x + dir.x * distance;
+  const y = cam.position.y + dir.y * distance;
+  const z = cam.position.z + dir.z * distance;
   // Face the camera exactly (yaw from model position back to the camera).
   const facingCameraYaw = Math.atan2(cam.position.x - x, cam.position.z - z);
 
