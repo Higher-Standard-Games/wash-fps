@@ -876,12 +876,21 @@ export class LobbyPanel extends GamePanel {
         const viewBtn = document.createElement("button");
         viewBtn.className = "lobby__watch-btn lobby__watch-btn--demo";
         viewBtn.textContent = "VIEW DEMO";
-        viewBtn.addEventListener("click", () => {
-          // Phase 1: download demo file
-          const link = document.createElement("a");
-          link.href = `/data/demos/${d.filename}`;
-          link.download = d.filename;
-          link.click();
+        viewBtn.addEventListener("click", async () => {
+          // Play the demo in-engine (same path as the demo-card ▶ PLAY button),
+          // not a raw file download (#6).
+          viewBtn.disabled = true;
+          viewBtn.textContent = "LOADING…";
+          try {
+            const service = DemoService.getInstance();
+            await service.fetchAndLoad(d.filename);
+            await service.loadAndPlayNormal(new DemoViewer());
+            this.hide();
+          } catch (err) {
+            console.error("[LobbyPanel] Failed to play demo:", err);
+            viewBtn.disabled = false;
+            viewBtn.textContent = "VIEW DEMO";
+          }
         });
         footer.appendChild(viewBtn);
 
