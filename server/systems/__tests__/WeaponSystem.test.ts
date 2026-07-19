@@ -18,9 +18,9 @@
 
 import { EntityType } from "@engine/server/ecs/types";
 import { describe, expect, it, vi } from "vitest";
+import { DEFAULT_VIEWHEIGHT } from "../../../../../engine/physics/PlayerPhysicsConstants";
 import { GRENADE } from "../../../../../shared/entities/definitions/projectiles/grenade";
 import { GRENADE_LAUNCHER } from "../../../../../shared/entities/definitions/weapons/glauncher";
-import { DEFAULT_VIEWHEIGHT } from "../../../../../engine/physics/PlayerPhysicsConstants";
 import { fireIntervalTicks, WeaponSystem } from "../WeaponSystem";
 
 const FIRE_BUTTON = 1 << 8; // must match InputComponent.FIRE
@@ -350,7 +350,7 @@ describe("WeaponSystem — F4 instagun insta-jump (hitscan splash-knockback)", (
   });
 });
 
-describe("WeaponSystem — F5 voltaic chain lightning", () => {
+describe("WeaponSystem — F5 continuous beam truth and voltaic chain lightning", () => {
   /** Plain living target at an absolute position (no input → never fires). */
   function targetAt(id: number, x: number, y: number, z: number) {
     return {
@@ -361,6 +361,36 @@ describe("WeaponSystem — F5 voltaic chain lightning", () => {
   }
 
   const voltaicLoadout = { weapons: ["voltaic"], ammo: { voltaic: 150 }, health: 100, armor: 0 };
+  const lasergunLoadout = { weapons: ["lasergun"], ammo: { lasergun: 150 }, health: 100, armor: 0 };
+
+  it("normalizes legacy Lasergun loadouts to the one canonical Voltaic state", () => {
+    const sys = new WeaponSystem();
+    sys.initializeWeaponFromLoadout(1 as never, lasergunLoadout as never);
+
+    const weaponState = sys.getWeaponState(1 as never)!;
+    expect(weaponState.currentWeapon).toBe("voltaic");
+    expect(weaponState.weapons).toEqual(["voltaic"]);
+    expect(weaponState.ammo.has("lasergun")).toBe(false);
+    expect(sys.getAmmo(1 as never, "lasergun")).toBe(150);
+  });
+
+  it("replicates Voltaic beam truth after normalizing a legacy Lasergun loadout", () => {
+    const sys = new WeaponSystem();
+    sys.initializeWeaponFromLoadout(1 as never, lasergunLoadout as never);
+
+    const shooter = makeShooter(0, 0);
+    shooter.input.buttons = 1 << 9; // Establish ADS before pressing fire.
+    const target = targetAt(2, 0, DEFAULT_VIEWHEIGHT, 500);
+
+    sys.update(makeState([shooter, target]) as never, 1 / 125, 80 as never);
+    shooter.input.buttons |= FIRE_BUTTON;
+    sys.update(makeState([shooter, target]) as never, 1 / 125, 100 as never);
+
+    const [beam] = sys.getPendingVoltaicBeamEvents();
+    expect(beam).toBeDefined();
+    expect(beam.impactKind).toBe(2);
+    expect(beam.endZ).toBeCloseTo(468);
+  });
 
   it("arcs from the primary hit to nearby enemies with per-hop falloff", () => {
     const sys = new WeaponSystem();
@@ -382,6 +412,41 @@ describe("WeaponSystem — F5 voltaic chain lightning", () => {
     expect(byVictim.get(3)).toBe(4);
     expect(byVictim.get(4)).toBe(2);
     expect(dmg).toHaveLength(3); // primary + 2 chained (chainCount 2), no double-hits
+
+    const [beam] = sys.getPendingVoltaicBeamEvents();
+    expect(beam.impactKind).toBe(2);
+    expect(beam.endX).toBeCloseTo(0);
+    expect(beam.endY).toBeCloseTo(DEFAULT_VIEWHEIGHT);
+    expect(beam.endZ).toBeCloseTo(468);
+    expect(beam.normalZ).toBeCloseTo(-1);
+  });
+
+  it("replicates the authoritative BSP endpoint and normal on a world hit", () => {
+    const sys = new WeaponSystem();
+    sys.initializeWeaponFromLoadout(1 as never, voltaicLoadout as never);
+    sys.setCollisionWorld({
+      trace: () => ({
+        hit: true,
+        fraction: 0.5,
+        hitPoint: { x: 0, y: DEFAULT_VIEWHEIGHT, z: 425 },
+        normal: { x: 0, y: 0, z: -1 },
+      }),
+    } as never);
+    const shooter = makeShooter(0, 0);
+    shooter.input.buttons |= 1 << 9;
+
+    sys.update(makeState([shooter]) as never, 1 / 125, 100 as never);
+
+    const [beam] = sys.getPendingVoltaicBeamEvents();
+    expect(beam).toMatchObject({
+      impactKind: 1,
+      endX: 0,
+      endY: DEFAULT_VIEWHEIGHT,
+      endZ: 425,
+      normalX: 0,
+      normalY: 0,
+      normalZ: -1,
+    });
   });
 
   it("does not chain past chainRadius", () => {
@@ -405,8 +470,8 @@ describe("WeaponSystem — voltaic hipfire beam wander (ADS downside)", () => {
   const ALT_FIRE = 1 << 9;
   const voltaicLoadout = { weapons: ["voltaic"], ammo: { voltaic: 150 }, health: 100, armor: 0 };
 
-  /** Fire voltaic for 600 ticks at a small target 800u out; return the hit count. */
-  function countHits(ads: boolean): number {
+  /** Fire voltaic for 600 ticks at a small target 800u out. */
+  function sampleAccuracy(ads: boolean): { hits: number; shots: number } {
     const sys = new WeaponSystem();
     sys.initializeWeaponFromLoadout(1 as never, voltaicLoadout as never);
     const shooter = {
@@ -422,20 +487,48 @@ describe("WeaponSystem — voltaic hipfire beam wander (ADS downside)", () => {
       health: { dead: false, health: 100, armor: 0, maxHealth: 100, maxArmor: 100 },
     };
     let hits = 0;
+    let shots = 0;
     for (let tick = 1; tick <= 600; tick++) {
       sys.update(makeState([shooter, target]) as never, 1 / 125, tick as never);
       hits += sys.getPendingDamage().filter((d) => (d.victimId as unknown as number) === 2).length;
+      shots += sys.getPendingVoltaicBeamEvents().length;
     }
-    return hits;
+    return { hits, shots };
   }
 
   it("ADS is pinpoint (every shot hits) while hipfire drifts off a distant target", () => {
-    const adsHits = countHits(true);
-    const hipHits = countHits(false);
+    const ads = sampleAccuracy(true);
+    const hip = sampleAccuracy(false);
 
-    expect(adsHits).toBe(99); // 600 ticks / 6-tick interval, minus one reload pause
-    expect(hipHits).toBeLessThan(adsHits); // wander makes the hip beam miss at range
-    expect(hipHits).toBeGreaterThan(0); // still lands near the wander zero-crossings
+    expect(ads.hits).toBe(ads.shots);
+    expect(hip.shots).toBe(ads.shots);
+    expect(hip.hits).toBeLessThan(ads.hits); // wander makes the hip beam miss at range
+    expect(hip.hits).toBeGreaterThan(0); // still lands near the wander zero-crossings
+  });
+
+  it("moves adjacent hipfire samples as a coherent sweep instead of orbit-jumping", () => {
+    const sys = new WeaponSystem();
+    sys.initializeWeaponFromLoadout(1 as never, voltaicLoadout as never);
+    const shooter = makeShooter(0, 0);
+    const directions: Array<{ x: number; y: number; z: number }> = [];
+
+    for (let tick = 1; tick <= 120; tick++) {
+      sys.update(makeState([shooter]) as never, 1 / 125, tick as never);
+      for (const beam of sys.getPendingVoltaicBeamEvents()) {
+        directions.push({ x: beam.dirX, y: beam.dirY, z: beam.dirZ });
+      }
+    }
+
+    expect(directions.length).toBeGreaterThan(10);
+    let maximumStep = 0;
+    for (let index = 1; index < directions.length; index++) {
+      const previous = directions[index - 1];
+      const current = directions[index];
+      const dot = Math.max(-1, Math.min(1, previous.x * current.x + previous.y * current.y + previous.z * current.z));
+      maximumStep = Math.max(maximumStep, Math.acos(dot));
+    }
+
+    expect(maximumStep).toBeLessThan((0.75 * Math.PI) / 180);
   });
 });
 

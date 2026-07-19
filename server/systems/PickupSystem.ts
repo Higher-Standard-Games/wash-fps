@@ -452,7 +452,6 @@ const WEAPON_DISPLAY: Record<string, string> = {
   voltaic: "Voltaic",
   electrobolt: "Electrobolt",
   instagun: "Instagun",
-  lasergun: "Lasergun",
 };
 const ARMOR_DISPLAY: Record<string, string> = {
   shard: "Armor Shard",

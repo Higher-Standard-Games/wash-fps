@@ -3,10 +3,10 @@
 
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import type { FPSController } from "../../engine/camera/controllers/FPSController";
-import { InventoryManager } from "./world/InventoryManager";
 import { WeaponViewManager } from "../../engine/weapon/WeaponViewManager";
-import { FPSPickup } from "./world/FPSPickup";
 import type { WeaponDef } from "../../shared/entities";
+import { FPSPickup } from "./world/FPSPickup";
+import { InventoryManager } from "./world/InventoryManager";
 
 /**
  * FPSPlayer - High-level game entity for FPS mode
@@ -152,13 +152,17 @@ export class FPSPlayer {
   }
 
   private updateFiring(_deltaTime: number): void {
-    if (this.isReloading) return;
-
     // Block firing during weapon switch animation
     const weaponMgr = WeaponViewManager.getInstance();
     if (weaponMgr.isSwitching()) return;
     const currentWeapon = this.inventory.getCurrentWeapon();
     if (!currentWeapon) return;
+    const currentWeaponId = this.inventory.getCurrentWeaponId();
+
+    if (this.isReloading) {
+      if (currentWeapon.hitscanType === "beam") this.stopBeamPresentation();
+      return;
+    }
 
     const fireRate = currentWeapon.fireRate ?? 10;
     const fireDelay = 1.0 / fireRate;
@@ -175,18 +179,17 @@ export class FPSPlayer {
     if (!this.controller.isFiring()) {
       this.fireReleased = true;
       // Stop continuous beam and reset charge when fire is released
-      if (currentWeapon.hitscanType === "beam") {
-        if (this.beamCharged || this.beamChargeTimer > 0) {
-          WeaponViewManager.getInstance().setBeamActive(false);
-        }
-        this.beamChargeTimer = 0;
-        this.beamCharged = false;
-      }
+      if (currentWeapon.hitscanType === "beam") this.stopBeamPresentation();
       return;
     }
 
-    // Beam charge-up / activation
-    if (currentWeapon.hitscanType === "beam") {
+    // Beam charge-up / activation. Presentation follows authoritative clip
+    // state, not the held input alone, so an empty/reloading weapon cannot keep
+    // drawing a damage-looking beam after the server stops accepting shots.
+    const hasBeamAmmo = currentWeaponId !== null && this.inventory.getLoadedAmmo(currentWeaponId) > 0;
+    if (currentWeapon.hitscanType === "beam" && !hasBeamAmmo) {
+      this.stopBeamPresentation();
+    } else if (currentWeapon.hitscanType === "beam") {
       const wvm = WeaponViewManager.getInstance();
       const mfColor = currentWeapon.muzzleFlash?.color;
       const color = mfColor ? new Color3(mfColor.r, mfColor.g, mfColor.b) : new Color3(1.0, 0.7, 0.1);
@@ -236,13 +239,23 @@ export class FPSPlayer {
 
     if (readyToFire) {
       // Auto-reload check
-      const weaponId = this.inventory.getCurrentWeaponId();
-      if (weaponId && currentWeapon.reloadModel === "clip" && this.inventory.getLoadedAmmo(weaponId) <= 0) {
-        this.startReload(currentWeapon, weaponId);
+      if (currentWeaponId && currentWeapon.reloadModel === "clip" && !hasBeamAmmo) {
+        this.startReload(currentWeapon, currentWeaponId);
       } else {
         this.executeFire(weaponMgr);
       }
     }
+  }
+
+  /** Stop every local beam layer and reset the charge latch as one operation. */
+  private stopBeamPresentation(): void {
+    if (this.beamCharged || this.beamChargeTimer > 0) {
+      const wvm = WeaponViewManager.getInstance();
+      wvm.setBeamActive(false);
+      wvm.setBeamCharging(0);
+    }
+    this.beamChargeTimer = 0;
+    this.beamCharged = false;
   }
 
   private executeFire(_mgr: WeaponViewManager): void {

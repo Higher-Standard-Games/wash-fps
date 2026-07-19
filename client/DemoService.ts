@@ -17,6 +17,7 @@ import { PointLight } from "@babylonjs/core/Lights/pointLight";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import { SnapshotBuffer } from "../../../engine/network/client/SnapshotBuffer";
 import type { GameState } from "../../../engine/network/core/GameState";
+import type { VoltaicBeamEvent } from "../../../engine/network/core/SnapshotEvent";
 import {
   BLADE_EXPLOSION,
   GRENADE_EXPLOSION,
@@ -45,6 +46,7 @@ import type { DemoViewerHUD } from "./DemoViewerHUD";
 import { type DroppedWeaponInfo, DroppedWeaponRenderer } from "./DroppedWeaponRenderer";
 import {
   handleRemoteWeaponFire,
+  handleVoltaicBeam,
   type ProjectileSyncState,
   processProjectileEntities,
   WEAPON_EFFECT_COLORS,
@@ -822,6 +824,12 @@ export class DemoService {
         this._addDemoEvent("chat", `${prefix}${e.senderName || "unknown"}: ${String(e.text ?? "")}`, 8000);
       } else if (event.type === "weapon_fire") {
         handleRemoteWeaponFire(event, this.remoteRenderer);
+      } else if (event.type === "voltaic_beam") {
+        handleVoltaicBeam(
+          event as VoltaicBeamEvent,
+          false,
+          this.remoteRenderer?.getKnownWeaponId(event.entityId) ?? undefined,
+        );
       } else if (event.type === "death") {
         // Immediate edge for older demos; persistent combat_state above remains
         // authoritative for seeks and respawns.

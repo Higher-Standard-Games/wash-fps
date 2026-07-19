@@ -15,7 +15,7 @@ import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
-import type { TransformNode } from "@babylonjs/core/Meshes/transformNode";
+import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Scene } from "@babylonjs/core/scene";
 import { type PlayerModelInstance, PlayerModelManager } from "../../../engine/animation/PlayerModelManager";
 import { Cvar } from "../../../engine/core/Cvar";
@@ -26,6 +26,8 @@ import {
   SnapshotBuffer,
 } from "../../../engine/network/client/SnapshotBuffer";
 import type { GameState } from "../../../engine/network/core/GameState";
+import { getHitscanEffects } from "../../../engine/weapon/HitscanEffects";
+import type { VoltaicRemoteStartResolver } from "../../../engine/weapon/voltaic/VoltaicEffectRenderer";
 import { WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
 import { isClientKey } from "../ClientEntityKey";
 import { DemoAnimationTimeline } from "./DemoAnimationTimeline";
@@ -51,6 +53,8 @@ interface RemotePlayerHitbox {
   model: PlayerModelInstance | null;
   /** Root node of weapon model attached to hand bone */
   weaponRoot: TransformNode | null;
+  /** Authored tag_flash carried with the attached weapon hierarchy. */
+  weaponMuzzle: TransformNode | null;
   /** Reference to RightHand bone transform node for per-frame tracking */
   handBone: TransformNode | null;
   /** Current weapon ID string (for detecting weapon switches) */
@@ -136,10 +140,13 @@ export class RemotePlayerRenderer {
 
   /** Per-playhead memo for getDemoEntitySample (followed entity is sampled 3×/frame). */
   private _demoSampleCache: { entityId: string; tick: number; sample: InterpolatedEntity | null } | null = null;
+  private readonly voltaicMuzzleResolver: VoltaicRemoteStartResolver = (entityId, direction, result) =>
+    this.getWeaponMuzzleWorldPositionToRef(entityId, direction, result);
 
   constructor(scene: Scene) {
     this.scene = scene;
     registerPlayerModelVisualCvars();
+    getHitscanEffects().setRemoteLightningMuzzleResolver(this.voltaicMuzzleResolver);
   }
 
   /** Set reference to enemy weapons map from GameEventContext */
@@ -490,6 +497,7 @@ export class RemotePlayerRenderer {
 
   /** Clean up all hitboxes and models */
   dispose(): void {
+    getHitscanEffects().clearRemoteLightningMuzzleResolver(this.voltaicMuzzleResolver);
     for (const hitbox of this.hitboxes.values()) {
       hitbox.mesh.dispose();
       if (hitbox.weaponRoot) {
@@ -569,6 +577,44 @@ export class RemotePlayerRenderer {
   /** Last known weapon id for a remote entity (from snapshots), or null. */
   getKnownWeaponId(entityId: string): string | null {
     return this.enemyWeapons.get(entityId) ?? null;
+  }
+
+  /** Best available remote muzzle: authored tag, weapon root, then eye pose. */
+  getWeaponMuzzleWorldPosition(entityId: string, shotDirection: Vector3): Vector3 | null {
+    const result = new Vector3();
+    return this.getWeaponMuzzleWorldPositionToRef(entityId, shotDirection, result) ? result : null;
+  }
+
+  /** Allocation-free form used once per render frame by the retained Voltaic batch. */
+  getWeaponMuzzleWorldPositionToRef(entityId: string, shotDirection: Vector3, result: Vector3): boolean {
+    const hitbox = this.hitboxes.get(entityId);
+    if (!hitbox) return false;
+
+    const directionLength = Math.sqrt(shotDirection.lengthSquared());
+    const inverseLength = directionLength > 0.0001 ? 1 / directionLength : 0;
+    const forwardX = directionLength > 0.0001 ? shotDirection.x * inverseLength : 0;
+    const forwardY = directionLength > 0.0001 ? shotDirection.y * inverseLength : 0;
+    const forwardZ = directionLength > 0.0001 ? shotDirection.z * inverseLength : 1;
+
+    if (hitbox.weaponMuzzle?.isEnabled()) {
+      hitbox.weaponMuzzle.computeWorldMatrix(true);
+      result.copyFrom(hitbox.weaponMuzzle.getAbsolutePosition());
+      return true;
+    }
+
+    if (hitbox.weaponRoot?.isEnabled()) {
+      hitbox.weaponRoot.computeWorldMatrix(true);
+      const rootPosition = hitbox.weaponRoot.getAbsolutePosition();
+      result.set(rootPosition.x + forwardX * 10, rootPosition.y + forwardY * 10, rootPosition.z + forwardZ * 10);
+      return true;
+    }
+
+    result.set(
+      hitbox.smoothedPos.x + forwardX * 5,
+      hitbox.smoothedPos.y + 20 + forwardY * 5,
+      hitbox.smoothedPos.z + forwardZ * 5,
+    );
+    return true;
   }
 
   /**
@@ -836,6 +882,7 @@ export class RemotePlayerRenderer {
       currentHeight: height,
       model,
       weaponRoot: null,
+      weaponMuzzle: null,
       handBone: null,
       currentWeaponId: "",
       appliedVisualStyleKey: model ? getPlayerModelVisualStyleKey(this.resolvePlayerTeamSlot(entityId)) : null,
@@ -1073,6 +1120,7 @@ export class RemotePlayerRenderer {
       hitbox.weaponRoot.dispose(false, true);
       hitbox.weaponRoot = null;
     }
+    hitbox.weaponMuzzle = null;
     inst.attachedWeapon = null;
 
     // Look up weapon def for model path
@@ -1137,6 +1185,10 @@ export class RemotePlayerRenderer {
           return;
         }
 
+        const muzzleNode = result.root
+          .getDescendants(false)
+          .find((node) => node.name === "tag_flash" && node instanceof TransformNode) as TransformNode | undefined;
+
         if (leaderMesh.rotationQuaternion) leaderMesh.rotationQuaternion = null;
 
         // Use Babylon.js attachToBone() API — the official way to attach
@@ -1196,6 +1248,11 @@ export class RemotePlayerRenderer {
           }
         }
 
+        // Preserve the authored muzzle tag when detaching the geometry from the
+        // loader root. Its model-space transform now follows the hand-attached
+        // leader exactly, including animation, scale, and rotation.
+        if (muzzleNode) muzzleNode.parent = leaderMesh;
+
         // Detach loader root
         if (result.root) {
           result.root.parent = null;
@@ -1203,6 +1260,7 @@ export class RemotePlayerRenderer {
         }
 
         hitbox.weaponRoot = leaderMesh as unknown as TransformNode;
+        hitbox.weaponMuzzle = muzzleNode ?? null;
         // Track the weapon on the model instance so it is disposed WITH the model
         // (bone-attached meshes aren't scene-graph children). This makes a dropped
         // blade ride the death ragdoll and vanish with it instead of leaking a

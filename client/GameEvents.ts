@@ -19,7 +19,11 @@ import type { TransformComponent } from "../../../engine/network/components/Tran
 import type { VelocityComponent } from "../../../engine/network/components/VelocityComponent";
 import type { GameState } from "../../../engine/network/core/GameState";
 import type { IGameHost } from "../../../engine/network/core/IGameHost";
-import { assertUnroutedEvent, type SnapshotEvent } from "../../../engine/network/core/SnapshotEvent";
+import {
+  assertUnroutedEvent,
+  type SnapshotEvent,
+  type VoltaicBeamEvent,
+} from "../../../engine/network/core/SnapshotEvent";
 import {
   BLADE_EXPLOSION,
   GRENADE_EXPLOSION,
@@ -27,10 +31,16 @@ import {
   PLASMA_EXPLOSION,
   ROCKET_EXPLOSION,
 } from "../../../engine/weapon/ExplosionEffect";
-import { getHitscanEffects } from "../../../engine/weapon/HitscanEffects";
+import {
+  getHitscanEffects,
+  type VoltaicBeamTruthConfig,
+} from "../../../engine/weapon/HitscanEffects";
 import { getProjectileManager } from "../../../engine/weapon/ProjectileManager";
 import { getWeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
-import { WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
+import {
+  canonicalWeaponId,
+  WEAPONS,
+} from "../../../shared/entities/definitions/weapons/WeaponsTable";
 import { toClientKey } from "../ClientEntityKey";
 import type { ServerSnapshot, V2NetworkClient } from "../client";
 import type { DroppedWeaponInfo, DroppedWeaponRenderer } from "../client/DroppedWeaponRenderer";
@@ -109,6 +119,23 @@ export const WEAPON_EFFECT_COLORS: Record<string, [number, number, number]> = {
   instagun: [0.8, 0.2, 1.0], // purple
 };
 
+// Reused because VoltaicEffectRenderer copies every field synchronously into
+// retained CPU/GPU state. This avoids four Babylon allocations at beam rate.
+const voltaicTruthOrigin = new Vector3();
+const voltaicTruthDirection = new Vector3();
+const voltaicTruthEndpoint = new Vector3();
+const voltaicTruthNormal = new Vector3();
+const voltaicTruthColor = new Color3(1.0, 0.7, 0.1);
+const voltaicTruthConfig: VoltaicBeamTruthConfig = {
+  origin: voltaicTruthOrigin,
+  direction: voltaicTruthDirection,
+  endpoint: voltaicTruthEndpoint,
+  impactNormal: voltaicTruthNormal,
+  impactKind: "none",
+  color: voltaicTruthColor,
+  maxRange: 850,
+};
+
 const MAX_REMOTE_CHARGE_GLOW_LIGHTS = 2;
 
 /**
@@ -158,7 +185,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
           if (event.entityId === localEntityId) {
             handleWeaponStateSync(ctx, event);
           } else if (event.currentWeapon) {
-            ctx.enemyWeapons.set(event.entityId, event.currentWeapon);
+            ctx.enemyWeapons.set(event.entityId, canonicalWeaponId(event.currentWeapon));
           }
           break;
 
@@ -172,6 +199,13 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
             handleRemoteWeaponFire(event, ctx.remoteRenderer);
           }
           break;
+
+        case "voltaic_beam": {
+          const localHero = event.entityId === localEntityId;
+          const weaponId = localHero ? ctx._lastServerWeapon : ctx.enemyWeapons.get(event.entityId);
+          handleVoltaicBeam(event, localHero, weaponId);
+          break;
+        }
 
         case "weapon_charge":
           if (event.entityId === localEntityId) {
@@ -247,7 +281,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
               import("../../../engine/weapon/WeaponViewManager").then((m) => {
                 const wvm = m.getWeaponViewManager();
                 wvm.setVisible(false);
-                // Kill any continuous beam (lasergun/voltaic) still rendering — death
+                // Kill the continuous Voltaic beam (including legacy IDs) — death
                 // cuts fire input without firing the normal beam-stop edge, so it
                 // would otherwise stay stuck on screen through the respawn.
                 wvm.setBeamActive(false);
@@ -730,9 +764,12 @@ function handleWeaponStateSync(ctx: GameEventContext, event: any): void {
   const player = FPSPlayer.getInstance();
   if (!player) return;
 
-  const serverWeapon = event.currentWeapon as string;
-  const serverWeapons = event.weapons as string[];
-  const serverAmmo = event.ammo as Record<string, ServerAmmoState>;
+  const serverWeapon = canonicalWeaponId(event.currentWeapon as string);
+  const serverWeapons = [...new Set((event.weapons as string[]).map(canonicalWeaponId))];
+  const rawAmmo = event.ammo as Record<string, ServerAmmoState>;
+  const serverAmmo = Object.fromEntries(
+    Object.entries(rawAmmo).map(([weaponId, ammo]) => [canonicalWeaponId(weaponId), ammo]),
+  ) as Record<string, ServerAmmoState>;
 
   player.inventory.syncFromServer(serverWeapons, serverAmmo, serverWeapon);
 
@@ -810,10 +847,11 @@ export function handleRemoteWeaponFire(event: any, remoteRenderer: RemotePlayerR
 
   const origin = new Vector3(event.originX, event.originY, event.originZ);
   const dir = new Vector3(event.dirX, event.dirY, event.dirZ);
-  const rgb = WEAPON_EFFECT_COLORS[event.weaponId];
+  const weaponId = canonicalWeaponId(event.weaponId);
+  const rgb = WEAPON_EFFECT_COLORS[weaponId];
   const color = rgb ? new Color3(rgb[0], rgb[1], rgb[2]) : new Color3(1, 1, 0.5);
 
-  switch (event.weaponId) {
+  switch (weaponId) {
     case "machinegun":
       fx.fireTracer({ origin, direction: dir, color, maxRange: 6000 });
       break;
@@ -828,8 +866,11 @@ export function handleRemoteWeaponFire(event: any, remoteRenderer: RemotePlayerR
       });
       break;
     case "voltaic":
-      fx.updateRemoteLightningBeam(event.entityId, {
+      // Legacy-demo / packet fallback. Live snapshots overwrite this immediately
+      // with exact player/world contact from the following voltaic_beam event.
+      fx.updateRemoteLightningFallback(event.entityId, {
         origin,
+        traceOrigin: origin,
         direction: dir,
         color,
         maxRange: 850,
@@ -851,6 +892,21 @@ export function handleRemoteWeaponFire(event: any, remoteRenderer: RemotePlayerR
       fx.fireTracer({ origin, direction: dir, color, maxRange: 5000 });
       break;
   }
+}
+
+/** Apply exact server beam truth while keeping all electrical detail client-side. */
+export function handleVoltaicBeam(event: VoltaicBeamEvent, localHero: boolean, weaponId = "voltaic"): void {
+  const fx = getHitscanEffects();
+  voltaicTruthOrigin.set(event.originX, event.originY, event.originZ);
+  voltaicTruthDirection.set(event.dirX, event.dirY, event.dirZ);
+  voltaicTruthEndpoint.set(event.endX, event.endY, event.endZ);
+  voltaicTruthNormal.set(event.normalX, event.normalY, event.normalZ);
+  const rgb = WEAPON_EFFECT_COLORS[canonicalWeaponId(weaponId)] ?? WEAPON_EFFECT_COLORS.voltaic;
+  voltaicTruthColor.set(rgb[0], rgb[1], rgb[2]);
+  voltaicTruthConfig.impactKind = event.impactKind === 2 ? "player" : event.impactKind === 1 ? "world" : "none";
+
+  if (localHero) fx.updateLocalLightningTruth(voltaicTruthConfig);
+  else fx.updateRemoteLightningBeam(event.entityId, voltaicTruthConfig);
 }
 
 /**

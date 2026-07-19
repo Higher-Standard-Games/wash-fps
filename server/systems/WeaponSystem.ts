@@ -16,7 +16,7 @@ import type { CollisionWorld } from "../../../../engine/network/systems/collisio
 import { DEFAULT_VIEWHEIGHT } from "../../../../engine/physics/PlayerPhysicsConstants";
 import { rngFrom } from "../../../../shared/DeterministicRng";
 import { GRENADE } from "../../../../shared/entities/definitions/projectiles/grenade";
-import { WEAPONS } from "../../../../shared/entities/definitions/weapons/WeaponsTable";
+import { canonicalWeaponId, WEAPONS } from "../../../../shared/entities/definitions/weapons/WeaponsTable";
 import type { ProjectileDef } from "../../../../shared/entities/ProjectileDef";
 import type { WeaponDef } from "../../../../shared/entities/WeaponDef";
 import { computeSpreadSeed, generateSpreadDirections } from "../../../../shared/SpreadUtils";
@@ -84,6 +84,32 @@ export interface WeaponChainEvent {
   points: { x: number; y: number; z: number }[];
 }
 
+/** Authoritative truth spine for the procedural Voltaic presentation. */
+export interface VoltaicBeamEvent {
+  entityId: EntityId;
+  originX: number;
+  originY: number;
+  originZ: number;
+  dirX: number;
+  dirY: number;
+  dirZ: number;
+  endX: number;
+  endY: number;
+  endZ: number;
+  normalX: number;
+  normalY: number;
+  normalZ: number;
+  impactKind: 0 | 1 | 2;
+}
+
+interface HitscanHitResult {
+  id: EntityId;
+  position: { x: number; y: number; z: number };
+  hitLocation: HitLocation;
+  impactPoint: { x: number; y: number; z: number };
+  impactNormal: { x: number; y: number; z: number };
+}
+
 const CONFIG: SubsystemConfig = {
   name: "Weapon",
   priority: 25, // After input, before combat
@@ -127,7 +153,8 @@ export class WeaponSystem extends Subsystem {
   private lastSwitchTick: Map<EntityId, number> = new Map();
   /**
    * Per-entity accuracy accounting for anti-cheat telemetry (WO-AC1). Scoped to
-   * **single-ray hitscan** (machinegun/electrobolt/instagun/lasergun/voltaic) — the
+   * **single-ray hitscan** (machinegun/electrobolt/instagun/Voltaic, including
+   * legacy `lasergun` IDs) — the
    * cleanest signal, where one trigger pull = one ray = 0 or 1 hit. Pellet and
    * projectile/splash weapons are excluded (a blast has no clean shot↔hit mapping).
    * Cumulative per entity id (≈ per-match), composed into the [Telemetry] log by
@@ -142,6 +169,7 @@ export class WeaponSystem extends Subsystem {
   private pendingFireEvents: WeaponFireEvent[] = [];
   private pendingChargeEvents: WeaponChargeEvent[] = [];
   private pendingChainEvents: WeaponChainEvent[] = [];
+  private pendingVoltaicBeamEvents: VoltaicBeamEvent[] = [];
   private projectileSystem: ProjectileSystem | null = null;
   private droppedWeaponSystem: DroppedWeaponSystem | null = null;
   private collisionWorld: CollisionWorld | null = null;
@@ -198,6 +226,12 @@ export class WeaponSystem extends Subsystem {
   getPendingChainEvents(): WeaponChainEvent[] {
     const events = this.pendingChainEvents;
     this.pendingChainEvents = [];
+    return events;
+  }
+
+  getPendingVoltaicBeamEvents(): VoltaicBeamEvent[] {
+    const events = this.pendingVoltaicBeamEvents;
+    this.pendingVoltaicBeamEvents = [];
     return events;
   }
 
@@ -377,6 +411,7 @@ export class WeaponSystem extends Subsystem {
   addWeapon(entityId: EntityId, weaponId: string): { added: boolean; dropped?: string } {
     const state = this.weaponStates.get(entityId);
     if (!state) return { added: false };
+    weaponId = canonicalWeaponId(weaponId);
 
     // Already has this weapon — give ammo instead (Warsow behavior)
     if (state.weapons.includes(weaponId)) {
@@ -477,6 +512,7 @@ export class WeaponSystem extends Subsystem {
   setAmmo(entityId: EntityId, weaponId: string, ammo: number): void {
     const state = this.weaponStates.get(entityId);
     if (!state) return;
+    weaponId = canonicalWeaponId(weaponId);
     const weapon = WEAPONS[weaponId];
     if (weapon) {
       state.ammo.set(weaponId, this.createAmmoState(weapon, ammo));
@@ -489,7 +525,7 @@ export class WeaponSystem extends Subsystem {
   getAmmo(entityId: EntityId, weaponId: string): number {
     const state = this.weaponStates.get(entityId);
     if (!state) return 0;
-    return this.ammoTotal(state.ammo.get(weaponId));
+    return this.ammoTotal(state.ammo.get(canonicalWeaponId(weaponId)));
   }
 
   /**
@@ -542,15 +578,22 @@ export class WeaponSystem extends Subsystem {
   initializeWeaponFromLoadout(id: EntityId, loadout: WeaponLoadout): void {
     const ammoMap = new Map<string, WeaponAmmo>();
     for (const [weaponId, amount] of Object.entries(loadout.ammo)) {
-      const weapon = WEAPONS[weaponId];
+      const canonicalId = canonicalWeaponId(weaponId);
+      const weapon = WEAPONS[canonicalId];
       if (weapon) {
-        ammoMap.set(weaponId, this.createAmmoState(weapon, amount));
+        // Old saves can contain both names. Collapse them without adding the
+        // two amounts together and accidentally granting bonus ammunition.
+        const existing = ammoMap.get(canonicalId);
+        if (!existing || this.ammoTotal(existing) < amount) {
+          ammoMap.set(canonicalId, this.createAmmoState(weapon, amount));
+        }
       }
     }
+    const canonicalWeapons = [...new Set(loadout.weapons.map(canonicalWeaponId))];
     // Always include default weapon (blade or gunblade), limit pickable weapons to MAX_PICKABLE (2)
     const defaultWeapon =
-      loadout.weapons.find((w) => w === "blade" || w === "gunblade") || loadout.weapons[0] || "blade";
-    const nonDefault = loadout.weapons.filter((w) => w !== defaultWeapon).slice(0, 2);
+      canonicalWeapons.find((w) => w === "blade" || w === "gunblade") || canonicalWeapons[0] || "blade";
+    const nonDefault = canonicalWeapons.filter((w) => w !== defaultWeapon).slice(0, 2);
     const weapons = [defaultWeapon, ...nonDefault];
     this.weaponStates.set(id, {
       currentWeapon: weapons[0],
@@ -585,7 +628,6 @@ export class WeaponSystem extends Subsystem {
         rlauncher: 20,
         plasmagun: 200,
         voltaic: 180,
-        lasergun: 225,
         electrobolt: 10,
         instagun: 5,
       },
@@ -832,8 +874,9 @@ export class WeaponSystem extends Subsystem {
 
   /**
    * Deterministic smooth "wander" deflection for unstable beams (voltaic). Hipfire
-   * only — a slow lissajous sweep of the aim (not random jitter), so the beam bends
-   * and drifts off distant targets. ADS (ALT_FIRE held) zeroes it → pinpoint.
+   * only — a slow drift of the aim (not random jitter or an orbit), so the beam
+   * moves off distant targets without spinning between 20 Hz damage samples.
+   * ADS (ALT_FIRE held) zeroes it → pinpoint.
    * Stateless (function of tick + shooter id) so the damage ray and the fire-event
    * direction agree without extra network state.
    */
@@ -845,8 +888,16 @@ export class WeaponSystem extends Subsystem {
   ): { dYaw: number; dPitch: number } {
     if (!weapon.beamWanderDeg || isADS) return { dYaw: 0, dPitch: 0 };
     const w = (weapon.beamWanderDeg * Math.PI) / 180;
-    const t = (tick as number) * 0.35 + (shooterId as number);
-    return { dYaw: Math.sin(t) * w, dPitch: Math.sin(t * 1.7 + 1.3) * w };
+    // Tick is a 125 Hz counter, not seconds. The old `tick * 0.35` advanced the
+    // phase ~2.1 radians between six-tick Voltaic shots and made the ray jump
+    // chaotically around the reticle. Low, unequal frequencies create a smooth
+    // non-circular meander while retaining the intended hip-fire inaccuracy.
+    const seconds = (tick as number) / TICK_RATE;
+    const phase = (shooterId as number) * 0.754877666;
+    return {
+      dYaw: Math.sin(seconds * 1.35 + phase) * w,
+      dPitch: Math.sin(seconds * 0.83 + phase * 1.7 + 1.3) * w * 0.6,
+    };
   }
 
   private fireWeapon(state: WorldState, shooter: Readonly<Entity>, weapon: WeaponDef, tick: TickNumber): void {
@@ -1098,6 +1149,10 @@ export class WeaponSystem extends Subsystem {
       z: Math.cos(wYaw) * Math.cos(wPitch),
     };
     const primaryHit = this.traceHitscanRay(state, shooter, weapon, start, dir, maxRange);
+    // Continuous beam compatibility IDs have already normalized to Voltaic.
+    if (weapon.hitscanType === "beam") {
+      this.emitVoltaicBeamEvent(shooter.id, start, dir, maxRange, primaryHit);
+    }
 
     // Accuracy telemetry (WO-AC1): single-ray hitscan only — one trigger pull = one
     // ray = 0/1 hit. (Pellet weapons return above; projectiles never reach here.)
@@ -1127,20 +1182,65 @@ export class WeaponSystem extends Subsystem {
     }
   }
 
-  /** Trace a ray against the BSP world; returns the impact point or null. */
-  private traceWorldImpact(
+  private emitVoltaicBeamEvent(
+    shooterId: EntityId,
     start: { x: number; y: number; z: number },
     dir: { x: number; y: number; z: number },
     maxRange: number,
-  ): { x: number; y: number; z: number } | null {
+    primaryHit: HitscanHitResult | null,
+  ): void {
+    const worldHit = primaryHit ? null : this.traceWorldImpactDetails(start, dir, maxRange);
+    const endpoint = primaryHit?.impactPoint ??
+      worldHit?.point ?? {
+        x: start.x + dir.x * maxRange,
+        y: start.y + dir.y * maxRange,
+        z: start.z + dir.z * maxRange,
+      };
+    const normal = primaryHit?.impactNormal ?? worldHit?.normal ?? { x: -dir.x, y: -dir.y, z: -dir.z };
+
+    this.pendingVoltaicBeamEvents.push({
+      entityId: shooterId,
+      originX: start.x,
+      originY: start.y,
+      originZ: start.z,
+      dirX: dir.x,
+      dirY: dir.y,
+      dirZ: dir.z,
+      endX: endpoint.x,
+      endY: endpoint.y,
+      endZ: endpoint.z,
+      normalX: normal.x,
+      normalY: normal.y,
+      normalZ: normal.z,
+      impactKind: primaryHit ? 2 : worldHit ? 1 : 0,
+    });
+  }
+
+  private traceWorldImpactDetails(
+    start: { x: number; y: number; z: number },
+    dir: { x: number; y: number; z: number },
+    maxRange: number,
+  ): { point: { x: number; y: number; z: number }; normal: { x: number; y: number; z: number } } | null {
     if (!this.collisionWorld) return null;
     const end = { x: start.x + dir.x * maxRange, y: start.y + dir.y * maxRange, z: start.z + dir.z * maxRange };
     const res = this.collisionWorld.trace(start, end, {
       min: { x: -2, y: -2, z: -2 },
       max: { x: 2, y: 2, z: 2 },
     });
-    if (res.fraction < 1.0 && res.hitPoint) return res.hitPoint;
-    return null;
+    if (res.fraction >= 1.0 || !res.hitPoint) return null;
+    return {
+      point: res.hitPoint,
+      normal: res.normal ?? { x: -dir.x, y: -dir.y, z: -dir.z },
+    };
+  }
+
+  /** Trace a ray against the BSP world; returns the impact point or null. */
+  private traceWorldImpact(
+    start: { x: number; y: number; z: number },
+    dir: { x: number; y: number; z: number },
+    maxRange: number,
+  ): { x: number; y: number; z: number } | null {
+    return this.traceWorldImpactDetails(start, dir, maxRange)?.point ?? null;
   }
 
   /**
@@ -1201,7 +1301,7 @@ export class WeaponSystem extends Subsystem {
     start: { x: number; y: number; z: number },
     dir: { x: number; y: number; z: number },
     maxRange: number,
-  ): { id: EntityId; position: { x: number; y: number; z: number }; hitLocation: HitLocation } | null {
+  ): HitscanHitResult | null {
     // Check all potential targets
     for (const target of state.entitiesByType(EntityType.Player)) {
       if (target.id === shooter.id) continue;
@@ -1232,6 +1332,16 @@ export class WeaponSystem extends Subsystem {
 
       const hitRadius = 32; // Player capsule radius
       if (distSq < hitRadius ** 2) {
+        const entryDistance = Math.max(0, dot - Math.sqrt(Math.max(0, hitRadius ** 2 - distSq)));
+        const impactPoint = {
+          x: start.x + dir.x * entryDistance,
+          y: start.y + dir.y * entryDistance,
+          z: start.z + dir.z * entryDistance,
+        };
+        const normalX = impactPoint.x - target.transform.position.x;
+        const normalY = impactPoint.y - target.transform.position.y;
+        const normalZ = impactPoint.z - target.transform.position.z;
+        const normalLength = Math.sqrt(normalX * normalX + normalY * normalY + normalZ * normalZ) || 1;
         // Hit! Determine location based on Y offset
         const yOffset = closestPoint.y - target.transform.position.y;
         let hitLocation = HitLocation.Body;
@@ -1251,7 +1361,17 @@ export class WeaponSystem extends Subsystem {
 
         // Single-ray weapons stop on first hit; pellet rays always stop
         // (each pellet is its own ray call). Return the hit for chain follow-up.
-        return { id: target.id, position: { ...target.transform.position }, hitLocation };
+        return {
+          id: target.id,
+          position: { ...target.transform.position },
+          hitLocation,
+          impactPoint,
+          impactNormal: {
+            x: normalX / normalLength,
+            y: normalY / normalLength,
+            z: normalZ / normalLength,
+          },
+        };
       }
     }
     return null;

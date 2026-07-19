@@ -384,6 +384,27 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
     });
   }
 
+  // Exact Voltaic damage-ray endpoint. Electrical shape remains client-side.
+  for (const beamEvent of ctx.weaponSystem.getPendingVoltaicBeamEvents()) {
+    gameState.events.push({
+      type: "voltaic_beam",
+      entityId: toClientKey(beamEvent.entityId),
+      originX: beamEvent.originX,
+      originY: beamEvent.originY,
+      originZ: beamEvent.originZ,
+      dirX: beamEvent.dirX,
+      dirY: beamEvent.dirY,
+      dirZ: beamEvent.dirZ,
+      endX: beamEvent.endX,
+      endY: beamEvent.endY,
+      endZ: beamEvent.endZ,
+      normalX: beamEvent.normalX,
+      normalY: beamEvent.normalY,
+      normalZ: beamEvent.normalZ,
+      impactKind: beamEvent.impactKind,
+    });
+  }
+
   // Add chain-lightning arc events (so all clients draw the arcs between targets)
   for (const chainEvent of ctx.weaponSystem.getPendingChainEvents()) {
     gameState.events.push({

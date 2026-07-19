@@ -1,0 +1,74 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { FPSController } from "../../../engine/camera/controllers/FPSController";
+import type { WeaponDef } from "../../../shared/entities";
+
+const weaponView = vi.hoisted(() => ({
+  isSwitching: vi.fn(() => false),
+  setBeamActive: vi.fn(),
+  setBeamCharging: vi.fn(),
+  startReload: vi.fn(),
+  cancelReload: vi.fn(),
+  switchWeaponAnimated: vi.fn(),
+}));
+
+vi.mock("../../../engine/weapon/WeaponViewManager", () => {
+  function WeaponViewManager(): void {}
+  WeaponViewManager.getInstance = () => weaponView;
+  return { WeaponViewManager };
+});
+
+import { FPSPlayer } from "../FPSPlayer";
+
+const BEAM_WEAPON = {
+  id: "voltaic",
+  hitscanType: "beam",
+  fireRate: 20,
+  fireMode: "auto",
+  reloadModel: "clip",
+  clipSize: 60,
+  reloadTime: 1.5,
+  ammoType: "cells",
+  muzzleFlash: { color: { r: 1, g: 0.2, b: 0.05 } },
+} as unknown as WeaponDef;
+
+function makeController(): FPSController {
+  return {
+    isEnabled: () => true,
+    isFiring: () => true,
+    isAiming: () => true,
+    setInventory: vi.fn(),
+    setWeaponSwitchBlockedCheck: vi.fn(),
+    onWeaponSelect: null,
+    onReload: null,
+    onUse: null,
+  } as unknown as FPSController;
+}
+
+describe("FPSPlayer beam ammo presentation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    weaponView.isSwitching.mockReturnValue(false);
+  });
+
+  it("shuts every local beam layer off when the authoritative clip reaches zero", () => {
+    const player = new FPSPlayer(makeController());
+    let loadedAmmo = 1;
+
+    vi.spyOn(player.inventory, "getCurrentWeapon").mockReturnValue(BEAM_WEAPON);
+    vi.spyOn(player.inventory, "getCurrentWeaponId").mockReturnValue("voltaic");
+    vi.spyOn(player.inventory, "getLoadedAmmo").mockImplementation(() => loadedAmmo);
+
+    player.update(1 / 60);
+    expect(weaponView.setBeamActive).toHaveBeenLastCalledWith(true, expect.anything());
+
+    weaponView.setBeamActive.mockClear();
+    weaponView.setBeamCharging.mockClear();
+    loadedAmmo = 0;
+    player.update(1 / 60);
+
+    expect(weaponView.setBeamActive).toHaveBeenCalledWith(false);
+    expect(weaponView.setBeamActive).not.toHaveBeenCalledWith(true, expect.anything());
+    expect(weaponView.setBeamCharging).toHaveBeenCalledWith(0);
+    player.dispose();
+  });
+});
