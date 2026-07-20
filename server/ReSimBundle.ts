@@ -73,7 +73,7 @@ export function encodeBundle(b: ReSimBundle): Uint8Array {
   enc.writeUint32(b.golden.length);
   for (const c of b.golden) enc.writeUint32(c >>> 0);
 
-  return zlib.gzipSync(enc.getData(), { level: 6 });
+  return new Uint8Array(zlib.gzipSync(enc.getData(), { level: 6 }));
 }
 
 /** Parse a gzipped bundle. Throws on bad magic / unsupported version. */

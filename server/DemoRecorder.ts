@@ -192,8 +192,9 @@ export class DemoRecorder {
     // Gzip compress (like pk3 = zip, .shagdemo is gzipped binary)
     const compressed = zlib.gzipSync(demoBuffer, { level: 6 });
 
-    // Write compressed data to disk
-    fs.writeFileSync(filepath, compressed);
+    // Write compressed data to disk (Uint8Array copy: Node's Buffer no longer
+    // satisfies the ArrayBuffer-backed view type under TS 5.9 strict generics)
+    fs.writeFileSync(filepath, new Uint8Array(compressed));
 
     const rawMB = (demoBuffer.byteLength / (1024 * 1024)).toFixed(2);
     const compMB = (compressed.byteLength / (1024 * 1024)).toFixed(2);
