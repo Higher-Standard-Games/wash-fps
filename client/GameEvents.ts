@@ -225,7 +225,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
           // draws a bolt for bolt weapons, so there is no double-draw.
           const localHero = event.entityId === localEntityId;
           const weaponId = localHero ? ctx._lastServerWeapon : ctx.enemyWeapons.get(event.entityId);
-          handleElectroRail(event, weaponId);
+          handleElectroRail(event, localHero, weaponId);
           break;
         }
 
@@ -934,9 +934,16 @@ export function handleVoltaicBeam(event: VoltaicBeamEvent, localHero: boolean, w
 }
 
 /** Spawn a one-shot Electrobolt rail from the authoritative server truth. */
-export function handleElectroRail(event: ElectroRailEvent, weaponId = "electrobolt"): void {
+export function handleElectroRail(event: ElectroRailEvent, localHero: boolean, weaponId = "electrobolt"): void {
   const fx = getHitscanEffects();
-  railTruthStart.set(event.originX, event.originY, event.originZ);
+  // Anchor the visible start to the actual gun muzzle for the local shooter. The
+  // server origin is the eye (camera); a beam vertex exactly at the camera
+  // projects degenerately (w≈0), smearing the near end to a screen corner and
+  // making it emanate from the wrong side of the gun. The damage endpoint is
+  // untouched — only the drawn start moves to the barrel (as the Voltaic beam does).
+  const muzzle = localHero ? getWeaponViewManager().getMuzzleWorldPosition() : null;
+  if (muzzle) railTruthStart.copyFrom(muzzle);
+  else railTruthStart.set(event.originX, event.originY, event.originZ);
   railTruthEnd.set(event.endX, event.endY, event.endZ);
   railTruthNormal.set(event.normalX, event.normalY, event.normalZ);
   const rgb = WEAPON_EFFECT_COLORS[canonicalWeaponId(weaponId)] ?? WEAPON_EFFECT_COLORS.electrobolt;
