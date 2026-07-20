@@ -31,9 +31,9 @@ import {
   baseEmissive,
   cloneEnergyMaterial,
   createGradientCoreMaterial,
-  createPlateMaterial,
   gradientTexture,
 } from "./ProceduralPickupMaterials";
+import { PROCEDURAL_GLOBAL_SCALE } from "./ProceduralPickupRecipes";
 import { ProceduralPickupTransient } from "./ProceduralPickupTransient";
 import type { ProceduralPickupRecipe } from "./types";
 
@@ -46,6 +46,38 @@ const BEACON_HEIGHT = 90;
 const BEACON_BASE_BELOW = 12;
 /** Gradient U-scroll speed (slow flow). */
 const SCROLL_SPEED = 0.14;
+/** Extra rest height above the anchor so the item floats clearly off the floor. */
+const HOVER_LIFT = 9;
+/** Amplifies each recipe's bob so the up/down float is clearly visible. */
+const BOB_GAIN = 2.6;
+
+/** Local (x, y) offsets tiling `n` shield plates into an overlapping cluster. */
+function shieldLayout(n: number, span: number): Array<[number, number]> {
+  switch (n) {
+    case 1:
+      return [[0, 0]];
+    case 2:
+      return [
+        [0, span * 0.72],
+        [0, -span * 0.72],
+      ];
+    case 4:
+      return [
+        [-span, span],
+        [span, span],
+        [-span, -span],
+        [span, -span],
+      ];
+    default: {
+      const out: Array<[number, number]> = [];
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * TAU;
+        out.push([Math.cos(a) * span, Math.sin(a) * span]);
+      }
+      return out;
+    }
+  }
+}
 
 interface RingEl {
   pivot: TransformNode;
@@ -72,7 +104,6 @@ export class ProceduralPickupVisual implements PickupVisual {
   private readonly matAccent: StandardMaterial;
   private readonly matSoft: StandardMaterial;
   private readonly matGradient: StandardMaterial | null = null;
-  private readonly matPlate: StandardMaterial | null = null;
   private readonly gradTex: RawTexture | null = null;
   private readonly pulseTargets: PulseTarget[] = [];
 
@@ -105,7 +136,7 @@ export class ProceduralPickupVisual implements PickupVisual {
     this.cosmetic = new TransformNode(`pp_cosmetic_${recipe.id}_${seed}`, scene);
     this.cosmetic.parent = this.root;
 
-    const s = recipe.scale;
+    const s = recipe.scale * PROCEDURAL_GLOBAL_SCALE;
 
     if (recipe.family === "health") {
       // Bright scrolling-gradient orb + a small readable cross emblem.
@@ -120,18 +151,30 @@ export class ProceduralPickupVisual implements PickupVisual {
       this.inst(set.core, this.cosmetic, this.matGradient, "core");
       this.inst(set.cross, this.cosmetic, this.matEnergy, "cross");
     } else {
-      // Small bright core with a fanned stack of hexagonal shield plates.
-      this.matPlate = createPlateMaterial(scene, `pp_plate_${recipe.id}_${seed}`, recipe.color);
-      this.track(this.matPlate);
-      this.inst(set.hexCore, this.cosmetic, this.matEnergy, "core");
+      // Technical shield: dark metallic hex plates each backed by a glowing energy
+      // rim, tiled into an overlapping cluster that grows with tier. Reads as
+      // layered armor plating, not a glowing blob. A small bright core sits behind.
+      const core = this.inst(set.hexCore, this.cosmetic, this.matEnergy, "core");
+      if (core) core.position.z = -1.6 * s;
       const n = recipe.plateCount;
-      const gap = 2.6 * s;
+      const layout = shieldLayout(n, 6.4 * s);
       for (let i = 0; i < n; i++) {
-        const plate = this.inst(set.plate, this.cosmetic, this.matPlate, `plate_${i}`);
-        if (!plate) continue;
-        plate.position.z = (i - (n - 1) / 2) * gap;
-        plate.rotation.z = i * 0.5;
-        plate.scaling.setAll(1 - i * 0.07);
+        const [px, py] = layout[i];
+        // Glowing energy rim (full size, at the back of the plate).
+        const rim = this.inst(set.plate, this.cosmetic, this.matEnergy, `plate_rim_${i}`);
+        if (rim) rim.position.set(px, py, 0);
+        // Dark structural body (smaller, toward the viewer) — leaves the rim as a
+        // bright edge glow, like a tech shield plate.
+        const body = this.inst(set.plate, this.cosmetic, set.structural, `plate_body_${i}`);
+        if (body) {
+          body.position.set(px, py, 2.2 * s);
+          body.scaling.setAll(0.82);
+        }
+        // Shard: a single tilted plate reads as a broken fragment.
+        if (recipe.kind === "shard") {
+          if (rim) rim.rotation.z = 0.5;
+          if (body) body.rotation.z = 0.5;
+        }
       }
     }
 
@@ -159,10 +202,11 @@ export class ProceduralPickupVisual implements PickupVisual {
       });
     }
 
-    // Faint vertical beacon (mega/ultra/red) rising from the floor.
+    // Faint vertical beacon (mega/ultra/red) rising from the floor. Offset so its
+    // base still meets the floor despite the cosmetic root's hover lift.
     if (set.beacon) {
       const beacon = this.inst(set.beacon, this.cosmetic, this.matSoft, "beacon");
-      if (beacon) beacon.position.y = -BEACON_BASE_BELOW + BEACON_HEIGHT / 2;
+      if (beacon) beacon.position.y = BEACON_HEIGHT / 2 - BEACON_BASE_BELOW - HOVER_LIFT;
     }
 
     // Fail-closed initial visibility WITHOUT committing prevActive, so the first
@@ -215,15 +259,16 @@ export class ProceduralPickupVisual implements PickupVisual {
   }
 
   private spawnCollectTransient(): void {
+    const eff = this.recipe.scale * PROCEDURAL_GLOBAL_SCALE;
     const t = new ProceduralPickupTransient(
       this.scene,
       this.root,
       new Color3(this.recipe.color.r, this.recipe.color.g, this.recipe.color.b),
       {
         duration: this.recipe.highTier ? 0.42 : 0.28,
-        endDiameter: 30 * this.recipe.scale * 1.7,
+        endDiameter: 30 * eff * 1.7,
         style: this.recipe.collectStyle,
-        scale: this.recipe.scale,
+        scale: eff,
       },
     );
     this.transients.push(t);
@@ -253,9 +298,9 @@ export class ProceduralPickupVisual implements PickupVisual {
       assembleScale = 0.35 + 0.65 * (1 - (1 - p) * (1 - p));
     }
 
-    // Slow bob + stately yaw spin.
+    // Float higher off the floor, with a clearly visible slow up/down bob.
     const bobW = t * r.bobFrequency * TAU;
-    this.cosmetic.position.y = Math.sin(bobW) * r.bobAmplitude;
+    this.cosmetic.position.y = HOVER_LIFT + Math.sin(bobW) * r.bobAmplitude * BOB_GAIN;
     this.cosmetic.position.x = r.figureEight ? Math.sin(bobW * 2) * r.bobAmplitude * 0.35 : 0;
     this.cosmetic.rotation.y = t * r.spinSpeed * DEG2RAD;
 
@@ -294,6 +339,5 @@ export class ProceduralPickupVisual implements PickupVisual {
     this.matSoft.dispose();
     // The gradient material owns its generated texture — force-dispose it.
     this.matGradient?.dispose(false, true);
-    this.matPlate?.dispose();
   }
 }

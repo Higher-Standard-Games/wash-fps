@@ -23,8 +23,9 @@ function toColor3(c: RGB): Color3 {
   return new Color3(c.r, c.g, c.b);
 }
 
-/** HDR emissive boost so cores/plates bloom bright (values >1 are fine). */
-export const ENERGY_BOOST = 1.4;
+/** Emissive scale for cores/plates. ~1.0 keeps colors from clipping to white
+ *  under bloom (1.4 blew the health orb out to a white ball in playtest). */
+export const ENERGY_BOOST = 1.0;
 
 function clampByte(v: number): number {
   return Math.max(0, Math.min(255, Math.round(v * 255)));
@@ -124,8 +125,8 @@ export function createGradientCoreMaterial(
   name: string,
   color: RGB,
   accent: RGB,
-  alpha = 0.72,
-  boost = ENERGY_BOOST,
+  alpha = 0.78,
+  boost = 0.9,
 ): StandardMaterial {
   const tex = createGradientTexture(scene, name, color, accent);
   const mat = new StandardMaterial(name, scene);
@@ -149,20 +150,4 @@ export function createGradientCoreMaterial(
 /** The scrolling gradient texture on a gradient-core material (for U scrolling). */
 export function gradientTexture(mat: StandardMaterial): RawTexture | null {
   return (mat as unknown as { _gradTex?: RawTexture })._gradTex ?? null;
-}
-
-/**
- * Per-pickup bright shield-plate material (armor): lit so the hex facets read as
- * solid plates, with a strong emissive so they still glow. Pulse scales emissive.
- */
-export function createPlateMaterial(scene: Scene, name: string, color: RGB, boost = ENERGY_BOOST): StandardMaterial {
-  const mat = new StandardMaterial(name, scene);
-  mat.diffuseColor = toColor3(color).scale(0.5);
-  mat.specularColor = new Color3(0.5, 0.5, 0.55);
-  mat.specularPower = 48;
-  mat.emissiveColor = toColor3(color).scale(boost * 0.7);
-  mat.ambientColor = Color3.White();
-  (mat as unknown as { _baseEmissive: Color3 })._baseEmissive = mat.emissiveColor.clone();
-  (mat as unknown as { _baseAlpha: number })._baseAlpha = 1;
-  return mat;
 }

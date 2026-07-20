@@ -13,6 +13,7 @@
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import type { Scene } from "@babylonjs/core/scene";
+import { PROCEDURAL_GLOBAL_SCALE } from "./ProceduralPickupRecipes";
 import type { ProceduralPickupRecipe } from "./types";
 
 // Base dimensions at recipe.scale === 1 (Quake units), tuned for a compact,
@@ -53,7 +54,7 @@ function mergeOrThrow(meshes: Mesh[], name: string, scene: Scene): Mesh {
 
 /** 3D health cross: three orthogonal bars merged into one rigid symbol. */
 export function buildCrossProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
-  const s = recipe.scale;
+  const s = recipe.scale * PROCEDURAL_GLOBAL_SCALE;
   const len = CROSS_ARM * 2 * s;
   const t = CROSS_THICK * s;
   const barX = MeshBuilder.CreateBox("c_x", { width: len, height: t, depth: t }, scene);
@@ -64,14 +65,14 @@ export function buildCrossProto(scene: Scene, recipe: ProceduralPickupRecipe): M
 
 /** Translucent faceted energy core shell surrounding the symbol. */
 export function buildCoreProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
-  const s = recipe.scale;
+  const s = recipe.scale * PROCEDURAL_GLOBAL_SCALE;
   const core = MeshBuilder.CreateIcoSphere("core", { radius: (CORE_DIAM * s) / 2, subdivisions: 2, flat: true }, scene);
   return finalizeProto(core, "proto_core");
 }
 
 /** Hexagonal shield core (armor), oriented so the flat hex faces the viewer. */
 export function buildHexCoreProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
-  const s = recipe.scale;
+  const s = recipe.scale * PROCEDURAL_GLOBAL_SCALE;
   const hex = MeshBuilder.CreateCylinder(
     "hexcore",
     { diameter: HEXCORE_DIAM * s, height: HEXCORE_DEPTH * s, tessellation: 6 },
@@ -85,7 +86,7 @@ export function buildHexCoreProto(scene: Scene, recipe: ProceduralPickupRecipe):
 
 /** One orbiting ring (torus lying in the XZ plane; the visual tilts/spins it). */
 export function buildRingProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
-  const s = recipe.scale;
+  const s = recipe.scale * PROCEDURAL_GLOBAL_SCALE;
   const ring = MeshBuilder.CreateTorus(
     "ring",
     { diameter: RING_DIAM * s, thickness: RING_THICK * s, tessellation: 28 },
@@ -96,7 +97,7 @@ export function buildRingProto(scene: Scene, recipe: ProceduralPickupRecipe): Me
 
 /** One clean hexagonal shield plate (armor), oriented flat-face toward +Z. */
 export function buildPlateProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
-  const s = recipe.scale;
+  const s = recipe.scale * PROCEDURAL_GLOBAL_SCALE;
   const plate = MeshBuilder.CreateCylinder(
     "plate",
     { diameter: HEXPLATE_DIAM * s, height: HEXPLATE_DEPTH * s, tessellation: 6 },
@@ -109,14 +110,14 @@ export function buildPlateProto(scene: Scene, recipe: ProceduralPickupRecipe): M
 
 /** Corona petal for health shell (slightly thinner/taller than an armor plate). */
 export function buildShellPetalProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
-  const s = recipe.scale;
+  const s = recipe.scale * PROCEDURAL_GLOBAL_SCALE;
   const petal = MeshBuilder.CreateBox("petal", { width: 5 * s, height: (SHELL_INNER + 8) * s, depth: 1.6 * s }, scene);
   return finalizeProto(petal, "proto_petal");
 }
 
 /** Rising mote — a tiny plus (health) or shard (armor). */
 export function buildMoteProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
-  const s = recipe.scale;
+  const s = recipe.scale * PROCEDURAL_GLOBAL_SCALE;
   if (recipe.family === "health") {
     const bar = MOTE_BAR * s;
     const t = MOTE_THICK * s;
@@ -130,14 +131,14 @@ export function buildMoteProto(scene: Scene, recipe: ProceduralPickupRecipe): Me
 
 /** Small orbiting satellite core (mega/ultra). */
 export function buildSatelliteProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
-  const s = recipe.scale;
+  const s = recipe.scale * PROCEDURAL_GLOBAL_SCALE;
   const sat = MeshBuilder.CreateIcoSphere("sat", { radius: (SAT_DIAM * s) / 2, subdivisions: 1, flat: true }, scene);
   return finalizeProto(sat, "proto_satellite");
 }
 
 /** Faint vertical beacon (mega/ultra/red) for arena-scale readability. */
 export function buildBeaconProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
-  const s = recipe.scale;
+  const s = recipe.scale * PROCEDURAL_GLOBAL_SCALE;
   const beacon = MeshBuilder.CreateCylinder(
     "beacon",
     {

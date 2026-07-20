@@ -16,7 +16,14 @@
 import type { ProceduralPickupRecipe } from "./types";
 
 /** Cache/recipe revision — bump to invalidate scene-cached prototype geometry. */
-export const PROCEDURAL_RECIPE_REVISION = "v2";
+export const PROCEDURAL_RECIPE_REVISION = "v3";
+
+/**
+ * Global size multiplier applied on top of each recipe's per-tier `scale`
+ * (geometry + placement). One knob for overall pickup size; ~1.9 roughly doubles
+ * the v2 sizing for arena visibility.
+ */
+export const PROCEDURAL_GLOBAL_SCALE = 1.9;
 
 // Bob/pulse frequencies are cycles-per-second (slow, calm motion).
 const RECIPE_LIST: ProceduralPickupRecipe[] = [
@@ -45,12 +52,12 @@ const RECIPE_LIST: ProceduralPickupRecipe[] = [
     unstable: false,
   },
   {
-    // 25 HP — bright yellow.
+    // 25 HP — bright yellow (gradient stays saturated, not washed to white).
     id: "health_medium",
     family: "health",
     kind: "medium",
-    color: { r: 1.0, g: 0.88, b: 0.12 },
-    accentColor: { r: 1.0, g: 1.0, b: 0.68 },
+    color: { r: 1.0, g: 0.82, b: 0.08 },
+    accentColor: { r: 1.0, g: 0.95, b: 0.35 },
     scale: 0.82,
     ringCount: 0,
     plateCount: 0,
