@@ -2,14 +2,15 @@
  * PostGameShowcase — the winner's player model presented during the post-game
  * screen (docs/research/post_game_screen.md §7, first slice of the Face-Off).
  *
- * v1: spawns a detached copy of the winning player's model (team tint/outline
- * resolve locally per viewer, so it's automatically personalized) holding their
- * last-known weapon, placed in front of the local camera facing it. Disposed
+ * Spawns a detached copy of the winning player's model (team tint/outline resolve
+ * locally per viewer, so it's automatically personalized) holding their last-known
+ * weapon, dropped at a clear world spot in front of the frozen camera. Disposed
  * when the next warmup begins.
  *
- * The placement is deliberately camera-relative (not a fixed map spot) so it
- * works on every map with zero authoring; the background-camera work (§8) will
- * replace this with the diorama/vista composition later.
+ * A dedicated "diorama" camera then frames the winner as a centered, straight-on
+ * hero shot composed relative to the MODEL (not the death spot), so the shot looks
+ * the same every match regardless of where the fight ended. The map remains the
+ * backdrop; a fuller vista/backdrop composition (§8) is still future work.
  */
 
 import type { Camera } from "@babylonjs/core/Cameras/camera";
@@ -20,20 +21,36 @@ import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
 /** Distance in front of the camera to place the model (world/Quake units).
  *  200u frames the full body with headroom (150 filled the screen edge-to-edge). */
 const SHOWCASE_DISTANCE = 200;
-/** Fixed screen anchor for the model's origin (feet), as a fraction of the
- *  render viewport — so the winner always lands in the SAME on-screen spot
- *  regardless of window size, aspect, or where the camera happened to face at
- *  match end (#5). X from the left, Y from the top. The post-game board sits on
- *  the right, so the model anchors into the padded upper-left. Tune to taste. */
-const SHOWCASE_SCREEN_X = 0.22;
-const SHOWCASE_SCREEN_Y = 0.72;
+/** Screen anchor for WHERE IN THE WORLD to drop the model — a fraction of the
+ *  render viewport traced from the frozen camera. Centered/straight-ahead now
+ *  gives the most open spot; the dedicated diorama camera (below) does the actual
+ *  on-screen framing, so this only picks a clear world position. */
+const SHOWCASE_SCREEN_X = 0.5;
+const SHOWCASE_SCREEN_Y = 0.55;
 /** Never place the model closer than this (nose-to-wall endings). */
 const SHOWCASE_MIN_DISTANCE = 60;
 /** Keep the model this far in front of a blocking wall. */
 const SHOWCASE_WALL_PADDING = 24;
 
+// ── Diorama camera ────────────────────────────────────────────────────
+// A dedicated camera frames the winner as a CENTERED, straight-on hero shot,
+// placed relative to the MODEL (not the death spot) so the composition is
+// identical every match — no more "model in a weird map position" (#5). It sits
+// in front of the model, where the player was standing (clear space), so it
+// never buries itself in a wall. Tune these live in playtest.
+/** Camera distance from the model, in front of it (clamped to the clear space). */
+const DIORAMA_DISTANCE = 175;
+/** Camera height above the model's origin. */
+const DIORAMA_EYE_HEIGHT = 40;
+/** Look-at height above the model's origin (torso). Equal-ish to eye = level shot. */
+const DIORAMA_LOOK_HEIGHT = 36;
+/** Vertical field of view (radians). */
+const DIORAMA_FOV = 0.8;
+
 let currentModel: PlayerModelInstance | null = null;
 let generation = 0;
+let dioramaCamera: Camera | null = null;
+let savedActiveCameras: Camera[] | null = null;
 
 /**
  * Show the winner's model in front of the local camera. Safe to call with
@@ -135,14 +152,38 @@ export async function startPostGameShowcase(
     child.isVisible = true;
   }
 
-  // When a wall forced the model closer than the nominal distance, scale it
-  // down proportionally — otherwise a close model fills the whole screen.
-  if (distance < SHOWCASE_DISTANCE) {
-    const shrink = Math.max(0.45, distance / SHOWCASE_DISTANCE);
-    model.anchor.scaling.setAll(shrink);
-    console.log(`[PostGameShowcase] close placement — model scaled to ${shrink.toFixed(2)}`);
+  // Dedicated diorama camera: a centered, straight-on hero shot framed relative
+  // to the MODEL, so the winner is composed identically every match regardless of
+  // where the fight ended. It sits in front of the model (where the player was
+  // standing = clear space), clamped to the available distance so it can't clip a
+  // wall behind it. Swapping scene.activeCameras also drops the viewmodel overlay,
+  // so the gun isn't floating in the hero shot.
+  const { FreeCamera } = await import("@babylonjs/core/Cameras/freeCamera");
+  if (gen !== generation) {
+    disposeModel(model);
+    currentModel = null;
+    return;
   }
-  console.log("[PostGameShowcase] winner model spawned");
+  const faceX = cam.position.x - x;
+  const faceZ = cam.position.z - z;
+  const faceLen = Math.hypot(faceX, faceZ) || 1;
+  const camDist = Math.min(DIORAMA_DISTANCE, distance);
+  const dioramaPos = new Vector3(
+    x + (faceX / faceLen) * camDist,
+    y + DIORAMA_EYE_HEIGHT,
+    z + (faceZ / faceLen) * camDist,
+  );
+  const diorama = new FreeCamera("postgame_diorama", dioramaPos, scene);
+  diorama.setTarget(new Vector3(x, y + DIORAMA_LOOK_HEIGHT, z));
+  diorama.fov = DIORAMA_FOV;
+  diorama.minZ = 1;
+  diorama.maxZ = 10000;
+  diorama.inputs.clear();
+  savedActiveCameras = scene.activeCameras ? [...scene.activeCameras] : null;
+  scene.activeCameras = [diorama];
+  scene.activeCamera = diorama;
+  dioramaCamera = diorama;
+  console.log("[PostGameShowcase] winner model spawned + diorama camera framed");
 
   if (weaponId) {
     renderer
@@ -171,10 +212,30 @@ export async function startPostGameShowcase(
 /** Remove the showcase model (next warmup / disconnect). Idempotent. */
 export function stopPostGameShowcase(): void {
   generation++;
+  removeDioramaCamera();
   if (currentModel) {
     disposeModel(currentModel);
     currentModel = null;
   }
+}
+
+/** Restore the gameplay cameras and tear down the diorama camera. Idempotent. */
+function removeDioramaCamera(): void {
+  if (!dioramaCamera) return;
+  const scene = dioramaCamera.getScene();
+  try {
+    // Restore the [main, weapon] pair BEFORE disposing so the scene always has a
+    // valid active camera (disposing the current active camera mid-render throws).
+    if (savedActiveCameras && savedActiveCameras.length > 0) {
+      scene.activeCameras = savedActiveCameras;
+      scene.activeCamera = savedActiveCameras[0];
+    }
+  } catch {
+    /* scene may be tearing down */
+  }
+  dioramaCamera.dispose();
+  dioramaCamera = null;
+  savedActiveCameras = null;
 }
 
 function disposeModel(model: PlayerModelInstance): void {
