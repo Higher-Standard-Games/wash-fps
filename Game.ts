@@ -6,9 +6,9 @@
  * In multiplayer, uses NetworkGameHost to connect to a dedicated server.
  */
 
-import { Vector3 } from "@babylonjs/core";
 import { EngineStore } from "@babylonjs/core/Engines/engineStore";
 import type { PointLight } from "@babylonjs/core/Lights/pointLight";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { AudioManager } from "../../engine/AudioManager";
 import { CameraSystem } from "../../engine/camera";
 import { setGameFrameHook } from "../../engine/camera/GameFrameHook";

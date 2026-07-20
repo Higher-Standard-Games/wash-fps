@@ -10,8 +10,9 @@
  * - HUD updates (combat state, damage numbers, kill feed)
  */
 
-import { Color3, Vector3 } from "@babylonjs/core";
 import { PointLight } from "@babylonjs/core/Lights/pointLight";
+import { Color3 } from "@babylonjs/core/Maths/math.color";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { CameraSystem } from "../../../engine/camera";
 import { NetGraph } from "../../../engine/network/client/NetGraph";
 import type { EntitySnapshot, SnapshotBuffer } from "../../../engine/network/client/SnapshotBuffer";

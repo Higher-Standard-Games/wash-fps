@@ -182,14 +182,14 @@ class DroppedWeaponVisual {
               }
             }
 
-            const { SceneLoader } = await import("@babylonjs/core/Loading/sceneLoader");
+            const { ImportMeshAsync } = await import("@babylonjs/core/Loading/sceneLoader");
             for (const barrelDef of barrelDefs) {
               if (this.disposed) break;
               try {
                 const lastSlash = barrelDef.modelPath.lastIndexOf("/");
                 const dir = barrelDef.modelPath.substring(0, lastSlash + 1);
                 const file = barrelDef.modelPath.substring(lastSlash + 1);
-                const barrelResult = await SceneLoader.ImportMeshAsync("", dir, file, this.scene);
+                const barrelResult = await ImportMeshAsync(file, this.scene, { rootUrl: dir });
                 if (this.disposed) {
                   barrelResult.meshes[0]?.dispose(false, false);
                   break;

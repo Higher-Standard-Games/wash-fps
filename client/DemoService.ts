@@ -11,9 +11,9 @@
  *   4. `demoplay cinematic <min>` → loadAndPlayCinematic(viewer, cameraSystem, minutes)
  */
 
-import { Color3, Vector3 } from "@babylonjs/core";
-import { isClientKey } from "../ClientEntityKey";
 import { PointLight } from "@babylonjs/core/Lights/pointLight";
+import { Color3 } from "@babylonjs/core/Maths/math.color";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import { SnapshotBuffer } from "../../../engine/network/client/SnapshotBuffer";
 import type { GameState } from "../../../engine/network/core/GameState";
@@ -33,6 +33,7 @@ import type { DemoInfo } from "../../../lobby/types";
 import { DemoAnalyzer } from "../../../shared/demo/DemoAnalyzer";
 import { normalizeDemoMapName } from "../../../shared/demo/DemoMapName";
 import { DemoReader } from "../../../shared/demo/DemoReader";
+import { isClientKey } from "../ClientEntityKey";
 import { FPSPickup } from "../world/FPSPickup";
 import { CinematicDemoPlayer } from "./CinematicDemoPlayer";
 import type { CinematicHUD } from "./CinematicHUD";
