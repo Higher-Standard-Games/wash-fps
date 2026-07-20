@@ -25,6 +25,7 @@ import type {
   MovementProfile as IMovementProfile,
   MovementInput,
 } from "../../../engine/network/systems/movement/MovementProfile";
+import type { TriggerVolume } from "../../../shared/bsp/TriggerTable";
 import {
   airAccelerateForward,
   applyFriction,
@@ -32,7 +33,6 @@ import {
   normalAirAccelerate,
   strafeBunnyAccelerate,
 } from "./Acceleration";
-import type { TriggerVolume } from "../../../shared/bsp/TriggerTable";
 import { LedgeGrab } from "./LedgeGrab";
 import type { AdvancedMovementResult, MovementConfig } from "./MovementConfig";
 import { Slide } from "./Slide";
@@ -216,6 +216,18 @@ export class MovementProfile implements IMovementProfile {
       gravity: this.config.gravity,
       jumpVelocity: this.config.jumpVelocity,
     };
+  }
+
+  /**
+   * Stable serialization of every movement rule consumed by deterministic
+   * offline analyzers and versioned caches. Keep callers from duplicating a
+   * partial list of defaults that silently misses a physics-affecting field.
+   */
+  getDeterminismFingerprint(): string {
+    return Object.entries(this.config)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, value]) => `${key}=${value}`)
+      .join(",");
   }
 
   /**
