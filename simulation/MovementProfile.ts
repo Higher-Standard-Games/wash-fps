@@ -47,6 +47,49 @@ interface JumppadVolume {
   dest: Vec3;
 }
 
+/** Authoritative baseline used by simulation and offline bot planning. */
+export const DEFAULT_FPS_MOVEMENT_CONFIG: Readonly<MovementConfig> = {
+  maxSpeed: 280,
+  runSpeed: 400,
+  groundAcceleration: 10,
+  airAcceleration: 1,
+  maxAirSpeed: 30,
+  friction: 6,
+  stopSpeed: 100,
+  gravity: 1000,
+  fallingGravityMultiplier: 1.25,
+  jumpVelocity: 320,
+  crouchMultiplier: 0.5,
+  stepHeight: 18,
+  topSpeed: 1000,
+  airControl: 150,
+  airControlPower: 50,
+  wallJumpEnabled: true,
+  wallJumpHeight: 280,
+  wallJumpBounce: 1.2,
+  wallJumpReach: 20,
+  wallJumpCooldown: 1.0,
+  wallJumpMinHeight: 32,
+  wallJumpChargeTime: 0.2,
+  wallJumpBoost: 1.5,
+  ledgeGrabEnabled: true,
+  ledgeReach: 32,
+  ledgeHeight: 64,
+  ledgeMinFall: -50,
+  ledgeTimeout: 2.0,
+  ledgePullTime: 0.5,
+  slideEnabled: true,
+  slideDuration: 800,
+  slideSpeedMultiplier: 1.4,
+  slideDecay: 0.5,
+  slideJumpBoost: 1.3,
+  slideMinSpeed: 375,
+  slideFriction: 0.1,
+  slideCooldown: 1500,
+  teleportSpeedMode: 1,
+  teleportExitSpeed: 400,
+};
+
 export class MovementProfile implements IMovementProfile {
   private config: MovementConfig;
 
@@ -151,55 +194,7 @@ export class MovementProfile implements IMovementProfile {
 
   constructor(config?: Partial<MovementConfig>) {
     this.config = {
-      // Core movement (defaults from MovementVars)
-      maxSpeed: 280,
-      runSpeed: 400,
-      groundAcceleration: 10,
-      airAcceleration: 1,
-      maxAirSpeed: 30,
-      friction: 6,
-      stopSpeed: 100,
-      gravity: 1000,
-      fallingGravityMultiplier: 1.25,
-      jumpVelocity: 320,
-      crouchMultiplier: 0.5,
-      stepHeight: 18,
-      topSpeed: 1000,
-      airControl: 150,
-      airControlPower: 50,
-
-      // Wall jump
-      wallJumpEnabled: true,
-      wallJumpHeight: 280,
-      wallJumpBounce: 1.2,
-      wallJumpReach: 20,
-      wallJumpCooldown: 1.0,
-      wallJumpMinHeight: 32,
-      wallJumpChargeTime: 0.2,
-      wallJumpBoost: 1.5,
-
-      // Ledge grab
-      ledgeGrabEnabled: true,
-      ledgeReach: 32,
-      ledgeHeight: 64,
-      ledgeMinFall: -50,
-      ledgeTimeout: 2.0,
-      ledgePullTime: 0.5,
-
-      // Crouchslide
-      slideEnabled: true,
-      slideDuration: 800,
-      slideSpeedMultiplier: 1.4,
-      slideDecay: 0.5,
-      slideJumpBoost: 1.3,
-      slideMinSpeed: 375,
-      slideFriction: 0.1,
-      slideCooldown: 1500,
-
-      // Teleporters
-      teleportSpeedMode: 1, // redirect FULL momentum magnitude along the exit yaw (Warsow)
-      teleportExitSpeed: 400, // Q3 exit speed, used when teleportSpeedMode = 0
-
+      ...DEFAULT_FPS_MOVEMENT_CONFIG,
       ...config,
     };
   }
