@@ -16,7 +16,7 @@
 import type { ProceduralPickupRecipe } from "./types";
 
 /** Cache/recipe revision — bump to invalidate scene-cached prototype geometry. */
-export const PROCEDURAL_RECIPE_REVISION = "v3";
+export const PROCEDURAL_RECIPE_REVISION = "v4";
 
 /**
  * Global size multiplier applied on top of each recipe's per-tier `scale`

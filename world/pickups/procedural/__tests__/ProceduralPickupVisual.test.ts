@@ -87,6 +87,25 @@ describe("ProceduralPickupVisual", () => {
     expect(cloneMeshes()).toHaveLength(0);
   });
 
+  it("builds the v4 tier shapes: fresnel shell for health, chevrons by armor tier", () => {
+    const health = getProceduralPickupRecipe("health_large");
+    const red = getProceduralPickupRecipe("armor_ra");
+    if (!health || !red) throw new Error("recipe missing");
+
+    const hv = new ProceduralPickupVisual(scene, health, new Vector3(0, 50, 0), false, 1);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_shell_"))).toBe(true);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_cross_"))).toBe(true);
+
+    const av = new ProceduralPickupVisual(scene, red, new Vector3(100, 50, 0), false, 2);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_shield_"))).toBe(true);
+    // Red armor = 4 glowing chevron bars on the shield face.
+    expect(scene.meshes.filter((m) => m.name.startsWith("pp_chev_")).length).toBe(4);
+
+    hv.dispose();
+    av.dispose();
+    expect(cloneMeshes()).toHaveLength(0);
+  });
+
   it("never moves the authoritative anchor while animating", () => {
     const recipe = getProceduralPickupRecipe("health_mega");
     if (!recipe) throw new Error("recipe missing");

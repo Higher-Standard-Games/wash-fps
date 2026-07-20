@@ -2,13 +2,15 @@
  * ProceduralPickupVisual — the runtime, per-pickup procedural sculpture
  * (docs/research/PROCEDURAL_ITEMS.md §"Cosmetic State Machine").
  *
- * Art direction v2 (clean, bright, modern sci-fi):
- *  - Health: a bright glowing core with a slow scrolling energy gradient
- *    (`color`→`accent`) and a small readable cross emblem; higher tiers add a
- *    thin ring and orbiting satellites. No floor pedestal.
- *  - Armor: clean hexagonal shield plates, fanned around a small bright core.
- *    No rings, no floor.
- * The collection burst (ring effect) is kept — the floor pedestal is not.
+ * Art direction v4 (fresnel + edge-lit, per playtest #3):
+ *  - Health: a fresnel energy shell — nearly clear face-on, glowing hot at the
+ *    silhouette rim, with a slow color↔accent flow (25 HP yellow, 50 HP
+ *    orange↔yellow) — around a dark faceted cross whose EDGES glow (Babylon
+ *    edge rendering). Depth instead of a flat ball.
+ *  - Armor: ONE solid beveled hex shield (dark metal faces, glowing hex seams
+ *    via edge rendering) with 1–4 glowing chevron bars inlaid on its face for
+ *    tier. Shard = a broken triangular fragment, tilted.
+ * The collection burst transient is kept; there is no floor pedestal.
  *
  * Implements the engine `PickupVisual` contract: a fixed anchor + an animated
  * cosmetic root, assembled by cloning scene-cached prototype geometry and driven
@@ -17,22 +19,19 @@
  * and the structural material are cache-owned and outlive it.
  */
 
+// Side effect: registers AbstractMesh.enableEdgesRendering.
+import "@babylonjs/core/Rendering/edgesRenderer";
 import type { Material } from "@babylonjs/core/Materials/material";
 import type { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
-import type { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture";
-import { Color3 } from "@babylonjs/core/Maths/math.color";
+import { Color3, Color4 } from "@babylonjs/core/Maths/math.color";
 import type { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Scene } from "@babylonjs/core/scene";
 import type { PickupVisual } from "../../../../../engine/world/PickupVisual";
 import { getPrototypeSet } from "./ProceduralPickupAssetCache";
-import {
-  baseEmissive,
-  cloneEnergyMaterial,
-  createGradientCoreMaterial,
-  gradientTexture,
-} from "./ProceduralPickupMaterials";
+import { chevronFaceOffset, chevronSpacing } from "./ProceduralPickupGeometry";
+import { baseEmissive, cloneEnergyMaterial, createFresnelShellMaterial } from "./ProceduralPickupMaterials";
 import { PROCEDURAL_GLOBAL_SCALE } from "./ProceduralPickupRecipes";
 import { ProceduralPickupTransient } from "./ProceduralPickupTransient";
 import type { ProceduralPickupRecipe } from "./types";
@@ -44,40 +43,14 @@ const DEG2RAD = Math.PI / 180;
 // back down to the floor to rise as a column.
 const BEACON_HEIGHT = 90;
 const BEACON_BASE_BELOW = 12;
-/** Gradient U-scroll speed (slow flow). */
-const SCROLL_SPEED = 0.14;
 /** Extra rest height above the anchor so the item floats clearly off the floor. */
 const HOVER_LIFT = 9;
 /** Amplifies each recipe's bob so the up/down float is clearly visible. */
 const BOB_GAIN = 2.6;
-
-/** Local (x, y) offsets tiling `n` shield plates into an overlapping cluster. */
-function shieldLayout(n: number, span: number): Array<[number, number]> {
-  switch (n) {
-    case 1:
-      return [[0, 0]];
-    case 2:
-      return [
-        [0, span * 0.72],
-        [0, -span * 0.72],
-      ];
-    case 4:
-      return [
-        [-span, span],
-        [span, span],
-        [-span, -span],
-        [span, -span],
-      ];
-    default: {
-      const out: Array<[number, number]> = [];
-      for (let i = 0; i < n; i++) {
-        const a = (i / n) * TAU;
-        out.push([Math.cos(a) * span, Math.sin(a) * span]);
-      }
-      return out;
-    }
-  }
-}
+/** Base glowing edge-line width (multiplied by the effective item scale). */
+const EDGE_WIDTH = 6;
+/** Speed of the shell's color↔accent flow (cycles/sec — slow). */
+const COLOR_FLOW_SPEED = 0.22;
 
 interface RingEl {
   pivot: TransformNode;
@@ -103,8 +76,9 @@ export class ProceduralPickupVisual implements PickupVisual {
   private readonly matEnergy: StandardMaterial;
   private readonly matAccent: StandardMaterial;
   private readonly matSoft: StandardMaterial;
-  private readonly matGradient: StandardMaterial | null = null;
-  private readonly gradTex: RawTexture | null = null;
+  private readonly matShell: StandardMaterial | null = null;
+  private readonly flowA: Color3;
+  private readonly flowB: Color3;
   private readonly pulseTargets: PulseTarget[] = [];
 
   private readonly rings: RingEl[] = [];
@@ -122,6 +96,8 @@ export class ProceduralPickupVisual implements PickupVisual {
     this.recipe = recipe;
     this.phase = (seed % 997) * 0.618; // golden-ratio spread so items desync
     this.assembleDuration = recipe.highTier ? 0.7 : 0.45;
+    this.flowA = new Color3(recipe.color.r, recipe.color.g, recipe.color.b);
+    this.flowB = new Color3(recipe.accentColor.r, recipe.accentColor.g, recipe.accentColor.b);
 
     const set = getPrototypeSet(scene, recipe);
     this.matEnergy = cloneEnergyMaterial(set.energyCore, `pp_energy_${recipe.id}_${seed}`);
@@ -137,43 +113,30 @@ export class ProceduralPickupVisual implements PickupVisual {
     this.cosmetic.parent = this.root;
 
     const s = recipe.scale * PROCEDURAL_GLOBAL_SCALE;
+    const edgeColor = new Color4(this.flowB.r, this.flowB.g, this.flowB.b, 1);
 
     if (recipe.family === "health") {
-      // Bright scrolling-gradient orb + a small readable cross emblem.
-      this.matGradient = createGradientCoreMaterial(
-        scene,
-        `pp_grad_${recipe.id}_${seed}`,
-        recipe.color,
-        recipe.accentColor,
-      );
-      this.gradTex = gradientTexture(this.matGradient);
-      this.track(this.matGradient);
-      this.inst(set.core, this.cosmetic, this.matGradient, "core");
-      this.inst(set.cross, this.cosmetic, this.matEnergy, "cross");
+      // Dark faceted cross with glowing edge lines, inside a fresnel shell that
+      // rims at the silhouette and stays near-clear face-on (so the cross reads).
+      const cross = this.inst(set.cross, this.cosmetic, set.structural, "cross");
+      if (cross) this.lightEdges(cross, edgeColor, s);
+      this.matShell = createFresnelShellMaterial(scene, `pp_shell_${recipe.id}_${seed}`, recipe.color);
+      this.inst(set.core, this.cosmetic, this.matShell, "shell");
     } else {
-      // Technical shield: dark metallic hex plates each backed by a glowing energy
-      // rim, tiled into an overlapping cluster that grows with tier. Reads as
-      // layered armor plating, not a glowing blob. A small bright core sits behind.
-      const core = this.inst(set.hexCore, this.cosmetic, this.matEnergy, "core");
-      if (core) core.position.z = -1.6 * s;
-      const n = recipe.plateCount;
-      const layout = shieldLayout(n, 6.4 * s);
-      for (let i = 0; i < n; i++) {
-        const [px, py] = layout[i];
-        // Glowing energy rim (full size, at the back of the plate).
-        const rim = this.inst(set.plate, this.cosmetic, this.matEnergy, `plate_rim_${i}`);
-        if (rim) rim.position.set(px, py, 0);
-        // Dark structural body (smaller, toward the viewer) — leaves the rim as a
-        // bright edge glow, like a tech shield plate.
-        const body = this.inst(set.plate, this.cosmetic, set.structural, `plate_body_${i}`);
-        if (body) {
-          body.position.set(px, py, 2.2 * s);
-          body.scaling.setAll(0.82);
-        }
-        // Shard: a single tilted plate reads as a broken fragment.
-        if (recipe.kind === "shard") {
-          if (rim) rim.rotation.z = 0.5;
-          if (body) body.rotation.z = 0.5;
+      // One solid beveled shield: dark metal faces, glowing hex seams, and
+      // glowing chevron bars on the face for tier. Shard = tilted fragment.
+      const shield = this.inst(set.shield, this.cosmetic, set.structural, "shield");
+      if (shield) {
+        this.lightEdges(shield, edgeColor, s);
+        if (recipe.kind === "shard") shield.rotation.z = 0.45;
+      }
+      if (recipe.kind !== "shard") {
+        const n = recipe.plateCount;
+        const spacing = chevronSpacing(recipe);
+        const zFace = chevronFaceOffset(recipe);
+        for (let i = 0; i < n; i++) {
+          const chev = this.inst(set.chevron, this.cosmetic, this.matEnergy, `chev_${i}`);
+          if (chev) chev.position.set(0, (i - (n - 1) / 2) * spacing, zFace);
         }
       }
     }
@@ -216,6 +179,13 @@ export class ProceduralPickupVisual implements PickupVisual {
 
   private track(mat: StandardMaterial): void {
     this.pulseTargets.push({ mat, base: baseEmissive(mat).clone() });
+  }
+
+  /** Glowing edge lines on a dark faceted mesh — the edge-lit hologram look. */
+  private lightEdges(mesh: Mesh, color: Color4, scale: number): void {
+    mesh.enableEdgesRendering();
+    mesh.edgesColor = color;
+    mesh.edgesWidth = EDGE_WIDTH * scale;
   }
 
   /** Clone a prototype into `parent` with a material; enabled + visible. */
@@ -318,8 +288,16 @@ export class ProceduralPickupVisual implements PickupVisual {
       target.mat.emissiveColor.set(target.base.r * pulse, target.base.g * pulse, target.base.b * pulse);
     }
 
-    // Scrolling energy gradient (health core).
-    if (this.gradTex) this.gradTex.uOffset = t * SCROLL_SPEED;
+    // Shell color flow: slow color↔accent lerp × pulse (the legible replacement
+    // for the old UV-scrolled gradient — 50 HP visibly flows orange↔yellow).
+    if (this.matShell) {
+      const f = 0.5 + 0.5 * Math.sin(t * COLOR_FLOW_SPEED * TAU);
+      this.matShell.emissiveColor.set(
+        (this.flowA.r + (this.flowB.r - this.flowA.r) * f) * pulse,
+        (this.flowA.g + (this.flowB.g - this.flowA.g) * f) * pulse,
+        (this.flowA.b + (this.flowB.b - this.flowA.b) * f) * pulse,
+      );
+    }
 
     // Rings + satellites.
     for (const ring of this.rings) ring.pivot.rotation.y = t * ring.speed;
@@ -337,7 +315,6 @@ export class ProceduralPickupVisual implements PickupVisual {
     this.matEnergy.dispose();
     this.matAccent.dispose();
     this.matSoft.dispose();
-    // The gradient material owns its generated texture — force-dispose it.
-    this.matGradient?.dispose(false, true);
+    this.matShell?.dispose();
   }
 }

@@ -12,9 +12,8 @@
  *    animate independently → owned by the individual visual.
  */
 
+import { FresnelParameters } from "@babylonjs/core/Materials/fresnelParameters";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
-import { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture";
-import { Texture } from "@babylonjs/core/Materials/Textures/texture";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import type { Scene } from "@babylonjs/core/scene";
 import type { RGB } from "./types";
@@ -26,10 +25,6 @@ function toColor3(c: RGB): Color3 {
 /** Emissive scale for cores/plates. ~1.0 keeps colors from clipping to white
  *  under bloom (1.4 blew the health orb out to a white ball in playtest). */
 export const ENERGY_BOOST = 1.0;
-
-function clampByte(v: number): number {
-  return Math.max(0, Math.min(255, Math.round(v * 255)));
-}
 
 /**
  * Dark structural material (shared, immutable). Lit by the scene so the relic
@@ -95,59 +90,40 @@ export function baseAlpha(mat: StandardMaterial): number {
 }
 
 /**
- * A seamless 1D gradient texture blending `a`↔`b`↔`a`, so scrolling its U offset
- * loops smoothly. Generated in memory (no external asset), works under NullEngine.
+ * Per-pickup fresnel energy-shell material (health): the orb is nearly clear
+ * where it faces the camera and glows hot at its silhouette edge, so it reads
+ * as a contained energy field with real depth instead of a flat ball — and the
+ * emblem inside stays visible through the center. The caller animates
+ * `emissiveColor` (color↔accent flow × pulse); fresnel shapes WHERE that
+ * emissive shows. Private per pickup — dispose with the visual.
  */
-function createGradientTexture(scene: Scene, name: string, a: RGB, b: RGB, size = 64): RawTexture {
-  const data = new Uint8Array(size * 4);
-  for (let i = 0; i < size; i++) {
-    const t = (Math.sin((i / size) * Math.PI * 2) + 1) / 2; // 0→1→0 seamless
-    data[i * 4] = clampByte(a.r + (b.r - a.r) * t);
-    data[i * 4 + 1] = clampByte(a.g + (b.g - a.g) * t);
-    data[i * 4 + 2] = clampByte(a.b + (b.b - a.b) * t);
-    data[i * 4 + 3] = 255;
-  }
-  const tex = RawTexture.CreateRGBATexture(data, size, 1, scene, false, false, Texture.BILINEAR_SAMPLINGMODE);
-  tex.name = `${name}_grad`;
-  tex.wrapU = Texture.WRAP_ADDRESSMODE;
-  tex.wrapV = Texture.CLAMP_ADDRESSMODE;
-  return tex;
-}
-
-/**
- * Per-pickup scrolling-gradient core material (health): a bright self-lit orb
- * whose emissive flows `color`→`accent` as its U offset is scrolled each frame.
- * Slightly translucent so the cross emblem reads through it. Owns its texture —
- * dispose with `mat.dispose(false, true)`.
- */
-export function createGradientCoreMaterial(
-  scene: Scene,
-  name: string,
-  color: RGB,
-  accent: RGB,
-  alpha = 0.78,
-  boost = 0.9,
-): StandardMaterial {
-  const tex = createGradientTexture(scene, name, color, accent);
+export function createFresnelShellMaterial(scene: Scene, name: string, color: RGB): StandardMaterial {
   const mat = new StandardMaterial(name, scene);
   mat.disableLighting = true;
   mat.diffuseColor = Color3.Black();
   mat.specularColor = Color3.Black();
-  mat.emissiveColor = new Color3(boost, boost, boost); // white × boost, modulated by texture
-  mat.emissiveTexture = tex;
-  mat.alpha = alpha;
-  if (alpha < 1) {
-    mat.transparencyMode = 2; // ALPHABLEND
-    mat.backFaceCulling = false;
-    mat.separateCullingPass = true;
-  }
-  (mat as unknown as { _baseEmissive: Color3 })._baseEmissive = mat.emissiveColor.clone();
-  (mat as unknown as { _baseAlpha: number })._baseAlpha = alpha;
-  (mat as unknown as { _gradTex: RawTexture })._gradTex = tex;
-  return mat;
-}
+  mat.emissiveColor = toColor3(color).scale(ENERGY_BOOST);
 
-/** The scrolling gradient texture on a gradient-core material (for U scrolling). */
-export function gradientTexture(mat: StandardMaterial): RawTexture | null {
-  return (mat as unknown as { _gradTex?: RawTexture })._gradTex ?? null;
+  // Emissive: full strength at grazing angles (left), suppressed face-on (right).
+  const emissiveFresnel = new FresnelParameters();
+  emissiveFresnel.leftColor = Color3.White();
+  emissiveFresnel.rightColor = new Color3(0.06, 0.06, 0.06);
+  emissiveFresnel.bias = 0.18;
+  emissiveFresnel.power = 2.6;
+  mat.emissiveFresnelParameters = emissiveFresnel;
+
+  // Opacity: solid rim, near-transparent center (luminance-driven).
+  const opacityFresnel = new FresnelParameters();
+  opacityFresnel.leftColor = Color3.White();
+  opacityFresnel.rightColor = new Color3(0.12, 0.12, 0.12);
+  opacityFresnel.bias = 0.15;
+  opacityFresnel.power = 2.0;
+  mat.opacityFresnelParameters = opacityFresnel;
+
+  mat.alpha = 0.95;
+  mat.transparencyMode = 2; // ALPHABLEND
+  mat.backFaceCulling = true; // front hemisphere only — back faces would double the rim
+  (mat as unknown as { _baseEmissive: Color3 })._baseEmissive = mat.emissiveColor.clone();
+  (mat as unknown as { _baseAlpha: number })._baseAlpha = mat.alpha;
+  return mat;
 }

@@ -28,11 +28,9 @@ export interface PrototypeSet {
   readonly recipeId: string;
   cross: Mesh | null;
   core: Mesh | null;
-  hexCore: Mesh | null;
+  shield: Mesh | null;
+  chevron: Mesh | null;
   ring: Mesh | null;
-  plate: Mesh | null;
-  petal: Mesh | null;
-  mote: Mesh | null;
   satellite: Mesh | null;
   beacon: Mesh | null;
   /** Dark, lit relic material (shared, immutable). */
@@ -68,11 +66,9 @@ function buildPrototypeSet(scene: Scene, recipe: ProceduralPickupRecipe): Protot
     recipeId: recipe.id,
     cross: recipe.family === "health" ? Geo.buildCrossProto(scene, recipe) : null,
     core: recipe.family === "health" ? Geo.buildCoreProto(scene, recipe) : null,
-    hexCore: recipe.family === "armor" ? Geo.buildHexCoreProto(scene, recipe) : null,
+    shield: recipe.family === "armor" ? Geo.buildShieldProto(scene, recipe) : null,
+    chevron: recipe.family === "armor" && recipe.plateCount > 0 ? Geo.buildChevronProto(scene, recipe) : null,
     ring: recipe.ringCount > 0 ? Geo.buildRingProto(scene, recipe) : null,
-    plate: recipe.plateCount > 0 ? Geo.buildPlateProto(scene, recipe) : null,
-    petal: recipe.shellPieces > 0 ? Geo.buildShellPetalProto(scene, recipe) : null,
-    mote: recipe.moteCount > 0 ? Geo.buildMoteProto(scene, recipe) : null,
     satellite: recipe.satelliteCount > 0 ? Geo.buildSatelliteProto(scene, recipe) : null,
     beacon: recipe.beaconStrength > 0 ? Geo.buildBeaconProto(scene, recipe) : null,
     structural,
@@ -80,17 +76,7 @@ function buildPrototypeSet(scene: Scene, recipe: ProceduralPickupRecipe): Protot
     energyAccent,
     energySoft,
     dispose(): void {
-      for (const m of [
-        this.cross,
-        this.core,
-        this.hexCore,
-        this.ring,
-        this.plate,
-        this.petal,
-        this.mote,
-        this.satellite,
-        this.beacon,
-      ]) {
+      for (const m of [this.cross, this.core, this.shield, this.chevron, this.ring, this.satellite, this.beacon]) {
         m?.dispose();
       }
       this.structural.dispose();
