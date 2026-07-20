@@ -5,6 +5,7 @@ import { Color3 } from "@babylonjs/core/Maths/math.color";
 import type { FPSController } from "../../engine/camera/controllers/FPSController";
 import { WeaponViewManager } from "../../engine/weapon/WeaponViewManager";
 import type { WeaponDef } from "../../shared/entities";
+import { MatchStateManager } from "./client/MatchStateManager";
 import { FPSPickup } from "./world/FPSPickup";
 import { InventoryManager } from "./world/InventoryManager";
 
@@ -152,6 +153,16 @@ export class FPSPlayer {
   }
 
   private updateFiring(_deltaTime: number): void {
+    // Post-game freeze: the fight is over on the end screen. `updateFiring` reads
+    // the controller directly (not the server input command, which is already
+    // frozen), so without this the held mouse still charges/fires the beam and
+    // swings melee locally. Only chat + "leave lobby" stay live in PostGame.
+    if (MatchStateManager.getInstance().isPostGame()) {
+      this.stopBeamPresentation();
+      this.fireReleased = true;
+      return;
+    }
+
     // Block firing during weapon switch animation
     const weaponMgr = WeaponViewManager.getInstance();
     if (weaponMgr.isSwitching()) return;

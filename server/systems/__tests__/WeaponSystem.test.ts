@@ -108,6 +108,45 @@ describe("WeaponSystem — F2 hitscan vertical aim", () => {
   });
 });
 
+describe("WeaponSystem — hitscan world occlusion (no shooting through floors/walls)", () => {
+  // A collision-world stub that reports a solid surface on the ray at a fixed
+  // distance ahead (z), mirroring a floor/wall between shooter and target.
+  const wallAt = (z: number) => ({
+    trace: () => ({
+      hit: true,
+      fraction: 0.5,
+      hitPoint: { x: 0, y: DEFAULT_VIEWHEIGHT, z },
+      normal: { x: 0, y: 0, z: -1 },
+    }),
+  });
+
+  it("does NOT hit a target that stands behind world geometry", () => {
+    const sys = new WeaponSystem();
+    sys.initializeWeaponFromLoadout(1 as never, mgLoadout as never);
+    sys.setCollisionWorld(wallAt(500) as never); // wall at z=500, target at z=1000
+
+    const shooter = makeShooter(0, 0);
+    const target = makeTargetAlongRay(0, 0, 1000);
+
+    sys.update(makeState([shooter, target]) as never, 1 / 125, 100 as never);
+
+    expect(sys.getPendingDamage()).toHaveLength(0);
+  });
+
+  it("still hits a target when the world impact is beyond it (clear line of sight)", () => {
+    const sys = new WeaponSystem();
+    sys.initializeWeaponFromLoadout(1 as never, mgLoadout as never);
+    sys.setCollisionWorld(wallAt(1500) as never); // wall past the target at z=1000
+
+    const shooter = makeShooter(0, 0);
+    const target = makeTargetAlongRay(0, 0, 1000);
+
+    sys.update(makeState([shooter, target]) as never, 1 / 125, 100 as never);
+
+    expect(sys.getPendingDamage().map((d) => d.victimId)).toContain(2);
+  });
+});
+
 describe("WeaponSystem - F3 reload models", () => {
   it("clip weapons deduct from clip and manual reload moves reserve into the magazine", () => {
     const sys = new WeaponSystem();

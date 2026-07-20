@@ -181,12 +181,18 @@ export class FPSHud {
         this.show();
       }
 
-      // Freeze/unfreeze mouse-look on the active FPS camera controller.
+      // Freeze/unfreeze mouse-look AND all gameplay input (movement/firing) on the
+      // active FPS camera controller. The controller predicts movement and fires
+      // straight from raw input, bypassing the server gate and the sendInput strip,
+      // so without the gameplay freeze the player keeps walking/swinging on the end
+      // screen. Chat + leave-lobby stay live (UI layer, not the controller).
       import("../../../engine/camera/CameraSystem")
         .then(({ CameraSystem }) => {
           const controller = CameraSystem.getInstance().getActiveController();
           // biome-ignore lint/suspicious/noExplicitAny: optional controller capability
           (controller as any)?.setLookFrozen?.(postGame);
+          // biome-ignore lint/suspicious/noExplicitAny: optional controller capability
+          (controller as any)?.setGameplayFrozen?.(postGame);
         })
         .catch(() => {});
     });

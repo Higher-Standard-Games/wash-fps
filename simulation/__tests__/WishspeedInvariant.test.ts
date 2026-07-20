@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { InputButtons } from "../../../../engine/network/components/InputComponent";
 import type { MovementInput } from "../../../../engine/network/systems/movement/MovementProfile";
-import { MovementProfile } from "../MovementProfile";
+import { NullCollisionWorld } from "../../../../shared/collision/CollisionWorld";
+import { DEFAULT_FPS_MOVEMENT_CONFIG, MovementProfile } from "../MovementProfile";
 
 function input(direction: { x: number; y: number; z: number }, buttons = InputButtons.RIGHT): MovementInput {
   return {
@@ -49,4 +50,25 @@ describe("MovementProfile wishspeed authority invariant", () => {
     expect(Number.isFinite(result.velocity.z)).toBe(true);
     expect(horizontalSpeed(result.velocity)).toBe(0);
   });
+});
+
+it("uses the exported authoritative slide defaults during simulation", () => {
+  const profile = new MovementProfile();
+  const collision = new NullCollisionWorld();
+  const dt = 1 / 125;
+  const grounded = profile.simulate({ x: 0, y: 24, z: 0 }, { x: 0, y: 0, z: 420 }, null, dt, collision);
+  const buttons = InputButtons.FORWARD | InputButtons.SPRINT | InputButtons.CROUCH;
+  const slide = profile.simulate(
+    grounded.position,
+    grounded.velocity,
+    input({ x: 0, y: 0, z: 1 }, buttons),
+    dt,
+    collision,
+  );
+
+  expect(DEFAULT_FPS_MOVEMENT_CONFIG.slideSpeedMultiplier).toBe(1.4);
+  expect(slide.isSliding).toBe(true);
+  expect(horizontalSpeed(slide.velocity)).toBeGreaterThan(
+    DEFAULT_FPS_MOVEMENT_CONFIG.slideMinSpeed * DEFAULT_FPS_MOVEMENT_CONFIG.slideSpeedMultiplier,
+  );
 });

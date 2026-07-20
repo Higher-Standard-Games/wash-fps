@@ -102,6 +102,9 @@ export interface VoltaicBeamEvent {
   impactKind: 0 | 1 | 2;
 }
 
+/** Authoritative rail truth for the Electrobolt presentation — identical shape to {@link VoltaicBeamEvent}. */
+export type ElectroRailEvent = VoltaicBeamEvent;
+
 interface HitscanHitResult {
   id: EntityId;
   position: { x: number; y: number; z: number };
@@ -170,6 +173,7 @@ export class WeaponSystem extends Subsystem {
   private pendingChargeEvents: WeaponChargeEvent[] = [];
   private pendingChainEvents: WeaponChainEvent[] = [];
   private pendingVoltaicBeamEvents: VoltaicBeamEvent[] = [];
+  private pendingElectroRailEvents: ElectroRailEvent[] = [];
   private projectileSystem: ProjectileSystem | null = null;
   private droppedWeaponSystem: DroppedWeaponSystem | null = null;
   private collisionWorld: CollisionWorld | null = null;
@@ -232,6 +236,12 @@ export class WeaponSystem extends Subsystem {
   getPendingVoltaicBeamEvents(): VoltaicBeamEvent[] {
     const events = this.pendingVoltaicBeamEvents;
     this.pendingVoltaicBeamEvents = [];
+    return events;
+  }
+
+  getPendingElectroRailEvents(): ElectroRailEvent[] {
+    const events = this.pendingElectroRailEvents;
+    this.pendingElectroRailEvents = [];
     return events;
   }
 
@@ -1152,6 +1162,9 @@ export class WeaponSystem extends Subsystem {
     // Continuous beam compatibility IDs have already normalized to Voltaic.
     if (weapon.hitscanType === "beam") {
       this.emitVoltaicBeamEvent(shooter.id, start, dir, maxRange, primaryHit);
+    } else if (weapon.hitscanType === "bolt") {
+      // Instant rail truth (Electrobolt). Presentation-only, like the Voltaic beam.
+      this.emitElectroRailEvent(shooter.id, start, dir, maxRange, primaryHit);
     }
 
     // Accuracy telemetry (WO-AC1): single-ray hitscan only — one trigger pull = one
@@ -1182,13 +1195,19 @@ export class WeaponSystem extends Subsystem {
     }
   }
 
-  private emitVoltaicBeamEvent(
+  /**
+   * Resolve the authoritative endpoint/normal/kind of a hitscan ray for
+   * presentation events (Voltaic beam, Electrobolt rail): a player hit wins,
+   * else the world impact, else a max-range miss. Presentation-only — never
+   * feeds back into the deterministic simulation.
+   */
+  private buildHitscanTruthEvent(
     shooterId: EntityId,
     start: { x: number; y: number; z: number },
     dir: { x: number; y: number; z: number },
     maxRange: number,
     primaryHit: HitscanHitResult | null,
-  ): void {
+  ): VoltaicBeamEvent {
     const worldHit = primaryHit ? null : this.traceWorldImpactDetails(start, dir, maxRange);
     const endpoint = primaryHit?.impactPoint ??
       worldHit?.point ?? {
@@ -1198,7 +1217,7 @@ export class WeaponSystem extends Subsystem {
       };
     const normal = primaryHit?.impactNormal ?? worldHit?.normal ?? { x: -dir.x, y: -dir.y, z: -dir.z };
 
-    this.pendingVoltaicBeamEvents.push({
+    return {
       entityId: shooterId,
       originX: start.x,
       originY: start.y,
@@ -1213,7 +1232,27 @@ export class WeaponSystem extends Subsystem {
       normalY: normal.y,
       normalZ: normal.z,
       impactKind: primaryHit ? 2 : worldHit ? 1 : 0,
-    });
+    };
+  }
+
+  private emitVoltaicBeamEvent(
+    shooterId: EntityId,
+    start: { x: number; y: number; z: number },
+    dir: { x: number; y: number; z: number },
+    maxRange: number,
+    primaryHit: HitscanHitResult | null,
+  ): void {
+    this.pendingVoltaicBeamEvents.push(this.buildHitscanTruthEvent(shooterId, start, dir, maxRange, primaryHit));
+  }
+
+  private emitElectroRailEvent(
+    shooterId: EntityId,
+    start: { x: number; y: number; z: number },
+    dir: { x: number; y: number; z: number },
+    maxRange: number,
+    primaryHit: HitscanHitResult | null,
+  ): void {
+    this.pendingElectroRailEvents.push(this.buildHitscanTruthEvent(shooterId, start, dir, maxRange, primaryHit));
   }
 
   private traceWorldImpactDetails(
@@ -1302,7 +1341,29 @@ export class WeaponSystem extends Subsystem {
     dir: { x: number; y: number; z: number },
     maxRange: number,
   ): HitscanHitResult | null {
-    // Check all potential targets
+    // World occlusion: a hitscan ray stops at the first solid surface, so find
+    // where it meets the BSP world. Any target beyond that distance is standing
+    // behind a wall/floor and must NOT be hit (the "bots shoot through the floor"
+    // bug — the sphere test alone had no notion of world geometry). With no
+    // collision world wired in (unit tests, headless), this stays +Infinity and
+    // the trace behaves exactly as before.
+    const worldBlock = this.traceWorldImpactDetails(start, dir, maxRange);
+    const worldBlockDist = worldBlock
+      ? Math.hypot(worldBlock.point.x - start.x, worldBlock.point.y - start.y, worldBlock.point.z - start.z)
+      : Number.POSITIVE_INFINITY;
+
+    // The ray stops at whichever target it enters FIRST, so a body between the
+    // shooter and a farther enemy shields that enemy. Track the nearest valid
+    // (non-occluded) hit rather than the first one in iteration order.
+    let best: {
+      entryDistance: number;
+      id: EntityId;
+      position: { x: number; y: number; z: number };
+      hitLocation: HitLocation;
+      impactPoint: { x: number; y: number; z: number };
+      impactNormal: { x: number; y: number; z: number };
+    } | null = null;
+
     for (const target of state.entitiesByType(EntityType.Player)) {
       if (target.id === shooter.id) continue;
       if (!target.transform || !target.health || target.health.dead) continue;
@@ -1331,50 +1392,60 @@ export class WeaponSystem extends Subsystem {
         (closestPoint.z - target.transform.position.z) ** 2;
 
       const hitRadius = 32; // Player capsule radius
-      if (distSq < hitRadius ** 2) {
-        const entryDistance = Math.max(0, dot - Math.sqrt(Math.max(0, hitRadius ** 2 - distSq)));
-        const impactPoint = {
-          x: start.x + dir.x * entryDistance,
-          y: start.y + dir.y * entryDistance,
-          z: start.z + dir.z * entryDistance,
-        };
-        const normalX = impactPoint.x - target.transform.position.x;
-        const normalY = impactPoint.y - target.transform.position.y;
-        const normalZ = impactPoint.z - target.transform.position.z;
-        const normalLength = Math.sqrt(normalX * normalX + normalY * normalY + normalZ * normalZ) || 1;
-        // Hit! Determine location based on Y offset
-        const yOffset = closestPoint.y - target.transform.position.y;
-        let hitLocation = HitLocation.Body;
-        if (yOffset > 32) hitLocation = HitLocation.Head;
-        else if (yOffset < -20) hitLocation = HitLocation.Legs;
+      if (distSq >= hitRadius ** 2) continue;
 
-        this.pendingDamage.push({
-          victimId: target.id,
-          attackerId: shooter.id,
-          damage: weapon.damage,
-          armorPiercing: 0,
-          damageType: this.weaponToDamageType(weapon.id),
-          hitLocation,
-          knockbackDir: { x: dir.x, y: dir.y, z: dir.z },
-          knockbackScale: weapon.knockbackScale,
-        });
+      const entryDistance = Math.max(0, dot - Math.sqrt(Math.max(0, hitRadius ** 2 - distSq)));
+      // Occluded: the ray hit world geometry before reaching this target.
+      if (entryDistance > worldBlockDist) continue;
+      // A nearer target already absorbs the ray.
+      if (best && entryDistance >= best.entryDistance) continue;
 
-        // Single-ray weapons stop on first hit; pellet rays always stop
-        // (each pellet is its own ray call). Return the hit for chain follow-up.
-        return {
-          id: target.id,
-          position: { ...target.transform.position },
-          hitLocation,
-          impactPoint,
-          impactNormal: {
-            x: normalX / normalLength,
-            y: normalY / normalLength,
-            z: normalZ / normalLength,
-          },
-        };
-      }
+      const impactPoint = {
+        x: start.x + dir.x * entryDistance,
+        y: start.y + dir.y * entryDistance,
+        z: start.z + dir.z * entryDistance,
+      };
+      const normalX = impactPoint.x - target.transform.position.x;
+      const normalY = impactPoint.y - target.transform.position.y;
+      const normalZ = impactPoint.z - target.transform.position.z;
+      const normalLength = Math.sqrt(normalX * normalX + normalY * normalY + normalZ * normalZ) || 1;
+      // Hit! Determine location based on Y offset
+      const yOffset = closestPoint.y - target.transform.position.y;
+      let hitLocation = HitLocation.Body;
+      if (yOffset > 32) hitLocation = HitLocation.Head;
+      else if (yOffset < -20) hitLocation = HitLocation.Legs;
+
+      best = {
+        entryDistance,
+        id: target.id,
+        position: { ...target.transform.position },
+        hitLocation,
+        impactPoint,
+        impactNormal: { x: normalX / normalLength, y: normalY / normalLength, z: normalZ / normalLength },
+      };
     }
-    return null;
+
+    if (!best) return null;
+
+    this.pendingDamage.push({
+      victimId: best.id,
+      attackerId: shooter.id,
+      damage: weapon.damage,
+      armorPiercing: 0,
+      damageType: this.weaponToDamageType(weapon.id),
+      hitLocation: best.hitLocation,
+      knockbackDir: { x: dir.x, y: dir.y, z: dir.z },
+      knockbackScale: weapon.knockbackScale,
+    });
+
+    // Return the hit for chain follow-up.
+    return {
+      id: best.id,
+      position: best.position,
+      hitLocation: best.hitLocation,
+      impactPoint: best.impactPoint,
+      impactNormal: best.impactNormal,
+    };
   }
 
   /**

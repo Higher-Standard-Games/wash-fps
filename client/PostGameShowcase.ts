@@ -2,16 +2,18 @@
  * PostGameShowcase — the winner's player model presented during the post-game
  * screen (docs/research/post_game_screen.md §7, first slice of the Face-Off).
  *
- * v1: spawns a detached copy of the winning player's model (team tint/outline
- * resolve locally per viewer, so it's automatically personalized) holding their
- * last-known weapon, placed in front of the local camera facing it. Disposed
+ * Spawns a detached copy of the winning player's model (team tint/outline resolve
+ * locally per viewer, so it's automatically personalized) holding their last-known
+ * weapon, dropped at a clear world spot in front of the frozen camera. Disposed
  * when the next warmup begins.
  *
- * The placement is deliberately camera-relative (not a fixed map spot) so it
- * works on every map with zero authoring; the background-camera work (§8) will
- * replace this with the diorama/vista composition later.
+ * A dedicated "diorama" camera then frames the winner as a centered, straight-on
+ * hero shot composed relative to the MODEL (not the death spot), so the shot looks
+ * the same every match regardless of where the fight ended. The map remains the
+ * backdrop; a fuller vista/backdrop composition (§8) is still future work.
  */
 
+import type { Camera } from "@babylonjs/core/Cameras/camera";
 import type { PlayerModelInstance } from "../../../engine/animation/PlayerModelManager";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
@@ -19,20 +21,36 @@ import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
 /** Distance in front of the camera to place the model (world/Quake units).
  *  200u frames the full body with headroom (150 filled the screen edge-to-edge). */
 const SHOWCASE_DISTANCE = 200;
-/** Camera eye sits ~this far above the entity origin the model spawner
- *  expects. Empirically tuned: 28 (nominal standing view height) sank the
- *  model knee-deep into the floor. */
-const EYE_TO_ORIGIN = 14;
-/** Yaw offset from camera forward (radians) — stand the model in the LEFT
- *  third of the view; the post-game board occupies the right side. */
-const SHOWCASE_ANGLE = -0.55; // ~31° left
+/** Screen anchor for WHERE IN THE WORLD to drop the model — a fraction of the
+ *  render viewport traced from the frozen camera. Centered/straight-ahead now
+ *  gives the most open spot; the dedicated diorama camera (below) does the actual
+ *  on-screen framing, so this only picks a clear world position. */
+const SHOWCASE_SCREEN_X = 0.5;
+const SHOWCASE_SCREEN_Y = 0.55;
 /** Never place the model closer than this (nose-to-wall endings). */
 const SHOWCASE_MIN_DISTANCE = 60;
 /** Keep the model this far in front of a blocking wall. */
 const SHOWCASE_WALL_PADDING = 24;
 
+// ── Diorama camera ────────────────────────────────────────────────────
+// A dedicated camera frames the winner as a CENTERED, straight-on hero shot,
+// placed relative to the MODEL (not the death spot) so the composition is
+// identical every match — no more "model in a weird map position" (#5). It sits
+// in front of the model, where the player was standing (clear space), so it
+// never buries itself in a wall. Tune these live in playtest.
+/** Camera distance from the model, in front of it (clamped to the clear space). */
+const DIORAMA_DISTANCE = 175;
+/** Camera height above the model's origin. */
+const DIORAMA_EYE_HEIGHT = 40;
+/** Look-at height above the model's origin (torso). Equal-ish to eye = level shot. */
+const DIORAMA_LOOK_HEIGHT = 36;
+/** Vertical field of view (radians). */
+const DIORAMA_FOV = 0.8;
+
 let currentModel: PlayerModelInstance | null = null;
 let generation = 0;
+let dioramaCamera: Camera | null = null;
+let savedActiveCameras: Camera[] | null = null;
 
 /**
  * Show the winner's model in front of the local camera. Safe to call with
@@ -53,51 +71,52 @@ export async function startPostGameShowcase(
 
   const cam = CameraSystem.getInstance().getCamera() as {
     position?: { x: number; y: number; z: number };
-    rotation?: { y?: number };
+    getScene?: () => import("@babylonjs/core/scene").Scene;
   } | null;
   if (!cam?.position) {
     console.log("[PostGameShowcase] skipped — no camera");
     return;
   }
-
-  // Stand the model left-forward of the camera (the board sits on the right).
-  const camYaw = cam.rotation?.y ?? 0;
-  const placeYaw = camYaw + SHOWCASE_ANGLE;
-
-  // Wall clamp: the player can end the match nose-to-wall, which would put the
-  // camera-relative spot inside/behind geometry ("model missing"). Raycast
-  // toward the spot and pull the model in front of whatever it hits.
-  let distance = SHOWCASE_DISTANCE;
-  try {
-    const [{ Ray }, { Vector3 }] = await Promise.all([
-      import("@babylonjs/core/Culling/ray"),
-      import("@babylonjs/core/Maths/math.vector"),
-    ]);
-    const scene = (cam as { getScene?: () => import("@babylonjs/core/scene").Scene }).getScene?.();
-    if (scene) {
-      const origin = new Vector3(cam.position.x, cam.position.y, cam.position.z);
-      const dir = new Vector3(Math.sin(placeYaw), 0, Math.cos(placeYaw));
-      const hit = scene.pickWithRay(new Ray(origin, dir, SHOWCASE_DISTANCE), (mesh) => {
-        if (mesh.isPickable === false) return false;
-        const metadata = mesh.metadata as { mapOwned?: boolean } | null;
-        return (
-          metadata?.mapOwned === true || mesh.name.startsWith("bsp_") || mesh.name === "brush" || mesh.name === "patch"
-        );
-      });
-      if (hit?.hit && hit.pickedPoint) {
-        const hitDistance = Vector3.Distance(origin, hit.pickedPoint);
-        distance = Math.min(distance, Math.max(SHOWCASE_MIN_DISTANCE, hitDistance - SHOWCASE_WALL_PADDING));
-        console.log(`[PostGameShowcase] wall at ${hitDistance.toFixed(0)} — clamped to ${distance.toFixed(0)}`);
-      }
-    }
-  } catch {
-    /* raycast unavailable — keep the nominal distance */
+  const scene = cam.getScene?.();
+  if (!scene) {
+    console.log("[PostGameShowcase] skipped — no scene");
+    return;
   }
 
-  // Babylon left-handed: forward = (sin(yaw), 0, cos(yaw)).
-  const x = cam.position.x + Math.sin(placeYaw) * distance;
-  const z = cam.position.z + Math.cos(placeYaw) * distance;
-  const y = cam.position.y - EYE_TO_ORIGIN;
+  const [{ Ray }, { Vector3, Matrix }] = await Promise.all([
+    import("@babylonjs/core/Culling/ray"),
+    import("@babylonjs/core/Maths/math.vector"),
+  ]);
+
+  // Place the model along a picking ray through a FIXED screen anchor, so it
+  // always lands in the same on-screen spot regardless of window size/FOV or
+  // where the camera faced at match end (#5) — not a camera-relative yaw offset.
+  const engine = scene.getEngine();
+  const anchorX = engine.getRenderWidth() * SHOWCASE_SCREEN_X;
+  const anchorY = engine.getRenderHeight() * SHOWCASE_SCREEN_Y;
+  const dir = scene.createPickingRay(anchorX, anchorY, Matrix.Identity(), cam as unknown as Camera).direction;
+  const origin = new Vector3(cam.position.x, cam.position.y, cam.position.z);
+
+  // Wall clamp: the player can end the match nose-to-wall, which would put the
+  // spot inside/behind geometry ("model missing"). Raycast along the placement
+  // ray and pull the model in front of whatever it hits.
+  let distance = SHOWCASE_DISTANCE;
+  const hit = scene.pickWithRay(new Ray(origin, dir, SHOWCASE_DISTANCE), (mesh) => {
+    if (mesh.isPickable === false) return false;
+    const metadata = mesh.metadata as { mapOwned?: boolean } | null;
+    return (
+      metadata?.mapOwned === true || mesh.name.startsWith("bsp_") || mesh.name === "brush" || mesh.name === "patch"
+    );
+  });
+  if (hit?.hit && hit.pickedPoint) {
+    const hitDistance = Vector3.Distance(origin, hit.pickedPoint);
+    distance = Math.min(distance, Math.max(SHOWCASE_MIN_DISTANCE, hitDistance - SHOWCASE_WALL_PADDING));
+    console.log(`[PostGameShowcase] wall at ${hitDistance.toFixed(0)} — clamped to ${distance.toFixed(0)}`);
+  }
+
+  const x = cam.position.x + dir.x * distance;
+  const y = cam.position.y + dir.y * distance;
+  const z = cam.position.z + dir.z * distance;
   // Face the camera exactly (yaw from model position back to the camera).
   const facingCameraYaw = Math.atan2(cam.position.x - x, cam.position.z - z);
 
@@ -133,14 +152,38 @@ export async function startPostGameShowcase(
     child.isVisible = true;
   }
 
-  // When a wall forced the model closer than the nominal distance, scale it
-  // down proportionally — otherwise a close model fills the whole screen.
-  if (distance < SHOWCASE_DISTANCE) {
-    const shrink = Math.max(0.45, distance / SHOWCASE_DISTANCE);
-    model.anchor.scaling.setAll(shrink);
-    console.log(`[PostGameShowcase] close placement — model scaled to ${shrink.toFixed(2)}`);
+  // Dedicated diorama camera: a centered, straight-on hero shot framed relative
+  // to the MODEL, so the winner is composed identically every match regardless of
+  // where the fight ended. It sits in front of the model (where the player was
+  // standing = clear space), clamped to the available distance so it can't clip a
+  // wall behind it. Swapping scene.activeCameras also drops the viewmodel overlay,
+  // so the gun isn't floating in the hero shot.
+  const { FreeCamera } = await import("@babylonjs/core/Cameras/freeCamera");
+  if (gen !== generation) {
+    disposeModel(model);
+    currentModel = null;
+    return;
   }
-  console.log("[PostGameShowcase] winner model spawned");
+  const faceX = cam.position.x - x;
+  const faceZ = cam.position.z - z;
+  const faceLen = Math.hypot(faceX, faceZ) || 1;
+  const camDist = Math.min(DIORAMA_DISTANCE, distance);
+  const dioramaPos = new Vector3(
+    x + (faceX / faceLen) * camDist,
+    y + DIORAMA_EYE_HEIGHT,
+    z + (faceZ / faceLen) * camDist,
+  );
+  const diorama = new FreeCamera("postgame_diorama", dioramaPos, scene);
+  diorama.setTarget(new Vector3(x, y + DIORAMA_LOOK_HEIGHT, z));
+  diorama.fov = DIORAMA_FOV;
+  diorama.minZ = 1;
+  diorama.maxZ = 10000;
+  diorama.inputs.clear();
+  savedActiveCameras = scene.activeCameras ? [...scene.activeCameras] : null;
+  scene.activeCameras = [diorama];
+  scene.activeCamera = diorama;
+  dioramaCamera = diorama;
+  console.log("[PostGameShowcase] winner model spawned + diorama camera framed");
 
   if (weaponId) {
     renderer
@@ -169,10 +212,30 @@ export async function startPostGameShowcase(
 /** Remove the showcase model (next warmup / disconnect). Idempotent. */
 export function stopPostGameShowcase(): void {
   generation++;
+  removeDioramaCamera();
   if (currentModel) {
     disposeModel(currentModel);
     currentModel = null;
   }
+}
+
+/** Restore the gameplay cameras and tear down the diorama camera. Idempotent. */
+function removeDioramaCamera(): void {
+  if (!dioramaCamera) return;
+  const scene = dioramaCamera.getScene();
+  try {
+    // Restore the [main, weapon] pair BEFORE disposing so the scene always has a
+    // valid active camera (disposing the current active camera mid-render throws).
+    if (savedActiveCameras && savedActiveCameras.length > 0) {
+      scene.activeCameras = savedActiveCameras;
+      scene.activeCamera = savedActiveCameras[0];
+    }
+  } catch {
+    /* scene may be tearing down */
+  }
+  dioramaCamera.dispose();
+  dioramaCamera = null;
+  savedActiveCameras = null;
 }
 
 function disposeModel(model: PlayerModelInstance): void {

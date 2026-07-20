@@ -21,6 +21,7 @@ import type { GameState } from "../../../engine/network/core/GameState";
 import type { IGameHost } from "../../../engine/network/core/IGameHost";
 import {
   assertUnroutedEvent,
+  type ElectroRailEvent,
   type SnapshotEvent,
   type VoltaicBeamEvent,
 } from "../../../engine/network/core/SnapshotEvent";
@@ -31,16 +32,11 @@ import {
   PLASMA_EXPLOSION,
   ROCKET_EXPLOSION,
 } from "../../../engine/weapon/ExplosionEffect";
-import {
-  getHitscanEffects,
-  type VoltaicBeamTruthConfig,
-} from "../../../engine/weapon/HitscanEffects";
+import { getHitscanEffects, type VoltaicBeamTruthConfig } from "../../../engine/weapon/HitscanEffects";
 import { getProjectileManager } from "../../../engine/weapon/ProjectileManager";
+import type { RailEffectSample } from "../../../engine/weapon/rail/RailProfiles";
 import { getWeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
-import {
-  canonicalWeaponId,
-  WEAPONS,
-} from "../../../shared/entities/definitions/weapons/WeaponsTable";
+import { canonicalWeaponId, WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
 import { toClientKey } from "../ClientEntityKey";
 import type { ServerSnapshot, V2NetworkClient } from "../client";
 import type { DroppedWeaponInfo, DroppedWeaponRenderer } from "../client/DroppedWeaponRenderer";
@@ -136,6 +132,20 @@ const voltaicTruthConfig: VoltaicBeamTruthConfig = {
   maxRange: 850,
 };
 
+// Same scratch-reuse rationale for the one-shot Electrobolt rail: fireRail copies
+// every field synchronously into the thin-instance buffers.
+const railTruthStart = new Vector3();
+const railTruthEnd = new Vector3();
+const railTruthNormal = new Vector3();
+const railTruthColor = new Color3(0.3, 0.6, 1.0);
+const railTruthSample: RailEffectSample = {
+  start: railTruthStart,
+  end: railTruthEnd,
+  impactNormal: railTruthNormal,
+  impactKind: "none",
+  color: railTruthColor,
+};
+
 const MAX_REMOTE_CHARGE_GLOW_LIGHTS = 2;
 
 /**
@@ -204,6 +214,18 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
           const localHero = event.entityId === localEntityId;
           const weaponId = localHero ? ctx._lastServerWeapon : ctx.enemyWeapons.get(event.entityId);
           handleVoltaicBeam(event, localHero, weaponId);
+          break;
+        }
+
+        case "electro_rail": {
+          // Authoritative Electrobolt rail truth (endpoint/normal/kind). Drives
+          // the procedural rail renderer for both the local shooter and remote
+          // players, so the visual endpoint always equals the damage endpoint
+          // (no through-wall client-picked rails). The weapon_fire path no longer
+          // draws a bolt for bolt weapons, so there is no double-draw.
+          const localHero = event.entityId === localEntityId;
+          const weaponId = localHero ? ctx._lastServerWeapon : ctx.enemyWeapons.get(event.entityId);
+          handleElectroRail(event, localHero, weaponId);
           break;
         }
 
@@ -878,7 +900,9 @@ export function handleRemoteWeaponFire(event: any, remoteRenderer: RemotePlayerR
       break;
     case "electrobolt":
     case "instagun":
-      fx.fireBolt({ origin, direction: dir, color, maxRange: 10000 });
+      // Rail is drawn from the authoritative electro_rail event (WO-EB3), not
+      // from this predicted client-side trace — avoids a through-wall bolt and a
+      // double draw. The muzzle flash still comes from the weapon_fire anim.
       break;
     case "plasmagun":
     case "rlauncher":
@@ -907,6 +931,25 @@ export function handleVoltaicBeam(event: VoltaicBeamEvent, localHero: boolean, w
 
   if (localHero) fx.updateLocalLightningTruth(voltaicTruthConfig);
   else fx.updateRemoteLightningBeam(event.entityId, voltaicTruthConfig);
+}
+
+/** Spawn a one-shot Electrobolt rail from the authoritative server truth. */
+export function handleElectroRail(event: ElectroRailEvent, localHero: boolean, weaponId = "electrobolt"): void {
+  const fx = getHitscanEffects();
+  // Anchor the visible start to the actual gun muzzle for the local shooter. The
+  // server origin is the eye (camera); a beam vertex exactly at the camera
+  // projects degenerately (w≈0), smearing the near end to a screen corner and
+  // making it emanate from the wrong side of the gun. The damage endpoint is
+  // untouched — only the drawn start moves to the barrel (as the Voltaic beam does).
+  const muzzle = localHero ? getWeaponViewManager().getMuzzleWorldPosition() : null;
+  if (muzzle) railTruthStart.copyFrom(muzzle);
+  else railTruthStart.set(event.originX, event.originY, event.originZ);
+  railTruthEnd.set(event.endX, event.endY, event.endZ);
+  railTruthNormal.set(event.normalX, event.normalY, event.normalZ);
+  const rgb = WEAPON_EFFECT_COLORS[canonicalWeaponId(weaponId)] ?? WEAPON_EFFECT_COLORS.electrobolt;
+  railTruthColor.set(rgb[0], rgb[1], rgb[2]);
+  railTruthSample.impactKind = event.impactKind === 2 ? "player" : event.impactKind === 1 ? "world" : "none";
+  fx.fireRail(railTruthSample);
 }
 
 /**
