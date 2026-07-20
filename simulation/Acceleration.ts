@@ -133,6 +133,8 @@ export function airAccelerateForward(
   vel.z += accelspeed * accelDirZ;
 }
 
+export const STRAFE_BUNNY_ACCEL = 50;
+
 /**
  * Mode 2: Strafe Bunny Accelerate (A/D only - CPMA/Q2 strafe jumping)
  * The core strafe jumping mechanic
@@ -144,7 +146,7 @@ export function strafeBunnyAccelerate(
   config: MovementConfig,
   deltaTime: number,
 ): void {
-  const baseStrafeBunnyAccel = 50;
+  const baseStrafeBunnyAccel = STRAFE_BUNNY_ACCEL;
   const strafeWishspeed = Math.min(wishSpeed, config.maxAirSpeed);
   const curSpeed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
   const runSpeed = config.runSpeed;
