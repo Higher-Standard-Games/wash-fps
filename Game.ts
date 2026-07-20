@@ -9,6 +9,7 @@
 import { Vector3 } from "@babylonjs/core";
 import { EngineStore } from "@babylonjs/core/Engines/engineStore";
 import type { PointLight } from "@babylonjs/core/Lights/pointLight";
+import { AudioManager } from "../../engine/AudioManager";
 import { CameraSystem } from "../../engine/camera";
 import { setGameFrameHook } from "../../engine/camera/GameFrameHook";
 import { log } from "../../engine/core/Log";
@@ -202,7 +203,19 @@ export class Game {
 
     // Post-game winner showcase: spawn the winner's model (with weapon) in
     // front of the camera during PostGame; remove it when warmup begins.
-    MatchStateManager.getInstance().onPhaseChange((newPhase) => {
+    MatchStateManager.getInstance().onPhaseChange((newPhase, oldPhase) => {
+      // Endgame music. This phase→music swap previously lived only in
+      // NetworkGameHost, so local matches (which don't route through it) went
+      // silent at match end — even though the showcase, triggered here
+      // host-agnostically, still ran. Fire it here too; loadPlaylist dedupes by
+      // name, so a network host also firing it is a harmless no-op.
+      const audio = AudioManager.getInstance();
+      if (newPhase === MatchPhase.PostGame) {
+        void audio.loadPlaylist("data/endgame.playlist.json");
+      } else if (oldPhase === MatchPhase.PostGame) {
+        void audio.loadPlaylist("data/game.playlist.json");
+      }
+
       import("./client/PostGameShowcase")
         .then(({ startPostGameShowcase, stopPostGameShowcase }) => {
           if (newPhase !== MatchPhase.PostGame) {
