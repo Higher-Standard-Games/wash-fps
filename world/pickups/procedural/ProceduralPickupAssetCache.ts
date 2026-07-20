@@ -19,7 +19,7 @@ import type { StandardMaterial } from "@babylonjs/core/Materials/standardMateria
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Scene } from "@babylonjs/core/scene";
 import * as Geo from "./ProceduralPickupGeometry";
-import { createEnergyMaterialTemplate, createStructuralMaterial } from "./ProceduralPickupMaterials";
+import { createEnergyMaterialTemplate, createStructuralMaterial, ENERGY_BOOST } from "./ProceduralPickupMaterials";
 import { PROCEDURAL_RECIPE_REVISION } from "./ProceduralPickupRecipes";
 import type { ProceduralPickupRecipe } from "./types";
 
@@ -34,17 +34,14 @@ export interface PrototypeSet {
   petal: Mesh | null;
   mote: Mesh | null;
   satellite: Mesh | null;
-  floorDisc: Mesh | null;
-  floorRing: Mesh | null;
-  glyph: Mesh | null;
   beacon: Mesh | null;
   /** Dark, lit relic material (shared, immutable). */
   structural: StandardMaterial;
   /** Vivid core-color emissive template (clone per pickup for private pulse). */
   energyCore: StandardMaterial;
-  /** Accent-color emissive template (rings/plates/glyph). */
+  /** Accent-color emissive template (rings). */
   energyAccent: StandardMaterial;
-  /** Low-alpha soft emissive template (core shell, floor disc, beacon). */
+  /** Low-alpha soft emissive template (beacon). */
   energySoft: StandardMaterial;
   dispose(): void;
 }
@@ -57,9 +54,15 @@ function cacheKey(recipe: ProceduralPickupRecipe): string {
 
 function buildPrototypeSet(scene: Scene, recipe: ProceduralPickupRecipe): PrototypeSet {
   const structural = createStructuralMaterial(scene, `pp_struct_${recipe.id}`, recipe.color);
-  const energyCore = createEnergyMaterialTemplate(scene, `pp_core_${recipe.id}`, recipe.color, 1);
-  const energyAccent = createEnergyMaterialTemplate(scene, `pp_accent_${recipe.id}`, recipe.accentColor, 1);
-  const energySoft = createEnergyMaterialTemplate(scene, `pp_soft_${recipe.id}`, recipe.color, 0.32);
+  const energyCore = createEnergyMaterialTemplate(scene, `pp_core_${recipe.id}`, recipe.color, 1, ENERGY_BOOST);
+  const energyAccent = createEnergyMaterialTemplate(
+    scene,
+    `pp_accent_${recipe.id}`,
+    recipe.accentColor,
+    1,
+    ENERGY_BOOST,
+  );
+  const energySoft = createEnergyMaterialTemplate(scene, `pp_soft_${recipe.id}`, recipe.color, 0.3, ENERGY_BOOST);
 
   const set: PrototypeSet = {
     recipeId: recipe.id,
@@ -71,9 +74,6 @@ function buildPrototypeSet(scene: Scene, recipe: ProceduralPickupRecipe): Protot
     petal: recipe.shellPieces > 0 ? Geo.buildShellPetalProto(scene, recipe) : null,
     mote: recipe.moteCount > 0 ? Geo.buildMoteProto(scene, recipe) : null,
     satellite: recipe.satelliteCount > 0 ? Geo.buildSatelliteProto(scene, recipe) : null,
-    floorDisc: Geo.buildFloorDiscProto(scene, recipe),
-    floorRing: Geo.buildFloorRingProto(scene, recipe),
-    glyph: Geo.buildFloorGlyphProto(scene, recipe),
     beacon: recipe.beaconStrength > 0 ? Geo.buildBeaconProto(scene, recipe) : null,
     structural,
     energyCore,
@@ -89,9 +89,6 @@ function buildPrototypeSet(scene: Scene, recipe: ProceduralPickupRecipe): Protot
         this.petal,
         this.mote,
         this.satellite,
-        this.floorDisc,
-        this.floorRing,
-        this.glyph,
         this.beacon,
       ]) {
         m?.dispose();

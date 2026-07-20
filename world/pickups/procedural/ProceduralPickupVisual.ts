@@ -1,20 +1,25 @@
 /**
  * ProceduralPickupVisual — the runtime, per-pickup procedural sculpture
- * (docs/research/PROCEDURAL_ITEMS.md §"Cosmetic State Machine" + §"Health/Armor
- * recipes"). Implements the engine `PickupVisual` contract: a fixed anchor with
- * an animated cosmetic root and a fixed floor pedestal, assembled by cloning
- * scene-cached prototype geometry and driving it from an elapsed clock.
+ * (docs/research/PROCEDURAL_ITEMS.md §"Cosmetic State Machine").
  *
- * Ownership: this visual disposes its own clones, its 3 private energy materials,
- * and any in-flight collection transient. The shared prototype geometry and
- * structural material are owned by the scene-scoped asset cache and outlive it.
+ * Art direction v2 (clean, bright, modern sci-fi):
+ *  - Health: a bright glowing core with a slow scrolling energy gradient
+ *    (`color`→`accent`) and a small readable cross emblem; higher tiers add a
+ *    thin ring and orbiting satellites. No floor pedestal.
+ *  - Armor: clean hexagonal shield plates, fanned around a small bright core.
+ *    No rings, no floor.
+ * The collection burst (ring effect) is kept — the floor pedestal is not.
  *
- * Motion is computed from `elapsed` (+ a per-pickup seed phase), never from
- * accumulated frame rotations, so it is frame-rate independent and drift-free.
+ * Implements the engine `PickupVisual` contract: a fixed anchor + an animated
+ * cosmetic root, assembled by cloning scene-cached prototype geometry and driven
+ * from an elapsed clock (frame-rate independent, drift-free). It disposes its own
+ * clones + private materials + in-flight transients; shared prototype geometry
+ * and the structural material are cache-owned and outlive it.
  */
 
 import type { Material } from "@babylonjs/core/Materials/material";
 import type { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
+import type { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import type { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
@@ -22,65 +27,56 @@ import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Scene } from "@babylonjs/core/scene";
 import type { PickupVisual } from "../../../../../engine/world/PickupVisual";
 import { getPrototypeSet } from "./ProceduralPickupAssetCache";
-import { baseEmissive, cloneEnergyMaterial } from "./ProceduralPickupMaterials";
+import {
+  baseEmissive,
+  cloneEnergyMaterial,
+  createGradientCoreMaterial,
+  createPlateMaterial,
+  gradientTexture,
+} from "./ProceduralPickupMaterials";
 import { ProceduralPickupTransient } from "./ProceduralPickupTransient";
 import type { ProceduralPickupRecipe } from "./types";
 
 const TAU = Math.PI * 2;
 const DEG2RAD = Math.PI / 180;
 
-// The pickup anchor sits `dropToGround` +12u above the floor; place the floor
-// pedestal just above the actual floor (≈1.5u to avoid z-fighting).
-const FLOOR_BELOW_ANCHOR = 12;
-const FLOOR_PAD = 1.5;
-const FLOOR_Y = -(FLOOR_BELOW_ANCHOR - FLOOR_PAD);
+// The pickup anchor sits `dropToGround` +12u above the floor; the beacon drops
+// back down to the floor to rise as a column.
 const BEACON_HEIGHT = 90;
+const BEACON_BASE_BELOW = 12;
+/** Gradient U-scroll speed (slow flow). */
+const SCROLL_SPEED = 0.14;
 
 interface RingEl {
   pivot: TransformNode;
   speed: number;
-}
-interface PlateEl {
-  pivot: TransformNode;
-  mesh: Mesh;
-  baseAngle: number;
-  radius: number;
-}
-interface PetalEl {
-  pivot: TransformNode;
-  baseAngle: number;
-}
-interface MoteEl {
-  mesh: Mesh;
-  phase: number;
-  baseY: number;
-  range: number;
 }
 interface SatEl {
   pivot: TransformNode;
   baseAngle: number;
   speed: number;
 }
+interface PulseTarget {
+  mat: StandardMaterial;
+  base: Color3;
+}
 
 export class ProceduralPickupVisual implements PickupVisual {
   readonly root: TransformNode;
   private readonly cosmetic: TransformNode;
-  private readonly floor: TransformNode;
   private readonly scene: Scene;
   private readonly recipe: ProceduralPickupRecipe;
   private readonly phase: number;
 
-  private readonly matCore: StandardMaterial;
+  private readonly matEnergy: StandardMaterial;
   private readonly matAccent: StandardMaterial;
   private readonly matSoft: StandardMaterial;
-  private readonly coreBase: Color3;
-  private readonly accentBase: Color3;
-  private readonly softBase: Color3;
+  private readonly matGradient: StandardMaterial | null = null;
+  private readonly matPlate: StandardMaterial | null = null;
+  private readonly gradTex: RawTexture | null = null;
+  private readonly pulseTargets: PulseTarget[] = [];
 
   private readonly rings: RingEl[] = [];
-  private readonly plates: PlateEl[] = [];
-  private readonly petals: PetalEl[] = [];
-  private readonly motes: MoteEl[] = [];
   private readonly satellites: SatEl[] = [];
   private readonly transients: ProceduralPickupTransient[] = [];
 
@@ -97,102 +93,85 @@ export class ProceduralPickupVisual implements PickupVisual {
     this.assembleDuration = recipe.highTier ? 0.7 : 0.45;
 
     const set = getPrototypeSet(scene, recipe);
-    this.matCore = cloneEnergyMaterial(set.energyCore, `pp_core_${recipe.id}_${seed}`);
+    this.matEnergy = cloneEnergyMaterial(set.energyCore, `pp_energy_${recipe.id}_${seed}`);
     this.matAccent = cloneEnergyMaterial(set.energyAccent, `pp_accent_${recipe.id}_${seed}`);
     this.matSoft = cloneEnergyMaterial(set.energySoft, `pp_soft_${recipe.id}_${seed}`);
-    this.coreBase = baseEmissive(this.matCore).clone();
-    this.accentBase = baseEmissive(this.matAccent).clone();
-    this.softBase = baseEmissive(this.matSoft).clone();
+    this.track(this.matEnergy);
+    this.track(this.matAccent);
+    this.track(this.matSoft);
 
     this.root = new TransformNode(`pp_anchor_${recipe.id}_${seed}`, scene);
     this.root.position.copyFrom(position);
     this.cosmetic = new TransformNode(`pp_cosmetic_${recipe.id}_${seed}`, scene);
     this.cosmetic.parent = this.root;
-    this.floor = new TransformNode(`pp_floor_${recipe.id}_${seed}`, scene);
-    this.floor.parent = this.root;
-    this.floor.position.y = FLOOR_Y;
 
     const s = recipe.scale;
 
-    // ── Central symbol + core shell ────────────────────────────────
     if (recipe.family === "health") {
-      this.inst(set.cross, this.cosmetic, this.matCore, "sym");
-      this.inst(set.core, this.cosmetic, this.matSoft, "coreshell");
+      // Bright scrolling-gradient orb + a small readable cross emblem.
+      this.matGradient = createGradientCoreMaterial(
+        scene,
+        `pp_grad_${recipe.id}_${seed}`,
+        recipe.color,
+        recipe.accentColor,
+      );
+      this.gradTex = gradientTexture(this.matGradient);
+      this.track(this.matGradient);
+      this.inst(set.core, this.cosmetic, this.matGradient, "core");
+      this.inst(set.cross, this.cosmetic, this.matEnergy, "cross");
     } else {
-      this.inst(set.hexCore, this.cosmetic, this.matCore, "hex");
+      // Small bright core with a fanned stack of hexagonal shield plates.
+      this.matPlate = createPlateMaterial(scene, `pp_plate_${recipe.id}_${seed}`, recipe.color);
+      this.track(this.matPlate);
+      this.inst(set.hexCore, this.cosmetic, this.matEnergy, "core");
+      const n = recipe.plateCount;
+      const gap = 2.6 * s;
+      for (let i = 0; i < n; i++) {
+        const plate = this.inst(set.plate, this.cosmetic, this.matPlate, `plate_${i}`);
+        if (!plate) continue;
+        plate.position.z = (i - (n - 1) / 2) * gap;
+        plate.rotation.z = i * 0.5;
+        plate.scaling.setAll(1 - i * 0.07);
+      }
     }
 
-    // ── Rings ──────────────────────────────────────────────────────
+    // Thin orbiting rings (health large/mega/ultra).
     for (let i = 0; i < recipe.ringCount; i++) {
       const pivot = new TransformNode(`pp_ringpivot_${i}`, scene);
       pivot.parent = this.cosmetic;
       const ring = this.inst(set.ring, pivot, this.matAccent, `ring_${i}`);
-      if (ring) ring.rotation.x = 0.35 + i * 0.55; // tilt so the spin reads
+      if (ring) ring.rotation.x = 0.3 + i * 0.6;
       const dir = i % 2 === 0 ? 1 : -1;
-      this.rings.push({ pivot, speed: recipe.spinSpeed * DEG2RAD * (0.8 + i * 0.3) * dir });
+      this.rings.push({ pivot, speed: recipe.spinSpeed * DEG2RAD * (0.9 + i * 0.4) * dir });
     }
 
-    // ── Armor plates (assembling shield cage) ──────────────────────
-    for (let i = 0; i < recipe.plateCount; i++) {
-      const pivot = new TransformNode(`pp_platepivot_${i}`, scene);
-      pivot.parent = this.cosmetic;
-      const baseAngle = (i / recipe.plateCount) * TAU;
-      const radius = 13 * s;
-      const mesh = this.inst(set.plate, pivot, set.structural, `plate_${i}`);
-      if (mesh) {
-        mesh.position.set(radius, 0, 0);
-        mesh.rotation.y = Math.PI / 2; // flat face points radially outward
-      }
-      if (mesh) this.plates.push({ pivot, mesh, baseAngle, radius });
-    }
-
-    // ── Health corona petals ───────────────────────────────────────
-    for (let i = 0; i < recipe.shellPieces; i++) {
-      const pivot = new TransformNode(`pp_petalpivot_${i}`, scene);
-      pivot.parent = this.cosmetic;
-      const baseAngle = (i / recipe.shellPieces) * TAU;
-      pivot.rotation.y = baseAngle;
-      const petal = this.inst(set.petal, pivot, this.matAccent, `petal_${i}`);
-      if (petal) {
-        petal.position.set(12 * s, 0, 0);
-        petal.rotation.z = Math.PI / 2; // lie tangential around the core
-      }
-      this.petals.push({ pivot, baseAngle });
-    }
-
-    // ── Rising motes ───────────────────────────────────────────────
-    for (let i = 0; i < recipe.moteCount; i++) {
-      const mesh = this.inst(set.mote, this.cosmetic, this.matCore, `mote_${i}`);
-      if (!mesh) continue;
-      const angle = (i / Math.max(1, recipe.moteCount)) * TAU;
-      const r = (6 + (i % 3) * 3) * s;
-      mesh.position.set(Math.cos(angle) * r, 0, Math.sin(angle) * r);
-      this.motes.push({ mesh, phase: i / Math.max(1, recipe.moteCount), baseY: -10 * s, range: 26 * s });
-    }
-
-    // ── Orbiting satellites ────────────────────────────────────────
+    // Orbiting satellites (mega/ultra).
     for (let i = 0; i < recipe.satelliteCount; i++) {
       const pivot = new TransformNode(`pp_satpivot_${i}`, scene);
       pivot.parent = this.cosmetic;
-      pivot.rotation.x = 0.4 + i * 0.2;
-      const baseAngle = (i / recipe.satelliteCount) * TAU;
-      const sat = this.inst(set.satellite, pivot, this.matCore, `sat_${i}`);
-      if (sat) sat.position.set(22 * s, 0, 0);
-      this.satellites.push({ pivot, baseAngle, speed: recipe.spinSpeed * DEG2RAD * 1.6 });
+      pivot.rotation.x = 0.4 + i * 0.25;
+      const sat = this.inst(set.satellite, pivot, this.matEnergy, `sat_${i}`);
+      if (sat) sat.position.set(14 * s, 0, 0);
+      this.satellites.push({
+        pivot,
+        baseAngle: (i / recipe.satelliteCount) * TAU,
+        speed: recipe.spinSpeed * DEG2RAD * 1.5,
+      });
     }
 
-    // ── Floor pedestal ─────────────────────────────────────────────
-    this.inst(set.floorDisc, this.floor, this.matSoft, "floordisc");
-    this.inst(set.floorRing, this.floor, this.matAccent, "floorring");
-    this.inst(set.glyph, this.floor, this.matCore, "glyph");
+    // Faint vertical beacon (mega/ultra/red) rising from the floor.
     if (set.beacon) {
-      const beacon = this.inst(set.beacon, this.floor, this.matSoft, "beacon");
-      if (beacon) beacon.position.y = FLOOR_Y * -1 + BEACON_HEIGHT / 2 - FLOOR_PAD;
+      const beacon = this.inst(set.beacon, this.cosmetic, this.matSoft, "beacon");
+      if (beacon) beacon.position.y = -BEACON_BASE_BELOW + BEACON_HEIGHT / 2;
     }
 
     // Fail-closed initial visibility WITHOUT committing prevActive, so the first
     // server reconcile is treated as the initial (silent) state, not a respawn.
     this.applyVisible(!startHidden);
+  }
+
+  private track(mat: StandardMaterial): void {
+    this.pulseTargets.push({ mat, base: baseEmissive(mat).clone() });
   }
 
   /** Clone a prototype into `parent` with a material; enabled + visible. */
@@ -214,7 +193,6 @@ export class ProceduralPickupVisual implements PickupVisual {
   private applyVisible(v: boolean): void {
     this.visible = v;
     this.cosmetic.setEnabled(v);
-    this.floor.setEnabled(v);
   }
 
   setActive(active: boolean): void {
@@ -243,7 +221,7 @@ export class ProceduralPickupVisual implements PickupVisual {
       new Color3(this.recipe.color.r, this.recipe.color.g, this.recipe.color.b),
       {
         duration: this.recipe.highTier ? 0.42 : 0.28,
-        endDiameter: 44 * this.recipe.scale * 1.7,
+        endDiameter: 30 * this.recipe.scale * 1.7,
         style: this.recipe.collectStyle,
         scale: this.recipe.scale,
       },
@@ -254,8 +232,8 @@ export class ProceduralPickupVisual implements PickupVisual {
   update(dt: number, elapsed: number): void {
     if (this.disposed) return;
 
-    // Transients run even while the persistent visual is hidden (they're
-    // parented to the always-enabled anchor).
+    // Transients run even while the persistent visual is hidden (parented to the
+    // always-enabled anchor).
     if (this.transients.length > 0) {
       for (let i = this.transients.length - 1; i >= 0; i--) {
         if (!this.transients[i].update(dt)) this.transients.splice(i, 1);
@@ -275,7 +253,7 @@ export class ProceduralPickupVisual implements PickupVisual {
       assembleScale = 0.35 + 0.65 * (1 - (1 - p) * (1 - p));
     }
 
-    // Bob (+ figure-eight for health) and yaw spin.
+    // Slow bob + stately yaw spin.
     const bobW = t * r.bobFrequency * TAU;
     this.cosmetic.position.y = Math.sin(bobW) * r.bobAmplitude;
     this.cosmetic.position.x = r.figureEight ? Math.sin(bobW * 2) * r.bobAmplitude * 0.35 : 0;
@@ -285,47 +263,22 @@ export class ProceduralPickupVisual implements PickupVisual {
     const breathe = 1 + 0.02 * Math.sin(t * r.pulseFrequency * TAU);
     this.cosmetic.scaling.setAll(assembleScale * breathe);
 
-    // Emissive pulse (heartbeat double-beat for high tier; flicker for unstable).
+    // Gentle emissive pulse (double-beat for high tier; flicker for unstable).
     const pulseW = t * r.pulseFrequency * TAU;
-    let pulse = 0.72 + 0.28 * Math.sin(pulseW);
-    if (r.highTier) pulse += 0.15 * Math.max(0, Math.sin(pulseW * 2));
-    if (r.unstable) pulse += 0.09 * Math.sin(t * 13.3);
-    pulse = Math.max(0.4, pulse);
-    this.setEmissive(this.matCore, this.coreBase, pulse);
-    this.setEmissive(this.matAccent, this.accentBase, pulse);
-    this.setEmissive(this.matSoft, this.softBase, pulse);
+    let pulse = 0.82 + 0.18 * Math.sin(pulseW);
+    if (r.highTier) pulse += 0.12 * Math.max(0, Math.sin(pulseW * 2));
+    if (r.unstable) pulse += 0.06 * Math.sin(t * 11);
+    pulse = Math.max(0.5, pulse);
+    for (const target of this.pulseTargets) {
+      target.mat.emissiveColor.set(target.base.r * pulse, target.base.g * pulse, target.base.b * pulse);
+    }
 
-    // Rings.
+    // Scrolling energy gradient (health core).
+    if (this.gradTex) this.gradTex.uOffset = t * SCROLL_SPEED;
+
+    // Rings + satellites.
     for (const ring of this.rings) ring.pivot.rotation.y = t * ring.speed;
-
-    // Plates: orbit the cage + a subtle radial lock pulse.
-    for (const plate of this.plates) {
-      plate.pivot.rotation.y = plate.baseAngle + t * r.spinSpeed * DEG2RAD * 0.5;
-      const lock = Math.sin(t * r.pulseFrequency * TAU) * 1.5 * r.scale;
-      plate.mesh.position.x = plate.radius + lock;
-    }
-
-    // Petals gently open/close.
-    for (const petal of this.petals) {
-      petal.pivot.rotation.z = Math.sin(t * r.pulseFrequency * TAU + petal.baseAngle) * 0.18;
-    }
-
-    // Motes rise and shrink at the top, then loop.
-    for (const mote of this.motes) {
-      const f = (t * 0.35 + mote.phase) % 1;
-      mote.mesh.position.y = mote.baseY + f * mote.range;
-      const fade = f < 0.85 ? 1 : 1 - (f - 0.85) / 0.15;
-      mote.mesh.scaling.setAll(Math.max(0.001, fade));
-    }
-
-    // Satellites orbit with a vertical wobble.
-    for (const sat of this.satellites) {
-      sat.pivot.rotation.y = sat.baseAngle + t * sat.speed;
-    }
-  }
-
-  private setEmissive(mat: StandardMaterial, base: Color3, factor: number): void {
-    mat.emissiveColor.set(base.r * factor, base.g * factor, base.b * factor);
+    for (const sat of this.satellites) sat.pivot.rotation.y = sat.baseAngle + t * sat.speed;
   }
 
   dispose(): void {
@@ -334,11 +287,13 @@ export class ProceduralPickupVisual implements PickupVisual {
     for (const t of this.transients) t.dispose();
     this.transients.length = 0;
     // Recursively dispose clones (their SHARED geometry survives via the cache
-    // prototype; disposeMaterialAndTextures=false leaves the shared structural
-    // material alone). Then dispose our 3 private energy materials.
+    // prototype; disposeMaterialAndTextures=false leaves shared materials alone).
     this.root.dispose(false, false);
-    this.matCore.dispose();
+    this.matEnergy.dispose();
     this.matAccent.dispose();
     this.matSoft.dispose();
+    // The gradient material owns its generated texture — force-dispose it.
+    this.matGradient?.dispose(false, true);
+    this.matPlate?.dispose();
   }
 }

@@ -13,12 +13,21 @@
  */
 
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
+import { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture";
+import { Texture } from "@babylonjs/core/Materials/Textures/texture";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import type { Scene } from "@babylonjs/core/scene";
 import type { RGB } from "./types";
 
 function toColor3(c: RGB): Color3 {
   return new Color3(c.r, c.g, c.b);
+}
+
+/** HDR emissive boost so cores/plates bloom bright (values >1 are fine). */
+export const ENERGY_BOOST = 1.4;
+
+function clampByte(v: number): number {
+  return Math.max(0, Math.min(255, Math.round(v * 255)));
 }
 
 /**
@@ -41,12 +50,18 @@ export function createStructuralMaterial(scene: Scene, name: string, color: RGB)
  * per pickup with `cloneEnergyMaterial` to get a private, animatable copy.
  * `alpha < 1` enables premultiplied-ish alpha blending for softer glow layers.
  */
-export function createEnergyMaterialTemplate(scene: Scene, name: string, color: RGB, alpha = 1): StandardMaterial {
+export function createEnergyMaterialTemplate(
+  scene: Scene,
+  name: string,
+  color: RGB,
+  alpha = 1,
+  boost = 1,
+): StandardMaterial {
   const mat = new StandardMaterial(name, scene);
   mat.disableLighting = true;
   mat.diffuseColor = Color3.Black();
   mat.specularColor = Color3.Black();
-  mat.emissiveColor = toColor3(color);
+  mat.emissiveColor = toColor3(color).scale(boost);
   mat.alpha = alpha;
   if (alpha < 1) {
     mat.transparencyMode = 2; // ALPHABLEND
@@ -76,4 +91,78 @@ export function baseEmissive(mat: StandardMaterial): Color3 {
 /** The authored (unpulsed) alpha stashed on an energy material. */
 export function baseAlpha(mat: StandardMaterial): number {
   return (mat as unknown as { _baseAlpha?: number })._baseAlpha ?? mat.alpha;
+}
+
+/**
+ * A seamless 1D gradient texture blending `a`↔`b`↔`a`, so scrolling its U offset
+ * loops smoothly. Generated in memory (no external asset), works under NullEngine.
+ */
+function createGradientTexture(scene: Scene, name: string, a: RGB, b: RGB, size = 64): RawTexture {
+  const data = new Uint8Array(size * 4);
+  for (let i = 0; i < size; i++) {
+    const t = (Math.sin((i / size) * Math.PI * 2) + 1) / 2; // 0→1→0 seamless
+    data[i * 4] = clampByte(a.r + (b.r - a.r) * t);
+    data[i * 4 + 1] = clampByte(a.g + (b.g - a.g) * t);
+    data[i * 4 + 2] = clampByte(a.b + (b.b - a.b) * t);
+    data[i * 4 + 3] = 255;
+  }
+  const tex = RawTexture.CreateRGBATexture(data, size, 1, scene, false, false, Texture.BILINEAR_SAMPLINGMODE);
+  tex.name = `${name}_grad`;
+  tex.wrapU = Texture.WRAP_ADDRESSMODE;
+  tex.wrapV = Texture.CLAMP_ADDRESSMODE;
+  return tex;
+}
+
+/**
+ * Per-pickup scrolling-gradient core material (health): a bright self-lit orb
+ * whose emissive flows `color`→`accent` as its U offset is scrolled each frame.
+ * Slightly translucent so the cross emblem reads through it. Owns its texture —
+ * dispose with `mat.dispose(false, true)`.
+ */
+export function createGradientCoreMaterial(
+  scene: Scene,
+  name: string,
+  color: RGB,
+  accent: RGB,
+  alpha = 0.72,
+  boost = ENERGY_BOOST,
+): StandardMaterial {
+  const tex = createGradientTexture(scene, name, color, accent);
+  const mat = new StandardMaterial(name, scene);
+  mat.disableLighting = true;
+  mat.diffuseColor = Color3.Black();
+  mat.specularColor = Color3.Black();
+  mat.emissiveColor = new Color3(boost, boost, boost); // white × boost, modulated by texture
+  mat.emissiveTexture = tex;
+  mat.alpha = alpha;
+  if (alpha < 1) {
+    mat.transparencyMode = 2; // ALPHABLEND
+    mat.backFaceCulling = false;
+    mat.separateCullingPass = true;
+  }
+  (mat as unknown as { _baseEmissive: Color3 })._baseEmissive = mat.emissiveColor.clone();
+  (mat as unknown as { _baseAlpha: number })._baseAlpha = alpha;
+  (mat as unknown as { _gradTex: RawTexture })._gradTex = tex;
+  return mat;
+}
+
+/** The scrolling gradient texture on a gradient-core material (for U scrolling). */
+export function gradientTexture(mat: StandardMaterial): RawTexture | null {
+  return (mat as unknown as { _gradTex?: RawTexture })._gradTex ?? null;
+}
+
+/**
+ * Per-pickup bright shield-plate material (armor): lit so the hex facets read as
+ * solid plates, with a strong emissive so they still glow. Pulse scales emissive.
+ */
+export function createPlateMaterial(scene: Scene, name: string, color: RGB, boost = ENERGY_BOOST): StandardMaterial {
+  const mat = new StandardMaterial(name, scene);
+  mat.diffuseColor = toColor3(color).scale(0.5);
+  mat.specularColor = new Color3(0.5, 0.5, 0.55);
+  mat.specularPower = 48;
+  mat.emissiveColor = toColor3(color).scale(boost * 0.7);
+  mat.ambientColor = Color3.White();
+  (mat as unknown as { _baseEmissive: Color3 })._baseEmissive = mat.emissiveColor.clone();
+  (mat as unknown as { _baseAlpha: number })._baseAlpha = 1;
+  return mat;
 }

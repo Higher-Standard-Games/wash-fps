@@ -10,37 +10,29 @@
  * assignment (structural vs energy) is the visual's job, not the geometry's.
  */
 
-import { VertexBuffer } from "@babylonjs/core/Buffers/buffer";
-import type { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import type { Scene } from "@babylonjs/core/scene";
 import type { ProceduralPickupRecipe } from "./types";
 
-// Base dimensions at recipe.scale === 1 (Quake units). Scaled per-recipe so
-// clones need no extra transform.
-const CROSS_ARM = 11; // half-length of each cross bar
-const CROSS_THICK = 4.5;
-const CORE_DIAM = 23;
-const RING_DIAM = 30;
-const RING_THICK = 1.5;
-const SHELL_INNER = 15; // corona petal distance from center
-const PLATE_W = 11;
-const PLATE_H = 19;
-const PLATE_THICK = 2.4;
-const MOTE_BAR = 2.6;
-const MOTE_THICK = 0.7;
-const SAT_DIAM = 3.4;
-const HEXCORE_DIAM = 19;
-const HEXCORE_DEPTH = 6;
-const FLOOR_DISC_DIAM = 38;
-const FLOOR_RING_DIAM = 42;
-const FLOOR_RING_THICK = 1.2;
-const GLYPH_ARM = 9;
-const GLYPH_THICK = 1.4;
+// Base dimensions at recipe.scale === 1 (Quake units), tuned for a compact,
+// normal-item-sized silhouette. Scaled per-recipe so clones need no transform.
+const CROSS_ARM = 6; // half-length of each cross bar (small, clean emblem)
+const CROSS_THICK = 2.0;
+const CORE_DIAM = 15;
+const RING_DIAM = 21;
+const RING_THICK = 0.9; // thin sci-fi ring
+const SHELL_INNER = 12; // corona petal distance from center (legacy, unused)
+const HEXPLATE_DIAM = 15; // hexagonal shield plate
+const HEXPLATE_DEPTH = 1.8;
+const MOTE_BAR = 2.2;
+const MOTE_THICK = 0.6;
+const SAT_DIAM = 2.8;
+const HEXCORE_DIAM = 8; // small bright armor core behind the plates
+const HEXCORE_DEPTH = 3;
 const BEACON_HEIGHT = 90;
-const BEACON_TOP = 1.5;
-const BEACON_BOTTOM = 7;
+const BEACON_TOP = 1.2;
+const BEACON_BOTTOM = 5;
 
 /** Force a solid, flat-shaded normal set so merged relic geometry cel-reads. */
 function finalizeProto(mesh: Mesh, name: string): Mesh {
@@ -102,14 +94,16 @@ export function buildRingProto(scene: Scene, recipe: ProceduralPickupRecipe): Me
   return finalizeProto(ring, "proto_ring");
 }
 
-/** One flat shield plate (armor) / corona petal (health shell). */
+/** One clean hexagonal shield plate (armor), oriented flat-face toward +Z. */
 export function buildPlateProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
   const s = recipe.scale;
-  const plate = MeshBuilder.CreateBox(
+  const plate = MeshBuilder.CreateCylinder(
     "plate",
-    { width: PLATE_W * s, height: PLATE_H * s, depth: PLATE_THICK * s },
+    { diameter: HEXPLATE_DIAM * s, height: HEXPLATE_DEPTH * s, tessellation: 6 },
     scene,
   );
+  plate.rotation.x = Math.PI / 2; // lay the hex flat, facing the viewer
+  plate.bakeCurrentTransformIntoVertices();
   return finalizeProto(plate, "proto_plate");
 }
 
@@ -141,48 +135,6 @@ export function buildSatelliteProto(scene: Scene, recipe: ProceduralPickupRecipe
   return finalizeProto(sat, "proto_satellite");
 }
 
-/** Thin translucent floor disc pedestal. */
-export function buildFloorDiscProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
-  const s = recipe.scale;
-  const disc = MeshBuilder.CreateCylinder(
-    "floordisc",
-    { diameter: FLOOR_DISC_DIAM * s, height: 0.5, tessellation: 40 },
-    scene,
-  );
-  return finalizeProto(disc, "proto_floordisc");
-}
-
-/** Flat segmented-look floor ring (torus lying on the ground). */
-export function buildFloorRingProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
-  const s = recipe.scale;
-  const ring = MeshBuilder.CreateTorus(
-    "floorring",
-    { diameter: FLOOR_RING_DIAM * s, thickness: FLOOR_RING_THICK * s, tessellation: 44 },
-    scene,
-  );
-  return finalizeProto(ring, "proto_floorring");
-}
-
-/** Floor glyph — a flat health cross or an armor diamond, lying on the ground. */
-export function buildFloorGlyphProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
-  const s = recipe.scale;
-  if (recipe.family === "health") {
-    const len = GLYPH_ARM * 2 * s;
-    const t = GLYPH_THICK * s;
-    const barX = MeshBuilder.CreateBox("g_x", { width: len, height: 0.4, depth: t }, scene);
-    const barZ = MeshBuilder.CreateBox("g_z", { width: t, height: 0.4, depth: len }, scene);
-    return mergeOrThrow([barX, barZ], "proto_glyph", scene);
-  }
-  const diamond = MeshBuilder.CreateBox(
-    "g_d",
-    { width: GLYPH_ARM * 1.4 * s, height: 0.4, depth: GLYPH_ARM * 1.4 * s },
-    scene,
-  );
-  diamond.rotation.y = Math.PI / 4;
-  diamond.bakeCurrentTransformIntoVertices();
-  return finalizeProto(diamond, "proto_glyph");
-}
-
 /** Faint vertical beacon (mega/ultra/red) for arena-scale readability. */
 export function buildBeaconProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
   const s = recipe.scale;
@@ -197,23 +149,4 @@ export function buildBeaconProto(scene: Scene, recipe: ProceduralPickupRecipe): 
     scene,
   );
   return finalizeProto(beacon, "proto_beacon");
-}
-
-/**
- * Give a mesh a solid vertex-color so bloom/emissive reads uniformly even if a
- * material is swapped later. Currently unused by the baseline (materials carry
- * the color) but kept as a small helper for tuning experiments.
- */
-export function tintVertices(mesh: Mesh, color: Color3): void {
-  const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
-  if (!positions) return;
-  const count = positions.length / 3;
-  const colors = new Array<number>(count * 4);
-  for (let i = 0; i < count; i++) {
-    colors[i * 4] = color.r;
-    colors[i * 4 + 1] = color.g;
-    colors[i * 4 + 2] = color.b;
-    colors[i * 4 + 3] = 1;
-  }
-  mesh.setVerticesData(VertexBuffer.ColorKind, colors);
 }
