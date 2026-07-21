@@ -10,9 +10,10 @@ import { FPSPickup } from "../FPSPickup";
 
 interface FakePickup {
   isActive: boolean;
-  options: { id: string; pickupId?: number; serverManagedRespawn?: boolean; entityId?: string };
+  options: { id: string; pickupId?: number; serverManagedRespawn?: boolean; entityId?: string; type?: string };
   position: { x: number; y: number; z: number };
   mesh?: { isEnabled: () => boolean };
+  describeModelForAudit?: () => string;
   setActiveState: ReturnType<typeof vi.fn>;
 }
 
@@ -135,6 +136,20 @@ describe("FPSPickup.auditActiveSet", () => {
 
     expect(report).toContain("active/mesh mismatches");
     expect(report).toContain("rlauncher#0");
+  });
+
+  it("includes model render diagnostics when the pickup exposes them", () => {
+    register(
+      makeFakePickup("rlauncher", 0, {
+        options: { id: "rlauncher", pickupId: 0, type: "weapon" },
+        describeModelForAudit: () => "source=cache-flat,det(-/+0)=5/0/0",
+      }),
+    );
+
+    const report = FPSPickup.auditActiveSet([true]);
+
+    expect(report).toContain("source=cache-flat");
+    expect(report).toContain("det(-/+0)=5/0/0");
   });
 });
 

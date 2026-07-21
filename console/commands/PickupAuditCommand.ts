@@ -1,4 +1,5 @@
 import { Command, type CommandDef } from "../../../../engine/console/Command";
+import { DroppedWeaponRenderer } from "../../client/DroppedWeaponRenderer";
 import { FPSPickup } from "../../world/FPSPickup";
 
 export default class PickupAuditCommand extends Command {
@@ -10,6 +11,6 @@ export default class PickupAuditCommand extends Command {
   };
 
   async execute(): Promise<string> {
-    return FPSPickup.auditActiveSet();
+    return `${FPSPickup.auditActiveSet()}\n${DroppedWeaponRenderer.auditModelState()}`;
   }
 }

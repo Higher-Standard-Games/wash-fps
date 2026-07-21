@@ -416,7 +416,8 @@ export class FPSPickup extends Pickup {
         `mesh(enabled=${mesh.isEnabled?.() ?? "?"},verts=${mesh.getTotalVertices?.() ?? "?"},` +
         `scale=${mesh.scaling?.x?.toFixed(3) ?? "?"},bworld=${bsize},alwaysActive=${mesh.alwaysSelectAsActiveMesh ?? "?"}${wpStr})`;
     }
-    return `${pickup.options.id}#${pickup.options.pickupId ?? "none"}@${pos.x.toFixed(1)},${pos.y.toFixed(1)},${pos.z.toFixed(1)} active=${pickup.isActive} ${meshInfo}`;
+    const modelAudit = (pickup as unknown as { describeModelForAudit?: () => string }).describeModelForAudit?.();
+    return `${pickup.options.id}#${pickup.options.pickupId ?? "none"}@${pos.x.toFixed(1)},${pos.y.toFixed(1)},${pos.z.toFixed(1)} active=${pickup.isActive} ${meshInfo}${modelAudit ? ` model(${modelAudit})` : ""}`;
   }
 
   /** Called by FPSController.onUse (F key) — clears the prompt; server handles the actual swap. */

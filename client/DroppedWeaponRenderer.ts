@@ -37,6 +37,8 @@ export interface DroppedWeaponInfo {
   settled?: boolean;
 }
 
+const activeDroppedWeaponVisuals = new Set<DroppedWeaponVisual>();
+
 /** Visual representation of a single dropped weapon with Havok physics */
 class DroppedWeaponVisual {
   readonly entityId: string;
@@ -48,6 +50,7 @@ class DroppedWeaponVisual {
   private settleCheckTimer: ReturnType<typeof setInterval> | null = null;
   private readonly useServerTransforms: boolean;
   hasPhysics: boolean = false;
+  private loadSource: "pending" | "cache-flat" | "fresh-flat" = "pending";
   /** Server's authoritative position — used to align visual after Havok settles */
   private serverPosition: Vector3 = Vector3.Zero();
 
@@ -64,6 +67,7 @@ class DroppedWeaponVisual {
     this.scene = scene;
     this.useServerTransforms = useServerTransforms;
     this.serverPosition.copyFrom(position);
+    activeDroppedWeaponVisuals.add(this);
     this.loadModel(position, velocity);
   }
 
@@ -84,6 +88,7 @@ class DroppedWeaponVisual {
         const preloader = AssetPreloader.getInstance();
         if (preloader.hasModel(modelPath)) {
           result = preloader.cloneCachedModel(modelPath, this.scene);
+          if (result) this.loadSource = "cache-flat";
         }
       } catch {
         // Preloader not available
@@ -100,6 +105,7 @@ class DroppedWeaponVisual {
           hasCollision: false,
           applyLighting: false,
         });
+        if (result) this.loadSource = "fresh-flat";
       }
 
       // If disposed during async load, clean up and bail
@@ -304,6 +310,7 @@ class DroppedWeaponVisual {
 
   dispose(): void {
     this.disposed = true;
+    activeDroppedWeaponVisuals.delete(this);
     if (this.settleCheckTimer) {
       clearInterval(this.settleCheckTimer);
       this.settleCheckTimer = null;
@@ -333,6 +340,37 @@ class DroppedWeaponVisual {
       this.mesh = null;
     }
   }
+
+  describeModelForAudit(): string {
+    if (!this.mesh) return `${this.entityId}:${this.weaponId} source=${this.loadSource} model=NONE`;
+    const meshes = [this.mesh, ...this.mesh.getChildMeshes(false)].filter((mesh) => mesh.getTotalVertices() > 0);
+    let negative = 0;
+    let positive = 0;
+    let zero = 0;
+    let culled = 0;
+    let active = 0;
+    let ready = 0;
+    let enabled = 0;
+    let visible = 0;
+    const activeMeshes = this.scene.getActiveMeshes();
+    for (const mesh of meshes) {
+      const determinant = mesh.computeWorldMatrix(true).determinant();
+      if (determinant < -1e-6) negative++;
+      else if (determinant > 1e-6) positive++;
+      else zero++;
+      if (mesh.material?.backFaceCulling) culled++;
+      if (activeMeshes.contains(mesh)) active++;
+      if (mesh.isReady(true)) ready++;
+      if (mesh.isEnabled()) enabled++;
+      if (mesh.isVisible && mesh.visibility > 0) visible++;
+    }
+    return (
+      `${this.entityId}:${this.weaponId} source=${this.loadSource},meshes=${meshes.length},` +
+      `det(-/+0)=${negative}/${positive}/${zero},active=${active}/${meshes.length},` +
+      `enabled=${enabled}/${meshes.length},visible=${visible}/${meshes.length},` +
+      `ready=${ready}/${meshes.length},backCull=${culled}/${meshes.length}`
+    );
+  }
 }
 
 export class DroppedWeaponRenderer {
@@ -344,6 +382,11 @@ export class DroppedWeaponRenderer {
 
   /** Currently tracked nearby dropped weapon for F prompt */
   private static nearbyDroppedWeapon: DroppedWeaponVisual | null = null;
+
+  static auditModelState(): string {
+    const entries = [...activeDroppedWeaponVisuals].map((visual) => visual.describeModelForAudit());
+    return `pickup_audit: dropped weapons: ${entries.length > 0 ? entries.join("; ") : "none"}`;
+  }
 
   constructor(
     scene: Scene,
