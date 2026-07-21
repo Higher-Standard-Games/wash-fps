@@ -12,6 +12,7 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { AudioManager } from "../../engine/AudioManager";
 import { CameraSystem } from "../../engine/camera";
 import { setGameFrameHook } from "../../engine/camera/GameFrameHook";
+import { EventBus } from "../../engine/core/EventBus";
 import { log } from "../../engine/core/Log";
 import { InputSystem } from "../../engine/input/InputSystem";
 import { LocalGameHost } from "../../engine/network/client/hosts/LocalGameHost";
@@ -195,6 +196,14 @@ export class Game {
 
     // Register all FPS actions + contexts with InputSystem
     registerFPSActions();
+
+    // Dropped weapons are independent root meshes. A scene/map teardown can
+    // dispose those meshes without clearing the renderer's entity registry,
+    // leaving stale IDs that will never be recreated on the next map.
+    EventBus.on("map:unloading", () => {
+      this.droppedWeaponRenderer?.dispose();
+      this.droppedWeaponRenderer = null;
+    });
 
     // Tab-recovery: snap everything to clean state when returning from background
     document.addEventListener("visibilitychange", () => {
@@ -1579,6 +1588,8 @@ export class Game {
     this.spectatorCycling = null;
     this.spectatorController?.dispose();
     this.spectatorController = null;
+    this.droppedWeaponRenderer?.dispose();
+    this.droppedWeaponRenderer = null;
 
     // Cleanup event listeners
     if (this._joinKeyHandler) {

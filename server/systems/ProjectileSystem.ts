@@ -125,6 +125,18 @@ export class ProjectileSystem extends Subsystem {
     return this.projectileMeta.get(entityId)?.defId;
   }
 
+  /** Remove every warmup projectile and its delayed damage/impact work. */
+  resetForMatch(state: WorldState): void {
+    const projectileIds = [...state.entitiesByType(EntityType.Projectile)].map((entity) => entity.id);
+    for (const eId of projectileIds) {
+      state.removeEntity(eId);
+    }
+    this.projectileMeta.clear();
+    this.projectilesToRemove = [];
+    this.pendingDamage = [];
+    this.pendingImpacts = [];
+  }
+
   update(state: WorldState, dt: number, _tick: TickNumber): void {
     this.projectilesToRemove = [];
 

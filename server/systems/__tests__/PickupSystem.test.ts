@@ -2,8 +2,8 @@
  * PickupSystem integration tests - server-authoritative item grants and masks.
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EntityType } from "@engine/server/ecs/types";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PickupEntry } from "../../../../../shared/bsp/PickupTable";
 import { PickupSystem } from "../PickupSystem";
 
@@ -89,6 +89,19 @@ describe("PickupSystem - armor", () => {
     sys.setPickupItems([armorEntry("ra")]);
     player.health.armor = 100;
     sys.update(makeState(player) as never, 0.008, (16 * TICK_RATE) as never);
+    expect(sys.getActiveMask()[0]).toBe(true);
+  });
+
+  it("restarts delayed-item timing relative to the live match tick", () => {
+    sys.setPickupItems([armorEntry("ra")]);
+    const matchStartTick = 10_000;
+    sys.resetForMatch(matchStartTick);
+    const far = makePlayer(9999, 0, 0);
+
+    sys.update(makeState(far) as never, 0.008, (matchStartTick + 15 * TICK_RATE - 1) as never);
+    expect(sys.getActiveMask()[0]).toBe(false);
+
+    sys.update(makeState(far) as never, 0.008, (matchStartTick + 15 * TICK_RATE) as never);
     expect(sys.getActiveMask()[0]).toBe(true);
   });
 });

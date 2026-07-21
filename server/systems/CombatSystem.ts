@@ -187,6 +187,13 @@ export class CombatSystem extends Subsystem {
     this.processedDamage = [];
   }
 
+  /** Drop every warmup combat transient before players are respawned for a match. */
+  resetForMatch(): void {
+    this.pendingDamage = [];
+    this.kills = [];
+    this.processedDamage = [];
+  }
+
   update(state: WorldState, _dt: number, tick: TickNumber): void {
     // Process pending damage
     for (const damage of this.pendingDamage) {

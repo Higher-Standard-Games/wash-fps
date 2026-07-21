@@ -159,6 +159,16 @@ export class DroppedWeaponSystem extends Subsystem {
     this.droppedWeapons.delete(eId);
   }
 
+  /** Remove all warmup drops and queued drop work from the authoritative world. */
+  resetForMatch(state: WorldState): void {
+    for (const eId of this.droppedWeapons.keys()) {
+      state.removeEntity(eId);
+    }
+    this.droppedWeapons.clear();
+    this.pendingDrops = [];
+    this.pendingDropEvents = [];
+  }
+
   // ────────────────────────────────────────────────────────────────
   // Subsystem update
   // ────────────────────────────────────────────────────────────────

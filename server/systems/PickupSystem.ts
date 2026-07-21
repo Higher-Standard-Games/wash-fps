@@ -140,7 +140,10 @@ export class PickupSystem extends Subsystem {
       seconds = DEFAULT_RESPAWN_SECONDS.armor;
     } else {
       // health: mega/ultra respawn slower than small/large
-      seconds = entry.kind === "mega" || entry.kind === "ultra" ? DEFAULT_RESPAWN_SECONDS.megaHealth : DEFAULT_RESPAWN_SECONDS.health;
+      seconds =
+        entry.kind === "mega" || entry.kind === "ultra"
+          ? DEFAULT_RESPAWN_SECONDS.megaHealth
+          : DEFAULT_RESPAWN_SECONDS.health;
     }
     return Math.floor(seconds * TICK_RATE);
   }
@@ -152,10 +155,7 @@ export class PickupSystem extends Subsystem {
    * grab off spawn.
    */
   setPickupItems(entries: PickupEntry[]): void {
-    const firstSpawnDelayTicks = Math.floor(FIRST_SPAWN_DELAY_SECONDS * TICK_RATE);
-
     this.pickups = entries.map((e) => {
-      const delayed = e.type === "armor" || (e.type === "health" && (e.kind === "mega" || e.kind === "ultra"));
       return {
         id: e.id,
         type: e.type,
@@ -163,12 +163,30 @@ export class PickupSystem extends Subsystem {
         amount: e.amount,
         classname: e.classname,
         position: { ...e.position },
-        // Delayed items aren't present at match start — they first spawn later.
-        active: !delayed,
-        respawnTick: delayed ? firstSpawnDelayTicks : 0,
+        active: true,
+        respawnTick: 0,
         respawnTicks: this.respawnTicksFor(e),
       };
     });
+    this.resetForMatch(0);
+  }
+
+  /**
+   * Restore the map's authoritative item generation for a fresh match.
+   * Armor and mega/ultra health use a delay relative to the actual match-start
+   * tick (not server tick zero, which may be minutes earlier after warmup).
+   */
+  resetForMatch(tickNum: number): void {
+    const firstSpawnDelayTicks = Math.floor(FIRST_SPAWN_DELAY_SECONDS * TICK_RATE);
+    for (const pickup of this.pickups) {
+      const delayed =
+        pickup.type === "armor" || (pickup.type === "health" && (pickup.kind === "mega" || pickup.kind === "ultra"));
+      pickup.active = !delayed;
+      pickup.respawnTick = delayed ? tickNum + firstSpawnDelayTicks : 0;
+    }
+    this.pendingPickupEvents = [];
+    this.pendingPickupNotifies = [];
+    this.useButtonPrev.clear();
   }
 
   /** Deactivate a consumed pickup and schedule its per-type respawn. */

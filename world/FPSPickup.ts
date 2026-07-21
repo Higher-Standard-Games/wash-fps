@@ -14,7 +14,7 @@
  * `src/engine/world/Pickup.ts`.
  */
 
-import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Scene } from "@babylonjs/core/scene";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
@@ -104,12 +104,12 @@ export class FPSPickup extends Pickup {
     await super.loadModel();
     // After base model is loaded, attach weapon barrel sub-models (weapons only)
     if (this.options.type === "weapon" && this.options.value && this.mesh) {
-      this._loadBarrels(this.mesh, this.options.value as string).catch(() => {});
+      await this._loadBarrels(this.mesh, this.options.value as string);
     }
     // Ammo boxes share one generic model; overlay the per-ammo icon quad so each
     // box reads as its ammo type (Warsow ammobox_icon.md3 + simpleitem icon).
     if (this.options.type === "ammo" && this.options.value && this.mesh) {
-      this._loadAmmoIcon(this.mesh, this.options.value as string).catch(() => {});
+      await this._loadAmmoIcon(this.mesh, this.options.value as string);
     }
   }
 
@@ -178,7 +178,7 @@ export class FPSPickup extends Pickup {
     }
   }
 
-  /** Load barrel sub-model GLBs and parent to the weapon's leader mesh (fire-and-forget). */
+  /** Load barrel sub-model GLBs and parent them to the weapon's authored attachment point. */
   private async _loadBarrels(leaderMesh: Mesh, weaponId: string): Promise<void> {
     try {
       const { EntityRegistry } = await import("../../../shared/entities/EntityRegistry");
@@ -196,10 +196,17 @@ export class FPSPickup extends Pickup {
       const tags = await loadTags(modelDir);
       const barrelTag = findTag(tags, "tag_barrel");
 
-      let boneOffX = 0;
-      let boneOffY = 0;
-      let boneOffZ = 0;
-      if (barrelTag?.boneName) {
+      // GLB attachment nodes are the authoritative model-space anchors. They
+      // must be snapshotted by ModelLoader/AssetPreloader because the pickup
+      // cache intentionally flattens render meshes and otherwise loses tags.
+      const attachment =
+        (barrelTag?.boneName && this.modelAttachmentPoints[barrelTag.boneName]) ||
+        this.modelAttachmentPoints.tag_barrel;
+
+      let boneOffX = attachment?.position.x ?? 0;
+      let boneOffY = attachment?.position.y ?? 0;
+      let boneOffZ = attachment?.position.z ?? 0;
+      if (!attachment && barrelTag?.boneName) {
         for (const skeleton of this.getScene().skeletons) {
           const bone = skeleton.bones.find((b) => b.name === barrelTag.boneName);
           if (bone) {
@@ -224,7 +231,6 @@ export class FPSPickup extends Pickup {
           const barrelRoot = barrelResult.meshes[0];
           if (barrelRoot) {
             barrelRoot.parent = leaderMesh;
-            if (barrelRoot.rotationQuaternion) barrelRoot.rotationQuaternion = null;
             const tagOff = barrelTag?.offset;
             const defOff = barrelDef.offset;
             barrelRoot.position.set(
@@ -232,10 +238,18 @@ export class FPSPickup extends Pickup {
               boneOffY + (tagOff?.y ?? 0) + (defOff?.y ?? 0),
               boneOffZ + (tagOff?.z ?? 0) + (defOff?.z ?? 0),
             );
-            if (tagOff) {
+            if (attachment?.rotationQuaternion) {
+              const q = attachment.rotationQuaternion;
+              barrelRoot.rotationQuaternion = new Quaternion(q.x, q.y, q.z, q.w);
+            } else if (attachment) {
+              barrelRoot.rotationQuaternion = null;
+              barrelRoot.rotation.copyFrom(attachment.rotation);
+            } else if (tagOff) {
+              barrelRoot.rotationQuaternion = null;
               // biome-ignore lint/style/noNonNullAssertion: presence checked one line up
               barrelRoot.rotation.set(barrelTag!.rotation.x, barrelTag!.rotation.y, barrelTag!.rotation.z);
             } else {
+              barrelRoot.rotationQuaternion = null;
               barrelRoot.rotation.setAll(0);
             }
             for (const bm of barrelResult.meshes) {

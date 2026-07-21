@@ -56,4 +56,20 @@ describe("DroppedWeaponSystem lifetime (QA-WO12 regression)", () => {
 
     expect(entities.size).toBe(1);
   });
+
+  it("removes spawned and queued warmup drops on match reset", () => {
+    const sys = new DroppedWeaponSystem();
+    const { state, entities } = makeStubState();
+
+    sys.queueDrop({ weaponId: "rlauncher", ammo: 10, position: { x: 0, y: 64, z: 0 } });
+    sys.update(state, 1 / 125, 1000 as never);
+    expect(entities.size).toBe(1);
+
+    sys.queueDrop({ weaponId: "riotgun", ammo: 8, position: { x: 10, y: 64, z: 0 } });
+    sys.resetForMatch(state);
+    sys.update(state, 1 / 125, 1001 as never);
+
+    expect(entities.size).toBe(0);
+    expect(sys.getPendingDropEvents()).toHaveLength(0);
+  });
 });

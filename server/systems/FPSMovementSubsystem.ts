@@ -20,7 +20,7 @@ import type { QueuedInput } from "../../../../shared/server/simulation/component
 import type { PhysicsComponent } from "../../../../shared/server/simulation/components/PhysicsComponent";
 import type { AdvancedMovementResult } from "../../simulation/MovementConfig";
 import { MovementProfile as FPSMovementProfile } from "../../simulation/MovementProfile";
-import { DamageType, HitLocation, type CombatSystem } from "./CombatSystem";
+import { type CombatSystem, DamageType, HitLocation } from "./CombatSystem";
 
 const CONFIG: SubsystemConfig = {
   name: "FPSMovement",
@@ -272,6 +272,22 @@ export class FPSMovementSubsystem extends Subsystem {
     this.combatSystem = combat;
   }
 
+  /** Clear movement history/impulses that must not cross warmup into live play. */
+  resetForMatch(): void {
+    this.movementProfiles.clear();
+    this.pendingImpulses = [];
+    this.pendingMeleeDashes = [];
+    this.lastKBTick.clear();
+    this.weaponSpeedBonuses.clear();
+    this.lastInput.clear();
+    this.starvationTicks.clear();
+    this.fallStartY.clear();
+    this.fallPeakY.clear();
+    this.lastGroundY.clear();
+    this.fallArmed.clear();
+    this.lastSpawnTick.clear();
+  }
+
   private clearFallTracking(entityId: number): void {
     this.fallStartY.delete(entityId);
     this.fallPeakY.delete(entityId);
@@ -311,7 +327,11 @@ export class FPSMovementSubsystem extends Subsystem {
    * teleporter exit the moment someone comes through (Q3 behavior). Credits
    * the frag to the teleporting player.
    */
-  private telefragAtExit(state: WorldState, teleporterId: EntityId, exitPos: { x: number; y: number; z: number }): void {
+  private telefragAtExit(
+    state: WorldState,
+    teleporterId: EntityId,
+    exitPos: { x: number; y: number; z: number },
+  ): void {
     if (!this.combatSystem) return;
 
     // Q3 player box: radius 16, −24 feet / +40 head around the origin.
@@ -355,7 +375,13 @@ export class FPSMovementSubsystem extends Subsystem {
     // with the sv_falldamage_* thresholds — no Babylon scaling in the sim path).
     // Server-console only; read these against how big the drop *looked* in-game.
     const band =
-      effectiveDrop >= fatalDrop ? "FATAL" : effectiveDrop >= fullDrop ? "CRUSH" : effectiveDrop >= minDrop ? "RAMP" : "SAFE";
+      effectiveDrop >= fatalDrop
+        ? "FATAL"
+        : effectiveDrop >= fullDrop
+          ? "CRUSH"
+          : effectiveDrop >= minDrop
+            ? "RAMP"
+            : "SAFE";
     console.log(
       `[FallDamage] eid=${victimId} rawDrop=${rawDrop.toFixed(1)}u effective=${effectiveDrop.toFixed(1)}u` +
         ` crouched=${crouched} band=${band} (min=${minDrop} full=${fullDrop} fatal=${fatalDrop})`,

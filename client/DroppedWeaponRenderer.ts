@@ -14,7 +14,7 @@
  *   5. Entity gone from snapshot → dispose Havok body + visual
  */
 
-import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import type { Scene } from "@babylonjs/core/scene";
@@ -168,12 +168,15 @@ class DroppedWeaponVisual {
             const { loadTags, findTag } = await import("../../../engine/loader/model/TagsLoader");
             const tags = await loadTags(modelDir);
             const barrelTag = findTag(tags, "tag_barrel");
+            const attachment =
+              (barrelTag?.boneName && result.attachmentPoints?.[barrelTag.boneName]) ||
+              result.attachmentPoints?.tag_barrel;
 
             // Find bone position if tag references a bone
-            let boneOffX = 0,
-              boneOffY = 0,
-              boneOffZ = 0;
-            if (barrelTag?.boneName) {
+            let boneOffX = attachment?.position.x ?? 0,
+              boneOffY = attachment?.position.y ?? 0,
+              boneOffZ = attachment?.position.z ?? 0;
+            if (!attachment && barrelTag?.boneName) {
               for (const skeleton of this.scene.skeletons) {
                 const bone = skeleton.bones.find((b) => b.name === barrelTag.boneName);
                 if (bone) {
@@ -203,7 +206,6 @@ class DroppedWeaponVisual {
                 const barrelRoot = barrelResult.meshes[0];
                 if (barrelRoot) {
                   barrelRoot.parent = leaderMesh;
-                  if (barrelRoot.rotationQuaternion) barrelRoot.rotationQuaternion = null;
                   // Apply: bone position + tag offset + per-barrel def offset
                   const tagOff = barrelTag?.offset;
                   const defOff = barrelDef.offset;
@@ -212,9 +214,17 @@ class DroppedWeaponVisual {
                     boneOffY + (tagOff?.y ?? 0) + (defOff?.y ?? 0),
                     boneOffZ + (tagOff?.z ?? 0) + (defOff?.z ?? 0),
                   );
-                  if (tagOff) {
+                  if (attachment?.rotationQuaternion) {
+                    const q = attachment.rotationQuaternion;
+                    barrelRoot.rotationQuaternion = new Quaternion(q.x, q.y, q.z, q.w);
+                  } else if (attachment) {
+                    barrelRoot.rotationQuaternion = null;
+                    barrelRoot.rotation.copyFrom(attachment.rotation);
+                  } else if (tagOff) {
+                    barrelRoot.rotationQuaternion = null;
                     barrelRoot.rotation.set(barrelTag!.rotation.x, barrelTag!.rotation.y, barrelTag!.rotation.z);
                   } else {
+                    barrelRoot.rotationQuaternion = null;
                     barrelRoot.rotation.setAll(0);
                   }
                   for (const bm of barrelResult.meshes) {
@@ -317,26 +327,28 @@ class DroppedWeaponVisual {
     }
     if (this.mesh) {
       const meshName = this.mesh.name;
-      // Remove Havok body first
-      if (this.mesh.physicsBody) {
-        this.mesh.physicsBody.dispose();
-      }
       // Clean up PhysicsSystem body map reference
       import("../../../engine/physics/PhysicsSystem")
         .then(({ PhysicsSystem }) => {
           PhysicsSystem.getInstance().removeBody(meshName);
         })
         .catch(() => {});
-      // Dispose child meshes (other weapon parts parented to leader)
-      const children = this.mesh.getChildMeshes();
-      for (const child of children) {
-        child.parent = null;
-        // CRITICAL: dispose(false, false) — do NOT dispose shared materials!
-        // Materials are shared with AssetPreloader cache and other clones.
-        child.dispose(false, false);
+      if (!this.mesh.isDisposed()) {
+        // Remove Havok body first
+        if (this.mesh.physicsBody) {
+          this.mesh.physicsBody.dispose();
+        }
+        // Dispose child meshes (other weapon parts parented to leader)
+        const children = this.mesh.getChildMeshes();
+        for (const child of children) {
+          child.parent = null;
+          // CRITICAL: dispose(false, false) — do NOT dispose shared materials!
+          // Materials are shared with AssetPreloader cache and other clones.
+          child.dispose(false, false);
+        }
+        // Dispose leader mesh — also don't dispose materials
+        this.mesh.dispose(false, false);
       }
-      // Dispose leader mesh — also don't dispose materials
-      this.mesh.dispose(false, false);
       this.mesh = null;
     }
   }

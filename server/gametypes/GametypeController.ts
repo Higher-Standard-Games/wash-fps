@@ -54,6 +54,7 @@ export class GametypeController {
   /** Latest sim tick (from postTick) — seeds deterministic spawn selection for
    *  join-time spawns, which happen outside the tick loop (R3b / demo re-sim). */
   private currentTick = 0;
+  private matchStartReset: ((state: WorldState, tickNum: number) => void) | null = null;
   private botPlayerIds: Set<PlayerId> = new Set();
 
   private combatSystem: CombatSystem | null = null;
@@ -133,6 +134,14 @@ export class GametypeController {
   setSubsystems(combat: CombatSystem, weapon: WeaponSystem): void {
     this.combatSystem = combat;
     this.weaponSystem = weapon;
+  }
+
+  /**
+   * Install the server-owned world reset run atomically before match-start
+   * respawns. GametypeController owns the phase edge; GameServer owns systems.
+   */
+  setMatchStartReset(reset: (state: WorldState, tickNum: number) => void): void {
+    this.matchStartReset = reset;
   }
 
   /**
@@ -408,6 +417,7 @@ export class GametypeController {
 
       // On match start (countdown → active), respawn all players
       if (this.matchState.phase === MatchPhase.Active) {
+        this.matchStartReset?.(state, tickNum);
         this.respawnAllPlayers(state, tickNum);
         this.awardTracker.onMatchStart();
       }
@@ -518,8 +528,15 @@ export class GametypeController {
     // Reset velocity
     if (entity.physics) {
       entity.physics.velocity = { x: 0, y: 0, z: 0 };
+      entity.physics.angularVelocity = { x: 0, y: 0, z: 0 };
       entity.physics.grounded = false;
       entity.physics.jumping = false;
+      entity.physics.isSliding = false;
+      entity.physics.isCrouching = false;
+      entity.physics.crouchViewOffset = 0;
+      entity.physics.wallJumpState = "none";
+      entity.physics.ledgeGrabState = "none";
+      entity.physics.actualHorizSpeed = 0;
     }
 
     // Spawn protection: freeze physics for a few ticks to prevent
@@ -536,6 +553,16 @@ export class GametypeController {
 
     // Clear respawn request flag
     if (entity.input) {
+      entity.input.forward = 0;
+      entity.input.right = 0;
+      entity.input.buttons = 0;
+      entity.input.jump = false;
+      entity.input.crouch = false;
+      entity.input.attack = false;
+      entity.input.altAttack = false;
+      entity.input.use = false;
+      entity.input.weaponSlot = 1;
+      entity.input.inputQueue = [];
       entity.input.wantsRespawn = false;
     }
 
@@ -546,10 +573,8 @@ export class GametypeController {
 
   private respawnAllPlayers(state: WorldState, tickNum: number): void {
     console.log(`[GametypeController] Match start — respawning all players`);
-    for (const entity of state.allEntities()) {
-      if (entity.ownerId !== undefined) {
-        this.respawnPlayer(state, entity.id, tickNum);
-      }
+    for (const entity of state.players()) {
+      this.respawnPlayer(state, entity.id, tickNum);
     }
     // Clear any pending respawns
     this.respawnQueue = [];

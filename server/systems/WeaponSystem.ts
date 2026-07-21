@@ -245,6 +245,20 @@ export class WeaponSystem extends Subsystem {
     return events;
   }
 
+  /** Clear actions produced during warmup; player loadouts are rebuilt on respawn. */
+  resetForMatch(): void {
+    this.pendingDamage = [];
+    this.pendingFireEvents = [];
+    this.pendingChargeEvents = [];
+    this.pendingChainEvents = [];
+    this.pendingVoltaicBeamEvents = [];
+    this.pendingElectroRailEvents = [];
+    this.pendingMeleeChecks = [];
+    this.entityPositions.clear();
+    this.accuracy.clear();
+    this.shotCounts.clear();
+  }
+
   /**
    * Get weapon state for a specific entity (used for game state broadcast)
    */

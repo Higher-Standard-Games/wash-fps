@@ -219,6 +219,7 @@ export class GameServer {
     const gt = gametype || new Deathmatch();
     this.gametypeController = new GametypeController(gt);
     this.gametypeController.setSubsystems(this.combatSystem, this.weaponSystem);
+    this.gametypeController.setMatchStartReset((state, tickNum) => this.resetWorldForMatch(state, tickNum));
     // Per-match server mode: post-game is terminal (lobby return flow).
     this.gametypeController.setMatchFlow(this.config.singleMatch ? "single" : "continuous");
 
@@ -269,6 +270,21 @@ export class GameServer {
 
     // Snapshot broadcaster
     this.broadcaster = new SnapshotBroadcaster(this.simulation);
+  }
+
+  /** Reset all authoritative/transient warmup state before match-start respawns. */
+  private resetWorldForMatch(state: import("@engine/server/core/WorldState").WorldState, tickNum: number): void {
+    this.combatSystem.resetForMatch();
+    this.weaponSystem.resetForMatch();
+    this.physicsSystem.resetForMatch();
+    this.projectileSystem.resetForMatch(state);
+    this.droppedWeaponSystem.resetForMatch(state);
+    this.pickupSystem.resetForMatch(tickNum);
+
+    this.knownProjectileIds.clear();
+    this.pendingKillEvents = [];
+    this.pendingAwards = [];
+    console.log("[GameServer] Match start — reset warmup world state");
   }
 
   // ========================================================================
