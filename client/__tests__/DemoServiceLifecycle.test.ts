@@ -74,7 +74,7 @@ function seedPlayback(
   gibs: DisposableSpy;
   damage: DisposableSpy;
   drops: DisposableSpy;
-  glow: { dispose: ReturnType<typeof vi.fn> };
+  glow: { dispose: ReturnType<typeof vi.fn>; getScene: () => null };
   demoWvm: { dispose: ReturnType<typeof vi.fn> };
 } {
   const viewer = { ...disposable(), pause: vi.fn() };
@@ -92,7 +92,9 @@ function seedPlayback(
   const gibs = disposable();
   const damage = disposable();
   const drops = disposable();
-  const glow = { dispose: vi.fn() };
+  // A charge glow is disposed via disposeClusteredLight (WS1), which reads
+  // light.getScene() to detach from the cluster — return null (unclustered).
+  const glow = { dispose: vi.fn(), getScene: () => null };
   const demoWvm = { dispose: vi.fn(), clearDemoBob: vi.fn(), setVisible: vi.fn() };
 
   Object.assign(service as unknown as Record<string, unknown>, {
@@ -118,7 +120,7 @@ function seedPlayback(
       setCinematicHud(overlay: { show(): void; hide(): void }): void;
       setChat(overlay: { show(): void; hide(): void }): void;
     };
-    chargingGlows: Map<string, { dispose(): void }>;
+    chargingGlows: Map<string, { dispose(): void; getScene(): null }>;
     chargingPlayers: Set<string>;
     _enemyWeapons: Map<string, string>;
   };

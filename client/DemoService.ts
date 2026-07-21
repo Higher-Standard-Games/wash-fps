@@ -15,6 +15,7 @@ import { PointLight } from "@babylonjs/core/Lights/pointLight";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
+import { addToDynamicLightCluster, disposeClusteredLight } from "../../../engine/lighting/DynamicLightCluster";
 import { SnapshotBuffer } from "../../../engine/network/client/SnapshotBuffer";
 import type { GameState } from "../../../engine/network/core/GameState";
 import type { VoltaicBeamEvent } from "../../../engine/network/core/SnapshotEvent";
@@ -879,7 +880,8 @@ export class DemoService {
           this.chargingPlayers.add(event.entityId);
         } else if (event.entityId) {
           this.chargingPlayers.delete(event.entityId);
-          this.chargingGlows.get(event.entityId)?.dispose();
+          const chargeGlow = this.chargingGlows.get(event.entityId);
+          if (chargeGlow) disposeClusteredLight(chargeGlow);
           this.chargingGlows.delete(event.entityId);
         }
       } else if (event.type === "weapon_drop") {
@@ -1003,7 +1005,7 @@ export class DemoService {
   private _updateDemoChargeGlows(state: GameState): void {
     for (const [entityId, glow] of this.chargingGlows) {
       if (!this.chargingPlayers.has(entityId) || !state.entities.has(entityId)) {
-        glow.dispose();
+        disposeClusteredLight(glow);
         this.chargingGlows.delete(entityId);
       }
     }
@@ -1017,8 +1019,10 @@ export class DemoService {
         | { position?: { x: number; y: number; z: number } }
         | undefined;
       const position = transform?.position;
-      if (!position || slots++ >= 2) {
-        this.chargingGlows.get(entityId)?.dispose();
+      // Cluster-rendered (WS1) — the slot cap is a sanity budget, not a shader limit.
+      if (!position || slots++ >= 6) {
+        const overflow = this.chargingGlows.get(entityId);
+        if (overflow) disposeClusteredLight(overflow);
         this.chargingGlows.delete(entityId);
         continue;
       }
@@ -1029,6 +1033,7 @@ export class DemoService {
         glow.specular = new Color3(1, 0.1, 0);
         glow.range = 60;
         glow.intensity = 8;
+        addToDynamicLightCluster(scene, glow);
         this.chargingGlows.set(entityId, glow);
       }
       glow.position.set(position.x, position.y + 30, position.z);
@@ -1036,7 +1041,7 @@ export class DemoService {
   }
 
   private _clearDemoCharge(): void {
-    for (const glow of this.chargingGlows.values()) glow.dispose();
+    for (const glow of this.chargingGlows.values()) disposeClusteredLight(glow);
     this.chargingGlows.clear();
     this.chargingPlayers.clear();
   }

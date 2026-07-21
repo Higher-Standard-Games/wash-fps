@@ -14,6 +14,7 @@ import { PointLight } from "@babylonjs/core/Lights/pointLight";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { CameraSystem } from "../../../engine/camera";
+import { addToDynamicLightCluster, disposeClusteredLight } from "../../../engine/lighting/DynamicLightCluster";
 import { NetGraph } from "../../../engine/network/client/NetGraph";
 import type { EntitySnapshot, SnapshotBuffer } from "../../../engine/network/client/SnapshotBuffer";
 import type { TransformComponent } from "../../../engine/network/components/TransformComponent";
@@ -147,7 +148,10 @@ const railTruthSample: RailEffectSample = {
   color: railTruthColor,
 };
 
-const MAX_REMOTE_CHARGE_GLOW_LIGHTS = 2;
+// Sanity budget for concurrent remote charge glows. Was 2 under the raw-light
+// scarcity system; the glows now render through the gameplay cluster (WS1), so
+// this is a cosmetic cap, not a shader-safety limit.
+const MAX_REMOTE_CHARGE_GLOW_LIGHTS = 6;
 
 /**
  * Process a server state update: dispatch events, sync weapon state,
@@ -239,7 +243,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
             ctx.chargingPlayers.delete(event.entityId);
             const glow = ctx.chargingGlows.get(event.entityId);
             if (glow) {
-              glow.dispose();
+              disposeClusteredLight(glow);
               ctx.chargingGlows.delete(event.entityId);
             }
           }
@@ -431,12 +435,12 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
   }
 
   // === Update charge glow positions from entity data ===
-  // These are intentionally capped outside the pooled projectile/explosion light
-  // system. A cluster of charging remote players should never increase the scene
-  // light count enough to compile an unsafe WebGL2 shader variant.
+  // Charge glows render through the gameplay light cluster (WS1), so many
+  // concurrent glows cost one material-visible light; the slot cap below is now
+  // just a sanity budget, not a shader-variant safety limit.
   for (const [entityId, glow] of ctx.chargingGlows) {
     if (!ctx.chargingPlayers.has(entityId) || !state.entities.has(entityId)) {
-      glow.dispose();
+      disposeClusteredLight(glow);
       ctx.chargingGlows.delete(entityId);
     }
   }
@@ -453,7 +457,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
         if (glowSlots >= MAX_REMOTE_CHARGE_GLOW_LIGHTS) {
           const overflowGlow = ctx.chargingGlows.get(entityId);
           if (overflowGlow) {
-            overflowGlow.dispose();
+            disposeClusteredLight(overflowGlow);
             ctx.chargingGlows.delete(entityId);
           }
           continue;
@@ -467,6 +471,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
           light.specular = new Color3(1.0, 0.1, 0.0);
           light.range = 60;
           light.intensity = 8;
+          addToDynamicLightCluster(scene, light);
           ctx.chargingGlows.set(entityId, light);
         }
         light.position.set(pos.x, pos.y + 30, pos.z);
