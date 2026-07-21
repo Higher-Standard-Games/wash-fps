@@ -308,7 +308,7 @@ export class Game {
   /**
    * Revalidate GPU resources after tab return.
    * Separated from onTabReturn() because it's async.
-   * Also installs WebGL context loss/restore handlers on first call.
+   * Also installs renderer-agnostic context loss/restore handlers on first call.
    */
   private _contextLossHandlersInstalled = false;
   private async revalidateAfterTabReturn(): Promise<void> {
@@ -317,21 +317,21 @@ export class Game {
       const scene = CameraSystem.getInstance().getCamera()?.getScene();
       if (!scene) return;
 
-      // Install WebGL context loss/restore handlers (once)
+      // Babylon forwards both WebGL context events and WebGPU device loss
+      // through these engine observables and performs backend restoration.
       if (!this._contextLossHandlersInstalled) {
-        const canvas = scene.getEngine().getRenderingCanvas();
-        if (canvas) {
-          canvas.addEventListener("webglcontextlost", (e) => {
-            console.error("[Game] ⚠️ WebGL context LOST — GPU resources destroyed");
-            e.preventDefault(); // Allow browser to attempt restore
-          });
-          canvas.addEventListener("webglcontextrestored", () => {
-            console.log("[Game] WebGL context RESTORED — revalidating materials");
-            this.revalidateAfterTabReturn();
-          });
-          this._contextLossHandlersInstalled = true;
-          console.log("[Game] WebGL context loss/restore handlers installed");
-        }
+        const engine = scene.getEngine();
+        engine.onContextLostObservable.add(() => {
+          const backend = engine.isWebGPU ? "WebGPU" : "WebGL";
+          console.error(`[Game] ${backend} context lost — GPU resources destroyed`);
+        });
+        engine.onContextRestoredObservable.add(() => {
+          const backend = engine.isWebGPU ? "WebGPU" : "WebGL";
+          console.log(`[Game] ${backend} context restored — revalidating materials`);
+          void this.revalidateAfterTabReturn();
+        });
+        this._contextLossHandlersInstalled = true;
+        console.log("[Game] Renderer context loss/restore handlers installed");
       }
 
       const { revalidateMaterials } = await import("../../engine/weapon/EffectPreloader");
