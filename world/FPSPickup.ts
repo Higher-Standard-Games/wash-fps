@@ -395,11 +395,27 @@ export class FPSPickup extends Pickup {
 
   private static describeForAudit(pickup: FPSPickup): string {
     const pos = pickup.position;
-    const mesh = (pickup as unknown as { mesh?: { isEnabled?: () => boolean; getTotalVertices?: () => number } | null })
-      .mesh;
-    const meshInfo = mesh
-      ? `mesh(enabled=${mesh.isEnabled?.() ?? "?"},verts=${mesh.getTotalVertices?.() ?? "?"})`
-      : "mesh=NONE";
+    const mesh = (
+      pickup as unknown as {
+        mesh?: {
+          isEnabled?: () => boolean;
+          getTotalVertices?: () => number;
+          getAbsolutePosition?: () => { x: number; y: number; z: number };
+          scaling?: { x: number };
+          getBoundingInfo?: () => { boundingBox: { extendSizeWorld: { length: () => number } } };
+          alwaysSelectAsActiveMesh?: boolean;
+        } | null;
+      }
+    ).mesh;
+    let meshInfo = "mesh=NONE";
+    if (mesh) {
+      const wp = mesh.getAbsolutePosition?.();
+      const wpStr = wp ? `@world=${wp.x.toFixed(0)},${wp.y.toFixed(0)},${wp.z.toFixed(0)}` : "";
+      const bsize = mesh.getBoundingInfo?.().boundingBox.extendSizeWorld.length().toFixed(1) ?? "?";
+      meshInfo =
+        `mesh(enabled=${mesh.isEnabled?.() ?? "?"},verts=${mesh.getTotalVertices?.() ?? "?"},` +
+        `scale=${mesh.scaling?.x?.toFixed(3) ?? "?"},bworld=${bsize},alwaysActive=${mesh.alwaysSelectAsActiveMesh ?? "?"}${wpStr})`;
+    }
     return `${pickup.options.id}#${pickup.options.pickupId ?? "none"}@${pos.x.toFixed(1)},${pos.y.toFixed(1)},${pos.z.toFixed(1)} active=${pickup.isActive} ${meshInfo}`;
   }
 
