@@ -344,9 +344,7 @@ export class FPSPickup extends Pickup {
       if ((p as unknown as { mesh?: unknown }).mesh) e.withMesh++;
       byType.set(t, e);
     }
-    const census = [...byType.entries()]
-      .map(([t, e]) => `${t}=${e.active}/${e.total}(mesh:${e.withMesh})`)
-      .join(" ");
+    const census = [...byType.entries()].map(([t, e]) => `${t}=${e.active}/${e.total}(mesh:${e.withMesh})`).join(" ");
     lines.push(`pickup_audit: by-type active/total(mesh): ${census || "none"}`);
     const weapons = [...FPSPickup.allPickups].filter((p) => p.options.type === "weapon");
     if (weapons.length > 0) {
