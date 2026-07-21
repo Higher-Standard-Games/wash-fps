@@ -332,6 +332,27 @@ export class FPSPickup extends Pickup {
     const lines: string[] = [
       `pickup_audit: instances=${FPSPickup.allPickups.size} registered=${FPSPickup.pickupById.size} mask=${mask?.length ?? 0}`,
     ];
+
+    // Per-type census (active/total, and how many have a mesh) — the summary
+    // counts hide whether WEAPON pickups exist and are active at all.
+    const byType = new Map<string, { total: number; active: number; withMesh: number }>();
+    for (const p of FPSPickup.allPickups) {
+      const t = p.options.type ?? "?";
+      const e = byType.get(t) ?? { total: 0, active: 0, withMesh: 0 };
+      e.total++;
+      if (p.isActive) e.active++;
+      if ((p as unknown as { mesh?: unknown }).mesh) e.withMesh++;
+      byType.set(t, e);
+    }
+    const census = [...byType.entries()]
+      .map(([t, e]) => `${t}=${e.active}/${e.total}(mesh:${e.withMesh})`)
+      .join(" ");
+    lines.push(`pickup_audit: by-type active/total(mesh): ${census || "none"}`);
+    const weapons = [...FPSPickup.allPickups].filter((p) => p.options.type === "weapon");
+    if (weapons.length > 0) {
+      lines.push(`pickup_audit: weapons: ${weapons.map((p) => FPSPickup.describeForAudit(p)).join("; ")}`);
+    }
+
     const issues: string[] = [];
 
     const noId = [...FPSPickup.allPickups].filter((p) => FPSPickup.isUnidentifiedServerPickup(p));
@@ -376,7 +397,12 @@ export class FPSPickup extends Pickup {
 
   private static describeForAudit(pickup: FPSPickup): string {
     const pos = pickup.position;
-    return `${pickup.options.id}#${pickup.options.pickupId ?? "none"}@${pos.x.toFixed(1)},${pos.y.toFixed(1)},${pos.z.toFixed(1)} active=${pickup.isActive}`;
+    const mesh = (pickup as unknown as { mesh?: { isEnabled?: () => boolean; getTotalVertices?: () => number } | null })
+      .mesh;
+    const meshInfo = mesh
+      ? `mesh(enabled=${mesh.isEnabled?.() ?? "?"},verts=${mesh.getTotalVertices?.() ?? "?"})`
+      : "mesh=NONE";
+    return `${pickup.options.id}#${pickup.options.pickupId ?? "none"}@${pos.x.toFixed(1)},${pos.y.toFixed(1)},${pos.z.toFixed(1)} active=${pickup.isActive} ${meshInfo}`;
   }
 
   /** Called by FPSController.onUse (F key) — clears the prompt; server handles the actual swap. */
