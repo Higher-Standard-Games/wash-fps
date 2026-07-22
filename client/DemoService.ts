@@ -18,7 +18,13 @@ import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import { addToDynamicLightCluster, disposeClusteredLight } from "../../../engine/lighting/DynamicLightCluster";
 import { SnapshotBuffer } from "../../../engine/network/client/SnapshotBuffer";
 import type { GameState } from "../../../engine/network/core/GameState";
-import type { VoltaicBeamEvent } from "../../../engine/network/core/SnapshotEvent";
+import type {
+  DamageEvent,
+  DeathEvent,
+  ProjectileImpactEvent,
+  VoltaicBeamEvent,
+  WeaponFireEvent,
+} from "../../../engine/network/core/SnapshotEvent";
 import {
   BLADE_EXPLOSION,
   GRENADE_EXPLOSION,
@@ -46,6 +52,16 @@ import { type DemoPovPresentation, DemoPovState } from "./DemoPovState";
 import type { DemoViewer, DemoViewerInfo } from "./DemoViewer";
 import type { DemoViewerHUD } from "./DemoViewerHUD";
 import { type DroppedWeaponInfo, DroppedWeaponRenderer } from "./DroppedWeaponRenderer";
+import {
+  playDamageConfirmationSound,
+  playKillEcho,
+  playPlayerDeathSound,
+  playPlayerPainSound,
+  playProjectileImpactSound,
+  playWeaponFireSound,
+  preloadFPSCombatAudio,
+} from "./FPSCombatAudio";
+import { preloadFPSMovementAudio, processFPSMovementAudio, resetFPSMovementAudio } from "./FPSMovementAudio";
 import {
   handleRemoteWeaponFire,
   handleVoltaicBeam,
@@ -480,6 +496,8 @@ export class DemoService {
     getHitscanEffects().init(scene);
     getExplosionEffect().init(scene);
     getProjectileManager().init(scene);
+    await Promise.all([preloadFPSCombatAudio(), preloadFPSMovementAudio()]);
+    resetFPSMovementAudio();
     this.demoGibs = GibSystem.create(scene);
     this.demoDamageNumbers = DamageNumbers.create(scene);
     // Demo playback uses snapshot transforms directly: no wall-clock Havok toss
@@ -510,6 +528,7 @@ export class DemoService {
       if (this.demoEventTimeline.canPresentOneShots()) {
         this._updateDemoRecoil(state);
         this._processDemoEffects(state);
+        processFPSMovementAudio(state, this._followedEntityId ?? undefined);
       }
       this._syncPersistentDemoState(state);
       // Spawn/despawn in-flight projectile visuals + buffer them for interpolation.
@@ -825,6 +844,7 @@ export class DemoService {
         const prefix = e.team === "spectator" ? "[SPEC] " : "";
         this._addDemoEvent("chat", `${prefix}${e.senderName || "unknown"}: ${String(e.text ?? "")}`, 8000);
       } else if (event.type === "weapon_fire") {
+        playWeaponFireSound(event as WeaponFireEvent, event.entityId === this._followedEntityId);
         handleRemoteWeaponFire(event, this.remoteRenderer);
       } else if (event.type === "voltaic_beam") {
         handleVoltaicBeam(
@@ -833,6 +853,8 @@ export class DemoService {
           this.remoteRenderer?.getKnownWeaponId(event.entityId) ?? undefined,
         );
       } else if (event.type === "death") {
+        playPlayerDeathSound(event as DeathEvent, event.entityId === this._followedEntityId);
+        if (event.killerId === this._followedEntityId && event.entityId !== this._followedEntityId) playKillEcho();
         // Immediate edge for older demos; persistent combat_state above remains
         // authoritative for seeks and respawns.
         if (event.entityId) {
@@ -851,6 +873,7 @@ export class DemoService {
           this.demoGibs?.spawn(event.x, event.y, event.z, event.velX || 0, event.velY || 0, event.velZ || 0);
         }
       } else if (event.type === "damage") {
+        playPlayerPainSound(event as DamageEvent, event.entityId === this._followedEntityId);
         if (
           event.attackerId === this._followedEntityId &&
           event.damage > 0 &&
@@ -858,6 +881,7 @@ export class DemoService {
           Number.isFinite(event.y) &&
           Number.isFinite(event.z)
         ) {
+          playDamageConfirmationSound(event as DamageEvent);
           this.demoDamageNumbers?.spawn(event.x, event.y, event.z, event.damage);
         }
         if (event.entityId === this._followedEntityId && event.damage > 0) {
@@ -917,6 +941,7 @@ export class DemoService {
           defId: string;
         };
         const pos = new Vector3(e.x, e.y, e.z);
+        playProjectileImpactSound(event as ProjectileImpactEvent);
         const normal = new Vector3(e.normalX, e.normalY, e.normalZ);
         const config =
           e.defId === "grenade" || e.defId === "glauncher"
@@ -936,6 +961,7 @@ export class DemoService {
     const discontinuous = this.demoEventTimeline.setClock(playback.playheadTick, tickRate, playback.discontinuityId);
 
     if (discontinuous) {
+      resetFPSMovementAudio();
       this.demoGibs?.clear();
       this.demoDamageNumbers?.clear();
       this._clearDemoCharge();

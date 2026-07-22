@@ -37,7 +37,9 @@ import { Crosshair } from "./client/Crosshair";
 import { DeathCamera } from "./client/DeathCamera";
 import type { DroppedWeaponRenderer } from "./client/DroppedWeaponRenderer";
 import { registerFPSActions } from "./client/FPSActions";
+import { preloadFPSCombatAudio } from "./client/FPSCombatAudio";
 import { FPSHud } from "./client/FPSHud";
+import { preloadFPSMovementAudio, resetFPSMovementAudio } from "./client/FPSMovementAudio";
 // Game event handling (extracted from this file)
 import { type GameEventContext, handleServerStateUpdate } from "./client/GameEvents";
 import { HUDState } from "./client/HUDState";
@@ -203,6 +205,7 @@ export class Game {
     EventBus.on("map:unloading", () => {
       this.droppedWeaponRenderer?.dispose();
       this.droppedWeaponRenderer = null;
+      resetFPSMovementAudio();
     });
 
     // Tab-recovery: snap everything to clean state when returning from background
@@ -381,6 +384,7 @@ export class Game {
     // Start the host
     this.gameHost.start?.();
     this.isRunning = true;
+    await Promise.all([preloadFPSCombatAudio(), preloadFPSMovementAudio()]);
   }
 
   /**
@@ -436,6 +440,10 @@ export class Game {
             this.shutdown();
             return;
           }
+
+          // Decode the compact Warsow combat bank while the lobby/map loading
+          // flow is still active, so the first accepted shot has no fetch/decode stall.
+          await Promise.all([preloadFPSCombatAudio(), preloadFPSMovementAudio()]);
 
           // === CRITICAL: Set up FPS controller AFTER map loads ===
           // This prevents the race condition where scene empty/map command overrides the controller
@@ -1590,6 +1598,7 @@ export class Game {
     this.spectatorController = null;
     this.droppedWeaponRenderer?.dispose();
     this.droppedWeaponRenderer = null;
+    resetFPSMovementAudio();
 
     // Cleanup event listeners
     if (this._joinKeyHandler) {

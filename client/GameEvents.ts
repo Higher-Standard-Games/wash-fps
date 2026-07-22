@@ -42,6 +42,15 @@ import { canonicalWeaponId, WEAPONS } from "../../../shared/entities/definitions
 import { toClientKey } from "../ClientEntityKey";
 import type { ServerSnapshot, V2NetworkClient } from "../client";
 import type { DroppedWeaponInfo, DroppedWeaponRenderer } from "../client/DroppedWeaponRenderer";
+import {
+  playDamageConfirmationSound,
+  playKillEcho,
+  playPlayerDeathSound,
+  playPlayerPainSound,
+  playProjectileImpactSound,
+  playWeaponFireSound,
+} from "../client/FPSCombatAudio";
+import { processFPSMovementAudio } from "../client/FPSMovementAudio";
 import { HUDState } from "../client/HUDState";
 import { MatchStateManager } from "../client/MatchStateManager";
 import type { RemotePlayerRenderer } from "../client/RemotePlayerRenderer";
@@ -204,8 +213,10 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
           }
           break;
 
-        case "weapon_fire":
-          if (event.entityId === localEntityId) {
+        case "weapon_fire": {
+          const localShooter = event.entityId === localEntityId;
+          playWeaponFireSound(event, localShooter);
+          if (localShooter) {
             const wvm = getWeaponViewManager();
             const isProjectileFire = ctx._localCharging;
             if (ctx._localCharging) ctx._localCharging = false;
@@ -214,6 +225,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
             handleRemoteWeaponFire(event, ctx.remoteRenderer);
           }
           break;
+        }
 
         case "voltaic_beam": {
           const localHero = event.entityId === localEntityId;
@@ -263,6 +275,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
         }
 
         case "projectile_impact": {
+          playProjectileImpactSound(event);
           const pos = new Vector3(event.x, event.y, event.z);
           const projDefId =
             event.defId === "glauncher"
@@ -332,6 +345,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
 
         case "damage": {
           HUDState.getInstance().processDamage(event);
+          playPlayerPainSound(event, event.entityId === localEntityId);
 
           // === INCOMING DAMAGE: local player is the victim ===
           if (event.entityId === localEntityId && event.damage > 0) {
@@ -377,6 +391,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
 
           // === OUTGOING DAMAGE: local player is the attacker ===
           if (event.attackerId && event.attackerId === localEntityId) {
+            playDamageConfirmationSound(event);
             import("../client/Crosshair").then((m) => m.Crosshair.getInstance().notifyHit());
             if (event.x !== undefined && event.damage > 0) {
               import("../client/DamageNumbers").then((m) => {
@@ -395,9 +410,13 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
           break;
         }
 
-        case "death":
+        case "death": {
+          const localVictim = event.entityId === localEntityId;
+          playPlayerDeathSound(event, localVictim);
+          if (event.killerId === localEntityId && !localVictim) playKillEcho();
           handleDeathEvent(ctx, event, state);
           break;
+        }
 
         case "weapon_drop":
           handleWeaponDrop(ctx, event);
@@ -433,6 +452,8 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
       }
     }
   }
+
+  processFPSMovementAudio(state, localEntityId);
 
   // === Update charge glow positions from entity data ===
   // Charge glows render through the gameplay light cluster (WS1), so many
