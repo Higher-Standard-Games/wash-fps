@@ -518,6 +518,9 @@ export class FPSSettingsView {
 
     const graphics = this.createSection("Graphics");
     this.addBloomToggle(graphics.rows, "graphics");
+    this.addCvarSlider(graphics.rows, "Glow", "r_glow", "graphics", { min: 0, max: 2, step: 0.05 });
+    this.addCvarToggle(graphics.rows, "Reflections (SSR)", "r_ssr", "graphics");
+    this.addCvarSlider(graphics.rows, "SSR Strength", "r_ssr_strength", "graphics", { min: 0, max: 2, step: 0.05 });
     this.addCvarSlider(graphics.rows, "Anisotropy", "r_anisotropy", "graphics", { min: 1, max: 16, step: 1 });
     grid.appendChild(graphics.section);
 
