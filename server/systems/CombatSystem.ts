@@ -281,14 +281,18 @@ export class CombatSystem extends Subsystem {
     const armorAbsorption = BASE_ARMOR_ABSORPTION * (1 - event.armorPiercing);
     applyDamage(victim.health, finalDamage, armorAbsorption);
 
-    // ── KNOCKBACK (queued for movement system) ──
-    // Queue impulse for FPSMovementSubsystem to apply BEFORE simulate().
-    // This ensures KB bypasses ground friction/clipping.
-    if (event.knockbackDir && this.movementSubsystem) {
+    // ── KNOCKBACK DIRECTION ──
+    // Computed once, up here, because BOTH the gameplay impulse below and the
+    // kill event further down need it. They used to disagree: the impulse used
+    // this normalized, upward-biased vector while the kill event forwarded the
+    // RAW authored direction, so the corpse flew along a different vector than
+    // the push that killed you.
+    let kbDir: { x: number; y: number; z: number } | null = null;
+    if (event.knockbackDir) {
       // 1. Normalize raw direction first
       const raw = event.knockbackDir;
       let len = Math.sqrt(raw.x * raw.x + raw.y * raw.y + raw.z * raw.z);
-      const kbDir = len > 0.001 ? { x: raw.x / len, y: raw.y / len, z: raw.z / len } : { x: 0, y: 1, z: 0 }; // fallback: straight up
+      kbDir = len > 0.001 ? { x: raw.x / len, y: raw.y / len, z: raw.z / len } : { x: 0, y: 1, z: 0 }; // fallback: straight up
 
       // 2. Apply upward bias to the UNIT vector (guarantees meaningful Y)
       kbDir.y = Math.max(kbDir.y, KB_UPWARD_BIAS);
@@ -298,7 +302,12 @@ export class CombatSystem extends Subsystem {
       kbDir.x /= len;
       kbDir.y /= len;
       kbDir.z /= len;
+    }
 
+    // ── KNOCKBACK (queued for movement system) ──
+    // Queue impulse for FPSMovementSubsystem to apply BEFORE simulate().
+    // This ensures KB bypasses ground friction/clipping.
+    if (kbDir && this.movementSubsystem) {
       // Calculate force: knockback magnitude × weapon KB scale.
       // knockbackDamage decouples the push from the dealt damage (0-damage shoves,
       // instagib insta-jump); falls back to the applied damage for normal hits.
@@ -349,9 +358,11 @@ export class CombatSystem extends Subsystem {
         victimVelX: vel.x,
         victimVelY: vel.y,
         victimVelZ: vel.z,
-        kbDirX: event.knockbackDir?.x ?? 0,
-        kbDirY: event.knockbackDir?.y ?? 0,
-        kbDirZ: event.knockbackDir?.z ?? 0,
+        // The SAME normalized, upward-biased vector the impulse above used, so
+        // the ragdoll flies along the push that actually killed the player.
+        kbDirX: kbDir?.x ?? 0,
+        kbDirY: kbDir?.y ?? 0,
+        kbDirZ: kbDir?.z ?? 0,
       };
       this.kills.push(killEvent);
       // NOTE: Respawn queuing is now handled by GametypeController
