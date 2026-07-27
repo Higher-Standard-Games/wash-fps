@@ -87,7 +87,7 @@ describe("ProceduralPickupVisual", () => {
     expect(cloneMeshes()).toHaveLength(0);
   });
 
-  it("builds the v4 tier shapes: fresnel shell for health, chevrons by armor tier", () => {
+  it("builds the v5 tier shapes: fresnel shell + capped cross for health, sculpted shell for armor", () => {
     const health = getProceduralPickupRecipe("health_large");
     const red = getProceduralPickupRecipe("armor_ra");
     if (!health || !red) throw new Error("recipe missing");
@@ -95,14 +95,35 @@ describe("ProceduralPickupVisual", () => {
     const hv = new ProceduralPickupVisual(scene, health, new Vector3(0, 50, 0), false, 1);
     expect(scene.meshes.some((m) => m.name.startsWith("pp_shell_"))).toBe(true);
     expect(scene.meshes.some((m) => m.name.startsWith("pp_cross_"))).toBe(true);
+    // The cross's up/down faces are a separate matte-black mesh.
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_cross_caps_"))).toBe(true);
 
     const av = new ProceduralPickupVisual(scene, red, new Vector3(100, 50, 0), false, 2);
-    expect(scene.meshes.some((m) => m.name.startsWith("pp_shield_"))).toBe(true);
-    // Red armor = 4 glowing chevron bars on the shield face.
-    expect(scene.meshes.filter((m) => m.name.startsWith("pp_chev_")).length).toBe(4);
+    // Armor is ONE sculpted shell — tier reads from colour and size, so there
+    // are no longer per-tier chevron bars to count.
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_armor_"))).toBe(true);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_chev_"))).toBe(false);
 
     hv.dispose();
     av.dispose();
+    expect(cloneMeshes()).toHaveLength(0);
+  });
+
+  it("gives every health tier a ring whose gradient scrolls, and disposes it", () => {
+    const small = getProceduralPickupRecipe("health_small");
+    if (!small) throw new Error("recipe missing");
+
+    const visual = new ProceduralPickupVisual(scene, small, new Vector3(0, 50, 0), false, 3);
+    const ring = scene.meshes.find((m) => m.name.startsWith("pp_ring_"));
+    expect(ring).toBeDefined();
+
+    const mat = ring?.material as { emissiveTexture?: { uOffset: number } } | null;
+    const before = mat?.emissiveTexture?.uOffset ?? 0;
+    visual.update(1 / 60, 1.5);
+    const after = mat?.emissiveTexture?.uOffset ?? 0;
+    expect(after).not.toBe(before);
+
+    visual.dispose();
     expect(cloneMeshes()).toHaveLength(0);
   });
 

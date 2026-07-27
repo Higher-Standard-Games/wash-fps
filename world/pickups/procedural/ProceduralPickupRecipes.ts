@@ -4,19 +4,21 @@
  * single source of tunable data — geometry builders and the runtime visual read
  * a recipe and never hard-code a tier. All dimensions use Quake-scale units.
  *
- * Art direction (v2, per playtest feedback): clean, bright, modern sci-fi.
- *  - Health: a bright glowing core with a slow scrolling energy gradient
- *    (`color` → `accentColor`) and a small readable cross emblem. Warm palette:
- *    25 HP is bright yellow, 50 HP scrolls orange↔yellow. No floor pedestal.
- *  - Armor: clean hexagonal shield plates around a small bright core — no rings,
- *    no floor, minimal clutter.
- * Higher tiers add a thin ring / orbiting satellites / a faint beacon, not bulk.
+ * Art direction (v7, per playtest feedback): lit solid objects, no outlines.
+ *  - Health: a glowing energy shell with a slow `color` → `accentColor` flow and
+ *    a readable cross emblem filled in the tier colour (25 HP yellow, 50 HP
+ *    orange). Every tier carries a ring with a scrolling gradient band.
+ *  - Armor: banded plates wrapped around a torso — rings of small blocks that
+ *    follow the curve, so it reads round while staying blocky. Tier reads from
+ *    COLOUR and size (green/yellow/red are one silhouette, as in Warsow), so
+ *    `plateCount` no longer draws badges.
+ * Higher tiers add orbiting satellites / a faint beacon, not bulk.
  */
 
 import type { ProceduralPickupRecipe } from "./types";
 
 /** Cache/recipe revision — bump to invalidate scene-cached prototype geometry. */
-export const PROCEDURAL_RECIPE_REVISION = "v4";
+export const PROCEDURAL_RECIPE_REVISION = "v8";
 
 /**
  * Global size multiplier applied on top of each recipe's per-tier `scale`
@@ -35,7 +37,7 @@ const RECIPE_LIST: ProceduralPickupRecipe[] = [
     color: { r: 0.3, g: 0.95, b: 1.0 },
     accentColor: { r: 0.8, g: 1.0, b: 1.0 },
     scale: 0.7,
-    ringCount: 0,
+    ringCount: 1,
     plateCount: 0,
     moteCount: 0,
     shellPieces: 0,
@@ -59,7 +61,7 @@ const RECIPE_LIST: ProceduralPickupRecipe[] = [
     color: { r: 1.0, g: 0.82, b: 0.08 },
     accentColor: { r: 1.0, g: 0.95, b: 0.35 },
     scale: 0.82,
-    ringCount: 0,
+    ringCount: 1,
     plateCount: 0,
     moteCount: 0,
     shellPieces: 0,
@@ -146,7 +148,7 @@ const RECIPE_LIST: ProceduralPickupRecipe[] = [
     unstable: true,
   },
 
-  // ── Armor: clean hexagonal shield plates around a small bright core ─────
+  // ── Armor: banded plates wrapped around a torso; tier = colour + size ───
   {
     id: "armor_shard",
     family: "armor",

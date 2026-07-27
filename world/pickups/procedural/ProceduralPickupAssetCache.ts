@@ -19,7 +19,13 @@ import type { StandardMaterial } from "@babylonjs/core/Materials/standardMateria
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Scene } from "@babylonjs/core/scene";
 import * as Geo from "./ProceduralPickupGeometry";
-import { createEnergyMaterialTemplate, createStructuralMaterial, ENERGY_BOOST } from "./ProceduralPickupMaterials";
+import {
+  createArmorPlateMaterial,
+  createEmblemFillMaterial,
+  createEnergyMaterialTemplate,
+  createStructuralMaterial,
+  ENERGY_BOOST,
+} from "./ProceduralPickupMaterials";
 import { PROCEDURAL_RECIPE_REVISION } from "./ProceduralPickupRecipes";
 import type { ProceduralPickupRecipe } from "./types";
 
@@ -27,14 +33,20 @@ import type { ProceduralPickupRecipe } from "./types";
 export interface PrototypeSet {
   readonly recipeId: string;
   cross: Mesh | null;
+  /** Plates over the cross's up/down faces, in the tier colour (health). */
+  crossCaps: Mesh | null;
   core: Mesh | null;
-  shield: Mesh | null;
-  chevron: Mesh | null;
+  /** Sculpted military plate carrier (armor). */
+  armor: Mesh | null;
   ring: Mesh | null;
   satellite: Mesh | null;
   beacon: Mesh | null;
   /** Dark, lit relic material (shared, immutable). */
   structural: StandardMaterial;
+  /** Solid, saturated, lit armor plate (shared, immutable). */
+  armorPlate: StandardMaterial;
+  /** Tier-coloured fill for the cross's up/down faces (shared, immutable). */
+  emblemFill: StandardMaterial;
   /** Vivid core-color emissive template (clone per pickup for private pulse). */
   energyCore: StandardMaterial;
   /** Accent-color emissive template (rings). */
@@ -62,24 +74,29 @@ function buildPrototypeSet(scene: Scene, recipe: ProceduralPickupRecipe): Protot
   );
   const energySoft = createEnergyMaterialTemplate(scene, `pp_soft_${recipe.id}`, recipe.color, 0.3, ENERGY_BOOST);
 
+  const isHealth = recipe.family === "health";
   const set: PrototypeSet = {
     recipeId: recipe.id,
-    cross: recipe.family === "health" ? Geo.buildCrossProto(scene, recipe) : null,
-    core: recipe.family === "health" ? Geo.buildCoreProto(scene, recipe) : null,
-    shield: recipe.family === "armor" ? Geo.buildShieldProto(scene, recipe) : null,
-    chevron: recipe.family === "armor" && recipe.plateCount > 0 ? Geo.buildChevronProto(scene, recipe) : null,
+    cross: isHealth ? Geo.buildCrossProto(scene, recipe) : null,
+    crossCaps: isHealth ? Geo.buildCrossCapsProto(scene, recipe) : null,
+    core: isHealth ? Geo.buildCoreProto(scene, recipe) : null,
+    armor: recipe.family === "armor" ? Geo.buildArmorProto(scene, recipe) : null,
     ring: recipe.ringCount > 0 ? Geo.buildRingProto(scene, recipe) : null,
     satellite: recipe.satelliteCount > 0 ? Geo.buildSatelliteProto(scene, recipe) : null,
     beacon: recipe.beaconStrength > 0 ? Geo.buildBeaconProto(scene, recipe) : null,
     structural,
+    armorPlate: createArmorPlateMaterial(scene, `pp_plate_${recipe.id}`, recipe.color),
+    emblemFill: createEmblemFillMaterial(scene, `pp_fill_${recipe.id}`, recipe.color),
     energyCore,
     energyAccent,
     energySoft,
     dispose(): void {
-      for (const m of [this.cross, this.core, this.shield, this.chevron, this.ring, this.satellite, this.beacon]) {
+      for (const m of [this.cross, this.crossCaps, this.core, this.armor, this.ring, this.satellite, this.beacon]) {
         m?.dispose();
       }
       this.structural.dispose();
+      this.armorPlate.dispose();
+      this.emblemFill.dispose();
       this.energyCore.dispose();
       this.energyAccent.dispose();
       this.energySoft.dispose();
