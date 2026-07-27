@@ -72,7 +72,6 @@ describe("FPSCombatAudio", () => {
   it("maps every Washoi weapon and projectile alias to PK3 sound paths", () => {
     for (const weapon of [
       "blade",
-      "gunblade",
       "machinegun",
       "riotgun",
       "glauncher",

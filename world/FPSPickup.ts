@@ -67,7 +67,6 @@ export class FPSPickup extends Pickup {
     lasers: "gfx/hud/icons/ammo/laserammo",
     bolts: "gfx/hud/icons/ammo/electroammo",
     instas: "gfx/hud/icons/ammo/instaammo",
-    gunblade: "gfx/hud/icons/ammo/gunbladeammo",
   };
 
   constructor(name: string, scene: Scene, position: Vector3, options: FPSPickupOptions) {
@@ -307,9 +306,9 @@ export class FPSPickup extends Pickup {
       return;
     }
 
-    // At capacity with a non-gunblade — show SWAP prompt
+    // At capacity while holding the permanent default (blade) — can't drop it, so no SWAP prompt
     const currentWeapon = inventory ? inventory.getCurrentWeaponId() : null;
-    if (currentWeapon === "gunblade") {
+    if (currentWeapon === "blade") {
       if (FPSPickup.nearbyWeaponPickup === this) {
         FPSPickup.clearNearbyWeapon();
       }

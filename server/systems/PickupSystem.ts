@@ -28,9 +28,9 @@ import {
 import type { DroppedWeaponSystem } from "./DroppedWeaponSystem";
 import type { WeaponSystem } from "./WeaponSystem";
 
-/** Check if a weapon ID is a permanent default weapon (blade/gunblade) */
+/** Check if a weapon ID is the permanent default weapon (blade) */
 function isDefaultWeapon(w: string): boolean {
-  return w === "blade" || w === "gunblade";
+  return w === "blade";
 }
 
 /** Must match InputButtons.USE from engine/network/components/InputComponent.ts */
@@ -461,7 +461,6 @@ export class PickupSystem extends Subsystem {
 
 /** Human-readable pickup label for the HUD toast. */
 const WEAPON_DISPLAY: Record<string, string> = {
-  gunblade: "Gunblade",
   machinegun: "Machinegun",
   riotgun: "Riotgun",
   glauncher: "Grenade Launcher",

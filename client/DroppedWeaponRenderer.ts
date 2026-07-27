@@ -25,7 +25,7 @@ import { FPS, getActionKeyLabel } from "./FPSActions";
 
 /** Permanent default melee weapon (slot 0) — always free to drop, never prompts. */
 function isDefaultWeapon(w: string | null): boolean {
-  return w === "blade" || w === "gunblade";
+  return w === "blade";
 }
 
 /** Data passed from GameEvents per item_ entity in snapshot */
@@ -572,9 +572,8 @@ export class DroppedWeaponRenderer {
         }
       } else {
         const currentWeapon = inventory ? inventory.getCurrentWeaponId() : null;
-        // Holding the default melee (blade/gunblade) → server auto-swaps
-        // silently, so never show the swap prompt. (Was hardcoded to
-        // "gunblade" and missed the current default "blade".)
+        // Holding the default melee (blade) → server auto-swaps silently, so
+        // never show the swap prompt.
         if (isDefaultWeapon(currentWeapon)) {
           if (DroppedWeaponRenderer.nearbyDroppedWeapon) {
             DroppedWeaponRenderer.nearbyDroppedWeapon = null;

@@ -29,9 +29,9 @@ const FIRE_BUTTON = 1 << 8;
 const ALT_FIRE_BUTTON = 1 << 9;
 const RELOAD_BUTTON = 1 << 10;
 
-/** Check if a weapon ID is a permanent default weapon (blade/gunblade — slot 0, never dropped) */
+/** Check if a weapon ID is the permanent default weapon (blade — slot 0, never dropped) */
 function isDefaultWeapon(weaponId: string): boolean {
-  return weaponId === "blade" || weaponId === "gunblade";
+  return weaponId === "blade";
 }
 
 /** Server tick rate (Hz). Fire/reload/charge timing is quantized to these ticks. */
@@ -427,7 +427,7 @@ export class WeaponSystem extends Subsystem {
   /**
    * Add a weapon to a player's inventory (server-side pickup).
    * Rules:
-   *   - Default weapon (blade/gunblade) is permanent (slot 0), never dropped
+   *   - Default weapon (blade) is permanent (slot 0), never dropped
    *   - Players can carry default + 2 picked-up weapons
    *   - If at capacity, drop current weapon; if holding default, drop first non-default
    * @returns { added: true, dropped?: weaponId } or { added: false } if already owned
@@ -614,9 +614,8 @@ export class WeaponSystem extends Subsystem {
       }
     }
     const canonicalWeapons = [...new Set(loadout.weapons.map(canonicalWeaponId))];
-    // Always include default weapon (blade or gunblade), limit pickable weapons to MAX_PICKABLE (2)
-    const defaultWeapon =
-      canonicalWeapons.find((w) => w === "blade" || w === "gunblade") || canonicalWeapons[0] || "blade";
+    // Always include the default weapon (blade), limit pickable weapons to MAX_PICKABLE (2)
+    const defaultWeapon = canonicalWeapons.find((w) => w === "blade") || canonicalWeapons[0] || "blade";
     const nonDefault = canonicalWeapons.filter((w) => w !== defaultWeapon).slice(0, 2);
     const weapons = [defaultWeapon, ...nonDefault];
     this.weaponStates.set(id, {
@@ -1580,8 +1579,6 @@ export class WeaponSystem extends Subsystem {
 
   private weaponToDamageType(weaponId: string): DamageType {
     switch (weaponId) {
-      case "gunblade":
-        return DamageType.Melee;
       case "blade":
         return DamageType.Melee;
       case "machinegun":

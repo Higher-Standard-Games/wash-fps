@@ -10,7 +10,6 @@ import type { FPSHudWidget, HUDState } from "../HudWidget";
 /** Map weapon ID → color variant class */
 const WEAPON_COLOR_MAP: Record<string, string> = {
   blade: "cyan",
-  gunblade: "cyan",
   machinegun: "gold",
   riotgun: "gold",
   glauncher: "gold",
@@ -24,7 +23,6 @@ const WEAPON_COLOR_MAP: Record<string, string> = {
 /** Map weapon ID → 2-letter abbreviation */
 const WEAPON_ABBR: Record<string, string> = {
   blade: "BL",
-  gunblade: "GB",
   machinegun: "MG",
   riotgun: "RG",
   glauncher: "GL",
@@ -37,13 +35,13 @@ const WEAPON_ABBR: Record<string, string> = {
 
 /** Check if a weapon ID is the permanent default weapon */
 function isDefaultWeapon(w: string): boolean {
-  return w === "blade" || w === "gunblade";
+  return w === "blade";
 }
 
 /**
  * FPSWeaponSlots — 3-slot loadout indicator in bottom bar
  *
- * Shows 3 boxes: slot 1 (gunblade, always), slots 2-3 (picked-up weapons).
+ * Shows 3 boxes: slot 1 (blade, always), slots 2-3 (picked-up weapons).
  * Active weapon gets a bright glow border. Color-coded by weapon type.
  */
 export class FPSWeaponSlots implements FPSHudWidget {
@@ -93,7 +91,7 @@ export class FPSWeaponSlots implements FPSHudWidget {
   }
 
   public update(state: HUDState): void {
-    // Build ordered loadout: gunblade first, then non-gunblade weapons
+    // Build ordered loadout: blade first, then picked-up weapons
     const weapons = state.weapons;
     const current = state.currentWeapon;
 

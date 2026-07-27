@@ -51,6 +51,7 @@ import {
   playWeaponFireSound,
 } from "../client/FPSCombatAudio";
 import { processFPSMovementAudio } from "../client/FPSMovementAudio";
+import { playPickupSound } from "../client/FPSPickupAudio";
 import { HUDState } from "../client/HUDState";
 import { MatchStateManager } from "../client/MatchStateManager";
 import type { RemotePlayerRenderer } from "../client/RemotePlayerRenderer";
@@ -292,8 +293,8 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
 
           const normal = new Vector3(event.normalX, event.normalY, event.normalZ);
           // Projectiles are now identified by projectileId (F8: grenade/plasma_bolt/…);
-          // weapon-id forms kept as fallbacks for older demos. rocket + gunblade_blast
-          // (and unknowns) use the rocket explosion.
+          // weapon-id forms kept as fallbacks for older demos. rocket (and unknowns)
+          // use the rocket explosion.
           const config =
             event.defId === "grenade" || event.defId === "glauncher"
               ? GRENADE_EXPLOSION
@@ -433,8 +434,10 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
         case "pickup_notify":
           if (event.entityId === localEntityId) {
             // Server-authoritative pickup label for the local player (any item type).
+            const label = String(event.label ?? "");
+            playPickupSound(label);
             import("./FPSHud")
-              .then(({ FPSHud }) => FPSHud.getInstance().pickupToast?.showPickup(String(event.label ?? "")))
+              .then(({ FPSHud }) => FPSHud.getInstance().pickupToast?.showPickup(label))
               .catch(() => {});
           }
           break;
@@ -934,7 +937,6 @@ export function handleRemoteWeaponFire(event: any, remoteRenderer: RemotePlayerR
     case "plasmagun":
     case "rlauncher":
     case "glauncher":
-    case "gunblade":
       break;
     case "blade":
       remoteRenderer?.playAttackAnim(event.entityId, "blade_slash", 2.0);

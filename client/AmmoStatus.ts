@@ -16,12 +16,12 @@ export interface AmmoStatus {
   outOfAmmo: boolean;
   /** Clip weapon whose magazine is low (or empty) with reserve to reload from. */
   lowClip: boolean;
-  /** Melee / infinite starter weapon (blade, gunblade) — never runs dry. */
+  /** Melee / infinite starter weapon (blade) — never runs dry. */
   infinite: boolean;
 }
 
 /** Starter weapons that never run out of ammo (matches DroppedWeaponRenderer.isDefaultWeapon). */
-const INFINITE_WEAPONS = new Set(["blade", "gunblade"]);
+const INFINITE_WEAPONS = new Set(["blade"]);
 
 /** Fraction of clipSize at or below which we surface the RELOAD hint. */
 const LOW_CLIP_FRACTION = 0.2;

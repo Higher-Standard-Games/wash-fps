@@ -25,7 +25,7 @@ export class InventoryManager {
 
   // Limits
   private static readonly MAX_AMMO = 200; // Default fallback
-  public static readonly MAX_WEAPONS = 3; // COD-style: gunblade + 2 pickable
+  public static readonly MAX_WEAPONS = 3; // COD-style: blade + 2 pickable
 
   constructor() {
     // Initialize with default ammo types (optional)

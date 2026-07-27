@@ -37,9 +37,9 @@ import { Crosshair } from "./client/Crosshair";
 import { DeathCamera } from "./client/DeathCamera";
 import type { DroppedWeaponRenderer } from "./client/DroppedWeaponRenderer";
 import { registerFPSActions } from "./client/FPSActions";
-import { preloadFPSCombatAudio } from "./client/FPSCombatAudio";
+import { preloadFPSAudio } from "./client/FPSAudio";
 import { FPSHud } from "./client/FPSHud";
-import { preloadFPSMovementAudio, resetFPSMovementAudio } from "./client/FPSMovementAudio";
+import { resetFPSMovementAudio } from "./client/FPSMovementAudio";
 // Game event handling (extracted from this file)
 import { type GameEventContext, handleServerStateUpdate } from "./client/GameEvents";
 import { HUDState } from "./client/HUDState";
@@ -384,7 +384,7 @@ export class Game {
     // Start the host
     this.gameHost.start?.();
     this.isRunning = true;
-    await Promise.all([preloadFPSCombatAudio(), preloadFPSMovementAudio()]);
+    await preloadFPSAudio();
   }
 
   /**
@@ -443,7 +443,7 @@ export class Game {
 
           // Decode the compact Warsow combat bank while the lobby/map loading
           // flow is still active, so the first accepted shot has no fetch/decode stall.
-          await Promise.all([preloadFPSCombatAudio(), preloadFPSMovementAudio()]);
+          await preloadFPSAudio();
 
           // === CRITICAL: Set up FPS controller AFTER map loads ===
           // This prevents the race condition where scene empty/map command overrides the controller
@@ -756,7 +756,7 @@ export class Game {
    * Get current weapon ID (for crosshair lookup)
    */
   getCurrentWeaponId(): string {
-    return this._lastServerWeapon || "gunblade";
+    return this._lastServerWeapon || "blade";
   }
 
   /**
@@ -886,7 +886,6 @@ export class Game {
           projMgr.preloadModel("plasma_bolt"),
           projMgr.preloadModel("grenade"),
           projMgr.preloadModel("rocket"),
-          projMgr.preloadModel("gunblade_blast"),
           projMgr.preloadModel("blade_blast"),
         ]).catch((err) => console.warn("[Game] Projectile preload error:", err));
       }

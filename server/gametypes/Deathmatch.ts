@@ -2,7 +2,7 @@
  * Deathmatch Gametype
  * Free-for-all deathmatch with Warsow-style rules:
  * - Furthest spawn selection
- * - Gunblade on spawn
+ * - Blade on spawn
  * - All items from BSP spawn on map
  * - 30s weapon respawn
  */

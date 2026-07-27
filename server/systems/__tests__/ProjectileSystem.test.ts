@@ -95,7 +95,6 @@ describe("ProjectileSystem — F8 projectile identity", () => {
     expect(WEAPONS.rocket).toBe(WEAPONS.rlauncher);
     expect(WEAPONS.grenade).toBe(WEAPONS.glauncher);
     expect(WEAPONS.plasma_bolt).toBe(WEAPONS.plasmagun);
-    expect(WEAPONS.gunblade_blast).toBe(WEAPONS.gunblade);
   });
 
   it("a projectile registered by projectileId deals its weapon's damage on direct hit", () => {

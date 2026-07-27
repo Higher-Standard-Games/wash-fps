@@ -29,6 +29,7 @@ import type { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import type { Observer } from "@babylonjs/core/Misc/observable";
 import type { Scene } from "@babylonjs/core/scene";
+import { AudioManager } from "../../../engine/AudioManager";
 import { type PlayerModelInstance, PlayerModelManager } from "../../../engine/animation/PlayerModelManager";
 
 // ============================================================================
@@ -53,6 +54,17 @@ const BURST_LIFETIME_MS = 420;
 const BURST_ALPHA_STEPS = [0.95, 0.7, 0.45, 0.2];
 const BURST_START_SCALE = 0.5;
 const BURST_END_SCALE = 1.6;
+
+/**
+ * Entry "implosion": the same speed-line star, but it starts large and collapses
+ * INWARD — reads as the player being sucked into the portal (in-going), the
+ * opposite of the exit burst that explodes outward. Same builder, reversed ramp.
+ */
+const IMPLOSION_START_SCALE = 1.9;
+const IMPLOSION_END_SCALE = 0.2;
+
+/** Teleport entry sfx (Warsow sounds/world). Played 2D for self, 3D for others. */
+const TELE_IN_SOUND = "sounds/world/tele_in.ogg";
 
 /** Slow spin over the burst's life (radians) — reads as motion, not a static star. */
 const BURST_SPIN_RAD = 0.9;
@@ -159,6 +171,8 @@ export class TeleportEffect {
   prewarm(scene: Scene): void {
     this.ensureScene(scene);
     void this.ensureGhostPool();
+    // Predecode the entry sfx so the first teleport isn't silent while it streams.
+    void AudioManager.getInstance().preloadSfx([TELE_IN_SOUND]);
   }
 
   private async ensureGhostPool(): Promise<void> {
@@ -235,9 +249,13 @@ export class TeleportEffect {
     team: "alpha" | "bravo",
   ): void {
     this.ensureScene(scene);
+    // Entry (in-going): ghost afterimage + imploding speed-lines + 3D sfx so the
+    // grab of a remote player reads as "sucked in", not a silent disappearance.
+    AudioManager.getInstance().playSfx3D(TELE_IN_SOUND, from, { volume: 0.85, minDistance: 96, maxDistance: 3000 });
     this.spawnGhost(from, fromYaw, team);
+    this.spawnImplosion(from);
+    // Exit (out-going): ghost + exploding burst.
     this.spawnGhost(to, toYaw, team);
-    this.spawnBurst(from);
     this.spawnBurst(to);
   }
 
@@ -257,8 +275,14 @@ export class TeleportEffect {
     team: "alpha" | "bravo" = "alpha",
   ): void {
     this.ensureScene(scene);
+    // In-going feedback the local player actually perceives: a 2D entry sfx (you
+    // hear yourself get pulled in) + imploding speed-lines at the entry. The entry
+    // ghost sits behind the camera post-teleport, so on its own it read as just
+    // vanishing — the sound + implosion fix that.
+    AudioManager.getInstance().playSfx2D(TELE_IN_SOUND, 0.8, 2);
     this.spawnGhost(from, entryYaw, team);
-    this.spawnBurst(from);
+    this.spawnImplosion(from);
+    // Out-going: exit burst thrown ~90u ahead at eye height so you fly THROUGH it.
     this.spawnBurst({
       x: to.x + Math.sin(exitYaw) * 90,
       y: to.y + 26, // chest offset (8) + up to eye line (34)
@@ -318,8 +342,16 @@ export class TeleportEffect {
   // Speed-line burst
   // ──────────────────────────────────────────────────────────────
 
-  private spawnBurst(pos: { x: number; y: number; z: number }): void {
+  /** Entry counterpart to spawnBurst — same star, collapsing inward (in-going). */
+  private spawnImplosion(pos: { x: number; y: number; z: number }): void {
+    this.spawnBurst(pos, true);
+  }
+
+  private spawnBurst(pos: { x: number; y: number; z: number }, implode = false): void {
     if (!this.scene || this.effects.length >= MAX_EFFECTS) return;
+
+    const startScale = implode ? IMPLOSION_START_SCALE : BURST_START_SCALE;
+    const endScale = implode ? IMPLOSION_END_SCALE : BURST_END_SCALE;
 
     try {
       // Billboard the PARENT and spin the child: with billboardMode set,
@@ -330,7 +362,7 @@ export class TeleportEffect {
       mesh.alwaysSelectAsActiveMesh = true;
       mesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
       mesh.position.set(pos.x, pos.y + BURST_Y_OFFSET, pos.z);
-      mesh.scaling.setAll(BURST_START_SCALE);
+      mesh.scaling.setAll(startScale);
 
       const spin = this.buildStarburstMesh();
       spin.parent = mesh;
@@ -356,8 +388,8 @@ export class TeleportEffect {
         elapsedMs: 0,
         lifetimeMs: BURST_LIFETIME_MS,
         alphaSteps: BURST_ALPHA_STEPS,
-        scaleFrom: BURST_START_SCALE,
-        scaleTo: BURST_END_SCALE,
+        scaleFrom: startScale,
+        scaleTo: endScale,
         spinMesh: spin,
       });
     } catch (e) {

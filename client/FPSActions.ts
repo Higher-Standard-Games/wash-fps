@@ -97,7 +97,7 @@ const FPS_ACTION_DEFS: ActionDefinition[] = [
   {
     id: FPS.WEAPON_1,
     type: "button",
-    name: "Weapon 1 (Gunblade)",
+    name: "Weapon 1 (Blade)",
     defaultBindings: [{ key: "Digit1" }, { key: "KeyQ" }],
   },
   { id: FPS.WEAPON_2, type: "button", name: "Weapon 2", defaultBindings: [{ key: "Digit2" }] },
