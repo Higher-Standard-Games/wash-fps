@@ -55,6 +55,20 @@ export class MatchState {
   /** Overtime extensions granted this match (0 = regulation). */
   private _overtimeCount = 0;
 
+  // ── Round-based modes ──────────────────────────────────────────────────
+  /** Current round, 1-based. 0 before the first round. Round modes only. */
+  private _round = 0;
+  /** Team attacking at the start of the match (round modes only). */
+  private _startingAttacker: TeamId = "udon";
+  /**
+   * Set when the round timer runs out, cleared when the round ends.
+   *
+   * MatchState does NOT decide who wins a round on a timeout — "defenders win
+   * if nothing was planted" is a gametype rule. The controller sees this flag,
+   * asks the gametype, and calls `endRound()` with the answer.
+   */
+  private _roundTimeExpired = false;
+
   constructor(gametypeName: string, config: Partial<MatchConfig> = {}, teamBased = false) {
     this.config = { ...DEFAULT_MATCH_CONFIG, ...config };
     this.gametypeName = gametypeName;
@@ -103,6 +117,65 @@ export class MatchState {
     return this._flow;
   }
 
+  /** Current round, 1-based; 0 before the first round. */
+  get round(): number {
+    return this._round;
+  }
+
+  /** True while this gametype plays in rounds. */
+  get roundBased(): boolean {
+    return this.config.roundBased === true;
+  }
+
+  /** True once the round timer has run out and the round has not yet ended. */
+  get roundTimeExpired(): boolean {
+    return this._roundTimeExpired;
+  }
+
+  /** Rounds each side attacks before the swap (round modes). */
+  private get roundsPerHalf(): number {
+    const value = this.config.roundsPerHalf ?? 0;
+    return value > 0 ? value : Number.POSITIVE_INFINITY;
+  }
+
+  /**
+   * Which team is attacking in the current round.
+   *
+   * Regulation splits the match into halves — one side attacks throughout the
+   * first half, then they swap. Overtime alternates every round instead: by
+   * then each team has had its full share of attacking rounds, and a win needs
+   * a TWO-round lead, which spans one attack round for each side however they
+   * fall. See Search_And_Destroy.md §4.3.
+   */
+  get attackingTeam(): TeamId {
+    const other: TeamId = this._startingAttacker === "udon" ? "soba" : "udon";
+    if (!this.roundBased || this._round <= 0) return this._startingAttacker;
+
+    const regulationRounds = this.roundsPerHalf * 2;
+    if (this._round > regulationRounds) {
+      // Overtime: alternate, starting with the original attacker.
+      const overtimeIndex = this._round - regulationRounds - 1;
+      return overtimeIndex % 2 === 0 ? this._startingAttacker : other;
+    }
+    const half = Math.floor((this._round - 1) / this.roundsPerHalf);
+    return half % 2 === 0 ? this._startingAttacker : other;
+  }
+
+  /** Team currently defending. */
+  get defendingTeam(): TeamId {
+    return this.attackingTeam === "udon" ? "soba" : "udon";
+  }
+
+  /** True once both halves have been played and the match is still undecided. */
+  get inOvertime(): boolean {
+    return this.roundBased && this._round > this.roundsPerHalf * 2;
+  }
+
+  /** Choose which side attacks first (round modes). */
+  setStartingAttacker(team: TeamId): void {
+    this._startingAttacker = team;
+  }
+
   /** Set the match flow mode (once, at server boot). */
   setFlow(flow: "single" | "continuous"): void {
     this._flow = flow;
@@ -125,6 +198,71 @@ export class MatchState {
       }
     }
     return tied || this._scores.size === 0;
+  }
+
+  /**
+   * True when a team has both reached the score limit AND holds the required
+   * lead (the "tennis rule").
+   *
+   * Warsow Bomb requires a two-round lead, so 10-9 is not a win and play
+   * continues. That is also why overtime is entered at 9-9 rather than needing
+   * a separate tie-break: after both halves, 9-9 is the only score that has not
+   * already ended the match.
+   */
+  hasDecisiveLead(): boolean {
+    const limit = this.config.scoreLimit;
+    if (limit <= 0) return false;
+    const lead = Math.max(1, this.config.leadRequired ?? 1);
+
+    if (this.teamBased) {
+      const udon = this._teamScores.get("udon") ?? 0;
+      const soba = this._teamScores.get("soba") ?? 0;
+      const top = Math.max(udon, soba);
+      return top >= limit && Math.abs(udon - soba) >= lead;
+    }
+
+    let top = Number.NEGATIVE_INFINITY;
+    let second = Number.NEGATIVE_INFINITY;
+    for (const score of this._scores.values()) {
+      if (score > top) {
+        second = top;
+        top = score;
+      } else if (score > second) {
+        second = score;
+      }
+    }
+    if (top < limit) return false;
+    return second === Number.NEGATIVE_INFINITY || top - second >= lead;
+  }
+
+  /**
+   * End the current round, award it, and either start the next one or end the
+   * match. Round modes only.
+   *
+   * `winner` is the gametype's decision — MatchState owns the round LOOP, not
+   * the rules that decide a round.
+   */
+  endRound(winner: TeamId | null): void {
+    if (!this.roundBased || this._phase !== MatchPhase.Active) return;
+
+    this._roundTimeExpired = false;
+    if (winner && winner !== "spectator") {
+      this.addTeamScore(winner, 1);
+    }
+
+    const udon = this._teamScores.get("udon") ?? 0;
+    const soba = this._teamScores.get("soba") ?? 0;
+    console.log(
+      `[MatchState] Round ${this._round} → ${winner ?? "draw"} (udon ${udon} - ${soba} soba)` +
+        `${this.inOvertime ? " [overtime]" : ""}`,
+    );
+
+    if (this.hasDecisiveLead()) {
+      this.transition(MatchPhase.PostGame);
+      return;
+    }
+    // Back to the freeze phase for the next round.
+    this.transition(MatchPhase.Countdown);
   }
 
   // ========================================================================
@@ -331,6 +469,14 @@ export class MatchState {
         if (this.config.timeLimit > 0) {
           this._timeRemaining -= dt;
           if (this._timeRemaining <= 0) {
+            // Round modes: an expired timer ends the ROUND, not the match, and
+            // who wins it is a gametype rule (for S&D, the defenders). Flag it
+            // and let the controller ask; do not transition here.
+            if (this.roundBased) {
+              this._timeRemaining = 0;
+              this._roundTimeExpired = true;
+              break;
+            }
             // Overtime (duel): a tie at the limit never ends the match — extend
             // it until someone takes the lead.
             if (this.config.overtimeOnDraw && this.isTiedAtTop()) {
@@ -381,21 +527,32 @@ export class MatchState {
         this._timeRemaining = this.config.warmupTimeout;
         this._readyPlayers.clear();
         this._winner = null; // previous match's result is over
+        this._round = 0;
+        this._roundTimeExpired = false;
         break;
       case MatchPhase.Countdown:
         this._timeRemaining = this.config.countdownDuration;
         break;
-      case MatchPhase.Active:
+      case MatchPhase.Active: {
         this._timeRemaining = this.config.timeLimit;
         this._overtimeCount = 0;
-        // Reset scores and deaths on match start
-        for (const [id] of this._scores) {
-          this._scores.set(id, 0);
-          this._deaths.set(id, 0);
+        this._roundTimeExpired = false;
+
+        // In a round mode `Active` is entered once per ROUND, so scores must
+        // survive it — only the first round starts a fresh match.
+        if (this.roundBased) this._round++;
+        const startingMatch = !this.roundBased || this._round === 1;
+
+        if (startingMatch) {
+          for (const [id] of this._scores) {
+            this._scores.set(id, 0);
+            this._deaths.set(id, 0);
+          }
+          this._teamScores.set("udon", 0);
+          this._teamScores.set("soba", 0);
         }
-        this._teamScores.set("udon", 0);
-        this._teamScores.set("soba", 0);
         break;
+      }
       case MatchPhase.PostGame:
         this._timeRemaining = this.config.postGameDuration;
         break;
@@ -456,6 +613,14 @@ export class MatchState {
       winner: this._winner ?? undefined,
       overtime: this._overtimeCount > 0 ? this._overtimeCount : undefined,
       flow: this._flow,
+      // Round context. Public by nature — everyone in a bomb round knows the
+      // score and who is attacking — so it rides the broadcast snapshot rather
+      // than per-client directives. Bots read `teamRoles` to pick a behavioural
+      // weight profile (BOT_WEIGHTS_AND_GOALS.md §4.3).
+      round: this.roundBased ? this._round : undefined,
+      teamRoles: this.roundBased
+        ? ({ [this.attackingTeam]: "attacker", [this.defendingTeam]: "defender" } as Record<string, string>)
+        : undefined,
     };
   }
 }

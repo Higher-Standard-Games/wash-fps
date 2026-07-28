@@ -18,6 +18,7 @@ import type {
   ItemSpawnRules,
   MatchConfig,
   SpawnStrategyType,
+  TeamId,
   WeaponLoadout,
 } from "@shared/server/gametype";
 
@@ -71,6 +72,17 @@ export abstract class BaseGametype {
   /** Called when match phase changes */
   onMatchPhaseChange(_phase: number, _state: WorldState): void {
     // Default: no-op
+  }
+
+  /**
+   * The round timer ran out. Return the team that wins the round, or null for
+   * no winner. Round-based gametypes only.
+   *
+   * MatchState owns the round LOOP but not the rules — "defenders win if
+   * nothing was planted" is a Search & Destroy rule, not a property of rounds.
+   */
+  onRoundTimeExpired(_state: WorldState): TeamId | null {
+    return null;
   }
 
   /**

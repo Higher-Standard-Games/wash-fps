@@ -14,7 +14,13 @@ import type { WorldState } from "@engine/server/core/WorldState";
 import type { Entity } from "@engine/server/ecs/Entity";
 import type { EntityId, PlayerId, TickNumber } from "@engine/server/ecs/types";
 import { EntityType } from "@engine/server/ecs/types";
-import type { AgentDirective, AgentDirectiveContext, MatchConfig, MatchStateSnapshot } from "@shared/server/gametype";
+import type {
+  AgentDirective,
+  AgentDirectiveContext,
+  MatchConfig,
+  MatchStateSnapshot,
+  TeamId,
+} from "@shared/server/gametype";
 import { MatchPhase } from "@shared/server/gametype";
 import { clearPowerups } from "@shared/server/simulation/components/PowerupComponent";
 import type { Vec3 } from "@shared/server/simulation/types";
@@ -451,10 +457,27 @@ export class GametypeController {
       }
     }
 
+    // 3b. Round modes: an expired round timer ends the ROUND, and the gametype
+    // decides who won it. MatchState deliberately does not make that call.
+    if (this.matchState.roundBased && this.matchState.roundTimeExpired) {
+      let winner: TeamId | null = null;
+      try {
+        winner = this.gametype.onRoundTimeExpired(state);
+      } catch (err) {
+        log.warnRateLimited("GametypeController", "onRoundTimeExpired threw:", err);
+      }
+      this.endRound(winner);
+    }
+
     // 4. Check win condition during active phase
     if (this.matchState.phase === MatchPhase.Active) {
       const config = this.matchConfig;
-      if (config.scoreLimit > 0) {
+      // Round modes reach the limit through endRound(), which applies the lead
+      // requirement (tennis rule) — the plain >= check below would end a match
+      // at 10-9 that should still be running.
+      if (this.matchState.roundBased) {
+        // handled in endRound()
+      } else if (config.scoreLimit > 0) {
         let limitReached = false;
 
         if (this.gametype.teamBased) {
@@ -489,6 +512,11 @@ export class GametypeController {
   // ========================================================================
 
   private processRespawns(state: WorldState, tickNum: number): void {
+    // Round modes have no in-round respawn: the dead stay dead until the next
+    // round's freeze, where respawnAllPlayers() puts everyone back. Draining
+    // the queue here would undo the entire premise of the mode.
+    if (this.matchState.roundBased && this.matchState.phase === MatchPhase.Active) return;
+
     const remaining: RespawnEntry[] = [];
 
     for (const entry of this.respawnQueue) {
@@ -623,7 +651,12 @@ export class GametypeController {
    * BEFORE simulation.tick(). Deterministic — driven only by match phase.
    */
   applyPostGameInputFreeze(state: WorldState): void {
-    if (this.matchState.phase !== MatchPhase.PostGame) return;
+    // Also covers the round freeze: in a round mode `Countdown` is the freeze
+    // phase, where players are spawned and held until the round goes live.
+    const freezing =
+      this.matchState.phase === MatchPhase.PostGame ||
+      (this.matchState.roundBased && this.matchState.phase === MatchPhase.Countdown);
+    if (!freezing) return;
 
     for (const entity of state.allEntities()) {
       if (entity.ownerId === undefined || !entity.input) continue;
@@ -689,6 +722,22 @@ export class GametypeController {
     }
 
     return byEntity;
+  }
+
+  /**
+   * End the current round with the given winner.
+   *
+   * Called by the controller on a timer expiry, and by the gametype for round
+   * ends that are not timer expiries — a defuse, a detonation, or one side
+   * being eliminated. Records the match winner when this round decides it.
+   */
+  endRound(winner: TeamId | null): void {
+    if (!this.matchState.roundBased) return;
+    const before = this.matchState.phase;
+    this.matchState.endRound(winner);
+    if (before !== MatchPhase.PostGame && this.matchState.phase === MatchPhase.PostGame) {
+      this.recordMatchWinner();
+    }
   }
 
   getMatchState(): MatchState {
