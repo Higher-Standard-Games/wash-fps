@@ -15,10 +15,10 @@
  * Higher tiers add orbiting satellites / a faint beacon, not bulk.
  */
 
-import type { ProceduralPickupRecipe } from "./types";
+import type { ProceduralPickupRecipe, RGB } from "./types";
 
 /** Cache/recipe revision — bump to invalidate scene-cached prototype geometry. */
-export const PROCEDURAL_RECIPE_REVISION = "v8";
+export const PROCEDURAL_RECIPE_REVISION = "v9";
 
 /**
  * Global size multiplier applied on top of each recipe's per-tier `scale`
@@ -241,7 +241,111 @@ const RECIPE_LIST: ProceduralPickupRecipe[] = [
     highTier: true,
     unstable: false,
   },
+  // ── Ammo: a blocky crate in the weapon's identity colour, icon on each side ─
+  ...ammoCrates(),
 ];
+
+/**
+ * Ammo crates. Every tier is the same crate — only the colour and the stamped
+ * icon change — so the shared fields are filled in once here instead of being
+ * copy-pasted eight times. Colours are the weapon identity colours so a crate
+ * reads as "rockets" from across the arena before the icon is legible.
+ */
+function ammoCrates(): ProceduralPickupRecipe[] {
+  const crates: Array<{ id: string; kind: string; color: RGB; accent: RGB; icon: string }> = [
+    // Machinegun — brass.
+    {
+      id: "ammo_bullets",
+      kind: "bullets",
+      color: { r: 1.0, g: 0.76, b: 0.26 },
+      accent: { r: 1.0, g: 0.9, b: 0.6 },
+      icon: "bulletsammo",
+    },
+    // Riotgun — burnt orange.
+    {
+      id: "ammo_shells",
+      kind: "shells",
+      color: { r: 1.0, g: 0.46, b: 0.18 },
+      accent: { r: 1.0, g: 0.72, b: 0.42 },
+      icon: "riotammo",
+    },
+    // Grenade launcher — olive green.
+    {
+      id: "ammo_grenades",
+      kind: "grenades",
+      color: { r: 0.55, g: 0.88, b: 0.32 },
+      accent: { r: 0.78, g: 1.0, b: 0.6 },
+      icon: "grenadeammo",
+    },
+    // Rocket launcher — red.
+    {
+      id: "ammo_rockets",
+      kind: "rockets",
+      color: { r: 1.0, g: 0.32, b: 0.22 },
+      accent: { r: 1.0, g: 0.62, b: 0.5 },
+      icon: "rocketammo",
+    },
+    // Plasmagun — teal cells.
+    {
+      id: "ammo_plasmagun",
+      kind: "cells",
+      color: { r: 0.3, g: 0.95, b: 0.78 },
+      accent: { r: 0.7, g: 1.0, b: 0.92 },
+      icon: "plasmaammo",
+    },
+    // Lasergun/voltaic — its OWN pool since the cells split, so its own colour
+    // (violet, distinct from plasma teal) and its own simpleitem icon.
+    {
+      id: "ammo_lasers",
+      kind: "lasers",
+      color: { r: 0.62, g: 0.42, b: 1.0 },
+      accent: { r: 0.84, g: 0.74, b: 1.0 },
+      icon: "laserammo",
+    },
+    // Electrobolt — electric blue.
+    {
+      id: "ammo_bolts",
+      kind: "bolts",
+      color: { r: 0.36, g: 0.62, b: 1.0 },
+      accent: { r: 0.7, g: 0.85, b: 1.0 },
+      icon: "electroammo",
+    },
+    // Instagun — magenta.
+    {
+      id: "ammo_instas",
+      kind: "instas",
+      color: { r: 0.85, g: 0.4, b: 1.0 },
+      accent: { r: 0.95, g: 0.72, b: 1.0 },
+      icon: "instaammo",
+    },
+  ];
+
+  return crates.map(({ id, kind, color, accent, icon }) => ({
+    id,
+    family: "ammo" as const,
+    kind,
+    color,
+    accentColor: accent,
+    scale: 0.8,
+    ringCount: 0,
+    plateCount: 0,
+    moteCount: 0,
+    shellPieces: 0,
+    satelliteCount: 0,
+    // A crate is a heavy object: barely bobs, turns slowly, no pulse theatrics.
+    bobAmplitude: 1.4,
+    bobFrequency: 0.24,
+    spinSpeed: 14,
+    pulseFrequency: 0.2,
+    figureEight: false,
+    beaconStrength: 0,
+    collectStyle: "shatter" as const,
+    respawnStyle: "materialize" as const,
+    highTier: false,
+    unstable: false,
+    iconTexture: `gfx/hud/icons/ammo/${icon}`,
+  }));
+}
 
 const RECIPES_BY_ID = new Map<string, ProceduralPickupRecipe>(RECIPE_LIST.map((r) => [r.id, r]));
 

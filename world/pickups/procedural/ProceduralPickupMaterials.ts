@@ -116,6 +116,48 @@ export function createEnergyMaterialTemplate(
   return mat;
 }
 
+/**
+ * Ammo icon decal (shared, immutable): the Warsow simpleitem icon stamped on the
+ * crate's sides, unlit so it stays legible whatever the lighting.
+ *
+ * The texture load is async and the prototype cache is not, so the material
+ * starts fully TRANSPARENT and fades in only once the icon actually resolves —
+ * that way a missing icon shows nothing rather than a fullbright white square,
+ * which is what the old MD3 path guarded against too. Loading is fire-and-forget
+ * on purpose: the crate is already renderable without it.
+ */
+export function createAmmoIconMaterial(scene: Scene, name: string, iconPath: string): StandardMaterial {
+  const mat = new StandardMaterial(name, scene);
+  mat.disableLighting = true;
+  mat.diffuseColor = Color3.Black();
+  mat.specularColor = Color3.Black();
+  mat.emissiveColor = Color3.White();
+  mat.backFaceCulling = false;
+  mat.transparencyMode = 2; // ALPHABLEND
+  mat.alpha = 0; // invisible until the icon arrives (or forever, if it never does)
+
+  void (async () => {
+    try {
+      const { PK3TextureLoader } = await import("../../../../../engine/loader/pk3/PK3TextureLoader");
+      const loader = PK3TextureLoader.getInstance();
+      // Warsow ships these in the non-pure data0 pk3, so fall back to the loose
+      // copy under public/data/ exactly like FPSPickup's MD3 path does.
+      const tex = (await loader.resolveAndLoadTexture(iconPath)) ?? (await loader.loadTexture(`${iconPath}.tga`));
+      // The scene cache may have torn the material down while we were loading.
+      if (!tex || !mat.getScene()) return;
+      tex.hasAlpha = true;
+      mat.diffuseTexture = tex;
+      mat.emissiveTexture = tex;
+      mat.useAlphaFromDiffuseTexture = true;
+      mat.alpha = 1;
+    } catch {
+      /* leave the decal invisible — the crate still reads by colour */
+    }
+  })();
+
+  return mat;
+}
+
 /** Ring gradient band count — how many bright pulses chase around the ring. */
 const RING_GRADIENT_BANDS = 3;
 /** Ring transparency at its brightest point. */

@@ -20,6 +20,7 @@ import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Scene } from "@babylonjs/core/scene";
 import * as Geo from "./ProceduralPickupGeometry";
 import {
+  createAmmoIconMaterial,
   createArmorPlateMaterial,
   createEmblemFillMaterial,
   createEnergyMaterialTemplate,
@@ -38,6 +39,10 @@ export interface PrototypeSet {
   core: Mesh | null;
   /** Sculpted military plate carrier (armor). */
   armor: Mesh | null;
+  /** Blocky reinforced crate (ammo). */
+  ammoCrate: Mesh | null;
+  /** The crate's four side decal quads (ammo). */
+  ammoIcon: Mesh | null;
   ring: Mesh | null;
   satellite: Mesh | null;
   beacon: Mesh | null;
@@ -47,6 +52,8 @@ export interface PrototypeSet {
   armorPlate: StandardMaterial;
   /** Tier-coloured fill for the cross's up/down faces (shared, immutable). */
   emblemFill: StandardMaterial;
+  /** Unlit icon decal for ammo crate sides (shared, immutable; null off-family). */
+  ammoIconMat: StandardMaterial | null;
   /** Vivid core-color emissive template (clone per pickup for private pulse). */
   energyCore: StandardMaterial;
   /** Accent-color emissive template (rings). */
@@ -75,28 +82,35 @@ function buildPrototypeSet(scene: Scene, recipe: ProceduralPickupRecipe): Protot
   const energySoft = createEnergyMaterialTemplate(scene, `pp_soft_${recipe.id}`, recipe.color, 0.3, ENERGY_BOOST);
 
   const isHealth = recipe.family === "health";
+  const isAmmo = recipe.family === "ammo";
   const set: PrototypeSet = {
     recipeId: recipe.id,
     cross: isHealth ? Geo.buildCrossProto(scene, recipe) : null,
     crossCaps: isHealth ? Geo.buildCrossCapsProto(scene, recipe) : null,
     core: isHealth ? Geo.buildCoreProto(scene, recipe) : null,
     armor: recipe.family === "armor" ? Geo.buildArmorProto(scene, recipe) : null,
+    ammoCrate: isAmmo ? Geo.buildAmmoCrateProto(scene, recipe) : null,
+    ammoIcon: isAmmo && recipe.iconTexture ? Geo.buildAmmoIconProto(scene, recipe) : null,
     ring: recipe.ringCount > 0 ? Geo.buildRingProto(scene, recipe) : null,
     satellite: recipe.satelliteCount > 0 ? Geo.buildSatelliteProto(scene, recipe) : null,
     beacon: recipe.beaconStrength > 0 ? Geo.buildBeaconProto(scene, recipe) : null,
     structural,
     armorPlate: createArmorPlateMaterial(scene, `pp_plate_${recipe.id}`, recipe.color),
     emblemFill: createEmblemFillMaterial(scene, `pp_fill_${recipe.id}`, recipe.color),
+    ammoIconMat:
+      isAmmo && recipe.iconTexture ? createAmmoIconMaterial(scene, `pp_icon_${recipe.id}`, recipe.iconTexture) : null,
     energyCore,
     energyAccent,
     energySoft,
     dispose(): void {
-      for (const m of [this.cross, this.crossCaps, this.core, this.armor, this.ring, this.satellite, this.beacon]) {
+      const meshes = [this.cross, this.crossCaps, this.core, this.armor, this.ammoCrate, this.ammoIcon];
+      for (const m of [...meshes, this.ring, this.satellite, this.beacon]) {
         m?.dispose();
       }
       this.structural.dispose();
       this.armorPlate.dispose();
       this.emblemFill.dispose();
+      this.ammoIconMat?.dispose();
       this.energyCore.dispose();
       this.energyAccent.dispose();
       this.energySoft.dispose();

@@ -46,6 +46,18 @@ const ARMOR_BAND_OVERLAP = 1.35;
 /** Solid core sits this far inside the plate ring — plates stay proud of it. */
 const ARMOR_CORE_INSET = 0.82;
 const SHARD_SIZE_RATIO = 0.62;
+// Ammo: a chunky crate (see buildAmmoCrateProto).
+const CRATE_W = 15; // wider than deep — reads as a box, not a cube
+const CRATE_H = 11;
+const CRATE_D = 11;
+/** Corner posts / rim straps, as a fraction of the crate's smallest dimension. */
+const CRATE_FRAME = 0.16;
+/** How far the frame stands proud of the body. */
+const CRATE_FRAME_PROUD = 0.5;
+/** Lid slab height, as a fraction of crate height. */
+const CRATE_LID_H = 0.16;
+/** Icon decal size, as a fraction of the face it sits on. */
+const CRATE_ICON_FILL = 0.62;
 const BEACON_HEIGHT = 90;
 const BEACON_TOP = 1.2;
 const BEACON_BOTTOM = 5;
@@ -298,6 +310,91 @@ export function buildArmorProto(scene: Scene, recipe: ProceduralPickupRecipe): M
   // Flat shading so every plate face catches light as its own facet.
   merged.convertToFlatShadedMesh();
   return finalizeProto(merged, "proto_armor");
+}
+
+/**
+ * Ammo crate: a blocky box with a reinforced frame.
+ *
+ * Body slab, four corner posts, a rim strap top and bottom, and a lid slab —
+ * all axis-aligned boxes standing slightly proud of the body so the crate reads
+ * as built rather than as a single primitive. Flat-shaded to match the armor's
+ * faceted language. The per-type icon is a separate mesh (buildAmmoIconProto)
+ * so it can carry its own unlit decal material.
+ */
+export function buildAmmoCrateProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
+  const s = recipe.scale * PROCEDURAL_GLOBAL_SCALE;
+  const w = CRATE_W * s;
+  const h = CRATE_H * s;
+  const d = CRATE_D * s;
+  const frame = Math.min(w, h, d) * CRATE_FRAME;
+  const proud = frame * CRATE_FRAME_PROUD;
+
+  const parts: Mesh[] = [MeshBuilder.CreateBox("crate_body", { width: w, height: h, depth: d }, scene)];
+
+  // Corner posts: vertical bars at all four uprights.
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const post = MeshBuilder.CreateBox("crate_post", { width: frame, height: h + proud, depth: frame }, scene);
+      post.position.set(sx * (w / 2 - frame * 0.3), 0, sz * (d / 2 - frame * 0.3));
+      parts.push(bakePart(post));
+    }
+  }
+
+  // Rim straps: a band around the top and bottom edges, in two crossing bars so
+  // the corners stay square without needing a mitred ring.
+  for (const sy of [-1, 1]) {
+    const y = sy * (h / 2 - frame * 0.5);
+    const alongX = MeshBuilder.CreateBox("crate_strap", { width: w + proud, height: frame, depth: d }, scene);
+    alongX.position.y = y;
+    parts.push(bakePart(alongX));
+    const alongZ = MeshBuilder.CreateBox("crate_strap", { width: w, height: frame, depth: d + proud }, scene);
+    alongZ.position.y = y;
+    parts.push(bakePart(alongZ));
+  }
+
+  // Lid: a slab sitting on top, slightly overhanging.
+  const lid = MeshBuilder.CreateBox("crate_lid", { width: w * 0.94, height: h * CRATE_LID_H, depth: d * 0.94 }, scene);
+  lid.position.y = h / 2 + (h * CRATE_LID_H) / 2 - frame * 0.2;
+  parts.push(bakePart(lid));
+
+  const merged = mergeOrThrow(parts, "proto_ammo_crate", scene);
+  merged.convertToFlatShadedMesh();
+  return finalizeProto(merged, "proto_ammo_crate");
+}
+
+/**
+ * The four side decals of an ammo crate, merged into one mesh.
+ *
+ * One quad per vertical face, each turned to face outward and pushed just clear
+ * of the body so the icon reads from any approach — the same "stamp the
+ * simpleitem icon on the box" trick the old MD3 ammobox used, just generated.
+ * Each quad keeps its own 0..1 UVs through the merge, so the shared decal
+ * material paints the icon once per face.
+ */
+export function buildAmmoIconProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
+  const s = recipe.scale * PROCEDURAL_GLOBAL_SCALE;
+  const w = CRATE_W * s;
+  const h = CRATE_H * s;
+  const d = CRATE_D * s;
+  const size = Math.min(w, h) * CRATE_ICON_FILL;
+  const lift = Math.min(w, h, d) * CRATE_FRAME * CRATE_FRAME_PROUD + 0.35 * s;
+
+  const quads: Mesh[] = [];
+  // +Z / -Z faces, then +X / -X. `sideOrientation` is irrelevant here because
+  // the decal material disables back-face culling.
+  const faces: Array<{ pos: [number, number, number]; yaw: number }> = [
+    { pos: [0, 0, d / 2 + lift], yaw: 0 },
+    { pos: [0, 0, -(d / 2 + lift)], yaw: Math.PI },
+    { pos: [w / 2 + lift, 0, 0], yaw: Math.PI / 2 },
+    { pos: [-(w / 2 + lift), 0, 0], yaw: -Math.PI / 2 },
+  ];
+  for (const face of faces) {
+    const quad = MeshBuilder.CreatePlane("crate_icon", { width: size, height: size }, scene);
+    quad.position.set(face.pos[0], face.pos[1], face.pos[2]);
+    quad.rotation.y = face.yaw;
+    quads.push(bakePart(quad));
+  }
+  return mergeOrThrow(quads, "proto_ammo_icon", scene);
 }
 
 /** Small orbiting satellite core (mega/ultra). */

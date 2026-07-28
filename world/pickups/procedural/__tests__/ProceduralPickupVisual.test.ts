@@ -143,3 +143,42 @@ describe("ProceduralPickupVisual", () => {
     visual.dispose();
   });
 });
+
+describe("ProceduralPickupVisual — ammo crates", () => {
+  it("builds a crate plus its four side decals, and cleans both up", () => {
+    const recipe = getProceduralPickupRecipe("ammo_rockets");
+    if (!recipe) throw new Error("recipe missing");
+
+    const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 40, 0), false, 5);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_ammo_crate_"))).toBe(true);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_ammo_icon_"))).toBe(true);
+
+    visual.dispose();
+    expect(scene.meshes.filter((m) => m.name.startsWith("pp_ammo_"))).toHaveLength(0);
+  });
+
+  it("keeps the icon decal invisible until its texture resolves", () => {
+    const recipe = getProceduralPickupRecipe("ammo_bullets");
+    if (!recipe) throw new Error("recipe missing");
+
+    const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 40, 0), false, 6);
+    const icon = scene.meshes.find((m) => m.name.startsWith("pp_ammo_icon_"));
+    // Headless: the pk3 loader never resolves, so the decal must stay fully
+    // transparent rather than rendering as a white square.
+    expect((icon?.material as { alpha?: number } | null)?.alpha).toBe(0);
+
+    visual.dispose();
+  });
+
+  it("carries no health or armor geometry", () => {
+    const recipe = getProceduralPickupRecipe("ammo_lasers");
+    if (!recipe) throw new Error("recipe missing");
+
+    const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 40, 0), false, 7);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_cross_"))).toBe(false);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_armor_"))).toBe(false);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_shell_"))).toBe(false);
+
+    visual.dispose();
+  });
+});

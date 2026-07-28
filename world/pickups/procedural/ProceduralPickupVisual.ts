@@ -128,6 +128,13 @@ export class ProceduralPickupVisual implements PickupVisual {
       this.inst(set.crossCaps, this.cosmetic, set.emblemFill, "cross_caps");
       this.matShell = createFresnelShellMaterial(scene, `pp_shell_${recipe.id}_${seed}`, recipe.color);
       this.inst(set.core, this.cosmetic, this.matShell, "shell");
+    } else if (recipe.family === "ammo") {
+      // Blocky crate in the ammo's identity colour, with the Warsow simpleitem
+      // icon stamped on all four sides — the same read as the old MD3 ammobox,
+      // generated. The decal material starts transparent and fades in when its
+      // texture resolves, so a missing icon leaves a plain crate.
+      this.inst(set.ammoCrate, this.cosmetic, set.armorPlate, "ammo_crate");
+      if (set.ammoIconMat) this.inst(set.ammoIcon, this.cosmetic, set.ammoIconMat, "ammo_icon");
     } else {
       // Banded plates in the tier colour. No edge outlines: the plates are lit,
       // so the facets separate on shading alone, and black borders were reading
