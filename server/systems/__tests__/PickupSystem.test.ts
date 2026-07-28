@@ -200,3 +200,69 @@ describe("PickupSystem - ammo", () => {
     expect(sys.getPendingPickupEvents()).toHaveLength(0);
   });
 });
+
+// ── Round-scoped items ───────────────────────────────────────────────
+
+describe("PickupSystem - round respawn modes", () => {
+  /** Take the item at tick `t`, then report whether it is back at `t + later`. */
+  function takeThenCheck(sys: PickupSystem, t: number, later: number): boolean {
+    // Hurt: a health pickup is refused at full health, and would look like a
+    // respawn-mode bug rather than the pickup rule it is.
+    const grabber = makePlayer();
+    grabber.health.health = 40;
+    sys.update(makeState(grabber) as never, 0.008, t as never);
+    expect(sys.getActiveMask()[0]).toBe(false);
+
+    const bystander = makePlayer(9999, 0, 0);
+    sys.update(makeState(bystander) as never, 0.008, (t + later) as never);
+    return sys.getActiveMask()[0];
+  }
+
+  it("respawns on its own timer in the default mode", () => {
+    const sys = new PickupSystem();
+    sys.setPickupItems([healthEntry("small")]);
+    expect(takeThenCheck(sys, 100, 21 * TICK_RATE)).toBe(true);
+  });
+
+  it("stays gone for the rest of the round in round mode", () => {
+    // There is one of each per round, so taking it is a decision rather than a
+    // timing exercise — the round is shorter than most respawn timers anyway.
+    const sys = new PickupSystem();
+    sys.setRespawnMode("round");
+    sys.setPickupItems([healthEntry("small")]);
+    expect(takeThenCheck(sys, 100, 60 * TICK_RATE)).toBe(false);
+  });
+
+  it("comes back at the next round", () => {
+    const sys = new PickupSystem();
+    sys.setRespawnMode("round");
+    sys.setPickupItems([healthEntry("small")]);
+    takeThenCheck(sys, 100, 1);
+
+    sys.resetForRound(10_000);
+    expect(sys.getActiveMask()[0]).toBe(true);
+  });
+
+  it("makes an item taken this round sit out the next one, when alternating", () => {
+    // The denial play: taking the item reaches into the following round.
+    const sys = new PickupSystem();
+    sys.setRespawnMode("alternating");
+    sys.setPickupItems([healthEntry("small")]);
+    takeThenCheck(sys, 100, 1);
+
+    sys.resetForRound(10_000);
+    expect(sys.getActiveMask()[0]).toBe(false);
+
+    // ...and returns the round after, having gone untouched.
+    sys.resetForRound(20_000);
+    expect(sys.getActiveMask()[0]).toBe(true);
+  });
+
+  it("does not hold an item back that nobody took", () => {
+    const sys = new PickupSystem();
+    sys.setRespawnMode("alternating");
+    sys.setPickupItems([healthEntry("small")]);
+    sys.resetForRound(10_000);
+    expect(sys.getActiveMask()[0]).toBe(true);
+  });
+});

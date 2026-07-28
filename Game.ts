@@ -917,6 +917,19 @@ export class Game {
   }
 
   /**
+   * Choose the spawn kit for modes that have one (S&D).
+   *
+   * Returns false when there is no server to tell. The choice is the server's
+   * to apply — it lands at the start of the next round, never this one.
+   */
+  sendLoadout(primary: string, secondary: string): boolean {
+    if (!this.gameHost || !this.isNetworkMode) return false;
+    const networkHost = this.gameHost as import("../../engine/network/client/hosts/NetworkGameHost").NetworkGameHost;
+    networkHost.sendLoadout(primary, secondary);
+    return true;
+  }
+
+  /**
    * goSpectator — transition from playing to spectator.
    * Sends Spectate to server, switches camera to freefly, shows overlay.
    */

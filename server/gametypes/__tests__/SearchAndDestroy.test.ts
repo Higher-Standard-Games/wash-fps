@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { AgentDirectiveContext } from "../../../../../shared/server/gametype";
+import { DEFAULT_LOADOUT } from "../../../../../shared/server/gametype/Loadout";
 import type { GametypeMapContext, GametypeTickContext } from "../BaseGametype";
 import { SearchAndDestroy } from "../SearchAndDestroy";
 
@@ -94,8 +95,13 @@ function run(mode: SearchAndDestroy, players: FakePlayer[], ticks: number, from 
 function loaded(over: Partial<GametypeMapContext> = {}): SearchAndDestroy {
   const mode = new SearchAndDestroy();
   mode.onMapLoad(mapContext(over));
-  mode.onTick(fakeState([]), tickContext({ players: [], live: false }));
+  startRound(mode, 1, "udon");
   return mode;
+}
+
+/** Begin a round, the way the controller does at the top of the freeze. */
+function startRound(mode: SearchAndDestroy, round: number, attackingTeam: "udon" | "soba") {
+  mode.onRoundStart(fakeState([]), tickContext({ players: [], live: false, round, attackingTeam }));
 }
 
 // ── Configuration ────────────────────────────────────────────────────
@@ -136,17 +142,18 @@ describe("map load", () => {
     expect(mode.bombState.position.x).toBeCloseTo(UDON_SPAWNS[0].x, 0);
 
     // Second half: soba attacks, so the bomb starts on their side instead.
-    mode.onTick(fakeState([]), tickContext({ players: [], live: false, round: 10, attackingTeam: "soba" }));
+    startRound(mode, 10, "soba");
     expect(mode.bombState.position.x).toBeCloseTo(SOBA_SPAWNS[0].x, 0);
   });
 
-  it("places the bomb once per round, not every freeze tick", () => {
+  it("does not disturb a carried bomb during the round", () => {
     const mode = loaded();
     const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: UDON_SPAWNS[0] };
     run(mode, [carrier], 1);
     expect(mode.bombState.carrierId).toBe(1);
 
-    // Still the same round: a second freeze tick must not snatch it back.
+    // Freeze ticks keep arriving in a real match only between rounds, but a
+    // non-live tick must never reach in and reset the bomb.
     mode.onTick(fakeState([carrier]), tickContext({ players: [carrier], live: false }));
     expect(mode.bombState.carrierId).toBe(1);
   });
@@ -309,5 +316,61 @@ describe("agent directives", () => {
     expect(first.map((d) => d.id)).toEqual(second.map((d) => d.id));
     // ...but the expiry does move, or they would go stale.
     expect(second[0].expiresAtTick).toBeGreaterThan(first[0].expiresAtTick);
+  });
+});
+
+// ── Loadouts ─────────────────────────────────────────────────────────
+
+describe("loadouts", () => {
+  const PLAYER = 7 as never;
+
+  it("gives an unchosen player the default kit", () => {
+    const kit = new SearchAndDestroy().getSpawnLoadout(PLAYER);
+    expect(kit.weapons).toContain("blade");
+    expect(kit.weapons).toContain(DEFAULT_LOADOUT.primary);
+    expect(kit.armor).toBe(100);
+  });
+
+  it("does not change the kit a player already has this round", () => {
+    // The rule that makes this safe: re-kitting mid-round would turn a lost
+    // gunfight into a free retry.
+    const mode = loaded();
+    mode.setPlayerLoadout(PLAYER, { primary: "electrobolt", secondary: "riotgun" });
+    expect(mode.getSpawnLoadout(PLAYER).weapons).not.toContain("electrobolt");
+  });
+
+  it("applies it at the start of the next round", () => {
+    const mode = loaded();
+    mode.setPlayerLoadout(PLAYER, { primary: "electrobolt", secondary: "riotgun" });
+    startRound(mode, 2, "udon");
+    expect(mode.getSpawnLoadout(PLAYER).weapons).toEqual(["blade", "electrobolt", "riotgun"]);
+  });
+
+  it("keeps it for every round after, until it is changed again", () => {
+    const mode = loaded();
+    mode.setPlayerLoadout(PLAYER, { primary: "voltaic", secondary: "glauncher" });
+    startRound(mode, 2, "udon");
+    startRound(mode, 3, "udon");
+    expect(mode.getSpawnLoadout(PLAYER).weapons).toContain("voltaic");
+  });
+
+  it("reports the pending choice, so the HUD can confirm it immediately", () => {
+    const mode = loaded();
+    mode.setPlayerLoadout(PLAYER, { primary: "electrobolt", secondary: "plasmagun" });
+    expect(mode.getPendingLoadout(PLAYER)).toEqual({ primary: "electrobolt", secondary: "plasmagun" });
+  });
+
+  it("takes the last choice when a player changes their mind twice", () => {
+    const mode = loaded();
+    mode.setPlayerLoadout(PLAYER, { primary: "electrobolt", secondary: "riotgun" });
+    mode.setPlayerLoadout(PLAYER, { primary: "rlauncher", secondary: "plasmagun" });
+    startRound(mode, 2, "udon");
+    expect(mode.getSpawnLoadout(PLAYER).weapons).toEqual(["blade", "rlauncher", "plasmagun"]);
+  });
+});
+
+describe("item rules", () => {
+  it("restores the map per round rather than on item timers", () => {
+    expect(new SearchAndDestroy().getItemSpawnRules().respawnMode).toBe("round");
   });
 });

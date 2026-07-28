@@ -312,7 +312,7 @@ export class GametypeController {
 
     // Apply weapon loadout
     if (this.weaponSystem) {
-      const loadout = this.gametype.getSpawnLoadout();
+      const loadout = this.gametype.getSpawnLoadout(playerId);
       this.weaponSystem.initializeWeaponFromLoadout(entityId, loadout);
     }
 
@@ -465,10 +465,29 @@ export class GametypeController {
     if (phaseChanged) {
       this.gametype.onMatchPhaseChange(this.matchState.phase, state);
 
-      // On match start (countdown → active), respawn all players
-      if (this.matchState.phase === MatchPhase.Active) {
+      // Round modes reset at the FREEZE, not at the go. Every item returns to
+      // the map, dropped weapons and live projectiles are cleared, and everyone
+      // respawns — so the freeze is spent standing at your own spawn reading
+      // the map, which is the whole point of having one. `applyPostGameInputFreeze`
+      // holds them still until the round goes live.
+      if (this.matchState.roundBased && this.matchState.phase === MatchPhase.Countdown) {
+        // Before the respawns, so the mode's decisions are already true when
+        // players appear — respawning applies each player's chosen loadout.
+        try {
+          this.gametype.onRoundStart(state, this.tickContext(tick));
+        } catch (err) {
+          log.warnRateLimited("GametypeController", "onRoundStart threw:", err);
+        }
         this.matchStartReset?.(state, tickNum);
         this.respawnAllPlayers(state, tickNum);
+      }
+
+      // On match start (countdown → active), respawn all players
+      if (this.matchState.phase === MatchPhase.Active) {
+        if (!this.matchState.roundBased) {
+          this.matchStartReset?.(state, tickNum);
+          this.respawnAllPlayers(state, tickNum);
+        }
         this.awardTracker.onMatchStart();
       }
 
@@ -600,8 +619,8 @@ export class GametypeController {
     const baseSpawn = this.spawnStrategy.choose(this.spawnPoints, state, entityId, spawnRng, spawnTeam);
     const spawn = this.jitterSpawn(baseSpawn, spawnRng);
 
-    // Get loadout from gametype
-    const loadout = this.gametype.getSpawnLoadout();
+    // Get loadout from gametype — per-player, since S&D lets players choose.
+    const loadout = this.gametype.getSpawnLoadout(entity.ownerId);
 
     // Reset health/armor
     if (entity.health) {
@@ -769,14 +788,9 @@ export class GametypeController {
     return byEntity;
   }
 
-  /**
-   * Run the gametype's objective tick and hand back any round result.
-   *
-   * Wrapped because a throwing mode must not take the tick loop down: a bomb
-   * that stops updating is a broken round, a crashed server is a broken match.
-   */
-  private tickGametype(state: WorldState, tick: TickNumber): RoundOutcome | null {
-    const context: GametypeTickContext = {
+  /** The match, as a gametype needs to see it. */
+  private tickContext(tick: TickNumber): GametypeTickContext {
+    return {
       tick,
       round: this.matchState.round,
       live: this.matchState.phase === MatchPhase.Active,
@@ -784,6 +798,16 @@ export class GametypeController {
       defendingTeam: this.matchState.defendingTeam,
       teamOf: (playerId: PlayerId) => this.matchState.getPlayerTeam(playerId),
     };
+  }
+
+  /**
+   * Run the gametype's objective tick and hand back any round result.
+   *
+   * Wrapped because a throwing mode must not take the tick loop down: a bomb
+   * that stops updating is a broken round, a crashed server is a broken match.
+   */
+  private tickGametype(state: WorldState, tick: TickNumber): RoundOutcome | null {
+    const context = this.tickContext(tick);
 
     try {
       const outcome = this.gametype.onTick(state, context);

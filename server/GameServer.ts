@@ -17,16 +17,17 @@ import { playerId as createPlayerId } from "@engine/server/ecs/types";
 import type { ClientConnection, Transport, TransportConfig } from "@engine/server/network/transport/WebSocketTransport";
 import { WebSocketServerTransport } from "@engine/server/network/transport/WebSocketTransport";
 import type { Vec3 } from "@shared/server/simulation/types";
+import type { BspEntity, BspModel } from "../../../engine/loader/bsp/BspLoader";
 // Protocol (client-compatible)
 import { MessageCodec, MessageType } from "../../../engine/network/protocol/MessageCodec";
-import type { BspEntity, BspModel } from "../../../engine/loader/bsp/BspLoader";
 import type { CollisionWorld } from "../../../engine/network/systems/collision/CollisionWorld";
 // PVS (Potentially Visible Set) for network culling
 import { ServerPVS, type ServerPVSData } from "../../../engine/server/ServerPVS";
 import type { PickupEntry } from "../../../shared/bsp/PickupTable";
 import type { TriggerVolume } from "../../../shared/bsp/TriggerTable";
-// Match phase tracking (for auto-recording)
 import { MatchPhase } from "../../../shared/server/gametype/GametypeTypes";
+// Match phase tracking (for auto-recording)
+import { describeLoadout, parseLoadout } from "../../../shared/server/gametype/Loadout";
 import { sanitizeCommand } from "../../../shared/server/simulation/InputSanitizer";
 import { toClientKey } from "../ClientEntityKey";
 import { nextAckedTick, rateLimited } from "./AuthorityGuards";
@@ -235,6 +236,12 @@ export class GameServer {
       return `Player ${playerId}`;
     });
 
+    // Item rules come from the gametype — a round mode restores the map per
+    // round instead of per item timer.
+    const itemRules = this.gametypeController.getGametype().getItemSpawnRules();
+    this.pickupSystem.setRespawnTime(itemRules.weaponRespawnTime);
+    this.pickupSystem.setRespawnMode(itemRules.respawnMode ?? "timed");
+
     // Wire gametype self-damage config into projectile + weapon systems
     const matchConfig = this.gametypeController.getMatchState().getConfig();
     this.projectileSystem.selfDamageMultiplier = matchConfig.selfDamage;
@@ -280,7 +287,13 @@ export class GameServer {
     this.physicsSystem.resetForMatch();
     this.projectileSystem.resetForMatch(state);
     this.droppedWeaponSystem.resetForMatch(state);
-    this.pickupSystem.resetForMatch(tickNum);
+    // Round modes restore the map per ROUND, which is also where the
+    // alternating-scarcity rule is applied.
+    if (this.gametypeController.getMatchState().roundBased) {
+      this.pickupSystem.resetForRound(tickNum);
+    } else {
+      this.pickupSystem.resetForMatch(tickNum);
+    }
 
     this.knownProjectileIds.clear();
     this.pendingKillEvents = [];
@@ -907,6 +920,11 @@ export class GameServer {
         return;
       }
 
+      if (msgType === MessageType.SetLoadout) {
+        this.handleSetLoadout(conn, data);
+        return;
+      }
+
       const client = this.clients.get(conn.id);
       if (!client) return;
 
@@ -953,6 +971,29 @@ export class GameServer {
         );
       }
     }
+  }
+
+  /**
+   * A player chose a spawn kit.
+   *
+   * Server-authoritative in both directions: unknown weapon names are rejected
+   * rather than defaulted, and the gametype decides when the choice takes
+   * effect — which for S&D is the next round, never this one.
+   */
+  private handleSetLoadout(conn: ClientConnection, data: Uint8Array): void {
+    const client = this.clients.get(conn.id);
+    if (!client) return;
+
+    const { primary, secondary } = MessageCodec.decodeSetLoadout(data);
+    const choice = parseLoadout(primary, secondary);
+    if (!choice) {
+      console.warn(`[GameServer] Player ${client.playerId} sent an unknown loadout: ${primary}/${secondary}`);
+      return;
+    }
+
+    const gametype = this.gametypeController.getGametype();
+    if (!gametype.setPlayerLoadout(client.playerId, choice)) return;
+    console.log(`[GameServer] Player ${client.playerId} loadout → ${describeLoadout(choice)} (from next round)`);
   }
 
   /**

@@ -16,6 +16,7 @@ import type {
   AgentDirective,
   AgentDirectiveContext,
   ItemSpawnRules,
+  LoadoutChoice,
   MatchConfig,
   SpawnStrategyType,
   TeamId,
@@ -93,8 +94,24 @@ export abstract class BaseGametype {
   /** Match configuration (warmup, countdown, time/score limits) */
   abstract getMatchConfig(): MatchConfig;
 
-  /** Weapons and ammo given to players on spawn */
-  abstract getSpawnLoadout(): WeaponLoadout;
+  /**
+   * Weapons and ammo given to a player on spawn.
+   *
+   * `playerId` is present for modes where the kit is the player's own choice
+   * (S&D). Modes with one kit for everyone ignore it, which is most of them.
+   */
+  abstract getSpawnLoadout(playerId?: PlayerId): WeaponLoadout;
+
+  /**
+   * Remember a player's chosen spawn kit. Modes without loadouts ignore it.
+   *
+   * Deliberately does not take effect immediately: a change made mid-round
+   * applies from the NEXT round, so nobody re-kits themselves out of a fight
+   * they are losing. Returns false if the mode has no loadouts to set.
+   */
+  setPlayerLoadout(_playerId: PlayerId, _choice: LoadoutChoice): boolean {
+    return false;
+  }
 
   /** How items spawn on the map */
   abstract getItemSpawnRules(): ItemSpawnRules;
@@ -113,6 +130,17 @@ export abstract class BaseGametype {
    * need nothing from the map ignore it — which is every mode but S&D today.
    */
   onMapLoad(_context: GametypeMapContext): void {
+    // Default: no-op
+  }
+
+  /**
+   * A new round is starting, at the top of its freeze phase.
+   *
+   * Runs BEFORE the world reset and the respawns, so anything a mode wants to
+   * be true when players appear — which side attacks, where the bomb is, whose
+   * chosen loadout is now in force — must be settled here.
+   */
+  onRoundStart(_state: WorldState, _context: GametypeTickContext): void {
     // Default: no-op
   }
 

@@ -532,6 +532,11 @@ export class MatchState {
         break;
       case MatchPhase.Countdown:
         this._timeRemaining = this.config.countdownDuration;
+        // A round begins at its FREEZE, not when it goes live. Everything set
+        // up during the freeze — where the bomb goes, which side attacks, who
+        // spawns where — needs the round it is setting up for, not the one
+        // that just ended. At the half boundary those are different teams.
+        if (this.roundBased) this._round++;
         break;
       case MatchPhase.Active: {
         this._timeRemaining = this.config.timeLimit;
@@ -539,8 +544,8 @@ export class MatchState {
         this._roundTimeExpired = false;
 
         // In a round mode `Active` is entered once per ROUND, so scores must
-        // survive it — only the first round starts a fresh match.
-        if (this.roundBased) this._round++;
+        // survive it — only the first round starts a fresh match. The round
+        // counter already advanced at the freeze.
         const startingMatch = !this.roundBased || this._round === 1;
 
         if (startingMatch) {

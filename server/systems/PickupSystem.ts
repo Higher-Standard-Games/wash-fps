@@ -16,6 +16,7 @@ import { Subsystem, type SubsystemConfig } from "@engine/server/core/Subsystem";
 import type { WorldState } from "@engine/server/core/WorldState";
 import type { EntityId, TickNumber } from "@engine/server/ecs/types";
 import { EntityType } from "@engine/server/ecs/types";
+import type { ItemRespawnMode } from "@shared/server/gametype";
 // Shared pickup table (client+server agree on ids) + pure grant math.
 import type { PickupEntry, PickupType } from "../../../../shared/bsp/PickupTable";
 import {
@@ -103,6 +104,12 @@ export class PickupSystem extends Subsystem {
   private droppedWeaponSystem: DroppedWeaponSystem | null = null;
   /** Weapon respawn time (seconds); overridable via setRespawnTime. Armor/health use defaults. */
   private weaponRespawnSeconds: number = DEFAULT_RESPAWN_SECONDS.weapon;
+  /** When consumed items return. Round modes override this. */
+  private respawnMode: ItemRespawnMode = "timed";
+  /** Items taken during the round now being played. */
+  private consumedThisRound = new Set<number>();
+  /** Items sitting out this round, under `alternating`. */
+  private dormant = new Set<number>();
 
   // Pickup detection parameters (matching client-side Pickup.ts)
 
@@ -136,6 +143,17 @@ export class PickupSystem extends Subsystem {
    */
   setRespawnTime(seconds: number): void {
     this.weaponRespawnSeconds = seconds;
+  }
+
+  /**
+   * Choose when consumed items come back. See `ItemRespawnMode`.
+   *
+   * Under `round` and `alternating` the per-item timers stop mattering — the
+   * round boundary is the only thing that restores anything.
+   */
+  setRespawnMode(mode: ItemRespawnMode): void {
+    this.respawnMode = mode;
+    console.log(`[PickupSystem] Item respawn mode: ${mode}`);
   }
 
   /** Resolve the respawn duration (ticks) for a pickup entry by type/kind. */
@@ -188,14 +206,18 @@ export class PickupSystem extends Subsystem {
    * tick (not server tick zero, which may be minutes earlier after warmup).
    */
   resetForMatch(tickNum: number): void {
+    if (this.respawnMode === "timed") this.dormant.clear();
     const firstSpawnDelayTicks = Math.floor(FIRST_SPAWN_DELAY_SECONDS * TICK_RATE);
     for (const pickup of this.pickups) {
       const delayed =
         pickup.type === "armor" ||
         pickup.type === "powerup" ||
         (pickup.type === "health" && (pickup.kind === "mega" || pickup.kind === "ultra"));
-      pickup.active = !delayed;
-      pickup.respawnTick = delayed ? tickNum + firstSpawnDelayTicks : 0;
+      const sittingOut = this.dormant.has(pickup.id);
+      pickup.active = !delayed && !sittingOut;
+      // A dormant item must not come back on a timer either — it is out for the
+      // whole round, not merely late.
+      pickup.respawnTick = sittingOut ? Number.POSITIVE_INFINITY : delayed ? tickNum + firstSpawnDelayTicks : 0;
     }
     this.pendingPickupEvents = [];
     this.pendingPickupNotifies = [];
@@ -203,10 +225,34 @@ export class PickupSystem extends Subsystem {
     this.useButtonPrev.clear();
   }
 
-  /** Deactivate a consumed pickup and schedule its per-type respawn. */
+  /**
+   * Deactivate a consumed pickup and schedule its return.
+   *
+   * In a round mode there is nothing to schedule: the item is gone for the rest
+   * of the round, so there is one of each per round and taking it is a decision
+   * rather than a timing exercise. `Number.POSITIVE_INFINITY` keeps the normal
+   * `tickNum >= respawnTick` check honest without a mode test in the hot path.
+   */
   private consumePickup(pickup: PickupItem, _playerId: EntityId, tickNum: number): void {
     pickup.active = false;
-    pickup.respawnTick = tickNum + pickup.respawnTicks;
+    this.consumedThisRound.add(pickup.id);
+    pickup.respawnTick = this.respawnMode === "timed" ? tickNum + pickup.respawnTicks : Number.POSITIVE_INFINITY;
+  }
+
+  /**
+   * Restore the map for a new round.
+   *
+   * Under `alternating`, whatever was taken during the round just played sits
+   * this one out — so taking the Red Armor also denies it to everyone next
+   * round, and the map is alternately rich and poor.
+   */
+  resetForRound(tickNum: number): void {
+    this.dormant = this.respawnMode === "alternating" ? new Set(this.consumedThisRound) : new Set();
+    this.consumedThisRound.clear();
+    this.resetForMatch(tickNum);
+    if (this.dormant.size > 0) {
+      console.log(`[PickupSystem] ${this.dormant.size} items sitting out this round`);
+    }
   }
 
   /**

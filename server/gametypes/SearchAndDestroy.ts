@@ -26,11 +26,13 @@ import type {
   AgentDirective,
   AgentDirectiveContext,
   ItemSpawnRules,
+  LoadoutChoice,
   MatchConfig,
   SpawnStrategyType,
   TeamId,
   WeaponLoadout,
 } from "@shared/server/gametype";
+import { buildLoadout, DEFAULT_LOADOUT } from "@shared/server/gametype";
 import type { Vec3 } from "@shared/server/simulation/types";
 import type { BombSite, Vec3Like } from "../../../../shared/bsp/BombSiteTable";
 import { extractBombSites, isBombMap, spawnCentroid } from "../../../../shared/bsp/BombSiteTable";
@@ -58,9 +60,6 @@ const ROUNDS_TO_WIN = 10;
 const LEAD_REQUIRED = 2;
 /** Freeze between rounds: read the map, pick a side, no buy phase to fill. */
 const FREEZE_SECONDS = 5;
-
-/** Warsow's `PLAYER_ARMOR` — every round starts as a full-strength fight. */
-const SPAWN_ARMOR = 100;
 
 // ── Directive tuning ─────────────────────────────────────────────────
 
@@ -96,8 +95,6 @@ export class SearchAndDestroy extends BaseGametype {
   /** Where the bomb starts each round, by attacking team. */
   private bombSpawns = new Map<TeamId, Vec3Like>();
   private collision: CollisionWorld | null = null;
-  /** Round the bomb was last placed for; drives the once-per-round reset. */
-  private placedForRound = -1;
   /**
    * Attacking team, cached from the tick context.
    *
@@ -107,6 +104,10 @@ export class SearchAndDestroy extends BaseGametype {
    * first — leaves it here.
    */
   private attackers: TeamId | null = null;
+  /** Kits in force this round. Only the round rollover writes these. */
+  private activeLoadouts = new Map<PlayerId, LoadoutChoice>();
+  /** Kits chosen since the round started; promoted at the next rollover. */
+  private pendingLoadouts = new Map<PlayerId, LoadoutChoice>();
 
   // ========================================================================
   // Configuration
@@ -134,30 +135,57 @@ export class SearchAndDestroy extends BaseGametype {
   }
 
   /**
-   * Spawn kit.
+   * The player's chosen kit: blade, one primary, one secondary.
    *
-   * Warsow Bomb is a pure loadout mode — it zeroes every item mask and lets
-   * players choose two weapons at spawn. We have no loadout menu, so identical
-   * kits would make every round the same fight; instead players spawn armed
-   * enough to contest the first ten seconds and the map decides the rest. The
-   * armor matches Warsow's, so nobody starts a round soft.
+   * Warsow Bomb is a pure loadout mode — it zeroes every item mask. We keep the
+   * map items, so this is the same idea against a different backdrop: the kit
+   * decides what you can do from the spawn, and the map decides what you can do
+   * if you take ground. An empty rocket launcher is a reason to go somewhere
+   * dangerous.
    */
-  getSpawnLoadout(): WeaponLoadout {
-    return {
-      weapons: ["blade", "machinegun"],
-      ammo: { blade: 1, machinegun: 100 },
-      health: 100,
-      armor: SPAWN_ARMOR,
-    };
+  getSpawnLoadout(playerId?: PlayerId): WeaponLoadout {
+    const choice = (playerId !== undefined ? this.activeLoadouts.get(playerId) : undefined) ?? DEFAULT_LOADOUT;
+    return buildLoadout(choice);
   }
 
   /**
-   * Items respawn fast because a round is short — a 60 s armor on a 90 s round
-   * is a coin flip on who spawned nearer, not a timing skill.
+   * Remember a kit for the next round.
+   *
+   * Never for the current one, even if the player is dead: re-kitting mid-round
+   * turns a lost gunfight into a free retry, and a spectating teammate would be
+   * able to feed a live one a better weapon. Dead players changing loadout is
+   * exactly the intended use — they just wait for the round to turn over.
+   */
+  setPlayerLoadout(playerId: PlayerId, choice: LoadoutChoice): boolean {
+    this.pendingLoadouts.set(playerId, choice);
+    return true;
+  }
+
+  /** The kit that will be in force next round — for the HUD's confirmation. */
+  getPendingLoadout(playerId: PlayerId): LoadoutChoice {
+    return this.pendingLoadouts.get(playerId) ?? this.activeLoadouts.get(playerId) ?? DEFAULT_LOADOUT;
+  }
+
+  /**
+   * One of each item per round, and no second chances.
+   *
+   * Item timing is a skill in a continuous mode; in a 90 s round it is not, and
+   * a Red Armor on a 25 s timer would just be a coin flip on who spawned nearer.
+   * Taking it once, and denying it, is the decision instead. The per-item times
+   * below are inert under `round` — they stay accurate so switching the mode
+   * back needs no other change.
+   *
+   * `alternating` is the other option worth playtesting: an item taken this
+   * round is gone next round too, which turns a greedy pickup into a denial
+   * that reaches into the following round. It is off because it makes rounds
+   * alternately rich and poor, and because the second half inherits the first
+   * half's depleted map — which quietly breaks the mirror the side swap exists
+   * to provide.
    */
   getItemSpawnRules(): ItemSpawnRules {
     return {
       spawnFromBsp: true,
+      respawnMode: "round",
       weaponRespawnTime: 20,
       ammoRespawnTime: 15,
       armorRespawnTime: 20,
@@ -186,7 +214,6 @@ export class SearchAndDestroy extends BaseGametype {
     this.collision = context.collision;
     this.sites = [];
     this.bombSpawns.clear();
-    this.placedForRound = -1;
 
     if (!isBombMap(context.entities)) {
       console.warn(`[S&D] Map has no bombsites — it is tagged for a mode it cannot host`);
@@ -215,25 +242,38 @@ export class SearchAndDestroy extends BaseGametype {
   // ========================================================================
 
   /**
+   * Set up the round during its freeze.
+   *
+   * Placing the bomb on the attacking team's side is also what makes the
+   * half-swap work: the bomb follows the ROLE, not the team, so at the swap it
+   * simply appears on the other side of the map with nothing else to change.
+   */
+  onRoundStart(_state: WorldState, context: GametypeTickContext): void {
+    this.attackers = context.attackingTeam;
+    this.bomb.reset(this.bombSpawns.get(context.attackingTeam) ?? { x: 0, y: 0, z: 0 });
+
+    // A chosen kit takes effect here and nowhere else. Players respawn moments
+    // later in this same freeze, so promoting any later would arm them a round
+    // behind what they picked.
+    for (const [playerId, choice] of this.pendingLoadouts) {
+      this.activeLoadouts.set(playerId, choice);
+    }
+    this.pendingLoadouts.clear();
+  }
+
+  /**
    * Advance the bomb and report any round it decides.
    *
-   * Runs in every phase: the bomb has to be placed during the freeze, before
-   * the round it belongs to goes live. Only a live round can be ended, which
-   * the controller enforces.
+   * Only ends a live round; the controller enforces that too.
    */
   onTick(state: WorldState, context: GametypeTickContext): RoundOutcome | null {
     this.attackers = context.attackingTeam;
+    if (!context.live) return null;
 
     // Place once per round, during the freeze. Doing it on the attacking team
     // of the round about to start is also what makes the half-swap work — the
     // bomb follows the role, not the team.
-    if (!context.live) {
-      if (context.round !== this.placedForRound) {
-        this.placedForRound = context.round;
-        this.bomb.reset(this.bombSpawns.get(context.attackingTeam) ?? { x: 0, y: 0, z: 0 });
-      }
-      return null;
-    }
+    if (!context.live) return null;
 
     const players = this.collectPlayers(state, context);
     const events = this.bomb.update(context.tick as number, players, this.sites, context.attackingTeam);
