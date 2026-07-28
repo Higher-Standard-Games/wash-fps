@@ -300,8 +300,8 @@ export class GameServer {
     console.log(`[GameServer] Collision world configured`);
   }
 
-  setSpawnPoints(points: Vec3[]): void {
-    this.gametypeController.setSpawnPoints(points);
+  setSpawnPoints(points: Vec3[], teamPoints?: ReadonlyMap<string, Vec3[]>): void {
+    this.gametypeController.setSpawnPoints(points, teamPoints);
   }
 
   /**

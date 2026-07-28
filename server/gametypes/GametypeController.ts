@@ -28,7 +28,7 @@ import type { WeaponSystem } from "../systems/WeaponSystem";
 import { type AwardEvent, AwardTracker } from "./AwardTracker";
 import type { BaseGametype } from "./BaseGametype";
 import { MatchState } from "./MatchState";
-import { createSpawnStrategy, type SpawnPointStrategy } from "./SpawnPointStrategy";
+import { createSpawnStrategy, type SpawnPointStrategy, TeamSpawnStrategy } from "./SpawnPointStrategy";
 
 // ============================================================================
 // Respawn Queue Entry
@@ -181,8 +181,19 @@ export class GametypeController {
   /**
    * Set available spawn points (from BSP parsing).
    */
-  setSpawnPoints(points: Vec3[]): void {
+  setSpawnPoints(points: Vec3[], teamPoints?: ReadonlyMap<string, Vec3[]>): void {
     this.spawnPoints = points;
+
+    // Feed team-tagged points to the strategy when the map has them. Only
+    // TeamSpawnStrategy consumes these; other strategies ignore the call, so
+    // this is safe to do unconditionally.
+    if (teamPoints && this.spawnStrategy instanceof TeamSpawnStrategy) {
+      for (const [team, teamSpawns] of teamPoints) {
+        this.spawnStrategy.setTeamPoints(team, teamSpawns);
+      }
+      const summary = [...teamPoints].map(([t, p]) => `${t}=${p.length}`).join(", ");
+      console.log(`[GametypeController] Team spawn points: ${summary || "none"}`);
+    }
     console.log(`[GametypeController] ${points.length} spawn points loaded`);
   }
 
@@ -262,7 +273,7 @@ export class GametypeController {
     // Seeded from (lastTick, entity) so spawn selection is deterministic for demo
     // re-sim (R3b). Join happens outside the tick loop, so use the latest tick.
     const spawnRng = rngFrom(this.currentTick, entityId as number, 0);
-    const baseSpawn = this.spawnStrategy.choose(this.spawnPoints, state, entityId, spawnRng);
+    const baseSpawn = this.spawnStrategy.choose(this.spawnPoints, state, entityId, spawnRng, teamId);
     console.log(
       `[GametypeController] Base spawn: (${baseSpawn.x.toFixed(0)}, ${baseSpawn.y.toFixed(0)}, ${baseSpawn.z.toFixed(0)})`,
     );
@@ -511,7 +522,9 @@ export class GametypeController {
 
     // Choose spawn point using strategy — seeded for deterministic re-sim (R3b).
     const spawnRng = rngFrom(tickNum, entityId as number, 0);
-    const baseSpawn = this.spawnStrategy.choose(this.spawnPoints, state, entityId, spawnRng);
+    // Team modes spawn a player among their OWN side's points.
+    const spawnTeam = entity.ownerId !== undefined ? this.matchState.getPlayerTeam(entity.ownerId) : undefined;
+    const baseSpawn = this.spawnStrategy.choose(this.spawnPoints, state, entityId, spawnRng, spawnTeam);
     const spawn = this.jitterSpawn(baseSpawn, spawnRng);
 
     // Get loadout from gametype
@@ -694,9 +707,9 @@ export class GametypeController {
     return this.matchState.phase;
   }
 
-  getSpawnPoint(state: WorldState, entityId?: EntityId): Vec3 {
+  getSpawnPoint(state: WorldState, entityId?: EntityId, teamId?: string): Vec3 {
     const spawnRng = rngFrom(this.currentTick, (entityId ?? 0) as number, 0);
-    const base = this.spawnStrategy.choose(this.spawnPoints, state, entityId, spawnRng);
+    const base = this.spawnStrategy.choose(this.spawnPoints, state, entityId, spawnRng, teamId);
     return this.jitterSpawn(base, spawnRng);
   }
 
