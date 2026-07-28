@@ -24,7 +24,7 @@ import { FPS, getActionKeyLabel } from "../client/FPSActions";
 import { InventoryManager } from "./InventoryManager";
 import { hidePickupPrompt, showPickupPrompt } from "./PickupPrompt";
 
-export type FPSPickupType = "weapon" | "ammo" | "health" | "armor";
+export type FPSPickupType = "weapon" | "ammo" | "health" | "armor" | "powerup";
 
 export interface FPSPickupOptions extends PickupOptions {
   type: FPSPickupType;

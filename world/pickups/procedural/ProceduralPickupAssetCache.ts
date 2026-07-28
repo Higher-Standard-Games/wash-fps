@@ -43,6 +43,10 @@ export interface PrototypeSet {
   ammoCrate: Mesh | null;
   /** The crate's four side decal quads (ammo). */
   ammoIcon: Mesh | null;
+  /** Faceted double-pyramid gem (powerup). */
+  powerupCore: Mesh | null;
+  /** The four upright blades around the gem (powerup). */
+  powerupBlades: Mesh | null;
   ring: Mesh | null;
   satellite: Mesh | null;
   beacon: Mesh | null;
@@ -83,6 +87,7 @@ function buildPrototypeSet(scene: Scene, recipe: ProceduralPickupRecipe): Protot
 
   const isHealth = recipe.family === "health";
   const isAmmo = recipe.family === "ammo";
+  const isPowerup = recipe.family === "powerup";
   const set: PrototypeSet = {
     recipeId: recipe.id,
     cross: isHealth ? Geo.buildCrossProto(scene, recipe) : null,
@@ -91,6 +96,8 @@ function buildPrototypeSet(scene: Scene, recipe: ProceduralPickupRecipe): Protot
     armor: recipe.family === "armor" ? Geo.buildArmorProto(scene, recipe) : null,
     ammoCrate: isAmmo ? Geo.buildAmmoCrateProto(scene, recipe) : null,
     ammoIcon: isAmmo && recipe.iconTexture ? Geo.buildAmmoIconProto(scene, recipe) : null,
+    powerupCore: isPowerup ? Geo.buildPowerupCoreProto(scene, recipe) : null,
+    powerupBlades: isPowerup ? Geo.buildPowerupBladesProto(scene, recipe) : null,
     ring: recipe.ringCount > 0 ? Geo.buildRingProto(scene, recipe) : null,
     satellite: recipe.satelliteCount > 0 ? Geo.buildSatelliteProto(scene, recipe) : null,
     beacon: recipe.beaconStrength > 0 ? Geo.buildBeaconProto(scene, recipe) : null,
@@ -103,7 +110,16 @@ function buildPrototypeSet(scene: Scene, recipe: ProceduralPickupRecipe): Protot
     energyAccent,
     energySoft,
     dispose(): void {
-      const meshes = [this.cross, this.crossCaps, this.core, this.armor, this.ammoCrate, this.ammoIcon];
+      const meshes = [
+        this.cross,
+        this.crossCaps,
+        this.core,
+        this.armor,
+        this.ammoCrate,
+        this.ammoIcon,
+        this.powerupCore,
+        this.powerupBlades,
+      ];
       for (const m of [...meshes, this.ring, this.satellite, this.beacon]) {
         m?.dispose();
       }

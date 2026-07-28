@@ -29,6 +29,7 @@ import type { GameState } from "../../../engine/network/core/GameState";
 import { getHitscanEffects } from "../../../engine/weapon/HitscanEffects";
 import type { VoltaicRemoteStartResolver } from "../../../engine/weapon/voltaic/VoltaicEffectRenderer";
 import { WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
+import { maskHasPowerup } from "../../../shared/items/Powerups";
 import { isClientKey } from "../ClientEntityKey";
 import { DemoAnimationTimeline } from "./DemoAnimationTimeline";
 import { DemoEntityTimeline } from "./DemoEntityTimeline";
@@ -61,7 +62,22 @@ interface RemotePlayerHitbox {
   currentWeaponId: string;
   /** Last applied visual style key; changes when team slot or cvars change. */
   appliedVisualStyleKey: string | null;
+  /** True while this player was last seen carrying a powerup (drives the glow). */
+  powerupGlowActive: boolean;
 }
+
+// ─── Powerup carrier glow ────────────────────────────────────────
+
+/** Quad carrier glow colour — red reads as "danger", not as a team tint. */
+const QUAD_GLOW_COLOR = new Color3(1.0, 0.12, 0.08);
+/** Pulse rate of the carrier glow (cycles/sec). */
+const QUAD_PULSE_HZ = 1.5;
+/** Emissive lift at the trough / peak of the pulse. */
+const QUAD_GLOW_MIN = 0.35;
+const QUAD_GLOW_MAX = 0.85;
+/** Outline width at the trough / peak (world units, pre-model-scale). */
+const QUAD_OUTLINE_MIN = 0.9;
+const QUAD_OUTLINE_MAX = 1.7;
 
 // ─── Constants (Q3-style player bounds) ──────────────────────────
 
@@ -352,6 +368,7 @@ export class RemotePlayerRenderer {
       const transform = entity.getComponent("transform") as any;
       const velocity = entity.getComponent("velocity") as any;
       const movementState = entity.getComponent("movementState") as any;
+      const powerups = entity.getComponent("powerups") as { mask?: number } | undefined;
 
       if (!transform?.position) continue;
 
@@ -368,6 +385,7 @@ export class RemotePlayerRenderer {
         sliding: movementState?.isSliding ?? false,
         wallJumping: movementState?.wallJumpState === "charging",
         crouchViewOffset: movementState?.crouchViewOffset ?? 0,
+        powerupMask: powerups?.mask ?? 0,
       });
     }
     return entities;
@@ -464,6 +482,9 @@ export class RemotePlayerRenderer {
 
       // Update model position + animation
       this.updateModel(hitbox, interp, entityId, this.demoTimeline ? this.demoAnimationTimeScale : 1);
+
+      // Powerup carrier glow (pulses, so it must run every frame, not on change)
+      this.updatePowerupGlow(hitbox, entityId, interp.powerupMask ?? 0, performance.now() / 1000);
     }
 
     // Remove hitboxes for entities no longer alive
@@ -886,7 +907,36 @@ export class RemotePlayerRenderer {
       handBone: null,
       currentWeaponId: "",
       appliedVisualStyleKey: model ? getPlayerModelVisualStyleKey(this.resolvePlayerTeamSlot(entityId)) : null,
+      powerupGlowActive: false,
     };
+  }
+
+  /**
+   * Drive the quad carrier glow for one entity, one frame.
+   *
+   * On the falling edge the base style is re-applied (by invalidating the style
+   * key) rather than "unset" field by field — the base style is the single
+   * definition of a normal player, so restoring through it can't drift.
+   */
+  private updatePowerupGlow(hitbox: RemotePlayerHitbox, entityId: string, mask: number, elapsed: number): void {
+    if (!hitbox.model || !this.modelManager) return;
+    const active = maskHasPowerup(mask, "quad");
+
+    if (!active) {
+      if (hitbox.powerupGlowActive) {
+        hitbox.powerupGlowActive = false;
+        hitbox.appliedVisualStyleKey = null; // force a base-style re-apply
+        this.applyHitboxVisualStyle(hitbox, entityId);
+      }
+      return;
+    }
+
+    hitbox.powerupGlowActive = true;
+    // 0..1 breathing curve.
+    const p = 0.5 + 0.5 * Math.sin(elapsed * QUAD_PULSE_HZ * Math.PI * 2);
+    const intensity = QUAD_GLOW_MIN + (QUAD_GLOW_MAX - QUAD_GLOW_MIN) * p;
+    const width = (QUAD_OUTLINE_MIN + (QUAD_OUTLINE_MAX - QUAD_OUTLINE_MIN) * p) / Math.max(1, MODEL_SCALE * 16);
+    this.modelManager.applyPowerupGlow(hitbox.model, QUAD_GLOW_COLOR, intensity, width);
   }
 
   // ── Position Update ─────────────────────────────────────────

@@ -18,7 +18,7 @@
 import type { ProceduralPickupRecipe, RGB } from "./types";
 
 /** Cache/recipe revision — bump to invalidate scene-cached prototype geometry. */
-export const PROCEDURAL_RECIPE_REVISION = "v9";
+export const PROCEDURAL_RECIPE_REVISION = "v10";
 
 /**
  * Global size multiplier applied on top of each recipe's per-tier `scale`
@@ -243,6 +243,34 @@ const RECIPE_LIST: ProceduralPickupRecipe[] = [
   },
   // ── Ammo: a blocky crate in the weapon's identity colour, icon on each side ─
   ...ammoCrates(),
+
+  // ── Powerup: the only one of its kind on the map, so it gets the works ──
+  {
+    // Gold flowing to hot red. The gold is Warsow's own quad colour, sampled
+    // from gfx/hud/icons/powerup/quad.tga (rgb 224,192,0) so the world item and
+    // the HUD icon agree; the red accent is the danger colour a carrier glows.
+    id: "powerup_quad",
+    family: "powerup",
+    kind: "quad",
+    color: { r: 1.0, g: 0.84, b: 0.05 },
+    accentColor: { r: 1.0, g: 0.25, b: 0.1 },
+    scale: 1.15,
+    ringCount: 2,
+    plateCount: 0,
+    moteCount: 0,
+    shellPieces: 0,
+    satelliteCount: 4, // four-fold, like the blades
+    bobAmplitude: 3,
+    bobFrequency: 0.24,
+    spinSpeed: 26, // fastest spin of any pickup — it demands attention
+    pulseFrequency: 0.4,
+    figureEight: false,
+    beaconStrength: 0.9, // tallest, brightest beacon: visible across the arena
+    collectStyle: "collapse",
+    respawnStyle: "assemble",
+    highTier: true,
+    unstable: false,
+  },
 ];
 
 /**

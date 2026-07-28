@@ -25,6 +25,8 @@ import {
   type HealthKind,
   healthAfterPickup,
 } from "../../../../shared/items/ItemGrants";
+import { POWERUP_DISPLAY, POWERUP_RESPAWN_SECONDS, type PowerupKind } from "../../../../shared/items/Powerups";
+import { createPowerups, grantPowerup } from "../../../../shared/server/simulation/components/PowerupComponent";
 import type { DroppedWeaponSystem } from "./DroppedWeaponSystem";
 import type { WeaponSystem } from "./WeaponSystem";
 
@@ -90,6 +92,13 @@ export class PickupSystem extends Subsystem {
   private pendingPickupEvents: PickupEvent[] = [];
   /** Per-player pickup notifications (label) for the HUD toast + demos. */
   private pendingPickupNotifies: Array<{ entityId: number; label: string }> = [];
+  /**
+   * Powerups that became available this tick, with their world position.
+   * Broadcast to EVERY client (not just the grabber) so the map-wide "quad has
+   * spawned" cue plays — knowing when it is up is the whole point of a powerup
+   * that only exists once per map.
+   */
+  private pendingPowerupSpawns: Array<{ kind: string; x: number; y: number; z: number }> = [];
   private weaponSystem: WeaponSystem | null = null;
   private droppedWeaponSystem: DroppedWeaponSystem | null = null;
   /** Weapon respawn time (seconds); overridable via setRespawnTime. Armor/health use defaults. */
@@ -138,6 +147,8 @@ export class PickupSystem extends Subsystem {
       seconds = DEFAULT_RESPAWN_SECONDS.ammo;
     } else if (entry.type === "armor") {
       seconds = DEFAULT_RESPAWN_SECONDS.armor;
+    } else if (entry.type === "powerup") {
+      seconds = POWERUP_RESPAWN_SECONDS[entry.kind as PowerupKind] ?? 120;
     } else {
       // health: mega/ultra respawn slower than small/large
       seconds =
@@ -180,12 +191,15 @@ export class PickupSystem extends Subsystem {
     const firstSpawnDelayTicks = Math.floor(FIRST_SPAWN_DELAY_SECONDS * TICK_RATE);
     for (const pickup of this.pickups) {
       const delayed =
-        pickup.type === "armor" || (pickup.type === "health" && (pickup.kind === "mega" || pickup.kind === "ultra"));
+        pickup.type === "armor" ||
+        pickup.type === "powerup" ||
+        (pickup.type === "health" && (pickup.kind === "mega" || pickup.kind === "ultra"));
       pickup.active = !delayed;
       pickup.respawnTick = delayed ? tickNum + firstSpawnDelayTicks : 0;
     }
     this.pendingPickupEvents = [];
     this.pendingPickupNotifies = [];
+    this.pendingPowerupSpawns = [];
     this.useButtonPrev.clear();
   }
 
@@ -224,6 +238,13 @@ export class PickupSystem extends Subsystem {
     return n;
   }
 
+  /** Drain powerup spawn announcements (broadcast to all clients). */
+  getPendingPowerupSpawns(): Array<{ kind: string; x: number; y: number; z: number }> {
+    const s = this.pendingPowerupSpawns;
+    this.pendingPowerupSpawns = [];
+    return s;
+  }
+
   /** Queue a human-readable pickup label for the grabbing player. */
   private notifyPickup(entityId: EntityId, type: PickupType, kind: string): void {
     this.pendingPickupNotifies.push({ entityId: entityId as number, label: pickupLabel(type, kind) });
@@ -258,6 +279,14 @@ export class PickupSystem extends Subsystem {
       if (!pickup.active && pickup.respawnTick > 0 && tickNum >= pickup.respawnTick) {
         pickup.active = true;
         pickup.respawnTick = 0;
+        if (pickup.type === "powerup") {
+          this.pendingPowerupSpawns.push({
+            kind: pickup.kind,
+            x: pickup.position.x,
+            y: pickup.position.y,
+            z: pickup.position.z,
+          });
+        }
       }
     }
 
@@ -317,6 +346,24 @@ export class PickupSystem extends Subsystem {
           const after = healthAfterPickup(before, pickup.kind as HealthKind);
           if (after <= before) continue;
           player.health.health = after;
+          this.consumePickup(pickup, player.id, tickNum);
+          this.notifyPickup(player.id, pickup.type, pickup.kind);
+          pickedUpThisTick = true;
+          break;
+        }
+
+        // ── POWERUP: auto-pickup, always beneficial (re-taking extends it) ──
+        if (pickup.type === "powerup") {
+          // `player` comes from entitiesByType() as Readonly<Entity>, so attaching
+          // a missing component needs the mutable handle. Players built by
+          // createPlayerEntity() already carry one; this covers anything else.
+          let powerups = player.powerups;
+          if (!powerups) {
+            const mut = state.getEntityMut(player.id);
+            if (!mut) continue;
+            powerups = mut.powerups = createPowerups();
+          }
+          grantPowerup(powerups, pickup.kind as PowerupKind, tickNum, TICK_RATE);
           this.consumePickup(pickup, player.id, tickNum);
           this.notifyPickup(player.id, pickup.type, pickup.kind);
           pickedUpThisTick = true;
@@ -487,6 +534,8 @@ function pickupLabel(type: PickupType, kind: string): string {
       return ARMOR_DISPLAY[kind] ?? "Armor";
     case "health":
       return kind === "mega" ? "Mega Health" : kind === "ultra" ? "Ultra Health" : "Health";
+    case "powerup":
+      return POWERUP_DISPLAY[kind as PowerupKind] ?? titleCase(kind);
     default:
       return titleCase(kind);
   }

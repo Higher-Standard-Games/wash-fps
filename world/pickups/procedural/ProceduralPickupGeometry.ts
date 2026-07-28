@@ -58,6 +58,21 @@ const CRATE_FRAME_PROUD = 0.5;
 const CRATE_LID_H = 0.16;
 /** Icon decal size, as a fraction of the face it sits on. */
 const CRATE_ICON_FILL = 0.62;
+// Powerup (quad): a faceted gem inside four upright blades (see buildPowerupProtos).
+/** Total height of the double-pyramid gem. */
+const QUAD_GEM_H = 17;
+/** Diameter at the gem's square equator. */
+const QUAD_GEM_D = 12;
+const QUAD_BLADE_COUNT = 4;
+const QUAD_BLADE_H = 21;
+const QUAD_BLADE_W = 1.8;
+const QUAD_BLADE_D = 5.4;
+/** Distance from the spin axis to each blade's centre. */
+const QUAD_BLADE_RADIUS = 8.2;
+/** Outward lean of each blade (radians) — an opening iris, not a closed cage. */
+const QUAD_BLADE_CANT = 0.2;
+/** Blade tip width, as a fraction of the root — tapered, so it reads as a fin. */
+const QUAD_BLADE_TAPER = 0.45;
 const BEACON_HEIGHT = 90;
 const BEACON_TOP = 1.2;
 const BEACON_BOTTOM = 5;
@@ -395,6 +410,74 @@ export function buildAmmoIconProto(scene: Scene, recipe: ProceduralPickupRecipe)
     quads.push(bakePart(quad));
   }
   return mergeOrThrow(quads, "proto_ammo_icon", scene);
+}
+
+/**
+ * Quad Damage core: two square pyramids joined base-to-base — a hard-faceted
+ * gem. Deliberately NOT the health sphere: the powerup has to be unmistakable
+ * from across the arena, and eight big flat facets catch the pulse very
+ * differently from a smooth fresnel shell.
+ */
+export function buildPowerupCoreProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
+  const s = recipe.scale * PROCEDURAL_GLOBAL_SCALE;
+  const half = (QUAD_GEM_H / 2) * s;
+  const diameter = QUAD_GEM_D * s;
+
+  // tessellation 4 + zero top diameter = a square pyramid.
+  const top = MeshBuilder.CreateCylinder(
+    "q_top",
+    { height: half, diameterTop: 0, diameterBottom: diameter, tessellation: 4 },
+    scene,
+  );
+  top.position.y = half / 2;
+  bakePart(top);
+
+  const bottom = MeshBuilder.CreateCylinder(
+    "q_bot",
+    { height: half, diameterTop: diameter, diameterBottom: 0, tessellation: 4 },
+    scene,
+  );
+  bottom.position.y = -half / 2;
+  bakePart(bottom);
+
+  return mergeOrThrow([top, bottom], "proto_powerup_core", scene);
+}
+
+/**
+ * The four blades that make a quad read as a QUAD — upright tapered fins on
+ * four-fold symmetry, canted outward around the gem. Four is the whole visual
+ * pun, so the count is fixed rather than recipe-driven.
+ */
+export function buildPowerupBladesProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
+  const s = recipe.scale * PROCEDURAL_GLOBAL_SCALE;
+  const height = QUAD_BLADE_H * s;
+  const width = QUAD_BLADE_W * s;
+  const depth = QUAD_BLADE_D * s;
+  const radius = QUAD_BLADE_RADIUS * s;
+
+  const blades: Mesh[] = [];
+  for (let i = 0; i < QUAD_BLADE_COUNT; i++) {
+    // A tapered fin: 4-sided prism, pinched at the top, flattened on one axis.
+    const blade = MeshBuilder.CreateCylinder(
+      `q_blade_${i}`,
+      { height, diameterTop: depth * QUAD_BLADE_TAPER, diameterBottom: depth, tessellation: 4 },
+      scene,
+    );
+
+    // Two bakes, because composing "lean outward" with "swing around the axis"
+    // in one Euler triple depends on rotation order and gets fiddly. Build the
+    // blade leaning out along +X first, bake that, THEN swing it to its slot.
+    blade.scaling.x = width / depth;
+    blade.rotation.z = -QUAD_BLADE_CANT; // top leans toward +X
+    blade.position.x = radius;
+    bakePart(blade);
+
+    blade.rotation.y = (i / QUAD_BLADE_COUNT) * Math.PI * 2;
+    bakePart(blade);
+
+    blades.push(blade);
+  }
+  return mergeOrThrow(blades, "proto_powerup_blades", scene);
 }
 
 /** Small orbiting satellite core (mega/ultra). */

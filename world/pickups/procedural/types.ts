@@ -6,7 +6,7 @@
  * amounts/caps/respawn timing remain server-authoritative.
  */
 
-export type ProceduralPickupFamily = "health" | "armor" | "ammo";
+export type ProceduralPickupFamily = "health" | "armor" | "ammo" | "powerup";
 
 export interface RGB {
   r: number;

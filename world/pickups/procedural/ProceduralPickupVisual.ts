@@ -87,6 +87,8 @@ export class ProceduralPickupVisual implements PickupVisual {
   private readonly pulseTargets: PulseTarget[] = [];
 
   private readonly ringMaterials: StandardMaterial[] = [];
+  /** Powerup only: the blade cage, counter-rotating against the cosmetic root. */
+  private bladePivot: TransformNode | null = null;
   private readonly rings: RingEl[] = [];
   private readonly satellites: SatEl[] = [];
   private readonly transients: ProceduralPickupTransient[] = [];
@@ -135,6 +137,15 @@ export class ProceduralPickupVisual implements PickupVisual {
       // texture resolves, so a missing icon leaves a plain crate.
       this.inst(set.ammoCrate, this.cosmetic, set.armorPlate, "ammo_crate");
       if (set.ammoIconMat) this.inst(set.ammoIcon, this.cosmetic, set.ammoIconMat, "ammo_icon");
+    } else if (recipe.family === "powerup") {
+      // A hot gem inside four blades. The blades hang off their own pivot and
+      // counter-rotate against the cosmetic root's spin, so the cage turns one
+      // way while the gem turns the other — motion no other pickup has, which
+      // is what makes the map's single powerup catch the eye.
+      this.inst(set.powerupCore, this.cosmetic, this.matEnergy, "powerup_core");
+      this.bladePivot = new TransformNode(`pp_bladepivot_${recipe.id}_${seed}`, scene);
+      this.bladePivot.parent = this.cosmetic;
+      this.inst(set.powerupBlades, this.bladePivot, this.matAccent, "powerup_blades");
     } else {
       // Banded plates in the tier colour. No edge outlines: the plates are lit,
       // so the facets separate on shading alone, and black borders were reading
@@ -311,6 +322,13 @@ export class ProceduralPickupVisual implements PickupVisual {
       if (tex) tex.uOffset = (t * RING_SCROLL_SPEED) % 1;
     }
     for (const sat of this.satellites) sat.pivot.rotation.y = sat.baseAngle + t * sat.speed;
+
+    // Blade cage turns against the root spin (net counter-rotation), and rocks
+    // slightly on X so the four-fold silhouette never sits perfectly still.
+    if (this.bladePivot) {
+      this.bladePivot.rotation.y = -t * r.spinSpeed * DEG2RAD * 1.8;
+      this.bladePivot.rotation.x = 0.06 * Math.sin(t * 0.7 * TAU);
+    }
   }
 
   dispose(): void {

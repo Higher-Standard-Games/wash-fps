@@ -23,6 +23,8 @@ const AMMO_IDS = [
   "ammo_bolts",
   "ammo_instas",
 ];
+/** Powerups; quad is the only one implemented (see shared/items/Powerups.ts). */
+const POWERUP_IDS = ["powerup_quad"];
 
 describe("getProceduralPickupRecipe", () => {
   it("resolves every health kind to a health recipe", () => {
@@ -68,18 +70,32 @@ describe("getProceduralPickupRecipe", () => {
     expect(hasProceduralPickupRecipe("health_mega")).toBe(true);
     expect(hasProceduralPickupRecipe("armor_ra")).toBe(true);
     expect(hasProceduralPickupRecipe("ammo_bolts")).toBe(true);
+    expect(hasProceduralPickupRecipe("powerup_quad")).toBe(true);
     expect(hasProceduralPickupRecipe("rlauncher")).toBe(false);
   });
 
-  it("exposes exactly the health + armor + ammo entries", () => {
+  it("resolves the quad to a powerup recipe with no icon texture", () => {
+    for (const id of POWERUP_IDS) {
+      const recipe = getProceduralPickupRecipe(id);
+      expect(recipe, id).not.toBeNull();
+      expect(recipe?.id).toBe(id);
+      expect(recipe?.family).toBe("powerup");
+      expect(recipe?.color).toBeDefined();
+      // The quad is built entirely from generated geometry — the pk3 ships only
+      // a HUD icon for it, never a world model or a decal.
+      expect(recipe?.iconTexture, id).toBeUndefined();
+    }
+  });
+
+  it("exposes exactly the health + armor + ammo + powerup entries", () => {
     const recipes = allProceduralPickupRecipes();
-    expect(recipes).toHaveLength(HEALTH_IDS.length + ARMOR_IDS.length + AMMO_IDS.length);
+    expect(recipes).toHaveLength(HEALTH_IDS.length + ARMOR_IDS.length + AMMO_IDS.length + POWERUP_IDS.length);
     // High-tier flag is set for the expensive tiers only — no crate is high tier.
     const highTier = recipes
       .filter((r) => r.highTier)
       .map((r) => r.id)
       .sort();
-    expect(highTier).toEqual(["armor_ra", "health_mega", "health_ultra"]);
+    expect(highTier).toEqual(["armor_ra", "health_mega", "health_ultra", "powerup_quad"]);
   });
 
   it("keeps laser and plasma crates visually distinct (separate ammo pools)", () => {

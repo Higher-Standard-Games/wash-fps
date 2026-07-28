@@ -52,7 +52,14 @@ import {
 } from "../client/FPSCombatAudio";
 import { processFPSMovementAudio } from "../client/FPSMovementAudio";
 import { playPickupSound } from "../client/FPSPickupAudio";
+import {
+  isPowerupLabel,
+  playPowerupFireSound,
+  playPowerupPickupSound,
+  playPowerupSpawnSound,
+} from "../client/FPSPowerupAudio";
 import { HUDState } from "../client/HUDState";
+import { clearLocalPowerups, isLocalPowerupActive, setLocalPowerup } from "../client/LocalPowerupState";
 import { MatchStateManager } from "../client/MatchStateManager";
 import type { RemotePlayerRenderer } from "../client/RemotePlayerRenderer";
 import { FPSPlayer } from "../FPSPlayer";
@@ -217,6 +224,9 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
         case "weapon_fire": {
           const localShooter = event.entityId === localEntityId;
           playWeaponFireSound(event, localShooter);
+          // Quad layers its own crack over your weapon on every shot — the
+          // running reminder that this shot hits four times as hard.
+          if (localShooter && isLocalPowerupActive("quad")) playPowerupFireSound();
           if (localShooter) {
             const wvm = getWeaponViewManager();
             const isProjectileFire = ctx._localCharging;
@@ -415,6 +425,10 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
           const localVictim = event.entityId === localEntityId;
           playPlayerDeathSound(event, localVictim);
           if (event.killerId === localEntityId && !localVictim) playKillEcho();
+          // Powerups do not survive death (GametypeController clears them on
+          // respawn); drop the local timers now so the HUD and the quad fire
+          // layer stop immediately rather than at the next snapshot.
+          if (localVictim) clearLocalPowerups();
           handleDeathEvent(ctx, event, state);
           break;
         }
@@ -435,11 +449,28 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
           if (event.entityId === localEntityId) {
             // Server-authoritative pickup label for the local player (any item type).
             const label = String(event.label ?? "");
-            playPickupSound(label);
+            // Powerups have their own, much louder confirmation — routing them
+            // through the generic pickup bank would play the weapon "clink".
+            if (isPowerupLabel(label)) {
+              playPowerupPickupSound();
+            } else {
+              playPickupSound(label);
+            }
             import("./FPSHud")
               .then(({ FPSHud }) => FPSHud.getInstance().pickupToast?.showPickup(label))
               .catch(() => {});
           }
+          break;
+
+        case "powerup_state":
+          if (event.entityId === localEntityId) {
+            setLocalPowerup(String(event.kind ?? ""), Number(event.seconds ?? 0));
+          }
+          break;
+
+        case "powerup_spawn":
+          // Everyone hears the quad return, positioned at the item.
+          playPowerupSpawnSound({ x: event.x, y: event.y, z: event.z });
           break;
 
         case "item_pickup":

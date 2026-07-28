@@ -15,6 +15,7 @@ import type { Entity } from "@engine/server/ecs/Entity";
 import type { EntityId, PlayerId, TickNumber } from "@engine/server/ecs/types";
 import type { MatchConfig, MatchStateSnapshot } from "@shared/server/gametype";
 import { MatchPhase } from "@shared/server/gametype";
+import { clearPowerups } from "@shared/server/simulation/components/PowerupComponent";
 import type { Vec3 } from "@shared/server/simulation/types";
 import type { CollisionWorld } from "../../../../engine/network/systems/collision/CollisionWorld";
 import { Contents } from "../../../../engine/network/systems/collision/CollisionWorld";
@@ -519,6 +520,10 @@ export class GametypeController {
       entity.health.armor = loadout.armor;
       entity.health.dead = false;
     }
+
+    // Powerups do NOT survive dying — killing the quad carrier has to actually
+    // take the quad away, or there is no reason to contest it.
+    if (entity.powerups) clearPowerups(entity.powerups);
 
     // Set position
     if (entity.transform) {

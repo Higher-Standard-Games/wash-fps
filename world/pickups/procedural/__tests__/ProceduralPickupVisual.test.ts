@@ -182,3 +182,64 @@ describe("ProceduralPickupVisual — ammo crates", () => {
     visual.dispose();
   });
 });
+
+describe("ProceduralPickupVisual — quad powerup", () => {
+  it("builds the gem, the blades and a beacon, and cleans them all up", () => {
+    const recipe = getProceduralPickupRecipe("powerup_quad");
+    if (!recipe) throw new Error("recipe missing");
+
+    const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 50, 0), false, 11);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_powerup_core_"))).toBe(true);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_powerup_blades_"))).toBe(true);
+    // It is the only item on the map — it gets the arena-scale beacon.
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_beacon_"))).toBe(true);
+
+    visual.dispose();
+    expect(cloneMeshes()).toHaveLength(0);
+  });
+
+  it("borrows no health, armor or ammo geometry", () => {
+    const recipe = getProceduralPickupRecipe("powerup_quad");
+    if (!recipe) throw new Error("recipe missing");
+
+    const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 50, 0), false, 12);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_cross_"))).toBe(false);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_armor_"))).toBe(false);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_ammo_"))).toBe(false);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_shell_"))).toBe(false);
+
+    visual.dispose();
+  });
+
+  it("counter-rotates the blade cage against the root spin", () => {
+    const recipe = getProceduralPickupRecipe("powerup_quad");
+    if (!recipe) throw new Error("recipe missing");
+
+    const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 50, 0), false, 13);
+    const pivot = scene.transformNodes.find((n) => n.name.startsWith("pp_bladepivot_"));
+    const cosmetic = scene.transformNodes.find((n) => n.name.startsWith("pp_cosmetic_"));
+    expect(pivot).toBeDefined();
+    expect(cosmetic).toBeDefined();
+
+    visual.update(1 / 60, 2);
+    // Opposite signs = the cage turns against the body it sits on.
+    expect(Math.sign(pivot?.rotation.y ?? 0)).toBe(-Math.sign(cosmetic?.rotation.y ?? 0));
+    expect(pivot?.rotation.y).not.toBe(0);
+
+    visual.dispose();
+  });
+
+  it("keeps the authoritative anchor fixed while animating", () => {
+    const recipe = getProceduralPickupRecipe("powerup_quad");
+    if (!recipe) throw new Error("recipe missing");
+
+    const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(64, 32, -16), false, 14);
+    const before = visual.root.position.clone();
+    for (let i = 0; i < 30; i++) visual.update(1 / 60, i / 60);
+    expect(visual.root.position.x).toBe(before.x);
+    expect(visual.root.position.y).toBe(before.y);
+    expect(visual.root.position.z).toBe(before.z);
+
+    visual.dispose();
+  });
+});

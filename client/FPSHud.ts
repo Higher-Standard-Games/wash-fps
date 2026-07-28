@@ -38,6 +38,7 @@ import { FPSGametypeBadge } from "./hud/widgets/GametypeBadge";
 import { FPSPauseMenu } from "./hud/widgets/PauseMenu";
 import { FPSPhaseMessage } from "./hud/widgets/PhaseMessage";
 import { FPSPickupToast } from "./hud/widgets/PickupToast";
+import { FPSPowerupTimer } from "./hud/widgets/PowerupTimer";
 import { FPSReadyBar } from "./hud/widgets/ReadyBar";
 // Overlay / dialog widgets
 import { FPSScoreboard } from "./hud/widgets/Scoreboard";
@@ -436,6 +437,9 @@ export class FPSHud {
 
     // Ammo warning banner (OUT OF AMMO / RELOAD) - fixed above the speedometer
     this.addWidget("ammowarning", new FPSAmmoWarning(), "bottom-center");
+
+    // Powerup countdown (QUAD) - bottom left, above the vitals block
+    this.addWidget("powerup", new FPSPowerupTimer(), "bottom-left");
 
     // Match timer - top center
     this.addWidget("timer", new FPSTimer(), "top-center");

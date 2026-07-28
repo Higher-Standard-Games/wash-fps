@@ -9,6 +9,7 @@ import { Subsystem, type SubsystemConfig } from "@engine/server/core/Subsystem";
 import type { WorldState } from "@engine/server/core/WorldState";
 import type { EntityId, TickNumber } from "@engine/server/ecs/types";
 import { applyDamage } from "@shared/server/simulation/components/HealthComponent";
+import { powerupDamageMultiplier } from "../../../../shared/items/Powerups";
 import type { FPSMovementSubsystem } from "./FPSMovementSubsystem";
 
 const CONFIG: SubsystemConfig = {
@@ -269,9 +270,17 @@ export class CombatSystem extends Subsystem {
       return;
     }
 
-    // Calculate final damage with location multiplier
+    // Calculate final damage with location multiplier.
+    //
+    // The powerup multiplier is the ATTACKER's (quad = 4x). It is applied here,
+    // in the one place every damage source funnels through (hitscan, projectile,
+    // splash, fall), so no weapon can miss it. Q3-classic scope: it multiplies
+    // self-damage too, and it flows into knockback below via `finalDamage` —
+    // a quad rocket jump throws you four times as far and usually kills you.
     const multiplier = LOCATION_MULTIPLIER[event.hitLocation] || 1.0;
-    const finalDamage = Math.round(event.damage * multiplier);
+    const attacker = event.attackerId !== undefined ? state.getEntity(event.attackerId) : undefined;
+    const powerMultiplier = powerupDamageMultiplier(attacker?.powerups?.expiry, tick as number);
+    const finalDamage = Math.round(event.damage * multiplier * powerMultiplier);
 
     // Apply damage. NOTE: applyDamage's 3rd arg is armorABSORPTION (fraction of
     // damage soaked by armor), not armor-piercing. Passing event.armorPiercing
@@ -311,7 +320,10 @@ export class CombatSystem extends Subsystem {
       // Calculate force: knockback magnitude × weapon KB scale.
       // knockbackDamage decouples the push from the dealt damage (0-damage shoves,
       // instagib insta-jump); falls back to the applied damage for normal hits.
-      const kbMagnitude = event.knockbackDamage ?? finalDamage;
+      // `finalDamage` already carries the quad multiplier; an explicit
+      // knockbackDamage does not, so scale it here to keep quad knockback
+      // consistent for decoupled pushes (instagib insta-jump, 0-damage shoves).
+      const kbMagnitude = event.knockbackDamage !== undefined ? event.knockbackDamage * powerMultiplier : finalDamage;
       const kbScale = event.knockbackScale ?? DEFAULT_KB_SCALE;
       const isSelf = event.attackerId !== undefined && event.attackerId === event.victimId;
       const selfMult = isSelf ? SELF_KB_MULTIPLIER : 1.0;

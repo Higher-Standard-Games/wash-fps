@@ -10,8 +10,10 @@
 import type { Simulation } from "@engine/server/core/Simulation";
 import type { PlayerId } from "@engine/server/ecs/types";
 import { EntityType } from "@engine/server/ecs/types";
+import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulation/physics/constants";
 import { Entity } from "../../../engine/network/core/Entity";
 import { GameState, type PlayerState } from "../../../engine/network/core/GameState";
+import { POWERUP_KINDS, packPowerupMask, powerupSecondsRemaining } from "../../../shared/items/Powerups";
 import { toClientKey } from "../ClientEntityKey";
 import type { ClientInfo } from "./Client";
 import type { AwardEvent } from "./gametypes/AwardTracker";
@@ -106,6 +108,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
   const state = ctx.simulation.getState();
   const gameState = new GameState();
   gameState.tick = Number(state.tick);
+  const tickNum = gameState.tick;
 
   // Build O(1) player-to-client lookup map (avoids O(clients) scan per entity)
   const clientByPlayerId = new Map<PlayerId, ClientInfo>();
@@ -280,6 +283,18 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
         });
       }
 
+      // Held powerups, packed to a byte. Public (unlike health/armor): everyone
+      // must see who is carrying quad, since the whole counterplay is knowing
+      // to avoid — or gang up on — the glowing player.
+      if (entity.powerups) {
+        clientEntity.addComponent("powerups", {
+          mask: packPowerupMask(entity.powerups.expiry, tickNum),
+          serialize: _noopSerialize,
+          deserialize: _noopDeserialize,
+          clone: _shallowClone,
+        });
+      }
+
       gameState.entities.set(clientEntity.id, clientEntity);
     }
 
@@ -328,6 +343,22 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
             armor: Math.max(0, Math.round(entity.health.armor)),
             dead: entity.health.dead,
           });
+        }
+
+        // Per-powerup countdown for the owner's HUD. The entity mask above says
+        // WHO is glowing; this says how long YOURS lasts, so only emit while a
+        // timer is actually running.
+        if (entity.powerups) {
+          for (const kind of POWERUP_KINDS) {
+            const remaining = powerupSecondsRemaining(entity.powerups.expiry, kind, tickNum, TICK_RATE);
+            if (remaining <= 0) continue;
+            gameState.events.push({
+              type: "powerup_state",
+              entityId: entityClientId,
+              kind,
+              seconds: Math.ceil(remaining),
+            });
+          }
         }
       }
     }
@@ -488,6 +519,18 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
       type: "pickup_notify",
       entityId: toClientKey(notify.entityId),
       label: notify.label,
+    });
+  }
+
+  // Powerup respawned — announced to EVERY client with its world position, so
+  // the spawn cue is audible map-wide and players can contest it.
+  for (const spawn of ctx.pickupSystem.getPendingPowerupSpawns()) {
+    gameState.events.push({
+      type: "powerup_spawn",
+      kind: spawn.kind,
+      x: spawn.x,
+      y: spawn.y,
+      z: spawn.z,
     });
   }
 
