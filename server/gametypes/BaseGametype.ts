@@ -12,7 +12,14 @@
 import type { WorldState } from "@engine/server/core/WorldState";
 import type { Entity } from "@engine/server/ecs/Entity";
 import type { PlayerId } from "@engine/server/ecs/types";
-import type { ItemSpawnRules, MatchConfig, SpawnStrategyType, WeaponLoadout } from "@shared/server/gametype";
+import type {
+  AgentDirective,
+  AgentDirectiveContext,
+  ItemSpawnRules,
+  MatchConfig,
+  SpawnStrategyType,
+  WeaponLoadout,
+} from "@shared/server/gametype";
 
 export interface GameResult {
   winner?: PlayerId | "team1" | "team2" | "draw";
@@ -64,6 +71,23 @@ export abstract class BaseGametype {
   /** Called when match phase changes */
   onMatchPhaseChange(_phase: number, _state: WorldState): void {
     // Default: no-op
+  }
+
+  /**
+   * Orders for one agent, as serializable data.
+   *
+   * Called once per snapshot per living player. Bots run in a separate process
+   * and cannot import gametype code, so this is how a mode steers them — see
+   * shared/server/gametype/AgentDirective.ts.
+   *
+   * MUST be pure: read `state`, return directives, mutate nothing. It runs
+   * inside snapshot building, after the tick has been simulated.
+   *
+   * Directives describe intent only. They cannot bypass fire safety, navigation
+   * feasibility, or self-preservation — the bot weighs them like any other goal.
+   */
+  getAgentDirectives(_context: AgentDirectiveContext, _state: WorldState): readonly AgentDirective[] {
+    return [];
   }
 
   // ========================================================================

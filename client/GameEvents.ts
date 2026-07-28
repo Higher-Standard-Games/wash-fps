@@ -478,6 +478,12 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
           // one-shot item_pickup event is intentionally not dispatched here.
           break;
 
+        case "agent_directives":
+          // Bot orders. Only ever addressed to one client, and only bots act on
+          // them — a human player's client has nothing to do with them. Handled
+          // explicitly so the exhaustiveness guard stays meaningful.
+          break;
+
         default:
           // Exhaustive: adding a SnapshotEvent member without a case above is a
           // compile error here; an unknown runtime type warns instead of vanishing.

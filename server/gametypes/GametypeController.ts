@@ -13,13 +13,16 @@
 import type { WorldState } from "@engine/server/core/WorldState";
 import type { Entity } from "@engine/server/ecs/Entity";
 import type { EntityId, PlayerId, TickNumber } from "@engine/server/ecs/types";
-import type { MatchConfig, MatchStateSnapshot } from "@shared/server/gametype";
+import { EntityType } from "@engine/server/ecs/types";
+import type { AgentDirective, AgentDirectiveContext, MatchConfig, MatchStateSnapshot } from "@shared/server/gametype";
 import { MatchPhase } from "@shared/server/gametype";
 import { clearPowerups } from "@shared/server/simulation/components/PowerupComponent";
 import type { Vec3 } from "@shared/server/simulation/types";
+import { log } from "../../../../engine/core/Log";
 import type { CollisionWorld } from "../../../../engine/network/systems/collision/CollisionWorld";
 import { Contents } from "../../../../engine/network/systems/collision/CollisionWorld";
 import { rngFrom } from "../../../../shared/DeterministicRng";
+import { toClientKey } from "../../ClientEntityKey";
 import type { CombatSystem } from "../systems/CombatSystem";
 import type { WeaponSystem } from "../systems/WeaponSystem";
 import { type AwardEvent, AwardTracker } from "./AwardTracker";
@@ -632,6 +635,48 @@ export class GametypeController {
   // ========================================================================
   // Queries
   // ========================================================================
+
+  /**
+   * Ask the gametype for each living player's orders.
+   *
+   * Called once per snapshot (not per tick) from snapshot building. Returns an
+   * empty map for gametypes that issue none, which is every mode today — the
+   * default `getAgentDirectives` returns `[]`, so this costs one virtual call
+   * per player and allocates nothing until a mode opts in.
+   *
+   * Keyed by client entity id because that is what the snapshot addresses.
+   */
+  collectAgentDirectives(state: WorldState, tick: number): Map<string, AgentDirective[]> {
+    const byEntity = new Map<string, AgentDirective[]>();
+
+    for (const entity of state.entitiesByType(EntityType.Player)) {
+      if (entity.ownerId === undefined) continue;
+
+      const entityId = toClientKey(entity.id);
+      const context: AgentDirectiveContext = {
+        tick,
+        playerId: entity.ownerId as number,
+        entityId,
+        teamId: this.matchState.getPlayerTeam(entity.ownerId),
+        position: entity.transform?.position ?? { x: 0, y: 0, z: 0 },
+        alive: !entity.health?.dead,
+        teamOf: (id: number) => this.matchState.getPlayerTeam(id as PlayerId),
+      };
+
+      // A misbehaving gametype must not take the server down mid-snapshot.
+      let directives: readonly AgentDirective[];
+      try {
+        directives = this.gametype.getAgentDirectives(context, state);
+      } catch (err) {
+        log.warnRateLimited("GametypeController", "getAgentDirectives threw:", err);
+        continue;
+      }
+
+      if (directives.length > 0) byEntity.set(entityId, [...directives]);
+    }
+
+    return byEntity;
+  }
 
   getMatchState(): MatchState {
     return this.matchState;

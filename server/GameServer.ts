@@ -719,7 +719,13 @@ export class GameServer {
         // match), and demos never contained any shooting/impact events.
         const snapshotCtx = this.getSnapshotContext();
         const gameState = buildSnapshot(snapshotCtx);
-        this.broadcaster.broadcast(this.clients, gameState);
+        // Per-player orders, collected once and delivered only to the addressed
+        // client. Empty for every gametype that does not opt in.
+        const directives = this.gametypeController.collectAgentDirectives(
+          this.simulation.getStateMut(),
+          gameState.tick,
+        );
+        this.broadcaster.broadcast(this.clients, gameState, directives);
         if (recording) {
           this.demoRecorder?.recordFrame(gameState);
         }
