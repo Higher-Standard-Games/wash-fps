@@ -11,7 +11,7 @@
 
 import type { WorldState } from "@engine/server/core/WorldState";
 import type { Entity } from "@engine/server/ecs/Entity";
-import type { PlayerId } from "@engine/server/ecs/types";
+import type { PlayerId, TickNumber } from "@engine/server/ecs/types";
 import type {
   AgentDirective,
   AgentDirectiveContext,
@@ -21,10 +21,64 @@ import type {
   TeamId,
   WeaponLoadout,
 } from "@shared/server/gametype";
+import type { Vec3 } from "@shared/server/simulation/types";
+import type { BspEntity, BspModel } from "../../../../engine/loader/bsp/BspLoader";
+import type { CollisionWorld } from "../../../../shared/collision/CollisionWorld";
 
 export interface GameResult {
   winner?: PlayerId | "team1" | "team2" | "draw";
   scores: Map<PlayerId, number>;
+}
+
+/**
+ * What a gametype is allowed to know about the map it is running on.
+ *
+ * Handed over once, after the BSP has loaded and before the first tick. Modes
+ * that need map authoring (bombsites, flag stands) extract it themselves from
+ * `entities` using the shared `src/shared/bsp` tables, so the controller does
+ * not have to know which mode wants what.
+ */
+export interface GametypeMapContext {
+  /** Raw BSP entity dictionaries, as parsed. */
+  entities: readonly BspEntity[];
+  /** BSP model records, for entities whose `model` is a `*N` brush reference. */
+  models: readonly BspModel[];
+  /** Team spawn points by team id, empty on maps without team spawns. */
+  teamSpawnPoints: ReadonlyMap<string, Vec3[]>;
+  /**
+   * Trace a line through the world. Present only once collision is loaded, so
+   * always null-check: headless tests and re-simulation may run without it.
+   */
+  collision: CollisionWorld | null;
+}
+
+/**
+ * Per-tick view of the match, for modes whose rules depend on it.
+ *
+ * The round fields come from `MatchState`, which owns the round loop — a mode
+ * asks who is attacking rather than working it out, so the half-swap and
+ * overtime rules live in exactly one place.
+ */
+export interface GametypeTickContext {
+  tick: TickNumber;
+  /** Current round, 1-based. 0 outside round modes. */
+  round: number;
+  /** True only during a live round — not the freeze, warmup or post-game. */
+  live: boolean;
+  attackingTeam: TeamId;
+  defendingTeam: TeamId;
+  /** Team of a player, or "spectator" if unassigned. */
+  teamOf(playerId: PlayerId): TeamId;
+}
+
+/**
+ * How a round ended. `winner: null` is a draw — possible in principle, though
+ * S&D has no rule that produces one.
+ */
+export interface RoundOutcome {
+  winner: TeamId | null;
+  /** For the log and, later, the round-end banner. */
+  reason: string;
 }
 
 export abstract class BaseGametype {
@@ -52,6 +106,31 @@ export abstract class BaseGametype {
   // Events — GametypeController calls these
   // ========================================================================
 
+  /**
+   * The map finished loading. Extract whatever authoring this mode needs.
+   *
+   * Called once, before the first tick, and again on a map change. Modes that
+   * need nothing from the map ignore it — which is every mode but S&D today.
+   */
+  onMapLoad(_context: GametypeMapContext): void {
+    // Default: no-op
+  }
+
+  /**
+   * Called once per tick, after the simulation and before snapshot building.
+   *
+   * Objective modes live here: this is where a bomb counts down, a flag is
+   * captured, a round is decided. Most modes are purely event-driven and need
+   * nothing, so the default costs one virtual call per tick.
+   *
+   * Returning a `RoundOutcome` ends the round. That is a return value rather
+   * than a callback so the mode holds no reference to the controller and stays
+   * testable on its own.
+   */
+  onTick(_state: WorldState, _context: GametypeTickContext): RoundOutcome | null {
+    return null;
+  }
+
   /** Called when a player first joins the game */
   abstract onPlayerJoin(playerId: PlayerId, entityId: string, state: WorldState, teamId?: string): void;
 
@@ -75,13 +154,16 @@ export abstract class BaseGametype {
   }
 
   /**
-   * The round timer ran out. Return the team that wins the round, or null for
-   * no winner. Round-based gametypes only.
+   * The round timer ran out. Round-based gametypes only.
+   *
+   * Returning null means **the round continues** — the mode has declined to end
+   * it. S&D uses that for an armed bomb: once it is ticking the round clock is
+   * irrelevant and the bomb's own timer takes over as the pacing device.
    *
    * MatchState owns the round LOOP but not the rules — "defenders win if
-   * nothing was planted" is a Search & Destroy rule, not a property of rounds.
+   * nothing was armed" is a Search & Destroy rule, not a property of rounds.
    */
-  onRoundTimeExpired(_state: WorldState): TeamId | null {
+  onRoundTimeExpired(_state: WorldState): RoundOutcome | null {
     return null;
   }
 

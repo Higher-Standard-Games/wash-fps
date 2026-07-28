@@ -19,6 +19,7 @@ import { WebSocketServerTransport } from "@engine/server/network/transport/WebSo
 import type { Vec3 } from "@shared/server/simulation/types";
 // Protocol (client-compatible)
 import { MessageCodec, MessageType } from "../../../engine/network/protocol/MessageCodec";
+import type { BspEntity, BspModel } from "../../../engine/loader/bsp/BspLoader";
 import type { CollisionWorld } from "../../../engine/network/systems/collision/CollisionWorld";
 // PVS (Potentially Visible Set) for network culling
 import { ServerPVS, type ServerPVSData } from "../../../engine/server/ServerPVS";
@@ -302,6 +303,17 @@ export class GameServer {
 
   setSpawnPoints(points: Vec3[], teamPoints?: ReadonlyMap<string, Vec3[]>): void {
     this.gametypeController.setSpawnPoints(points, teamPoints);
+  }
+
+  /**
+   * Hand the raw BSP lumps to the gametype so it can read its own map
+   * authoring — bombsites, flag stands, whatever a future mode needs.
+   *
+   * Call after `setCollisionWorld` and `setSpawnPoints`: the gametype sees all
+   * three together and most modes ignore all of it.
+   */
+  setMapData(entities: readonly BspEntity[], models: readonly BspModel[] = []): void {
+    this.gametypeController.setMapData(entities, models);
   }
 
   /**

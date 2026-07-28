@@ -25,6 +25,7 @@ import { MatchPhase } from "@shared/server/gametype";
 import { clearPowerups } from "@shared/server/simulation/components/PowerupComponent";
 import type { Vec3 } from "@shared/server/simulation/types";
 import { log } from "../../../../engine/core/Log";
+import type { BspEntity, BspModel } from "../../../../engine/loader/bsp/BspLoader";
 import type { CollisionWorld } from "../../../../engine/network/systems/collision/CollisionWorld";
 import { Contents } from "../../../../engine/network/systems/collision/CollisionWorld";
 import { rngFrom } from "../../../../shared/DeterministicRng";
@@ -32,7 +33,7 @@ import { toClientKey } from "../../ClientEntityKey";
 import type { CombatSystem } from "../systems/CombatSystem";
 import type { WeaponSystem } from "../systems/WeaponSystem";
 import { type AwardEvent, AwardTracker } from "./AwardTracker";
-import type { BaseGametype } from "./BaseGametype";
+import type { BaseGametype, GametypeTickContext, RoundOutcome } from "./BaseGametype";
 import { MatchState } from "./MatchState";
 import { createSpawnStrategy, type SpawnPointStrategy, TeamSpawnStrategy } from "./SpawnPointStrategy";
 
@@ -59,6 +60,7 @@ export class GametypeController {
   private matchState: MatchState;
   private spawnStrategy: SpawnPointStrategy;
   private spawnPoints: Vec3[] = [];
+  private teamSpawnPoints: ReadonlyMap<string, Vec3[]> = new Map();
   private respawnQueue: RespawnEntry[] = [];
   private collisionWorld: CollisionWorld | null = null;
   /** Latest sim tick (from postTick) — seeds deterministic spawn selection for
@@ -189,6 +191,7 @@ export class GametypeController {
    */
   setSpawnPoints(points: Vec3[], teamPoints?: ReadonlyMap<string, Vec3[]>): void {
     this.spawnPoints = points;
+    if (teamPoints) this.teamSpawnPoints = teamPoints;
 
     // Feed team-tagged points to the strategy when the map has them. Only
     // TeamSpawnStrategy consumes these; other strategies ignore the call, so
@@ -210,6 +213,28 @@ export class GametypeController {
   setCollisionWorld(world: CollisionWorld): void {
     this.collisionWorld = world;
     console.log(`[GametypeController] Collision world set for spawn validation`);
+  }
+
+  /**
+   * Hand the loaded map to the gametype.
+   *
+   * Call after `setSpawnPoints` and `setCollisionWorld` and before the first
+   * tick — the mode gets one look at the map and is expected to extract and
+   * cache whatever it needs. Modes that need nothing pay a single no-op call.
+   */
+  setMapData(entities: readonly BspEntity[], models: readonly BspModel[] = []): void {
+    try {
+      this.gametype.onMapLoad({
+        entities,
+        models,
+        teamSpawnPoints: this.teamSpawnPoints,
+        collision: this.collisionWorld,
+      });
+    } catch (err) {
+      // A mode that cannot read the map should degrade, not take the server
+      // down at boot — it will fail visibly in play instead.
+      log.warnRateLimited("GametypeController", "onMapLoad threw:", err);
+    }
   }
 
   // ========================================================================
@@ -365,15 +390,19 @@ export class GametypeController {
               if (this.gametype.teamBased) {
                 const killerTeam = this.matchState.getPlayerTeam(killer.ownerId);
                 const victimTeam = victim.ownerId ? this.matchState.getPlayerTeam(victim.ownerId) : "spectator";
+                // In a round mode the team score IS the round count, so frags
+                // must not touch it — only endRound() may. Personal score still
+                // counts frags for the scoreboard.
+                const teamPoints = this.matchState.roundBased ? 0 : 1;
 
                 if (killerTeam === victimTeam) {
                   // Friendly fire / Team kill
                   this.matchState.addScore(killer.ownerId, -1);
-                  this.matchState.addTeamScore(killerTeam, -1);
+                  this.matchState.addTeamScore(killerTeam, -teamPoints);
                 } else if (killerTeam !== "spectator") {
                   // Enemy kill
                   this.matchState.addScore(killer.ownerId, 1);
-                  this.matchState.addTeamScore(killerTeam, 1);
+                  this.matchState.addTeamScore(killerTeam, teamPoints);
                 }
               } else {
                 // FFA: any kill is +1
@@ -383,7 +412,7 @@ export class GametypeController {
               // Suicide
               if (victim.ownerId !== undefined) {
                 this.matchState.addScore(victim.ownerId, -1);
-                if (this.gametype.teamBased) {
+                if (this.gametype.teamBased && !this.matchState.roundBased) {
                   const victimTeam = this.matchState.getPlayerTeam(victim.ownerId);
                   if (victimTeam !== "spectator") {
                     this.matchState.addTeamScore(victimTeam, -1);
@@ -457,16 +486,32 @@ export class GametypeController {
       }
     }
 
+    // 3a. Objective tick. Runs in every phase — a bomb still has to be put back
+    // on the ground during the freeze — but it can only END a round while one
+    // is live, which the `live` flag tells it.
+    const outcome = this.tickGametype(state, tick);
+    if (outcome) {
+      console.log(`[GametypeController] Round ${this.matchState.round}: ${outcome.reason}`);
+      this.endRound(outcome.winner);
+    }
+
     // 3b. Round modes: an expired round timer ends the ROUND, and the gametype
     // decides who won it. MatchState deliberately does not make that call.
+    // A null result means the mode declined to end the round — S&D does that
+    // for an armed bomb, where the bomb's timer supersedes the round's. The
+    // expiry flag stays set, so this is re-asked each tick until something
+    // resolves it.
     if (this.matchState.roundBased && this.matchState.roundTimeExpired) {
-      let winner: TeamId | null = null;
+      let expiry: RoundOutcome | null = null;
       try {
-        winner = this.gametype.onRoundTimeExpired(state);
+        expiry = this.gametype.onRoundTimeExpired(state);
       } catch (err) {
         log.warnRateLimited("GametypeController", "onRoundTimeExpired threw:", err);
       }
-      this.endRound(winner);
+      if (expiry) {
+        console.log(`[GametypeController] Round ${this.matchState.round}: ${expiry.reason}`);
+        this.endRound(expiry.winner);
+      }
     }
 
     // 4. Check win condition during active phase
@@ -722,6 +767,33 @@ export class GametypeController {
     }
 
     return byEntity;
+  }
+
+  /**
+   * Run the gametype's objective tick and hand back any round result.
+   *
+   * Wrapped because a throwing mode must not take the tick loop down: a bomb
+   * that stops updating is a broken round, a crashed server is a broken match.
+   */
+  private tickGametype(state: WorldState, tick: TickNumber): RoundOutcome | null {
+    const context: GametypeTickContext = {
+      tick,
+      round: this.matchState.round,
+      live: this.matchState.phase === MatchPhase.Active,
+      attackingTeam: this.matchState.attackingTeam,
+      defendingTeam: this.matchState.defendingTeam,
+      teamOf: (playerId: PlayerId) => this.matchState.getPlayerTeam(playerId),
+    };
+
+    try {
+      const outcome = this.gametype.onTick(state, context);
+      // Only a live round can end. A mode returning an outcome during the
+      // freeze would otherwise skip a round entirely.
+      return outcome && context.live ? outcome : null;
+    } catch (err) {
+      log.warnRateLimited("GametypeController", "onTick threw:", err);
+      return null;
+    }
   }
 
   /**
