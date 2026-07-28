@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentDirectiveContext } from "../../../../../shared/server/gametype";
 import { DEFAULT_LOADOUT } from "../../../../../shared/server/gametype/Loadout";
 import type { GametypeMapContext, GametypeTickContext } from "../BaseGametype";
+import { Deathmatch } from "../Deathmatch";
 import { SearchAndDestroy } from "../SearchAndDestroy";
 
 // ── Fixtures ─────────────────────────────────────────────────────────
@@ -374,3 +375,67 @@ describe("item rules", () => {
     expect(new SearchAndDestroy().getItemSpawnRules().respawnMode).toBe("round");
   });
 });
+
+// ── What the client is told ──────────────────────────────────────────
+
+describe("objective snapshot", () => {
+  it("reports nothing in modes without an objective", () => {
+    // The default, so a mode that never opts in costs the wire nothing.
+    expect(new Deathmatch().getObjectiveState()).toBeNull();
+    expect(new Deathmatch().getRoundState()).toBeNull();
+  });
+
+  it("carries the bomb's position and the sites the HUD needs", () => {
+    const mode = loaded();
+    const objective = mode.getObjectiveState();
+    expect(objective.kind).toBe("bomb");
+    expect(objective.phase).toBe("dropped");
+    expect(objective.x).toBeCloseTo(UDON_SPAWNS[0].x, 0);
+    expect(objective.sites.map((s) => s.label).sort()).toEqual(["A", "B"]);
+  });
+
+  it("addresses the carrier by the key the snapshot uses, not the raw id", () => {
+    // A raw entity id would not match anything the client can look up.
+    const mode = loaded();
+    const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: UDON_SPAWNS[0] };
+    run(mode, [carrier], 1);
+    expect(mode.getObjectiveState().carrier).toBe("player_1");
+  });
+
+  it("reports the fuse in seconds, not ticks", () => {
+    // The client has no tick rate to divide by; a HUD that needs one breaks
+    // the day the rate changes.
+    const { mode } = armedFixture();
+    const objective = mode.getObjectiveState();
+    expect(objective.fuse).toBeGreaterThan(25);
+    expect(objective.fuse).toBeLessThanOrEqual(30);
+    expect(objective.beepInterval).toBeGreaterThan(0);
+    expect(objective.beepInterval).toBeLessThan(5.01);
+  });
+
+  it("has no fuse before the bomb is armed", () => {
+    const mode = loaded();
+    expect(mode.getObjectiveState().fuse).toBeNull();
+    expect(mode.getObjectiveState().beepInterval).toBeNull();
+  });
+
+  it("flips the round state at the arm, which is when the roles invert", () => {
+    const mode = loaded();
+    expect(mode.getRoundState()).toBe("pre_plant");
+    expect(armedFixture().mode.getRoundState()).toBe("post_plant");
+  });
+});
+
+/** Shared with the round-outcome suite: a bomb planted and armed at site A. */
+function armedFixture(): { mode: SearchAndDestroy; armedAt: number } {
+  const mode = loaded();
+  const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: UDON_SPAWNS[0] };
+  const watcher: FakePlayer = { id: 2, ownerId: 2, team: "soba", position: { x: 3000, y: 0, z: 0 } };
+  run(mode, [carrier, watcher], 1);
+  const planting = { ...carrier, position: { x: 0, y: 0, z: 0 }, speed: 10 };
+  run(mode, [planting, watcher], 1, 1);
+  const armTicks = 4 * 125 + 10;
+  run(mode, [planting, watcher], armTicks, 2);
+  expect(mode.bombState.phase).toBe("armed");
+  return { mode, armedAt: 2 + armTicks };
+}

@@ -29,6 +29,7 @@ export type { FPSHudWidget } from "./hud/HudWidget";
 import type { FPSHudWidget } from "./hud/HudWidget";
 import { FPSAmmoCounter } from "./hud/widgets/AmmoCounter";
 import { FPSAmmoWarning } from "./hud/widgets/AmmoWarning";
+import { FPSBombStatus } from "./hud/widgets/BombStatus";
 import { FPSChat } from "./hud/widgets/Chat";
 import { FPSDamageIndicators } from "./hud/widgets/DamageIndicators";
 import { FPSDeathScreen } from "./hud/widgets/DeathScreen";
@@ -440,6 +441,9 @@ export class FPSHud {
 
     // Powerup countdown (QUAD) - bottom left, above the vitals block
     this.addWidget("powerup", new FPSPowerupTimer(), "bottom-left");
+
+    // Bomb objective (S&D) - top center, under the timer
+    this.addWidget("bomb", new FPSBombStatus(), "top-center");
 
     // Match timer - top center
     this.addWidget("timer", new FPSTimer(), "top-center");

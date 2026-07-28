@@ -716,6 +716,27 @@ export class RemotePlayerRenderer {
   }
 
   /**
+   * A transform node following one of a remote player's bones, for attaching
+   * something to their body — the S&D bomb rides the spine.
+   *
+   * Returns null until the model has loaded, or if the player is not rendered
+   * at all (out of PVS). Callers must handle that every frame rather than once:
+   * a player can leave and re-enter view mid-carry.
+   */
+  getBoneTransform(entityId: string, boneName: string): TransformNode | null {
+    const model = this.hitboxes.get(entityId)?.model;
+    if (!model?.skeleton) return null;
+
+    // glTF import writes Mixamo names with a colon; the shared rig map uses the
+    // sanitized form. Accept either rather than making callers guess.
+    const bone =
+      model.skeleton.bones.find((b) => b.name === `mixamorig:${boneName}`) ??
+      model.skeleton.bones.find((b) => b.name === `mixamorig${boneName}`) ??
+      model.skeleton.bones.find((b) => b.name.toLowerCase().endsWith(boneName.toLowerCase()));
+    return bone?.getTransformNode() ?? null;
+  }
+
+  /**
    * Detach a player model from the renderer WITHOUT disposing it.
    * Returns the PlayerModelInstance for ragdoll use.
    * The hitbox mesh is disposed but the model (skeleton + mesh + anchor) is preserved.

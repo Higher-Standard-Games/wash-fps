@@ -5,16 +5,20 @@
  * match phase, timer, and ready status for HUD consumption.
  */
 
+import type {
+  BombObjectiveSnapshot,
+  MatchWinner,
+  ObjectiveSnapshot,
+} from "../../../shared/server/gametype/GametypeTypes";
 // Match types are the shared gametype contract (server-authored). They used to
 // be hand-copied here and silently drifted from the server (QA-4: the client
 // weakened team records to string and added `spectators`). Import the single
 // source and re-export so existing `./MatchStateManager` consumers keep their
 // imports.
 import { MatchPhase } from "../../../shared/server/gametype/GametypeTypes";
-import type { MatchWinner } from "../../../shared/server/gametype/GametypeTypes";
 
 export { MatchPhase };
-export type { MatchWinner };
+export type { BombObjectiveSnapshot, MatchWinner, ObjectiveSnapshot };
 export type { MatchStateSnapshot } from "../../../shared/server/gametype/GametypeTypes";
 
 export type PhaseChangeCallback = (newPhase: MatchPhase, oldPhase: MatchPhase) => void;
@@ -35,6 +39,10 @@ export class MatchStateManager {
   private _winner: MatchWinner | null = null;
   private _overtime: number = 0;
   private _flow: "single" | "continuous" = "continuous";
+  private _round: number = 0;
+  private _teamRoles: Record<string, string> = {};
+  private _roundState: string | null = null;
+  private _objective: ObjectiveSnapshot | null = null;
   private _isReady: boolean = false;
   private _phaseCallbacks: PhaseChangeCallback[] = [];
 
@@ -71,6 +79,10 @@ export class MatchStateManager {
     this._winner = event.winner ?? null;
     this._overtime = event.overtime ?? 0;
     this._flow = event.flow ?? "continuous";
+    this._round = event.round ?? 0;
+    this._teamRoles = event.teamRoles ?? {};
+    this._roundState = event.roundState ?? null;
+    this._objective = event.objective ?? null;
 
     // Fire phase change callbacks
     if (oldPhase !== this._phase) {
@@ -106,6 +118,30 @@ export class MatchStateManager {
   }
   get scoreLimit(): number {
     return this._scoreLimit;
+  }
+  /** Current round, 1-based. 0 in modes that are not round-based. */
+  get round(): number {
+    return this._round;
+  }
+  /** "attacker" / "defender" per team id, in round modes. */
+  get teamRoles(): Record<string, string> {
+    return this._teamRoles;
+  }
+  /** "pre_plant" / "post_plant" — what the round is currently about. */
+  get roundState(): string | null {
+    return this._roundState;
+  }
+  /** The mode's objective, or null. Narrow on `kind` before reading it. */
+  get objective(): ObjectiveSnapshot | null {
+    return this._objective;
+  }
+  /** The bomb, when there is one. Null in every other mode. */
+  get bomb(): BombObjectiveSnapshot | null {
+    return this._objective?.kind === "bomb" ? this._objective : null;
+  }
+  /** True when this player's team is attacking this round. */
+  isAttacking(teamId: string | undefined): boolean {
+    return !!teamId && this._teamRoles[teamId] === "attacker";
   }
   get teamScores(): Record<string, number> {
     return this._teamScores;

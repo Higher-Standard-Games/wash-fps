@@ -841,7 +841,14 @@ export class GametypeController {
   }
 
   getMatchSnapshot(): MatchStateSnapshot {
-    return this.matchState.toSnapshot();
+    const snapshot = this.matchState.toSnapshot();
+    // The mode owns its objective; MatchState owns the match. Merged here so
+    // there is one shape on the wire rather than two events to correlate.
+    const objective = this.gametype.getObjectiveState();
+    if (objective) snapshot.objective = objective;
+    const roundState = this.gametype.getRoundState();
+    if (roundState) snapshot.roundState = roundState;
+    return snapshot;
   }
 
   getGametype(): BaseGametype {

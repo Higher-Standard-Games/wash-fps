@@ -20,7 +20,7 @@
 
 import type { WorldState } from "@engine/server/core/WorldState";
 import type { Entity } from "@engine/server/ecs/Entity";
-import type { PlayerId } from "@engine/server/ecs/types";
+import type { EntityId, PlayerId } from "@engine/server/ecs/types";
 import { EntityType } from "@engine/server/ecs/types";
 import type {
   AgentDirective,
@@ -28,6 +28,7 @@ import type {
   ItemSpawnRules,
   LoadoutChoice,
   MatchConfig,
+  ObjectiveSnapshot,
   SpawnStrategyType,
   TeamId,
   WeaponLoadout,
@@ -39,6 +40,7 @@ import { extractBombSites, isBombMap, spawnCentroid } from "../../../../shared/b
 import type { CollisionWorld } from "../../../../shared/collision/CollisionWorld";
 import type { BombEvent, BombPlayerView } from "../../../../shared/server/gametype/BombModel";
 import { BombModel } from "../../../../shared/server/gametype/BombModel";
+import { toClientKey } from "../../ClientEntityKey";
 import {
   BaseGametype,
   type GameResult,
@@ -85,6 +87,9 @@ const PLANTABLE_NORMAL_Y = 0.9;
 /** How far below the feet to look for that surface. */
 const GROUND_TRACE_DISTANCE = 8;
 
+/** Simulation rate, for converting bomb timers to the seconds the HUD wants. */
+const TICKS_PER_SECOND = 125;
+
 export class SearchAndDestroy extends BaseGametype {
   readonly name = "Search & Destroy";
   readonly maxPlayers = 10;
@@ -104,6 +109,8 @@ export class SearchAndDestroy extends BaseGametype {
    * first — leaves it here.
    */
   private attackers: TeamId | null = null;
+  /** Latest tick, so the objective snapshot can report a live fuse. */
+  private tick = 0;
   /** Kits in force this round. Only the round rollover writes these. */
   private activeLoadouts = new Map<PlayerId, LoadoutChoice>();
   /** Kits chosen since the round started; promoted at the next rollover. */
@@ -268,11 +275,7 @@ export class SearchAndDestroy extends BaseGametype {
    */
   onTick(state: WorldState, context: GametypeTickContext): RoundOutcome | null {
     this.attackers = context.attackingTeam;
-    if (!context.live) return null;
-
-    // Place once per round, during the freeze. Doing it on the attacking team
-    // of the round about to start is also what makes the half-swap work — the
-    // bomb follows the role, not the team.
+    this.tick = context.tick as number;
     if (!context.live) return null;
 
     const players = this.collectPlayers(state, context);
@@ -295,6 +298,47 @@ export class SearchAndDestroy extends BaseGametype {
   onRoundTimeExpired(_state: WorldState): RoundOutcome | null {
     if (this.bomb.isArmed) return null;
     return { winner: this.attackers === "udon" ? "soba" : "udon", reason: "time expired, bomb not armed" };
+  }
+
+  /**
+   * The bomb, for the client to draw.
+   *
+   * Everything time-based is converted to seconds here rather than shipping
+   * ticks: the client has no tick rate to divide by, and a HUD that has to know
+   * the simulation rate is a HUD that breaks when the rate changes.
+   */
+  getObjectiveState(): ObjectiveSnapshot {
+    const fuseTicks = this.bomb.ticksUntilDetonation(this.tick);
+    const beepTicks = this.bomb.beepIntervalTicks(this.tick);
+    return {
+      kind: "bomb",
+      phase: this.bomb.phase,
+      x: this.bomb.position.x,
+      y: this.bomb.position.y,
+      z: this.bomb.position.z,
+      siteId: this.bomb.siteId,
+      carrier: this.bomb.carrierId === null ? null : toClientKey(this.bomb.carrierId as EntityId),
+      progress: this.bomb.progress,
+      advancing: this.bomb.progressAdvancing,
+      fuse: fuseTicks === null ? null : fuseTicks / TICKS_PER_SECOND,
+      beepInterval: beepTicks === null ? null : beepTicks / TICKS_PER_SECOND,
+      sites: this.sites.map((site) => ({
+        id: site.id,
+        label: site.label,
+        x: site.position.x,
+        y: site.position.y,
+        z: site.position.z,
+      })),
+    };
+  }
+
+  /**
+   * What the round is currently about. The plant is the pivot: before it the
+   * attackers hold the initiative, after it the roles invert and the HUD should
+   * say so.
+   */
+  getRoundState(): string {
+    return this.bomb.isArmed ? "post_plant" : "pre_plant";
   }
 
   /** Bomb state for the HUD and for round-end reporting. */

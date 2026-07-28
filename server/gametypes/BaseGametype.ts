@@ -18,6 +18,7 @@ import type {
   ItemSpawnRules,
   LoadoutChoice,
   MatchConfig,
+  ObjectiveSnapshot,
   SpawnStrategyType,
   TeamId,
   WeaponLoadout,
@@ -192,6 +193,26 @@ export abstract class BaseGametype {
    * nothing was armed" is a Search & Destroy rule, not a property of rounds.
    */
   onRoundTimeExpired(_state: WorldState): RoundOutcome | null {
+    return null;
+  }
+
+  /**
+   * The mode's objective, for the client to draw. Null for modes without one.
+   *
+   * Called once per snapshot. Pure data: the client is told what is true, never
+   * how it was decided — every rule stays here.
+   */
+  getObjectiveState(): ObjectiveSnapshot | null {
+    return null;
+  }
+
+  /**
+   * Round lifecycle label for the HUD ("pre_plant" / "post_plant").
+   *
+   * A separate string from the objective because it is what the HUD switches
+   * layout on, and because a mode with no bomb could still have round phases.
+   */
+  getRoundState(): string | null {
     return null;
   }
 

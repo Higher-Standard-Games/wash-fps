@@ -35,6 +35,8 @@ import { V2NetworkClient } from "./client";
 import { getAmmoStatus } from "./client/AmmoStatus";
 import { Crosshair } from "./client/Crosshair";
 import { DeathCamera } from "./client/DeathCamera";
+import { BombRenderer } from "./client/BombRenderer";
+import { FPSBombAudio } from "./client/FPSBombAudio";
 import type { DroppedWeaponRenderer } from "./client/DroppedWeaponRenderer";
 import { registerFPSActions } from "./client/FPSActions";
 import { preloadFPSAudio } from "./client/FPSAudio";
@@ -44,6 +46,7 @@ import { resetFPSMovementAudio } from "./client/FPSMovementAudio";
 import { type GameEventContext, handleServerStateUpdate } from "./client/GameEvents";
 import { HUDState } from "./client/HUDState";
 import { MatchPhase, MatchStateManager } from "./client/MatchStateManager";
+import { clientKeyDisplayId } from "./ClientEntityKey";
 import { RemotePlayerRenderer } from "./client/RemotePlayerRenderer";
 import { createBSPCollisionWorld } from "./simulation/collision/BSPCollisionWorld";
 import { type FPSInputCommand, FPSSimulation } from "./simulation/FPSSimulation";
@@ -115,6 +118,8 @@ export class Game {
   // Remote player model renderer
   private remoteRenderer: RemotePlayerRenderer | null = null;
   private droppedWeaponRenderer: DroppedWeaponRenderer | null = null;
+  private bombRenderer: BombRenderer | null = null;
+  private readonly bombAudio = new FPSBombAudio();
 
   // Server-driven projectile tracking (Q3-style)
   /** Maps server projectile entity ID (e.g. 'proj_10001') → weapon defId */
@@ -205,6 +210,8 @@ export class Game {
     EventBus.on("map:unloading", () => {
       this.droppedWeaponRenderer?.dispose();
       this.droppedWeaponRenderer = null;
+      this.bombRenderer?.dispose();
+      this.bombRenderer = null;
       resetFPSMovementAudio();
     });
 
@@ -1299,6 +1306,21 @@ export class Game {
       this._gibSystem.update(dtSec);
     }
 
+    // The S&D bomb. Lazily built once there is a scene, and a no-op in every
+    // other mode — it hides itself when the objective snapshot has no bomb.
+    if (!this.bombRenderer) {
+      const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
+      if (gameScene) this.bombRenderer = new BombRenderer(gameScene, this.remoteRenderer);
+    }
+    this.bombRenderer?.update(dtSec);
+
+    // Beep and announcer, driven by the same objective snapshot and the same
+    // server-computed interval as the blinking light, so they stay one signal.
+    const match = MatchStateManager.getInstance();
+    // playerTeams is keyed by the raw display id, not the "player_N" client key.
+    const localTeam = match.playerTeams?.[clientKeyDisplayId(this.localPlayerId)] ?? undefined;
+    this.bombAudio.update(match.bomb, dtSec, match.isAttacking(localTeam));
+
     // Update ragdoll physics (Havok-driven skeleton ragdolls)
     if (!this._ragdollSystem && !this._ragdollSystemLoading) {
       this._ragdollSystemLoading = true;
@@ -1610,6 +1632,8 @@ export class Game {
     this.spectatorController = null;
     this.droppedWeaponRenderer?.dispose();
     this.droppedWeaponRenderer = null;
+    this.bombRenderer?.dispose();
+    this.bombRenderer = null;
     resetFPSMovementAudio();
 
     // Cleanup event listeners
