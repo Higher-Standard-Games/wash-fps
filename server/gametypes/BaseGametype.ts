@@ -19,6 +19,7 @@ import type {
   LoadoutChoice,
   MatchConfig,
   ObjectiveSnapshot,
+  PlayerStats,
   RoundResult,
   SpawnStrategyType,
   TeamId,
@@ -72,6 +73,14 @@ export interface GametypeTickContext {
   defendingTeam: TeamId;
   /** Team of a player, or "spectator" if unassigned. */
   teamOf(playerId: PlayerId): TeamId;
+  /**
+   * Credit a player with completing an objective.
+   *
+   * A callback rather than something the mode writes itself, so a gametype
+   * still holds no reference to the match — the same reason `onTick` returns a
+   * round result instead of ending the round directly.
+   */
+  credit(playerId: PlayerId, kind: "plant" | "defuse"): void;
 }
 
 /**
@@ -251,4 +260,16 @@ export abstract class BaseGametype {
 
   /** Get score for a player */
   abstract getScore(playerId: PlayerId): number;
+
+  /**
+   * Derive a player's score from what they have done, instead of counting
+   * frags. Return null to keep the default.
+   *
+   * Objective modes want this because a frag count misrepresents them: the
+   * player who softened three enemies and armed the bomb contributed more than
+   * whoever landed the last shots, and only a stat-derived score can say so.
+   */
+  scoreFromStats(_stats: PlayerStats): number | null {
+    return null;
+  }
 }

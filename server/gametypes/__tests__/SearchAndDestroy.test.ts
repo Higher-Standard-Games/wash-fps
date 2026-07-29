@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { AgentDirectiveContext } from "../../../../../shared/server/gametype";
+import type { AgentDirectiveContext, PlayerStats } from "../../../../../shared/server/gametype";
 import { DEFAULT_LOADOUT } from "../../../../../shared/server/gametype/Loadout";
 import type { GametypeMapContext, GametypeTickContext } from "../BaseGametype";
 import { Deathmatch } from "../Deathmatch";
@@ -78,6 +78,7 @@ function tickContext(over: Partial<GametypeTickContext> & { players: FakePlayer[
     attackingTeam: attacking,
     defendingTeam: attacking === "udon" ? "soba" : "udon",
     teamOf: (id: number) => (teams.get(id) ?? "spectator") as never,
+    credit: () => {},
     ...over,
   };
 }
@@ -513,3 +514,58 @@ function armedFixture(): { mode: SearchAndDestroy; armedAt: number } {
   expect(mode.bombState.phase).toBe("armed");
   return { mode, armedAt: 2 + armTicks };
 }
+
+// ── Scoring ──────────────────────────────────────────────────────────
+
+describe("scoring", () => {
+  const mode = new SearchAndDestroy();
+  const stats = (over: Partial<PlayerStats> = {}): PlayerStats => ({
+    frags: 0,
+    teamFrags: 0,
+    deaths: 0,
+    damageGiven: 0,
+    teamDamageGiven: 0,
+    plants: 0,
+    defuses: 0,
+    ...over,
+  });
+
+  it("pays 1 point per 100 damage", () => {
+    expect(mode.scoreFromStats(stats({ damageGiven: 100 }))).toBeCloseTo(1, 5);
+    expect(mode.scoreFromStats(stats({ damageGiven: 350 }))).toBeCloseTo(3.5, 5);
+  });
+
+  it("values damage over the last shot", () => {
+    // The point of the formula: softening three enemies beats stealing a kill.
+    const worker = mode.scoreFromStats(stats({ damageGiven: 300 }));
+    const thief = mode.scoreFromStats(stats({ frags: 3, damageGiven: 60 }));
+    expect(worker).toBeGreaterThan(thief);
+  });
+
+  it("penalises team damage twice over", () => {
+    expect(mode.scoreFromStats(stats({ damageGiven: 200, teamDamageGiven: 100 }))).toBeCloseTo(0, 5);
+    expect(mode.scoreFromStats(stats({ teamDamageGiven: 100 }))).toBeLessThan(0);
+  });
+
+  it("costs a teamkill more than an enemy kill earns", () => {
+    expect(mode.scoreFromStats(stats({ frags: 1, teamFrags: 1 }))).toBe(0);
+    expect(mode.scoreFromStats(stats({ teamFrags: 1 }))).toBeLessThan(0);
+  });
+
+  it("pays for the objective, which Warsow defines and never awards", () => {
+    expect(mode.scoreFromStats(stats({ plants: 1 }))).toBeGreaterThan(0);
+    // A defuse is harder and saves the round, so it is worth more.
+    expect(mode.scoreFromStats(stats({ defuses: 1 }))).toBeGreaterThan(mode.scoreFromStats(stats({ plants: 1 })));
+  });
+
+  it("keeps the objective worth about a good gunfight, not the whole round", () => {
+    // If arming outweighed a strong fighting round, nobody would fight.
+    const armed = mode.scoreFromStats(stats({ plants: 1 }));
+    const fought = mode.scoreFromStats(stats({ frags: 2, damageGiven: 400 }));
+    expect(armed).toBeLessThan(fought);
+  });
+
+  it("does nothing for a player who has done nothing", () => {
+    expect(mode.scoreFromStats(stats())).toBe(0);
+  });
+});

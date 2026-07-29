@@ -7,10 +7,12 @@
 
 import type { PlayerId } from "@engine/server/ecs/types";
 import {
+  emptyPlayerStats,
   type MatchConfig,
   MatchPhase,
   type MatchStateSnapshot,
   type MatchWinner,
+  type PlayerStats,
   type RoundResult,
   type TeamId,
 } from "@shared/server/gametype";
@@ -70,6 +72,12 @@ export class MatchState {
    */
   private _roundTimeExpired = false;
   private _roundResult: RoundResult | null = null;
+  private _stats: Map<PlayerId, PlayerStats> = new Map();
+  /**
+   * Derives score from stats, when the gametype wants that instead of frags.
+   * Installed by the controller at boot; absent means "count frags".
+   */
+  private _scoreFromStats: ((stats: PlayerStats) => number) | null = null;
 
   constructor(gametypeName: string, config: Partial<MatchConfig> = {}, teamBased = false) {
     this.config = { ...DEFAULT_MATCH_CONFIG, ...config };
@@ -339,6 +347,7 @@ export class MatchState {
 
   addPlayer(playerId: PlayerId): void {
     this._totalPlayers++;
+    this._stats.set(playerId, emptyPlayerStats());
     this._scores.set(playerId, 0);
     this._deaths.set(playerId, 0);
     this._playerTeams.set(playerId, "spectator"); // default to spec
@@ -346,6 +355,7 @@ export class MatchState {
 
   removePlayer(playerId: PlayerId): void {
     this._totalPlayers = Math.max(0, this._totalPlayers - 1);
+    this._stats.delete(playerId);
     this._readyPlayers.delete(playerId);
     this._scores.delete(playerId);
     this._deaths.delete(playerId);
@@ -369,7 +379,41 @@ export class MatchState {
   // Scoring
   // ========================================================================
 
+  /** Install a gametype's score formula. Null restores plain frag counting. */
+  setScoreFormula(formula: ((stats: PlayerStats) => number) | null): void {
+    this._scoreFromStats = formula;
+  }
+
+  /** A player's accumulated stats. Always defined for a joined player. */
+  getStats(playerId: PlayerId): PlayerStats {
+    let stats = this._stats.get(playerId);
+    if (!stats) {
+      stats = emptyPlayerStats();
+      this._stats.set(playerId, stats);
+    }
+    return stats;
+  }
+
+  /**
+   * Record something a player did, and re-derive their score if the gametype
+   * asked for that.
+   *
+   * Only counts while the match is live — warmup damage is practice, and a
+   * scoreboard that remembers it is lying about the match.
+   */
+  recordStat(playerId: PlayerId, apply: (stats: PlayerStats) => void): void {
+    if (this._phase !== MatchPhase.Active) return;
+    const stats = this.getStats(playerId);
+    apply(stats);
+    if (this._scoreFromStats) {
+      this._scores.set(playerId, Math.round(this._scoreFromStats(stats)));
+    }
+  }
+
   addScore(playerId: PlayerId, points: number = 1): void {
+    // A derived score is a function of stats; adding to it directly would be
+    // overwritten on the next stat and is a bug in the caller, not a no-op.
+    if (this._scoreFromStats) return;
     if (this._phase !== MatchPhase.Active) return; // No scoring outside active phase
     const current = this._scores.get(playerId) || 0;
     this._scores.set(playerId, current + points);

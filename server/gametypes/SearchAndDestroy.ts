@@ -29,6 +29,7 @@ import type {
   LoadoutChoice,
   MatchConfig,
   ObjectiveSnapshot,
+  PlayerStats,
   SpawnStrategyType,
   TeamId,
   WeaponLoadout,
@@ -116,6 +117,19 @@ const GROUND_TRACE_DISTANCE = 8;
 /** Simulation rate, for converting bomb timers to the seconds the HUD wants. */
 const TICKS_PER_SECOND = 125;
 
+// ── Scoring ──────────────────────────────────────────────────────────
+//
+// Warsow's bomb formula, plus objective points it defines and never awards.
+
+/** A kill is worth half of what a hundred damage is. */
+const FRAG_POINTS = 0.5;
+/** 100 damage = 1 point. */
+const DAMAGE_POINTS = 0.01;
+/** Arming the bomb: about a good gunfight. */
+const PLANT_POINTS = 2;
+/** Defusing: more, because it is harder and it saves the round. */
+const DEFUSE_POINTS = 3;
+
 export class SearchAndDestroy extends BaseGametype {
   readonly name = "Search & Destroy";
   readonly maxPlayers = 10;
@@ -137,6 +151,8 @@ export class SearchAndDestroy extends BaseGametype {
   private attackers: TeamId | null = null;
   /** Latest tick, so the objective snapshot can report a live fuse. */
   private tick = 0;
+  /** Entity id → player id, rebuilt each tick alongside the bomb's world view. */
+  private playerByEntity = new Map<number, PlayerId>();
   /** Site each defender covers this tick. Recomputed by `assignRoles`. */
   private siteByDefender = new Map<number, number>();
   /** The one attacker doing the job that needs exactly one person. */
@@ -409,6 +425,14 @@ export class SearchAndDestroy extends BaseGametype {
   /** A round ended on the bomb: a defuse, or a detonation. */
   private outcomeFromEvents(events: readonly BombEvent[], context: GametypeTickContext): RoundOutcome | null {
     for (const event of events) {
+      // Credit the work before deciding the round: a defuse both ends the
+      // round and earns the defuser their points, and returning first would
+      // skip the second.
+      if (event.kind === "armed" || event.kind === "defused") {
+        const playerId = event.entityId === undefined ? undefined : this.playerByEntity.get(event.entityId);
+        if (playerId !== undefined) context.credit(playerId, event.kind === "armed" ? "plant" : "defuse");
+      }
+
       switch (event.kind) {
         case "detonated":
           return {
@@ -466,6 +490,7 @@ export class SearchAndDestroy extends BaseGametype {
   /** The world as the bomb rules need to see it. */
   private collectPlayers(state: WorldState, context: GametypeTickContext): BombPlayerView[] {
     const views: BombPlayerView[] = [];
+    this.playerByEntity.clear();
 
     for (const entity of state.entitiesByType(EntityType.Player)) {
       if (entity.ownerId === undefined) continue;
@@ -477,6 +502,7 @@ export class SearchAndDestroy extends BaseGametype {
       const velocity = entity.physics?.velocity;
       const speed = velocity ? Math.hypot(velocity.x, velocity.y, velocity.z) : 0;
 
+      this.playerByEntity.set(entity.id as number, entity.ownerId as PlayerId);
       views.push({
         entityId: entity.id as number,
         team: context.teamOf(entity.ownerId as PlayerId),
@@ -781,6 +807,30 @@ export class SearchAndDestroy extends BaseGametype {
 
   getScore(_playerId: PlayerId): number {
     return 0; // Held by MatchState.
+  }
+
+  /**
+   * Score from what a player did, not from who landed the last shot.
+   *
+   * A frag count misrepresents this mode. Rounds are short and there are no
+   * respawns, so the player who softened three enemies before dying decided
+   * that round as much as whoever finished them — Warsow Bomb scores mostly on
+   * damage dealt for exactly this reason, and this keeps its shape:
+   *
+   *   frags at half weight, 100 damage = 1 point, team damage doubly negative
+   *
+   * The two additions are ours. Warsow defines POINTS_DEFUSE and then sets it
+   * to zero, so arming and defusing are worth nothing there — which cannot be
+   * right in a mode named after them. They are worth a good gunfight each,
+   * enough to notice and not enough to make the objective the only thing.
+   */
+  scoreFromStats(stats: PlayerStats): number {
+    return (
+      (stats.frags - stats.teamFrags) * FRAG_POINTS +
+      (stats.damageGiven - 2 * stats.teamDamageGiven) * DAMAGE_POINTS +
+      stats.plants * PLANT_POINTS +
+      stats.defuses * DEFUSE_POINTS
+    );
   }
 
   // ========================================================================

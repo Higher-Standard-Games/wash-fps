@@ -21,7 +21,7 @@ import type {
   MatchStateSnapshot,
   TeamId,
 } from "@shared/server/gametype";
-import { MatchPhase } from "@shared/server/gametype";
+import { emptyPlayerStats, MatchPhase } from "@shared/server/gametype";
 import { clearPowerups } from "@shared/server/simulation/components/PowerupComponent";
 import type { Vec3 } from "@shared/server/simulation/types";
 import { log } from "../../../../engine/core/Log";
@@ -80,6 +80,13 @@ export class GametypeController {
     this.matchConfig = GametypeController.applyEnvOverrides(gametype.getMatchConfig());
     this.matchState = new MatchState(gametype.name, this.matchConfig, gametype.teamBased);
     this.spawnStrategy = createSpawnStrategy(gametype.getSpawnStrategy());
+
+    // A mode that derives score from stats installs its formula once; the
+    // default returns null and MatchState keeps counting frags.
+    if (gametype.scoreFromStats(emptyPlayerStats()) !== null) {
+      this.matchState.setScoreFormula((stats) => gametype.scoreFromStats(stats) ?? 0);
+      console.log(`[GametypeController] Score derived from stats`);
+    }
 
     console.log(`[GametypeController] Initialized: ${gametype.name}`);
     console.log(`[GametypeController] Spawn strategy: ${gametype.getSpawnStrategy()}`);
@@ -397,15 +404,24 @@ export class GametypeController {
 
                 if (killerTeam === victimTeam) {
                   // Friendly fire / Team kill
+                  this.matchState.recordStat(killer.ownerId, (s) => {
+                    s.teamFrags++;
+                  });
                   this.matchState.addScore(killer.ownerId, -1);
                   this.matchState.addTeamScore(killerTeam, -teamPoints);
                 } else if (killerTeam !== "spectator") {
                   // Enemy kill
+                  this.matchState.recordStat(killer.ownerId, (s) => {
+                    s.frags++;
+                  });
                   this.matchState.addScore(killer.ownerId, 1);
                   this.matchState.addTeamScore(killerTeam, teamPoints);
                 }
               } else {
                 // FFA: any kill is +1
+                this.matchState.recordStat(killer.ownerId, (s) => {
+                  s.frags++;
+                });
                 this.matchState.addScore(killer.ownerId, 1);
               }
             } else if (killer?.ownerId === victim.ownerId) {
@@ -424,6 +440,9 @@ export class GametypeController {
             // Track deaths (score only)
             if (victim.ownerId !== undefined) {
               this.matchState.addDeath(victim.ownerId);
+              this.matchState.recordStat(victim.ownerId, (s) => {
+                s.deaths++;
+              });
             }
           }
 
@@ -455,6 +474,7 @@ export class GametypeController {
         }
       }
       this.combatSystem.clearKills();
+      this.recordDamageDealt(state);
     }
 
     // 2. Process respawn queue
@@ -798,6 +818,49 @@ export class GametypeController {
     return byEntity;
   }
 
+  /**
+   * Credit damage dealt, for modes that score on it.
+   *
+   * Read here rather than drained: `SnapshotBuilder` owns clearing this buffer
+   * because it also forwards the numbers to clients, and two consumers racing
+   * to drain the same list is how damage numbers go missing on one side.
+   *
+   * Self-damage is skipped entirely — a rocket jump is a movement technique,
+   * not a contribution, and it must not be a way to farm score.
+   */
+  private recordDamageDealt(state: WorldState): void {
+    if (!this.combatSystem) return;
+    for (const hit of this.combatSystem.getProcessedDamage()) {
+      if (hit.attackerId === undefined || hit.attackerId === hit.victimId) continue;
+
+      const attacker = state.getEntity(hit.attackerId);
+      const victim = state.getEntity(hit.victimId);
+      if (attacker?.ownerId === undefined || victim?.ownerId === undefined) continue;
+
+      const friendly =
+        this.gametype.teamBased &&
+        this.matchState.getPlayerTeam(attacker.ownerId) === this.matchState.getPlayerTeam(victim.ownerId);
+
+      this.matchState.recordStat(attacker.ownerId, (s) => {
+        if (friendly) s.teamDamageGiven += hit.damage;
+        else s.damageGiven += hit.damage;
+      });
+    }
+  }
+
+  /**
+   * Credit an objective a player completed — an arm, a defuse.
+   *
+   * Called by the gametype through the controller rather than written to
+   * MatchState directly, so a mode still holds no reference to the match.
+   */
+  recordObjective(playerId: PlayerId, kind: "plant" | "defuse"): void {
+    this.matchState.recordStat(playerId, (s) => {
+      if (kind === "plant") s.plants++;
+      else s.defuses++;
+    });
+  }
+
   /** The match, as a gametype needs to see it. */
   private tickContext(tick: TickNumber): GametypeTickContext {
     return {
@@ -807,6 +870,7 @@ export class GametypeController {
       attackingTeam: this.matchState.attackingTeam,
       defendingTeam: this.matchState.defendingTeam,
       teamOf: (playerId: PlayerId) => this.matchState.getPlayerTeam(playerId),
+      credit: (playerId: PlayerId, kind: "plant" | "defuse") => this.recordObjective(playerId, kind),
     };
   }
 
