@@ -293,14 +293,33 @@
     0 0 0 4px hsla(var(--card-hue, 180), 100%, 56%, 0.12);
 }
 
-.lobby__mode-node:nth-child(1) { left: 16%; top: 28%; }
-.lobby__mode-node:nth-child(2) { left: 43%; top: 19%; }
-.lobby__mode-node:nth-child(3) { right: 18%; top: 34%; }
-.lobby__mode-node:nth-child(4) { left: 27%; bottom: 25%; }
-.lobby__mode-node:nth-child(5) { left: 56%; bottom: 18%; }
-.lobby__mode-node:nth-child(6) { right: 12%; bottom: 31%; }
+.lobby__mode-node:nth-child(1) {
+  left: 16%;
+  top: 28%;
+}
+.lobby__mode-node:nth-child(2) {
+  left: 43%;
+  top: 19%;
+}
+.lobby__mode-node:nth-child(3) {
+  right: 18%;
+  top: 34%;
+}
+.lobby__mode-node:nth-child(4) {
+  left: 27%;
+  bottom: 25%;
+}
+.lobby__mode-node:nth-child(5) {
+  left: 56%;
+  bottom: 18%;
+}
+.lobby__mode-node:nth-child(6) {
+  right: 12%;
+  bottom: 31%;
+}
 
 .lobby__mode-diagram--duel .lobby__mode-node:nth-child(n + 3),
+.lobby__mode-diagram--snd .lobby__mode-node:nth-child(n + 5),
 .lobby__mode-diagram--team .lobby__mode-node:nth-child(n + 5) {
   opacity: 0.28;
   transform: scale(0.72);
@@ -542,9 +561,7 @@
   align-items: center;
   gap: 10px;
   padding: 6px 11px;
-  background:
-    linear-gradient(92deg, hsla(180, 100%, 50%, 0.08), hsla(0, 0%, 100%, 0.03) 60%),
-    var(--l-flat);
+  background: linear-gradient(92deg, hsla(180, 100%, 50%, 0.08), hsla(0, 0%, 100%, 0.03) 60%), var(--l-flat);
   border: 1.5px solid var(--l-edge);
   clip-path: polygon(2% 0, 100% 0, 98% 100%, 0 100%);
   box-shadow:
@@ -633,9 +650,7 @@
 .lobby__match {
   position: relative;
   padding: 10px 12px;
-  background:
-    linear-gradient(138deg, hsla(238, 36%, 9%, 0.92), hsla(245, 42%, 5%, 0.92)),
-    var(--l-scan);
+  background: linear-gradient(138deg, hsla(238, 36%, 9%, 0.92), hsla(245, 42%, 5%, 0.92)), var(--l-scan);
   border: 2px solid hsla(180, 100%, 50%, 0.3);
   box-shadow:
     var(--l-shadow),
@@ -748,9 +763,7 @@
   text-transform: uppercase;
   padding: 5px 13px;
   border: 1.5px solid hsla(180, 100%, 50%, 0.4);
-  background:
-    linear-gradient(92deg, hsla(180, 100%, 50%, 0.2), hsla(0, 0%, 100%, 0.05) 60%),
-    hsla(238, 38%, 8%, 0.9);
+  background: linear-gradient(92deg, hsla(180, 100%, 50%, 0.2), hsla(0, 0%, 100%, 0.05) 60%), hsla(238, 38%, 8%, 0.9);
   color: var(--w-text, hsl(180, 100%, 95%));
   cursor: pointer;
   clip-path: polygon(7% 0, 100% 0, 93% 100%, 0 100%);
@@ -797,9 +810,7 @@
   overflow-y: auto;
   margin: 0 12px;
   padding: 10px 12px;
-  background:
-    linear-gradient(135deg, hsla(238, 34%, 9%, 0.82), hsla(242, 36%, 5%, 0.82)),
-    var(--l-scan);
+  background: linear-gradient(135deg, hsla(238, 34%, 9%, 0.82), hsla(242, 36%, 5%, 0.82)), var(--l-scan);
   border: 1.5px solid hsla(180, 100%, 50%, 0.24);
   clip-path: polygon(0 0, 100% 0, 100% 97%, 98% 100%, 0 100%);
   box-shadow:
@@ -1368,7 +1379,6 @@
 /* ============================================================================
    Animations
    ============================================================================ */
-
 
 @keyframes lobby-stamp-pulse {
   0%,

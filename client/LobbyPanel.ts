@@ -7,20 +7,20 @@
  *   MY PROFILE:  Player name, stats, settings
  */
 
-import { DemoService } from "./DemoService";
-import { DemoViewer } from "./DemoViewer";
-import { DurationPickerModal } from "./DurationPickerModal";
-import { ensureFpsLobbyConnection, getFpsLobbyClient } from "./FpsLobbyService";
-import { FPSSettingsView } from "./settings/FPSSettingsView";
-import type { LobbyClient } from "../../../lobby/LobbyClient";
-import type { DemoInfo, LiveMatchInfo, MatchLobbyInfo, PlayerInfo } from "../../../lobby/types";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import { DebugConsole } from "../../../engine/debug/DebugConsole";
 import { ConnectingOverlay } from "../../../engine/ui/components/ConnectingOverlay";
 import { MatchLobbyView } from "../../../engine/ui/components/MatchLobbyView";
 import matchLobbyCSSRaw from "../../../engine/ui/components/styles/MatchLobbyView.css?raw";
-import { UIStyles } from "../../../engine/ui/UIStyles";
 import { GamePanel } from "../../../engine/ui/panels/GamePanel";
+import { UIStyles } from "../../../engine/ui/UIStyles";
+import type { LobbyClient } from "../../../lobby/LobbyClient";
+import type { DemoInfo, LiveMatchInfo, MatchLobbyInfo, PlayerInfo } from "../../../lobby/types";
+import { DemoService } from "./DemoService";
+import { DemoViewer } from "./DemoViewer";
+import { DurationPickerModal } from "./DurationPickerModal";
+import { ensureFpsLobbyConnection, getFpsLobbyClient } from "./FpsLobbyService";
+import { FPSSettingsView } from "./settings/FPSSettingsView";
 import demoTabCSSRaw from "./styles/DemoTab.css?raw";
 import lobbyCSSRaw from "./styles/LobbyPanel.css?raw";
 
@@ -57,30 +57,30 @@ const GAME_MODES: GameMode[] = [
     weaponTags: ["RAIL", "ROCKET", "BLADE"],
   },
   {
-    id: "team",
-    title: "TEAM",
-    subtitle: "2 vs 2",
-    hue: "320",
-    queued: 1,
-    ticketNo: "02",
-    format: "DUO SQUADS",
-    pace: "TRADE FRAGS",
-    hook: "Pair up, lock resources, swing the map.",
-    stamps: ["2V2", "COMMS", "POWER PLAY"],
-    weaponTags: ["ROCKET", "ARMOR", "PLASMA"],
-  },
-  {
     id: "ffa",
     title: "FFA",
     subtitle: "FREE FOR ALL",
     hue: "45",
     queued: 0,
-    ticketNo: "03",
+    ticketNo: "02",
     format: "OPEN PIT",
     pace: "FAST CHAOS",
     hook: "Spawn hot, scrap hard, steal the lead.",
     stamps: ["MAYHEM", "FAST RESPAWN", "ANY ANGLE"],
     weaponTags: ["GL", "ROCKET", "BLADE"],
+  },
+  {
+    id: "snd",
+    title: "S&D",
+    subtitle: "SEARCH & DESTROY",
+    hue: "320",
+    queued: 0,
+    ticketNo: "03",
+    format: "5 VS 5 ROUNDS",
+    pace: "ONE LIFE",
+    hook: "Plant it, or make sure they never do.",
+    stamps: ["NO RESPAWN", "TWO SITES", "SIDE SWAP"],
+    weaponTags: ["ROCKET", "BOMB", "ARMOR"],
   },
 ];
 
@@ -996,6 +996,7 @@ export class LobbyPanel extends GamePanel {
       deathmatch: "45",
       tdm: "320",
       team: "320",
+      snd: "320",
       ffa: "45",
     };
 
