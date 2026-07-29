@@ -40,7 +40,7 @@ import { extractBombSites, isBombMap, spawnCentroid } from "../../../../shared/b
 import type { CollisionWorld } from "../../../../shared/collision/CollisionWorld";
 import type { BombEvent, BombPlayerView } from "../../../../shared/server/gametype/BombModel";
 import { BombModel } from "../../../../shared/server/gametype/BombModel";
-import { toClientKey } from "../../ClientEntityKey";
+import { clientKeyDisplayId, toClientKey } from "../../ClientEntityKey";
 import {
   BaseGametype,
   type GameResult,
@@ -75,8 +75,23 @@ const PRIORITY_DEFUSE = 0.95;
 const PRIORITY_ARM = 0.9;
 /** Fetching the bomb matters, but not more than not dying on the way. */
 const PRIORITY_FETCH = 0.7;
+/** Staying with the carrier: useful, but not at the cost of your own life. */
+const PRIORITY_ESCORT = 0.55;
 /** Holding a site pre-plant is a default, not an order. */
 const PRIORITY_HOLD = 0.5;
+/** Going to find the carrier. Below arming — it is a means, not the end. */
+const PRIORITY_HUNT = 0.6;
+
+/** Within this of the planted bomb you can arm or defuse it. */
+const ARM_RADIUS = 64;
+const DEFUSE_RADIUS = 64;
+/**
+ * How close the carrier is told to get to the site.
+ *
+ * Tighter than the site radius on purpose: a bot that stops at the edge of the
+ * zone plants at the edge, where the bomb is easy to reach and easy to shoot.
+ */
+const PLANT_ARRIVAL_RADIUS = 96;
 
 /**
  * A surface this flat counts as plantable ground (Warsow traces one unit down
@@ -111,6 +126,12 @@ export class SearchAndDestroy extends BaseGametype {
   private attackers: TeamId | null = null;
   /** Latest tick, so the objective snapshot can report a live fuse. */
   private tick = 0;
+  /** Site each defender covers this tick. Recomputed by `assignRoles`. */
+  private siteByDefender = new Map<number, number>();
+  /** The one attacker doing the job that needs exactly one person. */
+  private bombWorkerId: number | null = null;
+  /** Site the attack is committed to. */
+  private targetSiteId: number | null = null;
   /** Kits in force this round. Only the round rollover writes these. */
   private activeLoadouts = new Map<PlayerId, LoadoutChoice>();
   /** Kits chosen since the round started; promoted at the next rollover. */
@@ -193,6 +214,13 @@ export class SearchAndDestroy extends BaseGametype {
     return {
       spawnFromBsp: true,
       respawnMode: "round",
+      // No Quad. Every one of the six bomb maps carries exactly one, and in a
+      // round with no respawns it is not a prize to fight over — it is a round
+      // decided by who spawned nearer. The usual counterplay (die, come back,
+      // wait the thirty seconds out) does not exist here, so 4x damage against
+      // a team that cannot replace its losses ends the round on a timer nobody
+      // contested. Remove `item_quad` from this list to try it.
+      excludeClassnames: ["item_quad"],
       weaponRespawnTime: 20,
       ammoRespawnTime: 15,
       armorRespawnTime: 20,
@@ -280,6 +308,10 @@ export class SearchAndDestroy extends BaseGametype {
 
     const players = this.collectPlayers(state, context);
     const events = this.bomb.update(context.tick as number, players, this.sites, context.attackingTeam);
+
+    // Team assignments, settled once per tick before any per-player directive
+    // is asked for. Order matters: this must see the bomb AFTER it moved.
+    this.assignRoles(players, context);
 
     const fromBomb = this.outcomeFromEvents(events, context);
     if (fromBomb) return fromBomb;
@@ -441,100 +473,263 @@ export class SearchAndDestroy extends BaseGametype {
   // ========================================================================
 
   /**
+   * Work out who does what this tick, once for the whole team.
+   *
+   * `getAgentDirectives` is called per player, so anything requiring a TEAM
+   * decision — who fetches the bomb, which defender covers which site — has to
+   * be settled before it runs or each player would decide independently and
+   * they would all decide the same thing. Every attacker running at the bomb is
+   * the failure mode this exists to prevent.
+   *
+   * Assignment is by proximity where proximity is what matters, and by a stable
+   * roster order where spread is what matters. Never randomly: a random split
+   * can put every defender on the same site, which is the one outcome the split
+   * exists to rule out.
+   */
+  private assignRoles(players: readonly BombPlayerView[], context: GametypeTickContext): void {
+    const attackers: BombPlayerView[] = [];
+    const defenders: BombPlayerView[] = [];
+    for (const player of players) {
+      if (!player.alive) continue;
+      if (player.team === context.attackingTeam) attackers.push(player);
+      else if (player.team === context.defendingTeam) defenders.push(player);
+    }
+
+    // Stable order, so an assignment does not shuffle between ticks and leave
+    // bots swapping sites forever. Entity id is arbitrary but constant.
+    defenders.sort((a, b) => a.entityId - b.entityId);
+
+    this.siteByDefender.clear();
+    if (this.sites.length > 0) {
+      for (let i = 0; i < defenders.length; i++) {
+        this.siteByDefender.set(defenders[i].entityId, this.sites[i % this.sites.length].id);
+      }
+    }
+
+    // The one attacker nearest the bomb does the job that needs exactly one
+    // person: collecting it, or standing on it to arm. Everybody else is then
+    // free to cover, rather than stacking on the same 64 units of floor.
+    this.bombWorkerId = this.nearestTo(attackers, this.bomb.position);
+
+    // Which site the attack commits to. Nearest to the bomb, so the team pushes
+    // together and the choice does not flip as individuals move around.
+    this.targetSiteId = this.nearestSite(this.bomb.position)?.id ?? null;
+  }
+
+  /** Entity id of whoever in `candidates` is nearest `point`, or null. */
+  private nearestTo(candidates: readonly BombPlayerView[], point: Vec3Like): number | null {
+    let best: number | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const candidate of candidates) {
+      const dx = candidate.position.x - point.x;
+      const dy = candidate.position.y - point.y;
+      const dz = candidate.position.z - point.z;
+      const distance = dx * dx + dy * dy + dz * dz;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = candidate.entityId;
+      }
+    }
+    return best;
+  }
+
+  /**
    * Orders for one agent.
    *
    * The whole mode's bot intelligence is this function plus the weight profiles
-   * — no S&D code runs inside the bot process. Priorities encode the mode's
-   * hierarchy (defuse > arm > fetch > hold); the bot still weighs them against
-   * staying alive and reaching them, which is the arbitration the goal
-   * framework exists to do.
+   * — no S&D code runs inside the bot process. Two things it does that a naive
+   * emitter would not, and that decide whether bots look like a team:
+   *
+   * - **Jobs that need one person go to one person.** Fetching the bomb and
+   *   standing on it to arm are assigned to the nearest attacker; the rest are
+   *   told to cover the ground around it. Otherwise five bots pile onto the
+   *   same spot and nobody watches the door.
+   * - **Defenders are split across sites deterministically.** Emitting both
+   *   sites and hoping the bots choose differently does not spread them — they
+   *   run the same arbitration on the same inputs and reach the same answer.
+   *
+   * Priorities encode the mode's hierarchy (defuse > arm > fetch > hold); the
+   * bot still weighs them against staying alive and against being able to get
+   * there, which is the arbitration the goal framework exists to do.
    */
   getAgentDirectives(context: AgentDirectiveContext, _state: WorldState): readonly AgentDirective[] {
     if (!context.alive || !context.teamId || context.teamId === "spectator") return [];
-    if (this.sites.length === 0) return [];
+    if (this.sites.length === 0 || this.attackers === null) return [];
 
-    const attacking = this.attackers !== null && context.teamId === this.attackers;
+    const attacking = context.teamId === this.attackers;
     const expiresAtTick = context.tick + DIRECTIVE_TICKS;
-    const bombPosition = this.bomb.position;
+    const bomb = this.bomb.position;
+    const me = this.entityIdOf(context.entityId);
 
-    // Armed: everything converges on the bomb. Attackers hold the ground around
-    // it, defenders have to physically reach it.
+    // ── Armed: the round has inverted ──────────────────────────────
     if (this.bomb.isArmed) {
+      if (!attacking) {
+        // The retake. The only order in the mode a bot should die for: with the
+        // bomb ticking there is nothing left to preserve itself for.
+        return [this.directive("snd_defuse", "move_to", bomb, DEFUSE_RADIUS, PRIORITY_DEFUSE, expiresAtTick, "never")];
+      }
+      // Attackers won the plant; now they are the ones holding ground. Spread
+      // around the bomb rather than onto it — the bomb needs no attending.
       return [
-        {
-          id: attacking ? "snd_hold_armed" : "snd_defuse",
-          kind: attacking ? "hold_area" : "move_to",
-          target: { type: "position", position: bombPosition, radius: attacking ? SITE_ARRIVAL_RADIUS : 64 },
-          priority: attacking ? PRIORITY_ARM : PRIORITY_DEFUSE,
+        this.directive(
+          "snd_hold_armed",
+          "hold_area",
+          bomb,
+          SITE_ARRIVAL_RADIUS,
+          PRIORITY_ARM,
           expiresAtTick,
-          // A defuse is worth walking into fire for; holding a site is not.
-          interrupt: attacking ? "enemy_visible" : "never",
-        },
+          "enemy_visible",
+        ),
       ];
     }
 
+    // ── Defenders, pre-plant ───────────────────────────────────────
     if (!attacking) {
-      // Pre-plant defence: sit on the sites. Which site is the bot's business —
-      // it picks the reachable one, which spreads the team without any
-      // assignment logic here.
-      return this.sites.map((site) => ({
-        id: `snd_defend_site_${site.id}`,
-        kind: "hold_area" as const,
-        target: { type: "position" as const, position: site.position, radius: SITE_ARRIVAL_RADIUS },
-        priority: PRIORITY_HOLD,
-        expiresAtTick,
-        interrupt: "enemy_visible" as const,
-      }));
+      const directives: AgentDirective[] = [];
+
+      const siteId = me === null ? null : (this.siteByDefender.get(me) ?? null);
+      const site = this.sites.find((s) => s.id === siteId) ?? this.sites[0];
+      directives.push(
+        this.directive(
+          // Keyed by SITE, not by player: the id must be stable for goal
+          // commitment, and a player-keyed id would be unique per bot for no
+          // benefit. A defender reassigned to the other site gets a new id,
+          // which is exactly when re-committing is correct.
+          `snd_defend_site_${site.id}`,
+          "defend",
+          site.position,
+          SITE_ARRIVAL_RADIUS,
+          PRIORITY_HOLD,
+          expiresAtTick,
+          "enemy_visible",
+        ),
+      );
+
+      // Killing the carrier drops the bomb, which is worth going to find them
+      // for — ordinary target selection only reacts to what is already visible.
+      const carrier = this.bomb.carrierId;
+      if (carrier !== null) {
+        directives.push({
+          id: "snd_hunt_carrier",
+          kind: "hunt",
+          target: { type: "player", entityId: toClientKey(carrier as EntityId) },
+          priority: PRIORITY_HUNT,
+          expiresAtTick,
+          interrupt: "higher_priority",
+        });
+      }
+      return directives;
     }
 
-    // Attackers, pre-plant. The carrier takes it to a site; everyone else
-    // either fetches a loose bomb or escorts the carrier.
+    // ── Attackers, pre-plant ───────────────────────────────────────
+    const isWorker = me !== null && me === this.bombWorkerId;
     const phase = this.bomb.phase;
+
     if (phase === "planted") {
-      return [
-        {
-          id: "snd_arm",
-          kind: "move_to",
-          target: { type: "position", position: bombPosition, radius: 64 },
-          priority: PRIORITY_ARM,
-          expiresAtTick,
-          // Arming is the win condition — do not wander off to shoot someone.
-          interrupt: "never",
-        },
-      ];
+      // One arms; the rest cover. Arming needs a body within 100 units and no
+      // more bodies make it faster, so a second attacker standing there is a
+      // second attacker not watching an entrance.
+      return isWorker
+        ? [this.directive("snd_arm", "move_to", bomb, ARM_RADIUS, PRIORITY_ARM, expiresAtTick, "never")]
+        : [
+            this.directive(
+              "snd_cover_plant",
+              "hold_area",
+              bomb,
+              SITE_ARRIVAL_RADIUS,
+              PRIORITY_HOLD,
+              expiresAtTick,
+              "enemy_visible",
+            ),
+          ];
     }
 
     if (phase === "dropped") {
+      const target = this.sites.find((s) => s.id === this.targetSiteId) ?? this.sites[0];
+      return isWorker
+        ? [
+            this.directive(
+              "snd_fetch_bomb",
+              "move_to",
+              bomb,
+              ARM_RADIUS,
+              PRIORITY_FETCH,
+              expiresAtTick,
+              "enemy_visible",
+            ),
+          ]
+        : [
+            // Not "wait for the bomb" — push the site now, so it is taken by
+            // the time the bomb arrives.
+            this.directive(
+              `snd_push_site_${target.id}`,
+              "hold_area",
+              target.position,
+              SITE_ARRIVAL_RADIUS,
+              PRIORITY_HOLD,
+              expiresAtTick,
+              "enemy_visible",
+            ),
+          ];
+    }
+
+    // Carried. The carrier goes to the committed site; everyone else escorts,
+    // tracking them rather than a fixed point, so the screen moves with them.
+    const carrier = this.bomb.carrierId;
+    const isCarrier = carrier !== null && me === carrier;
+    const target = this.sites.find((s) => s.id === this.targetSiteId) ?? this.sites[0];
+
+    if (isCarrier) {
       return [
-        {
-          id: "snd_fetch_bomb",
-          kind: "move_to",
-          target: { type: "position", position: bombPosition, radius: 64 },
-          priority: PRIORITY_FETCH,
+        this.directive(
+          `snd_plant_site_${target.id}`,
+          "move_to",
+          target.position,
+          PLANT_ARRIVAL_RADIUS,
+          PRIORITY_ARM,
           expiresAtTick,
-          // A loose bomb in a firefight is worth breaking off for.
-          interrupt: "enemy_visible",
-        },
+          "enemy_visible",
+        ),
       ];
     }
 
-    // Carried. The carrier is told to go plant; the rest are told to be there.
-    const carrierEntity = this.bomb.carrierId;
-    const isCarrier = carrierEntity !== null && context.entityId === String(carrierEntity);
-    const target = this.nearestSite(context.position) ?? this.sites[0];
-
+    if (carrier === null) return [];
     return [
       {
-        id: isCarrier ? `snd_plant_site_${target.id}` : "snd_escort_carrier",
-        kind: isCarrier ? "move_to" : "escort",
-        target: isCarrier
-          ? { type: "position", position: target.position, radius: SITE_ARRIVAL_RADIUS }
-          : { type: "position", position: bombPosition, radius: SITE_ARRIVAL_RADIUS },
-        priority: isCarrier ? PRIORITY_ARM : PRIORITY_HOLD,
+        id: "snd_escort_carrier",
+        kind: "escort",
+        target: { type: "player", entityId: toClientKey(carrier as EntityId) },
+        priority: PRIORITY_ESCORT,
         expiresAtTick,
         interrupt: "enemy_visible",
       },
     ];
+  }
+
+  /** Positional directive, which is most of them. */
+  private directive(
+    id: string,
+    kind: AgentDirective["kind"],
+    position: Vec3Like,
+    radius: number,
+    priority: number,
+    expiresAtTick: number,
+    interrupt: AgentDirective["interrupt"],
+  ): AgentDirective {
+    return {
+      id,
+      kind,
+      target: { type: "position", position: { ...position }, radius },
+      priority,
+      expiresAtTick,
+      interrupt,
+    };
+  }
+
+  /** Recover the simulation entity id from the client key the snapshot uses. */
+  private entityIdOf(entityKey: string): number | null {
+    const raw = Number.parseInt(clientKeyDisplayId(entityKey), 10);
+    return Number.isInteger(raw) ? raw : null;
   }
 
   // ========================================================================

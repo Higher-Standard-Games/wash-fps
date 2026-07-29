@@ -279,18 +279,82 @@ describe("agent directives", () => {
     expect(mode.getAgentDirectives(directiveContext({ teamId: "spectator" }), fakeState([]))).toHaveLength(0);
   });
 
-  it("sends defenders to both sites, so they spread without assignment logic", () => {
+  it("splits defenders across the sites instead of stacking them", () => {
+    // The failure this rules out: every bot runs the same arbitration on the
+    // same inputs, so emitting both sites and hoping they choose differently
+    // puts the whole team on one of them.
     const mode = loaded();
-    const directives = mode.getAgentDirectives(directiveContext({ teamId: "soba" }), fakeState([]));
-    expect(directives).toHaveLength(2);
-    expect(new Set(directives.map((d) => d.id)).size).toBe(2);
+    const defenders: FakePlayer[] = [
+      { id: 10, ownerId: 10, team: "soba", position: { x: 3000, y: 0, z: 0 } },
+      { id: 11, ownerId: 11, team: "soba", position: { x: 3010, y: 0, z: 0 } },
+      { id: 12, ownerId: 12, team: "soba", position: { x: 3020, y: 0, z: 0 } },
+      { id: 1, ownerId: 1, team: "udon", position: UDON_SPAWNS[0] },
+    ];
+    run(mode, defenders, 1);
+
+    const sites = defenders
+      .filter((d) => d.team === "soba")
+      .map((d) => {
+        const [directive] = mode.getAgentDirectives(
+          directiveContext({ teamId: "soba", entityId: `player_${d.id}` }),
+          fakeState(defenders),
+        );
+        return directive.id;
+      });
+    // Three defenders, two sites: both covered, and the odd one doubles up.
+    expect(new Set(sites).size).toBe(2);
   });
 
-  it("tells attackers to fetch a loose bomb", () => {
+  it("gives the bomb to exactly one attacker and sends the rest to the site", () => {
+    // Five bots piling onto the same 64 units of floor is the failure mode.
     const mode = loaded();
-    const [directive] = mode.getAgentDirectives(directiveContext({ teamId: "udon" }), fakeState([]));
-    expect(directive.id).toBe("snd_fetch_bomb");
-    expect(directive.kind).toBe("move_to");
+    // Outside the 64-unit pickup radius, or it would simply take the bomb.
+    const near: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: { x: -1800, y: 0, z: 0 } };
+    const far: FakePlayer = { id: 2, ownerId: 2, team: "udon", position: { x: 500, y: 0, z: 0 } };
+    const enemy: FakePlayer = { id: 3, ownerId: 3, team: "soba", position: { x: 3000, y: 0, z: 0 } };
+    // Nobody is close enough to touch it, so it stays loose for this tick.
+    mode.onTick(fakeState([near, far, enemy]), tickContext({ players: [near, far, enemy] }));
+
+    const forNear = mode.getAgentDirectives(directiveContext({ teamId: "udon", entityId: "player_1" }), fakeState([]));
+    const forFar = mode.getAgentDirectives(directiveContext({ teamId: "udon", entityId: "player_2" }), fakeState([]));
+    expect(forNear[0].id).toBe("snd_fetch_bomb");
+    expect(forFar[0].id).toMatch(/^snd_push_site_/);
+  });
+
+  it("tells defenders to hunt the carrier, because killing them drops it", () => {
+    const mode = loaded();
+    const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: UDON_SPAWNS[0] };
+    const defender: FakePlayer = { id: 2, ownerId: 2, team: "soba", position: { x: 3000, y: 0, z: 0 } };
+    run(mode, [carrier, defender], 1);
+    expect(mode.bombState.carrierId).toBe(1);
+
+    const directives = mode.getAgentDirectives(
+      directiveContext({ teamId: "soba", entityId: "player_2" }),
+      fakeState([]),
+    );
+    const hunt = directives.find((d) => d.kind === "hunt");
+    expect(hunt?.target).toEqual({ type: "player", entityId: "player_1" });
+  });
+
+  it("has exactly one attacker arm the bomb while the others cover", () => {
+    const mode = loaded();
+    const armer: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: UDON_SPAWNS[0] };
+    const mate: FakePlayer = { id: 2, ownerId: 2, team: "udon", position: { x: 900, y: 0, z: 0 } };
+    const enemy: FakePlayer = { id: 3, ownerId: 3, team: "soba", position: { x: 3000, y: 0, z: 0 } };
+    run(mode, [armer, mate, enemy], 1);
+    const planting = { ...armer, position: { x: 0, y: 0, z: 0 }, speed: 10 };
+    run(mode, [planting, mate, enemy], 1, 1);
+    expect(mode.bombState.phase).toBe("planted");
+
+    const forArmer = mode.getAgentDirectives(directiveContext({ teamId: "udon", entityId: "player_1" }), fakeState([]));
+    const forMate = mode.getAgentDirectives(directiveContext({ teamId: "udon", entityId: "player_2" }), fakeState([]));
+    expect(forArmer[0].id).toBe("snd_arm");
+    expect(forMate[0].id).toBe("snd_cover_plant");
+    // Covering must not put them on the bomb — a second body arms no faster.
+    expect(forMate[0].target).toMatchObject({ radius: expect.any(Number) });
+    expect((forMate[0].target as { radius: number }).radius).toBeGreaterThan(
+      (forArmer[0].target as { radius: number }).radius,
+    );
   });
 
   it("ranks a defuse above everything else it ever issues", () => {
@@ -307,6 +371,9 @@ describe("agent directives", () => {
     const [defuse] = mode.getAgentDirectives(directiveContext({ teamId: "soba" }), fakeState([]));
     const others = mode.getAgentDirectives(directiveContext({ teamId: "udon" }), fakeState([]));
     expect(defuse.id).toBe("snd_defuse");
+    // And it is the one order a bot should die for — nothing is left to
+    // preserve itself for once the bomb is ticking.
+    expect(defuse.interrupt).toBe("never");
     for (const other of others) expect(defuse.priority).toBeGreaterThan(other.priority);
   });
 
@@ -373,6 +440,13 @@ describe("loadouts", () => {
 describe("item rules", () => {
   it("restores the map per round rather than on item timers", () => {
     expect(new SearchAndDestroy().getItemSpawnRules().respawnMode).toBe("round");
+  });
+
+  it("does not spawn Quad", () => {
+    // All six bomb maps carry exactly one. In a round with no respawns the
+    // usual counterplay — die, come back, wait it out — does not exist, so it
+    // is not a prize to contest but a round decided by spawn proximity.
+    expect(new SearchAndDestroy().getItemSpawnRules().excludeClassnames).toContain("item_quad");
   });
 });
 

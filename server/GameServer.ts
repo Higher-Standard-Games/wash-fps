@@ -334,6 +334,16 @@ export class GameServer {
    * (extractPickups — ids are authoritative and shared with the client).
    */
   setPickupItems(entries: PickupEntry[]): void {
+    const excluded = this.gametypeController.getGametype().getItemSpawnRules().excludeClassnames;
+    if (excluded && excluded.length > 0) {
+      const drop = new Set(excluded);
+      const kept = entries.filter((e) => !drop.has(e.classname));
+      if (kept.length !== entries.length) {
+        console.log(`[GameServer] ${entries.length - kept.length} pickups excluded by gametype`);
+      }
+      this.pickupSystem.setPickupItems(kept);
+      return;
+    }
     this.pickupSystem.setPickupItems(entries);
   }
 
