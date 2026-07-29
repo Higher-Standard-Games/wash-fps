@@ -25,6 +25,7 @@ import { EntityType } from "@engine/server/ecs/types";
 import type {
   AgentDirective,
   AgentDirectiveContext,
+  BombExplosionEvent,
   ItemSpawnRules,
   LoadoutChoice,
   MatchConfig,
@@ -39,6 +40,7 @@ import type { Vec3 } from "@shared/server/simulation/types";
 import type { BombSite, Vec3Like } from "../../../../shared/bsp/BombSiteTable";
 import { extractBombSites, isBombMap, spawnCentroid } from "../../../../shared/bsp/BombSiteTable";
 import type { CollisionWorld } from "../../../../shared/collision/CollisionWorld";
+import { rngFrom } from "../../../../shared/DeterministicRng";
 import type { BombEvent, BombPlayerView } from "../../../../shared/server/gametype/BombModel";
 import { BombModel } from "../../../../shared/server/gametype/BombModel";
 import { clientKeyDisplayId, toClientKey } from "../../ClientEntityKey";
@@ -117,6 +119,22 @@ const GROUND_TRACE_DISTANCE = 8;
 /** Simulation rate, for converting bomb timers to the seconds the HUD wants. */
 const TICKS_PER_SECOND = 125;
 
+// ── Detonation ───────────────────────────────────────────────────────
+//
+// Warsow's numbers: 30 candidate points, ~20 of them fire, spread over 1.5 s
+// within 512 units of the site. Only used on maps with no authored explosions,
+// which is three of the six.
+
+const EXPLOSION_CANDIDATES = 30;
+const EXPLOSION_AVERAGE = 20;
+const EXPLOSION_PROBABILITY = EXPLOSION_AVERAGE / EXPLOSION_CANDIDATES;
+const EXPLOSION_MAX_DIST = 512;
+const EXPLOSION_MAX_DELAY = 1.5;
+const EXPLOSION_ORIGIN_LIFT = 96;
+const EXPLOSION_FALLBACK_RADIUS = 300;
+/** Snapshots the schedule keeps being sent for, against a dropped packet. */
+const EXPLOSION_REPEAT_TICKS = 125;
+
 // ── Scoring ──────────────────────────────────────────────────────────
 //
 // Warsow's bomb formula, plus objective points it defines and never awards.
@@ -153,6 +171,9 @@ export class SearchAndDestroy extends BaseGametype {
   private tick = 0;
   /** Entity id → player id, rebuilt each tick alongside the bomb's world view. */
   private playerByEntity = new Map<number, PlayerId>();
+  /** The detonation schedule, held for a few snapshots after it fires. */
+  private explosion: BombExplosionEvent | null = null;
+  private explosionUntilTick = 0;
   /** Site each defender covers this tick. Recomputed by `assignRoles`. */
   private siteByDefender = new Map<number, number>();
   /** The one attacker doing the job that needs exactly one person. */
@@ -397,6 +418,79 @@ export class SearchAndDestroy extends BaseGametype {
   }
 
   /**
+   * The detonation, for as long as it is worth repeating.
+   *
+   * Repeated across several snapshots rather than sent once, because a dropped
+   * packet would otherwise cost the client the entire explosion — and this is
+   * the one moment of the mode that the whole intermission exists to show.
+   */
+  getExplosion(): BombExplosionEvent | null {
+    return this.explosion && this.tick <= this.explosionUntilTick ? this.explosion : null;
+  }
+
+  /**
+   * Where the blasts go.
+   *
+   * Authored points win where a mapper provided them: wbomb1 has eight per
+   * site with staggered delays, which reads as a chain reaction tearing
+   * through the room. Half the shipped maps have none, so the fallback traces
+   * outward from the site and keeps whatever the geometry allows — the same
+   * split Warsow makes, and the reason its source nags mappers to author them.
+   */
+  private buildExplosion(siteId: number | null): BombExplosionEvent {
+    const site = this.sites.find((s) => s.id === siteId);
+    const origin = site?.position ?? this.bomb.position;
+
+    if (site && site.explosions.length > 0) {
+      return {
+        points: site.explosions.map((point) => ({
+          x: point.position.x,
+          y: point.position.y,
+          z: point.position.z,
+          radius: point.radius,
+          delay: point.delay,
+        })),
+      };
+    }
+
+    // Deterministic: seeded from the tick and the site, so a re-simulated demo
+    // produces the same explosion rather than a different one each replay.
+    const rng = rngFrom(this.tick, siteId ?? 0, 0);
+    const points: BombExplosionEvent["points"] = [];
+    const from = { x: origin.x, y: origin.y + EXPLOSION_ORIGIN_LIFT, z: origin.z };
+
+    for (let i = 0; i < EXPLOSION_CANDIDATES; i++) {
+      if (rng() >= EXPLOSION_PROBABILITY) continue;
+
+      // A direction with a non-negative vertical component, so blasts climb
+      // through the room rather than burying themselves in the floor.
+      const dir = { x: rng() * 2 - 1, y: rng(), z: rng() * 2 - 1 };
+      const length = Math.hypot(dir.x, dir.y, dir.z) || 1;
+      const reach = EXPLOSION_MAX_DIST / length;
+      const end = { x: from.x + dir.x * reach, y: from.y + dir.y * reach, z: from.z + dir.z * reach };
+
+      // Stop at the first wall, then pick a point somewhere along the way —
+      // an explosion inside geometry is invisible, which is the whole failure.
+      const fraction = this.collision ? Math.min(1, this.collision.trace(from, end).fraction) : 1;
+      const t = rng() * fraction;
+      points.push({
+        x: from.x + (end.x - from.x) * t,
+        y: from.y + (end.y - from.y) * t,
+        z: from.z + (end.z - from.z) * t,
+        radius: EXPLOSION_FALLBACK_RADIUS,
+        delay: rng() * EXPLOSION_MAX_DELAY,
+      });
+    }
+
+    // Always at least one, at the bomb itself. A silent detonation would read
+    // as a bug on a map where every trace happened to fail.
+    if (points.length === 0) {
+      points.push({ x: origin.x, y: origin.y, z: origin.z, radius: EXPLOSION_FALLBACK_RADIUS, delay: 0 });
+    }
+    return { points };
+  }
+
+  /**
    * What the round is currently about. The plant is the pivot: before it the
    * attackers hold the initiative, after it the roles invert and the HUD should
    * say so.
@@ -435,6 +529,8 @@ export class SearchAndDestroy extends BaseGametype {
 
       switch (event.kind) {
         case "detonated":
+          this.explosion = this.buildExplosion(this.bomb.siteId);
+          this.explosionUntilTick = (this.tick as number) + EXPLOSION_REPEAT_TICKS;
           return {
             winner: context.attackingTeam,
             reason: "bomb detonated",

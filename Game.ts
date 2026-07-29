@@ -30,23 +30,23 @@ import { PlayerProfile } from "../../engine/player/PlayerProfile";
 import { getProjectileManager } from "../../engine/weapon/ProjectileManager";
 import { getWeaponViewManager } from "../../engine/weapon/WeaponViewManager";
 import { WEAPONS } from "../../shared/entities/definitions/weapons/WeaponsTable";
-import { ensureClientKey } from "./ClientEntityKey";
+import { clientKeyDisplayId, ensureClientKey } from "./ClientEntityKey";
 import { V2NetworkClient } from "./client";
 import { getAmmoStatus } from "./client/AmmoStatus";
+import { BombRenderer } from "./client/BombRenderer";
+import { BombSiteMarkers } from "./client/BombSiteMarkers";
 import { Crosshair } from "./client/Crosshair";
 import { DeathCamera } from "./client/DeathCamera";
-import { BombRenderer } from "./client/BombRenderer";
-import { FPSBombAudio } from "./client/FPSBombAudio";
 import type { DroppedWeaponRenderer } from "./client/DroppedWeaponRenderer";
 import { registerFPSActions } from "./client/FPSActions";
 import { preloadFPSAudio } from "./client/FPSAudio";
+import { FPSBombAudio } from "./client/FPSBombAudio";
 import { FPSHud } from "./client/FPSHud";
 import { resetFPSMovementAudio } from "./client/FPSMovementAudio";
 // Game event handling (extracted from this file)
 import { type GameEventContext, handleServerStateUpdate } from "./client/GameEvents";
 import { HUDState } from "./client/HUDState";
 import { MatchPhase, MatchStateManager } from "./client/MatchStateManager";
-import { clientKeyDisplayId } from "./ClientEntityKey";
 import { RemotePlayerRenderer } from "./client/RemotePlayerRenderer";
 import { createBSPCollisionWorld } from "./simulation/collision/BSPCollisionWorld";
 import { type FPSInputCommand, FPSSimulation } from "./simulation/FPSSimulation";
@@ -119,6 +119,7 @@ export class Game {
   private remoteRenderer: RemotePlayerRenderer | null = null;
   private droppedWeaponRenderer: DroppedWeaponRenderer | null = null;
   private bombRenderer: BombRenderer | null = null;
+  private bombSiteMarkers: BombSiteMarkers | null = null;
   private readonly bombAudio = new FPSBombAudio();
 
   // Server-driven projectile tracking (Q3-style)
@@ -212,6 +213,8 @@ export class Game {
       this.droppedWeaponRenderer = null;
       this.bombRenderer?.dispose();
       this.bombRenderer = null;
+      this.bombSiteMarkers?.dispose();
+      this.bombSiteMarkers = null;
       resetFPSMovementAudio();
     });
 
@@ -1313,6 +1316,11 @@ export class Game {
       if (gameScene) this.bombRenderer = new BombRenderer(gameScene, this.remoteRenderer);
     }
     this.bombRenderer?.update(dtSec);
+    if (!this.bombSiteMarkers) {
+      const markerScene = CameraSystem.getInstance().getCamera()?.getScene();
+      if (markerScene) this.bombSiteMarkers = new BombSiteMarkers(markerScene);
+    }
+    this.bombSiteMarkers?.update(dtSec);
 
     // Beep and announcer, driven by the same objective snapshot and the same
     // server-computed interval as the blinking light, so they stay one signal.
@@ -1634,6 +1642,8 @@ export class Game {
     this.droppedWeaponRenderer = null;
     this.bombRenderer?.dispose();
     this.bombRenderer = null;
+    this.bombSiteMarkers?.dispose();
+    this.bombSiteMarkers = null;
     resetFPSMovementAudio();
 
     // Cleanup event listeners

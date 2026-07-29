@@ -924,6 +924,8 @@ export class GametypeController {
     if (objective) snapshot.objective = objective;
     const roundState = this.gametype.getRoundState();
     if (roundState) snapshot.roundState = roundState;
+    const explosion = this.gametype.getExplosion();
+    if (explosion) snapshot.explosion = explosion;
     return snapshot;
   }
 

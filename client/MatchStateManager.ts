@@ -6,6 +6,7 @@
  */
 
 import type {
+  BombExplosionEvent,
   BombObjectiveSnapshot,
   MatchWinner,
   ObjectiveSnapshot,
@@ -19,7 +20,7 @@ import type {
 import { MatchPhase } from "../../../shared/server/gametype/GametypeTypes";
 
 export { MatchPhase };
-export type { BombObjectiveSnapshot, MatchWinner, ObjectiveSnapshot, RoundResult };
+export type { BombExplosionEvent, BombObjectiveSnapshot, MatchWinner, ObjectiveSnapshot, RoundResult };
 export type { MatchStateSnapshot } from "../../../shared/server/gametype/GametypeTypes";
 
 export type PhaseChangeCallback = (newPhase: MatchPhase, oldPhase: MatchPhase) => void;
@@ -45,6 +46,7 @@ export class MatchStateManager {
   private _roundState: string | null = null;
   private _objective: ObjectiveSnapshot | null = null;
   private _roundResult: RoundResult | null = null;
+  private _explosion: BombExplosionEvent | null = null;
   private _isReady: boolean = false;
   private _phaseCallbacks: PhaseChangeCallback[] = [];
 
@@ -86,6 +88,7 @@ export class MatchStateManager {
     this._roundState = event.roundState ?? null;
     this._objective = event.objective ?? null;
     this._roundResult = event.roundResult ?? null;
+    this._explosion = event.explosion ?? null;
 
     // Fire phase change callbacks
     if (oldPhase !== this._phase) {
@@ -141,6 +144,13 @@ export class MatchStateManager {
   /** How the last round ended. Set only during the round-end intermission. */
   get roundResult(): RoundResult | null {
     return this._roundResult;
+  }
+  /**
+   * A detonation to play out. Repeated for about a second after it fires, so
+   * consumers must recognise a repeat rather than replaying it.
+   */
+  get explosion(): BombExplosionEvent | null {
+    return this._explosion;
   }
   /** The bomb, when there is one. Null in every other mode. */
   get bomb(): BombObjectiveSnapshot | null {

@@ -15,6 +15,7 @@ import type { PlayerId, TickNumber } from "@engine/server/ecs/types";
 import type {
   AgentDirective,
   AgentDirectiveContext,
+  BombExplosionEvent,
   ItemSpawnRules,
   LoadoutChoice,
   MatchConfig,
@@ -221,6 +222,17 @@ export abstract class BaseGametype {
    * how it was decided — every rule stays here.
    */
   getObjectiveState(): ObjectiveSnapshot | null {
+    return null;
+  }
+
+  /**
+   * A one-shot visual the mode wants played. Null when there is nothing.
+   *
+   * Polled rather than pushed so it survives a dropped packet: the mode keeps
+   * returning it for a moment, and a client that missed one snapshot still
+   * sees the explosion.
+   */
+  getExplosion(): BombExplosionEvent | null {
     return null;
   }
 

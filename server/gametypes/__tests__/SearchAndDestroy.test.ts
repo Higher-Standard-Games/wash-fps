@@ -569,3 +569,85 @@ describe("scoring", () => {
     expect(mode.scoreFromStats(stats())).toBe(0);
   });
 });
+
+// ── The detonation ───────────────────────────────────────────────────
+
+describe("detonation", () => {
+  /** A mode whose site A has authored explosion points. */
+  function authored(): SearchAndDestroy {
+    const mode = new SearchAndDestroy();
+    mode.onMapLoad(
+      mapContext({
+        entities: [
+          // Site A points at the group; everything else is the shared fixture.
+          entity("misc_capture_area_indicator", { origin: "0 0 0", targetname: "bombsitea0", target: "boom" }),
+          ...MAP_ENTITIES.slice(1),
+          entity("target_explosion", { targetname: "boom", origin: "10 20 30", delay: "0.5", radius: "450" }),
+          entity("target_explosion", { targetname: "boom", origin: "40 50 60", delay: "0.9", radius: "400" }),
+        ] as never,
+      }),
+    );
+    startRound(mode, 1, "udon");
+    return mode;
+  }
+
+  /** Arm the bomb at site A and run the fuse out. */
+  function detonate(mode: SearchAndDestroy): void {
+    const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: UDON_SPAWNS[0] };
+    const watcher: FakePlayer = { id: 2, ownerId: 2, team: "soba", position: { x: 3000, y: 0, z: 0 } };
+    run(mode, [carrier, watcher], 1);
+    const planting = { ...carrier, position: { x: 0, y: 0, z: 0 }, speed: 10 };
+    run(mode, [planting, watcher], 1, 1);
+    const armTicks = 4 * 125 + 10;
+    run(mode, [planting, watcher], armTicks, 2);
+    const outcome = run(mode, [planting, watcher], 30 * 125 + 20, 2 + armTicks);
+    expect(outcome?.reason).toContain("detonated");
+  }
+
+  it("sends nothing until the bomb goes off", () => {
+    expect(loaded().getExplosion()).toBeNull();
+  });
+
+  it("generates blasts when the mapper authored none", () => {
+    // Four of the six shipped bomb maps author nothing at all, so this is the
+    // path most detonations actually take.
+    const mode = loaded();
+    detonate(mode);
+
+    const explosion = mode.getExplosion();
+    expect(explosion).not.toBeNull();
+    expect(explosion?.points.length).toBeGreaterThan(0);
+    for (const point of explosion?.points ?? []) {
+      expect(point.delay).toBeGreaterThanOrEqual(0);
+      expect(point.delay).toBeLessThanOrEqual(1.5);
+      expect(Number.isFinite(point.x)).toBe(true);
+    }
+  });
+
+  it("uses the mapper's points when there are any", () => {
+    // wbomb1 authors 19 and 13; wbomb5 authors 18 on its B site only. Where a
+    // mapper placed blasts, the traced fallback must not override them.
+    const mode = authored();
+    detonate(mode);
+
+    const points = mode.getExplosion()?.points ?? [];
+    expect(points).toHaveLength(2);
+    expect(points[0]).toMatchObject({ x: 10, y: 30, z: 20, radius: 450 });
+    expect(points[0].delay).toBeCloseTo(0.5, 5);
+  });
+
+  it("is deterministic, so a replayed demo explodes the same way", () => {
+    const a = loaded();
+    detonate(a);
+    const b = loaded();
+    detonate(b);
+    expect(a.getExplosion()).toEqual(b.getExplosion());
+  });
+
+  it("staggers the blasts rather than firing them all at once", () => {
+    const mode = loaded();
+    detonate(mode);
+    const delays = (mode.getExplosion()?.points ?? []).map((p) => p.delay);
+    expect(new Set(delays.map((d) => d.toFixed(2))).size).toBeGreaterThan(1);
+  });
+});
