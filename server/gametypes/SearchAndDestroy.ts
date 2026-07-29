@@ -374,6 +374,7 @@ export class SearchAndDestroy extends BaseGametype {
 
     const players = this.collectPlayers(state, context);
     const events = this.bomb.update(context.tick as number, players, this.sites, context.attackingTeam);
+    this.logBombEvents(events);
 
     // Team assignments, settled once per tick before any per-player directive
     // is asked for. Order matters: this must see the bomb AFTER it moved.
@@ -531,6 +532,22 @@ export class SearchAndDestroy extends BaseGametype {
       carrierId: this.bomb.carrierId,
       progress: this.bomb.progress,
     };
+  }
+
+  /**
+   * Say what the bomb did.
+   *
+   * The round outcome alone cannot distinguish "the attackers never found the
+   * bomb" from "they carried it to a site and died on the plant", and those are
+   * completely different problems. One line per event, and there are at most a
+   * handful per round.
+   */
+  private logBombEvents(events: readonly BombEvent[]): void {
+    for (const event of events) {
+      const who = event.entityId === undefined ? "" : ` by entity ${event.entityId}`;
+      const site = event.siteId === null || event.siteId === undefined ? "" : ` at site ${event.siteId}`;
+      console.log(`[S&D] bomb ${event.kind}${who}${site}`);
+    }
   }
 
   /** A round ended on the bomb: a defuse, or a detonation. */
