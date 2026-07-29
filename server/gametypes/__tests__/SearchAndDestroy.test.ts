@@ -485,10 +485,10 @@ describe("objective snapshot", () => {
   it("carries the bomb's position and the sites the HUD needs", () => {
     const mode = loaded();
     const objective = mode.getObjectiveState();
-    expect(objective.kind).toBe("bomb");
-    expect(objective.phase).toBe("dropped");
-    expect(objective.x).toBeCloseTo(UDON_SPAWNS[0].x, 0);
-    expect(objective.sites.map((s) => s.label).sort()).toEqual(["A", "B"]);
+    expect(objective?.kind).toBe("bomb");
+    expect(objective?.phase).toBe("dropped");
+    expect(objective?.x).toBeCloseTo(UDON_SPAWNS[0].x, 0);
+    expect(objective?.sites.map((s) => s.label).sort()).toEqual(["A", "B"]);
   });
 
   it("addresses the carrier by the key the snapshot uses, not the raw id", () => {
@@ -496,7 +496,7 @@ describe("objective snapshot", () => {
     const mode = loaded();
     const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: UDON_SPAWNS[0] };
     run(mode, [carrier], 1);
-    expect(mode.getObjectiveState().carrier).toBe("player_1");
+    expect(mode.getObjectiveState()?.carrier).toBe("player_1");
   });
 
   it("reports the fuse in seconds, not ticks", () => {
@@ -504,16 +504,16 @@ describe("objective snapshot", () => {
     // the day the rate changes.
     const { mode } = armedFixture();
     const objective = mode.getObjectiveState();
-    expect(objective.fuse).toBeGreaterThan(25);
-    expect(objective.fuse).toBeLessThanOrEqual(30);
-    expect(objective.beepInterval).toBeGreaterThan(0);
-    expect(objective.beepInterval).toBeLessThan(5.01);
+    expect(objective?.fuse).toBeGreaterThan(25);
+    expect(objective?.fuse).toBeLessThanOrEqual(30);
+    expect(objective?.beepInterval).toBeGreaterThan(0);
+    expect(objective?.beepInterval).toBeLessThan(5.01);
   });
 
   it("has no fuse before the bomb is armed", () => {
     const mode = loaded();
-    expect(mode.getObjectiveState().fuse).toBeNull();
-    expect(mode.getObjectiveState().beepInterval).toBeNull();
+    expect(mode.getObjectiveState()?.fuse).toBeNull();
+    expect(mode.getObjectiveState()?.beepInterval).toBeNull();
   });
 
   it("flips the round state at the arm, which is when the roles invert", () => {
@@ -683,5 +683,28 @@ describe("spawn protection", () => {
     // have moved. Enemy damage is never blocked — they cannot reach a team
     // spawn anyway, and blocking it would be protection from the game.
     expect(new SearchAndDestroy().getMatchConfig().teamSpawnProtection).toBe(3);
+  });
+});
+
+// ── Warmup ───────────────────────────────────────────────────────────
+
+describe("warmup", () => {
+  it("publishes no objective before the first round", () => {
+    // BombModel starts life "dropped" at the world origin, so publishing
+    // unconditionally put a spinning bomb at 0,0,0 through the whole warmup,
+    // with both site markers up and the HUD reading TAKE THE BOMB. Warmup here
+    // is the same free-fight duel and FFA get.
+    const mode = new SearchAndDestroy();
+    mode.onMapLoad(mapContext());
+    mode.onTick(fakeState([]), tickContext({ players: [], live: false, round: 0 }));
+
+    expect(mode.getObjectiveState()).toBeNull();
+    expect(mode.getRoundState()).toBeNull();
+  });
+
+  it("publishes it from round one onward", () => {
+    const mode = loaded();
+    expect(mode.getObjectiveState()).not.toBeNull();
+    expect(mode.getRoundState()).toBe("pre_plant");
   });
 });

@@ -174,6 +174,8 @@ export class SearchAndDestroy extends BaseGametype {
   private attackers: TeamId | null = null;
   /** Latest tick, so the objective snapshot can report a live fuse. */
   private tick = 0;
+  /** Current round, 0 during warmup. Gates everything the mode publishes. */
+  private round = 0;
   /** Entity id → player id, rebuilt each tick alongside the bomb's world view. */
   private playerByEntity = new Map<number, PlayerId>();
   /** The detonation schedule, held for a few snapshots after it fires. */
@@ -351,6 +353,7 @@ export class SearchAndDestroy extends BaseGametype {
    */
   onRoundStart(_state: WorldState, context: GametypeTickContext): void {
     this.attackers = context.attackingTeam;
+    this.round = context.round;
     this.bomb.reset(this.bombSpawns.get(context.attackingTeam) ?? { x: 0, y: 0, z: 0 });
 
     // A chosen kit takes effect here and nowhere else. Players respawn moments
@@ -370,6 +373,7 @@ export class SearchAndDestroy extends BaseGametype {
   onTick(state: WorldState, context: GametypeTickContext): RoundOutcome | null {
     this.attackers = context.attackingTeam;
     this.tick = context.tick as number;
+    this.round = context.round;
     if (!context.live) return null;
 
     const players = this.collectPlayers(state, context);
@@ -410,7 +414,17 @@ export class SearchAndDestroy extends BaseGametype {
    * ticks: the client has no tick rate to divide by, and a HUD that has to know
    * the simulation rate is a HUD that breaks when the rate changes.
    */
-  getObjectiveState(): ObjectiveSnapshot {
+  getObjectiveState(): ObjectiveSnapshot | null {
+    // Nothing before the first round. `BombModel` starts life "dropped" at the
+    // world origin, so publishing unconditionally put a spinning bomb at 0,0,0
+    // through the whole warmup, with both site markers up and the HUD saying
+    // TAKE THE BOMB — which reads as a broken round rather than as a warmup.
+    //
+    // Warmup in this mode is the same free-fight duel and FFA get: teams and
+    // team spawns, no objective, no scoring. The mode's furniture arrives when
+    // the mode does.
+    if (this.round <= 0) return null;
+
     const fuseTicks = this.bomb.ticksUntilDetonation(this.tick);
     const beepTicks = this.bomb.beepIntervalTicks(this.tick);
     return {
@@ -513,7 +527,8 @@ export class SearchAndDestroy extends BaseGametype {
    * attackers hold the initiative, after it the roles invert and the HUD should
    * say so.
    */
-  getRoundState(): string {
+  getRoundState(): string | null {
+    if (this.round <= 0) return null;
     return this.bomb.isArmed ? "post_plant" : "pre_plant";
   }
 
