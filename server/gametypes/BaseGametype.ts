@@ -19,6 +19,7 @@ import type {
   LoadoutChoice,
   MatchConfig,
   ObjectiveSnapshot,
+  RoundResult,
   SpawnStrategyType,
   TeamId,
   WeaponLoadout,
@@ -79,8 +80,16 @@ export interface GametypeTickContext {
  */
 export interface RoundOutcome {
   winner: TeamId | null;
-  /** For the log and, later, the round-end banner. */
+  /** For the log. The client's wording comes from `resultKey`. */
   reason: string;
+  /**
+   * Stable key for the round-end banner. A key rather than the prose in
+   * `reason` because the client owns the wording, and a key survives rephrasing
+   * where a sentence does not.
+   */
+  resultKey?: RoundResult["reason"];
+  /** Where the camera should look during the intermission — usually the bomb. */
+  focus?: { x: number; y: number; z: number };
 }
 
 export abstract class BaseGametype {

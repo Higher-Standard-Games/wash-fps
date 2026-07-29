@@ -41,6 +41,7 @@ import { FPSPhaseMessage } from "./hud/widgets/PhaseMessage";
 import { FPSPickupToast } from "./hud/widgets/PickupToast";
 import { FPSPowerupTimer } from "./hud/widgets/PowerupTimer";
 import { FPSReadyBar } from "./hud/widgets/ReadyBar";
+import { FPSRoundResult } from "./hud/widgets/RoundResult";
 // Overlay / dialog widgets
 import { FPSScoreboard } from "./hud/widgets/Scoreboard";
 import { FPSSettingsOverlay } from "./hud/widgets/SettingsOverlay";
@@ -453,6 +454,9 @@ export class FPSHud {
 
     // Weapon rack - disabled, redundant with bottom-right weapon slots
     // this.addWidget("weapons", new FPSWeaponRack(), "left");
+
+    // Round result banner (S&D) - center screen
+    this.addWidget("roundresult", new FPSRoundResult(), "center");
 
     // Frag message - center screen
     this.addWidget("frag", new FPSFragMessage(), "center");

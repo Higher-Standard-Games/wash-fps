@@ -11,6 +11,7 @@ import {
   MatchPhase,
   type MatchStateSnapshot,
   type MatchWinner,
+  type RoundResult,
   type TeamId,
 } from "@shared/server/gametype";
 
@@ -68,6 +69,7 @@ export class MatchState {
    * asks the gametype, and calls `endRound()` with the answer.
    */
   private _roundTimeExpired = false;
+  private _roundResult: RoundResult | null = null;
 
   constructor(gametypeName: string, config: Partial<MatchConfig> = {}, teamBased = false) {
     this.config = { ...DEFAULT_MATCH_CONFIG, ...config };
@@ -242,7 +244,7 @@ export class MatchState {
    * `winner` is the gametype's decision — MatchState owns the round LOOP, not
    * the rules that decide a round.
    */
-  endRound(winner: TeamId | null): void {
+  endRound(winner: TeamId | null, result?: Omit<RoundResult, "round" | "winner" | "winnerName">): void {
     if (!this.roundBased || this._phase !== MatchPhase.Active) return;
 
     this._roundTimeExpired = false;
@@ -257,12 +259,25 @@ export class MatchState {
         `${this.inOvertime ? " [overtime]" : ""}`,
     );
 
+    this._roundResult = {
+      winner: winner ?? null,
+      winnerName: winner ? (this._teamNames.get(winner) ?? winner) : "Nobody",
+      reason: result?.reason ?? "eliminated",
+      round: this._round,
+      focus: result?.focus,
+    };
+
     if (this.hasDecisiveLead()) {
       this.transition(MatchPhase.PostGame);
       return;
     }
-    // Back to the freeze phase for the next round.
-    this.transition(MatchPhase.Countdown);
+    // The intermission: watch what happened, then the next freeze.
+    this.transition(MatchPhase.RoundEnd);
+  }
+
+  /** How the last round ended. Cleared when the next one starts. */
+  get roundResult(): RoundResult | null {
+    return this._roundResult;
   }
 
   // ========================================================================
@@ -492,6 +507,15 @@ export class MatchState {
         // Win condition checked externally by GametypeController
         break;
 
+      case MatchPhase.RoundEnd:
+        // Fixed intermission. Nothing can shorten it — the beat exists so a
+        // detonation is watched rather than cut away from.
+        this._timeRemaining -= dt;
+        if (this._timeRemaining <= 0) {
+          this.transition(MatchPhase.Countdown);
+        }
+        break;
+
       case MatchPhase.PostGame:
         // Single-match server: PostGame is terminal. Players chat and return
         // to the lobby; the process exits when the last client leaves
@@ -530,8 +554,13 @@ export class MatchState {
         this._round = 0;
         this._roundTimeExpired = false;
         break;
+      case MatchPhase.RoundEnd:
+        this._timeRemaining = this.config.roundEndDuration ?? 5;
+        break;
       case MatchPhase.Countdown:
         this._timeRemaining = this.config.countdownDuration;
+        // A new round is starting, so the last one's result is history.
+        this._roundResult = null;
         // A round begins at its FREEZE, not when it goes live. Everything set
         // up during the freeze — where the bomb goes, which side attacks, who
         // spawns where — needs the round it is setting up for, not the one
@@ -563,7 +592,7 @@ export class MatchState {
         break;
     }
 
-    const phaseNames = ["Warmup", "Countdown", "Active", "PostGame"];
+    const phaseNames = ["Warmup", "Countdown", "Active", "PostGame", "RoundEnd"];
     console.log(`[MatchState] ${phaseNames[oldPhase]} → ${phaseNames[newPhase]} (${this._timeRemaining.toFixed(1)}s)`);
   }
 

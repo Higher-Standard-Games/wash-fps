@@ -60,8 +60,19 @@ const ROUND_TIME_SECONDS = 90;
 const ROUNDS_PER_HALF = 9;
 const ROUNDS_TO_WIN = 10;
 const LEAD_REQUIRED = 2;
-/** Freeze between rounds: read the map, pick a side, no buy phase to fill. */
-const FREEZE_SECONDS = 5;
+/**
+ * "Get ready" freeze before each round. Long enough to read the map, agree a
+ * site, and for the loadout you picked last round to be in your hands.
+ */
+const FREEZE_SECONDS = 10;
+/**
+ * The intermission after a round is decided.
+ *
+ * Covers the detonation finishing and the result being read. The client holds
+ * its banner back until the explosion has played, so this is one phase rather
+ * than the two Warsow uses (FINISHED then POST).
+ */
+const ROUND_END_SECONDS = 5;
 
 // ── Directive tuning ─────────────────────────────────────────────────
 
@@ -156,6 +167,7 @@ export class SearchAndDestroy extends BaseGametype {
       respawnDelay: 2,
       maxRespawnDelay: 4,
       selfDamage: 1.0,
+      roundEndDuration: ROUND_END_SECONDS,
       roundBased: true,
       roundsPerHalf: ROUNDS_PER_HALF,
       leadRequired: LEAD_REQUIRED,
@@ -329,7 +341,11 @@ export class SearchAndDestroy extends BaseGametype {
    */
   onRoundTimeExpired(_state: WorldState): RoundOutcome | null {
     if (this.bomb.isArmed) return null;
-    return { winner: this.attackers === "udon" ? "soba" : "udon", reason: "time expired, bomb not armed" };
+    return {
+      winner: this.attackers === "udon" ? "soba" : "udon",
+      reason: "time expired, bomb not armed",
+      resultKey: "timeout",
+    };
   }
 
   /**
@@ -395,9 +411,19 @@ export class SearchAndDestroy extends BaseGametype {
     for (const event of events) {
       switch (event.kind) {
         case "detonated":
-          return { winner: context.attackingTeam, reason: "bomb detonated" };
+          return {
+            winner: context.attackingTeam,
+            reason: "bomb detonated",
+            resultKey: "detonated",
+            focus: { ...this.bomb.position },
+          };
         case "defused":
-          return { winner: context.defendingTeam, reason: "bomb defused" };
+          return {
+            winner: context.defendingTeam,
+            reason: "bomb defused",
+            resultKey: "defused",
+            focus: { ...this.bomb.position },
+          };
         default:
           break;
       }
@@ -429,10 +455,10 @@ export class SearchAndDestroy extends BaseGametype {
     if (attackersAlive === 0 && defendersAlive === 0) return null;
 
     if (defendersAlive === 0) {
-      return { winner: context.attackingTeam, reason: "defenders eliminated" };
+      return { winner: context.attackingTeam, reason: "defenders eliminated", resultKey: "eliminated" };
     }
     if (attackersAlive === 0 && !this.bomb.isArmed) {
-      return { winner: context.defendingTeam, reason: "attackers eliminated" };
+      return { winner: context.defendingTeam, reason: "attackers eliminated", resultKey: "eliminated" };
     }
     return null;
   }

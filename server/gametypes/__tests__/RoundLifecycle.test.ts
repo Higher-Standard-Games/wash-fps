@@ -2,9 +2,10 @@
  * Round-based match lifecycle (docs/research/Search_And_Destroy.md §5.1, §4.3).
  *
  * A round is NOT a new state machine — it is the existing phase cycle looping:
- * `Countdown` is the round freeze, `Active` is the live round, and a round end
- * returns to `Countdown` instead of ending the match. These tests pin that, the
- * side-swap format, and the tennis rule.
+ * `Countdown` is the round freeze, `Active` is the live round, and a decided
+ * round goes to `RoundEnd` (the intermission, where the detonation is watched)
+ * before the next freeze. These tests pin that, the side-swap format, and the
+ * tennis rule.
  *
  * They also pin the thing most likely to break by accident: **non-round modes
  * must behave exactly as before**, since this touches code every gametype uses.
@@ -26,7 +27,13 @@ const SND = {
   roundBased: true,
   roundsPerHalf: 9,
   leadRequired: 2,
+  roundEndDuration: 5,
 };
+
+/** Run out the round-end intermission, landing on the next freeze. */
+function skipIntermission(m: MatchState): void {
+  while (m.phase === MatchPhase.RoundEnd) m.update(1);
+}
 
 /** Drive a match to its first live round. */
 function liveMatch(config = SND): MatchState {
@@ -43,6 +50,7 @@ function playRounds(m: MatchState, count: number, winner: "udon" | "soba"): void
   for (let i = 0; i < count; i++) {
     if (m.phase !== MatchPhase.Active) m.transition(MatchPhase.Active);
     m.endRound(winner);
+    skipIntermission(m);
   }
 }
 
@@ -55,6 +63,10 @@ describe("round loop", () => {
     expect(m.round).toBe(1);
 
     m.endRound("udon");
+    // The intermission first — the round is decided, and the result is watched
+    // before the next freeze begins.
+    expect(m.phase).toBe(MatchPhase.RoundEnd);
+    skipIntermission(m);
     expect(m.phase).toBe(MatchPhase.Countdown);
 
     m.transition(MatchPhase.Active);
@@ -66,6 +78,7 @@ describe("round loop", () => {
     // once per round.
     const m = liveMatch();
     m.endRound("udon");
+    skipIntermission(m);
     m.transition(MatchPhase.Active);
     m.endRound("udon");
     expect(m.teamScores.get("udon")).toBe(2);
@@ -83,14 +96,17 @@ describe("round loop", () => {
     m.endRound(null);
     expect(m.teamScores.get("udon")).toBe(0);
     expect(m.teamScores.get("soba")).toBe(0);
+    skipIntermission(m);
     expect(m.phase).toBe(MatchPhase.Countdown);
   });
 
   it("ignores endRound outside the live phase", () => {
     const m = liveMatch();
     m.endRound("udon");
-    expect(m.phase).toBe(MatchPhase.Countdown);
+    expect(m.phase).toBe(MatchPhase.RoundEnd);
     m.endRound("udon"); // already between rounds
+    skipIntermission(m);
+    m.endRound("udon"); // and again during the freeze
     expect(m.teamScores.get("udon")).toBe(1);
   });
 });
@@ -124,6 +140,7 @@ describe("attacking side", () => {
       expect(m.round, `round ${round}`).toBe(round);
       expect(m.attackingTeam, `round ${round}`).toBe("udon");
       m.endRound("soba");
+      skipIntermission(m);
       if (round < 9) m.transition(MatchPhase.Active);
     }
   });
@@ -144,6 +161,7 @@ describe("attacking side", () => {
     for (let i = 0; i < 18; i++) {
       if (m.phase !== MatchPhase.Active) m.transition(MatchPhase.Active);
       m.endRound(i % 2 === 0 ? "udon" : "soba"); // 9-9
+      skipIntermission(m);
     }
     expect(m.teamScores.get("udon")).toBe(9);
     expect(m.teamScores.get("soba")).toBe(9);
@@ -154,6 +172,7 @@ describe("attacking side", () => {
     expect(m.attackingTeam).toBe("udon");
 
     m.endRound(null);
+    skipIntermission(m);
     m.transition(MatchPhase.Active);
     expect(m.attackingTeam).toBe("soba");
   });
@@ -174,19 +193,13 @@ describe("attacking side", () => {
 describe("tennis rule", () => {
   it("does not end the match at the limit without the lead", () => {
     const m = liveMatch();
-    for (let i = 0; i < 9; i++) {
-      if (m.phase !== MatchPhase.Active) m.transition(MatchPhase.Active);
-      m.endRound("udon");
-    }
-    for (let i = 0; i < 9; i++) {
-      if (m.phase !== MatchPhase.Active) m.transition(MatchPhase.Active);
-      m.endRound("soba");
-    }
+    playRounds(m, 9, "udon");
+    playRounds(m, 9, "soba");
     // 9-9, then udon takes one: 10-9 is the limit but only a one-round lead.
     m.transition(MatchPhase.Active);
     m.endRound("udon");
     expect(m.teamScores.get("udon")).toBe(10);
-    expect(m.phase).toBe(MatchPhase.Countdown);
+    expect(m.phase).toBe(MatchPhase.RoundEnd);
     expect(m.hasDecisiveLead()).toBe(false);
   });
 
@@ -281,5 +294,66 @@ describe("snapshot", () => {
     playRounds(m, 9, "soba");
     m.transition(MatchPhase.Active);
     expect(m.toSnapshot().teamRoles).toEqual({ soba: "attacker", udon: "defender" });
+  });
+});
+
+// ── The round-end intermission ───────────────────────────────────────
+
+describe("round-end intermission", () => {
+  it("holds for its full duration before the next freeze", () => {
+    // The beat exists so a detonation is watched rather than cut away from,
+    // which means nothing may shorten it.
+    const m = liveMatch();
+    m.endRound("udon");
+    expect(m.phase).toBe(MatchPhase.RoundEnd);
+
+    m.update(SND.roundEndDuration - 1);
+    expect(m.phase).toBe(MatchPhase.RoundEnd);
+    m.update(2);
+    expect(m.phase).toBe(MatchPhase.Countdown);
+  });
+
+  it("reports how the round was won, for the banner", () => {
+    const m = liveMatch();
+    m.endRound("soba", { reason: "defused", focus: { x: 1, y: 2, z: 3 } });
+
+    const result = m.roundResult;
+    expect(result?.reason).toBe("defused");
+    expect(result?.winner).toBe("soba");
+    expect(result?.round).toBe(1);
+    expect(result?.focus).toEqual({ x: 1, y: 2, z: 3 });
+  });
+
+  it("names the winning team, so the banner needs no lookup", () => {
+    const m = liveMatch();
+    m.endRound("udon", { reason: "detonated" });
+    expect(m.roundResult?.winnerName).toBeTruthy();
+  });
+
+  it("clears the result when the next round starts", () => {
+    const m = liveMatch();
+    m.endRound("udon", { reason: "detonated" });
+    expect(m.roundResult).not.toBeNull();
+    skipIntermission(m);
+    expect(m.roundResult).toBeNull();
+  });
+
+  it("is skipped when the round decides the match", () => {
+    // A match-winning round goes straight to the post-game screen; two result
+    // banners stacked on each other would be worse than one.
+    const m = liveMatch({ ...SND, roundsPerHalf: 99 });
+    playRounds(m, 9, "udon");
+    m.transition(MatchPhase.Active);
+    m.endRound("udon"); // 10-0
+    expect(m.phase).toBe(MatchPhase.PostGame);
+  });
+
+  it("puts the result in the snapshot only while the intermission runs", () => {
+    const m = liveMatch();
+    m.endRound("udon", { reason: "detonated" });
+    expect(m.roundResult).not.toBeNull();
+    skipIntermission(m);
+    m.transition(MatchPhase.Active);
+    expect(m.roundResult).toBeNull();
   });
 });

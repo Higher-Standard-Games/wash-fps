@@ -511,7 +511,7 @@ export class GametypeController {
     const outcome = this.tickGametype(state, tick);
     if (outcome) {
       console.log(`[GametypeController] Round ${this.matchState.round}: ${outcome.reason}`);
-      this.endRound(outcome.winner);
+      this.endRound(outcome.winner, outcome);
     }
 
     // 3b. Round modes: an expired round timer ends the ROUND, and the gametype
@@ -529,7 +529,7 @@ export class GametypeController {
       }
       if (expiry) {
         console.log(`[GametypeController] Round ${this.matchState.round}: ${expiry.reason}`);
-        this.endRound(expiry.winner);
+        this.endRound(expiry.winner, expiry);
       }
     }
 
@@ -578,8 +578,14 @@ export class GametypeController {
   private processRespawns(state: WorldState, tickNum: number): void {
     // Round modes have no in-round respawn: the dead stay dead until the next
     // round's freeze, where respawnAllPlayers() puts everyone back. Draining
-    // the queue here would undo the entire premise of the mode.
-    if (this.matchState.roundBased && this.matchState.phase === MatchPhase.Active) return;
+    // the queue here would undo the entire premise of the mode — and during the
+    // intermission it would also have players popping back up mid-explosion.
+    if (
+      this.matchState.roundBased &&
+      (this.matchState.phase === MatchPhase.Active || this.matchState.phase === MatchPhase.RoundEnd)
+    ) {
+      return;
+    }
 
     const remaining: RespawnEntry[] = [];
 
@@ -717,8 +723,12 @@ export class GametypeController {
   applyPostGameInputFreeze(state: WorldState): void {
     // Also covers the round freeze: in a round mode `Countdown` is the freeze
     // phase, where players are spawned and held until the round goes live.
+    // The round-end intermission freezes too: the round is decided, and a
+    // player still shooting during the result screen is scoring nothing and
+    // distracting from the thing they are meant to be watching.
     const freezing =
       this.matchState.phase === MatchPhase.PostGame ||
+      this.matchState.phase === MatchPhase.RoundEnd ||
       (this.matchState.roundBased && this.matchState.phase === MatchPhase.Countdown);
     if (!freezing) return;
 
@@ -827,10 +837,10 @@ export class GametypeController {
    * ends that are not timer expiries — a defuse, a detonation, or one side
    * being eliminated. Records the match winner when this round decides it.
    */
-  endRound(winner: TeamId | null): void {
+  endRound(winner: TeamId | null, outcome?: RoundOutcome): void {
     if (!this.matchState.roundBased) return;
     const before = this.matchState.phase;
-    this.matchState.endRound(winner);
+    this.matchState.endRound(winner, { reason: outcome?.resultKey ?? "eliminated", focus: outcome?.focus });
     if (before !== MatchPhase.PostGame && this.matchState.phase === MatchPhase.PostGame) {
       this.recordMatchWinner();
     }
@@ -842,6 +852,8 @@ export class GametypeController {
 
   getMatchSnapshot(): MatchStateSnapshot {
     const snapshot = this.matchState.toSnapshot();
+    const roundResult = this.matchState.roundResult;
+    if (roundResult) snapshot.roundResult = roundResult;
     // The mode owns its objective; MatchState owns the match. Merged here so
     // there is one shape on the wire rather than two events to correlate.
     const objective = this.gametype.getObjectiveState();

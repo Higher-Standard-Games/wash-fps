@@ -1,5 +1,6 @@
 // Extracted from FPSHud.ts
 import { HUDState } from "../../HUDState";
+import { MatchStateManager } from "../../MatchStateManager";
 
 // =============================================================================
 // Phase 3: Scoreboard
@@ -195,7 +196,13 @@ export class FPSScoreboard {
       }
     }
 
-    const signature = JSON.stringify([state.teamNames, state.teamScores, entries, this.localPlayerId]);
+    const signature = JSON.stringify([
+      state.teamNames,
+      state.teamScores,
+      entries,
+      this.localPlayerId,
+      MatchStateManager.getInstance().round,
+    ]);
     if (signature === this.lastSignature) return;
     this.lastSignature = signature;
 
@@ -209,6 +216,18 @@ export class FPSScoreboard {
 
     // Add title
     this.board.appendChild(this.titleEl);
+
+    // Round modes: which round this is, above the team columns. The SCORE is
+    // already the team columns — this is the only number the scoreboard does
+    // not otherwise carry, and without it a 4-3 match could be round 7 or
+    // round 11 in overtime.
+    const round = MatchStateManager.getInstance().round;
+    if (round > 0) {
+      const roundEl = document.createElement("div");
+      roundEl.className = "fps-scoreboard-round";
+      roundEl.textContent = `ROUND ${round}`;
+      this.board.appendChild(roundEl);
+    }
 
     if (hasTeams) {
       const teamsContainer = document.createElement("div");

@@ -9,6 +9,7 @@ import type {
   BombObjectiveSnapshot,
   MatchWinner,
   ObjectiveSnapshot,
+  RoundResult,
 } from "../../../shared/server/gametype/GametypeTypes";
 // Match types are the shared gametype contract (server-authored). They used to
 // be hand-copied here and silently drifted from the server (QA-4: the client
@@ -18,7 +19,7 @@ import type {
 import { MatchPhase } from "../../../shared/server/gametype/GametypeTypes";
 
 export { MatchPhase };
-export type { BombObjectiveSnapshot, MatchWinner, ObjectiveSnapshot };
+export type { BombObjectiveSnapshot, MatchWinner, ObjectiveSnapshot, RoundResult };
 export type { MatchStateSnapshot } from "../../../shared/server/gametype/GametypeTypes";
 
 export type PhaseChangeCallback = (newPhase: MatchPhase, oldPhase: MatchPhase) => void;
@@ -43,6 +44,7 @@ export class MatchStateManager {
   private _teamRoles: Record<string, string> = {};
   private _roundState: string | null = null;
   private _objective: ObjectiveSnapshot | null = null;
+  private _roundResult: RoundResult | null = null;
   private _isReady: boolean = false;
   private _phaseCallbacks: PhaseChangeCallback[] = [];
 
@@ -83,6 +85,7 @@ export class MatchStateManager {
     this._teamRoles = event.teamRoles ?? {};
     this._roundState = event.roundState ?? null;
     this._objective = event.objective ?? null;
+    this._roundResult = event.roundResult ?? null;
 
     // Fire phase change callbacks
     if (oldPhase !== this._phase) {
@@ -134,6 +137,10 @@ export class MatchStateManager {
   /** The mode's objective, or null. Narrow on `kind` before reading it. */
   get objective(): ObjectiveSnapshot | null {
     return this._objective;
+  }
+  /** How the last round ended. Set only during the round-end intermission. */
+  get roundResult(): RoundResult | null {
+    return this._roundResult;
   }
   /** The bomb, when there is one. Null in every other mode. */
   get bomb(): BombObjectiveSnapshot | null {
@@ -239,6 +246,8 @@ export class MatchStateManager {
         return "Active";
       case MatchPhase.PostGame:
         return "Match Over";
+      case MatchPhase.RoundEnd:
+        return "Round Over";
     }
   }
 
