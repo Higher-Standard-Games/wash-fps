@@ -101,6 +101,11 @@ export interface PlayerStateUpdate {
   ledgeGrabPhase: number;
 }
 
+/** How long to wait between checks for the server naming the gametype. */
+const JOIN_GAMETYPE_WAIT_MS = 100;
+/** Give up after this many — a join that never learns the mode still joins. */
+const MAX_JOIN_GAMETYPE_WAITS = 30;
+
 export class Game {
   private static instance: Game | null = null;
 
@@ -238,6 +243,8 @@ export class Game {
   private _loadoutPicker: import("./client/hud/widgets/LoadoutPicker").FPSLoadoutPicker | null = null;
   /** Once chosen, the picker does not reappear on every rejoin this session. */
   private _loadoutChosen = false;
+  /** Retries spent waiting for the server to name the gametype. */
+  private _joinGametypeWaits = 0;
 
   private constructor() {
     // Register as the engine's per-frame game hook so camera controllers can
@@ -851,7 +858,21 @@ export class Game {
    * duel and FFA, and the join goes straight through.
    */
   async joinGame(): Promise<void> {
-    const needsLoadout = MatchStateManager.getInstance().bomb !== null && !this._loadoutChosen;
+    // Do not decide anything before the server has said what mode this is.
+    //
+    // The lobby's auto-join fires 200 ms after the map loads, which can beat
+    // the first snapshot — and a joinGame that runs before `match_state`
+    // arrives sees no objective, skips the picker, and drops the player into a
+    // Search & Destroy round holding a kit they never chose, for the whole
+    // round, with no respawn to correct it.
+    const match = MatchStateManager.getInstance();
+    if (this.isNetworkMode && !match.gametypeName && this._joinGametypeWaits < MAX_JOIN_GAMETYPE_WAITS) {
+      this._joinGametypeWaits++;
+      setTimeout(() => void this.joinGame(), JOIN_GAMETYPE_WAIT_MS);
+      return;
+    }
+
+    const needsLoadout = match.bomb !== null && !this._loadoutChosen;
     if (needsLoadout && this.playerState !== "playing" && !this._joinPending) {
       const { FPSLoadoutPicker } = await import("./client/hud/widgets/LoadoutPicker");
       this._loadoutPicker ??= new FPSLoadoutPicker();

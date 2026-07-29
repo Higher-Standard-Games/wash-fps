@@ -794,7 +794,7 @@ export class GameServer {
       state.removeEntity(client.entityId);
 
       // Notify gametype
-      this.gametypeController.onPlayerDisconnect(client.playerId);
+      this.gametypeController.onPlayerDisconnect(client.playerId, client.entityId);
 
       // Remove from anti-warp tracker
       this.movementValidator.removeClient(client.playerId);
@@ -1245,7 +1245,7 @@ export class GameServer {
     state.removeEntity(client.entityId);
 
     // Remove from gametype tracking (resets scores/deaths)
-    this.gametypeController.onPlayerDisconnect(client.playerId);
+    this.gametypeController.onPlayerDisconnect(client.playerId, client.entityId);
 
     // Remove from anti-warp tracker
     this.movementValidator.removeClient(client.playerId);

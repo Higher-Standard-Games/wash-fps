@@ -909,6 +909,11 @@ export class SearchAndDestroy extends BaseGametype {
     // Handled by controller loadout logic.
   }
 
+  onPlayerLeave(playerId: PlayerId): void {
+    this.activeLoadouts.delete(playerId);
+    this.pendingLoadouts.delete(playerId);
+  }
+
   onDeath(_victim: Entity, _killer: Entity | null, _state: WorldState): void {
     // Elimination is checked in onTick against live state, not counted here —
     // a death event that arrives out of order cannot desync the round result.

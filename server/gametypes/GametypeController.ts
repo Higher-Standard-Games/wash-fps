@@ -375,8 +375,14 @@ export class GametypeController {
   /**
    * Handle player disconnect.
    */
-  onPlayerDisconnect(playerId: PlayerId): void {
+  onPlayerDisconnect(playerId: PlayerId, entityId?: EntityId): void {
     this.matchState.removePlayer(playerId);
+    if (entityId !== undefined) this.spawnTick.delete(entityId);
+    try {
+      this.gametype.onPlayerLeave(playerId);
+    } catch (err) {
+      log.warnRateLimited("GametypeController", "onPlayerLeave threw:", err);
+    }
     console.log(`[GametypeController] Player ${playerId} disconnected (${this.matchState.totalPlayers} total)`);
   }
 
