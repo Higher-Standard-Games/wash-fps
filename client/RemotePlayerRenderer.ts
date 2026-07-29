@@ -723,6 +723,37 @@ export class RemotePlayerRenderer {
    * at all (out of PVS). Callers must handle that every frame rather than once:
    * a player can leave and re-enter view mid-carry.
    */
+  /**
+   * Every remote player currently being rendered, by client entity key.
+   *
+   * Rendered is the operative word: a player outside PVS has no hitbox, so they
+   * are not a candidate to spectate. Following someone the client cannot see
+   * would be a camera pointed at a guess.
+   */
+  getRenderedPlayers(): Map<string, { position: Vector3; dead: boolean }> {
+    const out = new Map<string, { position: Vector3; dead: boolean }>();
+    for (const [entityId, hitbox] of this.hitboxes) {
+      out.set(entityId, { position: hitbox.smoothedPos, dead: this.deadEntities.has(entityId) });
+    }
+    return out;
+  }
+
+  /**
+   * WORLD position of a remote player's bone, plus the yaw they are facing.
+   *
+   * Deliberately world space rather than a node to parent to. Attaching to a
+   * bone puts a mesh in bone space, which on these models carries the rig's 36x
+   * import scale — the S&D bomb parented that way rendered about thirty times
+   * its size, big enough to walk inside. Everything the bomb needs is a point
+   * and a facing, and those are unambiguous.
+   */
+  getBoneAnchor(entityId: string, boneName: string): { position: Vector3; yaw: number } | null {
+    const hitbox = this.hitboxes.get(entityId);
+    const node = this.getBoneTransform(entityId, boneName);
+    if (!hitbox || !node) return null;
+    return { position: node.getAbsolutePosition(), yaw: hitbox.smoothedYaw };
+  }
+
   getBoneTransform(entityId: string, boneName: string): TransformNode | null {
     const model = this.hitboxes.get(entityId)?.model;
     if (!model?.skeleton) return null;

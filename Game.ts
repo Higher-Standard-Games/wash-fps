@@ -101,6 +101,12 @@ export interface PlayerStateUpdate {
   ledgeGrabPhase: number;
 }
 
+/**
+ * How long the death camera keeps your own corpse before handing over to a
+ * teammate. Long enough for the ragdoll to land and be read as a death.
+ */
+const SPECTATE_AFTER_DEATH_MS = 2500;
+
 /** How long to wait between checks for the server naming the gametype. */
 const JOIN_GAMETYPE_WAIT_MS = 100;
 /** Give up after this many — a join that never learns the mode still joins. */
@@ -217,29 +223,104 @@ export class Game {
    */
   private updateRoundEndCamera(): void {
     const match = MatchStateManager.getInstance();
-    const focus = match.phase === MatchPhase.RoundEnd ? match.roundResult?.focus : undefined;
 
-    if (!focus) {
-      // Only stop what we started — a genuine death camera must survive this.
-      if (this._roundEndCameraActive) {
-        this._roundEndCameraActive = false;
+    // Stamp the moment of death here rather than in the event handler: this
+    // runs every frame and only needs the edge, so the death path stays
+    // untouched by a camera concern.
+    if (this._isPlayerDead !== this._wasDeadLastFrame) {
+      this._wasDeadLastFrame = this._isPlayerDead;
+      if (this._isPlayerDead) this._deathAtMs = performance.now();
+    }
+
+    // The intermission wins: once a round is decided, everyone watches the same
+    // thing, whether they were alive for it or not.
+    const focus = match.phase === MatchPhase.RoundEnd ? match.roundResult?.focus : undefined;
+    if (focus) {
+      if (this._roundEndCameraActive) return;
+      this._roundEndCameraActive = true;
+      this._spectatingEntityId = null;
+      const target = new Vector3(focus.x, focus.y, focus.z);
+      // Approach from behind wherever the player was looking, so the cut is a
+      // pull-back rather than a jump to an unrelated angle.
+      const camera = CameraSystem.getInstance().getCamera() as { rotation?: { y: number } } | null;
+      this._deathCamera.start(() => target, target, camera?.rotation?.y ?? 0);
+      return;
+    }
+
+    if (this._roundEndCameraActive) {
+      this._roundEndCameraActive = false;
+      this._spectatingEntityId = null;
+      if (!this._isPlayerDead) this._deathCamera.stop();
+    }
+
+    this.updateTeammateSpectate(match);
+  }
+
+  /**
+   * While dead in a round mode, watch a living teammate.
+   *
+   * There is no respawn in Search & Destroy, so a dead player would otherwise
+   * spend up to ninety seconds staring at their own corpse while the round they
+   * still care about happens elsewhere. Only after the death camera has had
+   * time to land, though — being yanked off your own death the instant it
+   * happens reads as a bug, and the ragdoll is worth a moment.
+   *
+   * Sticks with one teammate until they die rather than re-picking the nearest
+   * every frame, which would cut between players every time two of them crossed.
+   */
+  private updateTeammateSpectate(match: MatchStateManager): void {
+    const spectating = this._isPlayerDead && match.round > 0 && match.phase === MatchPhase.Active;
+    if (!spectating) {
+      if (this._spectatingEntityId !== null) {
+        this._spectatingEntityId = null;
         if (!this._isPlayerDead) this._deathCamera.stop();
       }
       return;
     }
-    if (this._roundEndCameraActive) return;
 
-    this._roundEndCameraActive = true;
-    const target = new Vector3(focus.x, focus.y, focus.z);
-    // Approach from behind wherever the player was looking, so the cut is a
-    // pull-back rather than a jump to an unrelated angle.
+    if (performance.now() - this._deathAtMs < SPECTATE_AFTER_DEATH_MS) return;
+
+    const players = this.remoteRenderer?.getRenderedPlayers();
+    if (!players || players.size === 0) return;
+
+    // Still following someone alive? Leave it be.
+    if (this._spectatingEntityId) {
+      const current = players.get(this._spectatingEntityId);
+      if (current && !current.dead) return;
+    }
+
+    const myTeam = match.playerTeams?.[clientKeyDisplayId(this.localPlayerId)];
+    if (!myTeam) return;
+
+    let chosen: string | null = null;
+    for (const [entityId, player] of players) {
+      if (player.dead) continue;
+      if (match.playerTeams?.[clientKeyDisplayId(entityId)] !== myTeam) continue;
+      chosen = entityId;
+      break;
+    }
+    // Everyone on your side is down; the round is about to end anyway, so stay
+    // on the corpse rather than cutting to an enemy.
+    if (!chosen || chosen === this._spectatingEntityId) return;
+
+    this._spectatingEntityId = chosen;
+    const start = players.get(chosen)?.position;
+    if (!start) return;
     const camera = CameraSystem.getInstance().getCamera() as { rotation?: { y: number } } | null;
-    const yaw = camera?.rotation?.y ?? 0;
-    this._deathCamera.start(() => target, target, yaw);
+    this._deathCamera.start(
+      () => this.remoteRenderer?.getRenderedPlayers().get(chosen)?.position ?? null,
+      start,
+      camera?.rotation?.y ?? 0,
+    );
   }
 
   /** True while the round-end camera owns the view, so we know what to stop. */
   private _roundEndCameraActive = false;
+  /** Teammate currently being watched while dead, or null. */
+  private _spectatingEntityId: string | null = null;
+  /** When the local player last died, for the spectate hand-off delay. */
+  private _deathAtMs = 0;
+  private _wasDeadLastFrame = false;
   private _loadoutPicker: import("./client/hud/widgets/LoadoutPicker").FPSLoadoutPicker | null = null;
   /** Once chosen, the picker does not reappear on every rejoin this session. */
   private _loadoutChosen = false;

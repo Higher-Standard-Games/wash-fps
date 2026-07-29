@@ -31,11 +31,8 @@ const STICK_HEIGHT = 13;
 const STICK_COUNT = 5;
 const BUNDLE_RADIUS = 3.4;
 
-/** Scratch vector for reading a bone's world scale, to avoid a per-frame alloc. */
-const TMP_SCALE = new Vector3();
-
-/** Where on the carrier's back it rides, relative to the spine bone. */
-const BACK_OFFSET = new Vector3(0, -6, -7);
+/** Where on the carrier's back it rides, relative to the spine bone, in WORLD units. */
+const BACK_OFFSET = new Vector3(0, -6, 10);
 const CARRY_SCALE = 0.75;
 
 /** Lift off the floor when dropped, so it does not z-fight with the ground. */
@@ -51,8 +48,6 @@ export class BombRenderer {
   private readonly root: TransformNode;
   private readonly light: Mesh;
   private readonly lightMaterial: StandardMaterial;
-  /** Entity key of the carrier the bomb is currently attached to. */
-  private attachedTo: string | null = null;
   /** Seconds accumulated for the loose-bomb bob, kept off wall-clock. */
   private elapsed = 0;
 
@@ -131,34 +126,37 @@ export class BombRenderer {
     this.updateLight(bomb);
   }
 
-  /** Ride on the carrier's back, following the spine so it moves with them. */
+  /**
+   * Ride on the carrier's back, tracking their spine in WORLD space.
+   *
+   * Not parented to the bone. Bone space carries the rig's 36x import scale, so
+   * a mesh attached there renders about thirty times its size — big enough that
+   * the bomb enclosed everyone standing near the carrier, which looked like
+   * every player was carrying one. Following a point and a facing has no scale
+   * to get wrong.
+   */
   private carry(carrier: string): void {
-    if (this.attachedTo !== carrier) {
-      this.detach();
-      const spine = this.players?.getBoneTransform(carrier, "Spine1");
-      if (!spine) {
-        // No model yet (just joined, or out of PVS). Stay hidden rather than
-        // stranding the bomb at the origin — it will attach next frame.
-        this.root.setEnabled(false);
-        return;
-      }
-      this.root.parent = spine;
-      this.attachedTo = carrier;
+    const anchor = this.players?.getBoneAnchor(carrier, "Spine1");
+    if (!anchor) {
+      // No model yet (just joined, or out of PVS). Stay hidden rather than
+      // stranding the bomb at the origin — it will pick up next frame.
+      this.root.setEnabled(false);
+      return;
     }
-
-    // Compensate for the rig's scale. Parenting to a bone inherits the whole
-    // chain's world scale, and the player models are imported at 36x — without
-    // this the bomb rides the carrier's back at thirty-six times its size.
-    const parentScale = this.root.parent?.getWorldMatrix().decompose(TMP_SCALE) ? TMP_SCALE.x || 1 : 1;
-    this.root.position.copyFrom(BACK_OFFSET).scaleInPlace(1 / parentScale);
-    this.root.rotation.set(Math.PI / 2, 0, 0);
-    this.root.scaling.setAll(CARRY_SCALE / parentScale);
+    // Behind them, by their own facing, so it reads as worn rather than stuck
+    // to a compass direction.
+    const back = BACK_OFFSET.z;
+    this.root.position.set(
+      anchor.position.x - Math.sin(anchor.yaw) * back,
+      anchor.position.y + BACK_OFFSET.y,
+      anchor.position.z - Math.cos(anchor.yaw) * back,
+    );
+    this.root.rotation.set(Math.PI / 2, anchor.yaw, 0);
+    this.root.scaling.setAll(CARRY_SCALE);
   }
 
   /** Sit in the world at the position the server reports. */
   private place(bomb: BombObjectiveSnapshot): void {
-    this.detach();
-
     const planted = bomb.phase === "planted" || bomb.phase === "armed";
     const bob = planted ? 0 : Math.sin(this.elapsed * LOOSE_BOB_RATE) * LOOSE_BOB_AMPLITUDE;
 
@@ -167,12 +165,6 @@ export class BombRenderer {
     // something to go and pick up and should read like every other pickup.
     this.root.rotation.set(0, planted ? 0 : this.elapsed * LOOSE_SPIN_RATE, 0);
     this.root.scaling.setAll(1);
-  }
-
-  private detach(): void {
-    if (this.attachedTo === null) return;
-    this.root.parent = null;
-    this.attachedTo = null;
   }
 
   /**
@@ -199,12 +191,10 @@ export class BombRenderer {
   }
 
   private hide(): void {
-    this.detach();
     this.root.setEnabled(false);
   }
 
   dispose(): void {
-    this.detach();
     this.root.dispose(false, true);
     this.lightMaterial.dispose();
     void this.scene;

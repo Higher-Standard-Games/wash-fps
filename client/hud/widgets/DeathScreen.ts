@@ -1,5 +1,6 @@
 // Extracted from FPSHud.ts
 import { FPS, getActionKeyLabel } from "../../FPSActions";
+import { MatchStateManager } from "../../MatchStateManager";
 import type { FPSHudWidget, HUDState } from "../HudWidget";
 
 // Respawn protection delay in seconds (must match server config)
@@ -106,6 +107,17 @@ export class FPSDeathScreen implements FPSHudWidget {
   }
 
   private updateTimer(): void {
+    // Round modes have no respawn: you are out until the round turns over, so
+    // a countdown to a button that does nothing is worse than no countdown.
+    // Say what is actually happening instead.
+    if (MatchStateManager.getInstance().round > 0) {
+      this.timerEl.style.display = "none";
+      this.respawnEl.textContent = "WAITING FOR THE NEXT ROUND";
+      this.respawnEl.style.display = "";
+      this.stopCountdown();
+      return;
+    }
+
     const elapsed = (performance.now() - this.deathTime) / 1000;
     const remaining = Math.max(0, RESPAWN_DELAY_SECS - elapsed);
 
