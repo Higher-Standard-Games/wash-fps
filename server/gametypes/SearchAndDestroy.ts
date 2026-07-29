@@ -238,10 +238,21 @@ export class SearchAndDestroy extends BaseGametype {
    * turns a lost gunfight into a free retry, and a spectating teammate would be
    * able to feed a live one a better weapon. Dead players changing loadout is
    * exactly the intended use — they just wait for the round to turn over.
+   *
+   * The exception is a player's FIRST choice, which applies at once. They have
+   * no kit to re-kit and are not in the round yet, so "never mid-round" would
+   * only mean handing a joining player a default nobody asked for and making
+   * them sit out a round to correct it.
    */
   setPlayerLoadout(playerId: PlayerId, choice: LoadoutChoice): boolean {
+    if (!this.activeLoadouts.has(playerId)) this.activeLoadouts.set(playerId, choice);
     this.pendingLoadouts.set(playerId, choice);
     return true;
+  }
+
+  /** True once this player has chosen. Gates spawning. */
+  hasChosenLoadout(playerId: PlayerId): boolean {
+    return this.activeLoadouts.has(playerId);
   }
 
   /** The kit that will be in force next round — for the HUD's confirmation. */

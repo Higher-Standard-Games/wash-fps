@@ -400,18 +400,33 @@ describe("loadouts", () => {
     expect(kit.armor).toBe(100);
   });
 
+  it("applies a player's FIRST choice at once", () => {
+    // They have no kit to re-kit and are not in the round yet. Making them sit
+    // out a round to correct a default nobody asked for would be perverse.
+    const mode = loaded();
+    mode.setPlayerLoadout(PLAYER, { primary: "electrobolt", secondary: "riotgun" });
+    expect(mode.getSpawnLoadout(PLAYER).weapons).toEqual(["blade", "electrobolt", "riotgun"]);
+    expect(mode.hasChosenLoadout(PLAYER)).toBe(true);
+  });
+
   it("does not change the kit a player already has this round", () => {
     // The rule that makes this safe: re-kitting mid-round would turn a lost
     // gunfight into a free retry.
     const mode = loaded();
+    mode.setPlayerLoadout(PLAYER, { primary: "voltaic", secondary: "machinegun" });
+    startRound(mode, 2, "udon");
+
     mode.setPlayerLoadout(PLAYER, { primary: "electrobolt", secondary: "riotgun" });
     expect(mode.getSpawnLoadout(PLAYER).weapons).not.toContain("electrobolt");
+    expect(mode.getSpawnLoadout(PLAYER).weapons).toContain("voltaic");
   });
 
-  it("applies it at the start of the next round", () => {
+  it("applies a CHANGE at the start of the next round", () => {
     const mode = loaded();
-    mode.setPlayerLoadout(PLAYER, { primary: "electrobolt", secondary: "riotgun" });
+    mode.setPlayerLoadout(PLAYER, { primary: "voltaic", secondary: "machinegun" });
     startRound(mode, 2, "udon");
+    mode.setPlayerLoadout(PLAYER, { primary: "electrobolt", secondary: "riotgun" });
+    startRound(mode, 3, "udon");
     expect(mode.getSpawnLoadout(PLAYER).weapons).toEqual(["blade", "electrobolt", "riotgun"]);
   });
 
@@ -431,10 +446,17 @@ describe("loadouts", () => {
 
   it("takes the last choice when a player changes their mind twice", () => {
     const mode = loaded();
+    mode.setPlayerLoadout(PLAYER, { primary: "voltaic", secondary: "machinegun" });
+    startRound(mode, 2, "udon");
     mode.setPlayerLoadout(PLAYER, { primary: "electrobolt", secondary: "riotgun" });
     mode.setPlayerLoadout(PLAYER, { primary: "rlauncher", secondary: "plasmagun" });
-    startRound(mode, 2, "udon");
+    startRound(mode, 3, "udon");
     expect(mode.getSpawnLoadout(PLAYER).weapons).toEqual(["blade", "rlauncher", "plasmagun"]);
+  });
+
+  it("has nobody choosing until they do", () => {
+    // What gates the spawn: an unchosen player gets the picker, not a default.
+    expect(new SearchAndDestroy().hasChosenLoadout(PLAYER)).toBe(false);
   });
 });
 

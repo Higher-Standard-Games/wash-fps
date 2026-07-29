@@ -235,6 +235,9 @@ export class Game {
 
   /** True while the round-end camera owns the view, so we know what to stop. */
   private _roundEndCameraActive = false;
+  private _loadoutPicker: import("./client/hud/widgets/LoadoutPicker").FPSLoadoutPicker | null = null;
+  /** Once chosen, the picker does not reappear on every rejoin this session. */
+  private _loadoutChosen = false;
 
   private constructor() {
     // Register as the engine's per-frame game hook so camera controllers can
@@ -838,7 +841,33 @@ export class Game {
    * Sends JoinGame to server. Actual transition happens server-confirmed
    * when our entity appears in the snapshot (see completeJoinGame).
    */
+  /**
+   * Ask for a loadout before joining, in modes that have one.
+   *
+   * Blocking on purpose. In Search & Destroy the kit decides what you can do
+   * for a whole round with no respawn to correct it, so being dropped in
+   * holding a default nobody chose is worse than a moment spent choosing. The
+   * picker only appears where it means something: `objective` is absent in
+   * duel and FFA, and the join goes straight through.
+   */
   async joinGame(): Promise<void> {
+    const needsLoadout = MatchStateManager.getInstance().bomb !== null && !this._loadoutChosen;
+    if (needsLoadout && this.playerState !== "playing" && !this._joinPending) {
+      const { FPSLoadoutPicker } = await import("./client/hud/widgets/LoadoutPicker");
+      this._loadoutPicker ??= new FPSLoadoutPicker();
+      if (this._loadoutPicker.isOpen) return;
+
+      // Released so the player can actually click; completeJoinGame takes it
+      // back when the round starts.
+      document.exitPointerLock?.();
+      this._loadoutPicker.open((choice) => {
+        this._loadoutChosen = true;
+        this.sendLoadout(choice.primary, choice.secondary);
+        void this.joinGame();
+      });
+      return;
+    }
+
     if (this.playerState === "playing") {
       console.log("[Game] joinGame() — already playing, skipping");
       return;
