@@ -176,3 +176,34 @@ describe("CombatSystem — quad self-damage", () => {
     expect(impulses[0].force).toBe(500);
   });
 });
+
+// ── Scoring's damage buffer ──────────────────────────────────────────
+
+describe("CombatSystem damage accounting for scoring", () => {
+  it("hands each hit to scoring exactly once", () => {
+    // The bug this rules out: scoring reading `getProcessedDamage`, which
+    // snapshot building clears at the SNAPSHOT rate while scoring runs every
+    // tick — crediting the same hit six times over at shipped rates, and
+    // without end on a server with no clients, where snapshots never build.
+    const { combat, state } = setup(false);
+    hit(combat, state, 2, 40, 100);
+
+    const first = combat.drainDamageForStats();
+    expect(first).toHaveLength(1);
+    expect(first[0].damage).toBe(40);
+
+    // Ticking again without new damage must credit nothing.
+    combat.update(state as never, 0.008, 101 as never);
+    expect(combat.drainDamageForStats()).toHaveLength(0);
+  });
+
+  it("keeps the snapshot buffer intact when scoring drains", () => {
+    // The two consumers must not race: draining for score cannot cost the
+    // client its damage numbers.
+    const { combat, state } = setup(false);
+    hit(combat, state, 2, 25, 100);
+
+    combat.drainDamageForStats();
+    expect(combat.getProcessedDamage()).toHaveLength(1);
+  });
+});

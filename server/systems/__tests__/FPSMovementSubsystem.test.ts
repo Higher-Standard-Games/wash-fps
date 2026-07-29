@@ -118,7 +118,11 @@ describe("FPSMovementSubsystem - player separation", () => {
 
     const collisionWorld = {
       trace: vi.fn(() => ({ hit: true, fraction: 0.5 })),
-      stepSlideMove: (_start: unknown, velocity: unknown) => ({ endPos: p1.transform.position, velocity, grounded: true }),
+      stepSlideMove: (_start: unknown, velocity: unknown) => ({
+        endPos: p1.transform.position,
+        velocity,
+        grounded: true,
+      }),
       pointContents: () => 0,
       findEntitiesInRadius: () => [],
       getWorldBounds: () => ({ min: { x: -999, y: -999, z: -999 }, max: { x: 999, y: 999, z: 999 } }),
@@ -145,7 +149,11 @@ describe("FPSMovementSubsystem - player separation", () => {
 
     const collisionWorld = {
       trace: vi.fn(() => ({ hit: true, fraction: 0 })),
-      stepSlideMove: (_start: unknown, velocity: unknown) => ({ endPos: p1.transform.position, velocity, grounded: true }),
+      stepSlideMove: (_start: unknown, velocity: unknown) => ({
+        endPos: p1.transform.position,
+        velocity,
+        grounded: true,
+      }),
       pointContents: () => 0,
       findEntitiesInRadius: () => [],
       getWorldBounds: () => ({ min: { x: -999, y: -999, z: -999 }, max: { x: 999, y: 999, z: 999 } }),

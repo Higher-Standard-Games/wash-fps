@@ -109,6 +109,8 @@ export interface KillEvent {
 export class CombatSystem extends Subsystem {
   private pendingDamage: DamageEvent[] = [];
   private damageFilter: ((event: DamageEvent, tick: number) => boolean) | null = null;
+  /** Scoring's own damage buffer. See `drainDamageForStats`. */
+  private damageForStats: { victimId: EntityId; attackerId?: EntityId; damage: number }[] = [];
   private kills: KillEvent[] = [];
   /** Processed damage events (with final damage) for network forwarding */
   private processedDamage: {
@@ -200,11 +202,29 @@ export class CombatSystem extends Subsystem {
     this.processedDamage = [];
   }
 
+  /**
+   * Damage dealt since the last call, for scoring. Drains its own buffer.
+   *
+   * Deliberately NOT `getProcessedDamage`, which is cleared by snapshot
+   * building at the SNAPSHOT rate while scoring runs every tick — reading that
+   * one would credit the same hit once per tick until the next snapshot, about
+   * six times over at the shipped rates, and forever on a server with no
+   * clients (where snapshots are not built at all).
+   *
+   * Two consumers, two buffers, no race.
+   */
+  drainDamageForStats(): readonly { victimId: EntityId; attackerId?: EntityId; damage: number }[] {
+    const drained = this.damageForStats;
+    this.damageForStats = [];
+    return drained;
+  }
+
   /** Drop every warmup combat transient before players are respawned for a match. */
   resetForMatch(): void {
     this.pendingDamage = [];
     this.kills = [];
     this.processedDamage = [];
+    this.damageForStats = [];
   }
 
   update(state: WorldState, _dt: number, tick: TickNumber): void {
@@ -275,6 +295,7 @@ export class CombatSystem extends Subsystem {
       victim.health.health = Math.min(victim.health.health, 1);
       const actualDamage = Math.round(healthBefore - victim.health.health + armorBefore);
 
+      this.damageForStats.push({ victimId: event.victimId, attackerId: event.attackerId, damage: actualDamage });
       this.processedDamage.push({
         victimId: event.victimId,
         attackerId: event.attackerId,
@@ -360,6 +381,7 @@ export class CombatSystem extends Subsystem {
     }
 
     // Store for network forwarding (with final damage value)
+    this.damageForStats.push({ victimId: event.victimId, attackerId: event.attackerId, damage: finalDamage });
     this.processedDamage.push({
       victimId: event.victimId,
       attackerId: event.attackerId,

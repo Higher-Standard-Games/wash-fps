@@ -31,6 +31,9 @@ const STICK_HEIGHT = 13;
 const STICK_COUNT = 5;
 const BUNDLE_RADIUS = 3.4;
 
+/** Scratch vector for reading a bone's world scale, to avoid a per-frame alloc. */
+const TMP_SCALE = new Vector3();
+
 /** Where on the carrier's back it rides, relative to the spine bone. */
 const BACK_OFFSET = new Vector3(0, -6, -7);
 const CARRY_SCALE = 0.75;
@@ -143,9 +146,13 @@ export class BombRenderer {
       this.attachedTo = carrier;
     }
 
-    this.root.position.copyFrom(BACK_OFFSET);
+    // Compensate for the rig's scale. Parenting to a bone inherits the whole
+    // chain's world scale, and the player models are imported at 36x — without
+    // this the bomb rides the carrier's back at thirty-six times its size.
+    const parentScale = this.root.parent?.getWorldMatrix().decompose(TMP_SCALE) ? TMP_SCALE.x || 1 : 1;
+    this.root.position.copyFrom(BACK_OFFSET).scaleInPlace(1 / parentScale);
     this.root.rotation.set(Math.PI / 2, 0, 0);
-    this.root.scaling.setAll(CARRY_SCALE);
+    this.root.scaling.setAll(CARRY_SCALE / parentScale);
   }
 
   /** Sit in the world at the position the server reports. */

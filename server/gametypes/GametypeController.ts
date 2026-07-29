@@ -869,16 +869,18 @@ export class GametypeController {
   /**
    * Credit damage dealt, for modes that score on it.
    *
-   * Read here rather than drained: `SnapshotBuilder` owns clearing this buffer
-   * because it also forwards the numbers to clients, and two consumers racing
-   * to drain the same list is how damage numbers go missing on one side.
+   * Drains scoring's OWN buffer, not the one snapshot building uses. Scoring
+   * runs every tick and snapshots are built at a fraction of that, so reading
+   * the shared buffer credited each hit once per tick until the next snapshot
+   * cleared it — about six times over, and without end on a server with no
+   * clients, where snapshots are never built at all.
    *
    * Self-damage is skipped entirely — a rocket jump is a movement technique,
    * not a contribution, and it must not be a way to farm score.
    */
   private recordDamageDealt(state: WorldState): void {
     if (!this.combatSystem) return;
-    for (const hit of this.combatSystem.getProcessedDamage()) {
+    for (const hit of this.combatSystem.drainDamageForStats()) {
       if (hit.attackerId === undefined || hit.attackerId === hit.victimId) continue;
 
       const attacker = state.getEntity(hit.attackerId);
