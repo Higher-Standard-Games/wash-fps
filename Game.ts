@@ -194,8 +194,47 @@ export class Game {
    * and the view-bob pass.
    */
   public applyDeathCamera(camera: import("./client/DeathCamera").DeathCameraTarget, dt: number): boolean {
+    this.updateRoundEndCamera();
     return this._deathCamera.update(dt, camera);
   }
+
+  /**
+   * Point the camera at what decided the round, for the intermission.
+   *
+   * Reuses the death camera rather than adding a second one: it already
+   * smooths, keeps itself out of walls and follows a moving target, and the job
+   * here is the same job — watch a fixed point from a sensible distance while
+   * the player has no control. The server sends the focus, so everyone watches
+   * the same thing.
+   *
+   * A player who is dead already has this camera on their corpse. Retargeting
+   * it to the bomb is the right call anyway: the corpse is not the story.
+   */
+  private updateRoundEndCamera(): void {
+    const match = MatchStateManager.getInstance();
+    const focus = match.phase === MatchPhase.RoundEnd ? match.roundResult?.focus : undefined;
+
+    if (!focus) {
+      // Only stop what we started — a genuine death camera must survive this.
+      if (this._roundEndCameraActive) {
+        this._roundEndCameraActive = false;
+        if (!this._isPlayerDead) this._deathCamera.stop();
+      }
+      return;
+    }
+    if (this._roundEndCameraActive) return;
+
+    this._roundEndCameraActive = true;
+    const target = new Vector3(focus.x, focus.y, focus.z);
+    // Approach from behind wherever the player was looking, so the cut is a
+    // pull-back rather than a jump to an unrelated angle.
+    const camera = CameraSystem.getInstance().getCamera() as { rotation?: { y: number } } | null;
+    const yaw = camera?.rotation?.y ?? 0;
+    this._deathCamera.start(() => target, target, yaw);
+  }
+
+  /** True while the round-end camera owns the view, so we know what to stop. */
+  private _roundEndCameraActive = false;
 
   private constructor() {
     // Register as the engine's per-frame game hook so camera controllers can

@@ -61,6 +61,16 @@ export class GametypeController {
   private spawnStrategy: SpawnPointStrategy;
   private spawnPoints: Vec3[] = [];
   private teamSpawnPoints: ReadonlyMap<string, Vec3[]> = new Map();
+  /** Tick each entity last spawned, for spawn protection. */
+  private spawnTick = new Map<EntityId, number>();
+  /**
+   * Latest world, for the damage filter.
+   *
+   * The filter runs inside the simulation tick, before `postTick`, so it cannot
+   * be handed a state — this is the only way it can resolve who is on whose
+   * team without CombatSystem growing a dependency on the match.
+   */
+  private lastState: WorldState | null = null;
   private respawnQueue: RespawnEntry[] = [];
   private collisionWorld: CollisionWorld | null = null;
   /** Latest sim tick (from postTick) — seeds deterministic spawn selection for
@@ -153,6 +163,41 @@ export class GametypeController {
   setSubsystems(combat: CombatSystem, weapon: WeaponSystem): void {
     this.combatSystem = combat;
     this.weaponSystem = weapon;
+
+    const protection = this.matchConfig.teamSpawnProtection ?? 0;
+    if (protection > 0 && this.gametype.teamBased) {
+      const windowTicks = Math.floor(protection * 125);
+      combat.setDamageFilter((event, tick) => this.allowDamage(event, tick, windowTicks));
+      console.log(`[GametypeController] Team spawn protection: ${protection}s`);
+    }
+  }
+
+  /**
+   * Should this hit land?
+   *
+   * Only one rule today: a freshly spawned player cannot be hurt by their own
+   * side. Friendly fire is otherwise on, and enemy damage is never blocked —
+   * spawn protection here is against your teammates' rockets, not against the
+   * other team, who cannot reach you at a team spawn anyway.
+   */
+  private allowDamage(
+    event: { victimId: EntityId; attackerId?: EntityId },
+    tick: number,
+    windowTicks: number,
+  ): boolean {
+    if (event.attackerId === undefined || event.attackerId === event.victimId) return true;
+
+    const spawnedAt = this.spawnTick.get(event.victimId);
+    if (spawnedAt === undefined || tick - spawnedAt > windowTicks) return true;
+
+    const state = this.lastState;
+    if (!state) return true;
+    const attacker = state.getEntity(event.attackerId);
+    const victim = state.getEntity(event.victimId);
+    if (attacker?.ownerId === undefined || victim?.ownerId === undefined) return true;
+
+    const attackerTeam = this.matchState.getPlayerTeam(attacker.ownerId);
+    return attackerTeam === "spectator" || attackerTeam !== this.matchState.getPlayerTeam(victim.ownerId);
   }
 
   /**
@@ -378,6 +423,7 @@ export class GametypeController {
   postTick(state: WorldState, dt: number, tick: TickNumber): void {
     const tickNum = tick as number;
     this.currentTick = tickNum;
+    this.lastState = state;
 
     // 1. Process kills from CombatSystem
     if (this.combatSystem) {
@@ -637,6 +683,8 @@ export class GametypeController {
   private respawnPlayer(state: WorldState, entityId: EntityId, tickNum: number): void {
     const entity = state.getEntityMut(entityId);
     if (!entity) return;
+
+    this.spawnTick.set(entityId, tickNum);
 
     // Choose spawn point using strategy — seeded for deterministic re-sim (R3b).
     const spawnRng = rngFrom(tickNum, entityId as number, 0);

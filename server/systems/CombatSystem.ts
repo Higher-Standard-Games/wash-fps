@@ -108,6 +108,7 @@ export interface KillEvent {
 
 export class CombatSystem extends Subsystem {
   private pendingDamage: DamageEvent[] = [];
+  private damageFilter: ((event: DamageEvent, tick: number) => boolean) | null = null;
   private kills: KillEvent[] = [];
   /** Processed damage events (with final damage) for network forwarding */
   private processedDamage: {
@@ -138,6 +139,17 @@ export class CombatSystem extends Subsystem {
    */
   queueDamage(event: DamageEvent): void {
     this.pendingDamage.push(event);
+  }
+
+  /**
+   * Install a veto on incoming damage. Return false to drop a hit entirely.
+   *
+   * Dropped, not zeroed: a zero-damage hit still emits a damage number, still
+   * knocks the victim back, and still tells the shooter they connected. None of
+   * that is wanted for a hit that did not happen.
+   */
+  setDamageFilter(filter: ((event: DamageEvent, tick: number) => boolean) | null): void {
+    this.damageFilter = filter;
   }
 
   /**
@@ -248,6 +260,11 @@ export class CombatSystem extends Subsystem {
   private processDamage(state: WorldState, event: DamageEvent, tick: TickNumber): void {
     const victim = state.getEntityMut(event.victimId);
     if (!victim?.health || victim.health.dead) return;
+
+    // Gametype veto. Injected rather than decided here because the reasons are
+    // never combat's business — S&D uses it for spawn protection, which needs
+    // team membership and a respawn tick that live in the match, not the world.
+    if (this.damageFilter && !this.damageFilter(event, tick as number)) return;
 
     // FallCrush is a hard set (exactly 1 HP + 0 armor), not a computed hit —
     // the incoming event's damage/armorPiercing/hitLocation fields are inert.

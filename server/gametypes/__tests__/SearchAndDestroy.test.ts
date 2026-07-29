@@ -651,3 +651,15 @@ describe("detonation", () => {
     expect(new Set(delays.map((d) => d.toFixed(2))).size).toBeGreaterThan(1);
   });
 });
+
+// ── Friendly fire ────────────────────────────────────────────────────
+
+describe("spawn protection", () => {
+  it("asks for three seconds of protection from teammates", () => {
+    // Friendly fire is ON, and with team spawns and no respawns a mis-timed
+    // rocket at the start of a round ends a teammate's whole round before they
+    // have moved. Enemy damage is never blocked — they cannot reach a team
+    // spawn anyway, and blocking it would be protection from the game.
+    expect(new SearchAndDestroy().getMatchConfig().teamSpawnProtection).toBe(3);
+  });
+});

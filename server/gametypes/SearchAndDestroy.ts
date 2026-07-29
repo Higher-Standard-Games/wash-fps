@@ -76,6 +76,11 @@ const FREEZE_SECONDS = 10;
  * than the two Warsow uses (FINISHED then POST).
  */
 const ROUND_END_SECONDS = 5;
+/**
+ * Friendly fire is on, so a mis-timed rocket at the start of a round can end a
+ * teammate's whole round before they have moved. Warsow's `g_bomb_spawnprotection`.
+ */
+const TEAM_SPAWN_PROTECTION_SECONDS = 3;
 
 // ── Directive tuning ─────────────────────────────────────────────────
 
@@ -205,6 +210,7 @@ export class SearchAndDestroy extends BaseGametype {
       maxRespawnDelay: 4,
       selfDamage: 1.0,
       roundEndDuration: ROUND_END_SECONDS,
+      teamSpawnProtection: TEAM_SPAWN_PROTECTION_SECONDS,
       roundBased: true,
       roundsPerHalf: ROUNDS_PER_HALF,
       leadRequired: LEAD_REQUIRED,
