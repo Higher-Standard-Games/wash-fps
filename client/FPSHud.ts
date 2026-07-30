@@ -443,8 +443,9 @@ export class FPSHud {
     // Powerup countdown (QUAD) - bottom left, above the vitals block
     this.addWidget("powerup", new FPSPowerupTimer(), "bottom-left");
 
-    // Bomb objective (S&D) - top center, under the timer
-    this.addWidget("bomb", new FPSBombStatus(), "top-center");
+    // Bomb objective (S&D) — its own corner, not the timer cluster. Sharing
+    // top-center put it hard against the frag counter, reading as one control.
+    this.addWidget("bomb", new FPSBombStatus(), "top-left");
 
     // Match timer - top center
     this.addWidget("timer", new FPSTimer(), "top-center");
