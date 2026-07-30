@@ -21,7 +21,7 @@ import type {
   MatchStateSnapshot,
   TeamId,
 } from "@shared/server/gametype";
-import { emptyPlayerStats, MatchPhase } from "@shared/server/gametype";
+import { emptyPlayerStats, MatchPhase, normalizeTeamId } from "@shared/server/gametype";
 import { clearPowerups } from "@shared/server/simulation/components/PowerupComponent";
 import type { Vec3 } from "@shared/server/simulation/types";
 import { log } from "../../../../engine/core/Log";
@@ -326,8 +326,12 @@ export class GametypeController {
           this.matchState.setTeamName(assignedTeam, assignedPlayerName);
         }
       } else {
-        if (teamId) {
-          this.matchState.setPlayerTeam(playerId, teamId as any);
+        // A side chosen in the lobby arrives as `alpha`/`bravo`; the match
+        // speaks `udon`/`soba`. Nothing translated, so the request was silently
+        // dropped and every player got auto-balanced instead.
+        const requested = normalizeTeamId(teamId);
+        if (requested && requested !== "spectator") {
+          this.matchState.setPlayerTeam(playerId, requested);
         } else {
           this.matchState.assignTeamBalance(playerId, this.gametype.name);
         }
@@ -405,6 +409,22 @@ export class GametypeController {
   }
 
   /**
+   * True when a player joining right now must sit the round out.
+   *
+   * In a round mode there is no respawn, so a player who spawns mid-round has
+   * appeared from nowhere into a fight the others have been having since the
+   * freeze — and, because spawn points belong to a side, quite possibly inside
+   * the enemy's half. They wait for the next freeze, which is exactly what
+   * dying already does.
+   */
+  get joinMustWaitForNextRound(): boolean {
+    return (
+      this.matchState.roundBased &&
+      (this.matchState.phase === MatchPhase.Active || this.matchState.phase === MatchPhase.RoundEnd)
+    );
+  }
+
+  /**
    * Register a bot player ID for auto-ready tracking.
    * Note: onPlayerJoin() must be called first to add bot to match state.
    *
@@ -415,7 +435,18 @@ export class GametypeController {
    */
   registerBot(playerId: PlayerId): void {
     this.botPlayerIds.add(playerId);
+    this.matchState.setBotPlayers(this.botPlayerIds);
     this.matchState.playerReady(playerId);
+  }
+
+  /**
+   * How many human clients are connected, spectators included.
+   *
+   * The ready gate needs it: bots ready on join, so without knowing a human is
+   * present the match starts among the bots while that human is still loading.
+   */
+  setHumanClientCount(count: number): void {
+    this.matchState.setHumanClients(count);
   }
 
   // ========================================================================

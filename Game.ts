@@ -107,6 +107,21 @@ export interface PlayerStateUpdate {
  */
 const SPECTATE_AFTER_DEATH_MS = 2500;
 
+/**
+ * The side chosen in the lobby, if this session came from one.
+ *
+ * Stashed in sessionStorage by `MatchLobbyView` on the connect handoff, the
+ * same way the return-lobby id is, rather than threaded through four layers of
+ * connect plumbing that otherwise has no interest in teams.
+ */
+function readLobbyTeam(): string | undefined {
+  try {
+    return sessionStorage.getItem("shag.lobby_team") ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** How long to wait between checks for the server naming the gametype. */
 const JOIN_GAMETYPE_WAIT_MS = 100;
 /** Give up after this many — a join that never learns the mode still joins. */
@@ -990,7 +1005,9 @@ export class Game {
     const networkHost = this.gameHost as import("../../engine/network/client/hosts/NetworkGameHost").NetworkGameHost;
 
     // Tell server we want to join — server decides if we can
-    networkHost.sendJoinGame();
+    // Ask for the side chosen in the lobby. The server normalizes alpha/bravo
+    // to its own team ids and falls back to balancing if this is absent.
+    networkHost.sendJoinGame(readLobbyTeam());
     this._joinPending = true;
 
     // Timeout: revert if server doesn't respond within 5 seconds

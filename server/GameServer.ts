@@ -772,6 +772,15 @@ export class GameServer {
   // Client Handlers
   // ========================================================================
 
+  /** Human clients connected, spectators included. Drives the ready gate. */
+  private refreshHumanClientCount(): void {
+    let humans = 0;
+    for (const client of this.clients.values()) {
+      if (!client.isBot) humans++;
+    }
+    this.gametypeController.setHumanClientCount(humans);
+  }
+
   private handleConnect(conn: ClientConnection): void {
     this.hasHadClients = true;
     // Cancel any pending shutdown timer
@@ -802,6 +811,7 @@ export class GameServer {
     }
 
     this.clients.delete(conn.id);
+    this.refreshHumanClientCount();
 
     // Remove from challengers queue if queued
     this.removeFromQueue(conn.id);
@@ -1118,6 +1128,7 @@ export class GameServer {
         isBot,
       };
       this.clients.set(conn.id, client);
+      this.refreshHumanClientCount();
 
       console.log(`[GameServer] Player ${pid} connected as spectator`);
       console.log(`[GameServer] Connected clients: ${this.clients.size}/${this.config.maxClients}`);
@@ -1189,6 +1200,22 @@ export class GameServer {
     // Create entity
     const entity = createPlayerEntity(client.entityId, client.playerId, spawnPoint);
     entity.spawnTick = this.simulation.currentTick as number;
+
+    // A round mode has no respawn, so appearing mid-round means arriving from
+    // nowhere into a fight the others have been having since the freeze — and
+    // spawn points belong to a side, so possibly inside the enemy's half.
+    //
+    // Join DEAD rather than not at all: the entity has to exist for the freeze
+    // to revive it, and being dead already means the death screen, the
+    // teammate spectate camera and the round-start respawn all do the right
+    // thing with no new machinery.
+    if (this.gametypeController.joinMustWaitForNextRound && entity.health) {
+      entity.health.dead = true;
+      console.log(`[GameServer] Player ${client.playerId} joined mid-round — dead until the next one`);
+      const notice = MessageCodec.encodeServerMessage("Round in progress — you are in from the next one.", "info");
+      conn.sendDatagram(notice);
+    }
+
     state.addEntity(entity);
 
     // Register with anti-warp validator

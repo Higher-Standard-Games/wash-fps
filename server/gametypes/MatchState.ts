@@ -72,6 +72,8 @@ export class MatchState {
    */
   private _roundTimeExpired = false;
   private _roundResult: RoundResult | null = null;
+  private _botPlayers: ReadonlySet<PlayerId> = new Set();
+  private _humanClients = 0;
   private _stats: Map<PlayerId, PlayerStats> = new Map();
   /**
    * Derives score from stats, when the gametype wants that instead of frags.
@@ -371,8 +373,35 @@ export class MatchState {
     this._readyPlayers.delete(playerId);
   }
 
+  /**
+   * Everyone in, everyone ready — and not on bots alone.
+   *
+   * Bots ready the instant they join, so in a lobby match they reach the
+   * threshold among themselves while the human is still loading the map. The
+   * match then started without them: no warmup, and the player arrived partway
+   * through a live round and spawned into it.
+   *
+   * A server with no humans connected still starts on bots (headless testing
+   * depends on it). The rule is only that a human who IS connected gets to
+   * ready before the match begins without them.
+   */
   private allReady(): boolean {
-    return this._totalPlayers >= 2 && this._readyPlayers.size >= this._totalPlayers;
+    if (this._totalPlayers < 2 || this._readyPlayers.size < this._totalPlayers) return false;
+    if (this._humanClients === 0) return true;
+    for (const playerId of this._readyPlayers) {
+      if (!this._botPlayers.has(playerId)) return true;
+    }
+    return false;
+  }
+
+  /** Bots, so the ready gate can tell them from players. */
+  setBotPlayers(bots: ReadonlySet<PlayerId>): void {
+    this._botPlayers = bots;
+  }
+
+  /** Human clients connected, including those still spectating. */
+  setHumanClients(count: number): void {
+    this._humanClients = count;
   }
 
   // ========================================================================

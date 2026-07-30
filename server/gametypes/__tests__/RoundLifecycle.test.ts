@@ -357,3 +357,46 @@ describe("round-end intermission", () => {
     expect(m.roundResult).toBeNull();
   });
 });
+
+// ── Starting the match ───────────────────────────────────────────────
+
+describe("the ready gate", () => {
+  function botMatch(humans: number, bots: number): MatchState {
+    const m = new MatchState("Search & Destroy", SND, true);
+    m.setHumanClients(humans);
+    const botIds = new Set<never>();
+    for (let i = 0; i < bots; i++) {
+      const id = (100 + i) as never;
+      m.addPlayer(id);
+      botIds.add(id);
+    }
+    m.setBotPlayers(botIds);
+    for (const id of botIds) m.playerReady(id);
+    return m;
+  }
+
+  it("does not start on bots alone while a human is connected", () => {
+    // Bots ready the instant they join, so in a lobby match they reached the
+    // threshold among themselves while the human was still loading. The match
+    // began without them: no warmup, and they arrived inside a live round.
+    const m = botMatch(1, 3);
+    m.update(1);
+    expect(m.phase).toBe(MatchPhase.Warmup);
+  });
+
+  it("starts once that human readies", () => {
+    const m = botMatch(1, 3);
+    const human = 1 as never;
+    m.addPlayer(human);
+    m.playerReady(human);
+    m.update(1);
+    expect(m.phase).toBe(MatchPhase.Countdown);
+  });
+
+  it("still starts on bots alone when nobody is watching", () => {
+    // Headless testing depends on it.
+    const m = botMatch(0, 3);
+    m.update(1);
+    expect(m.phase).toBe(MatchPhase.Countdown);
+  });
+});
