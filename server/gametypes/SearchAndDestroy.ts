@@ -37,6 +37,7 @@ import type {
 } from "@shared/server/gametype";
 import { buildLoadout, DEFAULT_LOADOUT } from "@shared/server/gametype";
 import type { Vec3 } from "@shared/server/simulation/types";
+import { PLAYER_ORIGIN_HEIGHT } from "../../../../engine/physics/PlayerPhysicsConstants";
 import type { BombSite, Vec3Like } from "../../../../shared/bsp/BombSiteTable";
 import { extractBombSites, isBombMap, spawnCentroid } from "../../../../shared/bsp/BombSiteTable";
 import type { CollisionWorld } from "../../../../shared/collision/CollisionWorld";
@@ -118,8 +119,16 @@ const PLANT_ARRIVAL_RADIUS = 96;
  * ramps — deliberately, since it removes real plant spots.
  */
 const PLANTABLE_NORMAL_Y = 0.9;
-/** How far below the feet to look for that surface. */
-const GROUND_TRACE_DISTANCE = 8;
+/**
+ * How far to trace down from the player's ORIGIN to find the floor.
+ *
+ * The origin sits `PLAYER_ORIGIN_HEIGHT` (24) above the feet, so a trace has to
+ * cover that before it reaches anything. It was 8 — which stopped sixteen units
+ * short of the ground on every single call, reported airborne, and made
+ * planting impossible for everyone. The extra margin below the feet covers
+ * standing on a slight downslope.
+ */
+const GROUND_TRACE_DISTANCE = PLAYER_ORIGIN_HEIGHT + 8;
 
 /** Simulation rate, for converting bomb timers to the seconds the HUD wants. */
 const TICKS_PER_SECOND = 125;

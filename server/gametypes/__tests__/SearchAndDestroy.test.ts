@@ -708,3 +708,59 @@ describe("warmup", () => {
     expect(mode.getRoundState()).toBe("pre_plant");
   });
 });
+
+// ── Plantable ground ─────────────────────────────────────────────────
+
+describe("the ground check", () => {
+  /** Collision that reports a flat floor `depth` units below the trace start. */
+  function floorAt(depth: number) {
+    return {
+      trace: (from: { y: number }, to: { y: number }) => {
+        const span = from.y - to.y;
+        if (span <= 0 || depth > span) return { fraction: 1 };
+        return { fraction: depth / span, normal: { x: 0, y: 1, z: 0 } };
+      },
+    } as never;
+  }
+
+  /** Carry the bomb into site A and try to plant, on the given collision. */
+  function tryPlant(collision: unknown): string {
+    const mode = new SearchAndDestroy();
+    mode.onMapLoad(mapContext({ collision: collision as never }));
+    startRound(mode, 1, "udon");
+
+    const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: UDON_SPAWNS[0] };
+    const watcher: FakePlayer = { id: 2, ownerId: 2, team: "soba", position: { x: 3000, y: 0, z: 0 } };
+    run(mode, [carrier, watcher], 1);
+    const planting = { ...carrier, position: { x: 0, y: 0, z: 0 }, speed: 10 };
+    run(mode, [planting, watcher], 2, 1);
+    return mode.bombState.phase;
+  }
+
+  it("reaches the floor from the player's ORIGIN, not from their feet", () => {
+    // The origin sits PLAYER_ORIGIN_HEIGHT (24) above the feet. The trace was 8
+    // units long, so it stopped short of the ground on every call, reported
+    // airborne, and made planting impossible for everybody — the bomb could be
+    // carried into a site all round and never go down.
+    expect(tryPlant(floorAt(24))).toBe("planted");
+  });
+
+  it("still refuses to plant in mid-air", () => {
+    // Nothing within reach below: a carrier falling through a site does not get
+    // to leave the bomb hanging there.
+    expect(tryPlant(floorAt(9999))).toBe("carried");
+  });
+
+  it("still refuses a surface too steep to place it on", () => {
+    // Warsow excludes ramps deliberately — its own comment notes this removes
+    // wbomb1's B ramp as a plant spot. The long trace is the bomb's spawn drop,
+    // which must still find flat ground or the bomb never gets picked up.
+    const ramp = {
+      trace: (from: { y: number }, to: { y: number }) =>
+        from.y - to.y > 100
+          ? { fraction: 0, normal: { x: 0, y: 1, z: 0 } }
+          : { fraction: 0.5, normal: { x: 0.6, y: 0.8, z: 0 } },
+    } as never;
+    expect(tryPlant(ramp)).toBe("carried");
+  });
+});
