@@ -139,6 +139,19 @@ export abstract class BaseGametype {
   /** Spawn point selection algorithm */
   abstract getSpawnStrategy(): SpawnStrategyType;
 
+  /**
+   * Which team's spawn SET a player should use. Defaults to their own.
+   *
+   * Exists because Warsow Bomb crosses them: `GT_SelectSpawnPoint` puts the
+   * attacking team on `team_CTF_betaspawn` and the defending team on
+   * `team_CTF_alphaspawn`, whichever side is which. The team label and the
+   * spawn area are separate facts, and reading only `INITIAL_ATTACKERS` gets
+   * you the first without the second.
+   */
+  resolveSpawnTeam(teamId: string): string {
+    return teamId;
+  }
+
   // ========================================================================
   // Events — GametypeController calls these
   // ========================================================================

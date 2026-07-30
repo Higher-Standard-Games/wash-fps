@@ -133,6 +133,15 @@ const GROUND_TRACE_DISTANCE = PLAYER_ORIGIN_HEIGHT + 8;
 /** Simulation rate, for converting bomb timers to the seconds the HUD wants. */
 const TICKS_PER_SECOND = 125;
 
+/**
+ * The two CTF spawn sets, by the team id `SpawnPointTable` maps them to.
+ *
+ * Named for the ENTITY they come from rather than for a role, because the role
+ * changes at the half and the entity never does.
+ */
+const ALPHA_TEAM: TeamId = "udon";
+const BETA_TEAM: TeamId = "soba";
+
 // ── Detonation ───────────────────────────────────────────────────────
 //
 // Warsow's numbers: 30 candidate points, ~20 of them fire, spread over 1.5 s
@@ -310,6 +319,25 @@ export class SearchAndDestroy extends BaseGametype {
     return "team";
   }
 
+  /**
+   * Attackers spawn in BETA's area, defenders in ALPHA's — whichever side is
+   * which this half.
+   *
+   * Straight from Warsow's `GT_SelectSpawnPoint`, which crosses the sets
+   * against the team labels. `INITIAL_ATTACKERS = TEAM_ALPHA` names the alpha
+   * TEAM as the attackers but spawns them on `team_CTF_betaspawn`; reading the
+   * constant and stopping there puts both teams in the wrong half of the map,
+   * which is exactly what happened.
+   *
+   * The map data agrees: on wbomb2 the alpha spawns average ~3400 units from
+   * the two sites and beta's ~3800, so alpha is the side that starts nearer the
+   * ground it has to hold.
+   */
+  resolveSpawnTeam(teamId: string): string {
+    if (this.attackers === null) return teamId;
+    return teamId === this.attackers ? BETA_TEAM : ALPHA_TEAM;
+  }
+
   // ========================================================================
   // Map
   // ========================================================================
@@ -335,9 +363,11 @@ export class SearchAndDestroy extends BaseGametype {
     this.sites = extractBombSites(context.entities, context.models);
     console.log(`[S&D] ${this.sites.length} bombsites: ${this.sites.map((s) => s.label).join(", ")}`);
 
-    // The bomb starts at the attacking team's spawn centroid, dropped to the
-    // floor. No entity marks it — `team_CTF_*flag` was measured and rejected as
-    // inconsistently placed, and absent on wbomb6 (design doc 5.6).
+    // The bomb starts where the ATTACKERS spawn, dropped to the floor. That is
+    // beta's area every round, because attackers use beta's spawn set whichever
+    // team they are (see `resolveSpawnTeam`). No entity marks it —
+    // `team_CTF_*flag` was measured and rejected as inconsistently placed, and
+    // absent on wbomb6 (design doc 5.6).
     for (const team of ["udon", "soba"] as const) {
       const points = context.teamSpawnPoints.get(team);
       const centre = points && points.length > 0 ? spawnCentroid(points) : null;
@@ -363,7 +393,7 @@ export class SearchAndDestroy extends BaseGametype {
   onRoundStart(_state: WorldState, context: GametypeTickContext): void {
     this.attackers = context.attackingTeam;
     this.round = context.round;
-    this.bomb.reset(this.bombSpawns.get(context.attackingTeam) ?? { x: 0, y: 0, z: 0 });
+    this.bomb.reset(this.bombSpawns.get(BETA_TEAM) ?? { x: 0, y: 0, z: 0 });
 
     // A chosen kit takes effect here and nowhere else. Players respawn moments
     // later in this same freeze, so promoting any later would arm them a round

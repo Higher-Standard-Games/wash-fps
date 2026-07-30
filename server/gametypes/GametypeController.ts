@@ -356,7 +356,7 @@ export class GametypeController {
     // Seeded from (lastTick, entity) so spawn selection is deterministic for demo
     // re-sim (R3b). Join happens outside the tick loop, so use the latest tick.
     const spawnRng = rngFrom(this.currentTick, entityId as number, 0);
-    const baseSpawn = this.spawnStrategy.choose(this.spawnPoints, state, entityId, spawnRng, teamId);
+    const baseSpawn = this.spawnStrategy.choose(this.spawnPoints, state, entityId, spawnRng, this.spawnSetFor(teamId));
     console.log(
       `[GametypeController] Base spawn: (${baseSpawn.x.toFixed(0)}, ${baseSpawn.y.toFixed(0)}, ${baseSpawn.z.toFixed(0)})`,
     );
@@ -696,7 +696,13 @@ export class GametypeController {
     const spawnRng = rngFrom(tickNum, entityId as number, 0);
     // Team modes spawn a player among their OWN side's points.
     const spawnTeam = entity.ownerId !== undefined ? this.matchState.getPlayerTeam(entity.ownerId) : undefined;
-    const baseSpawn = this.spawnStrategy.choose(this.spawnPoints, state, entityId, spawnRng, spawnTeam);
+    const baseSpawn = this.spawnStrategy.choose(
+      this.spawnPoints,
+      state,
+      entityId,
+      spawnRng,
+      this.spawnSetFor(spawnTeam),
+    );
     const spawn = this.jitterSpawn(baseSpawn, spawnRng);
 
     // Get loadout from gametype — per-player, since S&D lets players choose.
@@ -917,6 +923,20 @@ export class GametypeController {
     });
   }
 
+  /**
+   * The spawn SET a team uses, which is not always its own — see
+   * `BaseGametype.resolveSpawnTeam`.
+   */
+  private spawnSetFor(teamId: string | undefined): string | undefined {
+    if (teamId === undefined) return undefined;
+    try {
+      return this.gametype.resolveSpawnTeam(teamId);
+    } catch (err) {
+      log.warnRateLimited("GametypeController", "resolveSpawnTeam threw:", err);
+      return teamId;
+    }
+  }
+
   /** The match, as a gametype needs to see it. */
   private tickContext(tick: TickNumber): GametypeTickContext {
     return {
@@ -995,7 +1015,7 @@ export class GametypeController {
 
   getSpawnPoint(state: WorldState, entityId?: EntityId, teamId?: string): Vec3 {
     const spawnRng = rngFrom(this.currentTick, (entityId ?? 0) as number, 0);
-    const base = this.spawnStrategy.choose(this.spawnPoints, state, entityId, spawnRng, teamId);
+    const base = this.spawnStrategy.choose(this.spawnPoints, state, entityId, spawnRng, this.spawnSetFor(teamId));
     return this.jitterSpawn(base, spawnRng);
   }
 

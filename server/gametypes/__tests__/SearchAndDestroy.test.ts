@@ -32,6 +32,13 @@ const MAP_ENTITIES = [
 
 const UDON_SPAWNS = [{ x: -2000, y: 0, z: 0 }];
 const SOBA_SPAWNS = [{ x: 6000, y: 0, z: 0 }];
+/**
+ * Where the bomb starts, and therefore where an attacker must be to reach it.
+ *
+ * Beta's area, always — Warsow's `GT_SelectSpawnPoint` puts the attacking team
+ * on `team_CTF_betaspawn` whichever side they are.
+ */
+const BOMB_SPAWN = SOBA_SPAWNS[0];
 
 function mapContext(over: Partial<GametypeMapContext> = {}): GametypeMapContext {
   return {
@@ -139,18 +146,41 @@ describe("map load", () => {
     expect(mode.getAgentDirectives(directiveContext({}), fakeState([]))).toHaveLength(0);
   });
 
-  it("starts the bomb at the attacking team's spawn, and follows the swap", () => {
+  it("starts the bomb where the attackers spawn, which is beta's area", () => {
+    // Warsow's GT_SelectSpawnPoint crosses the sets: attackers use
+    // team_CTF_betaspawn whichever team they are. So the bomb sits in beta's
+    // area every round, not on the attacking team's own spawns.
     const mode = loaded();
-    expect(mode.bombState.position.x).toBeCloseTo(UDON_SPAWNS[0].x, 0);
+    expect(mode.bombState.position.x).toBeCloseTo(SOBA_SPAWNS[0].x, 0);
 
-    // Second half: soba attacks, so the bomb starts on their side instead.
+    // Second half swaps who attacks; the bomb does not move house.
     startRound(mode, 10, "soba");
     expect(mode.bombState.position.x).toBeCloseTo(SOBA_SPAWNS[0].x, 0);
   });
 
+  it("spawns attackers in beta's area and defenders in alpha's", () => {
+    // Reading INITIAL_ATTACKERS alone puts both teams in the wrong half of the
+    // map: it names the alpha TEAM as attackers, and Warsow then spawns them on
+    // beta's points.
+    const mode = loaded(); // udon attacks in round 1
+    expect(mode.resolveSpawnTeam("udon")).toBe("soba");
+    expect(mode.resolveSpawnTeam("soba")).toBe("udon");
+
+    // After the swap the roles invert, so each side now uses its own set.
+    startRound(mode, 10, "soba");
+    expect(mode.resolveSpawnTeam("soba")).toBe("soba");
+    expect(mode.resolveSpawnTeam("udon")).toBe("udon");
+  });
+
+  it("leaves spawns alone before a round has started", () => {
+    const mode = new SearchAndDestroy();
+    mode.onMapLoad(mapContext());
+    expect(mode.resolveSpawnTeam("udon")).toBe("udon");
+  });
+
   it("does not disturb a carried bomb during the round", () => {
     const mode = loaded();
-    const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: UDON_SPAWNS[0] };
+    const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: BOMB_SPAWN };
     run(mode, [carrier], 1);
     expect(mode.bombState.carrierId).toBe(1);
 
@@ -182,7 +212,7 @@ describe("round outcomes", () => {
   it("gives the round to the attackers when every defender dies", () => {
     // Asymmetric by design: nothing can stop the plant, so it is over.
     const mode = loaded();
-    const outcome = run(mode, [attacker({ position: UDON_SPAWNS[0] }), defender({ dead: true })], 2);
+    const outcome = run(mode, [attacker({ position: BOMB_SPAWN }), defender({ dead: true })], 2);
     expect(outcome?.winner).toBe("udon");
   });
 
@@ -225,7 +255,7 @@ describe("round outcomes", () => {
    */
   function armed(): { mode: SearchAndDestroy; armedAt: number } {
     const mode = loaded();
-    const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: UDON_SPAWNS[0] };
+    const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: BOMB_SPAWN };
     const watcher = defender();
     run(mode, [carrier, watcher], 1);
     expect(mode.bombState.carrierId).toBe(1);
@@ -289,7 +319,7 @@ describe("agent directives", () => {
       { id: 10, ownerId: 10, team: "soba", position: { x: 3000, y: 0, z: 0 } },
       { id: 11, ownerId: 11, team: "soba", position: { x: 3010, y: 0, z: 0 } },
       { id: 12, ownerId: 12, team: "soba", position: { x: 3020, y: 0, z: 0 } },
-      { id: 1, ownerId: 1, team: "udon", position: UDON_SPAWNS[0] },
+      { id: 1, ownerId: 1, team: "udon", position: BOMB_SPAWN },
     ];
     run(mode, defenders, 1);
 
@@ -310,7 +340,7 @@ describe("agent directives", () => {
     // Five bots piling onto the same 64 units of floor is the failure mode.
     const mode = loaded();
     // Outside the 64-unit pickup radius, or it would simply take the bomb.
-    const near: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: { x: -1800, y: 0, z: 0 } };
+    const near: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: { x: BOMB_SPAWN.x - 200, y: 0, z: 0 } };
     const far: FakePlayer = { id: 2, ownerId: 2, team: "udon", position: { x: 500, y: 0, z: 0 } };
     const enemy: FakePlayer = { id: 3, ownerId: 3, team: "soba", position: { x: 3000, y: 0, z: 0 } };
     // Nobody is close enough to touch it, so it stays loose for this tick.
@@ -324,7 +354,7 @@ describe("agent directives", () => {
 
   it("tells defenders to hunt the carrier, because killing them drops it", () => {
     const mode = loaded();
-    const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: UDON_SPAWNS[0] };
+    const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: BOMB_SPAWN };
     const defender: FakePlayer = { id: 2, ownerId: 2, team: "soba", position: { x: 3000, y: 0, z: 0 } };
     run(mode, [carrier, defender], 1);
     expect(mode.bombState.carrierId).toBe(1);
@@ -339,7 +369,7 @@ describe("agent directives", () => {
 
   it("has exactly one attacker arm the bomb while the others cover", () => {
     const mode = loaded();
-    const armer: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: UDON_SPAWNS[0] };
+    const armer: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: BOMB_SPAWN };
     const mate: FakePlayer = { id: 2, ownerId: 2, team: "udon", position: { x: 900, y: 0, z: 0 } };
     const enemy: FakePlayer = { id: 3, ownerId: 3, team: "soba", position: { x: 3000, y: 0, z: 0 } };
     run(mode, [armer, mate, enemy], 1);
@@ -362,7 +392,7 @@ describe("agent directives", () => {
     const mode = new SearchAndDestroy();
     mode.onMapLoad(mapContext());
     mode.onTick(fakeState([]), tickContext({ players: [], live: false }));
-    const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: UDON_SPAWNS[0] };
+    const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: BOMB_SPAWN };
     const watcher: FakePlayer = { id: 2, ownerId: 2, team: "soba", position: { x: 3000, y: 0, z: 0 } };
     run(mode, [carrier, watcher], 1);
     const planting = { ...carrier, position: { x: 0, y: 0, z: 0 }, speed: 10 };
@@ -487,14 +517,14 @@ describe("objective snapshot", () => {
     const objective = mode.getObjectiveState();
     expect(objective?.kind).toBe("bomb");
     expect(objective?.phase).toBe("dropped");
-    expect(objective?.x).toBeCloseTo(UDON_SPAWNS[0].x, 0);
+    expect(objective?.x).toBeCloseTo(BOMB_SPAWN.x, 0);
     expect(objective?.sites.map((s) => s.label).sort()).toEqual(["A", "B"]);
   });
 
   it("addresses the carrier by the key the snapshot uses, not the raw id", () => {
     // A raw entity id would not match anything the client can look up.
     const mode = loaded();
-    const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: UDON_SPAWNS[0] };
+    const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: BOMB_SPAWN };
     run(mode, [carrier], 1);
     expect(mode.getObjectiveState()?.carrier).toBe("player_1");
   });
@@ -526,7 +556,7 @@ describe("objective snapshot", () => {
 /** Shared with the round-outcome suite: a bomb planted and armed at site A. */
 function armedFixture(): { mode: SearchAndDestroy; armedAt: number } {
   const mode = loaded();
-  const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: UDON_SPAWNS[0] };
+  const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: BOMB_SPAWN };
   const watcher: FakePlayer = { id: 2, ownerId: 2, team: "soba", position: { x: 3000, y: 0, z: 0 } };
   run(mode, [carrier, watcher], 1);
   const planting = { ...carrier, position: { x: 0, y: 0, z: 0 }, speed: 10 };
@@ -615,7 +645,7 @@ describe("detonation", () => {
 
   /** Arm the bomb at site A and run the fuse out. */
   function detonate(mode: SearchAndDestroy): void {
-    const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: UDON_SPAWNS[0] };
+    const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: BOMB_SPAWN };
     const watcher: FakePlayer = { id: 2, ownerId: 2, team: "soba", position: { x: 3000, y: 0, z: 0 } };
     run(mode, [carrier, watcher], 1);
     const planting = { ...carrier, position: { x: 0, y: 0, z: 0 }, speed: 10 };
@@ -729,7 +759,7 @@ describe("the ground check", () => {
     mode.onMapLoad(mapContext({ collision: collision as never }));
     startRound(mode, 1, "udon");
 
-    const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: UDON_SPAWNS[0] };
+    const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: BOMB_SPAWN };
     const watcher: FakePlayer = { id: 2, ownerId: 2, team: "soba", position: { x: 3000, y: 0, z: 0 } };
     run(mode, [carrier, watcher], 1);
     const planting = { ...carrier, position: { x: 0, y: 0, z: 0 }, speed: 10 };
