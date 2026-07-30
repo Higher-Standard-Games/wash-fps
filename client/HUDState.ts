@@ -13,8 +13,8 @@
  * - players map   → scoreboard data
  */
 
-import { clientKeyDisplayId } from "../ClientEntityKey";
 import type { GameState } from "../../../engine/network/core/GameState";
+import { clientKeyDisplayId } from "../ClientEntityKey";
 import { MatchStateManager } from "./MatchStateManager";
 
 // ============================================================================
@@ -82,6 +82,14 @@ export class HUDState {
   // === Scoreboard & Match State ===
   scoreboard: ScoreboardEntry[] = [];
   localPlayerId: string = "";
+  /**
+   * Player currently being watched while dead, or "" when playing.
+   *
+   * The bomb's progress bar belongs to whoever has their hands on it — and to
+   * anyone spectating them, which is how a dead defender still sees the defuse
+   * they can no longer help with.
+   */
+  spectating: string = "";
   gametypeName: string = "";
   teamScores: Record<string, number> = {};
   teamNames: Record<string, string> = {};

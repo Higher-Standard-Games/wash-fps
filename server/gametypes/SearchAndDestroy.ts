@@ -446,6 +446,7 @@ export class SearchAndDestroy extends BaseGametype {
       carrier: this.bomb.carrierId === null ? null : toClientKey(this.bomb.carrierId as EntityId),
       progress: this.bomb.progress,
       advancing: this.bomb.progressAdvancing,
+      worker: this.bomb.workerId === null ? null : toClientKey(this.bomb.workerId as EntityId),
       fuse: fuseTicks === null ? null : fuseTicks / TICKS_PER_SECOND,
       beepInterval: beepTicks === null ? null : beepTicks / TICKS_PER_SECOND,
       sites: this.sites.map((site) => ({

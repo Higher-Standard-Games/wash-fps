@@ -1911,6 +1911,9 @@ export class Game {
         _ragdollSystem: this._ragdollSystem,
         _cartoonHit: this._cartoonHit,
         _deathCamera: this._deathCamera,
+        get spectatingEntityId() {
+          return Game.getInstance()._spectatingEntityId;
+        },
         onStateUpdateCallbacks: this.onStateUpdateCallbacks,
         get pendingTick() {
           return Game.getInstance().pendingTick;

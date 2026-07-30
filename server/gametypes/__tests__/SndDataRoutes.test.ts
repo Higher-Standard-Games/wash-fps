@@ -148,6 +148,7 @@ describe("the bomb reaches the client", () => {
     carrier: "player_7",
     progress: 0.42,
     advancing: false,
+    worker: "player_7",
     fuse: 12.75,
     beepInterval: 1.0625,
     sites: [

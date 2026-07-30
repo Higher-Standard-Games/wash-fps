@@ -100,6 +100,8 @@ export interface GameEventContext {
 
   // Death state
   _isPlayerDead: boolean;
+  /** Teammate being watched while dead, or null. */
+  spectatingEntityId: string | null;
   _respawnRequested: boolean;
   _respawnCooldownEnd: number;
 
@@ -543,6 +545,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
   // Update HUD state aggregator
   const hudState = HUDState.getInstance();
   hudState.localPlayerId = ctx.localPlayerId;
+  hudState.spectating = ctx.spectatingEntityId ?? "";
   hudState.updateScoreboard(state);
   hudState.expireTransients();
   hudState.updateDebugOverlay();

@@ -64,7 +64,6 @@ export class FPSBombStatus implements FPSHudWidget {
   private element: HTMLElement;
   private roleLabel: HTMLElement;
   private phaseLabel: HTMLElement;
-  private fuseLabel: HTMLElement;
   private meter: HTMLElement;
   private meterFill: HTMLElement;
   /** Last rendered signature, so identical frames skip the DOM entirely. */
@@ -82,10 +81,6 @@ export class FPSBombStatus implements FPSHudWidget {
     this.phaseLabel = document.createElement("div");
     this.phaseLabel.className = "fps-bomb-status-phase";
     this.element.appendChild(this.phaseLabel);
-
-    this.fuseLabel = document.createElement("div");
-    this.fuseLabel.className = "fps-bomb-status-fuse";
-    this.element.appendChild(this.fuseLabel);
 
     this.meter = document.createElement("div");
     this.meter.className = "fps-bomb-status-meter";
@@ -118,12 +113,11 @@ export class FPSBombStatus implements FPSHudWidget {
       return;
     }
 
-    // Tenths, not raw seconds: a fuse that only moves once a second reads as
-    // frozen at the moment it matters most.
-    // Only ever non-null once armed, which is the one bomb state both sides
-    // are entitled to know.
+    // The fuse drives the urgency styling but is never PRINTED. The beep is the
+    // clock: it accelerates as the fuse shortens and it is positional, so
+    // judging the time is a skill. A number on the HUD would replace that with
+    // arithmetic, and hand it to everyone equally.
     const fuse = bomb.fuse === null ? null : Math.max(0, bomb.fuse);
-    const fuseText = fuse === null ? "" : fuse.toFixed(1);
     const urgent = fuse !== null && fuse <= URGENT_SECONDS;
     const progress = Math.round(bomb.progress * 100);
 
@@ -131,8 +125,16 @@ export class FPSBombStatus implements FPSHudWidget {
     // client key the local player is known by.
     const carrying = bomb.carrier !== null && bomb.carrier === state.localPlayerId;
 
-    const roleLabel = attacking ? "ATTACK" : "DEFEND";
-    const signature = `${bomb.phase}|${attacking}|${carrying}|${fuseText}|${progress}|${bomb.advancing}`;
+    // The bar belongs to whoever has their hands on the bomb, and to anyone
+    // watching them — which is how a dead defender still sees the defuse they
+    // can no longer help with. Showing it to a whole team would announce an arm
+    // across the map, the same free intelligence the wording was stripped of.
+    const mine = bomb.worker !== null && (bomb.worker === state.localPlayerId || bomb.worker === state.spectating);
+    // A meter at zero is not "nothing happening" worth drawing — hide it, so
+    // the bar appearing is itself the signal that work has started.
+    const meterVisible = progress > 0 && mine;
+
+    const signature = `${bomb.phase}|${attacking}|${carrying}|${urgent}|${progress}|${meterVisible}|${bomb.advancing}`;
     if (signature === this.rendered) return;
     this.rendered = signature;
 
@@ -142,21 +144,11 @@ export class FPSBombStatus implements FPSHudWidget {
     // Which side you are on this round. The central fact of the mode, and
     // nothing on screen said it — you could only infer it from the wording,
     // which is how you end up unsure whether you are meant to be planting.
-    this.roleLabel.textContent = roleLabel;
+    this.roleLabel.textContent = attacking ? "ATTACK" : "DEFEND";
     this.element.classList.toggle("fps-bomb-status--attacking", attacking);
-    this.fuseLabel.textContent = fuseText;
-    this.fuseLabel.style.display = fuse === null ? "none" : "";
-
     this.element.classList.toggle("fps-bomb-status--urgent", urgent);
     this.element.classList.toggle("fps-bomb-status--armed", bomb.phase === "armed");
 
-    // Same leak, in bar form: an arm meter visible to defenders would announce
-    // the plant across the map. They see the meter only once the bomb is armed,
-    // when it is their own defuse it is measuring.
-    const meterVisible = progress > 0 && (attacking || bomb.phase === "armed");
-
-    // A meter at zero is not "nothing happening" worth drawing — hide it, so
-    // the bar appearing is itself the signal that somebody is on the bomb.
     this.meter.style.display = meterVisible ? "" : "none";
     this.meterFill.style.width = `${progress}%`;
     this.meterFill.classList.toggle("fps-bomb-status-meter-fill--decaying", !bomb.advancing);
