@@ -9,6 +9,19 @@ import type { FPSHudWidget, HUDState } from "../HudWidget";
 const URGENT_SECONDS = 10;
 
 /**
+ * What a defender is told before the bomb is armed: nothing.
+ *
+ * The earlier wording ("BOMB LOOSE", "BOMB CARRIED", "STOP THE ARM") handed the
+ * defending team free intelligence about the attack — whether the bomb had been
+ * picked up, and when a plant had started — from anywhere on the map, with no
+ * line of sight and nothing earned. Finding out is the defenders' job.
+ *
+ * Arming is different and is meant to be known: it is loud, it is announced,
+ * and it is the moment the round inverts.
+ */
+const DEFEND = "DEFEND THE SITES";
+
+/**
  * What the bomb's current phase means to the player, per side.
  *
  * Split by role because the same world state is opposite news: "bomb armed" is
@@ -26,9 +39,9 @@ const URGENT_SECONDS = 10;
 const CARRIER_TEXT = "YOU HAVE THE BOMB";
 
 const PHASE_TEXT: Record<string, { attacker: string; defender: string }> = {
-  dropped: { attacker: "TAKE THE BOMB", defender: "BOMB LOOSE" },
-  carried: { attacker: "PLANT THE BOMB", defender: "BOMB CARRIED" },
-  planted: { attacker: "ARMING", defender: "STOP THE ARM" },
+  dropped: { attacker: "TAKE THE BOMB", defender: DEFEND },
+  carried: { attacker: "PLANT THE BOMB", defender: DEFEND },
+  planted: { attacker: "ARMING", defender: DEFEND },
   armed: { attacker: "BOMB ARMED", defender: "DEFUSE" },
   defused: { attacker: "DEFUSED", defender: "DEFUSED" },
   detonated: { attacker: "DETONATED", defender: "DETONATED" },
@@ -49,6 +62,7 @@ const PHASE_TEXT: Record<string, { attacker: string; defender: string }> = {
  */
 export class FPSBombStatus implements FPSHudWidget {
   private element: HTMLElement;
+  private roleLabel: HTMLElement;
   private phaseLabel: HTMLElement;
   private fuseLabel: HTMLElement;
   private meter: HTMLElement;
@@ -60,6 +74,10 @@ export class FPSBombStatus implements FPSHudWidget {
     this.element = document.createElement("div");
     this.element.className = "fps-bomb-status";
     this.element.style.display = "none";
+
+    this.roleLabel = document.createElement("div");
+    this.roleLabel.className = "fps-bomb-status-role";
+    this.element.appendChild(this.roleLabel);
 
     this.phaseLabel = document.createElement("div");
     this.phaseLabel.className = "fps-bomb-status-phase";
@@ -102,6 +120,8 @@ export class FPSBombStatus implements FPSHudWidget {
 
     // Tenths, not raw seconds: a fuse that only moves once a second reads as
     // frozen at the moment it matters most.
+    // Only ever non-null once armed, which is the one bomb state both sides
+    // are entitled to know.
     const fuse = bomb.fuse === null ? null : Math.max(0, bomb.fuse);
     const fuseText = fuse === null ? "" : fuse.toFixed(1);
     const urgent = fuse !== null && fuse <= URGENT_SECONDS;
@@ -111,21 +131,33 @@ export class FPSBombStatus implements FPSHudWidget {
     // client key the local player is known by.
     const carrying = bomb.carrier !== null && bomb.carrier === state.localPlayerId;
 
+    const roleLabel = attacking ? "ATTACK" : "DEFEND";
     const signature = `${bomb.phase}|${attacking}|${carrying}|${fuseText}|${progress}|${bomb.advancing}`;
     if (signature === this.rendered) return;
     this.rendered = signature;
 
     this.phaseLabel.textContent = carrying ? CARRIER_TEXT : attacking ? text.attacker : text.defender;
     this.element.classList.toggle("fps-bomb-status--carrying", carrying);
+
+    // Which side you are on this round. The central fact of the mode, and
+    // nothing on screen said it — you could only infer it from the wording,
+    // which is how you end up unsure whether you are meant to be planting.
+    this.roleLabel.textContent = roleLabel;
+    this.element.classList.toggle("fps-bomb-status--attacking", attacking);
     this.fuseLabel.textContent = fuseText;
     this.fuseLabel.style.display = fuse === null ? "none" : "";
 
     this.element.classList.toggle("fps-bomb-status--urgent", urgent);
     this.element.classList.toggle("fps-bomb-status--armed", bomb.phase === "armed");
 
+    // Same leak, in bar form: an arm meter visible to defenders would announce
+    // the plant across the map. They see the meter only once the bomb is armed,
+    // when it is their own defuse it is measuring.
+    const meterVisible = progress > 0 && (attacking || bomb.phase === "armed");
+
     // A meter at zero is not "nothing happening" worth drawing — hide it, so
     // the bar appearing is itself the signal that somebody is on the bomb.
-    this.meter.style.display = progress > 0 ? "" : "none";
+    this.meter.style.display = meterVisible ? "" : "none";
     this.meterFill.style.width = `${progress}%`;
     this.meterFill.classList.toggle("fps-bomb-status-meter-fill--decaying", !bomb.advancing);
 
