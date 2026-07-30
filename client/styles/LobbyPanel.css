@@ -1439,3 +1439,15 @@
     opacity: 1;
   }
 }
+
+/* Switch side — sits with the lobby actions. Distinct from shuffle: it moves
+   only you, needs no vote, and is how you choose which half of a round mode
+   you play. */
+.match-lobby__btn--switch-team {
+  background: linear-gradient(120deg, hsla(186, 80%, 46%, 0.9), hsla(196, 76%, 34%, 0.9));
+  color: hsl(200, 100%, 96%);
+}
+
+.match-lobby__btn--switch-team:hover {
+  filter: brightness(1.15);
+}
