@@ -15,6 +15,16 @@ const URGENT_SECONDS = 10;
  * a countdown to victory for one team and a countdown to defeat for the other,
  * and a HUD that says the same thing to both is telling one of them nothing.
  */
+/**
+ * What it says when the bomb is on YOU.
+ *
+ * "BOMB CARRIED" is true whoever is holding it, which is exactly why it is
+ * useless to the person holding it — the one player who needs to know cannot
+ * tell from it. Carrying the bomb is the most consequential state in the mode
+ * and gets its own line.
+ */
+const CARRIER_TEXT = "YOU HAVE THE BOMB";
+
 const PHASE_TEXT: Record<string, { attacker: string; defender: string }> = {
   dropped: { attacker: "TAKE THE BOMB", defender: "BOMB LOOSE" },
   carried: { attacker: "PLANT THE BOMB", defender: "BOMB CARRIED" },
@@ -97,11 +107,16 @@ export class FPSBombStatus implements FPSHudWidget {
     const urgent = fuse !== null && fuse <= URGENT_SECONDS;
     const progress = Math.round(bomb.progress * 100);
 
-    const signature = `${bomb.phase}|${attacking}|${fuseText}|${progress}|${bomb.advancing}`;
+    // Am I the one holding it? The snapshot addresses the carrier by the same
+    // client key the local player is known by.
+    const carrying = bomb.carrier !== null && bomb.carrier === state.localPlayerId;
+
+    const signature = `${bomb.phase}|${attacking}|${carrying}|${fuseText}|${progress}|${bomb.advancing}`;
     if (signature === this.rendered) return;
     this.rendered = signature;
 
-    this.phaseLabel.textContent = attacking ? text.attacker : text.defender;
+    this.phaseLabel.textContent = carrying ? CARRIER_TEXT : attacking ? text.attacker : text.defender;
+    this.element.classList.toggle("fps-bomb-status--carrying", carrying);
     this.fuseLabel.textContent = fuseText;
     this.fuseLabel.style.display = fuse === null ? "none" : "";
 

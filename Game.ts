@@ -294,6 +294,9 @@ export class Game {
 
     let chosen: string | null = null;
     for (const [entityId, player] of players) {
+      // Your own hitbox is still in the renderer, just hidden — spectating it
+      // would put the camera back on the corpse you were meant to leave.
+      if (entityId === this.localPlayerId) continue;
       if (player.dead) continue;
       if (match.playerTeams?.[clientKeyDisplayId(entityId)] !== myTeam) continue;
       chosen = entityId;
@@ -307,7 +310,7 @@ export class Game {
     const start = players.get(chosen)?.position;
     if (!start) return;
     const camera = CameraSystem.getInstance().getCamera() as { rotation?: { y: number } } | null;
-    this._deathCamera.start(
+    this._deathCamera.startFollow(
       () => this.remoteRenderer?.getRenderedPlayers().get(chosen)?.position ?? null,
       start,
       camera?.rotation?.y ?? 0,
