@@ -239,10 +239,24 @@ export class FPSScoreboard {
 
         const teamName = state.teamNames[teamId] || `Team ${teamId}`;
 
-        // Hide score from header since it's redundant with the columns below
+        // The team score, in the header. It was hidden as "redundant with the
+        // columns below" — true in Team Deathmatch, where the team score is the
+        // sum of the player column, and false in any round mode, where it is
+        // ROUNDS WON and appears nowhere else on the board. The one number that
+        // says who is winning was the one number missing.
         const title = document.createElement("div");
         title.className = "fps-scoreboard-team-title";
-        title.textContent = teamName;
+
+        const nameEl = document.createElement("span");
+        nameEl.className = "fps-scoreboard-team-name";
+        nameEl.textContent = teamName;
+        title.appendChild(nameEl);
+
+        const scoreEl = document.createElement("span");
+        scoreEl.className = "fps-scoreboard-team-score";
+        scoreEl.textContent = String(state.teamScores[teamId] ?? 0);
+        title.appendChild(scoreEl);
+
         teamEl.appendChild(title);
 
         const header = document.createElement("div");

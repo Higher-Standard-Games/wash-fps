@@ -227,3 +227,30 @@ describe("what bots read", () => {
     expect(event.roundState).toBe("post_plant");
   });
 });
+
+// ── The scoreboard's one number ──────────────────────────────────────
+
+describe("team scores reach the client", () => {
+  it("carries rounds won, which nothing else on the board shows", () => {
+    // In Team Deathmatch the team score is the sum of the player column, so
+    // hiding it from the header lost nothing. In a round mode it is ROUNDS WON
+    // and appears nowhere else — the one number that says who is winning.
+    const m = liveMatch();
+    m.endRound("udon", { reason: "detonated" });
+
+    const client = roundTrip(m.toSnapshot());
+    expect(client.teamScores.udon).toBe(1);
+    expect(client.teamScores.soba).toBe(0);
+  });
+
+  it("keeps them across the intermission and into the next round", () => {
+    const m = liveMatch();
+    m.endRound("udon", { reason: "detonated" });
+    while (m.phase === MatchPhase.RoundEnd) m.update(1);
+    m.transition(MatchPhase.Active);
+
+    const client = roundTrip(m.toSnapshot());
+    expect(client.teamScores.udon).toBe(1);
+    expect(client.round).toBe(2);
+  });
+});

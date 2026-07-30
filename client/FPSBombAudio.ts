@@ -3,12 +3,16 @@
  *
  * Two cues with different jobs:
  *
- *  - **The beep** (`sounds/bomb/bombtimer.ogg`) is 3D, at the bomb, and fires
- *    on the interval the SERVER computes. That matters: the interval is one
- *    twelfth of the remaining fuse, so it accelerates smoothly, and driving it
- *    from the server's number keeps it locked to the blinking light rather than
- *    letting two clocks drift apart. It is also how you find a planted bomb in
- *    a room you have not cleared.
+ *  - **The beep** (`sounds/bomb/bombtimer.ogg`) is the CLOCK, and everyone
+ *    hears it — both teams, anywhere on the map. It fires on the interval the
+ *    server computes, one twelfth of the remaining fuse, so it accelerates
+ *    smoothly toward detonation.
+ *
+ *    Deliberately 2D rather than positional. There is no fuse number on the
+ *    HUD, so this is the only thing telling anyone how long is left, and a
+ *    defender who rotated late must not be the one person who cannot hear it.
+ *    Knowing the time is shared; knowing where the bomb is stays a matter of
+ *    the site markers and going to look.
  *
  *  - **The announcer** is 2D and side-aware. Warsow ships separate offense and
  *    defense reads of every event, because "planted" is good news for one team
@@ -44,8 +48,14 @@ export const FPS_BOMB_SOUND_PATHS = [
   ANNOUNCE.defused.defense,
 ] as const;
 
-/** The beep carries — a bomb you cannot hear is a bomb you cannot find. */
-const BEEP_MAX_DISTANCE = 3000;
+/**
+ * The beep is not attenuated at all.
+ *
+ * It is the only clock in the mode. Falling off with distance would mean the
+ * player furthest from the bomb — usually the one deciding whether a retake is
+ * still possible — is the one told least about it.
+ */
+const BEEP_VOLUME = 0.75;
 
 /** Predecode the bomb bank once the map's PK3 index is available. */
 export async function preloadFPSBombAudio(): Promise<void> {
@@ -84,11 +94,7 @@ export class FPSBombAudio {
     this.nextBeep -= dt;
     if (this.nextBeep > 0) return;
     this.nextBeep = bomb.beepInterval;
-    AudioManager.getInstance().playSfx3D(
-      BOMB_TIMER,
-      { x: bomb.x, y: bomb.y, z: bomb.z },
-      { volume: 0.9, maxDistance: BEEP_MAX_DISTANCE },
-    );
+    AudioManager.getInstance().playSfx2D(BOMB_TIMER, BEEP_VOLUME, 2);
   }
 
   /** Announce a phase change to the local player, in their side's voice. */
