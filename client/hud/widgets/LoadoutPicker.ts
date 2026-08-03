@@ -1,3 +1,4 @@
+import { WEAPONS } from "../../../../../shared/entities/definitions/weapons/WeaponsTable";
 import {
   DEFAULT_LOADOUT,
   type LoadoutChoice,
@@ -7,27 +8,11 @@ import {
   type SecondaryWeapon,
   WEAPON_LABELS,
 } from "../../../../../shared/server/gametype/Loadout";
+import { WeaponPreview } from "./WeaponPreview";
 
 // =============================================================================
 // Loadout Picker — choose your kit before you spawn
 // =============================================================================
-
-/**
- * What each weapon is for, in one line.
- *
- * Written for someone who has never fired them. A picker that lists seven
- * weapon names and nothing else asks a new player to guess, and they will pick
- * whichever sounds best rather than whichever suits how they want to play.
- */
-const WEAPON_BLURB: Record<PrimaryWeapon | SecondaryWeapon, string> = {
-  rlauncher: "Splash damage. Forgiving, and it moves people.",
-  voltaic: "Held beam. Steady damage, punishes anyone who stays close.",
-  electrobolt: "Hitscan rail. All or nothing, at any range.",
-  riotgun: "Close-range burst. Wins a corner.",
-  plasmagun: "Fast bolts. Area denial and chip damage.",
-  glauncher: "Bouncing splash. For doorways you cannot see through.",
-  machinegun: "Reliable at range. Never the wrong answer.",
-};
 
 /**
  * FPSLoadoutPicker — the kit dialog, shown before a player enters the game.
@@ -46,6 +31,12 @@ export class FPSLoadoutPicker {
   private secondary: SecondaryWeapon = DEFAULT_LOADOUT.secondary;
   private onConfirm: ((choice: LoadoutChoice) => void) | null = null;
   private visible = false;
+  /** Weapon on the stand. Follows hover, falls back to the chosen primary. */
+  private focus: PrimaryWeapon | SecondaryWeapon = DEFAULT_LOADOUT.primary;
+  /** Built on first open — a WebGL context is too expensive to hold unused. */
+  private preview: WeaponPreview | null = null;
+  /** Last path handed to the stand, so re-rendering does not reload the model. */
+  private lastPreviewed: string | null = null;
 
   constructor() {
     this.element = document.createElement("div");
@@ -76,6 +67,8 @@ export class FPSLoadoutPicker {
     }
     this.onConfirm = onConfirm;
     this.visible = true;
+    this.focus = this.primary;
+    this.lastPreviewed = null;
     this.element.style.display = "";
     this.render();
   }
@@ -84,9 +77,16 @@ export class FPSLoadoutPicker {
     this.visible = false;
     this.onConfirm = null;
     this.element.style.display = "none";
+    // Give the WebGL context back. The picker is open for seconds at a time and
+    // a held context is one the game cannot have.
+    this.preview?.dispose();
+    this.preview = null;
+    this.lastPreviewed = null;
   }
 
   public destroy(): void {
+    this.preview?.dispose();
+    this.preview = null;
     this.element.remove();
   }
 
@@ -96,32 +96,41 @@ export class FPSLoadoutPicker {
     const panel = document.createElement("div");
     panel.className = "fps-loadout-panel";
 
-    const title = document.createElement("div");
-    title.className = "fps-loadout-title";
-    title.textContent = "CHOOSE YOUR LOADOUT";
-    panel.appendChild(title);
+    const hero = document.createElement("div");
+    hero.className = "fps-loadout-hero";
+    hero.innerHTML = `
+      <div class="fps-loadout-kicker">Search &amp; Destroy</div>
+      <div class="fps-loadout-heading">Loadout</div>
+      <div class="fps-loadout-subtitle">You always carry the blade. Everything else is on the map.</div>
+    `;
+    panel.appendChild(hero);
 
-    const note = document.createElement("div");
-    note.className = "fps-loadout-note";
-    note.textContent = "You always carry the blade. Everything else is on the map.";
-    panel.appendChild(note);
+    const body = document.createElement("div");
+    body.className = "fps-loadout-body";
 
-    panel.appendChild(
-      this.buildRow("PRIMARY", PRIMARY_CHOICES, this.primary, (id) => {
+    const columns = document.createElement("div");
+    columns.className = "fps-loadout-columns";
+    columns.appendChild(
+      this.buildColumn("Primary", PRIMARY_CHOICES, this.primary, (id) => {
         this.primary = id as PrimaryWeapon;
+        this.lastPreviewed = null;
         this.render();
       }),
     );
-    panel.appendChild(
-      this.buildRow("SECONDARY", SECONDARY_CHOICES, this.secondary, (id) => {
+    columns.appendChild(
+      this.buildColumn("Secondary", SECONDARY_CHOICES, this.secondary, (id) => {
         this.secondary = id as SecondaryWeapon;
+        this.lastPreviewed = null;
         this.render();
       }),
     );
+    body.appendChild(columns);
+    body.appendChild(this.buildPreview());
+    panel.appendChild(body);
 
     const confirm = document.createElement("button");
     confirm.className = "fps-loadout-confirm";
-    confirm.textContent = "ENTER THE ROUND";
+    confirm.innerHTML = `<span>Enter the round</span>`;
     confirm.onclick = () => {
       const choice: LoadoutChoice = { primary: this.primary, secondary: this.secondary };
       const callback = this.onConfirm;
@@ -133,43 +142,67 @@ export class FPSLoadoutPicker {
     this.element.appendChild(panel);
   }
 
-  private buildRow(
+  /**
+   * The stand. One weapon at a time, so the cost does not scale with how many
+   * weapons the mode offers — and the picture is of the model that will
+   * actually be in your hands, not a drawing of it that can go stale.
+   */
+  private buildPreview(): HTMLElement {
+    const stage = document.createElement("div");
+    stage.className = "fps-loadout-preview";
+
+    this.preview ??= new WeaponPreview();
+    stage.appendChild(this.preview.canvas);
+
+    const caption = document.createElement("div");
+    caption.className = "fps-loadout-preview-name";
+    caption.textContent = WEAPON_LABELS[this.focus];
+    stage.appendChild(caption);
+
+    const modelPath = WEAPONS[this.focus]?.modelPath;
+    if (modelPath && this.lastPreviewed !== modelPath) {
+      this.lastPreviewed = modelPath;
+      void this.preview.show(modelPath);
+    }
+    // The canvas has no layout until it is in the document.
+    requestAnimationFrame(() => this.preview?.resize());
+
+    return stage;
+  }
+
+  private buildColumn(
     label: string,
     options: readonly string[],
     selected: string,
     onPick: (id: string) => void,
   ): HTMLElement {
-    const row = document.createElement("div");
-    row.className = "fps-loadout-row";
+    const column = document.createElement("div");
+    column.className = "fps-loadout-column";
 
     const heading = document.createElement("div");
-    heading.className = "fps-loadout-row-label";
+    heading.className = "fps-loadout-column-label";
     heading.textContent = label;
-    row.appendChild(heading);
+    column.appendChild(heading);
 
-    const options_ = document.createElement("div");
-    options_.className = "fps-loadout-options";
     for (const id of options) {
       const key = id as PrimaryWeapon | SecondaryWeapon;
       const card = document.createElement("button");
       card.className = "fps-loadout-option";
       if (id === selected) card.classList.add("fps-loadout-option--selected");
+      card.textContent = WEAPON_LABELS[key];
       card.onclick = () => onPick(id);
-
-      const name = document.createElement("div");
-      name.className = "fps-loadout-option-name";
-      name.textContent = WEAPON_LABELS[key];
-      card.appendChild(name);
-
-      const blurb = document.createElement("div");
-      blurb.className = "fps-loadout-option-blurb";
-      blurb.textContent = WEAPON_BLURB[key];
-      card.appendChild(blurb);
-
-      options_.appendChild(card);
+      // Hovering previews without committing, so the stand can be browsed.
+      card.onmouseenter = () => this.setFocus(key);
+      column.appendChild(card);
     }
-    row.appendChild(options_);
 
-    return row;
+    return column;
+  }
+
+  /** Point the stand at `weapon` without changing the chosen kit. */
+  private setFocus(weapon: PrimaryWeapon | SecondaryWeapon): void {
+    if (this.focus === weapon) return;
+    this.focus = weapon;
+    this.render();
   }
 }
