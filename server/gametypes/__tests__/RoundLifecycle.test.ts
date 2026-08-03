@@ -91,6 +91,27 @@ describe("round loop", () => {
     expect(m.round).toBe(0);
   });
 
+  it("clears stat-derived scores before a continuous rematch", () => {
+    const m = liveMatch();
+    m.setScoreFormula((stats) => stats.damageGiven);
+    m.recordStat(1 as never, (stats) => {
+      stats.damageGiven = 25;
+    });
+    expect(m.getScore(1 as never)).toBe(25);
+
+    m.transition(MatchPhase.PostGame);
+    m.transition(MatchPhase.Warmup);
+    m.transition(MatchPhase.Countdown);
+    m.transition(MatchPhase.Active);
+
+    expect(m.getScore(1 as never)).toBe(0);
+    expect(m.getStats(1 as never).damageGiven).toBe(0);
+    m.recordStat(1 as never, (stats) => {
+      stats.damageGiven = 1;
+    });
+    expect(m.getScore(1 as never)).toBe(1);
+  });
+
   it("does not award a round to a null winner", () => {
     const m = liveMatch();
     m.endRound(null);

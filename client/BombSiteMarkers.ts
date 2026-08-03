@@ -22,7 +22,7 @@ import { CreatePlane } from "@babylonjs/core/Meshes/Builders/planeBuilder";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Scene } from "@babylonjs/core/scene";
 import { getExplosionEffect, ROCKET_EXPLOSION } from "../../../engine/weapon/ExplosionEffect";
-import { MatchStateManager } from "./MatchStateManager";
+import { type BombExplosionEvent, MatchStateManager } from "./MatchStateManager";
 
 /** Height above the site origin, matching Warsow's own indicator model. */
 const MARKER_HEIGHT = 128;
@@ -38,6 +38,15 @@ const BLAST_SCALE = 2.2;
 interface Marker {
   root: TransformNode;
   baseY: number;
+}
+
+/** Stable per-round identity for a repeated explosion snapshot. */
+export function bombExplosionSignature(round: number, explosion: BombExplosionEvent | null): string | null {
+  if (!explosion || explosion.points.length === 0) return null;
+  const points = explosion.points
+    .map((point) => `${point.x},${point.y},${point.z},${point.radius},${point.delay}`)
+    .join(";");
+  return `${round}:${points}`;
 }
 
 export class BombSiteMarkers {
@@ -146,9 +155,15 @@ export class BombSiteMarkers {
    */
   private scheduleExplosion(match: MatchStateManager): void {
     const explosion = match.explosion;
-    if (!explosion || explosion.points.length === 0) return;
+    const signature = bombExplosionSignature(match.round, explosion);
+    if (!explosion || signature === null) {
+      // The server repeats one detonation for reliability, then removes it.
+      // That gap arms the renderer for the next detonation — including round 1
+      // of a continuous rematch, where the round number can repeat.
+      this.playedSignature = null;
+      return;
+    }
 
-    const signature = `${explosion.points.length}:${explosion.points[0].x.toFixed(1)}:${explosion.points[0].delay.toFixed(2)}`;
     if (signature === this.playedSignature) return;
     this.playedSignature = signature;
 

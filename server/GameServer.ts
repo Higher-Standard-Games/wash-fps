@@ -808,6 +808,9 @@ export class GameServer {
       // Remove from anti-warp tracker
       this.movementValidator.removeClient(client.playerId);
       this.telemetry.remove(client.playerId);
+    } else {
+      // Spectating preserves session state; a real disconnect must release it.
+      this.gametypeController.onPlayerDisconnect(client.playerId);
     }
 
     this.clients.delete(conn.id);
@@ -1152,6 +1155,15 @@ export class GameServer {
       console.log(`[GameServer] Player ${client.playerId} tried to JoinGame but is already playing`);
       return;
     }
+    // S&D must not create a live entity until the reliable loadout choice has
+    // arrived. Keep this before the rate gate so a rejected click can be
+    // retried immediately after choosing.
+    const gametype = this.gametypeController.getGametype();
+    if (!client.isBot && !gametype.hasChosenLoadout(client.playerId)) {
+      conn.sendDatagram(MessageCodec.encodeServerMessage("Choose a loadout before joining.", "info"));
+      return;
+    }
+
     // Rate-gate client-initiated joins/switches (server queue promotion bypasses).
     // The timestamp is stamped on the accepted *attempt*, not on a successful
     // spawn: a join that then falls through to the challengers queue (server full)
@@ -1254,7 +1266,7 @@ export class GameServer {
 
   /**
    * handleSpectate — player → spectator transition.
-   * Removes the player entity and resets match stats.
+   * Removes the player entity while preserving match stats and mode session state.
    */
   private handleSpectate(conn: ClientConnection): void {
     const client = this.clients.get(conn.id);
@@ -1271,8 +1283,8 @@ export class GameServer {
     const state = this.simulation.getStateMut();
     state.removeEntity(client.entityId);
 
-    // Remove from gametype tracking (resets scores/deaths)
-    this.gametypeController.onPlayerDisconnect(client.playerId, client.entityId);
+    // Leave the active roster, but keep stats and S&D loadout for rejoin.
+    this.gametypeController.onPlayerSpectate(client.playerId, client.entityId);
 
     // Remove from anti-warp tracker
     this.movementValidator.removeClient(client.playerId);

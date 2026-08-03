@@ -7,8 +7,10 @@
  * defender thrown across the map is a broken round.
  */
 
-import type { WorldState } from "@engine/server/core/WorldState";
+import { WorldState } from "@engine/server/core/WorldState";
 import { describe, expect, it } from "vitest";
+import { GametypeController } from "../GametypeController";
+import { SearchAndDestroy } from "../SearchAndDestroy";
 import { createSpawnStrategy, TeamSpawnStrategy } from "../SpawnPointStrategy";
 
 const STATE = { allEntities: () => [] } as unknown as WorldState;
@@ -89,5 +91,21 @@ describe("TeamSpawnStrategy", () => {
 
   it("is what the factory builds for the 'team' strategy type", () => {
     expect(createSpawnStrategy("team")).toBeInstanceOf(TeamSpawnStrategy);
+  });
+
+  it("uses the canonical assigned team when a lobby alias joins", () => {
+    const controller = new GametypeController(new SearchAndDestroy());
+    controller.setSpawnPoints(
+      ALL,
+      new Map([
+        ["udon", UDON],
+        ["soba", SOBA],
+      ]),
+    );
+
+    const spawn = controller.onPlayerJoin(1 as never, 1 as never, new WorldState(), "alpha");
+
+    expect(controller.getMatchState().getPlayerTeam(1 as never)).toBe("soba");
+    expect(SOBA).toContainEqual(spawn);
   });
 });

@@ -122,6 +122,10 @@ export class MatchStateManager {
   get gametypeName(): string {
     return this._gametypeName;
   }
+  /** Whether joining this mode must first collect a round loadout. */
+  get requiresLoadoutSelection(): boolean {
+    return this._gametypeName.trim().toLowerCase() === "search & destroy";
+  }
   get scoreLimit(): number {
     return this._scoreLimit;
   }

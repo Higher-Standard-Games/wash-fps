@@ -34,6 +34,8 @@ export class MatchState {
   private _phase: MatchPhase = MatchPhase.Warmup;
   private _timeRemaining: number;
   private _readyPlayers: Set<PlayerId> = new Set();
+  /** Players currently occupying an active match slot (spectators excluded). */
+  private _activePlayers: Set<PlayerId> = new Set();
   private _totalPlayers: number = 0;
   private _scores: Map<PlayerId, number> = new Map();
   private _deaths: Map<PlayerId, number> = new Map();
@@ -348,15 +350,18 @@ export class MatchState {
   // ========================================================================
 
   addPlayer(playerId: PlayerId): void {
-    this._totalPlayers++;
-    this._stats.set(playerId, emptyPlayerStats());
-    this._scores.set(playerId, 0);
-    this._deaths.set(playerId, 0);
+    if (this._activePlayers.has(playerId)) return;
+    this._activePlayers.add(playerId);
+    this._totalPlayers = this._activePlayers.size;
+    if (!this._stats.has(playerId)) this._stats.set(playerId, emptyPlayerStats());
+    if (!this._scores.has(playerId)) this._scores.set(playerId, 0);
+    if (!this._deaths.has(playerId)) this._deaths.set(playerId, 0);
     this._playerTeams.set(playerId, "spectator"); // default to spec
   }
 
   removePlayer(playerId: PlayerId): void {
-    this._totalPlayers = Math.max(0, this._totalPlayers - 1);
+    this._activePlayers.delete(playerId);
+    this._totalPlayers = this._activePlayers.size;
     this._stats.delete(playerId);
     this._readyPlayers.delete(playerId);
     this._scores.delete(playerId);
@@ -364,7 +369,16 @@ export class MatchState {
     this._playerTeams.delete(playerId);
   }
 
+  /** Leave the active roster without ending the connected player's session. */
+  spectatePlayer(playerId: PlayerId): void {
+    this._activePlayers.delete(playerId);
+    this._totalPlayers = this._activePlayers.size;
+    this._readyPlayers.delete(playerId);
+    this._playerTeams.set(playerId, "spectator");
+  }
+
   playerReady(playerId: PlayerId): void {
+    if (!this._activePlayers.has(playerId)) return;
     this._readyPlayers.add(playerId);
     console.log(`[MatchState] Player ${playerId} ready (${this._readyPlayers.size}/${this._totalPlayers})`);
   }
@@ -652,6 +666,7 @@ export class MatchState {
 
         if (startingMatch) {
           for (const [id] of this._scores) {
+            this._stats.set(id, emptyPlayerStats());
             this._scores.set(id, 0);
             this._deaths.set(id, 0);
           }

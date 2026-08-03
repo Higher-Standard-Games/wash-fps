@@ -340,9 +340,10 @@ export class GametypeController {
 
     // For team-based gametypes, spectators don't get spawned
     // For FFA/DM, skip this check — all players spawn
+    const finalTeamId = this.gametype.teamBased ? this.matchState.getPlayerTeam(playerId) : teamId;
     if (this.gametype.teamBased) {
-      const finalTeamId = this.matchState.getPlayerTeam(playerId);
       if (finalTeamId === "spectator") {
+        this.matchState.spectatePlayer(playerId);
         console.log(
           `[GametypeController] Player ${playerId} observing as spectator (${this.matchState.totalPlayers} total)`,
         );
@@ -351,7 +352,7 @@ export class GametypeController {
     }
 
     // Delegate to gametype for specific logic (e.g. initial loadout)
-    this.gametype.onPlayerJoin(playerId, String(entityId), state, teamId);
+    this.gametype.onPlayerJoin(playerId, String(entityId), state, finalTeamId);
 
     // Choose spawn point
     console.log(
@@ -360,7 +361,13 @@ export class GametypeController {
     // Seeded from (lastTick, entity) so spawn selection is deterministic for demo
     // re-sim (R3b). Join happens outside the tick loop, so use the latest tick.
     const spawnRng = rngFrom(this.currentTick, entityId as number, 0);
-    const baseSpawn = this.spawnStrategy.choose(this.spawnPoints, state, entityId, spawnRng, this.spawnSetFor(teamId));
+    const baseSpawn = this.spawnStrategy.choose(
+      this.spawnPoints,
+      state,
+      entityId,
+      spawnRng,
+      this.spawnSetFor(finalTeamId),
+    );
     console.log(
       `[GametypeController] Base spawn: (${baseSpawn.x.toFixed(0)}, ${baseSpawn.y.toFixed(0)}, ${baseSpawn.z.toFixed(0)})`,
     );
@@ -376,10 +383,17 @@ export class GametypeController {
     return spawn;
   }
 
-  /**
-   * Handle player disconnect.
-   */
+  /** Move a connected player to spectators without ending their session. */
+  onPlayerSpectate(playerId: PlayerId, entityId?: EntityId): void {
+    this.matchState.spectatePlayer(playerId);
+    if (entityId !== undefined) this.spawnTick.delete(entityId);
+    console.log(`[GametypeController] Player ${playerId} is spectating (${this.matchState.totalPlayers} total)`);
+  }
+
+  /** Handle player disconnect. */
   onPlayerDisconnect(playerId: PlayerId, entityId?: EntityId): void {
+    this.botPlayerIds.delete(playerId);
+    this.matchState.setBotPlayers(this.botPlayerIds);
     this.matchState.removePlayer(playerId);
     if (entityId !== undefined) this.spawnTick.delete(entityId);
     try {

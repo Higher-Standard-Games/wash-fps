@@ -258,10 +258,10 @@ export class FPSHud {
     });
 
     // Wire Join Game -> join from spectator mode (same as SpectatorOverlay)
-    this._pauseMenu.onJoinGame(async (_teamId?: string) => {
+    this._pauseMenu.onJoinGame(async (teamId?: string) => {
       const { Game } = await import("../Game");
       const gm = Game.getInstance();
-      gm.joinGame();
+      gm.joinGame(teamId);
     });
 
     // 7. Listen for pointer lock changes (ESC releases pointer lock -> show pause menu)

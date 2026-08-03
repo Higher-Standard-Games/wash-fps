@@ -63,6 +63,19 @@ function liveMatch(): MatchState {
 // ── MatchState → wire → client ───────────────────────────────────────
 
 describe("round context reaches the client", () => {
+  it("identifies S&D loadouts during warmup before an objective exists", () => {
+    const snd = new MatchState("Search & Destroy", SND_CONFIG, true);
+    snd.addPlayer(1 as never);
+    const client = roundTrip(snd.toSnapshot());
+
+    expect(client.phase).toBe(MatchPhase.Warmup);
+    expect(client.bomb).toBeNull();
+    expect(client.requiresLoadoutSelection).toBe(true);
+
+    const dm = new MatchState("Deathmatch", { ...SND_CONFIG, roundBased: false }, false);
+    expect(roundTrip(dm.toSnapshot()).requiresLoadoutSelection).toBe(false);
+  });
+
   it("carries the round number, which the scoreboard is the only place to see", () => {
     const m = liveMatch();
     const client = roundTrip(m.toSnapshot());

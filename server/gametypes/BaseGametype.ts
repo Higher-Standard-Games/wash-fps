@@ -195,6 +195,11 @@ export abstract class BaseGametype {
   /** Called when a player first joins the game */
   abstract onPlayerJoin(playerId: PlayerId, entityId: string, state: WorldState, teamId?: string): void;
 
+  /** Whether this player has completed any mode-specific join prerequisites. */
+  hasChosenLoadout(_playerId: PlayerId): boolean {
+    return true;
+  }
+
   /**
    * A player left. Drop anything the mode holds for them.
    *

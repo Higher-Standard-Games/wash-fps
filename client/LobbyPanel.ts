@@ -280,6 +280,8 @@ export class LobbyPanel extends GamePanel {
   private chatMessagesEl: HTMLElement | null = null;
 
   private currentLobbyId: string | null = null;
+  /** Lobby-server identity from Welcome; lobby roster order is not identity. */
+  private localLobbyPlayerId: string | null = null;
   /** One-shot guard: the URL deep-link join runs on the first welcome only. */
   private urlLobbyJoinAttempted = false;
   private unsubscribers: (() => void)[] = [];
@@ -342,6 +344,7 @@ export class LobbyPanel extends GamePanel {
       this.unsubscribers.push(
         this.lobbyClient.on("welcome", (msg) => {
           console.log("[LobbyPanel] Welcome from lobby server:", msg.playerId);
+          this.localLobbyPlayerId = msg.playerId;
           this.livePlayers = msg.onlinePlayers || [];
           this.refreshPlayerList();
 
@@ -549,7 +552,12 @@ export class LobbyPanel extends GamePanel {
     if (!layout) return;
 
     // Create match lobby view with real server data
-    this.matchLobbyView = new MatchLobbyView(lobby.gametype, this.lobbyClient, lobby);
+    this.matchLobbyView = new MatchLobbyView(
+      lobby.gametype,
+      this.lobbyClient,
+      lobby,
+      this.localLobbyPlayerId ?? undefined,
+    );
     this.matchLobbyView.onLeave(() => {
       if (this.currentLobbyId) {
         this.lobbyClient.leaveLobby(this.currentLobbyId);

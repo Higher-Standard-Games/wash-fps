@@ -344,6 +344,8 @@ export class Game {
   private _loadoutChosen = false;
   /** Retries spent waiting for the server to name the gametype. */
   private _joinGametypeWaits = 0;
+  /** Side selected for this game connection; never leaks into the next one. */
+  private _preferredTeam: string | undefined;
 
   private constructor() {
     // Register as the engine's per-frame game hook so camera controllers can
@@ -553,6 +555,16 @@ export class Game {
     // Guard against multiple initializations - shutdown first if already running
     if (this.isRunning) {
       this.shutdown();
+    }
+
+    // Consume the lobby handoff once. Explicit in-game team buttons may update
+    // this connection-local preference, but a later direct connect must not
+    // inherit a side from an old lobby in the same browser tab.
+    this._preferredTeam = readLobbyTeam();
+    try {
+      sessionStorage.removeItem("shag.lobby_team");
+    } catch {
+      // Storage is optional; the in-memory preference still works.
     }
 
     const tickRate = config.tickRate ?? 125; // Must match server tick rate (125Hz)
@@ -780,8 +792,8 @@ export class Game {
           this.spectatorOverlay.setMode("join-overlay");
         }
 
-        this.spectatorOverlay.onJoinGame(() => {
-          this.joinGame();
+        this.spectatorOverlay.onJoinGame((teamId) => {
+          this.joinGame(teamId);
         });
         this.spectatorOverlay.onSpectate(() => {
           // Switch to freefly spectator (no entity, just camera)
@@ -953,10 +965,15 @@ export class Game {
    * Blocking on purpose. In Search & Destroy the kit decides what you can do
    * for a whole round with no respawn to correct it, so being dropped in
    * holding a default nobody chose is worse than a moment spent choosing. The
-   * picker only appears where it means something: `objective` is absent in
-   * duel and FFA, and the join goes straight through.
+   * picker only appears where it means something: the server's gametype name
+   * identifies S&D even during warmup, when the objective intentionally is not
+   * published yet. Duel and FFA still join straight through.
    */
-  async joinGame(): Promise<void> {
+  async joinGame(teamId?: string): Promise<void> {
+    // Explicit UI selection wins over the lobby handoff and is remembered for
+    // keyboard rejoins on this connection.
+    if (teamId) this._preferredTeam = teamId;
+
     // Do not decide anything before the server has said what mode this is.
     //
     // The lobby's auto-join fires 200 ms after the map loads, which can beat
@@ -971,7 +988,7 @@ export class Game {
       return;
     }
 
-    const needsLoadout = match.bomb !== null && !this._loadoutChosen;
+    const needsLoadout = match.requiresLoadoutSelection && !this._loadoutChosen;
     if (needsLoadout && this.playerState !== "playing" && !this._joinPending) {
       const { FPSLoadoutPicker } = await import("./client/hud/widgets/LoadoutPicker");
       this._loadoutPicker ??= new FPSLoadoutPicker();
@@ -1007,7 +1024,7 @@ export class Game {
     // Tell server we want to join — server decides if we can
     // Ask for the side chosen in the lobby. The server normalizes alpha/bravo
     // to its own team ids and falls back to balancing if this is absent.
-    networkHost.sendJoinGame(readLobbyTeam());
+    networkHost.sendJoinGame(this._preferredTeam);
     this._joinPending = true;
 
     // Timeout: revert if server doesn't respond within 5 seconds
@@ -1809,6 +1826,17 @@ export class Game {
    * Shutdown game
    */
   shutdown(): void {
+    if (this._joinPendingTimeout) {
+      clearTimeout(this._joinPendingTimeout);
+      this._joinPendingTimeout = null;
+    }
+    this._joinPending = false;
+    this._joinGametypeWaits = 0;
+    this._preferredTeam = undefined;
+    this._loadoutChosen = false;
+    this._loadoutPicker?.destroy();
+    this._loadoutPicker = null;
+
     if (this.gameHost) {
       // Disconnect if in network mode
       if (this.isNetworkMode && "disconnect" in this.gameHost) {

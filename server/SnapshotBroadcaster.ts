@@ -142,24 +142,43 @@ export class SnapshotBroadcaster {
    * - Entities without position data (non-spatial)
    */
   private filterStateForClient(state: GameState, client: ClientInfo): GameState {
-    if (!this.pvs) return state;
+    if (!this.pvs) return state.shallowCopy();
 
     // Get client's player position from simulation
     const simState = this.simulation.getState();
     const clientEntity = simState.getEntity(client.entityId);
-    if (!clientEntity?.transform) return state;
+    if (!clientEntity?.transform) return state.shallowCopy();
 
     const viewerPos = clientEntity.transform.position;
 
     // Build filtered state — shallow copy with filtered entities
     const filtered = new GameState();
     filtered.tick = state.tick;
+    filtered.serverTimestamp = state.serverTimestamp;
+    filtered.ackedInputSeq = state.ackedInputSeq;
     filtered.players = state.players;
     filtered.events = [...state.events];
     filtered.pickupActiveMask = state.pickupActiveMask; // global, not PVS-filtered
+    filtered.matchSnapshot = state.matchSnapshot;
+
+    // A dead S&D player may chase teammates. Keep enemies PVS-filtered from the
+    // corpse viewpoint, but always replicate living/dead teammates so cycling
+    // the spectator camera cannot land on an entity missing from the snapshot.
+    const ownPlayer = state.players.get(toClientKey(client.playerId));
+    const teammateEntityIds = new Set<string>();
+    if (clientEntity.health?.dead && ownPlayer?.team && ownPlayer.team !== "spectator") {
+      for (const player of state.players.values()) {
+        if (player.team === ownPlayer.team) teammateEntityIds.add(player.entityId);
+      }
+    }
 
     for (const [id, entity] of state.entities) {
       if (id === toClientKey(client.entityId)) {
+        filtered.entities.set(id, entity);
+        continue;
+      }
+
+      if (teammateEntityIds.has(id)) {
         filtered.entities.set(id, entity);
         continue;
       }
