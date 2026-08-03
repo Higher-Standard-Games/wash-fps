@@ -37,6 +37,7 @@ import type {
 } from "@shared/server/gametype";
 import { buildLoadout, DEFAULT_LOADOUT } from "@shared/server/gametype";
 import type { Vec3 } from "@shared/server/simulation/types";
+import { log } from "../../../../engine/core/Log";
 import { PLAYER_ORIGIN_HEIGHT } from "../../../../engine/physics/PlayerPhysicsConstants";
 import type { BombSite, Vec3Like } from "../../../../shared/bsp/BombSiteTable";
 import { extractBombSites, isBombMap, spawnCentroid } from "../../../../shared/bsp/BombSiteTable";
@@ -791,7 +792,17 @@ export class SearchAndDestroy extends BaseGametype {
    */
   getAgentDirectives(context: AgentDirectiveContext, _state: WorldState): readonly AgentDirective[] {
     if (!context.alive || !context.teamId || context.teamId === "spectator") return [];
-    if (this.sites.length === 0 || this.attackers === null) return [];
+    // Both of these silently disarm every bot on the server, and neither is
+    // visible from the outside: a bot with no orders looks like a bot that
+    // decided to stand still. Rate-limited, so a genuinely broken map says so
+    // once every few seconds rather than once per player per snapshot.
+    if (this.sites.length === 0 || this.attackers === null) {
+      log.warnRateLimited(
+        "SnD",
+        `no directives issued — sites=${this.sites.length} attackers=${this.attackers ?? "unset"} round=${this.round}`,
+      );
+      return [];
+    }
 
     const attacking = context.teamId === this.attackers;
     const expiresAtTick = context.tick + DIRECTIVE_TICKS;
