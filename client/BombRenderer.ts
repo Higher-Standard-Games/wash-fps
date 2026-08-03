@@ -51,9 +51,18 @@ export class BombRenderer {
   /** Seconds accumulated for the loose-bomb bob, kept off wall-clock. */
   private elapsed = 0;
 
+  /**
+   * Resolved per frame, never captured.
+   *
+   * The remote renderer is built on the first snapshot; this renderer is built
+   * on the first frame that has a scene, which is earlier. Taking the renderer
+   * as a value here captured `null` for the lifetime of the session, so the
+   * carried bomb — the state it spends most of a round in — could never find a
+   * spine to ride and hid itself instead.
+   */
   constructor(
     scene: Scene,
-    private readonly players: RemotePlayerRenderer | null,
+    private readonly getPlayers: () => RemotePlayerRenderer | null,
   ) {
     this.scene = scene;
     this.root = new TransformNode("bomb_root", scene);
@@ -136,7 +145,7 @@ export class BombRenderer {
    * to get wrong.
    */
   private carry(carrier: string): void {
-    const anchor = this.players?.getBoneAnchor(carrier, "Spine1");
+    const anchor = this.getPlayers()?.getBoneAnchor(carrier, "Spine1");
     if (!anchor) {
       // No model yet (just joined, or out of PVS). Stay hidden rather than
       // stranding the bomb at the origin — it will pick up next frame.

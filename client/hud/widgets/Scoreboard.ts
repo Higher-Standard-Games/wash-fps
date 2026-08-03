@@ -279,6 +279,10 @@ export class FPSScoreboard {
       const soba = createTeamScoreboard("soba", "fps-scoreboard-team--soba");
       const specs: any[] = []; // Collect spectators to show later if needed
 
+      // Who is holding the bomb, so the board answers "who has it" — the one
+      // question a Search & Destroy scoreboard is opened to settle.
+      const carrier = MatchStateManager.getInstance().bomb?.carrier ?? null;
+
       for (const entry of entries) {
         const row = document.createElement("div");
         row.className = "fps-scoreboard-row";
@@ -288,8 +292,13 @@ export class FPSScoreboard {
         if (entry.departed) {
           row.classList.add("fps-scoreboard-row--departed");
         }
+        const carrying = carrier !== null && entry.playerId === carrier;
+        if (carrying) {
+          row.classList.add("fps-scoreboard-row--carrier");
+        }
+        const carrierMark = carrying ? `<span class="fps-scoreboard-carrier" title="Carrying the bomb"></span>` : "";
         row.innerHTML = `
-                    <span class="fps-scoreboard-col-name">${this.escapeHtml(entry.name)}</span>
+                    <span class="fps-scoreboard-col-name">${carrierMark}${this.escapeHtml(entry.name)}</span>
                     <span class="fps-scoreboard-col-score">${entry.score}</span>
                     <span class="fps-scoreboard-col-ping">${entry.departed ? "LEFT" : `${entry.ping}ms`}</span>
                 `;

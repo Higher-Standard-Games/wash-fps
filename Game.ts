@@ -1527,7 +1527,7 @@ export class Game {
     // other mode — it hides itself when the objective snapshot has no bomb.
     if (!this.bombRenderer) {
       const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
-      if (gameScene) this.bombRenderer = new BombRenderer(gameScene, this.remoteRenderer);
+      if (gameScene) this.bombRenderer = new BombRenderer(gameScene, () => this.remoteRenderer);
     }
     this.bombRenderer?.update(dtSec);
     if (!this.bombSiteMarkers) {
