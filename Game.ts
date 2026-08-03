@@ -608,6 +608,17 @@ export class Game {
 
         console.log(`[Game] Server map: ${serverInfo.map}`);
 
+        // Keep the loading screen down until the GAME is ready, not just the
+        // map. Everything below — audio decode, collision world, trigger
+        // volumes, viewmodel warmup — used to run with the curtain already up,
+        // so the player watched the world finish assembling itself.
+        //
+        // Taken before the load so there is no window where the map can
+        // complete first, and released in the `finally` below so a failure
+        // cannot leave anyone staring at a loading screen.
+        const { MapLoadingOverlay } = await import("../../engine/ui/MapLoadingOverlay");
+        MapLoadingOverlay.hold("fps:postload");
+
         // Load the server's map via console command
         try {
           const { loadClientMap } = await import("../../engine/loader/map/ClientMapLoader");
@@ -725,6 +736,9 @@ export class Game {
           console.error(`[Game] Failed to load map ${serverInfo.map}:`, error);
           console.log(`[Game] Disconnecting due to map load error...`);
           this.shutdown();
+        } finally {
+          // Whatever happened above, the curtain has to come up.
+          MapLoadingOverlay.release("fps:postload");
         }
       });
 
