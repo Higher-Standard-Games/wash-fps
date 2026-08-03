@@ -101,7 +101,6 @@ export class FPSLoadoutPicker {
     hero.innerHTML = `
       <div class="fps-loadout-kicker">Search &amp; Destroy</div>
       <div class="fps-loadout-heading">Loadout</div>
-      <div class="fps-loadout-subtitle">You always carry the blade. Everything else is on the map.</div>
     `;
     panel.appendChild(hero);
 
