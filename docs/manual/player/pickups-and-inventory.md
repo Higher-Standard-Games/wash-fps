@@ -69,6 +69,46 @@ When a player dies, their non-Blade weapons drop as physical entities with Havok
 
 Map-spawned pickups respawn on a per-type timer: **weapons 15s, armor 25s, health 20s, mega health 60s.** Armor and mega/ultra health are also **absent for the first 15s of a match** so nobody grabs a power item off spawn. Dropped weapons do **not** respawn — they're one-and-done.
 
+## Powerups
+
+Timed pickups that modify you until they run out. Currently one is implemented:
+
+| Powerup | Effect | Duration | Respawn |
+|---------|--------|---------:|--------:|
+| **Quad Damage** | ×4 damage and knockback on everything you deal | 30 s | 120 s |
+
+Things worth knowing:
+
+- **Quad scales everything, including self-damage.** A quad rocket jump throws
+  you four times as far and usually kills you. That trade is the point.
+- **Re-taking extends, it does not reset.** Picking up a quad you already hold
+  adds a full 30 seconds to what is left.
+- **Every shipped map places exactly one `item_quad`**, so the 120-second
+  respawn is the whole map-control rhythm — long enough that holding it is
+  worth fighting over.
+- Expiry is stored as an absolute **server tick**, not a countdown. That is what
+  keeps it exact through rollback and demo re-simulation, and it means the HUD
+  timer is a read of authoritative state rather than a local guess.
+
+`item_warshell` and `item_regen` exist in the map data and in the pk3 icon and
+sound banks, but are deliberately **not** implemented.
+
+## Loadouts (Search & Destroy)
+
+In [Search & Destroy](../gametypes/search-and-destroy.md) you do not start with
+just a blade — you spawn with a chosen kit of **blade + one primary + one
+secondary**, plus full spawn armor. Map items still spawn on top of that.
+
+The choice applies from the **next** round. Pick it from the HUD's loadout
+picker during the freeze, or from the console:
+
+```
+loadout rlauncher machinegun
+```
+
+Everywhere else, the spawn loadout is blade-only and the map is the whole
+economy.
+
 ## Server-Authoritative Active Set
 
 Pickups are fully server-authoritative and *convergent*. Rather than one-shot "you took it" events, **every snapshot carries a packed bitmask of which pickups are currently active** (`pickupActiveMask`, bit index = pickup id). The client reconciles each pickup's visibility to the mask every frame.
@@ -96,4 +136,4 @@ Two properties fall out of this:
 
 - [Weapons](./weapons.md) — per-weapon stats and ammo types
 - [HUD](./hud.md) — reading the weapon slots + ammo counter
-- The engine's [Pickup System Guide](../../../../../docs/manual/guides/pickup-system.md) — the engine-generic `Pickup` base class that `FPSPickup` extends
+- The engine's Pickup System Guide (`docs/manual/guides/pickup-system.md` in the engine repo) — the engine-generic `Pickup` base class that `FPSPickup` extends

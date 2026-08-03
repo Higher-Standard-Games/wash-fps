@@ -16,9 +16,10 @@
 | Movement | Strafe / bunny hop / wall jump (charge + boost) / ledge grab / crouchslide all in |
 | Map triggers | **Teleporters** (momentum-carrying, telefrag) and **jumppads** — client-predicted, with washoi VFX |
 | Fall damage | Floor-to-floor bands, crouch-soften, server-tunable (`sv_falldamage*`) |
-| Gametypes | Duel (1v1, 10 min), Deathmatch (20 frags / 10 min), Team Deathmatch (50 frags / 15 min) |
+| Gametypes | Duel (1v1, 10 min, overtime on a draw), Deathmatch (20 frags / 10 min), Team Deathmatch (50 frags / 15 min), Search & Destroy (bomb/defuse rounds, `wbomb*` maps) |
 | Weapons | Nine weapons; clip/pool/none reload models, Voltaic chain-lightning, blade step-in dash, instagun insta-jump |
-| Pickups | Server-authoritative active-set; CoD-style plate armor; health tiers with mega overheal |
+| Loadouts | Search & Destroy spawn kits — blade + one primary + one secondary, chosen per round |
+| Pickups | Server-authoritative active-set; CoD-style plate armor; health tiers with mega overheal; timed powerups |
 | Chat | In-game chat (**T** to talk), scrollable history, recorded into demos |
 | Bots | Separate Bot Intelligence Server process, 4 difficulty tiers, BSP vision + NavGraph A*, optional TensorFlow.js dual-network brain |
 | Demos | Server-side recording (`.shagdemo` binary), lobby demo list, in-game playback (normal + cinematic), deterministic re-sim verification |

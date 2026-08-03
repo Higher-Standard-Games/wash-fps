@@ -24,4 +24,4 @@ How matches happen.
 
 The lobby orchestrates matchmaking and spawns dedicated game servers via `GameServerSpawner`. Players never connect directly to the lobby for gameplay — they connect to the game server the lobby tells them about.
 
-For developer flows, the engine's `map <name> [gametype]` command bypasses the matchmaker and asks the lobby for a one-off dev-spawn. See the engine's [Map Launching Guide](../../../../../docs/manual/guides/map-launching.md).
+For developer flows, the engine's `map <name> [gametype]` command bypasses the matchmaker and asks the lobby for a one-off dev-spawn. See the engine's Map Launching Guide (`docs/manual/guides/map-launching.md` in the engine repo).

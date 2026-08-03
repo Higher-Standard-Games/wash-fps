@@ -58,7 +58,7 @@ npm run lobby:server
 map wdm2 duel
 ```
 
-See the engine's [Map Launching Guide](../../../../../docs/manual/guides/map-launching.md) for the full developer flow.
+See the engine's Map Launching Guide (`docs/manual/guides/map-launching.md` in the engine repo) for the full developer flow.
 
 ## Dedicated Server
 

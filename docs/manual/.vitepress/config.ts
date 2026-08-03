@@ -61,6 +61,7 @@ export default defineConfig({
             { text: "Duel", link: "/gametypes/duel" },
             { text: "Deathmatch", link: "/gametypes/deathmatch" },
             { text: "Team Deathmatch", link: "/gametypes/team-deathmatch" },
+            { text: "Search & Destroy", link: "/gametypes/search-and-destroy" },
           ],
         },
         {
