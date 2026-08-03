@@ -286,10 +286,17 @@ export class Game {
   private updateTeammateSpectate(match: MatchStateManager): void {
     const spectating = this._isPlayerDead && match.round > 0 && match.phase === MatchPhase.Active;
     if (!spectating) {
-      if (this._spectatingEntityId !== null) {
-        this._spectatingEntityId = null;
-        if (!this._isPlayerDead) this._deathCamera.stop();
-      }
+      this._spectatingEntityId = null;
+      // Release on every frame we are alive and not spectating, NOT only on the
+      // frame the target is dropped.
+      //
+      // Those are not the same moment. Leaving a round drops the target while
+      // the player is still dead (the phase leaves Active before the freeze
+      // revives them), so the release was gated behind a target that had
+      // already been cleared, and the camera stayed bound to whichever bot it
+      // was following — through the freeze, through the respawn, and into the
+      // next round, with the player alive and unable to see themselves move.
+      if (!this._isPlayerDead) this._deathCamera.stop();
       return;
     }
 
