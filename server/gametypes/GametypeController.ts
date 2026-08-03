@@ -331,7 +331,9 @@ export class GametypeController {
         // dropped and every player got auto-balanced instead.
         const requested = normalizeTeamId(teamId);
         if (requested && requested !== "spectator") {
-          this.matchState.setPlayerTeam(playerId, requested);
+          // Asking for a side is a preference, not an instruction — taking it
+          // literally is how a 2v2 lobby became a 3v1 match.
+          this.matchState.assignTeamRespectingBalance(playerId, requested, this.gametype.name);
         } else {
           this.matchState.assignTeamBalance(playerId, this.gametype.name);
         }

@@ -184,6 +184,8 @@ export class Game {
   private playerState: "spectator" | "playing" = "spectator";
   private _joinPending: boolean = false;
   private _joinPendingTimeout: ReturnType<typeof setTimeout> | null = null;
+  /** True while `completeJoinGame` is in flight, so it is not started twice. */
+  private _joinCompleting = false;
   private spectatorOverlay: import("./client/SpectatorOverlay").SpectatorOverlay | null = null;
   private _joinKeyHandler: ((e: KeyboardEvent) => void) | null = null;
   private _specMouseHandler: ((e: MouseEvent) => void) | null = null;
@@ -1838,6 +1840,7 @@ export class Game {
       this._joinPendingTimeout = null;
     }
     this._joinPending = false;
+    this._joinCompleting = false;
     this._joinGametypeWaits = 0;
     this._preferredTeam = undefined;
     this._loadoutChosen = false;
@@ -2011,12 +2014,28 @@ export class Game {
       }
     }
 
-    // Detect server-confirmed join: our entity appeared in snapshot
-    if (this._joinPending && this.localPlayerId) {
+    // Detect server-confirmed join: our entity appeared in snapshot.
+    //
+    // Deliberately NOT gated on `_joinPending`. That flag is cleared by a five
+    // second timeout, and the server can legitimately take longer than that to
+    // put us in a round: a Search & Destroy join lands mid-round as a dead
+    // entity that the next freeze revives, and a join refused for a missing
+    // loadout has to be retried after the choice arrives. Once the flag lapsed,
+    // this check stopped running for the rest of the session — so the server
+    // could spawn us, hand us our kit and full health, and the client would sit
+    // in freefly watching a bot, with no path back. The entity being in the
+    // snapshot while we are not playing IS the confirmation, whenever it shows
+    // up, so the condition is the state itself rather than a race against it.
+    if (this.playerState !== "playing" && !this._joinCompleting && this.localPlayerId) {
       const myPlayer = state.players.get(this.localPlayerId);
       if (myPlayer && myPlayer.entityId && state.entities.has(myPlayer.entityId)) {
         console.log(`[Game] Server confirmed join — entity ${myPlayer.entityId} found in snapshot`);
-        this.completeJoinGame();
+        // `completeJoinGame` is async and takes several frames; without this
+        // every frame in between would start another one.
+        this._joinCompleting = true;
+        void this.completeJoinGame().finally(() => {
+          this._joinCompleting = false;
+        });
       }
     }
 

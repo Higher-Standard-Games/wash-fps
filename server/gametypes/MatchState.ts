@@ -504,12 +504,7 @@ export class MatchState {
   }
 
   assignTeamBalance(playerId: PlayerId, gametypeName?: string): TeamId {
-    let udonCount = 0;
-    let sobaCount = 0;
-    for (const team of this._playerTeams.values()) {
-      if (team === "udon") udonCount++;
-      if (team === "soba") sobaCount++;
-    }
+    const { udon: udonCount, soba: sobaCount } = this.teamSizes(playerId);
 
     let assignedTeam: TeamId;
     if (gametypeName === "Duel" && udonCount + sobaCount >= 2) {
@@ -520,6 +515,51 @@ export class MatchState {
 
     this.setPlayerTeam(playerId, assignedTeam);
     return assignedTeam;
+  }
+
+  /**
+   * Honour a requested side unless it is the bigger one.
+   *
+   * A join that names a team was taken at its word, so a player picking the
+   * side that already had two bots turned a 2v2 into a 3v1 — and the mode has
+   * no way back from that mid-match. Asking for the larger team now puts you on
+   * the smaller one instead of being refused: the intent (get into the game) is
+   * satisfiable, only the side is not.
+   *
+   * Excludes the joining player from the count, so re-joining the side you are
+   * already on does not read as making it bigger.
+   */
+  assignTeamRespectingBalance(playerId: PlayerId, requested: TeamId, gametypeName?: string): TeamId {
+    if (requested === "spectator") {
+      this.setPlayerTeam(playerId, requested);
+      return requested;
+    }
+    if (gametypeName === "Duel") return this.assignTeamBalance(playerId, gametypeName);
+
+    const { udon, soba } = this.teamSizes(playerId);
+    const requestedCount = requested === "udon" ? udon : soba;
+    const otherCount = requested === "udon" ? soba : udon;
+
+    const granted: TeamId = requestedCount > otherCount ? (requested === "udon" ? "soba" : "udon") : requested;
+    if (granted !== requested) {
+      console.log(
+        `[MatchState] Player ${playerId} asked for ${requested} (${requestedCount}v${otherCount}) — placed on ${granted} to keep sides even`,
+      );
+    }
+    this.setPlayerTeam(playerId, granted);
+    return granted;
+  }
+
+  /** Players per side, not counting `excluding`. */
+  private teamSizes(excluding?: PlayerId): { udon: number; soba: number } {
+    let udon = 0;
+    let soba = 0;
+    for (const [id, team] of this._playerTeams) {
+      if (excluding !== undefined && id === excluding) continue;
+      if (team === "udon") udon++;
+      if (team === "soba") soba++;
+    }
+    return { udon, soba };
   }
 
   // ========================================================================
