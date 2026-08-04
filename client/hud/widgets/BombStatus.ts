@@ -66,6 +66,10 @@ export class FPSBombStatus implements FPSHudWidget {
   private phaseLabel: HTMLElement;
   private meter: HTMLElement;
   private meterFill: HTMLElement;
+  private centreMeter: HTMLElement;
+  private centreLabel: HTMLElement;
+  private centreTrack: HTMLElement;
+  private centreFill: HTMLElement;
   /** Last rendered signature, so identical frames skip the DOM entirely. */
   private rendered: string | null = null;
 
@@ -88,6 +92,30 @@ export class FPSBombStatus implements FPSHudWidget {
     this.meterFill.className = "fps-bomb-status-meter-fill";
     this.meter.appendChild(this.meterFill);
     this.element.appendChild(this.meter);
+
+    // A second copy of the same meter, in the middle of the screen.
+    //
+    // Arming and defusing are the only actions in the mode that ask you to
+    // stand still and watch a bar finish, and the corner slab is the wrong
+    // place to watch it — you are looking down the sightline someone is about
+    // to come through, not at the HUD. Sits BELOW the crosshair rather than on
+    // it, so it never competes with the thing you are aiming with.
+    //
+    // On the body rather than in a HUD zone, for the same reason the scoreboard
+    // is: it is positioned against the viewport, not against a corner.
+    this.centreMeter = document.createElement("div");
+    this.centreMeter.className = "fps-bomb-plant-meter";
+    this.centreMeter.style.display = "none";
+    this.centreLabel = document.createElement("div");
+    this.centreLabel.className = "fps-bomb-plant-meter-label";
+    this.centreTrack = document.createElement("div");
+    this.centreTrack.className = "fps-bomb-plant-meter-track";
+    this.centreFill = document.createElement("div");
+    this.centreFill.className = "fps-bomb-plant-meter-fill";
+    this.centreTrack.appendChild(this.centreFill);
+    this.centreMeter.appendChild(this.centreLabel);
+    this.centreMeter.appendChild(this.centreTrack);
+    document.body.appendChild(this.centreMeter);
   }
 
   public getElement(): HTMLElement {
@@ -153,6 +181,19 @@ export class FPSBombStatus implements FPSHudWidget {
     this.meterFill.style.width = `${progress}%`;
     this.meterFill.classList.toggle("fps-bomb-status-meter-fill--decaying", !bomb.advancing);
 
+    // Same state, centre screen. Named, because a bare bar in the middle of the
+    // view does not say which of the two jobs is happening — and on a defuse
+    // the difference is the whole round.
+    this.centreMeter.style.display = meterVisible ? "" : "none";
+    if (meterVisible) {
+      this.centreLabel.textContent = bomb.phase === "armed" ? "DEFUSING" : "ARMING";
+      this.centreFill.style.width = `${progress}%`;
+      this.centreMeter.classList.toggle("fps-bomb-plant-meter--defusing", bomb.phase === "armed");
+      // Decay is the informative state: it means nobody is on the bomb and the
+      // work you did is draining away.
+      this.centreFill.classList.toggle("fps-bomb-plant-meter-fill--decaying", !bomb.advancing);
+    }
+
     this.element.style.display = "";
   }
 
@@ -160,6 +201,7 @@ export class FPSBombStatus implements FPSHudWidget {
     if (this.rendered === null) return;
     this.rendered = null;
     this.element.style.display = "none";
+    this.centreMeter.style.display = "none";
   }
 
   public show(): void {
@@ -172,5 +214,7 @@ export class FPSBombStatus implements FPSHudWidget {
 
   public destroy(): void {
     this.element.remove();
+    // Lives on the body, so it does not go with the HUD zone.
+    this.centreMeter.remove();
   }
 }

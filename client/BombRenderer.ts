@@ -17,9 +17,11 @@ import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder";
 import { CreateCylinder } from "@babylonjs/core/Meshes/Builders/cylinderBuilder";
+import { CreateTorus } from "@babylonjs/core/Meshes/Builders/torusBuilder";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Scene } from "@babylonjs/core/scene";
+import { DEFAULT_BOMB_RULES } from "../../../shared/server/gametype/BombModel";
 import type { BombObjectiveSnapshot } from "./MatchStateManager";
 import { MatchStateManager } from "./MatchStateManager";
 import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
@@ -43,11 +45,29 @@ const LOOSE_SPIN_RATE = 1.4;
 const LOOSE_BOB_AMPLITUDE = 2.5;
 const LOOSE_BOB_RATE = 2.2;
 
+/**
+ * The zone ring, drawn on the floor wherever the bomb is sitting.
+ *
+ * Radius comes from the rule itself rather than a number picked to look right:
+ * this is the distance inside which the bomb can be reached, and a ring that
+ * disagreed with it would teach players the wrong thing. A dropped bomb is
+ * small and easy to lose against a detailed floor, and the arm/defuse radius is
+ * otherwise invisible — both problems are the same missing circle.
+ */
+const ZONE_RADIUS = DEFAULT_BOMB_RULES.armDefuseRadius;
+const ZONE_THICKNESS = 3.2;
+const ZONE_LIFT = 2;
+const ZONE_TESSELLATION = 64;
+/** Pulses per second while armed, so the ring reads as urgent, not decorative. */
+const ZONE_PULSE_HZ = 1.6;
+
 export class BombRenderer {
   private readonly scene: Scene;
   private readonly root: TransformNode;
   private readonly light: Mesh;
   private readonly lightMaterial: StandardMaterial;
+  private readonly zone: Mesh;
+  private readonly zoneMaterial: StandardMaterial;
   /** Seconds accumulated for the loose-bomb bob, kept off wall-clock. */
   private elapsed = 0;
 
@@ -107,6 +127,26 @@ export class BombRenderer {
     this.light.material = this.lightMaterial;
     this.light.parent = this.root;
     this.light.position.set(0, STICK_HEIGHT * 0.5, 0);
+
+    // The zone ring. Its own node, NOT parented to the bomb: the bomb bobs,
+    // spins and rides a carrier's spine, and a ring doing any of that would
+    // stop reading as a fixed circle on the floor.
+    this.zoneMaterial = new StandardMaterial("bomb_zone_mat", scene);
+    this.zoneMaterial.diffuseColor = Color3.Black();
+    this.zoneMaterial.specularColor = Color3.Black();
+    this.zoneMaterial.alpha = 0.55;
+    this.zoneMaterial.disableLighting = true;
+
+    this.zone = CreateTorus(
+      "bomb_zone",
+      { diameter: ZONE_RADIUS * 2, thickness: ZONE_THICKNESS, tessellation: ZONE_TESSELLATION },
+      scene,
+    );
+    this.zone.material = this.zoneMaterial;
+    this.zone.isPickable = false;
+    // Never blocks a shot or a trace, and never eats a click.
+    this.zone.checkCollisions = false;
+    this.zone.setEnabled(false);
   }
 
   /**
@@ -132,7 +172,42 @@ export class BombRenderer {
       this.place(bomb);
     }
 
+    this.updateZone(bomb);
     this.updateLight(bomb);
+  }
+
+  /**
+   * The circle on the floor, wherever the bomb is sitting.
+   *
+   * Hidden while carried — the zone means nothing on a moving back, and a ring
+   * sliding around the map with a runner would be noise. Colour carries the
+   * state, because the two cases the ring answers are different questions:
+   * gold for a loose bomb ("it is here, come and get it"), red and pulsing once
+   * armed ("this is the ground you have to be standing on").
+   */
+  private updateZone(bomb: BombObjectiveSnapshot): void {
+    if (bomb.phase === "carried") {
+      this.zone.setEnabled(false);
+      return;
+    }
+
+    this.zone.setEnabled(true);
+    this.zone.position.set(bomb.x, bomb.y + ZONE_LIFT, bomb.z);
+
+    const armed = bomb.phase === "armed";
+    if (armed) {
+      // Same pulse the timer light runs on, so the two read as one signal
+      // rather than two things blinking at each other.
+      const pulse = 0.5 + 0.5 * Math.sin(this.elapsed * ZONE_PULSE_HZ * Math.PI * 2);
+      this.zoneMaterial.emissiveColor.set(0.85, 0.12 + pulse * 0.1, 0.1);
+      this.zoneMaterial.alpha = 0.45 + pulse * 0.35;
+    } else if (bomb.phase === "planted") {
+      this.zoneMaterial.emissiveColor.set(0.95, 0.45, 0.08);
+      this.zoneMaterial.alpha = 0.6;
+    } else {
+      this.zoneMaterial.emissiveColor.set(0.98, 0.78, 0.15);
+      this.zoneMaterial.alpha = 0.5;
+    }
   }
 
   /**
@@ -201,11 +276,16 @@ export class BombRenderer {
 
   private hide(): void {
     this.root.setEnabled(false);
+    // The ring is not parented to the root, so it needs hiding on its own —
+    // otherwise a defused bomb leaves its circle painted on the floor.
+    this.zone.setEnabled(false);
   }
 
   dispose(): void {
     this.root.dispose(false, true);
     this.lightMaterial.dispose();
+    this.zone.dispose(false, true);
+    this.zoneMaterial.dispose();
     void this.scene;
   }
 }
