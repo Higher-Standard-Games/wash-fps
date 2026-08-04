@@ -566,15 +566,18 @@ export class Game {
       this.shutdown();
     }
 
-    // Consume the lobby handoff once. Explicit in-game team buttons may update
-    // this connection-local preference, but a later direct connect must not
-    // inherit a side from an old lobby in the same browser tab.
-    this._preferredTeam = readLobbyTeam();
-    try {
-      sessionStorage.removeItem("shag.lobby_team");
-    } catch {
-      // Storage is optional; the in-memory preference still works.
-    }
+    // Take the lobby handoff, but do NOT consume it here.
+    //
+    // It used to be read and deleted in one step, which meant any second call —
+    // a retry, a reconnect, the overlay connecting again — read nothing and
+    // overwrote a perfectly good preference with `undefined`. The side then
+    // reached the server as "no preference" and was auto-balanced, which is
+    // indistinguishable from never having chosen one.
+    //
+    // Consumed in `joinGame` once it has actually been sent, which still stops
+    // a later direct connect inheriting a side from an old lobby.
+    this._preferredTeam = readLobbyTeam() ?? this._preferredTeam;
+    console.log(`[Game] Lobby handoff team: ${this._preferredTeam ?? "none"}`);
 
     const tickRate = config.tickRate ?? 125; // Must match server tick rate (125Hz)
     const maxPlayers = config.maxPlayers ?? 16;
@@ -1047,7 +1050,15 @@ export class Game {
     // Tell server we want to join — server decides if we can
     // Ask for the side chosen in the lobby. The server normalizes alpha/bravo
     // to its own team ids and falls back to balancing if this is absent.
+    console.log(`[Game] joinGame() — requesting team: ${this._preferredTeam ?? "auto-balance"}`);
     networkHost.sendJoinGame(this._preferredTeam);
+    // Used, so the handoff is spent — a later direct connect in this tab must
+    // not inherit it. The in-memory preference survives for keyboard rejoins.
+    try {
+      sessionStorage.removeItem("shag.lobby_team");
+    } catch {
+      // Storage is optional; the in-memory preference still works.
+    }
     this._joinPending = true;
 
     // Timeout: revert if server doesn't respond within 5 seconds

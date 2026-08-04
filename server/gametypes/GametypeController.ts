@@ -335,13 +335,20 @@ export class GametypeController {
         // speaks `udon`/`soba`. Nothing translated, so the request was silently
         // dropped and every player got auto-balanced instead.
         const requested = normalizeTeamId(teamId);
-        if (requested && requested !== "spectator") {
-          // Asking for a side is a preference, not an instruction — taking it
-          // literally is how a 2v2 lobby became a 3v1 match.
-          this.matchState.assignTeamRespectingBalance(playerId, requested, this.gametype.name);
-        } else {
-          this.matchState.assignTeamBalance(playerId, this.gametype.name);
-        }
+        // The whole chain in one line: what the lobby sent, what it normalized
+        // to, and what the player actually got. Ending up on the other side
+        // from the lobby has three possible causes — the side never arrived,
+        // it translated wrongly, or balance moved you — and they are
+        // indistinguishable from the outside.
+        const granted =
+          requested && requested !== "spectator"
+            ? // Asking for a side is a preference, not an instruction — taking it
+              // literally is how a 2v2 lobby became a 3v1 match.
+              this.matchState.assignTeamRespectingBalance(playerId, requested, this.gametype.name)
+            : this.matchState.assignTeamBalance(playerId, this.gametype.name);
+        console.log(
+          `[GametypeController] Player ${playerId} team: asked=${teamId ?? "none"} normalized=${requested ?? "none"} got=${granted}`,
+        );
       }
     }
 
