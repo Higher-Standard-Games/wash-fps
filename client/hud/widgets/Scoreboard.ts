@@ -308,8 +308,14 @@ export class FPSScoreboard {
         else specs.push(entry);
       }
 
-      teamsContainer.appendChild(udon.container);
+      // Soba left, Udon right — the order the lobby lists them in.
+      //
+      // This board had them the other way round, so a player who spent the
+      // whole lobby in the left-hand column arrived in the right-hand one and
+      // read it as having been moved. The assignment was correct; the layout
+      // said otherwise, and the layout is what people believe.
       teamsContainer.appendChild(soba.container);
+      teamsContainer.appendChild(udon.container);
       this.board.appendChild(teamsContainer);
 
       // Add spectators row if any
