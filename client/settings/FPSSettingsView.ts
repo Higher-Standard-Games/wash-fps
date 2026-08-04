@@ -1,18 +1,14 @@
 import { AudioManager } from "../../../../engine/AudioManager";
 import { Cvar } from "../../../../engine/core/Cvar";
-import {
-  hexToRgbCvar,
-  registerPlayerModelVisualCvars,
-  rgbCvarToHexValue,
-} from "../PlayerModelVisualSettings";
 import { InputSystem } from "../../../../engine/input/InputSystem";
 import type { InputBinding, MouseButton } from "../../../../engine/input/InputTypes";
 import { MovementVars } from "../../../../engine/movement/MovementVars";
 import { NetGraph } from "../../../../engine/network/client/NetGraph";
 import { RenderVars } from "../../../../engine/rendering/RenderVars";
 import { UIStyles } from "../../../../engine/ui/UIStyles";
-import { MangaPanelDialog } from "../hud/widgets/MangaPanelDialog";
 import { FPS } from "../FPSActions";
+import { MangaPanelDialog } from "../hud/widgets/MangaPanelDialog";
+import { hexToRgbCvar, registerPlayerModelVisualCvars, rgbCvarToHexValue } from "../PlayerModelVisualSettings";
 import "../Crosshair";
 import settingsCss from "./FPSSettingsView.css?raw";
 
@@ -21,10 +17,7 @@ type ControlsSubtabId = "keyboard-mouse" | "controller";
 type ActionCategoryId = "movement" | "weapons" | "combat" | "actions";
 type ColorPreset = { label: string; value: string };
 
-type SimpleBinding =
-  | { key: string }
-  | { mouseButton: MouseButton }
-  | { scrollDirection: "up" | "down" };
+type SimpleBinding = { key: string } | { mouseButton: MouseButton } | { scrollDirection: "up" | "down" };
 
 type SlotKind = "key" | "mouse" | "wheel";
 
@@ -90,7 +83,13 @@ const ACTION_DEFINITIONS: ActionDefinition[] = [
     keyTag: "SPR",
     defaults: [{ key: "ShiftLeft" }, { key: "ShiftRight" }],
   },
-  { id: FPS.WEAPON_1, category: "weapons", label: "Blade", keyTag: "BLD", defaults: [{ key: "Digit1" }, { key: "KeyQ" }] },
+  {
+    id: FPS.WEAPON_1,
+    category: "weapons",
+    label: "Blade",
+    keyTag: "BLD",
+    defaults: [{ key: "Digit1" }, { key: "KeyQ" }],
+  },
   { id: FPS.WEAPON_2, category: "weapons", label: "Primary Weapon", keyTag: "PRI", defaults: [{ key: "Digit2" }] },
   { id: FPS.WEAPON_3, category: "weapons", label: "Secondary Weapon", keyTag: "SEC", defaults: [{ key: "Digit3" }] },
   { id: FPS.WEAPON_4, category: "weapons", label: "Weapon 4", keyTag: "W4", defaults: [] },
@@ -259,7 +258,11 @@ function bindingsEqual(a: InputBinding[], b: InputBinding[]): boolean {
   if (a.length !== b.length) return false;
   return a.every((binding, index) => {
     const other = b[index];
-    return binding.key === other.key && binding.mouseButton === other.mouseButton && binding.scrollDirection === other.scrollDirection;
+    return (
+      binding.key === other.key &&
+      binding.mouseButton === other.mouseButton &&
+      binding.scrollDirection === other.scrollDirection
+    );
   });
 }
 
@@ -464,7 +467,13 @@ export class FPSSettingsView {
     }
   }
 
-  private createTab(tabBar: HTMLElement, content: HTMLElement, id: SettingsTabId, label: string, panel: HTMLElement): void {
+  private createTab(
+    tabBar: HTMLElement,
+    content: HTMLElement,
+    id: SettingsTabId,
+    label: string,
+    panel: HTMLElement,
+  ): void {
     const button = document.createElement("button");
     button.className = "fps-settings-tab-btn";
     button.textContent = label;
@@ -524,14 +533,16 @@ export class FPSSettingsView {
     this.addCvarSlider(graphics.rows, "Anisotropy", "r_anisotropy", "graphics", { min: 1, max: 16, step: 1 });
     grid.appendChild(graphics.section);
 
-
     const playerVisibility = this.createSection("Player Visibility");
-    this.addRgbColorPickerRow(playerVisibility.rows, "Team Udon", "cl_team_alpha_color", "graphics");
-    this.addRgbColorPickerRow(playerVisibility.rows, "Team Soba", "cl_team_beta_color", "graphics");
+    // Allegiance, not team name. These colour your side and the other side
+    // wherever a team is shown — models, scoreboard, lobby, chat — so a label
+    // naming one of the two teams would be wrong for half of every match.
+    this.addRgbColorPickerRow(playerVisibility.rows, "Teammates", "cl_team_ally_color", "graphics");
+    this.addRgbColorPickerRow(playerVisibility.rows, "Enemies", "cl_team_enemy_color", "graphics");
     this.addRgbColorPickerRow(playerVisibility.rows, "FFA Enemy", "cl_team_ffa_color", "graphics");
     this.addCvarToggle(playerVisibility.rows, "Outline", "cl_player_outline", "graphics");
-    this.addRgbColorPickerRow(playerVisibility.rows, "Udon Outline", "cl_team_alpha_outline_color", "graphics");
-    this.addRgbColorPickerRow(playerVisibility.rows, "Soba Outline", "cl_team_beta_outline_color", "graphics");
+    this.addRgbColorPickerRow(playerVisibility.rows, "Teammate Outline", "cl_team_ally_outline_color", "graphics");
+    this.addRgbColorPickerRow(playerVisibility.rows, "Enemy Outline", "cl_team_enemy_outline_color", "graphics");
     this.addRgbColorPickerRow(playerVisibility.rows, "FFA Outline", "cl_team_ffa_outline_color", "graphics");
     this.addCvarSlider(playerVisibility.rows, "Outline Size", "cl_player_outline_size", "graphics", {
       min: 0,
@@ -627,7 +638,6 @@ export class FPSSettingsView {
     this.addCvarToggle(crosshair.rows, "Dynamic Spread", "cg_crosshairSpread", "interface");
     this.addColorRow(crosshair.rows, "Hit Color", "cg_crosshairDmgColor", "interface");
     grid.appendChild(crosshair.section);
-
 
     const network = this.createSection("Network");
     this.addSelectRow(
@@ -772,7 +782,8 @@ export class FPSSettingsView {
 
     const keyboardNote = document.createElement("div");
     keyboardNote.className = "fps-settings-card-note";
-    keyboardNote.textContent = "Click any key to assign what it does. Bound gameplay keys glow brighter for quick scanning.";
+    keyboardNote.textContent =
+      "Click any key to assign what it does. Bound gameplay keys glow brighter for quick scanning.";
     keyboardCard.appendChild(keyboardNote);
 
     const keyboardWrap = document.createElement("div");
@@ -904,10 +915,14 @@ export class FPSSettingsView {
   }
 
   private addFullscreenToggle(container: HTMLElement, tabId: SettingsTabId): void {
-    const row = this.createToggleRow("Fullscreen", async () => await getFullscreenState(), async (value) => {
-      await setFullscreenState(value);
-      await this.refresh();
-    });
+    const row = this.createToggleRow(
+      "Fullscreen",
+      async () => await getFullscreenState(),
+      async (value) => {
+        await setFullscreenState(value);
+        await this.refresh();
+      },
+    );
     container.appendChild(row.row);
     this.addRefresh(row.refresh);
     this.addReset(tabId, async () => {
@@ -916,9 +931,14 @@ export class FPSSettingsView {
   }
 
   private addBloomToggle(container: HTMLElement, tabId: SettingsTabId): void {
-    const row = this.createSliderRow("Bloom", { min: 0, max: 3, step: 0.1 }, () => Cvar.getNumber("r_bloom"), (value) => {
-      Cvar.set("r_bloom", value);
-    });
+    const row = this.createSliderRow(
+      "Bloom",
+      { min: 0, max: 3, step: 0.1 },
+      () => Cvar.getNumber("r_bloom"),
+      (value) => {
+        Cvar.set("r_bloom", value);
+      },
+    );
     container.appendChild(row.row);
     this.addRefresh(row.refresh);
     this.addReset(tabId, () => {
@@ -927,9 +947,13 @@ export class FPSSettingsView {
   }
 
   private addCvarToggle(container: HTMLElement, label: string, cvarName: string, tabId: SettingsTabId): void {
-    const row = this.createToggleRow(label, () => Cvar.getBool(cvarName), (value) => {
-      Cvar.set(cvarName, value ? 1 : 0);
-    });
+    const row = this.createToggleRow(
+      label,
+      () => Cvar.getBool(cvarName),
+      (value) => {
+        Cvar.set(cvarName, value ? 1 : 0);
+      },
+    );
     container.appendChild(row.row);
     this.addRefresh(row.refresh);
     this.addReset(tabId, () => {
@@ -944,9 +968,14 @@ export class FPSSettingsView {
     tabId: SettingsTabId,
     options: { min: number; max: number; step: number; suffix?: string },
   ): void {
-    const row = this.createSliderRow(label, options, () => Cvar.getNumber(cvarName), (value) => {
-      Cvar.set(cvarName, value);
-    });
+    const row = this.createSliderRow(
+      label,
+      options,
+      () => Cvar.getNumber(cvarName),
+      (value) => {
+        Cvar.set(cvarName, value);
+      },
+    );
     container.appendChild(row.row);
     this.addRefresh(row.refresh);
     this.addReset(tabId, () => {
@@ -1044,7 +1073,6 @@ export class FPSSettingsView {
     });
     container.appendChild(row);
   }
-
 
   private addRgbColorPickerRow(container: HTMLElement, label: string, cvarName: string, tabId: SettingsTabId): void {
     const row = document.createElement("div");

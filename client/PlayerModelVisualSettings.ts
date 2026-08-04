@@ -2,29 +2,42 @@ import { Color3 } from "@babylonjs/core/Maths/math.color";
 import type { PlayerModelVisualStyle } from "../../../engine/animation/PlayerModelManager";
 import { Cvar } from "../../../engine/core/Cvar";
 
-export type PlayerTeamSlot = "alpha" | "beta" | "ffa";
+/**
+ * Who a player is TO YOU, not which team they are on.
+ *
+ * Team colour is relative on purpose: your own side is pink and everyone you
+ * may shoot is cyan, so the question a colour answers in a firefight is "can I
+ * shoot this" rather than "which of two names is this". An absolute
+ * udon-is-always-X scheme cannot answer that — you would have to remember which
+ * side you are on this half, at the exact moment you have no attention to spare.
+ *
+ * It also makes the UI and the world agree by construction: both derive from
+ * the same allegiance, so there is no mapping left to get backwards.
+ */
+export type PlayerTeamSlot = "ally" | "enemy" | "ffa";
 
 const TEAM_COLOR_CVARS: Record<PlayerTeamSlot, string> = {
-  alpha: "cl_team_alpha_color",
-  beta: "cl_team_beta_color",
+  ally: "cl_team_ally_color",
+  enemy: "cl_team_enemy_color",
   ffa: "cl_team_ffa_color",
 };
 
 const TEAM_OUTLINE_CVARS: Record<PlayerTeamSlot, string> = {
-  alpha: "cl_team_alpha_outline_color",
-  beta: "cl_team_beta_outline_color",
+  ally: "cl_team_ally_outline_color",
+  enemy: "cl_team_enemy_outline_color",
   ffa: "cl_team_ffa_outline_color",
 };
 
+/** Pink for your own side; cyan for anyone you can shoot. */
 export const PLAYER_MODEL_VISUAL_DEFAULTS: Record<PlayerTeamSlot, Color3> = {
-  alpha: new Color3(0.1, 1.15, 1.85),
-  beta: new Color3(1.55, 0.2, 1.35),
+  ally: new Color3(1.55, 0.2, 1.35),
+  enemy: new Color3(0.1, 1.15, 1.85),
   ffa: new Color3(0.1, 1.15, 1.85),
 };
 
 export const PLAYER_MODEL_OUTLINE_DEFAULTS: Record<PlayerTeamSlot, Color3> = {
-  alpha: new Color3(0.16, 1.35, 2.2),
-  beta: new Color3(1.85, 0.28, 1.65),
+  ally: new Color3(1.85, 0.28, 1.65),
+  enemy: new Color3(0.16, 1.35, 2.2),
   ffa: new Color3(0.16, 1.35, 2.2),
 };
 
@@ -53,10 +66,11 @@ export function parseRgbCvar(value: string, fallback: Color3): Color3 {
 
 export function rgbCvarToHexValue(value: string, fallback: Color3 = DEFAULT_OUTLINE_COLOR): string {
   const color = parseRgbCvar(value, fallback);
-  const toHex = (channel: number) => Math.round(clamp01(channel) * 255)
-    .toString(16)
-    .padStart(2, "0")
-    .toUpperCase();
+  const toHex = (channel: number) =>
+    Math.round(clamp01(channel) * 255)
+      .toString(16)
+      .padStart(2, "0")
+      .toUpperCase();
   return `#${toHex(color.r)}${toHex(color.g)}${toHex(color.b)}`;
 }
 
@@ -73,12 +87,12 @@ export function registerPlayerModelVisualCvars(): void {
   if (cvarsRegistered) return;
   cvarsRegistered = true;
 
-  Cvar.register("cl_team_alpha_color", rgbToCvar(PLAYER_MODEL_VISUAL_DEFAULTS.alpha), {
-    description: "Team Udon player model tint color as RGB floats.",
+  Cvar.register("cl_team_ally_color", rgbToCvar(PLAYER_MODEL_VISUAL_DEFAULTS.ally), {
+    description: "Teammate tint color as RGB floats.",
     persist: true,
   });
-  Cvar.register("cl_team_beta_color", rgbToCvar(PLAYER_MODEL_VISUAL_DEFAULTS.beta), {
-    description: "Team Soba player model tint color as RGB floats.",
+  Cvar.register("cl_team_enemy_color", rgbToCvar(PLAYER_MODEL_VISUAL_DEFAULTS.enemy), {
+    description: "Enemy tint color as RGB floats.",
     persist: true,
   });
   Cvar.register("cl_team_ffa_color", rgbToCvar(PLAYER_MODEL_VISUAL_DEFAULTS.ffa), {
@@ -86,12 +100,12 @@ export function registerPlayerModelVisualCvars(): void {
     persist: true,
   });
 
-  Cvar.register("cl_team_alpha_outline_color", rgbToCvar(PLAYER_MODEL_OUTLINE_DEFAULTS.alpha), {
-    description: "Team Udon player model outline color as RGB floats.",
+  Cvar.register("cl_team_ally_outline_color", rgbToCvar(PLAYER_MODEL_OUTLINE_DEFAULTS.ally), {
+    description: "Teammate outline color as RGB floats.",
     persist: true,
   });
-  Cvar.register("cl_team_beta_outline_color", rgbToCvar(PLAYER_MODEL_OUTLINE_DEFAULTS.beta), {
-    description: "Team Soba player model outline color as RGB floats.",
+  Cvar.register("cl_team_enemy_outline_color", rgbToCvar(PLAYER_MODEL_OUTLINE_DEFAULTS.enemy), {
+    description: "Enemy outline color as RGB floats.",
     persist: true,
   });
   Cvar.register("cl_team_ffa_outline_color", rgbToCvar(PLAYER_MODEL_OUTLINE_DEFAULTS.ffa), {
@@ -129,10 +143,35 @@ export function registerPlayerModelVisualCvars(): void {
   });
 }
 
-export function getPlayerTeamSlot(teamId: string | null | undefined): PlayerTeamSlot {
-  if (teamId === "udon" || teamId === "alpha") return "alpha";
-  if (teamId === "soba" || teamId === "beta" || teamId === "bravo") return "beta";
-  return "ffa";
+/**
+ * Resolve a player to ally / enemy / ffa, from the viewer's side.
+ *
+ * No local team (spectating, warmup before joining, or a mode without teams)
+ * means nobody is an ally, so everyone renders in the FFA colour — which is the
+ * enemy colour, and correct: in a free-for-all everyone IS the enemy.
+ */
+export function getPlayerTeamSlot(teamId: string | null | undefined, localTeamId?: string | null): PlayerTeamSlot {
+  const them = canonicalTeam(teamId);
+  const me = canonicalTeam(localTeamId);
+  if (!me || !them || me === "spectator" || them === "spectator") return "ffa";
+  return them === me ? "ally" : "enemy";
+}
+
+/** Fold the lobby's and the BSP's team names onto the match's two. */
+function canonicalTeam(teamId: string | null | undefined): string | null {
+  switch ((teamId ?? "").trim().toLowerCase()) {
+    case "udon":
+    case "bravo":
+      return "udon";
+    case "soba":
+    case "alpha":
+    case "beta":
+      return "soba";
+    case "spectator":
+      return "spectator";
+    default:
+      return null;
+  }
 }
 
 export function getPlayerModelVisualStyle(slot: PlayerTeamSlot, modelScale: number): PlayerModelVisualStyle {

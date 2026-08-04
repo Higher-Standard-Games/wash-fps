@@ -275,8 +275,14 @@ export class FPSScoreboard {
         return { container: teamEl, body };
       };
 
-      const udon = createTeamScoreboard("udon", "fps-scoreboard-team--udon");
-      const soba = createTeamScoreboard("soba", "fps-scoreboard-team--soba");
+      // Coloured by allegiance, not by name: your side is the ally colour and
+      // theirs is the enemy colour, so the board matches the models in the map.
+      const localTeam = entries.find((e) => e.playerId === this.localPlayerId)?.teamId;
+      const teamClass = (team: string) =>
+        localTeam && team === localTeam ? "fps-scoreboard-team--ally" : "fps-scoreboard-team--enemy";
+
+      const udon = createTeamScoreboard("udon", teamClass("udon"));
+      const soba = createTeamScoreboard("soba", teamClass("soba"));
       const specs: any[] = []; // Collect spectators to show later if needed
 
       // Who is holding the bomb, so the board answers "who has it" — the one

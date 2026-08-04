@@ -40,6 +40,7 @@ import {
   type PlayerTeamSlot,
   registerPlayerModelVisualCvars,
 } from "./PlayerModelVisualSettings";
+import { installTeamColorBridge } from "./TeamColorBridge";
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -162,6 +163,9 @@ export class RemotePlayerRenderer {
   constructor(scene: Scene) {
     this.scene = scene;
     registerPlayerModelVisualCvars();
+    // Same colours the models are about to wear, published to CSS so the HUD
+    // and the lobby cannot disagree with the map.
+    installTeamColorBridge();
     getHitscanEffects().setRemoteLightningMuzzleResolver(this.voltaicMuzzleResolver);
   }
 
@@ -275,15 +279,22 @@ export class RemotePlayerRenderer {
     return instance;
   }
 
+  /** The viewer's own side, so everyone else can be read as ally or enemy. */
+  private localTeam: string | null = null;
+
+  setLocalTeam(teamId: string | null | undefined): void {
+    this.localTeam = teamId ?? null;
+  }
+
   private resolvePlayerTeamSlot(entityId: string): PlayerTeamSlot {
-    return getPlayerTeamSlot(this.teams.get(entityId));
+    return getPlayerTeamSlot(this.teams.get(entityId), this.localTeam);
   }
 
   /** Keep legacy alpha/bravo names for older cosmetic effects. */
   private resolveLegacyTeamColor(entityId: string): "alpha" | "bravo" {
     const slot = this.resolvePlayerTeamSlot(entityId);
-    if (slot === "beta") return "bravo";
-    if (slot === "alpha") return "alpha";
+    if (slot === "ally") return "alpha";
+    if (slot === "enemy") return "bravo";
     const hash = entityId.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
     return hash % 2 === 0 ? "alpha" : "bravo";
   }
@@ -333,6 +344,9 @@ export class RemotePlayerRenderer {
     // Track team per entity for team-colored models (keyed by client entityId)
     for (const player of state.players.values()) {
       this.teams.set(player.entityId, player.team || "ffa");
+      // Our own side comes from the same roster, so ally/enemy stays correct
+      // through a side swap without anyone having to push it in.
+      if (player.entityId === localEntityId) this.localTeam = player.team || null;
     }
 
     const entities = this.extractEntities(state, localEntityId);
@@ -351,6 +365,9 @@ export class RemotePlayerRenderer {
     if (!this.demoTimeline) this.enableDemoPlayback();
     for (const player of state.players.values()) {
       this.teams.set(player.entityId, player.team || "ffa");
+      // Our own side comes from the same roster, so ally/enemy stays correct
+      // through a side swap without anyone having to push it in.
+      if (player.entityId === localEntityId) this.localTeam = player.team || null;
     }
     const entities = this.extractEntities(state, localEntityId);
     this.demoTimeline?.push(state.tick, entities);

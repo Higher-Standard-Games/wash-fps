@@ -511,6 +511,10 @@ export class FPSHud {
       widget.update(state);
     }
 
+    // The chat log is not a widget, so it never sees the state tick — but it
+    // needs the viewer's side to tell a teammate's name from an opponent's.
+    this._chat?.setLocalTeam(state.scoreboard.find((e) => e.playerId === state.localPlayerId)?.teamId ?? "");
+
     // Keep the scoreboard live while open — it's a standalone overlay (not a
     // widget), and a one-shot refresh at open time can miss the final frag
     // whose score lands in the same snapshot as the phase change.

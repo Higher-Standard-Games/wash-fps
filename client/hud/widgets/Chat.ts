@@ -26,6 +26,8 @@ export class FPSChat {
   private inputWrap: HTMLElement;
   private inputEl: HTMLInputElement;
   private messages: ChatMessage[] = [];
+  /** The viewer's own side, so a sender can be coloured ally or enemy. */
+  private localTeam: string = "";
   private inputActive: boolean = false;
   private onSendCallback: ((text: string) => void) | null = null;
 
@@ -77,6 +79,11 @@ export class FPSChat {
   /**
    * Add a received message to the store + render it in the current mode.
    */
+  /** Tell the log which side the viewer is on, so senders colour correctly. */
+  public setLocalTeam(team: string): void {
+    this.localTeam = team ?? "";
+  }
+
   public addMessage(sender: string, text: string, team: string = ""): void {
     const msg: ChatMessage = { sender, text, team, timestamp: performance.now() };
     this.messages.push(msg);
@@ -101,9 +108,11 @@ export class FPSChat {
 
     const senderEl = document.createElement("span");
     senderEl.className = "fps-chat-sender";
-    if (msg.team === "udon") senderEl.classList.add("fps-chat-sender--udon");
-    else if (msg.team === "soba") senderEl.classList.add("fps-chat-sender--soba");
-    else if (msg.team === "spectator") senderEl.classList.add("fps-chat-sender--spec");
+    // Allegiance, not team name — a teammate's name is the ally colour whichever
+    // side you are on this half.
+    if (msg.team === "spectator") senderEl.classList.add("fps-chat-sender--spec");
+    else if (msg.team && this.localTeam && msg.team === this.localTeam) senderEl.classList.add("fps-chat-sender--ally");
+    else if (msg.team) senderEl.classList.add("fps-chat-sender--enemy");
     senderEl.textContent = msg.sender;
     el.appendChild(senderEl);
 
