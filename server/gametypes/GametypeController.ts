@@ -308,6 +308,8 @@ export class GametypeController {
     state: WorldState,
     teamId?: string,
     playerName?: string,
+    /** True when the player picked this side in-game rather than the lobby assigning it. */
+    manualPick = false,
   ): Vec3 | null {
     // Track in match state
     this.matchState.addPlayer(playerId);
@@ -335,19 +337,30 @@ export class GametypeController {
         // speaks `udon`/`soba`. Nothing translated, so the request was silently
         // dropped and every player got auto-balanced instead.
         const requested = normalizeTeamId(teamId);
+        let granted: TeamId;
+        if (!requested || requested === "spectator") {
+          granted = this.matchState.assignTeamBalance(playerId, this.gametype.name);
+        } else if (manualPick) {
+          // A side the player picked in-game is the one that can stack a team,
+          // so this is the only case worth balancing.
+          granted = this.matchState.assignTeamRespectingBalance(playerId, requested, this.gametype.name);
+        } else {
+          // A side the LOBBY assigned is delivered as-is. It already balanced
+          // the roster, and its players arrive one at a time — judging each
+          // against a half-filled server rejects the very assignment being
+          // delivered, which came out as a balanced 2v2 with two players
+          // swapped.
+          this.matchState.setPlayerTeam(playerId, requested);
+          granted = requested;
+        }
+
         // The whole chain in one line: what the lobby sent, what it normalized
         // to, and what the player actually got. Ending up on the other side
-        // from the lobby has three possible causes — the side never arrived,
+        // from the lobby has several possible causes — the side never arrived,
         // it translated wrongly, or balance moved you — and they are
         // indistinguishable from the outside.
-        const granted =
-          requested && requested !== "spectator"
-            ? // Asking for a side is a preference, not an instruction — taking it
-              // literally is how a 2v2 lobby became a 3v1 match.
-              this.matchState.assignTeamRespectingBalance(playerId, requested, this.gametype.name)
-            : this.matchState.assignTeamBalance(playerId, this.gametype.name);
         console.log(
-          `[GametypeController] Player ${playerId} team: asked=${teamId ?? "none"} normalized=${requested ?? "none"} got=${granted}`,
+          `[GametypeController] Player ${playerId} team: asked=${teamId ?? "none"} normalized=${requested ?? "none"} picked=${manualPick} got=${granted}`,
         );
       }
     }

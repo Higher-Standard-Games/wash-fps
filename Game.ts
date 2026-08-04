@@ -186,6 +186,8 @@ export class Game {
   private _joinPendingTimeout: ReturnType<typeof setTimeout> | null = null;
   /** True while `completeJoinGame` is in flight, so it is not started twice. */
   private _joinCompleting = false;
+  /** True when the side came from an in-game button rather than the lobby. */
+  private _teamWasPicked = false;
   private spectatorOverlay: import("./client/SpectatorOverlay").SpectatorOverlay | null = null;
   private _joinKeyHandler: ((e: KeyboardEvent) => void) | null = null;
   private _specMouseHandler: ((e: MouseEvent) => void) | null = null;
@@ -997,8 +999,13 @@ export class Game {
    */
   async joinGame(teamId?: string): Promise<void> {
     // Explicit UI selection wins over the lobby handoff and is remembered for
-    // keyboard rejoins on this connection.
-    if (teamId) this._preferredTeam = teamId;
+    // keyboard rejoins on this connection. It is also flagged as a PICK: the
+    // server balances a side a player chose in-game, and delivers a side the
+    // lobby assigned untouched.
+    if (teamId) {
+      this._preferredTeam = teamId;
+      this._teamWasPicked = true;
+    }
 
     // Do not decide anything before the server has said what mode this is.
     //
@@ -1050,8 +1057,10 @@ export class Game {
     // Tell server we want to join — server decides if we can
     // Ask for the side chosen in the lobby. The server normalizes alpha/bravo
     // to its own team ids and falls back to balancing if this is absent.
-    console.log(`[Game] joinGame() — requesting team: ${this._preferredTeam ?? "auto-balance"}`);
-    networkHost.sendJoinGame(this._preferredTeam);
+    console.log(
+      `[Game] joinGame() — requesting team: ${this._preferredTeam ?? "auto-balance"}${this._teamWasPicked ? " (picked in-game)" : " (from lobby)"}`,
+    );
+    networkHost.sendJoinGame(this._preferredTeam, this._teamWasPicked);
     // Used, so the handoff is spent — a later direct connect in this tab must
     // not inherit it. The in-memory preference survives for keyboard rejoins.
     try {
@@ -1868,6 +1877,7 @@ export class Game {
     this._joinCompleting = false;
     this._joinGametypeWaits = 0;
     this._preferredTeam = undefined;
+    this._teamWasPicked = false;
     this._loadoutChosen = false;
     this._loadoutPicker?.destroy();
     this._loadoutPicker = null;

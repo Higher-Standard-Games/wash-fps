@@ -917,8 +917,8 @@ export class GameServer {
       // Handle JoinGame message (spectator → player)
       if (msgType === MessageType.JoinGame) {
         this.msgCounts.joinGame++;
-        const { teamId } = MessageCodec.decodeJoinGame(data);
-        this.handleJoinGame(conn, teamId);
+        const { teamId, manualPick } = MessageCodec.decodeJoinGame(data);
+        this.handleJoinGame(conn, teamId, false, manualPick);
         return;
       }
 
@@ -1148,7 +1148,7 @@ export class GameServer {
    * handleJoinGame — spectator → player transition.
    * Creates the player entity and spawns them into the match.
    */
-  private handleJoinGame(conn: ClientConnection, teamId?: string, fromQueue = false): void {
+  private handleJoinGame(conn: ClientConnection, teamId?: string, fromQueue = false, manualPick = false): void {
     const client = this.clients.get(conn.id);
     if (!client) return;
     if (!client.isSpectator) {
@@ -1203,6 +1203,7 @@ export class GameServer {
       state,
       teamId,
       client.playerName,
+      manualPick,
     );
     if (!spawnPoint) {
       console.log(`[GameServer] Player ${client.playerId} assigned to spectator, skipped physical spawn.`);

@@ -14,15 +14,16 @@ import { MatchPhase, MatchStateManager } from "../MatchStateManager";
 interface JoinableGame {
   playerState: string;
   isNetworkMode: boolean;
-  gameHost: { sendJoinGame: (team?: string) => void };
+  gameHost: { sendJoinGame: (team?: string, manualPick?: boolean) => void };
   _joinPending: boolean;
   _joinGametypeWaits: number;
   _preferredTeam: string | undefined;
+  _teamWasPicked: boolean;
   _joinPendingTimeout?: ReturnType<typeof setTimeout>;
   joinGame(teamId?: string): Promise<void>;
 }
 
-function joinableGame(sendJoinGame: (team?: string) => void): JoinableGame {
+function joinableGame(sendJoinGame: (team?: string, manualPick?: boolean) => void): JoinableGame {
   MatchStateManager.getInstance().processEvent({
     type: "match_state",
     phase: MatchPhase.Warmup,
@@ -35,29 +36,33 @@ function joinableGame(sendJoinGame: (team?: string) => void): JoinableGame {
   game._joinPending = false;
   game._joinGametypeWaits = 0;
   game._preferredTeam = "udon";
+  game._teamWasPicked = false;
   return game;
 }
 
 afterEach(() => MatchStateManager.destroy());
 
 describe("Game team selection", () => {
-  it("sends the explicit team button choice instead of the old lobby preference", async () => {
+  it("sends the explicit team button choice, flagged as picked in-game", async () => {
     const sendJoinGame = vi.fn();
     const game = joinableGame(sendJoinGame);
 
     await game.joinGame("soba");
 
-    expect(sendJoinGame).toHaveBeenCalledWith("soba");
+    // The flag is the point: the server balances a side a player CHOSE, and
+    // delivers a side the lobby assigned untouched.
+    expect(sendJoinGame).toHaveBeenCalledWith("soba", true);
     clearTimeout(game._joinPendingTimeout);
   });
 
-  it("keeps the connection-local preference for a keyboard rejoin", async () => {
+  it("sends the lobby handoff unflagged, so the server does not rebalance it", async () => {
     const sendJoinGame = vi.fn();
     const game = joinableGame(sendJoinGame);
 
+    // No argument — this is the lobby's assignment, carried in `_preferredTeam`.
     await game.joinGame();
 
-    expect(sendJoinGame).toHaveBeenCalledWith("udon");
+    expect(sendJoinGame).toHaveBeenCalledWith("udon", false);
     clearTimeout(game._joinPendingTimeout);
   });
 });
