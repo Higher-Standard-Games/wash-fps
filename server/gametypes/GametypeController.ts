@@ -222,6 +222,11 @@ export class GametypeController {
    */
   setMatchFlow(flow: "single" | "continuous"): void {
     this.matchState.setFlow(flow);
+    // A single-match server was spawned by the lobby for a queued group, so
+    // humans are on their way even though none have connected yet. That is the
+    // only advance notice the server gets, and without it bots — which ready
+    // instantly — start the match before anyone's map has finished loading.
+    this.matchState.setExpectsHumans(flow === "single");
   }
 
   /**

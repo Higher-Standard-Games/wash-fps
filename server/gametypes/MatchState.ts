@@ -18,6 +18,15 @@ import {
 } from "@shared/server/gametype";
 
 /**
+ * How long a bots-only roster waits before it may start the match alone.
+ *
+ * Long enough for a browser to fetch and build a BSP and reach the server —
+ * the window in which a lobby-spawned match has humans coming but none
+ * connected yet. See `botsMayStartAlone`.
+ */
+const BOTS_ONLY_START_GRACE_SECONDS = 30;
+
+/**
  * Default match config (can be overridden by gametype)
  */
 const DEFAULT_MATCH_CONFIG: MatchConfig = {
@@ -76,6 +85,8 @@ export class MatchState {
   private _roundResult: RoundResult | null = null;
   private _botPlayers: ReadonlySet<PlayerId> = new Set();
   private _humanClients = 0;
+  /** Lobby-spawned match: humans are coming, even if none have connected yet. */
+  private _expectsHumans = false;
   private _stats: Map<PlayerId, PlayerStats> = new Map();
   /**
    * Derives score from stats, when the gametype wants that instead of frags.
@@ -401,11 +412,45 @@ export class MatchState {
    */
   private allReady(): boolean {
     if (this._totalPlayers < 2 || this._readyPlayers.size < this._totalPlayers) return false;
-    if (this._humanClients === 0) return true;
+    if (this._humanClients === 0) return this.botsMayStartAlone();
     for (const playerId of this._readyPlayers) {
       if (!this._botPlayers.has(playerId)) return true;
     }
     return false;
+  }
+
+  /**
+   * Whether a roster of only bots is allowed to start the match yet.
+   *
+   * Bots ready the instant they join and a bot process connects in
+   * milliseconds, while a human's browser has a BSP to download and build. So
+   * "no humans are connected" is true for the first several seconds of every
+   * lobby-spawned match — and taking it at face value started the match before
+   * its players arrived. They then joined mid-round, which a round mode
+   * correctly handles by spawning them dead: you loaded in already fragged,
+   * having never seen a warmup.
+   *
+   * A genuinely bots-only server still starts on its own, just not instantly.
+   * The wait costs headless runs a few seconds; getting it wrong costs a human
+   * the entire first round.
+   */
+  private botsMayStartAlone(): boolean {
+    // A standing dev or training server has nobody to wait for; making it sit
+    // out the grace would tax every headless run for a problem it cannot have.
+    if (!this._expectsHumans) return true;
+    const elapsed = this.config.warmupTimeout - this._timeRemaining;
+    return elapsed >= BOTS_ONLY_START_GRACE_SECONDS;
+  }
+
+  /**
+   * Whether humans are expected to arrive, so bots must not start without them.
+   *
+   * True for a lobby-spawned match — the lobby launches one per queued group
+   * and passes `--single-match`, which is the server's only advance notice that
+   * anyone is on their way.
+   */
+  setExpectsHumans(expects: boolean): void {
+    this._expectsHumans = expects;
   }
 
   /** Bots, so the ready gate can tell them from players. */
