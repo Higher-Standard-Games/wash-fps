@@ -1590,6 +1590,9 @@ export class Game {
       this.bombAudio.onMatchPhase(match.phase, this._lastAnnouncedPhase, attacking);
       this._lastAnnouncedPhase = match.phase;
     }
+    // The spoken 3-2-1 and the last call, both of which need the match clock
+    // rather than the bomb's.
+    this.bombAudio.updateRound(match.phase, match.timeRemaining, match.bomb, attacking);
 
     // Update ragdoll physics (Havok-driven skeleton ragdolls)
     if (!this._ragdollSystem && !this._ragdollSystemLoading) {
