@@ -346,6 +346,8 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
             HUDState.getInstance().processCombatState(event);
           }
           if (event.entityId === localEntityId) {
+            // Always ours, whoever the camera is following.
+            HUDState.getInstance().localDead = event.dead ?? false;
             if (event.dead && !ctx._isPlayerDead) {
               ctx._isPlayerDead = true;
               ctx._respawnRequested = false;

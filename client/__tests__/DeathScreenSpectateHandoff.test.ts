@@ -1,0 +1,109 @@
+// @vitest-environment jsdom
+
+import { beforeEach, describe, expect, it } from "vitest";
+import type { HUDState } from "../HUDState";
+import { FPSDeathScreen } from "../hud/widgets/DeathScreen";
+import { MatchPhase, MatchStateManager } from "../MatchStateManager";
+
+/**
+ * The death panel's whole life in a round mode, in order.
+ *
+ * You go down, the panel says what happened while the camera holds on your
+ * body, and then the camera moves to a living teammate and the panel gets out
+ * of the way. What it must NOT do is come back — handing the screen over is not
+ * being alive again.
+ */
+function hud(over: Partial<HUDState>): HUDState {
+  const base = { localDead: false, spectating: "", killFeed: [], ...over };
+  // `dead` describes whoever the camera is behind, so it mirrors ours whenever
+  // we are not watching someone else. Modelled here rather than written out at
+  // each call site because getting it wrong is what makes the test pass against
+  // the bug: the panel reappears precisely BECAUSE the subject reverts to us.
+  const dead = "dead" in over ? over.dead : base.spectating === "" && base.localDead;
+  return { ...base, dead } as HUDState;
+}
+
+function visible(screen: FPSDeathScreen): boolean {
+  return screen.getElement().style.display !== "none";
+}
+
+describe("death screen through the spectate handoff", () => {
+  beforeEach(() => {
+    MatchStateManager.destroy();
+    MatchStateManager.getInstance().processEvent({
+      type: "match_state",
+      phase: MatchPhase.Active,
+      round: 3,
+      gametypeName: "Search & Destroy",
+    });
+  });
+
+  it("shows on death, hides at the handoff, and stays down", () => {
+    const screen = new FPSDeathScreen();
+
+    // 1. Alive.
+    screen.update(hud({}));
+    expect(visible(screen)).toBe(false);
+
+    // 2. Fragged. The corpse camera is up and this says why.
+    screen.update(hud({ localDead: true }));
+    expect(visible(screen)).toBe(true);
+
+    // 3. A couple of seconds later the camera moves to a teammate. Their fight
+    //    owns the screen now.
+    screen.update(hud({ localDead: true, spectating: "player_4" }));
+    expect(visible(screen)).toBe(false);
+
+    // 4. The round ends and the camera leaves them for the round-end focus.
+    //    We are still dead — but we were fragged a minute ago, and announcing
+    //    it again here is the bug this test exists for.
+    screen.update(hud({ localDead: true }));
+    expect(visible(screen)).toBe(false);
+  });
+
+  it("does not come back when the teammate we are watching dies", () => {
+    const screen = new FPSDeathScreen();
+    screen.update(hud({ localDead: true }));
+    screen.update(hud({ localDead: true, spectating: "player_4" }));
+
+    // The spectated player is down, so the SUBJECT's dead flag is true — but
+    // that is their death, not a second one of ours.
+    screen.update(hud({ localDead: true, spectating: "player_4", dead: true }));
+
+    expect(visible(screen)).toBe(false);
+  });
+
+  it("arms again for the next round's death", () => {
+    const screen = new FPSDeathScreen();
+    screen.update(hud({ localDead: true }));
+    screen.update(hud({ localDead: true, spectating: "player_4" }));
+
+    // The freeze revives us.
+    screen.update(hud({}));
+    expect(visible(screen)).toBe(false);
+
+    // Down again next round. This is a new death and gets its own panel.
+    screen.update(hud({ localDead: true }));
+    expect(visible(screen)).toBe(true);
+  });
+
+  it("still hides on a plain respawn, with no spectating in between", () => {
+    const screen = new FPSDeathScreen();
+
+    screen.update(hud({ localDead: true }));
+    expect(visible(screen)).toBe(true);
+
+    screen.update(hud({}));
+    expect(visible(screen)).toBe(false);
+  });
+
+  it("names the killer from the kill feed", () => {
+    const screen = new FPSDeathScreen();
+
+    screen.update(
+      hud({ localDead: true, killFeed: [{ victimId: "me", killerId: "Udon Bot", weaponId: "rl", timestamp: 0 }] }),
+    );
+
+    expect(screen.getElement().textContent).toContain("Udon Bot");
+  });
+});
