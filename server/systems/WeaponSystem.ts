@@ -12,7 +12,7 @@ import { createProjectileEntity } from "@engine/server/ecs/Entity";
 import type { EntityId, TickNumber } from "@engine/server/ecs/types";
 import { EntityType, entityId } from "@engine/server/ecs/types";
 import type { WeaponLoadout } from "@shared/server/gametype";
-import type { CollisionWorld } from "../../../../engine/network/systems/collision/CollisionWorld";
+import { type CollisionWorld, SHOT_CONTENT_MASK } from "../../../../engine/network/systems/collision/CollisionWorld";
 import { DEFAULT_VIEWHEIGHT } from "../../../../engine/physics/PlayerPhysicsConstants";
 import { rngFrom } from "../../../../shared/DeterministicRng";
 import { GRENADE } from "../../../../shared/entities/definitions/projectiles/grenade";
@@ -1275,10 +1275,14 @@ export class WeaponSystem extends Subsystem {
   ): { point: { x: number; y: number; z: number }; normal: { x: number; y: number; z: number } } | null {
     if (!this.collisionWorld) return null;
     const end = { x: start.x + dir.x * maxRange, y: start.y + dir.y * maxRange, z: start.z + dir.z * maxRange };
-    const res = this.collisionWorld.trace(start, end, {
-      min: { x: -2, y: -2, z: -2 },
-      max: { x: 2, y: 2, z: 2 },
-    });
+    const res = this.collisionWorld.trace(
+      start,
+      end,
+      { min: { x: -2, y: -2, z: -2 }, max: { x: 2, y: 2, z: 2 } },
+      // Solid world only — a hitscan ray passes through playerclip, which is
+      // there to stop bodies walking into a gap, not to stop bullets.
+      SHOT_CONTENT_MASK,
+    );
     if (res.fraction >= 1.0 || !res.hitPoint) return null;
     return {
       point: res.hitPoint,
