@@ -221,6 +221,13 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
           } else if (event.currentWeapon) {
             ctx.enemyWeapons.set(event.entityId, canonicalWeaponId(event.currentWeapon));
           }
+          // Deliberately NOT part of the branch above. The local sync drives
+          // inventory, reload timing and prediction; a spectated player's state
+          // must reach the HUD and the viewmodel WITHOUT touching any of that,
+          // or watching someone reload would desync your own weapon.
+          if (ctx.spectatingEntityId && event.entityId === ctx.spectatingEntityId) {
+            handleSpectatedWeaponState(event);
+          }
           break;
 
         case "weapon_fire": {
@@ -236,6 +243,13 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
             wvm.fire({ isProjectileFire });
           } else {
             handleRemoteWeaponFire(event, ctx.remoteRenderer);
+            // Kick the viewmodel when the person we are watching shoots.
+            // Without this their gun hangs in frame perfectly still through a
+            // whole firefight, which reads as a broken render rather than a
+            // spectator view.
+            if (ctx.spectatingEntityId === event.entityId) {
+              getWeaponViewManager().fire({ isProjectileFire: false });
+            }
           }
           break;
         }
@@ -324,8 +338,14 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
           break;
 
         case "combat_state":
-          if (event.entityId === localEntityId) {
+          // The HUD describes whoever the camera is behind. Resolved once, up
+          // front, rather than per-branch: both entities' combat_state arrive in
+          // the same snapshot, so a "local, then spectated" ordering assumption
+          // would put whichever came last on the bar.
+          if (event.entityId === (ctx.spectatingEntityId ?? localEntityId)) {
             HUDState.getInstance().processCombatState(event);
+          }
+          if (event.entityId === localEntityId) {
             if (event.dead && !ctx._isPlayerDead) {
               ctx._isPlayerDead = true;
               ctx._respawnRequested = false;
@@ -923,6 +943,47 @@ function handleWeaponStateSync(ctx: GameEventContext, event: any): void {
       });
     }
   }
+}
+
+/**
+ * Put a spectated player's weapon on the HUD and in our hands.
+ *
+ * Everything needed is already on the wire — the server broadcasts weapon_state
+ * for every player so the kill feed and third-person models work — so watching
+ * someone properly is a routing job, not a protocol change.
+ *
+ * Strictly display. None of the local sync's inventory writes, reload timing or
+ * speed-bonus prediction happens here: those describe the weapon WE are holding
+ * and the server would fight us over every one of them.
+ */
+export function handleSpectatedWeaponState(event: {
+  currentWeapon: string;
+  weapons: string[];
+  ammo: Record<string, ServerAmmoState>;
+}): void {
+  const weapon = canonicalWeaponId(event.currentWeapon);
+  const weapons = [...new Set((event.weapons ?? []).map(canonicalWeaponId))];
+  const ammo = Object.fromEntries(
+    Object.entries(event.ammo ?? {}).map(([id, value]) => [canonicalWeaponId(id), value]),
+  ) as Record<string, ServerAmmoState>;
+
+  HUDState.getInstance().processWeaponState({ currentWeapon: weapon, weapons, ammo });
+
+  // The viewmodel rides the same camera the spectate camera drives, so showing
+  // their gun is a matter of loading it and unhiding. Level-triggered against
+  // what is actually displayed, exactly like the local reconciliation: it then
+  // self-heals when the target switches, when we cycle to someone holding
+  // something else, and when we respawn back onto our own weapon.
+  const wvm = getWeaponViewManager();
+  if (!wvm.isReady) return;
+  const displayed = wvm.getDisplayedWeaponId();
+  if (displayed !== weapon && !wvm.isSwitching()) {
+    wvm.loadWeapon(weapon).catch(() => {
+      // A weapon we cannot load leaves the previous model up. Not worth
+      // interrupting a spectator over.
+    });
+  }
+  wvm.setVisible(true);
 }
 
 /**

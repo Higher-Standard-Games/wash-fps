@@ -374,6 +374,11 @@ export class Game {
     this._spectatingEntityId = null;
     this._eyeCamera.stop();
     this.remoteRenderer?.setHiddenEntity(null);
+    // The viewmodel came up to show THEIR gun. If we are still dead — the round
+    // ended, or everyone on our side is down — it has to go away again, or a
+    // borrowed weapon floats over the round-end camera. A respawn re-shows it
+    // through the normal path.
+    if (this._isPlayerDead) getWeaponViewManager().setVisible(false);
     // Back to whatever the overlay was doing before. A player who is alive
     // again wants no overlay at all; a true spectator gets their own mode set
     // by the chase-cam path.
@@ -426,6 +431,16 @@ export class Game {
    * spectating feel broken: the round moves to the other site and you are still
    * watching someone hold an angle at the one you died on.
    */
+  /** Step targets in whichever spectator is currently driving the view. */
+  cycleSpectate(direction: 1 | -1): void {
+    if (this.playerState === "spectator") {
+      if (direction === 1) this.nextSpectateTarget();
+      else this.prevSpectateTarget();
+      return;
+    }
+    this.cycleTeammateSpectate(direction);
+  }
+
   cycleTeammateSpectate(direction: 1 | -1): void {
     if (!this._spectatingEntityId) return;
     const candidates = this.spectatableTeammates();
@@ -457,6 +472,18 @@ export class Game {
   private _roundEndCameraActive = false;
   /** Teammate currently being watched while dead, or null. */
   private _spectatingEntityId: string | null = null;
+
+  /**
+   * Whose eyes the view is currently behind, or null when it is our own.
+   *
+   * Read by the event layer to decide who the HUD is describing. A spectated
+   * player's health, ammo and weapon all arrive in the same snapshot as ours —
+   * the server broadcasts combat_state and weapon_state for every player — so
+   * this is a routing question, not a networking one.
+   */
+  get spectatingEntityId(): string | null {
+    return this._spectatingEntityId;
+  }
   /** When the local player last died, for the spectate hand-off delay. */
   private _deathAtMs = 0;
   private _wasDeadLastFrame = false;
@@ -924,6 +951,14 @@ export class Game {
       this.spectatorOverlay = new SpectatorOverlay();
       this.spectatorOverlay.setMode("hidden");
 
+      // The bar's ◄ ► buttons are wired unconditionally, and route to whichever
+      // spectator is actually running: the chase-cam when watching as a true
+      // spectator, the teammate view when watching because you are dead. They
+      // used to live inside the branch below, so for anyone who came from the
+      // lobby they were buttons that did nothing.
+      this.spectatorOverlay.onNextPlayer(() => this.cycleSpectate(1));
+      this.spectatorOverlay.onPrevPlayer(() => this.cycleSpectate(-1));
+
       if (!config.autoJoin) {
         if (config.watchOnly) {
           // WATCH mode: pure spectator, start in freefly until chase-cam target available
@@ -940,14 +975,6 @@ export class Game {
           // Switch to freefly spectator (no entity, just camera)
           this.spectatorOverlay?.setMode("freefly");
           this.switchToFreeflyCamera();
-        });
-
-        // Wire next/prev player cycling
-        this.spectatorOverlay.onNextPlayer(() => {
-          this.nextSpectateTarget();
-        });
-        this.spectatorOverlay.onPrevPlayer(() => {
-          this.prevSpectateTarget();
         });
       } // end if (!config.autoJoin)
 
