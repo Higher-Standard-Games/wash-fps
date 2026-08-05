@@ -188,6 +188,8 @@ export class Game {
   private _joinCompleting = false;
   /** True when the side came from an in-game button rather than the lobby. */
   private _teamWasPicked = false;
+  /** Last match phase the announcer spoke for, so each transition fires once. */
+  private _lastAnnouncedPhase: import("./client/MatchStateManager").MatchPhase | null = null;
   private spectatorOverlay: import("./client/SpectatorOverlay").SpectatorOverlay | null = null;
   private _joinKeyHandler: ((e: KeyboardEvent) => void) | null = null;
   private _specMouseHandler: ((e: MouseEvent) => void) | null = null;
@@ -1577,7 +1579,17 @@ export class Game {
     const match = MatchStateManager.getInstance();
     // playerTeams is keyed by the raw display id, not the "player_N" client key.
     const localTeam = match.playerTeams?.[clientKeyDisplayId(this.localPlayerId)] ?? undefined;
-    this.bombAudio.update(match.bomb, dtSec, match.isAttacking(localTeam));
+    const attacking = match.isAttacking(localTeam);
+    this.bombAudio.update(match.bomb, dtSec, attacking);
+
+    // Round transitions are MATCH phases, not bomb phases — nothing about the
+    // bomb changes when a freeze begins, so the announcer needs telling here.
+    // Edge-detected in the same place the side is resolved, because the line is
+    // side-specific and reading the two apart risks announcing the wrong job.
+    if (match.phase !== this._lastAnnouncedPhase) {
+      this.bombAudio.onMatchPhase(match.phase, this._lastAnnouncedPhase, attacking);
+      this._lastAnnouncedPhase = match.phase;
+    }
 
     // Update ragdoll physics (Havok-driven skeleton ragdolls)
     if (!this._ragdollSystem && !this._ragdollSystemLoading) {

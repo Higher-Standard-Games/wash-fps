@@ -125,6 +125,23 @@ export class FPSPauseMenu extends GameDialogPanel {
     return btn;
   }
 
+  /** Players on each side right now, spectators excluded. */
+  private teamSizes(): { udon: number; soba: number } {
+    const teams = MatchStateManager.getInstance().playerTeams ?? {};
+    let udon = 0;
+    let soba = 0;
+    for (const team of Object.values(teams)) {
+      if (team === "udon") udon++;
+      else if (team === "soba") soba++;
+    }
+    return { udon, soba };
+  }
+
+  private static describeSide(count: number): string {
+    if (count === 0) return "Empty";
+    return count === 1 ? "1 player" : `${count} players`;
+  }
+
   private refreshJoinButtons(): void {
     this.joinContainer.innerHTML = "";
 
@@ -132,15 +149,33 @@ export class FPSPauseMenu extends GameDialogPanel {
     const hasTeams = Object.keys(state.teamScores).length > 0;
 
     if (hasTeams) {
-      const udonBtn = this.createPauseButton("Join Team Udon", "Pink side", "fps-btn--team-udon", () => {
-        this.close();
-        this.onJoinGameCallback?.("udon");
-      });
+      // How full each side is, rather than what colour it is.
+      //
+      // Colour stopped identifying a team when team colour became allegiance —
+      // your side is pink and theirs is cyan whichever names they have — so
+      // "PINK SIDE" was about to be wrong for half of every match. Size is the
+      // fact that actually bears on this choice: picking the bigger side gets
+      // you redirected to the smaller one, and this is what says so beforehand.
+      const sizes = this.teamSizes();
+      const udonBtn = this.createPauseButton(
+        "Join Team Udon",
+        FPSPauseMenu.describeSide(sizes.udon),
+        "fps-btn--team-udon",
+        () => {
+          this.close();
+          this.onJoinGameCallback?.("udon");
+        },
+      );
 
-      const sobaBtn = this.createPauseButton("Join Team Soba", "Blue side", "fps-btn--team-soba", () => {
-        this.close();
-        this.onJoinGameCallback?.("soba");
-      });
+      const sobaBtn = this.createPauseButton(
+        "Join Team Soba",
+        FPSPauseMenu.describeSide(sizes.soba),
+        "fps-btn--team-soba",
+        () => {
+          this.close();
+          this.onJoinGameCallback?.("soba");
+        },
+      );
 
       this.joinContainer.appendChild(udonBtn);
       this.joinContainer.appendChild(sobaBtn);

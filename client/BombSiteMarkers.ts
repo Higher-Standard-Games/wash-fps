@@ -34,6 +34,8 @@ const SPIN_RATE = 0.6;
 
 /** Site blasts are bigger than a rocket — this is a bomb, and it should read. */
 const BLAST_SCALE = 2.2;
+/** How far the detonation is felt. Map-scale, not weapon-scale. */
+const BLAST_SHAKE_RANGE = 2600;
 
 interface Marker {
   root: TransformNode;
@@ -191,6 +193,12 @@ export class BombSiteMarkers {
         // Every blast shaking the camera at full strength during a thirty-point
         // chain is nausea, not drama.
         shakeIntensity: 0.35,
+        // But it has to REACH. The rocket preset stops at 540 units, and anyone
+        // still alive to watch a site go up is further away than that by
+        // definition — so the detonation landed in silence for exactly the
+        // people it is staged for. Per-blast strength stays low; the range is
+        // what makes it a map event rather than a local one.
+        shakeMaxRange: BLAST_SHAKE_RANGE,
       });
     }
   }
