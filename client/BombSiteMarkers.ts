@@ -21,6 +21,7 @@ import { CreateCylinder } from "@babylonjs/core/Meshes/Builders/cylinderBuilder"
 import { CreatePlane } from "@babylonjs/core/Meshes/Builders/planeBuilder";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Scene } from "@babylonjs/core/scene";
+import { AudioManager } from "../../../engine/AudioManager";
 import { getExplosionEffect, ROCKET_EXPLOSION } from "../../../engine/weapon/ExplosionEffect";
 import { type BombExplosionEvent, MatchStateManager } from "./MatchStateManager";
 
@@ -36,6 +37,10 @@ const SPIN_RATE = 0.6;
 const BLAST_SCALE = 2.2;
 /** How far the detonation is felt. Map-scale, not weapon-scale. */
 const BLAST_SHAKE_RANGE = 2600;
+/** Warsow uses the rocket's explosion for the bomb; there is no dedicated one. */
+const BLAST_SOUND = "sounds/weapons/rocket_strong_explosion.ogg";
+/** Seconds between blast sounds, so a long chain reads as blasts not mud. */
+const BLAST_SOUND_MIN_GAP = 0.09;
 
 interface Marker {
   root: TransformNode;
@@ -55,6 +60,8 @@ export class BombSiteMarkers {
   private readonly scene: Scene;
   private markers = new Map<number, Marker>();
   private elapsed = 0;
+  /** When the last blast sound played, so a chain does not stack into mud. */
+  private lastBlastSound = Number.NEGATIVE_INFINITY;
   /** Blasts still waiting to fire, as absolute times in `elapsed` seconds. */
   private pending: Array<{ at: number; position: Vector3; radius: number }> = [];
   /** Explosions already played, so a repeated snapshot does not replay them. */
@@ -186,6 +193,22 @@ export class BombSiteMarkers {
     this.pending = this.pending.filter((blast) => blast.at > this.elapsed);
 
     for (const blast of due) {
+      // The bang. `ExplosionEffect` is pure VFX — it has no audio at all, and
+      // the rocket's sound comes from the projectile impact path, which a
+      // scripted detonation never goes through. So the whole thing played
+      // silently: the one moment in the mode that should be unmissable.
+      //
+      // Warsow uses the rocket explosion here and so do we. Positional, because
+      // a site going up somewhere across the map should sound like it did.
+      //
+      // Throttled: a chain fires up to thirty points and several can land on the
+      // same frame, which stacks into mud and drowns everything else. Spacing
+      // them keeps it a sequence of blasts rather than one wall of noise.
+      if (this.elapsed - this.lastBlastSound >= BLAST_SOUND_MIN_GAP) {
+        this.lastBlastSound = this.elapsed;
+        AudioManager.getInstance().playSfx3D(BLAST_SOUND, blast.position);
+      }
+
       getExplosionEffect().spawn(blast.position, {
         ...ROCKET_EXPLOSION,
         scale: ROCKET_EXPLOSION.scale * BLAST_SCALE,
