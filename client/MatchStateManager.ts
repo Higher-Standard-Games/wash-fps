@@ -223,6 +223,28 @@ export class MatchStateManager {
   }
 
   /**
+   * True while the server is zeroing everyone's movement and action input.
+   *
+   * Mirrors `GametypeController.applyPostGameInputFreeze` exactly, and has to:
+   * the client predicts its own movement, so a freeze the client does not know
+   * about is one it walks straight through and gets snapped back out of. That
+   * rubber-band at the top of every round is the whole symptom.
+   *
+   * Round modes freeze during the Countdown — that is the "get ready" phase,
+   * with everyone stood at their spawn — and during the round-end result, and
+   * every mode freezes for the post-game screen. A non-round mode's countdown
+   * is the pre-match one, which does NOT hold players still.
+   */
+  isMovementFrozen(): boolean {
+    if (this._phase === MatchPhase.PostGame) return true;
+    // `round > 0` is what makes this a round mode, the same signal the rest of
+    // the client uses. A deathmatch never sets it.
+    const roundBased = this._round > 0;
+    if (!roundBased) return false;
+    return this._phase === MatchPhase.RoundEnd || this._phase === MatchPhase.Countdown;
+  }
+
+  /**
    * Get time as mm:ss string
    */
   getTimeString(): string {

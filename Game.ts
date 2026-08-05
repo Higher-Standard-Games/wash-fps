@@ -238,6 +238,23 @@ export class Game {
     // cam is for the ragdoll and the round-end focus; pointing it at a player
     // who walks around was what put their own model across the screen.
     if (this._eyeCamera.update(dt, camera)) return true;
+
+    // Spectating, but the eye camera had nothing to show this frame. Claim the
+    // frame anyway and keep the view level.
+    //
+    // Returning false here is not "no opinion" — it is a decision, and the FPS
+    // controller reads it as permission to apply the forty-degree death tilt.
+    // There is no frame during a spectate where that is the right picture, so
+    // the answer cannot depend on whether a snapshot happened to arrive.
+    if (this._spectatingEntityId) {
+      camera.rotation.z = 0;
+      if (!this._warnedEyeCameraGap) {
+        this._warnedEyeCameraGap = true;
+        console.warn(`[Game] spectate camera had no sample for ${this._spectatingEntityId}; holding the view level`);
+      }
+      return true;
+    }
+
     return this._deathCamera.update(dt, camera);
   }
 
@@ -503,6 +520,8 @@ export class Game {
   private _spectatingEntityId: string | null = null;
   /** Fire/alt-fire held last tick, so cycling steps once per press. */
   private _specCycleHeld = false;
+  /** Warn once per session if the spectate camera ever runs dry. */
+  private _warnedEyeCameraGap = false;
 
   /**
    * Whose eyes the view is currently behind, or null when it is our own.
@@ -1525,9 +1544,17 @@ export class Game {
       return;
     }
 
-    // Post-game screen: gameplay is over — strip movement/actions locally so
-    // prediction matches the server's input freeze (look-around stays free).
-    if (MatchStateManager.getInstance().isPostGame()) {
+    // Whenever the server is holding everyone still — the round freeze, the
+    // round-end result, the post-game screen — strip the same input locally so
+    // prediction agrees with it. Look-around stays free, which is what the
+    // freeze is for.
+    //
+    // The client predicts its own movement, so a freeze it does not know about
+    // is one it walks straight through: you drift a step, the next snapshot
+    // puts you back on your spawn, and the speed effects fire on the way. Only
+    // the post-game case was mirrored here; the round freeze at the top of
+    // every single round was not.
+    if (MatchStateManager.getInstance().isMovementFrozen()) {
       input.forward = false;
       input.backward = false;
       input.left = false;
