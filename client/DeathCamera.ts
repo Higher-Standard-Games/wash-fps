@@ -4,6 +4,11 @@
  * On local death the game hands this a live getter for the ragdoll hips or gib
  * burst centroid. Each frame we ease the camera to a readable chase position,
  * with guard rails so bad ragdoll physics cannot drag the view under the map.
+ *
+ * Corpses and fixed points only. Watching a LIVING player is
+ * {@link SpectateEyeCamera}'s job: a third-person chase of someone who walks
+ * around holds a fixed bearing while they move, so they run at the lens, and
+ * the wall clamp below jams the camera into their back in any corridor.
  */
 
 import { Ray } from "@babylonjs/core/Culling/ray";
@@ -46,8 +51,6 @@ const MIN_CAMERA_TARGET_DISTANCE = 36;
 
 export class DeathCamera {
   private active = false;
-  /** Following a living player: the corpse-containment guards do not apply. */
-  private freeFollow = false;
   private getFollowPos: FollowPositionFn | null = null;
   private yaw = 0;
   private readonly deathPos = new Vector3();
@@ -59,23 +62,8 @@ export class DeathCamera {
     return this.active;
   }
 
-  /**
-   * Follow a LIVING player, not a corpse.
-   *
-   * Same smoothing and wall clamping, without the ragdoll guards: those reject
-   * a target more than 900 units from where it started or 72 below it, which is
-   * right for a body that can be flung through the floor and wrong for a
-   * teammate who simply walks somewhere. With them on, spectating froze the
-   * camera the moment the person being watched left the room.
-   */
-  startFollow(getFollowPos: FollowPositionFn, from: Vector3, yaw: number): void {
-    this.start(getFollowPos, from, yaw);
-    this.freeFollow = true;
-  }
-
   start(getFollowPos: FollowPositionFn, deathPos: Vector3, yaw: number): void {
     this.active = true;
-    this.freeFollow = false;
     this.getFollowPos = getFollowPos;
     this.yaw = yaw;
     this.deathPos.copyFrom(deathPos);
@@ -90,7 +78,6 @@ export class DeathCamera {
 
   stop(): void {
     this.active = false;
-    this.freeFollow = false;
     this.getFollowPos = null;
   }
 
@@ -122,8 +109,6 @@ export class DeathCamera {
 
   private sanitizeTarget(target: Vector3 | null): Vector3 {
     if (!target || !this.isFiniteVector(target)) return this.lastTarget;
-    // A living target may go anywhere. Only the finite check above applies.
-    if (this.freeFollow) return target;
     if (target.y < this.deathPos.y - MAX_TARGET_DROP_BELOW_DEATH) return this.lastTarget;
     if (
       Vector3.DistanceSquared(target, this.deathPos) >

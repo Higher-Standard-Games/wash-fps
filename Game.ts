@@ -26,6 +26,7 @@ import type { GameState } from "../../engine/network/core/GameState";
 import type { IGameHost } from "../../engine/network/core/IGameHost";
 import { MessageCodec } from "../../engine/network/protocol/MessageCodec";
 import { getCollisionManager } from "../../engine/physics/CollisionManager";
+import { DEFAULT_VIEWHEIGHT } from "../../engine/physics/PlayerPhysicsConstants";
 import { PlayerProfile } from "../../engine/player/PlayerProfile";
 import { getProjectileManager } from "../../engine/weapon/ProjectileManager";
 import { getWeaponViewManager } from "../../engine/weapon/WeaponViewManager";
@@ -48,6 +49,7 @@ import { type GameEventContext, handleServerStateUpdate } from "./client/GameEve
 import { HUDState } from "./client/HUDState";
 import { MatchPhase, MatchStateManager } from "./client/MatchStateManager";
 import { RemotePlayerRenderer } from "./client/RemotePlayerRenderer";
+import { SpectateEyeCamera } from "./client/SpectateEyeCamera";
 import { createBSPCollisionWorld } from "./simulation/collision/BSPCollisionWorld";
 import { type FPSInputCommand, FPSSimulation } from "./simulation/FPSSimulation";
 
@@ -218,6 +220,8 @@ export class Game {
   private _cartoonHitLoading = false;
   /** Smoothed corpse-follow death camera. Driven by FPSController each frame. */
   private _deathCamera: DeathCamera = new DeathCamera();
+  /** First-person view of a living teammate, while dead in a round mode. */
+  private _eyeCamera: SpectateEyeCamera = new SpectateEyeCamera();
 
   /**
    * Drive the corpse-follow death camera. Called by FPSController at the very end
@@ -225,8 +229,15 @@ export class Game {
    * camera took over the camera, so the controller skips its fallback roll/drop
    * and the view-bob pass.
    */
-  public applyDeathCamera(camera: import("./client/DeathCamera").DeathCameraTarget, dt: number): boolean {
+  public applyDeathCamera(
+    camera: import("./client/DeathCamera").DeathCameraTarget & import("./client/SpectateEyeCamera").SpectateEyeTarget,
+    dt: number,
+  ): boolean {
     this.updateRoundEndCamera();
+    // First person wins whenever we are watching a living teammate. The chase
+    // cam is for the ragdoll and the round-end focus; pointing it at a player
+    // who walks around was what put their own model across the screen.
+    if (this._eyeCamera.update(dt, camera)) return true;
     return this._deathCamera.update(dt, camera);
   }
 
@@ -259,7 +270,7 @@ export class Game {
     if (focus) {
       if (this._roundEndCameraActive) return;
       this._roundEndCameraActive = true;
-      this._spectatingEntityId = null;
+      this.stopTeammateSpectate();
       const target = new Vector3(focus.x, focus.y, focus.z);
       // Approach from behind wherever the player was looking, so the cut is a
       // pull-back rather than a jump to an unrelated angle.
@@ -270,7 +281,7 @@ export class Game {
 
     if (this._roundEndCameraActive) {
       this._roundEndCameraActive = false;
-      this._spectatingEntityId = null;
+      this.stopTeammateSpectate();
       if (!this._isPlayerDead) this._deathCamera.stop();
     }
 
@@ -292,7 +303,7 @@ export class Game {
   private updateTeammateSpectate(match: MatchStateManager): void {
     const spectating = this._isPlayerDead && match.round > 0 && match.phase === MatchPhase.Active;
     if (!spectating) {
-      this._spectatingEntityId = null;
+      this.stopTeammateSpectate();
       // Release on every frame we are alive and not spectating, NOT only on the
       // frame the target is dropped.
       //
@@ -334,15 +345,112 @@ export class Game {
     // on the corpse rather than cutting to an enemy.
     if (!chosen || chosen === this._spectatingEntityId) return;
 
-    this._spectatingEntityId = chosen;
-    const start = players.get(chosen)?.position;
-    if (!start) return;
-    const camera = CameraSystem.getInstance().getCamera() as { rotation?: { y: number } } | null;
-    this._deathCamera.startFollow(
-      () => this.remoteRenderer?.getRenderedPlayers().get(chosen)?.position ?? null,
-      start,
-      camera?.rotation?.y ?? 0,
-    );
+    this.watchTeammate(chosen);
+  }
+
+  /**
+   * Put the camera behind one teammate's eyes.
+   *
+   * Hiding their model is not cosmetic — the camera sits INSIDE their head, so
+   * left visible it is a skull filling the screen from the inside, which is
+   * exactly what a first-person view of someone else looks like if you forget
+   * this step. The demo viewer has always done it; the live path never did.
+   */
+  private watchTeammate(entityId: string): void {
+    this._spectatingEntityId = entityId;
+    // The ragdoll moment is over — release the corpse cam so the two are never
+    // both writing to the camera in the same frame.
+    this._deathCamera.stop();
+    this.remoteRenderer?.setHiddenEntity(entityId);
+    this._eyeCamera.start(() => this.spectateEyeSample(entityId));
+    this.spectatorOverlay?.setSpectatingTarget(this.spectateeName(entityId));
+    this.spectatorOverlay?.setMode("first-person");
+    console.log(`[Game] Spectating teammate: ${entityId}`);
+  }
+
+  /** Drop the teammate view: camera released, and their model visible again. */
+  private stopTeammateSpectate(): void {
+    if (this._spectatingEntityId === null) return;
+    this._spectatingEntityId = null;
+    this._eyeCamera.stop();
+    this.remoteRenderer?.setHiddenEntity(null);
+    // Back to whatever the overlay was doing before. A player who is alive
+    // again wants no overlay at all; a true spectator gets their own mode set
+    // by the chase-cam path.
+    if (this.playerState !== "spectator") this.spectatorOverlay?.setMode("hidden");
+  }
+
+  /**
+   * Where the watched player is and what they are looking at, this frame.
+   *
+   * Position and angles come from the SAME snapshot deliberately. Taking the
+   * position from the renderer's interpolated copy and the angles from the
+   * latest packet would put the head a frame ahead of the body — a small lead
+   * that reads as the view sliding around independently of the player.
+   */
+  private spectateEyeSample(entityId: string): import("./client/SpectateEyeCamera").SpectateEyeSample | null {
+    const entity = this._latestGameState?.entities.get(entityId);
+    if (!entity) return null;
+    const transform = entity.getComponent("transform") as
+      | { position?: { x: number; y: number; z: number }; rotation?: { x: number; y: number } }
+      | undefined;
+    if (!transform?.position) return null;
+    const movement = entity.getComponent("movementState") as { crouchViewOffset?: number } | undefined;
+    return {
+      x: transform.position.x,
+      y: transform.position.y,
+      z: transform.position.z,
+      yaw: transform.rotation?.y ?? 0,
+      pitch: transform.rotation?.x ?? 0,
+      // Same sum the local FPS camera uses, so ducking under a rail looks the
+      // same watched as it does played.
+      eyeHeight: DEFAULT_VIEWHEIGHT + (movement?.crouchViewOffset ?? 0),
+    };
+  }
+
+  /** Display name for whoever we are watching, for the HUD banner. */
+  private spectateeName(entityId: string): string {
+    const players = this._latestGameState?.players;
+    if (players) {
+      for (const player of players.values()) {
+        if (player.entityId === entityId) return player.name || entityId;
+      }
+    }
+    return entityId.replace("player_", "Player ");
+  }
+
+  /**
+   * Step to the next living teammate while dead.
+   *
+   * Being pinned to whoever the auto-pick landed on is most of what makes
+   * spectating feel broken: the round moves to the other site and you are still
+   * watching someone hold an angle at the one you died on.
+   */
+  cycleTeammateSpectate(direction: 1 | -1): void {
+    if (!this._spectatingEntityId) return;
+    const candidates = this.spectatableTeammates();
+    if (candidates.length < 2) return;
+    const at = candidates.indexOf(this._spectatingEntityId);
+    const next = candidates[(at + direction + candidates.length) % candidates.length];
+    if (next && next !== this._spectatingEntityId) this.watchTeammate(next);
+  }
+
+  /** Living teammates currently rendered, in a stable order for cycling. */
+  private spectatableTeammates(): string[] {
+    const players = this.remoteRenderer?.getRenderedPlayers();
+    if (!players) return [];
+    const match = MatchStateManager.getInstance();
+    const myTeam = match.playerTeams?.[clientKeyDisplayId(this.localPlayerId)];
+    if (!myTeam) return [];
+
+    const out: string[] = [];
+    for (const [entityId, player] of players) {
+      if (entityId === this.localPlayerId || player.dead) continue;
+      if (match.playerTeams?.[clientKeyDisplayId(entityId)] !== myTeam) continue;
+      out.push(entityId);
+    }
+    // Sorted, so ← and → stay opposites instead of following map insertion.
+    return out.sort();
   }
 
   /** True while the round-end camera owns the view, so we know what to stop. */
@@ -809,11 +917,14 @@ export class Game {
       // ── Spectator Mode: show join overlay on connect ──────────
       this.playerState = "spectator";
 
-      // Only show spectator overlay if NOT auto-joining
-      if (!config.autoJoin) {
-        const { SpectatorOverlay } = await import("./client/SpectatorOverlay");
-        this.spectatorOverlay = new SpectatorOverlay();
+      // The overlay is built either way. Auto-joining only means it starts
+      // hidden: a player who came straight from the lobby still dies, and still
+      // needs the "watching X" banner when the camera moves to a teammate.
+      const { SpectatorOverlay } = await import("./client/SpectatorOverlay");
+      this.spectatorOverlay = new SpectatorOverlay();
+      this.spectatorOverlay.setMode("hidden");
 
+      if (!config.autoJoin) {
         if (config.watchOnly) {
           // WATCH mode: pure spectator, start in freefly until chase-cam target available
           this.spectatorOverlay.setMode("freefly");
@@ -871,7 +982,22 @@ export class Game {
 
       // ── Spectator cycling keyboard handler (arrows + Space) ──
       this._specCycleKeyHandler = (e: KeyboardEvent) => {
-        if (this.playerState !== "spectator") return;
+        // Dead in a round mode is spectating too, even though the player state
+        // still says "playing" — they have an entity, it is just a corpse.
+        // Without this the arrows did nothing for the one case that lasts a
+        // whole minute, and you watched whoever the auto-pick happened to land
+        // on until they died.
+        if (this.playerState !== "spectator") {
+          if (!this._spectatingEntityId) return;
+          if (e.code === "ArrowRight") {
+            e.preventDefault();
+            this.cycleTeammateSpectate(1);
+          } else if (e.code === "ArrowLeft") {
+            e.preventDefault();
+            this.cycleTeammateSpectate(-1);
+          }
+          return;
+        }
         if (e.code === "ArrowRight") {
           e.preventDefault();
           this.nextSpectateTarget();
@@ -1097,6 +1223,10 @@ export class Game {
     // Clear any active chase-cam state before switching
     this.spectatorCycling?.clearTarget();
     this.spectatorController?.clearSpectateTarget();
+    // Whoever we were watching must be drawn again now we are playing, or they
+    // stay invisible for the rest of the match to the one person who spectated
+    // them.
+    this.remoteRenderer?.setHiddenEntity(null);
 
     // Switch to FPS camera controller
     try {
@@ -1235,6 +1365,11 @@ export class Game {
     if (!this.spectatorController || !this.spectatorCycling) return;
     this.spectatorCycling.setTarget(entityId);
     this.spectatorController.setSpectateTarget(entityId);
+    // The camera goes to their eyes, which is INSIDE their head — leaving the
+    // model on fills the screen with the inside of a skull. The demo viewer has
+    // hidden the followed player since it shipped; this path never did, which
+    // is why live chase-cam looked like a rendering fault rather than a view.
+    this.remoteRenderer?.setHiddenEntity(entityId);
     this.spectatorOverlay?.setMode("first-person");
     this.spectatorOverlay?.setSpectatingTarget(this.spectatorCycling.getPlayerName(entityId));
     CameraSystem.getInstance().setController("spectator");
@@ -1269,6 +1404,8 @@ export class Game {
   exitChaseCam(): void {
     this.spectatorCycling?.clearTarget();
     this.spectatorController?.clearSpectateTarget();
+    // Whoever we were riding becomes a normal player again.
+    this.remoteRenderer?.setHiddenEntity(null);
     this.spectatorOverlay?.setMode("freefly");
     this.switchToFreeflyCamera();
     console.log("[Game] Returned to freefly spectator");
