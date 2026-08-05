@@ -356,22 +356,51 @@ export class Game {
    * exactly what a first-person view of someone else looks like if you forget
    * this step. The demo viewer has always done it; the live path never did.
    */
-  private watchTeammate(entityId: string): void {
+  private watchTeammate(entityId: string): boolean {
+    // Seeded from where they are right now — the same reading that chose them.
+    // Refuse the handoff outright if there is nothing to seed with: a camera
+    // that cannot produce a frame is not neutral, because the FPS controller
+    // falls back to the forty-degree death tilt when nobody claims the view.
+    const seed = this.spectateEyeSample(entityId) ?? this.drawnAt(entityId);
+    if (!seed) return false;
+
     this._spectatingEntityId = entityId;
-    // The ragdoll moment is over — release the corpse cam so the two are never
-    // both writing to the camera in the same frame.
-    this._deathCamera.stop();
     this.remoteRenderer?.setHiddenEntity(entityId);
-    this._eyeCamera.start(() => this.spectateEyeSample(entityId));
+    this._eyeCamera.start(() => this.spectateEyeSample(entityId), seed);
+    // Released only now the eye camera is primed and will claim every frame.
+    this._deathCamera.stop();
     this.spectatorOverlay?.setSpectatingTarget(this.spectateeName(entityId));
     this.spectatorOverlay?.setMode("first-person");
     console.log(`[Game] Spectating teammate: ${entityId}`);
+    return true;
+  }
+
+  /**
+   * Fallback seed: where the renderer is drawing them, without view angles.
+   *
+   * Used when the latest snapshot has no entity for someone the renderer is
+   * still drawing — a gap of a frame or two around PVS edges. Their facing is
+   * unknown, so the camera keeps ours and picks theirs up on the next snapshot
+   * rather than snapping to an arbitrary direction.
+   */
+  private drawnAt(entityId: string): import("./client/SpectateEyeCamera").SpectateEyeSample | null {
+    const drawn = this.remoteRenderer?.getRenderedPlayers().get(entityId);
+    if (!drawn) return null;
+    const camera = CameraSystem.getInstance().getCamera() as { rotation?: { x: number; y: number } } | null;
+    return {
+      x: drawn.position.x,
+      y: drawn.position.y,
+      z: drawn.position.z,
+      yaw: camera?.rotation?.y ?? 0,
+      pitch: camera?.rotation?.x ?? 0,
+    };
   }
 
   /** Drop the teammate view: camera released, and their model visible again. */
   private stopTeammateSpectate(): void {
     if (this._spectatingEntityId === null) return;
     this._spectatingEntityId = null;
+    this._specCycleHeld = false;
     this._eyeCamera.stop();
     this.remoteRenderer?.setHiddenEntity(null);
     // The viewmodel came up to show THEIR gun. If we are still dead — the round
@@ -472,6 +501,8 @@ export class Game {
   private _roundEndCameraActive = false;
   /** Teammate currently being watched while dead, or null. */
   private _spectatingEntityId: string | null = null;
+  /** Fire/alt-fire held last tick, so cycling steps once per press. */
+  private _specCycleHeld = false;
 
   /**
    * Whose eyes the view is currently behind, or null when it is our own.
@@ -1514,8 +1545,21 @@ export class Game {
     // While dead, check for respawn input and strip ALL gameplay input.
     // Respawn is triggered via a dedicated RequestSpawn reliable message.
     if (this._isPlayerDead) {
-      // Send RequestSpawn if cooldown expired and fire/jump pressed
-      if (!this._respawnRequested && Date.now() >= this._respawnCooldownEnd) {
+      if (this._spectatingEntityId) {
+        // Warsow's binding: while chasing someone, +attack steps to the next
+        // player instead of asking to respawn. In a round mode there is nothing
+        // to respawn into until the freeze, so the button is free — and it is
+        // the one every player already reaches for.
+        //
+        // Edge-triggered against the previous tick: input runs at 125Hz, so a
+        // held button would otherwise strobe through the whole team.
+        const cycleNext = input.fire;
+        const cyclePrev = input.altFire;
+        if (cycleNext && !this._specCycleHeld) this.cycleTeammateSpectate(1);
+        else if (cyclePrev && !this._specCycleHeld) this.cycleTeammateSpectate(-1);
+        this._specCycleHeld = cycleNext || cyclePrev;
+      } else if (!this._respawnRequested && Date.now() >= this._respawnCooldownEnd) {
+        // Send RequestSpawn if cooldown expired and fire/jump pressed
         if (input.fire || input.jump) {
           this.sendRequestSpawn();
           this._respawnRequested = true;

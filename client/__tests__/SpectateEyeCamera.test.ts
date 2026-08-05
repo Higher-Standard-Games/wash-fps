@@ -118,6 +118,34 @@ describe("SpectateEyeCamera", () => {
     expect(camera.position.equals(held)).toBe(true);
   });
 
+  it("claims the very first frame when seeded, before any snapshot lands", () => {
+    const eye = new SpectateEyeCamera();
+    // Declining a frame is not neutral: the FPS controller falls back to the
+    // forty-degree death tilt when nothing claims the camera, so a spectate
+    // that could not produce a frame looked like the screen was stuck sideways.
+    eye.start(() => null, standing);
+
+    expect(eye.update(0.016, camera)).toBe(true);
+    expect(camera.position.y).toBe(standing.y + DEFAULT_VIEWHEIGHT);
+    expect(camera.rotation.z).toBe(0);
+  });
+
+  it("keeps claiming frames while the provider stays empty", () => {
+    const eye = new SpectateEyeCamera();
+    eye.start(() => null, standing);
+
+    for (let i = 0; i < 10; i++) expect(eye.update(0.016, camera)).toBe(true);
+  });
+
+  it("ignores a seed that is not a real place", () => {
+    const eye = new SpectateEyeCamera();
+    eye.start(() => standing, { ...standing, y: Number.POSITIVE_INFINITY });
+
+    // Falls back to priming from the first real sample instead.
+    eye.update(0.016, camera);
+    expect(camera.position.y).toBe(standing.y + DEFAULT_VIEWHEIGHT);
+  });
+
   it("refuses a sample that would put the camera nowhere", () => {
     const eye = new SpectateEyeCamera();
     eye.start(() => ({ ...standing, x: Number.NaN }));

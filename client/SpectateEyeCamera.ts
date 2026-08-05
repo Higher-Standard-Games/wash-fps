@@ -83,11 +83,31 @@ export class SpectateEyeCamera {
     return this.active;
   }
 
-  /** Begin following whoever `provider` resolves each frame. */
-  start(provider: SpectateEyeProvider): void {
+  /**
+   * Begin following whoever `provider` resolves each frame.
+   *
+   * `seed` is where they are known to be right now, and passing it matters more
+   * than it looks: an unprimed camera with nothing to show has to decline the
+   * frame, and declining hands the view to whatever the caller falls back to.
+   * In the FPS controller that fallback is the death tilt — so a spectate that
+   * could not prime did not look like a missing camera, it looked like the
+   * screen was stuck at forty degrees.
+   *
+   * The caller always has the seed: it picked this player by reading where they
+   * were drawn. Priming from that same reading means the camera is usable on
+   * the frame it is chosen, and a later gap in the snapshots is a hold rather
+   * than a hand-back.
+   */
+  start(provider: SpectateEyeProvider, seed?: SpectateEyeSample): void {
     this.active = true;
     this.provider = provider;
     this.primed = false;
+
+    const sane = this.sane(seed ?? null);
+    if (sane) {
+      this.snapTo(sane, sane.y + (sane.eyeHeight ?? DEFAULT_VIEWHEIGHT));
+      this.primed = true;
+    }
   }
 
   stop(): void {

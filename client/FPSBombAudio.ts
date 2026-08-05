@@ -56,12 +56,16 @@ const ANNOUNCE = {
  * Warsow authors these too, and their absence was the loudest thing about a
  * round: the freeze arrived in silence and the round went live in silence, so
  * the only way to know either had happened was to be watching the HUD at that
- * moment. `get_ready_to_fight` and `fight` are the generic countdown reads that
- * every Warsow gametype uses; the bomb set adds a per-side line naming the job
- * you have this round, which is the part a round mode actually needs.
+ * moment.
+ *
+ * The freeze gets ONE line, and it is the per-side one — "plant the bomb" or
+ * "defend the objectives", the line that says what your job is this round. The
+ * generic `get_ready_to_fight` used to play alongside it and the two landed on
+ * top of each other: same instant, same voice, one of them carrying no
+ * information. A round mode already tells you a round is starting, so the
+ * generic read is the one with nothing to add.
  */
 const ROUND = {
-  freeze: "sounds/announcer/countdown/get_ready_to_fight01.ogg",
   go: "sounds/announcer/countdown/fight01.ogg",
   start: {
     offense: "sounds/announcer/bomb/offense/start.ogg",
@@ -106,7 +110,6 @@ export const FPS_BOMB_SOUND_PATHS = [
   ANNOUNCE.armed.defense,
   ANNOUNCE.defused.offense,
   ANNOUNCE.defused.defense,
-  ROUND.freeze,
   ROUND.go,
   ROUND.start.offense,
   ROUND.start.defense,
@@ -250,7 +253,6 @@ export class FPSBombAudio {
 
     const audio = AudioManager.getInstance();
     if (phase === MatchPhase.Countdown) {
-      audio.playSfx2D(ROUND.freeze, 1.0, 3);
       audio.playSfx2D(attacking ? ROUND.start.offense : ROUND.start.defense, 1.0, 3);
     } else if (phase === MatchPhase.Active) {
       audio.playSfx2D(ROUND.go, 1.0, 3);

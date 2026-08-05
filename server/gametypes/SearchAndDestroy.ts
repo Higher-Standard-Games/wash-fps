@@ -689,6 +689,7 @@ export class SearchAndDestroy extends BaseGametype {
       const speed = velocity ? Math.hypot(velocity.x, velocity.y, velocity.z) : 0;
 
       this.playerByEntity.set(entity.id as number, entity.ownerId as PlayerId);
+      const isCarrier = this.bomb.carrierId === (entity.id as number);
       views.push({
         entityId: entity.id as number,
         team: context.teamOf(entity.ownerId as PlayerId),
@@ -698,8 +699,10 @@ export class SearchAndDestroy extends BaseGametype {
         // Only the carrier's value is ever read, and only while they are slow
         // enough to plant — so the trace is skipped for everyone else rather
         // than run once per player per tick.
-        onPlantableGround:
-          this.bomb.carrierId === (entity.id as number) && speed <= 400 ? this.isPlantableGround(position) : false,
+        onPlantableGround: isCarrier && speed <= 400 ? this.isPlantableGround(position) : false,
+        // Likewise traced only for the carrier: nobody else can put the bomb
+        // down, so nobody else's floor is ever asked for.
+        groundPosition: isCarrier ? this.dropToFloor(position) : position,
       });
     }
 
