@@ -107,7 +107,7 @@ export interface PlayerStateUpdate {
  * How long the death camera keeps your own corpse before handing over to a
  * teammate. Long enough for the ragdoll to land and be read as a death.
  */
-const SPECTATE_AFTER_DEATH_MS = 2500;
+const SPECTATE_AFTER_DEATH_MS = 3000;
 
 /**
  * The side chosen in the lobby, if this session came from one.
