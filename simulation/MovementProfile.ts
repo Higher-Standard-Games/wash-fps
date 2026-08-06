@@ -25,7 +25,14 @@ import type {
   MovementProfile as IMovementProfile,
   MovementInput,
 } from "../../../engine/network/systems/movement/MovementProfile";
+import {
+  CROUCH_MINS_Z,
+  CROUCH_VIEWHEIGHT,
+  DEFAULT_VIEWHEIGHT,
+  PLAYER_MINS_Z,
+} from "../../../engine/physics/PlayerPhysicsConstants";
 import type { TriggerVolume } from "../../../shared/bsp/TriggerTable";
+import { sampleLiquid } from "../liquid/LiquidVolumeSampler";
 import {
   airAccelerateForward,
   applyFriction,
@@ -252,7 +259,46 @@ export class MovementProfile implements IMovementProfile {
   /**
    * Main simulation entry point
    */
+  /**
+   * Simulate one step, then report how deep the player ended up in liquid.
+   *
+   * The sampling is deliberately wrapped around the whole step rather than
+   * placed at one of its exits: `simulateCore` returns from several branches
+   * (wall-jump charging, ledge grab, teleport) and a liquid state attached to
+   * only some of them would be a state that vanishes whenever the player does
+   * something interesting.
+   *
+   * Sampling is a pure function of position and map geometry, so the server and
+   * the predicted client compute the same answer for the same command, and a
+   * reconciliation replay recomputes it rather than inheriting it.
+   *
+   * Phase 1: the sample is reported, and nothing reads it yet. Movement is
+   * unchanged.
+   */
   simulate(
+    position: Vec3,
+    velocity: Vec3,
+    input: MovementInput | null,
+    deltaTime: number,
+    collision: CollisionWorld | null,
+  ): AdvancedMovementResult {
+    const result = this.simulateCore(position, velocity, input, deltaTime, collision);
+
+    // Crouch is resolved by the step, so the hull and eye height used here are
+    // the ones the player actually ends the step with.
+    const crouched = this.slide.isCrouching || this.slide.isSliding;
+    const liquid = sampleLiquid(collision, result.position, {
+      minsY: crouched ? CROUCH_MINS_Z : PLAYER_MINS_Z,
+      viewHeight: crouched ? CROUCH_VIEWHEIGHT : DEFAULT_VIEWHEIGHT,
+    });
+
+    result.waterLevel = liquid.level;
+    result.liquidContents = liquid.rawContents;
+    result.liquidKind = liquid.kind;
+    return result;
+  }
+
+  private simulateCore(
     position: Vec3,
     velocity: Vec3,
     input: MovementInput | null,

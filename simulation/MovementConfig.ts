@@ -109,4 +109,22 @@ export interface AdvancedMovementResult extends MovementResult {
   teleportFrom?: { x: number; y: number; z: number };
   /** TriggerVolume id that fired this step (jumppad or teleporter). */
   triggerId?: number;
+
+  /**
+   * How deep the player is in liquid at the END of this step: 0 dry, 1 wading,
+   * 2 swimming, 3 submerged.
+   *
+   * Simulation state, not presentation. It is a pure function of the resulting
+   * position and the map, so a reconciliation replay recomputes it rather than
+   * carrying a stale value forward.
+   */
+  waterLevel?: 0 | 1 | 2 | 3;
+  /**
+   * Raw liquid contents at the foot probe — Q3's `watertype`. Kept alongside
+   * `liquidKind` because a brush can be several liquids at once and the kind
+   * discards the bits a later rule may need.
+   */
+  liquidContents?: number;
+  /** Dominant liquid at the feet, or null when dry. */
+  liquidKind?: "water" | "slime" | "lava" | null;
 }

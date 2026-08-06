@@ -81,6 +81,8 @@ function applyResult(
   physics.wallJumpState = result.wallJumpState ?? "none";
   physics.ledgeGrabState = result.ledgeGrabState ?? "none";
   physics.actualHorizSpeed = result.actualHorizSpeed ?? 0;
+  physics.waterLevel = result.waterLevel ?? 0;
+  physics.liquidContents = result.liquidContents ?? 0;
 
   // Sync player rotation so remote clients can orient the model
   if (input && transform.rotation) {
