@@ -437,12 +437,20 @@ export class WeaponSystem extends Subsystem {
     if (!state) return { added: false };
     weaponId = canonicalWeaponId(weaponId);
 
-    // Already has this weapon — give ammo instead (Warsow behavior)
+    // Already has this weapon — give ammo instead
     if (state.weapons.includes(weaponId)) {
       const weapon = WEAPONS[weaponId];
       if (weapon) {
         const pickupAmount = weapon.pickupAmmo ?? weapon.maxAmmo;
         this.addAmmo(state, weapon, pickupAmount);
+      }
+      // Holding the blade means you have nothing to shoot with, and walking
+      // over a gun is an unambiguous request for one. Owning it already —
+      // spawned with it, or out of ammo for it — does not make the request any
+      // less clear, so the switch happens on this path too.
+      if (isDefaultWeapon(state.currentWeapon) && !isDefaultWeapon(weaponId)) {
+        state.currentWeapon = weaponId;
+        this.lastWeaponSlot.delete(entityId);
       }
       return { added: false };
     }
@@ -470,9 +478,15 @@ export class WeaponSystem extends Subsystem {
     let droppedWeapon: string;
 
     if (isDefaultWeapon(state.currentWeapon)) {
-      // Holding default weapon — can't swap (default is permanent)
-      // Player must switch to the weapon they want to drop first
-
+      // Holding the blade at capacity. The blade itself can never be dropped,
+      // so there is nothing to swap out and the pickup is declined — but the
+      // walk-over still says "I want a gun", and we are holding the one thing
+      // that is not one. Arm them with what they already carry.
+      const firstReal = state.weapons.find((w) => !isDefaultWeapon(w));
+      if (firstReal) {
+        state.currentWeapon = firstReal;
+        this.lastWeaponSlot.delete(entityId);
+      }
       return { added: false };
     } else {
       // Drop currently held weapon
