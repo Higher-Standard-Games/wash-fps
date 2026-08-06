@@ -2440,6 +2440,21 @@ export class Game {
     this.liquidInteractions?.forget("local");
   }
 
+  /**
+   * Fire a splash on demand, for the `water splash` console command.
+   *
+   * Goes through the same path a real crossing does rather than reaching into
+   * the ring pool, so what you inspect is what players see. The speed is a
+   * plausible dive rather than a maximum: a debug effect tuned by its loudest
+   * possible case teaches the wrong thing about the ordinary one.
+   */
+  public debugSplash(position: { x: number; y: number; z: number }): void {
+    const id = `debug-splash-${performance.now()}`;
+    this.liquidInteractions?.notify(id, 0, "water", position, -400, true);
+    this.liquidInteractions?.notify(id, 2, "water", position, -400, true);
+    this.liquidInteractions?.forget(id);
+  }
+
   private emitLocalLiquidCrossing(): void {
     if (!this.liquidInteractions || !this.v2Client) return;
 
