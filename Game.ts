@@ -50,6 +50,7 @@ import { HUDState } from "./client/HUDState";
 import { MatchPhase, MatchStateManager } from "./client/MatchStateManager";
 import { RemotePlayerRenderer } from "./client/RemotePlayerRenderer";
 import { SpectateEyeCamera } from "./client/SpectateEyeCamera";
+import { UnderwaterView } from "./liquid/client/UnderwaterView";
 import { createBSPCollisionWorld } from "./simulation/collision/BSPCollisionWorld";
 import { type FPSInputCommand, FPSSimulation } from "./simulation/FPSSimulation";
 
@@ -837,6 +838,18 @@ export class Game {
               const collisionWorld = createBSPCollisionWorld();
               if (collisionWorld) {
                 this.setCollisionWorld(collisionWorld);
+
+                // Underwater tint/fog for whatever camera is active. Started
+                // per map load because the scene is rebuilt each time and the
+                // previous view has to be disposed with it, or the next map
+                // inherits fog it never asked for.
+                import("../../engine/camera/CameraSystem").then(({ CameraSystem: cs }) => {
+                  const underwaterScene = cs.getInstance().getCamera()?.getScene();
+                  if (underwaterScene) {
+                    this.startUnderwaterView(underwaterScene);
+                    this.setCollisionWorld(collisionWorld);
+                  }
+                });
               } else {
                 console.warn(`[Game] BSP collision world could not be created - backend not available`);
               }
@@ -2370,5 +2383,33 @@ export class Game {
       this.v2Client.setCollisionWorld(collision);
       console.log("[Game] Collision world set on V2NetworkClient");
     }
+
+    // Underwater presentation asks the same collision world what the CAMERA is
+    // standing in, which is not always what the player is standing in.
+    this.underwaterView?.setCollisionWorld(collision);
+  }
+
+  /** Tint, fog and view warp while the camera itself is under a surface. */
+  private underwaterView: UnderwaterView | null = null;
+
+  /**
+   * Begin driving underwater presentation for this scene.
+   *
+   * Separate from construction because the scene is rebuilt on every map load
+   * and the previous view must be disposed with it — otherwise the next map
+   * inherits a fog state it never asked for.
+   */
+  public startUnderwaterView(scene: import("@babylonjs/core/scene").Scene): void {
+    this.underwaterView?.dispose();
+    this.underwaterView = new UnderwaterView(scene);
+    this.underwaterView.onSubmersion = (amount) => {
+      getWeaponViewManager().submersionAmount = amount;
+    };
+    this.underwaterView.start();
+  }
+
+  /** How submerged the camera is, 0-1. Read by the viewmodel to float the gun. */
+  public get cameraSubmersion(): number {
+    return this.underwaterView?.submersionAmount ?? 0;
   }
 }
