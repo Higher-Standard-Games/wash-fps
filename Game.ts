@@ -1766,6 +1766,12 @@ export class Game {
       this.remoteRenderer.render();
     }
 
+    // Your own splash, from prediction rather than from a snapshot. The remote
+    // path in RemotePlayerRenderer covers everyone else; the local player is
+    // predicted, so taking their level from the wire would land their own
+    // splash a round trip after they felt the water.
+    this.emitLocalLiquidCrossing();
+
     // Render server-driven projectiles with interpolated positions (Q3-style)
     this.renderServerProjectiles();
 
@@ -2222,6 +2228,9 @@ export class Game {
         isNetworkMode: this.isNetworkMode,
         gameHost: this.gameHost,
         v2Client: this.v2Client,
+        forgetLocalLiquid: () => {
+          Game.getInstance().forgetLocalLiquid();
+        },
         get remoteRenderer() {
           return Game.getInstance().remoteRenderer;
         },
@@ -2426,8 +2435,18 @@ export class Game {
    * from a snapshot that describes where they were a moment ago, so their own
    * splash lands on the frame they feel it.
    */
-  public notifyLocalLiquid(level: 0 | 1 | 2 | 3, position: { x: number; y: number; z: number }, vy: number): void {
-    this.liquidInteractions?.notify(this.localPlayerId ?? "local", level, "water", position, vy, true);
+  /** Re-baseline the local body after a respawn or teleport. */
+  public forgetLocalLiquid(): void {
+    this.liquidInteractions?.forget("local");
+  }
+
+  private emitLocalLiquidCrossing(): void {
+    if (!this.liquidInteractions || !this.v2Client) return;
+
+    const state = this.v2Client.getState();
+    const movement = this.v2Client.getMovementState();
+
+    this.liquidInteractions.notify("local", movement.waterLevel, "water", state.position, state.velocity.y, true);
   }
 
   /** How submerged the camera is, 0-1. Read by the viewmodel to float the gun. */

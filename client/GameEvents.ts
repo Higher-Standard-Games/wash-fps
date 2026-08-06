@@ -80,6 +80,9 @@ export interface GameEventContext {
   // V2 Client (prediction/reconciliation)
   v2Client: V2NetworkClient | null;
 
+  /** Re-baseline the local body's water level after a respawn or teleport. */
+  forgetLocalLiquid?: () => void;
+
   // Renderers (may be lazy-initialized)
   remoteRenderer: RemotePlayerRenderer | null;
   droppedWeaponRenderer: DroppedWeaponRenderer | null;
@@ -369,6 +372,11 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
               if (ctx.v2Client) {
                 ctx.v2Client.resetForRespawn();
               }
+              // A respawn moves the body without swimming it anywhere. Dying at
+              // the bottom of a pool and coming back dry is a water level going
+              // 3 to 0 with no surface broken, which would splash at the spawn
+              // point; forgetting makes the next report a baseline instead.
+              ctx.forgetLocalLiquid?.();
               import("../../../engine/weapon/WeaponViewManager").then((m) => {
                 m.getWeaponViewManager().setVisible(true);
               });

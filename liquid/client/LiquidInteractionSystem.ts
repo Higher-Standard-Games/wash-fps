@@ -97,7 +97,14 @@ export class LiquidInteractionSystem {
     if (volume > 0) this.spawnRing(position, kind, volume);
   }
 
-  /** Forget a player who left, so their id cannot resurrect a stale level. */
+  /**
+   * Forget a body, so its next report is a baseline rather than a crossing.
+   *
+   * Needed wherever a body moves without swimming: leaving the match, a
+   * respawn, a teleport. Dying at the bottom of a pool and respawning dry is a
+   * level going 3 to 0 with no surface broken, and without this it would
+   * announce itself with a splash at the spawn point.
+   */
   forget(entityId: string): void {
     this.bodies.delete(entityId);
   }
