@@ -14,9 +14,9 @@
  *    Knowing the time is shared; knowing where the bomb is stays a matter of
  *    the site markers and going to look.
  *
- *  - **The announcer** is 2D and side-aware. Warsow ships separate offense and
- *    defense reads of every event, because "planted" is good news for one team
- *    and bad for the other, and a single line tells one of them nothing.
+ *  - **The announcer** is 2D and side-aware. Every event has a separate offense
+ *    and defense read, because "planted" is good news for one team and bad for
+ *    the other, and a single line tells one of them nothing.
  *
  * Media: `sounds/bomb/*` and `sounds/announcer/bomb/*` from the shipped pk3s.
  */
@@ -28,7 +28,7 @@ import { type BombObjectiveSnapshot, MatchPhase } from "./MatchStateManager";
 
 const BOMB_TIMER = "sounds/bomb/bombtimer.ogg";
 
-/** Announcer lines, per side. Warsow authors both reads of each event. */
+/** Announcer lines, per side. Every event has both reads. */
 const ANNOUNCE = {
   taken: { offense: "sounds/announcer/bomb/offense/taken.ogg", defense: null },
   /** Placed at a site, arm meter filling — the bomb is down but not yet live. */
@@ -52,11 +52,6 @@ const ANNOUNCE = {
 
 /**
  * Round transitions — the freeze, and the go.
- *
- * Warsow authors these too, and their absence was the loudest thing about a
- * round: the freeze arrived in silence and the round went live in silence, so
- * the only way to know either had happened was to be watching the HUD at that
- * moment.
  *
  * The freeze gets ONE line, and it is the per-side one — "plant the bomb" or
  * "defend the objectives", the line that says what your job is this round. The
@@ -101,8 +96,12 @@ const LAST_CALL_LEAD_SECONDS = 5;
 const ARM_SECONDS = DEFAULT_BOMB_RULES.armTicks / DEFAULT_PHYSICS_TICK_RATE;
 const DEFUSE_SECONDS = DEFAULT_BOMB_RULES.defuseTicks / DEFAULT_PHYSICS_TICK_RATE;
 
+/** The detonation. Shares the rocket blast — a heavier one would only clip. */
+export const BOMB_BLAST_SOUND = "sounds/weapons/rocket_strong_explosion.ogg";
+
 export const FPS_BOMB_SOUND_PATHS = [
   BOMB_TIMER,
+  BOMB_BLAST_SOUND,
   ANNOUNCE.taken.offense,
   ANNOUNCE.planted.offense,
   ANNOUNCE.planted.defense,

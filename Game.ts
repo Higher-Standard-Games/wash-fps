@@ -236,26 +236,27 @@ export class Game {
     this.updateRoundEndCamera();
     // First person wins whenever we are watching a living teammate. The chase
     // cam is for the ragdoll and the round-end focus; pointing it at a player
-    // who walks around was what put their own model across the screen.
+    // who walks around puts their own model across the screen.
     if (this._eyeCamera.update(dt, camera)) return true;
+    if (this._deathCamera.update(dt, camera)) return true;
 
-    // Spectating, but the eye camera had nothing to show this frame. Claim the
-    // frame anyway and keep the view level.
+    // Nothing has a picture for this frame. In a round mode that must still
+    // count as a claim.
     //
-    // Returning false here is not "no opinion" — it is a decision, and the FPS
-    // controller reads it as permission to apply the forty-degree death tilt.
-    // There is no frame during a spectate where that is the right picture, so
-    // the answer cannot depend on whether a snapshot happened to arrive.
-    if (this._spectatingEntityId) {
+    // Returning false is not "no opinion" — the FPS controller reads it as
+    // permission to apply its forty-degree death tilt, an effect meant to last
+    // the couple of seconds before a deathmatch respawn. A round mode has no
+    // respawn: you are dead until the round turns over, which can be ninety
+    // seconds of watching the map at forty degrees. Every gap qualifies — a
+    // death with no ragdoll to follow, a spectate between snapshots, and a
+    // round that ends on the clock rather than on the bomb, where there is no
+    // focus point for the intermission camera to move to at all.
+    if (this._isPlayerDead && MatchStateManager.getInstance().round > 0) {
       camera.rotation.z = 0;
-      if (!this._warnedEyeCameraGap) {
-        this._warnedEyeCameraGap = true;
-        console.warn(`[Game] spectate camera had no sample for ${this._spectatingEntityId}; holding the view level`);
-      }
       return true;
     }
 
-    return this._deathCamera.update(dt, camera);
+    return false;
   }
 
   /**
@@ -521,7 +522,6 @@ export class Game {
   /** Fire/alt-fire held last tick, so cycling steps once per press. */
   private _specCycleHeld = false;
   /** Warn once per session if the spectate camera ever runs dry. */
-  private _warnedEyeCameraGap = false;
 
   /**
    * Whose eyes the view is currently behind, or null when it is our own.
@@ -1573,10 +1573,10 @@ export class Game {
     // Respawn is triggered via a dedicated RequestSpawn reliable message.
     if (this._isPlayerDead) {
       if (this._spectatingEntityId) {
-        // Warsow's binding: while chasing someone, +attack steps to the next
-        // player instead of asking to respawn. In a round mode there is nothing
-        // to respawn into until the freeze, so the button is free — and it is
-        // the one every player already reaches for.
+        // While chasing someone, +attack steps to the next player instead of
+        // asking to respawn. In a round mode there is nothing to respawn into
+        // until the freeze, so the button is free — and it is the one every
+        // player already reaches for.
         //
         // Edge-triggered against the previous tick: input runs at 125Hz, so a
         // held button would otherwise strobe through the whole team.

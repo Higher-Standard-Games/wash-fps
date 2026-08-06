@@ -17,16 +17,16 @@ import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { DynamicTexture } from "@babylonjs/core/Materials/Textures/dynamicTexture";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
-import { CreateCylinder } from "@babylonjs/core/Meshes/Builders/cylinderBuilder";
 import { CreatePlane } from "@babylonjs/core/Meshes/Builders/planeBuilder";
 import { CreateTorus } from "@babylonjs/core/Meshes/Builders/torusBuilder";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Scene } from "@babylonjs/core/scene";
 import { AudioManager } from "../../../engine/AudioManager";
 import { getExplosionEffect, ROCKET_EXPLOSION } from "../../../engine/weapon/ExplosionEffect";
+import { BOMB_BLAST_SOUND } from "./FPSBombAudio";
 import { type BombExplosionEvent, MatchStateManager } from "./MatchStateManager";
 
-/** Height above the site origin, matching Warsow's own indicator model. */
+/** Height above the site origin — clear of head height, under most ceilings. */
 const MARKER_HEIGHT = 128;
 const MARKER_SIZE = 44;
 /** Idle motion, so a marker reads as an objective rather than as scenery. */
@@ -43,10 +43,6 @@ const SPIN_RATE = 0.9;
 /** Tilt on the ring, so it never presents perfectly edge-on or flat. */
 const RING_TILT = 0.42;
 const RING_THICKNESS = 2.4;
-
-/** The stem down toward the floor, anchoring the beacon to a place. */
-const STEM_DIAMETER = 3.2;
-const STEM_ALPHA = 0.22;
 
 /** Texture resolution for the framed letter. */
 const GLYPH_TEXTURE_SIZE = 256;
@@ -69,8 +65,9 @@ const GLYPH_BACKING_CSS = "rgba(24, 14, 2, 0.55)";
 const BLAST_SCALE = 2.2;
 /** How far the detonation is felt. Map-scale, not weapon-scale. */
 const BLAST_SHAKE_RANGE = 2600;
-/** Warsow uses the rocket's explosion for the bomb; there is no dedicated one. */
-const BLAST_SOUND = "sounds/weapons/rocket_strong_explosion.ogg";
+/** Predecoded with the rest of the bomb bank, so the first detonation is not
+ * the one left waiting on a PK3 fetch. */
+const BLAST_SOUND = BOMB_BLAST_SOUND;
 /** Seconds between blast sounds, so a long chain reads as blasts not mud. */
 const BLAST_SOUND_MIN_GAP = 0.09;
 
@@ -127,7 +124,7 @@ export class BombSiteMarkers {
       }
       marker.root.position.y = marker.baseY + Math.sin(this.elapsed * BOB_RATE + site.id) * BOB_AMPLITUDE;
       // The ring turns, not the root — the root carries the billboard, which
-      // ignores rotation, and the stem, which should hang straight.
+      // ignores rotation.
       marker.ring.rotation.y = this.elapsed * SPIN_RATE;
     }
 
@@ -142,10 +139,7 @@ export class BombSiteMarkers {
    *  - a **framed glyph** — the letter as a badge rather than a loose character,
    *    legible against a bright wall as well as a dark one;
    *  - a **hollow ring** around it, tilted and turning, which is what makes the
-   *    marker read as live rather than as scenery;
-   *  - a **stem** dropping to the site origin. A billboard alone gives the
-   *    direction of a site but not how far down it sits, and on a map with
-   *    catwalks over the floor that is most of the question.
+   *    marker read as live rather than as scenery.
    */
   private createMarker(label: string, position: Vector3): Marker {
     const root = new TransformNode(`bombsite_${label}`, this.scene);
@@ -158,7 +152,7 @@ export class BombSiteMarkers {
     plate.renderingGroupId = 2;
     plate.isPickable = false;
 
-    // Its own node so it can spin without the billboard or the stem joining in.
+    // Its own node so it can spin without the billboard joining in.
     const ring = new TransformNode(`bombsite_ringnode_${label}`, this.scene);
     ring.parent = root;
 
@@ -176,23 +170,10 @@ export class BombSiteMarkers {
     ringMesh.renderingGroupId = 2;
     ringMesh.isPickable = false;
 
-    // Length is exactly the height the marker is raised by, so the stem ends on
-    // the site origin whatever height the map puts it at.
-    const stem = CreateCylinder(
-      `bombsite_stem_${label}`,
-      { diameter: STEM_DIAMETER, height: MARKER_HEIGHT, tessellation: 8 },
-      this.scene,
-    );
-    stem.material = this.beaconMaterial(`bombsite_stem_mat_${label}`, STEM_ALPHA);
-    stem.parent = root;
-    stem.position.y = -MARKER_HEIGHT / 2;
-    stem.renderingGroupId = 2;
-    stem.isPickable = false;
-
     return { root, baseY: position.y, ring };
   }
 
-  /** Emissive, unlit, drawn through walls — shared by the ring and the stem. */
+  /** Emissive, unlit, drawn through walls. */
   private beaconMaterial(name: string, alpha: number): StandardMaterial {
     const material = new StandardMaterial(name, this.scene);
     material.emissiveColor = MARKER_GOLD;
@@ -299,20 +280,22 @@ export class BombSiteMarkers {
     this.pending = this.pending.filter((blast) => blast.at > this.elapsed);
 
     for (const blast of due) {
-      // The bang. `ExplosionEffect` is pure VFX — it has no audio at all, and
-      // the rocket's sound comes from the projectile impact path, which a
-      // scripted detonation never goes through. So the whole thing played
-      // silently: the one moment in the mode that should be unmissable.
+      // The bang. `ExplosionEffect` is pure VFX with no audio of its own, and
+      // the rocket's sound rides the projectile impact path, which a scripted
+      // detonation never travels.
       //
-      // Warsow uses the rocket explosion here and so do we. Positional, because
-      // a site going up somewhere across the map should sound like it did.
+      // 2D, for the same reason the fuse beep is: this is the moment the round
+      // ends, and everyone on the server hears it wherever they are standing.
+      // Attenuating it would mute it for exactly the players it decides —
+      // defenders who rotated away, and anyone dead and watching from across
+      // the map — and a round that ends in silence reads as a dropped frame.
       //
       // Throttled: a chain fires up to thirty points and several can land on the
       // same frame, which stacks into mud and drowns everything else. Spacing
       // them keeps it a sequence of blasts rather than one wall of noise.
       if (this.elapsed - this.lastBlastSound >= BLAST_SOUND_MIN_GAP) {
         this.lastBlastSound = this.elapsed;
-        AudioManager.getInstance().playSfx3D(BLAST_SOUND, blast.position);
+        AudioManager.getInstance().playSfx2D(BLAST_SOUND, 1.0, 4);
       }
 
       getExplosionEffect().spawn(blast.position, {
