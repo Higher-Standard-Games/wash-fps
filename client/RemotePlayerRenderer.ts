@@ -771,6 +771,11 @@ export class RemotePlayerRenderer {
     return { position: node.getAbsolutePosition(), yaw: hitbox.smoothedYaw };
   }
 
+  /** Facing of a rendered player, for callers that only need a direction. */
+  getSmoothedYaw(entityId: string): number | null {
+    return this.hitboxes.get(entityId)?.smoothedYaw ?? null;
+  }
+
   getBoneTransform(entityId: string, boneName: string): TransformNode | null {
     const model = this.hitboxes.get(entityId)?.model;
     if (!model?.skeleton) return null;

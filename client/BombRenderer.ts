@@ -36,6 +36,8 @@ const BUNDLE_RADIUS = 3.4;
 /** Where on the carrier's back it rides, relative to the spine bone, in WORLD units. */
 const BACK_OFFSET = new Vector3(0, -6, 10);
 const CARRY_SCALE = 0.75;
+/** Shoulder height above the carrier's origin, when there is no bone to use. */
+const CARRY_FALLBACK_HEIGHT = 28;
 
 /** Lift off the floor when dropped, so it does not z-fight with the ground. */
 const GROUND_LIFT = 6;
@@ -220,10 +222,11 @@ export class BombRenderer {
    * to get wrong.
    */
   private carry(carrier: string): void {
-    const anchor = this.getPlayers()?.getBoneAnchor(carrier, "Spine1");
+    const players = this.getPlayers();
+    const anchor = players?.getBoneAnchor(carrier, "Spine1") ?? this.carrierFallback(players, carrier);
     if (!anchor) {
-      // No model yet (just joined, or out of PVS). Stay hidden rather than
-      // stranding the bomb at the origin — it will pick up next frame.
+      // Nobody to hang it on: the carrier is outside PVS, so they are not on
+      // screen either and there is nothing for the bomb to be attached to.
       this.root.setEnabled(false);
       return;
     }
@@ -237,6 +240,31 @@ export class BombRenderer {
     );
     this.root.rotation.set(Math.PI / 2, anchor.yaw, 0);
     this.root.scaling.setAll(CARRY_SCALE);
+  }
+
+  /**
+   * Where to hang the bomb when the spine bone cannot be resolved.
+   *
+   * A bone needs a loaded, skinned model, and that arrives some time after the
+   * player does — every carrier therefore has a window where the bone lookup
+   * misses. Hiding the bomb through that window is the worst answer available:
+   * who is carrying it is the single most important thing on the screen for
+   * both teams, and an intermittently invisible bomb is indistinguishable from
+   * no bomb at all.
+   *
+   * The hitbox is enough. It is where the player is drawn, and shoulder height
+   * off their origin is close enough to a back that nobody reads it as wrong.
+   */
+  private carrierFallback(
+    players: RemotePlayerRenderer | null | undefined,
+    carrier: string,
+  ): { position: Vector3; yaw: number } | null {
+    const drawn = players?.getRenderedPlayers().get(carrier);
+    if (!drawn || drawn.dead) return null;
+    return {
+      position: new Vector3(drawn.position.x, drawn.position.y + CARRY_FALLBACK_HEIGHT, drawn.position.z),
+      yaw: players?.getSmoothedYaw(carrier) ?? 0,
+    };
   }
 
   /** Sit in the world at the position the server reports. */
