@@ -2397,6 +2397,9 @@ export class Game {
     // Underwater presentation asks the same collision world what the CAMERA is
     // standing in, which is not always what the player is standing in.
     this.underwaterView?.setCollisionWorld(collision);
+    // The interaction system asks the same world where the waterline is, and
+    // how far a ring may spread before it runs out of pool.
+    this.liquidInteractions?.setCollisionWorld(collision);
   }
 
   /** Tint, fog and view warp while the camera itself is under a surface. */

@@ -137,6 +137,58 @@ describe("transition detection", () => {
   });
 });
 
+describe("rings belong to the surface, not to the swimmer", () => {
+  /** A pool filling y <= 56 inside a 200-unit square, dry everywhere else. */
+  const pool = {
+    pointContents: (p: { x: number; y: number; z: number }) =>
+      p.y <= 56 && Math.abs(p.x) <= 200 && Math.abs(p.z) <= 200 ? 2 /* Contents.WATER */ : 0,
+  };
+
+  it("draws at the waterline, not at the body", () => {
+    // Climbing out puts the body on the bank, several units above the water.
+    // A ring drawn there floats over dry land, which is what it did.
+    system.setCollisionWorld(pool);
+    system.notify("p1", 2, "water", at(0, 40, 0), DIVING, true);
+    system.notify("p1", 0, "water", at(0, 80, 0), DIVING, true);
+
+    expect(system.activeRings).toBe(1);
+    expect(system.lastRingY).not.toBeNull();
+    // Within a probe step of the real surface, never up at the body.
+    expect(system.lastRingY ?? 0).toBeLessThan(60);
+    expect(system.lastRingY ?? 0).toBeGreaterThan(50);
+  });
+
+  it("draws nothing when there is no surface anywhere near", () => {
+    // A crossing reported for a body nowhere near liquid — a teleport, or a
+    // respawn that slipped past forget(). Better no ring than one at an
+    // invented height.
+    system.setCollisionWorld(pool);
+    system.notify("p1", 2, "water", at(5000, 5000, 5000), DIVING, true);
+    system.notify("p1", 0, "water", at(5000, 5000, 5000), DIVING, true);
+
+    expect(system.activeRings).toBe(0);
+  });
+
+  it("stops the ring at the edge of the pool", () => {
+    // Splash near a bank: the ring may not spread out over the dry floor.
+    system.setCollisionWorld(pool);
+    system.notify("p1", 0, "water", at(190, 50, 0), DIVING, true);
+    system.notify("p1", 2, "water", at(190, 50, 0), DIVING, true);
+
+    expect(system.activeRings).toBe(1);
+    // 10 units from the edge, so the ring cannot reach its full 62.
+    expect(system.lastRingMaxRadius).toBeLessThan(62);
+  });
+
+  it("uses the full radius in open water", () => {
+    system.setCollisionWorld(pool);
+    system.notify("p1", 0, "water", at(0, 50, 0), DIVING, true);
+    system.notify("p1", 2, "water", at(0, 50, 0), DIVING, true);
+
+    expect(system.lastRingMaxRadius).toBe(62);
+  });
+});
+
 describe("ring pooling", () => {
   it("never allocates beyond the pool", () => {
     for (let i = 0; i < RING_POOL_SIZE * 3; i++) {
