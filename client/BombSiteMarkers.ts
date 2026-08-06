@@ -19,6 +19,7 @@ import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { CreateCylinder } from "@babylonjs/core/Meshes/Builders/cylinderBuilder";
 import { CreatePlane } from "@babylonjs/core/Meshes/Builders/planeBuilder";
+import { CreateTorus } from "@babylonjs/core/Meshes/Builders/torusBuilder";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Scene } from "@babylonjs/core/scene";
 import { AudioManager } from "../../../engine/AudioManager";
@@ -31,7 +32,38 @@ const MARKER_SIZE = 44;
 /** Idle motion, so a marker reads as an objective rather than as scenery. */
 const BOB_AMPLITUDE = 6;
 const BOB_RATE = 1.1;
-const SPIN_RATE = 0.6;
+/**
+ * Ring revolutions per second. Slow enough to read as idle, not as an alarm.
+ *
+ * Only a tilted, hollow ring shows rotation at all: a billboard ignores it and
+ * a rotationally symmetric shape has nothing to show.
+ */
+const SPIN_RATE = 0.9;
+
+/** Tilt on the ring, so it never presents perfectly edge-on or flat. */
+const RING_TILT = 0.42;
+const RING_THICKNESS = 2.4;
+
+/** The stem down toward the floor, anchoring the beacon to a place. */
+const STEM_DIAMETER = 3.2;
+const STEM_ALPHA = 0.22;
+
+/** Texture resolution for the framed letter. */
+const GLYPH_TEXTURE_SIZE = 256;
+
+/**
+ * Amber, and deliberately NOT a team colour.
+ *
+ * A site belongs to the round, not to a side: attackers are going to it and
+ * defenders are holding it, and colouring it for either would tell half the
+ * server the wrong thing. Amber also sits clear of the pink/cyan the player
+ * models use, so a beacon is never mistaken at distance for a person.
+ */
+const MARKER_GOLD = new Color3(1, 0.74, 0.24);
+const MARKER_GOLD_CSS = "#ffbd3d";
+const GLYPH_CSS = "#fff4d6";
+/** Backing behind the glyph, so it reads against a bright wall too. */
+const GLYPH_BACKING_CSS = "rgba(24, 14, 2, 0.55)";
 
 /** Site blasts are bigger than a rocket — this is a bomb, and it should read. */
 const BLAST_SCALE = 2.2;
@@ -45,6 +77,8 @@ const BLAST_SOUND_MIN_GAP = 0.09;
 interface Marker {
   root: TransformNode;
   baseY: number;
+  /** The tilted ring — the only part whose rotation is actually visible. */
+  ring: TransformNode;
 }
 
 /** Stable per-round identity for a repeated explosion snapshot. */
@@ -92,7 +126,9 @@ export class BombSiteMarkers {
         this.markers.set(site.id, marker);
       }
       marker.root.position.y = marker.baseY + Math.sin(this.elapsed * BOB_RATE + site.id) * BOB_AMPLITUDE;
-      marker.root.rotation.y = this.elapsed * SPIN_RATE;
+      // The ring turns, not the root — the root carries the billboard, which
+      // ignores rotation, and the stem, which should hang straight.
+      marker.ring.rotation.y = this.elapsed * SPIN_RATE;
     }
 
     // A mode without sites should show none — switching maps or gametypes must
@@ -100,52 +136,122 @@ export class BombSiteMarkers {
     if (sites.length === 0 && this.markers.size > 0) this.clearMarkers();
   }
 
+  /**
+   * A beacon, in three parts:
+   *
+   *  - a **framed glyph** — the letter as a badge rather than a loose character,
+   *    legible against a bright wall as well as a dark one;
+   *  - a **hollow ring** around it, tilted and turning, which is what makes the
+   *    marker read as live rather than as scenery;
+   *  - a **stem** dropping to the site origin. A billboard alone gives the
+   *    direction of a site but not how far down it sits, and on a map with
+   *    catwalks over the floor that is most of the question.
+   */
   private createMarker(label: string, position: Vector3): Marker {
     const root = new TransformNode(`bombsite_${label}`, this.scene);
     root.position.copyFrom(position);
 
-    // The letter, on a billboarded plane so it is legible from any angle.
-    const texture = new DynamicTexture(`bombsite_tex_${label}`, { width: 128, height: 128 }, this.scene, true);
-    texture.hasAlpha = true;
-    // drawText centres and measures for us; Babylon's ICanvasRenderingContext
-    // does not expose textAlign/textBaseline, so hand-positioning would mean
-    // measuring the glyph ourselves for no gain.
-    texture.drawText(label, null, 96, "bold 104px sans-serif", "#fff2c4", "transparent", true);
-
-    const material = new StandardMaterial(`bombsite_mat_${label}`, this.scene);
-    material.diffuseTexture = texture;
-    material.opacityTexture = texture;
-    material.emissiveColor = new Color3(1, 0.82, 0.35);
-    material.disableLighting = true;
-    // Through walls. Both teams know where the sites are; hiding the marker
-    // behind geometry would only cost players their bearings.
-    material.disableDepthWrite = true;
-    material.zOffset = -100;
-
     const plate = CreatePlane(`bombsite_plate_${label}`, { size: MARKER_SIZE }, this.scene);
-    plate.material = material;
+    plate.material = this.glyphMaterial(label);
     plate.parent = root;
     plate.billboardMode = 7; // BILLBOARDMODE_ALL
     plate.renderingGroupId = 2;
     plate.isPickable = false;
 
-    // A ring under the letter, to place the beacon in space — a billboard
-    // alone gives no sense of where it actually is.
-    const ringMat = new StandardMaterial(`bombsite_ring_${label}`, this.scene);
-    ringMat.emissiveColor = new Color3(0.9, 0.6, 0.15);
-    ringMat.disableLighting = true;
-    ringMat.alpha = 0.55;
-    ringMat.disableDepthWrite = true;
-    ringMat.zOffset = -100;
-
-    const ring = CreateCylinder(`bombsite_ringmesh_${label}`, { diameter: MARKER_SIZE, height: 1.5 }, this.scene);
-    ring.material = ringMat;
+    // Its own node so it can spin without the billboard or the stem joining in.
+    const ring = new TransformNode(`bombsite_ringnode_${label}`, this.scene);
     ring.parent = root;
-    ring.position.y = -MARKER_SIZE * 0.65;
-    ring.renderingGroupId = 2;
-    ring.isPickable = false;
 
-    return { root, baseY: position.y };
+    const glow = this.beaconMaterial(`bombsite_ring_${label}`, 0.75);
+    const ringMesh = CreateTorus(
+      `bombsite_ringmesh_${label}`,
+      { diameter: MARKER_SIZE * 1.18, thickness: RING_THICKNESS, tessellation: 28 },
+      this.scene,
+    );
+    ringMesh.material = glow;
+    ringMesh.parent = ring;
+    // Tilted so it is never a flat line from eye level nor a flat disc from
+    // above — either extreme is where a ring stops looking like a ring.
+    ringMesh.rotation.x = RING_TILT;
+    ringMesh.renderingGroupId = 2;
+    ringMesh.isPickable = false;
+
+    // Length is exactly the height the marker is raised by, so the stem ends on
+    // the site origin whatever height the map puts it at.
+    const stem = CreateCylinder(
+      `bombsite_stem_${label}`,
+      { diameter: STEM_DIAMETER, height: MARKER_HEIGHT, tessellation: 8 },
+      this.scene,
+    );
+    stem.material = this.beaconMaterial(`bombsite_stem_mat_${label}`, STEM_ALPHA);
+    stem.parent = root;
+    stem.position.y = -MARKER_HEIGHT / 2;
+    stem.renderingGroupId = 2;
+    stem.isPickable = false;
+
+    return { root, baseY: position.y, ring };
+  }
+
+  /** Emissive, unlit, drawn through walls — shared by the ring and the stem. */
+  private beaconMaterial(name: string, alpha: number): StandardMaterial {
+    const material = new StandardMaterial(name, this.scene);
+    material.emissiveColor = MARKER_GOLD;
+    material.diffuseColor = Color3.Black();
+    material.specularColor = Color3.Black();
+    material.disableLighting = true;
+    material.alpha = alpha;
+    // Through walls. Both teams know where the sites are; hiding the marker
+    // behind geometry would only cost players their bearings.
+    material.disableDepthWrite = true;
+    material.zOffset = -100;
+    return material;
+  }
+
+  /** The letter, framed in a hexagon, as one texture. */
+  private glyphMaterial(label: string): StandardMaterial {
+    const size = GLYPH_TEXTURE_SIZE;
+    const texture = new DynamicTexture(`bombsite_tex_${label}`, { width: size, height: size }, this.scene, true);
+    texture.hasAlpha = true;
+
+    const ctx = texture.getContext();
+    const centre = size / 2;
+    const radius = size * 0.43;
+
+    ctx.clearRect(0, 0, size, size);
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      // Pointy-top, so the shape is symmetric about the vertical axis and
+      // survives drawText's Y inversion below without looking flipped.
+      const angle = (Math.PI / 3) * i - Math.PI / 2;
+      const x = centre + Math.cos(angle) * radius;
+      const y = centre + Math.sin(angle) * radius;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = GLYPH_BACKING_CSS;
+    ctx.fill();
+    ctx.lineWidth = size * 0.035;
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = MARKER_GOLD_CSS;
+    ctx.stroke();
+
+    // drawText centres and measures for us; Babylon's ICanvasRenderingContext
+    // does not expose textAlign/textBaseline, so hand-positioning would mean
+    // measuring the glyph ourselves for no gain. A null clear colour keeps the
+    // frame that was just drawn underneath it.
+    texture.drawText(label, null, size * 0.68, `bold ${Math.round(size * 0.5)}px sans-serif`, GLYPH_CSS, null, true);
+
+    const material = new StandardMaterial(`bombsite_mat_${label}`, this.scene);
+    material.diffuseTexture = texture;
+    material.opacityTexture = texture;
+    material.emissiveColor = Color3.White();
+    material.diffuseColor = Color3.Black();
+    material.specularColor = Color3.Black();
+    material.disableLighting = true;
+    material.disableDepthWrite = true;
+    material.zOffset = -100;
+    return material;
   }
 
   private clearMarkers(): void {
