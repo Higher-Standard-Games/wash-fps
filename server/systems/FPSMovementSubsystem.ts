@@ -18,6 +18,7 @@ import { EntityType } from "../../../../engine/server/ecs/types";
 import type { TriggerVolume } from "../../../../shared/bsp/TriggerTable";
 import type { QueuedInput } from "../../../../shared/server/simulation/components/InputComponent";
 import type { PhysicsComponent } from "../../../../shared/server/simulation/components/PhysicsComponent";
+import type { WaterLevel } from "../../liquid/LiquidTypes";
 import type { AdvancedMovementResult } from "../../simulation/MovementConfig";
 import { MovementProfile as FPSMovementProfile } from "../../simulation/MovementProfile";
 import { type CombatSystem, DamageType, HitLocation } from "./CombatSystem";
@@ -295,8 +296,26 @@ export class FPSMovementSubsystem extends Subsystem {
     this.fallPeakY.delete(entityId);
   }
 
-  private updateFallDamageTracking(entityId: EntityId, positionY: number, grounded: boolean, buttons: number): void {
+  private updateFallDamageTracking(
+    entityId: EntityId,
+    positionY: number,
+    grounded: boolean,
+    buttons: number,
+    waterLevel: WaterLevel = 0,
+  ): void {
     const eid = entityId as number;
+
+    // Liquid breaks a fall, and it also breaks the accounting. A swimmer is
+    // ungrounded, so without this the tracker keeps measuring from wherever
+    // they left solid ground and bills them for the whole drop the moment they
+    // touch the bottom — a player who dived safely into a pool takes damage
+    // for it several seconds later.
+    if (waterLevel > 0) {
+      this.clearFallTracking(eid);
+      this.lastGroundY.set(eid, positionY);
+      this.fallArmed.add(eid);
+      return;
+    }
 
     if (!grounded) {
       // Not armed = still in the post-spawn drop -> never a damaging fall.
@@ -666,7 +685,13 @@ export class FPSMovementSubsystem extends Subsystem {
         // Server-only side effect: telefrag players occupying the exit (Q3).
         this.telefragAtExit(state, entity.id, transform.position);
       }
-      this.updateFallDamageTracking(entity.id, transform.position.y, physics.grounded, input.buttons);
+      this.updateFallDamageTracking(
+        entity.id,
+        transform.position.y,
+        physics.grounded,
+        input.buttons,
+        physics.waterLevel,
+      );
 
       const mdx = transform.position.x - px;
       const mdy = transform.position.y - py;

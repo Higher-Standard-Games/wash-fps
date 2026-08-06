@@ -32,6 +32,8 @@ import {
   PLAYER_MINS_Z,
 } from "../../../engine/physics/PlayerPhysicsConstants";
 import type { TriggerVolume } from "../../../shared/bsp/TriggerTable";
+import { MASK_SOLID } from "../../../shared/collision/CollisionWorld";
+import { isSwimming, type WaterLevel } from "../liquid/LiquidTypes";
 import { sampleLiquid } from "../liquid/LiquidVolumeSampler";
 import {
   airAccelerateForward,
@@ -43,6 +45,16 @@ import {
 import { LedgeGrab } from "./LedgeGrab";
 import type { AdvancedMovementResult, MovementConfig } from "./MovementConfig";
 import { Slide } from "./Slide";
+import {
+  applyWaterFriction,
+  checkWaterJump,
+  DEFAULT_LIQUID_MOVEMENT,
+  idleSinkVelocity,
+  type LiquidMovementProfile,
+  swimIntent,
+  wadeSpeedScale,
+  waterAccelerate,
+} from "./Swim";
 import { VEC3_ZERO, vec3Clone, vec3Length, vec3LengthXZ } from "./Vec3Helpers";
 import { WallJump } from "./WallJump";
 
@@ -115,6 +127,26 @@ export class MovementProfile implements IMovementProfile {
   private isGrounded: boolean = false;
   private wasGroundedLastFrame: boolean = false;
   private jumpConsumed: boolean = false;
+
+  /**
+   * Water level entering the current step. Re-derived from position and map
+   * geometry every step rather than accumulated, so a reconciliation replay
+   * recomputes it instead of inheriting a level the corrected position does
+   * not support.
+   */
+  private waterLevel: WaterLevel = 0;
+
+  /**
+   * Sim-clock deadline for an assisted climb out of water, or 0.
+   *
+   * Anchored to the sequence-derived clock like the wall-jump and slide
+   * timers, so re-simulating a command lands on the same answer rather than
+   * advancing time again.
+   */
+  private waterJumpUntilMs: number = 0;
+
+  /** Swim tuning. Ours to set; see Swim.ts for why there is only one profile. */
+  private liquid: LiquidMovementProfile = { ...DEFAULT_LIQUID_MOVEMENT };
 
   /**
    * Sim clock (ms). Derived from the input's sequence number when available
@@ -282,20 +314,31 @@ export class MovementProfile implements IMovementProfile {
     deltaTime: number,
     collision: CollisionWorld | null,
   ): AdvancedMovementResult {
+    // Sample BEFORE the step to choose the movement branch, exactly as Q3 sets
+    // water level at the top of its move. Using the post-step sample instead
+    // would decide this step's physics from where the step ended up.
+    this.waterLevel = this.sampleAt(collision, position).level;
+
     const result = this.simulateCore(position, velocity, input, deltaTime, collision);
 
-    // Crouch is resolved by the step, so the hull and eye height used here are
-    // the ones the player actually ends the step with.
-    const crouched = this.slide.isCrouching || this.slide.isSliding;
-    const liquid = sampleLiquid(collision, result.position, {
-      minsY: crouched ? CROUCH_MINS_Z : PLAYER_MINS_Z,
-      viewHeight: crouched ? CROUCH_VIEWHEIGHT : DEFAULT_VIEWHEIGHT,
-    });
+    // Sample again at the resulting position: this is the state the rest of the
+    // game reads, and the input to the next step's branch choice.
+    const liquid = this.sampleAt(collision, result.position);
+    this.waterLevel = liquid.level;
 
     result.waterLevel = liquid.level;
     result.liquidContents = liquid.rawContents;
     result.liquidKind = liquid.kind;
     return result;
+  }
+
+  /** Three-point sample using whichever hull the player currently occupies. */
+  private sampleAt(collision: CollisionWorld | null, origin: Vec3) {
+    const crouched = this.slide.isCrouching || this.slide.isSliding;
+    return sampleLiquid(collision, origin, {
+      minsY: crouched ? CROUCH_MINS_Z : PLAYER_MINS_Z,
+      viewHeight: crouched ? CROUCH_VIEWHEIGHT : DEFAULT_VIEWHEIGHT,
+    });
   }
 
   private simulateCore(
@@ -319,6 +362,17 @@ export class MovementProfile implements IMovementProfile {
 
     const justLanded = !this.wasGroundedLastFrame && this.isGrounded;
 
+    // === DEEP WATER CLEARS THE SPECIAL MOVES ===
+    // Wall jump, ledge grab and crouchslide all describe a body against solid
+    // geometry. Deciding their underwater behaviour by call order would be an
+    // accident; deciding it here is a choice. Whether a submerged dash should
+    // ever be possible is a design question for play, not a compatibility one.
+    if (isSwimming(this.waterLevel)) {
+      if (this.wallJump.state !== "none") this.wallJump.reset();
+      if (this.ledgeGrab.state !== "none") this.ledgeGrab.reset();
+      if (this.slide.isSliding) this.slide.exit(velocity, nowMs, this.config);
+    }
+
     // === WALL JUMP CHARGING STATE ===
     if (this.wallJump.state === "charging") {
       return this.wallJump.handleCharging(
@@ -340,7 +394,7 @@ export class MovementProfile implements IMovementProfile {
     }
 
     // === LEDGE GRAB ===
-    if (this.config.ledgeGrabEnabled && input) {
+    if (this.config.ledgeGrabEnabled && input && !isSwimming(this.waterLevel)) {
       if (this.ledgeGrab.update(newPos, newVel, input, collision, nowMs, this.config, this.isGrounded)) {
         return {
           position: newPos,
@@ -358,8 +412,16 @@ export class MovementProfile implements IMovementProfile {
       }
     }
 
+    const swimming = isSwimming(this.waterLevel);
+    const waterJumping = this.waterJumpUntilMs > nowMs;
+
     // === GRAVITY (asymmetric: stronger when falling) ===
-    if (!this.isGrounded) {
+    // A swimmer is held up by the water, not by the ground, so gravity is off
+    // entirely — the idle sink below is what makes them settle. An assisted
+    // climb is a ballistic arc and keeps gravity so it lands.
+    if (swimming && !waterJumping) {
+      // no gravity while swimming
+    } else if (!this.isGrounded) {
       const gravScale = newVel.y < 0 ? this.config.fallingGravityMultiplier : 1.0;
       newVel.y -= this.config.gravity * gravScale * deltaTime;
     } else if (newVel.y < 0) {
@@ -406,7 +468,10 @@ export class MovementProfile implements IMovementProfile {
       const autohop = true;
       const canJump = !this.jumpConsumed || (autohop && justLanded);
 
-      if (isJumping && this.isGrounded && canJump) {
+      // Jump is ascend while swimming, handled in the swim branch. Standing on
+      // the bottom of a deep pool still counts as grounded, so without this a
+      // submerged player could jump normally.
+      if (isJumping && this.isGrounded && canJump && !swimming) {
         // Check slope angle — don't allow jumping on steep ramps (Warsow behavior)
         // Only allow jumping on surfaces flatter than ~32° (normal.y > 0.85)
         let canJumpOnSlope = true;
@@ -443,13 +508,31 @@ export class MovementProfile implements IMovementProfile {
 
       const normalizedWish = hasInput ? { x: wishDir.x / wishLen, y: 0, z: wishDir.z / wishLen } : VEC3_ZERO;
 
-      if (this.isGrounded) {
+      if (waterJumping) {
+        // === ASSISTED CLIMB OUT OF WATER ===
+        // The launch already set velocity; the player gets no say until they
+        // land or start falling back. Cancelling on a downward velocity stops
+        // a failed climb from freezing control the whole two seconds.
+        if (this.isGrounded || newVel.y < 0) {
+          this.waterJumpUntilMs = 0;
+        }
+      } else if (swimming) {
+        // === SWIMMING ===
+        this.swimMove(newPos, newVel, input, wishDir, deltaTime, collision);
+      } else if (this.isGrounded) {
         // === GROUND MOVEMENT ===
         const friction = this.slide.isSliding ? this.config.slideFriction : this.config.friction;
         applyFriction(newVel, friction, this.config.stopSpeed, deltaTime);
+        // Wading drags as well, on all three axes and scaled by depth. Q3
+        // applies water friction "even if just wading", and it is what makes
+        // shallows feel like shallows rather than like carpet.
+        applyWaterFriction(newVel, this.waterLevel, this.liquid, this.config.stopSpeed, deltaTime);
 
         if (hasInput) {
-          groundAccelerate(newVel, normalizedWish, wishspeed, this.config.groundAcceleration, deltaTime);
+          // Wading also caps speed, interpolating toward the swim cap by depth
+          // so entering a pool slows you continuously rather than at a step.
+          const waded = wishspeed * wadeSpeedScale(this.waterLevel, this.liquid);
+          groundAccelerate(newVel, normalizedWish, waded, this.config.groundAcceleration, deltaTime);
         }
       } else {
         // === AIR MOVEMENT ===
@@ -480,7 +563,9 @@ export class MovementProfile implements IMovementProfile {
       }
 
       // === CROUCHSLIDE ===
-      if (this.config.slideEnabled) {
+      // Crouch is descend input while swimming; letting the slide system see it
+      // would leave a stale sliding flag on a player who never touched a floor.
+      if (this.config.slideEnabled && !swimming) {
         this.slide.update(newVel, input, this.isGrounded, nowMs, deltaTime, this.config);
       }
 
@@ -653,6 +738,65 @@ export class MovementProfile implements IMovementProfile {
       teleportFrom,
       triggerId: firedTriggerId,
     };
+  }
+
+  /**
+   * One step of swimming.
+   *
+   * Order matters and follows Q3: check for a way out first, then drag, then
+   * the player's intention. Doing the climb check after acceleration would let
+   * a frame of swim velocity fight the launch.
+   */
+  private swimMove(
+    newPos: Vec3,
+    newVel: Vec3,
+    input: MovementInput,
+    wishDir: Vec3,
+    deltaTime: number,
+    collision: CollisionWorld | null,
+  ): void {
+    // A ledge in front of a treading player is a way out, and old maps have
+    // plenty of pool lips that cannot be swum over.
+    if (
+      collision &&
+      checkWaterJump(
+        newPos,
+        input.viewAngles,
+        this.waterLevel,
+        (point) => (collision.pointContents(point) & MASK_SOLID) !== 0,
+      )
+    ) {
+      const yaw = input.viewAngles.yaw;
+      newVel.x = Math.sin(yaw) * this.liquid.waterJumpForward;
+      newVel.z = Math.cos(yaw) * this.liquid.waterJumpForward;
+      newVel.y = this.liquid.waterJumpUp;
+      this.waterJumpUntilMs = this.simNowMs + this.liquid.waterJumpDurationMs;
+      this.isGrounded = false;
+      return;
+    }
+
+    applyWaterFriction(newVel, this.waterLevel, this.liquid, this.config.stopSpeed, deltaTime);
+
+    // Space ascends, Ctrl descends — independent of view direction, so
+    // surfacing never requires aiming at the ceiling.
+    const up = input.isPressed(InputButtons.JUMP) ? 1 : 0;
+    const down = input.isPressed(InputButtons.CROUCH) ? 1 : 0;
+    const intent = swimIntent(
+      wishDir,
+      input.viewAngles,
+      up - down,
+      this.config.maxSpeed + this.speedBonus,
+      this.liquid,
+    );
+
+    if (!intent.dir) {
+      // Asking for nothing means sinking, not hovering.
+      const sink = idleSinkVelocity(this.liquid);
+      waterAccelerate(newVel, { x: 0, y: -1, z: 0 }, -sink.y, this.liquid.waterAcceleration, deltaTime);
+      return;
+    }
+
+    waterAccelerate(newVel, intent.dir, intent.speed, this.liquid.waterAcceleration, deltaTime);
   }
 
   /** Get current player bounds based on crouch state */
