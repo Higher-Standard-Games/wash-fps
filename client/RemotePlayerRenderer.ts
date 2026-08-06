@@ -145,6 +145,15 @@ export class RemotePlayerRenderer {
   private demoAnimationTimeScale: number = 1;
   private demoDiscontinuityId: number = -1;
   private demoAnimationTimeline: DemoAnimationTimeline | null = null;
+
+  /**
+   * Splash and ripple emitter, owned by the game and set per map.
+   *
+   * The renderer is where every remote player's water level already arrives
+   * each frame, so it is the cheapest place to notice a crossing — no second
+   * pass over the roster to find out what the first pass already knew.
+   */
+  public liquidInteractions: import("../liquid/client/LiquidInteractionSystem").LiquidInteractionSystem | null = null;
   /** Entities marked dead — value is death timestamp (performance.now) */
   private deadEntities: Map<string, number> = new Map();
 
@@ -1150,6 +1159,18 @@ export class RemotePlayerRenderer {
     const animName = this.deriveAnimation(interp);
     this.modelManager.playAnimation(inst, animName);
     this._animDebug(entityId, animName, interp, inst);
+
+    // Splashes come from the water level already on the wire, so a remote
+    // diving into a pool produces the same interaction as the local player
+    // with no new network state. Replicate causes, derive effects.
+    this.liquidInteractions?.notify(
+      entityId,
+      (interp.waterLevel ?? 0) as 0 | 1 | 2 | 3,
+      "water",
+      { x: interp.x, y: interp.y, z: interp.z },
+      interp.vy,
+      false,
+    );
 
     // Scale animation speed to match movement speed (eliminate foot sliding)
     if (inst.masterGroup) {

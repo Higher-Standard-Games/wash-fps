@@ -50,6 +50,7 @@ import { HUDState } from "./client/HUDState";
 import { MatchPhase, MatchStateManager } from "./client/MatchStateManager";
 import { RemotePlayerRenderer } from "./client/RemotePlayerRenderer";
 import { SpectateEyeCamera } from "./client/SpectateEyeCamera";
+import { LiquidInteractionSystem } from "./liquid/client/LiquidInteractionSystem";
 import { UnderwaterView } from "./liquid/client/UnderwaterView";
 import { createBSPCollisionWorld } from "./simulation/collision/BSPCollisionWorld";
 import { type FPSInputCommand, FPSSimulation } from "./simulation/FPSSimulation";
@@ -2406,6 +2407,27 @@ export class Game {
       getWeaponViewManager().submersionAmount = amount;
     };
     this.underwaterView.start();
+
+    this.liquidInteractions?.dispose();
+    this.liquidInteractions = new LiquidInteractionSystem(scene);
+    // The remote renderer already sees every player's water level each frame,
+    // so it is the cheapest place to notice a crossing.
+    if (this.remoteRenderer) this.remoteRenderer.liquidInteractions = this.liquidInteractions;
+  }
+
+  /** Splashes and ripples where bodies cross a surface. Owned per map. */
+  private liquidInteractions: LiquidInteractionSystem | null = null;
+
+  /**
+   * Report the LOCAL player's water level for splash purposes.
+   *
+   * Separate from the remote path because the local player is predicted: their
+   * level comes from the prediction that already ran this frame rather than
+   * from a snapshot that describes where they were a moment ago, so their own
+   * splash lands on the frame they feel it.
+   */
+  public notifyLocalLiquid(level: 0 | 1 | 2 | 3, position: { x: number; y: number; z: number }, vy: number): void {
+    this.liquidInteractions?.notify(this.localPlayerId ?? "local", level, "water", position, vy, true);
   }
 
   /** How submerged the camera is, 0-1. Read by the viewmodel to float the gun. */

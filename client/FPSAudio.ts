@@ -8,11 +8,12 @@
 
 import { preloadFPSBombAudio } from "./FPSBombAudio";
 import { preloadFPSCombatAudio } from "./FPSCombatAudio";
+import { preloadFPSLiquidAudio } from "./FPSLiquidAudio";
 import { preloadFPSMovementAudio } from "./FPSMovementAudio";
 import { preloadFPSPickupAudio } from "./FPSPickupAudio";
 import { preloadFPSPowerupAudio } from "./FPSPowerupAudio";
 
-/** Predecode every FPS audio bank (combat + movement + pickup) once the PK3 index is ready. */
+/** Predecode every FPS audio bank (combat + movement + pickup + liquid) once the PK3 index is ready. */
 export async function preloadFPSAudio(): Promise<void> {
   await Promise.all([
     preloadFPSCombatAudio(),
@@ -20,5 +21,6 @@ export async function preloadFPSAudio(): Promise<void> {
     preloadFPSPickupAudio(),
     preloadFPSPowerupAudio(),
     preloadFPSBombAudio(),
+    preloadFPSLiquidAudio(),
   ]);
 }
