@@ -115,6 +115,15 @@ const MODEL_Y_OFFSET = 0;
 
 // ─── Animation derivation constants ─────────────────────────────
 const IDLE_SPEED_THRESHOLD = 50;
+
+/**
+ * Below this 3-D speed a swimmer is treading rather than swimming.
+ *
+ * Lower than the walking threshold because a swimmer with no input still
+ * sinks at 60 u/s, and that drift must not read as swimming — otherwise a
+ * motionless player would never show the treading clip.
+ */
+const SWIM_IDLE_SPEED_THRESHOLD = 70;
 const RUN_SPEED_THRESHOLD = 300;
 
 // Mixamo animation natural speeds (Q3 units/s at 1x playback)
@@ -403,6 +412,7 @@ export class RemotePlayerRenderer {
         wallJumping: movementState?.wallJumpState === "charging",
         crouchViewOffset: movementState?.crouchViewOffset ?? 0,
         powerupMask: powerups?.mask ?? 0,
+        waterLevel: movementState?.waterLevel ?? 0,
       });
     }
     return entities;
@@ -1429,6 +1439,15 @@ export class RemotePlayerRenderer {
     // Walljump — player is on a wall, play wallrun animation
     // Check BEFORE grounded/airborne since walljump happens while !grounded
     if (interp.wallJumping) return "walljump";
+
+    // Swimming — must be checked before the airborne rule, because a swimmer
+    // is ungrounded and would otherwise read as mid-jump for as long as they
+    // stayed in the water. Moving lays the body flat; treading keeps it
+    // upright, which is also the split the swim hull follows.
+    if ((interp.waterLevel ?? 0) >= 2) {
+      const swimSpeed = Math.sqrt(interp.vx * interp.vx + interp.vy * interp.vy + interp.vz * interp.vz);
+      return swimSpeed < SWIM_IDLE_SPEED_THRESHOLD ? "swim_idle" : "swim";
+    }
 
     // Airborne — use jump for entire air time (Warsow-style)
     if (!interp.grounded) return "jump";

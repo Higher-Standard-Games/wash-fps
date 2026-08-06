@@ -22,6 +22,7 @@ import type { WeaponDef } from "../../../../shared/entities/WeaponDef";
 import { computeSpreadSeed, generateSpreadDirections } from "../../../../shared/SpreadUtils";
 import { type DamageEvent, DamageType, HitLocation } from "./CombatSystem";
 import type { DroppedWeaponSystem } from "./DroppedWeaponSystem";
+import { caughtInDischarge, dischargeDamageAt, dischargesInWater } from "./ElectricalDischarge";
 import type { ProjectileSystem } from "./ProjectileSystem";
 
 /** Must match InputButtons.FIRE from engine/network/components/InputComponent.ts */
@@ -938,6 +939,14 @@ export class WeaponSystem extends Subsystem {
   }
 
   private fireWeapon(state: WorldState, shooter: Readonly<Entity>, weapon: WeaponDef, tick: TickNumber): void {
+    // An electrical weapon fired underwater puts its charge into the water
+    // instead of down the barrel. The ammo is already spent by the time we get
+    // here, which is correct — discharging is a mistake, not a free action.
+    if (dischargesInWater(weapon.id, shooter.physics?.waterLevel ?? 0)) {
+      this.dischargeIntoWater(state, shooter, weapon);
+      return;
+    }
+
     // Emit fire event for network broadcast
     if (shooter.input) {
       const origin = this.getFireViewOrigin(shooter);
@@ -970,6 +979,65 @@ export class WeaponSystem extends Subsystem {
     } else {
       this.fireProjectile(state, shooter, weapon);
     }
+  }
+
+  /**
+   * The charge goes into the water.
+   *
+   * The shooter dies outright — gibbed, since this is an explosion in a
+   * conductor rather than a bullet — and everyone else sharing the liquid
+   * takes falloff damage. Being in water is what connects a bystander to it:
+   * someone standing dry on the poolside is safe at any distance, which is
+   * what makes the pool itself the hazard rather than the radius.
+   *
+   * Routed through the ordinary damage queue so scoring, obituaries, armor and
+   * knockback all behave exactly as they do for any other kill.
+   */
+  private dischargeIntoWater(state: WorldState, shooter: Readonly<Entity>, weapon: WeaponDef): void {
+    const origin = shooter.transform?.position;
+    if (!origin) return;
+
+    console.log(
+      `[Discharge] ${shooter.id} fired ${weapon.id} at water level ${shooter.physics?.waterLevel ?? 0} — discharging`,
+    );
+
+    // No dedicated wire event yet: the kill and its obituary already reach the
+    // client through the ordinary damage path, so the rule is complete and
+    // scoreable. A burst and a crack of its own are owed presentation.
+    for (const other of state.entitiesByType(EntityType.Player)) {
+      if (other.id === shooter.id || other.health?.dead) continue;
+      const pos = other.transform?.position;
+      if (!pos) continue;
+
+      const dx = pos.x - origin.x;
+      const dy = pos.y - origin.y;
+      const dz = pos.z - origin.z;
+      const distSq = dx * dx + dy * dy + dz * dz;
+      if (!caughtInDischarge(other.physics?.waterLevel ?? 0, distSq)) continue;
+
+      this.pendingDamage.push({
+        victimId: other.id,
+        attackerId: shooter.id,
+        damage: dischargeDamageAt(Math.sqrt(distSq)),
+        armorPiercing: 0,
+        damageType: DamageType.Rail,
+        hitLocation: HitLocation.Body,
+      });
+    }
+
+    // The shooter last, so the bystanders above are credited to a living
+    // attacker rather than to a corpse.
+    this.pendingDamage.push({
+      victimId: shooter.id,
+      attackerId: shooter.id,
+      // Far past any health/armor combination: this is not survivable, and a
+      // number that merely usually kills would be a worse rule than a lethal
+      // one.
+      damage: 1000,
+      armorPiercing: 1,
+      damageType: DamageType.Rail,
+      hitLocation: HitLocation.Body,
+    });
   }
 
   /**

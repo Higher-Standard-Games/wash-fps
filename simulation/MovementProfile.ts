@@ -123,6 +123,24 @@ export class MovementProfile implements IMovementProfile {
     max: { x: 16, y: 8, z: 16 },
   };
 
+  /**
+   * Hull for a swimmer who is moving, and therefore lying flat.
+   *
+   * Short rather than wide, deliberately. The rendered body is 64 units long
+   * along the player's yaw, and no axis-aligned box can be long along an
+   * arbitrary yaw — every consumer of these bounds (step-slide, hitscan,
+   * spawn validation, telefrag, separation) assumes world axes. Widening the
+   * footprint to circumscribe the body at any yaw would make a swimmer 64
+   * units across and wedge them in the tunnels pools are full of, so the hull
+   * keeps its radius and loses its height instead. The player fits under low
+   * gaps and presents a flatter target; shots at the rendered head and feet
+   * fall outside it, which is the accepted cost.
+   */
+  private static readonly PLAYER_BOUNDS_SWIMMING = {
+    min: { x: -16, y: -14, z: -16 },
+    max: { x: 16, y: 14, z: 16 },
+  };
+
   // Persistent state (carried between frames)
   private isGrounded: boolean = false;
   private wasGroundedLastFrame: boolean = false;
@@ -144,6 +162,14 @@ export class MovementProfile implements IMovementProfile {
    * advancing time again.
    */
   private waterJumpUntilMs: number = 0;
+
+  /**
+   * The swimmer is lying flat this step, so the hull is the prone one.
+   *
+   * Paired with the moving swim clip; see updateProneState for why it can be
+   * refused a return to standing.
+   */
+  private proneInWater: boolean = false;
 
   /** Swim tuning. Ours to set; see Swim.ts for why there is only one profile. */
   private liquid: LiquidMovementProfile = { ...DEFAULT_LIQUID_MOVEMENT };
@@ -415,6 +441,12 @@ export class MovementProfile implements IMovementProfile {
     const swimming = isSwimming(this.waterLevel);
     const waterJumping = this.waterJumpUntilMs > nowMs;
 
+    // Leaving the water always stands the player back up. This has to happen
+    // outside the swim branch, because that branch is exactly what stops
+    // running once the player is out — a prone flag cleared only from inside
+    // it would strand a shrunken hull on someone walking around on land.
+    if (!swimming) this.proneInWater = false;
+
     // === GRAVITY (asymmetric: stronger when falling) ===
     // A swimmer is held up by the water, not by the ground, so gravity is off
     // entirely — the idle sink below is what makes them settle. An assisted
@@ -518,6 +550,10 @@ export class MovementProfile implements IMovementProfile {
         }
       } else if (swimming) {
         // === SWIMMING ===
+        // Moving lays the body flat and shrinks the hull with it; treading
+        // stands it back up, but only where there is room. `hasInput` is the
+        // same signal the renderer uses to choose between the two clips.
+        this.updateProneState(newPos, hasInput || isJumping !== isCrouching, collision);
         this.swimMove(newPos, newVel, input, wishDir, deltaTime, collision);
       } else if (this.isGrounded) {
         // === GROUND MOVEMENT ===
@@ -801,8 +837,45 @@ export class MovementProfile implements IMovementProfile {
 
   /** Get current player bounds based on crouch state */
   private getCurrentBounds() {
+    if (this.proneInWater) return MovementProfile.PLAYER_BOUNDS_SWIMMING;
     return this.slide.isCrouching || this.slide.isSliding
       ? MovementProfile.PLAYER_BOUNDS_CROUCHED
       : MovementProfile.PLAYER_BOUNDS;
+  }
+
+  /**
+   * Decide whether the swimmer is lying flat this step.
+   *
+   * The hull follows the animation: the moving clip lays the body down, the
+   * treading clip keeps it upright. Going prone is always allowed — the hull
+   * only shrinks. Standing back up is not, because the hull grows, and growing
+   * inside geometry is how a player ends up embedded in a ceiling. So the same
+   * clearance trace that lets a crouched player stand applies here, and when
+   * there is no room the player stays prone AND stays in the moving clip.
+   * Hull and animation never disagree, which is the only reason to give the
+   * swimmer a different hull at all.
+   */
+  private updateProneState(position: Vec3, moving: boolean, collision: CollisionWorld | null): void {
+    if (!isSwimming(this.waterLevel)) {
+      this.proneInWater = false;
+      return;
+    }
+
+    if (moving) {
+      this.proneInWater = true;
+      return;
+    }
+
+    if (!this.proneInWater) return;
+
+    // Treading again: only rise if the standing hull fits where we are.
+    if (!collision) {
+      this.proneInWater = false;
+      return;
+    }
+
+    const upright = this.slide.isCrouching ? MovementProfile.PLAYER_BOUNDS_CROUCHED : MovementProfile.PLAYER_BOUNDS;
+    const probe = collision.trace(position, position, upright);
+    this.proneInWater = probe.hit;
   }
 }
