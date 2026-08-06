@@ -31,9 +31,9 @@ export interface LiquidLook {
 
 const LOOKS: Record<LiquidKind, LiquidLook> = {
   // Deep blue-green. Dark enough to read as underwater, open enough to fight in.
-  water: { color: [0.05, 0.22, 0.32], density: 0.0022, tintStrength: 0.55 },
+  water: { color: [0.04, 0.2, 0.31], density: 0.0052, tintStrength: 0.8 },
   // Bright toxic green, from a shader rule rather than the map's own art.
-  slime: { color: [0.13, 0.42, 0.06], density: 0.0055, tintStrength: 0.75 },
+  slime: { color: [0.13, 0.42, 0.06], density: 0.009, tintStrength: 0.88 },
   // Hot and close to blind. You are not going to be in here long.
   lava: { color: [0.75, 0.18, 0.02], density: 0.012, tintStrength: 0.9 },
 };
