@@ -16,6 +16,7 @@ import { Subsystem, type SubsystemConfig } from "@engine/server/core/Subsystem";
 import type { WorldState } from "@engine/server/core/WorldState";
 import type { EntityId, TickNumber } from "@engine/server/ecs/types";
 import { EntityType } from "@engine/server/ecs/types";
+import type { ItemRespawnMode } from "@shared/server/gametype";
 // Shared pickup table (client+server agree on ids) + pure grant math.
 import type { PickupEntry, PickupType } from "../../../../shared/bsp/PickupTable";
 import {
@@ -25,12 +26,14 @@ import {
   type HealthKind,
   healthAfterPickup,
 } from "../../../../shared/items/ItemGrants";
+import { POWERUP_DISPLAY, POWERUP_RESPAWN_SECONDS, type PowerupKind } from "../../../../shared/items/Powerups";
+import { createPowerups, grantPowerup } from "../../../../shared/server/simulation/components/PowerupComponent";
 import type { DroppedWeaponSystem } from "./DroppedWeaponSystem";
 import type { WeaponSystem } from "./WeaponSystem";
 
-/** Check if a weapon ID is a permanent default weapon (blade/gunblade) */
+/** Check if a weapon ID is the permanent default weapon (blade) */
 function isDefaultWeapon(w: string): boolean {
-  return w === "blade" || w === "gunblade";
+  return w === "blade";
 }
 
 /** Must match InputButtons.USE from engine/network/components/InputComponent.ts */
@@ -90,10 +93,23 @@ export class PickupSystem extends Subsystem {
   private pendingPickupEvents: PickupEvent[] = [];
   /** Per-player pickup notifications (label) for the HUD toast + demos. */
   private pendingPickupNotifies: Array<{ entityId: number; label: string }> = [];
+  /**
+   * Powerups that became available this tick, with their world position.
+   * Broadcast to EVERY client (not just the grabber) so the map-wide "quad has
+   * spawned" cue plays — knowing when it is up is the whole point of a powerup
+   * that only exists once per map.
+   */
+  private pendingPowerupSpawns: Array<{ kind: string; x: number; y: number; z: number }> = [];
   private weaponSystem: WeaponSystem | null = null;
   private droppedWeaponSystem: DroppedWeaponSystem | null = null;
   /** Weapon respawn time (seconds); overridable via setRespawnTime. Armor/health use defaults. */
   private weaponRespawnSeconds: number = DEFAULT_RESPAWN_SECONDS.weapon;
+  /** When consumed items return. Round modes override this. */
+  private respawnMode: ItemRespawnMode = "timed";
+  /** Items taken during the round now being played. */
+  private consumedThisRound = new Set<number>();
+  /** Items sitting out this round, under `alternating`. */
+  private dormant = new Set<number>();
 
   // Pickup detection parameters (matching client-side Pickup.ts)
 
@@ -129,6 +145,17 @@ export class PickupSystem extends Subsystem {
     this.weaponRespawnSeconds = seconds;
   }
 
+  /**
+   * Choose when consumed items come back. See `ItemRespawnMode`.
+   *
+   * Under `round` and `alternating` the per-item timers stop mattering — the
+   * round boundary is the only thing that restores anything.
+   */
+  setRespawnMode(mode: ItemRespawnMode): void {
+    this.respawnMode = mode;
+    console.log(`[PickupSystem] Item respawn mode: ${mode}`);
+  }
+
   /** Resolve the respawn duration (ticks) for a pickup entry by type/kind. */
   private respawnTicksFor(entry: PickupEntry): number {
     let seconds: number;
@@ -138,6 +165,8 @@ export class PickupSystem extends Subsystem {
       seconds = DEFAULT_RESPAWN_SECONDS.ammo;
     } else if (entry.type === "armor") {
       seconds = DEFAULT_RESPAWN_SECONDS.armor;
+    } else if (entry.type === "powerup") {
+      seconds = POWERUP_RESPAWN_SECONDS[entry.kind as PowerupKind] ?? 120;
     } else {
       // health: mega/ultra respawn slower than small/large
       seconds =
@@ -177,22 +206,53 @@ export class PickupSystem extends Subsystem {
    * tick (not server tick zero, which may be minutes earlier after warmup).
    */
   resetForMatch(tickNum: number): void {
+    if (this.respawnMode === "timed") this.dormant.clear();
     const firstSpawnDelayTicks = Math.floor(FIRST_SPAWN_DELAY_SECONDS * TICK_RATE);
     for (const pickup of this.pickups) {
       const delayed =
-        pickup.type === "armor" || (pickup.type === "health" && (pickup.kind === "mega" || pickup.kind === "ultra"));
-      pickup.active = !delayed;
-      pickup.respawnTick = delayed ? tickNum + firstSpawnDelayTicks : 0;
+        pickup.type === "armor" ||
+        pickup.type === "powerup" ||
+        (pickup.type === "health" && (pickup.kind === "mega" || pickup.kind === "ultra"));
+      const sittingOut = this.dormant.has(pickup.id);
+      pickup.active = !delayed && !sittingOut;
+      // A dormant item must not come back on a timer either — it is out for the
+      // whole round, not merely late.
+      pickup.respawnTick = sittingOut ? Number.POSITIVE_INFINITY : delayed ? tickNum + firstSpawnDelayTicks : 0;
     }
     this.pendingPickupEvents = [];
     this.pendingPickupNotifies = [];
+    this.pendingPowerupSpawns = [];
     this.useButtonPrev.clear();
   }
 
-  /** Deactivate a consumed pickup and schedule its per-type respawn. */
+  /**
+   * Deactivate a consumed pickup and schedule its return.
+   *
+   * In a round mode there is nothing to schedule: the item is gone for the rest
+   * of the round, so there is one of each per round and taking it is a decision
+   * rather than a timing exercise. `Number.POSITIVE_INFINITY` keeps the normal
+   * `tickNum >= respawnTick` check honest without a mode test in the hot path.
+   */
   private consumePickup(pickup: PickupItem, _playerId: EntityId, tickNum: number): void {
     pickup.active = false;
-    pickup.respawnTick = tickNum + pickup.respawnTicks;
+    this.consumedThisRound.add(pickup.id);
+    pickup.respawnTick = this.respawnMode === "timed" ? tickNum + pickup.respawnTicks : Number.POSITIVE_INFINITY;
+  }
+
+  /**
+   * Restore the map for a new round.
+   *
+   * Under `alternating`, whatever was taken during the round just played sits
+   * this one out — so taking the Red Armor also denies it to everyone next
+   * round, and the map is alternately rich and poor.
+   */
+  resetForRound(tickNum: number): void {
+    this.dormant = this.respawnMode === "alternating" ? new Set(this.consumedThisRound) : new Set();
+    this.consumedThisRound.clear();
+    this.resetForMatch(tickNum);
+    if (this.dormant.size > 0) {
+      console.log(`[PickupSystem] ${this.dormant.size} items sitting out this round`);
+    }
   }
 
   /**
@@ -222,6 +282,13 @@ export class PickupSystem extends Subsystem {
     const n = this.pendingPickupNotifies;
     this.pendingPickupNotifies = [];
     return n;
+  }
+
+  /** Drain powerup spawn announcements (broadcast to all clients). */
+  getPendingPowerupSpawns(): Array<{ kind: string; x: number; y: number; z: number }> {
+    const s = this.pendingPowerupSpawns;
+    this.pendingPowerupSpawns = [];
+    return s;
   }
 
   /** Queue a human-readable pickup label for the grabbing player. */
@@ -258,6 +325,14 @@ export class PickupSystem extends Subsystem {
       if (!pickup.active && pickup.respawnTick > 0 && tickNum >= pickup.respawnTick) {
         pickup.active = true;
         pickup.respawnTick = 0;
+        if (pickup.type === "powerup") {
+          this.pendingPowerupSpawns.push({
+            kind: pickup.kind,
+            x: pickup.position.x,
+            y: pickup.position.y,
+            z: pickup.position.z,
+          });
+        }
       }
     }
 
@@ -317,6 +392,24 @@ export class PickupSystem extends Subsystem {
           const after = healthAfterPickup(before, pickup.kind as HealthKind);
           if (after <= before) continue;
           player.health.health = after;
+          this.consumePickup(pickup, player.id, tickNum);
+          this.notifyPickup(player.id, pickup.type, pickup.kind);
+          pickedUpThisTick = true;
+          break;
+        }
+
+        // ── POWERUP: auto-pickup, always beneficial (re-taking extends it) ──
+        if (pickup.type === "powerup") {
+          // `player` comes from entitiesByType() as Readonly<Entity>, so attaching
+          // a missing component needs the mutable handle. Players built by
+          // createPlayerEntity() already carry one; this covers anything else.
+          let powerups = player.powerups;
+          if (!powerups) {
+            const mut = state.getEntityMut(player.id);
+            if (!mut) continue;
+            powerups = mut.powerups = createPowerups();
+          }
+          grantPowerup(powerups, pickup.kind as PowerupKind, tickNum, TICK_RATE);
           this.consumePickup(pickup, player.id, tickNum);
           this.notifyPickup(player.id, pickup.type, pickup.kind);
           pickedUpThisTick = true;
@@ -461,7 +554,6 @@ export class PickupSystem extends Subsystem {
 
 /** Human-readable pickup label for the HUD toast. */
 const WEAPON_DISPLAY: Record<string, string> = {
-  gunblade: "Gunblade",
   machinegun: "Machinegun",
   riotgun: "Riotgun",
   glauncher: "Grenade Launcher",
@@ -488,6 +580,8 @@ function pickupLabel(type: PickupType, kind: string): string {
       return ARMOR_DISPLAY[kind] ?? "Armor";
     case "health":
       return kind === "mega" ? "Mega Health" : kind === "ultra" ? "Ultra Health" : "Health";
+    case "powerup":
+      return POWERUP_DISPLAY[kind as PowerupKind] ?? titleCase(kind);
     default:
       return titleCase(kind);
   }

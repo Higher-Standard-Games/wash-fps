@@ -1,5 +1,6 @@
 // Extracted from FPSHud.ts
 import { HUDState } from "../../HUDState";
+import { MatchStateManager } from "../../MatchStateManager";
 
 // =============================================================================
 // Phase 3: Scoreboard
@@ -195,7 +196,13 @@ export class FPSScoreboard {
       }
     }
 
-    const signature = JSON.stringify([state.teamNames, state.teamScores, entries, this.localPlayerId]);
+    const signature = JSON.stringify([
+      state.teamNames,
+      state.teamScores,
+      entries,
+      this.localPlayerId,
+      MatchStateManager.getInstance().round,
+    ]);
     if (signature === this.lastSignature) return;
     this.lastSignature = signature;
 
@@ -210,6 +217,18 @@ export class FPSScoreboard {
     // Add title
     this.board.appendChild(this.titleEl);
 
+    // Round modes: which round this is, above the team columns. The SCORE is
+    // already the team columns — this is the only number the scoreboard does
+    // not otherwise carry, and without it a 4-3 match could be round 7 or
+    // round 11 in overtime.
+    const round = MatchStateManager.getInstance().round;
+    if (round > 0) {
+      const roundEl = document.createElement("div");
+      roundEl.className = "fps-scoreboard-round";
+      roundEl.textContent = `ROUND ${round}`;
+      this.board.appendChild(roundEl);
+    }
+
     if (hasTeams) {
       const teamsContainer = document.createElement("div");
       teamsContainer.className = "fps-scoreboard-teams";
@@ -220,10 +239,24 @@ export class FPSScoreboard {
 
         const teamName = state.teamNames[teamId] || `Team ${teamId}`;
 
-        // Hide score from header since it's redundant with the columns below
+        // The team score, in the header. It was hidden as "redundant with the
+        // columns below" — true in Team Deathmatch, where the team score is the
+        // sum of the player column, and false in any round mode, where it is
+        // ROUNDS WON and appears nowhere else on the board. The one number that
+        // says who is winning was the one number missing.
         const title = document.createElement("div");
         title.className = "fps-scoreboard-team-title";
-        title.textContent = teamName;
+
+        const nameEl = document.createElement("span");
+        nameEl.className = "fps-scoreboard-team-name";
+        nameEl.textContent = teamName;
+        title.appendChild(nameEl);
+
+        const scoreEl = document.createElement("span");
+        scoreEl.className = "fps-scoreboard-team-score";
+        scoreEl.textContent = String(state.teamScores[teamId] ?? 0);
+        title.appendChild(scoreEl);
+
         teamEl.appendChild(title);
 
         const header = document.createElement("div");
@@ -242,9 +275,19 @@ export class FPSScoreboard {
         return { container: teamEl, body };
       };
 
-      const udon = createTeamScoreboard("udon", "fps-scoreboard-team--udon");
-      const soba = createTeamScoreboard("soba", "fps-scoreboard-team--soba");
+      // Coloured by allegiance, not by name: your side is the ally colour and
+      // theirs is the enemy colour, so the board matches the models in the map.
+      const localTeam = entries.find((e) => e.playerId === this.localPlayerId)?.teamId;
+      const teamClass = (team: string) =>
+        localTeam && team === localTeam ? "fps-scoreboard-team--ally" : "fps-scoreboard-team--enemy";
+
+      const udon = createTeamScoreboard("udon", teamClass("udon"));
+      const soba = createTeamScoreboard("soba", teamClass("soba"));
       const specs: any[] = []; // Collect spectators to show later if needed
+
+      // Who is holding the bomb, so the board answers "who has it" — the one
+      // question a Search & Destroy scoreboard is opened to settle.
+      const carrier = MatchStateManager.getInstance().bomb?.carrier ?? null;
 
       for (const entry of entries) {
         const row = document.createElement("div");
@@ -255,8 +298,13 @@ export class FPSScoreboard {
         if (entry.departed) {
           row.classList.add("fps-scoreboard-row--departed");
         }
+        const carrying = carrier !== null && entry.playerId === carrier;
+        if (carrying) {
+          row.classList.add("fps-scoreboard-row--carrier");
+        }
+        const carrierMark = carrying ? `<span class="fps-scoreboard-carrier" title="Carrying the bomb"></span>` : "";
         row.innerHTML = `
-                    <span class="fps-scoreboard-col-name">${this.escapeHtml(entry.name)}</span>
+                    <span class="fps-scoreboard-col-name">${carrierMark}${this.escapeHtml(entry.name)}</span>
                     <span class="fps-scoreboard-col-score">${entry.score}</span>
                     <span class="fps-scoreboard-col-ping">${entry.departed ? "LEFT" : `${entry.ping}ms`}</span>
                 `;
@@ -266,8 +314,14 @@ export class FPSScoreboard {
         else specs.push(entry);
       }
 
-      teamsContainer.appendChild(udon.container);
+      // Soba left, Udon right — the order the lobby lists them in.
+      //
+      // This board had them the other way round, so a player who spent the
+      // whole lobby in the left-hand column arrived in the right-hand one and
+      // read it as having been moved. The assignment was correct; the layout
+      // said otherwise, and the layout is what people believe.
       teamsContainer.appendChild(soba.container);
+      teamsContainer.appendChild(udon.container);
       this.board.appendChild(teamsContainer);
 
       // Add spectators row if any

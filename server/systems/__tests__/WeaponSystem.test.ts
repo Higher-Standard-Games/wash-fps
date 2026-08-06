@@ -159,7 +159,8 @@ describe("WeaponSystem - F3 reload models", () => {
     expect(sys.getPendingDamage()).toHaveLength(1);
 
     let ammo = sys.getWeaponState(1 as never)!.ammo.get("machinegun")!;
-    expect(ammo).toEqual({ clip: 39, reserve: 120 });
+    // MG: 30-round clip, 120 reserve (loadout 160 capped at clip 30 + reserve 120 = 150).
+    expect(ammo).toEqual({ clip: 29, reserve: 120 });
 
     shooter.input.buttons = RELOAD_BUTTON;
     sys.update(makeState([shooter, target]) as never, 1 / 125, 14 as never);
@@ -170,10 +171,11 @@ describe("WeaponSystem - F3 reload models", () => {
     expect(sys.getPendingDamage()).toHaveLength(0);
 
     shooter.input.buttons = 0;
-    sys.update(makeState([shooter, target]) as never, 1 / 125, 31 as never);
+    // Reload completes at tick 14 + ceil(1.5×125)=188 → tick 202; sample after.
+    sys.update(makeState([shooter, target]) as never, 1 / 125, 203 as never);
     ammo = sys.getWeaponState(1 as never)!.ammo.get("machinegun")!;
     expect(sys.getWeaponState(1 as never)!.reloading).toBe(false);
-    expect(ammo).toEqual({ clip: 40, reserve: 119 });
+    expect(ammo).toEqual({ clip: 30, reserve: 119 });
   });
 
   it("auto-reloads clip weapons when the magazine is emptied", () => {
@@ -192,15 +194,18 @@ describe("WeaponSystem - F3 reload models", () => {
       sys.getPendingDamage();
     }
 
+    // Loadout 41 → clip 30 + reserve 11. Clip empties after 30 shots (tick 390),
+    // auto-reload starts there and ends at 390 + ceil(1.5×125)=188 → tick 578.
     let state = sys.getWeaponState(1 as never)!;
     expect(state.reloading).toBe(true);
-    expect(state.ammo.get("machinegun")).toEqual({ clip: 0, reserve: 1 });
+    expect(state.ammo.get("machinegun")).toEqual({ clip: 0, reserve: 11 });
 
     shooter.input.buttons = 0;
-    sys.update(makeState([shooter, target]) as never, 1 / 125, (40 * interval + 17) as never);
+    sys.update(makeState([shooter, target]) as never, 1 / 125, (40 * interval + 100) as never);
     state = sys.getWeaponState(1 as never)!;
     expect(state.reloading).toBe(false);
-    expect(state.ammo.get("machinegun")).toEqual({ clip: 1, reserve: 0 });
+    // 11 reserve top up the empty 30-round clip → clip 11, reserve 0.
+    expect(state.ammo.get("machinegun")).toEqual({ clip: 11, reserve: 0 });
   });
 
   it("pool weapons deduct from the pool and never start reload", () => {

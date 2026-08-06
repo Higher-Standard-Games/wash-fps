@@ -10,7 +10,7 @@ import { Subsystem, type SubsystemConfig } from "@engine/server/core/Subsystem";
 import type { WorldState } from "@engine/server/core/WorldState";
 import type { EntityId, TickNumber } from "@engine/server/ecs/types";
 import { EntityType } from "@engine/server/ecs/types";
-import type { CollisionWorld } from "../../../../engine/network/systems/collision/CollisionWorld";
+import { type CollisionWorld, SHOT_CONTENT_MASK } from "../../../../engine/network/systems/collision/CollisionWorld";
 import { WEAPONS } from "../../../../shared/entities/definitions/weapons/WeaponsTable";
 import { DEFAULT_PROJECTILE_BOUNCE_FACTOR } from "../../../../shared/entities/ProjectileDef";
 import { type DamageEvent, DamageType, HitLocation } from "./CombatSystem";
@@ -212,6 +212,8 @@ export class ProjectileSystem extends Subsystem {
           oldPos,
           { x: oldPos.x + moveX, y: oldPos.y + moveY, z: oldPos.z + moveZ },
           { min: { x: -2, y: -2, z: -2 }, max: { x: 2, y: 2, z: 2 } }, // Small projectile bounds
+          // Solid world only. Playerclip stops bodies, not rockets.
+          SHOT_CONTENT_MASK,
         );
 
         if (traceResult.fraction < 1.0 && traceResult.hitPoint) {

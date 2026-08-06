@@ -52,6 +52,7 @@ import { type DemoPovPresentation, DemoPovState } from "./DemoPovState";
 import type { DemoViewer, DemoViewerInfo } from "./DemoViewer";
 import type { DemoViewerHUD } from "./DemoViewerHUD";
 import { type DroppedWeaponInfo, DroppedWeaponRenderer } from "./DroppedWeaponRenderer";
+import { preloadFPSAudio } from "./FPSAudio";
 import {
   playDamageConfirmationSound,
   playKillEcho,
@@ -59,9 +60,9 @@ import {
   playPlayerPainSound,
   playProjectileImpactSound,
   playWeaponFireSound,
-  preloadFPSCombatAudio,
 } from "./FPSCombatAudio";
-import { preloadFPSMovementAudio, processFPSMovementAudio, resetFPSMovementAudio } from "./FPSMovementAudio";
+import { processFPSMovementAudio, resetFPSMovementAudio } from "./FPSMovementAudio";
+import { playPickupSound } from "./FPSPickupAudio";
 import {
   handleRemoteWeaponFire,
   handleVoltaicBeam,
@@ -496,7 +497,7 @@ export class DemoService {
     getHitscanEffects().init(scene);
     getExplosionEffect().init(scene);
     getProjectileManager().init(scene);
-    await Promise.all([preloadFPSCombatAudio(), preloadFPSMovementAudio()]);
+    await preloadFPSAudio();
     resetFPSMovementAudio();
     this.demoGibs = GibSystem.create(scene);
     this.demoDamageNumbers = DamageNumbers.create(scene);
@@ -916,7 +917,9 @@ export class DemoService {
           );
         }
       } else if (event.type === "pickup_notify" && event.entityId === this._followedEntityId) {
-        this._addDemoEvent("pickup", String(event.label || "PICKUP"), 1800);
+        const label = String(event.label || "PICKUP");
+        playPickupSound(label);
+        this._addDemoEvent("pickup", label, 1800);
       } else if (event.type === "projectile_spawn") {
         const e = event as unknown as { entityId?: string; defId?: string };
         if (e.entityId && e.defId) this._projectiles.defIds.set(e.entityId, e.defId);

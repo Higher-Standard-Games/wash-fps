@@ -69,7 +69,7 @@ The analyser runs as `DemoService.analyzeLoadedDemo()` and outputs a list of tim
 
 ## File Format Reference
 
-`.shagdemo` is decoded by `src/games/fps/client/DemoService.ts`'s underlying `DemoReader`. Key fields per tick:
+`.shagdemo` is decoded by `src/shared/demo/DemoReader.ts`, driven client-side by `src/games/fps/client/DemoService.ts`. Key fields per tick:
 
 - All player inputs (movement, aim, fire flags)
 - All entity state deltas (position, velocity, health, animation state)
@@ -77,7 +77,7 @@ The analyser runs as `DemoService.analyzeLoadedDemo()` and outputs a list of tim
 
 Because the simulation is RNG-deterministic, a recorded run can be **re-simulated** and checksum-verified (`demo:verify`) — tamper-evident ground truth used by the anti-cheat substrate.
 
-For full schema, read `src/games/fps/client/DemoReader.ts` (TODO: extract this into a public doc page).
+For full schema, read `src/shared/demo/DemoReader.ts` (TODO: extract this into a public doc page).
 
 ## TODO
 

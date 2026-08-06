@@ -29,6 +29,7 @@ import type { GameState } from "../../../engine/network/core/GameState";
 import { getHitscanEffects } from "../../../engine/weapon/HitscanEffects";
 import type { VoltaicRemoteStartResolver } from "../../../engine/weapon/voltaic/VoltaicEffectRenderer";
 import { WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
+import { maskHasPowerup } from "../../../shared/items/Powerups";
 import { isClientKey } from "../ClientEntityKey";
 import { DemoAnimationTimeline } from "./DemoAnimationTimeline";
 import { DemoEntityTimeline } from "./DemoEntityTimeline";
@@ -39,6 +40,7 @@ import {
   type PlayerTeamSlot,
   registerPlayerModelVisualCvars,
 } from "./PlayerModelVisualSettings";
+import { installTeamColorBridge } from "./TeamColorBridge";
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -61,7 +63,22 @@ interface RemotePlayerHitbox {
   currentWeaponId: string;
   /** Last applied visual style key; changes when team slot or cvars change. */
   appliedVisualStyleKey: string | null;
+  /** True while this player was last seen carrying a powerup (drives the glow). */
+  powerupGlowActive: boolean;
 }
+
+// ─── Powerup carrier glow ────────────────────────────────────────
+
+/** Quad carrier glow colour — red reads as "danger", not as a team tint. */
+const QUAD_GLOW_COLOR = new Color3(1.0, 0.12, 0.08);
+/** Pulse rate of the carrier glow (cycles/sec). */
+const QUAD_PULSE_HZ = 1.5;
+/** Emissive lift at the trough / peak of the pulse. */
+const QUAD_GLOW_MIN = 0.35;
+const QUAD_GLOW_MAX = 0.85;
+/** Outline width at the trough / peak (world units, pre-model-scale). */
+const QUAD_OUTLINE_MIN = 0.9;
+const QUAD_OUTLINE_MAX = 1.7;
 
 // ─── Constants (Q3-style player bounds) ──────────────────────────
 
@@ -146,6 +163,9 @@ export class RemotePlayerRenderer {
   constructor(scene: Scene) {
     this.scene = scene;
     registerPlayerModelVisualCvars();
+    // Same colours the models are about to wear, published to CSS so the HUD
+    // and the lobby cannot disagree with the map.
+    installTeamColorBridge();
     getHitscanEffects().setRemoteLightningMuzzleResolver(this.voltaicMuzzleResolver);
   }
 
@@ -259,15 +279,22 @@ export class RemotePlayerRenderer {
     return instance;
   }
 
+  /** The viewer's own side, so everyone else can be read as ally or enemy. */
+  private localTeam: string | null = null;
+
+  setLocalTeam(teamId: string | null | undefined): void {
+    this.localTeam = teamId ?? null;
+  }
+
   private resolvePlayerTeamSlot(entityId: string): PlayerTeamSlot {
-    return getPlayerTeamSlot(this.teams.get(entityId));
+    return getPlayerTeamSlot(this.teams.get(entityId), this.localTeam);
   }
 
   /** Keep legacy alpha/bravo names for older cosmetic effects. */
   private resolveLegacyTeamColor(entityId: string): "alpha" | "bravo" {
     const slot = this.resolvePlayerTeamSlot(entityId);
-    if (slot === "beta") return "bravo";
-    if (slot === "alpha") return "alpha";
+    if (slot === "ally") return "alpha";
+    if (slot === "enemy") return "bravo";
     const hash = entityId.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
     return hash % 2 === 0 ? "alpha" : "bravo";
   }
@@ -317,6 +344,9 @@ export class RemotePlayerRenderer {
     // Track team per entity for team-colored models (keyed by client entityId)
     for (const player of state.players.values()) {
       this.teams.set(player.entityId, player.team || "ffa");
+      // Our own side comes from the same roster, so ally/enemy stays correct
+      // through a side swap without anyone having to push it in.
+      if (player.entityId === localEntityId) this.localTeam = player.team || null;
     }
 
     const entities = this.extractEntities(state, localEntityId);
@@ -335,6 +365,9 @@ export class RemotePlayerRenderer {
     if (!this.demoTimeline) this.enableDemoPlayback();
     for (const player of state.players.values()) {
       this.teams.set(player.entityId, player.team || "ffa");
+      // Our own side comes from the same roster, so ally/enemy stays correct
+      // through a side swap without anyone having to push it in.
+      if (player.entityId === localEntityId) this.localTeam = player.team || null;
     }
     const entities = this.extractEntities(state, localEntityId);
     this.demoTimeline?.push(state.tick, entities);
@@ -352,6 +385,7 @@ export class RemotePlayerRenderer {
       const transform = entity.getComponent("transform") as any;
       const velocity = entity.getComponent("velocity") as any;
       const movementState = entity.getComponent("movementState") as any;
+      const powerups = entity.getComponent("powerups") as { mask?: number } | undefined;
 
       if (!transform?.position) continue;
 
@@ -368,6 +402,7 @@ export class RemotePlayerRenderer {
         sliding: movementState?.isSliding ?? false,
         wallJumping: movementState?.wallJumpState === "charging",
         crouchViewOffset: movementState?.crouchViewOffset ?? 0,
+        powerupMask: powerups?.mask ?? 0,
       });
     }
     return entities;
@@ -464,6 +499,9 @@ export class RemotePlayerRenderer {
 
       // Update model position + animation
       this.updateModel(hitbox, interp, entityId, this.demoTimeline ? this.demoAnimationTimeScale : 1);
+
+      // Powerup carrier glow (pulses, so it must run every frame, not on change)
+      this.updatePowerupGlow(hitbox, entityId, interp.powerupMask ?? 0, performance.now() / 1000);
     }
 
     // Remove hitboxes for entities no longer alive
@@ -695,6 +733,63 @@ export class RemotePlayerRenderer {
   }
 
   /**
+   * A transform node following one of a remote player's bones, for attaching
+   * something to their body — the S&D bomb rides the spine.
+   *
+   * Returns null until the model has loaded, or if the player is not rendered
+   * at all (out of PVS). Callers must handle that every frame rather than once:
+   * a player can leave and re-enter view mid-carry.
+   */
+  /**
+   * Every remote player currently being rendered, by client entity key.
+   *
+   * Rendered is the operative word: a player outside PVS has no hitbox, so they
+   * are not a candidate to spectate. Following someone the client cannot see
+   * would be a camera pointed at a guess.
+   */
+  getRenderedPlayers(): Map<string, { position: Vector3; dead: boolean }> {
+    const out = new Map<string, { position: Vector3; dead: boolean }>();
+    for (const [entityId, hitbox] of this.hitboxes) {
+      out.set(entityId, { position: hitbox.smoothedPos, dead: this.deadEntities.has(entityId) });
+    }
+    return out;
+  }
+
+  /**
+   * WORLD position of a remote player's bone, plus the yaw they are facing.
+   *
+   * Deliberately world space rather than a node to parent to. Attaching to a
+   * bone puts a mesh in bone space, which on these models carries the rig's 36x
+   * import scale — the S&D bomb parented that way rendered about thirty times
+   * its size, big enough to walk inside. Everything the bomb needs is a point
+   * and a facing, and those are unambiguous.
+   */
+  getBoneAnchor(entityId: string, boneName: string): { position: Vector3; yaw: number } | null {
+    const hitbox = this.hitboxes.get(entityId);
+    const node = this.getBoneTransform(entityId, boneName);
+    if (!hitbox || !node) return null;
+    return { position: node.getAbsolutePosition(), yaw: hitbox.smoothedYaw };
+  }
+
+  /** Facing of a rendered player, for callers that only need a direction. */
+  getSmoothedYaw(entityId: string): number | null {
+    return this.hitboxes.get(entityId)?.smoothedYaw ?? null;
+  }
+
+  getBoneTransform(entityId: string, boneName: string): TransformNode | null {
+    const model = this.hitboxes.get(entityId)?.model;
+    if (!model?.skeleton) return null;
+
+    // glTF import writes Mixamo names with a colon; the shared rig map uses the
+    // sanitized form. Accept either rather than making callers guess.
+    const bone =
+      model.skeleton.bones.find((b) => b.name === `mixamorig:${boneName}`) ??
+      model.skeleton.bones.find((b) => b.name === `mixamorig${boneName}`) ??
+      model.skeleton.bones.find((b) => b.name.toLowerCase().endsWith(boneName.toLowerCase()));
+    return bone?.getTransformNode() ?? null;
+  }
+
+  /**
    * Detach a player model from the renderer WITHOUT disposing it.
    * Returns the PlayerModelInstance for ragdoll use.
    * The hitbox mesh is disposed but the model (skeleton + mesh + anchor) is preserved.
@@ -886,7 +981,36 @@ export class RemotePlayerRenderer {
       handBone: null,
       currentWeaponId: "",
       appliedVisualStyleKey: model ? getPlayerModelVisualStyleKey(this.resolvePlayerTeamSlot(entityId)) : null,
+      powerupGlowActive: false,
     };
+  }
+
+  /**
+   * Drive the quad carrier glow for one entity, one frame.
+   *
+   * On the falling edge the base style is re-applied (by invalidating the style
+   * key) rather than "unset" field by field — the base style is the single
+   * definition of a normal player, so restoring through it can't drift.
+   */
+  private updatePowerupGlow(hitbox: RemotePlayerHitbox, entityId: string, mask: number, elapsed: number): void {
+    if (!hitbox.model || !this.modelManager) return;
+    const active = maskHasPowerup(mask, "quad");
+
+    if (!active) {
+      if (hitbox.powerupGlowActive) {
+        hitbox.powerupGlowActive = false;
+        hitbox.appliedVisualStyleKey = null; // force a base-style re-apply
+        this.applyHitboxVisualStyle(hitbox, entityId);
+      }
+      return;
+    }
+
+    hitbox.powerupGlowActive = true;
+    // 0..1 breathing curve.
+    const p = 0.5 + 0.5 * Math.sin(elapsed * QUAD_PULSE_HZ * Math.PI * 2);
+    const intensity = QUAD_GLOW_MIN + (QUAD_GLOW_MAX - QUAD_GLOW_MIN) * p;
+    const width = (QUAD_OUTLINE_MIN + (QUAD_OUTLINE_MAX - QUAD_OUTLINE_MIN) * p) / Math.max(1, MODEL_SCALE * 16);
+    this.modelManager.applyPowerupGlow(hitbox.model, QUAD_GLOW_COLOR, intensity, width);
   }
 
   // ── Position Update ─────────────────────────────────────────

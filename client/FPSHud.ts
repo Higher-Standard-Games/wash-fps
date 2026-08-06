@@ -29,6 +29,7 @@ export type { FPSHudWidget } from "./hud/HudWidget";
 import type { FPSHudWidget } from "./hud/HudWidget";
 import { FPSAmmoCounter } from "./hud/widgets/AmmoCounter";
 import { FPSAmmoWarning } from "./hud/widgets/AmmoWarning";
+import { FPSBombStatus } from "./hud/widgets/BombStatus";
 import { FPSChat } from "./hud/widgets/Chat";
 import { FPSDamageIndicators } from "./hud/widgets/DamageIndicators";
 import { FPSDeathScreen } from "./hud/widgets/DeathScreen";
@@ -38,7 +39,9 @@ import { FPSGametypeBadge } from "./hud/widgets/GametypeBadge";
 import { FPSPauseMenu } from "./hud/widgets/PauseMenu";
 import { FPSPhaseMessage } from "./hud/widgets/PhaseMessage";
 import { FPSPickupToast } from "./hud/widgets/PickupToast";
+import { FPSPowerupTimer } from "./hud/widgets/PowerupTimer";
 import { FPSReadyBar } from "./hud/widgets/ReadyBar";
+import { FPSRoundResult } from "./hud/widgets/RoundResult";
 // Overlay / dialog widgets
 import { FPSScoreboard } from "./hud/widgets/Scoreboard";
 import { FPSSettingsOverlay } from "./hud/widgets/SettingsOverlay";
@@ -255,10 +258,10 @@ export class FPSHud {
     });
 
     // Wire Join Game -> join from spectator mode (same as SpectatorOverlay)
-    this._pauseMenu.onJoinGame(async (_teamId?: string) => {
+    this._pauseMenu.onJoinGame(async (teamId?: string) => {
       const { Game } = await import("../Game");
       const gm = Game.getInstance();
-      gm.joinGame();
+      gm.joinGame(teamId);
     });
 
     // 7. Listen for pointer lock changes (ESC releases pointer lock -> show pause menu)
@@ -437,6 +440,13 @@ export class FPSHud {
     // Ammo warning banner (OUT OF AMMO / RELOAD) - fixed above the speedometer
     this.addWidget("ammowarning", new FPSAmmoWarning(), "bottom-center");
 
+    // Powerup countdown (QUAD) - bottom left, above the vitals block
+    this.addWidget("powerup", new FPSPowerupTimer(), "bottom-left");
+
+    // Bomb objective (S&D) — its own corner, not the timer cluster. Sharing
+    // top-center put it hard against the frag counter, reading as one control.
+    this.addWidget("bomb", new FPSBombStatus(), "top-left");
+
     // Match timer - top center
     this.addWidget("timer", new FPSTimer(), "top-center");
 
@@ -445,6 +455,9 @@ export class FPSHud {
 
     // Weapon rack - disabled, redundant with bottom-right weapon slots
     // this.addWidget("weapons", new FPSWeaponRack(), "left");
+
+    // Round result banner (S&D) - center screen
+    this.addWidget("roundresult", new FPSRoundResult(), "center");
 
     // Frag message - center screen
     this.addWidget("frag", new FPSFragMessage(), "center");
@@ -497,6 +510,10 @@ export class FPSHud {
     for (const widget of this.widgets.values()) {
       widget.update(state);
     }
+
+    // The chat log is not a widget, so it never sees the state tick — but it
+    // needs the viewer's side to tell a teammate's name from an opponent's.
+    this._chat?.setLocalTeam(state.scoreboard.find((e) => e.playerId === state.localPlayerId)?.teamId ?? "");
 
     // Keep the scoreboard live while open — it's a standalone overlay (not a
     // widget), and a one-shot refresh at open time can miss the final frag

@@ -38,7 +38,7 @@ Three things to understand before extending:
 
 - **Singleton pattern** throughout. `XYZ.getInstance()`. Reset hygiene matters — use `resetInstance()` in tests.
 - **EventBus** for decoupled events. Always store unsubscribe handles.
-- **No `Game.initializeLocal`.** Everything goes through `NetworkGameHost` now (since v0.9.15 in the engine). Single-player runs a real dedicated server in-process via the lobby's dev-spawn — see the engine's [Map Launching Guide](../../../../../docs/manual/guides/map-launching.md).
+- **No `Game.initializeLocal`.** Everything goes through `NetworkGameHost` now (since v0.9.15 in the engine). Single-player runs a real dedicated server in-process via the lobby's dev-spawn — see the engine's Map Launching Guide (`docs/manual/guides/map-launching.md` in the engine repo).
 - **Submodule edits commit to this repo first**, then the outer engine repo bumps the submodule pin. AGENTS.md in the engine repo documents the flow.
 
 ## Tests
@@ -54,5 +54,5 @@ The outer `vitest` config picks up `src/games/fps/**/*.test.ts` automatically.
 
 ## See Also
 
-- The engine's [Service Registries](../../../../../docs/manual/guides/service-registries.md) guide — how to add new engine→game injection points
-- The engine's [Pickup System](../../../../../docs/manual/guides/pickup-system.md) guide — Pickup base class hooks
+- The engine's Service Registries (`docs/manual/guides/service-registries.md` in the engine repo) guide — how to add new engine→game injection points
+- The engine's Pickup System (`docs/manual/guides/pickup-system.md` in the engine repo) guide — Pickup base class hooks

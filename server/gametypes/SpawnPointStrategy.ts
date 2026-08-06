@@ -23,8 +23,11 @@ export interface SpawnPointStrategy {
    * @param excludeEntityId Entity ID of the spawning player (to exclude self)
    * @param rng Seeded PRNG for deterministic selection (demo re-sim, R3b). Defaults
    *   to `Math.random` for non-sim callers; the server passes `rngFrom(tick,entity)`.
+   * @param teamId Spawning player's team. Only `TeamSpawnStrategy` uses it — it
+   *   is the piece that was missing, and without it a team strategy cannot
+   *   possibly pick the right side of the map.
    */
-  choose(points: Vec3[], state: WorldState, excludeEntityId?: EntityId, rng?: () => number): Vec3;
+  choose(points: Vec3[], state: WorldState, excludeEntityId?: EntityId, rng?: () => number, teamId?: string): Vec3;
 }
 
 // ============================================================================
@@ -138,20 +141,47 @@ export class TeamSpawnStrategy implements SpawnPointStrategy {
   private teamPoints: Map<string, Vec3[]> = new Map();
 
   /**
-   * Set team-specific spawn points (called during BSP loading)
+   * Set team-specific spawn points (called during BSP loading, from
+   * `extractTeamSpawnPoints`).
    */
   setTeamPoints(team: string, points: Vec3[]): void {
     this.teamPoints.set(team, points);
   }
 
-  choose(points: Vec3[], _state: WorldState, _excludeEntityId?: EntityId, rng: () => number = Math.random): Vec3 {
-    // For now, use all points as fallback
-    // TODO: Use player's team to select from team-specific points
-    if (points.length === 0) {
+  /** True once at least one team has points — i.e. the map supports team spawns. */
+  hasTeamPoints(): boolean {
+    for (const points of this.teamPoints.values()) {
+      if (points.length > 0) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Spawn the player among their OWN team's points, spread by the seeded RNG.
+   *
+   * Falls back to the untagged pool when the player has no team, when the map
+   * has no points for that team, or when the caller did not supply a team —
+   * never returns the hardcoded origin unless there is genuinely nothing.
+   *
+   * Deliberately does NOT do furthest-from-enemy scoring: on a team map the
+   * whole point is that each side owns its own end, and "furthest from an
+   * enemy" would happily throw a defender across the map.
+   */
+  choose(
+    points: Vec3[],
+    _state: WorldState,
+    _excludeEntityId?: EntityId,
+    rng: () => number = Math.random,
+    teamId?: string,
+  ): Vec3 {
+    const teamSpecific = teamId ? this.teamPoints.get(teamId) : undefined;
+    const pool = teamSpecific && teamSpecific.length > 0 ? teamSpecific : points;
+
+    if (pool.length === 0) {
       return { x: 0, y: 100, z: 0 };
     }
-    const index = Math.floor(rng() * points.length);
-    return { ...points[index] };
+    const index = Math.floor(rng() * pool.length);
+    return { ...pool[index] };
   }
 }
 

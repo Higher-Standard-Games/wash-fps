@@ -5,6 +5,7 @@ export { BaseGametype, type GameResult } from "./BaseGametype";
 export { Deathmatch } from "./Deathmatch";
 export { GametypeController } from "./GametypeController";
 export { MatchState } from "./MatchState";
+export { SearchAndDestroy } from "./SearchAndDestroy";
 export {
   createSpawnStrategy,
   FurthestSpawnStrategy,

@@ -5,16 +5,22 @@
  * match phase, timer, and ready status for HUD consumption.
  */
 
+import type {
+  BombExplosionEvent,
+  BombObjectiveSnapshot,
+  MatchWinner,
+  ObjectiveSnapshot,
+  RoundResult,
+} from "../../../shared/server/gametype/GametypeTypes";
 // Match types are the shared gametype contract (server-authored). They used to
 // be hand-copied here and silently drifted from the server (QA-4: the client
 // weakened team records to string and added `spectators`). Import the single
 // source and re-export so existing `./MatchStateManager` consumers keep their
 // imports.
 import { MatchPhase } from "../../../shared/server/gametype/GametypeTypes";
-import type { MatchWinner } from "../../../shared/server/gametype/GametypeTypes";
 
 export { MatchPhase };
-export type { MatchWinner };
+export type { BombExplosionEvent, BombObjectiveSnapshot, MatchWinner, ObjectiveSnapshot, RoundResult };
 export type { MatchStateSnapshot } from "../../../shared/server/gametype/GametypeTypes";
 
 export type PhaseChangeCallback = (newPhase: MatchPhase, oldPhase: MatchPhase) => void;
@@ -35,6 +41,12 @@ export class MatchStateManager {
   private _winner: MatchWinner | null = null;
   private _overtime: number = 0;
   private _flow: "single" | "continuous" = "continuous";
+  private _round: number = 0;
+  private _teamRoles: Record<string, string> = {};
+  private _roundState: string | null = null;
+  private _objective: ObjectiveSnapshot | null = null;
+  private _roundResult: RoundResult | null = null;
+  private _explosion: BombExplosionEvent | null = null;
   private _isReady: boolean = false;
   private _phaseCallbacks: PhaseChangeCallback[] = [];
 
@@ -71,6 +83,12 @@ export class MatchStateManager {
     this._winner = event.winner ?? null;
     this._overtime = event.overtime ?? 0;
     this._flow = event.flow ?? "continuous";
+    this._round = event.round ?? 0;
+    this._teamRoles = event.teamRoles ?? {};
+    this._roundState = event.roundState ?? null;
+    this._objective = event.objective ?? null;
+    this._roundResult = event.roundResult ?? null;
+    this._explosion = event.explosion ?? null;
 
     // Fire phase change callbacks
     if (oldPhase !== this._phase) {
@@ -104,8 +122,47 @@ export class MatchStateManager {
   get gametypeName(): string {
     return this._gametypeName;
   }
+  /** Whether joining this mode must first collect a round loadout. */
+  get requiresLoadoutSelection(): boolean {
+    return this._gametypeName.trim().toLowerCase() === "search & destroy";
+  }
   get scoreLimit(): number {
     return this._scoreLimit;
+  }
+  /** Current round, 1-based. 0 in modes that are not round-based. */
+  get round(): number {
+    return this._round;
+  }
+  /** "attacker" / "defender" per team id, in round modes. */
+  get teamRoles(): Record<string, string> {
+    return this._teamRoles;
+  }
+  /** "pre_plant" / "post_plant" — what the round is currently about. */
+  get roundState(): string | null {
+    return this._roundState;
+  }
+  /** The mode's objective, or null. Narrow on `kind` before reading it. */
+  get objective(): ObjectiveSnapshot | null {
+    return this._objective;
+  }
+  /** How the last round ended. Set only during the round-end intermission. */
+  get roundResult(): RoundResult | null {
+    return this._roundResult;
+  }
+  /**
+   * A detonation to play out. Repeated for about a second after it fires, so
+   * consumers must recognise a repeat rather than replaying it.
+   */
+  get explosion(): BombExplosionEvent | null {
+    return this._explosion;
+  }
+  /** The bomb, when there is one. Null in every other mode. */
+  get bomb(): BombObjectiveSnapshot | null {
+    return this._objective?.kind === "bomb" ? this._objective : null;
+  }
+  /** True when this player's team is attacking this round. */
+  isAttacking(teamId: string | undefined): boolean {
+    return !!teamId && this._teamRoles[teamId] === "attacker";
   }
   get teamScores(): Record<string, number> {
     return this._teamScores;
@@ -166,6 +223,28 @@ export class MatchStateManager {
   }
 
   /**
+   * True while the server is zeroing everyone's movement and action input.
+   *
+   * Mirrors `GametypeController.applyPostGameInputFreeze` exactly, and has to:
+   * the client predicts its own movement, so a freeze the client does not know
+   * about is one it walks straight through and gets snapped back out of. That
+   * rubber-band at the top of every round is the whole symptom.
+   *
+   * Round modes freeze during the Countdown — that is the "get ready" phase,
+   * with everyone stood at their spawn — and during the round-end result, and
+   * every mode freezes for the post-game screen. A non-round mode's countdown
+   * is the pre-match one, which does NOT hold players still.
+   */
+  isMovementFrozen(): boolean {
+    if (this._phase === MatchPhase.PostGame) return true;
+    // `round > 0` is what makes this a round mode, the same signal the rest of
+    // the client uses. A deathmatch never sets it.
+    const roundBased = this._round > 0;
+    if (!roundBased) return false;
+    return this._phase === MatchPhase.RoundEnd || this._phase === MatchPhase.Countdown;
+  }
+
+  /**
    * Get time as mm:ss string
    */
   getTimeString(): string {
@@ -203,6 +282,8 @@ export class MatchStateManager {
         return "Active";
       case MatchPhase.PostGame:
         return "Match Over";
+      case MatchPhase.RoundEnd:
+        return "Round Over";
     }
   }
 

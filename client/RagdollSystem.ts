@@ -33,11 +33,20 @@ const RAGDOLL_LIFETIME = 5.0;
 /** Maximum simultaneous ragdolls (oldest are force-disposed) */
 const MAX_RAGDOLLS = 4;
 
-/** Initial upward pop on death (units/sec) */
-const POP_UP = 300;
-
-/** Knockback speed applied in attacker→victim direction (units/sec) */
-const KNOCKBACK_SPEED = 600;
+/**
+ * Launch speed along the server's knockback direction (units/sec).
+ *
+ * Matches the magnitude of the old fixed 600-horizontal + 300-up launch
+ * (hypot ≈ 671), so deaths stay as cartoonishly punchy as before — what changed
+ * is the DIRECTION. Previously the horizontal part was renormalized to a flat
+ * 600 and the vertical was always 300, which threw away the server's whole
+ * knockback vector; and when a kill had no horizontal component — a rocket or
+ * grenade at your feet, the most common death in the game — the client fell back
+ * to a RANDOM compass heading at full speed, flinging the corpse somewhere
+ * unrelated to the frag. Now the body flies along the same upward-biased vector
+ * that pushed the player.
+ */
+const LAUNCH_SPEED = 670;
 
 /** Max linear velocity for Havok physics engine — must be raised to allow ragdoll launches */
 const HAVOK_MAX_LINEAR_VELOCITY = 10000;
@@ -363,7 +372,7 @@ export class RagdollSystem {
   // Spawn ragdoll
   // ========================================================================
 
-  spawn(model: PlayerModelInstance, velX: number, _velY: number, velZ: number): RagdollHandle | null {
+  spawn(model: PlayerModelInstance, dirX: number, dirY: number, dirZ: number): RagdollHandle | null {
     if (!this.scene) {
       console.warn("[RagdollSystem] Not initialized — disposing model");
       this.disposeModel(model);
@@ -460,19 +469,15 @@ export class RagdollSystem {
       ragdollInstance.ragdoll();
       console.log("[RagdollSystem] Ragdoll mode activated");
 
-      // 8. Apply knockback velocity to ALL bone aggregates
-      let kbX = velX;
-      let kbZ = velZ;
-      const hLen = Math.sqrt(kbX * kbX + kbZ * kbZ);
-      if (hLen > 0.01) {
-        kbX = (kbX / hLen) * KNOCKBACK_SPEED;
-        kbZ = (kbZ / hLen) * KNOCKBACK_SPEED;
-      } else {
-        const angle = Math.random() * Math.PI * 2;
-        kbX = Math.cos(angle) * KNOCKBACK_SPEED;
-        kbZ = Math.sin(angle) * KNOCKBACK_SPEED;
-      }
-      const launchVel = new Vector3(kbX, POP_UP, kbZ);
+      // 8. Apply knockback velocity to ALL bone aggregates.
+      // Fly along the FULL 3D direction the server sent (already normalized and
+      // upward-biased by CombatSystem), scaled to the launch speed. A degenerate
+      // direction pops straight up rather than picking a random heading.
+      const dirLen = Math.sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ);
+      const launchVel =
+        dirLen > 0.001
+          ? new Vector3((dirX / dirLen) * LAUNCH_SPEED, (dirY / dirLen) * LAUNCH_SPEED, (dirZ / dirLen) * LAUNCH_SPEED)
+          : new Vector3(0, LAUNCH_SPEED, 0);
 
       for (let b = 0; b < boneConfig.length; b++) {
         try {
@@ -486,7 +491,7 @@ export class RagdollSystem {
         }
       }
       console.log(
-        `[RagdollSystem] Applied velocity (${kbX.toFixed(0)}, ${POP_UP}, ${kbZ.toFixed(0)}) gravity=${RAGDOLL_GRAVITY_FACTOR} to ${boneConfig.length} bones`,
+        `[RagdollSystem] Applied velocity (${launchVel.x.toFixed(0)}, ${launchVel.y.toFixed(0)}, ${launchVel.z.toFixed(0)}) gravity=${RAGDOLL_GRAVITY_FACTOR} to ${boneConfig.length} bones`,
       );
 
       // 9. Create speed trail attached to hips bone

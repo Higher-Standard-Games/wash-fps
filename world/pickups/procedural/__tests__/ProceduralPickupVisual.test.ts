@@ -87,7 +87,7 @@ describe("ProceduralPickupVisual", () => {
     expect(cloneMeshes()).toHaveLength(0);
   });
 
-  it("builds the v4 tier shapes: fresnel shell for health, chevrons by armor tier", () => {
+  it("builds the v5 tier shapes: fresnel shell + capped cross for health, sculpted shell for armor", () => {
     const health = getProceduralPickupRecipe("health_large");
     const red = getProceduralPickupRecipe("armor_ra");
     if (!health || !red) throw new Error("recipe missing");
@@ -95,14 +95,35 @@ describe("ProceduralPickupVisual", () => {
     const hv = new ProceduralPickupVisual(scene, health, new Vector3(0, 50, 0), false, 1);
     expect(scene.meshes.some((m) => m.name.startsWith("pp_shell_"))).toBe(true);
     expect(scene.meshes.some((m) => m.name.startsWith("pp_cross_"))).toBe(true);
+    // The cross's up/down faces are a separate matte-black mesh.
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_cross_caps_"))).toBe(true);
 
     const av = new ProceduralPickupVisual(scene, red, new Vector3(100, 50, 0), false, 2);
-    expect(scene.meshes.some((m) => m.name.startsWith("pp_shield_"))).toBe(true);
-    // Red armor = 4 glowing chevron bars on the shield face.
-    expect(scene.meshes.filter((m) => m.name.startsWith("pp_chev_")).length).toBe(4);
+    // Armor is ONE sculpted shell — tier reads from colour and size, so there
+    // are no longer per-tier chevron bars to count.
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_armor_"))).toBe(true);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_chev_"))).toBe(false);
 
     hv.dispose();
     av.dispose();
+    expect(cloneMeshes()).toHaveLength(0);
+  });
+
+  it("gives every health tier a ring whose gradient scrolls, and disposes it", () => {
+    const small = getProceduralPickupRecipe("health_small");
+    if (!small) throw new Error("recipe missing");
+
+    const visual = new ProceduralPickupVisual(scene, small, new Vector3(0, 50, 0), false, 3);
+    const ring = scene.meshes.find((m) => m.name.startsWith("pp_ring_"));
+    expect(ring).toBeDefined();
+
+    const mat = ring?.material as { emissiveTexture?: { uOffset: number } } | null;
+    const before = mat?.emissiveTexture?.uOffset ?? 0;
+    visual.update(1 / 60, 1.5);
+    const after = mat?.emissiveTexture?.uOffset ?? 0;
+    expect(after).not.toBe(before);
+
+    visual.dispose();
     expect(cloneMeshes()).toHaveLength(0);
   });
 
@@ -115,6 +136,106 @@ describe("ProceduralPickupVisual", () => {
 
     for (let i = 0; i < 30; i++) visual.update(1 / 60, i / 60);
 
+    expect(visual.root.position.x).toBe(before.x);
+    expect(visual.root.position.y).toBe(before.y);
+    expect(visual.root.position.z).toBe(before.z);
+
+    visual.dispose();
+  });
+});
+
+describe("ProceduralPickupVisual — ammo crates", () => {
+  it("builds a crate plus its four side decals, and cleans both up", () => {
+    const recipe = getProceduralPickupRecipe("ammo_rockets");
+    if (!recipe) throw new Error("recipe missing");
+
+    const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 40, 0), false, 5);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_ammo_crate_"))).toBe(true);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_ammo_icon_"))).toBe(true);
+
+    visual.dispose();
+    expect(scene.meshes.filter((m) => m.name.startsWith("pp_ammo_"))).toHaveLength(0);
+  });
+
+  it("keeps the icon decal invisible until its texture resolves", () => {
+    const recipe = getProceduralPickupRecipe("ammo_bullets");
+    if (!recipe) throw new Error("recipe missing");
+
+    const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 40, 0), false, 6);
+    const icon = scene.meshes.find((m) => m.name.startsWith("pp_ammo_icon_"));
+    // Headless: the pk3 loader never resolves, so the decal must stay fully
+    // transparent rather than rendering as a white square.
+    expect((icon?.material as { alpha?: number } | null)?.alpha).toBe(0);
+
+    visual.dispose();
+  });
+
+  it("carries no health or armor geometry", () => {
+    const recipe = getProceduralPickupRecipe("ammo_lasers");
+    if (!recipe) throw new Error("recipe missing");
+
+    const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 40, 0), false, 7);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_cross_"))).toBe(false);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_armor_"))).toBe(false);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_shell_"))).toBe(false);
+
+    visual.dispose();
+  });
+});
+
+describe("ProceduralPickupVisual — quad powerup", () => {
+  it("builds the gem, the blades and a beacon, and cleans them all up", () => {
+    const recipe = getProceduralPickupRecipe("powerup_quad");
+    if (!recipe) throw new Error("recipe missing");
+
+    const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 50, 0), false, 11);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_powerup_core_"))).toBe(true);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_powerup_blades_"))).toBe(true);
+    // It is the only item on the map — it gets the arena-scale beacon.
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_beacon_"))).toBe(true);
+
+    visual.dispose();
+    expect(cloneMeshes()).toHaveLength(0);
+  });
+
+  it("borrows no health, armor or ammo geometry", () => {
+    const recipe = getProceduralPickupRecipe("powerup_quad");
+    if (!recipe) throw new Error("recipe missing");
+
+    const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 50, 0), false, 12);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_cross_"))).toBe(false);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_armor_"))).toBe(false);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_ammo_"))).toBe(false);
+    expect(scene.meshes.some((m) => m.name.startsWith("pp_shell_"))).toBe(false);
+
+    visual.dispose();
+  });
+
+  it("counter-rotates the blade cage against the root spin", () => {
+    const recipe = getProceduralPickupRecipe("powerup_quad");
+    if (!recipe) throw new Error("recipe missing");
+
+    const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 50, 0), false, 13);
+    const pivot = scene.transformNodes.find((n) => n.name.startsWith("pp_bladepivot_"));
+    const cosmetic = scene.transformNodes.find((n) => n.name.startsWith("pp_cosmetic_"));
+    expect(pivot).toBeDefined();
+    expect(cosmetic).toBeDefined();
+
+    visual.update(1 / 60, 2);
+    // Opposite signs = the cage turns against the body it sits on.
+    expect(Math.sign(pivot?.rotation.y ?? 0)).toBe(-Math.sign(cosmetic?.rotation.y ?? 0));
+    expect(pivot?.rotation.y).not.toBe(0);
+
+    visual.dispose();
+  });
+
+  it("keeps the authoritative anchor fixed while animating", () => {
+    const recipe = getProceduralPickupRecipe("powerup_quad");
+    if (!recipe) throw new Error("recipe missing");
+
+    const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(64, 32, -16), false, 14);
+    const before = visual.root.position.clone();
+    for (let i = 0; i < 30; i++) visual.update(1 / 60, i / 60);
     expect(visual.root.position.x).toBe(before.x);
     expect(visual.root.position.y).toBe(before.y);
     expect(visual.root.position.z).toBe(before.z);

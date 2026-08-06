@@ -13,8 +13,8 @@
  * - players map   → scoreboard data
  */
 
-import { clientKeyDisplayId } from "../ClientEntityKey";
 import type { GameState } from "../../../engine/network/core/GameState";
+import { clientKeyDisplayId } from "../ClientEntityKey";
 import { MatchStateManager } from "./MatchStateManager";
 
 // ============================================================================
@@ -60,10 +60,24 @@ export type HUDWeaponAmmo = number | WeaponAmmoState;
 export class HUDState {
   private static instance: HUDState | null = null;
 
-  // === Combat (private to local player) ===
+  // === Combat (describes whoever the camera is behind) ===
   health: number = 100;
   armor: number = 0;
+  /**
+   * The SUBJECT's dead flag — the spectated player's while watching one, ours
+   * otherwise. Widgets that describe what is on screen want this one.
+   */
   dead: boolean = false;
+  /**
+   * Our own dead flag, whoever the camera is following.
+   *
+   * Separate from `dead` because the two answer different questions once
+   * spectating exists: "is the player on screen down" and "am I out of this
+   * round". The death panel needs the second — reading the first would take it
+   * down while we watch a living teammate and put it straight back up the
+   * moment they die or the round ends.
+   */
+  localDead: boolean = false;
 
   // === Weapon state (private to local player) ===
   currentWeapon: string = "blade";
@@ -82,6 +96,14 @@ export class HUDState {
   // === Scoreboard & Match State ===
   scoreboard: ScoreboardEntry[] = [];
   localPlayerId: string = "";
+  /**
+   * Player currently being watched while dead, or "" when playing.
+   *
+   * The bomb's progress bar belongs to whoever has their hands on it — and to
+   * anyone spectating them, which is how a dead defender still sees the defuse
+   * they can no longer help with.
+   */
+  spectating: string = "";
   gametypeName: string = "";
   teamScores: Record<string, number> = {};
   teamNames: Record<string, string> = {};

@@ -65,12 +65,14 @@ Per-weapon style. Configurable via cvars:
 
 | Cvar | Effect |
 |------|--------|
+| `cg_crosshair` | Crosshair style |
 | `cg_crosshairSize` | Size in pixels |
 | `cg_crosshairColor` | Hex color string |
 | `cg_crosshairAlpha` | Opacity (0–1) |
-| `cg_crosshairHitColor` | Color flash on confirmed hit |
+| `cg_crosshairSpread` | Spread response (widens with movement / narrows under ADS) |
+| `cg_crosshairDmgColor` | Color flash on confirmed hit (default `FF0000`) |
 
-The crosshair briefly flashes to `cg_crosshairHitColor` when your shot deals damage — this is a server-confirmed hit indicator, not a client-side guess.
+The crosshair briefly flashes to `cg_crosshairDmgColor` for ~200 ms when your shot deals damage — this is a server-confirmed hit indicator, not a client-side guess.
 
 ## Chat (bottom-left)
 
@@ -94,15 +96,11 @@ The middle glyph is the weapon used. Some special icons:
 
 ## Damage Numbers (floating)
 
-When you damage someone, a number floats up from their position briefly. Numbers stack (multiple hits add together visually). Cvars:
-
-| Cvar | Effect |
-|------|--------|
-| `cl_damagenumbers` | 0 / 1 toggle |
-| `cl_damagenumbers_scale` | Size multiplier |
-| `cl_damagenumbers_duration` | Fade duration in seconds |
+When you damage someone, a number floats up from their position briefly. Numbers stack (multiple hits add together visually) and turn yellow above 50 damage.
 
 The damage value shown is the server-authoritative damage your shot dealt — not your client's estimate.
+
+Damage numbers are **not** cvar-driven — lifetime (1.5 s), float speed, colours and the 50-damage highlight threshold are module constants at the top of `src/games/fps/client/DamageNumbers.ts`.
 
 ## NetGraph (top-right, optional)
 
@@ -114,7 +112,55 @@ Connection diagnostics. Three modes via `cl_netgraph`:
 | 1 | Text overlay: ping, snapshot rate, packet loss %, interp delay, command rate |
 | 2 | Mode 1 + a rolling graph of the same metrics |
 
-Read the [Engine Networking Guide](../../../../../docs/manual/guides/networking.md) for what each number means and what's an acceptable range.
+Read the Engine Networking Guide (`docs/manual/guides/networking.md` in the engine repo) for what each number means and what's an acceptable range.
+
+## Match State
+
+Elements that appear when the match, rather than the fight, needs your
+attention:
+
+| Element | When it shows |
+|---------|---------------|
+| **Timer** | Always in a timed match — round clock in Search & Destroy, match clock elsewhere |
+| **Gametype badge** | The mode you are in |
+| **Scoreboard** | Held **Tab**, and automatically at match end |
+| **Frag counter / frag message** | Your score, and the confirmation when you take one |
+| **Ready bar** | Warmup — who is ready, and how many are still needed |
+| **Phase message** | Warmup, countdown, round start, round result, match end |
+| **Round result** | End-of-round banner (Search & Destroy) |
+| **Death screen** | On death — who killed you, with what, and the respawn state |
+| **Pause menu** | Escape, mid-match |
+
+## Powerup Timer
+
+When you are carrying a timed powerup, a countdown appears with the remaining
+duration. Powerups are server-tracked; the timer is a read of authoritative
+state, not a local guess. See
+[Pickups & Inventory](./pickups-and-inventory.md#powerups).
+
+## Search & Destroy HUD
+
+Search & Destroy adds objective elements. See
+[the gametype page](../gametypes/search-and-destroy.md) for the rules behind
+them.
+
+| Element | Behaviour |
+|---------|-----------|
+| **Bomb objective** | Bomb state — carried, dropped, planted, armed — in its own corner, left-aligned |
+| **Arm / defuse bar** | Belongs to whoever is currently working the bomb, attacker or defender |
+| **Bomb site markers** | The two sites, marked in the world |
+| **Team scores** | Rounds won by each side |
+| **Loadout picker** | During the freeze — pick your primary and secondary for the next round |
+
+There is no countdown number during the round freeze. The bomb beep is the
+shared clock, and both teams hear it at the same time.
+
+## Ammo Warning & Pickup Toast
+
+- **Ammo warning** — fires when the equipped weapon drops below its low-ammo
+  threshold, before the counter alone would register.
+- **Pickup toast** — a brief confirmation of what you just picked up, paired
+  with the pickup sound.
 
 ## Settings Overlay
 
@@ -141,4 +187,6 @@ The prompt is suppressed in spectator / freefly mode and when the pointer isn't 
 
 - [Movement](./movement.md) — how movement state affects view bob and FOV
 - [Weapons](./weapons.md) — per-weapon HUD details
+- [Pickups & Inventory](./pickups-and-inventory.md) — powerups and the pickup toast
+- [Search & Destroy](../gametypes/search-and-destroy.md) — the bomb objective and loadout picker
 - [Multiplayer → Connecting](../multiplayer/connecting.md) — reading NetGraph during a match

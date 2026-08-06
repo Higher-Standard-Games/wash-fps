@@ -4,19 +4,21 @@
  * single source of tunable data — geometry builders and the runtime visual read
  * a recipe and never hard-code a tier. All dimensions use Quake-scale units.
  *
- * Art direction (v2, per playtest feedback): clean, bright, modern sci-fi.
- *  - Health: a bright glowing core with a slow scrolling energy gradient
- *    (`color` → `accentColor`) and a small readable cross emblem. Warm palette:
- *    25 HP is bright yellow, 50 HP scrolls orange↔yellow. No floor pedestal.
- *  - Armor: clean hexagonal shield plates around a small bright core — no rings,
- *    no floor, minimal clutter.
- * Higher tiers add a thin ring / orbiting satellites / a faint beacon, not bulk.
+ * Art direction (v7, per playtest feedback): lit solid objects, no outlines.
+ *  - Health: a glowing energy shell with a slow `color` → `accentColor` flow and
+ *    a readable cross emblem filled in the tier colour (25 HP yellow, 50 HP
+ *    orange). Every tier carries a ring with a scrolling gradient band.
+ *  - Armor: banded plates wrapped around a torso — rings of small blocks that
+ *    follow the curve, so it reads round while staying blocky. Tier reads from
+ *    COLOUR and size (green/yellow/red are one silhouette, as in Warsow), so
+ *    `plateCount` no longer draws badges.
+ * Higher tiers add orbiting satellites / a faint beacon, not bulk.
  */
 
-import type { ProceduralPickupRecipe } from "./types";
+import type { ProceduralPickupRecipe, RGB } from "./types";
 
 /** Cache/recipe revision — bump to invalidate scene-cached prototype geometry. */
-export const PROCEDURAL_RECIPE_REVISION = "v4";
+export const PROCEDURAL_RECIPE_REVISION = "v10";
 
 /**
  * Global size multiplier applied on top of each recipe's per-tier `scale`
@@ -35,7 +37,7 @@ const RECIPE_LIST: ProceduralPickupRecipe[] = [
     color: { r: 0.3, g: 0.95, b: 1.0 },
     accentColor: { r: 0.8, g: 1.0, b: 1.0 },
     scale: 0.7,
-    ringCount: 0,
+    ringCount: 1,
     plateCount: 0,
     moteCount: 0,
     shellPieces: 0,
@@ -59,7 +61,7 @@ const RECIPE_LIST: ProceduralPickupRecipe[] = [
     color: { r: 1.0, g: 0.82, b: 0.08 },
     accentColor: { r: 1.0, g: 0.95, b: 0.35 },
     scale: 0.82,
-    ringCount: 0,
+    ringCount: 1,
     plateCount: 0,
     moteCount: 0,
     shellPieces: 0,
@@ -146,7 +148,7 @@ const RECIPE_LIST: ProceduralPickupRecipe[] = [
     unstable: true,
   },
 
-  // ── Armor: clean hexagonal shield plates around a small bright core ─────
+  // ── Armor: banded plates wrapped around a torso; tier = colour + size ───
   {
     id: "armor_shard",
     family: "armor",
@@ -239,7 +241,139 @@ const RECIPE_LIST: ProceduralPickupRecipe[] = [
     highTier: true,
     unstable: false,
   },
+  // ── Ammo: a blocky crate in the weapon's identity colour, icon on each side ─
+  ...ammoCrates(),
+
+  // ── Powerup: the only one of its kind on the map, so it gets the works ──
+  {
+    // Gold flowing to hot red. The gold is Warsow's own quad colour, sampled
+    // from gfx/hud/icons/powerup/quad.tga (rgb 224,192,0) so the world item and
+    // the HUD icon agree; the red accent is the danger colour a carrier glows.
+    id: "powerup_quad",
+    family: "powerup",
+    kind: "quad",
+    color: { r: 1.0, g: 0.84, b: 0.05 },
+    accentColor: { r: 1.0, g: 0.25, b: 0.1 },
+    scale: 1.15,
+    ringCount: 2,
+    plateCount: 0,
+    moteCount: 0,
+    shellPieces: 0,
+    satelliteCount: 4, // four-fold, like the blades
+    bobAmplitude: 3,
+    bobFrequency: 0.24,
+    spinSpeed: 26, // fastest spin of any pickup — it demands attention
+    pulseFrequency: 0.4,
+    figureEight: false,
+    beaconStrength: 0.9, // tallest, brightest beacon: visible across the arena
+    collectStyle: "collapse",
+    respawnStyle: "assemble",
+    highTier: true,
+    unstable: false,
+  },
 ];
+
+/**
+ * Ammo crates. Every tier is the same crate — only the colour and the stamped
+ * icon change — so the shared fields are filled in once here instead of being
+ * copy-pasted eight times. Colours are the weapon identity colours so a crate
+ * reads as "rockets" from across the arena before the icon is legible.
+ */
+function ammoCrates(): ProceduralPickupRecipe[] {
+  const crates: Array<{ id: string; kind: string; color: RGB; accent: RGB; icon: string }> = [
+    // Machinegun — brass.
+    {
+      id: "ammo_bullets",
+      kind: "bullets",
+      color: { r: 1.0, g: 0.76, b: 0.26 },
+      accent: { r: 1.0, g: 0.9, b: 0.6 },
+      icon: "bulletsammo",
+    },
+    // Riotgun — burnt orange.
+    {
+      id: "ammo_shells",
+      kind: "shells",
+      color: { r: 1.0, g: 0.46, b: 0.18 },
+      accent: { r: 1.0, g: 0.72, b: 0.42 },
+      icon: "riotammo",
+    },
+    // Grenade launcher — olive green.
+    {
+      id: "ammo_grenades",
+      kind: "grenades",
+      color: { r: 0.55, g: 0.88, b: 0.32 },
+      accent: { r: 0.78, g: 1.0, b: 0.6 },
+      icon: "grenadeammo",
+    },
+    // Rocket launcher — red.
+    {
+      id: "ammo_rockets",
+      kind: "rockets",
+      color: { r: 1.0, g: 0.32, b: 0.22 },
+      accent: { r: 1.0, g: 0.62, b: 0.5 },
+      icon: "rocketammo",
+    },
+    // Plasmagun — teal cells.
+    {
+      id: "ammo_plasmagun",
+      kind: "cells",
+      color: { r: 0.3, g: 0.95, b: 0.78 },
+      accent: { r: 0.7, g: 1.0, b: 0.92 },
+      icon: "plasmaammo",
+    },
+    // Lasergun/voltaic — its OWN pool since the cells split, so its own colour
+    // (violet, distinct from plasma teal) and its own simpleitem icon.
+    {
+      id: "ammo_lasers",
+      kind: "lasers",
+      color: { r: 0.62, g: 0.42, b: 1.0 },
+      accent: { r: 0.84, g: 0.74, b: 1.0 },
+      icon: "laserammo",
+    },
+    // Electrobolt — electric blue.
+    {
+      id: "ammo_bolts",
+      kind: "bolts",
+      color: { r: 0.36, g: 0.62, b: 1.0 },
+      accent: { r: 0.7, g: 0.85, b: 1.0 },
+      icon: "electroammo",
+    },
+    // Instagun — magenta.
+    {
+      id: "ammo_instas",
+      kind: "instas",
+      color: { r: 0.85, g: 0.4, b: 1.0 },
+      accent: { r: 0.95, g: 0.72, b: 1.0 },
+      icon: "instaammo",
+    },
+  ];
+
+  return crates.map(({ id, kind, color, accent, icon }) => ({
+    id,
+    family: "ammo" as const,
+    kind,
+    color,
+    accentColor: accent,
+    scale: 0.8,
+    ringCount: 0,
+    plateCount: 0,
+    moteCount: 0,
+    shellPieces: 0,
+    satelliteCount: 0,
+    // A crate is a heavy object: barely bobs, turns slowly, no pulse theatrics.
+    bobAmplitude: 1.4,
+    bobFrequency: 0.24,
+    spinSpeed: 14,
+    pulseFrequency: 0.2,
+    figureEight: false,
+    beaconStrength: 0,
+    collectStyle: "shatter" as const,
+    respawnStyle: "materialize" as const,
+    highTier: false,
+    unstable: false,
+    iconTexture: `gfx/hud/icons/ammo/${icon}`,
+  }));
+}
 
 const RECIPES_BY_ID = new Map<string, ProceduralPickupRecipe>(RECIPE_LIST.map((r) => [r.id, r]));
 

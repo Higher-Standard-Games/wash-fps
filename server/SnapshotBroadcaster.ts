@@ -13,6 +13,7 @@ import { log } from "../../../engine/core/Log";
 import { GameState } from "../../../engine/network/core/GameState";
 import { MessageCodec } from "../../../engine/network/protocol/MessageCodec";
 import type { ServerPVS } from "../../../engine/server/ServerPVS";
+import type { AgentDirective } from "../../../shared/server/gametype";
 import { toClientKey } from "../ClientEntityKey";
 import type { ClientInfo } from "./Client";
 
@@ -38,7 +39,11 @@ export class SnapshotBroadcaster {
    * The caller builds the GameState (via buildSnapshot) so it can be shared with
    * demo recording — buildSnapshot drains one-shot events, so it must run once.
    */
-  broadcast(clients: Map<string, ClientInfo>, gameState: GameState): void {
+  broadcast(
+    clients: Map<string, ClientInfo>,
+    gameState: GameState,
+    agentDirectives?: Map<string, AgentDirective[]>,
+  ): void {
     if (clients.size === 0) return;
 
     // Store in snapshot history for delta compression
@@ -72,6 +77,23 @@ export class SnapshotBroadcaster {
         const simEntity = this.simulation.getState().getEntity(client.entityId);
         const processedSeq = (simEntity?.input as { lastProcessedSeq?: number } | undefined)?.lastProcessedSeq;
         clientState.ackedInputSeq = processedSeq ?? client.lastInputSeq;
+
+        // Agent directives are addressed to ONE client. Appending them here —
+        // rather than broadcasting every player's orders in the shared snapshot
+        // — keeps tactics private, which matters the moment a mode issues
+        // anything a human opponent could exploit ("flank left", "he is low").
+        // `shallowCopy()` shares the events array, so it must be cloned first.
+        const clientDirectives = agentDirectives?.get(toClientKey(client.entityId));
+        if (clientDirectives && clientDirectives.length > 0) {
+          clientState.events = [
+            ...clientState.events,
+            {
+              type: "agent_directives",
+              entityId: toClientKey(client.entityId),
+              directives: clientDirectives,
+            },
+          ];
+        }
 
         // Delta baseline: when PVS is active, use the per-client baseline
         // (the actual filtered state the client received), not the global
@@ -120,24 +142,43 @@ export class SnapshotBroadcaster {
    * - Entities without position data (non-spatial)
    */
   private filterStateForClient(state: GameState, client: ClientInfo): GameState {
-    if (!this.pvs) return state;
+    if (!this.pvs) return state.shallowCopy();
 
     // Get client's player position from simulation
     const simState = this.simulation.getState();
     const clientEntity = simState.getEntity(client.entityId);
-    if (!clientEntity?.transform) return state;
+    if (!clientEntity?.transform) return state.shallowCopy();
 
     const viewerPos = clientEntity.transform.position;
 
     // Build filtered state — shallow copy with filtered entities
     const filtered = new GameState();
     filtered.tick = state.tick;
+    filtered.serverTimestamp = state.serverTimestamp;
+    filtered.ackedInputSeq = state.ackedInputSeq;
     filtered.players = state.players;
     filtered.events = [...state.events];
     filtered.pickupActiveMask = state.pickupActiveMask; // global, not PVS-filtered
+    filtered.matchSnapshot = state.matchSnapshot;
+
+    // A dead S&D player may chase teammates. Keep enemies PVS-filtered from the
+    // corpse viewpoint, but always replicate living/dead teammates so cycling
+    // the spectator camera cannot land on an entity missing from the snapshot.
+    const ownPlayer = state.players.get(toClientKey(client.playerId));
+    const teammateEntityIds = new Set<string>();
+    if (clientEntity.health?.dead && ownPlayer?.team && ownPlayer.team !== "spectator") {
+      for (const player of state.players.values()) {
+        if (player.team === ownPlayer.team) teammateEntityIds.add(player.entityId);
+      }
+    }
 
     for (const [id, entity] of state.entities) {
       if (id === toClientKey(client.entityId)) {
+        filtered.entities.set(id, entity);
+        continue;
+      }
+
+      if (teammateEntityIds.has(id)) {
         filtered.entities.set(id, entity);
         continue;
       }

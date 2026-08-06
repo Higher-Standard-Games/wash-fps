@@ -4,6 +4,11 @@
  * On local death the game hands this a live getter for the ragdoll hips or gib
  * burst centroid. Each frame we ease the camera to a readable chase position,
  * with guard rails so bad ragdoll physics cannot drag the view under the map.
+ *
+ * Corpses and fixed points only. Watching a LIVING player is
+ * {@link SpectateEyeCamera}'s job: a third-person chase of someone who walks
+ * around holds a fixed bearing while they move, so they run at the lens, and
+ * the wall clamp below jams the camera into their back in any corridor.
  */
 
 import { Ray } from "@babylonjs/core/Culling/ray";

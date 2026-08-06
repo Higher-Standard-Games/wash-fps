@@ -17,6 +17,7 @@ import { playerId as createPlayerId } from "@engine/server/ecs/types";
 import type { ClientConnection, Transport, TransportConfig } from "@engine/server/network/transport/WebSocketTransport";
 import { WebSocketServerTransport } from "@engine/server/network/transport/WebSocketTransport";
 import type { Vec3 } from "@shared/server/simulation/types";
+import type { BspEntity, BspModel } from "../../../engine/loader/bsp/BspLoader";
 // Protocol (client-compatible)
 import { MessageCodec, MessageType } from "../../../engine/network/protocol/MessageCodec";
 import type { CollisionWorld } from "../../../engine/network/systems/collision/CollisionWorld";
@@ -24,8 +25,9 @@ import type { CollisionWorld } from "../../../engine/network/systems/collision/C
 import { ServerPVS, type ServerPVSData } from "../../../engine/server/ServerPVS";
 import type { PickupEntry } from "../../../shared/bsp/PickupTable";
 import type { TriggerVolume } from "../../../shared/bsp/TriggerTable";
-// Match phase tracking (for auto-recording)
 import { MatchPhase } from "../../../shared/server/gametype/GametypeTypes";
+// Match phase tracking (for auto-recording)
+import { describeLoadout, parseLoadout } from "../../../shared/server/gametype/Loadout";
 import { sanitizeCommand } from "../../../shared/server/simulation/InputSanitizer";
 import { toClientKey } from "../ClientEntityKey";
 import { nextAckedTick, rateLimited } from "./AuthorityGuards";
@@ -234,6 +236,12 @@ export class GameServer {
       return `Player ${playerId}`;
     });
 
+    // Item rules come from the gametype — a round mode restores the map per
+    // round instead of per item timer.
+    const itemRules = this.gametypeController.getGametype().getItemSpawnRules();
+    this.pickupSystem.setRespawnTime(itemRules.weaponRespawnTime);
+    this.pickupSystem.setRespawnMode(itemRules.respawnMode ?? "timed");
+
     // Wire gametype self-damage config into projectile + weapon systems
     const matchConfig = this.gametypeController.getMatchState().getConfig();
     this.projectileSystem.selfDamageMultiplier = matchConfig.selfDamage;
@@ -279,7 +287,13 @@ export class GameServer {
     this.physicsSystem.resetForMatch();
     this.projectileSystem.resetForMatch(state);
     this.droppedWeaponSystem.resetForMatch(state);
-    this.pickupSystem.resetForMatch(tickNum);
+    // Round modes restore the map per ROUND, which is also where the
+    // alternating-scarcity rule is applied.
+    if (this.gametypeController.getMatchState().roundBased) {
+      this.pickupSystem.resetForRound(tickNum);
+    } else {
+      this.pickupSystem.resetForMatch(tickNum);
+    }
 
     this.knownProjectileIds.clear();
     this.pendingKillEvents = [];
@@ -300,8 +314,19 @@ export class GameServer {
     console.log(`[GameServer] Collision world configured`);
   }
 
-  setSpawnPoints(points: Vec3[]): void {
-    this.gametypeController.setSpawnPoints(points);
+  setSpawnPoints(points: Vec3[], teamPoints?: ReadonlyMap<string, Vec3[]>): void {
+    this.gametypeController.setSpawnPoints(points, teamPoints);
+  }
+
+  /**
+   * Hand the raw BSP lumps to the gametype so it can read its own map
+   * authoring — bombsites, flag stands, whatever a future mode needs.
+   *
+   * Call after `setCollisionWorld` and `setSpawnPoints`: the gametype sees all
+   * three together and most modes ignore all of it.
+   */
+  setMapData(entities: readonly BspEntity[], models: readonly BspModel[] = []): void {
+    this.gametypeController.setMapData(entities, models);
   }
 
   /**
@@ -309,6 +334,16 @@ export class GameServer {
    * (extractPickups — ids are authoritative and shared with the client).
    */
   setPickupItems(entries: PickupEntry[]): void {
+    const excluded = this.gametypeController.getGametype().getItemSpawnRules().excludeClassnames;
+    if (excluded && excluded.length > 0) {
+      const drop = new Set(excluded);
+      const kept = entries.filter((e) => !drop.has(e.classname));
+      if (kept.length !== entries.length) {
+        console.log(`[GameServer] ${entries.length - kept.length} pickups excluded by gametype`);
+      }
+      this.pickupSystem.setPickupItems(kept);
+      return;
+    }
     this.pickupSystem.setPickupItems(entries);
   }
 
@@ -719,7 +754,13 @@ export class GameServer {
         // match), and demos never contained any shooting/impact events.
         const snapshotCtx = this.getSnapshotContext();
         const gameState = buildSnapshot(snapshotCtx);
-        this.broadcaster.broadcast(this.clients, gameState);
+        // Per-player orders, collected once and delivered only to the addressed
+        // client. Empty for every gametype that does not opt in.
+        const directives = this.gametypeController.collectAgentDirectives(
+          this.simulation.getStateMut(),
+          gameState.tick,
+        );
+        this.broadcaster.broadcast(this.clients, gameState, directives);
         if (recording) {
           this.demoRecorder?.recordFrame(gameState);
         }
@@ -730,6 +771,15 @@ export class GameServer {
   // ========================================================================
   // Client Handlers
   // ========================================================================
+
+  /** Human clients connected, spectators included. Drives the ready gate. */
+  private refreshHumanClientCount(): void {
+    let humans = 0;
+    for (const client of this.clients.values()) {
+      if (!client.isBot) humans++;
+    }
+    this.gametypeController.setHumanClientCount(humans);
+  }
 
   private handleConnect(conn: ClientConnection): void {
     this.hasHadClients = true;
@@ -753,14 +803,18 @@ export class GameServer {
       state.removeEntity(client.entityId);
 
       // Notify gametype
-      this.gametypeController.onPlayerDisconnect(client.playerId);
+      this.gametypeController.onPlayerDisconnect(client.playerId, client.entityId);
 
       // Remove from anti-warp tracker
       this.movementValidator.removeClient(client.playerId);
       this.telemetry.remove(client.playerId);
+    } else {
+      // Spectating preserves session state; a real disconnect must release it.
+      this.gametypeController.onPlayerDisconnect(client.playerId);
     }
 
     this.clients.delete(conn.id);
+    this.refreshHumanClientCount();
 
     // Remove from challengers queue if queued
     this.removeFromQueue(conn.id);
@@ -863,8 +917,8 @@ export class GameServer {
       // Handle JoinGame message (spectator → player)
       if (msgType === MessageType.JoinGame) {
         this.msgCounts.joinGame++;
-        const { teamId } = MessageCodec.decodeJoinGame(data);
-        this.handleJoinGame(conn, teamId);
+        const { teamId, manualPick } = MessageCodec.decodeJoinGame(data);
+        this.handleJoinGame(conn, teamId, false, manualPick);
         return;
       }
 
@@ -886,6 +940,11 @@ export class GameServer {
       // where chat silently died over WS, and it has been removed (QA-7).
       if (msgType === MessageType.Chat) {
         this.handleChat(conn, data);
+        return;
+      }
+
+      if (msgType === MessageType.SetLoadout) {
+        this.handleSetLoadout(conn, data);
         return;
       }
 
@@ -935,6 +994,29 @@ export class GameServer {
         );
       }
     }
+  }
+
+  /**
+   * A player chose a spawn kit.
+   *
+   * Server-authoritative in both directions: unknown weapon names are rejected
+   * rather than defaulted, and the gametype decides when the choice takes
+   * effect — which for S&D is the next round, never this one.
+   */
+  private handleSetLoadout(conn: ClientConnection, data: Uint8Array): void {
+    const client = this.clients.get(conn.id);
+    if (!client) return;
+
+    const { primary, secondary } = MessageCodec.decodeSetLoadout(data);
+    const choice = parseLoadout(primary, secondary);
+    if (!choice) {
+      console.warn(`[GameServer] Player ${client.playerId} sent an unknown loadout: ${primary}/${secondary}`);
+      return;
+    }
+
+    const gametype = this.gametypeController.getGametype();
+    if (!gametype.setPlayerLoadout(client.playerId, choice)) return;
+    console.log(`[GameServer] Player ${client.playerId} loadout → ${describeLoadout(choice)} (from next round)`);
   }
 
   /**
@@ -1049,6 +1131,7 @@ export class GameServer {
         isBot,
       };
       this.clients.set(conn.id, client);
+      this.refreshHumanClientCount();
 
       console.log(`[GameServer] Player ${pid} connected as spectator`);
       console.log(`[GameServer] Connected clients: ${this.clients.size}/${this.config.maxClients}`);
@@ -1065,13 +1148,22 @@ export class GameServer {
    * handleJoinGame — spectator → player transition.
    * Creates the player entity and spawns them into the match.
    */
-  private handleJoinGame(conn: ClientConnection, teamId?: string, fromQueue = false): void {
+  private handleJoinGame(conn: ClientConnection, teamId?: string, fromQueue = false, manualPick = false): void {
     const client = this.clients.get(conn.id);
     if (!client) return;
     if (!client.isSpectator) {
       console.log(`[GameServer] Player ${client.playerId} tried to JoinGame but is already playing`);
       return;
     }
+    // S&D must not create a live entity until the reliable loadout choice has
+    // arrived. Keep this before the rate gate so a rejected click can be
+    // retried immediately after choosing.
+    const gametype = this.gametypeController.getGametype();
+    if (!client.isBot && !gametype.hasChosenLoadout(client.playerId)) {
+      conn.sendDatagram(MessageCodec.encodeServerMessage("Choose a loadout before joining.", "info"));
+      return;
+    }
+
     // Rate-gate client-initiated joins/switches (server queue promotion bypasses).
     // The timestamp is stamped on the accepted *attempt*, not on a successful
     // spawn: a join that then falls through to the challengers queue (server full)
@@ -1111,6 +1203,7 @@ export class GameServer {
       state,
       teamId,
       client.playerName,
+      manualPick,
     );
     if (!spawnPoint) {
       console.log(`[GameServer] Player ${client.playerId} assigned to spectator, skipped physical spawn.`);
@@ -1120,6 +1213,22 @@ export class GameServer {
     // Create entity
     const entity = createPlayerEntity(client.entityId, client.playerId, spawnPoint);
     entity.spawnTick = this.simulation.currentTick as number;
+
+    // A round mode has no respawn, so appearing mid-round means arriving from
+    // nowhere into a fight the others have been having since the freeze — and
+    // spawn points belong to a side, so possibly inside the enemy's half.
+    //
+    // Join DEAD rather than not at all: the entity has to exist for the freeze
+    // to revive it, and being dead already means the death screen, the
+    // teammate spectate camera and the round-start respawn all do the right
+    // thing with no new machinery.
+    if (this.gametypeController.joinMustWaitForNextRound && entity.health) {
+      entity.health.dead = true;
+      console.log(`[GameServer] Player ${client.playerId} joined mid-round — dead until the next one`);
+      const notice = MessageCodec.encodeServerMessage("Round in progress — you are in from the next one.", "info");
+      conn.sendDatagram(notice);
+    }
+
     state.addEntity(entity);
 
     // Register with anti-warp validator
@@ -1158,7 +1267,7 @@ export class GameServer {
 
   /**
    * handleSpectate — player → spectator transition.
-   * Removes the player entity and resets match stats.
+   * Removes the player entity while preserving match stats and mode session state.
    */
   private handleSpectate(conn: ClientConnection): void {
     const client = this.clients.get(conn.id);
@@ -1175,8 +1284,8 @@ export class GameServer {
     const state = this.simulation.getStateMut();
     state.removeEntity(client.entityId);
 
-    // Remove from gametype tracking (resets scores/deaths)
-    this.gametypeController.onPlayerDisconnect(client.playerId);
+    // Leave the active roster, but keep stats and S&D loadout for rejoin.
+    this.gametypeController.onPlayerSpectate(client.playerId, client.entityId);
 
     // Remove from anti-warp tracker
     this.movementValidator.removeClient(client.playerId);

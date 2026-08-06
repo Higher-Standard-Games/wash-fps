@@ -51,7 +51,15 @@ import {
   playWeaponFireSound,
 } from "../client/FPSCombatAudio";
 import { processFPSMovementAudio } from "../client/FPSMovementAudio";
+import { playPickupSound } from "../client/FPSPickupAudio";
+import {
+  isPowerupLabel,
+  playPowerupFireSound,
+  playPowerupPickupSound,
+  playPowerupSpawnSound,
+} from "../client/FPSPowerupAudio";
 import { HUDState } from "../client/HUDState";
+import { clearLocalPowerups, isLocalPowerupActive, setLocalPowerup } from "../client/LocalPowerupState";
 import { MatchStateManager } from "../client/MatchStateManager";
 import type { RemotePlayerRenderer } from "../client/RemotePlayerRenderer";
 import { FPSPlayer } from "../FPSPlayer";
@@ -92,6 +100,8 @@ export interface GameEventContext {
 
   // Death state
   _isPlayerDead: boolean;
+  /** Teammate being watched while dead, or null. */
+  spectatingEntityId: string | null;
   _respawnRequested: boolean;
   _respawnCooldownEnd: number;
 
@@ -211,11 +221,21 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
           } else if (event.currentWeapon) {
             ctx.enemyWeapons.set(event.entityId, canonicalWeaponId(event.currentWeapon));
           }
+          // Deliberately NOT part of the branch above. The local sync drives
+          // inventory, reload timing and prediction; a spectated player's state
+          // must reach the HUD and the viewmodel WITHOUT touching any of that,
+          // or watching someone reload would desync your own weapon.
+          if (ctx.spectatingEntityId && event.entityId === ctx.spectatingEntityId) {
+            handleSpectatedWeaponState(event);
+          }
           break;
 
         case "weapon_fire": {
           const localShooter = event.entityId === localEntityId;
           playWeaponFireSound(event, localShooter);
+          // Quad layers its own crack over your weapon on every shot — the
+          // running reminder that this shot hits four times as hard.
+          if (localShooter && isLocalPowerupActive("quad")) playPowerupFireSound();
           if (localShooter) {
             const wvm = getWeaponViewManager();
             const isProjectileFire = ctx._localCharging;
@@ -223,6 +243,13 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
             wvm.fire({ isProjectileFire });
           } else {
             handleRemoteWeaponFire(event, ctx.remoteRenderer);
+            // Kick the viewmodel when the person we are watching shoots.
+            // Without this their gun hangs in frame perfectly still through a
+            // whole firefight, which reads as a broken render rather than a
+            // spectator view.
+            if (ctx.spectatingEntityId === event.entityId) {
+              getWeaponViewManager().fire({ isProjectileFire: false });
+            }
           }
           break;
         }
@@ -292,8 +319,8 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
 
           const normal = new Vector3(event.normalX, event.normalY, event.normalZ);
           // Projectiles are now identified by projectileId (F8: grenade/plasma_bolt/…);
-          // weapon-id forms kept as fallbacks for older demos. rocket + gunblade_blast
-          // (and unknowns) use the rocket explosion.
+          // weapon-id forms kept as fallbacks for older demos. rocket (and unknowns)
+          // use the rocket explosion.
           const config =
             event.defId === "grenade" || event.defId === "glauncher"
               ? GRENADE_EXPLOSION
@@ -311,8 +338,16 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
           break;
 
         case "combat_state":
-          if (event.entityId === localEntityId) {
+          // The HUD describes whoever the camera is behind. Resolved once, up
+          // front, rather than per-branch: both entities' combat_state arrive in
+          // the same snapshot, so a "local, then spectated" ordering assumption
+          // would put whichever came last on the bar.
+          if (event.entityId === (ctx.spectatingEntityId ?? localEntityId)) {
             HUDState.getInstance().processCombatState(event);
+          }
+          if (event.entityId === localEntityId) {
+            // Always ours, whoever the camera is following.
+            HUDState.getInstance().localDead = event.dead ?? false;
             if (event.dead && !ctx._isPlayerDead) {
               ctx._isPlayerDead = true;
               ctx._respawnRequested = false;
@@ -414,6 +449,10 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
           const localVictim = event.entityId === localEntityId;
           playPlayerDeathSound(event, localVictim);
           if (event.killerId === localEntityId && !localVictim) playKillEcho();
+          // Powerups do not survive death (GametypeController clears them on
+          // respawn); drop the local timers now so the HUD and the quad fire
+          // layer stop immediately rather than at the next snapshot.
+          if (localVictim) clearLocalPowerups();
           handleDeathEvent(ctx, event, state);
           break;
         }
@@ -433,15 +472,40 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
         case "pickup_notify":
           if (event.entityId === localEntityId) {
             // Server-authoritative pickup label for the local player (any item type).
+            const label = String(event.label ?? "");
+            // Powerups have their own, much louder confirmation — routing them
+            // through the generic pickup bank would play the weapon "clink".
+            if (isPowerupLabel(label)) {
+              playPowerupPickupSound();
+            } else {
+              playPickupSound(label);
+            }
             import("./FPSHud")
-              .then(({ FPSHud }) => FPSHud.getInstance().pickupToast?.showPickup(String(event.label ?? "")))
+              .then(({ FPSHud }) => FPSHud.getInstance().pickupToast?.showPickup(label))
               .catch(() => {});
           }
+          break;
+
+        case "powerup_state":
+          if (event.entityId === localEntityId) {
+            setLocalPowerup(String(event.kind ?? ""), Number(event.seconds ?? 0));
+          }
+          break;
+
+        case "powerup_spawn":
+          // Everyone hears the quad return, positioned at the item.
+          playPowerupSpawnSound({ x: event.x, y: event.y, z: event.z });
           break;
 
         case "item_pickup":
           // Pickup visibility is reconciled from state.pickupActiveMask above; the
           // one-shot item_pickup event is intentionally not dispatched here.
+          break;
+
+        case "agent_directives":
+          // Bot orders. Only ever addressed to one client, and only bots act on
+          // them — a human player's client has nothing to do with them. Handled
+          // explicitly so the exhaustiveness guard stays meaningful.
           break;
 
         default:
@@ -503,6 +567,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
   // Update HUD state aggregator
   const hudState = HUDState.getInstance();
   hudState.localPlayerId = ctx.localPlayerId;
+  hudState.spectating = ctx.spectatingEntityId ?? "";
   hudState.updateScoreboard(state);
   hudState.expireTransients();
   hudState.updateDebugOverlay();
@@ -883,6 +948,47 @@ function handleWeaponStateSync(ctx: GameEventContext, event: any): void {
 }
 
 /**
+ * Put a spectated player's weapon on the HUD and in our hands.
+ *
+ * Everything needed is already on the wire — the server broadcasts weapon_state
+ * for every player so the kill feed and third-person models work — so watching
+ * someone properly is a routing job, not a protocol change.
+ *
+ * Strictly display. None of the local sync's inventory writes, reload timing or
+ * speed-bonus prediction happens here: those describe the weapon WE are holding
+ * and the server would fight us over every one of them.
+ */
+export function handleSpectatedWeaponState(event: {
+  currentWeapon: string;
+  weapons: string[];
+  ammo: Record<string, ServerAmmoState>;
+}): void {
+  const weapon = canonicalWeaponId(event.currentWeapon);
+  const weapons = [...new Set((event.weapons ?? []).map(canonicalWeaponId))];
+  const ammo = Object.fromEntries(
+    Object.entries(event.ammo ?? {}).map(([id, value]) => [canonicalWeaponId(id), value]),
+  ) as Record<string, ServerAmmoState>;
+
+  HUDState.getInstance().processWeaponState({ currentWeapon: weapon, weapons, ammo });
+
+  // The viewmodel rides the same camera the spectate camera drives, so showing
+  // their gun is a matter of loading it and unhiding. Level-triggered against
+  // what is actually displayed, exactly like the local reconciliation: it then
+  // self-heals when the target switches, when we cycle to someone holding
+  // something else, and when we respawn back onto our own weapon.
+  const wvm = getWeaponViewManager();
+  if (!wvm.isReady) return;
+  const displayed = wvm.getDisplayedWeaponId();
+  if (displayed !== weapon && !wvm.isSwitching()) {
+    wvm.loadWeapon(weapon).catch(() => {
+      // A weapon we cannot load leaves the previous model up. Not worth
+      // interrupting a spectator over.
+    });
+  }
+  wvm.setVisible(true);
+}
+
+/**
  * Spawn visual effects for another player's weapon fire.
  */
 export function handleRemoteWeaponFire(event: any, remoteRenderer: RemotePlayerRenderer | null): void {
@@ -934,7 +1040,6 @@ export function handleRemoteWeaponFire(event: any, remoteRenderer: RemotePlayerR
     case "plasmagun":
     case "rlauncher":
     case "glauncher":
-    case "gunblade":
       break;
     case "blade":
       remoteRenderer?.playAttackAnim(event.entityId, "blade_slash", 2.0);

@@ -12,7 +12,7 @@ import { createProjectileEntity } from "@engine/server/ecs/Entity";
 import type { EntityId, TickNumber } from "@engine/server/ecs/types";
 import { EntityType, entityId } from "@engine/server/ecs/types";
 import type { WeaponLoadout } from "@shared/server/gametype";
-import type { CollisionWorld } from "../../../../engine/network/systems/collision/CollisionWorld";
+import { type CollisionWorld, SHOT_CONTENT_MASK } from "../../../../engine/network/systems/collision/CollisionWorld";
 import { DEFAULT_VIEWHEIGHT } from "../../../../engine/physics/PlayerPhysicsConstants";
 import { rngFrom } from "../../../../shared/DeterministicRng";
 import { GRENADE } from "../../../../shared/entities/definitions/projectiles/grenade";
@@ -29,9 +29,9 @@ const FIRE_BUTTON = 1 << 8;
 const ALT_FIRE_BUTTON = 1 << 9;
 const RELOAD_BUTTON = 1 << 10;
 
-/** Check if a weapon ID is a permanent default weapon (blade/gunblade — slot 0, never dropped) */
+/** Check if a weapon ID is the permanent default weapon (blade — slot 0, never dropped) */
 function isDefaultWeapon(weaponId: string): boolean {
-  return weaponId === "blade" || weaponId === "gunblade";
+  return weaponId === "blade";
 }
 
 /** Server tick rate (Hz). Fire/reload/charge timing is quantized to these ticks. */
@@ -427,7 +427,7 @@ export class WeaponSystem extends Subsystem {
   /**
    * Add a weapon to a player's inventory (server-side pickup).
    * Rules:
-   *   - Default weapon (blade/gunblade) is permanent (slot 0), never dropped
+   *   - Default weapon (blade) is permanent (slot 0), never dropped
    *   - Players can carry default + 2 picked-up weapons
    *   - If at capacity, drop current weapon; if holding default, drop first non-default
    * @returns { added: true, dropped?: weaponId } or { added: false } if already owned
@@ -437,12 +437,20 @@ export class WeaponSystem extends Subsystem {
     if (!state) return { added: false };
     weaponId = canonicalWeaponId(weaponId);
 
-    // Already has this weapon — give ammo instead (Warsow behavior)
+    // Already has this weapon — give ammo instead
     if (state.weapons.includes(weaponId)) {
       const weapon = WEAPONS[weaponId];
       if (weapon) {
         const pickupAmount = weapon.pickupAmmo ?? weapon.maxAmmo;
         this.addAmmo(state, weapon, pickupAmount);
+      }
+      // Holding the blade means you have nothing to shoot with, and walking
+      // over a gun is an unambiguous request for one. Owning it already —
+      // spawned with it, or out of ammo for it — does not make the request any
+      // less clear, so the switch happens on this path too.
+      if (isDefaultWeapon(state.currentWeapon) && !isDefaultWeapon(weaponId)) {
+        state.currentWeapon = weaponId;
+        this.lastWeaponSlot.delete(entityId);
       }
       return { added: false };
     }
@@ -470,9 +478,15 @@ export class WeaponSystem extends Subsystem {
     let droppedWeapon: string;
 
     if (isDefaultWeapon(state.currentWeapon)) {
-      // Holding default weapon — can't swap (default is permanent)
-      // Player must switch to the weapon they want to drop first
-
+      // Holding the blade at capacity. The blade itself can never be dropped,
+      // so there is nothing to swap out and the pickup is declined — but the
+      // walk-over still says "I want a gun", and we are holding the one thing
+      // that is not one. Arm them with what they already carry.
+      const firstReal = state.weapons.find((w) => !isDefaultWeapon(w));
+      if (firstReal) {
+        state.currentWeapon = firstReal;
+        this.lastWeaponSlot.delete(entityId);
+      }
       return { added: false };
     } else {
       // Drop currently held weapon
@@ -614,9 +628,8 @@ export class WeaponSystem extends Subsystem {
       }
     }
     const canonicalWeapons = [...new Set(loadout.weapons.map(canonicalWeaponId))];
-    // Always include default weapon (blade or gunblade), limit pickable weapons to MAX_PICKABLE (2)
-    const defaultWeapon =
-      canonicalWeapons.find((w) => w === "blade" || w === "gunblade") || canonicalWeapons[0] || "blade";
+    // Always include the default weapon (blade), limit pickable weapons to MAX_PICKABLE (2)
+    const defaultWeapon = canonicalWeapons.find((w) => w === "blade") || canonicalWeapons[0] || "blade";
     const nonDefault = canonicalWeapons.filter((w) => w !== defaultWeapon).slice(0, 2);
     const weapons = [defaultWeapon, ...nonDefault];
     this.weaponStates.set(id, {
@@ -1276,10 +1289,14 @@ export class WeaponSystem extends Subsystem {
   ): { point: { x: number; y: number; z: number }; normal: { x: number; y: number; z: number } } | null {
     if (!this.collisionWorld) return null;
     const end = { x: start.x + dir.x * maxRange, y: start.y + dir.y * maxRange, z: start.z + dir.z * maxRange };
-    const res = this.collisionWorld.trace(start, end, {
-      min: { x: -2, y: -2, z: -2 },
-      max: { x: 2, y: 2, z: 2 },
-    });
+    const res = this.collisionWorld.trace(
+      start,
+      end,
+      { min: { x: -2, y: -2, z: -2 }, max: { x: 2, y: 2, z: 2 } },
+      // Solid world only — a hitscan ray passes through playerclip, which is
+      // there to stop bodies walking into a gap, not to stop bullets.
+      SHOT_CONTENT_MASK,
+    );
     if (res.fraction >= 1.0 || !res.hitPoint) return null;
     return {
       point: res.hitPoint,
@@ -1580,8 +1597,6 @@ export class WeaponSystem extends Subsystem {
 
   private weaponToDamageType(weaponId: string): DamageType {
     switch (weaponId) {
-      case "gunblade":
-        return DamageType.Melee;
       case "blade":
         return DamageType.Melee;
       case "machinegun":

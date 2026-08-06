@@ -7,10 +7,11 @@ function normalizeGametype(input: string | undefined): string {
   switch (value) {
     case "1v1":
       return "duel";
-    case "team":
-    case "teamdeathmatch":
-    case "team_deathmatch":
-      return "tdm";
+    case "bomb":
+    case "search":
+    case "searchanddestroy":
+    case "search_and_destroy":
+      return "snd";
     case "dm":
     case "deathmatch":
       return "ffa";

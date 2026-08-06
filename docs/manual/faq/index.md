@@ -45,7 +45,7 @@ bot difficulty <easy|medium|hard|insane>
 
 Likely causes:
 
-- The demo was recorded on a different protocol version than your current client. The protocol is documented in the engine's [Networking Guide](../../../../../docs/manual/guides/networking.md); demo back-compat is governed by `protocolVersion` in the demo header.
+- The demo was recorded on a different protocol version than your current client. The protocol is documented in the engine's Networking Guide (`docs/manual/guides/networking.md` in the engine repo); demo back-compat is governed by `protocolVersion` in the demo header.
 - The map referenced in the demo isn't installed locally — put the PK3 in `public/data/`.
 
 ## TODO

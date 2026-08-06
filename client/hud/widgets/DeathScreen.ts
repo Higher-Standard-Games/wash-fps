@@ -1,5 +1,6 @@
 // Extracted from FPSHud.ts
 import { FPS, getActionKeyLabel } from "../../FPSActions";
+import { MatchStateManager } from "../../MatchStateManager";
 import type { FPSHudWidget, HUDState } from "../HudWidget";
 
 // Respawn protection delay in seconds (must match server config)
@@ -22,6 +23,8 @@ export class FPSDeathScreen implements FPSHudWidget {
   private timerEl: HTMLElement;
   private respawnEl: HTMLElement;
   private wasAlive: boolean = true;
+  /** This death has already had its panel; do not stage it a second time. */
+  private shownForThisDeath: boolean = false;
   private deathTime: number = 0;
   private countdownInterval: number | null = null;
 
@@ -63,33 +66,62 @@ export class FPSDeathScreen implements FPSHudWidget {
     return this.element;
   }
 
+  /**
+   * The panel belongs to the MOMENT of death, and gets it once.
+   *
+   * The order in a round mode is: you go down, the camera holds on your body
+   * and this says what happened, and then a couple of seconds later the camera
+   * moves to a living teammate and this gets out of the way — you are watching
+   * their fight now, not reading about your own.
+   *
+   * `shownForThisDeath` is what stops it coming back. Handing the screen over
+   * to a teammate is not being alive again, so the hide must not re-arm the
+   * show; without it the panel reappeared the moment spectating ended, and
+   * announced "YOU GOT FRAGGED" over the round-end camera for a death that
+   * happened a minute earlier.
+   */
   public update(state: HUDState): void {
-    if (state.dead && this.wasAlive) {
-      // Just died — show death screen
-      this.wasAlive = false;
-      this.deathTime = performance.now();
-
-      // Try to find killer from latest kill feed entry
-      const feed = state.killFeed;
-      if (feed.length > 0) {
-        const lastKill = feed[feed.length - 1];
-        this.killerEl.innerHTML = `Fragged by <span class="fps-death-killer-name">${this.escapeHtml(lastKill.killerId)}</span>`;
-      } else {
-        this.killerEl.textContent = "";
+    if (!state.localDead) {
+      if (!this.wasAlive) {
+        // Respawned — hide death screen
+        this.wasAlive = true;
+        this.stopCountdown();
+        this.element.style.display = "none";
       }
-
-      // Start countdown
-      this.respawnEl.textContent = "";
-      this.respawnEl.style.display = "none";
-      this.startCountdown();
-
-      this.element.style.display = "";
-    } else if (!state.dead && !this.wasAlive) {
-      // Respawned — hide death screen
-      this.wasAlive = true;
-      this.stopCountdown();
-      this.element.style.display = "none";
+      this.shownForThisDeath = false;
+      return;
     }
+
+    // Dead, and the camera has moved on to a teammate. Their fight owns the
+    // screen; ours is over.
+    if (state.spectating !== "") {
+      if (!this.wasAlive) {
+        this.stopCountdown();
+        this.element.style.display = "none";
+      }
+      return;
+    }
+
+    if (this.shownForThisDeath) return;
+    this.shownForThisDeath = true;
+    this.wasAlive = false;
+    this.deathTime = performance.now();
+
+    // Try to find killer from latest kill feed entry
+    const feed = state.killFeed;
+    if (feed.length > 0) {
+      const lastKill = feed[feed.length - 1];
+      this.killerEl.innerHTML = `Fragged by <span class="fps-death-killer-name">${this.escapeHtml(lastKill.killerId)}</span>`;
+    } else {
+      this.killerEl.textContent = "";
+    }
+
+    // Start countdown
+    this.respawnEl.textContent = "";
+    this.respawnEl.style.display = "none";
+    this.startCountdown();
+
+    this.element.style.display = "";
   }
 
   private startCountdown(): void {
@@ -106,6 +138,17 @@ export class FPSDeathScreen implements FPSHudWidget {
   }
 
   private updateTimer(): void {
+    // Round modes have no respawn: you are out until the round turns over, so
+    // a countdown to a button that does nothing is worse than no countdown.
+    // Say what is actually happening instead.
+    if (MatchStateManager.getInstance().round > 0) {
+      this.timerEl.style.display = "none";
+      this.respawnEl.textContent = "WAITING FOR THE NEXT ROUND";
+      this.respawnEl.style.display = "";
+      this.stopCountdown();
+      return;
+    }
+
     const elapsed = (performance.now() - this.deathTime) / 1000;
     const remaining = Math.max(0, RESPAWN_DELAY_SECS - elapsed);
 

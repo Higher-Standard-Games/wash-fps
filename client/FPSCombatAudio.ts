@@ -9,7 +9,6 @@ import { canonicalWeaponId } from "../../../shared/entities/definitions/weapons/
 
 const weaponFireSounds: Readonly<Record<string, readonly string[]>> = {
   blade: ["sounds/weapons/blade_strike1.ogg", "sounds/weapons/blade_strike2.ogg", "sounds/weapons/blade_strike3.ogg"],
-  gunblade: ["sounds/weapons/bladegun_strong_fire.ogg"],
   machinegun: ["sounds/weapons/machinegun_fire.ogg"],
   riotgun: ["sounds/weapons/riotgun_fire_strong.ogg"],
   glauncher: ["sounds/weapons/grenlaunch_strong.ogg"],
@@ -29,11 +28,6 @@ const projectileImpactSounds: Readonly<Record<string, readonly string[]>> = {
   glauncher: ["sounds/weapons/gren_strong_explosion1.ogg", "sounds/weapons/gren_strong_explosion2.ogg"],
   plasma_bolt: ["sounds/weapons/plasmagun_strong_explosion.ogg"],
   plasmagun: ["sounds/weapons/plasmagun_strong_explosion.ogg"],
-  gunblade_blast: [
-    "sounds/weapons/bladegun_strong_hit_1.ogg",
-    "sounds/weapons/bladegun_strong_hit_2.ogg",
-    "sounds/weapons/bladegun_strong_hit_3.ogg",
-  ],
   blade_blast: [
     "sounds/weapons/bladegun_strong_hit_1.ogg",
     "sounds/weapons/bladegun_strong_hit_2.ogg",
