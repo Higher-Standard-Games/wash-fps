@@ -28,6 +28,7 @@ import { MessageCodec } from "../../engine/network/protocol/MessageCodec";
 import { getCollisionManager } from "../../engine/physics/CollisionManager";
 import { DEFAULT_VIEWHEIGHT } from "../../engine/physics/PlayerPhysicsConstants";
 import { PlayerProfile } from "../../engine/player/PlayerProfile";
+import RenderVars from "../../engine/rendering/RenderVars";
 import { getProjectileManager } from "../../engine/weapon/ProjectileManager";
 import { getWeaponViewManager } from "../../engine/weapon/WeaponViewManager";
 import { WEAPONS } from "../../shared/entities/definitions/weapons/WeaponsTable";
@@ -2442,6 +2443,17 @@ export class Game {
     // The remote renderer already sees every player's water level each frame,
     // so it is the cheapest place to notice a crossing.
     if (this.remoteRenderer) this.remoteRenderer.liquidInteractions = this.liquidInteractions;
+
+    // Epic splash crowns, and only at Epic: this is the one part of the water
+    // feature that allocates render targets, so it is asked for explicitly per
+    // map rather than left on. A refusal here is not an error — the machine
+    // could not give us a fluid renderer, and the plain ring still plays.
+    if ((RenderVars.getInstance().get("r_water_quality") ?? 2) >= 3) {
+      const camera = scene.activeCamera;
+      if (camera && !this.liquidInteractions.enableCrowns(camera)) {
+        console.info("[Water] Epic splashes unavailable on this device; using ripples");
+      }
+    }
 
     this.airTracker = new LocalAirTracker();
     this.airTracker.onStartedDrowning = playDrownGasp;

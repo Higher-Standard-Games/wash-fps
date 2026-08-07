@@ -11,6 +11,7 @@
  * a mesh created per splash would be worst.
  */
 
+import type { Camera } from "@babylonjs/core/Cameras/camera";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
@@ -22,6 +23,8 @@ import { MASK_LIQUID } from "../../../../shared/collision/CollisionWorld";
 import { enterSound, exitSound, HIT_WATER, playLiquidCrossing, splashVolume } from "../../client/FPSLiquidAudio";
 import type { LiquidKind, WaterLevel } from "../LiquidTypes";
 import type { PointContentsSource } from "../LiquidVolumeSampler";
+import { FluidSplashRenderer } from "./FluidSplashRenderer";
+import { SplashDroplets } from "./SplashDroplets";
 
 /** How many rings can be alive at once. Beyond this the oldest is recycled. */
 const RING_POOL_SIZE = 12;
@@ -52,6 +55,18 @@ const SURFACE_SEARCH_STEPS = 24;
 
 /** Lift off the surface so the ring does not fight the water for the same pixel. */
 const RING_SURFACE_LIFT = 0.5;
+
+/**
+ * How hard a droplet must land to leave a ripple of its own, in units/sec.
+ *
+ * The gate is what keeps the handoff readable. A crown throws dozens of
+ * droplets and they do not all come down hard; ringing every one would spend
+ * the whole ring pool on a single splash, and the result reads as static
+ * rather than as water.
+ */
+const REENTRY_RING_SPEED = 260;
+/** Re-entry ripples are faint — a crown's aftermath, not another splash. */
+const REENTRY_RING_STRENGTH = 0.25;
 
 /** Directions probed to find the pool's edge. Eight is enough for a circle. */
 const EDGE_PROBE_DIRECTIONS = 8;
@@ -129,8 +144,47 @@ export class LiquidInteractionSystem {
   private lastSpawned: Ring | null = null;
   /** Whether each tracked projectile was in liquid last frame. */
   private readonly projectiles = new Map<string, boolean>();
+  /** Epic tier only. Null until enableCrowns() succeeds. */
+  private droplets: SplashDroplets | null = null;
+  private fluid: FluidSplashRenderer | null = null;
+  /** Splash counter, used as the deterministic seed for each crown's spread. */
+  private splashSeed = 0;
 
   constructor(private readonly scene: Scene) {}
+
+  /**
+   * Turn on Epic splash crowns.
+   *
+   * Separate from the constructor and reversible, because this is the only
+   * part of the water feature that allocates render targets. Low and Medium
+   * never call it and pay nothing — not a smaller target, none at all.
+   *
+   * Returns false if FluidRenderer refused to start, in which case the plain
+   * ring stays and nothing else changes.
+   */
+  enableCrowns(camera: Camera): boolean {
+    if (this.fluid) return true;
+
+    const droplets = new SplashDroplets();
+    const fluid = new FluidSplashRenderer(this.scene);
+    if (!fluid.start(camera, droplets.buffer)) return false;
+
+    this.droplets = droplets;
+    this.fluid = fluid;
+    return true;
+  }
+
+  /** Drop back to plain rings, releasing the fluid targets. */
+  disableCrowns(): void {
+    this.fluid?.dispose();
+    this.fluid = null;
+    this.droplets?.clear();
+    this.droplets = null;
+  }
+
+  get crownsEnabled(): boolean {
+    return this.fluid !== null;
+  }
 
   /**
    * Report a body's current water level.
@@ -235,6 +289,25 @@ export class LiquidInteractionSystem {
 
     const at = { x: position.x, y: surfaceY, z: position.z };
 
+    // Epic: throw a crown of spray from the same waterline the ring sits on.
+    // Water only — slime and lava are thick and do not throw droplets, and a
+    // pale crown over lava would read as steam.
+    if (this.droplets && kind === "water") {
+      this.splashSeed++;
+      this.droplets.spawn({ ...at, surfaceY, strength }, this.splashSeed);
+    }
+
+    this.placeRing(at, kind, strength);
+  }
+
+  /**
+   * Put a ring on the surface at an already-resolved waterline.
+   *
+   * Split out from `spawnRing` so droplet re-entries can raise their own small
+   * ripple without throwing another crown — which would be a splash spawning
+   * a splash, forever.
+   */
+  private placeRing(at: { x: number; y: number; z: number }, kind: LiquidKind, strength: number): void {
     const ring = this.acquireRing();
     if (!ring) return;
 
@@ -388,9 +461,45 @@ export class LiquidInteractionSystem {
         }
       }
 
+      if (this.droplets) active = this.updateDroplets(dt) || active;
+
       // Nothing to animate: stop costing a frame callback until the next splash.
       if (!active) this.stop();
     });
+  }
+
+  /**
+   * Advance the crown and turn what came back down into ripples.
+   *
+   * The handoff is the point of the Epic tier. A droplet that falls back
+   * through the surface does not fade out in mid-air — it leaves a small ring
+   * where it landed, so the crown and the static water are one effect rather
+   * than two playing at once. The ripples are quiet on purpose: many small
+   * rings from one splash, not many splashes.
+   *
+   * Returns whether anything is still in the air, so the frame callback can
+   * shut down once the last droplet has landed.
+   */
+  private updateDroplets(dt: number): boolean {
+    if (!this.droplets) return false;
+
+    const reentries = this.droplets.update(dt);
+    this.fluid?.update(this.droplets.count);
+
+    let placed = false;
+    for (const hit of reentries) {
+      // Only the harder landings earn a ring; the rest of the crown simply
+      // rejoins the water. Every droplet ringing would use the whole pool on
+      // one splash and leave nothing for the next.
+      if (hit.speed < REENTRY_RING_SPEED) continue;
+      this.placeRing(hit, "water", REENTRY_RING_STRENGTH);
+      placed = true;
+    }
+
+    // `placed` matters on the frame the LAST droplet lands: the ring loop above
+    // already ran and saw nothing, the count is now zero, and without this the
+    // callback would shut down leaving that final ripple frozen on the water.
+    return placed || this.droplets.count > 0;
   }
 
   private stop(): void {
@@ -409,6 +518,11 @@ export class LiquidInteractionSystem {
     return this.lastSpawned?.mesh.position.y ?? null;
   }
 
+  /** Droplets in flight. For tests and the debug command. */
+  get activeDroplets(): number {
+    return this.droplets?.aliveCount ?? 0;
+  }
+
   /** Edge-clamped radius of the most recently spawned ring. Test/debug only. */
   get lastRingMaxRadius(): number | null {
     return this.lastSpawned?.maxRadius ?? null;
@@ -416,6 +530,7 @@ export class LiquidInteractionSystem {
 
   dispose(): void {
     this.stop();
+    this.disableCrowns();
     for (const ring of this.rings) {
       ring.mesh.dispose();
       ring.material.dispose();
