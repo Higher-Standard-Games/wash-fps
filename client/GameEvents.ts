@@ -86,6 +86,9 @@ export interface GameEventContext {
   /** Refill the local air mirror, so a drowned player does not respawn gasping. */
   resetLocalAir?: () => void;
 
+  /** Drop a despawned projectile's liquid-crossing tracking. */
+  forgetProjectileLiquid?: (entityId: string) => void;
+
   // Renderers (may be lazy-initialized)
   remoteRenderer: RemotePlayerRenderer | null;
   droppedWeaponRenderer: DroppedWeaponRenderer | null;
@@ -649,7 +652,12 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
     }
     processProjectileEntities(
       state,
-      { active: ctx.activeServerProjectiles, defIds: ctx.serverProjectileDefIds, buffer: ctx.projectileBuffer },
+      {
+        active: ctx.activeServerProjectiles,
+        defIds: ctx.serverProjectileDefIds,
+        buffer: ctx.projectileBuffer,
+        forgetLiquid: ctx.forgetProjectileLiquid,
+      },
       projectileSLT,
     );
   }
@@ -1108,6 +1116,8 @@ export interface ProjectileSyncState {
   defIds: Map<string, string>;
   /** Interpolation buffer for smooth in-flight motion */
   buffer: SnapshotBuffer;
+  /** Drop a despawned projectile's liquid tracking, if the game is running one. */
+  forgetLiquid?: (entityId: string) => void;
 }
 
 export function processProjectileEntities(state: GameState, sync: ProjectileSyncState, serverLocalTime?: number): void {
@@ -1163,6 +1173,9 @@ export function processProjectileEntities(state: GameState, sync: ProjectileSync
       getProjectileManager().despawnByEntityId(entityId);
       sync.active.delete(entityId);
       sync.defIds.delete(entityId);
+      // Drop its liquid tracking too, or a recycled entity id inherits a
+      // "was in water" flag from a projectile that already exploded.
+      sync.forgetLiquid?.(entityId);
     }
   }
 }

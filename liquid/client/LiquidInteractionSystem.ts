@@ -18,7 +18,7 @@ import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Observer } from "@babylonjs/core/Misc/observable";
 import type { Scene } from "@babylonjs/core/scene";
 import { MASK_LIQUID } from "../../../../shared/collision/CollisionWorld";
-import { enterSound, exitSound, playLiquidCrossing, splashVolume } from "../../client/FPSLiquidAudio";
+import { enterSound, exitSound, HIT_WATER, playLiquidCrossing, splashVolume } from "../../client/FPSLiquidAudio";
 import type { LiquidKind, WaterLevel } from "../LiquidTypes";
 import type { PointContentsSource } from "../LiquidVolumeSampler";
 
@@ -74,6 +74,8 @@ export class LiquidInteractionSystem {
   private nextRing = 0;
   private collision: PointContentsSource | null = null;
   private lastSpawned: Ring | null = null;
+  /** Whether each tracked projectile was in liquid last frame. */
+  private readonly projectiles = new Map<string, boolean>();
 
   constructor(private readonly scene: Scene) {}
 
@@ -120,6 +122,42 @@ export class LiquidInteractionSystem {
     // the waterline leaves nothing, which is also why the volume gate and the
     // ring share a threshold.
     if (volume > 0) this.spawnRing(position, kind, volume);
+  }
+
+  /**
+   * Report a projectile's position, and splash if it just entered a liquid.
+   *
+   * Water is NONSOLID, so a rocket flies straight through it and the ordinary
+   * impact event never fires — a shot into a pool used to land in silence.
+   * This watches the previous-to-current segment instead, which is cosmetic
+   * and needs no new network state: the projectile's motion is already
+   * replicated for the visual.
+   *
+   * Detection is by contents at each end rather than a trace, because the
+   * distance covered in one frame is short and the two samples the crossing
+   * needs are the two the system already has.
+   */
+  notifyProjectile(id: string, position: { x: number; y: number; z: number }, speed: number): void {
+    if (!this.collision) return;
+
+    const wet = (this.collision.pointContents(position) & MASK_LIQUID) !== 0;
+    const previous = this.projectiles.get(id);
+    this.projectiles.set(id, wet);
+
+    // First sighting establishes a baseline, like a body's does — a projectile
+    // spawned already inside liquid never entered it.
+    if (previous === undefined || previous === wet || !wet) return;
+
+    // Projectiles hit harder than bodies drift, so the splash is scaled off
+    // their own speed rather than the body gate, which they would always clear.
+    const strength = Math.min(1, 0.35 + speed / 3000);
+    playLiquidCrossing(HIT_WATER, strength, position, false);
+    this.spawnRing(position, "water", strength);
+  }
+
+  /** A projectile that exploded or expired. */
+  forgetProjectile(id: string): void {
+    this.projectiles.delete(id);
   }
 
   /**
@@ -325,6 +363,7 @@ export class LiquidInteractionSystem {
     }
     this.rings.length = 0;
     this.bodies.clear();
+    this.projectiles.clear();
   }
 }
 

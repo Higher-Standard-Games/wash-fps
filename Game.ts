@@ -1969,6 +1969,15 @@ export class Game {
         new Vector3(interp.x, interp.y, interp.z),
         new Vector3(interp.vx, interp.vy, interp.vz),
       );
+
+      // A rocket into a pool used to land in silence: water is NONSOLID, so
+      // nothing impacts it and no event fires. This loop already has the
+      // per-frame position, which is all a crossing needs.
+      this.liquidInteractions?.notifyProjectile(
+        entityId,
+        { x: interp.x, y: interp.y, z: interp.z },
+        Math.hypot(interp.vx, interp.vy, interp.vz),
+      );
     }
   }
 
@@ -2236,6 +2245,9 @@ export class Game {
         resetLocalAir: () => {
           Game.getInstance().resetLocalAir();
         },
+        forgetProjectileLiquid: (entityId: string) => {
+          Game.getInstance().forgetProjectileLiquid(entityId);
+        },
         get remoteRenderer() {
           return Game.getInstance().remoteRenderer;
         },
@@ -2441,6 +2453,11 @@ export class Game {
 
   /** Local air, mirrored for the HUD and the gasp. Presentation only. */
   private airTracker: LocalAirTracker | null = null;
+
+  /** Drop a despawned projectile from liquid-crossing tracking. */
+  public forgetProjectileLiquid(entityId: string): void {
+    this.liquidInteractions?.forgetProjectile(entityId);
+  }
 
   /** Re-baseline the local body after a respawn or teleport. */
   public forgetLocalLiquid(): void {

@@ -189,6 +189,80 @@ describe("rings belong to the surface, not to the swimmer", () => {
   });
 });
 
+describe("projectiles entering liquid", () => {
+  /** A pool filling y <= 56 inside a 200-unit square, dry everywhere else. */
+  const pool = {
+    pointContents: (p: { x: number; y: number; z: number }) =>
+      p.y <= 56 && Math.abs(p.x) <= 200 && Math.abs(p.z) <= 200 ? 2 /* Contents.WATER */ : 0,
+  };
+
+  it("splashes when a rocket crosses the surface", () => {
+    // Water is NONSOLID, so nothing impacts it and the ordinary hit event
+    // never fires — a shot into a pool landed in silence.
+    system.setCollisionWorld(pool);
+    system.notifyProjectile("proj_1", at(0, 80, 0), 1400);
+    system.notifyProjectile("proj_1", at(0, 40, 0), 1400);
+
+    expect(system.activeRings).toBe(1);
+  });
+
+  it("splashes once, not every frame it stays under", () => {
+    system.setCollisionWorld(pool);
+    system.notifyProjectile("proj_1", at(0, 80, 0), 1400);
+    system.notifyProjectile("proj_1", at(0, 40, 0), 1400);
+
+    for (let i = 0; i < 20; i++) system.notifyProjectile("proj_1", at(0, 20, 0), 1400);
+
+    expect(system.activeRings).toBe(1);
+  });
+
+  it("does not splash for one spawned already in the water", () => {
+    // Its first sighting is a baseline, exactly as a body's is.
+    system.setCollisionWorld(pool);
+    system.notifyProjectile("proj_1", at(0, 40, 0), 1400);
+
+    expect(system.activeRings).toBe(0);
+  });
+
+  it("does not splash for one that never touches liquid", () => {
+    system.setCollisionWorld(pool);
+    system.notifyProjectile("proj_1", at(0, 400, 0), 1400);
+    system.notifyProjectile("proj_1", at(0, 380, 0), 1400);
+
+    expect(system.activeRings).toBe(0);
+  });
+
+  it("does not splash on the way back out", () => {
+    // A projectile leaving the water is not an impact — it is already spent,
+    // and a second ring would read as a second shot.
+    system.setCollisionWorld(pool);
+    system.notifyProjectile("proj_1", at(0, 80, 0), 1400);
+    system.notifyProjectile("proj_1", at(0, 40, 0), 1400);
+    system.notifyProjectile("proj_1", at(0, 80, 0), 1400);
+
+    expect(system.activeRings).toBe(1);
+  });
+
+  it("forgets a despawned projectile, so a recycled id starts clean", () => {
+    system.setCollisionWorld(pool);
+    system.notifyProjectile("proj_1", at(0, 80, 0), 1400);
+    system.notifyProjectile("proj_1", at(0, 40, 0), 1400);
+    system.forgetProjectile("proj_1");
+
+    // Same id reused by a new rocket, already submerged: a baseline, not a hit.
+    system.notifyProjectile("proj_1", at(0, 40, 0), 1400);
+
+    expect(system.activeRings).toBe(1);
+  });
+
+  it("does nothing without a collision world", () => {
+    system.notifyProjectile("proj_1", at(0, 80, 0), 1400);
+    system.notifyProjectile("proj_1", at(0, 40, 0), 1400);
+
+    expect(system.activeRings).toBe(0);
+  });
+});
+
 describe("ring pooling", () => {
   it("never allocates beyond the pool", () => {
     for (let i = 0; i < RING_POOL_SIZE * 3; i++) {
