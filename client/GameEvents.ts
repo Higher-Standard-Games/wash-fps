@@ -83,6 +83,9 @@ export interface GameEventContext {
   /** Re-baseline the local body's water level after a respawn or teleport. */
   forgetLocalLiquid?: () => void;
 
+  /** Refill the local air mirror, so a drowned player does not respawn gasping. */
+  resetLocalAir?: () => void;
+
   // Renderers (may be lazy-initialized)
   remoteRenderer: RemotePlayerRenderer | null;
   droppedWeaponRenderer: DroppedWeaponRenderer | null;
@@ -377,6 +380,8 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
               // 3 to 0 with no surface broken, which would splash at the spawn
               // point; forgetting makes the next report a baseline instead.
               ctx.forgetLocalLiquid?.();
+              // And you come back with full lungs, not the ones you drowned on.
+              ctx.resetLocalAir?.();
               import("../../../engine/weapon/WeaponViewManager").then((m) => {
                 m.getWeaponViewManager().setVisible(true);
               });

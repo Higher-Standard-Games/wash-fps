@@ -43,6 +43,7 @@ import { registerFPSActions } from "./client/FPSActions";
 import { preloadFPSAudio } from "./client/FPSAudio";
 import { FPSBombAudio } from "./client/FPSBombAudio";
 import { FPSHud } from "./client/FPSHud";
+import { playDrownGasp, playDrownTick } from "./client/FPSLiquidAudio";
 import { resetFPSMovementAudio } from "./client/FPSMovementAudio";
 // Game event handling (extracted from this file)
 import { type GameEventContext, handleServerStateUpdate } from "./client/GameEvents";
@@ -51,6 +52,7 @@ import { MatchPhase, MatchStateManager } from "./client/MatchStateManager";
 import { RemotePlayerRenderer } from "./client/RemotePlayerRenderer";
 import { SpectateEyeCamera } from "./client/SpectateEyeCamera";
 import { LiquidInteractionSystem } from "./liquid/client/LiquidInteractionSystem";
+import { LocalAirTracker } from "./liquid/client/LocalAirTracker";
 import { UnderwaterView } from "./liquid/client/UnderwaterView";
 import { createBSPCollisionWorld } from "./simulation/collision/BSPCollisionWorld";
 import { type FPSInputCommand, FPSSimulation } from "./simulation/FPSSimulation";
@@ -2231,6 +2233,9 @@ export class Game {
         forgetLocalLiquid: () => {
           Game.getInstance().forgetLocalLiquid();
         },
+        resetLocalAir: () => {
+          Game.getInstance().resetLocalAir();
+        },
         get remoteRenderer() {
           return Game.getInstance().remoteRenderer;
         },
@@ -2425,22 +2430,41 @@ export class Game {
     // The remote renderer already sees every player's water level each frame,
     // so it is the cheapest place to notice a crossing.
     if (this.remoteRenderer) this.remoteRenderer.liquidInteractions = this.liquidInteractions;
+
+    this.airTracker = new LocalAirTracker();
+    this.airTracker.onStartedDrowning = playDrownGasp;
+    this.airTracker.onDrownTick = playDrownTick;
   }
 
   /** Splashes and ripples where bodies cross a surface. Owned per map. */
   private liquidInteractions: LiquidInteractionSystem | null = null;
 
-  /**
-   * Report the LOCAL player's water level for splash purposes.
-   *
-   * Separate from the remote path because the local player is predicted: their
-   * level comes from the prediction that already ran this frame rather than
-   * from a snapshot that describes where they were a moment ago, so their own
-   * splash lands on the frame they feel it.
-   */
+  /** Local air, mirrored for the HUD and the gasp. Presentation only. */
+  private airTracker: LocalAirTracker | null = null;
+
   /** Re-baseline the local body after a respawn or teleport. */
   public forgetLocalLiquid(): void {
     this.liquidInteractions?.forget("local");
+  }
+
+  /**
+   * Refill the local air mirror on respawn.
+   *
+   * Without it a player who drowned comes back with the empty lungs they died
+   * with, and the HUD says so for a moment before the server disagrees.
+   */
+  public resetLocalAir(): void {
+    this.airTracker?.reset();
+  }
+
+  /** Local air remaining, 0-1. For the HUD; not authoritative. */
+  public get localAirFraction(): number {
+    return this.airTracker?.air ?? 1;
+  }
+
+  /** True once the lungs are empty. Drives the HUD's alarm state. */
+  public get localDrowning(): boolean {
+    return this.airTracker?.drowning ?? false;
   }
 
   /**
@@ -2458,13 +2482,23 @@ export class Game {
     this.liquidInteractions?.forget(id);
   }
 
+  /**
+   * Your own splash, and your own air.
+   *
+   * Both read the PREDICTED water level rather than the snapshot's: the local
+   * player's own body is simulated here, so taking it from the wire would land
+   * their splash and their gasp a round trip after they felt the water.
+   */
   private emitLocalLiquidCrossing(): void {
-    if (!this.liquidInteractions || !this.v2Client) return;
+    if (!this.v2Client) return;
 
     const state = this.v2Client.getState();
     const movement = this.v2Client.getMovementState();
 
-    this.liquidInteractions.notify("local", movement.waterLevel, "water", state.position, state.velocity.y, true);
+    this.liquidInteractions?.notify("local", movement.waterLevel, "water", state.position, state.velocity.y, true);
+
+    const dt = Math.min(0.1, (EngineStore.LastCreatedEngine?.getDeltaTime() ?? 16) / 1000);
+    this.airTracker?.update(movement.waterLevel, dt);
   }
 
   /** How submerged the camera is, 0-1. Read by the viewmodel to float the gun. */

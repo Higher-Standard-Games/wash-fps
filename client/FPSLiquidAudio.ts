@@ -21,6 +21,13 @@ const LAVA_OUT = "sounds/world/lava_out.ogg";
 const UNDERLAVA = "sounds/world/underlava.ogg";
 /** Projectile and body impacts on a surface, rather than a body crossing it. */
 export const HIT_WATER = "sounds/misc/hit_water.wav";
+/**
+ * Running out of air.
+ *
+ * Warsow shipped a per-character drown sound; Bobot's is the one this game's
+ * player uses, matching the pain and jump voices already wired.
+ */
+const DROWN = "sounds/players/bobot/drown.ogg";
 
 export const FPS_LIQUID_SOUND_PATHS = [
   WATER_IN,
@@ -30,6 +37,7 @@ export const FPS_LIQUID_SOUND_PATHS = [
   LAVA_OUT,
   UNDERLAVA,
   HIT_WATER,
+  DROWN,
 ] as const;
 
 export async function preloadFPSLiquidAudio(): Promise<void> {
@@ -68,6 +76,23 @@ export function splashVolume(verticalSpeed: number): number {
   const speed = Math.abs(verticalSpeed);
   if (speed < 40) return 0;
   return Math.min(1, 0.25 + (speed / 700) * 0.75);
+}
+
+/**
+ * The gasp when the lungs empty, and the gurgle for each hit after.
+ *
+ * 2D and local only: this is your own body, and there is no version of it
+ * another player should hear from across the map. One instance, so a rapid
+ * sequence overlaps itself into noise rather than stacking into a wall.
+ */
+export function playDrownGasp(): void {
+  AudioManager.getInstance().playSfx2D(DROWN, 1.0, 1);
+}
+
+export function playDrownTick(): void {
+  // Quieter than the first: the first is news, the rest are a countdown the
+  // player already knows they are in.
+  AudioManager.getInstance().playSfx2D(DROWN, 0.55, 1);
 }
 
 /** Play a body crossing the surface. Local plays 2D, remote plays in the world. */
