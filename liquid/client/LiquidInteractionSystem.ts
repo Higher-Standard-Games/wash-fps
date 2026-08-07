@@ -12,6 +12,7 @@
  */
 
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
+import { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { CreateDisc } from "@babylonjs/core/Meshes/Builders/discBuilder";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
@@ -25,9 +26,9 @@ import type { PointContentsSource } from "../LiquidVolumeSampler";
 /** How many rings can be alive at once. Beyond this the oldest is recycled. */
 const RING_POOL_SIZE = 12;
 /** Seconds a ring takes to expand and fade. */
-const RING_LIFETIME = 0.9;
-const RING_START_RADIUS = 6;
-const RING_END_RADIUS = 62;
+const RING_LIFETIME = 0.5;
+const RING_START_RADIUS = 4;
+const RING_END_RADIUS = 48;
 
 interface Ring {
   mesh: Mesh;
@@ -65,6 +66,58 @@ const RING_COLORS: Record<LiquidKind, Color3> = {
 
 interface TrackedBody {
   level: WaterLevel;
+}
+
+/** Size of the generated ring mask. Soft edges need no more than this. */
+const RING_MASK_SIZE = 64;
+/** Where the band sits, as a fraction of the disc radius. */
+const RING_BAND_CENTRE = 0.78;
+const RING_BAND_WIDTH = 0.22;
+
+/** Scene-scoped ring mask — one texture for every ripple in the map. */
+const ringMaskByScene = new WeakMap<Scene, RawTexture>();
+
+/**
+ * A soft annulus, generated rather than shipped.
+ *
+ * Alpha peaks in a band near the rim and falls to nothing both inward and
+ * outward, so a scaled disc reads as a spreading ripple rather than a growing
+ * plate. Generated for the same reason the water normals are: an asset here
+ * would live outside version control and could go missing on a fresh checkout.
+ */
+function ringMask(scene: Scene): RawTexture {
+  const existing = ringMaskByScene.get(scene);
+  if (existing) return existing;
+
+  const size = RING_MASK_SIZE;
+  const data = new Uint8Array(size * size * 4);
+  const centre = (size - 1) / 2;
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = (x - centre) / centre;
+      const dy = (y - centre) / centre;
+      const r = Math.sqrt(dx * dx + dy * dy);
+
+      // Smooth falloff either side of the band, and hard zero past the disc
+      // edge so the corners of the quad never show.
+      const distance = Math.abs(r - RING_BAND_CENTRE) / RING_BAND_WIDTH;
+      const band = r > 1 ? 0 : Math.max(0, 1 - distance * distance);
+
+      const i = (y * size + x) * 4;
+      const v = Math.round(band * 255);
+      data[i] = v;
+      data[i + 1] = v;
+      data[i + 2] = v;
+      data[i + 3] = v;
+    }
+  }
+
+  const texture = RawTexture.CreateRGBATexture(data, size, size, scene, false, false);
+  texture.name = "liquid-ring-mask";
+  texture.hasAlpha = true;
+  ringMaskByScene.set(scene, texture);
+  return texture;
 }
 
 export class LiquidInteractionSystem {
@@ -295,8 +348,14 @@ export class LiquidInteractionSystem {
     material.diffuseColor = Color3.Black();
     material.alpha = 0;
     material.backFaceCulling = false;
+    // A ripple is a RING, and a disc is a filled circle. Without this mask the
+    // effect is a pale plate lying on the water — which is exactly what it
+    // looked like. The texture is what turns the geometry into an expanding
+    // band with nothing in the middle.
+    material.opacityTexture = ringMask(this.scene);
+    material.emissiveTexture = ringMask(this.scene);
 
-    const mesh = CreateDisc(`liquid-ring-${this.rings.length}`, { radius: 1, tessellation: 24 }, this.scene);
+    const mesh = CreateDisc(`liquid-ring-${this.rings.length}`, { radius: 1, tessellation: 32 }, this.scene);
     mesh.material = material;
     // Flat on the surface, and never occluding what is behind it.
     mesh.rotation.x = Math.PI / 2;
@@ -364,7 +423,13 @@ export class LiquidInteractionSystem {
     this.rings.length = 0;
     this.bodies.clear();
     this.projectiles.clear();
+
+    const mask = ringMaskByScene.get(this.scene);
+    if (mask) {
+      mask.dispose();
+      ringMaskByScene.delete(this.scene);
+    }
   }
 }
 
-export { RING_LIFETIME, RING_POOL_SIZE };
+export { RING_END_RADIUS, RING_LIFETIME, RING_POOL_SIZE };

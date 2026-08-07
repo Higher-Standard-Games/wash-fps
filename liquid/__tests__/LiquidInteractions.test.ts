@@ -11,7 +11,7 @@ import { NullEngine } from "@babylonjs/core/Engines/nullEngine";
 import { Scene } from "@babylonjs/core/scene";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { splashVolume } from "../../client/FPSLiquidAudio";
-import { LiquidInteractionSystem, RING_POOL_SIZE } from "../client/LiquidInteractionSystem";
+import { LiquidInteractionSystem, RING_END_RADIUS, RING_POOL_SIZE } from "../client/LiquidInteractionSystem";
 
 vi.mock("../../../../engine/AudioManager", () => ({
   AudioManager: {
@@ -177,7 +177,7 @@ describe("rings belong to the surface, not to the swimmer", () => {
 
     expect(system.activeRings).toBe(1);
     // 10 units from the edge, so the ring cannot reach its full 62.
-    expect(system.lastRingMaxRadius).toBeLessThan(62);
+    expect(system.lastRingMaxRadius).toBeLessThan(RING_END_RADIUS);
   });
 
   it("uses the full radius in open water", () => {
@@ -185,7 +185,7 @@ describe("rings belong to the surface, not to the swimmer", () => {
     system.notify("p1", 0, "water", at(0, 50, 0), DIVING, true);
     system.notify("p1", 2, "water", at(0, 50, 0), DIVING, true);
 
-    expect(system.lastRingMaxRadius).toBe(62);
+    expect(system.lastRingMaxRadius).toBe(RING_END_RADIUS);
   });
 });
 
