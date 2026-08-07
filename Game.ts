@@ -14,6 +14,7 @@ import { CameraSystem } from "../../engine/camera";
 import { setGameFrameHook } from "../../engine/camera/GameFrameHook";
 import { EventBus } from "../../engine/core/EventBus";
 import { log } from "../../engine/core/Log";
+import { PostProcessingManager } from "../../engine/effects/PostProcessingManager";
 import { InputSystem } from "../../engine/input/InputSystem";
 import { LocalGameHost } from "../../engine/network/client/hosts/LocalGameHost";
 import { NetworkGameHost } from "../../engine/network/client/hosts/NetworkGameHost";
@@ -2450,7 +2451,13 @@ export class Game {
     // could not give us a fluid renderer, and the plain ring still plays.
     if ((RenderVars.getInstance().get("r_water_quality") ?? 2) >= 3) {
       const camera = scene.activeCamera;
-      if (camera && !this.liquidInteractions.enableCrowns(camera)) {
+      if (camera && this.liquidInteractions.enableCrowns(camera)) {
+        // The fluid renderer attaches its composite straight into the camera's
+        // post-process array, which DefaultRenderingPipeline believes it owns.
+        // Left alone the two disagree about ordering and the camera draws
+        // nothing at all — the map appears not to load.
+        PostProcessingManager.getInstance().rebuild();
+      } else if (camera) {
         console.info("[Water] Epic splashes unavailable on this device; using ripples");
       }
     }
