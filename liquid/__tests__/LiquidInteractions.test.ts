@@ -7,9 +7,7 @@
  * in a pool emits a splash sixty times a second.
  */
 
-import { FreeCamera } from "@babylonjs/core/Cameras/freeCamera";
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine";
-import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Scene } from "@babylonjs/core/scene";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { splashVolume } from "../../client/FPSLiquidAudio";
@@ -234,7 +232,7 @@ describe("which liquid a splash belongs to", () => {
   it("does not throw a crown into lava", () => {
     // Thick liquids do not crown, and the check must use the DERIVED kind —
     // reading the caller's "water" would spray a lava pit.
-    system.enableCrowns(new FreeCamera("c", new Vector3(0, 0, 0), scene));
+    system.enableCrowns();
     system.setCollisionWorld(lavaPit);
     system.notify("p1", 0, "water", at(0, 50, 0), DIVING, false);
     system.notify("p1", 2, "water", at(0, 50, 0), DIVING, false);
@@ -332,18 +330,32 @@ describe("Epic splash crowns", () => {
       p.y <= 56 && Math.abs(p.x) <= 200 && Math.abs(p.z) <= 200 ? 2 /* Contents.WATER */ : 0,
   };
 
-  const camera = () => new FreeCamera("test-cam", new Vector3(0, 100, -200), scene);
-
-  it("allocates nothing until asked", () => {
-    // The whole point of the tier gate: Low and Medium must not pay for a
-    // fluid renderer they will never draw with.
+  it("builds nothing until asked", () => {
+    // The point of the tier gate: Low and Medium must not carry a droplet
+    // mesh they will never draw.
+    const meshes = scene.meshes.length;
     system.setCollisionWorld(pool);
     system.notify("p1", 0, "water", at(0, 50, 0), DIVING, true);
     system.notify("p1", 2, "water", at(0, 50, 0), DIVING, true);
 
     expect(system.crownsEnabled).toBe(false);
-    expect(scene.fluidRenderer).toBeFalsy();
     expect(system.activeDroplets).toBe(0);
+    // One ring mesh from the splash, and no droplet mesh.
+    expect(scene.meshes.some((m) => m.name.includes("droplet"))).toBe(false);
+    expect(scene.meshes.length).toBeGreaterThanOrEqual(meshes);
+  });
+
+  it("draws spray as ordinary geometry, touching no post-process", () => {
+    // The property the whole rewrite exists for. Babylon's FluidRenderer
+    // spliced a composite into the camera's post-process chain, which
+    // DefaultRenderingPipeline owns and gameplay's second camera renders
+    // through — and the world stopped being drawn at all. Nothing here may go
+    // near a camera.
+    system.enableCrowns();
+
+    expect(scene.postProcesses.length).toBe(0);
+    expect(scene.customRenderTargets.length).toBe(0);
+    expect(scene.meshes.some((m) => m.name.includes("droplet"))).toBe(true);
   });
 
   it("still draws the ordinary ring at Low", () => {
@@ -356,7 +368,7 @@ describe("Epic splash crowns", () => {
   });
 
   it("throws spray once enabled", () => {
-    system.enableCrowns(camera());
+    system.enableCrowns();
     system.setCollisionWorld(pool);
     system.notify("p1", 0, "water", at(0, 50, 0), DIVING, true);
     system.notify("p1", 2, "water", at(0, 50, 0), DIVING, true);
@@ -373,7 +385,7 @@ describe("Epic splash crowns", () => {
     // the tuning does.
     const crownFor = (speed: number): number => {
       const fresh = new LiquidInteractionSystem(scene);
-      fresh.enableCrowns(camera());
+      fresh.enableCrowns();
       fresh.setCollisionWorld(pool);
       fresh.notify("p1", 0, "water", at(0, 50, 0), speed, true);
       fresh.notify("p1", 2, "water", at(0, 50, 0), speed, true);
@@ -392,7 +404,7 @@ describe("Epic splash crowns", () => {
     const lavaPool = {
       pointContents: (p: { x: number; y: number; z: number }) => (p.y <= 56 ? 4 /* Contents.LAVA */ : 0),
     };
-    system.enableCrowns(camera());
+    system.enableCrowns();
     system.setCollisionWorld(lavaPool);
     system.notify("p1", 0, "lava", at(0, 50, 0), DIVING, true);
     system.notify("p1", 2, "lava", at(0, 50, 0), DIVING, true);
@@ -402,17 +414,14 @@ describe("Epic splash crowns", () => {
   });
 
   it("is idempotent, so a second call does not stack a second renderer", () => {
-    const cam = camera();
-
-    expect(system.enableCrowns(cam)).toBe(true);
-    expect(system.enableCrowns(cam)).toBe(true);
+    expect(system.enableCrowns()).toBe(true);
+    expect(system.enableCrowns()).toBe(true);
     expect(system.crownsEnabled).toBe(true);
   });
 
-  it("releases the fluid renderer on dispose", () => {
-    // Babylon does not dispose the particle object behind a render object, so
-    // a map change with this wrong leaks a buffer per map.
-    system.enableCrowns(camera());
+  it("releases the droplet mesh on dispose", () => {
+    // A map change leaves nothing behind: the mesh and its material both go.
+    system.enableCrowns();
     system.setCollisionWorld(pool);
     system.notify("p1", 0, "water", at(0, 50, 0), DIVING, true);
     system.notify("p1", 2, "water", at(0, 50, 0), DIVING, true);
@@ -421,11 +430,33 @@ describe("Epic splash crowns", () => {
 
     expect(system.crownsEnabled).toBe(false);
     expect(system.activeDroplets).toBe(0);
+    expect(scene.meshes.some((m) => m.name.includes("droplet"))).toBe(false);
+  });
+
+  it("does not stack a droplet mesh per map", () => {
+    // Ten map loads is ten enable calls on the same scene if disposal misses.
+    for (let i = 0; i < 10; i++) {
+      system.enableCrowns();
+      system.disableCrowns();
+    }
+    system.enableCrowns();
+
+    expect(scene.meshes.filter((m) => m.name.includes("droplet")).length).toBe(1);
+  });
+
+  it("keeps spray out of the viewmodel camera's layer", () => {
+    // A default layer mask is visible to BOTH cameras, so the crown would be
+    // drawn a second time at the weapon's field of view — a handful of
+    // boulders across the screen.
+    system.enableCrowns();
+
+    const mesh = scene.meshes.find((m) => m.name.includes("droplet"));
+    expect(mesh).toBeDefined();
+    expect((mesh?.layerMask ?? 0) & 0x10000000).toBe(0);
   });
 
   it("can be turned off and back on without leaking state", () => {
-    const cam = camera();
-    system.enableCrowns(cam);
+    system.enableCrowns();
     system.setCollisionWorld(pool);
     system.notify("p1", 0, "water", at(0, 50, 0), DIVING, true);
     system.notify("p1", 2, "water", at(0, 50, 0), DIVING, true);
@@ -434,7 +465,7 @@ describe("Epic splash crowns", () => {
     system.disableCrowns();
     expect(system.activeDroplets).toBe(0);
 
-    system.enableCrowns(cam);
+    system.enableCrowns();
     expect(system.activeDroplets).toBe(0);
   });
 });

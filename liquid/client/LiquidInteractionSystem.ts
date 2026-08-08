@@ -11,7 +11,6 @@
  * a mesh created per splash would be worst.
  */
 
-import type { Camera } from "@babylonjs/core/Cameras/camera";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
@@ -23,7 +22,7 @@ import { MASK_LIQUID } from "../../../../shared/collision/CollisionWorld";
 import { enterSound, exitSound, HIT_WATER, playLiquidCrossing, splashVolume } from "../../client/FPSLiquidAudio";
 import type { LiquidKind, WaterLevel } from "../LiquidTypes";
 import { liquidKindAt, type PointContentsSource } from "../LiquidVolumeSampler";
-import { FluidSplashRenderer } from "./FluidSplashRenderer";
+import { SplashDropletRenderer } from "./SplashDropletRenderer";
 import { SplashDroplets } from "./SplashDroplets";
 
 /** How many rings can be alive at once. Beyond this the oldest is recycled. */
@@ -153,7 +152,7 @@ export class LiquidInteractionSystem {
   private readonly projectiles = new Map<string, boolean>();
   /** Epic tier only. Null until enableCrowns() succeeds. */
   private droplets: SplashDroplets | null = null;
-  private fluid: FluidSplashRenderer | null = null;
+  private spray: SplashDropletRenderer | null = null;
   /** Splash counter, used as the deterministic seed for each crown's spread. */
   private splashSeed = 0;
 
@@ -162,35 +161,35 @@ export class LiquidInteractionSystem {
   /**
    * Turn on Epic splash crowns.
    *
-   * Separate from the constructor and reversible, because this is the only
-   * part of the water feature that allocates render targets. Low and Medium
-   * never call it and pay nothing — not a smaller target, none at all.
+   * Separate from the constructor and reversible, so Low and Medium build no
+   * droplet mesh at all rather than an idle one.
    *
-   * Returns false if FluidRenderer refused to start, in which case the plain
-   * ring stays and nothing else changes.
+   * Takes no camera. The first implementation did, because Babylon's
+   * FluidRenderer attaches a composite to one — and that turned out to be
+   * exactly why it could not work here. Drawing the spray as ordinary geometry
+   * means there is no camera to be right or wrong about.
    */
-  enableCrowns(camera: Camera): boolean {
-    if (this.fluid) return true;
+  enableCrowns(): boolean {
+    if (this.spray) return true;
 
-    const droplets = new SplashDroplets();
-    const fluid = new FluidSplashRenderer(this.scene);
-    if (!fluid.start(camera, droplets.buffer)) return false;
+    const spray = new SplashDropletRenderer(this.scene);
+    if (!spray.start()) return false;
 
-    this.droplets = droplets;
-    this.fluid = fluid;
+    this.droplets = new SplashDroplets();
+    this.spray = spray;
     return true;
   }
 
-  /** Drop back to plain rings, releasing the fluid targets. */
+  /** Drop back to plain rings, releasing the droplet mesh. */
   disableCrowns(): void {
-    this.fluid?.dispose();
-    this.fluid = null;
+    this.spray?.dispose();
+    this.spray = null;
     this.droplets?.clear();
     this.droplets = null;
   }
 
   get crownsEnabled(): boolean {
-    return this.fluid !== null;
+    return this.spray !== null;
   }
 
   /**
@@ -512,7 +511,7 @@ export class LiquidInteractionSystem {
     if (!this.droplets) return false;
 
     const reentries = this.droplets.update(dt);
-    this.fluid?.update(this.droplets.count);
+    this.spray?.update(this.droplets.buffer, this.droplets.count);
 
     let placed = false;
     for (const hit of reentries) {

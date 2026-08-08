@@ -14,7 +14,6 @@ import { CameraSystem } from "../../engine/camera";
 import { setGameFrameHook } from "../../engine/camera/GameFrameHook";
 import { EventBus } from "../../engine/core/EventBus";
 import { log } from "../../engine/core/Log";
-import { PostProcessingManager } from "../../engine/effects/PostProcessingManager";
 import { InputSystem } from "../../engine/input/InputSystem";
 import { LocalGameHost } from "../../engine/network/client/hosts/LocalGameHost";
 import { NetworkGameHost } from "../../engine/network/client/hosts/NetworkGameHost";
@@ -2445,20 +2444,12 @@ export class Game {
     // so it is the cheapest place to notice a crossing.
     if (this.remoteRenderer) this.remoteRenderer.liquidInteractions = this.liquidInteractions;
 
-    // Epic splash crowns, and only at Epic: this is the one part of the water
-    // feature that allocates render targets, so it is asked for explicitly per
-    // map rather than left on. A refusal here is not an error — the machine
-    // could not give us a fluid renderer, and the plain ring still plays.
+    // Epic splash crowns, and only at Epic. Asked for per map rather than left
+    // on, so Low and Medium build no droplet mesh at all. A refusal is not an
+    // error — the plain ring still plays.
     if ((RenderVars.getInstance().get("r_water_quality") ?? 2) >= 3) {
-      const camera = scene.activeCamera;
-      if (camera && this.liquidInteractions.enableCrowns(camera)) {
-        // The fluid renderer attaches its composite straight into the camera's
-        // post-process array, which DefaultRenderingPipeline believes it owns.
-        // Left alone the two disagree about ordering and the camera draws
-        // nothing at all — the map appears not to load.
-        PostProcessingManager.getInstance().rebuild();
-      } else if (camera) {
-        console.info("[Water] Epic splashes unavailable on this device; using ripples");
+      if (!this.liquidInteractions.enableCrowns()) {
+        console.info("[Water] Epic splashes unavailable; using ripples");
       }
     }
 
