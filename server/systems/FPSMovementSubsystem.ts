@@ -943,6 +943,10 @@ export class FPSMovementSubsystem extends Subsystem {
     this.movementProfiles.delete(entityId);
     this.clearFallTracking(entityId);
     this.fallArmed.delete(entityId);
+    // Air and burn timers. Dropped on death too, but a player can disconnect
+    // alive — and entity ids are reused, so a leftover entry would hand the
+    // next occupant of this id someone else's half-drowned lungs.
+    this.liquidEffects.delete(entityId);
     this.lastSpawnTick.delete(entityId);
     this.lastGroundY.delete(entityId);
     this.lastKBTick.delete(entityId);

@@ -32,7 +32,7 @@ import {
   PLAYER_MINS_Z,
 } from "../../../engine/physics/PlayerPhysicsConstants";
 import type { TriggerVolume } from "../../../shared/bsp/TriggerTable";
-import { MASK_SOLID } from "../../../shared/collision/CollisionWorld";
+import { MASK_LIQUID, MASK_SOLID } from "../../../shared/collision/CollisionWorld";
 import { isSwimming, type WaterLevel } from "../liquid/LiquidTypes";
 import { sampleLiquid } from "../liquid/LiquidVolumeSampler";
 import {
@@ -800,6 +800,7 @@ export class MovementProfile implements IMovementProfile {
         input.viewAngles,
         this.waterLevel,
         (point) => (collision.pointContents(point) & MASK_SOLID) !== 0,
+        (point) => (collision.pointContents(point) & MASK_LIQUID) !== 0,
       )
     ) {
       const yaw = input.viewAngles.yaw;

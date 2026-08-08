@@ -37,6 +37,8 @@ export class UnderwaterView {
   private saved: { mode: number; color: Color3; density: number } | null = null;
   /** Camera FOV as authored, so the warp oscillates around it rather than drifting. */
   private baseFov = new WeakMap<Camera, number>();
+  /** Cameras currently carrying a warped FOV, so dispose() can undo all of them. */
+  private readonly warped = new Set<Camera>();
 
   constructor(private readonly scene: Scene) {}
 
@@ -131,6 +133,13 @@ export class UnderwaterView {
       this.baseFov.set(camera, base);
     }
 
+    // Held strongly as well as weakly. The WeakMap is keyed by camera and is
+    // the right store while the camera lives, but dispose() has to put the FOV
+    // back and cannot enumerate a WeakMap — and an unload while submerged that
+    // skipped the restore would leave the camera warped for the rest of the
+    // session, across every map after it.
+    this.warped.add(camera);
+
     const warp = fovWarpDegrees(this.elapsed, this.submersion, comfort);
     camera.fov = base + warp * RAD_PER_DEG;
   }
@@ -141,6 +150,7 @@ export class UnderwaterView {
       camera.fov = base;
       this.baseFov.delete(camera);
     }
+    this.warped.delete(camera);
   }
 
   private restoreScene(): void {
@@ -151,13 +161,21 @@ export class UnderwaterView {
     this.saved = null;
   }
 
-  /** Leave the scene exactly as it was found — map unload must not inherit fog. */
+  /**
+   * Leave everything exactly as it was found.
+   *
+   * Fog AND field of view. Cameras outlive the map — the same camera object is
+   * handed to the next one — so unloading while submerged used to leave the
+   * warp applied permanently, on every map after it.
+   */
   dispose(): void {
     if (this.observer) {
       this.scene.onBeforeCameraRenderObservable.remove(this.observer);
       this.observer = null;
     }
     this.restoreScene();
+    for (const camera of [...this.warped]) this.restoreFov(camera);
+    this.warped.clear();
     this.submersion = 0;
     this.collision = null;
   }

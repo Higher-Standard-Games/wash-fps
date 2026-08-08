@@ -537,6 +537,10 @@ export class RemotePlayerRenderer {
         this.hitboxes.delete(entityId);
         this.deadEntities.delete(entityId);
         this.demoAnimationTimeline?.delete(entityId);
+        // Their tracked water level goes with them. Left behind it would both
+        // accumulate for every player who ever entered PVS, and hand a reused
+        // id a stale depth to be compared against.
+        this.liquidInteractions?.forget(entityId);
       }
     }
     this.demoAnimationTimeline?.finishPresentationFrame();
@@ -586,6 +590,12 @@ export class RemotePlayerRenderer {
   markDead(entityId: string): void {
     this.deadEntities.set(entityId, performance.now());
     this.demoAnimationTimeline?.delete(entityId);
+    // A body that dies at the bottom of a pool and respawns dry goes from
+    // level 3 to level 0 without ever breaking the surface. Without this the
+    // respawn announces itself with an exit splash on dry land — the local
+    // player has been re-baselined on respawn since the beginning; remote
+    // players were not.
+    this.liquidInteractions?.forget(entityId);
     const hitbox = this.hitboxes.get(entityId);
     if (hitbox) {
       hitbox.mesh.dispose();

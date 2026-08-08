@@ -62,7 +62,12 @@ export interface LiquidEffectResult {
   startedDrowning: boolean;
 }
 
-const NOTHING: LiquidEffectResult = { drownDamage: 0, burnDamage: 0, startedDrowning: false };
+/**
+ * Frozen: this one object is returned to every caller on every quiet tick, so
+ * anything that mutated a result would be editing the answer given to everyone
+ * afterwards.
+ */
+const NOTHING: LiquidEffectResult = Object.freeze({ drownDamage: 0, burnDamage: 0, startedDrowning: false });
 
 /**
  * Advance one player's liquid effects.

@@ -191,6 +191,66 @@ describe("rings belong to the surface, not to the swimmer", () => {
   });
 });
 
+describe("which liquid a splash belongs to", () => {
+  /** Lava below y=56, water below y=56 on the far side of x=500. */
+  const lavaPit = {
+    pointContents: (p: { x: number; y: number; z: number }) => {
+      if (p.y > 56) return 0;
+      return p.x > 500 ? 2 /* WATER */ : 4 /* LAVA */;
+    },
+  };
+
+  it("reads the liquid from the surface, not from the caller", () => {
+    // Only the water LEVEL is replicated, never the kind, so the remote
+    // renderer has nothing honest to pass and used to hardcode "water" — a
+    // lava dive got a water splash and a blue ring. The client has the map.
+    system.setCollisionWorld(lavaPit);
+    system.notify("p1", 0, "water", at(0, 50, 0), DIVING, false);
+    system.notify("p1", 2, "water", at(0, 50, 0), DIVING, false);
+
+    expect(system.lastRingKind).toBe("lava");
+  });
+
+  it("still believes the caller when there is no map to consult", () => {
+    // No collision world: the caller's guess is the only information there is.
+    system.notify("p1", 0, "slime", at(0, 50, 0), DIVING, false);
+    system.notify("p1", 2, "slime", at(0, 50, 0), DIVING, false);
+
+    expect(system.lastRingKind).toBe("slime");
+  });
+
+  it("reads it per splash, not once", () => {
+    system.setCollisionWorld(lavaPit);
+    system.notify("p1", 0, "water", at(0, 50, 0), DIVING, false);
+    system.notify("p1", 2, "water", at(0, 50, 0), DIVING, false);
+    expect(system.lastRingKind).toBe("lava");
+
+    system.notify("p2", 0, "water", at(600, 50, 0), DIVING, false);
+    system.notify("p2", 2, "water", at(600, 50, 0), DIVING, false);
+
+    expect(system.lastRingKind).toBe("water");
+  });
+
+  it("does not throw a crown into lava", () => {
+    // Thick liquids do not crown, and the check must use the DERIVED kind —
+    // reading the caller's "water" would spray a lava pit.
+    system.enableCrowns(new FreeCamera("c", new Vector3(0, 0, 0), scene));
+    system.setCollisionWorld(lavaPit);
+    system.notify("p1", 0, "water", at(0, 50, 0), DIVING, false);
+    system.notify("p1", 2, "water", at(0, 50, 0), DIVING, false);
+
+    expect(system.activeDroplets).toBe(0);
+  });
+
+  it("gives a rocket into lava a lava splash", () => {
+    system.setCollisionWorld(lavaPit);
+    system.notifyProjectile("proj_1", at(0, 80, 0), 1400);
+    system.notifyProjectile("proj_1", at(0, 40, 0), 1400);
+
+    expect(system.lastRingKind).toBe("lava");
+  });
+});
+
 describe("projectiles entering liquid", () => {
   /** A pool filling y <= 56 inside a 200-unit square, dry everywhere else. */
   const pool = {

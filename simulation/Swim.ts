@@ -192,6 +192,7 @@ export function checkWaterJump(
   viewAngles: { pitch: number; yaw: number },
   level: WaterLevel,
   isSolidAt: (point: Vec3) => boolean,
+  isLiquidAt: (point: Vec3) => boolean,
 ): boolean {
   if (level !== 2) return false;
 
@@ -206,6 +207,11 @@ export function checkWaterJump(
   };
   if (!isSolidAt(ahead)) return false;
 
+  // The space above the ledge has to be AIR — not solid, and not more liquid.
+  // Checking only for solid finds every submerged shelf inside a deep pool and
+  // calls it a way out, so a player treading over the steps at the shallow end
+  // gets launched they did not ask for, and loses control for two seconds
+  // while it plays out. A way out of the water has dry air above it.
   const above: Vec3 = { x: ahead.x, y: ahead.y + 16, z: ahead.z };
-  return !isSolidAt(above);
+  return !isSolidAt(above) && !isLiquidAt(above);
 }

@@ -22,7 +22,7 @@ import type { Scene } from "@babylonjs/core/scene";
 import { MASK_LIQUID } from "../../../../shared/collision/CollisionWorld";
 import { enterSound, exitSound, HIT_WATER, playLiquidCrossing, splashVolume } from "../../client/FPSLiquidAudio";
 import type { LiquidKind, WaterLevel } from "../LiquidTypes";
-import type { PointContentsSource } from "../LiquidVolumeSampler";
+import { liquidKindAt, type PointContentsSource } from "../LiquidVolumeSampler";
 import { FluidSplashRenderer } from "./FluidSplashRenderer";
 import { SplashDroplets } from "./SplashDroplets";
 
@@ -67,6 +67,12 @@ const RING_SURFACE_LIFT = 0.5;
 const REENTRY_RING_SPEED = 260;
 /** Re-entry ripples are faint — a crown's aftermath, not another splash. */
 const REENTRY_RING_STRENGTH = 0.25;
+
+/** A liquid surface a crossing belongs to: where it is, and what it is. */
+interface LiquidSurface {
+  y: number;
+  kind: LiquidKind;
+}
 
 /** Directions probed to find the pool's edge. Eight is enough for a circle. */
 const EDGE_PROBE_DIRECTIONS = 8;
@@ -142,6 +148,7 @@ export class LiquidInteractionSystem {
   private nextRing = 0;
   private collision: PointContentsSource | null = null;
   private lastSpawned: Ring | null = null;
+  private lastSpawnedKind: LiquidKind | null = null;
   /** Whether each tracked projectile was in liquid last frame. */
   private readonly projectiles = new Map<string, boolean>();
   /** Epic tier only. Null until enableCrowns() succeeds. */
@@ -222,13 +229,21 @@ export class LiquidInteractionSystem {
     const exited = previous > 0 && level === 0;
     if (!entered && !exited) return;
 
+    // Resolve the liquid from the surface itself rather than trusting the
+    // caller. Only the water LEVEL is replicated, not the kind, so the remote
+    // renderer has no honest value to pass and used to hardcode "water" —
+    // which gave a lava dive a water splash and a blue ring. The client has
+    // the map, so it can simply look.
+    const surface = this.surfaceNear(position, kind);
+    const splashKind = surface?.kind ?? kind;
+
     const volume = splashVolume(verticalSpeed);
-    playLiquidCrossing(entered ? enterSound(kind) : exitSound(kind), volume, position, local);
+    playLiquidCrossing(entered ? enterSound(splashKind) : exitSound(splashKind), volume, position, local);
 
     // A ring for a body that actually broke the surface. Someone easing across
     // the waterline leaves nothing, which is also why the volume gate and the
     // ring share a threshold.
-    if (volume > 0) this.spawnRing(position, kind, volume);
+    if (volume > 0 && surface) this.spawnRing(position, surface, splashKind, volume);
   }
 
   /**
@@ -258,8 +273,10 @@ export class LiquidInteractionSystem {
     // Projectiles hit harder than bodies drift, so the splash is scaled off
     // their own speed rather than the body gate, which they would always clear.
     const strength = Math.min(1, 0.35 + speed / 3000);
+    const surface = this.surfaceNear(position, "water");
+
     playLiquidCrossing(HIT_WATER, strength, position, false);
-    this.spawnRing(position, "water", strength);
+    if (surface) this.spawnRing(position, surface, surface.kind, strength);
   }
 
   /** A projectile that exploded or expired. */
@@ -279,22 +296,25 @@ export class LiquidInteractionSystem {
     this.bodies.delete(entityId);
   }
 
-  private spawnRing(position: { x: number; y: number; z: number }, kind: LiquidKind, strength: number): void {
-    // Snap to the waterline. The position handed in is the BODY's, and on the
-    // way out of a pool the body is already standing on the bank — so a ring
-    // drawn there floats over dry land a couple of feet up, which is exactly
-    // what it looked like. A ripple belongs to the surface, not to the swimmer.
-    const surfaceY = this.surfaceYNear(position);
-    if (surfaceY === null) return;
-
-    const at = { x: position.x, y: surfaceY, z: position.z };
+  private spawnRing(
+    position: { x: number; y: number; z: number },
+    surface: LiquidSurface,
+    kind: LiquidKind,
+    strength: number,
+  ): void {
+    // Snapped to the waterline by the caller. The position handed in is the
+    // BODY's, and on the way out of a pool the body is already standing on the
+    // bank — so a ring drawn there floats over dry land a couple of feet up,
+    // which is exactly what it looked like. A ripple belongs to the surface,
+    // not to the swimmer.
+    const at = { x: position.x, y: surface.y, z: position.z };
 
     // Epic: throw a crown of spray from the same waterline the ring sits on.
     // Water only — slime and lava are thick and do not throw droplets, and a
     // pale crown over lava would read as steam.
     if (this.droplets && kind === "water") {
       this.splashSeed++;
-      this.droplets.spawn({ ...at, surfaceY, strength }, this.splashSeed);
+      this.droplets.spawn({ ...at, surfaceY: surface.y, strength }, this.splashSeed);
     }
 
     this.placeRing(at, kind, strength);
@@ -319,26 +339,34 @@ export class LiquidInteractionSystem {
     ring.mesh.setEnabled(true);
     ring.age = 0;
     this.lastSpawned = ring;
+    this.lastSpawnedKind = kind;
 
     this.start();
   }
 
   /**
-   * The height of the liquid surface near a body, or null if there is none.
+   * The liquid surface near a body — its height AND which liquid it is.
    *
    * Walks down a column through the body's position and returns the first
    * height where liquid begins. Returning null rather than guessing matters:
    * a crossing detected while the body is nowhere near a surface — a teleport,
    * a respawn the forget() call did not cover — produces no ring at all, which
    * is better than one drawn at an invented height.
+   *
+   * The kind comes from the same probe that found the height, which is the
+   * only place it can honestly come from: the wire carries a water LEVEL and
+   * not a water TYPE, so a caller reporting a remote player has nothing but a
+   * guess to offer. `fallback` covers the case with no collision world at all,
+   * where the caller's guess is all there is.
    */
-  private surfaceYNear(position: { x: number; y: number; z: number }): number | null {
-    if (!this.collision) return position.y;
+  private surfaceNear(position: { x: number; y: number; z: number }, fallback: LiquidKind): LiquidSurface | null {
+    if (!this.collision) return { y: position.y, kind: fallback };
 
     for (let i = 0; i <= SURFACE_SEARCH_STEPS; i++) {
       const y = position.y + SURFACE_SEARCH_ABOVE - i * SURFACE_SEARCH_STEP;
       const contents = this.collision.pointContents({ x: position.x, y, z: position.z });
-      if ((contents & MASK_LIQUID) !== 0) return y;
+      const kind = liquidKindAt(contents & MASK_LIQUID);
+      if (kind) return { y, kind };
     }
 
     return null;
@@ -521,6 +549,11 @@ export class LiquidInteractionSystem {
   /** Droplets in flight. For tests and the debug command. */
   get activeDroplets(): number {
     return this.droplets?.aliveCount ?? 0;
+  }
+
+  /** Which liquid the most recent ring was drawn for. Test/debug only. */
+  get lastRingKind(): LiquidKind | null {
+    return this.lastSpawnedKind;
   }
 
   /** Edge-clamped radius of the most recently spawned ring. Test/debug only. */

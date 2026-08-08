@@ -190,27 +190,37 @@ describe("checkWaterJump", () => {
 
   /** Solid everywhere below `topY` — a wall the player is treading against. */
   const wallUpTo = (topY: number) => (p: { y: number }) => p.y < topY;
+  /** Open air above the ledge: the ordinary case. */
+  const noLiquid = () => false;
 
   it("launches over a lip that has clear air above it", () => {
     // Solid at chest height 30 units ahead, clear 16 above: a ledge.
-    expect(checkWaterJump(origin, facingZ, 2, wallUpTo(110))).toBe(true);
+    expect(checkWaterJump(origin, facingZ, 2, wallUpTo(110), noLiquid)).toBe(true);
   });
 
   it("does not launch into a wall", () => {
     // Solid at chest height AND above it: no way out here.
-    expect(checkWaterJump(origin, facingZ, 2, () => true)).toBe(false);
+    expect(checkWaterJump(origin, facingZ, 2, () => true, noLiquid)).toBe(false);
   });
 
   it("does not launch with nothing ahead", () => {
-    expect(checkWaterJump(origin, facingZ, 2, () => false)).toBe(false);
+    expect(checkWaterJump(origin, facingZ, 2, () => false, noLiquid)).toBe(false);
+  });
+
+  it("does not launch onto a shelf that is still underwater", () => {
+    // A step inside a deep pool is solid at chest height with clear space
+    // above it, so a solid-only check calls it a way out — and a player
+    // treading over the shallow end gets thrown by a launch they did not ask
+    // for, losing control for two seconds. A way out has AIR above it.
+    expect(checkWaterJump(origin, facingZ, 2, wallUpTo(110), () => true)).toBe(false);
   });
 
   it("only applies while treading at the surface", () => {
     // A fully submerged player is not at the edge of anything, and a wading
     // one can simply walk out.
-    expect(checkWaterJump(origin, facingZ, 3, wallUpTo(110))).toBe(false);
-    expect(checkWaterJump(origin, facingZ, 1, wallUpTo(110))).toBe(false);
-    expect(checkWaterJump(origin, facingZ, 0, wallUpTo(110))).toBe(false);
+    expect(checkWaterJump(origin, facingZ, 3, wallUpTo(110), noLiquid)).toBe(false);
+    expect(checkWaterJump(origin, facingZ, 1, wallUpTo(110), noLiquid)).toBe(false);
+    expect(checkWaterJump(origin, facingZ, 0, wallUpTo(110), noLiquid)).toBe(false);
   });
 
   it("probes ahead of where the player faces, not where they look", () => {
@@ -218,10 +228,16 @@ describe("checkWaterJump", () => {
     const lookingUp = { pitch: -Math.PI / 3, yaw: 0 };
     const probes: Array<{ x: number; y: number; z: number }> = [];
 
-    checkWaterJump(origin, lookingUp, 2, (p) => {
-      probes.push({ ...p });
-      return p.y < 110;
-    });
+    checkWaterJump(
+      origin,
+      lookingUp,
+      2,
+      (p) => {
+        probes.push({ ...p });
+        return p.y < 110;
+      },
+      noLiquid,
+    );
 
     expect(probes[0].z).toBeCloseTo(30, 5);
     expect(probes[0].y).toBeCloseTo(104, 5);
