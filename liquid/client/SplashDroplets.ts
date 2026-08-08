@@ -53,8 +53,23 @@ interface Droplet {
   vz: number;
   surfaceY: number;
   age: number;
+  /** Seeded size multiplier. Uniform droplets read as a pattern, not as spray. */
+  size: number;
   alive: boolean;
 }
+
+/** Spread of droplet sizes. A crown is a few fat blobs and a lot of fine mist. */
+const MIN_SIZE = 0.35;
+const MAX_SIZE = 1.0;
+
+/**
+ * Fraction of a droplet's flight spent shrinking away.
+ *
+ * Spray does not travel as a solid bead and land as one — it breaks up. Without
+ * this every droplet is the same size for its whole arc and the crown reads as
+ * thrown gravel.
+ */
+const FADE_FRACTION = 0.45;
 
 /**
  * Deterministic spread, so a splash looks the same to everyone watching it.
@@ -71,11 +86,13 @@ export class SplashDroplets {
   private readonly droplets: Droplet[] = [];
   /** Interleaved xyz for the renderer, sized once. */
   private readonly positions = new Float32Array(MAX_DROPLETS * 3);
+  /** Per-droplet radius multiplier, packed in the same order as `positions`. */
+  private readonly sizes = new Float32Array(MAX_DROPLETS);
   private liveCount = 0;
 
   constructor() {
     for (let i = 0; i < MAX_DROPLETS; i++) {
-      this.droplets.push({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, surfaceY: 0, age: 0, alive: false });
+      this.droplets.push({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, surfaceY: 0, age: 0, size: 1, alive: false });
     }
   }
 
@@ -106,6 +123,11 @@ export class SplashDroplets {
       droplet.vz = Math.sin(angle) * spread;
       droplet.surfaceY = spawn.surfaceY;
       droplet.age = 0;
+      // Biased small: cubing a uniform sample makes most droplets fine mist
+      // and only a few of them fat, which is the size distribution real spray
+      // has. A linear spread still reads as a cloud of identical beads.
+      const roll = seededUnit(seed, i + 1500);
+      droplet.size = MIN_SIZE + (MAX_SIZE - MIN_SIZE) * roll * roll * roll;
       droplet.alive = true;
       spawned++;
     }
@@ -157,6 +179,11 @@ export class SplashDroplets {
       this.positions[o] = d.x;
       this.positions[o + 1] = d.y;
       this.positions[o + 2] = d.z;
+      // Shrink over the back half of the arc so droplets break up rather than
+      // popping out of existence at full size.
+      const life = Math.min(1, d.age / MAX_LIFETIME);
+      const fade = life < 1 - FADE_FRACTION ? 1 : Math.max(0, (1 - life) / FADE_FRACTION);
+      this.sizes[this.liveCount] = d.size * fade;
       this.liveCount++;
     }
 
@@ -194,6 +221,11 @@ export class SplashDroplets {
   /** Interleaved xyz positions. Only the first `count * 3` entries are live. */
   get buffer(): Float32Array {
     return this.positions;
+  }
+
+  /** Radius multipliers, same order as `buffer`. First `count` entries are live. */
+  get sizeBuffer(): Float32Array {
+    return this.sizes;
   }
 
   /** Retire everything, for a map change. */

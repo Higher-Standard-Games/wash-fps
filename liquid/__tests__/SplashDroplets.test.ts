@@ -106,6 +106,73 @@ describe("spawning", () => {
   });
 });
 
+describe("size", () => {
+  it("does not draw every droplet the same", () => {
+    // Uniform droplets read as a pattern rather than as spray — the first
+    // version drew them all at one radius and the crown looked like a handful
+    // of thrown snowballs.
+    const droplets = new SplashDroplets();
+    droplets.spawn(splash(1), 23);
+    droplets.update(1 / 60);
+
+    const sizes = Array.from(droplets.sizeBuffer.slice(0, droplets.count));
+    expect(new Set(sizes).size).toBeGreaterThan(1);
+  });
+
+  it("makes most of them small and only a few fat", () => {
+    // Real spray is mostly fine mist. A linear spread still reads as a cloud
+    // of identical beads, so the roll is cubed.
+    const droplets = new SplashDroplets();
+    droplets.spawn(splash(1), 29);
+    droplets.update(1 / 60);
+
+    const sizes = Array.from(droplets.sizeBuffer.slice(0, droplets.count));
+    const small = sizes.filter((s) => s < 0.5).length;
+
+    expect(small / sizes.length).toBeGreaterThan(0.5);
+  });
+
+  it("keeps every droplet within a sane range", () => {
+    const droplets = new SplashDroplets();
+    droplets.spawn(splash(1), 31);
+    droplets.update(1 / 60);
+
+    for (let i = 0; i < droplets.count; i++) {
+      expect(droplets.sizeBuffer[i]).toBeGreaterThan(0);
+      expect(droplets.sizeBuffer[i]).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("shrinks them toward the end of the arc", () => {
+    // Spray breaks up rather than popping out of existence at full size.
+    const droplets = new SplashDroplets();
+    droplets.spawn(splash(1), 37);
+    droplets.update(1 / 60);
+    const early = Math.max(...Array.from(droplets.sizeBuffer.slice(0, droplets.count)));
+
+    // Most of the way through the maximum lifetime, without landing: a droplet
+    // thrown from a surface far below never re-enters.
+    const high = new SplashDroplets();
+    high.spawn({ x: 0, y: 0, z: 0, surfaceY: -100000, strength: 1 }, 37);
+    for (let t = 0; t < 2.3; t += 1 / 60) high.update(1 / 60);
+    const late = Math.max(...Array.from(high.sizeBuffer.slice(0, high.count)));
+
+    expect(late).toBeLessThan(early);
+  });
+
+  it("has a size for every packed position", () => {
+    // The renderer indexes both buffers with the same counter; a mismatch
+    // would scale droplets by their neighbour's size.
+    const droplets = new SplashDroplets();
+    droplets.spawn(splash(1), 41);
+    droplets.spawn(splash(0.5), 43);
+    droplets.update(1 / 60);
+
+    expect(droplets.sizeBuffer.length).toBe(MAX_DROPLETS);
+    for (let i = 0; i < droplets.count; i++) expect(droplets.sizeBuffer[i]).toBeGreaterThan(0);
+  });
+});
+
 describe("flight", () => {
   it("brings every droplet back down", () => {
     // Nothing may stay in the air. A stuck droplet is a white dot hanging over

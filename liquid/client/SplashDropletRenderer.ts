@@ -36,8 +36,15 @@ import "@babylonjs/core/Meshes/thinInstanceMesh";
 import type { Scene } from "@babylonjs/core/scene";
 import { MAX_DROPLETS } from "./SplashDroplets";
 
-/** Droplet radius in world units. */
-const DROPLET_RADIUS = 3.5;
+/**
+ * Radius of the LARGEST droplet, in world units.
+ *
+ * Per-droplet size scales down from here. The first version drew every droplet
+ * at 3.5 units with no variation, which at a 20-face icosphere put the facets
+ * on screen — the crown read as a handful of thrown snowballs. Spray is small
+ * and mostly fine; a droplet the eye can resolve the shape of is too big.
+ */
+const DROPLET_RADIUS = 2.2;
 
 /**
  * The viewmodel camera's layer.
@@ -73,10 +80,14 @@ export class SplashDropletRenderer {
       // Emissive rather than lit: spray is bright against both a dark pool and
       // a bright sky, and it must not go black in an unlit corner of a map.
       material.disableLighting = true;
-      material.emissiveColor = new Color3(0.78, 0.9, 0.98);
+      // Tinted toward the water rather than white. Pure white spray over a
+      // blue-green pool reads as snow, which is exactly what it looked like.
+      material.emissiveColor = new Color3(0.62, 0.8, 0.88);
       material.diffuseColor = Color3.Black();
       material.specularColor = Color3.Black();
-      material.alpha = 0.85;
+      // Well short of opaque: spray is thin, and overlapping droplets should
+      // build up density rather than each one being a solid bead.
+      material.alpha = 0.5;
       // No depth write, like every other transparent effect here — droplets
       // must not appear in the depth map the water surface measures itself
       // against, or a crown would punch holes in the pool it came from.
@@ -102,13 +113,17 @@ export class SplashDropletRenderer {
   }
 
   /**
-   * Show `count` droplets from the simulation's interleaved xyz buffer.
+   * Show `count` droplets from the simulation's buffers.
    *
-   * Writes translation directly into the matrix buffer rather than composing
-   * one through `Matrix.Translation`, which would allocate per droplet per
-   * frame. Column-major, translation in elements 12..14.
+   * Writes scale and translation straight into the matrix buffer rather than
+   * composing one through `Matrix.Scaling`/`Translation`, which would allocate
+   * per droplet per frame. Column-major: scale on the diagonal, translation in
+   * elements 12..14.
+   *
+   * Rotation stays identity — a sphere has no orientation to get right, which
+   * is the entire reason droplets are spheres.
    */
-  update(positions: Float32Array, count: number): void {
+  update(positions: Float32Array, sizes: Float32Array, count: number): void {
     const mesh = this.mesh;
     if (!mesh) return;
 
@@ -124,19 +139,18 @@ export class SplashDropletRenderer {
     const m = this.matrices;
     for (let i = 0; i < shown; i++) {
       const o = i * 16;
-      // Identity rotation and scale: a sphere needs neither, which is the
-      // entire reason droplets are spheres.
-      m[o] = 1;
+      const s = sizes[i];
+      m[o] = s;
       m[o + 1] = 0;
       m[o + 2] = 0;
       m[o + 3] = 0;
       m[o + 4] = 0;
-      m[o + 5] = 1;
+      m[o + 5] = s;
       m[o + 6] = 0;
       m[o + 7] = 0;
       m[o + 8] = 0;
       m[o + 9] = 0;
-      m[o + 10] = 1;
+      m[o + 10] = s;
       m[o + 11] = 0;
       m[o + 12] = positions[i * 3];
       m[o + 13] = positions[i * 3 + 1];

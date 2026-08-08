@@ -511,7 +511,7 @@ export class LiquidInteractionSystem {
     if (!this.droplets) return false;
 
     const reentries = this.droplets.update(dt);
-    this.spray?.update(this.droplets.buffer, this.droplets.count);
+    this.spray?.update(this.droplets.buffer, this.droplets.sizeBuffer, this.droplets.count);
 
     let placed = false;
     for (const hit of reentries) {
