@@ -2444,10 +2444,15 @@ export class Game {
     // so it is the cheapest place to notice a crossing.
     if (this.remoteRenderer) this.remoteRenderer.liquidInteractions = this.liquidInteractions;
 
-    // Epic splash crowns, and only at Epic. Asked for per map rather than left
-    // on, so Low and Medium build no droplet mesh at all. A refusal is not an
-    // error — the plain ring still plays.
-    if ((RenderVars.getInstance().get("r_water_quality") ?? 2) >= 3) {
+    // Splash crowns from Medium up.
+    //
+    // They were Epic-only on the assumption that spray was expensive, which
+    // was true of the FluidRenderer implementation and is not true of what
+    // replaced it: one mesh, one draw call, no render target and no
+    // post-process. The thing that actually costs at Epic is the pair of
+    // scene passes for refraction and reflection, and the crown has nothing
+    // to do with either. Only Low goes without.
+    if ((RenderVars.getInstance().get("r_water_quality") ?? 2) >= 2) {
       if (!this.liquidInteractions.enableCrowns()) {
         console.info("[Water] Epic splashes unavailable; using ripples");
       }
