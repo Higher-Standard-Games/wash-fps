@@ -34,7 +34,6 @@ import { CreateIcoSphere } from "@babylonjs/core/Meshes/Builders/icoSphereBuilde
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import "@babylonjs/core/Meshes/thinInstanceMesh";
 import type { Scene } from "@babylonjs/core/scene";
-import { EXCLUDE_FROM_WATER_CAPTURE } from "../../../../engine/rendering/water/WaterSceneCapture";
 import { MAX_DROPLETS } from "./SplashDroplets";
 
 /**
@@ -99,10 +98,6 @@ export class SplashDropletRenderer {
       mesh.alwaysSelectAsActiveMesh = true;
       mesh.doNotSyncBoundingInfo = true;
       mesh.layerMask &= ~WEAPON_LAYER_MASK;
-      // Spray lives ABOVE the surface, so it must not appear in the refraction
-      // capture — the crown would show a second time, bent, under the pool it
-      // was thrown from.
-      mesh.metadata = { ...(mesh.metadata ?? {}), [EXCLUDE_FROM_WATER_CAPTURE]: true };
 
       mesh.thinInstanceSetBuffer("matrix", this.matrices, 16, false);
       mesh.thinInstanceCount = 0;
