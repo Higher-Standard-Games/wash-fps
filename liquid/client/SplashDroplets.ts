@@ -86,7 +86,19 @@ export class SplashDroplets {
 
   constructor() {
     for (let i = 0; i < MAX_DROPLETS; i++) {
-      this.droplets.push({ x: 0, y: 0, z: 0, vx: 0, vy: 0, launchSpeed: 1, vz: 0, surfaceY: 0, age: 0, size: 1, alive: false });
+      this.droplets.push({
+        x: 0,
+        y: 0,
+        z: 0,
+        vx: 0,
+        vy: 0,
+        launchSpeed: 1,
+        vz: 0,
+        surfaceY: 0,
+        age: 0,
+        size: 1,
+        alive: false,
+      });
     }
   }
 
@@ -98,7 +110,8 @@ export class SplashDroplets {
    * a rocket throws a wider one than a body does.
    */
   spawn(spawn: DropletSpawn, seed: number): number {
-    if (![spawn.x, spawn.surfaceY, spawn.z, spawn.strength, seed].every(Number.isFinite) || spawn.strength <= 0) return 0;
+    if (![spawn.x, spawn.surfaceY, spawn.z, spawn.strength, seed].every(Number.isFinite) || spawn.strength <= 0)
+      return 0;
     const strength = Math.min(1, spawn.strength);
     const wanted = Math.round(3 + strength * 21);
     let spawned = 0;
@@ -181,8 +194,8 @@ export class SplashDroplets {
       this.velocities[o + 2] = d.vz;
       // Actual flights are shorter than MAX_LIFETIME. Fade near re-entry,
       // rather than only at a timeout the droplet never reaches.
-      this.opacities[this.liveCount] = Math.min(1, d.age / 0.035) *
-        (d.vy < 0 ? Math.min(1, Math.max(0, (d.y - d.surfaceY) / 12)) : 1);
+      this.opacities[this.liveCount] =
+        Math.min(1, d.age / 0.035) * (d.vy < 0 ? Math.min(1, Math.max(0, (d.y - d.surfaceY) / 12)) : 1);
       // Shrink over the back half of the arc so droplets break up rather than
       // popping out of existence at full size.
       const descent = Math.min(1, Math.max(0, -d.vy / d.launchSpeed));
@@ -231,8 +244,12 @@ export class SplashDroplets {
   get sizeBuffer(): Float32Array {
     return this.sizes;
   }
-  get velocityBuffer(): Float32Array { return this.velocities; }
-  get opacityBuffer(): Float32Array { return this.opacities; }
+  get velocityBuffer(): Float32Array {
+    return this.velocities;
+  }
+  get opacityBuffer(): Float32Array {
+    return this.opacities;
+  }
 
   /** Retire everything, for a map change. */
   clear(): void {

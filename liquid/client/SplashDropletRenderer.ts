@@ -57,7 +57,8 @@ export class SplashDropletRenderer {
   start(): boolean {
     if (this.mesh) return true;
     try {
-      const mesh = this.mesh = new Mesh("liquid-splash-droplets", this.scene);
+      this.mesh = new Mesh("liquid-splash-droplets", this.scene);
+      const mesh = this.mesh;
       const uv = new Float32Array(MAX_DROPLETS * 8);
       const indices: number[] = [];
       for (let i = 0; i < MAX_DROPLETS; i++) {
@@ -70,11 +71,17 @@ export class SplashDropletRenderer {
       mesh.setVerticesData("sprayData", this.data, true, 2);
       mesh.setVerticesData("sprayVelocity", this.velocities, true, 3);
       mesh.setIndices(indices);
-      const material = this.material = new ShaderMaterial("liquid-splash-spray-mat", this.scene,
-        { vertexSource: VERTEX, fragmentSource: FRAGMENT }, {
+      this.material = new ShaderMaterial(
+        "liquid-splash-spray-mat",
+        this.scene,
+        { vertexSource: VERTEX, fragmentSource: FRAGMENT },
+        {
           attributes: ["position", "uv", "sprayData", "sprayVelocity"],
-          uniforms: ["view", "projection", "uOutputLinear"], needAlphaBlending: true,
-        });
+          uniforms: ["view", "projection", "uOutputLinear"],
+          needAlphaBlending: true,
+        },
+      );
+      const material = this.material;
       material.disableDepthWrite = true;
       material.backFaceCulling = false;
       material.setFloat("uOutputLinear", 0);
@@ -96,12 +103,20 @@ export class SplashDropletRenderer {
     }
   }
 
-  update(positions: Float32Array, sizes: Float32Array, count: number,
-    velocities?: Float32Array, opacities?: Float32Array): void {
+  update(
+    positions: Float32Array,
+    sizes: Float32Array,
+    count: number,
+    velocities?: Float32Array,
+    opacities?: Float32Array,
+  ): void {
     const mesh = this.mesh;
     if (!mesh) return;
     this.shown = Math.max(0, Math.min(MAX_DROPLETS, Math.floor(count), sizes.length, Math.floor(positions.length / 3)));
-    if (!this.shown) { mesh.setEnabled(false); return; }
+    if (!this.shown) {
+      mesh.setEnabled(false);
+      return;
+    }
     for (let i = 0; i < this.shown; i++) {
       for (let corner = 0; corner < 4; corner++) {
         const vertex = i * 4 + corner;
@@ -130,8 +145,12 @@ export class SplashDropletRenderer {
     mesh.setEnabled(true);
   }
 
-  get isAvailable(): boolean { return this.mesh !== null; }
-  get drawnCount(): number { return this.shown; }
+  get isAvailable(): boolean {
+    return this.mesh !== null;
+  }
+  get drawnCount(): number {
+    return this.shown;
+  }
 
   dispose(): void {
     this.mesh?.dispose();

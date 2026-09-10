@@ -1,18 +1,24 @@
-import { NullEngine } from "@babylonjs/core/Engines/nullEngine";
-import { Scene } from "@babylonjs/core/scene";
 import { FreeCamera } from "@babylonjs/core/Cameras/freeCamera";
+import { NullEngine } from "@babylonjs/core/Engines/nullEngine";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
-import { CreateGround } from "@babylonjs/core/Meshes/Builders/groundBuilder";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder";
-import { beforeEach, afterEach, it, expect, vi } from "vitest";
+import { CreateGround } from "@babylonjs/core/Meshes/Builders/groundBuilder";
+import { Scene } from "@babylonjs/core/scene";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { LiquidSurfaceSystem } from "../../../../../engine/rendering/water/LiquidSurfaceSystem";
 import { waterDisturbancesFor } from "../../../../../engine/rendering/water/WaterDisturbances";
 import WaterCommand from "../WaterCommand";
 
 const context = vi.hoisted(() => ({ camera: null as FreeCamera | null }));
-vi.mock("../../../../../engine/camera/CameraSystem", () => ({ CameraSystem: { getInstance: () => ({ getCamera: () => context.camera }) } }));
-vi.mock("../../../Game", () => ({ Game: { getInstance: () => ({ getLocalPlayerPosition: () => ({ x: 0, y: 16, z: 0 }), debugSplash: () => {} }) } }));
-vi.mock("../../../../../engine/physics/CollisionManager", () => ({ getCollisionManager: () => ({ isInitialized: () => false }) }));
+vi.mock("../../../../../engine/camera/CameraSystem", () => ({
+  CameraSystem: { getInstance: () => ({ getCamera: () => context.camera }) },
+}));
+vi.mock("../../../Game", () => ({
+  Game: { getInstance: () => ({ getLocalPlayerPosition: () => ({ x: 0, y: 16, z: 0 }), debugSplash: () => {} }) },
+}));
+vi.mock("../../../../../engine/physics/CollisionManager", () => ({
+  getCollisionManager: () => ({ isInitialized: () => false }),
+}));
 
 let engine: NullEngine;
 let scene: Scene;
@@ -28,7 +34,12 @@ beforeEach(() => {
   renderer = new LiquidSurfaceSystem(scene);
   renderer.claim(pool);
 });
-afterEach(() => { renderer.dispose(); scene.dispose(); engine.dispose(); context.camera = null; });
+afterEach(() => {
+  renderer.dispose();
+  scene.dispose();
+  engine.dispose();
+  context.camera = null;
+});
 
 it("injects a shader-only ripple at the aimed replacement surface", async () => {
   expect(await command.execute(["ripple"])).toContain("Shader-only ripple");

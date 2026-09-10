@@ -1,15 +1,23 @@
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine";
-import { Scene } from "@babylonjs/core/scene";
 import { ShaderMaterial } from "@babylonjs/core/Materials/shaderMaterial";
-import { beforeEach, afterEach, expect, it } from "vitest";
+import { Scene } from "@babylonjs/core/scene";
+import { afterEach, beforeEach, expect, it } from "vitest";
 import { SplashDropletRenderer } from "../client/SplashDropletRenderer";
 import { MAX_DROPLETS } from "../client/SplashDroplets";
 
 let engine: NullEngine;
 let scene: Scene;
 let renderer: SplashDropletRenderer;
-beforeEach(() => { engine = new NullEngine(); scene = new Scene(engine); renderer = new SplashDropletRenderer(scene); });
-afterEach(() => { renderer.dispose(); scene.dispose(); engine.dispose(); });
+beforeEach(() => {
+  engine = new NullEngine();
+  scene = new Scene(engine);
+  renderer = new SplashDropletRenderer(scene);
+});
+afterEach(() => {
+  renderer.dispose();
+  scene.dispose();
+  engine.dispose();
+});
 
 it("uses two soft-shader triangles per droplet, excluding captures and the weapon camera", () => {
   expect(renderer.start()).toBe(true);
@@ -26,8 +34,13 @@ it("uses two soft-shader triangles per droplet, excluding captures and the weapo
 
 it("packs velocity/fade per live quad and sorts at the splash instead of world origin", () => {
   renderer.start();
-  renderer.update(new Float32Array([704, 72, -960, 706, 74, -958]), new Float32Array([0.5, 0.8]), 2,
-    new Float32Array([10, 100, 20, 15, -80, 30]), new Float32Array([1, 0.2]));
+  renderer.update(
+    new Float32Array([704, 72, -960, 706, 74, -958]),
+    new Float32Array([0.5, 0.8]),
+    2,
+    new Float32Array([10, 100, 20, 15, -80, 30]),
+    new Float32Array([1, 0.2]),
+  );
   const mesh = scene.meshes[0];
   expect(renderer.drawnCount).toBe(2);
   expect(mesh.subMeshes[0].indexCount).toBe(12);
@@ -50,5 +63,5 @@ it("reuses buffers, bounds the visible count and disposes its material", () => {
   renderer.dispose();
   renderer.dispose();
   expect(scene.meshes).toHaveLength(0);
-  expect(scene.materials.some(m => m.name === "liquid-splash-spray-mat")).toBe(false);
+  expect(scene.materials.some((m) => m.name === "liquid-splash-spray-mat")).toBe(false);
 });

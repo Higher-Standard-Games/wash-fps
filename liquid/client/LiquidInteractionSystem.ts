@@ -226,7 +226,16 @@ export class LiquidInteractionSystem {
     // respawned into a pool, or simply entered PVS while swimming. Treating an
     // unknown body as previously dry would splash for all three.
     if (!tracked) {
-      this.bodies.set(entityId, { level, x: position.x, z: position.z, time: now, lastWake: now, wakeDistance: 0, wakeX: 0, wakeZ: 0 });
+      this.bodies.set(entityId, {
+        level,
+        x: position.x,
+        z: position.z,
+        time: now,
+        lastWake: now,
+        wakeDistance: 0,
+        wakeX: 0,
+        wakeZ: 0,
+      });
       return;
     }
 
@@ -252,8 +261,7 @@ export class LiquidInteractionSystem {
           const swimming = level === 2;
           const strength = swimming ? Math.min(0.5, speed / 500) : Math.min(0.28, speed / 900);
           const radius = swimming ? Math.min(88, 48 + speed * 0.12) : Math.min(52, 24 + speed * 0.08);
-          waterDisturbancesFor(this.scene).add(position, strength,
-            radius, { x: tracked.wakeX, z: tracked.wakeZ });
+          waterDisturbancesFor(this.scene).add(position, strength, radius, { x: tracked.wakeX, z: tracked.wakeZ });
         }
         tracked.lastWake = now;
         tracked.wakeDistance = 0;
@@ -369,8 +377,12 @@ export class LiquidInteractionSystem {
    * ripple without throwing another crown — which would be a splash spawning
    * a splash, forever.
    */
-  private placeRing(at: { x: number; y: number; z: number }, kind: LiquidKind, strength: number,
-    radius = 48 + 64 * Math.min(1, strength)): void {
+  private placeRing(
+    at: { x: number; y: number; z: number },
+    kind: LiquidKind,
+    strength: number,
+    radius = 48 + 64 * Math.min(1, strength),
+  ): void {
     if (kind === "water") {
       const waves = waterDisturbancesFor(this.scene);
       // Replacement surfaces shade the ripple themselves. Keep the old disc
@@ -567,8 +579,13 @@ export class LiquidInteractionSystem {
 
     const reentries = this.droplets.update(dt);
     this.reentryCooldown = Math.max(0, this.reentryCooldown - dt);
-    this.spray?.update(this.droplets.buffer, this.droplets.sizeBuffer, this.droplets.count,
-      this.droplets.velocityBuffer, this.droplets.opacityBuffer);
+    this.spray?.update(
+      this.droplets.buffer,
+      this.droplets.sizeBuffer,
+      this.droplets.count,
+      this.droplets.velocityBuffer,
+      this.droplets.opacityBuffer,
+    );
 
     let placed = false;
     for (const hit of reentries) {

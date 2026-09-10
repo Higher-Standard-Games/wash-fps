@@ -337,8 +337,11 @@ export class RemotePlayerRenderer {
     const model = this.localReflectionModel;
     const resumed = !model.anchor.isEnabled();
     model.anchor.setEnabled(true);
-    model.anchor.position.set(state.x, state.y + PLAYER_MINS_Z + MODEL_Y_OFFSET -
-      (state.sliding ? 20 : state.crouching ? 10 : 0), state.z);
+    model.anchor.position.set(
+      state.x,
+      state.y + PLAYER_MINS_Z + MODEL_Y_OFFSET - (state.sliding ? 20 : state.crouching ? 10 : 0),
+      state.z,
+    );
     model.anchor.rotation.y = state.yaw;
     this.modelManager.resetRootMotion(model);
     if (resumed) model.currentAnim = "";

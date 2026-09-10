@@ -4,9 +4,9 @@ import { CameraSystem } from "../../../../engine/camera/CameraSystem";
 import { Command, type CommandDef } from "../../../../engine/console/Command";
 import { getCollisionManager } from "../../../../engine/physics/CollisionManager";
 import { ContentFlags, liquidKindOf } from "../../../../engine/physics/ContentFlags";
-import { Game } from "../../Game";
-import { waterDisturbancesFor } from "../../../../engine/rendering/water/WaterDisturbances";
 import { waterActorReflectionStatus } from "../../../../engine/rendering/water/WaterActorReflection";
+import { waterDisturbancesFor } from "../../../../engine/rendering/water/WaterDisturbances";
+import { Game } from "../../Game";
 
 /**
  * Ask the game what it thinks about liquid, right here, right now.
@@ -121,12 +121,22 @@ export default class WaterCommand extends Command {
     const camera = CameraSystem.getInstance().getCamera();
     if (!camera) return "No camera yet.";
     const scene = camera.getScene();
-    const hit = scene.pickWithRay(camera.getForwardRay(2048), mesh =>
-      mesh.isEnabled() && mesh.isVisible && mesh.visibility > 0 &&
-      !mesh.infiniteDistance && !mesh.metadata?.effectOwned &&
-      !(mesh.layerMask & 0x10000000) && mesh.getTotalVertices() > 0);
-    if (!hit?.pickedPoint || hit.pickedMesh?.metadata?.liquidKind !== "water" ||
-        !hit.pickedMesh.material?.name.startsWith("unified-water-")) {
+    const hit = scene.pickWithRay(
+      camera.getForwardRay(2048),
+      (mesh) =>
+        mesh.isEnabled() &&
+        mesh.isVisible &&
+        mesh.visibility > 0 &&
+        !mesh.infiniteDistance &&
+        !mesh.metadata?.effectOwned &&
+        !(mesh.layerMask & 0x10000000) &&
+        mesh.getTotalVertices() > 0,
+    );
+    if (
+      !hit?.pickedPoint ||
+      hit.pickedMesh?.metadata?.liquidKind !== "water" ||
+      !hit.pickedMesh.material?.name.startsWith("unified-water-")
+    ) {
       return "Aim at visible replacement water, not the bank. No ripple emitted.";
     }
     const waves = waterDisturbancesFor(scene);
@@ -139,8 +149,8 @@ export default class WaterCommand extends Command {
     const scene = CameraSystem.getInstance().getCamera()?.getScene();
     if (!scene) return "No camera yet.";
     const waves = waterDisturbancesFor(scene);
-    const surfaces = scene.meshes.filter(mesh => mesh.metadata?.liquidKind === "water");
-    const replaced = surfaces.filter(mesh => mesh.material?.name.startsWith("unified-water-")).length;
+    const surfaces = scene.meshes.filter((mesh) => mesh.metadata?.liquidKind === "water");
+    const replaced = surfaces.filter((mesh) => mesh.material?.name.startsWith("unified-water-")).length;
     return [
       `Water surfaces: ${replaced}/${surfaces.length} replacement; ripple resolver: ${waves.resolveSurface ? "attached" : "absent"}.`,
       `Ripple queue: ${waves.impulses.length} active; ${waves.accepted} accepted; ${waves.rejected} rejected.`,

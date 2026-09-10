@@ -34,11 +34,14 @@ describe("spawning", () => {
   });
 
   it("keeps weak splashes lower and narrower than hard impacts", () => {
-    const weak = new SplashDroplets(), hard = new SplashDroplets();
+    const weak = new SplashDroplets(),
+      hard = new SplashDroplets();
     weak.spawn(splash(0.15), 23);
     hard.spawn(splash(1), 23);
-    weak.update(1 / 60); hard.update(1 / 60);
-    const maxLift = (d: SplashDroplets) => Math.max(...Array.from(d.velocityBuffer.slice(0, d.count * 3)).filter((_, i) => i % 3 === 1));
+    weak.update(1 / 60);
+    hard.update(1 / 60);
+    const maxLift = (d: SplashDroplets) =>
+      Math.max(...Array.from(d.velocityBuffer.slice(0, d.count * 3)).filter((_, i) => i % 3 === 1));
     expect(maxLift(hard)).toBeGreaterThan(maxLift(weak) * 2);
     expect(hard.count).toBeGreaterThan(weak.count);
   });

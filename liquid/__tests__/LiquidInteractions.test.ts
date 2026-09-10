@@ -8,13 +8,13 @@
  */
 
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine";
-import { Scene } from "@babylonjs/core/scene";
 import { CreateGround } from "@babylonjs/core/Meshes/Builders/groundBuilder";
-import { LiquidSurfaceSystem } from "../../../../engine/rendering/water/LiquidSurfaceSystem";
-import { Contents } from "../../../../shared/collision/CollisionWorld";
+import { Scene } from "@babylonjs/core/scene";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { splashVolume } from "../../client/FPSLiquidAudio";
+import { LiquidSurfaceSystem } from "../../../../engine/rendering/water/LiquidSurfaceSystem";
 import { waterDisturbancesFor } from "../../../../engine/rendering/water/WaterDisturbances";
+import { Contents } from "../../../../shared/collision/CollisionWorld";
+import { splashVolume } from "../../client/FPSLiquidAudio";
 import { LiquidInteractionSystem, RING_END_RADIUS, RING_POOL_SIZE } from "../client/LiquidInteractionSystem";
 
 vi.mock("../../../../engine/AudioManager", () => ({
@@ -55,7 +55,7 @@ describe("replacement surface integration", () => {
     pool.metadata = { liquidKind: "water" };
     const renderer = new LiquidSurfaceSystem(scene);
     renderer.claim(pool);
-    system.setCollisionWorld({ pointContents: p => p.y < 56 ? Contents.WATER : 0 });
+    system.setCollisionWorld({ pointContents: (p) => (p.y < 56 ? Contents.WATER : 0) });
     try {
       system.notify("player", 0, "water", at(0, 72), DIVING, true);
       system.notify("player", 2, "water", at(0, 72), DIVING, true);
@@ -65,7 +65,7 @@ describe("replacement surface integration", () => {
       expect(waves.impulses[0].radius).toBeCloseTo(48 + 64 * splashVolume(DIVING));
       expect(waves.accepted).toBe(1);
       expect(system.activeRings).toBe(0);
-      expect(scene.meshes.some(m => m.name.startsWith("liquid-ring"))).toBe(false);
+      expect(scene.meshes.some((m) => m.name.startsWith("liquid-ring"))).toBe(false);
       waves.update(2);
       expect(waves.impulses).toHaveLength(0);
       expect(waves.accepted).toBe(1); // Delivery remains inspectable after the ripple expires.
@@ -91,7 +91,7 @@ describe("reactive shader wakes", () => {
     let clock = 0;
     vi.spyOn(performance, "now").mockImplementation(() => clock);
     const waves = waterDisturbancesFor(scene);
-    waves.resolveSurface = p => ({ ...p, y: 56 });
+    waves.resolveSurface = (p) => ({ ...p, y: 56 });
     for (const level of [1, 2, 3] as const) {
       system.notify(String(level), level, "water", at(), 0, true);
       clock += 150;
@@ -458,22 +458,22 @@ describe("Epic splash crowns", () => {
   it("limits droplet aftermath to small ripples and lets the spray settle", () => {
     vi.spyOn(engine, "getDeltaTime").mockReturnValue(1000 / 60);
     const waves = waterDisturbancesFor(scene);
-    waves.resolveSurface = p => ({ ...p, y: 56 });
+    waves.resolveSurface = (p) => ({ ...p, y: 56 });
     system.enableCrowns();
     system.notify("impact", 0, "water", at(0, 56), -700, true);
     system.notify("impact", 2, "water", at(0, 56), -700, true);
     for (let frame = 0; frame < 60; frame++) scene.onBeforeRenderObservable.notifyObservers(scene);
-    const aftermath = waves.impulses.filter(wave => wave.radius === 24);
+    const aftermath = waves.impulses.filter((wave) => wave.radius === 24);
     expect(aftermath.length).toBeGreaterThan(0);
     expect(aftermath.length).toBeLessThanOrEqual(5);
-    expect(aftermath.every(wave => wave.strength === 0.25)).toBe(true);
+    expect(aftermath.every((wave) => wave.strength === 0.25)).toBe(true);
     expect(system.activeDroplets).toBe(0);
     expect(system.activeRings).toBe(0);
   });
 
   it("makes exiting quieter visually than an equally fast entry", () => {
     const waves = waterDisturbancesFor(scene);
-    waves.resolveSurface = p => p;
+    waves.resolveSurface = (p) => p;
     system.notify("cross", 0, "water", at(), -400, true);
     system.notify("cross", 2, "water", at(), -400, true);
     system.notify("cross", 0, "water", at(), 400, true);

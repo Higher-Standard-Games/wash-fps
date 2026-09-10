@@ -2018,25 +2018,44 @@ export class Game {
   private syncLocalWaterReflection(): void {
     const cameras = CameraSystem.getInstance();
     const camera = cameras.getCamera();
-    if (!camera || this.playerState !== "playing" || this._isPlayerDead ||
-        cameras.getActiveController()?.type !== "fps" || !waterNeedsLocalReflection(camera.getScene()) ||
-        !RenderVars.getInstance().get("r_water_actors") || (RenderVars.getInstance().get("r_water_quality") ?? 3) < 3) {
+    if (
+      !camera ||
+      this.playerState !== "playing" ||
+      this._isPlayerDead ||
+      cameras.getActiveController()?.type !== "fps" ||
+      !waterNeedsLocalReflection(camera.getScene()) ||
+      !RenderVars.getInstance().get("r_water_actors") ||
+      (RenderVars.getInstance().get("r_water_quality") ?? 3) < 3
+    ) {
       this.remoteRenderer?.syncLocalWaterReflection(null);
       return;
     }
     // Do not call getLocalPlayerPosition twice on the network path: it decays
     // reconciliation smoothing. Read the already-smoothed visual position.
-    const position = this.v2Client && this.isNetworkMode
-      ? (this.v2Client.hasValidPosition() ? this.v2Client.getVisualPosition() : null)
-      : this.getLocalPlayerPosition();
-    if (!position) { this.remoteRenderer?.syncLocalWaterReflection(null); return; }
+    const position =
+      this.v2Client && this.isNetworkMode
+        ? this.v2Client.hasValidPosition()
+          ? this.v2Client.getVisualPosition()
+          : null
+        : this.getLocalPlayerPosition();
+    if (!position) {
+      this.remoteRenderer?.syncLocalWaterReflection(null);
+      return;
+    }
     const state = this.getCurrentMovementState();
     const forward = camera.getDirection(Vector3.Forward());
     this.remoteRenderer?.syncLocalWaterReflection({
-      x: position.x, y: position.y, z: position.z, yaw: Math.atan2(forward.x, forward.z),
-      vx: state?.velocity.x ?? 0, vy: state?.velocity.y ?? 0, vz: state?.velocity.z ?? 0,
-      grounded: state?.grounded ?? true, crouching: state?.isCrouching ?? false,
-      sliding: state?.isSliding ?? false, wallJumping: state?.wallJumpState === "charging",
+      x: position.x,
+      y: position.y,
+      z: position.z,
+      yaw: Math.atan2(forward.x, forward.z),
+      vx: state?.velocity.x ?? 0,
+      vy: state?.velocity.y ?? 0,
+      vz: state?.velocity.z ?? 0,
+      grounded: state?.grounded ?? true,
+      crouching: state?.isCrouching ?? false,
+      sliding: state?.isSliding ?? false,
+      wallJumping: state?.wallJumpState === "charging",
       waterLevel: this.v2Client?.getMovementState().waterLevel ?? 0,
     });
   }
