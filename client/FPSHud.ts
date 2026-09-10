@@ -27,6 +27,7 @@ import { MatchPhase, MatchStateManager } from "./MatchStateManager";
 export type { FPSHudWidget } from "./hud/HudWidget";
 
 import type { FPSHudWidget } from "./hud/HudWidget";
+import { FPSAirMeter } from "./hud/widgets/AirMeter";
 import { FPSAmmoCounter } from "./hud/widgets/AmmoCounter";
 import { FPSAmmoWarning } from "./hud/widgets/AmmoWarning";
 import { FPSBombStatus } from "./hud/widgets/BombStatus";
@@ -442,6 +443,11 @@ export class FPSHud {
 
     // Powerup countdown (QUAD) - bottom left, above the vitals block
     this.addWidget("powerup", new FPSPowerupTimer(), "bottom-left");
+
+    // Air, while the head is under. Shares the powerup column because both are
+    // transient states with a clock on them, and neither is ever the thing you
+    // are looking at when it is absent.
+    this.addWidget("air", new FPSAirMeter(), "bottom-left");
 
     // Bomb objective (S&D) — its own corner, not the timer cluster. Sharing
     // top-center put it hard against the frag counter, reading as one control.

@@ -16,11 +16,14 @@ import type { WorldState } from "../../../../engine/server/core/WorldState";
 import type { EntityId, TickNumber } from "../../../../engine/server/ecs/types";
 import { EntityType } from "../../../../engine/server/ecs/types";
 import type { TriggerVolume } from "../../../../shared/bsp/TriggerTable";
+import { Contents } from "../../../../shared/collision/CollisionWorld";
 import type { QueuedInput } from "../../../../shared/server/simulation/components/InputComponent";
 import type { PhysicsComponent } from "../../../../shared/server/simulation/components/PhysicsComponent";
+import type { WaterLevel } from "../../liquid/LiquidTypes";
 import type { AdvancedMovementResult } from "../../simulation/MovementConfig";
 import { MovementProfile as FPSMovementProfile } from "../../simulation/MovementProfile";
 import { type CombatSystem, DamageType, HitLocation } from "./CombatSystem";
+import { createLiquidEffectState, type LiquidEffectState, tickLiquidEffects } from "./LiquidWorldEffects";
 
 const CONFIG: SubsystemConfig = {
   name: "FPSMovement",
@@ -81,6 +84,8 @@ function applyResult(
   physics.wallJumpState = result.wallJumpState ?? "none";
   physics.ledgeGrabState = result.ledgeGrabState ?? "none";
   physics.actualHorizSpeed = result.actualHorizSpeed ?? 0;
+  physics.waterLevel = result.waterLevel ?? 0;
+  physics.liquidContents = result.liquidContents ?? 0;
 
   // Sync player rotation so remote clients can orient the model
   if (input && transform.rotation) {
@@ -160,6 +165,9 @@ export class FPSMovementSubsystem extends Subsystem {
 
   /** Per-entity speed bonus from weapon (e.g., +25 for blade) */
   private weaponSpeedBonuses: Map<number, number> = new Map();
+
+  /** Per-player air and burn timers. Dropped on death, so a respawn breathes. */
+  private liquidEffects: Map<number, LiquidEffectState> = new Map();
 
   /**
    * Last input consumed per entity — repeated when no fresh command arrives this
@@ -293,8 +301,26 @@ export class FPSMovementSubsystem extends Subsystem {
     this.fallPeakY.delete(entityId);
   }
 
-  private updateFallDamageTracking(entityId: EntityId, positionY: number, grounded: boolean, buttons: number): void {
+  private updateFallDamageTracking(
+    entityId: EntityId,
+    positionY: number,
+    grounded: boolean,
+    buttons: number,
+    waterLevel: WaterLevel = 0,
+  ): void {
     const eid = entityId as number;
+
+    // Liquid breaks a fall, and it also breaks the accounting. A swimmer is
+    // ungrounded, so without this the tracker keeps measuring from wherever
+    // they left solid ground and bills them for the whole drop the moment they
+    // touch the bottom — a player who dived safely into a pool takes damage
+    // for it several seconds later.
+    if (waterLevel > 0) {
+      this.clearFallTracking(eid);
+      this.lastGroundY.set(eid, positionY);
+      this.fallArmed.add(eid);
+      return;
+    }
 
     if (!grounded) {
       // Not armed = still in the post-spawn drop -> never a damaging fall.
@@ -320,6 +346,61 @@ export class FPSMovementSubsystem extends Subsystem {
     // player hops before landing.
     const mapDrop = (startY ?? peakY ?? positionY) - positionY;
     this.queueFallDamage(entityId, mapDrop, buttons);
+  }
+
+  /**
+   * Drowning, and the damage lava and slime deal.
+   *
+   * Runs after movement so it reads the water level the step actually ended
+   * with rather than the one it started from. A dead player is dropped from
+   * the map entirely: a corpse does not drown, and clearing the entry is what
+   * makes a respawn start with full lungs.
+   */
+  private applyLiquidWorldEffects(entityId: EntityId, physics: PhysicsComponent, dead: boolean, dt: number): void {
+    const eid = entityId as number;
+
+    if (dead) {
+      this.liquidEffects.delete(eid);
+      return;
+    }
+
+    let state = this.liquidEffects.get(eid);
+    if (!state) {
+      state = createLiquidEffectState();
+      this.liquidEffects.set(eid, state);
+    }
+
+    // `liquidContents` is in the SHARED vocabulary — translated once at the
+    // collision boundary, not raw BSP flags. Reading it with the engine's
+    // ContentFlags would report slime for every lava pit, which is the exact
+    // aliasing that translation exists to prevent.
+    const isLava = (physics.liquidContents & Contents.LAVA) !== 0;
+    const isSlime = (physics.liquidContents & Contents.SLIME) !== 0;
+
+    const effect = tickLiquidEffects(state, physics.waterLevel, isLava, isSlime, dt);
+
+    if (effect.burnDamage > 0) {
+      this.combatSystem?.queueDamage({
+        victimId: entityId,
+        attackerId: entityId,
+        damage: effect.burnDamage,
+        armorPiercing: 0,
+        damageType: DamageType.World,
+        hitLocation: HitLocation.Body,
+      });
+    }
+
+    if (effect.drownDamage > 0) {
+      this.combatSystem?.queueDamage({
+        victimId: entityId,
+        attackerId: entityId,
+        damage: effect.drownDamage,
+        // Armor does not help your lungs.
+        armorPiercing: 1,
+        damageType: DamageType.World,
+        hitLocation: HitLocation.Body,
+      });
+    }
   }
 
   /**
@@ -664,7 +745,15 @@ export class FPSMovementSubsystem extends Subsystem {
         // Server-only side effect: telefrag players occupying the exit (Q3).
         this.telefragAtExit(state, entity.id, transform.position);
       }
-      this.updateFallDamageTracking(entity.id, transform.position.y, physics.grounded, input.buttons);
+      this.updateFallDamageTracking(
+        entity.id,
+        transform.position.y,
+        physics.grounded,
+        input.buttons,
+        physics.waterLevel,
+      );
+
+      this.applyLiquidWorldEffects(entity.id, physics, entity.health?.dead ?? false, dt);
 
       const mdx = transform.position.x - px;
       const mdy = transform.position.y - py;
@@ -854,6 +943,10 @@ export class FPSMovementSubsystem extends Subsystem {
     this.movementProfiles.delete(entityId);
     this.clearFallTracking(entityId);
     this.fallArmed.delete(entityId);
+    // Air and burn timers. Dropped on death too, but a player can disconnect
+    // alive — and entity ids are reused, so a leftover entry would hand the
+    // next occupant of this id someone else's half-drowned lungs.
+    this.liquidEffects.delete(entityId);
     this.lastSpawnTick.delete(entityId);
     this.lastGroundY.delete(entityId);
     this.lastKBTick.delete(entityId);

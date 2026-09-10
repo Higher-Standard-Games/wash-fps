@@ -38,6 +38,13 @@ export interface PredictedMovementState {
   actualHorizSpeed: number;
   slidePhase: number;
   ledgeGrabPhase: number;
+  /**
+   * How deep the predicted player is: 0 dry, 1 wading, 2 swimming, 3 under.
+   *
+   * Predicted rather than taken from the snapshot, so the local splash lands
+   * on the frame the player feels the water instead of a round trip later.
+   */
+  waterLevel: 0 | 1 | 2 | 3;
 }
 
 export interface ServerSnapshot {
@@ -91,6 +98,7 @@ export class V2NetworkClient {
     actualHorizSpeed: 0,
     slidePhase: 0,
     ledgeGrabPhase: 0,
+    waterLevel: 0,
   };
 
   // Server sync
@@ -568,6 +576,7 @@ export class V2NetworkClient {
       actualHorizSpeed: 0,
       slidePhase: 0,
       ledgeGrabPhase: 0,
+      waterLevel: 0,
     };
 
     console.log("[V2Client] resetForRespawn: cleared all death-period state");
@@ -788,5 +797,6 @@ export class V2NetworkClient {
     this.predictedMovement.actualHorizSpeed = result.actualHorizSpeed;
     this.predictedMovement.slidePhase = result.slidePhase;
     this.predictedMovement.ledgeGrabPhase = result.ledgeGrabPhase;
+    this.predictedMovement.waterLevel = result.waterLevel ?? 0;
   }
 }

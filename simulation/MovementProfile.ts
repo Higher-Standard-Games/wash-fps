@@ -25,7 +25,16 @@ import type {
   MovementProfile as IMovementProfile,
   MovementInput,
 } from "../../../engine/network/systems/movement/MovementProfile";
+import {
+  CROUCH_MINS_Z,
+  CROUCH_VIEWHEIGHT,
+  DEFAULT_VIEWHEIGHT,
+  PLAYER_MINS_Z,
+} from "../../../engine/physics/PlayerPhysicsConstants";
 import type { TriggerVolume } from "../../../shared/bsp/TriggerTable";
+import { MASK_LIQUID, MASK_SOLID } from "../../../shared/collision/CollisionWorld";
+import { isSwimming, type WaterLevel } from "../liquid/LiquidTypes";
+import { sampleLiquid } from "../liquid/LiquidVolumeSampler";
 import {
   airAccelerateForward,
   applyFriction,
@@ -36,6 +45,16 @@ import {
 import { LedgeGrab } from "./LedgeGrab";
 import type { AdvancedMovementResult, MovementConfig } from "./MovementConfig";
 import { Slide } from "./Slide";
+import {
+  applyWaterFriction,
+  checkWaterJump,
+  DEFAULT_LIQUID_MOVEMENT,
+  idleSinkVelocity,
+  type LiquidMovementProfile,
+  swimIntent,
+  wadeSpeedScale,
+  waterAccelerate,
+} from "./Swim";
 import { VEC3_ZERO, vec3Clone, vec3Length, vec3LengthXZ } from "./Vec3Helpers";
 import { WallJump } from "./WallJump";
 
@@ -104,10 +123,56 @@ export class MovementProfile implements IMovementProfile {
     max: { x: 16, y: 8, z: 16 },
   };
 
+  /**
+   * Hull for a swimmer who is moving, and therefore lying flat.
+   *
+   * Short rather than wide, deliberately. The rendered body is 64 units long
+   * along the player's yaw, and no axis-aligned box can be long along an
+   * arbitrary yaw — every consumer of these bounds (step-slide, hitscan,
+   * spawn validation, telefrag, separation) assumes world axes. Widening the
+   * footprint to circumscribe the body at any yaw would make a swimmer 64
+   * units across and wedge them in the tunnels pools are full of, so the hull
+   * keeps its radius and loses its height instead. The player fits under low
+   * gaps and presents a flatter target; shots at the rendered head and feet
+   * fall outside it, which is the accepted cost.
+   */
+  private static readonly PLAYER_BOUNDS_SWIMMING = {
+    min: { x: -16, y: -14, z: -16 },
+    max: { x: 16, y: 14, z: 16 },
+  };
+
   // Persistent state (carried between frames)
   private isGrounded: boolean = false;
   private wasGroundedLastFrame: boolean = false;
   private jumpConsumed: boolean = false;
+
+  /**
+   * Water level entering the current step. Re-derived from position and map
+   * geometry every step rather than accumulated, so a reconciliation replay
+   * recomputes it instead of inheriting a level the corrected position does
+   * not support.
+   */
+  private waterLevel: WaterLevel = 0;
+
+  /**
+   * Sim-clock deadline for an assisted climb out of water, or 0.
+   *
+   * Anchored to the sequence-derived clock like the wall-jump and slide
+   * timers, so re-simulating a command lands on the same answer rather than
+   * advancing time again.
+   */
+  private waterJumpUntilMs: number = 0;
+
+  /**
+   * The swimmer is lying flat this step, so the hull is the prone one.
+   *
+   * Paired with the moving swim clip; see updateProneState for why it can be
+   * refused a return to standing.
+   */
+  private proneInWater: boolean = false;
+
+  /** Swim tuning. Ours to set; see Swim.ts for why there is only one profile. */
+  private liquid: LiquidMovementProfile = { ...DEFAULT_LIQUID_MOVEMENT };
 
   /**
    * Sim clock (ms). Derived from the input's sequence number when available
@@ -252,7 +317,57 @@ export class MovementProfile implements IMovementProfile {
   /**
    * Main simulation entry point
    */
+  /**
+   * Simulate one step, then report how deep the player ended up in liquid.
+   *
+   * The sampling is deliberately wrapped around the whole step rather than
+   * placed at one of its exits: `simulateCore` returns from several branches
+   * (wall-jump charging, ledge grab, teleport) and a liquid state attached to
+   * only some of them would be a state that vanishes whenever the player does
+   * something interesting.
+   *
+   * Sampling is a pure function of position and map geometry, so the server and
+   * the predicted client compute the same answer for the same command, and a
+   * reconciliation replay recomputes it rather than inheriting it.
+   *
+   * Phase 1: the sample is reported, and nothing reads it yet. Movement is
+   * unchanged.
+   */
   simulate(
+    position: Vec3,
+    velocity: Vec3,
+    input: MovementInput | null,
+    deltaTime: number,
+    collision: CollisionWorld | null,
+  ): AdvancedMovementResult {
+    // Sample BEFORE the step to choose the movement branch, exactly as Q3 sets
+    // water level at the top of its move. Using the post-step sample instead
+    // would decide this step's physics from where the step ended up.
+    this.waterLevel = this.sampleAt(collision, position).level;
+
+    const result = this.simulateCore(position, velocity, input, deltaTime, collision);
+
+    // Sample again at the resulting position: this is the state the rest of the
+    // game reads, and the input to the next step's branch choice.
+    const liquid = this.sampleAt(collision, result.position);
+    this.waterLevel = liquid.level;
+
+    result.waterLevel = liquid.level;
+    result.liquidContents = liquid.rawContents;
+    result.liquidKind = liquid.kind;
+    return result;
+  }
+
+  /** Three-point sample using whichever hull the player currently occupies. */
+  private sampleAt(collision: CollisionWorld | null, origin: Vec3) {
+    const crouched = this.slide.isCrouching || this.slide.isSliding;
+    return sampleLiquid(collision, origin, {
+      minsY: crouched ? CROUCH_MINS_Z : PLAYER_MINS_Z,
+      viewHeight: crouched ? CROUCH_VIEWHEIGHT : DEFAULT_VIEWHEIGHT,
+    });
+  }
+
+  private simulateCore(
     position: Vec3,
     velocity: Vec3,
     input: MovementInput | null,
@@ -272,6 +387,17 @@ export class MovementProfile implements IMovementProfile {
     const nowMs = this.simNowMs;
 
     const justLanded = !this.wasGroundedLastFrame && this.isGrounded;
+
+    // === DEEP WATER CLEARS THE SPECIAL MOVES ===
+    // Wall jump, ledge grab and crouchslide all describe a body against solid
+    // geometry. Deciding their underwater behaviour by call order would be an
+    // accident; deciding it here is a choice. Whether a submerged dash should
+    // ever be possible is a design question for play, not a compatibility one.
+    if (isSwimming(this.waterLevel)) {
+      if (this.wallJump.state !== "none") this.wallJump.reset();
+      if (this.ledgeGrab.state !== "none") this.ledgeGrab.reset();
+      if (this.slide.isSliding) this.slide.exit(velocity, nowMs, this.config);
+    }
 
     // === WALL JUMP CHARGING STATE ===
     if (this.wallJump.state === "charging") {
@@ -294,7 +420,7 @@ export class MovementProfile implements IMovementProfile {
     }
 
     // === LEDGE GRAB ===
-    if (this.config.ledgeGrabEnabled && input) {
+    if (this.config.ledgeGrabEnabled && input && !isSwimming(this.waterLevel)) {
       if (this.ledgeGrab.update(newPos, newVel, input, collision, nowMs, this.config, this.isGrounded)) {
         return {
           position: newPos,
@@ -312,8 +438,22 @@ export class MovementProfile implements IMovementProfile {
       }
     }
 
+    const swimming = isSwimming(this.waterLevel);
+    const waterJumping = this.waterJumpUntilMs > nowMs;
+
+    // Leaving the water always stands the player back up. This has to happen
+    // outside the swim branch, because that branch is exactly what stops
+    // running once the player is out — a prone flag cleared only from inside
+    // it would strand a shrunken hull on someone walking around on land.
+    if (!swimming) this.proneInWater = false;
+
     // === GRAVITY (asymmetric: stronger when falling) ===
-    if (!this.isGrounded) {
+    // A swimmer is held up by the water, not by the ground, so gravity is off
+    // entirely — the idle sink below is what makes them settle. An assisted
+    // climb is a ballistic arc and keeps gravity so it lands.
+    if (swimming && !waterJumping) {
+      // no gravity while swimming
+    } else if (!this.isGrounded) {
       const gravScale = newVel.y < 0 ? this.config.fallingGravityMultiplier : 1.0;
       newVel.y -= this.config.gravity * gravScale * deltaTime;
     } else if (newVel.y < 0) {
@@ -360,7 +500,10 @@ export class MovementProfile implements IMovementProfile {
       const autohop = true;
       const canJump = !this.jumpConsumed || (autohop && justLanded);
 
-      if (isJumping && this.isGrounded && canJump) {
+      // Jump is ascend while swimming, handled in the swim branch. Standing on
+      // the bottom of a deep pool still counts as grounded, so without this a
+      // submerged player could jump normally.
+      if (isJumping && this.isGrounded && canJump && !swimming) {
         // Check slope angle — don't allow jumping on steep ramps (Warsow behavior)
         // Only allow jumping on surfaces flatter than ~32° (normal.y > 0.85)
         let canJumpOnSlope = true;
@@ -397,13 +540,35 @@ export class MovementProfile implements IMovementProfile {
 
       const normalizedWish = hasInput ? { x: wishDir.x / wishLen, y: 0, z: wishDir.z / wishLen } : VEC3_ZERO;
 
-      if (this.isGrounded) {
+      if (waterJumping) {
+        // === ASSISTED CLIMB OUT OF WATER ===
+        // The launch already set velocity; the player gets no say until they
+        // land or start falling back. Cancelling on a downward velocity stops
+        // a failed climb from freezing control the whole two seconds.
+        if (this.isGrounded || newVel.y < 0) {
+          this.waterJumpUntilMs = 0;
+        }
+      } else if (swimming) {
+        // === SWIMMING ===
+        // Moving lays the body flat and shrinks the hull with it; treading
+        // stands it back up, but only where there is room. `hasInput` is the
+        // same signal the renderer uses to choose between the two clips.
+        this.updateProneState(newPos, hasInput || isJumping !== isCrouching, collision);
+        this.swimMove(newPos, newVel, input, wishDir, deltaTime, collision);
+      } else if (this.isGrounded) {
         // === GROUND MOVEMENT ===
         const friction = this.slide.isSliding ? this.config.slideFriction : this.config.friction;
         applyFriction(newVel, friction, this.config.stopSpeed, deltaTime);
+        // Wading drags as well, on all three axes and scaled by depth. Q3
+        // applies water friction "even if just wading", and it is what makes
+        // shallows feel like shallows rather than like carpet.
+        applyWaterFriction(newVel, this.waterLevel, this.liquid, this.config.stopSpeed, deltaTime);
 
         if (hasInput) {
-          groundAccelerate(newVel, normalizedWish, wishspeed, this.config.groundAcceleration, deltaTime);
+          // Wading also caps speed, interpolating toward the swim cap by depth
+          // so entering a pool slows you continuously rather than at a step.
+          const waded = wishspeed * wadeSpeedScale(this.waterLevel, this.liquid);
+          groundAccelerate(newVel, normalizedWish, waded, this.config.groundAcceleration, deltaTime);
         }
       } else {
         // === AIR MOVEMENT ===
@@ -434,7 +599,9 @@ export class MovementProfile implements IMovementProfile {
       }
 
       // === CROUCHSLIDE ===
-      if (this.config.slideEnabled) {
+      // Crouch is descend input while swimming; letting the slide system see it
+      // would leave a stale sliding flag on a player who never touched a floor.
+      if (this.config.slideEnabled && !swimming) {
         this.slide.update(newVel, input, this.isGrounded, nowMs, deltaTime, this.config);
       }
 
@@ -609,10 +776,107 @@ export class MovementProfile implements IMovementProfile {
     };
   }
 
+  /**
+   * One step of swimming.
+   *
+   * Order matters and follows Q3: check for a way out first, then drag, then
+   * the player's intention. Doing the climb check after acceleration would let
+   * a frame of swim velocity fight the launch.
+   */
+  private swimMove(
+    newPos: Vec3,
+    newVel: Vec3,
+    input: MovementInput,
+    wishDir: Vec3,
+    deltaTime: number,
+    collision: CollisionWorld | null,
+  ): void {
+    // A ledge in front of a treading player is a way out, and old maps have
+    // plenty of pool lips that cannot be swum over.
+    if (
+      collision &&
+      checkWaterJump(
+        newPos,
+        input.viewAngles,
+        this.waterLevel,
+        (point) => (collision.pointContents(point) & MASK_SOLID) !== 0,
+        (point) => (collision.pointContents(point) & MASK_LIQUID) !== 0,
+      )
+    ) {
+      const yaw = input.viewAngles.yaw;
+      newVel.x = Math.sin(yaw) * this.liquid.waterJumpForward;
+      newVel.z = Math.cos(yaw) * this.liquid.waterJumpForward;
+      newVel.y = this.liquid.waterJumpUp;
+      this.waterJumpUntilMs = this.simNowMs + this.liquid.waterJumpDurationMs;
+      this.isGrounded = false;
+      return;
+    }
+
+    applyWaterFriction(newVel, this.waterLevel, this.liquid, this.config.stopSpeed, deltaTime);
+
+    // Space ascends, Ctrl descends — independent of view direction, so
+    // surfacing never requires aiming at the ceiling.
+    const up = input.isPressed(InputButtons.JUMP) ? 1 : 0;
+    const down = input.isPressed(InputButtons.CROUCH) ? 1 : 0;
+    const intent = swimIntent(
+      wishDir,
+      input.viewAngles,
+      up - down,
+      this.config.maxSpeed + this.speedBonus,
+      this.liquid,
+    );
+
+    if (!intent.dir) {
+      // Asking for nothing means sinking, not hovering.
+      const sink = idleSinkVelocity(this.liquid);
+      waterAccelerate(newVel, { x: 0, y: -1, z: 0 }, -sink.y, this.liquid.waterAcceleration, deltaTime);
+      return;
+    }
+
+    waterAccelerate(newVel, intent.dir, intent.speed, this.liquid.waterAcceleration, deltaTime);
+  }
+
   /** Get current player bounds based on crouch state */
   private getCurrentBounds() {
+    if (this.proneInWater) return MovementProfile.PLAYER_BOUNDS_SWIMMING;
     return this.slide.isCrouching || this.slide.isSliding
       ? MovementProfile.PLAYER_BOUNDS_CROUCHED
       : MovementProfile.PLAYER_BOUNDS;
+  }
+
+  /**
+   * Decide whether the swimmer is lying flat this step.
+   *
+   * The hull follows the animation: the moving clip lays the body down, the
+   * treading clip keeps it upright. Going prone is always allowed — the hull
+   * only shrinks. Standing back up is not, because the hull grows, and growing
+   * inside geometry is how a player ends up embedded in a ceiling. So the same
+   * clearance trace that lets a crouched player stand applies here, and when
+   * there is no room the player stays prone AND stays in the moving clip.
+   * Hull and animation never disagree, which is the only reason to give the
+   * swimmer a different hull at all.
+   */
+  private updateProneState(position: Vec3, moving: boolean, collision: CollisionWorld | null): void {
+    if (!isSwimming(this.waterLevel)) {
+      this.proneInWater = false;
+      return;
+    }
+
+    if (moving) {
+      this.proneInWater = true;
+      return;
+    }
+
+    if (!this.proneInWater) return;
+
+    // Treading again: only rise if the standing hull fits where we are.
+    if (!collision) {
+      this.proneInWater = false;
+      return;
+    }
+
+    const upright = this.slide.isCrouching ? MovementProfile.PLAYER_BOUNDS_CROUCHED : MovementProfile.PLAYER_BOUNDS;
+    const probe = collision.trace(position, position, upright);
+    this.proneInWater = probe.hit;
   }
 }

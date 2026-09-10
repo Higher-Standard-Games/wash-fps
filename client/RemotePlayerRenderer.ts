@@ -115,6 +115,15 @@ const MODEL_Y_OFFSET = 0;
 
 // ─── Animation derivation constants ─────────────────────────────
 const IDLE_SPEED_THRESHOLD = 50;
+
+/**
+ * Below this 3-D speed a swimmer is treading rather than swimming.
+ *
+ * Lower than the walking threshold because a swimmer with no input still
+ * sinks at 60 u/s, and that drift must not read as swimming — otherwise a
+ * motionless player would never show the treading clip.
+ */
+const SWIM_IDLE_SPEED_THRESHOLD = 70;
 const RUN_SPEED_THRESHOLD = 300;
 
 // Mixamo animation natural speeds (Q3 units/s at 1x playback)
@@ -136,12 +145,24 @@ export class RemotePlayerRenderer {
   private demoAnimationTimeScale: number = 1;
   private demoDiscontinuityId: number = -1;
   private demoAnimationTimeline: DemoAnimationTimeline | null = null;
+
+  /**
+   * Splash and ripple emitter, owned by the game and set per map.
+   *
+   * The renderer is where every remote player's water level already arrives
+   * each frame, so it is the cheapest place to notice a crossing — no second
+   * pass over the roster to find out what the first pass already knew.
+   */
+  public liquidInteractions: import("../liquid/client/LiquidInteractionSystem").LiquidInteractionSystem | null = null;
   /** Entities marked dead — value is death timestamp (performance.now) */
   private deadEntities: Map<string, number> = new Map();
 
   /** Shared model manager — loads vanguard.glb once, creates cloned instances */
   private modelManager: PlayerModelManager | null = null;
   private modelLoadPromise: Promise<void> | null = null;
+  private localReflectionModel: PlayerModelInstance | null = null;
+  private localReflectionLoadAttempted = false;
+  private disposed = false;
 
   /** Reference to enemyWeapons from GameEventContext — maps entityId → weaponId */
   private enemyWeapons: Map<string, string> = new Map();
@@ -247,8 +268,13 @@ export class RemotePlayerRenderer {
     }
 
     this.modelManager = new PlayerModelManager(this.scene);
+    const loadingManager = this.modelManager;
     this.modelLoadPromise = (async () => {
-      await this.modelManager!.loadModel();
+      await loadingManager.loadModel();
+      if (this.disposed || this.modelManager !== loadingManager) {
+        loadingManager.dispose();
+        return;
+      }
       console.log("[RemotePlayerRenderer] Player model loaded");
 
       // Create model instances for any hitboxes that were created before model loaded
@@ -272,11 +298,52 @@ export class RemotePlayerRenderer {
     if (!this.modelManager?.isLoaded) return null;
     const instance = this.modelManager.createInstance(entityId, MODEL_SCALE);
     if (instance) {
+      // Explicit opt-in for the engine's optional near-water reflection layer.
+      // Root metadata also covers model children; hidden POV roots stay excluded.
+      instance.anchor.metadata = { ...instance.anchor.metadata, waterReflectionActorId: entityId };
       // Start with idle animation
       this.modelManager.playAnimation(instance, "idle");
       this.applyModelVisualStyle(instance, entityId);
     }
     return instance;
+  }
+
+  /** A local body exists only for water capture, never for main/depth/refraction
+   * cameras. Reuse the same model/locomotion assets, but no weapon or hitbox. */
+  syncLocalWaterReflection(state: InterpolatedEntity | null): void {
+    if (this.disposed) return;
+    if (!state) {
+      this.localReflectionModel?.anchor.setEnabled(false);
+      this.localReflectionModel?.masterGroup?.pause();
+      return;
+    }
+    if (!this.modelManager?.isLoaded) {
+      if (!this.localReflectionLoadAttempted) {
+        this.localReflectionLoadAttempted = true;
+        void this.ensureModelLoaded();
+      }
+      return;
+    }
+    if (!this.localReflectionModel) {
+      this.localReflectionModel = this.createModelInstance("water-local-body");
+      if (!this.localReflectionModel) return;
+      const model = this.localReflectionModel;
+      model.anchor.metadata = { ...model.anchor.metadata, waterReflectionOnly: true };
+      for (const mesh of [model.mesh, ...model.mesh.getChildMeshes()]) {
+        mesh.isVisible = false;
+        mesh.isPickable = false;
+      }
+    }
+    const model = this.localReflectionModel;
+    const resumed = !model.anchor.isEnabled();
+    model.anchor.setEnabled(true);
+    model.anchor.position.set(state.x, state.y + PLAYER_MINS_Z + MODEL_Y_OFFSET -
+      (state.sliding ? 20 : state.crouching ? 10 : 0), state.z);
+    model.anchor.rotation.y = state.yaw;
+    this.modelManager.resetRootMotion(model);
+    if (resumed) model.currentAnim = "";
+    this.modelManager.playAnimation(model, this.deriveAnimation(state));
+    if (resumed) model.masterGroup?.play(true);
   }
 
   /** The viewer's own side, so everyone else can be read as ally or enemy. */
@@ -403,6 +470,7 @@ export class RemotePlayerRenderer {
         wallJumping: movementState?.wallJumpState === "charging",
         crouchViewOffset: movementState?.crouchViewOffset ?? 0,
         powerupMask: powerups?.mask ?? 0,
+        waterLevel: movementState?.waterLevel ?? 0,
       });
     }
     return entities;
@@ -518,6 +586,10 @@ export class RemotePlayerRenderer {
         this.hitboxes.delete(entityId);
         this.deadEntities.delete(entityId);
         this.demoAnimationTimeline?.delete(entityId);
+        // Their tracked water level goes with them. Left behind it would both
+        // accumulate for every player who ever entered PVS, and hand a reused
+        // id a stale depth to be compared against.
+        this.liquidInteractions?.forget(entityId);
       }
     }
     this.demoAnimationTimeline?.finishPresentationFrame();
@@ -535,6 +607,9 @@ export class RemotePlayerRenderer {
 
   /** Clean up all hitboxes and models */
   dispose(): void {
+    this.disposed = true;
+    if (this.localReflectionModel && this.modelManager) this.modelManager.disposeInstance(this.localReflectionModel);
+    this.localReflectionModel = null;
     getHitscanEffects().clearRemoteLightningMuzzleResolver(this.voltaicMuzzleResolver);
     for (const hitbox of this.hitboxes.values()) {
       hitbox.mesh.dispose();
@@ -567,6 +642,12 @@ export class RemotePlayerRenderer {
   markDead(entityId: string): void {
     this.deadEntities.set(entityId, performance.now());
     this.demoAnimationTimeline?.delete(entityId);
+    // A body that dies at the bottom of a pool and respawns dry goes from
+    // level 3 to level 0 without ever breaking the surface. Without this the
+    // respawn announces itself with an exit splash on dry land — the local
+    // player has been re-baselined on respawn since the beginning; remote
+    // players were not.
+    this.liquidInteractions?.forget(entityId);
     const hitbox = this.hitboxes.get(entityId);
     if (hitbox) {
       hitbox.mesh.dispose();
@@ -1141,6 +1222,18 @@ export class RemotePlayerRenderer {
     this.modelManager.playAnimation(inst, animName);
     this._animDebug(entityId, animName, interp, inst);
 
+    // Splashes come from the water level already on the wire, so a remote
+    // diving into a pool produces the same interaction as the local player
+    // with no new network state. Replicate causes, derive effects.
+    this.liquidInteractions?.notify(
+      entityId,
+      (interp.waterLevel ?? 0) as 0 | 1 | 2 | 3,
+      "water",
+      { x: interp.x, y: interp.y, z: interp.z },
+      interp.vy,
+      false,
+    );
+
     // Scale animation speed to match movement speed (eliminate foot sliding)
     if (inst.masterGroup) {
       const speed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz);
@@ -1429,6 +1522,15 @@ export class RemotePlayerRenderer {
     // Walljump — player is on a wall, play wallrun animation
     // Check BEFORE grounded/airborne since walljump happens while !grounded
     if (interp.wallJumping) return "walljump";
+
+    // Swimming — must be checked before the airborne rule, because a swimmer
+    // is ungrounded and would otherwise read as mid-jump for as long as they
+    // stayed in the water. Moving lays the body flat; treading keeps it
+    // upright, which is also the split the swim hull follows.
+    if ((interp.waterLevel ?? 0) >= 2) {
+      const swimSpeed = Math.sqrt(interp.vx * interp.vx + interp.vy * interp.vy + interp.vz * interp.vz);
+      return swimSpeed < SWIM_IDLE_SPEED_THRESHOLD ? "swim_idle" : "swim";
+    }
 
     // Airborne — use jump for entire air time (Warsow-style)
     if (!interp.grounded) return "jump";
