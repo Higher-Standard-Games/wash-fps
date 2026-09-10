@@ -5,7 +5,14 @@ import { Color3 } from "@babylonjs/core/Maths/math.color";
 import type { FPSController } from "../../engine/camera/controllers/FPSController";
 import { WeaponViewManager } from "../../engine/weapon/WeaponViewManager";
 import type { WeaponDef } from "../../shared/entities";
+import { isLocalPowerupActive } from "./client/LocalPowerupState";
 import { MatchStateManager } from "./client/MatchStateManager";
+import {
+  getQuadDamagePulse,
+  QUAD_DAMAGE_COLOR,
+  QUAD_VIEW_WEAPON_OUTLINE_MIN,
+  QUAD_VIEW_WEAPON_OUTLINE_RANGE,
+} from "./client/QuadDamageVisual";
 import { FPSPickup } from "./world/FPSPickup";
 import { InventoryManager } from "./world/InventoryManager";
 
@@ -74,6 +81,12 @@ export class FPSPlayer {
   }
 
   public update(deltaTime: number): void {
+    const weaponView = WeaponViewManager.getInstance();
+    const quadActive = isLocalPowerupActive("quad");
+    const quadPulse = getQuadDamagePulse(performance.now() / 1000);
+    const quadOutlineWidth = QUAD_VIEW_WEAPON_OUTLINE_MIN + QUAD_VIEW_WEAPON_OUTLINE_RANGE * quadPulse;
+    weaponView.setPowerupOutlineOverride(quadActive, QUAD_DAMAGE_COLOR, quadOutlineWidth);
+
     if (!this.controller.isEnabled()) return;
 
     // Handle reloading timer
@@ -311,6 +324,7 @@ export class FPSPlayer {
   }
 
   public dispose(): void {
+    WeaponViewManager.getInstance().setPowerupOutlineOverride(false, Color3.Black(), 0);
     this.controller.onWeaponSelect = null;
     this.controller.onReload = null;
     this.controller.onUse = null;
