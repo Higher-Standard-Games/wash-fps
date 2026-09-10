@@ -1370,6 +1370,7 @@ export class GameServer {
     if (!this._snapshotCtx) {
       this._snapshotCtx = {
         simulation: this.simulation,
+        collisionWorld: this.physicsSystem.getCollisionWorld(),
         weaponSystem: this.weaponSystem,
         projectileSystem: this.projectileSystem,
         combatSystem: this.combatSystem,
@@ -1386,6 +1387,7 @@ export class GameServer {
       };
     }
     this._snapshotCtx.pendingKillEvents = this.pendingKillEvents;
+    this._snapshotCtx.collisionWorld = this.physicsSystem.getCollisionWorld();
     this._snapshotCtx.pendingChatEvents = this.pendingChatEvents;
     this._snapshotCtx.pendingAwards = this.pendingAwards;
     return this._snapshotCtx;
