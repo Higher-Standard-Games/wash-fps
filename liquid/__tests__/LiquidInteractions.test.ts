@@ -9,8 +9,12 @@
 
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine";
 import { Scene } from "@babylonjs/core/scene";
+import { CreateGround } from "@babylonjs/core/Meshes/Builders/groundBuilder";
+import { LiquidSurfaceSystem } from "../../../../engine/rendering/water/LiquidSurfaceSystem";
+import { Contents } from "../../../../shared/collision/CollisionWorld";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { splashVolume } from "../../client/FPSLiquidAudio";
+import { waterDisturbancesFor } from "../../../../engine/rendering/water/WaterDisturbances";
 import { LiquidInteractionSystem, RING_END_RADIUS, RING_POOL_SIZE } from "../client/LiquidInteractionSystem";
 
 vi.mock("../../../../engine/AudioManager", () => ({
@@ -34,6 +38,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   system.dispose();
   scene.dispose();
   engine.dispose();
@@ -42,6 +47,132 @@ afterEach(() => {
 const at = (x = 0, y = 0, z = 0) => ({ x, y, z });
 /** Fast enough that `splashVolume` is comfortably above its gate. */
 const DIVING = -400;
+
+describe("replacement surface integration", () => {
+  it("snaps a gameplay splash to render geometry without allocating the legacy disc", () => {
+    const pool = CreateGround("pool", { width: 200, height: 200 }, scene);
+    pool.position.y = 56;
+    pool.metadata = { liquidKind: "water" };
+    const renderer = new LiquidSurfaceSystem(scene);
+    renderer.claim(pool);
+    system.setCollisionWorld({ pointContents: p => p.y < 56 ? Contents.WATER : 0 });
+    try {
+      system.notify("player", 0, "water", at(0, 72), DIVING, true);
+      system.notify("player", 2, "water", at(0, 72), DIVING, true);
+      const waves = waterDisturbancesFor(scene);
+      expect(waves.impulses).toHaveLength(1);
+      expect(waves.impulses[0]).toMatchObject({ y: 56, age: 0 });
+      expect(waves.impulses[0].radius).toBeCloseTo(48 + 64 * splashVolume(DIVING));
+      expect(waves.accepted).toBe(1);
+      expect(system.activeRings).toBe(0);
+      expect(scene.meshes.some(m => m.name.startsWith("liquid-ring"))).toBe(false);
+      waves.update(2);
+      expect(waves.impulses).toHaveLength(0);
+      expect(waves.accepted).toBe(1); // Delivery remains inspectable after the ripple expires.
+    } finally {
+      renderer.dispose();
+    }
+  });
+
+  it("retains the legacy ring when no supported render patch accepts the splash", () => {
+    const waves = waterDisturbancesFor(scene);
+    waves.resolveSurface = () => null;
+    system.notify("player", 0, "water", at(), DIVING, false);
+    system.notify("player", 2, "water", at(), DIVING, false);
+    expect(system.activeRings).toBe(1);
+    expect(waves.impulses).toHaveLength(0);
+    expect(waves.rejected).toBe(1);
+    expect(waves.lastResult).toContain("no supported water surface");
+  });
+});
+
+describe("reactive shader wakes", () => {
+  it("makes swimming wakes broader/stronger than wading and suppresses submerged motion", () => {
+    let clock = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => clock);
+    const waves = waterDisturbancesFor(scene);
+    waves.resolveSurface = p => ({ ...p, y: 56 });
+    for (const level of [1, 2, 3] as const) {
+      system.notify(String(level), level, "water", at(), 0, true);
+      clock += 150;
+      system.notify(String(level), level, "water", at(30), 0, true);
+    }
+    expect(waves.impulses).toHaveLength(2);
+    expect(waves.impulses[1].radius).toBeGreaterThan(waves.impulses[0].radius);
+    expect(waves.impulses[1].strength).toBeGreaterThan(waves.impulses[0].strength);
+  });
+
+  it("does not convert cancelling movement jitter into a radial splash", () => {
+    let clock = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => clock);
+    const waves = waterDisturbancesFor(scene);
+    system.notify("jitter", 2, "water", at(), 0, true);
+    clock = 60;
+    system.notify("jitter", 2, "water", at(4), 0, true);
+    clock = 150;
+    system.notify("jitter", 2, "water", at(), 0, true);
+    expect(waves.impulses).toHaveLength(0);
+  });
+  it("emits comparable wakes when movement per frame is below half a unit", () => {
+    let clock = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => clock);
+    const waves = waterDisturbancesFor(scene);
+    waves.resolveSurface = (p) => ({ ...p, y: 56 });
+    for (const fps of [60, 1000]) {
+      const count = waves.impulses.length;
+      const start = clock;
+      system.notify(String(fps), 2, "water", at(), 0, true);
+      for (let frame = 1; frame <= fps / 2; frame++) {
+        clock = start + (frame * 1000) / fps;
+        system.notify(String(fps), 2, "water", at((frame * 200) / fps), 0, true);
+      }
+      expect(waves.impulses.length - count).toBeGreaterThanOrEqual(3);
+      expect(waves.impulses.at(-1)!.strength).toBeCloseTo(0.4);
+      expect(waves.impulses.at(-1)!.directionX).toBeCloseTo(1);
+      expect(waves.impulses.at(-1)!.directionZ).toBeCloseTo(0);
+      expect(Array.from(waves.pack(() => true)).slice(-2)).toEqual([0, 0]);
+    }
+  });
+  it("rate-limits moving local and remote bodies and ignores initial reports", () => {
+    let clock = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => clock);
+    const waves = waterDisturbancesFor(scene);
+    waves.resolveSurface = (p) => ({ ...p, y: 56 });
+    for (const local of [true, false]) {
+      const id = String(local);
+      system.notify(id, 2, "water", at(), 0, local);
+      clock += 150;
+      system.notify(id, 2, "water", at(30), 0, local);
+      clock += 20;
+      system.notify(id, 2, "water", at(35), 0, local);
+    }
+    expect(waves.impulses).toHaveLength(2);
+    expect(waves.impulses[0].y).toBe(56);
+    expect(waves.impulses[0].strength).toBeCloseTo(0.4);
+    expect(Array.from(waves.pack(() => true)).slice(6, 8)).toEqual([1, 0]);
+  });
+
+  it("suppresses underwater, stationary, teleport and outside-pool movement", () => {
+    let clock = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => clock);
+    const waves = waterDisturbancesFor(scene);
+    for (const [level, distance] of [
+      [3, 30],
+      [2, 0],
+      [2, 200],
+    ] as const) {
+      const id = `${level}:${distance}`;
+      system.notify(id, level, "water", at(), 0, false);
+      clock += 150;
+      system.notify(id, level, "water", at(distance), 0, false);
+    }
+    waves.resolveSurface = () => null;
+    system.notify("outside", 2, "water", at(), 0, false);
+    clock += 150;
+    system.notify("outside", 2, "water", at(30), 0, false);
+    expect(waves.impulses).toHaveLength(0);
+  });
+});
 
 describe("splashVolume", () => {
   it("is silent for a body drifting across the surface", () => {
@@ -324,6 +455,32 @@ describe("projectiles entering liquid", () => {
 });
 
 describe("Epic splash crowns", () => {
+  it("limits droplet aftermath to small ripples and lets the spray settle", () => {
+    vi.spyOn(engine, "getDeltaTime").mockReturnValue(1000 / 60);
+    const waves = waterDisturbancesFor(scene);
+    waves.resolveSurface = p => ({ ...p, y: 56 });
+    system.enableCrowns();
+    system.notify("impact", 0, "water", at(0, 56), -700, true);
+    system.notify("impact", 2, "water", at(0, 56), -700, true);
+    for (let frame = 0; frame < 60; frame++) scene.onBeforeRenderObservable.notifyObservers(scene);
+    const aftermath = waves.impulses.filter(wave => wave.radius === 24);
+    expect(aftermath.length).toBeGreaterThan(0);
+    expect(aftermath.length).toBeLessThanOrEqual(5);
+    expect(aftermath.every(wave => wave.strength === 0.25)).toBe(true);
+    expect(system.activeDroplets).toBe(0);
+    expect(system.activeRings).toBe(0);
+  });
+
+  it("makes exiting quieter visually than an equally fast entry", () => {
+    const waves = waterDisturbancesFor(scene);
+    waves.resolveSurface = p => p;
+    system.notify("cross", 0, "water", at(), -400, true);
+    system.notify("cross", 2, "water", at(), -400, true);
+    system.notify("cross", 0, "water", at(), 400, true);
+    expect(waves.impulses).toHaveLength(2);
+    expect(waves.impulses[1].strength).toBeLessThan(waves.impulses[0].strength);
+    expect(waves.impulses[1].radius).toBeLessThan(waves.impulses[0].radius);
+  });
   /** A pool filling y <= 56 inside a 200-unit square, dry everywhere else. */
   const pool = {
     pointContents: (p: { x: number; y: number; z: number }) =>

@@ -2,11 +2,11 @@
  * The droplets a splash throws, simulated on the CPU.
  *
  * Pure ballistics over a fixed-capacity pool, with no renderer in sight — the
- * Epic tier hands these positions to Babylon's FluidRenderer, and the tests
- * run the same simulation without one.
+ * splash renderer consumes positions, velocities and opacity for soft spray;
+ * tests run the same simulation without a renderer.
  *
- * CPU ownership is the whole point. FluidRenderer draws particles; it does not
- * move them, and it certainly does not know where the waterline is. Owning the
+ * CPU ownership is the whole point. The renderer draws particles; it does not
+ * move them or know where the waterline is. Owning the
  * positions is what lets a droplet be retired exactly when it falls back
  * through the surface and hand a ripple to the static water on the way out —
  * which is the join between the two effects, and the reason the crown does not
@@ -50,6 +50,7 @@ interface Droplet {
   z: number;
   vx: number;
   vy: number;
+  launchSpeed: number;
   vz: number;
   surfaceY: number;
   age: number;
@@ -58,18 +59,9 @@ interface Droplet {
   alive: boolean;
 }
 
-/** Spread of droplet sizes. A crown is a few fat blobs and a lot of fine mist. */
-const MIN_SIZE = 0.35;
-const MAX_SIZE = 1.0;
-
-/**
- * Fraction of a droplet's flight spent shrinking away.
- *
- * Spray does not travel as a solid bead and land as one — it breaks up. Without
- * this every droplet is the same size for its whole arc and the crown reads as
- * thrown gravel.
- */
-const FADE_FRACTION = 0.45;
+/** Mostly fine spray, with a few larger streaks. */
+const MIN_SIZE = 0.3;
+const MAX_SIZE = 0.85;
 
 /**
  * Deterministic spread, so a splash looks the same to everyone watching it.
@@ -88,11 +80,13 @@ export class SplashDroplets {
   private readonly positions = new Float32Array(MAX_DROPLETS * 3);
   /** Per-droplet radius multiplier, packed in the same order as `positions`. */
   private readonly sizes = new Float32Array(MAX_DROPLETS);
+  private readonly velocities = new Float32Array(MAX_DROPLETS * 3);
+  private readonly opacities = new Float32Array(MAX_DROPLETS);
   private liveCount = 0;
 
   constructor() {
     for (let i = 0; i < MAX_DROPLETS; i++) {
-      this.droplets.push({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, surfaceY: 0, age: 0, size: 1, alive: false });
+      this.droplets.push({ x: 0, y: 0, z: 0, vx: 0, vy: 0, launchSpeed: 1, vz: 0, surfaceY: 0, age: 0, size: 1, alive: false });
     }
   }
 
@@ -104,7 +98,9 @@ export class SplashDroplets {
    * a rocket throws a wider one than a body does.
    */
   spawn(spawn: DropletSpawn, seed: number): number {
-    const wanted = Math.round(6 + spawn.strength * 22);
+    if (![spawn.x, spawn.surfaceY, spawn.z, spawn.strength, seed].every(Number.isFinite) || spawn.strength <= 0) return 0;
+    const strength = Math.min(1, spawn.strength);
+    const wanted = Math.round(3 + strength * 21);
     let spawned = 0;
 
     for (let i = 0; i < wanted; i++) {
@@ -112,14 +108,15 @@ export class SplashDroplets {
       if (!droplet) break;
 
       const angle = seededUnit(seed, i) * Math.PI * 2;
-      const spread = 40 + seededUnit(seed, i + 500) * 150 * spawn.strength;
-      const lift = 190 + seededUnit(seed, i + 1000) * 260 * spawn.strength;
+      const spread = 20 + strength * (20 + seededUnit(seed, i + 500) * 100);
+      const lift = 80 + strength * (100 + seededUnit(seed, i + 1000) * 240);
 
       droplet.x = spawn.x;
       droplet.y = spawn.surfaceY;
       droplet.z = spawn.z;
       droplet.vx = Math.cos(angle) * spread;
       droplet.vy = lift;
+      droplet.launchSpeed = lift;
       droplet.vz = Math.sin(angle) * spread;
       droplet.surfaceY = spawn.surfaceY;
       droplet.age = 0;
@@ -179,10 +176,17 @@ export class SplashDroplets {
       this.positions[o] = d.x;
       this.positions[o + 1] = d.y;
       this.positions[o + 2] = d.z;
+      this.velocities[o] = d.vx;
+      this.velocities[o + 1] = d.vy;
+      this.velocities[o + 2] = d.vz;
+      // Actual flights are shorter than MAX_LIFETIME. Fade near re-entry,
+      // rather than only at a timeout the droplet never reaches.
+      this.opacities[this.liveCount] = Math.min(1, d.age / 0.035) *
+        (d.vy < 0 ? Math.min(1, Math.max(0, (d.y - d.surfaceY) / 12)) : 1);
       // Shrink over the back half of the arc so droplets break up rather than
       // popping out of existence at full size.
-      const life = Math.min(1, d.age / MAX_LIFETIME);
-      const fade = life < 1 - FADE_FRACTION ? 1 : Math.max(0, (1 - life) / FADE_FRACTION);
+      const descent = Math.min(1, Math.max(0, -d.vy / d.launchSpeed));
+      const fade = 1 - descent * 0.65;
       this.sizes[this.liveCount] = d.size * fade;
       this.liveCount++;
     }
@@ -227,6 +231,8 @@ export class SplashDroplets {
   get sizeBuffer(): Float32Array {
     return this.sizes;
   }
+  get velocityBuffer(): Float32Array { return this.velocities; }
+  get opacityBuffer(): Float32Array { return this.opacities; }
 
   /** Retire everything, for a map change. */
   clear(): void {

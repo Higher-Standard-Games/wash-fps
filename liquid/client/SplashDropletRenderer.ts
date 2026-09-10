@@ -1,182 +1,143 @@
-/**
- * Epic-tier splash crowns, drawn as thin-instanced droplets.
- *
- * This replaced an attempt to use Babylon's `FluidRenderer`, which turned out
- * to be structurally incompatible with how this game renders. Three separate
- * conflicts, any one of them fatal:
- *
- * 1. **It splices a composite into the camera's post-process chain**, with
- *    `camera: null` and a later `attachPostProcess(pp, i)`. That array is owned
- *    by `DefaultRenderingPipeline`, which then disagrees with what the camera
- *    actually runs. Rebuilding the pipeline on top of it did not help.
- * 2. **Gameplay is multi-camera** — `activeCameras = [eye, weapon]` — and the
- *    fluid pass binds and unbinds framebuffers during `_afterCameraDraw`.
- *    In a layered render that discards the eye camera's output entirely: the
- *    world vanished while the viewmodel and HUD kept drawing.
- * 3. **Its composite is built as `UNSIGNED_BYTE`** into our HDR chain — the
- *    same 8-bit quantisation `CelOutlinePostProcess` documents and works
- *    around, except FluidRenderer hardcodes it and exposes no setter.
- *
- * So the crown is drawn directly instead. Droplets are low-poly SPHERES rather
- * than billboards, which is the trick that keeps this simple: a sphere looks
- * the same from every angle, so there is no per-instance billboarding to do in
- * a vertex shader and no orientation to keep in the instance buffer. At this
- * size a droplet is a few pixels and the geometry is nearly free — the whole
- * pool is under five thousand triangles.
- *
- * Nothing here allocates a render target, touches a post-process, or has an
- * opinion about the camera. It is a mesh.
- */
-
-import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
-import { Color3 } from "@babylonjs/core/Maths/math.color";
-import { CreateIcoSphere } from "@babylonjs/core/Meshes/Builders/icoSphereBuilder";
-import type { Mesh } from "@babylonjs/core/Meshes/mesh";
-import "@babylonjs/core/Meshes/thinInstanceMesh";
+/** Fine splash spray: one pooled mesh of soft, velocity-aligned camera-facing quads. */
+import { ShaderMaterial } from "@babylonjs/core/Materials/shaderMaterial";
+import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Scene } from "@babylonjs/core/scene";
 import { MAX_DROPLETS } from "./SplashDroplets";
 
-/**
- * Radius of the LARGEST droplet, in world units.
- *
- * Per-droplet size scales down from here. The first version drew every droplet
- * at 3.5 units with no variation, which at a 20-face icosphere put the facets
- * on screen — the crown read as a handful of thrown snowballs. Spray is small
- * and mostly fine; a droplet the eye can resolve the shape of is too big.
- */
-const DROPLET_RADIUS = 2.2;
+const VERTEX = `
+precision highp float;
+attribute vec3 position;
+attribute vec2 uv;
+attribute vec2 sprayData;
+attribute vec3 sprayVelocity;
+uniform mat4 view;
+uniform mat4 projection;
+varying vec2 vCorner;
+varying float vOpacity;
+void main() {
+  vec4 centre = view * vec4(position, 1.0);
+  vec2 velocity = (view * vec4(sprayVelocity, 0.0)).xy;
+  float speed = length(velocity);
+  vec2 axis = speed > 1.0 ? velocity / speed : vec2(0.0, 1.0);
+  vec2 side = vec2(axis.y, -axis.x);
+  vec2 corner = uv * 2.0 - 1.0;
+  float width = 0.45 * sprayData.x;
+  float height = (0.6 + min(speed * 0.003, 1.4)) * sprayData.x;
+  centre.xy += side * corner.x * width + axis * corner.y * height;
+  gl_Position = projection * centre;
+  vCorner = corner;
+  // Suppress near-eye specks instead of expanding them into giant screen blobs.
+  vOpacity = sprayData.y * smoothstep(4.0, 20.0, centre.z);
+}`;
 
-/**
- * The viewmodel camera's layer.
- *
- * A mesh left on the default mask is visible to BOTH cameras, so spray would
- * be drawn a second time at the weapon's field of view — a handful of boulders
- * across the screen. Clearing the bit is what confines it to the world.
- */
-const WEAPON_LAYER_MASK = 0x10000000;
+const FRAGMENT = `
+precision highp float;
+uniform float uOutputLinear;
+varying vec2 vCorner;
+varying float vOpacity;
+void main() {
+  float radius2 = dot(vCorner, vCorner);
+  float alpha = (1.0 - smoothstep(0.05, 1.0, radius2)) * vOpacity * 0.45;
+  if (alpha < 0.005) discard;
+  vec3 colour = vec3(0.58, 0.70, 0.74);
+  if (uOutputLinear > 0.5) colour = pow(colour, vec3(2.2));
+  gl_FragColor = vec4(colour, alpha);
+}`;
 
 export class SplashDropletRenderer {
   private mesh: Mesh | null = null;
-  /** One 4x4 transform per droplet, rewritten in place each frame. */
-  private readonly matrices = new Float32Array(MAX_DROPLETS * 16);
+  private material: ShaderMaterial | null = null;
+  private shown = 0;
+  private readonly positions = new Float32Array(MAX_DROPLETS * 4 * 3);
+  private readonly velocities = new Float32Array(MAX_DROPLETS * 4 * 3);
+  private readonly data = new Float32Array(MAX_DROPLETS * 4 * 2);
 
   constructor(private readonly scene: Scene) {}
 
-  /**
-   * Build the droplet mesh.
-   *
-   * Returns false only if construction throws. There is no device capability
-   * to negotiate here — that was the other design's problem.
-   */
   start(): boolean {
     if (this.mesh) return true;
-
     try {
-      // Subdivision 1: twenty faces. A droplet is a few pixels across and
-      // rounder costs triangles nobody can see.
-      const mesh = CreateIcoSphere("liquid-splash-droplets", { radius: DROPLET_RADIUS, subdivisions: 1 }, this.scene);
-
-      const material = new StandardMaterial("liquid-splash-droplet-mat", this.scene);
-      // Emissive rather than lit: spray is bright against both a dark pool and
-      // a bright sky, and it must not go black in an unlit corner of a map.
-      material.disableLighting = true;
-      // Tinted toward the water rather than white. Pure white spray over a
-      // blue-green pool reads as snow, which is exactly what it looked like.
-      material.emissiveColor = new Color3(0.62, 0.8, 0.88);
-      material.diffuseColor = Color3.Black();
-      material.specularColor = Color3.Black();
-      // Well short of opaque: spray is thin, and overlapping droplets should
-      // build up density rather than each one being a solid bead.
-      material.alpha = 0.5;
-      // No depth write, like every other transparent effect here — droplets
-      // must not appear in the depth map the water surface measures itself
-      // against, or a crown would punch holes in the pool it came from.
+      const mesh = this.mesh = new Mesh("liquid-splash-droplets", this.scene);
+      const uv = new Float32Array(MAX_DROPLETS * 8);
+      const indices: number[] = [];
+      for (let i = 0; i < MAX_DROPLETS; i++) {
+        uv.set([0, 0, 1, 0, 1, 1, 0, 1], i * 8);
+        const v = i * 4;
+        indices.push(v, v + 1, v + 2, v, v + 2, v + 3);
+      }
+      mesh.setVerticesData("position", this.positions, true, 3);
+      mesh.setVerticesData("uv", uv, false, 2);
+      mesh.setVerticesData("sprayData", this.data, true, 2);
+      mesh.setVerticesData("sprayVelocity", this.velocities, true, 3);
+      mesh.setIndices(indices);
+      const material = this.material = new ShaderMaterial("liquid-splash-spray-mat", this.scene,
+        { vertexSource: VERTEX, fragmentSource: FRAGMENT }, {
+          attributes: ["position", "uv", "sprayData", "sprayVelocity"],
+          uniforms: ["view", "projection", "uOutputLinear"], needAlphaBlending: true,
+        });
       material.disableDepthWrite = true;
+      material.backFaceCulling = false;
+      material.setFloat("uOutputLinear", 0);
+      material.onBindObservable.add(() => {
+        const p = this.scene.imageProcessingConfiguration;
+        material.getEffect().setFloat("uOutputLinear", p.isEnabled && p.applyByPostProcess ? 1 : 0);
+      });
       mesh.material = material;
-
+      mesh.metadata = { effectOwned: true, excludeFromWaterCapture: true };
+      mesh.layerMask &= ~0x10000000;
       mesh.isPickable = false;
       mesh.alwaysSelectAsActiveMesh = true;
-      mesh.doNotSyncBoundingInfo = true;
-      mesh.layerMask &= ~WEAPON_LAYER_MASK;
-
-      mesh.thinInstanceSetBuffer("matrix", this.matrices, 16, false);
-      mesh.thinInstanceCount = 0;
       mesh.setEnabled(false);
-
-      this.mesh = mesh;
       return true;
     } catch (error) {
-      console.warn("[Water] Could not build splash droplets", error);
+      console.warn("[Water] Could not build splash spray", error);
       this.dispose();
       return false;
     }
   }
 
-  /**
-   * Show `count` droplets from the simulation's buffers.
-   *
-   * Writes scale and translation straight into the matrix buffer rather than
-   * composing one through `Matrix.Scaling`/`Translation`, which would allocate
-   * per droplet per frame. Column-major: scale on the diagonal, translation in
-   * elements 12..14.
-   *
-   * Rotation stays identity — a sphere has no orientation to get right, which
-   * is the entire reason droplets are spheres.
-   */
-  update(positions: Float32Array, sizes: Float32Array, count: number): void {
+  update(positions: Float32Array, sizes: Float32Array, count: number,
+    velocities?: Float32Array, opacities?: Float32Array): void {
     const mesh = this.mesh;
     if (!mesh) return;
-
-    const shown = Math.min(count, MAX_DROPLETS);
-    if (shown === 0) {
-      if (mesh.isEnabled()) {
-        mesh.thinInstanceCount = 0;
-        mesh.setEnabled(false);
+    this.shown = Math.max(0, Math.min(MAX_DROPLETS, Math.floor(count), sizes.length, Math.floor(positions.length / 3)));
+    if (!this.shown) { mesh.setEnabled(false); return; }
+    for (let i = 0; i < this.shown; i++) {
+      for (let corner = 0; corner < 4; corner++) {
+        const vertex = i * 4 + corner;
+        for (let axis = 0; axis < 3; axis++) {
+          this.positions[vertex * 3 + axis] = positions[i * 3 + axis];
+          this.velocities[vertex * 3 + axis] = velocities?.[i * 3 + axis] ?? 0;
+        }
+        this.data[vertex * 2] = sizes[i];
+        this.data[vertex * 2 + 1] = opacities?.[i] ?? 1;
       }
-      return;
     }
-
-    const m = this.matrices;
-    for (let i = 0; i < shown; i++) {
-      const o = i * 16;
-      const s = sizes[i];
-      m[o] = s;
-      m[o + 1] = 0;
-      m[o + 2] = 0;
-      m[o + 3] = 0;
-      m[o + 4] = 0;
-      m[o + 5] = s;
-      m[o + 6] = 0;
-      m[o + 7] = 0;
-      m[o + 8] = 0;
-      m[o + 9] = 0;
-      m[o + 10] = s;
-      m[o + 11] = 0;
-      m[o + 12] = positions[i * 3];
-      m[o + 13] = positions[i * 3 + 1];
-      m[o + 14] = positions[i * 3 + 2];
-      m[o + 15] = 1;
+    // Refresh bounds for transparent sorting at the actual splash location.
+    // Unused vertices must not pull the bounding centre toward world origin.
+    for (let v = this.shown * 4; v < MAX_DROPLETS * 4; v++) {
+      this.positions[v * 3] = positions[0];
+      this.positions[v * 3 + 1] = positions[1];
+      this.positions[v * 3 + 2] = positions[2];
     }
-
-    mesh.thinInstanceCount = shown;
-    mesh.thinInstanceBufferUpdated("matrix");
-    if (!mesh.isEnabled()) mesh.setEnabled(true);
+    mesh.updateVerticesData("position", this.positions, true);
+    mesh.updateVerticesData("sprayVelocity", this.velocities);
+    mesh.updateVerticesData("sprayData", this.data);
+    mesh.subMeshes[0].indexCount = this.shown * 6;
+    // A shortened index range is no longer a global SubMesh; Babylon then
+    // needs its own bounds for transparent sorting, not just the mesh bounds.
+    mesh.subMeshes[0].refreshBoundingInfo();
+    mesh.setEnabled(true);
   }
 
-  get isAvailable(): boolean {
-    return this.mesh !== null;
-  }
-
-  /** Live instance count. Tests and diagnostics only. */
-  get drawnCount(): number {
-    return this.mesh?.thinInstanceCount ?? 0;
-  }
+  get isAvailable(): boolean { return this.mesh !== null; }
+  get drawnCount(): number { return this.shown; }
 
   dispose(): void {
-    if (this.mesh) {
-      this.mesh.material?.dispose();
-      this.mesh.dispose();
-      this.mesh = null;
-    }
+    this.mesh?.dispose();
+    this.material?.dispose();
+    this.mesh = null;
+    this.material = null;
+    this.shown = 0;
   }
 }

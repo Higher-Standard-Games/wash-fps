@@ -25,6 +25,38 @@ function simulate(droplets: SplashDroplets, seconds: number, step = 1 / 60) {
 }
 
 describe("spawning", () => {
+  it("rejects empty/invalid splashes and caps excessive strength", () => {
+    const droplets = new SplashDroplets();
+    expect(droplets.spawn(splash(0), 1)).toBe(0);
+    expect(droplets.spawn(splash(NaN), 1)).toBe(0);
+    expect(droplets.spawn(splash(-1), 1)).toBe(0);
+    expect(droplets.spawn(splash(100), 1)).toBe(24);
+  });
+
+  it("keeps weak splashes lower and narrower than hard impacts", () => {
+    const weak = new SplashDroplets(), hard = new SplashDroplets();
+    weak.spawn(splash(0.15), 23);
+    hard.spawn(splash(1), 23);
+    weak.update(1 / 60); hard.update(1 / 60);
+    const maxLift = (d: SplashDroplets) => Math.max(...Array.from(d.velocityBuffer.slice(0, d.count * 3)).filter((_, i) => i % 3 === 1));
+    expect(maxLift(hard)).toBeGreaterThan(maxLift(weak) * 2);
+    expect(hard.count).toBeGreaterThan(weak.count);
+  });
+  it("fades falling spray during its actual short flight, before surface re-entry", () => {
+    const droplets = new SplashDroplets();
+    droplets.spawn(splash(0.7), 23);
+    let sawFadedDescent = false;
+    for (let t = 0; t < 0.6; t += 1 / 120) {
+      droplets.update(1 / 120);
+      for (let i = 0; i < droplets.count; i++) {
+        expect(droplets.opacityBuffer[i]).toBeGreaterThanOrEqual(0);
+        expect(droplets.opacityBuffer[i]).toBeLessThanOrEqual(1);
+        if (droplets.velocityBuffer[i * 3 + 1] < 0 && droplets.opacityBuffer[i] < 0.5) sawFadedDescent = true;
+      }
+    }
+    expect(sawFadedDescent).toBe(true);
+    expect(droplets.aliveCount).toBe(0);
+  });
   it("throws more droplets for a harder splash", () => {
     const light = new SplashDroplets();
     const heavy = new SplashDroplets();
@@ -148,16 +180,20 @@ describe("size", () => {
     const droplets = new SplashDroplets();
     droplets.spawn(splash(1), 37);
     droplets.update(1 / 60);
-    const early = Math.max(...Array.from(droplets.sizeBuffer.slice(0, droplets.count)));
-
-    // Most of the way through the maximum lifetime, without landing: a droplet
-    // thrown from a surface far below never re-enters.
-    const high = new SplashDroplets();
-    high.spawn({ x: 0, y: 0, z: 0, surfaceY: -100000, strength: 1 }, 37);
-    for (let t = 0; t < 2.3; t += 1 / 60) high.update(1 / 60);
-    const late = Math.max(...Array.from(high.sizeBuffer.slice(0, high.count)));
-
-    expect(late).toBeLessThan(early);
+    const early = Array.from(droplets.sizeBuffer.slice(0, droplets.count));
+    let checked = false;
+    // Check a LIVE falling droplet before the first re-entry. The previous
+    // timeout test compared against an empty buffer (Math.max() = -Infinity).
+    for (let frame = 0; frame < 30; frame++) {
+      if (droplets.update(1 / 120).length) break;
+      for (let i = 0; i < droplets.count; i++) {
+        if (droplets.velocityBuffer[i * 3 + 1] >= -10) continue;
+        expect(droplets.sizeBuffer[i]).toBeLessThan(early[i]);
+        expect(droplets.sizeBuffer[i]).toBeGreaterThan(0);
+        checked = true;
+      }
+    }
+    expect(checked).toBe(true);
   });
 
   it("has a size for every packed position", () => {

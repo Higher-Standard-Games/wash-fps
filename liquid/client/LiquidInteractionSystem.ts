@@ -18,6 +18,7 @@ import { CreateDisc } from "@babylonjs/core/Meshes/Builders/discBuilder";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Observer } from "@babylonjs/core/Misc/observable";
 import type { Scene } from "@babylonjs/core/scene";
+import { waterDisturbancesFor } from "../../../../engine/rendering/water/WaterDisturbances";
 import { MASK_LIQUID } from "../../../../shared/collision/CollisionWorld";
 import { enterSound, exitSound, HIT_WATER, playLiquidCrossing, splashVolume } from "../../client/FPSLiquidAudio";
 import type { LiquidKind, WaterLevel } from "../LiquidTypes";
@@ -63,7 +64,7 @@ const RING_SURFACE_LIFT = 0.5;
  * the whole ring pool on a single splash, and the result reads as static
  * rather than as water.
  */
-const REENTRY_RING_SPEED = 260;
+const REENTRY_RING_SPEED = 180;
 /** Re-entry ripples are faint — a crown's aftermath, not another splash. */
 const REENTRY_RING_STRENGTH = 0.25;
 
@@ -86,6 +87,13 @@ const RING_COLORS: Record<LiquidKind, Color3> = {
 
 interface TrackedBody {
   level: WaterLevel;
+  x: number;
+  z: number;
+  time: number;
+  lastWake: number;
+  wakeDistance: number;
+  wakeX: number;
+  wakeZ: number;
 }
 
 /** Size of the generated ring mask. Soft edges need no more than this. */
@@ -155,6 +163,7 @@ export class LiquidInteractionSystem {
   private spray: SplashDropletRenderer | null = null;
   /** Splash counter, used as the deterministic seed for each crown's spread. */
   private splashSeed = 0;
+  private reentryCooldown = 0;
 
   constructor(private readonly scene: Scene) {}
 
@@ -186,6 +195,7 @@ export class LiquidInteractionSystem {
     this.spray = null;
     this.droplets?.clear();
     this.droplets = null;
+    this.reentryCooldown = 0;
   }
 
   get crownsEnabled(): boolean {
@@ -209,18 +219,51 @@ export class LiquidInteractionSystem {
     local: boolean,
   ): void {
     const tracked = this.bodies.get(entityId);
+    const now = performance.now() / 1000;
 
     // A body's FIRST report establishes a baseline and produces nothing. It is
     // not a crossing: the player may have joined mid-match already submerged,
     // respawned into a pool, or simply entered PVS while swimming. Treating an
     // unknown body as previously dry would splash for all three.
     if (!tracked) {
-      this.bodies.set(entityId, { level });
+      this.bodies.set(entityId, { level, x: position.x, z: position.z, time: now, lastWake: now, wakeDistance: 0, wakeX: 0, wakeZ: 0 });
       return;
     }
 
     const previous = tracked.level;
+    const movement = { x: position.x - tracked.x, z: position.z - tracked.z };
+    const distance = Math.hypot(movement.x, movement.z);
     tracked.level = level;
+    tracked.x = position.x;
+    tracked.z = position.z;
+    tracked.time = now;
+
+    // Continuous surface movement, not just a wet/dry transition. Suppress
+    // teleports, stationary bodies and fully submerged swimmers. The surface
+    // renderer resolves the exact pool and height from its original triangles.
+    if (previous > 0 && level > 0 && level < 3 && distance < 96) {
+      tracked.wakeDistance += distance;
+      tracked.wakeX += movement.x;
+      tracked.wakeZ += movement.z;
+      const elapsed = now - tracked.lastWake;
+      if (elapsed >= 0.12) {
+        const speed = tracked.wakeDistance / elapsed;
+        if (Math.hypot(tracked.wakeX, tracked.wakeZ) > 0.5 && speed > 20) {
+          const swimming = level === 2;
+          const strength = swimming ? Math.min(0.5, speed / 500) : Math.min(0.28, speed / 900);
+          const radius = swimming ? Math.min(88, 48 + speed * 0.12) : Math.min(52, 24 + speed * 0.08);
+          waterDisturbancesFor(this.scene).add(position, strength,
+            radius, { x: tracked.wakeX, z: tracked.wakeZ });
+        }
+        tracked.lastWake = now;
+        tracked.wakeDistance = 0;
+        tracked.wakeX = tracked.wakeZ = 0;
+      }
+    } else {
+      tracked.lastWake = now;
+      tracked.wakeDistance = 0;
+      tracked.wakeX = tracked.wakeZ = 0;
+    }
 
     if (previous === level) return;
 
@@ -242,7 +285,7 @@ export class LiquidInteractionSystem {
     // A ring for a body that actually broke the surface. Someone easing across
     // the waterline leaves nothing, which is also why the volume gate and the
     // ring share a threshold.
-    if (volume > 0 && surface) this.spawnRing(position, surface, splashKind, volume);
+    if (volume > 0 && surface) this.spawnRing(position, surface, splashKind, volume * (entered ? 1 : 0.55));
   }
 
   /**
@@ -326,7 +369,19 @@ export class LiquidInteractionSystem {
    * ripple without throwing another crown — which would be a splash spawning
    * a splash, forever.
    */
-  private placeRing(at: { x: number; y: number; z: number }, kind: LiquidKind, strength: number): void {
+  private placeRing(at: { x: number; y: number; z: number }, kind: LiquidKind, strength: number,
+    radius = 48 + 64 * Math.min(1, strength)): void {
+    if (kind === "water") {
+      const waves = waterDisturbancesFor(this.scene);
+      // Replacement surfaces shade the ripple themselves. Keep the old disc
+      // only for legacy/unsupported surfaces, not as an overlay hiding waves.
+      const accepted = waves.add(at, strength, radius);
+      if (waves.resolveSurface && accepted) {
+        // Crowns still need their update loop even when no ring mesh is drawn.
+        this.start();
+        return;
+      }
+    }
     const ring = this.acquireRing();
     if (!ring) return;
 
@@ -511,15 +566,18 @@ export class LiquidInteractionSystem {
     if (!this.droplets) return false;
 
     const reentries = this.droplets.update(dt);
-    this.spray?.update(this.droplets.buffer, this.droplets.sizeBuffer, this.droplets.count);
+    this.reentryCooldown = Math.max(0, this.reentryCooldown - dt);
+    this.spray?.update(this.droplets.buffer, this.droplets.sizeBuffer, this.droplets.count,
+      this.droplets.velocityBuffer, this.droplets.opacityBuffer);
 
     let placed = false;
     for (const hit of reentries) {
       // Only the harder landings earn a ring; the rest of the crown simply
       // rejoins the water. Every droplet ringing would use the whole pool on
       // one splash and leave nothing for the next.
-      if (hit.speed < REENTRY_RING_SPEED) continue;
-      this.placeRing(hit, "water", REENTRY_RING_STRENGTH);
+      if (hit.speed < REENTRY_RING_SPEED || this.reentryCooldown > 0) continue;
+      this.placeRing(hit, "water", REENTRY_RING_STRENGTH, 24);
+      this.reentryCooldown = 0.12;
       placed = true;
     }
 

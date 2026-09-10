@@ -160,6 +160,9 @@ export class RemotePlayerRenderer {
   /** Shared model manager — loads vanguard.glb once, creates cloned instances */
   private modelManager: PlayerModelManager | null = null;
   private modelLoadPromise: Promise<void> | null = null;
+  private localReflectionModel: PlayerModelInstance | null = null;
+  private localReflectionLoadAttempted = false;
+  private disposed = false;
 
   /** Reference to enemyWeapons from GameEventContext — maps entityId → weaponId */
   private enemyWeapons: Map<string, string> = new Map();
@@ -265,8 +268,13 @@ export class RemotePlayerRenderer {
     }
 
     this.modelManager = new PlayerModelManager(this.scene);
+    const loadingManager = this.modelManager;
     this.modelLoadPromise = (async () => {
-      await this.modelManager!.loadModel();
+      await loadingManager.loadModel();
+      if (this.disposed || this.modelManager !== loadingManager) {
+        loadingManager.dispose();
+        return;
+      }
       console.log("[RemotePlayerRenderer] Player model loaded");
 
       // Create model instances for any hitboxes that were created before model loaded
@@ -290,11 +298,52 @@ export class RemotePlayerRenderer {
     if (!this.modelManager?.isLoaded) return null;
     const instance = this.modelManager.createInstance(entityId, MODEL_SCALE);
     if (instance) {
+      // Explicit opt-in for the engine's optional near-water reflection layer.
+      // Root metadata also covers model children; hidden POV roots stay excluded.
+      instance.anchor.metadata = { ...instance.anchor.metadata, waterReflectionActorId: entityId };
       // Start with idle animation
       this.modelManager.playAnimation(instance, "idle");
       this.applyModelVisualStyle(instance, entityId);
     }
     return instance;
+  }
+
+  /** A local body exists only for water capture, never for main/depth/refraction
+   * cameras. Reuse the same model/locomotion assets, but no weapon or hitbox. */
+  syncLocalWaterReflection(state: InterpolatedEntity | null): void {
+    if (this.disposed) return;
+    if (!state) {
+      this.localReflectionModel?.anchor.setEnabled(false);
+      this.localReflectionModel?.masterGroup?.pause();
+      return;
+    }
+    if (!this.modelManager?.isLoaded) {
+      if (!this.localReflectionLoadAttempted) {
+        this.localReflectionLoadAttempted = true;
+        void this.ensureModelLoaded();
+      }
+      return;
+    }
+    if (!this.localReflectionModel) {
+      this.localReflectionModel = this.createModelInstance("water-local-body");
+      if (!this.localReflectionModel) return;
+      const model = this.localReflectionModel;
+      model.anchor.metadata = { ...model.anchor.metadata, waterReflectionOnly: true };
+      for (const mesh of [model.mesh, ...model.mesh.getChildMeshes()]) {
+        mesh.isVisible = false;
+        mesh.isPickable = false;
+      }
+    }
+    const model = this.localReflectionModel;
+    const resumed = !model.anchor.isEnabled();
+    model.anchor.setEnabled(true);
+    model.anchor.position.set(state.x, state.y + PLAYER_MINS_Z + MODEL_Y_OFFSET -
+      (state.sliding ? 20 : state.crouching ? 10 : 0), state.z);
+    model.anchor.rotation.y = state.yaw;
+    this.modelManager.resetRootMotion(model);
+    if (resumed) model.currentAnim = "";
+    this.modelManager.playAnimation(model, this.deriveAnimation(state));
+    if (resumed) model.masterGroup?.play(true);
   }
 
   /** The viewer's own side, so everyone else can be read as ally or enemy. */
@@ -558,6 +607,9 @@ export class RemotePlayerRenderer {
 
   /** Clean up all hitboxes and models */
   dispose(): void {
+    this.disposed = true;
+    if (this.localReflectionModel && this.modelManager) this.modelManager.disposeInstance(this.localReflectionModel);
+    this.localReflectionModel = null;
     getHitscanEffects().clearRemoteLightningMuzzleResolver(this.voltaicMuzzleResolver);
     for (const hitbox of this.hitboxes.values()) {
       hitbox.mesh.dispose();

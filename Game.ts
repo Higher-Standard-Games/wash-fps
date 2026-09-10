@@ -29,6 +29,7 @@ import { getCollisionManager } from "../../engine/physics/CollisionManager";
 import { DEFAULT_VIEWHEIGHT } from "../../engine/physics/PlayerPhysicsConstants";
 import { PlayerProfile } from "../../engine/player/PlayerProfile";
 import RenderVars from "../../engine/rendering/RenderVars";
+import { waterNeedsLocalReflection } from "../../engine/rendering/water/WaterActorReflection";
 import { getProjectileManager } from "../../engine/weapon/ProjectileManager";
 import { getWeaponViewManager } from "../../engine/weapon/WeaponViewManager";
 import { WEAPONS } from "../../shared/entities/definitions/weapons/WeaponsTable";
@@ -256,7 +257,12 @@ export class Game {
     // death with no ragdoll to follow, a spectate between snapshots, and a
     // round that ends on the clock rather than on the bomb, where there is no
     // focus point for the intermission camera to move to at all.
-    if (this._isPlayerDead && MatchStateManager.getInstance().round > 0) {
+    // A selected target is stronger evidence than the round counter. It is the
+    // same state that drives the SPECTATING banner, and bot entity snapshots
+    // can arrive on a different frame from match metadata. Once a target
+    // exists, that harmless metadata gap must never reveal the 0.7rad fallback
+    // death roll underneath the spectator camera.
+    if (this._spectatingEntityId || (this._isPlayerDead && MatchStateManager.getInstance().round > 0)) {
       camera.rotation.z = 0;
       return true;
     }
@@ -1767,6 +1773,7 @@ export class Game {
   renderRemotePlayers(): void {
     if (this.remoteRenderer) {
       this.remoteRenderer.render();
+      this.syncLocalWaterReflection();
     }
 
     // Your own splash, from prediction rather than from a snapshot. The remote
@@ -2006,6 +2013,32 @@ export class Game {
       slidePhase: ms.slidePhase,
       ledgeGrabPhase: ms.ledgeGrabPhase,
     };
+  }
+
+  private syncLocalWaterReflection(): void {
+    const cameras = CameraSystem.getInstance();
+    const camera = cameras.getCamera();
+    if (!camera || this.playerState !== "playing" || this._isPlayerDead ||
+        cameras.getActiveController()?.type !== "fps" || !waterNeedsLocalReflection(camera.getScene()) ||
+        !RenderVars.getInstance().get("r_water_actors") || (RenderVars.getInstance().get("r_water_quality") ?? 3) < 3) {
+      this.remoteRenderer?.syncLocalWaterReflection(null);
+      return;
+    }
+    // Do not call getLocalPlayerPosition twice on the network path: it decays
+    // reconciliation smoothing. Read the already-smoothed visual position.
+    const position = this.v2Client && this.isNetworkMode
+      ? (this.v2Client.hasValidPosition() ? this.v2Client.getVisualPosition() : null)
+      : this.getLocalPlayerPosition();
+    if (!position) { this.remoteRenderer?.syncLocalWaterReflection(null); return; }
+    const state = this.getCurrentMovementState();
+    const forward = camera.getDirection(Vector3.Forward());
+    this.remoteRenderer?.syncLocalWaterReflection({
+      x: position.x, y: position.y, z: position.z, yaw: Math.atan2(forward.x, forward.z),
+      vx: state?.velocity.x ?? 0, vy: state?.velocity.y ?? 0, vz: state?.velocity.z ?? 0,
+      grounded: state?.grounded ?? true, crouching: state?.isCrouching ?? false,
+      sliding: state?.isSliding ?? false, wallJumping: state?.wallJumpState === "charging",
+      waterLevel: this.v2Client?.getMovementState().waterLevel ?? 0,
+    });
   }
 
   /**
