@@ -13,6 +13,8 @@ import { Simulation } from "@engine/server/core/Simulation";
 import { createPlayerEntity } from "@engine/server/ecs/Entity";
 import type { EntityId, PlayerId } from "@engine/server/ecs/types";
 import { playerId as createPlayerId } from "@engine/server/ecs/types";
+import { CASUAL_CONFIG } from "@engine/server/lagcomp/config";
+import { LagCompensation } from "@engine/server/lagcomp/LagCompensation";
 // Transport
 import type { ClientConnection, Transport, TransportConfig } from "@engine/server/network/transport/WebSocketTransport";
 import { WebSocketServerTransport } from "@engine/server/network/transport/WebSocketTransport";
@@ -87,6 +89,8 @@ export class GameServer {
   private simulation: Simulation;
   private transport: Transport;
   private clients: Map<string, ClientInfo> = new Map();
+  /** Per-tick rewind history behind lag-compensated hit registration. */
+  private lagCompensation: LagCompensation;
   private nextPlayerId: number = 1;
   private nextBotId: number = 900; // Bot IDs start high to avoid collisions
   private running: boolean = false;
@@ -186,6 +190,10 @@ export class GameServer {
     this.physicsSystem = new FPSMovementSubsystem();
     this.projectileSystem = new ProjectileSystem();
     this.weaponSystem = new WeaponSystem();
+    // Rewind history must run at the real tick rate, or the tick/ms conversion
+    // inside it rewinds by the wrong amount.
+    this.lagCompensation = new LagCompensation({ ...CASUAL_CONFIG, tickRate: config.tickRate });
+    this.weaponSystem.setLagCompensation(this.lagCompensation);
     this.combatSystem = new CombatSystem();
     this.pickupSystem = new PickupSystem();
     this.droppedWeaponSystem = new DroppedWeaponSystem();
@@ -311,6 +319,7 @@ export class GameServer {
     this.weaponSystem.setCollisionWorld(collision);
     this.droppedWeaponSystem.setCollisionWorld(collision);
     this.gametypeController.setCollisionWorld(collision);
+    this.lagCompensation.setCollisionWorld(collision);
     console.log(`[GameServer] Collision world configured`);
   }
 
@@ -669,8 +678,19 @@ export class GameServer {
     // scoreboard screen is up, so the fight visibly ends when the match does.
     this.gametypeController.applyPostGameInputFreeze(this.simulation.getStateMut());
 
+    // 0.8. Refresh per-client latency so this tick's shots rewind by the right
+    // amount. Cheap: one map read per connected client.
+    // A client caught mid-disconnect may already have lost its connection.
+    for (const client of this.clients.values())
+      this.lagCompensation.updateClientLatency(client.playerId, client.connection?.latency ?? 0);
+
     // 1. Run simulation (physics, weapons, combat)
     this.simulation.tick();
+
+    // 1.5. Record where the bodies and movers ended this tick. Shots arriving on
+    // later ticks rewind into this history. Recorded after the tick so history
+    // holds settled positions, and never includes the tick being fired on.
+    this.lagCompensation.recordPositions(this.simulation.getState());
 
     // 2. Forward weapon & projectile damage → combat system
     for (const dmg of this.weaponSystem.getPendingDamage()) {

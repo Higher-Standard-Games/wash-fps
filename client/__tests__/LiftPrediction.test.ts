@@ -95,3 +95,29 @@ describe("lift server/client prediction", () => {
     expect(collision.lifts!.snapshot()[0].offset).toBeCloseTo(-49.2);
   });
 });
+
+describe("lift crush damage", () => {
+  it("queues world damage against the player a blocked mover squashes", async () => {
+    const backend = new SweepCollisionBackend();
+    await backend.init(liftBsp(true)); // ceiling just above the plat's travel
+    const collision = new SharedCollisionWorld(new SweepBackendAdapter(backend));
+    const physics = new FPSMovementSubsystem();
+    physics.setCollisionWorld(collision);
+    const queued: Array<{ victimId: number; damage: number }> = [];
+    physics.setCombatSystem({
+      queueDamage: (e: { victimId: number; damage: number }) => queued.push(e),
+    } as never);
+
+    const sim = new Simulation({ tickMs: 8 });
+    sim.addSubsystem(physics);
+    sim.initialize();
+    const id = entityId(1);
+    sim.getStateMut().addEntity(createPlayerEntity(id, playerId(1), { x: 0, y: 24.03125, z: 0 }));
+    for (let tick = 0; tick < 120; tick++) sim.tick();
+
+    expect(queued.length).toBeGreaterThan(0);
+    expect(queued.every((d) => d.victimId === id)).toBe(true);
+    // Rate-limited by tick length, not one lethal hit per contact.
+    expect(queued[0].damage).toBeCloseTo(2 * 0.008 * 20, 6);
+  });
+});

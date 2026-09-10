@@ -11,6 +11,7 @@ import type { Entity } from "@engine/server/ecs/Entity";
 import { createProjectileEntity } from "@engine/server/ecs/Entity";
 import type { EntityId, TickNumber } from "@engine/server/ecs/types";
 import { EntityType, entityId } from "@engine/server/ecs/types";
+import type { LagCompensation, RewindView } from "@engine/server/lagcomp/LagCompensation";
 import type { WeaponLoadout } from "@shared/server/gametype";
 import { type CollisionWorld, SHOT_CONTENT_MASK } from "../../../../engine/network/systems/collision/CollisionWorld";
 import { DEFAULT_VIEWHEIGHT } from "../../../../engine/physics/PlayerPhysicsConstants";
@@ -178,6 +179,7 @@ export class WeaponSystem extends Subsystem {
   private projectileSystem: ProjectileSystem | null = null;
   private droppedWeaponSystem: DroppedWeaponSystem | null = null;
   private collisionWorld: CollisionWorld | null = null;
+  private lagCompensation: LagCompensation | null = null;
   /** Gametype self-damage multiplier (1.0 = full, 0 = none). Mirrors ProjectileSystem. */
   selfDamageMultiplier: number = 1.0;
   private movementSubsystem: import("./FPSMovementSubsystem").FPSMovementSubsystem | null = null;
@@ -295,6 +297,29 @@ export class WeaponSystem extends Subsystem {
    */
   setCollisionWorld(world: CollisionWorld): void {
     this.collisionWorld = world;
+  }
+
+  /**
+   * Wire hit registration to the rewind history. Without it, hitscan resolves
+   * against the present, which makes a moving target harder to hit the worse
+   * your connection is. With it, a shot is judged against the world the shooter
+   * actually saw.
+   */
+  setLagCompensation(lag: LagCompensation | null): void {
+    this.lagCompensation = lag;
+  }
+
+  /** Where the world was when `shooter` pulled the trigger, or null for "now". */
+  private rewindFor(state: WorldState, shooter: Readonly<Entity>): RewindView | null {
+    if (!this.lagCompensation || shooter.ownerId === undefined) return null;
+    const ping = this.lagCompensation.getClientLatency(shooter.ownerId);
+    return this.lagCompensation.rewind(state.tick, ping);
+  }
+
+  /** Run a world query with movers put back where the shooter saw them. */
+  private withRewoundMovers<T>(rewind: RewindView | null, query: () => T): T {
+    const lifts = this.collisionWorld?.lifts;
+    return lifts && rewind?.liftOffsets ? lifts.rewind(rewind.liftOffsets, query) : query();
   }
 
   /**
@@ -1213,6 +1238,9 @@ export class WeaponSystem extends Subsystem {
     const start = this.getFireViewOrigin(shooter);
     if (!start) return;
     const maxRange = weapon.range || 5000;
+    // Resolved once per trigger pull, so every pellet of a shot is judged
+    // against the same instant of the world.
+    const rewind = this.rewindFor(state, shooter);
 
     // Pellet weapons (riotgun): fire N rays with seeded spread
     if (weapon.pelletCount && weapon.pelletCount > 1 && weapon.spread) {
@@ -1230,7 +1258,7 @@ export class WeaponSystem extends Subsystem {
 
       // Trace each pellet individually
       for (const dir of directions) {
-        this.traceHitscanRay(state, shooter, weapon, start, dir, maxRange);
+        this.traceHitscanRay(state, shooter, weapon, start, dir, maxRange, rewind);
       }
       return;
     }
@@ -1253,7 +1281,7 @@ export class WeaponSystem extends Subsystem {
       y: Math.sin(wPitch),
       z: Math.cos(wYaw) * Math.cos(wPitch),
     };
-    const primaryHit = this.traceHitscanRay(state, shooter, weapon, start, dir, maxRange);
+    const primaryHit = this.traceHitscanRay(state, shooter, weapon, start, dir, maxRange, rewind);
     // Continuous beam compatibility IDs have already normalized to Voltaic.
     if (weapon.hitscanType === "beam") {
       this.emitVoltaicBeamEvent(shooter.id, start, dir, maxRange, primaryHit);
@@ -1439,6 +1467,7 @@ export class WeaponSystem extends Subsystem {
     start: { x: number; y: number; z: number },
     dir: { x: number; y: number; z: number },
     maxRange: number,
+    rewind: RewindView | null = null,
   ): HitscanHitResult | null {
     // World occlusion: a hitscan ray stops at the first solid surface, so find
     // where it meets the BSP world. Any target beyond that distance is standing
@@ -1446,7 +1475,7 @@ export class WeaponSystem extends Subsystem {
     // bug — the sphere test alone had no notion of world geometry). With no
     // collision world wired in (unit tests, headless), this stays +Infinity and
     // the trace behaves exactly as before.
-    const worldBlock = this.traceWorldImpactDetails(start, dir, maxRange);
+    const worldBlock = this.withRewoundMovers(rewind, () => this.traceWorldImpactDetails(start, dir, maxRange));
     const worldBlockDist = worldBlock
       ? Math.hypot(worldBlock.point.x - start.x, worldBlock.point.y - start.y, worldBlock.point.z - start.z)
       : Number.POSITIVE_INFINITY;
@@ -1467,11 +1496,16 @@ export class WeaponSystem extends Subsystem {
       if (target.id === shooter.id) continue;
       if (!target.transform || !target.health || target.health.dead) continue;
 
+      // Judge the shot against where the shooter saw this body, not where it has
+      // since run to. A target with no recorded position (just spawned) falls
+      // back to the present rather than being made unhittable.
+      const targetPos = rewind?.positions.get(target.id) ?? target.transform.position;
+
       // Simple sphere intersection test
       const toTarget = {
-        x: target.transform.position.x - start.x,
-        y: target.transform.position.y - start.y,
-        z: target.transform.position.z - start.z,
+        x: targetPos.x - start.x,
+        y: targetPos.y - start.y,
+        z: targetPos.z - start.z,
       };
 
       // Project onto ray
@@ -1486,9 +1520,7 @@ export class WeaponSystem extends Subsystem {
       };
 
       const distSq =
-        (closestPoint.x - target.transform.position.x) ** 2 +
-        (closestPoint.y - target.transform.position.y) ** 2 +
-        (closestPoint.z - target.transform.position.z) ** 2;
+        (closestPoint.x - targetPos.x) ** 2 + (closestPoint.y - targetPos.y) ** 2 + (closestPoint.z - targetPos.z) ** 2;
 
       const hitRadius = 32; // Player capsule radius
       if (distSq >= hitRadius ** 2) continue;
@@ -1504,12 +1536,12 @@ export class WeaponSystem extends Subsystem {
         y: start.y + dir.y * entryDistance,
         z: start.z + dir.z * entryDistance,
       };
-      const normalX = impactPoint.x - target.transform.position.x;
-      const normalY = impactPoint.y - target.transform.position.y;
-      const normalZ = impactPoint.z - target.transform.position.z;
+      const normalX = impactPoint.x - targetPos.x;
+      const normalY = impactPoint.y - targetPos.y;
+      const normalZ = impactPoint.z - targetPos.z;
       const normalLength = Math.sqrt(normalX * normalX + normalY * normalY + normalZ * normalZ) || 1;
       // Hit! Determine location based on Y offset
-      const yOffset = closestPoint.y - target.transform.position.y;
+      const yOffset = closestPoint.y - targetPos.y;
       let hitLocation = HitLocation.Body;
       if (yOffset > 32) hitLocation = HitLocation.Head;
       else if (yOffset < -20) hitLocation = HitLocation.Legs;
@@ -1517,7 +1549,7 @@ export class WeaponSystem extends Subsystem {
       best = {
         entryDistance,
         id: target.id,
-        position: { ...target.transform.position },
+        position: { ...targetPos },
         hitLocation,
         impactPoint,
         impactNormal: { x: normalX / normalLength, y: normalY / normalLength, z: normalZ / normalLength },

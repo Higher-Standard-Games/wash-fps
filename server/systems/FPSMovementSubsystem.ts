@@ -663,12 +663,25 @@ export class FPSMovementSubsystem extends Subsystem {
           const mutable = state.getEntityMut(entity.id);
           if (!mutable?.transform || !mutable.physics) continue;
           actors.push({
+            id: entity.id as number,
             position: mutable.transform.position,
             velocity: mutable.physics.velocity,
             passive: type !== EntityType.Player || !!entity.health?.dead || !entity.input,
           });
         }
-      this.collisionWorld.lifts.step(dt, actors);
+      // Being squashed by a mover is world damage, credited like drowning is.
+      for (const crush of this.collisionWorld.lifts.step(dt, actors)) {
+        if (crush.id === undefined) continue;
+        const victimId = crush.id as EntityId;
+        this.combatSystem?.queueDamage({
+          victimId,
+          attackerId: victimId,
+          damage: crush.damage,
+          armorPiercing: 0,
+          damageType: DamageType.World,
+          hitLocation: HitLocation.Body,
+        });
+      }
     }
     for (const entity of state.entitiesByType(EntityType.Player)) {
       if (!entity.transform || !entity.physics || !entity.input) continue;

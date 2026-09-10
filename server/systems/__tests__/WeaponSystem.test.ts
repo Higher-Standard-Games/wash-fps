@@ -17,6 +17,8 @@
  */
 
 import { EntityType } from "@engine/server/ecs/types";
+import { CASUAL_CONFIG } from "@engine/server/lagcomp/config";
+import { LagCompensation } from "@engine/server/lagcomp/LagCompensation";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_VIEWHEIGHT } from "../../../../../engine/physics/PlayerPhysicsConstants";
 import { GRENADE } from "../../../../../shared/entities/definitions/projectiles/grenade";
@@ -727,5 +729,64 @@ describe("WeaponSystem - WO-5 weapon switch gate", () => {
     shooter.input.weaponSlot = 1;
     sys.update(state as never, 1 / 125, 130 as never);
     expect(weapon()).toBe("blade");
+  });
+});
+
+describe("WeaponSystem — lag-compensated hit registration", () => {
+  const stateAt = (tick: number, entities: unknown[]) => ({ ...makeState(entities), tick });
+
+  it("judges a shot against where the shooter saw the target, not where it has since run to", () => {
+    const onRay = makeTargetAlongRay(0, 0, 1000);
+    const movedAway = {
+      ...onRay,
+      transform: { position: { ...onRay.transform.position, x: onRay.transform.position.x + 500 } },
+    };
+
+    // Control: with no history the shot is judged against the present, and a
+    // target that has since stepped aside is missed.
+    const plain = new WeaponSystem();
+    plain.initializeWeaponFromLoadout(1 as never, mgLoadout as never);
+    plain.update(stateAt(100, [makeShooter(0, 0), movedAway]) as never, 1 / 125, 100 as never);
+    expect(plain.getPendingDamage()).toHaveLength(0);
+
+    // Same shot, but the server remembers where the target stood 80ms ago.
+    const lag = new LagCompensation({ ...CASUAL_CONFIG, tickRate: 125 });
+    lag.updateClientLatency(1 as never, 160); // 160ms RTT → 80ms one-way
+    for (let tick = 80; tick < 100; tick++) lag.recordPositions(stateAt(tick, [makeShooter(0, 0), onRay]) as never);
+
+    const sys = new WeaponSystem();
+    sys.setLagCompensation(lag);
+    sys.initializeWeaponFromLoadout(1 as never, mgLoadout as never);
+    sys.update(stateAt(100, [makeShooter(0, 0), movedAway]) as never, 1 / 125, 100 as never);
+    expect(sys.getPendingDamage().map((d) => d.victimId)).toContain(2);
+  });
+
+  it("does not invent hits on a target that was never on the ray", () => {
+    const offRay = makeTargetAlongRay(0, 0, 1000);
+    offRay.transform.position.x += 500;
+
+    const lag = new LagCompensation({ ...CASUAL_CONFIG, tickRate: 125 });
+    lag.updateClientLatency(1 as never, 160);
+    for (let tick = 80; tick < 100; tick++) lag.recordPositions(stateAt(tick, [makeShooter(0, 0), offRay]) as never);
+
+    const sys = new WeaponSystem();
+    sys.setLagCompensation(lag);
+    sys.initializeWeaponFromLoadout(1 as never, mgLoadout as never);
+    sys.update(stateAt(100, [makeShooter(0, 0), offRay]) as never, 1 / 125, 100 as never);
+    expect(sys.getPendingDamage()).toHaveLength(0);
+  });
+
+  it("falls back to the present for a target with no recorded history", () => {
+    const onRay = makeTargetAlongRay(0, 0, 1000);
+    const lag = new LagCompensation({ ...CASUAL_CONFIG, tickRate: 125 });
+    lag.updateClientLatency(1 as never, 160);
+    // History exists, but this target only just spawned into it.
+    for (let tick = 80; tick < 100; tick++) lag.recordPositions(stateAt(tick, [makeShooter(0, 0)]) as never);
+
+    const sys = new WeaponSystem();
+    sys.setLagCompensation(lag);
+    sys.initializeWeaponFromLoadout(1 as never, mgLoadout as never);
+    sys.update(stateAt(100, [makeShooter(0, 0), onRay]) as never, 1 / 125, 100 as never);
+    expect(sys.getPendingDamage().map((d) => d.victimId)).toContain(2);
   });
 });
