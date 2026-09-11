@@ -53,6 +53,7 @@ const bobotPainSounds = [
 
 export const BOBOT_DEATH_SOUND = "sounds/players/bobot/death.ogg";
 export const KILL_ECHO_SOUND = "sounds/misc/kill.wav";
+export const EMPTY_CLIP_SOUND = "sounds/weapons/weapon_noammo.ogg";
 
 export const FPS_COMBAT_SOUND_PATHS = [
   ...new Set([
@@ -62,6 +63,7 @@ export const FPS_COMBAT_SOUND_PATHS = [
     ...bobotPainSounds,
     BOBOT_DEATH_SOUND,
     KILL_ECHO_SOUND,
+    EMPTY_CLIP_SOUND,
   ]),
 ] as const;
 
@@ -85,6 +87,19 @@ export function getProjectileImpactSounds(defId: string): readonly string[] {
 /** Predecode the compact combat bank once the map's PK3 index is available. */
 export async function preloadFPSCombatAudio(): Promise<void> {
   await AudioManager.getInstance().preloadSfx(FPS_COMBAT_SOUND_PATHS);
+}
+
+/**
+ * The click of a trigger on an empty gun.
+ *
+ * Played locally off the client's own ammo state rather than waiting for the
+ * server, because it is feedback on your own trigger pull and a round trip late
+ * is a round trip too late. Unlike a muzzle flash it claims nothing happened, so
+ * mispredicting it costs nothing — it is the same derivation that already drives
+ * the out-of-ammo crosshair.
+ */
+export function playEmptyClipSound(): void {
+  AudioManager.getInstance().playSfx2D(EMPTY_CLIP_SOUND, 0.8, 2);
 }
 
 export function playWeaponFireSound(event: WeaponFireEvent, localShooter: boolean): void {

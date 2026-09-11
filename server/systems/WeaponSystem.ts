@@ -141,6 +141,11 @@ export interface WeaponState {
   wasReloadButtonDown: boolean; // Edge detection for manual reload
   // hipfireBlocked: tick when fire was first pressed without ADS (0 = not pending)
   hipfireAdsStartTick: number;
+  /**
+   * Tick of the first trigger pull on an empty gun (0 = not pending). Pulling
+   * again, or simply holding, trades the dead weapon for one that fires.
+   */
+  dryFireTick: number;
 }
 
 export interface WeaponAmmo {
@@ -211,6 +216,12 @@ export class WeaponSystem extends Subsystem {
     weapon: WeaponDef; // Weapon definition
   }[] = [];
   private static readonly SWITCH_INTERVAL_TICKS = 25;
+  /**
+   * How long a trigger must stay down on an empty gun before we swap for you
+   * (~200ms at 125Hz). Long enough that a tap still only clicks and leaves the
+   * choice yours; short enough that holding the trigger is not left hanging.
+   */
+  private static readonly DRY_FIRE_SWAP_TICKS = 25;
 
   constructor() {
     super(CONFIG);
@@ -382,6 +393,57 @@ export class WeaponSystem extends Subsystem {
 
   private reloadModel(weapon: WeaponDef): "clip" | "pool" | "none" {
     return weapon.reloadModel ?? "pool";
+  }
+
+  /**
+   * A trigger pull on an empty gun.
+   *
+   * The first pull only reports the problem — the client plays the empty click
+   * off its own ammo state. Swapping on that first pull would tear you off your
+   * rocket launcher for a stray tap, so the swap needs a second pull, or a held
+   * trigger, either of which says you actually want to be shooting something.
+   */
+  private handleDryFire(entityId: EntityId, state: WeaponState, tickNum: number, freshPress: boolean): void {
+    if (state.dryFireTick === 0) {
+      // First pull: click only, and start the clock for a held trigger.
+      state.dryFireTick = tickNum;
+      return;
+    }
+    const heldLongEnough = !freshPress && tickNum - state.dryFireTick >= WeaponSystem.DRY_FIRE_SWAP_TICKS;
+    if (!freshPress && !heldLongEnough) return;
+
+    const next = this.nextWeaponWithAmmo(state);
+    // Nothing else to offer — keep clicking rather than silently doing nothing.
+    if (!next) return;
+    this.equip(entityId, state, next, tickNum);
+  }
+
+  /**
+   * The next owned weapon, in slot order from the one in hand, that can actually
+   * fire. Wraps, so the search always ends on the starter weapon at worst.
+   */
+  private nextWeaponWithAmmo(state: WeaponState): string | null {
+    const owned = state.weapons;
+    const from = owned.indexOf(state.currentWeapon);
+    for (let step = 1; step <= owned.length; step++) {
+      const id = owned[(from + step) % owned.length];
+      const weapon = id ? WEAPONS[canonicalWeaponId(id)] : undefined;
+      if (!weapon || id === state.currentWeapon) continue;
+      if (this.reloadModel(weapon) === "none") return id; // never runs dry
+      const ammo = this.getAmmoState(state, weapon);
+      if (ammo.clip > 0 || ammo.reserve > 0) return id;
+    }
+    return null;
+  }
+
+  /** Put a weapon in hand, cancelling whatever the old one was in the middle of. */
+  private equip(entityId: EntityId, state: WeaponState, weaponId: string, tickNum: number): void {
+    state.currentWeapon = weaponId;
+    state.reloading = false;
+    state.reloadEndTick = 0;
+    state.chargeStartTick = 0;
+    state.dryFireTick = 0;
+    this.lastSwitchTick.set(entityId, tickNum);
   }
 
   private maxTotalAmmo(weapon: WeaponDef): number {
@@ -705,6 +767,7 @@ export class WeaponSystem extends Subsystem {
       wasAltFireDown: false,
       wasReloadButtonDown: false,
       hipfireAdsStartTick: 0,
+      dryFireTick: 0,
     });
     // Reset edge detection so weapon slot changes are detected cleanly after respawn
     this.lastWeaponSlot.delete(id);
@@ -779,11 +842,7 @@ export class WeaponSystem extends Subsystem {
           newWeapon !== weaponState.currentWeapon &&
           tickNum - lastSwitch >= WeaponSystem.SWITCH_INTERVAL_TICKS
         ) {
-          weaponState.currentWeapon = newWeapon;
-          weaponState.reloading = false; // Cancel reload on switch
-          weaponState.reloadEndTick = 0;
-          weaponState.chargeStartTick = 0; // Cancel charge on switch
-          this.lastSwitchTick.set(entity.id, tickNum);
+          this.equip(entity.id, weaponState, newWeapon, tickNum);
         }
       }
 
@@ -945,13 +1004,22 @@ export class WeaponSystem extends Subsystem {
                 this.consumeShot(weaponState, weapon);
 
                 weaponState.lastFireTick = tickNum;
+                weaponState.dryFireTick = 0;
 
                 // Auto-reload clip weapons when the magazine is depleted.
                 if (this.reloadModel(weapon) === "clip" && ammo.clip <= 0) {
                   this.startReload(weaponState, weapon, tickNum);
                 }
               } else if (this.canReload(weaponState, weapon)) {
+                // Reloadable again — a dry pull from before must not still be
+                // armed, or the next time this gun runs out it would swap on the
+                // very first pull instead of clicking.
+                weaponState.dryFireTick = 0;
                 this.startReload(weaponState, weapon, tickNum);
+              } else {
+                // Empty, and nothing left to reload from. Pulling on a dead gun
+                // used to do nothing at all, which reads as the game ignoring you.
+                this.handleDryFire(entity.id, weaponState, tickNum, !weaponState.wasFireButtonDown);
               }
             }
           }

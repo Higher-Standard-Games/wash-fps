@@ -44,6 +44,7 @@ import type { DroppedWeaponRenderer } from "./client/DroppedWeaponRenderer";
 import { registerFPSActions } from "./client/FPSActions";
 import { preloadFPSAudio } from "./client/FPSAudio";
 import { FPSBombAudio } from "./client/FPSBombAudio";
+import { playEmptyClipSound } from "./client/FPSCombatAudio";
 import { FPSHud } from "./client/FPSHud";
 import { playDrownGasp, playDrownTick } from "./client/FPSLiquidAudio";
 import { resetFPSMovementAudio } from "./client/FPSMovementAudio";
@@ -176,6 +177,8 @@ export class Game {
   private chargingGlows: Map<string, PointLight> = new Map();
   /** Whether the local player is currently charging (for skipping slash trail on projectile fire) */
   private _localCharging: boolean = false;
+  /** Edge detection for the empty-gun click, so holding fire clicks once. */
+  private _wasFireDown: boolean = false;
 
   // Callbacks
   private onStateUpdateCallbacks: ((state: PlayerStateUpdate) => void)[] = [];
@@ -1640,6 +1643,18 @@ export class Game {
     if (input.sprint) buttons |= InputButtons.SPRINT;
     if (input.fire) buttons |= InputButtons.FIRE;
     if (input.altFire) buttons |= InputButtons.ALT_FIRE;
+
+    // Pulling the trigger on an empty gun clicks, off our own ammo state so the
+    // feedback lands on the press rather than a round trip later. The server
+    // decides what happens next — a second pull, or holding, trades the weapon.
+    // Edge-triggered: holding the trigger must not machine-gun the click.
+    if (input.fire && !this._wasFireDown && this.playerState === "playing" && !this._isPlayerDead) {
+      const weaponId = this.getCurrentWeaponId();
+      const hudAmmo = HUDState.getInstance().ammo[weaponId];
+      if (getAmmoStatus(weaponId, hudAmmo).outOfAmmo) playEmptyClipSound();
+    }
+    this._wasFireDown = input.fire;
+
     if (input.reload) buttons |= InputButtons.RELOAD;
     if (input.use) buttons |= InputButtons.USE;
 
