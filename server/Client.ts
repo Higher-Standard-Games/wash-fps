@@ -41,6 +41,12 @@ export interface ClientInfo {
   lastInputSeq: number;
   /** Last snapshot tick the client has acknowledged receiving (for delta compression) */
   lastAckedTick: number;
+  /**
+   * Smoothed round trip in ms, measured by the server: snapshot sent → ack back.
+   * 0 until the first ack lands. This is the game loop's actual round trip, which
+   * is what a player means by ping — not a number the client reports about itself.
+   */
+  ping: number;
   /** Wall-clock (performance.now) of the last accepted respawn request. */
   lastRespawnReqMs?: number;
   /** Wall-clock (performance.now) of the last accepted team/spectate switch. */

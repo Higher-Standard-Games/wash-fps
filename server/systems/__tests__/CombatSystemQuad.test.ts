@@ -177,6 +177,34 @@ describe("CombatSystem — quad self-damage", () => {
   });
 });
 
+describe("CombatSystem — powerups do not survive dying", () => {
+  it("strips the victim's quad the moment the kill lands", () => {
+    const { combat, victim, state } = setup(false);
+    // The victim is the one carrying it here.
+    victim.powerups = { expiry: { quad: QUAD_UNTIL } };
+    hit(combat, state, 2, 5000, 10);
+
+    expect(victim.health.dead).toBe(true);
+    // Not at respawn: a corpse must not still read as the quad carrier, which is
+    // what every other player is watching for.
+    expect(victim.powerups.expiry.quad).toBeUndefined();
+  });
+
+  it("leaves the killer's quad alone", () => {
+    const { combat, attacker, state } = setup(true);
+    hit(combat, state, 2, 5000, 10);
+    expect(attacker.powerups?.expiry.quad).toBe(QUAD_UNTIL);
+  });
+
+  it("keeps a survivor's quad when the hit does not kill", () => {
+    const { combat, victim, state } = setup(false);
+    victim.powerups = { expiry: { quad: QUAD_UNTIL } };
+    hit(combat, state, 2, 25, 10);
+    expect(victim.health.dead).toBe(false);
+    expect(victim.powerups.expiry.quad).toBe(QUAD_UNTIL);
+  });
+});
+
 // ── Scoring's damage buffer ──────────────────────────────────────────
 
 describe("CombatSystem damage accounting for scoring", () => {

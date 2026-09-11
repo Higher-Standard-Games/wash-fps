@@ -319,7 +319,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
         const clientInfo = clientByPlayerId.get(entity.ownerId);
         if (clientInfo) {
           displayName = clientInfo.playerName;
-          ping = Math.round(clientInfo.connection.latency ?? 0);
+          ping = Math.round(clientInfo.ping);
         }
 
         const playerState: PlayerState = {

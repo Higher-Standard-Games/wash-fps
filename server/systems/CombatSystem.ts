@@ -9,6 +9,7 @@ import { Subsystem, type SubsystemConfig } from "@engine/server/core/Subsystem";
 import type { WorldState } from "@engine/server/core/WorldState";
 import type { EntityId, TickNumber } from "@engine/server/ecs/types";
 import { applyDamage } from "@shared/server/simulation/components/HealthComponent";
+import { clearPowerups } from "@shared/server/simulation/components/PowerupComponent";
 import { powerupDamageMultiplier } from "../../../../shared/items/Powerups";
 import type { FPSMovementSubsystem } from "./FPSMovementSubsystem";
 
@@ -394,6 +395,12 @@ export class CombatSystem extends Subsystem {
 
     // Check for kill
     if (victim.health.dead) {
+      // Powerups die with the carrier, here rather than at respawn. Clearing them
+      // on respawn left a corpse holding the quad for the whole death screen —
+      // still flagged as the carrier to every other player, and still carrying it
+      // through a round-based mode where respawn may not come until the round does.
+      if (victim.powerups) clearPowerups(victim.powerups);
+
       // Get victim position and velocity for gibs
       const pos = victim.transform?.position ?? { x: 0, y: 0, z: 0 };
       const vel = victim.physics?.velocity ?? { x: 0, y: 0, z: 0 };

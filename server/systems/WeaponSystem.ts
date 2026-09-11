@@ -180,6 +180,22 @@ export class WeaponSystem extends Subsystem {
   private droppedWeaponSystem: DroppedWeaponSystem | null = null;
   private collisionWorld: CollisionWorld | null = null;
   private lagCompensation: LagCompensation | null = null;
+  /**
+   * Snapshot intervals a client is assumed to render behind its newest snapshot.
+   *
+   * One, because `SnapshotBuffer` settles on `avg + stddev` of snapshot
+   * inter-arrival times — one interval plus whatever the connection jitters.
+   * Assuming two double-counted it: `npm run net:viewlag` shows the server
+   * already observing ~32ms of view lag at zero network latency from snapshot
+   * quantisation and queueing alone, so a second assumed interval on top handed
+   * a LAN player ~65ms of rewind and shot people well after they reached cover.
+   *
+   * Erring low is deliberate. Guessing high punishes the player who took cover,
+   * who did nothing wrong; guessing low costs the shooter on a jittery line a
+   * little extra lead.
+   */
+  private static readonly INTERP_SNAPSHOT_INTERVALS = 1;
+  private interpTicks = 1;
   /** Gametype self-damage multiplier (1.0 = full, 0 = none). Mirrors ProjectileSystem. */
   selfDamageMultiplier: number = 1.0;
   private movementSubsystem: import("./FPSMovementSubsystem").FPSMovementSubsystem | null = null;
@@ -305,15 +321,33 @@ export class WeaponSystem extends Subsystem {
    * your connection is. With it, a shot is judged against the world the shooter
    * actually saw.
    */
-  setLagCompensation(lag: LagCompensation | null): void {
+  setLagCompensation(lag: LagCompensation | null, ticksPerSnapshot = 1): void {
     this.lagCompensation = lag;
+    // A client does not render the newest snapshot it holds — it renders behind
+    // it, so it always has two frames to interpolate between. That lag has to
+    // come off the rewind or we judge the shot against a world the shooter had
+    // not seen yet.
+    //
+    // The server assumes this rather than being told: cl_interp is a client
+    // cvar, and a value the client chooses is a value a cheater inflates to be
+    // judged ever further into the past. Two snapshot intervals covers the one
+    // interval of render lag plus room for jitter.
+    this.interpTicks = Math.max(1, Math.round(ticksPerSnapshot * WeaponSystem.INTERP_SNAPSHOT_INTERVALS));
   }
 
-  /** Where the world was when `shooter` pulled the trigger, or null for "now". */
+  /**
+   * Where the world was when `shooter` pulled the trigger, or null for "now".
+   *
+   * Keyed off the view tick the command carried rather than a reported ping: it
+   * costs no extra bandwidth, needs no assumption that a connection is equally
+   * slow in both directions, and can be checked against the server's own clock.
+   * A shooter with no view tick (a bot, or a client yet to see its first
+   * snapshot) has no latency to compensate and is judged against the present.
+   */
   private rewindFor(state: WorldState, shooter: Readonly<Entity>): RewindView | null {
-    if (!this.lagCompensation || shooter.ownerId === undefined) return null;
-    const ping = this.lagCompensation.getClientLatency(shooter.ownerId);
-    return this.lagCompensation.rewind(state.tick, ping);
+    const viewTick = shooter.input?.viewTick ?? 0;
+    if (!this.lagCompensation || viewTick <= 0) return null;
+    return this.lagCompensation.rewindToTick(state.tick, viewTick - this.interpTicks);
   }
 
   /** Run a world query with movers put back where the shooter saw them. */

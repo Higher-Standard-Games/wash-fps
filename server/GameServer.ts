@@ -91,6 +91,12 @@ export class GameServer {
   private clients: Map<string, ClientInfo> = new Map();
   /** Per-tick rewind history behind lag-compensated hit registration. */
   private lagCompensation: LagCompensation;
+  /** When each recent snapshot went out, so an ack for it measures a round trip. */
+  private snapshotSentAtMs = new Map<number, number>();
+  /** Matches the broadcaster's snapshot history, the oldest tick a client can ack. */
+  private static readonly SENT_AT_HISTORY = 64;
+  /** Weight of a fresh sample. Low enough that one stalled frame is not "your ping". */
+  private static readonly PING_SMOOTHING = 0.25;
   private nextPlayerId: number = 1;
   private nextBotId: number = 900; // Bot IDs start high to avoid collisions
   private running: boolean = false;
@@ -193,7 +199,7 @@ export class GameServer {
     // Rewind history must run at the real tick rate, or the tick/ms conversion
     // inside it rewinds by the wrong amount.
     this.lagCompensation = new LagCompensation({ ...LAG_COMPENSATION, tickRate: config.tickRate });
-    this.weaponSystem.setLagCompensation(this.lagCompensation);
+    this.weaponSystem.setLagCompensation(this.lagCompensation, this.timing.ticksPerSnapshot);
     this.combatSystem = new CombatSystem();
     this.pickupSystem = new PickupSystem();
     this.droppedWeaponSystem = new DroppedWeaponSystem();
@@ -321,6 +327,33 @@ export class GameServer {
     this.gametypeController.setCollisionWorld(collision);
     this.lagCompensation.setCollisionWorld(collision);
     console.log(`[GameServer] Collision world configured`);
+  }
+
+  /** Note when a snapshot left, so the ack for it can be timed. */
+  private markSnapshotSent(tick: number): void {
+    this.snapshotSentAtMs.set(tick, performance.now());
+    if (this.snapshotSentAtMs.size > GameServer.SENT_AT_HISTORY) {
+      for (const key of this.snapshotSentAtMs.keys()) {
+        if (this.snapshotSentAtMs.size <= GameServer.SENT_AT_HISTORY) break;
+        this.snapshotSentAtMs.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Time an ack against the snapshot it acknowledges. That interval is the real
+   * round trip of the game loop, measured entirely from the server's own clock —
+   * no client-reported number, and nothing for a client to overstate about itself.
+   *
+   * An ack for a snapshot old enough to have been pruned is ignored rather than
+   * recorded as an enormous ping.
+   */
+  private recordAckRoundTrip(client: ClientInfo, ackedTick: number): void {
+    const sentAt = this.snapshotSentAtMs.get(ackedTick);
+    if (sentAt === undefined) return;
+    const rtt = performance.now() - sentAt;
+    if (!Number.isFinite(rtt) || rtt < 0) return;
+    client.ping = client.ping > 0 ? client.ping + (rtt - client.ping) * GameServer.PING_SMOOTHING : rtt;
   }
 
   setSpawnPoints(points: Vec3[], teamPoints?: ReadonlyMap<string, Vec3[]>): void {
@@ -781,6 +814,7 @@ export class GameServer {
           gameState.tick,
         );
         this.broadcaster.broadcast(this.clients, gameState, directives);
+        this.markSnapshotSent(gameState.tick);
         if (recording) {
           this.demoRecorder?.recordFrame(gameState);
         }
@@ -977,6 +1011,7 @@ export class GameServer {
       } else if (msgType === MessageType.Ack) {
         this.msgCounts.ack++;
         const { tick } = MessageCodec.decodeAck(data);
+        this.recordAckRoundTrip(client, tick);
         client.lastAckedTick = nextAckedTick(client.lastAckedTick, tick, Number(this.simulation.currentTick));
         if (tick % 1000 === 0) {
           console.log(`[GameServer] Client ${client.playerId} acked tick ${tick}`);
@@ -1147,6 +1182,7 @@ export class GameServer {
         playerName: playerName || `Player ${pid}`,
         lastInputSeq: 0,
         lastAckedTick: 0,
+        ping: 0, // until the first ack is timed
         isSpectator: true, // Start as spectator
         isBot,
       };
@@ -1371,6 +1407,9 @@ export class GameServer {
         buttons,
         sequence: seq,
         weaponSlot: clean.weaponSlot,
+        // The client says which snapshot it was looking at when it aimed. Never
+        // let it claim the future: a tick past ours would rewind the wrong way.
+        viewTick: Math.min(clean.viewTick, Number(this.simulation.currentTick)),
       });
       client.lastInputSeq = seq;
       // Telemetry (WO-12): sample this accepted usercmd — arrival time for jitter,
