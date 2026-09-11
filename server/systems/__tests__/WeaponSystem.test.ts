@@ -17,7 +17,7 @@
  */
 
 import { EntityType } from "@engine/server/ecs/types";
-import { CASUAL_CONFIG } from "@engine/server/lagcomp/config";
+import { LAG_COMPENSATION } from "@engine/server/lagcomp/config";
 import { LagCompensation } from "@engine/server/lagcomp/LagCompensation";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_VIEWHEIGHT } from "../../../../../engine/physics/PlayerPhysicsConstants";
@@ -750,7 +750,7 @@ describe("WeaponSystem — lag-compensated hit registration", () => {
     expect(plain.getPendingDamage()).toHaveLength(0);
 
     // Same shot, but the server remembers where the target stood 80ms ago.
-    const lag = new LagCompensation({ ...CASUAL_CONFIG, tickRate: 125 });
+    const lag = new LagCompensation({ ...LAG_COMPENSATION, tickRate: 125 });
     lag.updateClientLatency(1 as never, 160); // 160ms RTT → 80ms one-way
     for (let tick = 80; tick < 100; tick++) lag.recordPositions(stateAt(tick, [makeShooter(0, 0), onRay]) as never);
 
@@ -765,7 +765,7 @@ describe("WeaponSystem — lag-compensated hit registration", () => {
     const offRay = makeTargetAlongRay(0, 0, 1000);
     offRay.transform.position.x += 500;
 
-    const lag = new LagCompensation({ ...CASUAL_CONFIG, tickRate: 125 });
+    const lag = new LagCompensation({ ...LAG_COMPENSATION, tickRate: 125 });
     lag.updateClientLatency(1 as never, 160);
     for (let tick = 80; tick < 100; tick++) lag.recordPositions(stateAt(tick, [makeShooter(0, 0), offRay]) as never);
 
@@ -778,7 +778,7 @@ describe("WeaponSystem — lag-compensated hit registration", () => {
 
   it("falls back to the present for a target with no recorded history", () => {
     const onRay = makeTargetAlongRay(0, 0, 1000);
-    const lag = new LagCompensation({ ...CASUAL_CONFIG, tickRate: 125 });
+    const lag = new LagCompensation({ ...LAG_COMPENSATION, tickRate: 125 });
     lag.updateClientLatency(1 as never, 160);
     // History exists, but this target only just spawned into it.
     for (let tick = 80; tick < 100; tick++) lag.recordPositions(stateAt(tick, [makeShooter(0, 0)]) as never);

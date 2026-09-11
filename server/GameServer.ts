@@ -13,7 +13,7 @@ import { Simulation } from "@engine/server/core/Simulation";
 import { createPlayerEntity } from "@engine/server/ecs/Entity";
 import type { EntityId, PlayerId } from "@engine/server/ecs/types";
 import { playerId as createPlayerId } from "@engine/server/ecs/types";
-import { CASUAL_CONFIG } from "@engine/server/lagcomp/config";
+import { LAG_COMPENSATION } from "@engine/server/lagcomp/config";
 import { LagCompensation } from "@engine/server/lagcomp/LagCompensation";
 // Transport
 import type { ClientConnection, Transport, TransportConfig } from "@engine/server/network/transport/WebSocketTransport";
@@ -192,7 +192,7 @@ export class GameServer {
     this.weaponSystem = new WeaponSystem();
     // Rewind history must run at the real tick rate, or the tick/ms conversion
     // inside it rewinds by the wrong amount.
-    this.lagCompensation = new LagCompensation({ ...CASUAL_CONFIG, tickRate: config.tickRate });
+    this.lagCompensation = new LagCompensation({ ...LAG_COMPENSATION, tickRate: config.tickRate });
     this.weaponSystem.setLagCompensation(this.lagCompensation);
     this.combatSystem = new CombatSystem();
     this.pickupSystem = new PickupSystem();
