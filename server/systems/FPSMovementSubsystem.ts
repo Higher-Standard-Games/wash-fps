@@ -755,6 +755,9 @@ export class FPSMovementSubsystem extends Subsystem {
         input.yaw = cmd.yaw;
         input.buttons = cmd.buttons;
         input.sequence = cmd.sequence;
+        // Weapons run after movement, so this is the view tick of the very
+        // command whose fire button they are about to act on.
+        input.viewTick = cmd.viewTick ?? 0;
         if (cmd.weaponSlot > 0) input.weaponSlot = cmd.weaponSlot;
         this.lastInput.set(eid, cmd);
         // Ack the command we actually simulated (not the last one received), so

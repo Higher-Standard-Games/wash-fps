@@ -193,7 +193,7 @@ export class GameServer {
     // Rewind history must run at the real tick rate, or the tick/ms conversion
     // inside it rewinds by the wrong amount.
     this.lagCompensation = new LagCompensation({ ...LAG_COMPENSATION, tickRate: config.tickRate });
-    this.weaponSystem.setLagCompensation(this.lagCompensation);
+    this.weaponSystem.setLagCompensation(this.lagCompensation, this.timing.ticksPerSnapshot);
     this.combatSystem = new CombatSystem();
     this.pickupSystem = new PickupSystem();
     this.droppedWeaponSystem = new DroppedWeaponSystem();
@@ -1371,6 +1371,9 @@ export class GameServer {
         buttons,
         sequence: seq,
         weaponSlot: clean.weaponSlot,
+        // The client says which snapshot it was looking at when it aimed. Never
+        // let it claim the future: a tick past ours would rewind the wrong way.
+        viewTick: Math.min(clean.viewTick, Number(this.simulation.currentTick)),
       });
       client.lastInputSeq = seq;
       // Telemetry (WO-12): sample this accepted usercmd — arrival time for jitter,

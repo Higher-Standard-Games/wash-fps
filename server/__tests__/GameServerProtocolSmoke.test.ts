@@ -11,8 +11,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MessageType } from "../../../../engine/network/protocol/BinaryProtocol";
 import { MessageCodec } from "../../../../engine/network/protocol/MessageCodec";
-import { Deathmatch } from "../gametypes/Deathmatch";
 import { GameServer, type GameServerConfig } from "../GameServer";
+import { Deathmatch } from "../gametypes/Deathmatch";
 import { ProtocolTestClient } from "./_protocolTestClient";
 
 const config: GameServerConfig = {
@@ -59,9 +59,9 @@ function chatInSnapshot(frame: Uint8Array, text: string): { senderName: string }
   if (frame[0] !== MessageType.Snapshot) return null;
   try {
     const state = MessageCodec.decodeSnapshot(frame);
-    const chat = state.events.find(
-      (e) => e.type === "chat" && (e as { text?: string }).text === text,
-    ) as { senderName: string } | undefined;
+    const chat = state.events.find((e) => e.type === "chat" && (e as { text?: string }).text === text) as
+      | { senderName: string }
+      | undefined;
     return chat ?? null;
   } catch {
     return null;
@@ -137,5 +137,50 @@ describe("GameServer protocol smoke (real socket)", () => {
     await client.close();
     await waitUntil(() => server.getClientCount() === 0);
     expect(server.getClientCount()).toBe(0);
+  });
+
+  // A client reports which snapshot it was aiming with, and hit registration
+  // rewinds to it. That number is attacker-controlled, so the server must never
+  // take it at face value — a tick past its own would rewind the wrong way.
+  it("clamps a client's reported view tick to the server's own clock", async () => {
+    const client = await connect();
+    client.send(MessageCodec.encodeJoin("time-traveller"));
+    const accept = MessageCodec.decodeJoinAccept(await client.waitForType(MessageType.JoinAccept));
+    // Joining leaves you spectating, and a spectator's input is dropped.
+    client.send(MessageCodec.encodeJoinGame());
+
+    const sim = (
+      server as unknown as {
+        simulation: {
+          currentTick: number;
+          getState(): { allEntities(): Iterable<{ input?: { viewTick?: number } }> };
+        };
+      }
+    ).simulation;
+    const viewTicks = () => {
+      const seen: number[] = [];
+      for (const e of sim.getState().allEntities()) if (e.input) seen.push(e.input.viewTick ?? 0);
+      return seen;
+    };
+
+    // Let the server's clock run on, so a clamp to "now" is visibly non-zero.
+    await waitUntil(() => viewTicks().length > 0 && Number(sim.currentTick) > 60);
+    client.send(
+      MessageCodec.encodeCommand(accept.playerId, 1, {
+        direction: { x: 0, y: 0, z: 0 },
+        pitch: 0,
+        yaw: 0,
+        buttons: 0,
+        tick: 999_999, // claims to have seen a snapshot from the far future
+        weaponSlot: 0,
+      }),
+    );
+
+    await waitUntil(() => viewTicks().some((t) => t > 0));
+    const serverTick = Number(sim.currentTick);
+    for (const t of viewTicks()) {
+      expect(t).toBeLessThanOrEqual(serverTick);
+      expect(t).not.toBe(999_999);
+    }
   });
 });
