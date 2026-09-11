@@ -48,6 +48,7 @@ export interface PredictedMovementState {
 }
 
 export interface ServerSnapshot {
+  lifts?: import("../../../shared/bsp/LiftSystem").LiftState[];
   tick: number;
   ackedInputSeq: number;
   position: Vec3;
@@ -233,6 +234,7 @@ export class V2NetworkClient {
 
     // 2. Apply locally for instant feedback (same physics as server)
     const movementInput = this.toMovementInput(sanitizedInput, seq);
+    this.collision?.lifts?.step(this.dt, [this.localState]);
     const result = this.movement.simulate(
       this.localState.position,
       this.localState.velocity,
@@ -339,6 +341,10 @@ export class V2NetworkClient {
       this.wallJumpReconcileSkipCount = 10;
     }
 
+    // Movers are world state, not player state. Sync them even when this player's
+    // own reconciliation is skipped, or one grab/walljump desyncs every lift on the map.
+    if (snapshot.lifts) this.collision?.lifts?.restore(snapshot.lifts);
+
     const skipReconcile = (this.grabReconcileSkipCount > 0 || this.wallJumpReconcileSkipCount > 0) && !isFirstSnapshot;
     if (skipReconcile) {
       this.inputHistory.pruneAcked(snapshot.ackedInputSeq);
@@ -394,6 +400,7 @@ export class V2NetworkClient {
     }
 
     for (const input of inputsToReplay) {
+      this.collision?.lifts?.step(this.dt, [this.localState]);
       const movementInput = this.storedToMovementInput(input);
       const result = this.movement.simulate(
         this.localState.position,

@@ -6,6 +6,7 @@ const weaponView = vi.hoisted(() => ({
   isSwitching: vi.fn(() => false),
   setBeamActive: vi.fn(),
   setBeamCharging: vi.fn(),
+  setPowerupOutlineOverride: vi.fn(),
   startReload: vi.fn(),
   cancelReload: vi.fn(),
   switchWeaponAnimated: vi.fn(),
@@ -17,6 +18,7 @@ vi.mock("../../../engine/weapon/WeaponViewManager", () => {
   return { WeaponViewManager };
 });
 
+import { clearLocalPowerups, setLocalPowerup } from "../client/LocalPowerupState";
 import { FPSPlayer } from "../FPSPlayer";
 
 const BEAM_WEAPON = {
@@ -47,7 +49,21 @@ function makeController(): FPSController {
 describe("FPSPlayer beam ammo presentation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearLocalPowerups();
     weaponView.isSwitching.mockReturnValue(false);
+  });
+
+  it("drives the first-person Quad outline from authoritative local powerup state", () => {
+    const player = new FPSPlayer(makeController());
+    setLocalPowerup("quad", 10);
+
+    player.update(1 / 60);
+    expect(weaponView.setPowerupOutlineOverride).toHaveBeenLastCalledWith(true, expect.anything(), expect.any(Number));
+
+    clearLocalPowerups();
+    player.update(1 / 60);
+    expect(weaponView.setPowerupOutlineOverride).toHaveBeenLastCalledWith(false, expect.anything(), expect.any(Number));
+    player.dispose();
   });
 
   it("shuts every local beam layer off when the authoritative clip reaches zero", () => {

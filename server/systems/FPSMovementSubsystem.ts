@@ -15,6 +15,7 @@ import { Subsystem, type SubsystemConfig } from "../../../../engine/server/core/
 import type { WorldState } from "../../../../engine/server/core/WorldState";
 import type { EntityId, TickNumber } from "../../../../engine/server/ecs/types";
 import { EntityType } from "../../../../engine/server/ecs/types";
+import type { LiftActor } from "../../../../shared/bsp/LiftSystem";
 import type { TriggerVolume } from "../../../../shared/bsp/TriggerTable";
 import { Contents } from "../../../../shared/collision/CollisionWorld";
 import type { QueuedInput } from "../../../../shared/server/simulation/components/InputComponent";
@@ -651,6 +652,37 @@ export class FPSMovementSubsystem extends Subsystem {
     }
 
     // Process all player entities
+    // Advance shared map movers ONCE per world tick, with all live riders.
+    // Position references are obtained through COW before a lift can carry them.
+    if (this.collisionWorld?.lifts?.definitions.length) {
+      const actors: LiftActor[] = [];
+      // Anything with a body rides, so corpses and dropped weapons travel with
+      // the floor instead of hanging in the air. Only a live player calls a lift.
+      for (const type of [EntityType.Player, EntityType.Item])
+        for (const entity of state.entitiesByType(type)) {
+          const mutable = state.getEntityMut(entity.id);
+          if (!mutable?.transform || !mutable.physics) continue;
+          actors.push({
+            id: entity.id as number,
+            position: mutable.transform.position,
+            velocity: mutable.physics.velocity,
+            passive: type !== EntityType.Player || !!entity.health?.dead || !entity.input,
+          });
+        }
+      // Being squashed by a mover is world damage, credited like drowning is.
+      for (const crush of this.collisionWorld.lifts.step(dt, actors)) {
+        if (crush.id === undefined) continue;
+        const victimId = crush.id as EntityId;
+        this.combatSystem?.queueDamage({
+          victimId,
+          attackerId: victimId,
+          damage: crush.damage,
+          armorPiercing: 0,
+          damageType: DamageType.World,
+          hitLocation: HitLocation.Body,
+        });
+      }
+    }
     for (const entity of state.entitiesByType(EntityType.Player)) {
       if (!entity.transform || !entity.physics || !entity.input) continue;
 

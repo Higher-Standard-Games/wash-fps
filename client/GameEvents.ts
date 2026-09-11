@@ -680,6 +680,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
     const snapshot: ServerSnapshot = {
       tick: state.tick,
       ackedInputSeq: state.ackedInputSeq,
+      lifts: state.events.find((event) => event.type === "lift_state")?.lifts,
       position: { ...transform.position },
       velocity: { ...velocity.linear },
       grounded: velocity.grounded,

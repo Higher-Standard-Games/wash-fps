@@ -13,6 +13,7 @@
 
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
@@ -40,6 +41,16 @@ import {
   type PlayerTeamSlot,
   registerPlayerModelVisualCvars,
 } from "./PlayerModelVisualSettings";
+import {
+  getQuadDamagePulse,
+  QUAD_DAMAGE_COLOR,
+  QUAD_EMISSIVE_MIN,
+  QUAD_EMISSIVE_RANGE,
+  QUAD_PLAYER_OUTLINE_MIN,
+  QUAD_PLAYER_OUTLINE_RANGE,
+  QUAD_WORLD_WEAPON_OUTLINE_MIN,
+  QUAD_WORLD_WEAPON_OUTLINE_RANGE,
+} from "./QuadDamageVisual";
 import { installTeamColorBridge } from "./TeamColorBridge";
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -66,19 +77,6 @@ interface RemotePlayerHitbox {
   /** True while this player was last seen carrying a powerup (drives the glow). */
   powerupGlowActive: boolean;
 }
-
-// ─── Powerup carrier glow ────────────────────────────────────────
-
-/** Quad carrier glow colour — red reads as "danger", not as a team tint. */
-const QUAD_GLOW_COLOR = new Color3(1.0, 0.12, 0.08);
-/** Pulse rate of the carrier glow (cycles/sec). */
-const QUAD_PULSE_HZ = 1.5;
-/** Emissive lift at the trough / peak of the pulse. */
-const QUAD_GLOW_MIN = 0.35;
-const QUAD_GLOW_MAX = 0.85;
-/** Outline width at the trough / peak (world units, pre-model-scale). */
-const QUAD_OUTLINE_MIN = 0.9;
-const QUAD_OUTLINE_MAX = 1.7;
 
 // ─── Constants (Q3-style player bounds) ──────────────────────────
 
@@ -1085,16 +1083,47 @@ export class RemotePlayerRenderer {
         hitbox.powerupGlowActive = false;
         hitbox.appliedVisualStyleKey = null; // force a base-style re-apply
         this.applyHitboxVisualStyle(hitbox, entityId);
+        this.applyAttachedWeaponQuadOutline(hitbox, false, Color3.Black(), 0);
       }
       return;
     }
 
     hitbox.powerupGlowActive = true;
-    // 0..1 breathing curve.
-    const p = 0.5 + 0.5 * Math.sin(elapsed * QUAD_PULSE_HZ * Math.PI * 2);
-    const intensity = QUAD_GLOW_MIN + (QUAD_GLOW_MAX - QUAD_GLOW_MIN) * p;
-    const width = (QUAD_OUTLINE_MIN + (QUAD_OUTLINE_MAX - QUAD_OUTLINE_MIN) * p) / Math.max(1, MODEL_SCALE * 16);
-    this.modelManager.applyPowerupGlow(hitbox.model, QUAD_GLOW_COLOR, intensity, width);
+    const pulse = getQuadDamagePulse(elapsed);
+    const intensity = QUAD_EMISSIVE_MIN + QUAD_EMISSIVE_RANGE * pulse;
+    const playerOutlineSize = QUAD_PLAYER_OUTLINE_MIN + QUAD_PLAYER_OUTLINE_RANGE * pulse;
+    const weaponOutlineWidth = QUAD_WORLD_WEAPON_OUTLINE_MIN + QUAD_WORLD_WEAPON_OUTLINE_RANGE * pulse;
+    const width = playerOutlineSize / Math.max(1, MODEL_SCALE * 16);
+    this.modelManager.applyPowerupGlow(hitbox.model, QUAD_DAMAGE_COLOR, intensity, width);
+    this.applyAttachedWeaponQuadOutline(hitbox, true, QUAD_DAMAGE_COLOR, weaponOutlineWidth);
+  }
+
+  /**
+   * The hand weapon is loaded outside PlayerModelInstance, so the body styling
+   * pass cannot see it. Give it the same override explicitly and compensate for
+   * absolute scale so GLB and MD3 weapons receive comparable silhouettes.
+   */
+  private applyAttachedWeaponQuadOutline(
+    hitbox: RemotePlayerHitbox,
+    active: boolean,
+    color: Color3,
+    worldWidth: number,
+  ): void {
+    const root = hitbox.weaponRoot;
+    if (!root) return;
+    const meshes: AbstractMesh[] =
+      root instanceof Mesh ? [root, ...root.getChildMeshes(false)] : root.getChildMeshes(false);
+
+    for (const mesh of meshes) {
+      if (mesh.getTotalVertices() <= 0) continue;
+      mesh.computeWorldMatrix(true);
+      const scale = Math.max(0.001, mesh.absoluteScaling.x, mesh.absoluteScaling.y, mesh.absoluteScaling.z);
+      mesh.renderOutline = active;
+      if (active) {
+        mesh.outlineColor = color;
+        mesh.outlineWidth = worldWidth / scale;
+      }
+    }
   }
 
   // ── Position Update ─────────────────────────────────────────

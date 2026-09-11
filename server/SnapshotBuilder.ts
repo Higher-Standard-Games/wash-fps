@@ -61,6 +61,7 @@ function _velocityClone(this: any) {
  * and mutable state that toGameState needs.
  */
 export interface SnapshotContext {
+  collisionWorld?: import("../../../shared/collision/CollisionWorld").CollisionWorld | null;
   simulation: Simulation;
   weaponSystem: WeaponSystem;
   projectileSystem: ProjectileSystem;
@@ -109,6 +110,8 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
   const gameState = new GameState();
   gameState.tick = Number(state.tick);
   const tickNum = gameState.tick;
+  const lifts = ctx.collisionWorld?.lifts;
+  if (lifts?.definitions.length) gameState.events.push({ type: "lift_state", lifts: lifts.snapshot() });
 
   // Build O(1) player-to-client lookup map (avoids O(clients) scan per entity)
   const clientByPlayerId = new Map<PlayerId, ClientInfo>();
