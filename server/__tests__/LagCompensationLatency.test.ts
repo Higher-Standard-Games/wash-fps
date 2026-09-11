@@ -103,7 +103,11 @@ class LaggedPlayer {
     return player;
   }
 
-  /** Track the newest snapshot tick, the way a real client syncs its clock. */
+  /**
+   * Track the newest snapshot tick and acknowledge it, the way a real client
+   * does in `NetworkGameHost.handleSnapshot`. The ack is what the server times
+   * a round trip against, so a harness that skipped it would measure nothing.
+   */
   private watchSnapshots(): void {
     void this.client
       .waitFor((f) => {
@@ -111,6 +115,7 @@ class LaggedPlayer {
         try {
           const tick = MessageCodec.decodeSnapshot(f).tick;
           if (tick > this.lastSnapshotTick) this.lastSnapshotTick = tick;
+          this.client.send(MessageCodec.encodeAck(tick));
         } catch {
           // A frame we cannot decode tells us nothing about the clock.
         }
@@ -191,6 +196,28 @@ describe("lag compensation under latency", () => {
       expect(tick).toBeGreaterThan(0);
     }
     distant.dispose();
+  });
+
+  it("measures a client's ping from its own clock, and tracks real latency", async () => {
+    const pings = () =>
+      [...(server as unknown as { clients: Map<string, { ping: number }> }).clients.values()].map((c) => c.ping);
+
+    const fast = await LaggedPlayer.join(server.getPort(), "fast", 0);
+    await waitUntil(() => pings().some((p) => p > 0));
+    const fastPing = Math.max(...pings());
+    await fast.client.close();
+    fast.dispose();
+
+    const slow = await LaggedPlayer.join(server.getPort(), "slow", 60);
+    // Smoothed, so give the average time to climb toward the real round trip.
+    await waitUntil(() => pings().some((p) => p > 60), 8000);
+    const slowPing = Math.max(...pings());
+    slow.dispose();
+
+    // A local client's loop round trip is small; 60ms each way must show up as
+    // something close to the 120ms it really is.
+    expect(fastPing).toBeLessThan(40);
+    expect(slowPing).toBeGreaterThan(80);
   });
 
   it("reports no view tick before the first snapshot, so nothing is rewound", async () => {
