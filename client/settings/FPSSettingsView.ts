@@ -523,6 +523,7 @@ export class FPSSettingsView {
 
     const display = this.createSection("Display");
     this.addFullscreenToggle(display.rows, "graphics");
+    this.addCvarSlider(display.rows, "Field of View", "cl_fov", "graphics", { min: 80, max: 110, step: 1 });
     grid.appendChild(display.section);
 
     const graphics = this.createSection("Graphics");
