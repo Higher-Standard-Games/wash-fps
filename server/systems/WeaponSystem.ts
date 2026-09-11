@@ -146,6 +146,12 @@ export interface WeaponState {
    * again, or simply holding, trades the dead weapon for one that fires.
    */
   dryFireTick: number;
+  /**
+   * Tick before which a weapon we raised on the player's behalf may not fire, so
+   * an automatic swap plays its switch animation instead of appearing already up
+   * and shooting. 0 for a switch the player asked for themselves.
+   */
+  switchReadyTick: number;
 }
 
 export interface WeaponAmmo {
@@ -222,6 +228,14 @@ export class WeaponSystem extends Subsystem {
    * choice yours; short enough that holding the trigger is not left hanging.
    */
   private static readonly DRY_FIRE_SWAP_TICKS = 25;
+  /**
+   * How long a weapon we raised for the player stays un-fireable (~264ms at
+   * 125Hz), covering WeaponSwitchAnim's 120ms drop plus 140ms raise. Without it
+   * the swapped-in weapon is legal to fire the instant it is equipped, so the
+   * same trigger pull that traded the gun also shot it, before the new one had
+   * visibly come up.
+   */
+  private static readonly WEAPON_RAISE_TICKS = 33;
 
   constructor() {
     super(CONFIG);
@@ -415,7 +429,7 @@ export class WeaponSystem extends Subsystem {
     const next = this.nextWeaponWithAmmo(state);
     // Nothing else to offer — keep clicking rather than silently doing nothing.
     if (!next) return;
-    this.equip(entityId, state, next, tickNum);
+    this.equip(entityId, state, next, tickNum, WeaponSystem.WEAPON_RAISE_TICKS);
   }
 
   /**
@@ -436,13 +450,20 @@ export class WeaponSystem extends Subsystem {
     return null;
   }
 
-  /** Put a weapon in hand, cancelling whatever the old one was in the middle of. */
-  private equip(entityId: EntityId, state: WeaponState, weaponId: string, tickNum: number): void {
+  /**
+   * Put a weapon in hand, cancelling whatever the old one was in the middle of.
+   *
+   * `raiseTicks` holds fire until the switch animation has played. It is zero for
+   * a switch the player asked for — firing straight out of a manual switch is a
+   * technique, not a bug — and non-zero only when we swapped for them.
+   */
+  private equip(entityId: EntityId, state: WeaponState, weaponId: string, tickNum: number, raiseTicks = 0): void {
     state.currentWeapon = weaponId;
     state.reloading = false;
     state.reloadEndTick = 0;
     state.chargeStartTick = 0;
     state.dryFireTick = 0;
+    state.switchReadyTick = raiseTicks > 0 ? tickNum + raiseTicks : 0;
     this.lastSwitchTick.set(entityId, tickNum);
   }
 
@@ -768,6 +789,7 @@ export class WeaponSystem extends Subsystem {
       wasReloadButtonDown: false,
       hipfireAdsStartTick: 0,
       dryFireTick: 0,
+      switchReadyTick: 0,
     });
     // Reset edge detection so weapon slot changes are detected cleanly after respawn
     this.lastWeaponSlot.delete(id);
@@ -884,7 +906,7 @@ export class WeaponSystem extends Subsystem {
           if (isFiring && !weaponState.wasFireButtonDown) {
             const fireInterval = fireIntervalTicks(weapon);
             const timeSinceFire = tickNum - weaponState.lastFireTick;
-            if (timeSinceFire >= fireInterval) {
+            if (timeSinceFire >= fireInterval && tickNum >= weaponState.switchReadyTick) {
               // Fire visual event immediately (animation + sound)
               if (entity.input) {
                 const origin = this.getFireViewOrigin(entity);
@@ -997,7 +1019,7 @@ export class WeaponSystem extends Subsystem {
             const fireInterval = fireIntervalTicks(weapon); // ticks between shots
             const timeSinceFire = tickNum - weaponState.lastFireTick;
 
-            if (timeSinceFire >= fireInterval) {
+            if (timeSinceFire >= fireInterval && tickNum >= weaponState.switchReadyTick) {
               const ammo = this.getAmmoState(weaponState, weapon);
               if (ammo.clip > 0 || this.reloadModel(weapon) === "none") {
                 this.fireWeapon(state, entity, weapon, tick);

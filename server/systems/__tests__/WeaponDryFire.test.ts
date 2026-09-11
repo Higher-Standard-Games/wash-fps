@@ -17,13 +17,19 @@ const ENTITY = 1 as never;
 const FIRE_BUTTON = 1 << 8;
 /** Must match WeaponSystem.DRY_FIRE_SWAP_TICKS. */
 const SWAP_TICKS = 25;
+/** Must match WeaponSystem.WEAPON_RAISE_TICKS. */
+const RAISE_TICKS = 33;
 
-/** Blade (infinite) plus an empty machinegun, with the machinegun in hand. */
+/**
+ * An empty machinegun in hand, a loaded riotgun in the next slot, and the blade
+ * behind that — the ordinary case, where the swap finds your other gun rather
+ * than falling all the way back to the knife.
+ */
 function setup() {
   const sys = new WeaponSystem();
   sys.initializeWeaponFromLoadout(ENTITY, {
-    weapons: ["blade", "machinegun"],
-    ammo: { blade: 1, machinegun: 0 },
+    weapons: ["blade", "machinegun", "riotgun"],
+    ammo: { blade: 1, machinegun: 0, riotgun: 32 },
     health: 100,
     armor: 0,
   } as never);
@@ -50,6 +56,12 @@ function setup() {
 }
 
 const weapon = (sys: WeaponSystem) => sys.getWeaponState(ENTITY)?.currentWeapon;
+/**
+ * Did the weapon actually go off? The blade is melee, so pending damage stays
+ * empty with nobody in range whether it fired or not — the fire tick is the
+ * signal that does not lie.
+ */
+const lastFired = (sys: WeaponSystem) => sys.getWeaponState(ENTITY)?.lastFireTick ?? 0;
 
 function pull(sys: WeaponSystem, shooter: { input: { buttons: number } }, state: unknown, tick: number) {
   shooter.input.buttons = FIRE_BUTTON;
@@ -79,7 +91,7 @@ describe("firing an empty weapon", () => {
     release(sys, shooter, state, 101);
     pull(sys, shooter, state, 102);
 
-    expect(weapon(sys)).toBe("blade");
+    expect(weapon(sys)).toBe("riotgun");
   });
 
   it("swaps on its own if the trigger is simply held", () => {
@@ -92,7 +104,34 @@ describe("firing an empty weapon", () => {
     expect(weapon(sys)).toBe("machinegun");
 
     pull(sys, shooter, state, 100 + SWAP_TICKS);
-    expect(weapon(sys)).toBe("blade");
+    expect(weapon(sys)).toBe("riotgun");
+  });
+
+  it("does not fire the weapon it just swapped in", () => {
+    // The pull that trades the gun must not also shoot it: the new weapon has
+    // not visibly come up yet, and firing from a hand that still looks empty
+    // reads as a glitch.
+    const { sys, shooter, state } = setup();
+    pull(sys, shooter, state, 100);
+    release(sys, shooter, state, 101);
+    pull(sys, shooter, state, 102);
+
+    expect(weapon(sys)).toBe("riotgun");
+    expect(lastFired(sys)).toBe(0);
+  });
+
+  it("lets the swapped-in weapon fire once it has been raised", () => {
+    const { sys, shooter, state } = setup();
+    pull(sys, shooter, state, 100);
+    release(sys, shooter, state, 101);
+    pull(sys, shooter, state, 102); // swaps, silent
+
+    // Still holding through the raise — the shot lands when the weapon is up.
+    for (let tick = 103; tick < 102 + RAISE_TICKS; tick++) pull(sys, shooter, state, tick);
+    expect(lastFired(sys)).toBe(0);
+
+    pull(sys, shooter, state, 102 + RAISE_TICKS);
+    expect(lastFired(sys)).toBe(102 + RAISE_TICKS);
   });
 
   it("leaves a brief tap alone", () => {
