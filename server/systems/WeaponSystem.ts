@@ -182,10 +182,19 @@ export class WeaponSystem extends Subsystem {
   private lagCompensation: LagCompensation | null = null;
   /**
    * Snapshot intervals a client is assumed to render behind its newest snapshot.
-   * An assumption pending measurement against real clients — see the v0.9.23
-   * changelog. `SnapshotBuffer` starts at 50ms and adapts to arrival jitter.
+   *
+   * One, because `SnapshotBuffer` settles on `avg + stddev` of snapshot
+   * inter-arrival times — one interval plus whatever the connection jitters.
+   * Assuming two double-counted it: `npm run net:viewlag` shows the server
+   * already observing ~32ms of view lag at zero network latency from snapshot
+   * quantisation and queueing alone, so a second assumed interval on top handed
+   * a LAN player ~65ms of rewind and shot people well after they reached cover.
+   *
+   * Erring low is deliberate. Guessing high punishes the player who took cover,
+   * who did nothing wrong; guessing low costs the shooter on a jittery line a
+   * little extra lead.
    */
-  private static readonly INTERP_SNAPSHOT_INTERVALS = 2;
+  private static readonly INTERP_SNAPSHOT_INTERVALS = 1;
   private interpTicks = 1;
   /** Gametype self-damage multiplier (1.0 = full, 0 = none). Mirrors ProjectileSystem. */
   selfDamageMultiplier: number = 1.0;

@@ -23,19 +23,51 @@ export class ProtocolTestClient {
   /** Every binary frame received from the server, in arrival order. */
   readonly frames: Uint8Array[] = [];
   private waiters: Waiter[] = [];
+  private latencyMs = 0;
+  private pending = new Set<ReturnType<typeof setTimeout>>();
 
   private constructor(private readonly ws: WebSocket) {
     ws.on("message", (data: Buffer) => {
       const frame = new Uint8Array(data);
-      this.frames.push(frame);
-      for (const w of [...this.waiters]) {
-        if (w.match(frame)) {
-          clearTimeout(w.timer);
-          this.waiters.splice(this.waiters.indexOf(w), 1);
-          w.resolve(frame);
-        }
-      }
+      // Held on the way in as well as out: a client's view is stale by the
+      // downlink, and its reply is stale again by the uplink.
+      this.defer(() => this.deliver(frame));
     });
+  }
+
+  /**
+   * Hold every frame, both directions, by `oneWayMs` — so a round trip costs
+   * twice that. Lag compensation is invisible at zero latency, so this is the
+   * only way to exercise it at all.
+   *
+   * Equal delays keep frames in order, since timers with the same timeout fire
+   * in the order they were scheduled.
+   */
+  setLatency(oneWayMs: number): void {
+    this.latencyMs = Math.max(0, oneWayMs);
+  }
+
+  private defer(action: () => void): void {
+    if (this.latencyMs <= 0) {
+      action();
+      return;
+    }
+    const timer = setTimeout(() => {
+      this.pending.delete(timer);
+      action();
+    }, this.latencyMs);
+    this.pending.add(timer);
+  }
+
+  private deliver(frame: Uint8Array): void {
+    this.frames.push(frame);
+    for (const w of [...this.waiters]) {
+      if (w.match(frame)) {
+        clearTimeout(w.timer);
+        this.waiters.splice(this.waiters.indexOf(w), 1);
+        w.resolve(frame);
+      }
+    }
   }
 
   /** Open a connection and resolve once the socket is established. */
@@ -55,7 +87,9 @@ export class ProtocolTestClient {
   }
 
   send(bytes: Uint8Array): void {
-    this.ws.send(bytes);
+    this.defer(() => {
+      if (this.ws.readyState === WebSocket.OPEN) this.ws.send(bytes);
+    });
   }
 
   /**
@@ -82,6 +116,8 @@ export class ProtocolTestClient {
   async close(): Promise<void> {
     for (const w of this.waiters) clearTimeout(w.timer);
     this.waiters = [];
+    for (const timer of this.pending) clearTimeout(timer);
+    this.pending.clear();
     if (this.ws.readyState === WebSocket.CLOSED) return;
     await new Promise<void>((resolve) => {
       this.ws.once("close", () => resolve());
