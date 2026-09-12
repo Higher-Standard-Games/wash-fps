@@ -19,6 +19,9 @@ const metalFootsteps = [
 ] as const;
 const bobotJumps = ["sounds/players/bobot/jump_1.ogg", "sounds/players/bobot/jump_2.ogg"] as const;
 
+/** Vertical units between ladder rung sounds. */
+const LADDER_RUNG_SPACING = 44;
+
 export const FPS_MOVEMENT_SOUND_PATHS = [...normalFootsteps, ...metalFootsteps, ...bobotJumps] as const;
 
 interface MovementAudioState {
@@ -27,6 +30,8 @@ interface MovementAudioState {
   z: number;
   grounded: boolean;
   stepDistance: number;
+  /** Vertical travel banked toward the next ladder rung. */
+  climbDistance: number;
 }
 
 const movementStates = new Map<string, MovementAudioState>();
@@ -70,6 +75,7 @@ export function processFPSMovementAudio(state: GameState, localEntityId?: string
         z: position.z,
         grounded: velocity.grounded,
         stepDistance: 0,
+        climbDistance: 0,
       });
       continue;
     }
@@ -88,7 +94,18 @@ export function processFPSMovementAudio(state: GameState, localEntityId?: string
       playAtPlayer(path, position, local, 0.72);
     }
 
-    if (horizontalTravel > 256) {
+    // Ladders get their own cadence off vertical travel: a climber is neither
+    // grounded nor moving horizontally, so the footstep rules below never fire
+    // for them. Rung spacing rather than stride length sets the interval.
+    if (movement?.onLadder) {
+      previous.climbDistance += Math.abs(position.y - previous.y);
+      if (previous.climbDistance >= LADDER_RUNG_SPACING) {
+        previous.climbDistance %= LADDER_RUNG_SPACING;
+        playRungStep(position, local);
+      }
+      previous.stepDistance = 0;
+    } else if (horizontalTravel > 256) {
+      previous.climbDistance = 0;
       previous.stepDistance = 0;
     } else if (velocity.grounded && !movement?.isSliding && horizontalSpeed > 70) {
       previous.stepDistance += horizontalTravel;
@@ -110,6 +127,18 @@ export function processFPSMovementAudio(state: GameState, localEntityId?: string
   for (const entityId of movementStates.keys()) {
     if (!alive.has(entityId)) movementStates.delete(entityId);
   }
+}
+
+/**
+ * A hand or boot finding the next rung.
+ *
+ * Ladders are metal, and the metal footstep bank is already loaded for every
+ * map, so climbing needs no new asset. Quieter than a footstep: it is a grab,
+ * not a full step onto a surface.
+ */
+function playRungStep(position: { x: number; y: number; z: number }, local: boolean): void {
+  const path = metalFootsteps[footstepSequence++ % metalFootsteps.length];
+  playAtPlayer(path, position, local, 0.38);
 }
 
 function playFootstep(position: { x: number; y: number; z: number }, local: boolean): void {

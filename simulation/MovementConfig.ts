@@ -127,4 +127,23 @@ export interface AdvancedMovementResult extends MovementResult {
   liquidContents?: number;
   /** Dominant liquid at the feet, or null when dry. */
   liquidKind?: "water" | "slime" | "lava" | null;
+
+  /**
+   * Whether the player is attached to a ladder at the END of this step.
+   *
+   * Simulation state, like {@link waterLevel}: a pure function of the resulting
+   * position, the map and the detach cooldown, so a reconciliation replay
+   * recomputes it rather than carrying a stale value forward.
+   */
+  onLadder?: boolean;
+
+  /**
+   * Signed vertical distance climbed this step, in units.
+   *
+   * Presentation input: the renderer advances the climb clip by this rather
+   * than by wall-clock, which keeps hand-over-hand locked to actual movement
+   * and makes descending the same clip played backwards. Zero when not on a
+   * ladder.
+   */
+  ladderClimbDelta?: number;
 }

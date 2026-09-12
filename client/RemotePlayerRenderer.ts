@@ -130,6 +130,8 @@ const RUN_SPEED_THRESHOLD = 300;
 const WALK_NATURAL_SPEED = 40;
 const RUN_NATURAL_SPEED = 100;
 const STRAFE_NATURAL_SPEED = 29;
+/** Climb rate the ladder clip reads naturally at 1x (ladder climbSpeed is 168). */
+const CLIMB_NATURAL_SPEED = 120;
 
 // Jump velocity for normalizing animation scrub (matches MovementProfile.jumpVelocity)
 const JUMP_VELOCITY = 320;
@@ -472,6 +474,7 @@ export class RemotePlayerRenderer {
         crouchViewOffset: movementState?.crouchViewOffset ?? 0,
         powerupMask: powerups?.mask ?? 0,
         waterLevel: movementState?.waterLevel ?? 0,
+        onLadder: movementState?.onLadder ?? false,
       });
     }
     return entities;
@@ -1306,6 +1309,14 @@ export class RemotePlayerRenderer {
           // At peak — freeze
           inst.masterGroup.speedRatio = 0;
         }
+      } else if (animName === "climb") {
+        // Hand-over-hand is driven by vertical velocity, so the clip advances
+        // exactly as far as the body does: climbing plays forward, descending
+        // plays the same clip backwards, and pausing on a rung freezes it
+        // mid-reach. Tying it to displacement rather than wall-clock also means
+        // prediction and reconciliation cannot drift the hands off the ladder.
+        const climbRatio = interp.vy / CLIMB_NATURAL_SPEED;
+        inst.masterGroup.speedRatio = Math.max(-2.0, Math.min(2.0, climbRatio));
       } else if (animName === "slide") {
         // Crouchslide: play forward proportional to horizontal speed
         // Animation naturally decelerates as slide velocity drops
@@ -1563,6 +1574,12 @@ export class RemotePlayerRenderer {
       const swimSpeed = Math.sqrt(interp.vx * interp.vx + interp.vy * interp.vy + interp.vz * interp.vz);
       return swimSpeed < SWIM_IDLE_SPEED_THRESHOLD ? "swim_idle" : "swim";
     }
+
+    // Climbing — checked before the airborne rule for the same reason as
+    // swimming: a climber is ungrounded and would otherwise read as mid-jump
+    // the whole way up. The clip's playback is driven by climb direction in
+    // applyAnimation, so one clip covers going up and coming down.
+    if (interp.onLadder) return "climb";
 
     // Airborne — use jump for entire air time (Warsow-style)
     if (!interp.grounded) return "jump";

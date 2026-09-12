@@ -45,6 +45,8 @@ export interface PredictedMovementState {
    * on the frame the player feels the water instead of a round trip later.
    */
   waterLevel: 0 | 1 | 2 | 3;
+  /** Attached to a ladder, predicted locally for the same reason. */
+  onLadder: boolean;
 }
 
 export interface ServerSnapshot {
@@ -100,6 +102,7 @@ export class V2NetworkClient {
     slidePhase: 0,
     ledgeGrabPhase: 0,
     waterLevel: 0,
+    onLadder: false,
   };
 
   // Server sync
@@ -584,6 +587,7 @@ export class V2NetworkClient {
       slidePhase: 0,
       ledgeGrabPhase: 0,
       waterLevel: 0,
+      onLadder: false,
     };
 
     console.log("[V2Client] resetForRespawn: cleared all death-period state");
@@ -805,5 +809,6 @@ export class V2NetworkClient {
     this.predictedMovement.slidePhase = result.slidePhase;
     this.predictedMovement.ledgeGrabPhase = result.ledgeGrabPhase;
     this.predictedMovement.waterLevel = result.waterLevel ?? 0;
+    this.predictedMovement.onLadder = result.onLadder ?? false;
   }
 }

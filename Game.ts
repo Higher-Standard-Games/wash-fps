@@ -1776,6 +1776,11 @@ export class Game {
       ledgeGrabPhase: ms.ledgeGrabPhase,
     };
 
+    // Climbing occupies both hands, so the viewmodel stows for the duration.
+    // This goes through the movement-specific hide rather than setVisible, so
+    // it cannot fight the sticky one death and spectating own.
+    getWeaponViewManager().setMovementHidden(ms.onLadder);
+
     for (const callback of this.onStateUpdateCallbacks) {
       callback(update);
     }

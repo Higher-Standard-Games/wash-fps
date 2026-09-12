@@ -42,6 +42,13 @@ import {
   normalAirAccelerate,
   strafeBunnyAccelerate,
 } from "./Acceleration";
+import {
+  applyLadderFriction,
+  DEFAULT_LADDER_MOVEMENT,
+  type LadderMovementProfile,
+  ladderAccelerate,
+  ladderIntent,
+} from "./Ladder";
 import { LedgeGrab } from "./LedgeGrab";
 import type { AdvancedMovementResult, MovementConfig } from "./MovementConfig";
 import { Slide } from "./Slide";
@@ -173,6 +180,37 @@ export class MovementProfile implements IMovementProfile {
 
   /** Swim tuning. Ours to set; see Swim.ts for why there is only one profile. */
   private liquid: LiquidMovementProfile = { ...DEFAULT_LIQUID_MOVEMENT };
+
+  /**
+   * The hull overlaps a ladder volume and the detach cooldown has expired.
+   * Re-derived from geometry every step, for the same reason as
+   * {@link waterLevel}.
+   *
+   * Being in the volume is not the same as climbing — see {@link climbing}.
+   */
+  private inLadderVolume: boolean = false;
+
+  /**
+   * Climbing is the active movement mode this step.
+   *
+   * Distinct from {@link inLadderVolume} because ladder brushes run down to
+   * the floor: a player walking past the foot of one is inside the volume and
+   * must keep ordinary ground movement, or ladders would turn their own
+   * landings into mud. Contact alone attaches only once the player is off the
+   * ground; while grounded they have to actually ask to go up.
+   */
+  private climbing: boolean = false;
+
+  /**
+   * Sim-clock deadline after which the player may reattach to a ladder, or 0.
+   *
+   * Set by jumping off. Anchored to the sequence-derived clock like the other
+   * timers here so a replay recomputes it rather than advancing time again.
+   */
+  private ladderDetachUntilMs: number = 0;
+
+  /** Ladder tuning. See Ladder.ts. */
+  private ladder: LadderMovementProfile = { ...DEFAULT_LADDER_MOVEMENT };
 
   /**
    * Sim clock (ms). Derived from the input's sequence number when available
@@ -344,6 +382,7 @@ export class MovementProfile implements IMovementProfile {
     // water level at the top of its move. Using the post-step sample instead
     // would decide this step's physics from where the step ended up.
     this.waterLevel = this.sampleAt(collision, position).level;
+    this.inLadderVolume = this.sampleLadderAt(collision, position);
 
     const result = this.simulateCore(position, velocity, input, deltaTime, collision);
 
@@ -355,7 +394,33 @@ export class MovementProfile implements IMovementProfile {
     result.waterLevel = liquid.level;
     result.liquidContents = liquid.rawContents;
     result.liquidKind = liquid.kind;
+
+    // The volume sample feeds the NEXT step's branch choice; what this step
+    // actually did is `climbing`, and that is what the renderer and the
+    // network read.
+    this.inLadderVolume = this.sampleLadderAt(collision, result.position);
+    result.onLadder = this.climbing;
+    result.ladderClimbDelta = this.climbing ? result.position.y - position.y : 0;
     return result;
+  }
+
+  /**
+   * Is the player's hull overlapping a ladder volume, and allowed to attach?
+   *
+   * Takes the whole hull rather than a point because ladder brushes only reach
+   * about a hull radius out from their wall — see `CollisionWorld.isInLadder`.
+   * Deep water wins over climbing: a submerged ladder should let you swim past
+   * it rather than weld you to it.
+   */
+  private sampleLadderAt(collision: CollisionWorld | null, origin: Vec3): boolean {
+    if (!collision?.isInLadder || isSwimming(this.waterLevel)) return false;
+    if (this.simNowMs < this.ladderDetachUntilMs) return false;
+
+    const bounds = this.getCurrentBounds();
+    return collision.isInLadder(
+      { x: origin.x + bounds.min.x, y: origin.y + bounds.min.y, z: origin.z + bounds.min.z },
+      { x: origin.x + bounds.max.x, y: origin.y + bounds.max.y, z: origin.z + bounds.max.z },
+    );
   }
 
   /** Three-point sample using whichever hull the player currently occupies. */
@@ -393,7 +458,9 @@ export class MovementProfile implements IMovementProfile {
     // geometry. Deciding their underwater behaviour by call order would be an
     // accident; deciding it here is a choice. Whether a submerged dash should
     // ever be possible is a design question for play, not a compatibility one.
-    if (isSwimming(this.waterLevel)) {
+    // A ladder volume clears them for the same reason: all three describe a
+    // body against solid geometry, and a climber is holding a rung.
+    if (isSwimming(this.waterLevel) || this.inLadderVolume) {
       if (this.wallJump.state !== "none") this.wallJump.reset();
       if (this.ledgeGrab.state !== "none") this.ledgeGrab.reset();
       if (this.slide.isSliding) this.slide.exit(velocity, nowMs, this.config);
@@ -420,7 +487,7 @@ export class MovementProfile implements IMovementProfile {
     }
 
     // === LEDGE GRAB ===
-    if (this.config.ledgeGrabEnabled && input && !isSwimming(this.waterLevel)) {
+    if (this.config.ledgeGrabEnabled && input && !isSwimming(this.waterLevel) && !this.inLadderVolume) {
       if (this.ledgeGrab.update(newPos, newVel, input, collision, nowMs, this.config, this.isGrounded)) {
         return {
           position: newPos,
@@ -447,12 +514,33 @@ export class MovementProfile implements IMovementProfile {
     // it would strand a shrunken hull on someone walking around on land.
     if (!swimming) this.proneInWater = false;
 
+    // === CLIMB DECISION ===
+    // Decided before gravity, because whether the player is climbing is what
+    // says if gravity applies at all this step.
+    //
+    // Forward follows the pitched view, so looking up and holding forward
+    // climbs and looking down descends. Jump is a detach (below), so only
+    // crouch adds an explicit vertical intent — a player looking along a
+    // corridor can still climb down.
+    //
+    // Ladder brushes run to the floor, so contact alone cannot mean climbing:
+    // that would bog down anyone walking past the foot of one. Off the ground
+    // contact is enough, but a grounded player has to actually ask to go up.
+    const climbIntent =
+      this.inLadderVolume && input
+        ? ladderIntent(input.direction, input.viewAngles, input.isPressed(InputButtons.CROUCH) ? -1 : 0, this.ladder)
+        : null;
+    this.climbing = this.inLadderVolume && (!this.isGrounded || (climbIntent?.dir?.y ?? 0) > 0.1);
+
     // === GRAVITY (asymmetric: stronger when falling) ===
     // A swimmer is held up by the water, not by the ground, so gravity is off
     // entirely — the idle sink below is what makes them settle. An assisted
     // climb is a ballistic arc and keeps gravity so it lands.
     if (swimming && !waterJumping) {
       // no gravity while swimming
+    } else if (this.climbing) {
+      // A climber holds their own weight; the ladder friction below is what
+      // makes them stop on a rung instead of sliding back down.
     } else if (!this.isGrounded) {
       const gravScale = newVel.y < 0 ? this.config.fallingGravityMultiplier : 1.0;
       newVel.y -= this.config.gravity * gravScale * deltaTime;
@@ -500,10 +588,24 @@ export class MovementProfile implements IMovementProfile {
       const autohop = true;
       const canJump = !this.jumpConsumed || (autohop && justLanded);
 
+      // === JUMP OFF A LADDER ===
+      // Pressing jump lets go. There is no surface normal to push away from —
+      // a ladder is a volume, not a face — so the leap is straight up and the
+      // player steers out of the volume with normal air control. The cooldown
+      // is what stops the next step from reattaching mid-jump.
+      if (isJumping && canJump && this.climbing) {
+        newVel.y = this.ladder.detachUp;
+        this.climbing = false;
+        this.inLadderVolume = false;
+        this.ladderDetachUntilMs = nowMs + this.ladder.detachCooldownMs;
+        this.jumpConsumed = true;
+        this.isGrounded = false;
+      }
+
       // Jump is ascend while swimming, handled in the swim branch. Standing on
       // the bottom of a deep pool still counts as grounded, so without this a
       // submerged player could jump normally.
-      if (isJumping && this.isGrounded && canJump && !swimming) {
+      if (isJumping && this.isGrounded && canJump && !swimming && !this.climbing) {
         // Check slope angle — don't allow jumping on steep ramps (Warsow behavior)
         // Only allow jumping on surfaces flatter than ~32° (normal.y > 0.85)
         let canJumpOnSlope = true;
@@ -547,6 +649,15 @@ export class MovementProfile implements IMovementProfile {
         // a failed climb from freezing control the whole two seconds.
         if (this.isGrounded || newVel.y < 0) {
           this.waterJumpUntilMs = 0;
+        }
+      } else if (this.climbing) {
+        // === CLIMBING ===
+        // Friction first, so releasing the keys parks you on a rung instead of
+        // coasting up. The intent was computed above to decide this branch.
+        applyLadderFriction(newVel, this.ladder, deltaTime);
+
+        if (climbIntent?.dir) {
+          ladderAccelerate(newVel, climbIntent.dir, climbIntent.speed, this.ladder.acceleration, deltaTime);
         }
       } else if (swimming) {
         // === SWIMMING ===
@@ -601,7 +712,7 @@ export class MovementProfile implements IMovementProfile {
       // === CROUCHSLIDE ===
       // Crouch is descend input while swimming; letting the slide system see it
       // would leave a stale sliding flag on a player who never touched a floor.
-      if (this.config.slideEnabled && !swimming) {
+      if (this.config.slideEnabled && !swimming && !this.climbing) {
         this.slide.update(newVel, input, this.isGrounded, nowMs, deltaTime, this.config);
       }
 
