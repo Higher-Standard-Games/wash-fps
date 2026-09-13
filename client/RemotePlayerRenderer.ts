@@ -278,6 +278,12 @@ export class RemotePlayerRenderer {
         loadingManager.dispose();
         return;
       }
+      // A failed load resolves like any other, so report what actually happened.
+      // Reported as loaded, it presents as invisible players and no explanation.
+      if (!loadingManager.isLoaded) {
+        console.error("[RemotePlayerRenderer] Player model failed to load — remote players will be invisible");
+        return;
+      }
       console.log("[RemotePlayerRenderer] Player model loaded");
 
       // Create model instances for any hitboxes that were created before model loaded
