@@ -397,9 +397,27 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
       });
     }
   }
+  // Final standings, from the match's own tally rather than from entities.
+  // Built for everyone who took part, spectators included, because a player who
+  // went to spectate mid-match still earned their score — and at match end the
+  // whole lobby is flagged as spectating anyway.
+  const matchState = ctx.gametypeController.getMatchState();
+  const standings: Array<{ playerId: string; name: string; score: number; deaths: number; ping: number }> = [];
+  for (const client of ctx.clients.values()) {
+    if (client.playerId === undefined) continue;
+    standings.push({
+      playerId: toClientKey(client.entityId),
+      name: client.playerName,
+      score: matchState.getScore(client.playerId),
+      deaths: matchState.getDeaths(client.playerId),
+      ping: client.connection?.latency ?? 0,
+    });
+  }
+
   gameState.events.push({
     type: "match_state",
     ...matchSnapshot,
+    standings,
     spectators,
   });
 

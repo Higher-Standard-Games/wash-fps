@@ -214,6 +214,26 @@ export class HUDState {
     // Sort by score descending
     this.scoreboard.sort((a, b) => b.score - a.score);
 
+    // Once the match ends the simulation entities are gone and every client is
+    // flagged as spectating, so the loop above yields nothing and the roster
+    // below would file the entire lobby under SPECTATORS with no scores. Final
+    // standings come from the match's own tally and outlive the entities they
+    // describe, so they are what the result screen is built from.
+    if (this.scoreboard.length === 0 && matchState.standings.length > 0) {
+      for (const entry of matchState.standings) {
+        this.scoreboard.push({
+          playerId: entry.playerId,
+          entityId: "",
+          name: entry.name,
+          score: entry.score,
+          deaths: entry.deaths,
+          ping: entry.ping,
+          teamId: matchState.playerTeams?.[clientKeyDisplayId(entry.playerId)],
+        });
+      }
+      this.scoreboard.sort((a, b) => b.score - a.score);
+    }
+
     // Append spectators (no sim entity, so absent from state.players) — the
     // server sends their roster on the match_state event. teamId "spectator"
     // routes them into the scoreboard's SPECTATORS block.

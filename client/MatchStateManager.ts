@@ -39,6 +39,7 @@ export class MatchStateManager {
   private _playerTeams: Record<string, string> = {};
   private _teamNames: Record<string, string> = {};
   private _spectators: Array<{ playerId: string; name: string; ping: number }> = [];
+  private _standings: Array<{ playerId: string; name: string; score: number; deaths: number; ping: number }> = [];
   private _winner: MatchWinner | null = null;
   private _overtime: number = 0;
   private _flow: "single" | "continuous" = "continuous";
@@ -81,6 +82,7 @@ export class MatchStateManager {
     this._playerTeams = event.playerTeams ?? {};
     this._teamNames = event.teamNames ?? {};
     this._spectators = event.spectators ?? [];
+    this._standings = event.standings ?? [];
     // Parse winner BEFORE firing phase callbacks so PostGame subscribers see it.
     this._winner = event.winner ?? null;
     this._overtime = event.overtime ?? 0;
@@ -183,6 +185,11 @@ export class MatchStateManager {
   /** Spectator roster (no sim entity) — for the scoreboard. */
   get spectators(): Array<{ playerId: string; name: string; ping: number }> {
     return this._spectators;
+  }
+
+  /** Final standings from the match tally — valid after entities are gone. */
+  get standings(): Array<{ playerId: string; name: string; score: number; deaths: number; ping: number }> {
+    return this._standings;
   }
   /** Match result — set only while in PostGame. */
   get winner(): MatchWinner | null {
@@ -327,6 +334,11 @@ export class MatchStateManager {
     this._teamBased = false;
     this._scoreLimit = 0;
     this._isReady = false;
+    // Rosters describe the match that just ended, so they cannot outlive it.
+    // Left behind, the next match's result screen opens showing the previous
+    // one's names and scores until the first snapshot replaces them.
+    this._spectators = [];
+    this._standings = [];
   }
 
   static destroy(): void {

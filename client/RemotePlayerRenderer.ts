@@ -498,8 +498,10 @@ export class RemotePlayerRenderer {
    * Called every frame from the render loop.
    */
   render(): void {
-    // One camera read for the whole frame, for distance LOD below.
-    const cameraPos = this.scene?.activeCamera?.globalPosition ?? null;
+    // One camera read for the whole frame, for the animation LOD below.
+    const camera = this.scene?.activeCamera ?? null;
+    const cameraPos = camera?.globalPosition ?? null;
+    const animationLodRadiusSq = this.animationLodRadiusSq(camera);
 
     // Get all entities from latest snapshot for lifecycle management
     const aliveIds = this.demoTimeline
@@ -594,7 +596,7 @@ export class RemotePlayerRenderer {
       //
       // Applied last, and only ever to HIDE: the branches above own the reasons
       // a model should be invisible, and this must not resurrect one of them.
-      this.applyEntityLod(hitbox, cameraPos);
+      this.applyEntityLod(hitbox, cameraPos, animationLodRadiusSq);
     }
 
     // Remove hitboxes for entities no longer alive
@@ -1121,7 +1123,40 @@ export class RemotePlayerRenderer {
    * Applied last and only ever to REMOVE work: the branches above own the
    * reasons a model should be invisible, and this must not resurrect one.
    */
-  private applyEntityLod(hitbox: RemotePlayerHitbox, cameraPosition: Vector3 | null): void {
+
+  /**
+   * The distance at which a standing player covers
+   * {@link ANIMATION_LOD_MIN_PIXELS} of screen height, squared.
+   *
+   * Solved once per frame from the live camera rather than per player, so the
+   * per-player test stays a squared-distance compare. Returns 0 — meaning "do
+   * not pause anything for size" — whenever the camera cannot be measured, so
+   * an unusual projection fails toward animating rather than toward frozen
+   * bodies.
+   */
+  private animationLodRadiusSq(camera: { fov?: number; mode?: number } | null): number {
+    const engine = this.scene?.getEngine();
+    const fov = camera?.fov;
+    if (!engine || !fov || !Number.isFinite(fov) || fov <= 0) return 0;
+
+    // Perspective only: an orthographic camera's projected size does not fall
+    // off with distance, so the whole premise is absent.
+    if (camera?.mode !== undefined && camera.mode !== 0) return 0;
+
+    const renderHeight = engine.getRenderHeight();
+    if (!renderHeight) return 0;
+
+    // pixels = worldHeight / distance * renderHeight / (2 tan(fov/2))
+    const radius =
+      (PLAYER_HEIGHT * renderHeight) / (2 * Math.tan(fov / 2) * RemotePlayerRenderer.ANIMATION_LOD_MIN_PIXELS);
+    return Number.isFinite(radius) ? radius * radius : 0;
+  }
+
+  private applyEntityLod(
+    hitbox: RemotePlayerHitbox,
+    cameraPosition: Vector3 | null,
+    animationLodRadiusSq: number,
+  ): void {
     const at = hitbox.mesh.position;
     const culler = BspManager.getInstance().getPvsCuller();
 
@@ -1142,11 +1177,15 @@ export class RemotePlayerRenderer {
 
     if (!hitbox.model || !this.modelManager) return;
 
-    const far =
+    // Beyond the LOD radius the body is a thumbnail and its limbs cannot be
+    // read; a radius of 0 means the camera could not be measured, so nothing is
+    // paused for distance.
+    const tooSmall =
       cameraPosition !== null &&
-      Vector3.DistanceSquared(cameraPosition, at) > RemotePlayerRenderer.ANIMATION_LOD_DISTANCE_SQ;
+      animationLodRadiusSq > 0 &&
+      Vector3.DistanceSquared(cameraPosition, at) > animationLodRadiusSq;
 
-    this.modelManager.setAnimationActive(hitbox.model, visible && !far);
+    this.modelManager.setAnimationActive(hitbox.model, visible && !tooSmall);
   }
 
   private updatePowerupGlow(hitbox: RemotePlayerHitbox, entityId: string, mask: number, elapsed: number): void {
@@ -1221,11 +1260,21 @@ export class RemotePlayerRenderer {
   private static readonly TELEPORT_FX_DIST_SQ = 256 * 256;
 
   /**
-   * Past this range a player's limb motion is sub-pixel, so their skeleton is
-   * paused. Generous on purpose: the saving is real but an animation that stops
-   * somewhere a player can still read it is far more noticeable than the cost.
+   * Below this on-screen height, in pixels, a player's skeleton is paused.
+   *
+   * Screen height rather than world distance, because "can a viewer resolve
+   * limb motion" is a question about projected size: the same distance is a
+   * different picture at 70 degrees and at 110, or on 1080p and on a phone. The
+   * first cut of this used a flat 2500-unit radius and froze bots in plain
+   * sight — 2500 Quake units is about sixty metres, where a stride is small but
+   * perfectly readable.
+   *
+   * 24 pixels is roughly a thumbnail of a body, where a limb is a pixel or two
+   * and its motion is not resolvable. Deliberately conservative: a frozen
+   * animation somewhere a player can read it is far more noticeable than the
+   * CPU it saves.
    */
-  private static readonly ANIMATION_LOD_DISTANCE_SQ = 2500 * 2500;
+  private static readonly ANIMATION_LOD_MIN_PIXELS = 24;
 
   /** Washoi teleport VFX: generic pooled team-color ghost + speed-line burst at both ends. */
   private playTeleportEffect(hitbox: RemotePlayerHitbox, entityId: string, interp: InterpolatedEntity): void {
