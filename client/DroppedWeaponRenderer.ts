@@ -387,6 +387,7 @@ class DroppedWeaponVisual {
 
 export class DroppedWeaponRenderer {
   private scene: Scene;
+  private disposed = false;
   private weapons: Map<string, DroppedWeaponVisual> = new Map();
 
   /** Stashed initial velocities from weapon_drop events (entityId → velocity) */
@@ -427,6 +428,7 @@ export class DroppedWeaponRenderer {
    * - Missing entity → dispose Havok body + visual
    */
   syncServerEntities(entities: Map<string, DroppedWeaponInfo>): void {
+    if (this.disposed) return;
     // 1. Remove visuals for entities that server no longer sends
     const toRemove: string[] = [];
     for (const entityId of this.weapons.keys()) {
@@ -490,18 +492,28 @@ export class DroppedWeaponRenderer {
     }
   }
 
-  private _cachedCameraModule: any = null;
-  private _cachedInventoryModule: any = null;
+  private _cachedCameraModule: typeof import("../../../engine/camera/CameraSystem") | null = null;
+  private _cachedInventoryModule: typeof import("../world/InventoryManager") | null = null;
+  private _pickupModulesLoading = false;
 
   private async _checkPickupProximityAsync(): Promise<void> {
-    if (!this._cachedCameraModule) {
+    if (this.disposed || this._pickupModulesLoading) return;
+    if (!this._cachedCameraModule || !this._cachedInventoryModule) {
+      this._pickupModulesLoading = true;
       try {
-        this._cachedCameraModule = await import("../../../engine/camera/CameraSystem");
-        this._cachedInventoryModule = await import("../world/InventoryManager");
+        // Publish both modules together. A snapshot arriving between sequential
+        // imports must not mistake the camera cache for complete initialization.
+        [this._cachedCameraModule, this._cachedInventoryModule] = await Promise.all([
+          import("../../../engine/camera/CameraSystem"),
+          import("../world/InventoryManager"),
+        ]);
       } catch {
         return;
+      } finally {
+        this._pickupModulesLoading = false;
       }
     }
+    if (this.disposed) return;
 
     const { CameraSystem } = this._cachedCameraModule;
     const { InventoryManager } = this._cachedInventoryModule;
@@ -603,6 +615,7 @@ export class DroppedWeaponRenderer {
 
   /** Dispose all weapons. */
   dispose(): void {
+    this.disposed = true;
     DroppedWeaponRenderer.nearbyDroppedWeapon = null;
     hidePickupPrompt("dropped");
     for (const visual of this.weapons.values()) {
