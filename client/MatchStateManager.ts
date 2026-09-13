@@ -33,6 +33,7 @@ export class MatchStateManager {
   private _readyCount: number = 0;
   private _totalPlayers: number = 0;
   private _gametypeName: string = "";
+  private _teamBased: boolean = false;
   private _scoreLimit: number = 0;
   private _teamScores: Record<string, number> = {};
   private _playerTeams: Record<string, string> = {};
@@ -74,6 +75,7 @@ export class MatchStateManager {
     this._readyCount = event.readyCount ?? 0;
     this._totalPlayers = event.totalPlayers ?? 0;
     this._gametypeName = event.gametypeName ?? "";
+    this._teamBased = event.teamBased ?? false;
     this._scoreLimit = event.scoreLimit ?? 0;
     this._teamScores = event.teamScores ?? {};
     this._playerTeams = event.playerTeams ?? {};
@@ -121,6 +123,11 @@ export class MatchStateManager {
   }
   get gametypeName(): string {
     return this._gametypeName;
+  }
+
+  /** Whether this gametype divides players into teams (server-authoritative). */
+  get teamBased(): boolean {
+    return this._teamBased;
   }
   /** Whether joining this mode must first collect a round loadout. */
   get requiresLoadoutSelection(): boolean {
@@ -317,6 +324,7 @@ export class MatchStateManager {
     this._readyCount = 0;
     this._totalPlayers = 0;
     this._gametypeName = "";
+    this._teamBased = false;
     this._scoreLimit = 0;
     this._isReady = false;
   }

@@ -209,7 +209,10 @@ export class FPSScoreboard {
     // Winner stat panel (post-game): frags / deaths / K-D next to the model.
     this.renderWinnerStats(entries);
 
-    const hasTeams = Object.keys(state.teamScores).length > 0;
+    // Team-ness comes from the gametype, not from the presence of team scores:
+    // those ship with both sides populated in every gametype, so a free-for-all
+    // read as a team game and every player landed in the spectator list.
+    const hasTeams = state.teamBased;
 
     // Clear existing layout
     this.board.innerHTML = "";

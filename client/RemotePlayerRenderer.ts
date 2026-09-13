@@ -21,6 +21,7 @@ import type { Scene } from "@babylonjs/core/scene";
 import { type PlayerModelInstance, PlayerModelManager } from "../../../engine/animation/PlayerModelManager";
 import { Cvar } from "../../../engine/core/Cvar";
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
+import { BspManager } from "../../../engine/loader/bsp/BspManager";
 import {
   type EntitySnapshot,
   type InterpolatedEntity,
@@ -62,6 +63,8 @@ interface RemotePlayerHitbox {
   smoothedYaw: number;
   /** Current hitbox height (56 standing, 36 crouching) */
   currentHeight: number;
+  /** Height the wireframe geometry was actually built at; crouch scales from it. */
+  builtHeight: number;
   /** 3D model instance (null until model loads) */
   model: PlayerModelInstance | null;
   /** Root node of weapon model attached to hand bone */
@@ -495,6 +498,9 @@ export class RemotePlayerRenderer {
    * Called every frame from the render loop.
    */
   render(): void {
+    // One camera read for the whole frame, for distance LOD below.
+    const cameraPos = this.scene?.activeCamera?.globalPosition ?? null;
+
     // Get all entities from latest snapshot for lifecycle management
     const aliveIds = this.demoTimeline
       ? this.demoTimeline.getEntityIds(this.demoPlayheadTick)
@@ -542,16 +548,23 @@ export class RemotePlayerRenderer {
         }
       }
 
-      // Ensure hitbox is visible (may have been hidden during death)
+      // Restore hitbox visibility (it is hidden during death).
+      //
+      // Absent cvar means OFF, matching the registered default. It used to mean
+      // ON, so any frame where the lookup came back empty — before registration
+      // has run, or after a registry reset — flashed a debug wireframe around
+      // every player.
       const showHitbox = Cvar.get("cl_remotehitbox");
-      hitbox.mesh.setEnabled(showHitbox !== undefined ? Number(showHitbox) > 0 : true);
+      hitbox.mesh.setEnabled(Number(showHitbox ?? 0) > 0);
 
-      // Check if height changed (crouch/uncrouch) — rebuild hitbox mesh if so
+      // Crouch/uncrouch scales the wireframe rather than rebuilding it. The box
+      // is centred on its origin and the only thing height changes is its half
+      // extent, so a Y scale is exactly the same geometry — and this fires on
+      // every crouch transition of every player, which was twelve edges of mesh
+      // allocated and discarded each time.
       const targetHeight = interp.crouching ? CROUCH_HEIGHT : PLAYER_HEIGHT;
       if (hitbox.currentHeight !== targetHeight) {
-        hitbox.mesh.dispose();
-        const newMesh = this.createHitboxMesh(entityId, targetHeight);
-        hitbox.mesh = newMesh;
+        hitbox.mesh.scaling.y = targetHeight / hitbox.builtHeight;
         hitbox.currentHeight = targetHeight;
       }
 
@@ -574,6 +587,14 @@ export class RemotePlayerRenderer {
 
       // Powerup carrier glow (pulses, so it must run every frame, not on change)
       this.updatePowerupGlow(hitbox, entityId, interp.powerupMask ?? 0, performance.now() / 1000);
+
+      // PVS: a player in a room the camera cannot see is not drawn. Players
+      // move, so they carry no compiled cluster and the static culler never
+      // considered them — every body in the map was submitted every frame.
+      //
+      // Applied last, and only ever to HIDE: the branches above own the reasons
+      // a model should be invisible, and this must not resurrect one of them.
+      this.applyEntityLod(hitbox, cameraPos);
     }
 
     // Remove hitboxes for entities no longer alive
@@ -1060,6 +1081,7 @@ export class RemotePlayerRenderer {
       smoothedPos,
       smoothedYaw: initialState.yaw,
       currentHeight: height,
+      builtHeight: height,
       model,
       weaponRoot: null,
       weaponMuzzle: null,
@@ -1077,6 +1099,56 @@ export class RemotePlayerRenderer {
    * key) rather than "unset" field by field — the base style is the single
    * definition of a normal player, so restoring through it can't drift.
    */
+
+  /**
+   * Decide what this player still costs us: drawing, animating, both or
+   * neither.
+   *
+   * Two independent reasons to stop work, applied to two different budgets:
+   *
+   * - **PVS** answers "can the camera see this room at all". Players move, so
+   *   they carry no compiled cluster and the static culler never considered
+   *   them — every body in the map was being submitted every frame.
+   * - **Distance** answers "is limb motion resolvable". Beyond the far
+   *   threshold a stride is sub-pixel, so the skeleton is updating to produce
+   *   an image nobody can distinguish from a still one.
+   *
+   * Hiding a mesh saves the draw call and nothing else — AnimationGroups run at
+   * the scene level and keep evaluating bones for an invisible model — so the
+   * animation is paused separately, and that is the larger saving on a map full
+   * of bots.
+   *
+   * Applied last and only ever to REMOVE work: the branches above own the
+   * reasons a model should be invisible, and this must not resurrect one.
+   */
+  private applyEntityLod(hitbox: RemotePlayerHitbox, cameraPosition: Vector3 | null): void {
+    const at = hitbox.mesh.position;
+    const culler = BspManager.getInstance().getPvsCuller();
+
+    // Three points up the body: a player in a doorway or on a stair has their
+    // origin in one cluster and their shoulders in another, and culling on the
+    // origin alone makes them blink.
+    const visible =
+      !culler ||
+      culler.isPositionVisible(at) ||
+      culler.isPositionVisible(new Vector3(at.x, at.y + PLAYER_MINS_Z + 2, at.z)) ||
+      culler.isPositionVisible(new Vector3(at.x, at.y + PLAYER_MAXS_Z - 2, at.z));
+
+    if (!visible) {
+      hitbox.mesh.setEnabled(false);
+      if (hitbox.model) hitbox.model.anchor.setEnabled(false);
+      if (hitbox.weaponRoot) hitbox.weaponRoot.setEnabled(false);
+    }
+
+    if (!hitbox.model || !this.modelManager) return;
+
+    const far =
+      cameraPosition !== null &&
+      Vector3.DistanceSquared(cameraPosition, at) > RemotePlayerRenderer.ANIMATION_LOD_DISTANCE_SQ;
+
+    this.modelManager.setAnimationActive(hitbox.model, visible && !far);
+  }
+
   private updatePowerupGlow(hitbox: RemotePlayerHitbox, entityId: string, mask: number, elapsed: number): void {
     if (!hitbox.model || !this.modelManager) return;
     const active = maskHasPowerup(mask, "quad");
@@ -1147,6 +1219,13 @@ export class RemotePlayerRenderer {
 
   /** Frame-to-frame displacement (squared) treated as a teleport for VFX. */
   private static readonly TELEPORT_FX_DIST_SQ = 256 * 256;
+
+  /**
+   * Past this range a player's limb motion is sub-pixel, so their skeleton is
+   * paused. Generous on purpose: the saving is real but an animation that stops
+   * somewhere a player can still read it is far more noticeable than the cost.
+   */
+  private static readonly ANIMATION_LOD_DISTANCE_SQ = 2500 * 2500;
 
   /** Washoi teleport VFX: generic pooled team-color ghost + speed-line burst at both ends. */
   private playTeleportEffect(hitbox: RemotePlayerHitbox, entityId: string, interp: InterpolatedEntity): void {

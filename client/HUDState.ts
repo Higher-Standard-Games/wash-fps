@@ -105,6 +105,14 @@ export class HUDState {
    */
   spectating: string = "";
   gametypeName: string = "";
+  /**
+   * Whether the gametype divides players into teams, straight from the server.
+   *
+   * Not inferred from `teamScores`: that ships with both sides present in every
+   * gametype, so guessing from it renders a team board in a free-for-all and
+   * files every player as a spectator.
+   */
+  teamBased: boolean = false;
   teamScores: Record<string, number> = {};
   teamNames: Record<string, string> = {};
 
@@ -186,6 +194,7 @@ export class HUDState {
     // Extract match snapshot data
     const matchState = MatchStateManager.getInstance();
     this.gametypeName = matchState.gametypeName || "";
+    this.teamBased = matchState.teamBased;
     this.teamScores = matchState.teamScores || {};
     this.teamNames = matchState.teamNames || {};
 

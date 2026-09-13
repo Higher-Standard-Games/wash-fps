@@ -22,7 +22,22 @@ const bobotJumps = ["sounds/players/bobot/jump_1.ogg", "sounds/players/bobot/jum
 /** Vertical units between ladder rung sounds. */
 const LADDER_RUNG_SPACING = 44;
 
-export const FPS_MOVEMENT_SOUND_PATHS = [...normalFootsteps, ...metalFootsteps, ...bobotJumps] as const;
+/** Warsow's own trigger_push sound, shipped in data0_000_nonfree_21pure.pk3. */
+const jumppadLaunch = "sounds/world/jumppad.ogg";
+
+export const FPS_MOVEMENT_SOUND_PATHS = [...normalFootsteps, ...metalFootsteps, ...bobotJumps, jumppadLaunch] as const;
+
+/**
+ * A jumppad throwing someone into the air.
+ *
+ * The profile reports `jumppadLaunch` on every step the player overlaps the
+ * pad, because velocity replacement is idempotent and has to stay that way for
+ * replay. Firing a one-shot off that flag is the caller's job — so this expects
+ * to be called on the rising edge, not while the flag is held.
+ */
+export function playJumppadLaunch(position: { x: number; y: number; z: number }, local: boolean): void {
+  playAtPlayer(jumppadLaunch, position, local, 0.75);
+}
 
 interface MovementAudioState {
   x: number;

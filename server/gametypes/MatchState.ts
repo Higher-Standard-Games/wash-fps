@@ -814,6 +814,7 @@ export class MatchState {
       totalPlayers: this._totalPlayers,
       gametypeName: this.gametypeName,
       scoreLimit: this.config.scoreLimit,
+      teamBased: this.teamBased,
       teamScores: teamScoresRec,
       playerTeams: playerTeamsRec,
       teamNames: teamNamesRec,

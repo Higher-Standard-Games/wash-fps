@@ -382,7 +382,10 @@ export class SpectatorOverlay {
     this.buttonsContainer.innerHTML = "";
 
     const state = MatchStateManager.getInstance();
-    const hasTeams = Object.keys(state.teamScores).length > 0;
+    // Team-ness comes from the gametype, not from the presence of team scores:
+    // those ship with both sides populated in every gametype, so a free-for-all
+    // read as a team game and every player landed in the spectator list.
+    const hasTeams = state.teamBased;
 
     if (hasTeams) {
       // Team Udon btn (pink)

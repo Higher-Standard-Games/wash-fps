@@ -47,7 +47,7 @@ import { FPSBombAudio } from "./client/FPSBombAudio";
 import { playEmptyClipSound } from "./client/FPSCombatAudio";
 import { FPSHud } from "./client/FPSHud";
 import { playDrownGasp, playDrownTick } from "./client/FPSLiquidAudio";
-import { resetFPSMovementAudio } from "./client/FPSMovementAudio";
+import { playJumppadLaunch, resetFPSMovementAudio } from "./client/FPSMovementAudio";
 // Game event handling (extracted from this file)
 import { type GameEventContext, handleServerStateUpdate } from "./client/GameEvents";
 import { HUDState } from "./client/HUDState";
@@ -2599,11 +2599,25 @@ export class Game {
     const state = this.v2Client.getState();
     const movement = this.v2Client.getMovementState();
 
+    // Jumppad launch, on the rising edge. The profile holds the flag for as
+    // long as the player overlaps the pad — velocity replacement is idempotent
+    // so replays stay correct — which would otherwise retrigger the sound every
+    // step of the launch. Played from prediction, like the splash above, so it
+    // lands on the frame the player feels the kick rather than a round trip
+    // later.
+    if (movement.jumppadLaunch && !this._wasJumppadLaunching) {
+      playJumppadLaunch(state.position, true);
+    }
+    this._wasJumppadLaunching = movement.jumppadLaunch;
+
     this.liquidInteractions?.notify("local", movement.waterLevel, "water", state.position, state.velocity.y, true);
 
     const dt = Math.min(0.1, (EngineStore.LastCreatedEngine?.getDeltaTime() ?? 16) / 1000);
     this.airTracker?.update(movement.waterLevel, dt);
   }
+
+  /** Edge-detect state for the jumppad one-shot; see emitLocalLiquidCrossing. */
+  private _wasJumppadLaunching = false;
 
   /** How submerged the camera is, 0-1. Read by the viewmodel to float the gun. */
   public get cameraSubmersion(): number {

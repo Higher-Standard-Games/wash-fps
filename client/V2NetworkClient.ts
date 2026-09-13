@@ -47,6 +47,11 @@ export interface PredictedMovementState {
   waterLevel: 0 | 1 | 2 | 3;
   /** Attached to a ladder, predicted locally for the same reason. */
   onLadder: boolean;
+  /**
+   * A jumppad replaced velocity this step. Held for as long as the player
+   * overlaps the pad — consumers must edge-detect (see playJumppadLaunch).
+   */
+  jumppadLaunch: boolean;
 }
 
 export interface ServerSnapshot {
@@ -103,6 +108,7 @@ export class V2NetworkClient {
     ledgeGrabPhase: 0,
     waterLevel: 0,
     onLadder: false,
+    jumppadLaunch: false,
   };
 
   // Server sync
@@ -588,6 +594,7 @@ export class V2NetworkClient {
       ledgeGrabPhase: 0,
       waterLevel: 0,
       onLadder: false,
+      jumppadLaunch: false,
     };
 
     console.log("[V2Client] resetForRespawn: cleared all death-period state");
@@ -810,5 +817,6 @@ export class V2NetworkClient {
     this.predictedMovement.ledgeGrabPhase = result.ledgeGrabPhase;
     this.predictedMovement.waterLevel = result.waterLevel ?? 0;
     this.predictedMovement.onLadder = result.onLadder ?? false;
+    this.predictedMovement.jumppadLaunch = result.jumppadLaunch ?? false;
   }
 }
