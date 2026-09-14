@@ -46,6 +46,11 @@ function queueCmds(sim: Simulation, id: EntityId, ...cmds: QueuedInput[]) {
   if (inp) inp.inputQueue.push(...cmds);
 }
 
+// The movement profile's effect clock — the one walljump/slide/ladder/water-jump
+// deadlines are set and compared against.
+const effectClockMs = (movement: FPSMovementSubsystem, id: number) =>
+  (movement as unknown as { movementProfiles: Map<number, { simNowMs: number }> }).movementProfiles.get(id)!.simNowMs;
+
 // Always read the CURRENT tick's entity (sim swaps state each tick).
 const cur = (sim: Simulation, id: EntityId) => sim.getStateMut().getEntity(id)!;
 const vy = (sim: Simulation, id: EntityId) => cur(sim, id).physics!.velocity.y;
@@ -196,5 +201,68 @@ describe("Server-authoritative fixed-rate physics", () => {
     // WO-AC2: the tripwire also bumps a per-entity counter for anti-cheat telemetry.
     expect(movement.getTripwireHits(id as unknown as number)).toBeGreaterThan(0);
     warn.mockRestore();
+  });
+});
+
+/**
+ * N04: gravity and the movement effect clock have to describe the same time.
+ *
+ * Physics advances exactly one dt per server tick. A command sequence does not:
+ * the server repeats the last command when a client starves it and drops old
+ * commands when one floods it. Deriving effect time from the sequence therefore
+ * froze or jumped the walljump window, slide, ladder detach cooldown and water
+ * jump relative to the gravity acting on the same body.
+ */
+describe("Server effect clock tracks simulated time, not command identity", () => {
+  const DT_MS = 8;
+
+  function airborneWithMovement(): { sim: Simulation; movement: FPSMovementSubsystem; id: EntityId } {
+    const sim = new Simulation({ tickMs: DT_MS });
+    const movement = new FPSMovementSubsystem(); // no collision world → free fall
+    sim.addSubsystem(movement);
+    sim.initialize();
+    return { sim, movement, id: spawnAirborne(sim, 1) };
+  }
+
+  it("keeps advancing while a starved client's last command is repeated", () => {
+    const { sim, movement, id } = airborneWithMovement();
+    queueCmds(sim, id, cmd(1));
+
+    const TICKS = 20;
+    const yBefore = cur(sim, id).transform!.position.y;
+    sim.tick();
+    const clockAfterFirst = effectClockMs(movement, 1);
+    for (let i = 1; i < TICKS; i++) sim.tick(); // 19 starved ticks, seq stays 1
+
+    // Physics advanced for all 20 ticks...
+    expect(cur(sim, id).transform!.position.y).toBeLessThan(yBefore);
+    // ...so the effect clock must have advanced for all 20 too. It used to stop
+    // at the repeated command's sequence while the body kept falling.
+    expect(effectClockMs(movement, 1) - clockAfterFirst).toBe((TICKS - 1) * DT_MS);
+    expect(cur(sim, id).input!.sequence).toBe(1); // the ACK is deliberately unchanged
+  });
+
+  it("does not jump ahead when the client's sequence skips", () => {
+    const { sim, movement, id } = airborneWithMovement();
+    queueCmds(sim, id, cmd(1));
+    sim.tick();
+    const before = effectClockMs(movement, 1);
+
+    // A long gap in sequence numbers is one more simulated step, nothing more.
+    queueCmds(sim, id, cmd(500));
+    sim.tick();
+    expect(effectClockMs(movement, 1) - before).toBe(DT_MS);
+    expect(cur(sim, id).input!.sequence).toBe(500);
+  });
+
+  it("advances exactly one dt per tick across a burst the queue has to compact", () => {
+    const { sim, movement, id } = airborneWithMovement();
+    queueCmds(sim, id, ...Array.from({ length: 12 }, (_, i) => cmd(i + 1)));
+
+    sim.tick();
+    const before = effectClockMs(movement, 1);
+    const TICKS = 6;
+    for (let i = 0; i < TICKS; i++) sim.tick();
+    expect(effectClockMs(movement, 1) - before).toBe(TICKS * DT_MS);
   });
 });

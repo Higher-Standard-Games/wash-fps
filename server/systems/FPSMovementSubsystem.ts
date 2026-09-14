@@ -38,14 +38,17 @@ const CONFIG: SubsystemConfig = {
  * Uses the stored buttons bitmask directly so ALL button flags
  * (including SPRINT) are correctly passed through to simulate().
  */
-function adaptInput(input: {
-  forward: number; // World-space Z component (= direction.z from client)
-  right: number; // World-space X component (= direction.x from client)
-  pitch: number;
-  yaw: number;
-  buttons: number; // Raw button bitmask from client
-  sequence?: number; // Client command seq — drives the profile's sim clock
-}): MovementInput {
+function adaptInput(
+  input: {
+    forward: number; // World-space Z component (= direction.z from client)
+    right: number; // World-space X component (= direction.x from client)
+    pitch: number;
+    yaw: number;
+    buttons: number; // Raw button bitmask from client
+    sequence?: number; // Client command seq — command identity, not sim time
+  },
+  simStep: number,
+): MovementInput {
   // Server receives world-space direction from client:
   // input.forward = command.direction.z
   // input.right = command.direction.x
@@ -60,11 +63,13 @@ function adaptInput(input: {
     direction: { x: wishX, y: 0, z: wishZ },
     viewAngles: { pitch: input.pitch, yaw: input.yaw },
     buttons,
-    // Same seq-derived sim clock as client prediction: 1 seq = one fixed-dt
-    // step (the fixed-rate tick model consumes exactly one command per tick),
-    // so slide/walljump/ledge timelines agree between client, server, and
-    // deterministic re-sim.
     sequence: input.sequence,
+    // The effect clock counts server ticks, not command sequences. Physics
+    // advances exactly one dt per tick whether or not a command arrived, so a
+    // starved player's walljump window, slide, ladder cooldown and water jump
+    // have to expire on the same schedule as the gravity pulling them down
+    // (N04). A repeated command reuses its sequence; it never reuses a step.
+    simStep: simStep,
     isPressed: (button: number) => (buttons & button) !== 0,
   };
 }
@@ -769,7 +774,13 @@ export class FPSMovementSubsystem extends Subsystem {
       const px = transform.position.x;
       const py = transform.position.y;
       const pz = transform.position.z;
-      const result = profile.simulate(transform.position, physics.velocity, adaptInput(input), dt, this.collisionWorld);
+      const result = profile.simulate(
+        transform.position,
+        physics.velocity,
+        adaptInput(input, tickNum),
+        dt,
+        this.collisionWorld,
+      );
       applyResult(transform, physics, result, input);
 
       if (result.teleported) {

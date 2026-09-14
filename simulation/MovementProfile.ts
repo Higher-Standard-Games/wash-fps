@@ -213,12 +213,16 @@ export class MovementProfile implements IMovementProfile {
   private ladder: LadderMovementProfile = { ...DEFAULT_LADDER_MOVEMENT };
 
   /**
-   * Sim clock (ms). Derived from the input's sequence number when available
-   * (`sequence * dtMs`) — sequences are monotonic and each maps to exactly one
-   * fixed-dt step on both client and server, so reconciliation replays that
-   * re-simulate old inputs recompute the SAME timestamps instead of advancing
-   * time again. Falls back to dt accumulation for inputs without a sequence
-   * (offline/bot paths that never replay).
+   * Sim clock (ms). Derived from the caller's simulation step index
+   * (`simStep * dtMs`), which advances once per simulated step and is stable
+   * for a given command wherever replay happens — so reconciliation replays
+   * recompute the SAME timestamps instead of advancing time again. Falls back
+   * to the command sequence, then to dt accumulation, for callers that do not
+   * supply one (offline/bot paths that never replay).
+   *
+   * Only rates are shared between client and server, never absolute values:
+   * the client counts commands and the server counts ticks. Every deadline is
+   * set and compared against this same clock, so the bases may differ.
    */
   private simNowMs: number = 0;
 
@@ -443,8 +447,12 @@ export class MovementProfile implements IMovementProfile {
     const newVel = vec3Clone(velocity);
     const dtMs = deltaTime * 1000;
 
-    // Advance the sim clock (sequence-derived when available — see field doc)
-    if (input?.sequence !== undefined && input.sequence > 0) {
+    // Advance the sim clock from the caller's step index — see MovementInput.
+    // Falling back to the sequence is only correct for a caller that simulates
+    // one step per command; the server does not (N04).
+    if (input?.simStep !== undefined && input.simStep >= 0) {
+      this.simNowMs = input.simStep * dtMs;
+    } else if (input?.sequence !== undefined && input.sequence > 0) {
       this.simNowMs = input.sequence * dtMs;
     } else {
       this.simNowMs += dtMs;
