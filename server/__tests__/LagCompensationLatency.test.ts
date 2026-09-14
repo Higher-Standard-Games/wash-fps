@@ -12,6 +12,7 @@
  * reports the very quantity the interpolation assumption has to match.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { SnapshotReceiver } from "../../../../engine/network/client/SnapshotReceiver";
 import { MessageType } from "../../../../engine/network/protocol/BinaryProtocol";
 import { MessageCodec } from "../../../../engine/network/protocol/MessageCodec";
 import { GameServer, type GameServerConfig } from "../GameServer";
@@ -109,11 +110,14 @@ class LaggedPlayer {
    * a round trip against, so a harness that skipped it would measure nothing.
    */
   private watchSnapshots(): void {
+    const snapshotReceiver = new SnapshotReceiver();
     void this.client
       .waitFor((f) => {
         if (this.stop || f.length === 0 || f[0] !== MessageType.Snapshot) return false;
         try {
-          const tick = MessageCodec.decodeSnapshot(f).tick;
+          const snapshot = snapshotReceiver.receive(f);
+          if (!snapshot) return false;
+          const tick = snapshot.tick;
           if (tick > this.lastSnapshotTick) this.lastSnapshotTick = tick;
           this.client.send(MessageCodec.encodeAck(tick));
         } catch {

@@ -2,9 +2,9 @@
  * SnapshotBroadcaster — Builds, encodes, and sends per-client snapshots.
  *
  * Owns:
- * - Snapshot history (ring buffer for delta compression baselines)
+ * - Bounded per-client snapshot history for acknowledged delta baselines
  * - Per-client PVS filtering
- * - Delta baseline selection (global history vs per-client PVS baseline)
+ * - Baseline selection and periodic full recovery snapshots
  * - Encoding and sending snapshot datagrams
  */
 
@@ -18,8 +18,8 @@ import { toClientKey } from "../ClientEntityKey";
 import type { ClientInfo } from "./Client";
 
 export class SnapshotBroadcaster {
-  private snapshotHistory: Map<number, GameState> = new Map();
   private readonly SNAPSHOT_HISTORY_SIZE = 64;
+  private readonly FULL_SNAPSHOT_INTERVAL = 64;
 
   private simulation: Simulation;
   private pvs: ServerPVS | null = null;
@@ -46,17 +46,7 @@ export class SnapshotBroadcaster {
   ): void {
     if (clients.size === 0) return;
 
-    // Store in snapshot history for delta compression
     const tick = gameState.tick;
-    this.snapshotHistory.set(tick, gameState);
-
-    // Prune old snapshots beyond history window
-    if (this.snapshotHistory.size > this.SNAPSHOT_HISTORY_SIZE) {
-      for (const key of this.snapshotHistory.keys()) {
-        if (this.snapshotHistory.size <= this.SNAPSHOT_HISTORY_SIZE) break;
-        this.snapshotHistory.delete(key);
-      }
-    }
 
     let totalEncodeMs = 0;
     let totalCulled = 0;
@@ -95,15 +85,13 @@ export class SnapshotBroadcaster {
           ];
         }
 
-        // Delta baseline: when PVS is active, use the per-client baseline
-        // (the actual filtered state the client received), not the global
-        // history which contains entities the client may never have seen.
-        let baseline: GameState | undefined;
-        if (pvsActive) {
-          baseline = client.lastSentState;
-        } else {
-          baseline = client.lastAckedTick > 0 ? this.snapshotHistory.get(client.lastAckedTick) : undefined;
-        }
+        // ACKs arrive later than snapshots. Name the exact acknowledged state
+        // on the wire; never assume the last sent state was received (N01/N02).
+        // Per-client history also preserves the exact prior PVS visibility set.
+        client.sentSnapshots ??= new Map();
+        const history = client.sentSnapshots;
+        const forceFull = (client.snapshotsSinceFull ?? 0) >= this.FULL_SNAPSHOT_INTERVAL - 1;
+        const baseline = forceFull ? undefined : history.get(client.lastAckedTick);
 
         const t0 = performance.now();
         const snapshotBytes = MessageCodec.encodeSnapshot(clientState, baseline);
@@ -111,10 +99,20 @@ export class SnapshotBroadcaster {
 
         if (pvsActive) {
           totalCulled += gameState.entities.size - clientState.entities.size;
-          client.lastSentState = clientState;
         }
 
         client.connection.sendDatagram(snapshotBytes);
+        // Do not advance history after a synchronous send failure. Asynchronous
+        // loss is safe too: a lost packet cannot become an ACKed dependency.
+        // Events and match/pickup payloads are always full and aren't baseline
+        // inputs. Avoid retaining those potentially large per-frame arrays.
+        const retained = new GameState();
+        retained.tick = tick;
+        retained.entities = clientState.entities;
+        retained.players = clientState.players;
+        history.set(tick, retained);
+        while (history.size > this.SNAPSHOT_HISTORY_SIZE) history.delete(history.keys().next().value!);
+        client.snapshotsSinceFull = baseline ? (client.snapshotsSinceFull ?? 0) + 1 : 0;
       } catch (err) {
         // Usually a disconnected client — but a persistent encode/send fault
         // here must be visible, not silent (QA-16). Rate-limited: hot path.

@@ -55,8 +55,10 @@ export interface ClientInfo {
   lastChatMs?: number;
   /** Accepted chat timestamps inside the burst window (sliding). */
   chatStamps?: number[];
-  /** The actual filtered GameState last sent to this client (PVS baseline) */
-  lastSentState?: GameState;
+  /** Actual per-client snapshots, indexed by tick; only ACKed entries are baselines. */
+  sentSnapshots?: Map<number, GameState>;
+  /** Successful sends since the last full snapshot (bounded recovery interval). */
+  snapshotsSinceFull?: number;
   /** true = spectating (no entity in simulation), false = playing */
   isSpectator: boolean;
   /** true = AI bot client (from the bot server), false = human. Used to gate
