@@ -415,10 +415,20 @@ export class RagdollSystem {
       }
       model.anims = [];
 
-      // Also stop ALL scene animation groups that target this skeleton
+      // Stop the groups that drive THIS body — a one-shot overlay outlives the
+      // master group and would fight physics for the bones.
+      //
+      // This used to stop every group in the scene, so any death froze every
+      // other player where they stood. Entity LOD has been hiding it since it
+      // landed: it restarts a stopped group the next frame it judges the body
+      // visible, which repaired the damage before anyone saw it.
       if (this.scene) {
         for (const ag of this.scene.animationGroups) {
-          ag.stop();
+          const drivesThisBody = ag.targetedAnimations.some(({ target }) => {
+            const node = target as { isDescendantOf?: (ancestor: object) => boolean } | null;
+            return target === model.mesh || node?.isDescendantOf?.(model.mesh) === true;
+          });
+          if (drivesThisBody) ag.stop();
         }
       }
 

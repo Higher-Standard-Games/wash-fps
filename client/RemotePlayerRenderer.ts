@@ -712,6 +712,10 @@ export class RemotePlayerRenderer {
     if (!model) return null;
     model.anchor.position.set(x, y + PLAYER_MINS_Z + MODEL_Y_OFFSET, z);
     model.anchor.rotation.y = yaw;
+    // This body is physicalised in the same tick it is built, before any frame
+    // has evaluated its idle clip. Without settling the pose first the ragdoll
+    // builds its bone bodies from the bind pose and the corpse stays a T-pose.
+    this.modelManager?.settlePose(model);
     return model;
   }
 
