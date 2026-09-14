@@ -1,16 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { NetworkGameHost } from "../../../../engine/network/client/hosts/NetworkGameHost";
+import { SnapshotReceiver } from "../../../../engine/network/client/SnapshotReceiver";
+import type { Transport } from "../../../../engine/network/client/transport/Transport";
+import { Simulation as ClientSimulation } from "../../../../engine/network/core/Simulation";
+import { MessageCodec, MissingSnapshotBaselineError } from "../../../../engine/network/protocol/MessageCodec";
 import type { Simulation } from "../../../../engine/server/core/Simulation";
 import type { ServerPVS } from "../../../../engine/server/ServerPVS";
+import { BinaryProtocol } from "../../../../shared/net/BinaryProtocol";
 import { Entity } from "../../../../shared/net/Entity";
 import { GameState } from "../../../../shared/net/GameState";
-import { MessageCodec, MissingSnapshotBaselineError } from "../../../../engine/network/protocol/MessageCodec";
-import { BinaryProtocol } from "../../../../shared/net/BinaryProtocol";
-import { SnapshotReceiver } from "../../../../engine/network/client/SnapshotReceiver";
 import type { ClientInfo } from "../Client";
 import { SnapshotBroadcaster } from "../SnapshotBroadcaster";
-import { NetworkGameHost } from "../../../../engine/network/client/hosts/NetworkGameHost";
-import { Simulation as ClientSimulation } from "../../../../engine/network/core/Simulation";
-import type { Transport } from "../../../../engine/network/client/transport/Transport";
 
 afterEach(() => vi.restoreAllMocks());
 
