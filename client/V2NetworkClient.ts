@@ -161,6 +161,8 @@ export class V2NetworkClient {
   private maxSuppressedDivergence: number = 0;
   /** Why the last run of suppression ended — for capture, not for logic. */
   private lastSuppressionRelease: string | null = null;
+  /** Times the replay budget was exceeded and prediction restarted from authority. */
+  private resyncCount: number = 0;
 
   // Knockback air drag tracking (matches server FPSMovementSubsystem)
   // Tracks how many ticks since last KB to apply drag at the right time
@@ -512,18 +514,36 @@ export class V2NetworkClient {
     this.movement.resetPhysicsState(snapshot.grounded);
 
     // === STEP 2: Replay unacked inputs (re-predict from server state) ===
-    // DEATH SPIRAL PREVENTION: If too many unacked inputs accumulated,
-    // replaying all of them tanks FPS, causing MORE inputs to accumulate.
-    // Cap at 32 replays — if further behind, just accept server position.
+    // DEATH SPIRAL PREVENTION: replaying an unbounded backlog tanks FPS, which
+    // accumulates more backlog. The cap is deliberate; what it used to do when
+    // it fired was not.
+    //
+    // It replayed the newest 32 and dropped the rest. Those 32 commands assume
+    // the dropped ones already happened, but the replay starts from the server
+    // state that precedes ALL of them — so the client resumed from a position
+    // its own history never passed through, and its sequence-derived clocks ran
+    // ahead of the steps that actually moved it. At the boundary that showed up
+    // as free fall gaining 2.624 units of height with authority in perfect
+    // agreement (N08).
+    //
+    // A suffix cannot be made correct here: the intermediate state it needs was
+    // never kept. So this is an explicit RESYNCHRONISATION instead — adopt
+    // authority, discard the commands that can no longer be honoured, and
+    // predict forward from the next one. The player loses the input in that
+    // window, which is visible and truthful, rather than being left somewhere
+    // neither side simulated.
     const MAX_REPLAY = 32;
-    const inputsToReplay =
-      unacked.length > MAX_REPLAY
-        ? unacked.slice(-MAX_REPLAY) // Keep only the most recent inputs
-        : unacked;
+    let inputsToReplay = unacked;
 
     if (unacked.length > MAX_REPLAY) {
+      this.resyncCount++;
+      inputsToReplay = [];
+      // Drop the whole unacked range. Keeping it would replay the same
+      // un-honourable commands against every later snapshot.
+      this.inputHistory.pruneAcked(unacked[unacked.length - 1].seq);
       console.warn(
-        `[V2Client] Too many unacked inputs (${unacked.length}), replaying only last ${MAX_REPLAY} to prevent death spiral`,
+        `[V2Client] Resynchronising: ${unacked.length} unacked inputs exceeds the ${MAX_REPLAY} replay budget. ` +
+          `Adopting authority at tick ${snapshot.tick} (acked seq ${snapshot.ackedInputSeq}) and discarding them.`,
       );
     }
 
@@ -812,6 +832,7 @@ export class V2NetworkClient {
     suppressedForMs: number;
     maxSuppressedDivergence: number;
     lastSuppressionRelease: string | null;
+    resyncCount: number;
   } {
     return {
       reconcileCount: this.reconcileCount,
@@ -823,6 +844,7 @@ export class V2NetworkClient {
       suppressedForMs: this.suppressionStartedAtMs === null ? 0 : performance.now() - this.suppressionStartedAtMs,
       maxSuppressedDivergence: this.maxSuppressedDivergence,
       lastSuppressionRelease: this.lastSuppressionRelease,
+      resyncCount: this.resyncCount,
     };
   }
 

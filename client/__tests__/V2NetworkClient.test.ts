@@ -58,9 +58,15 @@ describe("V2NetworkClient input sanitization parity", () => {
  */
 describe("V2NetworkClient knockback replay", () => {
   const AT = { x: 0, y: 5000, z: 0 };
-  const authoritative = (tick: number) => ({
+  /**
+   * Leaves exactly this many commands unacked. The replay budget is 32, and
+   * past it the client resynchronises instead of replaying (N08) — which would
+   * make every assertion below hold trivially, by replaying nothing at all.
+   */
+  const UNACKED = 30;
+  const authoritative = (tick: number, steps: number) => ({
     tick,
-    ackedInputSeq: 0, // nothing acked: every predicted input stays in the replay
+    ackedInputSeq: Math.max(0, steps - UNACKED),
     position: { ...AT },
     velocity: { x: 0, y: 0, z: 0 },
     grounded: false,
@@ -68,7 +74,7 @@ describe("V2NetworkClient knockback replay", () => {
 
   function predictedAfterReplays(replays: number, steps: number): Vec3 {
     const client = new V2NetworkClient({ tickRate: 125 });
-    client.bufferSnapshot(authoritative(1)); // first snapshot seeds local state
+    client.bufferSnapshot(authoritative(1, 0)); // first snapshot seeds local state
     client.processBufferedSnapshots();
 
     client.applyKnockback(100, { x: 1, y: 0, z: 0 }, 10, true);
@@ -77,15 +83,17 @@ describe("V2NetworkClient knockback replay", () => {
     }
 
     for (let r = 0; r < replays; r++) {
-      client.bufferSnapshot(authoritative(2 + r));
+      client.bufferSnapshot(authoritative(2 + r, steps));
       client.processBufferedSnapshots();
     }
+    // Every assertion here is about the replay, so prove one happened.
+    expect(client.getDebugInfo().resyncCount).toBe(0);
     return { ...client.getPosition() };
   }
 
   it("reconciling twice over the same inputs lands in the same place", () => {
     // 30 steps is inside the free-fly window, so no drag is owed at all. The
-    // counter used to carry 30 → 60 → 90 across replays and cross the delay
+    // counter used to carry 30 -> 60 -> 90 across replays and cross the delay
     // threshold, applying drag the server never applied.
     expect(predictedAfterReplays(2, 30)).toEqual(predictedAfterReplays(1, 30));
     expect(predictedAfterReplays(3, 30)).toEqual(predictedAfterReplays(1, 30));
@@ -106,12 +114,12 @@ describe("V2NetworkClient knockback replay", () => {
     const withKb = predictedAfterReplays(1, 90);
     const noKb = (() => {
       const client = new V2NetworkClient({ tickRate: 125 });
-      client.bufferSnapshot(authoritative(1));
+      client.bufferSnapshot(authoritative(1, 0));
       client.processBufferedSnapshots();
       for (let i = 0; i < 90; i++) {
         client.processInput({ direction: { x: 0, y: 0, z: 0 }, pitch: 0, yaw: 0, buttons: 0, clientTick: i });
       }
-      client.bufferSnapshot(authoritative(2));
+      client.bufferSnapshot(authoritative(2, 90));
       client.processBufferedSnapshots();
       return { ...client.getPosition() };
     })();
@@ -248,5 +256,63 @@ describe("V2NetworkClient reconciliation suppression bounds", () => {
     expect(debug.maxSuppressedDivergence).toBe(35);
     // Measured from the first suppressed snapshot, not from the last reconcile.
     expect(debug.suppressedForMs).toBe(16);
+  });
+});
+
+/**
+ * N08: the replay budget is a deliberate CPU cap, but replaying the newest 32
+ * commands from a server state that precedes all of them resumed the client at
+ * a position its own history never passed through.
+ */
+describe("V2NetworkClient replay budget", () => {
+  const AUTHORITY = { x: 0, y: 5000, z: 0 };
+  const snap = (tick: number) => ({
+    tick,
+    ackedInputSeq: 0, // nothing acked, so every predicted input is unacked
+    position: { ...AUTHORITY },
+    velocity: { x: 0, y: 0, z: 0 },
+    grounded: false,
+  });
+
+  function afterUnacked(count: number) {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const client = new V2NetworkClient({ tickRate: 125 });
+    client.bufferSnapshot(snap(1));
+    client.processBufferedSnapshots();
+    for (let i = 0; i < count; i++) {
+      client.processInput({ direction: { x: 0, y: 0, z: 0 }, pitch: 0, yaw: 0, buttons: 0, clientTick: i });
+    }
+    const before = client.getPosition().y;
+    client.bufferSnapshot(snap(2));
+    client.processBufferedSnapshots();
+    return { before, after: client.getPosition().y, debug: client.getDebugInfo() };
+  }
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("replays the whole backlog while it fits in the budget", () => {
+    const run = afterUnacked(32);
+    // Authority agrees with the prediction, so nothing should move.
+    expect(run.after).toBe(run.before);
+    expect(run.debug.resyncCount).toBe(0);
+  });
+
+  it("resynchronises rather than replaying a suffix past the budget", () => {
+    const run = afterUnacked(33);
+    // One more command must not teleport the player upward, which is what
+    // replaying 32 of 33 from the pre-backlog state used to do.
+    expect(run.debug.resyncCount).toBe(1);
+    expect(run.after).toBe(AUTHORITY.y);
+  });
+
+  it("discards the commands it can no longer honour instead of retrying them", () => {
+    const run = afterUnacked(40);
+    expect(run.debug.pendingInputs).toBe(0);
+  });
+
+  it("holds the boundary steady either side of it", () => {
+    expect(afterUnacked(31).debug.resyncCount).toBe(0);
+    expect(afterUnacked(32).debug.resyncCount).toBe(0);
+    expect(afterUnacked(33).debug.resyncCount).toBe(1);
   });
 });
