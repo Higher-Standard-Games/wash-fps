@@ -266,3 +266,77 @@ describe("Server effect clock tracks simulated time, not command identity", () =
     expect(effectClockMs(movement, 1) - before).toBe(TICKS * DT_MS);
   });
 });
+
+/**
+ * N10: a frame hitch makes the client emit a burst of commands, and a one-shot
+ * request like a weapon switch rides only the first of them. Capping the input
+ * queue — which is what stops a flooding client banking physics — then threw
+ * that request away before anything could act on it.
+ */
+describe("Queue compaction drops physics, not intent", () => {
+  const slot = (sim: Simulation, id: EntityId) => cur(sim, id).input!.weaponSlot;
+
+  it("keeps a weapon switch that rode a command the cap discarded", () => {
+    const sim = makeSim();
+    const id = spawnAirborne(sim, 1);
+    const before = slot(sim, id);
+    // One hitch: twelve commands at once, the switch only on the first.
+    queueCmds(sim, id, cmd(1, { weaponSlot: 3 }), ...Array.from({ length: 11 }, (_, i) => cmd(i + 2)));
+
+    sim.tick();
+    expect(slot(sim, id)).toBe(3);
+    expect(slot(sim, id)).not.toBe(before);
+  });
+
+  it("still consumes exactly one command per tick, so nothing banks physics", () => {
+    const sim = makeSim();
+    const id = spawnAirborne(sim, 1);
+    queueCmds(sim, id, cmd(1, { weaponSlot: 3 }), ...Array.from({ length: 11 }, (_, i) => cmd(i + 2)));
+
+    const processed: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      sim.tick();
+      processed.push(cur(sim, id).input!.sequence);
+    }
+    // The six oldest are still dropped — only the request survived them.
+    expect(processed).toEqual([7, 8, 9, 10, 11, 12]);
+  });
+
+  it("lets a newer request win over one carried out of the dropped commands", () => {
+    const sim = makeSim();
+    const id = spawnAirborne(sim, 1);
+    queueCmds(
+      sim,
+      id,
+      cmd(1, { weaponSlot: 3 }),
+      ...Array.from({ length: 10 }, (_, i) => cmd(i + 2)),
+      cmd(12, { weaponSlot: 5 }),
+    );
+    // seq 7 survives the cap and carries the 3; seq 12 asks for 5 afterwards.
+    for (let i = 0; i < 6; i++) sim.tick();
+    expect(slot(sim, id)).toBe(5);
+  });
+
+  it("carries the last request when the burst contains several", () => {
+    const sim = makeSim();
+    const id = spawnAirborne(sim, 1);
+    queueCmds(
+      sim,
+      id,
+      cmd(1, { weaponSlot: 3 }),
+      cmd(2, { weaponSlot: 4 }),
+      ...Array.from({ length: 10 }, (_, i) => cmd(i + 3)),
+    );
+    sim.tick();
+    expect(slot(sim, id)).toBe(4);
+  });
+
+  it("invents no switch when the burst asked for none", () => {
+    const sim = makeSim();
+    const id = spawnAirborne(sim, 1);
+    const before = slot(sim, id);
+    queueCmds(sim, id, ...Array.from({ length: 12 }, (_, i) => cmd(i + 1)));
+    for (let i = 0; i < 6; i++) sim.tick();
+    expect(slot(sim, id)).toBe(before);
+  });
+});

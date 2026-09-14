@@ -733,7 +733,26 @@ export class FPSMovementSubsystem extends Subsystem {
       // Cap the buffer: a client sending faster than the tick rate can't hoard
       // commands to gain extra physics later — keep the newest, drop old excess.
       if (queue.length > FPSMovementSubsystem.MAX_INPUT_BUFFER) {
-        queue.splice(0, queue.length - FPSMovementSubsystem.MAX_INPUT_BUFFER);
+        const dropped = queue.splice(0, queue.length - FPSMovementSubsystem.MAX_INPUT_BUFFER);
+
+        // A dropped command forfeits its physics — that is the whole point, and
+        // it is what stops a flooding client banking time. It must not forfeit
+        // a one-shot INTENT that no later command repeats. A frame hitch makes
+        // the client emit a burst, and a weapon switch rides only the first of
+        // them, so capping the queue silently threw the switch away and the
+        // player kept firing the old gun (N10).
+        //
+        // Carrying the request forward costs no extra physics step: it rides
+        // the oldest surviving command rather than adding one. Only the newest
+        // request survives, and only when nothing newer already asks for a
+        // different weapon — the player's last word wins either way.
+        let requested = 0;
+        for (const cmd of dropped) {
+          if (cmd.weaponSlot > 0) requested = cmd.weaponSlot;
+        }
+        if (requested > 0 && queue.length > 0 && queue[0].weaponSlot === 0) {
+          queue[0] = { ...queue[0], weaponSlot: requested };
+        }
       }
 
       // Consume one command this tick (FIFO); fall back to the last one we used.
