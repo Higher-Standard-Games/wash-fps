@@ -971,6 +971,11 @@ export class Game {
       // was called while v2Client was null.
       this.v2Client = new V2NetworkClient({ tickRate });
 
+      // The renderer is created lazily on the first snapshot and then reused for
+      // the rest of the process, so a reconnect inherits the previous session's
+      // ticks, teams and death state unless the session boundary clears them.
+      this.remoteRenderer?.resetSession();
+
       // Tell NetworkGameHost to skip its prediction - V2NetworkClient handles it
       networkHost.setExternalPrediction(true);
 
