@@ -256,18 +256,22 @@ export function createFresnelShellMaterial(scene: Scene, name: string, color: RG
   mat.specularColor = Color3.Black();
   mat.emissiveColor = toColor3(color).scale(ENERGY_BOOST);
 
-  // Emissive: full strength at grazing angles (left), suppressed face-on (right).
+  // Emissive: hottest at grazing angles (left), cooler face-on (right). The
+  // face-on floor was 0.06, which is black in everything but name — the orb read
+  // as a dark hole ringed in colour. It carries the tier colour now, still well
+  // under the rim so the sphere keeps its depth.
   const emissiveFresnel = new FresnelParameters();
   emissiveFresnel.leftColor = Color3.White();
-  emissiveFresnel.rightColor = new Color3(0.06, 0.06, 0.06);
+  emissiveFresnel.rightColor = new Color3(0.55, 0.55, 0.55);
   emissiveFresnel.bias = 0.18;
   emissiveFresnel.power = 2.6;
   mat.emissiveFresnelParameters = emissiveFresnel;
 
-  // Opacity: solid rim, near-transparent center (luminance-driven).
+  // Opacity: solid rim, translucent center. Emissive is multiplied by alpha, so
+  // a 0.12 center cancelled most of whatever colour it was given.
   const opacityFresnel = new FresnelParameters();
   opacityFresnel.leftColor = Color3.White();
-  opacityFresnel.rightColor = new Color3(0.12, 0.12, 0.12);
+  opacityFresnel.rightColor = new Color3(0.42, 0.42, 0.42);
   opacityFresnel.bias = 0.15;
   opacityFresnel.power = 2.0;
   mat.opacityFresnelParameters = opacityFresnel;
@@ -275,6 +279,10 @@ export function createFresnelShellMaterial(scene: Scene, name: string, color: RG
   mat.alpha = 0.95;
   mat.transparencyMode = 2; // ALPHABLEND
   mat.backFaceCulling = true; // front hemisphere only — back faces would double the rim
+  // The shell surrounds the emblem, so writing depth lets the near hemisphere
+  // reject the cross behind it — which is what turned the inside of the orb
+  // black regardless of how the fresnels were tuned.
+  mat.disableDepthWrite = true;
   (mat as unknown as { _baseEmissive: Color3 })._baseEmissive = mat.emissiveColor.clone();
   (mat as unknown as { _baseAlpha: number })._baseAlpha = mat.alpha;
   return mat;

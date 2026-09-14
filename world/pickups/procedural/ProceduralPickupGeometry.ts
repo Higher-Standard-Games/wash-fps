@@ -105,12 +105,12 @@ export function buildCrossProto(scene: Scene, recipe: ProceduralPickupRecipe): M
 }
 
 /**
- * Matte black caps for the cross's horizontal (±Y) surfaces.
+ * Caps for the cross's horizontal (±Y) surfaces, in the tier colour.
  *
- * The emblem body is solid bright colour so it reads as a symbol rather than the
- * dark silhouette it used to be; blacking out only the up/down faces keeps the
- * arms legible edge-on and stops the cross flaring into a bright blob when it
- * spins past the camera. Thin plates laid just proud of each bar's top and
+ * The emblem body is the brighter accent colour and these faces sit a shade
+ * under it, which keeps the arms legible edge-on and stops the cross flaring
+ * into one bright blob when it spins past the camera. Thin plates laid just
+ * proud of each bar's top and
  * bottom face — the vertical bar deliberately passes through the horizontal
  * bars' caps, which reads as an inlay from above.
  */

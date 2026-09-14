@@ -5,6 +5,7 @@
  */
 
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine";
+import type { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Scene } from "@babylonjs/core/scene";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -87,6 +88,37 @@ describe("ProceduralPickupVisual", () => {
     expect(cloneMeshes()).toHaveLength(0);
   });
 
+  it("lets the emblem read through the health shell, in the tier colour", () => {
+    // The orb rendered as a black hole ringed in colour. Two causes, both here:
+    // the shell wrote depth, so its near hemisphere rejected the cross behind
+    // it; and the face-on fresnel floors were low enough that whatever survived
+    // carried no colour. Mega has the same shell, which is why it went black too.
+    for (const id of ["health_large", "health_mega"]) {
+      const recipe = getProceduralPickupRecipe(id);
+      if (!recipe) throw new Error(`recipe missing: ${id}`);
+      const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 50, 0), false, 1);
+
+      const shell = scene.meshes.find((m) => m.name.startsWith("pp_shell_"));
+      const material = shell?.material as StandardMaterial;
+      expect(material).toBeTruthy();
+      // Without this the cross is depth-rejected however the fresnels are tuned.
+      expect(material.disableDepthWrite).toBe(true);
+
+      // Face-on the shell must still carry its colour and enough alpha to show
+      // it — emissive is multiplied by opacity, so a dark floor on either one is
+      // enough to produce the hole.
+      expect(material.emissiveFresnelParameters!.rightColor.r).toBeGreaterThan(0.3);
+      expect(material.opacityFresnelParameters!.rightColor.r).toBeGreaterThan(0.3);
+      // The rim stays hotter than the centre, or the orb flattens into a ball.
+      expect(material.emissiveFresnelParameters!.leftColor.r).toBeGreaterThan(
+        material.emissiveFresnelParameters!.rightColor.r,
+      );
+      expect(material.emissiveColor.r).toBeGreaterThan(0.5); // red for mega, orange for large
+
+      visual.dispose();
+    }
+  });
+
   it("builds the v5 tier shapes: fresnel shell + capped cross for health, sculpted shell for armor", () => {
     const health = getProceduralPickupRecipe("health_large");
     const red = getProceduralPickupRecipe("armor_ra");
@@ -95,7 +127,7 @@ describe("ProceduralPickupVisual", () => {
     const hv = new ProceduralPickupVisual(scene, health, new Vector3(0, 50, 0), false, 1);
     expect(scene.meshes.some((m) => m.name.startsWith("pp_shell_"))).toBe(true);
     expect(scene.meshes.some((m) => m.name.startsWith("pp_cross_"))).toBe(true);
-    // The cross's up/down faces are a separate matte-black mesh.
+    // The cross's up/down faces are a separate mesh in the tier colour.
     expect(scene.meshes.some((m) => m.name.startsWith("pp_cross_caps_"))).toBe(true);
 
     const av = new ProceduralPickupVisual(scene, red, new Vector3(100, 50, 0), false, 2);
