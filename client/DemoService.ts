@@ -1125,7 +1125,7 @@ export class DemoService {
     }
     this._projectiles.active.clear();
     this._projectiles.defIds.clear();
-    this._projectiles.buffer.flush();
+    this._projectiles.buffer.reset();
   }
 
   /** Format a weapon's ammo value ({clip,reserve} or number) for the HUD. */

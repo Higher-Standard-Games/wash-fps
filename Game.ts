@@ -768,6 +768,7 @@ export class Game {
     if (this.isRunning) {
       this.shutdown();
     }
+    this.resetServerProjectiles();
 
     // Take the lobby handoff, but do NOT consume it here.
     //
@@ -2014,6 +2015,17 @@ export class Game {
     }
   }
 
+  /** Entity ids and interpolation ticks belong to one server session. */
+  private resetServerProjectiles(): void {
+    for (const entityId of this.activeServerProjectiles) {
+      getProjectileManager().despawnByEntityId(entityId);
+      this.forgetProjectileLiquid(entityId);
+    }
+    this.activeServerProjectiles.clear();
+    this.serverProjectileDefIds.clear();
+    this.projectileBuffer.reset();
+  }
+
   /**
    * Get V2Client's current predicted movement state.
    * Unlike onPlayerStateUpdate (which fires only on snapshot frames, BEFORE the tick loop),
@@ -2250,6 +2262,7 @@ export class Game {
       this.gameHost = null;
     }
     this.simulation = null;
+    this.resetServerProjectiles();
     this.isRunning = false;
     this.isNetworkMode = false;
     this.serverUrl = null;
