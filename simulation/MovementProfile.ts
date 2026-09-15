@@ -458,6 +458,7 @@ export class MovementProfile implements IMovementProfile {
       this.simNowMs += dtMs;
     }
     const nowMs = this.simNowMs;
+    this.wallJump.beginStep(nowMs);
 
     const justLanded = !this.wasGroundedLastFrame && this.isGrounded;
 

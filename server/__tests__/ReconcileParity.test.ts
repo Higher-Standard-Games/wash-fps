@@ -175,6 +175,7 @@ interface Sample {
  */
 function authority(world: CollisionWorld, steps: Step[], start: Start): Sample[] {
   const profile = new MovementProfile();
+  profile.resetPhysicsState(true); // Match the grounded initial snapshot given to V2.
   let position = { ...start.position };
   let velocity: Vec3 = { ...start.velocity };
   const history: Sample[] = [{ position: { ...position }, velocity: { ...velocity }, grounded: true }];
@@ -199,7 +200,9 @@ function predicted(
   truth: Sample[],
   start: Start,
   opts: { every: number; lag: number; jitter?: number },
-): { position: Vec3; reconciles: number } {
+): { position: Vec3; reconciles: number; peakPosition: number; peakVelocity: number } {
+  let peakPosition = 0,
+    peakVelocity = 0;
   const client = new V2NetworkClient({ tickRate: 125 });
   client.setCollisionWorld(world);
   client.bufferSnapshot({
@@ -233,8 +236,15 @@ function predicted(
       });
       client.processBufferedSnapshots();
     }
+    peakPosition = Math.max(peakPosition, gap(client.getPosition(), truth[seq].position));
+    peakVelocity = Math.max(peakVelocity, gap(client.getState().velocity, truth[seq].velocity));
   });
-  return { position: client.getPosition(), reconciles: client.getDebugInfo().reconcileCount };
+  return {
+    position: client.getPosition(),
+    reconciles: client.getDebugInfo().reconcileCount,
+    peakPosition,
+    peakVelocity,
+  };
 }
 
 const gap = (a: Vec3, b: Vec3) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
@@ -266,12 +276,14 @@ async function drift(
   // A harness that silently stopped reconciling would report perfect parity
   // forever. Every scenario must actually exercise the path under test.
   expect(run.reconciles).toBeGreaterThan(5);
-  return gap(run.position, truth[steps.length].position);
+  expect(run.peakVelocity).toBeLessThan(0.05);
+  return run.peakPosition;
 }
 
 /** Whether a scenario actually entered the state it claims to exercise. */
 function observed(world: CollisionWorld, steps: Step[], start: Start) {
   const profile = new MovementProfile();
+  profile.resetPhysicsState(true); // Match the grounded initial snapshot given to V2.
   let position = { ...start.position };
   let velocity: Vec3 = { ...start.velocity };
   let slid = false;
@@ -310,11 +322,14 @@ function profileReplay(
   truth: Sample[],
   start: Start,
   opts: { every: number; lag: number },
-): { position: Vec3; reconciles: number } {
+): { position: Vec3; reconciles: number; peakPosition: number; peakVelocity: number } {
   const profile = new MovementProfile();
+  profile.resetPhysicsState(true); // Match the grounded initial snapshot given to V2.
   let position = { ...start.position };
   let velocity: Vec3 = { ...start.velocity };
-  let reconciles = 0;
+  let reconciles = 0,
+    peakPosition = 0,
+    peakVelocity = 0;
 
   steps.forEach((step, i) => {
     const seq = i + 1;
@@ -334,8 +349,10 @@ function profileReplay(
         velocity = replayed.velocity;
       }
     }
+    peakPosition = Math.max(peakPosition, gap(position, truth[seq].position));
+    peakVelocity = Math.max(peakVelocity, gap(velocity, truth[seq].velocity));
   });
-  return { position, reconciles };
+  return { position, reconciles, peakPosition, peakVelocity };
 }
 
 async function profileDrift(steps: Step[], start: Start, opts = { every: 16, lag: 12 }): Promise<number> {
@@ -343,7 +360,8 @@ async function profileDrift(steps: Step[], start: Start, opts = { every: 16, lag
   const truth = authority(world, steps, start);
   const run = profileReplay(world, steps, truth, start, opts);
   expect(run.reconciles).toBeGreaterThan(5);
-  return gap(run.position, truth[steps.length].position);
+  expect(run.peakVelocity).toBeLessThan(0.05);
+  return run.peakPosition;
 }
 
 describe("Reconciling an exact snapshot is a no-op", () => {
