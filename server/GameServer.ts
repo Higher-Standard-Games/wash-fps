@@ -1430,6 +1430,7 @@ export class GameServer {
       this._snapshotCtx = {
         simulation: this.simulation,
         collisionWorld: this.physicsSystem.getCollisionWorld(),
+        movementSystem: this.physicsSystem,
         weaponSystem: this.weaponSystem,
         projectileSystem: this.projectileSystem,
         combatSystem: this.combatSystem,

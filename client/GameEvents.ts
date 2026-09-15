@@ -524,6 +524,11 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
           // explicitly so the exhaustiveness guard stays meaningful.
           break;
 
+        case "knockback_state":
+          // Restored with the matching authoritative position below, not as a
+          // one-shot impulse (which would apply snapshot velocity twice).
+          break;
+
         default:
           // Exhaustive: adding a SnapshotEvent member without a case above is a
           // compile error here; an unknown runtime type warns instead of vanishing.
@@ -684,6 +689,9 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
       position: { ...transform.position },
       velocity: { ...velocity.linear },
       grounded: velocity.grounded,
+      knockbackAgeTicks:
+        state.events.find((event) => event.type === "knockback_state" && event.entityId === player.entityId)
+          ?.ageTicks ?? null,
     };
     ctx.v2Client.bufferSnapshot(snapshot);
     ctx.pendingTick = state.tick;

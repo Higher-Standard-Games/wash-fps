@@ -14,6 +14,7 @@ import type { CollisionWorld } from "../../../engine/network/systems/collision/C
 import type { MovementInput } from "../../../engine/network/systems/movement/MovementProfile";
 import type { TriggerVolume } from "../../../shared/bsp/TriggerTable";
 import { sanitizeMovementOrZero } from "../../../shared/server/simulation/InputSanitizer";
+import { applyKnockbackDrag, readKnockbackAge } from "../simulation/Knockback";
 import type { AdvancedMovementResult } from "../simulation/MovementConfig";
 import { MovementProfile as FPSMovementProfile } from "../simulation/MovementProfile";
 import { InputHistory, type StoredInput } from "./InputHistory";
@@ -61,25 +62,19 @@ export interface ServerSnapshot {
   position: Vec3;
   velocity: Vec3;
   grounded: boolean;
+  /**
+   * Knockback drag age after the tick this snapshot describes, or null when no
+   * drag is active. Travels with position and velocity, which already include
+   * every impulse through that tick — so replay restores the age and never
+   * re-applies an impulse.
+   */
+  knockbackAgeTicks?: number | null;
 }
 
 export interface V2ClientConfig {
   /** Physics tick rate (must match server) */
   tickRate: number;
 }
-
-// ═══════════════════════════════════════════════════════════════════
-// KNOCKBACK AIR DRAG CONSTANTS (must match FPSMovementSubsystem)
-// ═══════════════════════════════════════════════════════════════════
-
-/** Ticks after KB before drag kicks in (~0.4s at 125Hz) */
-const KB_DRAG_DELAY_TICKS = 50;
-/** Duration over which drag ramps from 0→max (~0.6s at 125Hz) */
-const KB_DRAG_RAMP_TICKS = 75;
-/** Max per-tick horizontal speed multiplier during full drag */
-const KB_HORIZ_DRAG = 0.96;
-/** Extra downward acceleration during drag phase (units/s²) */
-const KB_EXTRA_GRAVITY = 600;
 
 // ═══════════════════════════════════════════════════════════════════
 // RECONCILIATION SUPPRESSION BACKSTOPS (N05)
@@ -164,18 +159,14 @@ export class V2NetworkClient {
   /** Times the replay budget was exceeded and prediction restarted from authority. */
   private resyncCount: number = 0;
 
-  // Knockback air drag tracking (matches server FPSMovementSubsystem)
-  // Tracks how many ticks since last KB to apply drag at the right time
   /**
-   * Knockback age is an absolute anchor in client step space, never a counter.
-   * A counter incremented per simulated step counts every replayed step again,
-   * so reconciling twice over the same unacked inputs aged the impulse twice
-   * and diverged the predicted position (N03). Both fields are step indices,
-   * so a replay recomputes the same age from the same inputs.
+   * Knockback drag age after the last simulated step, or null when inactive —
+   * the quantity the server publishes. Reconciliation adopts it together with
+   * authoritative position and velocity, and every simulated step, fresh or
+   * replayed, advances it by exactly one. The client never predicts an impulse:
+   * impulses arrive already applied to snapshot velocity.
    */
-  private kbStartSeq: number | null = null;
-  /** Step a landing cancelled the impulse on; null while it is still live. */
-  private kbCancelSeq: number | null = null;
+  private kbAge: number | null = null;
 
   // Cooldown counter for post-grab reconciliation skip.
   // Set to N when grab is active, decrements each reconciliation cycle after grab ends.
@@ -302,7 +293,7 @@ export class V2NetworkClient {
     // KB air drag runs BEFORE movement, reading the grounded state this step
     // starts from — the order the server's tick uses. Running it afterwards
     // fed movement an undragged velocity and judged the landing a step late.
-    this.applyKBDrag(this.localState.velocity, this.localState.grounded, seq);
+    this.stepKnockback();
     const result = this.movement.simulate(
       this.localState.position,
       this.localState.velocity,
@@ -484,15 +475,6 @@ export class V2NetworkClient {
     // Get inputs we need to replay (those after server's acked sequence)
     const unacked = this.inputHistory.getUnacked(snapshot.ackedInputSeq);
 
-    // A landing recorded inside the replay window was predicted, not
-    // authoritative: the steps that produced it are about to be simulated
-    // again from the server's state, which may not put us on the ground at
-    // all. Drop it so the replay re-derives it, and keep one from an acked
-    // step, which the server has already agreed to.
-    if (this.kbCancelSeq !== null && this.kbCancelSeq > snapshot.ackedInputSeq) {
-      this.kbCancelSeq = null;
-    }
-
     // Same quantity the suppression bounds were measured against.
     const preError = divergence;
 
@@ -507,6 +489,9 @@ export class V2NetworkClient {
     this.localState.position = { ...snapshot.position };
     this.localState.velocity = { ...snapshot.velocity };
     this.localState.grounded = snapshot.grounded;
+    // Drag age is authoritative state from the same tick as the three above;
+    // the replay below advances it once per replayed step.
+    this.kbAge = readKnockbackAge(snapshot.knockbackAgeTicks);
 
     // CRITICAL: Also reset FPSMovementProfile's internal grounded state!
     // Without this, the movement profile's isGrounded doesn't match the server,
@@ -551,7 +536,7 @@ export class V2NetworkClient {
       this.collision?.lifts?.step(this.dt, [this.localState]);
       const movementInput = this.storedToMovementInput(input);
       // Same order as fresh prediction and as the server's tick.
-      this.applyKBDrag(this.localState.velocity, this.localState.grounded, input.seq);
+      this.stepKnockback();
       const result = this.movement.simulate(
         this.localState.position,
         this.localState.velocity,
@@ -722,8 +707,7 @@ export class V2NetworkClient {
     this.visualOffset.z = 0;
 
     // Reset KB tracking
-    this.kbStartSeq = null;
-    this.kbCancelSeq = null;
+    this.kbAge = null;
 
     // Reset predicted movement state
     this.predictedMovement = {
@@ -857,94 +841,14 @@ export class V2NetworkClient {
   }
 
   /**
-   * Apply knockback impulse to local predicted state (client-side prediction).
-   * Called when client detects self-damage — provides immediate KB feedback
-   * without waiting for server snapshot confirmation.
-   *
-   * Uses same formula as server CombatSystem.processDamage():
-   * 1. Stun: strip horizontal speed proportional to damage
-   * 2. KB: push in direction with upward bias
-   *
-   * @param damage - Final damage amount
-   * @param dir - Knockback direction (from explosion/shot to victim)
-   * @param kbScale - Weapon's knockback scale
-   * @param isSelf - Whether this is self-inflicted damage
+   * Advance knockback drag by one simulated step, BEFORE that step's movement.
+   * Shared with the server, so identical velocity, grounded state and age give
+   * identical drag. A landing or the end of the window ends it; only a snapshot
+   * can start one.
    */
-  applyKnockback(damage: number, dir: { x: number; y: number; z: number }, kbScale: number, isSelf: boolean): void {
-    const vel = this.localState.velocity;
-
-    // 1. STUN — strip horizontal speed (same as server)
-    const stunFraction = Math.min(damage / 100, 0.8);
-    vel.x *= 1 - stunFraction;
-    vel.z *= 1 - stunFraction;
-
-    // 2. KNOCKBACK — direction with upward bias
-    const kbDir = { x: dir.x, y: Math.max(dir.y, 0.4), z: dir.z };
-    const len = Math.sqrt(kbDir.x * kbDir.x + kbDir.y * kbDir.y + kbDir.z * kbDir.z);
-    if (len > 0.001) {
-      kbDir.x /= len;
-      kbDir.y /= len;
-      kbDir.z /= len;
-    }
-
-    const selfMult = isSelf ? 1.2 : 1.0;
-    const force = damage * kbScale * selfMult;
-
-    vel.x += kbDir.x * force;
-    vel.y += kbDir.y * force;
-    vel.z += kbDir.z * force;
-
-    // 3. Reset grounded so movement sim doesn't friction-cancel the impulse
-    this.localState.grounded = false;
-    this.movement.resetPhysicsState(false);
-
-    // 4. Anchor KB air drag to the step this impulse takes effect on — the next
-    // one to be simulated, since the velocity above is already in localState.
-    // The server anchors the same way, applying drag on the impulse's own tick
-    // at age 0, so both sides age the impulse on the same schedule.
-    this.kbStartSeq = this.inputHistory.peekNextSeq();
-    this.kbCancelSeq = null;
-  }
-
-  /**
-   * Apply Warsow-style KB air drag (must match server FPSMovementSubsystem).
-   * After a free-fly window, smoothly decays horizontal velocity and
-   * adds extra gravity so players arc down instead of floating.
-   * Called once per tick during both live prediction and reconciliation replay.
-   */
-  private applyKBDrag(velocity: Vec3, grounded: boolean, step: number): void {
-    if (this.kbStartSeq === null) return; // No active KB
-    if (this.kbCancelSeq !== null && step >= this.kbCancelSeq) return;
-
-    // Landing cancels the impulse from this step on. Latched, because leaving
-    // the ground again does not revive it — the same rule the server applies.
-    // Recorded rather than erased so a later replay of an earlier step still
-    // sees the impulse that was live then.
-    if (grounded) {
-      this.kbCancelSeq = step;
-      return;
-    }
-
-    const elapsed = step - this.kbStartSeq;
-
-    // Expiry needs no latch: it is a pure function of the anchor. Clearing the
-    // anchor here would make a replay of an earlier step skip a live impulse.
-    if (elapsed > KB_DRAG_DELAY_TICKS + KB_DRAG_RAMP_TICKS) return;
-
-    // Still in free-fly window
-    if (elapsed < KB_DRAG_DELAY_TICKS) return;
-
-    // Drag phase: ramp 0→1 over KB_DRAG_RAMP_TICKS
-    const dragT = (elapsed - KB_DRAG_DELAY_TICKS) / KB_DRAG_RAMP_TICKS;
-    const dragStrength = dragT * dragT; // Quadratic ease-in
-
-    // Horizontal drag
-    const horizMult = 1.0 - dragStrength * (1.0 - KB_HORIZ_DRAG);
-    velocity.x *= horizMult;
-    velocity.z *= horizMult;
-
-    // Extra downward pull
-    velocity.y -= KB_EXTRA_GRAVITY * dragStrength * this.dt;
+  private stepKnockback(): void {
+    if (this.kbAge === null) return;
+    this.kbAge = applyKnockbackDrag(this.localState.velocity, this.localState.grounded, this.kbAge + 1, this.dt);
   }
 
   // ═══════════════════════════════════════════════════════════════════

@@ -20,6 +20,7 @@ import type { AwardEvent } from "./gametypes/AwardTracker";
 import type { GametypeController } from "./gametypes/GametypeController";
 import type { CombatSystem, KillEvent } from "./systems/CombatSystem";
 import type { DroppedWeaponSystem } from "./systems/DroppedWeaponSystem";
+import type { FPSMovementSubsystem } from "./systems/FPSMovementSubsystem";
 import type { PickupSystem } from "./systems/PickupSystem";
 import type { ProjectileSystem } from "./systems/ProjectileSystem";
 import type { WeaponSystem } from "./systems/WeaponSystem";
@@ -63,6 +64,7 @@ function _velocityClone(this: any) {
 export interface SnapshotContext {
   collisionWorld?: import("../../../shared/collision/CollisionWorld").CollisionWorld | null;
   simulation: Simulation;
+  movementSystem?: Pick<FPSMovementSubsystem, "getKnockbackAge">;
   weaponSystem: WeaponSystem;
   projectileSystem: ProjectileSystem;
   combatSystem: CombatSystem;
@@ -306,6 +308,13 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
       const playerId = toClientKey(entity.ownerId);
       // Use entity ID for client entity reference (needed for combat_state)
       const entityClientId = toClientKey(entity.id);
+      // Repeated state, including null: loss of the impulse/cancel snapshot must
+      // self-heal. Position/velocity already include all impulses through this tick.
+      gameState.events.push({
+        type: "knockback_state",
+        entityId: entityClientId,
+        ageTicks: isDead ? null : (ctx.movementSystem?.getKnockbackAge(Number(entity.id)) ?? null),
+      });
       if (!gameState.players.has(playerId)) {
         // Get score, deaths and team from gametype controller
         const matchState = ctx.gametypeController.getMatchState();

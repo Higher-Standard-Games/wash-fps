@@ -57,14 +57,6 @@ export class InputHistory {
   }
 
   /**
-   * Sequence the next add() will return. Lets a caller anchor state to the step
-   * it is about to affect, before that step has been generated.
-   */
-  peekNextSeq(): number {
-    return this.nextSeq;
-  }
-
-  /**
    * Get all inputs with sequence > ackedSeq (unacknowledged)
    * Returns in order (oldest first)
    */

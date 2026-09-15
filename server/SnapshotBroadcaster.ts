@@ -67,6 +67,9 @@ export class SnapshotBroadcaster {
         const simEntity = this.simulation.getState().getEntity(client.entityId);
         const processedSeq = (simEntity?.input as { lastProcessedSeq?: number } | undefined)?.lastProcessedSeq;
         clientState.ackedInputSeq = processedSeq ?? client.lastInputSeq;
+        clientState.events = clientState.events.filter(
+          (event) => event.type !== "knockback_state" || event.entityId === toClientKey(client.entityId),
+        );
 
         // Agent directives are addressed to ONE client. Appending them here —
         // rather than broadcasting every player's orders in the shared snapshot
