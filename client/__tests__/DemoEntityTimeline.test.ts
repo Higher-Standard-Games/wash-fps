@@ -27,10 +27,7 @@ describe("DemoEntityTimeline", () => {
   it("interpolates from recorded ticks without wall-clock time", () => {
     const timeline = new DemoEntityTimeline();
     timeline.push(100, frame("player", entity({ x: 0, vx: 100, crouchViewOffset: 0 })));
-    timeline.push(
-      104,
-      frame("player", entity({ x: 40, vx: 300, crouching: true, crouchViewOffset: -24 })),
-    );
+    timeline.push(104, frame("player", entity({ x: 40, vx: 300, crouching: true, crouchViewOffset: -24 })));
 
     const result = timeline.sample("player", 102);
     expect(result?.x).toBe(20);

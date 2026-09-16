@@ -70,10 +70,7 @@ function frame(tick: number, events: Array<Record<string, unknown>>, killerAirbo
   const s = new GameState();
   s.tick = tick;
   // Killer at height, moving fast upward (rocket-jump) and airborne on the kill.
-  s.entities.set(
-    "player_1",
-    playerEntity("player_1", { x: 0, y: 200, z: 0 }, { x: 0, y: 220, z: 0 }, !killerAirborne),
-  );
+  s.entities.set("player_1", playerEntity("player_1", { x: 0, y: 200, z: 0 }, { x: 0, y: 220, z: 0 }, !killerAirborne));
   s.entities.set("player_2", playerEntity("player_2", { x: 2000, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, true));
   s.events = events as GameState["events"];
   return s;

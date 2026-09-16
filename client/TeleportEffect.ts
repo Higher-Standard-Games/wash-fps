@@ -22,11 +22,11 @@
  * pool model streams in.
  */
 
+import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
 import type { TransformNode } from "@babylonjs/core/Meshes/transformNode";
-import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import type { Observer } from "@babylonjs/core/Misc/observable";
 import type { Scene } from "@babylonjs/core/scene";
 import { AudioManager } from "../../../engine/AudioManager";
@@ -471,7 +471,10 @@ export class TeleportEffect {
       }
 
       // Posterized fade: floor into discrete alpha steps (print frames).
-      const step = Math.min(fx.alphaSteps.length - 1, Math.floor((fx.elapsedMs / fx.lifetimeMs) * fx.alphaSteps.length));
+      const step = Math.min(
+        fx.alphaSteps.length - 1,
+        Math.floor((fx.elapsedMs / fx.lifetimeMs) * fx.alphaSteps.length),
+      );
       fx.material.alpha = fx.alphaSteps[step];
 
       // Bursts scale up + spin smoothly (motion reads better continuous).

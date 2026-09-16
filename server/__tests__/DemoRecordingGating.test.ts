@@ -25,8 +25,8 @@ vi.mock("@engine/server/network/transport/WebSocketTransport", () => {
 });
 
 import { MatchPhase } from "@shared/server/gametype";
-import { Deathmatch } from "../gametypes/Deathmatch";
 import { GameServer, type GameServerConfig } from "../GameServer";
+import { Deathmatch } from "../gametypes/Deathmatch";
 
 const config: GameServerConfig = {
   port: 0,

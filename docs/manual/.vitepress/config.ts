@@ -31,9 +31,7 @@ export default defineConfig({
       "/": [
         {
           text: "Introduction",
-          items: [
-            { text: "What is Washiki Washoi?", link: "/introduction/" },
-          ],
+          items: [{ text: "What is Washiki Washoi?", link: "/introduction/" }],
         },
         {
           text: "Getting Started",
@@ -100,9 +98,7 @@ export default defineConfig({
       ],
     },
 
-    socialLinks: [
-      { icon: "github", link: "https://github.com/Higher-Standard-Games/shag" },
-    ],
+    socialLinks: [{ icon: "github", link: "https://github.com/Higher-Standard-Games/shag" }],
 
     search: {
       provider: "local",

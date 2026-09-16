@@ -5,7 +5,7 @@
  * It exports the game manager and shared types/utilities.
  */
 
-export { fpsNetworkConnector } from "./client/FpsNetworkConnector";
 export { fpsMapLauncher } from "./client/FpsMapLauncher";
+export { fpsNetworkConnector } from "./client/FpsNetworkConnector";
 export { registerFpsCommands } from "./console";
 export { Game } from "./Game";

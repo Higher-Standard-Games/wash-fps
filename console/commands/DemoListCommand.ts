@@ -8,6 +8,7 @@
  */
 
 import { Command, type CommandDef } from "../../../../engine/console/Command";
+import type { DemoInfo } from "../../../../lobby/types";
 import { DemoService } from "../../client/DemoService";
 
 export default class DemoListCommand extends Command {
@@ -21,7 +22,7 @@ export default class DemoListCommand extends Command {
     const filter = args[0];
     const service = DemoService.getInstance();
 
-    let demos;
+    let demos: DemoInfo[];
     try {
       demos = await service.requestDemoList(filter);
     } catch (err) {
