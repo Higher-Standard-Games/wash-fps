@@ -534,6 +534,10 @@ export class DemoService {
       this._syncPersistentDemoState(state);
       // Spawn/despawn in-flight projectile visuals + buffer them for interpolation.
       // (runs after _processDemoEffects so projectile_spawn defIds are set first)
+      this._projectiles.muzzleForShot =
+        this._followedEntityId && !this._followedDead
+          ? (position, velocity) => this._demoWvm?.getProjectileMuzzlePosition(position, velocity) ?? null
+          : undefined;
       processProjectileEntities(state, this._projectiles);
       this.demoEventTimeline.finishPresentationFrame();
     });
@@ -1125,7 +1129,7 @@ export class DemoService {
     }
     this._projectiles.active.clear();
     this._projectiles.defIds.clear();
-    this._projectiles.buffer.flush();
+    this._projectiles.buffer.reset();
   }
 
   /** Format a weapon's ammo value ({clip,reserve} or number) for the HUD. */

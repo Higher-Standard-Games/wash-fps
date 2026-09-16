@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SnapshotBuffer } from "../../../../engine/network/client/SnapshotBuffer";
 import { Game } from "../../Game";
 import { MatchPhase, MatchStateManager } from "../MatchStateManager";
 
@@ -41,6 +42,23 @@ function joinableGame(sendJoinGame: (team?: string, manualPick?: boolean) => voi
 }
 
 afterEach(() => MatchStateManager.destroy());
+
+it("clears live projectile ids and accepts the next server's earlier ticks", () => {
+  const buffer = new SnapshotBuffer();
+  buffer.push(10000, new Map());
+  const game = Object.assign(Object.create(Game.prototype), {
+    projectileBuffer: buffer,
+    activeServerProjectiles: new Set(["proj_1"]),
+    serverProjectileDefIds: new Map([["proj_1", "rocket"]]),
+    forgetProjectileLiquid: vi.fn(),
+  });
+  game.resetServerProjectiles();
+  expect(game.activeServerProjectiles.size).toBe(0);
+  expect(game.serverProjectileDefIds.size).toBe(0);
+  expect(game.forgetProjectileLiquid).toHaveBeenCalledWith("proj_1");
+  expect(buffer.getBufferSize()).toBe(0);
+  expect(buffer.push(10, new Map())).toBe(true);
+});
 
 describe("Game team selection", () => {
   it("sends the explicit team button choice, flagged as picked in-game", async () => {

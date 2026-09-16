@@ -47,6 +47,7 @@ vi.mock("../../../../engine/weapon/WeaponViewManager", () => {
   return { WeaponViewManager };
 });
 
+import type { SnapshotBuffer } from "../../../../engine/network/client/SnapshotBuffer";
 import { DemoService } from "../DemoService";
 
 interface DisposableSpy {
@@ -138,6 +139,22 @@ function seedPlayback(
 
 describe("DemoService playback lifecycle", () => {
   const service = DemoService.getInstance();
+
+  it("accepts earlier projectile ticks after stopping or seeking backward", () => {
+    const internals = service as unknown as {
+      _projectiles: { buffer: SnapshotBuffer; defIds: Map<string, string> };
+      _clearDemoProjectiles(): void;
+    };
+    const { buffer, defIds } = internals._projectiles;
+    for (const clear of [() => service.stopAll(), () => internals._clearDemoProjectiles()]) {
+      buffer.push(10000, new Map());
+      defIds.set("proj_1", "rocket");
+      clear();
+      expect(buffer.getBufferSize()).toBe(0);
+      expect(defIds.size).toBe(0);
+      expect(buffer.push(10, new Map())).toBe(true);
+    }
+  });
 
   beforeEach(() => {
     document.body.innerHTML = "";

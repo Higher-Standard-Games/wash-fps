@@ -6,13 +6,7 @@
  * they now all route through.
  */
 import { describe, expect, it } from "vitest";
-import {
-  clientKeyDisplayId,
-  ensureClientKey,
-  isClientKey,
-  parseClientKey,
-  toClientKey,
-} from "../ClientEntityKey";
+import { clientKeyDisplayId, ensureClientKey, isClientKey, parseClientKey, toClientKey } from "../ClientEntityKey";
 
 describe("ClientEntityKey", () => {
   it("round-trips id -> key -> id", () => {

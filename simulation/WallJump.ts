@@ -33,7 +33,10 @@ export class WallJump {
   // dt so reconciliation replays (which re-simulate old sequence numbers)
   // recompute identical values instead of double-advancing timers.
   private chargeStartMs: number = 0; // Sim time when charging began
-  private cooldownUntilMs: number = 0; // Sim time when next walljump is allowed
+  // Keep both ends: a future predicted boost cannot block earlier replay.
+  // Retain earlier intervals too, since the replay can straddle two boosts.
+  // 64 boosts exceeds the client's 32-command replay budget even at zero cooldown.
+  private cooldowns: { startMs: number; untilMs: number }[] = [];
   private graceUntilMs: number = 0; // Wall-detection hysteresis deadline
   private groundGraceUntilMs: number = 0; // Ground-clearance hysteresis deadline
 
@@ -43,7 +46,26 @@ export class WallJump {
 
   /** True while the post-walljump cooldown deadline is in the future */
   isOnCooldown(nowMs: number): boolean {
-    return nowMs < this.cooldownUntilMs;
+    for (let i = this.cooldowns.length - 1; i >= 0; i--) {
+      const cooldown = this.cooldowns[i];
+      if (nowMs >= cooldown.startMs) return nowMs < cooldown.untilMs;
+    }
+    return false;
+  }
+
+  /** Replaying a step replaces any boost previously predicted at/after it. */
+  beginStep(nowMs: number): void {
+    while (this.cooldowns.length && this.cooldowns[this.cooldowns.length - 1].startMs >= nowMs) {
+      this.cooldowns.pop();
+    }
+  }
+
+  private startCooldown(nowMs: number, durationMs: number): void {
+    // Re-simulation replaces the future of this timeline, including an event
+    // at the same step. This keeps repeated replay idempotent and bounded.
+    this.beginStep(nowMs);
+    this.cooldowns.push({ startMs: nowMs, untilMs: nowMs + durationMs });
+    if (this.cooldowns.length > 64) this.cooldowns.shift();
   }
 
   /** Reset state for reconciliation */
@@ -282,7 +304,7 @@ export class WallJump {
 
     baseVel.y = config.wallJumpHeight * boost;
 
-    this.cooldownUntilMs = nowMs + config.wallJumpCooldown * 1000;
+    this.startCooldown(nowMs, config.wallJumpCooldown * 1000);
     this.state = "none";
     this.chargeStartMs = 0;
   }
@@ -306,7 +328,7 @@ export class WallJump {
 
     vel.y = config.wallJumpHeight;
 
-    this.cooldownUntilMs = nowMs + config.wallJumpCooldown * 1000;
+    this.startCooldown(nowMs, config.wallJumpCooldown * 1000);
     this.state = "none";
   }
 }

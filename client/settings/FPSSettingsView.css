@@ -202,8 +202,7 @@
   min-width: 168px;
   padding: 9px 34px 9px 12px;
   border: 1px solid hsla(180, 35%, 32%, 0.38);
-  background:
-    linear-gradient(180deg, hsla(222, 24%, 12%, 0.96), hsla(222, 22%, 8%, 0.96));
+  background: linear-gradient(180deg, hsla(222, 24%, 12%, 0.96), hsla(222, 22%, 8%, 0.96));
   color: hsla(180, 84%, 94%, 0.92);
   font-family: var(--w-font-display, "Orbitron", monospace);
   font-size: 0.74rem;

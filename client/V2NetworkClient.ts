@@ -14,6 +14,7 @@ import type { CollisionWorld } from "../../../engine/network/systems/collision/C
 import type { MovementInput } from "../../../engine/network/systems/movement/MovementProfile";
 import type { TriggerVolume } from "../../../shared/bsp/TriggerTable";
 import { sanitizeMovementOrZero } from "../../../shared/server/simulation/InputSanitizer";
+import { applyKnockbackDrag, readKnockbackAge } from "../simulation/Knockback";
 import type { AdvancedMovementResult } from "../simulation/MovementConfig";
 import { MovementProfile as FPSMovementProfile } from "../simulation/MovementProfile";
 import { InputHistory, type StoredInput } from "./InputHistory";
@@ -61,6 +62,13 @@ export interface ServerSnapshot {
   position: Vec3;
   velocity: Vec3;
   grounded: boolean;
+  /**
+   * Knockback drag age after the tick this snapshot describes, or null when no
+   * drag is active. Travels with position and velocity, which already include
+   * every impulse through that tick — so replay restores the age and never
+   * re-applies an impulse.
+   */
+  knockbackAgeTicks?: number | null;
 }
 
 export interface V2ClientConfig {
@@ -69,17 +77,33 @@ export interface V2ClientConfig {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// KNOCKBACK AIR DRAG CONSTANTS (must match FPSMovementSubsystem)
+// RECONCILIATION SUPPRESSION BACKSTOPS (N05)
 // ═══════════════════════════════════════════════════════════════════
+// Suppression exists because a replayed wall jump or ledge grab re-runs its
+// traces from the server's position and hits at slightly different sub-tick
+// points, so adopting authority every snapshot reads as jitter. It is a
+// workaround for replay disagreement, not a fix for it — restoring the full
+// movement state is (T01). Until then it needs limits that do not depend on
+// the player eventually becoming ineligible.
 
-/** Ticks after KB before drag kicks in (~0.4s at 125Hz) */
-const KB_DRAG_DELAY_TICKS = 50;
-/** Duration over which drag ramps from 0→max (~0.6s at 125Hz) */
-const KB_DRAG_RAMP_TICKS = 75;
-/** Max per-tick horizontal speed multiplier during full drag */
-const KB_HORIZ_DRAG = 0.96;
-/** Extra downward acceleration during drag phase (units/s²) */
-const KB_EXTRA_GRAVITY = 600;
+/**
+ * Hard cap on CONTINUOUS suppression. Measured in ms rather than snapshots
+ * because the same count means different durations at different snapshot rates
+ * (the ten-snapshot window is 160ms at 62.5Hz but about 333ms at 30Hz). Well
+ * past the window suppression is meant to cover, so it only fires when
+ * eligibility keeps re-arming.
+ */
+const MAX_SUPPRESSION_MS = 500;
+
+/**
+ * Divergence past which a snapshot is a discontinuity, not a trace
+ * disagreement, and must be adopted however eligible the player looks.
+ * Deliberately far above ordinary prediction lead — a strafe-jumping player on
+ * a 300ms link is legitimately a few hundred units ahead of authority — so this
+ * catches an unpredicted teleport or an authoritative move the client never
+ * simulated, and nothing that suppression is there to smooth.
+ */
+const MAX_SUPPRESSED_DIVERGENCE = 400;
 
 // ═══════════════════════════════════════════════════════════════════
 // V2 NETWORK CLIENT
@@ -126,9 +150,25 @@ export class V2NetworkClient {
   // Instead of teleporting on correction, store the error and decay it
   private visualOffset: Vec3 = { x: 0, y: 0, z: 0 };
 
-  // Knockback air drag tracking (matches server FPSMovementSubsystem)
-  // Tracks how many ticks since last KB to apply drag at the right time
-  private kbTickCounter: number = -1; // -1 = no active KB
+  /** When the current unbroken run of suppressed snapshots began; null if none. */
+  private suppressionStartedAtMs: number | null = null;
+  private suppressedSnapshots: number = 0;
+  private maxSuppressedDivergence: number = 0;
+  /** Why the last run of suppression ended — for capture, not for logic. */
+  private lastSuppressionRelease: string | null = null;
+  /** Times the replay budget was exceeded and prediction restarted from authority. */
+  private resyncCount: number = 0;
+
+  /**
+   * Knockback drag age after the last simulated step, or null when inactive —
+   * the quantity the server publishes. Reconciliation adopts it together with
+   * authoritative position and velocity, and every simulated step, fresh or
+   * replayed, advances it by exactly one. The client never predicts an impulse:
+   * impulses arrive already applied to snapshot velocity.
+   */
+  private kbAge: number | null = null;
+  /** Server snapshot tick of the last adopted impulse, not a local replay clock. */
+  private authoritativeKnockbackStartTick: number | null = null;
 
   // Cooldown counter for post-grab reconciliation skip.
   // Set to N when grab is active, decrements each reconciliation cycle after grab ends.
@@ -145,6 +185,14 @@ export class V2NetworkClient {
   private hasReceivedSnapshot: boolean = false;
   /** Buffered snapshots waiting to be processed at frame boundary */
   private pendingSnapshots: ServerSnapshot[] = [];
+  /**
+   * Newest authoritative tick already reconciled against. Selecting the newest
+   * of one frame's arrivals is not enough on its own — a stale datagram that
+   * arrives a frame later would still rewind prediction (N06). Ticks belong to
+   * one connection, and this client is rebuilt per connect, so it never needs
+   * clearing; a respawn is not a new session and must not reset it.
+   */
+  private lastAppliedTick: number | null = null;
   /** When true, next snapshot will snap position instantly (respawn, teleport) */
   private forceTeleportOnNextSnapshot: boolean = false;
   /** Fired when a FRESH predicted input teleports the local player (camera yaw + VFX). */
@@ -209,6 +257,8 @@ export class V2NetworkClient {
       grounded: false,
     };
     this.inputHistory.clear();
+    this.kbAge = null;
+    this.authoritativeKnockbackStartTick = null;
     console.log("[V2Client] Reset to", position);
   }
 
@@ -244,6 +294,10 @@ export class V2NetworkClient {
     // 2. Apply locally for instant feedback (same physics as server)
     const movementInput = this.toMovementInput(sanitizedInput, seq);
     this.collision?.lifts?.step(this.dt, [this.localState]);
+    // KB air drag runs BEFORE movement, reading the grounded state this step
+    // starts from — the order the server's tick uses. Running it afterwards
+    // fed movement an undragged velocity and judged the landing a step late.
+    this.stepKnockback();
     const result = this.movement.simulate(
       this.localState.position,
       this.localState.velocity,
@@ -270,10 +324,7 @@ export class V2NetworkClient {
       );
     }
 
-    // 4. Apply KB air drag (matches server FPSMovementSubsystem)
-    this.applyKBDrag(this.localState.velocity, this.localState.grounded);
-
-    // 5. Store predicted movement state for visual effects
+    // 4. Store predicted movement state for visual effects
     this.updatePredictedMovement(result);
 
     return seq;
@@ -293,18 +344,22 @@ export class V2NetworkClient {
 
   /**
    * Process all buffered snapshots. Called once per frame BEFORE input processing.
-   * Processes only the LATEST snapshot (older ones are stale).
+   * Processes only the NEWEST snapshot (older ones are stale).
    * Returns true if a snapshot was processed (state may have changed).
    */
   processBufferedSnapshots(): boolean {
     if (this.pendingSnapshots.length === 0) return false;
 
-    // Process only the LATEST snapshot — older ones are stale
-    const latest = this.pendingSnapshots[this.pendingSnapshots.length - 1];
+    // Newest by tick, not by arrival: reconciling against an older authoritative
+    // state rewinds the predicted position by however far the two ticks are
+    // apart (N06). The host filters stale arrivals too; this does not rely on it.
+    let newest = this.pendingSnapshots[0];
+    for (const snapshot of this.pendingSnapshots) {
+      if (snapshot.tick > newest.tick) newest = snapshot;
+    }
     this.pendingSnapshots = [];
 
-    this.applySnapshot(latest);
-    return true;
+    return this.applySnapshot(newest);
   }
 
   /**
@@ -315,7 +370,13 @@ export class V2NetworkClient {
    * 2. Replay all unacknowledged inputs
    * 3. Result is our new predicted position
    */
-  private applySnapshot(snapshot: ServerSnapshot): void {
+  private applySnapshot(snapshot: ServerSnapshot): boolean {
+    // Reconciling against an older authoritative state rewinds the predicted
+    // position by however far the two ticks are apart. Nothing downstream —
+    // replay, ACK pruning, lift restore — may run for one.
+    if (this.lastAppliedTick !== null && snapshot.tick <= this.lastAppliedTick) return false;
+    this.lastAppliedTick = snapshot.tick;
+
     // Track that we've received at least one snapshot
     // This is crucial - position is (0,0,0) until first snapshot
     const isFirstSnapshot = !this.hasReceivedSnapshot;
@@ -354,8 +415,59 @@ export class V2NetworkClient {
     // own reconciliation is skipped, or one grab/walljump desyncs every lift on the map.
     if (snapshot.lifts) this.collision?.lifts?.restore(snapshot.lifts);
 
-    const skipReconcile = (this.grabReconcileSkipCount > 0 || this.wallJumpReconcileSkipCount > 0) && !isFirstSnapshot;
+    // How far prediction has drifted from authority, measured before any
+    // correction. This has to be known BEFORE deciding to skip: a skip that
+    // returns without looking cannot tell a sub-unit trace disagreement from a
+    // teleport (N05). It includes ordinary prediction lead, so it bounds
+    // suppression but is not a desync metric on its own.
+    const divergence = Math.hypot(
+      this.localState.position.x - snapshot.position.x,
+      this.localState.position.y - snapshot.position.y,
+      this.localState.position.z - snapshot.position.z,
+    );
+
+    let releasedBy: string | null = null;
+    const authoritativeAge = readKnockbackAge(snapshot.knockbackAgeTicks);
+    // Snapshot ticks and published ages advance together, even when input ACKs
+    // stall. Their difference identifies the impulse's server timeline. A new
+    // impulse or cancellation must not wait behind wall/ledge suppression.
+    const knockbackStartTick = authoritativeAge === null ? null : snapshot.tick - authoritativeAge;
+    const knockbackChanged = knockbackStartTick !== this.authoritativeKnockbackStartTick;
+    let skipReconcile = (this.grabReconcileSkipCount > 0 || this.wallJumpReconcileSkipCount > 0) && !isFirstSnapshot;
     if (skipReconcile) {
+      const now = performance.now();
+      this.suppressionStartedAtMs ??= now;
+      this.maxSuppressedDivergence = Math.max(this.maxSuppressedDivergence, divergence);
+      const heldMs = now - this.suppressionStartedAtMs;
+
+      const release = knockbackChanged
+        ? "knockback"
+        : divergence > MAX_SUPPRESSED_DIVERGENCE
+          ? "divergence"
+          : heldMs > MAX_SUPPRESSION_MS
+            ? "timeout"
+            : null;
+      if (release) {
+        // Take the correction now. Clearing the counters matters as much as the
+        // decision: leaving them armed would suppress the very next snapshot
+        // again, so the bound would have delayed one correction rather than
+        // ending the run. Eligibility that genuinely persists re-arms them
+        // below on the next snapshot, which bounds suppression to a duty cycle
+        // instead of letting it run forever.
+        console.warn(
+          `[V2Client] Reconciliation suppression released (${release}): held=${heldMs.toFixed(0)}ms ` +
+            `snapshots=${this.suppressedSnapshots} divergence=${divergence.toFixed(1)} ` +
+            `grab=${this.predictedMovement.ledgeGrabState} wallJump=${this.predictedMovement.wallJumpState}`,
+        );
+        releasedBy = release;
+        this.grabReconcileSkipCount = 0;
+        this.wallJumpReconcileSkipCount = 0;
+        skipReconcile = false;
+      }
+    }
+
+    if (skipReconcile) {
+      this.suppressedSnapshots++;
       this.inputHistory.pruneAcked(snapshot.ackedInputSeq);
       if (!inActiveGrab && this.grabReconcileSkipCount > 0) {
         this.grabReconcileSkipCount--;
@@ -363,17 +475,23 @@ export class V2NetworkClient {
       if (!inActiveWallJump && this.wallJumpReconcileSkipCount > 0) {
         this.wallJumpReconcileSkipCount--;
       }
-      return;
+      return true;
+    }
+
+    // A correction is about to be adopted, so the current run of suppression is
+    // over however it ended — by the player becoming ineligible or by a bound.
+    if (this.suppressionStartedAtMs !== null) {
+      this.lastSuppressionRelease = releasedBy ?? "eligibility-ended";
+      this.suppressionStartedAtMs = null;
+      this.suppressedSnapshots = 0;
+      this.maxSuppressedDivergence = 0;
     }
 
     // Get inputs we need to replay (those after server's acked sequence)
     const unacked = this.inputHistory.getUnacked(snapshot.ackedInputSeq);
 
-    // Calculate pre-reconciliation error (for debugging)
-    const preDx = this.localState.position.x - snapshot.position.x;
-    const preDy = this.localState.position.y - snapshot.position.y;
-    const preDz = this.localState.position.z - snapshot.position.z;
-    const preError = Math.sqrt(preDx * preDx + preDy * preDy + preDz * preDz);
+    // Same quantity the suppression bounds were measured against.
+    const preError = divergence;
 
     // === DIAGNOSTIC: Capture pre-reconciliation movement state ===
     const preGrounded = this.localState.grounded;
@@ -386,6 +504,10 @@ export class V2NetworkClient {
     this.localState.position = { ...snapshot.position };
     this.localState.velocity = { ...snapshot.velocity };
     this.localState.grounded = snapshot.grounded;
+    // Drag age is authoritative state from the same tick as the three above;
+    // the replay below advances it once per replayed step.
+    this.kbAge = authoritativeAge;
+    this.authoritativeKnockbackStartTick = knockbackStartTick;
 
     // CRITICAL: Also reset FPSMovementProfile's internal grounded state!
     // Without this, the movement profile's isGrounded doesn't match the server,
@@ -393,24 +515,44 @@ export class V2NetworkClient {
     this.movement.resetPhysicsState(snapshot.grounded);
 
     // === STEP 2: Replay unacked inputs (re-predict from server state) ===
-    // DEATH SPIRAL PREVENTION: If too many unacked inputs accumulated,
-    // replaying all of them tanks FPS, causing MORE inputs to accumulate.
-    // Cap at 32 replays — if further behind, just accept server position.
+    // DEATH SPIRAL PREVENTION: replaying an unbounded backlog tanks FPS, which
+    // accumulates more backlog. The cap is deliberate; what it used to do when
+    // it fired was not.
+    //
+    // It replayed the newest 32 and dropped the rest. Those 32 commands assume
+    // the dropped ones already happened, but the replay starts from the server
+    // state that precedes ALL of them — so the client resumed from a position
+    // its own history never passed through, and its sequence-derived clocks ran
+    // ahead of the steps that actually moved it. At the boundary that showed up
+    // as free fall gaining 2.624 units of height with authority in perfect
+    // agreement (N08).
+    //
+    // A suffix cannot be made correct here: the intermediate state it needs was
+    // never kept. So this is an explicit RESYNCHRONISATION instead — adopt
+    // authority, discard the commands that can no longer be honoured, and
+    // predict forward from the next one. The player loses the input in that
+    // window, which is visible and truthful, rather than being left somewhere
+    // neither side simulated.
     const MAX_REPLAY = 32;
-    const inputsToReplay =
-      unacked.length > MAX_REPLAY
-        ? unacked.slice(-MAX_REPLAY) // Keep only the most recent inputs
-        : unacked;
+    let inputsToReplay = unacked;
 
     if (unacked.length > MAX_REPLAY) {
+      this.resyncCount++;
+      inputsToReplay = [];
+      // Drop the whole unacked range. Keeping it would replay the same
+      // un-honourable commands against every later snapshot.
+      this.inputHistory.pruneAcked(unacked[unacked.length - 1].seq);
       console.warn(
-        `[V2Client] Too many unacked inputs (${unacked.length}), replaying only last ${MAX_REPLAY} to prevent death spiral`,
+        `[V2Client] Resynchronising: ${unacked.length} unacked inputs exceeds the ${MAX_REPLAY} replay budget. ` +
+          `Adopting authority at tick ${snapshot.tick} (acked seq ${snapshot.ackedInputSeq}) and discarding them.`,
       );
     }
 
     for (const input of inputsToReplay) {
       this.collision?.lifts?.step(this.dt, [this.localState]);
       const movementInput = this.storedToMovementInput(input);
+      // Same order as fresh prediction and as the server's tick.
+      this.stepKnockback();
       const result = this.movement.simulate(
         this.localState.position,
         this.localState.velocity,
@@ -422,9 +564,6 @@ export class V2NetworkClient {
       this.localState.position = result.position;
       this.localState.velocity = result.velocity;
       this.localState.grounded = result.grounded;
-
-      // Apply KB air drag during replay (matches server)
-      this.applyKBDrag(this.localState.velocity, this.localState.grounded);
 
       // Update predicted movement state from final replay result
       this.updatePredictedMovement(result);
@@ -438,7 +577,9 @@ export class V2NetworkClient {
     // The client's 125Hz simulation is more accurate for this cosmetic state
     // than the server's 60Hz snapshots, so trust the client when there's
     // nothing to replay and the position divergence is small.
-    if (inputsToReplay.length === 0 && preError < 1.0) {
+    // KB changes grounded state deliberately. Keeping the old cosmetic flag
+    // here would friction-cancel a small authoritative impulse on the next step.
+    if (inputsToReplay.length === 0 && preError < 1.0 && authoritativeAge === null && !knockbackChanged) {
       this.localState.grounded = preGrounded;
       this.movement.resetPhysicsState(preGrounded);
     }
@@ -532,6 +673,7 @@ export class V2NetworkClient {
         `[V2Client] RECONCILE #${this.reconcileCount}: unacked=${unacked.length} preErr=${preError.toFixed(2)} postErr=${postError.toFixed(2)} grounded=${this.localState.grounded} hSpeed=${hSpeed.toFixed(1)} ackedSeq=${snapshot.ackedInputSeq} storedInputs=${this.inputHistory.getCount()} collision=${this.collision ? "YES" : "NO"}`,
       );
     }
+    return true;
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -569,6 +711,9 @@ export class V2NetworkClient {
     // Reset skip counters (may have frozen during death)
     this.grabReconcileSkipCount = 0;
     this.wallJumpReconcileSkipCount = 0;
+    this.suppressionStartedAtMs = null;
+    this.suppressedSnapshots = 0;
+    this.maxSuppressedDivergence = 0;
 
     // Force first-snapshot path: bypasses skipReconcile, snaps camera
     this.hasReceivedSnapshot = false;
@@ -580,7 +725,8 @@ export class V2NetworkClient {
     this.visualOffset.z = 0;
 
     // Reset KB tracking
-    this.kbTickCounter = -1;
+    this.kbAge = null;
+    this.authoritativeKnockbackStartTick = null;
 
     // Reset predicted movement state
     this.predictedMovement = {
@@ -681,11 +827,27 @@ export class V2NetworkClient {
     return this.predictedMovement;
   }
 
-  getDebugInfo(): { reconcileCount: number; lastError: number; pendingInputs: number } {
+  getDebugInfo(): {
+    reconcileCount: number;
+    lastError: number;
+    pendingInputs: number;
+    suppressedSnapshots: number;
+    suppressedForMs: number;
+    maxSuppressedDivergence: number;
+    lastSuppressionRelease: string | null;
+    resyncCount: number;
+  } {
     return {
       reconcileCount: this.reconcileCount,
       lastError: this.lastReconcileError,
       pendingInputs: this.inputHistory.getCount(),
+      // Correction debt while suppressed: how long, how many snapshots, how far
+      // out authority got, and what ended the run (N05 capture list).
+      suppressedSnapshots: this.suppressedSnapshots,
+      suppressedForMs: this.suppressionStartedAtMs === null ? 0 : performance.now() - this.suppressionStartedAtMs,
+      maxSuppressedDivergence: this.maxSuppressedDivergence,
+      lastSuppressionRelease: this.lastSuppressionRelease,
+      resyncCount: this.resyncCount,
     };
   }
 
@@ -698,82 +860,14 @@ export class V2NetworkClient {
   }
 
   /**
-   * Apply knockback impulse to local predicted state (client-side prediction).
-   * Called when client detects self-damage — provides immediate KB feedback
-   * without waiting for server snapshot confirmation.
-   *
-   * Uses same formula as server CombatSystem.processDamage():
-   * 1. Stun: strip horizontal speed proportional to damage
-   * 2. KB: push in direction with upward bias
-   *
-   * @param damage - Final damage amount
-   * @param dir - Knockback direction (from explosion/shot to victim)
-   * @param kbScale - Weapon's knockback scale
-   * @param isSelf - Whether this is self-inflicted damage
+   * Advance knockback drag by one simulated step, BEFORE that step's movement.
+   * Shared with the server, so identical velocity, grounded state and age give
+   * identical drag. A landing or the end of the window ends it; only a snapshot
+   * can start one.
    */
-  applyKnockback(damage: number, dir: { x: number; y: number; z: number }, kbScale: number, isSelf: boolean): void {
-    const vel = this.localState.velocity;
-
-    // 1. STUN — strip horizontal speed (same as server)
-    const stunFraction = Math.min(damage / 100, 0.8);
-    vel.x *= 1 - stunFraction;
-    vel.z *= 1 - stunFraction;
-
-    // 2. KNOCKBACK — direction with upward bias
-    const kbDir = { x: dir.x, y: Math.max(dir.y, 0.4), z: dir.z };
-    const len = Math.sqrt(kbDir.x * kbDir.x + kbDir.y * kbDir.y + kbDir.z * kbDir.z);
-    if (len > 0.001) {
-      kbDir.x /= len;
-      kbDir.y /= len;
-      kbDir.z /= len;
-    }
-
-    const selfMult = isSelf ? 1.2 : 1.0;
-    const force = damage * kbScale * selfMult;
-
-    vel.x += kbDir.x * force;
-    vel.y += kbDir.y * force;
-    vel.z += kbDir.z * force;
-
-    // 3. Reset grounded so movement sim doesn't friction-cancel the impulse
-    this.localState.grounded = false;
-    this.movement.resetPhysicsState(false);
-
-    // 4. Start KB air drag timer
-    this.kbTickCounter = 0;
-  }
-
-  /**
-   * Apply Warsow-style KB air drag (must match server FPSMovementSubsystem).
-   * After a free-fly window, smoothly decays horizontal velocity and
-   * adds extra gravity so players arc down instead of floating.
-   * Called once per tick during both live prediction and reconciliation replay.
-   */
-  private applyKBDrag(velocity: Vec3, grounded: boolean): void {
-    if (this.kbTickCounter < 0) return; // No active KB
-
-    this.kbTickCounter++;
-
-    // Landing or expired → cancel drag
-    if (grounded || this.kbTickCounter > KB_DRAG_DELAY_TICKS + KB_DRAG_RAMP_TICKS) {
-      this.kbTickCounter = -1;
-      return;
-    }
-
-    // Still in free-fly window
-    if (this.kbTickCounter < KB_DRAG_DELAY_TICKS) return;
-
-    // Drag phase: ramp 0→1 over KB_DRAG_RAMP_TICKS
-    const dragT = (this.kbTickCounter - KB_DRAG_DELAY_TICKS) / KB_DRAG_RAMP_TICKS;
-    const dragStrength = dragT * dragT; // Quadratic ease-in
-
-    // Horizontal drag
-    const horizMult = 1.0 - dragStrength * (1.0 - KB_HORIZ_DRAG);
-    velocity.x *= horizMult;
-    velocity.z *= horizMult;
-
-    // Extra downward pull
-    velocity.y -= KB_EXTRA_GRAVITY * dragStrength * this.dt;
+  private stepKnockback(): void {
+    if (this.kbAge === null) return;
+    this.kbAge = applyKnockbackDrag(this.localState.velocity, this.localState.grounded, this.kbAge + 1, this.dt);
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -788,9 +882,12 @@ export class V2NetworkClient {
       direction: input.direction,
       viewAngles: { pitch: input.pitch, yaw: input.yaw },
       buttons: input.buttons,
-      // Sequence drives the profile's sim clock — replays with the same seq
-      // recompute the same slide/walljump/ledge timelines (no double-advance)
       sequence: seq,
+      // One command is one client step, and a replay re-simulates the same
+      // command, so the sequence is also a valid step index here — replays
+      // recompute the same slide/walljump/ledge timelines instead of advancing
+      // them again. The server counts ticks instead; see MovementInput.simStep.
+      simStep: seq,
       isPressed: (btn: number) => (input.buttons & btn) !== 0,
     };
   }
@@ -801,6 +898,7 @@ export class V2NetworkClient {
       viewAngles: { pitch: stored.pitch, yaw: stored.yaw },
       buttons: stored.buttons,
       sequence: stored.seq,
+      simStep: stored.seq,
       isPressed: (btn: number) => (stored.buttons & btn) !== 0,
     };
   }

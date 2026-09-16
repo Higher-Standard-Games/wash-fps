@@ -9,10 +9,7 @@
  * commands and fps commands are wired up.
  */
 
-import type {
-  NetworkConnector,
-  NetworkConnectOptions,
-} from "../../../engine/ui/components/NetworkConnector";
+import type { NetworkConnectOptions, NetworkConnector } from "../../../engine/ui/components/NetworkConnector";
 import { Game } from "../Game";
 
 export const fpsNetworkConnector: NetworkConnector = {

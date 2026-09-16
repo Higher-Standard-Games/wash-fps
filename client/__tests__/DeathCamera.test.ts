@@ -1,4 +1,4 @@
-import { Ray } from "@babylonjs/core/Culling/ray";
+import type { Ray } from "@babylonjs/core/Culling/ray";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { Scene } from "@babylonjs/core/scene";
 import { describe, expect, it } from "vitest";

@@ -21,6 +21,7 @@ import { Contents } from "../../../../shared/collision/CollisionWorld";
 import type { QueuedInput } from "../../../../shared/server/simulation/components/InputComponent";
 import type { PhysicsComponent } from "../../../../shared/server/simulation/components/PhysicsComponent";
 import type { WaterLevel } from "../../liquid/LiquidTypes";
+import { applyKnockbackDrag } from "../../simulation/Knockback";
 import type { AdvancedMovementResult } from "../../simulation/MovementConfig";
 import { MovementProfile as FPSMovementProfile } from "../../simulation/MovementProfile";
 import { type CombatSystem, DamageType, HitLocation } from "./CombatSystem";
@@ -38,14 +39,17 @@ const CONFIG: SubsystemConfig = {
  * Uses the stored buttons bitmask directly so ALL button flags
  * (including SPRINT) are correctly passed through to simulate().
  */
-function adaptInput(input: {
-  forward: number; // World-space Z component (= direction.z from client)
-  right: number; // World-space X component (= direction.x from client)
-  pitch: number;
-  yaw: number;
-  buttons: number; // Raw button bitmask from client
-  sequence?: number; // Client command seq — drives the profile's sim clock
-}): MovementInput {
+function adaptInput(
+  input: {
+    forward: number; // World-space Z component (= direction.z from client)
+    right: number; // World-space X component (= direction.x from client)
+    pitch: number;
+    yaw: number;
+    buttons: number; // Raw button bitmask from client
+    sequence?: number; // Client command seq — command identity, not sim time
+  },
+  simStep: number,
+): MovementInput {
   // Server receives world-space direction from client:
   // input.forward = command.direction.z
   // input.right = command.direction.x
@@ -60,11 +64,13 @@ function adaptInput(input: {
     direction: { x: wishX, y: 0, z: wishZ },
     viewAngles: { pitch: input.pitch, yaw: input.yaw },
     buttons,
-    // Same seq-derived sim clock as client prediction: 1 seq = one fixed-dt
-    // step (the fixed-rate tick model consumes exactly one command per tick),
-    // so slide/walljump/ledge timelines agree between client, server, and
-    // deterministic re-sim.
     sequence: input.sequence,
+    // The effect clock counts server ticks, not command sequences. Physics
+    // advances exactly one dt per tick whether or not a command arrived, so a
+    // starved player's walljump window, slide, ladder cooldown and water jump
+    // have to expire on the same schedule as the gravity pulling them down
+    // (N04). A repeated command reuses its sequence; it never reuses a step.
+    simStep: simStep,
     isPressed: (button: number) => (buttons & button) !== 0,
   };
 }
@@ -130,22 +136,6 @@ const PLAYER_SEPARATION_BOUNDS = {
 };
 const PLAYER_SEPARATION_COLLISION_EPSILON = 0.02;
 
-// ═══════════════════════════════════════════════════════════════════
-// KNOCKBACK AIR DRAG CONSTANTS (Warsow-style)
-// ═══════════════════════════════════════════════════════════════════
-
-/** Ticks after KB before drag kicks in (~0.4s at 125Hz) */
-const KB_DRAG_DELAY_TICKS = 50;
-
-/** Duration over which drag ramps from 0→max (~0.6s at 125Hz) */
-const KB_DRAG_RAMP_TICKS = 75;
-
-/** Max per-tick horizontal speed multiplier during full drag (0.96 = loses ~4%/tick) */
-const KB_HORIZ_DRAG = 0.96;
-
-/** Extra downward acceleration during drag phase (units/s²) */
-const KB_EXTRA_GRAVITY = 600;
-
 export class FPSMovementSubsystem extends Subsystem {
   private collisionWorld: CollisionWorld | null = null;
 
@@ -163,6 +153,13 @@ export class FPSMovementSubsystem extends Subsystem {
 
   /** Last tick each entity received knockback (for air drag timing) */
   private lastKBTick: Map<number, number> = new Map();
+  private lastMovementTick = 0;
+
+  /** Age AFTER the last simulated step (Simulation's published tick is one later). */
+  getKnockbackAge(entityId: number): number | null {
+    const start = this.lastKBTick.get(entityId);
+    return start === undefined ? null : this.lastMovementTick - start;
+  }
 
   /** Per-entity speed bonus from weapon (e.g., +25 for blade) */
   private weaponSpeedBonuses: Map<number, number> = new Map();
@@ -547,6 +544,7 @@ export class FPSMovementSubsystem extends Subsystem {
 
   update(state: WorldState, dt: number, tick: TickNumber): void {
     const tickNum = tick as number;
+    this.lastMovementTick = tickNum;
     // Track KB'd entities for post-simulate debug logging
     const kbEntities = new Set<number>();
 
@@ -611,46 +609,18 @@ export class FPSMovementSubsystem extends Subsystem {
       this.pendingMeleeDashes = [];
     }
 
-    // === KNOCKBACK AIR DRAG (Warsow-style) ===
+    // === KNOCKBACK AIR DRAG ===
     // After a free-fly window, smoothly decay horizontal velocity
     // and add extra gravity so players arc down instead of floating.
     for (const [entityId, kbTick] of this.lastKBTick) {
       const ent = state.getEntityMut(entityId as unknown as EntityId);
       if (!ent?.physics) continue;
 
-      // Landing cancels drag
-      if (ent.physics.grounded || ent.health?.dead) {
+      const age = tickNum - kbTick;
+      if (ent.health?.dead || applyKnockbackDrag(ent.physics.velocity, ent.physics.grounded, age, dt) === null) {
         this.lastKBTick.delete(entityId);
-        continue;
       }
-
-      const elapsed = tickNum - kbTick;
-
-      // Expired (past delay + ramp window)
-      if (elapsed > KB_DRAG_DELAY_TICKS + KB_DRAG_RAMP_TICKS) {
-        this.lastKBTick.delete(entityId);
-        continue;
-      }
-
-      // Still in free-fly window
-      if (elapsed < KB_DRAG_DELAY_TICKS) continue;
-
-      // Drag phase: ramp 0→1 over KB_DRAG_RAMP_TICKS
-      const dragT = (elapsed - KB_DRAG_DELAY_TICKS) / KB_DRAG_RAMP_TICKS;
-      // Smooth ease-in (quadratic)
-      const dragStrength = dragT * dragT;
-
-      const vel = ent.physics.velocity;
-
-      // Horizontal drag: lerp multiplier from 1.0 → KB_HORIZ_DRAG
-      const horizMult = 1.0 - dragStrength * (1.0 - KB_HORIZ_DRAG);
-      vel.x *= horizMult;
-      vel.z *= horizMult;
-
-      // Extra downward pull (increases with drag strength)
-      vel.y -= KB_EXTRA_GRAVITY * dragStrength * dt;
     }
-
     // Process all player entities
     // Advance shared map movers ONCE per world tick, with all live riders.
     // Position references are obtained through COW before a lift can carry them.
@@ -728,7 +698,26 @@ export class FPSMovementSubsystem extends Subsystem {
       // Cap the buffer: a client sending faster than the tick rate can't hoard
       // commands to gain extra physics later — keep the newest, drop old excess.
       if (queue.length > FPSMovementSubsystem.MAX_INPUT_BUFFER) {
-        queue.splice(0, queue.length - FPSMovementSubsystem.MAX_INPUT_BUFFER);
+        const dropped = queue.splice(0, queue.length - FPSMovementSubsystem.MAX_INPUT_BUFFER);
+
+        // A dropped command forfeits its physics — that is the whole point, and
+        // it is what stops a flooding client banking time. It must not forfeit
+        // a one-shot INTENT that no later command repeats. A frame hitch makes
+        // the client emit a burst, and a weapon switch rides only the first of
+        // them, so capping the queue silently threw the switch away and the
+        // player kept firing the old gun (N10).
+        //
+        // Carrying the request forward costs no extra physics step: it rides
+        // the oldest surviving command rather than adding one. Only the newest
+        // request survives, and only when nothing newer already asks for a
+        // different weapon — the player's last word wins either way.
+        let requested = 0;
+        for (const cmd of dropped) {
+          if (cmd.weaponSlot > 0) requested = cmd.weaponSlot;
+        }
+        if (requested > 0 && queue.length > 0 && queue[0].weaponSlot === 0) {
+          queue[0] = { ...queue[0], weaponSlot: requested };
+        }
       }
 
       // Consume one command this tick (FIFO); fall back to the last one we used.
@@ -769,7 +758,13 @@ export class FPSMovementSubsystem extends Subsystem {
       const px = transform.position.x;
       const py = transform.position.y;
       const pz = transform.position.z;
-      const result = profile.simulate(transform.position, physics.velocity, adaptInput(input), dt, this.collisionWorld);
+      const result = profile.simulate(
+        transform.position,
+        physics.velocity,
+        adaptInput(input, tickNum),
+        dt,
+        this.collisionWorld,
+      );
       applyResult(transform, physics, result, input);
 
       if (result.teleported) {

@@ -37,6 +37,12 @@ export interface ClientInfo {
   entityId: EntityId;
   /** Player display name from join message */
   playerName: string;
+  /**
+   * Secret this client presents to take its seat back after a drop. Held by
+   * SuspendedSessions for the grace period; unguessable, so nobody else can
+   * claim the session.
+   */
+  resumeToken: string;
   /** Last processed input sequence (for reconciliation) */
   lastInputSeq: number;
   /** Last snapshot tick the client has acknowledged receiving (for delta compression) */
@@ -55,8 +61,10 @@ export interface ClientInfo {
   lastChatMs?: number;
   /** Accepted chat timestamps inside the burst window (sliding). */
   chatStamps?: number[];
-  /** The actual filtered GameState last sent to this client (PVS baseline) */
-  lastSentState?: GameState;
+  /** Actual per-client snapshots, indexed by tick; only ACKed entries are baselines. */
+  sentSnapshots?: Map<number, GameState>;
+  /** Successful sends since the last full snapshot (bounded recovery interval). */
+  snapshotsSinceFull?: number;
   /** true = spectating (no entity in simulation), false = playing */
   isSpectator: boolean;
   /** true = AI bot client (from the bot server), false = human. Used to gate

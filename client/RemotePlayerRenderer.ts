@@ -420,6 +420,12 @@ export class RemotePlayerRenderer {
    * @param serverLocalTime Optional server timestamp converted to local time via ClockSync
    */
   pushSnapshot(state: GameState, localEntityId: string, serverLocalTime?: number): void {
+    // The buffer owns freshness: a stale or duplicate tick must not roll the
+    // roster or respawn bookkeeping back either, so nothing is applied until
+    // the snapshot has been accepted.
+    const entities = this.extractEntities(state, localEntityId);
+    if (!this.snapshotBuffer.push(state.tick, entities, serverLocalTime)) return;
+
     // Track team per entity for team-colored models (keyed by client entityId)
     for (const player of state.players.values()) {
       this.teams.set(player.entityId, player.team || "ffa");
@@ -428,9 +434,25 @@ export class RemotePlayerRenderer {
       if (player.entityId === localEntityId) this.localTeam = player.team || null;
     }
 
-    const entities = this.extractEntities(state, localEntityId);
-    this.snapshotBuffer.push(state.tick, entities, serverLocalTime);
     this.clearRespawnedEntities(entities);
+  }
+
+  /**
+   * Start a new connection's presentation state.
+   *
+   * The renderer outlives a session, so everything keyed by entity id has to go:
+   * a new server hands the same ids to different people, and a body left dead,
+   * on the wrong team, or bracketed against its predecessor's position would
+   * render that mix-up. Bodies themselves need no explicit removal — render()
+   * drops every hitbox missing from the (now empty) buffer on the next frame.
+   */
+  resetSession(): void {
+    this.snapshotBuffer.reset();
+    this.deadEntities.clear();
+    this.teams.clear();
+    this.localTeam = null;
+    this._hiddenEntityId = null;
+    this._lastAnimLog.clear();
   }
 
   /** Push a full recorded frame into the deterministic demo timeline. */
