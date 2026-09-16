@@ -19,6 +19,7 @@ import { LagCompensation } from "@engine/server/lagcomp/LagCompensation";
 import type { ClientConnection, Transport, TransportConfig } from "@engine/server/network/transport/WebSocketTransport";
 import { WebSocketServerTransport } from "@engine/server/network/transport/WebSocketTransport";
 import type { Vec3 } from "@shared/server/simulation/types";
+import { log } from "../../../engine/core/Log";
 import type { BspEntity, BspModel } from "../../../engine/loader/bsp/BspLoader";
 // Protocol (client-compatible)
 import { MessageCodec, MessageType } from "../../../engine/network/protocol/MessageCodec";
@@ -37,6 +38,7 @@ import { nextAckedTick, rateLimited } from "./AuthorityGuards";
 import { getNextBotName } from "./BotNames";
 // Client types (shared with SnapshotBuilder, SnapshotBroadcaster)
 import type { ClientInfo, GameServerConfig } from "./Client";
+import { ClientSilenceMonitor } from "./ClientSilenceMonitor";
 // Demo recording
 import { DemoRecorder } from "./DemoRecorder";
 import type { AwardEvent } from "./gametypes/AwardTracker";
@@ -50,6 +52,7 @@ import { createServerTiming, type ServerTiming } from "./ServerTiming";
 import { SnapshotBroadcaster } from "./SnapshotBroadcaster";
 // Snapshot building (extracted from this file)
 import { buildSnapshot, type SnapshotContext } from "./SnapshotBuilder";
+import { SuspendedSessions } from "./SuspendedSessions";
 import { CombatSystem } from "./systems/CombatSystem";
 import { DroppedWeaponSystem } from "./systems/DroppedWeaponSystem";
 // Subsystems
@@ -109,6 +112,11 @@ export class GameServer {
   private diagLastLog: number = 0;
   private diagTickCount: number = 0;
   private diagMaxTickMs: number = 0;
+  /** Names playing clients whose messages stop while their connection stays open. */
+  private readonly silenceMonitor = new ClientSilenceMonitor();
+  private silenceCheckedAt = 0;
+  /** Seats kept for clients whose connection dropped, until their grace runs out. */
+  private readonly suspended = new SuspendedSessions<ClientInfo>(20000);
   /** Clients that need initial pickup state sync (pickups deactivated before they joined) */
   private needsPickupSync: Set<string> = new Set();
   /** Bot player ID → display name */
@@ -622,28 +630,85 @@ export class GameServer {
     this.tickTimer = setTimeout(() => {
       if (!this.running) return;
 
-      // Run every tick whose deadline has passed (catch up after jitter/stalls),
-      // capped to avoid a spiral of death if the event loop fell far behind.
-      const MAX_CATCHUP = 5;
-      let ran = 0;
-      while (performance.now() >= this.nextTickAt && ran < MAX_CATCHUP) {
-        const t0 = performance.now();
-        this.tick();
-        this.diagMaxTickMs = Math.max(this.diagMaxTickMs, performance.now() - t0);
-        this.diagTickCount++;
-        this.nextTickAt += tickMs;
-        ran++;
-      }
+      try {
+        // Run every tick whose deadline has passed (catch up after jitter/stalls),
+        // capped to avoid a spiral of death if the event loop fell far behind.
+        const MAX_CATCHUP = 5;
+        let ran = 0;
+        while (performance.now() >= this.nextTickAt && ran < MAX_CATCHUP) {
+          const t0 = performance.now();
+          this.tick();
+          this.diagMaxTickMs = Math.max(this.diagMaxTickMs, performance.now() - t0);
+          this.diagTickCount++;
+          this.nextTickAt += tickMs;
+          ran++;
+        }
 
-      // If still behind after the catch-up cap, we hit a real stall — resync the
-      // deadline to now (drop the lost game time) rather than spiral.
-      if (performance.now() - this.nextTickAt > tickMs) {
-        this.nextTickAt = performance.now() + tickMs;
-      }
+        // If still behind after the catch-up cap, we hit a real stall — resync the
+        // deadline to now (drop the lost game time) rather than spiral.
+        if (performance.now() - this.nextTickAt > tickMs) {
+          this.nextTickAt = performance.now() + tickMs;
+        }
 
-      this.logTickRateDiagnostic();
-      this.scheduleNextTick();
+        this.logTickRateDiagnostic();
+        this.checkClientSilence();
+        this.expireSuspendedSessions();
+      } catch (err) {
+        // Anything thrown here would otherwise take the timer with it: no next
+        // tick is ever scheduled, so the server stops simulating while its
+        // sockets stay open — players hang in a world frozen where it stood,
+        // with nothing further logged. Say what happened and keep ticking.
+        log.errorRateLimited("GameServer", "Tick failed, the loop continues:", err);
+      } finally {
+        this.scheduleNextTick();
+      }
     }, delay);
+  }
+
+  /**
+   * Release seats whose owner never came back. Only now does the drop become a
+   * real departure: the entity leaves the world, the gametype is told, and the
+   * challengers queue may promote someone into the slot.
+   */
+  private expireSuspendedSessions(): void {
+    for (const client of this.suspended.expired(Date.now())) {
+      console.log(
+        `[GameServer] Player ${client.playerId} "${client.playerName}" did not return within ${(this.suspended.graceMs / 1000).toFixed(0)}s`,
+      );
+      this.clients.set(client.id, client);
+      this.handleDisconnect(client.connection, "did not resume", false);
+    }
+  }
+
+  /**
+   * Name a playing client whose messages have stopped arriving while its
+   * connection stays open, and say when it is heard from again. Spectators are
+   * left out: a client that has just connected sends nothing while it builds the map.
+   */
+  private checkClientSilence(): void {
+    const now = Date.now();
+    if (now - this.silenceCheckedAt < 500) return;
+    this.silenceCheckedAt = now;
+
+    // Only a client with a live connection has traffic to miss.
+    const connections = [...this.clients.values()]
+      .filter((client) => !client.isSpectator)
+      .map((client) => client.connection)
+      .filter((conn) => conn !== undefined);
+    const { stalled, resumed } = this.silenceMonitor.check(connections, now);
+    const describe = (id: string) => {
+      const client = this.clients.get(id);
+      if (!client) return id;
+      return `player ${client.playerId} "${client.playerName}"${client.isBot ? " (bot)" : ""} on ${id}`;
+    };
+    for (const { id, silentMs } of stalled) {
+      console.warn(
+        `[GameServer] No messages from ${describe(id)} for ${(silentMs / 1000).toFixed(1)}s: its inputs and acks are not arriving, though its connection is open`,
+      );
+    }
+    for (const { id, silentMs } of resumed) {
+      console.warn(`[GameServer] Messages from ${describe(id)} resumed after ${(silentMs / 1000).toFixed(1)}s`);
+    }
   }
 
   /** Log actual wall-clock tick rate every ~5s so timing regressions are visible. */
@@ -846,12 +911,33 @@ export class GameServer {
     console.log(`[GameServer] WebSocket connected: ${conn.id}`);
   }
 
-  private handleDisconnect(conn: ClientConnection, reason: string): void {
+  /** @param holdSeat False once the grace has passed: the drop is now a departure. */
+  private handleDisconnect(conn: ClientConnection, reason: string, holdSeat = true): void {
     const client = this.clients.get(conn.id);
     if (!client) return;
 
-    // Only remove entity and game state if client was actually playing
-    if (!client.isSpectator) {
+    // A playing human's seat is held rather than cleared: most drops are a
+    // stalled link the client reopens within seconds, and clearing it would cost
+    // them their entity, score and slot for a hiccup. The entity stays in the
+    // world, standing still, until they resume or the grace runs out. Bots have
+    // nothing to come back to, and a spectator holds nothing worth keeping.
+    // Once the match is over the server closes connections on purpose and players
+    // go back to the lobby. Holding seats then would keep a finished server alive
+    // and delay the demo it owes them.
+    const matchOver = this.gametypeController.getPhase() === MatchPhase.PostGame;
+    const seatHeld = holdSeat && !matchOver && !client.isSpectator && !client.isBot;
+
+    if (seatHeld) {
+      // The player is not gone, only unreachable: the entity stays in the world
+      // and the gametype keeps their score and slot until they resume or the
+      // grace runs out. Only what belongs to the dead connection is released.
+      this.suspended.suspend(client, Date.now());
+      this.movementValidator.removeClient(client.playerId);
+      this.telemetry.remove(client.playerId);
+      console.log(
+        `[GameServer] Player ${client.playerId} "${client.playerName}" dropped (${reason}) — seat held for ${(this.suspended.graceMs / 1000).toFixed(0)}s`,
+      );
+    } else if (!client.isSpectator) {
       // Remove player entity
       const state = this.simulation.getStateMut();
       state.removeEntity(client.entityId);
@@ -877,14 +963,19 @@ export class GameServer {
       `[GameServer] Player ${client.playerId} disconnected (${client.isSpectator ? "spectator" : "player"}): ${reason} (${this.clients.size}/${this.config.maxClients})`,
     );
 
-    // If a playing client disconnected, try to promote from queue
-    if (!client.isSpectator) {
+    // If a playing client disconnected, try to promote from queue. A held seat is
+    // not free: giving it away would leave its owner nothing to resume into.
+    if (!client.isSpectator && !seatHeld) {
       this.processQueue();
     }
 
     // Count remaining human (non-bot) players. Bots left alone must not keep a
     // match — or its demo recording — alive, which was flooding the demo archive
     // with 10-minute bot-only recordings.
+    // Held seats are deliberately NOT counted here. Recording a demo is "play,
+    // then leave": the file is owed as soon as the last player's connection goes,
+    // rather than a grace period later. Auto-shutdown below does count them — a
+    // server whose player is mid-resume must still be there to come back to.
     const humansPlaying = [...this.clients.values()].some((c) => !c.isSpectator && !c.isBot);
 
     // Save-on-leave: finalize any active demo recording as soon as the last
@@ -897,7 +988,7 @@ export class GameServer {
 
     // Auto-shutdown (lobby-spawned mode) when no humans remain — even if bots are
     // still connected — so a lone/bot-only match tears down instead of idling.
-    const humansConnected = [...this.clients.values()].some((c) => !c.isBot);
+    const humansConnected = [...this.clients.values(), ...this.suspended.clients()].some((c) => !c.isBot);
     if (this.config.shutdownOnEmpty && this.hasHadClients && !humansConnected) {
       console.log("[GameServer] No human clients remaining — shutting down in 5 seconds...");
       this.shutdownTimer = setTimeout(() => {
@@ -958,6 +1049,13 @@ export class GameServer {
       if (msgType === MessageType.Join) {
         this.msgCounts.join++;
         this.handleJoin(conn, data);
+        return;
+      }
+
+      // A client whose connection dropped claims the seat still held for it.
+      if (msgType === MessageType.Resume) {
+        this.msgCounts.join++;
+        this.handleResume(conn, data);
         return;
       }
 
@@ -1180,6 +1278,9 @@ export class GameServer {
         playerId: pid,
         entityId: eid,
         playerName: playerName || `Player ${pid}`,
+        // The seat this client can take back after a drop. Unguessable, so only
+        // the client it was handed to can claim the session.
+        resumeToken: crypto.randomUUID(),
         lastInputSeq: 0,
         lastAckedTick: 0,
         ping: 0, // until the first ack is timed
@@ -1195,8 +1296,50 @@ export class GameServer {
 
     this.sendWelcome(client);
     this.sendJoinAccept(client);
+    // The seat to come back to if this connection drops, and how long it is held.
+    client.connection.sendReliable(MessageCodec.encodeResumeToken(client.resumeToken, this.suspended.graceMs));
 
     // Mark client for initial pickup state sync
+    this.needsPickupSync.add(client.id);
+  }
+
+  /**
+   * handleResume — a dropped client takes back the seat held for it.
+   *
+   * Everything that belonged to the old socket is reset: the snapshot history and
+   * its acknowledged tick (so the next snapshot is a full one), and the input
+   * sequence, because a reconnected client counts its commands from the start
+   * again. Everything that belongs to the player — entity, score, weapons, team —
+   * is exactly as they left it.
+   */
+  private handleResume(conn: ClientConnection, data: Uint8Array): void {
+    const { token } = MessageCodec.decodeResume(data);
+    const client = this.suspended.take(token);
+    if (!client) {
+      console.log(`[GameServer] Resume refused: no seat is held for that token`);
+      conn.sendReliable(MessageCodec.encodeServerMessage("Your session has expired — rejoin from the lobby.", "error"));
+      return;
+    }
+
+    client.connection.close("resumed on another connection");
+    client.id = conn.id;
+    client.connection = conn;
+    client.sentSnapshots?.clear();
+    client.lastAckedTick = 0;
+    client.snapshotsSinceFull = 0;
+    client.lastInputSeq = 0;
+    this.clients.set(conn.id, client);
+    this.refreshHumanClientCount();
+
+    if (!client.isSpectator) {
+      this.movementValidator.addClient(client.playerId);
+      this.telemetry.add(client.playerId);
+    }
+
+    console.log(`[GameServer] Player ${client.playerId} "${client.playerName}" resumed on ${conn.id}`);
+    this.sendWelcome(client);
+    this.sendJoinAccept(client);
+    conn.sendReliable(MessageCodec.encodeResumeToken(client.resumeToken, this.suspended.graceMs));
     this.needsPickupSync.add(client.id);
   }
 

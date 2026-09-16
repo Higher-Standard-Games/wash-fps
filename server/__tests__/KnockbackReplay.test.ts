@@ -60,7 +60,7 @@ const idle = (sequence: number): QueuedInput => ({
  * No collision world, so the body falls freely and only expiry — or a landing
  * forced onto the server entity — ends the drag.
  */
-function authority(steps: number, opts: { impulseAt?: number; landAt?: number } = {}): Truth[] {
+function authority(steps: number, opts: { impulseAt?: number; impulseAts?: number[]; landAt?: number } = {}): Truth[] {
   const sim = new Simulation({ tickMs: 8 });
   const movement = new FPSMovementSubsystem();
   sim.addSubsystem(movement);
@@ -86,8 +86,8 @@ function authority(steps: number, opts: { impulseAt?: number; landAt?: number } 
   for (let seq = 1; seq <= steps; seq++) {
     const e = sim.getStateMut().getEntityMut(id)!;
     e.input!.inputQueue.push(idle(seq));
-    if (seq === opts.impulseAt) {
-      movement.queueImpulse({ entityId: id, dirX: 0.8, dirY: 0.6, dirZ: 0, force: 600, stunFraction: 0 });
+    for (const _at of (opts.impulseAts ?? [opts.impulseAt]).filter((at) => seq === at)) {
+      movement.queueImpulse({ entityId: id, dirX: 0.8, dirY: 0.6, dirZ: 0, force: 600, stunFraction: 0.2 });
     }
     if (seq === opts.landAt) e.physics!.grounded = true;
     sim.tick();
@@ -123,7 +123,10 @@ interface Reconcile {
  * steps against authority `lag` steps back. Error is read straight after each
  * reconcile, against authority at the step the client has predicted to.
  */
-function predict(truth: Truth[], opts: { every: number; lag: number; replicateAge: boolean }): Reconcile[] {
+function predict(
+  truth: Truth[],
+  opts: { every: number; lag: number; replicateAge: boolean; dropAt?: number[] },
+): Reconcile[] {
   const v2 = new V2NetworkClient({ tickRate: 125 });
   v2.bufferSnapshot(snapshotOf(truth, 0, opts.replicateAge));
   v2.processBufferedSnapshots();
@@ -132,7 +135,7 @@ function predict(truth: Truth[], opts: { every: number; lag: number; replicateAg
   for (let step = 1; step < truth.length; step++) {
     v2.processInput({ direction: { x: 0, y: 0, z: 0 }, pitch: 0, yaw: 0, buttons: 0, clientTick: step });
     const ack = step - opts.lag;
-    if (step % opts.every !== 0 || ack < 1) continue;
+    if (step % opts.every !== 0 || ack < 1 || opts.dropAt?.includes(step)) continue;
     v2.bufferSnapshot(snapshotOf(truth, ack, opts.replicateAge));
     v2.processBufferedSnapshots();
     out.push({
@@ -178,6 +181,87 @@ describe("Knockback drag survives reconciliation", () => {
     const truth = authority(STEPS, { impulseAt: IMPULSE_AT });
     const runs = predict(truth, { ...cadence, replicateAge: false }).filter(knowable(IMPULSE_AT));
     expect(Math.max(...runs.map((r) => r.velocity))).toBeGreaterThan(1);
+  });
+
+  it("restarts drag for successive and simultaneous impulses without doubling their velocity", () => {
+    const impulses = [20, 85, 85, 110];
+    const truth = authority(280, { impulseAts: impulses });
+    const runs = predict(truth, { ...cadence, replicateAge: true }).filter((r) =>
+      impulses.every((at) => knowable(at)(r)),
+    );
+    expect(truth[85].age).toBe(0);
+    expect(truth[110].age).toBe(0);
+    expect(runs.some((r) => r.ack > 160 && r.ackAge !== null)).toBe(true);
+    for (const r of runs) {
+      expect(r.position, `position at step ${r.step}`).toBe(0);
+      expect(r.velocity, `velocity at step ${r.step}`).toBe(0);
+    }
+  });
+
+  it("recovers after losing the first impulse and cancellation snapshots", () => {
+    const landAt = 90;
+    const truth = authority(140, { impulseAt: IMPULSE_AT, landAt });
+    const runs = predict(truth, { ...cadence, replicateAge: true, dropAt: [32, 104] }).filter(
+      (r) => knowable(IMPULSE_AT)(r) && knowable(landAt)(r),
+    );
+    expect(runs.some((r) => r.ackAge !== null)).toBe(true);
+    expect(runs.some((r) => r.ack >= landAt && r.ackAge === null)).toBe(true);
+    for (const r of runs) {
+      expect(r.position, `position at step ${r.step}`).toBe(0);
+      expect(r.velocity, `velocity at step ${r.step}`).toBe(0);
+    }
+  });
+
+  it("clears drag on reset so a new life does not inherit an old impulse", () => {
+    const client = new V2NetworkClient({ tickRate: 125 });
+    client.bufferSnapshot({
+      tick: 100,
+      ackedInputSeq: 0,
+      position: { x: 0, y: 5000, z: 0 },
+      velocity: { x: 300, y: 200, z: 0 },
+      grounded: false,
+      knockbackAgeTicks: 100,
+    });
+    client.processBufferedSnapshots();
+    client.reset({ x: 0, y: 5000, z: 0 });
+    const fresh = new V2NetworkClient({ tickRate: 125 });
+    fresh.reset({ x: 0, y: 5000, z: 0 });
+    const input = { direction: { x: 0, y: 0, z: 0 }, pitch: 0, yaw: 0, buttons: 0, clientTick: 1 };
+    client.processInput(input);
+    fresh.processInput(input);
+    expect(client.getPosition()).toEqual(fresh.getPosition());
+    expect(client.getVelocity()).toEqual(fresh.getVelocity());
+  });
+
+  it("does not preserve cosmetic grounding over a small authoritative launch", () => {
+    const client = new V2NetworkClient({ tickRate: 125 });
+    const seed = {
+      tick: 1,
+      ackedInputSeq: 0,
+      position: { x: 0, y: 5000, z: 0 },
+      velocity: { x: 0, y: 0, z: 0 },
+      grounded: true,
+      knockbackAgeTicks: null,
+    };
+    client.bufferSnapshot(seed);
+    client.processBufferedSnapshots();
+    expect(client.getState().grounded).toBe(true);
+    client.bufferSnapshot({
+      ...seed,
+      tick: 2,
+      position: { x: 0.2, y: 5000.2, z: 0 },
+      velocity: { x: 25, y: 25, z: 0 },
+      grounded: false,
+      knockbackAgeTicks: 0,
+    });
+    client.processBufferedSnapshots();
+    expect(client.getState().grounded).toBe(false);
+    expect(client.getVelocity()).toEqual({ x: 25, y: 25, z: 0 });
+    // A later authoritative landing cancels that impulse; subsequent jumping
+    // must not revive its drag or preserve the old airborne cosmetic flag.
+    client.bufferSnapshot({ ...seed, tick: 3 });
+    client.processBufferedSnapshots();
+    expect(client.getState().grounded).toBe(true);
   });
 
   it("adopts a cancellation it could not have predicted", () => {

@@ -14,6 +14,7 @@ import { PointLight } from "@babylonjs/core/Lights/pointLight";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { CameraSystem } from "../../../engine/camera";
+import { log } from "../../../engine/core/Log";
 import { addToDynamicLightCluster, disposeClusteredLight } from "../../../engine/lighting/DynamicLightCluster";
 import { NetGraph } from "../../../engine/network/client/NetGraph";
 import type { EntitySnapshot, SnapshotBuffer } from "../../../engine/network/client/SnapshotBuffer";
@@ -662,6 +663,10 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
         defIds: ctx.serverProjectileDefIds,
         buffer: ctx.projectileBuffer,
         forgetLiquid: ctx.forgetProjectileLiquid,
+        muzzleForShot:
+          ctx._isPlayerDead || ctx.spectatingEntityId
+            ? undefined
+            : (position, velocity) => getWeaponViewManager().getProjectileMuzzlePosition(position, velocity),
       },
       projectileSLT,
     );
@@ -1119,6 +1124,8 @@ export function handleElectroRail(event: ElectroRailEvent, localHero: boolean, w
  */
 /** Mutable projectile-sync collections, shared by live play and demo playback. */
 export interface ProjectileSyncState {
+  /** Optional first-person presentation; demos/free cameras can omit it. */
+  muzzleForShot?: (position: Vector3, velocity: Vector3) => Vector3 | null;
   /** Server entity ids we've spawned a visual for */
   active: Set<string>;
   /** proj_ entityId → defId (from projectile_spawn events) */
@@ -1167,8 +1174,16 @@ export function processProjectileEntities(state: GameState, sync: ProjectileSync
         }
         const pos = new Vector3(posComp.x, posComp.y, posComp.z);
         const vel = velComp ? new Vector3(velComp.x, velComp.y, velComp.z) : Vector3.Zero();
-        projMgr.spawnFromServer(entityId, defId, pos, vel);
+        const muzzle = sync.muzzleForShot?.(pos, vel);
+        projMgr.spawnFromServer(entityId, defId, pos, vel, muzzle);
         sync.active.add(entityId);
+      } else {
+        // projectile_spawn is sent once, with the projectile's first snapshot,
+        // and names its type. Without it the projectile flies with no model or trail.
+        log.warnRateLimited(
+          "ProjectileSync",
+          `${entityId} is in snapshot ${state.tick} without its projectile_spawn event; it is not drawn`,
+        );
       }
     }
   }

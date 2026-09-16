@@ -5,7 +5,8 @@
  * Dropped weapons are EntityType.Item entities with position + metadata.
  * They can be picked up by other players and despawn after a timeout.
  *
- * Physics: Server runs a simple ballistic arc (gravity + velocity).
+ * Physics: the server steps each drop with the shared item throw
+ * (shared/items/ItemThrow), the same arc map weapons land with.
  * Clients use Havok for visual physics but converge to server position.
  */
 
@@ -16,6 +17,7 @@ import { createDroppedWeaponEntity } from "@engine/server/ecs/Entity";
 import type { EntityId, TickNumber } from "@shared/server/simulation/types";
 import { entityId } from "@shared/server/simulation/types";
 import type { CollisionWorld } from "../../../../engine/network/systems/collision/CollisionWorld";
+import { ITEM_GRAVITY, stepThrownItem } from "../../../../shared/items/ItemThrow";
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -72,13 +74,10 @@ const DESPAWN_TIME = 15;
  */
 const BASE_TICK_RATE = 125;
 
-/** Server gravity for ballistic arc (units/s²) — matches game gravity */
-const DROP_GRAVITY = 800;
-
 /** Offset from player origin Y to estimate the floor Y (Q3: origin is 24 above feet) */
 const PLAYER_ORIGIN_HEIGHT = 24;
 
-/** Velocity magnitude below which we consider it settled */
+/** Velocity magnitude below which the no-collision fallback considers a drop settled */
 const SETTLE_SPEED = 5;
 
 /** Bounce coefficient (energy retained per bounce) */
@@ -218,7 +217,7 @@ export class DroppedWeaponSystem extends Subsystem {
     }
     this.pendingDrops = [];
 
-    // 2. Tick physics for unsettled weapons using BSP collision
+    // 2. Tick physics for unsettled weapons
     for (const [eId, meta] of this.droppedWeapons) {
       if (meta.settled) continue;
 
@@ -228,41 +227,14 @@ export class DroppedWeaponSystem extends Subsystem {
       const pos = entity.transform.position;
       const vel = meta.velocity;
 
-      // Apply gravity
-      vel.y -= DROP_GRAVITY * this.dt;
-
       if (this.collisionWorld) {
-        // Q3-style stepSlideMove — handles walls, floors, ceilings, step-up
-        // Small AABB for weapon (~8x8x8 units)
-        const bounds = { min: { x: -4, y: -4, z: -4 }, max: { x: 4, y: 4, z: 4 } };
-        const result = this.collisionWorld.stepSlideMove(
-          { x: pos.x, y: pos.y, z: pos.z },
-          { x: vel.x, y: vel.y, z: vel.z },
-          this.dt,
-          bounds,
-        );
-
-        pos.x = result.endPos.x;
-        pos.y = result.endPos.y;
-        pos.z = result.endPos.z;
-        vel.x = result.velocity.x;
-        vel.y = result.velocity.y;
-        vel.z = result.velocity.z;
-
-        // Grounded: apply friction and check settle
-        if (result.grounded) {
-          vel.x *= 0.82;
-          vel.z *= 0.82;
-          const horizSpeed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
-          if (horizSpeed < SETTLE_SPEED && Math.abs(vel.y) < SETTLE_SPEED) {
-            vel.x = 0;
-            vel.y = 0;
-            vel.z = 0;
-            meta.settled = true;
-          }
-        }
+        // The shared item throw: step-slide through BSP collision, ground friction, settling.
+        const item = { position: pos, velocity: vel, settled: false };
+        stepThrownItem(item, this.collisionWorld, this.dt);
+        meta.settled = item.settled;
       } else {
         // Fallback: simple gravity with estimated floor (no BSP)
+        vel.y -= ITEM_GRAVITY * this.dt;
         pos.x += vel.x * this.dt;
         pos.y += vel.y * this.dt;
         pos.z += vel.z * this.dt;

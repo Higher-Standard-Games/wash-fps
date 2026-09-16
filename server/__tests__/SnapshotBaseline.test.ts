@@ -12,6 +12,10 @@ import { GameState } from "../../../../shared/net/GameState";
 import type { ClientInfo } from "../Client";
 import { SnapshotBroadcaster } from "../SnapshotBroadcaster";
 
+vi.mock("../../../../engine/AudioManager", () => ({
+  AudioManager: { getInstance: () => ({ loadPlaylist: () => {} }) },
+}));
+
 afterEach(() => vi.restoreAllMocks());
 
 function snapshot(tick: number, x: number, yaw = 0, grounded = false): GameState {
@@ -294,6 +298,15 @@ describe("NetworkGameHost snapshot acceptance", () => {
       EmptySimulation,
     );
     host.setExternalPrediction(true);
+    const join = async () => {
+      const connecting = host.connect("ws://test", "tester");
+      deliver(MessageCodec.encodeWelcome("s1", "Test", "wdm2", 125, 8, 1));
+      deliver(MessageCodec.encodeJoinAccept("c1", "player_1", "1"));
+      await connecting;
+      host.clockSync.stop();
+      send.mockClear();
+    };
+    await join();
     const published = vi.fn();
     host.onStateUpdate(published);
     const base = snapshot(1, 0);
@@ -316,7 +329,9 @@ describe("NetworkGameHost snapshot acceptance", () => {
     expect(host.currentTick).toBe(4);
     expect(xOf(published.mock.calls[3][0])).toBe(2);
     await host.disconnect();
+    await join();
     deliver(MessageCodec.encodeSnapshot(snapshot(1, 50)));
     expect(host.currentTick).toBe(1);
+    await host.disconnect();
   });
 });

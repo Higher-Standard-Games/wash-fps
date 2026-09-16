@@ -52,6 +52,9 @@ export function createServerTiming(config: { tickRate: number; snapshotRate?: nu
   if (!Number.isInteger(tickRate) || tickRate <= 0) {
     throw new Error(`[ServerTiming] tickRate must be a positive integer, got ${tickRate}`);
   }
+  if (tickRate > 255) {
+    throw new Error(`[ServerTiming] tickRate must fit the Welcome byte (maximum 255Hz), got ${tickRate}`);
+  }
 
   const requestedSnapshotRate = config.snapshotRate ?? 60;
   if (!(requestedSnapshotRate > 0)) {

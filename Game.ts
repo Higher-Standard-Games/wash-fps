@@ -33,6 +33,7 @@ import { waterNeedsLocalReflection } from "../../engine/rendering/water/WaterAct
 import { getProjectileManager } from "../../engine/weapon/ProjectileManager";
 import { getWeaponViewManager } from "../../engine/weapon/WeaponViewManager";
 import { WEAPONS } from "../../shared/entities/definitions/weapons/WeaponsTable";
+import { DEFAULT_PHYSICS_TICK_RATE } from "../../shared/server/simulation/physics/constants";
 import { clientKeyDisplayId, ensureClientKey } from "./ClientEntityKey";
 import { V2NetworkClient } from "./client";
 import { getAmmoStatus } from "./client/AmmoStatus";
@@ -231,6 +232,26 @@ export class Game {
   private _deathCamera: DeathCamera = new DeathCamera();
   /** First-person view of a living teammate, while dead in a round mode. */
   private _eyeCamera: SpectateEyeCamera = new SpectateEyeCamera();
+
+  /**
+   * What owns the camera, for the developer `camera_audit` command.
+   *
+   * `localEntityId` is the one to read. Every combat_state branch that clears
+   * the death flag is gated on it, and it resolves to undefined whenever the
+   * local player is absent from the snapshot's player map — at which point a
+   * death flag can never be cleared and the fallback roll never lifts.
+   */
+  public describeCameraOwnershipForAudit(): string {
+    const match = MatchStateManager.getInstance();
+    const players = this._latestGameState?.players;
+    const localEntityId = players?.get(this.localPlayerId)?.entityId;
+    return (
+      `camera: dead=${this._isPlayerDead} spectating=${this._spectatingEntityId ?? "none"} ` +
+      `round=${match.round} phase=${match.phase} ` +
+      `localPlayerId=${this.localPlayerId || "none"} localEntityId=${localEntityId ?? "UNRESOLVED"} ` +
+      `snapshotPlayers=[${[...(players?.keys() ?? [])].join(", ") || "none"}]`
+    );
+  }
 
   /**
    * Drive the corpse-follow death camera. Called by FPSController at the very end
@@ -675,6 +696,15 @@ export class Game {
     // 4. Force local player to snap to next server position (no interpolation lag)
     this.v2Client?.forceTeleport();
 
+    // 4b. Level the view. The last frame drawn before the tab went away kept the
+    //     couple of degrees of roll that view bob and strafe lean had applied,
+    //     and it stays on screen until the controller runs again — which reads as
+    //     a camera stuck at an angle until you click back in.
+    const fpsController = CameraSystem.getInstance().getController("fps");
+    if (fpsController && "levelView" in fpsController) {
+      (fpsController as { levelView(): void }).levelView();
+    }
+
     // 5. Revalidate textures/materials — GPU may have dropped them while hidden
     //    (async, runs in background — textures pop back in over 1-2 frames)
     this.revalidateAfterTabReturn();
@@ -764,6 +794,10 @@ export class Game {
    * Connects to a dedicated server
    */
   async initializeNetwork(url: string, config: FPSGameConfig = {}): Promise<void> {
+    const tickRate = config.tickRate ?? DEFAULT_PHYSICS_TICK_RATE;
+    if (tickRate !== DEFAULT_PHYSICS_TICK_RATE) {
+      throw new Error(`Unsupported FPS network tick rate: ${tickRate}Hz; requires ${DEFAULT_PHYSICS_TICK_RATE}Hz.`);
+    }
     // Guard against multiple initializations - shutdown first if already running
     if (this.isRunning) {
       this.shutdown();
@@ -783,7 +817,6 @@ export class Game {
     this._preferredTeam = readLobbyTeam() ?? this._preferredTeam;
     console.log(`[Game] Lobby handoff team: ${this._preferredTeam ?? "none"}`);
 
-    const tickRate = config.tickRate ?? 125; // Must match server tick rate (125Hz)
     const maxPlayers = config.maxPlayers ?? 16;
 
     // Create simulation config for client-side prediction
@@ -1169,6 +1202,8 @@ export class Game {
       document.addEventListener("keyup", this._scoreboardKeyUpHandler);
     } catch (error) {
       console.error(`[Game] Failed to connect to ${url}:`, error);
+      this.shutdown();
+      this.v2Client = null;
       throw error;
     }
   }
@@ -1570,6 +1605,9 @@ export class Game {
     if (!this.gameHost || !this.isRunning) {
       return;
     }
+
+    // Prediction must wait for Welcome validation too, including while resuming.
+    if (this.isNetworkMode && this.gameHost.isConnected?.() === false) return;
 
     // Spectators don't send input at all
     if (this.playerState === "spectator") {

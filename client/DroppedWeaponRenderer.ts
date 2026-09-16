@@ -19,6 +19,7 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import type { Scene } from "@babylonjs/core/scene";
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
+import { describeModelRender } from "../../../engine/world/ModelRenderAudit";
 import { EntityRegistry } from "../../../shared/entities/EntityRegistry";
 import { hidePickupPrompt, showPickupPrompt } from "../world/PickupPrompt";
 import { FPS, getActionKeyLabel } from "./FPSActions";
@@ -355,33 +356,7 @@ class DroppedWeaponVisual {
 
   describeModelForAudit(): string {
     if (!this.mesh) return `${this.entityId}:${this.weaponId} source=${this.loadSource} model=NONE`;
-    const meshes = [this.mesh, ...this.mesh.getChildMeshes(false)].filter((mesh) => mesh.getTotalVertices() > 0);
-    let negative = 0;
-    let positive = 0;
-    let zero = 0;
-    let culled = 0;
-    let active = 0;
-    let ready = 0;
-    let enabled = 0;
-    let visible = 0;
-    const activeMeshes = this.scene.getActiveMeshes();
-    for (const mesh of meshes) {
-      const determinant = mesh.computeWorldMatrix(true).determinant();
-      if (determinant < -1e-6) negative++;
-      else if (determinant > 1e-6) positive++;
-      else zero++;
-      if (mesh.material?.backFaceCulling) culled++;
-      if (activeMeshes.contains(mesh)) active++;
-      if (mesh.isReady(true)) ready++;
-      if (mesh.isEnabled()) enabled++;
-      if (mesh.isVisible && mesh.visibility > 0) visible++;
-    }
-    return (
-      `${this.entityId}:${this.weaponId} source=${this.loadSource},meshes=${meshes.length},` +
-      `det(-/+0)=${negative}/${positive}/${zero},active=${active}/${meshes.length},` +
-      `enabled=${enabled}/${meshes.length},visible=${visible}/${meshes.length},` +
-      `ready=${ready}/${meshes.length},backCull=${culled}/${meshes.length}`
-    );
+    return `${this.entityId}:${this.weaponId} source=${this.loadSource},${describeModelRender(this.mesh, this.scene)}`;
   }
 }
 

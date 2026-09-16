@@ -16,6 +16,11 @@
  * WeaponSystem.update touches for hitscan is entitiesByType + transform/input/health.
  */
 
+import { FreeCamera } from "@babylonjs/core/Cameras/freeCamera";
+import { NullEngine } from "@babylonjs/core/Engines/nullEngine";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { Scene } from "@babylonjs/core/scene";
+import type { Entity } from "@engine/server/ecs/Entity";
 import { EntityType } from "@engine/server/ecs/types";
 import { LAG_COMPENSATION } from "@engine/server/lagcomp/config";
 import { LagCompensation } from "@engine/server/lagcomp/LagCompensation";
@@ -249,6 +254,46 @@ describe("WeaponSystem - F3 reload models", () => {
 });
 
 describe("WeaponSystem - fire view origin", () => {
+  it.each([
+    [-0.7, -0.4],
+    [0.7, 0.4],
+    [2.3, -0.6],
+  ])("launches ADS plasma along Babylon camera yaw %s / pitch %s", (yaw, pitch) => {
+    const engine = new NullEngine();
+    const scene = new Scene(engine);
+    const camera = new FreeCamera("aim", Vector3.Zero(), scene);
+    try {
+      camera.rotation.set(pitch, yaw, 0);
+      const expectedDirection = camera.getDirection(Vector3.Forward());
+      const sys = new WeaponSystem();
+      sys.setProjectileSystem({ registerProjectileType: () => {} } as never);
+      sys.initializeWeaponFromLoadout(
+        1 as never,
+        { weapons: ["plasmagun"], ammo: { plasmagun: 50 }, health: 100, armor: 0 } as never,
+      );
+      const shooter = makeShooter(yaw, pitch);
+      shooter.transform.position = { x: 300, y: 80, z: -200 };
+      const spawn = vi.fn<(entity: Entity) => void>();
+      const state = { ...makeState([shooter]), addEntity: spawn };
+      shooter.input.buttons = 1 << 9;
+      sys.update(state as never, 1 / 125, 99 as never);
+      shooter.input.buttons |= FIRE_BUTTON;
+      sys.update(state as never, 1 / 125, 100 as never);
+      expect(spawn).toHaveBeenCalledOnce();
+      const projectile = spawn.mock.calls[0][0];
+      const pos = projectile.transform!.position;
+      const velocity = projectile.physics!.velocity;
+      const expectedOrigin = new Vector3(300, 80 + DEFAULT_VIEWHEIGHT, -200).add(expectedDirection.scale(50));
+      expect(Vector3.Distance(new Vector3(pos.x, pos.y, pos.z), expectedOrigin)).toBeLessThan(0.001);
+      expect(
+        Vector3.Distance(new Vector3(velocity.x, velocity.y, velocity.z).normalize(), expectedDirection),
+      ).toBeLessThan(0.00001);
+    } finally {
+      scene.dispose();
+      engine.dispose();
+    }
+  });
+
   it("emits hitscan fire events from the crouched view height", () => {
     const sys = new WeaponSystem();
     sys.initializeWeaponFromLoadout(1 as never, mgLoadout as never);

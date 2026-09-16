@@ -167,6 +167,8 @@ export class V2NetworkClient {
    * impulses arrive already applied to snapshot velocity.
    */
   private kbAge: number | null = null;
+  /** Server snapshot tick of the last adopted impulse, not a local replay clock. */
+  private authoritativeKnockbackStartTick: number | null = null;
 
   // Cooldown counter for post-grab reconciliation skip.
   // Set to N when grab is active, decrements each reconciliation cycle after grab ends.
@@ -255,6 +257,8 @@ export class V2NetworkClient {
       grounded: false,
     };
     this.inputHistory.clear();
+    this.kbAge = null;
+    this.authoritativeKnockbackStartTick = null;
     console.log("[V2Client] Reset to", position);
   }
 
@@ -423,6 +427,12 @@ export class V2NetworkClient {
     );
 
     let releasedBy: string | null = null;
+    const authoritativeAge = readKnockbackAge(snapshot.knockbackAgeTicks);
+    // Snapshot ticks and published ages advance together, even when input ACKs
+    // stall. Their difference identifies the impulse's server timeline. A new
+    // impulse or cancellation must not wait behind wall/ledge suppression.
+    const knockbackStartTick = authoritativeAge === null ? null : snapshot.tick - authoritativeAge;
+    const knockbackChanged = knockbackStartTick !== this.authoritativeKnockbackStartTick;
     let skipReconcile = (this.grabReconcileSkipCount > 0 || this.wallJumpReconcileSkipCount > 0) && !isFirstSnapshot;
     if (skipReconcile) {
       const now = performance.now();
@@ -430,8 +440,13 @@ export class V2NetworkClient {
       this.maxSuppressedDivergence = Math.max(this.maxSuppressedDivergence, divergence);
       const heldMs = now - this.suppressionStartedAtMs;
 
-      const release =
-        divergence > MAX_SUPPRESSED_DIVERGENCE ? "divergence" : heldMs > MAX_SUPPRESSION_MS ? "timeout" : null;
+      const release = knockbackChanged
+        ? "knockback"
+        : divergence > MAX_SUPPRESSED_DIVERGENCE
+          ? "divergence"
+          : heldMs > MAX_SUPPRESSION_MS
+            ? "timeout"
+            : null;
       if (release) {
         // Take the correction now. Clearing the counters matters as much as the
         // decision: leaving them armed would suppress the very next snapshot
@@ -491,7 +506,8 @@ export class V2NetworkClient {
     this.localState.grounded = snapshot.grounded;
     // Drag age is authoritative state from the same tick as the three above;
     // the replay below advances it once per replayed step.
-    this.kbAge = readKnockbackAge(snapshot.knockbackAgeTicks);
+    this.kbAge = authoritativeAge;
+    this.authoritativeKnockbackStartTick = knockbackStartTick;
 
     // CRITICAL: Also reset FPSMovementProfile's internal grounded state!
     // Without this, the movement profile's isGrounded doesn't match the server,
@@ -561,7 +577,9 @@ export class V2NetworkClient {
     // The client's 125Hz simulation is more accurate for this cosmetic state
     // than the server's 60Hz snapshots, so trust the client when there's
     // nothing to replay and the position divergence is small.
-    if (inputsToReplay.length === 0 && preError < 1.0) {
+    // KB changes grounded state deliberately. Keeping the old cosmetic flag
+    // here would friction-cancel a small authoritative impulse on the next step.
+    if (inputsToReplay.length === 0 && preError < 1.0 && authoritativeAge === null && !knockbackChanged) {
       this.localState.grounded = preGrounded;
       this.movement.resetPhysicsState(preGrounded);
     }
@@ -708,6 +726,7 @@ export class V2NetworkClient {
 
     // Reset KB tracking
     this.kbAge = null;
+    this.authoritativeKnockbackStartTick = null;
 
     // Reset predicted movement state
     this.predictedMovement = {

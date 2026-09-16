@@ -37,6 +37,12 @@ export interface ClientInfo {
   entityId: EntityId;
   /** Player display name from join message */
   playerName: string;
+  /**
+   * Secret this client presents to take its seat back after a drop. Held by
+   * SuspendedSessions for the grace period; unguessable, so nobody else can
+   * claim the session.
+   */
+  resumeToken: string;
   /** Last processed input sequence (for reconciliation) */
   lastInputSeq: number;
   /** Last snapshot tick the client has acknowledged receiving (for delta compression) */

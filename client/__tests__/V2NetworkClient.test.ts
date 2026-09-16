@@ -138,6 +138,32 @@ describe("V2NetworkClient reconciliation suppression bounds", () => {
     expect(client.getPosition().x).toBe(0);
   });
 
+  it.each(["wall", "ledge"])("adopts new and cancelled knockback immediately during %s suppression", (kind) => {
+    const client = suppressedClient();
+    const movement = (
+      client as unknown as {
+        predictedMovement: { wallJumpState: string; ledgeGrabState: string };
+      }
+    ).predictedMovement;
+    if (kind === "ledge") {
+      movement.wallJumpState = "none";
+      movement.ledgeGrabState = "grabbing";
+    }
+    const correct = (tick: number, age: number | null, vx: number) => {
+      client.bufferSnapshot({ ...at(tick, 0), knockbackAgeTicks: age, velocity: { x: vx, y: 0, z: 0 } });
+      client.processBufferedSnapshots();
+    };
+    correct(2, 0, 100); // New authoritative impulse despite zero position error.
+    expect(client.getVelocity().x).toBe(100);
+    expect(client.getDebugInfo().lastSuppressionRelease).toBe("knockback");
+    correct(3, 1, 110); // Same impulse (tick - age stays 2): ordinary suppression remains.
+    expect(client.getVelocity().x).toBe(100);
+    correct(4, 0, 200); // A second impulse starts a new drag window.
+    expect(client.getVelocity().x).toBe(200);
+    correct(5, null, 50); // Explicit authoritative cancellation must also be adopted.
+    expect(client.getVelocity().x).toBe(50);
+  });
+
   it("gives up suppressing after a bounded time, however long eligibility lasts", () => {
     const client = suppressedClient();
     const clock = vi.spyOn(performance, "now");

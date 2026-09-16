@@ -62,6 +62,7 @@ describe("createServerTiming", () => {
   it("rejects unrepresentable configs", () => {
     expect(() => createServerTiming({ tickRate: 0 })).toThrow(/positive integer/);
     expect(() => createServerTiming({ tickRate: 62.5 })).toThrow(/positive integer/);
+    expect(() => createServerTiming({ tickRate: 381 })).toThrow(/Welcome byte/);
     expect(() => createServerTiming({ tickRate: 125, snapshotRate: 0 })).toThrow(/> 0/);
     expect(() => createServerTiming({ tickRate: 125, snapshotRate: 250 })).toThrow(/cannot exceed/);
   });
