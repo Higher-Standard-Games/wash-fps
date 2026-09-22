@@ -4,6 +4,7 @@
 export { Amphi } from "./Amphi";
 export { BaseGametype, type GameResult } from "./BaseGametype";
 export { Deathmatch } from "./Deathmatch";
+export { Duel } from "./Duel";
 export { GametypeController } from "./GametypeController";
 export { MatchState } from "./MatchState";
 export { SearchAndDestroy } from "./SearchAndDestroy";
@@ -14,10 +15,9 @@ export {
   type SpawnPointStrategy,
   TeamSpawnStrategy,
 } from "./SpawnPointStrategy";
+export { TeamDeathmatch } from "./TeamDeathmatch";
 // Future:
-// export { TeamDeathmatch } from './TeamDeathmatch';
 // export { CaptureTheFlag } from './CaptureTheFlag';
-// export { Duel } from './Duel';
 // export { Race } from './Race';
 // export { Instagib } from './Instagib';
 // export { ClanArena } from './ClanArena';
