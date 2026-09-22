@@ -6,6 +6,8 @@
  */
 
 import type { EntityId, PlayerId } from "@engine/server/ecs/types";
+import type { AdmissionGrant, AdmissionManifest } from "@engine/server/network/MatchAdmission";
+import type { MatchResultReport } from "@engine/server/network/MatchResultReport";
 import type { ClientConnection } from "@engine/server/network/transport/WebSocketTransport";
 import type { GameState } from "../../../engine/network/core/GameState";
 
@@ -28,6 +30,11 @@ export interface GameServerConfig {
    *  Default false = classic continuous warmup loop.
    *  See docs/research/single_game_server_lobby.md. */
   singleMatch?: boolean;
+  /** Optional lobby-issued seats. When present, only ticket holders may play. */
+  matchAdmission?: AdmissionManifest;
+  /** Server-owned final snapshot, delivered once on entering PostGame. */
+  onFinalResult?: (report: MatchResultReport) => void;
+  matchGametype?: string;
 }
 
 export interface ClientInfo {
@@ -70,4 +77,11 @@ export interface ClientInfo {
   /** true = AI bot client (from the bot server), false = human. Used to gate
    *  demo recording and auto-shutdown on the presence of real players. */
   isBot?: boolean;
+  /** Verified by a lobby-issued seat ticket; never inferred from playerName. */
+  accountId?: number | null;
+  seatTeam?: string;
+  /** A ticket claim may be restored if this client disconnects before its first spawn. */
+  preGameAdmissionGrant?: AdmissionGrant;
+  /** Retained only after the ticketed seat actually entered play. */
+  playedSeatTokenHash?: string;
 }

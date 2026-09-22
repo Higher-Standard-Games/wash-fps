@@ -5,6 +5,7 @@ import type { InputBinding, MouseButton } from "../../../../engine/input/InputTy
 import { MovementVars } from "../../../../engine/movement/MovementVars";
 import { NetGraph } from "../../../../engine/network/client/NetGraph";
 import { RenderVars } from "../../../../engine/rendering/RenderVars";
+import { createRaisedKey, raiseKey } from "../../../../engine/ui/components/RaisedKey";
 import { UIStyles } from "../../../../engine/ui/UIStyles";
 import { FPS } from "../FPSActions";
 import { MangaPanelDialog } from "../hud/widgets/MangaPanelDialog";
@@ -349,7 +350,18 @@ export class FPSSettingsView {
     this.input.loadBindingsFromStorage();
 
     this.root = document.createElement("div");
-    this.root.className = "fps-settings-shell";
+    this.root.className = "lobby__page fps-settings-shell";
+
+    const header = document.createElement("header");
+    header.className = "lobby__heading";
+    const kicker = document.createElement("span");
+    kicker.className = "lobby__kicker";
+    kicker.textContent = "Settings";
+    const title = document.createElement("h1");
+    title.className = "lobby__title";
+    title.textContent = "Make it yours";
+    header.append(kicker, title);
+    this.root.appendChild(header);
 
     const tabBar = document.createElement("div");
     tabBar.className = "fps-settings-top-tabs";
@@ -362,15 +374,11 @@ export class FPSSettingsView {
     const actionBar = document.createElement("div");
     actionBar.className = "fps-settings-actions";
 
-    const resetTabBtn = document.createElement("button");
-    resetTabBtn.className = "fps-btn";
-    resetTabBtn.textContent = "Reset Tab";
+    const resetTabBtn = createRaisedKey({ label: "Reset page", variants: ["sm", "cream", "inline"] });
     resetTabBtn.addEventListener("click", () => this.confirmResetCurrentTab());
     actionBar.appendChild(resetTabBtn);
 
-    const resetAllBtn = document.createElement("button");
-    resetAllBtn.className = "fps-btn fps-btn--primary";
-    resetAllBtn.textContent = "Reset All";
+    const resetAllBtn = createRaisedKey({ label: "Reset all", variants: ["sm", "inline"] });
     resetAllBtn.addEventListener("click", () => this.confirmResetAll());
     actionBar.appendChild(resetAllBtn);
 
@@ -474,9 +482,9 @@ export class FPSSettingsView {
     label: string,
     panel: HTMLElement,
   ): void {
-    const button = document.createElement("button");
-    button.className = "fps-settings-tab-btn";
-    button.textContent = label;
+    const button = raiseKey(document.createElement("button"), { label, variants: ["sm", "cream", "pick"] });
+    button.type = "button";
+    button.classList.add("fps-settings-tab-btn");
     button.addEventListener("click", () => this.switchTab(id));
     tabBar.appendChild(button);
     this.tabButtons.set(id, button);
@@ -503,7 +511,7 @@ export class FPSSettingsView {
     this.currentTab = tabId;
 
     for (const [id, button] of this.tabButtons) {
-      button.className = buttonClass("fps-settings-tab-btn", id === tabId);
+      button.setAttribute("aria-pressed", String(id === tabId));
     }
 
     for (const [id, panel] of this.panelByTab) {
@@ -866,10 +874,9 @@ export class FPSSettingsView {
     label: string,
     disabled: boolean,
   ): HTMLButtonElement {
-    const button = document.createElement("button");
+    const button = raiseKey(document.createElement("button"), { label, variants: ["sm", "cream", "pick"] });
     button.type = "button";
-    button.className = "fps-settings-subtab-btn";
-    button.textContent = label;
+    button.classList.add("fps-settings-subtab-btn");
     button.disabled = disabled;
     if (!disabled) {
       button.addEventListener("click", () => this.switchControlsSubtab(id));
@@ -880,10 +887,7 @@ export class FPSSettingsView {
 
   private switchControlsSubtab(id: ControlsSubtabId): void {
     for (const [subtabId, button] of this.controlsSubtabButtons) {
-      button.className = buttonClass("fps-settings-subtab-btn", subtabId === id);
-      if (button.disabled) {
-        button.classList.remove("fps-settings-subtab-btn--active");
-      }
+      button.setAttribute("aria-pressed", String(!button.disabled && subtabId === id));
     }
     for (const [subtabId, panel] of this.controlsSubtabPanels) {
       panel.classList.toggle("fps-settings-panel--active", subtabId === id);

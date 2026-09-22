@@ -15,6 +15,8 @@ import type { EntityId, PlayerId } from "@engine/server/ecs/types";
 import { playerId as createPlayerId } from "@engine/server/ecs/types";
 import { LAG_COMPENSATION } from "@engine/server/lagcomp/config";
 import { LagCompensation } from "@engine/server/lagcomp/LagCompensation";
+import { MatchAdmission } from "@engine/server/network/MatchAdmission";
+import type { MatchResultReport } from "@engine/server/network/MatchResultReport";
 // Transport
 import type { ClientConnection, Transport, TransportConfig } from "@engine/server/network/transport/WebSocketTransport";
 import { WebSocketServerTransport } from "@engine/server/network/transport/WebSocketTransport";
@@ -89,6 +91,7 @@ export class GameServer {
   /** Track projectile entity IDs we've already sent projectile_spawn events for */
   private knownProjectileIds: Set<number> = new Set();
   private config: GameServerConfig;
+  private readonly matchAdmission: MatchAdmission | null;
   private simulation: Simulation;
   private transport: Transport;
   private clients: Map<string, ClientInfo> = new Map();
@@ -184,6 +187,7 @@ export class GameServer {
 
   constructor(config: GameServerConfig, gametype?: BaseGametype) {
     this.config = config;
+    this.matchAdmission = config.matchAdmission ? new MatchAdmission(config.matchAdmission) : null;
 
     // One immutable timing contract: tick, snapshot cadence, lifecycle timers.
     // Validates the config up front (rejects unrepresentable rates) and owns
@@ -300,6 +304,42 @@ export class GameServer {
 
     // Snapshot broadcaster
     this.broadcaster = new SnapshotBroadcaster(this.simulation);
+  }
+
+  /** Capture server state before post-game closes sockets and removes scores. */
+  private reportFinalMatch(): void {
+    const admission = this.matchAdmission?.manifest;
+    if (!admission || !this.config.singleMatch || !this.config.matchGametype || !this.config.onFinalResult) return;
+    const match = this.gametypeController.getMatchState();
+    const winner = match.winner;
+    if (!winner) return;
+    const teamBased = this.gametypeController.getGametype().teamBased;
+    const participants: MatchResultReport["participants"] = [];
+    for (const client of this.clients.values()) {
+      if (client.isSpectator || !client.playedSeatTokenHash || client.accountId === undefined) continue;
+      const team = match.getPlayerTeam(client.playerId);
+      const score = teamBased ? (match.teamScores.get(team) ?? 0) : (match.scores.get(client.playerId) ?? 0);
+      const won = winner.kind === "team" ? team === winner.id : client.playerId.toString() === winner.id;
+      participants.push({
+        tokenHash: client.playedSeatTokenHash,
+        accountId: client.accountId,
+        outcome: winner.kind === "draw" ? "draw" : won ? "win" : "loss",
+        score,
+      });
+    }
+    // A bot-only or abandoned match is never a ranked result.
+    if (participants.length < 2) return;
+    try {
+      this.config.onFinalResult({
+        matchId: admission.matchId,
+        gametype: this.config.matchGametype,
+        map: this.config.mapName,
+        endedAt: Date.now(),
+        participants,
+      });
+    } catch (error) {
+      console.error("[GameServer] Could not deliver final result:", error);
+    }
   }
 
   /** Reset all authoritative/transient warmup state before match-start respawns. */
@@ -500,11 +540,18 @@ export class GameServer {
       return;
     }
 
-    const gametypeName = this.gametypeController.getGametype()?.constructor?.name?.toLowerCase() || "deathmatch";
+    // A shared server class can implement more than one lobby mode (for example
+    // Duel and FFA). The lobby's declared mode is the identity used by results;
+    // fall back to the class name only for standalone/dev servers.
+    const gametypeName =
+      this.config.matchGametype ||
+      this.gametypeController.getGametype()?.constructor?.name?.toLowerCase() ||
+      "deathmatch";
 
     this.demoRecorder = new DemoRecorder({
       map: this.config.mapName,
       gametype: gametypeName,
+      matchId: this.matchAdmission?.manifest.matchId,
       tickRate: this.timing.tickRate,
       // Record the EFFECTIVE cadence, never the requested one: at 125/60 the
       // server broadcasts every 2 ticks = 62.5Hz, and recording "60" made
@@ -517,7 +564,12 @@ export class GameServer {
     // Add existing players to roster
     for (const client of this.clients.values()) {
       if (!client.isSpectator) {
-        this.demoRecorder.addPlayer(String(client.playerId), client.playerName, "");
+        this.demoRecorder.addPlayer(
+          String(client.playerId),
+          client.playerName,
+          "",
+          client.playedSeatTokenHash ? (client.accountId ?? undefined) : undefined,
+        );
       }
     }
 
@@ -828,6 +880,7 @@ export class GameServer {
       if (currentPhase === MatchPhase.PostGame && this.demoRecorder?.isRecording) {
         this.stopRecording();
       }
+      if (currentPhase === MatchPhase.PostGame) this.reportFinalMatch();
       // Single-match mode: remember when post-game began (drives bot kick +
       // grace close below). Reset if the phase ever leaves PostGame.
       this._postGameEnterTick = currentPhase === MatchPhase.PostGame ? (this.simulation.currentTick as number) : null;
@@ -915,6 +968,11 @@ export class GameServer {
   private handleDisconnect(conn: ClientConnection, reason: string, holdSeat = true): void {
     const client = this.clients.get(conn.id);
     if (!client) return;
+
+    if (client.preGameAdmissionGrant) {
+      this.matchAdmission?.releaseUnplayed(client.preGameAdmissionGrant);
+      client.preGameAdmissionGrant = undefined;
+    }
 
     // A playing human's seat is held rather than cleared: most drops are a
     // stalled link the client reopens within seconds, and clearing it would cost
@@ -1260,9 +1318,15 @@ export class GameServer {
    * The client must send JoinGame to enter the match.
    */
   private handleJoin(conn: ClientConnection, data: Uint8Array): void {
-    const { playerName, isBot: claimedBot } = MessageCodec.decodeJoin(data);
+    if (this.clients.has(conn.id)) return;
+    const { playerName, isBot: claimedBot, admissionTicket } = MessageCodec.decodeJoin(data);
+    const grant = this.matchAdmission?.consume(admissionTicket) ?? null;
+    if (admissionTicket && this.matchAdmission && !grant) {
+      conn.close("invalid match ticket");
+      return;
+    }
     // Only trust the bot flag from loopback (bots always connect locally).
-    const isBot = claimedBot && isLoopbackAddress(conn.address);
+    const isBot = this.matchAdmission ? grant?.isBot === true : claimedBot && isLoopbackAddress(conn.address);
     console.log(`[GameServer] Join request from: ${playerName}${isBot ? " (bot)" : ""}`);
 
     let client = this.clients.get(conn.id);
@@ -1277,7 +1341,10 @@ export class GameServer {
         connection: conn,
         playerId: pid,
         entityId: eid,
-        playerName: playerName || `Player ${pid}`,
+        playerName: grant?.name ?? (playerName || `Player ${pid}`),
+        accountId: grant?.accountId,
+        seatTeam: grant?.team,
+        preGameAdmissionGrant: grant ?? undefined,
         // The seat this client can take back after a drop. Unguessable, so only
         // the client it was handed to can claim the session.
         resumeToken: crypto.randomUUID(),
@@ -1350,6 +1417,18 @@ export class GameServer {
   private handleJoinGame(conn: ClientConnection, teamId?: string, fromQueue = false, manualPick = false): void {
     const client = this.clients.get(conn.id);
     if (!client) return;
+    if (this.matchAdmission && this.gametypeController.getPhase() === MatchPhase.PostGame) {
+      conn.sendReliable(MessageCodec.encodeServerMessage("This match has ended.", "error"));
+      return;
+    }
+    if (this.matchAdmission && client.accountId === undefined) {
+      conn.sendReliable(MessageCodec.encodeServerMessage("A match ticket is required to play.", "error"));
+      return;
+    }
+    if (this.matchAdmission && client.seatTeam) {
+      teamId = client.seatTeam;
+      manualPick = false;
+    }
     if (!client.isSpectator) {
       console.log(`[GameServer] Player ${client.playerId} tried to JoinGame but is already playing`);
       return;
@@ -1436,6 +1515,9 @@ export class GameServer {
 
     // Mark as playing
     client.isSpectator = false;
+    client.playedSeatTokenHash = client.preGameAdmissionGrant?.tokenHash;
+    // From this point only the server-issued resume token can restore the seat.
+    client.preGameAdmissionGrant = undefined;
 
     // Lobby/network bots enter through this normal join flow — register them
     // for auto-ready (spawnBot() only covers server-spawned entity bots, so
@@ -1450,6 +1532,7 @@ export class GameServer {
         String(client.playerId),
         client.playerName,
         "", // team assigned by gametype
+        client.playedSeatTokenHash ? (client.accountId ?? undefined) : undefined,
       );
     }
 

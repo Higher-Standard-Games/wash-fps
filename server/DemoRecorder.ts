@@ -19,9 +19,9 @@
  *   const filepath = await recorder.stop();
  */
 
-import * as fs from "fs";
-import * as path from "path";
-import * as zlib from "zlib";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as zlib from "node:zlib";
 import type { GameState } from "../../../engine/network/core/GameState";
 import { BinaryEncoder, BinaryProtocol } from "../../../engine/network/protocol/BinaryProtocol";
 
@@ -31,7 +31,7 @@ import { BinaryEncoder, BinaryProtocol } from "../../../engine/network/protocol/
 const DEMO_MAGIC = new Uint8Array([0x53, 0x48, 0x41, 0x47]); // "SHAG"
 
 /** Current demo format version */
-const DEMO_VERSION = 1;
+const DEMO_VERSION = 2;
 
 // ── Types ───────────────────────────────────────────────────────────────
 
@@ -44,6 +44,8 @@ export interface DemoConfig {
   tickRate: number;
   /** Snapshot rate in Hz (currently 60). Stored as uint8 in the header. */
   snapshotRate: number;
+  /** Lobby-issued match ID, if this recording belongs to a ticketed match. */
+  matchId?: string;
   /** Output directory for demo files */
   outputDir?: string;
   /**
@@ -58,6 +60,8 @@ export interface DemoPlayerEntry {
   playerId: string;
   name: string;
   team: string;
+  /** Verified lobby account from a consumed seat ticket, never a display name. */
+  accountId?: number;
 }
 
 interface FrameIndex {
@@ -95,8 +99,8 @@ export class DemoRecorder {
   /**
    * Add a player to the demo roster. Call on player connect/join.
    */
-  addPlayer(playerId: string, name: string, team: string = ""): void {
-    this._players.set(playerId, { playerId, name, team });
+  addPlayer(playerId: string, name: string, team: string = "", accountId?: number): void {
+    this._players.set(playerId, { playerId, name, team, accountId });
     console.log(`[DemoRecorder] Player added: ${name} (${playerId})`);
   }
 
@@ -274,6 +278,9 @@ export class DemoRecorder {
     encoder.writeUint32(Math.floor(timestamp / 0x100000000)); // High bits
     encoder.writeUint32(timestamp >>> 0); // Low bits
 
+    // Version 2: link to a lobby match without inferring identity from names.
+    encoder.writeString(this._config.matchId || "");
+
     // Player roster
     const players = [...this._players.values()];
     encoder.writeUint8(players.length);
@@ -282,6 +289,7 @@ export class DemoRecorder {
       encoder.writeString(player.playerId);
       encoder.writeString(player.name);
       encoder.writeString(player.team);
+      encoder.writeString(player.accountId === undefined ? "" : String(player.accountId));
     }
   }
 

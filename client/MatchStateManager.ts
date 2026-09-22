@@ -133,7 +133,8 @@ export class MatchStateManager {
   }
   /** Whether joining this mode must first collect a round loadout. */
   get requiresLoadoutSelection(): boolean {
-    return this._gametypeName.trim().toLowerCase() === "search & destroy";
+    const mode = this._gametypeName.trim().toLowerCase();
+    return mode === "search & destroy" || mode === "amphi";
   }
   get scoreLimit(): number {
     return this._scoreLimit;

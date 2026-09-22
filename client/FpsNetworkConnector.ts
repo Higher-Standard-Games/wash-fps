@@ -21,6 +21,7 @@ export const fpsNetworkConnector: NetworkConnector = {
     await Game.getInstance().initializeNetwork(serverUrl, {
       autoJoin: options.autoJoin,
       watchOnly: options.watchOnly,
+      admissionTicket: options.admissionTicket,
     });
   },
 };

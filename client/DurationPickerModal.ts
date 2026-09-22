@@ -1,5 +1,5 @@
 /**
- * DurationPickerModal — Small modal for choosing highlight reel duration
+ * DurationPickerModal — Small modal for choosing cinematic cut duration
  *
  * Usage:
  *   DurationPickerModal.show((minutes) => { ... });
@@ -59,7 +59,7 @@ export class DurationPickerModal {
 
     // Title
     const title = document.createElement("div");
-    title.textContent = "⚡ HIGHLIGHT REEL";
+    title.textContent = "⚡ CINEMATIC CUT";
     title.className = "duration-picker-title";
     panel.appendChild(title);
 
@@ -80,7 +80,7 @@ export class DurationPickerModal {
     for (const min of durationOptions) {
       const btn = document.createElement("button");
       btn.textContent = `${min} min`;
-      btn.dataset["min"] = String(min);
+      btn.dataset.min = String(min);
       btn.className = "duration-picker-option";
       btn.addEventListener("click", () => {
         this.selected = min;
@@ -95,7 +95,7 @@ export class DurationPickerModal {
 
     // Play button
     const playBtn = document.createElement("button");
-    playBtn.textContent = "▶  PLAY HIGHLIGHTS";
+    playBtn.textContent = "▶  PLAY CUT";
     playBtn.className = "duration-picker-play";
     playBtn.addEventListener("click", () => {
       const minutes = this.selected;
@@ -124,7 +124,7 @@ export class DurationPickerModal {
 
   private _updateSelection(buttons: HTMLButtonElement[], selected: number): void {
     for (const btn of buttons) {
-      const isSelected = Number(btn.dataset["min"]) === selected;
+      const isSelected = Number(btn.dataset.min) === selected;
       if (isSelected) {
         btn.classList.add("duration-picker-option--selected");
       } else {

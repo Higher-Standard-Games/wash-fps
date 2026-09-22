@@ -169,7 +169,11 @@ export class FPSHud {
               // to a plain reload when no lobby is known (dev CLI joins).
               const returnLobby = sessionStorage.getItem("shag.return_lobby");
               if (returnLobby) {
-                window.location.href = `${window.location.origin}/?lobby=${encodeURIComponent(returnLobby)}`;
+                const returnUrl = new URL(window.location.origin);
+                returnUrl.searchParams.set("lobby", returnLobby);
+                const inviteToken = sessionStorage.getItem(`shag.private_invite.${returnLobby}`);
+                if (inviteToken) returnUrl.searchParams.set("invite", inviteToken);
+                window.location.href = returnUrl.href;
               } else {
                 window.location.reload();
               }

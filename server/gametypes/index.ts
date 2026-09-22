@@ -1,6 +1,7 @@
 /**
  * FPS Gametypes
  */
+export { Amphi } from "./Amphi";
 export { BaseGametype, type GameResult } from "./BaseGametype";
 export { Deathmatch } from "./Deathmatch";
 export { GametypeController } from "./GametypeController";

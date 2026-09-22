@@ -68,6 +68,7 @@ export interface FPSGameConfig {
   autoJoin?: boolean;
   /** When true, enter pure spectator mode with auto-chase-cam (no join option) */
   watchOnly?: boolean;
+  admissionTicket?: string;
 }
 
 /**
@@ -1038,7 +1039,7 @@ export class Game {
       console.log(`[Game] Connecting as "${profile.name}" (id: ${profile.id.substring(0, 8)}...)`);
 
       // Connect to server (this triggers onServerInfo callback which loads map and sets collision)
-      await networkHost.connect(url, profile.name);
+      await networkHost.connect(url, profile.name, config.admissionTicket);
 
       // Update player ID after connect (server assigns it during handshake)
       this.localPlayerId = networkHost.localPlayerId;
@@ -1262,12 +1263,12 @@ export class Game {
   /**
    * Ask for a loadout before joining, in modes that have one.
    *
-   * Blocking on purpose. In Search & Destroy the kit decides what you can do
+   * Blocking on purpose. In S&D and Amphi the kit decides what you can do
    * for a whole round with no respawn to correct it, so being dropped in
    * holding a default nobody chose is worse than a moment spent choosing. The
    * picker only appears where it means something: the server's gametype name
-   * identifies S&D even during warmup, when the objective intentionally is not
-   * published yet. Duel and FFA still join straight through.
+   * identifies the mode even during warmup, when the objective intentionally is
+   * not published yet in S&D. Duel and FFA still join straight through.
    */
   async joinGame(teamId?: string): Promise<void> {
     // Explicit UI selection wins over the lobby handoff and is remembered for
@@ -1284,7 +1285,7 @@ export class Game {
     // The lobby's auto-join fires 200 ms after the map loads, which can beat
     // the first snapshot — and a joinGame that runs before `match_state`
     // arrives sees no objective, skips the picker, and drops the player into a
-    // Search & Destroy round holding a kit they never chose, for the whole
+    // round holding a kit they never chose, for the whole
     // round, with no respawn to correct it.
     const match = MatchStateManager.getInstance();
     if (this.isNetworkMode && !match.gametypeName && this._joinGametypeWaits < MAX_JOIN_GAMETYPE_WAITS) {
@@ -1296,7 +1297,7 @@ export class Game {
     const needsLoadout = match.requiresLoadoutSelection && !this._loadoutChosen;
     if (needsLoadout && this.playerState !== "playing" && !this._joinPending) {
       const { FPSLoadoutPicker } = await import("./client/hud/widgets/LoadoutPicker");
-      this._loadoutPicker ??= new FPSLoadoutPicker();
+      this._loadoutPicker ??= new FPSLoadoutPicker(match.gametypeName);
       if (this._loadoutPicker.isOpen) return;
 
       // Released so the player can actually click; completeJoinGame takes it

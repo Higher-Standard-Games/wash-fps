@@ -17,8 +17,8 @@ import { WeaponPreview } from "./WeaponPreview";
 /**
  * FPSLoadoutPicker — the kit dialog, shown before a player enters the game.
  *
- * Deliberately blocking: in Search & Destroy your kit decides what you can do
- * for a whole round with no respawn to correct it, so being dropped into a
+ * Deliberately blocking: in Search & Destroy and Amphi your kit decides what
+ * you can do for a whole round with no respawn to correct it, so being dropped into a
  * round holding a default nobody chose is worse than a moment spent choosing.
  *
  * Not a HUD widget. It is a full-screen overlay with pointer events, managed by
@@ -38,7 +38,7 @@ export class FPSLoadoutPicker {
   /** Last path handed to the stand, so re-rendering does not reload the model. */
   private lastPreviewed: string | null = null;
 
-  constructor() {
+  constructor(private readonly modeName = "Search & Destroy") {
     this.element = document.createElement("div");
     this.element.className = "fps-loadout";
     this.element.style.display = "none";
@@ -98,10 +98,13 @@ export class FPSLoadoutPicker {
 
     const hero = document.createElement("div");
     hero.className = "fps-loadout-hero";
-    hero.innerHTML = `
-      <div class="fps-loadout-kicker">Search &amp; Destroy</div>
-      <div class="fps-loadout-heading">Loadout</div>
-    `;
+    const kicker = document.createElement("div");
+    kicker.className = "fps-loadout-kicker";
+    kicker.textContent = this.modeName;
+    const heading = document.createElement("div");
+    heading.className = "fps-loadout-heading";
+    heading.textContent = "Loadout";
+    hero.append(kicker, heading);
     panel.appendChild(hero);
 
     const body = document.createElement("div");
