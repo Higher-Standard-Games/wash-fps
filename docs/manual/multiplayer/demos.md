@@ -8,9 +8,10 @@ The dedicated game server records every match by default. Recording is:
 
 - **Server-side** — the client is never the recording authority.
 - **Tick-aligned** — every player input and every entity state delta is captured per tick.
+- **The match only** — recording spans the active match through post-game, never warmup or countdown, so a demo opens on the first shot rather than on people idling at spawn.
 - **Binary format** — `.shagdemo` is the on-disk format. Compact; not human-readable. Decoded by `DemoReader`.
 
-Recordings are stored on the dedicated server's filesystem (the path is server-configurable). The lobby server scans the directory and serves the file list to clients on request.
+Recordings land in `public/data/demos/` on the game server's filesystem — the recorder takes an `outputDir` if a deployment wants them elsewhere, though the lobby scans that fixed path when it builds the list it serves to clients.
 
 ## Listing Demos
 
@@ -45,7 +46,7 @@ demoplay stop                     # Stop active playback
 
 The demo loads as a tick stream. The client replays each tick's snapshot through the same render path as live play — entity interpolation, weapon view, particle effects, all of it. The HUD shows tick number and total ticks.
 
-You can scrub, pause, and speed-adjust via additional commands (TODO: document these).
+Playback is driven on screen rather than by console commands: the transport HUD carries a timeline you can click anywhere on to seek, a play/pause button, and a speed selector cycling 0.25×, 0.5×, 1×, 2× and 4×. Seeking rebuilds the world at the landing tick rather than fast-forwarding through it.
 
 Press `H` during playback to toggle the complete demo presentation layer. The
 same setting is available through `demoplay hud on`, `demoplay hud off`, and
@@ -79,9 +80,17 @@ Because the simulation is RNG-deterministic, a recorded run can be **re-simulate
 
 For full schema, read `src/shared/demo/DemoReader.ts` (TODO: extract this into a public doc page).
 
+## Finding demos outside the console
+
+The lobby's Demos tab lists the same recordings without the console: **Latest**
+is the recent archive, **Yours** is the ones you played in — matched on the
+verified account from your seat and the stored match result, never on a display
+name — and **Featured** is a server-selected handful. Filters by mode, map and
+name sit above them.
+
 ## TODO
 
-- Demo scrubbing commands (jump-to-tick, speed control)
+- Console equivalents for the transport (jump-to-tick, speed) — today they are the demo HUD's
 - Demo upload + remote sharing flow (currently lobby-local)
 - Cinematic heuristic tuning
 - Recording opt-out / privacy
