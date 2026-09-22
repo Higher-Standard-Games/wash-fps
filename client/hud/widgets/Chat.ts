@@ -1,5 +1,5 @@
 /**
- * FPSChat — in-game chat (Warsow/Q3 messagemode style).
+ * FPSChat — in-game chat: a message line opened with a key, over the game.
  *
  * Two presentations of ONE message store (cap 100):
  *  - Closed: the last few messages float as an overlay and fade out.

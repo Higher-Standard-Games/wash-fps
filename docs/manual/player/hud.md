@@ -96,7 +96,7 @@ The middle glyph is the weapon used. Some special icons:
 
 ## Damage Numbers (floating)
 
-When you damage someone, a number floats up from their position briefly. Numbers stack (multiple hits add together visually) and turn yellow above 50 damage.
+When you damage someone, a number floats up from their position briefly. Numbers stack (multiple hits add together visually) and turn yellow at 50 damage or more.
 
 The damage value shown is the server-authoritative damage your shot dealt — not your client's estimate.
 
@@ -121,13 +121,13 @@ attention:
 
 | Element | When it shows |
 |---------|---------------|
-| **Timer** | Always in a timed match — round clock in Search & Destroy, match clock elsewhere |
+| **Timer** | Always in a timed match — a round clock in the round-based modes, Search & Destroy and Amphi, and a match clock elsewhere |
 | **Gametype badge** | The mode you are in |
 | **Scoreboard** | Held **Tab**, and automatically at match end |
 | **Frag counter / frag message** | Your score, and the confirmation when you take one |
 | **Ready bar** | Warmup — who is ready, and how many are still needed |
 | **Phase message** | Warmup, countdown, round start, round result, match end |
-| **Round result** | End-of-round banner (Search & Destroy) |
+| **Round result** | End-of-round banner in the round-based modes |
 | **Death screen** | On death — who killed you, with what, and the respawn state |
 | **Pause menu** | Escape, mid-match |
 
@@ -150,7 +150,7 @@ them.
 | **Arm / defuse bar** | Belongs to whoever is currently working the bomb, attacker or defender |
 | **Bomb site markers** | The two sites, marked in the world |
 | **Team scores** | Rounds won by each side |
-| **Loadout picker** | During the freeze — pick your primary and secondary for the next round |
+| **Loadout picker** | During the freeze — pick your primary and secondary for the next round. Amphi uses the same picker, and seats nobody until they have chosen |
 
 There is no countdown number during the round freeze. The bomb beep is the
 shared clock, and both teams hear it at the same time.

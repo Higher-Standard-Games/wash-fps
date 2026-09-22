@@ -5,7 +5,7 @@
  * - Per-weapon crosshair style (cross, dot, circle, cross_dot)
  * - COD-style spread: hip-fire widens gap, ADS tightens to center
  * - Movement spread: running widens crosshair slightly
- * - Damage hit flash: crosshair turns damage color for ~200ms on hit (Warsow/QL)
+ * - Damage hit flash: crosshair turns the damage color for ~200ms on a hit
  * - Cvars: cg_crosshair, cg_crosshairSize, cg_crosshairColor, cg_crosshairAlpha
  */
 
@@ -39,7 +39,7 @@ export class Crosshair {
 
   // Damage flash
   private hitFlashUntil: number = 0; // performance.now() timestamp
-  private readonly HIT_FLASH_DURATION = 200; // ms (Warsow default)
+  private readonly HIT_FLASH_DURATION = 200; // ms
 
   static getInstance(): Crosshair {
     if (!Crosshair.instance) {
