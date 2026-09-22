@@ -18,8 +18,10 @@ import {
 } from "../../../lobby/AccountSession";
 import type { LobbyClient } from "../../../lobby/LobbyClient";
 import { formatKey, KEY_LENGTH } from "../../../lobby/PlayerIdentity";
+import type { GametypeInfo } from "../../../lobby/types";
 import { switchFpsAccount } from "./FpsLobbyService";
 import { createSlot, judgeName, type Slot, wireKeySlot } from "./IdentityFields";
+import { type LeaderboardPage, newUiApi } from "./NewUiApi";
 import identityCSSRaw from "./styles/Identity.css?raw";
 
 const KEY_FILE_LINES = (name: string, key: string) => [
@@ -55,11 +57,16 @@ export class ProfileView {
   private switchSlot!: Slot;
   private switchKey!: HTMLButtonElement;
   private switching = false;
+  private readonly modes: () => readonly GametypeInfo[];
+  private recordStatusEl!: HTMLElement;
+  private recordRowsEl!: HTMLElement;
+  private recordSeq = 0;
 
-  constructor(options: { client: LobbyClient; isInRoom: () => boolean }) {
+  constructor(options: { client: LobbyClient; isInRoom: () => boolean; modes: () => readonly GametypeInfo[] }) {
     UIStyles.injectCSS("lobby-identity", identityCSSRaw);
     this.client = options.client;
     this.isInRoom = options.isInRoom;
+    this.modes = options.modes;
     this.root = this.build();
 
     // The account's own messages reach AccountSession through the same client,
@@ -100,7 +107,7 @@ export class ProfileView {
     const columns = document.createElement("div");
     columns.className = "lobby__profile-columns";
     columns.append(this.buildNameCard(), this.buildKeyCard());
-    page.append(columns, this.buildSwitchCard());
+    page.append(columns, this.buildRecordCard(), this.buildSwitchCard());
 
     this.refresh();
     return page;
@@ -205,6 +212,87 @@ export class ProfileView {
     return card;
   }
 
+  private buildRecordCard(): HTMLElement {
+    const card = this.card("Your record", "Ranked matches only");
+    card.classList.add("lobby-card--record");
+    this.recordStatusEl = document.createElement("p");
+    this.recordStatusEl.className = "lobby-card__note";
+    this.recordStatusEl.setAttribute("role", "status");
+    this.recordRowsEl = document.createElement("div");
+    this.recordRowsEl.className = "profile-record";
+    card.append(this.recordStatusEl, this.recordRowsEl);
+    return card;
+  }
+
+  /**
+   * The account's own standing, one line per mode it has a ranked result in.
+   * Every number here comes from the lobby's own leaderboard; a mode the player
+   * has never finished a ranked match in has no line at all.
+   */
+  async refreshRecord(): Promise<void> {
+    const sequence = ++this.recordSeq;
+    if (!this.client.connected) {
+      this.recordRowsEl.replaceChildren();
+      this.recordStatusEl.textContent = "Connect to the lobby to see your record.";
+      return;
+    }
+    const availability = newUiApi.getFeatureStatus("leaderboard");
+    if (availability.status !== "ready") {
+      this.recordRowsEl.replaceChildren();
+      this.recordStatusEl.textContent = availability.reason;
+      return;
+    }
+    const modes = this.modes();
+    if (modes.length === 0) {
+      this.recordRowsEl.replaceChildren();
+      this.recordStatusEl.textContent = "This lobby is not advertising any mode.";
+      return;
+    }
+    if (this.recordRowsEl.childElementCount === 0) this.recordStatusEl.textContent = "Reading the rankings…";
+
+    const asked = await Promise.all(
+      modes.map(async (mode) => ({
+        mode,
+        result: await newUiApi.getLeaderboard({ gametype: mode.id, period: "all", offset: 0, limit: 1 }),
+      })),
+    );
+    if (sequence !== this.recordSeq) return;
+
+    const standings: { mode: GametypeInfo; row: NonNullable<LeaderboardPage["localPlayerEntry"]> }[] = [];
+    let refusal = "";
+    for (const { mode, result } of asked) {
+      if (result.status !== "ready") refusal ||= result.reason;
+      else if (result.data.localPlayerEntry) standings.push({ mode, row: result.data.localPlayerEntry });
+    }
+
+    this.recordRowsEl.replaceChildren();
+    if (standings.length === 0) {
+      this.recordStatusEl.textContent =
+        refusal || "No ranked match yet. A match counts once most of the room is people, not bots.";
+      return;
+    }
+    const played = standings.reduce((sum, { row }) => sum + row.wins + row.losses + row.draws, 0);
+    const best = standings.reduce((top, one) => (one.row.rank < top.row.rank ? one : top));
+    this.recordStatusEl.textContent = `${played} ranked ${played === 1 ? "match" : "matches"} · best #${best.row.rank} in ${best.mode.name}`;
+    for (const { mode, row } of standings.sort((a, b) => a.row.rank - b.row.rank)) {
+      const line = document.createElement("div");
+      line.className = "profile-record__row";
+      for (const [value, kind] of [
+        [mode.name, "mode"],
+        [`#${row.rank}`, "rank"],
+        [`${row.wins} W`, "w"],
+        [`${row.losses} L`, "l"],
+        [`${row.draws} D`, "d"],
+      ] as const) {
+        const cell = document.createElement("span");
+        cell.className = `profile-record__${kind}`;
+        cell.textContent = value;
+        line.append(cell);
+      }
+      this.recordRowsEl.append(line);
+    }
+  }
+
   private buildSwitchCard(): HTMLElement {
     const card = this.card("Play as someone else", "One key, one player");
     card.classList.add("lobby-card--switch");
@@ -259,6 +347,7 @@ export class ProfileView {
 
     if (document.activeElement !== this.nameSlot.input) this.nameSlot.setValue(name);
     this.refreshNameState();
+    void this.refreshRecord();
     this.switchKey.disabled = this.switching || this.isInRoom() || !this.client.connected;
     if (this.switching) return;
     if (this.isInRoom()) this.switchSlot.tell("Leave your room before switching player.");

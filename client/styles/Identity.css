@@ -569,3 +569,48 @@
     transition: none;
   }
 }
+
+/* ── Your record: one line per mode the lobby ranks you in ── */
+
+.profile-record {
+  display: flex;
+  flex-direction: column;
+}
+
+.profile-record__row {
+  display: grid;
+  grid-template-columns: minmax(110px, 220px) 64px repeat(3, 56px);
+  justify-content: start;
+  gap: 8px;
+  align-items: center;
+  min-height: 40px;
+  padding: 7px 12px;
+  border-bottom: 1px solid hsla(182, 65%, 48%, 0.28);
+  background: hsla(250, 45%, 7%, 0.7);
+  color: var(--cream, hsl(45 100% 95%));
+  font: 700 15px / 1.2 var(--w-font-body, "Rajdhani", sans-serif);
+}
+
+.profile-record__row:last-child {
+  border-bottom: 0;
+}
+
+.profile-record__mode {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.profile-record__rank {
+  font: 900 17px / 1 var(--w-font-display, "Orbitron", monospace);
+  color: hsl(45 100% 60%);
+}
+
+@media (max-width: 700px) {
+  .profile-record__row {
+    grid-template-columns: minmax(0, 1fr) 52px repeat(3, 44px);
+    font-size: 14px;
+  }
+}

@@ -597,9 +597,11 @@
     sans-serif;
 }
 
+/* The board is the part that scrolls: the page itself never does */
 .lobby__rank-body {
+  flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
   padding: 5px 12px 20px 3px;
 }
 
@@ -629,29 +631,143 @@
 
 .lobby__rank-podium {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.12fr) minmax(0, 1fr);
+  gap: 28px;
   align-items: end;
   margin-bottom: 24px;
 }
 
+/* A plinth: gold, silver and bronze faces stood on their own shadow */
 .lobby__rank-medal {
+  --medal-face: linear-gradient(180deg, hsl(51 100% 74%), hsl(46 100% 58%) 55%, hsl(42 100% 50%));
+  --medal-side: linear-gradient(180deg, hsl(36 92% 40%), hsl(28 88% 25%));
+  position: relative;
   min-width: 0;
-  padding: 18px 12px;
-  border: 2px solid hsl(45 100% 60% / 0.65);
-  background: linear-gradient(150deg, hsl(46 85% 24% / 0.55), hsl(250 45% 8% / 0.95));
-  box-shadow: 6px 7px 0 hsl(250 45% 3% / 0.7);
+  filter: drop-shadow(12px 14px 14px hsl(250 70% 2% / 0.55));
 }
 
+.lobby__rank-medal--2 {
+  --medal-face: linear-gradient(180deg, hsl(220 30% 96%), hsl(222 16% 80%) 60%, hsl(224 12% 68%));
+  --medal-side: linear-gradient(180deg, hsl(225 12% 46%), hsl(228 14% 30%));
+}
+
+.lobby__rank-medal--3 {
+  --medal-face: linear-gradient(180deg, hsl(30 90% 74%), hsl(24 72% 56%) 60%, hsl(20 66% 46%));
+  --medal-side: linear-gradient(180deg, hsl(18 62% 32%), hsl(14 60% 20%));
+}
+
+/* First place stands in the middle, and taller */
 .lobby__rank-medal:first-child {
   order: 2;
-  padding-top: 34px;
 }
 .lobby__rank-medal:nth-child(2) {
   order: 1;
 }
 .lobby__rank-medal:nth-child(3) {
   order: 3;
+}
+
+.lobby__plinth-side,
+.lobby__plinth-face {
+  clip-path: polygon(3% 0, 100% 0, 97% 100%, 0 100%);
+}
+
+.lobby__plinth-side {
+  position: absolute;
+  inset: 0;
+  background: var(--medal-side);
+  transform: translate(9px, 11px);
+}
+
+.lobby__plinth-face {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: center;
+  gap: 4px 16px;
+  min-height: 158px;
+  padding: 18px 20px 20px 22px;
+  background: var(--medal-face);
+  color: hsl(250 45% 8%);
+}
+
+.lobby__rank-medal--1 .lobby__plinth-face {
+  min-height: 204px;
+}
+
+.lobby__plinth-face::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  background: hsl(0 0% 100% / 0.6);
+}
+
+.lobby__plinth-rank {
+  grid-row: 1 / 5;
+  align-self: center;
+  font:
+    900 clamp(52px, 4.4vw, 92px) / 0.8 "Orbitron",
+    monospace;
+  letter-spacing: -0.04em;
+}
+
+.lobby__rank-medal--1 .lobby__plinth-rank {
+  font-size: clamp(76px, 6.6vw, 128px);
+}
+
+.lobby__plinth-tag {
+  justify-self: start;
+  padding: 4px 9px;
+  background: hsl(250 45% 8%);
+  color: hsl(45 100% 60%);
+  font:
+    900 10px / 1 "Orbitron",
+    monospace;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  clip-path: polygon(8% 0, 100% 0, 92% 100%, 0 100%);
+}
+
+.lobby__plinth-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font:
+    900 clamp(17px, 1.35vw, 26px) / 1.05 "Orbitron",
+    monospace;
+  letter-spacing: 0.01em;
+}
+
+.lobby__plinth-wins {
+  font:
+    900 clamp(24px, 2vw, 34px) / 1 "Orbitron",
+    monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.lobby__plinth-wins small {
+  margin-left: 6px;
+  opacity: 0.7;
+  font:
+    700 14px / 1 "Rajdhani",
+    sans-serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.lobby__plinth-meta {
+  font:
+    700 14px / 1.2 "Rajdhani",
+    sans-serif;
+  letter-spacing: 0.06em;
+  color: hsl(250 45% 8% / 0.66);
+}
+
+.lobby__rank-medal.is-you .lobby__plinth-face {
+  box-shadow: inset 0 0 0 4px hsl(250 45% 8%);
 }
 
 .lobby__rank-board h2 {
@@ -666,28 +782,89 @@
 
 .lobby__rank-row {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) repeat(3, 56px);
+  grid-template-columns: 64px minmax(0, 1fr) repeat(4, minmax(56px, 92px));
   gap: 8px;
   align-items: center;
-  min-height: 40px;
-  padding: 7px 12px;
+  min-height: 44px;
+  padding: 7px 18px;
   border-bottom: 1px solid hsl(182 65% 48% / 0.28);
   background: hsl(250 45% 7% / 0.7);
-  color: hsl(45 100% 95%);
+  color: hsl(45 100% 95% / 0.88);
   font:
-    700 15px / 1.2 "Rajdhani",
+    700 16px / 1.2 "Rajdhani",
     sans-serif;
+  font-variant-numeric: tabular-nums;
 }
 
-.lobby__rank-row span:nth-child(2) {
+.lobby__rank-no {
+  font:
+    900 18px / 1 "Orbitron",
+    monospace;
+  color: var(--cream, hsl(45 100% 95%));
+}
+
+.lobby__rank-row--1 .lobby__rank-no {
+  color: hsl(48 100% 62%);
+}
+.lobby__rank-row--2 .lobby__rank-no {
+  color: hsl(220 25% 84%);
+}
+.lobby__rank-row--3 .lobby__rank-no {
+  color: hsl(26 85% 64%);
+}
+
+.lobby__rank-who {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.lobby__rank-av {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, hsl(182 65% 48%), hsl(276 90% 64%));
+  color: hsl(250 45% 8%);
+  font:
+    900 13px / 1 "Orbitron",
+    monospace;
+  clip-path: polygon(14% 0, 100% 8%, 88% 100%, 0 90%);
+}
+
+.lobby__rank-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font:
+    800 16px / 1.1 "Orbitron",
+    monospace;
+  letter-spacing: 0.03em;
+  color: var(--cream, hsl(45 100% 95%));
+}
+
+.lobby__rank-you {
+  flex: none;
+  padding: 3px 7px;
+  background: hsl(45 100% 60%);
+  color: hsl(250 45% 8%);
+  font:
+    900 10px / 1 "Orbitron",
+    monospace;
+  letter-spacing: 0.12em;
+  clip-path: polygon(10% 0, 100% 0, 90% 100%, 0 100%);
+}
+
+.lobby__rank-num--key {
+  color: var(--cream, hsl(45 100% 95%));
+  font-weight: 800;
 }
 
 .lobby__rank-row.is-you {
-  border-left: 4px solid hsl(45 100% 60%);
-  background: hsl(45 80% 24% / 0.45);
+  background: linear-gradient(90deg, hsl(46 100% 60% / 0.24), hsl(46 100% 60% / 0.05) 70%);
+  box-shadow: inset 5px 0 0 hsl(45 100% 60%);
 }
 
 .lobby__rank-pin .lobby__rank-row {
@@ -697,12 +874,17 @@
 @media (max-width: 900px) {
   .lobby__rank-podium {
     grid-template-columns: 1fr;
+    gap: 18px;
   }
   .lobby__rank-medal:first-child,
   .lobby__rank-medal:nth-child(2),
   .lobby__rank-medal:nth-child(3) {
     order: initial;
-    padding-top: 18px;
+  }
+  .lobby__plinth-face,
+  .lobby__rank-medal--1 .lobby__plinth-face {
+    min-height: 128px;
+    padding: 16px 20px;
   }
 }
 

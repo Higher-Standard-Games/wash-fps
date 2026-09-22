@@ -1698,29 +1698,105 @@ export class LobbyPanel extends GamePanel {
     if (!this.leaderboardSearch && visible.length) {
       const podium = document.createElement("div");
       podium.className = "lobby__rank-podium";
-      for (const entry of visible.slice(0, 3)) {
-        const medal = document.createElement("article");
-        medal.className = "lobby__rank-medal";
-        this.appendLeaderboardRow(entry, medal);
-        podium.append(medal);
-      }
+      for (const entry of visible.slice(0, 3)) this.appendPodiumPlinth(entry, podium);
       body.append(podium);
     }
+    const listed = this.leaderboardSearch ? visible : visible.slice(3);
+    // With three players or fewer the podium is the whole board
+    if (listed.length === 0) return;
     const board = document.createElement("section");
     board.className = "lobby__rank-board";
     const heading = document.createElement("h2");
     heading.textContent = this.leaderboardSearch ? "Search results" : "Top 100";
     board.append(heading);
-    for (const entry of this.leaderboardSearch ? visible : visible.slice(3)) this.appendLeaderboardRow(entry, board);
+    for (const entry of listed) this.appendLeaderboardRow(entry, board);
     body.append(board);
   }
 
+  /** The first three get a plinth: rank, name and wins, big enough to read. */
+  private appendPodiumPlinth(entry: LeaderboardPage["entries"][number], parent: HTMLElement): void {
+    const isYou = entry.playerId === currentIdentity()?.id;
+    const plinth = document.createElement("article");
+    plinth.className = `lobby__rank-medal lobby__rank-medal--${entry.rank}`;
+    if (isYou) plinth.classList.add("is-you");
+
+    const side = document.createElement("div");
+    side.className = "lobby__plinth-side";
+    side.setAttribute("aria-hidden", "true");
+    const face = document.createElement("div");
+    face.className = "lobby__plinth-face";
+
+    const rank = document.createElement("span");
+    rank.className = "lobby__plinth-rank";
+    rank.textContent = String(entry.rank);
+    face.append(rank);
+    if (entry.rank === 1) {
+      const tag = document.createElement("span");
+      tag.className = "lobby__plinth-tag";
+      tag.textContent = this.leaderboardPeriod === "month" ? "Leading" : "Champion";
+      face.append(tag);
+    }
+    if (isYou) {
+      const you = document.createElement("span");
+      you.className = "lobby__plinth-tag";
+      you.textContent = "You";
+      face.append(you);
+    }
+    const name = document.createElement("span");
+    name.className = "lobby__plinth-name";
+    name.textContent = entry.name;
+    const wins = document.createElement("span");
+    wins.className = "lobby__plinth-wins";
+    wins.textContent = String(entry.wins);
+    const unit = document.createElement("small");
+    unit.textContent = entry.wins === 1 ? "win" : "wins";
+    wins.append(unit);
+    const played = entry.wins + entry.losses + entry.draws;
+    const meta = document.createElement("span");
+    meta.className = "lobby__plinth-meta";
+    meta.textContent = `${Math.round((entry.wins / played) * 100)}% win rate · ${played} ${played === 1 ? "match" : "matches"}`;
+    face.append(name, wins, meta);
+
+    plinth.append(side, face);
+    parent.append(plinth);
+  }
+
   private appendLeaderboardRow(entry: LeaderboardPage["entries"][number], parent: HTMLElement): void {
+    const isYou = entry.playerId === currentIdentity()?.id;
     const row = document.createElement("div");
-    row.className = "lobby__rank-row";
-    if (entry.playerId === currentIdentity()?.id) row.classList.add("is-you");
-    for (const value of [`#${entry.rank}`, entry.name, `${entry.wins} W`, `${entry.losses} L`, `${entry.draws} D`]) {
+    row.className = `lobby__rank-row lobby__rank-row--${entry.rank <= 3 ? entry.rank : "n"}`;
+    if (isYou) row.classList.add("is-you");
+
+    const rank = document.createElement("span");
+    rank.className = "lobby__rank-no";
+    rank.textContent = `#${entry.rank}`;
+    const who = document.createElement("span");
+    who.className = "lobby__rank-who";
+    const avatar = document.createElement("span");
+    avatar.className = "lobby__rank-av";
+    avatar.setAttribute("aria-hidden", "true");
+    avatar.textContent = entry.name.slice(0, 1).toUpperCase();
+    const name = document.createElement("span");
+    name.className = "lobby__rank-name";
+    name.textContent = entry.name;
+    who.append(avatar, name);
+    if (isYou) {
+      const you = document.createElement("span");
+      you.className = "lobby__rank-you";
+      you.textContent = "You";
+      who.append(you);
+    }
+    row.append(rank, who);
+
+    const played = entry.wins + entry.losses + entry.draws;
+    for (const [value, key] of [
+      [`${entry.wins} W`, true],
+      [`${entry.losses} L`, false],
+      [`${entry.draws} D`, false],
+      [`${Math.round((entry.wins / played) * 100)}%`, false],
+    ] as const) {
       const cell = document.createElement("span");
+      cell.className = key ? "lobby__rank-num lobby__rank-num--key" : "lobby__rank-num";
       cell.textContent = value;
       row.append(cell);
     }
@@ -1732,6 +1808,7 @@ export class LobbyPanel extends GamePanel {
     this.profileView = new ProfileView({
       client: this.lobbyClient,
       isInRoom: () => this.currentLobbyId !== null,
+      modes: () => this.serverGametypes,
     });
     return this.profileView.root;
   }
