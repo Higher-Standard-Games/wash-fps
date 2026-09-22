@@ -362,6 +362,9 @@ export class GametypeController {
         console.log(
           `[GametypeController] Player ${playerId} team: asked=${teamId ?? "none"} normalized=${requested ?? "none"} picked=${manualPick} got=${granted}`,
         );
+        if (this.gametype.name === "Amphi" && granted !== "spectator") {
+          this.matchState.setTeamName(granted, playerName || `Player ${playerId}`);
+        }
       }
     }
 

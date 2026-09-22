@@ -1,28 +1,37 @@
 /**
  * LobbyPanel — Main Lobby UI (extends GamePanel)
  *
- * Tabs:
- *   MATCHMAKING: Mode cards (left) + Social (center) + Chat (right)
- *   LEADERBOARD: Fun stat table with rankings
- *   MY PROFILE:  Player name, stats, settings
+ * Full-screen rail navigation, Play stage, and server-backed lobby data.
  */
 
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import { DebugConsole } from "../../../engine/debug/DebugConsole";
+import { PlayerProfile } from "../../../engine/player/PlayerProfile";
 import { ConnectingOverlay } from "../../../engine/ui/components/ConnectingOverlay";
 import { MatchLobbyView } from "../../../engine/ui/components/MatchLobbyView";
+import {
+  createRaisedKey,
+  injectRaisedKeyStyles,
+  raiseKey,
+  setRaisedKeyText,
+} from "../../../engine/ui/components/RaisedKey";
 import matchLobbyCSSRaw from "../../../engine/ui/components/styles/MatchLobbyView.css?raw";
 import { GamePanel } from "../../../engine/ui/panels/GamePanel";
 import { UIStyles } from "../../../engine/ui/UIStyles";
+import { accountIsNew, currentIdentity } from "../../../lobby/AccountSession";
 import type { LobbyClient } from "../../../lobby/LobbyClient";
-import type { DemoInfo, LiveMatchInfo, MatchLobbyInfo, PlayerInfo } from "../../../lobby/types";
+import type { DemoInfo, GametypeInfo, LiveMatchInfo, MatchLobbyInfo, PlayerInfo } from "../../../lobby/types";
 import { DemoService } from "./DemoService";
 import { DemoViewer } from "./DemoViewer";
 import { DurationPickerModal } from "./DurationPickerModal";
 import { ensureFpsLobbyConnection, getFpsLobbyClient } from "./FpsLobbyService";
+import { bindFeaturedDemos, bindLeaderboard, type FeaturedDemo, type LeaderboardPage, newUiApi } from "./NewUiApi";
+import { ProfileView } from "./ProfileView";
+import { RoomChatView } from "./RoomChatView";
 import { FPSSettingsView } from "./settings/FPSSettingsView";
 import demoTabCSSRaw from "./styles/DemoTab.css?raw";
 import lobbyCSSRaw from "./styles/LobbyPanel.css?raw";
+import { WelcomeOverlay } from "./WelcomeOverlay";
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES & DATA
@@ -32,252 +41,131 @@ interface GameMode {
   id: string;
   title: string;
   subtitle: string;
-  hue: string;
-  queued: number;
-  ticketNo: string;
-  format: string;
-  pace: string;
   hook: string;
-  stamps: string[];
-  weaponTags: string[];
+  specs: string[];
+  /** Face, highlight, shade, and the two side tones of the mode's keys. */
+  accent: [string, string, string, string, string];
+  /** The mode's mark in the rail's room list, dark enough to read on cream. */
+  mark: string;
 }
 
 const GAME_MODES: GameMode[] = [
   {
     id: "duel",
-    title: "DUEL",
+    title: "Duel",
     subtitle: "1 vs 1",
-    hue: "180",
-    queued: 4,
-    ticketNo: "01",
-    format: "ONE ON ONE",
-    pace: "CONTROL",
     hook: "Timing, aim, and nerve. Nothing extra.",
-    stamps: ["1V1", "ITEM TIMING", "NO EXCUSES"],
-    weaponTags: ["RAIL", "ROCKET", "BLADE"],
+    specs: ["One on one", "Control pace", "Item timing", "Rail · Rocket · Blade"],
+    accent: ["hsl(182 95% 52%)", "hsl(182 100% 74%)", "hsl(188 90% 40%)", "hsl(192 85% 28%)", "hsl(198 80% 17%)"],
+    mark: "hsl(186 95% 42%)",
+  },
+  {
+    id: "amphi",
+    title: "Amphi",
+    subtitle: "Aim arena",
+    hook: "Tiny arena, short rounds. Pick a kit, prove your aim.",
+    specs: ["One on one", "3 min rounds", "First to three", "Pick your loadout"],
+    accent: ["hsl(100 85% 52%)", "hsl(98 95% 72%)", "hsl(108 80% 40%)", "hsl(115 70% 26%)", "hsl(125 65% 16%)"],
+    mark: "hsl(104 80% 38%)",
   },
   {
     id: "ffa",
     title: "FFA",
-    subtitle: "FREE FOR ALL",
-    hue: "45",
-    queued: 0,
-    ticketNo: "02",
-    format: "OPEN PIT",
-    pace: "FAST CHAOS",
+    subtitle: "Free for all",
     hook: "Spawn hot, scrap hard, steal the lead.",
-    stamps: ["MAYHEM", "FAST RESPAWN", "ANY ANGLE"],
-    weaponTags: ["GL", "ROCKET", "BLADE"],
+    specs: ["Open pit", "Fast chaos", "Fast respawn", "GL · Rocket · Blade"],
+    accent: ["hsl(46 100% 57%)", "hsl(51 100% 73%)", "hsl(41 100% 48%)", "hsl(34 90% 36%)", "hsl(28 85% 23%)"],
+    mark: "hsl(38 100% 44%)",
   },
   {
     id: "snd",
     title: "S&D",
-    subtitle: "SEARCH & DESTROY",
-    hue: "320",
-    queued: 0,
-    ticketNo: "03",
-    format: "5 VS 5 ROUNDS",
-    pace: "ONE LIFE",
+    subtitle: "Search & destroy",
     hook: "Plant it, or make sure they never do.",
-    stamps: ["NO RESPAWN", "TWO SITES", "SIDE SWAP"],
-    weaponTags: ["ROCKET", "BOMB", "ARMOR"],
+    specs: ["5 vs 5 rounds", "One life", "Two sites", "Rocket · Bomb · Armor"],
+    accent: ["hsl(322 95% 62%)", "hsl(322 100% 77%)", "hsl(318 85% 50%)", "hsl(312 70% 33%)", "hsl(306 70% 21%)"],
+    mark: "hsl(322 90% 52%)",
   },
 ];
 
-const MOCK_PLAYERS = [
-  { name: "zeroQL", status: "searching" as const, mode: "DUEL" },
-  { name: "washoi_dev", status: "online" as const },
-  { name: "rocketJump99", status: "ingame" as const },
-  { name: "fragmaster", status: "searching" as const, mode: "FFA" },
-  { name: "neon_ghost", status: "online" as const },
-  { name: "plasma_rush", status: "ingame" as const },
-  { name: "strafejmp", status: "online" as const },
-  { name: "q3_veteran", status: "online" as const },
-  { name: "cpma_wizard", status: "searching" as const, mode: "DUEL" },
-  { name: "rail_queen", status: "ingame" as const },
-  { name: "shaft_master", status: "online" as const },
-  { name: "bunny_hop", status: "online" as const },
-  { name: "lg_demon", status: "ingame" as const },
-  { name: "warsow_fan", status: "searching" as const, mode: "TEAM" },
-  { name: "arena_noob", status: "online" as const },
-  { name: "rocket_queen", status: "online" as const },
-];
+/** Demos per page: the grid is three across and two down. */
+const DEMOS_PER_PAGE = 6;
 
-const MOCK_CHAT = [
-  { name: "zeroQL", msg: "anyone up for a duel?" },
-  { name: "washoi_dev", msg: "gg last game, that rocket was insane" },
-  { name: "fragmaster", msg: "queueing FFA, join up!" },
-  { name: "", msg: "plasma_rush joined the lobby", system: true },
-  { name: "neon_ghost", msg: "new map when?" },
-  { name: "q3_veteran", msg: "this engine is sick" },
-  { name: "", msg: "rocketJump99 started a match", system: true },
-  { name: "washoi_dev", msg: "nice movement tech in this build" },
-  { name: "strafejmp", msg: "that crouchslide is smooth now" },
-];
+/** Messages kept in the chat log; older ones scroll away for good. */
+const CHAT_LOG_LIMIT = 200;
 
-// ── Leaderboard mock data ──
-const MOCK_LEADERBOARD = [
-  {
-    rank: 1,
-    name: "zeroQL",
-    rating: 2847,
-    wins: 342,
-    losses: 51,
-    kd: "3.21",
-    weapon: "Railgun",
-    acc: "48%",
-    topSpeed: "1240 ups",
-    streak: 14,
-  },
-  {
-    rank: 2,
-    name: "cpma_wizard",
-    rating: 2691,
-    wins: 289,
-    losses: 67,
-    kd: "2.85",
-    weapon: "Lightning",
-    acc: "52%",
-    topSpeed: "1180 ups",
-    streak: 9,
-  },
-  {
-    rank: 3,
-    name: "rail_queen",
-    rating: 2534,
-    wins: 256,
-    losses: 82,
-    kd: "2.44",
-    weapon: "Railgun",
-    acc: "55%",
-    topSpeed: "1120 ups",
-    streak: 7,
-  },
-  {
-    rank: 4,
-    name: "rocketJump99",
-    rating: 2401,
-    wins: 198,
-    losses: 94,
-    kd: "2.11",
-    weapon: "Rocket",
-    acc: "38%",
-    topSpeed: "1340 ups",
-    streak: 5,
-  },
-  {
-    rank: 5,
-    name: "fragmaster",
-    rating: 2298,
-    wins: 187,
-    losses: 103,
-    kd: "1.92",
-    weapon: "Rocket",
-    acc: "41%",
-    topSpeed: "1090 ups",
-    streak: 4,
-  },
-  {
-    rank: 6,
-    name: "plasma_rush",
-    rating: 2155,
-    wins: 164,
-    losses: 112,
-    kd: "1.78",
-    weapon: "Plasma",
-    acc: "35%",
-    topSpeed: "1260 ups",
-    streak: 3,
-  },
-  {
-    rank: 7,
-    name: "shaft_master",
-    rating: 2089,
-    wins: 152,
-    losses: 120,
-    kd: "1.65",
-    weapon: "Lightning",
-    acc: "58%",
-    topSpeed: "1050 ups",
-    streak: 6,
-  },
-  {
-    rank: 8,
-    name: "neon_ghost",
-    rating: 1987,
-    wins: 141,
-    losses: 131,
-    kd: "1.41",
-    weapon: "Gauntlet",
-    acc: "100%",
-    topSpeed: "980 ups",
-    streak: 2,
-  },
-  {
-    rank: 9,
-    name: "strafejmp",
-    rating: 1876,
-    wins: 128,
-    losses: 140,
-    kd: "1.22",
-    weapon: "Rocket",
-    acc: "36%",
-    topSpeed: "1410 ups",
-    streak: 3,
-  },
-  {
-    rank: 10,
-    name: "warsow_fan",
-    rating: 1745,
-    wins: 115,
-    losses: 152,
-    kd: "1.08",
-    weapon: "Lightning",
-    acc: "45%",
-    topSpeed: "1190 ups",
-    streak: 2,
-  },
-  {
-    rank: 11,
-    name: "q3_veteran",
-    rating: 1689,
-    wins: 102,
-    losses: 158,
-    kd: "0.95",
-    weapon: "Railgun",
-    acc: "42%",
-    topSpeed: "1080 ups",
-    streak: 1,
-  },
-  {
-    rank: 12,
-    name: "bunny_hop",
-    rating: 1534,
-    wins: 88,
-    losses: 167,
-    kd: "0.84",
-    weapon: "Rocket",
-    acc: "33%",
-    topSpeed: "1520 ups",
-    streak: 1,
-  },
-];
+const ACCENT_PROPERTIES = ["--accent", "--accent-hi", "--accent-lo", "--accent-side-hi", "--accent-side-lo"];
 
-// ═══════════════════════════════════════════════════════════════════
-// LOBBY PANEL
-// ═══════════════════════════════════════════════════════════════════
+/** Give `element` a mode's accent, for the keys and light inside it. */
+function applyAccent(element: HTMLElement, mode: GameMode): void {
+  ACCENT_PROPERTIES.forEach((property, index) => {
+    element.style.setProperty(property, mode.accent[index]);
+  });
+}
+
+/** A steady colour per name, so a player reads the same in every message. */
+function nameColor(name: string): string {
+  const hues = [182, 322, 125, 276, 28, 200, 350, 104, 240, 160];
+  let hash = 0;
+  for (const char of name) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return `hsl(${hues[hash % hues.length]} 92% 68%)`;
+}
+
+/** How long ago, in as few words as fit on a card. */
+function timeAgo(date: string | number): string {
+  const minutes = Math.round((Date.now() - new Date(date).getTime()) / 60_000);
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.round(hours / 24);
+  if (days === 1) return "Yesterday";
+  if (days < 30) return `${days} days ago`;
+  return new Date(date).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function clockTime(ts: number): string {
+  const time = new Date(ts);
+  return `${String(time.getHours()).padStart(2, "0")}:${String(time.getMinutes()).padStart(2, "0")}`;
+}
 
 export class LobbyPanel extends GamePanel {
   private modesContainer: HTMLElement | null = null;
+  private playBodyEl: HTMLElement | null = null;
   private matchLobbyView: MatchLobbyView | null = null;
+  private roomChatView: RoomChatView | null = null;
   private settingsView: FPSSettingsView | null = null;
+  private profileView: ProfileView | null = null;
+  private welcomeOverlay: WelcomeOverlay | null = null;
 
   // Lobby server connection
   private lobbyClient: LobbyClient;
   private livePlayers: PlayerInfo[] = [];
-  private playerListEl: HTMLElement | null = null;
+  private serverGametypes: GametypeInfo[] = [];
   private playerCountBadge: HTMLElement | null = null;
   private chatMessagesEl: HTMLElement | null = null;
+  private chatColumnEl: HTMLElement | null = null;
+  private chatInputEl: HTMLInputElement | null = null;
+  private chatSendEl: HTMLButtonElement | null = null;
+  private railEl: HTMLElement | null = null;
+  private playerNameEl: HTMLElement | null = null;
+  private playerMetaEl: HTMLElement | null = null;
+  private selectedModeId = "duel";
+  private currentTabId = "matchmaking";
+  private queuePending = false;
+  private playNoticeEl: HTMLElement | null = null;
+  private findButton: HTMLButtonElement | null = null;
+  private privateButton: HTMLButtonElement | null = null;
+  private privateLobbySupported = false;
+  private leaderboardMode = "duel";
+  private leaderboardPeriod: "month" | "all" = "month";
+  private leaderboardSearch = "";
+  private leaderboardSeq = 0;
+  private leaderboardPage: LeaderboardPage | null = null;
+  private leaderboardBody: HTMLElement | null = null;
+  private leaderboardPin: HTMLElement | null = null;
+  private leaderboardStatus: HTMLElement | null = null;
+  private pendingPrivateCreate = false;
 
   private currentLobbyId: string | null = null;
   /** Lobby-server identity from Welcome; lobby roster order is not identity. */
@@ -289,55 +177,176 @@ export class LobbyPanel extends GamePanel {
   // Live matches
   private liveMatches: LiveMatchInfo[] = [];
   private matchListEl: HTMLElement | null = null;
+  private matchCountBadge: HTMLElement | null = null;
 
   // Demos
-  private recentDemos: DemoInfo[] = [];
   private demosArchive: DemoInfo[] = [];
   private demosGridEl: HTMLElement | null = null;
+  private demosCountEl: HTMLElement | null = null;
+  private demosScopeKeysEl: HTMLElement | null = null;
+  private demosModeFiltersEl: HTMLElement | null = null;
+  private demosMapFiltersEl: HTMLElement | null = null;
+  private demosPagerEl: HTMLElement | null = null;
+  private demosMode = "all";
+  private demosMap = "all";
+  private demosSearch = "";
+  private demosPage = 0;
+  private demosRequested = false;
+  private demosScope: "latest" | "yours" = "latest";
+  private demoOwnershipSupported = false;
+  private featuredEntries: FeaturedDemo[] = [];
+  private featuredHostEl: HTMLElement | null = null;
+  private featuredRequested = false;
+  private featuredLoading = false;
+  private featuredError: string | null = null;
+  private featuredSelected = 0;
+  private featuredSeq = 0;
   private _preloadedLevelshots = new Set<string>();
 
   constructor() {
     super("PLAY");
-    this.closable = false; // Main menu cannot be closed via ESC
+    this.closable = false;
+    // The lobby's key variants override the base key, so the base goes in first
+    injectRaisedKeyStyles();
     UIStyles.injectCSS("lobby-panel", lobbyCSSRaw);
     UIStyles.injectCSS("match-lobby", matchLobbyCSSRaw);
 
-    // 3D Logo floating above panel
-    this.enableLogo();
-
-    // Initialize shared lobby client
     this.lobbyClient = getFpsLobbyClient();
-    this.initLobbyConnection();
-
-    // Tabs — Settings is now a tab alongside the others
-    this.addTab("matchmaking", "Matchmaking", this.buildMatchmakingTab());
-    this.addTab("demos", "Demos", this.buildDemosTab());
+    bindLeaderboard(this.lobbyClient, false);
+    bindFeaturedDemos(this.lobbyClient, false);
+    this.addTab("matchmaking", "Play", this.buildMatchmakingTab());
     this.addTab("leaderboard", "Leaderboard", this.buildLeaderboardTab());
+    this.addTab("demos", "Demos", this.buildDemosTab());
     this.addTab("profile", "My Profile", this.buildProfileTab());
-    this.addTab("settings", "⚙ Settings", this.buildSettingsTab());
+    this.addTab("settings", "Settings", this.buildSettingsTab());
+    this.useRailLayout(this.buildRail());
     this.switchTab("matchmaking");
     this.onTabChange((tabId) => {
-      if (tabId === "settings") {
-        void this.settingsView?.refresh();
+      this.currentTabId = tabId;
+      for (const button of this.root.querySelectorAll<HTMLButtonElement>("[data-tab-id]")) {
+        if (button.dataset.tabId === tabId) button.setAttribute("aria-current", "page");
+        else button.removeAttribute("aria-current");
       }
+      // A page that is not on screen has no scroll position, so the chat has to
+      // be sent back to its newest message when the Play page returns.
+      if (tabId === "matchmaking" && this.chatMessagesEl) {
+        this.chatMessagesEl.scrollTop = this.chatMessagesEl.scrollHeight;
+      }
+      if (tabId === "settings") void this.settingsView?.refresh();
+      if (tabId === "profile") this.profileView?.refresh();
+      if (tabId === "demos") {
+        this.demosRequested = false;
+        this.requestDemos();
+      }
+      if (tabId === "leaderboard") void this.refreshLeaderboard();
     });
-
-    // Console button in tab row
-    const headerBtns = document.createElement("div");
-    headerBtns.className = "lobby__header-actions";
-
-    const consoleBtn = this.createButton("Console ~", "");
-    consoleBtn.addEventListener("click", () => DebugConsole.getInstance().toggle());
-    headerBtns.appendChild(consoleBtn);
-
-    this.tabBar.appendChild(headerBtns);
-
-    // Hide footer
-    this.footerArea.style.display = "none";
+    this.tabBar.querySelector('[data-tab-id="matchmaking"]')?.setAttribute("aria-current", "page");
+    void this.initLobbyConnection();
   }
 
-  // ── Lobby Server Connection ──────────────────────────────────
+  private buildRail(): HTMLElement {
+    const rail = document.createElement("aside");
+    rail.className = "lobby__rail";
+    rail.setAttribute("aria-label", "Main menu");
+    this.railEl = rail;
 
+    const kanji = document.createElement("div");
+    kanji.className = "lobby__rail-kanji";
+    kanji.setAttribute("aria-hidden", "true");
+    kanji.textContent = "闘";
+    rail.appendChild(kanji);
+
+    const brand = document.createElement("div");
+    brand.className = "lobby__rail-brand";
+    const logo = document.createElement("img");
+    logo.src = "/data/washoi.png";
+    logo.alt = "Washiki Washoi";
+    const fallback = document.createElement("span");
+    fallback.textContent = "WASHIKI WASHOI";
+    logo.hidden = true;
+    logo.addEventListener("load", () => {
+      logo.hidden = false;
+      fallback.hidden = true;
+    });
+    logo.addEventListener("error", () => {
+      logo.hidden = true;
+      fallback.hidden = false;
+    });
+    brand.append(logo, fallback);
+    rail.appendChild(brand);
+
+    const nav = document.createElement("nav");
+    nav.className = "lobby__rail-nav";
+    nav.setAttribute("aria-label", "Pages");
+    this.tabBar.className = "lobby__rail-keys";
+    for (const [id, hint] of [
+      ["matchmaking", "4 modes"],
+      ["leaderboard", "Top players"],
+      ["demos", "Replays"],
+    ]) {
+      const button = this.tabButton(id);
+      if (button) raiseKey(button, { label: button.textContent ?? "", hint, variants: ["nav"] });
+    }
+    nav.appendChild(this.tabBar);
+    rail.appendChild(nav);
+    rail.appendChild(this.buildSocialColumn());
+
+    const player = document.createElement("div");
+    player.className = "lobby__rail-player";
+    const avatar = document.createElement("span");
+    avatar.className = "lobby__rail-avatar";
+    avatar.setAttribute("aria-hidden", "true");
+    const who = document.createElement("div");
+    who.className = "lobby__rail-who";
+    this.playerNameEl = document.createElement("strong");
+    this.playerMetaEl = document.createElement("span");
+    who.append(this.playerNameEl, this.playerMetaEl);
+    player.append(avatar, who);
+    rail.appendChild(player);
+
+    const utility = document.createElement("div");
+    utility.className = "lobby__rail-utility";
+    for (const [id, label] of [
+      ["profile", "Profile"],
+      ["settings", "Settings"],
+    ]) {
+      const button = this.tabButton(id);
+      if (button) utility.appendChild(raiseKey(button, { label, variants: ["sm", "util"] }));
+    }
+    const consoleButton = createRaisedKey({ label: "Console", variants: ["sm", "util"] });
+    consoleButton.addEventListener("click", () => DebugConsole.getInstance().toggle());
+    utility.appendChild(consoleButton);
+    rail.appendChild(utility);
+    this.refreshPlayerCard();
+    return rail;
+  }
+
+  private tabButton(id: string): HTMLButtonElement | null {
+    // The rail is built before it joins the panel, so look in the tab bar first
+    const selector = `[data-tab-id="${id}"]`;
+    return this.tabBar.querySelector<HTMLButtonElement>(selector) ?? this.root.querySelector(selector);
+  }
+
+  /**
+   * The rail's player card: the account's name, and where the player is.
+   * `name` is for lobby messages this panel hears before AccountSession does.
+   */
+  private refreshPlayerCard(name?: string): void {
+    if (this.playerNameEl) {
+      this.playerNameEl.textContent = name ?? currentIdentity()?.name ?? PlayerProfile.load().name;
+    }
+    if (this.playerMetaEl) {
+      this.playerMetaEl.textContent = !this.lobbyClient.connected
+        ? "Offline"
+        : this.currentLobbyId
+          ? "In a room"
+          : "In lobby";
+    }
+    const playKey = this.tabButton("matchmaking");
+    if (playKey) setRaisedKeyText(playKey, "Play", this.currentLobbyId ? "In a room" : "4 modes");
+  }
+
+  // Lobby Server Connection
   private async initLobbyConnection(): Promise<void> {
     try {
       // Handle welcome — initial data dump
@@ -345,12 +354,24 @@ export class LobbyPanel extends GamePanel {
         this.lobbyClient.on("welcome", (msg) => {
           console.log("[LobbyPanel] Welcome from lobby server:", msg.playerId);
           this.localLobbyPlayerId = msg.playerId;
+          this.refreshPlayerCard(msg.identity?.name);
+          this.serverGametypes = msg.gametypes || [];
+          this.privateLobbySupported = msg.features?.privateLobbies === true;
+          this.demoOwnershipSupported = msg.features?.demoOwnership === true;
+          if (!this.demoOwnershipSupported) this.demosScope = "latest";
+          bindLeaderboard(this.lobbyClient, msg.features?.leaderboard === true);
+          bindFeaturedDemos(this.lobbyClient, msg.features?.featuredDemos === true);
+          this.featuredRequested = false;
+          if (this.currentTabId === "leaderboard") void this.refreshLeaderboard();
+          this.queuePending = false;
+          if (this.playNoticeEl) this.playNoticeEl.textContent = "";
+          this.refreshModeAvailability();
           this.livePlayers = msg.onlinePlayers || [];
           this.refreshPlayerList();
+          if (this.currentTabId === "demos") this.requestDemos();
 
-          // Load live matches + recent demos, then render once
+          // Load live rooms, then render once
           this.liveMatches = msg.liveMatches || [];
-          this.recentDemos = msg.recentDemos || [];
           this.refreshMatchList();
 
           // Preload levelshots for all maps in gametype pools
@@ -360,27 +381,10 @@ export class LobbyPanel extends GamePanel {
           }
           this._preloadLevelshots([...poolMaps]);
 
-          // Load chat history
-          if (msg.chatHistory && this.chatMessagesEl) {
-            for (const c of msg.chatHistory) {
-              this.appendChatMessage(c.from, c.text, false);
-            }
-          }
-
-          // Deep link: /lobby/<id> or ?lobby=<id> — auto-join once after the
-          // welcome. Covers shared lobby links AND the post-game RETURN TO
-          // LOBBY navigation (docs/research/single_game_server_lobby.md).
-          // The server replies with lobby:created (full state dump), which
-          // opens the match lobby view through the normal handler.
-          if (!this.urlLobbyJoinAttempted) {
-            this.urlLobbyJoinAttempted = true;
-            const url = new URL(window.location.href);
-            const pathMatch = url.pathname.match(/\/lobby\/([A-Za-z0-9_-]+)/);
-            const deepLinkLobby = url.searchParams.get("lobby") || pathMatch?.[1];
-            if (deepLinkLobby) {
-              console.log(`[LobbyPanel] Deep link → joining lobby ${deepLinkLobby}`);
-              this.lobbyClient.joinLobby(deepLinkLobby);
-            }
+          // Chat history, in place of whatever an earlier connection left in the log
+          this.chatMessagesEl?.replaceChildren();
+          for (const c of msg.chatHistory || []) {
+            this.appendChatMessage(c.from, c.text, false, c.ts);
           }
         }),
       );
@@ -405,11 +409,21 @@ export class LobbyPanel extends GamePanel {
           this.refreshPlayerList();
         }),
       );
+      this.unsubscribers.push(
+        this.lobbyClient.on("player:renamed", (msg) => {
+          const player = this.livePlayers.find((p) => p.id === msg.playerId);
+          if (player) player.name = msg.name;
+        }),
+      );
+      // This account's new name, from this tab or another one logged in to it
+      this.unsubscribers.push(
+        this.lobbyClient.on("identity:renamed", (msg) => this.refreshPlayerCard(msg.identity.name)),
+      );
 
       // Chat messages
       this.unsubscribers.push(
         this.lobbyClient.on("chat:message", (msg) => {
-          this.appendChatMessage(msg.from, msg.text, false);
+          this.appendChatMessage(msg.from, msg.text, false, msg.ts);
         }),
       );
 
@@ -420,10 +434,22 @@ export class LobbyPanel extends GamePanel {
         }),
       );
 
+      this.unsubscribers.push(
+        this.lobbyClient.on("lobby:kicked", (msg) => {
+          if (msg.lobbyId !== this.currentLobbyId) return;
+          this.showPlayStage();
+          this.appendChatMessage("", `Left room: ${msg.reason}`, true);
+        }),
+      );
+
       // Lobby errors
       this.unsubscribers.push(
         this.lobbyClient.on("lobby:error", (msg) => {
           console.warn("[LobbyPanel] Lobby error:", msg.error);
+          this.queuePending = false;
+          this.pendingPrivateCreate = false;
+          if (this.playNoticeEl) this.playNoticeEl.textContent = msg.error;
+          this.refreshModeAvailability();
         }),
       );
 
@@ -432,6 +458,39 @@ export class LobbyPanel extends GamePanel {
         this.lobbyClient.on("matches:update", (msg) => {
           this.liveMatches = msg.matches || [];
           this.refreshMatchList();
+        }),
+      );
+
+      this.unsubscribers.push(
+        this.lobbyClient.on("_disconnected", () => {
+          this.queuePending = false;
+          this.pendingPrivateCreate = false;
+          this.privateLobbySupported = false;
+          this.demoOwnershipSupported = false;
+          this.demosScope = "latest";
+          bindLeaderboard(this.lobbyClient, false);
+          bindFeaturedDemos(this.lobbyClient, false);
+          this.featuredSeq++;
+          this.leaderboardSeq++;
+          this.leaderboardPage = null;
+          if (this.currentTabId === "leaderboard") this.renderLeaderboard();
+          if (this.playNoticeEl) this.playNoticeEl.textContent = "";
+          this.serverGametypes = [];
+          this.liveMatches = [];
+          this.livePlayers = [];
+          this.demosRequested = false;
+          this.demosArchive = [];
+          this.featuredEntries = [];
+          this.featuredRequested = false;
+          this.featuredLoading = false;
+          this.featuredError = null;
+          this.renderFeaturedDemos();
+          this.refreshDemosGrid();
+          this.refreshModeAvailability();
+          this.refreshMatchList();
+          this.refreshPlayerList();
+          if (this.matchLobbyView) this.showPlayStage();
+          this.refreshPlayerCard();
         }),
       );
 
@@ -444,6 +503,7 @@ export class LobbyPanel extends GamePanel {
       // broadcast arrived. (Manual "leave" still returns to the cards.)
       this.unsubscribers.push(
         this.lobbyClient.on("match:ended", (msg) => {
+          this.featuredRequested = false;
           console.log(`[LobbyPanel] Match ended (${msg.matchId}) — staying in rematch lobby`);
           this.appendChatMessage("", "⚔ Match ended — ready up to rematch", true);
         }),
@@ -452,6 +512,8 @@ export class LobbyPanel extends GamePanel {
       // Demo archive list response
       this.unsubscribers.push(
         this.lobbyClient.on("demos:list_response", (msg) => {
+          if ((msg.scope ?? "latest") !== this.demosScope) return;
+          this.demosRequested = false;
           this.demosArchive = msg.demos || [];
           // Preload any new map levelshots from demo list
           const demoMaps = [...new Set<string>((msg.demos || []).map((d: DemoInfo) => d.map))];
@@ -464,92 +526,174 @@ export class LobbyPanel extends GamePanel {
 
       // Share lobby client with DemoService so console `demolist` command works
       DemoService.getInstance().setLobbyClient(this.lobbyClient);
+
+      // A browser the lobby has just made an account for is asked who it is,
+      // and joins a shared room link only once it has answered
+      if (accountIsNew()) this.showWelcome();
+      else this.runDeepLinkJoin();
     } catch (err) {
       console.warn("[LobbyPanel] Could not connect to lobby server:", err);
-      console.log("[LobbyPanel] Falling back to mock data");
-      // Fallback: show mock data if server is not running
-      this.useMockData();
+      console.log("[LobbyPanel] Showing disconnected lobby state");
+      this.showDisconnectedState();
     }
   }
 
-  private useMockData(): void {
-    // Populate with mock data when lobby server is unavailable
-    for (const p of MOCK_PLAYERS) {
-      this.livePlayers.push({
-        id: p.name,
-        name: p.name,
-        status: p.status === "searching" ? "in_lobby" : p.status === "ingame" ? "in_match" : "online",
-      });
+  /**
+   * Ask a new player for a name, over the lobby. The account already exists —
+   * the answer renames it, and "Use my key" swaps it for an account they have.
+   */
+  private showWelcome(): void {
+    if (this.welcomeOverlay) return;
+    this.welcomeOverlay = new WelcomeOverlay(() => {
+      this.welcomeOverlay = null;
+      this.refreshPlayerCard();
+      this.runDeepLinkJoin();
+    });
+    this.welcomeOverlay.open(this.root);
+  }
+
+  /** Drop `?invite=` from the address bar, once the room it opens is open. */
+  private forgetInviteInUrl(lobbyId: string): void {
+    try {
+      const url = new URL(window.location.href);
+      if (!url.searchParams.has("invite")) return;
+      const shown = url.searchParams.get("lobby") ?? url.pathname.match(/\/lobby\/([A-Za-z0-9_-]+)/)?.[1];
+      if (shown !== lobbyId) return;
+      url.searchParams.delete("invite");
+      window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    } catch {
+      // An address bar this browser will not rewrite is not worth failing a join over.
     }
+  }
+
+  /**
+   * Deep link: /lobby/<id> or ?lobby=<id> — join once per page load. Covers
+   * shared lobby links AND the post-game RETURN TO LOBBY navigation
+   * (docs/research/single_game_server_lobby.md). The server replies with
+   * lobby:created (full state dump), which opens the room view through the
+   * normal handler.
+   */
+  private runDeepLinkJoin(): void {
+    if (this.urlLobbyJoinAttempted || !this.lobbyClient.connected) return;
+    this.urlLobbyJoinAttempted = true;
+    const url = new URL(window.location.href);
+    const pathMatch = url.pathname.match(/\/lobby\/([A-Za-z0-9_-]+)/);
+    const deepLinkLobby = url.searchParams.get("lobby") || pathMatch?.[1];
+    if (deepLinkLobby) {
+      console.log(`[LobbyPanel] Deep link → joining lobby ${deepLinkLobby}`);
+      let inviteToken = url.searchParams.get("invite") || undefined;
+      if (!inviteToken) {
+        try {
+          inviteToken = sessionStorage.getItem(`shag.private_invite.${deepLinkLobby}`) || undefined;
+        } catch {
+          // An ordinary public room does not require local storage.
+        }
+      }
+      this.lobbyClient.joinLobby(deepLinkLobby, inviteToken);
+    }
+  }
+
+  private showDisconnectedState(): void {
+    this.queuePending = false;
+    this.pendingPrivateCreate = false;
+    this.privateLobbySupported = false;
+    this.demoOwnershipSupported = false;
+    this.demosScope = "latest";
+    this.demosRequested = false;
+    this.demosArchive = [];
+    bindFeaturedDemos(this.lobbyClient, false);
+    this.featuredSeq++;
+    this.featuredEntries = [];
+    this.featuredRequested = false;
+    this.featuredLoading = false;
+    this.featuredError = null;
+    this.renderFeaturedDemos();
+    this.refreshDemosGrid();
+    if (this.playNoticeEl) this.playNoticeEl.textContent = "";
+    this.livePlayers = [];
+    this.liveMatches = [];
     this.refreshPlayerList();
-    for (const c of MOCK_CHAT) {
-      this.appendChatMessage(c.name, c.msg, !!(c as any).system);
-    }
+    this.refreshMatchList();
+    this.refreshModeAvailability();
+    this.refreshPlayerCard();
+    this.appendChatMessage("", "Lobby server unavailable. Reconnect to chat or find a match.", true);
   }
 
   private refreshPlayerList(): void {
-    if (!this.playerListEl) return;
-    this.playerListEl.innerHTML = "";
-
-    for (const p of this.livePlayers) {
-      const row = document.createElement("div");
-      row.className = "lobby__player";
-
-      const dot = document.createElement("div");
-      const statusClass = p.status === "in_lobby" ? "searching" : p.status === "in_match" ? "ingame" : "online";
-      dot.className = `lobby__player-dot lobby__player-dot--${statusClass}`;
-      row.appendChild(dot);
-
-      const name = document.createElement("span");
-      name.className = "lobby__player-name";
-      name.textContent = p.name;
-      row.appendChild(name);
-
-      if (p.status === "in_lobby") {
-        const badge = document.createElement("span");
-        badge.className = "lobby__player-badge lobby__player-badge--search";
-        badge.textContent = "IN LOBBY";
-        row.appendChild(badge);
-      } else if (p.status === "in_match") {
-        const badge = document.createElement("span");
-        badge.className = "lobby__player-badge lobby__player-badge--ingame";
-        badge.textContent = "IN MATCH";
-        row.appendChild(badge);
-      }
-
-      this.playerListEl.appendChild(row);
-    }
-
-    // Update badge count
     if (this.playerCountBadge) {
-      this.playerCountBadge.textContent = `${this.livePlayers.length}`;
+      this.playerCountBadge.textContent = this.lobbyClient.connected ? `${this.livePlayers.length} online` : "Offline";
     }
   }
 
-  private appendChatMessage(from: string, text: string, system: boolean): void {
-    if (!this.chatMessagesEl) return;
+  private appendChatMessage(from: string, text: string, system: boolean, ts = Date.now()): void {
+    const log = this.chatMessagesEl;
+    if (!log) return;
+    const span = (className: string, content: string) => {
+      const el = document.createElement("span");
+      el.className = className;
+      el.textContent = content;
+      return el;
+    };
 
     const msg = document.createElement("div");
+    msg.className = "lobby-chat__msg";
+    const time = span("lobby-chat__time", clockTime(ts));
     if (system || !from) {
-      msg.className = "lobby__chat-msg lobby__chat-msg--system";
-      msg.textContent = text;
+      msg.classList.add("lobby-chat__msg--sys");
+      msg.append(time, span("lobby-chat__text", text));
     } else {
-      msg.className = "lobby__chat-msg";
-      const nameSpan = document.createElement("span");
-      nameSpan.className = "lobby__chat-name";
-      nameSpan.textContent = from;
-      msg.appendChild(nameSpan);
-      msg.appendChild(document.createTextNode(text));
+      // Names are unique to an account, so a message under this account's name is ours
+      const mine = from === (currentIdentity()?.name ?? PlayerProfile.load().name);
+      const who = span("lobby-chat__who", from);
+      if (mine) msg.classList.add("lobby-chat__msg--me");
+      else who.style.setProperty("--who", nameColor(from));
+      msg.append(time, who, span("lobby-chat__text", text));
     }
-    this.chatMessagesEl.appendChild(msg);
-    this.chatMessagesEl.scrollTop = this.chatMessagesEl.scrollHeight;
+
+    // Follow new messages only when already at the bottom, so reading back isn't interrupted
+    const following = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+    log.appendChild(msg);
+    while (log.childElementCount > CHAT_LOG_LIMIT) log.firstElementChild?.remove();
+    if (following) log.scrollTop = log.scrollHeight;
   }
 
   private handleLobbyCreated(lobby: MatchLobbyInfo): void {
+    if (this.matchLobbyView) this.showPlayStage();
+    let inviteToken: string | null = null;
+    if (lobby.visibility === "private") {
+      try {
+        inviteToken = new URL(lobby.shareUrl, window.location.origin).searchParams.get("invite");
+      } catch {
+        // The server response is not a usable invite URL.
+      }
+    }
+    if (this.pendingPrivateCreate && (lobby.visibility !== "private" || !inviteToken)) {
+      this.pendingPrivateCreate = false;
+      this.queuePending = false;
+      this.lobbyClient.leaveLobby(lobby.id);
+      if (this.playNoticeEl) this.playNoticeEl.textContent = "The server did not provide a private invite room.";
+      this.refreshModeAvailability();
+      return;
+    }
+    this.pendingPrivateCreate = false;
+    this.queuePending = false;
+    if (this.playNoticeEl) this.playNoticeEl.textContent = "";
     this.currentLobbyId = lobby.id;
-    if (!this.modesContainer) return;
-    const layout = this.modesContainer.parentElement;
-    if (!layout) return;
+    if (inviteToken) {
+      let stashed = false;
+      try {
+        sessionStorage.setItem(`shag.private_invite.${lobby.id}`, inviteToken);
+        stashed = true;
+      } catch {
+        // The current room still works; a return after navigation needs the invite link.
+      }
+      // An invite left in the address bar is in the history, in every
+      // screenshot and on every stream — for a room only the invited should
+      // reach. Take it out once it is stashed, which is where a reload and the
+      // post-match return read it from anyway.
+      if (stashed) this.forgetInviteInUrl(lobby.id);
+    }
+    if (!this.modesContainer || !this.playBodyEl) return;
 
     // Create match lobby view with real server data
     this.matchLobbyView = new MatchLobbyView(
@@ -563,11 +707,25 @@ export class LobbyPanel extends GamePanel {
         this.lobbyClient.leaveLobby(this.currentLobbyId);
         this.currentLobbyId = null;
       }
-      this.showGametypeCards();
+      this.showPlayStage();
     });
 
-    // Swap mode cards for match lobby
-    layout.replaceChild(this.matchLobbyView.root, this.modesContainer);
+    // The stage keeps its light and backdrop word; the room takes its body,
+    // and the whole stage takes the room's colour.
+    const mode = GAME_MODES.find((item) => item.id === lobby.gametype);
+    if (mode) {
+      applyAccent(this.modesContainer, mode);
+      const ghost = this.modesContainer.querySelector<HTMLElement>(".lobby__ghost");
+      if (ghost) ghost.textContent = mode.title.toUpperCase();
+    }
+    this.playBodyEl.replaceWith(this.matchLobbyView.root);
+    const railMiddle = this.railEl?.querySelector(".lobby__rail-mid");
+    if (railMiddle) {
+      this.roomChatView = new RoomChatView(this.lobbyClient, lobby, this.localLobbyPlayerId);
+      railMiddle.appendChild(this.roomChatView.root);
+      this.railEl?.classList.add("lobby__rail--room");
+    }
+    this.refreshPlayerCard();
     console.log(`[LobbyPanel] Opened match lobby: ${lobby.id}`);
   }
 
@@ -582,7 +740,7 @@ export class LobbyPanel extends GamePanel {
     return this.isOpen();
   }
   setOnPlay(_cb: (mode: string) => void): void {}
-  onSettingsChange(_cb: (key: string, value: any) => void): void {}
+  onSettingsChange(_cb: (key: string, value: unknown) => void): void {}
 
   // ═══════════════════════════════════════════════════════════════════
   // TAB 1: MATCHMAKING
@@ -591,359 +749,327 @@ export class LobbyPanel extends GamePanel {
   private buildMatchmakingTab(): HTMLElement {
     const layout = document.createElement("div");
     layout.className = "lobby__layout";
-
-    this.modesContainer = this.buildModeCards();
+    this.modesContainer = this.buildPlayStage();
     layout.appendChild(this.modesContainer);
-    layout.appendChild(this.buildSocialColumn());
-    layout.appendChild(this.buildChatColumn());
-
+    this.selectMode(GAME_MODES[0]);
+    this.refreshModeAvailability();
     return layout;
   }
 
-  // ── Mode cards ──
+  private buildPlayStage(): HTMLElement {
+    const stage = document.createElement("div");
+    stage.className = "lobby__page lobby__play";
+    stage.append(this.buildStageLight());
+    const ghost = document.createElement("div");
+    ghost.className = "lobby__ghost";
+    ghost.setAttribute("aria-hidden", "true");
+    stage.append(ghost);
 
-  private buildModeCards(): HTMLElement {
-    const container = document.createElement("div");
-    container.className = "lobby__modes";
-    for (const mode of GAME_MODES) {
-      container.appendChild(this.buildModeCard(mode));
-    }
-    return container;
-  }
+    const body = document.createElement("div");
+    body.className = "lobby__play-body";
+    this.playBodyEl = body;
+    stage.appendChild(body);
 
-  private buildModeCard(mode: GameMode): HTMLElement {
-    const card = document.createElement("div");
-    card.className = "lobby__mode-card";
-    card.dataset.mode = mode.id;
-    card.style.setProperty("--card-hue", mode.hue);
-
-    const top = document.createElement("div");
-    top.className = "lobby__mode-ticket-top";
-
+    const header = document.createElement("header");
+    header.className = "lobby__heading";
     const kicker = document.createElement("span");
-    kicker.className = "lobby__mode-kicker";
-    kicker.textContent = "Match Ticket";
-    top.appendChild(kicker);
+    kicker.className = "lobby__kicker";
+    kicker.textContent = "Play";
+    const title = document.createElement("h1");
+    title.className = "lobby__title";
+    title.textContent = "Pick your fight";
+    header.append(kicker, title);
+    body.appendChild(header);
 
-    const ticket = document.createElement("span");
-    ticket.className = "lobby__mode-ticket-no";
-    ticket.textContent = `NO. ${mode.ticketNo}`;
-    top.appendChild(ticket);
+    const tiles = document.createElement("div");
+    tiles.className = "lobby__play-tiles";
+    tiles.setAttribute("role", "group");
+    tiles.setAttribute("aria-label", "Game modes");
+    GAME_MODES.forEach((mode, index) => {
+      const band = document.createElement("span");
+      band.className = "lobby__mode-band";
+      const number = document.createElement("span");
+      number.className = "lobby__mode-number";
+      number.textContent = String(index + 1).padStart(2, "0");
+      const status = document.createElement("span");
+      status.className = "lobby__mode-status";
+      const top = document.createElement("span");
+      top.className = "lobby__mode-top";
+      top.append(number, status);
+      const name = document.createElement("span");
+      name.className = "lobby__mode-name";
+      name.textContent = mode.title;
+      const subtitle = document.createElement("span");
+      subtitle.className = "lobby__mode-subtitle";
+      subtitle.textContent = mode.subtitle;
+      const main = document.createElement("span");
+      main.className = "lobby__mode-main";
+      main.append(name, subtitle);
 
-    const queueEl = document.createElement("span");
-    queueEl.className = "lobby__mode-queue";
-    queueEl.textContent = mode.queued > 0 ? `${mode.queued} QUEUED` : "QUEUE CLEAR";
-    if (mode.queued > 0) queueEl.classList.add("lobby__mode-queue--active");
-    top.appendChild(queueEl);
-
-    card.appendChild(top);
-
-    const titleWrap = document.createElement("div");
-    titleWrap.className = "lobby__mode-title-wrap";
-
-    const title = document.createElement("div");
-    title.className = "lobby__mode-title";
-    title.textContent = mode.title;
-    titleWrap.appendChild(title);
-
-    const sub = document.createElement("div");
-    sub.className = "lobby__mode-sub";
-    sub.textContent = mode.subtitle;
-    titleWrap.appendChild(sub);
-
-    card.appendChild(titleWrap);
-
-    const diagram = document.createElement("div");
-    diagram.className = `lobby__mode-diagram lobby__mode-diagram--${mode.id}`;
-    for (let i = 0; i < 6; i++) {
-      const node = document.createElement("span");
-      node.className = "lobby__mode-node";
-      diagram.appendChild(node);
-    }
-    card.appendChild(diagram);
-
-    const meta = document.createElement("div");
-    meta.className = "lobby__mode-meta";
-    meta.appendChild(this.buildModeMetaRow("FORMAT", mode.format));
-    meta.appendChild(this.buildModeMetaRow("PACE", mode.pace));
-    card.appendChild(meta);
-
-    const hook = document.createElement("p");
-    hook.className = "lobby__mode-hook";
-    hook.textContent = mode.hook;
-    card.appendChild(hook);
-
-    const stamps = document.createElement("div");
-    stamps.className = "lobby__mode-stamps";
-    for (const stamp of mode.stamps) {
-      const el = document.createElement("span");
-      el.className = "lobby__mode-stamp";
-      el.textContent = stamp;
-      stamps.appendChild(el);
-    }
-    card.appendChild(stamps);
-
-    const weapons = document.createElement("div");
-    weapons.className = "lobby__mode-weapons";
-    for (const tag of mode.weaponTags) {
-      const el = document.createElement("span");
-      el.className = "lobby__mode-weapon";
-      el.textContent = tag;
-      weapons.appendChild(el);
-    }
-    card.appendChild(weapons);
-
-    const btn = document.createElement("button");
-    btn.className = "lobby__find-btn";
-    btn.id = `lobby-find-${mode.id}`;
-    btn.textContent = `Find ${mode.title}`;
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      this.showMatchLobby(mode.id);
+      const key = createRaisedKey({ variants: ["mode"], content: [band, top, main] });
+      key.dataset.mode = mode.id;
+      key.setAttribute("aria-pressed", "false");
+      applyAccent(key, mode);
+      key.addEventListener("click", () => this.selectMode(mode));
+      tiles.appendChild(key);
     });
-    card.appendChild(btn);
+    body.appendChild(tiles);
 
-    card.addEventListener("click", () => this.showMatchLobby(mode.id));
+    const lower = document.createElement("div");
+    lower.className = "lobby__play-lower";
+    const detail = document.createElement("section");
+    detail.className = "lobby__play-detail";
+    detail.setAttribute("aria-label", "Selected mode");
+    const tagline = document.createElement("p");
+    tagline.className = "lobby__play-tagline";
+    const specs = document.createElement("div");
+    specs.className = "lobby__play-specs";
 
-    return card;
+    const actions = document.createElement("div");
+    actions.className = "lobby__play-actions";
+    this.findButton = createRaisedKey({ label: "", variants: ["cta"] });
+    this.findButton.addEventListener("click", () => this.showMatchLobby(this.selectedModeId));
+    const privateButton = createRaisedKey({
+      label: "🔒 Private lobby",
+      hint: "Invite only",
+      variants: ["cream", "private"],
+    });
+    this.privateButton = privateButton;
+    privateButton.addEventListener("click", () => this.showPrivateLobby(this.selectedModeId));
+    privateButton.disabled = true;
+    privateButton.title = "Connect to a lobby server with private rooms.";
+    actions.append(this.findButton, privateButton);
+
+    const notice = document.createElement("p");
+    notice.className = "lobby__play-notice";
+    notice.setAttribute("role", "status");
+    this.playNoticeEl = notice;
+    detail.append(tagline, specs, actions, notice);
+    lower.append(detail, this.buildChatColumn());
+    body.appendChild(lower);
+    return stage;
   }
 
-  private buildModeMetaRow(label: string, value: string): HTMLElement {
-    const row = document.createElement("div");
-    row.className = "lobby__mode-meta-row";
-
-    const labelEl = document.createElement("span");
-    labelEl.className = "lobby__mode-meta-label";
-    labelEl.textContent = label;
-    row.appendChild(labelEl);
-
-    const valueEl = document.createElement("span");
-    valueEl.className = "lobby__mode-meta-value";
-    valueEl.textContent = value;
-    row.appendChild(valueEl);
-
-    return row;
+  /** Three soft lights drifting behind a stage; only their transforms animate. */
+  private buildStageLight(): HTMLElement {
+    const light = document.createElement("div");
+    light.className = "lobby__light";
+    light.setAttribute("aria-hidden", "true");
+    for (const tone of ["violet", "deep", "accent"]) {
+      const orb = document.createElement("div");
+      orb.className = `lobby__orb lobby__orb--${tone}`;
+      light.appendChild(orb);
+    }
+    return light;
   }
 
-  // ── Social column ──
+  private selectMode(mode: GameMode): void {
+    this.selectedModeId = mode.id;
+    const stage = this.modesContainer;
+    if (!stage) return;
+    // The stage takes the picked mode's colours, so the key, the light and the backdrop word follow it
+    applyAccent(stage, mode);
+    for (const key of stage.querySelectorAll<HTMLButtonElement>(".raised-key--mode")) {
+      key.setAttribute("aria-pressed", String(key.dataset.mode === mode.id));
+    }
+    const ghost = stage.querySelector<HTMLElement>(".lobby__ghost");
+    if (ghost) ghost.textContent = mode.title.toUpperCase();
+    const tagline = stage.querySelector<HTMLElement>(".lobby__play-tagline");
+    if (tagline) tagline.textContent = mode.hook;
+    const specs = stage.querySelector<HTMLElement>(".lobby__play-specs");
+    specs?.replaceChildren(
+      ...mode.specs.map((value) => {
+        const spec = document.createElement("span");
+        spec.className = "lobby__spec";
+        spec.textContent = value;
+        return spec;
+      }),
+    );
+    this.refreshFindButton();
+  }
+
+  private refreshFindButton(): void {
+    const button = this.findButton;
+    if (!button) return;
+    const mode = GAME_MODES.find((item) => item.id === this.selectedModeId) ?? GAME_MODES[0];
+    const available = newUiApi.getMode(mode.id, this.serverGametypes).status === "ready";
+    button.disabled = this.queuePending || !this.lobbyClient.connected || !available;
+    const label = this.queuePending
+      ? "Joining…"
+      : !this.lobbyClient.connected
+        ? "Lobby offline"
+        : available
+          ? `Find ${mode.title}`
+          : `${mode.title} soon`;
+    setRaisedKeyText(button, label);
+    if (this.privateButton) {
+      this.privateButton.disabled =
+        this.queuePending || !this.lobbyClient.connected || !available || !this.privateLobbySupported;
+      this.privateButton.title = !this.privateLobbySupported
+        ? "This lobby server does not offer private rooms."
+        : !available
+          ? "This mode is not offered by the lobby server."
+          : "Create an invite-only room.";
+    }
+  }
+
+  private refreshModeAvailability(): void {
+    if (!this.modesContainer) return;
+    const connected = this.lobbyClient.connected;
+    if (this.chatInputEl) {
+      this.chatInputEl.disabled = !connected;
+      this.chatInputEl.placeholder = connected ? "Say something…" : "Lobby offline";
+    }
+    if (this.chatSendEl) this.chatSendEl.disabled = !connected;
+    for (const key of this.modesContainer.querySelectorAll<HTMLElement>(".raised-key--mode")) {
+      const available = newUiApi.getMode(key.dataset.mode || "", this.serverGametypes).status === "ready";
+      const status = key.querySelector<HTMLElement>(".lobby__mode-status");
+      // Only a mode this lobby doesn't run yet is marked; offline shows on the Find key
+      if (status) status.textContent = connected && !available ? "Soon" : "";
+    }
+    this.refreshFindButton();
+  }
 
   private buildSocialColumn(): HTMLElement {
-    const col = document.createElement("div");
-    col.className = "lobby__col lobby__col--social";
-
-    const titleEl = this.sectionTitle("PLAYERS ONLINE", "0");
-    this.playerCountBadge = titleEl.querySelector(".lobby__section-badge") as HTMLElement;
-    col.appendChild(titleEl);
-    col.appendChild(this.buildPlayerList());
-
-    const divider = document.createElement("div");
-    divider.className = "lobby__divider";
-    col.appendChild(divider);
-
-    col.appendChild(this.sectionTitle("LIVE MATCHES"));
-    col.appendChild(this.buildMatchList());
-
-    return col;
-  }
-
-  private buildPlayerList(): HTMLElement {
-    const list = document.createElement("div");
-    list.className = "lobby__players";
-    this.playerListEl = list;
-    // Will be populated by refreshPlayerList() when server data arrives
-    return list;
+    const mid = document.createElement("section");
+    mid.className = "lobby__rail-mid";
+    mid.setAttribute("aria-label", "Rooms");
+    const heading = document.createElement("div");
+    heading.className = "lobby__rail-label";
+    const label = document.createElement("span");
+    label.textContent = "Lobbies";
+    const count = document.createElement("span");
+    this.matchCountBadge = count;
+    heading.append(label, count);
+    mid.appendChild(heading);
+    mid.appendChild(this.buildMatchList());
+    this.refreshMatchList();
+    return mid;
   }
 
   private buildMatchList(): HTMLElement {
     const list = document.createElement("div");
-    list.className = "lobby__matches";
+    list.className = "lobby__rail-lobbies";
     this.matchListEl = list;
-    // Will be populated by refreshMatchList() when server data arrives
     return list;
   }
 
   private refreshMatchList(): void {
     if (!this.matchListEl) return;
-    this.matchListEl.innerHTML = "";
-
-    if (this.liveMatches.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "lobby__chat-msg lobby__chat-msg--system";
-      empty.textContent = "No live matches";
-      empty.style.padding = "8px 10px";
-      this.matchListEl.appendChild(empty);
+    const joinable = (match: LiveMatchInfo) => match.state === "waiting" && match.playerCount < match.maxPlayers;
+    const rank = (match: LiveMatchInfo) => (joinable(match) ? 0 : match.state === "waiting" ? 1 : 2);
+    // Joinable first, fewest seats left on top; then full rooms about to start; then running matches
+    const matches = [...this.liveMatches].sort(
+      (a, b) => rank(a) - rank(b) || a.maxPlayers - a.playerCount - (b.maxPlayers - b.playerCount),
+    );
+    if (this.matchCountBadge) {
+      this.matchCountBadge.textContent = `${matches.filter(joinable).length} open · ${matches.length}`;
+    }
+    if (matches.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "lobby__rail-empty";
+      empty.textContent = this.lobbyClient.connected
+        ? "No rooms yet. Pick a mode to start one."
+        : "Lobby server offline.";
+      this.matchListEl.replaceChildren(empty);
       return;
     }
 
-    for (const m of this.liveMatches) {
-      const match = document.createElement("div");
-      match.className = "lobby__match";
+    this.matchListEl.replaceChildren(
+      ...matches.map((match) => {
+        const mode = GAME_MODES.find((item) => item.id === match.gametype);
+        const action = match.state === "playing" ? "watch" : joinable(match) ? "join" : "full";
+        const where =
+          match.state === "playing" ? match.mapDisplayName || match.map : action === "full" ? "Starting" : "Open";
 
-      // Elapsed time
-      const elapsed = Math.floor((Date.now() - m.startedAt) / 1000);
-      const mins = Math.floor(elapsed / 60);
-      const secs = elapsed % 60;
-      const timeStr = `${mins}:${secs.toString().padStart(2, "0")}`;
+        const mark = document.createElement("span");
+        mark.className = "lobby__room-mark";
+        const name = document.createElement("span");
+        name.className = "raised-key__label";
+        name.textContent = mode?.title ?? match.gametypeName ?? match.gametype;
+        const map = document.createElement("span");
+        map.className = "lobby__room-map";
+        map.textContent = where;
+        map.hidden = match.state !== "playing";
+        const count = document.createElement("span");
+        count.className = "raised-key__hint lobby__room-count";
+        count.textContent = `${match.playerCount} / ${match.maxPlayers}`;
+        const badge = document.createElement("span");
+        badge.className = `lobby__room-badge lobby__room-badge--${action}`;
+        badge.textContent = action;
 
-      const stateLabel = m.state === "playing" ? "● LIVE" : "○ LOBBY";
-
-      const header = document.createElement("div");
-      header.className = "lobby__match-header";
-      header.innerHTML = `
-                <span class="lobby__match-live">${stateLabel}</span>
-                <span class="lobby__match-type">${m.gametypeName}</span>
-                <span class="lobby__match-time">${timeStr}</span>
-            `;
-      match.appendChild(header);
-
-      const players = document.createElement("div");
-      players.className = "lobby__match-players";
-      players.textContent =
-        m.players.length > 0 ? m.players.join(" vs ") : `${m.playerCount} player${m.playerCount !== 1 ? "s" : ""}`;
-      match.appendChild(players);
-
-      const footer = document.createElement("div");
-      footer.className = "lobby__match-footer";
-      footer.innerHTML = `
-                <span class="lobby__match-map">${m.mapDisplayName || m.gametype}</span>
-                <span class="lobby__match-score">${m.playerCount}/${m.maxPlayers}</span>
-            `;
-
-      if (m.state === "playing") {
-        const watchBtn = document.createElement("button");
-        watchBtn.className = "lobby__watch-btn";
-        watchBtn.textContent = "WATCH";
-        watchBtn.addEventListener("click", () => {
-          if (m.serverUrl) {
-            const overlay = new ConnectingOverlay();
-            overlay.show(m.serverUrl, true); // asSpectator = true
-          } else {
-            console.warn("[LobbyPanel] No server URL for match", m.id);
-          }
-        });
-        footer.appendChild(watchBtn);
-      } else {
-        const joinBtn = document.createElement("button");
-        joinBtn.className = "lobby__watch-btn";
-        joinBtn.textContent = "JOIN";
-        joinBtn.addEventListener("click", () => {
-          this.lobbyClient.joinLobby(m.id);
-        });
-        footer.appendChild(joinBtn);
-      }
-
-      match.appendChild(footer);
-      this.matchListEl.appendChild(match);
-    }
-
-    // ── Append recent demos below live matches ──
-    if (this.recentDemos.length > 0) {
-      const demoHeader = document.createElement("div");
-      demoHeader.className = "lobby__chat-msg lobby__chat-msg--system";
-      demoHeader.textContent = "RECENT DEMOS";
-      demoHeader.style.padding = "10px 10px 4px";
-      demoHeader.style.fontSize = "10px";
-      demoHeader.style.letterSpacing = "0.1em";
-      demoHeader.style.opacity = "0.5";
-      this.matchListEl.appendChild(demoHeader);
-
-      for (const d of this.recentDemos.slice(0, 10)) {
-        const demo = document.createElement("div");
-        demo.className = "lobby__match lobby__match--demo";
-
-        // Duration
-        const totalSecs = Math.floor(d.durationMs / 1000);
-        const mins = Math.floor(totalSecs / 60);
-        const secs = totalSecs % 60;
-        const durationStr = `${mins}:${secs.toString().padStart(2, "0")}`;
-
-        const header = document.createElement("div");
-        header.className = "lobby__match-header";
-        header.innerHTML = `
-                    <span class="lobby__match-demo-label">▶ DEMO</span>
-                    <span class="lobby__match-type">${d.gametype.toUpperCase()}</span>
-                    <span class="lobby__match-time">${durationStr}</span>
-                `;
-        demo.appendChild(header);
-
-        const players = document.createElement("div");
-        players.className = "lobby__match-players";
-        players.textContent = d.players.length > 0 ? d.players.join(" vs ") : "Unknown";
-        demo.appendChild(players);
-
-        const footer = document.createElement("div");
-        footer.className = "lobby__match-footer";
-
-        // Date string
-        const dateStr = new Date(d.date).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-        footer.innerHTML = `
-                    <span class="lobby__match-map">${d.mapDisplayName}</span>
-                    <span class="lobby__match-score">${dateStr}</span>
-                `;
-
-        const viewBtn = document.createElement("button");
-        viewBtn.className = "lobby__watch-btn lobby__watch-btn--demo";
-        viewBtn.textContent = "VIEW DEMO";
-        viewBtn.addEventListener("click", async () => {
-          // Play the demo in-engine (same path as the demo-card ▶ PLAY button),
-          // not a raw file download (#6).
-          viewBtn.disabled = true;
-          viewBtn.textContent = "LOADING…";
-          try {
-            const service = DemoService.getInstance();
-            await service.fetchAndLoad(d.filename);
-            await service.loadAndPlayNormal(new DemoViewer());
-            this.hide();
-          } catch (err) {
-            console.error("[LobbyPanel] Failed to play demo:", err);
-            viewBtn.disabled = false;
-            viewBtn.textContent = "VIEW DEMO";
-          }
-        });
-        footer.appendChild(viewBtn);
-
-        demo.appendChild(footer);
-        this.matchListEl.appendChild(demo);
-      }
-    }
+        const row = createRaisedKey({ variants: ["sm", "cream", "room"], content: [mark, name, map, count, badge] });
+        row.classList.add(`lobby__room--${match.state}`);
+        row.style.setProperty("--mode-mark", mode?.mark ?? "hsl(250 20% 40%)");
+        row.disabled = action === "full" || (action === "watch" && !match.serverUrl);
+        row.setAttribute(
+          "aria-label",
+          `${action} ${name.textContent}, ${where}: ${match.playerCount} of ${match.maxPlayers} players`,
+        );
+        if (action === "join") row.addEventListener("click", () => this.lobbyClient.joinLobby(match.id));
+        const serverUrl = match.serverUrl;
+        if (action === "watch" && serverUrl) {
+          row.addEventListener("click", () => new ConnectingOverlay().show(serverUrl, true));
+        }
+        return row;
+      }),
+    );
   }
 
-  // ── Chat column ──
-
   private buildChatColumn(): HTMLElement {
-    const col = document.createElement("div");
-    col.className = "lobby__col lobby__col--chat";
+    const panel = document.createElement("section");
+    panel.className = "lobby-chat";
+    panel.setAttribute("aria-label", "Lobby chat");
+    this.chatColumnEl = panel;
 
-    col.appendChild(this.sectionTitle("LOBBY CHAT"));
+    const head = document.createElement("div");
+    head.className = "lobby-chat__head";
+    const title = document.createElement("span");
+    title.className = "lobby-chat__title";
+    title.textContent = "Lobby chat";
+    const online = document.createElement("span");
+    online.className = "lobby-chat__online";
+    const dot = document.createElement("span");
+    dot.className = "lobby-chat__dot";
+    const count = document.createElement("span");
+    this.playerCountBadge = count;
+    online.append(dot, count);
+    head.append(title, online);
+    panel.appendChild(head);
 
-    const messages = document.createElement("div");
-    messages.className = "lobby__chat-messages";
-    this.chatMessagesEl = messages;
-    // Will be populated by welcome chatHistory and live chat:message events
-    col.appendChild(messages);
+    const log = document.createElement("div");
+    log.className = "lobby-chat__log";
+    log.setAttribute("role", "log");
+    this.chatMessagesEl = log;
+    panel.appendChild(log);
 
-    const inputWrap = document.createElement("div");
-    inputWrap.className = "lobby__chat-input-wrap";
-
+    const form = document.createElement("form");
+    form.className = "lobby-chat__form";
     const input = document.createElement("input");
     input.type = "text";
-    input.className = "lobby__chat-input";
-    input.placeholder = "Type a message...";
+    input.className = "lobby-chat__input";
+    input.placeholder = "Say something…";
+    input.maxLength = 500;
     input.spellcheck = false;
     input.autocomplete = "off";
-
-    input.addEventListener("keydown", (e) => {
-      e.stopPropagation();
-      if (e.key === "Enter" && input.value.trim()) {
-        this.lobbyClient.chatSend(input.value.trim());
-        input.value = "";
-      }
+    input.setAttribute("aria-label", "Message the lobby");
+    // Typing here must not reach the game's key bindings
+    input.addEventListener("keydown", (e) => e.stopPropagation());
+    this.chatInputEl = input;
+    const send = createRaisedKey({ label: "Send", variants: ["sm", "inline", "send"] });
+    send.type = "submit";
+    this.chatSendEl = send;
+    form.append(input, send);
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const text = input.value.trim();
+      if (!text || !this.lobbyClient.connected) return;
+      this.lobbyClient.chatSend(text);
+      input.value = "";
     });
-
-    inputWrap.appendChild(input);
-    col.appendChild(inputWrap);
-
-    return col;
+    panel.appendChild(form);
+    this.refreshPlayerList();
+    return panel;
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -953,190 +1079,458 @@ export class LobbyPanel extends GamePanel {
   private buildDemosTab(): HTMLElement {
     UIStyles.injectCSS("demo-tab", demoTabCSSRaw);
 
-    const container = document.createElement("div");
-    container.className = "lobby__demos";
+    const page = document.createElement("div");
+    page.className = "lobby__page lobby__demos";
 
-    const header = document.createElement("div");
-    header.className = "lobby__demos-header";
-    header.innerHTML = `
-            <span class="lobby__demos-title">DEMO ARCHIVE</span>
-            <span class="lobby__demos-count"></span>
-        `;
-    container.appendChild(header);
+    const header = document.createElement("header");
+    header.className = "lobby__heading";
+    const kicker = document.createElement("span");
+    kicker.className = "lobby__kicker";
+    kicker.textContent = "Demos";
+    const title = document.createElement("h1");
+    title.className = "lobby__title";
+    title.textContent = "Every match, kept";
+    header.append(kicker, title);
+    page.appendChild(header);
+
+    const featured = document.createElement("section");
+    featured.className = "lobby__featured";
+    featured.setAttribute("aria-label", "Featured recordings");
+    this.featuredHostEl = featured;
+    page.appendChild(featured);
+
+    const scopeKeys = document.createElement("div");
+    scopeKeys.className = "lobby__picks lobby__demo-scopes";
+    scopeKeys.setAttribute("role", "group");
+    scopeKeys.setAttribute("aria-label", "Choose demo archive");
+    this.demosScopeKeysEl = scopeKeys;
+    for (const [scope, label] of [
+      ["latest", "Latest"],
+      ["yours", "Yours"],
+    ] as const) {
+      const key = createRaisedKey({ label, variants: ["sm", "cream", "pick"] });
+      key.dataset.scope = scope;
+      key.addEventListener("click", () => {
+        if (scope === this.demosScope || (scope === "yours" && !this.demoOwnershipSupported)) return;
+        this.demosScope = scope;
+        this.demosArchive = [];
+        this.demosMap = "all";
+        this.demosPage = 0;
+        this.demosRequested = false;
+        this.requestDemos();
+      });
+      scopeKeys.appendChild(key);
+    }
+    page.appendChild(scopeKeys);
+
+    const toolbar = document.createElement("div");
+    toolbar.className = "lobby__toolbar";
+    const modeFilters = document.createElement("div");
+    modeFilters.className = "lobby__picks";
+    modeFilters.setAttribute("role", "group");
+    modeFilters.setAttribute("aria-label", "Filter demos by mode");
+    this.demosModeFiltersEl = modeFilters;
+    for (const [id, label] of [
+      ["all", "All"],
+      ["duel", "Duel"],
+      ["amphi", "Amphi"],
+      ["ffa", "FFA"],
+      ["snd", "S&D"],
+    ]) {
+      const key = createRaisedKey({ label, variants: ["sm", "cream", "pick"] });
+      key.dataset.mode = id;
+      key.addEventListener("click", () => {
+        this.demosMode = id;
+        this.demosMap = "all";
+        this.demosPage = 0;
+        this.refreshDemosGrid();
+        this.featuredRequested = false;
+        void this.requestFeaturedDemos();
+      });
+      modeFilters.appendChild(key);
+    }
+
+    const search = document.createElement("input");
+    search.type = "search";
+    search.className = "lobby__search";
+    search.placeholder = "Find a player or map";
+    search.setAttribute("aria-label", "Search demos by player or map");
+    search.addEventListener("keydown", (e) => e.stopPropagation());
+    search.addEventListener("input", () => {
+      this.demosSearch = search.value.trim().toLocaleLowerCase();
+      this.demosPage = 0;
+      this.refreshDemosGrid();
+    });
+
+    const count = document.createElement("span");
+    count.className = "lobby__count";
+    this.demosCountEl = count;
+
+    toolbar.append(modeFilters, search, count);
+    page.appendChild(toolbar);
+
+    const mapFilters = document.createElement("div");
+    mapFilters.className = "lobby__picks lobby__picks--maps";
+    mapFilters.setAttribute("role", "group");
+    mapFilters.setAttribute("aria-label", "Filter demos by map");
+    this.demosMapFiltersEl = mapFilters;
+    page.appendChild(mapFilters);
 
     const grid = document.createElement("div");
-    grid.className = "lobby__demos-grid";
+    grid.className = "lobby__demo-grid";
     this.demosGridEl = grid;
-    container.appendChild(grid);
+    page.appendChild(grid);
 
-    // Request demo list when tab is activated
-    const origSwitchTab = this.switchTab.bind(this);
-    this.switchTab = (tabId: string) => {
-      origSwitchTab(tabId);
-      if (tabId === "demos") {
-        this.lobbyClient.requestDemoList(64);
-      }
-    };
+    const pager = document.createElement("nav");
+    pager.className = "lobby__pager";
+    pager.setAttribute("aria-label", "Demo pages");
+    this.demosPagerEl = pager;
+    page.appendChild(pager);
 
-    return container;
+    const note = document.createElement("p");
+    note.className = "lobby__note";
+    note.textContent = "Yours includes recordings linked to your verified seat in a completed match.";
+    page.appendChild(note);
+
+    this.refreshDemosGrid();
+    this.renderFeaturedDemos();
+    return page;
+  }
+
+  private requestDemos(): void {
+    void this.requestFeaturedDemos();
+    if (!this.lobbyClient.connected || this.demosRequested) {
+      this.refreshDemosGrid();
+      return;
+    }
+    this.demosRequested = true;
+    this.refreshDemosGrid();
+    this.lobbyClient.requestDemoList(64, this.demosScope);
+  }
+
+  private async requestFeaturedDemos(): Promise<void> {
+    if (this.featuredRequested || !this.lobbyClient.connected) {
+      this.renderFeaturedDemos();
+      return;
+    }
+    this.featuredRequested = true;
+    const seq = ++this.featuredSeq;
+    if (newUiApi.getFeatureStatus("featuredDemos").status !== "ready") {
+      this.renderFeaturedDemos();
+      return;
+    }
+    this.featuredLoading = true;
+    this.featuredError = null;
+    this.renderFeaturedDemos();
+    const result = await newUiApi.getFeaturedDemos({
+      gametype: this.demosMode,
+      map: this.demosMap,
+      limit: 5,
+    });
+    if (seq !== this.featuredSeq) return;
+    this.featuredLoading = false;
+    if (result.status === "ready") {
+      this.featuredEntries = result.data;
+      this.featuredSelected = 0;
+    } else {
+      this.featuredEntries = [];
+      this.featuredError = result.reason;
+    }
+    this.renderFeaturedDemos();
+  }
+
+  private renderFeaturedDemos(): void {
+    const host = this.featuredHostEl;
+    if (!host) return;
+    const head = document.createElement("div");
+    head.className = "lobby__featured-head";
+    const title = document.createElement("h2");
+    title.textContent = "Featured";
+    const rule = document.createElement("span");
+    rule.textContent = this.featuredEntries.some((entry) => entry.reason.includes("top 10"))
+      ? "30-day top 10 players · recordings from last 7 days"
+      : "Recent multiplayer recordings · last 7 days";
+    head.append(title, rule);
+
+    const state = document.createElement("p");
+    state.className = "lobby__featured-state";
+    if (!this.lobbyClient.connected) state.textContent = "Connect to the lobby to see recent picks.";
+    else if (newUiApi.getFeatureStatus("featuredDemos").status !== "ready")
+      state.textContent = "Featured picks are unavailable on this lobby server.";
+    else if (this.featuredLoading || !this.featuredRequested) state.textContent = "Loading recent picks…";
+    else if (this.featuredError) state.textContent = this.featuredError;
+    else if (this.featuredEntries.length === 0) state.textContent = "No qualifying multiplayer recordings this week.";
+
+    if (state.textContent) {
+      host.replaceChildren(head, state);
+      return;
+    }
+
+    const selected = this.featuredEntries[Math.min(this.featuredSelected, this.featuredEntries.length - 1)];
+    const body = document.createElement("div");
+    body.className = "lobby__featured-body";
+    const hero = this.buildDemoCard(selected.demo, 0);
+    hero.classList.add("lobby__featured-hero");
+    const picks = document.createElement("div");
+    picks.className = "lobby__featured-picks";
+    for (const [index, entry] of this.featuredEntries.entries()) {
+      const key = createRaisedKey({
+        label: `${entry.demo.mapDisplayName || entry.demo.map} · ${entry.demo.players.join(" vs ")}`,
+        hint: entry.reason,
+        variants: ["sm", "cream", "pick"],
+      });
+      key.setAttribute("aria-pressed", String(index === this.featuredSelected));
+      key.addEventListener("click", () => {
+        this.featuredSelected = index;
+        this.renderFeaturedDemos();
+      });
+      picks.appendChild(key);
+    }
+    body.append(hero, picks);
+    host.replaceChildren(head, body);
+  }
+
+  /** The demos this page is showing, newest first, after mode, map and search. */
+  private filteredDemos(): DemoInfo[] {
+    const inMode = this.demosArchive.filter((d) =>
+      this.demosMode === "all"
+        ? true
+        : d.gametype === this.demosMode || (this.demosMode === "ffa" && d.gametype === "deathmatch"),
+    );
+    const query = this.demosSearch;
+    return inMode
+      .filter(
+        (d) =>
+          (this.demosMap === "all" || d.map === this.demosMap) &&
+          (!query || `${d.map} ${d.mapDisplayName} ${d.players.join(" ")}`.toLocaleLowerCase().includes(query)),
+      )
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }
 
   private refreshDemosGrid(): void {
     if (!this.demosGridEl) return;
-    this.demosGridEl.innerHTML = "";
 
-    // Update count badge
-    const countEl = this.demosGridEl.parentElement?.querySelector(".lobby__demos-count");
-    if (countEl) countEl.textContent = `${this.demosArchive.length} demos`;
+    for (const key of this.demosScopeKeysEl?.querySelectorAll<HTMLButtonElement>(".raised-key") ?? []) {
+      key.setAttribute("aria-pressed", String(key.dataset.scope === this.demosScope));
+      key.disabled = key.dataset.scope === "yours" && !this.demoOwnershipSupported;
+      if (key.disabled) key.title = "Verified demo ownership is unavailable on this lobby server.";
+    }
 
-    if (this.demosArchive.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "lobby__demos-empty";
-      empty.textContent = "No recorded demos yet. Play some matches!";
-      empty.style.gridColumn = "1 / -1";
-      this.demosGridEl.appendChild(empty);
+    for (const key of this.demosModeFiltersEl?.querySelectorAll<HTMLButtonElement>(".raised-key") ?? []) {
+      key.setAttribute("aria-pressed", String(key.dataset.mode === this.demosMode));
+    }
+
+    // Maps come from the demos this mode has, so a filter never empties the page by itself
+    const inMode = this.demosArchive.filter((d) =>
+      this.demosMode === "all"
+        ? true
+        : d.gametype === this.demosMode || (this.demosMode === "ffa" && d.gametype === "deathmatch"),
+    );
+    const maps = [...new Map(inMode.map((d) => [d.map, d.mapDisplayName || d.map])).entries()].sort((a, b) =>
+      a[1].localeCompare(b[1]),
+    );
+    if (this.demosMap !== "all" && !maps.some(([id]) => id === this.demosMap)) this.demosMap = "all";
+    this.demosMapFiltersEl?.replaceChildren(
+      ...(maps.length > 0 ? ([["all", "All maps"], ...maps] as [string, string][]) : []).map(([id, label]) => {
+        const key = createRaisedKey({ label, variants: ["sm", "cream", "pick"] });
+        key.setAttribute("aria-pressed", String(id === this.demosMap));
+        key.addEventListener("click", () => {
+          this.demosMap = id;
+          this.demosPage = 0;
+          this.refreshDemosGrid();
+          this.featuredRequested = false;
+          void this.requestFeaturedDemos();
+        });
+        return key;
+      }),
+    );
+
+    const filtered = this.filteredDemos();
+    const pages = Math.max(1, Math.ceil(filtered.length / DEMOS_PER_PAGE));
+    this.demosPage = Math.min(this.demosPage, pages - 1);
+    if (this.demosCountEl) {
+      this.demosCountEl.replaceChildren();
+      const number = document.createElement("b");
+      number.textContent = String(filtered.length);
+      const scopeLabel = this.demosScope === "yours" ? "your latest 64" : "latest 64";
+      this.demosCountEl.append(number, filtered.length === 1 ? ` demo · ${scopeLabel}` : ` demos · ${scopeLabel}`);
+    }
+
+    if (filtered.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "lobby__demo-empty";
+      empty.textContent = !this.lobbyClient.connected
+        ? "Lobby server offline. Connect to browse recordings."
+        : this.demosRequested
+          ? "Loading the archive…"
+          : this.demosArchive.length > 0
+            ? "No demos match these filters."
+            : this.demosScope === "yours"
+              ? "No recordings linked to your verified match seats yet."
+              : "No recorded demos yet. Play a match.";
+      this.demosGridEl.replaceChildren(empty);
+      this.demosPagerEl?.replaceChildren();
       return;
     }
 
-    // Map gametype → hue for fallback gradient
-    const gametypeHues: Record<string, string> = {
-      duel: "180",
-      deathmatch: "45",
-      tdm: "320",
-      team: "320",
-      snd: "320",
-      ffa: "45",
+    this.demosGridEl.replaceChildren(
+      ...filtered
+        .slice(this.demosPage * DEMOS_PER_PAGE, (this.demosPage + 1) * DEMOS_PER_PAGE)
+        .map((demo, index) => this.buildDemoCard(demo, index)),
+    );
+    this.refreshDemosPager(pages);
+  }
+
+  private refreshDemosPager(pages: number): void {
+    if (!this.demosPagerEl) return;
+    if (pages <= 1) {
+      this.demosPagerEl.replaceChildren();
+      return;
+    }
+    const previous = createRaisedKey({ label: "‹ Newer", variants: ["sm", "cream", "inline"] });
+    previous.disabled = this.demosPage === 0;
+    previous.addEventListener("click", () => {
+      this.demosPage--;
+      this.refreshDemosGrid();
+    });
+    const where = document.createElement("span");
+    where.className = "lobby__pager-where";
+    where.textContent = `Page ${this.demosPage + 1} / ${pages}`;
+    const next = createRaisedKey({ label: "Older ›", variants: ["sm", "cream", "inline"] });
+    next.disabled = this.demosPage >= pages - 1;
+    next.addEventListener("click", () => {
+      this.demosPage++;
+      this.refreshDemosGrid();
+    });
+    this.demosPagerEl.replaceChildren(previous, where, next);
+  }
+
+  private buildDemoCard(demo: DemoInfo, index: number): HTMLElement {
+    const mode = GAME_MODES.find((item) => item.id === (demo.gametype === "deathmatch" ? "ffa" : demo.gametype));
+    const card = document.createElement("article");
+    card.className = "lobby__demo";
+    card.style.setProperty("--card", String(index));
+    if (mode) applyAccent(card, mode);
+
+    const side = document.createElement("div");
+    side.className = "lobby__demo-side";
+    const face = document.createElement("div");
+    face.className = "lobby__demo-face";
+
+    const shot = document.createElement("div");
+    shot.className = "lobby__demo-shot";
+    const image = document.createElement("div");
+    image.className = "lobby__demo-img";
+    // A map with no levelshot installed keeps the gradient underneath
+    if (demo.levelshot) image.style.setProperty("--map-shot", `url("${demo.levelshot}")`);
+
+    const flags = document.createElement("div");
+    flags.className = "lobby__demo-flags";
+    const modeFlag = document.createElement("span");
+    modeFlag.className = "lobby__flag lobby__flag--mode";
+    modeFlag.textContent = mode?.title ?? demo.gametype;
+    const map = document.createElement("span");
+    map.className = "lobby__demo-map";
+    map.textContent = demo.mapDisplayName || demo.map;
+    flags.append(modeFlag, map);
+
+    const length = document.createElement("span");
+    length.className = "lobby__demo-length";
+    const seconds = Math.floor(demo.durationMs / 1000);
+    length.textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+
+    shot.append(image, flags, length, this.buildDemoMatchup(demo));
+    face.appendChild(shot);
+
+    const foot = document.createElement("div");
+    foot.className = "lobby__demo-foot";
+    const watch = createRaisedKey({ label: "▶ Watch", variants: ["sm", "inline"] });
+    watch.addEventListener("click", () => void this.playDemo(demo, card, watch));
+    const reel = createRaisedKey({ label: "⚡ Cinematic cut", variants: ["sm", "cream", "inline"] });
+    reel.addEventListener("click", () => this.playDemoHighlights(demo, card, reel));
+
+    const where = document.createElement("div");
+    where.className = "lobby__demo-where";
+    const when = document.createElement("span");
+    when.className = "lobby__demo-when";
+    when.textContent = timeAgo(demo.date);
+    when.title = new Date(demo.date).toLocaleString();
+    const size = document.createElement("span");
+    size.className = "lobby__demo-size";
+    size.textContent = `${demo.sizeMB} MB`;
+    where.append(when, size);
+
+    foot.append(watch, reel, where);
+    face.appendChild(foot);
+    card.append(side, face);
+    return card;
+  }
+
+  /** Who played: two names across a VS for a duel, the whole list otherwise. */
+  private buildDemoMatchup(demo: DemoInfo): HTMLElement {
+    const matchup = document.createElement("div");
+    matchup.className = "lobby__matchup";
+    const row = (text: string) => {
+      const line = document.createElement("div");
+      line.className = "lobby__matchup-row";
+      const name = document.createElement("span");
+      name.className = "lobby__matchup-name";
+      name.textContent = text;
+      line.appendChild(name);
+      return line;
     };
 
-    for (const d of this.demosArchive) {
-      const card = document.createElement("div");
-      card.className = "lobby__demo-card";
-
-      // Banner — levelshot image or gradient fallback
-      const hue = gametypeHues[d.gametype] || "200";
-      const banner = document.createElement("div");
-      banner.className = "lobby__demo-card-banner";
-
-      // Always set gradient as base — levelshot overlays on top
-      const fallbackGradient = `linear-gradient(135deg, hsla(${hue},60%,40%,0.25), hsla(${hue},40%,20%,0.1))`;
-      banner.style.background = fallbackGradient;
-
-      if (d.levelshot) {
-        banner.classList.add("lobby__demo-card-banner--has-image");
-        banner.style.background = `url(${d.levelshot}) center/cover, ${fallbackGradient}`;
-        // Remove image class if levelshot 404s (disables CRT scanlines on fallback)
-        const testImg = new Image();
-        testImg.onerror = () => {
-          banner.classList.remove("lobby__demo-card-banner--has-image");
-          banner.style.background = fallbackGradient;
-        };
-        testImg.src = d.levelshot;
-      }
-
-      // Map name — secondary, small label above players
-      const mapName = document.createElement("span");
-      mapName.className = "lobby__demo-card-map";
-      mapName.textContent = d.mapDisplayName;
-      banner.appendChild(mapName);
-
-      // Player names — primary heading inside banner
-      const players = document.createElement("div");
-      players.className = "lobby__demo-card-players";
-      if (d.players.length > 4) {
-        players.textContent = d.players.slice(0, 4).join(" vs ") + ` +${d.players.length - 4}`;
-      } else {
-        players.textContent = d.players.length > 0 ? d.players.join(" vs ") : "Unknown";
-      }
-      banner.appendChild(players);
-
-      // Gametype chip
-      const gametypeLabel = document.createElement("span");
-      gametypeLabel.className = "lobby__demo-card-gametype";
-      gametypeLabel.textContent = d.gametype.toUpperCase();
-      banner.appendChild(gametypeLabel);
-
-      card.appendChild(banner);
-
-      // Body — metadata row
-      const body = document.createElement("div");
-      body.className = "lobby__demo-card-body";
-
-      const totalSecs = Math.floor(d.durationMs / 1000);
-      const mins = Math.floor(totalSecs / 60);
-      const secs = totalSecs % 60;
-      const durationStr = `${mins}:${secs.toString().padStart(2, "0")}`;
-
-      const dateStr = new Date(d.date).toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-
-      const meta = document.createElement("div");
-      meta.className = "lobby__demo-card-meta";
-      meta.innerHTML = `<span>${durationStr}</span><span>${dateStr}</span><span>${d.sizeMB} MB</span>`;
-      body.appendChild(meta);
-
-      card.appendChild(body);
-
-      // Button row: ▶ PLAY DEMO  |  ⚡ HIGHLIGHTS
-      const btnRow = document.createElement("div");
-      btnRow.className = "lobby__demo-card-btn-row";
-
-      const playBtn = document.createElement("button");
-      playBtn.className = "lobby__demo-card-btn";
-      playBtn.textContent = "▶ PLAY";
-      playBtn.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        playBtn.disabled = true;
-        playBtn.textContent = "LOADING…";
-        try {
-          const service = DemoService.getInstance();
-          await service.fetchAndLoad(d.filename);
-          const viewer = new DemoViewer();
-          await service.loadAndPlayNormal(viewer);
-          this.hide();
-        } catch (err) {
-          console.error("[LobbyPanel] Failed to load demo:", err);
-          this._showDemoError(card, err instanceof Error ? err.message : String(err));
-        } finally {
-          playBtn.disabled = false;
-          playBtn.textContent = "▶ PLAY";
-        }
-      });
-      btnRow.appendChild(playBtn);
-
-      const highlightBtn = document.createElement("button");
-      highlightBtn.className = "lobby__demo-card-btn lobby__demo-card-btn--highlight";
-      highlightBtn.textContent = "⚡ HIGHLIGHTS";
-      highlightBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        DurationPickerModal.show(async (minutes) => {
-          highlightBtn.disabled = true;
-          highlightBtn.textContent = "LOADING…";
-          try {
-            const service = DemoService.getInstance();
-            await service.fetchAndLoad(d.filename);
-            const viewer = new DemoViewer();
-            const cameraSystem = CameraSystem.getInstance();
-            await service.loadAndPlayCinematic(viewer, cameraSystem, minutes);
-            this.hide();
-          } catch (err) {
-            console.error("[LobbyPanel] Failed to load demo for highlights:", err);
-            this._showDemoError(card, err instanceof Error ? err.message : String(err));
-          } finally {
-            highlightBtn.disabled = false;
-            highlightBtn.textContent = "⚡ HIGHLIGHTS";
-          }
-        });
-      });
-      btnRow.appendChild(highlightBtn);
-
-      card.appendChild(btnRow);
-
-      this.demosGridEl.appendChild(card);
+    if (demo.players.length === 2) {
+      const vs = document.createElement("span");
+      vs.className = "lobby__matchup-vs";
+      vs.textContent = "VS";
+      matchup.append(vs, row(demo.players[0]), row(demo.players[1]));
+      return matchup;
     }
+
+    matchup.classList.add("lobby__matchup--many");
+    matchup.appendChild(
+      row(demo.players.length > 0 ? demo.players.join(" · ") : `${demo.mapDisplayName || demo.map} match`),
+    );
+    return matchup;
+  }
+
+  private async playDemo(demo: DemoInfo, card: HTMLElement, key: HTMLButtonElement): Promise<void> {
+    key.disabled = true;
+    setRaisedKeyText(key, "Loading…");
+    try {
+      const service = DemoService.getInstance();
+      await service.fetchAndLoad(demo.filename);
+      const viewer = new DemoViewer();
+      await service.loadAndPlayNormal(viewer);
+      this.hide();
+    } catch (err) {
+      console.error("[LobbyPanel] Failed to load demo:", err);
+      this._showDemoError(card, err instanceof Error ? err.message : String(err));
+    } finally {
+      key.disabled = false;
+      setRaisedKeyText(key, "▶ Watch");
+    }
+  }
+
+  private playDemoHighlights(demo: DemoInfo, card: HTMLElement, key: HTMLButtonElement): void {
+    DurationPickerModal.show(async (minutes) => {
+      key.disabled = true;
+      setRaisedKeyText(key, "Loading…");
+      try {
+        const service = DemoService.getInstance();
+        await service.fetchAndLoad(demo.filename);
+        const viewer = new DemoViewer();
+        await service.loadAndPlayCinematic(viewer, CameraSystem.getInstance(), minutes);
+        this.hide();
+      } catch (err) {
+        console.error("[LobbyPanel] Failed to load cinematic cut:", err);
+        this._showDemoError(card, err instanceof Error ? err.message : String(err));
+      } finally {
+        key.disabled = false;
+        setRaisedKeyText(key, "⚡ Cinematic cut");
+      }
+    });
   }
 
   /** Best-effort preload of levelshot images for given map names */
@@ -1145,7 +1539,7 @@ export class LobbyPanel extends GamePanel {
       if (this._preloadedLevelshots.has(map)) continue;
       this._preloadedLevelshots.add(map);
       const img = new Image();
-      img.src = `/data/levelshots/${map}.png`;
+      img.src = `/data/levelshots/${map}.jpg`;
       // No-op on success or error — purely warming the browser cache
     }
   }
@@ -1153,9 +1547,9 @@ export class LobbyPanel extends GamePanel {
   /** Show a temporary error toast on a demo card */
   private _showDemoError(card: HTMLElement, message: string): void {
     // Remove any previous error on this card
-    card.querySelector(".lobby__demo-card-error")?.remove();
+    card.querySelector(".lobby__demo-error")?.remove();
     const el = document.createElement("div");
-    el.className = "lobby__demo-card-error";
+    el.className = "lobby__demo-error";
     el.textContent = message;
     card.appendChild(el);
     setTimeout(() => el.remove(), 4000);
@@ -1166,295 +1560,248 @@ export class LobbyPanel extends GamePanel {
   // ═══════════════════════════════════════════════════════════════════
 
   private buildLeaderboardTab(): HTMLElement {
-    const container = document.createElement("div");
-    container.className = "lobby__leaderboard";
-
-    // Season info
-    const seasonBar = document.createElement("div");
-    seasonBar.className = "lobby__lb-season";
-    seasonBar.innerHTML = `
-            <span class="lobby__lb-season-label">SEASON 1</span>
-            <span class="lobby__lb-season-mode">DUEL 1v1</span>
-            <span class="lobby__lb-season-ends">Ends in 24d 7h</span>
-        `;
-    container.appendChild(seasonBar);
-
-    // Table
-    const table = document.createElement("div");
-    table.className = "lobby__lb-table";
-
-    // Header row
-    const headerRow = document.createElement("div");
-    headerRow.className = "lobby__lb-row lobby__lb-row--header";
-    headerRow.innerHTML = `
-            <span class="lobby__lb-cell lobby__lb-cell--rank">#</span>
-            <span class="lobby__lb-cell lobby__lb-cell--name">PLAYER</span>
-            <span class="lobby__lb-cell lobby__lb-cell--rating">RATING</span>
-            <span class="lobby__lb-cell lobby__lb-cell--wl">W / L</span>
-            <span class="lobby__lb-cell lobby__lb-cell--kd">K/D</span>
-            <span class="lobby__lb-cell lobby__lb-cell--weapon">WEAPON</span>
-            <span class="lobby__lb-cell lobby__lb-cell--acc">ACC</span>
-            <span class="lobby__lb-cell lobby__lb-cell--speed">TOP SPEED</span>
-            <span class="lobby__lb-cell lobby__lb-cell--streak">STREAK</span>
-        `;
-    table.appendChild(headerRow);
-
-    // Data rows
-    for (const p of MOCK_LEADERBOARD) {
-      const row = document.createElement("div");
-      row.className = "lobby__lb-row";
-
-      // Highlight top 3
-      if (p.rank <= 3) row.classList.add(`lobby__lb-row--top${p.rank}`);
-
-      const rankClass = p.rank <= 3 ? ` lobby__lb-rank--${p.rank}` : "";
-      row.innerHTML = `
-                <span class="lobby__lb-cell lobby__lb-cell--rank"><span class="lobby__lb-rank${rankClass}">${p.rank}</span></span>
-                <span class="lobby__lb-cell lobby__lb-cell--name">${p.name}</span>
-                <span class="lobby__lb-cell lobby__lb-cell--rating">${p.rating}</span>
-                <span class="lobby__lb-cell lobby__lb-cell--wl"><span class="lobby__lb-wins">${p.wins}</span> / <span class="lobby__lb-losses">${p.losses}</span></span>
-                <span class="lobby__lb-cell lobby__lb-cell--kd">${p.kd}</span>
-                <span class="lobby__lb-cell lobby__lb-cell--weapon">${p.weapon}</span>
-                <span class="lobby__lb-cell lobby__lb-cell--acc">${p.acc}</span>
-                <span class="lobby__lb-cell lobby__lb-cell--speed">${p.topSpeed}</span>
-                <span class="lobby__lb-cell lobby__lb-cell--streak">${p.streak > 1 ? `🔥 ${p.streak}` : p.streak}</span>
-            `;
-      table.appendChild(row);
+    const page = document.createElement("div");
+    page.className = "lobby__page lobby__leaderboard";
+    page.append(this.buildStageLight());
+    const header = document.createElement("header");
+    header.className = "lobby__heading";
+    const kicker = document.createElement("span");
+    kicker.className = "lobby__kicker";
+    kicker.textContent = "Leaderboard";
+    const title = document.createElement("h1");
+    title.className = "lobby__title";
+    title.textContent = "Top players";
+    header.append(kicker, title);
+    page.appendChild(header);
+    const controls = document.createElement("div");
+    controls.className = "lobby__rank-controls";
+    const modes = document.createElement("div");
+    modes.className = "lobby__rank-modes";
+    modes.setAttribute("aria-label", "Ranked game mode");
+    for (const mode of GAME_MODES) {
+      const button = createRaisedKey({ label: mode.title, variants: ["sm"] });
+      button.dataset.mode = mode.id;
+      button.setAttribute("aria-pressed", String(this.leaderboardMode === mode.id));
+      button.addEventListener("click", () => {
+        this.leaderboardMode = mode.id;
+        for (const key of modes.querySelectorAll<HTMLButtonElement>("button"))
+          key.setAttribute("aria-pressed", String(key === button));
+        void this.refreshLeaderboard();
+      });
+      modes.append(button);
     }
-
-    container.appendChild(table);
-
-    // Fun stats at bottom
-    const funStats = document.createElement("div");
-    funStats.className = "lobby__lb-fun";
-    funStats.innerHTML = `
-            <div class="lobby__lb-fun-stat">
-                <span class="lobby__lb-fun-value">1520 ups</span>
-                <span class="lobby__lb-fun-label">TOP SPEED RECORD</span>
-                <span class="lobby__lb-fun-by">by bunny_hop</span>
-            </div>
-            <div class="lobby__lb-fun-stat">
-                <span class="lobby__lb-fun-value">14</span>
-                <span class="lobby__lb-fun-label">LONGEST WIN STREAK</span>
-                <span class="lobby__lb-fun-by">by zeroQL</span>
-            </div>
-            <div class="lobby__lb-fun-stat">
-                <span class="lobby__lb-fun-value">100%</span>
-                <span class="lobby__lb-fun-label">BEST ACCURACY</span>
-                <span class="lobby__lb-fun-by">by neon_ghost (Gauntlet)</span>
-            </div>
-            <div class="lobby__lb-fun-stat">
-                <span class="lobby__lb-fun-value">342</span>
-                <span class="lobby__lb-fun-label">MOST VICTORIES</span>
-                <span class="lobby__lb-fun-by">by zeroQL</span>
-            </div>
-        `;
-    container.appendChild(funStats);
-
-    return container;
+    const periods = document.createElement("div");
+    periods.className = "lobby__rank-periods";
+    periods.setAttribute("aria-label", "Ranking period");
+    for (const [period, label] of [
+      ["month", "Last 30 days"],
+      ["all", "All time"],
+    ] as const) {
+      const button = createRaisedKey({ label, variants: ["sm", "cream"] });
+      button.setAttribute("aria-pressed", String(this.leaderboardPeriod === period));
+      button.addEventListener("click", () => {
+        this.leaderboardPeriod = period;
+        for (const key of periods.querySelectorAll<HTMLButtonElement>("button"))
+          key.setAttribute("aria-pressed", String(key === button));
+        void this.refreshLeaderboard();
+      });
+      periods.append(button);
+    }
+    const search = document.createElement("input");
+    search.type = "search";
+    search.className = "lobby__rank-search";
+    search.placeholder = "Search top 100 players";
+    search.setAttribute("aria-label", "Search top 100 players");
+    search.addEventListener("input", () => {
+      this.leaderboardSearch = search.value.trim().toLocaleLowerCase();
+      this.renderLeaderboard();
+    });
+    controls.append(modes, periods, search);
+    page.appendChild(controls);
+    this.leaderboardStatus = document.createElement("p");
+    this.leaderboardStatus.className = "lobby__rank-status";
+    this.leaderboardStatus.setAttribute("role", "status");
+    page.appendChild(this.leaderboardStatus);
+    this.leaderboardBody = document.createElement("div");
+    this.leaderboardBody.className = "lobby__rank-body";
+    page.appendChild(this.leaderboardBody);
+    this.leaderboardPin = document.createElement("aside");
+    this.leaderboardPin.className = "lobby__rank-pin";
+    this.leaderboardPin.setAttribute("aria-label", "Your leaderboard position");
+    this.leaderboardPin.hidden = true;
+    page.appendChild(this.leaderboardPin);
+    this.renderLeaderboard();
+    return page;
   }
 
-  // ═══════════════════════════════════════════════════════════════════
-  // TAB 3: MY PROFILE
-  // ═══════════════════════════════════════════════════════════════════
+  private async refreshLeaderboard(): Promise<void> {
+    const sequence = ++this.leaderboardSeq;
+    this.leaderboardPage = null;
+    this.renderLeaderboard();
+    if (newUiApi.getFeatureStatus("leaderboard").status !== "ready") return;
+    const result = await newUiApi.getLeaderboard({
+      gametype: this.leaderboardMode,
+      period: this.leaderboardPeriod,
+      offset: 0,
+      limit: 100,
+    });
+    if (sequence !== this.leaderboardSeq) return;
+    this.leaderboardPage = result.status === "ready" ? result.data : null;
+    this.renderLeaderboard(result.status === "unavailable" ? result.reason : undefined);
+  }
 
+  private renderLeaderboard(error?: string): void {
+    const body = this.leaderboardBody;
+    const status = this.leaderboardStatus;
+    const pin = this.leaderboardPin;
+    if (!body || !status || !pin) return;
+    body.replaceChildren();
+    pin.replaceChildren();
+    pin.hidden = true;
+    const availability = newUiApi.getFeatureStatus("leaderboard");
+    if (availability.status !== "ready") {
+      status.textContent = availability.reason;
+      return;
+    }
+    if (error) {
+      status.textContent = error;
+      return;
+    }
+    if (!this.leaderboardPage) {
+      status.textContent = "Loading rankings…";
+      return;
+    }
+    const { entries, total, localPlayerRank, localPlayerEntry } = this.leaderboardPage;
+    status.textContent = total
+      ? `${total} ranked players · ${this.leaderboardPeriod === "month" ? "Last 30 days" : "All time"}${localPlayerRank ? ` · Your rank #${localPlayerRank}` : ""}`
+      : "No completed two-player matches yet.";
+    const visible = entries.filter((entry) => entry.name.toLocaleLowerCase().includes(this.leaderboardSearch));
+    const localId = currentIdentity()?.id;
+    if (
+      localPlayerEntry &&
+      localId &&
+      localPlayerEntry.playerId === localId &&
+      !entries.slice(0, 10).some((entry) => entry.playerId === localId)
+    ) {
+      const label = document.createElement("h2");
+      label.textContent = "Your position";
+      pin.append(label);
+      this.appendLeaderboardRow(localPlayerEntry, pin);
+      pin.hidden = false;
+    }
+    if (this.leaderboardSearch && visible.length === 0) {
+      const empty = document.createElement("p");
+      empty.textContent = "No player in the top 100 matches that search.";
+      body.append(empty);
+      return;
+    }
+    if (!this.leaderboardSearch && visible.length) {
+      const podium = document.createElement("div");
+      podium.className = "lobby__rank-podium";
+      for (const entry of visible.slice(0, 3)) {
+        const medal = document.createElement("article");
+        medal.className = "lobby__rank-medal";
+        this.appendLeaderboardRow(entry, medal);
+        podium.append(medal);
+      }
+      body.append(podium);
+    }
+    const board = document.createElement("section");
+    board.className = "lobby__rank-board";
+    const heading = document.createElement("h2");
+    heading.textContent = this.leaderboardSearch ? "Search results" : "Top 100";
+    board.append(heading);
+    for (const entry of this.leaderboardSearch ? visible : visible.slice(3)) this.appendLeaderboardRow(entry, board);
+    body.append(board);
+  }
+
+  private appendLeaderboardRow(entry: LeaderboardPage["entries"][number], parent: HTMLElement): void {
+    const row = document.createElement("div");
+    row.className = "lobby__rank-row";
+    if (entry.playerId === currentIdentity()?.id) row.classList.add("is-you");
+    for (const value of [`#${entry.rank}`, entry.name, `${entry.wins} W`, `${entry.losses} L`, `${entry.draws} D`]) {
+      const cell = document.createElement("span");
+      cell.textContent = value;
+      row.append(cell);
+    }
+    parent.append(row);
+  }
+
+  // Profile: the account's name, its key, and the way into another account
   private buildProfileTab(): HTMLElement {
-    const container = document.createElement("div");
-    container.className = "lobby__profile";
-
-    // ── Left: Player identity ──
-    const identity = document.createElement("div");
-    identity.className = "lobby__profile-identity";
-
-    // Avatar/rank area
-    const avatar = document.createElement("div");
-    avatar.className = "lobby__profile-avatar";
-    avatar.innerHTML = `
-            <div class="lobby__profile-rank-badge">
-                <span class="lobby__profile-rank-num">#4</span>
-            </div>
-        `;
-    identity.appendChild(avatar);
-
-    // Player name (editable)
-    const nameSection = document.createElement("div");
-    nameSection.className = "lobby__profile-name-section";
-
-    const nameLabel = document.createElement("div");
-    nameLabel.className = "lobby__profile-label";
-    nameLabel.textContent = "PLAYER NAME";
-    nameSection.appendChild(nameLabel);
-
-    const nameInput = document.createElement("input");
-    nameInput.type = "text";
-    nameInput.className = "lobby__profile-name-input";
-    nameInput.value = "Player_001";
-    nameInput.spellcheck = false;
-    nameInput.addEventListener("keydown", (e) => e.stopPropagation());
-    nameSection.appendChild(nameInput);
-
-    const nameHint = document.createElement("div");
-    nameHint.className = "lobby__profile-hint";
-    nameHint.textContent = "Press Enter to change";
-    nameSection.appendChild(nameHint);
-
-    identity.appendChild(nameSection);
-
-    // Rating display
-    const ratingSection = document.createElement("div");
-    ratingSection.className = "lobby__profile-rating";
-    ratingSection.innerHTML = `
-            <div class="lobby__profile-label">RATING</div>
-            <div class="lobby__profile-rating-value">2401</div>
-            <div class="lobby__profile-rating-change">+24 this week</div>
-        `;
-    identity.appendChild(ratingSection);
-
-    container.appendChild(identity);
-
-    // ── Center: Stats ──
-    const stats = document.createElement("div");
-    stats.className = "lobby__profile-stats";
-
-    stats.appendChild(this.sectionTitle("STATISTICS"));
-
-    const statsGrid = document.createElement("div");
-    statsGrid.className = "lobby__profile-stats-grid";
-
-    const statItems = [
-      { label: "MATCHES", value: "292" },
-      { label: "WINS", value: "198" },
-      { label: "LOSSES", value: "94" },
-      { label: "WIN RATE", value: "67.8%" },
-      { label: "K/D RATIO", value: "2.11" },
-      { label: "TOTAL KILLS", value: "4,821" },
-      { label: "TOTAL DEATHS", value: "2,285" },
-      { label: "ACCURACY", value: "38.4%" },
-      { label: "TOP SPEED", value: "1,340 ups" },
-      { label: "PLAY TIME", value: "127h 42m" },
-      { label: "WIN STREAK", value: "5" },
-      { label: "FAV WEAPON", value: "Rocket" },
-    ];
-
-    for (const s of statItems) {
-      const item = document.createElement("div");
-      item.className = "lobby__profile-stat";
-      item.innerHTML = `
-                <span class="lobby__profile-stat-value">${s.value}</span>
-                <span class="lobby__profile-stat-label">${s.label}</span>
-            `;
-      statsGrid.appendChild(item);
-    }
-
-    stats.appendChild(statsGrid);
-    container.appendChild(stats);
-
-    // ── Right: Quick settings ──
-    const settings = document.createElement("div");
-    settings.className = "lobby__profile-settings";
-
-    settings.appendChild(this.sectionTitle("QUICK SETTINGS"));
-
-    const settingsList = document.createElement("div");
-    settingsList.className = "lobby__profile-settings-list";
-
-    const settingItems = [
-      { label: "FOV", value: "110" },
-      { label: "Sensitivity", value: "5.0" },
-      { label: "Name", value: "Player_001" },
-      { label: "Crosshair", value: "Cross" },
-    ];
-
-    for (const s of settingItems) {
-      const row = document.createElement("div");
-      row.className = "lobby__profile-setting-row";
-      row.innerHTML = `
-                <span class="lobby__profile-setting-label">${s.label}</span>
-                <span class="lobby__profile-setting-value">${s.value}</span>
-            `;
-      settingsList.appendChild(row);
-    }
-
-    settings.appendChild(settingsList);
-
-    // Open full settings button
-    const fullSettingsBtn = document.createElement("button");
-    fullSettingsBtn.className = "lobby__profile-settings-btn";
-    fullSettingsBtn.textContent = "⚙ OPEN FULL SETTINGS";
-    fullSettingsBtn.addEventListener("click", () => this.switchTab("settings"));
-    settings.appendChild(fullSettingsBtn);
-
-    container.appendChild(settings);
-
-    return container;
+    this.profileView = new ProfileView({
+      client: this.lobbyClient,
+      isInRoom: () => this.currentLobbyId !== null,
+    });
+    return this.profileView.root;
   }
 
-  // ═══════════════════════════════════════════════════════════════════
-  // TAB 4: SETTINGS
-  // ═══════════════════════════════════════════════════════════════════
-
+  // Settings
   private buildSettingsTab(): HTMLElement {
     if (!this.settingsView) {
       this.settingsView = new FPSSettingsView();
       void this.settingsView.refresh();
     }
 
-    const container = document.createElement("div");
-    container.className = "lobby__settings-tab";
-    container.appendChild(this.settingsView.getElement());
-    return container;
-  }
-
-  private sectionTitle(text: string, badge?: string): HTMLElement {
-    const el = document.createElement("div");
-    el.className = "lobby__section-title";
-    const label = document.createElement("span");
-    label.className = "lobby__section-label";
-    label.textContent = text;
-    el.appendChild(label);
-    if (badge) {
-      const b = document.createElement("span");
-      b.className = "lobby__section-badge";
-      b.textContent = badge;
-      el.appendChild(b);
-    }
-    return el;
+    // The settings view brings its own page heading
+    return this.settingsView.getElement();
   }
 
   private showMatchLobby(gametypeId: string): void {
     if (!this.modesContainer) return;
-
-    // If lobby server is connected, join queue → server creates lobby immediately
-    if (this.lobbyClient.connected) {
-      this.lobbyClient.joinQueue(gametypeId);
-      // Server sends lobby:created → handleLobbyCreated opens lobby view
+    if (!this.lobbyClient.connected) return;
+    const mode = newUiApi.getMode(gametypeId, this.serverGametypes);
+    if (mode.status === "unavailable") {
+      console.warn(`[LobbyPanel] ${mode.reason}`);
       return;
     }
-
-    // Fallback: local mock lobby
-    const layout = this.modesContainer.parentElement;
-    if (!layout) return;
-    this.matchLobbyView = new MatchLobbyView(gametypeId);
-    this.matchLobbyView.onLeave(() => this.showGametypeCards());
-    layout.replaceChild(this.matchLobbyView.root, this.modesContainer);
-    console.log(`[LobbyPanel] Opened mock match lobby for: ${gametypeId}`);
+    this.queuePending = true;
+    if (this.playNoticeEl) this.playNoticeEl.textContent = "Requesting a room...";
+    this.refreshModeAvailability();
+    this.lobbyClient.joinQueue(gametypeId);
+    // Server sends lobby:created, which opens the room view.
   }
 
-  private showGametypeCards(): void {
-    if (!this.matchLobbyView || !this.modesContainer) return;
-    const layout = this.matchLobbyView.root.parentElement;
-    if (!layout) return;
+  private showPrivateLobby(gametypeId: string): void {
+    if (!this.lobbyClient.connected || !this.privateLobbySupported || this.queuePending) return;
+    if (newUiApi.getMode(gametypeId, this.serverGametypes).status !== "ready") return;
+    this.queuePending = true;
+    this.pendingPrivateCreate = true;
+    if (this.playNoticeEl) this.playNoticeEl.textContent = "Creating a private room...";
+    this.refreshModeAvailability();
+    this.lobbyClient.createLobby(gametypeId, "private");
+  }
 
-    // Swap match lobby back to mode cards
-    layout.replaceChild(this.modesContainer, this.matchLobbyView.root);
+  private showPlayStage(): void {
+    if (!this.matchLobbyView || !this.modesContainer || !this.playBodyEl) return;
+
+    // Return to the Play stage.
+    this.roomChatView?.destroy();
+    this.roomChatView = null;
+    this.matchLobbyView.root.replaceWith(this.playBodyEl);
+    this.matchLobbyView.destroy();
+    const selected = GAME_MODES.find((mode) => mode.id === this.selectedModeId) ?? GAME_MODES[0];
+    this.selectMode(selected);
+    const lower = this.modesContainer.querySelector(".lobby__play-lower");
+    if (lower && this.chatColumnEl) lower.appendChild(this.chatColumnEl);
+    this.railEl?.classList.remove("lobby__rail--room");
     this.matchLobbyView = null;
     this.currentLobbyId = null;
+    this.refreshPlayerCard();
 
-    console.log(`[LobbyPanel] Returned to gametype cards`);
+    console.log("[LobbyPanel] Returned to Play stage");
   }
 
   public override destroy(): void {
+    bindLeaderboard(this.lobbyClient, false);
+    bindFeaturedDemos(this.lobbyClient, false);
+    this.featuredSeq++;
+    this.leaderboardSeq++;
+    this.roomChatView?.destroy();
+    this.matchLobbyView?.destroy();
     this.settingsView?.destroy();
+    this.profileView?.destroy();
+    this.welcomeOverlay?.destroy();
     for (const unsub of this.unsubscribers) {
       unsub();
     }

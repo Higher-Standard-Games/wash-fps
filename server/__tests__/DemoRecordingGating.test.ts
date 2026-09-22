@@ -8,7 +8,7 @@
  * asserts the recorder only runs during Active.
  */
 
-import * as fs from "fs";
+import * as fs from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@engine/server/network/transport/WebSocketTransport", () => {
@@ -61,6 +61,14 @@ afterEach(async () => {
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe("Demo recording is gated to the active match", () => {
+  it("records the declared lobby mode when modes share a server class", async () => {
+    server = new GameServer({ ...config, matchGametype: "duel" }, new Deathmatch());
+    await server.start();
+    server.startRecording();
+    const recorder = (server as unknown as { demoRecorder: { _config: { gametype: string } } }).demoRecorder;
+    expect(recorder._config.gametype).toBe("duel");
+  });
+
   it("does not record during warmup, records during Active, stops at PostGame", async () => {
     server = new GameServer(config, new Deathmatch());
     await server.start();

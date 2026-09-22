@@ -12,6 +12,13 @@ npm run bot:server
 
 The bot server boots an interactive console. It can register itself with a lobby, queue for matches like a human player, and play autonomously.
 
+### The lobby and the shared secret
+
+The lobby, the bot server and the game servers run on one machine and share a secret:
+- **Where it comes from:** `BOT_SECRET` when it's set. Otherwise the first process to start writes one to `<data-dir>/bot-secret` (the data directory is `--data-dir`, else `SERVER_DATA_DIR`, else `server-data/` at the repo root). Start both from the same folder, or give them the same `--data-dir`.
+- **The control port:** the lobby sends the secret when it asks for a bot. The bot server's control port (9100) listens on `127.0.0.1` only and closes any connection without it.
+- **Bot logins:** lobby bots log in with the secret. The lobby treats a connection as a bot only with the secret, from its own machine. Bots have no player account, and players can't take a bot's name.
+
 ## Architecture
 
 | Component | Responsibility |
@@ -22,7 +29,8 @@ The bot server boots an interactive console. It can register itself with a lobby
 | `BotGameState.ts` | Parses incoming snapshots into a queryable world model |
 | `BotVision.ts` | BSP raytracing — line-of-sight, cover evaluation, spatial awareness |
 | `BotNavGraph.ts` | A* pathfinding on a BSP-derived Smart Waypoint Network |
-| `BotConfig.ts` | Difficulty presets + bot name pool |
+| `BotConfig.ts` | Difficulty presets; hands out bot names |
+| `BotNames.ts` | Bot name pool, reserved from players by the lobby |
 | `BotMovementProfile.ts` | Knowledge of movement mechanics (strafe jump, wall jump, etc.) |
 | `BotWeaponProfile.ts` | Knowledge of weapon stats |
 | `BotInputNormalizer.ts` | Converts game state to neural-network input vectors |

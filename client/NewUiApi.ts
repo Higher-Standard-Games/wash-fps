@@ -1,0 +1,106 @@
+/**
+ * Contracts for prototype screens that need server features before they can be live.
+ * Player accounts, room chat, and private rooms are live: see AccountSession,
+ * ProfileView, LobbyClient, and RoomChatView.
+ * Leaderboard and featured demo reads use advertised lobby endpoints.
+ * See docs/research/NEW_UI.md for the remaining work.
+ */
+
+import type { LobbyClient } from "../../../lobby/LobbyClient";
+import type { FeaturedDemoInfo, GametypeInfo } from "../../../lobby/types";
+
+export type UiResult<T> = { status: "ready"; data: T } | { status: "unavailable"; reason: string };
+
+export type PendingUiFeature = "leaderboard" | "featuredDemos";
+
+export interface LeaderboardQuery {
+  gametype: string;
+  period: "month" | "all";
+  offset: number;
+  limit: number;
+}
+
+export interface LeaderboardPage {
+  entries: Array<{ rank: number; playerId: string; name: string; wins: number; losses: number; draws: number }>;
+  total: number;
+  localPlayerRank?: number;
+  localPlayerEntry?: LeaderboardPage["entries"][number];
+}
+
+export interface FeaturedDemosQuery {
+  gametype?: string;
+  map?: string;
+  limit: number;
+}
+
+export type FeaturedDemo = FeaturedDemoInfo;
+
+export interface NewUiApi {
+  /** Availability comes from the server's welcome.gametypes, not prototype data. */
+  getMode(gametypeId: string, advertised: readonly GametypeInfo[]): UiResult<GametypeInfo>;
+  getFeatureStatus(feature: PendingUiFeature): UiResult<true>;
+  getLeaderboard(query: LeaderboardQuery): Promise<UiResult<LeaderboardPage>>;
+  getFeaturedDemos(query: FeaturedDemosQuery): Promise<UiResult<FeaturedDemo[]>>;
+}
+
+const UNAVAILABLE: Record<PendingUiFeature, string> = {
+  leaderboard: "Rankings are unavailable on this lobby server.",
+  featuredDemos: "Featured demos are unavailable on this lobby server. The demo archive is available.",
+};
+
+function unavailable<T>(feature: PendingUiFeature): UiResult<T> {
+  return { status: "unavailable", reason: UNAVAILABLE[feature] };
+}
+
+let leaderboardClient: LobbyClient | null = null;
+let leaderboardSupported = false;
+let featuredClient: LobbyClient | null = null;
+let featuredSupported = false;
+
+/** The panel binds the authenticated connection and advertised server capability. */
+export function bindLeaderboard(client: LobbyClient, supported: boolean): void {
+  leaderboardClient = client;
+  leaderboardSupported = supported;
+}
+
+export function bindFeaturedDemos(client: LobbyClient, supported: boolean): void {
+  featuredClient = client;
+  featuredSupported = supported;
+}
+
+/** Keep unavailable states honest; never return fabricated data. */
+export const newUiApi: NewUiApi = {
+  getMode(gametypeId, advertised) {
+    const mode = advertised.find((item) => item.id === gametypeId);
+    return mode
+      ? { status: "ready", data: mode }
+      : { status: "unavailable", reason: `${gametypeId.toUpperCase()} is not offered by this lobby server yet.` };
+  },
+  getFeatureStatus(feature) {
+    if (feature === "leaderboard" && leaderboardSupported && leaderboardClient?.connected) {
+      return { status: "ready", data: true };
+    }
+    if (feature === "featuredDemos" && featuredSupported && featuredClient?.connected) {
+      return { status: "ready", data: true };
+    }
+    return unavailable(feature);
+  },
+  async getLeaderboard(query) {
+    if (!leaderboardSupported || !leaderboardClient?.connected) return unavailable("leaderboard");
+    try {
+      const { entries, total, localPlayerRank, localPlayerEntry } = await leaderboardClient.requestLeaderboard(query);
+      return { status: "ready", data: { entries, total, localPlayerRank, localPlayerEntry } };
+    } catch (error) {
+      return { status: "unavailable", reason: (error as Error).message };
+    }
+  },
+  async getFeaturedDemos(query) {
+    if (!featuredSupported || !featuredClient?.connected) return unavailable("featuredDemos");
+    try {
+      const { entries } = await featuredClient.requestFeaturedDemos(query);
+      return { status: "ready", data: entries };
+    } catch (error) {
+      return { status: "unavailable", reason: (error as Error).message };
+    }
+  },
+};
