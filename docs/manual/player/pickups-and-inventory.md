@@ -67,7 +67,7 @@ When a player dies, their non-Blade weapons drop as physical entities with Havok
 
 ## Pickup Respawn
 
-Map-spawned pickups respawn on a per-type timer: **weapons 15s, armor 25s, health 20s, mega health 60s.** Armor and mega/ultra health are also **absent for the first 15s of a match** so nobody grabs a power item off spawn. Dropped weapons do **not** respawn — they're one-and-done.
+Map-spawned pickups respawn on a per-type timer: **weapons 30s, ammo 15s, armor 25s, health 20s, mega health 60s.** Armor and mega/ultra health are also **absent for the first 15s of a match** so nobody grabs a power item off spawn. Dropped weapons do **not** respawn — they're one-and-done.
 
 ## Powerups
 
