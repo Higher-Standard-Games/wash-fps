@@ -56,13 +56,18 @@ describe("DemoRecorder min-duration guard", () => {
     rec.addPlayer("1", "One", "", 41);
     rec.addPlayer("2", "Two", "", 42);
     rec.addPlayer("3", "Bot", "");
+    // Commands the server applied between snapshots: buttons fold together so a
+    // press that falls between two frames is not lost, and the analogue fields
+    // keep the value they ended on.
+    rec.recordInput("1", { buttons: 0b0001, yaw: 0.5, pitch: 0, forward: 1, right: 0, weaponSlot: 2 });
+    rec.recordInput("1", { buttons: 0b0010, yaw: 0.75, pitch: -0.25, forward: 1, right: 1, weaponSlot: 2 });
     rec.recordFrame(frame(1));
     rec.recordFrame(frame(2));
     const fp = await rec.stop();
     written.push(fp);
     const reader = new DemoReader(new Uint8Array(fs.readFileSync(fp)));
     expect(reader.readHeader()).toMatchObject({
-      version: 2,
+      version: 3,
       matchId: "match-verified",
       players: [
         { playerId: "1", accountId: 41 },
@@ -71,7 +76,24 @@ describe("DemoRecorder min-duration guard", () => {
       ],
     });
     expect(reader.readHeader().players[2].accountId).toBeUndefined();
-    expect(reader.readAllFrames().map((entry) => entry.tick)).toEqual([1, 2]);
+    const frames = reader.readAllFrames();
+    expect(frames.map((entry) => entry.tick)).toEqual([1, 2]);
+
+    // The first frame carries both commands, folded into one record
+    expect(frames[0].inputs).toEqual([
+      {
+        playerId: "1",
+        buttons: 0b0011,
+        yaw: 0.75,
+        pitch: -0.25,
+        forward: 1,
+        right: 1,
+        weaponSlot: 2,
+        commands: 2,
+      },
+    ]);
+    // …and the second has none, because nothing was pressed after the flush
+    expect(frames[1].inputs).toEqual([]);
   });
 
   it("still reads the version 1 header layout", () => {

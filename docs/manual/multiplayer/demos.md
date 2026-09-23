@@ -72,7 +72,12 @@ The analyser runs as `DemoService.analyzeLoadedDemo()` and outputs a list of tim
 
 `.shagdemo` is decoded by `src/shared/demo/DemoReader.ts`, driven client-side by `src/games/fps/client/DemoService.ts`. Key fields per tick:
 
-- All player inputs (movement, aim, fire flags)
+- Player state per tick — position, velocity, view angles, health, movement state
+- **The commands the server applied** (format version 3): buttons, view angles,
+  wish direction and weapon slot, per player, per frame. Commands arrive faster
+  than frames are written, so buttons are OR-ed across the interval — a press
+  between two snapshots is never lost — while the analogue fields keep the value
+  they ended on. Recordings from before version 3 carry state only
 - All entity state deltas (position, velocity, health, animation state)
 - Server events (kills, pickups, match-state transitions, **chat**, weapon fire, projectile impacts, chain arcs) — captured verbatim, so replays show the full action *and* the match chatter at the right moments.
 

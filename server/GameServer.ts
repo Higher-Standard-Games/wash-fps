@@ -1625,6 +1625,18 @@ export class GameServer {
           `[GameServer.handleInput] Player ${client.playerId}: buttons=${buttons} (raw command.buttons=${command.buttons}), seq=${seq}`,
         );
       }
+      // A demo records what a person did, not only what the server simulated:
+      // the command is written alongside the state it produced, so training on
+      // a recording does not have to guess which buttons caused the motion.
+      this.demoRecorder?.recordInput(String(client.playerId), {
+        buttons,
+        yaw: clean.yaw,
+        pitch: clean.pitch,
+        forward: clean.direction.z,
+        right: clean.direction.x,
+        weaponSlot: clean.weaponSlot,
+      });
+
       mutEntity.input.inputQueue.push({
         forward: clean.direction.z,
         right: clean.direction.x,

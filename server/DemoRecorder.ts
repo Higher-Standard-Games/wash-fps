@@ -24,6 +24,12 @@ import * as path from "node:path";
 import * as zlib from "node:zlib";
 import type { GameState } from "../../../engine/network/core/GameState";
 import { BinaryEncoder, BinaryProtocol } from "../../../engine/network/protocol/BinaryProtocol";
+import {
+  type AppliedCommand,
+  aggregateCommand,
+  encodeInputs,
+  type RecordedInput,
+} from "../../../shared/demo/DemoInputs";
 
 // ── Magic & Version ─────────────────────────────────────────────────────
 
@@ -31,7 +37,7 @@ import { BinaryEncoder, BinaryProtocol } from "../../../engine/network/protocol/
 const DEMO_MAGIC = new Uint8Array([0x53, 0x48, 0x41, 0x47]); // "SHAG"
 
 /** Current demo format version */
-const DEMO_VERSION = 2;
+const DEMO_VERSION = 3;
 
 // ── Types ───────────────────────────────────────────────────────────────
 
@@ -78,6 +84,10 @@ export class DemoRecorder {
   private _config: DemoConfig;
   private _players: Map<string, DemoPlayerEntry> = new Map();
   private _frames: Uint8Array[] = [];
+  /** Encoded input block per frame, parallel to _frames (format version 3). */
+  private _frameInputs: Uint8Array[] = [];
+  /** Commands applied since the last frame, folded per player. */
+  private _pendingInputs: Map<string, RecordedInput> = new Map();
   private _frameIndices: FrameIndex[] = [];
   private _startTime: number;
   private _frameCount: number = 0;
@@ -116,6 +126,18 @@ export class DemoRecorder {
   // ── Frame Recording ──────────────────────────────────────────────
 
   /**
+   * Note one command the server applied, for the frame being accumulated.
+   *
+   * Commands arrive at tick rate and frames are written at snapshot rate, so
+   * several fold into one record: buttons are OR-ed, so a press between two
+   * snapshots survives, and the analogue fields keep their last applied value.
+   */
+  recordInput(playerId: string, command: AppliedCommand): void {
+    if (!this._recording) return;
+    this._pendingInputs.set(playerId, aggregateCommand(this._pendingInputs.get(playerId), command, playerId));
+  }
+
+  /**
    * Record a frame (one snapshot tick's worth of game state).
    * Called at snapshot rate (e.g. 20Hz).
    *
@@ -127,6 +149,9 @@ export class DemoRecorder {
 
     // Encode full snapshot (no baseline = no delta compression)
     const frameData = BinaryProtocol.encodeSnapshot(state);
+    const inputData = encodeInputs([...this._pendingInputs.values()]);
+    this._pendingInputs.clear();
+    this._frameInputs.push(inputData);
 
     // Track offset for index table
     this._frameIndices.push({
@@ -231,6 +256,10 @@ export class DemoRecorder {
       encoder.writeUint32(frame.byteLength);
       // Write raw frame bytes
       encoder.writeBytes(frame);
+      // Version 3: the commands applied over the interval this frame covers
+      const inputs = this._frameInputs[i] ?? new Uint8Array(0);
+      encoder.writeUint32(inputs.byteLength);
+      encoder.writeBytes(inputs);
     }
 
     // ── Section 3: Index Table ───────────────────────────────────
