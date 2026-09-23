@@ -208,12 +208,13 @@ export class DemoRecorder {
     }
 
     // Generate filename: map_gametype_YYYYMMDD_HHmmss.shagdemo
-    const filename = this._generateFilename();
     const dir = this._config.outputDir!;
-    const filepath = path.join(dir, filename);
 
     // Ensure output directory exists
     fs.mkdirSync(dir, { recursive: true });
+
+    const filepath = this._freePath(dir, this._generateFilename());
+    const filename = path.basename(filepath);
 
     // Build the complete binary file
     const demoBuffer = this._buildDemoBuffer(duration);
@@ -320,6 +321,28 @@ export class DemoRecorder {
       encoder.writeString(player.team);
       encoder.writeString(player.accountId === undefined ? "" : String(player.accountId));
     }
+  }
+
+  /**
+   * The generated name, or the first free variant of it.
+   *
+   * The name is only accurate to the second, and two matches can finish inside
+   * the same one — a lobby starting two rooms at once is ordinary. Writing
+   * blindly meant the second recording replaced the first, with nothing said
+   * about it.
+   */
+  private _freePath(dir: string, filename: string): string {
+    const candidate = path.join(dir, filename);
+    if (!fs.existsSync(candidate)) return candidate;
+
+    const stem = filename.replace(/\.shagdemo$/, "");
+    for (let n = 2; n <= 99; n++) {
+      const next = path.join(dir, `${stem}_${n}.shagdemo`);
+      if (!fs.existsSync(next)) return next;
+    }
+    // Ninety-nine in one second is not a real match, but a demo is still worth
+    // more than the one it would overwrite.
+    return path.join(dir, `${stem}_${Date.now()}.shagdemo`);
   }
 
   private _generateFilename(): string {

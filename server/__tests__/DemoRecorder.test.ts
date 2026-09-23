@@ -96,6 +96,27 @@ describe("DemoRecorder min-duration guard", () => {
     expect(frames[1].inputs).toEqual([]);
   });
 
+  it("never overwrites a demo that finished in the same second", async () => {
+    // The filename is accurate to a second, and a lobby starting two rooms at
+    // once means two matches can end inside one. Both recordings are worth
+    // keeping; the second used to replace the first with nothing said.
+    const first = new DemoRecorder({ ...base, minDurationMs: 0 });
+    first.recordFrame(frame(1));
+    const firstPath = await first.stop();
+    written.push(firstPath);
+
+    const second = new DemoRecorder({ ...base, minDurationMs: 0 });
+    second.recordFrame(frame(2));
+    const secondPath = await second.stop();
+    written.push(secondPath);
+
+    expect(secondPath).not.toBe(firstPath);
+    expect(fs.existsSync(firstPath)).toBe(true);
+    expect(fs.existsSync(secondPath)).toBe(true);
+    expect(new DemoReader(new Uint8Array(fs.readFileSync(firstPath))).readAllFrames()[0].tick).toBe(1);
+    expect(new DemoReader(new Uint8Array(fs.readFileSync(secondPath))).readAllFrames()[0].tick).toBe(2);
+  });
+
   it("still reads the version 1 header layout", () => {
     const bytes: number[] = [0x53, 0x48, 0x41, 0x47, 1];
     const string = (value: string) => {
