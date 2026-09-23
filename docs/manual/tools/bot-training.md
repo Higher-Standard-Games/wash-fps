@@ -113,7 +113,7 @@ npx vite-node src/cli/bot-train.ts -- --demo public/data/demos --resume
 ```
 
 Useful flags: `--epochs`, `--batch`, `--lr`, `--models`, `--resume`,
-`--include-bots`. Weights default to `./src/games/fps/models`.
+`--include-bots`, `--patience`. Weights default to `./src/games/fps/models`.
 
 Beside the weights the run writes `metadata.json`: the feature widths and output
 widths they were trained against, when, how many matches and frames, whether bots
@@ -124,7 +124,25 @@ build are refused at load with a reason. Weights with no metadata beside them
 load, with a warning that their shape is unknown.
 
 The loss printed at the end is followed by a held-out figure whenever the corpus
-had more than one match. That second number is the one that means anything.
+had more than one match. That second number is the one that means anything, and a
+run stops on its own once it has gone `--patience` epochs without improving it
+(five by default; `0` runs every epoch). Stopping keeps the last epoch's weights
+rather than the best ones, which TF.js gives no way to restore, so patience is
+the whole of the protection.
+
+Then each output is scored on the held-out matches against a floor:
+
+```
+[Trainer] Tactical per output (error / floor, lower is better; floor = best fixed answer):
+[Trainer]   sprint     0.1832 / 0.4000  on in 40.0% of frames — learned
+[Trainer]   jump       0.0904 / 0.0900  on in 9.0% of frames — no better than a fixed answer
+```
+
+The floor is the error of the best answer that ignores the input entirely. It is
+there because most of these outputs are off most of the time: a network that
+answers "no" to every button scores a respectable-looking error and has learned
+nothing. An output whose error is not below its floor was not learned, whatever
+the loss says.
 
 ## Getting the weights into a bot
 
@@ -165,8 +183,6 @@ there is no person in it. Demos are where that comes from.
   still. Stacking the last few feature vectors is the obvious next step.
 - Aim is squeezed through a sigmoid with 0.5 meaning "no turn", which is the
   existing head's shape rather than a good one for a signed quantity.
-- Training runs a fixed number of epochs with no early stopping, and reports one
-  mean-squared number for a head whose outputs are different kinds of question.
 - Inference cost with models loaded has not been measured against a full server
   of bots.
 
