@@ -99,6 +99,29 @@ Frames whose features are the wrong width, or hold a value that is not a number,
 are dropped and counted in the run's output. A single NaN in a training tensor
 turns the loss to NaN and takes the weights with it.
 
+## What the network sees
+
+Not one frame but the last three, oldest first. A single frame is a still:
+whether a player is starting a strafe-jump or finishing one, closing on an item
+or leaving it, is invisible in one vector and plain in three. The same gap rule
+applies — a stack never reaches back across a death — and until three frames
+exist, the oldest one there stands in for the rest, which reads as "nothing was
+changing" rather than as the dead, unarmed, motionless player that zeros would
+describe.
+
+Every vector is built by one piece of code, used by the demo extractor, by the
+self-play recorder and by the bot in a match. That is the promise a trained model
+depends on: the vector it is fed in a match was built exactly the way the
+vectors it learned from were. Training therefore reads each demo **with its
+map** — the same line of sight and item distances a bot on that map would have —
+and gives every player their own view of it, as each bot has. A map that will
+not load is reported, and its matches are read blind, the way a bot with no map
+would play them.
+
+Stacks are one snapshot apart on both sides, because a demo writes a frame per
+snapshot and a bot decides per snapshot it receives. Train on recordings from a
+server running the same snapshot rate as the one the bots will play on.
+
 ## Training and what it leaves behind
 
 ```bash
@@ -198,10 +221,11 @@ npm run bot:bench -- --bots 8 --decisions 2000
 
 ## Not yet
 
-- The network sees one frame at a time, so a movement in progress looks like a
-  still. Stacking the last few feature vectors is the obvious next step.
 - Aim is squeezed through a sigmoid with 0.5 meaning "no turn", which is the
   existing head's shape rather than a good one for a signed quantity.
+- Nothing checks that the snapshot rate the bots play at matches the one the
+  training demos were recorded at, which is what makes a stack of three frames
+  mean the same stretch of time on both sides.
 - Every bot runs its own `predict` call. The measured cost per decision is
   dominated by that round trip rather than by the arithmetic, so batching the
   fleet into one call is worth nearly all of it.
