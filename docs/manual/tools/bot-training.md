@@ -177,14 +177,34 @@ pull not at all. Each bot's episode is its own run.
 Self-play sharpens; it cannot teach the network to move like a person, because
 there is no person in it. Demos are where that comes from.
 
+## What it costs
+
+`npm run bot:bench` measures the neural overlay on a synthetic fight state — the
+difference the network makes to a decision, without the vision and navigation a
+real map adds, since those are the state machine's cost either way.
+
+On a native backend with eight bots, the network adds about **half a millisecond
+per decision**, and the weights themselves are a few kilobytes per bot. A bot
+decides when a snapshot arrives, not every tick — the 125 Hz input loop re-sends
+the last decision — so eight bots cost around 4 ms per snapshot interval, all of
+it on one thread, because the whole fleet lives in one process. That is 8% of a
+20 Hz interval and 25% of a 60 Hz one.
+
+Run it yourself before assuming any of those numbers apply to your machine:
+
+```bash
+npm run bot:bench -- --bots 8 --decisions 2000
+```
+
 ## Not yet
 
 - The network sees one frame at a time, so a movement in progress looks like a
   still. Stacking the last few feature vectors is the obvious next step.
 - Aim is squeezed through a sigmoid with 0.5 meaning "no turn", which is the
   existing head's shape rather than a good one for a signed quantity.
-- Inference cost with models loaded has not been measured against a full server
-  of bots.
+- Every bot runs its own `predict` call. The measured cost per decision is
+  dominated by that round trip rather than by the arithmetic, so batching the
+  fleet into one call is worth nearly all of it.
 
 Progress and reasoning for all of it: `docs/research/BOT_TF_IMPROVEMENTS.md` in
 the engine repo.
