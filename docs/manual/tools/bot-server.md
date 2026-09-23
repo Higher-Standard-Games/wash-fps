@@ -85,18 +85,17 @@ the bot is actually built from.
 The neural mode is opt-in per bot. Without it, bots run the rules and the goal
 layer, and play competitively at Medium and Hard.
 
-## Training Pipeline
+## Training
 
-The bot server can run an autonomous self-play training loop:
+Two sources, one set of labels. Recorded human matches are where playing like a
+person comes from; self-play sharpens what is already there. Both are covered in
+[Bot Training](./bot-training.md), including what a demo has to hold to be worth
+training on, how a corpus is built, and how trained weights reach a bot in a
+room.
 
-1. Spawn N bot clients against each other in a controlled match.
-2. Record episodes (state + action + reward per tick) via `BotEpisodeRecorder`.
-3. After the match, compute rewards via `BotRewardComputer` and update the neural network weights.
-4. Repeat indefinitely.
-
-Saved model weights persist between runs. Match demos are training data too:
-`DemoTrainingExtractor` reads a `.shagdemo` recording and produces per-player
-frames through the same `BotInputNormalizer` the live bots use.
+The short version: `--models <dir>` tells the bot server where the weights are,
+and every bot it creates inherits that directory — including a bot a player adds
+from a room. A bot whose models will not load plays the rules.
 
 ## Joining a room
 
