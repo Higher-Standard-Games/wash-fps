@@ -120,7 +120,13 @@ would play them.
 
 Stacks are one snapshot apart on both sides, because a demo writes a frame per
 snapshot and a bot decides per snapshot it receives. Train on recordings from a
-server running the same snapshot rate as the one the bots will play on.
+server running the same snapshot rate as the one the bots will play on. Training
+measures the spacing from the recorded frames, warns about a match recorded at a
+different rate from the rest, and writes it into the metadata; a bot measures the
+spacing of the snapshots it receives and says, once, if they are more than a
+quarter apart — trained at 60 Hz and playing at 20 Hz, a stack of three frames
+spans three times the time it did in training, and every movement reads three
+times as fast as it is.
 
 ## Training and what it leaves behind
 
@@ -239,9 +245,6 @@ npm run bot:bench -- --bots 8 --decisions 2000
 
 - Aim is squeezed through a sigmoid with 0.5 meaning "no turn", which is the
   existing head's shape rather than a good one for a signed quantity.
-- Nothing checks that the snapshot rate the bots play at matches the one the
-  training demos were recorded at, which is what makes a stack of three frames
-  mean the same stretch of time on both sides.
 - Every bot runs its own `predict` call. The measured cost per decision is
   dominated by that round trip rather than by the arithmetic, so batching the
   fleet into one call is worth nearly all of it.
