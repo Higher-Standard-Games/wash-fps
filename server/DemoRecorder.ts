@@ -213,9 +213,6 @@ export class DemoRecorder {
     // Ensure output directory exists
     fs.mkdirSync(dir, { recursive: true });
 
-    const filepath = this._freePath(dir, this._generateFilename());
-    const filename = path.basename(filepath);
-
     // Build the complete binary file
     const demoBuffer = this._buildDemoBuffer(duration);
 
@@ -224,7 +221,8 @@ export class DemoRecorder {
 
     // Write compressed data to disk (Uint8Array copy: Node's Buffer no longer
     // satisfies the ArrayBuffer-backed view type under TS 5.9 strict generics)
-    fs.writeFileSync(filepath, new Uint8Array(compressed));
+    const filepath = this._writeUnclaimed(dir, this._generateFilename(), new Uint8Array(compressed));
+    const filename = path.basename(filepath);
 
     const rawMB = (demoBuffer.byteLength / (1024 * 1024)).toFixed(2);
     const compMB = (compressed.byteLength / (1024 * 1024)).toFixed(2);
@@ -324,25 +322,34 @@ export class DemoRecorder {
   }
 
   /**
-   * The generated name, or the first free variant of it.
+   * Write under the generated name, or the first variant nobody has yet, and
+   * return where it went.
    *
    * The name is only accurate to the second, and two matches can finish inside
-   * the same one — a lobby starting two rooms at once is ordinary. Writing
-   * blindly meant the second recording replaced the first, with nothing said
-   * about it.
+   * the same one — a lobby starting two rooms at once is ordinary. Each name is
+   * claimed by creating the file exclusively, so the filesystem decides who got
+   * it: checking whether a name was free and then writing to it let three game
+   * servers that stopped together each see it free, and each write over the
+   * others, leaving one recording of three.
    */
-  private _freePath(dir: string, filename: string): string {
-    const candidate = path.join(dir, filename);
-    if (!fs.existsSync(candidate)) return candidate;
-
+  private _writeUnclaimed(dir: string, filename: string, data: Uint8Array): string {
     const stem = filename.replace(/\.shagdemo$/, "");
-    for (let n = 2; n <= 99; n++) {
-      const next = path.join(dir, `${stem}_${n}.shagdemo`);
-      if (!fs.existsSync(next)) return next;
-    }
+    const candidates = [filename];
+    for (let n = 2; n <= 99; n++) candidates.push(`${stem}_${n}.shagdemo`);
     // Ninety-nine in one second is not a real match, but a demo is still worth
-    // more than the one it would overwrite.
-    return path.join(dir, `${stem}_${Date.now()}.shagdemo`);
+    // more than an error.
+    candidates.push(`${stem}_${Date.now()}_${process.pid}.shagdemo`);
+
+    for (const name of candidates) {
+      const candidate = path.join(dir, name);
+      try {
+        fs.writeFileSync(candidate, data, { flag: "wx" });
+        return candidate;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      }
+    }
+    throw new Error(`[DemoRecorder] No free name for ${filename} in ${dir}`);
   }
 
   private _generateFilename(): string {

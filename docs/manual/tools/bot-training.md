@@ -219,10 +219,14 @@ npm run net:server -- --port 17777 --map wdm7
 npx vite-node src/cli/bot-train.ts -- --map wdm7 --rounds 100
 ```
 
-It builds the same labels through the same code as the demo path, so an output
-cannot come to mean one thing here and another when cloning a person. Reward
-enters as a sample weight: the best frames of a round pull hardest, the worst
-pull not at all. Each bot's episode is its own run.
+Its bots are made the way the bot server makes them, with the map's vision and
+navigation. The first round plays the plain state machine; every later round plays
+the weights the round before it trained, which the trainer saves to
+`<models>/latest` for exactly that. It builds the same labels through the same
+code as the demo path, so an output cannot come to mean one thing here and another
+when cloning a person. Reward decides how often a frame is trained on — the typical
+frame counts normally, a kill more, a death less — and each bot's episode is its
+own run.
 
 Self-play sharpens; it cannot teach the network to move like a person, because
 there is no person in it. Demos are where that comes from.
