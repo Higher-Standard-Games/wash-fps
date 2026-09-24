@@ -178,6 +178,22 @@ bots a player adds from a room — the lobby sends only a difficulty, so without
 default on the server those bots would run the plain state machine however much
 had been trained. A specific request can name its own directory instead.
 
+A bot takes its difficulty's own weights when the directory has a subdirectory
+for it — self-play leaves one per tier, `easy/` to `insane/` — and the weights in
+the directory itself otherwise, which is where demo training puts them.
+
+To watch trained weights play before anyone plays against them, record a match
+of bots using them:
+
+```bash
+npm run demo:record -- --map wdm12 --bots 2 --seconds 120 --models ./models/human
+```
+
+Its recordings hold no verified players, so training reads them only with
+`--include-bots`. Keep bot matches long, or the map small: two bots on a large map
+can spend a minute collecting items without meeting, and a match with no fight in
+it gives the combat head nothing to learn.
+
 Loading is per bot and failure is soft: a bot whose models will not load plays
 the rules, which is the floor this whole system builds on rather than a fallback
 to apologise for.
