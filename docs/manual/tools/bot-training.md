@@ -75,14 +75,18 @@ frame, which is most frames, every target said 0.5 whatever the player had done.
 
 Every output exists because a demo can answer it:
 
-| Head | Output | Comes from |
-|------|--------|-----------|
-| Tactical | sprint, slide, jump | the buttons held |
-| Tactical | switch | whether the slot changed since the previous frame |
-| Tactical | slot | the commanded slot, over nine |
-| Combat | fire, alt-fire | the buttons held |
-| Combat | aim yaw, aim pitch | **the turn made between two frames** |
-| Combat | dodge left, dodge right | the wish direction given, not the velocity |
+| Head | Output | Kind | Comes from |
+|------|--------|------|-----------|
+| Tactical | sprint, slide, jump | yes/no | the buttons held |
+| Tactical | switch | yes/no | whether the slot changed since the previous frame |
+| Tactical | slot | yes/no, as a share of nine | the commanded slot |
+| Combat | fire, alt-fire | yes/no | the buttons held |
+| Combat | aim yaw, aim pitch | turn | **the turn made between two frames** |
+| Combat | dodge left, dodge right | yes/no | the wish direction given, not the velocity |
+
+A yes/no output is a logit, trained with binary cross-entropy. A turn is a signed
+number in tenths of a radian, trained with Huber loss so one flick cannot outweigh
+a thousand frames of steady tracking.
 
 Aim is the part worth having: view angles are recorded state, so the turn a
 person made is the one label here that was never a guess.
@@ -178,6 +182,21 @@ scores a respectable-looking error and has learned nothing, and one that answers
 the average everywhere has learned how often but not when. An output whose error is
 not below its floor was not learned, whatever the loss says.
 
+## How a bot uses what it learned
+
+Only as far as it was shown to work. Beside the weights, training records each
+output's **held-out skill** — how much of a fixed answer's error it removed on
+matches it never trained on. A bot acts on an output only if that skill is at least
+0.05, the same line the report draws for "learned"; everything else stays the state
+machine's decision. Weights trained on a single match have nothing held out, carry
+no skill, and advise nothing — the bot says so when it loads them.
+
+Yes/no answers are drawn rather than thresholded, a little sharpened toward the
+likelier answer, so two bots in the same spot do not do the same thing. Aim is a
+turn from where the bot is looking now, and the bot moves from the state machine's
+aim toward it by as much as aim's skill: a network that learned aim well steers, one
+that barely did nudges, one that did not leaves the aim alone.
+
 ## Getting the weights into a bot
 
 ```bash
@@ -258,8 +277,9 @@ npm run bot:bench -- --bots 8 --decisions 2000
 
 ## Not yet
 
-- Aim is squeezed through a sigmoid with 0.5 meaning "no turn", which is the
-  existing head's shape rather than a good one for a signed quantity.
+- Whether aim can be learned at all is unknown. Bot recordings cannot answer it —
+  bot aim is still on most frames and snaps on a few, timed by the state
+  machine's own timers — so it waits on recordings of people.
 
 Progress and reasoning for all of it: `docs/research/BOT_TF_IMPROVEMENTS.md` in
 the engine repo.
