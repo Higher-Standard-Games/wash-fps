@@ -159,19 +159,24 @@ run stops on its own once it has gone `--patience` epochs without improving it
 rather than the best ones, which TF.js gives no way to restore, so patience is
 the whole of the protection.
 
-Then each output is scored on the held-out matches against a floor:
+Then each output is scored on the held-out matches against a floor. This is from
+a real run, trained on one bot match on wdm12 and scored on another:
 
 ```
 [Trainer] Tactical per output (error / floor, lower is better; floor = best fixed answer):
-[Trainer]   sprint     0.1832 / 0.4000  on in 40.0% of frames — learned
-[Trainer]   jump       0.0904 / 0.0900  on in 9.0% of frames — no better than a fixed answer
+[Trainer]   sprint     0.0384 / 0.0378  on in 96.1% of frames — no better than a fixed answer
+[Trainer]   slide      0.0171 / 0.0227  on in 2.3% of frames — learned
+[Trainer]   jump       0.0176 / 0.0278  on in 2.9% of frames — learned
 ```
 
-The floor is the error of the best answer that ignores the input entirely. It is
-there because most of these outputs are off most of the time: a network that
-answers "no" to every button scores a respectable-looking error and has learned
-nothing. An output whose error is not below its floor was not learned, whatever
-the loss says.
+The error is squared, which is what training minimises, and what it teaches each
+output to be is a probability: for a button pressed one frame in thirty, the honest
+answer is "about a thirtieth". The floor is the error of the best answer that
+ignores the input entirely — the output's average — so it is there because most of
+these outputs are off most of the time: a network that answers "no" to every button
+scores a respectable-looking error and has learned nothing, and one that answers
+the average everywhere has learned how often but not when. An output whose error is
+not below its floor was not learned, whatever the loss says.
 
 ## Getting the weights into a bot
 
