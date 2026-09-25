@@ -308,6 +308,10 @@
   min-height: 0;
 }
 
+.lobby__rail-mid[hidden] {
+  display: none;
+}
+
 .lobby__rail-label {
   display: flex;
   justify-content: space-between;
@@ -545,7 +549,9 @@
   min-height: 0;
   padding: 30px 52px 24px calc(28px + var(--rail-skew));
   box-sizing: border-box;
-  overflow: hidden;
+  /* Clipped, not hidden: the backdrop word runs past the bottom, and a hidden
+     overflow can still be scrolled into view by focus or scrollIntoView */
+  overflow: clip;
 }
 
 /* Actual account rankings; the board scrolls within the full-height stage. */

@@ -148,6 +148,8 @@ export class LobbyPanel extends GamePanel {
   private chatInputEl: HTMLInputElement | null = null;
   private chatSendEl: HTMLButtonElement | null = null;
   private railEl: HTMLElement | null = null;
+  /** A page's own list for the rail's middle, by tab. */
+  private readonly railMids = new Map<string, HTMLElement>();
   private playerNameEl: HTMLElement | null = null;
   private playerMetaEl: HTMLElement | null = null;
   private selectedModeId = "duel";
@@ -232,6 +234,7 @@ export class LobbyPanel extends GamePanel {
       if (tabId === "matchmaking" && this.chatMessagesEl) {
         this.chatMessagesEl.scrollTop = this.chatMessagesEl.scrollHeight;
       }
+      this.showRailMiddle(tabId);
       if (tabId === "settings") void this.settingsView?.refresh();
       if (tabId === "profile") this.profileView?.refresh();
       if (tabId === "demos") {
@@ -290,6 +293,7 @@ export class LobbyPanel extends GamePanel {
     nav.appendChild(this.tabBar);
     rail.appendChild(nav);
     rail.appendChild(this.buildSocialColumn());
+    rail.appendChild(this.buildSettingsRail());
 
     const player = document.createElement("div");
     player.className = "lobby__rail-player";
@@ -319,6 +323,29 @@ export class LobbyPanel extends GamePanel {
     rail.appendChild(utility);
     this.refreshPlayerCard();
     return rail;
+  }
+
+  /** The settings pages, in the rail's middle while Settings is open. */
+  private buildSettingsRail(): HTMLElement {
+    const mid = document.createElement("section");
+    mid.className = "lobby__rail-mid";
+    mid.setAttribute("aria-label", "Settings pages");
+    const heading = document.createElement("div");
+    heading.className = "lobby__rail-label";
+    heading.textContent = "Settings";
+    mid.appendChild(heading);
+    if (this.settingsView) mid.appendChild(this.settingsView.takePageNav());
+    this.railMids.set("settings", mid);
+    mid.hidden = true;
+    return mid;
+  }
+
+  /** The rail's middle belongs to the page: its own list if it has one, else the rooms. */
+  private showRailMiddle(tabId: string): void {
+    const own = this.railMids.get(tabId);
+    for (const mid of this.railMids.values()) mid.hidden = mid !== own;
+    const rooms = this.railEl?.querySelector<HTMLElement>(".lobby__rail-mid--rooms");
+    if (rooms) rooms.hidden = own !== undefined;
   }
 
   private tabButton(id: string): HTMLButtonElement | null {
@@ -719,7 +746,7 @@ export class LobbyPanel extends GamePanel {
       if (ghost) ghost.textContent = mode.title.toUpperCase();
     }
     this.playBodyEl.replaceWith(this.matchLobbyView.root);
-    const railMiddle = this.railEl?.querySelector(".lobby__rail-mid");
+    const railMiddle = this.railEl?.querySelector(".lobby__rail-mid--rooms");
     if (railMiddle) {
       this.roomChatView = new RoomChatView(this.lobbyClient, lobby, this.localLobbyPlayerId);
       railMiddle.appendChild(this.roomChatView.root);
@@ -932,7 +959,7 @@ export class LobbyPanel extends GamePanel {
 
   private buildSocialColumn(): HTMLElement {
     const mid = document.createElement("section");
-    mid.className = "lobby__rail-mid";
+    mid.className = "lobby__rail-mid lobby__rail-mid--rooms";
     mid.setAttribute("aria-label", "Rooms");
     const heading = document.createElement("div");
     heading.className = "lobby__rail-label";

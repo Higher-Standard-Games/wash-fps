@@ -164,14 +164,29 @@ shared clock, and both teams hear it at the same time.
 
 ## Settings Overlay
 
-Press **Escape** mid-match to open the in-game settings overlay. Four tabs:
+Press **Escape** mid-match and pick **Settings** in the pause menu. The lobby's
+Settings key opens the same screen, with its four pages in the rail. Everything
+is saved as you change it.
 
-- **Graphics** — fullscreen, bloom intensity, anisotropy.
-- **Audio** — music volume, effects volume.
-- **Controls** — full keyboard + mouse rebind UI with a virtual keyboard.
-- **Interface** — crosshair, HUD, NetGraph.
+- **Controls** — a keyboard and a mouse coloured by what each key does, and the
+  list of actions with their keys. Click a key to pick what it does, or click an
+  action and press the key, click or wheel turn you want for it. A key does one
+  thing, so giving it to an action takes it from the one that had it. Tab
+  (scoreboard), T and Enter (chat), \` (console) and J (join) are read by the
+  game directly and show as fixed. Mouse feel: sensitivity, sensitivity while
+  aiming, and always run.
+- **Gameplay** — the colour of your side and of enemies (anyone you can shoot,
+  in free-for-all too), outline thickness and a brightness boost, over a
+  preview on a real map; the crosshair with its own preview; field of view and
+  connection info.
+- **Video** — three presets for what costs frames (Smooth, Balanced, which is
+  the game's defaults, and Pretty), then the settings themselves in four
+  sections: Screen, Effects, World and Textures. Pips show each setting's
+  frame-rate cost, and each section key how heavy it is set.
+- **Audio** — music and effects: on or off, and their volume.
 
-The same settings are accessible from the lobby's Settings tab (the lobby and the in-game overlay mount the same `FPSSettingsView`).
+**Reset page** and **Reset all** ask once: the first press arms the key, and a
+second within a few seconds does it.
 
 ## Pickup Prompt (centre, when active)
 
