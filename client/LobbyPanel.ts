@@ -25,7 +25,8 @@ import { DemoService } from "./DemoService";
 import { DemoViewer } from "./DemoViewer";
 import { DurationPickerModal } from "./DurationPickerModal";
 import { ensureFpsLobbyConnection, getFpsLobbyClient } from "./FpsLobbyService";
-import { bindFeaturedDemos, bindLeaderboard, type FeaturedDemo, type LeaderboardPage, newUiApi } from "./NewUiApi";
+import { LeaderboardView } from "./LeaderboardView";
+import { bindFeaturedDemos, bindLeaderboard, type FeaturedDemo, newUiApi } from "./NewUiApi";
 import { ProfileView } from "./ProfileView";
 import { RoomChatView } from "./RoomChatView";
 import { FPSSettingsView } from "./settings/FPSSettingsView";
@@ -159,14 +160,7 @@ export class LobbyPanel extends GamePanel {
   private findButton: HTMLButtonElement | null = null;
   private privateButton: HTMLButtonElement | null = null;
   private privateLobbySupported = false;
-  private leaderboardMode = "duel";
-  private leaderboardPeriod: "month" | "all" = "month";
-  private leaderboardSearch = "";
-  private leaderboardSeq = 0;
-  private leaderboardPage: LeaderboardPage | null = null;
-  private leaderboardBody: HTMLElement | null = null;
-  private leaderboardPin: HTMLElement | null = null;
-  private leaderboardStatus: HTMLElement | null = null;
+  private leaderboardView: LeaderboardView | null = null;
   private pendingPrivateCreate = false;
 
   private currentLobbyId: string | null = null;
@@ -241,7 +235,7 @@ export class LobbyPanel extends GamePanel {
         this.demosRequested = false;
         this.requestDemos();
       }
-      if (tabId === "leaderboard") void this.refreshLeaderboard();
+      if (tabId === "leaderboard") void this.leaderboardView?.refresh();
     });
     this.tabBar.querySelector('[data-tab-id="matchmaking"]')?.setAttribute("aria-current", "page");
     void this.initLobbyConnection();
@@ -294,6 +288,12 @@ export class LobbyPanel extends GamePanel {
     rail.appendChild(nav);
     rail.appendChild(this.buildSocialColumn());
     rail.appendChild(this.buildSettingsRail());
+    if (this.leaderboardView) {
+      const ranks = this.leaderboardView.railMiddle;
+      ranks.hidden = true;
+      this.railMids.set("leaderboard", ranks);
+      rail.appendChild(ranks);
+    }
 
     const player = document.createElement("div");
     player.className = "lobby__rail-player";
@@ -389,7 +389,7 @@ export class LobbyPanel extends GamePanel {
           bindLeaderboard(this.lobbyClient, msg.features?.leaderboard === true);
           bindFeaturedDemos(this.lobbyClient, msg.features?.featuredDemos === true);
           this.featuredRequested = false;
-          if (this.currentTabId === "leaderboard") void this.refreshLeaderboard();
+          if (this.currentTabId === "leaderboard") void this.leaderboardView?.refresh();
           this.queuePending = false;
           if (this.playNoticeEl) this.playNoticeEl.textContent = "";
           this.refreshModeAvailability();
@@ -498,9 +498,7 @@ export class LobbyPanel extends GamePanel {
           bindLeaderboard(this.lobbyClient, false);
           bindFeaturedDemos(this.lobbyClient, false);
           this.featuredSeq++;
-          this.leaderboardSeq++;
-          this.leaderboardPage = null;
-          if (this.currentTabId === "leaderboard") this.renderLeaderboard();
+          this.leaderboardView?.clear();
           if (this.playNoticeEl) this.playNoticeEl.textContent = "";
           this.serverGametypes = [];
           this.liveMatches = [];
@@ -1587,247 +1585,8 @@ export class LobbyPanel extends GamePanel {
   // ═══════════════════════════════════════════════════════════════════
 
   private buildLeaderboardTab(): HTMLElement {
-    const page = document.createElement("div");
-    page.className = "lobby__page lobby__leaderboard";
-    page.append(this.buildStageLight());
-    const header = document.createElement("header");
-    header.className = "lobby__heading";
-    const kicker = document.createElement("span");
-    kicker.className = "lobby__kicker";
-    kicker.textContent = "Leaderboard";
-    const title = document.createElement("h1");
-    title.className = "lobby__title";
-    title.textContent = "Top players";
-    header.append(kicker, title);
-    page.appendChild(header);
-    const controls = document.createElement("div");
-    controls.className = "lobby__rank-controls";
-    const modes = document.createElement("div");
-    modes.className = "lobby__rank-modes";
-    modes.setAttribute("aria-label", "Ranked game mode");
-    for (const mode of GAME_MODES) {
-      const button = createRaisedKey({ label: mode.title, variants: ["sm"] });
-      button.dataset.mode = mode.id;
-      button.setAttribute("aria-pressed", String(this.leaderboardMode === mode.id));
-      button.addEventListener("click", () => {
-        this.leaderboardMode = mode.id;
-        for (const key of modes.querySelectorAll<HTMLButtonElement>("button"))
-          key.setAttribute("aria-pressed", String(key === button));
-        void this.refreshLeaderboard();
-      });
-      modes.append(button);
-    }
-    const periods = document.createElement("div");
-    periods.className = "lobby__rank-periods";
-    periods.setAttribute("aria-label", "Ranking period");
-    for (const [period, label] of [
-      ["month", "Last 30 days"],
-      ["all", "All time"],
-    ] as const) {
-      const button = createRaisedKey({ label, variants: ["sm", "cream"] });
-      button.setAttribute("aria-pressed", String(this.leaderboardPeriod === period));
-      button.addEventListener("click", () => {
-        this.leaderboardPeriod = period;
-        for (const key of periods.querySelectorAll<HTMLButtonElement>("button"))
-          key.setAttribute("aria-pressed", String(key === button));
-        void this.refreshLeaderboard();
-      });
-      periods.append(button);
-    }
-    const search = document.createElement("input");
-    search.type = "search";
-    search.className = "lobby__rank-search";
-    search.placeholder = "Search top 100 players";
-    search.setAttribute("aria-label", "Search top 100 players");
-    search.addEventListener("input", () => {
-      this.leaderboardSearch = search.value.trim().toLocaleLowerCase();
-      this.renderLeaderboard();
-    });
-    controls.append(modes, periods, search);
-    page.appendChild(controls);
-    this.leaderboardStatus = document.createElement("p");
-    this.leaderboardStatus.className = "lobby__rank-status";
-    this.leaderboardStatus.setAttribute("role", "status");
-    page.appendChild(this.leaderboardStatus);
-    this.leaderboardBody = document.createElement("div");
-    this.leaderboardBody.className = "lobby__rank-body";
-    page.appendChild(this.leaderboardBody);
-    this.leaderboardPin = document.createElement("aside");
-    this.leaderboardPin.className = "lobby__rank-pin";
-    this.leaderboardPin.setAttribute("aria-label", "Your leaderboard position");
-    this.leaderboardPin.hidden = true;
-    page.appendChild(this.leaderboardPin);
-    this.renderLeaderboard();
-    return page;
-  }
-
-  private async refreshLeaderboard(): Promise<void> {
-    const sequence = ++this.leaderboardSeq;
-    this.leaderboardPage = null;
-    this.renderLeaderboard();
-    if (newUiApi.getFeatureStatus("leaderboard").status !== "ready") return;
-    const result = await newUiApi.getLeaderboard({
-      gametype: this.leaderboardMode,
-      period: this.leaderboardPeriod,
-      offset: 0,
-      limit: 100,
-    });
-    if (sequence !== this.leaderboardSeq) return;
-    this.leaderboardPage = result.status === "ready" ? result.data : null;
-    this.renderLeaderboard(result.status === "unavailable" ? result.reason : undefined);
-  }
-
-  private renderLeaderboard(error?: string): void {
-    const body = this.leaderboardBody;
-    const status = this.leaderboardStatus;
-    const pin = this.leaderboardPin;
-    if (!body || !status || !pin) return;
-    body.replaceChildren();
-    pin.replaceChildren();
-    pin.hidden = true;
-    const availability = newUiApi.getFeatureStatus("leaderboard");
-    if (availability.status !== "ready") {
-      status.textContent = availability.reason;
-      return;
-    }
-    if (error) {
-      status.textContent = error;
-      return;
-    }
-    if (!this.leaderboardPage) {
-      status.textContent = "Loading rankings…";
-      return;
-    }
-    const { entries, total, localPlayerRank, localPlayerEntry } = this.leaderboardPage;
-    status.textContent = total
-      ? `${total} ranked players · ${this.leaderboardPeriod === "month" ? "Last 30 days" : "All time"}${localPlayerRank ? ` · Your rank #${localPlayerRank}` : ""}`
-      : "No completed two-player matches yet.";
-    const visible = entries.filter((entry) => entry.name.toLocaleLowerCase().includes(this.leaderboardSearch));
-    const localId = currentIdentity()?.id;
-    if (
-      localPlayerEntry &&
-      localId &&
-      localPlayerEntry.playerId === localId &&
-      !entries.slice(0, 10).some((entry) => entry.playerId === localId)
-    ) {
-      const label = document.createElement("h2");
-      label.textContent = "Your position";
-      pin.append(label);
-      this.appendLeaderboardRow(localPlayerEntry, pin);
-      pin.hidden = false;
-    }
-    if (this.leaderboardSearch && visible.length === 0) {
-      const empty = document.createElement("p");
-      empty.textContent = "No player in the top 100 matches that search.";
-      body.append(empty);
-      return;
-    }
-    if (!this.leaderboardSearch && visible.length) {
-      const podium = document.createElement("div");
-      podium.className = "lobby__rank-podium";
-      for (const entry of visible.slice(0, 3)) this.appendPodiumPlinth(entry, podium);
-      body.append(podium);
-    }
-    const listed = this.leaderboardSearch ? visible : visible.slice(3);
-    // With three players or fewer the podium is the whole board
-    if (listed.length === 0) return;
-    const board = document.createElement("section");
-    board.className = "lobby__rank-board";
-    const heading = document.createElement("h2");
-    heading.textContent = this.leaderboardSearch ? "Search results" : "Top 100";
-    board.append(heading);
-    for (const entry of listed) this.appendLeaderboardRow(entry, board);
-    body.append(board);
-  }
-
-  /** The first three get a plinth: rank, name and wins, big enough to read. */
-  private appendPodiumPlinth(entry: LeaderboardPage["entries"][number], parent: HTMLElement): void {
-    const isYou = entry.playerId === currentIdentity()?.id;
-    const plinth = document.createElement("article");
-    plinth.className = `lobby__rank-medal lobby__rank-medal--${entry.rank}`;
-    if (isYou) plinth.classList.add("is-you");
-
-    const side = document.createElement("div");
-    side.className = "lobby__plinth-side";
-    side.setAttribute("aria-hidden", "true");
-    const face = document.createElement("div");
-    face.className = "lobby__plinth-face";
-
-    const rank = document.createElement("span");
-    rank.className = "lobby__plinth-rank";
-    rank.textContent = String(entry.rank);
-    face.append(rank);
-    if (entry.rank === 1) {
-      const tag = document.createElement("span");
-      tag.className = "lobby__plinth-tag";
-      tag.textContent = this.leaderboardPeriod === "month" ? "Leading" : "Champion";
-      face.append(tag);
-    }
-    if (isYou) {
-      const you = document.createElement("span");
-      you.className = "lobby__plinth-tag";
-      you.textContent = "You";
-      face.append(you);
-    }
-    const name = document.createElement("span");
-    name.className = "lobby__plinth-name";
-    name.textContent = entry.name;
-    const wins = document.createElement("span");
-    wins.className = "lobby__plinth-wins";
-    wins.textContent = String(entry.wins);
-    const unit = document.createElement("small");
-    unit.textContent = entry.wins === 1 ? "win" : "wins";
-    wins.append(unit);
-    const played = entry.wins + entry.losses + entry.draws;
-    const meta = document.createElement("span");
-    meta.className = "lobby__plinth-meta";
-    meta.textContent = `${Math.round((entry.wins / played) * 100)}% win rate · ${played} ${played === 1 ? "match" : "matches"}`;
-    face.append(name, wins, meta);
-
-    plinth.append(side, face);
-    parent.append(plinth);
-  }
-
-  private appendLeaderboardRow(entry: LeaderboardPage["entries"][number], parent: HTMLElement): void {
-    const isYou = entry.playerId === currentIdentity()?.id;
-    const row = document.createElement("div");
-    row.className = `lobby__rank-row lobby__rank-row--${entry.rank <= 3 ? entry.rank : "n"}`;
-    if (isYou) row.classList.add("is-you");
-
-    const rank = document.createElement("span");
-    rank.className = "lobby__rank-no";
-    rank.textContent = `#${entry.rank}`;
-    const who = document.createElement("span");
-    who.className = "lobby__rank-who";
-    const avatar = document.createElement("span");
-    avatar.className = "lobby__rank-av";
-    avatar.setAttribute("aria-hidden", "true");
-    avatar.textContent = entry.name.slice(0, 1).toUpperCase();
-    const name = document.createElement("span");
-    name.className = "lobby__rank-name";
-    name.textContent = entry.name;
-    who.append(avatar, name);
-    if (isYou) {
-      const you = document.createElement("span");
-      you.className = "lobby__rank-you";
-      you.textContent = "You";
-      who.append(you);
-    }
-    row.append(rank, who);
-
-    const played = entry.wins + entry.losses + entry.draws;
-    for (const [value, key] of [
-      [`${entry.wins} W`, true],
-      [`${entry.losses} L`, false],
-      [`${entry.draws} D`, false],
-      [`${Math.round((entry.wins / played) * 100)}%`, false],
-    ] as const) {
-      const cell = document.createElement("span");
-      cell.className = key ? "lobby__rank-num lobby__rank-num--key" : "lobby__rank-num";
-      cell.textContent = value;
-      row.append(cell);
-    }
-    parent.append(row);
+    this.leaderboardView = new LeaderboardView(GAME_MODES, this.buildStageLight());
+    return this.leaderboardView.root;
   }
 
   // Profile: the account's name, its key, and the way into another account
@@ -1900,7 +1659,7 @@ export class LobbyPanel extends GamePanel {
     bindLeaderboard(this.lobbyClient, false);
     bindFeaturedDemos(this.lobbyClient, false);
     this.featuredSeq++;
-    this.leaderboardSeq++;
+    this.leaderboardView?.destroy();
     this.roomChatView?.destroy();
     this.matchLobbyView?.destroy();
     this.settingsView?.destroy();
