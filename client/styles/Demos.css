@@ -914,6 +914,10 @@
   .dm-grid {
     gap: 24px 26px;
   }
+
+  .dm-card__foot .dm-long {
+    display: none;
+  }
 }
 
 @media (max-height: 960px) {
@@ -941,7 +945,10 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-rows: none;
     grid-auto-rows: minmax(260px, auto);
+    overflow-x: hidden;
     overflow-y: auto;
+    scrollbar-color: hsla(276, 90%, 64%, 0.45) transparent;
+    scrollbar-width: thin;
   }
 }
 

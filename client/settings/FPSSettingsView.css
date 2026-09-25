@@ -173,8 +173,15 @@
     column-gap: 12px;
   }
 
+  .lobby__rail .raised-key--page .raised-key__face {
+    justify-content: center;
+    padding-right: 8px;
+    padding-left: 12px;
+  }
+
   .lobby__rail .raised-key--page .raised-key__label {
-    font-size: 13px;
+    font-size: clamp(10px, 0.95vw, 13px);
+    letter-spacing: 0.04em;
   }
 
   .lobby__rail .raised-key--page .raised-key__hint {

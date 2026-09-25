@@ -704,7 +704,10 @@ export class DemosView {
     const foot = el("div", "dm-card__foot");
     const watch = createRaisedKey({ label: "▶ Watch", variants: ["sm"] });
     watch.addEventListener("click", () => void this.play(demo, card, watch));
-    const highlights = createRaisedKey({ label: "⚡ Highlights", variants: ["sm", "cream"] });
+    // The bolt alone on a narrow card; the label says the rest to a screen reader
+    const highlights = createRaisedKey({ label: "⚡", variants: ["sm", "cream"] });
+    highlights.querySelector(".raised-key__label")?.append(el("span", "dm-long", " Highlights"));
+    highlights.setAttribute("aria-label", "Highlights");
     highlights.setAttribute("aria-haspopup", "dialog");
     highlights.addEventListener("click", () => this.openReel(demo, card, highlights));
     const where = el("div", "dm-card__where");
@@ -720,36 +723,26 @@ export class DemosView {
   // ── Watching ──
 
   private async play(demo: DemoInfo, card: HTMLElement, key: HTMLButtonElement): Promise<void> {
-    await this.run(
-      card,
-      key,
-      "▶ Watch",
-      async (service) => {
-        await service.loadAndPlayNormal(new DemoViewer());
-      },
-      demo,
-    );
+    await this.run(demo, card, key, async (service) => {
+      await service.loadAndPlayNormal(new DemoViewer());
+    });
   }
 
   private async playReel(demo: DemoInfo, card: HTMLElement, key: HTMLButtonElement, minutes: number): Promise<void> {
-    await this.run(
-      card,
-      key,
-      "⚡ Highlights",
-      async (service) => {
-        await service.loadAndPlayCinematic(new DemoViewer(), CameraSystem.getInstance(), minutes);
-      },
-      demo,
-    );
+    await this.run(demo, card, key, async (service) => {
+      await service.loadAndPlayCinematic(new DemoViewer(), CameraSystem.getInstance(), minutes);
+    });
   }
 
+  /** Load a recording and start it, the key saying so meanwhile and back as it was after. */
   private async run(
+    demo: DemoInfo,
     card: HTMLElement,
     key: HTMLButtonElement,
-    label: string,
     start: (service: DemoService) => Promise<void>,
-    demo: DemoInfo,
   ): Promise<void> {
+    const label = key.querySelector(".raised-key__label");
+    const wording = label ? [...label.childNodes].map((node) => node.cloneNode(true)) : [];
     key.disabled = true;
     setRaisedKeyText(key, "Loading…");
     try {
@@ -762,7 +755,7 @@ export class DemosView {
       this.showError(card, error instanceof Error ? error.message : String(error));
     } finally {
       key.disabled = false;
-      setRaisedKeyText(key, label);
+      label?.replaceChildren(...wording);
     }
   }
 

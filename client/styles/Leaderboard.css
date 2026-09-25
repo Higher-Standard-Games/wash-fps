@@ -439,6 +439,38 @@
   }
 }
 
+@media (max-width: 1200px) {
+  .lb-podium {
+    gap: 18px;
+  }
+
+  .lb-plinth__face {
+    gap: 4px 12px;
+    padding: 16px 18px 18px 22px;
+  }
+
+  .lb-plinth__rank,
+  .lb-plinth--1 .lb-plinth__rank {
+    font-size: clamp(40px, 5vw, 60px);
+  }
+
+  .lb-plinth__name {
+    font-size: 17px;
+  }
+
+  .lb-plinth__wins {
+    font-size: 22px;
+  }
+
+  .lb-plinth__meta {
+    font-size: 12px;
+  }
+
+  .lb-rail__record {
+    display: none;
+  }
+}
+
 @media (max-height: 960px) {
   .lb-plinth__face {
     min-height: 128px;
