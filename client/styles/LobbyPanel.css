@@ -681,6 +681,171 @@
   text-shadow: 5px 6px 0 hsl(250 50% 3%);
 }
 
+/* ═══ Shared by the Leaderboard and Demos pages ═══ */
+
+/* ── A page head: kicker and title, and the modes in their own colours ── */
+
+.lobby__head-row {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 24px;
+}
+
+.lobby__head-row .lobby__title {
+  font-size: clamp(36px, 3.4vw, 60px);
+}
+
+.lobby__modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-bottom: 6px;
+}
+
+.lobby__mode-key {
+  min-width: 100px;
+  height: 46px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 2px;
+  background: linear-gradient(180deg, hsl(250 24% 25%), hsl(250 30% 17%));
+  color: hsla(45, 100%, 95%, 0.78);
+  font: 900 14px / 1 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow:
+    inset 0 -4px 0 var(--m),
+    0 4px 0 hsl(250 40% 8%),
+    0 8px 14px hsla(250, 70%, 2%, 0.45);
+  transition:
+    transform 0.1s ease,
+    box-shadow 0.1s ease;
+}
+
+.lobby__mode-key:is(:hover, :focus-visible) {
+  outline: none;
+  background: linear-gradient(180deg, hsl(278 92% 72%), hsl(268 72% 52%));
+  color: var(--cream);
+  transform: translateY(-2px);
+}
+
+.lobby__mode-key:focus-visible {
+  box-shadow:
+    inset 0 -4px 0 var(--m),
+    0 0 0 2px var(--cream);
+}
+
+.lobby__mode-key.is-on,
+.lobby__mode-key.is-on:hover {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--m) 62%, white), var(--m));
+  color: var(--ink);
+  transform: translateY(3px);
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--m) 40%, black),
+    inset 0 2px 0 hsla(0, 0%, 100%, 0.35);
+}
+
+/* ── A page's boards, as keys (Leaderboard and Demos) ── */
+
+.lobby__boards {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 22px;
+}
+
+.raised-key--tab {
+  --key-d: 6.6px;
+  --key-cut: 3%;
+  --key-face: linear-gradient(180deg, hsl(250 26% 25%), hsl(250 30% 16%));
+  --key-side: linear-gradient(180deg, hsl(250 36% 11%), hsl(250 40% 6%));
+  --key-text: var(--cream);
+  --key-sub: hsla(45, 100%, 95%, 0.58);
+  --key-shadow: hsla(250, 70%, 2%, 0.6);
+  margin-bottom: calc(var(--key-d) + 4px);
+}
+
+.raised-key--tab .raised-key__face {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 9px;
+  min-height: 78px;
+  padding: 12px 24px 12px 26px;
+}
+
+.lobby__board-name {
+  font: 900 clamp(16px, 1.25vw, 22px) / 1 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lobby__board-sub {
+  font: 700 12px / 1 var(--w-font-body, "Rajdhani", sans-serif);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--key-sub);
+}
+
+.raised-key--tab.is-open,
+.raised-key--tab.is-open:is(:hover, :focus-visible):not(:disabled) {
+  --key-press: 0.45;
+  --key-face: linear-gradient(180deg, hsl(51 100% 73%), hsl(46 100% 58%) 55%, hsl(42 100% 50%));
+  --key-side: linear-gradient(180deg, hsl(36 92% 40%), hsl(28 88% 25%));
+  --key-text: var(--ink);
+  --key-sub: hsla(250, 45%, 8%, 0.66);
+}
+
+.lobby__rule {
+  flex: 0 0 auto;
+  font: 700 12px / 1 var(--w-font-body, "Rajdhani", sans-serif);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: hsla(45, 100%, 95%, 0.5);
+}
+
+.lobby__find {
+  width: min(360px, 100%);
+  height: 46px;
+  padding: 0 16px;
+  border: 1.5px solid hsla(276, 90%, 64%, 0.3);
+  outline: none;
+  background: hsla(250, 44%, 5%, 0.8);
+  color: var(--cream);
+  font: 600 16px / 1 var(--w-font-body, "Rajdhani", sans-serif);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+}
+
+.lobby__find::placeholder {
+  color: hsla(45, 100%, 95%, 0.4);
+}
+
+.lobby__find:focus {
+  border-color: var(--violet);
+}
+
+@media (max-height: 960px) {
+  .raised-key--tab .raised-key__face {
+    min-height: 62px;
+  }
+}
+
+@media (max-width: 900px) {
+  .lobby__boards {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lobby__mode-key {
+    transition: none;
+  }
+}
+
 /* One equal column per mode */
 .lobby__play-tiles {
   display: grid;

@@ -4,7 +4,6 @@
  * Full-screen rail navigation, Play stage, and server-backed lobby data.
  */
 
-import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import { DebugConsole } from "../../../engine/debug/DebugConsole";
 import { PlayerProfile } from "../../../engine/player/PlayerProfile";
 import { ConnectingOverlay } from "../../../engine/ui/components/ConnectingOverlay";
@@ -22,15 +21,13 @@ import { accountIsNew, currentIdentity } from "../../../lobby/AccountSession";
 import type { LobbyClient } from "../../../lobby/LobbyClient";
 import type { DemoInfo, GametypeInfo, LiveMatchInfo, MatchLobbyInfo, PlayerInfo } from "../../../lobby/types";
 import { DemoService } from "./DemoService";
-import { DemoViewer } from "./DemoViewer";
-import { DurationPickerModal } from "./DurationPickerModal";
+import { type DemoScope, DemosView } from "./DemosView";
 import { ensureFpsLobbyConnection, getFpsLobbyClient } from "./FpsLobbyService";
 import { LeaderboardView } from "./LeaderboardView";
-import { bindFeaturedDemos, bindLeaderboard, type FeaturedDemo, newUiApi } from "./NewUiApi";
+import { bindFeaturedDemos, bindLeaderboard, newUiApi } from "./NewUiApi";
 import { ProfileView } from "./ProfileView";
 import { RoomChatView } from "./RoomChatView";
 import { FPSSettingsView } from "./settings/FPSSettingsView";
-import demoTabCSSRaw from "./styles/DemoTab.css?raw";
 import lobbyCSSRaw from "./styles/LobbyPanel.css?raw";
 import { WelcomeOverlay } from "./WelcomeOverlay";
 
@@ -89,9 +86,6 @@ const GAME_MODES: GameMode[] = [
   },
 ];
 
-/** Demos per page: the grid is three across and two down. */
-const DEMOS_PER_PAGE = 6;
-
 /** Messages kept in the chat log; older ones scroll away for good. */
 const CHAT_LOG_LIMIT = 200;
 
@@ -110,19 +104,6 @@ function nameColor(name: string): string {
   let hash = 0;
   for (const char of name) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
   return `hsl(${hues[hash % hues.length]} 92% 68%)`;
-}
-
-/** How long ago, in as few words as fit on a card. */
-function timeAgo(date: string | number): string {
-  const minutes = Math.round((Date.now() - new Date(date).getTime()) / 60_000);
-  if (minutes < 1) return "Just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} h ago`;
-  const days = Math.round(hours / 24);
-  if (days === 1) return "Yesterday";
-  if (days < 30) return `${days} days ago`;
-  return new Date(date).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 function clockTime(ts: number): string {
@@ -175,28 +156,7 @@ export class LobbyPanel extends GamePanel {
   private matchListEl: HTMLElement | null = null;
   private matchCountBadge: HTMLElement | null = null;
 
-  // Demos
-  private demosArchive: DemoInfo[] = [];
-  private demosGridEl: HTMLElement | null = null;
-  private demosCountEl: HTMLElement | null = null;
-  private demosScopeKeysEl: HTMLElement | null = null;
-  private demosModeFiltersEl: HTMLElement | null = null;
-  private demosMapFiltersEl: HTMLElement | null = null;
-  private demosPagerEl: HTMLElement | null = null;
-  private demosMode = "all";
-  private demosMap = "all";
-  private demosSearch = "";
-  private demosPage = 0;
-  private demosRequested = false;
-  private demosScope: "latest" | "yours" = "latest";
-  private demoOwnershipSupported = false;
-  private featuredEntries: FeaturedDemo[] = [];
-  private featuredHostEl: HTMLElement | null = null;
-  private featuredRequested = false;
-  private featuredLoading = false;
-  private featuredError: string | null = null;
-  private featuredSelected = 0;
-  private featuredSeq = 0;
+  private demosView: DemosView | null = null;
   private _preloadedLevelshots = new Set<string>();
 
   constructor() {
@@ -231,10 +191,7 @@ export class LobbyPanel extends GamePanel {
       this.showRailMiddle(tabId);
       if (tabId === "settings") void this.settingsView?.refresh();
       if (tabId === "profile") this.profileView?.refresh();
-      if (tabId === "demos") {
-        this.demosRequested = false;
-        this.requestDemos();
-      }
+      if (tabId === "demos") this.demosView?.show();
       if (tabId === "leaderboard") void this.leaderboardView?.refresh();
     });
     this.tabBar.querySelector('[data-tab-id="matchmaking"]')?.setAttribute("aria-current", "page");
@@ -288,11 +245,14 @@ export class LobbyPanel extends GamePanel {
     rail.appendChild(nav);
     rail.appendChild(this.buildSocialColumn());
     rail.appendChild(this.buildSettingsRail());
-    if (this.leaderboardView) {
-      const ranks = this.leaderboardView.railMiddle;
-      ranks.hidden = true;
-      this.railMids.set("leaderboard", ranks);
-      rail.appendChild(ranks);
+    for (const [tabId, middle] of [
+      ["leaderboard", this.leaderboardView?.railMiddle],
+      ["demos", this.demosView?.railMiddle],
+    ] as const) {
+      if (!middle) continue;
+      middle.hidden = true;
+      this.railMids.set(tabId, middle);
+      rail.appendChild(middle);
     }
 
     const player = document.createElement("div");
@@ -384,18 +344,15 @@ export class LobbyPanel extends GamePanel {
           this.refreshPlayerCard(msg.identity?.name);
           this.serverGametypes = msg.gametypes || [];
           this.privateLobbySupported = msg.features?.privateLobbies === true;
-          this.demoOwnershipSupported = msg.features?.demoOwnership === true;
-          if (!this.demoOwnershipSupported) this.demosScope = "latest";
           bindLeaderboard(this.lobbyClient, msg.features?.leaderboard === true);
           bindFeaturedDemos(this.lobbyClient, msg.features?.featuredDemos === true);
-          this.featuredRequested = false;
+          this.demosView?.connected(msg.features?.demoOwnership === true, this.currentTabId === "demos");
           if (this.currentTabId === "leaderboard") void this.leaderboardView?.refresh();
           this.queuePending = false;
           if (this.playNoticeEl) this.playNoticeEl.textContent = "";
           this.refreshModeAvailability();
           this.livePlayers = msg.onlinePlayers || [];
           this.refreshPlayerList();
-          if (this.currentTabId === "demos") this.requestDemos();
 
           // Load live rooms, then render once
           this.liveMatches = msg.liveMatches || [];
@@ -493,24 +450,14 @@ export class LobbyPanel extends GamePanel {
           this.queuePending = false;
           this.pendingPrivateCreate = false;
           this.privateLobbySupported = false;
-          this.demoOwnershipSupported = false;
-          this.demosScope = "latest";
           bindLeaderboard(this.lobbyClient, false);
           bindFeaturedDemos(this.lobbyClient, false);
-          this.featuredSeq++;
           this.leaderboardView?.clear();
+          this.demosView?.disconnected();
           if (this.playNoticeEl) this.playNoticeEl.textContent = "";
           this.serverGametypes = [];
           this.liveMatches = [];
           this.livePlayers = [];
-          this.demosRequested = false;
-          this.demosArchive = [];
-          this.featuredEntries = [];
-          this.featuredRequested = false;
-          this.featuredLoading = false;
-          this.featuredError = null;
-          this.renderFeaturedDemos();
-          this.refreshDemosGrid();
           this.refreshModeAvailability();
           this.refreshMatchList();
           this.refreshPlayerList();
@@ -528,7 +475,7 @@ export class LobbyPanel extends GamePanel {
       // broadcast arrived. (Manual "leave" still returns to the cards.)
       this.unsubscribers.push(
         this.lobbyClient.on("match:ended", (msg) => {
-          this.featuredRequested = false;
+          this.demosView?.matchEnded();
           console.log(`[LobbyPanel] Match ended (${msg.matchId}) — staying in rematch lobby`);
           this.appendChatMessage("", "⚔ Match ended — ready up to rematch", true);
         }),
@@ -537,13 +484,7 @@ export class LobbyPanel extends GamePanel {
       // Demo archive list response
       this.unsubscribers.push(
         this.lobbyClient.on("demos:list_response", (msg) => {
-          if ((msg.scope ?? "latest") !== this.demosScope) return;
-          this.demosRequested = false;
-          this.demosArchive = msg.demos || [];
-          // Preload any new map levelshots from demo list
-          const demoMaps = [...new Set<string>((msg.demos || []).map((d: DemoInfo) => d.map))];
-          this._preloadLevelshots(demoMaps);
-          this.refreshDemosGrid();
+          this.demosView?.receiveList((msg.scope ?? "latest") as DemoScope, (msg.demos || []) as DemoInfo[]);
         }),
       );
 
@@ -622,18 +563,9 @@ export class LobbyPanel extends GamePanel {
     this.queuePending = false;
     this.pendingPrivateCreate = false;
     this.privateLobbySupported = false;
-    this.demoOwnershipSupported = false;
-    this.demosScope = "latest";
-    this.demosRequested = false;
-    this.demosArchive = [];
     bindFeaturedDemos(this.lobbyClient, false);
-    this.featuredSeq++;
-    this.featuredEntries = [];
-    this.featuredRequested = false;
-    this.featuredLoading = false;
-    this.featuredError = null;
-    this.renderFeaturedDemos();
-    this.refreshDemosGrid();
+    this.leaderboardView?.clear();
+    this.demosView?.disconnected();
     if (this.playNoticeEl) this.playNoticeEl.textContent = "";
     this.livePlayers = [];
     this.liveMatches = [];
@@ -1102,460 +1034,13 @@ export class LobbyPanel extends GamePanel {
   // ═══════════════════════════════════════════════════════════════════
 
   private buildDemosTab(): HTMLElement {
-    UIStyles.injectCSS("demo-tab", demoTabCSSRaw);
-
-    const page = document.createElement("div");
-    page.className = "lobby__page lobby__demos";
-
-    const header = document.createElement("header");
-    header.className = "lobby__heading";
-    const kicker = document.createElement("span");
-    kicker.className = "lobby__kicker";
-    kicker.textContent = "Demos";
-    const title = document.createElement("h1");
-    title.className = "lobby__title";
-    title.textContent = "Every match, kept";
-    header.append(kicker, title);
-    page.appendChild(header);
-
-    const featured = document.createElement("section");
-    featured.className = "lobby__featured";
-    featured.setAttribute("aria-label", "Featured recordings");
-    this.featuredHostEl = featured;
-    page.appendChild(featured);
-
-    const scopeKeys = document.createElement("div");
-    scopeKeys.className = "lobby__picks lobby__demo-scopes";
-    scopeKeys.setAttribute("role", "group");
-    scopeKeys.setAttribute("aria-label", "Choose demo archive");
-    this.demosScopeKeysEl = scopeKeys;
-    for (const [scope, label] of [
-      ["latest", "Latest"],
-      ["yours", "Yours"],
-    ] as const) {
-      const key = createRaisedKey({ label, variants: ["sm", "cream", "pick"] });
-      key.dataset.scope = scope;
-      key.addEventListener("click", () => {
-        if (scope === this.demosScope || (scope === "yours" && !this.demoOwnershipSupported)) return;
-        this.demosScope = scope;
-        this.demosArchive = [];
-        this.demosMap = "all";
-        this.demosPage = 0;
-        this.demosRequested = false;
-        this.requestDemos();
-      });
-      scopeKeys.appendChild(key);
-    }
-    page.appendChild(scopeKeys);
-
-    const toolbar = document.createElement("div");
-    toolbar.className = "lobby__toolbar";
-    const modeFilters = document.createElement("div");
-    modeFilters.className = "lobby__picks";
-    modeFilters.setAttribute("role", "group");
-    modeFilters.setAttribute("aria-label", "Filter demos by mode");
-    this.demosModeFiltersEl = modeFilters;
-    for (const [id, label] of [
-      ["all", "All"],
-      ["duel", "Duel"],
-      ["amphi", "Amphi"],
-      ["ffa", "FFA"],
-      ["snd", "S&D"],
-    ]) {
-      const key = createRaisedKey({ label, variants: ["sm", "cream", "pick"] });
-      key.dataset.mode = id;
-      key.addEventListener("click", () => {
-        this.demosMode = id;
-        this.demosMap = "all";
-        this.demosPage = 0;
-        this.refreshDemosGrid();
-        this.featuredRequested = false;
-        void this.requestFeaturedDemos();
-      });
-      modeFilters.appendChild(key);
-    }
-
-    const search = document.createElement("input");
-    search.type = "search";
-    search.className = "lobby__search";
-    search.placeholder = "Find a player or map";
-    search.setAttribute("aria-label", "Search demos by player or map");
-    search.addEventListener("keydown", (e) => e.stopPropagation());
-    search.addEventListener("input", () => {
-      this.demosSearch = search.value.trim().toLocaleLowerCase();
-      this.demosPage = 0;
-      this.refreshDemosGrid();
+    this.demosView = new DemosView({
+      client: this.lobbyClient,
+      modes: GAME_MODES,
+      light: this.buildStageLight(),
+      leave: () => this.hide(),
     });
-
-    const count = document.createElement("span");
-    count.className = "lobby__count";
-    this.demosCountEl = count;
-
-    toolbar.append(modeFilters, search, count);
-    page.appendChild(toolbar);
-
-    const mapFilters = document.createElement("div");
-    mapFilters.className = "lobby__picks lobby__picks--maps";
-    mapFilters.setAttribute("role", "group");
-    mapFilters.setAttribute("aria-label", "Filter demos by map");
-    this.demosMapFiltersEl = mapFilters;
-    page.appendChild(mapFilters);
-
-    const grid = document.createElement("div");
-    grid.className = "lobby__demo-grid";
-    this.demosGridEl = grid;
-    page.appendChild(grid);
-
-    const pager = document.createElement("nav");
-    pager.className = "lobby__pager";
-    pager.setAttribute("aria-label", "Demo pages");
-    this.demosPagerEl = pager;
-    page.appendChild(pager);
-
-    const note = document.createElement("p");
-    note.className = "lobby__note";
-    note.textContent = "Yours includes recordings linked to your verified seat in a completed match.";
-    page.appendChild(note);
-
-    this.refreshDemosGrid();
-    this.renderFeaturedDemos();
-    return page;
-  }
-
-  private requestDemos(): void {
-    void this.requestFeaturedDemos();
-    if (!this.lobbyClient.connected || this.demosRequested) {
-      this.refreshDemosGrid();
-      return;
-    }
-    this.demosRequested = true;
-    this.refreshDemosGrid();
-    this.lobbyClient.requestDemoList(64, this.demosScope);
-  }
-
-  private async requestFeaturedDemos(): Promise<void> {
-    if (this.featuredRequested || !this.lobbyClient.connected) {
-      this.renderFeaturedDemos();
-      return;
-    }
-    this.featuredRequested = true;
-    const seq = ++this.featuredSeq;
-    if (newUiApi.getFeatureStatus("featuredDemos").status !== "ready") {
-      this.renderFeaturedDemos();
-      return;
-    }
-    this.featuredLoading = true;
-    this.featuredError = null;
-    this.renderFeaturedDemos();
-    const result = await newUiApi.getFeaturedDemos({
-      gametype: this.demosMode,
-      map: this.demosMap,
-      limit: 5,
-    });
-    if (seq !== this.featuredSeq) return;
-    this.featuredLoading = false;
-    if (result.status === "ready") {
-      this.featuredEntries = result.data;
-      this.featuredSelected = 0;
-    } else {
-      this.featuredEntries = [];
-      this.featuredError = result.reason;
-    }
-    this.renderFeaturedDemos();
-  }
-
-  private renderFeaturedDemos(): void {
-    const host = this.featuredHostEl;
-    if (!host) return;
-    const head = document.createElement("div");
-    head.className = "lobby__featured-head";
-    const title = document.createElement("h2");
-    title.textContent = "Featured";
-    const rule = document.createElement("span");
-    rule.textContent = this.featuredEntries.some((entry) => entry.reason.includes("top 10"))
-      ? "30-day top 10 players · recordings from last 7 days"
-      : "Recent multiplayer recordings · last 7 days";
-    head.append(title, rule);
-
-    const state = document.createElement("p");
-    state.className = "lobby__featured-state";
-    if (!this.lobbyClient.connected) state.textContent = "Connect to the lobby to see recent picks.";
-    else if (newUiApi.getFeatureStatus("featuredDemos").status !== "ready")
-      state.textContent = "Featured picks are unavailable on this lobby server.";
-    else if (this.featuredLoading || !this.featuredRequested) state.textContent = "Loading recent picks…";
-    else if (this.featuredError) state.textContent = this.featuredError;
-    else if (this.featuredEntries.length === 0) state.textContent = "No qualifying multiplayer recordings this week.";
-
-    if (state.textContent) {
-      host.replaceChildren(head, state);
-      return;
-    }
-
-    const selected = this.featuredEntries[Math.min(this.featuredSelected, this.featuredEntries.length - 1)];
-    const body = document.createElement("div");
-    body.className = "lobby__featured-body";
-    const hero = this.buildDemoCard(selected.demo, 0);
-    hero.classList.add("lobby__featured-hero");
-    const picks = document.createElement("div");
-    picks.className = "lobby__featured-picks";
-    for (const [index, entry] of this.featuredEntries.entries()) {
-      const key = createRaisedKey({
-        label: `${entry.demo.mapDisplayName || entry.demo.map} · ${entry.demo.players.join(" vs ")}`,
-        hint: entry.reason,
-        variants: ["sm", "cream", "pick"],
-      });
-      key.setAttribute("aria-pressed", String(index === this.featuredSelected));
-      key.addEventListener("click", () => {
-        this.featuredSelected = index;
-        this.renderFeaturedDemos();
-      });
-      picks.appendChild(key);
-    }
-    body.append(hero, picks);
-    host.replaceChildren(head, body);
-  }
-
-  /** The demos this page is showing, newest first, after mode, map and search. */
-  private filteredDemos(): DemoInfo[] {
-    const inMode = this.demosArchive.filter((d) =>
-      this.demosMode === "all"
-        ? true
-        : d.gametype === this.demosMode || (this.demosMode === "ffa" && d.gametype === "deathmatch"),
-    );
-    const query = this.demosSearch;
-    return inMode
-      .filter(
-        (d) =>
-          (this.demosMap === "all" || d.map === this.demosMap) &&
-          (!query || `${d.map} ${d.mapDisplayName} ${d.players.join(" ")}`.toLocaleLowerCase().includes(query)),
-      )
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }
-
-  private refreshDemosGrid(): void {
-    if (!this.demosGridEl) return;
-
-    for (const key of this.demosScopeKeysEl?.querySelectorAll<HTMLButtonElement>(".raised-key") ?? []) {
-      key.setAttribute("aria-pressed", String(key.dataset.scope === this.demosScope));
-      key.disabled = key.dataset.scope === "yours" && !this.demoOwnershipSupported;
-      if (key.disabled) key.title = "Verified demo ownership is unavailable on this lobby server.";
-    }
-
-    for (const key of this.demosModeFiltersEl?.querySelectorAll<HTMLButtonElement>(".raised-key") ?? []) {
-      key.setAttribute("aria-pressed", String(key.dataset.mode === this.demosMode));
-    }
-
-    // Maps come from the demos this mode has, so a filter never empties the page by itself
-    const inMode = this.demosArchive.filter((d) =>
-      this.demosMode === "all"
-        ? true
-        : d.gametype === this.demosMode || (this.demosMode === "ffa" && d.gametype === "deathmatch"),
-    );
-    const maps = [...new Map(inMode.map((d) => [d.map, d.mapDisplayName || d.map])).entries()].sort((a, b) =>
-      a[1].localeCompare(b[1]),
-    );
-    if (this.demosMap !== "all" && !maps.some(([id]) => id === this.demosMap)) this.demosMap = "all";
-    this.demosMapFiltersEl?.replaceChildren(
-      ...(maps.length > 0 ? ([["all", "All maps"], ...maps] as [string, string][]) : []).map(([id, label]) => {
-        const key = createRaisedKey({ label, variants: ["sm", "cream", "pick"] });
-        key.setAttribute("aria-pressed", String(id === this.demosMap));
-        key.addEventListener("click", () => {
-          this.demosMap = id;
-          this.demosPage = 0;
-          this.refreshDemosGrid();
-          this.featuredRequested = false;
-          void this.requestFeaturedDemos();
-        });
-        return key;
-      }),
-    );
-
-    const filtered = this.filteredDemos();
-    const pages = Math.max(1, Math.ceil(filtered.length / DEMOS_PER_PAGE));
-    this.demosPage = Math.min(this.demosPage, pages - 1);
-    if (this.demosCountEl) {
-      this.demosCountEl.replaceChildren();
-      const number = document.createElement("b");
-      number.textContent = String(filtered.length);
-      const scopeLabel = this.demosScope === "yours" ? "your latest 64" : "latest 64";
-      this.demosCountEl.append(number, filtered.length === 1 ? ` demo · ${scopeLabel}` : ` demos · ${scopeLabel}`);
-    }
-
-    if (filtered.length === 0) {
-      const empty = document.createElement("p");
-      empty.className = "lobby__demo-empty";
-      empty.textContent = !this.lobbyClient.connected
-        ? "Lobby server offline. Connect to browse recordings."
-        : this.demosRequested
-          ? "Loading the archive…"
-          : this.demosArchive.length > 0
-            ? "No demos match these filters."
-            : this.demosScope === "yours"
-              ? "No recordings linked to your verified match seats yet."
-              : "No recorded demos yet. Play a match.";
-      this.demosGridEl.replaceChildren(empty);
-      this.demosPagerEl?.replaceChildren();
-      return;
-    }
-
-    this.demosGridEl.replaceChildren(
-      ...filtered
-        .slice(this.demosPage * DEMOS_PER_PAGE, (this.demosPage + 1) * DEMOS_PER_PAGE)
-        .map((demo, index) => this.buildDemoCard(demo, index)),
-    );
-    this.refreshDemosPager(pages);
-  }
-
-  private refreshDemosPager(pages: number): void {
-    if (!this.demosPagerEl) return;
-    if (pages <= 1) {
-      this.demosPagerEl.replaceChildren();
-      return;
-    }
-    const previous = createRaisedKey({ label: "‹ Newer", variants: ["sm", "cream", "inline"] });
-    previous.disabled = this.demosPage === 0;
-    previous.addEventListener("click", () => {
-      this.demosPage--;
-      this.refreshDemosGrid();
-    });
-    const where = document.createElement("span");
-    where.className = "lobby__pager-where";
-    where.textContent = `Page ${this.demosPage + 1} / ${pages}`;
-    const next = createRaisedKey({ label: "Older ›", variants: ["sm", "cream", "inline"] });
-    next.disabled = this.demosPage >= pages - 1;
-    next.addEventListener("click", () => {
-      this.demosPage++;
-      this.refreshDemosGrid();
-    });
-    this.demosPagerEl.replaceChildren(previous, where, next);
-  }
-
-  private buildDemoCard(demo: DemoInfo, index: number): HTMLElement {
-    const mode = GAME_MODES.find((item) => item.id === (demo.gametype === "deathmatch" ? "ffa" : demo.gametype));
-    const card = document.createElement("article");
-    card.className = "lobby__demo";
-    card.style.setProperty("--card", String(index));
-    if (mode) applyAccent(card, mode);
-
-    const side = document.createElement("div");
-    side.className = "lobby__demo-side";
-    const face = document.createElement("div");
-    face.className = "lobby__demo-face";
-
-    const shot = document.createElement("div");
-    shot.className = "lobby__demo-shot";
-    const image = document.createElement("div");
-    image.className = "lobby__demo-img";
-    // A map with no levelshot installed keeps the gradient underneath
-    if (demo.levelshot) image.style.setProperty("--map-shot", `url("${demo.levelshot}")`);
-
-    const flags = document.createElement("div");
-    flags.className = "lobby__demo-flags";
-    const modeFlag = document.createElement("span");
-    modeFlag.className = "lobby__flag lobby__flag--mode";
-    modeFlag.textContent = mode?.title ?? demo.gametype;
-    const map = document.createElement("span");
-    map.className = "lobby__demo-map";
-    map.textContent = demo.mapDisplayName || demo.map;
-    flags.append(modeFlag, map);
-
-    const length = document.createElement("span");
-    length.className = "lobby__demo-length";
-    const seconds = Math.floor(demo.durationMs / 1000);
-    length.textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-
-    shot.append(image, flags, length, this.buildDemoMatchup(demo));
-    face.appendChild(shot);
-
-    const foot = document.createElement("div");
-    foot.className = "lobby__demo-foot";
-    const watch = createRaisedKey({ label: "▶ Watch", variants: ["sm", "inline"] });
-    watch.addEventListener("click", () => void this.playDemo(demo, card, watch));
-    const reel = createRaisedKey({ label: "⚡ Cinematic cut", variants: ["sm", "cream", "inline"] });
-    reel.addEventListener("click", () => this.playDemoHighlights(demo, card, reel));
-
-    const where = document.createElement("div");
-    where.className = "lobby__demo-where";
-    const when = document.createElement("span");
-    when.className = "lobby__demo-when";
-    when.textContent = timeAgo(demo.date);
-    when.title = new Date(demo.date).toLocaleString();
-    const size = document.createElement("span");
-    size.className = "lobby__demo-size";
-    size.textContent = `${demo.sizeMB} MB`;
-    where.append(when, size);
-
-    foot.append(watch, reel, where);
-    face.appendChild(foot);
-    card.append(side, face);
-    return card;
-  }
-
-  /** Who played: two names across a VS for a duel, the whole list otherwise. */
-  private buildDemoMatchup(demo: DemoInfo): HTMLElement {
-    const matchup = document.createElement("div");
-    matchup.className = "lobby__matchup";
-    const row = (text: string) => {
-      const line = document.createElement("div");
-      line.className = "lobby__matchup-row";
-      const name = document.createElement("span");
-      name.className = "lobby__matchup-name";
-      name.textContent = text;
-      line.appendChild(name);
-      return line;
-    };
-
-    if (demo.players.length === 2) {
-      const vs = document.createElement("span");
-      vs.className = "lobby__matchup-vs";
-      vs.textContent = "VS";
-      matchup.append(vs, row(demo.players[0]), row(demo.players[1]));
-      return matchup;
-    }
-
-    matchup.classList.add("lobby__matchup--many");
-    matchup.appendChild(
-      row(demo.players.length > 0 ? demo.players.join(" · ") : `${demo.mapDisplayName || demo.map} match`),
-    );
-    return matchup;
-  }
-
-  private async playDemo(demo: DemoInfo, card: HTMLElement, key: HTMLButtonElement): Promise<void> {
-    key.disabled = true;
-    setRaisedKeyText(key, "Loading…");
-    try {
-      const service = DemoService.getInstance();
-      await service.fetchAndLoad(demo.filename);
-      const viewer = new DemoViewer();
-      await service.loadAndPlayNormal(viewer);
-      this.hide();
-    } catch (err) {
-      console.error("[LobbyPanel] Failed to load demo:", err);
-      this._showDemoError(card, err instanceof Error ? err.message : String(err));
-    } finally {
-      key.disabled = false;
-      setRaisedKeyText(key, "▶ Watch");
-    }
-  }
-
-  private playDemoHighlights(demo: DemoInfo, card: HTMLElement, key: HTMLButtonElement): void {
-    DurationPickerModal.show(async (minutes) => {
-      key.disabled = true;
-      setRaisedKeyText(key, "Loading…");
-      try {
-        const service = DemoService.getInstance();
-        await service.fetchAndLoad(demo.filename);
-        const viewer = new DemoViewer();
-        await service.loadAndPlayCinematic(viewer, CameraSystem.getInstance(), minutes);
-        this.hide();
-      } catch (err) {
-        console.error("[LobbyPanel] Failed to load cinematic cut:", err);
-        this._showDemoError(card, err instanceof Error ? err.message : String(err));
-      } finally {
-        key.disabled = false;
-        setRaisedKeyText(key, "⚡ Cinematic cut");
-      }
-    });
+    return this.demosView.root;
   }
 
   /** Best-effort preload of levelshot images for given map names */
@@ -1567,17 +1052,6 @@ export class LobbyPanel extends GamePanel {
       img.src = `/data/levelshots/${map}.jpg`;
       // No-op on success or error — purely warming the browser cache
     }
-  }
-
-  /** Show a temporary error toast on a demo card */
-  private _showDemoError(card: HTMLElement, message: string): void {
-    // Remove any previous error on this card
-    card.querySelector(".lobby__demo-error")?.remove();
-    const el = document.createElement("div");
-    el.className = "lobby__demo-error";
-    el.textContent = message;
-    card.appendChild(el);
-    setTimeout(() => el.remove(), 4000);
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1658,7 +1132,7 @@ export class LobbyPanel extends GamePanel {
   public override destroy(): void {
     bindLeaderboard(this.lobbyClient, false);
     bindFeaturedDemos(this.lobbyClient, false);
-    this.featuredSeq++;
+    this.demosView?.destroy();
     this.leaderboardView?.destroy();
     this.roomChatView?.destroy();
     this.matchLobbyView?.destroy();

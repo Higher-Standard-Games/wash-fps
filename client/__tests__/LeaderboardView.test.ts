@@ -114,7 +114,7 @@ describe("LeaderboardView", () => {
     topHundred?.click();
     await Promise.resolve();
 
-    const search = board.root.querySelector<HTMLInputElement>(".lb-search")!;
+    const search = board.root.querySelector<HTMLInputElement>(".lobby__find")!;
     search.value = "nobody";
     search.dispatchEvent(new Event("input"));
     const list = board.root.querySelector(".lb-pane:not([hidden]) .lb-rows--scroll");

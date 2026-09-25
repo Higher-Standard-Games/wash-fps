@@ -123,16 +123,16 @@ export class LeaderboardView {
     this.ghost = el("div", "lobby__ghost", "TOP");
     this.ghost.setAttribute("aria-hidden", "true");
 
-    const head = el("header", "lb-head");
+    const head = el("header", "lobby__head-row");
     const heading = el("div");
     this.kicker = el("div", "lobby__kicker");
-    this.title = el("h1", "lobby__title lb-head__title");
+    this.title = el("h1", "lobby__title");
     heading.append(this.kicker, this.title);
-    const modeRow = el("div", "lb-modes");
+    const modeRow = el("div", "lobby__modes");
     modeRow.setAttribute("role", "group");
     modeRow.setAttribute("aria-label", "Game mode");
     for (const mode of modes) {
-      const key = el("button", "lb-mode", mode.title);
+      const key = el("button", "lobby__mode-key", mode.title);
       key.type = "button";
       key.style.setProperty("--m", mode.mark);
       key.addEventListener("click", () => this.setMode(mode));
@@ -141,13 +141,13 @@ export class LeaderboardView {
     }
     head.append(heading, modeRow);
 
-    const tabs = el("div", "lb-tabs");
+    const tabs = el("div", "lobby__boards");
     tabs.setAttribute("role", "group");
     tabs.setAttribute("aria-label", "Board");
     for (const tab of TABS) {
       const key = createRaisedKey({
         variants: ["tab"],
-        content: [el("span", "lb-tab__name", tab.name), el("span", "lb-tab__sub", tab.sub)],
+        content: [el("span", "lobby__board-name", tab.name), el("span", "lobby__board-sub", tab.sub)],
       });
       key.addEventListener("click", () => {
         this.tab = tab.id;
@@ -158,7 +158,7 @@ export class LeaderboardView {
       this.tabKeys.set(tab.id, key);
     }
 
-    this.rule = el("div", "lb-rule");
+    this.rule = el("div", "lobby__rule");
     this.status = el("p", "lb-status");
     this.status.setAttribute("role", "status");
 
@@ -175,7 +175,7 @@ export class LeaderboardView {
 
     this.listPane = el("section", "lb-pane");
     const toolbar = el("div", "lb-toolbar");
-    this.search = el("input", "lb-search");
+    this.search = el("input", "lobby__find");
     this.search.type = "search";
     this.search.placeholder = "Find a player…";
     this.search.autocomplete = "off";
@@ -338,7 +338,8 @@ export class LeaderboardView {
   private renderBoard(): void {
     const availability = newUiApi.getFeatureStatus("leaderboard");
     const loaded = this.boards.get(`${this.mode.id}:${this.period}`);
-    const page = loaded?.state === "ready" ? loaded.page : null;
+    // Rows from a lobby that can no longer rank are not shown as if it could
+    const page = availability.status === "ready" && loaded?.state === "ready" ? loaded.page : null;
     this.rule.textContent = `Most wins ranks first · ties go to fewer losses${page?.total ? ` · ${page.total} ranked` : ""}`;
 
     let status = "";
@@ -351,7 +352,7 @@ export class LeaderboardView {
     this.status.hidden = status === "";
 
     const entries = page?.entries ?? [];
-    const { you } = this.yours(this.mode.id, this.period);
+    const you = page ? this.yours(this.mode.id, this.period).you : null;
     if (this.tab === "list") this.renderList(entries, you, page !== null && page.total > 0);
     else this.renderPodium(entries, you);
   }
