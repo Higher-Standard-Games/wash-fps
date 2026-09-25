@@ -8,8 +8,8 @@ How to connect to a game server, manually or through the lobby.
 2. The first time a browser reaches the lobby it is asked who you are. The name
    you pick is your account's; leaving it empty keeps the `Player_<number>` the
    lobby gave you. You already have a key at that point — it is what opens the
-   same account in another browser, and the Profile page is where you copy or
-   save it.
+   same account in another browser, and the Profile key at the foot of the menu
+   is where you copy or save it.
 3. Pick a mode on the Play stage — Duel, Amphi, FFA or S&D — and take the one
    big action under it to find a room. **Private** beside it makes a room that
    appears in no list; the only way in is the invite link it gives you.
@@ -21,8 +21,9 @@ How to connect to a game server, manually or through the lobby.
 7. When the match ends, RETURN TO LOBBY brings you back to the same room, ready
    for a rematch.
 
-Rooms you can join are listed down the left rail, and the Leaderboard and
-Profile pages show where the matches you played left you.
+Rooms you can join are listed down the left rail. The Leaderboard shows your
+rank in every mode in its rail, and Profile shows your ranked record beside
+your key.
 
 ### In the Ready Room
 

@@ -118,6 +118,7 @@ export class LobbyPanel extends GamePanel {
   private roomChatView: RoomChatView | null = null;
   private settingsView: FPSSettingsView | null = null;
   private profileView: ProfileView | null = null;
+  private profileKey: HTMLButtonElement | null = null;
   private welcomeOverlay: WelcomeOverlay | null = null;
 
   // Lobby server connection
@@ -173,7 +174,6 @@ export class LobbyPanel extends GamePanel {
     this.addTab("matchmaking", "Play", this.buildMatchmakingTab());
     this.addTab("leaderboard", "Leaderboard", this.buildLeaderboardTab());
     this.addTab("demos", "Demos", this.buildDemosTab());
-    this.addTab("profile", "My Profile", this.buildProfileTab());
     this.addTab("settings", "Settings", this.buildSettingsTab());
     this.useRailLayout(this.buildRail());
     this.switchTab("matchmaking");
@@ -190,7 +190,6 @@ export class LobbyPanel extends GamePanel {
       }
       this.showRailMiddle(tabId);
       if (tabId === "settings") void this.settingsView?.refresh();
-      if (tabId === "profile") this.profileView?.refresh();
       if (tabId === "demos") this.demosView?.show();
       if (tabId === "leaderboard") void this.leaderboardView?.refresh();
     });
@@ -270,13 +269,13 @@ export class LobbyPanel extends GamePanel {
 
     const utility = document.createElement("div");
     utility.className = "lobby__rail-utility";
-    for (const [id, label] of [
-      ["profile", "Profile"],
-      ["settings", "Settings"],
-    ]) {
-      const button = this.tabButton(id);
-      if (button) utility.appendChild(raiseKey(button, { label, variants: ["sm", "util"] }));
-    }
+    // Profile is not a page: the rail widens into the gold panel and holds it
+    this.profileKey = createRaisedKey({ label: "Profile", variants: ["sm", "util"] });
+    this.profileKey.setAttribute("aria-haspopup", "dialog");
+    this.profileKey.addEventListener("click", () => this.openProfile());
+    utility.appendChild(this.profileKey);
+    const settingsKey = this.tabButton("settings");
+    if (settingsKey) utility.appendChild(raiseKey(settingsKey, { label: "Settings", variants: ["sm", "util"] }));
     const consoleButton = createRaisedKey({ label: "Console", variants: ["sm", "util"] });
     consoleButton.addEventListener("click", () => DebugConsole.getInstance().toggle());
     utility.appendChild(consoleButton);
@@ -1064,13 +1063,23 @@ export class LobbyPanel extends GamePanel {
   }
 
   // Profile: the account's name, its key, and the way into another account
-  private buildProfileTab(): HTMLElement {
-    this.profileView = new ProfileView({
-      client: this.lobbyClient,
-      isInRoom: () => this.currentLobbyId !== null,
-      modes: () => this.serverGametypes,
-    });
-    return this.profileView.root;
+  /** The account on the gold panel, widened out of the rail over whatever page is open. */
+  private openProfile(): void {
+    if (!this.profileView) {
+      this.profileView = new ProfileView({
+        client: this.lobbyClient,
+        isInRoom: () => this.currentLobbyId !== null,
+        modes: () => this.serverGametypes,
+        onClose: () => {
+          this.profileKey?.setAttribute("aria-expanded", "false");
+          this.refreshPlayerCard();
+          this.profileKey?.focus();
+        },
+      });
+    }
+    if (this.profileView.isOpen) return;
+    this.profileKey?.setAttribute("aria-expanded", "true");
+    this.profileView.open(this.root);
   }
 
   // Settings

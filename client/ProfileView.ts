@@ -1,6 +1,8 @@
 /**
- * ProfileView — the player's account: their name, the key that opens it from
- * any browser, and the way into another account.
+ * ProfileView — the player's account, on the gold panel the Welcome screen uses:
+ * the key that opens it from any browser first, then changing the name and
+ * playing as someone else as screens of their own. The ranked record sits on
+ * the stage beside the panel.
  *
  * The key never leaves the browser except to be copied or saved by the player;
  * the lobby only ever sees it at login. See docs/research/PLAYER_IDENTITY.md.
@@ -21,6 +23,7 @@ import { formatKey, KEY_LENGTH } from "../../../lobby/PlayerIdentity";
 import type { GametypeInfo } from "../../../lobby/types";
 import { switchFpsAccount } from "./FpsLobbyService";
 import { createSlot, judgeName, type Slot, wireKeySlot } from "./IdentityFields";
+import { buildIdentityFrame, identityScreen, narrowOntoRail, widenFromRail } from "./IdentityFrame";
 import { type LeaderboardPage, newUiApi } from "./NewUiApi";
 import identityCSSRaw from "./styles/Identity.css?raw";
 
@@ -39,34 +42,57 @@ interface PasswordCredentialConstructor {
   new (data: { id: string; password: string; name?: string }): Credential;
 }
 
+export type ProfileScreen = "key" | "name" | "switch";
+
+export interface ProfileOptions {
+  client: LobbyClient;
+  isInRoom: () => boolean;
+  modes: () => readonly GametypeInfo[];
+  /** The panel has narrowed back onto the rail. */
+  onClose?: () => void;
+}
+
 export class ProfileView {
   readonly root: HTMLElement;
   private readonly client: LobbyClient;
   private readonly isInRoom: () => boolean;
+  private readonly modes: () => readonly GametypeInfo[];
+  private readonly onClose: () => void;
   private readonly unsubscribers: (() => void)[] = [];
+  private opened = false;
+  private closing = false;
 
-  private titleEl!: HTMLElement;
   private ghostEl!: HTMLElement;
-  private nameSlot!: Slot;
-  private renameKey!: HTMLButtonElement;
-  private keyCardEl!: HTMLElement;
+  private screens = new Map<ProfileScreen, HTMLElement>();
+  private leadNameEl!: HTMLElement;
   private keyNameEl!: HTMLElement;
   private keyGroupsEl!: HTMLElement;
-  private keyRevealEl!: HTMLButtonElement;
+  private keyPlateEl!: HTMLElement;
+  private keyActionsEl!: HTMLElement;
   private keyMissingEl!: HTMLElement;
+  private doneKey!: HTMLButtonElement;
+  private nameSlot!: Slot;
+  private renameKey!: HTMLButtonElement;
   private switchSlot!: Slot;
   private switchKey!: HTMLButtonElement;
   private switching = false;
-  private readonly modes: () => readonly GametypeInfo[];
   private recordStatusEl!: HTMLElement;
   private recordRowsEl!: HTMLElement;
   private recordSeq = 0;
+  private readonly onKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== "Escape" || !this.opened) return;
+    event.stopPropagation();
+    // Esc steps back to the key, and from the key back to the lobby
+    if (this.screens.get("key")?.hidden) this.show("key");
+    else this.close();
+  };
 
-  constructor(options: { client: LobbyClient; isInRoom: () => boolean; modes: () => readonly GametypeInfo[] }) {
+  constructor(options: ProfileOptions) {
     UIStyles.injectCSS("lobby-identity", identityCSSRaw);
     this.client = options.client;
     this.isInRoom = options.isInRoom;
     this.modes = options.modes;
+    this.onClose = options.onClose ?? (() => {});
     this.root = this.build();
 
     // The account's own messages reach AccountSession through the same client,
@@ -77,88 +103,82 @@ export class ProfileView {
     }
   }
 
-  private build(): HTMLElement {
-    const page = document.createElement("div");
-    page.className = "lobby__page lobby__profile";
+  get isOpen(): boolean {
+    return this.opened;
+  }
 
-    const light = document.createElement("div");
-    light.className = "lobby__light";
-    light.setAttribute("aria-hidden", "true");
-    for (const tone of ["violet", "deep", "accent"]) {
-      const orb = document.createElement("div");
-      orb.className = `lobby__orb lobby__orb--${tone}`;
-      light.appendChild(orb);
-    }
-    this.ghostEl = document.createElement("div");
-    this.ghostEl.className = "lobby__ghost";
-    this.ghostEl.setAttribute("aria-hidden", "true");
-    page.append(light, this.ghostEl);
-
-    const header = document.createElement("header");
-    header.className = "lobby__heading";
-    const kicker = document.createElement("span");
-    kicker.className = "lobby__kicker";
-    kicker.textContent = "Profile";
-    this.titleEl = document.createElement("h1");
-    this.titleEl.className = "lobby__title";
-    header.append(kicker, this.titleEl);
-    page.appendChild(header);
-
-    const columns = document.createElement("div");
-    columns.className = "lobby__profile-columns";
-    columns.append(this.buildNameCard(), this.buildKeyCard());
-    page.append(columns, this.buildRecordCard(), this.buildSwitchCard());
-
+  /** Widen out of the rail onto `parent`, at the key unless asked otherwise. */
+  open(parent: HTMLElement, screen: ProfileScreen = "key"): void {
+    this.closing = false;
+    this.root.classList.remove("welcome--leaving");
+    parent.appendChild(this.root);
+    this.opened = true;
+    document.addEventListener("keydown", this.onKeyDown, true);
+    widenFromRail(this.root);
     this.refresh();
-    return page;
+    this.show(screen);
   }
 
-  private card(title: string, hint: string): HTMLElement {
-    const card = document.createElement("section");
-    card.className = "lobby-card";
-    const head = document.createElement("div");
-    head.className = "lobby-card__head";
-    const heading = document.createElement("h2");
-    heading.className = "lobby-card__title";
-    heading.textContent = title;
-    const note = document.createElement("span");
-    note.className = "lobby-card__hint";
-    note.textContent = hint;
-    head.append(heading, note);
-    card.appendChild(head);
-    return card;
-  }
-
-  private buildNameCard(): HTMLElement {
-    const card = this.card("Your name", "Yours alone");
-    this.nameSlot = createSlot({
-      id: "profile-name",
-      label: "Your player name",
-      maxLength: 16,
-      counted: true,
-      say: "2–16 characters: letters, numbers, _ and -",
+  /** Narrow back onto the rail. */
+  close(): void {
+    if (!this.opened || this.closing) return;
+    this.closing = true;
+    this.opened = false;
+    document.removeEventListener("keydown", this.onKeyDown, true);
+    narrowOntoRail(this.root, () => {
+      this.closing = false;
+      this.onClose();
     });
-    this.renameKey = createRaisedKey({ label: "Save name", variants: ["sm", "inline"] });
-    this.renameKey.type = "submit";
-
-    const form = document.createElement("form");
-    form.className = "lobby-card__form";
-    form.append(this.nameSlot.root, this.renameKey);
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      void this.rename();
-    });
-    this.nameSlot.input.addEventListener("input", () => this.refreshNameState());
-    card.appendChild(form);
-    return card;
   }
 
-  private buildKeyCard(): HTMLElement {
-    const card = this.card("Your player key", "Never shown to the lobby");
-    this.keyCardEl = card;
+  private build(): HTMLElement {
+    const frame = buildIdentityFrame("Profile", "");
+    this.ghostEl = frame.ghost;
+    frame.inner.append(this.buildKeyScreen(), this.buildNameScreen(), this.buildSwitchScreen());
+    frame.stage.append(this.buildRecord());
+    frame.root.classList.add("welcome--profile");
+    this.refresh();
+    return frame.root;
+  }
+
+  private show(screen: ProfileScreen): void {
+    for (const [id, element] of this.screens) element.hidden = id !== screen;
+    if (screen === "key") this.doneKey.focus();
+    else if (screen === "name") {
+      this.nameSlot.setValue(currentIdentity()?.name ?? "");
+      this.refreshNameState();
+      this.nameSlot.input.focus();
+    } else {
+      this.refreshSwitchState();
+      this.switchSlot.input.focus();
+    }
+  }
+
+  /** A row of small keys under a screen: a question, then where it leads. */
+  private altRow(text: string, keys: Array<[string, () => void]>): HTMLElement {
+    const alt = document.createElement("div");
+    alt.className = "welcome__alt";
+    alt.append(text);
+    for (const [label, go] of keys) {
+      const key = createRaisedKey({ label, variants: ["sm", "cream", "inline"] });
+      key.addEventListener("click", go);
+      alt.appendChild(key);
+    }
+    return alt;
+  }
+
+  private buildKeyScreen(): HTMLElement {
+    this.leadNameEl = document.createElement("b");
+    const screen = identityScreen("Keep your name", "Your player key", [
+      "Paste it on any computer to play as ",
+      this.leadNameEl,
+      ".",
+    ]);
+    screen.addEventListener("submit", (event) => event.preventDefault());
 
     const plate = document.createElement("div");
     plate.className = "keyplate keyplate--hidden";
+    this.keyPlateEl = plate;
     const who = document.createElement("div");
     who.className = "keyplate__who";
     who.append("Player ");
@@ -169,59 +189,152 @@ export class ProfileView {
     prefix.textContent = "WASHOI-";
     this.keyGroupsEl = document.createElement("div");
     this.keyGroupsEl.className = "keyplate__groups";
-    this.keyRevealEl = document.createElement("button");
-    this.keyRevealEl.type = "button";
-    this.keyRevealEl.className = "keyplate__reveal";
-    this.keyRevealEl.textContent = "Show";
+    const reveal = document.createElement("button");
+    reveal.type = "button";
+    reveal.className = "keyplate__reveal";
+    reveal.textContent = "Show";
+    reveal.setAttribute("aria-pressed", "false");
     // Hidden until asked, so a stream or a screenshot doesn't give it away
-    this.keyRevealEl.addEventListener("click", () => {
+    reveal.addEventListener("click", () => {
       const hidden = plate.classList.toggle("keyplate--hidden");
-      this.keyRevealEl.textContent = hidden ? "Show" : "Hide";
-      this.keyRevealEl.setAttribute("aria-pressed", String(!hidden));
+      reveal.textContent = hidden ? "Show" : "Hide";
+      reveal.setAttribute("aria-pressed", String(!hidden));
     });
-    plate.append(who, prefix, this.keyGroupsEl, this.keyRevealEl);
-    card.appendChild(plate);
+    plate.append(who, prefix, this.keyGroupsEl, reveal);
 
     const actions = document.createElement("div");
-    actions.className = "lobby-card__actions";
-    const copy = createRaisedKey({ label: "Copy key", variants: ["sm", "cream", "inline"] });
+    actions.className = "welcome__actions";
+    this.keyActionsEl = actions;
+    const copy = createRaisedKey({ label: "Copy key", variants: ["cream", "inline"] });
     copy.addEventListener("click", () => void this.copyKey(copy));
-    const save = createRaisedKey({ label: "Save as file", variants: ["sm", "cream", "inline"] });
+    const save = createRaisedKey({ label: "Save as file", variants: ["cream", "inline"] });
     save.addEventListener("click", () => this.saveKeyFile());
     actions.append(copy, save);
-
     // Chromium's own password manager takes a credential directly, and syncs it
     if (this.passwordCredential()) {
-      const store = createRaisedKey({ label: "Save in browser", variants: ["sm", "cream", "inline"] });
+      const store = createRaisedKey({ label: "Save in browser", variants: ["cream", "inline"] });
       store.addEventListener("click", () => void this.saveKeyInBrowser(store));
       actions.appendChild(store);
     }
-    card.appendChild(actions);
 
     const warn = document.createElement("p");
     warn.className = "identity-warn";
     const strong = document.createElement("b");
     strong.textContent = "This key is you.";
     warn.append(strong, " Anyone who has it can play as you, and nobody can get it back for you if it's lost.");
-    card.appendChild(warn);
 
     this.keyMissingEl = document.createElement("p");
-    this.keyMissingEl.className = "lobby-card__empty";
+    this.keyMissingEl.className = "welcome__lead";
     this.keyMissingEl.textContent = "Your key is made the first time you reach the lobby.";
-    card.appendChild(this.keyMissingEl);
-    return card;
+
+    this.doneKey = createRaisedKey({ label: "Done", hint: "Back to the lobby", variants: ["ink", "go"] });
+    this.doneKey.addEventListener("click", () => this.close());
+    const go = document.createElement("div");
+    go.className = "welcome__go";
+    go.appendChild(this.doneKey);
+
+    screen.append(
+      plate,
+      actions,
+      warn,
+      this.keyMissingEl,
+      go,
+      this.altRow("Not right?", [
+        ["Change name", () => this.show("name")],
+        ["Use another key", () => this.show("switch")],
+      ]),
+    );
+    this.screens.set("key", screen);
+    return screen;
   }
 
-  private buildRecordCard(): HTMLElement {
-    const card = this.card("Your record", "Ranked matches only");
-    card.classList.add("lobby-card--record");
+  private buildNameScreen(): HTMLElement {
+    const form = identityScreen(
+      "Change your name",
+      "Who are you?",
+      "Everyone sees it: in rooms, chat and the rankings.",
+    );
+    this.nameSlot = createSlot({
+      id: "profile-name",
+      label: "Your player name",
+      maxLength: 16,
+      counted: true,
+      say: "2–16 characters: letters, numbers, _ and -",
+    });
+    this.renameKey = createRaisedKey({ label: "Save →", hint: "Yours alone", variants: ["ink", "go"] });
+    this.renameKey.type = "submit";
+    const go = document.createElement("div");
+    go.className = "welcome__go";
+    go.appendChild(this.renameKey);
+    this.nameSlot.input.addEventListener("input", () => this.refreshNameState());
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      void this.rename();
+    });
+    form.append(
+      this.nameSlot.root,
+      go,
+      this.altRow("Keep the one you have?", [["Back to your key", () => this.show("key")]]),
+    );
+    form.hidden = true;
+    this.screens.set("name", form);
+    return form;
+  }
+
+  private buildSwitchScreen(): HTMLElement {
+    const form = identityScreen(
+      "Play as someone else",
+      "Paste a key",
+      "This browser forgets its own key when it switches, so save that key first.",
+    );
+    this.switchSlot = createSlot({
+      id: "profile-key",
+      label: "The player key to use",
+      placeholder: "XXXX-XXXX-XXXX-XXXX-XXXX-XXXX",
+      prefix: "WASHOI-",
+      say: `${KEY_LENGTH} characters. Dashes and spaces don't matter.`,
+    });
+    this.switchKey = createRaisedKey({ label: "Use it →", hint: "One key, one player", variants: ["ink", "go"] });
+    this.switchKey.type = "submit";
+    this.switchKey.disabled = true;
+    wireKeySlot(this.switchSlot, (_key, whole) => {
+      this.switchKey.disabled = !whole || this.isInRoom() || this.switching || !this.client.connected;
+    });
+    const go = document.createElement("div");
+    go.className = "welcome__go";
+    go.appendChild(this.switchKey);
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      void this.switchAccount();
+    });
+    form.append(
+      this.switchSlot.root,
+      go,
+      this.altRow("Staying yourself?", [["Back to your key", () => this.show("key")]]),
+    );
+    form.hidden = true;
+    this.screens.set("switch", form);
+    return form;
+  }
+
+  private buildRecord(): HTMLElement {
+    const record = document.createElement("section");
+    record.className = "profile-record";
+    record.setAttribute("aria-label", "Your record");
+    const head = document.createElement("div");
+    head.className = "profile-record__head";
+    const title = document.createElement("h2");
+    title.textContent = "Your record";
+    const hint = document.createElement("span");
+    hint.textContent = "Ranked matches only";
+    head.append(title, hint);
     this.recordStatusEl = document.createElement("p");
-    this.recordStatusEl.className = "lobby-card__note";
+    this.recordStatusEl.className = "profile-record__status";
     this.recordStatusEl.setAttribute("role", "status");
     this.recordRowsEl = document.createElement("div");
-    this.recordRowsEl.className = "profile-record";
-    card.append(this.recordStatusEl, this.recordRowsEl);
-    return card;
+    this.recordRowsEl.className = "profile-record__rows";
+    record.append(head, this.recordStatusEl, this.recordRowsEl);
+    return record;
   }
 
   /**
@@ -293,48 +406,15 @@ export class ProfileView {
     }
   }
 
-  private buildSwitchCard(): HTMLElement {
-    const card = this.card("Play as someone else", "One key, one player");
-    card.classList.add("lobby-card--switch");
-    this.switchSlot = createSlot({
-      id: "profile-key",
-      label: "The player key to use",
-      placeholder: "XXXX-XXXX-XXXX-XXXX-XXXX-XXXX",
-      prefix: "WASHOI-",
-      say: `${KEY_LENGTH} characters. Dashes and spaces don't matter.`,
-    });
-    this.switchKey = createRaisedKey({ label: "Use this key", variants: ["sm", "cream", "inline"] });
-    this.switchKey.type = "submit";
-    this.switchKey.disabled = true;
-    wireKeySlot(this.switchSlot, (_key, whole) => {
-      this.switchKey.disabled = !whole || this.isInRoom() || this.switching;
-    });
-
-    const form = document.createElement("form");
-    form.className = "lobby-card__form";
-    form.append(this.switchSlot.root, this.switchKey);
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      void this.switchAccount();
-    });
-    card.appendChild(form);
-
-    const note = document.createElement("p");
-    note.className = "lobby-card__note";
-    note.textContent = "This browser forgets its own key when it switches, so save that key first.";
-    card.appendChild(note);
-    return card;
-  }
-
   /** Show the account as it stands: the name, the key, and what can be done now. */
   refresh(): void {
     const name = currentIdentity()?.name ?? PlayerProfile.load().name;
-    this.titleEl.textContent = name;
     this.ghostEl.textContent = name.toUpperCase();
+    this.leadNameEl.textContent = name;
     this.keyNameEl.textContent = name;
 
     const key = storedPlayerKey();
-    const groups = key ? (formatKey(key).split("-").slice(1) ?? []) : [];
+    const groups = key ? formatKey(key).split("-").slice(1) : [];
     this.keyGroupsEl.replaceChildren(
       ...groups.map((group) => {
         const span = document.createElement("span");
@@ -342,17 +422,13 @@ export class ProfileView {
         return span;
       }),
     );
-    this.keyCardEl.classList.toggle("lobby-card--empty", !key);
+    for (const part of [this.keyPlateEl, this.keyActionsEl]) part.hidden = !key;
     this.keyMissingEl.hidden = !!key;
 
     if (document.activeElement !== this.nameSlot.input) this.nameSlot.setValue(name);
     this.refreshNameState();
+    this.refreshSwitchState();
     void this.refreshRecord();
-    this.switchKey.disabled = this.switching || this.isInRoom() || !this.client.connected;
-    if (this.switching) return;
-    if (this.isInRoom()) this.switchSlot.tell("Leave your room before switching player.");
-    else if (!this.client.connected) this.switchSlot.tell("The lobby is offline.");
-    else this.switchSlot.tell(`${KEY_LENGTH} characters. Dashes and spaces don't matter.`);
   }
 
   /** `quiet` leaves the status line alone, for an answer that is already there. */
@@ -371,6 +447,14 @@ export class ProfileView {
     else if (offline) this.nameSlot.tell("Connect to the lobby to change your name.");
     else if (typed === current) this.nameSlot.tell("This is your name.");
     else this.nameSlot.tell(verdict.text, verdict.tone);
+  }
+
+  private refreshSwitchState(): void {
+    this.switchKey.disabled = this.switching || this.isInRoom() || !this.client.connected;
+    if (this.switching) return;
+    if (this.isInRoom()) this.switchSlot.tell("Leave your room before switching player.");
+    else if (!this.client.connected) this.switchSlot.tell("The lobby is offline.");
+    else this.switchSlot.tell(`${KEY_LENGTH} characters. Dashes and spaces don't matter.`);
   }
 
   private async rename(): Promise<void> {
@@ -393,23 +477,22 @@ export class ProfileView {
     this.switching = true;
     this.switchKey.disabled = true;
     this.switchSlot.tell("Asking the lobby…");
+    let answer = "";
+    let tone: "ok" | "bad" = "ok";
     try {
       const welcome = await switchFpsAccount(pasted);
       this.switchSlot.input.value = "";
-      this.refresh();
-      this.switchSlot.tell(`Welcome back, ${welcome.identity?.name ?? "player"}`, "ok");
+      answer = `Welcome back, ${welcome.identity?.name ?? "player"}`;
     } catch (err) {
-      const text =
+      tone = "bad";
+      answer =
         err instanceof LoginError
           ? err.code === "unknown_key"
             ? "No player has that key. Check it, or keep the player you have."
             : "Too many tries. Wait a minute, then try again."
           : "The lobby didn't answer. Try again.";
-      this.switchSlot.tell(text, "bad");
     } finally {
       this.switching = false;
-      const answer = this.switchSlot.say.textContent ?? "";
-      const tone = this.switchSlot.say.classList.contains("identity-say--bad") ? "bad" : "ok";
       this.refresh();
       this.switchSlot.tell(answer, tone);
     }
@@ -466,6 +549,8 @@ export class ProfileView {
   }
 
   destroy(): void {
+    this.opened = false;
+    document.removeEventListener("keydown", this.onKeyDown, true);
     for (const unsubscribe of this.unsubscribers) unsubscribe();
     this.unsubscribers.length = 0;
     this.root.remove();

@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
 /**
- * The record card on the Profile page. Every number on it comes from the
- * lobby's leaderboard, so the card has to be honest about a lobby that is
+ * The record beside the Profile panel. Every number on it comes from the
+ * lobby's leaderboard, so it has to be honest about a lobby that is
  * offline, one that does not rank at all, and an account that has not finished
  * a ranked match yet.
  */
@@ -42,8 +42,7 @@ function mount(client: unknown, supported = true): ProfileView {
   });
 }
 
-const status = (view: ProfileView): string =>
-  view.root.querySelector(".lobby-card--record .lobby-card__note")?.textContent ?? "";
+const status = (view: ProfileView): string => view.root.querySelector(".profile-record__status")?.textContent ?? "";
 const rows = (view: ProfileView): string[][] =>
   [...view.root.querySelectorAll(".profile-record__row")].map((row) =>
     [...row.children].map((cell) => cell.textContent ?? ""),
@@ -129,5 +128,42 @@ describe("the record card", () => {
     await view.refreshRecord();
     expect(status(view)).toBe("Rankings timed out.");
     expect(rows(view)).toEqual([]);
+  });
+});
+
+describe("the profile panel", () => {
+  it("opens on the key, steps back from another screen with Esc, and closes with Done", async () => {
+    const closed = vi.fn();
+    const client = fakeClient(() => ({ total: 0 }));
+    bindLeaderboard(client as never, true);
+    const view = new ProfileView({
+      client: client as never,
+      isInRoom: () => false,
+      modes: () => MODES,
+      onClose: closed,
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    view.open(host);
+    const visible = () =>
+      [...view.root.querySelectorAll<HTMLElement>(".welcome__screen")].filter((screen) => !screen.hidden);
+    expect(view.isOpen).toBe(true);
+    expect(visible().map((screen) => screen.querySelector("h1")?.textContent)).toEqual(["Your player key"]);
+
+    [...view.root.querySelectorAll<HTMLButtonElement>(".welcome__alt button")]
+      .find((key) => key.textContent?.includes("Change name"))
+      ?.click();
+    expect(visible()[0]?.querySelector("h1")?.textContent).toBe("Who are you?");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(visible()[0]?.querySelector("h1")?.textContent).toBe("Your player key");
+
+    [...view.root.querySelectorAll<HTMLButtonElement>("button")]
+      .find((key) => key.textContent?.includes("Done"))
+      ?.click();
+    expect(view.isOpen).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    expect(closed).toHaveBeenCalledOnce();
+    expect(host.contains(view.root)).toBe(false);
+    view.destroy();
   });
 });

@@ -13,9 +13,8 @@ import { currentIdentity, LoginError, renameAccount, renameFailureText } from ".
 import { KEY_LENGTH } from "../../../lobby/PlayerIdentity";
 import { switchFpsAccount } from "./FpsLobbyService";
 import { createSlot, judgeName, type Slot, wireKeySlot } from "./IdentityFields";
+import { buildIdentityFrame, identityScreen, narrowOntoRail } from "./IdentityFrame";
 import identityCSSRaw from "./styles/Identity.css?raw";
-
-const LEAVE_MS = 720;
 
 export class WelcomeOverlay {
   readonly root: HTMLElement;
@@ -37,82 +36,14 @@ export class WelcomeOverlay {
   }
 
   private build(): HTMLElement {
-    const overlay = document.createElement("div");
-    overlay.className = "welcome";
-    overlay.setAttribute("role", "dialog");
-    overlay.setAttribute("aria-modal", "true");
-    overlay.setAttribute("aria-label", "Welcome");
-
-    const panel = document.createElement("section");
-    panel.className = "welcome__panel";
-    const kanji = document.createElement("div");
-    kanji.className = "welcome__kanji";
-    kanji.setAttribute("aria-hidden", "true");
-    kanji.textContent = "名";
-    const inner = document.createElement("div");
-    inner.className = "welcome__inner";
-
-    const logo = document.createElement("img");
-    logo.className = "welcome__logo";
-    logo.src = "/data/washoi.png";
-    logo.alt = "Washiki Washoi";
-    const wordmark = document.createElement("span");
-    wordmark.className = "welcome__wordmark";
-    wordmark.textContent = "WASHIKI WASHOI";
-    logo.hidden = true;
-    logo.addEventListener("load", () => {
-      logo.hidden = false;
-      wordmark.hidden = true;
-    });
-    logo.addEventListener("error", () => {
-      logo.hidden = true;
-      wordmark.hidden = false;
-    });
-    inner.append(logo, wordmark, this.buildNameScreen(), this.buildRestoreScreen());
-    panel.append(kanji, inner);
-
-    const stage = document.createElement("div");
-    stage.className = "welcome__stage";
-    const light = document.createElement("div");
-    light.className = "lobby__light";
-    light.setAttribute("aria-hidden", "true");
-    for (const tone of ["violet", "deep", "accent"]) {
-      const orb = document.createElement("div");
-      orb.className = `lobby__orb lobby__orb--${tone}`;
-      light.appendChild(orb);
-    }
-    this.ghostEl = document.createElement("div");
-    this.ghostEl.className = "lobby__ghost";
-    this.ghostEl.setAttribute("aria-hidden", "true");
-    this.ghostEl.textContent = "HELLO";
-    stage.append(light, this.ghostEl);
-
-    overlay.append(panel, stage);
-    return overlay;
-  }
-
-  private screen(kicker: string, title: string, lead?: string): HTMLFormElement {
-    const form = document.createElement("form");
-    form.className = "welcome__screen";
-    form.autocomplete = "off";
-    const kick = document.createElement("div");
-    kick.className = "welcome__kicker";
-    kick.textContent = kicker;
-    const heading = document.createElement("h1");
-    heading.className = "welcome__title";
-    heading.textContent = title;
-    form.append(kick, heading);
-    if (lead) {
-      const paragraph = document.createElement("p");
-      paragraph.className = "welcome__lead";
-      paragraph.textContent = lead;
-      form.appendChild(paragraph);
-    }
-    return form;
+    const frame = buildIdentityFrame("Welcome", "HELLO");
+    this.ghostEl = frame.ghost;
+    frame.inner.append(this.buildNameScreen(), this.buildRestoreScreen());
+    return frame.root;
   }
 
   private buildNameScreen(): HTMLFormElement {
-    const form = this.screen("Welcome", "Who are you?");
+    const form = identityScreen("Welcome", "Who are you?");
     this.nameSlot = createSlot({
       id: "welcome-name",
       label: "Your player name",
@@ -156,7 +87,7 @@ export class WelcomeOverlay {
   }
 
   private buildRestoreScreen(): HTMLFormElement {
-    const form = this.screen("Welcome back", "Paste your key", "Your name comes back with it.");
+    const form = identityScreen("Welcome back", "Paste your key", "Your name comes back with it.");
     this.keySlot = createSlot({
       id: "welcome-key",
       label: "Your player key",
@@ -257,15 +188,7 @@ export class WelcomeOverlay {
   private leave(): void {
     if (this.leaving) return;
     this.leaving = true;
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    this.root.classList.add("welcome--leaving");
-    setTimeout(
-      () => {
-        this.root.remove();
-        this.onDone();
-      },
-      reduced ? 0 : LEAVE_MS,
-    );
+    narrowOntoRail(this.root, this.onDone);
   }
 
   destroy(): void {

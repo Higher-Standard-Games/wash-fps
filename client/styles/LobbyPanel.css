@@ -11,14 +11,12 @@
    ============================================================================ */
 
 .game-panel:has(.lobby__layout) .game-panel__content,
-.game-panel:has(.lobby__leaderboard) .game-panel__content,
-.game-panel:has(.lobby__profile) .game-panel__content {
+.game-panel:has(.lobby__leaderboard) .game-panel__content {
   padding: 0;
 }
 
 .game-panel:has(.lobby__layout) .game-panel__scroll,
-.game-panel:has(.lobby__leaderboard) .game-panel__scroll,
-.game-panel:has(.lobby__profile) .game-panel__scroll {
+.game-panel:has(.lobby__leaderboard) .game-panel__scroll {
   max-width: 100%;
   padding: 0;
   overflow: hidden;
@@ -93,19 +91,16 @@
     inset 6px 0 0 hsla(45, 100%, 55%, 0.7);
 }
 
-/* Leaderboard + Profile scrollbars */
-.lobby__leaderboard::-webkit-scrollbar,
-.lobby__profile::-webkit-scrollbar {
+/* Leaderboard scrollbars */
+.lobby__leaderboard::-webkit-scrollbar {
   width: 3px;
 }
 
-.lobby__leaderboard::-webkit-scrollbar-track,
-.lobby__profile::-webkit-scrollbar-track {
+.lobby__leaderboard::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.lobby__leaderboard::-webkit-scrollbar-thumb,
-.lobby__profile::-webkit-scrollbar-thumb {
+.lobby__leaderboard::-webkit-scrollbar-thumb {
   background: hsla(180, 100%, 50%, 0.1);
   border-radius: 2px;
 }
