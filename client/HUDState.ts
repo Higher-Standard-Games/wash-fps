@@ -198,9 +198,12 @@ export class HUDState {
     this.teamScores = matchState.teamScores || {};
     this.teamNames = matchState.teamNames || {};
 
+    // Outside team modes the server never gives a player a side, so its roster
+    // calls everyone "spectator"; anyone with a body in the game is playing.
+    const sideOf = (rawPlayerId: string) => (this.teamBased ? matchState.playerTeams?.[rawPlayerId] : undefined);
+
     for (const [playerId, player] of state.players) {
-      const rawPlayerId = clientKeyDisplayId(playerId);
-      const teamId = matchState.playerTeams?.[rawPlayerId];
+      const teamId = sideOf(clientKeyDisplayId(playerId));
       this.scoreboard.push({
         playerId,
         entityId: player.entityId,
@@ -228,7 +231,7 @@ export class HUDState {
           score: entry.score,
           deaths: entry.deaths,
           ping: entry.ping,
-          teamId: matchState.playerTeams?.[clientKeyDisplayId(entry.playerId)],
+          teamId: sideOf(clientKeyDisplayId(entry.playerId)),
         });
       }
       this.scoreboard.sort((a, b) => b.score - a.score);
