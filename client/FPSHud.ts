@@ -242,6 +242,11 @@ export class FPSHud {
       this._settings?.open();
     });
 
+    // Back from settings is back to the match menu, while the pointer is free
+    this._settings.onClose(() => {
+      if (!document.pointerLockElement) this.showMatchMenu();
+    });
+
     // Wire Resume -> re-request pointer lock (closes menu via onClose callback)
     this._pauseMenu.onResume(() => {
       const canvas = document.querySelector("canvas");
@@ -272,24 +277,8 @@ export class FPSHud {
     // 7. Listen for pointer lock changes (ESC releases pointer lock -> show pause menu)
     this._pointerLockHandler = () => {
       if (!document.pointerLockElement) {
-        // Pointer lock was lost (ESC pressed) — show pause menu
-        // Don't show if scoreboard or settings are open
-        import("../Game")
-          .then(({ Game }) => {
-            const gm = Game.getInstance();
-            const state = gm.getPlayerState();
-            if (!this._scoreboard?.isVisible() && !this._settings?.isOpen()) {
-              // In spectator mode: hide Resume and Go Spectator (already spectating)
-              // In playing mode: show Go Spectator, hide Resume only if not in-game
-              this._pauseMenu?.setSpectateVisible(state === "playing");
-              this._pauseMenu?.setResumeVisible(state !== "spectator");
-              this._pauseMenu?.setJoinVisible(state === "spectator");
-              this._pauseMenu?.open();
-            }
-          })
-          .catch(() => {
-            /* ignore */
-          });
+        // Pointer lock was lost (ESC pressed) — show the match menu
+        this.showMatchMenu();
       } else {
         // Pointer lock was acquired — close pause menu
         this._pauseMenu?.close();
@@ -298,6 +287,26 @@ export class FPSHud {
     document.addEventListener("pointerlockchange", this._pointerLockHandler);
 
     console.log(`[FPSHud] Initialized with ${this.widgets.size} widgets + overlays + dialogs`);
+  }
+
+  /**
+   * The match menu, with the keys for where the player is: Join for a
+   * spectator, Resume and Spectate for a player. Not over the scoreboard or
+   * the settings.
+   */
+  private showMatchMenu(): void {
+    import("../Game")
+      .then(({ Game }) => {
+        const state = Game.getInstance().getPlayerState();
+        if (this._scoreboard?.isVisible() || this._settings?.isOpen()) return;
+        this._pauseMenu?.setSpectateVisible(state === "playing");
+        this._pauseMenu?.setResumeVisible(state !== "spectator");
+        this._pauseMenu?.setJoinVisible(state === "spectator");
+        this._pauseMenu?.open();
+      })
+      .catch(() => {
+        /* ignore */
+      });
   }
 
   /**

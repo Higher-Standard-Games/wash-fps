@@ -30,11 +30,6 @@
   font-family: var(--body);
 }
 
-/* Outside the lobby's full stage, as in the in-game overlay */
-.game-panel:not(.game-panel--rail) .fps-set-view {
-  padding: 8px 4px 0;
-}
-
 .fps-set-view *,
 .fps-set-pop * {
   box-sizing: border-box;
@@ -100,7 +95,7 @@
   --key-text: hsl(45 100% 96%);
 }
 
-/* ── Page keys: a row above the page, or a column in the lobby's rail ── */
+/* ── Page keys: a row above the page, or a column in a rail ── */
 
 .fps-set-pages {
   display: flex;
@@ -187,11 +182,6 @@
   .lobby__rail .raised-key--page .raised-key__hint {
     display: none;
   }
-}
-
-/* The in-game overlay's column is sized for a list; this page needs the width */
-.game-panel:not(.game-panel--rail):has(.fps-set-view) .game-panel__scroll {
-  max-width: min(1500px, 100%);
 }
 
 /* ── Panes: the page body scrolls; the head and rail stay put ── */

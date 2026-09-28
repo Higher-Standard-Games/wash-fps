@@ -1,8 +1,8 @@
 /**
  * The settings screen: Controls, Gameplay, Video and Audio, saved as you go.
  *
- * The page keys belong to the view, and the lobby moves them into its rail with
- * `takePageNav()`; the in-game overlay leaves them above the page.
+ * The page keys belong to the view. The lobby and the in-game overlay both move
+ * them into a rail with `takePageNav()`; without a host they sit above the page.
  */
 
 import { AudioManager } from "../../../../engine/AudioManager";
@@ -46,8 +46,9 @@ export class FPSSettingsView {
   private toastEl: HTMLElement | null = null;
   private toastTimer = 0;
   private readonly onKeyDown = (event: KeyboardEvent) => {
+    // Immediate: the screen's own Esc listens on the same node, and would close it too
     if (event.code === "Escape" && this.page === "video" && this.isShown() && this.video.closeSection()) {
-      event.stopPropagation();
+      event.stopImmediatePropagation();
     }
   };
 

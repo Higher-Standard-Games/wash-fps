@@ -27,6 +27,7 @@ import { ensureFpsLobbyConnection, getFpsLobbyClient } from "./FpsLobbyService";
 import { LeaderboardView } from "./LeaderboardView";
 import { bindFeaturedDemos, bindLeaderboard, newUiApi } from "./NewUiApi";
 import { ProfileView } from "./ProfileView";
+import { buildRailBrand } from "./RailBrand";
 import { nameColor, RoomChatView } from "./RoomChatView";
 import { FPSSettingsView } from "./settings/FPSSettingsView";
 import lobbyCSSRaw from "./styles/LobbyPanel.css?raw";
@@ -202,24 +203,7 @@ export class LobbyPanel extends GamePanel {
     kanji.textContent = "闘";
     rail.appendChild(kanji);
 
-    const brand = document.createElement("div");
-    brand.className = "lobby__rail-brand";
-    const logo = document.createElement("img");
-    logo.src = "/data/washoi.png";
-    logo.alt = "Washiki Washoi";
-    const fallback = document.createElement("span");
-    fallback.textContent = "WASHIKI WASHOI";
-    logo.hidden = true;
-    logo.addEventListener("load", () => {
-      logo.hidden = false;
-      fallback.hidden = true;
-    });
-    logo.addEventListener("error", () => {
-      logo.hidden = true;
-      fallback.hidden = false;
-    });
-    brand.append(logo, fallback);
-    rail.appendChild(brand);
+    rail.appendChild(buildRailBrand("lobby__rail-brand"));
 
     const nav = document.createElement("nav");
     nav.className = "lobby__rail-nav";

@@ -5,6 +5,7 @@ import { mapTitle } from "../../../../../engine/ui/MapTitles";
 import { GameDialogPanel } from "../../../../../engine/ui/panels/GameDialogPanel";
 import { UIStyles } from "../../../../../engine/ui/UIStyles";
 import { MatchStateManager } from "../../MatchStateManager";
+import { buildRailBrand } from "../../RailBrand";
 import matchMenuCss from "../../styles/MatchMenu.css?raw";
 
 /**
@@ -48,12 +49,9 @@ export class FPSPauseMenu extends GameDialogPanel {
 
     const head = element("div", "fps-match-menu__head");
     this.kickerEl = element("div", "fps-match-menu__kicker");
-    const title = element("h2", "fps-match-menu__title");
-    title.append(element("span", "", "Match"), element("span", "", "menu"));
     head.append(
-      element("div", "fps-match-menu__brand", "WASHIKI // WASHOI"),
+      buildRailBrand("fps-match-menu__logo"),
       this.kickerEl,
-      title,
       element("p", "fps-match-menu__note", "The match keeps going while you're here."),
     );
 

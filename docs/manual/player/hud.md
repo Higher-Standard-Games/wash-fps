@@ -166,7 +166,8 @@ shared clock, and both teams hear it at the same time.
 
 Press **Escape** mid-match. The lobby's gold rail slides in over the match,
 which keeps running behind it: nothing pauses in a multiplayer game, and the
-rail says so. It names the mode and the map, and its keys are:
+rail says so. It opens with the lobby's logo, names the mode and the map, and
+its keys are:
 
 - **Resume** — back to the fight.
 - **Join game**, or **Join Udon** and **Join Soba** in a team mode — while you
@@ -189,8 +190,9 @@ a team mode puts you on the side with fewer players.
 
 ## Settings Overlay
 
-Press **Escape** mid-match and pick **Settings** in the match menu. The lobby's
-Settings key opens the same screen, with its four pages in the rail. Everything
+Press **Escape** mid-match and pick **Settings** in the match menu: its four
+pages take the rail's keys, and **Back** (or Escape) returns to the menu. The
+lobby's Settings key opens the same screen, with its pages in the lobby's rail. Everything
 is saved as you change it.
 
 - **Controls** — a keyboard and a mouse coloured by what each key does, and the
