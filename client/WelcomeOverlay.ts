@@ -138,6 +138,11 @@ export class WelcomeOverlay {
     slot.input.focus();
   }
 
+  /** Put the cursor in the question on screen */
+  focus(): void {
+    (this.restoreScreen.hidden ? this.nameSlot : this.keySlot).input.focus();
+  }
+
   /** Put the overlay on `parent` and ask the first question. */
   open(parent: HTMLElement): void {
     parent.appendChild(this.root);

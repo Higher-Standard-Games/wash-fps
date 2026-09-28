@@ -154,6 +154,12 @@ export class LobbyPanel extends GamePanel {
   private demosView: DemosView | null = null;
   private _preloadedLevelshots = new Set<string>();
 
+  /**
+   * Settles once the lobby has answered or failed to: logged in, with a new
+   * player's name screen already up, or showing the disconnected state.
+   */
+  readonly connected: Promise<void>;
+
   constructor() {
     super("PLAY");
     this.closable = false;
@@ -188,7 +194,7 @@ export class LobbyPanel extends GamePanel {
       if (tabId === "leaderboard") void this.leaderboardView?.refresh();
     });
     this.tabBar.querySelector('[data-tab-id="matchmaking"]')?.setAttribute("aria-current", "page");
-    void this.initLobbyConnection();
+    this.connected = this.initLobbyConnection();
   }
 
   private buildRail(): HTMLElement {
@@ -693,6 +699,8 @@ export class LobbyPanel extends GamePanel {
 
   show(): void {
     this.open();
+    // A name screen opened while the lobby was still hidden could not take focus
+    this.welcomeOverlay?.focus();
   }
   hide(): void {
     this.close();
