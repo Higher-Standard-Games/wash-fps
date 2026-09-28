@@ -7,6 +7,7 @@
 
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import { createRaisedKey, injectRaisedKeyStyles, setRaisedKeyText } from "../../../engine/ui/components/RaisedKey";
+import { rememberMapTitle } from "../../../engine/ui/MapTitles";
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import type { LobbyClient } from "../../../lobby/LobbyClient";
 import type { DemoInfo } from "../../../lobby/types";
@@ -274,6 +275,7 @@ export class DemosView {
   }
 
   receiveList(scope: DemoScope, demos: DemoInfo[]): void {
+    for (const demo of demos) rememberMapTitle(demo.map, demo.mapDisplayName);
     if (scope !== this.archiveScope) return;
     this.archive = demos;
     this.archiveRequested = false;

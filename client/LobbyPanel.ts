@@ -15,6 +15,7 @@ import {
   setRaisedKeyText,
 } from "../../../engine/ui/components/RaisedKey";
 import matchLobbyCSSRaw from "../../../engine/ui/components/styles/MatchLobbyView.css?raw";
+import { rememberMapTitle } from "../../../engine/ui/MapTitles";
 import { GamePanel } from "../../../engine/ui/panels/GamePanel";
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import { accountIsNew, currentIdentity } from "../../../lobby/AccountSession";
@@ -930,6 +931,7 @@ export class LobbyPanel extends GamePanel {
   }
 
   private refreshMatchList(): void {
+    for (const match of this.liveMatches) rememberMapTitle(match.map, match.mapDisplayName);
     if (!this.matchListEl) return;
     const joinable = (match: LiveMatchInfo) => match.state === "waiting" && match.playerCount < match.maxPlayers;
     const rank = (match: LiveMatchInfo) => (joinable(match) ? 0 : match.state === "waiting" ? 1 : 2);
