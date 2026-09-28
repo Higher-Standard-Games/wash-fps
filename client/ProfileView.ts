@@ -69,6 +69,7 @@ export class ProfileView {
   private keyGroupsEl!: HTMLElement;
   private keyPlateEl!: HTMLElement;
   private keyActionsEl!: HTMLElement;
+  private keyWarnEl!: HTMLElement;
   private keyMissingEl!: HTMLElement;
   private doneKey!: HTMLButtonElement;
   private nameSlot!: Slot;
@@ -219,6 +220,7 @@ export class ProfileView {
 
     const warn = document.createElement("p");
     warn.className = "identity-warn";
+    this.keyWarnEl = warn;
     const strong = document.createElement("b");
     strong.textContent = "This key is you.";
     warn.append(strong, " Anyone who has it can play as you, and nobody can get it back for you if it's lost.");
@@ -422,7 +424,7 @@ export class ProfileView {
         return span;
       }),
     );
-    for (const part of [this.keyPlateEl, this.keyActionsEl]) part.hidden = !key;
+    for (const part of [this.keyPlateEl, this.keyActionsEl, this.keyWarnEl]) part.hidden = !key;
     this.keyMissingEl.hidden = !!key;
 
     if (document.activeElement !== this.nameSlot.input) this.nameSlot.setValue(name);

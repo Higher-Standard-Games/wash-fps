@@ -48,8 +48,14 @@ const UNAVAILABLE: Record<PendingUiFeature, string> = {
   featuredDemos: "Featured demos are unavailable on this lobby server. The demo archive is available.",
 };
 
-function unavailable<T>(feature: PendingUiFeature): UiResult<T> {
-  return { status: "unavailable", reason: UNAVAILABLE[feature] };
+const OFFLINE: Record<PendingUiFeature, string> = {
+  leaderboard: "The lobby server is offline. Rankings come back with it.",
+  featuredDemos: "The lobby server is offline. Featured picks come back with it.",
+};
+
+/** Why a feature cannot be read: the lobby is not there, or it does not offer it. */
+function unavailable<T>(feature: PendingUiFeature, client: LobbyClient | null): UiResult<T> {
+  return { status: "unavailable", reason: client?.connected ? UNAVAILABLE[feature] : OFFLINE[feature] };
 }
 
 let leaderboardClient: LobbyClient | null = null;
@@ -83,10 +89,10 @@ export const newUiApi: NewUiApi = {
     if (feature === "featuredDemos" && featuredSupported && featuredClient?.connected) {
       return { status: "ready", data: true };
     }
-    return unavailable(feature);
+    return unavailable(feature, feature === "leaderboard" ? leaderboardClient : featuredClient);
   },
   async getLeaderboard(query) {
-    if (!leaderboardSupported || !leaderboardClient?.connected) return unavailable("leaderboard");
+    if (!leaderboardSupported || !leaderboardClient?.connected) return unavailable("leaderboard", leaderboardClient);
     try {
       const { entries, total, localPlayerRank, localPlayerEntry } = await leaderboardClient.requestLeaderboard(query);
       return { status: "ready", data: { entries, total, localPlayerRank, localPlayerEntry } };
@@ -95,7 +101,7 @@ export const newUiApi: NewUiApi = {
     }
   },
   async getFeaturedDemos(query) {
-    if (!featuredSupported || !featuredClient?.connected) return unavailable("featuredDemos");
+    if (!featuredSupported || !featuredClient?.connected) return unavailable("featuredDemos", featuredClient);
     try {
       const { entries } = await featuredClient.requestFeaturedDemos(query);
       return { status: "ready", data: entries };

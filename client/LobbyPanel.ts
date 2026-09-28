@@ -26,7 +26,7 @@ import { ensureFpsLobbyConnection, getFpsLobbyClient } from "./FpsLobbyService";
 import { LeaderboardView } from "./LeaderboardView";
 import { bindFeaturedDemos, bindLeaderboard, newUiApi } from "./NewUiApi";
 import { ProfileView } from "./ProfileView";
-import { RoomChatView } from "./RoomChatView";
+import { nameColor, RoomChatView } from "./RoomChatView";
 import { FPSSettingsView } from "./settings/FPSSettingsView";
 import lobbyCSSRaw from "./styles/LobbyPanel.css?raw";
 import { WelcomeOverlay } from "./WelcomeOverlay";
@@ -96,14 +96,6 @@ function applyAccent(element: HTMLElement, mode: GameMode): void {
   ACCENT_PROPERTIES.forEach((property, index) => {
     element.style.setProperty(property, mode.accent[index]);
   });
-}
-
-/** A steady colour per name, so a player reads the same in every message. */
-function nameColor(name: string): string {
-  const hues = [182, 322, 125, 276, 28, 200, 350, 104, 240, 160];
-  let hash = 0;
-  for (const char of name) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  return `hsl(${hues[hash % hues.length]} 92% 68%)`;
 }
 
 function clockTime(ts: number): string {
@@ -369,6 +361,7 @@ export class LobbyPanel extends GamePanel {
           for (const c of msg.chatHistory || []) {
             this.appendChatMessage(c.from, c.text, false, c.ts);
           }
+          this.showChatEmpty();
         }),
       );
 
@@ -439,7 +432,11 @@ export class LobbyPanel extends GamePanel {
       // Live matches updates
       this.unsubscribers.push(
         this.lobbyClient.on("matches:update", (msg) => {
+          const before = new Map(this.liveMatches.map((match) => [match.id, match.state]));
           this.liveMatches = msg.matches || [];
+          for (const match of this.liveMatches) {
+            if (match.state === "playing" && before.get(match.id) === "waiting") this.announceMatch(match);
+          }
           this.refreshMatchList();
         }),
       );
@@ -581,9 +578,31 @@ export class LobbyPanel extends GamePanel {
     }
   }
 
+  /** "Duel on Proving Grounds started · Reaper vs Eclipse": public rooms only, as the list is. */
+  private announceMatch(match: LiveMatchInfo): void {
+    const mode = GAME_MODES.find((item) => item.id === match.gametype)?.title ?? match.gametypeName ?? match.gametype;
+    const where = match.mapDisplayName || match.map;
+    const who =
+      match.players.length === 2 ? match.players.join(" vs ") : `${match.players.length || match.playerCount} players`;
+    this.appendChatMessage("", `${mode}${where ? ` on ${where}` : ""} started · ${who}`, true);
+  }
+
+  /** An empty log says what it is for, rather than sitting blank. */
+  private showChatEmpty(): void {
+    const log = this.chatMessagesEl;
+    if (!log || log.childElementCount > 0) return;
+    const empty = document.createElement("p");
+    empty.className = "lobby-chat__empty";
+    empty.textContent = this.lobbyClient.connected
+      ? "Nobody has said anything yet. Say hello."
+      : "Chat opens when the lobby server is back.";
+    log.appendChild(empty);
+  }
+
   private appendChatMessage(from: string, text: string, system: boolean, ts = Date.now()): void {
     const log = this.chatMessagesEl;
     if (!log) return;
+    log.querySelector(".lobby-chat__empty")?.remove();
     const span = (className: string, content: string) => {
       const el = document.createElement("span");
       el.className = className;
@@ -982,7 +1001,7 @@ export class LobbyPanel extends GamePanel {
     head.className = "lobby-chat__head";
     const title = document.createElement("span");
     title.className = "lobby-chat__title";
-    title.textContent = "Lobby chat";
+    title.textContent = "Lobby";
     const online = document.createElement("span");
     online.className = "lobby-chat__online";
     const dot = document.createElement("span");
@@ -998,6 +1017,7 @@ export class LobbyPanel extends GamePanel {
     log.setAttribute("role", "log");
     this.chatMessagesEl = log;
     panel.appendChild(log);
+    this.showChatEmpty();
 
     const form = document.createElement("form");
     form.className = "lobby-chat__form";

@@ -125,11 +125,21 @@ describe("LeaderboardView", () => {
   });
 
   it("says why when the lobby cannot rank, and shows nothing it does not know", async () => {
+    bindLeaderboard({ connected: true } as LobbyClient, false);
     const board = view();
     await board.refresh();
     expect(board.root.querySelector(".lb-status")?.textContent).toBe("Rankings are unavailable on this lobby server.");
     expect(board.railMiddle.textContent).toContain("Rankings are unavailable");
     expect(board.root.querySelectorAll(".lb-row:not(.lb-row--head), .lb-plinth")).toHaveLength(0);
+  });
+
+  it("tells an offline lobby from one that does not rank", async () => {
+    bindLeaderboard({ connected: false } as LobbyClient, true);
+    const board = view();
+    await board.refresh();
+    expect(board.root.querySelector(".lb-status")?.textContent).toBe(
+      "The lobby server is offline. Rankings come back with it.",
+    );
   });
 
   it("forgets the rows of a connection that is gone", async () => {

@@ -1126,6 +1126,12 @@
   color: hsl(276 90% 72%);
 }
 
+.lobby-chat__empty {
+  margin: 14px 0;
+  font: 600 15px / 1.35 var(--w-font-body, "Rajdhani", sans-serif);
+  color: hsla(45, 100%, 95%, 0.5);
+}
+
 .lobby-chat__form {
   display: flex;
   align-items: center;

@@ -114,6 +114,10 @@
   border-left: 5px solid var(--ink);
 }
 
+.identity-warn[hidden] {
+  display: none;
+}
+
 .identity-warn b {
   color: var(--ink);
 }
