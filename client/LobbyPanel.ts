@@ -679,6 +679,8 @@ export class LobbyPanel extends GamePanel {
       if (ghost) ghost.textContent = mode.title.toUpperCase();
     }
     this.playBodyEl.replaceWith(this.matchLobbyView.root);
+    // A room opens at its top, however far down the Play page was scrolled
+    this.modesContainer.scrollTop = 0;
     const railMiddle = this.railEl?.querySelector(".lobby__rail-mid--rooms");
     if (railMiddle) {
       this.roomChatView = new RoomChatView(this.lobbyClient, lobby, this.localLobbyPlayerId);
@@ -1131,6 +1133,7 @@ export class LobbyPanel extends GamePanel {
     this.roomChatView?.destroy();
     this.roomChatView = null;
     this.matchLobbyView.root.replaceWith(this.playBodyEl);
+    this.modesContainer.scrollTop = 0;
     this.matchLobbyView.destroy();
     const selected = GAME_MODES.find((mode) => mode.id === this.selectedModeId) ?? GAME_MODES[0];
     this.selectMode(selected);

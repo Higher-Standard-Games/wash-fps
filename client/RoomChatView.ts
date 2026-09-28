@@ -66,7 +66,7 @@ export class RoomChatView {
     this.input = document.createElement("input");
     this.input.type = "text";
     this.input.className = "lobby-chat__input";
-    this.input.placeholder = "Message this room…";
+    this.input.placeholder = "Say something…";
     this.input.maxLength = 500;
     this.input.autocomplete = "off";
     this.input.spellcheck = false;
@@ -130,7 +130,7 @@ export class RoomChatView {
     this.input.placeholder = !this.supported
       ? "Room chat needs a newer lobby server"
       : connected
-        ? "Message this room…"
+        ? "Say something…"
         : "Lobby server offline";
   }
 

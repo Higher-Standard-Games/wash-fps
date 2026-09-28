@@ -1229,7 +1229,9 @@
     overflow-y: auto;
   }
 
-  .lobby-chat {
+  /* The Play page's chat, stacked under the mode detail; a room's chat on the
+     rail keeps to the height the rail has */
+  .lobby__play-lower .lobby-chat {
     min-height: 320px;
   }
 }
@@ -1318,6 +1320,54 @@
   .raised-key--cta .raised-key__face {
     min-height: 70px;
     padding: 0 36px;
+  }
+}
+
+/* ── The rail on a short screen or a narrow one ── */
+
+/* A short screen: the logo and the page keys give way, so what sits between
+   them — the room list, or a room's chat — keeps a few lines */
+@media (min-width: 701px) and (max-height: 820px) {
+  .lobby__rail-brand img {
+    width: auto;
+    max-width: 100%;
+    max-height: 13vh;
+  }
+
+  .lobby__rail-nav .raised-key--nav .raised-key__face {
+    min-height: 54px;
+    padding-block: 12px;
+  }
+}
+
+/* Shorter still, as a laptop's browser window is */
+@media (min-width: 701px) and (max-height: 680px) {
+  .game-panel--rail .lobby__rail {
+    padding-top: 14px;
+  }
+
+  .lobby__rail-brand img {
+    max-height: 11vh;
+  }
+
+  .lobby__rail-nav .raised-key--nav .raised-key__face {
+    min-height: 46px;
+    padding-block: 8px;
+  }
+}
+
+/* A narrow rail: the Send key gives up padding so the message line keeps its width */
+@media (min-width: 701px) and (max-width: 1500px) {
+  .lobby__rail--room .lobby-chat__form {
+    gap: 10px;
+  }
+
+  .lobby__rail--room .lobby-chat__input {
+    padding: 0 12px;
+  }
+
+  .lobby__rail--room .raised-key--send .raised-key__face {
+    padding: 0 14px 0 16px;
   }
 }
 
