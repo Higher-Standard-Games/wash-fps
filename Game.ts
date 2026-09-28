@@ -1185,10 +1185,13 @@ export class Game {
       document.addEventListener("keydown", this._joinKeyHandler);
 
       // ── Tab key: hold-to-show scoreboard (Quake style) ──
+      // With a menu up, Tab is the keyboard's way through its keys instead.
       this._scoreboardKeyHandler = (e: KeyboardEvent) => {
         if (e.code === "Tab") {
-          e.preventDefault();
           const hud = FPSHud.getInstance();
+          if (hud.pauseMenu?.isOpen() || hud.settings?.isOpen()) return;
+          if (this.spectatorOverlay?.getMode() === "join-overlay") return;
+          e.preventDefault();
           hud.scoreboard?.show();
         }
       };

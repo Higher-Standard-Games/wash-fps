@@ -2,7 +2,7 @@
 
 The heads-up display. Everything you need to read at a glance during a fight.
 
-The HUD (and the whole front-end) uses the **"Washoi" manga print-slab** look — dark-navy panels with cyan/magenta/gold neon accents, halftone scanlines, hard offset shadows, and stamped labels. Health/armor/ammo render as print-slab vitals; the same visual language runs through the ESC menu, lobby, and ready-room.
+The HUD uses the **"Washoi" manga print-slab** look — dark-navy panels with cyan/magenta/gold neon accents, halftone scanlines, hard offset shadows, and stamped labels. Health/armor/ammo render as print-slab vitals. The screens that take over from the fight — the loading screen, the join screen, the match menu — wear the lobby's own look instead: its gold rail and raised keys.
 
 ## Default Layout
 
@@ -78,7 +78,7 @@ The crosshair briefly flashes to `cg_crosshairDmgColor` for ~200 ms when your sh
 
 Recent chat messages float here and fade after ~8 seconds. Press **T** to talk — the panel expands into a scrollable history dialog. See [In-Game Chat](../multiplayer/chat.md).
 
-## Event Feed / Kill Feed (top-right)
+## Event Feed / Kill Feed (top-left)
 
 Recent kills, last ~5 lines:
 
@@ -129,7 +129,7 @@ attention:
 | **Phase message** | Warmup, countdown, round start, round result, match end |
 | **Round result** | End-of-round banner in the round-based modes |
 | **Death screen** | On death — who killed you, with what, and the respawn state |
-| **Pause menu** | Escape, mid-match |
+| **Match menu** | Escape, mid-match |
 
 ## Powerup Timer
 
@@ -162,9 +162,34 @@ shared clock, and both teams hear it at the same time.
 - **Pickup toast** — a brief confirmation of what you just picked up, paired
   with the pickup sound.
 
+## Match Menu
+
+Press **Escape** mid-match. The lobby's gold rail slides in over the match,
+which keeps running behind it: nothing pauses in a multiplayer game, and the
+rail says so. It names the mode and the map, and its keys are:
+
+- **Resume** — back to the fight.
+- **Join game**, or **Join Udon** and **Join Soba** in a team mode — while you
+  are spectating. Each side's key says how many players it has; asking for the
+  bigger side puts you on the smaller one.
+- **Settings** — the settings screen below.
+- **Spectate** — give up your spot and watch.
+- **Leave match** — back to the lobby.
+
+The first key is inked, as the lobby inks the page you are on: Resume while you
+play, Join while you watch. While the menu is up, **Tab** moves through its keys
+instead of showing the scoreboard.
+
+## Join Screen
+
+A server reached with `connect` rather than through a lobby room shows the join
+screen once the map has loaded: the match handoff's rail with every step done,
+the mode and the map, and keys to join or to spectate first. **J** joins, and in
+a team mode puts you on the side with fewer players.
+
 ## Settings Overlay
 
-Press **Escape** mid-match and pick **Settings** in the pause menu. The lobby's
+Press **Escape** mid-match and pick **Settings** in the match menu. The lobby's
 Settings key opens the same screen, with its four pages in the rail. Everything
 is saved as you change it.
 

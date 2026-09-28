@@ -17,9 +17,12 @@ How to connect to a game server, manually or through the lobby.
    in it, and mark yourself ready.
 5. When everyone is ready, the lobby spawns a dedicated game server for that
    match alone and hands your client its address and a ticket for your seat.
-6. The connecting screen takes over, the map loads, and you spawn.
-7. When the match ends, RETURN TO LOBBY brings you back to the same room, ready
-   for a rematch.
+6. The connecting screen takes over and becomes the loading screen where it
+   stands: its third step, MAP LOAD, lights up, the stage names the map over its
+   levelshot, and a bar fills as the map loads. When the game has set itself
+   up, the screen fades and you spawn.
+7. When the match ends, **Back to the lobby** brings you back to the same room,
+   ready for a rematch.
 
 Rooms you can join are listed down the left rail. The Leaderboard shows your
 rank in every mode in its rail, and Profile shows your ranked record beside
@@ -59,6 +62,9 @@ cl_netgraph 2                  # Show live connection diagnostics
 The `connect` command lives in `src/games/fps/console/commands/ConnectCommand.ts` (registered at boot by `registerFpsCommands`).
 
 If a `map <name> [gametype]` command was used to dev-spawn a server, the lobby spawn + the network connect happen automatically. You don't need `connect` after `map`.
+
+A server reached with `connect` shows the [join screen](../player/hud.md#join-screen)
+once the map is in: join the match, or spectate first.
 
 ## What Happens on Connect
 

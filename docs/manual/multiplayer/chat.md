@@ -10,7 +10,7 @@ Talk to the other players mid-match, without leaving the fight.
 
 While the input is open, **your mouse look keeps working** and the pointer stays locked — you don't drop out of the game. Your movement keys type letters instead of moving you (WASD becomes text), so you stand still while typing. Any key held when you open chat is released cleanly (no stuck-forward).
 
-Chat is disabled while the pause menu, settings, or console is open, so **T** there does nothing special.
+Chat is disabled while the match menu, settings, or console is open, so **T** there does nothing special.
 
 ## Reading Chat
 
