@@ -1104,8 +1104,8 @@ export class DemoService {
 
   /**
    * Sample interpolated positions for active in-flight projectiles and push them
-   * to the ProjectileManager visuals. Per-frame projectile animation/trails are
-   * driven by WeaponViewManager's update loop (initialized on spectate).
+   * to the ProjectileManager visuals, whose own per-frame tick animates them
+   * and draws their trails.
    */
   private _renderDemoProjectiles(): void {
     if (this._projectiles.active.size === 0) return;
