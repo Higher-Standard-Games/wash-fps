@@ -30,10 +30,31 @@ export interface DamageNumber {
 }
 
 export interface KillFeedEntry {
+  /** Entity ids, as the server sends them */
   victimId: string;
   killerId: string;
+  /** Display names, resolved when the death arrives; "" when there is no killer */
+  victimName: string;
+  killerName: string;
+  /** The server's damage type (explosion, rail, …), which is what says how */
   weaponId: string;
+  /** The local player took this frag, or was the one fragged */
+  byLocal: boolean;
+  ofLocal: boolean;
+  /**
+   * Counts every death since the page loaded. The feed is capped and expires,
+   * so its length cannot tell a reader which entries are new; this can.
+   */
+  seq: number;
   timestamp: number;
+}
+
+/** Who a death involved, resolved by the caller, which knows the players */
+export interface DeathParties {
+  killerName: string;
+  victimName: string;
+  /** The local player's entity id, when known */
+  localEntityId?: string;
 }
 
 export interface ScoreboardEntry {
@@ -90,6 +111,8 @@ export class HUDState {
 
   // === Kill feed (recent kills) ===
   killFeed: KillFeedEntry[] = [];
+  /** Last `seq` given out. Static, so not even a new HUDState resets it and a reader's high-water mark stays valid */
+  private static deathSeq = 0;
   private static readonly KILL_FEED_EXPIRE_MS = 5000;
   private static readonly KILL_FEED_MAX = 5;
 
@@ -171,11 +194,19 @@ export class HUDState {
   /**
    * Process a death event (kill feed).
    */
-  processDeath(event: any): void {
+  processDeath(event: any, parties: DeathParties): void {
+    const victimId = event.entityId ?? "";
+    const killerId = event.killerId ?? "";
+    const local = parties.localEntityId;
     this.killFeed.push({
-      victimId: event.entityId ?? "",
-      killerId: event.killerId ?? "",
+      victimId,
+      killerId,
+      victimName: parties.victimName,
+      killerName: parties.killerName,
       weaponId: event.weaponId ?? "",
+      byLocal: !!local && killerId === local,
+      ofLocal: !!local && victimId === local,
+      seq: ++HUDState.deathSeq,
       timestamp: performance.now(),
     });
 

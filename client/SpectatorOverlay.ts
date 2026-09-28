@@ -137,51 +137,38 @@ export class SpectatorOverlay {
 
     this.refreshJoinPanel();
 
-    // ── Spectating Bar (top center, shows during first-person spec) ──
-    this.spectatingBar = document.createElement("div");
+    // ── Spectating bar (above the bottom HUD, during first-person spec) ──
+    // Whom you are watching, between the keys that step to the previous and
+    // next player
+    this.spectatingBar = el("div", "fps-spectator-bar");
     this.spectatingBar.id = "spectator-bar";
-    this.spectatingBar.className = "fps-spectator-bar";
 
-    // Prev player button
-    const prevBtn = document.createElement("span");
-    prevBtn.className = "fps-spectator-bar-nav";
-    prevBtn.textContent = "◄ [←]";
+    const prevBtn = el("span", "fps-spectator-bar-nav");
+    prevBtn.title = "Previous player";
+    prevBtn.appendChild(el("span", "fps-spectator-bar-key", "←"));
     prevBtn.addEventListener("click", () => this._onPrevPlayerCallback?.());
-    this.spectatingBar.appendChild(prevBtn);
 
-    const specLabel = document.createElement("span");
-    specLabel.className = "fps-spectator-bar-label";
-    specLabel.textContent = "SPECTATING";
-    this.spectatingBar.appendChild(specLabel);
+    const who = el("div", "fps-spectator-bar-who");
+    this.spectatingNameEl = el("span", "fps-spectator-bar-name");
+    who.append(el("span", "fps-spectator-bar-label", "Spectating"), this.spectatingNameEl);
 
-    this.spectatingNameEl = document.createElement("span");
-    this.spectatingNameEl.className = "fps-spectator-bar-name";
-    this.spectatingBar.appendChild(this.spectatingNameEl);
-
-    // Next player button
-    const nextBtn = document.createElement("span");
-    nextBtn.className = "fps-spectator-bar-nav";
-    nextBtn.textContent = "[→] ►";
+    const nextBtn = el("span", "fps-spectator-bar-nav");
+    nextBtn.title = "Next player";
+    nextBtn.appendChild(el("span", "fps-spectator-bar-key", "→"));
     nextBtn.addEventListener("click", () => this._onNextPlayerCallback?.());
-    this.spectatingBar.appendChild(nextBtn);
 
+    this.spectatingBar.append(prevBtn, who, nextBtn);
     this.container.appendChild(this.spectatingBar);
 
-    // ── Freefly cue (left sidebar panel, below weapon list) ─────
+    // ── Freefly cue (bottom left, above the HUD) ─────
     this.freeflyCue = document.createElement("div");
     this.freeflyCue.id = "spectator-freefly-cue";
     this.freeflyCue.className = "fps-spectator-cue";
 
-    // Header: "SPECTATOR"
     const header = document.createElement("div");
     header.className = "fps-spectator-cue-header";
     header.textContent = "SPECTATOR";
     this.freeflyCue.appendChild(header);
-
-    // Divider
-    const div = document.createElement("div");
-    div.className = "fps-spectator-cue-divider";
-    this.freeflyCue.appendChild(div);
 
     // Dynamic key labels from InputSystem
     const moveKeys = [
@@ -207,7 +194,7 @@ export class SpectatorOverlay {
       ["ESC", "Menu"],
     ];
 
-    // Split into two columns of 3
+    // Two columns of key and action, read down the left column first
     const half = Math.ceil(bindings.length / 2);
     const leftCol = bindings.slice(0, half);
     const rightCol = bindings.slice(half);
@@ -216,31 +203,10 @@ export class SpectatorOverlay {
     grid.className = "fps-spectator-cue-grid";
 
     for (let i = 0; i < half; i++) {
-      // Left column
-      const lk = document.createElement("div");
-      lk.className = "fps-spectator-key";
-      lk.textContent = leftCol[i][0];
-      const la = document.createElement("div");
-      la.className = "fps-spectator-action";
-      la.textContent = leftCol[i][1];
-
-      // Vertical divider cell
-      const sep = document.createElement("div");
-      sep.className = "fps-spectator-sep";
-
-      // Right column
-      const rk = document.createElement("div");
-      rk.className = "fps-spectator-key";
-      rk.textContent = rightCol[i]?.[0] ?? "";
-      const ra = document.createElement("div");
-      ra.className = "fps-spectator-action";
-      ra.textContent = rightCol[i]?.[1] ?? "";
-
-      grid.appendChild(lk);
-      grid.appendChild(la);
-      grid.appendChild(sep);
-      grid.appendChild(rk);
-      grid.appendChild(ra);
+      for (const pair of [leftCol[i], rightCol[i]]) {
+        if (!pair) continue;
+        grid.append(el("div", "fps-spectator-key", pair[0]), el("div", "fps-spectator-action", pair[1]));
+      }
     }
 
     this.freeflyCue.appendChild(grid);

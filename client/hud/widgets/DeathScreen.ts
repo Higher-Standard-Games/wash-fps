@@ -1,30 +1,79 @@
 // Extracted from FPSHud.ts
 import { FPS, getActionKeyLabel } from "../../FPSActions";
+import type { KillFeedEntry } from "../../HUDState";
 import { MatchStateManager } from "../../MatchStateManager";
 import type { FPSHudWidget, HUDState } from "../HudWidget";
 
 // Respawn protection delay in seconds (must match server config)
 const RESPAWN_DELAY_SECS = 3;
 
+/** How close to the panel's own moment a kill feed entry must be to be this death */
+const DEATH_MATCH_WINDOW_MS = 1500;
+
+/**
+ * How you died, in the card's words. The death event carries the server's
+ * damage type, not a weapon, so that is what the wording follows.
+ */
+const KILLED_BY: Record<string, string> = {
+  explosion: "Blown up by",
+  rail: "Railed by",
+  plasma: "Melted by",
+  bullet: "Gunned down by",
+  melee: "Cut down by",
+  telefrag: "Telefragged by",
+  fall_crush: "Crushed by",
+};
+
+/** A death nobody else caused: what the card names instead of a killer */
+function noKiller(damageType: string): string {
+  switch (damageType) {
+    case "fall":
+    case "fall_crush":
+      return "The fall";
+    case "world":
+      return "The map";
+    case "explosion":
+      return "Your own blast";
+    default:
+      return "Yourself";
+  }
+}
+
+/** The kicker and the name the card shows for a death */
+export function obituary(entry: KillFeedEntry): { how: string; who: string } {
+  const damageType = entry.weaponId.toLowerCase();
+  if (!entry.killerName || entry.killerId === entry.victimId) {
+    return { how: "No one to blame", who: noKiller(damageType) };
+  }
+  return { how: KILLED_BY[damageType] ?? "Fragged by", who: entry.killerName };
+}
+
 // =============================================================================
-// Phase 3: Death Screen — "YOU GOT FRAGGED"
+// Death Screen — "YOU GOT FRAGGED"
 // =============================================================================
 
 /**
  * FPSDeathScreen - Shows when player dies
  *
- * Displays "YOU GOT FRAGGED", killer name, a countdown timer for respawn
- * protection, and a respawn prompt when the countdown finishes.
+ * The red stamp, then a card: who fragged you and how, and the way back — a
+ * countdown for respawn protection with a bar, then the key that respawns
+ * you, or in a round mode, that you are out until the next round.
  */
 export class FPSDeathScreen implements FPSHudWidget {
   private element: HTMLElement;
-  private titleEl: HTMLElement;
-  private killerEl: HTMLElement;
+  private cardEl: HTMLElement;
+  private howEl: HTMLElement;
+  private whoEl: HTMLElement;
+  private nextLabelEl: HTMLElement;
   private timerEl: HTMLElement;
   private respawnEl: HTMLElement;
+  private barEl: HTMLElement;
+  private fillEl: HTMLElement;
   private wasAlive: boolean = true;
   /** This death has already had its panel; do not stage it a second time. */
   private shownForThisDeath: boolean = false;
+  /** The kill feed has named this death; until it does, keep looking */
+  private named: boolean = false;
   private deathTime: number = 0;
   private countdownInterval: number | null = null;
 
@@ -33,32 +82,43 @@ export class FPSDeathScreen implements FPSHudWidget {
     this.element.className = "fps-death-screen";
     this.element.style.display = "none";
 
-    // Inner panel with border + glass
     const panel = document.createElement("div");
     panel.className = "fps-death-panel";
 
-    this.titleEl = document.createElement("div");
-    this.titleEl.className = "fps-death-title";
-    this.titleEl.textContent = "YOU GOT FRAGGED";
-    panel.appendChild(this.titleEl);
+    const title = document.createElement("div");
+    title.className = "fps-death-title";
+    title.textContent = "YOU GOT FRAGGED";
+    panel.appendChild(title);
 
-    // Separator line
-    const sep = document.createElement("div");
-    sep.className = "fps-death-separator";
-    panel.appendChild(sep);
+    this.cardEl = document.createElement("div");
+    this.cardEl.className = "fps-death-card";
 
-    this.killerEl = document.createElement("div");
-    this.killerEl.className = "fps-death-killer";
-    panel.appendChild(this.killerEl);
+    const who = document.createElement("div");
+    who.className = "fps-death-who";
+    this.howEl = document.createElement("div");
+    this.howEl.className = "fps-death-how";
+    this.whoEl = document.createElement("div");
+    this.whoEl.className = "fps-death-killer";
+    who.append(this.howEl, this.whoEl);
 
+    const next = document.createElement("div");
+    next.className = "fps-death-next";
+    this.nextLabelEl = document.createElement("div");
+    this.nextLabelEl.className = "fps-death-next-label";
     this.timerEl = document.createElement("div");
     this.timerEl.className = "fps-death-timer";
-    panel.appendChild(this.timerEl);
-
     this.respawnEl = document.createElement("div");
     this.respawnEl.className = "fps-death-respawn";
-    panel.appendChild(this.respawnEl);
+    next.append(this.nextLabelEl, this.timerEl, this.respawnEl);
 
+    this.barEl = document.createElement("div");
+    this.barEl.className = "fps-death-bar";
+    this.fillEl = document.createElement("div");
+    this.fillEl.className = "fps-death-fill";
+    this.barEl.appendChild(this.fillEl);
+
+    this.cardEl.append(who, next, this.barEl);
+    panel.appendChild(this.cardEl);
     this.element.appendChild(panel);
   }
 
@@ -102,26 +162,42 @@ export class FPSDeathScreen implements FPSHudWidget {
       return;
     }
 
-    if (this.shownForThisDeath) return;
+    if (this.shownForThisDeath) {
+      // The death event and the dead flag travel separately, so the entry
+      // naming this death can land a frame or two after the panel went up
+      if (!this.named) this.nameKiller(state.killFeed);
+      return;
+    }
     this.shownForThisDeath = true;
     this.wasAlive = false;
     this.deathTime = performance.now();
 
-    // Try to find killer from latest kill feed entry
-    const feed = state.killFeed;
-    if (feed.length > 0) {
-      const lastKill = feed[feed.length - 1];
-      this.killerEl.innerHTML = `Fragged by <span class="fps-death-killer-name">${this.escapeHtml(lastKill.killerId)}</span>`;
-    } else {
-      this.killerEl.textContent = "";
-    }
+    this.named = false;
+    this.howEl.textContent = "";
+    this.whoEl.textContent = "";
+    this.cardEl.classList.remove("fps-death-card--named");
+    this.nameKiller(state.killFeed);
 
-    // Start countdown
-    this.respawnEl.textContent = "";
+    this.respawnEl.replaceChildren();
     this.respawnEl.style.display = "none";
     this.startCountdown();
 
     this.element.style.display = "";
+  }
+
+  /** The newest kill feed entry for our death, if it is this one */
+  private nameKiller(feed: readonly KillFeedEntry[]): void {
+    for (let index = feed.length - 1; index >= 0; index--) {
+      const entry = feed[index];
+      if (!entry.ofLocal) continue;
+      if (entry.timestamp < this.deathTime - DEATH_MATCH_WINDOW_MS) return;
+      const { how, who } = obituary(entry);
+      this.howEl.textContent = how;
+      this.whoEl.textContent = who;
+      this.cardEl.classList.add("fps-death-card--named");
+      this.named = true;
+      return;
+    }
   }
 
   private startCountdown(): void {
@@ -142,6 +218,8 @@ export class FPSDeathScreen implements FPSHudWidget {
     // a countdown to a button that does nothing is worse than no countdown.
     // Say what is actually happening instead.
     if (MatchStateManager.getInstance().round > 0) {
+      this.cardEl.dataset.next = "round";
+      this.nextLabelEl.textContent = "Out this round";
       this.timerEl.style.display = "none";
       this.respawnEl.textContent = "WAITING FOR THE NEXT ROUND";
       this.respawnEl.style.display = "";
@@ -151,30 +229,26 @@ export class FPSDeathScreen implements FPSHudWidget {
 
     const elapsed = (performance.now() - this.deathTime) / 1000;
     const remaining = Math.max(0, RESPAWN_DELAY_SECS - elapsed);
+    this.fillEl.style.width = `${Math.min(100, (elapsed / RESPAWN_DELAY_SECS) * 100)}%`;
 
     if (remaining > 0) {
+      this.cardEl.dataset.next = "countdown";
+      this.nextLabelEl.textContent = "Respawn in";
       this.timerEl.textContent = remaining.toFixed(1);
       this.timerEl.style.display = "";
       this.respawnEl.style.display = "none";
     } else {
+      this.cardEl.dataset.next = "ready";
+      this.nextLabelEl.textContent = "Ready";
       this.timerEl.style.display = "none";
       // "PRESS [MOUSE1] TO RESPAWN" — the fire keybind rendered as a keycap.
-      this.respawnEl.textContent = "";
-      this.respawnEl.appendChild(document.createTextNode("PRESS "));
       const keycap = document.createElement("span");
       keycap.className = "fps-keycap";
       keycap.textContent = getActionKeyLabel(FPS.FIRE);
-      this.respawnEl.appendChild(keycap);
-      this.respawnEl.appendChild(document.createTextNode(" TO RESPAWN"));
+      this.respawnEl.replaceChildren("PRESS ", keycap, " TO RESPAWN");
       this.respawnEl.style.display = "";
       this.stopCountdown();
     }
-  }
-
-  private escapeHtml(text: string): string {
-    const div = document.createElement("div");
-    div.textContent = text;
-    return div.innerHTML;
   }
 
   public show(): void {

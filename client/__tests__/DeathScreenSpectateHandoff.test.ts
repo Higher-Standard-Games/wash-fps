@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
 import { beforeEach, describe, expect, it } from "vitest";
-import type { HUDState } from "../HUDState";
-import { FPSDeathScreen } from "../hud/widgets/DeathScreen";
+import type { HUDState, KillFeedEntry } from "../HUDState";
+import { FPSDeathScreen, obituary } from "../hud/widgets/DeathScreen";
 import { MatchPhase, MatchStateManager } from "../MatchStateManager";
 
 /**
@@ -97,13 +97,61 @@ describe("death screen through the spectate handoff", () => {
     expect(visible(screen)).toBe(false);
   });
 
-  it("names the killer from the kill feed", () => {
+  it("names the killer from the kill feed, by name rather than entity id", () => {
     const screen = new FPSDeathScreen();
 
-    screen.update(
-      hud({ localDead: true, killFeed: [{ victimId: "me", killerId: "Udon Bot", weaponId: "rl", timestamp: 0 }] }),
-    );
+    screen.update(hud({ localDead: true, killFeed: [death({ killerName: "Udon Bot", weaponId: "explosion" })] }));
 
-    expect(screen.getElement().textContent).toContain("Udon Bot");
+    const text = screen.getElement().textContent ?? "";
+    expect(text).toContain("Udon Bot");
+    expect(text).toContain("Blown up by");
+    expect(text).not.toContain("player_7");
+  });
+
+  it("names a death whose event lands after the dead flag", () => {
+    const screen = new FPSDeathScreen();
+    screen.update(hud({ localDead: true }));
+    expect(screen.getElement().querySelector(".fps-death-card--named")).toBeNull();
+
+    screen.update(hud({ localDead: true, killFeed: [death({ killerName: "Soba Bot" })] }));
+    expect(screen.getElement().textContent).toContain("Soba Bot");
+  });
+
+  it("does not name someone else's death as ours", () => {
+    const screen = new FPSDeathScreen();
+    screen.update(hud({ localDead: true, killFeed: [death({ killerName: "Soba Bot", ofLocal: false })] }));
+    expect(screen.getElement().querySelector(".fps-death-card--named")).toBeNull();
+  });
+});
+
+function death(over: Partial<KillFeedEntry>): KillFeedEntry {
+  return {
+    victimId: "player_2",
+    killerId: "player_7",
+    victimName: "Me",
+    killerName: "",
+    weaponId: "bullet",
+    byLocal: false,
+    ofLocal: true,
+    seq: 1,
+    timestamp: performance.now(),
+    ...over,
+  };
+}
+
+describe("obituary", () => {
+  it("says how, from the damage type, and who", () => {
+    expect(obituary(death({ killerName: "Rex", weaponId: "rail" }))).toEqual({ how: "Railed by", who: "Rex" });
+    expect(obituary(death({ killerName: "Rex", weaponId: "unknown" }))).toEqual({ how: "Fragged by", who: "Rex" });
+  });
+
+  it("blames nobody for a death nobody else caused", () => {
+    expect(obituary(death({ killerId: "player_2", killerName: "Me", weaponId: "explosion" })).who).toBe(
+      "Your own blast",
+    );
+    expect(obituary(death({ killerId: "", killerName: "", weaponId: "fall" }))).toEqual({
+      how: "No one to blame",
+      who: "The fall",
+    });
   });
 });

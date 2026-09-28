@@ -63,7 +63,9 @@ type FPSHudArea =
   | "right"
   | "bottom-left"
   | "bottom-center"
-  | "bottom-right";
+  | "bottom-right"
+  /** The whole screen, untransformed: for what covers the HUD */
+  | "overlay";
 
 export class FPSHud {
   private static instance: FPSHud | null = null;
@@ -371,7 +373,7 @@ export class FPSHud {
     document.body.appendChild(this.container);
 
     // Non-bottom positions are direct children
-    const topAndMiddle: FPSHudArea[] = ["top-left", "top-center", "top-right", "left", "center", "right"];
+    const topAndMiddle: FPSHudArea[] = ["top-left", "top-center", "top-right", "left", "center", "right", "overlay"];
 
     for (const pos of topAndMiddle) {
       const area = document.createElement("div");
@@ -478,14 +480,14 @@ export class FPSHud {
     // Round result banner (S&D) - center screen
     this.addWidget("roundresult", new FPSRoundResult(), "center");
 
-    // Frag message - center screen
-    this.addWidget("frag", new FPSFragMessage(), "center");
+    // Frag message - above the crosshair
+    this.addWidget("frag", new FPSFragMessage(), "overlay");
 
     // Pickup toast - bottom center
     this.addWidget("pickup", new FPSPickupToast(), "bottom-center");
 
     // Death screen - full overlay, managed via widget system
-    this.addWidget("death", new FPSDeathScreen(), "center");
+    this.addWidget("death", new FPSDeathScreen(), "overlay");
 
     // Match lifecycle widgets (replacing standalone MatchHUD)
     this.addWidget("phase", new FPSPhaseMessage(), "top-center");

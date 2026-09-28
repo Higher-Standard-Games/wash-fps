@@ -44,7 +44,14 @@ Two horizontal bars:
 - **HP** — 0 to 100 normally, can exceed via mega health pickups. Red when low.
 - **Armor** — 0 to maximum (varies by armor type). The armor takes incoming damage at a configurable ratio; HP only drops after armor is exhausted (or for damage types that bypass armor).
 
-When the server tells the client you've died, the combat state UI tints heavily, the camera lock-freezes at your death position, and the respawn prompt appears in the centre of the screen.
+When the server tells the client you've died, the camera lock-freezes at your
+death position, the screen darkens in red toward its edges, and the death screen
+comes up in the centre: **YOU GOT FRAGGED**, then a card with who fragged you and
+how — blown up, railed, melted, gunned down, cut down, telefragged — read from
+the damage the server reports, or nobody to blame for a fall or your own blast.
+Its bar counts down the three seconds of respawn protection and turns green when
+**fire** will respawn you. In a round mode there is no countdown: you are out
+until the next round.
 
 ## Ammo Counter (bottom-right)
 
@@ -124,11 +131,11 @@ attention:
 | **Timer** | Always in a timed match — a round clock in the round-based modes, Search & Destroy and Amphi, and a match clock elsewhere |
 | **Gametype badge** | The mode you are in |
 | **Scoreboard** | Held **Tab**, and automatically at match end |
-| **Frag counter / frag message** | Your score, and the confirmation when you take one |
+| **Frag counter / frag message** | Your score, and **FRAGGED** with the name, above the crosshair, when you take one |
 | **Ready bar** | Warmup — who is ready, and how many are still needed |
 | **Phase message** | Warmup, countdown, round start, round result, match end |
 | **Round result** | End-of-round banner in the round-based modes |
-| **Death screen** | On death — who killed you, with what, and the respawn state |
+| **Death screen** | On death — who fragged you and how, and the respawn countdown |
 | **Match menu** | Escape, mid-match |
 
 ## Powerup Timer
@@ -187,6 +194,15 @@ A server reached with `connect` rather than through a lobby room shows the join
 screen once the map has loaded: the match handoff's rail with every step done,
 the mode and the map, and keys to join or to spectate first. **J** joins, and in
 a team mode puts you on the side with fewer players.
+
+## Spectating
+
+Flying free, a card at the bottom left lists the keys: move to fly, jump and
+crouch to rise and sink, sprint to go fast, fire to chase a player, **J** to
+join. Chasing a player, or watching a teammate after you die in a round mode,
+puts their name above the bottom of the HUD between **←** and **→**, which step
+to the previous and next player — as do fire and alt-fire while you watch a
+teammate.
 
 ## Settings Overlay
 

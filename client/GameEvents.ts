@@ -729,16 +729,19 @@ function handleDeathEvent(ctx: GameEventContext, event: any, state: GameState): 
   console.log(
     `[Death] Event received: entity=${event.entityId} killer=${event.killerId} damageType=${event.damageType} finalDamage=${event.finalDamage} pos=(${event.x}, ${event.y}, ${event.z})`,
   );
+  // Names are resolved here, where the players are known: the event carries
+  // entity ids, and the HUD shows people
+  const victimName = resolvePlayerName(event.entityId, state) || "unknown";
+  const killerName = event.killerId ? resolvePlayerName(event.killerId, state) : "";
+  const localEntityId = state.players.get(ctx.localPlayerId)?.entityId;
   try {
-    HUDState.getInstance().processDeath(event);
+    HUDState.getInstance().processDeath(event, { killerName, victimName, localEntityId });
   } catch (e) {
     console.error("[Death] HUD processDeath error:", e);
   }
 
   // Push kill message to EventFeed
   try {
-    const victimName = resolvePlayerName(event.entityId, state) || "unknown";
-    const killerName = event.killerId ? resolvePlayerName(event.killerId, state) : null;
     if (killerName && event.killerId !== event.entityId) {
       import("../../../engine/ui/hud/EventFeed").then((m) => {
         m.EventFeed.getInstance().addKill(killerName, victimName, event.damageType);
@@ -755,7 +758,6 @@ function handleDeathEvent(ctx: GameEventContext, event: any, state: GameState): 
   // Local player death: the local player has no normal third-person model, so
   // create one for ragdoll deaths and bind the camera to the live ragdoll handle.
   // Gib deaths bind to the live gib burst centroid when the gib system is ready.
-  const localEntityId = state.players.get(ctx.localPlayerId)?.entityId;
   const isLocalDeath = event.entityId === localEntityId;
   if (
     !shouldGib &&
