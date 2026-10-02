@@ -236,17 +236,6 @@
   z-index: 1;
 }
 
-.lobby__rail > .lobby__rail-kanji {
-  position: absolute;
-  z-index: 0;
-  right: 12%;
-  bottom: 17%;
-  font: 400 clamp(180px, 19vw, 300px) / 0.8 serif;
-  color: hsla(30, 90%, 22%, 0.1);
-  pointer-events: none;
-  user-select: none;
-}
-
 .lobby__rail-brand {
   flex: 0 0 auto;
   padding: 0 calc(var(--rail-skew) + 16px) 16px 22px;
@@ -1250,7 +1239,6 @@
 
   .game-panel--rail .lobby__rail::after,
   .lobby__rail-brand,
-  .lobby__rail > .lobby__rail-kanji,
   .lobby__rail-player {
     display: none;
   }
