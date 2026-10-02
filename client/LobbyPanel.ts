@@ -205,12 +205,6 @@ export class LobbyPanel extends GamePanel {
     rail.setAttribute("aria-label", "Main menu");
     this.railEl = rail;
 
-    const kanji = document.createElement("div");
-    kanji.className = "lobby__rail-kanji";
-    kanji.setAttribute("aria-hidden", "true");
-    kanji.textContent = "闘";
-    rail.appendChild(kanji);
-
     rail.appendChild(buildRailBrand("lobby__rail-brand"));
 
     const nav = document.createElement("nav");
