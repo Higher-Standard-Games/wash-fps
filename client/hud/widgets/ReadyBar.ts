@@ -1,6 +1,5 @@
 // Extracted from FPSHud.ts
 
-import { CameraSystem } from "../../../../../engine/camera/CameraSystem";
 import { MatchStateManager } from "../../MatchStateManager";
 import type { FPSHudWidget, HUDState } from "../HudWidget";
 
@@ -23,10 +22,10 @@ export class FPSReadyBar implements FPSHudWidget {
     return this.element;
   }
 
-  public update(_state: HUDState): void {
+  public update(state: HUDState): void {
     const mgr = MatchStateManager.getInstance();
-    const controller = CameraSystem.getInstance()?.getActiveController();
-    const isSpectating = controller?.type === "freefly";
+    // A spectator has no F4 to press, whether chasing someone or flying free.
+    const isSpectating = state.watcher;
 
     if (mgr.isWarmup() && !isSpectating) {
       // Joined player: gold count cell + prompt with keycap chip

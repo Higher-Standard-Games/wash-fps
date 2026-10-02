@@ -120,13 +120,24 @@ export class HUDState {
   scoreboard: ScoreboardEntry[] = [];
   localPlayerId: string = "";
   /**
-   * Player currently being watched while dead, or "" when playing.
+   * Player whose eyes the view is behind — a teammate while dead, or the
+   * player a spectator is chasing — or "" when it is our own.
    *
    * The bomb's progress bar belongs to whoever has their hands on it — and to
    * anyone spectating them, which is how a dead defender still sees the defuse
    * they can no longer help with.
    */
   spectating: string = "";
+  /** We are a spectator rather than a player, chasing someone or flying free. */
+  watcher: boolean = false;
+
+  /**
+   * A spectator flying free, watching nobody. There is no player's health,
+   * weapon or ammo to show, and the defaults would read as somebody's.
+   */
+  get subjectless(): boolean {
+    return this.watcher && this.spectating === "";
+  }
   gametypeName: string = "";
   /**
    * Whether the gametype divides players into teams, straight from the server.

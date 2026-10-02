@@ -96,7 +96,7 @@ function seedPlayback(
   // A charge glow is disposed via disposeClusteredLight (WS1), which reads
   // light.getScene() to detach from the cluster — return null (unclustered).
   const glow = { dispose: vi.fn(), getScene: () => null };
-  const demoWvm = { dispose: vi.fn(), clearDemoBob: vi.fn(), setVisible: vi.fn() };
+  const demoWvm = { dispose: vi.fn(), clearFollowedBob: vi.fn(), setVisible: vi.fn() };
 
   Object.assign(service as unknown as Record<string, unknown>, {
     _demoWvm: demoWvm,
@@ -111,9 +111,11 @@ function seedPlayback(
     droppedWeaponRenderer: drops,
     latestState: {},
     _followedEntityId: `player_${generation}`,
-    _followedDead: true,
-    _lastDemoWeapon: "rocket",
   });
+  (service as unknown as { _followed: { follow(id: string, dead: boolean): void } })._followed.follow(
+    `player_${generation}`,
+    true,
+  );
   const internals = service as unknown as {
     demoOverlays: {
       bindKeyboard(target: Document): void;
@@ -217,14 +219,16 @@ describe("DemoService playback lifecycle", () => {
     const internals = service as unknown as {
       latestState: unknown;
       _followedEntityId: string | null;
-      _lastDemoWeapon: string | null;
+      _followed: { followedEntityId: string | null; isDead: boolean; presentation: unknown };
       _enemyWeapons: Map<string, string>;
       chargingPlayers: Set<string>;
       chargingGlows: Map<string, unknown>;
     };
     expect(internals.latestState).toBeNull();
     expect(internals._followedEntityId).toBeNull();
-    expect(internals._lastDemoWeapon).toBeNull();
+    expect(internals._followed.followedEntityId).toBeNull();
+    expect(internals._followed.isDead).toBe(false);
+    expect(internals._followed.presentation).toBeNull();
     expect(internals._enemyWeapons.size).toBe(0);
     expect(internals.chargingPlayers.size).toBe(0);
     expect(internals.chargingGlows.size).toBe(0);

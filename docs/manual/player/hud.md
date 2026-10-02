@@ -199,10 +199,19 @@ a team mode puts you on the side with fewer players.
 
 Flying free, a card at the bottom left lists the keys: move to fly, jump and
 crouch to rise and sink, sprint to go fast, fire to chase a player, **J** to
-join. Chasing a player, or watching a teammate after you die in a round mode,
-puts their name above the bottom of the HUD between **←** and **→**, which step
-to the previous and next player — as do fire and alt-fire while you watch a
-teammate.
+join. Health, armour, weapons and ammo are hidden while you fly free, since
+they would describe nobody. Chasing a player, or watching a teammate after you
+die in a round mode, puts their name above the bottom of the HUD between **←**
+and **→**, which step to the previous and next living player — as do fire and
+alt-fire while you watch a teammate.
+
+Watching someone shows their screen: their weapon in front of you, switching
+when they switch and flashing when they fire, swaying with their stride; their
+health, armour, weapons, ammo and powerup timer on the HUD; their footsteps,
+shots, pain and pickups heard as your own. When they die their weapon drops out
+of view and the camera waits where they fell. In a mode with respawns it picks
+them up when they come back; in a round mode it moves to the next living player
+after a few seconds. The demo viewer shows a followed player the same way.
 
 ## Settings Overlay
 

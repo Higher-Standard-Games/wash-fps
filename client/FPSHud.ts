@@ -531,6 +531,7 @@ export class FPSHud {
     for (const widget of this.widgets.values()) {
       widget.update(state);
     }
+    this.container?.classList.toggle("fps-hud--subjectless", state.subjectless);
 
     // The chat log is not a widget, so it never sees the state tick — but it
     // needs the viewer's side to tell a teammate's name from an opponent's.
