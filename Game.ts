@@ -2468,6 +2468,9 @@ export class Game {
     }
     this.simulation = null;
     this.resetServerProjectiles();
+    // Anything else in flight belonged to this match too: it ticks itself,
+    // and would keep updating trails the next map load disposes.
+    getProjectileManager().clear();
     this.isRunning = false;
     this.isNetworkMode = false;
     this.serverUrl = null;
@@ -2512,6 +2515,10 @@ export class Game {
 
     FPSHud.getInstance().destroy();
     Crosshair.getInstance().dispose();
+    // Each connection builds its own; one left behind stays on screen over
+    // the next session, or over a demo, with the last match's spectating bar.
+    this.spectatorOverlay?.destroy();
+    this.spectatorOverlay = null;
     MatchStateManager.destroy();
     HUDState.destroy();
 

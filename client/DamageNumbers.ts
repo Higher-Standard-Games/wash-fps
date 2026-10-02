@@ -191,7 +191,9 @@ export class DamageNumbers {
   // ========================================================================
 
   private getOrCreate(): DamageNumber {
-    // Reuse inactive
+    // A map change disposes every scene mesh and texture, these included, and
+    // a disposed DynamicTexture has no canvas to draw on. Drop those, reuse the rest.
+    this.numbers = this.numbers.filter((num) => !num.mesh.isDisposed() && num.texture.getContext() !== null);
     for (const num of this.numbers) {
       if (!num.active) return num;
     }
