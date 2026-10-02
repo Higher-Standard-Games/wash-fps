@@ -90,6 +90,8 @@ const GAME_MODES: GameMode[] = [
 
 /** Messages kept in the chat log; older ones scroll away for good. */
 const CHAT_LOG_LIMIT = 200;
+/** How long a spectator's Join waits on the lobby for a seat. */
+const DROP_IN_ANSWER_MS = 8000;
 
 const ACCENT_PROPERTIES = ["--accent", "--accent-hi", "--accent-lo", "--accent-side-hi", "--accent-side-lo"];
 
@@ -949,7 +951,10 @@ export class LobbyPanel extends GamePanel {
     this.matchListEl.replaceChildren(
       ...matches.map((match) => {
         const mode = GAME_MODES.find((item) => item.id === match.gametype);
-        const action = match.state === "playing" ? "watch" : joinable(match) ? "join" : "full";
+        // A match under way takes players while it has room, as a Quake or
+        // Warsow server does; a full one can still be watched.
+        const dropIn = match.state === "playing" && !!match.serverUrl && match.playerCount < match.maxPlayers;
+        const action = match.state === "playing" ? (dropIn ? "join" : "watch") : joinable(match) ? "join" : "full";
         const where =
           match.state === "playing" ? match.mapDisplayName || match.map : action === "full" ? "Starting" : "Open";
 
@@ -980,11 +985,42 @@ export class LobbyPanel extends GamePanel {
         if (action === "join") row.addEventListener("click", () => this.lobbyClient.joinLobby(match.id));
         const serverUrl = match.serverUrl;
         if (action === "watch" && serverUrl) {
-          row.addEventListener("click", () => new ConnectingOverlay().show(serverUrl, true));
+          // Join while watching asks this room for a seat, for when one frees up.
+          row.addEventListener("click", () =>
+            new ConnectingOverlay().show(serverUrl, true, undefined, undefined, () => this.requestDropIn(match.id)),
+          );
         }
         return row;
       }),
     );
+  }
+
+  /**
+   * Ask a running room for a seat, for a spectator pressing Join. Resolves
+   * once the lobby sends it, after which the room view hands the ticket to the
+   * game; rejects with the lobby's reason, such as a full match.
+   */
+  private requestDropIn(roomId: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const stop = () => {
+        offConnect();
+        offError();
+        clearTimeout(timer);
+      };
+      const offConnect = this.lobbyClient.on("lobby:connect", () => {
+        stop();
+        resolve();
+      });
+      const offError = this.lobbyClient.on("lobby:error", (msg) => {
+        stop();
+        reject(new Error(msg.error));
+      });
+      const timer = setTimeout(() => {
+        stop();
+        reject(new Error("The lobby did not answer."));
+      }, DROP_IN_ANSWER_MS);
+      this.lobbyClient.joinLobby(roomId);
+    });
   }
 
   private buildChatColumn(): HTMLElement {

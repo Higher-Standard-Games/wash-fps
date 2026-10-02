@@ -68,9 +68,11 @@ export interface FPSGameConfig {
   maxPlayers?: number;
   /** When true, auto-join the game after map loads (skip spectator overlay) */
   autoJoin?: boolean;
-  /** When true, enter pure spectator mode with auto-chase-cam (no join option) */
+  /** When true, enter as a spectator; Join is still there for a free seat */
   watchOnly?: boolean;
   admissionTicket?: string;
+  /** For a watcher of a lobby match: asks the lobby for a seat when they press Join */
+  requestSeat?: () => Promise<void>;
 }
 
 /**
@@ -126,6 +128,12 @@ const SPECTATE_AFTER_DEATH_MS = 3000;
  * Deathmatch, Duel and Team Deathmatch.
  */
 const CHASE_RESPAWN_WAIT_MS = 8000;
+
+/** Whether two game server URLs name the same server, ignoring case and a trailing slash. */
+function sameServer(a: string, b: string | null): boolean {
+  const normal = (url: string) => url.trim().replace(/\/+$/, "").toLowerCase();
+  return b !== null && normal(a) === normal(b);
+}
 
 /**
  * The side chosen in the lobby, if this session came from one.
@@ -606,6 +614,16 @@ export class Game {
   private _joinGametypeWaits = 0;
   /** Side selected for this game connection; never leaks into the next one. */
   private _preferredTeam: string | undefined;
+  /**
+   * Seat bookkeeping for a lobby match. A player handed a ticket at connect is
+   * seated. A watcher is not: pressing Join asks the lobby through
+   * `_seatRequest`, and the ticket that comes back waits in `_seatTicket`
+   * until JoinGame carries it.
+   */
+  private _seated = false;
+  private _seatTicket: string | null = null;
+  private _seatRequest: (() => Promise<void>) | null = null;
+  private _seatRequesting = false;
 
   private constructor() {
     // Register as the engine's per-frame game hook so camera controllers can
@@ -843,6 +861,9 @@ export class Game {
     // a later direct connect inheriting a side from an old lobby.
     this._preferredTeam = readLobbyTeam() ?? this._preferredTeam;
     console.log(`[Game] Lobby handoff team: ${this._preferredTeam ?? "none"}`);
+    this._seated = !!config.admissionTicket;
+    this._seatTicket = null;
+    this._seatRequest = config.requestSeat ?? null;
 
     const maxPlayers = config.maxPlayers ?? 16;
 
@@ -1058,6 +1079,10 @@ export class Game {
             this._joinPendingTimeout = null;
           }
         }
+        // Every server message is for the player: why a join was refused, a
+        // place in the queue, a round to wait for. Unsaid, Join reads as a key
+        // that does nothing.
+        this.showNotice(msg.message);
       });
 
       // Load player profile and connect with display name
@@ -1294,6 +1319,20 @@ export class Game {
       this._teamWasPicked = true;
     }
 
+    // A watcher of a lobby match has no seat on this server. The lobby hands
+    // one out while the match has room, and claimSeat() brings it back here.
+    if (this.playerState === "spectator" && !this._seated && !this._seatTicket && this._seatRequest) {
+      if (!this._seatRequesting) {
+        this._seatRequesting = true;
+        this._seatRequest()
+          .catch((error: unknown) => this.showNotice(error instanceof Error ? error.message : String(error)))
+          .finally(() => {
+            this._seatRequesting = false;
+          });
+      }
+      return;
+    }
+
     // Do not decide anything before the server has said what mode this is.
     //
     // The lobby's auto-join fires 200 ms after the map loads, which can beat
@@ -1347,7 +1386,7 @@ export class Game {
     console.log(
       `[Game] joinGame() — requesting team: ${this._preferredTeam ?? "auto-balance"}${this._teamWasPicked ? " (picked in-game)" : " (from lobby)"}`,
     );
-    networkHost.sendJoinGame(this._preferredTeam, this._teamWasPicked);
+    networkHost.sendJoinGame(this._preferredTeam, this._teamWasPicked, this._seatTicket ?? undefined);
     // Used, so the handoff is spent — a later direct connect in this tab must
     // not inherit it. The in-memory preference survives for keyboard rejoins.
     try {
@@ -1372,6 +1411,9 @@ export class Game {
    */
   private async completeJoinGame(): Promise<void> {
     this._joinPending = false;
+    // The server holds our account now; spectating and coming back needs no new seat.
+    this._seated = true;
+    this._seatTicket = null;
     if (this._joinPendingTimeout) {
       clearTimeout(this._joinPendingTimeout);
       this._joinPendingTimeout = null;
@@ -1478,6 +1520,24 @@ export class Game {
     const networkHost = this.gameHost as import("../../engine/network/client/hosts/NetworkGameHost").NetworkGameHost;
     networkHost.sendLoadout(primary, secondary);
     return true;
+  }
+
+  /**
+   * Take a seat the lobby issued for the match being watched, on the
+   * connection already open: no reconnect, no second map load. False when
+   * this is not a spectator connection to that server, so the caller connects.
+   */
+  claimSeat(serverUrl: string, admissionTicket: string): boolean {
+    if (!admissionTicket || !this.isConnectedToServer() || this.playerState !== "spectator") return false;
+    if (!sameServer(serverUrl, this.serverUrl)) return false;
+    this._seatTicket = admissionTicket;
+    void this.joinGame();
+    return true;
+  }
+
+  /** A line in the HUD chat for something the player should know, like a refused join. */
+  private showNotice(text: string): void {
+    if (text) FPSHud.getInstance().chat?.addNotice(text);
   }
 
   /**
@@ -2393,6 +2453,10 @@ export class Game {
     this._loadoutChosen = false;
     this._loadoutPicker?.destroy();
     this._loadoutPicker = null;
+    this._seated = false;
+    this._seatTicket = null;
+    this._seatRequest = null;
+    this._seatRequesting = false;
 
     if (this.gameHost) {
       // Disconnect if in network mode

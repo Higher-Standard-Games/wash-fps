@@ -100,17 +100,20 @@ export class FPSPhaseMessage implements FPSHudWidget {
     return this.element;
   }
 
-  public update(_state: HUDState): void {
+  public update(state: HUDState): void {
     const mgr = MatchStateManager.getInstance();
 
     // During warmup: keep showing (update gametype if it changes)
     if (mgr.isWarmup()) {
       // The ready prompt is the point of the message. Warmup ends when everyone
       // readies, so a player who is not told how to ready is the reason the
-      // whole lobby sits through a two-minute timeout.
-      const ready = mgr.isReady
-        ? `<div class="fps-phase-ready">Waiting for others…</div>`
-        : `<div class="fps-phase-ready">Press <span class="fps-keycap">${getActionKeyLabel(FPS.READY)}</span> to ready up</div>`;
+      // whole lobby sits through a two-minute timeout. A spectator has nothing
+      // to ready; the ready bar's Spectating plate stands in that line.
+      const ready = state.watcher
+        ? ""
+        : mgr.isReady
+          ? `<div class="fps-phase-ready">Waiting for others…</div>`
+          : `<div class="fps-phase-ready">Press <span class="fps-keycap">${getActionKeyLabel(FPS.READY)}</span> to ready up</div>`;
       this.showHtml(
         `<div class="fps-phase-title">Warmup</div><div class="fps-phase-subtitle">${mgr.gametypeName}</div>${ready}`,
       );

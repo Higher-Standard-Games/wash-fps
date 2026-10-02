@@ -18,6 +18,8 @@ export interface ChatMessage {
   /** Server team id ("udon" / "soba" / "spectator" / "") — colors the sender stamp. */
   team: string;
   timestamp: number;
+  /** From the game rather than a player: no sender stamp. */
+  notice?: boolean;
 }
 
 export class FPSChat {
@@ -85,7 +87,10 @@ export class FPSChat {
   }
 
   public addMessage(sender: string, text: string, team: string = ""): void {
-    const msg: ChatMessage = { sender, text, team, timestamp: performance.now() };
+    this.push({ sender, text, team, timestamp: performance.now() });
+  }
+
+  private push(msg: ChatMessage): void {
     this.messages.push(msg);
     if (this.messages.length > FPSChat.HISTORY_MAX) {
       this.messages.shift();
@@ -102,19 +107,29 @@ export class FPSChat {
     }
   }
 
+  /** A line from the game rather than a player, such as why a join was refused. */
+  public addNotice(text: string): void {
+    this.push({ sender: "", text, team: "", timestamp: performance.now(), notice: true });
+  }
+
   private renderMessage(msg: ChatMessage, withFade: boolean): HTMLElement {
     const el = document.createElement("div");
     el.className = "fps-chat-message";
 
-    const senderEl = document.createElement("span");
-    senderEl.className = "fps-chat-sender";
-    // Allegiance, not team name — a teammate's name is the ally colour whichever
-    // side you are on this half.
-    if (msg.team === "spectator") senderEl.classList.add("fps-chat-sender--spec");
-    else if (msg.team && this.localTeam && msg.team === this.localTeam) senderEl.classList.add("fps-chat-sender--ally");
-    else if (msg.team) senderEl.classList.add("fps-chat-sender--enemy");
-    senderEl.textContent = msg.sender;
-    el.appendChild(senderEl);
+    if (msg.notice) {
+      el.classList.add("fps-chat-message--notice");
+    } else {
+      const senderEl = document.createElement("span");
+      senderEl.className = "fps-chat-sender";
+      // Allegiance, not team name — a teammate's name is the ally colour whichever
+      // side you are on this half.
+      if (msg.team === "spectator") senderEl.classList.add("fps-chat-sender--spec");
+      else if (msg.team && this.localTeam && msg.team === this.localTeam)
+        senderEl.classList.add("fps-chat-sender--ally");
+      else if (msg.team) senderEl.classList.add("fps-chat-sender--enemy");
+      senderEl.textContent = msg.sender;
+      el.appendChild(senderEl);
+    }
 
     const textEl = document.createElement("span");
     textEl.className = "fps-chat-text";

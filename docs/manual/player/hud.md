@@ -83,7 +83,7 @@ The crosshair briefly flashes to `cg_crosshairDmgColor` for ~200 ms when your sh
 
 ## Chat (bottom-left)
 
-Recent chat messages float here and fade after ~8 seconds. Press **T** to talk — the panel expands into a scrollable history dialog. See [In-Game Chat](../multiplayer/chat.md).
+Recent chat messages float here, just above the health and weapon bar, and fade after ~8 seconds. Lines from the game itself — why a join was refused, your place in the challengers queue, a round to wait for — appear among them in gold, without a name. Press **T** to talk — the panel expands into a scrollable history dialog. See [In-Game Chat](../multiplayer/chat.md).
 
 ## Event Feed / Kill Feed (top-left)
 

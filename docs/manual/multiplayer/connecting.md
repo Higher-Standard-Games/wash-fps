@@ -28,6 +28,18 @@ Rooms you can join are listed down the left rail. The Leaderboard shows your
 rank in every mode in its rail, and Profile shows your ranked record beside
 your key.
 
+### Joining a match under way
+
+A match that has started still takes players while it has room. Its key in the
+rail reads **join**, and pressing it puts you straight into the match, on the
+smaller side in a team mode. A full match reads **watch**: you spectate, and
+pressing **J** (or **Join** in the match menu) asks for a place. When one has
+freed up you are in at once, on the connection you are watching from. When the
+match is still full, the chat says so. In a Duel whose two sides are taken —
+including a side held for a player who dropped — you are put in the challengers
+queue and brought in when it frees. In a round mode you join dead and play from
+the next round.
+
 ### In the Ready Room
 
 | Action | How it resolves |
@@ -97,7 +109,8 @@ If you drop mid-match, your seat is held for 20 seconds and the server hands you
 
 A match started through the lobby is ticketed, as above. A `connect` typed at
 the console carries no ticket: the server lets it watch, but a playing seat
-belongs to a ticket, so it cannot take one.
+belongs to a ticket, so it cannot take one. Watching from the lobby's rail is
+different: there, Join asks the lobby for a seat.
 
 For now, the engine's Networking Guide (`docs/manual/guides/networking.md` in
 the engine repo) covers the underlying mechanics, and its Lobby Server guide

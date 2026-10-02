@@ -19,6 +19,8 @@ Chat is disabled while the match menu, settings, or console is open, so **T** th
 
 Sender names are colour-stamped by allegiance rather than by side: teammates in one colour, opponents in the other, whichever side you are on this half. Spectators are greyed.
 
+Lines from the game rather than a player — why a join was refused, your place in the challengers queue, a round to wait for — have no name and are written in gold.
+
 ## Rules
 
 - Messages are limited to **128 characters**.

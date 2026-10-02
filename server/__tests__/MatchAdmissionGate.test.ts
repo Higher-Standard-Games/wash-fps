@@ -1,8 +1,9 @@
-import { issueMatchAdmission } from "@engine/server/network/MatchAdmission";
+import { issueDropInSeat, issueMatchAdmission } from "@engine/server/network/MatchAdmission";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MessageType } from "../../../../engine/network/protocol/BinaryProtocol";
 import { MessageCodec } from "../../../../engine/network/protocol/MessageCodec";
 import { GameServer, type GameServerConfig } from "../GameServer";
+import { Duel } from "../gametypes/Duel";
 import { TeamDeathmatch } from "../gametypes/TeamDeathmatch";
 import { ProtocolTestClient } from "./_protocolTestClient";
 
@@ -128,5 +129,128 @@ describe("game-server match admission", () => {
     replay.send(MessageCodec.encodeJoin("Late Alice", false, recoveryTickets.get(28)!.ticket));
     await expect(replay.waitForType(MessageType.JoinAccept, 100)).rejects.toThrow("timed out");
     expect(server.getGametypeController().getMatchState().totalPlayers).toBe(1);
+  });
+
+  it("seats a spectator who drops in on the connection it already has", async () => {
+    const { manifest } = issueMatchAdmission("match-drop", [
+      { lobbyPlayerId: "p1", accountId: 12, name: "Alice", team: "udon", isBot: false },
+    ]);
+    server = new GameServer(
+      {
+        port: 0,
+        serverName: "drop-in",
+        mapName: "test",
+        maxClients: 4,
+        tickRate: 125,
+        snapshotRate: 60,
+        certPath: "",
+        keyPath: "",
+        matchAdmission: manifest,
+      },
+      new TeamDeathmatch(),
+    );
+    await server.start();
+    const watcher = await ProtocolTestClient.connect(server.getPort());
+    clients.push(watcher);
+    watcher.send(MessageCodec.encodeJoin("Watcher"));
+    const accept = MessageCodec.decodeJoinAccept(await watcher.waitForType(MessageType.JoinAccept));
+
+    // The lobby's seat arrives over the server's stdin; the player's ticket
+    // over their own connection. A side picked in-game gives way to the seat's.
+    const seat = issueDropInSeat({ accountId: 30, name: "Late Bob", team: "soba", isBot: false });
+    expect(server.admitSeat(seat.grants)).toBe(true);
+    expect(server.admitSeat(issueDropInSeat({ accountId: 30, name: "Again", team: "udon", isBot: false }).grants)).toBe(
+      false,
+    );
+    watcher.send(MessageCodec.encodeJoinGame("udon", true, seat.ticket));
+    await watcher.waitFor((frame) => {
+      if (frame[0] !== MessageType.Snapshot) return false;
+      try {
+        return MessageCodec.decodeSnapshot(frame).entities.has(accept.entityId);
+      } catch {
+        return false;
+      }
+    }, 4000);
+    const id = Number(accept.playerId.replace("player_", "")) as never;
+    expect(server.getGametypeController().getMatchState().getPlayerTeam(id)).toBe("soba");
+    const active = (server as unknown as { clients: Map<string, { accountId?: number; playerName: string }> }).clients;
+    expect([...active.values()].some((client) => client.accountId === 30 && client.playerName === "Late Bob")).toBe(
+      true,
+    );
+
+    // The ticket is spent: nobody else can sit in that seat.
+    const other = await ProtocolTestClient.connect(server.getPort());
+    clients.push(other);
+    other.send(MessageCodec.encodeJoin("Other"));
+    await other.waitForType(MessageType.JoinAccept);
+    other.send(MessageCodec.encodeJoinGame(undefined, false, seat.ticket));
+    const refusal = MessageCodec.decodeServerMessage(await other.waitForType(MessageType.ServerMessage));
+    expect(refusal.message).toBe("That seat is no longer available.");
+    expect(server.getGametypeController().getMatchState().totalPlayers).toBe(1);
+  });
+
+  it("queues a drop-in to a duel whose sides are taken, and brings them in when one frees", async () => {
+    const { manifest, tickets } = issueMatchAdmission("match-duel", [
+      { lobbyPlayerId: "p1", accountId: 12, name: "Alice", team: "ffa", isBot: false },
+      { lobbyPlayerId: "p2", accountId: 13, name: "Carol", team: "ffa", isBot: false },
+    ]);
+    server = new GameServer(
+      {
+        port: 0,
+        serverName: "duel-drop-in",
+        mapName: "test",
+        maxClients: 4,
+        tickRate: 125,
+        snapshotRate: 60,
+        certPath: "",
+        keyPath: "",
+        matchAdmission: manifest,
+      },
+      new Duel(),
+    );
+    await server.start();
+    const players: ProtocolTestClient[] = [];
+    for (const seat of ["p1", "p2"]) {
+      const client = await ProtocolTestClient.connect(server.getPort());
+      clients.push(client);
+      players.push(client);
+      client.send(MessageCodec.encodeJoin(seat, false, tickets.get(seat)));
+      const accept = MessageCodec.decodeJoinAccept(await client.waitForType(MessageType.JoinAccept));
+      client.send(MessageCodec.encodeJoinGame());
+      await client.waitFor((frame) => {
+        if (frame[0] !== MessageType.Snapshot) return false;
+        try {
+          return MessageCodec.decodeSnapshot(frame).entities.has(accept.entityId);
+        } catch {
+          return false;
+        }
+      }, 4000);
+    }
+
+    const watcher = await ProtocolTestClient.connect(server.getPort());
+    clients.push(watcher);
+    watcher.send(MessageCodec.encodeJoin("Watcher"));
+    const accept = MessageCodec.decodeJoinAccept(await watcher.waitForType(MessageType.JoinAccept));
+    const seat = issueDropInSeat({ accountId: 30, name: "Late Bob", team: "ffa", isBot: false });
+    expect(server.admitSeat(seat.grants)).toBe(true);
+    watcher.send(MessageCodec.encodeJoinGame(undefined, false, seat.ticket));
+    const queued = MessageCodec.decodeServerMessage(await watcher.waitForType(MessageType.ServerMessage));
+    expect(queued).toEqual({ type: "queue", message: "Both sides are taken. You are #1 in the challengers queue." });
+
+    // Carol drops; her side is held for her, then given up when she does not return.
+    await players[1].close();
+    await vi.waitFor(() => expect((server as unknown as { suspended: { size: number } }).suspended.size).toBe(1));
+    const later = Date.now() + 60_000;
+    vi.spyOn(Date, "now").mockReturnValue(later);
+    (server as unknown as { expireSuspendedSessions(): void }).expireSuspendedSessions();
+    vi.restoreAllMocks();
+    await watcher.waitFor((frame) => {
+      if (frame[0] !== MessageType.Snapshot) return false;
+      try {
+        return MessageCodec.decodeSnapshot(frame).entities.has(accept.entityId);
+      } catch {
+        return false;
+      }
+    }, 4000);
   });
 });
