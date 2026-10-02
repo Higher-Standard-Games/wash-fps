@@ -509,6 +509,15 @@ export class GameServer {
   }
 
   /**
+   * Take a drop-in seat the lobby issued while the match runs. False when this
+   * server admits nobody, the match is over, or the grants are refused.
+   */
+  admitSeat(grants: readonly unknown[]): boolean {
+    if (!this.matchAdmission || this.gametypeController.getPhase() === MatchPhase.PostGame) return false;
+    return this.matchAdmission.admit(grants);
+  }
+
+  /**
    * Spawn N bots at random spawn points.
    */
   spawnBots(count: number): EntityId[] {
@@ -1127,8 +1136,8 @@ export class GameServer {
       // Handle JoinGame message (spectator → player)
       if (msgType === MessageType.JoinGame) {
         this.msgCounts.joinGame++;
-        const { teamId, manualPick } = MessageCodec.decodeJoinGame(data);
-        this.handleJoinGame(conn, teamId, false, manualPick);
+        const { teamId, manualPick, admissionTicket } = MessageCodec.decodeJoinGame(data);
+        this.handleJoinGame(conn, teamId, false, manualPick, admissionTicket);
         return;
       }
 
@@ -1414,12 +1423,32 @@ export class GameServer {
    * handleJoinGame — spectator → player transition.
    * Creates the player entity and spawns them into the match.
    */
-  private handleJoinGame(conn: ClientConnection, teamId?: string, fromQueue = false, manualPick = false): void {
+  private handleJoinGame(
+    conn: ClientConnection,
+    teamId?: string,
+    fromQueue = false,
+    manualPick = false,
+    admissionTicket?: string,
+  ): void {
     const client = this.clients.get(conn.id);
     if (!client) return;
     if (this.matchAdmission && this.gametypeController.getPhase() === MatchPhase.PostGame) {
       conn.sendReliable(MessageCodec.encodeServerMessage("This match has ended.", "error"));
       return;
+    }
+    // A spectator taking a seat the lobby handed out while the match runs:
+    // the same claim the connect handshake makes, on the connection they have.
+    if (this.matchAdmission && client.accountId === undefined && admissionTicket) {
+      const grant = this.matchAdmission.consume(admissionTicket);
+      if (!grant || grant.isBot || grant.accountId === null) {
+        conn.sendReliable(MessageCodec.encodeServerMessage("That seat is no longer available.", "error"));
+        return;
+      }
+      client.accountId = grant.accountId;
+      client.playerName = grant.name;
+      client.seatTeam = grant.team;
+      client.preGameAdmissionGrant = grant;
+      console.log(`[GameServer] Player ${client.playerId} took a drop-in seat as ${grant.name}`);
     }
     if (this.matchAdmission && client.accountId === undefined) {
       conn.sendReliable(MessageCodec.encodeServerMessage("A match ticket is required to play.", "error"));
@@ -1485,6 +1514,15 @@ export class GameServer {
     );
     if (!spawnPoint) {
       console.log(`[GameServer] Player ${client.playerId} assigned to spectator, skipped physical spawn.`);
+      // Both duel sides are taken, by players here or by a seat held for one
+      // who dropped. Queue the player, so the side is theirs when it frees,
+      // and tell them; a silent refusal reads as a Join key that does nothing.
+      if (!fromQueue && !client.isBot) {
+        if (!this.challengersQueue.includes(conn.id)) this.challengersQueue.push(conn.id);
+        const queuePos = this.challengersQueue.indexOf(conn.id) + 1;
+        const msg = `Both sides are taken. You are #${queuePos} in the challengers queue.`;
+        conn.sendDatagram(MessageCodec.encodeServerMessage(msg, "queue"));
+      }
       return;
     }
 
@@ -1625,6 +1663,18 @@ export class GameServer {
           `[GameServer.handleInput] Player ${client.playerId}: buttons=${buttons} (raw command.buttons=${command.buttons}), seq=${seq}`,
         );
       }
+      // A demo records what a person did, not only what the server simulated:
+      // the command is written alongside the state it produced, so training on
+      // a recording does not have to guess which buttons caused the motion.
+      this.demoRecorder?.recordInput(String(client.playerId), {
+        buttons,
+        yaw: clean.yaw,
+        pitch: clean.pitch,
+        forward: clean.direction.z,
+        right: clean.direction.x,
+        weaponSlot: clean.weaponSlot,
+      });
+
       mutEntity.input.inputQueue.push({
         forward: clean.direction.z,
         right: clean.direction.x,

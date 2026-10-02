@@ -1,85 +1,7 @@
 /**
- * Identity.css — the Profile page and the Welcome screen: a name, the key that
- * opens the account anywhere, and the way into another one.
+ * Identity.css — the Welcome and Profile screens, both on the gold panel: a
+ * name, the key that opens the account anywhere, and the way into another one.
  */
-
-/* ── Cards on the stage ── */
-
-.lobby-card {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 18px 22px 20px;
-  box-sizing: border-box;
-  background: linear-gradient(180deg, hsla(250, 40%, 11%, 0.72), hsla(250, 44%, 7%, 0.82));
-  border: 1.5px solid hsla(276, 90%, 64%, 0.32);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
-  clip-path: polygon(0 0, calc(100% - 22px) 0, 100% 22px, 100% 100%, 0 100%);
-}
-
-.lobby-card__head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 14px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid hsla(276, 90%, 64%, 0.2);
-}
-
-.lobby-card__title {
-  margin: 0;
-  font: 900 14px / 1 var(--w-font-display, "Orbitron", monospace);
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--cream);
-}
-
-.lobby-card__hint {
-  font: 700 12px / 1 var(--w-font-body, "Rajdhani", sans-serif);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: hsla(45, 100%, 95%, 0.5);
-}
-
-.lobby-card__form {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 16px;
-}
-
-.lobby-card__form .identity-slot {
-  flex: 1;
-  min-width: 260px;
-}
-
-.lobby-card__form .raised-key {
-  margin-top: 14px;
-}
-
-.lobby-card__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.lobby-card__note,
-.lobby-card__empty {
-  margin: 0;
-  max-width: 60ch;
-  font: 600 15px / 1.35 var(--w-font-body, "Rajdhani", sans-serif);
-  color: hsla(45, 100%, 95%, 0.55);
-}
-
-/* Before the lobby has made a key, the plate and its actions have nothing to show */
-.lobby-card--empty :is(.keyplate, .lobby-card__actions, .identity-warn) {
-  display: none;
-}
-
-.lobby-card:not(.lobby-card--empty) .lobby-card__empty {
-  display: none;
-}
 
 /* ── The slot you type into: cut into the surface, not stood on it ── */
 
@@ -186,31 +108,35 @@
   max-width: 60ch;
   margin: 0;
   padding: 12px 16px 12px 18px;
-  font: 600 15px / 1.35 var(--w-font-body, "Rajdhani", sans-serif);
-  color: hsla(45, 100%, 95%, 0.75);
-  background: hsla(46, 100%, 60%, 0.07);
-  border-left: 5px solid var(--gold-text);
+  font: 600 16px / 1.35 var(--w-font-body, "Rajdhani", sans-serif);
+  color: hsla(250, 45%, 8%, 0.82);
+  background: hsla(250, 45%, 8%, 0.08);
+  border-left: 5px solid var(--ink);
+}
+
+.identity-warn[hidden] {
+  display: none;
 }
 
 .identity-warn b {
-  color: var(--cream);
+  color: var(--ink);
 }
 
-/* ── The key itself: a gold plate, blurred until it's asked for ── */
+/* ── The key itself: a dark plate on the gold, blurred until it's asked for ── */
 
 .keyplate {
   position: relative;
   display: grid;
   grid-template-columns: auto 1fr;
   align-items: center;
-  gap: 14px 20px;
-  padding: 20px 26px 22px 24px;
-  color: var(--ink);
-  background:
-    radial-gradient(120% 60% at 20% 0%, hsla(54, 100%, 82%, 0.75), transparent 60%),
-    linear-gradient(172deg, hsl(46 100% 58%), hsl(41 96% 49%));
-  box-shadow: 5px 6px 0 hsla(28, 90%, 14%, 0.4);
+  gap: 18px 22px;
+  padding: 24px 30px 24px 28px;
+  background: linear-gradient(180deg, hsl(250 40% 6%), hsl(250 34% 12%));
   clip-path: polygon(0 0, calc(100% - 22px) 0, 100% 22px, 100% 100%, 0 100%);
+}
+
+.keyplate[hidden] {
+  display: none;
 }
 
 .keyplate__who {
@@ -218,28 +144,29 @@
   font: 700 12px / 1 var(--w-font-body, "Rajdhani", sans-serif);
   letter-spacing: 0.28em;
   text-transform: uppercase;
-  color: hsla(250, 45%, 8%, 0.55);
+  color: hsla(45, 100%, 95%, 0.45);
 }
 
 .keyplate__who b {
   font-family: var(--w-font-display, "Orbitron", monospace);
   letter-spacing: 0.1em;
-  color: var(--ink);
+  color: var(--gold-text);
 }
 
 .keyplate__prefix {
   font: 800 16px / 1 var(--w-font-display, "Orbitron", monospace);
   letter-spacing: 0.08em;
-  color: hsla(250, 45%, 8%, 0.5);
+  color: hsla(46, 100%, 60%, 0.5);
 }
 
 .keyplate__groups {
   display: grid;
   grid-template-columns: repeat(3, auto);
   justify-content: start;
-  gap: 8px 20px;
-  font: 800 clamp(18px, 1.7vw, 28px) / 1 var(--w-font-display, "Orbitron", monospace);
+  gap: 10px 22px;
+  font: 800 clamp(22px, 1.9vw, 32px) / 1 var(--w-font-display, "Orbitron", monospace);
   letter-spacing: 0.1em;
+  color: var(--gold-text);
   transition: filter 0.3s ease;
 }
 
@@ -250,14 +177,14 @@
 
 .keyplate__reveal {
   position: absolute;
-  right: 16px;
+  right: 18px;
   bottom: 14px;
   padding: 6px 12px;
   font: 800 11px / 1 var(--w-font-display, "Orbitron", monospace);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--cream);
-  background: hsla(276, 90%, 40%, 0.75);
+  background: hsla(276, 90%, 64%, 0.22);
   border: 0;
   cursor: pointer;
   clip-path: polygon(8% 0, 100% 0, 92% 100%, 0 100%);
@@ -266,30 +193,6 @@
 .keyplate__reveal:hover,
 .keyplate__reveal:focus-visible {
   background: var(--violet);
-}
-
-/* ── Profile page ── */
-
-.lobby__profile {
-  overflow-y: auto;
-}
-
-/* A name can be long, so its backdrop word is smaller than a mode's */
-.lobby__profile .lobby__ghost {
-  font-size: clamp(110px, 12vw, 240px);
-}
-
-.lobby__profile-columns {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
-  align-items: start;
-  gap: 26px;
-}
-
-@media (max-width: 1100px) {
-  .lobby__profile-columns {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* ── Welcome ── */
@@ -310,10 +213,14 @@
   display: flex;
   flex: 0 0 60%;
   flex-direction: column;
-  justify-content: center;
+  /* Centred while it fits; taller than the screen, it starts at the top and scrolls */
+  justify-content: safe center;
   padding: 36px calc(var(--rail-skew) + 56px) 36px 60px;
   box-sizing: border-box;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* The slanted edge would cut a scrollbar in half; the wheel and focus still scroll */
+  scrollbar-width: none;
   color: var(--ink);
   background:
     radial-gradient(120% 55% at 25% 0%, hsla(54, 100%, 78%, 0.55), transparent 62%),
@@ -435,6 +342,26 @@
   font-size: 34px;
 }
 
+.welcome__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.welcome__actions[hidden] {
+  display: none;
+}
+
+.welcome__actions .raised-key__face {
+  min-height: 54px;
+  padding: 0 24px 0 26px;
+}
+
+.welcome__actions .raised-key__label {
+  font-size: 15px;
+  letter-spacing: 0.1em;
+}
+
 .welcome__go {
   display: flex;
   flex-wrap: wrap;
@@ -510,6 +437,26 @@
   -webkit-text-stroke: 2px hsla(182, 95%, 52%, 0.26);
 }
 
+/* A name can be long, so its backdrop word is smaller than a greeting */
+.welcome--profile .welcome__stage .lobby__ghost {
+  font-size: clamp(110px, 12vw, 240px);
+}
+
+/* Opening from the rail: the panel starts at the rail's width, then grows */
+.welcome--entering,
+.welcome--entering .welcome__panel,
+.welcome--entering :is(.welcome__inner, .welcome__stage) {
+  transition: none;
+}
+
+.welcome--entering .welcome__panel {
+  flex-basis: clamp(300px, 26vw, 520px);
+}
+
+.welcome--entering :is(.welcome__inner, .welcome__stage) {
+  opacity: 0;
+}
+
 /* Leaving: the panel narrows onto the rail beneath it, and the rest fades */
 .welcome--leaving {
   opacity: 0;
@@ -527,6 +474,39 @@
 @media (max-width: 1100px) {
   .welcome__panel {
     flex-basis: 78%;
+  }
+}
+
+/* A short screen: a smaller logo, tighter screens and keys */
+@media (max-height: 820px) {
+  .welcome__panel {
+    padding-top: 24px;
+    padding-bottom: 24px;
+  }
+
+  .welcome__logo {
+    max-width: 300px;
+    margin-bottom: 4px;
+  }
+
+  .welcome__screen {
+    gap: 12px;
+  }
+
+  .welcome__title {
+    font-size: clamp(32px, 3.2vw, 52px);
+  }
+
+  .welcome .identity-slot__box {
+    height: 72px;
+  }
+
+  .raised-key--go .raised-key__face {
+    min-height: 74px;
+  }
+
+  .keyplate {
+    padding: 18px 26px 18px 24px;
   }
 }
 
@@ -570,9 +550,48 @@
   }
 }
 
-/* ── Your record: one line per mode the lobby ranks you in ── */
+/* ── Your record, on the stage: one line per mode the lobby ranks you in ── */
 
 .profile-record {
+  position: absolute;
+  z-index: 1;
+  top: 64px;
+  right: 56px;
+  left: calc(var(--rail-skew) + 56px);
+  max-width: 560px;
+  color: var(--cream, hsl(45 100% 95%));
+}
+
+.profile-record__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1.5px solid hsla(276, 90%, 64%, 0.35);
+}
+
+.profile-record__head h2 {
+  margin: 0;
+  font: 900 15px / 1 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.profile-record__head span {
+  font: 700 12px / 1 var(--w-font-body, "Rajdhani", sans-serif);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: hsla(45, 100%, 95%, 0.45);
+}
+
+.profile-record__status {
+  margin: 12px 0;
+  font: 600 16px / 1.35 var(--w-font-body, "Rajdhani", sans-serif);
+  color: hsla(45, 100%, 95%, 0.7);
+}
+
+.profile-record__rows {
   display: flex;
   flex-direction: column;
 }
@@ -587,7 +606,6 @@
   padding: 7px 12px;
   border-bottom: 1px solid hsla(182, 65%, 48%, 0.28);
   background: hsla(250, 45%, 7%, 0.7);
-  color: var(--cream, hsl(45 100% 95%));
   font: 700 15px / 1.2 var(--w-font-body, "Rajdhani", sans-serif);
 }
 
@@ -606,6 +624,13 @@
 .profile-record__rank {
   font: 900 17px / 1 var(--w-font-display, "Orbitron", monospace);
   color: hsl(45 100% 60%);
+}
+
+/* Beside a narrow panel there is no room for the record: the stage is too thin */
+@media (max-width: 1100px) {
+  .profile-record {
+    display: none;
+  }
 }
 
 @media (max-width: 700px) {

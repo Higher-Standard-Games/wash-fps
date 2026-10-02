@@ -6,15 +6,15 @@ import type { FPSHudWidget, HUDState } from "../HudWidget";
 // =============================================================================
 
 /**
- * FPSFragMessage - "You fragged PLAYER" center screen message
+ * FPSFragMessage - "FRAGGED PLAYER" center screen message
  *
- * Reads kill feed and shows a message when the local player gets a kill.
+ * Reads the kill feed and shows a message when the local player takes a frag.
  * Auto-removes after animation completes.
  */
 export class FPSFragMessage implements FPSHudWidget {
   private element: HTMLElement;
-  private lastKillCount: number = 0;
-  private localPlayerId: string = "";
+  /** Highest kill feed `seq` already looked at; the feed's length cannot say */
+  private seenSeq: number | null = null;
 
   constructor() {
     this.element = document.createElement("div");
@@ -25,33 +25,25 @@ export class FPSFragMessage implements FPSHudWidget {
     this.element.style.gap = "4px";
   }
 
-  /**
-   * Set the local player ID for detecting own kills
-   */
-  public setLocalPlayerId(id: string): void {
-    this.localPlayerId = id;
-  }
-
   public getElement(): HTMLElement {
     return this.element;
   }
 
   public update(state: HUDState): void {
     const feed = state.killFeed;
-    if (feed.length === this.lastKillCount) return;
-
-    // Check new entries for kills by local player
-    const newEntries = feed.slice(this.lastKillCount);
-    this.lastKillCount = feed.length;
-
-    for (const kill of newEntries) {
-      // Skip if we don't know localPlayerId yet
-      if (!this.localPlayerId) continue;
-      if (kill.killerId !== this.localPlayerId) continue;
-      if (kill.killerId === kill.victimId) continue; // No self-kill message
-
-      this.showFragMessage(kill.victimId);
+    const newest = feed.length > 0 ? feed[feed.length - 1].seq : 0;
+    // Frags already in the feed when the HUD came up are someone else's news
+    if (this.seenSeq === null) {
+      this.seenSeq = newest;
+      return;
     }
+    if (newest <= this.seenSeq) return;
+
+    for (const kill of feed) {
+      if (kill.seq <= this.seenSeq) continue;
+      if (kill.byLocal && !kill.ofLocal) this.showFragMessage(kill.victimName);
+    }
+    this.seenSeq = newest;
   }
 
   private showFragMessage(victimName: string): void {

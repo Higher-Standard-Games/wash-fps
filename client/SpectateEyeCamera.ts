@@ -36,7 +36,14 @@ export interface SpectateEyeSample {
   pitch: number;
   /** Eye offset above the origin. Defaults to the standing height. */
   eyeHeight?: number;
+  /** Camera-local stride sway, as the watched player's own screen moved. */
+  bobRight?: number;
+  bobUp?: number;
+  pitchOffsetDegrees?: number;
+  rollDegrees?: number;
 }
+
+const DEG = Math.PI / 180;
 
 /** Resolves the current sample, or null while the target is unavailable. */
 export type SpectateEyeProvider = () => SpectateEyeSample | null;
@@ -78,6 +85,8 @@ export class SpectateEyeCamera {
   private readonly pos = new Vector3();
   private yaw = 0;
   private pitch = 0;
+  /** Sway from the latest sample, laid over the smoothed pose rather than smoothed itself. */
+  private sway = { right: 0, up: 0, pitch: 0, roll: 0 };
 
   get isActive(): boolean {
     return this.active;
@@ -102,6 +111,7 @@ export class SpectateEyeCamera {
     this.active = true;
     this.provider = provider;
     this.primed = false;
+    this.sway = { right: 0, up: 0, pitch: 0, roll: 0 };
 
     const sane = this.sane(seed ?? null);
     if (sane) {
@@ -135,6 +145,12 @@ export class SpectateEyeCamera {
     }
 
     const eyeY = sample.y + (sample.eyeHeight ?? DEFAULT_VIEWHEIGHT);
+    this.sway = {
+      right: sample.bobRight ?? 0,
+      up: sample.bobUp ?? 0,
+      pitch: (sample.pitchOffsetDegrees ?? 0) * DEG,
+      roll: (sample.rollDegrees ?? 0) * DEG,
+    };
 
     if (!this.primed) {
       this.snapTo(sample, eyeY);
@@ -166,11 +182,17 @@ export class SpectateEyeCamera {
   }
 
   private write(camera: SpectateEyeTarget): void {
-    camera.position.copyFrom(this.pos);
-    // Roll is pinned to zero. The FPS controller writes a death roll into this
-    // same camera on its way here, and a spectator view that inherits it is a
-    // screen stuck permanently sideways.
-    camera.rotation.set(this.pitch, this.yaw, 0);
+    // Sideways sway follows the camera's own right axis, as the local view does.
+    const { right, up, pitch, roll } = this.sway;
+    camera.position.set(
+      this.pos.x + Math.cos(this.yaw) * right,
+      this.pos.y + up,
+      this.pos.z - Math.sin(this.yaw) * right,
+    );
+    // Roll is only ever the stride's. The FPS controller writes a death roll
+    // into this same camera on its way here, and a spectator view that
+    // inherits it is a screen stuck permanently sideways.
+    camera.rotation.set(this.pitch + pitch, this.yaw, roll);
   }
 
   /** Reject a sample that would put the camera somewhere undefined. */

@@ -24,6 +24,12 @@ import * as path from "node:path";
 import * as zlib from "node:zlib";
 import type { GameState } from "../../../engine/network/core/GameState";
 import { BinaryEncoder, BinaryProtocol } from "../../../engine/network/protocol/BinaryProtocol";
+import {
+  type AppliedCommand,
+  aggregateCommand,
+  encodeInputs,
+  type RecordedInput,
+} from "../../../shared/demo/DemoInputs";
 
 // ── Magic & Version ─────────────────────────────────────────────────────
 
@@ -31,7 +37,7 @@ import { BinaryEncoder, BinaryProtocol } from "../../../engine/network/protocol/
 const DEMO_MAGIC = new Uint8Array([0x53, 0x48, 0x41, 0x47]); // "SHAG"
 
 /** Current demo format version */
-const DEMO_VERSION = 2;
+const DEMO_VERSION = 3;
 
 // ── Types ───────────────────────────────────────────────────────────────
 
@@ -78,6 +84,10 @@ export class DemoRecorder {
   private _config: DemoConfig;
   private _players: Map<string, DemoPlayerEntry> = new Map();
   private _frames: Uint8Array[] = [];
+  /** Encoded input block per frame, parallel to _frames (format version 3). */
+  private _frameInputs: Uint8Array[] = [];
+  /** Commands applied since the last frame, folded per player. */
+  private _pendingInputs: Map<string, RecordedInput> = new Map();
   private _frameIndices: FrameIndex[] = [];
   private _startTime: number;
   private _frameCount: number = 0;
@@ -116,6 +126,18 @@ export class DemoRecorder {
   // ── Frame Recording ──────────────────────────────────────────────
 
   /**
+   * Note one command the server applied, for the frame being accumulated.
+   *
+   * Commands arrive at tick rate and frames are written at snapshot rate, so
+   * several fold into one record: buttons are OR-ed, so a press between two
+   * snapshots survives, and the analogue fields keep their last applied value.
+   */
+  recordInput(playerId: string, command: AppliedCommand): void {
+    if (!this._recording) return;
+    this._pendingInputs.set(playerId, aggregateCommand(this._pendingInputs.get(playerId), command, playerId));
+  }
+
+  /**
    * Record a frame (one snapshot tick's worth of game state).
    * Called at snapshot rate (e.g. 20Hz).
    *
@@ -127,6 +149,9 @@ export class DemoRecorder {
 
     // Encode full snapshot (no baseline = no delta compression)
     const frameData = BinaryProtocol.encodeSnapshot(state);
+    const inputData = encodeInputs([...this._pendingInputs.values()]);
+    this._pendingInputs.clear();
+    this._frameInputs.push(inputData);
 
     // Track offset for index table
     this._frameIndices.push({
@@ -183,9 +208,7 @@ export class DemoRecorder {
     }
 
     // Generate filename: map_gametype_YYYYMMDD_HHmmss.shagdemo
-    const filename = this._generateFilename();
     const dir = this._config.outputDir!;
-    const filepath = path.join(dir, filename);
 
     // Ensure output directory exists
     fs.mkdirSync(dir, { recursive: true });
@@ -198,7 +221,8 @@ export class DemoRecorder {
 
     // Write compressed data to disk (Uint8Array copy: Node's Buffer no longer
     // satisfies the ArrayBuffer-backed view type under TS 5.9 strict generics)
-    fs.writeFileSync(filepath, new Uint8Array(compressed));
+    const filepath = this._writeUnclaimed(dir, this._generateFilename(), new Uint8Array(compressed));
+    const filename = path.basename(filepath);
 
     const rawMB = (demoBuffer.byteLength / (1024 * 1024)).toFixed(2);
     const compMB = (compressed.byteLength / (1024 * 1024)).toFixed(2);
@@ -231,6 +255,10 @@ export class DemoRecorder {
       encoder.writeUint32(frame.byteLength);
       // Write raw frame bytes
       encoder.writeBytes(frame);
+      // Version 3: the commands applied over the interval this frame covers
+      const inputs = this._frameInputs[i] ?? new Uint8Array(0);
+      encoder.writeUint32(inputs.byteLength);
+      encoder.writeBytes(inputs);
     }
 
     // ── Section 3: Index Table ───────────────────────────────────
@@ -291,6 +319,37 @@ export class DemoRecorder {
       encoder.writeString(player.team);
       encoder.writeString(player.accountId === undefined ? "" : String(player.accountId));
     }
+  }
+
+  /**
+   * Write under the generated name, or the first variant nobody has yet, and
+   * return where it went.
+   *
+   * The name is only accurate to the second, and two matches can finish inside
+   * the same one — a lobby starting two rooms at once is ordinary. Each name is
+   * claimed by creating the file exclusively, so the filesystem decides who got
+   * it: checking whether a name was free and then writing to it let three game
+   * servers that stopped together each see it free, and each write over the
+   * others, leaving one recording of three.
+   */
+  private _writeUnclaimed(dir: string, filename: string, data: Uint8Array): string {
+    const stem = filename.replace(/\.shagdemo$/, "");
+    const candidates = [filename];
+    for (let n = 2; n <= 99; n++) candidates.push(`${stem}_${n}.shagdemo`);
+    // Ninety-nine in one second is not a real match, but a demo is still worth
+    // more than an error.
+    candidates.push(`${stem}_${Date.now()}_${process.pid}.shagdemo`);
+
+    for (const name of candidates) {
+      const candidate = path.join(dir, name);
+      try {
+        fs.writeFileSync(candidate, data, { flag: "wx" });
+        return candidate;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      }
+    }
+    throw new Error(`[DemoRecorder] No free name for ${filename} in ${dir}`);
   }
 
   private _generateFilename(): string {

@@ -974,6 +974,14 @@ export class RemotePlayerRenderer {
     this.demoTimeline?.flush();
   }
 
+  /**
+   * The sample a player is drawn from this frame: the demo timeline during
+   * playback, the interpolated snapshot buffer live.
+   */
+  getEntitySample(entityId: string): InterpolatedEntity | null {
+    return this.demoTimeline ? this.getDemoEntitySample(entityId) : this.snapshotBuffer.sample(entityId);
+  }
+
   /** Current deterministic demo sample for camera/diagnostic consumers. */
   getDemoEntitySample(entityId: string): InterpolatedEntity | null {
     // Memo: the followed entity is sampled by the spectator target provider,

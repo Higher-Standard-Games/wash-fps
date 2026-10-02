@@ -15,7 +15,7 @@ import { MatchPhase, MatchStateManager } from "../MatchStateManager";
 interface JoinableGame {
   playerState: string;
   isNetworkMode: boolean;
-  gameHost: { sendJoinGame: (team?: string, manualPick?: boolean) => void };
+  gameHost: { sendJoinGame: (team?: string, manualPick?: boolean, admissionTicket?: string) => void };
   _joinPending: boolean;
   _joinGametypeWaits: number;
   _preferredTeam: string | undefined;
@@ -24,7 +24,9 @@ interface JoinableGame {
   joinGame(teamId?: string): Promise<void>;
 }
 
-function joinableGame(sendJoinGame: (team?: string, manualPick?: boolean) => void): JoinableGame {
+function joinableGame(
+  sendJoinGame: (team?: string, manualPick?: boolean, admissionTicket?: string) => void,
+): JoinableGame {
   MatchStateManager.getInstance().processEvent({
     type: "match_state",
     phase: MatchPhase.Warmup,
@@ -69,7 +71,7 @@ describe("Game team selection", () => {
 
     // The flag is the point: the server balances a side a player CHOSE, and
     // delivers a side the lobby assigned untouched.
-    expect(sendJoinGame).toHaveBeenCalledWith("soba", true);
+    expect(sendJoinGame).toHaveBeenCalledWith("soba", true, undefined);
     clearTimeout(game._joinPendingTimeout);
   });
 
@@ -80,7 +82,7 @@ describe("Game team selection", () => {
     // No argument — this is the lobby's assignment, carried in `_preferredTeam`.
     await game.joinGame();
 
-    expect(sendJoinGame).toHaveBeenCalledWith("udon", false);
+    expect(sendJoinGame).toHaveBeenCalledWith("udon", false, undefined);
     clearTimeout(game._joinPendingTimeout);
   });
 });

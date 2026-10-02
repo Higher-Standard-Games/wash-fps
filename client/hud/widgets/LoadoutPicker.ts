@@ -1,3 +1,4 @@
+import { createRaisedKey } from "../../../../../engine/ui/components/RaisedKey";
 import { WEAPONS } from "../../../../../shared/entities/definitions/weapons/WeaponsTable";
 import {
   DEFAULT_LOADOUT,
@@ -130,9 +131,8 @@ export class FPSLoadoutPicker {
     body.appendChild(this.buildPreview());
     panel.appendChild(body);
 
-    const confirm = document.createElement("button");
-    confirm.className = "fps-loadout-confirm";
-    confirm.innerHTML = `<span>Enter the round</span>`;
+    const confirm = createRaisedKey({ label: "Enter the round", variants: ["cta"] });
+    confirm.classList.add("fps-loadout-confirm");
     confirm.onclick = () => {
       const choice: LoadoutChoice = { primary: this.primary, secondary: this.secondary };
       const callback = this.onConfirm;

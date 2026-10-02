@@ -30,10 +30,31 @@ export interface DamageNumber {
 }
 
 export interface KillFeedEntry {
+  /** Entity ids, as the server sends them */
   victimId: string;
   killerId: string;
+  /** Display names, resolved when the death arrives; "" when there is no killer */
+  victimName: string;
+  killerName: string;
+  /** The server's damage type (explosion, rail, …), which is what says how */
   weaponId: string;
+  /** The local player took this frag, or was the one fragged */
+  byLocal: boolean;
+  ofLocal: boolean;
+  /**
+   * Counts every death since the page loaded. The feed is capped and expires,
+   * so its length cannot tell a reader which entries are new; this can.
+   */
+  seq: number;
   timestamp: number;
+}
+
+/** Who a death involved, resolved by the caller, which knows the players */
+export interface DeathParties {
+  killerName: string;
+  victimName: string;
+  /** The local player's entity id, when known */
+  localEntityId?: string;
 }
 
 export interface ScoreboardEntry {
@@ -90,6 +111,8 @@ export class HUDState {
 
   // === Kill feed (recent kills) ===
   killFeed: KillFeedEntry[] = [];
+  /** Last `seq` given out. Static, so not even a new HUDState resets it and a reader's high-water mark stays valid */
+  private static deathSeq = 0;
   private static readonly KILL_FEED_EXPIRE_MS = 5000;
   private static readonly KILL_FEED_MAX = 5;
 
@@ -97,13 +120,24 @@ export class HUDState {
   scoreboard: ScoreboardEntry[] = [];
   localPlayerId: string = "";
   /**
-   * Player currently being watched while dead, or "" when playing.
+   * Player whose eyes the view is behind — a teammate while dead, or the
+   * player a spectator is chasing — or "" when it is our own.
    *
    * The bomb's progress bar belongs to whoever has their hands on it — and to
    * anyone spectating them, which is how a dead defender still sees the defuse
    * they can no longer help with.
    */
   spectating: string = "";
+  /** We are a spectator rather than a player, chasing someone or flying free. */
+  watcher: boolean = false;
+
+  /**
+   * A spectator flying free, watching nobody. There is no player's health,
+   * weapon or ammo to show, and the defaults would read as somebody's.
+   */
+  get subjectless(): boolean {
+    return this.watcher && this.spectating === "";
+  }
   gametypeName: string = "";
   /**
    * Whether the gametype divides players into teams, straight from the server.
@@ -171,11 +205,19 @@ export class HUDState {
   /**
    * Process a death event (kill feed).
    */
-  processDeath(event: any): void {
+  processDeath(event: any, parties: DeathParties): void {
+    const victimId = event.entityId ?? "";
+    const killerId = event.killerId ?? "";
+    const local = parties.localEntityId;
     this.killFeed.push({
-      victimId: event.entityId ?? "",
-      killerId: event.killerId ?? "",
+      victimId,
+      killerId,
+      victimName: parties.victimName,
+      killerName: parties.killerName,
       weaponId: event.weaponId ?? "",
+      byLocal: !!local && killerId === local,
+      ofLocal: !!local && victimId === local,
+      seq: ++HUDState.deathSeq,
       timestamp: performance.now(),
     });
 
@@ -198,9 +240,12 @@ export class HUDState {
     this.teamScores = matchState.teamScores || {};
     this.teamNames = matchState.teamNames || {};
 
+    // Outside team modes the server never gives a player a side, so its roster
+    // calls everyone "spectator"; anyone with a body in the game is playing.
+    const sideOf = (rawPlayerId: string) => (this.teamBased ? matchState.playerTeams?.[rawPlayerId] : undefined);
+
     for (const [playerId, player] of state.players) {
-      const rawPlayerId = clientKeyDisplayId(playerId);
-      const teamId = matchState.playerTeams?.[rawPlayerId];
+      const teamId = sideOf(clientKeyDisplayId(playerId));
       this.scoreboard.push({
         playerId,
         entityId: player.entityId,
@@ -228,7 +273,7 @@ export class HUDState {
           score: entry.score,
           deaths: entry.deaths,
           ping: entry.ping,
-          teamId: matchState.playerTeams?.[clientKeyDisplayId(entry.playerId)],
+          teamId: sideOf(clientKeyDisplayId(entry.playerId)),
         });
       }
       this.scoreboard.sort((a, b) => b.score - a.score);

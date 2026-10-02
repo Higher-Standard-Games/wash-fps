@@ -22,6 +22,11 @@ export const fpsNetworkConnector: NetworkConnector = {
       autoJoin: options.autoJoin,
       watchOnly: options.watchOnly,
       admissionTicket: options.admissionTicket,
+      requestSeat: options.requestSeat,
     });
+  },
+
+  claimSeat(serverUrl: string, admissionTicket: string): boolean {
+    return Game.getInstance().claimSeat(serverUrl, admissionTicket);
   },
 };

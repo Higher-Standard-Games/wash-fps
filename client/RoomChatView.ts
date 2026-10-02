@@ -1,9 +1,26 @@
-/** A match room's member-only chat. The global lobby feed stays on the Play page. */
+/**
+ * A match room's member-only chat, and who comes and goes. The global lobby
+ * feed stays on the Play page.
+ */
 import { createRaisedKey } from "../../../engine/ui/components/RaisedKey";
 import type { LobbyClient } from "../../../lobby/LobbyClient";
-import type { ChatMessage, MatchLobbyInfo, RoomChatBroadcastMessage } from "../../../lobby/types";
+import type {
+  ChatMessage,
+  LobbyPlayerJoinedMessage,
+  LobbyPlayerLeftMessage,
+  MatchLobbyInfo,
+  RoomChatBroadcastMessage,
+} from "../../../lobby/types";
 
 const MAX_VISIBLE_MESSAGES = 50;
+
+/** A steady colour per name, so a player reads the same in every message. */
+export function nameColor(name: string): string {
+  const hues = [182, 322, 125, 276, 28, 200, 350, 104, 240, 160];
+  let hash = 0;
+  for (const char of name) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return `hsl(${hues[hash % hues.length]} 92% 68%)`;
+}
 
 export class RoomChatView {
   readonly root: HTMLElement;
@@ -14,6 +31,9 @@ export class RoomChatView {
   private readonly log: HTMLElement;
   private readonly input: HTMLInputElement;
   private readonly send: HTMLButtonElement;
+  private readonly here: HTMLElement;
+  /** The room's members by id: a leave names only the id. */
+  private readonly members = new Map<string, string>();
   private readonly unsubscribers: Array<() => void> = [];
 
   constructor(client: LobbyClient, lobby: MatchLobbyInfo, localPlayerId: string | null) {
@@ -31,10 +51,10 @@ export class RoomChatView {
     const title = document.createElement("span");
     title.className = "lobby-chat__title";
     title.textContent = "Room chat";
-    const context = document.createElement("span");
-    context.className = "lobby-chat__online";
-    context.textContent = "MEMBERS ONLY";
-    head.append(title, context);
+    this.here = document.createElement("span");
+    this.here.className = "lobby-chat__online";
+    this.here.title = "Only the people in this room see its chat";
+    head.append(title, this.here);
 
     this.log = document.createElement("div");
     this.log.className = "lobby-chat__log";
@@ -46,7 +66,7 @@ export class RoomChatView {
     this.input = document.createElement("input");
     this.input.type = "text";
     this.input.className = "lobby-chat__input";
-    this.input.placeholder = "Message this room…";
+    this.input.placeholder = "Say something…";
     this.input.maxLength = 500;
     this.input.autocomplete = "off";
     this.input.spellcheck = false;
@@ -64,6 +84,8 @@ export class RoomChatView {
     });
 
     this.root.append(head, this.log, form);
+    for (const player of lobby.players) this.members.set(player.id, player.name);
+    this.refreshHere();
     for (const message of lobby.chatHistory ?? []) this.appendMessage(message);
     if (this.log.childElementCount === 0) this.showEmpty();
     this.refreshConnection();
@@ -73,6 +95,22 @@ export class RoomChatView {
         if (!this.supported || message.lobbyId !== this.lobbyId) return;
         this.log.querySelector(".lobby-chat__empty")?.remove();
         this.appendMessage(message);
+      }),
+      this.client.on("lobby:player_joined", (message: LobbyPlayerJoinedMessage) => {
+        // A player the room already has is announced again on a reconnect
+        if (this.members.has(message.player.id)) return;
+        this.members.set(message.player.id, message.player.name);
+        this.refreshHere();
+        this.appendNote(`${message.player.name} joined`);
+      }),
+      this.client.on("lobby:player_left", (message: LobbyPlayerLeftMessage) => {
+        const name = this.members.get(message.playerId);
+        if (name === undefined) return;
+        this.members.delete(message.playerId);
+        this.refreshHere();
+        // Someone coming back from a match leaves on the old connection and joins on
+        // the new one: that is not news, so only a name that is really gone is said
+        if (![...this.members.values()].includes(name)) this.appendNote(`${name} left`);
       }),
       this.client.on("_disconnected", () => this.refreshConnection()),
       this.client.on("_connected", () => this.refreshConnection()),
@@ -92,15 +130,45 @@ export class RoomChatView {
     this.input.placeholder = !this.supported
       ? "Room chat needs a newer lobby server"
       : connected
-        ? "Message this room…"
+        ? "Say something…"
         : "Lobby server offline";
   }
 
   private showEmpty(): void {
     const empty = document.createElement("p");
     empty.className = "lobby-chat__empty";
-    empty.textContent = this.supported ? "No room messages yet." : "Room chat is unavailable on this lobby server.";
+    empty.textContent = this.supported
+      ? "No messages yet. Only the people in this room see them."
+      : "Room chat is unavailable on this lobby server.";
     this.log.appendChild(empty);
+  }
+
+  private refreshHere(): void {
+    this.here.textContent = `${this.members.size} here`;
+  }
+
+  /** A line of the room's own: someone came or went. */
+  private appendNote(text: string): void {
+    this.log.querySelector(".lobby-chat__empty")?.remove();
+    const following = this.log.scrollHeight - this.log.scrollTop - this.log.clientHeight < 40;
+    const row = document.createElement("div");
+    row.className = "lobby-chat__msg lobby-chat__msg--sys";
+    const time = document.createElement("span");
+    time.className = "lobby-chat__time";
+    time.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const line = document.createElement("span");
+    line.className = "lobby-chat__text";
+    line.textContent = text;
+    row.append(time, line);
+    this.log.appendChild(row);
+    this.trim();
+    if (following) this.log.scrollTop = this.log.scrollHeight;
+  }
+
+  private trim(): void {
+    while (this.log.querySelectorAll(".lobby-chat__msg").length > MAX_VISIBLE_MESSAGES) {
+      this.log.querySelector(".lobby-chat__msg")?.remove();
+    }
   }
 
   private appendMessage(message: ChatMessage): void {
@@ -115,14 +183,13 @@ export class RoomChatView {
     const who = document.createElement("span");
     who.className = "lobby-chat__who";
     who.textContent = message.from;
+    if (message.fromId !== this.localPlayerId) who.style.setProperty("--who", nameColor(message.from));
     const text = document.createElement("span");
     text.className = "lobby-chat__text";
     text.textContent = message.text;
     row.append(time, who, text);
     this.log.appendChild(row);
-    while (this.log.querySelectorAll(".lobby-chat__msg").length > MAX_VISIBLE_MESSAGES) {
-      this.log.querySelector(".lobby-chat__msg")?.remove();
-    }
+    this.trim();
     if (following) this.log.scrollTop = this.log.scrollHeight;
   }
 }

@@ -1,11 +1,20 @@
+import { MapLoader } from "../../../../../engine/loader/map/MapLoader";
+import { PlayerProfile } from "../../../../../engine/player/PlayerProfile";
+import { createRaisedKey, injectRaisedKeyStyles } from "../../../../../engine/ui/components/RaisedKey";
+import { mapTitle } from "../../../../../engine/ui/MapTitles";
 import { GameDialogPanel } from "../../../../../engine/ui/panels/GameDialogPanel";
+import { UIStyles } from "../../../../../engine/ui/UIStyles";
 import { MatchStateManager } from "../../MatchStateManager";
+import { buildRailBrand } from "../../RailBrand";
+import matchMenuCss from "../../styles/MatchMenu.css?raw";
 
 /**
- * FPSPauseMenu - ESC key pause menu.
+ * FPSPauseMenu - the Esc menu: the lobby's gold rail, drawn over the match.
  *
- * Keeps FPS-specific actions here while using the engine compact dialog panel
- * for modal behavior and lifecycle.
+ * The match does not stop for it; the rail says so, and says which match it
+ * is. Its keys are the lobby's: the first one lit is what Esc most likely
+ * came for (Resume in play, Join for a spectator), and Leave sits apart at
+ * the foot.
  */
 export class FPSPauseMenu extends GameDialogPanel {
   private onResumeCallback: (() => void) | null = null;
@@ -13,72 +22,80 @@ export class FPSPauseMenu extends GameDialogPanel {
   private onDisconnectCallback: (() => void) | null = null;
   private onSpectateCallback: (() => void) | null = null;
   private onJoinGameCallback: ((teamId?: string) => void) | null = null;
-  private spectateBtn: HTMLButtonElement;
-  private resumeBtn: HTMLButtonElement;
-  private joinContainer: HTMLElement;
-  private buttonStack: HTMLElement;
+  private readonly resumeKey: HTMLButtonElement;
+  private readonly spectateKey: HTMLButtonElement;
+  private readonly joinKeys: HTMLElement;
+  private readonly kickerEl: HTMLElement;
+  private readonly nameEl: HTMLElement;
 
   constructor() {
-    // The pause menu mirrors pointer-lock state (unlocked = shown, Resume re-locks).
-    // Backdrop-click dismiss would hide the menu WITHOUT re-locking the pointer,
-    // stranding the player with a free cursor and no menu — so disable it. ESC is
-    // left enabled to match the previous GamePanel behavior.
-    super({
-      title: "ESC MENU",
-      extraClass: "fps-pause-menu fps-pause-menu--cartoon",
-      closeOnBackdrop: false,
-    });
+    // The menu mirrors pointer-lock state (unlocked = shown, Resume re-locks).
+    // A backdrop click would hide it WITHOUT re-locking the pointer, stranding
+    // the player with a free cursor and no menu, so only the keys and Esc close it.
+    super({ title: "Match menu", closeOnBackdrop: false, showCloseButton: false });
+    injectRaisedKeyStyles();
+    UIStyles.injectCSS("fps-match-menu", matchMenuCss);
 
-    this.dialog.classList.add("fps-pause-dialog");
-    this.footerEl.style.display = "none";
+    this.backdrop.className = "game-dialog-backdrop fps-match-menu";
+    this.dialog.className = "fps-match-menu__rail";
+    this.dialog.setAttribute("role", "dialog");
+    this.dialog.setAttribute("aria-modal", "true");
+    this.dialog.setAttribute("aria-label", "Match menu");
+    this.dialog.tabIndex = -1;
+    this.dialog.replaceChildren();
 
-    this.buttonStack = document.createElement("div");
-    this.buttonStack.className = "fps-pause-actions";
+    const kanji = element("div", "fps-match-menu__kanji", "闘");
+    kanji.setAttribute("aria-hidden", "true");
 
-    const hero = document.createElement("div");
-    hero.className = "fps-pause-hero";
-    hero.innerHTML = `
-      <div class="fps-pause-kicker">Match Control</div>
-      <div class="fps-pause-heading">Paused</div>
-      <div class="fps-pause-subtitle">Pick your next move.</div>
-    `;
+    const head = element("div", "fps-match-menu__head");
+    this.kickerEl = element("div", "fps-match-menu__kicker");
+    head.append(
+      buildRailBrand("fps-match-menu__logo"),
+      this.kickerEl,
+      element("p", "fps-match-menu__note", "The match keeps going while you're here."),
+    );
 
-    this.resumeBtn = this.createPauseButton("Resume", "Back to fight", "fps-btn--primary", () => {
+    this.resumeKey = this.key("Resume", "Back to the fight", () => {
       this.close();
       this.onResumeCallback?.();
     });
-
-    this.joinContainer = document.createElement("div");
-    this.joinContainer.className = "fps-pause-join-group";
-    this.joinContainer.style.display = "none";
-
-    const settingsBtn = this.createPauseButton("Settings", "Controls and video", "", () => {
-      this.onSettingsCallback?.();
-    });
-
-    this.spectateBtn = this.createPauseButton("Go Spectator", "Watch the duel", "", () => {
+    this.joinKeys = element("div", "fps-match-menu__join");
+    this.joinKeys.hidden = true;
+    const settingsKey = this.key("Settings", "Controls and video", () => this.onSettingsCallback?.());
+    this.spectateKey = this.key("Spectate", "Watch the match", () => {
       this.close();
       this.onSpectateCallback?.();
     });
-    this.spectateBtn.style.display = "none";
+    this.spectateKey.hidden = true;
 
-    const separator = document.createElement("div");
-    separator.className = "fps-pause-separator";
+    const keys = element("nav", "fps-match-menu__keys");
+    keys.setAttribute("aria-label", "Match");
+    keys.append(this.resumeKey, this.joinKeys, settingsKey, this.spectateKey);
 
-    const disconnectBtn = this.createPauseButton("Disconnect", "Leave server", "fps-btn--danger", () => {
+    const foot = element("div", "fps-match-menu__foot");
+    const plate = element("div", "fps-match-menu__plate");
+    this.nameEl = element("span", "fps-match-menu__name");
+    plate.append(this.nameEl, element("span", "fps-match-menu__where", "In a match"));
+    const leave = createRaisedKey({ label: "Leave match", hint: "Back to the lobby", variants: ["sm", "cream"] });
+    leave.addEventListener("click", () => {
       this.close();
       this.onDisconnectCallback?.();
     });
+    foot.append(plate, leave);
 
-    this.buttonStack.appendChild(hero);
-    this.buttonStack.appendChild(this.resumeBtn);
-    this.buttonStack.appendChild(this.joinContainer);
-    this.buttonStack.appendChild(settingsBtn);
-    this.buttonStack.appendChild(this.spectateBtn);
-    this.buttonStack.appendChild(separator);
-    this.buttonStack.appendChild(disconnectBtn);
+    this.dialog.append(kanji, head, keys, foot);
+  }
 
-    this.setContent(this.buttonStack);
+  public override open(): void {
+    const state = MatchStateManager.getInstance();
+    const map = MapLoader.getInstance().getCurrentMap();
+    const where = map ? (mapTitle(map) ?? map) : "";
+    this.kickerEl.textContent = [state.gametypeName, where].filter(Boolean).join(" · ");
+    this.nameEl.textContent = PlayerProfile.load().name;
+    this.lightFirstKey();
+    super.open();
+    // Tab starts inside the menu rather than behind it
+    this.dialog.focus({ preventScroll: true });
   }
 
   public onResume(callback: () => void): void {
@@ -102,27 +119,31 @@ export class FPSPauseMenu extends GameDialogPanel {
   }
 
   public setSpectateVisible(visible: boolean): void {
-    this.spectateBtn.style.display = visible ? "" : "none";
+    this.spectateKey.hidden = !visible;
   }
 
   public setResumeVisible(visible: boolean): void {
-    this.resumeBtn.style.display = visible ? "" : "none";
+    this.resumeKey.hidden = !visible;
+    this.lightFirstKey();
   }
 
   public setJoinVisible(visible: boolean): void {
-    this.joinContainer.style.display = visible ? "" : "none";
-    if (visible) {
-      this.refreshJoinButtons();
-    }
+    this.joinKeys.hidden = !visible;
+    if (visible) this.refreshJoinKeys();
+    this.lightFirstKey();
   }
 
-  private createPauseButton(label: string, hint: string, variant: string, onClick: () => void): HTMLButtonElement {
-    const btn = this.createButton("", `fps-btn--pause ${variant}`.trim(), onClick);
-    btn.innerHTML = `
-      <span class="fps-pause-btn-label">${label}</span>
-      <span class="fps-pause-btn-hint">${hint}</span>
-    `;
-    return btn;
+  private key(label: string, hint: string, onClick: () => void): HTMLButtonElement {
+    const key = createRaisedKey({ label, hint, variants: ["nav"] });
+    key.addEventListener("click", onClick);
+    return key;
+  }
+
+  /** The first key on the rail is inked, as the lobby inks the page you're on. */
+  private lightFirstKey(): void {
+    const keys = [this.resumeKey, ...this.joinKeys.querySelectorAll<HTMLButtonElement>(".raised-key")];
+    const first = keys.find((key) => !key.hidden && !key.closest("[hidden]"));
+    for (const key of keys) key.classList.toggle("raised-key--ink", key === first);
   }
 
   /** Players on each side right now, spectators excluded. */
@@ -142,53 +163,36 @@ export class FPSPauseMenu extends GameDialogPanel {
     return count === 1 ? "1 player" : `${count} players`;
   }
 
-  private refreshJoinButtons(): void {
-    this.joinContainer.innerHTML = "";
-
-    const state = MatchStateManager.getInstance();
+  private refreshJoinKeys(): void {
     // Team-ness comes from the gametype, not from the presence of team scores:
     // those ship with both sides populated in every gametype, so a free-for-all
     // read as a team game and every player landed in the spectator list.
-    const hasTeams = state.teamBased;
-
-    if (hasTeams) {
-      // How full each side is, rather than what colour it is.
-      //
-      // Colour stopped identifying a team when team colour became allegiance —
-      // your side is pink and theirs is cyan whichever names they have — so
-      // "PINK SIDE" was about to be wrong for half of every match. Size is the
-      // fact that actually bears on this choice: picking the bigger side gets
-      // you redirected to the smaller one, and this is what says so beforehand.
-      const sizes = this.teamSizes();
-      const udonBtn = this.createPauseButton(
-        "Join Team Udon",
-        FPSPauseMenu.describeSide(sizes.udon),
-        "fps-btn--team-udon",
-        () => {
+    if (!MatchStateManager.getInstance().teamBased) {
+      this.joinKeys.replaceChildren(
+        this.key("Join game", "Enter the arena", () => {
           this.close();
-          this.onJoinGameCallback?.("udon");
-        },
+          this.onJoinGameCallback?.();
+        }),
       );
-
-      const sobaBtn = this.createPauseButton(
-        "Join Team Soba",
-        FPSPauseMenu.describeSide(sizes.soba),
-        "fps-btn--team-soba",
-        () => {
-          this.close();
-          this.onJoinGameCallback?.("soba");
-        },
-      );
-
-      this.joinContainer.appendChild(udonBtn);
-      this.joinContainer.appendChild(sobaBtn);
-    } else {
-      const joinBtn = this.createPauseButton("Join Game", "Enter arena", "fps-btn--primary", () => {
-        this.close();
-        this.onJoinGameCallback?.();
-      });
-
-      this.joinContainer.appendChild(joinBtn);
+      return;
     }
+
+    // How full each side is, rather than what colour it is: colour is
+    // allegiance (your side is pink whichever it is), and size is what bears
+    // on the choice, since picking the bigger side gets you moved to the smaller.
+    const sizes = this.teamSizes();
+    const side = (teamId: "udon" | "soba", name: string, count: number) =>
+      this.key(`Join ${name}`, FPSPauseMenu.describeSide(count), () => {
+        this.close();
+        this.onJoinGameCallback?.(teamId);
+      });
+    this.joinKeys.replaceChildren(side("udon", "Udon", sizes.udon), side("soba", "Soba", sizes.soba));
   }
+}
+
+function element(tag: string, className: string, text?: string): HTMLElement {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
 }

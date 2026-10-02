@@ -1,0 +1,328 @@
+/* The in-match menus. The Esc menu is the lobby's gold rail over the match,
+   which stays in view to its right; the join screen is the match handoff's
+   rail and stage (engine ConnectingOverlay.css) with the match showing
+   through. Keys are RaisedKey (engine/ui/components/styles/RaisedKey.css). */
+
+.fps-match-menu {
+  --ink: hsl(250 45% 7%);
+  --cream: hsl(45 100% 95%);
+  --rail-skew: 44px;
+
+  position: fixed;
+  inset: 0;
+  z-index: 700;
+  display: flex;
+  align-items: stretch;
+  background: linear-gradient(90deg, hsla(250, 45%, 5%, 0.55), hsla(250, 45%, 5%, 0.18) 55%, hsla(250, 45%, 5%, 0.3));
+  backdrop-filter: blur(3px) saturate(1.1);
+  -webkit-backdrop-filter: blur(3px) saturate(1.1);
+  font-family: var(--w-font-body, "Rajdhani", sans-serif);
+  pointer-events: auto;
+  animation: fps-match-menu-veil 0.18s ease-out both;
+}
+
+.fps-match-menu__rail {
+  position: relative;
+  display: flex;
+  flex: 0 0 clamp(300px, 26vw, 520px);
+  flex-direction: column;
+  min-height: 0;
+  padding: clamp(22px, 4vh, 40px) calc(var(--rail-skew) + 20px) 22px 26px;
+  box-sizing: border-box;
+  overflow: hidden;
+  color: var(--ink);
+  background:
+    radial-gradient(120% 55% at 25% 0%, hsla(54, 100%, 78%, 0.55), transparent 62%),
+    linear-gradient(172deg, hsl(46 100% 57%), hsl(41 96% 48%));
+  clip-path: polygon(0 0, 100% 0, calc(100% - var(--rail-skew)) 100%, 0 100%);
+  outline: none;
+  animation: fps-match-menu-in 0.24s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+
+/* The violet edge along the slant, as on the lobby's rail */
+.fps-match-menu__rail::after {
+  content: "";
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: calc(var(--rail-skew) + 8px);
+  background: linear-gradient(180deg, hsl(276 90% 64%), hsl(262 75% 42%));
+  clip-path: polygon(
+    calc(100% - 8px) 0,
+    100% 0,
+    calc(100% - var(--rail-skew)) 100%,
+    calc(100% - var(--rail-skew) - 8px) 100%
+  );
+  pointer-events: none;
+}
+
+.fps-match-menu__rail > * {
+  position: relative;
+  z-index: 1;
+}
+
+.fps-match-menu__rail > .fps-match-menu__kanji {
+  position: absolute;
+  z-index: 0;
+  right: 14%;
+  bottom: 16%;
+  font: 400 clamp(180px, 19vw, 300px) / 0.8 serif;
+  color: hsla(30, 90%, 22%, 0.1);
+  pointer-events: none;
+  user-select: none;
+}
+
+.fps-match-menu__head {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+/* The lobby's logo, as at the head of its rail */
+.fps-match-menu__logo {
+  align-self: stretch;
+  margin: -8px 0 0 -8px;
+}
+
+.fps-match-menu__logo img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: clamp(96px, 19vh, 205px);
+  filter: drop-shadow(0 6px 10px hsla(28, 90%, 14%, 0.35));
+}
+
+.fps-match-menu__logo span {
+  display: block;
+  padding: 14px 0 6px 8px;
+  font: 900 clamp(24px, 2.6vw, 44px) / 0.95 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: -0.03em;
+  text-shadow: 4px 5px 0 hsla(30, 90%, 32%, 0.3);
+}
+
+.fps-match-menu__logo [hidden] {
+  display: none;
+}
+
+.fps-match-menu__kicker {
+  min-height: 1.2em;
+  margin-top: clamp(12px, 2.4vh, 26px);
+  font: 800 12px / 1.2 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.fps-match-menu__note {
+  max-width: 28ch;
+  margin: 8px 0 0;
+  font: 600 16px / 1.3 var(--w-font-body, "Rajdhani", sans-serif);
+  color: hsla(250, 45%, 8%, 0.72);
+}
+
+.fps-match-menu__keys {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  margin-top: clamp(20px, 4vh, 42px);
+  padding: 2px 12px 0 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.fps-match-menu__join {
+  display: flex;
+  flex-direction: column;
+}
+
+.fps-match-menu .raised-key[hidden],
+.fps-match-menu .fps-match-menu__join[hidden] {
+  display: none;
+}
+
+/* A label keeps its line; the hint gives way first */
+.fps-match-menu__rail .raised-key__label {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* At the foot of the rail, whatever the keys above leave */
+.fps-match-menu__foot {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: auto;
+  padding-top: 18px;
+  padding-right: 12px;
+}
+
+.fps-match-menu__plate {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 11px 18px 11px 16px;
+  color: var(--cream);
+  background: linear-gradient(180deg, hsl(250 28% 16%), hsl(252 44% 7%));
+  clip-path: polygon(0 0, 100% 0, calc(100% - 12px) 100%, 0 100%);
+}
+
+.fps-match-menu__name {
+  overflow: hidden;
+  font: 800 15px / 1.1 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fps-match-menu__where {
+  font: 600 12px / 1 var(--w-font-body, "Rajdhani", sans-serif);
+  color: hsla(45, 100%, 95%, 0.6);
+}
+
+/* ── Settings: the page keys on the rail, the page on the lobby's stage ── */
+
+.fps-match-menu--settings {
+  /* The lobby's stage, and its accent before a mode is picked */
+  --accent: hsl(182 95% 52%);
+  --accent-hi: hsl(182 100% 74%);
+  --accent-lo: hsl(188 90% 40%);
+  --accent-side-hi: hsl(192 85% 28%);
+  --accent-side-lo: hsl(198 80% 17%);
+
+  background: linear-gradient(165deg, hsl(222, 56%, 17%), hsl(217, 58%, 24%) 55%, hsl(224, 52%, 16%));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.fps-match-menu__stage {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  color: var(--cream);
+}
+
+.fps-match-menu__label {
+  flex: 0 0 auto;
+  margin: clamp(20px, 4vh, 40px) 0 10px;
+  font: 700 11px / 1 var(--w-font-body, "Rajdhani", sans-serif);
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: hsla(250, 45%, 8%, 0.62);
+}
+
+/* The lobby's rail has no padding of its own; this one does */
+.fps-match-menu__rail.lobby__rail .fps-set-pages {
+  margin-right: 0;
+  padding: 4px 12px 8px 0;
+}
+
+/* ── Join screen ── */
+
+.connecting-overlay.connecting-overlay--join {
+  --accent: hsl(46 100% 57%);
+  --accent-hi: hsl(51 100% 73%);
+  --accent-lo: hsl(42 100% 50%);
+  --accent-side-hi: hsl(36 92% 40%);
+  --accent-side-lo: hsl(28 88% 25%);
+
+  background: linear-gradient(90deg, hsla(238, 42%, 6%, 0.5), hsla(238, 42%, 6%, 0.8) 72%);
+  backdrop-filter: blur(10px) saturate(1.1);
+  -webkit-backdrop-filter: blur(10px) saturate(1.1);
+  pointer-events: auto;
+}
+
+.spectator-join__choices {
+  display: flex;
+  align-self: end;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: min(900px, 100%);
+}
+
+.spectator-join__keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0 22px;
+}
+
+.spectator-join__keys .raised-key {
+  width: auto;
+}
+
+.spectator-join__keys .raised-key--cta .raised-key__face {
+  flex-direction: column;
+  gap: 8px;
+  min-height: 84px;
+  padding: 0 52px 0 46px;
+}
+
+.spectator-join__keys .raised-key--cream .raised-key__face {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 14px 34px 14px 30px;
+}
+
+.spectator-join__hint {
+  min-height: 1em;
+  font: 700 12px / 1 var(--w-font-body, "Rajdhani", sans-serif);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--w-text-muted, hsl(220, 10%, 64%));
+}
+
+@keyframes fps-match-menu-in {
+  from {
+    opacity: 0;
+    transform: translateX(-36px);
+  }
+}
+
+@keyframes fps-match-menu-veil {
+  from {
+    opacity: 0;
+  }
+}
+
+/* A narrower rail sets each hint under its label: they say how full a side is */
+@media (max-width: 1500px) {
+  .fps-match-menu .fps-match-menu__rail .raised-key__face {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 5px;
+  }
+
+  .fps-match-menu__rail .raised-key__hint {
+    max-width: 100%;
+  }
+}
+
+@media (max-height: 720px) {
+  .fps-match-menu__note {
+    display: none;
+  }
+}
+
+@media (max-width: 650px) {
+  .fps-match-menu {
+    --rail-skew: 26px;
+  }
+
+  .fps-match-menu__rail {
+    flex-basis: min(100vw, 380px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fps-match-menu,
+  .fps-match-menu__rail {
+    animation: none;
+  }
+}

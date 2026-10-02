@@ -8,10 +8,10 @@ import type { FPSHudWidget, HUDState } from "../HudWidget";
 /**
  * How long the explosion gets before the banner covers it.
  *
- * The server runs ONE intermission phase rather than Warsow's two, so this is
- * where the two beats are separated: the detonation plays uninterrupted, then
- * the result appears over the settling debris. A banner that arrives with the
- * blast hides the best thing that happens in the mode.
+ * The server runs one intermission phase, so the two beats are separated here:
+ * the detonation plays uninterrupted, then the result appears over the settling
+ * debris. A banner that arrives with the blast hides the best thing that
+ * happens in the mode.
  */
 const EXPLOSION_GRACE_SECONDS = 1.5;
 

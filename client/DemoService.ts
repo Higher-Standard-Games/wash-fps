@@ -48,10 +48,10 @@ import { DamageNumbers } from "./DamageNumbers";
 import { DemoEventOverlay } from "./DemoEventOverlay";
 import { DemoEventTimeline } from "./DemoEventTimeline";
 import { DemoOverlayController, type DemoOverlayMode } from "./DemoOverlayController";
-import { type DemoPovPresentation, DemoPovState } from "./DemoPovState";
 import type { DemoViewer, DemoViewerInfo } from "./DemoViewer";
 import type { DemoViewerHUD } from "./DemoViewerHUD";
 import { type DroppedWeaponInfo, DroppedWeaponRenderer } from "./DroppedWeaponRenderer";
+import { FollowedViewWeapon } from "./FollowedViewWeapon";
 import { preloadFPSAudio } from "./FPSAudio";
 import {
   playDamageConfirmationSound,
@@ -115,7 +115,6 @@ export class DemoService {
 
   // Demo spectator state
   private _followedEntityId: string | null = null;
-  private _followedDead = false;
   /**
    * Demo playback's OWN viewmodel instance, bound to the spectator camera
    * (QA-8). Never the live getInstance() — sharing one WeaponViewManager
@@ -123,9 +122,8 @@ export class DemoService {
    * live viewmodel. Created on first spectate, disposed in stopAll().
    */
   private _demoWvm: WeaponViewManager | null = null;
-  private readonly _demoPov = new DemoPovState();
-  private _demoPovPresentation: DemoPovPresentation | null = null;
-  private _lastDemoWeapon: string | null = null;
+  /** What the followed player's weapon does; the same code live spectating runs. */
+  private readonly _followed = new FollowedViewWeapon(() => this._demoWvm);
   private _isSeeking = false;
   /** entityId → currentWeapon, fed to RemotePlayerRenderer for 3rd-person weapon models */
   private _enemyWeapons: Map<string, string> = new Map();
@@ -395,10 +393,7 @@ export class DemoService {
 
     this.latestState = null;
     this._followedEntityId = null;
-    this._followedDead = false;
-    this._demoPov.reset();
-    this._demoPovPresentation = null;
-    this._lastDemoWeapon = null;
+    this._followed.follow(null);
     this._isSeeking = false;
     this._enemyWeapons.clear();
     this._clearDemoProjectiles();
@@ -534,10 +529,7 @@ export class DemoService {
       this._syncPersistentDemoState(state);
       // Spawn/despawn in-flight projectile visuals + buffer them for interpolation.
       // (runs after _processDemoEffects so projectile_spawn defIds are set first)
-      this._projectiles.muzzleForShot =
-        this._followedEntityId && !this._followedDead
-          ? (position, velocity) => this._demoWvm?.getProjectileMuzzlePosition(position, velocity) ?? null
-          : undefined;
+      this._projectiles.muzzleForShot = (position, velocity) => this._followed.muzzleFor(position, velocity);
       processProjectileEntities(state, this._projectiles);
       this.demoEventTimeline.finishPresentationFrame();
     });
@@ -604,11 +596,7 @@ export class DemoService {
       cam.setController("spectator");
     }
     this._followedEntityId = entityId;
-    this._followedDead = this._isDemoEntityDead(entityId);
-    this._demoPov.reset();
-    this._demoPovPresentation = null;
-    this._lastDemoWeapon = null;
-    this._demoWvm?.clearDemoBob();
+    this._followed.follow(entityId, this._isDemoEntityDead(entityId));
     this.remoteRenderer?.setHiddenEntity(entityId);
     this._attachWeaponViewToSpectatorCam();
   }
@@ -713,7 +701,8 @@ export class DemoService {
       if (!transform?.position) return null;
 
       const sampled = this.remoteRenderer?.getDemoEntitySample(entityId);
-      const pov = this._demoPovPresentation?.entityId === entityId ? this._demoPovPresentation : null;
+      const pose = this._followed.presentation;
+      const pov = pose?.entityId === entityId ? pose : null;
 
       return {
         x: sampled?.x ?? transform.position.x,
@@ -767,7 +756,7 @@ export class DemoService {
       this._demoWvm = new WeaponViewManager();
       this._demoWvm.init(scene, spectatorCam);
     }
-    this._demoWvm.setVisible(!this._followedDead);
+    this._demoWvm.setVisible(!this._followed.isDead);
   }
 
   private _isDemoEntityDead(entityId: string): boolean {
@@ -793,8 +782,7 @@ export class DemoService {
         this.remoteRenderer?.markAlive(event.entityId);
       }
       if (event.entityId !== this._followedEntityId) continue;
-      this._followedDead = dead;
-      this._demoWvm?.setVisible(!dead);
+      this._followed.setDead(dead);
     }
   }
 
@@ -864,10 +852,7 @@ export class DemoService {
         // authoritative for seeks and respawns.
         if (event.entityId) {
           this.remoteRenderer?.markDead(event.entityId);
-          if (event.entityId === this._followedEntityId) {
-            this._followedDead = true;
-            this._demoWvm?.setVisible(false);
-          }
+          if (event.entityId === this._followedEntityId) this._followed.setDead(true);
         }
         const victim = this._resolveDemoPlayerName(event.entityId, state);
         const killer = this._resolveDemoPlayerName(event.killerId, state);
@@ -1104,8 +1089,8 @@ export class DemoService {
 
   /**
    * Sample interpolated positions for active in-flight projectiles and push them
-   * to the ProjectileManager visuals. Per-frame projectile animation/trails are
-   * driven by WeaponViewManager's update loop (initialized on spectate).
+   * to the ProjectileManager visuals, whose own per-frame tick animates them
+   * and draws their trails.
    */
   private _renderDemoProjectiles(): void {
     if (this._projectiles.active.size === 0) return;
@@ -1156,37 +1141,26 @@ export class DemoService {
   }
 
   /**
-   * Check for weapon changes on the followed entity and load/switch the viewmodel.
-   * Uses instant loadWeapon during seeks, animated switchWeaponAnimated during normal play.
+   * Put the followed player's weapon in the viewmodel: a cut during seeks,
+   * the switch animation during normal play.
    */
   private _updateDemoWeapon(state: GameState, discontinuous = false): void {
     if (!this._followedEntityId) return;
-    const wvm = this._demoWvm;
-    if (!wvm) return;
     for (const event of state.events) {
       if (event.type !== "weapon_state") continue;
       if (event.entityId !== this._followedEntityId) continue;
-      const weapon = event.currentWeapon as string;
-      if (weapon === this._lastDemoWeapon) return;
-      this._lastDemoWeapon = weapon;
-      if (this._isSeeking || discontinuous) {
-        wvm.loadWeapon(weapon).catch(() => {});
-      } else {
-        wvm.switchWeaponAnimated(weapon).catch(() => {});
-      }
+      this._followed.showWeapon(event.currentWeapon as string, this._isSeeking || discontinuous);
       return;
     }
   }
 
-  /** Trigger recoil on weapon_fire events for the followed player. */
+  /** Flash and kick the viewmodel on weapon_fire events for the followed player. */
   private _updateDemoRecoil(state: GameState): void {
     if (!this._followedEntityId) return;
-    const wvm = this._demoWvm;
-    if (!wvm) return;
     for (const event of state.events) {
       if (event.type !== "weapon_fire") continue;
       if (event.entityId !== this._followedEntityId) continue;
-      wvm.triggerRecoil(1.0);
+      this._followed.fired();
     }
   }
 
@@ -1208,23 +1182,11 @@ export class DemoService {
     const sample = this.remoteRenderer.getDemoEntitySample(this._followedEntityId);
     if (!sample) return;
 
-    const presentation = this._demoPov.update(this._followedEntityId, sample, {
+    this._followed.updateMotion(sample, {
       playheadTick: playback.playheadTick,
       tickRate: playback.header?.tickRate ?? 60,
       paused: playback.state !== "playing",
       discontinuityId: playback.discontinuityId,
-    });
-    this._demoPovPresentation = presentation;
-
-    const wvm = this._demoWvm;
-    if (!wvm) return;
-    wvm.updateDemoBob({
-      deltaTime: presentation.demoDeltaSeconds,
-      grounded: presentation.grounded,
-      horizontalSpeed: presentation.horizontalSpeed,
-      velocityY: presentation.velocityY,
-      landingVelocity: presentation.landingVelocity,
-      bobCycle: presentation.bobCycle,
     });
   }
 

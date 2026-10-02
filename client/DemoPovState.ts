@@ -1,10 +1,12 @@
 /**
- * Reconstructed first-person presentation for a followed demo entity.
+ * Reconstructed first-person presentation for a watched player, in demo
+ * playback or live spectating.
  *
- * The authoritative demo records world movement, not the original client's
- * cosmetic camera phase. This class rebuilds that phase from the sampled
- * entity and the recorded-tick playhead. It deliberately never consumes wall
- * time, so pause, speed changes, and seeks have predictable behavior.
+ * Snapshots and demos carry world movement, not the player's cosmetic camera
+ * phase. This class rebuilds that phase from the sampled entity and the clock
+ * it is handed, and reads no other time. Demo playback hands it the
+ * recorded-tick playhead, so pause, speed changes and seeks behave
+ * predictably; live spectating hands it wall time.
  */
 
 import { Cvar } from "../../../engine/core/Cvar";

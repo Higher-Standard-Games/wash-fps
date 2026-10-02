@@ -2,16 +2,25 @@
  * SpectatorOverlay - Fullscreen spectator mode UI
  *
  * Shows:
- * 1. Initial join overlay (JOIN GAME / Spectate buttons) on connect
+ * 1. The join screen on connect: the match handoff's rail and stage, every
+ *    step done, over the match, with keys to join or to look around first
  * 2. "SPECTATING: PlayerName" bar during first-person spectate
  * 3. Freefly spectator minimal UI
- *
- * Uses Washiki theme styling consistent with FPSHud.
  */
 
-import { LogoCanvas } from "../../../engine/ui/components/LogoCanvas";
+import { EngineVersion } from "../../../engine/core/EngineVersion";
+import { EventBus } from "../../../engine/core/EventBus";
+import { LOADING_EVENTS } from "../../../engine/core/LoadingEvents";
+import { MapLoader } from "../../../engine/loader/map/MapLoader";
+import { createRaisedKey, injectRaisedKeyStyles } from "../../../engine/ui/components/RaisedKey";
+import { mapTitle } from "../../../engine/ui/MapTitles";
+import { titleLines } from "../../../engine/ui/TransferLoadingView";
+import { UIStyles } from "../../../engine/ui/UIStyles";
 import { FPS, getActionKeyLabel } from "./FPSActions";
 import { MatchStateManager } from "./MatchStateManager";
+import matchMenuCss from "./styles/MatchMenu.css?raw";
+
+import "../../../engine/ui/components/styles/ConnectingOverlay.css";
 
 export type SpectatorMode = "join-overlay" | "freefly" | "first-person" | "hidden";
 
@@ -25,9 +34,13 @@ export class SpectatorOverlay {
 
   private onJoinGameCallback: ((teamId?: string) => void) | null = null;
   private onSpectateCallback: (() => void) | null = null;
-  private buttonsContainer: HTMLElement;
+  private joinKeys: HTMLElement;
   private hintEl: HTMLElement;
-  private logoCanvas: LogoCanvas | null = null;
+  private modeEl: HTMLElement;
+  private titleEl: HTMLElement;
+  private mapEl: HTMLElement;
+  private shotEl: HTMLElement;
+  private unsubscribeHidden: () => void;
 
   // Reserved for first-person spectating (future)
   private _onNextPlayerCallback: (() => void) | null = null;
@@ -44,145 +57,118 @@ export class SpectatorOverlay {
             pointer-events: none;
         `;
 
-    // ── Join Overlay (fullscreen blur + Washiki panel dialog) ──
-    this.joinOverlay = document.createElement("div");
+    // ── Join screen: the handoff's rail and stage, over the match ──
+    injectRaisedKeyStyles();
+    UIStyles.injectCSS("fps-match-menu", matchMenuCss);
+    this.joinOverlay = el("div", "connecting-overlay connecting-overlay--join");
     this.joinOverlay.id = "spectator-join-overlay";
-    this.joinOverlay.style.cssText = `
-            position: absolute;
-            inset: 0;
-            display: none;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            backdrop-filter: blur(14px);
-            -webkit-backdrop-filter: blur(14px);
-            background: radial-gradient(ellipse at center, rgba(0,0,0,0.45), rgba(0,0,0,0.7));
-            pointer-events: all;
-        `;
+    this.joinOverlay.setAttribute("role", "dialog");
+    this.joinOverlay.setAttribute("aria-label", "Join the match");
+    this.joinOverlay.style.display = "none";
 
-    // Washiki-style dialog panel
-    const panel = document.createElement("div");
-    panel.style.cssText = `
-            position: relative;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 16px;
-            padding: 40px 56px;
-            background: linear-gradient(180deg, rgba(10,8,16,0.92) 0%, rgba(6,4,12,0.88) 100%);
-            border: 1px solid rgba(255,100,0,0.35);
-            border-radius: 4px;
-            box-shadow: 0 0 40px rgba(255,80,0,0.08), 0 8px 32px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,140,0,0.08);
-        `;
+    const ambient = el("div", "connecting-overlay__ambient-word", "LIVE");
+    ambient.setAttribute("aria-hidden", "true");
 
-    // Corner brackets (top-left, top-right, bottom-left, bottom-right)
-    const cornerCSS = (top: boolean, left: boolean) => `
-            position: absolute;
-            ${top ? "top: -1px" : "bottom: -1px"};
-            ${left ? "left: -1px" : "right: -1px"};
-            width: 14px; height: 14px;
-            border-${top ? "top" : "bottom"}: 2px solid rgba(255,120,0,0.7);
-            border-${left ? "left" : "right"}: 2px solid rgba(255,120,0,0.7);
-            pointer-events: none;
-        `;
-    for (const [t, l] of [
-      [true, true],
-      [true, false],
-      [false, true],
-      [false, false],
-    ]) {
-      const c = document.createElement("div");
-      c.style.cssText = cornerCSS(t as boolean, l as boolean);
-      panel.appendChild(c);
-    }
+    const rail = el("aside", "connecting-overlay__rail");
+    const railHeader = el("div", "connecting-overlay__rail-header");
+    const railTitle = el("div", "connecting-overlay__rail-title");
+    railTitle.append(el("span", "", "YOUR"), el("span", "", "CALL"));
+    railHeader.append(
+      el("div", "connecting-overlay__brand", "WASHIKI // WASHOI"),
+      el("div", "connecting-overlay__rail-kicker", "LIVE MATCH"),
+      railTitle,
+    );
+    // The handoff's steps, all behind you now
+    const steps = el("ol", "connecting-overlay__steps");
+    ["SERVER", "HANDSHAKE", "MAP LOAD"].forEach((label, index) => {
+      const mark = el("span", "connecting-overlay__step-mark");
+      mark.setAttribute("aria-hidden", "true");
+      const step = el("li", "connecting-overlay__step is-done");
+      step.append(
+        el("span", "connecting-overlay__step-number", `0${index + 1}`),
+        el("span", "connecting-overlay__step-label", label),
+        mark,
+      );
+      steps.appendChild(step);
+    });
+    const endpoint = el("div", "connecting-overlay__endpoint");
+    this.mapEl = el("span", "connecting-overlay__server");
+    endpoint.append(el("span", "connecting-overlay__endpoint-label", "MAP"), this.mapEl);
+    const version = EngineVersion.getInstance();
+    rail.append(
+      railHeader,
+      steps,
+      endpoint,
+      el("div", "connecting-overlay__rail-footer", `${version.getEngineName()} // ${version.getVersionString()}`),
+    );
 
-    // 3D Washoi logo (replaces the old "SHAG" text)
-    this.logoCanvas = new LogoCanvas({ width: 500, height: 160, showGlow: false, cameraRadius: 2.8 });
-    const logoEl = this.logoCanvas.getElement();
-    logoEl.style.marginBottom = "4px";
-    panel.appendChild(logoEl);
+    const stage = el("main", "connecting-overlay__stage");
+    this.shotEl = el("div", "connecting-overlay__shot");
+    this.shotEl.setAttribute("aria-hidden", "true");
+    const stageHeader = el("div", "connecting-overlay__stage-header");
+    const deco = el("div", "connecting-overlay__deco");
+    deco.setAttribute("aria-hidden", "true");
+    for (let index = 0; index < 5; index++) deco.appendChild(document.createElement("span"));
+    stageHeader.append(el("div", "connecting-overlay__sequence", "LIVE MATCH // IN THE STANDS"), deco);
 
-    // Subtle divider
-    const divider = document.createElement("div");
-    divider.style.cssText = `
-            width: 80%; height: 1px;
-            background: linear-gradient(90deg, transparent, rgba(255,100,0,0.3), transparent);
-            margin: 4px 0 12px 0;
-        `;
-    panel.appendChild(divider);
+    const hero = el("div", "connecting-overlay__hero");
+    this.modeEl = el("div", "connecting-overlay__kicker");
+    this.titleEl = el("h1", "connecting-overlay__title");
+    hero.append(
+      this.modeEl,
+      this.titleEl,
+      el("p", "connecting-overlay__lead", "You're in the stands. Join the match, or look around first."),
+    );
 
-    // Buttons container
-    this.buttonsContainer = document.createElement("div");
-    this.buttonsContainer.style.cssText = `
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            align-items: center;
-        `;
-    panel.appendChild(this.buttonsContainer);
+    const choices = el("section", "spectator-join__choices");
+    choices.setAttribute("aria-label", "Join or watch");
+    this.joinKeys = el("div", "spectator-join__keys");
+    this.hintEl = el("div", "spectator-join__hint");
+    choices.append(this.joinKeys, this.hintEl);
 
-    // Hint text
-    this.hintEl = document.createElement("div");
-    this.hintEl.style.cssText = `
-            font-family: 'Rajdhani', 'Outfit', sans-serif;
-            font-size: 11px;
-            color: rgba(255,140,0,0.45);
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            margin-top: 8px;
-        `;
-    panel.appendChild(this.hintEl);
-
-    this.joinOverlay.appendChild(panel);
+    stage.append(this.shotEl, stageHeader, hero, choices);
+    this.joinOverlay.append(ambient, rail, stage);
     this.container.appendChild(this.joinOverlay);
+
+    // Shown on connect, before the map has loaded: its name arrives with the load
+    this.unsubscribeHidden = EventBus.on(LOADING_EVENTS.HIDDEN, () => {
+      if (this.mode === "join-overlay") this.refreshJoinPanel();
+    });
 
     this.refreshJoinPanel();
 
-    // ── Spectating Bar (top center, shows during first-person spec) ──
-    this.spectatingBar = document.createElement("div");
+    // ── Spectating bar (above the bottom HUD, during first-person spec) ──
+    // Whom you are watching, between the keys that step to the previous and
+    // next player
+    this.spectatingBar = el("div", "fps-spectator-bar");
     this.spectatingBar.id = "spectator-bar";
-    this.spectatingBar.className = "fps-spectator-bar";
 
-    // Prev player button
-    const prevBtn = document.createElement("span");
-    prevBtn.className = "fps-spectator-bar-nav";
-    prevBtn.textContent = "◄ [←]";
+    const prevBtn = el("span", "fps-spectator-bar-nav");
+    prevBtn.title = "Previous player";
+    prevBtn.appendChild(el("span", "fps-spectator-bar-key", "←"));
     prevBtn.addEventListener("click", () => this._onPrevPlayerCallback?.());
-    this.spectatingBar.appendChild(prevBtn);
 
-    const specLabel = document.createElement("span");
-    specLabel.className = "fps-spectator-bar-label";
-    specLabel.textContent = "SPECTATING";
-    this.spectatingBar.appendChild(specLabel);
+    const who = el("div", "fps-spectator-bar-who");
+    this.spectatingNameEl = el("span", "fps-spectator-bar-name");
+    who.append(el("span", "fps-spectator-bar-label", "Spectating"), this.spectatingNameEl);
 
-    this.spectatingNameEl = document.createElement("span");
-    this.spectatingNameEl.className = "fps-spectator-bar-name";
-    this.spectatingBar.appendChild(this.spectatingNameEl);
-
-    // Next player button
-    const nextBtn = document.createElement("span");
-    nextBtn.className = "fps-spectator-bar-nav";
-    nextBtn.textContent = "[→] ►";
+    const nextBtn = el("span", "fps-spectator-bar-nav");
+    nextBtn.title = "Next player";
+    nextBtn.appendChild(el("span", "fps-spectator-bar-key", "→"));
     nextBtn.addEventListener("click", () => this._onNextPlayerCallback?.());
-    this.spectatingBar.appendChild(nextBtn);
 
+    this.spectatingBar.append(prevBtn, who, nextBtn);
     this.container.appendChild(this.spectatingBar);
 
-    // ── Freefly cue (left sidebar panel, below weapon list) ─────
+    // ── Freefly cue (bottom left, above the HUD) ─────
     this.freeflyCue = document.createElement("div");
     this.freeflyCue.id = "spectator-freefly-cue";
     this.freeflyCue.className = "fps-spectator-cue";
 
-    // Header: "SPECTATOR"
     const header = document.createElement("div");
     header.className = "fps-spectator-cue-header";
     header.textContent = "SPECTATOR";
     this.freeflyCue.appendChild(header);
-
-    // Divider
-    const div = document.createElement("div");
-    div.className = "fps-spectator-cue-divider";
-    this.freeflyCue.appendChild(div);
 
     // Dynamic key labels from InputSystem
     const moveKeys = [
@@ -208,7 +194,7 @@ export class SpectatorOverlay {
       ["ESC", "Menu"],
     ];
 
-    // Split into two columns of 3
+    // Two columns of key and action, read down the left column first
     const half = Math.ceil(bindings.length / 2);
     const leftCol = bindings.slice(0, half);
     const rightCol = bindings.slice(half);
@@ -217,31 +203,10 @@ export class SpectatorOverlay {
     grid.className = "fps-spectator-cue-grid";
 
     for (let i = 0; i < half; i++) {
-      // Left column
-      const lk = document.createElement("div");
-      lk.className = "fps-spectator-key";
-      lk.textContent = leftCol[i][0];
-      const la = document.createElement("div");
-      la.className = "fps-spectator-action";
-      la.textContent = leftCol[i][1];
-
-      // Vertical divider cell
-      const sep = document.createElement("div");
-      sep.className = "fps-spectator-sep";
-
-      // Right column
-      const rk = document.createElement("div");
-      rk.className = "fps-spectator-key";
-      rk.textContent = rightCol[i]?.[0] ?? "";
-      const ra = document.createElement("div");
-      ra.className = "fps-spectator-action";
-      ra.textContent = rightCol[i]?.[1] ?? "";
-
-      grid.appendChild(lk);
-      grid.appendChild(la);
-      grid.appendChild(sep);
-      grid.appendChild(rk);
-      grid.appendChild(ra);
+      for (const pair of [leftCol[i], rightCol[i]]) {
+        if (!pair) continue;
+        grid.append(el("div", "fps-spectator-key", pair[0]), el("div", "fps-spectator-action", pair[1]));
+      }
     }
 
     this.freeflyCue.appendChild(grid);
@@ -262,16 +227,14 @@ export class SpectatorOverlay {
     this.joinOverlay.style.display = "none";
     this.spectatingBar.style.display = "none";
     this.freeflyCue.style.display = "none";
-    if (this.logoCanvas) this.logoCanvas.pause();
+
+    // The join screen covers the HUD, as the loading screen before it does
+    this.container.style.zIndex = mode === "join-overlay" ? "960" : "500";
 
     switch (mode) {
       case "join-overlay":
         this.refreshJoinPanel();
-        this.joinOverlay.style.display = "flex";
-        // Init/resume 3D logo
-        if (this.logoCanvas) {
-          this.logoCanvas.init().catch(() => {});
-        }
+        this.joinOverlay.style.display = "";
         break;
       case "freefly":
         this.freeflyCue.style.display = "flex";
@@ -317,110 +280,63 @@ export class SpectatorOverlay {
   // ── Cleanup ─────────────────────────────────────────────────
 
   public destroy(): void {
-    if (this.logoCanvas) {
-      this.logoCanvas.dispose();
-      this.logoCanvas = null;
-    }
+    this.unsubscribeHidden();
     this.container.remove();
   }
 
   // ── Private ─────────────────────────────────────────────────
 
-  private createButton(text: string, primary: boolean): HTMLElement {
-    const defaultBg = primary
-      ? "linear-gradient(180deg, rgba(255,80,0,0.25) 0%, rgba(255,120,0,0.1) 100%)"
-      : "rgba(255,255,255,0.04)";
-    const defaultBorder = primary ? "rgba(255,100,0,0.7)" : "rgba(255,255,255,0.2)";
-    const defaultShadow = primary ? "0 0 20px rgba(255,80,0,0.12), inset 0 1px 0 rgba(255,140,0,0.1)" : "";
-
-    const btn = document.createElement("button");
-    btn.textContent = text;
-    // Store base colors as data attributes so team overrides are preserved on hover/leave
-    btn.dataset.baseBg = defaultBg;
-    btn.dataset.baseBorder = defaultBorder;
-    btn.dataset.baseShadow = defaultShadow;
-    btn.style.cssText = `
-            font-family: 'Orbitron', 'Rajdhani', 'Outfit', sans-serif;
-            font-size: ${primary ? "16px" : "13px"};
-            font-weight: ${primary ? "800" : "600"};
-            text-transform: uppercase;
-            letter-spacing: ${primary ? "5px" : "3px"};
-            padding: ${primary ? "14px 48px" : "10px 36px"};
-            border: ${primary ? "2px solid " + defaultBorder : "1px solid " + defaultBorder};
-            border-radius: 3px;
-            background: ${defaultBg};
-            color: ${primary ? "#fff" : "rgba(255,255,255,0.7)"};
-            cursor: pointer;
-            transition: all 0.2s ease;
-            min-width: 220px;
-            ${defaultShadow ? "box-shadow: " + defaultShadow + ";" : ""}
-        `;
-
-    btn.addEventListener("mouseenter", () => {
-      btn.style.background = primary
-        ? "linear-gradient(180deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.05) 100%)"
-        : "rgba(255,255,255,0.1)";
-      btn.style.filter = "brightness(1.3)";
-      btn.style.transform = "scale(1.02)";
-    });
-
-    btn.addEventListener("mouseleave", () => {
-      // Restore from data attributes (respects team color overrides)
-      btn.style.background = btn.dataset.baseBg || defaultBg;
-      btn.style.borderColor = btn.dataset.baseBorder || defaultBorder;
-      btn.style.filter = "";
-      btn.style.transform = "scale(1)";
-      if (primary) btn.style.boxShadow = btn.dataset.baseShadow || defaultShadow;
-    });
-
-    return btn;
-  }
-
   private refreshJoinPanel(): void {
-    if (!this.buttonsContainer || !this.hintEl) return;
-
-    this.buttonsContainer.innerHTML = "";
-
     const state = MatchStateManager.getInstance();
+    const map = MapLoader.getInstance().getCurrentMap() ?? "";
+    const name = map ? (mapTitle(map) ?? map) : "Live match";
+    this.modeEl.textContent = state.gametypeName ? state.gametypeName.toUpperCase() : "LIVE MATCH";
+    const lines = titleLines(name.toUpperCase());
+    this.titleEl.replaceChildren(...lines.map((line) => el("span", "", line)));
+    this.titleEl.style.setProperty("--co-title-chars", String(Math.max(6, ...lines.map((line) => line.length))));
+    this.mapEl.textContent = map || "—";
+    // A map with no levelshot installed keeps the stage's own gradient
+    if (map) this.shotEl.style.setProperty("--co-shot", `url("/data/levelshots/${encodeURIComponent(map)}.jpg")`);
+    else this.shotEl.style.removeProperty("--co-shot");
+
+    const joinKey = getActionKeyLabel(FPS.JOIN_GAME);
+    const spectate = createRaisedKey({ label: "Spectate", hint: "Fly around", variants: ["cream"] });
+    spectate.addEventListener("click", () => this.onSpectateCallback?.());
+
     // Team-ness comes from the gametype, not from the presence of team scores:
     // those ship with both sides populated in every gametype, so a free-for-all
     // read as a team game and every player landed in the spectator list.
-    const hasTeams = state.teamBased;
-
-    if (hasTeams) {
-      // Team Udon btn (pink)
-      const udonBtn = this.createButton("JOIN TEAM UDON", true);
-      udonBtn.style.borderColor = "rgba(255, 0, 200, 0.7)";
-      udonBtn.style.background = "linear-gradient(180deg, rgba(255,0,200,0.25) 0%, rgba(255,0,200,0.1) 100%)";
-      udonBtn.dataset.baseBg = udonBtn.style.background;
-      udonBtn.dataset.baseBorder = udonBtn.style.borderColor;
-      udonBtn.addEventListener("click", () => this.onJoinGameCallback?.("udon"));
-      this.buttonsContainer.appendChild(udonBtn);
-
-      // Team Soba btn (cyan)
-      const sobaBtn = this.createButton("JOIN TEAM SOBA", true);
-      sobaBtn.style.borderColor = "rgba(0, 255, 255, 0.7)";
-      sobaBtn.style.background = "linear-gradient(180deg, rgba(0,255,255,0.25) 0%, rgba(0,255,255,0.1) 100%)";
-      sobaBtn.dataset.baseBg = sobaBtn.style.background;
-      sobaBtn.dataset.baseBorder = sobaBtn.style.borderColor;
-      sobaBtn.addEventListener("click", () => this.onJoinGameCallback?.("soba"));
-      this.buttonsContainer.appendChild(sobaBtn);
-
-      const joinKey = getActionKeyLabel(FPS.JOIN_GAME);
-      this.hintEl.textContent = `Press ${joinKey} to auto-assign`;
+    if (state.teamBased) {
+      // Sides by how full they are, not by colour: colour is allegiance, and
+      // your side is pink whichever one you pick.
+      const sizes = { udon: 0, soba: 0 };
+      for (const team of Object.values(state.playerTeams ?? {})) {
+        if (team === "udon" || team === "soba") sizes[team]++;
+      }
+      const side = (teamId: "udon" | "soba", label: string) => {
+        const count = sizes[teamId];
+        const key = createRaisedKey({
+          label,
+          hint: count === 0 ? "Empty" : count === 1 ? "1 player" : `${count} players`,
+          variants: ["cta"],
+        });
+        key.addEventListener("click", () => this.onJoinGameCallback?.(teamId));
+        return key;
+      };
+      this.joinKeys.replaceChildren(side("udon", "Join Udon"), side("soba", "Join Soba"), spectate);
+      this.hintEl.textContent = `${joinKey} puts you on the side with fewer players`;
     } else {
-      // Standard FFA btn
-      const joinBtn = this.createButton("JOIN GAME", true);
-      joinBtn.addEventListener("click", () => this.onJoinGameCallback?.());
-      this.buttonsContainer.appendChild(joinBtn);
-
-      const joinKey = getActionKeyLabel(FPS.JOIN_GAME);
-      this.hintEl.textContent = `Press ${joinKey} to join`;
+      const join = createRaisedKey({ label: "Join game", hint: `or press ${joinKey}`, variants: ["cta"] });
+      join.addEventListener("click", () => this.onJoinGameCallback?.());
+      this.joinKeys.replaceChildren(join, spectate);
+      this.hintEl.textContent = "";
     }
-
-    // Shared spectate button
-    const specBtn = this.createButton("SPECTATE", false);
-    specBtn.addEventListener("click", () => this.onSpectateCallback?.());
-    this.buttonsContainer.appendChild(specBtn);
   }
+}
+
+function el(tag: string, className: string, text?: string): HTMLElement {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
 }

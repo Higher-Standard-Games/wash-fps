@@ -1,4 +1,5 @@
 // Extracted from FPSHud.ts
+import { createRaisedKey } from "../../../../../engine/ui/components/RaisedKey";
 import { HUDState } from "../../HUDState";
 import { MatchStateManager } from "../../MatchStateManager";
 
@@ -52,12 +53,11 @@ export class FPSScoreboard {
     this.bodyEl.className = "fps-scoreboard-body";
     this.board.appendChild(this.bodyEl);
 
-    // RETURN TO LOBBY — shown by the single-match post-game open-up beat.
+    // Back to the lobby — shown by the single-match post-game open-up beat.
     // Lives on the OVERLAY (refresh() wipes the board's innerHTML) and is the
     // only interactive element there (overlay itself is pointer-events: none).
-    this.returnBtn = document.createElement("button");
-    this.returnBtn.className = "fps-scoreboard-return";
-    this.returnBtn.textContent = "RETURN TO LOBBY";
+    this.returnBtn = createRaisedKey({ label: "Back to the lobby", variants: ["cta"] });
+    this.returnBtn.classList.add("fps-scoreboard-return");
     this.returnBtn.style.display = "none";
     this.overlay.appendChild(this.returnBtn);
 

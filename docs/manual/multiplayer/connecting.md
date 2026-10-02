@@ -2,16 +2,43 @@
 
 How to connect to a game server, manually or through the lobby.
 
-## Lobby UI (the normal way)
+## The menu (the normal way)
 
 1. Open the dev server (`npm run dev`).
-2. The lobby UI is the first screen. Pick a gametype card.
-3. You are placed in a lobby with other players queuing for that gametype.
-4. In the ready room you can vote for a map, pick a side, invite bots, and mark
-   yourself ready.
-5. When enough players are ready, the lobby spawns a dedicated game server and
-   tells your client where to connect.
-6. The `ConnectingOverlay` shows during the connect; the map loads, and you spawn.
+2. The first time a browser reaches the lobby it is asked who you are. The name
+   you pick is your account's; leaving it empty keeps the `Player_<number>` the
+   lobby gave you. You already have a key at that point — it is what opens the
+   same account in another browser, and the Profile key at the foot of the menu
+   is where you copy or save it.
+3. Pick a mode on the Play stage — Duel, Amphi, FFA or S&D — and take the one
+   big action under it to find a room. **Private** beside it makes a room that
+   appears in no list; the only way in is the invite link it gives you.
+4. In the room you vote for a map, pick a side, add bots, chat with the people
+   in it, and mark yourself ready.
+5. When everyone is ready, the lobby spawns a dedicated game server for that
+   match alone and hands your client its address and a ticket for your seat.
+6. The connecting screen takes over and becomes the loading screen where it
+   stands: its third step, MAP LOAD, lights up, the stage names the map over its
+   levelshot, and a bar fills as the map loads. When the game has set itself
+   up, the screen fades and you spawn.
+7. When the match ends, **Back to the lobby** brings you back to the same room,
+   ready for a rematch.
+
+Rooms you can join are listed down the left rail. The Leaderboard shows your
+rank in every mode in its rail, and Profile shows your ranked record beside
+your key.
+
+### Joining a match under way
+
+A match that has started still takes players while it has room. Its key in the
+rail reads **join**, and pressing it puts you straight into the match, on the
+smaller side in a team mode. A full match reads **watch**: you spectate, and
+pressing **J** (or **Join** in the match menu) asks for a place. When one has
+freed up you are in at once, on the connection you are watching from. When the
+match is still full, the chat says so. In a Duel whose two sides are taken —
+including a side held for a player who dropped — you are put in the challengers
+queue and brought in when it frees. In a round mode you join dead and play from
+the next round.
 
 ### In the Ready Room
 
@@ -20,7 +47,7 @@ How to connect to a game server, manually or through the lobby.
 | **Vote map** | Three maps are drawn from the gametype's pool; most votes wins |
 | **Switch side** | Immediate, no vote — it affects only you and it is reversible |
 | **Vote shuffle** | Randomises the teams; needs a majority (`ceil(players / 2)`) |
-| **Invite bot** | Adds a bot at `easy`, `medium` (default), `hard` or `insane` |
+| **Add bot** | Fills a seat with a bot. The protocol takes `easy`, `medium` (the default), `hard` or `insane`; the room's key asks for the default |
 | **Ready** | Toggles your ready state |
 
 On a team gametype you are auto-assigned to the smaller side on join. Switching
@@ -48,13 +75,20 @@ The `connect` command lives in `src/games/fps/console/commands/ConnectCommand.ts
 
 If a `map <name> [gametype]` command was used to dev-spawn a server, the lobby spawn + the network connect happen automatically. You don't need `connect` after `map`.
 
+A server reached with `connect` shows the [join screen](../player/hud.md#join-screen)
+once the map is in: join the match, or spectate first.
+
 ## What Happens on Connect
 
 1. Browser WebSocket handshake with the game server.
-2. Server replies with `serverInfo` containing the active map name + gametype + tick rate.
-3. Client renders the BSP via the engine's `loadClientMap()` helper (no local simulation — the server is authoritative).
-4. Client subscribes to snapshot stream and starts sending input commands.
-5. Server adds the player to the simulation; first authoritative snapshot arrives with the spawn position.
+2. The client presents the ticket the lobby gave it. The server admits the seat
+   that ticket belongs to — the name a client sends identifies nobody. A seat
+   survives a dropped socket, so a reload before the match starts reclaims the
+   same one.
+3. Server replies with `serverInfo` containing the active map name + gametype + tick rate.
+4. Client renders the BSP via the engine's `loadClientMap()` helper (no local simulation — the server is authoritative).
+5. Client subscribes to snapshot stream and starts sending input commands.
+6. Server adds the player to the simulation; first authoritative snapshot arrives with the spawn position.
 
 ## Disconnect Behaviour
 
@@ -65,13 +99,19 @@ If a `map <name> [gametype]` command was used to dev-spawn a server, the lobby s
 - The snapshot buffer
 - The client-side projectile / weapon-view state
 
-If you disconnect mid-match, the server marks you as disconnected after a brief grace window (~3 seconds) — your name leaves the scoreboard cleanly.
+If you drop mid-match, your seat is held for 20 seconds and the server hands your client a resume token, so coming back inside that window puts you back in the same seat rather than a new one. Miss it and the seat is released and your name leaves the scoreboard.
 
 ## TODO
 
 - Reading NetGraph in detail (ping, snapshot rate, packet loss, interp delay, command rate)
 - Recovering from a kicked / disconnected state
 - WebTransport vs WebSocket transport selection
-- `connect` security considerations (no auth in the dev flow)
 
-For now, the engine's Networking Guide (`docs/manual/guides/networking.md` in the engine repo) covers the underlying mechanics.
+A match started through the lobby is ticketed, as above. A `connect` typed at
+the console carries no ticket: the server lets it watch, but a playing seat
+belongs to a ticket, so it cannot take one. Watching from the lobby's rail is
+different: there, Join asks the lobby for a seat.
+
+For now, the engine's Networking Guide (`docs/manual/guides/networking.md` in
+the engine repo) covers the underlying mechanics, and its Lobby Server guide
+(`docs/manual/guides/lobby-server.md`) covers accounts, rooms and results.

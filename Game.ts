@@ -42,6 +42,7 @@ import { BombSiteMarkers } from "./client/BombSiteMarkers";
 import { Crosshair } from "./client/Crosshair";
 import { DeathCamera } from "./client/DeathCamera";
 import type { DroppedWeaponRenderer } from "./client/DroppedWeaponRenderer";
+import { FollowedViewWeapon } from "./client/FollowedViewWeapon";
 import { registerFPSActions } from "./client/FPSActions";
 import { preloadFPSAudio } from "./client/FPSAudio";
 import { FPSBombAudio } from "./client/FPSBombAudio";
@@ -52,6 +53,7 @@ import { playJumppadLaunch, resetFPSMovementAudio } from "./client/FPSMovementAu
 // Game event handling (extracted from this file)
 import { type GameEventContext, handleServerStateUpdate } from "./client/GameEvents";
 import { HUDState } from "./client/HUDState";
+import { clearLocalPowerups } from "./client/LocalPowerupState";
 import { MatchPhase, MatchStateManager } from "./client/MatchStateManager";
 import { RemotePlayerRenderer } from "./client/RemotePlayerRenderer";
 import { SpectateEyeCamera } from "./client/SpectateEyeCamera";
@@ -66,9 +68,11 @@ export interface FPSGameConfig {
   maxPlayers?: number;
   /** When true, auto-join the game after map loads (skip spectator overlay) */
   autoJoin?: boolean;
-  /** When true, enter pure spectator mode with auto-chase-cam (no join option) */
+  /** When true, enter as a spectator; Join is still there for a free seat */
   watchOnly?: boolean;
   admissionTicket?: string;
+  /** For a watcher of a lobby match: asks the lobby for a seat when they press Join */
+  requestSeat?: () => Promise<void>;
 }
 
 /**
@@ -117,6 +121,19 @@ export interface PlayerStateUpdate {
  * teammate. Long enough for the ragdoll to land and be read as a death.
  */
 const SPECTATE_AFTER_DEATH_MS = 3000;
+
+/**
+ * How long a chase camera waits on a dead player in a mode with respawns.
+ * Past the server's forced respawn, twice the respawn delay: six seconds in
+ * Deathmatch, Duel and Team Deathmatch.
+ */
+const CHASE_RESPAWN_WAIT_MS = 8000;
+
+/** Whether two game server URLs name the same server, ignoring case and a trailing slash. */
+function sameServer(a: string, b: string | null): boolean {
+  const normal = (url: string) => url.trim().replace(/\/+$/, "").toLowerCase();
+  return b !== null && normal(a) === normal(b);
+}
 
 /**
  * The side chosen in the lobby, if this session came from one.
@@ -233,6 +250,13 @@ export class Game {
   private _deathCamera: DeathCamera = new DeathCamera();
   /** First-person view of a living teammate, while dead in a round mode. */
   private _eyeCamera: SpectateEyeCamera = new SpectateEyeCamera();
+  /**
+   * The watched player's weapon in front of the camera, through the live view
+   * weapon. The same code the demo viewer drives its own instance with.
+   */
+  private readonly _followedWeapon = new FollowedViewWeapon(() => getWeaponViewManager());
+  /** When the chase target was first seen dead; 0 while they are alive. */
+  private _chaseBodySince = 0;
 
   /**
    * What owns the camera, for the developer `camera_audit` command.
@@ -484,6 +508,9 @@ export class Game {
       | undefined;
     if (!transform?.position) return null;
     const movement = entity.getComponent("movementState") as { crouchViewOffset?: number } | undefined;
+    // Their stride's sway, rebuilt the way the demo viewer rebuilds it.
+    const pose = this._followedWeapon.presentation;
+    const sway = pose?.entityId === entityId ? pose : null;
     return {
       x: transform.position.x,
       y: transform.position.y,
@@ -493,6 +520,10 @@ export class Game {
       // Same sum the local FPS camera uses, so ducking under a rail looks the
       // same watched as it does played.
       eyeHeight: DEFAULT_VIEWHEIGHT + (movement?.crouchViewOffset ?? 0),
+      bobRight: sway?.cameraBobRight,
+      bobUp: sway?.cameraBobUp,
+      pitchOffsetDegrees: sway?.cameraPitchDegrees,
+      rollDegrees: sway?.cameraRollDegrees,
     };
   }
 
@@ -557,18 +588,21 @@ export class Game {
   private _spectatingEntityId: string | null = null;
   /** Fire/alt-fire held last tick, so cycling steps once per press. */
   private _specCycleHeld = false;
-  /** Warn once per session if the spectate camera ever runs dry. */
 
   /**
-   * Whose eyes the view is currently behind, or null when it is our own.
+   * Whose eyes the view is currently behind, or null when it is our own: the
+   * teammate we watch while dead, or the player a spectator is chasing.
    *
-   * Read by the event layer to decide who the HUD is describing. A spectated
-   * player's health, ammo and weapon all arrive in the same snapshot as ours —
-   * the server broadcasts combat_state and weapon_state for every player — so
-   * this is a routing question, not a networking one.
+   * Read by the event layer to decide who the HUD, the view weapon and the
+   * first-person sounds describe. A watched player's health, ammo and weapon
+   * all arrive in the same snapshot as ours — the server broadcasts
+   * combat_state and weapon_state for every player — so this is a routing
+   * question, not a networking one.
    */
   get spectatingEntityId(): string | null {
-    return this._spectatingEntityId;
+    if (this._spectatingEntityId) return this._spectatingEntityId;
+    if (this.playerState !== "spectator") return null;
+    return this.spectatorController?.getTargetEntityId() ?? null;
   }
   /** When the local player last died, for the spectate hand-off delay. */
   private _deathAtMs = 0;
@@ -580,6 +614,16 @@ export class Game {
   private _joinGametypeWaits = 0;
   /** Side selected for this game connection; never leaks into the next one. */
   private _preferredTeam: string | undefined;
+  /**
+   * Seat bookkeeping for a lobby match. A player handed a ticket at connect is
+   * seated. A watcher is not: pressing Join asks the lobby through
+   * `_seatRequest`, and the ticket that comes back waits in `_seatTicket`
+   * until JoinGame carries it.
+   */
+  private _seated = false;
+  private _seatTicket: string | null = null;
+  private _seatRequest: (() => Promise<void>) | null = null;
+  private _seatRequesting = false;
 
   private constructor() {
     // Register as the engine's per-frame game hook so camera controllers can
@@ -817,6 +861,9 @@ export class Game {
     // a later direct connect inheriting a side from an old lobby.
     this._preferredTeam = readLobbyTeam() ?? this._preferredTeam;
     console.log(`[Game] Lobby handoff team: ${this._preferredTeam ?? "none"}`);
+    this._seated = !!config.admissionTicket;
+    this._seatTicket = null;
+    this._seatRequest = config.requestSeat ?? null;
 
     const maxPlayers = config.maxPlayers ?? 16;
 
@@ -1032,6 +1079,10 @@ export class Game {
             this._joinPendingTimeout = null;
           }
         }
+        // Every server message is for the player: why a join was refused, a
+        // place in the queue, a round to wait for. Unsaid, Join reads as a key
+        // that does nothing.
+        this.showNotice(msg.message);
       });
 
       // Load player profile and connect with display name
@@ -1104,24 +1155,9 @@ export class Game {
       const camSys = CameraSystem.getInstance();
       camSys.registerController("spectator", this.spectatorController);
 
-      // Set up target provider — reads entity position/rotation from latest GameState
-      this.spectatorController.setTargetProvider((entityId: string) => {
-        const state = this._latestGameState;
-        if (!state) return null;
-        const entity = state.entities.get(entityId);
-        if (!entity) return null;
-        const transform = entity.getComponent("transform") as
-          | { position?: { x: number; y: number; z: number }; rotation?: { x: number; y: number; z: number } }
-          | undefined;
-        if (!transform?.position) return null;
-        return {
-          x: transform.position.x,
-          y: transform.position.y,
-          z: transform.position.z,
-          yaw: transform.rotation?.y ?? 0,
-          pitch: transform.rotation?.x ?? 0,
-        };
-      });
+      // The chase camera reads the same eye sample the dead-teammate camera
+      // does: position, angles, crouch height and stride sway from one snapshot.
+      this.spectatorController.setTargetProvider((entityId: string) => this.spectateEyeSample(entityId));
 
       // ── Spectator cycling keyboard handler (arrows + Space) ──
       this._specCycleKeyHandler = (e: KeyboardEvent) => {
@@ -1185,10 +1221,13 @@ export class Game {
       document.addEventListener("keydown", this._joinKeyHandler);
 
       // ── Tab key: hold-to-show scoreboard (Quake style) ──
+      // With a menu up, Tab is the keyboard's way through its keys instead.
       this._scoreboardKeyHandler = (e: KeyboardEvent) => {
         if (e.code === "Tab") {
-          e.preventDefault();
           const hud = FPSHud.getInstance();
+          if (hud.pauseMenu?.isOpen() || hud.settings?.isOpen()) return;
+          if (this.spectatorOverlay?.getMode() === "join-overlay") return;
+          e.preventDefault();
           hud.scoreboard?.show();
         }
       };
@@ -1280,6 +1319,20 @@ export class Game {
       this._teamWasPicked = true;
     }
 
+    // A watcher of a lobby match has no seat on this server. The lobby hands
+    // one out while the match has room, and claimSeat() brings it back here.
+    if (this.playerState === "spectator" && !this._seated && !this._seatTicket && this._seatRequest) {
+      if (!this._seatRequesting) {
+        this._seatRequesting = true;
+        this._seatRequest()
+          .catch((error: unknown) => this.showNotice(error instanceof Error ? error.message : String(error)))
+          .finally(() => {
+            this._seatRequesting = false;
+          });
+      }
+      return;
+    }
+
     // Do not decide anything before the server has said what mode this is.
     //
     // The lobby's auto-join fires 200 ms after the map loads, which can beat
@@ -1333,7 +1386,7 @@ export class Game {
     console.log(
       `[Game] joinGame() — requesting team: ${this._preferredTeam ?? "auto-balance"}${this._teamWasPicked ? " (picked in-game)" : " (from lobby)"}`,
     );
-    networkHost.sendJoinGame(this._preferredTeam, this._teamWasPicked);
+    networkHost.sendJoinGame(this._preferredTeam, this._teamWasPicked, this._seatTicket ?? undefined);
     // Used, so the handoff is spent — a later direct connect in this tab must
     // not inherit it. The in-memory preference survives for keyboard rejoins.
     try {
@@ -1358,6 +1411,9 @@ export class Game {
    */
   private async completeJoinGame(): Promise<void> {
     this._joinPending = false;
+    // The server holds our account now; spectating and coming back needs no new seat.
+    this._seated = true;
+    this._seatTicket = null;
     if (this._joinPendingTimeout) {
       clearTimeout(this._joinPendingTimeout);
       this._joinPendingTimeout = null;
@@ -1467,6 +1523,24 @@ export class Game {
   }
 
   /**
+   * Take a seat the lobby issued for the match being watched, on the
+   * connection already open: no reconnect, no second map load. False when
+   * this is not a spectator connection to that server, so the caller connects.
+   */
+  claimSeat(serverUrl: string, admissionTicket: string): boolean {
+    if (!admissionTicket || !this.isConnectedToServer() || this.playerState !== "spectator") return false;
+    if (!sameServer(serverUrl, this.serverUrl)) return false;
+    this._seatTicket = admissionTicket;
+    void this.joinGame();
+    return true;
+  }
+
+  /** A line in the HUD chat for something the player should know, like a refused join. */
+  private showNotice(text: string): void {
+    if (text) FPSHud.getInstance().chat?.addNotice(text);
+  }
+
+  /**
    * goSpectator — transition from playing to spectator.
    * Sends Spectate to server, switches camera to freefly, shows overlay.
    */
@@ -1475,6 +1549,10 @@ export class Game {
     if (!this.gameHost || !this.isNetworkMode) return;
 
     const networkHost = this.gameHost as import("../../engine/network/client/hosts/NetworkGameHost").NetworkGameHost;
+
+    // A teammate view is driven by the FPS camera, which is about to stop
+    // running; left set, it would keep claiming the view for a camera that is gone.
+    this.stopTeammateSpectate();
 
     // Tell server to remove our entity
     networkHost.sendSpectate();
@@ -1510,6 +1588,7 @@ export class Game {
     if (!this.spectatorController || !this.spectatorCycling) return;
     this.spectatorCycling.setTarget(entityId);
     this.spectatorController.setSpectateTarget(entityId);
+    this._chaseBodySince = 0;
     // The camera goes to their eyes, which is INSIDE their head — leaving the
     // model on fills the screen with the inside of a skull. The demo viewer has
     // hidden the followed player since it shipped; this path never did, which
@@ -1554,6 +1633,84 @@ export class Game {
     this.spectatorOverlay?.setMode("freefly");
     this.switchToFreeflyCamera();
     console.log("[Game] Returned to freefly spectator");
+  }
+
+  /**
+   * Keep the chase camera on the cycling list's target.
+   *
+   * The list moves on by itself when its target leaves the match. A target
+   * who dies is waited for, as their own screen waits: the view holds where
+   * they fell, without their gun, and picks them up at their respawn. A round
+   * mode keeps the dead down until the next round, so there the camera moves
+   * on after the same pause the teammate view gives a death; elsewhere only
+   * once the server's forced respawn has passed.
+   */
+  private syncChaseTarget(): void {
+    const cycling = this.spectatorCycling;
+    const chasing = this.spectatorController?.getTargetEntityId();
+    if (!cycling || !chasing) return;
+
+    let target = cycling.getTargetEntityId();
+    if (target && !cycling.isAlive(target)) {
+      const now = performance.now();
+      const wait = MatchStateManager.getInstance().round > 0 ? SPECTATE_AFTER_DEATH_MS : CHASE_RESPAWN_WAIT_MS;
+      if (this._chaseBodySince === 0) this._chaseBodySince = now;
+      else if (now - this._chaseBodySince >= wait) target = cycling.next() ?? target;
+    } else {
+      this._chaseBodySince = 0;
+    }
+
+    if (!target) this.exitChaseCam();
+    else if (target !== chasing) this.spectatePlayer(target);
+  }
+
+  /**
+   * Point the view weapon at whoever the camera is behind.
+   *
+   * The subject changes when a teammate view starts or ends, when a spectator
+   * picks or drops a chase target, and on joining. Powerup timers describe
+   * the same player the HUD does, so they start over with each subject; the
+   * server resends a running timer in every snapshot.
+   */
+  private syncFollowedSubject(): void {
+    const subject = this.spectatingEntityId;
+    if (subject === this._followedWeapon.followedEntityId) return;
+    clearLocalPowerups();
+    if (!subject) {
+      this._followedWeapon.follow(null);
+      // A spectator flying free has no gun in front of them. A player keeps
+      // theirs: it is already up, or the respawn path brings it back.
+      if (this.playerState === "spectator") getWeaponViewManager().setVisible(false);
+      return;
+    }
+    if (this.playerState === "spectator") this.ensureViewWeapon();
+    const dead = this.remoteRenderer?.getRenderedPlayers().get(subject)?.dead ?? false;
+    this._followedWeapon.follow(subject, dead);
+    // Up at once from what we already know they hold; their next
+    // weapon_state confirms it.
+    const weapon = this.enemyWeapons.get(subject);
+    if (weapon) this._followedWeapon.showWeapon(weapon);
+  }
+
+  /** The watched player's stride, for their weapon's sway and the camera's. */
+  private updateFollowedMotion(): void {
+    const entityId = this._followedWeapon.followedEntityId;
+    if (!entityId) return;
+    const sample = this.remoteRenderer?.getEntitySample(entityId);
+    if (sample) this._followedWeapon.updateMotion(sample, FollowedViewWeapon.liveClock(performance.now()));
+  }
+
+  /**
+   * The view weapon is built on joining, so a spectator who never joined has
+   * none. Build it on the shared camera the first time they ride someone's
+   * eyes; joining later rebuilds it for their own gun.
+   */
+  private ensureViewWeapon(): void {
+    const wvm = getWeaponViewManager();
+    if (wvm.isReady) return;
+    const camera = CameraSystem.getInstance().getFreeCamera();
+    const scene = camera?.getScene();
+    if (camera && scene) wvm.init(scene, camera);
   }
 
   /**
@@ -1840,6 +1997,11 @@ export class Game {
       this.remoteRenderer.render();
       this.syncLocalWaterReflection();
     }
+
+    // Every frame as well as every snapshot: a camera change between two
+    // snapshots must not leave the last player's gun up for a frame.
+    this.syncFollowedSubject();
+    this.updateFollowedMotion();
 
     // Your own splash, from prediction rather than from a snapshot. The remote
     // path in RemotePlayerRenderer covers everyone else; the local player is
@@ -2291,6 +2453,10 @@ export class Game {
     this._loadoutChosen = false;
     this._loadoutPicker?.destroy();
     this._loadoutPicker = null;
+    this._seated = false;
+    this._seatTicket = null;
+    this._seatRequest = null;
+    this._seatRequesting = false;
 
     if (this.gameHost) {
       // Disconnect if in network mode
@@ -2302,6 +2468,9 @@ export class Game {
     }
     this.simulation = null;
     this.resetServerProjectiles();
+    // Anything else in flight belonged to this match too: it ticks itself,
+    // and would keep updating trails the next map load disposes.
+    getProjectileManager().clear();
     this.isRunning = false;
     this.isNetworkMode = false;
     this.serverUrl = null;
@@ -2346,6 +2515,10 @@ export class Game {
 
     FPSHud.getInstance().destroy();
     Crosshair.getInstance().dispose();
+    // Each connection builds its own; one left behind stays on screen over
+    // the next session, or over a demo, with the last match's spectating bar.
+    this.spectatorOverlay?.destroy();
+    this.spectatorOverlay = null;
     MatchStateManager.destroy();
     HUDState.destroy();
 
@@ -2422,8 +2595,12 @@ export class Game {
         _cartoonHit: this._cartoonHit,
         _deathCamera: this._deathCamera,
         get spectatingEntityId() {
-          return Game.getInstance()._spectatingEntityId;
+          return Game.getInstance().spectatingEntityId;
         },
+        get isWatcher() {
+          return Game.getInstance().playerState === "spectator";
+        },
+        followedWeapon: this._followedWeapon,
         onStateUpdateCallbacks: this.onStateUpdateCallbacks,
         get pendingTick() {
           return Game.getInstance().pendingTick;
@@ -2461,6 +2638,7 @@ export class Game {
     // Update spectator cycling list (if spectating)
     if (this.playerState === "spectator" && this.spectatorCycling) {
       this.spectatorCycling.updateFromGameState(state);
+      this.syncChaseTarget();
 
       // Update SpectatorOverlay with target player name
       const targetId = this.spectatorCycling.getTargetEntityId();
@@ -2468,6 +2646,9 @@ export class Game {
         this.spectatorOverlay.setSpectatingTarget(this.spectatorCycling.getTargetName());
       }
     }
+    // Before the events are routed, so this snapshot's weapon and death for
+    // the watched player land on the right one.
+    this.syncFollowedSubject();
 
     // Detect server-confirmed join: our entity appeared in snapshot.
     //

@@ -95,4 +95,28 @@ describe("RoomChatView", () => {
     expect(view.root.querySelector<HTMLButtonElement>("button")?.disabled).toBe(true);
     view.destroy();
   });
+
+  it("says who joins and leaves, counts who is here, and stays quiet about a reconnect", () => {
+    const client = new FakeClient();
+    const withHost = { ...room, chatHistory: [], players: [{ id: "h", name: "Host", team: "alpha", ready: false }] };
+    const view = new RoomChatView(client as never, withHost as MatchLobbyInfo, "h");
+    const notes = () => [...view.root.querySelectorAll(".lobby-chat__msg--sys")].map((row) => row.textContent ?? "");
+    const here = () => view.root.querySelector(".lobby-chat__online")?.textContent;
+    expect(here()).toBe("1 here");
+
+    client.emit("lobby:player_joined", { player: { id: "b", name: "Bot One", team: "bravo", ready: true } });
+    client.emit("lobby:player_joined", { player: { id: "b", name: "Bot One", team: "bravo", ready: true } });
+    expect(here()).toBe("2 here");
+    expect(notes().filter((text) => text.includes("Bot One joined"))).toHaveLength(1);
+
+    // The host comes back from a match on a new connection: a leave and a join under one name
+    client.emit("lobby:player_joined", { player: { id: "h2", name: "Host", team: "alpha", ready: false } });
+    client.emit("lobby:player_left", { playerId: "h" });
+    expect(notes().some((text) => text.includes("Host left"))).toBe(false);
+
+    client.emit("lobby:player_left", { playerId: "b" });
+    expect(notes().some((text) => text.includes("Bot One left"))).toBe(true);
+    expect(here()).toBe("1 here");
+    view.destroy();
+  });
 });

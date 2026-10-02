@@ -1,0 +1,516 @@
+/**
+ * The leaderboard page, on the lobby's stage. Mode keys in the modes' own
+ * colours, the three boards as keys, a podium and the rows; your rank per mode
+ * in the rail.
+ */
+
+.lb-view {
+  --ink: hsl(250 45% 7%);
+  --cream: hsl(45 100% 95%);
+  --gold-text: hsl(46 100% 60%);
+  --violet: hsl(276 90% 64%);
+  gap: 18px;
+  padding-bottom: 20px;
+}
+
+.lb-view > :not(.lobby__light, .lobby__ghost) {
+  position: relative;
+  z-index: 1;
+}
+
+.lb-status {
+  margin: 0;
+  font: 700 16px / 1.3 var(--w-font-body, "Rajdhani", sans-serif);
+  color: hsla(45, 100%, 95%, 0.7);
+}
+
+.lb-status[hidden] {
+  display: none;
+}
+
+.lb-pane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.lb-pane[hidden] {
+  display: none;
+}
+
+/* ── Podium: gold, silver and bronze, first place standing tallest ── */
+
+.lb-podium {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: 1fr 1.12fr 1fr;
+  align-items: end;
+  gap: 28px;
+  padding: 4px 12px 12px 0;
+}
+
+.lb-podium[hidden] {
+  display: none;
+}
+
+.lb-plinth {
+  --medal-face: linear-gradient(180deg, hsl(51 100% 74%), hsl(46 100% 58%) 55%, hsl(42 100% 50%));
+  --medal-side: linear-gradient(180deg, hsl(36 92% 40%), hsl(28 88% 25%));
+  position: relative;
+  min-width: 0;
+  filter: drop-shadow(12px 14px 14px hsla(250, 70%, 2%, 0.55));
+  animation: lb-rise 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.2) backwards;
+}
+
+.lb-plinth--2 {
+  --medal-face: linear-gradient(180deg, hsl(220 30% 96%), hsl(222 16% 80%) 60%, hsl(224 12% 68%));
+  --medal-side: linear-gradient(180deg, hsl(225 12% 46%), hsl(228 14% 30%));
+  animation-delay: 0.08s;
+}
+
+.lb-plinth--3 {
+  --medal-face: linear-gradient(180deg, hsl(30 90% 74%), hsl(24 72% 56%) 60%, hsl(20 66% 46%));
+  --medal-side: linear-gradient(180deg, hsl(18 62% 32%), hsl(14 60% 20%));
+  animation-delay: 0.16s;
+}
+
+@keyframes lb-rise {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+}
+
+.lb-plinth__side,
+.lb-plinth__face {
+  clip-path: polygon(3% 0, 100% 0, 97% 100%, 0 100%);
+}
+
+.lb-plinth__side {
+  position: absolute;
+  inset: 0;
+  background: var(--medal-side);
+  transform: translate(9px, 11px);
+}
+
+.lb-plinth__face {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: center;
+  gap: 4px 20px;
+  min-height: 158px;
+  padding: 20px 30px 22px 34px;
+  background: var(--medal-face);
+  color: var(--ink);
+}
+
+.lb-plinth--1 .lb-plinth__face {
+  min-height: 204px;
+}
+
+.lb-plinth__face::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: hsla(0, 0%, 100%, 0.6);
+}
+
+.lb-plinth__rank {
+  grid-row: 1 / 6;
+  align-self: center;
+  font: 900 clamp(60px, 5.2vw, 100px) / 0.8 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: -0.04em;
+}
+
+.lb-plinth--1 .lb-plinth__rank {
+  font-size: clamp(76px, 6.6vw, 128px);
+}
+
+.lb-plinth__tag {
+  justify-self: start;
+  padding: 4px 9px;
+  background: var(--ink);
+  color: var(--gold-text);
+  font: 900 10px / 1 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  clip-path: polygon(8% 0, 100% 0, 92% 100%, 0 100%);
+}
+
+.lb-plinth__name {
+  overflow: hidden;
+  font: 900 clamp(20px, 1.7vw, 30px) / 1.05 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: 0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lb-plinth__wins {
+  font: 900 clamp(24px, 2vw, 34px) / 1 var(--w-font-display, "Orbitron", monospace);
+  font-variant-numeric: tabular-nums;
+}
+
+.lb-plinth__wins small {
+  margin-left: 6px;
+  font: 700 14px / 1 var(--w-font-body, "Rajdhani", sans-serif);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.lb-plinth__meta {
+  font: 700 14px / 1.2 var(--w-font-body, "Rajdhani", sans-serif);
+  letter-spacing: 0.06em;
+  color: hsla(250, 45%, 8%, 0.66);
+}
+
+.lb-plinth.is-you .lb-plinth__face {
+  box-shadow: inset 0 0 0 4px var(--ink);
+}
+
+/* ── Rows ── */
+
+.lb-board {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: linear-gradient(180deg, hsla(250, 40%, 11%, 0.8), hsla(250, 44%, 7%, 0.88));
+  border: 1.5px solid hsla(276, 90%, 64%, 0.28);
+  clip-path: polygon(0 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 0 100%);
+}
+
+.lb-board[hidden] {
+  display: none;
+}
+
+.lb-board--full {
+  flex: 1;
+}
+
+.lb-row {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) repeat(4, minmax(70px, 110px));
+  align-items: center;
+  min-height: 44px;
+  padding: 0 22px 0 18px;
+  border-bottom: 1px solid hsla(276, 90%, 64%, 0.1);
+  color: hsla(45, 100%, 95%, 0.88);
+  font: 700 17px / 1 var(--w-font-body, "Rajdhani", sans-serif);
+  font-variant-numeric: tabular-nums;
+}
+
+.lb-num {
+  text-align: right;
+}
+
+.lb-row--head {
+  min-height: 36px;
+  border-bottom-color: hsla(276, 90%, 64%, 0.25);
+  color: hsla(45, 100%, 95%, 0.45);
+  font: 700 11px / 1 var(--w-font-body, "Rajdhani", sans-serif);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.lb-row--head .lb-num.is-key {
+  color: var(--accent);
+}
+
+.lb-row .is-key {
+  color: var(--cream);
+}
+
+.lb-row__rank {
+  font: 900 19px / 1 var(--w-font-display, "Orbitron", monospace);
+  color: var(--cream);
+}
+
+.lb-row--1 .lb-row__rank {
+  color: hsl(48 100% 62%);
+}
+
+.lb-row--2 .lb-row__rank {
+  color: hsl(220 25% 84%);
+}
+
+.lb-row--3 .lb-row__rank {
+  color: hsl(26 85% 64%);
+}
+
+.lb-row__who {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.lb-row__av {
+  display: grid;
+  flex: 0 0 28px;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  background: linear-gradient(
+    135deg,
+    var(--c, var(--accent)),
+    color-mix(in srgb, var(--c, var(--accent)) 40%, var(--violet))
+  );
+  color: var(--ink);
+  font: 900 13px / 1 var(--w-font-display, "Orbitron", monospace);
+  clip-path: polygon(14% 0, 100% 8%, 88% 100%, 0 90%);
+}
+
+.lb-row__name {
+  overflow: hidden;
+  color: var(--cream);
+  font: 800 16px / 1.1 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: 0.03em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lb-row__you {
+  padding: 3px 7px;
+  background: var(--gold-text);
+  color: var(--ink);
+  font: 900 10px / 1 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: 0.12em;
+  clip-path: polygon(10% 0, 100% 0, 90% 100%, 0 100%);
+}
+
+/* What the next step takes: in the name cell, so the numbers stay in line */
+.lb-row__note {
+  margin-left: 8px;
+  overflow: hidden;
+  color: var(--gold-text);
+  font: 700 13px / 1.2 var(--w-font-body, "Rajdhani", sans-serif);
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.lb-row.is-you {
+  background: linear-gradient(90deg, hsla(46, 100%, 60%, 0.24), hsla(46, 100%, 60%, 0.05) 70%);
+  box-shadow: inset 5px 0 0 var(--gold-text);
+}
+
+.lb-row.is-flash {
+  animation: lb-row-flash 1.4s ease-out;
+}
+
+@keyframes lb-row-flash {
+  0%,
+  30% {
+    background: hsla(46, 100%, 60%, 0.55);
+  }
+}
+
+.lb-rows {
+  min-height: 0;
+}
+
+.lb-rows[hidden] {
+  display: none;
+}
+
+.lb-rows--scroll {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-color: hsla(276, 90%, 64%, 0.45) transparent;
+  scrollbar-width: thin;
+}
+
+.lb-rows__empty {
+  padding: 26px 22px;
+  color: hsla(45, 100%, 95%, 0.5);
+  font: 700 16px / 1.3 var(--w-font-body, "Rajdhani", sans-serif);
+}
+
+/* You, pinned under the board */
+.lb-board__foot {
+  border-top: 1.5px solid hsla(46, 100%, 60%, 0.4);
+}
+
+.lb-board__foot[hidden] {
+  display: none;
+}
+
+.lb-board__foot .lb-row {
+  border-bottom: 0;
+}
+
+/* ── Top 100 toolbar ── */
+
+.lb-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 18px;
+}
+
+.lb-toolbar .raised-key__face {
+  min-height: 44px;
+  padding: 0 20px 0 22px;
+}
+
+.lb-toolbar .raised-key[hidden] {
+  display: none;
+}
+
+.lb-period {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.lb-period button {
+  height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 2px;
+  background: linear-gradient(180deg, hsl(250 24% 25%), hsl(250 30% 17%));
+  color: hsla(45, 100%, 95%, 0.72);
+  font: 800 12px / 1 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 0 4px 0 hsl(250 40% 8%);
+}
+
+.lb-period button:is(:hover, :focus-visible) {
+  outline: none;
+  background: linear-gradient(180deg, hsl(278 92% 72%), hsl(268 72% 52%));
+  color: var(--cream);
+}
+
+.lb-period button.is-on {
+  background: linear-gradient(180deg, hsl(51 100% 73%), hsl(44 100% 55%));
+  color: var(--ink);
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 hsl(30 88% 28%);
+}
+
+/* ── Rail: your rank in each mode ── */
+
+/* The ranks take what height the rail has left, and scroll like the room list.
+   The box ends before the slanted edge, whose clip would cut the scrollbar off. */
+.lb-rail__ranks {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  margin-right: calc(var(--rail-skew, 44px) + 12px);
+  padding: 8px 14px 16px 22px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-color: hsla(250, 45%, 8%, 0.45) transparent;
+  scrollbar-width: thin;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 8px, #000 calc(100% - 14px), transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 8px, #000 calc(100% - 14px), transparent);
+}
+
+.lb-rail__ranks > .raised-key {
+  flex-shrink: 0;
+}
+
+.lb-rail__record {
+  font-style: normal;
+}
+
+.lb-rail__rank[aria-pressed="true"] .lobby__room-mark {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* ── Sizes ── */
+
+@media (max-width: 1500px) {
+  .lb-row {
+    grid-template-columns: 64px minmax(0, 1fr) repeat(4, minmax(56px, 84px));
+  }
+}
+
+@media (max-width: 1200px) {
+  .lb-podium {
+    gap: 18px;
+  }
+
+  .lb-plinth__face {
+    gap: 4px 12px;
+    padding: 16px 18px 18px 22px;
+  }
+
+  .lb-plinth__rank,
+  .lb-plinth--1 .lb-plinth__rank {
+    font-size: clamp(40px, 5vw, 60px);
+  }
+
+  .lb-plinth__name {
+    font-size: 17px;
+  }
+
+  .lb-plinth__wins {
+    font-size: 22px;
+  }
+
+  .lb-plinth__meta {
+    font-size: 12px;
+  }
+
+  .lb-rail__record {
+    display: none;
+  }
+}
+
+@media (max-height: 960px) {
+  .lb-plinth__face {
+    min-height: 128px;
+    padding-top: 14px;
+    padding-bottom: 16px;
+  }
+
+  .lb-plinth--1 .lb-plinth__face {
+    min-height: 164px;
+  }
+
+  .lb-row {
+    min-height: 38px;
+  }
+
+  .lb-rail__ranks .raised-key__face {
+    min-height: 40px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+}
+
+@media (max-width: 900px) {
+  .lb-podium {
+    grid-template-columns: 1fr;
+  }
+
+  .lb-row {
+    grid-template-columns: 52px minmax(0, 1fr) repeat(2, minmax(48px, 72px));
+  }
+
+  .lb-row > :nth-child(4),
+  .lb-row > :nth-child(5) {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lb-plinth,
+  .lb-row.is-flash {
+    animation: none;
+  }
+}
