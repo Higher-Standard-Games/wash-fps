@@ -2,15 +2,16 @@
  * ProceduralPickupVisual — the runtime, per-pickup procedural sculpture
  * (docs/research/PROCEDURAL_ITEMS.md §"Cosmetic State Machine").
  *
- * Art direction v6 (cel-shaded objects, per playtest #4):
+ * Current art direction (lit solid objects, per playtest feedback):
  *  - Health: a fresnel energy shell — nearly clear face-on, glowing hot at the
  *    silhouette rim, with a slow color↔accent flow (25 HP yellow, 50 HP
  *    orange↔yellow) — around a solid accent-coloured cross whose up/down faces
  *    take the tier colour, plus a ring carrying a scrolling gradient band.
- *  - Armor: ONE sculpted military plate carrier — chest plate, shoulder
- *    pauldrons, sternum ridge, abdomen plate — lit and saturated, with a black
- *    cel outline. Tier is colour + size; shard is the bare chest plate, tilted.
- * The collection burst transient is kept; there is no floor pedestal.
+ *  - Armor: broad chest, shoulder, and waist plates on a dark backer. The shard
+ *    is a small irregular fragment.
+ *  - Ammo: dark chamfered crates, colored inserts, and geometric ammo marks.
+ *  - Quad: a gold Q on a dark octagonal badge.
+ * Collection uses a short shock-ring and ray burst; there is no floor pedestal.
  *
  * Implements the engine `PickupVisual` contract: a fixed anchor + an animated
  * cosmetic root, assembled by cloning scene-cached prototype geometry and driven
@@ -26,7 +27,7 @@ import type { StandardMaterial } from "@babylonjs/core/Materials/standardMateria
 import type { Texture } from "@babylonjs/core/Materials/Textures/texture";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import type { Vector3 } from "@babylonjs/core/Maths/math.vector";
-import type { Mesh } from "@babylonjs/core/Meshes/mesh";
+import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Scene } from "@babylonjs/core/scene";
 import type { PickupVisual } from "../../../../../engine/world/PickupVisual";
@@ -87,8 +88,6 @@ export class ProceduralPickupVisual implements PickupVisual {
   private readonly pulseTargets: PulseTarget[] = [];
 
   private readonly ringMaterials: StandardMaterial[] = [];
-  /** Powerup only: the blade cage, counter-rotating against the cosmetic root. */
-  private bladePivot: TransformNode | null = null;
   private readonly rings: RingEl[] = [];
   private readonly satellites: SatEl[] = [];
   private readonly transients: ProceduralPickupTransient[] = [];
@@ -126,35 +125,38 @@ export class ProceduralPickupVisual implements PickupVisual {
       // Bright accent-coloured cross whose up/down faces take the (deeper) tier
       // colour, with a dark cel outline, inside a fresnel shell that rims at the
       // silhouette and stays near-clear face-on (so the emblem reads through it).
-      this.inst(set.cross, this.cosmetic, this.matAccent, "cross");
+      const cross = this.inst(set.cross, this.cosmetic, this.matAccent, "cross");
+      if (cross && recipe.highTier) {
+        cross.scaling.setAll(0.9);
+        cross.billboardMode = Mesh.BILLBOARDMODE_ALL;
+        cross.renderingGroupId = 1;
+      }
       this.inst(set.crossCaps, this.cosmetic, set.emblemFill, "cross_caps");
       this.matShell = createFresnelShellMaterial(scene, `pp_shell_${recipe.id}_${seed}`, recipe.color);
+      if (recipe.highTier) this.matShell.alpha = 0.62;
       this.inst(set.core, this.cosmetic, this.matShell, "shell");
     } else if (recipe.family === "ammo") {
-      // Blocky crate in the ammo's identity colour, with the Warsow simpleitem
-      // icon stamped on all four sides — the same read as the old MD3 ammobox,
-      // generated. The decal material starts transparent and fades in when its
-      // texture resolves, so a missing icon leaves a plain crate.
-      this.inst(set.ammoCrate, this.cosmetic, set.armorPlate, "ammo_crate");
+      // The generated mark identifies ammo without texture assets. Optional
+      // simpleitem decals on the narrow sides appear when their PK3 art loads.
+      this.inst(set.ammoCrate, this.cosmetic, set.structural, "ammo_crate");
+      this.inst(set.ammoPanel, this.cosmetic, set.armorPlate, "ammo_panel");
+      this.inst(set.ammoMark, this.cosmetic, set.structural, "ammo_mark");
       if (set.ammoIconMat) this.inst(set.ammoIcon, this.cosmetic, set.ammoIconMat, "ammo_icon");
     } else if (recipe.family === "powerup") {
-      // A hot gem inside four blades. The blades hang off their own pivot and
-      // counter-rotate against the cosmetic root's spin, so the cage turns one
-      // way while the gem turns the other — motion no other pickup has, which
-      // is what makes the map's single powerup catch the eye.
-      this.inst(set.powerupCore, this.cosmetic, this.matEnergy, "powerup_core");
-      this.bladePivot = new TransformNode(`pp_bladepivot_${recipe.id}_${seed}`, scene);
-      this.bladePivot.parent = this.cosmetic;
-      this.inst(set.powerupBlades, this.bladePivot, this.matAccent, "powerup_blades");
+      // A readable two-sided Q medallion, gently turning rather than hiding
+      // behind a fast-spinning cage of blades.
+      this.inst(set.powerupCore, this.cosmetic, set.structural, "powerup_core");
+      this.inst(set.powerupMark, this.cosmetic, this.matEnergy, "powerup_mark");
     } else {
-      // Banded plates in the tier colour. No edge outlines: the plates are lit,
-      // so the facets separate on shading alone, and black borders were reading
-      // as heavy ink over what should be a solid object.
-      const armor = this.inst(set.armor, this.cosmetic, set.armorPlate, "armor");
-      // Shard is a broken-off piece — tip it so it never reads as a tiny vest.
-      if (armor && recipe.kind === "shard") {
-        armor.rotation.z = 0.5;
-        armor.rotation.x = 0.22;
+      // Dark carrier behind broad colored plates: shoulders, chest and waist
+      // stay separate even under bright map lighting.
+      const armorPivot = new TransformNode(`pp_armorpivot_${recipe.id}_${seed}`, scene);
+      armorPivot.parent = this.cosmetic;
+      this.inst(set.armorFrame, armorPivot, set.structural, "armor_frame");
+      this.inst(set.armor, armorPivot, set.armorPlate, "armor");
+      if (recipe.kind === "shard") {
+        armorPivot.rotation.z = 0.5;
+        armorPivot.rotation.x = 0.22;
       }
     }
 
@@ -250,8 +252,8 @@ export class ProceduralPickupVisual implements PickupVisual {
       this.root,
       new Color3(this.recipe.color.r, this.recipe.color.g, this.recipe.color.b),
       {
-        duration: this.recipe.highTier ? 0.42 : 0.28,
-        endDiameter: 30 * eff * 1.7,
+        duration: this.recipe.highTier ? 0.46 : 0.34,
+        endDiameter: 32 * eff,
         style: this.recipe.collectStyle,
         scale: eff,
       },
@@ -287,7 +289,7 @@ export class ProceduralPickupVisual implements PickupVisual {
     const bobW = t * r.bobFrequency * TAU;
     this.cosmetic.position.y = HOVER_LIFT + Math.sin(bobW) * r.bobAmplitude * BOB_GAIN;
     this.cosmetic.position.x = r.figureEight ? Math.sin(bobW * 2) * r.bobAmplitude * 0.35 : 0;
-    this.cosmetic.rotation.y = t * r.spinSpeed * DEG2RAD;
+    this.cosmetic.rotation.y = r.family === "powerup" ? 0.28 * Math.sin(t * 0.45 * TAU) : t * r.spinSpeed * DEG2RAD;
 
     // Breathing + assembly scale.
     const breathe = 1 + 0.02 * Math.sin(t * r.pulseFrequency * TAU);
@@ -322,13 +324,6 @@ export class ProceduralPickupVisual implements PickupVisual {
       if (tex) tex.uOffset = (t * RING_SCROLL_SPEED) % 1;
     }
     for (const sat of this.satellites) sat.pivot.rotation.y = sat.baseAngle + t * sat.speed;
-
-    // Blade cage turns against the root spin (net counter-rotation), and rocks
-    // slightly on X so the four-fold silhouette never sits perfectly still.
-    if (this.bladePivot) {
-      this.bladePivot.rotation.y = -t * r.spinSpeed * DEG2RAD * 1.8;
-      this.bladePivot.rotation.x = 0.06 * Math.sin(t * 0.7 * TAU);
-    }
   }
 
   dispose(): void {
