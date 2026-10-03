@@ -279,6 +279,21 @@
   white-space: nowrap;
 }
 
+/* The shared key's white bevel and violet hover read as stray borders/paint
+   against this solid gold rail. Keep the lift, but keep the rail's own ink/gold
+   palette and clean face. */
+.lobby__rail-nav .raised-key__face::before,
+.lobby__rail-utility .raised-key__face::before {
+  content: none;
+}
+
+.lobby__rail-nav .raised-key--nav:is(:hover, :focus-visible):not(:disabled):not([aria-current="page"]) {
+  --key-face: linear-gradient(180deg, hsl(51 100% 73%), hsl(46 100% 58%) 55%, hsl(42 100% 50%));
+  --key-side: linear-gradient(180deg, hsl(36 92% 40%), hsl(28 88% 25%));
+  --key-text: hsl(250 45% 8%);
+  --key-sub: hsla(250, 45%, 8%, 0.62);
+}
+
 @media (max-width: 1500px) {
   .lobby__rail-nav .raised-key__hint {
     display: none;
