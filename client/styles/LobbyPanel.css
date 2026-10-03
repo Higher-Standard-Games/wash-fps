@@ -285,6 +285,7 @@
 .lobby__rail-nav .raised-key__face::before,
 .lobby__rail-utility .raised-key__face::before {
   content: none;
+  display: none;
 }
 
 .lobby__rail-nav .raised-key--nav:is(:hover, :focus-visible):not(:disabled):not([aria-current="page"]) {
