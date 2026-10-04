@@ -1,3 +1,4 @@
+import { PLAYTEST_RETURN_KEY } from "../../../../../engine/editor/EditorLauncher";
 import { MapLoader } from "../../../../../engine/loader/map/MapLoader";
 import { PlayerProfile } from "../../../../../engine/player/PlayerProfile";
 import { createRaisedKey, injectRaisedKeyStyles } from "../../../../../engine/ui/components/RaisedKey";
@@ -76,7 +77,12 @@ export class FPSPauseMenu extends GameDialogPanel {
     const plate = element("div", "fps-match-menu__plate");
     this.nameEl = element("span", "fps-match-menu__name");
     plate.append(this.nameEl, element("span", "fps-match-menu__where", "In a match"));
-    const leave = createRaisedKey({ label: "Leave match", hint: "Back to the lobby", variants: ["sm", "cream"] });
+    const returningToEditor = !!sessionStorage.getItem(PLAYTEST_RETURN_KEY);
+    const leave = createRaisedKey({
+      label: returningToEditor ? "Return to Editor" : "Leave match",
+      hint: returningToEditor ? "Resume your map" : "Back to the lobby",
+      variants: ["sm", "cream"],
+    });
     leave.addEventListener("click", () => {
       this.close();
       this.onDisconnectCallback?.();
