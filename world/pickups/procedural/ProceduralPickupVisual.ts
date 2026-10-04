@@ -258,6 +258,11 @@ export class ProceduralPickupVisual implements PickupVisual {
         endDiameter: 32 * eff,
         style: this.recipe.collectStyle,
         scale: eff,
+        family: this.recipe.family,
+        center: {
+          x: this.cosmetic.position.x,
+          y: this.cosmetic.position.y || (this.recipe.family === "armor" ? ARMOR_HOVER_LIFT : HOVER_LIFT),
+        },
       },
     );
     this.transients.push(t);

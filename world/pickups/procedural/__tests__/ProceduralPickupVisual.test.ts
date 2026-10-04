@@ -95,8 +95,9 @@ describe("ProceduralPickupVisual", () => {
     visual.setActive(true); // first known state (silent show)
 
     visual.setActive(false); // real collection → transient
-    expect(scene.meshes.filter((m) => m.name === "pp_transient_ring")).toHaveLength(2);
-    expect(scene.meshes.filter((m) => m.name === "pp_transient_ray")).toHaveLength(10);
+    expect(scene.meshes.filter((m) => m.name === "pp_transient_fragment")).toHaveLength(6);
+    expect(scene.meshes.filter((m) => m.name === "pp_transient_ring")).toHaveLength(0);
+    expect(scene.meshes.filter((m) => m.name === "pp_transient_flash")).toHaveLength(1);
 
     // The transient is parented to the fixed anchor, so it keeps animating after
     // the persistent visual is hidden. Advance well past its duration.
@@ -191,6 +192,26 @@ describe("ProceduralPickupVisual", () => {
     expect(visual.root.position.z).toBe(before.z);
 
     visual.dispose();
+  });
+
+  it("bursts each item family from its visible position and clears the pieces", () => {
+    for (const id of ["health_medium", "armor_ra", "ammo_rockets", "powerup_quad"]) {
+      const recipe = getProceduralPickupRecipe(id);
+      if (!recipe) throw new Error(`recipe missing: ${id}`);
+      const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 12, 0), false, 0);
+      visual.setActive(true);
+      visual.update(0.02, 0.5);
+      visual.setActive(false);
+      const fragments = scene.meshes.filter((mesh) => mesh.name === "pp_transient_fragment");
+      expect(fragments).toHaveLength(6);
+      expect(fragments[0].position.y).toBeGreaterThan(9);
+      const start = fragments[0].position.clone();
+      visual.update(0.1, 0.6);
+      expect(fragments[0].position.equals(start)).toBe(false);
+      visual.update(1, 1.6);
+      expect(transientMeshes()).toBe(0);
+      visual.dispose();
+    }
   });
 });
 

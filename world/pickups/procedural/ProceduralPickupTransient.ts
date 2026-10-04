@@ -1,43 +1,69 @@
-/**
- * Short collection burst anchored at the authoritative pickup position.
- * Two perpendicular shock rings make the cue visible from ground level and
- * above; deterministic tapered rays carry color outward after the model hides.
- */
+/** A short, client-only burst of pieces shaped and colored for the collected item. */
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
-import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import type { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Scene } from "@babylonjs/core/scene";
+import type { ProceduralPickupFamily } from "./types";
 
 export interface TransientOptions {
   duration: number;
   endDiameter: number;
   style: "collapse" | "shatter";
   scale: number;
+  family: ProceduralPickupFamily;
+  /** Local position of the animated item above its fixed pickup anchor. */
+  center: { x: number; y: number };
 }
 
+interface Fragment {
+  mesh: Mesh;
+  start: Vector3;
+  travel: Vector3;
+  tumble: Vector3;
+  baseRotationZ: number;
+}
+
+const SHAPES: Record<ProceduralPickupFamily, ReadonlyArray<readonly [number, number]>> = {
+  health: [
+    [-1, 0],
+    [1, 0],
+    [0, -1],
+    [0, 1],
+    [-0.45, 0.45],
+    [0.45, -0.45],
+  ],
+  armor: [
+    [-0.8, 0.65],
+    [0.8, 0.65],
+    [0, 0.2],
+    [-0.5, -0.65],
+    [0.5, -0.65],
+    [0, -0.9],
+  ],
+  ammo: [
+    [-0.7, 0.5],
+    [0.7, 0.5],
+    [-0.7, -0.5],
+    [0.7, -0.5],
+    [0, 0.9],
+    [0, -0.9],
+  ],
+  powerup: Array.from({ length: 6 }, (_, i) => [Math.cos((i * Math.PI) / 3), Math.sin((i * Math.PI) / 3)]),
+};
+
 export class ProceduralPickupTransient {
-  private readonly rings: Mesh[] = [];
+  private readonly fragments: Fragment[] = [];
   private readonly flash: Mesh;
-  private readonly rays: Array<{ mesh: Mesh; direction: Vector3 }> = [];
-  private readonly ringMat: StandardMaterial;
-  private readonly flashMat: StandardMaterial;
-  private readonly rayMat: StandardMaterial;
-  private readonly startDiameter: number;
-  private readonly endDiameter: number;
+  private readonly materials: StandardMaterial[];
   private readonly duration: number;
-  private readonly style: "collapse" | "shatter";
   private age = 0;
   private done = false;
 
   constructor(scene: Scene, parent: TransformNode, color: Color3, opts: TransientOptions) {
     this.duration = opts.duration;
-    this.endDiameter = opts.endDiameter;
-    this.startDiameter = opts.endDiameter * 0.22;
-    this.style = opts.style;
-
     const material = (name: string, tint: Color3): StandardMaterial => {
       const mat = new StandardMaterial(name, scene);
       mat.disableLighting = true;
@@ -50,62 +76,57 @@ export class ProceduralPickupTransient {
       mat.disableDepthWrite = true;
       return mat;
     };
-    this.ringMat = material("pp_transient_ring", Color3.Lerp(color, Color3.White(), 0.38));
-    this.flashMat = material("pp_transient_flash", Color3.Lerp(color, Color3.White(), 0.65));
-    this.rayMat = material("pp_transient_ray", Color3.Lerp(color, Color3.White(), 0.35));
+    const bright = material("pp_transient_bright", Color3.Lerp(color, Color3.White(), 0.4));
+    const dark = material("pp_transient_dark", color.scale(0.42));
+    const flashMat = material("pp_transient_flash", Color3.Lerp(color, Color3.White(), 0.7));
+    this.materials = [bright, dark, flashMat];
 
-    for (let i = 0; i < 2; i++) {
-      const ring = MeshBuilder.CreateTorus(
-        "pp_transient_ring",
-        {
-          diameter: this.startDiameter,
-          thickness: 0.95 * opts.scale,
-          tessellation: 40,
-        },
-        scene,
-      );
-      if (i === 1) ring.rotation.x = Math.PI / 2;
-      ring.material = this.ringMat;
-      ring.isPickable = false;
-      ring.parent = parent;
-      this.rings.push(ring);
+    const layout = SHAPES[opts.family];
+    const spread = opts.endDiameter * (opts.style === "shatter" ? 0.33 : 0.25);
+    for (let i = 0; i < layout.length; i++) {
+      const [x, y] = layout[i];
+      let mesh: Mesh;
+      const baseRotationZ = opts.family === "powerup" ? (i * Math.PI) / 3 : 0;
+      if (opts.family === "powerup") {
+        mesh = MeshBuilder.CreateCylinder(
+          "pp_transient_fragment",
+          { height: 2.8 * opts.scale, diameterTop: 0, diameterBottom: 2.7 * opts.scale, tessellation: 3 },
+          scene,
+        );
+        mesh.rotation.z = baseRotationZ;
+      } else {
+        const armor = opts.family === "armor";
+        const ammo = opts.family === "ammo";
+        mesh = MeshBuilder.CreateBox(
+          "pp_transient_fragment",
+          {
+            width: (armor ? (i < 2 ? 4.2 : 3.2) : ammo ? 3.7 : i < 4 ? 2.1 : 1.5) * opts.scale,
+            height: (armor ? 3.5 : ammo ? 2.8 : i < 4 ? 3.5 : 1.5) * opts.scale,
+            depth: (ammo ? 1.6 : 1.1) * opts.scale,
+          },
+          scene,
+        );
+      }
+      mesh.material = i % 3 === 0 ? dark : bright;
+      mesh.isPickable = false;
+      mesh.parent = parent;
+      const start = new Vector3(opts.center.x + x * 2.5 * opts.scale, opts.center.y + y * 2.5 * opts.scale, 0);
+      mesh.position.copyFrom(start);
+      const angle = (i / layout.length) * Math.PI * 2;
+      const travel = new Vector3(Math.cos(angle) * spread, (0.4 + (i % 3) * 0.18) * spread, Math.sin(angle) * spread);
+      const tumble = new Vector3((i % 2 ? 1 : -1) * 1.4, ((i % 3) - 1) * 1.8, (i % 2 ? -1 : 1) * 1.5);
+      this.fragments.push({ mesh, start, travel, tumble, baseRotationZ });
     }
 
     this.flash = MeshBuilder.CreateIcoSphere(
       "pp_transient_flash",
-      {
-        radius: 3.4 * opts.scale,
-        subdivisions: 2,
-        flat: true,
-      },
+      { radius: 2.3 * opts.scale, subdivisions: 1, flat: true },
       scene,
     );
-    this.flash.material = this.flashMat;
+    this.flash.material = flashMat;
     this.flash.isPickable = false;
     this.flash.parent = parent;
-
-    const count = this.style === "shatter" ? 10 : 8;
-    for (let i = 0; i < count; i++) {
-      const angle = (i / count) * Math.PI * 2;
-      const rise = this.style === "shatter" ? (i % 2 ? 0.6 : 0.18) : i % 2 ? 0.42 : 0.08;
-      const direction = new Vector3(Math.cos(angle), rise, Math.sin(angle)).normalize();
-      const ray = MeshBuilder.CreateCylinder(
-        "pp_transient_ray",
-        {
-          height: 8 * opts.scale,
-          diameterTop: 0,
-          diameterBottom: 0.95 * opts.scale,
-          tessellation: 3,
-        },
-        scene,
-      );
-      const axis = Vector3.Cross(Vector3.Up(), direction).normalize();
-      ray.rotationQuaternion = Quaternion.RotationAxis(axis, Math.acos(Vector3.Dot(Vector3.Up(), direction)));
-      ray.material = this.rayMat;
-      ray.isPickable = false;
-      ray.parent = parent;
-      this.rays.push({ mesh: ray, direction });
-    }
+    this.flash.position.set(opts.center.x, opts.center.y, 0);
   }
 
   /** Advance the effect. Returns false once finished and disposed. */
@@ -113,21 +134,18 @@ export class ProceduralPickupTransient {
     if (this.done) return false;
     this.age += dt;
     const p = Math.min(1, this.age / this.duration);
-    const fade = 1 - p;
-    const diameter = this.startDiameter + (this.endDiameter - this.startDiameter) * p;
-
-    for (let i = 0; i < this.rings.length; i++) {
-      this.rings[i].scaling.setAll((diameter / this.startDiameter) * (i ? 0.82 : 1));
+    const ease = 1 - (1 - p) * (1 - p);
+    for (const { mesh, start, travel, tumble, baseRotationZ } of this.fragments) {
+      mesh.position.copyFrom(start).addInPlaceFromFloats(travel.x * ease, travel.y * ease, travel.z * ease);
+      mesh.rotation.x = tumble.x * ease;
+      mesh.rotation.y = tumble.y * ease;
+      mesh.rotation.z = baseRotationZ + tumble.z * ease;
+      mesh.scaling.setAll(Math.max(0.01, 1 - p * 0.65));
     }
-    this.ringMat.alpha = fade * fade;
-    this.flash.scaling.setAll(this.style === "collapse" ? Math.max(0.01, 1 - p) : 1 + p * 0.25);
-    this.flashMat.alpha = fade * fade;
-
-    for (const { mesh, direction } of this.rays) {
-      mesh.position.copyFrom(direction.scale(this.endDiameter * 0.45 * p));
-      mesh.scaling.y = 0.75 + p * 0.5;
-    }
-    this.rayMat.alpha = fade * fade;
+    this.materials[0].alpha = (1 - p) * (1 - p);
+    this.materials[1].alpha = this.materials[0].alpha;
+    this.flash.scaling.setAll(Math.max(0.01, 1 - p * 2.5));
+    this.materials[2].alpha = Math.max(0, 1 - p * 4);
 
     if (p >= 1) {
       this.dispose();
@@ -139,11 +157,8 @@ export class ProceduralPickupTransient {
   dispose(): void {
     if (this.done) return;
     this.done = true;
-    for (const ring of this.rings) ring.dispose();
+    for (const { mesh } of this.fragments) mesh.dispose();
     this.flash.dispose();
-    for (const { mesh } of this.rays) mesh.dispose();
-    this.ringMat.dispose();
-    this.flashMat.dispose();
-    this.rayMat.dispose();
+    for (const material of this.materials) material.dispose();
   }
 }
