@@ -4,21 +4,19 @@
  * single source of tunable data — geometry builders and the runtime visual read
  * a recipe and never hard-code a tier. All dimensions use Quake-scale units.
  *
- * Art direction (v7, per playtest feedback): lit solid objects, no outlines.
+ * Art direction (per playtest feedback): lit solid objects, no outlines.
  *  - Health: a glowing energy shell with a slow `color` → `accentColor` flow and
  *    a readable cross emblem filled in the tier colour (25 HP yellow, 50 HP
  *    orange). Every tier carries a ring with a scrolling gradient band.
- *  - Armor: banded plates wrapped around a torso — rings of small blocks that
- *    follow the curve, so it reads round while staying blocky. Tier reads from
- *    COLOUR and size (green/yellow/red are one silhouette, as in Warsow), so
- *    `plateCount` no longer draws badges.
- * Higher tiers add orbiting satellites / a faint beacon, not bulk.
+ *  - Armor: broad plates over a dark backer, tiered by color and size.
+ *  - Ammo: colored panels and geometric marks over a dark chassis.
+ *  - Quad: a legible Q badge, with no large beacon.
  */
 
 import type { ProceduralPickupRecipe, RGB } from "./types";
 
 /** Cache/recipe revision — bump to invalidate scene-cached prototype geometry. */
-export const PROCEDURAL_RECIPE_REVISION = "v10";
+export const PROCEDURAL_RECIPE_REVISION = "v11";
 
 /**
  * Global size multiplier applied on top of each recipe's per-tier `scale`
@@ -108,17 +106,17 @@ const RECIPE_LIST: ProceduralPickupRecipe[] = [
     color: { r: 1.0, g: 0.2, b: 0.2 },
     accentColor: { r: 1.0, g: 0.5, b: 0.22 },
     scale: 1.1,
-    ringCount: 2,
+    ringCount: 1,
     plateCount: 0,
     moteCount: 0,
     shellPieces: 0,
-    satelliteCount: 3,
+    satelliteCount: 0,
     bobAmplitude: 3,
     bobFrequency: 0.26,
     spinSpeed: 16,
     pulseFrequency: 0.3,
     figureEight: false,
-    beaconStrength: 0.5,
+    beaconStrength: 0,
     collectStyle: "collapse",
     respawnStyle: "assemble",
     highTier: true,
@@ -131,24 +129,24 @@ const RECIPE_LIST: ProceduralPickupRecipe[] = [
     color: { r: 1.0, g: 0.15, b: 0.6 },
     accentColor: { r: 1.0, g: 0.5, b: 0.9 },
     scale: 1.15,
-    ringCount: 2,
+    ringCount: 1,
     plateCount: 0,
     moteCount: 0,
     shellPieces: 0,
-    satelliteCount: 3,
+    satelliteCount: 0,
     bobAmplitude: 3,
     bobFrequency: 0.26,
     spinSpeed: 22,
     pulseFrequency: 0.34,
     figureEight: false,
-    beaconStrength: 0.6,
+    beaconStrength: 0,
     collectStyle: "collapse",
     respawnStyle: "assemble",
     highTier: true,
     unstable: true,
   },
 
-  // ── Armor: banded plates wrapped around a torso; tier = colour + size ───
+  // ── Armor: broad plates over a backer; tier = colour + size ───
   {
     id: "armor_shard",
     family: "armor",
@@ -186,7 +184,7 @@ const RECIPE_LIST: ProceduralPickupRecipe[] = [
     satelliteCount: 0,
     bobAmplitude: 2,
     bobFrequency: 0.26,
-    spinSpeed: 18,
+    spinSpeed: 8,
     pulseFrequency: 0.26,
     figureEight: false,
     beaconStrength: 0,
@@ -209,7 +207,7 @@ const RECIPE_LIST: ProceduralPickupRecipe[] = [
     satelliteCount: 0,
     bobAmplitude: 2.2,
     bobFrequency: 0.24,
-    spinSpeed: 20,
+    spinSpeed: 8,
     pulseFrequency: 0.26,
     figureEight: false,
     beaconStrength: 0,
@@ -232,19 +230,19 @@ const RECIPE_LIST: ProceduralPickupRecipe[] = [
     satelliteCount: 0,
     bobAmplitude: 2.6,
     bobFrequency: 0.24,
-    spinSpeed: 22,
+    spinSpeed: 8,
     pulseFrequency: 0.3,
     figureEight: false,
-    beaconStrength: 0.5,
+    beaconStrength: 0,
     collectStyle: "shatter",
     respawnStyle: "assemble",
     highTier: true,
     unstable: false,
   },
-  // ── Ammo: a blocky crate in the weapon's identity colour, icon on each side ─
+  // ── Ammo: dark crates with colored panels and generated symbols ─
   ...ammoCrates(),
 
-  // ── Powerup: the only one of its kind on the map, so it gets the works ──
+  // ── Powerup: a stable, two-sided badge ──
   {
     // Gold flowing to hot red. The gold is Warsow's own quad colour, sampled
     // from gfx/hud/icons/powerup/quad.tga (rgb 224,192,0) so the world item and
@@ -255,17 +253,17 @@ const RECIPE_LIST: ProceduralPickupRecipe[] = [
     color: { r: 1.0, g: 0.84, b: 0.05 },
     accentColor: { r: 1.0, g: 0.25, b: 0.1 },
     scale: 1.15,
-    ringCount: 2,
+    ringCount: 0,
     plateCount: 0,
     moteCount: 0,
     shellPieces: 0,
-    satelliteCount: 4, // four-fold, like the blades
+    satelliteCount: 0,
     bobAmplitude: 3,
     bobFrequency: 0.24,
-    spinSpeed: 26, // fastest spin of any pickup — it demands attention
+    spinSpeed: 12,
     pulseFrequency: 0.4,
     figureEight: false,
-    beaconStrength: 0.9, // tallest, brightest beacon: visible across the arena
+    beaconStrength: 0,
     collectStyle: "collapse",
     respawnStyle: "assemble",
     highTier: true,
@@ -274,8 +272,8 @@ const RECIPE_LIST: ProceduralPickupRecipe[] = [
 ];
 
 /**
- * Ammo crates. Every tier is the same crate — only the colour and the stamped
- * icon change — so the shared fields are filled in once here instead of being
+ * Ammo crates share a chassis; color and the geometric mark distinguish the
+ * types. The shared fields are filled in once here instead of being
  * copy-pasted eight times. Colours are the weapon identity colours so a crate
  * reads as "rockets" from across the arena before the icon is legible.
  */

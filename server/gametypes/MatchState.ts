@@ -290,12 +290,22 @@ export class MatchState {
       focus: result?.focus,
     };
 
-    if (this.hasDecisiveLead()) {
+    if (this.hasDecisiveLead() || (this.config.maxRounds !== undefined && this._round >= this.config.maxRounds)) {
       this.transition(MatchPhase.PostGame);
       return;
     }
     // The intermission: watch what happened, then the next freeze.
     this.transition(MatchPhase.RoundEnd);
+  }
+
+  /** Resume a tied live round for another fixed overtime period. */
+  extendRoundOvertime(seconds: number): void {
+    if (!this.roundBased || this._phase !== MatchPhase.Active || !this._roundTimeExpired) return;
+    if (!Number.isFinite(seconds) || seconds <= 0) throw new Error("Round overtime must be a positive duration");
+    this._timeRemaining = seconds;
+    this._roundTimeExpired = false;
+    this._overtimeCount++;
+    console.log(`[MatchState] Round ${this._round} overtime #${this._overtimeCount}: +${seconds}s`);
   }
 
   /** How the last round ended. Cleared when the next one starts. */
@@ -757,6 +767,11 @@ export class MatchState {
           }
           this._teamScores.set("udon", 0);
           this._teamScores.set("soba", 0);
+        } else if (this.config.resetScoresEachRound) {
+          for (const [id] of this._scores) {
+            this._scores.set(id, 0);
+            this._deaths.set(id, 0);
+          }
         }
         break;
       }

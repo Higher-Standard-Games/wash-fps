@@ -16,6 +16,7 @@
  */
 
 import type { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
+import { Color3 } from "@babylonjs/core/Maths/math.color";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Scene } from "@babylonjs/core/scene";
 import * as Geo from "./ProceduralPickupGeometry";
@@ -37,16 +38,19 @@ export interface PrototypeSet {
   /** Plates over the cross's up/down faces, in the tier colour (health). */
   crossCaps: Mesh | null;
   core: Mesh | null;
-  /** Sculpted military plate carrier (armor). */
+  /** Broad armor plates (armor). */
   armor: Mesh | null;
-  /** Blocky reinforced crate (ammo). */
+  armorFrame: Mesh | null;
+  /** Dark chamfered chassis (ammo). */
   ammoCrate: Mesh | null;
-  /** The crate's four side decal quads (ammo). */
+  ammoPanel: Mesh | null;
+  ammoMark: Mesh | null;
+  /** The crate's optional narrow-side decals (ammo). */
   ammoIcon: Mesh | null;
-  /** Faceted double-pyramid gem (powerup). */
+  /** Dark octagonal badge (powerup). */
   powerupCore: Mesh | null;
-  /** The four upright blades around the gem (powerup). */
-  powerupBlades: Mesh | null;
+  /** Luminous Q and corner sparks (powerup). */
+  powerupMark: Mesh | null;
   ring: Mesh | null;
   satellite: Mesh | null;
   beacon: Mesh | null;
@@ -75,6 +79,10 @@ function cacheKey(recipe: ProceduralPickupRecipe): string {
 
 function buildPrototypeSet(scene: Scene, recipe: ProceduralPickupRecipe): PrototypeSet {
   const structural = createStructuralMaterial(scene, `pp_struct_${recipe.id}`, recipe.color);
+  if (recipe.family === "powerup") {
+    structural.diffuseColor = new Color3(0.24, 0.15, 0.045);
+    structural.emissiveColor = new Color3(0.09, 0.055, 0.015);
+  }
   const energyCore = createEnergyMaterialTemplate(scene, `pp_core_${recipe.id}`, recipe.color, 1, ENERGY_BOOST);
   const energyAccent = createEnergyMaterialTemplate(
     scene,
@@ -94,10 +102,13 @@ function buildPrototypeSet(scene: Scene, recipe: ProceduralPickupRecipe): Protot
     crossCaps: isHealth ? Geo.buildCrossCapsProto(scene, recipe) : null,
     core: isHealth ? Geo.buildCoreProto(scene, recipe) : null,
     armor: recipe.family === "armor" ? Geo.buildArmorProto(scene, recipe) : null,
+    armorFrame: recipe.family === "armor" ? Geo.buildArmorFrameProto(scene, recipe) : null,
     ammoCrate: isAmmo ? Geo.buildAmmoCrateProto(scene, recipe) : null,
+    ammoPanel: isAmmo ? Geo.buildAmmoPanelProto(scene, recipe) : null,
+    ammoMark: isAmmo ? Geo.buildAmmoMarkProto(scene, recipe) : null,
     ammoIcon: isAmmo && recipe.iconTexture ? Geo.buildAmmoIconProto(scene, recipe) : null,
     powerupCore: isPowerup ? Geo.buildPowerupCoreProto(scene, recipe) : null,
-    powerupBlades: isPowerup ? Geo.buildPowerupBladesProto(scene, recipe) : null,
+    powerupMark: isPowerup ? Geo.buildPowerupMarkProto(scene, recipe) : null,
     ring: recipe.ringCount > 0 ? Geo.buildRingProto(scene, recipe) : null,
     satellite: recipe.satelliteCount > 0 ? Geo.buildSatelliteProto(scene, recipe) : null,
     beacon: recipe.beaconStrength > 0 ? Geo.buildBeaconProto(scene, recipe) : null,
@@ -115,10 +126,13 @@ function buildPrototypeSet(scene: Scene, recipe: ProceduralPickupRecipe): Protot
         this.crossCaps,
         this.core,
         this.armor,
+        this.armorFrame,
         this.ammoCrate,
+        this.ammoPanel,
+        this.ammoMark,
         this.ammoIcon,
         this.powerupCore,
-        this.powerupBlades,
+        this.powerupMark,
       ];
       for (const m of [...meshes, this.ring, this.satellite, this.beacon]) {
         m?.dispose();

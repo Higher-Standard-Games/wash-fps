@@ -455,7 +455,7 @@ export class GametypeController {
   /**
    * True when a player joining right now must sit the round out.
    *
-   * In a round mode there is no respawn, so a player who spawns mid-round has
+   * In an elimination round there is no respawn, so a player who spawns mid-round has
    * appeared from nowhere into a fight the others have been having since the
    * freeze — and, because spawn points belong to a side, quite possibly inside
    * the enemy's half. They wait for the next freeze, which is exactly what
@@ -464,7 +464,8 @@ export class GametypeController {
   get joinMustWaitForNextRound(): boolean {
     return (
       this.matchState.roundBased &&
-      (this.matchState.phase === MatchPhase.Active || this.matchState.phase === MatchPhase.RoundEnd)
+      (this.matchState.phase === MatchPhase.RoundEnd ||
+        (this.matchState.phase === MatchPhase.Active && !this.matchConfig.roundRespawns))
     );
   }
 
@@ -663,20 +664,19 @@ export class GametypeController {
 
     // 3b. Round modes: an expired round timer ends the ROUND, and the gametype
     // decides who won it. MatchState deliberately does not make that call.
-    // A null result means the mode declined to end the round — S&D does that
-    // for an armed bomb, where the bomb's timer supersedes the round's. The
-    // expiry flag stays set, so this is re-asked each tick until something
-    // resolves it.
+    // A null result leaves the timer expired for modes such as S&D with an
+    // armed bomb. Modes opting into round overtime instead restart the timer.
     if (this.matchState.roundBased && this.matchState.roundTimeExpired) {
-      let expiry: RoundOutcome | null = null;
       try {
-        expiry = this.gametype.onRoundTimeExpired(state);
+        const expiry = this.gametype.onRoundTimeExpired(state);
+        if (expiry) {
+          console.log(`[GametypeController] Round ${this.matchState.round}: ${expiry.reason}`);
+          this.endRound(expiry.winner, expiry);
+        } else if (this.matchConfig.roundOvertimeOnDraw) {
+          this.matchState.extendRoundOvertime(this.matchConfig.roundOvertimeDuration ?? 60);
+        }
       } catch (err) {
         log.warnRateLimited("GametypeController", "onRoundTimeExpired threw:", err);
-      }
-      if (expiry) {
-        console.log(`[GametypeController] Round ${this.matchState.round}: ${expiry.reason}`);
-        this.endRound(expiry.winner, expiry);
       }
     }
 
@@ -723,13 +723,12 @@ export class GametypeController {
   // ========================================================================
 
   private processRespawns(state: WorldState, tickNum: number): void {
-    // Round modes have no in-round respawn: the dead stay dead until the next
-    // round's freeze, where respawnAllPlayers() puts everyone back. Draining
-    // the queue here would undo the entire premise of the mode — and during the
-    // intermission it would also have players popping back up mid-explosion.
+    // Arena DM can respawn during Active; elimination modes keep dead players
+    // out until the next freeze. Nobody respawns during the result intermission.
     if (
       this.matchState.roundBased &&
-      (this.matchState.phase === MatchPhase.Active || this.matchState.phase === MatchPhase.RoundEnd)
+      (this.matchState.phase === MatchPhase.RoundEnd ||
+        (this.matchState.phase === MatchPhase.Active && !this.matchConfig.roundRespawns))
     ) {
       return;
     }

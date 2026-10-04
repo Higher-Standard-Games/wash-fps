@@ -5,18 +5,20 @@
  * once per recipe and the runtime visual clones them per pickup (clones share
  * the prototype's GPU geometry, so a whole map's items cost one geometry each).
  *
- * v6 vocabulary (lit solid objects, no edge outlines):
+ * Current vocabulary (lit solid objects, no edge outlines):
  *  - Health: a SMOOTH sphere shell (smooth normals so the fresnel rim grades
  *    cleanly, no facet banding) around a chunky cross emblem, whose up/down
  *    faces are capped by a separate mesh so they can take their own colour.
- *  - Armor: banded plates wrapped around an elliptical torso — a stack of rings
- *    of small blocks, so the silhouette reads round while every surface stays a
- *    flat facet. The shard tier is the same construction, smaller.
+ *  - Armor: broad chest, shoulder, and waist plates over a dark backer. The
+ *    shard is a smaller broken plate.
+ *  - Ammo: chamfered chassis, colored inserts, and type-specific geometric marks.
+ *  - Quad: dark octagonal badge with a luminous Q on both faces.
  * Material assignment (structural vs energy) is the visual's job, not the
  * geometry's.
  */
 
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
+import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import type { Scene } from "@babylonjs/core/scene";
 import { PROCEDURAL_GLOBAL_SCALE } from "./ProceduralPickupRecipes";
@@ -32,47 +34,19 @@ const CORE_DIAM = 15;
 const RING_DIAM = 21;
 const RING_THICK = 0.9; // thin sci-fi ring
 const SAT_DIAM = 2.8;
-// Armor: banded plates wrapped around a torso (see buildArmorProto).
+// Armor is a compact plate carrier with one broad shoulder/chest silhouette.
 const ARMOR_HEIGHT = 20;
 const ARMOR_WIDTH = 19;
-/** Plate thickness, as a fraction of width. */
-const ARMOR_PLATE_DEPTH = 0.075;
-/** Per-plate irregularity. Small: bigger values open gaps between neighbours. */
-const ARMOR_SCULPT = 0.022;
-/** Neighbouring plates in a band overlap by this much so no seams show through. */
-const ARMOR_PLATE_OVERLAP = 1.3;
-/** Vertical overlap between bands, so the stack has no gaps between rows. */
-const ARMOR_BAND_OVERLAP = 1.35;
-/** Solid core sits this far inside the plate ring — plates stay proud of it. */
-const ARMOR_CORE_INSET = 0.82;
-const SHARD_SIZE_RATIO = 0.62;
+const SHARD_SIZE_RATIO = 0.9;
 // Ammo: a chunky crate (see buildAmmoCrateProto).
 const CRATE_W = 15; // wider than deep — reads as a box, not a cube
 const CRATE_H = 11;
 const CRATE_D = 11;
-/** Corner posts / rim straps, as a fraction of the crate's smallest dimension. */
-const CRATE_FRAME = 0.16;
-/** How far the frame stands proud of the body. */
-const CRATE_FRAME_PROUD = 0.5;
-/** Lid slab height, as a fraction of crate height. */
-const CRATE_LID_H = 0.16;
 /** Icon decal size, as a fraction of the face it sits on. */
 const CRATE_ICON_FILL = 0.62;
-// Powerup (quad): a faceted gem inside four upright blades (see buildPowerupProtos).
-/** Total height of the double-pyramid gem. */
-const QUAD_GEM_H = 17;
-/** Diameter at the gem's square equator. */
-const QUAD_GEM_D = 12;
-const QUAD_BLADE_COUNT = 4;
-const QUAD_BLADE_H = 21;
-const QUAD_BLADE_W = 1.8;
-const QUAD_BLADE_D = 5.4;
-/** Distance from the spin axis to each blade's centre. */
-const QUAD_BLADE_RADIUS = 8.2;
-/** Outward lean of each blade (radians) — an opening iris, not a closed cage. */
-const QUAD_BLADE_CANT = 0.2;
-/** Blade tip width, as a fraction of the root — tapered, so it reads as a fin. */
-const QUAD_BLADE_TAPER = 0.45;
+// Quad uses a dark octagonal badge and a luminous Q on both faces.
+const QUAD_BADGE_DIAM = 20;
+const QUAD_MARK_DIAM = 12;
 const BEACON_HEIGHT = 90;
 const BEACON_TOP = 1.2;
 const BEACON_BOTTOM = 5;
@@ -160,246 +134,337 @@ export function buildRingProto(scene: Scene, recipe: ProceduralPickupRecipe): Me
   return finalizeProto(ring, "proto_ring");
 }
 
-/** Deterministic 0..1 hash — same sculpt every run, so the pack looks stable. */
-function hash01(n: number): number {
-  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
-  return x - Math.floor(x);
-}
-
 /** Place a part, then bake the transform in so the merge keeps it. */
 function bakePart(mesh: Mesh): Mesh {
   mesh.bakeCurrentTransformIntoVertices();
   return mesh;
 }
 
-/** One band of armor: a ring of plates at a height, on an elliptical torso section. */
-interface ArmorBand {
-  /** Centre height, as a fraction of total height (0 = middle). */
-  y: number;
-  /** Half-width / half-depth of the ellipse, as fractions of total width. */
-  rx: number;
-  rz: number;
-  /** Plate height, as a fraction of total height. */
-  h: number;
-  /** How far around the torso this band wraps, in radians (centred on the front). */
-  span: number;
-  /** Plates in the band. More plates = rounder silhouette, same blocky language. */
-  count: number;
-  /** Outward/upward cant of each plate (radians). */
-  tilt: number;
-}
+/** Extrude a star-shaped XY outline into a lit, low-poly plate. */
+function extrudedPlate(scene: Scene, name: string, outline: readonly [number, number][], depth: number, z = 0): Mesh {
+  const mesh = new Mesh(name, scene);
+  const count = outline.length;
+  const front = z + depth / 2;
+  const back = z - depth / 2;
+  const positions: number[] = [0, 0, front, 0, 0, back];
+  for (const [x, y] of outline) positions.push(x, y, front);
+  for (const [x, y] of outline) positions.push(x, y, back);
 
-/**
- * Torso bands, top to bottom. Widths bulge at the chest and draw in at the
- * collar and waist, which is what makes the stack read as a body rather than a
- * barrel — each band is a ring of flat blocks, so the roundness comes from plate
- * COUNT following the curve, not from smooth geometry.
- */
-const ARMOR_BANDS: ArmorBand[] = [
-  { y: 0.44, rx: 0.4, rz: 0.28, h: 0.13, span: 2.5, count: 7, tilt: -0.3 },
-  { y: 0.26, rx: 0.5, rz: 0.35, h: 0.2, span: 3.0, count: 10, tilt: -0.12 },
-  { y: 0.04, rx: 0.52, rz: 0.36, h: 0.24, span: 3.1, count: 11, tilt: 0.0 },
-  { y: -0.2, rx: 0.47, rz: 0.32, h: 0.22, span: 2.9, count: 9, tilt: 0.1 },
-  { y: -0.42, rx: 0.4, rz: 0.27, h: 0.2, span: 2.6, count: 7, tilt: 0.22 },
-];
-
-/**
- * Armor pickup: banded plates wrapped around a torso.
- *
- * Two earlier passes failed in instructive ways. A single tapered cylinder arc
- * read as a bucket. Bolting big boxes onto a flat chest plate read as detached
- * cubes floating next to a card — the parts never became one object.
- *
- * A third pass built bands of plates with nothing behind them, which left
- * see-through holes between the blocks — a loose pile rather than one object.
- * So there is now a solid elliptical CORE just inside the plate ring, and the
- * plates are relief on top of it. Gaps show the body, never the background.
- *
- * On top of that it builds the armor the way real segmented plate works: BANDS,
- * each a ring of small blocks laid around an elliptical torso section and turned
- * to face outward. Roundness comes from plate count following the curve rather
- * than from smooth geometry, so the silhouette reads as a rounded volume while
- * every surface stays a flat block. Bands bulge at the chest and draw in at
- * collar and waist; each plate gets a small deterministic wobble in reach, size
- * and roll so the result looks assembled rather than lathed. Shoulder caps are
- * the outermost plates of the top bands, scaled up and canted — part of the
- * band, so they can never drift away from the body.
- *
- * Tier is carried by COLOUR and size alone (green / yellow / red are one
- * silhouette in Warsow), which is why there are no chevron bars to count. The
- * shard tier is the same construction, smaller and with the lower bands dropped.
- */
-export function buildArmorProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
-  const s = recipe.scale * PROCEDURAL_GLOBAL_SCALE;
-  const fragment = recipe.kind === "shard";
-  const sizeRatio = fragment ? SHARD_SIZE_RATIO : 1;
-  const height = ARMOR_HEIGHT * sizeRatio * s;
-  const width = ARMOR_WIDTH * sizeRatio * s;
-  const thickness = width * ARMOR_PLATE_DEPTH;
-
-  let seed = 0;
-  for (let i = 0; i < recipe.id.length; i++) seed += recipe.id.charCodeAt(i);
-
-  // A shard is a broken piece: the chest bands only, no collar or skirt.
-  const bands = fragment ? ARMOR_BANDS.slice(1, 3) : ARMOR_BANDS;
-  const parts: Mesh[] = [];
-
-  // ── Solid core, first.
-  // The bands alone left see-through holes between plates, which read as a loose
-  // pile of blocks rather than one armored object. A closed elliptical torso
-  // sitting just inside the plate ring fills every gap, so the plates become
-  // RELIEF on a solid body instead of the body itself. Tessellated enough to
-  // look round, flat-shaded so it still facets.
-  {
-    let minY = Number.POSITIVE_INFINITY;
-    let maxY = Number.NEGATIVE_INFINITY;
-    let maxRx = 0;
-    let maxRz = 0;
-    for (const b of bands) {
-      minY = Math.min(minY, (b.y - b.h / 2) * height);
-      maxY = Math.max(maxY, (b.y + b.h / 2) * height);
-      maxRx = Math.max(maxRx, b.rx * width);
-      maxRz = Math.max(maxRz, b.rz * width);
-    }
-    const core = MeshBuilder.CreateCylinder(
-      "armor_core",
-      {
-        height: maxY - minY,
-        diameterTop: 2 * maxRx * ARMOR_CORE_INSET * 0.9,
-        diameterBottom: 2 * maxRx * ARMOR_CORE_INSET * 0.86,
-        tessellation: 16,
-      },
-      scene,
-    );
-    core.position.y = (minY + maxY) / 2;
-    core.scaling.z = maxRz / maxRx; // circular section → elliptical torso
-    parts.push(bakePart(core));
+  const area = outline.reduce((sum, [x, y], i) => {
+    const [nx, ny] = outline[(i + 1) % count];
+    return sum + x * ny - nx * y;
+  }, 0);
+  const ccw = area > 0;
+  const indices: number[] = [];
+  for (let i = 0; i < count; i++) {
+    const next = (i + 1) % count;
+    const fi = 2 + i;
+    const fn = 2 + next;
+    const bi = 2 + count + i;
+    const bn = 2 + count + next;
+    if (ccw) indices.push(0, fi, fn, 1, bn, bi, fi, bi, bn, fi, bn, fn);
+    else indices.push(0, fn, fi, 1, bi, bn, fi, bn, bi, fi, fn, bn);
   }
-
-  bands.forEach((band, bandIndex) => {
-    const rx = band.rx * width;
-    const rz = band.rz * width;
-    const plateH = band.h * height;
-    const step = band.span / band.count;
-
-    for (let i = 0; i < band.count; i++) {
-      // Angle measured from the front (+Z), sweeping symmetrically to both sides.
-      const angle = -band.span / 2 + (i + 0.5) * step;
-      const n = bandIndex * 31 + i + seed;
-      const jitter = (hash01(n) - 0.5) * 2 * ARMOR_SCULPT;
-      const reach = 1 + jitter;
-
-      // Chord length across this segment, so neighbours meet with a slight overlap.
-      const radiusHere = Math.hypot(rx * Math.sin(angle), rz * Math.cos(angle));
-      const plateW = 2 * radiusHere * Math.sin(step / 2) * ARMOR_PLATE_OVERLAP;
-
-      // Outermost plates of the upper bands become the shoulder caps.
-      const edge = i === 0 || i === band.count - 1;
-      const shoulder = edge && bandIndex <= 1 && !fragment;
-      const grow = shoulder ? 1.5 : 1;
-
-      const plate = MeshBuilder.CreateBox(
-        "armor_plate",
-        {
-          width: plateW * grow,
-          // Bands overlap vertically too, so no seam lines open between rows.
-          height: plateH * ARMOR_BAND_OVERLAP * (shoulder ? 1.25 : 1) * (1 + jitter * 0.5),
-          depth: thickness * (shoulder ? 1.8 : 1),
-        },
-        scene,
-      );
-      plate.position.set(rx * Math.sin(angle) * reach, band.y * height, rz * Math.cos(angle) * reach);
-      // Face outward along the radial direction, then cant and roll slightly.
-      plate.rotation.y = angle;
-      plate.rotation.x = band.tilt + (hash01(n + 7) - 0.5) * 0.12;
-      plate.rotation.z = (hash01(n + 13) - 0.5) * 0.14 + (shoulder ? (angle > 0 ? -0.4 : 0.4) : 0);
-      parts.push(bakePart(plate));
-    }
-  });
-
-  const merged = mergeOrThrow(parts, "proto_armor", scene);
-
-  // No global sculpt pass here: irregularity is already baked into each plate's
-  // reach/size/roll, and warping the merged result radially would pull the bands
-  // out of alignment and reopen the seams the overlap is there to close.
-  // Flat shading so every plate face catches light as its own facet.
-  merged.convertToFlatShadedMesh();
-  return finalizeProto(merged, "proto_armor");
+  const normals = new Array<number>(positions.length).fill(0);
+  VertexData.ComputeNormals(positions, indices, normals);
+  const uvs: number[] = [];
+  for (let i = 0; i < positions.length; i += 3) {
+    uvs.push(positions[i] / 32 + 0.5, positions[i + 1] / 32 + 0.5);
+  }
+  const data = new VertexData();
+  data.positions = positions;
+  data.indices = indices;
+  data.normals = normals;
+  data.uvs = uvs;
+  data.applyToMesh(mesh);
+  mesh.convertToFlatShadedMesh();
+  return mesh;
 }
 
-/**
- * Ammo crate: a blocky box with a reinforced frame.
- *
- * Body slab, four corner posts, a rim strap top and bottom, and a lid slab —
- * all axis-aligned boxes standing slightly proud of the body so the crate reads
- * as built rather than as a single primitive. Flat-shaded to match the armor's
- * faceted language. The per-type icon is a separate mesh (buildAmmoIconProto)
- * so it can carry its own unlit decal material.
- */
+function scaledOutline(width: number, height: number, points: readonly [number, number][]): [number, number][] {
+  return points.map(([x, y]) => [x * width, y * height]);
+}
+
+/** Dark continuous backer keeps the armor readable between separate plates. */
+export function buildArmorFrameProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
+  const s = recipe.scale * PROCEDURAL_GLOBAL_SCALE * (recipe.kind === "shard" ? SHARD_SIZE_RATIO : 1);
+  const w = ARMOR_WIDTH * s;
+  const h = ARMOR_HEIGHT * s;
+  const outline: [number, number][] =
+    recipe.kind === "shard"
+      ? [
+          [-0.42, 0.22],
+          [-0.12, 0.38],
+          [0.31, 0.19],
+          [0.39, -0.13],
+          [0.06, -0.37],
+          [-0.3, -0.24],
+          [-0.48, 0.02],
+        ]
+      : [
+          [-0.29, 0.46],
+          [-0.46, 0.3],
+          [-0.42, 0.02],
+          [-0.29, -0.1],
+          [-0.24, -0.47],
+          [0.24, -0.47],
+          [0.29, -0.1],
+          [0.42, 0.02],
+          [0.46, 0.3],
+          [0.29, 0.46],
+        ];
+  return finalizeProto(extrudedPlate(scene, "armor_frame", scaledOutline(w, h, outline), 5 * s), "proto_armor_frame");
+}
+
+/** A few large plates reveal a chest, shoulders and waist at arena distance. */
+export function buildArmorProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
+  const s = recipe.scale * PROCEDURAL_GLOBAL_SCALE * (recipe.kind === "shard" ? SHARD_SIZE_RATIO : 1);
+  const w = ARMOR_WIDTH * s;
+  const h = ARMOR_HEIGHT * s;
+  const parts: Mesh[] = [];
+  const frontZ = 3.1 * s;
+  const panels: [number, number][][] =
+    recipe.kind === "shard"
+      ? [
+          [
+            [-0.35, 0.17],
+            [-0.09, 0.32],
+            [0.26, 0.15],
+            [0.32, -0.1],
+            [0.04, -0.3],
+            [-0.24, -0.19],
+            [-0.4, 0.02],
+          ],
+        ]
+      : [
+          [
+            [-0.35, 0.22],
+            [-0.18, 0.36],
+            [0, 0.25],
+            [0.18, 0.36],
+            [0.35, 0.22],
+            [0.29, -0.09],
+            [0, -0.24],
+            [-0.29, -0.09],
+          ],
+          [
+            [-0.22, -0.18],
+            [0.22, -0.18],
+            [0.19, -0.39],
+            [0, -0.48],
+            [-0.19, -0.39],
+          ],
+          [
+            [-0.48, 0.27],
+            [-0.31, 0.4],
+            [-0.29, 0.1],
+            [-0.42, 0.04],
+          ],
+          [
+            [0.31, 0.4],
+            [0.48, 0.27],
+            [0.42, 0.04],
+            [0.29, 0.1],
+          ],
+        ];
+  for (const points of panels) {
+    const outline = scaledOutline(w, h, points);
+    parts.push(extrudedPlate(scene, "armor_plate_front", outline, 1.35 * s, frontZ));
+    parts.push(extrudedPlate(scene, "armor_plate_back", outline, 1.35 * s, -frontZ));
+  }
+  return mergeOrThrow(parts, "proto_armor", scene);
+}
+
+/** Dark chamfered chassis; color comes from separate inset panels. */
 export function buildAmmoCrateProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
   const s = recipe.scale * PROCEDURAL_GLOBAL_SCALE;
   const w = CRATE_W * s;
   const h = CRATE_H * s;
   const d = CRATE_D * s;
-  const frame = Math.min(w, h, d) * CRATE_FRAME;
-  const proud = frame * CRATE_FRAME_PROUD;
+  const outline: [number, number][] = [
+    [-0.42, 0.5],
+    [-0.5, 0.34],
+    [-0.5, -0.34],
+    [-0.42, -0.5],
+    [0.42, -0.5],
+    [0.5, -0.34],
+    [0.5, 0.34],
+    [0.42, 0.5],
+  ];
+  const body = extrudedPlate(scene, "ammo_chassis", scaledOutline(w, h, outline), d);
+  const handle = MeshBuilder.CreateBox(
+    "ammo_handle",
+    {
+      width: w * 0.44,
+      height: h * 0.12,
+      depth: d * 0.52,
+    },
+    scene,
+  );
+  handle.position.y = h * 0.55;
+  return mergeOrThrow([body, bakePart(handle)], "proto_ammo_crate", scene);
+}
 
-  const parts: Mesh[] = [MeshBuilder.CreateBox("crate_body", { width: w, height: h, depth: d }, scene)];
+/** Saturated front/back armor inserts and side rails stay visible without PK3 art. */
+export function buildAmmoPanelProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
+  const s = recipe.scale * PROCEDURAL_GLOBAL_SCALE;
+  const w = CRATE_W * s;
+  const h = CRATE_H * s;
+  const d = CRATE_D * s;
+  const outline: [number, number][] = [
+    [-0.35, 0.36],
+    [-0.41, 0.24],
+    [-0.41, -0.24],
+    [-0.35, -0.36],
+    [0.35, -0.36],
+    [0.41, -0.24],
+    [0.41, 0.24],
+    [0.35, 0.36],
+  ];
+  const parts: Mesh[] = [];
+  for (const sign of [-1, 1]) {
+    parts.push(extrudedPlate(scene, "ammo_panel", scaledOutline(w, h, outline), 0.7 * s, sign * (d / 2 + 0.46 * s)));
+    const side = MeshBuilder.CreateBox(
+      "ammo_side_rail",
+      {
+        width: 0.85 * s,
+        height: h * 0.56,
+        depth: d * 0.58,
+      },
+      scene,
+    );
+    side.position.x = sign * (w / 2 + 0.18 * s);
+    parts.push(bakePart(side));
+  }
+  return mergeOrThrow(parts, "proto_ammo_panel", scene);
+}
 
-  // Corner posts: vertical bars at all four uprights.
-  for (const sx of [-1, 1]) {
-    for (const sz of [-1, 1]) {
-      const post = MeshBuilder.CreateBox("crate_post", { width: frame, height: h + proud, depth: frame }, scene);
-      post.position.set(sx * (w / 2 - frame * 0.3), 0, sz * (d / 2 - frame * 0.3));
-      parts.push(bakePart(post));
+/** Geometric ammo glyphs make types legible even if an optional icon is missing. */
+export function buildAmmoMarkProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
+  const s = recipe.scale * PROCEDURAL_GLOBAL_SCALE;
+  const w = CRATE_W * s;
+  const h = CRATE_H * s;
+  const d = CRATE_D * s;
+  const box = (x0: number, y0: number, x1: number, y1: number): [number, number][] => [
+    [x0, y0],
+    [x0, y1],
+    [x1, y1],
+    [x1, y0],
+  ];
+  const marks: [number, number][][] = [];
+  switch (recipe.kind) {
+    case "bullets":
+      for (const x of [-0.17, 0, 0.17]) marks.push(box(x - 0.045, -0.22, x + 0.045, 0.22));
+      break;
+    case "shells":
+      for (const x of [-0.11, 0.11]) marks.push(box(x - 0.075, -0.22, x + 0.075, 0.22));
+      break;
+    case "grenades":
+      marks.push([
+        [-0.2, 0.08],
+        [-0.14, 0.23],
+        [0.14, 0.23],
+        [0.2, 0.08],
+        [0.13, -0.2],
+        [-0.13, -0.2],
+      ]);
+      marks.push(box(-0.04, 0.22, 0.04, 0.32));
+      break;
+    case "rockets":
+      marks.push([
+        [-0.08, -0.13],
+        [-0.08, 0.13],
+        [0, 0.31],
+        [0.08, 0.13],
+        [0.08, -0.13],
+      ]);
+      marks.push([
+        [-0.08, -0.04],
+        [-0.24, -0.22],
+        [-0.08, -0.18],
+      ]);
+      marks.push([
+        [0.08, -0.04],
+        [0.24, -0.22],
+        [0.08, -0.18],
+      ]);
+      marks.push([
+        [-0.05, -0.15],
+        [0, -0.31],
+        [0.05, -0.15],
+      ]);
+      break;
+    case "cells":
+      marks.push([
+        [0, 0.3],
+        [0.25, 0],
+        [0, -0.3],
+        [-0.25, 0],
+      ]);
+      break;
+    case "lasers":
+      marks.push([
+        [-0.02, 0.31],
+        [0.2, 0.31],
+        [0.035, 0.02],
+        [0.19, 0.02],
+        [-0.2, -0.31],
+        [-0.04, -0.04],
+        [-0.19, -0.04],
+      ]);
+      break;
+    case "bolts":
+      marks.push([
+        [-0.26, 0.2],
+        [-0.19, 0.28],
+        [0.26, -0.2],
+        [0.19, -0.28],
+      ]);
+      marks.push([
+        [-0.26, -0.2],
+        [-0.19, -0.28],
+        [0.26, 0.2],
+        [0.19, 0.28],
+      ]);
+      break;
+    default:
+      marks.push([
+        [0, 0.31],
+        [0.08, 0.08],
+        [0.28, 0],
+        [0.08, -0.08],
+        [0, -0.31],
+        [-0.08, -0.08],
+        [-0.28, 0],
+        [-0.08, 0.08],
+      ]);
+  }
+  const parts: Mesh[] = [];
+  for (const sign of [-1, 1]) {
+    for (const mark of marks) {
+      parts.push(extrudedPlate(scene, "ammo_mark", scaledOutline(w, h, mark), 0.45 * s, sign * (d / 2 + 1.1 * s)));
     }
   }
-
-  // Rim straps: a band around the top and bottom edges, in two crossing bars so
-  // the corners stay square without needing a mitred ring.
-  for (const sy of [-1, 1]) {
-    const y = sy * (h / 2 - frame * 0.5);
-    const alongX = MeshBuilder.CreateBox("crate_strap", { width: w + proud, height: frame, depth: d }, scene);
-    alongX.position.y = y;
-    parts.push(bakePart(alongX));
-    const alongZ = MeshBuilder.CreateBox("crate_strap", { width: w, height: frame, depth: d + proud }, scene);
-    alongZ.position.y = y;
-    parts.push(bakePart(alongZ));
-  }
-
-  // Lid: a slab sitting on top, slightly overhanging.
-  const lid = MeshBuilder.CreateBox("crate_lid", { width: w * 0.94, height: h * CRATE_LID_H, depth: d * 0.94 }, scene);
-  lid.position.y = h / 2 + (h * CRATE_LID_H) / 2 - frame * 0.2;
-  parts.push(bakePart(lid));
-
-  const merged = mergeOrThrow(parts, "proto_ammo_crate", scene);
-  merged.convertToFlatShadedMesh();
-  return finalizeProto(merged, "proto_ammo_crate");
+  return mergeOrThrow(parts, "proto_ammo_mark", scene);
 }
 
 /**
- * The four side decals of an ammo crate, merged into one mesh.
+ * Optional ammo texture decals on the narrow sides, merged into one mesh.
  *
- * One quad per vertical face, each turned to face outward and pushed just clear
- * of the body so the icon reads from any approach — the same "stamp the
- * simpleitem icon on the box" trick the old MD3 ammobox used, just generated.
- * Each quad keeps its own 0..1 UVs through the merge, so the shared decal
- * material paints the icon once per face.
+ * Generated geometry owns the front/back symbols; these texture decals add
+ * detail on the sides when the optional PK3 art is available.
  */
 export function buildAmmoIconProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
   const s = recipe.scale * PROCEDURAL_GLOBAL_SCALE;
   const w = CRATE_W * s;
   const h = CRATE_H * s;
-  const d = CRATE_D * s;
   const size = Math.min(w, h) * CRATE_ICON_FILL;
-  const lift = Math.min(w, h, d) * CRATE_FRAME * CRATE_FRAME_PROUD + 0.35 * s;
+  const lift = 0.7 * s;
 
   const quads: Mesh[] = [];
-  // +Z / -Z faces, then +X / -X. `sideOrientation` is irrelevant here because
-  // the decal material disables back-face culling.
+  // `sideOrientation` is irrelevant because the decal material disables
+  // back-face culling.
   const faces: Array<{ pos: [number, number, number]; yaw: number }> = [
-    { pos: [0, 0, d / 2 + lift], yaw: 0 },
-    { pos: [0, 0, -(d / 2 + lift)], yaw: Math.PI },
     { pos: [w / 2 + lift, 0, 0], yaw: Math.PI / 2 },
     { pos: [-(w / 2 + lift), 0, 0], yaw: -Math.PI / 2 },
   ];
@@ -412,72 +477,74 @@ export function buildAmmoIconProto(scene: Scene, recipe: ProceduralPickupRecipe)
   return mergeOrThrow(quads, "proto_ammo_icon", scene);
 }
 
-/**
- * Quad Damage core: two square pyramids joined base-to-base — a hard-faceted
- * gem. Deliberately NOT the health sphere: the powerup has to be unmistakable
- * from across the arena, and eight big flat facets catch the pulse very
- * differently from a smooth fresnel shell.
- */
+/** Dark octagonal medallion: a stable silhouette with no tall cage or beacon. */
 export function buildPowerupCoreProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
   const s = recipe.scale * PROCEDURAL_GLOBAL_SCALE;
-  const half = (QUAD_GEM_H / 2) * s;
-  const diameter = QUAD_GEM_D * s;
-
-  // tessellation 4 + zero top diameter = a square pyramid.
-  const top = MeshBuilder.CreateCylinder(
-    "q_top",
-    { height: half, diameterTop: 0, diameterBottom: diameter, tessellation: 4 },
+  const badge = MeshBuilder.CreateCylinder(
+    "quad_badge",
+    {
+      height: 3.5 * s,
+      diameter: QUAD_BADGE_DIAM * s,
+      tessellation: 8,
+    },
     scene,
   );
-  top.position.y = half / 2;
-  bakePart(top);
-
-  const bottom = MeshBuilder.CreateCylinder(
-    "q_bot",
-    { height: half, diameterTop: diameter, diameterBottom: 0, tessellation: 4 },
-    scene,
-  );
-  bottom.position.y = -half / 2;
-  bakePart(bottom);
-
-  return mergeOrThrow([top, bottom], "proto_powerup_core", scene);
+  badge.rotation.x = Math.PI / 2;
+  badge.rotation.z = Math.PI / 8;
+  bakePart(badge);
+  return finalizeProto(badge, "proto_powerup_core");
 }
 
-/**
- * The four blades that make a quad read as a QUAD — upright tapered fins on
- * four-fold symmetry, canted outward around the gem. Four is the whole visual
- * pun, so the count is fixed rather than recipe-driven.
- */
-export function buildPowerupBladesProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
+/** A luminous Q and four small corner sparks make Quad legible at a glance. */
+export function buildPowerupMarkProto(scene: Scene, recipe: ProceduralPickupRecipe): Mesh {
   const s = recipe.scale * PROCEDURAL_GLOBAL_SCALE;
-  const height = QUAD_BLADE_H * s;
-  const width = QUAD_BLADE_W * s;
-  const depth = QUAD_BLADE_D * s;
-  const radius = QUAD_BLADE_RADIUS * s;
-
-  const blades: Mesh[] = [];
-  for (let i = 0; i < QUAD_BLADE_COUNT; i++) {
-    // A tapered fin: 4-sided prism, pinched at the top, flattened on one axis.
-    const blade = MeshBuilder.CreateCylinder(
-      `q_blade_${i}`,
-      { height, diameterTop: depth * QUAD_BLADE_TAPER, diameterBottom: depth, tessellation: 4 },
+  const parts: Mesh[] = [];
+  for (const face of [-1, 1]) {
+    const z = face * 2.3 * s;
+    const ring = MeshBuilder.CreateTorus(
+      "quad_q_ring",
+      {
+        diameter: QUAD_MARK_DIAM * s,
+        thickness: 1.65 * s,
+        tessellation: 32,
+      },
       scene,
     );
+    ring.rotation.x = Math.PI / 2;
+    ring.position.z = z;
+    parts.push(bakePart(ring));
 
-    // Two bakes, because composing "lean outward" with "swing around the axis"
-    // in one Euler triple depends on rotation order and gets fiddly. Build the
-    // blade leaning out along +X first, bake that, THEN swing it to its slot.
-    blade.scaling.x = width / depth;
-    blade.rotation.z = -QUAD_BLADE_CANT; // top leans toward +X
-    blade.position.x = radius;
-    bakePart(blade);
+    const tail = MeshBuilder.CreateBox(
+      "quad_q_tail",
+      {
+        width: 1.8 * s,
+        height: 5.2 * s,
+        depth: 1.2 * s,
+      },
+      scene,
+    );
+    tail.position.set(4.2 * s, -4.8 * s, z);
+    tail.rotation.z = -0.7;
+    parts.push(bakePart(tail));
 
-    blade.rotation.y = (i / QUAD_BLADE_COUNT) * Math.PI * 2;
-    bakePart(blade);
-
-    blades.push(blade);
+    for (const x of [-1, 1]) {
+      for (const y of [-1, 1]) {
+        const spark = MeshBuilder.CreateBox(
+          "quad_corner",
+          {
+            width: 1.4 * s,
+            height: 1.4 * s,
+            depth: 1.1 * s,
+          },
+          scene,
+        );
+        spark.position.set(x * 6.9 * s, y * 6.9 * s, z);
+        spark.rotation.z = Math.PI / 4;
+        parts.push(bakePart(spark));
+      }
+    }
   }
-  return mergeOrThrow(blades, "proto_powerup_blades", scene);
+  return mergeOrThrow(parts, "proto_powerup_mark", scene);
 }
 
 /** Small orbiting satellite core (mega/ultra). */

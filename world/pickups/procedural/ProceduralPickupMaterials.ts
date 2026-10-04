@@ -55,11 +55,11 @@ export function createStructuralMaterial(scene: Scene, name: string, color: RGB)
 export function createArmorPlateMaterial(scene: Scene, name: string, color: RGB): StandardMaterial {
   const mat = new StandardMaterial(name, scene);
   const base = toColor3(color);
-  mat.diffuseColor = base;
+  mat.diffuseColor = base.scale(0.72);
   // Keep the emissive floor low: at 0.34 (plus scene ambient and bloom) the
   // plates still washed out to white and lost both tier colour and facets.
-  mat.emissiveColor = base.scale(0.14);
-  mat.specularColor = new Color3(0.3, 0.3, 0.34);
+  mat.emissiveColor = base.scale(0.08);
+  mat.specularColor = new Color3(0.22, 0.22, 0.25);
   mat.specularPower = 24;
   (mat as unknown as { _baseEmissive: Color3 })._baseEmissive = mat.emissiveColor.clone();
   (mat as unknown as { _baseAlpha: number })._baseAlpha = mat.alpha;
