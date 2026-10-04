@@ -1,3 +1,5 @@
+import type { WorldState } from "@engine/server/core/WorldState";
+import type { Entity } from "@engine/server/ecs/Entity";
 import { MatchPhase } from "@shared/server/gametype";
 import type { LoadoutChoice } from "@shared/server/gametype/Loadout";
 import { describe, expect, it } from "vitest";
@@ -5,54 +7,68 @@ import { Amphi } from "../Amphi";
 import type { GametypeTickContext } from "../BaseGametype";
 import { MatchState } from "../MatchState";
 
-interface Fighter {
-  ownerId: number;
-  team: "udon" | "soba";
-  health: number;
-  armor: number;
-  dead?: boolean;
-}
+const world = {} as WorldState;
+const fighter = (ownerId: number) => ({ ownerId }) as Entity;
+const context: GametypeTickContext = {
+  tick: 1 as never,
+  round: 1,
+  live: false,
+  attackingTeam: "udon",
+  defendingTeam: "soba",
+  teamOf: (id) => (id === 1 ? "udon" : "soba"),
+  credit: () => {},
+};
 
-function arena(fighters: Fighter[]) {
-  const state = {
-    entitiesByType: () =>
-      fighters.map((fighter) => ({
-        ownerId: fighter.ownerId,
-        health: { health: fighter.health, armor: fighter.armor, dead: fighter.dead ?? false },
-      })),
-  } as never;
-  const teams = new Map(fighters.map((fighter) => [fighter.ownerId, fighter.team]));
-  const context: GametypeTickContext = {
-    tick: 1 as never,
-    round: 1,
-    live: true,
-    attackingTeam: "udon",
-    defendingTeam: "soba",
-    teamOf: (id) => teams.get(id) ?? "spectator",
-    credit: () => {},
-  };
-  return { state, context };
+function nextRound(match: MatchState): void {
+  match.transition(MatchPhase.Countdown);
+  match.transition(MatchPhase.Active);
 }
 
 describe("Amphi", () => {
-  it("uses three-minute no-respawn rounds, first to three, with round-reset pickups", () => {
+  it("plays three-minute deathmatch rounds with timed player and item respawns", () => {
     const mode = new Amphi();
-    expect(mode.getMatchConfig()).toMatchObject({ roundBased: true, timeLimit: 180, scoreLimit: 3, leadRequired: 1 });
-    expect(mode.getItemSpawnRules()).toMatchObject({ spawnFromBsp: true, respawnMode: "round" });
+    expect(mode.getMatchConfig()).toMatchObject({
+      roundBased: true,
+      roundRespawns: true,
+      resetScoresEachRound: true,
+      timeLimit: 180,
+      scoreLimit: 2,
+      maxRounds: 3,
+    });
+    expect(mode.getItemSpawnRules()).toMatchObject({ spawnFromBsp: true, respawnMode: "timed" });
     expect(mode.getSpawnStrategy()).toBe("furthest");
+    expect(mode.onTick(world, { ...context, live: true })).toBeNull();
+  });
 
+  it("ends at 2-0 or after a third round, including a drawn round", () => {
+    const mode = new Amphi();
     const match = new MatchState(mode.name, mode.getMatchConfig(), mode.teamBased);
     match.addPlayer(1 as never);
     match.addPlayer(2 as never);
     match.setPlayerTeam(1 as never, "udon");
     match.setPlayerTeam(2 as never, "soba");
-    for (let round = 1; round <= 3; round++) {
-      match.transition(MatchPhase.Countdown);
-      match.transition(MatchPhase.Active);
-      match.endRound("udon");
-      expect(match.teamScores.get("udon")).toBe(round);
-    }
+    nextRound(match);
+    match.addScore(1 as never, 3);
+    expect(match.getScore(1 as never)).toBe(3);
+    match.endRound("udon");
+    nextRound(match);
+    expect(match.getScore(1 as never)).toBe(0);
+    match.endRound("udon");
     expect(match.phase).toBe(MatchPhase.PostGame);
+    expect(match.round).toBe(2);
+
+    const split = new MatchState(mode.name, mode.getMatchConfig(), mode.teamBased);
+    split.addPlayer(1 as never);
+    split.addPlayer(2 as never);
+    nextRound(split);
+    split.endRound("udon");
+    nextRound(split);
+    split.endRound("soba");
+    expect(split.phase).toBe(MatchPhase.RoundEnd);
+    nextRound(split);
+    split.endRound(null);
+    expect(split.phase).toBe(MatchPhase.PostGame);
+    expect(split.computeWinner(true).kind).toBe("draw");
   });
 
   it("requires a chosen kit and applies changes only at the next round", () => {
@@ -65,41 +81,40 @@ describe("Amphi", () => {
     expect(mode.getSpawnLoadout(1 as never).weapons).toContain("rlauncher");
     mode.setPlayerLoadout(1 as never, bolt);
     expect(mode.getSpawnLoadout(1 as never).weapons).toContain("rlauncher");
-    const { state, context } = arena([]);
-    mode.onRoundStart(state, context);
+    mode.onRoundStart(world, context);
     expect(mode.getSpawnLoadout(1 as never).weapons).toContain("electrobolt");
     mode.onPlayerLeave(1 as never);
     expect(mode.hasChosenLoadout(1 as never)).toBe(false);
   });
 
-  it("awards elimination, including a simultaneous draw, after both players appear", () => {
+  it("counts only live round frags, allows deaths without ending, and ignores health at time", () => {
     const mode = new Amphi();
-    const fighters: Fighter[] = [{ ownerId: 1, team: "udon", health: 100, armor: 100 }];
-    const { state, context } = arena(fighters);
-    expect(mode.onTick(state, context)).toBeNull(); // Opponent has not loaded yet.
-    fighters.push({ ownerId: 2, team: "soba", health: 100, armor: 100 });
-    // Refresh context's team lookup for the new entrant.
-    const both = arena(fighters);
-    expect(mode.onTick(both.state, both.context)).toBeNull();
-    fighters[1].dead = true;
-    expect(mode.onTick(both.state, both.context)).toMatchObject({ winner: "udon", resultKey: "eliminated" });
+    mode.onPlayerJoin(1 as never, "one", world, "udon");
+    mode.onPlayerJoin(2 as never, "two", world, "soba");
+    mode.onDeath(fighter(2), fighter(1), world); // warmup
+    mode.onRoundStart(world, context);
+    mode.onMatchPhaseChange(MatchPhase.Active);
+    mode.onDeath(fighter(2), fighter(1), world);
+    mode.onDeath(fighter(2), fighter(1), world);
+    mode.onDeath(fighter(1), fighter(2), world);
+    expect(mode.onTick(world, { ...context, live: true })).toBeNull();
+    expect(mode.onRoundTimeExpired(world)).toMatchObject({ winner: "udon", resultKey: "timeout" });
 
-    mode.onRoundStart(both.state, both.context);
-    fighters[0].dead = true;
-    expect(mode.onTick(both.state, both.context)).toMatchObject({ winner: null, resultKey: "eliminated" });
+    mode.onRoundStart(world, context);
+    mode.onMatchPhaseChange(MatchPhase.Active);
+    mode.onDeath(fighter(1), fighter(1), world); // suicide costs a frag
+    expect(mode.onRoundTimeExpired(world)).toMatchObject({ winner: "soba" });
+    mode.onPlayerLeave(2 as never);
   });
 
-  it("uses remaining health and armor as the timeout tiebreaker", () => {
+  it("draws a tied frag round rather than using health and armor", () => {
     const mode = new Amphi();
-    const fighters: Fighter[] = [
-      { ownerId: 1, team: "udon", health: 70, armor: 30 },
-      { ownerId: 2, team: "soba", health: 80, armor: 10 },
-    ];
-    const { state, context } = arena(fighters);
-    mode.onTick(state, context);
-    expect(mode.onRoundTimeExpired(state)).toMatchObject({ winner: "udon", resultKey: "timeout" });
-    fighters[1].armor = 20;
-    mode.onTick(state, context);
-    expect(mode.onRoundTimeExpired(state)).toMatchObject({ winner: null, resultKey: "timeout" });
+    mode.onPlayerJoin(1 as never, "one", world, "udon");
+    mode.onPlayerJoin(2 as never, "two", world, "soba");
+    mode.onRoundStart(world, context);
+    mode.onMatchPhaseChange(MatchPhase.Active);
+    mode.onDeath(fighter(2), fighter(1), world);
+    mode.onDeath(fighter(1), fighter(2), world);
+    expect(mode.onRoundTimeExpired(world)).toMatchObject({ winner: null, resultKey: "timeout" });
   });
 });

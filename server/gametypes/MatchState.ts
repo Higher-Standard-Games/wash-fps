@@ -290,7 +290,7 @@ export class MatchState {
       focus: result?.focus,
     };
 
-    if (this.hasDecisiveLead()) {
+    if (this.hasDecisiveLead() || (this.config.maxRounds !== undefined && this._round >= this.config.maxRounds)) {
       this.transition(MatchPhase.PostGame);
       return;
     }
@@ -757,6 +757,11 @@ export class MatchState {
           }
           this._teamScores.set("udon", 0);
           this._teamScores.set("soba", 0);
+        } else if (this.config.resetScoresEachRound) {
+          for (const [id] of this._scores) {
+            this._scores.set(id, 0);
+            this._deaths.set(id, 0);
+          }
         }
         break;
       }

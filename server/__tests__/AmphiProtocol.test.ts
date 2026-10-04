@@ -1,7 +1,7 @@
 /**
  * A complete Amphi score path over real sockets. The short test-only timers
- * keep the production rules intact while exercising ready, freeze, respawn,
- * elimination, round scoring and the terminal match result together.
+ * keep the production rules intact while exercising ready, freeze, in-round
+ * respawn, frag scoring, timer expiry and the terminal match result together.
  */
 import type { WorldState } from "@engine/server/core/WorldState";
 import { issueMatchAdmission } from "@engine/server/network/MatchAdmission";
@@ -12,11 +12,19 @@ import { MessageType } from "../../../../engine/network/protocol/BinaryProtocol"
 import { MessageCodec } from "../../../../engine/network/protocol/MessageCodec";
 import { GameServer, type GameServerConfig } from "../GameServer";
 import { Amphi } from "../gametypes/Amphi";
+import { type CombatSystem, DamageType, HitLocation } from "../systems/CombatSystem";
 import { ProtocolTestClient } from "./_protocolTestClient";
 
 class FastAmphi extends Amphi {
   override getMatchConfig() {
-    return { ...super.getMatchConfig(), countdownDuration: 0.2, roundEndDuration: 0.2 };
+    return {
+      ...super.getMatchConfig(),
+      countdownDuration: 0.2,
+      roundEndDuration: 0.2,
+      timeLimit: 1.2,
+      respawnDelay: 0.05,
+      maxRespawnDelay: 0.1,
+    };
   }
 }
 
@@ -50,7 +58,7 @@ describe("Amphi over the game server protocol", () => {
     if (server) await server.stop();
   });
 
-  it("requires kits and carries three eliminations through the round loop to post-game", async () => {
+  it("requires kits, respawns after a frag, and awards two timed rounds to the higher fragger", async () => {
     const { manifest, tickets } = issueMatchAdmission("amphi-result", [
       { lobbyPlayerId: "udon", accountId: 11, name: "Udon Player", team: "udon", isBot: false },
       { lobbyPlayerId: "soba", accountId: 12, name: "Soba Player", team: "soba", isBot: false },
@@ -87,14 +95,25 @@ describe("Amphi over the game server protocol", () => {
     soba.send(MessageCodec.encodeReady());
     const world = () => (server as unknown as { simulation: { getStateMut(): WorldState } }).simulation.getStateMut();
     const sobaId = Number(sobaSeat.playerId.replace("player_", ""));
+    const udonId = Number(udonSeat.playerId.replace("player_", ""));
+    const combat = (server as unknown as { combatSystem: CombatSystem }).combatSystem;
 
-    for (let round = 1; round <= 3; round++) {
+    for (let round = 1; round <= 2; round++) {
       await waitUntil(() => match.round === round && match.phase === MatchPhase.Active);
       const opponent = world().getEntityByOwner(sobaId);
+      const attacker = world().getEntityByOwner(udonId);
       expect(opponent?.health?.dead).toBe(false);
-      const victim = world().getEntityMut(opponent!.id);
-      victim!.health!.health = 0;
-      victim!.health!.dead = true;
+      combat.queueDamage({
+        victimId: opponent!.id,
+        attackerId: attacker!.id,
+        damage: 500,
+        armorPiercing: 1,
+        damageType: DamageType.Rail,
+        hitLocation: HitLocation.Body,
+      });
+      await waitUntil(() => match.getScore(udonId as never) === 1);
+      expect(match.phase).toBe(MatchPhase.Active); // a frag cannot end the round
+      await waitUntil(() => world().getEntityByOwner(sobaId)?.health?.dead === false);
       await waitUntil(() => match.teamScores.get("udon") === round);
       expect(match.teamScores.get("soba")).toBe(0);
     }
@@ -107,7 +126,7 @@ describe("Amphi over the game server protocol", () => {
         gametype: "amphi",
         map: "test",
         participants: [
-          { tokenHash: manifest.grants[0].tokenHash, accountId: 11, outcome: "win", score: 3 },
+          { tokenHash: manifest.grants[0].tokenHash, accountId: 11, outcome: "win", score: 2 },
           { tokenHash: manifest.grants[1].tokenHash, accountId: 12, outcome: "loss", score: 0 },
         ],
       }),

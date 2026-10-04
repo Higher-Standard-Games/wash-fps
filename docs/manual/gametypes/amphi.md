@@ -1,54 +1,51 @@
 # Amphi
 
-1 v 1, first to three rounds, with a kit you pick and live with.
+1v1 deathmatch, best of three rounds, with a kit you pick and live with.
 
-Where Duel is a ten-minute frag race over a whole map's item economy, Amphi is
-a small arena and a short round: you and one opponent, no respawns, and a
-weapon set you committed to before the round began.
+Where Duel is a ten-minute frag race over a whole map's item economy, Amphi
+plays three short deathmatch rounds in a small arena. Players respawn after
+kills and fight with a weapon set chosen before the round began.
 
 ## Rules
 
 | Rule | Default |
 |------|---------|
 | Players | 2, one per side |
-| Rounds to win | 3, by a lead of 1 |
+| Format | Best of 3; first to 2 round wins |
 | Round time | 3 minutes |
 | Warmup | 2 minutes |
 | Countdown | 5 seconds |
 | Between rounds | 4 seconds |
 | Post-game | 15 seconds |
+| Player respawn | 2 s minimum, 4 s automatic |
 | Self damage | Full |
 | Spawns | Furthest from the opponent |
 
 ## Picking a kit
 
 Nobody is seated until they have chosen. Until both players have picked, both
-are spectators and the match stays in warmup — so an Amphi match cannot start
-by accident while someone is still deciding.
+are spectators and the match stays in warmup.
 
-The round starts with the kit you chose. A choice made later takes effect at
-the **next** round, never in the middle of a fight, so a kit can be answered
-but not swapped away from.
-
-The picker is the same one Search & Destroy uses during its freeze. See
+The round starts with the kit you chose. You respawn with that kit after a death.
+A choice made later takes effect at the **next** round, never in the current
+fight. The picker is the same one Search & Destroy uses during its freeze. See
 [HUD](../player/hud.md).
 
 ## How a round ends
 
-- **Elimination.** Killing the other player ends the round immediately.
-- **Time.** At three minutes, whoever has more health *plus* armor left wins
-  the round. An exact tie is recorded as a drawn round — neither side scores.
-- **Both at once.** If both players die in the same moment, the round is drawn.
+- **Time.** After three minutes, the player with more frags in that round wins.
+- **Tie.** Equal frags make a drawn round; neither side scores. The match ends
+  after at most three rounds, so a tied round score after round three is a draw.
+- **Early match end.** A 2-0 lead ends the match after round two.
 
-A round is never decided while a player is still loading in: nothing counts
-until both sides have actually appeared in the world.
+The scoreboard's frag and death counts reset at the start of each round. Round
+wins remain on the match score. Suicides cost one frag, as in normal deathmatch.
 
 ## The arena between rounds
 
-Pickups come back at the **next round** rather than on their own clocks, so
-holding a small map still means something after the first thirty seconds. The
-usual respawn intervals apply within a round — weapons 30 s, armor 25 s, health
-20 s, ammo 15 s, mega health 60 s.
+Pickups return on their normal deathmatch timers within a round: weapons 30 s,
+armor 25 s, health 20 s, ammo 15 s, and mega health 60 s. The map's pickup
+state also resets for the next round.
 
 ## Maps
 
@@ -69,6 +66,6 @@ result documentation for what a ranked result records.
 
 ## Where the rules live
 
-`src/games/fps/server/gametypes/Amphi.ts` is authoritative: the round outcome,
-the kit handling and the pickup rules above are all read from it. The lobby
-advertises the mode as "1v1, first to three three-minute rounds".
+`src/games/fps/server/gametypes/Amphi.ts` is authoritative for the round
+outcome, kit handling, and pickup rules. The lobby advertises the mode as a
+best-of-three 1v1 deathmatch.
