@@ -1,7 +1,7 @@
 /**
  * Amphi: best-of-three 1v1 deathmatch. Each three-minute round starts with a
  * chosen kit, allows normal player/item respawns, and awards the round to the
- * player with more frags. A tied round scores for neither side.
+ * player with more frags. Ties extend the round in one-minute increments.
  */
 import type { WorldState } from "@engine/server/core/WorldState";
 import type { Entity } from "@engine/server/ecs/Entity";
@@ -42,6 +42,8 @@ export class Amphi extends BaseGametype {
       roundRespawns: true,
       resetScoresEachRound: true,
       maxRounds: 3,
+      roundOvertimeOnDraw: true,
+      roundOvertimeDuration: 60,
       roundEndDuration: 4,
       leadRequired: 1,
     };
@@ -116,16 +118,17 @@ export class Amphi extends BaseGametype {
     }
   }
 
-  onRoundTimeExpired(_state: WorldState): RoundOutcome {
-    this.roundLive = false;
+  onRoundTimeExpired(_state: WorldState): RoundOutcome | null {
     const udon = this.roundFrags.get("udon") ?? 0;
     const soba = this.roundFrags.get("soba") ?? 0;
-    const winner = udon === soba ? null : udon > soba ? "udon" : "soba";
+    if (udon === soba) return null;
+    this.roundLive = false;
+    const winner = udon > soba ? "udon" : "soba";
     return { winner, reason: "round time expired", resultKey: "timeout" };
   }
 
   checkWinCondition(_state: WorldState): GameResult | null {
-    return null; // MatchState owns first-to-three scoring.
+    return null; // MatchState owns first-to-two round scoring.
   }
 
   getScore(_playerId: PlayerId): number {

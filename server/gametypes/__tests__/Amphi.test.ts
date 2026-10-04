@@ -34,13 +34,15 @@ describe("Amphi", () => {
       timeLimit: 180,
       scoreLimit: 2,
       maxRounds: 3,
+      roundOvertimeOnDraw: true,
+      roundOvertimeDuration: 60,
     });
     expect(mode.getItemSpawnRules()).toMatchObject({ spawnFromBsp: true, respawnMode: "timed" });
     expect(mode.getSpawnStrategy()).toBe("furthest");
     expect(mode.onTick(world, { ...context, live: true })).toBeNull();
   });
 
-  it("ends at 2-0 or after a third round, including a drawn round", () => {
+  it("ends at 2-0 or after a deciding third round", () => {
     const mode = new Amphi();
     const match = new MatchState(mode.name, mode.getMatchConfig(), mode.teamBased);
     match.addPlayer(1 as never);
@@ -66,9 +68,9 @@ describe("Amphi", () => {
     split.endRound("soba");
     expect(split.phase).toBe(MatchPhase.RoundEnd);
     nextRound(split);
-    split.endRound(null);
+    split.endRound("udon");
     expect(split.phase).toBe(MatchPhase.PostGame);
-    expect(split.computeWinner(true).kind).toBe("draw");
+    expect(split.computeWinner(true)).toMatchObject({ kind: "team", id: "udon" });
   });
 
   it("requires a chosen kit and applies changes only at the next round", () => {
@@ -107,14 +109,36 @@ describe("Amphi", () => {
     mode.onPlayerLeave(2 as never);
   });
 
-  it("draws a tied frag round rather than using health and armor", () => {
+  it("extends repeatedly on tied frags, then awards the round to the leader at expiry", () => {
     const mode = new Amphi();
+    const match = new MatchState(mode.name, mode.getMatchConfig(), mode.teamBased);
+    match.addPlayer(1 as never);
+    match.addPlayer(2 as never);
+    nextRound(match);
     mode.onPlayerJoin(1 as never, "one", world, "udon");
     mode.onPlayerJoin(2 as never, "two", world, "soba");
     mode.onRoundStart(world, context);
     mode.onMatchPhaseChange(MatchPhase.Active);
     mode.onDeath(fighter(2), fighter(1), world);
     mode.onDeath(fighter(1), fighter(2), world);
-    expect(mode.onRoundTimeExpired(world)).toMatchObject({ winner: null, resultKey: "timeout" });
+    match.update(180);
+    expect(match.roundTimeExpired).toBe(true);
+    expect(mode.onRoundTimeExpired(world)).toBeNull();
+    match.extendRoundOvertime(60);
+    expect(match.timeRemaining).toBe(60);
+    expect(match.roundTimeExpired).toBe(false);
+    expect(match.overtimeCount).toBe(1);
+    match.update(60);
+    expect(mode.onRoundTimeExpired(world)).toBeNull();
+    match.extendRoundOvertime(60);
+    expect(match.overtimeCount).toBe(2);
+    expect(match.phase).toBe(MatchPhase.Active);
+    mode.onDeath(fighter(2), fighter(1), world);
+    match.update(60);
+    const result = mode.onRoundTimeExpired(world);
+    expect(result).toMatchObject({ winner: "udon", resultKey: "timeout" });
+    match.endRound(result!.winner);
+    expect(match.teamScores.get("udon")).toBe(1);
+    expect(match.phase).toBe(MatchPhase.RoundEnd);
   });
 });

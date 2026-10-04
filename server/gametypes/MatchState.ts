@@ -298,6 +298,16 @@ export class MatchState {
     this.transition(MatchPhase.RoundEnd);
   }
 
+  /** Resume a tied live round for another fixed overtime period. */
+  extendRoundOvertime(seconds: number): void {
+    if (!this.roundBased || this._phase !== MatchPhase.Active || !this._roundTimeExpired) return;
+    if (!Number.isFinite(seconds) || seconds <= 0) throw new Error("Round overtime must be a positive duration");
+    this._timeRemaining = seconds;
+    this._roundTimeExpired = false;
+    this._overtimeCount++;
+    console.log(`[MatchState] Round ${this._round} overtime #${this._overtimeCount}: +${seconds}s`);
+  }
+
   /** How the last round ended. Cleared when the next one starts. */
   get roundResult(): RoundResult | null {
     return this._roundResult;

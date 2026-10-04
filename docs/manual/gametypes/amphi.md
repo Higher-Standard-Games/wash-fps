@@ -13,6 +13,7 @@ kills and fight with a weapon set chosen before the round began.
 | Players | 2, one per side |
 | Format | Best of 3; first to 2 round wins |
 | Round time | 3 minutes |
+| Tied round | +1 minute overtime, repeated until one player leads at expiry |
 | Warmup | 2 minutes |
 | Countdown | 5 seconds |
 | Between rounds | 4 seconds |
@@ -34,8 +35,9 @@ fight. The picker is the same one Search & Destroy uses during its freeze. See
 ## How a round ends
 
 - **Time.** After three minutes, the player with more frags in that round wins.
-- **Tie.** Equal frags make a drawn round; neither side scores. The match ends
-  after at most three rounds, so a tied round score after round three is a draw.
+- **Tie.** Equal frags add one minute of overtime. If the players are still tied
+  at the next expiry, another minute is added. The round ends at an expiry when
+  one player leads, so each of the three rounds has a winner.
 - **Early match end.** A 2-0 lead ends the match after round two.
 
 The scoreboard's frag and death counts reset at the start of each round. Round

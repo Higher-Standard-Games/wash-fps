@@ -22,6 +22,7 @@ class FastAmphi extends Amphi {
       countdownDuration: 0.2,
       roundEndDuration: 0.2,
       timeLimit: 1.2,
+      roundOvertimeDuration: 0.6,
       respawnDelay: 0.05,
       maxRespawnDelay: 0.1,
     };
@@ -58,7 +59,7 @@ describe("Amphi over the game server protocol", () => {
     if (server) await server.stop();
   });
 
-  it("requires kits, respawns after a frag, and awards two timed rounds to the higher fragger", async () => {
+  it("requires kits, extends a tied round, respawns after a frag, and awards the BO3 match", async () => {
     const { manifest, tickets } = issueMatchAdmission("amphi-result", [
       { lobbyPlayerId: "udon", accountId: 11, name: "Udon Player", team: "udon", isBot: false },
       { lobbyPlayerId: "soba", accountId: 12, name: "Soba Player", team: "soba", isBot: false },
@@ -100,6 +101,13 @@ describe("Amphi over the game server protocol", () => {
 
     for (let round = 1; round <= 2; round++) {
       await waitUntil(() => match.round === round && match.phase === MatchPhase.Active);
+      if (round === 1) {
+        await waitUntil(() => match.overtimeCount === 1);
+        expect(match.round).toBe(1);
+        expect(match.teamScores.get("udon") ?? 0).toBe(0);
+        expect(match.teamScores.get("soba") ?? 0).toBe(0);
+        expect(match.timeRemaining).toBeGreaterThan(0);
+      }
       const opponent = world().getEntityByOwner(sobaId);
       const attacker = world().getEntityByOwner(udonId);
       expect(opponent?.health?.dead).toBe(false);

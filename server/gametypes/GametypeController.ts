@@ -664,20 +664,19 @@ export class GametypeController {
 
     // 3b. Round modes: an expired round timer ends the ROUND, and the gametype
     // decides who won it. MatchState deliberately does not make that call.
-    // A null result means the mode declined to end the round — S&D does that
-    // for an armed bomb, where the bomb's timer supersedes the round's. The
-    // expiry flag stays set, so this is re-asked each tick until something
-    // resolves it.
+    // A null result leaves the timer expired for modes such as S&D with an
+    // armed bomb. Modes opting into round overtime instead restart the timer.
     if (this.matchState.roundBased && this.matchState.roundTimeExpired) {
-      let expiry: RoundOutcome | null = null;
       try {
-        expiry = this.gametype.onRoundTimeExpired(state);
+        const expiry = this.gametype.onRoundTimeExpired(state);
+        if (expiry) {
+          console.log(`[GametypeController] Round ${this.matchState.round}: ${expiry.reason}`);
+          this.endRound(expiry.winner, expiry);
+        } else if (this.matchConfig.roundOvertimeOnDraw) {
+          this.matchState.extendRoundOvertime(this.matchConfig.roundOvertimeDuration ?? 60);
+        }
       } catch (err) {
         log.warnRateLimited("GametypeController", "onRoundTimeExpired threw:", err);
-      }
-      if (expiry) {
-        console.log(`[GametypeController] Round ${this.matchState.round}: ${expiry.reason}`);
-        this.endRound(expiry.winner, expiry);
       }
     }
 
