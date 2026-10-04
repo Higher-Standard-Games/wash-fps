@@ -51,6 +51,8 @@ const BEACON_HEIGHT = 90;
 const BEACON_BASE_BELOW = 12;
 /** Extra rest height above the anchor so the item floats clearly off the floor. */
 const HOVER_LIFT = 9;
+/** Plate carriers need more clearance than the compact health and ammo shapes. */
+const ARMOR_HOVER_LIFT = 21;
 /** Amplifies each recipe's bob so the up/down float is clearly visible. */
 const BOB_GAIN = 2.6;
 /** Speed of the shell's color↔accent flow (cycles/sec — slow). */
@@ -287,7 +289,8 @@ export class ProceduralPickupVisual implements PickupVisual {
 
     // Float higher off the floor, with a clearly visible slow up/down bob.
     const bobW = t * r.bobFrequency * TAU;
-    this.cosmetic.position.y = HOVER_LIFT + Math.sin(bobW) * r.bobAmplitude * BOB_GAIN;
+    this.cosmetic.position.y =
+      (r.family === "armor" ? ARMOR_HOVER_LIFT : HOVER_LIFT) + Math.sin(bobW) * r.bobAmplitude * BOB_GAIN;
     this.cosmetic.position.x = r.figureEight ? Math.sin(bobW * 2) * r.bobAmplitude * 0.35 : 0;
     this.cosmetic.rotation.y = r.family === "powerup" ? 0.28 * Math.sin(t * 0.45 * TAU) : t * r.spinSpeed * DEG2RAD;
 

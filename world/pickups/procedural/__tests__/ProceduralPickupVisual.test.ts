@@ -33,6 +33,24 @@ function transientMeshes(): number {
 }
 
 describe("ProceduralPickupVisual", () => {
+  it("keeps every armor tier clear of the floor at the bottom of its bob", () => {
+    for (const id of ["armor_shard", "armor_ga", "armor_ya", "armor_ra"]) {
+      const recipe = getProceduralPickupRecipe(id);
+      if (!recipe) throw new Error(`recipe missing: ${id}`);
+      // Pickup.dropToGround places the fixed anchor 12 units above the floor.
+      const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 12, 0), false, 0);
+      visual.setActive(true);
+      visual.update(1, 0.75 / recipe.bobFrequency);
+      const armorMeshes = visual.root.getChildMeshes().filter((mesh) => mesh.name.includes("armor"));
+      expect(armorMeshes.length).toBeGreaterThan(0);
+      for (const mesh of armorMeshes) {
+        mesh.computeWorldMatrix(true);
+        expect(mesh.getBoundingInfo().boundingBox.minimumWorld.y).toBeGreaterThan(0);
+      }
+      visual.dispose();
+    }
+  });
+
   it("builds cloned geometry and disposes it cleanly (no clone/material leak)", () => {
     const recipe = getProceduralPickupRecipe("health_medium");
     if (!recipe) throw new Error("recipe missing");

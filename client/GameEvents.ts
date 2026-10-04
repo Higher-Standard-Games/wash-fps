@@ -1253,7 +1253,7 @@ function handleAwardEvent(ctx: GameEventContext, event: any): void {
     toClientKey(playerId) === ctx.localPlayerId;
 
   // Personal award banner (only for local player)
-  if (isLocalPlayer) {
+  if (isLocalPlayer && awardType !== "frag") {
     import("../../../engine/ui/hud/AwardBanner").then((m) => {
       m.AwardBanner.getInstance().show(awardType, playerName, targetName);
     });
