@@ -25,7 +25,7 @@ A kill is +1 frag. Killing yourself (a fall, your own rocket, lava) costs 1 frag
 
 ## Items
 
-Duel plays on the full item economy of the map and uses the same pickup timers as Deathmatch: weapons 30 s, ammo 15 s, armor 25 s, health 20 s, mega health 60 s. Armor and mega health are absent for the first 15 seconds of a match. See [Pickups & Inventory](../player/pickups-and-inventory.md#pickup-respawn).
+Duel plays on the full item economy of the map and uses the standard pickup timers: weapons 15 s, ammo 15 s, armor 25 s, health 20 s, mega health 60 s. Armor and mega health are absent for the first 15 seconds of a match. See [Pickups & Inventory](../player/pickups-and-inventory.md#pickup-respawn).
 
 Because you spawn with only the Blade, **map control is the game**: who holds the armor, mega health and Quad Damage timers, and who denies the other player weapons, usually wins.
 

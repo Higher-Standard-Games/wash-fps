@@ -68,17 +68,22 @@ When a player dies, their non-Blade weapons drop as physical entities with Havok
 
 ## Pickup Respawn
 
-Map-spawned pickups respawn on a per-type timer set by the gametype. Duel, Deathmatch, Team Deathmatch and Amphi use the same values; Search & Destroy is faster:
+Map-spawned pickups respawn on a per-type timer, the same in every gametype:
 
-| Pickup | Duel / DM / TDM / Amphi | Search & Destroy |
-|--------|------------------------:|-----------------:|
-| Weapons | 30 s | 20 s |
-| Ammo | 15 s | 15 s |
-| Armor | 25 s | 20 s |
-| Health | 20 s | 15 s |
-| Mega health | 60 s | 40 s |
+| Pickup | Respawn |
+|--------|--------:|
+| Weapons | 15 s |
+| Ammo | 15 s |
+| Armor | 25 s |
+| Health (small / medium / large) | 20 s |
+| Mega / ultra health | 60 s |
+| Quad Damage | 120 s |
 
 Armor and mega/ultra health are also **absent for the first 15s of a match** so nobody grabs a power item off spawn. Dropped weapons do **not** respawn — they're one-and-done.
+
+::: info Implementation note
+The weapon timer is set by the server launcher (`setPickupRespawnTime(15)` in the dedicated-server CLI) and overrides the 30 s each gametype declares in `getItemSpawnRules()`. The other timers are fixed defaults in `PickupSystem.ts`; the per-gametype ammo, armor, health and mega-health values in `getItemSpawnRules()` are not read today.
+:::
 
 A gametype can also change *when* items return (`respawnMode`):
 

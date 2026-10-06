@@ -22,7 +22,7 @@ A kill is +1 frag. Killing yourself costs 1 frag. There are no teams, so there i
 
 ## Items
 
-Weapons respawn every 30 s, ammo 15 s, armor 25 s, health 20 s and mega health 60 s. Armor and mega health are absent for the first 15 seconds of a match. The Quad Damage is on the map. See [Pickups & Inventory](../player/pickups-and-inventory.md).
+Weapons respawn every 15 s, ammo 15 s, armor 25 s, health 20 s and mega health 60 s. Armor and mega health are absent for the first 15 seconds of a match. The Quad Damage is on the map. See [Pickups & Inventory](../player/pickups-and-inventory.md).
 
 ## Joining and spectating
 
