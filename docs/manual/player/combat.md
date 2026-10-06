@@ -12,6 +12,10 @@ Hitscan weapons (Machinegun, Riotgun, Electrobolt, Instagun, Blade) test where o
 | **Body** | The middle | ×1 |
 | **Legs** | Low on the body (more than 20 units below the centre) | ×0.75 |
 
+::: warning Under review
+Reading the code, the head test may not be reachable for hitscan weapons (it needs a hit more than 32 units above the player's centre, but a hitscan hit must be within 32 units of it). The ×2 below is the rule as written; whether it fires in play is being checked. See `docs/research/v0.9.25-QA.md`, item 5.
+:::
+
 Each Riotgun pellet is judged on its own, so a point-blank shot can mix locations. Projectile and splash damage always counts as a body hit. Damage is rounded to whole numbers after multipliers.
 
 ## Armor
