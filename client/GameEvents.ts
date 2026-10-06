@@ -24,6 +24,7 @@ import type { GameState } from "../../../engine/network/core/GameState";
 import type { IGameHost } from "../../../engine/network/core/IGameHost";
 import {
   assertUnroutedEvent,
+  type DamageEvent,
   type ElectroRailEvent,
   type SnapshotEvent,
   type VoltaicBeamEvent,
@@ -42,6 +43,8 @@ import { getWeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
 import { canonicalWeaponId, WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
 import { toClientKey } from "../ClientEntityKey";
 import type { ServerSnapshot, V2NetworkClient } from "../client";
+import { Crosshair } from "../client/Crosshair";
+import { DamageNumbers } from "../client/DamageNumbers";
 import type { DroppedWeaponInfo, DroppedWeaponRenderer } from "../client/DroppedWeaponRenderer";
 import {
   playDamageConfirmationSound,
@@ -458,21 +461,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
 
           // === OUTGOING DAMAGE: the player on screen is the attacker ===
           if (event.attackerId && event.attackerId === viewEntityId) {
-            playDamageConfirmationSound(event);
-            import("../client/Crosshair").then((m) => m.Crosshair.getInstance().notifyHit());
-            if (event.x !== undefined && event.damage > 0) {
-              import("../client/DamageNumbers").then((m) => {
-                const dn = m.DamageNumbers.getInstance();
-                if (!(dn as any)["scene"]) {
-                  const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
-                  if (gameScene) dn.init(gameScene);
-                }
-                dn.spawn(event.x, event.y, event.z, event.damage);
-              });
-            }
-            if (event.x !== undefined && ctx._cartoonHit) {
-              ctx._cartoonHit.spawn(event.x, event.y, event.z, event.damage);
-            }
+            handleOutgoingDamage(ctx, event);
           }
           break;
         }
@@ -1233,6 +1222,31 @@ function handleChatEvent(event: any): void {
       .catch(() => {});
   } catch (e) {
     console.error("[Chat] event error:", e);
+  }
+}
+
+/**
+ * The player on screen dealt damage: confirm it with a sound, a crosshair flash, a
+ * floating number and the cartoon hit effect.
+ *
+ * Runs for every hit, so it uses the modules this file already imports rather than
+ * loading them on demand: `Crosshair` and `DamageNumbers` are loaded at start-up by
+ * `Game.ts` and `DemoService.ts`, so a dynamic import here split nothing off and only
+ * added a promise per hit.
+ */
+export function handleOutgoingDamage(ctx: GameEventContext, event: DamageEvent): void {
+  playDamageConfirmationSound(event);
+  Crosshair.getInstance().notifyHit();
+  if (event.x !== undefined && event.damage > 0) {
+    const numbers = DamageNumbers.getInstance();
+    // init() does nothing once the numbers have a scene, and spawn() does nothing
+    // until they have one, so there is nothing to check first.
+    const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
+    if (gameScene) numbers.init(gameScene);
+    numbers.spawn(event.x, event.y, event.z, event.damage);
+  }
+  if (event.x !== undefined && ctx._cartoonHit) {
+    ctx._cartoonHit.spawn(event.x, event.y, event.z, event.damage);
   }
 }
 
