@@ -138,6 +138,14 @@ attention:
 | **Death screen** | On death — who fragged you and how, and the respawn countdown |
 | **Match menu** | Escape, mid-match |
 
+## Air Meter
+
+A breath gauge appears only while your head is underwater and disappears the moment you surface. It runs down over the 12 seconds of air you have and switches to an urgent look when less than 30% is left. See [Movement → Water](./movement.md#water-and-other-liquids).
+
+## Damage Direction Arrows
+
+When you are hit, an arrow around the crosshair points toward where the damage came from and fades away on its own.
+
 ## Powerup Timer
 
 When you are carrying a timed powerup, a countdown appears with the remaining
