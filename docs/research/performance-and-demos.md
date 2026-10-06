@@ -263,7 +263,7 @@ Each step is independently useful and should be its own commit.
 
 ### Running things in a cloud session
 
-- Tests and micro benchmarks need the engine's dependencies. A session can probably link this repo into a clone of the engine at `src/games/fps` and install, but this has not been tried.
+- Tests and micro benchmarks need the engine's dependencies. **This works:** clone the engine, `npm install --ignore-scripts`, and copy (not symlink) this repo into `src/games/fps`. The exact steps are in [v0.9.25-QA.md](./v0.9.25-QA.md#running-the-tests). Micro benchmarks written as plain scripts can run the same way with `npx vite-node`.
 - Map data is not available in a cloud session, so W3, W4 and W5 can only be **written** there, not run.
 
 ---
