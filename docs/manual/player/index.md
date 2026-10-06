@@ -8,6 +8,7 @@ How to play. Read in order if you're new to Q3/Warsow-style arena shooters; jump
 | [Weapons](./weapons.md) | Every weapon's damage, fire rate, ammo, splash, niche |
 | [Pickups & Inventory](./pickups-and-inventory.md) | Slot mechanics, swap prompt, ammo + health + armor |
 | [HUD](./hud.md) | Reading the heads-up display |
+| [Damage and Combat Rules](./combat.md) | Hit locations, armor, splash falloff, knockback, self damage |
 | [Settings](./settings.md) | Controls, crosshair, team colours, video presets, audio, and console-only variables |
 
 ## Controls (default)

@@ -140,7 +140,7 @@ Clip sizes in parentheses.
 
 Every weapon with splash applies a server-authoritative impulse to anyone in the radius. The impulse vector is `target_pos - explosion_pos` normalised, scaled by per-weapon `knockbackScale`. The server queues this impulse and applies it *before* the affected entity's next movement tick, so the knockback's direction and magnitude are part of the authoritative simulation — not a client-side bandaid.
 
-Self-knockback uses the same math. Rocket jumps, plasma climbs, grenade jumps — all real, all consistent client-side and server-side.
+Self-knockback uses the same math but is **halved**. See [Damage and Combat Rules](./combat.md). Rocket jumps, plasma climbs, grenade jumps — all real, all consistent client-side and server-side.
 
 ## ADS (Aim-Down-Sights)
 

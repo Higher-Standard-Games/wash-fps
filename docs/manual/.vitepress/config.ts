@@ -47,6 +47,7 @@ export default defineConfig({
             { text: "Overview", link: "/player/" },
             { text: "Movement", link: "/player/movement" },
             { text: "Weapons", link: "/player/weapons" },
+            { text: "Damage & Combat", link: "/player/combat" },
             { text: "Pickups & Inventory", link: "/player/pickups-and-inventory" },
             { text: "HUD", link: "/player/hud" },
             { text: "Settings", link: "/player/settings" },
