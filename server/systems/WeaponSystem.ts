@@ -22,7 +22,7 @@ import { canonicalWeaponId, WEAPONS } from "../../../../shared/entities/definiti
 import type { ProjectileDef } from "../../../../shared/entities/ProjectileDef";
 import type { WeaponDef } from "../../../../shared/entities/WeaponDef";
 import { computeSpreadSeed, generateSpreadDirections } from "../../../../shared/SpreadUtils";
-import { type DamageEvent, DamageType, HitLocation } from "./CombatSystem";
+import { classifyHitLocation, type DamageEvent, DamageType, HitLocation } from "./CombatSystem";
 import type { DroppedWeaponSystem } from "./DroppedWeaponSystem";
 import { caughtInDischarge, dischargeDamageAt, dischargesInWater } from "./ElectricalDischarge";
 import type { ProjectileSystem } from "./ProjectileSystem";
@@ -1270,9 +1270,7 @@ export class WeaponSystem extends Subsystem {
 
       // Hit!
       const yOffset = closestPoint.y - target.transform.position.y;
-      let hitLocation = HitLocation.Body;
-      if (yOffset > 32) hitLocation = HitLocation.Head;
-      else if (yOffset < -20) hitLocation = HitLocation.Legs;
+      const hitLocation = classifyHitLocation(yOffset);
 
       this.pendingDamage.push({
         victimId: target.id,
@@ -1662,9 +1660,7 @@ export class WeaponSystem extends Subsystem {
       const normalLength = Math.sqrt(normalX * normalX + normalY * normalY + normalZ * normalZ) || 1;
       // Hit! Determine location based on Y offset
       const yOffset = closestPoint.y - targetPos.y;
-      let hitLocation = HitLocation.Body;
-      if (yOffset > 32) hitLocation = HitLocation.Head;
-      else if (yOffset < -20) hitLocation = HitLocation.Legs;
+      const hitLocation = classifyHitLocation(yOffset);
 
       best = {
         entryDistance,

@@ -62,6 +62,7 @@ import {
   playPowerupPickupSound,
   playPowerupSpawnSound,
 } from "../client/FPSPowerupAudio";
+import type { HitLocationName } from "../client/HitLocationName";
 import { HUDState } from "../client/HUDState";
 import { clearLocalPowerups, isLocalPowerupActive, setLocalPowerup } from "../client/LocalPowerupState";
 import { MatchStateManager } from "../client/MatchStateManager";
@@ -1226,6 +1227,12 @@ function handleChatEvent(event: any): void {
 }
 
 /**
+ * A damage event with the place the hit landed. The engine's `DamageEvent` type does not name
+ * it yet; the field is optional, and an event without it is a body hit.
+ */
+export type LocatedDamageEvent = DamageEvent & { hitLocation?: HitLocationName };
+
+/**
  * The player on screen dealt damage: confirm it with a sound, a crosshair flash, a
  * floating number and the cartoon hit effect.
  *
@@ -1234,16 +1241,16 @@ function handleChatEvent(event: any): void {
  * `Game.ts` and `DemoService.ts`, so a dynamic import here split nothing off and only
  * added a promise per hit.
  */
-export function handleOutgoingDamage(ctx: GameEventContext, event: DamageEvent): void {
+export function handleOutgoingDamage(ctx: GameEventContext, event: LocatedDamageEvent): void {
   playDamageConfirmationSound(event);
-  Crosshair.getInstance().notifyHit();
+  Crosshair.getInstance().notifyHit(event.hitLocation);
   if (event.x !== undefined && event.damage > 0) {
     const numbers = DamageNumbers.getInstance();
     // init() does nothing once the numbers have a scene, and spawn() does nothing
     // until they have one, so there is nothing to check first.
     const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
     if (gameScene) numbers.init(gameScene);
-    numbers.spawn(event.x, event.y, event.z, event.damage);
+    numbers.spawn(event.x, event.y, event.z, event.damage, event.hitLocation);
   }
   if (event.x !== undefined && ctx._cartoonHit) {
     ctx._cartoonHit.spawn(event.x, event.y, event.z, event.damage);

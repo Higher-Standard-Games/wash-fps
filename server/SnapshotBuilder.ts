@@ -617,6 +617,9 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
       entityId: toClientKey(dmg.victimId),
       attackerId: dmg.attackerId !== undefined ? toClientKey(dmg.attackerId) : "",
       damage: dmg.damage,
+      // Where the hit landed ("body", "head" or "legs"). The wire format carries it once the
+      // engine's damage event does; until then the codec leaves it out and clients assume body.
+      hitLocation: dmg.hitLocation,
       weaponId: dmg.damageType, // Use damageType as weapon identifier for now
       x: dmg.x,
       y: dmg.y,

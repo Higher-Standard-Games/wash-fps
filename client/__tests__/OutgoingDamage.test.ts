@@ -72,7 +72,21 @@ describe("outgoing damage feedback", () => {
     handleOutgoingDamage(ctx(), hit({ x: 10, y: 20, z: 30, damage: 55 }));
 
     expect(init).toHaveBeenCalledWith(scene);
-    expect(spawn).toHaveBeenCalledWith(10, 20, 30, 55);
+    expect(spawn).toHaveBeenCalledWith(10, 20, 30, 55, undefined);
+  });
+
+  it("tells the crosshair and the number where the hit landed", () => {
+    handleOutgoingDamage(ctx(), hit({ hitLocation: "head", x: 1, y: 2, z: 3, damage: 11 }));
+
+    expect(flash).toHaveBeenCalledWith("head");
+    expect(spawn).toHaveBeenCalledWith(1, 2, 3, 11, "head");
+  });
+
+  it("treats an event without a location as a body hit", () => {
+    handleOutgoingDamage(ctx(), hit()); // a server or demo that predates the field
+
+    expect(flash).toHaveBeenCalledWith(undefined);
+    expect(spawn).toHaveBeenCalledWith(1, 2, 3, 40, undefined);
   });
 
   it("shows no number for a hit that did no damage, but still confirms it", () => {

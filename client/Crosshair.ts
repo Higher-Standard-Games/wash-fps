@@ -11,6 +11,7 @@
 
 import { Cvar } from "../../../engine/core/Cvar";
 import type { CrosshairConfig } from "../../../shared/entities/WeaponDef";
+import { type HitLocationName, isHeadHit } from "./HitLocationName";
 
 // ============================================================================
 // Default Crosshair Config (fallback when weapon has no crosshair field)
@@ -43,6 +44,8 @@ export class Crosshair {
   // Damage flash
   private hitFlashUntil: number = 0; // performance.now() timestamp
   private readonly HIT_FLASH_DURATION = 200; // ms
+  /** A head hit holds the flash half as long again, so it reads as a different kind of hit. */
+  private readonly HEAD_HIT_FLASH_DURATION = 300; // ms
 
   static getInstance(): Crosshair {
     if (!Crosshair.instance) {
@@ -121,8 +124,9 @@ export class Crosshair {
   /**
    * Flash the crosshair with damage color. Called when local player deals damage.
    */
-  notifyHit(): void {
-    this.hitFlashUntil = performance.now() + this.HIT_FLASH_DURATION;
+  notifyHit(hitLocation?: HitLocationName): void {
+    const duration = isHeadHit(hitLocation) ? this.HEAD_HIT_FLASH_DURATION : this.HIT_FLASH_DURATION;
+    this.hitFlashUntil = performance.now() + duration;
   }
 
   // ========================================================================

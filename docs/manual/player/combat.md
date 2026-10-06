@@ -4,19 +4,19 @@ How a hit becomes damage, armor loss and a push. These rules are the same for ev
 
 ## Hit locations
 
-Hitscan weapons (Machinegun, Riotgun, Electrobolt, Instagun, Blade) test where on the body the shot lands:
+Hitscan weapons (Machinegun, Riotgun, Voltaic, Electrobolt, Instagun and the Blade) test where on the body the shot lands:
 
 | Location | Where | Damage |
 |----------|-------|-------:|
-| **Head** | Above the middle of the body (more than 32 units above the player's centre) | **×2** |
+| **Head** | The upper part of the body | **+10%** (×1.1) |
 | **Body** | The middle | ×1 |
-| **Legs** | Low on the body (more than 20 units below the centre) | ×0.75 |
+| **Legs** | The lower part of the body | −25% (×0.75) |
 
-::: warning Under review
-Reading the code, the head test may not be reachable for hitscan weapons (it needs a hit more than 32 units above the player's centre, but a hitscan hit must be within 32 units of it). The ×2 below is the rule as written; whether it fires in play is being checked. See `docs/research/v0.9.25-QA.md`, item 5.
-:::
+The head bonus is deliberately small. It rewards good aim and applies the same to every weapon, but it won't decide a fight on its own. The heights are measured from the player's waist: a hit more than 20 units above it is a head hit, and one more than 20 below it is a leg hit.
 
-Each Riotgun pellet is judged on its own, so a point-blank shot can mix locations. Projectile and splash damage always counts as a body hit. Damage is rounded to whole numbers after multipliers.
+A **head hit shows as an orange damage number** (instead of white, or yellow for a big hit) and **holds the crosshair's hit flash about half as long again**, so you can tell you got one.
+
+Each Riotgun pellet is judged on its own, so a point-blank shot can mix locations. Their damage is added up into one number, and if any pellet hit the head, that number is a head hit. Projectile and splash damage always counts as a body hit. Damage is rounded to whole numbers after multipliers, and stacks with Quad Damage.
 
 ## Armor
 

@@ -79,7 +79,7 @@ Per-weapon style. Configurable via cvars:
 | `cg_crosshairSpread` | Spread response (widens with movement / narrows under ADS) |
 | `cg_crosshairDmgColor` | Color flash on confirmed hit (default `FF0000`) |
 
-The crosshair briefly flashes to `cg_crosshairDmgColor` for ~200 ms when your shot deals damage — this is a server-confirmed hit indicator, not a client-side guess.
+The crosshair briefly flashes to `cg_crosshairDmgColor` for ~200 ms when your shot deals damage (~300 ms for a head hit) — this is a server-confirmed hit indicator, not a client-side guess.
 
 ## Chat (bottom-left)
 
@@ -103,7 +103,7 @@ The middle glyph is the weapon used. Some special icons:
 
 ## Damage Numbers (floating)
 
-When you damage someone, a number floats up from their position briefly. Numbers stack (multiple hits add together visually) and turn yellow at 50 damage or more.
+When you damage someone, a number floats up from their position briefly. Numbers stack (multiple hits add together visually) and turn yellow at 50 damage or more. A **head hit** is always orange, whatever its size; see [Damage and Combat Rules](./combat.md#hit-locations).
 
 The damage value shown is the server-authoritative damage your shot dealt — not your client's estimate.
 

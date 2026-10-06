@@ -872,7 +872,7 @@ export class DemoService {
           Number.isFinite(event.z)
         ) {
           playDamageConfirmationSound(event as DamageEvent);
-          this.demoDamageNumbers?.spawn(event.x, event.y, event.z, event.damage);
+          this.demoDamageNumbers?.spawn(event.x, event.y, event.z, event.damage, event.hitLocation);
         }
         if (event.entityId === this._followedEntityId && event.damage > 0) {
           this._addDemoEvent("damage", `-${Math.round(event.damage)}`, 700);

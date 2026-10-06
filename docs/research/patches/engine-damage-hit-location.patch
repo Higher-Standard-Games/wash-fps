@@ -1,0 +1,206 @@
+diff --git a/src/engine/__tests__/DamageHitLocation.test.ts b/src/engine/__tests__/DamageHitLocation.test.ts
+new file mode 100644
+index 0000000..584c91c
+--- /dev/null
++++ b/src/engine/__tests__/DamageHitLocation.test.ts
+@@ -0,0 +1,95 @@
++/**
++ * damage event hit location — binary snapshot round-trip.
++ *
++ * A head or leg hit travels under its own event code (23) with one extra byte; a body hit
++ * keeps the original code and layout, so it costs nothing extra and every demo recorded
++ * before the location existed decodes exactly as it did.
++ */
++
++import { afterEach, describe, expect, it, vi } from "vitest";
++import { GameState } from "../network/core/GameState";
++import { BinaryProtocol } from "../network/protocol/BinaryProtocol";
++
++const damage = (over: Record<string, unknown> = {}) => ({
++  type: "damage",
++  entityId: "player_2",
++  attackerId: "player_1",
++  damage: 44,
++  weaponId: "bullet",
++  x: 1.5,
++  y: -2.25,
++  z: 300,
++  ...over,
++});
++
++function encode(events: Record<string, unknown>[]): Uint8Array {
++  const state = new GameState();
++  state.tick = 77;
++  state.events = events as never;
++  return BinaryProtocol.encodeSnapshot(state);
++}
++
++function roundTrip(events: Record<string, unknown>[]) {
++  return BinaryProtocol.decodeSnapshot(encode(events)).events as Record<string, unknown>[];
++}
++
++const hex = (bytes: Uint8Array) => Buffer.from(bytes).toString("hex");
++
++describe("damage event hit location", () => {
++  afterEach(() => vi.restoreAllMocks());
++
++  it.each(["head", "legs"])("round-trips a %s hit with every other field intact", (hitLocation) => {
++    const [event] = roundTrip([damage({ hitLocation })]);
++
++    expect(event).toMatchObject({
++      type: "damage",
++      entityId: "player_2",
++      attackerId: "player_1",
++      damage: 44,
++      weaponId: "bullet",
++      hitLocation,
++    });
++    expect(event.x).toBeCloseTo(1.5, 5);
++    expect(event.y).toBeCloseTo(-2.25, 5);
++    expect(event.z).toBeCloseTo(300, 5);
++  });
++
++  it("leaves a body hit without a location, which means body", () => {
++    const [event] = roundTrip([damage({ hitLocation: "body" })]);
++    expect(event.type).toBe("damage");
++    expect(event.hitLocation).toBeUndefined();
++  });
++
++  it("sends a body hit in exactly the bytes an event without a location takes", () => {
++    expect(hex(encode([damage({ hitLocation: "body" })]))).toBe(hex(encode([damage()])));
++  });
++
++  it("costs one extra byte for a head or leg hit", () => {
++    expect(encode([damage({ hitLocation: "head" })]).length).toBe(encode([damage()]).length + 1);
++  });
++
++  it("keeps the old layout byte for byte (the format older demos were recorded in)", () => {
++    // Captured from the encoder before hit locations existed, with the clock frozen because
++    // the snapshot header carries a timestamp.
++    vi.spyOn(Date, "now").mockReturnValue(1700000000000);
++    const golden =
++      "4d00000000008056febc7842000000000000000001000a0800706c617965725f320800706c617965725f312c00060062756c6c65740000c03f000010c0000096430000";
++    expect(hex(encode([damage()]))).toBe(golden);
++  });
++
++  it("stays in step with the events around it", () => {
++    // The located event is one byte longer than a plain one, so a reader that got it wrong
++    // would misread everything after it.
++    const events = roundTrip([
++      damage({ entityId: "a", hitLocation: "head" }),
++      damage({ entityId: "b" }),
++      damage({ entityId: "c", hitLocation: "legs" }),
++      { type: "combat_state", entityId: "a", health: 60, armor: 5, dead: false },
++    ]);
++
++    expect(events.map((e) => e.type)).toEqual(["damage", "damage", "damage", "combat_state"]);
++    expect(events.map((e) => e.entityId)).toEqual(["a", "b", "c", "a"]);
++    expect(events.map((e) => e.hitLocation)).toEqual(["head", undefined, "legs", undefined]);
++    expect(events[3]).toMatchObject({ health: 60, armor: 5, dead: false });
++  });
++});
+diff --git a/src/engine/network/core/SnapshotEvent.ts b/src/engine/network/core/SnapshotEvent.ts
+index 622f701..07d7750 100644
+--- a/src/engine/network/core/SnapshotEvent.ts
++++ b/src/engine/network/core/SnapshotEvent.ts
+@@ -147,6 +147,11 @@ export interface DamageEvent {
+   attackerId: string;
+   damage: number;
+   weaponId: string;
++  /**
++   * Where the hit landed. Present only for a head or leg hit: a body hit, an older server and a
++   * demo recorded before this field existed all leave it out, and absent means body.
++   */
++  hitLocation?: "head" | "legs" | "body";
+   x: number;
+   y: number;
+   z: number;
+diff --git a/src/shared/net/BinaryProtocol.ts b/src/shared/net/BinaryProtocol.ts
+index d886bad..7726a49 100644
+--- a/src/shared/net/BinaryProtocol.ts
++++ b/src/shared/net/BinaryProtocol.ts
+@@ -806,8 +806,31 @@ export class BinaryProtocol {
+     "agent_directives",
+     "lift_state",
+     "knockback_state",
++    // 23: a damage event that names where the hit landed. Same logical type as 10; see DAMAGE_LOCATED.
++    "damage",
+   ];
+ 
++  /**
++   * Wire code of a `damage` event that carries a hit location (a head or leg hit).
++   *
++   * A damage event without one keeps its original code, 10, and its original layout, so a
++   * body hit costs nothing extra and every demo recorded before this existed decodes exactly
++   * as it did. Both codes decode to `type: "damage"`; only 23 sets `hitLocation`, and an
++   * event without it is a body hit.
++   */
++  private static readonly DAMAGE_LOCATED = 23;
++
++  /** Wire order of the hit location byte after code 23. Append only: the index is the encoding. */
++  private static readonly HIT_LOCATIONS = ["body", "head", "legs"] as const;
++
++  /** The code an event travels under: its type's code, or 23 for a damage event with a head or leg hit. */
++  private static eventTypeCode(event: GameState["events"][number]): number {
++    if (event.type === "damage" && (event.hitLocation === "head" || event.hitLocation === "legs")) {
++      return BinaryProtocol.DAMAGE_LOCATED;
++    }
++    return BinaryProtocol.EVT_TYPE_MAP[event.type];
++  }
++
+   /** Wire order for LiftState.phase. Append only — the index is the encoding. */
+   private static readonly LIFT_PHASES = ["bottom", "up", "top", "down"] as const;
+ 
+@@ -815,7 +838,7 @@ export class BinaryProtocol {
+     encoder.writeUint16(state.events.length);
+ 
+     for (const event of state.events) {
+-      const typeCode = BinaryProtocol.EVT_TYPE_MAP[event.type];
++      const typeCode = BinaryProtocol.eventTypeCode(event);
+       encoder.writeUint8(typeCode);
+ 
+       switch (typeCode) {
+@@ -920,6 +943,7 @@ export class BinaryProtocol {
+           break;
+ 
+         case 10: // damage: entityId, attackerId, damage, weaponId, xyz
++        case 23: // damage with a hit location: the same fields, then one byte (HIT_LOCATIONS index)
+           encoder.writeString(event.entityId);
+           encoder.writeString(event.attackerId ?? "");
+           encoder.writeUint16(event.damage ?? 0);
+@@ -927,6 +951,9 @@ export class BinaryProtocol {
+           encoder.writeFloat32(event.x ?? 0);
+           encoder.writeFloat32(event.y ?? 0);
+           encoder.writeFloat32(event.z ?? 0);
++          if (typeCode === BinaryProtocol.DAMAGE_LOCATED) {
++            encoder.writeUint8(Math.max(0, BinaryProtocol.HIT_LOCATIONS.indexOf(event.hitLocation)));
++          }
+           break;
+ 
+         case 11: // death: entityId, killerId, weaponId, damageType, finalDamage, xyz, vel xyz, kb dir xyz
+@@ -1152,7 +1179,9 @@ export class BinaryProtocol {
+           break;
+ 
+         case 10: // damage
+-          state.events.push({
++        case 23: {
++          // damage with a hit location (code 23); code 10 has none, which means a body hit
++          const damageEvent: GameState["events"][number] = {
+             type,
+             entityId: decoder.readString(),
+             attackerId: decoder.readString(),
+@@ -1161,8 +1190,13 @@ export class BinaryProtocol {
+             x: decoder.readFloat32(),
+             y: decoder.readFloat32(),
+             z: decoder.readFloat32(),
+-          });
++          };
++          if (typeCode === BinaryProtocol.DAMAGE_LOCATED) {
++            damageEvent.hitLocation = BinaryProtocol.HIT_LOCATIONS[decoder.readUint8()] ?? "body";
++          }
++          state.events.push(damageEvent);
+           break;
++        }
+ 
+         case 11: // death
+           state.events.push({
