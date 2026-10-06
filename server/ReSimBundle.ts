@@ -16,6 +16,7 @@
  */
 
 import { BinaryDecoder, BinaryEncoder } from "../../../engine/network/protocol/BinaryProtocol";
+import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "../../../shared/server/simulation/physics/constants";
 import type { RecordedCmd, ReSimResult, ReSimSpawn } from "./ReSim";
 import { resimulate, type VerifyResult, verifyAgainst } from "./ReSim";
 
@@ -35,7 +36,12 @@ export interface ReSimBundle {
 }
 
 /** Run the oracle to produce a bundle from a recorded run (golden = re-sim output). */
-export function buildBundle(spawns: ReSimSpawn[], log: RecordedCmd[], ticks: number, tickRate = 125): ReSimBundle {
+export function buildBundle(
+  spawns: ReSimSpawn[],
+  log: RecordedCmd[],
+  ticks: number,
+  tickRate = TICK_RATE,
+): ReSimBundle {
   const result: ReSimResult = resimulate(spawns, log, ticks);
   return { tickRate, ticks, spawns, log, golden: result.perTickChecksum };
 }

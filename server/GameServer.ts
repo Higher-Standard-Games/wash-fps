@@ -20,6 +20,7 @@ import type { MatchResultReport } from "@engine/server/network/MatchResultReport
 // Transport
 import type { ClientConnection, Transport, TransportConfig } from "@engine/server/network/transport/WebSocketTransport";
 import { WebSocketServerTransport } from "@engine/server/network/transport/WebSocketTransport";
+import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulation/physics/constants";
 import type { Vec3 } from "@shared/server/simulation/types";
 import { log } from "../../../engine/core/Log";
 import type { BspEntity, BspModel } from "../../../engine/loader/bsp/BspLoader";
@@ -188,6 +189,15 @@ export class GameServer {
   constructor(config: GameServerConfig, gametype?: BaseGametype) {
     this.config = config;
     this.matchAdmission = config.matchAdmission ? new MatchAdmission(config.matchAdmission) : null;
+
+    // The game runs at one fixed tick rate. Gameplay timers, the shared simulation, the
+    // bomb model and lag compensation all count in 125 Hz ticks, so any other rate would
+    // quietly stretch or shrink every delay. Refuse it here rather than run wrong.
+    if (config.tickRate !== TICK_RATE) {
+      throw new Error(
+        `[GameServer] tickRate must be ${TICK_RATE} Hz (got ${config.tickRate}): gameplay timers and the shared simulation assume it`,
+      );
+    }
 
     // One immutable timing contract: tick, snapshot cadence, lifecycle timers.
     // Validates the config up front (rejects unrepresentable rates) and owns

@@ -36,6 +36,7 @@ import type {
   WeaponLoadout,
 } from "@shared/server/gametype";
 import { buildLoadout, DEFAULT_LOADOUT } from "@shared/server/gametype";
+import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulation/physics/constants";
 import type { Vec3 } from "@shared/server/simulation/types";
 import { log } from "../../../../engine/core/Log";
 import { PLAYER_ORIGIN_HEIGHT } from "../../../../engine/physics/PlayerPhysicsConstants";
@@ -132,7 +133,7 @@ const PLANTABLE_NORMAL_Y = 0.9;
 const GROUND_TRACE_DISTANCE = PLAYER_ORIGIN_HEIGHT + 8;
 
 /** Simulation rate, for converting bomb timers to the seconds the HUD wants. */
-const TICKS_PER_SECOND = 125;
+const TICKS_PER_SECOND = TICK_RATE;
 
 /**
  * The two CTF spawn sets, by the team id `SpawnPointTable` maps them to.
@@ -157,7 +158,7 @@ const EXPLOSION_MAX_DELAY = 1.5;
 const EXPLOSION_ORIGIN_LIFT = 96;
 const EXPLOSION_FALLBACK_RADIUS = 300;
 /** Snapshots the schedule keeps being sent for, against a dropped packet. */
-const EXPLOSION_REPEAT_TICKS = 125;
+const EXPLOSION_REPEAT_TICKS = TICKS_PER_SECOND;
 
 // ── Scoring ──────────────────────────────────────────────────────────
 //

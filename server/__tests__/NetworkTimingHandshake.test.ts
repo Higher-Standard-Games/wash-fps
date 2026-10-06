@@ -24,22 +24,38 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/**
+ * A server that announces `tickRate` in its welcome message.
+ *
+ * GameServer itself refuses to be built at any rate but 125 Hz (see FixedTickRate.test.ts),
+ * so a server that announces another rate (an older or modified build) is simulated by
+ * changing only the rate it tells clients about. What is under test here is the
+ * client's refusal, not the server's.
+ */
+function serverAnnouncing(tickRate: number): GameServer {
+  const server = new GameServer(
+    {
+      port: 0,
+      serverName: "timing",
+      mapName: "test",
+      maxClients: 8,
+      tickRate: 125,
+      snapshotRate: 25,
+      certPath: "",
+      keyPath: "",
+    },
+    new Deathmatch(),
+  );
+  // The welcome message reads the rate from the server's config, so changing it after
+  // construction changes only what clients are told.
+  (server as unknown as { config: { tickRate: number } }).config.tickRate = tickRate;
+  return server;
+}
+
 describe("FPS timing contract over a real WebSocket", () => {
-  it.each([60, 125, 250])("accepts only 125Hz from a real %iHz GameServer", async (tickRate) => {
+  it.each([60, 125, 250])("accepts only 125Hz from a server announcing %iHz", async (tickRate) => {
     vi.stubGlobal("WebSocket", WebSocket);
-    const server = new GameServer(
-      {
-        port: 0,
-        serverName: "timing",
-        mapName: "test",
-        maxClients: 8,
-        tickRate,
-        snapshotRate: tickRate === 60 ? 30 : tickRate / 5,
-        certPath: "",
-        keyPath: "",
-      },
-      new Deathmatch(),
-    );
+    const server = serverAnnouncing(tickRate);
     const transport = new WebSocketTransport();
     const host = new NetworkGameHost(
       transport,

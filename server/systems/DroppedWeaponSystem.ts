@@ -14,6 +14,7 @@ import type { SubsystemConfig } from "@engine/server/core/Subsystem";
 import { Subsystem } from "@engine/server/core/Subsystem";
 import type { WorldState } from "@engine/server/core/WorldState";
 import { createDroppedWeaponEntity } from "@engine/server/ecs/Entity";
+import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulation/physics/constants";
 import type { EntityId, TickNumber } from "@shared/server/simulation/types";
 import { entityId } from "@shared/server/simulation/types";
 import type { CollisionWorld } from "../../../../engine/network/systems/collision/CollisionWorld";
@@ -72,7 +73,7 @@ const DESPAWN_TIME = 15;
  * rate — otherwise `1 / CONFIG.tickRate` is Infinity and `DESPAWN_TIME * CONFIG.tickRate`
  * is 0 (weapons get NaN physics and despawn the same tick they drop).
  */
-const BASE_TICK_RATE = 125;
+const BASE_TICK_RATE = TICK_RATE;
 
 /** Offset from player origin Y to estimate the floor Y (Q3: origin is 24 above feet) */
 const PLAYER_ORIGIN_HEIGHT = 24;

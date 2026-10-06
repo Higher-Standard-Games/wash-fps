@@ -20,6 +20,7 @@ import type { TriggerVolume } from "../../../../shared/bsp/TriggerTable";
 import { Contents } from "../../../../shared/collision/CollisionWorld";
 import type { QueuedInput } from "../../../../shared/server/simulation/components/InputComponent";
 import type { PhysicsComponent } from "../../../../shared/server/simulation/components/PhysicsComponent";
+import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "../../../../shared/server/simulation/physics/constants";
 import type { WaterLevel } from "../../liquid/LiquidTypes";
 import { applyKnockbackDrag } from "../../simulation/Knockback";
 import type { AdvancedMovementResult } from "../../simulation/MovementConfig";
@@ -811,7 +812,7 @@ export class FPSMovementSubsystem extends Subsystem {
     // (two writers on shared state), and its only output was commented out.
 
     // ── DIAGNOSTIC: log per-entity physics every 125 ticks (1 second) ──
-    if (tickNum % 125 === 0) {
+    if (tickNum % TICK_RATE === 0) {
       for (const entity of state.entitiesByType(EntityType.Player)) {
         if (!entity.transform || !entity.physics || entity.health?.dead) continue;
         const v = entity.physics.velocity;

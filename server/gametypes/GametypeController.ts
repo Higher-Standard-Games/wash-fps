@@ -23,6 +23,7 @@ import type {
 } from "@shared/server/gametype";
 import { emptyPlayerStats, MatchPhase, normalizeTeamId } from "@shared/server/gametype";
 import { clearPowerups } from "@shared/server/simulation/components/PowerupComponent";
+import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulation/physics/constants";
 import type { Vec3 } from "@shared/server/simulation/types";
 import { log } from "../../../../engine/core/Log";
 import type { BspEntity, BspModel } from "../../../../engine/loader/bsp/BspLoader";
@@ -166,7 +167,7 @@ export class GametypeController {
 
     const protection = this.matchConfig.teamSpawnProtection ?? 0;
     if (protection > 0 && this.gametype.teamBased) {
-      const windowTicks = Math.floor(protection * 125);
+      const windowTicks = Math.floor(protection * TICK_RATE);
       combat.setDamageFilter((event, tick) => this.allowDamage(event, tick, windowTicks));
       console.log(`[GametypeController] Team spawn protection: ${protection}s`);
     }
@@ -586,8 +587,8 @@ export class GametypeController {
 
           // Queue respawn with min/max timers (Warsow-style)
           const config = this.matchConfig;
-          const minDelay = Math.floor(config.respawnDelay * 125);
-          const maxDelay = Math.floor((config.maxRespawnDelay ?? config.respawnDelay * 2) * 125);
+          const minDelay = Math.floor(config.respawnDelay * TICK_RATE);
+          const maxDelay = Math.floor((config.maxRespawnDelay ?? config.respawnDelay * 2) * TICK_RATE);
 
           // Drop all weapons on death
           if (this.weaponSystem) {

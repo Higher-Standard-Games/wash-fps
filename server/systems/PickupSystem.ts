@@ -17,6 +17,7 @@ import type { WorldState } from "@engine/server/core/WorldState";
 import type { EntityId, TickNumber } from "@engine/server/ecs/types";
 import { EntityType } from "@engine/server/ecs/types";
 import type { ItemRespawnMode } from "@shared/server/gametype";
+import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulation/physics/constants";
 // Shared pickup table (client+server agree on ids) + pure grant math.
 import type { PickupEntry, PickupType } from "../../../../shared/bsp/PickupTable";
 import {
@@ -38,8 +39,6 @@ function isDefaultWeapon(w: string): boolean {
 
 /** Must match InputButtons.USE from engine/network/components/InputComponent.ts */
 const USE_BUTTON = 1 << 11;
-
-const TICK_RATE = 125;
 
 /** Default per-type respawn times (seconds). Weapons overridable via setRespawnTime. */
 const DEFAULT_RESPAWN_SECONDS = {

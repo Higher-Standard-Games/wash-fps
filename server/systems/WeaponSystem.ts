@@ -13,6 +13,7 @@ import type { EntityId, TickNumber } from "@engine/server/ecs/types";
 import { EntityType, entityId } from "@engine/server/ecs/types";
 import type { LagCompensation, RewindView } from "@engine/server/lagcomp/LagCompensation";
 import type { WeaponLoadout } from "@shared/server/gametype";
+import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulation/physics/constants";
 import { type CollisionWorld, SHOT_CONTENT_MASK } from "../../../../engine/network/systems/collision/CollisionWorld";
 import { DEFAULT_VIEWHEIGHT } from "../../../../engine/physics/PlayerPhysicsConstants";
 import { rngFrom } from "../../../../shared/DeterministicRng";
@@ -37,7 +38,6 @@ function isDefaultWeapon(weaponId: string): boolean {
 }
 
 /** Server tick rate (Hz). Fire/reload/charge timing is quantized to these ticks. */
-const TICK_RATE = 125;
 
 const PROJECTILE_DEFS: Record<string, ProjectileDef> = {
   [GRENADE.id]: GRENADE,
@@ -925,7 +925,7 @@ export class WeaponSystem extends Subsystem {
               this.queueMeleeDash(entity, weapon);
 
               // Queue delayed melee damage check
-              const delayTicks = Math.ceil((weapon.meleeDamageDelay || 0) * 125);
+              const delayTicks = Math.ceil((weapon.meleeDamageDelay || 0) * TICK_RATE);
               if (delayTicks > 0) {
                 this.pendingMeleeChecks.push({
                   fireTick: tickNum,
@@ -943,8 +943,8 @@ export class WeaponSystem extends Subsystem {
           weaponState.wasFireButtonDown = isFiring;
 
           // --- Alt fire: hold-to-charge projectile ---
-          const chargeMaxTicks = Math.ceil((weapon.chargeTime || 1.0) * 125);
-          const chargeMinTicks = Math.ceil((weapon.chargeMinTime || 0.5) * 125);
+          const chargeMaxTicks = Math.ceil((weapon.chargeTime || 1.0) * TICK_RATE);
+          const chargeMinTicks = Math.ceil((weapon.chargeMinTime || 0.5) * TICK_RATE);
 
           if (isAltFiring) {
             if (!weaponState.wasAltFireDown) {
@@ -1003,7 +1003,7 @@ export class WeaponSystem extends Subsystem {
 
             // If started from hip, enforce ADS transition delay
             if (weaponState.hipfireAdsStartTick > 0) {
-              const adsTimeTicks = Math.ceil((weapon.ads?.time || 0.08) * 125);
+              const adsTimeTicks = Math.ceil((weapon.ads?.time || 0.08) * TICK_RATE);
               if (tickNum - weaponState.hipfireAdsStartTick < adsTimeTicks) {
                 hipfireAllowFire = false; // Still in ADS transition
               }
