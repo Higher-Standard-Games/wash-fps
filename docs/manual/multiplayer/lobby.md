@@ -8,7 +8,7 @@ The gold rail on the left is the whole menu:
 
 | Key | What it opens |
 |-----|---------------|
-| **Play** | The mode stage: Duel, Amphi, FFA, S&D. Pick one and find a room |
+| **Play** | The mode stage: Duel, Amphi, FFA, S&D. Pick one and find a room. FFA rooms hold 8 players, S&D rooms 10 (it starts from 2), Duel and Amphi 2 |
 | **Leaderboard** | Rankings per mode, for the last 30 days or all time |
 | **Demos** | Replays of recorded matches; see [Demos](./demos.md) |
 | **Profile** | Your account and your ranked record |

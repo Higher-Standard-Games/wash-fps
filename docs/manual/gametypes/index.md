@@ -6,7 +6,7 @@ Washiki Washoi ships five gametypes today. All are server-authoritative and conf
 |----------|---------|------------:|-----------:|-------|
 | **[Duel](./duel.md)** | 1 v 1 | none (most frags wins) | 10 min | Challengers queue for the second seat; overtime extends by a minute on a draw |
 | **[Amphi](./amphi.md)** | 1 v 1 | Best of 3 rounds | 3 min per round | Timed respawns; most frags in the round wins |
-| **[Deathmatch](./deathmatch.md)** (FFA) | up to 16 | 20 frags | 10 min | Classic free-for-all |
+| **[Deathmatch](./deathmatch.md)** (FFA) | up to 16 (8 in a lobby room) | 20 frags | 10 min | Classic free-for-all |
 | **[Team Deathmatch](./team-deathmatch.md)** | up to 16, two teams | 50 frags total | 15 min | Udon vs Soba; friendly fire always on |
 | **[Search & Destroy](./search-and-destroy.md)** | up to 10, two teams | 10 rounds (2-round lead) | 90 s per round | Bomb/defuse, no respawns in a round, loadouts, `wbomb*` maps only |
 
@@ -14,7 +14,7 @@ CTF and other team modes are tracked in [introduction → what's coming](../intr
 
 ## Selecting a Gametype
 
-Players don't pick gametypes directly — the lobby's matchmaker offers ready matches and you queue for one. For developer flows, the engine's `map <name> [gametype]` command accepts a gametype keyword:
+Players pick a mode on the lobby's Play stage — **Duel, Amphi, FFA or S&D** — and take a room for it. Team Deathmatch is not offered there yet. For developer flows and dedicated servers, the engine's `map <name> [gametype]` command accepts a gametype keyword:
 
 ```
 map wdm2 duel

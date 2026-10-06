@@ -2,6 +2,10 @@
 
 Two teams, **Udon** and **Soba**. Every frag adds to your team's total.
 
+::: warning Not in the lobby yet
+The lobby's Play stage offers Duel, Amphi, FFA and S&D only. Team Deathmatch is reached with `map <name> tdm` from the console or a dedicated server started with `--gametype tdm`.
+:::
+
 ## Rules
 
 | Rule | Default |

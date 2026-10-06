@@ -90,6 +90,7 @@ export default defineConfig({
           items: [
             { text: "Overview", link: "/tools/" },
             { text: "Bot Intelligence Server", link: "/tools/bot-server" },
+            { text: "Bot Training", link: "/tools/bot-training" },
             { text: "Demo Cinematic", link: "/tools/demo-cinematic" },
           ],
         },
