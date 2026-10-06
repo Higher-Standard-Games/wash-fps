@@ -35,7 +35,7 @@ Vertical list of weapon slots, 1 through 9. Each slot shows:
 - Ammo count below the tag (or `∞` for the Blade).
 - Greyed out if you don't own the weapon.
 
-Press the slot number (1–9) to switch, or scroll wheel to cycle through owned weapons, or Q to quick-switch to your previous weapon.
+Press the slot number (1–9) to switch, or scroll wheel to cycle through owned weapons. **Q** is a second key for slot 1, so it always pulls out the Blade.
 
 ## Combat State (bottom-left)
 
@@ -132,7 +132,7 @@ attention:
 | **Gametype badge** | The mode you are in |
 | **Scoreboard** | Held **Tab**, and automatically at match end |
 | **Frag counter / frag message** | Your score, and **FRAGGED** with the name, above the crosshair, when you take one |
-| **Ready bar** | Warmup — who is ready, and how many are still needed |
+| **Ready bar** | Warmup — who is ready, and how many are still needed. **F4** readies you up |
 | **Phase message** | Warmup, countdown, round start, round result, match end |
 | **Round result** | End-of-round banner in the round-based modes |
 | **Death screen** | On death — who fragged you and how, and the respawn countdown |
@@ -182,7 +182,7 @@ its keys are:
   bigger side puts you on the smaller one.
 - **Settings** — the settings screen below.
 - **Spectate** — give up your spot and watch.
-- **Leave match** — back to the lobby.
+- **Leave match** — back to the lobby. When you started the match as a playtest from the map editor, this key reads **Return to Editor** instead and takes you back to your map.
 
 The first key is inked, as the lobby inks the page you are on: Resume while you
 play, Join while you watch. While the menu is up, **Tab** moves through its keys
