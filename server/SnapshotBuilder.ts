@@ -8,7 +8,7 @@
  */
 
 import type { Simulation } from "@engine/server/core/Simulation";
-import type { PlayerId } from "@engine/server/ecs/types";
+import type { EntityId, PlayerId } from "@engine/server/ecs/types";
 import { EntityType } from "@engine/server/ecs/types";
 import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulation/physics/constants";
 import { Entity } from "../../../engine/network/core/Entity";
@@ -121,6 +121,12 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
     if (client.playerId !== undefined) {
       clientByPlayerId.set(client.playerId, client);
     }
+  }
+
+  // Forget projectiles that no longer exist. Entity ids are never reused, so an id
+  // that is gone is gone for good; keeping it would grow this set for the whole match.
+  for (const id of ctx.knownProjectileIds) {
+    if (!state.getEntity(id as EntityId)) ctx.knownProjectileIds.delete(id);
   }
 
   // Convert entities (including projectiles — Q3-style server-rendered)

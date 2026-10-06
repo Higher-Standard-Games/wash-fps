@@ -825,14 +825,6 @@ export class GameServer {
     // 0. Reset anti-warp per-tick counters
     this.movementValidator.onTick();
 
-    // 0.5. Cache entity positions for weapon drop spawning
-    const preTickState = this.simulation.getState();
-    for (const entity of preTickState.allEntities()) {
-      if (entity.transform && entity.ownerId !== undefined) {
-        this.weaponSystem.cacheEntityPosition(entity.id, entity.transform.position);
-      }
-    }
-
     // 0.7. Post-game input freeze — zero movement/actions (keep look) while the
     // scoreboard screen is up, so the fight visibly ends when the match does.
     this.gametypeController.applyPostGameInputFreeze(this.simulation.getStateMut());

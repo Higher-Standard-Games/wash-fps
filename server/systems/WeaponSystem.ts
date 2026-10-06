@@ -211,7 +211,6 @@ export class WeaponSystem extends Subsystem {
   selfDamageMultiplier: number = 1.0;
   private movementSubsystem: import("./FPSMovementSubsystem").FPSMovementSubsystem | null = null;
   /** Pending drop positions — set by GameServer before tick when a swap happens */
-  private entityPositions: Map<EntityId, { x: number; y: number; z: number }> = new Map();
   /** Per-entity shot counter for deterministic pellet spread seeds */
   private shotCounts: Map<EntityId, number> = new Map();
   /** Delayed melee damage checks — fires visual immediately, checks damage later */
@@ -298,7 +297,6 @@ export class WeaponSystem extends Subsystem {
     this.pendingVoltaicBeamEvents = [];
     this.pendingElectroRailEvents = [];
     this.pendingMeleeChecks = [];
-    this.entityPositions.clear();
     this.accuracy.clear();
     this.shotCounts.clear();
   }
@@ -396,13 +394,6 @@ export class WeaponSystem extends Subsystem {
       y: pos.y + DEFAULT_VIEWHEIGHT + (shooter.physics?.crouchViewOffset ?? 0),
       z: pos.z,
     };
-  }
-
-  /**
-   * Cache entity position (called by GameServer before tick for drop spawning)
-   */
-  cacheEntityPosition(eId: EntityId, pos: { x: number; y: number; z: number }): void {
-    this.entityPositions.set(eId, pos);
   }
 
   private reloadModel(weapon: WeaponDef): "clip" | "pool" | "none" {
@@ -573,9 +564,15 @@ export class WeaponSystem extends Subsystem {
    *   - Default weapon (blade) is permanent (slot 0), never dropped
    *   - Players can carry default + 2 picked-up weapons
    *   - If at capacity, drop current weapon; if holding default, drop first non-default
+   * `position` is where a swapped-out weapon lands. Without it the swap still happens
+   * but the old weapon is not dropped into the world.
    * @returns { added: true, dropped?: weaponId } or { added: false } if already owned
    */
-  addWeapon(entityId: EntityId, weaponId: string): { added: boolean; dropped?: string } {
+  addWeapon(
+    entityId: EntityId,
+    weaponId: string,
+    position?: Readonly<{ x: number; y: number; z: number }>,
+  ): { added: boolean; dropped?: string } {
     const state = this.weaponStates.get(entityId);
     if (!state) return { added: false };
     weaponId = canonicalWeaponId(weaponId);
@@ -640,7 +637,7 @@ export class WeaponSystem extends Subsystem {
     const weaponDef = WEAPONS[droppedWeapon];
     const playerAmmo = this.ammoTotal(state.ammo.get(droppedWeapon));
     const droppedAmmo = weaponDef ? Math.min(playerAmmo, weaponDef.pickupAmmo ?? weaponDef.maxAmmo) : playerAmmo;
-    const pos = this.entityPositions.get(entityId);
+    const pos = position;
     if (this.droppedWeaponSystem && pos) {
       // Deterministic toss, seeded from tick+entity so demo re-sim reproduces it (R3).
       const rng = rngFrom(this.currentTick, entityId as number, 1);
@@ -713,12 +710,11 @@ export class WeaponSystem extends Subsystem {
    * Drop all non-default weapons (on death).
    * Queues drop requests and strips weapons from inventory.
    */
-  dropAllWeapons(eId: EntityId): void {
+  dropAllWeapons(eId: EntityId, pos: Readonly<{ x: number; y: number; z: number }>): void {
     const state = this.weaponStates.get(eId);
     if (!state) return;
 
-    const pos = this.entityPositions.get(eId);
-    if (!pos || !this.droppedWeaponSystem) return;
+    if (!this.droppedWeaponSystem) return;
 
     const toDrop = state.weapons.filter((w) => !isDefaultWeapon(w));
     for (let i = 0; i < toDrop.length; i++) {

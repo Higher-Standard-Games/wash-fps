@@ -447,7 +447,7 @@ export class PickupSystem extends Subsystem {
         if (!hasRoom && !alreadyHasWeapon && !useJustPressed) continue;
 
         // Try to add weapon to player's inventory
-        const result = this.weaponSystem.addWeapon(player.id, pickup.kind);
+        const result = this.weaponSystem.addWeapon(player.id, pickup.kind, player.transform.position);
 
         // addWeapon returns added=false for BOTH "already owned (ammo given)" AND "can't swap (holding default weapon)"
         // Only consume pickup if weapon was added or ammo was given (player already had it)
@@ -512,7 +512,7 @@ export class PickupSystem extends Subsystem {
 
           // Add weapon to player's inventory
           const alreadyHadWeapon = this.weaponSystem.getWeapons(player.id).includes(meta.weaponId);
-          const result = this.weaponSystem.addWeapon(player.id, meta.weaponId);
+          const result = this.weaponSystem.addWeapon(player.id, meta.weaponId, player.transform.position);
 
           // Set correct ammo from dropped weapon:
           // - New weapon: override addWeapon's default ammo with exact meta.ammo

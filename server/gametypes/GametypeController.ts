@@ -591,7 +591,7 @@ export class GametypeController {
 
           // Drop all weapons on death
           if (this.weaponSystem) {
-            this.weaponSystem.dropAllWeapons(kill.victimId);
+            this.weaponSystem.dropAllWeapons(kill.victimId, { x: kill.victimX, y: kill.victimY, z: kill.victimZ });
           }
 
           this.respawnQueue.push({
