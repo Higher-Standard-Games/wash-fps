@@ -49,6 +49,7 @@ export default defineConfig({
             { text: "Weapons", link: "/player/weapons" },
             { text: "Pickups & Inventory", link: "/player/pickups-and-inventory" },
             { text: "HUD", link: "/player/hud" },
+            { text: "Settings", link: "/player/settings" },
           ],
         },
         {

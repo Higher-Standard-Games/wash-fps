@@ -138,6 +138,19 @@ attention:
 | **Death screen** | On death — who fragged you and how, and the respawn countdown |
 | **Match menu** | Escape, mid-match |
 
+## Awards and Streaks
+
+The server tracks a **kill streak** for every player: kills since you last died, which a death resets to zero. Awards are announced when you reach them:
+
+| Award | When |
+|-------|------|
+| **First blood** | The first kill of the match |
+| **On fire** | 5 kills in a row |
+| **Raging** | 10 in a row |
+| **Unstoppable** | 20 in a row |
+
+Only the highest new award is announced for a kill, and each is given once per streak. **You** get a banner for your own awards. Everyone sees a line in the event feed when anyone earns one, so you know when someone is on a run. Ordinary frags don't make a banner (you get the **FRAGGED** message instead). Awards are recorded in demos, shown in the replay's event list, and the [cinematic reel](../tools/demo-cinematic.md) scores them.
+
 ## Air Meter
 
 A breath gauge appears only while your head is underwater and disappears the moment you surface. It runs down over the 12 seconds of air you have and switches to an urgent look when less than 30% is left. See [Movement → Water](./movement.md#water-and-other-liquids).

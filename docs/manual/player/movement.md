@@ -7,7 +7,7 @@ Q3-style core with Warsow extensions. All defaults below come from `simulation/M
 | Value | Default | Notes |
 |-------|---------|-------|
 | Max ground speed | 280 u/s | `maxSpeed`; the soft cap, before air-strafe gains |
-| Sprint / run speed | 400 u/s | `runSpeed`; held Shift |
+| Run speed | 400 u/s | `runSpeed`; only moving **straight forward** (strafing, backpedalling and diagonals use the 280 walking speed), and not while firing, aiming or crouching. With **Always run** on (the default) you run without holding anything and **Shift walks** instead |
 | Ground acceleration | 10 | `groundAcceleration` |
 | Air acceleration | 1 | `airAcceleration`; this is what makes air strafing work |
 | Max added air speed per tick | 30 u/s | `maxAirSpeed`; the per-tick cap |
@@ -70,7 +70,7 @@ Practical: jump or fall toward a ledge with a grabable lip. The game grabs autom
 
 ## Crouchslide
 
-Sprint into a crouch to slide along the ground with a temporary speed bonus.
+Run into a crouch to slide along the ground with a temporary speed bonus.
 
 | Value | Default | Notes |
 |-------|---------|-------|
@@ -82,7 +82,7 @@ Sprint into a crouch to slide along the ground with a temporary speed bonus.
 | Friction while sliding | 0.1 | `slideFriction`; much lower than normal ground friction |
 | Cooldown between slides | 1.5 s | `slideCooldown` |
 
-Practical: build speed (run + strafe jumps), tap **Ctrl** while at full sprint to enter slide, then either ride it out for the speed boost or jump out to chain into more strafe gains. The camera tilts in the slide direction. Standing up from a slide/crouch is a **deliberate ~260 ms rise** (crouching down is snappier at ~140 ms) — both are sim-clock anchored, so they never "flick" during reconciliation.
+Practical: build speed (run + strafe jumps), tap **Ctrl** while at full run to enter slide, then either ride it out for the speed boost or jump out to chain into more strafe gains. The camera tilts in the slide direction. Standing up from a slide/crouch is a **deliberate ~260 ms rise** (crouching down is snappier at ~140 ms) — both are sim-clock anchored, so they never "flick" during reconciliation.
 
 ## Teleporters
 

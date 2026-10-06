@@ -8,6 +8,7 @@ How to play. Read in order if you're new to Q3/Warsow-style arena shooters; jump
 | [Weapons](./weapons.md) | Every weapon's damage, fire rate, ammo, splash, niche |
 | [Pickups & Inventory](./pickups-and-inventory.md) | Slot mechanics, swap prompt, ammo + health + armor |
 | [HUD](./hud.md) | Reading the heads-up display |
+| [Settings](./settings.md) | Controls, crosshair, team colours, video presets, audio, and console-only variables |
 
 ## Controls (default)
 
@@ -16,8 +17,8 @@ How to play. Read in order if you're new to Q3/Warsow-style arena shooters; jump
 | W / A / S / D | Move |
 | Mouse | Aim |
 | Space | Jump (hold for bunny hop); fly up while spectating |
-| Ctrl / C / Mouse 3 | Crouch (crouch while sprinting fast = slide) |
-| Shift | Run / sprint; fly down while spectating |
+| Ctrl / C / Mouse 3 | Crouch (crouch while running fast = slide) |
+| Shift | Walk (with **Always run** on, the default) or run (off); fly down while spectating |
 | Mouse 1 | Primary fire |
 | Mouse 2 | Aim-down-sights (where supported) |
 | 1–9 | Switch weapon slot |
@@ -31,7 +32,7 @@ How to play. Read in order if you're new to Q3/Warsow-style arena shooters; jump
 | J | Join game (while spectating) |
 | ` (backquote) | Open console |
 
-All keys are rebindable in **Settings → Controls** (lobby UI) or via the engine's `bind` command.
+All keys are rebindable in **Settings → Controls** (lobby UI) or via the engine's `bind` command. See [Settings](./settings.md).
 
 ## A note on physics
 
