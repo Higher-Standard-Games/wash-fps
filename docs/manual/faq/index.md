@@ -33,13 +33,23 @@ You can't, and you shouldn't. Dev-spawn is a developer affordance, not a public 
 
 ## "Bots are too easy / too hard."
 
-Difficulty is tunable via `BotConfig.ts`. For runtime override:
+When you add a bot from a lobby room, the protocol takes `easy`, `medium` (the default), `hard` or `insane`; the room's key asks for the default. Presets live in `BotConfig.ts` in the engine repo, and the [Bot Server](../tools/bot-server.md#difficulty-tiers) page lists what each tier changes. The dedicated server's `spawn_bots` command makes simple bots with no tiers; see [Server Commands](../developer/server-commands.md).
 
-```
-bot difficulty <easy|medium|hard|insane>
-```
+## "Why can't I join the match I clicked?"
 
-(See [Server Commands](../developer/server-commands.md) — stub for now; commands documented in `src/bot/BotServer.ts`.)
+A match under way takes players only while it has room. Otherwise you watch, and **J** asks for a seat if one frees up. Duel keeps a challengers queue. In a round mode you join dead and play from the next round. See [Connecting](../multiplayer/connecting.md#joining-a-match-under-way).
+
+## "I lost my account / I'm on a new computer."
+
+Use your account **key**: choose **Use my key** on the welcome screen, or **Profile** in the lobby, and enter it. The lobby only sees your key when you log in, so it can't recover a lost one. Save it from Profile (**Copy key** or **Save as file**) while you still have it. See [Lobby, Rooms and Accounts](../multiplayer/lobby.md#accounts).
+
+## "I dropped mid-match. Can I get back in?"
+
+Yes, within 20 seconds. Your seat is held and your client is given a resume token, so reconnecting puts you back in the same seat. After that the seat is released.
+
+## "Why didn't my match show on the leaderboard?"
+
+Only ranked matches count: a 1v1 needs two people and no bots; other modes need more than half the players to be people (and one on each team in a team mode). See [Ranked matches](../multiplayer/lobby.md#ranked-matches).
 
 ## "My recorded demo won't play back."
 
@@ -48,9 +58,6 @@ Likely causes:
 - The demo was recorded on a different protocol version than your current client. The protocol is documented in the engine's Networking Guide (`docs/manual/guides/networking.md` in the engine repo); demo back-compat is governed by `protocolVersion` in the demo header.
 - The map referenced in the demo isn't installed locally — put the PK3 in `public/data/`.
 
-## TODO
+## "Where is the map editor documented?"
 
-- More questions as they come up
-- Common shader / texture issues with custom maps
-- Capacitor / Electron build gotchas
-- Performance tuning checklist
+The map editor (SHAGGED) belongs to the engine, so its documentation is in the engine repo, not in this manual. When you start a match from the editor as a playtest, the match menu's **Leave match** key reads **Return to Editor** and takes you back to your map.

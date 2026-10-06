@@ -54,7 +54,7 @@ For the developer flow with a one-keystroke server-backed map launch:
 # In a separate terminal
 npm run lobby:server
 
-# Then in the browser console (`~` or `F1`):
+# Then in the in-game console (press the backquote key):
 map wdm2 duel
 ```
 
@@ -68,15 +68,17 @@ The engine ships a headless dedicated server that runs this game's `GameServer` 
 npm run net:server -- --map wdm2 --port 7777 --gametype duel
 ```
 
-Available flags:
+Common flags (the full list, including `--name`, `--tickrate`, `--snapshotrate`, `--single-match` and TLS options, is in [Server Commands](../developer/server-commands.md#server-launch-options)):
 
 | Flag | Default | Notes |
 |------|---------|-------|
 | `--map` | `wdm7` | Map name (must exist in `public/data/`) |
 | `--port` | `7777` | WebSocket port |
-| `--gametype` | `deathmatch` | `duel`, `deathmatch`, `tdm` |
+| `--gametype` | `Deathmatch` | `Deathmatch`, `TeamDeathmatch` (`tdm`), `Duel` (`1v1`), `Amphi`, `SnD` (`bomb`) |
 | `--max` | `16` | Max clients |
 | `--shutdown` | off | Auto-exit when all clients disconnect |
+
+Type `spawn_bots 4` in the server's terminal to add four simple bots.
 
 Connect to it from the in-game console:
 
