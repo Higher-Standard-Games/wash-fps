@@ -85,7 +85,8 @@ export class FPSHud {
   // Phase 4: Dialogs & Menus
   private _pauseMenu: FPSPauseMenu | null = null;
   private _settings: FPSSettingsOverlay | null = null;
-  private _pointerLockHandler: (() => void) | null = null;
+  /** Aborted by destroy(), so document listeners never outlive this HUD (and keep it alive). */
+  private _listeners: AbortController | null = null;
   private _chatKeyHandler: ((e: KeyboardEvent) => void) | null = null;
   /** Single-match post-game: timer for the ~6s "open up" beat (mouse+chat+return). */
   private _openUpTimer: number | null = null;
@@ -277,16 +278,21 @@ export class FPSHud {
     });
 
     // 7. Listen for pointer lock changes (ESC releases pointer lock -> show pause menu)
-    this._pointerLockHandler = () => {
-      if (!document.pointerLockElement) {
-        // Pointer lock was lost (ESC pressed) — show the match menu
-        this.showMatchMenu();
-      } else {
-        // Pointer lock was acquired — close pause menu
-        this._pauseMenu?.close();
-      }
-    };
-    document.addEventListener("pointerlockchange", this._pointerLockHandler);
+    this._listeners?.abort();
+    this._listeners = new AbortController();
+    document.addEventListener(
+      "pointerlockchange",
+      () => {
+        if (!document.pointerLockElement) {
+          // Pointer lock was lost (ESC pressed) — show the match menu
+          this.showMatchMenu();
+        } else {
+          // Pointer lock was acquired — close pause menu
+          this._pauseMenu?.close();
+        }
+      },
+      { signal: this._listeners.signal },
+    );
 
     console.log(`[FPSHud] Initialized with ${this.widgets.size} widgets + overlays + dialogs`);
   }
@@ -616,6 +622,9 @@ export class FPSHud {
    */
   public destroy(): void {
     this.stop();
+
+    this._listeners?.abort();
+    this._listeners = null;
 
     if (this._chatKeyHandler) {
       document.removeEventListener("keydown", this._chatKeyHandler, true);

@@ -37,6 +37,9 @@ export class Crosshair {
 
   // State
 
+  /** Aborted by dispose(), so the document listener below never outlives this overlay. */
+  private listeners: AbortController | null = null;
+
   // Damage flash
   private hitFlashUntil: number = 0; // performance.now() timestamp
   private readonly HIT_FLASH_DURATION = 200; // ms
@@ -84,17 +87,24 @@ export class Crosshair {
     document.body.appendChild(this.container);
 
     // Hide crosshair when pointer lock is lost (pause menu / ESC)
-    document.addEventListener("pointerlockchange", () => {
-      if (!document.pointerLockElement && this.container) {
-        this.container.style.display = "none";
-      }
-    });
+    this.listeners = new AbortController();
+    document.addEventListener(
+      "pointerlockchange",
+      () => {
+        if (!document.pointerLockElement && this.container) {
+          this.container.style.display = "none";
+        }
+      },
+      { signal: this.listeners.signal },
+    );
   }
 
   /**
    * Remove DOM. Call when leaving game.
    */
   dispose(): void {
+    this.listeners?.abort();
+    this.listeners = null;
     if (this.container) {
       this.container.remove();
       this.container = null;
