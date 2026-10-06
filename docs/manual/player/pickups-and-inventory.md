@@ -26,7 +26,7 @@ The total ammo pool is shared across weapons of the same ammo type. Ammo pickups
 |------|--------|----------|
 | **Weapon** | Adds the weapon to your inventory if you have room; otherwise prompts you to swap. | `weapon_rocketlauncher`, `weapon_riotgun` |
 | **Ammo** | Adds to your ammo pool. Auto-pickup on touch. | `ammo_rockets`, `ammo_shells` |
-| **Health** | Restores HP (see below). | `item_health_small/large/mega/ultra` |
+| **Health** | Restores HP (see below). | `item_health_small/medium/large/mega/ultra` |
 | **Armor** | Adds armor plates (see below). | `item_armor_shard/ga/ya/ra` |
 
 ### Armor — plate model
@@ -44,7 +44,8 @@ Armor is **one 0–100 pool** presented as **four plates × 25** (Call-of-Duty s
 
 | Pickup | Classname | Effect |
 |--------|-----------|--------|
-| Small | `item_health_small` | +25, capped at 100 |
+| Small | `item_health_small` | +5, capped at 100 (does not overheal) |
+| Medium | `item_health_medium` (or bare `item_health`) | +25, capped at 100 |
 | Large | `item_health_large` | +50, capped at 100 |
 | Mega / Ultra | `item_health_mega` / `_ultra` | +100 **overhealing to 200**, then decaying 1 HP/s back toward 100 |
 
@@ -67,7 +68,25 @@ When a player dies, their non-Blade weapons drop as physical entities with Havok
 
 ## Pickup Respawn
 
-Map-spawned pickups respawn on a per-type timer: **weapons 30s, ammo 15s, armor 25s, health 20s, mega health 60s.** Armor and mega/ultra health are also **absent for the first 15s of a match** so nobody grabs a power item off spawn. Dropped weapons do **not** respawn — they're one-and-done.
+Map-spawned pickups respawn on a per-type timer set by the gametype. Duel, Deathmatch, Team Deathmatch and Amphi use the same values; Search & Destroy is faster:
+
+| Pickup | Duel / DM / TDM / Amphi | Search & Destroy |
+|--------|------------------------:|-----------------:|
+| Weapons | 30 s | 20 s |
+| Ammo | 15 s | 15 s |
+| Armor | 25 s | 20 s |
+| Health | 20 s | 15 s |
+| Mega health | 60 s | 40 s |
+
+Armor and mega/ultra health are also **absent for the first 15s of a match** so nobody grabs a power item off spawn. Dropped weapons do **not** respawn — they're one-and-done.
+
+A gametype can also change *when* items return (`respawnMode`):
+
+- **timed** — after the timer above. This is the default and is what every mode except Search & Destroy uses.
+- **round** — not until the next round. Search & Destroy works this way: one Red Armor per round, and whoever takes it keeps it.
+- **alternating** — not until the round *after* next. Experimental; no shipped mode uses it.
+
+Search & Destroy also leaves the Quad Damage out of the map entirely.
 
 ## Powerups
 
