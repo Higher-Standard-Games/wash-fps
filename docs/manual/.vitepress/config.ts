@@ -31,7 +31,10 @@ export default defineConfig({
       "/": [
         {
           text: "Introduction",
-          items: [{ text: "What is Washiki Washoi?", link: "/introduction/" }],
+          items: [
+            { text: "What is Washiki Washoi?", link: "/introduction/" },
+            { text: "Glossary", link: "/introduction/glossary" },
+          ],
         },
         {
           text: "Getting Started",
@@ -63,6 +66,7 @@ export default defineConfig({
             { text: "Deathmatch", link: "/gametypes/deathmatch" },
             { text: "Team Deathmatch", link: "/gametypes/team-deathmatch" },
             { text: "Search & Destroy", link: "/gametypes/search-and-destroy" },
+            { text: "Maps", link: "/gametypes/maps" },
           ],
         },
         {

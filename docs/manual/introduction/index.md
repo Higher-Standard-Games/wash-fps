@@ -40,6 +40,8 @@
 
 ## Next
 
+- [Glossary](./glossary.md) — the terms this manual uses
+
 - [Getting Started](../getting-started/) — set the game up and run it
 - [Player Manual](../player/) — controls, movement, weapons
 - [Developer](../developer/) — architecture, extending the game

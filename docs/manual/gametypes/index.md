@@ -12,6 +12,8 @@ Washiki Washoi ships five gametypes today. All are server-authoritative and conf
 
 CTF and other team modes are tracked in [introduction → what's coming](../introduction/index.md#whats-coming).
 
+See [Maps](./maps.md) for which maps each mode plays.
+
 ## Selecting a Gametype
 
 Players pick a mode on the lobby's Play stage — **Duel, Amphi, FFA or S&D** — and take a room for it. Team Deathmatch is not offered there yet. For developer flows and dedicated servers, the engine's `map <name> [gametype]` command accepts a gametype keyword:
