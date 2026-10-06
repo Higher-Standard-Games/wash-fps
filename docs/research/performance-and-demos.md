@@ -194,7 +194,7 @@ The engine has no `vitest bench` setup. Options: add `vitest bench` there (`*.be
 | **HUD update cost** | `performance.measure` around `FPSHud.update` (`FPSHud.ts:529`) |
 | **JS heap** | `performance.memory.usedJSHeapSize` (Chromium only), sampled every second |
 | **Listener count** | Chromium DevTools protocol `Memory.getDOMCounters` (`jsEventListeners`), sampled before and after joining a second match; proves QA item 3 |
-| **Draw calls and scene size** | `engine.getInstancesCount()` and `scene.getActiveMeshes().length` (Babylon); useful context, not a target |
+| **Draw calls and scene size** | `scene.getActiveMeshes().length` and `engine.getFps()` (Babylon); useful context, not a target |
 
 **Caveat:** headless Chromium renders with a software GPU, so absolute frame rates and anything GPU-bound mean nothing. Compare **JavaScript-side** numbers only, and only against runs on the same machine.
 
