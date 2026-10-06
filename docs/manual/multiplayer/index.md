@@ -4,7 +4,8 @@ How matches happen.
 
 | Page | Covers |
 |------|--------|
-| [Connecting](./connecting.md) | `connect` / `disconnect` console, lobby UI flow, NetGraph |
+| [Lobby, Rooms and Accounts](./lobby.md) | The lobby screen, accounts and keys, rooms, ranked matches, leaderboard, profile |
+| [Connecting](./connecting.md) | `connect` / `disconnect` console, lobby UI flow, joining a match under way, reconnecting, NetGraph |
 | [In-Game Chat](./chat.md) | **T** to talk, history dialog, chat in demos |
 | [Demos](./demos.md) | Server-side recording, demo list, playback (normal + cinematic) |
 

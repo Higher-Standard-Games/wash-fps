@@ -68,6 +68,7 @@ export default defineConfig({
           collapsed: false,
           items: [
             { text: "Overview", link: "/multiplayer/" },
+            { text: "Lobby, Rooms & Accounts", link: "/multiplayer/lobby" },
             { text: "Connecting", link: "/multiplayer/connecting" },
             { text: "In-Game Chat", link: "/multiplayer/chat" },
             { text: "Demos", link: "/multiplayer/demos" },

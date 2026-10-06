@@ -135,7 +135,7 @@ Air refills as soon as your head is clear. Water also has splash effects and sou
 
 ## Lifts, Doors and Movers
 
-Moving brush models (`func_plat`, doors and similar) are simulated on the server, predicted on the client and rewound for hit registration, so standing on an elevator feels the same online as offline.
+Moving brush models (`func_plat`, doors and similar) are simulated on the server, predicted on the client, so standing on an elevator feels the same online as offline.
 
 - **You ride them.** Players, corpses and dropped weapons all travel with the floor.
 - **Crushing.** A mover that is blocked by a player damages them (20 hits per second, using the mover's own `dmg` value; 0 disables it). Most movers reverse when blocked; ones with the **crusher** flag keep pushing. Crush damage counts as world damage, like drowning, and is never credited to another player.
