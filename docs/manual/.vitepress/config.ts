@@ -41,6 +41,7 @@ export default defineConfig({
           items: [
             { text: "Setup & First Run", link: "/getting-started/" },
             { text: "Project Structure", link: "/getting-started/project-structure" },
+            { text: "Troubleshooting Setup", link: "/getting-started/troubleshooting" },
           ],
         },
         {
@@ -48,11 +49,13 @@ export default defineConfig({
           collapsed: false,
           items: [
             { text: "Overview", link: "/player/" },
+            { text: "Your First Match", link: "/player/first-match" },
             { text: "Movement", link: "/player/movement" },
             { text: "Weapons", link: "/player/weapons" },
             { text: "Damage & Combat", link: "/player/combat" },
             { text: "Pickups & Inventory", link: "/player/pickups-and-inventory" },
             { text: "HUD", link: "/player/hud" },
+            { text: "Match Flow & Screens", link: "/player/screens" },
             { text: "Settings", link: "/player/settings" },
           ],
         },

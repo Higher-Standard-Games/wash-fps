@@ -4,10 +4,12 @@ How to play. Read in order if you're new to Q3/Warsow-style arena shooters; jump
 
 | Page | Covers |
 |------|--------|
+| [Your First Match](./first-match.md) | A walkthrough for new players: from the lobby to your first frag |
 | [Movement](./movement.md) | Strafe / bunny hop / wall jump / ledge grab / crouchslide / ladders / water / lifts |
 | [Weapons](./weapons.md) | Every weapon's damage, fire rate, ammo, splash, niche |
 | [Pickups & Inventory](./pickups-and-inventory.md) | Slot mechanics, swap prompt, ammo + health + armor |
 | [HUD](./hud.md) | Reading the heads-up display |
+| [Match Flow and Screens](./screens.md) | Warmup to result screen, the scoreboard, round results |
 | [Damage and Combat Rules](./combat.md) | Hit locations, armor, splash falloff, knockback, self damage |
 | [Settings](./settings.md) | Controls, crosshair, team colours, video presets, audio, and console-only variables |
 

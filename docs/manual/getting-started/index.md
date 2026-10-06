@@ -98,6 +98,7 @@ See [Tools → Bot Server](../tools/bot-server.md) for the full bot lifecycle, d
 
 ## Next
 
+- [Troubleshooting Setup](./troubleshooting.md) — lobby offline, missing maps, bots that won't join
 - [Project Structure](./project-structure.md) — what lives where in this submodule
 - [Player Manual](../player/) — controls, movement, weapons
 - [Multiplayer](../multiplayer/) — lobby flow + console networking commands
