@@ -33,17 +33,43 @@ export class FPSReadyBar implements FPSHudWidget {
         ? `<span class="fps-ready-text">Ready! Waiting for others</span>`
         : `<span class="fps-ready-text">Press <span class="fps-ready-key">F4</span> when ready</span>`;
 
-      this.element.classList.remove("hidden", "fps-ready-bar--spectating");
-      this.element.innerHTML = `<span class="fps-ready-count">${mgr.getReadyStatus()}</span>${readyText}`;
-      this.element.classList.toggle("fps-ready-bar--ready", mgr.isReady);
+      this.write(
+        `player|${mgr.isReady}`,
+        `<span class="fps-ready-count">${mgr.getReadyStatus()}</span>${readyText}`,
+        () => {
+          this.element.classList.remove("hidden", "fps-ready-bar--spectating");
+          this.element.classList.toggle("fps-ready-bar--ready", mgr.isReady);
+        },
+      );
     } else if (isSpectating) {
       // Spectating (in or out of warmup): magenta plate, no count cell
-      this.element.classList.remove("hidden", "fps-ready-bar--ready");
-      this.element.classList.add("fps-ready-bar--spectating");
-      this.element.innerHTML = `<span class="fps-ready-text">Spectating</span>`;
+      this.write("spectating", `<span class="fps-ready-text">Spectating</span>`, () => {
+        this.element.classList.remove("hidden", "fps-ready-bar--ready");
+        this.element.classList.add("fps-ready-bar--spectating");
+      });
     } else {
       this.element.classList.add("hidden");
+      this.shown = "";
     }
+  }
+
+  /** What the bar currently shows: its mode and markup. Empty while hidden. */
+  private shown = "";
+
+  /**
+   * Put the bar into a state.
+   *
+   * The classes are applied on every poll, which is free when they already hold and keeps the
+   * bar visible if something hid it from outside. The markup is only rewritten when it differs
+   * from what is showing: the HUD polls 20 times a second, and rewriting identical markup throws
+   * the elements away and restarts their CSS animations each time.
+   */
+  private write(mode: string, html: string, applyClasses: () => void): void {
+    applyClasses();
+    const key = `${mode}|${html}`;
+    if (key === this.shown) return;
+    this.shown = key;
+    this.element.innerHTML = html;
   }
 
   public show(): void {

@@ -281,6 +281,14 @@ Each step is independently useful and should be its own commit.
 | **CI** | Should regressions fail a build? Suggest not at first: publish the comparison as a report until the noise floor is known |
 | **Where to keep baselines** | In the repo (reviewable, but changes with hardware) or as CI artifacts? |
 
+## 7a. First measurements (HUD, recorded 2026-10-07)
+
+The first W1-style measurement was taken by hand for QA item 2, as a throwaway test that timed each HUD widget's `update` 4,000 times in jsdom against an unchanged state, after 400 warm-up calls. It is **not** kept as a benchmark yet. It is the template for the HUD entry in the micro-benchmark table (section 4.2).
+
+- **What it showed:** the whole HUD costs about 180 µs per 50 ms poll, almost all of it in two widgets that rewrote `innerHTML` every poll in warmup. The change-detection code the item was originally about (`JSON.stringify` signatures) cost under 1 µs on the weapon rack and about 5 µs on the scoreboard. Full table in [v0.9.25-QA.md](./v0.9.25-QA.md), item 2.
+- **Lesson for the plan:** measure before designing. A micro benchmark took ten minutes to write and overturned the premise of a two-day design. This is the strongest argument for doing section 6, steps 1 and 2, before items 7 and 8.
+- **Limits:** jsdom has no layout, no paint and no CSS animations, so it misses the real cost of a DOM rewrite. It is good at finding where JavaScript-side work is, not at saying what Chrome spends.
+
 ## 8. Related documents
 
 - [v0.9.25-QA.md](./v0.9.25-QA.md): the items these measurements serve.
