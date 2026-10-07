@@ -56,7 +56,7 @@ import { MatchMapLoader } from "./client/MatchMapLoader";
 import { MatchPhase, MatchStateManager } from "./client/MatchStateManager";
 import { RemotePlayerRenderer } from "./client/RemotePlayerRenderer";
 import { ServerProjectiles } from "./client/ServerProjectiles";
-import { SPECTATE_AFTER_DEATH_MS, SpectateView } from "./client/SpectateView";
+import { SpectateView } from "./client/SpectateView";
 import { type FPSInputCommand, FPSSimulation } from "./simulation/FPSSimulation";
 
 export interface FPSGameConfig {
@@ -111,13 +111,6 @@ export interface PlayerStateUpdate {
   slidePhase: number;
   ledgeGrabPhase: number;
 }
-
-/**
- * How long a chase camera waits on a dead player in a mode with respawns.
- * Past the server's forced respawn, twice the respawn delay: six seconds in
- * Deathmatch, Duel and Team Deathmatch.
- */
-const CHASE_RESPAWN_WAIT_MS = 8000;
 
 /** Whether two game server URLs name the same server, ignoring case and a trailing slash. */
 function sameServer(a: string, b: string | null): boolean {
@@ -230,9 +223,9 @@ export class Game {
     latestGameState: () => this._latestGameState,
     remoteRenderer: () => this.remoteRenderer,
     spectatorOverlay: () => this.spectatorOverlay,
+    spectatorCycling: () => this.spectatorCycling,
+    spectatorController: () => this.spectatorController,
   });
-  /** When the chase target was first seen dead; 0 while they are alive. */
-  private _chaseBodySince = 0;
 
   /**
    * What owns the camera, for the developer `camera_audit` command.
@@ -1064,87 +1057,24 @@ export class Game {
     console.log("[Game] Now spectating");
   }
 
-  /**
-   * Chase-cam: start following a specific player entity.
-   */
+  /** Chase-cam: start following a specific player entity. */
   spectatePlayer(entityId: string): void {
-    if (!this.spectatorController || !this.spectatorCycling) return;
-    this.spectatorCycling.setTarget(entityId);
-    this.spectatorController.setSpectateTarget(entityId);
-    this._chaseBodySince = 0;
-    // The camera goes to their eyes, which is INSIDE their head — leaving the
-    // model on fills the screen with the inside of a skull. The demo viewer has
-    // hidden the followed player since it shipped; this path never did, which
-    // is why live chase-cam looked like a rendering fault rather than a view.
-    this.remoteRenderer?.setHiddenEntity(entityId);
-    this.spectatorOverlay?.setMode("first-person");
-    this.spectatorOverlay?.setSpectatingTarget(this.spectatorCycling.getPlayerName(entityId));
-    CameraSystem.getInstance().setController("spectator");
-    console.log(`[Game] Now spectating player: ${entityId}`);
+    this.spectate.spectatePlayer(entityId);
   }
 
-  /**
-   * Chase-cam: cycle to next alive player.
-   */
+  /** Chase-cam: cycle to next alive player. */
   nextSpectateTarget(): void {
-    if (!this.spectatorCycling) return;
-    const next = this.spectatorCycling.next();
-    if (next) {
-      this.spectatePlayer(next);
-    }
+    this.spectate.nextSpectateTarget();
   }
 
-  /**
-   * Chase-cam: cycle to previous alive player.
-   */
+  /** Chase-cam: cycle to previous alive player. */
   prevSpectateTarget(): void {
-    if (!this.spectatorCycling) return;
-    const prev = this.spectatorCycling.prev();
-    if (prev) {
-      this.spectatePlayer(prev);
-    }
+    this.spectate.prevSpectateTarget();
   }
 
-  /**
-   * Exit chase-cam: return to freefly spectator mode.
-   */
+  /** Exit chase-cam: return to freefly spectator mode. */
   exitChaseCam(): void {
-    this.spectatorCycling?.clearTarget();
-    this.spectatorController?.clearSpectateTarget();
-    // Whoever we were riding becomes a normal player again.
-    this.remoteRenderer?.setHiddenEntity(null);
-    this.spectatorOverlay?.setMode("freefly");
-    this.switchToFreeflyCamera();
-    console.log("[Game] Returned to freefly spectator");
-  }
-
-  /**
-   * Keep the chase camera on the cycling list's target.
-   *
-   * The list moves on by itself when its target leaves the match. A target
-   * who dies is waited for, as their own screen waits: the view holds where
-   * they fell, without their gun, and picks them up at their respawn. A round
-   * mode keeps the dead down until the next round, so there the camera moves
-   * on after the same pause the teammate view gives a death; elsewhere only
-   * once the server's forced respawn has passed.
-   */
-  private syncChaseTarget(): void {
-    const cycling = this.spectatorCycling;
-    const chasing = this.spectatorController?.getTargetEntityId();
-    if (!cycling || !chasing) return;
-
-    let target = cycling.getTargetEntityId();
-    if (target && !cycling.isAlive(target)) {
-      const now = performance.now();
-      const wait = MatchStateManager.getInstance().round > 0 ? SPECTATE_AFTER_DEATH_MS : CHASE_RESPAWN_WAIT_MS;
-      if (this._chaseBodySince === 0) this._chaseBodySince = now;
-      else if (now - this._chaseBodySince >= wait) target = cycling.next() ?? target;
-    } else {
-      this._chaseBodySince = 0;
-    }
-
-    if (!target) this.exitChaseCam();
-    else if (target !== chasing) this.spectatePlayer(target);
+    this.spectate.exitChaseCam();
   }
 
   /**
@@ -1196,24 +1126,9 @@ export class Game {
     if (camera && scene) wvm.init(scene, camera);
   }
 
-  /**
-   * Switch the active camera to freefly controller (for spectator mode).
-   */
-  private async switchToFreeflyCamera(): Promise<void> {
-    try {
-      const { CameraSystem } = await import("../../engine/camera/CameraSystem");
-      const { FreeflyController } = await import("../../engine/camera/controllers/FreeflyController");
-      const cameraSystem = CameraSystem.getInstance();
-
-      if (!cameraSystem.getController("freefly")) {
-        cameraSystem.registerController("freefly", new FreeflyController());
-      }
-      cameraSystem.setController("freefly");
-
-      console.log("[Game] Switched to freefly camera");
-    } catch (e) {
-      console.warn("[Game] Could not switch to freefly camera:", e);
-    }
+  /** Switch the active camera to freefly controller (for spectator mode). */
+  private switchToFreeflyCamera(): Promise<void> {
+    return this.spectate.switchToFreeflyCamera();
   }
 
   /**
@@ -1975,7 +1890,7 @@ export class Game {
     // Update spectator cycling list (if spectating)
     if (this.playerState === "spectator" && this.spectatorCycling) {
       this.spectatorCycling.updateFromGameState(state);
-      this.syncChaseTarget();
+      this.spectate.syncChaseTarget();
 
       // Update SpectatorOverlay with target player name
       const targetId = this.spectatorCycling.getTargetEntityId();

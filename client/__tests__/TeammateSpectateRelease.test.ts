@@ -41,6 +41,8 @@ function spectatingGame(): { game: SpectatingGame; spies: Spies } {
     latestGameState: () => null,
     remoteRenderer: () => remoteRenderer as never,
     spectatorOverlay: () => spectatorOverlay as never,
+    spectatorCycling: () => null,
+    spectatorController: () => null,
   });
   const game = Object.assign(view as unknown as SpectatingGame, {
     _deathCamera: { stop: spies.stop },

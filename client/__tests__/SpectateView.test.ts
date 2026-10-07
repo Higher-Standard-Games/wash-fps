@@ -10,9 +10,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const viewWeapon = { setVisible: vi.fn() };
 vi.mock("../../../../engine/weapon/WeaponViewManager", () => ({ getWeaponViewManager: () => viewWeapon }));
-vi.mock("../../../../engine/camera", () => ({
-  CameraSystem: { getInstance: () => ({ getCamera: () => ({ rotation: { x: 0.1, y: 1.5 } }) }) },
-}));
+const cameraSystem = {
+  getCamera: () => ({ rotation: { x: 0.1, y: 1.5 } }),
+  setController: vi.fn(),
+  getController: vi.fn(() => null),
+  registerController: vi.fn(),
+};
+vi.mock("../../../../engine/camera", () => ({ CameraSystem: { getInstance: () => cameraSystem } }));
+vi.mock("../../../../engine/camera/CameraSystem", () => ({ CameraSystem: { getInstance: () => cameraSystem } }));
+vi.mock("../../../../engine/camera/controllers/FreeflyController", () => ({ FreeflyController: class {} }));
 
 const { SPECTATE_AFTER_DEATH_MS, SpectateView } = await import("../SpectateView");
 const { MatchPhase, MatchStateManager } = await import("../MatchStateManager");
@@ -37,6 +43,42 @@ function setup() {
   ]);
   const remoteRenderer = { getRenderedPlayers: () => rendered, setHiddenEntity: vi.fn() };
   const overlay = { setMode: vi.fn(), setSpectatingTarget: vi.fn() };
+  // A spectator's list of who can be chased, in the order it cycles.
+  const cycling = {
+    order: ["player_2", "player_3", "player_9"],
+    target: null as string | null,
+    alive: new Set(["player_2", "player_3", "player_9"]),
+    setTarget: vi.fn((id: string) => {
+      cycling.target = id;
+    }),
+    clearTarget: vi.fn(() => {
+      cycling.target = null;
+    }),
+    getTargetEntityId: () => cycling.target,
+    isAlive: (id: string) => cycling.alive.has(id),
+    getPlayerName: (id: string) => `name:${id}`,
+    step(direction: number) {
+      const n = cycling.order.length;
+      let at = cycling.target ? cycling.order.indexOf(cycling.target) : direction > 0 ? -1 : n;
+      for (let i = 0; i < n; i++) {
+        at = (at + direction + n) % n;
+        if (cycling.alive.has(cycling.order[at])) return cycling.order[at];
+      }
+      return null;
+    },
+    next: vi.fn(() => cycling.step(1)),
+    prev: vi.fn(() => cycling.step(-1)),
+  };
+  const controller = {
+    target: null as string | null,
+    setSpectateTarget: vi.fn((id: string) => {
+      controller.target = id;
+    }),
+    clearSpectateTarget: vi.fn(() => {
+      controller.target = null;
+    }),
+    getTargetEntityId: () => controller.target,
+  };
   const gameState = {
     entities: new Map([
       ["player_2", entity(2, 0.5, -10)],
@@ -51,11 +93,13 @@ function setup() {
     latestGameState: () => gameState as never,
     remoteRenderer: () => remoteRenderer as never,
     spectatorOverlay: () => overlay as never,
+    spectatorCycling: () => cycling as never,
+    spectatorController: () => controller as never,
   });
   const deathCamera = { start: vi.fn(), stop: vi.fn(), update: vi.fn(() => false) };
   const eyeCamera = { start: vi.fn(), stop: vi.fn(), update: vi.fn(() => false) };
   Object.assign(view, { _deathCamera: deathCamera, _eyeCamera: eyeCamera });
-  return { view, state, rendered, remoteRenderer, overlay, gameState, deathCamera, eyeCamera };
+  return { view, state, rendered, remoteRenderer, overlay, gameState, deathCamera, eyeCamera, cycling, controller };
 }
 
 function match(phase: number, round: number, extra: Record<string, unknown> = {}) {
@@ -79,6 +123,8 @@ describe("SpectateView", () => {
     now = 10_000;
     vi.spyOn(performance, "now").mockImplementation(() => now);
     viewWeapon.setVisible.mockClear();
+    cameraSystem.setController.mockClear();
+    cameraSystem.registerController.mockClear();
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -198,5 +244,102 @@ describe("SpectateView", () => {
     state.dead = false;
     match(MatchPhase.Active, 1);
     expect(view.applyDeathCamera(camera(), 1 / 60)).toBe(false);
+  });
+
+  describe("chase camera", () => {
+    it("follows a player from behind their eyes, with their model hidden", () => {
+      const { view, cycling, controller, remoteRenderer, overlay } = setup();
+      view.spectatePlayer("player_3");
+      expect(cycling.target).toBe("player_3");
+      expect(controller.target).toBe("player_3");
+      expect(remoteRenderer.setHiddenEntity).toHaveBeenCalledWith("player_3");
+      expect(overlay.setMode).toHaveBeenCalledWith("first-person");
+      expect(overlay.setSpectatingTarget).toHaveBeenCalledWith("name:player_3");
+      expect(cameraSystem.setController).toHaveBeenCalledWith("spectator");
+    });
+
+    it("steps forward and back through the cycling list", () => {
+      const { view, controller } = setup();
+      view.nextSpectateTarget();
+      expect(controller.target).toBe("player_2");
+      view.nextSpectateTarget();
+      expect(controller.target).toBe("player_3");
+      view.prevSpectateTarget();
+      expect(controller.target).toBe("player_2");
+    });
+
+    it("returns to freefly, showing the player again, on exit", async () => {
+      const { view, cycling, controller, remoteRenderer, overlay } = setup();
+      view.spectatePlayer("player_3");
+      view.exitChaseCam();
+      expect(cycling.target).toBeNull();
+      expect(controller.target).toBeNull();
+      expect(remoteRenderer.setHiddenEntity).toHaveBeenLastCalledWith(null);
+      expect(overlay.setMode).toHaveBeenLastCalledWith("freefly");
+      await vi.waitFor(() => expect(cameraSystem.setController).toHaveBeenLastCalledWith("freefly"));
+      expect(cameraSystem.registerController).toHaveBeenCalledWith("freefly", expect.anything());
+    });
+
+    it("waits on a dead target through the respawn, then moves on", () => {
+      const { view, cycling, controller } = setup();
+      match(MatchPhase.Active, 0); // a mode with respawns
+      view.spectatePlayer("player_3");
+      cycling.alive.delete("player_3");
+
+      view.syncChaseTarget(); // first seen dead
+      now += 7999;
+      view.syncChaseTarget();
+      expect(controller.target).toBe("player_3");
+      now += 1;
+      view.syncChaseTarget();
+      expect(controller.target).toBe("player_9");
+    });
+
+    it("moves on sooner in a round mode, where the dead stay down", () => {
+      const { view, cycling, controller } = setup();
+      match(MatchPhase.Active, 2);
+      view.spectatePlayer("player_3");
+      cycling.alive.delete("player_3");
+      view.syncChaseTarget();
+      now += SPECTATE_AFTER_DEATH_MS;
+      view.syncChaseTarget();
+      expect(controller.target).toBe("player_9");
+    });
+
+    it("keeps waiting from scratch if the target comes back before the wait ends", () => {
+      const { view, cycling, controller } = setup();
+      match(MatchPhase.Active, 0);
+      view.spectatePlayer("player_3");
+      cycling.alive.delete("player_3");
+      view.syncChaseTarget();
+      now += 5000;
+      cycling.alive.add("player_3"); // respawned
+      view.syncChaseTarget();
+      cycling.alive.delete("player_3");
+      view.syncChaseTarget();
+      now += 5000;
+      view.syncChaseTarget();
+      expect(controller.target).toBe("player_3");
+    });
+
+    it("picks up whoever the list moved to, and leaves when the list is empty", () => {
+      const { view, cycling, controller, overlay } = setup();
+      view.spectatePlayer("player_3");
+      cycling.target = "player_2"; // the list moved on by itself
+      view.syncChaseTarget();
+      expect(controller.target).toBe("player_2");
+
+      cycling.target = null;
+      view.syncChaseTarget();
+      expect(controller.target).toBeNull();
+      expect(overlay.setMode).toHaveBeenLastCalledWith("freefly");
+    });
+
+    it("does nothing while not chasing anyone", () => {
+      const { view, cycling, controller } = setup();
+      cycling.target = "player_2";
+      view.syncChaseTarget();
+      expect(controller.target).toBeNull();
+    });
   });
 });

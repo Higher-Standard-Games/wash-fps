@@ -24,6 +24,8 @@ function gameWithDrySpectateCamera(): CameraOwnershipView {
     latestGameState: () => null,
     remoteRenderer: () => null,
     spectatorOverlay: () => null,
+    spectatorCycling: () => null,
+    spectatorController: () => null,
   }) as unknown as CameraOwnershipView;
   game._spectatingEntityId = "player_bot";
   game._eyeCamera = { update: vi.fn(() => false) };
