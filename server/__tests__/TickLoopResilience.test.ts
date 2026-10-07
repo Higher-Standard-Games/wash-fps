@@ -75,6 +75,27 @@ describe("GameServer tick loop", () => {
     expect(error).toHaveBeenCalledWith("[GameServer]", "Tick failed, the loop continues:", expect.any(Error));
   });
 
+  it("does not spin when the tick itself throws every time", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    server = new GameServer(config, new Deathmatch());
+    await server.start();
+
+    // A failed tick used to leave its deadline in the past, so the loop retried
+    // it at once, back to back at setTimeout(0) speed: a core at 100% and, if
+    // the failure came after the simulation stepped, a game running faster
+    // than real time. It must keep to the tick rate instead.
+    let calls = 0;
+    vi.spyOn(inner(server), "tick").mockImplementation(() => {
+      calls++;
+      throw new Error("boom");
+    });
+    await wait(200);
+
+    // 125 Hz for 200 ms is 25 ticks; allow for timer slack, not for a spin.
+    expect(calls).toBeGreaterThan(5);
+    expect(calls).toBeLessThan(60);
+  });
+
   it("survives a playing client that has no connection", async () => {
     const running = new GameServer(config, new Deathmatch());
     server = running;

@@ -731,6 +731,11 @@ export class GameServer {
         // sockets stay open — players hang in a world frozen where it stood,
         // with nothing further logged. Say what happened and keep ticking.
         log.errorRateLimited("GameServer", "Tick failed, the loop continues:", err);
+        // A tick that threw never advanced its deadline, which is still in the
+        // past, so the next callback would run at once and retry it: back to back
+        // at setTimeout(0) speed for as long as the fault lasts. Skip to the next
+        // deadline instead, so a persistent fault costs ticks, not a core.
+        if (this.nextTickAt <= performance.now()) this.nextTickAt = performance.now() + tickMs;
       } finally {
         this.scheduleNextTick();
       }
