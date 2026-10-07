@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SnapshotBuffer } from "../../../../engine/network/client/SnapshotBuffer";
 import { Game } from "../../Game";
 import { MatchPhase, MatchStateManager } from "../MatchStateManager";
+import { ServerProjectiles } from "../ServerProjectiles";
 
 /**
  * The slice of Game's internals this test drives.
@@ -46,17 +46,18 @@ function joinableGame(
 afterEach(() => MatchStateManager.destroy());
 
 it("clears live projectile ids and accepts the next server's earlier ticks", () => {
-  const buffer = new SnapshotBuffer();
+  const projectiles = new ServerProjectiles();
+  const buffer = projectiles.buffer;
   buffer.push(10000, new Map());
+  projectiles.active.add("proj_1");
+  projectiles.defIds.set("proj_1", "rocket");
   const game = Object.assign(Object.create(Game.prototype), {
-    projectileBuffer: buffer,
-    activeServerProjectiles: new Set(["proj_1"]),
-    serverProjectileDefIds: new Map([["proj_1", "rocket"]]),
+    projectiles,
     forgetProjectileLiquid: vi.fn(),
   });
   game.resetServerProjectiles();
-  expect(game.activeServerProjectiles.size).toBe(0);
-  expect(game.serverProjectileDefIds.size).toBe(0);
+  expect(projectiles.active.size).toBe(0);
+  expect(projectiles.defIds.size).toBe(0);
   expect(game.forgetProjectileLiquid).toHaveBeenCalledWith("proj_1");
   expect(buffer.getBufferSize()).toBe(0);
   expect(buffer.push(10, new Map())).toBe(true);

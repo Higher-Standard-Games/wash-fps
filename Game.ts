@@ -18,7 +18,6 @@ import { InputSystem } from "../../engine/input/InputSystem";
 import { LocalGameHost } from "../../engine/network/client/hosts/LocalGameHost";
 import { NetworkGameHost } from "../../engine/network/client/hosts/NetworkGameHost";
 import { NetGraph } from "../../engine/network/client/NetGraph";
-import { SnapshotBuffer } from "../../engine/network/client/SnapshotBuffer";
 import { TransportFactory } from "../../engine/network/client/transport/Transport";
 import { InputButtons } from "../../engine/network/components/InputComponent";
 import type { TransformComponent } from "../../engine/network/components/TransformComponent";
@@ -47,21 +46,19 @@ import { preloadFPSAudio } from "./client/FPSAudio";
 import { FPSBombAudio } from "./client/FPSBombAudio";
 import { playEmptyClipSound } from "./client/FPSCombatAudio";
 import { FPSHud } from "./client/FPSHud";
-import { playDrownGasp, playDrownTick } from "./client/FPSLiquidAudio";
-import { playJumppadLaunch, resetFPSMovementAudio } from "./client/FPSMovementAudio";
+import { resetFPSMovementAudio } from "./client/FPSMovementAudio";
 import { FrameEffects } from "./client/FrameEffects";
 // Game event handling (extracted from this file)
 import { type GameEventContext, handleServerStateUpdate } from "./client/GameEvents";
 import { HUDState } from "./client/HUDState";
+import { LocalLiquid } from "./client/LocalLiquid";
 import { clearLocalPowerups } from "./client/LocalPowerupState";
 import { MatchInputBindings } from "./client/MatchInputBindings";
 import { MatchMapLoader } from "./client/MatchMapLoader";
 import { MatchPhase, MatchStateManager } from "./client/MatchStateManager";
 import { RemotePlayerRenderer } from "./client/RemotePlayerRenderer";
+import { ServerProjectiles } from "./client/ServerProjectiles";
 import { SpectateEyeCamera } from "./client/SpectateEyeCamera";
-import { LiquidInteractionSystem } from "./liquid/client/LiquidInteractionSystem";
-import { LocalAirTracker } from "./liquid/client/LocalAirTracker";
-import { UnderwaterView } from "./liquid/client/UnderwaterView";
 import { type FPSInputCommand, FPSSimulation } from "./simulation/FPSSimulation";
 
 export interface FPSGameConfig {
@@ -178,12 +175,8 @@ export class Game {
   private readonly bombAudio = new FPSBombAudio();
 
   // Server-driven projectile tracking (Q3-style)
-  /** Maps server projectile entity ID (e.g. 'proj_10001') → weapon defId */
-  private serverProjectileDefIds: Map<string, string> = new Map();
-  /** Set of server entity IDs that already have client-side visuals spawned */
-  private activeServerProjectiles: Set<string> = new Set();
-  /** SnapshotBuffer for projectile entity interpolation (Q3-style lerp between snapshots) */
-  private projectileBuffer: SnapshotBuffer = new SnapshotBuffer();
+  /** Server-driven projectiles: visuals spawned, defIds and interpolation buffer. */
+  private readonly projectiles = new ServerProjectiles();
 
   // Weapon state sync
   private _lastServerWeapon: string | undefined = undefined;
@@ -727,7 +720,7 @@ export class Game {
     }
 
     // 3. Flush projectile interpolation buffer (discard stale data)
-    this.projectileBuffer.flush();
+    this.projectiles.buffer.flush();
 
     // 4. Force local player to snap to next server position (no interpolation lag)
     this.v2Client?.forceTeleport();
@@ -1876,42 +1869,14 @@ export class Game {
     );
   }
 
-  /**
-   * Per-frame interpolated rendering of server-driven projectiles.
-   * Samples the SnapshotBuffer for each active projectile entity,
-   * giving smooth lerp between two snapshots (same as remote players).
-   */
+  /** Per-frame interpolated rendering of server-driven projectiles. */
   private renderServerProjectiles(): void {
-    const projMgr = getProjectileManager();
-    for (const entityId of this.activeServerProjectiles) {
-      const interp = this.projectileBuffer.sample(entityId);
-      if (!interp) continue;
-      projMgr.updateServerPosition(
-        entityId,
-        new Vector3(interp.x, interp.y, interp.z),
-        new Vector3(interp.vx, interp.vy, interp.vz),
-      );
-
-      // A rocket into a pool used to land in silence: water is NONSOLID, so
-      // nothing impacts it and no event fires. This loop already has the
-      // per-frame position, which is all a crossing needs.
-      this.liquidInteractions?.notifyProjectile(
-        entityId,
-        { x: interp.x, y: interp.y, z: interp.z },
-        Math.hypot(interp.vx, interp.vy, interp.vz),
-      );
-    }
+    this.projectiles.render(this.liquid.interactions);
   }
 
   /** Entity ids and interpolation ticks belong to one server session. */
   private resetServerProjectiles(): void {
-    for (const entityId of this.activeServerProjectiles) {
-      getProjectileManager().despawnByEntityId(entityId);
-      this.forgetProjectileLiquid(entityId);
-    }
-    this.activeServerProjectiles.clear();
-    this.serverProjectileDefIds.clear();
-    this.projectileBuffer.reset();
+    this.projectiles.reset((entityId) => this.forgetProjectileLiquid(entityId));
   }
 
   /**
@@ -2236,9 +2201,9 @@ export class Game {
         _localCharging: this._localCharging,
         chargingPlayers: this.chargingPlayers,
         chargingGlows: this.chargingGlows,
-        serverProjectileDefIds: this.serverProjectileDefIds,
-        activeServerProjectiles: this.activeServerProjectiles,
-        projectileBuffer: this.projectileBuffer,
+        serverProjectileDefIds: this.projectiles.defIds,
+        activeServerProjectiles: this.projectiles.active,
+        projectileBuffer: this.projectiles.buffer,
         get _isPlayerDead() {
           return Game.getInstance()._isPlayerDead;
         },
@@ -2390,71 +2355,29 @@ export class Game {
       console.log("[Game] Collision world set on V2NetworkClient");
     }
 
-    // Underwater presentation asks the same collision world what the CAMERA is
-    // standing in, which is not always what the player is standing in.
-    this.underwaterView?.setCollisionWorld(collision);
-    // The interaction system asks the same world where the waterline is, and
-    // how far a ring may spread before it runs out of pool.
-    this.liquidInteractions?.setCollisionWorld(collision);
+    // Underwater view and splashes ask the same world about the camera and the waterline.
+    this.liquid.setCollisionWorld(collision);
   }
 
-  /** Tint, fog and view warp while the camera itself is under a surface. */
-  private underwaterView: UnderwaterView | null = null;
+  /** Underwater view, splashes, local air and the jump-pad sound; see LocalLiquid. */
+  private readonly liquid = new LocalLiquid();
 
   /**
-   * Begin driving underwater presentation for this scene.
-   *
-   * Separate from construction because the scene is rebuilt on every map load
-   * and the previous view must be disposed with it — otherwise the next map
-   * inherits a fog state it never asked for.
+   * Begin driving underwater presentation for this scene. Called on every map
+   * load: the scene is rebuilt and the previous view must be disposed with it.
    */
   public startUnderwaterView(scene: import("@babylonjs/core/scene").Scene): void {
-    this.underwaterView?.dispose();
-    this.underwaterView = new UnderwaterView(scene);
-    this.underwaterView.onSubmersion = (amount) => {
-      getWeaponViewManager().submersionAmount = amount;
-    };
-    this.underwaterView.start();
-
-    this.liquidInteractions?.dispose();
-    this.liquidInteractions = new LiquidInteractionSystem(scene);
-    // The remote renderer already sees every player's water level each frame,
-    // so it is the cheapest place to notice a crossing.
-    if (this.remoteRenderer) this.remoteRenderer.liquidInteractions = this.liquidInteractions;
-
-    // Splash crowns from Medium up.
-    //
-    // They were Epic-only on the assumption that spray was expensive, which
-    // was true of the FluidRenderer implementation and is not true of what
-    // replaced it: one mesh, one draw call, no render target and no
-    // post-process. The thing that actually costs at Epic is the pair of
-    // scene passes for refraction and reflection, and the crown has nothing
-    // to do with either. Only Low goes without.
-    if ((RenderVars.getInstance().get("r_water_quality") ?? 2) >= 2) {
-      if (!this.liquidInteractions.enableCrowns()) {
-        console.info("[Water] Epic splashes unavailable; using ripples");
-      }
-    }
-
-    this.airTracker = new LocalAirTracker();
-    this.airTracker.onStartedDrowning = playDrownGasp;
-    this.airTracker.onDrownTick = playDrownTick;
+    this.liquid.start(scene, this.remoteRenderer);
   }
-
-  /** Splashes and ripples where bodies cross a surface. Owned per map. */
-  private liquidInteractions: LiquidInteractionSystem | null = null;
-
-  /** Local air, mirrored for the HUD and the gasp. Presentation only. */
-  private airTracker: LocalAirTracker | null = null;
 
   /** Drop a despawned projectile from liquid-crossing tracking. */
   public forgetProjectileLiquid(entityId: string): void {
-    this.liquidInteractions?.forgetProjectile(entityId);
+    this.liquid.forgetProjectile(entityId);
   }
 
   /** Re-baseline the local body after a respawn or teleport. */
   public forgetLocalLiquid(): void {
-    this.liquidInteractions?.forget("local");
+    this.liquid.forgetLocal();
   }
 
   /**
@@ -2464,17 +2387,17 @@ export class Game {
    * with, and the HUD says so for a moment before the server disagrees.
    */
   public resetLocalAir(): void {
-    this.airTracker?.reset();
+    this.liquid.resetAir();
   }
 
   /** Local air remaining, 0-1. For the HUD; not authoritative. */
   public get localAirFraction(): number {
-    return this.airTracker?.air ?? 1;
+    return this.liquid.airFraction;
   }
 
   /** True once the lungs are empty. Drives the HUD's alarm state. */
   public get localDrowning(): boolean {
-    return this.airTracker?.drowning ?? false;
+    return this.liquid.drowning;
   }
 
   /**
@@ -2486,47 +2409,16 @@ export class Game {
    * possible case teaches the wrong thing about the ordinary one.
    */
   public debugSplash(position: { x: number; y: number; z: number }): void {
-    const id = `debug-splash-${performance.now()}`;
-    this.liquidInteractions?.notify(id, 0, "water", position, -400, true);
-    this.liquidInteractions?.notify(id, 2, "water", position, -400, true);
-    this.liquidInteractions?.forget(id);
+    this.liquid.debugSplash(position);
   }
 
-  /**
-   * Your own splash, and your own air.
-   *
-   * Both read the PREDICTED water level rather than the snapshot's: the local
-   * player's own body is simulated here, so taking it from the wire would land
-   * their splash and their gasp a round trip after they felt the water.
-   */
+  /** Your own splash, your own air and the jump-pad sound, from prediction. */
   private emitLocalLiquidCrossing(): void {
-    if (!this.v2Client) return;
-
-    const state = this.v2Client.getState();
-    const movement = this.v2Client.getMovementState();
-
-    // Jumppad launch, on the rising edge. The profile holds the flag for as
-    // long as the player overlaps the pad — velocity replacement is idempotent
-    // so replays stay correct — which would otherwise retrigger the sound every
-    // step of the launch. Played from prediction, like the splash above, so it
-    // lands on the frame the player feels the kick rather than a round trip
-    // later.
-    if (movement.jumppadLaunch && !this._wasJumppadLaunching) {
-      playJumppadLaunch(state.position, true);
-    }
-    this._wasJumppadLaunching = movement.jumppadLaunch;
-
-    this.liquidInteractions?.notify("local", movement.waterLevel, "water", state.position, state.velocity.y, true);
-
-    const dt = Math.min(0.1, (EngineStore.LastCreatedEngine?.getDeltaTime() ?? 16) / 1000);
-    this.airTracker?.update(movement.waterLevel, dt);
+    this.liquid.emitLocalCrossing(this.v2Client);
   }
-
-  /** Edge-detect state for the jumppad one-shot; see emitLocalLiquidCrossing. */
-  private _wasJumppadLaunching = false;
 
   /** How submerged the camera is, 0-1. Read by the viewmodel to float the gun. */
   public get cameraSubmersion(): number {
-    return this.underwaterView?.submersionAmount ?? 0;
+    return this.liquid.cameraSubmersion;
   }
 }
