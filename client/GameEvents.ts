@@ -23,11 +23,17 @@ import type { VelocityComponent } from "../../../engine/network/components/Veloc
 import type { GameState } from "../../../engine/network/core/GameState";
 import type { IGameHost } from "../../../engine/network/core/IGameHost";
 import {
+  type AwardSnapshotEvent,
   assertUnroutedEvent,
+  type ChatSnapshotEvent,
   type DamageEvent,
+  type DeathEvent,
   type ElectroRailEvent,
   type SnapshotEvent,
   type VoltaicBeamEvent,
+  type WeaponDropEvent,
+  type WeaponFireEvent,
+  type WeaponStateEvent,
 } from "../../../engine/network/core/SnapshotEvent";
 import {
   BLADE_EXPLOSION,
@@ -733,7 +739,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
 
 // ── Internal helpers ───────────────────────────────────────────────
 
-function handleDeathEvent(ctx: GameEventContext, event: any, state: GameState): void {
+function handleDeathEvent(ctx: GameEventContext, event: DeathEvent, state: GameState): void {
   console.log(
     `[Death] Event received: entity=${event.entityId} killer=${event.killerId} damageType=${event.damageType} finalDamage=${event.finalDamage} pos=(${event.x}, ${event.y}, ${event.z})`,
   );
@@ -840,7 +846,7 @@ function handleDeathEvent(ctx: GameEventContext, event: any, state: GameState): 
   }
 }
 
-function startLocalRagdollDeathCamera(ctx: GameEventContext, event: any): void {
+function startLocalRagdollDeathCamera(ctx: GameEventContext, event: DeathEvent): void {
   const renderer = ctx.remoteRenderer;
   const ragdolls = ctx._ragdollSystem;
   const deathCamera = ctx._deathCamera;
@@ -887,7 +893,7 @@ function disposeDetachedModel(model: any): void {
   }
 }
 
-function handleWeaponDrop(ctx: GameEventContext, event: any): void {
+function handleWeaponDrop(ctx: GameEventContext, event: WeaponDropEvent): void {
   // Capture velocity from weapon_drop event for Havok physics.
   // The entity-driven system spawns the visual when the item_ entity
   // appears in snapshot, but needs the initial toss velocity from this event.
@@ -919,7 +925,7 @@ function handleWeaponDrop(ctx: GameEventContext, event: any): void {
  * Handle weapon_state event from server for the local player.
  * Syncs the client's inventory and weapon view with server state.
  */
-function handleWeaponStateSync(ctx: GameEventContext, event: any): void {
+function handleWeaponStateSync(ctx: GameEventContext, event: WeaponStateEvent): void {
   const player = FPSPlayer.getInstance();
   if (!player) return;
 
@@ -1029,7 +1035,7 @@ export function handleSpectatedWeaponState(
 /**
  * Spawn visual effects for another player's weapon fire.
  */
-export function handleRemoteWeaponFire(event: any, remoteRenderer: RemotePlayerRenderer | null): void {
+export function handleRemoteWeaponFire(event: WeaponFireEvent, remoteRenderer: RemotePlayerRenderer | null): void {
   const fx = getHitscanEffects();
   const projMgr = getProjectileManager();
 
@@ -1211,7 +1217,7 @@ export function processProjectileEntities(state: GameState, sync: ProjectileSync
 
 /** In-game chat event → HUD chat log (also fires during demo playback). */
 // biome-ignore lint/suspicious/noExplicitAny: duck-typed snapshot event
-function handleChatEvent(event: any): void {
+function handleChatEvent(event: ChatSnapshotEvent): void {
   try {
     console.log(`[Chat] event ← server: ${event.senderName}: "${event.text}"`);
     const name = event.senderName || "unknown";
@@ -1258,7 +1264,7 @@ export function handleOutgoingDamage(ctx: GameEventContext, event: LocatedDamage
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: duck-typed snapshot event
-function handleAwardEvent(ctx: GameEventContext, event: any): void {
+function handleAwardEvent(ctx: GameEventContext, event: AwardSnapshotEvent): void {
   const awardType: string = event.awardType || "";
   const playerId: string = event.playerId || "";
   const playerName: string = event.playerName || "";

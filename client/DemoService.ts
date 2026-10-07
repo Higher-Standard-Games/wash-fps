@@ -838,7 +838,7 @@ export class DemoService {
         this._addDemoEvent("chat", `${prefix}${e.senderName || "unknown"}: ${String(e.text ?? "")}`, 8000);
       } else if (event.type === "weapon_fire") {
         playWeaponFireSound(event as WeaponFireEvent, event.entityId === this._followedEntityId);
-        handleRemoteWeaponFire(event, this.remoteRenderer);
+        handleRemoteWeaponFire(event as WeaponFireEvent, this.remoteRenderer);
       } else if (event.type === "voltaic_beam") {
         handleVoltaicBeam(
           event as VoltaicBeamEvent,
