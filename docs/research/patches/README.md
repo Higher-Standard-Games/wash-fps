@@ -39,4 +39,6 @@ Makes snapshot encoding about 6 times faster with identical output. QA item 8 (`
 | `src/shared/net/BinaryProtocol.ts` | `BinaryEncoder.writeString` encodes straight into the buffer with `encodeInto` instead of allocating an array per string; `getData` copies with `Uint8Array.slice` instead of `ArrayBuffer.slice` |
 | `src/shared/net/__tests__/Utf8Encoder.test.ts` | Pins the bytes against `TextEncoder` for empty, ASCII, accented, CJK, astral, lone-surrogate and very long strings |
 
+**Superseded:** this patch threw on a non-string `writeString` argument (a numeric id in `item_pickup`). The engine branch `claude/inspiring-fermi-1fv0ga` carries it with the fix (`730e1f2`); apply that branch rather than this file.
+
 No wire or demo format change, so nothing to ship in step: the server alone benefits. Measured with this repo's `bench/` (16 clients, one snapshot): 2,437 µs → 398 µs.
