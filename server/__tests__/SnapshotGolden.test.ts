@@ -3,6 +3,7 @@ import { createDroppedWeaponEntity, createPlayerEntity, createProjectileEntity }
 import { entityId, playerId } from "@engine/server/ecs/types";
 import { describe, expect, it } from "vitest";
 import type { GameState } from "../../../../engine/network/core/GameState";
+import { BinaryProtocol } from "../../../../shared/net/BinaryProtocol";
 import type { ClientInfo } from "../Client";
 import { Duel } from "../gametypes/Duel";
 import { GametypeController } from "../gametypes/GametypeController";
@@ -115,12 +116,21 @@ function world() {
     ],
   ]);
 
+  // Ada picks up a machinegun: the picker's id is numeric on the server.
+  const pickupSystem = new PickupSystem();
+  (pickupSystem as unknown as { pendingPickupEvents: unknown[] }).pendingPickupEvents = [
+    { pickupId: 4, weaponId: "machinegun", entityId: entityId(1), x: 1, y: 2, z: 3 },
+  ];
+  (droppedWeaponSystem as unknown as { pendingDropEvents: unknown[] }).pendingDropEvents = [
+    { entityId: "item_50001", weaponId: "riotgun", x: -3, y: 40, z: 8, velX: 10, velY: 50, velZ: 0 },
+  ];
+
   const ctx: SnapshotContext = {
     simulation,
     weaponSystem,
     projectileSystem,
     combatSystem,
-    pickupSystem: new PickupSystem(),
+    pickupSystem,
     droppedWeaponSystem,
     gametypeController: new GametypeController(new Duel()),
     clients,
@@ -449,6 +459,27 @@ describe("buildSnapshot golden", () => {
             "winner": undefined,
           },
           {
+            "droppedWeaponId": "",
+            "entityId": "1",
+            "pickupId": 4,
+            "type": "item_pickup",
+            "weaponId": "machinegun",
+            "x": 1,
+            "y": 2,
+            "z": 3,
+          },
+          {
+            "entityId": "item_50001",
+            "type": "weapon_drop",
+            "velX": 10,
+            "velY": 50,
+            "velZ": 0,
+            "weaponId": "riotgun",
+            "x": -3,
+            "y": 40,
+            "z": 8,
+          },
+          {
             "attackerId": "player_1",
             "damage": 55,
             "entityId": "player_2",
@@ -520,6 +551,16 @@ describe("buildSnapshot golden", () => {
         "tick": 0,
       }
     `);
+  });
+
+  it("survives the wire: every event encodes and decodes with its fields", () => {
+    const built = buildSnapshot(world());
+    const decoded = BinaryProtocol.decodeSnapshot(BinaryProtocol.encodeSnapshot(built));
+    expect(decoded.events.map((e) => e.type)).toEqual(built.events.map((e) => e.type));
+    const pickup = decoded.events.find((e) => e.type === "item_pickup");
+    expect(pickup).toMatchObject({ pickupId: 4, weaponId: "machinegun", entityId: "1" });
+    expect(decoded.events.find((e) => e.type === "weapon_drop")).toMatchObject({ entityId: "item_50001", velY: 50 });
+    expect([...decoded.entities.keys()].sort()).toEqual([...built.entities.keys()].sort());
   });
 
   it("sends one-shot events once: a second build has no spawn, damage, kill, chat or award", () => {
