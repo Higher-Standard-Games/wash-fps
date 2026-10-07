@@ -183,6 +183,8 @@ export class WeaponSystem extends Subsystem {
   private weaponStates: Map<EntityId, WeaponState> = new Map();
   private lastWeaponSlot: Map<EntityId, number> = new Map(); // Edge detection for slot changes
   private lastSwitchTick: Map<EntityId, number> = new Map();
+  /** Players whose weapon the server just changed for them; see `autoSwitch`. */
+  private slotResync: Set<EntityId> = new Set();
   /**
    * Per-entity accuracy accounting for anti-cheat telemetry (WO-AC1). Scoped to
    * **single-ray hitscan** (machinegun/electrobolt/instagun/Voltaic, including
@@ -469,9 +471,34 @@ export class WeaponSystem extends Subsystem {
     state.reloading = false;
     state.reloadEndTick = 0;
     state.chargeStartTick = 0;
+    // An alt-fire held over from the old weapon is not a charge on this one.
+    // Left set, releasing it fired the blade's full charge with no charge-up
+    // (heldTicks counted from tick 0). Still held, it now starts a fresh charge.
+    state.wasAltFireDown = false;
     state.dryFireTick = 0;
     state.switchReadyTick = raiseTicks > 0 ? tickNum + raiseTicks : 0;
     this.lastSwitchTick.set(entityId, tickNum);
+  }
+
+  /**
+   * A switch the server makes for the player, on a pickup.
+   *
+   * It cancels what the old weapon was doing, as any switch does. It does not
+   * start the manual switch delay: the player did not ask for it, so it must
+   * not hold up the switch they ask for next.
+   *
+   * The slot key needs care. The server keeps the last slot the player pressed
+   * and switches when that value changes. Forgetting it here (as this code
+   * used to) made the next tick read the old value as a fresh press and switch
+   * straight back. Keeping it would make a press of that same key read as no
+   * change. So `update` re-baselines on the next tick instead (`slotResync`).
+   */
+  private autoSwitch(entityId: EntityId, state: WeaponState, weaponId: string): void {
+    const lastSwitch = this.lastSwitchTick.get(entityId);
+    this.equip(entityId, state, weaponId, this.currentTick);
+    if (lastSwitch === undefined) this.lastSwitchTick.delete(entityId);
+    else this.lastSwitchTick.set(entityId, lastSwitch);
+    this.slotResync.add(entityId);
   }
 
   private maxTotalAmmo(weapon: WeaponDef): number {
@@ -605,8 +632,7 @@ export class WeaponSystem extends Subsystem {
       // spawned with it, or out of ammo for it — does not make the request any
       // less clear, so the switch happens on this path too.
       if (isDefaultWeapon(state.currentWeapon) && !isDefaultWeapon(weaponId)) {
-        state.currentWeapon = weaponId;
-        this.lastWeaponSlot.delete(entityId);
+        this.autoSwitch(entityId, state, weaponId);
       }
       return { added: false };
     }
@@ -617,9 +643,7 @@ export class WeaponSystem extends Subsystem {
     if (nonDefaultWeapons.length < MAX_PICKABLE) {
       // Have room — just add
       state.weapons.push(weaponId);
-      state.currentWeapon = weaponId; // auto-switch to new weapon
-      // Reset slot edge detection so manual switch back works after auto-switch
-      this.lastWeaponSlot.delete(entityId);
+      this.autoSwitch(entityId, state, weaponId); // auto-switch to new weapon
       // Give ammo if not already present
       if (!state.ammo.has(weaponId) || this.ammoTotal(state.ammo.get(weaponId)) <= 0) {
         const weapon = WEAPONS[weaponId];
@@ -640,8 +664,7 @@ export class WeaponSystem extends Subsystem {
       // that is not one. Arm them with what they already carry.
       const firstReal = state.weapons.find((w) => !isDefaultWeapon(w));
       if (firstReal) {
-        state.currentWeapon = firstReal;
-        this.lastWeaponSlot.delete(entityId);
+        this.autoSwitch(entityId, state, firstReal);
       }
       return { added: false };
     } else {
@@ -680,9 +703,7 @@ export class WeaponSystem extends Subsystem {
       state.weapons.push(weaponId);
     }
     state.ammo.delete(droppedWeapon);
-    state.currentWeapon = weaponId;
-    // Reset slot edge detection so manual switch back works after auto-switch
-    this.lastWeaponSlot.delete(entityId);
+    this.autoSwitch(entityId, state, weaponId);
     // Give ammo if not already present
     if (!state.ammo.has(weaponId) || this.ammoTotal(state.ammo.get(weaponId)) <= 0) {
       const weapon = WEAPONS[weaponId];
@@ -806,6 +827,7 @@ export class WeaponSystem extends Subsystem {
     // Reset edge detection so weapon slot changes are detected cleanly after respawn
     this.lastWeaponSlot.delete(id);
     this.lastSwitchTick.delete(id);
+    this.slotResync.delete(id);
   }
 
   /**
@@ -864,6 +886,12 @@ export class WeaponSystem extends Subsystem {
       // Handle weapon switch — only on CHANGE (edge detection)
       // This prevents the client's weaponSlot from overriding server-side
       // pickup auto-switch every tick.
+      // After a server-made switch, the slot the player last pressed no longer
+      // names the weapon in hand. If no new press has arrived since, clear it, so
+      // that a press of ANY key (that one included) reads as a change.
+      if (this.slotResync.delete(entity.id) && entity.input.weaponSlot === (this.lastWeaponSlot.get(entity.id) || 0)) {
+        entity.input.weaponSlot = 0;
+      }
       const weaponSlot = entity.input.weaponSlot;
       const prevSlot = this.lastWeaponSlot.get(entity.id) || 0;
       this.lastWeaponSlot.set(entity.id, weaponSlot);
