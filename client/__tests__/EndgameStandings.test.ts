@@ -65,6 +65,18 @@ describe("end-of-match standings", () => {
     expect(manager.standings).toEqual([]);
   });
 
+  it("keeps the roster it holds when the server says it left it out", () => {
+    const manager = applyMatchState(
+      [{ playerId: "p1", name: "Solo", score: 9, deaths: 1, ping: 5 }],
+      [{ playerId: "p9", name: "Watcher", ping: 0 }],
+    );
+    manager.processEvent({ type: "match_state", phase: 2, timeRemaining: 41, rosterOmitted: true } as never);
+
+    expect(manager.timeRemaining).toBe(41);
+    expect(manager.standings).toEqual([{ playerId: "p1", name: "Solo", score: 9, deaths: 1, ping: 5 }]);
+    expect(manager.spectators).toEqual([{ playerId: "p9", name: "Watcher", ping: 0 }]);
+  });
+
   it("reports free-for-all as teamless, so the board does not render team columns", () => {
     // The other half of the same bug: teamScores ships with both sides present
     // in every gametype, so team-ness cannot be inferred from it.

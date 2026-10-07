@@ -19,6 +19,7 @@ import { SnapshotReceiver } from "../../../../engine/network/client/SnapshotRece
 import { BinaryProtocol } from "../../../../shared/net/BinaryProtocol";
 import type { GameState } from "../../../../shared/net/GameState";
 import { broadcastContext, seededRandom } from "../../bench/fixtures";
+import { MatchStateManager } from "../../client/MatchStateManager";
 import { nextAckedTick } from "../AuthorityGuards";
 import type { ClientInfo } from "../Client";
 import { SnapshotBroadcaster } from "../SnapshotBroadcaster";
@@ -31,29 +32,36 @@ interface Roster {
   spectators: unknown;
 }
 
-/** What one client knows: the last weapon_state per player and the roster, as the game keeps them. */
+/** What one client knows: the last weapon_state per player, and the game's own match state. */
 interface ClientView {
   weapons: Map<string, string>;
-  roster: Roster;
+  match: MatchStateManager;
 }
 
-/** The client side of the game's handling of these two events. */
+/** One client's MatchStateManager; the game has one per page, the test one per client. */
+const newMatchState = () => new (MatchStateManager as unknown as new () => MatchStateManager)();
+
+const newView = (): ClientView => ({ weapons: new Map(), match: newMatchState() });
+
+/** The client side of the game's handling of these two events (client/SnapshotStateStore.ts). */
 function applyToView(view: ClientView, state: GameState): void {
   for (const event of state.events) {
     if (event.type === "weapon_state") {
       const { type: _type, ...rest } = event;
       view.weapons.set(String(event.entityId), JSON.stringify(rest));
     } else if (event.type === "match_state") {
-      view.roster = { standings: event.standings ?? [], spectators: event.spectators ?? [] };
+      view.match.processEvent(event);
     }
   }
 }
 
+const rosterOf = (view: ClientView): Roster => ({ standings: view.match.standings, spectators: view.match.spectators });
+
 /** The same, from the shared snapshot the server built: the truth every client should reach. */
-function truthOf(state: GameState): ClientView {
-  const view: ClientView = { weapons: new Map(), roster: { standings: [], spectators: [] } };
+function truthOf(state: GameState): { weapons: Map<string, string>; roster: Roster } {
+  const view = newView();
   applyToView(view, state);
-  return view;
+  return { weapons: view.weapons, roster: rosterOf(view) };
 }
 
 interface InFlight<T> {
@@ -104,7 +112,7 @@ function world(seed: number) {
       receiver: new SnapshotReceiver(),
       down: new Link(random),
       up: new Link(random),
-      view: { weapons: new Map(), roster: { standings: [], spectators: [] } },
+      view: newView(),
     };
     (client as { connection: unknown }).connection = {
       latency: 0,
@@ -220,7 +228,7 @@ describe("snapshot state reaches every client", () => {
         for (const endpoint of endpoints) {
           const who = `${endpoint.client.id}, round ${round}`;
           expect(Object.fromEntries(endpoint.view.weapons), who).toEqual(Object.fromEntries(expected.weapons));
-          expect(endpoint.view.roster, who).toEqual(expected.roster);
+          expect(rosterOf(endpoint.view), who).toEqual(expected.roster);
         }
       }
       vi.restoreAllMocks();

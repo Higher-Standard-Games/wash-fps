@@ -9,6 +9,7 @@
  */
 
 import type { Simulation } from "@engine/server/core/Simulation";
+import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulation/physics/constants";
 import { log } from "../../../engine/core/Log";
 import { GameState } from "../../../engine/network/core/GameState";
 import { MessageCodec } from "../../../engine/network/protocol/MessageCodec";
@@ -18,9 +19,28 @@ import { toClientKey } from "../ClientEntityKey";
 import type { ClientInfo } from "./Client";
 import { debugLog } from "./DebugLog";
 
+const ROSTER_KEY = "roster";
+
+/** This snapshot's lasting state as strings, by key, made once and compared for every client. */
+function lastingStateOf(state: GameState): Map<string, string> {
+  const lasting = new Map<string, string>();
+  for (const event of state.events) {
+    if (event.type === "match_state") {
+      lasting.set(ROSTER_KEY, JSON.stringify([event.standings, event.spectators]));
+    }
+  }
+  return lasting;
+}
+
 export class SnapshotBroadcaster {
   private readonly SNAPSHOT_HISTORY_SIZE = 64;
   private readonly FULL_SNAPSHOT_INTERVAL = 64;
+  /**
+   * Every 125th snapshot to a client (2 s at one snapshot per two ticks) carries all lasting state
+   * again, whatever it acked. A safety net only: leaveOutKnown is correct without it. Separate from the entity full
+   * snapshot above, which it does not change.
+   */
+  private readonly STATE_REFRESH_INTERVAL = TICK_RATE;
 
   private simulation: Simulation;
   private pvs: ServerPVS | null = null;
@@ -51,6 +71,7 @@ export class SnapshotBroadcaster {
 
     let totalEncodeMs = 0;
     let totalCulled = 0;
+    const lasting = lastingStateOf(gameState);
     for (const client of clients.values()) {
       try {
         // PVS filtering: build per-client filtered state if PVS is available
@@ -68,8 +89,13 @@ export class SnapshotBroadcaster {
         const simEntity = this.simulation.getState().getEntity(client.entityId);
         const processedSeq = (simEntity?.input as { lastProcessedSeq?: number } | undefined)?.lastProcessedSeq;
         clientState.ackedInputSeq = processedSeq ?? client.lastInputSeq;
-        clientState.events = clientState.events.filter(
-          (event) => event.type !== "knockback_state" || event.entityId === toClientKey(client.entityId),
+        clientState.events = this.leaveOutKnown(
+          client,
+          clientState.events.filter(
+            (event) => event.type !== "knockback_state" || event.entityId === toClientKey(client.entityId),
+          ),
+          lasting,
+          tick,
         );
 
         // Agent directives are addressed to ONE client. Appending them here —
@@ -117,6 +143,7 @@ export class SnapshotBroadcaster {
         history.set(tick, retained);
         while (history.size > this.SNAPSHOT_HISTORY_SIZE) history.delete(history.keys().next().value!);
         client.snapshotsSinceFull = baseline ? (client.snapshotsSinceFull ?? 0) + 1 : 0;
+        client.snapshotsSinceRefresh = this.isRefresh(client) ? 0 : (client.snapshotsSinceRefresh ?? 0) + 1;
       } catch (err) {
         // Usually a disconnected client — but a persistent encode/send fault
         // here must be visible, not silent (QA-16). Rate-limited: hot path.
@@ -133,6 +160,55 @@ export class SnapshotBroadcaster {
           `[Perf] snapshot encode: ${totalEncodeMs.toFixed(2)}ms total, ${(totalEncodeMs / clients.size).toFixed(2)}ms/client, clients: ${clients.size}${pvsInfo}`,
       );
     }
+  }
+
+  private isRefresh(client: ClientInfo): boolean {
+    return (client.snapshotsSinceRefresh ?? this.STATE_REFRESH_INTERVAL) >= this.STATE_REFRESH_INTERVAL - 1;
+  }
+
+  /**
+   * Leave out lasting state this client already holds: the scoreboard roster in match_state.
+   *
+   * A value goes out in every snapshot until the client acks one that carried it, then stays out
+   * until it changes. The client stores these values before anything else in a snapshot runs
+   * (client/SnapshotStateStore.ts), so an ack means it holds them. Each change restarts the count
+   * from its own tick, so a value that changes and changes back is sent again. Unacked snapshots
+   * (lost, late, rejected) never make a value count as delivered. Plan and reasoning:
+   * docs/research/v0.9.25-network-improvements.md.
+   *
+   * The shared events are never changed (the demo records them after the broadcast); a client
+   * that is left without the roster gets a copied match_state saying so with `rosterOmitted`.
+   */
+  private leaveOutKnown(
+    client: ClientInfo,
+    events: GameState["events"],
+    lasting: Map<string, string>,
+    tick: number,
+  ): GameState["events"] {
+    const sent = (client.sentState ??= new Map());
+    for (const key of sent.keys()) if (!lasting.has(key)) sent.delete(key);
+    const refresh = this.isRefresh(client);
+    const needs = (key: string): boolean => {
+      const value = lasting.get(key);
+      if (value === undefined) return true;
+      const kept = sent.get(key);
+      if (!kept || kept.value !== value) {
+        sent.set(key, { value, since: tick });
+        return true;
+      }
+      return refresh || client.lastAckedTick < kept.since;
+    };
+
+    const out: GameState["events"] = [];
+    for (const event of events) {
+      if (event.type === "match_state" && !needs(ROSTER_KEY)) {
+        const { standings: _standings, spectators: _spectators, ...rest } = event;
+        out.push({ ...rest, rosterOmitted: true });
+      } else {
+        out.push(event);
+      }
+    }
+    return out;
   }
 
   /**

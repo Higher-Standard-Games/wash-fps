@@ -81,8 +81,12 @@ export class MatchStateManager {
     this._teamScores = event.teamScores ?? {};
     this._playerTeams = event.playerTeams ?? {};
     this._teamNames = event.teamNames ?? {};
-    this._spectators = event.spectators ?? [];
-    this._standings = event.standings ?? [];
+    // The server leaves the roster out once we hold it, and says so. Without
+    // that marker a missing list means an empty one.
+    if (event.rosterOmitted !== true) {
+      this._spectators = event.spectators ?? [];
+      this._standings = event.standings ?? [];
+    }
     // Parse winner BEFORE firing phase callbacks so PostGame subscribers see it.
     this._winner = event.winner ?? null;
     this._overtime = event.overtime ?? 0;

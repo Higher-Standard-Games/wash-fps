@@ -1410,6 +1410,9 @@ export class GameServer {
     client.sentSnapshots?.clear();
     client.lastAckedTick = 0;
     client.snapshotsSinceFull = 0;
+    // The new connection holds nothing yet: send every lasting value again.
+    client.sentState?.clear();
+    client.snapshotsSinceRefresh = undefined;
     client.lastInputSeq = 0;
     this.clients.set(conn.id, client);
     this.refreshHumanClientCount();
