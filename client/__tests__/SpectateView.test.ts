@@ -8,10 +8,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * pinned here is who gets watched and when, not how the camera moves.
  */
 
-const viewWeapon = { setVisible: vi.fn() };
+const viewWeapon = { setVisible: vi.fn(), isReady: true, init: vi.fn() };
+const powerups = { cleared: 0 };
+vi.mock("../LocalPowerupState", () => ({ clearLocalPowerups: () => powerups.cleared++ }));
 vi.mock("../../../../engine/weapon/WeaponViewManager", () => ({ getWeaponViewManager: () => viewWeapon }));
 const cameraSystem = {
   getCamera: () => ({ rotation: { x: 0.1, y: 1.5 } }),
+  getFreeCamera: () => ({ getScene: () => "scene" }),
   setController: vi.fn(),
   getController: vi.fn(() => null),
   registerController: vi.fn(),
@@ -41,7 +44,12 @@ function setup() {
     ["player_2", { position: { x: 2, y: 0, z: 0 }, dead: false }],
     ["player_9", { position: { x: 9, y: 0, z: 0 }, dead: false }],
   ]);
-  const remoteRenderer = { getRenderedPlayers: () => rendered, setHiddenEntity: vi.fn() };
+  const remoteRenderer = {
+    getRenderedPlayers: () => rendered,
+    setHiddenEntity: vi.fn(),
+    getEntitySample: (id: string) => (id === "player_2" ? { id } : null),
+  };
+  const enemyWeapons = new Map([["player_2", "riotgun"]]);
   const overlay = { setMode: vi.fn(), setSpectatingTarget: vi.fn() };
   // A spectator's list of who can be chased, in the order it cycles.
   const cycling = {
@@ -95,11 +103,33 @@ function setup() {
     spectatorOverlay: () => overlay as never,
     spectatorCycling: () => cycling as never,
     spectatorController: () => controller as never,
+    enemyWeapons: () => enemyWeapons,
   });
   const deathCamera = { start: vi.fn(), stop: vi.fn(), update: vi.fn(() => false) };
   const eyeCamera = { start: vi.fn(), stop: vi.fn(), update: vi.fn(() => false) };
-  Object.assign(view, { _deathCamera: deathCamera, _eyeCamera: eyeCamera });
-  return { view, state, rendered, remoteRenderer, overlay, gameState, deathCamera, eyeCamera, cycling, controller };
+  const followed = {
+    followedEntityId: null as string | null,
+    presentation: null,
+    follow: vi.fn((id: string | null) => {
+      followed.followedEntityId = id;
+    }),
+    showWeapon: vi.fn(),
+    updateMotion: vi.fn(),
+  };
+  Object.assign(view, { _deathCamera: deathCamera, _eyeCamera: eyeCamera, _followedWeapon: followed });
+  return {
+    view,
+    state,
+    rendered,
+    remoteRenderer,
+    overlay,
+    gameState,
+    deathCamera,
+    eyeCamera,
+    cycling,
+    controller,
+    followed,
+  };
 }
 
 function match(phase: number, round: number, extra: Record<string, unknown> = {}) {
@@ -123,6 +153,9 @@ describe("SpectateView", () => {
     now = 10_000;
     vi.spyOn(performance, "now").mockImplementation(() => now);
     viewWeapon.setVisible.mockClear();
+    viewWeapon.init.mockClear();
+    viewWeapon.isReady = true;
+    powerups.cleared = 0;
     cameraSystem.setController.mockClear();
     cameraSystem.registerController.mockClear();
   });
@@ -340,6 +373,67 @@ describe("SpectateView", () => {
       cycling.target = "player_2";
       view.syncChaseTarget();
       expect(controller.target).toBeNull();
+    });
+  });
+
+  describe("whose view it is", () => {
+    it("is the teammate while dead, the chase target while spectating, and our own otherwise", () => {
+      const { view, state, controller } = setup();
+      controller.target = "player_9";
+      expect(view.spectatingEntityId).toBeNull();
+      state.playerState = "spectator";
+      expect(view.spectatingEntityId).toBe("player_9");
+      view._spectatingEntityId = "player_2";
+      expect(view.spectatingEntityId).toBe("player_2");
+    });
+
+    it("puts the watched player's known weapon up once, when the view moves to them", () => {
+      const { view, followed, rendered } = setup();
+      rendered.get("player_2")!.dead = true;
+      view._spectatingEntityId = "player_2";
+      view.syncFollowedSubject();
+      view.syncFollowedSubject();
+      expect(followed.follow).toHaveBeenCalledTimes(1);
+      expect(followed.follow).toHaveBeenCalledWith("player_2", true);
+      expect(followed.showWeapon).toHaveBeenCalledWith("riotgun");
+      expect(powerups.cleared).toBe(1);
+    });
+
+    it("drops the gun for a spectator flying free, but leaves a player's own", () => {
+      const { view, state, followed } = setup();
+      view._spectatingEntityId = "player_2";
+      view.syncFollowedSubject();
+      view._spectatingEntityId = null;
+      view.syncFollowedSubject();
+      expect(followed.follow).toHaveBeenLastCalledWith(null);
+      expect(viewWeapon.setVisible).not.toHaveBeenCalled();
+
+      const spectator = setup();
+      spectator.state.playerState = "spectator";
+      spectator.controller.target = "player_3";
+      spectator.view.syncFollowedSubject();
+      spectator.controller.target = null;
+      spectator.view.syncFollowedSubject();
+      expect(viewWeapon.setVisible).toHaveBeenCalledWith(false);
+      expect(state.playerState).toBe("playing");
+    });
+
+    it("builds the view weapon for a spectator who never joined", () => {
+      const { view, state, controller } = setup();
+      viewWeapon.isReady = false;
+      state.playerState = "spectator";
+      controller.target = "player_3";
+      view.syncFollowedSubject();
+      expect(viewWeapon.init).toHaveBeenCalledWith("scene", expect.anything());
+    });
+
+    it("feeds the watched player's stride to their weapon", () => {
+      const { view, followed } = setup();
+      view.updateFollowedMotion();
+      expect(followed.updateMotion).not.toHaveBeenCalled();
+      followed.followedEntityId = "player_2";
+      view.updateFollowedMotion();
+      expect(followed.updateMotion).toHaveBeenCalledWith({ id: "player_2" }, expect.anything());
     });
   });
 });

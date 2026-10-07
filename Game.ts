@@ -38,7 +38,6 @@ import { BombRenderer } from "./client/BombRenderer";
 import { BombSiteMarkers } from "./client/BombSiteMarkers";
 import { Crosshair } from "./client/Crosshair";
 import type { DroppedWeaponRenderer } from "./client/DroppedWeaponRenderer";
-import { FollowedViewWeapon } from "./client/FollowedViewWeapon";
 import { registerFPSActions } from "./client/FPSActions";
 import { preloadFPSAudio } from "./client/FPSAudio";
 import { FPSBombAudio } from "./client/FPSBombAudio";
@@ -50,7 +49,6 @@ import { FrameEffects } from "./client/FrameEffects";
 import { type GameEventContext, handleServerStateUpdate } from "./client/GameEvents";
 import { HUDState } from "./client/HUDState";
 import { LocalLiquid } from "./client/LocalLiquid";
-import { clearLocalPowerups } from "./client/LocalPowerupState";
 import { MatchInputBindings } from "./client/MatchInputBindings";
 import { MatchMapLoader } from "./client/MatchMapLoader";
 import { MatchPhase, MatchStateManager } from "./client/MatchStateManager";
@@ -225,6 +223,7 @@ export class Game {
     spectatorOverlay: () => this.spectatorOverlay,
     spectatorCycling: () => this.spectatorCycling,
     spectatorController: () => this.spectatorController,
+    enemyWeapons: () => this.enemyWeapons,
   });
 
   /**
@@ -274,19 +273,11 @@ export class Game {
   }
 
   /**
-   * Whose eyes the view is currently behind, or null when it is our own: the
-   * teammate we watch while dead, or the player a spectator is chasing.
-   *
-   * Read by the event layer to decide who the HUD, the view weapon and the
-   * first-person sounds describe. A watched player's health, ammo and weapon
-   * all arrive in the same snapshot as ours — the server broadcasts
-   * combat_state and weapon_state for every player — so this is a routing
-   * question, not a networking one.
+   * Whose eyes the view is currently behind, or null when it is our own.
+   * Read by the event layer; see SpectateView.spectatingEntityId.
    */
   get spectatingEntityId(): string | null {
-    if (this.spectate._spectatingEntityId) return this.spectate._spectatingEntityId;
-    if (this.playerState !== "spectator") return null;
-    return this.spectatorController?.getTargetEntityId() ?? null;
+    return this.spectate.spectatingEntityId;
   }
   private _loadoutPicker: import("./client/hud/widgets/LoadoutPicker").FPSLoadoutPicker | null = null;
   /** Once chosen, the picker does not reappear on every rejoin this session. */
@@ -1077,55 +1068,6 @@ export class Game {
     this.spectate.exitChaseCam();
   }
 
-  /**
-   * Point the view weapon at whoever the camera is behind.
-   *
-   * The subject changes when a teammate view starts or ends, when a spectator
-   * picks or drops a chase target, and on joining. Powerup timers describe
-   * the same player the HUD does, so they start over with each subject; the
-   * server resends a running timer in every snapshot.
-   */
-  private syncFollowedSubject(): void {
-    const subject = this.spectatingEntityId;
-    if (subject === this.spectate._followedWeapon.followedEntityId) return;
-    clearLocalPowerups();
-    if (!subject) {
-      this.spectate._followedWeapon.follow(null);
-      // A spectator flying free has no gun in front of them. A player keeps
-      // theirs: it is already up, or the respawn path brings it back.
-      if (this.playerState === "spectator") getWeaponViewManager().setVisible(false);
-      return;
-    }
-    if (this.playerState === "spectator") this.ensureViewWeapon();
-    const dead = this.remoteRenderer?.getRenderedPlayers().get(subject)?.dead ?? false;
-    this.spectate._followedWeapon.follow(subject, dead);
-    // Up at once from what we already know they hold; their next
-    // weapon_state confirms it.
-    const weapon = this.enemyWeapons.get(subject);
-    if (weapon) this.spectate._followedWeapon.showWeapon(weapon);
-  }
-
-  /** The watched player's stride, for their weapon's sway and the camera's. */
-  private updateFollowedMotion(): void {
-    const entityId = this.spectate._followedWeapon.followedEntityId;
-    if (!entityId) return;
-    const sample = this.remoteRenderer?.getEntitySample(entityId);
-    if (sample) this.spectate._followedWeapon.updateMotion(sample, FollowedViewWeapon.liveClock(performance.now()));
-  }
-
-  /**
-   * The view weapon is built on joining, so a spectator who never joined has
-   * none. Build it on the shared camera the first time they ride someone's
-   * eyes; joining later rebuilds it for their own gun.
-   */
-  private ensureViewWeapon(): void {
-    const wvm = getWeaponViewManager();
-    if (wvm.isReady) return;
-    const camera = CameraSystem.getInstance().getFreeCamera();
-    const scene = camera?.getScene();
-    if (camera && scene) wvm.init(scene, camera);
-  }
-
   /** Switch the active camera to freefly controller (for spectator mode). */
   private switchToFreeflyCamera(): Promise<void> {
     return this.spectate.switchToFreeflyCamera();
@@ -1398,8 +1340,8 @@ export class Game {
 
     // Every frame as well as every snapshot: a camera change between two
     // snapshots must not leave the last player's gun up for a frame.
-    this.syncFollowedSubject();
-    this.updateFollowedMotion();
+    this.spectate.syncFollowedSubject();
+    this.spectate.updateFollowedMotion();
 
     // Your own splash, from prediction rather than from a snapshot. The remote
     // path in RemotePlayerRenderer covers everyone else; the local player is
@@ -1900,7 +1842,7 @@ export class Game {
     }
     // Before the events are routed, so this snapshot's weapon and death for
     // the watched player land on the right one.
-    this.syncFollowedSubject();
+    this.spectate.syncFollowedSubject();
 
     // Detect server-confirmed join: our entity appeared in snapshot.
     //

@@ -26,6 +26,7 @@ function gameWithDrySpectateCamera(): CameraOwnershipView {
     spectatorOverlay: () => null,
     spectatorCycling: () => null,
     spectatorController: () => null,
+    enemyWeapons: () => new Map(),
   }) as unknown as CameraOwnershipView;
   game._spectatingEntityId = "player_bot";
   game._eyeCamera = { update: vi.fn(() => false) };

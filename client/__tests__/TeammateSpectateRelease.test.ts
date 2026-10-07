@@ -43,6 +43,7 @@ function spectatingGame(): { game: SpectatingGame; spies: Spies } {
     spectatorOverlay: () => spectatorOverlay as never,
     spectatorCycling: () => null,
     spectatorController: () => null,
+    enemyWeapons: () => new Map(),
   });
   const game = Object.assign(view as unknown as SpectatingGame, {
     _deathCamera: { stop: spies.stop },
