@@ -7,6 +7,8 @@ import { Simulation } from "@engine/server/core/Simulation";
 import { createDroppedWeaponEntity, createPlayerEntity, createProjectileEntity } from "@engine/server/ecs/Entity";
 import { entityId, playerId } from "@engine/server/ecs/types";
 import type { PickupEntry } from "../../../shared/bsp/PickupTable";
+import { buildLoadout, DEFAULT_LOADOUT } from "../../../shared/server/gametype";
+import type { ClientInfo } from "../server/Client";
 import { Duel } from "../server/gametypes/Duel";
 import { GametypeController } from "../server/gametypes/GametypeController";
 import type { RecordedCmd, ReSimSpawn } from "../server/ReSim";
@@ -147,4 +149,34 @@ export function gridSpawns(players: number): ReSimSpawn[] {
     y: 500,
     z: Math.floor(i / side) * 64,
   }));
+}
+
+/**
+ * The snapshot world above as a live match sees it: every player connected as a client (so the
+ * scoreboard standings are filled in) and holding the default round loadout (so each sends a
+ * weapon_state). Each client's connection records the size of every datagram sent to it.
+ */
+export function broadcastContext(size: SnapshotFixtureSize): { ctx: SnapshotContext; sent: Map<string, number[]> } {
+  const ctx = snapshotContext(size);
+  const sent = new Map<string, number[]>();
+  const clients = ctx.clients as Map<string, ClientInfo>;
+  for (let i = 1; i <= size.players; i++) {
+    ctx.weaponSystem.initializeWeaponFromLoadout(entityId(i), buildLoadout(DEFAULT_LOADOUT));
+    const id = `client_${i}`;
+    const sizes: number[] = [];
+    sent.set(id, sizes);
+    clients.set(id, {
+      id,
+      playerId: playerId(i),
+      entityId: entityId(i),
+      playerName: `Player ${i}`,
+      resumeToken: "",
+      lastInputSeq: 0,
+      lastAckedTick: -1,
+      ping: 40,
+      isSpectator: false,
+      connection: { latency: 40, sendDatagram: (bytes: Uint8Array) => sizes.push(bytes.length) },
+    } as unknown as ClientInfo);
+  }
+  return { ctx, sent };
 }

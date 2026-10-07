@@ -38,6 +38,7 @@ Median, 95th and 99th percentile, and the spread **between runs** (± is the med
 | `snapshot.encode` | `BinaryProtocol.encodeSnapshot` of that, as a full snapshot | deltas, culling |
 | `snapshot.buildAndEncode` | both together | per-client work |
 | `snapshot.encodeClients16` | what the broadcaster does for 16 clients: one delta encode each | PVS culling, so an upper bound |
+| `snapshot.broadcast16` | `SnapshotBroadcaster.broadcast` to 16 clients holding the default loadout, every snapshot acknowledged: copy, delta, encode, send. Carries what a match sends (a `weapon_state` per player, the standings). Reports bytes per client and the bytes of those two events | PVS culling |
 | `pickups.update` | `PickupSystem.update`: 16 players, 60 pickups, none in reach | actual pickups |
 | `hitscan.resolve16` | one machinegun shot against 15 targets | collision, lag compensation |
 | `sim.tick16` | one tick of movement, weapons, combat and projectiles, 16 players on seeded input | collision world, gametype, pickups |

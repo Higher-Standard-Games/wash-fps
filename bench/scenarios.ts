@@ -7,13 +7,15 @@
  */
 
 import { EntityType } from "@engine/server/ecs/types";
+import type { GameState } from "../../../engine/network/core/GameState";
 import { BinaryProtocol } from "../../../engine/network/protocol/BinaryProtocol";
 import { MessageCodec } from "../../../engine/network/protocol/MessageCodec";
 import { createFullResim } from "../server/ReSim";
+import { SnapshotBroadcaster } from "../server/SnapshotBroadcaster";
 import { buildSnapshot } from "../server/SnapshotBuilder";
 import { PickupSystem } from "../server/systems/PickupSystem";
 import { WeaponSystem } from "../server/systems/WeaponSystem";
-import { gridSpawns, pickupEntries, snapshotContext, syntheticLog } from "./fixtures";
+import { broadcastContext, gridSpawns, pickupEntries, snapshotContext, syntheticLog } from "./fixtures";
 import { type BatchOptions, type EachOptions, measureBatch, measureEach, type Stats } from "./harness";
 
 export interface Prepared {
@@ -134,6 +136,68 @@ export const SCENARIOS: Scenario[] = [
         config: snapshotConfig({ clients: CLIENTS, iterations: 100, repeats: 15 }),
         batch: { iterations: 100, repeats: 15 },
         extras: () => ({ bytesAllClients: bytes, bytesPerClient: Math.round(bytes / CLIENTS) }),
+      };
+    },
+  },
+  {
+    name: "snapshot.broadcast16",
+    unit: "us per call",
+    description:
+      "SnapshotBroadcaster.broadcast for 16 connected clients, each holding the default round loadout, every client acknowledging each snapshot: the per-client copy, delta against the acknowledged one, encode and send, with every 64th a full snapshot as on a live server. Unlike encodeClients16 the snapshot carries what a match sends, a weapon_state per player and the scoreboard standings. No PVS culling.",
+    prepare() {
+      const CLIENTS = 16;
+      const { ctx, sent } = broadcastContext({ ...SNAPSHOT_SIZE, players: CLIENTS });
+      const broadcaster = new SnapshotBroadcaster(ctx.simulation);
+      const first = buildSnapshot(ctx);
+      // Two snapshots a couple of ticks of play apart, sent in turn, so every delta has something in it.
+      const world = ctx.simulation.getStateMut();
+      for (const entity of world.entitiesByType(EntityType.Player)) {
+        const mutable = world.getEntityMut(entity.id);
+        if (mutable?.transform)
+          mutable.transform.position = { ...mutable.transform.position, x: mutable.transform.position.x + 12 };
+      }
+      const second = buildSnapshot(ctx);
+      const states = [first, second];
+      let tick = 100;
+      const send = () => {
+        const state: GameState = states[tick % 2].shallowCopy();
+        state.tick = tick;
+        broadcaster.broadcast(ctx.clients, state);
+        for (const client of ctx.clients.values()) client.lastAckedTick = tick;
+        tick++;
+      };
+      send(); // the first full snapshot, so the timed ones are deltas
+      const events = (state: GameState, type: string) =>
+        BinaryProtocol.encodeSnapshot(
+          Object.assign(state.shallowCopy(), {
+            events: state.events.filter((event) => event.type === type),
+            entities: new Map(),
+            players: new Map(),
+            pickupActiveMask: [],
+          }),
+        ).length -
+        BinaryProtocol.encodeSnapshot(
+          Object.assign(state.shallowCopy(), {
+            events: [],
+            entities: new Map(),
+            players: new Map(),
+            pickupActiveMask: [],
+          }),
+        ).length;
+      return {
+        run: send,
+        config: snapshotConfig({ clients: CLIENTS, loadout: "default", iterations: 100, repeats: 15 }),
+        batch: { iterations: 100, repeats: 15 },
+        extras: () => {
+          const sizes = [...sent.values()][0];
+          const deltas = sizes.slice(1).sort((a, b) => a - b);
+          return {
+            bytesPerClient: deltas[Math.floor(deltas.length / 2)],
+            fullSnapshotBytes: sizes[0],
+            weaponStateBytes: events(second, "weapon_state"),
+            matchStateBytes: events(second, "match_state"),
+          };
+        },
       };
     },
   },
