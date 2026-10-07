@@ -3,11 +3,12 @@
  * Convergence under loss is SnapshotConvergence.test.ts; this pins the rule itself.
  */
 
-import { playerId } from "@engine/server/ecs/types";
+import { entityId, playerId } from "@engine/server/ecs/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GameState } from "../../../../engine/network/core/GameState";
 import { MessageCodec } from "../../../../engine/network/protocol/MessageCodec";
 import { broadcastContext } from "../../bench/fixtures";
+import { toClientKey } from "../../ClientEntityKey";
 import type { ClientInfo } from "../Client";
 import { SnapshotBroadcaster } from "../SnapshotBroadcaster";
 import { buildSnapshot } from "../SnapshotBuilder";
@@ -89,5 +90,30 @@ describe("leaving out the roster a client holds", () => {
     // The first snapshot, the one after it (acked only then), and one refresh per 125 after that.
     expect(carried).toBeLessThanOrEqual(4);
     expect(carried).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("leaving out other players' weapon state a client holds", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const weaponsIn = (state: GameState) =>
+    state.events.filter((event) => event.type === "weapon_state").map((event) => String(event.entityId));
+
+  it("always sends the client its own, and others only until acked or changed", () => {
+    const { ctx, client, send } = setup();
+    const own = toClientKey(client.entityId);
+    const first = send();
+    expect(weaponsIn(first.got)).toHaveLength(4);
+    client.lastAckedTick = first.got.tick;
+    expect(weaponsIn(send().got)).toEqual([own]);
+
+    const other = ctx.weaponSystem.getWeaponState(entityId(3));
+    if (!other) throw new Error("no weapon state");
+    other.lastFireTick = 999;
+    const changed = send();
+    expect(weaponsIn(changed.got).sort()).toEqual([own, toClientKey(entityId(3))].sort());
+    expect(weaponsIn(changed.shared)).toHaveLength(4);
+    client.lastAckedTick = changed.got.tick;
+    expect(weaponsIn(send().got)).toEqual([own]);
   });
 });

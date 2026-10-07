@@ -20,6 +20,7 @@ import type { ClientInfo } from "./Client";
 import { debugLog } from "./DebugLog";
 
 const ROSTER_KEY = "roster";
+const weaponKey = (entityId: string) => `weapon:${entityId}`;
 
 /** This snapshot's lasting state as strings, by key, made once and compared for every client. */
 function lastingStateOf(state: GameState): Map<string, string> {
@@ -27,6 +28,8 @@ function lastingStateOf(state: GameState): Map<string, string> {
   for (const event of state.events) {
     if (event.type === "match_state") {
       lasting.set(ROSTER_KEY, JSON.stringify([event.standings, event.spectators]));
+    } else if (event.type === "weapon_state") {
+      lasting.set(weaponKey(event.entityId), JSON.stringify(event));
     }
   }
   return lasting;
@@ -167,7 +170,9 @@ export class SnapshotBroadcaster {
   }
 
   /**
-   * Leave out lasting state this client already holds: the scoreboard roster in match_state.
+   * Leave out lasting state this client already holds: the scoreboard roster in match_state, and
+   * other players' weapon_state. The client's own weapon_state always goes out; its HUD and
+   * prediction reconcile against it every snapshot.
    *
    * A value goes out in every snapshot until the client acks one that carried it, then stays out
    * until it changes. The client stores these values before anything else in a snapshot runs
@@ -199,8 +204,12 @@ export class SnapshotBroadcaster {
       return refresh || client.lastAckedTick < kept.since;
     };
 
+    const own = toClientKey(client.entityId);
     const out: GameState["events"] = [];
     for (const event of events) {
+      if (event.type === "weapon_state" && event.entityId !== own && !needs(weaponKey(event.entityId))) {
+        continue;
+      }
       if (event.type === "match_state" && !needs(ROSTER_KEY)) {
         const { standings: _standings, spectators: _spectators, ...rest } = event;
         out.push({ ...rest, rosterOmitted: true });
