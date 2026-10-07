@@ -32,7 +32,6 @@ import { getHitscanEffects } from "../../../engine/weapon/HitscanEffects";
 import type { VoltaicRemoteStartResolver } from "../../../engine/weapon/voltaic/VoltaicEffectRenderer";
 import { WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
 import { maskHasPowerup } from "../../../shared/items/Powerups";
-import { isClientKey } from "../ClientEntityKey";
 import { DemoAnimationTimeline } from "./DemoAnimationTimeline";
 import { DemoEntityTimeline } from "./DemoEntityTimeline";
 import {
@@ -52,6 +51,14 @@ import {
   QUAD_WORLD_WEAPON_OUTLINE_MIN,
   QUAD_WORLD_WEAPON_OUTLINE_RANGE,
 } from "./QuadDamageVisual";
+import {
+  animationLodRadiusSq,
+  applyRoster,
+  deriveAnimation,
+  extractEntities,
+  IDLE_SPEED_THRESHOLD,
+  legacyTeamColor,
+} from "./RemotePlayerLogic";
 import { installTeamColorBridge } from "./TeamColorBridge";
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -113,19 +120,6 @@ const MODEL_SCALE = 36;
 // ~12u off the floor while walking (reported 2026-07-12). Browser-confirm the
 // exact value if feet clip into / hover above the floor.
 const MODEL_Y_OFFSET = 0;
-
-// ─── Animation derivation constants ─────────────────────────────
-const IDLE_SPEED_THRESHOLD = 50;
-
-/**
- * Below this 3-D speed a swimmer is treading rather than swimming.
- *
- * Lower than the walking threshold because a swimmer with no input still
- * sinks at 60 u/s, and that drift must not read as swimming — otherwise a
- * motionless player would never show the treading clip.
- */
-const SWIM_IDLE_SPEED_THRESHOLD = 70;
-const RUN_SPEED_THRESHOLD = 300;
 
 // Mixamo animation natural speeds (Q3 units/s at 1x playback)
 // Lower values → higher speedRatio → faster feet to match actual movement.
@@ -354,7 +348,7 @@ export class RemotePlayerRenderer {
     model.anchor.rotation.y = state.yaw;
     this.modelManager.resetRootMotion(model);
     if (resumed) model.currentAnim = "";
-    this.modelManager.playAnimation(model, this.deriveAnimation(state));
+    this.modelManager.playAnimation(model, deriveAnimation(state));
     if (resumed) model.masterGroup?.play(true);
   }
 
@@ -371,11 +365,7 @@ export class RemotePlayerRenderer {
 
   /** Keep legacy alpha/bravo names for older cosmetic effects. */
   private resolveLegacyTeamColor(entityId: string): "alpha" | "bravo" {
-    const slot = this.resolvePlayerTeamSlot(entityId);
-    if (slot === "ally") return "alpha";
-    if (slot === "enemy") return "bravo";
-    const hash = entityId.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
-    return hash % 2 === 0 ? "alpha" : "bravo";
+    return legacyTeamColor(this.resolvePlayerTeamSlot(entityId), entityId);
   }
 
   private applyModelVisualStyle(instance: PlayerModelInstance, entityId: string): string {
@@ -423,16 +413,12 @@ export class RemotePlayerRenderer {
     // The buffer owns freshness: a stale or duplicate tick must not roll the
     // roster or respawn bookkeeping back either, so nothing is applied until
     // the snapshot has been accepted.
-    const entities = this.extractEntities(state, localEntityId);
+    const entities = extractEntities(state, localEntityId);
     if (!this.snapshotBuffer.push(state.tick, entities, serverLocalTime)) return;
 
     // Track team per entity for team-colored models (keyed by client entityId)
-    for (const player of state.players.values()) {
-      this.teams.set(player.entityId, player.team || "ffa");
-      // Our own side comes from the same roster, so ally/enemy stays correct
-      // through a side swap without anyone having to push it in.
-      if (player.entityId === localEntityId) this.localTeam = player.team || null;
-    }
+    const localTeam = applyRoster(this.teams, state.players.values(), localEntityId);
+    if (localTeam !== undefined) this.localTeam = localTeam;
 
     this.clearRespawnedEntities(entities);
   }
@@ -464,51 +450,13 @@ export class RemotePlayerRenderer {
    */
   pushDemoSnapshot(state: GameState, localEntityId: string, lookahead = false): void {
     if (!this.demoTimeline) this.enableDemoPlayback();
-    for (const player of state.players.values()) {
-      this.teams.set(player.entityId, player.team || "ffa");
-      // Our own side comes from the same roster, so ally/enemy stays correct
-      // through a side swap without anyone having to push it in.
-      if (player.entityId === localEntityId) this.localTeam = player.team || null;
-    }
-    const entities = this.extractEntities(state, localEntityId);
+    const localTeam = applyRoster(this.teams, state.players.values(), localEntityId);
+    if (localTeam !== undefined) this.localTeam = localTeam;
+    const entities = extractEntities(state, localEntityId);
     this.demoTimeline?.push(state.tick, entities);
     if (!lookahead) {
       this.clearRespawnedEntities(entities);
     }
-  }
-
-  private extractEntities(state: GameState, localEntityId: string): Map<string, EntitySnapshot> {
-    const entities = new Map<string, EntitySnapshot>();
-    for (const [entityId, entity] of state.entities) {
-      if (entityId === localEntityId) continue;
-      if (!isClientKey(entityId)) continue;
-
-      const transform = entity.getComponent("transform") as any;
-      const velocity = entity.getComponent("velocity") as any;
-      const movementState = entity.getComponent("movementState") as any;
-      const powerups = entity.getComponent("powerups") as { mask?: number } | undefined;
-
-      if (!transform?.position) continue;
-
-      entities.set(entityId, {
-        x: transform.position.x,
-        y: transform.position.y,
-        z: transform.position.z,
-        yaw: transform.rotation?.y ?? 0,
-        vx: velocity?.linear?.x ?? velocity?.x ?? 0,
-        vy: velocity?.linear?.y ?? velocity?.y ?? 0,
-        vz: velocity?.linear?.z ?? velocity?.z ?? 0,
-        grounded: velocity?.grounded ?? true,
-        crouching: movementState?.isCrouching ?? false,
-        sliding: movementState?.isSliding ?? false,
-        wallJumping: movementState?.wallJumpState === "charging",
-        crouchViewOffset: movementState?.crouchViewOffset ?? 0,
-        powerupMask: powerups?.mask ?? 0,
-        waterLevel: movementState?.waterLevel ?? 0,
-        onLadder: movementState?.onLadder ?? false,
-      });
-    }
-    return entities;
   }
 
   private clearRespawnedEntities(entities: Map<string, EntitySnapshot>): void {
@@ -1176,20 +1124,14 @@ export class RemotePlayerRenderer {
    */
   private animationLodRadiusSq(camera: { fov?: number; mode?: number } | null): number {
     const engine = this.scene?.getEngine();
-    const fov = camera?.fov;
-    if (!engine || !fov || !Number.isFinite(fov) || fov <= 0) return 0;
-
-    // Perspective only: an orthographic camera's projected size does not fall
-    // off with distance, so the whole premise is absent.
-    if (camera?.mode !== undefined && camera.mode !== 0) return 0;
-
-    const renderHeight = engine.getRenderHeight();
-    if (!renderHeight) return 0;
-
-    // pixels = worldHeight / distance * renderHeight / (2 tan(fov/2))
-    const radius =
-      (PLAYER_HEIGHT * renderHeight) / (2 * Math.tan(fov / 2) * RemotePlayerRenderer.ANIMATION_LOD_MIN_PIXELS);
-    return Number.isFinite(radius) ? radius * radius : 0;
+    if (!engine || !camera) return 0;
+    return animationLodRadiusSq(
+      camera.fov,
+      camera.mode,
+      engine.getRenderHeight(),
+      PLAYER_HEIGHT,
+      RemotePlayerRenderer.ANIMATION_LOD_MIN_PIXELS,
+    );
   }
 
   private applyEntityLod(
@@ -1421,7 +1363,7 @@ export class RemotePlayerRenderer {
         inst.currentAnim = ""; // Force playAnimation to re-apply locomotion
       }
     }
-    const animName = this.deriveAnimation(interp);
+    const animName = deriveAnimation(interp);
     this.modelManager.playAnimation(inst, animName);
     this._animDebug(entityId, animName, interp, inst);
 
@@ -1723,77 +1665,6 @@ export class RemotePlayerRenderer {
         `vy=${interp.vy.toFixed(0)} ratio=${g?.speedRatio?.toFixed(2) ?? "—"} ` +
         `playing=${g?.isPlaying ?? false} frame=${frame?.toFixed(1) ?? "—"}`,
     );
-  }
-
-  /**
-   * Derive animation name from interpolated network data.
-   * Uses velocity, grounded state, and yaw — all available from SnapshotBuffer.
-   */
-  private deriveAnimation(interp: InterpolatedEntity): string {
-    // Walljump — player is on a wall, play wallrun animation
-    // Check BEFORE grounded/airborne since walljump happens while !grounded
-    if (interp.wallJumping) return "walljump";
-
-    // Swimming — must be checked before the airborne rule, because a swimmer
-    // is ungrounded and would otherwise read as mid-jump for as long as they
-    // stayed in the water. Moving lays the body flat; treading keeps it
-    // upright, which is also the split the swim hull follows.
-    if ((interp.waterLevel ?? 0) >= 2) {
-      const swimSpeed = Math.sqrt(interp.vx * interp.vx + interp.vy * interp.vy + interp.vz * interp.vz);
-      return swimSpeed < SWIM_IDLE_SPEED_THRESHOLD ? "swim_idle" : "swim";
-    }
-
-    // Climbing — checked before the airborne rule for the same reason as
-    // swimming: a climber is ungrounded and would otherwise read as mid-jump
-    // the whole way up. The clip's playback is driven by climb direction in
-    // applyAnimation, so one clip covers going up and coming down.
-    if (interp.onLadder) return "climb";
-
-    // Airborne — use jump for entire air time (Warsow-style)
-    if (!interp.grounded) return "jump";
-
-    // Crouchslide — takes priority over walk/run/strafe
-    if (interp.sliding) {
-      return "slide";
-    }
-
-    const speed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz);
-
-    // Crouching (not sliding) — use crouch walk animations
-    if (interp.crouching) {
-      if (speed < IDLE_SPEED_THRESHOLD) return "crouch_walk"; // Frozen first frame = crouch idle
-
-      const fwdX = Math.sin(interp.yaw);
-      const fwdZ = Math.cos(interp.yaw);
-      const rightX = fwdZ;
-      const rightZ = -fwdX;
-      const forwardDot = fwdX * interp.vx + fwdZ * interp.vz;
-      const rightDot = rightX * interp.vx + rightZ * interp.vz;
-
-      if (Math.abs(rightDot) > Math.abs(forwardDot) * 1.5) {
-        return rightDot > 0 ? "crouch_strafe_l" : "crouch_strafe_r";
-      }
-      return "crouch_walk"; // Backward handled by negative speedRatio
-    }
-
-    // Idle
-    if (speed < IDLE_SPEED_THRESHOLD) return "idle";
-
-    // Strafe detection
-    const fwdX = Math.sin(interp.yaw);
-    const fwdZ = Math.cos(interp.yaw);
-    const rightX = fwdZ;
-    const rightZ = -fwdX;
-
-    const forwardDot = fwdX * interp.vx + fwdZ * interp.vz;
-    const rightDot = rightX * interp.vx + rightZ * interp.vz;
-
-    if (Math.abs(rightDot) > Math.abs(forwardDot) * 1.5) {
-      return rightDot > 0 ? "strafe_l" : "strafe_r";
-    }
-
-    // Run vs walk
-    return speed > RUN_SPEED_THRESHOLD ? "run" : "walk";
   }
 }
 
