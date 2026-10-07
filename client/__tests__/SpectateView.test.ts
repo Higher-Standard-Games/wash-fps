@@ -25,6 +25,8 @@ vi.mock("../../../../engine/camera/controllers/FreeflyController", () => ({ Free
 
 const { SPECTATE_AFTER_DEATH_MS, SpectateView } = await import("../SpectateView");
 const { MatchPhase, MatchStateManager } = await import("../MatchStateManager");
+const { HUDState } = await import("../HUDState");
+const { PlayerWeaponStates } = await import("../SnapshotStateStore");
 
 type Rendered = Map<string, { position: { x: number; y: number; z: number }; dead: boolean }>;
 
@@ -50,6 +52,7 @@ function setup() {
     getEntitySample: (id: string) => (id === "player_2" ? { id } : null),
   };
   const enemyWeapons = new Map([["player_2", "riotgun"]]);
+  const playerWeapons = new PlayerWeaponStates();
   const overlay = { setMode: vi.fn(), setSpectatingTarget: vi.fn() };
   // A spectator's list of who can be chased, in the order it cycles.
   const cycling = {
@@ -104,6 +107,7 @@ function setup() {
     spectatorCycling: () => cycling as never,
     spectatorController: () => controller as never,
     enemyWeapons: () => enemyWeapons,
+    playerWeapons: () => playerWeapons,
   });
   const deathCamera = { start: vi.fn(), stop: vi.fn(), update: vi.fn(() => false) };
   const eyeCamera = { start: vi.fn(), stop: vi.fn(), update: vi.fn(() => false) };
@@ -129,6 +133,7 @@ function setup() {
     cycling,
     controller,
     followed,
+    playerWeapons,
   };
 }
 
@@ -397,6 +402,28 @@ describe("SpectateView", () => {
       expect(followed.follow).toHaveBeenCalledWith("player_2", true);
       expect(followed.showWeapon).toHaveBeenCalledWith("riotgun");
       expect(powerups.cleared).toBe(1);
+    });
+
+    it("puts the new target's stored gun and ammo up at once, not the last target's", () => {
+      const { view, followed, playerWeapons } = setup();
+      playerWeapons.set({
+        type: "weapon_state",
+        entityId: "player_2",
+        currentWeapon: "machinegun",
+        weapons: ["blade", "machinegun"],
+        ammo: { machinegun: { clip: 17, reserve: 90 } },
+        reloading: false,
+        lastFireTick: 0,
+      });
+      const hud = vi.spyOn(HUDState.getInstance(), "processWeaponState");
+      view._spectatingEntityId = "player_2";
+      view.syncFollowedSubject();
+      expect(followed.showWeapon).toHaveBeenCalledWith("machinegun");
+      expect(hud).toHaveBeenCalledWith({
+        currentWeapon: "machinegun",
+        weapons: ["blade", "machinegun"],
+        ammo: { machinegun: { clip: 17, reserve: 90 } },
+      });
     });
 
     it("drops the gun for a spectator flying free, but leaves a player's own", () => {

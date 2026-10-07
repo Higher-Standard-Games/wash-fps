@@ -20,9 +20,11 @@ import { getWeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
 import { clientKeyDisplayId } from "../ClientEntityKey";
 import { DeathCamera } from "./DeathCamera";
 import { FollowedViewWeapon } from "./FollowedViewWeapon";
+import { handleSpectatedWeaponState } from "./GameEvents";
 import { clearLocalPowerups } from "./LocalPowerupState";
 import { MatchPhase, MatchStateManager } from "./MatchStateManager";
 import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
+import type { PlayerWeaponStates } from "./SnapshotStateStore";
 import { SpectateEyeCamera } from "./SpectateEyeCamera";
 import type { SpectatorOverlay } from "./SpectatorOverlay";
 
@@ -50,6 +52,7 @@ export interface SpectateHost {
   spectatorCycling(): SpectatorCycling | null;
   spectatorController(): SpectatorController | null;
   enemyWeapons(): Map<string, string>;
+  playerWeapons(): PlayerWeaponStates;
 }
 
 export class SpectateView {
@@ -516,10 +519,16 @@ export class SpectateView {
     if (this.host.playerState() === "spectator") this.ensureViewWeapon();
     const dead = this.host.remoteRenderer()?.getRenderedPlayers().get(subject)?.dead ?? false;
     this._followedWeapon.follow(subject, dead);
-    // Up at once from what we already know they hold; their next
-    // weapon_state confirms it.
-    const weapon = this.host.enemyWeapons().get(subject);
-    if (weapon) this._followedWeapon.showWeapon(weapon);
+    // Up at once, gun and ammo, from the last weapon_state we stored for them.
+    // The server sends it again only when it changes, so waiting for the next
+    // one would leave the previous target's ammo on the HUD.
+    const state = this.host.playerWeapons().get(subject);
+    if (state) {
+      handleSpectatedWeaponState(state, this._followedWeapon);
+    } else {
+      const weapon = this.host.enemyWeapons().get(subject);
+      if (weapon) this._followedWeapon.showWeapon(weapon);
+    }
   }
 
   /** The watched player's stride, for their weapon's sway and the camera's. */

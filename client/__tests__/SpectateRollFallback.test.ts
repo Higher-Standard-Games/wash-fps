@@ -1,5 +1,6 @@
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { describe, expect, it, vi } from "vitest";
+import { PlayerWeaponStates } from "../SnapshotStateStore";
 import { SpectateView } from "../SpectateView";
 
 interface CameraTarget {
@@ -27,6 +28,7 @@ function gameWithDrySpectateCamera(): CameraOwnershipView {
     spectatorCycling: () => null,
     spectatorController: () => null,
     enemyWeapons: () => new Map(),
+    playerWeapons: () => new PlayerWeaponStates(),
   }) as unknown as CameraOwnershipView;
   game._spectatingEntityId = "player_bot";
   game._eyeCamera = { update: vi.fn(() => false) };

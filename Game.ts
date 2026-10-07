@@ -54,6 +54,7 @@ import { MatchMapLoader } from "./client/MatchMapLoader";
 import { MatchPhase, MatchStateManager } from "./client/MatchStateManager";
 import { RemotePlayerRenderer } from "./client/RemotePlayerRenderer";
 import { ServerProjectiles } from "./client/ServerProjectiles";
+import { PlayerWeaponStates, storeSnapshotState } from "./client/SnapshotStateStore";
 import { SpectateView } from "./client/SpectateView";
 import { type FPSInputCommand, FPSSimulation } from "./simulation/FPSSimulation";
 
@@ -165,6 +166,8 @@ export class Game {
   private _lastServerWeapon: string | undefined = undefined;
   /** Maps remote player entityId → currentWeapon string (for third-person rendering) */
   public readonly enemyWeapons: Map<string, string> = new Map();
+  /** Every player's last weapon_state, for the HUD when we start watching them. */
+  readonly playerWeapons = new PlayerWeaponStates();
 
   // Remote blade charge glow tracking
   /** Entity IDs currently charging their blade (for third-person glow) */
@@ -224,6 +227,7 @@ export class Game {
     spectatorCycling: () => this.spectatorCycling,
     spectatorController: () => this.spectatorController,
     enemyWeapons: () => this.enemyWeapons,
+    playerWeapons: () => this.playerWeapons,
   });
 
   /**
@@ -1715,6 +1719,9 @@ export class Game {
     this.spectatorOverlay = null;
     MatchStateManager.destroy();
     HUDState.destroy();
+    // Per connection, like the match state: the next server sends its own.
+    this.playerWeapons.clear();
+    this.enemyWeapons.clear();
 
     console.log("[Game] Shutdown complete");
   } // ========================================================================
@@ -1826,6 +1833,15 @@ export class Game {
    * Handle state update from simulation — delegates to GameEvents module
    */
   private onServerStateUpdate(state: GameState): void {
+    // First, before anything here can throw: the match state and every player's
+    // weapon state. The snapshot is already acked, and the server sends these
+    // only until we have them (client/SnapshotStateStore.ts).
+    storeSnapshotState(state, {
+      weapons: this.playerWeapons,
+      enemyWeapons: this.enemyWeapons,
+      localEntityId: state.players.get(this.gameHost?.localPlayerId || this.localPlayerId)?.entityId,
+    });
+
     // Store latest state for spectator target provider
     this._latestGameState = state;
 

@@ -2,6 +2,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { MatchPhase, MatchStateManager } from "../MatchStateManager";
+import { PlayerWeaponStates } from "../SnapshotStateStore";
 import { SpectateView } from "../SpectateView";
 
 /**
@@ -44,6 +45,7 @@ function spectatingGame(): { game: SpectatingGame; spies: Spies } {
     spectatorCycling: () => null,
     spectatorController: () => null,
     enemyWeapons: () => new Map(),
+    playerWeapons: () => new PlayerWeaponStates(),
   });
   const game = Object.assign(view as unknown as SpectatingGame, {
     _deathCamera: { stop: spies.stop },
