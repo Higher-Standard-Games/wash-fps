@@ -49,6 +49,7 @@ import { playEmptyClipSound } from "./client/FPSCombatAudio";
 import { FPSHud } from "./client/FPSHud";
 import { playDrownGasp, playDrownTick } from "./client/FPSLiquidAudio";
 import { playJumppadLaunch, resetFPSMovementAudio } from "./client/FPSMovementAudio";
+import { FrameEffects } from "./client/FrameEffects";
 // Game event handling (extracted from this file)
 import { type GameEventContext, handleServerStateUpdate } from "./client/GameEvents";
 import { HUDState } from "./client/HUDState";
@@ -234,15 +235,8 @@ export class Game {
   private pendingTick: number = 0;
 
   // Cached effect system singletons (lazy-resolved, avoids per-frame import())
-  private _gibSystem: any = null;
-  private _gibSystemLoading = false; // true while import() is pending
-  private _pendingGibSpawns: { x: number; y: number; z: number; vx: number; vy: number; vz: number }[] = [];
-  private _damageNumbers: any = null;
-  private _damageOverlay: any = null;
-  private _ragdollSystem: any = null;
-  private _ragdollSystemLoading = false;
-  private _cartoonHit: any = null;
-  private _cartoonHitLoading = false;
+  /** Gibs, ragdolls, damage numbers and hit sprites, ticked from renderRemotePlayers. */
+  private readonly effects = new FrameEffects(() => CameraSystem.getInstance().getCamera()?.getScene());
   /** Smoothed corpse-follow death camera. Driven by FPSController each frame. */
   private _deathCamera: DeathCamera = new DeathCamera();
   /** First-person view of a living teammate, while dead in a round mode. */
@@ -1813,37 +1807,7 @@ export class Game {
     }
 
     // Update gib physics (gravity, bouncing, tumble, fade)
-    if (!this._gibSystem && !this._gibSystemLoading) {
-      // Eagerly init on first frame so it's ready for death events
-      this._gibSystemLoading = true;
-      import("./client/GibSystem")
-        .then((m) => {
-          const gibs = m.GibSystem.getInstance();
-          const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
-          if (gameScene) {
-            gibs.init(gameScene); // init() handles scene changes gracefully
-          }
-          if (gibs["scene"]) {
-            this._gibSystem = gibs;
-            console.log(`[GibSystem] Initialized, flushing ${this._pendingGibSpawns.length} pending spawns`);
-            // Flush any gib spawns that queued while loading
-            for (const pending of this._pendingGibSpawns) {
-              gibs.spawn(pending.x, pending.y, pending.z, pending.vx, pending.vy, pending.vz);
-            }
-            this._pendingGibSpawns = [];
-          } else {
-            // Scene not ready yet — allow retry on next frame
-            console.log(`[GibSystem] Scene not ready, will retry next frame`);
-            this._gibSystemLoading = false;
-          }
-        })
-        .catch((e) => {
-          console.error("[GibSystem] Failed to load GibSystem module:", e);
-          this._gibSystemLoading = false;
-        });
-    } else if (this._gibSystem) {
-      this._gibSystem.update(dtSec);
-    }
+    this.effects.updateGibs(dtSec);
 
     // The S&D bomb. Lazily built once there is a scene, and a no-op in every
     // other mode — it hides itself when the objective snapshot has no bomb.
@@ -1878,77 +1842,8 @@ export class Game {
     // rather than the bomb's.
     this.bombAudio.updateRound(match.phase, match.timeRemaining, match.bomb, attacking);
 
-    // Update ragdoll physics (Havok-driven skeleton ragdolls)
-    if (!this._ragdollSystem && !this._ragdollSystemLoading) {
-      this._ragdollSystemLoading = true;
-      import("./client/RagdollSystem")
-        .then((m) => {
-          const ragdolls = m.RagdollSystem.getInstance();
-          const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
-          if (gameScene) {
-            ragdolls.init(gameScene);
-            // Wire gib explosion callback (Warsow-style ragdoll cleanup)
-            if (this._gibSystem) {
-              ragdolls.setGibCallback((x: number, y: number, z: number, vx: number, vy: number, vz: number) => {
-                this._gibSystem?.spawn(x, y, z, vx, vy, vz);
-              });
-            }
-            this._ragdollSystem = ragdolls;
-            console.log("[RagdollSystem] Initialized");
-          } else {
-            console.log("[RagdollSystem] Scene not ready, will retry");
-            this._ragdollSystemLoading = false;
-          }
-        })
-        .catch((e) => {
-          console.error("[RagdollSystem] Failed to load:", e);
-          this._ragdollSystemLoading = false;
-        });
-    } else if (this._ragdollSystem) {
-      this._ragdollSystem.update(dtSec);
-    }
-
-    // Update floating damage numbers (float upward, fade out)
-    if (this._damageNumbers) {
-      this._damageNumbers.update(dtSec);
-    } else {
-      import("./client/DamageNumbers").then((m) => {
-        const dn = m.DamageNumbers.getInstance();
-        if (dn["scene"]) this._damageNumbers = dn;
-      });
-    }
-
-    // Update damage overlay (directional red triangles + vignette)
-    if (this._damageOverlay) {
-      this._damageOverlay.update(dtSec);
-    } else {
-      import("../../engine/ui/hud/DamageOverlay").then((m) => {
-        this._damageOverlay = m.DamageOverlay.getInstance();
-      });
-    }
-
-    // Update cartoon hit effects (Warsow-style POW! sprites)
-    if (!this._cartoonHit && !this._cartoonHitLoading) {
-      this._cartoonHitLoading = true;
-      import("./client/CartoonHitEffect")
-        .then((m) => {
-          const ch = m.CartoonHitEffect.getInstance();
-          const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
-          if (gameScene) {
-            ch.init(gameScene);
-            this._cartoonHit = ch;
-            console.log("[CartoonHitEffect] Initialized");
-          } else {
-            this._cartoonHitLoading = false;
-          }
-        })
-        .catch((e) => {
-          console.error("[CartoonHitEffect] Failed to load:", e);
-          this._cartoonHitLoading = false;
-        });
-    } else if (this._cartoonHit) {
-      this._cartoonHit.update(dtSec);
-    }
+    // Ragdolls, floating damage numbers, damage overlay, cartoon hit sprites
+    this.effects.updateHitEffects(dtSec);
 
     // Update charge glow lights (pulsing red glow for remote players charging blade)
     if (this.chargingPlayers.size > 0) {
@@ -2362,10 +2257,10 @@ export class Game {
         set _respawnCooldownEnd(v) {
           Game.getInstance()._respawnCooldownEnd = v;
         },
-        _gibSystem: this._gibSystem,
-        _pendingGibSpawns: this._pendingGibSpawns,
-        _ragdollSystem: this._ragdollSystem,
-        _cartoonHit: this._cartoonHit,
+        _gibSystem: this.effects.gibSystem,
+        _pendingGibSpawns: this.effects.pendingGibSpawns,
+        _ragdollSystem: this.effects.ragdollSystem,
+        _cartoonHit: this.effects.cartoonHit,
         _deathCamera: this._deathCamera,
         get spectatingEntityId() {
           return Game.getInstance().spectatingEntityId;
@@ -2395,9 +2290,9 @@ export class Game {
     this._eventCtx.gameHost = this.gameHost;
     this._eventCtx.v2Client = this.v2Client;
     this._eventCtx.isNetworkMode = this.isNetworkMode;
-    this._eventCtx._gibSystem = this._gibSystem;
-    this._eventCtx._ragdollSystem = this._ragdollSystem;
-    this._eventCtx._cartoonHit = this._cartoonHit;
+    this._eventCtx._gibSystem = this.effects.gibSystem;
+    this._eventCtx._ragdollSystem = this.effects.ragdollSystem;
+    this._eventCtx._cartoonHit = this.effects.cartoonHit;
     return this._eventCtx;
   }
 
