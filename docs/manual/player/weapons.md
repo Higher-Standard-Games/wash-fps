@@ -45,7 +45,7 @@ The mid-range workhorse. Pair with strafe-jumping for hit-and-run tracking.
 
 Shotgun spread, multiple pellets per shot.
 
-- **Damage** — 5 per pellet × 18 pellets = 90 maximum. Pellet damage is rounded per hit, so a perfect point-blank shot is a 90, not a 100.
+- **Damage** — 5 per pellet × 18 pellets = 90 maximum. Pellet damage is rounded per hit, so a perfect point-blank shot is a 90, not a 100. **No headshot bonus:** a pellet that lands high counts as a body hit (see [Damage and Combat Rules](./combat.md#hit-locations)).
 - **Fire rate** — 1.25 shots/sec (800 ms between shots).
 - **Ammo** — `shells` (8-round clip).
 - **Light** — +5 run speed while held.

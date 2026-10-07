@@ -4,7 +4,7 @@ How a hit becomes damage, armor loss and a push. These rules are the same for ev
 
 ## Hit locations
 
-Hitscan weapons (Machinegun, Riotgun, Voltaic, Electrobolt, Instagun and the Blade) test where on the body the shot lands:
+Hitscan weapons (Machinegun, Riotgun, Voltaic, Electrobolt, Instagun and the Blade) test where on the body the shot lands. The **Riotgun is the exception for the head**: see below.
 
 | Location | Where | Damage |
 |----------|-------|-------:|
@@ -16,7 +16,7 @@ The head bonus is deliberately small. It rewards good aim and applies the same t
 
 A **head hit shows as an orange damage number** (instead of white, or yellow for a big hit) and **holds the crosshair's hit flash about half as long again**, so you can tell you got one.
 
-Each Riotgun pellet is judged on its own, so a point-blank shot can mix locations. Their damage is added up into one number, and if any pellet hit the head, that number is a head hit. Projectile and splash damage always counts as a body hit. Damage is rounded to whole numbers after multipliers, and stacks with Quad Damage.
+**The Riotgun has no headshots.** Its pellets are a distributed blast, not an aimed shot, so a pellet that lands high counts as a body hit. Pellets that land low still count as leg hits, each one judged on its own, and their damage is added up into one number. Projectile and splash damage always counts as a body hit. Damage is rounded to whole numbers after multipliers, and stacks with Quad Damage.
 
 ## Armor
 

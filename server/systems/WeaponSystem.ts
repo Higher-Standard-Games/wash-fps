@@ -43,6 +43,21 @@ const PROJECTILE_DEFS: Record<string, ProjectileDef> = {
   [GRENADE.id]: GRENADE,
 };
 
+/** A weapon that fires a spread of pellets in one shot (the riotgun). */
+export function firesPellets(weapon: WeaponDef): weapon is WeaponDef & { pelletCount: number; spread: number } {
+  return !!weapon.pelletCount && weapon.pelletCount > 1 && !!weapon.spread;
+}
+
+/**
+ * Where a hit by `weapon` counts as landing, given its height above or below the target's origin.
+ *
+ * A spread of pellets is a distributed blast, not an aimed shot, so no pellet is a headshot: one
+ * that lands high counts as a body hit. Leg hits still count.
+ */
+export function locateHit(weapon: WeaponDef, yOffset: number): HitLocation {
+  const location = classifyHitLocation(yOffset);
+  return location === HitLocation.Head && firesPellets(weapon) ? HitLocation.Body : location;
+}
 /**
  * Refire interval in ticks for a weapon. Prefers an explicit `fireIntervalTicks`
  * override, else the *nearest* tick to the authored `fireRate`. Previously this
@@ -1270,7 +1285,7 @@ export class WeaponSystem extends Subsystem {
 
       // Hit!
       const yOffset = closestPoint.y - target.transform.position.y;
-      const hitLocation = classifyHitLocation(yOffset);
+      const hitLocation = locateHit(weapon, yOffset);
 
       this.pendingDamage.push({
         victimId: target.id,
@@ -1361,7 +1376,7 @@ export class WeaponSystem extends Subsystem {
     const rewind = this.rewindFor(state, shooter);
 
     // Pellet weapons (riotgun): fire N rays with seeded spread
-    if (weapon.pelletCount && weapon.pelletCount > 1 && weapon.spread) {
+    if (firesPellets(weapon)) {
       // Increment shot count for seed uniqueness
       const shotCount = (this.shotCounts.get(shooter.id) || 0) + 1;
       this.shotCounts.set(shooter.id, shotCount);
@@ -1660,7 +1675,7 @@ export class WeaponSystem extends Subsystem {
       const normalLength = Math.sqrt(normalX * normalX + normalY * normalY + normalZ * normalZ) || 1;
       // Hit! Determine location based on Y offset
       const yOffset = closestPoint.y - targetPos.y;
-      const hitLocation = classifyHitLocation(yOffset);
+      const hitLocation = locateHit(weapon, yOffset);
 
       best = {
         entryDistance,

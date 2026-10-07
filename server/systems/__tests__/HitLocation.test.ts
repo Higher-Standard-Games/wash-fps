@@ -1,6 +1,7 @@
 import { EntityType } from "@engine/server/ecs/types";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_VIEWHEIGHT } from "../../../../../engine/physics/PlayerPhysicsConstants";
+import { WEAPONS } from "../../../../../shared/entities/definitions/weapons/WeaponsTable";
 import {
   CombatSystem,
   classifyHitLocation,
@@ -11,7 +12,7 @@ import {
   LEGS_DAMAGE_MULTIPLIER,
   LEGS_MAX_OFFSET,
 } from "../CombatSystem";
-import { WeaponSystem } from "../WeaponSystem";
+import { firesPellets, locateHit, WeaponSystem } from "../WeaponSystem";
 
 /**
  * Where a hit lands decides how much it does: a head hit does 10% more, a leg hit 25% less.
@@ -124,13 +125,13 @@ describe("a real hitscan shot", () => {
     ...over,
   });
 
-  function shootAt(offset: number) {
+  function shootAt(offset: number, weapon = "machinegun") {
     const sys = new WeaponSystem();
     sys.initializeWeaponFromLoadout(
       1 as never,
       {
-        weapons: ["machinegun"],
-        ammo: { machinegun: 160 },
+        weapons: [weapon],
+        ammo: { [weapon]: 160 },
         health: 100,
         armor: 0,
       } as never,
@@ -199,5 +200,37 @@ describe("a real hitscan shot", () => {
       100 as never,
     );
     expect(sys.getAccuracy(1 as never)).toMatchObject({ shots: 1, hits: 1, headshots: 1 });
+  });
+
+  it("never scores a riotgun pellet as a head hit, even at head height", () => {
+    // 18 pellets spread over 8 degrees: plenty land in the head band, none count as a headshot.
+    const pellets = shootAt(28, "riotgun");
+    expect(pellets.length).toBeGreaterThan(1);
+    expect(pellets.some((pellet) => pellet.hitLocation === HitLocation.Head)).toBe(false);
+    expect(pellets.every((pellet) => pellet.hitLocation === HitLocation.Body)).toBe(true);
+  });
+
+  it("still scores a riotgun pellet that lands low as a leg hit", () => {
+    const pellets = shootAt(-28, "riotgun");
+    expect(pellets.some((pellet) => pellet.hitLocation === HitLocation.Legs)).toBe(true);
+  });
+});
+
+describe("which weapons can score a head hit", () => {
+  const others = ["machinegun", "electrobolt", "instagun", "voltaic", "blade"];
+
+  it("recognises the riotgun as a pellet weapon, and no other", () => {
+    expect(firesPellets(WEAPONS.riotgun)).toBe(true);
+    for (const id of others) expect(firesPellets(WEAPONS[id]), id).toBe(false);
+  });
+
+  it("gives every other weapon the head hit it earns", () => {
+    for (const id of others) expect(locateHit(WEAPONS[id], 25), id).toBe(HitLocation.Head);
+  });
+
+  it("turns a riotgun's head-height hit into a body hit and leaves the rest alone", () => {
+    expect(locateHit(WEAPONS.riotgun, 25)).toBe(HitLocation.Body);
+    expect(locateHit(WEAPONS.riotgun, 0)).toBe(HitLocation.Body);
+    expect(locateHit(WEAPONS.riotgun, -25)).toBe(HitLocation.Legs);
   });
 });
