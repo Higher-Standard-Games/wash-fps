@@ -25,6 +25,7 @@ import { DemoService } from "./DemoService";
 import { type DemoScope, DemosView } from "./DemosView";
 import { ensureFpsLobbyConnection, getFpsLobbyClient } from "./FpsLobbyService";
 import { LeaderboardView } from "./LeaderboardView";
+import { describeRoom, playKeys, roomCountLabel, sortRooms } from "./LobbyRooms";
 import { bindFeaturedDemos, bindLeaderboard, newUiApi } from "./NewUiApi";
 import { ProfileView } from "./ProfileView";
 import { buildRailBrand } from "./RailBrand";
@@ -858,24 +859,18 @@ export class LobbyPanel extends GamePanel {
     const button = this.findButton;
     if (!button) return;
     const mode = GAME_MODES.find((item) => item.id === this.selectedModeId) ?? GAME_MODES[0];
-    const available = newUiApi.getMode(mode.id, this.serverGametypes).status === "ready";
-    button.disabled = this.queuePending || !this.lobbyClient.connected || !available;
-    const label = this.queuePending
-      ? "Joining…"
-      : !this.lobbyClient.connected
-        ? "Lobby offline"
-        : available
-          ? `Find ${mode.title}`
-          : `${mode.title} soon`;
-    setRaisedKeyText(button, label);
+    const keys = playKeys({
+      modeTitle: mode.title,
+      available: newUiApi.getMode(mode.id, this.serverGametypes).status === "ready",
+      connected: this.lobbyClient.connected,
+      queuePending: this.queuePending,
+      privateLobbySupported: this.privateLobbySupported,
+    });
+    button.disabled = keys.find.disabled;
+    setRaisedKeyText(button, keys.find.label);
     if (this.privateButton) {
-      this.privateButton.disabled =
-        this.queuePending || !this.lobbyClient.connected || !available || !this.privateLobbySupported;
-      this.privateButton.title = !this.privateLobbySupported
-        ? "This lobby server does not offer private rooms."
-        : !available
-          ? "This mode is not offered by the lobby server."
-          : "Create an invite-only room.";
+      this.privateButton.disabled = keys.private.disabled;
+      this.privateButton.title = keys.private.title;
     }
   }
 
@@ -923,15 +918,8 @@ export class LobbyPanel extends GamePanel {
   private refreshMatchList(): void {
     for (const match of this.liveMatches) rememberMapTitle(match.map, match.mapDisplayName);
     if (!this.matchListEl) return;
-    const joinable = (match: LiveMatchInfo) => match.state === "waiting" && match.playerCount < match.maxPlayers;
-    const rank = (match: LiveMatchInfo) => (joinable(match) ? 0 : match.state === "waiting" ? 1 : 2);
-    // Joinable first, fewest seats left on top; then full rooms about to start; then running matches
-    const matches = [...this.liveMatches].sort(
-      (a, b) => rank(a) - rank(b) || a.maxPlayers - a.playerCount - (b.maxPlayers - b.playerCount),
-    );
-    if (this.matchCountBadge) {
-      this.matchCountBadge.textContent = `${matches.filter(joinable).length} open · ${matches.length}`;
-    }
+    const matches = sortRooms(this.liveMatches);
+    if (this.matchCountBadge) this.matchCountBadge.textContent = roomCountLabel(matches);
     if (matches.length === 0) {
       const empty = document.createElement("p");
       empty.className = "lobby__rail-empty";
@@ -945,12 +933,7 @@ export class LobbyPanel extends GamePanel {
     this.matchListEl.replaceChildren(
       ...matches.map((match) => {
         const mode = GAME_MODES.find((item) => item.id === match.gametype);
-        // A match under way takes players while it has room, as a Quake or
-        // Warsow server does; a full one can still be watched.
-        const dropIn = match.state === "playing" && !!match.serverUrl && match.playerCount < match.maxPlayers;
-        const action = match.state === "playing" ? (dropIn ? "join" : "watch") : joinable(match) ? "join" : "full";
-        const where =
-          match.state === "playing" ? match.mapDisplayName || match.map : action === "full" ? "Starting" : "Open";
+        const { action, where, disabled } = describeRoom(match);
 
         const mark = document.createElement("span");
         mark.className = "lobby__room-mark";
@@ -971,7 +954,7 @@ export class LobbyPanel extends GamePanel {
         const row = createRaisedKey({ variants: ["sm", "cream", "room"], content: [mark, name, map, count, badge] });
         row.classList.add(`lobby__room--${match.state}`);
         row.style.setProperty("--mode-mark", mode?.mark ?? "hsl(250 20% 40%)");
-        row.disabled = action === "full" || (action === "watch" && !match.serverUrl);
+        row.disabled = disabled;
         row.setAttribute(
           "aria-label",
           `${action} ${name.textContent}, ${where}: ${match.playerCount} of ${match.maxPlayers} players`,
