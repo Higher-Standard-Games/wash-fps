@@ -29,3 +29,14 @@ Puts the hit location on the wire so the client can show a head hit differently.
 
 - `npx vitest run` on the engine with this game copied in: 3,691 tests pass and 6 fail, in 4 files. Five of them (bot weights and snapshot rate: `FrameSpacing`, `HybridBrainOutputs`, `HybridBrain`) fail identically with the patch removed. The sixth, `MapCommand`, passes on its own (twice) and on a run without the patch, so it is flaky under the full parallel run.
 - `npx tsc --noEmit` is clean.
+
+## engine-binary-encoder-speed.patch
+
+Makes snapshot encoding about 6 times faster with identical output. QA item 8 (`../v0.9.25-QA.md`). **Apply after `engine-damage-hit-location.patch`**: it is diffed against `BinaryProtocol.ts` with that patch in place (it touches different lines, so it normally applies on its own too; check with `git apply --check`).
+
+| File | Change |
+|------|--------|
+| `src/shared/net/BinaryProtocol.ts` | `BinaryEncoder.writeString` encodes straight into the buffer with `encodeInto` instead of allocating an array per string; `getData` copies with `Uint8Array.slice` instead of `ArrayBuffer.slice` |
+| `src/shared/net/__tests__/Utf8Encoder.test.ts` | Pins the bytes against `TextEncoder` for empty, ASCII, accented, CJK, astral, lone-surrogate and very long strings |
+
+No wire or demo format change, so nothing to ship in step: the server alone benefits. Measured with this repo's `bench/` (16 clients, one snapshot): 2,437 µs → 398 µs.

@@ -42,6 +42,7 @@ import { getNextBotName } from "./BotNames";
 // Client types (shared with SnapshotBuilder, SnapshotBroadcaster)
 import type { ClientInfo, GameServerConfig } from "./Client";
 import { ClientSilenceMonitor } from "./ClientSilenceMonitor";
+import { debugLog } from "./DebugLog";
 // Demo recording
 import { DemoRecorder } from "./DemoRecorder";
 import type { AwardEvent } from "./gametypes/AwardTracker";
@@ -865,9 +866,6 @@ export class GameServer {
     const recentKills = this.combatSystem.getRecentKills();
     if (recentKills.length > 0) {
       this.pendingKillEvents.push(...recentKills);
-      console.log(
-        `[GameServer] Cached ${recentKills.length} kill events for snapshot broadcast (total pending: ${this.pendingKillEvents.length})`,
-      );
     }
 
     // 3. Run gametype controller post-tick (kills, respawns, match state)
@@ -1180,9 +1178,6 @@ export class GameServer {
         const { tick } = MessageCodec.decodeAck(data);
         this.recordAckRoundTrip(client, tick);
         client.lastAckedTick = nextAckedTick(client.lastAckedTick, tick, Number(this.simulation.currentTick));
-        if (tick % 1000 === 0) {
-          console.log(`[GameServer] Client ${client.playerId} acked tick ${tick}`);
-        }
       } else if (msgType === MessageType.Ping) {
         // ClockSync: reply with Pong containing client's send time + server time
         const { clientSendTime } = MessageCodec.decodePing(data);
@@ -1190,22 +1185,6 @@ export class GameServer {
         client.connection.sendDatagram(pong);
       } else {
         this.msgCounts.other++;
-      }
-
-      // Log message distribution every 500 messages
-      const total =
-        this.msgCounts.input +
-        this.msgCounts.ack +
-        this.msgCounts.join +
-        this.msgCounts.ready +
-        this.msgCounts.joinGame +
-        this.msgCounts.spectate +
-        this.msgCounts.other +
-        this.msgCounts.error;
-      if (total % 500 === 0) {
-        console.log(
-          `[GameServer] Message distribution (${total} total): Input=${this.msgCounts.input}, Ack=${this.msgCounts.ack}, Join=${this.msgCounts.join}, Ready=${this.msgCounts.ready}, JoinGame=${this.msgCounts.joinGame}, Spectate=${this.msgCounts.spectate}, Other=${this.msgCounts.other}, Errors=${this.msgCounts.error}`,
-        );
       }
     } catch (err) {
       this.msgCounts.error++;
@@ -1580,9 +1559,6 @@ export class GameServer {
       `[GameServer] Player ${client.playerId} joined game at (${spawnPoint.x.toFixed(1)}, ${spawnPoint.y.toFixed(1)}, ${spawnPoint.z.toFixed(1)})`,
     );
 
-    // Debug floor trace
-    this.debugFloorTrace(spawnPoint);
-
     // Re-send JoinAccept so client gets the entity ID confirmation
     this.sendJoinAccept(client);
   }
@@ -1659,10 +1635,11 @@ export class GameServer {
     const mutEntity = state.getEntityMut(client.entityId);
     if (mutEntity?.input) {
       const buttons = clean.buttons;
-      // Debug: log every 200th input to trace button values
       if (seq % 200 === 0) {
-        console.log(
-          `[GameServer.handleInput] Player ${client.playerId}: buttons=${buttons} (raw command.buttons=${command.buttons}), seq=${seq}`,
+        debugLog(
+          "input",
+          () =>
+            `[GameServer.handleInput] Player ${client.playerId}: buttons=${buttons} (raw command.buttons=${command.buttons}), seq=${seq}`,
         );
       }
       // A demo records what a person did, not only what the server simulated:
@@ -1754,28 +1731,6 @@ export class GameServer {
     const acceptBytes = MessageCodec.encodeJoinAccept(client.id, playerId, entityId);
     client.connection.sendReliable(acceptBytes);
     console.log(`[GameServer] Sent JoinAccept: playerId=${playerId}, entityId=${entityId}`);
-  }
-
-  // ========================================================================
-  // Debug
-  // ========================================================================
-
-  private debugFloorTrace(spawnPoint: Vec3): void {
-    const bounds = {
-      min: { x: -16, y: -24, z: -16 },
-      max: { x: 16, y: 32, z: 16 },
-    };
-    const start = { ...spawnPoint };
-    const end = { x: spawnPoint.x, y: spawnPoint.y - 200, z: spawnPoint.z };
-    const collision = this.physicsSystem.getCollisionWorld();
-    if (collision) {
-      const trace = collision.trace(start, end, bounds);
-      const floorY = trace.hit ? spawnPoint.y - 200 * trace.fraction : "NO HIT";
-      const originY = typeof floorY === "number" ? floorY + 24 : "N/A";
-      console.log(
-        `[GameServer] Floor trace: spawnY=${spawnPoint.y.toFixed(1)}, floorY=${typeof floorY === "number" ? floorY.toFixed(1) : floorY}, originY=${typeof originY === "number" ? originY.toFixed(1) : originY}`,
-      );
-    }
   }
 
   // ========================================================================

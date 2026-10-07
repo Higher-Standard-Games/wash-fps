@@ -3,7 +3,7 @@ import type { RecordedCmd, ReSimSpawn } from "../ReSim";
 
 /**
  * The movement subsystem can print one line per player per second, for debugging. It used to do
- * so on every server; it now does so only when SHAG_DEBUG_PHYS is set.
+ * so on every server; it now does so only when SHAG_DEBUG includes phys.
  */
 const spawns: ReSimSpawn[] = [
   { entityId: 1, playerId: 1, x: 0, y: 500, z: 0 },
@@ -31,13 +31,13 @@ describe("per-second physics diagnostics", () => {
   });
 
   it("print nothing by default", async () => {
-    vi.stubEnv("SHAG_DEBUG_PHYS", "");
+    vi.stubEnv("SHAG_DEBUG", "");
     const printed = await printedWhileRunning();
     expect(printed.filter((line) => line.includes("[PHYS]"))).toEqual([]);
   });
 
-  it("print one line per player per second when SHAG_DEBUG_PHYS is set", async () => {
-    vi.stubEnv("SHAG_DEBUG_PHYS", "1");
+  it("print one line per player per second when SHAG_DEBUG includes phys", async () => {
+    vi.stubEnv("SHAG_DEBUG", "phys");
     const printed = await printedWhileRunning();
     const lines = printed.filter((line) => line.includes("[PHYS]"));
     // Two players, at the two boundaries (ticks 0 and 125).

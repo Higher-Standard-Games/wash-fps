@@ -16,6 +16,7 @@ import type { ServerPVS } from "../../../engine/server/ServerPVS";
 import type { AgentDirective } from "../../../shared/server/gametype";
 import { toClientKey } from "../ClientEntityKey";
 import type { ClientInfo } from "./Client";
+import { debugLog } from "./DebugLog";
 
 export class SnapshotBroadcaster {
   private readonly SNAPSHOT_HISTORY_SIZE = 64;
@@ -126,8 +127,10 @@ export class SnapshotBroadcaster {
     // Perf: log encoding cost periodically
     if (tick % 100 === 0 && clients.size > 0) {
       const pvsInfo = this.pvs?.enabled ? `, pvs_culled: ${totalCulled} entities across ${clients.size} clients` : "";
-      console.log(
-        `[Perf] snapshot encode: ${totalEncodeMs.toFixed(2)}ms total, ${(totalEncodeMs / clients.size).toFixed(2)}ms/client, clients: ${clients.size}${pvsInfo}`,
+      debugLog(
+        "perf",
+        () =>
+          `[Perf] snapshot encode: ${totalEncodeMs.toFixed(2)}ms total, ${(totalEncodeMs / clients.size).toFixed(2)}ms/client, clients: ${clients.size}${pvsInfo}`,
       );
     }
   }

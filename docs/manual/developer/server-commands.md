@@ -65,6 +65,24 @@ Three environment variables, read once at boot, change a gametype's limits. They
 | `SHAG_TIMELIMIT` | Bare number = **minutes**; `90s` for seconds |
 | `SHAG_SCORELIMIT` | Frag or round limit |
 | `SHAG_WARMUP` | Bare number = **seconds**; `2m` for minutes |
+| `SHAG_DEBUG` | Extra diagnostics, as a comma-separated list of topics or `all`. Off by default; see below |
+
+### Server diagnostics
+
+The server console prints lifecycle events (joins, match start and end, demos saved) and problems. Anything that would print per tick, per hit or per message is off unless you ask for it:
+
+```bash
+SHAG_DEBUG=phys,kb npm run server
+```
+
+| Topic | Prints |
+|-------|--------|
+| `phys` | One line per player per second from the movement code |
+| `kb` | Knockback applied, and the position after that tick |
+| `falldamage` | Every landing, with the drop and its damage band |
+| `input` | A sample of the input buttons every 200 commands |
+| `perf` | Snapshot encode cost every 100 ticks |
+| `discharge` | A shot fired into water |
 
 ## Game Console Commands
 

@@ -57,4 +57,5 @@ Anything that needs the game's map files (a server with bots on a real map, clie
 | `fixtures.ts` | Seeded worlds and input logs |
 | `scenarios.ts` | The scenarios above |
 | `options.ts`, `run.ts` | The command line |
+| `profile.ts` | Runs one scenario under the CPU profiler and prints self time per function: `npx vite-node src/games/fps/bench/profile.ts -- --scenario snapshot.encodeClients16 --seconds 5`. Use it to decide what to change, then confirm with `run.ts` |
 | `__tests__/` | Tests for all of the above |

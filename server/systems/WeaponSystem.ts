@@ -22,6 +22,7 @@ import { canonicalWeaponId, WEAPONS } from "../../../../shared/entities/definiti
 import type { ProjectileDef } from "../../../../shared/entities/ProjectileDef";
 import type { WeaponDef } from "../../../../shared/entities/WeaponDef";
 import { computeSpreadSeed, generateSpreadDirections } from "../../../../shared/SpreadUtils";
+import { debugLog } from "../DebugLog";
 import { classifyHitLocation, type DamageEvent, DamageType, HitLocation } from "./CombatSystem";
 import type { DroppedWeaponSystem } from "./DroppedWeaponSystem";
 import { caughtInDischarge, dischargeDamageAt, dischargesInWater } from "./ElectricalDischarge";
@@ -1157,8 +1158,10 @@ export class WeaponSystem extends Subsystem {
     const origin = shooter.transform?.position;
     if (!origin) return;
 
-    console.log(
-      `[Discharge] ${shooter.id} fired ${weapon.id} at water level ${shooter.physics?.waterLevel ?? 0} — discharging`,
+    debugLog(
+      "discharge",
+      () =>
+        `[Discharge] ${shooter.id} fired ${weapon.id} at water level ${shooter.physics?.waterLevel ?? 0} — discharging`,
     );
 
     // No dedicated wire event yet: the kill and its obituary already reach the
