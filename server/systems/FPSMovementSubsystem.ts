@@ -28,6 +28,9 @@ import { MovementProfile as FPSMovementProfile } from "../../simulation/Movement
 import { type CombatSystem, DamageType, HitLocation } from "./CombatSystem";
 import { createLiquidEffectState, type LiquidEffectState, tickLiquidEffects } from "./LiquidWorldEffects";
 
+/** Per-second physics diagnostics, for debugging movement on a server: set SHAG_DEBUG_PHYS=1. */
+const DEBUG_PHYS = typeof process !== "undefined" && !!process.env?.SHAG_DEBUG_PHYS;
+
 const CONFIG: SubsystemConfig = {
   name: "FPSMovement",
   priority: 10,
@@ -812,7 +815,10 @@ export class FPSMovementSubsystem extends Subsystem {
     // (two writers on shared state), and its only output was commented out.
 
     // ── DIAGNOSTIC: log per-entity physics every 125 ticks (1 second) ──
-    if (tickNum % TICK_RATE === 0) {
+    // Off unless SHAG_DEBUG_PHYS is set. It was added for v0.9.10 QA with a note to remove it, and it
+    // printed a line per player every second on every server (16 lines a second at 16 players), in
+    // the one tick in 125 that was already the slowest.
+    if (DEBUG_PHYS && tickNum % TICK_RATE === 0) {
       for (const entity of state.entitiesByType(EntityType.Player)) {
         if (!entity.transform || !entity.physics || entity.health?.dead) continue;
         const v = entity.physics.velocity;

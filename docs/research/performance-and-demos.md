@@ -34,7 +34,7 @@ See [Demos](../manual/multiplayer/demos.md) for the player-facing side.
 | **Per-client telemetry** | `server/Telemetry.ts`, `logClientTelemetry` | A structured `[Telemetry]` line per player about every 5 s: uplink jitter and loss, aim-flick signal, anti-warp strikes |
 | **Catch-up logic** | `scheduleNextTick` | Up to 5 ticks to catch up after a stall (`MAX_CATCHUP`); a resync past that. A benchmark must count these |
 | **Timing contract** | `server/ServerTiming.ts` | Tick, snapshot cadence (125 / 60 → every 2 ticks = 62.5 Hz) |
-| **Logging façade** | `engine/core/Log.ts` (`log.debug/info/warn/error`) | Levelled, and `console.log`/`console.debug` are stripped from production client builds. Only 12 call sites in the game code use it; the rest still call `console.log` |
+| **Logging façade** | `engine/core/Log.ts` (`log.debug/info/warn/error`) | Tags each message; it does **not** filter at run time (`log.debug` just calls `console.log`). Production *client* builds strip `console.log`/`console.debug`; the server is not stripped. Only 12 call sites in the game code use it |
 
 ### 1.3 Existing CLIs (engine repo, `src/cli/`)
 
@@ -242,6 +242,8 @@ Store baselines in `bench/baselines/<machine-id>.json`. Do not compare across ma
 
 ## 6. Implementation plan
 
+**Status (2026-10-07):** steps 1, 2 (for the server items), 3 and the `sim.tick16` part of 4 are built, in `bench/` (see its README). Not started: the optional timing hook inside `GameServer` (step 4), the demo decode workload (step 5), and everything that needs map data (steps 6 to 8). The HUD micro benchmark is still a throwaway.
+
 Each step is independently useful and should be its own commit.
 
 | Step | Work | Needs | Done when |
@@ -281,9 +283,11 @@ Each step is independently useful and should be its own commit.
 | **CI** | Should regressions fail a build? Suggest not at first: publish the comparison as a report until the noise floor is known |
 | **Where to keep baselines** | In the repo (reviewable, but changes with hardware) or as CI artifacts? |
 
-## 7a. First measurements (HUD, recorded 2026-10-07)
+## 7a. First measurements (HUD and server, recorded 2026-10-07)
 
-The first W1-style measurement was taken by hand for QA item 2, as a throwaway test that timed each HUD widget's `update` 4,000 times in jsdom against an unchanged state, after 400 warm-up calls. It is **not** kept as a benchmark yet. It is the template for the HUD entry in the micro-benchmark table (section 4.2).
+**Server numbers** (snapshot build and encode, pickups, hitscan, a 16-player tick) are in [v0.9.25-QA.md](./v0.9.25-QA.md#first-server-measurements); they came from the harness in `bench/`. The headline: encoding one snapshot for each of 16 clients costs 2.4 ms, about 15% of a core, and is 80 times the cost of building the snapshot.
+
+The first W1-style measurement, for the HUD, was taken by hand for QA item 2, as a throwaway test that timed each HUD widget's `update` 4,000 times in jsdom against an unchanged state, after 400 warm-up calls. It is **not** kept as a benchmark yet. It is the template for the HUD entry in the micro-benchmark table (section 4.2).
 
 - **What it showed:** the whole HUD costs about 180 µs per 50 ms poll, almost all of it in two widgets that rewrote `innerHTML` every poll in warmup. The change-detection code the item was originally about (`JSON.stringify` signatures) cost under 1 µs on the weapon rack and about 5 µs on the scoreboard. Full table in [v0.9.25-QA.md](./v0.9.25-QA.md), item 2.
 - **Lesson for the plan:** measure before designing. A micro benchmark took ten minutes to write and overturned the premise of a two-day design. This is the strongest argument for doing section 6, steps 1 and 2, before items 7 and 8.
