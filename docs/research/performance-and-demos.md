@@ -31,7 +31,7 @@ See [Demos](../manual/multiplayer/demos.md) for the player-facing side.
 | What | Where | Output |
 |------|-------|--------|
 | **Tick-rate diagnostic** | `GameServer.ts:~700, ~780` | Every ~5 s: actual tick rate, ticks run, and the **maximum** tick work time (`diagMaxTickMs`). A log line, not data |
-| **Per-client telemetry** | `server/Telemetry.ts`, `logClientTelemetry` | A structured `[Telemetry]` line per player about every 5 s: uplink jitter and loss, aim-flick signal, anti-warp strikes |
+| **Per-client telemetry** | `server/Telemetry.ts`, `logClientTelemetry` | A structured `[Telemetry]` line per player about every 5 s with `SHAG_DEBUG=telemetry`: uplink jitter and loss, aim-flick signal, anti-warp strikes |
 | **Catch-up logic** | `scheduleNextTick` | Up to 5 ticks to catch up after a stall (`MAX_CATCHUP`); a resync past that. A benchmark must count these |
 | **Timing contract** | `server/ServerTiming.ts` | Tick, snapshot cadence (125 / 60 → every 2 ticks = 62.5 Hz) |
 | **Logging façade** | `engine/core/Log.ts` (`log.debug/info/warn/error`) | Tags each message; it does **not** filter at run time (`log.debug` just calls `console.log`). Production *client* builds strip `console.log`/`console.debug`; the server is not stripped. Only 12 call sites in the game code use it |

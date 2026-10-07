@@ -31,6 +31,7 @@ import type { CollisionWorld } from "../../../../engine/network/systems/collisio
 import { Contents } from "../../../../engine/network/systems/collision/CollisionWorld";
 import { rngFrom } from "../../../../shared/DeterministicRng";
 import { toClientKey } from "../../ClientEntityKey";
+import { debugLog } from "../DebugLog";
 import type { CombatSystem } from "../systems/CombatSystem";
 import type { WeaponSystem } from "../systems/WeaponSystem";
 import { type AwardEvent, AwardTracker } from "./AwardTracker";
@@ -399,8 +400,10 @@ export class GametypeController {
       spawnRng,
       this.spawnSetFor(finalTeamId),
     );
-    console.log(
-      `[GametypeController] Base spawn: (${baseSpawn.x.toFixed(0)}, ${baseSpawn.y.toFixed(0)}, ${baseSpawn.z.toFixed(0)})`,
+    debugLog(
+      "spawn",
+      () =>
+        `[GametypeController] Base spawn: (${baseSpawn.x.toFixed(0)}, ${baseSpawn.y.toFixed(0)}, ${baseSpawn.z.toFixed(0)})`,
     );
     const spawn = this.jitterSpawn(baseSpawn, spawnRng);
 
@@ -840,8 +843,10 @@ export class GametypeController {
       entity.input.wantsRespawn = false;
     }
 
-    console.log(
-      `[GametypeController] Respawned entity ${entityId} at (${spawn.x.toFixed(0)}, ${spawn.y.toFixed(0)}, ${spawn.z.toFixed(0)})`,
+    debugLog(
+      "spawn",
+      () =>
+        `[GametypeController] Respawned entity ${entityId} at (${spawn.x.toFixed(0)}, ${spawn.y.toFixed(0)}, ${spawn.z.toFixed(0)})`,
     );
   }
 
@@ -1172,8 +1177,10 @@ export class GametypeController {
 
     // Pick a valid candidate (seeded → deterministic for demo re-sim, R3b).
     const chosen = valid[Math.floor(rng() * valid.length)];
-    console.log(
-      `[GametypeController] Spawn jitter: ${valid.length}/9 valid, chose (${chosen.x.toFixed(0)}, ${chosen.y.toFixed(0)}, ${chosen.z.toFixed(0)}) from base (${base.x.toFixed(0)}, ${base.y.toFixed(0)}, ${base.z.toFixed(0)})`,
+    debugLog(
+      "spawn",
+      () =>
+        `[GametypeController] Spawn jitter: ${valid.length}/9 valid, chose (${chosen.x.toFixed(0)}, ${chosen.y.toFixed(0)}, ${chosen.z.toFixed(0)}) from base (${base.x.toFixed(0)}, ${base.y.toFixed(0)}, ${base.z.toFixed(0)})`,
     );
     return chosen;
   }

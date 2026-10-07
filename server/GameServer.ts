@@ -42,7 +42,7 @@ import { getNextBotName } from "./BotNames";
 // Client types (shared with SnapshotBuilder, SnapshotBroadcaster)
 import type { ClientInfo, GameServerConfig } from "./Client";
 import { ClientSilenceMonitor } from "./ClientSilenceMonitor";
-import { debugLog } from "./DebugLog";
+import { debugEnabled, debugLog } from "./DebugLog";
 // Demo recording
 import { DemoRecorder } from "./DemoRecorder";
 import type { AwardEvent } from "./gametypes/AwardTracker";
@@ -67,6 +67,14 @@ import { WeaponSystem } from "./systems/WeaponSystem";
 import { Telemetry } from "./Telemetry";
 
 export type { ClientInfo, GameServerConfig };
+
+/**
+ * Whether a 5 s tick-rate sample means the server fell behind: under 95% of the target rate, or a
+ * single tick whose work took longer than two ticks (one tick over budget is an ordinary GC pause).
+ */
+export function isBehind(measuredHz: number, targetHz: number, maxTickWorkMs: number): boolean {
+  return measuredHz < targetHz * 0.95 || maxTickWorkMs > 2000 / targetHz;
+}
 
 /**
  * Whether a socket address is loopback. Used to only trust a client's self-
@@ -795,17 +803,22 @@ export class GameServer {
     }
   }
 
-  /** Log actual wall-clock tick rate every ~5s so timing regressions are visible. */
+  /**
+   * Measure the wall-clock tick rate every ~5s. It prints on its own only when the server fell
+   * behind (under 95% of the target rate, or one tick's work took longer than two ticks), so a timing
+   * regression still shows; an on-target line every 5s is `SHAG_DEBUG=tickrate`.
+   */
   private logTickRateDiagnostic(): void {
     const now = performance.now();
     const elapsed = now - this.diagLastLog;
     if (elapsed < 5000) return;
     const hz = (this.diagTickCount * 1000) / elapsed;
-    console.log(
+    const line = () =>
       `[GameServer] tickrate: ${hz.toFixed(1)}Hz actual (target ${this.config.tickRate}Hz), ` +
-        `${this.diagTickCount} ticks / ${(elapsed / 1000).toFixed(1)}s, maxTickWork ${this.diagMaxTickMs.toFixed(1)}ms`,
-    );
-    this.logClientTelemetry();
+      `${this.diagTickCount} ticks / ${(elapsed / 1000).toFixed(1)}s, maxTickWork ${this.diagMaxTickMs.toFixed(1)}ms`;
+    if (isBehind(hz, this.config.tickRate, this.diagMaxTickMs)) console.warn(`${line()} (behind)`);
+    else debugLog("tickrate", line);
+    if (debugEnabled("telemetry")) this.logClientTelemetry();
     this.diagLastLog = now;
     this.diagTickCount = 0;
     this.diagMaxTickMs = 0;
@@ -813,7 +826,7 @@ export class GameServer {
 
   /**
    * Emit one structured [Telemetry] line per playing client (~every 5s, on the
-   * tick-rate diagnostic cadence): uplink jitter/loss, the view-angular-speed
+   * tick-rate diagnostic cadence, with `SHAG_DEBUG=telemetry`): uplink jitter/loss, the view-angular-speed
    * aim-flick signal, and the anti-warp strike count composed from
    * MovementValidator. Shape is stable for a future admin view / WO-13 to parse.
    */
@@ -1302,7 +1315,7 @@ export class GameServer {
     client.lastRespawnReqMs = now;
 
     entity.input.wantsRespawn = true;
-    console.log(`[GameServer] RequestSpawn from player ${client.playerId}`);
+    debugLog("spawn", () => `[GameServer] RequestSpawn from player ${client.playerId}`);
   }
 
   private handleError(conn: ClientConnection, error: Error): void {

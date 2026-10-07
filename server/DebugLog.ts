@@ -12,13 +12,30 @@
  *   input        one sample of the input buttons every 200 commands
  *   perf         snapshot encode cost every 100 ticks
  *   discharge    a shot fired into water
+ *   tickrate     the measured tick rate every 5 s, also when it is on target
+ *   telemetry    one [Telemetry] line per playing client every 5 s (jitter, loss, aim, strikes)
+ *   spawn        respawn requests, the spawn point picked and the respawn itself
+ *   kills        one line per kill
+ *   bot          bot server: each bot's status line, its deaths and respawns
  *
  * Everything else the server prints is a lifecycle event (a player joins, a match starts, a demo
- * is saved) or a problem. Nothing prints per tick, per snapshot or per hit unless asked for.
+ * is saved) or a problem. Nothing prints per tick, per snapshot, per hit or per death unless
+ * asked for; the tick rate prints on its own only when the server falls behind.
  * The environment is read once, when this module loads.
  */
 
-export type DebugTopic = "phys" | "kb" | "falldamage" | "input" | "perf" | "discharge";
+export type DebugTopic =
+  | "phys"
+  | "kb"
+  | "falldamage"
+  | "input"
+  | "perf"
+  | "discharge"
+  | "tickrate"
+  | "telemetry"
+  | "spawn"
+  | "kills"
+  | "bot";
 
 function parseTopics(value: string | undefined): ReadonlySet<string> {
   return new Set(
