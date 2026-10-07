@@ -1,0 +1,202 @@
+// @vitest-environment jsdom
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+/**
+ * SpectateView's teammate hand-off, cycling and round-end camera, as they
+ * worked inside Game. The cameras themselves are swapped for spies: what is
+ * pinned here is who gets watched and when, not how the camera moves.
+ */
+
+const viewWeapon = { setVisible: vi.fn() };
+vi.mock("../../../../engine/weapon/WeaponViewManager", () => ({ getWeaponViewManager: () => viewWeapon }));
+vi.mock("../../../../engine/camera", () => ({
+  CameraSystem: { getInstance: () => ({ getCamera: () => ({ rotation: { x: 0.1, y: 1.5 } }) }) },
+}));
+
+const { SPECTATE_AFTER_DEATH_MS, SpectateView } = await import("../SpectateView");
+const { MatchPhase, MatchStateManager } = await import("../MatchStateManager");
+
+type Rendered = Map<string, { position: { x: number; y: number; z: number }; dead: boolean }>;
+
+function entity(x: number, yaw: number, crouchViewOffset = 0) {
+  const components: Record<string, unknown> = {
+    transform: { position: { x, y: 0, z: 0 }, rotation: { x: 0.2, y: yaw } },
+    movementState: { crouchViewOffset },
+  };
+  return { getComponent: (name: string) => components[name] };
+}
+
+function setup() {
+  const state = { dead: true, playerState: "playing" as "spectator" | "playing" };
+  const rendered: Rendered = new Map([
+    ["player_1", { position: { x: 0, y: 0, z: 0 }, dead: true }],
+    ["player_3", { position: { x: 3, y: 0, z: 0 }, dead: false }],
+    ["player_2", { position: { x: 2, y: 0, z: 0 }, dead: false }],
+    ["player_9", { position: { x: 9, y: 0, z: 0 }, dead: false }],
+  ]);
+  const remoteRenderer = { getRenderedPlayers: () => rendered, setHiddenEntity: vi.fn() };
+  const overlay = { setMode: vi.fn(), setSpectatingTarget: vi.fn() };
+  const gameState = {
+    entities: new Map([
+      ["player_2", entity(2, 0.5, -10)],
+      ["player_3", entity(3, 0.7)],
+    ]),
+    players: new Map([["player_2", { entityId: "player_2", name: "Alice" }]]),
+  };
+  const view = new SpectateView({
+    isPlayerDead: () => state.dead,
+    playerState: () => state.playerState,
+    localPlayerId: () => "player_1",
+    latestGameState: () => gameState as never,
+    remoteRenderer: () => remoteRenderer as never,
+    spectatorOverlay: () => overlay as never,
+  });
+  const deathCamera = { start: vi.fn(), stop: vi.fn(), update: vi.fn(() => false) };
+  const eyeCamera = { start: vi.fn(), stop: vi.fn(), update: vi.fn(() => false) };
+  Object.assign(view, { _deathCamera: deathCamera, _eyeCamera: eyeCamera });
+  return { view, state, rendered, remoteRenderer, overlay, gameState, deathCamera, eyeCamera };
+}
+
+function match(phase: number, round: number, extra: Record<string, unknown> = {}) {
+  MatchStateManager.destroy();
+  MatchStateManager.getInstance().processEvent({
+    type: "match_state",
+    phase,
+    round,
+    playerTeams: { 1: "red", 2: "red", 3: "red", 9: "blue" }, // keyed by bare id, as on the wire
+    ...extra,
+  });
+}
+
+const camera = () =>
+  ({ rotation: { x: 0, y: 0, z: 0.7 }, position: { x: 0, y: 0, z: 0 }, setTarget: vi.fn() }) as never;
+
+let now = 0;
+
+describe("SpectateView", () => {
+  beforeEach(() => {
+    now = 10_000;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    viewWeapon.setVisible.mockClear();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    MatchStateManager.destroy();
+  });
+
+  it("stays on the corpse, then hands over to the first living teammate in a live round", () => {
+    const { view, remoteRenderer, overlay, eyeCamera, deathCamera } = setup();
+    match(MatchPhase.Active, 1);
+
+    view.applyDeathCamera(camera(), 1 / 60); // the death is stamped on this frame
+    now += SPECTATE_AFTER_DEATH_MS - 1;
+    view.applyDeathCamera(camera(), 1 / 60);
+    expect(view._spectatingEntityId).toBeNull();
+
+    now += 1;
+    view.applyDeathCamera(camera(), 1 / 60);
+    // Map order, skipping our own hidden body and the enemy.
+    expect(view._spectatingEntityId).toBe("player_3");
+    expect(remoteRenderer.setHiddenEntity).toHaveBeenCalledWith("player_3");
+    expect(eyeCamera.start).toHaveBeenCalled();
+    expect(deathCamera.stop).toHaveBeenCalled();
+    expect(overlay.setMode).toHaveBeenCalledWith("first-person");
+    expect(overlay.setSpectatingTarget).toHaveBeenCalledWith("Player 3");
+  });
+
+  it("names a watched player from the snapshot's roster when it has them", () => {
+    const { view, overlay, rendered } = setup();
+    rendered.delete("player_3");
+    match(MatchPhase.Active, 1);
+    view.applyDeathCamera(camera(), 1 / 60);
+    now += SPECTATE_AFTER_DEATH_MS;
+    view.applyDeathCamera(camera(), 1 / 60);
+    expect(view._spectatingEntityId).toBe("player_2");
+    expect(overlay.setSpectatingTarget).toHaveBeenCalledWith("Alice");
+  });
+
+  it("refuses a teammate it has no position for, and keeps the corpse camera", () => {
+    const { view, gameState, deathCamera } = setup();
+    // Absent from the snapshot, and (stood in for here) no longer drawn either.
+    gameState.entities.clear();
+    match(MatchPhase.Active, 1);
+    Object.assign(view as object, { drawnAt: () => null });
+    view.applyDeathCamera(camera(), 1 / 60);
+    now += SPECTATE_AFTER_DEATH_MS;
+    view.applyDeathCamera(camera(), 1 / 60);
+    expect(view._spectatingEntityId).toBeNull();
+    expect(deathCamera.stop).not.toHaveBeenCalled();
+  });
+
+  it("cycles living teammates in sorted order and wraps", () => {
+    const { view } = setup();
+    match(MatchPhase.Active, 1);
+    view._spectatingEntityId = "player_2";
+    view.cycleTeammateSpectate(1);
+    expect(view._spectatingEntityId).toBe("player_3");
+    view.cycleTeammateSpectate(1);
+    expect(view._spectatingEntityId).toBe("player_2");
+    view.cycleTeammateSpectate(-1);
+    expect(view._spectatingEntityId).toBe("player_3");
+  });
+
+  it("does not cycle when nobody is being watched", () => {
+    const { view } = setup();
+    match(MatchPhase.Active, 1);
+    view.cycleTeammateSpectate(1);
+    expect(view._spectatingEntityId).toBeNull();
+  });
+
+  it("reads position and angles from one snapshot, with the crouch in the eye height", () => {
+    const { view } = setup();
+    const sample = view.spectateEyeSample("player_2");
+    expect(sample).toMatchObject({ x: 2, y: 0, z: 0, yaw: 0.5, pitch: 0.2 });
+    const standing = view.spectateEyeSample("player_3");
+    expect((standing?.eyeHeight ?? 0) - (sample?.eyeHeight ?? 0)).toBe(10);
+    expect(view.spectateEyeSample("player_9")).toBeNull();
+  });
+
+  it("turns the round-end camera on the focus and drops the teammate view", () => {
+    const { view, remoteRenderer, deathCamera, eyeCamera } = setup();
+    view._spectatingEntityId = "player_2";
+    match(MatchPhase.RoundEnd, 1, { roundResult: { focus: { x: 5, y: 6, z: 7 } } });
+
+    view.applyDeathCamera(camera(), 1 / 60);
+    expect(eyeCamera.stop).toHaveBeenCalled();
+    expect(remoteRenderer.setHiddenEntity).toHaveBeenCalledWith(null);
+    // Still dead, so the borrowed view weapon goes away again.
+    expect(viewWeapon.setVisible).toHaveBeenCalledWith(false);
+    const [, target, yaw] = deathCamera.start.mock.calls[0] as unknown as [unknown, { x: number }, number];
+    expect(target.x).toBe(5);
+    expect(yaw).toBe(1.5);
+
+    view.applyDeathCamera(camera(), 1 / 60);
+    expect(deathCamera.start).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the round-end camera once the next round revives the player", () => {
+    const { view, state, deathCamera } = setup();
+    match(MatchPhase.RoundEnd, 1, { roundResult: { focus: { x: 5, y: 6, z: 7 } } });
+    view.applyDeathCamera(camera(), 1 / 60);
+    state.dead = false;
+    match(MatchPhase.Countdown, 2);
+    view.applyDeathCamera(camera(), 1 / 60);
+    expect(deathCamera.stop).toHaveBeenCalled();
+  });
+
+  it("claims the frame and levels the roll while dead in a round with no picture", () => {
+    const { view } = setup();
+    match(MatchPhase.Countdown, 1);
+    const cam = camera() as unknown as { rotation: { z: number } };
+    expect(view.applyDeathCamera(cam as never, 1 / 60)).toBe(true);
+    expect(cam.rotation.z).toBe(0);
+  });
+
+  it("leaves the frame to the controller when alive and watching nobody", () => {
+    const { view, state } = setup();
+    state.dead = false;
+    match(MatchPhase.Active, 1);
+    expect(view.applyDeathCamera(camera(), 1 / 60)).toBe(false);
+  });
+});

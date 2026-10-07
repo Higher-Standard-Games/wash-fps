@@ -1,26 +1,20 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it, vi } from "vitest";
-import { Game } from "../../Game";
 import { MatchPhase, MatchStateManager } from "../MatchStateManager";
+import { SpectateView } from "../SpectateView";
 
 /**
- * The slice of Game's internals the teammate-spectate camera touches.
+ * The slice of SpectateView's internals the teammate-spectate camera touches.
  *
- * `updateTeammateSpectate` is private and reads only these fields, so the test
- * stands an instance on the prototype rather than booting an engine.
+ * `updateTeammateSpectate` is private, so the test reaches it through a cast
+ * and drives the player's state through a fake host rather than booting an engine.
  */
 interface SpectatingGame {
   _isPlayerDead: boolean;
   _spectatingEntityId: string | null;
   _deathCamera: { stop: () => void };
   _eyeCamera: { stop: () => void; isActive: boolean };
-  remoteRenderer: {
-    setHiddenEntity: (id: string | null) => void;
-    getRenderedPlayers: () => Map<string, { dead: boolean }>;
-  } | null;
-  spectatorOverlay: { setMode: (mode: string) => void } | null;
-  playerState: "spectator" | "playing";
   updateTeammateSpectate(match: MatchStateManager): void;
 }
 
@@ -32,21 +26,36 @@ interface Spies {
 
 function spectatingGame(): { game: SpectatingGame; spies: Spies } {
   const spies: Spies = { stop: vi.fn(), eyeStop: vi.fn(), setHidden: vi.fn() };
-  const game = Object.create(Game.prototype) as SpectatingGame;
-  game._isPlayerDead = true;
-  // Already following a teammate, as it would be after dying in a live round.
-  game._spectatingEntityId = "player_2";
-  game._deathCamera = { stop: spies.stop };
-  game._eyeCamera = { stop: spies.eyeStop, isActive: true };
-  game.remoteRenderer = {
+  const remoteRenderer = {
     setHiddenEntity: spies.setHidden,
     // Still alive and still rendered, so the "already following someone" gate
     // holds and nothing re-picks underneath the test.
     getRenderedPlayers: () => new Map([["player_2", { dead: false }]]),
   };
-  game.spectatorOverlay = { setMode: vi.fn() };
-  game.playerState = "playing";
-  return { game, spies };
+  const spectatorOverlay = { setMode: vi.fn() };
+  const state = { _isPlayerDead: true };
+  const view = new SpectateView({
+    isPlayerDead: () => state._isPlayerDead,
+    playerState: () => "playing",
+    localPlayerId: () => "player_1",
+    latestGameState: () => null,
+    remoteRenderer: () => remoteRenderer as never,
+    spectatorOverlay: () => spectatorOverlay as never,
+  });
+  const game = Object.assign(view as unknown as SpectatingGame, {
+    _deathCamera: { stop: spies.stop },
+    _eyeCamera: { stop: spies.eyeStop, isActive: true },
+  });
+  // Already following a teammate, as it would be after dying in a live round.
+  game._spectatingEntityId = "player_2";
+  // The player's own state stays on Game; the test flips it through the host.
+  Object.defineProperty(game, "_isPlayerDead", {
+    get: () => state._isPlayerDead,
+    set: (v: boolean) => {
+      state._isPlayerDead = v;
+    },
+  });
+  return { game: game as unknown as SpectatingGame, spies };
 }
 
 function matchIn(phase: MatchPhase, round: number): MatchStateManager {
