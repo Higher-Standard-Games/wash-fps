@@ -6,7 +6,7 @@
  * description, so a fast number is not read as more than it is.
  */
 
-import { EntityType } from "@engine/server/ecs/types";
+import { EntityType, entityId, playerId } from "@engine/server/ecs/types";
 import type { GameState } from "../../../engine/network/core/GameState";
 import { BinaryProtocol } from "../../../engine/network/protocol/BinaryProtocol";
 import { MessageCodec } from "../../../engine/network/protocol/MessageCodec";
@@ -15,7 +15,7 @@ import { SnapshotBroadcaster } from "../server/SnapshotBroadcaster";
 import { buildSnapshot } from "../server/SnapshotBuilder";
 import { PickupSystem } from "../server/systems/PickupSystem";
 import { WeaponSystem } from "../server/systems/WeaponSystem";
-import { broadcastContext, gridSpawns, pickupEntries, snapshotContext, syntheticLog } from "./fixtures";
+import { broadcastContext, gridSpawns, pickupEntries, seededRandom, snapshotContext, syntheticLog } from "./fixtures";
 import { type BatchOptions, type EachOptions, measureBatch, measureEach, type Stats } from "./harness";
 
 export interface Prepared {
@@ -197,6 +197,51 @@ export const SCENARIOS: Scenario[] = [
             weaponStateBytes: events(second, "weapon_state"),
             matchStateBytes: events(second, "match_state"),
           };
+        },
+      };
+    },
+  },
+  {
+    name: "snapshot.broadcast16.play",
+    unit: "us per call",
+    description:
+      "One snapshot of a match in play, built and sent to 16 clients that acknowledge each snapshot 4 snapshots later (about 64 ms round trip). Every snapshot 4 of the 16 players fire (their ammo and fire tick change) and every 60th someone scores. Times buildSnapshot plus SnapshotBroadcaster.broadcast; reports the bytes each client gets, the number the snapshot bandwidth work is measured by.",
+    prepare() {
+      const CLIENTS = 16;
+      const ACK_DELAY = 4;
+      const { ctx, sent } = broadcastContext({ ...SNAPSHOT_SIZE, players: CLIENTS });
+      const broadcaster = new SnapshotBroadcaster(ctx.simulation);
+      const random = seededRandom(5);
+      const pendingAcks: number[] = [];
+      let calls = 0;
+      const send = () => {
+        ctx.simulation.tick();
+        const tick = Number(ctx.simulation.currentTick);
+        for (let shots = 0; shots < 4; shots++) {
+          const weapons = ctx.weaponSystem.getWeaponState(entityId(1 + Math.floor(random() * CLIENTS)));
+          const ammo = weapons?.ammo.get(weapons.currentWeapon);
+          if (!weapons || !ammo) continue;
+          weapons.ammo.set(weapons.currentWeapon, { ...ammo, clip: ammo.clip > 0 ? ammo.clip - 1 : 30 });
+          weapons.lastFireTick = tick;
+        }
+        if (++calls % 60 === 0) ctx.gametypeController.getMatchState().addScore(playerId(1 + (calls % CLIENTS)));
+        broadcaster.broadcast(ctx.clients, buildSnapshot(ctx));
+        pendingAcks.push(tick);
+        if (pendingAcks.length > ACK_DELAY) {
+          const acked = pendingAcks.shift() as number;
+          for (const client of ctx.clients.values()) client.lastAckedTick = acked;
+        }
+      };
+      for (let warm = 0; warm < 130; warm++) send(); // past the first full snapshot and any warm-up
+      for (const sizes of sent.values()) sizes.length = 0;
+      return {
+        run: send,
+        config: snapshotConfig({ clients: CLIENTS, loadout: "default", shooters: 4, ackDelay: ACK_DELAY }),
+        batch: { iterations: 100, repeats: 15 },
+        extras: () => {
+          const all = [...sent.values()].flat().sort((a, b) => a - b);
+          const mean = all.reduce((sum, bytes) => sum + bytes, 0) / Math.max(1, all.length);
+          return { bytesPerClient: all[Math.floor(all.length / 2)], meanBytesPerClient: Math.round(mean) };
         },
       };
     },
