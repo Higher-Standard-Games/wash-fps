@@ -54,6 +54,7 @@ import { playJumppadLaunch, resetFPSMovementAudio } from "./client/FPSMovementAu
 import { type GameEventContext, handleServerStateUpdate } from "./client/GameEvents";
 import { HUDState } from "./client/HUDState";
 import { clearLocalPowerups } from "./client/LocalPowerupState";
+import { MatchInputBindings } from "./client/MatchInputBindings";
 import { MatchPhase, MatchStateManager } from "./client/MatchStateManager";
 import { RemotePlayerRenderer } from "./client/RemotePlayerRenderer";
 import { SpectateEyeCamera } from "./client/SpectateEyeCamera";
@@ -221,11 +222,8 @@ export class Game {
   /** Last match phase the announcer spoke for, so each transition fires once. */
   private _lastAnnouncedPhase: import("./client/MatchStateManager").MatchPhase | null = null;
   private spectatorOverlay: import("./client/SpectatorOverlay").SpectatorOverlay | null = null;
-  private _joinKeyHandler: ((e: KeyboardEvent) => void) | null = null;
-  private _specMouseHandler: ((e: MouseEvent) => void) | null = null;
-  private _scoreboardKeyHandler: ((e: KeyboardEvent) => void) | null = null;
-  private _scoreboardKeyUpHandler: ((e: KeyboardEvent) => void) | null = null;
-  private _specCycleKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+  /** Document keys and clicks for the connected match; unbound in shutdown(). */
+  private readonly matchInput = new MatchInputBindings();
 
   // Chase-cam spectator (Phase 1)
   private spectatorCycling: import("./../../engine/camera/controllers/SpectatorCycling").SpectatorCycling | null = null;
@@ -1159,87 +1157,25 @@ export class Game {
       // does: position, angles, crouch height and stride sway from one snapshot.
       this.spectatorController.setTargetProvider((entityId: string) => this.spectateEyeSample(entityId));
 
-      // ── Spectator cycling keyboard handler (arrows + Space) ──
-      this._specCycleKeyHandler = (e: KeyboardEvent) => {
-        // Dead in a round mode is spectating too, even though the player state
-        // still says "playing" — they have an entity, it is just a corpse.
-        // Without this the arrows did nothing for the one case that lasts a
-        // whole minute, and you watched whoever the auto-pick happened to land
-        // on until they died.
-        if (this.playerState !== "spectator") {
-          if (!this._spectatingEntityId) return;
-          if (e.code === "ArrowRight") {
-            e.preventDefault();
-            this.cycleTeammateSpectate(1);
-          } else if (e.code === "ArrowLeft") {
-            e.preventDefault();
-            this.cycleTeammateSpectate(-1);
-          }
-          return;
-        }
-        if (e.code === "ArrowRight") {
-          e.preventDefault();
-          this.nextSpectateTarget();
-        } else if (e.code === "ArrowLeft") {
-          e.preventDefault();
-          this.prevSpectateTarget();
-        } else if (e.code === "Space" || e.code === "Backspace") {
-          // Return to freefly from chase-cam
-          if (this.spectatorCycling?.getTargetEntityId()) {
-            e.preventDefault();
-            this.exitChaseCam();
-          }
-        }
-      };
-      document.addEventListener("keydown", this._specCycleKeyHandler);
-
-      // ── Mouse1 (left click) handler: chase-cam ──
-      // Matches the freefly cue label ("MOUSE1 Chase Player"). Enter chase from
-      // freefly, or advance to the next player while already chasing; ←/→ cycle
-      // and Space/Backspace returns to freefly. Ignored until the pointer is
-      // locked so the click that engages mouselook doesn't jump straight into a
-      // chase. Middle-click is reserved for "fly down" (crouch), so it is NOT a
-      // chase alias here.
-      this._specMouseHandler = (e: MouseEvent) => {
-        if (this.playerState !== "spectator") return;
-        if (e.button !== 0) return;
-        // Only once the pointer is locked (freefly mouselook active).
-        if (!document.pointerLockElement) return;
-        e.preventDefault();
-        this.nextSpectateTarget();
-      };
-      document.addEventListener("mousedown", this._specMouseHandler);
-
-      // ── J key shortcut to join game from spectator mode ──
-      // Uses InputSystem's raw key state (this runs in an event handler, not per-frame)
-      this._joinKeyHandler = (_e: KeyboardEvent) => {
-        const input = InputSystem.getInstance();
-        if (input.isKeyDown("KeyJ") && this.playerState === "spectator") {
-          this.joinGame();
-        }
-      };
-      document.addEventListener("keydown", this._joinKeyHandler);
-
-      // ── Tab key: hold-to-show scoreboard (Quake style) ──
-      // With a menu up, Tab is the keyboard's way through its keys instead.
-      this._scoreboardKeyHandler = (e: KeyboardEvent) => {
-        if (e.code === "Tab") {
+      // ── Spectator cycling, chase-cam click, J to join, hold-Tab scoreboard ──
+      this.matchInput.bind(document, {
+        playerState: () => this.playerState,
+        isSpectatingTeammate: () => !!this._spectatingEntityId,
+        cycleTeammate: (direction) => this.cycleTeammateSpectate(direction),
+        nextSpectateTarget: () => this.nextSpectateTarget(),
+        prevSpectateTarget: () => this.prevSpectateTarget(),
+        isChasing: () => !!this.spectatorCycling?.getTargetEntityId(),
+        exitChaseCam: () => this.exitChaseCam(),
+        isKeyDown: (code) => InputSystem.getInstance().isKeyDown(code),
+        joinGame: () => this.joinGame(),
+        menuOpen: () => {
           const hud = FPSHud.getInstance();
-          if (hud.pauseMenu?.isOpen() || hud.settings?.isOpen()) return;
-          if (this.spectatorOverlay?.getMode() === "join-overlay") return;
-          e.preventDefault();
-          hud.scoreboard?.show();
-        }
-      };
-      this._scoreboardKeyUpHandler = (e: KeyboardEvent) => {
-        if (e.code === "Tab") {
-          e.preventDefault();
-          const hud = FPSHud.getInstance();
-          hud.scoreboard?.hide();
-        }
-      };
-      document.addEventListener("keydown", this._scoreboardKeyHandler);
-      document.addEventListener("keyup", this._scoreboardKeyUpHandler);
+          return !!(hud.pauseMenu?.isOpen() || hud.settings?.isOpen());
+        },
+        joinOverlayOpen: () => this.spectatorOverlay?.getMode() === "join-overlay",
+        showScoreboard: () => FPSHud.getInstance().scoreboard?.show(),
+        hideScoreboard: () => FPSHud.getInstance().scoreboard?.hide(),
+      });
     } catch (error) {
       console.error(`[Game] Failed to connect to ${url}:`, error);
       this.shutdown();
@@ -2490,26 +2426,7 @@ export class Game {
     resetFPSMovementAudio();
 
     // Cleanup event listeners
-    if (this._joinKeyHandler) {
-      document.removeEventListener("keydown", this._joinKeyHandler);
-      this._joinKeyHandler = null;
-    }
-    if (this._scoreboardKeyHandler) {
-      document.removeEventListener("keydown", this._scoreboardKeyHandler);
-      this._scoreboardKeyHandler = null;
-    }
-    if (this._scoreboardKeyUpHandler) {
-      document.removeEventListener("keyup", this._scoreboardKeyUpHandler);
-      this._scoreboardKeyUpHandler = null;
-    }
-    if (this._specCycleKeyHandler) {
-      document.removeEventListener("keydown", this._specCycleKeyHandler);
-      this._specCycleKeyHandler = null;
-    }
-    if (this._specMouseHandler) {
-      document.removeEventListener("mousedown", this._specMouseHandler);
-      this._specMouseHandler = null;
-    }
+    this.matchInput.unbind();
 
     // Cleanup match state and HUD
 
