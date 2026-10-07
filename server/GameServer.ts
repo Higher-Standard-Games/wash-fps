@@ -36,7 +36,7 @@ import { MatchPhase } from "../../../shared/server/gametype/GametypeTypes";
 import { describeLoadout, parseLoadout } from "../../../shared/server/gametype/Loadout";
 import { sanitizeCommand } from "../../../shared/server/simulation/InputSanitizer";
 import { toClientKey } from "../ClientEntityKey";
-import { nextAckedTick, rateLimited } from "./AuthorityGuards";
+import { cleanClientText, nextAckedTick, rateLimited } from "./AuthorityGuards";
 // Bot names
 import { getNextBotName } from "./BotNames";
 // Client types (shared with SnapshotBuilder, SnapshotBroadcaster)
@@ -158,6 +158,13 @@ export class GameServer {
 
   // Chat limits (server-authoritative; over-limit messages dropped, log-only)
   private static readonly CHAT_MAX_LENGTH = 128;
+  /**
+   * Longest name the server keeps for a player who names themselves (a lobby
+   * seat's name comes from the lobby). The profile allows 16 and bot names are
+   * shorter; the cap matters because every name is re-sent to every client in
+   * every snapshot's standings.
+   */
+  private static readonly NAME_MAX_LENGTH = 32;
   private static readonly CHAT_MIN_INTERVAL_MS = 600;
   private static readonly CHAT_BURST_WINDOW_MS = 5000;
   private static readonly CHAT_BURST_MAX = 5;
@@ -1016,6 +1023,7 @@ export class GameServer {
 
       // Notify gametype
       this.gametypeController.onPlayerDisconnect(client.playerId, client.entityId);
+      this.weaponSystem.forget(client.entityId);
 
       // Remove from anti-warp tracker
       this.movementValidator.removeClient(client.playerId);
@@ -1063,8 +1071,13 @@ export class GameServer {
     const humansConnected = [...this.clients.values(), ...this.suspended.clients()].some((c) => !c.isBot);
     if (this.config.shutdownOnEmpty && this.hasHadClients && !humansConnected) {
       console.log("[GameServer] No human clients remaining — shutting down in 5 seconds...");
+      // One countdown at a time. Each bot leaving after the match used to start
+      // another and orphan the last, and a connect cancels only the newest.
+      if (this.shutdownTimer) clearTimeout(this.shutdownTimer);
       this.shutdownTimer = setTimeout(() => {
-        if (![...this.clients.values()].some((c) => !c.isBot)) {
+        this.shutdownTimer = null;
+        // Held seats count, as above: a player mid-resume needs the server.
+        if (![...this.clients.values(), ...this.suspended.clients()].some((c) => !c.isBot)) {
           console.log("[GameServer] Auto-shutdown: no human clients remaining");
           this.stop().then(() => process.exit(0));
         }
@@ -1235,15 +1248,8 @@ export class GameServer {
     const client = this.clients.get(conn.id);
     if (!client) return;
 
-    // Sanitize: strip control chars/newlines (charCode filter — no regex
-    // escapes), collapse whitespace, cap length.
-    const raw = MessageCodec.decodeChat(data).text;
-    let cleaned = "";
-    for (const ch of raw) {
-      const code = ch.charCodeAt(0);
-      cleaned += code < 32 || code === 127 ? " " : ch;
-    }
-    const text = cleaned.replace(/ {2,}/g, " ").trim().slice(0, GameServer.CHAT_MAX_LENGTH);
+    // Sanitize: strip control chars/newlines, collapse whitespace, cap length.
+    const text = cleanClientText(MessageCodec.decodeChat(data).text, GameServer.CHAT_MAX_LENGTH);
     if (!text) return;
 
     // Rate limit (log-only drop, consistent with authority conventions):
@@ -1314,7 +1320,9 @@ export class GameServer {
    */
   private handleJoin(conn: ClientConnection, data: Uint8Array): void {
     if (this.clients.has(conn.id)) return;
-    const { playerName, isBot: claimedBot, admissionTicket } = MessageCodec.decodeJoin(data);
+    const decoded = MessageCodec.decodeJoin(data);
+    const { isBot: claimedBot, admissionTicket } = decoded;
+    const playerName = cleanClientText(decoded.playerName, GameServer.NAME_MAX_LENGTH);
     const grant = this.matchAdmission?.consume(admissionTicket) ?? null;
     if (admissionTicket && this.matchAdmission && !grant) {
       conn.close("invalid match ticket");
@@ -1589,6 +1597,7 @@ export class GameServer {
 
     // Leave the active roster, but keep stats and S&D loadout for rejoin.
     this.gametypeController.onPlayerSpectate(client.playerId, client.entityId);
+    this.weaponSystem.forget(client.entityId);
 
     // Remove from anti-warp tracker
     this.movementValidator.removeClient(client.playerId);

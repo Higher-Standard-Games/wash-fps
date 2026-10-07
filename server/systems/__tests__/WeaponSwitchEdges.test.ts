@@ -125,3 +125,14 @@ describe("the blade's charged attack", () => {
     expect(events()).toContainEqual(expect.objectContaining({ entityId: ENTITY, charging: true }));
   });
 });
+
+describe("an entity leaving the world", () => {
+  it("leaves nothing behind once forgotten", () => {
+    const { system } = world(["blade", "machinegun"]);
+    system.addWeapon(ENTITY, "riotgun");
+    system.forget(ENTITY);
+    expect(system.getWeaponState(ENTITY)).toBeUndefined();
+    const inner = system as unknown as Record<string, Map<unknown, unknown> | Set<unknown>>;
+    for (const name of ["lastWeaponSlot", "lastSwitchTick", "slotResync"]) expect(inner[name].size, name).toBe(0);
+  });
+});

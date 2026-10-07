@@ -307,6 +307,19 @@ export class WeaponSystem extends Subsystem {
   }
 
   /** Clear actions produced during warmup; player loadouts are rebuilt on respawn. */
+  /**
+   * Drop everything held for an entity that has left the world for good (a
+   * disconnect, or going to spectate). A rejoin gets a new entity id, so
+   * without this every rejoin left one weapon state behind for the server's
+   * lifetime.
+   */
+  forget(entityId: EntityId): void {
+    this.weaponStates.delete(entityId);
+    this.lastWeaponSlot.delete(entityId);
+    this.lastSwitchTick.delete(entityId);
+    this.slotResync.delete(entityId);
+  }
+
   resetForMatch(): void {
     this.pendingDamage = [];
     this.pendingFireEvents = [];
