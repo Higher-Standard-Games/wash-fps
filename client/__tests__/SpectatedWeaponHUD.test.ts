@@ -20,6 +20,7 @@ const wvm = {
     wvm.displayed = id;
   }),
   cancelSwitch: vi.fn(),
+  isSwitching: vi.fn(() => false),
   clearFollowedBob: vi.fn(),
   setVisible: vi.fn(),
 };
@@ -45,7 +46,7 @@ vi.mock("../../FPSPlayer", () => ({
   },
 }));
 
-const { handleSpectatedWeaponState } = await import("../GameEvents");
+const { handleSpectatedWeaponState, handleWeaponStateSync } = await import("../GameEvents");
 const { HUDState } = await import("../HUDState");
 const { FollowedViewWeapon } = await import("../FollowedViewWeapon");
 type WeaponView = import("../../../../engine/weapon/WeaponViewManager").WeaponViewManager;
@@ -143,5 +144,57 @@ describe("spectated weapon state", () => {
         followed,
       ),
     ).not.toThrow();
+  });
+});
+
+describe("our own weapon state while we watch someone", () => {
+  let followed: InstanceType<typeof FollowedViewWeapon>;
+  type Ctx = Parameters<typeof handleWeaponStateSync>[0];
+  type Own = Parameters<typeof handleWeaponStateSync>[1];
+  const own = (currentWeapon: string): Own =>
+    ({
+      type: "weapon_state",
+      entityId: "player_1",
+      lastFireTick: 0,
+      reloading: false,
+      ...weaponState(currentWeapon),
+    }) as Own;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    wvm.isReady = true;
+    wvm.displayed = "gunblade";
+    followed = new FollowedViewWeapon(() => wvm as unknown as WeaponView);
+    followed.follow("player_2");
+  });
+
+  it("leaves the watched player's gun and ammo up, however many snapshots ours arrives in", () => {
+    const ctx = { spectatingEntityId: "player_2", _lastServerWeapon: "machinegun", v2Client: null } as unknown as Ctx;
+    handleSpectatedWeaponState(weaponState("rocketlauncher", 4, 20), followed);
+    vi.clearAllMocks();
+
+    // Theirs is sent only when it changes; ours, every snapshot.
+    for (let i = 0; i < 5; i++) handleWeaponStateSync(ctx, own("machinegun"));
+
+    const hud = HUDState.getInstance();
+    expect(hud.currentWeapon).toBe("rocketlauncher");
+    expect(hud.getAmmoDisplay("rocketlauncher")).toBe("4 / 20");
+    expect(wvm.switchWeaponAnimated).not.toHaveBeenCalled();
+    expect(wvm.loadWeapon).not.toHaveBeenCalled();
+    // Our own inventory and prediction still follow the server.
+    expect(inventory.syncFromServer).toHaveBeenCalledTimes(5);
+  });
+
+  it("puts our own gun back on the first snapshot after the spectate ends", () => {
+    const ctx = { spectatingEntityId: "player_2", _lastServerWeapon: "machinegun", v2Client: null } as unknown as Ctx;
+    handleSpectatedWeaponState(weaponState("rocketlauncher"), followed);
+    handleWeaponStateSync(ctx, own("machinegun"));
+    vi.clearAllMocks();
+
+    (ctx as { spectatingEntityId: string | null }).spectatingEntityId = null;
+    handleWeaponStateSync(ctx, own("machinegun"));
+
+    expect(HUDState.getInstance().currentWeapon).toBe("machinegun");
+    expect(wvm.switchWeaponAnimated).toHaveBeenCalledWith("machinegun");
   });
 });

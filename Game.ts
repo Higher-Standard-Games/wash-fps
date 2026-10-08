@@ -1722,6 +1722,8 @@ export class Game {
     // Per connection, like the match state: the next server sends its own.
     this.playerWeapons.clear();
     this.enemyWeapons.clear();
+    this._lastServerWeapon = undefined;
+    this._localCharging = false;
 
     console.log("[Game] Shutdown complete");
   } // ========================================================================
@@ -1764,9 +1766,22 @@ export class Game {
         set droppedWeaponRenderer(v) {
           Game.getInstance().droppedWeaponRenderer = v;
         },
-        _lastServerWeapon: this._lastServerWeapon,
+        // Live views of Game's own fields, never copies: a copy is written by
+        // the event layer and never seen by Game (the crosshair, the empty
+        // click and the hip-fire aim all read Game's).
+        get _lastServerWeapon() {
+          return Game.getInstance()._lastServerWeapon;
+        },
+        set _lastServerWeapon(v) {
+          Game.getInstance()._lastServerWeapon = v;
+        },
         enemyWeapons: this.enemyWeapons,
-        _localCharging: this._localCharging,
+        get _localCharging() {
+          return Game.getInstance()._localCharging;
+        },
+        set _localCharging(v) {
+          Game.getInstance()._localCharging = v;
+        },
         chargingPlayers: this.chargingPlayers,
         chargingGlows: this.chargingGlows,
         serverProjectileDefIds: this.projectiles.defIds,

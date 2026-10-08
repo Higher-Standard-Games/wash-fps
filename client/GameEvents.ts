@@ -929,7 +929,7 @@ function handleWeaponDrop(ctx: GameEventContext, event: WeaponDropEvent): void {
  * Handle weapon_state event from server for the local player.
  * Syncs the client's inventory and weapon view with server state.
  */
-function handleWeaponStateSync(ctx: GameEventContext, event: WeaponStateEvent): void {
+export function handleWeaponStateSync(ctx: GameEventContext, event: WeaponStateEvent): void {
   const player = FPSPlayer.getInstance();
   if (!player) return;
 
@@ -959,6 +959,16 @@ function handleWeaponStateSync(ctx: GameEventContext, event: WeaponStateEvent): 
   const slotIndex = serverWeapons.indexOf(serverWeapon);
   if (slotIndex >= 0) {
     player.getController().currentWeaponSlot = slotIndex;
+  }
+
+  // While we watch someone else, the HUD and the gun in hand are theirs
+  // (handleSpectatedWeaponState). Our own state arrives every snapshot and
+  // theirs only when it changes, so ours must stop here or it paints over
+  // theirs for good. Nothing is lost: the reconcile below compares against the
+  // gun on screen, so the first snapshot after the spectate ends puts ours back.
+  if (ctx.spectatingEntityId && ctx.spectatingEntityId !== event.entityId) {
+    ctx._lastServerWeapon = serverWeapon;
+    return;
   }
 
   // Update HUD
