@@ -86,6 +86,7 @@ function tickContext(over: Partial<GametypeTickContext> & { players: FakePlayer[
     defendingTeam: attacking === "udon" ? "soba" : "udon",
     teamOf: (id: number) => (teams.get(id) ?? "spectator") as never,
     credit: () => {},
+    blast: () => {},
     ...over,
   };
 }
@@ -285,6 +286,84 @@ describe("round outcomes", () => {
     const outcome = run(mode, [attacker(), defender()], 30 * 125 + 10, armedAt);
     expect(outcome?.winner).toBe("udon");
     expect(outcome?.reason).toContain("detonated");
+  });
+
+  describe("the blast", () => {
+    /** Detonate, then return the tick the intermission starts on. */
+    function detonated(): { mode: SearchAndDestroy; endedAt: number } {
+      const { mode, armedAt } = armed();
+      const players = [attacker(), defender()];
+      const state = fakeState(players);
+      for (let tick = armedAt; tick < armedAt + 40 * 125; tick++) {
+        if (mode.onTick(state, tickContext({ players, tick: tick as never }))) return { mode, endedAt: tick + 1 };
+      }
+      throw new Error("the bomb never went off");
+    }
+
+    /** Run the intermission and add up the blast damage each entity took. */
+    function intermission(mode: SearchAndDestroy, players: FakePlayer[], from: number, ticks = 3 * 125) {
+      const taken = new Map<number, number>();
+      const pushes: { id: number; push: { x: number; y: number; z: number } }[] = [];
+      const blast = (id: number, damage: number, push: { x: number; y: number; z: number }) => {
+        taken.set(id, (taken.get(id) ?? 0) + damage);
+        pushes.push({ id, push });
+      };
+      run(mode, players, ticks, from, { live: false, blast });
+      return { taken, pushes };
+    }
+
+    it("gibs a player standing on the site, hurts no one far away and no one already dead", () => {
+      const { mode, endedAt } = detonated();
+      const onSite: FakePlayer = { id: 10, ownerId: 10, team: "soba", position: { x: 40, y: 0, z: 0 } };
+      const corpse: FakePlayer = { id: 11, ownerId: 11, team: "soba", position: { x: 0, y: 0, z: 40 }, dead: true };
+      const far: FakePlayer = { id: 12, ownerId: 12, team: "udon", position: { x: 2000, y: 0, z: 0 } };
+      const { taken, pushes } = intermission(mode, [onSite, corpse, far], endedAt);
+
+      // 100 health and 100 armor, all of it, with room to spare.
+      expect(taken.get(10)).toBeGreaterThan(200);
+      expect(taken.has(11)).toBe(false);
+      expect(taken.has(12)).toBe(false);
+      // Thrown away from each blast: the push points from the blast to the player.
+      expect(pushes.length).toBeGreaterThan(1);
+      for (const { push } of pushes) expect(Math.hypot(push.x, push.y, push.z)).toBeGreaterThan(0);
+    });
+
+    it("spreads the blasts over the schedule the clients play, not all on one tick", () => {
+      const { mode, endedAt } = detonated();
+      const delays = (mode.getExplosion()?.points ?? []).map((p) => p.delay);
+      expect(delays.length).toBeGreaterThan(1);
+      const onSite: FakePlayer = { id: 10, ownerId: 10, team: "soba", position: { x: 40, y: 0, z: 0 } };
+      const ticks = new Set<number>();
+      const state = fakeState([onSite]);
+      for (let tick = endedAt; tick < endedAt + 2 * 125; tick++) {
+        mode.onTick(
+          state,
+          tickContext({ players: [onSite], tick: tick as never, live: false, blast: () => ticks.add(tick) }),
+        );
+      }
+      expect(ticks.size).toBeGreaterThan(1);
+      expect(Math.max(...ticks) - endedAt).toBeLessThanOrEqual(Math.round(Math.max(...delays) * 125) + 1);
+    });
+
+    it("does nothing in a live round, and a new round forgets blasts that never went off", () => {
+      const { mode, endedAt } = detonated();
+      const onSite: FakePlayer = { id: 10, ownerId: 10, team: "soba", position: { x: 40, y: 0, z: 0 } };
+      const live = new Map<number, number>();
+      run(mode, [onSite], 2 * 125, endedAt, { blast: (id: number) => live.set(id, 1) });
+      expect(live.size).toBe(0);
+
+      startRound(mode, 2, "soba");
+      expect(intermission(mode, [onSite], endedAt + 2 * 125).taken.size).toBe(0);
+    });
+
+    it("is stopped by a wall between the blast and the player", () => {
+      const { mode, endedAt } = detonated();
+      // Walls everywhere from here on. Set after the plant, which traces to the floor.
+      const walls = { trace: () => ({ fraction: 0, endpos: { x: 0, y: 0, z: 0 } }) };
+      (mode as unknown as { collision: unknown }).collision = walls;
+      const onSite: FakePlayer = { id: 10, ownerId: 10, team: "soba", position: { x: 40, y: 0, z: 0 } };
+      expect(intermission(mode, [onSite], endedAt).taken.size).toBe(0);
+    });
   });
 });
 

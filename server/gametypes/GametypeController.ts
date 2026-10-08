@@ -32,7 +32,7 @@ import { Contents } from "../../../../engine/network/systems/collision/Collision
 import { rngFrom } from "../../../../shared/DeterministicRng";
 import { toClientKey } from "../../ClientEntityKey";
 import { debugLog } from "../DebugLog";
-import type { CombatSystem } from "../systems/CombatSystem";
+import { type CombatSystem, DamageType, HitLocation } from "../systems/CombatSystem";
 import type { WeaponSystem } from "../systems/WeaponSystem";
 import { type AwardEvent, AwardTracker } from "./AwardTracker";
 import type { BaseGametype, GametypeTickContext, RoundOutcome } from "./BaseGametype";
@@ -1027,7 +1027,28 @@ export class GametypeController {
       defendingTeam: this.matchState.defendingTeam,
       teamOf: (playerId: PlayerId) => this.matchState.getPlayerTeam(playerId),
       credit: (playerId: PlayerId, kind: "plant" | "defuse") => this.recordObjective(playerId, kind),
+      blast: (entityId: EntityId, damage: number, push: Vec3) => this.queueBlast(entityId, damage, push),
     };
+  }
+
+  /**
+   * A bomb blast, as a hit from no one.
+   *
+   * No attacker, so no frag, no suicide and no damage stat for anybody, and the
+   * spawn-protection filter lets it through. It only ever lands in the round-end
+   * intermission, where the kill step counts no score and no death either: the
+   * round is decided, and the blast is the show, not a second chance at it.
+   */
+  private queueBlast(entityId: EntityId, damage: number, push: Vec3): void {
+    this.combatSystem?.queueDamage({
+      victimId: entityId,
+      damage,
+      // Armor is no help against the thing the round was about.
+      armorPiercing: 1,
+      damageType: DamageType.Bomb,
+      hitLocation: HitLocation.Body,
+      knockbackDir: push,
+    });
   }
 
   /**

@@ -775,7 +775,9 @@ function handleDeathEvent(ctx: GameEventContext, event: DeathEvent, state: GameS
 
   const damageType = event.damageType || event.weaponId || "";
   const finalDamage = event.finalDamage || 0;
-  const shouldGib = damageType === "rail" || (damageType === "explosion" && finalDamage >= 50);
+  // The bomb always gibs: its blasts are the round-end show, and a ragdoll would
+  // only fall over in the middle of it.
+  const shouldGib = damageType === "rail" || damageType === "bomb" || (damageType === "explosion" && finalDamage >= 50);
 
   // Local player death: the local player has no normal third-person model, so
   // create one for ragdoll deaths and bind the camera to the live ragdoll handle.

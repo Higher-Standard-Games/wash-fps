@@ -63,6 +63,8 @@ export enum DamageType {
   /** Squashed by a player exiting a teleporter on top of you. */
   Telefrag = "telefrag",
   World = "world",
+  /** The S&D bomb going off. Credited to no one, and always a gib on the client. */
+  Bomb = "bomb",
 }
 
 export enum HitLocation {
