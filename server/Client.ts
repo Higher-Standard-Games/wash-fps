@@ -64,6 +64,8 @@ export interface ClientInfo {
   lastRespawnReqMs?: number;
   /** Wall-clock (performance.now) of the last accepted team/spectate switch. */
   lastTeamSwitchMs?: number;
+  /** When the last clock-sync ping was answered (performance.now), for its rate limit. */
+  lastPingReplyMs?: number;
   /** Wall-clock (performance.now) of the last accepted chat message. */
   lastChatMs?: number;
   /** Accepted chat timestamps inside the burst window (sliding). */

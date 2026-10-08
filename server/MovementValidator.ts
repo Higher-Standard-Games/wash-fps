@@ -1,16 +1,20 @@
 /**
  * MovementValidator — Anti-Warp / Speed Hack Prevention
  *
- * Prevents clients from gaining extra movement by flooding inputs.
- * Uses a combined approach:
+ * Watches for clients sending movement faster than real time. Two layers:
  *
- * 1. **Rate cap**: Hard limit on inputs processed per server tick
- * 2. **Time budget**: Each client earns real-time credit between inputs.
- *    Each accepted input "costs" 1/expectedClientRate seconds.
- *    If the budget goes negative, the input is silently dropped.
+ * 1. **Rate cap**: a hard limit on inputs accepted per server tick. Inputs over
+ *    it are silently dropped; the client just sees its movement stutter.
+ * 2. **Time budget**: each client earns real-time credit between inputs, up to
+ *    500 ms banked, and each input costs 1/expectedClientRate seconds. Running
+ *    out only records a strike. It does not drop the input: honest links
+ *    deliver in bursts, and dropping there made honest players stutter.
  *
- * Silent drops don't reveal detection to cheaters — they just see
- * their movement stutter when flooding inputs.
+ * The real speed-hack defence is elsewhere: the simulation runs one command per
+ * entity per tick and holds at most `MAX_INPUT_BUFFER` of them, so a flood
+ * cannot buy extra movement however it arrives. Strikes are a signal for
+ * telemetry, kept per player across spectating, rejoining and resuming, so
+ * toggling spectate does not wipe the record. Only a real departure does.
  */
 
 import type { PlayerId } from "@engine/server/ecs/types";
@@ -30,8 +34,13 @@ interface ClientMovementState {
   totalRejected: number;
 }
 
+/** What a player's record keeps while they are not playing. */
+type Lifetime = Pick<ClientMovementState, "warpStrikes" | "totalAccepted" | "totalRejected">;
+
 export class MovementValidator {
   private clients = new Map<PlayerId, ClientMovementState>();
+  /** Records of players spectating or suspended, restored when they play again. */
+  private parked = new Map<PlayerId, Lifetime>();
 
   // --- Config ---
 
@@ -61,26 +70,41 @@ export class MovementValidator {
    * Register a client for tracking. Call on join.
    */
   addClient(playerId: PlayerId): void {
+    const lifetime = this.parked.get(playerId);
+    this.parked.delete(playerId);
     this.clients.set(playerId, {
       timeBudget: this.maxBudgetMs, // Start with full budget (grace period)
       lastInputTime: performance.now(),
       inputsThisTick: 0,
-      warpStrikes: 0,
-      totalAccepted: 0,
-      totalRejected: 0,
+      warpStrikes: lifetime?.warpStrikes ?? 0,
+      totalAccepted: lifetime?.totalAccepted ?? 0,
+      totalRejected: lifetime?.totalRejected ?? 0,
     });
   }
 
   /**
-   * Unregister a client. Call on disconnect.
+   * Stop tracking a client that stops playing for now (spectate, a held seat),
+   * keeping its strikes for when it plays again.
    */
   removeClient(playerId: PlayerId): void {
+    const state = this.clients.get(playerId);
+    if (state) {
+      const { warpStrikes, totalAccepted, totalRejected } = state;
+      this.parked.set(playerId, { warpStrikes, totalAccepted, totalRejected });
+    }
     this.clients.delete(playerId);
+  }
+
+  /** Forget a player entirely. Call when they really leave the server. */
+  forgetClient(playerId: PlayerId): void {
+    this.clients.delete(playerId);
+    this.parked.delete(playerId);
   }
 
   /**
    * Validate whether a client's input should be accepted.
-   * Returns true if the input passes anti-warp checks.
+   * Returns false only over the per-tick rate cap; an exhausted time budget
+   * records a strike and still accepts.
    *
    * Call this AFTER dedup (seq check) but BEFORE pushing to inputQueue.
    */
@@ -134,7 +158,7 @@ export class MovementValidator {
    * Gametypes can use this to decide on warnings/kicks.
    */
   getStrikes(playerId: PlayerId): number {
-    return this.clients.get(playerId)?.warpStrikes ?? 0;
+    return (this.clients.get(playerId) ?? this.parked.get(playerId))?.warpStrikes ?? 0;
   }
 
   /**

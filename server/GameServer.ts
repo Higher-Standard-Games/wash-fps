@@ -112,6 +112,8 @@ export class GameServer {
   /** Matches the broadcaster's snapshot history, the oldest tick a client can ack. */
   private static readonly SENT_AT_HISTORY = 64;
   /** Weight of a fresh sample. Low enough that one stalled frame is not "your ping". */
+  /** Shortest gap between answered pings: a quarter of the client's burst spacing, so ordinary jitter does not cost a sample. */
+  private static readonly PING_MIN_GAP_MS = 25;
   private static readonly PING_SMOOTHING = 0.25;
   private nextPlayerId: number = 1;
   private nextBotId: number = 900; // Bot IDs start high to avoid collisions
@@ -1039,11 +1041,14 @@ export class GameServer {
       this.weaponSystem.forget(client.entityId);
 
       // Remove from anti-warp tracker
-      this.movementValidator.removeClient(client.playerId);
+      this.movementValidator.forgetClient(client.playerId);
+      this.lagCompensation.forgetClient(client.playerId);
       this.telemetry.remove(client.playerId);
     } else {
       // Spectating preserves session state; a real disconnect must release it.
       this.gametypeController.onPlayerDisconnect(client.playerId);
+      this.movementValidator.forgetClient(client.playerId);
+      this.lagCompensation.forgetClient(client.playerId);
     }
 
     this.clients.delete(conn.id);
@@ -1210,7 +1215,12 @@ export class GameServer {
         this.recordAckRoundTrip(client, tick);
         client.lastAckedTick = nextAckedTick(client.lastAckedTick, tick, Number(this.simulation.currentTick));
       } else if (msgType === MessageType.Ping) {
-        // ClockSync: reply with Pong containing client's send time + server time
+        // ClockSync: reply with Pong containing client's send time + server time.
+        // An honest client pings at most every 100 ms (a sync burst), then every
+        // 30 s; anything faster is a flood that would make us send a pong for each.
+        const now = performance.now();
+        if (rateLimited(client.lastPingReplyMs, now, GameServer.PING_MIN_GAP_MS)) return;
+        client.lastPingReplyMs = now;
         const { clientSendTime } = MessageCodec.decodePing(data);
         const pong = MessageCodec.encodePong(clientSendTime, Date.now());
         client.connection.sendDatagram(pong);
@@ -1641,9 +1651,12 @@ export class GameServer {
       return; // Already processed this or an older command
     }
 
-    // Anti-warp: validate input rate (rate cap + time budget)
+    // Anti-warp: over the per-tick rate cap the command is dropped, silently so
+    // a cheater learns nothing. Running past the time budget only counts a strike.
+    // After the de-dup above, so a redundant copy never spends anything, and
+    // before the sanitiser, so a malformed flood is still rate-capped.
     if (!this.movementValidator.validateInput(client.playerId)) {
-      return; // Silently drop — don't inform cheater
+      return;
     }
 
     const clean = sanitizeCommand(command);
