@@ -168,6 +168,17 @@ export class RemotePlayerRenderer {
   /** entityId → server team id ("udon"/"soba"/"spectator"), from snapshot players */
   private teams: Map<string, string> = new Map();
 
+  /** Each model's child meshes; see bodyPartsOf. */
+  private readonly bodyParts = new WeakMap<PlayerModelInstance, AbstractMesh[]>();
+  /** Style key per team slot, for the frame being rendered only; see applyHitboxVisualStyle. */
+  private readonly frameStyleKeys = new Map<PlayerTeamSlot, string>();
+  /** cl_animdebug for the frame being rendered; null outside render(). */
+  private frameAnimDebug: boolean | null = null;
+  /** The sample each live player is read into during render(); see renderEntities. */
+  private readonly frameSample = {} as InterpolatedEntity;
+  /** Scratch point for the PVS probes up a player's body. */
+  private readonly pvsProbe = new Vector3();
+
   /** Entity whose mesh+model should be hidden (e.g. followed player in demo POV) */
   private _hiddenEntityId: string | null = null;
   /**
@@ -404,7 +415,14 @@ export class RemotePlayerRenderer {
 
   private applyHitboxVisualStyle(hitbox: RemotePlayerHitbox, entityId: string): void {
     if (!hitbox.model) return;
-    const key = getPlayerModelVisualStyleKey(this.resolvePlayerTeamSlot(entityId));
+    // Three team slots, so three keys a frame instead of one per player: each is
+    // six settings reads and a join, almost always to find nothing changed.
+    const slot = this.resolvePlayerTeamSlot(entityId);
+    let key = this.frameStyleKeys.get(slot);
+    if (key === undefined) {
+      key = getPlayerModelVisualStyleKey(slot);
+      this.frameStyleKeys.set(slot, key);
+    }
     if (hitbox.appliedVisualStyleKey === key) return;
     hitbox.appliedVisualStyleKey = this.applyModelVisualStyle(hitbox.model, entityId);
   }
@@ -495,98 +513,21 @@ export class RemotePlayerRenderer {
       ? this.demoTimeline.getEntityIds(this.demoPlayheadTick)
       : this.snapshotBuffer.getLatestEntityIds();
 
-    // Sample interpolated state for each alive entity
-    for (const entityId of aliveIds) {
-      // Skip dead entities — their mesh is hidden until entity leaves snapshot
-      if (this.deadEntities.has(entityId)) continue;
-
-      const interp = this.demoTimeline
-        ? this.demoTimeline.sample(entityId, this.demoPlayheadTick)
-        : this.snapshotBuffer.sample(entityId);
-      if (!interp) continue;
-
-      let hitbox = this.hitboxes.get(entityId);
-
-      // Create hitbox for new entity
-      if (!hitbox) {
-        const created = this.createHitbox(entityId, interp);
-        if (created) {
-          this.hitboxes.set(entityId, created);
-          hitbox = created;
-          // Trigger async model load on first remote player
-          this.ensureModelLoaded();
-        }
-      }
-
-      if (!hitbox) continue;
-
-      // Hidden entity (followed player in demo POV) — keep invisible every frame.
-      // Third-person weapons are bone-driven external roots, so hide them too.
-      if (entityId === this._hiddenEntityId) {
-        hitbox.mesh.setEnabled(false);
-        if (hitbox.model) hitbox.model.anchor.setEnabled(false);
-        if (hitbox.weaponRoot) hitbox.weaponRoot.setEnabled(false);
-        // Still tracked, undrawn: frozen where we started following them, the
-        // first frame after switching away was a jump, taken for a teleport (R2).
-        this.updatePosition(hitbox, interp);
-        continue;
-      }
-
-      // Ensure model is assigned — catches any timing gaps during initial load
-      if (!hitbox.model && this.modelManager?.isLoaded) {
-        hitbox.model = this.createModelInstance(entityId);
-        if (hitbox.model) {
-          console.log(`[RemotePlayerRenderer] Late model assign for ${entityId}`);
-        }
-      }
-
-      // Restore hitbox visibility (it is hidden during death).
-      //
-      // Absent cvar means OFF, matching the registered default. It used to mean
-      // ON, so any frame where the lookup came back empty — before registration
-      // has run, or after a registry reset — flashed a debug wireframe around
-      // every player.
-      const showHitbox = Cvar.get("cl_remotehitbox");
-      hitbox.mesh.setEnabled(Number(showHitbox ?? 0) > 0);
-
-      // Crouch/uncrouch scales the wireframe rather than rebuilding it. The box
-      // is centred on its origin and the only thing height changes is its half
-      // extent, so a Y scale is exactly the same geometry — and this fires on
-      // every crouch transition of every player, which was twelve edges of mesh
-      // allocated and discarded each time.
-      const targetHeight = interp.crouching ? CROUCH_HEIGHT : PLAYER_HEIGHT;
-      if (hitbox.currentHeight !== targetHeight) {
-        hitbox.mesh.scaling.y = targetHeight / hitbox.builtHeight;
-        hitbox.currentHeight = targetHeight;
-      }
-
-      // Teleport detection: SnapshotBuffer snaps (no lerp) across >256u
-      // inter-snapshot jumps, so a teleport arrives here as one huge
-      // frame-to-frame delta. Play the washoi ghost + burst at both ends.
-      // (Respawns create a fresh hitbox via markDead, so they don't fire.)
-      const jdx = interp.x - hitbox.smoothedPos.x;
-      const jdy = interp.y - hitbox.smoothedPos.y;
-      const jdz = interp.z - hitbox.smoothedPos.z;
-      if (jdx * jdx + jdy * jdy + jdz * jdz > RemotePlayerRenderer.TELEPORT_FX_DIST_SQ) {
-        this.playTeleportEffect(hitbox, entityId, interp);
-      }
-
-      // Update position/rotation from interpolated data
-      this.updatePosition(hitbox, interp);
-
-      // Update model position + animation
-      this.updateModel(hitbox, interp, entityId, this.demoTimeline ? this.demoAnimationTimeScale : 1);
-
-      // Powerup carrier glow (pulses, so it must run every frame, not on change)
-      this.updatePowerupGlow(hitbox, entityId, interp.powerupMask ?? 0, performance.now() / 1000);
-
-      // PVS: a player in a room the camera cannot see is not drawn. Players
-      // move, so they carry no compiled cluster and the static culler never
-      // considered them — every body in the map was submitted every frame.
-      //
-      // Applied last, and only ever to HIDE: the branches above own the reasons
-      // a model should be invisible, and this must not resurrect one of them.
-      this.applyEntityLod(hitbox, cameraPos, animationLodRadiusSq);
+    // Settings read once a frame, not once per player (B12 stage 3).
+    //
+    // Absent cvar means OFF, matching the registered default. It used to mean
+    // ON, so any frame where the lookup came back empty — before registration
+    // has run, or after a registry reset — flashed a debug wireframe around
+    // every player.
+    const showHitbox = Number(Cvar.get("cl_remotehitbox") ?? 0) > 0;
+    this.frameAnimDebug = Number(Cvar.get("cl_animdebug") ?? 0) > 0;
+    this.frameStyleKeys.clear();
+    try {
+      this.renderEntities(aliveIds, showHitbox, cameraPos, animationLodRadiusSq);
+    } finally {
+      // Outside a frame the settings may change, so nothing read here is kept.
+      this.frameStyleKeys.clear();
+      this.frameAnimDebug = null;
     }
 
     // Remove hitboxes for entities no longer alive
@@ -1144,8 +1085,8 @@ export class RemotePlayerRenderer {
    * animation is paused separately, and that is the larger saving on a map full
    * of bots.
    *
-   * Applied last and only ever to REMOVE work: the branches above own the
-   * reasons a model should be invisible, and this must not resurrect one.
+   * PVS is decided first (`isInView`) and switches the body, hitbox and weapon
+   * on or off once; distance only pauses the animation (`applyAnimationLod`).
    */
 
   /**
@@ -1170,29 +1111,133 @@ export class RemotePlayerRenderer {
     );
   }
 
-  private applyEntityLod(
+  /** One frame of every alive remote player; see render(). */
+  private renderEntities(
+    aliveIds: Iterable<string>,
+    showHitbox: boolean,
+    cameraPos: Vector3 | null,
+    animationLodRadiusSq: number,
+  ): void {
+    // Settings, clock and bracketing snapshots once for every player, and each
+    // sample written into one reused object (B12 stage 4). Nothing below keeps
+    // `interp` past its player: createHitbox and playTeleportEffect copy it.
+    if (!this.demoTimeline) this.snapshotBuffer.beginFrame();
+
+    // Sample interpolated state for each alive entity
+    for (const entityId of aliveIds) {
+      // Skip dead entities — their mesh is hidden until entity leaves snapshot
+      if (this.deadEntities.has(entityId)) continue;
+
+      const interp = this.demoTimeline
+        ? this.demoTimeline.sample(entityId, this.demoPlayheadTick)
+        : this.snapshotBuffer.sampleInFrame(entityId, this.frameSample);
+      if (!interp) continue;
+
+      let hitbox = this.hitboxes.get(entityId);
+
+      // Create hitbox for new entity
+      if (!hitbox) {
+        const created = this.createHitbox(entityId, interp);
+        if (created) {
+          this.hitboxes.set(entityId, created);
+          hitbox = created;
+          // Trigger async model load on first remote player
+          this.ensureModelLoaded();
+        }
+      }
+
+      if (!hitbox) continue;
+
+      // Hidden entity (followed player in demo POV) — keep invisible every frame.
+      // Third-person weapons are bone-driven external roots, so hide them too.
+      if (entityId === this._hiddenEntityId) {
+        hitbox.mesh.setEnabled(false);
+        if (hitbox.model) hitbox.model.anchor.setEnabled(false);
+        if (hitbox.weaponRoot) hitbox.weaponRoot.setEnabled(false);
+        // Still tracked, undrawn: frozen where we started following them, the
+        // first frame after switching away was a jump, taken for a teleport (R2).
+        this.updatePosition(hitbox, interp);
+        continue;
+      }
+
+      // Ensure model is assigned — catches any timing gaps during initial load
+      if (!hitbox.model && this.modelManager?.isLoaded) {
+        hitbox.model = this.createModelInstance(entityId);
+        if (hitbox.model) {
+          console.log(`[RemotePlayerRenderer] Late model assign for ${entityId}`);
+        }
+      }
+
+      // Crouch/uncrouch scales the wireframe rather than rebuilding it. The box
+      // is centred on its origin and the only thing height changes is its half
+      // extent, so a Y scale is exactly the same geometry — and this fires on
+      // every crouch transition of every player, which was twelve edges of mesh
+      // allocated and discarded each time.
+      const targetHeight = interp.crouching ? CROUCH_HEIGHT : PLAYER_HEIGHT;
+      if (hitbox.currentHeight !== targetHeight) {
+        hitbox.mesh.scaling.y = targetHeight / hitbox.builtHeight;
+        hitbox.currentHeight = targetHeight;
+      }
+
+      // Teleport detection: SnapshotBuffer snaps (no lerp) across >256u
+      // inter-snapshot jumps, so a teleport arrives here as one huge
+      // frame-to-frame delta. Play the washoi ghost + burst at both ends.
+      // (Respawns create a fresh hitbox via markDead, so they don't fire.)
+      const jdx = interp.x - hitbox.smoothedPos.x;
+      const jdy = interp.y - hitbox.smoothedPos.y;
+      const jdz = interp.z - hitbox.smoothedPos.z;
+      if (jdx * jdx + jdy * jdy + jdz * jdz > RemotePlayerRenderer.TELEPORT_FX_DIST_SQ) {
+        this.playTeleportEffect(hitbox, entityId, interp);
+      }
+
+      // Update position/rotation from interpolated data
+      this.updatePosition(hitbox, interp);
+
+      // PVS: a player in a room the camera cannot see is not drawn. Players
+      // move, so they carry no compiled cluster and the static culler never
+      // considered them — every body in the map was submitted every frame.
+      //
+      // Decided before anything is switched on, so a culled player is switched
+      // off once rather than on and off again: each change walks the whole
+      // skeleton (B12 stage 2).
+      const visible = this.isInView(hitbox.mesh.position);
+
+      // Restore hitbox visibility (it is hidden during death).
+      hitbox.mesh.setEnabled(visible && showHitbox);
+
+      // Update model position + animation
+      this.updateModel(hitbox, interp, entityId, this.demoTimeline ? this.demoAnimationTimeScale : 1, visible);
+
+      // Powerup carrier glow (pulses, so it must run every frame, not on change)
+      this.updatePowerupGlow(hitbox, entityId, interp.powerupMask ?? 0, performance.now() / 1000);
+
+      // Animation runs only for a player who is drawn and big enough to read.
+      this.applyAnimationLod(hitbox, visible, cameraPos, animationLodRadiusSq);
+    }
+  }
+
+  /**
+   * Whether the camera's room can see this player. Three points up the body: a
+   * player in a doorway or on a stair has their origin in one cluster and their
+   * shoulders in another, and culling on the origin alone makes them blink.
+   */
+  private isInView(at: Vector3): boolean {
+    const culler = BspManager.getInstance().getPvsCuller();
+    if (!culler) return true;
+    const probe = this.pvsProbe;
+    return (
+      culler.isPositionVisible(at) ||
+      culler.isPositionVisible(probe.set(at.x, at.y + PLAYER_MINS_Z + 2, at.z)) ||
+      culler.isPositionVisible(probe.set(at.x, at.y + PLAYER_MAXS_Z - 2, at.z))
+    );
+  }
+
+  private applyAnimationLod(
     hitbox: RemotePlayerHitbox,
+    visible: boolean,
     cameraPosition: Vector3 | null,
     animationLodRadiusSq: number,
   ): void {
-    const at = hitbox.mesh.position;
-    const culler = BspManager.getInstance().getPvsCuller();
-
-    // Three points up the body: a player in a doorway or on a stair has their
-    // origin in one cluster and their shoulders in another, and culling on the
-    // origin alone makes them blink.
-    const visible =
-      !culler ||
-      culler.isPositionVisible(at) ||
-      culler.isPositionVisible(new Vector3(at.x, at.y + PLAYER_MINS_Z + 2, at.z)) ||
-      culler.isPositionVisible(new Vector3(at.x, at.y + PLAYER_MAXS_Z - 2, at.z));
-
-    if (!visible) {
-      hitbox.mesh.setEnabled(false);
-      if (hitbox.model) hitbox.model.anchor.setEnabled(false);
-      if (hitbox.weaponRoot) hitbox.weaponRoot.setEnabled(false);
-    }
-
     if (!hitbox.model || !this.modelManager) return;
 
     // Beyond the LOD radius the body is a thumbnail and its limbs cannot be
@@ -1201,9 +1246,23 @@ export class RemotePlayerRenderer {
     const tooSmall =
       cameraPosition !== null &&
       animationLodRadiusSq > 0 &&
-      Vector3.DistanceSquared(cameraPosition, at) > animationLodRadiusSq;
+      Vector3.DistanceSquared(cameraPosition, hitbox.mesh.position) > animationLodRadiusSq;
 
     this.modelManager.setAnimationActive(hitbox.model, visible && !tooSmall);
+  }
+
+  /**
+   * The body's child meshes, listed once per model: the rig is cloned once and
+   * never gains or loses a mesh (the hand weapon hangs off a bone, not the
+   * body), and listing them built a new array per player per frame.
+   */
+  private bodyPartsOf(inst: PlayerModelInstance): AbstractMesh[] {
+    let parts = this.bodyParts.get(inst);
+    if (!parts) {
+      parts = inst.mesh.getChildMeshes();
+      this.bodyParts.set(inst, parts);
+    }
+    return parts;
   }
 
   private updatePowerupGlow(hitbox: RemotePlayerHitbox, entityId: string, mask: number, elapsed: number): void {
@@ -1299,10 +1358,12 @@ export class RemotePlayerRenderer {
     const from = { x: hitbox.smoothedPos.x, y: hitbox.smoothedPos.y, z: hitbox.smoothedPos.z };
     const to = { x: interp.x, y: interp.y, z: interp.z };
     const fromYaw = hitbox.smoothedYaw;
+    // Read now: the sample is reused for the next player before the import lands.
+    const toYaw = interp.yaw;
     const team = this.resolveLegacyTeamColor(entityId);
     import("./TeleportEffect")
       .then(({ TeleportEffect }) => {
-        TeleportEffect.getInstance().playerTeleported(this.scene, from, to, fromYaw, interp.yaw, team);
+        TeleportEffect.getInstance().playerTeleported(this.scene, from, to, fromYaw, toYaw, team);
       })
       .catch(() => {
         /* effect is cosmetic — never break the render loop */
@@ -1329,6 +1390,7 @@ export class RemotePlayerRenderer {
     interp: InterpolatedEntity,
     entityId: string,
     animationTimeScale: number,
+    visible: boolean,
   ): void {
     const inst = hitbox.model;
     if (!inst || !this.modelManager) return;
@@ -1358,10 +1420,10 @@ export class RemotePlayerRenderer {
     // Rotation
     if (inst.anchor.rotationQuaternion) inst.anchor.rotationQuaternion = null;
     inst.anchor.rotation.set(0, interp.yaw, 0);
-    inst.anchor.setEnabled(true);
+    inst.anchor.setEnabled(visible);
     // The hand weapon is parented to a bone, not the anchor, so switching the
-    // anchor on does not reach it. PVS switches both off; both come back here.
-    hitbox.weaponRoot?.setEnabled(true);
+    // anchor does not reach it: it follows the body explicitly.
+    hitbox.weaponRoot?.setEnabled(visible);
 
     // Reset root motion each frame (position + rotation drift from anims)
     this.modelManager.resetRootMotion(inst);
@@ -1376,12 +1438,12 @@ export class RemotePlayerRenderer {
     inst.mesh.isVisible = true;
     inst.mesh.visibility = 1;
     inst.mesh.alwaysSelectAsActiveMesh = true;
-    inst.mesh.getChildMeshes().forEach((m) => {
+    for (const m of this.bodyPartsOf(inst)) {
       m.setEnabled(true);
       m.isVisible = true;
       m.visibility = 1;
       m.alwaysSelectAsActiveMesh = true;
-    });
+    }
 
     // Derive animation from network data
     // Skip if a one-shot animation (e.g. blade slash) is still playing
@@ -1694,7 +1756,7 @@ export class RemotePlayerRenderer {
    * if `frame` advances but you see no motion, it's elsewhere.
    */
   private _animDebug(entityId: string, animName: string, interp: InterpolatedEntity, inst: PlayerModelInstance): void {
-    if (Number(Cvar.get("cl_animdebug") ?? 0) <= 0) return;
+    if (!(this.frameAnimDebug ?? Number(Cvar.get("cl_animdebug") ?? 0) > 0)) return;
     const now = performance.now();
     if (now - (this._lastAnimLog.get(entityId) ?? 0) < 1000) return; // throttle: 1/s per entity
     this._lastAnimLog.set(entityId, now);

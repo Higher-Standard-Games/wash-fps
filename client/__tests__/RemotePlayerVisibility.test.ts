@@ -34,8 +34,8 @@ interface Internals {
   applyHitboxVisualStyle(): void;
   updateWeaponModel(): void;
   _animDebug(): void;
-  updateModel(hitbox: unknown, interp: unknown, entityId: string, animationTimeScale: number): void;
-  applyEntityLod(hitbox: unknown, camera: null, radiusSq: number): void;
+  updateModel(hitbox: unknown, interp: unknown, entityId: string, animationTimeScale: number, visible: boolean): void;
+  isInView(at: unknown): boolean;
   detachModel(entityId: string): PlayerModelInstance | null;
   setHiddenEntity(entityId: string | null): void;
   animationLodRadiusSq(camera: unknown): number;
@@ -58,6 +58,13 @@ function setup() {
   renderer.deadEntities = new Map();
   renderer._hiddenEntityId = null;
   renderer.hiddenCorpse = null;
+  // Field initialisers do not run under Object.create.
+  Object.assign(renderer, {
+    pvsProbe: new Vector3(),
+    bodyParts: new WeakMap(),
+    frameStyleKeys: new Map(),
+    frameSample: {},
+  });
   renderer.modelManager = {
     resetRootMotion: vi.fn(),
     setAnimationActive: vi.fn(),
@@ -69,8 +76,10 @@ function setup() {
   renderer.updateWeaponModel = vi.fn();
 
   const frame = () => {
-    renderer.updateModel(hitbox, { x: 0, y: 0, z: 0, yaw: 0, crouching: false, sliding: false }, "player_2", 1);
-    renderer.applyEntityLod(hitbox, null, 0);
+    const visible = renderer.isInView(hitbox.mesh.position);
+    hitbox.mesh.setEnabled(false);
+    const interp = { x: 0, y: 0, z: 0, yaw: 0, crouching: false, sliding: false };
+    renderer.updateModel(hitbox, interp, "player_2", 1, visible);
   };
   return { renderer, anchor, weapon, frame };
 }
@@ -150,19 +159,18 @@ describe("remote player visibility", () => {
       render(): void;
       playTeleportEffect(...args: unknown[]): void;
       updatePowerupGlow(): void;
-      applyEntityLod(): void;
     };
     let x = 0;
     r.snapshotBuffer = {
       getLatestEntityIds: () => new Set(["player_2"]),
-      sample: () => ({ x, y: 0, z: 0, yaw: 0, crouching: false, sliding: false }),
+      beginFrame: () => {},
+      sampleInFrame: () => ({ x, y: 0, z: 0, yaw: 0, crouching: false, sliding: false }),
     };
     r.demoTimeline = null;
     r.scene = null;
     const teleport = vi.fn();
     r.playTeleportEffect = teleport;
     r.updatePowerupGlow = vi.fn();
-    r.applyEntityLod = vi.fn();
     r.animationLodRadiusSq = () => 0;
     Object.assign(r.hitboxes.get("player_2") as object, {
       smoothedPos: new Vector3(),
