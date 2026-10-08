@@ -152,16 +152,14 @@ export class SpectateView {
   private updateRoundEndCamera(): void {
     const match = MatchStateManager.getInstance();
 
-    // Stamp the moment of death here rather than in the event handler: this
-    // runs every frame and only needs the edge, so the death path stays
-    // untouched by a camera concern.
-    if (this.host.isPlayerDead() !== this._wasDeadLastFrame) {
-      this._wasDeadLastFrame = this.host.isPlayerDead();
-      if (this.host.isPlayerDead()) this._deathAtMs = performance.now();
-    }
+    // Also stamped from syncFollowedSubject; here too so the death frame reads
+    // this death's time whichever of the two runs first.
+    this.trackDeathEdge();
 
-    // The intermission wins: once a round is decided, everyone watches the same
-    // thing, whether they were alive for it or not.
+    // The intermission wins for the dead. This runs only while dead (the FPS
+    // controller calls applyDeathCamera then), so a living player stays where
+    // they are and hears the blast, and sees it if they are near; a dead one
+    // watches what decided the round (Tarmo, 2026-10-08).
     const focus = match.phase === MatchPhase.RoundEnd ? match.roundResult?.focus : undefined;
     if (focus) {
       if (this._roundEndCameraActive) return;
@@ -182,6 +180,36 @@ export class SpectateView {
     }
 
     this.updateTeammateSpectate(match);
+  }
+
+  /**
+   * Stamp the moment of death on the edge from alive to dead.
+   *
+   * Stamped outside the event handler, so the death path stays untouched by a
+   * camera concern. It has to run while alive as well, which the death camera
+   * alone does not: it is only driven while dead, so after the first respawn
+   * the flag stayed "dead", the next death had no edge, and the hand-off to a
+   * teammate fired at once, timed from the first death (S1).
+   */
+  private trackDeathEdge(): void {
+    const dead = this.host.isPlayerDead();
+    if (dead === this._wasDeadLastFrame) return;
+    this._wasDeadLastFrame = dead;
+    if (dead) this._deathAtMs = performance.now();
+  }
+
+  /**
+   * Every frame, dead or alive (from syncFollowedSubject).
+   *
+   * Alive means watching no one through their eyes. The teammate view is
+   * otherwise released only by a frame that is dead outside an Active round,
+   * and snapshots processed in a batch (a tab coming back) can revive us
+   * without one (S4). `_spectatingEntityId` is only ever the teammate view;
+   * a true spectator's chase target is the spectator controller's.
+   */
+  private trackLifeState(): void {
+    this.trackDeathEdge();
+    if (!this.host.isPlayerDead() && this._spectatingEntityId) this.stopTeammateSpectate();
   }
 
   /**
@@ -506,6 +534,7 @@ export class SpectateView {
    * server resends a running timer in every snapshot.
    */
   syncFollowedSubject(): void {
+    this.trackLifeState();
     const subject = this.spectatingEntityId;
     if (subject === this._followedWeapon.followedEntityId) return;
     clearLocalPowerups();
