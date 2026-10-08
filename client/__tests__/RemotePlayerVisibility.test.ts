@@ -1,4 +1,5 @@
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { Scene } from "@babylonjs/core/scene";
@@ -37,6 +38,7 @@ interface Internals {
   applyEntityLod(hitbox: unknown, camera: null, radiusSq: number): void;
   detachModel(entityId: string): PlayerModelInstance | null;
   setHiddenEntity(entityId: string | null): void;
+  animationLodRadiusSq(camera: unknown): number;
 }
 
 let scene: Scene;
@@ -137,5 +139,45 @@ describe("remote player visibility", () => {
     expect(forget).toHaveBeenCalledWith("player_2");
     // A blade swing in progress is stopped, not left driving the ragdoll's bones.
     expect(stopOneShot).toHaveBeenCalledWith(corpse, false);
+  });
+
+  it("keeps following the watched player's position, so leaving their eyes is no teleport", () => {
+    const { renderer } = setup();
+    const r = renderer as unknown as Internals & {
+      snapshotBuffer: unknown;
+      demoTimeline: null;
+      scene: Scene | null;
+      render(): void;
+      playTeleportEffect(...args: unknown[]): void;
+      updatePowerupGlow(): void;
+      applyEntityLod(): void;
+    };
+    let x = 0;
+    r.snapshotBuffer = {
+      getLatestEntityIds: () => new Set(["player_2"]),
+      sample: () => ({ x, y: 0, z: 0, yaw: 0, crouching: false, sliding: false }),
+    };
+    r.demoTimeline = null;
+    r.scene = null;
+    const teleport = vi.fn();
+    r.playTeleportEffect = teleport;
+    r.updatePowerupGlow = vi.fn();
+    r.applyEntityLod = vi.fn();
+    r.animationLodRadiusSq = () => 0;
+    Object.assign(r.hitboxes.get("player_2") as object, {
+      smoothedPos: new Vector3(),
+      smoothedYaw: 0,
+      currentHeight: 56,
+      builtHeight: 56,
+    });
+
+    r.render();
+    r.setHiddenEntity("player_2");
+    // They run across the map while we watch from their eyes.
+    for (x = 0; x <= 2000; x += 20) r.render();
+    r.setHiddenEntity(null);
+    r.render();
+
+    expect(teleport).not.toHaveBeenCalled();
   });
 });

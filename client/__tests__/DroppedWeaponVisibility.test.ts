@@ -27,6 +27,9 @@ vi.mock("../../../../engine/loader/AssetPreloader", () => ({
 vi.mock("../../../../engine/loader/model/ModelLoader", () => ({
   ModelLoader: { getInstance: () => ({ isInitialized: () => true, loadModel: async () => null }) },
 }));
+vi.mock("../../../../engine/physics/PhysicsSystem", () => ({
+  PhysicsSystem: { getInstance: () => ({ removeBody: vi.fn(() => true) }) },
+}));
 vi.mock("../../world/PickupPrompt", () => ({ hidePickupPrompt: vi.fn(), showPickupPrompt: vi.fn() }));
 
 const { DroppedWeaponRenderer } = await import("../DroppedWeaponRenderer");
@@ -85,5 +88,67 @@ describe("dropped weapons and the camera's PVS", () => {
     expect(weapons.has("item_2")).toBe(false);
     expect(weapons.has("item_1")).toBe(true);
     r.dispose();
+  });
+
+  it("lets go of physics once settled, so the weapon rests where the server has it", () => {
+    vi.useFakeTimers();
+    try {
+      const { r, weapons, sync } = renderer();
+      sync({ item_1: 100 });
+      const visual = weapons.get("item_1") as unknown as Visual & { scheduleSettleCheck(): void };
+      const mesh = {
+        name: "dropped_item_1",
+        position: new Vector3(90, 0, 0),
+        setEnabled: vi.fn(),
+        isDisposed: () => false,
+        physicsBody: {
+          getLinearVelocity: () => Vector3.Zero(),
+          setLinearVelocity: vi.fn(),
+          setAngularVelocity: vi.fn(),
+          dispose: vi.fn(() => {
+            mesh.physicsBody = null as never;
+          }),
+        },
+      };
+      visual.mesh = mesh;
+      visual.scheduleSettleCheck();
+      vi.advanceTimersByTime(500);
+
+      // A stopped body still in the world had Havok write its place over the
+      // lerp every step: it could rest away from the pickup spot (W3).
+      expect(mesh.physicsBody).toBeNull();
+      for (let i = 0; i < 60; i++) sync({ item_1: 100 });
+      expect(mesh.position.x).toBeCloseTo(100, 1);
+      visual.mesh = null;
+      r.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("tosses a weapon first seen as it drops, not one first seen after it landed", () => {
+    const { r, weapons, sync } = renderer();
+    sync({ item_0: 0 });
+    const proto = Object.getPrototypeOf(weapons.get("item_0"));
+    const loadModel = vi.spyOn(proto, "loadModel");
+    const now = vi.spyOn(performance, "now");
+    try {
+      const toss = new Vector3(0, 200, 300);
+      now.mockReturnValue(1000);
+      r.stashVelocity("item_1", toss);
+      r.stashVelocity("item_2", toss);
+      now.mockReturnValue(1050);
+      sync({ item_0: 0, item_1: 100 });
+      expect(loadModel).toHaveBeenLastCalledWith(expect.anything(), toss);
+
+      // Seen four seconds on, it has landed: thrown again, it hopped (W7).
+      now.mockReturnValue(5000);
+      sync({ item_0: 0, item_1: 100, item_2: 200 });
+      expect(loadModel).toHaveBeenLastCalledWith(expect.anything(), undefined);
+    } finally {
+      loadModel.mockRestore();
+      now.mockRestore();
+      r.dispose();
+    }
   });
 });

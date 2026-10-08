@@ -61,7 +61,9 @@ export class FPSAirMeter implements FPSHudWidget {
 
     // Full air, or dead: nothing worth a line of HUD. Dying underwater should
     // take the meter with it rather than leave it frozen on the death screen.
-    if (state.dead || air >= 1) {
+    // Our own death, not the watched player's: the air is ours, and a living
+    // teammate on screen put it back up as DROWNING (L4).
+    if (state.localDead || air >= 1) {
       if (this.rendered !== null) {
         this.rendered = null;
         this.element.style.display = "none";

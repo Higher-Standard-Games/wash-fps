@@ -169,3 +169,20 @@ describe("FPSPickup.triggerUseAction", () => {
     expect(() => FPSPickup.triggerUseAction()).not.toThrow();
   });
 });
+
+describe("FPSPickup taken by someone else", () => {
+  beforeEach(resetRegistry);
+
+  it("takes its swap prompt down when the server says it is gone", () => {
+    const P = FPSPickup as unknown as { nearbyWeaponPickup: unknown };
+    const spawn = { isActive: true, setEnabled: vi.fn(), mesh: null, glowLight: null, visual: null };
+    P.nearbyWeaponPickup = spawn;
+
+    FPSPickup.prototype.setActiveState.call(spawn as unknown as FPSPickup, false);
+
+    // Inactive pickups get no proximity check, so the "out of range" that clears
+    // the prompt never came: it stayed until the weapon respawned (W5).
+    expect(spawn.isActive).toBe(false);
+    expect(P.nearbyWeaponPickup).toBeNull();
+  });
+});

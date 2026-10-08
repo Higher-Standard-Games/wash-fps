@@ -147,6 +147,14 @@ describe("LocalLiquid", () => {
     expect(made.interactions[0].notify).toHaveBeenCalledTimes(4);
   });
 
+  it("stops breathing for a dead body sinking in prediction", () => {
+    const liquid = new LocalLiquid();
+    liquid.start("scene" as never, null);
+    liquid.emitLocalCrossing(v2({ waterLevel: 3, jumppadLaunch: false }), true);
+    // The mirror kept counting down over the corpse: gasp, then gurgles (L4).
+    expect(made.trackers[0].update).not.toHaveBeenCalled();
+  });
+
   it("forgets, resets and debug-splashes through the current systems", () => {
     const liquid = new LocalLiquid();
     liquid.start("scene" as never, null);

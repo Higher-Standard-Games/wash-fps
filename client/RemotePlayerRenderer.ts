@@ -526,6 +526,9 @@ export class RemotePlayerRenderer {
         hitbox.mesh.setEnabled(false);
         if (hitbox.model) hitbox.model.anchor.setEnabled(false);
         if (hitbox.weaponRoot) hitbox.weaponRoot.setEnabled(false);
+        // Still tracked, undrawn: frozen where we started following them, the
+        // first frame after switching away was a jump, taken for a teleport (R2).
+        this.updatePosition(hitbox, interp);
         continue;
       }
 
@@ -774,6 +777,12 @@ export class RemotePlayerRenderer {
       applyLighting: false,
     });
     if (!result?.root) return;
+    // The showcase can end while the gun loads (next warmup, disconnect). Its
+    // model is gone then, and a gun attached to nothing leaked (S5).
+    if (inst.mesh.isDisposed()) {
+      disposeModelResources([result.root], { animationGroups: result.animationGroups });
+      return;
+    }
 
     let leaderMesh: Mesh | null = null;
     for (const m of result.meshes) {

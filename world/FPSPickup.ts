@@ -318,6 +318,16 @@ export class FPSPickup extends Pickup {
     FPSPickup.setNearbyWeapon(this);
   }
 
+  /**
+   * Taken by someone else, the pickup stops its proximity checks, so the
+   * "out of range" that takes the prompt down never came: it stayed up until the
+   * weapon respawned (W5).
+   */
+  public override setActiveState(active: boolean): void {
+    super.setActiveState(active);
+    if (!active && FPSPickup.nearbyWeaponPickup === this) FPSPickup.clearNearbyWeapon();
+  }
+
   // ═════════════════════════════════════════════════════════════════
   // Static API: nearby weapon tracking + server-driven deactivation
   // ═════════════════════════════════════════════════════════════════

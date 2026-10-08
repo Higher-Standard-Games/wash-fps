@@ -480,10 +480,10 @@ export class WeaponSystem extends Subsystem {
    * technique, not a bug — and non-zero only when we swapped for them.
    */
   private equip(entityId: EntityId, state: WeaponState, weaponId: string, tickNum: number, raiseTicks = 0): void {
+    this.endCharge(entityId, state);
     state.currentWeapon = weaponId;
     state.reloading = false;
     state.reloadEndTick = 0;
-    state.chargeStartTick = 0;
     // An alt-fire held over from the old weapon is not a charge on this one.
     // Left set, releasing it fired the blade's full charge with no charge-up
     // (heldTicks counted from tick 0). Still held, it now starts a fresh charge.
@@ -491,6 +491,20 @@ export class WeaponSystem extends Subsystem {
     state.dryFireTick = 0;
     state.switchReadyTick = raiseTicks > 0 ? tickNum + raiseTicks : 0;
     this.lastSwitchTick.set(entityId, tickNum);
+  }
+
+  /**
+   * Drop a charge in progress and tell the clients, as a release does.
+   *
+   * A switch or a death ended the charge silently: everyone else kept the
+   * charger's glow, back on them after respawn, and the charger's own client
+   * still thought it was charging and skipped its next blade slash (L5).
+   */
+  private endCharge(entityId: EntityId, state: WeaponState): void {
+    if (state.chargeStartTick > 0) {
+      this.pendingChargeEvents.push({ entityId, weaponId: state.currentWeapon, charging: false });
+    }
+    state.chargeStartTick = 0;
   }
 
   /**
@@ -887,6 +901,12 @@ export class WeaponSystem extends Subsystem {
     // Process all player entities
     for (const entity of state.entitiesByType(EntityType.Player)) {
       if (!entity.input || !entity.health || entity.health.dead) {
+        const dead = this.weaponStates.get(entity.id);
+        if (dead && entity.health?.dead) {
+          this.endCharge(entity.id, dead);
+          // Still held at respawn, it starts a fresh charge rather than firing this one.
+          dead.wasAltFireDown = false;
+        }
         continue;
       }
 

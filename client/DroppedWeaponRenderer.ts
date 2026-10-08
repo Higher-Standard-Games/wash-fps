@@ -298,9 +298,15 @@ class DroppedWeaponVisual {
       const linVel = this.mesh.physicsBody.getLinearVelocity();
       const speed = linVel.length();
       if (speed < 2) {
-        // Freeze the body — physics done
-        this.mesh.physicsBody.setLinearVelocity(Vector3.Zero());
-        this.mesh.physicsBody.setAngularVelocity(Vector3.Zero());
+        // Physics done: the weapon goes to the server's position from here.
+        // A body left in the world, even stopped, had Havok write its place over
+        // that lerp every step, so the weapon could rest away from where pickup
+        // works, with the swap prompt showing where it fails (W3).
+        const name = this.mesh.name;
+        this.mesh.physicsBody.dispose();
+        import("../../../engine/physics/PhysicsSystem")
+          .then(({ PhysicsSystem }) => PhysicsSystem.getInstance().removeBody(name))
+          .catch(() => {});
         this.settled = true;
         if (this.settleCheckTimer) clearInterval(this.settleCheckTimer);
       }
@@ -383,8 +389,11 @@ export class DroppedWeaponRenderer {
   private disposed = false;
   private weapons: Map<string, DroppedWeaponVisual> = new Map();
 
-  /** Stashed initial velocities from weapon_drop events (entityId → velocity) */
-  private pendingVelocities: Map<string, Vector3> = new Map();
+  /** Stashed initial velocities from weapon_drop events (entityId → velocity, when) */
+  private pendingVelocities: Map<string, { velocity: Vector3; atMs: number }> = new Map();
+
+  /** How long after its weapon_drop event a weapon first seen is still in the air. */
+  private static readonly TOSS_FRESH_MS = 500;
 
   /** Currently tracked nearby dropped weapon for F prompt */
   private static nearbyDroppedWeapon: DroppedWeaponVisual | null = null;
@@ -407,7 +416,7 @@ export class DroppedWeaponRenderer {
    * by Havok when the corresponding item_ entity appears in snapshot.
    */
   stashVelocity(entityId: string, velocity: Vector3): void {
-    this.pendingVelocities.set(entityId, velocity);
+    this.pendingVelocities.set(entityId, { velocity, atMs: performance.now() });
     // Auto-clean after 5 seconds (if entity never appears)
     setTimeout(() => this.pendingVelocities.delete(entityId), 5000);
   }
@@ -453,8 +462,14 @@ export class DroppedWeaponRenderer {
         existing.update();
       } else if (info.weaponId) {
         // New entity — spawn visual with Havok physics
-        const vel = this.pendingVelocities.get(entityId);
+        // A toss only while the drop is fresh. One first seen seconds later has
+        // landed: thrown again from there, it hopped off its resting place (W7).
+        const pending = this.pendingVelocities.get(entityId);
         this.pendingVelocities.delete(entityId);
+        const vel =
+          pending && performance.now() - pending.atMs <= DroppedWeaponRenderer.TOSS_FRESH_MS
+            ? pending.velocity
+            : undefined;
 
         const visual = new DroppedWeaponVisual(
           entityId,

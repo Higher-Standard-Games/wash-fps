@@ -777,6 +777,54 @@ describe("WeaponSystem - WO-5 weapon switch gate", () => {
   });
 });
 
+describe("WeaponSystem - blade charge ends with the blade", () => {
+  const ALT_FIRE_BUTTON = 1 << 9;
+  function charging() {
+    const sys = new WeaponSystem();
+    sys.setMovementSubsystem({ setSpeedBonus: vi.fn(), queueMeleeDash: vi.fn() } as never);
+    const shooter = {
+      id: 1,
+      ownerId: 1,
+      transform: { position: { x: 0, y: 0, z: 0 } },
+      input: { buttons: ALT_FIRE_BUTTON, yaw: 0, pitch: 0, weaponSlot: 0 },
+      health: { dead: false, health: 100, armor: 0, maxHealth: 100, maxArmor: 100 },
+    };
+    const state = makeState([shooter]);
+    sys.initializeWeaponFromLoadout(
+      1 as never,
+      { weapons: ["blade", "machinegun"], ammo: { blade: 1, machinegun: 160 }, health: 100, armor: 0 } as never,
+    );
+    sys.update(state as never, 1 / 125, 100 as never);
+    expect(sys.getPendingChargeEvents()).toEqual([expect.objectContaining({ charging: true })]);
+    return { sys, shooter, state };
+  }
+
+  // Ended silently, others kept the charger's glow, back on them after respawn,
+  // and the charger's own client skipped its next blade slash (L5).
+  it("tells everyone the charge stopped when the player switches away", () => {
+    const { sys, shooter, state } = charging();
+    shooter.input.buttons = 0;
+    shooter.input.weaponSlot = 2;
+    sys.update(state as never, 1 / 125, 101 as never);
+    expect(sys.getPendingChargeEvents()).toEqual([
+      expect.objectContaining({ entityId: 1, weaponId: "blade", charging: false }),
+    ]);
+  });
+
+  it("tells everyone the charge stopped when the player dies, once", () => {
+    const { sys, shooter, state } = charging();
+    shooter.health.dead = true;
+    sys.update(state as never, 1 / 125, 101 as never);
+    sys.update(state as never, 1 / 125, 102 as never);
+    expect(sys.getPendingChargeEvents()).toEqual([expect.objectContaining({ charging: false })]);
+
+    // Alt still held at respawn starts a new charge; it does not fire the old one.
+    shooter.health.dead = false;
+    sys.update(state as never, 1 / 125, 300 as never);
+    expect(sys.getPendingChargeEvents()).toEqual([expect.objectContaining({ charging: true })]);
+  });
+});
+
 describe("WeaponSystem — lag-compensated hit registration", () => {
   const stateAt = (tick: number, entities: unknown[]) => ({ ...makeState(entities), tick });
   /** A shooter that reports the snapshot tick it was aiming with. */

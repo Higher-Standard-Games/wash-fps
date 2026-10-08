@@ -5,6 +5,7 @@ import { Color3 } from "@babylonjs/core/Maths/math.color";
 import type { FPSController } from "../../engine/camera/controllers/FPSController";
 import { WeaponViewManager } from "../../engine/weapon/WeaponViewManager";
 import type { WeaponDef } from "../../shared/entities";
+import { HUDState } from "./client/HUDState";
 import { isLocalPowerupActive } from "./client/LocalPowerupState";
 import { MatchStateManager } from "./client/MatchStateManager";
 import {
@@ -170,7 +171,10 @@ export class FPSPlayer {
     // the controller directly (not the server input command, which is already
     // frozen), so without this the held mouse still charges/fires the beam and
     // swings melee locally. Only chat + "leave lobby" stay live in PostGame.
-    if (MatchStateManager.getInstance().isPostGame()) {
+    // Dead, the same: fire held through a death kept the beam latch on, so the
+    // beam drew from the corpse, or from a watched teammate's eyes in S&D,
+    // where fire picks the next teammate (L2).
+    if (MatchStateManager.getInstance().isPostGame() || HUDState.getInstance().localDead) {
       this.stopBeamPresentation();
       this.fireReleased = true;
       return;

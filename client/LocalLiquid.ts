@@ -129,7 +129,7 @@ export class LocalLiquid {
    * player's own body is simulated here, so taking it from the wire would land
    * their splash and their gasp a round trip after they felt the water.
    */
-  emitLocalCrossing(v2Client: V2NetworkClient | null): void {
+  emitLocalCrossing(v2Client: V2NetworkClient | null, dead = false): void {
     if (!v2Client) return;
 
     const state = v2Client.getState();
@@ -148,6 +148,9 @@ export class LocalLiquid {
 
     this.liquidInteractions?.notify("local", movement.waterLevel, "water", state.position, state.velocity.y, true);
 
+    // The dead don't breathe. Prediction keeps sinking the body, so the mirror
+    // went on gasping and gurgling over the corpse, a whole S&D round (L4).
+    if (dead) return;
     const dt = Math.min(0.1, (EngineStore.LastCreatedEngine?.getDeltaTime() ?? 16) / 1000);
     this.airTracker?.update(movement.waterLevel, dt);
   }

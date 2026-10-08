@@ -14,7 +14,7 @@
  */
 
 import type { Camera } from "@babylonjs/core/Cameras/camera";
-import type { PlayerModelInstance } from "../../../engine/animation/PlayerModelManager";
+import { disposePlayerModel, type PlayerModelInstance } from "../../../engine/animation/PlayerModelManager";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
 
@@ -240,14 +240,8 @@ function removeDioramaCamera(): void {
 
 function disposeModel(model: PlayerModelInstance): void {
   try {
-    // biome-ignore lint/suspicious/noExplicitAny: best-effort cleanup across model shapes
-    const m = model as any;
-    m.attachedWeapon?.dispose?.(false, true);
-    m.masterGroup?.stop?.();
-    m.masterGroup?.dispose?.();
-    m.mesh?.dispose?.();
-    m.skeleton?.dispose?.();
-    m.anchor?.dispose?.();
+    // The shared path: the gun goes with the loader leftovers bound to it.
+    disposePlayerModel(model);
   } catch {
     /* best-effort */
   }

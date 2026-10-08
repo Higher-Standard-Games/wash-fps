@@ -439,11 +439,13 @@ export class TeleportEffect {
   // ──────────────────────────────────────────────────────────────
 
   private update(): void {
-    if (this.effects.length === 0) return;
-
+    // The clock runs while idle too. Left at the last effect's end, the first
+    // frame of the next teleport counted the whole idle gap, capped at 100 ms,
+    // and the ghosts lost that much of their life (E6).
     const now = performance.now();
     const dtMs = Math.min(100, now - this.lastTime);
     this.lastTime = now;
+    if (this.effects.length === 0) return;
 
     for (let i = this.effects.length - 1; i >= 0; i--) {
       const fx = this.effects[i];

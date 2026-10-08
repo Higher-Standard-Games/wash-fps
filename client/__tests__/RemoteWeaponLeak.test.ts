@@ -44,6 +44,7 @@ interface Internals {
   deadEntities: Map<string, number>;
   enemyWeapons: Map<string, string>;
   updateWeaponModel(hitbox: unknown, inst: PlayerModelInstance, entityId: string): void;
+  attachShowcaseWeapon(inst: PlayerModelInstance, weaponId: string): Promise<void>;
 }
 
 const settle = async () => {
@@ -89,5 +90,27 @@ describe("remote weapon changes", () => {
     }
     expect(hitbox.weaponRoot).not.toBeNull();
     expect(counts()).toEqual(after);
+  });
+
+  it("leaves nothing when the showcase ended before the winner's gun loaded", async () => {
+    scene.current = new Scene(new NullEngine());
+    const anchor = new TransformNode("anchor", scene.current);
+    const body = MeshBuilder.CreateBox("body", { size: 1 }, scene.current);
+    body.parent = anchor;
+    const inst = { anchor, mesh: body, skeleton: null, attachedWeapon: null } as unknown as PlayerModelInstance;
+    const renderer = Object.create(RemotePlayerRenderer.prototype) as Internals;
+    renderer.scene = scene.current;
+    const weaponId = Object.entries(WEAPONS).find(([, def]) => def.modelPath)![0];
+
+    const load = renderer.attachShowcaseWeapon(inst, weaponId);
+    anchor.dispose(); // next warmup: the showcase model goes
+    await load;
+
+    // The gun was attached to the disposed model and stayed in the scene (S5).
+    const s = scene.current;
+    expect([s.transformNodes.length, s.meshes.length, s.materials.length, s.animationGroups.length]).toEqual([
+      0, 0, 0, 0,
+    ]);
+    expect(inst.attachedWeapon).toBeNull();
   });
 });

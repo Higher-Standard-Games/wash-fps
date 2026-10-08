@@ -2046,7 +2046,7 @@ export class Game {
 
   /** Your own splash, your own air and the jump-pad sound, from prediction. */
   private emitLocalLiquidCrossing(): void {
-    this.liquid.emitLocalCrossing(this.v2Client);
+    this.liquid.emitLocalCrossing(this.v2Client, this._isPlayerDead);
   }
 
   /** How submerged the camera is, 0-1. Read by the viewmodel to float the gun. */
