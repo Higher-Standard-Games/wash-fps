@@ -15,6 +15,7 @@ import { PointLight } from "@babylonjs/core/Lights/pointLight";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
+import { EventBus } from "../../../engine/core/EventBus";
 import { addToDynamicLightCluster, disposeClusteredLight } from "../../../engine/lighting/DynamicLightCluster";
 import { SnapshotBuffer } from "../../../engine/network/client/SnapshotBuffer";
 import type { GameState } from "../../../engine/network/core/GameState";
@@ -122,6 +123,7 @@ export class DemoService {
    * live viewmodel. Created on first spectate, disposed in stopAll().
    */
   private _demoWvm: WeaponViewManager | null = null;
+  private _unsubCameraChange: (() => void) | null = null;
   /** What the followed player's weapon does; the same code live spectating runs. */
   private readonly _followed = new FollowedViewWeapon(() => this._demoWvm);
   private _isSeeking = false;
@@ -141,6 +143,14 @@ export class DemoService {
     seenTicks: new Map<string, number>(),
     buffer: new SnapshotBuffer(),
   };
+
+  /**
+   * Counts demo starts. A start that finds a newer one begun while it awaited
+   * (teardown, controllers, the map load) gives way to it: both used to run
+   * side by side, because nothing was marked active until the map had loaded.
+   * stopAll() counts too, so a stop during loading wins over the load.
+   */
+  private startGeneration = 0;
 
   private constructor() {}
 
@@ -243,23 +253,29 @@ export class DemoService {
    */
   async loadAndPlayNormal(viewer: DemoViewer): Promise<void> {
     if (!this.loadedDemoData) throw new Error("No demo loaded. Use `demo <filename>` first.");
+    const start = ++this.startGeneration;
 
     // 1. Own the scene: stop any live game + any prior demo playback.
     await this.teardownLiveSession();
+    if (start !== this.startGeneration) return;
     this.stopForPlaybackTransition();
 
     // 2. Register demo controllers + take a deterministic camera before load.
     const cameraSystem = CameraSystem.getInstance();
     await this.ensureCinematicControllers(cameraSystem);
+    if (start !== this.startGeneration) return;
     this.beginDemoCamera(cameraSystem);
 
     // 3. Render the recorded map locally (no server).
     await this.ensureDemoMapLoaded();
+    if (start !== this.startGeneration) return;
 
     // 4. Wire the frame callback → renderer/HUD, then play.
     this.activeDemoViewer = viewer;
     await this.ensureRuntimeWiring(viewer, "normal");
+    if (this.abandonStart(start, viewer)) return;
     await viewer.load(this.loadedDemoData);
+    if (this.abandonStart(start, viewer)) return;
     viewer.play();
     this.startPlaybackLoop();
   }
@@ -272,26 +288,44 @@ export class DemoService {
    */
   async loadAndPlayCinematic(viewer: DemoViewer, cameraSystem: CameraSystem, durationMinutes: number): Promise<void> {
     if (!this.loadedDemoData) throw new Error("No demo loaded. Use `demo <filename>` first.");
+    const start = ++this.startGeneration;
 
     // 1. Own the scene: stop any live game + any prior demo playback.
     await this.teardownLiveSession();
+    if (start !== this.startGeneration) return;
     this.stopForPlaybackTransition();
 
     // 2. Register demo controllers + take a deterministic camera before load.
     await this.ensureCinematicControllers(cameraSystem);
+    if (start !== this.startGeneration) return;
     this.beginDemoCamera(cameraSystem);
 
     // 3. Render the recorded map locally (no server).
     await this.ensureDemoMapLoaded();
+    if (start !== this.startGeneration) return;
 
     // 4. Wire the frame callback, then start the cinematic player.
     this.activeDemoViewer = viewer;
     await this.ensureRuntimeWiring(viewer, "cinematic");
+    if (this.abandonStart(start, viewer)) return;
     const player = new CinematicDemoPlayer(viewer, cameraSystem);
     this.activeCinematicPlayer = player;
     await this.ensureCinematicHud(player);
+    if (this.abandonStart(start, viewer)) return;
     await player.loadAndPlay(this.loadedDemoData, durationMinutes);
+    if (this.abandonStart(start, viewer)) return;
     this.startPlaybackLoop();
+  }
+
+  /**
+   * True when a stop or a newer start superseded this one while it was wiring
+   * up. What it wired so far is torn down unless the newer start already took
+   * over the playback slots (D9).
+   */
+  private abandonStart(start: number, viewer: DemoViewer): boolean {
+    if (start === this.startGeneration) return false;
+    if (this.activeDemoViewer === viewer) this.stopPlayback();
+    return true;
   }
 
   // ── Analysis ──────────────────────────────────────────────────────────────
@@ -347,8 +381,25 @@ export class DemoService {
 
   // ── Stop ──────────────────────────────────────────────────────────────────
 
+  /**
+   * A live game is starting in this page: stop a demo playing, and cancel one
+   * still loading. With nothing playing, the camera is left alone.
+   */
+  stopForLiveGame(): void {
+    if (this.hasActivePlayback()) this.stopAll();
+    else this.startGeneration++;
+  }
+
+  /** Stop playback, including a demo start still loading. */
   stopAll(): void {
+    this.startGeneration++;
+    this.stopPlayback();
+  }
+
+  private stopPlayback(): void {
     this.stopPlaybackLoop();
+    this._unsubCameraChange?.();
+    this._unsubCameraChange = null;
 
     const cameraSystem = CameraSystem.getInstance();
     const spectator = cameraSystem.getController("spectator") as
@@ -415,7 +466,7 @@ export class DemoService {
 
   private stopForPlaybackTransition(): void {
     const overlaysVisible = this.demoOverlays.isVisible();
-    this.stopAll();
+    this.stopPlayback();
     this.demoOverlays.setVisible(overlaysVisible);
   }
 
@@ -474,12 +525,32 @@ export class DemoService {
     cameraSystem.setController("freefly");
   }
 
+  /**
+   * The demo view model draws through scene.activeCameras, which overrides
+   * scene.activeCamera: left in place when a cinematic cut to a flyby, the
+   * screen froze on the chase camera with the gun on top (D1). It lives only
+   * while the spectator camera does.
+   */
+  private watchCameraController(): void {
+    this._unsubCameraChange?.();
+    this._unsubCameraChange = EventBus.on<{ type: string }>("camera:controller_changed", ({ type }) => {
+      if (type === "spectator") {
+        if (this._followedEntityId) this._attachWeaponViewToSpectatorCam();
+        return;
+      }
+      this._demoWvm?.dispose();
+      this._demoWvm = null;
+    });
+  }
+
   private async ensureRuntimeWiring(viewer: DemoViewer, overlayMode: DemoOverlayMode): Promise<void> {
     const camera = CameraSystem.getInstance().getCamera();
     const scene = camera?.getScene();
     if (!scene) {
       throw new Error("No active scene available for demo playback.");
     }
+
+    this.watchCameraController();
 
     const { RemotePlayerRenderer } = await import("./RemotePlayerRenderer");
     this.remoteRenderer = new RemotePlayerRenderer(scene);
@@ -590,6 +661,7 @@ export class DemoService {
     const cam = CameraSystem.getInstance();
     const spectator = cam.getController("spectator") as {
       setSpectateTarget?: (id: string) => void;
+      getTargetEntityId?: () => string | null;
       type?: string;
     } | null;
     spectator?.setSpectateTarget?.(entityId);
@@ -601,6 +673,20 @@ export class DemoService {
     this._followed.follow(entityId, this._isDemoEntityDead(entityId));
     this.remoteRenderer?.setHiddenEntity(entityId);
     this._attachWeaponViewToSpectatorCam();
+    // Their gun, stats and place in the player list come from frames, and a
+    // paused demo delivers none: present them from the frame on screen, or the
+    // previous player's stay up until playback resumes (D7).
+    this._specHealth = 0;
+    this._specArmor = 0;
+    this._specWeapon = "";
+    this._specAmmo = "";
+    if (this.latestState) {
+      this._updateDemoWeapon(this.latestState, true);
+      this._updateDemoHud(this.latestState);
+      // The list picks a target itself when the camera has none; only once the
+      // camera holds this one can it not come back here.
+      if (spectator?.getTargetEntityId?.() === entityId) this.refreshHudPlayerList();
+    }
   }
 
   private startPlaybackLoop(): void {

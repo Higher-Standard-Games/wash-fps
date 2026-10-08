@@ -152,7 +152,9 @@ export class CinematicDemoPlayer {
       const freeflyCtrl = this.cameraSystem.getController("freefly") as FreeflyController | undefined;
       freeflyCtrl?.setPosition(new Vector3(position.x, position.y, position.z));
 
-      const cam = this.cameraSystem.getFreeCamera();
+      // The fly-by camera is the controller's own: the camera system's is an
+      // ArcRotateCamera, so getFreeCamera() is null and shots never aimed (D2).
+      const cam = freeflyCtrl?.getCamera() ?? this.cameraSystem.getFreeCamera();
       if (cam) {
         const { pitch, yaw } = this._lookAtRotation(position, lookAt);
         cam.rotation.set(pitch, yaw, 0);
@@ -240,8 +242,7 @@ export class CinematicDemoPlayer {
 
   private _startPlayback(): void {
     if (!this.reel || this.reel.segments.length === 0) {
-      this._setState("ended");
-      this.onReelEndCb?.();
+      this._endReel();
       return;
     }
 
@@ -279,11 +280,17 @@ export class CinematicDemoPlayer {
   private _advanceSegment(): void {
     this.currentSegmentIndex++;
     if (!this.reel || this.currentSegmentIndex >= this.reel.segments.length) {
-      this._setState("ended");
-      this.onReelEndCb?.();
+      this._endReel();
       return;
     }
     this._applySegment(this.reel.segments[this.currentSegmentIndex]);
+  }
+
+  /** The reel is the whole show: stop on its last shot, not run on into unedited footage (D6). */
+  private _endReel(): void {
+    this.demoViewer.pause();
+    this._setState("ended");
+    this.onReelEndCb?.();
   }
 
   private _setState(newState: CinematicPlayerState): void {

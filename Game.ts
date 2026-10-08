@@ -550,7 +550,7 @@ export class Game {
     // A demo playing in this page owns the scene and camera; joining a game
     // used to leave it running underneath (D4). Only the console stopped it.
     const { DemoService } = await import("./client/DemoService");
-    if (DemoService.getInstance().hasActivePlayback()) DemoService.getInstance().stopAll();
+    DemoService.getInstance().stopForLiveGame();
 
     // Take the lobby handoff, but do NOT consume it here.
     //
