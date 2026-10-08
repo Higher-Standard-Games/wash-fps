@@ -15,6 +15,8 @@ import type { LiquidInteractionSystem } from "../liquid/client/LiquidInteraction
 export class ServerProjectiles {
   /** Maps server projectile entity ID (e.g. 'proj_10001') → weapon defId */
   readonly defIds: Map<string, string> = new Map();
+  /** Server entity ID → the last snapshot tick it was in, so its defId is kept while out of view */
+  readonly seenTicks: Map<string, number> = new Map();
   /** Set of server entity IDs that already have client-side visuals spawned */
   readonly active: Set<string> = new Set();
   /** SnapshotBuffer for projectile entity interpolation (Q3-style lerp between snapshots) */
@@ -47,6 +49,21 @@ export class ServerProjectiles {
     }
   }
 
+  /**
+   * Clear every visual and the stale interpolation (tab return). Types are
+   * kept, and forgetting which ids are drawn lets the next snapshot draw the
+   * ones still in flight again, mid-flight.
+   */
+  dropVisuals(): void {
+    try {
+      getProjectileManager().clear();
+    } catch {
+      /* not initialized */
+    }
+    this.active.clear();
+    this.buffer.flush();
+  }
+
   /** Entity ids and interpolation ticks belong to one server session. */
   reset(forgetLiquid: (entityId: string) => void): void {
     for (const entityId of this.active) {
@@ -55,6 +72,7 @@ export class ServerProjectiles {
     }
     this.active.clear();
     this.defIds.clear();
+    this.seenTicks.clear();
     this.buffer.reset();
   }
 }

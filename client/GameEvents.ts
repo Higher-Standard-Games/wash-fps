@@ -47,6 +47,7 @@ import { getProjectileManager } from "../../../engine/weapon/ProjectileManager";
 import type { RailEffectSample } from "../../../engine/weapon/rail/RailProfiles";
 import { getWeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
 import { canonicalWeaponId, WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
+import { DEFAULT_PHYSICS_TICK_RATE } from "../../../shared/server/simulation/physics/constants";
 import { toClientKey } from "../ClientEntityKey";
 import type { ServerSnapshot, V2NetworkClient } from "../client";
 import { Crosshair } from "../client/Crosshair";
@@ -116,6 +117,7 @@ export interface GameEventContext {
   // Server projectile tracking
   serverProjectileDefIds: Map<string, string>;
   activeServerProjectiles: Set<string>;
+  projectileSeenTicks: Map<string, number>;
   projectileBuffer: SnapshotBuffer;
 
   // Death state
@@ -678,6 +680,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
       {
         active: ctx.activeServerProjectiles,
         defIds: ctx.serverProjectileDefIds,
+        seenTicks: ctx.projectileSeenTicks,
         buffer: ctx.projectileBuffer,
         forgetLiquid: ctx.forgetProjectileLiquid,
         muzzleForShot: ctx.spectatingEntityId
@@ -1153,11 +1156,23 @@ export interface ProjectileSyncState {
   active: Set<string>;
   /** proj_ entityId → defId (from projectile_spawn events) */
   defIds: Map<string, string>;
+  /**
+   * proj_ entityId → the last snapshot tick it was in (or, before its first, the
+   * tick its type was first held). A projectile out of view keeps its type until
+   * it has been gone longer than any projectile lives.
+   */
+  seenTicks: Map<string, number>;
   /** Interpolation buffer for smooth in-flight motion */
   buffer: SnapshotBuffer;
   /** Drop a despawned projectile's liquid tracking, if the game is running one. */
   forgetLiquid?: (entityId: string) => void;
 }
+
+/**
+ * How long a projectile type is kept after the projectile was last in a
+ * snapshot: the longest projectile lifetime (10 s, `ProjectileSystem`) and a second.
+ */
+const PROJECTILE_FORGET_TICKS = 11 * DEFAULT_PHYSICS_TICK_RATE;
 
 export function processProjectileEntities(state: GameState, sync: ProjectileSyncState, serverLocalTime?: number): void {
   const projEntities = new Map<string, EntitySnapshot>();
@@ -1187,6 +1202,9 @@ export function processProjectileEntities(state: GameState, sync: ProjectileSync
       wallJumping: false,
     });
 
+    const seenBefore = sync.seenTicks.has(entityId);
+    sync.seenTicks.set(entityId, state.tick);
+
     if (!sync.active.has(entityId)) {
       const defId = sync.defIds.get(entityId);
       if (defId) {
@@ -1197,7 +1215,8 @@ export function processProjectileEntities(state: GameState, sync: ProjectileSync
         }
         const pos = new Vector3(posComp.x, posComp.y, posComp.z);
         const vel = velComp ? new Vector3(velComp.x, velComp.y, velComp.z) : Vector3.Zero();
-        const muzzle = sync.muzzleForShot?.(pos, vel);
+        // Only a new shot starts at a gun. One coming back into view is mid-flight.
+        const muzzle = seenBefore ? null : sync.muzzleForShot?.(pos, vel);
         projMgr.spawnFromServer(entityId, defId, pos, vel, muzzle);
         sync.active.add(entityId);
       } else {
@@ -1214,15 +1233,28 @@ export function processProjectileEntities(state: GameState, sync: ProjectileSync
   // Push to interpolation buffer
   sync.buffer.push(state.tick, projEntities, serverLocalTime);
 
-  // Despawn visuals for projectiles that disappeared
+  // Despawn visuals for projectiles that disappeared. Gone from the snapshot is
+  // either exploded or out of view (PVS), and the client cannot tell which, so
+  // the type is kept: projectile_spawn is sent once, and without it a projectile
+  // coming back into view would never be drawn again.
   for (const entityId of sync.active) {
     if (!aliveThisSnapshot.has(entityId)) {
       getProjectileManager().despawnByEntityId(entityId);
       sync.active.delete(entityId);
-      sync.defIds.delete(entityId);
       // Drop its liquid tracking too, or a recycled entity id inherits a
       // "was in water" flag from a projectile that already exploded.
       sync.forgetLiquid?.(entityId);
+    }
+  }
+
+  // Types are forgotten by age instead: projectile_impact carries no entity id.
+  for (const entityId of sync.defIds.keys()) {
+    const seen = sync.seenTicks.get(entityId);
+    if (seen === undefined) {
+      sync.seenTicks.set(entityId, state.tick);
+    } else if (state.tick - seen > PROJECTILE_FORGET_TICKS) {
+      sync.defIds.delete(entityId);
+      sync.seenTicks.delete(entityId);
     }
   }
 }

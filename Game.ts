@@ -403,16 +403,9 @@ export class Game {
     // 1. Clamp dt for next 3 frames (prevents catch-up stutter)
     this._tabReturnFrameSkips = 3;
 
-    // 2. Clear all projectile visuals (trails, lights, meshes)
-    //    Server will re-broadcast any that still exist in next snapshot
-    try {
-      getProjectileManager().clear();
-    } catch {
-      /* not initialized */
-    }
-
-    // 3. Flush projectile interpolation buffer (discard stale data)
-    this.projectiles.buffer.flush();
+    // 2-3. Clear all projectile visuals (trails, lights, meshes) and their
+    //      stale interpolation; the next snapshot draws the live ones again.
+    this.projectiles.dropVisuals();
 
     // 4. Force local player to snap to next server position (no interpolation lag)
     this.v2Client?.forceTeleport();
@@ -1786,6 +1779,7 @@ export class Game {
         chargingGlows: this.chargingGlows,
         serverProjectileDefIds: this.projectiles.defIds,
         activeServerProjectiles: this.projectiles.active,
+        projectileSeenTicks: this.projectiles.seenTicks,
         projectileBuffer: this.projectiles.buffer,
         get _isPlayerDead() {
           return Game.getInstance()._isPlayerDead;

@@ -138,6 +138,7 @@ export class DemoService {
   private _projectiles: ProjectileSyncState = {
     active: new Set<string>(),
     defIds: new Map<string, string>(),
+    seenTicks: new Map<string, number>(),
     buffer: new SnapshotBuffer(),
   };
 
@@ -1114,6 +1115,7 @@ export class DemoService {
     }
     this._projectiles.active.clear();
     this._projectiles.defIds.clear();
+    this._projectiles.seenTicks.clear();
     this._projectiles.buffer.reset();
   }
 

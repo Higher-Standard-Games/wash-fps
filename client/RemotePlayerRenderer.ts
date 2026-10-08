@@ -169,6 +169,11 @@ export class RemotePlayerRenderer {
 
   /** Entity whose mesh+model should be hidden (e.g. followed player in demo POV) */
   private _hiddenEntityId: string | null = null;
+  /**
+   * The ragdoll of the player we were watching from inside their head, kept
+   * hidden while the camera is still there and shown once it leaves.
+   */
+  private hiddenCorpse: PlayerModelInstance | null = null;
 
   /** Per-entity throttle timestamps for cl_animdebug logging */
   private _lastAnimLog: Map<string, number> = new Map();
@@ -235,6 +240,10 @@ export class RemotePlayerRenderer {
    * Pass null to unhide all.
    */
   setHiddenEntity(entityId: string | null): void {
+    if (this.hiddenCorpse && entityId !== this._hiddenEntityId) {
+      showCorpse(this.hiddenCorpse);
+      this.hiddenCorpse = null;
+    }
     // Restore previously hidden entity
     if (this._hiddenEntityId !== null) {
       const old = this.hitboxes.get(this._hiddenEntityId);
@@ -438,6 +447,7 @@ export class RemotePlayerRenderer {
     this.teams.clear();
     this.localTeam = null;
     this._hiddenEntityId = null;
+    this.hiddenCorpse = null;
     this._lastAnimLog.clear();
   }
 
@@ -901,6 +911,11 @@ export class RemotePlayerRenderer {
     hitbox.weaponRoot = null;
     hitbox.mesh.dispose();
     this.hitboxes.delete(entityId);
+    // PVS or spectating may have switched the body and weapon off, and the
+    // ragdoll draws whatever it is handed. The one we watched from inside
+    // their head stays hidden until the camera moves on (setHiddenEntity).
+    if (entityId === this._hiddenEntityId) this.hiddenCorpse = model;
+    else showCorpse(model);
     return model;
   }
 
@@ -1323,6 +1338,9 @@ export class RemotePlayerRenderer {
     if (inst.anchor.rotationQuaternion) inst.anchor.rotationQuaternion = null;
     inst.anchor.rotation.set(0, interp.yaw, 0);
     inst.anchor.setEnabled(true);
+    // The hand weapon is parented to a bone, not the anchor, so switching the
+    // anchor on does not reach it. PVS switches both off; both come back here.
+    hitbox.weaponRoot?.setEnabled(true);
 
     // Reset root motion each frame (position + rotation drift from anims)
     this.modelManager.resetRootMotion(inst);
@@ -1684,3 +1702,9 @@ Cvar.register("cl_animdebug", 0, {
   description:
     "Log remote/demo player animation state (derived anim, speed, grounded, whether the anim group advances)",
 });
+
+/** Switch a handed-over body and its weapon on, unless the ragdoll is already gone. */
+function showCorpse(model: PlayerModelInstance): void {
+  if (!model.anchor.isDisposed()) model.anchor.setEnabled(true);
+  if (model.attachedWeapon && !model.attachedWeapon.isDisposed()) model.attachedWeapon.setEnabled(true);
+}
