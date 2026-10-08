@@ -56,7 +56,12 @@ function setup() {
   renderer.deadEntities = new Map();
   renderer._hiddenEntityId = null;
   renderer.hiddenCorpse = null;
-  renderer.modelManager = { resetRootMotion: vi.fn(), setAnimationActive: vi.fn(), playAnimation: vi.fn() };
+  renderer.modelManager = {
+    resetRootMotion: vi.fn(),
+    setAnimationActive: vi.fn(),
+    playAnimation: vi.fn(),
+    stopOneShot: vi.fn(),
+  };
   renderer._animDebug = vi.fn();
   renderer.applyHitboxVisualStyle = vi.fn();
   renderer.updateWeaponModel = vi.fn();
@@ -117,5 +122,20 @@ describe("remote player visibility", () => {
     renderer.detachModel("player_2");
     anchor.dispose();
     expect(() => renderer.setHiddenEntity(null)).not.toThrow();
+  });
+
+  it("forgets a body handed to the ragdoll the way it forgets a removed one", () => {
+    const { renderer } = setup();
+    const forget = vi.fn();
+    const stopOneShot = vi.fn();
+    Object.assign(renderer, { liquidInteractions: { forget } });
+    Object.assign(renderer.modelManager as object, { stopOneShot });
+
+    const corpse = renderer.detachModel("player_2");
+
+    // Died underwater and respawned dry: no exit splash at the spawn point.
+    expect(forget).toHaveBeenCalledWith("player_2");
+    // A blade swing in progress is stopped, not left driving the ragdoll's bones.
+    expect(stopOneShot).toHaveBeenCalledWith(corpse, false);
   });
 });

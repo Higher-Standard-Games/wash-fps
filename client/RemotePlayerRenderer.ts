@@ -22,6 +22,7 @@ import { type PlayerModelInstance, PlayerModelManager } from "../../../engine/an
 import { Cvar } from "../../../engine/core/Cvar";
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
 import { BspManager } from "../../../engine/loader/bsp/BspManager";
+import { bindLoaderLeftovers, disposeModelResources } from "../../../engine/loader/model/ModelSourceCache";
 import {
   type EntitySnapshot,
   type InterpolatedEntity,
@@ -590,7 +591,7 @@ export class RemotePlayerRenderer {
       if (!aliveIds.has(entityId)) {
         hitbox.mesh.dispose();
         if (hitbox.weaponRoot) {
-          hitbox.weaponRoot.dispose(false, true);
+          disposeModelResources([hitbox.weaponRoot]);
           hitbox.weaponRoot = null;
         }
         if (hitbox.model && this.modelManager) {
@@ -627,7 +628,7 @@ export class RemotePlayerRenderer {
     for (const hitbox of this.hitboxes.values()) {
       hitbox.mesh.dispose();
       if (hitbox.weaponRoot) {
-        hitbox.weaponRoot.dispose(false, true);
+        disposeModelResources([hitbox.weaponRoot]);
         hitbox.weaponRoot = null;
       }
       if (hitbox.model && this.modelManager) {
@@ -653,19 +654,12 @@ export class RemotePlayerRenderer {
    * A fresh hitbox will be created when the entity respawns and reappears in snapshots.
    */
   markDead(entityId: string): void {
-    this.deadEntities.set(entityId, performance.now());
-    this.demoAnimationTimeline?.delete(entityId);
-    // A body that dies at the bottom of a pool and respawns dry goes from
-    // level 3 to level 0 without ever breaking the surface. Without this the
-    // respawn announces itself with an exit splash on dry land — the local
-    // player has been re-baselined on respawn since the beginning; remote
-    // players were not.
-    this.liquidInteractions?.forget(entityId);
+    this.forgetLife(entityId);
     const hitbox = this.hitboxes.get(entityId);
     if (hitbox) {
       hitbox.mesh.dispose();
       if (hitbox.weaponRoot) {
-        hitbox.weaponRoot.dispose(false, true);
+        disposeModelResources([hitbox.weaponRoot]);
         hitbox.weaponRoot = null;
       }
       if (hitbox.model && this.modelManager) {
@@ -794,7 +788,7 @@ export class RemotePlayerRenderer {
       }
     }
     if (!leaderMesh) {
-      result.root.dispose(false, true);
+      disposeModelResources([result.root], { animationGroups: result.animationGroups });
       return;
     }
     if (leaderMesh.rotationQuaternion) leaderMesh.rotationQuaternion = null;
@@ -827,6 +821,9 @@ export class RemotePlayerRenderer {
       }
     }
 
+    result.root.parent = null;
+    result.root.setEnabled(false);
+    bindLoaderLeftovers(leaderMesh, result.root, result.animationGroups);
     inst.attachedWeapon = leaderMesh;
   }
 
@@ -888,18 +885,31 @@ export class RemotePlayerRenderer {
   }
 
   /**
+   * What a death ends, whichever way the body goes (removed, or handed to a
+   * ragdoll): the player counts as dead, and their demo one-shot and water level
+   * are forgotten. A body that dies at the bottom of a pool and respawns dry
+   * goes from level 3 to level 0 without ever breaking the surface; remembered,
+   * the respawn announces itself with an exit splash on dry land.
+   */
+  private forgetLife(entityId: string): void {
+    this.deadEntities.set(entityId, performance.now());
+    this.demoAnimationTimeline?.delete(entityId);
+    this.liquidInteractions?.forget(entityId);
+  }
+
+  /**
    * Detach a player model from the renderer WITHOUT disposing it.
    * Returns the PlayerModelInstance for ragdoll use.
    * The hitbox mesh is disposed but the model (skeleton + mesh + anchor) is preserved.
    */
   detachModel(entityId: string): import("../../../engine/animation/PlayerModelManager").PlayerModelInstance | null {
-    this.deadEntities.set(entityId, performance.now());
+    this.forgetLife(entityId);
     const hitbox = this.hitboxes.get(entityId);
     if (!hitbox || !hitbox.model) {
       if (hitbox) {
         hitbox.mesh.dispose();
         if (hitbox.weaponRoot) {
-          hitbox.weaponRoot.dispose(false, true);
+          disposeModelResources([hitbox.weaponRoot]);
           hitbox.weaponRoot = null;
         }
         this.hitboxes.delete(entityId);
@@ -907,6 +917,8 @@ export class RemotePlayerRenderer {
       return null;
     }
     const model = hitbox.model;
+    // A one-shot (a blade swing) is the manager's; the ragdoll drives the bones now.
+    this.modelManager?.stopOneShot(model, false);
     model.attachedWeapon = hitbox.weaponRoot;
     hitbox.weaponRoot = null;
     hitbox.mesh.dispose();
@@ -1505,7 +1517,7 @@ export class RemotePlayerRenderer {
 
     // Dispose previous weapon
     if (hitbox.weaponRoot) {
-      hitbox.weaponRoot.dispose(false, true);
+      disposeModelResources([hitbox.weaponRoot]);
       hitbox.weaponRoot = null;
     }
     hitbox.weaponMuzzle = null;
@@ -1546,7 +1558,7 @@ export class RemotePlayerRenderer {
           this.deadEntities.has(entityId) ||
           hitbox.currentWeaponId !== weaponId
         ) {
-          result.root.dispose(false, true);
+          disposeModelResources([result.root], { animationGroups: result.animationGroups });
           return;
         }
 
@@ -1569,7 +1581,7 @@ export class RemotePlayerRenderer {
 
         if (!leaderMesh) {
           console.warn(`[RemoteWeapon] No meshes with geometry for ${weaponId}`);
-          result.root.dispose();
+          disposeModelResources([result.root], { animationGroups: result.animationGroups });
           return;
         }
 
@@ -1641,10 +1653,12 @@ export class RemotePlayerRenderer {
         // leader exactly, including animation, scale, and rotation.
         if (muzzleNode) muzzleNode.parent = leaderMesh;
 
-        // Detach loader root
+        // Detach loader root. It may still hold the bones a skinned weapon is
+        // drawn with, so it goes when the weapon goes, not now.
         if (result.root) {
           result.root.parent = null;
           result.root.setEnabled(false);
+          bindLoaderLeftovers(leaderMesh, result.root, result.animationGroups);
         }
 
         hitbox.weaponRoot = leaderMesh as unknown as TransformNode;

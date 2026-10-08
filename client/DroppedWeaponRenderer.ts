@@ -20,6 +20,7 @@ import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugi
 import type { Scene } from "@babylonjs/core/scene";
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
 import { BspManager } from "../../../engine/loader/bsp/BspManager";
+import { bindLoaderLeftovers, disposeModelResources } from "../../../engine/loader/model/ModelSourceCache";
 import { describeModelRender } from "../../../engine/world/ModelRenderAudit";
 import { EntityRegistry } from "../../../shared/entities/EntityRegistry";
 import { hidePickupPrompt, showPickupPrompt } from "../world/PickupPrompt";
@@ -114,7 +115,7 @@ class DroppedWeaponVisual {
 
       // If disposed during async load, clean up and bail
       if (this.disposed) {
-        if (result?.root) result.root.dispose();
+        if (result?.root) disposeModelResources([result.root], { animationGroups: result.animationGroups ?? [] });
         return;
       }
 
@@ -205,9 +206,10 @@ class DroppedWeaponVisual {
                 const file = barrelDef.modelPath.substring(lastSlash + 1);
                 const barrelResult = await ImportMeshAsync(file, this.scene, { rootUrl: dir });
                 if (this.disposed) {
-                  barrelResult.meshes[0]?.dispose(false, false);
+                  disposeModelResources([barrelResult.meshes[0]], { animationGroups: barrelResult.animationGroups });
                   break;
                 }
+                bindLoaderLeftovers(leaderMesh, null, barrelResult.animationGroups);
                 const barrelRoot = barrelResult.meshes[0];
                 if (barrelRoot) {
                   barrelRoot.parent = leaderMesh;
@@ -271,10 +273,14 @@ class DroppedWeaponVisual {
           }
         }
 
-        // Detach loader root without disposing children
+        // Detach loader root without disposing children. It goes with the
+        // weapon (it may hold a skinned weapon's bones), or now if nothing
+        // in it was worth drawing.
         if (result.root) {
           result.root.parent = null;
           result.root.setEnabled(false);
+          if (leaderMesh) bindLoaderLeftovers(leaderMesh, result.root, result.animationGroups ?? []);
+          else disposeModelResources([result.root], { animationGroups: result.animationGroups ?? [] });
         }
       }
     } catch (e) {
@@ -357,16 +363,10 @@ class DroppedWeaponVisual {
         if (this.mesh.physicsBody) {
           this.mesh.physicsBody.dispose();
         }
-        // Dispose child meshes (other weapon parts parented to leader)
-        const children = this.mesh.getChildMeshes();
-        for (const child of children) {
-          child.parent = null;
-          // CRITICAL: dispose(false, false) — do NOT dispose shared materials!
-          // Materials are shared with AssetPreloader cache and other clones.
-          child.dispose(false, false);
-        }
-        // Dispose leader mesh — also don't dispose materials
-        this.mesh.dispose(false, false);
+        // The weapon, its parts and barrels, and the loader leftovers bound to
+        // it. Materials shared with the AssetPreloader cache and other clones
+        // are still drawn by them, so they stay; ones only this weapon used go.
+        disposeModelResources([this.mesh]);
       }
       this.mesh = null;
     }

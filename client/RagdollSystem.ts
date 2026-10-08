@@ -20,7 +20,7 @@ import { TrailMesh } from "@babylonjs/core/Meshes/trailMesh";
 import { PhysicsConstraintType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import { Ragdoll } from "@babylonjs/core/Physics/v2/ragdoll";
 import type { Scene } from "@babylonjs/core/scene";
-import type { PlayerModelInstance } from "../../../engine/animation/PlayerModelManager";
+import { disposePlayerModel, type PlayerModelInstance } from "../../../engine/animation/PlayerModelManager";
 import { PhysicsSystem } from "../../../engine/physics/PhysicsSystem";
 
 // ============================================================================
@@ -693,48 +693,12 @@ export class RagdollSystem {
   }
 
   private disposeModel(model: PlayerModelInstance): void {
-    // Bone-attached weapon (e.g. the blade) isn't a scene-graph child, so dispose
-    // it explicitly — otherwise it leaks a floating mesh when the ragdoll expires.
-    if (model.attachedWeapon) {
-      try {
-        model.attachedWeapon.dispose(false, true);
-      } catch (_) {
-        /* noop */
-      }
-      model.attachedWeapon = null;
-    }
-    if (model.masterGroup) {
-      try {
-        model.masterGroup.stop();
-      } catch (_) {
-        /* noop */
-      }
-      try {
-        model.masterGroup.dispose();
-      } catch (_) {
-        /* noop */
-      }
-    }
-    if (model.mesh) {
-      try {
-        model.mesh.dispose();
-      } catch (_) {
-        /* noop */
-      }
-    }
-    if (model.skeleton) {
-      try {
-        model.skeleton.dispose();
-      } catch (_) {
-        /* noop */
-      }
-    }
-    if (model.anchor) {
-      try {
-        model.anchor.dispose();
-      } catch (_) {
-        /* noop */
-      }
+    // The same path every player model leaves by: hand weapon (bone-attached,
+    // so not a scene-graph child), cloned materials and the loader's leftovers.
+    try {
+      disposePlayerModel(model);
+    } catch (_) {
+      /* noop */
     }
   }
 

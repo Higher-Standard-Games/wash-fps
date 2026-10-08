@@ -13,6 +13,7 @@
 import { PointLight } from "@babylonjs/core/Lights/pointLight";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { disposePlayerModel } from "../../../engine/animation/PlayerModelManager";
 import { CameraSystem } from "../../../engine/camera";
 import { log } from "../../../engine/core/Log";
 import { addToDynamicLightCluster, disposeClusteredLight } from "../../../engine/lighting/DynamicLightCluster";
@@ -835,9 +836,7 @@ function handleDeathEvent(ctx: GameEventContext, event: DeathEvent, state: GameS
       ctx._ragdollSystem.spawn(model, event.kbDirX || 0, event.kbDirY || 0, event.kbDirZ || 0);
     } else if (model) {
       console.warn("[Death] RagdollSystem not ready, falling back to gibs");
-      if (model.mesh) model.mesh.dispose();
-      if (model.skeleton) model.skeleton.dispose();
-      if (model.anchor) model.anchor.dispose();
+      disposePlayerModel(model);
       if (event.x !== undefined && ctx._gibSystem) {
         ctx._gibSystem.spawn(event.x, event.y, event.z, event.velX || 0, event.velY || 0, event.velZ || 0);
       }
