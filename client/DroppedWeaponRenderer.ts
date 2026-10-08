@@ -19,6 +19,7 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import type { Scene } from "@babylonjs/core/scene";
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
+import { BspManager } from "../../../engine/loader/bsp/BspManager";
 import { describeModelRender } from "../../../engine/world/ModelRenderAudit";
 import { EntityRegistry } from "../../../shared/entities/EntityRegistry";
 import { hidePickupPrompt, showPickupPrompt } from "../world/PickupPrompt";
@@ -54,6 +55,8 @@ class DroppedWeaponVisual {
   private loadSource: "pending" | "cache-flat" | "fresh-flat" = "pending";
   /** Server's authoritative position — used to align visual after Havok settles */
   private serverPosition: Vector3 = Vector3.Zero();
+  /** Whether the camera can see it (set by the renderer, applied once the model is in). */
+  private visible = true;
 
   constructor(
     entityId: string,
@@ -156,6 +159,7 @@ class DroppedWeaponVisual {
           }
 
           this.mesh = leaderMesh;
+          this.mesh.setEnabled(this.visible);
 
           // === BARREL SUB-MODELS ===
           // Load barrel GLBs (e.g. plasmagun dual chambers) and parent to leader
@@ -298,6 +302,20 @@ class DroppedWeaponVisual {
   }
 
   /** Update server position from snapshot data */
+  /**
+   * Draw it or not. A hidden weapon keeps its model and physics body: out of
+   * view is not gone, and rebuilding it on the way back in re-tossed it.
+   */
+  setVisible(visible: boolean): void {
+    this.visible = visible;
+    this.mesh?.setEnabled(visible);
+  }
+
+  /** Where it is drawn: the model once loaded, the server's position before. */
+  get position(): Vector3 {
+    return this.mesh?.position ?? this.serverPosition;
+  }
+
   setServerPosition(x: number, y: number, z: number): void {
     this.serverPosition.set(x, y, z);
     if (this.useServerTransforms && this.mesh) {
@@ -400,7 +418,9 @@ export class DroppedWeaponRenderer {
    *
    * - New entity → spawn visual with Havok body
    * - Existing entity → let Havok handle position (update glow only)
-   * - Missing entity → dispose Havok body + visual
+   * - Missing entity → dispose Havok body + visual (the server sends every
+   *   dropped weapon regardless of PVS, so missing means picked up or expired)
+   * - Out of the camera's PVS → hidden, kept
    */
   syncServerEntities(entities: Map<string, DroppedWeaponInfo>): void {
     if (this.disposed) return;
@@ -448,7 +468,15 @@ export class DroppedWeaponRenderer {
       }
     }
 
-    // 3. Check pickup proximity for live play only. Demo snapshot mode is
+    // 3. Hide what the camera cannot see. The server sends every dropped weapon
+    // (a missing one is gone), so PVS here only decides what is drawn, the same
+    // check remote players use.
+    const culler = BspManager.getInstance().getPvsCuller();
+    for (const visual of this.weapons.values()) {
+      visual.setVisible(!culler || culler.isPositionVisible(visual.position));
+    }
+
+    // 4. Check pickup proximity for live play only. Demo snapshot mode is
     // presentation-only and must never expose an interactive swap prompt.
     if (!this.useServerTransforms) this.checkPickupProximity();
   }

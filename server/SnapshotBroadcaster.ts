@@ -20,6 +20,8 @@ import type { ClientInfo } from "./Client";
 import { debugLog } from "./DebugLog";
 
 const ROSTER_KEY = "roster";
+/** Snapshot key prefix of a dropped weapon (SnapshotBuilder). */
+const DROPPED_WEAPON_PREFIX = "item_";
 const weaponKey = (entityId: string) => `weapon:${entityId}`;
 
 /** This snapshot's lasting state as strings, by key, made once and compared for every client. */
@@ -229,6 +231,7 @@ export class SnapshotBroadcaster {
    * - All player states (scoreboard)
    * - All events (kill feed, combat_state, projectile_spawn, etc.)
    * - Entities without position data (non-spatial)
+   * - Dropped weapons, so a missing one means it is gone, not out of view
    */
   private filterStateForClient(state: GameState, client: ClientInfo): GameState {
     if (!this.pvs) return state.shallowCopy();
@@ -268,6 +271,16 @@ export class SnapshotBroadcaster {
       }
 
       if (teammateEntityIds.has(id)) {
+        filtered.entities.set(id, entity);
+        continue;
+      }
+
+      // Dropped weapons go to everyone. Filtered, a weapon out of view looked
+      // picked up, and the client rebuilt it (new model, new toss) every time it
+      // came back into view. They lie still, so delta compression makes them
+      // nearly free; the client hides the ones it cannot see itself
+      // (DroppedWeaponRenderer). Players and projectiles stay filtered.
+      if (id.startsWith(DROPPED_WEAPON_PREFIX)) {
         filtered.entities.set(id, entity);
         continue;
       }
