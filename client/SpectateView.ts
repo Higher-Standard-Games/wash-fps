@@ -320,6 +320,22 @@ export class SpectateView {
     };
   }
 
+  /**
+   * Forget the session: no one watched, no camera running, no death remembered.
+   * Called when the connection ends, so the next one starts as a fresh player.
+   */
+  reset(): void {
+    this.stopTeammateSpectate();
+    this._deathCamera.stop();
+    this._eyeCamera.stop();
+    this._roundEndCameraActive = false;
+    this._specCycleHeld = false;
+    this._deathAtMs = 0;
+    this._wasDeadLastFrame = false;
+    this._chaseBodySince = 0;
+    this._followedWeapon.follow(null);
+  }
+
   /** Drop the teammate view: camera released, and their model visible again. */
   stopTeammateSpectate(): void {
     if (this._spectatingEntityId === null) return;

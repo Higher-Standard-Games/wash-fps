@@ -24,6 +24,17 @@ export class FrameEffects {
   /** @param scene the game scene, read when a system finishes loading. */
   constructor(private readonly scene: () => Scene | null | undefined) {}
 
+  /**
+   * Remove every ragdoll and gib, and gibs still waiting for the system to
+   * load. They belong to the map and match they came from: left alone, they
+   * expire, and a ragdoll explodes into gibs, in the next one.
+   */
+  clearWorld(): void {
+    this.pendingGibSpawns = [];
+    this.ragdollSystem?.disposeAll();
+    this.gibSystem?.clear();
+  }
+
   /** Gib physics; Game runs this before the S&D bomb, as before. */
   updateGibs(dtSec: number): void {
     // Update gib physics (gravity, bouncing, tumble, fade)

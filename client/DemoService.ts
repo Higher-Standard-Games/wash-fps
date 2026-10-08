@@ -398,6 +398,7 @@ export class DemoService {
     this._isSeeking = false;
     this._enemyWeapons.clear();
     this._clearDemoProjectiles();
+    clearDemoWorldEffects();
     this._specHealth = 0;
     this._specArmor = 0;
     this._specWeapon = "";
@@ -955,6 +956,7 @@ export class DemoService {
 
     if (discontinuous) {
       resetFPSMovementAudio();
+      clearDemoWorldEffects();
       this.demoGibs?.clear();
       this.demoDamageNumbers?.clear();
       this._clearDemoCharge();
@@ -1258,4 +1260,14 @@ export class DemoService {
 
     return lines.join("\n");
   }
+}
+
+/**
+ * Tracers, bullet holes and explosions are shared with live play and tick on
+ * their own. A seek lands somewhere else in the demo and a stop leaves it, so
+ * neither may keep the ones already on screen (D10).
+ */
+function clearDemoWorldEffects(): void {
+  getHitscanEffects().clear();
+  getExplosionEffect().clear();
 }

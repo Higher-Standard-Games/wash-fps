@@ -15,6 +15,7 @@ import { setGameFrameHook } from "../../engine/camera/GameFrameHook";
 import { EventBus } from "../../engine/core/EventBus";
 import { log } from "../../engine/core/Log";
 import { InputSystem } from "../../engine/input/InputSystem";
+import { disposeClusteredLight } from "../../engine/lighting/DynamicLightCluster";
 import { LocalGameHost } from "../../engine/network/client/hosts/LocalGameHost";
 import { NetworkGameHost } from "../../engine/network/client/hosts/NetworkGameHost";
 import { NetGraph } from "../../engine/network/client/NetGraph";
@@ -27,6 +28,8 @@ import { MessageCodec } from "../../engine/network/protocol/MessageCodec";
 import { PlayerProfile } from "../../engine/player/PlayerProfile";
 import RenderVars from "../../engine/rendering/RenderVars";
 import { waterNeedsLocalReflection } from "../../engine/rendering/water/WaterActorReflection";
+import { getExplosionEffect } from "../../engine/weapon/ExplosionEffect";
+import { getHitscanEffects } from "../../engine/weapon/HitscanEffects";
 import { getProjectileManager } from "../../engine/weapon/ProjectileManager";
 import { getWeaponViewManager } from "../../engine/weapon/WeaponViewManager";
 import { WEAPONS } from "../../shared/entities/definitions/weapons/WeaponsTable";
@@ -49,6 +52,7 @@ import { FrameEffects } from "./client/FrameEffects";
 import { type GameEventContext, handleServerStateUpdate } from "./client/GameEvents";
 import { HUDState } from "./client/HUDState";
 import { LocalLiquid } from "./client/LocalLiquid";
+import { clearLocalPowerups } from "./client/LocalPowerupState";
 import { MatchInputBindings } from "./client/MatchInputBindings";
 import { MatchMapLoader } from "./client/MatchMapLoader";
 import { MatchPhase, MatchStateManager } from "./client/MatchStateManager";
@@ -320,6 +324,7 @@ export class Game {
       this.bombSiteMarkers?.dispose();
       this.bombSiteMarkers = null;
       resetFPSMovementAudio();
+      this.clearWorldEffects();
     });
 
     // Tab-recovery: snap everything to clean state when returning from background
@@ -327,8 +332,19 @@ export class Game {
       if (document.visibilityState === "visible") this.onTabReturn();
     });
 
-    // Post-game winner showcase: spawn the winner's model (with weapon) in
-    // front of the camera during PostGame; remove it when warmup begins.
+    this.watchMatchPhase();
+  }
+
+  /**
+   * Post-game winner showcase: spawn the winner's model (with weapon) in front
+   * of the camera during PostGame; remove it when warmup begins.
+   *
+   * Subscribed again after every shutdown: shutdown destroys the match state
+   * and its listeners with it, and a subscription made once, in the
+   * constructor, left every later session in this page without its showcase
+   * and endgame music (S2).
+   */
+  private watchMatchPhase(): void {
     MatchStateManager.getInstance().onPhaseChange((newPhase, oldPhase) => {
       // Endgame music. This phase→music swap previously lived only in
       // NetworkGameHost, so local matches (which don't route through it) went
@@ -389,6 +405,20 @@ export class Game {
       Game.instance = new Game();
     }
     return Game.instance;
+  }
+
+  /**
+   * Effects that belong to the world they happened in: ragdolls, gibs,
+   * tracers, bullet holes, explosions and charge glows. Cleared on map unload
+   * and on shutdown, or they finish their lives in the next map (E8).
+   */
+  private clearWorldEffects(): void {
+    this.effects.clearWorld();
+    getHitscanEffects().clear();
+    getExplosionEffect().clear();
+    for (const glow of this.chargingGlows.values()) disposeClusteredLight(glow);
+    this.chargingGlows.clear();
+    this.chargingPlayers.clear();
   }
 
   /**
@@ -517,6 +547,10 @@ export class Game {
       this.shutdown();
     }
     this.resetServerProjectiles();
+    // A demo playing in this page owns the scene and camera; joining a game
+    // used to leave it running underneath (D4). Only the console stopped it.
+    const { DemoService } = await import("./client/DemoService");
+    if (DemoService.getInstance().hasActivePlayback()) DemoService.getInstance().stopAll();
 
     // Take the lobby handoff, but do NOT consume it here.
     //
@@ -1717,6 +1751,18 @@ export class Game {
     this.enemyWeapons.clear();
     this._lastServerWeapon = undefined;
     this._localCharging = false;
+    // The new match state has no listeners; the showcase and music need theirs.
+    this.watchMatchPhase();
+
+    // The player, as the next connection must find them: alive, watching no
+    // one, with no powerup, full lungs and no water level to splash out of.
+    this.spectate.reset();
+    this._isPlayerDead = false;
+    this._respawnRequested = false;
+    clearLocalPowerups();
+    this.resetLocalAir();
+    this.forgetLocalLiquid();
+    this.clearWorldEffects();
 
     console.log("[Game] Shutdown complete");
   } // ========================================================================
