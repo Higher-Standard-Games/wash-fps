@@ -111,9 +111,9 @@ export class GameServer {
   private snapshotSentAtMs = new Map<number, number>();
   /** Matches the broadcaster's snapshot history, the oldest tick a client can ack. */
   private static readonly SENT_AT_HISTORY = 64;
-  /** Weight of a fresh sample. Low enough that one stalled frame is not "your ping". */
   /** Shortest gap between answered pings: a quarter of the client's burst spacing, so ordinary jitter does not cost a sample. */
   private static readonly PING_MIN_GAP_MS = 25;
+  /** Weight of a fresh sample. Low enough that one stalled frame is not "your ping". */
   private static readonly PING_SMOOTHING = 0.25;
   private nextPlayerId: number = 1;
   private nextBotId: number = 900; // Bot IDs start high to avoid collisions

@@ -306,7 +306,6 @@ export class WeaponSystem extends Subsystem {
     return events;
   }
 
-  /** Clear actions produced during warmup; player loadouts are rebuilt on respawn. */
   /**
    * Drop everything held for an entity that has left the world for good (a
    * disconnect, or going to spectate). A rejoin gets a new entity id, so
@@ -320,6 +319,7 @@ export class WeaponSystem extends Subsystem {
     this.slotResync.delete(entityId);
   }
 
+  /** Clear actions produced during warmup; player loadouts are rebuilt on respawn. */
   resetForMatch(): void {
     this.pendingDamage = [];
     this.pendingFireEvents = [];
