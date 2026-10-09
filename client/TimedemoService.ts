@@ -40,6 +40,7 @@ interface TimedemoRun {
   gpuMs: ReturnType<typeof timedemoPercentiles>;
   shaderCompiles: number;
   samples: TimedemoSample[];
+  sceneReadiness: { before: boolean | null; after: boolean | null };
 }
 
 export interface TimedemoReport {
@@ -98,6 +99,7 @@ export class TimedemoService {
         "Scene CPU excludes main-loop work before the benchmark hook; playback CPU is reported separately.",
         "Generated route clearance and visual coverage require browser acceptance.",
         "Bundle totals cover the whole engine frame (world, gun and enabled auxiliary passes), not individual actors.",
+        "Full-scene readiness is checked outside measurement; per-frame pending-data counts do not establish shader readiness.",
       ],
     };
     const signal = this.controller.signal;
@@ -248,6 +250,16 @@ export class TimedemoService {
     const service = DemoService.getInstance();
     const cameras = CameraSystem.getInstance();
     const engine = scene.getEngine();
+    // Full Scene.isReady prepares effects for every mesh, including hidden ones.
+    // Calling it after each measured render was both expensive and intrusive.
+    const readSceneReadiness = () => {
+      try {
+        return scene.isReady();
+      } catch {
+        return null;
+      }
+    };
+    const readinessBefore = readSceneReadiness();
     const sceneStats = new SceneInstrumentation(scene);
     const engineStats = new EngineInstrumentation(engine);
     engineStats.captureShaderCompilationTime = true;
@@ -256,6 +268,7 @@ export class TimedemoService {
     const gpuSamplesMs: number[] = [];
     let gpuCount = engineStats.gpuFrameTimeCounter.count;
     let last = performance.now();
+    let frameAtMs = last;
     let frameStart = last;
     let playbackCpuMs = 0;
     let wallMs = 0;
@@ -324,6 +337,7 @@ export class TimedemoService {
           summary: summarizeTimedemoSamples(samples),
           phases,
           samples,
+          sceneReadiness: { before: readinessBefore, after: readSceneReadiness() },
           gpuSamplesMs,
           gpuMs: timedemoPercentiles(gpuSamplesMs),
           gpuTiming: gpuSamplesMs.length
@@ -372,6 +386,7 @@ export class TimedemoService {
           for (const [name, value] of Object.entries(fixture.profile.requiredCvars))
             if (Number(Cvar.get(name)) !== value) throw new Error(`Benchmark profile changed: ${name}`);
           const now = performance.now();
+          frameAtMs = now;
           wallMs = now - last;
           last = now;
           const updateStart = now;
@@ -427,6 +442,7 @@ export class TimedemoService {
             seconds,
             phase: segmentAt(fixture, seconds).name,
             wallMs,
+            frameAtMs,
             playbackCpuMs,
             sceneCpuMs: performance.now() - frameStart,
             animationMs: sceneStats.animationsTimeCounter.current,
@@ -436,7 +452,8 @@ export class TimedemoService {
             ...bodies,
             spectatorTarget: target,
             povWeaponLoaded: service.isPlaybackWeaponLoaded(),
-            sceneReady: scene.isReady(),
+            sceneReady: null,
+            pendingSceneData: scene.getWaitingItemsCount(),
             skippedFrames: viewer.getInfo().skippedFrames,
             bundles: null,
           };

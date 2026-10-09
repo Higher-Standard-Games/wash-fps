@@ -106,7 +106,8 @@ function setup(ncm = false) {
     onDisposeObservable: new Observable(),
     getActiveIndices: () => 300,
     getActiveMeshes: () => ({ length: 4 }),
-    isReady: () => true,
+    isReady: vi.fn(() => true),
+    getWaitingItemsCount: vi.fn(() => 0),
   };
   const frame = (time: number, skips = 0, bundles = { created: 0, reused: 0 }, endFrame = true) => {
     seconds = time;
@@ -135,6 +136,7 @@ function setup(ncm = false) {
     order,
     spectator,
     engine,
+    scene,
     dispose: () => scene.onDisposeObservable.notifyObservers({}),
   };
 }
@@ -146,6 +148,25 @@ describe("manual timedemo render ownership", () => {
     h.service.getPlaybackModelStats.mockReturnValue({ alivePlayers: 1, loadedBodies: 1 });
     h.service.isPlaybackWeaponLoaded.mockReturnValue(true);
     Object.defineProperty(document, "hidden", { configurable: true, value: false });
+  });
+  it("keeps full-scene readiness outside measured renders and timestamps wall intervals", async () => {
+    const s = setup();
+    const result = s.play();
+    expect(s.scene.isReady).toHaveBeenCalledTimes(1);
+    s.scene.getWaitingItemsCount.mockReturnValue(2);
+    s.frame(0.5);
+    s.scene.getWaitingItemsCount.mockReturnValue(0);
+    s.frame(1.5);
+    expect(s.scene.isReady).toHaveBeenCalledTimes(1);
+    s.frame(2);
+    const run = await result;
+    expect(s.scene.isReady).toHaveBeenCalledTimes(2);
+    expect(run.sceneReadiness).toEqual({ before: true, after: true });
+    expect(run.samples.map((sample) => sample.sceneReady)).toEqual([null, null]);
+    expect(run.summary.sceneReadinessObservedFrames).toBe(0);
+    expect(run.summary.unreadySceneFrames).toBe(0);
+    expect(run.summary.pendingSceneDataFrames).toBe(1);
+    expect(run.samples[1].frameAtMs! - run.samples[0].frameAtMs!).toBe(run.samples[1].wallMs);
   });
   it("updates playback before rendering, cuts to a bot, and counts only fresh GPU results", async () => {
     const s = setup();
