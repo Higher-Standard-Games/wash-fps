@@ -79,6 +79,7 @@ import type { PlayerStateUpdate } from "../Game";
 import { FPSPickup } from "../world/FPSPickup";
 import type { ServerAmmoState } from "../world/InventoryManager";
 import type { FollowedViewWeapon } from "./FollowedViewWeapon";
+import { networkHostOf } from "./NetworkHostAccess";
 
 /**
  * Mutable context shared with Game.
@@ -214,8 +215,8 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
   NetGraph.recordSnapshot(localPlayer?.ping ?? 0, state.tick);
 
   // Feed ClockSync offset to NetGraph for display
-  const networkHost = ctx.gameHost as any;
-  if (networkHost?.clockSync?.isSynced()) {
+  const networkHost = networkHostOf(ctx.gameHost);
+  if (networkHost?.clockSync.isSynced()) {
     NetGraph.setClockOffset(networkHost.clockSync.getOffset());
   }
 
@@ -617,8 +618,8 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
   // === Remote player snapshot buffering ===
   if (ctx.remoteRenderer) {
     let serverLocalTime: number | undefined;
-    const nh = ctx.gameHost as any;
-    if (state.serverTimestamp && nh?.clockSync?.isSynced()) {
+    const nh = networkHostOf(ctx.gameHost);
+    if (state.serverTimestamp && nh?.clockSync.isSynced()) {
       serverLocalTime = nh.clockSync.toLocalTime(state.serverTimestamp);
     }
     ctx.remoteRenderer.pushSnapshot(state, localEntityId || "", serverLocalTime);
@@ -672,8 +673,8 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
   {
     let projectileSLT: number | undefined;
     // biome-ignore lint/suspicious/noExplicitAny: gameHost clockSync is duck-typed
-    const projNh = ctx.gameHost as any;
-    if (state.serverTimestamp && projNh?.clockSync?.isSynced()) {
+    const projNh = networkHostOf(ctx.gameHost);
+    if (state.serverTimestamp && projNh?.clockSync.isSynced()) {
       projectileSLT = projNh.clockSync.toLocalTime(state.serverTimestamp);
     }
     processProjectileEntities(

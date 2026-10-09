@@ -56,6 +56,7 @@ import { clearLocalPowerups } from "./client/LocalPowerupState";
 import { MatchInputBindings } from "./client/MatchInputBindings";
 import { MatchMapLoader } from "./client/MatchMapLoader";
 import { MatchPhase, MatchStateManager } from "./client/MatchStateManager";
+import { networkHostOf } from "./client/NetworkHostAccess";
 import { RemotePlayerRenderer } from "./client/RemotePlayerRenderer";
 import { ServerProjectiles } from "./client/ServerProjectiles";
 import { PlayerWeaponStates, storeSnapshotState } from "./client/SnapshotStateStore";
@@ -1580,18 +1581,15 @@ export class Game {
     }
 
     // For NetworkGameHost (legacy path without V2Client), use interpolated entity
-    const networkHost = this.gameHost as any;
-    if (typeof networkHost.getInterpolatedEntity === "function") {
-      const interpolatedEntity = networkHost.getInterpolatedEntity(player.entityId);
-      if (interpolatedEntity) {
-        const transform = interpolatedEntity.getComponent("transform") as any;
-        if (transform?.position) {
-          return {
-            x: transform.position.x,
-            y: transform.position.y,
-            z: transform.position.z,
-          };
-        }
+    const interpolatedEntity = this.gameHost.getInterpolatedEntity(player.entityId);
+    if (interpolatedEntity) {
+      const transform = interpolatedEntity.getComponent("transform") as any;
+      if (transform?.position) {
+        return {
+          x: transform.position.x,
+          y: transform.position.y,
+          z: transform.position.z,
+        };
       }
     }
 
@@ -1659,9 +1657,9 @@ export class Game {
 
     const data = MessageCodec.encodeReady();
     // Send via the NetworkGameHost's transport
-    const networkHost = this.gameHost as any;
-    if (networkHost.transport && typeof networkHost.transport.send === "function") {
-      networkHost.transport.send(data, true); // Reliable
+    const networkHost = networkHostOf(this.gameHost);
+    if (networkHost) {
+      networkHost.sendReliable(data);
       MatchStateManager.getInstance().setReady(true);
       console.log("[Game] Sent ready signal to server");
     }
@@ -1674,9 +1672,9 @@ export class Game {
     if (!this.isNetworkMode || !this.gameHost) return;
 
     const data = MessageCodec.encodeRequestSpawn();
-    const networkHost = this.gameHost as any;
-    if (networkHost.transport && typeof networkHost.transport.send === "function") {
-      networkHost.transport.send(data, true); // Reliable
+    const networkHost = networkHostOf(this.gameHost);
+    if (networkHost) {
+      networkHost.sendReliable(data);
       console.log("[Game] Sent RequestSpawn to server");
     }
   }
@@ -1704,8 +1702,8 @@ export class Game {
 
     if (this.gameHost) {
       // Disconnect if in network mode
-      if (this.isNetworkMode && "disconnect" in this.gameHost) {
-        (this.gameHost as any).disconnect();
+      if (this.isNetworkMode) {
+        void this.gameHost.disconnect?.();
       }
       this.gameHost.stop?.();
       this.gameHost = null;
@@ -1975,8 +1973,8 @@ export class Game {
     }
 
     // Also set on NetworkGameHost's prediction simulation (for network mode)
-    const networkHost = this.gameHost as any;
-    if (networkHost && typeof networkHost.setCollisionWorld === "function") {
+    const networkHost = networkHostOf(this.gameHost);
+    if (networkHost) {
       networkHost.setCollisionWorld(collision);
       console.log("[Game] Collision world set on network prediction simulation");
     }
