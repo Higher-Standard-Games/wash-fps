@@ -76,7 +76,12 @@ import {
 } from "../client/FPSPowerupAudio";
 import type { HitLocationName } from "../client/HitLocationName";
 import { HUDState } from "../client/HUDState";
-import { clearLocalPowerups, isLocalPowerupActive, setLocalPowerup } from "../client/LocalPowerupState";
+import {
+  clearLocalPowerups,
+  isLocalPowerupActive,
+  keepOnlyLocalPowerups,
+  setLocalPowerup,
+} from "../client/LocalPowerupState";
 import type { RemotePlayerRenderer } from "../client/RemotePlayerRenderer";
 import { FPSPlayer } from "../FPSPlayer";
 import type { PlayerStateUpdate } from "../Game";
@@ -241,6 +246,8 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
   // person — their gun, their footsteps, their pain, their pickups — is what
   // the screen shows. What changes our own state stays on localEntityId.
   const viewEntityId = ctx.spectatingEntityId ?? localEntityId;
+  /** Powerups this snapshot says the viewed player holds; any other has ended. */
+  const runningPowerups = new Set<string>();
 
   if (state.events && state.events.length > 0) {
     // Dispatch by event type. Switching on the discriminated `type` (rather than
@@ -530,6 +537,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
           case "powerup_state":
             if (event.entityId === viewEntityId) {
               setLocalPowerup(String(event.kind ?? ""), Number(event.seconds ?? 0));
+              if (Number(event.seconds ?? 0) > 0) runningPowerups.add(String(event.kind ?? ""));
             }
             break;
 
@@ -565,6 +573,9 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
       }
     }
   }
+  // A Quad taken away early (a round start respawns its carrier alive) stops
+  // showing and sounding now, not when its old countdown would have run out.
+  keepOnlyLocalPowerups(runningPowerups);
 
   processFPSMovementAudio(state, viewEntityId);
 

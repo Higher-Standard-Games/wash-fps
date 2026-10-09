@@ -33,7 +33,7 @@ import type { PickupEntry } from "../../../shared/bsp/PickupTable";
 import type { TriggerVolume } from "../../../shared/bsp/TriggerTable";
 import { MatchPhase } from "../../../shared/server/gametype/GametypeTypes";
 // Match phase tracking (for auto-recording)
-import { describeLoadout, parseLoadout } from "../../../shared/server/gametype/Loadout";
+import { botLoadout, describeLoadout, parseLoadout } from "../../../shared/server/gametype/Loadout";
 import { sanitizeCommand } from "../../../shared/server/simulation/InputSanitizer";
 import { toClientKey } from "../ClientEntityKey";
 import { cleanClientText, nextAckedTick, rateLimited } from "./AuthorityGuards";
@@ -452,17 +452,10 @@ export class GameServer {
    * (extractPickups — ids are authoritative and shared with the client).
    */
   setPickupItems(entries: PickupEntry[]): void {
-    const excluded = this.gametypeController.getGametype().getItemSpawnRules().excludeClassnames;
-    if (excluded && excluded.length > 0) {
-      const drop = new Set(excluded);
-      const kept = entries.filter((e) => !drop.has(e.classname));
-      if (kept.length !== entries.length) {
-        console.log(`[GameServer] ${entries.length - kept.length} pickups excluded by gametype`);
-      }
-      this.pickupSystem.setPickupItems(kept);
-      return;
-    }
-    this.pickupSystem.setPickupItems(entries);
+    const excluded = new Set(this.gametypeController.getGametype().getItemSpawnRules().excludeClassnames ?? []);
+    const count = entries.filter((e) => excluded.has(e.classname)).length;
+    if (count > 0) console.log(`[GameServer] ${count} pickups excluded by gametype`);
+    this.pickupSystem.setPickupItems(entries, excluded);
   }
 
   /**
@@ -1258,7 +1251,8 @@ export class GameServer {
 
     const gametype = this.gametypeController.getGametype();
     if (!gametype.setPlayerLoadout(client.playerId, choice)) return;
-    console.log(`[GameServer] Player ${client.playerId} loadout → ${describeLoadout(choice)} (from next round)`);
+    const when = gametype.getMatchConfig().loadouts === "respawn" ? "next spawn" : "next round";
+    console.log(`[GameServer] Player ${client.playerId} loadout → ${describeLoadout(choice)} (from ${when})`);
   }
 
   /**
@@ -1482,10 +1476,15 @@ export class GameServer {
       console.log(`[GameServer] Player ${client.playerId} tried to JoinGame but is already playing`);
       return;
     }
-    // S&D must not create a live entity until the reliable loadout choice has
-    // arrived. Keep this before the rate gate so a rejected click can be
+    // S&D and Amphi must not create a live entity until the reliable loadout
+    // choice has arrived (Deathmatch spawns a player who never chose with the
+    // default kit). Keep this before the rate gate so a rejected click can be
     // retried immediately after choosing.
     const gametype = this.gametypeController.getGametype();
+    // Bots choose no kit of their own; in a mode with kits each gets one picked by its id.
+    if (client.isBot && gametype.getMatchConfig().loadouts) {
+      gametype.setPlayerLoadout(client.playerId, botLoadout(client.playerId as number));
+    }
     if (!client.isBot && !gametype.hasChosenLoadout(client.playerId)) {
       conn.sendDatagram(MessageCodec.encodeServerMessage("Choose a loadout before joining.", "info"));
       return;

@@ -9,6 +9,14 @@ import { MatchStateManager } from "../../MatchStateManager";
 import { buildRailBrand } from "../../RailBrand";
 import matchMenuCss from "../../styles/MatchMenu.css?raw";
 
+/** A key a mode adds to the match menu (the Loadout key). */
+export interface MatchMenuModeKey {
+  id: string;
+  label: string;
+  hint: string;
+  onClick: () => void;
+}
+
 /**
  * FPSPauseMenu - the Esc menu: the lobby's gold rail, drawn over the match.
  *
@@ -26,6 +34,8 @@ export class FPSPauseMenu extends GameDialogPanel {
   private readonly resumeKey: HTMLButtonElement;
   private readonly spectateKey: HTMLButtonElement;
   private readonly joinKeys: HTMLElement;
+  /** Keys the mode brings (Loadout), right under Resume. */
+  private readonly modeKeys: HTMLElement;
   private readonly kickerEl: HTMLElement;
   private readonly nameEl: HTMLElement;
 
@@ -62,6 +72,8 @@ export class FPSPauseMenu extends GameDialogPanel {
     });
     this.joinKeys = element("div", "fps-match-menu__join");
     this.joinKeys.hidden = true;
+    this.modeKeys = element("div", "fps-match-menu__mode");
+    this.modeKeys.hidden = true;
     const settingsKey = this.key("Settings", "Controls and video", () => this.onSettingsCallback?.());
     this.spectateKey = this.key("Spectate", "Watch the match", () => {
       this.close();
@@ -71,7 +83,7 @@ export class FPSPauseMenu extends GameDialogPanel {
 
     const keys = element("nav", "fps-match-menu__keys");
     keys.setAttribute("aria-label", "Match");
-    keys.append(this.resumeKey, this.joinKeys, settingsKey, this.spectateKey);
+    keys.append(this.resumeKey, this.joinKeys, this.modeKeys, settingsKey, this.spectateKey);
 
     const foot = element("div", "fps-match-menu__foot");
     const plate = element("div", "fps-match-menu__plate");
@@ -137,6 +149,24 @@ export class FPSPauseMenu extends GameDialogPanel {
     this.joinKeys.hidden = !visible;
     if (visible) this.refreshJoinKeys();
     this.lightFirstKey();
+  }
+
+  /**
+   * The keys the mode brings, right under Resume (and Join): today the Loadout
+   * key, in modes with kits. A key closes the menu before it acts. None hides the slot.
+   */
+  public setModeKeys(keys: readonly MatchMenuModeKey[]): void {
+    this.modeKeys.replaceChildren(
+      ...keys.map((modeKey) => {
+        const key = this.key(modeKey.label, modeKey.hint, () => {
+          this.close();
+          modeKey.onClick();
+        });
+        key.dataset.modeKey = modeKey.id;
+        return key;
+      }),
+    );
+    this.modeKeys.hidden = keys.length === 0;
   }
 
   private key(label: string, hint: string, onClick: () => void): HTMLButtonElement {

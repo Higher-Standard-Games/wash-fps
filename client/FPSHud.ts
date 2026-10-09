@@ -300,14 +300,17 @@ export class FPSHud {
 
   /**
    * The match menu, with the keys for where the player is: Join for a
-   * spectator, Resume and Spectate for a player. Not over the scoreboard or
-   * the settings.
+   * spectator, Resume and Spectate for a player, and the mode's own keys
+   * (Loadout). Not over the scoreboard, the settings or the kit picker.
    */
-  private showMatchMenu(): void {
+  public showMatchMenu(): void {
     import("../Game")
       .then(({ Game }) => {
-        const state = Game.getInstance().getPlayerState();
+        const game = Game.getInstance();
+        const state = game.getPlayerState();
         if (this._scoreboard?.isVisible() || this._settings?.isOpen()) return;
+        if (game.isLoadoutPickerOpen()) return;
+        this._pauseMenu?.setModeKeys(game.matchMenuModeKeys());
         this._pauseMenu?.setSpectateVisible(state === "playing");
         this._pauseMenu?.setResumeVisible(state !== "spectator");
         this._pauseMenu?.setJoinVisible(state === "spectator");

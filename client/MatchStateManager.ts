@@ -18,6 +18,7 @@ import type {
 // source and re-export so existing `./MatchStateManager` consumers keep their
 // imports.
 import { MatchPhase } from "../../../shared/server/gametype/GametypeTypes";
+import type { LoadoutMode } from "../../../shared/server/gametype/Loadout";
 
 export { MatchPhase };
 export type { BombExplosionEvent, BombObjectiveSnapshot, MatchWinner, ObjectiveSnapshot, RoundResult };
@@ -33,6 +34,7 @@ export class MatchStateManager {
   private _readyCount: number = 0;
   private _totalPlayers: number = 0;
   private _gametypeName: string = "";
+  private _loadoutMode: LoadoutMode | null = null;
   private _teamBased: boolean = false;
   private _scoreLimit: number = 0;
   private _teamScores: Record<string, number> = {};
@@ -77,6 +79,7 @@ export class MatchStateManager {
     this._totalPlayers = event.totalPlayers ?? 0;
     this._gametypeName = event.gametypeName ?? "";
     this._teamBased = event.teamBased ?? false;
+    this._loadoutMode = event.loadouts === "round" || event.loadouts === "respawn" ? event.loadouts : null;
     this._scoreLimit = event.scoreLimit ?? 0;
     this._teamScores = event.teamScores ?? {};
     this._playerTeams = event.playerTeams ?? {};
@@ -135,10 +138,13 @@ export class MatchStateManager {
   get teamBased(): boolean {
     return this._teamBased;
   }
-  /** Whether joining this mode must first collect a round loadout. */
+  /** Whether players choose a kit in this mode, and when a change applies (server-authoritative). */
+  get loadoutMode(): LoadoutMode | null {
+    return this._loadoutMode;
+  }
+  /** Whether joining this mode must first collect a kit. */
   get requiresLoadoutSelection(): boolean {
-    const mode = this._gametypeName.trim().toLowerCase();
-    return mode === "search & destroy" || mode === "amphi";
+    return this._loadoutMode !== null;
   }
   get scoreLimit(): number {
     return this._scoreLimit;
@@ -337,6 +343,7 @@ export class MatchStateManager {
     this._totalPlayers = 0;
     this._gametypeName = "";
     this._teamBased = false;
+    this._loadoutMode = null;
     this._scoreLimit = 0;
     this._isReady = false;
     // Rosters describe the match that just ended, so they cannot outlive it.

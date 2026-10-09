@@ -8,6 +8,10 @@
  * A dropped final packet therefore ends the effect on time instead of leaving it
  * stuck on — the same fail-closed reasoning as the pickup active-set mask.
  *
+ * A snapshot that arrives without a powerup's `powerup_state` ends it at once
+ * (`keepOnlyLocalPowerups`): the server took it away before its time, as a round
+ * start does to a player who is respawned without dying.
+ *
  * Cosmetic only. Damage is applied server-side (CombatSystem); nothing here can
  * change what a shot does.
  */
@@ -58,6 +62,15 @@ export function activeLocalPowerups(): Array<{ kind: string; seconds: number }> 
     out.push({ kind, seconds: (deadline - now) / 1000 });
   }
   return out;
+}
+
+/**
+ * Keep only the powerups a snapshot said are running. The server sends
+ * `powerup_state` in every snapshot while one runs, so one missing from a
+ * snapshot that arrived has ended, whatever its deadline said.
+ */
+export function keepOnlyLocalPowerups(running: ReadonlySet<string>): void {
+  for (const kind of deadlines.keys()) if (!running.has(kind)) deadlines.delete(kind);
 }
 
 /** Drop all timers — on death, map change, or disconnect. */

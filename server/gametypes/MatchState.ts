@@ -836,6 +836,8 @@ export class MatchState {
       winner: this._winner ?? undefined,
       overtime: this._overtimeCount > 0 ? this._overtimeCount : undefined,
       flow: this._flow,
+      // Only where the mode has kits, so a mode without them sends what it always did
+      ...(this.config.loadouts ? { loadouts: this.config.loadouts } : {}),
       // Round context. Public by nature — everyone in a bomb round knows the
       // score and who is attacking — so it rides the broadcast snapshot rather
       // than per-client directives. Bots read `teamRoles` to pick a behavioural

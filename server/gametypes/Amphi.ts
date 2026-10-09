@@ -14,16 +14,18 @@ import type {
   TeamId,
   WeaponLoadout,
 } from "@shared/server/gametype";
-import { buildLoadout, DEFAULT_LOADOUT, MatchPhase } from "@shared/server/gametype";
+import { MatchPhase } from "@shared/server/gametype";
+import { WEAPON_PICKUP_CLASSNAMES } from "../../../../shared/bsp/PickupTable";
 import { BaseGametype, type GameResult, type GametypeTickContext, type RoundOutcome } from "./BaseGametype";
+import { PlayerLoadouts } from "./PlayerLoadouts";
 
 export class Amphi extends BaseGametype {
   readonly name = "Amphi";
   readonly maxPlayers = 2;
   readonly teamBased = true; // One player per side; the round score uses team scores.
 
-  private activeLoadouts = new Map<PlayerId, LoadoutChoice>();
-  private pendingLoadouts = new Map<PlayerId, LoadoutChoice>();
+  /** Kits: a change waits for the next round. */
+  private loadouts = new PlayerLoadouts("round");
   private playerTeams = new Map<PlayerId, TeamId>();
   private roundFrags = new Map<TeamId, number>();
   private roundLive = false;
@@ -39,6 +41,7 @@ export class Amphi extends BaseGametype {
       maxRespawnDelay: 4,
       selfDamage: 1,
       roundBased: true,
+      loadouts: "round",
       roundRespawns: true,
       resetScoresEachRound: true,
       maxRounds: 3,
@@ -50,31 +53,27 @@ export class Amphi extends BaseGametype {
   }
 
   getSpawnLoadout(playerId?: PlayerId): WeaponLoadout {
-    const choice = (playerId !== undefined ? this.activeLoadouts.get(playerId) : undefined) ?? DEFAULT_LOADOUT;
-    return buildLoadout(choice);
+    return this.loadouts.spawnKit(playerId);
   }
 
   setPlayerLoadout(playerId: PlayerId, choice: LoadoutChoice): boolean {
     // The first choice arms the player's first spawn; later choices wait for
     // the next round so a kit cannot be changed in the middle of a fight.
-    if (!this.activeLoadouts.has(playerId)) this.activeLoadouts.set(playerId, choice);
-    this.pendingLoadouts.set(playerId, choice);
+    this.loadouts.choose(playerId, choice);
     return true;
   }
 
   hasChosenLoadout(playerId: PlayerId): boolean {
-    return this.activeLoadouts.has(playerId);
+    return this.loadouts.has(playerId);
   }
 
   onPlayerLeave(playerId: PlayerId): void {
-    this.activeLoadouts.delete(playerId);
-    this.pendingLoadouts.delete(playerId);
+    this.loadouts.forget(playerId);
     this.playerTeams.delete(playerId);
   }
 
   onRoundStart(_state: WorldState, _context: GametypeTickContext): void {
-    for (const [playerId, choice] of this.pendingLoadouts) this.activeLoadouts.set(playerId, choice);
-    this.pendingLoadouts.clear();
+    this.loadouts.startRound();
     this.roundFrags.clear();
     this.roundLive = false;
   }
@@ -83,6 +82,8 @@ export class Amphi extends BaseGametype {
     return {
       spawnFromBsp: true,
       respawnMode: "timed",
+      // The kit is the arsenal: no map weapons (Loadout.ts)
+      excludeClassnames: WEAPON_PICKUP_CLASSNAMES,
       weaponRespawnTime: 30,
       ammoRespawnTime: 15,
       armorRespawnTime: 25,

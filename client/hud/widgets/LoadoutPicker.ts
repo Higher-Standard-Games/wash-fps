@@ -3,6 +3,7 @@ import { WEAPONS } from "../../../../../shared/entities/definitions/weapons/Weap
 import {
   DEFAULT_LOADOUT,
   type LoadoutChoice,
+  type LoadoutMode,
   PRIMARY_CHOICES,
   type PrimaryWeapon,
   SECONDARY_CHOICES,
@@ -15,12 +16,23 @@ import { WeaponPreview } from "./WeaponPreview";
 // Loadout Picker — choose your kit before you spawn
 // =============================================================================
 
+/** How the picker is opened: to join, or from the Esc menu to change kit. */
+export interface LoadoutPickerOptions {
+  /** When a changed kit takes effect; said on the dialog when changing an existing kit. */
+  timing?: LoadoutMode;
+  /** Opened to change a kit already in use (from the Esc menu), not to join. */
+  changing?: boolean;
+  /** Back out without choosing (the Back key, or Esc). Absent: the dialog can only confirm. */
+  onCancel?: () => void;
+}
+
 /**
- * FPSLoadoutPicker — the kit dialog, shown before a player enters the game.
+ * FPSLoadoutPicker — the kit dialog, shown before a player enters the game,
+ * and from the Esc menu's Loadout key to change kit.
  *
- * Deliberately blocking: in Search & Destroy and Amphi your kit decides what
- * you can do for a whole round with no respawn to correct it, so being dropped into a
- * round holding a default nobody chose is worse than a moment spent choosing.
+ * Blocking at the first join: your kit decides what you can do, and being
+ * dropped into a match holding a default nobody chose is worse than a moment
+ * spent choosing.
  *
  * Not a HUD widget. It is a full-screen overlay with pointer events, managed by
  * whoever opens it, because a widget that swallows the mouse would break every
@@ -31,6 +43,14 @@ export class FPSLoadoutPicker {
   private primary: PrimaryWeapon = DEFAULT_LOADOUT.primary;
   private secondary: SecondaryWeapon = DEFAULT_LOADOUT.secondary;
   private onConfirm: ((choice: LoadoutChoice) => void) | null = null;
+  private options: LoadoutPickerOptions = {};
+  /** Esc backs out, when the dialog was opened with somewhere to go back to */
+  private readonly onKey = (event: KeyboardEvent): void => {
+    if (event.key !== "Escape" || !this.options.onCancel) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.cancel();
+  };
   private visible = false;
   /** Weapon on the stand. Follows hover, falls back to the chosen primary. */
   private focus: PrimaryWeapon | SecondaryWeapon = DEFAULT_LOADOUT.primary;
@@ -61,12 +81,18 @@ export class FPSLoadoutPicker {
    * Open the picker. `current` pre-selects what the player already has, so
    * reopening it mid-match is a review rather than a fresh decision.
    */
-  public open(onConfirm: (choice: LoadoutChoice) => void, current?: LoadoutChoice): void {
+  public open(
+    onConfirm: (choice: LoadoutChoice) => void,
+    current?: LoadoutChoice,
+    options: LoadoutPickerOptions = {},
+  ): void {
     if (current) {
       this.primary = current.primary;
       this.secondary = current.secondary;
     }
     this.onConfirm = onConfirm;
+    this.options = options;
+    window.addEventListener("keydown", this.onKey, true);
     this.visible = true;
     this.focus = this.primary;
     this.lastPreviewed = null;
@@ -77,6 +103,8 @@ export class FPSLoadoutPicker {
   public close(): void {
     this.visible = false;
     this.onConfirm = null;
+    this.options = {};
+    window.removeEventListener("keydown", this.onKey, true);
     this.element.style.display = "none";
     // Give the WebGL context back. The picker is open for seconds at a time and
     // a held context is one the game cannot have.
@@ -86,9 +114,17 @@ export class FPSLoadoutPicker {
   }
 
   public destroy(): void {
+    window.removeEventListener("keydown", this.onKey, true);
     this.preview?.dispose();
     this.preview = null;
     this.element.remove();
+  }
+
+  /** Back out without choosing. */
+  private cancel(): void {
+    const callback = this.options.onCancel;
+    this.close();
+    callback?.();
   }
 
   private render(): void {
@@ -106,6 +142,13 @@ export class FPSLoadoutPicker {
     heading.className = "fps-loadout-heading";
     heading.textContent = "Loadout";
     hero.append(kicker, heading);
+    if (this.options.changing && this.options.timing) {
+      const note = document.createElement("div");
+      note.className = "fps-loadout-note";
+      note.textContent =
+        this.options.timing === "respawn" ? "Applies from your next spawn" : "Applies from the next round";
+      hero.appendChild(note);
+    }
     panel.appendChild(hero);
 
     const body = document.createElement("div");
@@ -131,7 +174,12 @@ export class FPSLoadoutPicker {
     body.appendChild(this.buildPreview());
     panel.appendChild(body);
 
-    const confirm = createRaisedKey({ label: "Enter the round", variants: ["cta"] });
+    const label = this.options.changing
+      ? "Use this kit"
+      : this.options.timing === "respawn"
+        ? "Enter the match"
+        : "Enter the round";
+    const confirm = createRaisedKey({ label, variants: ["cta"] });
     confirm.classList.add("fps-loadout-confirm");
     confirm.onclick = () => {
       const choice: LoadoutChoice = { primary: this.primary, secondary: this.secondary };
@@ -140,6 +188,13 @@ export class FPSLoadoutPicker {
       callback?.(choice);
     };
     panel.appendChild(confirm);
+
+    if (this.options.onCancel) {
+      const back = createRaisedKey({ label: "Back", hint: "Keep your kit", variants: ["sm", "cream"] });
+      back.classList.add("fps-loadout-back");
+      back.onclick = () => this.cancel();
+      panel.appendChild(back);
+    }
 
     this.element.appendChild(panel);
   }

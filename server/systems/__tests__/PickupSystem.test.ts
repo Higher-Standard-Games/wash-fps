@@ -266,3 +266,32 @@ describe("PickupSystem - round respawn modes", () => {
     expect(sys.getActiveMask()[0]).toBe(true);
   });
 });
+
+describe("PickupSystem - items the mode leaves out", () => {
+  it("keeps them registered and inactive, so the client's mask hides them, past its end too", () => {
+    const sys = new PickupSystem();
+    const weapon: PickupEntry = {
+      id: 2,
+      classname: "weapon_rocketlauncher",
+      type: "weapon",
+      kind: "rlauncher",
+      position: { x: 0, y: 0, z: 0 },
+    };
+    sys.setPickupItems(
+      [ammoEntry("rockets", 5, 0), healthEntry("small", 1), weapon],
+      new Set(["weapon_rocketlauncher"]),
+    );
+
+    const player = makePlayer();
+    for (const tick of [100, 60 * TICK_RATE]) {
+      sys.update(makeState(player) as never, 0.008, tick as never);
+      const mask = sys.getActiveMask();
+      // The highest id: dropped from the list, it lay past the mask's end and was never hidden
+      expect(mask).toHaveLength(3);
+      expect(mask[2]).toBe(false);
+      expect(mask[0]).toBe(true);
+    }
+    sys.resetForRound(70 * TICK_RATE);
+    expect(sys.getActiveMask()[2]).toBe(false);
+  });
+});

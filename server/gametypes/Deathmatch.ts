@@ -1,18 +1,26 @@
 /**
  * Deathmatch Gametype
- * Free-for-all deathmatch with Warsow-style rules:
+ * Free-for-all deathmatch with Warsow-style rules and chosen kits:
  * - Furthest spawn selection
- * - Blade on spawn
- * - All items from BSP spawn on map
- * - 30s weapon respawn
+ * - Spawn with the blade and a chosen kit (Loadout.ts); a change applies at the
+ *   next spawn
+ * - Every BSP item spawns except weapons: the kit is the arsenal
  */
 
 import type { WorldState } from "@engine/server/core/WorldState";
 import type { Entity } from "@engine/server/ecs/Entity";
 import type { PlayerId } from "@engine/server/ecs/types";
-import type { ItemSpawnRules, MatchConfig, SpawnStrategyType, WeaponLoadout } from "@shared/server/gametype";
+import type {
+  ItemSpawnRules,
+  LoadoutChoice,
+  MatchConfig,
+  SpawnStrategyType,
+  WeaponLoadout,
+} from "@shared/server/gametype";
+import { WEAPON_PICKUP_CLASSNAMES } from "../../../../shared/bsp/PickupTable";
 import { debugLog } from "../DebugLog";
 import { BaseGametype, type GameResult } from "./BaseGametype";
+import { PlayerLoadouts } from "./PlayerLoadouts";
 
 export class Deathmatch extends BaseGametype {
   readonly name = "Deathmatch";
@@ -20,6 +28,8 @@ export class Deathmatch extends BaseGametype {
   readonly teamBased = false;
 
   private scores: Map<PlayerId, number> = new Map();
+  /** Kits: a change applies at the player's next spawn. Spawn armor stays Deathmatch's own (none). */
+  private loadouts = new PlayerLoadouts("respawn", 0);
 
   // ========================================================================
   // Configuration
@@ -35,21 +45,32 @@ export class Deathmatch extends BaseGametype {
       respawnDelay: 3, // seconds min before respawn input accepted
       maxRespawnDelay: 6, // seconds auto-respawn deadline
       selfDamage: 1.0, // full self-damage (standard DM)
+      loadouts: "respawn",
     };
   }
 
-  getSpawnLoadout(): WeaponLoadout {
-    return {
-      weapons: ["blade"],
-      ammo: { blade: 1 },
-      health: 100,
-      armor: 0,
-    };
+  getSpawnLoadout(playerId?: PlayerId): WeaponLoadout {
+    return this.loadouts.spawnKit(playerId);
+  }
+
+  setPlayerLoadout(playerId: PlayerId, choice: LoadoutChoice): boolean {
+    this.loadouts.choose(playerId, choice);
+    return true;
+  }
+
+  // No join gate (`hasChosenLoadout` stays true). The game client's picker
+  // blocks the join until a kit is chosen; a client that never chooses (a
+  // headless one, an older one) spawns with the default kit, which its next
+  // spawn can correct. In a round mode a default would cost a whole round.
+
+  onPlayerLeave(playerId: PlayerId): void {
+    this.loadouts.forget(playerId);
   }
 
   getItemSpawnRules(): ItemSpawnRules {
     return {
       spawnFromBsp: true,
+      excludeClassnames: WEAPON_PICKUP_CLASSNAMES,
       weaponRespawnTime: 30,
       ammoRespawnTime: 15,
       armorRespawnTime: 25,

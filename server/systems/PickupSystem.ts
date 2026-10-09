@@ -64,6 +64,8 @@ interface PickupItem {
   active: boolean; // Whether it can be picked up
   respawnTick: number; // Tick when it respawns (0 = active / no pending respawn)
   respawnTicks: number; // Per-type respawn duration in ticks
+  /** Left out by the mode (`excludeClassnames`): never active, never respawns. */
+  excluded?: boolean;
 }
 
 /** Event emitted when a pickup is taken */
@@ -181,8 +183,13 @@ export class PickupSystem extends Subsystem {
    * authoritative and shared with the client. Armor AND mega/ultra health spawn
    * after a delay (absent at match start, then appear) to prevent an instant
    * grab off spawn.
+   *
+   * Pickups whose classname the mode leaves out stay registered, permanently
+   * inactive. Dropped from the list instead, they were missing from the active
+   * mask the client hides pickups by, and one whose id lay past the mask's end
+   * was never told it was gone and stayed on the floor.
    */
-  setPickupItems(entries: PickupEntry[]): void {
+  setPickupItems(entries: PickupEntry[], excludedClassnames: ReadonlySet<string> = new Set()): void {
     this.pickups = entries.map((e) => {
       return {
         id: e.id,
@@ -194,6 +201,7 @@ export class PickupSystem extends Subsystem {
         active: true,
         respawnTick: 0,
         respawnTicks: this.respawnTicksFor(e),
+        excluded: excludedClassnames.has(e.classname),
       };
     });
     this.resetForMatch(0);
@@ -212,7 +220,7 @@ export class PickupSystem extends Subsystem {
         pickup.type === "armor" ||
         pickup.type === "powerup" ||
         (pickup.type === "health" && (pickup.kind === "mega" || pickup.kind === "ultra"));
-      const sittingOut = this.dormant.has(pickup.id);
+      const sittingOut = this.dormant.has(pickup.id) || pickup.excluded === true;
       pickup.active = !delayed && !sittingOut;
       // A dormant item must not come back on a timer either — it is out for the
       // whole round, not merely late.

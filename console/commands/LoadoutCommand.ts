@@ -6,20 +6,21 @@ import {
   SECONDARY_CHOICES,
   WEAPON_LABELS,
 } from "../../../../shared/server/gametype/Loadout";
+import { MatchStateManager } from "../../client/MatchStateManager";
 import { Game } from "../../Game";
 
 /**
- * Choose the spawn kit for Search & Destroy.
+ * Choose the spawn kit, in a mode with kits (S&D, Amphi, Deathmatch). The match
+ * menu's Loadout key does the same with a picker.
  *
- * The console is the whole interface for now — a menu comes later. Changes
- * apply from the NEXT round, which is deliberate and worth saying out loud in
- * the confirmation: a player who types this mid-round and then wonders why
- * nothing happened has been failed by the tool, not by the rule.
+ * A change applies at the next round or the next spawn, as the mode says, and
+ * the confirmation says which: a player who types this mid-round and then
+ * wonders why nothing happened has been failed by the tool, not by the rule.
  */
 export default class LoadoutCommand extends Command {
   readonly definition: CommandDef = {
     name: "loadout",
-    description: "Choose your Search & Destroy spawn kit (applies next round)",
+    description: "Choose your spawn kit (applies at the next round or spawn)",
     usage: "loadout <primary> <secondary>",
   };
 
@@ -32,7 +33,8 @@ export default class LoadoutCommand extends Command {
     if (!Game.getInstance().sendLoadout(choice.primary, choice.secondary)) {
       return "Not connected to a server.";
     }
-    return `Loadout set: ${describeLoadout(choice)} — from the next round.`;
+    const when = MatchStateManager.getInstance().loadoutMode === "respawn" ? "your next spawn" : "the next round";
+    return `Loadout set: ${describeLoadout(choice)} — from ${when}.`;
   }
 
   private help(): string {

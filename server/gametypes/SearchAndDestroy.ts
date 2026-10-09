@@ -35,13 +35,13 @@ import type {
   TeamId,
   WeaponLoadout,
 } from "@shared/server/gametype";
-import { buildLoadout, DEFAULT_LOADOUT } from "@shared/server/gametype";
 import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulation/physics/constants";
 import type { Vec3 } from "@shared/server/simulation/types";
 import { log } from "../../../../engine/core/Log";
 import { PLAYER_ORIGIN_HEIGHT } from "../../../../engine/physics/PlayerPhysicsConstants";
 import type { BombSite, Vec3Like } from "../../../../shared/bsp/BombSiteTable";
 import { extractBombSites, isBombMap, spawnCentroid } from "../../../../shared/bsp/BombSiteTable";
+import { WEAPON_PICKUP_CLASSNAMES } from "../../../../shared/bsp/PickupTable";
 import type { CollisionWorld } from "../../../../shared/collision/CollisionWorld";
 import { rngFrom } from "../../../../shared/DeterministicRng";
 import type { BombEvent, BombPlayerView } from "../../../../shared/server/gametype/BombModel";
@@ -54,6 +54,7 @@ import {
   type GametypeTickContext,
   type RoundOutcome,
 } from "./BaseGametype";
+import { PlayerLoadouts } from "./PlayerLoadouts";
 
 // ── Match shape ──────────────────────────────────────────────────────
 //
@@ -219,10 +220,8 @@ export class SearchAndDestroy extends BaseGametype {
   private bombWorkerId: number | null = null;
   /** Site the attack is committed to. */
   private targetSiteId: number | null = null;
-  /** Kits in force this round. Only the round rollover writes these. */
-  private activeLoadouts = new Map<PlayerId, LoadoutChoice>();
-  /** Kits chosen since the round started; promoted at the next rollover. */
-  private pendingLoadouts = new Map<PlayerId, LoadoutChoice>();
+  /** Kits: a change waits for the next round's rollover. */
+  private loadouts = new PlayerLoadouts("round");
 
   // ========================================================================
   // Configuration
@@ -246,6 +245,7 @@ export class SearchAndDestroy extends BaseGametype {
       roundEndDuration: ROUND_END_SECONDS,
       teamSpawnProtection: TEAM_SPAWN_PROTECTION_SECONDS,
       roundBased: true,
+      loadouts: "round",
       roundsPerHalf: ROUNDS_PER_HALF,
       leadRequired: LEAD_REQUIRED,
     };
@@ -254,15 +254,13 @@ export class SearchAndDestroy extends BaseGametype {
   /**
    * The player's chosen kit: blade, one primary, one secondary.
    *
-   * Warsow Bomb is a pure loadout mode — it zeroes every item mask. We keep the
-   * map items, so this is the same idea against a different backdrop: the kit
-   * decides what you can do from the spawn, and the map decides what you can do
-   * if you take ground. An empty rocket launcher is a reason to go somewhere
-   * dangerous.
+   * Warsow Bomb is a pure loadout mode — it zeroes every item mask. Ours
+   * takes only the weapons off the map: the kit decides what you can fight
+   * with, and the map's ammo, armor and health decide how long. An empty rocket
+   * launcher is a reason to go somewhere dangerous.
    */
   getSpawnLoadout(playerId?: PlayerId): WeaponLoadout {
-    const choice = (playerId !== undefined ? this.activeLoadouts.get(playerId) : undefined) ?? DEFAULT_LOADOUT;
-    return buildLoadout(choice);
+    return this.loadouts.spawnKit(playerId);
   }
 
   /**
@@ -279,19 +277,18 @@ export class SearchAndDestroy extends BaseGametype {
    * them sit out a round to correct it.
    */
   setPlayerLoadout(playerId: PlayerId, choice: LoadoutChoice): boolean {
-    if (!this.activeLoadouts.has(playerId)) this.activeLoadouts.set(playerId, choice);
-    this.pendingLoadouts.set(playerId, choice);
+    this.loadouts.choose(playerId, choice);
     return true;
   }
 
   /** True once this player has chosen. Gates spawning. */
   hasChosenLoadout(playerId: PlayerId): boolean {
-    return this.activeLoadouts.has(playerId);
+    return this.loadouts.has(playerId);
   }
 
   /** The kit that will be in force next round — for the HUD's confirmation. */
   getPendingLoadout(playerId: PlayerId): LoadoutChoice {
-    return this.pendingLoadouts.get(playerId) ?? this.activeLoadouts.get(playerId) ?? DEFAULT_LOADOUT;
+    return this.loadouts.next(playerId);
   }
 
   /**
@@ -320,7 +317,8 @@ export class SearchAndDestroy extends BaseGametype {
       // wait the thirty seconds out) does not exist here, so 4x damage against
       // a team that cannot replace its losses ends the round on a timer nobody
       // contested. Remove `item_quad` from this list to try it.
-      excludeClassnames: ["item_quad"],
+      // No map weapons either: the kit is the arsenal (Loadout.ts).
+      excludeClassnames: ["item_quad", ...WEAPON_PICKUP_CLASSNAMES],
       weaponRespawnTime: 20,
       ammoRespawnTime: 15,
       armorRespawnTime: 20,
@@ -413,10 +411,7 @@ export class SearchAndDestroy extends BaseGametype {
     // A chosen kit takes effect here and nowhere else. Players respawn moments
     // later in this same freeze, so promoting any later would arm them a round
     // behind what they picked.
-    for (const [playerId, choice] of this.pendingLoadouts) {
-      this.activeLoadouts.set(playerId, choice);
-    }
-    this.pendingLoadouts.clear();
+    this.loadouts.startRound();
   }
 
   /**
@@ -1070,8 +1065,7 @@ export class SearchAndDestroy extends BaseGametype {
   }
 
   onPlayerLeave(playerId: PlayerId): void {
-    this.activeLoadouts.delete(playerId);
-    this.pendingLoadouts.delete(playerId);
+    this.loadouts.forget(playerId);
   }
 
   onDeath(_victim: Entity, _killer: Entity | null, _state: WorldState): void {

@@ -33,6 +33,7 @@ import { getHitscanEffects } from "../../engine/weapon/HitscanEffects";
 import { getProjectileManager } from "../../engine/weapon/ProjectileManager";
 import { getWeaponViewManager } from "../../engine/weapon/WeaponViewManager";
 import { WEAPONS } from "../../shared/entities/definitions/weapons/WeaponsTable";
+import { describeLoadout, type LoadoutChoice, parseLoadout } from "../../shared/server/gametype/Loadout";
 import { DEFAULT_PHYSICS_TICK_RATE } from "../../shared/server/simulation/physics/constants";
 import { clientKeyDisplayId, ensureClientKey } from "./ClientEntityKey";
 import { V2NetworkClient } from "./client";
@@ -52,6 +53,7 @@ import { FrameEffects } from "./client/FrameEffects";
 // Game event handling (extracted from this file)
 import { type GameEventContext, handleServerStateUpdate } from "./client/GameEvents";
 import { HUDState } from "./client/HUDState";
+import type { MatchMenuModeKey } from "./client/hud/widgets/PauseMenu";
 import { LocalLiquid } from "./client/LocalLiquid";
 import { clearLocalPowerups } from "./client/LocalPowerupState";
 import { MatchInputBindings } from "./client/MatchInputBindings";
@@ -856,11 +858,16 @@ export class Game {
       // Released so the player can actually click; completeJoinGame takes it
       // back when the round starts.
       document.exitPointerLock?.();
-      this._loadoutPicker.open((choice) => {
-        this._loadoutChosen = true;
-        this.sendLoadout(choice.primary, choice.secondary);
-        void this.joinGame();
-      });
+      this._loadoutPicker.open(
+        (choice) => {
+          this._loadoutChosen = true;
+          this.rememberLoadout(choice);
+          this.sendLoadout(choice.primary, choice.secondary);
+          void this.joinGame();
+        },
+        this.rememberedLoadout(),
+        { timing: match.loadoutMode ?? undefined },
+      );
       return;
     }
 
@@ -1009,8 +1016,82 @@ export class Game {
     networkHost.sendChat(text);
   }
 
+  /** True while the kit picker is up: the match menu stays away from it. */
+  isLoadoutPickerOpen(): boolean {
+    return this._loadoutPicker?.isOpen ?? false;
+  }
+
   /**
-   * Choose the spawn kit for modes that have one (S&D).
+   * The keys the mode adds to the match menu: Loadout, in a mode with kits,
+   * hinted with the kit you chose.
+   */
+  matchMenuModeKeys(): MatchMenuModeKey[] {
+    const match = MatchStateManager.getInstance();
+    if (!this.isNetworkMode || !match.loadoutMode) return [];
+    const kit = this.rememberedLoadout();
+    return [
+      {
+        id: "loadout",
+        label: "Loadout",
+        hint: kit ? describeLoadout(kit) : "Choose your kit",
+        onClick: () => void this.openLoadoutFromMenu(),
+      },
+    ];
+  }
+
+  /**
+   * The kit picker from the match menu's Loadout key. Confirming sends the kit
+   * (it applies at the next round or spawn, as the mode says) and puts a player
+   * back in the game; Back or Esc returns to the menu with the kit unchanged.
+   */
+  private async openLoadoutFromMenu(): Promise<void> {
+    const match = MatchStateManager.getInstance();
+    const { FPSLoadoutPicker } = await import("./client/hud/widgets/LoadoutPicker");
+    this._loadoutPicker ??= new FPSLoadoutPicker(match.gametypeName);
+    if (this._loadoutPicker.isOpen) return;
+    this._loadoutPicker.open(
+      (choice) => {
+        this.rememberLoadout(choice);
+        this.sendLoadout(choice.primary, choice.secondary);
+        if (this.playerState === "playing") document.querySelector("canvas")?.requestPointerLock();
+        else FPSHud.getInstance().showMatchMenu();
+      },
+      this.rememberedLoadout(),
+      {
+        timing: match.loadoutMode ?? undefined,
+        changing: this._loadoutChosen,
+        onCancel: () => FPSHud.getInstance().showMatchMenu(),
+      },
+    );
+  }
+
+  /** Where this browser keeps the last kit chosen in a mode. */
+  private loadoutStorageKey(): string {
+    return `shag.loadout.${MatchStateManager.getInstance().gametypeName.trim().toLowerCase()}`;
+  }
+
+  /** The last kit chosen in this mode on this browser, if any: pre-selected next time. */
+  private rememberedLoadout(): LoadoutChoice | undefined {
+    try {
+      const saved = JSON.parse(
+        localStorage.getItem(this.loadoutStorageKey()) ?? "null",
+      ) as Partial<LoadoutChoice> | null;
+      return (saved && parseLoadout(saved.primary, saved.secondary)) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private rememberLoadout(choice: LoadoutChoice): void {
+    try {
+      localStorage.setItem(this.loadoutStorageKey(), JSON.stringify(choice));
+    } catch {
+      /* storage unavailable: the kit is still sent, only not remembered */
+    }
+  }
+
+  /**
+   * Choose the spawn kit for modes that have one (S&D, Amphi, Deathmatch).
    *
    * Returns false when there is no server to tell. The choice is the server's
    * to apply — it lands at the start of the next round, never this one.

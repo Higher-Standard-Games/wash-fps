@@ -30,6 +30,7 @@ const SND_CONFIG = {
   roundsPerHalf: 9,
   leadRequired: 2,
   roundEndDuration: 5,
+  loadouts: "round" as const,
 };
 
 /** A snapshot carrying nothing but the match state. */
@@ -72,8 +73,8 @@ describe("round context reaches the client", () => {
     expect(client.bomb).toBeNull();
     expect(client.requiresLoadoutSelection).toBe(true);
 
-    const dm = new MatchState("Deathmatch", { ...SND_CONFIG, roundBased: false }, false);
-    expect(roundTrip(dm.toSnapshot()).requiresLoadoutSelection).toBe(false);
+    const duel = new MatchState("Duel", { ...SND_CONFIG, roundBased: false, loadouts: undefined }, false);
+    expect(roundTrip(duel.toSnapshot()).requiresLoadoutSelection).toBe(false);
   });
 
   it("carries the round number, which the scoreboard is the only place to see", () => {
