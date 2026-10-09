@@ -6,7 +6,7 @@ import { damageNumberColor } from "../DamageNumbers";
 import { isHeadHit } from "../HitLocationName";
 
 /**
- * A head hit has to look different from a body hit, or the 10% it earns goes unnoticed:
+ * A head hit has to look different from a body hit, or the 25% it earns goes unnoticed:
  * its floating number is orange, and the crosshair holds its flash half as long again.
  */
 describe("floating number colour", () => {

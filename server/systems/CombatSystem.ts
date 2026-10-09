@@ -74,10 +74,11 @@ export enum HitLocation {
 }
 
 /**
- * A head hit does 10% more damage. Deliberately small: it rewards good aim without
- * letting one lucky shot decide a fight, and it applies the same to every weapon.
+ * A head hit does 25% more damage, the same for every weapon. Enough to be felt
+ * on a fast weapon (a machinegun round goes from 10 to 13 after rounding), not
+ * so much that one lucky shot decides a fight.
  */
-export const HEAD_DAMAGE_MULTIPLIER = 1.1;
+export const HEAD_DAMAGE_MULTIPLIER = 1.25;
 export const LEGS_DAMAGE_MULTIPLIER = 0.75;
 
 // Damage multipliers by location

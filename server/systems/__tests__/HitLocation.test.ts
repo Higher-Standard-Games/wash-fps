@@ -15,7 +15,7 @@ import {
 import { firesPellets, locateHit, WeaponSystem } from "../WeaponSystem";
 
 /**
- * Where a hit lands decides how much it does: a head hit does 10% more, a leg hit 25% less.
+ * Where a hit lands decides how much it does: a head hit does 25% more, a leg hit 25% less.
  *
  * The hit test is a sphere of radius 32 around the target's origin, and a hit is classified
  * by the height of the ray's closest point to that origin. The head threshold used to be 32,
@@ -44,8 +44,8 @@ describe("classifying a hit by height", () => {
     expect(LEGS_MAX_OFFSET).toBeGreaterThan(-32);
   });
 
-  it("makes a head hit worth 10% more", () => {
-    expect(HEAD_DAMAGE_MULTIPLIER).toBeCloseTo(1.1, 10);
+  it("makes a head hit worth 25% more", () => {
+    expect(HEAD_DAMAGE_MULTIPLIER).toBeCloseTo(1.25, 10);
   });
 });
 

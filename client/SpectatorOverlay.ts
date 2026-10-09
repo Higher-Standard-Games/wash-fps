@@ -8,10 +8,10 @@
  * 3. Freefly spectator minimal UI
  */
 
-import { EngineVersion } from "../../../engine/core/EngineVersion";
 import { EventBus } from "../../../engine/core/EventBus";
 import { LOADING_EVENTS } from "../../../engine/core/LoadingEvents";
 import { MapLoader } from "../../../engine/loader/map/MapLoader";
+import { buildTwinLight, buildTwinRail, TWIN_ROOT_CLASS, type TwinRail } from "../../../engine/ui/components/LobbyTwin";
 import { createRaisedKey, injectRaisedKeyStyles } from "../../../engine/ui/components/RaisedKey";
 import { mapTitle } from "../../../engine/ui/MapTitles";
 import { titleLines } from "../../../engine/ui/TransferLoadingView";
@@ -38,7 +38,7 @@ export class SpectatorOverlay {
   private hintEl: HTMLElement;
   private modeEl: HTMLElement;
   private titleEl: HTMLElement;
-  private mapEl: HTMLElement;
+  private rail: TwinRail;
   private shotEl: HTMLElement;
   private unsubscribeHidden: () => void;
 
@@ -60,56 +60,23 @@ export class SpectatorOverlay {
     // ── Join screen: the handoff's rail and stage, over the match ──
     injectRaisedKeyStyles();
     UIStyles.injectCSS("fps-match-menu", matchMenuCss);
-    this.joinOverlay = el("div", "connecting-overlay connecting-overlay--join");
+    this.joinOverlay = el("div", `connecting-overlay connecting-overlay--join ${TWIN_ROOT_CLASS}`);
     this.joinOverlay.id = "spectator-join-overlay";
     this.joinOverlay.setAttribute("role", "dialog");
     this.joinOverlay.setAttribute("aria-label", "Join the match");
     this.joinOverlay.style.display = "none";
 
-    const ambient = el("div", "connecting-overlay__ambient-word", "LIVE");
-    ambient.setAttribute("aria-hidden", "true");
-
-    const rail = el("aside", "connecting-overlay__rail");
-    const railHeader = el("div", "connecting-overlay__rail-header");
-    const railTitle = el("div", "connecting-overlay__rail-title");
-    railTitle.append(el("span", "", "YOUR"), el("span", "", "CALL"));
-    railHeader.append(
-      el("div", "connecting-overlay__brand", "WASHIKI // WASHOI"),
-      el("div", "connecting-overlay__rail-kicker", "LIVE MATCH"),
-      railTitle,
-    );
-    // The handoff's steps, all behind you now
-    const steps = el("ol", "connecting-overlay__steps");
-    ["SERVER", "HANDSHAKE", "MAP LOAD"].forEach((label, index) => {
-      const mark = el("span", "connecting-overlay__step-mark");
-      mark.setAttribute("aria-hidden", "true");
-      const step = el("li", "connecting-overlay__step is-done");
-      step.append(
-        el("span", "connecting-overlay__step-number", `0${index + 1}`),
-        el("span", "connecting-overlay__step-label", label),
-        mark,
-      );
-      steps.appendChild(step);
+    // The lobby's rail: the handoff's steps, all behind you now
+    this.rail = buildTwinRail({
+      label: "Join the match",
+      steps: ["Server", "Handshake", "Map load"],
+      context: "Live match",
     });
-    const endpoint = el("div", "connecting-overlay__endpoint");
-    this.mapEl = el("span", "connecting-overlay__server");
-    endpoint.append(el("span", "connecting-overlay__endpoint-label", "MAP"), this.mapEl);
-    const version = EngineVersion.getInstance();
-    rail.append(
-      railHeader,
-      steps,
-      endpoint,
-      el("div", "connecting-overlay__rail-footer", `${version.getEngineName()} // ${version.getVersionString()}`),
-    );
+    this.rail.setSteps(["done", "done", "done"]);
 
-    const stage = el("main", "connecting-overlay__stage");
+    const stage = el("main", "twin__stage connecting-overlay__stage");
     this.shotEl = el("div", "connecting-overlay__shot");
     this.shotEl.setAttribute("aria-hidden", "true");
-    const stageHeader = el("div", "connecting-overlay__stage-header");
-    const deco = el("div", "connecting-overlay__deco");
-    deco.setAttribute("aria-hidden", "true");
-    for (let index = 0; index < 5; index++) deco.appendChild(document.createElement("span"));
-    stageHeader.append(el("div", "connecting-overlay__sequence", "LIVE MATCH // IN THE STANDS"), deco);
 
     const hero = el("div", "connecting-overlay__hero");
     this.modeEl = el("div", "connecting-overlay__kicker");
@@ -126,8 +93,8 @@ export class SpectatorOverlay {
     this.hintEl = el("div", "spectator-join__hint");
     choices.append(this.joinKeys, this.hintEl);
 
-    stage.append(this.shotEl, stageHeader, hero, choices);
-    this.joinOverlay.append(ambient, rail, stage);
+    stage.append(this.shotEl, hero, choices);
+    this.joinOverlay.append(buildTwinLight(), this.rail.rail, stage);
     this.container.appendChild(this.joinOverlay);
 
     // Shown on connect, before the map has loaded: its name arrives with the load
@@ -294,7 +261,7 @@ export class SpectatorOverlay {
     const lines = titleLines(name.toUpperCase());
     this.titleEl.replaceChildren(...lines.map((line) => el("span", "", line)));
     this.titleEl.style.setProperty("--co-title-chars", String(Math.max(6, ...lines.map((line) => line.length))));
-    this.mapEl.textContent = map || "—";
+    this.rail.setFact("map", "Map", map || "—");
     // A map with no levelshot installed keeps the stage's own gradient
     if (map) this.shotEl.style.setProperty("--co-shot", `url("/data/levelshots/${encodeURIComponent(map)}.jpg")`);
     else this.shotEl.style.removeProperty("--co-shot");

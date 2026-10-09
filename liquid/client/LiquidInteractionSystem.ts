@@ -383,7 +383,8 @@ export class LiquidInteractionSystem {
     strength: number,
     radius = 48 + 64 * Math.min(1, strength),
   ): void {
-    if (kind === "water") {
+    // Water and slime shade their ripples on the surface itself; lava keeps the disc.
+    if (kind !== "lava") {
       const waves = waterDisturbancesFor(this.scene);
       // Replacement surfaces shade the ripple themselves. Keep the old disc
       // only for legacy/unsupported surfaces, not as an overlay hiding waves.

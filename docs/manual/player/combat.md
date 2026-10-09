@@ -8,11 +8,11 @@ Hitscan weapons (Machinegun, Riotgun, Voltaic, Electrobolt, Instagun and the Bla
 
 | Location | Where | Damage |
 |----------|-------|-------:|
-| **Head** | The upper part of the body | **+10%** (×1.1) |
+| **Head** | The upper part of the body | **+25%** (×1.25) |
 | **Body** | The middle | ×1 |
 | **Legs** | The lower part of the body | −25% (×0.75) |
 
-The head bonus is deliberately small. It rewards good aim and applies the same to every weapon, but it won't decide a fight on its own. The heights are measured from the player's waist: a hit more than 20 units above it is a head hit, and one more than 20 below it is a leg hit.
+The head bonus applies the same to every weapon. It is enough to be felt on a fast weapon (a Machinegun round does 13 instead of 10) but won't decide a fight on its own. The heights are measured from the player's waist: a hit more than 20 units above it is a head hit, and one more than 20 below it is a leg hit.
 
 A **head hit shows as an orange damage number** (instead of white, or yellow for a big hit) and **holds the crosshair's hit flash about half as long again**, so you can tell you got one.
 
