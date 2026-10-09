@@ -243,10 +243,9 @@ export class FPSPickup extends Pickup {
             } else if (attachment) {
               barrelRoot.rotationQuaternion = null;
               barrelRoot.rotation.copyFrom(attachment.rotation);
-            } else if (tagOff) {
+            } else if (tagOff && barrelTag) {
               barrelRoot.rotationQuaternion = null;
-              // biome-ignore lint/style/noNonNullAssertion: presence checked one line up
-              barrelRoot.rotation.set(barrelTag!.rotation.x, barrelTag!.rotation.y, barrelTag!.rotation.z);
+              barrelRoot.rotation.set(barrelTag.rotation.x, barrelTag.rotation.y, barrelTag.rotation.z);
             } else {
               barrelRoot.rotationQuaternion = null;
               barrelRoot.rotation.setAll(0);

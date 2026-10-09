@@ -137,7 +137,7 @@ export class InventoryManager {
       // Set by weaponId directly (for HUD display compatibility)
       this.setAmmo(weaponId, ammo.clip + ammo.reserve);
 
-      // Also set by ammoType (for reload/consumeLoadedAmmo compatibility)
+      // Also set by ammoType: getLoadedAmmo reads a pool weapon's count from here
       if (def?.ammoType) {
         this.setAmmo(def.ammoType, def.reloadModel === "clip" ? ammo.reserve : ammo.clip);
       }
@@ -161,6 +161,7 @@ export class InventoryManager {
     // Compare against PREVIOUS weapon to detect changes
     return previousWeaponId !== serverCurrentWeapon;
   }
+
   /**
    * Drop a weapon — removes it from inventory and returns its def
    * for re-spawning as a world pickup.
@@ -246,63 +247,6 @@ export class InventoryManager {
   }
 
   /**
-   * Consume ammo from the weapon's clip
-   */
-  public consumeLoadedAmmo(weaponId: string, amount: number = 1): boolean {
-    const def = this.weapons.get(weaponId);
-    if (!def) return false;
-
-    if (def.reloadModel === "none") return true;
-
-    // Pool weapons consume from the single ammo count directly.
-    if (def.reloadModel !== "clip") {
-      if (def.ammoType) {
-        return this.consumeAmmo(def.ammoType, amount);
-      }
-      return false;
-    }
-
-    this.ensureWeaponState(weaponId, def.clipSize);
-    const state = this.weaponStates.get(weaponId)!;
-
-    if (state.loadedAmmo >= amount) {
-      state.loadedAmmo -= amount;
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * Reload a weapon from reserve
-   * @returns true if reload was successful (ammo moved)
-   */
-  public reloadWeapon(weaponId: string): boolean {
-    const def = this.weapons.get(weaponId);
-    if (!def || def.reloadModel !== "clip" || !def.clipSize || !def.ammoType) return false;
-
-    this.ensureWeaponState(weaponId, def.clipSize);
-    const state = this.weaponStates.get(weaponId)!;
-
-    // Already full?
-    if (state.loadedAmmo >= def.clipSize) return false;
-
-    const needed = def.clipSize - state.loadedAmmo;
-    const available = this.getAmmoCount(def.ammoType);
-
-    if (available <= 0) return false;
-
-    const toLoad = Math.min(needed, available);
-
-    // Take from reserve
-    this.consumeAmmo(def.ammoType, toLoad);
-
-    // Add to clip
-    state.loadedAmmo += toLoad;
-
-    return true;
-  }
-
-  /**
    * Check if weapon needs reload
    */
   public needsReload(weaponId: string): boolean {
@@ -318,17 +262,6 @@ export class InventoryManager {
 
   public hasWeapon(weaponId: string): boolean {
     return this.weapons.has(weaponId);
-  }
-
-  /**
-   * Get weapon definition (from inventory or entity registry)
-   */
-  public getWeaponDef(weaponId: string): WeaponDef | undefined {
-    const owned = this.weapons.get(weaponId);
-    if (owned) return owned;
-    // Fallback: look up from entity registry
-    const def = EntityRegistry.getInstance().get<WeaponDef>(weaponId);
-    return def?.type === EntityType.WEAPON ? def : undefined;
   }
 
   public getCurrentWeapon(): WeaponDef | undefined {
@@ -354,13 +287,6 @@ export class InventoryManager {
     return this.slots.length;
   }
 
-  /**
-   * Get the slot index (0-based) of a weapon
-   */
-  public getWeaponSlotIndex(weaponId: string): number {
-    return this.slots.indexOf(weaponId);
-  }
-
   public getAmmoCount(ammoType: string): number {
     return this.ammo[ammoType] || 0;
   }
@@ -372,14 +298,5 @@ export class InventoryManager {
     this.ammo[ammoType] = amount;
   }
 
-  public hasAmmo(ammoType: string, amount: number): boolean {
-    return (this.ammo[ammoType] || 0) >= amount;
-  }
-
   // Directly consumes reserve ammo
-  public consumeAmmo(ammoType: string, amount: number): boolean {
-    if (!this.hasAmmo(ammoType, amount)) return false;
-    this.ammo[ammoType] -= amount;
-    return true;
-  }
 }

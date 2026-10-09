@@ -192,7 +192,8 @@ export class SnapshotBroadcaster {
     lasting: Map<string, string>,
     tick: number,
   ): GameState["events"] {
-    const sent = (client.sentState ??= new Map());
+    client.sentState ??= new Map();
+    const sent = client.sentState;
     for (const key of sent.keys()) if (!lasting.has(key)) sent.delete(key);
     const refresh = this.isRefresh(client);
     const needs = (key: string): boolean => {

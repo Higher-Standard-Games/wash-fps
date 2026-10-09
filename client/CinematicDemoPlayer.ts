@@ -54,7 +54,6 @@ export class CinematicDemoPlayer {
   private currentSegmentIndex = 0;
   private state: CinematicPlayerState = "idle";
   private reelElapsedMs = 0;
-  private segmentElapsedMs = 0;
 
   // Callbacks
   private onSegmentChangeCb: ((segment: CinematicSegment, index: number) => void) | null = null;
@@ -119,7 +118,6 @@ export class CinematicDemoPlayer {
   update(deltaMs: number): void {
     if (this.state !== "playing" || !this.reel) return;
 
-    this.segmentElapsedMs += deltaMs;
     this.reelElapsedMs += deltaMs;
 
     const segment = this.reel.segments[this.currentSegmentIndex];
@@ -206,7 +204,6 @@ export class CinematicDemoPlayer {
     this.cameraPaths = [];
     this.currentSegmentIndex = 0;
     this.reelElapsedMs = 0;
-    this.segmentElapsedMs = 0;
   }
 
   dispose(): void {
@@ -256,7 +253,6 @@ export class CinematicDemoPlayer {
     this.demoViewer.seekToTick(segment.startTick);
     this.demoViewer.setSpeed(segment.playbackSpeed);
     this.demoViewer.play();
-    this.segmentElapsedMs = 0;
 
     const path = this.cameraPaths[segment.segmentIndex];
 
