@@ -101,17 +101,24 @@ once the map is in: join the match, or spectate first.
 
 If you drop mid-match, your seat is held for 20 seconds and the server hands your client a resume token, so coming back inside that window puts you back in the same seat rather than a new one. Miss it and the seat is released and your name leaves the scoreboard.
 
-## TODO
+## Reading the NetGraph
 
-- Reading NetGraph in detail (ping, snapshot rate, packet loss, interp delay, command rate)
-- Recovering from a kicked / disconnected state
-- WebTransport vs WebSocket transport selection
+`cl_netgraph 1` shows ping, snapshot rate, packet loss, interpolation delay and command rate as text; `cl_netgraph 2` adds a rolling graph of the same numbers. See [HUD → NetGraph](../player/hud.md#netgraph-top-right-optional).
+
+- **Ping** is measured from the server's acknowledgement of your commands, and is the number the scoreboard shows.
+- **Hit registration is lag-compensated.** When you shoot, the server rewinds other players to the tick your client was showing you, so what you saw under your crosshair is what is tested for weapons that use it.
+
+## Ticketed and ticketless connections
 
 A match started through the lobby is ticketed, as above. A `connect` typed at
 the console carries no ticket: the server lets it watch, but a playing seat
 belongs to a ticket, so it cannot take one. Watching from the lobby's rail is
 different: there, Join asks the lobby for a seat.
 
-For now, the engine's Networking Guide (`docs/manual/guides/networking.md` in
-the engine repo) covers the underlying mechanics, and its Lobby Server guide
-(`docs/manual/guides/lobby-server.md`) covers accounts, rooms and results.
+## Further reading
+
+The engine's Networking Guide (`docs/manual/guides/networking.md` in the engine
+repo) covers the underlying mechanics, and its Lobby Server guide
+(`docs/manual/guides/lobby-server.md`) covers accounts, rooms and results. This
+manual's [Lobby, Rooms and Accounts](./lobby.md) page covers them from the
+player's side.

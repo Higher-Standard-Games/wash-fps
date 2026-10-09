@@ -35,8 +35,14 @@ export class UnderwaterView {
 
   /** Scene fog as we found it, so a map without water is left exactly as-is. */
   private saved: { mode: number; color: Color3; density: number } | null = null;
-  /** Camera FOV as authored, so the warp oscillates around it rather than drifting. */
+  /**
+   * Camera FOV as authored, so the warp oscillates around it rather than
+   * drifting, and the FOV we last wrote. A camera whose FOV is no longer what we
+   * wrote was set by its controller since (zoom, the FOV slider), and that is
+   * the new base. Captured once, it froze the FOV at the dive: no zoom (E7).
+   */
   private baseFov = new WeakMap<Camera, number>();
+  private writtenFov = new WeakMap<Camera, number>();
   /** Cameras currently carrying a warped FOV, so dispose() can undo all of them. */
   private readonly warped = new Set<Camera>();
 
@@ -128,7 +134,7 @@ export class UnderwaterView {
   private applyWarp(camera: Camera): void {
     const comfort = Cvar.getNumber("r_underwater_distortion");
     let base = this.baseFov.get(camera);
-    if (base === undefined) {
+    if (base === undefined || camera.fov !== this.writtenFov.get(camera)) {
       base = camera.fov;
       this.baseFov.set(camera, base);
     }
@@ -142,13 +148,16 @@ export class UnderwaterView {
 
     const warp = fovWarpDegrees(this.elapsed, this.submersion, comfort);
     camera.fov = base + warp * RAD_PER_DEG;
+    this.writtenFov.set(camera, camera.fov);
   }
 
   private restoreFov(camera: Camera): void {
     const base = this.baseFov.get(camera);
     if (base !== undefined) {
-      camera.fov = base;
+      // Only undo our own write; a FOV the controller set since is already right.
+      if (camera.fov === this.writtenFov.get(camera)) camera.fov = base;
       this.baseFov.delete(camera);
+      this.writtenFov.delete(camera);
     }
     this.warped.delete(camera);
   }

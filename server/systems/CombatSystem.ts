@@ -63,6 +63,8 @@ export enum DamageType {
   /** Squashed by a player exiting a teleporter on top of you. */
   Telefrag = "telefrag",
   World = "world",
+  /** The S&D bomb going off. Credited to no one, and always a gib on the client. */
+  Bomb = "bomb",
 }
 
 export enum HitLocation {
@@ -71,12 +73,57 @@ export enum HitLocation {
   Legs = "legs",
 }
 
+/**
+ * A head hit does 10% more damage. Deliberately small: it rewards good aim without
+ * letting one lucky shot decide a fight, and it applies the same to every weapon.
+ */
+export const HEAD_DAMAGE_MULTIPLIER = 1.1;
+export const LEGS_DAMAGE_MULTIPLIER = 0.75;
+
 // Damage multipliers by location
 const LOCATION_MULTIPLIER: Record<HitLocation, number> = {
-  [HitLocation.Head]: 2.0,
+  [HitLocation.Head]: HEAD_DAMAGE_MULTIPLIER,
   [HitLocation.Body]: 1.0,
-  [HitLocation.Legs]: 0.75,
+  [HitLocation.Legs]: LEGS_DAMAGE_MULTIPLIER,
 };
+
+/**
+ * Where a hit counts as the head or the legs: the height of the hit above or below the
+ * target's origin, in map units. The origin is at the waist.
+ *
+ * The hit test is a sphere of radius 32 around that origin, and the height is taken at the
+ * ray's closest point to its centre, so it is always under 32 in size. The head threshold
+ * therefore has to be inside that range: the previous value, 32, could never be reached,
+ * so head hits never registered.
+ */
+export const HEAD_MIN_OFFSET = 20;
+export const LEGS_MAX_OFFSET = -20;
+
+/** Classify a hit by its height relative to the target's origin. */
+export function classifyHitLocation(yOffset: number): HitLocation {
+  if (yOffset > HEAD_MIN_OFFSET) return HitLocation.Head;
+  if (yOffset < LEGS_MAX_OFFSET) return HitLocation.Legs;
+  return HitLocation.Body;
+}
+
+/** Which of two hit locations to report when damage from one attacker is merged into one number: head over legs over body. */
+function moreSpecificLocation(a: HitLocation, b: HitLocation): HitLocation {
+  const rank = { [HitLocation.Body]: 0, [HitLocation.Legs]: 1, [HitLocation.Head]: 2 };
+  return rank[b] > rank[a] ? b : a;
+}
+
+/** One damage event as it leaves the combat system for the network (and the damage numbers). */
+export interface ProcessedDamage {
+  victimId: EntityId;
+  attackerId?: EntityId;
+  damage: number;
+  damageType: DamageType;
+  /** Where the (strongest of the merged) hit landed. Body for anything that has no location. */
+  hitLocation: HitLocation;
+  x: number;
+  y: number;
+  z: number;
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // KILL EVENT
@@ -114,15 +161,7 @@ export class CombatSystem extends Subsystem {
   private damageForStats: { victimId: EntityId; attackerId?: EntityId; damage: number }[] = [];
   private kills: KillEvent[] = [];
   /** Processed damage events (with final damage) for network forwarding */
-  private processedDamage: {
-    victimId: EntityId;
-    attackerId?: EntityId;
-    damage: number;
-    damageType: DamageType;
-    x: number;
-    y: number;
-    z: number;
-  }[] = [];
+  private processedDamage: ProcessedDamage[] = [];
   /** Movement subsystem ref for grounded state reset after KB */
   private movementSubsystem: FPSMovementSubsystem | null = null;
 
@@ -184,15 +223,7 @@ export class CombatSystem extends Subsystem {
    * Get processed damage events for network forwarding.
    * Contains final damage values (after location multipliers).
    */
-  getProcessedDamage(): readonly {
-    victimId: EntityId;
-    attackerId?: EntityId;
-    damage: number;
-    damageType: DamageType;
-    x: number;
-    y: number;
-    z: number;
-  }[] {
+  getProcessedDamage(): readonly ProcessedDamage[] {
     return this.processedDamage;
   }
 
@@ -248,24 +279,15 @@ export class CombatSystem extends Subsystem {
   private aggregateProcessedDamage(): void {
     if (this.processedDamage.length <= 1) return;
 
-    const merged = new Map<
-      string,
-      {
-        victimId: EntityId;
-        attackerId?: EntityId;
-        damage: number;
-        damageType: DamageType;
-        x: number;
-        y: number;
-        z: number;
-      }
-    >();
+    const merged = new Map<string, ProcessedDamage>();
 
     for (const entry of this.processedDamage) {
       const key = `${entry.victimId}_${entry.attackerId ?? "env"}_${entry.damageType}`;
       const existing = merged.get(key);
       if (existing) {
         existing.damage += entry.damage;
+        // A shotgun's pellets arrive as one number: if any of them hit the head, it was a head hit
+        existing.hitLocation = moreSpecificLocation(existing.hitLocation, entry.hitLocation);
         // Keep latest position
         existing.x = entry.x;
         existing.y = entry.y;
@@ -302,6 +324,7 @@ export class CombatSystem extends Subsystem {
         attackerId: event.attackerId,
         damage: actualDamage,
         damageType: event.damageType,
+        hitLocation: HitLocation.Body,
         x: victim.transform?.position.x ?? 0,
         y: victim.transform?.position.y ?? 0,
         z: victim.transform?.position.z ?? 0,
@@ -388,6 +411,7 @@ export class CombatSystem extends Subsystem {
       attackerId: event.attackerId,
       damage: finalDamage,
       damageType: event.damageType,
+      hitLocation: event.hitLocation,
       x: victim.transform?.position.x ?? 0,
       y: victim.transform?.position.y ?? 0,
       z: victim.transform?.position.z ?? 0,

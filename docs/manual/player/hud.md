@@ -35,7 +35,7 @@ Vertical list of weapon slots, 1 through 9. Each slot shows:
 - Ammo count below the tag (or `∞` for the Blade).
 - Greyed out if you don't own the weapon.
 
-Press the slot number (1–9) to switch, or scroll wheel to cycle through owned weapons, or Q to quick-switch to your previous weapon.
+Press the slot number (1–9) to switch, or scroll wheel to cycle through owned weapons. **Q** is a second key for slot 1, so it always pulls out the Blade.
 
 ## Combat State (bottom-left)
 
@@ -79,7 +79,7 @@ Per-weapon style. Configurable via cvars:
 | `cg_crosshairSpread` | Spread response (widens with movement / narrows under ADS) |
 | `cg_crosshairDmgColor` | Color flash on confirmed hit (default `FF0000`) |
 
-The crosshair briefly flashes to `cg_crosshairDmgColor` for ~200 ms when your shot deals damage — this is a server-confirmed hit indicator, not a client-side guess.
+The crosshair briefly flashes to `cg_crosshairDmgColor` for ~200 ms when your shot deals damage (~300 ms for a head hit) — this is a server-confirmed hit indicator, not a client-side guess.
 
 ## Chat (bottom-left)
 
@@ -103,7 +103,7 @@ The middle glyph is the weapon used. Some special icons:
 
 ## Damage Numbers (floating)
 
-When you damage someone, a number floats up from their position briefly. Numbers stack (multiple hits add together visually) and turn yellow at 50 damage or more.
+When you damage someone, a number floats up from their position briefly. Numbers stack (multiple hits add together visually) and turn yellow at 50 damage or more. A **head hit** is always orange, whatever its size; see [Damage and Combat Rules](./combat.md#hit-locations).
 
 The damage value shown is the server-authoritative damage your shot dealt — not your client's estimate.
 
@@ -132,11 +132,32 @@ attention:
 | **Gametype badge** | The mode you are in |
 | **Scoreboard** | Held **Tab**, and automatically at match end |
 | **Frag counter / frag message** | Your score, and **FRAGGED** with the name, above the crosshair, when you take one |
-| **Ready bar** | Warmup — who is ready, and how many are still needed |
+| **Ready bar** | Warmup — who is ready, and how many are still needed. **F4** readies you up |
 | **Phase message** | Warmup, countdown, round start, round result, match end |
 | **Round result** | End-of-round banner in the round-based modes |
 | **Death screen** | On death — who fragged you and how, and the respawn countdown |
 | **Match menu** | Escape, mid-match |
+
+## Awards and Streaks
+
+The server tracks a **kill streak** for every player: kills since you last died, which a death resets to zero. Awards are announced when you reach them:
+
+| Award | When |
+|-------|------|
+| **First blood** | The first kill of the match |
+| **On fire** | 5 kills in a row |
+| **Raging** | 10 in a row |
+| **Unstoppable** | 20 in a row |
+
+Only the highest new award is announced for a kill, and each is given once per streak. **You** get a banner for your own awards. Everyone sees a line in the event feed when anyone earns one, so you know when someone is on a run. Ordinary frags don't make a banner (you get the **FRAGGED** message instead). Awards are recorded in demos, shown in the replay's event list, and the [cinematic reel](../tools/demo-cinematic.md) scores them.
+
+## Air Meter
+
+A breath gauge appears only while your head is underwater and disappears the moment you surface. It runs down over the 12 seconds of air you have and switches to an urgent look when less than 30% is left. See [Movement → Water](./movement.md#water-and-other-liquids).
+
+## Damage Direction Arrows
+
+When you are hit, an arrow around the crosshair points toward where the damage came from and fades away on its own.
 
 ## Powerup Timer
 
@@ -182,7 +203,7 @@ its keys are:
   bigger side puts you on the smaller one.
 - **Settings** — the settings screen below.
 - **Spectate** — give up your spot and watch.
-- **Leave match** — back to the lobby.
+- **Leave match** — back to the lobby. When you started the match as a playtest from the map editor, this key reads **Return to Editor** instead and takes you back to your map.
 
 The first key is inked, as the lobby inks the page you are on: Resume while you
 play, Join while you watch. While the menu is up, **Tab** moves through its keys

@@ -64,6 +64,8 @@ export interface ClientInfo {
   lastRespawnReqMs?: number;
   /** Wall-clock (performance.now) of the last accepted team/spectate switch. */
   lastTeamSwitchMs?: number;
+  /** When the last clock-sync ping was answered (performance.now), for its rate limit. */
+  lastPingReplyMs?: number;
   /** Wall-clock (performance.now) of the last accepted chat message. */
   lastChatMs?: number;
   /** Accepted chat timestamps inside the burst window (sliding). */
@@ -72,6 +74,14 @@ export interface ClientInfo {
   sentSnapshots?: Map<number, GameState>;
   /** Successful sends since the last full snapshot (bounded recovery interval). */
   snapshotsSinceFull?: number;
+  /**
+   * Lasting state this client was sent (the roster, other players' weapon_state), by key: the
+   * value as sent and the first tick it went out with that value. The broadcaster leaves a value
+   * out once the client has acked a tick at or after that one (SnapshotBroadcaster.leaveOutKnown).
+   */
+  sentState?: Map<string, { value: string; since: number }>;
+  /** Successful sends since lasting state was last sent in full regardless (the safety-net refresh). */
+  snapshotsSinceRefresh?: number;
   /** true = spectating (no entity in simulation), false = playing */
   isSpectator: boolean;
   /** true = AI bot client (from the bot server), false = human. Used to gate

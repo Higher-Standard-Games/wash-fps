@@ -12,6 +12,7 @@ import type { WorldState } from "@engine/server/core/WorldState";
 import type { Entity } from "@engine/server/ecs/Entity";
 import type { PlayerId } from "@engine/server/ecs/types";
 import type { ItemSpawnRules, MatchConfig, SpawnStrategyType, WeaponLoadout } from "@shared/server/gametype";
+import { debugLog } from "../DebugLog";
 import { BaseGametype, type GameResult } from "./BaseGametype";
 
 export class Duel extends BaseGametype {
@@ -78,7 +79,7 @@ export class Duel extends BaseGametype {
 
   onDeath(victim: Entity, killer: Entity | null, _state: WorldState): void {
     if (killer && killer.ownerId && killer.ownerId !== victim.ownerId) {
-      console.log(`[Duel] Kill: player ${killer.ownerId} → player ${victim.ownerId}`);
+      debugLog("kills", () => `[Duel] Kill: player ${killer.ownerId} → player ${victim.ownerId}`);
     }
   }
 

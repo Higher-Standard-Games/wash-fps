@@ -36,6 +36,7 @@ import type {
   WeaponLoadout,
 } from "@shared/server/gametype";
 import { buildLoadout, DEFAULT_LOADOUT } from "@shared/server/gametype";
+import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulation/physics/constants";
 import type { Vec3 } from "@shared/server/simulation/types";
 import { log } from "../../../../engine/core/Log";
 import { PLAYER_ORIGIN_HEIGHT } from "../../../../engine/physics/PlayerPhysicsConstants";
@@ -132,7 +133,7 @@ const PLANTABLE_NORMAL_Y = 0.9;
 const GROUND_TRACE_DISTANCE = PLAYER_ORIGIN_HEIGHT + 8;
 
 /** Simulation rate, for converting bomb timers to the seconds the HUD wants. */
-const TICKS_PER_SECOND = 125;
+const TICKS_PER_SECOND = TICK_RATE;
 
 /**
  * The two CTF spawn sets, by the team id `SpawnPointTable` maps them to.
@@ -157,7 +158,17 @@ const EXPLOSION_MAX_DELAY = 1.5;
 const EXPLOSION_ORIGIN_LIFT = 96;
 const EXPLOSION_FALLBACK_RADIUS = 300;
 /** Snapshots the schedule keeps being sent for, against a dropped packet. */
-const EXPLOSION_REPEAT_TICKS = 125;
+const EXPLOSION_REPEAT_TICKS = TICKS_PER_SECOND;
+/**
+ * Damage at the centre of one blast, falling off to nothing at its radius.
+ *
+ * Chosen to gib: a player at the site is caught by several blasts of a chain,
+ * and anything over a rocket's direct hit at the centre finishes them in one.
+ * Players further out are hurt, and a wall between them and a blast saves them.
+ */
+const BLAST_DAMAGE = 250;
+/** Height above a player's origin the second line-of-sight trace aims at. */
+const BLAST_SIGHT_LIFT = 24;
 
 // ── Scoring ──────────────────────────────────────────────────────────
 //
@@ -200,6 +211,8 @@ export class SearchAndDestroy extends BaseGametype {
   /** The detonation schedule, held for a few snapshots after it fires. */
   private explosion: BombExplosionEvent | null = null;
   private explosionUntilTick = 0;
+  /** Blasts of the detonation still to go off, each at the tick it lands. */
+  private pendingBlasts: { tick: number; at: Vec3Like; radius: number }[] = [];
   /** Site each defender covers this tick. Recomputed by `assignRoles`. */
   private siteByDefender = new Map<number, number>();
   /** The one attacker doing the job that needs exactly one person. */
@@ -394,6 +407,7 @@ export class SearchAndDestroy extends BaseGametype {
   onRoundStart(_state: WorldState, context: GametypeTickContext): void {
     this.attackers = context.attackingTeam;
     this.round = context.round;
+    this.pendingBlasts = [];
     this.bomb.reset(this.bombSpawns.get(BETA_TEAM) ?? { x: 0, y: 0, z: 0 });
 
     // A chosen kit takes effect here and nowhere else. Players respawn moments
@@ -414,7 +428,10 @@ export class SearchAndDestroy extends BaseGametype {
     this.attackers = context.attackingTeam;
     this.tick = context.tick as number;
     this.round = context.round;
-    if (!context.live) return null;
+    if (!context.live) {
+      this.fireBlasts(state, context);
+      return null;
+    }
 
     const players = this.collectPlayers(state, context);
     const events = this.bomb.update(context.tick as number, players, this.sites, context.attackingTeam);
@@ -564,6 +581,62 @@ export class SearchAndDestroy extends BaseGametype {
   }
 
   /**
+   * Line the blasts up with the client's: each lands `delay` seconds after the
+   * detonation, which is when every client plays it.
+   */
+  private scheduleBlasts(explosion: BombExplosionEvent): void {
+    this.pendingBlasts = explosion.points.map((point) => ({
+      tick: this.tick + Math.round(Math.max(0, point.delay) * TICKS_PER_SECOND),
+      at: { x: point.x, y: point.y, z: point.z },
+      radius: point.radius,
+    }));
+  }
+
+  /**
+   * Hurt whoever is caught by the blasts that are due.
+   *
+   * Only outside a live round. A detonation ends the round on its own tick, so
+   * every blast lands in the intermission, where a death changes neither the
+   * result nor anyone's score; this check keeps it that way should that order
+   * ever change.
+   *
+   * Q3's splash rule: damage falls off with distance from the blast, and a
+   * blast does nothing through a wall. Two sight lines, origin and chest, so a
+   * low railing does not shelter someone standing behind it.
+   */
+  private fireBlasts(state: WorldState, context: GametypeTickContext): void {
+    if (this.pendingBlasts.length === 0) return;
+    const now = context.tick as number;
+    const due = this.pendingBlasts.filter((blast) => blast.tick <= now);
+    if (due.length === 0) return;
+    this.pendingBlasts = this.pendingBlasts.filter((blast) => blast.tick > now);
+
+    for (const entity of state.entitiesByType(EntityType.Player)) {
+      if (entity.ownerId === undefined || !entity.health || entity.health.dead) continue;
+      const position = entity.transform?.position;
+      if (!position) continue;
+
+      for (const blast of due) {
+        const dx = position.x - blast.at.x;
+        const dy = position.y - blast.at.y;
+        const dz = position.z - blast.at.z;
+        const distance = Math.hypot(dx, dy, dz);
+        if (distance >= blast.radius) continue;
+        const damage = Math.round(BLAST_DAMAGE * (1 - distance / blast.radius));
+        if (damage < 1 || !this.blastReaches(blast.at, position)) continue;
+        context.blast(entity.id as EntityId, damage, { x: dx, y: dy, z: dz });
+      }
+    }
+  }
+
+  private blastReaches(from: Vec3Like, to: Vec3Like): boolean {
+    if (!this.collision) return true;
+    if (this.collision.trace(from, to).fraction >= 1) return true;
+    const chest = { x: to.x, y: to.y + BLAST_SIGHT_LIFT, z: to.z };
+    return this.collision.trace(from, chest).fraction >= 1;
+  }
+
+  /**
    * What the round is currently about. The plant is the pivot: before it the
    * attackers hold the initiative, after it the roles invert and the HUD should
    * say so.
@@ -621,6 +694,7 @@ export class SearchAndDestroy extends BaseGametype {
         case "detonated":
           this.explosion = this.buildExplosion(this.bomb.siteId);
           this.explosionUntilTick = (this.tick as number) + EXPLOSION_REPEAT_TICKS;
+          this.scheduleBlasts(this.explosion);
           return {
             winner: context.attackingTeam,
             reason: "bomb detonated",

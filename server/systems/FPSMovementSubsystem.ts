@@ -20,10 +20,12 @@ import type { TriggerVolume } from "../../../../shared/bsp/TriggerTable";
 import { Contents } from "../../../../shared/collision/CollisionWorld";
 import type { QueuedInput } from "../../../../shared/server/simulation/components/InputComponent";
 import type { PhysicsComponent } from "../../../../shared/server/simulation/components/PhysicsComponent";
+import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "../../../../shared/server/simulation/physics/constants";
 import type { WaterLevel } from "../../liquid/LiquidTypes";
 import { applyKnockbackDrag } from "../../simulation/Knockback";
 import type { AdvancedMovementResult } from "../../simulation/MovementConfig";
 import { MovementProfile as FPSMovementProfile } from "../../simulation/MovementProfile";
+import { debugEnabled, debugLog } from "../DebugLog";
 import { type CombatSystem, DamageType, HitLocation } from "./CombatSystem";
 import { createLiquidEffectState, type LiquidEffectState, tickLiquidEffects } from "./LiquidWorldEffects";
 
@@ -461,8 +463,10 @@ export class FPSMovementSubsystem extends Subsystem {
           : effectiveDrop >= minDrop
             ? "RAMP"
             : "SAFE";
-    console.log(
-      `[FallDamage] eid=${victimId} rawDrop=${rawDrop.toFixed(1)}u effective=${effectiveDrop.toFixed(1)}u` +
+    debugLog(
+      "falldamage",
+      () =>
+        `[FallDamage] eid=${victimId} rawDrop=${rawDrop.toFixed(1)}u effective=${effectiveDrop.toFixed(1)}u` +
         ` crouched=${crouched} band=${band} (min=${minDrop} full=${fullDrop} fatal=${fatalDrop})`,
     );
 
@@ -575,8 +579,10 @@ export class FPSMovementSubsystem extends Subsystem {
 
         kbEntities.add(impulse.entityId as number);
         this.lastKBTick.set(impulse.entityId as number, tickNum);
-        console.log(
-          `[KB] Applied to entity=${impulse.entityId}: vel=(${vel.x.toFixed(1)},${vel.y.toFixed(1)},${vel.z.toFixed(1)}) beforeY=${beforeY.toFixed(1)} grounded=false pos=(${ent.transform?.position.x.toFixed(1)},${ent.transform?.position.y.toFixed(1)},${ent.transform?.position.z.toFixed(1)})`,
+        debugLog(
+          "kb",
+          () =>
+            `[KB] Applied to entity=${impulse.entityId}: vel=(${vel.x.toFixed(1)},${vel.y.toFixed(1)},${vel.z.toFixed(1)}) beforeY=${beforeY.toFixed(1)} grounded=false pos=(${ent.transform?.position.x.toFixed(1)},${ent.transform?.position.y.toFixed(1)},${ent.transform?.position.z.toFixed(1)})`,
         );
       }
       this.pendingImpulses = [];
@@ -800,8 +806,10 @@ export class FPSMovementSubsystem extends Subsystem {
       }
 
       if (kbEntities.has(eid)) {
-        console.log(
-          `[KB POST-SIM] entity=${entity.id}: pos=(${transform.position.x.toFixed(1)},${transform.position.y.toFixed(1)},${transform.position.z.toFixed(1)}) vel=(${physics.velocity.x.toFixed(1)},${physics.velocity.y.toFixed(1)},${physics.velocity.z.toFixed(1)}) grounded=${physics.grounded} queue=${queue.length}`,
+        debugLog(
+          "kb",
+          () =>
+            `[KB POST-SIM] entity=${entity.id}: pos=(${transform.position.x.toFixed(1)},${transform.position.y.toFixed(1)},${transform.position.z.toFixed(1)}) vel=(${physics.velocity.x.toFixed(1)},${physics.velocity.y.toFixed(1)},${physics.velocity.z.toFixed(1)}) grounded=${physics.grounded} queue=${queue.length}`,
         );
       }
     }
@@ -811,7 +819,10 @@ export class FPSMovementSubsystem extends Subsystem {
     // (two writers on shared state), and its only output was commented out.
 
     // ── DIAGNOSTIC: log per-entity physics every 125 ticks (1 second) ──
-    if (tickNum % 125 === 0) {
+    // Off unless SHAG_DEBUG=phys is set. It was added for v0.9.10 QA with a note to remove it, and it
+    // printed a line per player every second on every server (16 lines a second at 16 players), in
+    // the one tick in 125 that was already the slowest.
+    if (debugEnabled("phys") && tickNum % TICK_RATE === 0) {
       for (const entity of state.entitiesByType(EntityType.Player)) {
         if (!entity.transform || !entity.physics || entity.health?.dead) continue;
         const v = entity.physics.velocity;

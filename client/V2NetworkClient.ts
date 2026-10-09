@@ -17,6 +17,7 @@ import { sanitizeMovementOrZero } from "../../../shared/server/simulation/InputS
 import { applyKnockbackDrag, readKnockbackAge } from "../simulation/Knockback";
 import type { AdvancedMovementResult } from "../simulation/MovementConfig";
 import { MovementProfile as FPSMovementProfile } from "../simulation/MovementProfile";
+import { devLog } from "./DevLog";
 import { InputHistory, type StoredInput } from "./InputHistory";
 
 // ═══════════════════════════════════════════════════════════════════
@@ -259,7 +260,7 @@ export class V2NetworkClient {
     this.inputHistory.clear();
     this.kbAge = null;
     this.authoritativeKnockbackStartTick = null;
-    console.log("[V2Client] Reset to", position);
+    devLog("[V2Client] Reset to", position);
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -616,7 +617,7 @@ export class V2NetworkClient {
         this.visualOffset.y = 0;
         this.visualOffset.z = 0;
         if (this.forceTeleportOnNextSnapshot) {
-          console.log(
+          devLog(
             `[V2Client] Force teleport on snapshot: snapping to (${postX.toFixed(1)}, ${postY.toFixed(1)}, ${postZ.toFixed(1)})`,
           );
           this.forceTeleportOnNextSnapshot = false;
@@ -669,7 +670,7 @@ export class V2NetworkClient {
         this.localState.velocity.x * this.localState.velocity.x +
           this.localState.velocity.z * this.localState.velocity.z,
       );
-      console.log(
+      devLog(
         `[V2Client] RECONCILE #${this.reconcileCount}: unacked=${unacked.length} preErr=${preError.toFixed(2)} postErr=${postError.toFixed(2)} grounded=${this.localState.grounded} hSpeed=${hSpeed.toFixed(1)} ackedSeq=${snapshot.ackedInputSeq} storedInputs=${this.inputHistory.getCount()} collision=${this.collision ? "YES" : "NO"}`,
       );
     }
@@ -743,7 +744,7 @@ export class V2NetworkClient {
       jumppadLaunch: false,
     };
 
-    console.log("[V2Client] resetForRespawn: cleared all death-period state");
+    devLog("[V2Client] resetForRespawn: cleared all death-period state");
   }
 
   getPosition(): Vec3 {
@@ -788,7 +789,7 @@ export class V2NetworkClient {
     if (this._diagOffsetLogTimer >= 2.0) {
       this._diagOffsetLogTimer = 0;
       if (mag > 0.001) {
-        console.log(
+        devLog(
           `[V2Client] visualOffset: (${this.visualOffset.x.toFixed(4)}, ${this.visualOffset.y.toFixed(4)}, ${this.visualOffset.z.toFixed(4)}) mag=${mag.toFixed(4)}`,
         );
       }

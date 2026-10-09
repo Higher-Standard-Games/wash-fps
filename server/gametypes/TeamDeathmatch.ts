@@ -20,6 +20,7 @@ import type {
   SpawnStrategyType,
   WeaponLoadout,
 } from "@shared/server/gametype";
+import { debugLog } from "../DebugLog";
 import { BaseGametype, type GameResult } from "./BaseGametype";
 
 /** Directives last this many ticks; re-issued every snapshot while they apply. */
@@ -98,7 +99,7 @@ export class TeamDeathmatch extends BaseGametype {
 
   onDeath(victim: Entity, killer: Entity | null, _state: WorldState): void {
     if (killer && killer.ownerId && killer.ownerId !== victim.ownerId) {
-      console.log(`[TDM] Kill: player ${killer.ownerId} → player ${victim.ownerId}`);
+      debugLog("kills", () => `[TDM] Kill: player ${killer.ownerId} → player ${victim.ownerId}`);
     }
   }
 

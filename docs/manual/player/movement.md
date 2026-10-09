@@ -7,7 +7,7 @@ Q3-style core with Warsow extensions. All defaults below come from `simulation/M
 | Value | Default | Notes |
 |-------|---------|-------|
 | Max ground speed | 280 u/s | `maxSpeed`; the soft cap, before air-strafe gains |
-| Sprint / run speed | 400 u/s | `runSpeed`; held Shift |
+| Run speed | 400 u/s | `runSpeed`; only moving **straight forward** (strafing, backpedalling and diagonals use the 280 walking speed), and not while firing, aiming or crouching. With **Always run** on (the default) you run without holding anything and **Shift walks** instead |
 | Ground acceleration | 10 | `groundAcceleration` |
 | Air acceleration | 1 | `airAcceleration`; this is what makes air strafing work |
 | Max added air speed per tick | 30 u/s | `maxAirSpeed`; the per-tick cap |
@@ -70,7 +70,7 @@ Practical: jump or fall toward a ledge with a grabable lip. The game grabs autom
 
 ## Crouchslide
 
-Sprint into a crouch to slide along the ground with a temporary speed bonus.
+Run into a crouch to slide along the ground with a temporary speed bonus.
 
 | Value | Default | Notes |
 |-------|---------|-------|
@@ -82,7 +82,7 @@ Sprint into a crouch to slide along the ground with a temporary speed bonus.
 | Friction while sliding | 0.1 | `slideFriction`; much lower than normal ground friction |
 | Cooldown between slides | 1.5 s | `slideCooldown` |
 
-Practical: build speed (run + strafe jumps), tap **Ctrl** while at full sprint to enter slide, then either ride it out for the speed boost or jump out to chain into more strafe gains. The camera tilts in the slide direction. Standing up from a slide/crouch is a **deliberate ~260 ms rise** (crouching down is snappier at ~140 ms) — both are sim-clock anchored, so they never "flick" during reconciliation.
+Practical: build speed (run + strafe jumps), tap **Ctrl** while at full run to enter slide, then either ride it out for the speed boost or jump out to chain into more strafe gains. The camera tilts in the slide direction. Standing up from a slide/crouch is a **deliberate ~260 ms rise** (crouching down is snappier at ~140 ms) — both are sim-clock anchored, so they never "flick" during reconciliation.
 
 ## Teleporters
 
@@ -96,6 +96,50 @@ Maps place **`trigger_teleport`** brush volumes linked to a **`misc_teleporter_d
 ## Jumppads
 
 **`trigger_push`** brushes launch you at a fixed target (a `target_position`) — the classic accelerator pad. The launch is solved so your arc lands on the pad's target, and it's client-predicted like everything else. Velocity is **replaced**, not added, so you can't "pre-load" a pad by jumping into it — step on, get launched, and aim your air-strafe on the way up.
+
+## Ladders
+
+Brushes tagged `SURF_LADDER` are climbable. A ladder is a volume, not a wall: you climb whenever your body overlaps it, so you don't need to face it or press into it.
+
+| Value | Default | Notes |
+|-------|---------|-------|
+| Climb speed | 168 u/s | `climbSpeed`; up or down, well under run speed |
+| Acceleration / friction | 30 / 20 | releasing the keys stops you on the rung within a few units |
+| Sideways speed | 0.4× | `lateralScale`; shuffle along a ladder |
+| Jump-off speed | 270 u/s | `detachUp`; jump to leave a ladder |
+| Re-grab cooldown | 400 ms | `detachCooldownMs`; after you let go |
+
+- **Walking past the foot of a ladder doesn't grab you.** On the ground you only attach when you actively move up into it; in the air, touching it is enough.
+- Climbing is part of the shared movement code, so it is predicted on the client like everything else.
+
+## Water and Other Liquids
+
+Water, slime and lava are volumes with four depth levels: **0** dry, **1** feet wet (you still walk, with drag), **2** waist deep (you swim), **3** fully submerged (you swim and the air clock runs).
+
+| Value | Default | Notes |
+|-------|---------|-------|
+| Swim speed | 0.5× | `swimScale`; wading scales smoothly between walking and this |
+| Water acceleration | 4 | `waterAcceleration` |
+| Idle sink | 60 u/s | `idleSinkSpeed`; you drift down with no input |
+| Water-jump (climb out) | 200 forward, 350 up | `waterJumpForward` / `waterJumpUp`; assisted climb onto a ledge, 2 s of reduced control |
+
+Swim in the direction you are looking: look up and hold forward to rise. **Jump** and **crouch** swim straight up and down regardless of where you look. While swimming you lie flat, so your hitbox is shorter (28 u instead of 56 u) and slides into low gaps.
+
+| Hazard | Damage |
+|--------|--------|
+| **Drowning** | 12 s of air once your head goes under; then 2 damage, rising by 2 each second, capped at 15 per second |
+| **Slime** | 10 per second per depth level |
+| **Lava** | 30 per second per depth level, roughly a two-second death at full health |
+
+Air refills as soon as your head is clear. Water also has splash effects and sound; these are presentation only and don't change gameplay.
+
+## Lifts, Doors and Movers
+
+Moving brush models (`func_plat`, doors and similar) are simulated on the server, predicted on the client, so standing on an elevator feels the same online as offline.
+
+- **You ride them.** Players, corpses and dropped weapons all travel with the floor.
+- **Crushing.** A mover that is blocked by a player damages them (20 hits per second, using the mover's own `dmg` value; 0 disables it). Most movers reverse when blocked; ones with the **crusher** flag keep pushing. Crush damage counts as world damage, like drowning, and is never credited to another player.
+- Activation, wait times and sounds are authored in the map.
 
 ## Fall Damage
 

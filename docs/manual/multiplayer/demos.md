@@ -56,7 +56,7 @@ visible.
 
 ### Cinematic mode
 
-`demoplay cinematic 2` analyses the demo for highlight moments (kills, sprees, environmental kills, near-misses) and assembles a 2-minute auto-edited reel with camera tracking, dramatic angles, and slow motion on key events.
+`demoplay cinematic 2` analyses the demo for highlight moments (kills, multi-kills, airborne kills, streaks, first blood and standout movement) and assembles a 2-minute auto-edited reel with camera tracking, dramatic angles, and slow motion on key events.
 
 Cinematic playback uses its reel progress/highlight overlay instead of the
 normal interactive transport HUD. The shared `H`/`demoplay hud` setting
@@ -108,11 +108,11 @@ A card shows what a recording's header holds: the map, the mode, who played, how
 long it ran, when, and its size. The header has no final score, so a card shows
 none.
 
-## TODO
+## Not yet
 
-- Console equivalents for the transport (jump-to-tick, speed) — today they are the demo HUD's
-- Demo upload + remote sharing flow (currently lobby-local)
-- Cinematic heuristic tuning
-- Recording opt-out / privacy
+- Console equivalents for the transport (jump-to-tick, speed); today they are the demo HUD's
+- Demo upload and remote sharing (demos are lobby-local)
+- Cinematic heuristic tuning; see [Demo Cinematic](../tools/demo-cinematic.md)
+- A recording opt-out
 
 For now, the demo system's user-facing surface is `demo` / `demolist` / `demoplay` plus the lobby's Demos tab.

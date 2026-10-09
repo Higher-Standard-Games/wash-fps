@@ -80,9 +80,25 @@ export class FPSPhaseMessage implements FPSHudWidget {
     }
   }
 
+  /** What the message currently shows, so the HUD's polling can tell when nothing has changed. */
+  private lastHtml = "";
+
   private showHtml(html: string): void {
+    this.lastHtml = html;
     this.element.innerHTML = html;
     this.element.classList.remove("hidden");
+  }
+
+  /**
+   * Show `html` unless it is already on screen.
+   *
+   * For the polling in `update()`. Writing identical markup would throw away the elements and
+   * restart their CSS entrance animations on every poll, 20 times a second. A phase change
+   * calls `showHtml` instead, because replaying the animation is the point there.
+   */
+  private showHtmlIfChanged(html: string): void {
+    if (html === this.lastHtml && !this.element.classList.contains("hidden")) return;
+    this.showHtml(html);
   }
 
   /** Escape user-controlled text (player names) before innerHTML interpolation. */
@@ -114,7 +130,7 @@ export class FPSPhaseMessage implements FPSHudWidget {
         : mgr.isReady
           ? `<div class="fps-phase-ready">Waiting for others…</div>`
           : `<div class="fps-phase-ready">Press <span class="fps-keycap">${getActionKeyLabel(FPS.READY)}</span> to ready up</div>`;
-      this.showHtml(
+      this.showHtmlIfChanged(
         `<div class="fps-phase-title">Warmup</div><div class="fps-phase-subtitle">${mgr.gametypeName}</div>${ready}`,
       );
     }

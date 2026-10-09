@@ -154,4 +154,11 @@ describe("obituary", () => {
       who: "The fall",
     });
   });
+
+  it("names the bomb when its blast is what got you", () => {
+    expect(obituary(death({ killerId: "", killerName: "", weaponId: "bomb" }))).toEqual({
+      how: "No one to blame",
+      who: "The bomb",
+    });
+  });
 });

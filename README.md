@@ -11,10 +11,10 @@ Full documentation lives in [`docs/manual/`](./docs/manual/):
 - **[Introduction](./docs/manual/introduction/)** — what's in, what's coming
 - **[Getting Started](./docs/manual/getting-started/)** — setup, first run, dedicated server, bots
 - **[Player Manual](./docs/manual/player/)** — controls, movement, weapons, pickups, HUD
-- **[Gametypes](./docs/manual/gametypes/)** — Duel, Deathmatch, Team Deathmatch
-- **[Multiplayer](./docs/manual/multiplayer/)** — lobby flow, connecting, demos
+- **[Gametypes](./docs/manual/gametypes/)** — Duel, Amphi, Deathmatch, Team Deathmatch, Search & Destroy
+- **[Multiplayer](./docs/manual/multiplayer/)** — lobby, rooms and accounts, connecting, chat, demos
 - **[Developer](./docs/manual/developer/)** — architecture, adding weapons + gametypes
-- **[Tools](./docs/manual/tools/)** — Bot Intelligence Server, cinematic demo player
+- **[Tools](./docs/manual/tools/)** — Bot Intelligence Server, bot training, cinematic demo player
 - **[FAQ](./docs/manual/faq/)** — troubleshooting
 
 ## Quick Start

@@ -13,6 +13,7 @@ import type { EntityId, TickNumber } from "@engine/server/ecs/types";
 import { EntityType, entityId } from "@engine/server/ecs/types";
 import type { LagCompensation, RewindView } from "@engine/server/lagcomp/LagCompensation";
 import type { WeaponLoadout } from "@shared/server/gametype";
+import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulation/physics/constants";
 import { type CollisionWorld, SHOT_CONTENT_MASK } from "../../../../engine/network/systems/collision/CollisionWorld";
 import { DEFAULT_VIEWHEIGHT } from "../../../../engine/physics/PlayerPhysicsConstants";
 import { rngFrom } from "../../../../shared/DeterministicRng";
@@ -21,7 +22,8 @@ import { canonicalWeaponId, WEAPONS } from "../../../../shared/entities/definiti
 import type { ProjectileDef } from "../../../../shared/entities/ProjectileDef";
 import type { WeaponDef } from "../../../../shared/entities/WeaponDef";
 import { computeSpreadSeed, generateSpreadDirections } from "../../../../shared/SpreadUtils";
-import { type DamageEvent, DamageType, HitLocation } from "./CombatSystem";
+import { debugLog } from "../DebugLog";
+import { classifyHitLocation, type DamageEvent, DamageType, HitLocation } from "./CombatSystem";
 import type { DroppedWeaponSystem } from "./DroppedWeaponSystem";
 import { caughtInDischarge, dischargeDamageAt, dischargesInWater } from "./ElectricalDischarge";
 import type { ProjectileSystem } from "./ProjectileSystem";
@@ -37,12 +39,26 @@ function isDefaultWeapon(weaponId: string): boolean {
 }
 
 /** Server tick rate (Hz). Fire/reload/charge timing is quantized to these ticks. */
-const TICK_RATE = 125;
 
 const PROJECTILE_DEFS: Record<string, ProjectileDef> = {
   [GRENADE.id]: GRENADE,
 };
 
+/** A weapon that fires a spread of pellets in one shot (the riotgun). */
+export function firesPellets(weapon: WeaponDef): weapon is WeaponDef & { pelletCount: number; spread: number } {
+  return !!weapon.pelletCount && weapon.pelletCount > 1 && !!weapon.spread;
+}
+
+/**
+ * Where a hit by `weapon` counts as landing, given its height above or below the target's origin.
+ *
+ * A spread of pellets is a distributed blast, not an aimed shot, so no pellet is a headshot: one
+ * that lands high counts as a body hit. Leg hits still count.
+ */
+export function locateHit(weapon: WeaponDef, yOffset: number): HitLocation {
+  const location = classifyHitLocation(yOffset);
+  return location === HitLocation.Head && firesPellets(weapon) ? HitLocation.Body : location;
+}
 /**
  * Refire interval in ticks for a weapon. Prefers an explicit `fireIntervalTicks`
  * override, else the *nearest* tick to the authored `fireRate`. Previously this
@@ -167,6 +183,8 @@ export class WeaponSystem extends Subsystem {
   private weaponStates: Map<EntityId, WeaponState> = new Map();
   private lastWeaponSlot: Map<EntityId, number> = new Map(); // Edge detection for slot changes
   private lastSwitchTick: Map<EntityId, number> = new Map();
+  /** Players whose weapon the server just changed for them; see `autoSwitch`. */
+  private slotResync: Set<EntityId> = new Set();
   /**
    * Per-entity accuracy accounting for anti-cheat telemetry (WO-AC1). Scoped to
    * **single-ray hitscan** (machinegun/electrobolt/instagun/Voltaic, including
@@ -211,7 +229,6 @@ export class WeaponSystem extends Subsystem {
   selfDamageMultiplier: number = 1.0;
   private movementSubsystem: import("./FPSMovementSubsystem").FPSMovementSubsystem | null = null;
   /** Pending drop positions — set by GameServer before tick when a swap happens */
-  private entityPositions: Map<EntityId, { x: number; y: number; z: number }> = new Map();
   /** Per-entity shot counter for deterministic pellet spread seeds */
   private shotCounts: Map<EntityId, number> = new Map();
   /** Delayed melee damage checks — fires visual immediately, checks damage later */
@@ -289,6 +306,19 @@ export class WeaponSystem extends Subsystem {
     return events;
   }
 
+  /**
+   * Drop everything held for an entity that has left the world for good (a
+   * disconnect, or going to spectate). A rejoin gets a new entity id, so
+   * without this every rejoin left one weapon state behind for the server's
+   * lifetime.
+   */
+  forget(entityId: EntityId): void {
+    this.weaponStates.delete(entityId);
+    this.lastWeaponSlot.delete(entityId);
+    this.lastSwitchTick.delete(entityId);
+    this.slotResync.delete(entityId);
+  }
+
   /** Clear actions produced during warmup; player loadouts are rebuilt on respawn. */
   resetForMatch(): void {
     this.pendingDamage = [];
@@ -298,7 +328,6 @@ export class WeaponSystem extends Subsystem {
     this.pendingVoltaicBeamEvents = [];
     this.pendingElectroRailEvents = [];
     this.pendingMeleeChecks = [];
-    this.entityPositions.clear();
     this.accuracy.clear();
     this.shotCounts.clear();
   }
@@ -398,13 +427,6 @@ export class WeaponSystem extends Subsystem {
     };
   }
 
-  /**
-   * Cache entity position (called by GameServer before tick for drop spawning)
-   */
-  cacheEntityPosition(eId: EntityId, pos: { x: number; y: number; z: number }): void {
-    this.entityPositions.set(eId, pos);
-  }
-
   private reloadModel(weapon: WeaponDef): "clip" | "pool" | "none" {
     return weapon.reloadModel ?? "pool";
   }
@@ -458,13 +480,52 @@ export class WeaponSystem extends Subsystem {
    * technique, not a bug — and non-zero only when we swapped for them.
    */
   private equip(entityId: EntityId, state: WeaponState, weaponId: string, tickNum: number, raiseTicks = 0): void {
+    this.endCharge(entityId, state);
     state.currentWeapon = weaponId;
     state.reloading = false;
     state.reloadEndTick = 0;
-    state.chargeStartTick = 0;
+    // An alt-fire held over from the old weapon is not a charge on this one.
+    // Left set, releasing it fired the blade's full charge with no charge-up
+    // (heldTicks counted from tick 0). Still held, it now starts a fresh charge.
+    state.wasAltFireDown = false;
     state.dryFireTick = 0;
     state.switchReadyTick = raiseTicks > 0 ? tickNum + raiseTicks : 0;
     this.lastSwitchTick.set(entityId, tickNum);
+  }
+
+  /**
+   * Drop a charge in progress and tell the clients, as a release does.
+   *
+   * A switch or a death ended the charge silently: everyone else kept the
+   * charger's glow, back on them after respawn, and the charger's own client
+   * still thought it was charging and skipped its next blade slash (L5).
+   */
+  private endCharge(entityId: EntityId, state: WeaponState): void {
+    if (state.chargeStartTick > 0) {
+      this.pendingChargeEvents.push({ entityId, weaponId: state.currentWeapon, charging: false });
+    }
+    state.chargeStartTick = 0;
+  }
+
+  /**
+   * A switch the server makes for the player, on a pickup.
+   *
+   * It cancels what the old weapon was doing, as any switch does. It does not
+   * start the manual switch delay: the player did not ask for it, so it must
+   * not hold up the switch they ask for next.
+   *
+   * The slot key needs care. The server keeps the last slot the player pressed
+   * and switches when that value changes. Forgetting it here (as this code
+   * used to) made the next tick read the old value as a fresh press and switch
+   * straight back. Keeping it would make a press of that same key read as no
+   * change. So `update` re-baselines on the next tick instead (`slotResync`).
+   */
+  private autoSwitch(entityId: EntityId, state: WeaponState, weaponId: string): void {
+    const lastSwitch = this.lastSwitchTick.get(entityId);
+    this.equip(entityId, state, weaponId, this.currentTick);
+    if (lastSwitch === undefined) this.lastSwitchTick.delete(entityId);
+    else this.lastSwitchTick.set(entityId, lastSwitch);
+    this.slotResync.add(entityId);
   }
 
   private maxTotalAmmo(weapon: WeaponDef): number {
@@ -573,9 +634,15 @@ export class WeaponSystem extends Subsystem {
    *   - Default weapon (blade) is permanent (slot 0), never dropped
    *   - Players can carry default + 2 picked-up weapons
    *   - If at capacity, drop current weapon; if holding default, drop first non-default
+   * `position` is where a swapped-out weapon lands. Without it the swap still happens
+   * but the old weapon is not dropped into the world.
    * @returns { added: true, dropped?: weaponId } or { added: false } if already owned
    */
-  addWeapon(entityId: EntityId, weaponId: string): { added: boolean; dropped?: string } {
+  addWeapon(
+    entityId: EntityId,
+    weaponId: string,
+    position?: Readonly<{ x: number; y: number; z: number }>,
+  ): { added: boolean; dropped?: string } {
     const state = this.weaponStates.get(entityId);
     if (!state) return { added: false };
     weaponId = canonicalWeaponId(weaponId);
@@ -592,8 +659,7 @@ export class WeaponSystem extends Subsystem {
       // spawned with it, or out of ammo for it — does not make the request any
       // less clear, so the switch happens on this path too.
       if (isDefaultWeapon(state.currentWeapon) && !isDefaultWeapon(weaponId)) {
-        state.currentWeapon = weaponId;
-        this.lastWeaponSlot.delete(entityId);
+        this.autoSwitch(entityId, state, weaponId);
       }
       return { added: false };
     }
@@ -604,9 +670,7 @@ export class WeaponSystem extends Subsystem {
     if (nonDefaultWeapons.length < MAX_PICKABLE) {
       // Have room — just add
       state.weapons.push(weaponId);
-      state.currentWeapon = weaponId; // auto-switch to new weapon
-      // Reset slot edge detection so manual switch back works after auto-switch
-      this.lastWeaponSlot.delete(entityId);
+      this.autoSwitch(entityId, state, weaponId); // auto-switch to new weapon
       // Give ammo if not already present
       if (!state.ammo.has(weaponId) || this.ammoTotal(state.ammo.get(weaponId)) <= 0) {
         const weapon = WEAPONS[weaponId];
@@ -627,8 +691,7 @@ export class WeaponSystem extends Subsystem {
       // that is not one. Arm them with what they already carry.
       const firstReal = state.weapons.find((w) => !isDefaultWeapon(w));
       if (firstReal) {
-        state.currentWeapon = firstReal;
-        this.lastWeaponSlot.delete(entityId);
+        this.autoSwitch(entityId, state, firstReal);
       }
       return { added: false };
     } else {
@@ -640,7 +703,7 @@ export class WeaponSystem extends Subsystem {
     const weaponDef = WEAPONS[droppedWeapon];
     const playerAmmo = this.ammoTotal(state.ammo.get(droppedWeapon));
     const droppedAmmo = weaponDef ? Math.min(playerAmmo, weaponDef.pickupAmmo ?? weaponDef.maxAmmo) : playerAmmo;
-    const pos = this.entityPositions.get(entityId);
+    const pos = position;
     if (this.droppedWeaponSystem && pos) {
       // Deterministic toss, seeded from tick+entity so demo re-sim reproduces it (R3).
       const rng = rngFrom(this.currentTick, entityId as number, 1);
@@ -667,9 +730,7 @@ export class WeaponSystem extends Subsystem {
       state.weapons.push(weaponId);
     }
     state.ammo.delete(droppedWeapon);
-    state.currentWeapon = weaponId;
-    // Reset slot edge detection so manual switch back works after auto-switch
-    this.lastWeaponSlot.delete(entityId);
+    this.autoSwitch(entityId, state, weaponId);
     // Give ammo if not already present
     if (!state.ammo.has(weaponId) || this.ammoTotal(state.ammo.get(weaponId)) <= 0) {
       const weapon = WEAPONS[weaponId];
@@ -713,12 +774,11 @@ export class WeaponSystem extends Subsystem {
    * Drop all non-default weapons (on death).
    * Queues drop requests and strips weapons from inventory.
    */
-  dropAllWeapons(eId: EntityId): void {
+  dropAllWeapons(eId: EntityId, pos: Readonly<{ x: number; y: number; z: number }>): void {
     const state = this.weaponStates.get(eId);
     if (!state) return;
 
-    const pos = this.entityPositions.get(eId);
-    if (!pos || !this.droppedWeaponSystem) return;
+    if (!this.droppedWeaponSystem) return;
 
     const toDrop = state.weapons.filter((w) => !isDefaultWeapon(w));
     for (let i = 0; i < toDrop.length; i++) {
@@ -794,6 +854,7 @@ export class WeaponSystem extends Subsystem {
     // Reset edge detection so weapon slot changes are detected cleanly after respawn
     this.lastWeaponSlot.delete(id);
     this.lastSwitchTick.delete(id);
+    this.slotResync.delete(id);
   }
 
   /**
@@ -840,6 +901,12 @@ export class WeaponSystem extends Subsystem {
     // Process all player entities
     for (const entity of state.entitiesByType(EntityType.Player)) {
       if (!entity.input || !entity.health || entity.health.dead) {
+        const dead = this.weaponStates.get(entity.id);
+        if (dead && entity.health?.dead) {
+          this.endCharge(entity.id, dead);
+          // Still held at respawn, it starts a fresh charge rather than firing this one.
+          dead.wasAltFireDown = false;
+        }
         continue;
       }
 
@@ -852,6 +919,12 @@ export class WeaponSystem extends Subsystem {
       // Handle weapon switch — only on CHANGE (edge detection)
       // This prevents the client's weaponSlot from overriding server-side
       // pickup auto-switch every tick.
+      // After a server-made switch, the slot the player last pressed no longer
+      // names the weapon in hand. If no new press has arrived since, clear it, so
+      // that a press of ANY key (that one included) reads as a change.
+      if (this.slotResync.delete(entity.id) && entity.input.weaponSlot === (this.lastWeaponSlot.get(entity.id) || 0)) {
+        entity.input.weaponSlot = 0;
+      }
       const weaponSlot = entity.input.weaponSlot;
       const prevSlot = this.lastWeaponSlot.get(entity.id) || 0;
       this.lastWeaponSlot.set(entity.id, weaponSlot);
@@ -929,7 +1002,7 @@ export class WeaponSystem extends Subsystem {
               this.queueMeleeDash(entity, weapon);
 
               // Queue delayed melee damage check
-              const delayTicks = Math.ceil((weapon.meleeDamageDelay || 0) * 125);
+              const delayTicks = Math.ceil((weapon.meleeDamageDelay || 0) * TICK_RATE);
               if (delayTicks > 0) {
                 this.pendingMeleeChecks.push({
                   fireTick: tickNum,
@@ -947,8 +1020,8 @@ export class WeaponSystem extends Subsystem {
           weaponState.wasFireButtonDown = isFiring;
 
           // --- Alt fire: hold-to-charge projectile ---
-          const chargeMaxTicks = Math.ceil((weapon.chargeTime || 1.0) * 125);
-          const chargeMinTicks = Math.ceil((weapon.chargeMinTime || 0.5) * 125);
+          const chargeMaxTicks = Math.ceil((weapon.chargeTime || 1.0) * TICK_RATE);
+          const chargeMinTicks = Math.ceil((weapon.chargeMinTime || 0.5) * TICK_RATE);
 
           if (isAltFiring) {
             if (!weaponState.wasAltFireDown) {
@@ -1007,7 +1080,7 @@ export class WeaponSystem extends Subsystem {
 
             // If started from hip, enforce ADS transition delay
             if (weaponState.hipfireAdsStartTick > 0) {
-              const adsTimeTicks = Math.ceil((weapon.ads?.time || 0.08) * 125);
+              const adsTimeTicks = Math.ceil((weapon.ads?.time || 0.08) * TICK_RATE);
               if (tickNum - weaponState.hipfireAdsStartTick < adsTimeTicks) {
                 hipfireAllowFire = false; // Still in ADS transition
               }
@@ -1146,8 +1219,10 @@ export class WeaponSystem extends Subsystem {
     const origin = shooter.transform?.position;
     if (!origin) return;
 
-    console.log(
-      `[Discharge] ${shooter.id} fired ${weapon.id} at water level ${shooter.physics?.waterLevel ?? 0} — discharging`,
+    debugLog(
+      "discharge",
+      () =>
+        `[Discharge] ${shooter.id} fired ${weapon.id} at water level ${shooter.physics?.waterLevel ?? 0} — discharging`,
     );
 
     // No dedicated wire event yet: the kill and its obituary already reach the
@@ -1274,9 +1349,7 @@ export class WeaponSystem extends Subsystem {
 
       // Hit!
       const yOffset = closestPoint.y - target.transform.position.y;
-      let hitLocation = HitLocation.Body;
-      if (yOffset > 32) hitLocation = HitLocation.Head;
-      else if (yOffset < -20) hitLocation = HitLocation.Legs;
+      const hitLocation = locateHit(weapon, yOffset);
 
       this.pendingDamage.push({
         victimId: target.id,
@@ -1367,7 +1440,7 @@ export class WeaponSystem extends Subsystem {
     const rewind = this.rewindFor(state, shooter);
 
     // Pellet weapons (riotgun): fire N rays with seeded spread
-    if (weapon.pelletCount && weapon.pelletCount > 1 && weapon.spread) {
+    if (firesPellets(weapon)) {
       // Increment shot count for seed uniqueness
       const shotCount = (this.shotCounts.get(shooter.id) || 0) + 1;
       this.shotCounts.set(shooter.id, shotCount);
@@ -1666,9 +1739,7 @@ export class WeaponSystem extends Subsystem {
       const normalLength = Math.sqrt(normalX * normalX + normalY * normalY + normalZ * normalZ) || 1;
       // Hit! Determine location based on Y offset
       const yOffset = closestPoint.y - targetPos.y;
-      let hitLocation = HitLocation.Body;
-      if (yOffset > 32) hitLocation = HitLocation.Head;
-      else if (yOffset < -20) hitLocation = HitLocation.Legs;
+      const hitLocation = locateHit(weapon, yOffset);
 
       best = {
         entryDistance,

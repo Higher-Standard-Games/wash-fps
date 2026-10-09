@@ -1,6 +1,7 @@
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { describe, expect, it, vi } from "vitest";
-import { Game } from "../../Game";
+import { PlayerWeaponStates } from "../SnapshotStateStore";
+import { SpectateView } from "../SpectateView";
 
 interface CameraTarget {
   position: Vector3;
@@ -8,8 +9,7 @@ interface CameraTarget {
   setTarget(target: Vector3): void;
 }
 
-interface CameraOwnershipGame {
-  _isPlayerDead: boolean;
+interface CameraOwnershipView {
   _spectatingEntityId: string | null;
   _eyeCamera: { update: (dt: number, camera: unknown) => boolean };
   _deathCamera: { update: (dt: number, camera: unknown) => boolean };
@@ -17,9 +17,19 @@ interface CameraOwnershipGame {
   applyDeathCamera(camera: CameraTarget, dt: number): boolean;
 }
 
-function gameWithDrySpectateCamera(): CameraOwnershipGame {
-  const game = Object.create(Game.prototype) as CameraOwnershipGame;
-  game._isPlayerDead = true;
+function gameWithDrySpectateCamera(): CameraOwnershipView {
+  const game = new SpectateView({
+    isPlayerDead: () => true,
+    playerState: () => "playing",
+    localPlayerId: () => "player_1",
+    latestGameState: () => null,
+    remoteRenderer: () => null,
+    spectatorOverlay: () => null,
+    spectatorCycling: () => null,
+    spectatorController: () => null,
+    enemyWeapons: () => new Map(),
+    playerWeapons: () => new PlayerWeaponStates(),
+  }) as unknown as CameraOwnershipView;
   game._spectatingEntityId = "player_bot";
   game._eyeCamera = { update: vi.fn(() => false) };
   game._deathCamera = { update: vi.fn(() => false) };

@@ -11,7 +11,7 @@ import { Game } from "../../Game";
 
 interface AuditGame {
   _isPlayerDead: boolean;
-  _spectatingEntityId: string | null;
+  spectate: { _spectatingEntityId: string | null };
   localPlayerId: string;
   _latestGameState: { players: Map<string, { entityId: string }> } | null;
   describeCameraOwnershipForAudit(): string;
@@ -20,7 +20,7 @@ interface AuditGame {
 function gameWith(players: Array<[string, string]>, localPlayerId: string): AuditGame {
   const game = Object.create(Game.prototype) as AuditGame;
   game._isPlayerDead = true;
-  game._spectatingEntityId = null;
+  game.spectate = { _spectatingEntityId: null };
   game.localPlayerId = localPlayerId;
   game._latestGameState = { players: new Map(players.map(([key, entityId]) => [key, { entityId }])) };
   return game;

@@ -36,7 +36,14 @@ export type DemoViewerCallback = (state: GameState, tick: number) => void;
 
 const SPEED_OPTIONS = [0.25, 0.5, 1.0, 2.0, 4.0];
 const DEFAULT_SPEED = 1.0;
-const MAX_FRAMES_PER_UPDATE = 4;
+/**
+ * Recorded time, in real milliseconds of playback, that one update may catch
+ * up on. Frames older than that behind the playhead are skipped after a long
+ * browser stall rather than replayed in one burst. A cap in frames (4) skipped
+ * frames, and their kills, sounds and projectile spawns, at 4x speed every
+ * update.
+ */
+const MAX_CATCH_UP_MS = 250;
 
 // ─── DemoViewer ──────────────────────────────────────────────────
 
@@ -51,6 +58,8 @@ export class DemoViewer {
   /** Current position on the recorded timeline, relative to the first frame. */
   private playheadMs: number = 0;
   private discontinuityId: number = 0;
+  /** The frame last handed to onFrame, and in which discontinuity, so play() never hands it over twice. */
+  private presented: { frame: number; discontinuityId: number } | null = null;
   private frameCache: Map<number, DemoFrame> = new Map();
 
   // Callbacks
@@ -111,8 +120,10 @@ export class DemoViewer {
 
     this.setState("playing");
 
-    // Deliver current frame immediately on play
-    this.deliverCurrentFrame();
+    // Deliver the current frame at once, unless it is already on screen: a
+    // resume, or a play right after a seek, replayed its shots, deaths, gibs
+    // and kill feed a second time.
+    if (!this.isPresented(this.currentFrameIndex)) this.deliverCurrentFrame();
   }
 
   /**
@@ -232,9 +243,11 @@ export class DemoViewer {
     const targetFrameIndex = this.findFrameAtPlayhead(this.playheadMs);
     if (targetFrameIndex > this.currentFrameIndex) {
       // Full snapshots make it safe to skip old intermediate frames after a long
-      // browser stall. Deliver the newest few so presentation catches up without
-      // replaying thousands of stale transient events in one render update.
-      const firstFrameToDeliver = Math.max(this.currentFrameIndex + 1, targetFrameIndex - MAX_FRAMES_PER_UPDATE + 1);
+      // browser stall. Deliver what fits the catch-up window so presentation
+      // catches up without replaying thousands of stale transient events in one
+      // render update; at any speed, a normal frame's worth is all delivered.
+      const oldestMs = this.playheadMs - MAX_CATCH_UP_MS * this.playbackSpeed;
+      const firstFrameToDeliver = Math.max(this.currentFrameIndex + 1, this.findFrameAtPlayhead(oldestMs));
       this.currentFrameIndex = firstFrameToDeliver - 1;
 
       while (this.currentFrameIndex < targetFrameIndex) {
@@ -296,8 +309,13 @@ export class DemoViewer {
     if (!this.onFrameCallback) return;
     const frame = this.readFrameCached(this.currentFrameIndex);
     if (frame) {
+      this.presented = { frame: this.currentFrameIndex, discontinuityId: this.discontinuityId };
       this.onFrameCallback(frame.state, frame.tick);
     }
+  }
+
+  private isPresented(frameIndex: number): boolean {
+    return this.presented?.frame === frameIndex && this.presented.discontinuityId === this.discontinuityId;
   }
 
   private readFrameCached(frameIndex: number): DemoFrame | null {
@@ -417,6 +435,7 @@ export class DemoViewer {
     this.currentFrameIndex = 0;
     this.playheadMs = 0;
     this.discontinuityId = 0;
+    this.presented = null;
     this.frameCache.clear();
     this.onFrameCallback = null;
     this.onStateChangeCallback = null;

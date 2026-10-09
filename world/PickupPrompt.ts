@@ -12,7 +12,13 @@
  */
 
 let promptElement: HTMLDivElement | null = null;
-let currentOwner: string | null = null; // Track which system owns the prompt
+/**
+ * What each system wants shown, in the order they asked. The newest is on
+ * screen; hiding it brings back the one under it. One owner per element lost
+ * the other's prompt: next to a weapon spawn, walking off a dropped weapon took
+ * the spawn's prompt down too, and the spawn never asked again (W9).
+ */
+const requests = new Map<string, string>();
 
 function getOrCreateElement(): HTMLDivElement {
   if (!promptElement) {
@@ -70,8 +76,13 @@ function renderPromptContent(el: HTMLElement, text: string): void {
  * @param text - Prompt text to display (may contain a `[KEY]` keycap token)
  */
 export function showPickupPrompt(owner: string, text: string): void {
+  requests.delete(owner);
+  requests.set(owner, text);
+  render(text);
+}
+
+function render(text: string): void {
   const el = getOrCreateElement();
-  currentOwner = owner;
   renderPromptContent(el, text);
   el.style.opacity = "1";
   // inline-block (not inline-flex): the prompt is position:fixed, so inline-flex
@@ -82,16 +93,20 @@ export function showPickupPrompt(owner: string, text: string): void {
 }
 
 /**
- * Hide the pickup prompt, but only if the caller is the current owner.
+ * Withdraw this caller's prompt. Another system's still standing comes back.
  * @param owner - Must match the owner that called show()
  */
 export function hidePickupPrompt(owner: string): void {
-  if (currentOwner !== owner) return; // Don't hide another system's prompt
-  currentOwner = null;
+  if (!requests.delete(owner)) return; // Nothing of ours up
+  const remaining = [...requests.values()];
+  if (remaining.length > 0) {
+    render(remaining[remaining.length - 1]);
+    return;
+  }
   if (promptElement) {
     promptElement.style.opacity = "0";
     setTimeout(() => {
-      if (promptElement && !currentOwner) {
+      if (promptElement && requests.size === 0) {
         promptElement.style.display = "none";
       }
     }, 150);

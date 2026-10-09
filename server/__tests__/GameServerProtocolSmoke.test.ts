@@ -109,6 +109,21 @@ describe("GameServer protocol smoke (real socket)", () => {
     expect(chat?.senderName).toBe("chatter");
   });
 
+  // Every name is re-sent to every client in every snapshot's standings, so a
+  // name the client chose must arrive cleaned and capped, like chat.
+  it("cleans and caps a self-chosen player name", async () => {
+    const client = await connect();
+    client.send(MessageCodec.encodeJoin(`Long\nName${"x".repeat(5000)}`));
+    await client.waitForType(MessageType.JoinAccept);
+
+    client.send(MessageCodec.encodeChat("name check"));
+
+    const frame = await client.waitFor((f) => chatInSnapshot(f, "name check") !== null, 4000);
+    const name = chatInSnapshot(frame, "name check")?.senderName ?? "";
+    expect(name.startsWith("Long Name")).toBe(true);
+    expect(name.length).toBe(32);
+  });
+
   it("spawns a player entity after JoinGame, visible in later snapshots", async () => {
     const client = await connect();
     client.send(MessageCodec.encodeJoin("player1"));

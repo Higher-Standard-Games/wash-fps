@@ -31,13 +31,17 @@ export default defineConfig({
       "/": [
         {
           text: "Introduction",
-          items: [{ text: "What is Washiki Washoi?", link: "/introduction/" }],
+          items: [
+            { text: "What is Washiki Washoi?", link: "/introduction/" },
+            { text: "Glossary", link: "/introduction/glossary" },
+          ],
         },
         {
           text: "Getting Started",
           items: [
             { text: "Setup & First Run", link: "/getting-started/" },
             { text: "Project Structure", link: "/getting-started/project-structure" },
+            { text: "Troubleshooting Setup", link: "/getting-started/troubleshooting" },
           ],
         },
         {
@@ -45,10 +49,14 @@ export default defineConfig({
           collapsed: false,
           items: [
             { text: "Overview", link: "/player/" },
+            { text: "Your First Match", link: "/player/first-match" },
             { text: "Movement", link: "/player/movement" },
             { text: "Weapons", link: "/player/weapons" },
+            { text: "Damage & Combat", link: "/player/combat" },
             { text: "Pickups & Inventory", link: "/player/pickups-and-inventory" },
             { text: "HUD", link: "/player/hud" },
+            { text: "Match Flow & Screens", link: "/player/screens" },
+            { text: "Settings", link: "/player/settings" },
           ],
         },
         {
@@ -61,6 +69,7 @@ export default defineConfig({
             { text: "Deathmatch", link: "/gametypes/deathmatch" },
             { text: "Team Deathmatch", link: "/gametypes/team-deathmatch" },
             { text: "Search & Destroy", link: "/gametypes/search-and-destroy" },
+            { text: "Maps", link: "/gametypes/maps" },
           ],
         },
         {
@@ -68,6 +77,7 @@ export default defineConfig({
           collapsed: false,
           items: [
             { text: "Overview", link: "/multiplayer/" },
+            { text: "Lobby, Rooms & Accounts", link: "/multiplayer/lobby" },
             { text: "Connecting", link: "/multiplayer/connecting" },
             { text: "In-Game Chat", link: "/multiplayer/chat" },
             { text: "Demos", link: "/multiplayer/demos" },
@@ -89,6 +99,7 @@ export default defineConfig({
           items: [
             { text: "Overview", link: "/tools/" },
             { text: "Bot Intelligence Server", link: "/tools/bot-server" },
+            { text: "Bot Training", link: "/tools/bot-training" },
             { text: "Demo Cinematic", link: "/tools/demo-cinematic" },
           ],
         },

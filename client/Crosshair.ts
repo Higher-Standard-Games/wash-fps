@@ -11,6 +11,7 @@
 
 import { Cvar } from "../../../engine/core/Cvar";
 import type { CrosshairConfig } from "../../../shared/entities/WeaponDef";
+import { type HitLocationName, isHeadHit } from "./HitLocationName";
 
 // ============================================================================
 // Default Crosshair Config (fallback when weapon has no crosshair field)
@@ -37,9 +38,14 @@ export class Crosshair {
 
   // State
 
+  /** Aborted by dispose(), so the document listener below never outlives this overlay. */
+  private listeners: AbortController | null = null;
+
   // Damage flash
   private hitFlashUntil: number = 0; // performance.now() timestamp
   private readonly HIT_FLASH_DURATION = 200; // ms
+  /** A head hit holds the flash half as long again, so it reads as a different kind of hit. */
+  private readonly HEAD_HIT_FLASH_DURATION = 300; // ms
 
   static getInstance(): Crosshair {
     if (!Crosshair.instance) {
@@ -84,17 +90,24 @@ export class Crosshair {
     document.body.appendChild(this.container);
 
     // Hide crosshair when pointer lock is lost (pause menu / ESC)
-    document.addEventListener("pointerlockchange", () => {
-      if (!document.pointerLockElement && this.container) {
-        this.container.style.display = "none";
-      }
-    });
+    this.listeners = new AbortController();
+    document.addEventListener(
+      "pointerlockchange",
+      () => {
+        if (!document.pointerLockElement && this.container) {
+          this.container.style.display = "none";
+        }
+      },
+      { signal: this.listeners.signal },
+    );
   }
 
   /**
    * Remove DOM. Call when leaving game.
    */
   dispose(): void {
+    this.listeners?.abort();
+    this.listeners = null;
     if (this.container) {
       this.container.remove();
       this.container = null;
@@ -111,8 +124,9 @@ export class Crosshair {
   /**
    * Flash the crosshair with damage color. Called when local player deals damage.
    */
-  notifyHit(): void {
-    this.hitFlashUntil = performance.now() + this.HIT_FLASH_DURATION;
+  notifyHit(hitLocation?: HitLocationName): void {
+    const duration = isHeadHit(hitLocation) ? this.HEAD_HIT_FLASH_DURATION : this.HIT_FLASH_DURATION;
+    this.hitFlashUntil = performance.now() + duration;
   }
 
   // ========================================================================

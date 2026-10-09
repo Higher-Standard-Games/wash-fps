@@ -7,3 +7,6 @@ dist-docs/
 .DS_Store
 *.swp
 *.swo
+
+# Benchmark output
+bench/results/

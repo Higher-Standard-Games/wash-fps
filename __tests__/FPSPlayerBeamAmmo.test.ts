@@ -18,6 +18,7 @@ vi.mock("../../../engine/weapon/WeaponViewManager", () => {
   return { WeaponViewManager };
 });
 
+import { HUDState } from "../client/HUDState";
 import { clearLocalPowerups, setLocalPowerup } from "../client/LocalPowerupState";
 import { FPSPlayer } from "../FPSPlayer";
 
@@ -86,5 +87,26 @@ describe("FPSPlayer beam ammo presentation", () => {
     expect(weaponView.setBeamActive).not.toHaveBeenCalledWith(true, expect.anything());
     expect(weaponView.setBeamCharging).toHaveBeenCalledWith(0);
     player.dispose();
+  });
+
+  it("turns the beam off on death with fire still held, and keeps it off", () => {
+    const player = new FPSPlayer(makeController());
+    vi.spyOn(player.inventory, "getCurrentWeapon").mockReturnValue(BEAM_WEAPON);
+    vi.spyOn(player.inventory, "getCurrentWeaponId").mockReturnValue("voltaic");
+    vi.spyOn(player.inventory, "getLoadedAmmo").mockReturnValue(60);
+
+    player.update(1 / 60);
+    expect(weaponView.setBeamActive).toHaveBeenLastCalledWith(true, expect.anything());
+
+    // The death event turns it off once; the held fire turned it straight back on (L2).
+    HUDState.getInstance().localDead = true;
+    try {
+      player.update(1 / 60);
+      player.update(1 / 60);
+      expect(weaponView.setBeamActive).toHaveBeenLastCalledWith(false);
+    } finally {
+      HUDState.getInstance().localDead = false;
+      player.dispose();
+    }
   });
 });

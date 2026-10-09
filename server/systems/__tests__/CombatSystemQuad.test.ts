@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 import { POWERUP_DURATION_SECONDS } from "../../../../../shared/items/Powerups";
-import { CombatSystem, DamageType, HitLocation } from "../CombatSystem";
+import { CombatSystem, DamageType, HEAD_DAMAGE_MULTIPLIER, HitLocation } from "../CombatSystem";
 
 const TICK_RATE = 125;
 /** Comfortably beyond the tick used in these tests. */
@@ -105,12 +105,12 @@ describe("CombatSystem — quad damage", () => {
       damage: 10,
       armorPiercing: 0,
       damageType: DamageType.Bullet,
-      hitLocation: HitLocation.Head, // 2x
+      hitLocation: HitLocation.Head,
       knockbackDir: { x: 1, y: 0, z: 0 },
     });
     combat.update(state as never, 0.008, 10 as never);
-    // 10 base * 2 head * 4 quad = 80
-    expect(victim.health.health).toBe(1000 - 80);
+    // 10 base * 1.1 head * 4 quad = 44
+    expect(victim.health.health).toBe(1000 - Math.round(10 * HEAD_DAMAGE_MULTIPLIER * 4));
   });
 
   it("quadruples knockback too (Q3-classic scope)", () => {

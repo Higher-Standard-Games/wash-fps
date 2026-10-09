@@ -8,8 +8,8 @@
  *   - Grows slightly and fades out over 800ms while floating upward
  *   - Sized ~2-3x player model height for visibility
  *
- * Self-updating: registers its own onBeforeRender observer so it doesn't
- * depend on external update() calls from Game.
+ * Ticked by FrameEffects every frame, and only there: it used to tick itself
+ * from a render observer as well, which played every sprite at double speed.
  */
 
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
@@ -17,8 +17,8 @@ import { Texture } from "@babylonjs/core/Materials/Textures/texture";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
-import type { Observer } from "@babylonjs/core/Misc/observable";
 import type { Scene } from "@babylonjs/core/scene";
+import { devLog } from "./DevLog";
 
 // ============================================================================
 // Constants
@@ -73,8 +73,6 @@ export class CartoonHitEffect {
   private effects: CartoonHitInstance[] = [];
   private textures: Texture[] = [];
   private texturesLoaded: boolean = false;
-  private renderObserver: Observer<Scene> | null = null;
-  private lastTime: number = 0;
 
   private constructor() {}
 
@@ -87,7 +85,6 @@ export class CartoonHitEffect {
 
   /**
    * Initialize with the gameplay scene. Preloads textures.
-   * Registers a self-driving render observer.
    */
   init(scene: Scene): void {
     if (this.scene && this.scene !== scene) {
@@ -96,7 +93,6 @@ export class CartoonHitEffect {
     if (this.scene === scene) return;
 
     this.scene = scene;
-    this.lastTime = performance.now();
 
     // Preload sprite textures
     this.textures = HIT_SPRITES.map((path) => {
@@ -106,17 +102,7 @@ export class CartoonHitEffect {
     });
     this.texturesLoaded = true;
 
-    // Self-driving update — register on scene render loop
-    this.renderObserver = scene.onBeforeRenderObservable.add(() => {
-      const now = performance.now();
-      const dt = (now - this.lastTime) / 1000;
-      this.lastTime = now;
-      if (dt > 0 && dt < 1) {
-        this._update(dt);
-      }
-    });
-
-    console.log(`[CartoonHitEffect] Initialized with ${HIT_SPRITES.length} sprites (self-updating)`);
+    console.log(`[CartoonHitEffect] Initialized with ${HIT_SPRITES.length} sprites`);
   }
 
   /**
@@ -157,18 +143,8 @@ export class CartoonHitEffect {
     effect.mesh.setEnabled(true);
   }
 
-  /**
-   * External update entry point (called from FPSGameManager).
-   * Also called internally by the render observer — whichever fires first animates.
-   */
+  /** Animate all active effects; FrameEffects calls this every frame. */
   update(dt: number): void {
-    this._update(dt);
-  }
-
-  /**
-   * Internal update — animate all active effects.
-   */
-  private _update(dt: number): void {
     for (const effect of this.effects) {
       if (!effect.active) continue;
 
@@ -242,12 +218,6 @@ export class CartoonHitEffect {
    * Dispose all resources.
    */
   dispose(): void {
-    // Remove render observer
-    if (this.renderObserver && this.scene) {
-      this.scene.onBeforeRenderObservable.remove(this.renderObserver);
-      this.renderObserver = null;
-    }
-
     for (const effect of this.effects) {
       effect.mesh.dispose();
       effect.material.dispose();
@@ -261,6 +231,6 @@ export class CartoonHitEffect {
 
     this.scene = null;
     this.texturesLoaded = false;
-    console.log("[CartoonHitEffect] Disposed");
+    devLog("[CartoonHitEffect] Disposed");
   }
 }

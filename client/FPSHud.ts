@@ -20,6 +20,7 @@ import { UIStyles } from "../../../engine/ui/UIStyles";
 import { UITheme } from "../../../engine/ui/UITheme";
 import { getWeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
 import { toClientKey } from "../ClientEntityKey";
+import { devLog } from "./DevLog";
 import { HUDState } from "./HUDState";
 import { MatchPhase, MatchStateManager } from "./MatchStateManager";
 
@@ -85,7 +86,8 @@ export class FPSHud {
   // Phase 4: Dialogs & Menus
   private _pauseMenu: FPSPauseMenu | null = null;
   private _settings: FPSSettingsOverlay | null = null;
-  private _pointerLockHandler: (() => void) | null = null;
+  /** Aborted by destroy(), so document listeners never outlive this HUD (and keep it alive). */
+  private _listeners: AbortController | null = null;
   private _chatKeyHandler: ((e: KeyboardEvent) => void) | null = null;
   /** Single-match post-game: timer for the ~6s "open up" beat (mouse+chat+return). */
   private _openUpTimer: number | null = null;
@@ -277,16 +279,21 @@ export class FPSHud {
     });
 
     // 7. Listen for pointer lock changes (ESC releases pointer lock -> show pause menu)
-    this._pointerLockHandler = () => {
-      if (!document.pointerLockElement) {
-        // Pointer lock was lost (ESC pressed) — show the match menu
-        this.showMatchMenu();
-      } else {
-        // Pointer lock was acquired — close pause menu
-        this._pauseMenu?.close();
-      }
-    };
-    document.addEventListener("pointerlockchange", this._pointerLockHandler);
+    this._listeners?.abort();
+    this._listeners = new AbortController();
+    document.addEventListener(
+      "pointerlockchange",
+      () => {
+        if (!document.pointerLockElement) {
+          // Pointer lock was lost (ESC pressed) — show the match menu
+          this.showMatchMenu();
+        } else {
+          // Pointer lock was acquired — close pause menu
+          this._pauseMenu?.close();
+        }
+      },
+      { signal: this._listeners.signal },
+    );
 
     console.log(`[FPSHud] Initialized with ${this.widgets.size} widgets + overlays + dialogs`);
   }
@@ -334,7 +341,7 @@ export class FPSHud {
       const success = await theme.loadFont("Orbitron", fontPath, weight, true);
       if (success) orbitronLoaded++;
     }
-    console.log(`[FPSHud] Orbitron font loaded (${orbitronLoaded}/${orbitronWeights.length} weights)`);
+    devLog(`[FPSHud] Orbitron font loaded (${orbitronLoaded}/${orbitronWeights.length} weights)`);
 
     // Rajdhani (body font)
     const rajdhaniWeights = [
@@ -351,7 +358,7 @@ export class FPSHud {
       const success = await theme.loadFont("Rajdhani", fontPath, weight, true);
       if (success) rajdhaniLoaded++;
     }
-    console.log(`[FPSHud] Rajdhani font loaded (${rajdhaniLoaded}/${rajdhaniWeights.length} weights)`);
+    devLog(`[FPSHud] Rajdhani font loaded (${rajdhaniLoaded}/${rajdhaniWeights.length} weights)`);
 
     this.fontsLoaded = orbitronLoaded > 0 && rajdhaniLoaded > 0;
     if (!this.fontsLoaded) {
@@ -507,7 +514,7 @@ export class FPSHud {
     if (this.running) return;
     this.running = true;
     this.updateInterval = window.setInterval(() => this.update(), intervalMs);
-    console.log(`[FPSHud] Update loop started (${intervalMs}ms)`);
+    devLog(`[FPSHud] Update loop started (${intervalMs}ms)`);
   }
 
   /**
@@ -520,7 +527,7 @@ export class FPSHud {
       clearInterval(this.updateInterval);
       this.updateInterval = null;
     }
-    console.log("[FPSHud] Update loop stopped");
+    devLog("[FPSHud] Update loop stopped");
   }
 
   /**
@@ -616,6 +623,9 @@ export class FPSHud {
    */
   public destroy(): void {
     this.stop();
+
+    this._listeners?.abort();
+    this._listeners = null;
 
     if (this._chatKeyHandler) {
       document.removeEventListener("keydown", this._chatKeyHandler, true);

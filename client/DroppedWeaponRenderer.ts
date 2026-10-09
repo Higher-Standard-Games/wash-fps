@@ -19,6 +19,8 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import type { Scene } from "@babylonjs/core/scene";
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
+import { BspManager } from "../../../engine/loader/bsp/BspManager";
+import { bindLoaderLeftovers, disposeModelResources } from "../../../engine/loader/model/ModelSourceCache";
 import { describeModelRender } from "../../../engine/world/ModelRenderAudit";
 import { EntityRegistry } from "../../../shared/entities/EntityRegistry";
 import { hidePickupPrompt, showPickupPrompt } from "../world/PickupPrompt";
@@ -54,6 +56,8 @@ class DroppedWeaponVisual {
   private loadSource: "pending" | "cache-flat" | "fresh-flat" = "pending";
   /** Server's authoritative position — used to align visual after Havok settles */
   private serverPosition: Vector3 = Vector3.Zero();
+  /** Whether the camera can see it (set by the renderer, applied once the model is in). */
+  private visible = true;
 
   constructor(
     entityId: string,
@@ -111,7 +115,7 @@ class DroppedWeaponVisual {
 
       // If disposed during async load, clean up and bail
       if (this.disposed) {
-        if (result?.root) result.root.dispose();
+        if (result?.root) disposeModelResources([result.root], { animationGroups: result.animationGroups ?? [] });
         return;
       }
 
@@ -156,6 +160,7 @@ class DroppedWeaponVisual {
           }
 
           this.mesh = leaderMesh;
+          this.mesh.setEnabled(this.visible);
 
           // === BARREL SUB-MODELS ===
           // Load barrel GLBs (e.g. plasmagun dual chambers) and parent to leader
@@ -201,9 +206,10 @@ class DroppedWeaponVisual {
                 const file = barrelDef.modelPath.substring(lastSlash + 1);
                 const barrelResult = await ImportMeshAsync(file, this.scene, { rootUrl: dir });
                 if (this.disposed) {
-                  barrelResult.meshes[0]?.dispose(false, false);
+                  disposeModelResources([barrelResult.meshes[0]], { animationGroups: barrelResult.animationGroups });
                   break;
                 }
+                bindLoaderLeftovers(leaderMesh, null, barrelResult.animationGroups);
                 const barrelRoot = barrelResult.meshes[0];
                 if (barrelRoot) {
                   barrelRoot.parent = leaderMesh;
@@ -267,10 +273,14 @@ class DroppedWeaponVisual {
           }
         }
 
-        // Detach loader root without disposing children
+        // Detach loader root without disposing children. It goes with the
+        // weapon (it may hold a skinned weapon's bones), or now if nothing
+        // in it was worth drawing.
         if (result.root) {
           result.root.parent = null;
           result.root.setEnabled(false);
+          if (leaderMesh) bindLoaderLeftovers(leaderMesh, result.root, result.animationGroups ?? []);
+          else disposeModelResources([result.root], { animationGroups: result.animationGroups ?? [] });
         }
       }
     } catch (e) {
@@ -288,9 +298,15 @@ class DroppedWeaponVisual {
       const linVel = this.mesh.physicsBody.getLinearVelocity();
       const speed = linVel.length();
       if (speed < 2) {
-        // Freeze the body — physics done
-        this.mesh.physicsBody.setLinearVelocity(Vector3.Zero());
-        this.mesh.physicsBody.setAngularVelocity(Vector3.Zero());
+        // Physics done: the weapon goes to the server's position from here.
+        // A body left in the world, even stopped, had Havok write its place over
+        // that lerp every step, so the weapon could rest away from where pickup
+        // works, with the swap prompt showing where it fails (W3).
+        const name = this.mesh.name;
+        this.mesh.physicsBody.dispose();
+        import("../../../engine/physics/PhysicsSystem")
+          .then(({ PhysicsSystem }) => PhysicsSystem.getInstance().removeBody(name))
+          .catch(() => {});
         this.settled = true;
         if (this.settleCheckTimer) clearInterval(this.settleCheckTimer);
       }
@@ -298,6 +314,20 @@ class DroppedWeaponVisual {
   }
 
   /** Update server position from snapshot data */
+  /**
+   * Draw it or not. A hidden weapon keeps its model and physics body: out of
+   * view is not gone, and rebuilding it on the way back in re-tossed it.
+   */
+  setVisible(visible: boolean): void {
+    this.visible = visible;
+    this.mesh?.setEnabled(visible);
+  }
+
+  /** Where it is drawn: the model once loaded, the server's position before. */
+  get position(): Vector3 {
+    return this.mesh?.position ?? this.serverPosition;
+  }
+
   setServerPosition(x: number, y: number, z: number): void {
     this.serverPosition.set(x, y, z);
     if (this.useServerTransforms && this.mesh) {
@@ -339,16 +369,10 @@ class DroppedWeaponVisual {
         if (this.mesh.physicsBody) {
           this.mesh.physicsBody.dispose();
         }
-        // Dispose child meshes (other weapon parts parented to leader)
-        const children = this.mesh.getChildMeshes();
-        for (const child of children) {
-          child.parent = null;
-          // CRITICAL: dispose(false, false) — do NOT dispose shared materials!
-          // Materials are shared with AssetPreloader cache and other clones.
-          child.dispose(false, false);
-        }
-        // Dispose leader mesh — also don't dispose materials
-        this.mesh.dispose(false, false);
+        // The weapon, its parts and barrels, and the loader leftovers bound to
+        // it. Materials shared with the AssetPreloader cache and other clones
+        // are still drawn by them, so they stay; ones only this weapon used go.
+        disposeModelResources([this.mesh]);
       }
       this.mesh = null;
     }
@@ -365,8 +389,11 @@ export class DroppedWeaponRenderer {
   private disposed = false;
   private weapons: Map<string, DroppedWeaponVisual> = new Map();
 
-  /** Stashed initial velocities from weapon_drop events (entityId → velocity) */
-  private pendingVelocities: Map<string, Vector3> = new Map();
+  /** Stashed initial velocities from weapon_drop events (entityId → velocity, when) */
+  private pendingVelocities: Map<string, { velocity: Vector3; atMs: number }> = new Map();
+
+  /** How long after its weapon_drop event a weapon first seen is still in the air. */
+  private static readonly TOSS_FRESH_MS = 500;
 
   /** Currently tracked nearby dropped weapon for F prompt */
   private static nearbyDroppedWeapon: DroppedWeaponVisual | null = null;
@@ -389,7 +416,7 @@ export class DroppedWeaponRenderer {
    * by Havok when the corresponding item_ entity appears in snapshot.
    */
   stashVelocity(entityId: string, velocity: Vector3): void {
-    this.pendingVelocities.set(entityId, velocity);
+    this.pendingVelocities.set(entityId, { velocity, atMs: performance.now() });
     // Auto-clean after 5 seconds (if entity never appears)
     setTimeout(() => this.pendingVelocities.delete(entityId), 5000);
   }
@@ -400,7 +427,9 @@ export class DroppedWeaponRenderer {
    *
    * - New entity → spawn visual with Havok body
    * - Existing entity → let Havok handle position (update glow only)
-   * - Missing entity → dispose Havok body + visual
+   * - Missing entity → dispose Havok body + visual (the server sends every
+   *   dropped weapon regardless of PVS, so missing means picked up or expired)
+   * - Out of the camera's PVS → hidden, kept
    */
   syncServerEntities(entities: Map<string, DroppedWeaponInfo>): void {
     if (this.disposed) return;
@@ -433,8 +462,14 @@ export class DroppedWeaponRenderer {
         existing.update();
       } else if (info.weaponId) {
         // New entity — spawn visual with Havok physics
-        const vel = this.pendingVelocities.get(entityId);
+        // A toss only while the drop is fresh. One first seen seconds later has
+        // landed: thrown again from there, it hopped off its resting place (W7).
+        const pending = this.pendingVelocities.get(entityId);
         this.pendingVelocities.delete(entityId);
+        const vel =
+          pending && performance.now() - pending.atMs <= DroppedWeaponRenderer.TOSS_FRESH_MS
+            ? pending.velocity
+            : undefined;
 
         const visual = new DroppedWeaponVisual(
           entityId,
@@ -448,7 +483,15 @@ export class DroppedWeaponRenderer {
       }
     }
 
-    // 3. Check pickup proximity for live play only. Demo snapshot mode is
+    // 3. Hide what the camera cannot see. The server sends every dropped weapon
+    // (a missing one is gone), so PVS here only decides what is drawn, the same
+    // check remote players use.
+    const culler = BspManager.getInstance().getPvsCuller();
+    for (const visual of this.weapons.values()) {
+      visual.setVisible(!culler || culler.isPositionVisible(visual.position));
+    }
+
+    // 4. Check pickup proximity for live play only. Demo snapshot mode is
     // presentation-only and must never expose an interactive swap prompt.
     if (!this.useServerTransforms) this.checkPickupProximity();
   }

@@ -13,6 +13,7 @@
 import { PointLight } from "@babylonjs/core/Lights/pointLight";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { disposePlayerModel } from "../../../engine/animation/PlayerModelManager";
 import { CameraSystem } from "../../../engine/camera";
 import { log } from "../../../engine/core/Log";
 import { addToDynamicLightCluster, disposeClusteredLight } from "../../../engine/lighting/DynamicLightCluster";
@@ -23,10 +24,17 @@ import type { VelocityComponent } from "../../../engine/network/components/Veloc
 import type { GameState } from "../../../engine/network/core/GameState";
 import type { IGameHost } from "../../../engine/network/core/IGameHost";
 import {
+  type AwardSnapshotEvent,
   assertUnroutedEvent,
+  type ChatSnapshotEvent,
+  type DamageEvent,
+  type DeathEvent,
   type ElectroRailEvent,
   type SnapshotEvent,
   type VoltaicBeamEvent,
+  type WeaponDropEvent,
+  type WeaponFireEvent,
+  type WeaponStateEvent,
 } from "../../../engine/network/core/SnapshotEvent";
 import {
   BLADE_EXPLOSION,
@@ -40,8 +48,11 @@ import { getProjectileManager } from "../../../engine/weapon/ProjectileManager";
 import type { RailEffectSample } from "../../../engine/weapon/rail/RailProfiles";
 import { getWeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
 import { canonicalWeaponId, WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
+import { DEFAULT_PHYSICS_TICK_RATE } from "../../../shared/server/simulation/physics/constants";
 import { toClientKey } from "../ClientEntityKey";
 import type { ServerSnapshot, V2NetworkClient } from "../client";
+import { Crosshair } from "../client/Crosshair";
+import { DamageNumbers } from "../client/DamageNumbers";
 import type { DroppedWeaponInfo, DroppedWeaponRenderer } from "../client/DroppedWeaponRenderer";
 import {
   playDamageConfirmationSound,
@@ -59,15 +70,17 @@ import {
   playPowerupPickupSound,
   playPowerupSpawnSound,
 } from "../client/FPSPowerupAudio";
+import type { HitLocationName } from "../client/HitLocationName";
 import { HUDState } from "../client/HUDState";
 import { clearLocalPowerups, isLocalPowerupActive, setLocalPowerup } from "../client/LocalPowerupState";
-import { MatchStateManager } from "../client/MatchStateManager";
 import type { RemotePlayerRenderer } from "../client/RemotePlayerRenderer";
 import { FPSPlayer } from "../FPSPlayer";
 import type { PlayerStateUpdate } from "../Game";
 import { FPSPickup } from "../world/FPSPickup";
 import type { ServerAmmoState } from "../world/InventoryManager";
+import { devLog } from "./DevLog";
 import type { FollowedViewWeapon } from "./FollowedViewWeapon";
+import { networkHostOf } from "./NetworkHostAccess";
 
 /**
  * Mutable context shared with Game.
@@ -107,6 +120,7 @@ export interface GameEventContext {
   // Server projectile tracking
   serverProjectileDefIds: Map<string, string>;
   activeServerProjectiles: Set<string>;
+  projectileSeenTicks: Map<string, number>;
   projectileBuffer: SnapshotBuffer;
 
   // Death state
@@ -202,8 +216,8 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
   NetGraph.recordSnapshot(localPlayer?.ping ?? 0, state.tick);
 
   // Feed ClockSync offset to NetGraph for display
-  const networkHost = ctx.gameHost as any;
-  if (networkHost?.clockSync?.isSynced()) {
+  const networkHost = networkHostOf(ctx.gameHost);
+  if (networkHost?.clockSync.isSynced()) {
     NetGraph.setClockOffset(networkHost.clockSync.getOffset());
   }
 
@@ -225,332 +239,323 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
   const viewEntityId = ctx.spectatingEntityId ?? localEntityId;
 
   if (state.events && state.events.length > 0) {
-    const matchMgr = MatchStateManager.getInstance();
-
     // Dispatch by event type. Switching on the discriminated `type` (rather than
     // the old if/else-if chain with compound conditions) narrows each `event` so
     // field access is compiler-checked, and the exhaustive `default` catches an
     // unrouted type instead of letting it vanish silently (QA-6).
+    //
+    // Each event runs on its own: one that throws is logged and the rest of the
+    // snapshot still runs, so a failing effect cannot take the kill feed, the
+    // damage numbers or our own weapon sync with it.
     for (const event of state.events as SnapshotEvent[]) {
-      switch (event.type) {
-        case "match_state":
-          matchMgr.processEvent(event);
-          break;
+      try {
+        switch (event.type) {
+          case "match_state":
+            // Stored before anything else ran (storeSnapshotState), with every
+            // player's weapon_state and enemyWeapons.
+            break;
 
-        case "weapon_state":
-          if (event.entityId === localEntityId) {
-            handleWeaponStateSync(ctx, event);
-          } else if (event.currentWeapon) {
-            ctx.enemyWeapons.set(event.entityId, canonicalWeaponId(event.currentWeapon));
-          }
-          // Deliberately NOT part of the branch above. The local sync drives
-          // inventory, reload timing and prediction; a spectated player's state
-          // must reach the HUD and the viewmodel WITHOUT touching any of that,
-          // or watching someone reload would desync your own weapon.
-          if (ctx.spectatingEntityId && event.entityId === ctx.spectatingEntityId) {
-            handleSpectatedWeaponState(event, ctx.followedWeapon);
-          }
-          break;
-
-        case "weapon_fire": {
-          const localShooter = event.entityId === localEntityId;
-          playWeaponFireSound(event, event.entityId === viewEntityId);
-          // Quad layers its own crack over your weapon on every shot — the
-          // running reminder that this shot hits four times as hard.
-          if (localShooter && isLocalPowerupActive("quad")) playPowerupFireSound();
-          if (localShooter) {
-            const wvm = getWeaponViewManager();
-            const isProjectileFire = ctx._localCharging;
-            if (ctx._localCharging) ctx._localCharging = false;
-            wvm.fire({ isProjectileFire });
-          } else {
-            handleRemoteWeaponFire(event, ctx.remoteRenderer);
-            // Flash and kick the viewmodel when the person we are watching
-            // shoots. Only the presentation: their tracer is the one
-            // handleRemoteWeaponFire just drew.
-            if (ctx.spectatingEntityId === event.entityId) ctx.followedWeapon.fired();
-          }
-          break;
-        }
-
-        case "voltaic_beam": {
-          const localHero = event.entityId === localEntityId;
-          const weaponId = localHero ? ctx._lastServerWeapon : ctx.enemyWeapons.get(event.entityId);
-          handleVoltaicBeam(event, localHero, weaponId);
-          break;
-        }
-
-        case "electro_rail": {
-          // Authoritative Electrobolt rail truth (endpoint/normal/kind). Drives
-          // the procedural rail renderer for both the local shooter and remote
-          // players, so the visual endpoint always equals the damage endpoint
-          // (no through-wall client-picked rails). The weapon_fire path no longer
-          // draws a bolt for bolt weapons, so there is no double-draw.
-          const localHero = event.entityId === localEntityId;
-          const weaponId = localHero ? ctx._lastServerWeapon : ctx.enemyWeapons.get(event.entityId);
-          handleElectroRail(event, localHero, weaponId);
-          break;
-        }
-
-        case "weapon_charge":
-          if (event.entityId === localEntityId) {
-            ctx._localCharging = event.charging;
-          } else if (event.charging) {
-            ctx.chargingPlayers.add(event.entityId);
-          } else {
-            ctx.chargingPlayers.delete(event.entityId);
-            const glow = ctx.chargingGlows.get(event.entityId);
-            if (glow) {
-              disposeClusteredLight(glow);
-              ctx.chargingGlows.delete(event.entityId);
+          case "weapon_state":
+            if (event.entityId === localEntityId) {
+              handleWeaponStateSync(ctx, event);
             }
-          }
-          break;
-
-        case "weapon_chain": {
-          // Draw the chain-lightning arcs between the server-provided link points
-          // (primary → hop1 → hop2). Shown for all players, including the shooter.
-          const fx = getHitscanEffects();
-          const pts = event.points.map((p) => new Vector3(p.x, p.y, p.z));
-          const rgb = WEAPON_EFFECT_COLORS.voltaic;
-          const color = new Color3(rgb[0], rgb[1], rgb[2]);
-          for (let i = 0; i < pts.length - 1; i++) {
-            fx.fireLightningArc(pts[i], pts[i + 1], color);
-          }
-          break;
-        }
-
-        case "projectile_impact": {
-          playProjectileImpactSound(event);
-          const pos = new Vector3(event.x, event.y, event.z);
-          const projDefId =
-            event.defId === "glauncher"
-              ? "grenade"
-              : event.defId === "plasmagun"
-                ? "plasma_bolt"
-                : event.defId === "rlauncher"
-                  ? "rocket"
-                  : event.defId;
-
-          if (getProjectileManager().hasRecentPrediction(pos, projDefId)) {
-            continue;
-          }
-
-          const normal = new Vector3(event.normalX, event.normalY, event.normalZ);
-          // Projectiles are now identified by projectileId (F8: grenade/plasma_bolt/…);
-          // weapon-id forms kept as fallbacks for older demos. rocket (and unknowns)
-          // use the rocket explosion.
-          const config =
-            event.defId === "grenade" || event.defId === "glauncher"
-              ? GRENADE_EXPLOSION
-              : event.defId === "plasma_bolt" || event.defId === "plasmagun"
-                ? PLASMA_EXPLOSION
-                : event.defId === "blade_blast"
-                  ? BLADE_EXPLOSION
-                  : ROCKET_EXPLOSION;
-          getExplosionEffect().spawn(pos, config, normal);
-          break;
-        }
-
-        case "projectile_spawn":
-          ctx.serverProjectileDefIds.set(event.entityId, event.defId);
-          break;
-
-        case "combat_state":
-          // The HUD describes whoever the camera is behind. Resolved once, up
-          // front, rather than per-branch: both entities' combat_state arrive in
-          // the same snapshot, so a "local, then spectated" ordering assumption
-          // would put whichever came last on the bar.
-          if (event.entityId === viewEntityId) {
-            HUDState.getInstance().processCombatState(event);
-          }
-          if (ctx.spectatingEntityId && event.entityId === ctx.spectatingEntityId) {
-            ctx.followedWeapon.setDead(event.dead ?? false);
-          }
-          if (event.entityId === localEntityId) {
-            // Always ours, whoever the camera is following.
-            HUDState.getInstance().localDead = event.dead ?? false;
-            if (event.dead && !ctx._isPlayerDead) {
-              ctx._isPlayerDead = true;
-              ctx._respawnRequested = false;
-              ctx._respawnCooldownEnd = Date.now() + 3000;
-              console.log("[GameEvents] Local player died");
-              import("../../../engine/weapon/WeaponViewManager").then((m) => {
-                const wvm = m.getWeaponViewManager();
-                wvm.setVisible(false);
-                // Kill the continuous Voltaic beam (including legacy IDs) — death
-                // cuts fire input without firing the normal beam-stop edge, so it
-                // would otherwise stay stuck on screen through the respawn.
-                wvm.setBeamActive(false);
-              });
-            } else if (!event.dead && ctx._isPlayerDead) {
-              ctx._isPlayerDead = false;
-              ctx._respawnRequested = false;
-              console.log("[GameEvents] Local player respawned");
-              ctx._deathCamera?.stop();
-              if (ctx.v2Client) {
-                ctx.v2Client.resetForRespawn();
-              }
-              // A respawn moves the body without swimming it anywhere. Dying at
-              // the bottom of a pool and coming back dry is a water level going
-              // 3 to 0 with no surface broken, which would splash at the spawn
-              // point; forgetting makes the next report a baseline instead.
-              ctx.forgetLocalLiquid?.();
-              // And you come back with full lungs, not the ones you drowned on.
-              ctx.resetLocalAir?.();
-              import("../../../engine/weapon/WeaponViewManager").then((m) => {
-                m.getWeaponViewManager().setVisible(true);
-              });
+            // Deliberately NOT part of the branch above. The local sync drives
+            // inventory, reload timing and prediction; a spectated player's state
+            // must reach the HUD and the viewmodel WITHOUT touching any of that,
+            // or watching someone reload would desync your own weapon.
+            if (ctx.spectatingEntityId && event.entityId === ctx.spectatingEntityId) {
+              handleSpectatedWeaponState(event, ctx.followedWeapon);
             }
-          } else if (!event.dead && ctx.remoteRenderer) {
-            ctx.remoteRenderer.markAlive(event.entityId);
-          }
-          break;
+            break;
 
-        case "damage": {
-          HUDState.getInstance().processDamage(event);
-          playPlayerPainSound(event, event.entityId === viewEntityId);
-
-          // === INCOMING DAMAGE: the player on screen is the victim ===
-          if (event.entityId === viewEntityId && event.damage > 0) {
-            // Compute direction angle from attacker to victim
-            let damageAngle = Math.random() * Math.PI * 2; // fallback: random
-
-            if (event.attackerId && event.attackerId !== viewEntityId) {
-              // Get attacker position from state entities
-              const attackerEntity = state.entities.get(event.attackerId);
-              const attackerPos = attackerEntity?.getComponent("position") as
-                | { x: number; y: number; z: number }
-                | undefined;
-              const victimEntity = state.entities.get(viewEntityId || "");
-              const victimPos = victimEntity?.getComponent("position") as
-                | { x: number; y: number; z: number }
-                | undefined;
-
-              if (attackerPos && victimPos) {
-                // World-space direction from attacker to victim
-                const worldDx = attackerPos.x - victimPos.x;
-                const worldDz = attackerPos.z - victimPos.z;
-                const worldAngle = Math.atan2(worldDz, worldDx);
-
-                // Get camera yaw to convert to screen-space
-                const cam = CameraSystem.getInstance().getCamera() as any;
-                const cameraYaw = cam?.rotation?.y ?? 0;
-
-                // Screen-space angle: positive X = right, positive Y = down
-                damageAngle = worldAngle - cameraYaw;
-              }
-            }
-
-            // Trigger damage overlay (directional red triangles + vignette)
-            import("../../../engine/ui/hud/DamageOverlay").then((m) => {
-              m.DamageOverlay.getInstance().show(event.damage, damageAngle);
-            });
-
-            // Pain camera shake (all weapon types). Only our own: it lives in
-            // the FPS controller, which a spectate camera does not run.
-            const fpsCtrl = CameraSystem.getInstance().getController("fps");
-            if (event.entityId === localEntityId && fpsCtrl && "shakeCamera" in fpsCtrl) {
-              const painIntensity = Math.min(Math.max(event.damage / 100, 0.05), 0.6);
-              (fpsCtrl as any).shakeCamera(painIntensity);
-            }
-          }
-
-          // === OUTGOING DAMAGE: the player on screen is the attacker ===
-          if (event.attackerId && event.attackerId === viewEntityId) {
-            playDamageConfirmationSound(event);
-            import("../client/Crosshair").then((m) => m.Crosshair.getInstance().notifyHit());
-            if (event.x !== undefined && event.damage > 0) {
-              import("../client/DamageNumbers").then((m) => {
-                const dn = m.DamageNumbers.getInstance();
-                if (!(dn as any)["scene"]) {
-                  const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
-                  if (gameScene) dn.init(gameScene);
-                }
-                dn.spawn(event.x, event.y, event.z, event.damage);
-              });
-            }
-            if (event.x !== undefined && ctx._cartoonHit) {
-              ctx._cartoonHit.spawn(event.x, event.y, event.z, event.damage);
-            }
-          }
-          break;
-        }
-
-        case "death": {
-          const viewVictim = event.entityId === viewEntityId;
-          playPlayerDeathSound(event, viewVictim);
-          if (event.killerId === viewEntityId && !viewVictim) playKillEcho();
-          // Powerups do not survive death (GametypeController clears them on
-          // respawn); drop the timers now so the HUD and the quad fire layer
-          // stop immediately rather than at the next snapshot.
-          if (viewVictim) clearLocalPowerups();
-          if (ctx.spectatingEntityId && event.entityId === ctx.spectatingEntityId) ctx.followedWeapon.setDead(true);
-          handleDeathEvent(ctx, event, state);
-          break;
-        }
-
-        case "weapon_drop":
-          handleWeaponDrop(ctx, event);
-          break;
-
-        case "award":
-          handleAwardEvent(ctx, event);
-          break;
-
-        case "chat":
-          handleChatEvent(event);
-          break;
-
-        case "pickup_notify":
-          if (event.entityId === viewEntityId) {
-            // Server-authoritative pickup label for the player on screen (any item type).
-            const label = String(event.label ?? "");
-            // Powerups have their own, much louder confirmation — routing them
-            // through the generic pickup bank would play the weapon "clink".
-            if (isPowerupLabel(label)) {
-              playPowerupPickupSound();
+          case "weapon_fire": {
+            const localShooter = event.entityId === localEntityId;
+            playWeaponFireSound(event, event.entityId === viewEntityId);
+            // Quad layers its own crack over your weapon on every shot — the
+            // running reminder that this shot hits four times as hard.
+            if (localShooter && isLocalPowerupActive("quad")) playPowerupFireSound();
+            if (localShooter) {
+              const wvm = getWeaponViewManager();
+              const isProjectileFire = ctx._localCharging;
+              if (ctx._localCharging) ctx._localCharging = false;
+              wvm.fire({ isProjectileFire });
             } else {
-              playPickupSound(label);
+              handleRemoteWeaponFire(event, ctx.remoteRenderer);
+              // Flash and kick the viewmodel when the person we are watching
+              // shoots. Only the presentation: their tracer is the one
+              // handleRemoteWeaponFire just drew.
+              if (ctx.spectatingEntityId === event.entityId) ctx.followedWeapon.fired();
             }
-            import("./FPSHud")
-              .then(({ FPSHud }) => FPSHud.getInstance().pickupToast?.showPickup(label))
-              .catch(() => {});
+            break;
           }
-          break;
 
-        case "powerup_state":
-          if (event.entityId === viewEntityId) {
-            setLocalPowerup(String(event.kind ?? ""), Number(event.seconds ?? 0));
+          case "voltaic_beam": {
+            const localHero = event.entityId === localEntityId;
+            const weaponId = localHero ? ctx._lastServerWeapon : ctx.enemyWeapons.get(event.entityId);
+            handleVoltaicBeam(event, localHero, weaponId);
+            break;
           }
-          break;
 
-        case "powerup_spawn":
-          // Everyone hears the quad return, positioned at the item.
-          playPowerupSpawnSound({ x: event.x, y: event.y, z: event.z });
-          break;
+          case "electro_rail": {
+            // Authoritative Electrobolt rail truth (endpoint/normal/kind). Drives
+            // the procedural rail renderer for both the local shooter and remote
+            // players, so the visual endpoint always equals the damage endpoint
+            // (no through-wall client-picked rails). The weapon_fire path no longer
+            // draws a bolt for bolt weapons, so there is no double-draw.
+            const localHero = event.entityId === localEntityId;
+            const weaponId = localHero ? ctx._lastServerWeapon : ctx.enemyWeapons.get(event.entityId);
+            handleElectroRail(event, localHero, weaponId);
+            break;
+          }
 
-        case "item_pickup":
-          // Pickup visibility is reconciled from state.pickupActiveMask above; the
-          // one-shot item_pickup event is intentionally not dispatched here.
-          break;
+          case "weapon_charge":
+            if (event.entityId === localEntityId) {
+              ctx._localCharging = event.charging;
+            } else if (event.charging) {
+              ctx.chargingPlayers.add(event.entityId);
+            } else {
+              ctx.chargingPlayers.delete(event.entityId);
+              const glow = ctx.chargingGlows.get(event.entityId);
+              if (glow) {
+                disposeClusteredLight(glow);
+                ctx.chargingGlows.delete(event.entityId);
+              }
+            }
+            break;
 
-        case "agent_directives":
-          // Bot orders. Only ever addressed to one client, and only bots act on
-          // them — a human player's client has nothing to do with them. Handled
-          // explicitly so the exhaustiveness guard stays meaningful.
-          break;
+          case "weapon_chain": {
+            // Draw the chain-lightning arcs between the server-provided link points
+            // (primary → hop1 → hop2). Shown for all players, including the shooter.
+            const fx = getHitscanEffects();
+            const pts = event.points.map((p) => new Vector3(p.x, p.y, p.z));
+            const rgb = WEAPON_EFFECT_COLORS.voltaic;
+            const color = new Color3(rgb[0], rgb[1], rgb[2]);
+            for (let i = 0; i < pts.length - 1; i++) {
+              fx.fireLightningArc(pts[i], pts[i + 1], color);
+            }
+            break;
+          }
 
-        case "knockback_state":
-          // Restored with the matching authoritative position below, not as a
-          // one-shot impulse (which would apply snapshot velocity twice).
-          break;
+          case "projectile_impact": {
+            playProjectileImpactSound(event);
+            const pos = new Vector3(event.x, event.y, event.z);
+            const projDefId =
+              event.defId === "glauncher"
+                ? "grenade"
+                : event.defId === "plasmagun"
+                  ? "plasma_bolt"
+                  : event.defId === "rlauncher"
+                    ? "rocket"
+                    : event.defId;
 
-        default:
-          // Exhaustive: adding a SnapshotEvent member without a case above is a
-          // compile error here; an unknown runtime type warns instead of vanishing.
-          assertUnroutedEvent(event);
-          break;
+            if (getProjectileManager().hasRecentPrediction(pos, projDefId)) {
+              continue;
+            }
+
+            const normal = new Vector3(event.normalX, event.normalY, event.normalZ);
+            // Projectiles are now identified by projectileId (F8: grenade/plasma_bolt/…);
+            // weapon-id forms kept as fallbacks for older demos. rocket (and unknowns)
+            // use the rocket explosion.
+            const config =
+              event.defId === "grenade" || event.defId === "glauncher"
+                ? GRENADE_EXPLOSION
+                : event.defId === "plasma_bolt" || event.defId === "plasmagun"
+                  ? PLASMA_EXPLOSION
+                  : event.defId === "blade_blast"
+                    ? BLADE_EXPLOSION
+                    : ROCKET_EXPLOSION;
+            getExplosionEffect().spawn(pos, config, normal);
+            break;
+          }
+
+          case "projectile_spawn":
+            ctx.serverProjectileDefIds.set(event.entityId, event.defId);
+            break;
+
+          case "combat_state":
+            // The HUD describes whoever the camera is behind. Resolved once, up
+            // front, rather than per-branch: both entities' combat_state arrive in
+            // the same snapshot, so a "local, then spectated" ordering assumption
+            // would put whichever came last on the bar.
+            if (event.entityId === viewEntityId) {
+              HUDState.getInstance().processCombatState(event);
+            }
+            if (ctx.spectatingEntityId && event.entityId === ctx.spectatingEntityId) {
+              ctx.followedWeapon.setDead(event.dead ?? false);
+            }
+            if (event.entityId === localEntityId) {
+              // Always ours, whoever the camera is following.
+              HUDState.getInstance().localDead = event.dead ?? false;
+              if (event.dead && !ctx._isPlayerDead) {
+                ctx._isPlayerDead = true;
+                ctx._respawnRequested = false;
+                ctx._respawnCooldownEnd = Date.now() + 3000;
+                devLog("[GameEvents] Local player died");
+                import("../../../engine/weapon/WeaponViewManager").then((m) => {
+                  const wvm = m.getWeaponViewManager();
+                  wvm.setVisible(false);
+                  // Kill the continuous Voltaic beam (including legacy IDs) — death
+                  // cuts fire input without firing the normal beam-stop edge, so it
+                  // would otherwise stay stuck on screen through the respawn.
+                  wvm.setBeamActive(false);
+                });
+              } else if (!event.dead && ctx._isPlayerDead) {
+                ctx._isPlayerDead = false;
+                ctx._respawnRequested = false;
+                devLog("[GameEvents] Local player respawned");
+                ctx._deathCamera?.stop();
+                if (ctx.v2Client) {
+                  ctx.v2Client.resetForRespawn();
+                }
+                // A respawn moves the body without swimming it anywhere. Dying at
+                // the bottom of a pool and coming back dry is a water level going
+                // 3 to 0 with no surface broken, which would splash at the spawn
+                // point; forgetting makes the next report a baseline instead.
+                ctx.forgetLocalLiquid?.();
+                // And you come back with full lungs, not the ones you drowned on.
+                ctx.resetLocalAir?.();
+                import("../../../engine/weapon/WeaponViewManager").then((m) => {
+                  m.getWeaponViewManager().setVisible(true);
+                });
+              }
+            } else if (!event.dead && ctx.remoteRenderer) {
+              ctx.remoteRenderer.markAlive(event.entityId);
+            }
+            break;
+
+          case "damage": {
+            HUDState.getInstance().processDamage(event);
+            playPlayerPainSound(event, event.entityId === viewEntityId);
+
+            // === INCOMING DAMAGE: the player on screen is the victim ===
+            if (event.entityId === viewEntityId && event.damage > 0) {
+              // Compute direction angle from attacker to victim
+              let damageAngle = Math.random() * Math.PI * 2; // fallback: random
+
+              if (event.attackerId && event.attackerId !== viewEntityId) {
+                // Get attacker position from state entities
+                const attackerEntity = state.entities.get(event.attackerId);
+                const attackerPos = attackerEntity?.getComponent("position") as
+                  | { x: number; y: number; z: number }
+                  | undefined;
+                const victimEntity = state.entities.get(viewEntityId || "");
+                const victimPos = victimEntity?.getComponent("position") as
+                  | { x: number; y: number; z: number }
+                  | undefined;
+
+                if (attackerPos && victimPos) {
+                  // World-space direction from attacker to victim
+                  const worldDx = attackerPos.x - victimPos.x;
+                  const worldDz = attackerPos.z - victimPos.z;
+                  const worldAngle = Math.atan2(worldDz, worldDx);
+
+                  // Get camera yaw to convert to screen-space
+                  const cam = CameraSystem.getInstance().getCamera() as any;
+                  const cameraYaw = cam?.rotation?.y ?? 0;
+
+                  // Screen-space angle: positive X = right, positive Y = down
+                  damageAngle = worldAngle - cameraYaw;
+                }
+              }
+
+              // Trigger damage overlay (directional red triangles + vignette)
+              import("../../../engine/ui/hud/DamageOverlay").then((m) => {
+                m.DamageOverlay.getInstance().show(event.damage, damageAngle);
+              });
+
+              // Pain camera shake (all weapon types). Only our own: it lives in
+              // the FPS controller, which a spectate camera does not run.
+              const fpsCtrl = CameraSystem.getInstance().getController("fps");
+              if (event.entityId === localEntityId && fpsCtrl && "shakeCamera" in fpsCtrl) {
+                const painIntensity = Math.min(Math.max(event.damage / 100, 0.05), 0.6);
+                (fpsCtrl as any).shakeCamera(painIntensity);
+              }
+            }
+
+            // === OUTGOING DAMAGE: the player on screen is the attacker ===
+            if (event.attackerId && event.attackerId === viewEntityId) {
+              handleOutgoingDamage(ctx, event);
+            }
+            break;
+          }
+
+          case "death": {
+            const viewVictim = event.entityId === viewEntityId;
+            playPlayerDeathSound(event, viewVictim);
+            if (event.killerId === viewEntityId && !viewVictim) playKillEcho();
+            // Powerups do not survive death (GametypeController clears them on
+            // respawn); drop the timers now so the HUD and the quad fire layer
+            // stop immediately rather than at the next snapshot.
+            if (viewVictim) clearLocalPowerups();
+            if (ctx.spectatingEntityId && event.entityId === ctx.spectatingEntityId) ctx.followedWeapon.setDead(true);
+            handleDeathEvent(ctx, event, state);
+            break;
+          }
+
+          case "weapon_drop":
+            handleWeaponDrop(ctx, event);
+            break;
+
+          case "award":
+            handleAwardEvent(ctx, event);
+            break;
+
+          case "chat":
+            handleChatEvent(event);
+            break;
+
+          case "pickup_notify":
+            if (event.entityId === viewEntityId) {
+              // Server-authoritative pickup label for the player on screen (any item type).
+              const label = String(event.label ?? "");
+              // Powerups have their own, much louder confirmation — routing them
+              // through the generic pickup bank would play the weapon "clink".
+              if (isPowerupLabel(label)) {
+                playPowerupPickupSound();
+              } else {
+                playPickupSound(label);
+              }
+              import("./FPSHud")
+                .then(({ FPSHud }) => FPSHud.getInstance().pickupToast?.showPickup(label))
+                .catch(() => {});
+            }
+            break;
+
+          case "powerup_state":
+            if (event.entityId === viewEntityId) {
+              setLocalPowerup(String(event.kind ?? ""), Number(event.seconds ?? 0));
+            }
+            break;
+
+          case "powerup_spawn":
+            // Everyone hears the quad return, positioned at the item.
+            playPowerupSpawnSound({ x: event.x, y: event.y, z: event.z });
+            break;
+
+          case "item_pickup":
+            // Pickup visibility is reconciled from state.pickupActiveMask above; the
+            // one-shot item_pickup event is intentionally not dispatched here.
+            break;
+
+          case "agent_directives":
+            // Bot orders. Only ever addressed to one client, and only bots act on
+            // them — a human player's client has nothing to do with them. Handled
+            // explicitly so the exhaustiveness guard stays meaningful.
+            break;
+
+          case "knockback_state":
+            // Restored with the matching authoritative position below, not as a
+            // one-shot impulse (which would apply snapshot velocity twice).
+            break;
+
+          default:
+            // Exhaustive: adding a SnapshotEvent member without a case above is a
+            // compile error here; an unknown runtime type warns instead of vanishing.
+            assertUnroutedEvent(event);
+            break;
+        }
+      } catch (err) {
+        log.errorRateLimited("GameEvents", `${event.type} event failed:`, err);
       }
     }
   }
@@ -614,8 +619,8 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
   // === Remote player snapshot buffering ===
   if (ctx.remoteRenderer) {
     let serverLocalTime: number | undefined;
-    const nh = ctx.gameHost as any;
-    if (state.serverTimestamp && nh?.clockSync?.isSynced()) {
+    const nh = networkHostOf(ctx.gameHost);
+    if (state.serverTimestamp && nh?.clockSync.isSynced()) {
       serverLocalTime = nh.clockSync.toLocalTime(state.serverTimestamp);
     }
     ctx.remoteRenderer.pushSnapshot(state, localEntityId || "", serverLocalTime);
@@ -669,8 +674,8 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
   {
     let projectileSLT: number | undefined;
     // biome-ignore lint/suspicious/noExplicitAny: gameHost clockSync is duck-typed
-    const projNh = ctx.gameHost as any;
-    if (state.serverTimestamp && projNh?.clockSync?.isSynced()) {
+    const projNh = networkHostOf(ctx.gameHost);
+    if (state.serverTimestamp && projNh?.clockSync.isSynced()) {
       projectileSLT = projNh.clockSync.toLocalTime(state.serverTimestamp);
     }
     processProjectileEntities(
@@ -678,6 +683,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
       {
         active: ctx.activeServerProjectiles,
         defIds: ctx.serverProjectileDefIds,
+        seenTicks: ctx.projectileSeenTicks,
         buffer: ctx.projectileBuffer,
         forgetLiquid: ctx.forgetProjectileLiquid,
         muzzleForShot: ctx.spectatingEntityId
@@ -743,8 +749,8 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
 
 // ── Internal helpers ───────────────────────────────────────────────
 
-function handleDeathEvent(ctx: GameEventContext, event: any, state: GameState): void {
-  console.log(
+function handleDeathEvent(ctx: GameEventContext, event: DeathEvent, state: GameState): void {
+  devLog(
     `[Death] Event received: entity=${event.entityId} killer=${event.killerId} damageType=${event.damageType} finalDamage=${event.finalDamage} pos=(${event.x}, ${event.y}, ${event.z})`,
   );
   // Names are resolved here, where the players are known: the event carries
@@ -771,7 +777,9 @@ function handleDeathEvent(ctx: GameEventContext, event: any, state: GameState): 
 
   const damageType = event.damageType || event.weaponId || "";
   const finalDamage = event.finalDamage || 0;
-  const shouldGib = damageType === "rail" || (damageType === "explosion" && finalDamage >= 50);
+  // The bomb always gibs: its blasts are the round-end show, and a ragdoll would
+  // only fall over in the middle of it.
+  const shouldGib = damageType === "rail" || damageType === "bomb" || (damageType === "explosion" && finalDamage >= 50);
 
   // Local player death: the local player has no normal third-person model, so
   // create one for ragdoll deaths and bind the camera to the live ragdoll handle.
@@ -797,7 +805,7 @@ function handleDeathEvent(ctx: GameEventContext, event: any, state: GameState): 
       console.error("[Death] markDead error:", e);
     }
     if (event.x !== undefined) {
-      console.log(`[GibSystem] Gib death: dmgType=${damageType} dmg=${finalDamage}`);
+      devLog(`[GibSystem] Gib death: dmgType=${damageType} dmg=${finalDamage}`);
       let gibHandle: { getPosition(): Vector3 | null } | null = null;
       if (ctx._gibSystem) {
         gibHandle = ctx._gibSystem.spawn(event.x, event.y, event.z, event.velX || 0, event.velY || 0, event.velZ || 0);
@@ -818,7 +826,7 @@ function handleDeathEvent(ctx: GameEventContext, event: any, state: GameState): 
       }
     }
   } else {
-    console.log(`[RagdollSystem] Ragdoll death: dmgType=${damageType} dmg=${finalDamage}`);
+    devLog(`[RagdollSystem] Ragdoll death: dmgType=${damageType} dmg=${finalDamage}`);
     let model = null;
     try {
       if (ctx.remoteRenderer && event.entityId) {
@@ -832,9 +840,7 @@ function handleDeathEvent(ctx: GameEventContext, event: any, state: GameState): 
       ctx._ragdollSystem.spawn(model, event.kbDirX || 0, event.kbDirY || 0, event.kbDirZ || 0);
     } else if (model) {
       console.warn("[Death] RagdollSystem not ready, falling back to gibs");
-      if (model.mesh) model.mesh.dispose();
-      if (model.skeleton) model.skeleton.dispose();
-      if (model.anchor) model.anchor.dispose();
+      disposePlayerModel(model);
       if (event.x !== undefined && ctx._gibSystem) {
         ctx._gibSystem.spawn(event.x, event.y, event.z, event.velX || 0, event.velY || 0, event.velZ || 0);
       }
@@ -850,7 +856,7 @@ function handleDeathEvent(ctx: GameEventContext, event: any, state: GameState): 
   }
 }
 
-function startLocalRagdollDeathCamera(ctx: GameEventContext, event: any): void {
+function startLocalRagdollDeathCamera(ctx: GameEventContext, event: DeathEvent): void {
   const renderer = ctx.remoteRenderer;
   const ragdolls = ctx._ragdollSystem;
   const deathCamera = ctx._deathCamera;
@@ -897,7 +903,7 @@ function disposeDetachedModel(model: any): void {
   }
 }
 
-function handleWeaponDrop(ctx: GameEventContext, event: any): void {
+function handleWeaponDrop(ctx: GameEventContext, event: WeaponDropEvent): void {
   // Capture velocity from weapon_drop event for Havok physics.
   // The entity-driven system spawns the visual when the item_ entity
   // appears in snapshot, but needs the initial toss velocity from this event.
@@ -929,7 +935,7 @@ function handleWeaponDrop(ctx: GameEventContext, event: any): void {
  * Handle weapon_state event from server for the local player.
  * Syncs the client's inventory and weapon view with server state.
  */
-function handleWeaponStateSync(ctx: GameEventContext, event: any): void {
+export function handleWeaponStateSync(ctx: GameEventContext, event: WeaponStateEvent): void {
   const player = FPSPlayer.getInstance();
   if (!player) return;
 
@@ -959,6 +965,16 @@ function handleWeaponStateSync(ctx: GameEventContext, event: any): void {
   const slotIndex = serverWeapons.indexOf(serverWeapon);
   if (slotIndex >= 0) {
     player.getController().currentWeaponSlot = slotIndex;
+  }
+
+  // While we watch someone else, the HUD and the gun in hand are theirs
+  // (handleSpectatedWeaponState). Our own state arrives every snapshot and
+  // theirs only when it changes, so ours must stop here or it paints over
+  // theirs for good. Nothing is lost: the reconcile below compares against the
+  // gun on screen, so the first snapshot after the spectate ends puts ours back.
+  if (ctx.spectatingEntityId && ctx.spectatingEntityId !== event.entityId) {
+    ctx._lastServerWeapon = serverWeapon;
+    return;
   }
 
   // Update HUD
@@ -1039,7 +1055,7 @@ export function handleSpectatedWeaponState(
 /**
  * Spawn visual effects for another player's weapon fire.
  */
-export function handleRemoteWeaponFire(event: any, remoteRenderer: RemotePlayerRenderer | null): void {
+export function handleRemoteWeaponFire(event: WeaponFireEvent, remoteRenderer: RemotePlayerRenderer | null): void {
   const fx = getHitscanEffects();
   const projMgr = getProjectileManager();
 
@@ -1143,11 +1159,23 @@ export interface ProjectileSyncState {
   active: Set<string>;
   /** proj_ entityId → defId (from projectile_spawn events) */
   defIds: Map<string, string>;
+  /**
+   * proj_ entityId → the last snapshot tick it was in (or, before its first, the
+   * tick its type was first held). A projectile out of view keeps its type until
+   * it has been gone longer than any projectile lives.
+   */
+  seenTicks: Map<string, number>;
   /** Interpolation buffer for smooth in-flight motion */
   buffer: SnapshotBuffer;
   /** Drop a despawned projectile's liquid tracking, if the game is running one. */
   forgetLiquid?: (entityId: string) => void;
 }
+
+/**
+ * How long a projectile type is kept after the projectile was last in a
+ * snapshot: the longest projectile lifetime (10 s, `ProjectileSystem`) and a second.
+ */
+const PROJECTILE_FORGET_TICKS = 11 * DEFAULT_PHYSICS_TICK_RATE;
 
 export function processProjectileEntities(state: GameState, sync: ProjectileSyncState, serverLocalTime?: number): void {
   const projEntities = new Map<string, EntitySnapshot>();
@@ -1177,6 +1205,9 @@ export function processProjectileEntities(state: GameState, sync: ProjectileSync
       wallJumping: false,
     });
 
+    const seenBefore = sync.seenTicks.has(entityId);
+    sync.seenTicks.set(entityId, state.tick);
+
     if (!sync.active.has(entityId)) {
       const defId = sync.defIds.get(entityId);
       if (defId) {
@@ -1187,7 +1218,8 @@ export function processProjectileEntities(state: GameState, sync: ProjectileSync
         }
         const pos = new Vector3(posComp.x, posComp.y, posComp.z);
         const vel = velComp ? new Vector3(velComp.x, velComp.y, velComp.z) : Vector3.Zero();
-        const muzzle = sync.muzzleForShot?.(pos, vel);
+        // Only a new shot starts at a gun. One coming back into view is mid-flight.
+        const muzzle = seenBefore ? null : sync.muzzleForShot?.(pos, vel);
         projMgr.spawnFromServer(entityId, defId, pos, vel, muzzle);
         sync.active.add(entityId);
       } else {
@@ -1204,15 +1236,28 @@ export function processProjectileEntities(state: GameState, sync: ProjectileSync
   // Push to interpolation buffer
   sync.buffer.push(state.tick, projEntities, serverLocalTime);
 
-  // Despawn visuals for projectiles that disappeared
+  // Despawn visuals for projectiles that disappeared. Gone from the snapshot is
+  // either exploded or out of view (PVS), and the client cannot tell which, so
+  // the type is kept: projectile_spawn is sent once, and without it a projectile
+  // coming back into view would never be drawn again.
   for (const entityId of sync.active) {
     if (!aliveThisSnapshot.has(entityId)) {
       getProjectileManager().despawnByEntityId(entityId);
       sync.active.delete(entityId);
-      sync.defIds.delete(entityId);
       // Drop its liquid tracking too, or a recycled entity id inherits a
       // "was in water" flag from a projectile that already exploded.
       sync.forgetLiquid?.(entityId);
+    }
+  }
+
+  // Types are forgotten by age instead: projectile_impact carries no entity id.
+  for (const entityId of sync.defIds.keys()) {
+    const seen = sync.seenTicks.get(entityId);
+    if (seen === undefined) {
+      sync.seenTicks.set(entityId, state.tick);
+    } else if (state.tick - seen > PROJECTILE_FORGET_TICKS) {
+      sync.defIds.delete(entityId);
+      sync.seenTicks.delete(entityId);
     }
   }
 }
@@ -1221,9 +1266,9 @@ export function processProjectileEntities(state: GameState, sync: ProjectileSync
 
 /** In-game chat event → HUD chat log (also fires during demo playback). */
 // biome-ignore lint/suspicious/noExplicitAny: duck-typed snapshot event
-function handleChatEvent(event: any): void {
+function handleChatEvent(event: ChatSnapshotEvent): void {
   try {
-    console.log(`[Chat] event ← server: ${event.senderName}: "${event.text}"`);
+    devLog(`[Chat] event ← server: ${event.senderName}: "${event.text}"`);
     const name = event.senderName || "unknown";
     const prefix = event.team === "spectator" ? "[SPEC] " : "";
     import("./FPSHud")
@@ -1236,15 +1281,45 @@ function handleChatEvent(event: any): void {
   }
 }
 
+/**
+ * A damage event with the place the hit landed. The engine's `DamageEvent` type does not name
+ * it yet; the field is optional, and an event without it is a body hit.
+ */
+export type LocatedDamageEvent = DamageEvent & { hitLocation?: HitLocationName };
+
+/**
+ * The player on screen dealt damage: confirm it with a sound, a crosshair flash, a
+ * floating number and the cartoon hit effect.
+ *
+ * Runs for every hit, so it uses the modules this file already imports rather than
+ * loading them on demand: `Crosshair` and `DamageNumbers` are loaded at start-up by
+ * `Game.ts` and `DemoService.ts`, so a dynamic import here split nothing off and only
+ * added a promise per hit.
+ */
+export function handleOutgoingDamage(ctx: GameEventContext, event: LocatedDamageEvent): void {
+  playDamageConfirmationSound(event);
+  Crosshair.getInstance().notifyHit(event.hitLocation);
+  if (event.x !== undefined && event.damage > 0) {
+    const numbers = DamageNumbers.getInstance();
+    // init() does nothing once the numbers have a scene, and spawn() does nothing
+    // until they have one, so there is nothing to check first.
+    const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
+    if (gameScene) numbers.init(gameScene);
+    numbers.spawn(event.x, event.y, event.z, event.damage, event.hitLocation);
+  }
+  if (event.x !== undefined && ctx._cartoonHit) {
+    ctx._cartoonHit.spawn(event.x, event.y, event.z, event.damage);
+  }
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: duck-typed snapshot event
-function handleAwardEvent(ctx: GameEventContext, event: any): void {
+function handleAwardEvent(ctx: GameEventContext, event: AwardSnapshotEvent): void {
   const awardType: string = event.awardType || "";
   const playerId: string = event.playerId || "";
   const playerName: string = event.playerName || "";
   const targetName: string = event.targetName || "";
 
-  console.log(`[Award] ${playerName}: ${awardType} (target=${targetName}, value=${event.value})`);
-  console.log(`[Award] Compare: event.playerId='${playerId}' ctx.localPlayerId='${ctx.localPlayerId}'`);
+  devLog(`[Award] ${playerName}: ${awardType} (target=${targetName}, value=${event.value})`);
 
   // Match against multiple ID formats since server/client may use different formats
   const isLocalPlayer =

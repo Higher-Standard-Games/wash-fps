@@ -23,6 +23,7 @@ import type {
 } from "@shared/server/gametype";
 import { emptyPlayerStats, MatchPhase, normalizeTeamId } from "@shared/server/gametype";
 import { clearPowerups } from "@shared/server/simulation/components/PowerupComponent";
+import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulation/physics/constants";
 import type { Vec3 } from "@shared/server/simulation/types";
 import { log } from "../../../../engine/core/Log";
 import type { BspEntity, BspModel } from "../../../../engine/loader/bsp/BspLoader";
@@ -30,7 +31,8 @@ import type { CollisionWorld } from "../../../../engine/network/systems/collisio
 import { Contents } from "../../../../engine/network/systems/collision/CollisionWorld";
 import { rngFrom } from "../../../../shared/DeterministicRng";
 import { toClientKey } from "../../ClientEntityKey";
-import type { CombatSystem } from "../systems/CombatSystem";
+import { debugLog } from "../DebugLog";
+import { type CombatSystem, DamageType, HitLocation } from "../systems/CombatSystem";
 import type { WeaponSystem } from "../systems/WeaponSystem";
 import { type AwardEvent, AwardTracker } from "./AwardTracker";
 import type { BaseGametype, GametypeTickContext, RoundOutcome } from "./BaseGametype";
@@ -166,7 +168,7 @@ export class GametypeController {
 
     const protection = this.matchConfig.teamSpawnProtection ?? 0;
     if (protection > 0 && this.gametype.teamBased) {
-      const windowTicks = Math.floor(protection * 125);
+      const windowTicks = Math.floor(protection * TICK_RATE);
       combat.setDamageFilter((event, tick) => this.allowDamage(event, tick, windowTicks));
       console.log(`[GametypeController] Team spawn protection: ${protection}s`);
     }
@@ -398,8 +400,10 @@ export class GametypeController {
       spawnRng,
       this.spawnSetFor(finalTeamId),
     );
-    console.log(
-      `[GametypeController] Base spawn: (${baseSpawn.x.toFixed(0)}, ${baseSpawn.y.toFixed(0)}, ${baseSpawn.z.toFixed(0)})`,
+    debugLog(
+      "spawn",
+      () =>
+        `[GametypeController] Base spawn: (${baseSpawn.x.toFixed(0)}, ${baseSpawn.y.toFixed(0)}, ${baseSpawn.z.toFixed(0)})`,
     );
     const spawn = this.jitterSpawn(baseSpawn, spawnRng);
 
@@ -586,12 +590,12 @@ export class GametypeController {
 
           // Queue respawn with min/max timers (Warsow-style)
           const config = this.matchConfig;
-          const minDelay = Math.floor(config.respawnDelay * 125);
-          const maxDelay = Math.floor((config.maxRespawnDelay ?? config.respawnDelay * 2) * 125);
+          const minDelay = Math.floor(config.respawnDelay * TICK_RATE);
+          const maxDelay = Math.floor((config.maxRespawnDelay ?? config.respawnDelay * 2) * TICK_RATE);
 
           // Drop all weapons on death
           if (this.weaponSystem) {
-            this.weaponSystem.dropAllWeapons(kill.victimId);
+            this.weaponSystem.dropAllWeapons(kill.victimId, { x: kill.victimX, y: kill.victimY, z: kill.victimZ });
           }
 
           this.respawnQueue.push({
@@ -839,8 +843,10 @@ export class GametypeController {
       entity.input.wantsRespawn = false;
     }
 
-    console.log(
-      `[GametypeController] Respawned entity ${entityId} at (${spawn.x.toFixed(0)}, ${spawn.y.toFixed(0)}, ${spawn.z.toFixed(0)})`,
+    debugLog(
+      "spawn",
+      () =>
+        `[GametypeController] Respawned entity ${entityId} at (${spawn.x.toFixed(0)}, ${spawn.y.toFixed(0)}, ${spawn.z.toFixed(0)})`,
     );
   }
 
@@ -1021,7 +1027,28 @@ export class GametypeController {
       defendingTeam: this.matchState.defendingTeam,
       teamOf: (playerId: PlayerId) => this.matchState.getPlayerTeam(playerId),
       credit: (playerId: PlayerId, kind: "plant" | "defuse") => this.recordObjective(playerId, kind),
+      blast: (entityId: EntityId, damage: number, push: Vec3) => this.queueBlast(entityId, damage, push),
     };
+  }
+
+  /**
+   * A bomb blast, as a hit from no one.
+   *
+   * No attacker, so no frag, no suicide and no damage stat for anybody, and the
+   * spawn-protection filter lets it through. It only ever lands in the round-end
+   * intermission, where the kill step counts no score and no death either: the
+   * round is decided, and the blast is the show, not a second chance at it.
+   */
+  private queueBlast(entityId: EntityId, damage: number, push: Vec3): void {
+    this.combatSystem?.queueDamage({
+      victimId: entityId,
+      damage,
+      // Armor is no help against the thing the round was about.
+      armorPiercing: 1,
+      damageType: DamageType.Bomb,
+      hitLocation: HitLocation.Body,
+      knockbackDir: push,
+    });
   }
 
   /**
@@ -1171,8 +1198,10 @@ export class GametypeController {
 
     // Pick a valid candidate (seeded → deterministic for demo re-sim, R3b).
     const chosen = valid[Math.floor(rng() * valid.length)];
-    console.log(
-      `[GametypeController] Spawn jitter: ${valid.length}/9 valid, chose (${chosen.x.toFixed(0)}, ${chosen.y.toFixed(0)}, ${chosen.z.toFixed(0)}) from base (${base.x.toFixed(0)}, ${base.y.toFixed(0)}, ${base.z.toFixed(0)})`,
+    debugLog(
+      "spawn",
+      () =>
+        `[GametypeController] Spawn jitter: ${valid.length}/9 valid, chose (${chosen.x.toFixed(0)}, ${chosen.y.toFixed(0)}, ${chosen.z.toFixed(0)}) from base (${base.x.toFixed(0)}, ${base.y.toFixed(0)}, ${base.z.toFixed(0)})`,
     );
     return chosen;
   }

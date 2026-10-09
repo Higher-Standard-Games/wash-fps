@@ -11,7 +11,7 @@
 
 import type { WorldState } from "@engine/server/core/WorldState";
 import type { Entity } from "@engine/server/ecs/Entity";
-import type { PlayerId, TickNumber } from "@engine/server/ecs/types";
+import type { EntityId, PlayerId, TickNumber } from "@engine/server/ecs/types";
 import type {
   AgentDirective,
   AgentDirectiveContext,
@@ -82,6 +82,14 @@ export interface GametypeTickContext {
    * round result instead of ending the round directly.
    */
   credit(playerId: PlayerId, kind: "plant" | "defuse"): void;
+  /**
+   * Hurt a player with the bomb's blast, credited to no one.
+   *
+   * `push` is the direction the blast throws them, from the blast to the
+   * player. A callback for the same reason as `credit`: the mode decides who
+   * is hit, the controller owns the combat system that applies it.
+   */
+  blast(entityId: EntityId, damage: number, push: Vec3): void;
 }
 
 /**

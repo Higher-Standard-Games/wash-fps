@@ -3,15 +3,7 @@ import { EntityType, playerId } from "@engine/server/ecs/types";
 import { MatchPhase } from "@shared/server/gametype";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@engine/server/network/transport/WebSocketTransport", () => {
-  class FakeTransport {
-    async start(): Promise<void> {}
-    async stop(): Promise<void> {}
-    broadcastDatagram(): void {}
-    broadcastReliable(): void {}
-  }
-  return { WebSocketServerTransport: FakeTransport };
-});
+vi.mock("@engine/server/network/transport/WebSocketTransport", () => import("./_fakeTransport"));
 
 import type { PickupEntry } from "../../../../shared/bsp/PickupTable";
 import { GameServer, type GameServerConfig } from "../GameServer";

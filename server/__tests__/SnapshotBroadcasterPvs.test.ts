@@ -62,4 +62,27 @@ describe("SnapshotBroadcaster PVS filtering", () => {
     const aliveView = filter.filterStateForClient(state, client);
     expect([...aliveView.entities.keys()]).toEqual(["player_10"]);
   });
+
+  it("sends every dropped weapon, whatever the PVS, and still culls players and projectiles", () => {
+    const viewer = { transform: { position: { x: 0, y: 0, z: 0 } }, health: { dead: false } };
+    const simulation = { getState: () => ({ getEntity: () => viewer }) } as unknown as Simulation;
+    const broadcaster = new SnapshotBroadcaster(simulation);
+    broadcaster.setPVS({ enabled: true, isVisible: () => false } as unknown as ServerPVS);
+
+    const state = new GameState();
+    state.entities.set("player_10", spatialEntity("player_10", 0));
+    state.entities.set("player_20", spatialEntity("player_20", 900));
+    state.entities.set("item_7", spatialEntity("item_7", 900));
+    state.entities.set("proj_8", spatialEntity("proj_8", 900));
+    state.players.set("player_1", player("player_10", "udon"));
+    state.players.set("player_2", player("player_20", "soba"));
+
+    const client = { playerId: 1, entityId: 10 } as unknown as ClientInfo;
+    const filter = broadcaster as unknown as {
+      filterStateForClient(value: GameState, info: ClientInfo): GameState;
+    };
+    // A dropped weapon out of view used to be left out, which the client read as
+    // picked up: it disposed the weapon and rebuilt it on the way back in.
+    expect([...filter.filterStateForClient(state, client).entities.keys()]).toEqual(["player_10", "item_7"]);
+  });
 });

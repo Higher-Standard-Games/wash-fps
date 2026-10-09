@@ -243,10 +243,9 @@ export class FPSPickup extends Pickup {
             } else if (attachment) {
               barrelRoot.rotationQuaternion = null;
               barrelRoot.rotation.copyFrom(attachment.rotation);
-            } else if (tagOff) {
+            } else if (tagOff && barrelTag) {
               barrelRoot.rotationQuaternion = null;
-              // biome-ignore lint/style/noNonNullAssertion: presence checked one line up
-              barrelRoot.rotation.set(barrelTag!.rotation.x, barrelTag!.rotation.y, barrelTag!.rotation.z);
+              barrelRoot.rotation.set(barrelTag.rotation.x, barrelTag.rotation.y, barrelTag.rotation.z);
             } else {
               barrelRoot.rotationQuaternion = null;
               barrelRoot.rotation.setAll(0);
@@ -316,6 +315,16 @@ export class FPSPickup extends Pickup {
     }
 
     FPSPickup.setNearbyWeapon(this);
+  }
+
+  /**
+   * Taken by someone else, the pickup stops its proximity checks, so the
+   * "out of range" that takes the prompt down never came: it stayed up until the
+   * weapon respawned (W5).
+   */
+  public override setActiveState(active: boolean): void {
+    super.setActiveState(active);
+    if (!active && FPSPickup.nearbyWeaponPickup === this) FPSPickup.clearNearbyWeapon();
   }
 
   // ═════════════════════════════════════════════════════════════════

@@ -17,6 +17,7 @@ import type { WorldState } from "@engine/server/core/WorldState";
 import type { EntityId, TickNumber } from "@engine/server/ecs/types";
 import { EntityType } from "@engine/server/ecs/types";
 import type { ItemRespawnMode } from "@shared/server/gametype";
+import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulation/physics/constants";
 // Shared pickup table (client+server agree on ids) + pure grant math.
 import type { PickupEntry, PickupType } from "../../../../shared/bsp/PickupTable";
 import {
@@ -38,8 +39,6 @@ function isDefaultWeapon(w: string): boolean {
 
 /** Must match InputButtons.USE from engine/network/components/InputComponent.ts */
 const USE_BUTTON = 1 << 11;
-
-const TICK_RATE = 125;
 
 /** Default per-type respawn times (seconds). Weapons overridable via setRespawnTime. */
 const DEFAULT_RESPAWN_SECONDS = {
@@ -447,7 +446,7 @@ export class PickupSystem extends Subsystem {
         if (!hasRoom && !alreadyHasWeapon && !useJustPressed) continue;
 
         // Try to add weapon to player's inventory
-        const result = this.weaponSystem.addWeapon(player.id, pickup.kind);
+        const result = this.weaponSystem.addWeapon(player.id, pickup.kind, player.transform.position);
 
         // addWeapon returns added=false for BOTH "already owned (ammo given)" AND "can't swap (holding default weapon)"
         // Only consume pickup if weapon was added or ammo was given (player already had it)
@@ -512,7 +511,7 @@ export class PickupSystem extends Subsystem {
 
           // Add weapon to player's inventory
           const alreadyHadWeapon = this.weaponSystem.getWeapons(player.id).includes(meta.weaponId);
-          const result = this.weaponSystem.addWeapon(player.id, meta.weaponId);
+          const result = this.weaponSystem.addWeapon(player.id, meta.weaponId, player.transform.position);
 
           // Set correct ammo from dropped weapon:
           // - New weapon: override addWeapon's default ammo with exact meta.ammo

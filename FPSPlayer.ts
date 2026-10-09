@@ -5,6 +5,8 @@ import { Color3 } from "@babylonjs/core/Maths/math.color";
 import type { FPSController } from "../../engine/camera/controllers/FPSController";
 import { WeaponViewManager } from "../../engine/weapon/WeaponViewManager";
 import type { WeaponDef } from "../../shared/entities";
+import { devLog } from "./client/DevLog";
+import { HUDState } from "./client/HUDState";
 import { isLocalPowerupActive } from "./client/LocalPowerupState";
 import { MatchStateManager } from "./client/MatchStateManager";
 import {
@@ -135,7 +137,7 @@ export class FPSPlayer {
 
     this.isReloading = true;
     this.reloadTimer = weapon.reloadTime || 0.6;
-    console.log(`Reloading... (${this.reloadTimer}s)`);
+    devLog(`[FPSPlayer] Reloading... (${this.reloadTimer}s)`);
 
     WeaponViewManager.getInstance().startReload(weapon.reloadTime || 0.6);
   }
@@ -144,7 +146,7 @@ export class FPSPlayer {
     this.isReloading = false;
     // Ammo movement is server-authoritative; weapon_state reconciliation updates
     // InventoryManager once the server finishes the reload.
-    console.log("Reload animation complete.");
+    devLog("[FPSPlayer] Reload animation complete.");
   }
 
   private switchWeapon(slotIndex: number): void {
@@ -162,7 +164,7 @@ export class FPSPlayer {
     // which will update currentWeaponId in syncFromServer().
     // Animation blocking is handled by setWeaponSwitchBlockedCheck callback.
     WeaponViewManager.getInstance().switchWeaponAnimated(weaponId);
-    console.log(`Switching to weapon: ${weaponId}`);
+    devLog(`[FPSPlayer] Switching to weapon: ${weaponId}`);
   }
 
   private updateFiring(_deltaTime: number): void {
@@ -170,7 +172,10 @@ export class FPSPlayer {
     // the controller directly (not the server input command, which is already
     // frozen), so without this the held mouse still charges/fires the beam and
     // swings melee locally. Only chat + "leave lobby" stay live in PostGame.
-    if (MatchStateManager.getInstance().isPostGame()) {
+    // Dead, the same: fire held through a death kept the beam latch on, so the
+    // beam drew from the corpse, or from a watched teammate's eyes in S&D,
+    // where fire picks the next teammate (L2).
+    if (MatchStateManager.getInstance().isPostGame() || HUDState.getInstance().localDead) {
       this.stopBeamPresentation();
       this.fireReleased = true;
       return;

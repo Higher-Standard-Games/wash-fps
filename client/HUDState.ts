@@ -14,6 +14,7 @@
  */
 
 import type { GameState } from "../../../engine/network/core/GameState";
+import type { CombatStateEvent, DamageEvent, DeathEvent } from "../../../engine/network/core/SnapshotEvent";
 import { clientKeyDisplayId } from "../ClientEntityKey";
 import { MatchStateManager } from "./MatchStateManager";
 
@@ -168,7 +169,7 @@ export class HUDState {
   /**
    * Process a combat_state event (health/armor for local player).
    */
-  processCombatState(event: any): void {
+  processCombatState(event: CombatStateEvent): void {
     this.health = event.health ?? 100;
     this.armor = event.armor ?? 0;
     this.dead = event.dead ?? false;
@@ -192,7 +193,7 @@ export class HUDState {
   /**
    * Process a damage event (for floating damage numbers).
    */
-  processDamage(event: any): void {
+  processDamage(event: DamageEvent): void {
     this.damageNumbers.push({
       entityId: event.entityId ?? "",
       attackerId: event.attackerId ?? "",
@@ -205,7 +206,7 @@ export class HUDState {
   /**
    * Process a death event (kill feed).
    */
-  processDeath(event: any, parties: DeathParties): void {
+  processDeath(event: DeathEvent, parties: DeathParties): void {
     const victimId = event.entityId ?? "";
     const killerId = event.killerId ?? "";
     const local = parties.localEntityId;

@@ -7,15 +7,16 @@
  * weapon, dropped at a clear world spot in front of the frozen camera. Disposed
  * when the next warmup begins.
  *
- * A dedicated "diorama" camera then frames the winner as a centered, straight-on
- * hero shot composed relative to the MODEL (not the death spot), so the shot looks
+ * A dedicated "diorama" camera then frames the winner as a straight-on hero shot
+ * in the left third of the screen, beside the result board, composed relative to the MODEL (not the death spot), so the shot looks
  * the same every match regardless of where the fight ended. The map remains the
  * backdrop; a fuller vista/backdrop composition (§8) is still future work.
  */
 
 import type { Camera } from "@babylonjs/core/Cameras/camera";
-import type { PlayerModelInstance } from "../../../engine/animation/PlayerModelManager";
+import { disposePlayerModel, type PlayerModelInstance } from "../../../engine/animation/PlayerModelManager";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
+import { devLog } from "./DevLog";
 import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
 
 /** Distance in front of the camera to place the model (world/Quake units).
@@ -33,7 +34,7 @@ const SHOWCASE_MIN_DISTANCE = 60;
 const SHOWCASE_WALL_PADDING = 24;
 
 // ── Diorama camera ────────────────────────────────────────────────────
-// A dedicated camera frames the winner as a CENTERED, straight-on hero shot,
+// A dedicated camera frames the winner as a straight-on hero shot in the left third,
 // placed relative to the MODEL (not the death spot) so the composition is
 // identical every match — no more "model in a weird map position" (#5). It sits
 // in front of the model, where the player was standing (clear space), so it
@@ -46,6 +47,12 @@ const DIORAMA_EYE_HEIGHT = 40;
 const DIORAMA_LOOK_HEIGHT = 36;
 /** Vertical field of view (radians). */
 const DIORAMA_FOV = 0.8;
+/**
+ * Where across the screen the model stands, as a fraction of its width: the
+ * left third, the stage of the post-game composition. The board fills the right
+ * column and never comes left of 45%, so the model is never under it.
+ */
+const DIORAMA_FRAME_X = 0.3;
 
 let currentModel: PlayerModelInstance | null = null;
 let generation = 0;
@@ -63,7 +70,7 @@ export async function startPostGameShowcase(
 ): Promise<void> {
   stopPostGameShowcase();
   if (!renderer || !winnerEntityId) {
-    console.log(`[PostGameShowcase] skipped — renderer=${!!renderer} entityId=${winnerEntityId}`);
+    devLog(`[PostGameShowcase] skipped — renderer=${!!renderer} entityId=${winnerEntityId}`);
     return;
   }
 
@@ -74,12 +81,12 @@ export async function startPostGameShowcase(
     getScene?: () => import("@babylonjs/core/scene").Scene;
   } | null;
   if (!cam?.position) {
-    console.log("[PostGameShowcase] skipped — no camera");
+    devLog("[PostGameShowcase] skipped — no camera");
     return;
   }
   const scene = cam.getScene?.();
   if (!scene) {
-    console.log("[PostGameShowcase] skipped — no scene");
+    devLog("[PostGameShowcase] skipped — no scene");
     return;
   }
 
@@ -111,7 +118,7 @@ export async function startPostGameShowcase(
   if (hit?.hit && hit.pickedPoint) {
     const hitDistance = Vector3.Distance(origin, hit.pickedPoint);
     distance = Math.min(distance, Math.max(SHOWCASE_MIN_DISTANCE, hitDistance - SHOWCASE_WALL_PADDING));
-    console.log(`[PostGameShowcase] wall at ${hitDistance.toFixed(0)} — clamped to ${distance.toFixed(0)}`);
+    devLog(`[PostGameShowcase] wall at ${hitDistance.toFixed(0)} — clamped to ${distance.toFixed(0)}`);
   }
 
   const x = cam.position.x + dir.x * distance;
@@ -120,7 +127,7 @@ export async function startPostGameShowcase(
   // Face the camera exactly (yaw from model position back to the camera).
   const facingCameraYaw = Math.atan2(cam.position.x - x, cam.position.z - z);
 
-  console.log(
+  devLog(
     `[PostGameShowcase] spawning winner model: entity=${winnerEntityId} weapon=${weaponId ?? "none"} at (${x.toFixed(0)}, ${y.toFixed(0)}, ${z.toFixed(0)})`,
   );
   const model = await renderer.createDetachedModelAtAsync(winnerEntityId, x, y, z, facingCameraYaw);
@@ -152,7 +159,7 @@ export async function startPostGameShowcase(
     child.isVisible = true;
   }
 
-  // Dedicated diorama camera: a centered, straight-on hero shot framed relative
+  // Dedicated diorama camera: a straight-on hero shot in the left third, framed relative
   // to the MODEL, so the winner is composed identically every match regardless of
   // where the fight ended. It sits in front of the model (where the player was
   // standing = clear space), clamped to the available distance so it can't clip a
@@ -174,8 +181,16 @@ export async function startPostGameShowcase(
     z + (faceZ / faceLen) * camDist,
   );
   const diorama = new FreeCamera("postgame_diorama", dioramaPos, scene);
-  diorama.setTarget(new Vector3(x, y + DIORAMA_LOOK_HEIGHT, z));
   diorama.fov = DIORAMA_FOV;
+  diorama.setTarget(new Vector3(x, y + DIORAMA_LOOK_HEIGHT, z));
+  // Aim past the model to its right, so it stands at DIORAMA_FRAME_X across the
+  // screen rather than in the middle. At the model's distance, half the screen's
+  // width spans camDist * tan(fov / 2) * aspect.
+  const aspect = engine.getRenderWidth() / Math.max(1, engine.getRenderHeight());
+  const lateral = (1 - 2 * DIORAMA_FRAME_X) * camDist * Math.tan(DIORAMA_FOV / 2) * aspect;
+  diorama.getViewMatrix(true);
+  const right = diorama.getDirection(Vector3.Right());
+  diorama.setTarget(new Vector3(x + right.x * lateral, y + DIORAMA_LOOK_HEIGHT, z + right.z * lateral));
   diorama.minZ = 1;
   diorama.maxZ = 10000;
   diorama.inputs.clear();
@@ -188,7 +203,7 @@ export async function startPostGameShowcase(
   if (weaponId) {
     renderer
       .attachShowcaseWeapon(model, weaponId)
-      .then(() => console.log(`[PostGameShowcase] weapon attached: ${weaponId}`))
+      .then(() => devLog(`[PostGameShowcase] weapon attached: ${weaponId}`))
       .catch((e) => console.warn("[PostGameShowcase] weapon attach failed", e));
   }
 
@@ -200,7 +215,7 @@ export async function startPostGameShowcase(
     const dances = [...DANCE_ANIMS].sort(() => Math.random() - 0.5);
     for (const dance of dances) {
       if (PlayerModelManager.playAnimationOn(model, dance)) {
-        console.log(`[PostGameShowcase] victory dance: ${dance}`);
+        devLog(`[PostGameShowcase] victory dance: ${dance}`);
         break;
       }
     }
@@ -240,14 +255,8 @@ function removeDioramaCamera(): void {
 
 function disposeModel(model: PlayerModelInstance): void {
   try {
-    // biome-ignore lint/suspicious/noExplicitAny: best-effort cleanup across model shapes
-    const m = model as any;
-    m.attachedWeapon?.dispose?.(false, true);
-    m.masterGroup?.stop?.();
-    m.masterGroup?.dispose?.();
-    m.mesh?.dispose?.();
-    m.skeleton?.dispose?.();
-    m.anchor?.dispose?.();
+    // The shared path: the gun goes with the loader leftovers bound to it.
+    disposePlayerModel(model);
   } catch {
     /* best-effort */
   }

@@ -13,10 +13,10 @@ This manual covers the game. The engine that runs underneath it has its own manu
 | [Introduction](./introduction/) | What the game is and what shipped |
 | [Getting Started](./getting-started/) | Setup, first run, dedicated server |
 | [Player Manual](./player/) | Controls, movement, weapons, pickups, HUD |
-| [Gametypes](./gametypes/) | Duel, Deathmatch, Team Deathmatch, Search & Destroy |
-| [Multiplayer](./multiplayer/) | Lobby flow, connecting, demos |
+| [Gametypes](./gametypes/) | Duel, Amphi, Deathmatch, Team Deathmatch, Search & Destroy |
+| [Multiplayer](./multiplayer/) | Lobby, rooms and accounts, connecting, chat, demos |
 | [Developer](./developer/) | Architecture, adding weapons + gametypes, server commands |
-| [Tools](./tools/) | Bot Intelligence Server, cinematic demo player |
+| [Tools](./tools/) | Bot Intelligence Server, bot training, cinematic demo player |
 | [FAQ](./faq/) | Troubleshooting |
 
 ---

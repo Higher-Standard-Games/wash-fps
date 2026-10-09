@@ -420,4 +420,41 @@ describe("CinematicDemoPlayer", () => {
     player.update(16);
     expect(viewer.setSpeed).toHaveBeenCalledWith(kf.speed);
   });
+  it("stops on the reel's last shot instead of playing on unedited", async () => {
+    await player.loadAndPlay(new Uint8Array(8), 2);
+    const reel = (player as unknown as { reel: import("../../../../shared/demo/SequenceBuilder").CinematicReel }).reel!;
+    const lastSeg = reel.segments[reel.segments.length - 1];
+    viewer.getInfo.mockReturnValue({ ...viewer.getInfo(), currentTick: lastSeg.endTick + 1 });
+    for (let i = 0; i < reel.segments.length; i++) player.update(16);
+
+    expect(player.getState()).toBe("ended");
+    // The viewer kept running from wherever the last highlight ended, under a
+    // camera nothing drove any more (D6).
+    expect(viewer.pause).toHaveBeenCalled();
+    expect(viewer.pause.mock.invocationCallOrder.at(-1)!).toBeGreaterThan(viewer.play.mock.invocationCallOrder.at(-1)!);
+  });
+
+  it("aims and zooms a flyby through the free-fly controller's own camera", async () => {
+    await player.loadAndPlay(new Uint8Array(8), 2);
+    const reel = (player as unknown as { reel: import("../../../../shared/demo/SequenceBuilder").CinematicReel }).reel!;
+    const seg = reel.segments[0];
+    const paths = (
+      player as unknown as { cameraPaths: import("../../../../shared/demo/CinematicCameraPaths").CameraPathResult[] }
+    ).cameraPaths;
+    paths[seg.segmentIndex] = {
+      type: "freefly",
+      keyframes: [{ tick: seg.startTick, position: { x: 0, y: 0, z: 0 }, lookAt: { x: 100, y: 0, z: 0 }, fov: 60 }],
+    } as import("../../../../shared/demo/CinematicCameraPaths").CameraPathResult;
+    // In the game the camera system's camera is an ArcRotateCamera: no free camera.
+    cameraSystem.getFreeCamera.mockReturnValue(null);
+    const flyCam = makeMockFreeCamera();
+    const freefly = cameraSystem.getController("freefly") as Record<string, unknown>;
+    freefly.getCamera = () => flyCam;
+    viewer.getInfo.mockReturnValue({ ...viewer.getInfo(), currentTick: seg.startTick });
+
+    player.update(16);
+
+    expect(flyCam.rotation.set).toHaveBeenCalledWith(-0, Math.PI / 2, 0);
+    expect(flyCam.fov).toBeCloseTo(Math.PI / 3);
+  });
 });

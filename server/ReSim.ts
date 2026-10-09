@@ -138,6 +138,20 @@ export function resimulate(spawns: ReSimSpawn[], log: RecordedCmd[], ticks: numb
  * R10 work.
  */
 export function resimulateFull(spawns: ReSimSpawn[], log: RecordedCmd[], ticks: number): ReSimResult {
+  const run = createFullResim(spawns, log);
+  const perTickChecksum: number[] = [];
+  for (let t = 0; t < ticks; t++) perTickChecksum.push(run.step(t));
+  return { perTickChecksum, finalChecksum: run.checksum() };
+}
+
+/**
+ * The full-stack re-sim, one tick at a time.
+ *
+ * `resimulateFull` runs it to the end; this exposes the steps so a caller can time each tick
+ * (the benchmarks do) or stop early. Nothing about the simulation differs: the same
+ * subsystems, the same command delivery, the same damage forwarding order.
+ */
+export function createFullResim(spawns: ReSimSpawn[], log: RecordedCmd[]) {
   const sim = new Simulation({ tickMs: 8 });
   const movement = new FPSMovementSubsystem();
   const weapon = new WeaponSystem();
@@ -171,25 +185,29 @@ export function resimulateFull(spawns: ReSimSpawn[], log: RecordedCmd[], ticks: 
     else byTick.set(c.tick, [c]);
   }
 
-  const perTickChecksum: number[] = [];
-  for (let t = 0; t < ticks; t++) {
-    const cmds = byTick.get(t);
-    if (cmds) {
-      const cur = sim.getStateMut();
-      for (const { entityId: eid, cmd } of cmds) {
-        const e = cur.getEntityMut(entityId(eid));
-        if (e?.input) e.input.inputQueue.push({ ...cmd });
+  return {
+    /** Run tick `t` (delivering the commands recorded for it) and return the state checksum after it. */
+    step(t: number): number {
+      const cmds = byTick.get(t);
+      if (cmds) {
+        const cur = sim.getStateMut();
+        for (const { entityId: eid, cmd } of cmds) {
+          const e = cur.getEntityMut(entityId(eid));
+          if (e?.input) e.input.inputQueue.push({ ...cmd });
+        }
       }
-    }
-    sim.tick();
-    // Forward weapon + projectile damage into combat (applied next tick), exactly
-    // as GameServer.tick does — deterministic ordering.
-    for (const dmg of weapon.getPendingDamage()) combat.queueDamage(dmg);
-    for (const dmg of projectile.getPendingDamage()) combat.queueDamage(dmg);
-    perTickChecksum.push(stateChecksum(sim.getState()));
-  }
-
-  return { perTickChecksum, finalChecksum: stateChecksum(sim.getState()) };
+      sim.tick();
+      // Forward weapon + projectile damage into combat (applied next tick), exactly
+      // as GameServer.tick does — deterministic ordering.
+      for (const dmg of weapon.getPendingDamage()) combat.queueDamage(dmg);
+      for (const dmg of projectile.getPendingDamage()) combat.queueDamage(dmg);
+      return stateChecksum(sim.getState());
+    },
+    /** The checksum of the state as it is now. */
+    checksum(): number {
+      return stateChecksum(sim.getState());
+    },
+  };
 }
 
 export interface VerifyResult {

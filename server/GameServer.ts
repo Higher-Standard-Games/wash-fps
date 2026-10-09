@@ -20,6 +20,7 @@ import type { MatchResultReport } from "@engine/server/network/MatchResultReport
 // Transport
 import type { ClientConnection, Transport, TransportConfig } from "@engine/server/network/transport/WebSocketTransport";
 import { WebSocketServerTransport } from "@engine/server/network/transport/WebSocketTransport";
+import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulation/physics/constants";
 import type { Vec3 } from "@shared/server/simulation/types";
 import { log } from "../../../engine/core/Log";
 import type { BspEntity, BspModel } from "../../../engine/loader/bsp/BspLoader";
@@ -35,12 +36,13 @@ import { MatchPhase } from "../../../shared/server/gametype/GametypeTypes";
 import { describeLoadout, parseLoadout } from "../../../shared/server/gametype/Loadout";
 import { sanitizeCommand } from "../../../shared/server/simulation/InputSanitizer";
 import { toClientKey } from "../ClientEntityKey";
-import { nextAckedTick, rateLimited } from "./AuthorityGuards";
+import { cleanClientText, nextAckedTick, rateLimited } from "./AuthorityGuards";
 // Bot names
 import { getNextBotName } from "./BotNames";
 // Client types (shared with SnapshotBuilder, SnapshotBroadcaster)
 import type { ClientInfo, GameServerConfig } from "./Client";
 import { ClientSilenceMonitor } from "./ClientSilenceMonitor";
+import { debugEnabled, debugLog } from "./DebugLog";
 // Demo recording
 import { DemoRecorder } from "./DemoRecorder";
 import type { AwardEvent } from "./gametypes/AwardTracker";
@@ -65,6 +67,14 @@ import { WeaponSystem } from "./systems/WeaponSystem";
 import { Telemetry } from "./Telemetry";
 
 export type { ClientInfo, GameServerConfig };
+
+/**
+ * Whether a 5 s tick-rate sample means the server fell behind: under 95% of the target rate, or a
+ * single tick whose work took longer than two ticks (one tick over budget is an ordinary GC pause).
+ */
+export function isBehind(measuredHz: number, targetHz: number, maxTickWorkMs: number): boolean {
+  return measuredHz < targetHz * 0.95 || maxTickWorkMs > 2000 / targetHz;
+}
 
 /**
  * Whether a socket address is loopback. Used to only trust a client's self-
@@ -101,6 +111,8 @@ export class GameServer {
   private snapshotSentAtMs = new Map<number, number>();
   /** Matches the broadcaster's snapshot history, the oldest tick a client can ack. */
   private static readonly SENT_AT_HISTORY = 64;
+  /** Shortest gap between answered pings: a quarter of the client's burst spacing, so ordinary jitter does not cost a sample. */
+  private static readonly PING_MIN_GAP_MS = 25;
   /** Weight of a fresh sample. Low enough that one stalled frame is not "your ping". */
   private static readonly PING_SMOOTHING = 0.25;
   private nextPlayerId: number = 1;
@@ -156,6 +168,13 @@ export class GameServer {
 
   // Chat limits (server-authoritative; over-limit messages dropped, log-only)
   private static readonly CHAT_MAX_LENGTH = 128;
+  /**
+   * Longest name the server keeps for a player who names themselves (a lobby
+   * seat's name comes from the lobby). The profile allows 16 and bot names are
+   * shorter; the cap matters because every name is re-sent to every client in
+   * every snapshot's standings.
+   */
+  private static readonly NAME_MAX_LENGTH = 32;
   private static readonly CHAT_MIN_INTERVAL_MS = 600;
   private static readonly CHAT_BURST_WINDOW_MS = 5000;
   private static readonly CHAT_BURST_MAX = 5;
@@ -188,6 +207,15 @@ export class GameServer {
   constructor(config: GameServerConfig, gametype?: BaseGametype) {
     this.config = config;
     this.matchAdmission = config.matchAdmission ? new MatchAdmission(config.matchAdmission) : null;
+
+    // The game runs at one fixed tick rate. Gameplay timers, the shared simulation, the
+    // bomb model and lag compensation all count in 125 Hz ticks, so any other rate would
+    // quietly stretch or shrink every delay. Refuse it here rather than run wrong.
+    if (config.tickRate !== TICK_RATE) {
+      throw new Error(
+        `[GameServer] tickRate must be ${TICK_RATE} Hz (got ${config.tickRate}): gameplay timers and the shared simulation assume it`,
+      );
+    }
 
     // One immutable timing contract: tick, snapshot cadence, lifecycle timers.
     // Validates the config up front (rejects unrepresentable rates) and owns
@@ -720,6 +748,11 @@ export class GameServer {
         // sockets stay open — players hang in a world frozen where it stood,
         // with nothing further logged. Say what happened and keep ticking.
         log.errorRateLimited("GameServer", "Tick failed, the loop continues:", err);
+        // A tick that threw never advanced its deadline, which is still in the
+        // past, so the next callback would run at once and retry it: back to back
+        // at setTimeout(0) speed for as long as the fault lasts. Skip to the next
+        // deadline instead, so a persistent fault costs ticks, not a core.
+        if (this.nextTickAt <= performance.now()) this.nextTickAt = performance.now() + tickMs;
       } finally {
         this.scheduleNextTick();
       }
@@ -772,17 +805,22 @@ export class GameServer {
     }
   }
 
-  /** Log actual wall-clock tick rate every ~5s so timing regressions are visible. */
+  /**
+   * Measure the wall-clock tick rate every ~5s. It prints on its own only when the server fell
+   * behind (under 95% of the target rate, or one tick's work took longer than two ticks), so a timing
+   * regression still shows; an on-target line every 5s is `SHAG_DEBUG=tickrate`.
+   */
   private logTickRateDiagnostic(): void {
     const now = performance.now();
     const elapsed = now - this.diagLastLog;
     if (elapsed < 5000) return;
     const hz = (this.diagTickCount * 1000) / elapsed;
-    console.log(
+    const line = () =>
       `[GameServer] tickrate: ${hz.toFixed(1)}Hz actual (target ${this.config.tickRate}Hz), ` +
-        `${this.diagTickCount} ticks / ${(elapsed / 1000).toFixed(1)}s, maxTickWork ${this.diagMaxTickMs.toFixed(1)}ms`,
-    );
-    this.logClientTelemetry();
+      `${this.diagTickCount} ticks / ${(elapsed / 1000).toFixed(1)}s, maxTickWork ${this.diagMaxTickMs.toFixed(1)}ms`;
+    if (isBehind(hz, this.config.tickRate, this.diagMaxTickMs)) console.warn(`${line()} (behind)`);
+    else debugLog("tickrate", line);
+    if (debugEnabled("telemetry")) this.logClientTelemetry();
     this.diagLastLog = now;
     this.diagTickCount = 0;
     this.diagMaxTickMs = 0;
@@ -790,7 +828,7 @@ export class GameServer {
 
   /**
    * Emit one structured [Telemetry] line per playing client (~every 5s, on the
-   * tick-rate diagnostic cadence): uplink jitter/loss, the view-angular-speed
+   * tick-rate diagnostic cadence, with `SHAG_DEBUG=telemetry`): uplink jitter/loss, the view-angular-speed
    * aim-flick signal, and the anti-warp strike count composed from
    * MovementValidator. Shape is stable for a future admin view / WO-13 to parse.
    */
@@ -825,14 +863,6 @@ export class GameServer {
     // 0. Reset anti-warp per-tick counters
     this.movementValidator.onTick();
 
-    // 0.5. Cache entity positions for weapon drop spawning
-    const preTickState = this.simulation.getState();
-    for (const entity of preTickState.allEntities()) {
-      if (entity.transform && entity.ownerId !== undefined) {
-        this.weaponSystem.cacheEntityPosition(entity.id, entity.transform.position);
-      }
-    }
-
     // 0.7. Post-game input freeze — zero movement/actions (keep look) while the
     // scoreboard screen is up, so the fight visibly ends when the match does.
     this.gametypeController.applyPostGameInputFreeze(this.simulation.getStateMut());
@@ -863,9 +893,6 @@ export class GameServer {
     const recentKills = this.combatSystem.getRecentKills();
     if (recentKills.length > 0) {
       this.pendingKillEvents.push(...recentKills);
-      console.log(
-        `[GameServer] Cached ${recentKills.length} kill events for snapshot broadcast (total pending: ${this.pendingKillEvents.length})`,
-      );
     }
 
     // 3. Run gametype controller post-tick (kills, respawns, match state)
@@ -1011,13 +1038,17 @@ export class GameServer {
 
       // Notify gametype
       this.gametypeController.onPlayerDisconnect(client.playerId, client.entityId);
+      this.weaponSystem.forget(client.entityId);
 
       // Remove from anti-warp tracker
-      this.movementValidator.removeClient(client.playerId);
+      this.movementValidator.forgetClient(client.playerId);
+      this.lagCompensation.forgetClient(client.playerId);
       this.telemetry.remove(client.playerId);
     } else {
       // Spectating preserves session state; a real disconnect must release it.
       this.gametypeController.onPlayerDisconnect(client.playerId);
+      this.movementValidator.forgetClient(client.playerId);
+      this.lagCompensation.forgetClient(client.playerId);
     }
 
     this.clients.delete(conn.id);
@@ -1058,8 +1089,13 @@ export class GameServer {
     const humansConnected = [...this.clients.values(), ...this.suspended.clients()].some((c) => !c.isBot);
     if (this.config.shutdownOnEmpty && this.hasHadClients && !humansConnected) {
       console.log("[GameServer] No human clients remaining — shutting down in 5 seconds...");
+      // One countdown at a time. Each bot leaving after the match used to start
+      // another and orphan the last, and a connect cancels only the newest.
+      if (this.shutdownTimer) clearTimeout(this.shutdownTimer);
       this.shutdownTimer = setTimeout(() => {
-        if (![...this.clients.values()].some((c) => !c.isBot)) {
+        this.shutdownTimer = null;
+        // Held seats count, as above: a player mid-resume needs the server.
+        if (![...this.clients.values(), ...this.suspended.clients()].some((c) => !c.isBot)) {
           console.log("[GameServer] Auto-shutdown: no human clients remaining");
           this.stop().then(() => process.exit(0));
         }
@@ -1178,32 +1214,18 @@ export class GameServer {
         const { tick } = MessageCodec.decodeAck(data);
         this.recordAckRoundTrip(client, tick);
         client.lastAckedTick = nextAckedTick(client.lastAckedTick, tick, Number(this.simulation.currentTick));
-        if (tick % 1000 === 0) {
-          console.log(`[GameServer] Client ${client.playerId} acked tick ${tick}`);
-        }
       } else if (msgType === MessageType.Ping) {
-        // ClockSync: reply with Pong containing client's send time + server time
+        // ClockSync: reply with Pong containing client's send time + server time.
+        // An honest client pings at most every 100 ms (a sync burst), then every
+        // 30 s; anything faster is a flood that would make us send a pong for each.
+        const now = performance.now();
+        if (rateLimited(client.lastPingReplyMs, now, GameServer.PING_MIN_GAP_MS)) return;
+        client.lastPingReplyMs = now;
         const { clientSendTime } = MessageCodec.decodePing(data);
         const pong = MessageCodec.encodePong(clientSendTime, Date.now());
         client.connection.sendDatagram(pong);
       } else {
         this.msgCounts.other++;
-      }
-
-      // Log message distribution every 500 messages
-      const total =
-        this.msgCounts.input +
-        this.msgCounts.ack +
-        this.msgCounts.join +
-        this.msgCounts.ready +
-        this.msgCounts.joinGame +
-        this.msgCounts.spectate +
-        this.msgCounts.other +
-        this.msgCounts.error;
-      if (total % 500 === 0) {
-        console.log(
-          `[GameServer] Message distribution (${total} total): Input=${this.msgCounts.input}, Ack=${this.msgCounts.ack}, Join=${this.msgCounts.join}, Ready=${this.msgCounts.ready}, JoinGame=${this.msgCounts.joinGame}, Spectate=${this.msgCounts.spectate}, Other=${this.msgCounts.other}, Errors=${this.msgCounts.error}`,
-        );
       }
     } catch (err) {
       this.msgCounts.error++;
@@ -1249,15 +1271,8 @@ export class GameServer {
     const client = this.clients.get(conn.id);
     if (!client) return;
 
-    // Sanitize: strip control chars/newlines (charCode filter — no regex
-    // escapes), collapse whitespace, cap length.
-    const raw = MessageCodec.decodeChat(data).text;
-    let cleaned = "";
-    for (const ch of raw) {
-      const code = ch.charCodeAt(0);
-      cleaned += code < 32 || code === 127 ? " " : ch;
-    }
-    const text = cleaned.replace(/ {2,}/g, " ").trim().slice(0, GameServer.CHAT_MAX_LENGTH);
+    // Sanitize: strip control chars/newlines, collapse whitespace, cap length.
+    const text = cleanClientText(MessageCodec.decodeChat(data).text, GameServer.CHAT_MAX_LENGTH);
     if (!text) return;
 
     // Rate limit (log-only drop, consistent with authority conventions):
@@ -1310,7 +1325,7 @@ export class GameServer {
     client.lastRespawnReqMs = now;
 
     entity.input.wantsRespawn = true;
-    console.log(`[GameServer] RequestSpawn from player ${client.playerId}`);
+    debugLog("spawn", () => `[GameServer] RequestSpawn from player ${client.playerId}`);
   }
 
   private handleError(conn: ClientConnection, error: Error): void {
@@ -1328,7 +1343,9 @@ export class GameServer {
    */
   private handleJoin(conn: ClientConnection, data: Uint8Array): void {
     if (this.clients.has(conn.id)) return;
-    const { playerName, isBot: claimedBot, admissionTicket } = MessageCodec.decodeJoin(data);
+    const decoded = MessageCodec.decodeJoin(data);
+    const { isBot: claimedBot, admissionTicket } = decoded;
+    const playerName = cleanClientText(decoded.playerName, GameServer.NAME_MAX_LENGTH);
     const grant = this.matchAdmission?.consume(admissionTicket) ?? null;
     if (admissionTicket && this.matchAdmission && !grant) {
       conn.close("invalid match ticket");
@@ -1403,6 +1420,9 @@ export class GameServer {
     client.sentSnapshots?.clear();
     client.lastAckedTick = 0;
     client.snapshotsSinceFull = 0;
+    // The new connection holds nothing yet: send every lasting value again.
+    client.sentState?.clear();
+    client.snapshotsSinceRefresh = undefined;
     client.lastInputSeq = 0;
     this.clients.set(conn.id, client);
     this.refreshHumanClientCount();
@@ -1578,9 +1598,6 @@ export class GameServer {
       `[GameServer] Player ${client.playerId} joined game at (${spawnPoint.x.toFixed(1)}, ${spawnPoint.y.toFixed(1)}, ${spawnPoint.z.toFixed(1)})`,
     );
 
-    // Debug floor trace
-    this.debugFloorTrace(spawnPoint);
-
     // Re-send JoinAccept so client gets the entity ID confirmation
     this.sendJoinAccept(client);
   }
@@ -1606,6 +1623,7 @@ export class GameServer {
 
     // Leave the active roster, but keep stats and S&D loadout for rejoin.
     this.gametypeController.onPlayerSpectate(client.playerId, client.entityId);
+    this.weaponSystem.forget(client.entityId);
 
     // Remove from anti-warp tracker
     this.movementValidator.removeClient(client.playerId);
@@ -1633,9 +1651,12 @@ export class GameServer {
       return; // Already processed this or an older command
     }
 
-    // Anti-warp: validate input rate (rate cap + time budget)
+    // Anti-warp: over the per-tick rate cap the command is dropped, silently so
+    // a cheater learns nothing. Running past the time budget only counts a strike.
+    // After the de-dup above, so a redundant copy never spends anything, and
+    // before the sanitiser, so a malformed flood is still rate-capped.
     if (!this.movementValidator.validateInput(client.playerId)) {
-      return; // Silently drop — don't inform cheater
+      return;
     }
 
     const clean = sanitizeCommand(command);
@@ -1657,10 +1678,11 @@ export class GameServer {
     const mutEntity = state.getEntityMut(client.entityId);
     if (mutEntity?.input) {
       const buttons = clean.buttons;
-      // Debug: log every 200th input to trace button values
       if (seq % 200 === 0) {
-        console.log(
-          `[GameServer.handleInput] Player ${client.playerId}: buttons=${buttons} (raw command.buttons=${command.buttons}), seq=${seq}`,
+        debugLog(
+          "input",
+          () =>
+            `[GameServer.handleInput] Player ${client.playerId}: buttons=${buttons} (raw command.buttons=${command.buttons}), seq=${seq}`,
         );
       }
       // A demo records what a person did, not only what the server simulated:
@@ -1752,28 +1774,6 @@ export class GameServer {
     const acceptBytes = MessageCodec.encodeJoinAccept(client.id, playerId, entityId);
     client.connection.sendReliable(acceptBytes);
     console.log(`[GameServer] Sent JoinAccept: playerId=${playerId}, entityId=${entityId}`);
-  }
-
-  // ========================================================================
-  // Debug
-  // ========================================================================
-
-  private debugFloorTrace(spawnPoint: Vec3): void {
-    const bounds = {
-      min: { x: -16, y: -24, z: -16 },
-      max: { x: 16, y: 32, z: 16 },
-    };
-    const start = { ...spawnPoint };
-    const end = { x: spawnPoint.x, y: spawnPoint.y - 200, z: spawnPoint.z };
-    const collision = this.physicsSystem.getCollisionWorld();
-    if (collision) {
-      const trace = collision.trace(start, end, bounds);
-      const floorY = trace.hit ? spawnPoint.y - 200 * trace.fraction : "NO HIT";
-      const originY = typeof floorY === "number" ? floorY + 24 : "N/A";
-      console.log(
-        `[GameServer] Floor trace: spawnY=${spawnPoint.y.toFixed(1)}, floorY=${typeof floorY === "number" ? floorY.toFixed(1) : floorY}, originY=${typeof originY === "number" ? originY.toFixed(1) : originY}`,
-      );
-    }
   }
 
   // ========================================================================

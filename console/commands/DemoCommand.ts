@@ -28,7 +28,7 @@ export default class DemoCommand extends Command {
     const num = parseInt(arg, 10);
     let filename: string;
 
-    if (!isNaN(num)) {
+    if (!Number.isNaN(num)) {
       const entry = service.cachedDemoList[num - 1];
       if (!entry) {
         const count = service.cachedDemoList.length;

@@ -20,8 +20,9 @@ import { TrailMesh } from "@babylonjs/core/Meshes/trailMesh";
 import { PhysicsConstraintType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import { Ragdoll } from "@babylonjs/core/Physics/v2/ragdoll";
 import type { Scene } from "@babylonjs/core/scene";
-import type { PlayerModelInstance } from "../../../engine/animation/PlayerModelManager";
+import { disposePlayerModel, type PlayerModelInstance } from "../../../engine/animation/PlayerModelManager";
 import { PhysicsSystem } from "../../../engine/physics/PhysicsSystem";
+import { devLog } from "./DevLog";
 
 // ============================================================================
 // Constants
@@ -441,7 +442,7 @@ export class RagdollSystem {
 
       // 3. Log skeleton bones for debugging
       const boneNames = model.skeleton.bones.map((b) => b.name);
-      console.log(`[RagdollSystem] Skeleton has ${boneNames.length} bones: ${boneNames.slice(0, 8).join(", ")}...`);
+      devLog(`[RagdollSystem] Skeleton has ${boneNames.length} bones: ${boneNames.slice(0, 8).join(", ")}...`);
 
       // 4. Build bone config and verify all required bones exist
       const boneConfig = createBoneConfig();
@@ -455,7 +456,7 @@ export class RagdollSystem {
       // 5. Create BabylonJS Ragdoll
       //    Cast 'as any' because the .d.ts type doesn't declare the 'bone' property
       //    but the source code uses it to map config entries to skeleton bones
-      console.log(`[RagdollSystem] Creating ragdoll with ${boneConfig.length} bone configs`);
+      devLog(`[RagdollSystem] Creating ragdoll with ${boneConfig.length} bone configs`);
 
       const ragdollInstance = new Ragdoll(
         model.skeleton,
@@ -469,15 +470,13 @@ export class RagdollSystem {
         const currentMax = (physicsEngine as any).getMaxLinearVelocity?.() ?? 0;
         if (currentMax < HAVOK_MAX_LINEAR_VELOCITY) {
           (physicsEngine as any).setVelocityLimits?.(HAVOK_MAX_LINEAR_VELOCITY, 100);
-          console.log(
-            `[RagdollSystem] Raised Havok max linear velocity from ${currentMax} to ${HAVOK_MAX_LINEAR_VELOCITY}`,
-          );
+          devLog(`[RagdollSystem] Raised Havok max linear velocity from ${currentMax} to ${HAVOK_MAX_LINEAR_VELOCITY}`);
         }
       }
 
       // 7. Activate ragdoll mode — Havok Physics takes over bone transforms
       ragdollInstance.ragdoll();
-      console.log("[RagdollSystem] Ragdoll mode activated");
+      devLog("[RagdollSystem] Ragdoll mode activated");
 
       // 8. Apply knockback velocity to ALL bone aggregates.
       // Fly along the FULL 3D direction the server sent (already normalized and
@@ -500,7 +499,7 @@ export class RagdollSystem {
           /* skip */
         }
       }
-      console.log(
+      devLog(
         `[RagdollSystem] Applied velocity (${launchVel.x.toFixed(0)}, ${launchVel.y.toFixed(0)}, ${launchVel.z.toFixed(0)}) gravity=${RAGDOLL_GRAVITY_FACTOR} to ${boneConfig.length} bones`,
       );
 
@@ -547,7 +546,7 @@ export class RagdollSystem {
       this.ragdolls.push(active);
 
       const worldPos = model.anchor.getAbsolutePosition();
-      console.log(
+      devLog(
         `[RagdollSystem] Spawned per-bone ragdoll at (${worldPos.x.toFixed(0)}, ${worldPos.y.toFixed(0)}, ${worldPos.z.toFixed(0)}) (${this.ragdolls.length} active)`,
       );
 
@@ -689,52 +688,16 @@ export class RagdollSystem {
 
     // Dispose model
     this.disposeModel(active.model);
-    console.log(`[RagdollSystem] Disposed ragdoll for ${active.model.id}`);
+    devLog(`[RagdollSystem] Disposed ragdoll for ${active.model.id}`);
   }
 
   private disposeModel(model: PlayerModelInstance): void {
-    // Bone-attached weapon (e.g. the blade) isn't a scene-graph child, so dispose
-    // it explicitly — otherwise it leaks a floating mesh when the ragdoll expires.
-    if (model.attachedWeapon) {
-      try {
-        model.attachedWeapon.dispose(false, true);
-      } catch (_) {
-        /* noop */
-      }
-      model.attachedWeapon = null;
-    }
-    if (model.masterGroup) {
-      try {
-        model.masterGroup.stop();
-      } catch (_) {
-        /* noop */
-      }
-      try {
-        model.masterGroup.dispose();
-      } catch (_) {
-        /* noop */
-      }
-    }
-    if (model.mesh) {
-      try {
-        model.mesh.dispose();
-      } catch (_) {
-        /* noop */
-      }
-    }
-    if (model.skeleton) {
-      try {
-        model.skeleton.dispose();
-      } catch (_) {
-        /* noop */
-      }
-    }
-    if (model.anchor) {
-      try {
-        model.anchor.dispose();
-      } catch (_) {
-        /* noop */
-      }
+    // The same path every player model leaves by: hand weapon (bone-attached,
+    // so not a scene-graph child), cloned materials and the loader's leftovers.
+    try {
+      disposePlayerModel(model);
+    } catch (_) {
+      /* noop */
     }
   }
 

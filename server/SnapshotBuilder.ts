@@ -8,11 +8,12 @@
  */
 
 import type { Simulation } from "@engine/server/core/Simulation";
-import type { PlayerId } from "@engine/server/ecs/types";
+import type { EntityId, PlayerId } from "@engine/server/ecs/types";
 import { EntityType } from "@engine/server/ecs/types";
 import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulation/physics/constants";
 import { Entity } from "../../../engine/network/core/Entity";
 import { GameState, type PlayerState } from "../../../engine/network/core/GameState";
+import type { SnapshotEvent } from "../../../engine/network/core/SnapshotEvent";
 import { POWERUP_KINDS, packPowerupMask, powerupSecondsRemaining } from "../../../shared/items/Powerups";
 import { toClientKey } from "../ClientEntityKey";
 import type { ClientInfo } from "./Client";
@@ -110,9 +111,13 @@ function f32(v: number): number {
 export function buildSnapshot(ctx: SnapshotContext): GameState {
   const state = ctx.simulation.getState();
   const gameState = new GameState();
+  // Every event goes through the same union the client dispatches on, so a misspelt
+  // or missing field is a compile error here rather than a silent miss on the client.
+  const emit = (event: SnapshotEvent) => gameState.events.push(event);
   gameState.tick = Number(state.tick);
   const tickNum = gameState.tick;
   const lifts = ctx.collisionWorld?.lifts;
+  // lift_state is not in the SnapshotEvent union (the client reads it outside the event switch).
   if (lifts?.definitions.length) gameState.events.push({ type: "lift_state", lifts: lifts.snapshot() });
 
   // Build O(1) player-to-client lookup map (avoids O(clients) scan per entity)
@@ -121,6 +126,12 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
     if (client.playerId !== undefined) {
       clientByPlayerId.set(client.playerId, client);
     }
+  }
+
+  // Forget projectiles that no longer exist. Entity ids are never reused, so an id
+  // that is gone is gone for good; keeping it would grow this set for the whole match.
+  for (const id of ctx.knownProjectileIds) {
+    if (!state.getEntity(id as EntityId)) ctx.knownProjectileIds.delete(id);
   }
 
   // Convert entities (including projectiles — Q3-style server-rendered)
@@ -174,7 +185,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
         ctx.knownProjectileIds.add(numId);
         const defId = ctx.projectileSystem.getDefId(entity.id);
         if (defId) {
-          gameState.events.push({
+          emit({
             type: "projectile_spawn",
             entityId: `proj_${entity.id}`,
             defId,
@@ -310,7 +321,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
       const entityClientId = toClientKey(entity.id);
       // Repeated state, including null: loss of the impulse/cancel snapshot must
       // self-heal. Position/velocity already include all impulses through this tick.
-      gameState.events.push({
+      emit({
         type: "knockback_state",
         entityId: entityClientId,
         ageTicks: isDead ? null : (ctx.movementSystem?.getKnockbackAge(Number(entity.id)) ?? null),
@@ -348,7 +359,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
 
         // Emit combat_state event (health/armor — private to owning player)
         if (entity.health) {
-          gameState.events.push({
+          emit({
             type: "combat_state",
             entityId: entityClientId,
             health: Math.max(0, Math.round(entity.health.health)),
@@ -364,7 +375,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
           for (const kind of POWERUP_KINDS) {
             const remaining = powerupSecondsRemaining(entity.powerups.expiry, kind, tickNum, TICK_RATE);
             if (remaining <= 0) continue;
-            gameState.events.push({
+            emit({
               type: "powerup_state",
               entityId: entityClientId,
               kind,
@@ -379,7 +390,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
     if (entity.ownerId !== undefined) {
       const weaponState = ctx.weaponSystem.getWeaponState(entity.id);
       if (weaponState) {
-        gameState.events.push({
+        emit({
           type: "weapon_state",
           entityId: toClientKey(entity.id),
           currentWeapon: weaponState.currentWeapon,
@@ -423,7 +434,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
     });
   }
 
-  gameState.events.push({
+  emit({
     type: "match_state",
     ...matchSnapshot,
     standings,
@@ -432,7 +443,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
 
   // Add weapon fire events (so other clients can see shots)
   for (const fireEvent of ctx.weaponSystem.getPendingFireEvents()) {
-    gameState.events.push({
+    emit({
       type: "weapon_fire",
       entityId: toClientKey(fireEvent.entityId),
       weaponId: fireEvent.weaponId,
@@ -447,7 +458,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
 
   // Exact Voltaic damage-ray endpoint. Electrical shape remains client-side.
   for (const beamEvent of ctx.weaponSystem.getPendingVoltaicBeamEvents()) {
-    gameState.events.push({
+    emit({
       type: "voltaic_beam",
       entityId: toClientKey(beamEvent.entityId),
       originX: beamEvent.originX,
@@ -468,7 +479,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
 
   // Exact Electrobolt rail endpoint (WO-EB2). Rail presentation stays client-side.
   for (const railEvent of ctx.weaponSystem.getPendingElectroRailEvents()) {
-    gameState.events.push({
+    emit({
       type: "electro_rail",
       entityId: toClientKey(railEvent.entityId),
       originX: railEvent.originX,
@@ -489,7 +500,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
 
   // Add chain-lightning arc events (so all clients draw the arcs between targets)
   for (const chainEvent of ctx.weaponSystem.getPendingChainEvents()) {
-    gameState.events.push({
+    emit({
       type: "weapon_chain",
       entityId: toClientKey(chainEvent.entityId),
       points: chainEvent.points,
@@ -498,7 +509,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
 
   // Add weapon charge events (so other clients see charge visual)
   for (const chargeEvent of ctx.weaponSystem.getPendingChargeEvents()) {
-    gameState.events.push({
+    emit({
       type: "weapon_charge",
       entityId: toClientKey(chargeEvent.entityId),
       weaponId: chargeEvent.weaponId,
@@ -509,7 +520,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
   // Add projectile impact events (so all clients see explosions)
   const impacts = ctx.projectileSystem.getPendingImpacts();
   for (const impact of impacts) {
-    gameState.events.push({
+    emit({
       type: "projectile_impact",
       defId: impact.defId,
       x: impact.x,
@@ -529,11 +540,11 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
   // Add pickup events (so clients can sync pickup visibility and weapon changes)
   const pickups = ctx.pickupSystem.getPendingPickupEvents();
   for (const pickup of pickups) {
-    gameState.events.push({
+    emit({
       type: "item_pickup",
       pickupId: pickup.pickupId,
       weaponId: pickup.weaponId,
-      entityId: pickup.entityId,
+      entityId: String(pickup.entityId), // the picker's numeric id; the wire carries a string
       droppedWeaponId: pickup.droppedWeaponId || "",
       x: pickup.x,
       y: pickup.y,
@@ -545,7 +556,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
   // weapons/ammo/armor/health. The client shows it only for the local player;
   // captured into demos like every other event.
   for (const notify of ctx.pickupSystem.getPendingPickupNotifies()) {
-    gameState.events.push({
+    emit({
       type: "pickup_notify",
       entityId: toClientKey(notify.entityId),
       label: notify.label,
@@ -555,7 +566,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
   // Powerup respawned — announced to EVERY client with its world position, so
   // the spawn cue is audible map-wide and players can contest it.
   for (const spawn of ctx.pickupSystem.getPendingPowerupSpawns()) {
-    gameState.events.push({
+    emit({
       type: "powerup_spawn",
       kind: spawn.kind,
       x: spawn.x,
@@ -573,11 +584,11 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
         `[GameServer] Syncing ${inactivePickups.length} inactive pickups to ${ctx.needsPickupSync.size} new client(s)`,
       );
       for (const pickup of inactivePickups) {
-        gameState.events.push({
+        emit({
           type: "item_pickup",
           pickupId: pickup.pickupId,
           weaponId: pickup.weaponId,
-          entityId: pickup.entityId,
+          entityId: String(pickup.entityId), // the picker's numeric id; the wire carries a string
           droppedWeaponId: "",
           x: pickup.x,
           y: pickup.y,
@@ -590,7 +601,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
 
   // Add weapon drop events (so clients can render dropped weapon models)
   for (const dropEvt of ctx.droppedWeaponSystem.getPendingDropEvents()) {
-    gameState.events.push({
+    emit({
       type: "weapon_drop",
       entityId: dropEvt.entityId,
       weaponId: dropEvt.weaponId,
@@ -606,11 +617,14 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
   // Add damage events (forwarded from CombatSystem for floating damage numbers)
   const damageEvents = ctx.combatSystem.getProcessedDamage();
   for (const dmg of damageEvents) {
-    gameState.events.push({
+    emit({
       type: "damage",
       entityId: toClientKey(dmg.victimId),
       attackerId: dmg.attackerId !== undefined ? toClientKey(dmg.attackerId) : "",
       damage: dmg.damage,
+      // Where the hit landed ("body", "head" or "legs"). The wire format carries it once the
+      // engine's damage event does; until then the codec leaves it out and clients assume body.
+      hitLocation: dmg.hitLocation,
       weaponId: dmg.damageType, // Use damageType as weapon identifier for now
       x: dmg.x,
       y: dmg.y,
@@ -621,7 +635,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
 
   // Add death events from cached kills (cached before postTick clears them)
   for (const kill of ctx.pendingKillEvents) {
-    gameState.events.push({
+    emit({
       type: "death",
       entityId: toClientKey(kill.victimId),
       killerId: kill.killerId !== undefined ? toClientKey(kill.killerId) : "",
@@ -646,7 +660,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
 
   // Add chat events (one-shots; recorded into demos automatically post-D16)
   for (const chat of ctx.pendingChatEvents) {
-    gameState.events.push({
+    emit({
       type: "chat",
       senderId: chat.senderId,
       senderName: chat.senderName,
@@ -658,7 +672,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
 
   // Add award events
   for (const award of ctx.pendingAwards) {
-    gameState.events.push({
+    emit({
       type: "award",
       awardType: award.awardType,
       playerId: toClientKey(award.playerId),

@@ -34,6 +34,8 @@ function noKiller(damageType: string): string {
       return "The map";
     case "explosion":
       return "Your own blast";
+    case "bomb":
+      return "The bomb";
     default:
       return "Yourself";
   }

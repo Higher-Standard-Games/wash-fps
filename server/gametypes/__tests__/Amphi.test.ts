@@ -17,6 +17,7 @@ const context: GametypeTickContext = {
   defendingTeam: "soba",
   teamOf: (id) => (id === 1 ? "udon" : "soba"),
   credit: () => {},
+  blast: () => {},
 };
 
 function nextRound(match: MatchState): void {

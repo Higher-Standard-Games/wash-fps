@@ -1,12 +1,12 @@
 # Weapons
 
-Nine weapons, organized by slot. Numbers below are server-authoritative defaults from `src/shared/entities/definitions/weapons/*.ts` and the matching projectile definitions in `src/shared/entities/definitions/projectiles/*.ts`. Balance is still evolving — file an issue if anything feels off.
+Nine weapons, organized by slot. Numbers below are server-authoritative defaults from the engine repo's `src/shared/entities/definitions/weapons/*.ts` and the matching projectile definitions in `src/shared/entities/definitions/projectiles/*.ts`. Balance is still evolving — file an issue if anything feels off.
 
 ## At a Glance
 
 | # | Weapon | Tag | Damage | Fire rate | Ammo (reload) | Notes |
 |---|--------|-----|-------:|----------:|------|-------|
-| 1 | **Blade** | BL | 80 (melee) / 50 (charged) | 2.0/s melee | ∞ (none) | Default; step-in dash on each swing; charged shot is a splash projectile |
+| 1 | **Blade** | BL | 80 (melee) / 25–50 (charged) | 2.0/s melee | ∞ (none) | Default; step-in dash on each swing; charged shot is a projectile; +10 run speed |
 | 2 | **Machinegun** | MG | 10 | 10/s | bullets (clip) | Hitscan; high DPS at range |
 | 3 | **Riotgun** | RG | 5 / pellet | 1.25/s | shells (clip) | Spread shotgun; close-range king |
 | 4 | **Grenade Launcher** | GL | 80 (direct) / 80 splash | 1.25/s | grenades (pool) | Arcing; bounces; 150 u splash radius |
@@ -24,10 +24,11 @@ The default melee weapon. Replaces the older "gunblade" in the Q3 lineage.
 
 - **Primary fire** — fast melee slash. 80 damage, ~100 unit reach, 500 ms cooldown (`fireRate: 2.0`).
 - **Step-in dash** — every accepted swing lunges you ~48 units forward (server-authoritative, `meleeDashDistance`). It's a horizontal position step, not knockback — no lift, no air-drag — and it's BSP-clamped so you never phase through walls. This is what makes the Blade a real closing tool: swing to cover the last gap.
-- **Charged fire** — hold alt-fire for 1 s to release a red energy projectile (a `blade_blast`). 50 direct damage with an 80-unit splash, and rocket-equal knockback. Great for dueling at mid range where the swing won't connect.
+- **Charged fire** — hold alt-fire and release to send a red energy projectile (a `blade_blast`, speed 2500, no gravity). It needs at least 0.5 s of charge and does 25 damage at 0.5 s, rising to 50 at a full 1 s charge. Its knockback scale is 20, against 10 for a rocket. Great for dueling at mid range where the swing won't connect.
+- **Agile** — carrying the Blade adds +10 to your run speed (410 u/s).
 - **Ammo** — infinite. The Blade is always usable.
 
-Tactically the Blade rewards aggressive close play. The charged projectile is your forced opener when you have no other weapon, but the splash means you can blow yourself up — keep distance.
+Tactically the Blade rewards aggressive close play. The charged projectile is your opener at range when you have no other weapon.
 
 ## Slot 2 — Machinegun
 
@@ -44,9 +45,10 @@ The mid-range workhorse. Pair with strafe-jumping for hit-and-run tracking.
 
 Shotgun spread, multiple pellets per shot.
 
-- **Damage** — 5 per pellet × 18 pellets = 90 maximum. Pellet damage is rounded per hit, so a perfect point-blank shot is a 90, not a 100.
+- **Damage** — 5 per pellet × 18 pellets = 90 maximum. Pellet damage is rounded per hit, so a perfect point-blank shot is a 90, not a 100. **No headshot bonus:** a pellet that lands high counts as a body hit (see [Damage and Combat Rules](./combat.md#hit-locations)).
 - **Fire rate** — 1.25 shots/sec (800 ms between shots).
 - **Ammo** — `shells` (8-round clip).
+- **Light** — +5 run speed while held.
 
 Devastating at point-blank, useless beyond mid range. The Riotgun is what you finish bunny-hop ambushes with.
 
@@ -57,7 +59,7 @@ Arcing projectile that bounces.
 - **Damage** — 80 direct, 80 splash within 150 units.
 - **Fire rate** — 1.25 shots/sec (800 ms between shots).
 - **Ammo** — `grenades` (pool — no reload).
-- **Ballistics** — retuned to a Warsow baseline: speed ~900, gentle gravity, 3 bounces before it explodes.
+- **Ballistics** — retuned to a Warsow baseline: speed 900, gentle gravity, 3 bounces (each loses about half its speed) and a 1.5 s fuse.
 
 Best for area denial and indirect angles. The arc makes lobbing into corridors and around corners straightforward; pre-aiming under doorways is the classic move. Grenade jumps work and are recoverable thanks to armor scaling.
 
@@ -69,7 +71,7 @@ The headline weapon.
 - **Fire rate** — 1.25 shots/sec (800 ms between shots).
 - **Ammo** — `rockets` (pool — no reload).
 
-Straight-line projectile. Predict your target's movement. Rocket-jumping is the cleanest way to traverse height differences — splash to your feet, accept the self-damage, gain enormous vertical.
+Straight-line projectile, speed 1814 u/s. Predict your target's movement. Rocket-jumping is the cleanest way to traverse height differences — splash to your feet, accept the self-damage, gain enormous vertical.
 
 ## Slot 6 — Plasma Gun
 
@@ -99,7 +101,7 @@ Hitscan rail.
 - **Fire rate** — 0.8 shots/sec (1250 ms reload).
 - **Ammo** — `bolts`.
 
-High punish per shot, long reload. Stand your ground in long sightlines. Missing hurts — the reload is more than enough time for an enemy to reposition and answer.
+High punish per shot, long reload. It is a heavy weapon: **−25 run speed** while held (375 u/s). Stand your ground in long sightlines. Missing hurts — the reload is more than enough time for an enemy to reposition and answer.
 
 ## Slot 9 — Instagun
 
@@ -112,6 +114,15 @@ The cleanup gun.
 - **Insta-jump** — the splash applies **knockback but no self-damage**, so you can launch yourself off your own feet without dying (instagib-style rocket jumps). The launch always applies even when self-damage is gated to zero.
 
 Reserved for specific gametype configurations. In any mode where the Instagun is enabled, ammo is the limiting factor — picking up an instas pack is a meaningful pickup.
+
+## Empty Guns: Click, Then Trade
+
+Pulling the trigger on a weapon with no ammo and nothing to reload from does not leave you stuck:
+
+1. **First pull** — an empty click (and the out-of-ammo crosshair/HUD cue). Nothing else happens, so one mistimed tap never takes you off your rocket launcher.
+2. **Second pull, or holding the trigger for about 0.2 s** — the server swaps you to the next weapon you own, in slot order, that can actually fire.
+
+A weapon swapped in this way takes about 0.26 s to come up before it can fire, so the same trigger pull can't shoot straight out of a hand that still looks empty. A weapon you switch to yourself has no such delay, so firing straight out of a manual switch still works.
 
 ## Reload Models
 
@@ -129,7 +140,7 @@ Clip sizes in parentheses.
 
 Every weapon with splash applies a server-authoritative impulse to anyone in the radius. The impulse vector is `target_pos - explosion_pos` normalised, scaled by per-weapon `knockbackScale`. The server queues this impulse and applies it *before* the affected entity's next movement tick, so the knockback's direction and magnitude are part of the authoritative simulation — not a client-side bandaid.
 
-Self-knockback uses the same math. Rocket jumps, plasma climbs, grenade jumps — all real, all consistent client-side and server-side.
+Self-knockback uses the same math but is **halved**. See [Damage and Combat Rules](./combat.md). Rocket jumps, plasma climbs, grenade jumps — all real, all consistent client-side and server-side.
 
 ## ADS (Aim-Down-Sights)
 

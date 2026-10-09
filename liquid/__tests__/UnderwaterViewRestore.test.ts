@@ -73,6 +73,27 @@ describe("field of view", () => {
     expect(camera.fov).toBe(AUTHORED_FOV);
   });
 
+  it("follows a zoom made underwater instead of freezing the dive's FOV", () => {
+    submerge();
+    // The FPS controller writes the zoomed FOV before each render.
+    const ZOOMED = 0.6;
+    for (let i = 0; i < 30; i++) {
+      camera.fov = ZOOMED;
+      view.update(camera, 1 / 60);
+    }
+    // Captured once at the dive, the base put the old FOV back every frame (E7).
+    expect(Math.abs(camera.fov - ZOOMED)).toBeLessThan(0.2);
+
+    // With no controller writing (free-fly), the warp still oscillates around one base.
+    const samples: number[] = [];
+    for (let i = 0; i < 240; i++) {
+      view.update(camera, 1 / 60);
+      samples.push(camera.fov);
+    }
+    const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
+    expect(Math.abs(mean - ZOOMED)).toBeLessThan(0.05);
+  });
+
   it("puts it back on surfacing, as before", () => {
     submerge();
     view.setCollisionWorld(dry);

@@ -17,6 +17,7 @@ import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import type { Scene } from "@babylonjs/core/scene";
+import { type HitLocationName, isHeadHit } from "./HitLocationName";
 
 // ============================================================================
 // Constants
@@ -34,7 +35,14 @@ const MAX_ACTIVE = 32; // hard cap
 
 const COLOR_NORMAL = "#FFFFFF";
 const COLOR_HIGH = "#FFDD00"; // Yellow for >50 damage
+const COLOR_HEAD = "#FF7A1A"; // Orange for a head hit, whatever the damage
 const HIGH_DAMAGE_THRESHOLD = 50;
+
+/** The colour of a floating number: a head hit is orange, a big hit yellow, anything else white. */
+export function damageNumberColor(damage: number, hitLocation?: HitLocationName): string {
+  if (isHeadHit(hitLocation)) return COLOR_HEAD;
+  return damage >= HIGH_DAMAGE_THRESHOLD ? COLOR_HIGH : COLOR_NORMAL;
+}
 
 // ============================================================================
 // DamageNumber Instance
@@ -111,8 +119,9 @@ export class DamageNumbers {
 
   /**
    * Spawn a floating damage number at the given world position.
+   * `hitLocation` tints a head hit; leave it out for a body hit.
    */
-  spawn(x: number, y: number, z: number, damage: number): void {
+  spawn(x: number, y: number, z: number, damage: number, hitLocation?: HitLocationName): void {
     if (!this.scene) return;
 
     // Enforce cap
@@ -127,8 +136,7 @@ export class DamageNumbers {
     num.startZ = z + (Math.random() - 0.5) * RANDOM_OFFSET_X;
 
     // Draw the damage text
-    const isHigh = damage >= HIGH_DAMAGE_THRESHOLD;
-    const color = isHigh ? COLOR_HIGH : COLOR_NORMAL;
+    const color = damageNumberColor(damage, hitLocation);
     const text = String(damage);
 
     const ctx = num.texture.getContext() as unknown as CanvasRenderingContext2D;
