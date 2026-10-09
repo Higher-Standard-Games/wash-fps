@@ -453,6 +453,9 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
       dirX: fireEvent.dirX,
       dirY: fireEvent.dirY,
       dirZ: fireEvent.dirZ,
+      ...(fireEvent.pelletSeed !== undefined
+        ? { pelletSeed: fireEvent.pelletSeed, pelletSpread: fireEvent.pelletSpread }
+        : {}),
     });
   }
 

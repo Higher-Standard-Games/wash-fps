@@ -53,6 +53,14 @@ function makeShooter(yaw: number, pitchInput: number) {
   };
 }
 
+/**
+ * How far down the aim ray the targets stand. The machinegun's shots spread (up
+ * to a 6° cone held from the hip), so a target has to be close enough that every
+ * shot in the cone lands on its 32-unit hit sphere: 200 × tan 6° is 21 units.
+ * These tests are about aim, cadence, occlusion and lag compensation, not spread.
+ */
+const TARGET_DISTANCE = 200;
+
 /** A dummy target with no `input` — never fires, but is a valid hitscan target. */
 function makeTargetAlongRay(yaw: number, pitchInput: number, dist: number) {
   const d = look(yaw, pitchInput);
@@ -92,7 +100,7 @@ describe("WeaponSystem — F2 hitscan vertical aim", () => {
       sys.initializeWeaponFromLoadout(1 as never, mgLoadout as never);
 
       const shooter = makeShooter(0, pitchInput);
-      const target = makeTargetAlongRay(0, pitchInput, 1000);
+      const target = makeTargetAlongRay(0, pitchInput, TARGET_DISTANCE);
 
       // tick 100 >> fire interval, so the (first) shot is not gated
       sys.update(makeState([shooter, target]) as never, 1 / 125, 100 as never);
@@ -107,7 +115,7 @@ describe("WeaponSystem — F2 hitscan vertical aim", () => {
     sys.initializeWeaponFromLoadout(1 as never, mgLoadout as never);
 
     const shooter = makeShooter(0, -0.35); // aiming UP
-    const targetBelow = makeTargetAlongRay(0, 0.35, 1000); // placed DOWN
+    const targetBelow = makeTargetAlongRay(0, 0.35, TARGET_DISTANCE); // placed DOWN
 
     sys.update(makeState([shooter, targetBelow]) as never, 1 / 125, 100 as never);
 
@@ -130,10 +138,10 @@ describe("WeaponSystem — hitscan world occlusion (no shooting through floors/w
   it("does NOT hit a target that stands behind world geometry", () => {
     const sys = new WeaponSystem();
     sys.initializeWeaponFromLoadout(1 as never, mgLoadout as never);
-    sys.setCollisionWorld(wallAt(500) as never); // wall at z=500, target at z=1000
+    sys.setCollisionWorld(wallAt(TARGET_DISTANCE / 2) as never); // wall halfway to the target
 
     const shooter = makeShooter(0, 0);
-    const target = makeTargetAlongRay(0, 0, 1000);
+    const target = makeTargetAlongRay(0, 0, TARGET_DISTANCE);
 
     sys.update(makeState([shooter, target]) as never, 1 / 125, 100 as never);
 
@@ -143,10 +151,10 @@ describe("WeaponSystem — hitscan world occlusion (no shooting through floors/w
   it("still hits a target when the world impact is beyond it (clear line of sight)", () => {
     const sys = new WeaponSystem();
     sys.initializeWeaponFromLoadout(1 as never, mgLoadout as never);
-    sys.setCollisionWorld(wallAt(1500) as never); // wall past the target at z=1000
+    sys.setCollisionWorld(wallAt(1500) as never); // wall well past the target
 
     const shooter = makeShooter(0, 0);
-    const target = makeTargetAlongRay(0, 0, 1000);
+    const target = makeTargetAlongRay(0, 0, TARGET_DISTANCE);
 
     sys.update(makeState([shooter, target]) as never, 1 / 125, 100 as never);
 
@@ -160,7 +168,7 @@ describe("WeaponSystem - F3 reload models", () => {
     sys.initializeWeaponFromLoadout(1 as never, mgLoadout as never);
 
     const shooter = makeShooter(0, 0);
-    const target = makeTargetAlongRay(0, 0, 1000);
+    const target = makeTargetAlongRay(0, 0, TARGET_DISTANCE);
 
     sys.update(makeState([shooter, target]) as never, 1 / 125, 13 as never);
     expect(sys.getPendingDamage()).toHaveLength(1);
@@ -193,7 +201,7 @@ describe("WeaponSystem - F3 reload models", () => {
     );
 
     const shooter = makeShooter(0, 0);
-    const target = makeTargetAlongRay(0, 0, 1000);
+    const target = makeTargetAlongRay(0, 0, TARGET_DISTANCE);
     const interval = fireIntervalTicks({ fireRate: 10 });
 
     for (let shot = 1; shot <= 40; shot++) {
@@ -392,7 +400,7 @@ describe("WeaponSystem — F1 fire cadence", () => {
     sys.initializeWeaponFromLoadout(1 as never, mgLoadout as never);
 
     const shooter = makeShooter(0, 0);
-    const target = makeTargetAlongRay(0, 0, 1000);
+    const target = makeTargetAlongRay(0, 0, TARGET_DISTANCE);
 
     const fireTicks: number[] = [];
     for (let tick = 1; tick <= 60; tick++) {
@@ -711,7 +719,7 @@ describe("WeaponSystem - WO-AC1 single-ray hitscan accuracy", () => {
     const sys = new WeaponSystem();
     sys.initializeWeaponFromLoadout(1 as never, mgLoadout as never);
     const shooter = makeShooter(0, 0);
-    const target = makeTargetAlongRay(0, 0, 1000);
+    const target = makeTargetAlongRay(0, 0, TARGET_DISTANCE);
 
     sys.update(makeState([shooter, target]) as never, 1 / 125, 100 as never);
 
@@ -725,7 +733,7 @@ describe("WeaponSystem - WO-AC1 single-ray hitscan accuracy", () => {
     const sys = new WeaponSystem();
     sys.initializeWeaponFromLoadout(1 as never, mgLoadout as never);
     const shooter = makeShooter(0, 0);
-    const target = makeTargetAlongRay(0, 0, 1000);
+    const target = makeTargetAlongRay(0, 0, TARGET_DISTANCE);
     const interval = fireIntervalTicks({ fireRate: 10 });
 
     // shot 1: hit
@@ -843,7 +851,7 @@ describe("WeaponSystem — lag-compensated hit registration", () => {
   };
 
   it("judges a shot against the snapshot the shooter reported aiming with", () => {
-    const onRay = makeTargetAlongRay(0, 0, 1000);
+    const onRay = makeTargetAlongRay(0, 0, TARGET_DISTANCE);
     const movedAway = {
       ...onRay,
       transform: { position: { ...onRay.transform.position, x: onRay.transform.position.x + 500 } },
@@ -864,7 +872,7 @@ describe("WeaponSystem — lag-compensated hit registration", () => {
 
   it("does not rewind a shooter that reports no view tick", () => {
     // Bots and pre-first-snapshot clients have no latency to compensate.
-    const onRay = makeTargetAlongRay(0, 0, 1000);
+    const onRay = makeTargetAlongRay(0, 0, TARGET_DISTANCE);
     const movedAway = {
       ...onRay,
       transform: { position: { ...onRay.transform.position, x: onRay.transform.position.x + 500 } },
@@ -877,7 +885,7 @@ describe("WeaponSystem — lag-compensated hit registration", () => {
   it("clamps a view tick claiming the distant past to the compensation budget", () => {
     // Asking to be judged against tick 1 must not reach past the oldest
     // recorded state; it gets the budget's edge and nothing more.
-    const onRay = makeTargetAlongRay(0, 0, 1000);
+    const onRay = makeTargetAlongRay(0, 0, TARGET_DISTANCE);
     const movedAway = {
       ...onRay,
       transform: { position: { ...onRay.transform.position, x: onRay.transform.position.x + 500 } },
@@ -890,7 +898,7 @@ describe("WeaponSystem — lag-compensated hit registration", () => {
   });
 
   it("does not invent hits on a target that was never on the ray", () => {
-    const offRay = makeTargetAlongRay(0, 0, 1000);
+    const offRay = makeTargetAlongRay(0, 0, TARGET_DISTANCE);
     offRay.transform.position.x += 500;
     const sys = withHistory([makeShooter(0, 0), offRay]);
     sys.update(stateAt(100, [shooterViewing(95), offRay]) as never, 1 / 125, 100 as never);
@@ -898,7 +906,7 @@ describe("WeaponSystem — lag-compensated hit registration", () => {
   });
 
   it("falls back to the present for a target with no recorded history", () => {
-    const onRay = makeTargetAlongRay(0, 0, 1000);
+    const onRay = makeTargetAlongRay(0, 0, TARGET_DISTANCE);
     // History exists, but this target only just spawned into it.
     const sys = withHistory([makeShooter(0, 0)]);
     sys.update(stateAt(100, [shooterViewing(95), onRay]) as never, 1 / 125, 100 as never);

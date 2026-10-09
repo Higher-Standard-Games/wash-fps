@@ -43,10 +43,14 @@ import {
   PLASMA_EXPLOSION,
   ROCKET_EXPLOSION,
 } from "../../../engine/weapon/ExplosionEffect";
-import { getHitscanEffects, type VoltaicBeamTruthConfig } from "../../../engine/weapon/HitscanEffects";
+import {
+  getHitscanEffects,
+  serverPelletDirections,
+  type VoltaicBeamTruthConfig,
+} from "../../../engine/weapon/HitscanEffects";
 import { getProjectileManager } from "../../../engine/weapon/ProjectileManager";
 import type { RailEffectSample } from "../../../engine/weapon/rail/RailProfiles";
-import { getWeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
+import { getWeaponViewManager, type LocalShot } from "../../../engine/weapon/WeaponViewManager";
 import { canonicalWeaponId, WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
 import { DEFAULT_PHYSICS_TICK_RATE } from "../../../shared/server/simulation/physics/constants";
 import { toClientKey } from "../ClientEntityKey";
@@ -278,7 +282,9 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
               const wvm = getWeaponViewManager();
               const isProjectileFire = ctx._localCharging;
               if (ctx._localCharging) ctx._localCharging = false;
-              wvm.fire({ isProjectileFire });
+              wvm.fire({ isProjectileFire, shot: shotOf(event) });
+              kickLocalView(event.weaponId, wvm.getAdsProgress());
+              Crosshair.getInstance().notifyFired(WEAPONS[canonicalWeaponId(event.weaponId)]);
             } else {
               handleRemoteWeaponFire(event, ctx.remoteRenderer);
               // Flash and kick the viewmodel when the person we are watching
@@ -1052,6 +1058,37 @@ export function handleSpectatedWeaponState(
   followed.showWeapon(weapon);
 }
 
+/** Our own shot as the server fired it: its ray, spread included, and any pellet seed. */
+function shotOf(event: WeaponFireEvent): LocalShot {
+  return {
+    origin: new Vector3(event.originX, event.originY, event.originZ),
+    direction: new Vector3(event.dirX, event.dirY, event.dirZ),
+    pelletSeed: event.pelletSeed,
+    pelletSpread: event.pelletSpread,
+  };
+}
+
+/** The camera side of the view kick (`FPSController.kickView`). */
+interface ViewKickTarget {
+  kickView(pitchDegrees: number, yawDegrees: number, recoverSeconds: number): void;
+}
+
+/**
+ * Our own shot kicks the view (`WeaponDef.viewKick`), blended from hip to aimed
+ * by how far we are into ADS, with a random sideways part. Visual only: the
+ * controller keeps it out of the aim it sends.
+ */
+function kickLocalView(weaponId: string, adsProgress: number): void {
+  const kick = WEAPONS[canonicalWeaponId(weaponId)]?.viewKick;
+  if (!kick) return;
+  const controller = CameraSystem.getInstance().getController("fps") as Partial<ViewKickTarget> | undefined;
+  if (!controller?.kickView) return;
+  const ads = Math.max(0, Math.min(1, adsProgress));
+  const pitch = kick.pitch + (kick.adsPitch - kick.pitch) * ads;
+  const yaw = kick.yaw + (kick.adsYaw - kick.yaw) * ads;
+  controller.kickView(pitch, (Math.random() * 2 - 1) * yaw, kick.recoverSeconds);
+}
+
 /**
  * Spawn visual effects for another player's weapon fire.
  */
@@ -1071,19 +1108,40 @@ export function handleRemoteWeaponFire(event: WeaponFireEvent, remoteRenderer: R
   const color = rgb ? new Color3(rgb[0], rgb[1], rgb[2]) : new Color3(1, 1, 0.5);
 
   switch (weaponId) {
-    case "machinegun":
-      fx.fireTracer({ origin, direction: dir, color, maxRange: 6000 });
-      break;
-    case "riotgun":
-      fx.firePellets({
+    case "machinegun": {
+      // The event's direction carries the shot's spread; the streak leaves their gun.
+      const def = WEAPONS.machinegun;
+      fx.fireTracer({
         origin,
+        start: remoteRenderer?.getWeaponMuzzleWorldPosition(event.entityId, dir) ?? undefined,
         direction: dir,
         color,
-        pelletCount: 20,
-        spreadAngle: 12,
-        maxRange: 8192,
+        maxRange: def?.range ?? 6000,
+        intensity: def?.muzzleFlash?.intensity,
       });
       break;
+    }
+    case "riotgun": {
+      // The server's own pellets when the event carries their seed; otherwise
+      // (an older demo) a cone of the right size and count.
+      const def = WEAPONS.riotgun;
+      const pelletCount = def?.pelletCount ?? 18;
+      const spreadAngle = event.pelletSpread ?? def?.spread ?? 8;
+      fx.firePellets({
+        origin,
+        start: remoteRenderer?.getWeaponMuzzleWorldPosition(event.entityId, dir) ?? undefined,
+        direction: dir,
+        color,
+        pelletCount,
+        spreadAngle,
+        maxRange: def?.range ?? 8192,
+        directions:
+          event.pelletSeed !== undefined
+            ? serverPelletDirections(dir, event.pelletSeed, pelletCount, spreadAngle)
+            : undefined,
+      });
+      break;
+    }
     case "voltaic":
       // Legacy-demo / packet fallback. Live snapshots overwrite this immediately
       // with exact player/world contact from the following voltaic_beam event.
