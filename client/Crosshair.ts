@@ -10,7 +10,9 @@
  */
 
 import { Cvar } from "../../../engine/core/Cvar";
-import type { CrosshairConfig } from "../../../shared/entities/WeaponDef";
+import { type CrosshairConfig, fireIntervalTicks, type WeaponDef } from "../../../shared/entities/WeaponDef";
+import { bloomIdleSeconds, coolSpreadHeat, heatAfterShot } from "../../../shared/SpreadUtils";
+import { DEFAULT_PHYSICS_TICK_RATE } from "../../../shared/server/simulation/physics/constants";
 import { type HitLocationName, isHeadHit } from "./HitLocationName";
 
 // ============================================================================
@@ -43,6 +45,16 @@ export class Crosshair {
 
   // Damage flash
   private hitFlashUntil: number = 0; // performance.now() timestamp
+  /**
+   * Spread bloom of the weapon last fired, 0..1, as of `bloomAt` (seconds),
+   * following the server's heat rule from our own shots: the gap opens while
+   * the trigger is held and closes when it is let go.
+   */
+  private bloom = 0;
+  private bloomAt = 0;
+  private bloomWeapon: Pick<WeaponDef, "spreadBloom" | "fireRate" | "fireIntervalTicks"> | null = null;
+  /** Extra gap at full bloom from the hip, in pixels at the reference size. */
+  private readonly BLOOM_GAP = 12;
   private readonly HIT_FLASH_DURATION = 200; // ms
   /** A head hit holds the flash half as long again, so it reads as a different kind of hit. */
   private readonly HEAD_HIT_FLASH_DURATION = 300; // ms
@@ -124,6 +136,23 @@ export class Crosshair {
   /**
    * Flash the crosshair with damage color. Called when local player deals damage.
    */
+  /** One of our own shots: opens the gap for a weapon whose spread blooms. */
+  notifyFired(weapon: Pick<WeaponDef, "spreadBloom" | "fireRate" | "fireIntervalTicks"> | undefined): void {
+    if (!weapon?.spreadBloom) return;
+    const now = performance.now() / 1000;
+    this.bloom = heatAfterShot(weapon, this.bloomNow(now));
+    this.bloomWeapon = weapon;
+    this.bloomAt = now;
+  }
+
+  /** The bloom at `now` (seconds), drained by however long the trigger has been off. */
+  private bloomNow(now: number): number {
+    const weapon = this.bloomWeapon;
+    if (!weapon) return 0;
+    const refire = fireIntervalTicks(weapon) / DEFAULT_PHYSICS_TICK_RATE;
+    return coolSpreadHeat(weapon, this.bloom, bloomIdleSeconds(now - this.bloomAt, refire));
+  }
+
   notifyHit(hitLocation?: HitLocationName): void {
     const duration = isHeadHit(hitLocation) ? this.HEAD_HIT_FLASH_DURATION : this.HIT_FLASH_DURATION;
     this.hitFlashUntil = performance.now() + duration;
@@ -195,6 +224,8 @@ export class Crosshair {
       // Movement widens: up to 8px extra when running full speed (400 u/s)
       const movementSpread = Math.min(horizSpeed / 400, 1.0) * 8;
       gap += movementSpread * (1.0 - adsProgress * 0.5); // ADS reduces movement spread too
+      // Bloom: the cone opening under sustained fire, less of it when aimed
+      gap += this.bloomNow(now / 1000) * this.BLOOM_GAP * (1.0 - adsProgress * 0.7);
     }
     gap = Math.round(gap);
 

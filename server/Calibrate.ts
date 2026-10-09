@@ -30,6 +30,7 @@ import { ProjectileSystem } from "./systems/ProjectileSystem";
 import { WeaponSystem } from "./systems/WeaponSystem";
 
 const FIRE_BUTTON = 1 << 8;
+const ALT_FIRE_BUTTON = 1 << 9;
 const DEG = Math.PI / 180;
 
 export interface TrialResult {
@@ -42,6 +43,10 @@ export interface TrialResult {
  * One controlled accuracy trial. Shooter tracks a stationary-in-XZ target
  * `distance` away and fires; aim is perturbed by `aimNoiseDeg` of uniform noise
  * (seeded → deterministic). Returns the shooter's single-ray hitscan accuracy.
+ *
+ * The shooter fires aimed down the sights. From the hip the machinegun's own
+ * cone (opening to 6° under held fire) misses at range however good the aim,
+ * which would measure the weapon rather than the player.
  */
 export function runAccuracyTrial(seed: number, aimNoiseDeg: number, ticks: number, distance = 400): TrialResult {
   const sim = new Simulation({ tickMs: 8 });
@@ -96,7 +101,7 @@ export function runAccuracyTrial(seed: number, aimNoiseDeg: number, ticks: numbe
         right: 0,
         pitch,
         yaw,
-        buttons: FIRE_BUTTON,
+        buttons: FIRE_BUTTON | ALT_FIRE_BUTTON,
         sequence: t + 1,
         weaponSlot: 0,
       });

@@ -21,7 +21,16 @@ import { GRENADE } from "../../../../shared/entities/definitions/projectiles/gre
 import { canonicalWeaponId, WEAPONS } from "../../../../shared/entities/definitions/weapons/WeaponsTable";
 import type { ProjectileDef } from "../../../../shared/entities/ProjectileDef";
 import type { WeaponDef } from "../../../../shared/entities/WeaponDef";
-import { computeSpreadSeed, generateSpreadDirections } from "../../../../shared/SpreadUtils";
+import { fireIntervalTicks } from "../../../../shared/entities/WeaponDef";
+import {
+  bloomIdleSeconds,
+  computeSpreadSeed,
+  coolSpreadHeat,
+  generateSpreadDirections,
+  heatAfterShot,
+  type SpreadDir,
+  spreadCone,
+} from "../../../../shared/SpreadUtils";
 import { debugLog } from "../DebugLog";
 import { classifyHitLocation, type DamageEvent, DamageType, HitLocation } from "./CombatSystem";
 import type { DroppedWeaponSystem } from "./DroppedWeaponSystem";
@@ -44,6 +53,9 @@ const PROJECTILE_DEFS: Record<string, ProjectileDef> = {
   [GRENADE.id]: GRENADE,
 };
 
+/** Refire interval in ticks; defined with the weapon definitions, shared with the client. */
+export { fireIntervalTicks };
+
 /** A weapon that fires a spread of pellets in one shot (the riotgun). */
 export function firesPellets(weapon: WeaponDef): weapon is WeaponDef & { pelletCount: number; spread: number } {
   return !!weapon.pelletCount && weapon.pelletCount > 1 && !!weapon.spread;
@@ -59,16 +71,6 @@ export function locateHit(weapon: WeaponDef, yOffset: number): HitLocation {
   const location = classifyHitLocation(yOffset);
   return location === HitLocation.Head && firesPellets(weapon) ? HitLocation.Body : location;
 }
-/**
- * Refire interval in ticks for a weapon. Prefers an explicit `fireIntervalTicks`
- * override, else the *nearest* tick to the authored `fireRate`. Previously this
- * was `Math.floor(125 / fireRate)`, which truncated and made every weapon whose
- * rate doesn't divide 125 fire slightly fast (F1). `round` is the nearest
- * representable cadence; min 1 tick.
- */
-export function fireIntervalTicks(weapon: Pick<WeaponDef, "fireRate" | "fireIntervalTicks">): number {
-  return Math.max(1, weapon.fireIntervalTicks ?? Math.round(TICK_RATE / weapon.fireRate));
-}
 
 /**
  * Event emitted when a weapon is fired, for network broadcast
@@ -79,10 +81,27 @@ export interface WeaponFireEvent {
   originX: number; // fire origin
   originY: number;
   originZ: number;
-  dirX: number; // fire direction (normalized)
+  dirX: number; // fire direction (normalized), with the shot's spread in it
   dirY: number;
   dirZ: number;
+  /** A pellet shot's seed and cone: every client rebuilds the server's pellets from them. */
+  pelletSeed?: number;
+  pelletSpread?: number;
 }
+
+/**
+ * Where a shot goes, decided once per trigger pull for the damage and the fire
+ * event alike (`aimShot`).
+ */
+interface ShotAim {
+  /** The direction of a single-ray shot, spread included; the look direction for anything else. */
+  dir: SpreadDir;
+  /** A pellet shot's seed and cone (half-angle, degrees). */
+  pellets?: { seed: number; spreadDeg: number };
+}
+
+/** Salt for a single-ray shot's spread seed, apart from the pellet seeds' shot counts. */
+const BULLET_SPREAD_SALT = 7919;
 
 /**
  * Event emitted when a player starts or stops charging a weapon
@@ -168,6 +187,9 @@ export interface WeaponState {
    * and shooting. 0 for a switch the player asked for themselves.
    */
   switchReadyTick: number;
+  /** Bloom heat (0 = cold, 1 = fully opened spread) as of `spreadHeatTick`; see `aimShot`. */
+  spreadHeat: number;
+  spreadHeatTick: number;
 }
 
 export interface WeaponAmmo {
@@ -850,6 +872,8 @@ export class WeaponSystem extends Subsystem {
       hipfireAdsStartTick: 0,
       dryFireTick: 0,
       switchReadyTick: 0,
+      spreadHeat: 0,
+      spreadHeatTick: 0,
     });
     // Reset edge detection so weapon slot changes are detected cleanly after respawn
     this.lastWeaponSlot.delete(id);
@@ -1160,6 +1184,60 @@ export class WeaponSystem extends Subsystem {
     };
   }
 
+  /**
+   * Where a shot goes, decided once for the damage ray and the fire event alike.
+   *
+   * - Pellet weapons: the look direction, plus a seed and cone from which the
+   *   server and every client build the same pellets.
+   * - Single-ray hitscan with a spread (the machinegun): one deviation inside
+   *   the cone, which blooms open under sustained fire. The cone is taken at
+   *   the current heat, then the shot heats the weapon; the heat drains while
+   *   the trigger is off. Seeded by tick and shooter, so the re-sim and demos
+   *   reproduce it.
+   * - Everything else: the look direction (with Voltaic's beam wander).
+   */
+  private aimShot(shooter: Readonly<Entity>, weapon: WeaponDef, tick: TickNumber): ShotAim {
+    const input = shooter.input!;
+    // yaw/pitch are in radians from the client (Babylon.js camera). Negate pitch:
+    // Babylon uses negative rotationX for looking UP. Beam wander bends the shot.
+    const isADS = (input.buttons & ALT_FIRE_BUTTON) !== 0;
+    const wander = this.beamWanderOffset(weapon, shooter.id, tick, isADS);
+    const yaw = input.yaw + wander.dYaw;
+    const pitch = -input.pitch + wander.dPitch;
+    const look = {
+      x: Math.sin(yaw) * Math.cos(pitch),
+      y: Math.sin(pitch),
+      z: Math.cos(yaw) * Math.cos(pitch),
+    };
+    if (!weapon.hitscan || weapon.meleeRadius) return { dir: look };
+
+    if (firesPellets(weapon)) {
+      const shotCount = (this.shotCounts.get(shooter.id) || 0) + 1;
+      this.shotCounts.set(shooter.id, shotCount);
+      const spreadDeg = isADS && weapon.adsSpread !== undefined ? weapon.adsSpread : weapon.spread;
+      return {
+        dir: look,
+        pellets: { seed: computeSpreadSeed(tick as number, shooter.id as number, shotCount), spreadDeg },
+      };
+    }
+
+    if (weapon.hitscanType === "beam" || weapon.hitscanType === "bolt" || !(weapon.spread || weapon.spreadBloom)) {
+      return { dir: look };
+    }
+    const weaponState = this.weaponStates.get(shooter.id);
+    const sinceLastShot = weaponState ? ((tick as number) - weaponState.spreadHeatTick) / TICK_RATE : Infinity;
+    const idle = bloomIdleSeconds(sinceLastShot, fireIntervalTicks(weapon) / TICK_RATE);
+    const heat = weaponState ? coolSpreadHeat(weapon, weaponState.spreadHeat, idle) : 0;
+    const cone = spreadCone(weapon, heat, isADS);
+    if (weaponState) {
+      weaponState.spreadHeat = heatAfterShot(weapon, heat);
+      weaponState.spreadHeatTick = tick as number;
+    }
+    if (cone <= 0) return { dir: look };
+    const seed = computeSpreadSeed(tick as number, shooter.id as number, BULLET_SPREAD_SALT);
+    return { dir: generateSpreadDirections(seed, 1, cone, yaw, -pitch)[0] };
+  }
+
   private fireWeapon(state: WorldState, shooter: Readonly<Entity>, weapon: WeaponDef, tick: TickNumber): void {
     // An electrical weapon fired underwater puts its charge into the water
     // instead of down the barrel. The ammo is already spent by the time we get
@@ -1169,16 +1247,12 @@ export class WeaponSystem extends Subsystem {
       return;
     }
 
-    // Emit fire event for network broadcast
-    if (shooter.input) {
+    // Emit fire event for network broadcast. Its direction is the shot's own,
+    // spread included, so every client (the shooter's too) draws the tracer
+    // where the damage ray went.
+    const aim = shooter.input ? this.aimShot(shooter, weapon, tick) : null;
+    if (aim) {
       const origin = this.getFireViewOrigin(shooter);
-      // yaw/pitch are already in radians from the client (Babylon.js camera)
-      // Negate pitch: Babylon uses negative rotationX for looking UP.
-      // Apply beam wander so remote beams bend to match the (deflected) damage ray.
-      const isADS = (shooter.input.buttons & ALT_FIRE_BUTTON) !== 0;
-      const wander = this.beamWanderOffset(weapon, shooter.id, tick, isADS);
-      const yaw = shooter.input.yaw + wander.dYaw;
-      const pitch = -shooter.input.pitch + wander.dPitch;
       if (origin) {
         this.pendingFireEvents.push({
           entityId: shooter.id,
@@ -1186,9 +1260,10 @@ export class WeaponSystem extends Subsystem {
           originX: origin.x,
           originY: origin.y,
           originZ: origin.z,
-          dirX: Math.sin(yaw) * Math.cos(pitch),
-          dirY: Math.sin(pitch),
-          dirZ: Math.cos(yaw) * Math.cos(pitch),
+          dirX: aim.dir.x,
+          dirY: aim.dir.y,
+          dirZ: aim.dir.z,
+          ...(aim.pellets ? { pelletSeed: aim.pellets.seed, pelletSpread: aim.pellets.spreadDeg } : {}),
         });
       }
     }
@@ -1196,8 +1271,8 @@ export class WeaponSystem extends Subsystem {
     // Route to melee or ranged
     if (weapon.meleeRadius) {
       this.fireMelee(state, shooter, weapon);
-    } else if (weapon.hitscan) {
-      this.fireHitscan(state, shooter, weapon, tick);
+    } else if (weapon.hitscan && aim) {
+      this.fireHitscan(state, shooter, weapon, aim);
     } else {
       this.fireProjectile(state, shooter, weapon);
     }
@@ -1424,13 +1499,11 @@ export class WeaponSystem extends Subsystem {
     }
   }
 
-  private fireHitscan(state: WorldState, shooter: Readonly<Entity>, weapon: WeaponDef, _tick: TickNumber): void {
+  private fireHitscan(state: WorldState, shooter: Readonly<Entity>, weapon: WeaponDef, aim: ShotAim): void {
     if (!shooter.transform || !shooter.input) return;
 
     // Calculate fire direction from view angles (already in radians)
-    // Negate pitch: Babylon uses negative rotationX for looking UP
     const yaw = shooter.input.yaw;
-    const pitch = -shooter.input.pitch;
 
     const start = this.getFireViewOrigin(shooter);
     if (!start) return;
@@ -1439,18 +1512,9 @@ export class WeaponSystem extends Subsystem {
     // against the same instant of the world.
     const rewind = this.rewindFor(state, shooter);
 
-    // Pellet weapons (riotgun): fire N rays with seeded spread
-    if (firesPellets(weapon)) {
-      // Increment shot count for seed uniqueness
-      const shotCount = (this.shotCounts.get(shooter.id) || 0) + 1;
-      this.shotCounts.set(shooter.id, shotCount);
-
-      // Use adsSpread when player is aiming down sights (ALT_FIRE button)
-      const ALT_FIRE_BUTTON = 1 << 9;
-      const isADS = (shooter.input.buttons & ALT_FIRE_BUTTON) !== 0;
-      const spreadDeg = isADS && weapon.adsSpread !== undefined ? weapon.adsSpread : weapon.spread;
-
-      const seed = computeSpreadSeed(_tick as number, shooter.id as number, shotCount);
+    // Pellet weapons (riotgun): fire N rays from the shot's seed and cone (aimShot)
+    if (firesPellets(weapon) && aim.pellets) {
+      const { seed, spreadDeg } = aim.pellets;
       const directions = generateSpreadDirections(seed, weapon.pelletCount, spreadDeg, yaw, shooter.input.pitch);
 
       // Trace each pellet individually
@@ -1466,18 +1530,9 @@ export class WeaponSystem extends Subsystem {
     // double-negated (`const p = -pitch`, where pitch is already -input.pitch),
     // inverting vertical aim so the damage ray disagreed with the tracer and every
     // other fire path — machinegun/electrobolt/instagun hit low when aiming up (F2).
-    // Unstable-beam wander (voltaic hipfire): deflect the aim by a smooth,
-    // deterministic sweep unless ADS — the beam bends and drifts off distant
-    // targets from the hip; ADS locks it straight. Same offset as the fire event.
-    const isADS = (shooter.input.buttons & ALT_FIRE_BUTTON) !== 0;
-    const wander = this.beamWanderOffset(weapon, shooter.id, _tick, isADS);
-    const wYaw = yaw + wander.dYaw;
-    const wPitch = pitch + wander.dPitch;
-    const dir = {
-      x: Math.sin(wYaw) * Math.cos(wPitch),
-      y: Math.sin(wPitch),
-      z: Math.cos(wYaw) * Math.cos(wPitch),
-    };
+    // The shot's direction from aimShot: the machinegun's spread, or Voltaic's
+    // hip-fire wander, already in it, and the same as the fire event's.
+    const dir = aim.dir;
     const primaryHit = this.traceHitscanRay(state, shooter, weapon, start, dir, maxRange, rewind);
     // Continuous beam compatibility IDs have already normalized to Voltaic.
     if (weapon.hitscanType === "beam") {
