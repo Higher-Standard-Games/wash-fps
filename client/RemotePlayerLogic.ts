@@ -114,6 +114,24 @@ export function animationLodRadiusSq(
   return Number.isFinite(radius) ? radius * radius : 0;
 }
 
+/** A frustum plane as Babylon stores it: inside when `normal · p + d >= 0`. */
+export interface FrustumPlaneLike {
+  normal: { x: number; y: number; z: number };
+  d: number;
+}
+
+/**
+ * Whether a sphere touches the frustum. Conservative: a sphere just beyond a
+ * corner (outside two planes, inside each) still counts as visible, which only
+ * ever keeps work running, never hides a body.
+ */
+export function sphereInFrustum(planes: readonly FrustumPlaneLike[], x: number, y: number, z: number, radius: number) {
+  for (const { normal, d } of planes) {
+    if (normal.x * x + normal.y * y + normal.z * z + d < -radius) return false;
+  }
+  return true;
+}
+
 /**
  * Derive animation name from interpolated network data.
  * Uses velocity, grounded state, and yaw — all available from SnapshotBuffer.

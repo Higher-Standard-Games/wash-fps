@@ -3,7 +3,7 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { Scene } from "@babylonjs/core/scene";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { PlayerModelInstance } from "../../../../engine/animation/PlayerModelManager";
 
 /**
@@ -64,12 +64,15 @@ function setup() {
     bodyParts: new WeakMap(),
     frameStyleKeys: new Map(),
     frameSample: {},
+    poseBounded: new WeakSet(),
   });
   renderer.modelManager = {
     resetRootMotion: vi.fn(),
     setAnimationActive: vi.fn(),
     playAnimation: vi.fn(),
     stopOneShot: vi.fn(),
+    useConservativeBounds: vi.fn(),
+    selectAlways: vi.fn(),
   };
   renderer._animDebug = vi.fn();
   renderer.applyHitboxVisualStyle = vi.fn();
@@ -81,13 +84,24 @@ function setup() {
     const interp = { x: 0, y: 0, z: 0, yaw: 0, crouching: false, sliding: false };
     renderer.updateModel(hitbox, interp, "player_2", 1, visible);
   };
-  return { renderer, anchor, weapon, frame };
+  return { renderer, anchor, weapon, frame, model };
 }
 
 describe("remote player visibility", () => {
   afterEach(() => {
     pvs.visible = true;
     scene.getEngine().dispose();
+  });
+
+  it("gives a body pose bounds once, and hands a ragdoll back to always-selected", () => {
+    const { renderer, frame, model } = setup();
+    const manager = renderer.modelManager as { useConservativeBounds: Mock; selectAlways: Mock };
+    frame();
+    frame();
+    expect(manager.useConservativeBounds).toHaveBeenCalledTimes(1);
+    expect(manager.useConservativeBounds).toHaveBeenCalledWith(model);
+    expect(renderer.detachModel("player_2")).toBe(model);
+    expect(manager.selectAlways).toHaveBeenCalledWith(model);
   });
 
   it("brings the hand weapon back with the body after PVS culled them", () => {

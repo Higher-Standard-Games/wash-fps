@@ -12,13 +12,20 @@
  */
 
 import { Color3 } from "@babylonjs/core/Maths/math.color";
-import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { Frustum } from "@babylonjs/core/Maths/math.frustum";
+import type { Plane } from "@babylonjs/core/Maths/math.plane";
+import { Matrix, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Scene } from "@babylonjs/core/scene";
-import { type PlayerModelInstance, PlayerModelManager } from "../../../engine/animation/PlayerModelManager";
+import {
+  animationDeltaSeconds,
+  PLAYER_POSE_BOUNDS,
+  type PlayerModelInstance,
+  PlayerModelManager,
+} from "../../../engine/animation/PlayerModelManager";
 import { Cvar } from "../../../engine/core/Cvar";
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
 import { BspManager } from "../../../engine/loader/bsp/BspManager";
@@ -29,6 +36,7 @@ import {
   SnapshotBuffer,
 } from "../../../engine/network/client/SnapshotBuffer";
 import type { GameState } from "../../../engine/network/core/GameState";
+import { waterNeedsLocalReflection } from "../../../engine/rendering/water/WaterActorReflection";
 import { getHitscanEffects } from "../../../engine/weapon/HitscanEffects";
 import type { VoltaicRemoteStartResolver } from "../../../engine/weapon/voltaic/VoltaicEffectRenderer";
 import { WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
@@ -60,6 +68,7 @@ import {
   extractEntities,
   IDLE_SPEED_THRESHOLD,
   legacyTeamColor,
+  sphereInFrustum,
 } from "./RemotePlayerLogic";
 import { installTeamColorBridge } from "./TeamColorBridge";
 
@@ -88,6 +97,8 @@ interface RemotePlayerHitbox {
   appliedVisualStyleKey: string | null;
   /** True while this player was last seen carrying a powerup (drives the glow). */
   powerupGlowActive: boolean;
+  /** Pose sampled at the reduced rate (medium distance); see applyAnimationLod. */
+  poseStepped?: boolean;
 }
 
 // ─── Constants (Q3-style player bounds) ──────────────────────────
@@ -177,6 +188,29 @@ export class RemotePlayerRenderer {
   private frameAnimDebug: boolean | null = null;
   /** The sample each live player is read into during render(); see renderEntities. */
   private readonly frameSample = {} as InterpolatedEntity;
+  /** Sphere around {@link PLAYER_POSE_BOUNDS}, anchor-relative, for the pose frustum test. */
+  private static readonly POSE_SPHERE_CENTER_Y = (PLAYER_POSE_BOUNDS.minY + PLAYER_POSE_BOUNDS.maxY) / 2;
+  private static readonly POSE_SPHERE_RADIUS = Math.hypot(
+    PLAYER_POSE_BOUNDS.radius,
+    (PLAYER_POSE_BOUNDS.maxY - PLAYER_POSE_BOUNDS.minY) / 2,
+  );
+  /** Main-view frustum planes, reused every frame; see poseFrustum. */
+  private readonly frustumPlanes = Frustum.GetPlanes(Matrix.Identity());
+
+  /**
+   * Medium-distance players are posed at {@link POSE_STEP_HZ} once they are
+   * shorter than {@link POSE_STEP_ENTER_PIXELS} on screen, and back at full
+   * rate above {@link POSE_STEP_LEAVE_PIXELS}.
+   */
+  private static readonly POSE_STEP_HZ = 30;
+  private static readonly POSE_STEP_ENTER_PIXELS = 56;
+  private static readonly POSE_STEP_LEAVE_PIXELS = 72;
+  /** Set once per frame by render(); see poseStepPlan. */
+  private framePoseStep: ReturnType<RemotePlayerRenderer["poseStepPlan"]> = null;
+
+  /** Remote bodies whose bounds already hold every pose; see updateModel. */
+  private readonly poseBounded = new WeakSet<PlayerModelInstance>();
+
   /** Scratch point for the PVS probes up a player's body. */
   private readonly pvsProbe = new Vector3();
 
@@ -278,6 +312,18 @@ export class RemotePlayerRenderer {
   }
 
   // ── Model Loading ────────────────────────────────────────────
+
+  /** Explicit readiness boundary for unattended demo benchmarks. */
+  async waitForModels(): Promise<void> {
+    await this.ensureModelLoaded();
+    if (!this.modelManager?.isLoaded) throw new Error("Timedemo player model failed to load");
+  }
+
+  getPlaybackModelStats(): { alivePlayers: number; loadedBodies: number } {
+    let loadedBodies = 0;
+    for (const hitbox of this.hitboxes.values()) if (hitbox.model) loadedBodies++;
+    return { alivePlayers: this.hitboxes.size, loadedBodies };
+  }
 
   private async ensureModelLoaded(): Promise<void> {
     if (this.modelManager?.isLoaded) return;
@@ -508,6 +554,8 @@ export class RemotePlayerRenderer {
     const camera = this.scene?.activeCamera ?? null;
     const cameraPos = camera?.globalPosition ?? null;
     const animationLodRadiusSq = this.animationLodRadiusSq(camera);
+    const poseFrustum = this.poseFrustum(camera);
+    this.framePoseStep = this.poseStepPlan(camera);
 
     // Get all entities from latest snapshot for lifecycle management
     const aliveIds = this.demoTimeline
@@ -524,7 +572,7 @@ export class RemotePlayerRenderer {
     this.frameAnimDebug = Number(Cvar.get("cl_animdebug") ?? 0) > 0;
     this.frameStyleKeys.clear();
     try {
-      this.renderEntities(aliveIds, showHitbox, cameraPos, animationLodRadiusSq);
+      this.renderEntities(aliveIds, showHitbox, cameraPos, animationLodRadiusSq, poseFrustum);
     } finally {
       // Outside a frame the settings may change, so nothing read here is kept.
       this.frameStyleKeys.clear();
@@ -870,6 +918,9 @@ export class RemotePlayerRenderer {
     const model = hitbox.model;
     // A one-shot (a blade swing) is the manager's; the ragdoll drives the bones now.
     this.modelManager?.stopOneShot(model, false);
+    // Physics carries the bones off the anchor, outside the pose bounds.
+    this.modelManager?.selectAlways(model);
+    this.poseBounded.delete(model);
     model.attachedWeapon = hitbox.weaponRoot;
     hitbox.weaponRoot = null;
     hitbox.mesh.dispose();
@@ -1112,12 +1163,49 @@ export class RemotePlayerRenderer {
     );
   }
 
+  /**
+   * The main view's frustum, for pausing the skeletons of players it cannot
+   * see; null when something else may be looking. A water mirror shows bodies
+   * the main camera does not, and so does a second active camera, and a
+   * frozen stride there is the visible kind of wrong. Drawing is not decided
+   * here: each pass culls bodies by their pose bounds on its own.
+   */
+  private poseFrustum(camera: { getTransformationMatrix(): Matrix } | null) {
+    const scene = this.scene;
+    if (!scene || !camera || (scene.activeCameras?.length ?? 0) > 1 || waterNeedsLocalReflection(scene)) return null;
+    Frustum.GetPlanesToRef(camera.getTransformationMatrix(), this.frustumPlanes);
+    return this.frustumPlanes;
+  }
+
+  /**
+   * This frame's reduced-rate pose plan: who counts as medium distance, and
+   * how often their skeleton is posed. Null when the rate is off
+   * (`cl_player_pose_hz 0`) or the camera cannot be measured.
+   */
+  private poseStepPlan(camera: { fov?: number; mode?: number } | null): {
+    enterSq: number;
+    leaveSq: number;
+    dtSeconds: number;
+    stepSeconds: number;
+  } | null {
+    const hz = Number(Cvar.get("cl_player_pose_hz") ?? RemotePlayerRenderer.POSE_STEP_HZ);
+    const engine = this.scene?.getEngine();
+    if (!this.scene || !engine || !camera || !(hz > 0)) return null;
+    const radiusSq = (pixels: number) =>
+      animationLodRadiusSq(camera.fov, camera.mode, engine.getRenderHeight(), PLAYER_HEIGHT, pixels);
+    const enterSq = radiusSq(RemotePlayerRenderer.POSE_STEP_ENTER_PIXELS);
+    const leaveSq = radiusSq(RemotePlayerRenderer.POSE_STEP_LEAVE_PIXELS);
+    if (!(enterSq > 0) || !(leaveSq > 0)) return null;
+    return { enterSq, leaveSq, dtSeconds: animationDeltaSeconds(this.scene), stepSeconds: 1 / hz };
+  }
+
   /** One frame of every alive remote player; see render(). */
   private renderEntities(
     aliveIds: Iterable<string>,
     showHitbox: boolean,
     cameraPos: Vector3 | null,
     animationLodRadiusSq: number,
+    poseFrustum: readonly Plane[] | null,
   ): void {
     // Settings, clock and bracketing snapshots once for every player, and each
     // sample written into one reused object (B12 stage 4). Nothing below keeps
@@ -1213,7 +1301,7 @@ export class RemotePlayerRenderer {
       this.updatePowerupGlow(hitbox, entityId, interp.powerupMask ?? 0, performance.now() / 1000);
 
       // Animation runs only for a player who is drawn and big enough to read.
-      this.applyAnimationLod(hitbox, visible, cameraPos, animationLodRadiusSq);
+      this.applyAnimationLod(hitbox, visible, cameraPos, animationLodRadiusSq, poseFrustum);
     }
   }
 
@@ -1238,8 +1326,23 @@ export class RemotePlayerRenderer {
     visible: boolean,
     cameraPosition: Vector3 | null,
     animationLodRadiusSq: number,
+    poseFrustum: readonly Plane[] | null,
   ): void {
     if (!hitbox.model || !this.modelManager) return;
+
+    // Behind the camera or off to the side, nobody sees the stride. The sphere
+    // wraps the pose bounds, so a player resumes before any limb reaches the
+    // screen edge.
+    const anchor = hitbox.model.anchor.position;
+    const offScreen =
+      poseFrustum !== null &&
+      !sphereInFrustum(
+        poseFrustum,
+        anchor.x,
+        anchor.y + RemotePlayerRenderer.POSE_SPHERE_CENTER_Y,
+        anchor.z,
+        RemotePlayerRenderer.POSE_SPHERE_RADIUS,
+      );
 
     // Beyond the LOD radius the body is a thumbnail and its limbs cannot be
     // read; a radius of 0 means the camera could not be measured, so nothing is
@@ -1249,7 +1352,25 @@ export class RemotePlayerRenderer {
       animationLodRadiusSq > 0 &&
       Vector3.DistanceSquared(cameraPosition, hitbox.mesh.position) > animationLodRadiusSq;
 
-    this.modelManager.setAnimationActive(hitbox.model, visible && !tooSmall);
+    if (!visible || tooSmall || offScreen) {
+      hitbox.poseStepped = false;
+      this.modelManager.setAnimationActive(hitbox.model, false);
+      return;
+    }
+
+    // Medium distance: the stride reads, but a pose 30 times a second is
+    // indistinguishable from one every frame at this size. Entering and
+    // leaving at different sizes keeps a player on the boundary from
+    // alternating every frame.
+    const plan = this.framePoseStep;
+    if (plan && cameraPosition) {
+      const distanceSq = Vector3.DistanceSquared(cameraPosition, hitbox.mesh.position);
+      hitbox.poseStepped = distanceSq > (hitbox.poseStepped ? plan.leaveSq : plan.enterSq);
+    } else {
+      hitbox.poseStepped = false;
+    }
+    if (hitbox.poseStepped && plan) this.modelManager.stepAnimation(hitbox.model, plan.dtSeconds, plan.stepSeconds);
+    else this.modelManager.setAnimationActive(hitbox.model, true);
   }
 
   /**
@@ -1432,18 +1553,21 @@ export class RemotePlayerRenderer {
     if (inst.mesh.rotationQuaternion) inst.mesh.rotationQuaternion = null;
     inst.mesh.rotation.set(0, 0, 0);
 
-    // Ensure the body is renderable. The weapon mesh is separately attached to
-    // a bone and already disables frustum culling; keep the player body in the
-    // same safe state so stale skinned bounds cannot hide it.
+    // Ensure the body is renderable. Its bounds hold every pose (set once, with
+    // the scale and root motion above in place), so each camera and pass culls
+    // it against its own frustum: a player behind the camera is not drawn, and
+    // one a water mirror can see still is.
+    if (!this.poseBounded.has(inst)) {
+      this.modelManager.useConservativeBounds(inst);
+      this.poseBounded.add(inst);
+    }
     inst.mesh.setEnabled(true);
     inst.mesh.isVisible = true;
     inst.mesh.visibility = 1;
-    inst.mesh.alwaysSelectAsActiveMesh = true;
     for (const m of this.bodyPartsOf(inst)) {
       m.setEnabled(true);
       m.isVisible = true;
       m.visibility = 1;
-      m.alwaysSelectAsActiveMesh = true;
     }
 
     // Derive animation from network data
@@ -1779,6 +1903,14 @@ Cvar.register("cl_remotehitbox", 0, {
   min: 0,
   max: 1,
   description: "Show wireframe hitbox outlines on remote players",
+});
+
+Cvar.register("cl_player_pose_hz", 30, {
+  type: "int",
+  min: 0,
+  max: 240,
+  description:
+    "Pose rate for medium-distance remote players, in Hz (they still move every frame). 0 poses every player every frame",
 });
 
 Cvar.register("cl_animdebug", 0, {

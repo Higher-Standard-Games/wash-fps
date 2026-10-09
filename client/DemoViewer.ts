@@ -28,6 +28,8 @@ export interface DemoViewerInfo {
   playbackSpeed: number;
   /** Increments whenever playback jumps discontinuously. */
   discontinuityId: number;
+  /** Monotonic coverage counters for benchmark validity, reset on load. */
+  skippedFrames: number;
 }
 
 export type DemoViewerCallback = (state: GameState, tick: number) => void;
@@ -58,6 +60,7 @@ export class DemoViewer {
   /** Current position on the recorded timeline, relative to the first frame. */
   private playheadMs: number = 0;
   private discontinuityId: number = 0;
+  private skippedFrames = 0;
   /** The frame last handed to onFrame, and in which discontinuity, so play() never hands it over twice. */
   private presented: { frame: number; discontinuityId: number } | null = null;
   private frameCache: Map<number, DemoFrame> = new Map();
@@ -89,6 +92,7 @@ export class DemoViewer {
 
     this.currentFrameIndex = 0;
     this.playheadMs = 0;
+    this.skippedFrames = 0;
     this.discontinuityId++;
     this.frameCache.clear();
     this.setState("loaded");
@@ -248,6 +252,7 @@ export class DemoViewer {
       // render update; at any speed, a normal frame's worth is all delivered.
       const oldestMs = this.playheadMs - MAX_CATCH_UP_MS * this.playbackSpeed;
       const firstFrameToDeliver = Math.max(this.currentFrameIndex + 1, this.findFrameAtPlayhead(oldestMs));
+      this.skippedFrames += firstFrameToDeliver - (this.currentFrameIndex + 1);
       this.currentFrameIndex = firstFrameToDeliver - 1;
 
       while (this.currentFrameIndex < targetFrameIndex) {
@@ -377,6 +382,7 @@ export class DemoViewer {
       elapsedMs,
       playbackSpeed: this.playbackSpeed,
       discontinuityId: this.discontinuityId,
+      skippedFrames: this.skippedFrames,
     };
   }
 

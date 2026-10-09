@@ -251,7 +251,7 @@ export class DemoService {
    * The caller is responsible for wiring the viewer's onFrame callback
    * to the game renderer.
    */
-  async loadAndPlayNormal(viewer: DemoViewer): Promise<void> {
+  async loadAndPlayNormal(viewer: DemoViewer, options: { manual?: boolean } = {}): Promise<void> {
     if (!this.loadedDemoData) throw new Error("No demo loaded. Use `demo <filename>` first.");
     const start = ++this.startGeneration;
 
@@ -272,12 +272,12 @@ export class DemoService {
 
     // 4. Wire the frame callback → renderer/HUD, then play.
     this.activeDemoViewer = viewer;
-    await this.ensureRuntimeWiring(viewer, "normal");
+    await this.ensureRuntimeWiring(viewer, "normal", !options.manual);
     if (this.abandonStart(start, viewer)) return;
     await viewer.load(this.loadedDemoData);
     if (this.abandonStart(start, viewer)) return;
     viewer.play();
-    this.startPlaybackLoop();
+    if (!options.manual) this.startPlaybackLoop();
   }
 
   // ── Cinematic playback ─────────────────────────────────────────────────────
@@ -543,7 +543,7 @@ export class DemoService {
     });
   }
 
-  private async ensureRuntimeWiring(viewer: DemoViewer, overlayMode: DemoOverlayMode): Promise<void> {
+  private async ensureRuntimeWiring(viewer: DemoViewer, overlayMode: DemoOverlayMode, withHud = true): Promise<void> {
     const camera = CameraSystem.getInstance().getCamera();
     const scene = camera?.getScene();
     if (!scene) {
@@ -607,7 +607,7 @@ export class DemoService {
       this.demoEventTimeline.finishPresentationFrame();
     });
 
-    if (typeof document === "undefined") return;
+    if (!withHud || typeof document === "undefined") return;
     const { DemoViewerHUD } = await import("./DemoViewerHUD");
     this.demoHud = new DemoViewerHUD();
     this.demoEventOverlay = new DemoEventOverlay(this.demoEventTimeline);
@@ -703,28 +703,72 @@ export class DemoService {
       const deltaMs = Math.max(0, now - this.lastFrameTimeMs);
       this.lastFrameTimeMs = now;
 
-      this.activeDemoViewer.update(deltaMs);
-      this.activeCinematicPlayer?.update(deltaMs);
-      const playback = this.activeDemoViewer.getInfo();
-      this._syncDemoPresentationClock(playback);
-      this._pushPlaybackClock(playback);
-      const nextFrame = this.activeDemoViewer.getNextFrame();
-      if (nextFrame) this.remoteRenderer?.pushDemoSnapshot(nextFrame.state, "", /* lookahead */ true);
-      this._updateDemoPov(playback);
-      this.remoteRenderer?.render();
-      this._renderDemoProjectiles();
-      // Overlay renders ONCE per display frame (here) — not per delivered frame,
-      // which rebuilt it up to 5× in one RAF during catch-up bursts.
-      this.demoEventOverlay?.render();
-      this.demoHud?.update(playback);
-      if (this.activeCinematicPlayer) {
-        this.cinematicHud?.updateProgress(this.activeCinematicPlayer.getReelInfo());
-      }
+      this.updatePlaybackFrame(deltaMs);
 
       this.playbackRaf = window.requestAnimationFrame(tick);
     };
 
     this.playbackRaf = window.requestAnimationFrame(tick);
+  }
+
+  /** Shared frame body; a manual timedemo owns ordering inside the scene loop. */
+  updatePlaybackFrame(deltaMs: number, applyCamera?: () => void): void {
+    if (!this.activeDemoViewer) return;
+    this.activeDemoViewer.update(deltaMs);
+    this.activeCinematicPlayer?.update(deltaMs);
+    const playback = this.activeDemoViewer.getInfo();
+    this._syncDemoPresentationClock(playback);
+    this._pushPlaybackClock(playback);
+    const nextFrame = this.activeDemoViewer.getNextFrame();
+    if (nextFrame) this.remoteRenderer?.pushDemoSnapshot(nextFrame.state, "", true);
+    this._updateDemoPov(playback);
+    applyCamera?.();
+    this.remoteRenderer?.render();
+    this._renderDemoProjectiles();
+    this.demoEventOverlay?.render();
+    this.demoHud?.update(playback);
+    if (this.activeCinematicPlayer) this.cinematicHud?.updateProgress(this.activeCinematicPlayer.getReelInfo());
+  }
+
+  /** Timedemo camera changes retain normal POV weapon/recoil/hidden-body behavior. */
+  setPlaybackSpectatorTarget(entityId: string | null): void {
+    if (entityId === this._followedEntityId) return;
+    if (entityId) {
+      this._selectSpectateTarget(entityId);
+      if (this.activeDemoViewer) this._updateDemoPov(this.activeDemoViewer.getInfo());
+    } else {
+      this._followedEntityId = null;
+      this._followed.follow(null);
+      this.remoteRenderer?.setHiddenEntity(null);
+      const cam = CameraSystem.getInstance();
+      const spectator = cam.getController("spectator") as { clearSpectateTarget?(): void } | undefined;
+      spectator?.clearSpectateTarget?.();
+      cam.setController("freefly");
+    }
+  }
+
+  getPlaybackState(): GameState | null {
+    return this.latestState;
+  }
+
+  async waitForPlaybackModels(): Promise<void> {
+    await this.remoteRenderer?.waitForModels();
+  }
+
+  getPlaybackModelStats() {
+    const stats = this.remoteRenderer?.getPlaybackModelStats() ?? { alivePlayers: 0, loadedBodies: 0 };
+    if (!this.latestState) return stats;
+    const dead = new Set(
+      this.latestState.events
+        .filter((event) => event.type === "combat_state" && (event as { dead?: boolean }).dead)
+        .map((event) => event.entityId),
+    );
+    const alivePlayers = [...this.latestState.entities.keys()].filter((id) => isClientKey(id) && !dead.has(id)).length;
+    return { alivePlayers, loadedBodies: stats.loadedBodies };
+  }
+
+  isPlaybackWeaponLoaded(): boolean {
+    return this._demoWvm?.isWeaponModelLoaded ?? false;
   }
 
   private stopPlaybackLoop(): void {

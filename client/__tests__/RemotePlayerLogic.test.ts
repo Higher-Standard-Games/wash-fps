@@ -11,6 +11,7 @@ import {
   legacyTeamColor,
   RUN_SPEED_THRESHOLD,
   SWIM_IDLE_SPEED_THRESHOLD,
+  sphereInFrustum,
 } from "../RemotePlayerLogic";
 
 const component = <T extends object>(data: T) => ({
@@ -226,5 +227,27 @@ describe("deriveAnimation", () => {
 
   it("follows yaw: facing +X, moving along +X is forward", () => {
     expect(deriveAnimation(at({ yaw: Math.PI / 2, vx: run }))).toBe("run");
+  });
+});
+
+describe("sphereInFrustum", () => {
+  // A unit cube "frustum": inside when -1 <= x,y,z <= 1.
+  const planes = [
+    { normal: { x: 1, y: 0, z: 0 }, d: 1 },
+    { normal: { x: -1, y: 0, z: 0 }, d: 1 },
+    { normal: { x: 0, y: 1, z: 0 }, d: 1 },
+    { normal: { x: 0, y: -1, z: 0 }, d: 1 },
+    { normal: { x: 0, y: 0, z: 1 }, d: 1 },
+    { normal: { x: 0, y: 0, z: -1 }, d: 1 },
+  ];
+
+  it("keeps spheres inside or overlapping a plane", () => {
+    expect(sphereInFrustum(planes, 0, 0, 0, 0.1)).toBe(true);
+    expect(sphereInFrustum(planes, 1.5, 0, 0, 0.6)).toBe(true);
+  });
+
+  it("rejects a sphere wholly behind any one plane", () => {
+    expect(sphereInFrustum(planes, 1.5, 0, 0, 0.4)).toBe(false);
+    expect(sphereInFrustum(planes, 0, 0, -3, 1)).toBe(false);
   });
 });

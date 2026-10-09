@@ -18,6 +18,7 @@ import { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture";
 import { Texture } from "@babylonjs/core/Materials/Textures/texture";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import type { Scene } from "@babylonjs/core/scene";
+import { supportsSeparateCullingPass } from "../../../../../engine/rendering/RenderingEngineFactory";
 import type { RGB } from "./types";
 
 function toColor3(c: RGB): Color3 {
@@ -107,7 +108,8 @@ export function createEnergyMaterialTemplate(
   if (alpha < 1) {
     mat.transparencyMode = 2; // ALPHABLEND
     mat.backFaceCulling = false;
-    mat.separateCullingPass = true;
+    // Two-pass culling sorts back faces under front faces; NCM cannot record it.
+    mat.separateCullingPass = supportsSeparateCullingPass(scene.getEngine());
   }
   // Stash the authored emissive so per-frame pulse can scale from a stable base
   // without drifting.
@@ -213,7 +215,8 @@ export function createRingGradientMaterial(scene: Scene, name: string, color: RG
   mat.alpha = RING_PEAK_ALPHA;
   mat.transparencyMode = 2; // ALPHABLEND
   mat.backFaceCulling = false;
-  mat.separateCullingPass = true;
+  // Two-pass culling sorts back faces under front faces; NCM cannot record it.
+  mat.separateCullingPass = supportsSeparateCullingPass(scene.getEngine());
   (mat as unknown as { _baseEmissive: Color3 })._baseEmissive = mat.emissiveColor.clone();
   (mat as unknown as { _baseAlpha: number })._baseAlpha = mat.alpha;
   return mat;

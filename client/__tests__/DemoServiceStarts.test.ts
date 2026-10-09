@@ -136,6 +136,36 @@ describe("demo starts", () => {
     expect(demo.dispose).toHaveBeenCalled();
     expect(service.hasActivePlayback()).toBe(false);
   });
+
+  it("manual playback starts without a second RAF owner or transport HUD", async () => {
+    stubStartSteps();
+    const wiring = vi.fn(async () => {});
+    Object.assign(internals, { ensureDemoMapLoaded: async () => {}, ensureRuntimeWiring: wiring });
+    const demo = viewer();
+    await service.loadAndPlayNormal(demo as unknown as DemoViewer, { manual: true });
+    expect(demo.play).toHaveBeenCalledOnce();
+    expect(internals.startPlaybackLoop).not.toHaveBeenCalled();
+    expect(wiring).toHaveBeenCalledWith(demo, "normal", false);
+  });
+  it("counts living recorded actors even when the renderer failed to create any bodies", () => {
+    Object.assign(internals, {
+      latestState: {
+        entities: new Map([
+          ["player_1", {}],
+          ["player_2", {}],
+          ["projectile_3", {}],
+        ]),
+        events: [{ type: "combat_state", entityId: "player_2", dead: true }],
+      },
+      remoteRenderer: {
+        getPlaybackModelStats: () => ({ alivePlayers: 0, loadedBodies: 0 }),
+        setHiddenEntity: vi.fn(),
+        dispose: vi.fn(),
+      },
+    });
+    expect(service.getPlaybackModelStats()).toEqual({ alivePlayers: 1, loadedBodies: 0 });
+    service.stopAll();
+  });
 });
 
 describe("the demo view model and camera cuts", () => {
