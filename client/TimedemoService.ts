@@ -1,5 +1,9 @@
 import { Engine } from "@babylonjs/core/Engines/engine";
 import type { WebGPUEngine } from "@babylonjs/core/Engines/webgpuEngine";
+// EngineInstrumentation needs the GPU frame-time counter (timeQuery) and, on
+// WebGL, the timer-query implementation (engine.query); WebGPU bundles its own.
+import "@babylonjs/core/Engines/AbstractEngine/abstractEngine.timeQuery";
+import "@babylonjs/core/Engines/Extensions/engine.query";
 import { EngineInstrumentation } from "@babylonjs/core/Instrumentation/engineInstrumentation";
 import { SceneInstrumentation } from "@babylonjs/core/Instrumentation/sceneInstrumentation";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
