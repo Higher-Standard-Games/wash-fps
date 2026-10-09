@@ -5,13 +5,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@engine/server/network/transport/WebSocketTransport", () => {
-  class FakeTransport {
-    async start(): Promise<void> {}
-    async stop(): Promise<void> {}
-  }
-  return { WebSocketServerTransport: FakeTransport };
-});
+vi.mock("@engine/server/network/transport/WebSocketTransport", () => import("./_fakeTransport"));
 
 import { GameServer, type GameServerConfig, isBehind } from "../GameServer";
 import { Deathmatch } from "../gametypes/Deathmatch";

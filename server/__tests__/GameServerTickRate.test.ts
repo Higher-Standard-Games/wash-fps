@@ -14,18 +14,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Mock the WebSocket transport so the server starts without binding a port.
-vi.mock("@engine/server/network/transport/WebSocketTransport", () => {
-  class FakeTransport {
-    async start(): Promise<void> {}
-    async stop(): Promise<void> {}
-    broadcastDatagram(): void {}
-    broadcastReliable(): void {}
-    sendDatagram(): void {}
-    sendReliable(): void {}
-    disconnect(): void {}
-  }
-  return { WebSocketServerTransport: FakeTransport };
-});
+vi.mock("@engine/server/network/transport/WebSocketTransport", () => import("./_fakeTransport"));
 
 import { GameServer, type GameServerConfig } from "../GameServer";
 import { Deathmatch } from "../gametypes/Deathmatch";
