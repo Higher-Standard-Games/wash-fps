@@ -20,6 +20,7 @@ import { UIStyles } from "../../../engine/ui/UIStyles";
 import { UITheme } from "../../../engine/ui/UITheme";
 import { getWeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
 import { toClientKey } from "../ClientEntityKey";
+import { devLog } from "./DevLog";
 import { HUDState } from "./HUDState";
 import { MatchPhase, MatchStateManager } from "./MatchStateManager";
 
@@ -340,7 +341,7 @@ export class FPSHud {
       const success = await theme.loadFont("Orbitron", fontPath, weight, true);
       if (success) orbitronLoaded++;
     }
-    console.log(`[FPSHud] Orbitron font loaded (${orbitronLoaded}/${orbitronWeights.length} weights)`);
+    devLog(`[FPSHud] Orbitron font loaded (${orbitronLoaded}/${orbitronWeights.length} weights)`);
 
     // Rajdhani (body font)
     const rajdhaniWeights = [
@@ -357,7 +358,7 @@ export class FPSHud {
       const success = await theme.loadFont("Rajdhani", fontPath, weight, true);
       if (success) rajdhaniLoaded++;
     }
-    console.log(`[FPSHud] Rajdhani font loaded (${rajdhaniLoaded}/${rajdhaniWeights.length} weights)`);
+    devLog(`[FPSHud] Rajdhani font loaded (${rajdhaniLoaded}/${rajdhaniWeights.length} weights)`);
 
     this.fontsLoaded = orbitronLoaded > 0 && rajdhaniLoaded > 0;
     if (!this.fontsLoaded) {
@@ -513,7 +514,7 @@ export class FPSHud {
     if (this.running) return;
     this.running = true;
     this.updateInterval = window.setInterval(() => this.update(), intervalMs);
-    console.log(`[FPSHud] Update loop started (${intervalMs}ms)`);
+    devLog(`[FPSHud] Update loop started (${intervalMs}ms)`);
   }
 
   /**
@@ -526,7 +527,7 @@ export class FPSHud {
       clearInterval(this.updateInterval);
       this.updateInterval = null;
     }
-    console.log("[FPSHud] Update loop stopped");
+    devLog("[FPSHud] Update loop stopped");
   }
 
   /**

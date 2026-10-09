@@ -9,6 +9,7 @@
  */
 
 import type { Scene } from "@babylonjs/core/scene";
+import { devLog } from "./DevLog";
 
 export class FrameEffects {
   gibSystem: any = null;
@@ -58,7 +59,7 @@ export class FrameEffects {
             this.pendingGibSpawns = [];
           } else {
             // Scene not ready yet — allow retry on next frame
-            console.log(`[GibSystem] Scene not ready, will retry next frame`);
+            devLog(`[GibSystem] Scene not ready, will retry next frame`);
             this.gibSystemLoading = false;
           }
         })
@@ -91,7 +92,7 @@ export class FrameEffects {
             this.ragdollSystem = ragdolls;
             console.log("[RagdollSystem] Initialized");
           } else {
-            console.log("[RagdollSystem] Scene not ready, will retry");
+            devLog("[RagdollSystem] Scene not ready, will retry");
             this.ragdollSystemLoading = false;
           }
         })

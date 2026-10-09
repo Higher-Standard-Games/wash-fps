@@ -78,6 +78,7 @@ import { FPSPlayer } from "../FPSPlayer";
 import type { PlayerStateUpdate } from "../Game";
 import { FPSPickup } from "../world/FPSPickup";
 import type { ServerAmmoState } from "../world/InventoryManager";
+import { devLog } from "./DevLog";
 import type { FollowedViewWeapon } from "./FollowedViewWeapon";
 import { networkHostOf } from "./NetworkHostAccess";
 
@@ -389,7 +390,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
                 ctx._isPlayerDead = true;
                 ctx._respawnRequested = false;
                 ctx._respawnCooldownEnd = Date.now() + 3000;
-                console.log("[GameEvents] Local player died");
+                devLog("[GameEvents] Local player died");
                 import("../../../engine/weapon/WeaponViewManager").then((m) => {
                   const wvm = m.getWeaponViewManager();
                   wvm.setVisible(false);
@@ -401,7 +402,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
               } else if (!event.dead && ctx._isPlayerDead) {
                 ctx._isPlayerDead = false;
                 ctx._respawnRequested = false;
-                console.log("[GameEvents] Local player respawned");
+                devLog("[GameEvents] Local player respawned");
                 ctx._deathCamera?.stop();
                 if (ctx.v2Client) {
                   ctx.v2Client.resetForRespawn();
@@ -749,7 +750,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
 // ── Internal helpers ───────────────────────────────────────────────
 
 function handleDeathEvent(ctx: GameEventContext, event: DeathEvent, state: GameState): void {
-  console.log(
+  devLog(
     `[Death] Event received: entity=${event.entityId} killer=${event.killerId} damageType=${event.damageType} finalDamage=${event.finalDamage} pos=(${event.x}, ${event.y}, ${event.z})`,
   );
   // Names are resolved here, where the players are known: the event carries
@@ -804,7 +805,7 @@ function handleDeathEvent(ctx: GameEventContext, event: DeathEvent, state: GameS
       console.error("[Death] markDead error:", e);
     }
     if (event.x !== undefined) {
-      console.log(`[GibSystem] Gib death: dmgType=${damageType} dmg=${finalDamage}`);
+      devLog(`[GibSystem] Gib death: dmgType=${damageType} dmg=${finalDamage}`);
       let gibHandle: { getPosition(): Vector3 | null } | null = null;
       if (ctx._gibSystem) {
         gibHandle = ctx._gibSystem.spawn(event.x, event.y, event.z, event.velX || 0, event.velY || 0, event.velZ || 0);
@@ -825,7 +826,7 @@ function handleDeathEvent(ctx: GameEventContext, event: DeathEvent, state: GameS
       }
     }
   } else {
-    console.log(`[RagdollSystem] Ragdoll death: dmgType=${damageType} dmg=${finalDamage}`);
+    devLog(`[RagdollSystem] Ragdoll death: dmgType=${damageType} dmg=${finalDamage}`);
     let model = null;
     try {
       if (ctx.remoteRenderer && event.entityId) {
@@ -1267,7 +1268,7 @@ export function processProjectileEntities(state: GameState, sync: ProjectileSync
 // biome-ignore lint/suspicious/noExplicitAny: duck-typed snapshot event
 function handleChatEvent(event: ChatSnapshotEvent): void {
   try {
-    console.log(`[Chat] event ← server: ${event.senderName}: "${event.text}"`);
+    devLog(`[Chat] event ← server: ${event.senderName}: "${event.text}"`);
     const name = event.senderName || "unknown";
     const prefix = event.team === "spectator" ? "[SPEC] " : "";
     import("./FPSHud")
@@ -1318,8 +1319,7 @@ function handleAwardEvent(ctx: GameEventContext, event: AwardSnapshotEvent): voi
   const playerName: string = event.playerName || "";
   const targetName: string = event.targetName || "";
 
-  console.log(`[Award] ${playerName}: ${awardType} (target=${targetName}, value=${event.value})`);
-  console.log(`[Award] Compare: event.playerId='${playerId}' ctx.localPlayerId='${ctx.localPlayerId}'`);
+  devLog(`[Award] ${playerName}: ${awardType} (target=${targetName}, value=${event.value})`);
 
   // Match against multiple ID formats since server/client may use different formats
   const isLocalPlayer =

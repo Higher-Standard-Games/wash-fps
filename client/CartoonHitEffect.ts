@@ -18,6 +18,7 @@ import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import type { Scene } from "@babylonjs/core/scene";
+import { devLog } from "./DevLog";
 
 // ============================================================================
 // Constants
@@ -230,6 +231,6 @@ export class CartoonHitEffect {
 
     this.scene = null;
     this.texturesLoaded = false;
-    console.log("[CartoonHitEffect] Disposed");
+    devLog("[CartoonHitEffect] Disposed");
   }
 }

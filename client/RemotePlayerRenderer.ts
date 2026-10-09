@@ -35,6 +35,7 @@ import { WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTab
 import { maskHasPowerup } from "../../../shared/items/Powerups";
 import { DemoAnimationTimeline } from "./DemoAnimationTimeline";
 import { DemoEntityTimeline } from "./DemoEntityTimeline";
+import { devLog } from "./DevLog";
 import {
   getPlayerModelVisualStyle,
   getPlayerModelVisualStyleKey,
@@ -1164,7 +1165,7 @@ export class RemotePlayerRenderer {
       if (!hitbox.model && this.modelManager?.isLoaded) {
         hitbox.model = this.createModelInstance(entityId);
         if (hitbox.model) {
-          console.log(`[RemotePlayerRenderer] Late model assign for ${entityId}`);
+          devLog(`[RemotePlayerRenderer] Late model assign for ${entityId}`);
         }
       }
 
@@ -1583,7 +1584,7 @@ export class RemotePlayerRenderer {
     // No change — nothing to do
     if (weaponId === hitbox.currentWeaponId) return;
 
-    console.log(`[RemoteWeapon] ★ Weapon change: ${entityId} → ${weaponId}`);
+    devLog(`[RemoteWeapon] ★ Weapon change: ${entityId} → ${weaponId}`);
     hitbox.currentWeaponId = weaponId;
 
     // Dispose previous weapon
@@ -1690,7 +1691,7 @@ export class RemotePlayerRenderer {
               }
 
               attached = true;
-              console.log(
+              devLog(
                 `[RemoteWeapon] ✓ attachToBone: ${weaponId} → RightHand, scale: ${(visualScale / MODEL_SCALE).toFixed(4)}`,
               );
               break;
@@ -1739,7 +1740,7 @@ export class RemotePlayerRenderer {
         // blade ride the death ragdoll and vanish with it instead of leaking a
         // floating mesh that piles up over a match.
         inst.attachedWeapon = leaderMesh as unknown as TransformNode;
-        console.log(
+        devLog(
           `[RemoteWeapon] ✓ Done: ${weaponId} for ${entityId}, bone: ${attached}, scale: ${attached ? visualScale / MODEL_SCALE : visualScale}`,
         );
       })

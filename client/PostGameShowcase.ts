@@ -16,6 +16,7 @@
 import type { Camera } from "@babylonjs/core/Cameras/camera";
 import { disposePlayerModel, type PlayerModelInstance } from "../../../engine/animation/PlayerModelManager";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
+import { devLog } from "./DevLog";
 import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
 
 /** Distance in front of the camera to place the model (world/Quake units).
@@ -63,7 +64,7 @@ export async function startPostGameShowcase(
 ): Promise<void> {
   stopPostGameShowcase();
   if (!renderer || !winnerEntityId) {
-    console.log(`[PostGameShowcase] skipped — renderer=${!!renderer} entityId=${winnerEntityId}`);
+    devLog(`[PostGameShowcase] skipped — renderer=${!!renderer} entityId=${winnerEntityId}`);
     return;
   }
 
@@ -74,12 +75,12 @@ export async function startPostGameShowcase(
     getScene?: () => import("@babylonjs/core/scene").Scene;
   } | null;
   if (!cam?.position) {
-    console.log("[PostGameShowcase] skipped — no camera");
+    devLog("[PostGameShowcase] skipped — no camera");
     return;
   }
   const scene = cam.getScene?.();
   if (!scene) {
-    console.log("[PostGameShowcase] skipped — no scene");
+    devLog("[PostGameShowcase] skipped — no scene");
     return;
   }
 
@@ -111,7 +112,7 @@ export async function startPostGameShowcase(
   if (hit?.hit && hit.pickedPoint) {
     const hitDistance = Vector3.Distance(origin, hit.pickedPoint);
     distance = Math.min(distance, Math.max(SHOWCASE_MIN_DISTANCE, hitDistance - SHOWCASE_WALL_PADDING));
-    console.log(`[PostGameShowcase] wall at ${hitDistance.toFixed(0)} — clamped to ${distance.toFixed(0)}`);
+    devLog(`[PostGameShowcase] wall at ${hitDistance.toFixed(0)} — clamped to ${distance.toFixed(0)}`);
   }
 
   const x = cam.position.x + dir.x * distance;
@@ -120,7 +121,7 @@ export async function startPostGameShowcase(
   // Face the camera exactly (yaw from model position back to the camera).
   const facingCameraYaw = Math.atan2(cam.position.x - x, cam.position.z - z);
 
-  console.log(
+  devLog(
     `[PostGameShowcase] spawning winner model: entity=${winnerEntityId} weapon=${weaponId ?? "none"} at (${x.toFixed(0)}, ${y.toFixed(0)}, ${z.toFixed(0)})`,
   );
   const model = await renderer.createDetachedModelAtAsync(winnerEntityId, x, y, z, facingCameraYaw);
@@ -188,7 +189,7 @@ export async function startPostGameShowcase(
   if (weaponId) {
     renderer
       .attachShowcaseWeapon(model, weaponId)
-      .then(() => console.log(`[PostGameShowcase] weapon attached: ${weaponId}`))
+      .then(() => devLog(`[PostGameShowcase] weapon attached: ${weaponId}`))
       .catch((e) => console.warn("[PostGameShowcase] weapon attach failed", e));
   }
 
@@ -200,7 +201,7 @@ export async function startPostGameShowcase(
     const dances = [...DANCE_ANIMS].sort(() => Math.random() - 0.5);
     for (const dance of dances) {
       if (PlayerModelManager.playAnimationOn(model, dance)) {
-        console.log(`[PostGameShowcase] victory dance: ${dance}`);
+        devLog(`[PostGameShowcase] victory dance: ${dance}`);
         break;
       }
     }

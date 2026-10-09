@@ -5,6 +5,7 @@
 import { EntityRegistry } from "../../../shared/entities/EntityRegistry";
 import { EntityType } from "../../../shared/entities/EntityType";
 import type { WeaponDef } from "../../../shared/entities/WeaponDef";
+import { devLog } from "../client/DevLog";
 
 export interface AmmoState {
   [ammoType: string]: number;
@@ -70,7 +71,7 @@ export class InventoryManager {
 
     this.weapons.set(weaponId, def);
     this.slots.push(weaponId);
-    console.log(
+    devLog(
       `[InventoryManager] Acquired weapon: ${def.name} (Slot ${this.slots.length}/${InventoryManager.MAX_WEAPONS})`,
     );
 
@@ -178,11 +179,11 @@ export class InventoryManager {
     if (this.currentWeaponId === weaponId) {
       this.currentWeaponId = this.slots.length > 0 ? this.slots[0] : null;
       if (this.currentWeaponId) {
-        console.log(`[InventoryManager] Auto-switched to: ${this.weapons.get(this.currentWeaponId)?.name}`);
+        devLog(`[InventoryManager] Auto-switched to: ${this.weapons.get(this.currentWeaponId)?.name}`);
       }
     }
 
-    console.log(`[InventoryManager] Dropped weapon: ${def.name}`);
+    devLog(`[InventoryManager] Dropped weapon: ${def.name}`);
     return def;
   }
 
@@ -197,7 +198,7 @@ export class InventoryManager {
 
     this.currentWeaponId = weaponId;
     // TODO: Notify weapon view manager
-    console.log(`[InventoryManager] Equipped: ${this.weapons.get(weaponId)?.name}`);
+    devLog(`[InventoryManager] Equipped: ${this.weapons.get(weaponId)?.name}`);
     return true;
   }
 

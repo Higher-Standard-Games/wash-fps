@@ -5,6 +5,7 @@ import { Color3 } from "@babylonjs/core/Maths/math.color";
 import type { FPSController } from "../../engine/camera/controllers/FPSController";
 import { WeaponViewManager } from "../../engine/weapon/WeaponViewManager";
 import type { WeaponDef } from "../../shared/entities";
+import { devLog } from "./client/DevLog";
 import { HUDState } from "./client/HUDState";
 import { isLocalPowerupActive } from "./client/LocalPowerupState";
 import { MatchStateManager } from "./client/MatchStateManager";
@@ -136,7 +137,7 @@ export class FPSPlayer {
 
     this.isReloading = true;
     this.reloadTimer = weapon.reloadTime || 0.6;
-    console.log(`Reloading... (${this.reloadTimer}s)`);
+    devLog(`[FPSPlayer] Reloading... (${this.reloadTimer}s)`);
 
     WeaponViewManager.getInstance().startReload(weapon.reloadTime || 0.6);
   }
@@ -145,7 +146,7 @@ export class FPSPlayer {
     this.isReloading = false;
     // Ammo movement is server-authoritative; weapon_state reconciliation updates
     // InventoryManager once the server finishes the reload.
-    console.log("Reload animation complete.");
+    devLog("[FPSPlayer] Reload animation complete.");
   }
 
   private switchWeapon(slotIndex: number): void {
@@ -163,7 +164,7 @@ export class FPSPlayer {
     // which will update currentWeaponId in syncFromServer().
     // Animation blocking is handled by setWeaponSwitchBlockedCheck callback.
     WeaponViewManager.getInstance().switchWeaponAnimated(weaponId);
-    console.log(`Switching to weapon: ${weaponId}`);
+    devLog(`[FPSPlayer] Switching to weapon: ${weaponId}`);
   }
 
   private updateFiring(_deltaTime: number): void {

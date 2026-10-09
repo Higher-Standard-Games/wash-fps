@@ -40,6 +40,7 @@ import { getAmmoStatus } from "./client/AmmoStatus";
 import { BombRenderer } from "./client/BombRenderer";
 import { BombSiteMarkers } from "./client/BombSiteMarkers";
 import { Crosshair } from "./client/Crosshair";
+import { devLog } from "./client/DevLog";
 import type { DroppedWeaponRenderer } from "./client/DroppedWeaponRenderer";
 import { registerFPSActions } from "./client/FPSActions";
 import { preloadFPSAudio } from "./client/FPSAudio";
@@ -864,25 +865,25 @@ export class Game {
     }
 
     if (this.playerState === "playing") {
-      console.log("[Game] joinGame() — already playing, skipping");
+      devLog("[Game] joinGame() — already playing, skipping");
       return;
     }
     if (this._joinPending) {
-      console.log("[Game] joinGame() — join already pending, skipping");
+      devLog("[Game] joinGame() — join already pending, skipping");
       return;
     }
     if (!this.gameHost || !this.isNetworkMode) {
-      console.log("[Game] joinGame() — no gameHost or not network mode");
+      devLog("[Game] joinGame() — no gameHost or not network mode");
       return;
     }
-    console.log("[Game] joinGame() — sending join request to server");
+    devLog("[Game] joinGame() — sending join request to server");
 
     const networkHost = this.gameHost as import("../../engine/network/client/hosts/NetworkGameHost").NetworkGameHost;
 
     // Tell server we want to join — server decides if we can
     // Ask for the side chosen in the lobby. The server normalizes alpha/bravo
     // to its own team ids and falls back to balancing if this is absent.
-    console.log(
+    devLog(
       `[Game] joinGame() — requesting team: ${this._preferredTeam ?? "auto-balance"}${this._teamWasPicked ? " (picked in-game)" : " (from lobby)"}`,
     );
     networkHost.sendJoinGame(this._preferredTeam, this._teamWasPicked, this._seatTicket ?? undefined);
@@ -967,9 +968,9 @@ export class Game {
         initializeEntityDefs();
         const wvm = getWeaponViewManager();
         wvm.init(scene, camera);
-        console.log("[Game] completeJoinGame() — WVM initialized");
+        devLog("[Game] completeJoinGame() — WVM initialized");
         wvm.loadWeapon(this._lastServerWeapon || "blade").then((success) => {
-          console.log(`[Game] completeJoinGame() — initial weapon loadWeapon result: ${success}`);
+          devLog(`[Game] completeJoinGame() — initial weapon loadWeapon result: ${success}`);
         });
 
         // Preload projectile models (independent of weapon load)
@@ -1003,7 +1004,7 @@ export class Game {
       console.warn(`[Chat] send dropped — gameHost=${!!this.gameHost} networkMode=${this.isNetworkMode}`);
       return;
     }
-    console.log(`[Chat] send → server: "${text}"`);
+    devLog(`[Chat] send → server: "${text}"`);
     const networkHost = this.gameHost as import("../../engine/network/client/hosts/NetworkGameHost").NetworkGameHost;
     networkHost.sendChat(text);
   }
@@ -1575,7 +1576,7 @@ export class Game {
     const player = state.players.get(this.localPlayerId);
     if (!player) {
       if (Math.random() < 0.01) {
-        console.log(`[Game] getLocalPlayerPosition: no player for ${this.localPlayerId}`);
+        devLog(`[Game] getLocalPlayerPosition: no player for ${this.localPlayerId}`);
       }
       return null;
     }
@@ -1661,7 +1662,7 @@ export class Game {
     if (networkHost) {
       networkHost.sendReliable(data);
       MatchStateManager.getInstance().setReady(true);
-      console.log("[Game] Sent ready signal to server");
+      devLog("[Game] Sent ready signal to server");
     }
   }
 
@@ -1675,7 +1676,7 @@ export class Game {
     const networkHost = networkHostOf(this.gameHost);
     if (networkHost) {
       networkHost.sendReliable(data);
-      console.log("[Game] Sent RequestSpawn to server");
+      devLog("[Game] Sent RequestSpawn to server");
     }
   }
 
@@ -1969,20 +1970,20 @@ export class Game {
     // Set on local simulation (for local mode)
     if (this.simulation) {
       this.simulation.setCollisionWorld(collision);
-      console.log("[Game] Collision world set on local simulation");
+      devLog("[Game] Collision world set on local simulation");
     }
 
     // Also set on NetworkGameHost's prediction simulation (for network mode)
     const networkHost = networkHostOf(this.gameHost);
     if (networkHost) {
       networkHost.setCollisionWorld(collision);
-      console.log("[Game] Collision world set on network prediction simulation");
+      devLog("[Game] Collision world set on network prediction simulation");
     }
 
     // Set on V2NetworkClient for Q3-style prediction (network mode)
     if (this.v2Client) {
       this.v2Client.setCollisionWorld(collision);
-      console.log("[Game] Collision world set on V2NetworkClient");
+      devLog("[Game] Collision world set on V2NetworkClient");
     }
 
     // Underwater view and splashes ask the same world about the camera and the waterline.

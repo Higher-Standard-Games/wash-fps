@@ -19,6 +19,7 @@ import { DEFAULT_VIEWHEIGHT } from "../../../engine/physics/PlayerPhysicsConstan
 import { getWeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
 import { clientKeyDisplayId } from "../ClientEntityKey";
 import { DeathCamera } from "./DeathCamera";
+import { devLog } from "./DevLog";
 import { FollowedViewWeapon } from "./FollowedViewWeapon";
 import { handleSpectatedWeaponState } from "./GameEvents";
 import { clearLocalPowerups } from "./LocalPowerupState";
@@ -295,7 +296,7 @@ export class SpectateView {
     this._deathCamera.stop();
     this.host.spectatorOverlay()?.setSpectatingTarget(this.spectateeName(entityId));
     this.host.spectatorOverlay()?.setMode("first-person");
-    console.log(`[Game] Spectating teammate: ${entityId}`);
+    devLog(`[Game] Spectating teammate: ${entityId}`);
     return true;
   }
 
@@ -452,7 +453,7 @@ export class SpectateView {
     this.host.spectatorOverlay()?.setMode("first-person");
     this.host.spectatorOverlay()?.setSpectatingTarget(spectatorCycling.getPlayerName(entityId));
     CameraSystem.getInstance().setController("spectator");
-    console.log(`[Game] Now spectating player: ${entityId}`);
+    devLog(`[Game] Now spectating player: ${entityId}`);
   }
 
   /**
@@ -489,7 +490,7 @@ export class SpectateView {
     this.host.remoteRenderer()?.setHiddenEntity(null);
     this.host.spectatorOverlay()?.setMode("freefly");
     this.switchToFreeflyCamera();
-    console.log("[Game] Returned to freefly spectator");
+    devLog("[Game] Returned to freefly spectator");
   }
 
   /**
@@ -535,7 +536,7 @@ export class SpectateView {
       }
       cameraSystem.setController("freefly");
 
-      console.log("[Game] Switched to freefly camera");
+      devLog("[Game] Switched to freefly camera");
     } catch (e) {
       console.warn("[Game] Could not switch to freefly camera:", e);
     }
