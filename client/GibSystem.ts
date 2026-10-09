@@ -3,7 +3,7 @@
  *
  * Spawns 25 procedural triangle meshes in pink/teal/grey when a player dies.
  * Gibs inherit victim velocity + upward impulse, bounce off BSP surfaces via
- * BabylonJS raycasting, tumble with random rotation, and fade out after 5s.
+ * collision traces, tumble with random rotation, and fade out after 5s.
  *
  * Warsow-style: player "breaks digitally" into triangular fragments.
  */
@@ -15,6 +15,8 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
 import type { Scene } from "@babylonjs/core/scene";
+import { getCollisionManager } from "../../../engine/physics/CollisionManager";
+import { CollisionMasks } from "../../../engine/physics/ContentFlags";
 
 // ============================================================================
 // Constants
@@ -333,22 +335,18 @@ export class GibSystem {
           // Hero gibs: raycast in velocity direction for wall/ceiling/floor bounce
           const speed = Math.sqrt(gib.velX * gib.velX + gib.velY * gib.velY + gib.velZ * gib.velZ);
           if (speed > 10) {
-            const moveLen = speed * dt;
-            const dir = new Vector3(gib.velX / speed, gib.velY / speed, gib.velZ / speed);
-            const origin = new Vector3(gib.posX, gib.posY, gib.posZ);
-            const ray = new Ray(origin, dir, moveLen + GIB_SIZE);
-            const hit = this.scene.pickWithRay(ray, (m) => m.isPickable && !m.name.startsWith("gib_"));
-            if (hit?.hit && hit.pickedPoint && hit.getNormal(true)) {
+            const hit = this.traceBounce(gib, speed, dt);
+            if (hit) {
               // Reflect velocity off surface normal
-              const n = hit.getNormal(true)!;
+              const n = hit.normal;
               const dot = gib.velX * n.x + gib.velY * n.y + gib.velZ * n.z;
               gib.velX = (gib.velX - 2 * dot * n.x) * 0.3;
               gib.velY = (gib.velY - 2 * dot * n.y) * 0.3;
               gib.velZ = (gib.velZ - 2 * dot * n.z) * 0.3;
               // Snap to surface
-              gib.posX = hit.pickedPoint.x + n.x * GIB_SIZE * 0.3;
-              gib.posY = hit.pickedPoint.y + n.y * GIB_SIZE * 0.3;
-              gib.posZ = hit.pickedPoint.z + n.z * GIB_SIZE * 0.3;
+              gib.posX = hit.point.x + n.x * GIB_SIZE * 0.3;
+              gib.posY = hit.point.y + n.y * GIB_SIZE * 0.3;
+              gib.posZ = hit.point.z + n.z * GIB_SIZE * 0.3;
               didBounce = true;
             }
           }
@@ -392,6 +390,33 @@ export class GibSystem {
         gib.mesh.visibility = 1.0;
       }
     }
+  }
+
+  /**
+   * Where a hero gib's path this frame meets the world, if it does.
+   *
+   * A BSP trace against solid brushes when map collision is loaded: a few
+   * plane tests. Picking the scene's render triangles instead tested every
+   * triangle of every large world mesh whose bounds the ray crossed, every
+   * frame for every airborne hero gib — about 15% of the main thread through
+   * a busy FFA demo. The scene pick remains only for scenes without collision.
+   */
+  private traceBounce(gib: Gib, speed: number, dt: number): { point: Vector3; normal: Vector3 } | null {
+    const reach = speed * dt + GIB_SIZE;
+    const origin = new Vector3(gib.posX, gib.posY, gib.posZ);
+    const dir = new Vector3(gib.velX / speed, gib.velY / speed, gib.velZ / speed);
+    const collision = getCollisionManager();
+    if (collision.isInitialized()) {
+      const trace = collision.trace(origin, origin.add(dir.scale(reach)), {
+        radius: 0,
+        contentMask: CollisionMasks.SHOT,
+      });
+      if (trace.startSolid || trace.fraction >= 1 || !trace.normal) return null;
+      return { point: trace.endPos, normal: trace.normal };
+    }
+    const hit = this.scene?.pickWithRay(new Ray(origin, dir, reach), (m) => m.isPickable && !m.name.startsWith("gib_"));
+    const normal = hit?.hit ? hit.getNormal(true) : null;
+    return hit?.pickedPoint && normal ? { point: hit.pickedPoint, normal } : null;
   }
 
   // ========================================================================
