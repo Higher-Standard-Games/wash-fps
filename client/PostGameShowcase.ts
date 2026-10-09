@@ -7,8 +7,8 @@
  * weapon, dropped at a clear world spot in front of the frozen camera. Disposed
  * when the next warmup begins.
  *
- * A dedicated "diorama" camera then frames the winner as a centered, straight-on
- * hero shot composed relative to the MODEL (not the death spot), so the shot looks
+ * A dedicated "diorama" camera then frames the winner as a straight-on hero shot
+ * in the left third of the screen, beside the result board, composed relative to the MODEL (not the death spot), so the shot looks
  * the same every match regardless of where the fight ended. The map remains the
  * backdrop; a fuller vista/backdrop composition (§8) is still future work.
  */
@@ -34,7 +34,7 @@ const SHOWCASE_MIN_DISTANCE = 60;
 const SHOWCASE_WALL_PADDING = 24;
 
 // ── Diorama camera ────────────────────────────────────────────────────
-// A dedicated camera frames the winner as a CENTERED, straight-on hero shot,
+// A dedicated camera frames the winner as a straight-on hero shot in the left third,
 // placed relative to the MODEL (not the death spot) so the composition is
 // identical every match — no more "model in a weird map position" (#5). It sits
 // in front of the model, where the player was standing (clear space), so it
@@ -47,6 +47,12 @@ const DIORAMA_EYE_HEIGHT = 40;
 const DIORAMA_LOOK_HEIGHT = 36;
 /** Vertical field of view (radians). */
 const DIORAMA_FOV = 0.8;
+/**
+ * Where across the screen the model stands, as a fraction of its width: the
+ * left third, the stage of the post-game composition. The board fills the right
+ * column and never comes left of 45%, so the model is never under it.
+ */
+const DIORAMA_FRAME_X = 0.3;
 
 let currentModel: PlayerModelInstance | null = null;
 let generation = 0;
@@ -153,7 +159,7 @@ export async function startPostGameShowcase(
     child.isVisible = true;
   }
 
-  // Dedicated diorama camera: a centered, straight-on hero shot framed relative
+  // Dedicated diorama camera: a straight-on hero shot in the left third, framed relative
   // to the MODEL, so the winner is composed identically every match regardless of
   // where the fight ended. It sits in front of the model (where the player was
   // standing = clear space), clamped to the available distance so it can't clip a
@@ -175,8 +181,16 @@ export async function startPostGameShowcase(
     z + (faceZ / faceLen) * camDist,
   );
   const diorama = new FreeCamera("postgame_diorama", dioramaPos, scene);
-  diorama.setTarget(new Vector3(x, y + DIORAMA_LOOK_HEIGHT, z));
   diorama.fov = DIORAMA_FOV;
+  diorama.setTarget(new Vector3(x, y + DIORAMA_LOOK_HEIGHT, z));
+  // Aim past the model to its right, so it stands at DIORAMA_FRAME_X across the
+  // screen rather than in the middle. At the model's distance, half the screen's
+  // width spans camDist * tan(fov / 2) * aspect.
+  const aspect = engine.getRenderWidth() / Math.max(1, engine.getRenderHeight());
+  const lateral = (1 - 2 * DIORAMA_FRAME_X) * camDist * Math.tan(DIORAMA_FOV / 2) * aspect;
+  diorama.getViewMatrix(true);
+  const right = diorama.getDirection(Vector3.Right());
+  diorama.setTarget(new Vector3(x + right.x * lateral, y + DIORAMA_LOOK_HEIGHT, z + right.z * lateral));
   diorama.minZ = 1;
   diorama.maxZ = 10000;
   diorama.inputs.clear();
