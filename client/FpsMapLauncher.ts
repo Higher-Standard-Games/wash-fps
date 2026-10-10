@@ -1,4 +1,8 @@
-import type { GameplayMapLauncher, GameplayMapLaunchResult } from "../../../engine/console/GameplayMapLauncher";
+import type {
+  GameplayMapLauncher,
+  GameplayMapLaunchOptions,
+  GameplayMapLaunchResult,
+} from "../../../engine/console/GameplayMapLauncher";
 import { Game } from "../Game";
 import { ensureFpsLobbyConnection } from "./FpsLobbyService";
 
@@ -21,7 +25,11 @@ function normalizeGametype(input: string | undefined): string {
 }
 
 export const fpsMapLauncher: GameplayMapLauncher = {
-  async launch(mapName: string, gametype: string = "duel"): Promise<GameplayMapLaunchResult> {
+  async launch(
+    mapName: string,
+    gametype: string = "duel",
+    options: GameplayMapLaunchOptions = {},
+  ): Promise<GameplayMapLaunchResult> {
     const map = mapName.trim().toLowerCase();
     const normalizedGametype = normalizeGametype(gametype);
 
@@ -30,7 +38,7 @@ export const fpsMapLauncher: GameplayMapLauncher = {
     }
 
     const client = await ensureFpsLobbyConnection();
-    const spawned = await client.spawnDevServer(map, normalizedGametype);
+    const spawned = await client.spawnDevServer(map, normalizedGametype, undefined, options.trainingDemo);
 
     await Game.getInstance().initializeNetwork(spawned.serverUrl, {
       autoJoin: true,

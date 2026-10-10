@@ -143,3 +143,27 @@ describe("DemoRecorder min-duration guard", () => {
     expect(fp).toBe("");
   });
 });
+
+describe("DemoRecorder file naming", () => {
+  it("writes a named demo, and never over an existing one", async () => {
+    const first = new DemoRecorder({ ...base, minDurationMs: 0, fileName: "wdm2_ra" });
+    first.recordFrame(frame(1));
+    const a = await first.stop();
+    written.push(a);
+    const second = new DemoRecorder({ ...base, minDurationMs: 0, fileName: "wdm2_ra" });
+    second.recordFrame(frame(1));
+    const b = await second.stop();
+    written.push(b);
+    expect(path.basename(a)).toBe("wdm2_ra.shagdemo");
+    expect(path.basename(b)).toBe("wdm2_ra_2.shagdemo");
+  });
+
+  it("strips anything but letters, digits, _ and - from the name", async () => {
+    const rec = new DemoRecorder({ ...base, minDurationMs: 0, fileName: "../wdm2 ra" });
+    rec.recordFrame(frame(1));
+    const fp = await rec.stop();
+    written.push(fp);
+    expect(path.dirname(fp)).toBe(tmpDir);
+    expect(path.basename(fp)).toBe("___wdm2_ra.shagdemo");
+  });
+});

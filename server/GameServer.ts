@@ -578,9 +578,18 @@ export class GameServer {
       this.gametypeController.getGametype()?.constructor?.name?.toLowerCase() ||
       "deathmatch";
 
+    const training = this.config.trainingDemo;
     this.demoRecorder = new DemoRecorder({
       map: this.config.mapName,
       gametype: gametypeName,
+      ...(training
+        ? {
+            subdirectory: "training",
+            fileName: `${this.config.mapName}_${training}`,
+            // A training run is one trick, often a few seconds long.
+            minDurationMs: 0,
+          }
+        : {}),
       matchId: this.matchAdmission?.manifest.matchId,
       tickRate: this.timing.tickRate,
       // Record the EFFECTIVE cadence, never the requested one: at 125/60 the
@@ -1581,6 +1590,11 @@ export class GameServer {
     // invited bots previously never readied and warmup always timed out).
     if (client.isBot) {
       this.gametypeController.registerBot(client.playerId);
+    }
+
+    // A training server records from the first human to join; it never leaves warmup.
+    if (this.config.trainingDemo && !client.isBot && !this.demoRecorder?.isRecording) {
+      this.startRecording();
     }
 
     // Record player in demo roster

@@ -35,6 +35,13 @@ export interface GameServerConfig {
   /** Server-owned final snapshot, delivered once on entering PostGame. */
   onFinalResult?: (report: MatchResultReport) => void;
   matchGametype?: string;
+  /**
+   * Record a training demo under this name: from the first human to join until
+   * the last one leaves, a frame every server tick, into
+   * `public/data/demos/training/<map>_<name>.shagdemo`. Bots learn movement
+   * routes from these (see docs/research/v0.9.27-paperclips.md).
+   */
+  trainingDemo?: string;
 }
 
 export interface ClientInfo {

@@ -54,6 +54,10 @@ export interface DemoConfig {
   matchId?: string;
   /** Output directory for demo files */
   outputDir?: string;
+  /** Folder under the default demo directory, when `outputDir` is not given. */
+  subdirectory?: string;
+  /** File name without extension; default `<map>_<gametype>_<date>_<time>`. */
+  fileName?: string;
   /**
    * Minimum recorded match duration (ms) below which the demo is discarded on
    * stop() instead of written. Prevents demo flood from aborted / instant-end
@@ -97,7 +101,7 @@ export class DemoRecorder {
     this._config = config;
     this._startTime = Date.now();
 
-    const dir = config.outputDir || path.join(process.cwd(), "public", "data", "demos");
+    const dir = config.outputDir || path.join(process.cwd(), "public", "data", "demos", config.subdirectory ?? "");
     this._config.outputDir = dir;
 
     console.log(`[DemoRecorder] ✓ Recording started for map "${config.map}" (${config.gametype})`);
@@ -353,6 +357,7 @@ export class DemoRecorder {
   }
 
   private _generateFilename(): string {
+    if (this._config.fileName) return `${this._config.fileName.replace(/[^a-zA-Z0-9_-]/g, "_")}.shagdemo`;
     const d = new Date(this._startTime);
     const pad = (n: number) => n.toString().padStart(2, "0");
     const dateStr = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
