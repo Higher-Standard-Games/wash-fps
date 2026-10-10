@@ -67,6 +67,7 @@ function setup() {
     poseBounded: new WeakSet(),
   });
   renderer.modelManager = {
+    setOutlineProxyEnabled: vi.fn().mockResolvedValue(undefined),
     resetRootMotion: vi.fn(),
     setAnimationActive: vi.fn(),
     playAnimation: vi.fn(),

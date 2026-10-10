@@ -120,6 +120,13 @@ export function registerPlayerModelVisualCvars(): void {
     description: "Enable third-person player model outlines.",
     persist: true,
   });
+  Cvar.register("cl_player_outline_proxy", 0, {
+    type: "int",
+    min: 0,
+    max: 1,
+    persist: false,
+    description: "Experimental reduced player outline geometry (requires benchmark:outline-proxy:build).",
+  });
   Cvar.register("cl_player_outline_size", 25, {
     type: "int",
     min: 0,

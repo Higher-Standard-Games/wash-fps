@@ -12,6 +12,7 @@ import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import type { FreeflyController } from "../../../engine/camera/controllers/FreeflyController";
 import { Cvar } from "../../../engine/core/Cvar";
 import { EngineVersion } from "../../../engine/core/EngineVersion";
+import { PlayerOutlineProxyRuntime } from "../../../engine/rendering/PlayerOutlineProxyRuntime";
 import { observeRendererDevice } from "../../../engine/rendering/RendererDiagnostics";
 import { getRenderingBackend } from "../../../engine/rendering/RenderingEngineFactory";
 import { readTimedemoBundleCounters } from "../../../shared/benchmark/TimedemoBundles";
@@ -41,6 +42,8 @@ interface TimedemoRun {
   shaderCompiles: number;
   samples: TimedemoSample[];
   sceneReadiness: { before: boolean | null; after: boolean | null };
+  outlineProxyAssets?: { sourceSha256: string; proxySha256: string } | null;
+  outlineProxyDiagnostic?: ReturnType<PlayerOutlineProxyRuntime["diagnostics"]> | null;
 }
 
 export interface TimedemoReport {
@@ -314,6 +317,20 @@ export class TimedemoService {
           reasons.push("Some living player bodies were not loaded");
         if (collectBundles && samples.some((s) => s.bundles === null))
           reasons.push("WebGPU NCM bundle counters were unavailable for some measured engine frames");
+        if (fixture.profile.requiredCvars.cl_player_outline_proxy === 1 && !warmup) {
+          if (
+            samples.some(
+              (s) =>
+                !s.outlineProxy?.requested ||
+                s.outlineProxy.status !== "ready" ||
+                s.outlineProxy.rejectedRoots ||
+                s.outlineProxy.fallbackPasses,
+            )
+          )
+            reasons.push("Outline proxy not ready, rejected a body or fell back to full geometry");
+          if (!samples.some((s) => (s.outlineProxy?.routedPasses ?? 0) > 0))
+            reasons.push("No reduced outline submissions were observed");
+        }
         if (
           samples.some(
             (s) => fixture.segments.find((p) => p.name === s.phase)?.camera === "spectator" && !s.spectatorTarget,
@@ -341,6 +358,8 @@ export class TimedemoService {
           phases,
           samples,
           sceneReadiness: { before: readinessBefore, after: readSceneReadiness() },
+          outlineProxyAssets: PlayerOutlineProxyRuntime.existing(scene)?.diagnostics().assets ?? null,
+          outlineProxyDiagnostic: PlayerOutlineProxyRuntime.existing(scene)?.diagnostics() ?? null,
           gpuSamplesMs,
           gpuMs: timedemoPercentiles(gpuSamplesMs),
           gpuTiming: gpuSamplesMs.length
@@ -374,6 +393,7 @@ export class TimedemoService {
         : null;
       const before = scene.onBeforeAnimationsObservable.add(() => {
         try {
+          PlayerOutlineProxyRuntime.existing(scene)?.resetCounters();
           if (pendingBundleSample)
             throw new Error(
               "Measured scene rendered again before engine end-of-frame; bundle attribution is ambiguous",
@@ -441,6 +461,7 @@ export class TimedemoService {
         if (stopped) return;
         if (measured) {
           const bodies = service.getPlaybackModelStats();
+          const proxy = PlayerOutlineProxyRuntime.existing(scene)?.diagnostics();
           const sample: TimedemoSample = {
             seconds,
             phase: segmentAt(fixture, seconds).name,
@@ -459,6 +480,18 @@ export class TimedemoService {
             pendingSceneData: scene.getWaitingItemsCount(),
             skippedFrames: viewer.getInfo().skippedFrames,
             bundles: null,
+            outlineProxy: proxy
+              ? {
+                  requested: proxy.requested,
+                  status: proxy.status,
+                  attachedParts: proxy.attachedParts,
+                  rejectedRoots: proxy.rejectedRoots,
+                  routedPasses: proxy.routedPasses,
+                  routedIndices: proxy.routedIndices,
+                  fallbackPasses: proxy.fallbackPasses,
+                  unsupportedPasses: proxy.unsupportedPasses,
+                }
+              : null,
           };
           samples.push(sample);
           if (collectBundles) pendingBundleSample = sample;

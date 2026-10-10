@@ -351,6 +351,11 @@ export class RemotePlayerRenderer {
         return;
       }
       console.log("[RemotePlayerRenderer] Player model loaded");
+      await loadingManager.setOutlineProxyEnabled(Cvar.getBool("cl_player_outline_proxy"));
+      if (this.disposed || this.modelManager !== loadingManager) {
+        loadingManager.dispose();
+        return;
+      }
 
       // Create model instances for any hitboxes that were created before model loaded
       for (const [entityId, hitbox] of this.hitboxes) {
@@ -554,6 +559,7 @@ export class RemotePlayerRenderer {
    * Called every frame from the render loop.
    */
   render(): void {
+    void this.modelManager?.setOutlineProxyEnabled(Cvar.getBool("cl_player_outline_proxy"));
     // One camera read for the whole frame, for the animation LOD below.
     const camera = this.scene?.activeCamera ?? null;
     const cameraPos = camera?.globalPosition ?? null;
