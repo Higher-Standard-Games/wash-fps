@@ -267,9 +267,12 @@ export class TimedemoService {
     const samples: TimedemoSample[] = [];
     const gpuSamplesMs: number[] = [];
     let gpuCount = engineStats.gpuFrameTimeCounter.count;
-    let last = performance.now();
-    let frameAtMs = last;
-    let frameStart = last;
+    // Manual playback has not advanced while preparing/awaiting its first
+    // render hook. Anchor there, not here: finishing the preparation render
+    // can otherwise enter the viewer as a huge first delta and skip events.
+    let last: number | null = null;
+    let frameAtMs = performance.now();
+    let frameStart = frameAtMs;
     let playbackCpuMs = 0;
     let wallMs = 0;
     let seconds = -fixture.startSeconds;
@@ -387,7 +390,7 @@ export class TimedemoService {
             if (Number(Cvar.get(name)) !== value) throw new Error(`Benchmark profile changed: ${name}`);
           const now = performance.now();
           frameAtMs = now;
-          wallMs = now - last;
+          wallMs = last === null ? 0 : now - last;
           last = now;
           const updateStart = now;
           service.updatePlaybackFrame(wallMs, () => {

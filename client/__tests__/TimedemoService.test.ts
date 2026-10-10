@@ -149,6 +149,45 @@ describe("manual timedemo render ownership", () => {
     h.service.isPlaybackWeaponLoaded.mockReturnValue(true);
     Object.defineProperty(document, "hidden", { configurable: true, value: false });
   });
+  it("anchors manual playback at the first hook instead of counting preparation wait as playback", async () => {
+    let now = 100;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+    const s = setup();
+    try {
+      const result = s.play();
+      now = 1100; // A full second before any manual playback update.
+      s.frame(0.5);
+      expect(h.service.updatePlaybackFrame.mock.calls[0][0]).toBe(0);
+      now = 1116;
+      s.frame(1.5);
+      expect(h.service.updatePlaybackFrame.mock.calls[1][0]).toBe(16);
+      now = 1124;
+      s.frame(2);
+      expect((await result).valid).toBe(true);
+    } finally {
+      s.signal.abort();
+      clock.mockRestore();
+    }
+  });
+  it("still forwards a real stall after clock startup and rejects its skipped events", async () => {
+    let now = 100;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+    const s = setup();
+    try {
+      const result = s.play();
+      now = 1100;
+      s.frame(0.5);
+      now = 1811;
+      s.frame(1.5, 27);
+      expect(h.service.updatePlaybackFrame.mock.calls[1][0]).toBe(711);
+      now = 1820;
+      s.frame(2, 27);
+      expect((await result).reasons).toContain("Playback skipped recorded frames/events after a stall");
+    } finally {
+      s.signal.abort();
+      clock.mockRestore();
+    }
+  });
   it("keeps full-scene readiness outside measured renders and timestamps wall intervals", async () => {
     const s = setup();
     const result = s.play();

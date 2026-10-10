@@ -16,13 +16,14 @@ import { WEAPONS } from "../../../../shared/entities/definitions/weapons/Weapons
  * groups stayed in the scene for good, switched off, so a match of weapon
  * switching left thousands that Babylon still walks every frame (R5).
  */
-const scene = vi.hoisted(() => ({ current: null as unknown as import("@babylonjs/core/scene").Scene }));
+const scene = vi.hoisted(() => ({ current: null as unknown as import("@babylonjs/core/scene").Scene, loads: 0 }));
 
 vi.mock("../../../../engine/loader/model/ModelLoader", () => ({
   ModelLoader: {
     getInstance: () => ({
       isInitialized: () => true,
       loadModel: async () => {
+        scene.loads++;
         const root = new TransformNode("__root__", scene.current);
         const between = new TransformNode("RootNode", scene.current);
         between.parent = root;
@@ -55,6 +56,7 @@ describe("remote weapon changes", () => {
   afterEach(() => {
     scene.current.getEngine().dispose();
     vi.restoreAllMocks();
+    scene.loads = 0;
   });
 
   it("leave the scene's nodes, meshes, materials and animation groups where they were", async () => {
@@ -90,6 +92,36 @@ describe("remote weapon changes", () => {
     }
     expect(hitbox.weaponRoot).not.toBeNull();
     expect(counts()).toEqual(after);
+    expect(scene.loads).toBe(2); // One import per distinct path, not twenty switches.
+  });
+
+  it("rejects the old A load after A→B→A and attaches only the latest instance", async () => {
+    scene.current = new Scene(new NullEngine());
+    const anchor = new TransformNode("anchor", scene.current);
+    const body = MeshBuilder.CreateBox("body", {}, scene.current);
+    body.parent = anchor;
+    const inst = { anchor, mesh: body, skeleton: null, attachedWeapon: null } as unknown as PlayerModelInstance;
+    const hitbox = { model: inst, weaponRoot: null, weaponMuzzle: null, currentWeaponId: "" };
+    const renderer = Object.create(RemotePlayerRenderer.prototype) as Internals;
+    Object.assign(renderer, {
+      scene: scene.current,
+      hitboxes: new Map([["player_2", hitbox]]),
+      deadEntities: new Map(),
+      enemyWeapons: new Map(),
+    });
+    const [a, b] = Object.entries(WEAPONS)
+      .filter(([, def]) => def.modelPath)
+      .map(([id]) => id);
+    for (const weapon of [a, b, a]) {
+      renderer.enemyWeapons.set("player_2", weapon);
+      renderer.updateWeaponModel(hitbox, inst, "player_2");
+    }
+    await vi.waitFor(() => expect(scene.loads).toBe(2));
+    await settle();
+    expect(scene.loads).toBe(2);
+    expect(hitbox.currentWeaponId).toBe(a);
+    expect(scene.current.meshes.filter((mesh) => mesh.name === "gun" && mesh.isEnabled())).toEqual([hitbox.weaponRoot]);
+    expect(inst.attachedWeapon).toBe(hitbox.weaponRoot);
   });
 
   it("leaves nothing when the showcase ended before the winner's gun loaded", async () => {

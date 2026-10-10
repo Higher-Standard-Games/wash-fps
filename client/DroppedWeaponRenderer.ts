@@ -16,10 +16,13 @@
 
 import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
+import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import type { Scene } from "@babylonjs/core/scene";
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
 import { BspManager } from "../../../engine/loader/bsp/BspManager";
+import { ModelInstanceCache } from "../../../engine/loader/model/ModelInstanceCache";
+import type { ModelLoadResult } from "../../../engine/loader/model/ModelLoader";
 import { bindLoaderLeftovers, disposeModelResources } from "../../../engine/loader/model/ModelSourceCache";
 import { describeModelRender } from "../../../engine/world/ModelRenderAudit";
 import { EntityRegistry } from "../../../shared/entities/EntityRegistry";
@@ -42,6 +45,11 @@ export interface DroppedWeaponInfo {
 
 const activeDroppedWeaponVisuals = new Set<DroppedWeaponVisual>();
 
+interface DroppedModelSources {
+  main(path: string, scale: number): Promise<ModelLoadResult | null>;
+  barrel(path: string): Promise<ModelLoadResult | null>;
+}
+
 /** Visual representation of a single dropped weapon with Havok physics */
 class DroppedWeaponVisual {
   readonly entityId: string;
@@ -53,7 +61,7 @@ class DroppedWeaponVisual {
   private settleCheckTimer: ReturnType<typeof setInterval> | null = null;
   private readonly useServerTransforms: boolean;
   hasPhysics: boolean = false;
-  private loadSource: "pending" | "cache-flat" | "fresh-flat" = "pending";
+  private loadSource: "pending" | "cache-flat" | "cached-fallback" = "pending";
   /** Server's authoritative position — used to align visual after Havok settles */
   private serverPosition: Vector3 = Vector3.Zero();
   /** Whether the camera can see it (set by the renderer, applied once the model is in). */
@@ -64,6 +72,7 @@ class DroppedWeaponVisual {
     weaponId: string,
     scene: Scene,
     position: Vector3,
+    private readonly sources: DroppedModelSources,
     velocity?: Vector3,
     useServerTransforms = false,
   ) {
@@ -87,7 +96,7 @@ class DroppedWeaponVisual {
       const defScale = def?.scale ?? 1.5;
 
       // Try AssetPreloader cache first for instant spawn
-      let result: any = null;
+      let result: ModelLoadResult | null = null;
       try {
         const { AssetPreloader } = await import("../../../engine/loader/AssetPreloader");
         const preloader = AssetPreloader.getInstance();
@@ -99,23 +108,15 @@ class DroppedWeaponVisual {
         // Preloader not available
       }
 
-      // Fall back to fresh load
+      // Models absent from the BSP preloader get one shared source per renderer.
       if (!result) {
-        const { ModelLoader } = await import("../../../engine/loader/model/ModelLoader");
-        const loader = ModelLoader.getInstance();
-        if (!loader.isInitialized()) loader.init(this.scene);
-        result = await loader.loadModel(modelPath, {
-          position: Vector3.Zero(),
-          scale: defScale,
-          hasCollision: false,
-          applyLighting: false,
-        });
-        if (result) this.loadSource = "fresh-flat";
+        result = await this.sources.main(modelPath, defScale);
+        if (result) this.loadSource = "cached-fallback";
       }
 
       // If disposed during async load, clean up and bail
       if (this.disposed) {
-        if (result?.root) disposeModelResources([result.root], { animationGroups: result.animationGroups ?? [] });
+        if (result?.root) disposeModelResources([result.root], result);
         return;
       }
 
@@ -161,6 +162,11 @@ class DroppedWeaponVisual {
 
           this.mesh = leaderMesh;
           this.mesh.setEnabled(this.visible);
+          // Bind before awaiting barrels: a pickup/map disposal during that
+          // await must also release the main model's detached rig and clips.
+          result.root.parent = null;
+          result.root.setEnabled(false);
+          bindLoaderLeftovers(leaderMesh, result.root, result.animationGroups);
 
           // === BARREL SUB-MODELS ===
           // Load barrel GLBs (e.g. plasmagun dual chambers) and parent to leader
@@ -197,19 +203,16 @@ class DroppedWeaponVisual {
               }
             }
 
-            const { ImportMeshAsync } = await import("@babylonjs/core/Loading/sceneLoader");
             for (const barrelDef of barrelDefs) {
               if (this.disposed) break;
               try {
-                const lastSlash = barrelDef.modelPath.lastIndexOf("/");
-                const dir = barrelDef.modelPath.substring(0, lastSlash + 1);
-                const file = barrelDef.modelPath.substring(lastSlash + 1);
-                const barrelResult = await ImportMeshAsync(file, this.scene, { rootUrl: dir });
+                const barrelResult = await this.sources.barrel(barrelDef.modelPath);
+                if (!barrelResult) continue;
                 if (this.disposed) {
-                  disposeModelResources([barrelResult.meshes[0]], { animationGroups: barrelResult.animationGroups });
+                  disposeModelResources([barrelResult.root], barrelResult);
                   break;
                 }
-                bindLoaderLeftovers(leaderMesh, null, barrelResult.animationGroups);
+                bindLoaderLeftovers(leaderMesh, barrelResult.root, barrelResult.animationGroups);
                 const barrelRoot = barrelResult.meshes[0];
                 if (barrelRoot) {
                   barrelRoot.parent = leaderMesh;
@@ -273,15 +276,7 @@ class DroppedWeaponVisual {
           }
         }
 
-        // Detach loader root without disposing children. It goes with the
-        // weapon (it may hold a skinned weapon's bones), or now if nothing
-        // in it was worth drawing.
-        if (result.root) {
-          result.root.parent = null;
-          result.root.setEnabled(false);
-          if (leaderMesh) bindLoaderLeftovers(leaderMesh, result.root, result.animationGroups ?? []);
-          else disposeModelResources([result.root], { animationGroups: result.animationGroups ?? [] });
-        }
+        if (!leaderMesh) disposeModelResources([result.root], result);
       }
     } catch (e) {
       console.error(`[DroppedWeaponVisual] Failed to load model for ${this.weaponId}:`, e);
@@ -388,6 +383,57 @@ export class DroppedWeaponRenderer {
   private scene: Scene;
   private disposed = false;
   private weapons: Map<string, DroppedWeaponVisual> = new Map();
+  private fallbackCache?: ModelInstanceCache;
+  private barrelCache?: ModelInstanceCache;
+  private readonly sources: DroppedModelSources = {
+    main: (path, scale) => this.loadFallbackModel(path, scale),
+    barrel: (path) => this.loadBarrelModel(path),
+  };
+
+  private async loadFallbackModel(path: string, scale: number): Promise<ModelLoadResult | null> {
+    if (this.disposed || this.scene.isDisposed) return null;
+    const { ModelLoader } = await import("../../../engine/loader/model/ModelLoader");
+    if (this.disposed || this.scene.isDisposed) return null;
+    this.fallbackCache ??= new ModelInstanceCache(this.scene, async (modelPath, modelScale) => {
+      const loader = ModelLoader.getInstance();
+      if (!loader.isInitialized()) loader.init(this.scene);
+      return loader.loadModel(modelPath, {
+        position: Vector3.Zero(),
+        scale: modelScale,
+        hasCollision: false,
+        applyLighting: false,
+      });
+    });
+    return this.fallbackCache.createInstance(path, scale);
+  }
+
+  private async loadBarrelModel(path: string): Promise<ModelLoadResult | null> {
+    if (this.disposed || this.scene.isDisposed) return null;
+    this.barrelCache ??= new ModelInstanceCache(this.scene, async (modelPath) => {
+      const { ImportMeshAsync } = await import("@babylonjs/core/Loading/sceneLoader");
+      if (this.disposed || this.scene.isDisposed) return null;
+      const slash = modelPath.lastIndexOf("/");
+      const result = await ImportMeshAsync(modelPath.substring(slash + 1), this.scene, {
+        rootUrl: modelPath.substring(0, slash + 1),
+      });
+      if (this.disposed || this.scene.isDisposed) {
+        disposeModelResources([...result.meshes, ...result.transformNodes], result);
+        return null;
+      }
+      // Retain the original glTF root and authored transforms. A neutral wrapper
+      // owns all imported nodes/rigs; the cloned glTF root is attached as before.
+      const root = new TransformNode("droppedBarrelSource", this.scene);
+      for (const node of [...result.transformNodes, ...result.meshes]) if (!node.parent) node.parent = root;
+      return {
+        root,
+        meshes: result.meshes.filter((mesh): mesh is Mesh => mesh instanceof Mesh),
+        skeletons: result.skeletons,
+        animationGroups: result.animationGroups,
+        lights: [],
+      };
+    });
+    return this.barrelCache.createInstance(path, 1);
+  }
 
   /** Stashed initial velocities from weapon_drop events (entityId → velocity, when) */
   private pendingVelocities: Map<string, { velocity: Vector3; atMs: number }> = new Map();
@@ -476,6 +522,7 @@ export class DroppedWeaponRenderer {
           info.weaponId,
           this.scene,
           new Vector3(info.x, info.y, info.z),
+          this.sources,
           vel, // Initial toss velocity from weapon_drop event
           this.useServerTransforms,
         );
@@ -641,5 +688,7 @@ export class DroppedWeaponRenderer {
     }
     this.weapons.clear();
     this.pendingVelocities.clear();
+    this.fallbackCache?.dispose();
+    this.barrelCache?.dispose();
   }
 }

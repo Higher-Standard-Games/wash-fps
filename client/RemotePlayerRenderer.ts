@@ -29,6 +29,7 @@ import {
 import { Cvar } from "../../../engine/core/Cvar";
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
 import { BspManager } from "../../../engine/loader/bsp/BspManager";
+import { ModelInstanceCache } from "../../../engine/loader/model/ModelInstanceCache";
 import { bindLoaderLeftovers, disposeModelResources } from "../../../engine/loader/model/ModelSourceCache";
 import {
   type EntitySnapshot,
@@ -93,6 +94,8 @@ interface RemotePlayerHitbox {
   handBone: TransformNode | null;
   /** Current weapon ID string (for detecting weapon switches) */
   currentWeaponId: string;
+  /** Reject a stale asynchronous A→B→A load, even when its weapon ID matches. */
+  weaponLoadGeneration?: number;
   /** Last applied visual style key; changes when team slot or cvars change. */
   appliedVisualStyleKey: string | null;
   /** True while this player was last seen carrying a powerup (drives the glow). */
@@ -170,6 +173,7 @@ export class RemotePlayerRenderer {
   /** Shared model manager — loads vanguard.glb once, creates cloned instances */
   private modelManager: PlayerModelManager | null = null;
   private modelLoadPromise: Promise<void> | null = null;
+  private weaponModelCache?: ModelInstanceCache;
   private localReflectionModel: PlayerModelInstance | null = null;
   private localReflectionLoadAttempted = false;
   private disposed = false;
@@ -639,6 +643,7 @@ export class RemotePlayerRenderer {
       this.modelManager.dispose();
       this.modelManager = null;
     }
+    this.weaponModelCache?.dispose();
   }
 
   /**
@@ -1699,7 +1704,7 @@ export class RemotePlayerRenderer {
    * Load and attach the correct weapon model to the player's right hand bone.
    * Called each frame from updateModel; only acts when weaponId changes.
    *
-   * Uses ModelLoader — same proven code path as DroppedWeaponRenderer.
+   * Imports each source once and clones independent instances on weapon changes.
    */
   private updateWeaponModel(hitbox: RemotePlayerHitbox, inst: PlayerModelInstance, entityId: string): void {
     const weaponId = this.enemyWeapons.get(entityId);
@@ -1710,6 +1715,8 @@ export class RemotePlayerRenderer {
 
     devLog(`[RemoteWeapon] ★ Weapon change: ${entityId} → ${weaponId}`);
     hitbox.currentWeaponId = weaponId;
+    const generation = (hitbox.weaponLoadGeneration ?? 0) + 1;
+    hitbox.weaponLoadGeneration = generation;
 
     // Dispose previous weapon
     if (hitbox.weaponRoot) {
@@ -1737,12 +1744,16 @@ export class RemotePlayerRenderer {
         const loader = ModelLoader.getInstance();
         if (!loader.isInitialized()) loader.init(this.scene);
 
-        const result = await loader.loadModel(modelPath, {
-          position: Vector3.Zero(),
-          scale: defScale,
-          hasCollision: false,
-          applyLighting: false,
-        });
+        if (this.disposed || this.scene.isDisposed) return;
+        this.weaponModelCache ??= new ModelInstanceCache(this.scene, async (path, scale) =>
+          loader.loadModel(path, {
+            position: Vector3.Zero(),
+            scale,
+            hasCollision: false,
+            applyLighting: false,
+          }),
+        );
+        const result = await this.weaponModelCache.createInstance(modelPath, defScale);
 
         if (!result?.root) {
           console.warn(`[RemoteWeapon] ModelLoader returned null for ${weaponId}`);
@@ -1752,9 +1763,10 @@ export class RemotePlayerRenderer {
         if (
           this.hitboxes.get(entityId) !== hitbox ||
           this.deadEntities.has(entityId) ||
-          hitbox.currentWeaponId !== weaponId
+          hitbox.currentWeaponId !== weaponId ||
+          hitbox.weaponLoadGeneration !== generation
         ) {
-          disposeModelResources([result.root], { animationGroups: result.animationGroups });
+          disposeModelResources([result.root], result);
           return;
         }
 
