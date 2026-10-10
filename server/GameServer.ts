@@ -68,6 +68,9 @@ import { Telemetry } from "./Telemetry";
 
 export type { ClientInfo, GameServerConfig };
 
+/** How long a lobby-spawned server waits for its first player before exiting. */
+const NO_SHOW_SHUTDOWN_MS = 2 * 60_000;
+
 /**
  * Whether a 5 s tick-rate sample means the server fell behind: under 95% of the target rate, or a
  * single tick whose work took longer than two ticks (one tick over budget is an ordinary GC pause).
@@ -187,6 +190,8 @@ export class GameServer {
   // Auto-shutdown: track if any client has ever connected
   private hasHadClients = false;
   private shutdownTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Lobby-spawned servers exit if nobody ever joins (see `NO_SHOW_SHUTDOWN_MS`). */
+  private noShowTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Demo recording (optional)
   private demoRecorder: DemoRecorder | null = null;
@@ -670,10 +675,27 @@ export class GameServer {
     this.scheduleNextTick();
 
     console.log(`[GameServer] Tick loop started at ${this.config.tickRate}Hz`);
+
+    // A lobby-spawned server whose player never arrives (the client gave up
+    // waiting for it, or the browser closed) would otherwise run forever:
+    // empty-server shutdown only counts once someone has joined.
+    if (this.config.shutdownOnEmpty) {
+      this.noShowTimer = setTimeout(() => {
+        this.noShowTimer = null;
+        if (this.hasHadClients) return;
+        console.log("[GameServer] Auto-shutdown: nobody joined");
+        this.stop().then(() => process.exit(0));
+      }, NO_SHOW_SHUTDOWN_MS);
+    }
   }
 
   async stop(): Promise<void> {
     if (!this.running) return;
+
+    if (this.noShowTimer) {
+      clearTimeout(this.noShowTimer);
+      this.noShowTimer = null;
+    }
 
     if (this.tickTimer) {
       clearTimeout(this.tickTimer);
