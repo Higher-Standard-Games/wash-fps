@@ -7,7 +7,8 @@
  */
 
 import type { LobbyClient } from "../../../lobby/LobbyClient";
-import type { FeaturedDemoInfo, GametypeInfo } from "../../../lobby/types";
+import type { FeaturedDemoInfo, GametypeInfo, LeaderboardEntry, RankingScope } from "../../../lobby/types";
+import { RATING_POLICY } from "../../../shared/ranking/RatingPolicy";
 
 export type UiResult<T> = { status: "ready"; data: T } | { status: "unavailable"; reason: string };
 
@@ -18,10 +19,15 @@ export interface LeaderboardQuery {
   period: "month" | "all";
   offset: number;
   limit: number;
+  scope?: RankingScope;
 }
 
 export interface LeaderboardPage {
-  entries: Array<{ rank: number; playerId: string; name: string; wins: number; losses: number; draws: number }>;
+  scope?: RankingScope;
+  entries: LeaderboardEntry[];
+  system?: "trueskill";
+  policyVersion?: string;
+  localProcessing?: { pending: number; excluded: number };
   total: number;
   localPlayerRank?: number;
   localPlayerEntry?: LeaderboardPage["entries"][number];
@@ -64,9 +70,9 @@ let featuredClient: LobbyClient | null = null;
 let featuredSupported = false;
 
 /** The panel binds the authenticated connection and advertised server capability. */
-export function bindLeaderboard(client: LobbyClient, supported: boolean): void {
+export function bindLeaderboard(client: LobbyClient, supported: boolean, skillRatings = false): void {
   leaderboardClient = client;
-  leaderboardSupported = supported;
+  leaderboardSupported = supported && skillRatings;
 }
 
 export function bindFeaturedDemos(client: LobbyClient, supported: boolean): void {
@@ -94,8 +100,36 @@ export const newUiApi: NewUiApi = {
   async getLeaderboard(query) {
     if (!leaderboardSupported || !leaderboardClient?.connected) return unavailable("leaderboard", leaderboardClient);
     try {
-      const { entries, total, localPlayerRank, localPlayerEntry } = await leaderboardClient.requestLeaderboard(query);
-      return { status: "ready", data: { entries, total, localPlayerRank, localPlayerEntry } };
+      const { entries, total, localPlayerRank, localPlayerEntry, scope, system, policyVersion, localProcessing } =
+        await leaderboardClient.requestLeaderboard({ ...query, system: "trueskill" });
+      const valid = (row: LeaderboardEntry) =>
+        Number.isSafeInteger(row.rating) &&
+        Number.isFinite(row.conservativeScore) &&
+        typeof row.provisional === "boolean" &&
+        Number.isSafeInteger(row.ratedMatches) &&
+        row.ratedMatches! > 0;
+      if (
+        scope !== (query.scope ?? "public") ||
+        system !== "trueskill" ||
+        policyVersion !== RATING_POLICY.version ||
+        !entries.every(valid) ||
+        (localPlayerEntry && !valid(localPlayerEntry))
+      ) {
+        return { status: "unavailable", reason: "This lobby server did not return the requested ranking." };
+      }
+      return {
+        status: "ready",
+        data: {
+          entries,
+          total,
+          localPlayerRank,
+          localPlayerEntry,
+          scope,
+          system,
+          policyVersion,
+          localProcessing,
+        },
+      };
     } catch (error) {
       return { status: "unavailable", reason: (error as Error).message };
     }

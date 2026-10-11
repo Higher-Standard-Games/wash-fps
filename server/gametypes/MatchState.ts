@@ -66,6 +66,10 @@ export class MatchState {
   private _flow: "single" | "continuous" = "continuous";
   /** Match result, set on entering PostGame; cleared when warmup restarts. */
   private _winner: MatchWinner | null = null;
+  private _completion: "normal" | "forfeit" | "aborted" = "normal";
+  private _matchStarted = false;
+  private readonly resultPlayers = new Set<PlayerId>();
+  private readonly departedScores = new Map<PlayerId, number>();
   /** Overtime extensions granted this match (0 = regulation). */
   private _overtimeCount = 0;
 
@@ -134,6 +138,16 @@ export class MatchState {
   }
   get winner(): MatchWinner | null {
     return this._winner;
+  }
+
+  get completion(): "normal" | "forfeit" | "aborted" {
+    return this._completion;
+  }
+
+  /** Single-match standings retain played scores after socket/entity cleanup. */
+  get resultScores(): ReadonlyMap<PlayerId, number> {
+    if (this._flow !== "single" || !this._matchStarted) return this._scores;
+    return new Map([...this.departedScores, ...this._scores].filter(([id]) => this.resultPlayers.has(id)));
   }
   get overtimeCount(): number {
     return this._overtimeCount;
@@ -324,6 +338,11 @@ export class MatchState {
    * Ties are a draw. `resolveName` maps a winning playerId to a display name.
    */
   computeWinner(teamBased: boolean, resolveName?: (playerId: PlayerId) => string): MatchWinner {
+    if (this._completion === "forfeit" && this._winner) return this._winner;
+    if (this._completion === "aborted") {
+      this._winner = { kind: "draw" };
+      return this._winner;
+    }
     if (teamBased) {
       const udon = this._teamScores.get("udon") ?? 0;
       const soba = this._teamScores.get("soba") ?? 0;
@@ -340,7 +359,7 @@ export class MatchState {
     let best: PlayerId | null = null;
     let bestScore = Number.NEGATIVE_INFINITY;
     let tied = false;
-    for (const [playerId, score] of this._scores) {
+    for (const [playerId, score] of this.resultScores) {
       if (score > bestScore) {
         best = playerId;
         bestScore = score;
@@ -373,6 +392,7 @@ export class MatchState {
   addPlayer(playerId: PlayerId): void {
     if (this._activePlayers.has(playerId)) return;
     this._activePlayers.add(playerId);
+    if (this._matchStarted) this.resultPlayers.add(playerId);
     this._totalPlayers = this._activePlayers.size;
     if (!this._stats.has(playerId)) this._stats.set(playerId, emptyPlayerStats());
     if (!this._scores.has(playerId)) this._scores.set(playerId, 0);
@@ -381,6 +401,8 @@ export class MatchState {
   }
 
   removePlayer(playerId: PlayerId): void {
+    if (this._flow === "single" && this.resultPlayers.has(playerId))
+      this.departedScores.set(playerId, this.getScore(playerId));
     this._activePlayers.delete(playerId);
     this._totalPlayers = this._activePlayers.size;
     this._stats.delete(playerId);
@@ -660,7 +682,7 @@ export class MatchState {
       case MatchPhase.Active:
         // End match immediately if all players leave
         if (this._totalPlayers === 0) {
-          this.transition(MatchPhase.PostGame);
+          this.endMatch("aborted");
           break;
         }
         if (this.config.timeLimit > 0) {
@@ -733,6 +755,10 @@ export class MatchState {
         this._timeRemaining = this.config.warmupTimeout;
         this._readyPlayers.clear();
         this._winner = null; // previous match's result is over
+        this._completion = "normal";
+        this._matchStarted = false;
+        this.resultPlayers.clear();
+        this.departedScores.clear();
         this._round = 0;
         this._roundTimeExpired = false;
         break;
@@ -760,6 +786,10 @@ export class MatchState {
         const startingMatch = !this.roundBased || this._round === 1;
 
         if (startingMatch) {
+          this._matchStarted = true;
+          this.resultPlayers.clear();
+          for (const id of this._activePlayers) this.resultPlayers.add(id);
+          this.departedScores.clear();
           for (const [id] of this._scores) {
             this._stats.set(id, emptyPlayerStats());
             this._scores.set(id, 0);
@@ -794,7 +824,15 @@ export class MatchState {
   /**
    * Force transition to PostGame (when win condition met)
    */
-  endMatch(): void {
+  endMatch(completion: "normal" | "aborted" = "normal"): void {
+    this._completion = completion;
+    this.transition(MatchPhase.PostGame);
+  }
+
+  /** The server applies the reconnect-grace rule; no score is fabricated. */
+  forfeit(winner: MatchWinner): void {
+    this._completion = "forfeit";
+    this._winner = winner;
     this.transition(MatchPhase.PostGame);
   }
 

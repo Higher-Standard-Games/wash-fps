@@ -20,7 +20,7 @@ import {
 } from "../../../lobby/AccountSession";
 import type { LobbyClient } from "../../../lobby/LobbyClient";
 import { formatKey, KEY_LENGTH } from "../../../lobby/PlayerIdentity";
-import type { GametypeInfo } from "../../../lobby/types";
+import type { GametypeInfo, RankingScope } from "../../../lobby/types";
 import { switchFpsAccount } from "./FpsLobbyService";
 import { createSlot, judgeName, type Slot, wireKeySlot } from "./IdentityFields";
 import { buildIdentityFrame, identityScreen, narrowOntoRail, widenFromRail } from "./IdentityFrame";
@@ -80,6 +80,8 @@ export class ProfileView {
   private recordStatusEl!: HTMLElement;
   private recordRowsEl!: HTMLElement;
   private recordSeq = 0;
+  private recordScope: RankingScope = "public";
+  private readonly recordScopeKeys = new Map<RankingScope, HTMLButtonElement>();
   private readonly onKeyDown = (event: KeyboardEvent) => {
     if (event.key !== "Escape" || !this.opened) return;
     event.stopPropagation();
@@ -328,14 +330,36 @@ export class ProfileView {
     const title = document.createElement("h2");
     title.textContent = "Your record";
     const hint = document.createElement("span");
-    hint.textContent = "Ranked matches only";
+    hint.textContent = "Career skill";
     head.append(title, hint);
+    const scopes = document.createElement("div");
+    scopes.className = "profile-record__scopes";
+    scopes.setAttribute("role", "group");
+    scopes.setAttribute("aria-label", "Ranking scope");
+    for (const scope of ["public", "private"] as const) {
+      const key = createRaisedKey({
+        label: scope === "public" ? "Public" : "Private",
+        variants: ["sm", "cream", "inline"],
+      });
+      key.dataset.scope = scope;
+      key.setAttribute("aria-pressed", String(scope === this.recordScope));
+      key.addEventListener("click", () => {
+        if (scope === this.recordScope) return;
+        this.recordScope = scope;
+        this.recordRowsEl.replaceChildren();
+        for (const [value, button] of this.recordScopeKeys)
+          button.setAttribute("aria-pressed", String(value === scope));
+        void this.refreshRecord();
+      });
+      this.recordScopeKeys.set(scope, key);
+      scopes.append(key);
+    }
     this.recordStatusEl = document.createElement("p");
     this.recordStatusEl.className = "profile-record__status";
     this.recordStatusEl.setAttribute("role", "status");
     this.recordRowsEl = document.createElement("div");
     this.recordRowsEl.className = "profile-record__rows";
-    record.append(head, this.recordStatusEl, this.recordRowsEl);
+    record.append(head, scopes, this.recordStatusEl, this.recordRowsEl);
     return record;
   }
 
@@ -368,33 +392,51 @@ export class ProfileView {
     const asked = await Promise.all(
       modes.map(async (mode) => ({
         mode,
-        result: await newUiApi.getLeaderboard({ gametype: mode.id, period: "all", offset: 0, limit: 1 }),
+        result: await newUiApi.getLeaderboard({
+          gametype: mode.id,
+          period: "all",
+          offset: 0,
+          limit: 1,
+          scope: this.recordScope,
+        }),
       })),
     );
     if (sequence !== this.recordSeq) return;
 
     const standings: { mode: GametypeInfo; row: NonNullable<LeaderboardPage["localPlayerEntry"]> }[] = [];
     let refusal = "";
+    let pending = 0;
+    let excluded = 0;
     for (const { mode, result } of asked) {
       if (result.status !== "ready") refusal ||= result.reason;
-      else if (result.data.localPlayerEntry) standings.push({ mode, row: result.data.localPlayerEntry });
+      else {
+        pending += result.data.localProcessing?.pending ?? 0;
+        excluded += result.data.localProcessing?.excluded ?? 0;
+        if (result.data.localPlayerEntry) standings.push({ mode, row: result.data.localPlayerEntry });
+      }
     }
 
     this.recordRowsEl.replaceChildren();
     if (standings.length === 0) {
       this.recordStatusEl.textContent =
-        refusal || "No ranked match yet. A match counts once most of the room is people, not bots.";
+        refusal ||
+        (pending
+          ? `${pending} matches await bot calibration.`
+          : excluded
+            ? `${excluded} matches did not qualify for skill rating.`
+            : "No ranked match yet. Finish an eligible match to get a provisional rating.");
       return;
     }
     const played = standings.reduce((sum, { row }) => sum + row.wins + row.losses + row.draws, 0);
     const best = standings.reduce((top, one) => (one.row.rank < top.row.rank ? one : top));
-    this.recordStatusEl.textContent = `${played} ranked ${played === 1 ? "match" : "matches"} · best #${best.row.rank} in ${best.mode.name}`;
+    this.recordStatusEl.textContent = `${played} ${this.recordScope} ${played === 1 ? "match" : "matches"} · best #${best.row.rank} in ${best.mode.name}${pending ? ` · ${pending} await calibration` : ""}${excluded ? ` · ${excluded} not rated` : ""}`;
     for (const { mode, row } of standings.sort((a, b) => a.row.rank - b.row.rank)) {
       const line = document.createElement("div");
       line.className = "profile-record__row";
       for (const [value, kind] of [
         [mode.name, "mode"],
         [`#${row.rank}`, "rank"],
+        [`${row.rating}${row.provisional ? " (P)" : ""}`, "rating"],
         [`${row.wins} W`, "w"],
         [`${row.losses} L`, "l"],
         [`${row.draws} D`, "d"],
@@ -404,6 +446,7 @@ export class ProfileView {
         cell.textContent = value;
         line.append(cell);
       }
+      line.title = `Rating ${row.rating}${row.provisional ? " · Provisional" : ""} · ${row.ratedMatches} rated matches`;
       this.recordRowsEl.append(line);
     }
   }

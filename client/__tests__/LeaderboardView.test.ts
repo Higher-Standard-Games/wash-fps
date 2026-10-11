@@ -33,6 +33,10 @@ const entry = (rank: number, wins: number, losses = 0, playerId = `p${rank}`, na
   wins,
   losses,
   draws: 0,
+  rating: 1000 + wins * 40,
+  conservativeScore: wins,
+  ratedMatches: wins + losses,
+  provisional: true,
 });
 
 /** Twelve ranked players, and you at #12 with a name that is markup. */
@@ -45,11 +49,17 @@ function bind(pages: Record<string, LeaderboardPage>): LeaderboardQuery[] {
     connected: true,
     requestLeaderboard: async (query: LeaderboardQuery) => {
       asked.push(query);
-      const page = pages[query.gametype] ?? { entries: [], total: 0 };
-      return { ...page, entries: page.entries.slice(0, query.limit) };
+      const page = pages[`${query.gametype}:${query.scope}`] ?? pages[query.gametype] ?? { entries: [], total: 0 };
+      return {
+        ...page,
+        system: "trueskill",
+        policyVersion: "shag-trueskill-v1",
+        scope: query.scope ?? "public",
+        entries: page.entries.slice(0, query.limit),
+      };
     },
   } as unknown as LobbyClient;
-  bindLeaderboard(client, true);
+  bindLeaderboard(client, true, true);
   return asked;
 }
 
@@ -62,6 +72,7 @@ function view(): LeaderboardView {
 afterEach(() => {
   bindLeaderboard({ connected: false } as LobbyClient, false);
   document.body.replaceChildren();
+  localStorage.clear();
 });
 
 describe("LeaderboardView", () => {
@@ -74,7 +85,10 @@ describe("LeaderboardView", () => {
     expect(pin?.hidden).toBe(false);
     expect(pin?.textContent).toContain("#12");
     expect(pin?.textContent).toContain(you.name);
-    expect(pin?.textContent).toContain("9 wins to reach the top 10");
+    expect(pin?.textContent).toContain("320 rating points behind #10");
+    expect(board.root.textContent).toContain("Career skill rating");
+    expect(board.root.textContent).toContain("Provisional");
+    expect(board.root.textContent).not.toContain("Most wins");
     expect(board.root.querySelector("img")).toBeNull();
     expect(board.root.querySelectorAll(".lb-plinth")).toHaveLength(3);
     // Four to ten under the podium, and the headings
@@ -88,12 +102,12 @@ describe("LeaderboardView", () => {
 
     const ranks = [...board.railMiddle.querySelectorAll(".lb-rail__rank")].map((key) => key.textContent);
     expect(ranks[0]).toContain("#12");
-    expect(ranks[0]).toContain("3 wins");
+    expect(ranks[0]).toContain("1120");
     expect(ranks[1]).toContain("Unranked");
     // The shown mode's board carries your row; the other mode asks for one row only
     expect(asked).toEqual([
-      { gametype: "duel", period: "month", offset: 0, limit: 100 },
-      { gametype: "amphi", period: "month", offset: 0, limit: 1 },
+      { gametype: "duel", period: "month", offset: 0, limit: 100, scope: "public", system: "trueskill" },
+      { gametype: "amphi", period: "month", offset: 0, limit: 1, scope: "public", system: "trueskill" },
     ]);
   });
 
@@ -121,7 +135,7 @@ describe("LeaderboardView", () => {
     expect(list?.textContent).toContain("Nobody in the top 100 goes by");
     const pins = board.root.querySelectorAll<HTMLElement>(".lb-board__foot");
     expect(pins[1]?.hidden).toBe(false);
-    expect(pins[1]?.textContent).toContain("to pass #11");
+    expect(pins[1]?.textContent).toContain("behind #11");
   });
 
   it("says why when the lobby cannot rank, and shows nothing it does not know", async () => {
@@ -153,6 +167,81 @@ describe("LeaderboardView", () => {
   });
 });
 
+describe("private ranking selection", () => {
+  it("defaults to public, remembers the global setting, and caches boards separately", async () => {
+    const asked = bind({ duel: { entries: duel, total: 12, localPlayerEntry: you } });
+    const board = view();
+    await board.refresh();
+    const publicKey = board.root.querySelector<HTMLButtonElement>('[data-scope="public"]')!;
+    const privateKey = board.root.querySelector<HTMLButtonElement>('[data-scope="private"]')!;
+    expect(publicKey.getAttribute("aria-pressed")).toBe("true");
+    expect(privateKey.closest(".lb-scopes")?.nextElementSibling?.className).toBe("lobby__modes");
+    privateKey.click();
+    await vi.waitFor(() => expect(asked.filter((query) => query.scope === "private")).toHaveLength(2));
+    board.root.querySelectorAll<HTMLButtonElement>(".lobby__modes .lobby__mode-key")[1].click();
+    await vi.waitFor(() => expect(asked.at(-1)).toMatchObject({ gametype: "amphi", limit: 100, scope: "private" }));
+    expect(privateKey.getAttribute("aria-pressed")).toBe("true");
+    await vi.waitFor(() => expect(board.root.querySelector(".lb-status")?.textContent).toContain("No ranked"));
+    const before = asked.length;
+    publicKey.click();
+    await vi.waitFor(() => expect(asked).toHaveLength(before + 1));
+    expect(asked.at(-1)).toMatchObject({ gametype: "amphi", scope: "public", limit: 100 });
+    privateKey.click();
+    await Promise.resolve();
+    expect(asked).toHaveLength(before + 1);
+    board.destroy();
+    const reopened = view();
+    expect(reopened.root.querySelector('[data-scope="private"]')?.getAttribute("aria-pressed")).toBe("true");
+    await reopened.refresh();
+    expect(asked.at(-1)?.scope).toBe("private");
+  });
+
+  it("keeps late public replies out of the private board and rail", async () => {
+    const pending: Array<{ query: LeaderboardQuery; resolve: (page: LeaderboardPage) => void }> = [];
+    bindLeaderboard(
+      {
+        connected: true,
+        requestLeaderboard: (query: LeaderboardQuery) =>
+          new Promise<LeaderboardPage>((resolve) => pending.push({ query, resolve })),
+      } as unknown as LobbyClient,
+      true,
+      true,
+    );
+    const board = view();
+    const refreshing = board.refresh();
+    board.root.querySelector<HTMLButtonElement>('[data-scope="private"]')!.click();
+    for (const request of pending.filter((item) => item.query.scope === "private")) {
+      const row = entry(1, 9, 0, "42", "Private player");
+      request.resolve({
+        entries: [row],
+        total: 1,
+        localPlayerEntry: row,
+        scope: "private",
+        system: "trueskill",
+        policyVersion: "shag-trueskill-v1",
+      });
+    }
+    await vi.waitFor(() => expect(board.root.textContent).toContain("Private player"));
+    for (const request of pending.filter((item) => item.query.scope === "public")) {
+      request.resolve({
+        entries: [you],
+        total: 1,
+        localPlayerEntry: you,
+        scope: "public",
+        system: "trueskill",
+        policyVersion: "shag-trueskill-v1",
+      });
+    }
+    await refreshing;
+    expect(board.root.textContent).toContain("Private player");
+    expect(board.railMiddle.textContent).toContain("1360");
+    expect(board.railMiddle.textContent).not.toContain("1120");
+    board.root.querySelector<HTMLButtonElement>('[data-scope="public"]')!.click();
+    expect(board.root.textContent).toContain(you.name);
+    expect(board.railMiddle.textContent).toContain("1120");
+  });
+});
+
 describe("nextStep", () => {
   const rows = [entry(1, 10), entry(2, 8, 1), entry(3, 8, 4), entry(4, 5)];
 
@@ -160,12 +249,12 @@ describe("nextStep", () => {
     expect(nextStep(rows, rows[0], 10)).toBe("On top. Hold it");
   });
 
-  it("counts the wins past the player above, a tie on wins included", () => {
-    expect(nextStep(rows, rows[3], 10)).toBe("4 wins to pass #3");
-    expect(nextStep(rows, rows[2], 10)).toBe("1 win to pass #2");
+  it("shows only the skill gap, independent of win/loss ties", () => {
+    expect(nextStep(rows, rows[3], 10)).toBe("120 rating points behind #3");
+    expect(nextStep(rows, rows[2], 10)).toBe("0 rating points behind #2");
   });
 
-  it("counts the wins to the last place on the board", () => {
-    expect(nextStep(rows, entry(9, 2), 3)).toBe("7 wins to reach the top 3");
+  it("shows the gap to the edge of the board", () => {
+    expect(nextStep(rows, entry(9, 2), 3)).toBe("240 rating points behind #3");
   });
 });

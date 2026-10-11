@@ -8,6 +8,8 @@
 import { createRaisedKey, injectRaisedKeyStyles } from "../../../engine/ui/components/RaisedKey";
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import { currentIdentity } from "../../../lobby/AccountSession";
+import type { RankingScope } from "../../../lobby/types";
+import { RATING_POLICY } from "../../../shared/ranking/RatingPolicy";
 import { type LeaderboardPage, newUiApi } from "./NewUiApi";
 import leaderboardCss from "./styles/Leaderboard.css?raw";
 
@@ -45,6 +47,16 @@ const AVATAR_COLORS = [
 
 type Loaded = { state: "loading" } | { state: "ready"; page: LeaderboardPage } | { state: "failed"; reason: string };
 
+const RANKING_SCOPE_SETTING = "shag.leaderboard.scope";
+
+function readRankingScope(): RankingScope {
+  try {
+    return localStorage.getItem(RANKING_SCOPE_SETTING) === "private" ? "private" : "public";
+  } catch {
+    return "public";
+  }
+}
+
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text?: string): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -53,8 +65,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text?
 }
 
 const played = (entry: Entry) => entry.wins + entry.losses + entry.draws;
-const winRate = (entry: Entry) => `${Math.round((entry.wins / Math.max(1, played(entry))) * 100)}%`;
-const winsWord = (count: number) => `${count} ${count === 1 ? "win" : "wins"}`;
+const ratingText = (entry: Entry) => `${entry.rating}${entry.provisional ? " · Provisional" : ""}`;
 
 function avatarColor(name: string): string {
   let hash = 0;
@@ -63,18 +74,14 @@ function avatarColor(name: string): string {
 }
 
 /**
- * What the next step takes, from the rows the lobby sent: the wins to pass the
- * player above, or to reach the last place in the top `limit`. Winning more than
- * someone always ranks above them, whatever the losses.
+ * A measured skill gap, never a prediction of how many wins it takes.
  */
 export function nextStep(entries: readonly Entry[], you: Entry, limit: number): string {
   if (you.rank === 1) return "On top. Hold it";
-  if (you.rank <= limit) {
-    const above = [...entries].reverse().find((entry) => entry.rank < you.rank);
-    return above ? `${winsWord(above.wins - you.wins + 1)} to pass #${above.rank}` : "";
-  }
-  const edge = entries[limit - 1];
-  return edge ? `${winsWord(edge.wins - you.wins + 1)} to reach the top ${limit}` : "";
+  const target = you.rank <= limit ? [...entries].reverse().find((entry) => entry.rank < you.rank) : entries[limit - 1];
+  if (!target || target.conservativeScore === undefined || you.conservativeScore === undefined) return "";
+  const gap = Math.max(0, Math.ceil((target.conservativeScore - you.conservativeScore) * RATING_POLICY.displayScale));
+  return `${gap} rating ${gap === 1 ? "point" : "points"} behind #${target.rank}`;
 }
 
 export class LeaderboardView {
@@ -86,6 +93,7 @@ export class LeaderboardView {
   private tab: Tab = "month";
   private listPeriod: Period = "month";
   private query = "";
+  private scope = readRankingScope();
   private readonly boards = new Map<string, Loaded>();
   private readonly ranks = new Map<string, Loaded>();
   /** Bumped when the connection or the lobby's answer may have changed: late replies are dropped. */
@@ -95,6 +103,7 @@ export class LeaderboardView {
   private readonly title: HTMLElement;
   private readonly ghost: HTMLElement;
   private readonly modeKeys = new Map<string, HTMLButtonElement>();
+  private readonly scopeKeys = new Map<RankingScope, HTMLButtonElement>();
   private readonly tabKeys = new Map<Tab, HTMLButtonElement>();
   private readonly rule: HTMLElement;
   private readonly status: HTMLElement;
@@ -139,7 +148,29 @@ export class LeaderboardView {
       modeRow.append(key);
       this.modeKeys.set(mode.id, key);
     }
-    head.append(heading, modeRow);
+    const filters = el("div", "lb-filters");
+    const scopes = el("div", "lb-scopes");
+    scopes.setAttribute("role", "group");
+    scopes.setAttribute("aria-label", "Ranking scope");
+    for (const scope of ["public", "private"] as const) {
+      const key = el("button", "lobby__mode-key", scope === "public" ? "Public" : "Private");
+      key.type = "button";
+      key.dataset.scope = scope;
+      key.addEventListener("click", () => {
+        this.scope = scope;
+        try {
+          localStorage.setItem(RANKING_SCOPE_SETTING, scope);
+        } catch {
+          // Selection still works when browser storage is unavailable.
+        }
+        this.render();
+        void this.load();
+      });
+      scopes.append(key);
+      this.scopeKeys.set(scope, key);
+    }
+    filters.append(scopes, modeRow);
+    head.append(heading, filters);
 
     const tabs = el("div", "lobby__boards");
     tabs.setAttribute("role", "group");
@@ -260,7 +291,11 @@ export class LeaderboardView {
 
   // ── Data ──
 
-  /** Fetch what the current view needs and has not got: its board, and your rank per mode. */
+  private boardKey(modeId: string, period: Period): string {
+    return `${modeId}:${period}:${this.scope}`;
+  }
+
+  /** Fetch the board and ranks missing from the selected ranking's cache. */
   private async load(): Promise<void> {
     if (newUiApi.getFeatureStatus("leaderboard").status !== "ready") {
       this.render();
@@ -269,14 +304,14 @@ export class LeaderboardView {
     const generation = this.generation;
     const period = this.period;
     const wanted: Array<Promise<void>> = [];
-    const boardKey = `${this.mode.id}:${period}`;
+    const boardKey = this.boardKey(this.mode.id, period);
     if (!this.boards.has(boardKey))
-      wanted.push(this.fetch(this.boards, boardKey, this.mode.id, period, 100, generation));
+      wanted.push(this.fetch(this.boards, boardKey, this.mode.id, period, 100, generation, this.scope));
     for (const mode of this.modes) {
-      const key = `${mode.id}:${period}`;
+      const key = this.boardKey(mode.id, period);
       // A full board already carries your row
-      if (!this.ranks.has(key) && !(mode.id === this.mode.id && this.boards.has(key))) {
-        wanted.push(this.fetch(this.ranks, key, mode.id, period, 1, generation));
+      if (!this.ranks.has(key) && !this.boards.has(key)) {
+        wanted.push(this.fetch(this.ranks, key, mode.id, period, 1, generation, this.scope));
       }
     }
     this.render();
@@ -290,9 +325,10 @@ export class LeaderboardView {
     period: Period,
     limit: number,
     generation: number,
+    scope: RankingScope,
   ): Promise<void> {
     into.set(key, { state: "loading" });
-    const result = await newUiApi.getLeaderboard({ gametype, period, offset: 0, limit });
+    const result = await newUiApi.getLeaderboard({ gametype, period, offset: 0, limit, scope });
     if (generation !== this.generation) return;
     into.set(
       key,
@@ -303,7 +339,7 @@ export class LeaderboardView {
 
   /** Your row in a mode and period, from a full board or a rank-only reply. */
   private yours(modeId: string, period: Period): { loaded: Loaded | undefined; you: Entry | null } {
-    const key = `${modeId}:${period}`;
+    const key = this.boardKey(modeId, period);
     const loaded = this.boards.get(key) ?? this.ranks.get(key);
     if (loaded?.state !== "ready") return { loaded, you: null };
     const id = currentIdentity()?.id;
@@ -315,7 +351,11 @@ export class LeaderboardView {
 
   private render(): void {
     const tab = TABS.find((item) => item.id === this.tab) ?? TABS[0];
-    this.kicker.textContent = `Leaderboard · ${this.mode.title}`;
+    this.kicker.textContent = `Leaderboard · ${this.scope === "public" ? "Public" : "Private"} · ${this.mode.title}`;
+    for (const [scope, key] of this.scopeKeys) {
+      key.classList.toggle("is-on", scope === this.scope);
+      key.setAttribute("aria-pressed", String(scope === this.scope));
+    }
     this.title.textContent = tab.name;
     for (const [id, key] of this.modeKeys) {
       key.classList.toggle("is-on", id === this.mode.id);
@@ -337,10 +377,10 @@ export class LeaderboardView {
 
   private renderBoard(): void {
     const availability = newUiApi.getFeatureStatus("leaderboard");
-    const loaded = this.boards.get(`${this.mode.id}:${this.period}`);
+    const loaded = this.boards.get(this.boardKey(this.mode.id, this.period));
     // Rows from a lobby that can no longer rank are not shown as if it could
     const page = availability.status === "ready" && loaded?.state === "ready" ? loaded.page : null;
-    this.rule.textContent = `Most wins ranks first · ties go to fewer losses${page?.total ? ` · ${page.total} ranked` : ""}`;
+    this.rule.textContent = `Career skill rating · provisional ratings include uncertainty${page?.total ? ` · ${page.total} ranked` : ""}`;
 
     let status = "";
     if (availability.status !== "ready") status = availability.reason;
@@ -348,6 +388,10 @@ export class LeaderboardView {
     else if (!page) status = "Loading rankings…";
     else if (page.total === 0)
       status = `No ranked ${this.mode.title} matches ${this.period === "month" ? "in the last 30 days" : "yet"}.`;
+    if (page?.localProcessing?.pending)
+      status += `${status ? " " : ""}${page.localProcessing.pending} of your matches await bot calibration.`;
+    if (page?.localProcessing?.excluded)
+      status += `${status ? " " : ""}${page.localProcessing.excluded} of your matches did not qualify for skill rating.`;
     this.status.textContent = status;
     this.status.hidden = status === "";
 
@@ -399,7 +443,7 @@ export class LeaderboardView {
           loaded?.state === "failed"
             ? "Unavailable"
             : you
-              ? winsWord(you.wins)
+              ? ratingText(you)
               : loaded?.state === "ready"
                 ? "Unranked"
                 : "";
@@ -413,7 +457,7 @@ export class LeaderboardView {
         key.setAttribute("aria-pressed", String(mode.id === this.mode.id));
         key.setAttribute(
           "aria-label",
-          `${mode.title}: ${you ? `rank ${you.rank}, ${winsWord(you.wins)}` : record || "loading"}`,
+          `${mode.title}: ${you ? `rank ${you.rank}, rating ${ratingText(you)}` : record || "loading"}`,
         );
         key.addEventListener("click", () => this.setMode(mode));
         return key;
@@ -427,10 +471,10 @@ export class LeaderboardView {
     row.append(
       el("span", "", "Rank"),
       el("span", "", "Player"),
-      el("span", "lb-num is-key", "Wins"),
-      el("span", "lb-num", "Losses"),
+      el("span", "lb-num is-key", "Rating"),
+      el("span", "lb-num", "W / L / D"),
       el("span", "lb-num", "Matches"),
-      el("span", "lb-num", "Win rate"),
+      el("span", "lb-num", "Rated"),
     );
     return row;
   }
@@ -445,13 +489,14 @@ export class LeaderboardView {
     avatar.style.setProperty("--c", isYou ? "var(--gold-text)" : avatarColor(entry.name));
     who.append(avatar, el("span", "lb-row__name", entry.name));
     if (isYou) who.append(el("span", "lb-row__you", "You"));
+    if (entry.provisional) who.append(el("span", "lb-row__note", "Provisional"));
     row.append(
       el("span", "lb-row__rank", `#${entry.rank}`),
       who,
-      el("span", "lb-num is-key", String(entry.wins)),
-      el("span", "lb-num", String(entry.losses)),
+      el("span", "lb-num is-key", String(entry.rating)),
+      el("span", "lb-num", `${entry.wins} / ${entry.losses} / ${entry.draws}`),
       el("span", "lb-num", String(played(entry))),
-      el("span", "lb-num", winRate(entry)),
+      el("span", "lb-num", String(entry.ratedMatches)),
     );
     return row;
   }
@@ -471,13 +516,17 @@ export class LeaderboardView {
     face.append(el("span", "lb-plinth__rank", String(entry.rank)));
     if (entry.rank === 1) face.append(el("span", "lb-plinth__tag", this.period === "month" ? "Leading" : "Champion"));
     if (isYou) face.append(el("span", "lb-plinth__tag", "You"));
-    const wins = el("span", "lb-plinth__wins", String(entry.wins));
-    wins.append(el("small", "", entry.wins === 1 ? "win" : "wins"));
+    const wins = el("span", "lb-plinth__wins", String(entry.rating));
+    wins.append(el("small", "", "rating"));
     const count = played(entry);
     face.append(
       el("span", "lb-plinth__name", entry.name),
       wins,
-      el("span", "lb-plinth__meta", `${winRate(entry)} win rate · ${count} ${count === 1 ? "match" : "matches"}`),
+      el(
+        "span",
+        "lb-plinth__meta",
+        `${entry.provisional ? "Provisional · " : ""}${entry.ratedMatches} rated · ${count} ${count === 1 ? "match" : "matches"} · ${entry.wins} W / ${entry.losses} L / ${entry.draws} D`,
+      ),
     );
     const side = el("div", "lb-plinth__side");
     side.setAttribute("aria-hidden", "true");

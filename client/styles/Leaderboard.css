@@ -4,6 +4,36 @@
  * in the rail.
  */
 
+.lb-filters {
+  --filter-key-gap: 10px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(2 * var(--filter-key-gap));
+}
+
+.lb-scopes {
+  --m: var(--cream);
+  display: flex;
+  align-items: center;
+  gap: var(--filter-key-gap);
+  padding: var(--filter-key-gap);
+  padding-bottom: calc(var(--filter-key-gap) + 6px);
+  border-radius: 4px;
+  background: hsla(250, 40%, 8%, 0.45);
+  box-shadow: inset 0 0 0 1px hsla(45, 100%, 95%, 0.12);
+}
+
+.lb-filters .lobby__modes {
+  gap: var(--filter-key-gap);
+}
+
+.lb-filters .lobby__mode-key {
+  box-sizing: border-box;
+  width: 100px;
+  padding: 0 8px;
+}
+
 .lb-view {
   --ink: hsl(250 45% 7%);
   --cream: hsl(45 100% 95%);

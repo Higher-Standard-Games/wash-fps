@@ -16,7 +16,7 @@ import { playerId as createPlayerId } from "@engine/server/ecs/types";
 import { LAG_COMPENSATION } from "@engine/server/lagcomp/config";
 import { LagCompensation } from "@engine/server/lagcomp/LagCompensation";
 import { MatchAdmission } from "@engine/server/network/MatchAdmission";
-import type { MatchResultReport } from "@engine/server/network/MatchResultReport";
+import { type MatchCompletion, type PlayedSeatResult, scorePlacement } from "@engine/server/network/MatchResultReport";
 // Transport
 import type { ClientConnection, Transport, TransportConfig } from "@engine/server/network/transport/WebSocketTransport";
 import { WebSocketServerTransport } from "@engine/server/network/transport/WebSocketTransport";
@@ -105,6 +105,13 @@ export class GameServer {
   private knownProjectileIds: Set<number> = new Set();
   private config: GameServerConfig;
   private readonly matchAdmission: MatchAdmission | null;
+  private readonly playedSeats = new Map<
+    string,
+    Omit<PlayedSeatResult, "placement"> & { playerId: PlayerId; playerName: string; accountId: number | null }
+  >();
+  private resultStartedAt: number | null = null;
+  private resultStartedAtTick = 0;
+  private finalResultReported = false;
   private simulation: Simulation;
   private transport: Transport;
   private clients: Map<string, ClientInfo> = new Map();
@@ -339,29 +346,117 @@ export class GameServer {
     this.broadcaster = new SnapshotBroadcaster(this.simulation);
   }
 
-  /** Capture server state before post-game closes sockets and removes scores. */
-  private reportFinalMatch(): void {
-    const admission = this.matchAdmission?.manifest;
-    if (!admission || !this.config.singleMatch || !this.config.matchGametype || !this.config.onFinalResult) return;
+  /** Register only a verified seat that actually occupies a started match. */
+  private capturePlayingSeat(client: ClientInfo, connected = true): void {
+    if (
+      this.resultStartedAt === null ||
+      this.finalResultReported ||
+      client.isSpectator ||
+      !client.playedSeatTokenHash ||
+      !client.playedSeatId ||
+      client.accountId === undefined
+    )
+      return;
     const match = this.gametypeController.getMatchState();
-    const winner = match.winner;
-    if (!winner) return;
-    const teamBased = this.gametypeController.getGametype().teamBased;
-    const participants: MatchResultReport["participants"] = [];
-    for (const client of this.clients.values()) {
-      if (client.isSpectator || !client.playedSeatTokenHash || client.accountId === undefined) continue;
-      const team = match.getPlayerTeam(client.playerId);
-      const score = teamBased ? (match.teamScores.get(team) ?? 0) : (match.scores.get(client.playerId) ?? 0);
-      const won = winner.kind === "team" ? team === winner.id : client.playerId.toString() === winner.id;
-      participants.push({
+    const team = this.gametypeController.getGametype().teamBased ? match.getPlayerTeam(client.playerId) : "ffa";
+    if (team !== "ffa" && team !== "udon" && team !== "soba") return;
+    let seat = this.playedSeats.get(client.playedSeatId);
+    if (!seat) {
+      const joinedAtTick = Math.max(this.resultStartedAtTick, this.simulation.currentTick as number);
+      seat = {
+        seatId: client.playedSeatId,
         tokenHash: client.playedSeatTokenHash,
         accountId: client.accountId,
-        outcome: winner.kind === "draw" ? "draw" : won ? "win" : "loss",
-        score,
-      });
+        playerId: client.playerId,
+        playerName: client.playerName,
+        team,
+        teamsPlayed: [team],
+        joinedAtTick,
+        leftAtTick: null,
+        disconnected: !connected,
+        forfeited: false,
+        lateJoin: joinedAtTick > this.resultStartedAtTick,
+        participationInterrupted: false,
+        ...(client.botReference === undefined ? {} : { botReference: client.botReference }),
+      };
+      this.playedSeats.set(seat.seatId, seat);
     }
-    // A bot-only or abandoned match is never a ranked result.
-    if (participants.length < 2) return;
+    if (!seat.teamsPlayed.includes(team)) seat.teamsPlayed.push(team);
+    seat.team = team;
+    seat.disconnected = !connected;
+    seat.leftAtTick = null;
+  }
+
+  /** Snapshot played identities independently of socket lifetime, before cleanup. */
+  private reportFinalMatch(completionOverride?: MatchCompletion): void {
+    const admission = this.matchAdmission?.manifest;
+    if (
+      !admission ||
+      !this.config.singleMatch ||
+      !this.config.matchGametype ||
+      !this.config.onFinalResult ||
+      this.finalResultReported ||
+      this.resultStartedAt === null
+    )
+      return;
+    const match = this.gametypeController.getMatchState();
+    const completion = completionOverride ?? match.completion;
+    if (completion !== "aborted" && !match.winner) return;
+    for (const client of this.clients.values()) this.capturePlayingSeat(client);
+    for (const client of this.suspended.clients()) this.capturePlayingSeat(client, false);
+    const teamBased = this.gametypeController.getGametype().teamBased;
+    const scores = [...this.playedSeats.values()].map((seat) =>
+      teamBased
+        ? (match.teamScores.get(seat.team as "udon" | "soba") ?? 0)
+        : (match.resultScores.get(seat.playerId) ?? 0),
+    );
+    const teams = teamBased
+      ? (["udon", "soba"] as const).map((id) => {
+          const score = match.teamScores.get(id) ?? 0;
+          return {
+            id,
+            score,
+            placement:
+              completion === "aborted"
+                ? null
+                : completion === "forfeit"
+                  ? match.winner?.id === id
+                    ? 1
+                    : 2
+                  : scorePlacement(score, [...match.teamScores.values()]),
+          };
+        })
+      : [];
+    const seats = [...this.playedSeats.values()].map(
+      ({ playerId: _playerId, playerName: _playerName, accountId: _accountId, ...seat }, index) => ({
+        ...seat,
+        teamsPlayed: [...seat.teamsPlayed],
+        placement:
+          completion === "aborted"
+            ? null
+            : teamBased
+              ? teams.find((team) => team.id === seat.team)!.placement
+              : scorePlacement(scores[index], scores),
+      }),
+    );
+    const tiedTop = teamBased
+      ? teams.every((team) => team.placement === 1)
+      : scores.filter((score) => score === Math.max(...scores)).length > 1;
+    const participants = [...this.playedSeats.values()].map((seat, index) => ({
+      tokenHash: seat.tokenHash,
+      accountId: seat.accountId,
+      score: scores[index],
+      outcome:
+        completion === "aborted"
+          ? null
+          : seats[index].placement === 1
+            ? tiedTop
+              ? ("draw" as const)
+              : ("win" as const)
+            : ("loss" as const),
+    }));
+    if (!participants.length || (completion !== "aborted" && participants.length < 2)) return;
+    this.finalResultReported = true;
     try {
       this.config.onFinalResult({
         matchId: admission.matchId,
@@ -369,6 +464,16 @@ export class GameServer {
         map: this.config.mapName,
         endedAt: Date.now(),
         participants,
+        details: {
+          version: 2,
+          ...(this.config.matchMapDigest ? { mapDigest: this.config.matchMapDigest } : {}),
+          startedAt: this.resultStartedAt,
+          startedAtTick: this.resultStartedAtTick,
+          endedAtTick: this.simulation.currentTick as number,
+          completion,
+          teams,
+          seats,
+        },
       });
     } catch (error) {
       console.error("[GameServer] Could not deliver final result:", error);
@@ -596,6 +701,7 @@ export class GameServer {
           }
         : {}),
       matchId: this.matchAdmission?.manifest.matchId,
+      private: this.config.privateMatch === true,
       tickRate: this.timing.tickRate,
       // Record the EFFECTIVE cadence, never the requested one: at 125/60 the
       // server broadcasts every 2 ticks = 62.5Hz, and recording "60" made
@@ -691,6 +797,8 @@ export class GameServer {
 
   async stop(): Promise<void> {
     if (!this.running) return;
+    // A graceful stop has no invented winner. Crash delivery/recovery is separate work.
+    this.reportFinalMatch("aborted");
 
     if (this.noShowTimer) {
       clearTimeout(this.noShowTimer);
@@ -705,6 +813,8 @@ export class GameServer {
     await this.transport.stop();
     this.running = false;
     this.simulation.cleanup();
+    this.playedSeats.clear();
+    this.suspended.clear();
 
     // Finalize demo recording if active
     if (this.demoRecorder?.isRecording) {
@@ -794,6 +904,38 @@ export class GameServer {
         `[GameServer] Player ${client.playerId} "${client.playerName}" did not return within ${(this.suspended.graceMs / 1000).toFixed(0)}s`,
       );
       this.clients.set(client.id, client);
+      this.capturePlayingSeat(client, false);
+      // A started head-to-head game is forfeited only after grace, with its
+      // original opponent still playing. Simultaneous departures award nobody.
+      if (
+        !this.finalResultReported &&
+        this.config.singleMatch &&
+        this.matchAdmission &&
+        (this.config.matchGametype === "duel" || this.config.matchGametype === "amphi") &&
+        this.resultStartedAt !== null &&
+        this.playedSeats.size === 2 &&
+        this.gametypeController.getPhase() !== MatchPhase.PostGame
+      ) {
+        const loser = client.playedSeatId ? this.playedSeats.get(client.playedSeatId) : undefined;
+        const opponent = [...this.clients.values()].find(
+          (other) =>
+            other !== client && !other.isSpectator && other.playedSeatId && this.playedSeats.has(other.playedSeatId),
+        );
+        const winner = opponent?.playedSeatId ? this.playedSeats.get(opponent.playedSeatId) : undefined;
+        if (
+          loser &&
+          winner &&
+          !loser.lateJoin &&
+          !winner.lateJoin &&
+          loser.teamsPlayed.length === 1 &&
+          winner.teamsPlayed.length === 1 &&
+          loser.team !== winner.team
+        ) {
+          loser.forfeited = true;
+          const match = this.gametypeController.getMatchState();
+          match.forfeit({ kind: "team", id: winner.team, name: match.getTeamName(winner.team as "udon" | "soba") });
+        }
+      }
       this.handleDisconnect(client.connection, "did not resume", false);
     }
   }
@@ -933,8 +1075,14 @@ export class GameServer {
     const currentPhase = this.gametypeController.getPhase();
     if (currentPhase !== this._lastMatchPhase) {
       // Match started → begin recording
-      if (currentPhase === MatchPhase.Active && !this.demoRecorder?.isRecording) {
-        this.startRecording();
+      if (currentPhase === MatchPhase.Active) {
+        if (this.resultStartedAt === null && this.config.singleMatch && this.matchAdmission) {
+          this.resultStartedAt = Date.now();
+          this.resultStartedAtTick = this.simulation.currentTick as number;
+          for (const client of this.clients.values()) this.capturePlayingSeat(client);
+          for (const client of this.suspended.clients()) this.capturePlayingSeat(client, false);
+        }
+        if (!this.demoRecorder?.isRecording) this.startRecording();
       }
       // Match ended → stop recording
       if (currentPhase === MatchPhase.PostGame && this.demoRecorder?.isRecording) {
@@ -1044,6 +1192,15 @@ export class GameServer {
     // and delay the demo it owes them.
     const matchOver = this.gametypeController.getPhase() === MatchPhase.PostGame;
     const seatHeld = holdSeat && !matchOver && !client.isSpectator && !client.isBot;
+    this.capturePlayingSeat(client, false);
+    const playedSeat = client.playedSeatId ? this.playedSeats.get(client.playedSeatId) : undefined;
+    if (playedSeat && !this.finalResultReported) {
+      playedSeat.disconnected = true;
+      if (!seatHeld) {
+        playedSeat.leftAtTick = this.simulation.currentTick as number;
+        if (!playedSeat.forfeited) playedSeat.participationInterrupted = true;
+      }
+    }
 
     if (seatHeld) {
       // The player is not gone, only unreachable: the entity stays in the world
@@ -1396,6 +1553,7 @@ export class GameServer {
         accountId: grant?.accountId,
         seatTeam: grant?.team,
         preGameAdmissionGrant: grant ?? undefined,
+        ...(grant?.botReference === undefined ? {} : { botReference: grant.botReference }),
         // The seat this client can take back after a drop. Unguessable, so only
         // the client it was handed to can claim the session.
         resumeToken: crypto.randomUUID(),
@@ -1450,6 +1608,7 @@ export class GameServer {
     client.snapshotsSinceRefresh = undefined;
     client.lastInputSeq = 0;
     this.clients.set(conn.id, client);
+    this.capturePlayingSeat(client);
     this.refreshHumanClientCount();
 
     if (!client.isSpectator) {
@@ -1603,9 +1762,12 @@ export class GameServer {
 
     // Mark as playing
     client.isSpectator = false;
-    client.playedSeatTokenHash = client.preGameAdmissionGrant?.tokenHash;
+    client.playedSeatTokenHash = client.preGameAdmissionGrant?.tokenHash ?? client.playedSeatTokenHash;
+    client.playedSeatId =
+      client.preGameAdmissionGrant?.seatId ?? client.preGameAdmissionGrant?.tokenHash ?? client.playedSeatId;
     // From this point only the server-issued resume token can restore the seat.
     client.preGameAdmissionGrant = undefined;
+    this.capturePlayingSeat(client);
 
     // Lobby/network bots enter through this normal join flow — register them
     // for auto-ready (spawnBot() only covers server-spawned entity bots, so
@@ -1653,6 +1815,12 @@ export class GameServer {
     client.lastTeamSwitchMs = now;
 
     // Remove player entity from simulation
+    this.capturePlayingSeat(client);
+    const playedSeat = client.playedSeatId ? this.playedSeats.get(client.playedSeatId) : undefined;
+    if (playedSeat && !this.finalResultReported) {
+      playedSeat.leftAtTick = this.simulation.currentTick as number;
+      playedSeat.participationInterrupted = true;
+    }
     const state = this.simulation.getStateMut();
     state.removeEntity(client.entityId);
 

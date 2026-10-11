@@ -139,6 +139,18 @@ describe("Amphi over the game server protocol", () => {
         ],
       }),
     ]);
+    expect(results[0].details).toMatchObject({
+      version: 2,
+      completion: "normal",
+      teams: [
+        { id: "udon", score: 2, placement: 1 },
+        { id: "soba", score: 0, placement: 2 },
+      ],
+      seats: [
+        { seatId: manifest.grants[0].seatId, team: "udon", teamsPlayed: ["udon"], lateJoin: false, placement: 1 },
+        { seatId: manifest.grants[1].seatId, team: "soba", teamsPlayed: ["soba"], lateJoin: false, placement: 2 },
+      ],
+    });
     await new Promise((resolve) => setTimeout(resolve, 250));
     expect(match.phase).toBe(MatchPhase.PostGame); // Single-match flow cannot silently restart.
   });

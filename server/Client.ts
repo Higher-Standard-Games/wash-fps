@@ -10,6 +10,7 @@ import type { AdmissionGrant, AdmissionManifest } from "@engine/server/network/M
 import type { MatchResultReport } from "@engine/server/network/MatchResultReport";
 import type { ClientConnection } from "@engine/server/network/transport/WebSocketTransport";
 import type { GameState } from "../../../engine/network/core/GameState";
+import type { BotReference } from "../../../shared/ranking/BotReference";
 
 export interface GameServerConfig {
   port: number;
@@ -35,6 +36,9 @@ export interface GameServerConfig {
   /** Server-owned final snapshot, delivered once on entering PostGame. */
   onFinalResult?: (report: MatchResultReport) => void;
   matchGametype?: string;
+  matchMapDigest?: string;
+  /** Lobby visibility at match start; recordings carry this flag. */
+  privateMatch?: boolean;
   /**
    * Record a training demo under this name: from the first human to join until
    * the last one leaves, a frame every server tick, into
@@ -45,6 +49,7 @@ export interface GameServerConfig {
 }
 
 export interface ClientInfo {
+  botReference?: BotReference;
   id: string;
   connection: ClientConnection;
   playerId: PlayerId;
@@ -101,4 +106,6 @@ export interface ClientInfo {
   preGameAdmissionGrant?: AdmissionGrant;
   /** Retained only after the ticketed seat actually entered play. */
   playedSeatTokenHash?: string;
+  /** Stable across initial/recovery credentials and connection resumes. */
+  playedSeatId?: string;
 }

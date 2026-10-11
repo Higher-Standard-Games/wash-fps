@@ -29,9 +29,10 @@ export class SuspendedSessions<T extends { resumeToken: string }> {
   }
 
   /** Give the seat back to whoever presents its token; each token works once. */
-  take(token: string): T | undefined {
+  take(token: string, now = Date.now()): T | undefined {
     const session = this.sessions.get(token);
-    if (!session) return undefined;
+    // Keep expired records for expired() to perform authoritative departure cleanup.
+    if (!session || now - session.suspendedAt >= this.graceMs) return undefined;
     this.sessions.delete(token);
     return session.client;
   }

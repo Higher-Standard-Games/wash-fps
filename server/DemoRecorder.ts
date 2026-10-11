@@ -37,7 +37,7 @@ import {
 const DEMO_MAGIC = new Uint8Array([0x53, 0x48, 0x41, 0x47]); // "SHAG"
 
 /** Current demo format version */
-const DEMO_VERSION = 3;
+const DEMO_VERSION = 4;
 
 // ── Types ───────────────────────────────────────────────────────────────
 
@@ -52,6 +52,8 @@ export interface DemoConfig {
   snapshotRate: number;
   /** Lobby-issued match ID, if this recording belongs to a ticketed match. */
   matchId?: string;
+  /** Private lobby recording, excluded from featured picks. */
+  private?: boolean;
   /** Output directory for demo files */
   outputDir?: string;
   /** Folder under the default demo directory, when `outputDir` is not given. */
@@ -312,6 +314,9 @@ export class DemoRecorder {
 
     // Version 2: link to a lobby match without inferring identity from names.
     encoder.writeString(this._config.matchId || "");
+
+    // Version 4: lobby visibility. Frames and inputs keep their version 3 layout.
+    encoder.writeUint8(this._config.private ? 1 : 0);
 
     // Player roster
     const players = [...this._players.values()];

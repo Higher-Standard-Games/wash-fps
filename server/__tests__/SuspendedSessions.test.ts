@@ -9,13 +9,22 @@ import { SuspendedSessions } from "../SuspendedSessions";
 const client = (resumeToken: string, playerName = resumeToken) => ({ resumeToken, playerName });
 
 describe("SuspendedSessions", () => {
+  it("refuses an expired resume before the cleanup tick, retaining it for departure", () => {
+    const sessions = new SuspendedSessions(20000);
+    const dropped = client("token-a");
+    sessions.suspend(dropped, 1000);
+    expect(sessions.take("token-a", 21000)).toBeUndefined();
+    expect(sessions.size).toBe(1);
+    expect(sessions.expired(21000)).toEqual([dropped]);
+    expect(sessions.size).toBe(0);
+  });
   it("gives a seat back to its token, once", () => {
     const sessions = new SuspendedSessions(20000);
     const dropped = client("token-a");
     sessions.suspend(dropped, 1000);
 
-    expect(sessions.take("token-a")).toBe(dropped);
-    expect(sessions.take("token-a")).toBeUndefined();
+    expect(sessions.take("token-a", 1001)).toBe(dropped);
+    expect(sessions.take("token-a", 1001)).toBeUndefined();
     expect(sessions.size).toBe(0);
   });
 
@@ -37,7 +46,7 @@ describe("SuspendedSessions", () => {
     expect(sessions.expired(20000)).toEqual([]);
     expect(sessions.expired(21000)).toEqual([early]);
     expect(sessions.take("token-a")).toBeUndefined();
-    expect(sessions.take("token-b")).toBe(late);
+    expect(sessions.take("token-b", 21000)).toBe(late);
   });
 
   it("counts held seats as still present", () => {

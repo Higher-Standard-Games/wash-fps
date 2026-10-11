@@ -7,6 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { GameState } from "../../../../engine/network/core/GameState";
+import { BinaryEncoder, BinaryProtocol } from "../../../../engine/network/protocol/BinaryProtocol";
 import { DemoReader } from "../../../../shared/demo/DemoReader";
 import { DemoRecorder } from "../DemoRecorder";
 
@@ -49,10 +50,11 @@ describe("DemoRecorder min-duration guard", () => {
     written.push(fp);
     expect(fp).not.toBe("");
     expect(fs.existsSync(fp)).toBe(true);
+    expect(new DemoReader(new Uint8Array(fs.readFileSync(fp))).readHeader().private).toBe(false);
   });
 
   it("round-trips a verified match and roster without changing frame access", async () => {
-    const rec = new DemoRecorder({ ...base, matchId: "match-verified", minDurationMs: 0 });
+    const rec = new DemoRecorder({ ...base, matchId: "match-verified", private: true, minDurationMs: 0 });
     rec.addPlayer("1", "One", "", 41);
     rec.addPlayer("2", "Two", "", 42);
     rec.addPlayer("3", "Bot", "");
@@ -67,7 +69,8 @@ describe("DemoRecorder min-duration guard", () => {
     written.push(fp);
     const reader = new DemoReader(new Uint8Array(fs.readFileSync(fp)));
     expect(reader.readHeader()).toMatchObject({
-      version: 3,
+      version: 4,
+      private: true,
       matchId: "match-verified",
       players: [
         { playerId: "1", accountId: 41 },
@@ -135,6 +138,36 @@ describe("DemoRecorder min-duration guard", () => {
       gametype: "duel",
       players: [{ playerId: "1", name: "Legacy" }],
     });
+  });
+
+  it.each([2, 3])("still seeks version %i frames with verified roster and no visibility byte", (version) => {
+    const encoder = new BinaryEncoder();
+    for (const byte of [0x53, 0x48, 0x41, 0x47, version]) encoder.writeUint8(byte);
+    encoder.writeString("wdm2");
+    encoder.writeString("duel");
+    encoder.writeUint8(125);
+    encoder.writeUint8(63);
+    encoder.writeUint32(0);
+    encoder.writeUint32(1000);
+    encoder.writeString("legacy-match");
+    encoder.writeUint8(1);
+    for (const value of ["1", "Legacy", "", "41"]) encoder.writeString(value);
+    const frameOffset = encoder.toBytes().length;
+    const snapshot = BinaryProtocol.encodeSnapshot(frame(125));
+    encoder.writeUint32(125);
+    encoder.writeUint32(snapshot.length);
+    for (const byte of snapshot) encoder.writeUint8(byte);
+    if (version >= 3) encoder.writeUint32(0);
+    const indexOffset = encoder.toBytes().length;
+    encoder.writeUint32(1);
+    encoder.writeUint32(125);
+    encoder.writeUint32(frameOffset);
+    encoder.writeUint32(1000);
+    encoder.writeUint32(indexOffset);
+    const reader = new DemoReader(encoder.toBytes());
+    expect(reader.readHeader()).toMatchObject({ version, matchId: "legacy-match", players: [{ accountId: 41 }] });
+    expect(reader.readHeader().private).toBeUndefined();
+    expect(reader.readFrame(0)).toMatchObject({ tick: 125, inputs: [] });
   });
 
   it("discards an empty recording", async () => {

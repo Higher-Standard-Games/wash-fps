@@ -8,7 +8,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { GametypeInfo } from "../../../../lobby/types";
+import type { GametypeInfo, LeaderboardEntry } from "../../../../lobby/types";
 import { bindLeaderboard } from "../NewUiApi";
 import { ProfileView } from "../ProfileView";
 
@@ -17,7 +17,7 @@ const MODES = [
   { id: "amphi", name: "AMPHITHEATRE", description: "", maxPlayers: 2, hasTeams: false, mapPool: [] },
 ] as unknown as GametypeInfo[];
 
-type Row = { rank: number; playerId: string; name: string; wins: number; losses: number; draws: number };
+type Row = LeaderboardEntry;
 
 function fakeClient(
   answer: (gametype: string) => { total: number; localPlayerEntry?: Row } | Promise<never>,
@@ -26,15 +26,18 @@ function fakeClient(
   return {
     connected,
     on: () => () => {},
-    requestLeaderboard: vi.fn(async (query: { gametype: string }) => ({
+    requestLeaderboard: vi.fn(async (query: { gametype: string; scope: string }) => ({
       entries: [],
+      scope: query.scope,
+      system: "trueskill",
+      policyVersion: "shag-trueskill-v1",
       ...(await answer(query.gametype)),
     })),
   };
 }
 
 function mount(client: unknown, supported = true): ProfileView {
-  bindLeaderboard(client as never, supported);
+  bindLeaderboard(client as never, supported, supported);
   return new ProfileView({
     client: client as never,
     isInRoom: () => false,
@@ -55,6 +58,10 @@ const row = (over: Partial<Row> = {}): Row => ({
   wins: 4,
   losses: 1,
   draws: 0,
+  rating: 1200,
+  conservativeScore: 5,
+  ratedMatches: 5,
+  provisional: true,
   ...over,
 });
 
@@ -95,10 +102,10 @@ describe("the record card", () => {
     );
     await view.refreshRecord();
     expect(rows(view)).toEqual([
-      ["AMPHITHEATRE", "#2", "5 W", "1 L", "1 D"],
-      ["DUEL", "#9", "2 W", "7 L", "0 D"],
+      ["AMPHITHEATRE", "#2", "1200 (P)", "5 W", "1 L", "1 D"],
+      ["DUEL", "#9", "1200 (P)", "2 W", "7 L", "0 D"],
     ]);
-    expect(status(view)).toBe("16 ranked matches · best #2 in AMPHITHEATRE");
+    expect(status(view)).toBe("16 public matches · best #2 in AMPHITHEATRE");
   });
 
   it("counts one match as a match", async () => {
@@ -108,7 +115,7 @@ describe("the record card", () => {
       ),
     );
     await view.refreshRecord();
-    expect(status(view)).toBe("1 ranked match · best #1 in DUEL");
+    expect(status(view)).toBe("1 public match · best #1 in DUEL");
   });
 
   it("still shows the modes that answered when one does not", async () => {
@@ -119,8 +126,8 @@ describe("the record card", () => {
       }),
     );
     await view.refreshRecord();
-    expect(rows(view)).toEqual([["AMPHITHEATRE", "#1", "3 W", "0 L", "0 D"]]);
-    expect(status(view)).toBe("3 ranked matches · best #1 in AMPHITHEATRE");
+    expect(rows(view)).toEqual([["AMPHITHEATRE", "#1", "1200 (P)", "3 W", "0 L", "0 D"]]);
+    expect(status(view)).toBe("3 public matches · best #1 in AMPHITHEATRE");
   });
 
   it("reports the refusal when nothing could be read", async () => {
@@ -129,13 +136,31 @@ describe("the record card", () => {
     expect(status(view)).toBe("Rankings timed out.");
     expect(rows(view)).toEqual([]);
   });
+  it("reads the chosen private pool and does not reuse the public row", async () => {
+    const client = fakeClient(() => ({ total: 1, localPlayerEntry: row() }));
+    const view = mount(client);
+    await view.refreshRecord();
+    client.requestLeaderboard.mockImplementation(async (query: { scope: string }) => ({
+      entries: [],
+      total: 0,
+      scope: query.scope,
+      system: "trueskill",
+      policyVersion: "shag-trueskill-v1",
+      localProcessing: { pending: 1, excluded: 0 },
+    }));
+    view.root.querySelector<HTMLButtonElement>('[data-scope="private"]')!.click();
+    await vi.waitFor(() => expect(status(view)).toContain("await bot calibration"));
+    expect(rows(view)).toEqual([]);
+    expect(client.requestLeaderboard.mock.calls.at(-1)?.[0]).toMatchObject({ scope: "private", system: "trueskill" });
+    view.destroy();
+  });
 });
 
 describe("the profile panel", () => {
   it("opens on the key, steps back from another screen with Esc, and closes with Done", async () => {
     const closed = vi.fn();
     const client = fakeClient(() => ({ total: 0 }));
-    bindLeaderboard(client as never, true);
+    bindLeaderboard(client as never, true, true);
     const view = new ProfileView({
       client: client as never,
       isInRoom: () => false,

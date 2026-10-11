@@ -323,7 +323,7 @@ export class LobbyPanel extends GamePanel {
           this.refreshPlayerCard(msg.identity?.name);
           this.serverGametypes = msg.gametypes || [];
           this.privateLobbySupported = msg.features?.privateLobbies === true;
-          bindLeaderboard(this.lobbyClient, msg.features?.leaderboard === true);
+          bindLeaderboard(this.lobbyClient, msg.features?.leaderboard === true, msg.features?.skillRatings === true);
           bindFeaturedDemos(this.lobbyClient, msg.features?.featuredDemos === true);
           this.demosView?.connected(msg.features?.demoOwnership === true, this.currentTabId === "demos");
           if (this.currentTabId === "leaderboard") void this.leaderboardView?.refresh();
