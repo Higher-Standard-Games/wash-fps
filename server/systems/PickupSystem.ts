@@ -27,7 +27,12 @@ import {
   type HealthKind,
   healthAfterPickup,
 } from "../../../../shared/items/ItemGrants";
-import { POWERUP_DISPLAY, POWERUP_RESPAWN_SECONDS, type PowerupKind } from "../../../../shared/items/Powerups";
+import {
+  ITEM_RESPAWN_SECONDS,
+  itemRespawnSeconds,
+  MAJOR_ITEM_FIRST_SPAWN_SECONDS,
+} from "../../../../shared/items/ItemRespawn";
+import { POWERUP_DISPLAY, type PowerupKind } from "../../../../shared/items/Powerups";
 import { createPowerups, grantPowerup } from "../../../../shared/server/simulation/components/PowerupComponent";
 import type { DroppedWeaponSystem } from "./DroppedWeaponSystem";
 import type { WeaponSystem } from "./WeaponSystem";
@@ -39,18 +44,6 @@ function isDefaultWeapon(w: string): boolean {
 
 /** Must match InputButtons.USE from engine/network/components/InputComponent.ts */
 const USE_BUTTON = 1 << 11;
-
-/** Default per-type respawn times (seconds). Weapons overridable via setRespawnTime. */
-const DEFAULT_RESPAWN_SECONDS = {
-  weapon: 15,
-  ammo: 15,
-  armor: 25,
-  health: 20,
-  megaHealth: 60,
-} as const;
-
-/** Armor + mega/ultra health don't exist for the first N seconds of a match. */
-const FIRST_SPAWN_DELAY_SECONDS = 15;
 
 /** A pickup item on the map */
 interface PickupItem {
@@ -104,7 +97,7 @@ export class PickupSystem extends Subsystem {
   private weaponSystem: WeaponSystem | null = null;
   private droppedWeaponSystem: DroppedWeaponSystem | null = null;
   /** Weapon respawn time (seconds); overridable via setRespawnTime. Armor/health use defaults. */
-  private weaponRespawnSeconds: number = DEFAULT_RESPAWN_SECONDS.weapon;
+  private weaponRespawnSeconds: number = ITEM_RESPAWN_SECONDS.weapon;
   /** When consumed items return. Round modes override this. */
   private respawnMode: ItemRespawnMode = "timed";
   /** Items taken during the round now being played. */
@@ -159,23 +152,7 @@ export class PickupSystem extends Subsystem {
 
   /** Resolve the respawn duration (ticks) for a pickup entry by type/kind. */
   private respawnTicksFor(entry: PickupEntry): number {
-    let seconds: number;
-    if (entry.type === "weapon") {
-      seconds = this.weaponRespawnSeconds;
-    } else if (entry.type === "ammo") {
-      seconds = DEFAULT_RESPAWN_SECONDS.ammo;
-    } else if (entry.type === "armor") {
-      seconds = DEFAULT_RESPAWN_SECONDS.armor;
-    } else if (entry.type === "powerup") {
-      seconds = POWERUP_RESPAWN_SECONDS[entry.kind as PowerupKind] ?? 120;
-    } else {
-      // health: mega/ultra respawn slower than small/large
-      seconds =
-        entry.kind === "mega" || entry.kind === "ultra"
-          ? DEFAULT_RESPAWN_SECONDS.megaHealth
-          : DEFAULT_RESPAWN_SECONDS.health;
-    }
-    return Math.floor(seconds * TICK_RATE);
+    return Math.floor(itemRespawnSeconds(entry.type, entry.kind, this.weaponRespawnSeconds) * TICK_RATE);
   }
 
   /**
@@ -214,7 +191,7 @@ export class PickupSystem extends Subsystem {
    */
   resetForMatch(tickNum: number): void {
     if (this.respawnMode === "timed") this.dormant.clear();
-    const firstSpawnDelayTicks = Math.floor(FIRST_SPAWN_DELAY_SECONDS * TICK_RATE);
+    const firstSpawnDelayTicks = Math.floor(MAJOR_ITEM_FIRST_SPAWN_SECONDS * TICK_RATE);
     for (const pickup of this.pickups) {
       const delayed =
         pickup.type === "armor" ||
