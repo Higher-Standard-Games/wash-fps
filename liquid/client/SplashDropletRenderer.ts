@@ -2,6 +2,11 @@
 import { ShaderMaterial } from "@babylonjs/core/Materials/shaderMaterial";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Scene } from "@babylonjs/core/scene";
+import {
+  ATM_FOG_GLSL,
+  ATM_FOG_SHADER_UNIFORMS,
+  bindAtmosphericFog,
+} from "../../../../engine/rendering/AtmosphericFogShader";
 import { MAX_DROPLETS } from "./SplashDroplets";
 
 const VERTEX = `
@@ -14,7 +19,9 @@ uniform mat4 view;
 uniform mat4 projection;
 varying vec2 vCorner;
 varying float vOpacity;
+varying vec3 vAtmWorld;
 void main() {
+  vAtmWorld = position;
   vec4 centre = view * vec4(position, 1.0);
   vec2 velocity = (view * vec4(sprayVelocity, 0.0)).xy;
   float speed = length(velocity);
@@ -35,11 +42,15 @@ precision highp float;
 uniform float uOutputLinear;
 varying vec2 vCorner;
 varying float vOpacity;
+varying vec3 vAtmWorld;
+${ATM_FOG_GLSL}
 void main() {
   float radius2 = dot(vCorner, vCorner);
   float alpha = (1.0 - smoothstep(0.05, 1.0, radius2)) * vOpacity * 0.45;
   if (alpha < 0.005) discard;
   vec3 colour = vec3(0.58, 0.70, 0.74);
+  // World fog, mixed in display space before any linear output
+  { vec4 atmFog = atmFogEvaluate(vAtmWorld, atmFogEye); colour = mix(colour, atmFog.rgb, atmFog.a); }
   if (uOutputLinear > 0.5) colour = pow(colour, vec3(2.2));
   gl_FragColor = vec4(colour, alpha);
 }`;
@@ -77,7 +88,7 @@ export class SplashDropletRenderer {
         { vertexSource: VERTEX, fragmentSource: FRAGMENT },
         {
           attributes: ["position", "uv", "sprayData", "sprayVelocity"],
-          uniforms: ["view", "projection", "uOutputLinear"],
+          uniforms: ["view", "projection", "uOutputLinear", ...ATM_FOG_SHADER_UNIFORMS],
           needAlphaBlending: true,
         },
       );
@@ -89,6 +100,7 @@ export class SplashDropletRenderer {
         const p = this.scene.imageProcessingConfiguration;
         material.getEffect().setFloat("uOutputLinear", p.isEnabled && p.applyByPostProcess ? 1 : 0);
       });
+      bindAtmosphericFog(material);
       mesh.material = material;
       mesh.metadata = { effectOwned: true, excludeFromWaterCapture: true };
       mesh.layerMask &= ~0x10000000;
