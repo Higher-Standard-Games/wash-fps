@@ -7,14 +7,21 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LobbyFullNotice, retryDelaySec } from "../LobbyFullNotice";
+import { LobbyFullNotice, offlineRetryDelaySec, retryDelaySec } from "../LobbyFullNotice";
 
 afterEach(() => {
+  vi.clearAllTimers();
+  vi.restoreAllMocks();
   vi.useRealTimers();
   document.body.innerHTML = "";
 });
 
 describe("retryDelaySec", () => {
+  it("backs off offline retries with bounded jitter", () => {
+    expect([1, 2, 3, 4, 10].map((n) => offlineRetryDelaySec(n, () => 0.5))).toEqual([2, 5, 10, 30, 30]);
+    expect(offlineRetryDelaySec(4, () => 0)).toBe(24);
+    expect(offlineRetryDelaySec(4, () => 1)).toBe(36);
+  });
   it("waits the lobby's time, give or take ten seconds", () => {
     expect(retryDelaySec(60, () => 0)).toBe(50);
     expect(retryDelaySec(60, () => 0.5)).toBe(60);
@@ -29,6 +36,23 @@ describe("retryDelaySec", () => {
 
 describe("LobbyFullNotice", () => {
   const countdown = () => document.querySelector(".lobby-full__countdown")?.textContent;
+
+  it("distinguishes outages from capacity and uses elapsed time after a suspended tab", () => {
+    vi.useFakeTimers();
+    const retry = vi.fn();
+    const notice = new LobbyFullNotice(retry);
+    notice.waitOffline(document.body, 30);
+    expect(notice.isOpen).toBe(true);
+    expect(notice.isFull).toBe(false);
+    expect(notice.root.textContent).toContain("Lobby offline");
+    vi.setSystemTime(Date.now() + 60_000);
+    vi.advanceTimersByTime(1000);
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+    notice.wait(document.body, 60);
+    expect(notice.isFull).toBe(true);
+    notice.close();
+  });
 
   it("counts down and tries again when the time is up", () => {
     vi.useFakeTimers();

@@ -24,6 +24,7 @@ type Tab = "featured" | DemoScope;
 export const DEMOS_PER_PAGE = 6;
 /** How many recordings the lobby sends at once, newest first. */
 export const DEMO_LIST_LIMIT = 64;
+export const DEMO_ARCHIVE_TIMEOUT_MS = 10_000;
 const FEATURED_LIMIT = 6;
 const REEL_MINUTES = [1, 2, 5];
 
@@ -100,6 +101,9 @@ export class DemosView {
   private archiveScope: DemoScope = "latest";
   private archiveRequested = false;
   private archiveArrived = false;
+  private archiveFailed = false;
+  private archiveRequestId: string | undefined;
+  private archiveTimer: ReturnType<typeof setTimeout> | null = null;
   private ownership = false;
 
   private featured: FeaturedDemo[] = [];
@@ -247,6 +251,10 @@ export class DemosView {
 
   /** A lobby said hello: what it can do, and nothing asked of an earlier one stands. */
   connected(ownership: boolean, visible: boolean): void {
+    this.clearArchiveRequest();
+    this.archive = [];
+    this.archiveArrived = false;
+    this.archiveFailed = false;
     this.ownership = ownership;
     if (!ownership && this.tab === "yours") this.tab = "latest";
     if (!ownership) this.archiveScope = "latest";
@@ -257,6 +265,8 @@ export class DemosView {
   }
 
   disconnected(): void {
+    this.clearArchiveRequest();
+    this.archiveFailed = false;
     this.ownership = false;
     if (this.tab === "yours") this.tab = "latest";
     this.archiveScope = "latest";
@@ -274,9 +284,11 @@ export class DemosView {
     this.featuredState = "idle";
   }
 
-  receiveList(scope: DemoScope, demos: DemoInfo[]): void {
+  receiveList(scope: DemoScope, demos: DemoInfo[], requestId?: string): void {
+    if (!this.archiveRequested || scope !== this.archiveScope || requestId !== this.archiveRequestId) return;
+    this.clearArchiveRequest();
+    this.archiveFailed = false;
     for (const demo of demos) rememberMapTitle(demo.map, demo.mapDisplayName);
-    if (scope !== this.archiveScope) return;
     this.archive = demos;
     this.archiveRequested = false;
     this.archiveArrived = true;
@@ -285,6 +297,7 @@ export class DemosView {
   }
 
   destroy(): void {
+    this.clearArchiveRequest();
     this.featuredSeq++;
     this.closeReel();
     this.reel.remove();
@@ -293,6 +306,13 @@ export class DemosView {
   }
 
   // ── Asking ──
+
+  private clearArchiveRequest(): void {
+    if (this.archiveTimer !== null) clearTimeout(this.archiveTimer);
+    this.archiveTimer = null;
+    this.archiveRequested = false;
+    this.archiveRequestId = undefined;
+  }
 
   private requestArchive(force = false): void {
     const scope: DemoScope = this.tab === "yours" ? "yours" : this.tab === "latest" ? "latest" : this.archiveScope;
@@ -304,8 +324,15 @@ export class DemosView {
       force = true;
     }
     if (this.archiveRequested && !force) return;
+    this.clearArchiveRequest();
+    this.archiveFailed = false;
     this.archiveRequested = true;
-    this.host.client.requestDemoList(DEMO_LIST_LIMIT, scope);
+    this.archiveRequestId = this.host.client.requestDemoList(DEMO_LIST_LIMIT, scope);
+    this.archiveTimer = setTimeout(() => {
+      this.clearArchiveRequest();
+      this.archiveFailed = true;
+      this.render();
+    }, DEMO_ARCHIVE_TIMEOUT_MS);
   }
 
   private async requestFeatured(): Promise<void> {
@@ -546,6 +573,7 @@ export class DemosView {
 
     let empty = "";
     if (!this.host.client.connected) empty = "Lobby server offline. Connect to browse recordings.";
+    else if (this.archiveFailed) empty = "The archive did not answer. Try again.";
     else if (!this.archiveArrived) empty = "Loading the archive…";
     else if (this.query.trim()) empty = `No demos with “${this.query.trim()}” in them`;
     else if (this.archive.length > 0) empty = "No demos for this mode and map.";
@@ -555,6 +583,14 @@ export class DemosView {
     this.grid.replaceChildren(
       ...(shown.length ? shown.map((demo, index) => this.card(demo, index)) : [el("div", "dm-grid__empty", empty)]),
     );
+    if (this.archiveFailed && this.host.client.connected) {
+      const retry = createRaisedKey({ label: "Try again", variants: ["sm", "cream"] });
+      retry.addEventListener("click", () => {
+        this.requestArchive(true);
+        this.render();
+      });
+      this.grid.appendChild(retry);
+    }
     this.count.replaceChildren(
       el("b", "", String(list.length)),
       `${list.length === 1 ? "demo" : "demos"}${pages > 1 ? ` · page ${this.page} of ${pages}` : ""}`,
@@ -599,7 +635,15 @@ export class DemosView {
     this.mapCount.textContent = maps.length ? `${maps.length} ${maps.length === 1 ? "map" : "maps"}` : "";
     if (!this.host.client.connected || (!this.archiveArrived && maps.length === 0)) {
       this.mapList.replaceChildren(
-        el("p", "lobby__rail-empty", this.host.client.connected ? "Loading the archive…" : "Lobby server offline."),
+        el(
+          "p",
+          "lobby__rail-empty",
+          this.host.client.connected
+            ? this.archiveFailed
+              ? "Archive unavailable. Use Try again."
+              : "Loading the archive…"
+            : "Lobby server offline.",
+        ),
       );
       return;
     }

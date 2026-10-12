@@ -23,6 +23,7 @@ import { toClientKey } from "../ClientEntityKey";
 import { devLog } from "./DevLog";
 import { HUDState } from "./HUDState";
 import { MatchPhase, MatchStateManager } from "./MatchStateManager";
+import { returnToLobby } from "./ReturnToLobby";
 
 // Re-export FPSHudWidget interface for backwards compatibility
 export type { FPSHudWidget } from "./hud/HudWidget";
@@ -166,22 +167,7 @@ export class FPSHud {
             this._openUpTimer = null;
             document.exitPointerLock();
             this._chat?.openInput();
-            this._scoreboard?.setReturnAction(() => {
-              // Navigate to the lobby deep link (?lobby=<id>, stashed by
-              // MatchLobbyView at match start) — LobbyPanel auto-joins it on
-              // boot. The emptied server exits via shutdownOnEmpty. Fall back
-              // to a plain reload when no lobby is known (dev CLI joins).
-              const returnLobby = sessionStorage.getItem("shag.return_lobby");
-              if (returnLobby) {
-                const returnUrl = new URL(window.location.origin);
-                returnUrl.searchParams.set("lobby", returnLobby);
-                const inviteToken = sessionStorage.getItem(`shag.private_invite.${returnLobby}`);
-                if (inviteToken) returnUrl.searchParams.set("invite", inviteToken);
-                window.location.href = returnUrl.href;
-              } else {
-                window.location.reload();
-              }
-            });
+            this._scoreboard?.setReturnAction(() => returnToLobby());
           }, 6000);
         }
       } else {

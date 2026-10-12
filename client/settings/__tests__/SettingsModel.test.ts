@@ -62,6 +62,8 @@ describe("keys", () => {
   });
 
   it("will not give away a key the game reads itself", () => {
+    expect(assignKey("Escape", FPS.JUMP)).toMatchObject({ kind: "fixed", action: { id: "cancel" } });
+    expect(actionFor("Escape")?.name).toBe("Menu / cancel");
     expect(assignKey("Tab", FPS.JUMP)).toMatchObject({ kind: "fixed", action: { id: FPS.SCOREBOARD } });
     expect(assignKey("Enter", null)).toMatchObject({ kind: "fixed", action: { id: FPS.CHAT } });
     expect(codesFor(FPS.JUMP)).toEqual(["Space"]);

@@ -9,7 +9,14 @@
 
 import { createRaisedKey } from "../../../engine/ui/components/RaisedKey";
 import { UIStyles } from "../../../engine/ui/UIStyles";
-import { currentIdentity, LoginError, renameAccount, renameFailureText } from "../../../lobby/AccountSession";
+import {
+  currentIdentity,
+  LoginError,
+  loginFailureText,
+  playerKeyIsSessionOnly,
+  renameAccount,
+  renameFailureText,
+} from "../../../lobby/AccountSession";
 import { KEY_LENGTH } from "../../../lobby/PlayerIdentity";
 import { switchFpsAccount } from "./FpsLobbyService";
 import { createSlot, judgeName, type Slot, wireKeySlot } from "./IdentityFields";
@@ -39,6 +46,14 @@ export class WelcomeOverlay {
     const frame = buildIdentityFrame("Welcome", "HELLO");
     this.ghostEl = frame.ghost;
     frame.inner.append(this.buildNameScreen(), this.buildRestoreScreen());
+    if (playerKeyIsSessionOnly()) {
+      const notice = document.createElement("p");
+      notice.className = "identity-warn";
+      notice.setAttribute("role", "status");
+      notice.textContent =
+        "Your key could not be saved in this browser. After choosing your name, open Profile and copy or save your key before reloading.";
+      frame.inner.append(notice);
+    }
     return frame.root;
   }
 
@@ -178,12 +193,7 @@ export class WelcomeOverlay {
       this.ghostEl.textContent = name.toUpperCase();
       setTimeout(() => this.leave(), 600);
     } catch (err) {
-      const text =
-        err instanceof LoginError
-          ? err.code === "unknown_key"
-            ? "No player has that key. Check it, or pick a name"
-            : "Too many tries. Wait a minute, then try again"
-          : "The lobby didn't answer. Try again";
+      const text = err instanceof LoginError ? loginFailureText(err.code) : "The lobby didn't answer. Try again";
       this.keySlot.tell(text, "bad");
       this.keyKey.disabled = false;
     }

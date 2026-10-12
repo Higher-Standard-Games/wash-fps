@@ -28,6 +28,7 @@ import { MessageCodec } from "../../engine/network/protocol/MessageCodec";
 import { PlayerProfile } from "../../engine/player/PlayerProfile";
 import RenderVars from "../../engine/rendering/RenderVars";
 import { waterNeedsLocalReflection } from "../../engine/rendering/water/WaterActorReflection";
+import { MapLoadingOverlay } from "../../engine/ui/MapLoadingOverlay";
 import { getExplosionEffect } from "../../engine/weapon/ExplosionEffect";
 import { getHitscanEffects } from "../../engine/weapon/HitscanEffects";
 import { getProjectileManager } from "../../engine/weapon/ProjectileManager";
@@ -739,7 +740,10 @@ export class Game {
           return !!(hud.pauseMenu?.isOpen() || hud.settings?.isOpen());
         },
         joinOverlayOpen: () => this.spectatorOverlay?.getMode() === "join-overlay",
-        showScoreboard: () => FPSHud.getInstance().scoreboard?.show(),
+        // Not over the loading screen: the scoreboard belongs to the match
+        showScoreboard: () => {
+          if (!MapLoadingOverlay.isShowing()) FPSHud.getInstance().scoreboard?.show();
+        },
         hideScoreboard: () => FPSHud.getInstance().scoreboard?.hide(),
       });
     } catch (error) {

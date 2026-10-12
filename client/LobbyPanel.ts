@@ -19,13 +19,13 @@ import { rememberMapTitle } from "../../../engine/ui/MapTitles";
 import { GamePanel } from "../../../engine/ui/panels/GamePanel";
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import { accountIsNew, currentIdentity, LoginError } from "../../../lobby/AccountSession";
-import type { LobbyClient } from "../../../lobby/LobbyClient";
+import { CLIENT_DISCONNECT_REASON, type LobbyClient } from "../../../lobby/LobbyClient";
 import type { DemoInfo, GametypeInfo, LiveMatchInfo, MatchLobbyInfo, PlayerInfo } from "../../../lobby/types";
 import { DemoService } from "./DemoService";
 import { type DemoScope, DemosView } from "./DemosView";
 import { ensureFpsLobbyConnection, getFpsLobbyClient } from "./FpsLobbyService";
 import { LeaderboardView } from "./LeaderboardView";
-import { LobbyFullNotice } from "./LobbyFullNotice";
+import { LobbyFullNotice, offlineRetryDelaySec } from "./LobbyFullNotice";
 import { describeRoom, playKeys, roomCountLabel, sortRooms } from "./LobbyRooms";
 import { bindFeaturedDemos, bindLeaderboard, bindPlayerStats, newUiApi } from "./NewUiApi";
 import { ProfileView } from "./ProfileView";
@@ -120,6 +120,11 @@ export class LobbyPanel extends GamePanel {
   private welcomeOverlay: WelcomeOverlay | null = null;
   /** Up while the lobby has turned this player away at its player cap. */
   private lobbyFullNotice: LobbyFullNotice | null = null;
+  private loginAttempt: Promise<void> | null = null;
+  private loginFailures = 0;
+  private destroyed = false;
+  private currentInviteToken: string | undefined;
+  private roomToRejoin: { lobbyId: string; inviteToken?: string; accountId: string } | null = null;
 
   // Lobby server connection
   private lobbyClient: LobbyClient;
@@ -307,7 +312,7 @@ export class LobbyPanel extends GamePanel {
     }
     if (this.playerMetaEl) {
       this.playerMetaEl.textContent = !this.lobbyClient.connected
-        ? this.lobbyFullNotice?.isOpen
+        ? this.lobbyFullNotice?.isFull
           ? "Servers full"
           : "Offline"
         : this.currentLobbyId
@@ -324,6 +329,8 @@ export class LobbyPanel extends GamePanel {
       // Handle welcome — initial data dump
       this.unsubscribers.push(
         this.lobbyClient.on("welcome", (msg) => {
+          this.loginFailures = 0;
+          this.lobbyFullNotice?.close();
           console.log("[LobbyPanel] Welcome from lobby server:", msg.playerId);
           this.localLobbyPlayerId = msg.playerId;
           this.refreshPlayerCard(msg.identity?.name);
@@ -357,6 +364,7 @@ export class LobbyPanel extends GamePanel {
             this.appendChatMessage(c.from, c.text, false, c.ts);
           }
           this.showChatEmpty();
+          this.restoreRoom(msg.identity?.id);
         }),
       );
 
@@ -437,7 +445,15 @@ export class LobbyPanel extends GamePanel {
       );
 
       this.unsubscribers.push(
-        this.lobbyClient.on("_disconnected", () => {
+        this.lobbyClient.on("_disconnected", (msg: { reason?: string }) => {
+          const identity = currentIdentity();
+          if (this.currentLobbyId && identity) {
+            this.roomToRejoin = {
+              lobbyId: this.currentLobbyId,
+              inviteToken: this.currentInviteToken,
+              accountId: identity.id,
+            };
+          }
           this.queuePending = false;
           this.pendingPrivateCreate = false;
           this.privateLobbySupported = false;
@@ -455,6 +471,15 @@ export class LobbyPanel extends GamePanel {
           this.refreshPlayerList();
           if (this.matchLobbyView) this.showPlayStage();
           this.refreshPlayerCard();
+          this.showChatEmpty();
+          // Capacity refusals close the socket after auth:error; keep their
+          // longer wait instead of replacing it with the outage backoff. A
+          // close this client made itself (switching accounts) reconnects on
+          // its own, so a retry here would only race it.
+          const deliberate = msg?.reason === CLIENT_DISCONNECT_REASON;
+          if (!this.destroyed && !this.loginAttempt && !this.lobbyFullNotice?.isFull && !deliberate) {
+            this.scheduleOfflineRetry();
+          }
         }),
       );
 
@@ -476,7 +501,11 @@ export class LobbyPanel extends GamePanel {
       // Demo archive list response
       this.unsubscribers.push(
         this.lobbyClient.on("demos:list_response", (msg) => {
-          this.demosView?.receiveList((msg.scope ?? "latest") as DemoScope, (msg.demos || []) as DemoInfo[]);
+          this.demosView?.receiveList(
+            (msg.scope ?? "latest") as DemoScope,
+            (msg.demos || []) as DemoInfo[],
+            msg.requestId,
+          );
         }),
       );
     } catch (err) {
@@ -489,10 +518,34 @@ export class LobbyPanel extends GamePanel {
    * Connect and log in. Settles either way: logged in, waiting out a full
    * lobby, or showing the disconnected state.
    */
-  private async logInToLobby(): Promise<void> {
+  private logInToLobby(): Promise<void> {
+    if (this.destroyed) return Promise.resolve();
+    if (this.loginAttempt) return this.loginAttempt;
+    const pending = this.performLobbyLogin().finally(() => {
+      if (this.loginAttempt === pending) this.loginAttempt = null;
+    });
+    this.loginAttempt = pending;
+    return pending;
+  }
+
+  private scheduleOfflineRetry(): void {
+    if (this.destroyed) return;
+    this.lobbyFullNotice ??= new LobbyFullNotice(() => void this.logInToLobby());
+    this.lobbyFullNotice.waitOffline(this.root, offlineRetryDelaySec(++this.loginFailures));
+    this.refreshPlayerCard();
+  }
+
+  private restoreRoom(accountId: string | undefined): void {
+    const room = this.roomToRejoin;
+    this.roomToRejoin = null;
+    if (room && room.accountId === accountId) this.lobbyClient.joinLobby(room.lobbyId, room.inviteToken);
+  }
+
+  private async performLobbyLogin(): Promise<void> {
     try {
       await ensureFpsLobbyConnection();
     } catch (err) {
+      if (this.destroyed) return;
       if (err instanceof LoginError && err.code === "lobby_full") {
         console.log("[LobbyPanel] Lobby is full; waiting to try again");
         this.lobbyFullNotice ??= new LobbyFullNotice(() => void this.logInToLobby());
@@ -502,10 +555,12 @@ export class LobbyPanel extends GamePanel {
       }
       console.warn("[LobbyPanel] Could not connect to lobby server:", err);
       console.log("[LobbyPanel] Showing disconnected lobby state");
-      this.lobbyFullNotice?.close();
-      this.showDisconnectedState();
+      this.scheduleOfflineRetry();
+      this.showDisconnectedState(false);
       return;
     }
+    if (this.destroyed) return;
+    this.loginFailures = 0;
     this.lobbyFullNotice?.close();
 
     // Share lobby client with DemoService so console `demolist` command works
@@ -587,6 +642,7 @@ export class LobbyPanel extends GamePanel {
     this.refreshMatchList();
     this.refreshModeAvailability();
     this.refreshPlayerCard();
+    this.showChatEmpty();
     if (announce) this.appendChatMessage("", "Lobby server unavailable. Reconnect to chat or find a match.", true);
   }
 
@@ -608,8 +664,10 @@ export class LobbyPanel extends GamePanel {
   /** An empty log says what it is for, rather than sitting blank. */
   private showChatEmpty(): void {
     const log = this.chatMessagesEl;
-    if (!log || log.childElementCount > 0) return;
-    const empty = document.createElement("p");
+    if (!log) return;
+    const existing = log.querySelector<HTMLParagraphElement>(".lobby-chat__empty");
+    if (!existing && log.childElementCount > 0) return;
+    const empty = existing ?? document.createElement("p");
     empty.className = "lobby-chat__empty";
     empty.textContent = this.lobbyClient.connected
       ? "Nobody has said anything yet. Say hello."
@@ -672,6 +730,7 @@ export class LobbyPanel extends GamePanel {
     this.queuePending = false;
     if (this.playNoticeEl) this.playNoticeEl.textContent = "";
     this.currentLobbyId = lobby.id;
+    this.currentInviteToken = inviteToken ?? undefined;
     if (inviteToken) {
       let stashed = false;
       try {
@@ -699,6 +758,8 @@ export class LobbyPanel extends GamePanel {
       if (this.currentLobbyId) {
         this.lobbyClient.leaveLobby(this.currentLobbyId);
         this.currentLobbyId = null;
+        this.roomToRejoin = null;
+        this.currentInviteToken = undefined;
       }
       this.showPlayStage();
     });
@@ -895,7 +956,7 @@ export class LobbyPanel extends GamePanel {
       connected: this.lobbyClient.connected,
       queuePending: this.queuePending,
       privateLobbySupported: this.privateLobbySupported,
-      lobbyFull: this.lobbyFullNotice?.isOpen === true,
+      lobbyFull: this.lobbyFullNotice?.isFull === true,
     });
     button.disabled = keys.find.disabled;
     setRaisedKeyText(button, keys.find.label);
@@ -929,7 +990,7 @@ export class LobbyPanel extends GamePanel {
     const heading = document.createElement("div");
     heading.className = "lobby__rail-label";
     const label = document.createElement("span");
-    label.textContent = "Lobbies";
+    label.textContent = "Rooms";
     const count = document.createElement("span");
     this.matchCountBadge = count;
     heading.append(label, count);
@@ -956,7 +1017,7 @@ export class LobbyPanel extends GamePanel {
       empty.className = "lobby__rail-empty";
       empty.textContent = this.lobbyClient.connected
         ? "No rooms yet. Pick a mode to start one."
-        : this.lobbyFullNotice?.isOpen
+        : this.lobbyFullNotice?.isFull
           ? "Servers are full."
           : "Lobby server offline.";
       this.matchListEl.replaceChildren(empty);
@@ -1196,12 +1257,14 @@ export class LobbyPanel extends GamePanel {
     this.railEl?.classList.remove("lobby__rail--room");
     this.matchLobbyView = null;
     this.currentLobbyId = null;
+    this.currentInviteToken = undefined;
     this.refreshPlayerCard();
 
     console.log("[LobbyPanel] Returned to Play stage");
   }
 
   public override destroy(): void {
+    this.destroyed = true;
     bindLeaderboard(this.lobbyClient, false);
     bindPlayerStats(this.lobbyClient, false);
     bindFeaturedDemos(this.lobbyClient, false);

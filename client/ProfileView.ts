@@ -14,6 +14,8 @@ import { UIStyles } from "../../../engine/ui/UIStyles";
 import {
   currentIdentity,
   LoginError,
+  loginFailureText,
+  playerKeyIsSessionOnly,
   renameAccount,
   renameFailureText,
   storedPlayerKey,
@@ -70,8 +72,11 @@ export class ProfileView {
   private keyNameEl!: HTMLElement;
   private keyGroupsEl!: HTMLElement;
   private keyPlateEl!: HTMLElement;
+  private revealKey!: HTMLButtonElement;
+  private keyAccountId: string | null = null;
   private keyActionsEl!: HTMLElement;
   private keyWarnEl!: HTMLElement;
+  private keyStorageWarnEl!: HTMLElement;
   private keyMissingEl!: HTMLElement;
   private doneKey!: HTMLButtonElement;
   private nameSlot!: Slot;
@@ -117,6 +122,7 @@ export class ProfileView {
 
   /** Widen out of the rail onto `parent`, at the key unless asked otherwise. */
   open(parent: HTMLElement, screen: ProfileScreen = "key"): void {
+    this.hideKey();
     this.closing = false;
     this.root.classList.remove("welcome--leaving");
     parent.appendChild(this.root);
@@ -130,6 +136,7 @@ export class ProfileView {
   /** Narrow back onto the rail. */
   close(): void {
     if (!this.opened || this.closing) return;
+    this.hideKey();
     this.closing = true;
     this.opened = false;
     document.removeEventListener("keydown", this.onKeyDown, true);
@@ -198,6 +205,7 @@ export class ProfileView {
     this.keyGroupsEl = document.createElement("div");
     this.keyGroupsEl.className = "keyplate__groups";
     const reveal = document.createElement("button");
+    this.revealKey = reveal;
     reveal.type = "button";
     reveal.className = "keyplate__reveal";
     reveal.textContent = "Show";
@@ -232,6 +240,12 @@ export class ProfileView {
     strong.textContent = "This key is you.";
     warn.append(strong, " Anyone who has it can play as you, and nobody can get it back for you if it's lost.");
 
+    this.keyStorageWarnEl = document.createElement("p");
+    this.keyStorageWarnEl.className = "identity-warn";
+    this.keyStorageWarnEl.setAttribute("role", "status");
+    this.keyStorageWarnEl.textContent =
+      "Your key could not be saved in this browser. Copy it or save it as a file before reloading to keep this player.";
+
     this.keyMissingEl = document.createElement("p");
     this.keyMissingEl.className = "welcome__lead";
     this.keyMissingEl.textContent = "Your key is made the first time you reach the lobby.";
@@ -246,6 +260,7 @@ export class ProfileView {
       plate,
       actions,
       warn,
+      this.keyStorageWarnEl,
       this.keyMissingEl,
       go,
       this.altRow("Not right?", [
@@ -580,7 +595,18 @@ export class ProfileView {
   }
 
   /** Show the account as it stands: the name, the key, and what can be done now. */
+  private hideKey(): void {
+    this.keyPlateEl.classList.add("keyplate--hidden");
+    this.revealKey.textContent = "Show";
+    this.revealKey.setAttribute("aria-pressed", "false");
+  }
+
   refresh(): void {
+    const accountId = currentIdentity()?.id ?? null;
+    if (accountId !== this.keyAccountId) {
+      this.hideKey();
+      this.keyAccountId = accountId;
+    }
     const name = currentIdentity()?.name ?? PlayerProfile.load().name;
     this.ghostEl.textContent = name.toUpperCase();
     this.leadNameEl.textContent = name;
@@ -597,6 +623,7 @@ export class ProfileView {
     );
     for (const part of [this.keyPlateEl, this.keyActionsEl, this.keyWarnEl]) part.hidden = !key;
     this.keyMissingEl.hidden = !!key;
+    this.keyStorageWarnEl.hidden = !key || !playerKeyIsSessionOnly();
 
     if (document.activeElement !== this.nameSlot.input) this.nameSlot.setValue(name);
     this.refreshNameState();
@@ -658,12 +685,7 @@ export class ProfileView {
       answer = `Welcome back, ${welcome.identity?.name ?? "player"}`;
     } catch (err) {
       tone = "bad";
-      answer =
-        err instanceof LoginError
-          ? err.code === "unknown_key"
-            ? "No player has that key. Check it, or keep the player you have."
-            : "Too many tries. Wait a minute, then try again."
-          : "The lobby didn't answer. Try again.";
+      answer = err instanceof LoginError ? loginFailureText(err.code) : "The lobby didn't answer. Try again.";
     } finally {
       this.switching = false;
       this.refresh();

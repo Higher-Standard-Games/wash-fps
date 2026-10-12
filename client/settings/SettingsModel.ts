@@ -74,6 +74,13 @@ export const SETTINGS_ACTIONS: SettingsAction[] = [
   { id: FPS.USE, group: "fight", name: "Use", onKey: "Use" },
   { id: FPS.READY, group: "other", name: "Ready" },
   {
+    id: "cancel",
+    group: "other",
+    name: "Menu / cancel",
+    onKey: "Menu",
+    fixed: { codes: ["Escape"], does: "opens the match menu or cancels a dialog" },
+  },
+  {
     id: FPS.SCOREBOARD,
     group: "other",
     name: "Scoreboard",

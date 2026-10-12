@@ -21,13 +21,23 @@ export function retryDelaySec(retryAfterSec: number | undefined, random: () => n
   return Math.max(MIN_WAIT_SEC, base + jitter);
 }
 
+/** Short outages recover quickly; longer outages back off without synchronizing every browser. */
+export function offlineRetryDelaySec(attempt: number, random: () => number = Math.random): number {
+  const waits = [2, 5, 10, 30];
+  const base = waits[Math.min(waits.length - 1, Math.max(0, attempt - 1))];
+  return Math.max(1, Math.round(base * (0.8 + random() * 0.4)));
+}
+
 export class LobbyFullNotice {
   readonly root: HTMLElement;
+  private readonly titleEl: HTMLElement;
+  private readonly textEl: HTMLElement;
   private readonly countdownEl: HTMLElement;
   private readonly tryKey: HTMLButtonElement;
   private readonly retry: () => void;
   private tick: ReturnType<typeof setInterval> | null = null;
   private secondsLeft = 0;
+  private full = true;
 
   /** `retry` runs when the countdown ends or the player presses Try now. */
   constructor(retry: () => void) {
@@ -40,11 +50,13 @@ export class LobbyFullNotice {
     title.className = "lobby-full__title";
     title.id = "lobby-full-title";
     title.textContent = "Servers are full";
+    this.titleEl = title;
 
     const text = document.createElement("p");
     text.className = "lobby-full__text";
     text.setAttribute("role", "status");
     text.textContent = "The maximum number of players are online. Please try again shortly.";
+    this.textEl = text;
 
     this.countdownEl = document.createElement("p");
     this.countdownEl.className = "lobby-full__countdown";
@@ -62,16 +74,35 @@ export class LobbyFullNotice {
     return this.root.isConnected;
   }
 
+  get isFull(): boolean {
+    return this.isOpen && this.full;
+  }
+
   /** Show the notice in `parent` (if it isn't already) and count down to the next try. */
   wait(parent: HTMLElement, retryAfterSec: number | undefined): void {
+    this.full = true;
+    this.titleEl.textContent = "Servers are full";
+    this.textEl.textContent = "The maximum number of players are online. Please try again shortly.";
+    this.countDown(parent, retryDelaySec(retryAfterSec));
+  }
+
+  waitOffline(parent: HTMLElement, seconds: number): void {
+    this.full = false;
+    this.titleEl.textContent = "Lobby offline";
+    this.textEl.textContent = "We will reconnect automatically. You can also try now.";
+    this.countDown(parent, seconds);
+  }
+
+  private countDown(parent: HTMLElement, seconds: number): void {
     if (!this.root.isConnected) parent.appendChild(this.root);
     this.stopTick();
-    this.secondsLeft = retryDelaySec(retryAfterSec);
+    this.secondsLeft = seconds;
+    const deadline = Date.now() + seconds * 1000;
     this.tryKey.disabled = false;
     setRaisedKeyText(this.tryKey, "Try now");
     this.showCountdown();
     this.tick = setInterval(() => {
-      this.secondsLeft--;
+      this.secondsLeft = Math.ceil((deadline - Date.now()) / 1000);
       if (this.secondsLeft <= 0) this.tryNow();
       else this.showCountdown();
     }, 1000);

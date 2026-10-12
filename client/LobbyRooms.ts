@@ -23,9 +23,10 @@ export function sortRooms<T extends Pick<Room, "state" | "playerCount" | "maxPla
   );
 }
 
-/** The rooms badge: "<joinable> open · <total>". */
+/** The rooms badge, "1 of 3 open": rooms a player can join out of all rooms; "none" without any. */
 export function roomCountLabel(matches: readonly Pick<Room, "state" | "playerCount" | "maxPlayers">[]): string {
-  return `${matches.filter(isJoinable).length} open · ${matches.length}`;
+  if (matches.length === 0) return "none";
+  return `${matches.filter(isJoinable).length} of ${matches.length} open`;
 }
 
 export type RoomAction = "join" | "watch" | "full";

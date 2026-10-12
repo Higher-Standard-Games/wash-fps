@@ -51,9 +51,9 @@ describe("sortRooms", () => {
 describe("roomCountLabel", () => {
   it("counts the open rooms and all rooms", () => {
     expect(roomCountLabel([room("a", "waiting", 1, 2), room("b", "waiting", 2, 2), room("c", "playing", 1, 2)])).toBe(
-      "1 open · 3",
+      "1 of 3 open",
     );
-    expect(roomCountLabel([])).toBe("0 open · 0");
+    expect(roomCountLabel([])).toBe("none");
   });
 });
 

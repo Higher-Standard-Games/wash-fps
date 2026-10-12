@@ -89,7 +89,12 @@ export class FPSPauseMenu extends GameDialogPanel {
     const plate = element("div", "fps-match-menu__plate");
     this.nameEl = element("span", "fps-match-menu__name");
     plate.append(this.nameEl, element("span", "fps-match-menu__where", "In a match"));
-    const returningToEditor = !!sessionStorage.getItem(PLAYTEST_RETURN_KEY);
+    let returningToEditor = false;
+    try {
+      returningToEditor = !!sessionStorage.getItem(PLAYTEST_RETURN_KEY);
+    } catch {
+      // Editor return metadata is optional when browser storage is blocked.
+    }
     const leave = createRaisedKey({
       label: returningToEditor ? "Return to Editor" : "Leave match",
       hint: returningToEditor ? "Resume your map" : "Back to the lobby",

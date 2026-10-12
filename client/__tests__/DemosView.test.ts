@@ -9,7 +9,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LobbyClient } from "../../../../lobby/LobbyClient";
 import type { DemoInfo } from "../../../../lobby/types";
-import { ago, DemosView, pageKeys } from "../DemosView";
+import { ago, DEMO_ARCHIVE_TIMEOUT_MS, DemosView, pageKeys } from "../DemosView";
 import type { RankedMode } from "../LeaderboardView";
 import { bindFeaturedDemos, type FeaturedDemo } from "../NewUiApi";
 
@@ -32,7 +32,8 @@ const demo = (n: number, map: string, gametype: string, players: string[]): Demo
 });
 
 function setup(options: { featured?: FeaturedDemo[]; ownership?: boolean } = {}) {
-  const requestDemoList = vi.fn();
+  let serial = 0;
+  const requestDemoList = vi.fn(() => `archive_${++serial}`);
   const requestFeaturedDemos = vi.fn(async () => ({ entries: options.featured ?? [] }));
   const client = { connected: true, requestDemoList, requestFeaturedDemos } as unknown as LobbyClient;
   bindFeaturedDemos(client, true);
@@ -49,11 +50,50 @@ const tabKey = (view: DemosView, name: string) =>
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 afterEach(() => {
+  vi.clearAllTimers();
+  vi.useRealTimers();
   bindFeaturedDemos({ connected: false } as LobbyClient, false);
   document.body.replaceChildren();
 });
 
 describe("DemosView", () => {
+  it("times out a missing reply, retries without reopening, and ignores superseded replies", async () => {
+    vi.useFakeTimers();
+    const { view, requestDemoList } = setup();
+    tabKey(view, "Latest").click();
+    const first = requestDemoList.mock.results.at(-1)!.value;
+    await vi.advanceTimersByTimeAsync(DEMO_ARCHIVE_TIMEOUT_MS);
+    expect(view.root.textContent).toContain("The archive did not answer");
+    expect(view.railMiddle.textContent).not.toContain("Loading the archive");
+    const retry = [...view.root.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+      button.textContent?.includes("Try again"),
+    )!;
+    retry.click();
+    const second = requestDemoList.mock.results.at(-1)!.value;
+    expect(second).not.toBe(first);
+    view.receiveList("latest", [demo(1, "wrong", "duel", ["Old"])], first);
+    expect(view.root.querySelectorAll(".dm-card")).toHaveLength(0);
+    view.receiveList("latest", [demo(2, "wdm2", "duel", ["Fresh"])], second);
+    expect(view.root.querySelectorAll(".dm-card")).toHaveLength(1);
+    expect(view.root.textContent).not.toContain("The archive did not answer");
+    view.destroy();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("clears the timeout and refuses late data after disconnect or destruction", async () => {
+    vi.useFakeTimers();
+    const { view, requestDemoList } = setup();
+    const first = requestDemoList.mock.results.at(-1)!.value;
+    view.disconnected();
+    view.receiveList("latest", [demo(1, "wdm2", "duel", ["Old"])], first);
+    expect(vi.getTimerCount()).toBe(0);
+    view.connected(true, true);
+    const second = requestDemoList.mock.results.at(-1)!.value;
+    view.destroy();
+    view.receiveList("latest", [demo(2, "wdm2", "duel", ["Old"])], second);
+    await vi.advanceTimersByTimeAsync(DEMO_ARCHIVE_TIMEOUT_MS);
+    expect(vi.getTimerCount()).toBe(0);
+  });
   it("shows the lobby's picks as text, under a rule that says how they were chosen", async () => {
     const picked = demo(1, "wdm2", "duel", ["One", "<img src=x onerror=alert(1)>"]);
     const { view } = setup({ featured: [{ demo: picked, rank: 1, reason: "Recent multiplayer recording" }] });
@@ -90,7 +130,7 @@ describe("DemosView", () => {
   });
 
   it("keeps only the list for the board on show, in pages of six", () => {
-    const { view } = setup();
+    const { view, requestDemoList } = setup();
     tabKey(view, "Latest").click();
     view.receiveList("yours", [demo(1, "wdm2", "duel", ["Mine", "Theirs"])]);
     expect(view.root.querySelectorAll(".dm-card")).toHaveLength(0);
@@ -98,7 +138,7 @@ describe("DemosView", () => {
     const list = Array.from({ length: 8 }, (_, n) =>
       demo(n, n < 5 ? "wdm2" : "wdm7", n < 5 ? "duel" : "deathmatch", ["A", "B", "C"]),
     );
-    view.receiveList("latest", list);
+    view.receiveList("latest", list, requestDemoList.mock.results.at(-1)!.value);
     expect(view.root.querySelectorAll(".dm-card")).toHaveLength(6);
     expect(view.root.querySelector(".dm-count")?.textContent).toBe("8demos · page 1 of 2");
 
