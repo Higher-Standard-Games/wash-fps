@@ -430,6 +430,7 @@ export class GameServer {
     const seats = [...this.playedSeats.values()].map(
       ({ playerId: _playerId, playerName: _playerName, accountId: _accountId, ...seat }, index) => ({
         ...seat,
+        stats: match.getResultStats(_playerId),
         teamsPlayed: [...seat.teamsPlayed],
         placement:
           completion === "aborted"

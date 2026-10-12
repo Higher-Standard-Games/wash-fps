@@ -15,6 +15,7 @@ import { Entity } from "../../../engine/network/core/Entity";
 import { GameState, type PlayerState } from "../../../engine/network/core/GameState";
 import type { SnapshotEvent } from "../../../engine/network/core/SnapshotEvent";
 import { POWERUP_KINDS, packPowerupMask, powerupSecondsRemaining } from "../../../shared/items/Powerups";
+import { MatchPhase } from "../../../shared/server/gametype";
 import { toClientKey } from "../ClientEntityKey";
 import type { ClientInfo } from "./Client";
 import type { AwardEvent } from "./gametypes/AwardTracker";
@@ -422,14 +423,25 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
   // went to spectate mid-match still earned their score — and at match end the
   // whole lobby is flagged as spectating anyway.
   const matchState = ctx.gametypeController.getMatchState();
-  const standings: Array<{ playerId: string; name: string; score: number; deaths: number; ping: number }> = [];
+  const standings: Array<{
+    playerId: string;
+    name: string;
+    score: number;
+    frags: number;
+    deaths: number;
+    ping: number;
+  }> = [];
   for (const client of ctx.clients.values()) {
     if (client.playerId === undefined) continue;
     standings.push({
       playerId: toClientKey(client.entityId),
       name: client.playerName,
       score: matchState.getScore(client.playerId),
-      deaths: matchState.getDeaths(client.playerId),
+      frags: matchState.getStats(client.playerId).frags,
+      deaths:
+        matchState.phase === MatchPhase.PostGame
+          ? matchState.getStats(client.playerId).deaths
+          : matchState.getDeaths(client.playerId),
       ping: client.connection?.latency ?? 0,
     });
   }

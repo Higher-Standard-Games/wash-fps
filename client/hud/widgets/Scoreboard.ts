@@ -194,7 +194,7 @@ export class FPSScoreboard {
       state.teamBased,
       state.teamNames,
       state.teamScores,
-      entries.map((e) => [e.playerId, e.name, e.score, e.deaths, e.teamId, e.departed === true]),
+      entries.map((e) => [e.playerId, e.name, e.score, e.frags, e.deaths, e.teamId, e.departed === true]),
       localPlayerId,
       round,
       MatchStateManager.getInstance().bomb?.carrier ?? null,
@@ -457,15 +457,16 @@ export class FPSScoreboard {
       return;
     }
 
-    const frags = Number(entry.score ?? 0);
+    const frags = entry.frags;
     const deaths = Number(entry.deaths ?? 0);
-    const kd = deaths > 0 ? (frags / deaths).toFixed(2) : frags.toFixed(2);
+    const kd = frags === undefined ? null : deaths > 0 ? (frags / deaths).toFixed(2) : frags.toFixed(2);
 
     this.statsEl.innerHTML = "";
     for (const [label, value] of [
-      ["Frags", String(frags)],
+      ["Score", String(entry.score ?? 0)],
+      ...(frags === undefined ? [] : [["Frags", String(frags)]]),
       ["Deaths", String(deaths)],
-      ["K/D", kd],
+      ...(kd === null ? [] : [["K/D", kd]]),
     ]) {
       const chip = document.createElement("div");
       chip.className = "fps-postgame-stats-row";

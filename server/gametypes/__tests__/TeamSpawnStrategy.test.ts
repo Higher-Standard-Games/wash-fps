@@ -9,6 +9,7 @@
 
 import { WorldState } from "@engine/server/core/WorldState";
 import { describe, expect, it } from "vitest";
+import { Duel } from "../Duel";
 import { GametypeController } from "../GametypeController";
 import { SearchAndDestroy } from "../SearchAndDestroy";
 import { createSpawnStrategy, TeamSpawnStrategy } from "../SpawnPointStrategy";
@@ -107,5 +108,19 @@ describe("TeamSpawnStrategy", () => {
 
     expect(controller.getMatchState().getPlayerTeam(1 as never)).toBe("soba");
     expect(SOBA).toContainEqual(spawn);
+  });
+  it.each([
+    [1, 2],
+    [2, 1],
+  ])("keeps Duel lobby seats when clients arrive as %j", (first, second) => {
+    const controller = new GametypeController(new Duel());
+    controller.setSpawnPoints(ALL);
+    const state = new WorldState();
+    for (const id of [first, second]) {
+      expect(controller.onPlayerJoin(id as never, id as never, state, id === 1 ? "alpha" : "bravo")).not.toBeNull();
+    }
+    expect(controller.getMatchState().getPlayerTeam(1 as never)).toBe("soba");
+    expect(controller.getMatchState().getPlayerTeam(2 as never)).toBe("udon");
+    expect(controller.onPlayerJoin(3 as never, 3 as never, state, "alpha")).toBeNull();
   });
 });

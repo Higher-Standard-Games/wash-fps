@@ -5,6 +5,8 @@ import { MatchPhase } from "@shared/server/gametype";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MessageType } from "../../../../engine/network/protocol/BinaryProtocol";
 import { MessageCodec } from "../../../../engine/network/protocol/MessageCodec";
+import { normalizeResult } from "../../../../lobby/ResultSnapshot";
+import { matchRatingGroups } from "../../../../shared/ranking/MatchRatingGroups";
 import type { ClientInfo } from "../Client";
 import { GameServer } from "../GameServer";
 import { Amphi } from "../gametypes/Amphi";
@@ -41,7 +43,7 @@ describe("played match result over real sockets", () => {
     if (server) await server.stop();
   });
 
-  async function setup(gametype: "ffa" | "duel" | "amphi" = "ffa", count = 3) {
+  async function setup(gametype: "ffa" | "duel" | "amphi" = "ffa", count = 3, lobbyAliases = false) {
     const startedAt = Date.now();
     const { manifest, tickets } = issueMatchAdmission(
       "played-result",
@@ -49,7 +51,7 @@ describe("played match result over real sockets", () => {
         lobbyPlayerId: String(i),
         accountId: 10 + i,
         name: `Player ${i}`,
-        team: gametype === "ffa" ? "ffa" : i === 0 ? "udon" : "soba",
+        team: gametype === "ffa" ? "ffa" : lobbyAliases ? (i === 0 ? "alpha" : "bravo") : i === 0 ? "udon" : "soba",
         isBot: false,
       })),
       startedAt,
@@ -144,6 +146,11 @@ describe("played match result over real sockets", () => {
   it("keeps an expired FFA leader's score without changing the active roster", async () => {
     const { match, ids, expected } = await setup();
     match.addScore(ids[0], 8);
+    match.recordStat(ids[0], (stats) => {
+      stats.frags = 9;
+      stats.deaths = 2;
+      stats.damageGiven = 1234.5;
+    });
     match.addScore(ids[1], 2);
     await clients[0].close();
     await expire([ids[0]]);
@@ -152,6 +159,7 @@ describe("played match result over real sockets", () => {
     const report = await final(expected);
     expect(report.participants[0]).toMatchObject({ accountId: 10, score: 8, outcome: "win" });
     expect(report.details?.seats[0]).toMatchObject({
+      stats: { version: 1, score: 8, frags: 9, deaths: 2, damageGiven: 1234.5 },
       placement: 1,
       disconnected: true,
       leftAtTick: expect.any(Number),
@@ -232,6 +240,26 @@ describe("played match result over real sockets", () => {
       lateJoin: false,
       teamsPlayed: ["ffa"],
     });
+  });
+
+  it.each(["duel", "amphi"] as const)("rates a real %s forfeit from lobby display sides", async (mode) => {
+    const { match, ids, expected } = await setup(mode, 2, true);
+    expect(match.getPlayerTeam(ids[0])).toBe("soba");
+    expect(match.getPlayerTeam(ids[1])).toBe("udon");
+    await clients[0].close();
+    await expire([ids[0]]);
+    const report = await final(expected);
+    const snapshot = normalizeResult(report, {
+      private: false,
+      ranked: true,
+      bots: 0,
+      startingRoster: [
+        { accountId: 10, isBot: false, team: "alpha" },
+        { accountId: 11, isBot: false, team: "bravo" },
+      ],
+    });
+    expect(snapshot.completion).toBe("forfeit");
+    expect(matchRatingGroups(snapshot)).toMatchObject({ status: "applied" });
   });
 
   it.each([

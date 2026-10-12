@@ -559,11 +559,16 @@
   right: 56px;
   left: calc(var(--rail-skew) + 56px);
   max-width: 660px;
+  /* Leave room for the raised navigation keys' offset sides when scrolling. */
+  padding: 0 8px 8px 0;
+  box-sizing: border-box;
+  container-type: inline-size;
   color: var(--cream, hsl(45 100% 95%));
 }
 
 .profile-record__head {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
@@ -611,9 +616,46 @@
   font-variant-numeric: tabular-nums;
 }
 
+.profile-record__history-key {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.profile-record__history-key:hover,
+.profile-record__history-key:focus-visible {
+  text-decoration: underline;
+}
+
+.profile-stats__detail,
+.profile-history__match p {
+  margin: 6px 12px 12px;
+  font: 600 14px / 1.4 var(--w-font-body, "Rajdhani", sans-serif);
+  color: var(--cream);
+  overflow-wrap: anywhere;
+}
+
+.profile-history__match {
+  padding: 10px 12px;
+  border-bottom: 1px solid hsla(182, 65%, 48%, 0.28);
+  overflow-wrap: anywhere;
+}
+
+.profile-history__match p {
+  margin: 6px 0;
+}
+
+.profile-record {
+  max-height: calc(100vh - 180px);
+  overflow-y: auto;
+}
+
 .profile-record__row {
   display: grid;
-  grid-template-columns: minmax(110px, 220px) 64px 92px repeat(3, 56px);
+  grid-template-columns: minmax(72px, 1fr) 54px 92px repeat(3, minmax(32px, 48px));
   justify-content: start;
   gap: 8px;
   align-items: center;
@@ -641,16 +683,71 @@
   color: hsl(45 100% 60%);
 }
 
-/* Beside a narrow panel there is no room for the record: the stage is too thin */
+/* Rows follow the space in the stage, including smaller desktop sidebars. */
+@container (max-width: 520px) {
+  .profile-record__row {
+    grid-template-columns: minmax(0, 1fr) 54px minmax(88px, 1fr);
+    row-gap: 10px;
+  }
+}
+
+/* Keep both account controls and records in one scrollable narrow layout. */
 @media (max-width: 1100px) {
-  .profile-record {
-    display: none;
+  .welcome--profile {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .welcome--profile .welcome__panel {
+    flex: 0 0 auto;
+    padding: 24px;
+    overflow: visible;
+    clip-path: none;
+  }
+
+  .welcome--profile .welcome__panel::after {
+    inset: auto 0 0;
+    width: auto;
+    height: 6px;
+    clip-path: none;
+  }
+
+  .welcome--profile .welcome__stage {
+    display: block;
+    flex: 0 0 auto;
+    margin-left: 0;
+    padding: 28px 24px;
+    overflow: hidden;
+  }
+
+  .welcome--profile .profile-record {
+    position: relative;
+    inset: auto;
+    max-width: 660px;
+    max-height: none;
+    margin: 0 auto;
+    overflow: visible;
   }
 }
 
 @media (max-width: 700px) {
-  .profile-record__row {
-    grid-template-columns: minmax(0, 1fr) 52px 72px repeat(3, 44px);
-    font-size: 14px;
+  .welcome--profile .welcome__panel,
+  .welcome--profile .welcome__stage {
+    padding-right: 20px;
+    padding-left: 20px;
+  }
+
+  .welcome--profile .keyplate {
+    grid-template-columns: 1fr;
+  }
+
+  .welcome--profile .keyplate__groups {
+    gap: 10px;
+    font-size: clamp(18px, 5vw, 28px);
+  }
+
+  .welcome--profile .welcome__actions .raised-key__face {
+    padding-right: 16px;
+    padding-left: 16px;
   }
 }

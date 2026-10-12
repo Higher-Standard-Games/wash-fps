@@ -19,6 +19,16 @@ function stateWith(teams: Array<[number, "udon" | "soba"]>): MatchState {
 }
 
 describe("team assignment on join", () => {
+  it("preserves a free requested Duel side and falls back when it is occupied", () => {
+    const state = stateWith([]);
+    state.addPlayer(1 as PlayerId);
+    expect(state.assignTeamRespectingBalance(1 as PlayerId, "soba", "Duel")).toBe("soba");
+    state.addPlayer(2 as PlayerId);
+    expect(state.assignTeamRespectingBalance(2 as PlayerId, "soba", "Duel")).toBe("udon");
+    state.addPlayer(3 as PlayerId);
+    expect(state.assignTeamRespectingBalance(3 as PlayerId, "udon", "Duel")).toBe("spectator");
+    expect(state.assignTeamRespectingBalance(1 as PlayerId, "soba", "Duel")).toBe("soba");
+  });
   it("redirects a request for the bigger side to the smaller one", () => {
     const state = stateWith([
       [1, "udon"],

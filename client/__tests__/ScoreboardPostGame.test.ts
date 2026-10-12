@@ -52,6 +52,19 @@ function duelHud(): HUDState {
 }
 
 describe("post-game scoreboard", () => {
+  it("keeps objective score separate from frags and never invents K/D for older snapshots", () => {
+    const hud = duelHud();
+    Object.assign(hud.scoreboard[0], { score: 250, frags: 4, deaths: 2 });
+    board.setPostGame("SUNDFLUX WINS!", "player_1", "sundflux");
+    const text = document.querySelector(".fps-postgame-stats")!.textContent;
+    expect(text).toContain("Score250");
+    expect(text).toContain("Frags4");
+    expect(text).toContain("K/D2.00");
+    delete hud.scoreboard[0].frags;
+    hud.scoreboard[0].score++;
+    board.refresh();
+    expect(document.querySelector(".fps-postgame-stats")!.textContent).not.toContain("K/D");
+  });
   let board: FPSScoreboard;
 
   beforeEach(() => {

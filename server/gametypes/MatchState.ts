@@ -92,6 +92,7 @@ export class MatchState {
   /** Lobby-spawned match: humans are coming, even if none have connected yet. */
   private _expectsHumans = false;
   private _stats: Map<PlayerId, PlayerStats> = new Map();
+  private readonly activeMillis = new Map<PlayerId, number>();
   /**
    * Derives score from stats, when the gametype wants that instead of frags.
    * Installed by the controller at boot; absent means "count frags".
@@ -405,7 +406,10 @@ export class MatchState {
       this.departedScores.set(playerId, this.getScore(playerId));
     this._activePlayers.delete(playerId);
     this._totalPlayers = this._activePlayers.size;
-    this._stats.delete(playerId);
+    if (this._flow !== "single" || !this.resultPlayers.has(playerId)) {
+      this._stats.delete(playerId);
+      this.activeMillis.delete(playerId);
+    }
     this._readyPlayers.delete(playerId);
     this._scores.delete(playerId);
     this._deaths.delete(playerId);
@@ -514,6 +518,17 @@ export class MatchState {
     return stats;
   }
 
+  /** Frozen after a played seat leaves; reconnects keep the same owner/totals. */
+  getResultStats(playerId: PlayerId): import("../../../../shared/ranking/MatchStats").MatchStats {
+    const stats = this._stats.get(playerId) ?? emptyPlayerStats();
+    return {
+      version: 1,
+      score: this._scores.get(playerId) ?? this.departedScores.get(playerId) ?? 0,
+      ...stats,
+      activeTimeMs: Math.round(this.activeMillis.get(playerId) ?? 0),
+    };
+  }
+
   /**
    * Record something a player did, and re-derive their score if the gametype
    * asked for that.
@@ -611,9 +626,11 @@ export class MatchState {
       this.setPlayerTeam(playerId, requested);
       return requested;
     }
-    if (gametypeName === "Duel") return this.assignTeamBalance(playerId, gametypeName);
-
     const { udon, soba } = this.teamSizes(playerId);
+    if (gametypeName === "Duel" && udon + soba >= 2) {
+      this.setPlayerTeam(playerId, "spectator");
+      return "spectator";
+    }
     const requestedCount = requested === "udon" ? udon : soba;
     const otherCount = requested === "udon" ? soba : udon;
 
@@ -650,6 +667,9 @@ export class MatchState {
    */
   update(dt: number): boolean {
     const prevPhase = this._phase;
+    if (this._phase === MatchPhase.Active && Number.isFinite(dt) && dt > 0) {
+      for (const id of this._activePlayers) this.activeMillis.set(id, (this.activeMillis.get(id) ?? 0) + dt * 1000);
+    }
 
     switch (this._phase) {
       case MatchPhase.Warmup:
@@ -790,6 +810,8 @@ export class MatchState {
           this.resultPlayers.clear();
           for (const id of this._activePlayers) this.resultPlayers.add(id);
           this.departedScores.clear();
+          this._stats.clear();
+          this.activeMillis.clear();
           for (const [id] of this._scores) {
             this._stats.set(id, emptyPlayerStats());
             this._scores.set(id, 0);

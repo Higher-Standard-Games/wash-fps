@@ -7,12 +7,14 @@
  */
 
 import type { LobbyClient } from "../../../lobby/LobbyClient";
+import type { HistoryPage, StatsQuery, StatsSummary } from "../../../lobby/PlayerStatsStore";
 import type { FeaturedDemoInfo, GametypeInfo, LeaderboardEntry, RankingScope } from "../../../lobby/types";
+import { canonicalMatchStats } from "../../../shared/ranking/MatchStats";
 import { RATING_POLICY } from "../../../shared/ranking/RatingPolicy";
 
 export type UiResult<T> = { status: "ready"; data: T } | { status: "unavailable"; reason: string };
 
-export type PendingUiFeature = "leaderboard" | "featuredDemos";
+export type PendingUiFeature = "leaderboard" | "featuredDemos" | "playerStats";
 
 export interface LeaderboardQuery {
   gametype: string;
@@ -46,15 +48,21 @@ export interface NewUiApi {
   getMode(gametypeId: string, advertised: readonly GametypeInfo[]): UiResult<GametypeInfo>;
   getFeatureStatus(feature: PendingUiFeature): UiResult<true>;
   getLeaderboard(query: LeaderboardQuery): Promise<UiResult<LeaderboardPage>>;
+  getPlayerStats(query: StatsQuery): Promise<UiResult<StatsSummary>>;
+  getMatchHistory(
+    query: Pick<StatsQuery, "gametype" | "scope"> & { limit?: number; beforeSequence?: number },
+  ): Promise<UiResult<HistoryPage>>;
   getFeaturedDemos(query: FeaturedDemosQuery): Promise<UiResult<FeaturedDemo[]>>;
 }
 
 const UNAVAILABLE: Record<PendingUiFeature, string> = {
+  playerStats: "Player stats are unavailable on this lobby server.",
   leaderboard: "Rankings are unavailable on this lobby server.",
   featuredDemos: "Featured demos are unavailable on this lobby server. The demo archive is available.",
 };
 
 const OFFLINE: Record<PendingUiFeature, string> = {
+  playerStats: "The lobby server is offline. Player stats come back with it.",
   leaderboard: "The lobby server is offline. Rankings come back with it.",
   featuredDemos: "The lobby server is offline. Featured picks come back with it.",
 };
@@ -68,6 +76,12 @@ let leaderboardClient: LobbyClient | null = null;
 let leaderboardSupported = false;
 let featuredClient: LobbyClient | null = null;
 let featuredSupported = false;
+let statsClient: LobbyClient | null = null;
+let statsSupported = false;
+export function bindPlayerStats(client: LobbyClient, supported: boolean): void {
+  statsClient = client;
+  statsSupported = supported;
+}
 
 /** The panel binds the authenticated connection and advertised server capability. */
 export function bindLeaderboard(client: LobbyClient, supported: boolean, skillRatings = false): void {
@@ -89,6 +103,10 @@ export const newUiApi: NewUiApi = {
       : { status: "unavailable", reason: `${gametypeId.toUpperCase()} is not offered by this lobby server yet.` };
   },
   getFeatureStatus(feature) {
+    if (feature === "playerStats")
+      return statsSupported && statsClient?.connected
+        ? { status: "ready", data: true }
+        : unavailable(feature, statsClient);
     if (feature === "leaderboard" && leaderboardSupported && leaderboardClient?.connected) {
       return { status: "ready", data: true };
     }
@@ -96,6 +114,91 @@ export const newUiApi: NewUiApi = {
       return { status: "ready", data: true };
     }
     return unavailable(feature, feature === "leaderboard" ? leaderboardClient : featuredClient);
+  },
+  async getPlayerStats(query) {
+    if (!statsSupported || !statsClient?.connected) return unavailable("playerStats", statsClient);
+    try {
+      const data = await statsClient.requestPlayerStats(query);
+      if (
+        data.scope !== query.scope ||
+        data.gametype !== query.gametype ||
+        data.period !== query.period ||
+        [data.matches, data.wins, data.losses, data.draws, data.statsMatches, data.pending, data.excluded].some(
+          (n) => !Number.isSafeInteger(n) || n < 0,
+        ) ||
+        data.matches !== data.wins + data.losses + data.draws ||
+        data.statsMatches > data.matches ||
+        (data.statsMatches === 0) !== (data.totals === null)
+      )
+        throw new Error("Invalid player stats");
+      if (data.totals) canonicalMatchStats({ version: 1, ...data.totals });
+      if (
+        data.rating !== null &&
+        (!Number.isSafeInteger(data.rating.value) ||
+          !Number.isSafeInteger(data.rating.rank) ||
+          data.rating.rank < 1 ||
+          !Number.isSafeInteger(data.rating.ratedMatches) ||
+          data.rating.ratedMatches < 1 ||
+          typeof data.rating.provisional !== "boolean")
+      )
+        throw new Error("Invalid rating summary");
+      return { status: "ready", data };
+    } catch {
+      return { status: "unavailable", reason: "Could not read your player stats." };
+    }
+  },
+  async getMatchHistory(query) {
+    if (!statsSupported || !statsClient?.connected) return unavailable("playerStats", statsClient);
+    try {
+      const data = await statsClient.requestMatchHistory(query);
+      if (
+        data.scope !== query.scope ||
+        data.gametype !== query.gametype ||
+        !Array.isArray(data.entries) ||
+        data.entries.length > (query.limit ?? 20) ||
+        (data.nextBeforeSequence !== null &&
+          (!Number.isSafeInteger(data.nextBeforeSequence) || data.nextBeforeSequence < 1))
+      )
+        throw new Error("Invalid history");
+      let prior = query.beforeSequence ?? Number.MAX_SAFE_INTEGER;
+      for (const entry of data.entries) {
+        if (
+          entry.scope !== query.scope ||
+          entry.gametype !== query.gametype ||
+          !Number.isSafeInteger(entry.sequence) ||
+          entry.sequence < 1 ||
+          entry.sequence >= prior ||
+          typeof entry.matchId !== "string" ||
+          typeof entry.map !== "string" ||
+          !Number.isSafeInteger(entry.score) ||
+          !Number.isSafeInteger(entry.startedAt) ||
+          !Number.isSafeInteger(entry.endedAt) ||
+          entry.endedAt < entry.startedAt ||
+          !["normal", "forfeit", "aborted"].includes(entry.completion) ||
+          !["win", "loss", "draw", null].includes(entry.outcome) ||
+          !["recorded", "excluded"].includes(entry.recordStatus) ||
+          !["pending", "excluded", "applied"].includes(entry.ratingStatus) ||
+          typeof entry.ratingReason !== "string"
+        )
+          throw new Error("Invalid match history row");
+        prior = entry.sequence;
+        if (entry.stats !== null) canonicalMatchStats(entry.stats);
+        if (
+          entry.ratingChange !== null &&
+          (entry.ratingStatus !== "applied" ||
+            ![entry.ratingChange.before, entry.ratingChange.after, entry.ratingChange.delta].every(
+              Number.isSafeInteger,
+            ) ||
+            entry.ratingChange.delta !== entry.ratingChange.after - entry.ratingChange.before)
+        )
+          throw new Error("Invalid rating change");
+      }
+      if (data.nextBeforeSequence !== null && (!data.entries.length || data.nextBeforeSequence !== prior))
+        throw new Error("Invalid history cursor");
+      return { status: "ready", data };
+    } catch {
+      return { status: "unavailable", reason: "Could not read your match history." };
+    }
   },
   async getLeaderboard(query) {
     if (!leaderboardSupported || !leaderboardClient?.connected) return unavailable("leaderboard", leaderboardClient);

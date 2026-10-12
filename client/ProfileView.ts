@@ -21,10 +21,12 @@ import {
 import type { LobbyClient } from "../../../lobby/LobbyClient";
 import { formatKey, KEY_LENGTH } from "../../../lobby/PlayerIdentity";
 import type { GametypeInfo, RankingScope } from "../../../lobby/types";
+import type { RatingMode } from "../../../shared/ranking/RatingPolicy";
 import { switchFpsAccount } from "./FpsLobbyService";
 import { createSlot, judgeName, type Slot, wireKeySlot } from "./IdentityFields";
 import { buildIdentityFrame, identityScreen, narrowOntoRail, widenFromRail } from "./IdentityFrame";
 import { type LeaderboardPage, newUiApi } from "./NewUiApi";
+import { ratingFeedback } from "./RatingFeedback";
 import identityCSSRaw from "./styles/Identity.css?raw";
 
 const KEY_FILE_LINES = (name: string, key: string) => [
@@ -80,6 +82,9 @@ export class ProfileView {
   private recordStatusEl!: HTMLElement;
   private recordRowsEl!: HTMLElement;
   private recordSeq = 0;
+  private historyEl!: HTMLElement;
+  private historySeq = 0;
+  private historyMode: RatingMode | null = null;
   private recordScope: RankingScope = "public";
   private readonly recordScopeKeys = new Map<RankingScope, HTMLButtonElement>();
   private readonly onKeyDown = (event: KeyboardEvent) => {
@@ -346,6 +351,8 @@ export class ProfileView {
       key.addEventListener("click", () => {
         if (scope === this.recordScope) return;
         this.recordScope = scope;
+        this.historySeq++;
+        this.historyEl.replaceChildren();
         this.recordRowsEl.replaceChildren();
         for (const [value, button] of this.recordScopeKeys)
           button.setAttribute("aria-pressed", String(value === scope));
@@ -360,6 +367,10 @@ export class ProfileView {
     this.recordRowsEl = document.createElement("div");
     this.recordRowsEl.className = "profile-record__rows";
     record.append(head, scopes, this.recordStatusEl, this.recordRowsEl);
+    this.historyEl = document.createElement("section");
+    this.historyEl.className = "profile-history";
+    this.historyEl.setAttribute("aria-label", "Your recent matches");
+    record.append(this.historyEl);
     return record;
   }
 
@@ -370,6 +381,10 @@ export class ProfileView {
    */
   async refreshRecord(): Promise<void> {
     const sequence = ++this.recordSeq;
+    if (newUiApi.getFeatureStatus("playerStats").status === "ready") {
+      await this.refreshStatsRecord(sequence);
+      return;
+    }
     if (!this.client.connected) {
       this.recordRowsEl.replaceChildren();
       this.recordStatusEl.textContent = "Connect to the lobby to see your record.";
@@ -449,6 +464,119 @@ export class ProfileView {
       line.title = `Rating ${row.rating}${row.provisional ? " · Provisional" : ""} · ${row.ratedMatches} rated matches`;
       this.recordRowsEl.append(line);
     }
+  }
+
+  private async refreshStatsRecord(sequence: number): Promise<void> {
+    const modes = this.modes().filter((mode) => ["duel", "amphi", "ffa", "snd"].includes(mode.id));
+    const scope = this.recordScope;
+    const answers = await Promise.all(
+      modes.map(async (mode) => ({
+        mode,
+        result: await newUiApi.getPlayerStats({ gametype: mode.id as RatingMode, scope, period: "all" }),
+      })),
+    );
+    if (sequence !== this.recordSeq) return;
+    this.recordRowsEl.replaceChildren();
+    let matches = 0,
+      pending = 0,
+      excluded = 0,
+      failure = "";
+    for (const { mode, result } of answers) {
+      if (result.status !== "ready") {
+        failure ||= result.reason;
+        continue;
+      }
+      const summary = result.data;
+      matches += summary.matches;
+      pending += summary.pending;
+      excluded += summary.excluded;
+      if (!summary.matches && !summary.pending && !summary.excluded && !summary.rating) continue;
+      const line = document.createElement("div");
+      line.className = "profile-record__row";
+      const key = document.createElement("button");
+      key.type = "button";
+      key.className = "profile-record__mode profile-record__history-key";
+      key.textContent = mode.name;
+      key.title = `Show recent ${mode.name} matches`;
+      key.addEventListener("click", () => {
+        this.historyMode = mode.id as RatingMode;
+        void this.refreshHistory();
+      });
+      line.append(key);
+      const cells = [
+        summary.rating ? `#${summary.rating.rank}` : "—",
+        summary.rating ? `${summary.rating.value}${summary.rating.provisional ? " (P)" : ""}` : "Not rated",
+        `${summary.wins} W`,
+        `${summary.losses} L`,
+        `${summary.draws} D`,
+      ];
+      for (const [i, value] of cells.entries()) {
+        const cell = document.createElement("span");
+        cell.className = `profile-record__${["rank", "rating", "w", "l", "d"][i]}`;
+        cell.textContent = value;
+        line.append(cell);
+      }
+      this.recordRowsEl.append(line);
+      const detail = document.createElement("p");
+      detail.className = "profile-stats__detail";
+      const totals = summary.totals;
+      detail.textContent = totals
+        ? `${totals.frags} frags · ${totals.deaths} deaths · ${Math.round(totals.damageGiven)} enemy damage · ${Math.round(totals.activeTimeMs / 60000)} min active${mode.id === "snd" ? ` · ${totals.plants} plants · ${totals.defuses} defuses` : ""}${summary.statsMatches < summary.matches ? ` · stats available for ${summary.statsMatches}/${summary.matches} matches` : ""}`
+        : summary.matches
+          ? "Gameplay totals unavailable for these results."
+          : "No completed matches counted yet.";
+      this.recordRowsEl.append(detail);
+    }
+    this.recordStatusEl.textContent = `${matches} ${scope} ${matches === 1 ? "match" : "matches"}${pending ? ` · ${pending} await calibration` : ""}${excluded ? ` · ${excluded} not rated` : ""}${failure ? ` · ${failure}` : ""}`;
+    if (this.historyMode) void this.refreshHistory();
+  }
+
+  private async refreshHistory(beforeSequence?: number): Promise<void> {
+    if (!this.historyMode) return;
+    const sequence = ++this.historySeq,
+      gametype = this.historyMode,
+      scope = this.recordScope;
+    this.historyEl.textContent = "Reading your recent matches…";
+    const result = await newUiApi.getMatchHistory({ gametype, scope, limit: 10, beforeSequence });
+    if (sequence !== this.historySeq) return;
+    this.historyEl.replaceChildren();
+    const heading = document.createElement("h3");
+    heading.textContent = `${gametype.toUpperCase()} · ${scope} recent matches`;
+    this.historyEl.append(heading);
+    if (result.status !== "ready") {
+      const status = document.createElement("p");
+      status.textContent = result.reason;
+      this.historyEl.append(status);
+      return;
+    }
+    if (!result.data.entries.length) {
+      const empty = document.createElement("p");
+      empty.textContent = "No match results yet.";
+      this.historyEl.append(empty);
+    }
+    for (const entry of result.data.entries) {
+      const row = document.createElement("article");
+      row.className = "profile-history__match";
+      const title = document.createElement("strong");
+      title.textContent = `${entry.map} · ${entry.outcome ?? "aborted"} · ${new Date(entry.endedAt).toLocaleString()}`;
+      const stats = document.createElement("p");
+      stats.textContent = entry.stats
+        ? `Score ${entry.stats.score} · ${entry.stats.frags} frags / ${entry.stats.deaths} deaths · ${Math.round(entry.stats.damageGiven)} enemy damage`
+        : `Result score ${entry.score} · gameplay stats unavailable`;
+      const rating = document.createElement("p");
+      rating.textContent = entry.ratingChange
+        ? `Rating ${entry.ratingChange.before} → ${entry.ratingChange.after} (${entry.ratingChange.delta >= 0 ? "+" : ""}${entry.ratingChange.delta})`
+        : ratingFeedback(entry.ratingStatus, entry.ratingReason);
+      row.append(title, stats, rating);
+      this.historyEl.append(row);
+    }
+    const addKey = (label: string, cursor?: number) => {
+      const key = createRaisedKey({ label });
+      key.addEventListener("click", () => void this.refreshHistory(cursor));
+      this.historyEl.append(key);
+    };
+    if (beforeSequence) addKey("Latest matches");
+    if (result.data.nextBeforeSequence !== null) addKey("Older matches", result.data.nextBeforeSequence);
   }
 
   /** Show the account as it stands: the name, the key, and what can be done now. */
@@ -594,6 +722,8 @@ export class ProfileView {
   }
 
   destroy(): void {
+    this.recordSeq++;
+    this.historySeq++;
     this.opened = false;
     document.removeEventListener("keydown", this.onKeyDown, true);
     for (const unsubscribe of this.unsubscribers) unsubscribe();

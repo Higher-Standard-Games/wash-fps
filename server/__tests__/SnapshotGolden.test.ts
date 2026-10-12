@@ -428,6 +428,7 @@ describe("buildSnapshot golden", () => {
             "standings": [
               {
                 "deaths": 0,
+                "frags": 0,
                 "name": "Ada",
                 "ping": 0,
                 "playerId": "player_1",
@@ -435,6 +436,7 @@ describe("buildSnapshot golden", () => {
               },
               {
                 "deaths": 0,
+                "frags": 0,
                 "name": "Spec",
                 "ping": 0,
                 "playerId": "player_3",

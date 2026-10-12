@@ -321,15 +321,12 @@ export class GametypeController {
       // For Duel, rename the team to the player's name
       if (this.gametype.name === "Duel") {
         const assignedPlayerName = playerName || `Player ${playerId}`;
-        let assignedTeam = teamId as any;
-
-        // If they didn't pick a team, or if they picked a team but Duel is full
-        if (!assignedTeam || assignedTeam !== "spectator") {
-          // Let assignTeamBalance handle spectator forcing if full
-          assignedTeam = this.matchState.assignTeamBalance(playerId, this.gametype.name);
-        } else {
-          this.matchState.setPlayerTeam(playerId, assignedTeam);
-        }
+        const requested = normalizeTeamId(teamId);
+        // Keep the assigned lobby side regardless of which browser connects first.
+        // The balancing helper still enforces one player per Duel side.
+        const assignedTeam = requested
+          ? this.matchState.assignTeamRespectingBalance(playerId, requested, this.gametype.name)
+          : this.matchState.assignTeamBalance(playerId, this.gametype.name);
 
         if (assignedTeam !== "spectator") {
           this.matchState.setTeamName(assignedTeam, assignedPlayerName);

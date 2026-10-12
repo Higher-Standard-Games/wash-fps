@@ -59,6 +59,7 @@ export interface DeathParties {
 }
 
 export interface ScoreboardEntry {
+  frags?: number;
   playerId: string;
   entityId: string;
   name: string;
@@ -247,12 +248,16 @@ export class HUDState {
 
     for (const [playerId, player] of state.players) {
       const teamId = sideOf(clientKeyDisplayId(playerId));
+      const final = matchState.isPostGame()
+        ? matchState.standings.find((entry) => entry.playerId === playerId)
+        : undefined;
       this.scoreboard.push({
         playerId,
         entityId: player.entityId,
         name: player.name,
         score: player.score,
-        deaths: player.deaths,
+        deaths: final?.deaths ?? player.deaths,
+        frags: final?.frags,
         ping: player.ping,
         teamId,
       });
@@ -273,6 +278,7 @@ export class HUDState {
           name: entry.name,
           score: entry.score,
           deaths: entry.deaths,
+          frags: entry.frags,
           ping: entry.ping,
           teamId: sideOf(clientKeyDisplayId(entry.playerId)),
         });

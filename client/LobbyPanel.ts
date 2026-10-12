@@ -27,7 +27,7 @@ import { ensureFpsLobbyConnection, getFpsLobbyClient } from "./FpsLobbyService";
 import { LeaderboardView } from "./LeaderboardView";
 import { LobbyFullNotice } from "./LobbyFullNotice";
 import { describeRoom, playKeys, roomCountLabel, sortRooms } from "./LobbyRooms";
-import { bindFeaturedDemos, bindLeaderboard, newUiApi } from "./NewUiApi";
+import { bindFeaturedDemos, bindLeaderboard, bindPlayerStats, newUiApi } from "./NewUiApi";
 import { ProfileView } from "./ProfileView";
 import { buildRailBrand } from "./RailBrand";
 import { nameColor, RoomChatView } from "./RoomChatView";
@@ -176,6 +176,7 @@ export class LobbyPanel extends GamePanel {
 
     this.lobbyClient = getFpsLobbyClient();
     bindLeaderboard(this.lobbyClient, false);
+    bindPlayerStats(this.lobbyClient, false);
     bindFeaturedDemos(this.lobbyClient, false);
     this.addTab("matchmaking", "Play", this.buildMatchmakingTab());
     this.addTab("leaderboard", "Leaderboard", this.buildLeaderboardTab());
@@ -329,6 +330,7 @@ export class LobbyPanel extends GamePanel {
           this.serverGametypes = msg.gametypes || [];
           this.privateLobbySupported = msg.features?.privateLobbies === true;
           bindLeaderboard(this.lobbyClient, msg.features?.leaderboard === true, msg.features?.skillRatings === true);
+          bindPlayerStats(this.lobbyClient, msg.features?.playerStats === true);
           bindFeaturedDemos(this.lobbyClient, msg.features?.featuredDemos === true);
           this.demosView?.connected(msg.features?.demoOwnership === true, this.currentTabId === "demos");
           if (this.currentTabId === "leaderboard") void this.leaderboardView?.refresh();
@@ -440,6 +442,7 @@ export class LobbyPanel extends GamePanel {
           this.pendingPrivateCreate = false;
           this.privateLobbySupported = false;
           bindLeaderboard(this.lobbyClient, false);
+          bindPlayerStats(this.lobbyClient, false);
           bindFeaturedDemos(this.lobbyClient, false);
           this.leaderboardView?.clear();
           this.demosView?.disconnected();
@@ -1200,6 +1203,7 @@ export class LobbyPanel extends GamePanel {
 
   public override destroy(): void {
     bindLeaderboard(this.lobbyClient, false);
+    bindPlayerStats(this.lobbyClient, false);
     bindFeaturedDemos(this.lobbyClient, false);
     this.demosView?.destroy();
     this.leaderboardView?.destroy();

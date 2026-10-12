@@ -41,7 +41,14 @@ export class MatchStateManager {
   private _playerTeams: Record<string, string> = {};
   private _teamNames: Record<string, string> = {};
   private _spectators: Array<{ playerId: string; name: string; ping: number }> = [];
-  private _standings: Array<{ playerId: string; name: string; score: number; deaths: number; ping: number }> = [];
+  private _standings: Array<{
+    playerId: string;
+    name: string;
+    score: number;
+    frags?: number;
+    deaths: number;
+    ping: number;
+  }> = [];
   private _winner: MatchWinner | null = null;
   private _overtime: number = 0;
   private _flow: "single" | "continuous" = "continuous";
@@ -199,7 +206,14 @@ export class MatchStateManager {
   }
 
   /** Final standings from the match tally — valid after entities are gone. */
-  get standings(): Array<{ playerId: string; name: string; score: number; deaths: number; ping: number }> {
+  get standings(): Array<{
+    playerId: string;
+    name: string;
+    score: number;
+    frags?: number;
+    deaths: number;
+    ping: number;
+  }> {
     return this._standings;
   }
   /** Match result — set only while in PostGame. */
