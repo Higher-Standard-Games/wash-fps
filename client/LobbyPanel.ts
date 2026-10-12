@@ -18,13 +18,14 @@ import matchLobbyCSSRaw from "../../../engine/ui/components/styles/MatchLobbyVie
 import { rememberMapTitle } from "../../../engine/ui/MapTitles";
 import { GamePanel } from "../../../engine/ui/panels/GamePanel";
 import { UIStyles } from "../../../engine/ui/UIStyles";
-import { accountIsNew, currentIdentity } from "../../../lobby/AccountSession";
+import { accountIsNew, currentIdentity, LoginError } from "../../../lobby/AccountSession";
 import type { LobbyClient } from "../../../lobby/LobbyClient";
 import type { DemoInfo, GametypeInfo, LiveMatchInfo, MatchLobbyInfo, PlayerInfo } from "../../../lobby/types";
 import { DemoService } from "./DemoService";
 import { type DemoScope, DemosView } from "./DemosView";
 import { ensureFpsLobbyConnection, getFpsLobbyClient } from "./FpsLobbyService";
 import { LeaderboardView } from "./LeaderboardView";
+import { LobbyFullNotice } from "./LobbyFullNotice";
 import { describeRoom, playKeys, roomCountLabel, sortRooms } from "./LobbyRooms";
 import { bindFeaturedDemos, bindLeaderboard, newUiApi } from "./NewUiApi";
 import { ProfileView } from "./ProfileView";
@@ -117,6 +118,8 @@ export class LobbyPanel extends GamePanel {
   private profileView: ProfileView | null = null;
   private profileKey: HTMLButtonElement | null = null;
   private welcomeOverlay: WelcomeOverlay | null = null;
+  /** Up while the lobby has turned this player away at its player cap. */
+  private lobbyFullNotice: LobbyFullNotice | null = null;
 
   // Lobby server connection
   private lobbyClient: LobbyClient;
@@ -303,7 +306,9 @@ export class LobbyPanel extends GamePanel {
     }
     if (this.playerMetaEl) {
       this.playerMetaEl.textContent = !this.lobbyClient.connected
-        ? "Offline"
+        ? this.lobbyFullNotice?.isOpen
+          ? "Servers full"
+          : "Offline"
         : this.currentLobbyId
           ? "In a room"
           : "In lobby";
@@ -471,21 +476,42 @@ export class LobbyPanel extends GamePanel {
           this.demosView?.receiveList((msg.scope ?? "latest") as DemoScope, (msg.demos || []) as DemoInfo[]);
         }),
       );
-
-      await ensureFpsLobbyConnection();
-
-      // Share lobby client with DemoService so console `demolist` command works
-      DemoService.getInstance().setLobbyClient(this.lobbyClient);
-
-      // A browser the lobby has just made an account for is asked who it is,
-      // and joins a shared room link only once it has answered
-      if (accountIsNew()) this.showWelcome();
-      else this.runDeepLinkJoin();
     } catch (err) {
+      console.warn("[LobbyPanel] Could not set up the lobby connection:", err);
+    }
+    await this.logInToLobby();
+  }
+
+  /**
+   * Connect and log in. Settles either way: logged in, waiting out a full
+   * lobby, or showing the disconnected state.
+   */
+  private async logInToLobby(): Promise<void> {
+    try {
+      await ensureFpsLobbyConnection();
+    } catch (err) {
+      if (err instanceof LoginError && err.code === "lobby_full") {
+        console.log("[LobbyPanel] Lobby is full; waiting to try again");
+        this.lobbyFullNotice ??= new LobbyFullNotice(() => void this.logInToLobby());
+        this.lobbyFullNotice.wait(this.root, err.retryAfterSec);
+        this.showDisconnectedState(false);
+        return;
+      }
       console.warn("[LobbyPanel] Could not connect to lobby server:", err);
       console.log("[LobbyPanel] Showing disconnected lobby state");
+      this.lobbyFullNotice?.close();
       this.showDisconnectedState();
+      return;
     }
+    this.lobbyFullNotice?.close();
+
+    // Share lobby client with DemoService so console `demolist` command works
+    DemoService.getInstance().setLobbyClient(this.lobbyClient);
+
+    // A browser the lobby has just made an account for is asked who it is,
+    // and joins a shared room link only once it has answered
+    if (accountIsNew()) this.showWelcome();
+    else this.runDeepLinkJoin();
   }
 
   /**
@@ -543,7 +569,8 @@ export class LobbyPanel extends GamePanel {
     }
   }
 
-  private showDisconnectedState(): void {
+  /** Clear the lobby's data; `announce` says so in the chat. */
+  private showDisconnectedState(announce = true): void {
     this.queuePending = false;
     this.pendingPrivateCreate = false;
     this.privateLobbySupported = false;
@@ -557,7 +584,7 @@ export class LobbyPanel extends GamePanel {
     this.refreshMatchList();
     this.refreshModeAvailability();
     this.refreshPlayerCard();
-    this.appendChatMessage("", "Lobby server unavailable. Reconnect to chat or find a match.", true);
+    if (announce) this.appendChatMessage("", "Lobby server unavailable. Reconnect to chat or find a match.", true);
   }
 
   private refreshPlayerList(): void {
@@ -865,6 +892,7 @@ export class LobbyPanel extends GamePanel {
       connected: this.lobbyClient.connected,
       queuePending: this.queuePending,
       privateLobbySupported: this.privateLobbySupported,
+      lobbyFull: this.lobbyFullNotice?.isOpen === true,
     });
     button.disabled = keys.find.disabled;
     setRaisedKeyText(button, keys.find.label);
@@ -925,7 +953,9 @@ export class LobbyPanel extends GamePanel {
       empty.className = "lobby__rail-empty";
       empty.textContent = this.lobbyClient.connected
         ? "No rooms yet. Pick a mode to start one."
-        : "Lobby server offline.";
+        : this.lobbyFullNotice?.isOpen
+          ? "Servers are full."
+          : "Lobby server offline.";
       this.matchListEl.replaceChildren(empty);
       return;
     }
@@ -1178,6 +1208,7 @@ export class LobbyPanel extends GamePanel {
     this.settingsView?.destroy();
     this.profileView?.destroy();
     this.welcomeOverlay?.destroy();
+    this.lobbyFullNotice?.close();
     for (const unsub of this.unsubscribers) {
       unsub();
     }

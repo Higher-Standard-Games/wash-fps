@@ -58,6 +58,8 @@ export interface PlayKeysInput {
   connected: boolean;
   queuePending: boolean;
   privateLobbySupported: boolean;
+  /** Turned away at the lobby's player cap, rather than unable to reach it. */
+  lobbyFull?: boolean;
 }
 
 export interface PlayKeys {
@@ -72,11 +74,14 @@ export function playKeys({
   connected,
   queuePending,
   privateLobbySupported,
+  lobbyFull = false,
 }: PlayKeysInput): PlayKeys {
   const label = queuePending
     ? "Joining…"
     : !connected
-      ? "Lobby offline"
+      ? lobbyFull
+        ? "Servers full"
+        : "Lobby offline"
       : available
         ? `Find ${modeTitle}`
         : `${modeTitle} soon`;

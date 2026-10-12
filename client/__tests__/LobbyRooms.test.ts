@@ -114,6 +114,13 @@ describe("playKeys", () => {
     expect(playKeys({ ...base, connected: false }).find).toEqual({ disabled: true, label: "Lobby offline" });
   });
 
+  it("says the servers are full when the lobby turned this player away", () => {
+    expect(playKeys({ ...base, connected: false, lobbyFull: true }).find).toEqual({
+      disabled: true,
+      label: "Servers full",
+    });
+  });
+
   it("marks a mode the lobby does not run as coming soon", () => {
     const keys = playKeys({ ...base, available: false });
     expect(keys.find).toEqual({ disabled: true, label: "Duel soon" });
