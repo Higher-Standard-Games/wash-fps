@@ -19,6 +19,7 @@ import type { Color3 } from "@babylonjs/core/Maths/math.color";
 import type { Observer } from "@babylonjs/core/Misc/observable";
 import { Scene } from "@babylonjs/core/scene";
 import { Cvar } from "../../../../engine/core/Cvar";
+import { WorldFogController } from "../../../../engine/rendering/WorldFogController";
 import { MASK_LIQUID } from "../../../../shared/collision/CollisionWorld";
 import type { LiquidKind } from "../LiquidTypes";
 import { liquidKindAt, type PointContentsSource } from "../LiquidVolumeSampler";
@@ -110,6 +111,8 @@ export class UnderwaterView {
     const look = lookFor(this.kind);
 
     if (!this.saved) {
+      // World fog stands aside while under water, and comes back current
+      WorldFogController.getInstance().suspend("underwater");
       this.saved = {
         mode: this.scene.fogMode,
         color: this.scene.fogColor.clone(),
@@ -168,6 +171,7 @@ export class UnderwaterView {
     this.scene.fogColor.copyFrom(this.saved.color);
     this.scene.fogDensity = this.saved.density;
     this.saved = null;
+    WorldFogController.getInstance().resume("underwater");
   }
 
   /**
