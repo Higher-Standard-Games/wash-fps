@@ -1,13 +1,16 @@
 # Settings
 
-Press **Escape** in a match and pick **Settings**, or use the **Settings** key on the lobby's rail. The screen has four pages, and **everything is saved as you change it**. **Reset page** and **Reset all** ask once: press the key, then press it again within a few seconds to confirm.
+Press **Escape** in a match and pick **Settings**, or use the **Settings** key on the lobby's rail. The screen has four pages, and **preferences are saved as you change them**. If storage fails, a **Session only · could not save** notice explains that the changes work until the page is reloaded. **Reset page** and **Reset all** ask once: press the key, then press it again within a few seconds to confirm.
 
-Every setting is also a console variable (cvar), so you can read or change it from the console with its name, for example `cl_fov 100`.
+Most settings are console variables (cvars), for example `cl_fov 100`. Key bindings use their own storage. Fullscreen is a browser/window action and is not a saved cvar preference. Reset restores settings and bindings, not browser fullscreen state.
+
+Sliders apply immediately. Their saved values are combined until you release the
+slider, leave the page, or pause for 200 ms.
 
 ## Controls
 
 - **Keyboard and mouse.** A keyboard and a mouse drawn in colour by what each key does, with a list of every action beside them. Click a key to pick what it does, or click an action and then press the key, mouse button or wheel turn you want for it. A key does one thing, so giving it to an action takes it from the action that had it.
-- **Fixed keys.** **Tab** (scoreboard), **T** and **Enter** (chat), **`** (console) and **J** (join) are read by the game directly and show as fixed.
+- **Fixed keys.** **Escape** (menu/cancel), **Tab** (scoreboard), **T** and **Enter** (chat), **`** (console) and **J** (join) are read by the game directly and show as fixed.
 - **Mouse feel** (cvars `m_sensitivity`, `cl_ads_sensitivity`, `cl_autorun`):
 
   | Setting | Default | Notes |
@@ -24,7 +27,8 @@ Every setting is also a console variable (cvar), so you can read or change it fr
 - A preview on a real map shows all of the above as you change them.
 - **Crosshair** with its own preview: on or off, **opens up when moving** (tightens again while you aim), size, opacity, colour, and the colour it flashes **when you hit** someone. The defaults are green, flashing red on a hit. Cvars: `cg_crosshair`, `cg_crosshairSpread`, `cg_crosshairSize`, `cg_crosshairAlpha`, `cg_crosshairColor`, `cg_crosshairDmgColor`.
 - **Field of view** (`cl_fov`): 80 – 110 degrees, default 90, horizontal at 16:9.
-- **Connection info** (`cl_netgraph`): Off, Numbers (ping and packet loss in a corner of the screen) or Graph. See [HUD → NetGraph](./hud.md#netgraph-top-right-optional).
+- **FPS counter** (`show_fps`) and **Movement speed** (`cl_showspeed`): both on by default, under View & info. Saved choices take priority.
+- **Connection info** (`cl_netgraph`): Off, Numbers (ping and estimated snapshot gaps in the bottom-right corner) or Graph. See [HUD → NetGraph](./hud.md#netgraph-bottom-right-optional).
 
 ## Video
 
@@ -48,6 +52,8 @@ Below the presets the settings are in four sections. Pips beside each setting sh
 ## Audio
 
 Two cards, **Music** and **Effects**, each with an on/off switch and a volume from 0 to 100% (`s_musicenabled` / `s_volume`, and `s_sfxenabled` / `s_sfxvolume`).
+
+The **Mix** card separately adjusts Effects, Players, Hit sound and Announcer (`cg_volume_effects`, `cg_volume_players`, `cg_volume_hitsound`, `cg_volume_announcer`) as shares of the Effects volume.
 
 ## Console-only variables
 

@@ -4058,3 +4058,21 @@
     opacity: 0.55;
   }
 }
+
+/* Keep warning labels/colors, without continuous motion when requested. */
+@media (prefers-reduced-motion: reduce) {
+  .fps-vitals--critical .fps-vitals-hp-slab,
+  .fps-timer--critical,
+  .fps-value-low,
+  .fps-value-bar--critical,
+  .fps-ammo-warning,
+  .fps-powerup-timer-slab--expiring,
+  .fps-death-card[data-next="ready"] .fps-death-respawn,
+  .fps-death-fill,
+  .fps-ready-bar:not(.hidden):not(.fps-ready-bar--ready):not(.fps-ready-bar--spectating) .fps-ready-count-label,
+  .fps-bomb-status--urgent .fps-bomb-status-phase,
+  .fps-bomb-status--carrying .fps-bomb-status-phase,
+  .fps-air-meter--drowning {
+    animation: none;
+  }
+}

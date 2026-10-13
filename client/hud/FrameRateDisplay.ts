@@ -1,6 +1,6 @@
-import { Cvar } from "../../../../../engine/core/Cvar";
-import { registerFpsDisplayCvar } from "../../../../../engine/core/FpsDisplaySettings";
-import { UIStyles } from "../../../../../engine/ui/UIStyles";
+import { Cvar } from "../../../../engine/core/Cvar";
+import { registerFpsDisplayCvar } from "../../../../engine/core/FpsDisplaySettings";
+import { UIStyles } from "../../../../engine/ui/UIStyles";
 import styles from "./styles/FrameRateDisplay.css?raw";
 
 /** App-wide readout, also available in the lobby and during demo playback. */

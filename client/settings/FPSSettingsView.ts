@@ -7,9 +7,13 @@
 
 import { AudioManager } from "../../../../engine/AudioManager";
 import { Cvar } from "../../../../engine/core/Cvar";
-import { registerFpsDisplayCvar } from "../../../../engine/core/FpsDisplaySettings";
 import { EventBus } from "../../../../engine/core/EventBus";
-import { failedPreferenceKeys, PREFERENCE_STORAGE_EVENT } from "../../../../engine/core/PreferenceStorage";
+import { registerFpsDisplayCvar } from "../../../../engine/core/FpsDisplaySettings";
+import {
+  failedPreferenceKeys,
+  flushPreferenceWrites,
+  PREFERENCE_STORAGE_EVENT,
+} from "../../../../engine/core/PreferenceStorage";
 import { InputSystem } from "../../../../engine/input/InputSystem";
 import { MovementVars } from "../../../../engine/movement/MovementVars";
 import { NetGraph } from "../../../../engine/network/client/NetGraph";
@@ -48,6 +52,7 @@ export class FPSSettingsView {
   private armTimer = 0;
   private toastEl: HTMLElement | null = null;
   private toastTimer = 0;
+  private cancelScheduledRedraw: (() => void) | null = null;
   private readonly savedLabel = el("span", "fps-set-saved", "Saved as you go");
   private readonly unsubscribeStorage: () => void;
   private readonly onKeyDown = (event: KeyboardEvent) => {
@@ -91,7 +96,7 @@ export class FPSSettingsView {
     this.savedLabel.setAttribute("aria-live", "polite");
     const refreshStorage = () => {
       const failed = failedPreferenceKeys().some((key) =>
-        ["engine_cvars", "shag_keybindings", "ui_theme_mode"].includes(key),
+        ["engine_cvars", "engine.movementVars", "shag_keybindings", "ui_theme_mode"].includes(key),
       );
       this.savedLabel.textContent = failed ? "Session only · could not save" : "Saved as you go";
       this.savedLabel.classList.toggle("is-session-only", failed);
@@ -117,6 +122,7 @@ export class FPSSettingsView {
     const host = {
       addRefresh: (refresh: () => void) => this.refreshers.push(refresh),
       changed: () => this.redraw(),
+      changedSoon: () => this.scheduleRedraw(),
       toast: (...parts: Array<string | { bold: string }>) => this.toast(...parts),
       leftLimit: () => this.root.getBoundingClientRect().left + 60,
     };
@@ -183,6 +189,9 @@ export class FPSSettingsView {
   }
 
   public destroy(): void {
+    this.cancelScheduledRedraw?.();
+    this.cancelScheduledRedraw = null;
+    flushPreferenceWrites();
     this.unsubscribeStorage();
     this.disarm();
     window.clearTimeout(this.toastTimer);
@@ -196,6 +205,21 @@ export class FPSSettingsView {
 
   private redraw(): void {
     for (const refresh of this.refreshers) refresh();
+  }
+
+  private scheduleRedraw(): void {
+    if (this.cancelScheduledRedraw) return;
+    const redraw = () => {
+      this.cancelScheduledRedraw = null;
+      this.redraw();
+    };
+    if (typeof window.requestAnimationFrame === "function") {
+      const frame = window.requestAnimationFrame(redraw);
+      this.cancelScheduledRedraw = () => window.cancelAnimationFrame(frame);
+    } else {
+      const timer = window.setTimeout(redraw, 16);
+      this.cancelScheduledRedraw = () => window.clearTimeout(timer);
+    }
   }
 
   private isShown(): boolean {

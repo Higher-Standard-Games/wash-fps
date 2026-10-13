@@ -4,6 +4,7 @@
  * it through a setter, and redraws itself when the page refreshes.
  */
 
+import { deferPreferenceWrites, flushPreferenceWrites } from "../../../../engine/core/PreferenceStorage";
 import type { FrameCost } from "./SettingsModel";
 import { COST_WORD } from "./SettingsModel";
 
@@ -30,6 +31,8 @@ export interface FieldHost {
   addRefresh(refresh: () => void): void;
   /** A value changed: redraw every control, since one choice can move others. */
   changed(): void;
+  /** High-frequency input may coalesce dependent visual refreshes. */
+  changedSoon?(): void;
 }
 
 export interface FieldOptions {
@@ -64,9 +67,17 @@ function field(options: FieldOptions): { root: HTMLElement; top: HTMLElement } {
   return { root, top };
 }
 
-function trackEnabled(host: FieldHost, root: HTMLElement, options: FieldOptions): void {
+function trackEnabled(host: FieldHost, root: HTMLElement, options: FieldOptions, disableChildren = true): void {
   const enabledIf = options.enabledIf;
-  if (enabledIf) host.addRefresh(() => root.setAttribute("aria-disabled", String(!enabledIf())));
+  if (enabledIf)
+    host.addRefresh(() => {
+      const disabled = !enabledIf();
+      root.setAttribute("aria-disabled", String(disabled));
+      if (!disableChildren) return;
+      for (const control of root.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input, button")) {
+        control.disabled = disabled;
+      }
+    });
   const shownIf = options.shownIf;
   if (shownIf) {
     host.addRefresh(() => {
@@ -109,11 +120,15 @@ export function slider(host: FieldHost, parent: HTMLElement, options: SliderOpti
     value.classList.toggle("is-default", initial !== undefined && Math.abs(initial - current) < 1e-6);
   };
   range.addEventListener("input", () => {
+    if (options.enabledIf && !options.enabledIf()) return;
     const next = Number(range.value);
-    options.set(next);
+    deferPreferenceWrites(() => options.set(next));
     draw(next);
-    host.changed();
+    if (host.changedSoon) host.changedSoon();
+    else host.changed();
   });
+  range.addEventListener("change", flushPreferenceWrites);
+  range.addEventListener("blur", flushPreferenceWrites);
   host.addRefresh(() => {
     const current = options.get();
     range.value = String(current);
@@ -139,6 +154,7 @@ export function seg<T>(host: FieldHost, parent: HTMLElement, options: SegOptions
   const keys = options.choices.map((choice) => {
     const key = button("fps-set-seg__btn", choice.label);
     key.addEventListener("click", async () => {
+      if (options.enabledIf && !options.enabledIf()) return;
       await options.set(choice.value);
       host.changed();
     });
@@ -176,6 +192,8 @@ export function swatches<T>(host: FieldHost, parent: HTMLElement, options: Swatc
     const key = button("fps-set-sw");
     key.style.setProperty("--sw", choice.css);
     key.addEventListener("click", () => {
+      if (options.enabledIf && !options.enabledIf()) return;
+      if (options.blocked?.()?.value === choice.value) return;
       options.set(choice.value);
       host.changed();
     });
@@ -190,12 +208,14 @@ export function swatches<T>(host: FieldHost, parent: HTMLElement, options: Swatc
       const on = current !== null && choice.value === current;
       key.classList.toggle("is-on", on);
       key.setAttribute("aria-pressed", String(on));
-      key.disabled = blocked !== null && blocked.value === choice.value;
+      key.disabled =
+        (options.enabledIf !== undefined && !options.enabledIf()) ||
+        (blocked !== null && blocked.value === choice.value);
       key.title = key.disabled && blocked ? `${choice.label}: ${blocked.why}` : choice.label;
       key.setAttribute("aria-label", key.title);
     }
   });
-  trackEnabled(host, root, options);
+  trackEnabled(host, root, options, false);
   parent.append(root);
   return root;
 }

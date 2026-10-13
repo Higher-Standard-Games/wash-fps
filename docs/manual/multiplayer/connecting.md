@@ -103,7 +103,7 @@ If you drop mid-match, your seat is held for 20 seconds and the server hands you
 
 ## Reading the NetGraph
 
-`cl_netgraph 1` shows ping, snapshot rate, packet loss, interpolation delay and command rate as text; `cl_netgraph 2` adds a rolling graph of the same numbers. See [HUD → NetGraph](../player/hud.md#netgraph-top-right-optional).
+`cl_netgraph 1` shows ping, snapshot rate, estimated snapshot gaps, interpolation delay and command rate as text; `cl_netgraph 2` adds a rolling graph of the same numbers. See [HUD → NetGraph](../player/hud.md#netgraph-bottom-right-optional).
 
 - **Ping** is measured from the server's acknowledgement of your commands, and is the number the scoreboard shows.
 - **Hit registration is lag-compensated.** When you shoot, the server rewinds other players to the tick your client was showing you, so what you saw under your crosshair is what is tested for weapons that use it.

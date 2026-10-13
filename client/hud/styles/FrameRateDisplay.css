@@ -7,8 +7,8 @@
   display: flex;
   align-items: baseline;
   gap: calc(7px * var(--ui-scale, 1));
-  padding: calc(8px * var(--ui-scale, 1)) calc(14px * var(--ui-scale, 1))
-    calc(9px * var(--ui-scale, 1)) calc(22px * var(--ui-scale, 1));
+  padding: calc(8px * var(--ui-scale, 1)) calc(14px * var(--ui-scale, 1)) calc(9px * var(--ui-scale, 1))
+    calc(22px * var(--ui-scale, 1));
   padding-top: max(calc(8px * var(--ui-scale, 1)), env(safe-area-inset-top));
   padding-right: max(calc(14px * var(--ui-scale, 1)), env(safe-area-inset-right));
   color: #171326;

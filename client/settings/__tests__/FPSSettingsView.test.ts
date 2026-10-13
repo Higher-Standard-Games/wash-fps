@@ -5,7 +5,7 @@
  * key menu, press-to-bind, and nothing left behind when it goes.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Cvar } from "../../../../../engine/core/Cvar";
 import { InputSystem } from "../../../../../engine/input/InputSystem";
 import { FPS } from "../../FPSActions";
@@ -35,6 +35,45 @@ afterEach(() => {
 });
 
 describe("FPSSettingsView", () => {
+  it("keeps slider values live while coalescing saved preferences until release", () => {
+    Cvar.set("cl_fov", 90);
+    const save = vi.spyOn(Storage.prototype, "setItem");
+    try {
+      const input = view.getElement().querySelector<HTMLInputElement>('input[aria-label="Field of view"]')!;
+      for (const value of [95, 100]) {
+        input.value = String(value);
+        input.dispatchEvent(new Event("input"));
+        expect(Cvar.getNumber("cl_fov")).toBe(value);
+      }
+      expect(save).not.toHaveBeenCalled();
+      input.dispatchEvent(new Event("change"));
+      expect(save).toHaveBeenCalledTimes(2);
+      expect(JSON.parse(localStorage.getItem("engine_cvars")!).cl_fov).toBe(100);
+    } finally {
+      save.mockRestore();
+    }
+  });
+
+  it("offers FPS and speed toggles and restores both with Gameplay reset", async () => {
+    const root = view.getElement();
+    click(root.querySelector('[data-settings-page="gameplay"]'));
+    for (const [label, cvar] of [
+      ["FPS counter", "show_fps"],
+      ["Movement speed", "cl_showspeed"],
+    ]) {
+      const group = root.querySelector(`[role="group"][aria-label="${label}"]`)!;
+      click(byText(group, "button", "Off"));
+      await Promise.resolve();
+      expect(Cvar.getNumber(cvar)).toBe(0);
+      expect(byText(group, "button", "Off")?.getAttribute("aria-pressed")).toBe("true");
+    }
+    const reset = byText(root, ".raised-key--reset", "Reset page");
+    click(reset);
+    click(reset);
+    expect(Cvar.getNumber("show_fps")).toBe(1);
+    expect(Cvar.getNumber("cl_showspeed")).toBe(1);
+  });
+
   it("shows one page at a time, named in its title", () => {
     const root = view.getElement();
     expect(root.querySelector("h1")?.textContent).toBe("Controls");

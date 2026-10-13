@@ -6,9 +6,17 @@ The HUD uses the **"Washoi" manga print-slab** look — dark-navy panels with cy
 
 ## Default Layout
 
+The **FPS counter** is a gold plate attached to the top-right corner. It is on by
+default, including in the lobby and demo playback. **Movement speed** is also on
+by default and appears at the bottom of the screen while playing.
+
+Use **Settings → Gameplay → View & info** to toggle either readout, or use
+`show_fps 0` / `cl_showspeed 0` in the console (`1` turns them back on). Your
+choices are saved. Existing saved preferences take priority over the defaults.
+
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  [Kill feed]                                              [NetGraph] │
+│  [Kill feed]                                              [FPS]      │
 │                                                                  │
 │                                                                  │
 │                                                                  │
@@ -19,11 +27,11 @@ The HUD uses the **"Washoi" manga print-slab** look — dark-navy panels with cy
 │                                                                  │
 │                                                                  │
 │  [Combat State]                                                  │
-│  HP/Armor                                       [Ammo Counter]   │
+│  HP/Armor                 [Speed]               [Ammo Counter]   │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-The exact positioning is configurable via cvars; the elements below are the canonical defaults.
+The optional connection-info overlay (`cl_netgraph`) is anchored bottom-right. The diagram shows the default gameplay readouts; some overlays and modes add their own elements.
 
 ## Weapon Rack (left edge)
 
@@ -109,14 +117,14 @@ The damage value shown is the server-authoritative damage your shot dealt — no
 
 Damage numbers are **not** cvar-driven — lifetime (1.5 s), float speed, colours and the 50-damage highlight threshold are module constants at the top of `src/games/fps/client/DamageNumbers.ts`.
 
-## NetGraph (top-right, optional)
+## NetGraph (bottom-right, optional)
 
 Connection diagnostics. Three modes via `cl_netgraph`:
 
 | Mode | What you see |
 |------|--------------|
 | 0 | Off |
-| 1 | Text overlay: ping, snapshot rate, packet loss %, interp delay, command rate |
+| 1 | Text overlay: ping, snapshot rate, estimated snapshot gaps %, interp delay, command rate |
 | 2 | Mode 1 + a rolling graph of the same metrics |
 
 Read the Engine Networking Guide (`docs/manual/guides/networking.md` in the engine repo) for what each number means and what's an acceptable range.
