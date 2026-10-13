@@ -7,7 +7,7 @@ vi.mock("../../../../engine/AudioManager", () => ({
   },
 }));
 
-import { FPSAnnouncer, type MatchMoment } from "../FPSAnnouncer";
+import { FPSAnnouncer, type Lead, leadOf, type MatchMoment } from "../FPSAnnouncer";
 import { FPSBombAudio } from "../FPSBombAudio";
 import { MatchPhase } from "../MatchStateManager";
 
@@ -20,6 +20,8 @@ const moment = (phase: MatchPhase, timeRemaining = 0, extra: Partial<MatchMoment
   roundsCalledByMode: false,
   playing: true,
   ready: false,
+  lead: null,
+  teamBased: false,
   ...extra,
 });
 /** Runs `seconds` of frames at `dt`, the clock advancing with them. */
@@ -29,7 +31,7 @@ function frames(voice: FPSAnnouncer, seconds: number, at: (t: number) => MatchMo
     clock += dt * 1000;
   }
 }
-const lines = () => played.map((path) => path.replace(/^sounds\/announcer\//, "").replace(/0?[12]?\.ogg$/, ""));
+const lines = () => played.map((path) => path.replace(/^sounds\/announcer\//, "").replace(/(0\d)?\.ogg$/, ""));
 
 beforeEach(() => {
   played.length = 0;
@@ -78,6 +80,45 @@ describe("the match flow", () => {
     const others = announcer();
     frames(others, 130, () => moment(MatchPhase.Warmup, 0, { ready: true }), 0.5);
     frames(others, 130, () => moment(MatchPhase.Warmup, 0, { playing: false }), 0.5);
+    expect(played).toEqual([]);
+  });
+});
+
+describe("the lead", () => {
+  it("knows ahead of all, level with the best, and behind", () => {
+    expect(leadOf([3, 1, 0], 3)).toBe("alone");
+    expect(leadOf([3, 3, 0], 3)).toBe("tied");
+    expect(leadOf([3, 1, 0], 1)).toBe("behind");
+    expect(leadOf([3], 3)).toBeNull();
+  });
+
+  it("calls each change of standing, but not the level start", () => {
+    const voice = announcer();
+    const live = (lead: Lead, extra: Partial<MatchMoment> = {}) => {
+      voice.update(moment(MatchPhase.Active, 60, { lead, ...extra }), 0.05);
+      clock += 2000;
+    };
+    live("tied");
+    live("alone");
+    live("alone");
+    live("tied");
+    live("behind");
+    live("behind");
+    expect(lines()).toEqual(["score/taken_lead", "score/tied_lead", "score/lost_lead"]);
+  });
+
+  it("speaks for the team in a team mode, and to nobody spectating", () => {
+    const voice = announcer();
+    for (const lead of ["tied", "behind"] as const) {
+      voice.update(moment(MatchPhase.Active, 60, { lead, teamBased: true }), 0.05);
+      clock += 2000;
+    }
+    expect(lines()).toEqual(["score/team_lost_lead"]);
+
+    played.length = 0;
+    const watcher = announcer();
+    for (const lead of ["tied", "alone"] as const)
+      watcher.update(moment(MatchPhase.Active, 60, { lead, playing: false }), 0.05);
     expect(played).toEqual([]);
   });
 });

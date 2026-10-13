@@ -45,7 +45,7 @@ import { Crosshair } from "./client/Crosshair";
 import { devLog } from "./client/DevLog";
 import type { DroppedWeaponRenderer } from "./client/DroppedWeaponRenderer";
 import { registerFPSActions } from "./client/FPSActions";
-import { FPSAnnouncer } from "./client/FPSAnnouncer";
+import { FPSAnnouncer, type Lead, leadOf } from "./client/FPSAnnouncer";
 import { preloadFPSAudio } from "./client/FPSAudio";
 import { FPSBombAudio } from "./client/FPSBombAudio";
 import { playEmptyClipSound } from "./client/FPSCombatAudio";
@@ -351,6 +351,27 @@ export class Game {
    * constructor, left every later session in this page without its showcase
    * and endgame music (S2).
    */
+  /**
+   * Where the local player stands, from the scoreboard everyone sees: against
+   * the other teams in a team mode, against the other players otherwise.
+   */
+  private localLead(match: MatchStateManager, localTeam: string | undefined): Lead | null {
+    if (match.teamBased) {
+      const scores = match.teamScores;
+      if (!localTeam || scores[localTeam] === undefined) return null;
+      return leadOf(Object.values(scores), scores[localTeam]);
+    }
+    const hud = HUDState.getInstance();
+    const players = hud.scoreboard.filter((entry) => entry.teamId !== "spectator");
+    const mine = players.find((entry) => entry.playerId === hud.localPlayerId);
+    return mine
+      ? leadOf(
+          players.map((entry) => entry.score),
+          mine.score,
+        )
+      : null;
+  }
+
   private watchMatchPhase(): void {
     MatchStateManager.getInstance().onPhaseChange((newPhase, oldPhase) => {
       // Endgame music. This phase→music swap previously lived only in
@@ -1514,6 +1535,8 @@ export class Game {
         roundsCalledByMode: bombMode,
         playing: !!this.localPlayerId && !match.spectators.some((s) => s.playerId === displayId),
         ready: match.isReady,
+        lead: this.localLead(match, localTeam),
+        teamBased: match.teamBased,
       },
       dtSec,
     );

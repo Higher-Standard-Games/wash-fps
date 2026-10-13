@@ -12,6 +12,7 @@
  *  - countdown: "get ready to fight" when there is time before the numbers,
  *    then 3, 2, 1 on the whole seconds;
  *  - the match goes live: "fight";
+ *  - the lead: taken, tied or lost, yours or your team's, while the match is live;
  *  - overtime: "overtime" each time it is extended;
  *  - the match ends: "game over";
  *  - warmup: "please ready up" once a minute to a player who is not ready.
@@ -41,12 +42,31 @@ const GAME_OVER = "sounds/announcer/postmatch/game_over0";
 const OVERTIME = ["sounds/announcer/overtime/overtime.ogg", "sounds/announcer/overtime/overtime02.ogg"] as const;
 const READY_UP = "sounds/announcer/pleasereadyup.ogg";
 
-/** One of a line's two reads, `01` or `02`. */
-function read(stem: string): string {
-  return `${stem}${Math.random() < 0.5 ? 1 : 2}.ogg`;
+/** The lead lines and how many reads each has; the team's are the team's lead. */
+const LEAD = {
+  alone: { own: ["sounds/announcer/score/taken_lead0", 2], team: ["sounds/announcer/score/taken_lead0", 2] },
+  tied: { own: ["sounds/announcer/score/tied_lead0", 2], team: ["sounds/announcer/score/team_tied_lead0", 3] },
+  behind: { own: ["sounds/announcer/score/lost_lead0", 3], team: ["sounds/announcer/score/team_lost_lead0", 2] },
+} as const;
+
+/** One of a line's reads, `01` up to `0<reads>`. */
+function read(stem: string, reads = 2): string {
+  return `${stem}${1 + Math.floor(Math.random() * reads)}.ogg`;
 }
 
-const both = (stem: string) => [`${stem}1.ogg`, `${stem}2.ogg`];
+const all = (stem: string, reads = 2) => Array.from({ length: reads }, (_, i) => `${stem}${i + 1}.ogg`);
+const both = (stem: string) => all(stem);
+
+/** Where a score stands against the others: ahead of all, level with the best, or behind it. */
+export type Lead = "alone" | "tied" | "behind";
+
+/** null when there is no one to lead. */
+export function leadOf(scores: readonly number[], mine: number): Lead | null {
+  if (scores.length < 2) return null;
+  const best = Math.max(...scores);
+  if (mine < best) return "behind";
+  return scores.filter((score) => score === best).length > 1 ? "tied" : "alone";
+}
 
 export const FPS_ANNOUNCER_SOUND_PATHS = [
   ...both(COUNT[1]),
@@ -57,6 +77,7 @@ export const FPS_ANNOUNCER_SOUND_PATHS = [
   ...both(GAME_OVER),
   ...OVERTIME,
   READY_UP,
+  ...Object.values(LEAD).flatMap(({ own, team }) => [...all(own[0], own[1]), ...all(team[0], team[1])]),
 ] as const;
 
 /** Predecode the announcer bank once the map's PK3 index is available. */
@@ -76,6 +97,9 @@ export interface MatchMoment {
   /** The local player is in the match, not spectating. */
   playing: boolean;
   ready: boolean;
+  /** Your standing, or your team's in a team mode; null with no one to lead. */
+  lead: Lead | null;
+  teamBased: boolean;
 }
 
 export class FPSAnnouncer {
@@ -85,6 +109,7 @@ export class FPSAnnouncer {
   private lastCountSecond: number | null = null;
   private lastOvertime = 0;
   private warmupSeconds = 0;
+  private lastLead: Lead | null = null;
 
   constructor(private readonly now: () => number = () => performance.now()) {}
 
@@ -108,6 +133,7 @@ export class FPSAnnouncer {
     this.lastCountSecond = null;
     this.lastOvertime = 0;
     this.warmupSeconds = 0;
+    this.lastLead = null;
   }
 
   /** Called every frame: releases queued lines, and calls the match. `dt` in seconds. */
@@ -156,12 +182,28 @@ export class FPSAnnouncer {
       return;
     }
 
+    if (moment.phase !== MatchPhase.Active) this.lastLead = null;
+
     if (moment.phase === MatchPhase.Active) {
       if (entered && previous === MatchPhase.Countdown) this.say(read(FIGHT));
+      this.callLead(moment);
       if (moment.overtime > this.lastOvertime) {
         this.queue(OVERTIME[Math.random() < 0.5 ? 0 : 1]);
       }
       this.lastOvertime = moment.overtime;
     }
+  }
+
+  /**
+   * The first standing seen is only noted, so the level start says nothing;
+   * every change of standing after it is called.
+   */
+  private callLead(moment: MatchMoment): void {
+    const lead = moment.playing ? moment.lead : null;
+    const from = this.lastLead;
+    this.lastLead = lead;
+    if (!lead || !from || lead === from) return;
+    const [stem, reads] = moment.teamBased ? LEAD[lead].team : LEAD[lead].own;
+    this.queue(read(stem, reads));
   }
 }
