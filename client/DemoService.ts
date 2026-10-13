@@ -46,6 +46,7 @@ import { FPSPickup } from "../world/FPSPickup";
 import { CinematicDemoPlayer } from "./CinematicDemoPlayer";
 import type { CinematicHUD } from "./CinematicHUD";
 import { DamageNumbers } from "./DamageNumbers";
+import { demoLoadCancelled, downloadDemo } from "./DemoDownload";
 import { DemoEventOverlay } from "./DemoEventOverlay";
 import { DemoEventTimeline } from "./DemoEventTimeline";
 import { DemoOverlayController, type DemoOverlayMode } from "./DemoOverlayController";
@@ -151,6 +152,24 @@ export class DemoService {
    * stopAll() counts too, so a stop during loading wins over the load.
    */
   private startGeneration = 0;
+  private loadGeneration = 0;
+  private loadController: AbortController | null = null;
+
+  /** A newer source/stop owns loading; fully playing demos keep running meanwhile. */
+  private beginLoad(): { generation: number; controller: AbortController } {
+    this.cancelPendingLoad();
+    const controller = new AbortController();
+    this.loadController = controller;
+    return { generation: this.loadGeneration, controller };
+  }
+
+  /** Cancel file loading or startup without touching a live game's view. */
+  cancelPendingLoad(): void {
+    this.loadController?.abort(demoLoadCancelled());
+    this.loadController = null;
+    this.loadGeneration++;
+    this.startGeneration++;
+  }
 
   private constructor() {}
 
@@ -197,13 +216,23 @@ export class DemoService {
    * Fetch a demo file from the lobby server's static file store and load it.
    * Returns a short summary string for console output.
    */
-  async fetchAndLoad(filename: string): Promise<string> {
-    const response = await fetch(`${DemoService.demoBaseUrl()}/${filename}`);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} fetching ${filename}`);
+  async fetchAndLoad(filename: string, options: { signal?: AbortSignal } = {}): Promise<string> {
+    if (options.signal?.aborted) throw demoLoadCancelled();
+    const request = this.beginLoad();
+    const cancel = () => request.controller.abort(demoLoadCancelled());
+    options.signal?.addEventListener("abort", cancel, { once: true });
+    if (options.signal?.aborted) cancel();
+    try {
+      const data = await downloadDemo(`${DemoService.demoBaseUrl()}/${filename}`, request.controller.signal);
+      return await this._loadData(
+        data,
+        filename,
+        () => request.generation === this.loadGeneration && !request.controller.signal.aborted,
+      );
+    } finally {
+      options.signal?.removeEventListener("abort", cancel);
+      if (this.loadController === request.controller) this.loadController = null;
     }
-    const data = new Uint8Array(await response.arrayBuffer());
-    return this._loadData(data, filename);
   }
 
   /**
@@ -219,11 +248,22 @@ export class DemoService {
    * Load raw demo bytes (e.g. from a file picker or pre-fetched buffer).
    */
   async loadRaw(data: Uint8Array, label = "demo"): Promise<string> {
-    return this._loadData(data, label);
+    const request = this.beginLoad();
+    try {
+      return await this._loadData(
+        data,
+        label,
+        () => request.generation === this.loadGeneration && !request.controller.signal.aborted,
+      );
+    } finally {
+      if (this.loadController === request.controller) this.loadController = null;
+    }
   }
 
-  private async _loadData(data: Uint8Array, label: string): Promise<string> {
+  private async _loadData(data: Uint8Array, label: string, ownsLoad: () => boolean): Promise<string> {
+    if (!ownsLoad()) throw demoLoadCancelled();
     const reader = await DemoReader.fromFile(data);
+    if (!ownsLoad()) throw demoLoadCancelled();
 
     // Validate HERE (file-load time) rather than at playback start — starting
     // playback tears down any live session before DemoViewer.load() would
@@ -233,14 +273,14 @@ export class DemoService {
       throw new Error(`${label}: legacy demo (no tickRate in header) — re-record with a current server.`);
     }
 
-    this.loadedDemoData = data;
-    this.loadedDemoReader = reader;
-
     const header = reader.readHeader();
     const index = reader.readIndex();
     const durationSec = Math.round(index.durationMs / 1000);
     const mm = Math.floor(durationSec / 60);
     const ss = String(durationSec % 60).padStart(2, "0");
+    // Commit only a completely validated, still-owned recording.
+    this.loadedDemoData = data;
+    this.loadedDemoReader = reader;
     return `Loaded: ${label} — ${header.map} · ${header.gametype} · ${mm}:${ss}`;
   }
 
@@ -253,31 +293,34 @@ export class DemoService {
    */
   async loadAndPlayNormal(viewer: DemoViewer, options: { manual?: boolean } = {}): Promise<void> {
     if (!this.loadedDemoData) throw new Error("No demo loaded. Use `demo <filename>` first.");
+    const data = this.loadedDemoData;
+    const reader = this.loadedDemoReader;
     const start = ++this.startGeneration;
+    return this.runStart(start, viewer, async () => {
+      // 1. Own the scene: stop any live game + any prior demo playback.
+      await this.teardownLiveSession();
+      if (start !== this.startGeneration) return;
+      this.stopForPlaybackTransition();
 
-    // 1. Own the scene: stop any live game + any prior demo playback.
-    await this.teardownLiveSession();
-    if (start !== this.startGeneration) return;
-    this.stopForPlaybackTransition();
+      // 2. Register demo controllers + take a deterministic camera before load.
+      const cameraSystem = CameraSystem.getInstance();
+      await this.ensureCinematicControllers(cameraSystem);
+      if (start !== this.startGeneration) return;
+      this.beginDemoCamera(cameraSystem);
 
-    // 2. Register demo controllers + take a deterministic camera before load.
-    const cameraSystem = CameraSystem.getInstance();
-    await this.ensureCinematicControllers(cameraSystem);
-    if (start !== this.startGeneration) return;
-    this.beginDemoCamera(cameraSystem);
+      // 3. Render the recorded map locally (no server).
+      await this.ensureDemoMapLoaded(reader);
+      if (start !== this.startGeneration) return;
 
-    // 3. Render the recorded map locally (no server).
-    await this.ensureDemoMapLoaded();
-    if (start !== this.startGeneration) return;
-
-    // 4. Wire the frame callback → renderer/HUD, then play.
-    this.activeDemoViewer = viewer;
-    await this.ensureRuntimeWiring(viewer, "normal", !options.manual);
-    if (this.abandonStart(start, viewer)) return;
-    await viewer.load(this.loadedDemoData);
-    if (this.abandonStart(start, viewer)) return;
-    viewer.play();
-    if (!options.manual) this.startPlaybackLoop();
+      // 4. Wire the frame callback → renderer/HUD, then play.
+      this.activeDemoViewer = viewer;
+      await this.ensureRuntimeWiring(viewer, "normal", !options.manual);
+      if (this.abandonStart(start, viewer)) return;
+      await viewer.load(data);
+      if (this.abandonStart(start, viewer)) return;
+      viewer.play();
+      if (!options.manual) this.startPlaybackLoop();
+    });
   }
 
   // ── Cinematic playback ─────────────────────────────────────────────────────
@@ -288,33 +331,47 @@ export class DemoService {
    */
   async loadAndPlayCinematic(viewer: DemoViewer, cameraSystem: CameraSystem, durationMinutes: number): Promise<void> {
     if (!this.loadedDemoData) throw new Error("No demo loaded. Use `demo <filename>` first.");
+    const data = this.loadedDemoData;
+    const reader = this.loadedDemoReader;
     const start = ++this.startGeneration;
+    return this.runStart(start, viewer, async () => {
+      // 1. Own the scene: stop any live game + any prior demo playback.
+      await this.teardownLiveSession();
+      if (start !== this.startGeneration) return;
+      this.stopForPlaybackTransition();
 
-    // 1. Own the scene: stop any live game + any prior demo playback.
-    await this.teardownLiveSession();
-    if (start !== this.startGeneration) return;
-    this.stopForPlaybackTransition();
+      // 2. Register demo controllers + take a deterministic camera before load.
+      await this.ensureCinematicControllers(cameraSystem);
+      if (start !== this.startGeneration) return;
+      this.beginDemoCamera(cameraSystem);
 
-    // 2. Register demo controllers + take a deterministic camera before load.
-    await this.ensureCinematicControllers(cameraSystem);
-    if (start !== this.startGeneration) return;
-    this.beginDemoCamera(cameraSystem);
+      // 3. Render the recorded map locally (no server).
+      await this.ensureDemoMapLoaded(reader);
+      if (start !== this.startGeneration) return;
 
-    // 3. Render the recorded map locally (no server).
-    await this.ensureDemoMapLoaded();
-    if (start !== this.startGeneration) return;
+      // 4. Wire the frame callback, then start the cinematic player.
+      this.activeDemoViewer = viewer;
+      await this.ensureRuntimeWiring(viewer, "cinematic");
+      if (this.abandonStart(start, viewer)) return;
+      const player = new CinematicDemoPlayer(viewer, cameraSystem);
+      this.activeCinematicPlayer = player;
+      await this.ensureCinematicHud(player);
+      if (this.abandonStart(start, viewer)) return;
+      await player.loadAndPlay(data, durationMinutes);
+      if (this.abandonStart(start, viewer)) return;
+      this.startPlaybackLoop();
+    });
+  }
 
-    // 4. Wire the frame callback, then start the cinematic player.
-    this.activeDemoViewer = viewer;
-    await this.ensureRuntimeWiring(viewer, "cinematic");
-    if (this.abandonStart(start, viewer)) return;
-    const player = new CinematicDemoPlayer(viewer, cameraSystem);
-    this.activeCinematicPlayer = player;
-    await this.ensureCinematicHud(player);
-    if (this.abandonStart(start, viewer)) return;
-    await player.loadAndPlay(this.loadedDemoData, durationMinutes);
-    if (this.abandonStart(start, viewer)) return;
-    this.startPlaybackLoop();
+  private async runStart(start: number, viewer: DemoViewer, run: () => Promise<void>): Promise<void> {
+    try {
+      await run();
+    } catch (error) {
+      // An obsolete map/wiring failure must not reopen the menu over a newer game.
+      if (start !== this.startGeneration) return;
+      if (this.activeDemoViewer === viewer) this.stopPlayback();
+      throw error;
+    }
   }
 
   /**
@@ -386,13 +443,14 @@ export class DemoService {
    * still loading. With nothing playing, the camera is left alone.
    */
   stopForLiveGame(): void {
+    this.cancelPendingLoad();
     if (this.hasActivePlayback()) this.stopAll();
     else this.startGeneration++;
   }
 
   /** Stop playback, including a demo start still loading. */
   stopAll(): void {
-    this.startGeneration++;
+    this.cancelPendingLoad();
     this.stopPlayback();
   }
 
@@ -479,8 +537,8 @@ export class DemoService {
    * lobby and joins it as a player. A demo just needs the world rendered so the
    * replayed frames have somewhere to be drawn.
    */
-  private async ensureDemoMapLoaded(): Promise<void> {
-    const header = this.loadedDemoReader?.readHeader();
+  private async ensureDemoMapLoaded(reader: DemoReader | null): Promise<void> {
+    const header = reader?.readHeader();
     if (!header?.map) return;
 
     const mapName = normalizeDemoMapName(header.map);

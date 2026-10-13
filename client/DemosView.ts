@@ -83,6 +83,8 @@ export interface DemosHost {
   light: HTMLElement;
   /** A demo is starting: the menu gets out of the way. */
   leave(): void;
+  /** Recover the menu if a validated recording fails during playback startup. */
+  show?(): void;
 }
 
 export class DemosView {
@@ -113,6 +115,12 @@ export class DemosView {
   private heroFile: string | null = null;
   private reelMinutes = 2;
   private readonly preloaded = new Set<string>();
+  private playGeneration = 0;
+  private pendingPlay: { controller: AbortController; restore: () => void } | null = null;
+  private handingOff = false;
+  private readonly transfer = el("div", "dm-transfer");
+  private readonly transferText = el("span", "dm-transfer__text");
+  private readonly transferAction = createRaisedKey({ label: "Cancel", variants: ["sm", "cream", "inline"] });
 
   private readonly kicker: HTMLElement;
   private readonly title: HTMLElement;
@@ -219,7 +227,11 @@ export class DemosView {
     this.pager.setAttribute("aria-label", "Pages");
     this.gridPane.append(toolbar, this.grid, this.pager);
 
-    this.root.append(host.light, ghost, head, tabs, this.rule, this.featuredPane, this.gridPane);
+    this.transfer.hidden = true;
+    this.transferText.setAttribute("role", "status");
+    this.transferText.setAttribute("aria-live", "polite");
+    this.transfer.append(this.transferText, this.transferAction);
+    this.root.append(host.light, ghost, head, tabs, this.rule, this.transfer, this.featuredPane, this.gridPane);
 
     this.railMiddle = el("section", "lobby__rail-mid dm-rail");
     this.railMiddle.setAttribute("aria-label", "Maps");
@@ -251,6 +263,7 @@ export class DemosView {
 
   /** A lobby said hello: what it can do, and nothing asked of an earlier one stands. */
   connected(ownership: boolean, visible: boolean): void {
+    this.deactivate();
     this.clearArchiveRequest();
     this.archive = [];
     this.archiveArrived = false;
@@ -265,6 +278,7 @@ export class DemosView {
   }
 
   disconnected(): void {
+    this.deactivate();
     this.clearArchiveRequest();
     this.archiveFailed = false;
     this.ownership = false;
@@ -297,12 +311,36 @@ export class DemosView {
   }
 
   destroy(): void {
+    this.deactivate();
     this.clearArchiveRequest();
     this.featuredSeq++;
     this.closeReel();
     this.reel.remove();
     document.removeEventListener("mousedown", this.onDocumentDown);
     document.removeEventListener("keydown", this.onKeyDown, true);
+  }
+
+  /** Leaving the page cancels its file request, including delayed parsing. */
+  deactivate(): void {
+    if (!this.handingOff) this.playGeneration++;
+    this.pendingPlay?.controller.abort();
+    this.finishTransfer();
+    this.transfer.hidden = true;
+    this.transferAction.onclick = null;
+    this.closeReel();
+  }
+
+  private finishTransfer(): void {
+    this.pendingPlay?.restore();
+    this.pendingPlay = null;
+    this.root.removeAttribute("aria-busy");
+    for (const key of this.root.querySelectorAll<HTMLButtonElement>("[data-demo-play]")) key.disabled = false;
+  }
+
+  private playKey(key: HTMLButtonElement): HTMLButtonElement {
+    key.dataset.demoPlay = "";
+    key.disabled = this.pendingPlay !== null;
+    return key;
   }
 
   // ── Asking ──
@@ -492,10 +530,10 @@ export class DemosView {
     shot.append(el("span", "dm-shot__len", clock(demo.durationMs)), this.bigMatchup(demo));
 
     const foot = el("div", "dm-hero__foot");
-    const watch = createRaisedKey({ label: "▶ Watch", variants: ["watch"] });
+    const watch = this.playKey(createRaisedKey({ label: "▶ Watch", variants: ["watch"] }));
     watch.addEventListener("click", () => void this.play(demo, this.hero, watch));
     const reel = el("div", "dm-hero__reel");
-    const highlights = createRaisedKey({ label: "⚡ Highlights", variants: ["cream"] });
+    const highlights = this.playKey(createRaisedKey({ label: "⚡ Highlights", variants: ["cream"] }));
     highlights.addEventListener("click", () => void this.playReel(demo, this.hero, highlights, this.reelMinutes));
     const lengths = el("div", "dm-lens");
     lengths.setAttribute("role", "group");
@@ -748,10 +786,10 @@ export class DemosView {
     shot.append(el("div", "dm-shot__img"), this.flags(demo), el("span", "dm-shot__len", clock(demo.durationMs)));
     shot.append(this.matchup(demo));
     const foot = el("div", "dm-card__foot");
-    const watch = createRaisedKey({ label: "▶ Watch", variants: ["sm"] });
+    const watch = this.playKey(createRaisedKey({ label: "▶ Watch", variants: ["sm"] }));
     watch.addEventListener("click", () => void this.play(demo, card, watch));
     // The bolt alone on a narrow card; the label says the rest to a screen reader
-    const highlights = createRaisedKey({ label: "⚡", variants: ["sm", "cream"] });
+    const highlights = this.playKey(createRaisedKey({ label: "⚡", variants: ["sm", "cream"] }));
     highlights.querySelector(".raised-key__label")?.append(el("span", "dm-long", " Highlights"));
     highlights.setAttribute("aria-label", "Highlights");
     highlights.setAttribute("aria-haspopup", "dialog");
@@ -787,30 +825,64 @@ export class DemosView {
     key: HTMLButtonElement,
     start: (service: DemoService) => Promise<void>,
   ): Promise<void> {
+    // One selection at a time. Cancel makes another selection available at once.
+    if (this.pendingPlay) return;
+    const generation = ++this.playGeneration;
+    const controller = new AbortController();
+    const ownsRun = () => generation === this.playGeneration && !controller.signal.aborted;
     const label = key.querySelector(".raised-key__label");
     const wording = label ? [...label.childNodes].map((node) => node.cloneNode(true)) : [];
+    this.pendingPlay = {
+      controller,
+      restore: () => {
+        key.disabled = false;
+        label?.replaceChildren(...wording);
+      },
+    };
+    this.closeReel();
+    this.root.setAttribute("aria-busy", "true");
+    for (const playKey of this.root.querySelectorAll<HTMLButtonElement>("[data-demo-play]")) playKey.disabled = true;
     key.disabled = true;
     setRaisedKeyText(key, "Loading…");
+    this.transfer.hidden = false;
+    this.transferText.setAttribute("role", "status");
+    this.transferText.textContent = `Loading ${mapName(demo)} recording…`;
+    setRaisedKeyText(this.transferAction, "Cancel");
+    this.transferAction.onclick = () => this.deactivate();
+    let handedOff = false;
     try {
       const service = DemoService.getInstance();
-      await service.fetchAndLoad(demo.filename);
+      await service.fetchAndLoad(demo.filename, { signal: controller.signal });
+      if (!ownsRun()) return;
+      this.finishTransfer();
+      this.transfer.hidden = true;
+      // Hide before map loading: the automatic map handoff must not cancel this
+      // selection as if the player had navigated away during the download.
+      this.handingOff = true;
+      try {
+        this.host.leave();
+      } finally {
+        this.handingOff = false;
+      }
+      handedOff = true;
       await start(service);
-      this.host.leave();
     } catch (error) {
+      if (!ownsRun()) return;
+      if (error && typeof error === "object" && "name" in error && error.name === "AbortError") {
+        this.transfer.hidden = true;
+        this.transferAction.onclick = null;
+        return;
+      }
       console.error("[DemosView] Could not play the demo:", error);
-      this.showError(card, error instanceof Error ? error.message : String(error));
+      if (handedOff) this.host.show?.();
+      this.transfer.hidden = false;
+      this.transferText.setAttribute("role", "alert");
+      this.transferText.textContent = error instanceof Error ? error.message : String(error);
+      setRaisedKeyText(this.transferAction, "Try again");
+      this.transferAction.onclick = () => void this.run(demo, card, key, start);
     } finally {
-      key.disabled = false;
-      label?.replaceChildren(...wording);
+      if (generation === this.playGeneration) this.finishTransfer();
     }
-  }
-
-  private showError(card: HTMLElement, message: string): void {
-    card.querySelector(".dm-error")?.remove();
-    const note = el("div", "dm-error", message);
-    note.setAttribute("role", "alert");
-    card.append(note);
-    setTimeout(() => note.remove(), 4000);
   }
 
   /** The reel menu for a card: how long a cut of its best moments. */

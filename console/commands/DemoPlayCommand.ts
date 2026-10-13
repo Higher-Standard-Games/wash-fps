@@ -49,6 +49,7 @@ export default class DemoPlayCommand extends Command {
       // (WeaponViewManager view, spectator target provider) — invoking it with
       // no demo running would destroy a LIVE session's viewmodel/chase-cam.
       if (!service.hasActivePlayback()) {
+        service.cancelPendingLoad();
         return "No demo playback is active.";
       }
       service.stopAll();

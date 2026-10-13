@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const service = vi.hoisted(() => ({
   hasActivePlayback: vi.fn(),
+  cancelPendingLoad: vi.fn(),
+  stopAll: vi.fn(),
   setDemoOverlayVisible: vi.fn(),
   toggleDemoOverlay: vi.fn(),
 }));
@@ -15,6 +17,12 @@ vi.mock("../../../client/DemoService", () => ({
 import DemoPlayCommand from "../DemoPlayCommand";
 
 describe("DemoPlayCommand HUD controls", () => {
+  it("cancels an in-flight load before playback is active without touching live view resources", async () => {
+    service.hasActivePlayback.mockReturnValue(false);
+    await expect(new DemoPlayCommand().execute(["stop"])).resolves.toBe("No demo playback is active.");
+    expect(service.cancelPendingLoad).toHaveBeenCalledOnce();
+    expect(service.stopAll).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     service.hasActivePlayback.mockReturnValue(true);

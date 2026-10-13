@@ -137,6 +137,40 @@ describe("demo starts", () => {
     expect(service.hasActivePlayback()).toBe(false);
   });
 
+  it("cleans partial playback wiring and reports an owned startup failure", async () => {
+    stubStartSteps();
+    Object.assign(internals, {
+      ensureDemoMapLoaded: async () => {},
+      ensureRuntimeWiring: async () => {
+        throw new Error("Wiring failed");
+      },
+    });
+    const demo = viewer();
+    await expect(service.loadAndPlayNormal(demo as unknown as DemoViewer)).rejects.toThrow("Wiring failed");
+    expect(demo.dispose).toHaveBeenCalledOnce();
+    expect(demo.play).not.toHaveBeenCalled();
+    expect(service.hasActivePlayback()).toBe(false);
+  });
+
+  it("retires an obsolete map-load failure after stop without surfacing a retry over the new flow", async () => {
+    stubStartSteps();
+    let fail!: (reason: Error) => void;
+    Object.assign(internals, {
+      ensureDemoMapLoaded: () =>
+        new Promise<void>((_resolve, reject) => {
+          fail = reject;
+        }),
+    });
+    const demo = viewer();
+    const start = service.loadAndPlayNormal(demo as unknown as DemoViewer);
+    await settle();
+    service.stopAll();
+    fail(new Error("Old map failed"));
+    await expect(start).resolves.toBeUndefined();
+    expect(demo.play).not.toHaveBeenCalled();
+    expect(service.hasActivePlayback()).toBe(false);
+  });
+
   it("manual playback starts without a second RAF owner or transport HUD", async () => {
     stubStartSteps();
     const wiring = vi.fn(async () => {});

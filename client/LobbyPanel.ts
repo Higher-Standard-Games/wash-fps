@@ -203,6 +203,7 @@ export class LobbyPanel extends GamePanel {
       this.showRailMiddle(tabId);
       if (tabId === "settings") void this.settingsView?.refresh();
       if (tabId === "demos") this.demosView?.show();
+      else this.demosView?.deactivate();
       if (tabId === "leaderboard") void this.leaderboardView?.refresh();
     });
     this.tabBar.querySelector('[data-tab-id="matchmaking"]')?.setAttribute("aria-current", "page");
@@ -794,6 +795,11 @@ export class LobbyPanel extends GamePanel {
     this.close();
   }
 
+  public override close(): void {
+    this.demosView?.deactivate();
+    super.close();
+  }
+
   isVisible(): boolean {
     return this.isOpen();
   }
@@ -1161,6 +1167,10 @@ export class LobbyPanel extends GamePanel {
       modes: GAME_MODES,
       light: this.buildStageLight(),
       leave: () => this.hide(),
+      show: () => {
+        this.switchTab("demos");
+        this.show();
+      },
     });
     return this.demosView.root;
   }
