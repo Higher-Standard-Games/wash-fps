@@ -78,6 +78,16 @@
   color: hsl(96 85% 55%);
 }
 
+.fps-set-saved.is-session-only {
+  max-width: 26ch;
+  line-height: 1.4;
+  color: hsl(46 90% 72%);
+}
+
+.fps-set-saved.is-session-only::before {
+  color: hsl(46 90% 60%);
+}
+
 .raised-key--reset .raised-key__face {
   min-height: 40px;
   padding: 0 16px 0 18px;

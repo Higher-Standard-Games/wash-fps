@@ -6,6 +6,7 @@
  */
 
 import { Cvar } from "../../../../engine/core/Cvar";
+import { requestBrowserFullscreen } from "../../../../engine/ui/BrowserControlFeedback";
 import { createRaisedKey } from "../../../../engine/ui/components/RaisedKey";
 import { costPips, el, type FieldHost, formatPercent, seg, slider } from "./SettingsFields";
 import {
@@ -33,15 +34,6 @@ async function fullscreenState(): Promise<boolean> {
   return !!document.fullscreenElement;
 }
 
-async function setFullscreen(next: boolean): Promise<void> {
-  if (window.electronAPI?.window?.setFullscreen) {
-    window.electronAPI.window.setFullscreen(next);
-    return;
-  }
-  if (next) await document.documentElement.requestFullscreen().catch(() => {});
-  else if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
-}
-
 const onOff = [
   { value: 0, label: "Off" },
   { value: 1, label: "On" },
@@ -57,7 +49,7 @@ export class VideoPage {
   private fullscreen = false;
   private readonly onFullscreenChange = () => void this.readFullscreen();
 
-  constructor(private readonly host: FieldHost) {
+  constructor(private readonly host: FieldHost & { toast(message: string): void }) {
     this.root = el("div", "fps-set-video");
 
     const presets = el("div", "fps-set-presets");
@@ -168,7 +160,7 @@ export class VideoPage {
       choices: onOff,
       get: () => (this.fullscreen ? 1 : 0),
       set: async (value) => {
-        await setFullscreen(value === 1);
+        await requestBrowserFullscreen(value === 1, (message) => this.host.toast(message));
         await this.readFullscreen();
       },
     });

@@ -7,6 +7,8 @@
 
 import { AudioManager } from "../../../../engine/AudioManager";
 import { Cvar } from "../../../../engine/core/Cvar";
+import { EventBus } from "../../../../engine/core/EventBus";
+import { failedPreferenceKeys, PREFERENCE_STORAGE_EVENT } from "../../../../engine/core/PreferenceStorage";
 import { InputSystem } from "../../../../engine/input/InputSystem";
 import { MovementVars } from "../../../../engine/movement/MovementVars";
 import { NetGraph } from "../../../../engine/network/client/NetGraph";
@@ -45,6 +47,8 @@ export class FPSSettingsView {
   private armTimer = 0;
   private toastEl: HTMLElement | null = null;
   private toastTimer = 0;
+  private readonly savedLabel = el("span", "fps-set-saved", "Saved as you go");
+  private readonly unsubscribeStorage: () => void;
   private readonly onKeyDown = (event: KeyboardEvent) => {
     // Immediate: the screen's own Esc listens on the same node, and would close it too
     if (event.code === "Escape" && this.page === "video" && this.isShown() && this.video.closeSection()) {
@@ -81,7 +85,21 @@ export class FPSSettingsView {
     this.resetAllKey = createRaisedKey({ label: "Reset all", variants: ["sm", "cream", "inline", "reset"] });
     this.resetPageKey.addEventListener("click", () => this.armOrRun("page"));
     this.resetAllKey.addEventListener("click", () => this.armOrRun("all"));
-    side.append(el("span", "fps-set-saved", "Saved as you go"), this.resetPageKey, this.resetAllKey);
+    this.savedLabel.setAttribute("role", "status");
+    this.savedLabel.setAttribute("aria-live", "polite");
+    const refreshStorage = () => {
+      const failed = failedPreferenceKeys().some((key) =>
+        ["engine_cvars", "shag_keybindings", "ui_theme_mode"].includes(key),
+      );
+      this.savedLabel.textContent = failed ? "Session only · could not save" : "Saved as you go";
+      this.savedLabel.classList.toggle("is-session-only", failed);
+      this.savedLabel.title = failed
+        ? "Changes work now, but could not be saved in this browser. They may be lost on reload."
+        : "Settings are saved in this browser as you change them.";
+    };
+    this.unsubscribeStorage = EventBus.on(PREFERENCE_STORAGE_EVENT, refreshStorage);
+    refreshStorage();
+    side.append(this.savedLabel, this.resetPageKey, this.resetAllKey);
     head.append(heading, side);
 
     this.nav = el("nav", "fps-set-pages");
@@ -163,6 +181,7 @@ export class FPSSettingsView {
   }
 
   public destroy(): void {
+    this.unsubscribeStorage();
     this.disarm();
     window.clearTimeout(this.toastTimer);
     this.toastEl?.remove();
