@@ -132,4 +132,24 @@ describe("FPSCombatAudio", () => {
     playKillEcho();
     expect(audio.playSfx2D).toHaveBeenCalledWith(KILL_ECHO_SOUND, 1, 2);
   });
+
+  it("says how hard a hit was: hit_0 the lightest, hit_3 from 75 damage", () => {
+    for (const damage of [5, 25, 50, 75, 120]) playDamageConfirmationSound({ ...damageEvent, damage });
+    expect(audio.playSfx2D.mock.calls.map(([path]) => path)).toEqual([
+      "sounds/misc/hit_0.wav",
+      "sounds/misc/hit_1.wav",
+      "sounds/misc/hit_2.wav",
+      "sounds/misc/hit_3.wav",
+      "sounds/misc/hit_3.wav",
+    ]);
+  });
+
+  it("hears one player's pain at most every 400 ms, and each player apart", () => {
+    const hit = { ...damageEvent, entityId: "machinegunned" };
+    playPlayerPainSound(hit, false, 1000);
+    playPlayerPainSound(hit, false, 1100);
+    playPlayerPainSound({ ...hit, entityId: "bystander" }, false, 1150);
+    playPlayerPainSound(hit, false, 1400);
+    expect(audio.playSfx3D).toHaveBeenCalledTimes(3);
+  });
 });

@@ -144,17 +144,32 @@ export function playProjectileImpactSound(event: ProjectileImpactEvent): void {
   });
 }
 
-/** Warsow hit confirmation: only the attacker hears it, independent of world distance. */
-export function playDamageConfirmationSound(event: DamageEvent): void {
-  if (event.damage <= 0) return;
-  const path = chooseVariant(damageConfirmationSounds);
-  if (path) AudioManager.getInstance().playSfx2D(path, 0.72, 4);
+/** 0 for a light hit up to 3 for a heavy one: 25, 50 and 75 damage start the next. */
+function damageTier(damage: number): 0 | 1 | 2 | 3 {
+  return damage >= 75 ? 3 : damage >= 50 ? 2 : damage >= 25 ? 1 : 0;
 }
 
-export function playPlayerPainSound(event: DamageEvent, localVictim: boolean): void {
+/**
+ * Warsow hit confirmation: only the attacker hears it, independent of world
+ * distance, and it says how hard the hit was — `hit_0` the lightest.
+ */
+export function playDamageConfirmationSound(event: DamageEvent): void {
   if (event.damage <= 0) return;
-  const tier = event.damage >= 75 ? 3 : event.damage >= 50 ? 2 : event.damage >= 25 ? 1 : 0;
-  const path = bobotPainSounds[tier];
+  AudioManager.getInstance().playSfx2D(damageConfirmationSounds[damageTier(event.damage)], 0.72, 4);
+}
+
+/** A player in pain is heard at most this often, as Warsow's pain debounce. */
+const PAIN_INTERVAL_MS = 400;
+const lastPainAt = new Map<string, number>();
+
+export function playPlayerPainSound(event: DamageEvent, localVictim: boolean, now = performance.now()): void {
+  if (event.damage <= 0) return;
+  const last = lastPainAt.get(event.entityId);
+  if (last !== undefined && now - last < PAIN_INTERVAL_MS) return;
+  lastPainAt.set(event.entityId, now);
+  // Entity ids change across respawns; forget the long-quiet ones
+  if (lastPainAt.size > 64) for (const [id, at] of lastPainAt) if (now - at >= PAIN_INTERVAL_MS) lastPainAt.delete(id);
+  const path = bobotPainSounds[damageTier(event.damage)];
   const audio = AudioManager.getInstance();
   if (localVictim) audio.playSfx2D(path, 0.65, 2);
   else audio.playSfx3D(path, event, { volume: 0.72 });
