@@ -435,12 +435,10 @@ export class ProfileView {
 
     const standings: { mode: GametypeInfo; row: NonNullable<LeaderboardPage["localPlayerEntry"]> }[] = [];
     let refusal = "";
-    let pending = 0;
     let excluded = 0;
     for (const { mode, result } of asked) {
       if (result.status !== "ready") refusal ||= result.reason;
       else {
-        pending += result.data.localProcessing?.pending ?? 0;
         excluded += result.data.localProcessing?.excluded ?? 0;
         if (result.data.localPlayerEntry) standings.push({ mode, row: result.data.localPlayerEntry });
       }
@@ -450,16 +448,14 @@ export class ProfileView {
     if (standings.length === 0) {
       this.recordStatusEl.textContent =
         refusal ||
-        (pending
-          ? `${pending} matches await bot calibration.`
-          : excluded
-            ? `${excluded} matches did not qualify for skill rating.`
-            : "No ranked match yet. Finish an eligible match to get a provisional rating.");
+        (excluded
+          ? `${excluded} ${excluded === 1 ? "match" : "matches"} did not qualify for skill rating.`
+          : "No ranked match yet. Finish an eligible match to get a provisional rating.");
       return;
     }
     const played = standings.reduce((sum, { row }) => sum + row.wins + row.losses + row.draws, 0);
     const best = standings.reduce((top, one) => (one.row.rank < top.row.rank ? one : top));
-    this.recordStatusEl.textContent = `${played} ${this.recordScope} ${played === 1 ? "match" : "matches"} · best #${best.row.rank} in ${best.mode.name}${pending ? ` · ${pending} await calibration` : ""}${excluded ? ` · ${excluded} not rated` : ""}`;
+    this.recordStatusEl.textContent = `${played} ${this.recordScope} ${played === 1 ? "match" : "matches"} · best #${best.row.rank} in ${best.mode.name}${excluded ? ` · ${excluded} not rated` : ""}`;
     for (const { mode, row } of standings.sort((a, b) => a.row.rank - b.row.rank)) {
       const line = document.createElement("div");
       line.className = "profile-record__row";
@@ -493,7 +489,6 @@ export class ProfileView {
     if (sequence !== this.recordSeq) return;
     this.recordRowsEl.replaceChildren();
     let matches = 0,
-      pending = 0,
       excluded = 0,
       failure = "";
     for (const { mode, result } of answers) {
@@ -503,9 +498,8 @@ export class ProfileView {
       }
       const summary = result.data;
       matches += summary.matches;
-      pending += summary.pending;
       excluded += summary.excluded;
-      if (!summary.matches && !summary.pending && !summary.excluded && !summary.rating) continue;
+      if (!summary.matches && !summary.excluded && !summary.rating) continue;
       const line = document.createElement("div");
       line.className = "profile-record__row";
       const key = document.createElement("button");
@@ -542,7 +536,7 @@ export class ProfileView {
           : "No completed matches counted yet.";
       this.recordRowsEl.append(detail);
     }
-    this.recordStatusEl.textContent = `${matches} ${scope} ${matches === 1 ? "match" : "matches"}${pending ? ` · ${pending} await calibration` : ""}${excluded ? ` · ${excluded} not rated` : ""}${failure ? ` · ${failure}` : ""}`;
+    this.recordStatusEl.textContent = `${matches} ${scope} ${matches === 1 ? "match" : "matches"}${excluded ? ` · ${excluded} not rated` : ""}${failure ? ` · ${failure}` : ""}`;
     if (this.historyMode) void this.refreshHistory();
   }
 

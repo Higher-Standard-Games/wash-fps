@@ -1,6 +1,5 @@
 /** Player wording for stored decisions; unknown/new exclusions stay honest. */
 export function ratingFeedback(status: string, reason: string): string {
-  if (status === "pending") return "Rating pending: this bot configuration has not been calibrated for this match.";
   if (status === "applied") return "Rated";
   const labels: Record<string, string> = {
     aborted: "The match ended before a valid result.",

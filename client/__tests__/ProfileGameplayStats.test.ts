@@ -23,8 +23,7 @@ function summary(query: StatsQuery): StatsSummary {
     statsMatches: 3,
     totals,
     rating: null,
-    pending: 3,
-    excluded: 0,
+    excluded: 3,
   };
 }
 function setup() {
@@ -73,7 +72,7 @@ describe("profile gameplay stats", () => {
     await view.refreshRecord();
     expect(view.root.querySelector(".profile-record__row")?.textContent).toContain("Not rated2 W1 L");
     expect(view.root.querySelector(".profile-stats__detail")?.textContent).toContain("4 frags");
-    expect(view.root.querySelector(".profile-record__status")?.textContent).toContain("3 await calibration");
+    expect(view.root.querySelector(".profile-record__status")?.textContent).toContain("3 not rated");
     view.root.querySelector<HTMLButtonElement>(".profile-record__history-key")!.click();
     await vi.waitFor(() =>
       expect(view.root.querySelector(".profile-history")?.textContent).toContain("1000 → 1020 (+20)"),

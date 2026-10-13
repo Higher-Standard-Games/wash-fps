@@ -146,10 +146,10 @@ describe("the record card", () => {
       scope: query.scope,
       system: "trueskill",
       policyVersion: "shag-trueskill-v1",
-      localProcessing: { pending: 1, excluded: 0 },
+      localProcessing: { excluded: 1 },
     }));
     view.root.querySelector<HTMLButtonElement>('[data-scope="private"]')!.click();
-    await vi.waitFor(() => expect(status(view)).toContain("await bot calibration"));
+    await vi.waitFor(() => expect(status(view)).toMatch(/\d+ matches? did not qualify for skill rating/));
     expect(rows(view)).toEqual([]);
     expect(client.requestLeaderboard.mock.calls.at(-1)?.[0]).toMatchObject({ scope: "private", system: "trueskill" });
     view.destroy();

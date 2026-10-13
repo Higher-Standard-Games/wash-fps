@@ -315,6 +315,23 @@
   clip-path: polygon(10% 0, 100% 0, 90% 100%, 0 100%);
 }
 
+/* A bot preset's account: the cyan of the HUD's cool side, not a player's gold */
+.lb-row__bot {
+  margin-left: 8px;
+  padding: 3px 7px;
+  background: hsl(186, 90%, 46%);
+  color: var(--ink);
+  font: 900 10px / 1 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  clip-path: polygon(10% 0, 100% 0, 90% 100%, 0 100%);
+}
+
+.lb-plinth__tag--bot {
+  background: hsl(186, 90%, 46%);
+  color: var(--ink);
+}
+
 /* What the next step takes: in the name cell, so the numbers stay in line */
 .lb-row__note {
   margin-left: 8px;

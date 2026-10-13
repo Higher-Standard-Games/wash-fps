@@ -95,6 +95,16 @@ describe("LeaderboardView", () => {
     expect(board.root.querySelectorAll(".lb-podium ~ .lb-board .lb-rows .lb-row:not(.lb-row--head)")).toHaveLength(7);
   });
 
+  it("marks a bot preset's account as a bot, on the podium and in the rows", async () => {
+    const bots = duel.map((row, i) => (i === 0 || i === 4 ? { ...row, name: "Bot · Medium", bot: true } : row));
+    bind({ duel: { entries: bots, total: 12 } });
+    const board = view();
+    await board.refresh();
+    expect(board.root.querySelector(".lb-plinth--1 .lb-plinth__tag--bot")?.textContent).toBe("Bot");
+    expect(board.root.querySelectorAll(".lb-row__bot")).toHaveLength(1);
+    expect(board.root.querySelector(".lb-plinth--2 .lb-plinth__tag--bot")).toBeNull();
+  });
+
   it("shows your rank in every mode in the rail, and says when you have none", async () => {
     const asked = bind({ duel: { entries: duel, total: 12, localPlayerRank: 12, localPlayerEntry: you } });
     const board = view();

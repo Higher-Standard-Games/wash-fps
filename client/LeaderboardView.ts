@@ -388,8 +388,6 @@ export class LeaderboardView {
     else if (!page) status = "Loading rankings…";
     else if (page.total === 0)
       status = `No ranked ${this.mode.title} matches ${this.period === "month" ? "in the last 30 days" : "yet"}.`;
-    if (page?.localProcessing?.pending)
-      status += `${status ? " " : ""}${page.localProcessing.pending} of your matches await bot calibration.`;
     if (page?.localProcessing?.excluded)
       status += `${status ? " " : ""}${page.localProcessing.excluded} of your matches did not qualify for skill rating.`;
     this.status.textContent = status;
@@ -488,6 +486,7 @@ export class LeaderboardView {
     avatar.setAttribute("aria-hidden", "true");
     avatar.style.setProperty("--c", isYou ? "var(--gold-text)" : avatarColor(entry.name));
     who.append(avatar, el("span", "lb-row__name", entry.name));
+    if (entry.bot) who.append(el("span", "lb-row__bot", "Bot"));
     if (isYou) who.append(el("span", "lb-row__you", "You"));
     if (entry.provisional) who.append(el("span", "lb-row__note", "Provisional"));
     row.append(
@@ -516,6 +515,7 @@ export class LeaderboardView {
     face.append(el("span", "lb-plinth__rank", String(entry.rank)));
     if (entry.rank === 1) face.append(el("span", "lb-plinth__tag", this.period === "month" ? "Leading" : "Champion"));
     if (isYou) face.append(el("span", "lb-plinth__tag", "You"));
+    if (entry.bot) face.append(el("span", "lb-plinth__tag lb-plinth__tag--bot", "Bot"));
     const wins = el("span", "lb-plinth__wins", String(entry.rating));
     wins.append(el("small", "", "rating"));
     const count = played(entry);

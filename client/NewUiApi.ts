@@ -29,7 +29,7 @@ export interface LeaderboardPage {
   entries: LeaderboardEntry[];
   system?: "trueskill";
   policyVersion?: string;
-  localProcessing?: { pending: number; excluded: number };
+  localProcessing?: { excluded: number };
   total: number;
   localPlayerRank?: number;
   localPlayerEntry?: LeaderboardPage["entries"][number];
@@ -123,7 +123,7 @@ export const newUiApi: NewUiApi = {
         data.scope !== query.scope ||
         data.gametype !== query.gametype ||
         data.period !== query.period ||
-        [data.matches, data.wins, data.losses, data.draws, data.statsMatches, data.pending, data.excluded].some(
+        [data.matches, data.wins, data.losses, data.draws, data.statsMatches, data.excluded].some(
           (n) => !Number.isSafeInteger(n) || n < 0,
         ) ||
         data.matches !== data.wins + data.losses + data.draws ||
@@ -177,7 +177,7 @@ export const newUiApi: NewUiApi = {
           !["normal", "forfeit", "aborted"].includes(entry.completion) ||
           !["win", "loss", "draw", null].includes(entry.outcome) ||
           !["recorded", "excluded"].includes(entry.recordStatus) ||
-          !["pending", "excluded", "applied"].includes(entry.ratingStatus) ||
+          !["excluded", "applied"].includes(entry.ratingStatus) ||
           typeof entry.ratingReason !== "string"
         )
           throw new Error("Invalid match history row");
