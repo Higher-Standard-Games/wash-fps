@@ -72,6 +72,8 @@ export class DemoViewerHUD {
   private container: HTMLDivElement | null = null;
   private exitPlate: HTMLButtonElement | null = null;
   private card: HTMLDivElement | null = null;
+  /** A reel's transitions over the picture; part of the picture, so H leaves it. */
+  private veil: HTMLDivElement | null = null;
   private timeline: HTMLDivElement | null = null;
   private timelineFill: HTMLDivElement | null = null;
   private timelineHandle: HTMLDivElement | null = null;
@@ -170,9 +172,12 @@ export class DemoViewerHUD {
     this.card.id = "demo-viewer-card";
     this.card.setAttribute("aria-live", "polite");
 
+    this.veil = el("div", "dvh-veil");
+    this.veil.id = "demo-viewer-veil";
+
     this.setGameHudVisible(true);
     this.setupEvents();
-    document.body.append(this.container, this.exitPlate, this.card);
+    document.body.append(this.veil, this.container, this.exitPlate, this.card);
   }
 
   private setupEvents(): void {
@@ -335,6 +340,14 @@ export class DemoViewerHUD {
     this.hudBtn?.classList.toggle("is-unavailable", !available);
   }
 
+  /** Cover the picture for a transition: black or white, 0 clear – 1 covered. */
+  setVeil(color: "black" | "white", opacity: number): void {
+    if (!this.veil) return;
+    const shown = Math.max(0, Math.min(1, opacity));
+    this.veil.style.opacity = String(shown);
+    this.veil.classList.toggle("is-white", color === "white");
+  }
+
   /** The card for a shot that just started; it goes again after a few seconds. */
   showCard(card: ShotCard): void {
     if (!this.card) return;
@@ -407,6 +420,8 @@ export class DemoViewerHUD {
     this.container?.remove();
     this.exitPlate?.remove();
     this.card?.remove();
+    this.veil?.remove();
+    this.veil = null;
     this.container = null;
     this.exitPlate = null;
     this.card = null;

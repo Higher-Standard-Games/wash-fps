@@ -11,6 +11,7 @@
  *   4. `demoplay cinematic <min>` → loadAndPlayCinematic(viewer, cameraSystem, minutes)
  */
 
+import { Ray } from "@babylonjs/core/Culling/ray";
 import type { PointLight } from "@babylonjs/core/Lights/pointLight";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
@@ -24,13 +25,14 @@ import { getProjectileManager } from "../../../engine/weapon/ProjectileManager";
 import { WeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
 import type { LobbyClient } from "../../../lobby/LobbyClient";
 import type { DemoInfo } from "../../../lobby/types";
+import { SHOT_CONTENT_MASK } from "../../../shared/collision/CollisionWorld";
 import { DemoAnalyzer } from "../../../shared/demo/DemoAnalyzer";
 import { normalizeDemoMapName } from "../../../shared/demo/DemoMapName";
 import { DemoReader } from "../../../shared/demo/DemoReader";
 import { canonicalWeaponId, WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
 import { isClientKey } from "../ClientEntityKey";
 import { getAmmoStatus } from "./AmmoStatus";
-import { CinematicDemoPlayer, shotCard } from "./CinematicDemoPlayer";
+import { CinematicDemoPlayer, type ReelWorld, shotCard } from "./CinematicDemoPlayer";
 import { Crosshair } from "./Crosshair";
 import { DamageNumbers } from "./DamageNumbers";
 import { demoLoadCancelled, downloadDemo } from "./DemoDownload";
@@ -327,11 +329,7 @@ export class DemoService {
       this.activeDemoViewer = viewer;
       await this.ensureRuntimeWiring(viewer, "reel");
       if (this.abandonStart(start, viewer)) return;
-      const player = new CinematicDemoPlayer(
-        viewer,
-        cameraSystem,
-        (entityId) => !!this.remoteRenderer?.getDemoEntitySample(entityId),
-      );
+      const player = new CinematicDemoPlayer(viewer, cameraSystem, this.reelWorld());
       this.activeCinematicPlayer = player;
       player.onSegmentChange((segment) => {
         this.demoHud?.showCard(shotCard(segment, player.getReelInfo().totalSegments));
@@ -341,6 +339,38 @@ export class DemoService {
       this.demoHud?.setReel(player.getShotStarts());
       this.startPlaybackLoop();
     });
+  }
+
+  /**
+   * What a reel reads from the scene: where each player is drawn, and where a
+   * line meets solid map. What a shot passes through (water, fog, clip
+   * brushes) a camera sees through too.
+   */
+  private reelWorld(): ReelWorld {
+    return {
+      positionOf: (entityId) => {
+        const sample = this.remoteRenderer?.getDemoEntitySample(entityId);
+        return sample ? { x: sample.x, y: sample.y, z: sample.z } : null;
+      },
+      blockedAt: (from, to) => {
+        const scene = CameraSystem.getInstance().getCamera()?.getScene();
+        if (!scene) return null;
+        const origin = new Vector3(from.x, from.y, from.z);
+        const along = new Vector3(to.x - from.x, to.y - from.y, to.z - from.z);
+        const length = along.length();
+        if (length < 1) return null;
+        const hit = scene.pickWithRay(
+          new Ray(origin, along.scale(1 / length), length),
+          (mesh) =>
+            mesh.isPickable &&
+            mesh.name.startsWith("bsp_") &&
+            ((mesh.metadata?.contentFlags ?? 0) & SHOT_CONTENT_MASK) !== 0,
+        );
+        return hit?.hit && hit.pickedPoint
+          ? { x: hit.pickedPoint.x, y: hit.pickedPoint.y, z: hit.pickedPoint.z }
+          : null;
+      },
+    };
   }
 
   private async runStart(start: number, viewer: DemoViewer, run: () => Promise<void>): Promise<void> {
@@ -740,6 +770,8 @@ export class DemoService {
         isReplay: reel.isReplay,
         speed: reel.currentSpeed,
       });
+      const veil = this.activeCinematicPlayer.getVeil();
+      this.demoHud?.setVeil(veil.color, veil.opacity);
     } else {
       this.demoHud?.update(playback);
     }

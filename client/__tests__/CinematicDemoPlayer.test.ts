@@ -396,7 +396,7 @@ describe("CinematicDemoPlayer", () => {
     player = new CinematicDemoPlayer(
       viewer as unknown as import("../DemoViewer").DemoViewer,
       cameraSystem as unknown as import("../../../../engine/camera/CameraSystem").CameraSystem,
-      (id) => present.has(id),
+      { positionOf: (id) => (present.has(id) ? { x: 0, y: 0, z: 0 } : null), blockedAt: () => null },
     );
     await player.loadAndPlay(new Uint8Array(8), 2);
     const internals = player as unknown as {
@@ -417,6 +417,60 @@ describe("CinematicDemoPlayer", () => {
     expect(at(seg.highlight.peakTick)).toBe("player_1");
     present.delete("player_1");
     expect(at(seg.highlight.peakTick + 1)).toBe("player_2");
+  });
+
+  it("aims a fly-by at the players and keeps it in front of a wall between them", async () => {
+    let wall: { x: number; y: number; z: number } | null = null;
+    player = new CinematicDemoPlayer(
+      viewer as unknown as import("../DemoViewer").DemoViewer,
+      cameraSystem as unknown as import("../../../../engine/camera/CameraSystem").CameraSystem,
+      {
+        positionOf: (id) =>
+          id === "player_1" ? { x: 0, y: 0, z: 0 } : id === "player_2" ? { x: 100, y: 0, z: 0 } : null,
+        blockedAt: () => wall,
+      },
+    );
+    await player.loadAndPlay(new Uint8Array(8), 2);
+    const internals = player as unknown as {
+      reel: import("../../../../shared/demo/SequenceBuilder").CinematicReel;
+      _frameFlyby(
+        segment: import("../../../../shared/demo/SequenceBuilder").CinematicSegment,
+        pos: { x: number; y: number; z: number },
+        look: { x: number; y: number; z: number },
+        deltaMs: number,
+      ): { position: { x: number; y: number; z: number }; lookAt: { x: number; y: number; z: number } };
+    };
+    const shot = internals.reel.segments[0];
+    // First frame: straight to the plan's spot, looking between the two at chest height.
+    const first = internals._frameFlyby(shot, { x: 50, y: 0, z: 400 }, { x: 999, y: 999, z: 999 }, 16);
+    expect(first.lookAt).toEqual({ x: 50, y: 12, z: 0 });
+    expect(first.position).toEqual({ x: 50, y: 0, z: 400 });
+    // A wall at z 200 comes between: the camera eases in toward its near side.
+    wall = { x: 50, y: 6, z: 200 };
+    let framed = first;
+    for (let i = 0; i < 120; i++) framed = internals._frameFlyby(shot, { x: 50, y: 0, z: 400 }, first.lookAt, 16);
+    expect(framed.position.z).toBeLessThan(200);
+    expect(framed.position.z).toBeGreaterThan(150);
+  });
+
+  it("draws a shot's way in and way out as a veil over the picture", async () => {
+    await player.loadAndPlay(new Uint8Array(8), 2);
+    const reel = (player as unknown as { reel: import("../../../../shared/demo/SequenceBuilder").CinematicReel }).reel;
+    const shot = reel.segments[0];
+    shot.transitionIn = "fade_to_black";
+    shot.transitionOut = "cut";
+    shot.speedKeyframes = undefined;
+    viewer.getInfo.mockReturnValue({ ...viewer.getInfo(), playheadTick: shot.startTick });
+    expect(player.getVeil()).toEqual({ color: "black", opacity: 1 });
+    player.update(shot.transitionDurationMs / 2);
+    expect(player.getVeil().opacity).toBeCloseTo(0.5);
+    player.update(shot.transitionDurationMs);
+    expect(player.getVeil().opacity).toBe(0);
+    // The flash rises over the shot's last moments, into the replay after it.
+    shot.transitionOut = "white_flash";
+    viewer.getInfo.mockReturnValue({ ...viewer.getInfo(), playheadTick: shot.endTick - 0.001 });
+    expect(player.getVeil()).toMatchObject({ color: "white" });
+    expect(player.getVeil().opacity).toBeGreaterThan(0.8);
   });
 
   it("eases into a speed keyframe instead of snapping to it", async () => {

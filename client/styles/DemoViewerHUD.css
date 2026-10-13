@@ -260,6 +260,21 @@
   color: hsl(320, 100%, 66%);
 }
 
+/* --- A reel's transitions: under the controls, over the picture and HUD --- */
+
+.dvh-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 9990;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.dvh-veil.is-white {
+  background: hsl(42, 100%, 97%);
+}
+
 /* --- Exit: the FPS counter's gold plate, mirrored into the top-left corner --- */
 
 .dvh-exit {

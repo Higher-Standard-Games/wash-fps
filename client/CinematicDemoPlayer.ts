@@ -88,8 +88,38 @@ export interface ReelInfo {
  */
 const SPEED_EASE_RATE = 12;
 
-/** Whether a player is in the recording at the playhead: drawn, alive. */
-export type PresenceCheck = (entityId: string) => boolean;
+/** How strongly a crossfade between two shots dips through black at its deepest. */
+const CROSSFADE_DIP = 0.6;
+/** A white flash's brightest, so the frame under it still reads. */
+const FLASH_PEAK = 0.9;
+
+/** A full-screen veil over the picture, for the reel's transitions. */
+export interface ReelVeil {
+  color: "black" | "white";
+  /** 0 clear – 1 covered. */
+  opacity: number;
+}
+
+type Vec3 = { x: number; y: number; z: number };
+
+/** What the reel reads from the scene it plays in. */
+export interface ReelWorld {
+  /** Where a player is drawn at the playhead, or null while they are not in the recording. */
+  positionOf(entityId: string): Vec3 | null;
+  /** Where the line from `from` to `to` first meets the map, or null if it is clear. */
+  blockedAt(from: Vec3, to: Vec3): Vec3 | null;
+}
+
+const NO_WORLD: ReelWorld = { positionOf: () => null, blockedAt: () => null };
+
+/** How fast the fly-by camera turns toward the players and settles on its spot, per second. */
+const FLYBY_FOLLOW_RATE = 8;
+/** How far in front of a wall a pulled-in fly-by camera stops. */
+const WALL_MARGIN = 24;
+/** Aim at a player's chest rather than their origin. */
+const CHEST_HEIGHT = 12;
+/** Players further apart than this don't fit one fly-by shot; it keeps to the killer. */
+const FRAME_BOTH_WITHIN = 300;
 
 // ── CinematicDemoPlayer ───────────────────────────────────────────────────────
 
@@ -99,6 +129,12 @@ export class CinematicDemoPlayer {
 
   private reel: CinematicReel | null = null;
   private cameraPaths: CameraPathResult[] = [];
+  private tickRate = 60;
+  /** Real time the current shot has been playing, for its way in. */
+  private shotPlayedMs = 0;
+  /** The fly-by camera's eased spot and aim; null until a shot's first frame. */
+  private flybyPos: Vec3 | null = null;
+  private flybyLook: Vec3 | null = null;
 
   private currentSegmentIndex = 0;
   private state: CinematicPlayerState = "idle";
@@ -115,7 +151,7 @@ export class CinematicDemoPlayer {
   constructor(
     demoViewer: DemoViewer,
     cameraSystem: CameraSystem,
-    private readonly isPresent: PresenceCheck = () => true,
+    private readonly world: ReelWorld = NO_WORLD,
   ) {
     this.demoViewer = demoViewer;
     this.cameraSystem = cameraSystem;
@@ -152,6 +188,7 @@ export class CinematicDemoPlayer {
     const frames = reader.readAllFrames();
     const analysis: DemoAnalysis = new DemoAnalyzer().analyze(frames, header, index.durationMs);
 
+    this.tickRate = header.tickRate;
     this.reel = new SequenceBuilder().build(analysis, durationMinutes, header.tickRate, header);
 
     // Pre-generate camera paths for every segment
@@ -192,6 +229,7 @@ export class CinematicDemoPlayer {
     for (const kf of segment.speedKeyframes ?? []) {
       if (playheadTick >= kf.tick) targetSpeed = kf.speed;
     }
+    this.shotPlayedMs += deltaMs;
     this.speed += (targetSpeed - this.speed) * (1 - Math.exp((-SPEED_EASE_RATE * deltaMs) / 1000));
     if (Math.abs(targetSpeed - this.speed) < 0.005) this.speed = targetSpeed;
     this.demoViewer.setSpeed(this.speed);
@@ -202,7 +240,9 @@ export class CinematicDemoPlayer {
 
     // ── Freefly camera path interpolation ─────────────────────────
     if (path?.type === "freefly" && path.keyframes?.length) {
-      const { position, lookAt, fov } = interpolatePath(path.keyframes, playheadTick);
+      const planned = interpolatePath(path.keyframes, playheadTick, path.interpolation);
+      const { position, lookAt } = this._frameFlyby(segment, planned.position, planned.lookAt, deltaMs);
+      const fov = planned.fov;
 
       const freeflyCtrl = this.cameraSystem.getController("freefly") as FreeflyController | undefined;
       freeflyCtrl?.setPosition(new Vector3(position.x, position.y, position.z));
@@ -343,7 +383,42 @@ export class CinematicDemoPlayer {
     this._setState("playing");
   }
 
+  /**
+   * The veil over the picture now: a shot's way in (from black at the start,
+   * a white flash into a replay, a dip through black between two players'
+   * shots) and its way out (to black at the end, the flash rising into a
+   * replay). A cut is clear.
+   */
+  getVeil(): ReelVeil {
+    const segment = this.reel?.segments[this.currentSegmentIndex];
+    if (!segment) return { color: "black", opacity: 0 };
+    if (this.state === "ended") {
+      return { color: "black", opacity: segment.transitionOut === "fade_to_black" ? 1 : 0 };
+    }
+    const span = Math.max(1, segment.transitionDurationMs);
+    const into = 1 - Math.min(1, this.shotPlayedMs / span);
+    const ticksLeft = segment.endTick - this.demoViewer.getInfo().playheadTick;
+    const msLeft = ((ticksLeft / this.tickRate) * 1000) / Math.max(0.05, this.speed);
+    const out = 1 - Math.min(1, Math.max(0, msLeft) / span);
+
+    let veil: ReelVeil = { color: "black", opacity: 0 };
+    const take = (color: ReelVeil["color"], opacity: number) => {
+      if (opacity > veil.opacity) veil = { color, opacity };
+    };
+    if (segment.transitionIn === "fade_to_black") take("black", into);
+    if (segment.transitionIn === "white_flash") take("white", FLASH_PEAK * into * into);
+    if (segment.transitionIn === "crossfade") take("black", CROSSFADE_DIP * into);
+    if (segment.transitionOut === "fade_to_black") take("black", out);
+    if (segment.transitionOut === "white_flash") take("white", FLASH_PEAK * out * out);
+    const next = this.reel?.segments[this.currentSegmentIndex + 1];
+    if (next?.transitionIn === "crossfade") take("black", CROSSFADE_DIP * out);
+    return veil;
+  }
+
   private _applySegment(segment: CinematicSegment): void {
+    this.shotPlayedMs = 0;
+    this.flybyPos = null;
+    this.flybyLook = null;
     this.demoViewer.seekToTick(segment.startTick);
     this.speed = segment.playbackSpeed;
     this.demoViewer.setSpeed(this.speed);
@@ -382,11 +457,61 @@ export class CinematicDemoPlayer {
     const named = path?.targetEntityId ?? segment.cameraTarget ?? killer;
     let wanted = segment.cameraPreset === "victim_pov" && playheadTick >= segment.highlight.peakTick ? killer : named;
     const other = wanted === killer ? victim : killer;
-    if (!this.isPresent(wanted) && other && this.isPresent(other)) wanted = other;
+    const present = (id: string) => this.world.positionOf(id) !== null;
+    if (!present(wanted) && other && present(other)) wanted = other;
     if (!wanted || wanted === this.chaseTarget) return;
     this.chaseTarget = wanted;
     const spectator = this.cameraSystem.getController("spectator") as SpectatorController | undefined;
     spectator?.setSpectateTarget(wanted);
+  }
+
+  /**
+   * Aim a fly-by at the players the shot is about, as they are drawn, and keep
+   * a wall from coming between the camera and them. The path gives the
+   * camera's way round; the players give where it looks. Both ease, so a
+   * player leaving the recording or a wall cutting in never snaps the shot.
+   */
+  private _frameFlyby(
+    segment: CinematicSegment,
+    plannedPos: Vec3,
+    plannedLook: Vec3,
+    deltaMs: number,
+  ): { position: Vec3; lookAt: Vec3 } {
+    // The shot is the killer's play: look at them, and at the victim too only
+    // while the two fit one frame. Aiming between two players across a room
+    // shows neither.
+    const killer = this.world.positionOf(segment.highlight.primaryPlayer);
+    const victim = segment.highlight.victimPlayer ? this.world.positionOf(segment.highlight.victimPlayer) : null;
+    const together =
+      killer &&
+      victim &&
+      Math.hypot(killer.x - victim.x, killer.y - victim.y, killer.z - victim.z) <= FRAME_BOTH_WITHIN;
+    const subjects = together ? [killer, victim] : [killer ?? victim].filter((p): p is Vec3 => p !== null);
+    const focus = subjects.length
+      ? {
+          x: subjects.reduce((sum, p) => sum + p.x, 0) / subjects.length,
+          y: subjects.reduce((sum, p) => sum + p.y, 0) / subjects.length + CHEST_HEIGHT,
+          z: subjects.reduce((sum, p) => sum + p.z, 0) / subjects.length,
+        }
+      : plannedLook;
+
+    let target = plannedPos;
+    const wall = this.world.blockedAt(focus, plannedPos);
+    if (wall) {
+      const dx = focus.x - wall.x;
+      const dy = focus.y - wall.y;
+      const dz = focus.z - wall.z;
+      const length = Math.hypot(dx, dy, dz) || 1;
+      const margin = Math.min(WALL_MARGIN, length / 2) / length;
+      target = { x: wall.x + dx * margin, y: wall.y + dy * margin, z: wall.z + dz * margin };
+    }
+
+    const k = 1 - Math.exp((-FLYBY_FOLLOW_RATE * deltaMs) / 1000);
+    const ease = (from: Vec3 | null, to: Vec3): Vec3 =>
+      from ? { x: from.x + (to.x - from.x) * k, y: from.y + (to.y - from.y) * k, z: from.z + (to.z - from.z) * k } : to;
+    this.flybyPos = ease(this.flybyPos, target);
+    this.flybyLook = ease(this.flybyLook, focus);
+    return { position: this.flybyPos, lookAt: this.flybyLook };
   }
 
   private _advanceSegment(): void {
