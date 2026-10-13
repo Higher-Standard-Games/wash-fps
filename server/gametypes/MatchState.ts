@@ -31,7 +31,7 @@ const BOTS_ONLY_START_GRACE_SECONDS = 30;
  */
 const DEFAULT_MATCH_CONFIG: MatchConfig = {
   warmupTimeout: 120, // 2 minutes
-  countdownDuration: 3, // 3-2-1
+  countdownDuration: 5, // get ready, then 3-2-1
   scoreLimit: 20,
   timeLimit: 600, // 10 minutes
   postGameDuration: 15, // post-game screen (winner banner + scoreboard)

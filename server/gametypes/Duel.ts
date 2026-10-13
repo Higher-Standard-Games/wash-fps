@@ -27,7 +27,7 @@ export class Duel extends BaseGametype {
   getMatchConfig(): MatchConfig {
     return {
       warmupTimeout: 120, // 2 minutes
-      countdownDuration: 3, // 3-2-1
+      countdownDuration: 5, // get ready, then 3-2-1
       scoreLimit: 0, // no score limit
       timeLimit: 600, // 10 minutes
       postGameDuration: 18, // post-game screen duration (duel savors the result)
