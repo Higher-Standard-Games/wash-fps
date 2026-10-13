@@ -1,10 +1,19 @@
 /**
- * Audio: music and effects, each with its volume in large numbers.
+ * Audio: music and effects, each with its volume in large numbers, and the
+ * effects' mix: each channel's share of the effects volume.
  */
 
 import { Cvar } from "../../../../engine/core/Cvar";
 import { card, el, type FieldHost, formatPercent, seg, slider } from "./SettingsFields";
 import { cvarDefault } from "./SettingsModel";
+
+/** The effects' channels, each a share of the effects volume. */
+const MIX = [
+  ["Effects", "cg_volume_effects"],
+  ["Players", "cg_volume_players"],
+  ["Hit sound", "cg_volume_hitsound"],
+  ["Announcer", "cg_volume_announcer"],
+] as const;
 
 /** Turn a flag on or off, whether it is stored as a boolean or as 0 and 1. */
 function setFlag(name: string, on: boolean): void {
@@ -51,6 +60,23 @@ export class AudioPage {
       host.addRefresh(() => {
         big.replaceChildren(String(Math.round(Cvar.getNumber(volume) * 100)), el("small", "", "%"));
         vol.classList.toggle("is-muted", !Cvar.getBool(enabled));
+      });
+    }
+
+    const mix = card("Mix");
+    const rows = el("div", "fps-set-stack");
+    mix.append(rows);
+    this.root.append(mix);
+    for (const [name, cvar] of MIX) {
+      slider(host, rows, {
+        name,
+        min: 0,
+        max: 1,
+        step: 0.05,
+        format: formatPercent,
+        get: () => Cvar.getNumber(cvar),
+        set: (value) => Cvar.set(cvar, value),
+        initial: () => Number(cvarDefault(cvar)),
       });
     }
   }

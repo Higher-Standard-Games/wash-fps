@@ -1,5 +1,6 @@
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { AudioManager } from "../../../engine/AudioManager";
+import type { SfxChannel } from "../../../engine/audio/AudioV2Sfx";
 import type { MovementStateComponent } from "../../../engine/network/components/MovementStateComponent";
 import type { TransformComponent } from "../../../engine/network/components/TransformComponent";
 import type { VelocityComponent } from "../../../engine/network/components/VelocityComponent";
@@ -36,7 +37,7 @@ export const FPS_MOVEMENT_SOUND_PATHS = [...normalFootsteps, ...metalFootsteps, 
  * to be called on the rising edge, not while the flag is held.
  */
 export function playJumppadLaunch(position: { x: number; y: number; z: number }, local: boolean): void {
-  playAtPlayer(jumppadLaunch, position, local, 0.75);
+  playAtPlayer(jumppadLaunch, position, local, 0.75, "effects");
 }
 
 interface MovementAudioState {
@@ -169,10 +170,11 @@ function playAtPlayer(
   position: { x: number; y: number; z: number },
   local: boolean,
   volume: number,
+  channel: SfxChannel = "players",
 ): void {
   const audio = AudioManager.getInstance();
-  if (local) audio.playSfx2D(path, volume, 2);
-  else audio.playSfx3D(path, position, { volume });
+  if (local) audio.playSfx2D(path, volume, 2, channel);
+  else audio.playSfx3D(path, position, { volume, channel });
 }
 
 function getGroundSurfaceFlags(position: { x: number; y: number; z: number }): number {

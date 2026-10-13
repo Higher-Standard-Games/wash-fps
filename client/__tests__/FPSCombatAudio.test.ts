@@ -127,10 +127,10 @@ describe("FPSCombatAudio", () => {
     expect(audio.playSfx3D).toHaveBeenCalledWith("sounds/players/bobot/pain75.ogg", damageEvent, expect.any(Object));
 
     playPlayerDeathSound(deathEvent, true);
-    expect(audio.playSfx2D).toHaveBeenCalledWith(BOBOT_DEATH_SOUND, 0.9, 1);
+    expect(audio.playSfx2D).toHaveBeenCalledWith(BOBOT_DEATH_SOUND, 0.9, 1, "players");
 
     playKillEcho();
-    expect(audio.playSfx2D).toHaveBeenCalledWith(KILL_ECHO_SOUND, 1, 2);
+    expect(audio.playSfx2D).toHaveBeenCalledWith(KILL_ECHO_SOUND, 1, 2, "hits");
   });
 
   it("says how hard a hit was: hit_0 the lightest, hit_3 from 75 damage", () => {

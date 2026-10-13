@@ -90,7 +90,7 @@ export class FPSAnnouncer {
 
   /** Speak now, cutting in front of anything waiting. */
   say(path: string): void {
-    AudioManager.getInstance().playSfx2D(path, 1.0, 2);
+    AudioManager.getInstance().playSfx2D(path, 1.0, 2, "announcer");
     this.heldUntil = this.now() + VOICE_HOLD_MS;
   }
 

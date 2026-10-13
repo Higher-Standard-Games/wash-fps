@@ -155,7 +155,7 @@ function damageTier(damage: number): 0 | 1 | 2 | 3 {
  */
 export function playDamageConfirmationSound(event: DamageEvent): void {
   if (event.damage <= 0) return;
-  AudioManager.getInstance().playSfx2D(damageConfirmationSounds[damageTier(event.damage)], 0.72, 4);
+  AudioManager.getInstance().playSfx2D(damageConfirmationSounds[damageTier(event.damage)], 0.72, 4, "hits");
 }
 
 /** A player in pain is heard at most this often, as Warsow's pain debounce. */
@@ -171,18 +171,18 @@ export function playPlayerPainSound(event: DamageEvent, localVictim: boolean, no
   if (lastPainAt.size > 64) for (const [id, at] of lastPainAt) if (now - at >= PAIN_INTERVAL_MS) lastPainAt.delete(id);
   const path = bobotPainSounds[damageTier(event.damage)];
   const audio = AudioManager.getInstance();
-  if (localVictim) audio.playSfx2D(path, 0.65, 2);
-  else audio.playSfx3D(path, event, { volume: 0.72 });
+  if (localVictim) audio.playSfx2D(path, 0.65, 2, "players");
+  else audio.playSfx3D(path, event, { volume: 0.72, channel: "players" });
 }
 
 /** Bobot is the initial Washoi player voice until model-specific banks are configured. */
 export function playPlayerDeathSound(event: DeathEvent, localVictim: boolean): void {
   const audio = AudioManager.getInstance();
-  if (localVictim) audio.playSfx2D(BOBOT_DEATH_SOUND, 0.9, 1);
-  else audio.playSfx3D(BOBOT_DEATH_SOUND, event, { volume: 0.95 });
+  if (localVictim) audio.playSfx2D(BOBOT_DEATH_SOUND, 0.9, 1, "players");
+  else audio.playSfx3D(BOBOT_DEATH_SOUND, event, { volume: 0.95, channel: "players" });
 }
 
 /** The deliberately huge Warsow frag confirmation echo. */
 export function playKillEcho(): void {
-  AudioManager.getInstance().playSfx2D(KILL_ECHO_SOUND, 1, 2);
+  AudioManager.getInstance().playSfx2D(KILL_ECHO_SOUND, 1, 2, "hits");
 }

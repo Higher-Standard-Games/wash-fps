@@ -86,13 +86,13 @@ export function splashVolume(verticalSpeed: number): number {
  * sequence overlaps itself into noise rather than stacking into a wall.
  */
 export function playDrownGasp(): void {
-  AudioManager.getInstance().playSfx2D(DROWN, 1.0, 1);
+  AudioManager.getInstance().playSfx2D(DROWN, 1.0, 1, "players");
 }
 
 export function playDrownTick(): void {
   // Quieter than the first: the first is news, the rest are a countdown the
   // player already knows they are in.
-  AudioManager.getInstance().playSfx2D(DROWN, 0.55, 1);
+  AudioManager.getInstance().playSfx2D(DROWN, 0.55, 1, "players");
 }
 
 /** Play a body crossing the surface. Local plays 2D, remote plays in the world. */

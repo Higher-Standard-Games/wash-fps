@@ -613,7 +613,16 @@ export const PAGE_CVARS: Record<SettingsPageId, string[]> = {
     "r_contrast",
     "r_underwater_distortion",
   ],
-  audio: ["s_musicenabled", "s_volume", "s_sfxenabled", "s_sfxvolume"],
+  audio: [
+    "s_musicenabled",
+    "s_volume",
+    "s_sfxenabled",
+    "s_sfxvolume",
+    "cg_volume_effects",
+    "cg_volume_players",
+    "cg_volume_hitsound",
+    "cg_volume_announcer",
+  ],
 };
 
 /** Put a page back to the game's defaults. */
