@@ -3,18 +3,14 @@ export interface DemoOverlay {
   hide(): void;
 }
 
-export type DemoOverlayMode = "normal" | "cinematic";
-
 /**
- * Owns the visibility policy shared by normal demo transport, cinematic
- * presentation, and replay chat. Overlay instances keep their own lifecycle;
- * this controller only decides which of them is visible.
+ * Owns the visibility policy shared by the playback controls and replay chat:
+ * `H` shows or hides them together. Overlay instances keep their own
+ * lifecycle; this controller only decides whether they are visible.
  */
 export class DemoOverlayController {
   private normalHud: DemoOverlay | null = null;
-  private cinematicHud: DemoOverlay | null = null;
   private chat: DemoOverlay | null = null;
-  private mode: DemoOverlayMode = "normal";
   private visible = true;
   private keyTarget: Document | null = null;
   private readonly keyHandler = (event: KeyboardEvent): void => {
@@ -37,18 +33,8 @@ export class DemoOverlayController {
     this.apply();
   }
 
-  setCinematicHud(overlay: DemoOverlay | null): void {
-    this.cinematicHud = overlay;
-    this.apply();
-  }
-
   setChat(overlay: DemoOverlay | null): void {
     this.chat = overlay;
-    this.apply();
-  }
-
-  setMode(mode: DemoOverlayMode): void {
-    this.mode = mode;
     this.apply();
   }
 
@@ -81,15 +67,12 @@ export class DemoOverlayController {
   reset(): void {
     this.unbindKeyboard();
     this.normalHud = null;
-    this.cinematicHud = null;
     this.chat = null;
-    this.mode = "normal";
     this.visible = true;
   }
 
   private apply(): void {
-    this.applyOverlay(this.normalHud, this.visible && this.mode === "normal");
-    this.applyOverlay(this.cinematicHud, this.visible && this.mode === "cinematic");
+    this.applyOverlay(this.normalHud, this.visible);
     this.applyOverlay(this.chat, this.visible);
   }
 

@@ -18,22 +18,17 @@ describe("DemoOverlayController", () => {
     document.body.innerHTML = "";
   });
 
-  it("shows the active HUD and includes replay chat in the shared policy", () => {
+  it("shows and hides the playback controls and replay chat together", () => {
     const controller = new DemoOverlayController();
-    const normal = new OverlaySpy();
-    const cinematic = new OverlaySpy();
+    const controls = new OverlaySpy();
     const chat = new OverlaySpy();
-    controller.setNormalHud(normal);
-    controller.setCinematicHud(cinematic);
+    controller.setNormalHud(controls);
     controller.setChat(chat);
-    expect([normal.visible, cinematic.visible, chat.visible]).toEqual([true, false, true]);
-
-    controller.setMode("cinematic");
-    expect([normal.visible, cinematic.visible, chat.visible]).toEqual([false, true, true]);
+    expect([controls.visible, chat.visible]).toEqual([true, true]);
     controller.setVisible(false);
-    expect([normal.visible, cinematic.visible, chat.visible]).toEqual([false, false, false]);
+    expect([controls.visible, chat.visible]).toEqual([false, false]);
     controller.setVisible(true);
-    expect([normal.visible, cinematic.visible, chat.visible]).toEqual([false, true, true]);
+    expect([controls.visible, chat.visible]).toEqual([true, true]);
   });
 
   it("handles H safely and removes its listener on reset", () => {

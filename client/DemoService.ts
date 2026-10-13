@@ -30,13 +30,12 @@ import { DemoReader } from "../../../shared/demo/DemoReader";
 import { canonicalWeaponId, WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
 import { isClientKey } from "../ClientEntityKey";
 import { getAmmoStatus } from "./AmmoStatus";
-import { CinematicDemoPlayer } from "./CinematicDemoPlayer";
-import type { CinematicHUD } from "./CinematicHUD";
+import { CinematicDemoPlayer, shotCard } from "./CinematicDemoPlayer";
 import { Crosshair } from "./Crosshair";
 import { DamageNumbers } from "./DamageNumbers";
 import { demoLoadCancelled, downloadDemo } from "./DemoDownload";
 import { DemoEventTimeline } from "./DemoEventTimeline";
-import { DemoOverlayController, type DemoOverlayMode } from "./DemoOverlayController";
+import { DemoOverlayController } from "./DemoOverlayController";
 import { watchedEyePose } from "./DemoPovState";
 import type { DemoViewer, DemoViewerInfo } from "./DemoViewer";
 import type { DemoViewerHUD } from "./DemoViewerHUD";
@@ -75,7 +74,6 @@ export class DemoService {
   private lobbyClient: LobbyClient | null = null;
   private remoteRenderer: RemotePlayerRenderer | null = null;
   private demoHud: DemoViewerHUD | null = null;
-  private cinematicHud: CinematicHUD | null = null;
   private readonly demoEventTimeline = new DemoEventTimeline();
   private readonly demoOverlays = new DemoOverlayController();
   private playbackRaf: number | null = null;
@@ -107,6 +105,8 @@ export class DemoService {
   /** The game's HUD over normal playback, watching; null otherwise. */
   private gameHud: FPSHud | null = null;
   private gameHudVisible = true;
+  /** Where leaving playback goes: back to the page that started it. */
+  private exitHandler: (() => void) | null = null;
   /** The game's event context over playback's own systems; built with them. */
   private eventCtx: GameEventContext | null = null;
   /** Every player's weapon, as the game keeps it. */
@@ -325,14 +325,20 @@ export class DemoService {
 
       // 4. Wire the frame callback, then start the cinematic player.
       this.activeDemoViewer = viewer;
-      await this.ensureRuntimeWiring(viewer, "cinematic");
+      await this.ensureRuntimeWiring(viewer, "reel");
       if (this.abandonStart(start, viewer)) return;
-      const player = new CinematicDemoPlayer(viewer, cameraSystem);
+      const player = new CinematicDemoPlayer(
+        viewer,
+        cameraSystem,
+        (entityId) => !!this.remoteRenderer?.getDemoEntitySample(entityId),
+      );
       this.activeCinematicPlayer = player;
-      await this.ensureCinematicHud(player);
-      if (this.abandonStart(start, viewer)) return;
+      player.onSegmentChange((segment) => {
+        this.demoHud?.showCard(shotCard(segment, player.getReelInfo().totalSegments));
+      });
       await player.loadAndPlay(data, durationMinutes);
       if (this.abandonStart(start, viewer)) return;
+      this.demoHud?.setReel(player.getShotStarts());
       this.startPlaybackLoop();
     });
   }
@@ -461,8 +467,6 @@ export class DemoService {
     this._stopGameHud();
     this.demoHud?.dispose();
     this.demoHud = null;
-    this.cinematicHud?.dispose();
-    this.cinematicHud = null;
     this.demoEventTimeline.clear();
     this.demoGibs?.dispose();
     this.demoGibs = null;
@@ -559,6 +563,7 @@ export class DemoService {
   private watchCameraController(): void {
     this._unsubCameraChange?.();
     this._unsubCameraChange = EventBus.on<{ type: string }>("camera:controller_changed", ({ type }) => {
+      this.applyGameHud();
       if (type === "spectator") {
         if (this._followedEntityId) this._attachWeaponViewToSpectatorCam();
         return;
@@ -568,7 +573,7 @@ export class DemoService {
     });
   }
 
-  private async ensureRuntimeWiring(viewer: DemoViewer, overlayMode: DemoOverlayMode, withHud = true): Promise<void> {
+  private async ensureRuntimeWiring(viewer: DemoViewer, mode: "normal" | "reel", withHud = true): Promise<void> {
     const camera = CameraSystem.getInstance().getCamera();
     const scene = camera?.getScene();
     if (!scene) {
@@ -612,12 +617,19 @@ export class DemoService {
     });
 
     if (!withHud || typeof document === "undefined") return;
-    if (overlayMode === "normal") await this._startGameHud();
+    // A demo opens on the player's screen; a reel opens in movie mode, the
+    // game HUD off and the controls down to a strip.
+    this.gameHudVisible = mode === "normal";
+    await this._startGameHud();
     const { DemoViewerHUD } = await import("./DemoViewerHUD");
     this.demoHud = new DemoViewerHUD();
-    this.demoOverlays.setMode(overlayMode);
+    this.demoHud.setReel(mode === "reel" ? [] : null);
+    this.demoHud.setMinimized(mode === "reel");
     this.demoOverlays.setNormalHud(this.demoHud);
     this.demoOverlays.bindKeyboard(document);
+    this.demoHud.onExit(() => this.exit());
+    this.demoHud.onPrev(() => this.activeCinematicPlayer?.prevSegment());
+    this.demoHud.onNext(() => this.activeCinematicPlayer?.nextSegment());
     this.demoHud.onPlayPause(() => {
       if (this.activeCinematicPlayer) {
         this.activeCinematicPlayer.togglePlayPause();
@@ -632,7 +644,9 @@ export class DemoService {
       // Drop in-flight projectiles before the jump — their spawn events are
       // one-shots that a seek skips, and their positions/buffer are now stale.
       this._clearDemoProjectiles();
-      this.activeDemoViewer?.seekToProgress(progress);
+      // A reel's timeline is its shots: a point on it is the shot there.
+      if (this.activeCinematicPlayer) this.activeCinematicPlayer.skipToProgress(progress);
+      else this.activeDemoViewer?.seekToProgress(progress);
       // Collapse the interpolation buffer so models snap to the seeked position
       // instead of interpolating across the discontinuous tick jump.
       this.remoteRenderer?.flushInterpolation();
@@ -642,16 +656,6 @@ export class DemoService {
     });
     this.demoHud.onHudToggle(() => this.setGameHudVisible(!this.gameHudVisible));
     this.demoHud.setGameHudVisible(this.gameHudVisible);
-  }
-
-  private async ensureCinematicHud(player: CinematicDemoPlayer): Promise<void> {
-    if (typeof document === "undefined") return;
-    const { CinematicHUD } = await import("./CinematicHUD");
-    this.cinematicHud = new CinematicHUD();
-    this.demoOverlays.setCinematicHud(this.cinematicHud);
-    player.onSegmentChange((segment) => {
-      this.cinematicHud?.showSegmentInfo(segment, player.getReelInfo().totalSegments);
-    });
   }
 
   /**
@@ -724,8 +728,21 @@ export class DemoService {
     this.remoteRenderer?.render();
     this._renderDemoProjectiles();
     this._updateCrosshair();
-    this.demoHud?.update(playback);
-    if (this.activeCinematicPlayer) this.cinematicHud?.updateProgress(this.activeCinematicPlayer.getReelInfo());
+    if (this.activeCinematicPlayer) {
+      const reel = this.activeCinematicPlayer.getReelInfo();
+      this.demoHud?.updateReel({
+        state: reel.state,
+        progress: reel.reelProgress,
+        elapsedMs: reel.reelElapsedMs,
+        totalMs: reel.reelTotalMs,
+        segment: reel.currentSegment,
+        segments: reel.totalSegments,
+        isReplay: reel.isReplay,
+        speed: reel.currentSpeed,
+      });
+    } else {
+      this.demoHud?.update(playback);
+    }
   }
 
   /** Timedemo camera changes retain normal POV weapon/recoil/hidden-body behavior. */
@@ -899,12 +916,43 @@ export class DemoService {
     MatchStateManager.getInstance().reset();
   }
 
-  /** Show or hide the game HUD and crosshair over playback. */
+  /** Switch the game HUD and crosshair over playback on or off. */
   setGameHudVisible(visible: boolean): void {
     this.gameHudVisible = visible;
-    if (visible) this.gameHud?.show();
-    else this.gameHud?.hide();
     this.demoHud?.setGameHudVisible(visible);
+    this.applyGameHud();
+  }
+
+  /**
+   * The HUD is a player's screen, so it shows only from behind their eyes:
+   * switched on, and the camera is the first-person one. A reel's fly-by
+   * shots go without it whatever the switch says.
+   */
+  private applyGameHud(): void {
+    const firstPerson = this.isFirstPerson();
+    if (this.gameHudVisible && firstPerson) this.gameHud?.show();
+    else this.gameHud?.hide();
+    this.demoHud?.setGameHudAvailable(firstPerson);
+  }
+
+  private isFirstPerson(): boolean {
+    return CameraSystem.getInstance().getActiveController()?.type === "spectator";
+  }
+
+  /**
+   * Where leaving playback goes, set by whoever starts it: the Demos page
+   * takes its viewer back. Cleared once used or replaced.
+   */
+  setExitHandler(handler: (() => void) | null): void {
+    this.exitHandler = handler;
+  }
+
+  /** Leave playback: stop it, and go back to where it was started from. */
+  exit(): void {
+    const handler = this.exitHandler;
+    this.exitHandler = null;
+    this.stopAll();
+    handler?.();
   }
 
   isGameHudVisible(): boolean {
@@ -918,7 +966,7 @@ export class DemoService {
     const hud = HUDState.getInstance();
     const weaponId = canonicalWeaponId(hud.currentWeapon);
     const sample = followed ? this.remoteRenderer?.getDemoEntitySample(followed) : null;
-    const hidden = !this.gameHudVisible || !followed || this._isDemoEntityDead(followed);
+    const hidden = !this.gameHudVisible || !this.isFirstPerson() || !followed || this._isDemoEntityDead(followed);
     Crosshair.getInstance().update(
       0,
       sample ? Math.hypot(sample.vx, sample.vz) : 0,

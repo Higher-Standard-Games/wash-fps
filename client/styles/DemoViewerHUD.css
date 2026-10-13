@@ -1,6 +1,7 @@
-/* Demo playback bar: the HUD's ink plates, gold cells and keycaps.
-   It fades while a demo plays untouched, so the game HUD under it is the
-   player's screen; a move of the mouse, a pause or a hover brings it back. */
+/* Playback controls, for a demo and a highlight reel: the HUD's ink plates,
+   gold cells and keycaps. They fade while playback runs untouched, so the
+   game HUD under them is the player's screen; a move of the mouse, a pause or
+   a hover brings them back. Minimized, the bar is a strip along the bottom. */
 
 #demo-viewer-hud {
   position: fixed;
@@ -33,6 +34,40 @@
   pointer-events: none;
 }
 
+/* A demo has speed and whose eyes; a reel has shots. */
+#demo-viewer-hud:not(.is-reel) .dvh-reel-only,
+#demo-viewer-hud.is-reel .dvh-demo-only {
+  display: none;
+}
+
+/* Minimized: the timeline alone, thin, with the switch to bring it back. */
+#demo-viewer-hud.is-min {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0;
+  gap: 0;
+  clip-path: none;
+  background: none;
+  box-shadow: none;
+  filter: none;
+}
+
+#demo-viewer-hud.is-min .dvh-controls > :not(.dvh-minimize) {
+  display: none;
+}
+
+#demo-viewer-hud.is-min .dvh-controls {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  min-height: 0;
+}
+
+#demo-viewer-hud.is-min .dvh-timeline {
+  height: 4px;
+}
+
 /* --- Timeline --- */
 
 .dvh-timeline {
@@ -53,6 +88,22 @@
   height: 100%;
   width: 0%;
   background: linear-gradient(90deg, hsl(36, 90%, 46%), hsl(42, 96%, 58%));
+}
+
+.dvh-marks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Where each shot of a reel starts */
+.dvh-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-1px);
+  background: hsla(255, 45%, 8%, 0.85);
 }
 
 .dvh-timeline-handle {
@@ -130,6 +181,10 @@
   color: hsla(255, 45%, 8%, 0.95);
 }
 
+.dvh-chip.is-unavailable {
+  opacity: 0.45;
+}
+
 .dvh-speed {
   min-width: 58px;
   justify-content: center;
@@ -174,6 +229,19 @@
   color: hsla(255, 45%, 10%, 0.92);
 }
 
+.dvh-shot {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--w-cream, hsl(42, 95%, 92%));
+}
+
+.dvh-shot.is-replay {
+  color: hsl(42, 96%, 62%);
+}
+
 .dvh-status {
   min-width: 92px;
   text-align: right;
@@ -192,6 +260,124 @@
   color: hsl(320, 100%, 66%);
 }
 
+/* --- Exit: the FPS counter's gold plate, mirrored into the top-left corner --- */
+
+.dvh-exit {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Scaled like the FPS plate, never below a comfortable click */
+  min-width: 40px;
+  min-height: 30px;
+  padding: calc(8px * var(--ui-scale, 1)) calc(22px * var(--ui-scale, 1)) calc(9px * var(--ui-scale, 1))
+    calc(14px * var(--ui-scale, 1));
+  padding-top: max(calc(8px * var(--ui-scale, 1)), env(safe-area-inset-top));
+  padding-left: max(calc(14px * var(--ui-scale, 1)), env(safe-area-inset-left));
+  border: 0;
+  cursor: pointer;
+  color: #171326;
+  background: linear-gradient(240deg, #ffc52c, #efa600);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+  box-shadow: inset 0 -3px 0 #cd8600;
+  font-family: var(--w-font-display, "Orbitron", sans-serif);
+  font-size: max(calc(17px * var(--ui-scale, 1)), 14px);
+  font-weight: 800;
+  line-height: 1;
+  transition:
+    opacity 0.35s ease,
+    filter 0.15s ease;
+}
+
+.dvh-exit:hover {
+  filter: brightness(1.08);
+}
+
+.dvh-exit.is-idle {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* --- A reel's shot card --- */
+
+.dvh-card {
+  position: fixed;
+  top: calc(56px * var(--ui-scale, 1));
+  left: 24px;
+  z-index: 10000;
+  min-width: 220px;
+  padding: 12px 22px 14px 18px;
+  background:
+    linear-gradient(172deg, hsla(250, 30%, 11%, 0.95), var(--w-void, hsla(255, 28%, 6%, 0.94)) 60%),
+    var(--w-scan-cyan, none);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 12px) 100%, 0 100%);
+  box-shadow: inset 3px 0 0 hsl(42, 96%, 58%);
+  color: var(--w-cream, hsl(42, 95%, 92%));
+  font-family: var(--w-font-body, "Rajdhani", sans-serif);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-12px);
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s ease;
+}
+
+.dvh-card.is-shown {
+  opacity: 1;
+  transform: none;
+}
+
+.dvh-card-kicker {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: hsl(42, 96%, 62%);
+}
+
+.dvh-card-title {
+  margin-top: 4px;
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.dvh-card-player {
+  margin-top: 2px;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.dvh-card-detail {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--w-cream-dim, hsla(42, 95%, 92%, 0.62));
+}
+
+.dvh-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.dvh-card-tag {
+  padding: 2px 10px 3px;
+  background: linear-gradient(105deg, hsl(42, 96%, 58%), hsl(36, 90%, 46%));
+  clip-path: polygon(8% 0, 100% 0, 92% 100%, 0 100%);
+  color: hsla(255, 45%, 10%, 0.92);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
 @media (max-width: 720px) {
   #demo-viewer-hud {
     left: 8px;
@@ -200,6 +386,19 @@
   }
 
   .dvh-players-label,
+  .dvh-shot {
+    font-family: var(--w-font-display, "Orbitron", monospace);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--w-cream, hsl(42, 95%, 92%));
+  }
+
+  .dvh-shot.is-replay {
+    color: hsl(42, 96%, 62%);
+  }
+
   .dvh-status {
     display: none;
   }
@@ -207,7 +406,9 @@
 
 @media (prefers-reduced-motion: reduce) {
   #demo-viewer-hud,
-  .dvh-timeline {
+  .dvh-timeline,
+  .dvh-exit,
+  .dvh-card {
     transition: none;
   }
 }

@@ -80,6 +80,64 @@ describe("DemoViewerHUD", () => {
     hud.dispose();
   });
 
+  it("leaves playback from the exit plate or Esc, but not from Esc in a text field", () => {
+    const hud = new DemoViewerHUD();
+    const exit = vi.fn();
+    hud.onExit(exit);
+    document.querySelector<HTMLButtonElement>("#demo-viewer-exit")?.click();
+    document.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape" }));
+    expect(exit).toHaveBeenCalledTimes(2);
+    const input = document.body.appendChild(document.createElement("input"));
+    input.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true }));
+    expect(exit).toHaveBeenCalledTimes(2);
+    hud.dispose();
+  });
+
+  it("shows a reel by its shots: a tick per shot, the shot count, previous and next", () => {
+    const hud = new DemoViewerHUD();
+    const next = vi.fn();
+    hud.onNext(next);
+    hud.setReel([0, 0.4, 0.7]);
+    expect(bar()?.classList.contains("is-reel")).toBe(true);
+    expect(bar()?.querySelectorAll(".dvh-mark")).toHaveLength(3);
+    hud.updateReel({
+      state: "playing",
+      progress: 0.5,
+      elapsedMs: 30_000,
+      totalMs: 60_000,
+      segment: 1,
+      segments: 3,
+      isReplay: true,
+      speed: 0.25,
+    });
+    expect(bar()?.querySelector(".dvh-shot")?.textContent).toBe("Replay 2/3 · 0.25x");
+    expect(bar()?.querySelector(".dvh-time")?.textContent).toBe("0:30 / 1:00");
+    [...(bar()?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "▶▶")?.click();
+    expect(next).toHaveBeenCalledOnce();
+    hud.dispose();
+  });
+
+  it("minimizes to a strip and comes back", () => {
+    const hud = new DemoViewerHUD();
+    const toggle = bar()?.querySelector<HTMLButtonElement>(".dvh-minimize");
+    toggle?.click();
+    expect(hud.isMinimized()).toBe(true);
+    expect(bar()?.classList.contains("is-min")).toBe(true);
+    toggle?.click();
+    expect(bar()?.classList.contains("is-min")).toBe(false);
+    hud.dispose();
+  });
+
+  it("shows a shot's card", () => {
+    const hud = new DemoViewerHUD();
+    hud.showCard({ kicker: "Highlight 1/3", title: "Frag", player: "Ramen → Gyoza", detail: "rocket", tags: ["Air"] });
+    const card = document.querySelector("#demo-viewer-card");
+    expect(card?.classList.contains("is-shown")).toBe(true);
+    expect(card?.textContent).toContain("Ramen → Gyoza");
+    hud.dispose();
+    expect(document.querySelector("#demo-viewer-card")).toBeNull();
+  });
+
   it("takes its styles with it", () => {
     const hud = new DemoViewerHUD();
     expect(document.querySelector("style#ui-styles-demo-viewer-hud")).not.toBeNull();

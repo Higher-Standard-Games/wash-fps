@@ -112,6 +112,7 @@ function makeMockDemoViewer() {
       currentFrame: 0,
       totalFrames: 100,
       currentTick: 0,
+      playheadTick: 0,
       durationMs: 5000,
       elapsedMs: 0,
       playbackSpeed: 1.0,
@@ -233,8 +234,8 @@ describe("CinematicDemoPlayer", () => {
     expect(player.getState()).toBe("playing");
   });
 
-  // 9. update() triggers segment advance when currentTick >= endTick
-  it("advances segment when currentTick reaches endTick", async () => {
+  // 9. update() triggers segment advance when the playhead reaches endTick
+  it("advances segment when the playhead reaches endTick", async () => {
     await player.loadAndPlay(new Uint8Array(8), 2);
 
     const reel = (player as unknown as { reel: import("../../../../shared/demo/SequenceBuilder").CinematicReel }).reel!;
@@ -246,7 +247,7 @@ describe("CinematicDemoPlayer", () => {
       header: null,
       currentFrame: 0,
       totalFrames: 100,
-      currentTick: firstEndTick,
+      playheadTick: firstEndTick,
       durationMs: 5000,
       elapsedMs: 0,
       playbackSpeed: 1.0,
@@ -284,7 +285,7 @@ describe("CinematicDemoPlayer", () => {
         header: null,
         currentFrame: 0,
         totalFrames: 100,
-        currentTick: lastSeg.endTick + 1,
+        playheadTick: lastSeg.endTick + 1,
         durationMs: 5000,
         elapsedMs: 0,
         playbackSpeed: 1.0,
@@ -327,13 +328,19 @@ describe("CinematicDemoPlayer", () => {
     expect(info.reelElapsedMs).toBe(0);
   });
 
-  // 13. getReelInfo reflects elapsed time after update()
-  it("getReelInfo.reelElapsedMs increases after update()", async () => {
+  // 13. getReelInfo reads the reel's position from the playhead
+  it("places the reel by the playhead within its shots, and a skip lands on the shot's start", async () => {
     await player.loadAndPlay(new Uint8Array(8), 2);
-    player.update(100);
-    player.update(200);
-    const info = player.getReelInfo();
-    expect(info.reelElapsedMs).toBeGreaterThan(0);
+    const reel = (player as unknown as { reel: import("../../../../shared/demo/SequenceBuilder").CinematicReel }).reel;
+    const first = reel.segments[0];
+    const middle = (first.startTick + first.endTick) / 2;
+    viewer.getInfo.mockReturnValue({ ...viewer.getInfo(), playheadTick: middle });
+    expect(player.getReelInfo().reelElapsedMs).toBeCloseTo(first.durationMs / 2);
+    expect(player.getShotStarts()[0]).toBe(0);
+    if (reel.segments.length < 2) return;
+    player.skipToProgress(player.getShotStarts()[1]);
+    viewer.getInfo.mockReturnValue({ ...viewer.getInfo(), playheadTick: reel.segments[1].startTick });
+    expect(player.getReelInfo()).toMatchObject({ currentSegment: 1, reelElapsedMs: first.durationMs });
   });
 
   // 14. getReelInfo.reelProgress is between 0 and 1
@@ -384,7 +391,35 @@ describe("CinematicDemoPlayer", () => {
   });
 
   // 19. speed keyframes applied during update()
-  it("applies speed keyframes to demoViewer during update()", async () => {
+  it("watches the victim up to the frag, the killer after it, and whoever is present", async () => {
+    const present = new Set(["player_1", "player_2"]);
+    player = new CinematicDemoPlayer(
+      viewer as unknown as import("../DemoViewer").DemoViewer,
+      cameraSystem as unknown as import("../../../../engine/camera/CameraSystem").CameraSystem,
+      (id) => present.has(id),
+    );
+    await player.loadAndPlay(new Uint8Array(8), 2);
+    const internals = player as unknown as {
+      reel: import("../../../../shared/demo/SequenceBuilder").CinematicReel;
+      cameraPaths: Array<{ type: string; targetEntityId?: string }>;
+    };
+    const seg = internals.reel.segments[0];
+    seg.cameraPreset = "victim_pov";
+    seg.cameraTarget = "player_2";
+    internals.cameraPaths[seg.segmentIndex] = { type: "chase", targetEntityId: "player_2" };
+    const spectator = cameraSystem.getController("spectator") as { setSpectateTarget: ReturnType<typeof vi.fn> };
+    const at = (playheadTick: number) => {
+      viewer.getInfo.mockReturnValue({ ...viewer.getInfo(), playheadTick });
+      player.update(16);
+      return spectator.setSpectateTarget.mock.calls.at(-1)?.[0];
+    };
+    expect(at(seg.highlight.peakTick - 1)).toBe("player_2");
+    expect(at(seg.highlight.peakTick)).toBe("player_1");
+    present.delete("player_1");
+    expect(at(seg.highlight.peakTick + 1)).toBe("player_2");
+  });
+
+  it("eases into a speed keyframe instead of snapping to it", async () => {
     await player.loadAndPlay(new Uint8Array(8), 2);
 
     const reel = (player as unknown as { reel: import("../../../../shared/demo/SequenceBuilder").CinematicReel }).reel!;
@@ -399,7 +434,7 @@ describe("CinematicDemoPlayer", () => {
       header: null,
       currentFrame: 0,
       totalFrames: 100,
-      currentTick: kf.tick,
+      playheadTick: kf.tick,
       durationMs: 5000,
       elapsedMs: 0,
       playbackSpeed: 1.0,
@@ -411,20 +446,24 @@ describe("CinematicDemoPlayer", () => {
       header: null,
       currentFrame: 0,
       totalFrames: 100,
-      currentTick: kf.tick,
+      playheadTick: kf.tick,
       durationMs: 5000,
       elapsedMs: 0,
       playbackSpeed: 1.0,
     });
 
     player.update(16);
-    expect(viewer.setSpeed).toHaveBeenCalledWith(kf.speed);
+    const first = viewer.setSpeed.mock.calls.at(-1)?.[0] as number;
+    expect(first).not.toBe(kf.speed);
+    expect(Math.abs(first - kf.speed)).toBeLessThan(Math.abs(seg.playbackSpeed - kf.speed));
+    for (let i = 0; i < 60; i++) player.update(16);
+    expect(viewer.setSpeed).toHaveBeenLastCalledWith(kf.speed);
   });
   it("stops on the reel's last shot instead of playing on unedited", async () => {
     await player.loadAndPlay(new Uint8Array(8), 2);
     const reel = (player as unknown as { reel: import("../../../../shared/demo/SequenceBuilder").CinematicReel }).reel!;
     const lastSeg = reel.segments[reel.segments.length - 1];
-    viewer.getInfo.mockReturnValue({ ...viewer.getInfo(), currentTick: lastSeg.endTick + 1 });
+    viewer.getInfo.mockReturnValue({ ...viewer.getInfo(), playheadTick: lastSeg.endTick + 1 });
     for (let i = 0; i < reel.segments.length; i++) player.update(16);
 
     expect(player.getState()).toBe("ended");
@@ -450,7 +489,7 @@ describe("CinematicDemoPlayer", () => {
     const flyCam = makeMockFreeCamera();
     const freefly = cameraSystem.getController("freefly") as Record<string, unknown>;
     freefly.getCamera = () => flyCam;
-    viewer.getInfo.mockReturnValue({ ...viewer.getInfo(), currentTick: seg.startTick });
+    viewer.getInfo.mockReturnValue({ ...viewer.getInfo(), playheadTick: seg.startTick });
 
     player.update(16);
 

@@ -865,6 +865,8 @@ export class DemosView {
         this.handingOff = false;
       }
       handedOff = true;
+      // Leaving playback (its ✕, or Esc) comes back to this page.
+      service.setExitHandler(() => this.host.show?.());
       await start(service);
     } catch (error) {
       if (!ownsRun()) return;

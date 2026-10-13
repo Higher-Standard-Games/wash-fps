@@ -7,6 +7,7 @@ import type { DemoInfo } from "../../../../lobby/types";
 const service = vi.hoisted(() => ({
   fetchAndLoad: vi.fn(),
   loadAndPlayNormal: vi.fn(),
+  setExitHandler: vi.fn(),
   loadAndPlayCinematic: vi.fn(),
 }));
 vi.mock("../DemoService", () => ({ DemoService: { getInstance: () => service } }));
@@ -163,6 +164,10 @@ describe("demo selection transfer", () => {
     await flush();
     expect(service.loadAndPlayNormal).toHaveBeenCalledOnce();
     expect(ui.show).not.toHaveBeenCalled();
+    // Leaving playback later comes back to this page.
+    const exit = service.setExitHandler.mock.calls.at(-1)?.[0] as () => void;
+    exit();
+    expect(ui.show).toHaveBeenCalledOnce();
   });
 
   it("restores the menu and Retry when playback startup fails", async () => {

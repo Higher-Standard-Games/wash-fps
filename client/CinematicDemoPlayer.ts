@@ -29,6 +29,45 @@ import type { DemoViewer } from "./DemoViewer";
 
 export type CinematicPlayerState = "idle" | "analyzing" | "playing" | "paused" | "ended";
 
+const HIGHLIGHT_LABELS: Record<string, string> = {
+  frag: "Frag",
+  multi_kill: "Multi kill",
+  airborne_frag: "Airborne frag",
+  streak_kill: "Streak kill",
+  first_blood: "First blood",
+  movement: "Movement",
+};
+
+const TAG_LABELS: Record<string, string> = {
+  airborne: "Air",
+  rocket_jump: "RJ",
+  low_hp: "Low HP",
+  close_range: "Close",
+  long_range: "Long",
+  multi_kill: "Multi",
+  revenge: "Revenge",
+  first_blood: "First",
+  on_fire: "On fire",
+  raging: "Raging",
+  unstoppable: "Unstoppable",
+  high_speed: "Speed",
+  trick_jump: "Trick",
+  height_gain: "Height",
+};
+
+/** A shot's card, as the playback controls show it when the shot starts. */
+export function shotCard(segment: CinematicSegment, totalSegments: number) {
+  const h = segment.highlight;
+  const kills = h.killCount && h.killCount > 1 ? ` ×${h.killCount}` : "";
+  return {
+    kicker: `${segment.isReplay ? "Replay" : "Highlight"} ${segment.segmentIndex + 1}/${totalSegments}`,
+    title: `${HIGHLIGHT_LABELS[h.type] ?? h.type.replace(/_/g, " ")}${kills}`,
+    player: h.victimPlayerName ? `${h.primaryPlayerName} → ${h.victimPlayerName}` : h.primaryPlayerName,
+    detail: h.weaponId ? h.weaponId.replace(/_/g, " ") : "",
+    tags: h.tags.map((tag) => TAG_LABELS[tag] ?? tag.replace(/_/g, " ")),
+  };
+}
+
 export interface ReelInfo {
   state: CinematicPlayerState;
   currentSegment: number;
@@ -42,6 +81,16 @@ export interface ReelInfo {
   currentSpeed: number;
 }
 
+/**
+ * How fast a speed change settles, per second of real time. A slow-motion
+ * moment eases in and out over about a quarter of a second rather than
+ * snapping from full speed.
+ */
+const SPEED_EASE_RATE = 12;
+
+/** Whether a player is in the recording at the playhead: drawn, alive. */
+export type PresenceCheck = (entityId: string) => boolean;
+
 // ── CinematicDemoPlayer ───────────────────────────────────────────────────────
 
 export class CinematicDemoPlayer {
@@ -53,14 +102,21 @@ export class CinematicDemoPlayer {
 
   private currentSegmentIndex = 0;
   private state: CinematicPlayerState = "idle";
-  private reelElapsedMs = 0;
+  /** The playback speed as eased toward the segment's keyframes. */
+  private speed = 1;
+  /** Whose eyes the chase camera is behind in this segment. */
+  private chaseTarget: string | null = null;
 
   // Callbacks
   private onSegmentChangeCb: ((segment: CinematicSegment, index: number) => void) | null = null;
   private onReelEndCb: (() => void) | null = null;
   private onStateChangeCb: ((state: CinematicPlayerState) => void) | null = null;
 
-  constructor(demoViewer: DemoViewer, cameraSystem: CameraSystem) {
+  constructor(
+    demoViewer: DemoViewer,
+    cameraSystem: CameraSystem,
+    private readonly isPresent: PresenceCheck = () => true,
+  ) {
     this.demoViewer = demoViewer;
     this.cameraSystem = cameraSystem;
   }
@@ -118,34 +174,35 @@ export class CinematicDemoPlayer {
   update(deltaMs: number): void {
     if (this.state !== "playing" || !this.reel) return;
 
-    this.reelElapsedMs += deltaMs;
-
     const segment = this.reel.segments[this.currentSegmentIndex];
     if (!segment) return;
 
-    const currentTick = this.demoViewer.getInfo().currentTick;
+    // The playhead, not the last delivered frame: in slow motion a frame stays
+    // current for several screen frames, and a camera keyed to it steps.
+    const playheadTick = this.demoViewer.getInfo().playheadTick;
 
     // ── Segment end check ─────────────────────────────────────────
-    if (currentTick >= segment.endTick) {
+    if (playheadTick >= segment.endTick) {
       this._advanceSegment();
       return;
     }
 
-    // ── Speed keyframes ───────────────────────────────────────────
-    if (segment.speedKeyframes) {
-      let targetSpeed = segment.playbackSpeed;
-      for (const kf of segment.speedKeyframes) {
-        if (currentTick >= kf.tick) {
-          targetSpeed = kf.speed;
-        }
-      }
-      this.demoViewer.setSpeed(targetSpeed);
+    // ── Speed keyframes, eased ────────────────────────────────────
+    let targetSpeed = segment.playbackSpeed;
+    for (const kf of segment.speedKeyframes ?? []) {
+      if (playheadTick >= kf.tick) targetSpeed = kf.speed;
     }
+    this.speed += (targetSpeed - this.speed) * (1 - Math.exp((-SPEED_EASE_RATE * deltaMs) / 1000));
+    if (Math.abs(targetSpeed - this.speed) < 0.005) this.speed = targetSpeed;
+    this.demoViewer.setSpeed(this.speed);
+
+    // ── Chase target ──────────────────────────────────────────────
+    const path = this.cameraPaths[segment.segmentIndex];
+    if (path?.type === "chase") this._followChaseTarget(segment, playheadTick);
 
     // ── Freefly camera path interpolation ─────────────────────────
-    const path = this.cameraPaths[segment.segmentIndex];
     if (path?.type === "freefly" && path.keyframes?.length) {
-      const { position, lookAt, fov } = interpolatePath(path.keyframes, currentTick);
+      const { position, lookAt, fov } = interpolatePath(path.keyframes, playheadTick);
 
       const freeflyCtrl = this.cameraSystem.getController("freefly") as FreeflyController | undefined;
       freeflyCtrl?.setPosition(new Vector3(position.x, position.y, position.z));
@@ -203,7 +260,6 @@ export class CinematicDemoPlayer {
     this.reel = null;
     this.cameraPaths = [];
     this.currentSegmentIndex = 0;
-    this.reelElapsedMs = 0;
   }
 
   dispose(): void {
@@ -213,22 +269,61 @@ export class CinematicDemoPlayer {
     this.onStateChangeCb = null;
   }
 
+  /** Jump to the shot that holds this point (0 – 1) of the reel. */
+  skipToProgress(progress: number): void {
+    if (!this.reel) return;
+    const starts = this.getShotStarts();
+    let index = 0;
+    for (let i = 0; i < starts.length; i++) if (progress >= starts[i]) index = i;
+    this.skipToSegment(index);
+  }
+
   // ── Info ──────────────────────────────────────────────────────────────────
 
+  /** Where each shot starts, as fractions of the reel. */
+  getShotStarts(): number[] {
+    const total = this.totalShotMs();
+    let at = 0;
+    return (this.reel?.segments ?? []).map((segment) => {
+      const start = total > 0 ? at / total : 0;
+      at += segment.durationMs;
+      return start;
+    });
+  }
+
+  /**
+   * Where the reel is: the shots before this one, and how far the playhead is
+   * through this one. Read from the playhead rather than counted from time,
+   * so a skip or a pause leaves it right.
+   */
   getReelInfo(): ReelInfo {
-    const segment = this.reel?.segments[this.currentSegmentIndex] ?? null;
-    const totalMs = this.reel?.totalDurationMs ?? 0;
+    const segments = this.reel?.segments ?? [];
+    const segment = segments[this.currentSegmentIndex] ?? null;
+    const totalMs = this.totalShotMs();
+    let elapsedMs = 0;
+    for (let i = 0; i < this.currentSegmentIndex && i < segments.length; i++) elapsedMs += segments[i].durationMs;
+    if (segment) {
+      const span = segment.endTick - segment.startTick;
+      const through = span > 0 ? (this.demoViewer.getInfo().playheadTick - segment.startTick) / span : 0;
+      elapsedMs += segment.durationMs * Math.max(0, Math.min(1, through));
+    }
+    if (this.state === "ended") elapsedMs = totalMs;
     return {
       state: this.state,
       currentSegment: this.currentSegmentIndex,
       totalSegments: this.reel?.totalSegments ?? 0,
-      reelElapsedMs: this.reelElapsedMs,
+      reelElapsedMs: elapsedMs,
       reelTotalMs: totalMs,
-      reelProgress: totalMs > 0 ? Math.min(1, this.reelElapsedMs / totalMs) : 0,
+      reelProgress: totalMs > 0 ? Math.min(1, elapsedMs / totalMs) : 0,
       currentHighlight: segment?.highlight ?? null,
       isReplay: segment?.isReplay ?? false,
       currentSpeed: this.demoViewer.getInfo().playbackSpeed,
     };
+  }
+
+  /** The reel's running time: its shots end to end. */
+  private totalShotMs(): number {
+    return (this.reel?.segments ?? []).reduce((sum, segment) => sum + segment.durationMs, 0);
   }
 
   getState(): CinematicPlayerState {
@@ -244,22 +339,22 @@ export class CinematicDemoPlayer {
     }
 
     this.currentSegmentIndex = 0;
-    this.reelElapsedMs = 0;
     this._applySegment(this.reel.segments[0]);
     this._setState("playing");
   }
 
   private _applySegment(segment: CinematicSegment): void {
     this.demoViewer.seekToTick(segment.startTick);
-    this.demoViewer.setSpeed(segment.playbackSpeed);
+    this.speed = segment.playbackSpeed;
+    this.demoViewer.setSpeed(this.speed);
     this.demoViewer.play();
 
     const path = this.cameraPaths[segment.segmentIndex];
 
     if (path?.type === "chase") {
       this.cameraSystem.setController("spectator");
-      const spectator = this.cameraSystem.getController("spectator") as SpectatorController | undefined;
-      spectator?.setSpectateTarget(path.targetEntityId ?? segment.cameraTarget ?? "");
+      this.chaseTarget = null;
+      this._followChaseTarget(segment, segment.startTick);
     } else {
       this.cameraSystem.setController("freefly");
       // Snap to first keyframe position immediately
@@ -271,6 +366,27 @@ export class CinematicDemoPlayer {
     }
 
     this.onSegmentChangeCb?.(segment, segment.segmentIndex);
+  }
+
+  /**
+   * Point the chase camera at the player the shot is about. A victim shot
+   * watches the victim up to the frag and the killer after it: the victim
+   * leaves the recording when they die, and a camera left on them holds a
+   * frozen picture through the rest of a slowed shot. Whoever the shot wants
+   * gives way to the other player while they are not in the recording.
+   */
+  private _followChaseTarget(segment: CinematicSegment, playheadTick: number): void {
+    const path = this.cameraPaths[segment.segmentIndex];
+    const killer = segment.highlight.primaryPlayer;
+    const victim = segment.highlight.victimPlayer;
+    const named = path?.targetEntityId ?? segment.cameraTarget ?? killer;
+    let wanted = segment.cameraPreset === "victim_pov" && playheadTick >= segment.highlight.peakTick ? killer : named;
+    const other = wanted === killer ? victim : killer;
+    if (!this.isPresent(wanted) && other && this.isPresent(other)) wanted = other;
+    if (!wanted || wanted === this.chaseTarget) return;
+    this.chaseTarget = wanted;
+    const spectator = this.cameraSystem.getController("spectator") as SpectatorController | undefined;
+    spectator?.setSpectateTarget(wanted);
   }
 
   private _advanceSegment(): void {

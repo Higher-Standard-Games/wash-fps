@@ -70,7 +70,6 @@ function seedPlayback(
   cinematic: DisposableSpy;
   renderer: DisposableSpy & { setHiddenEntity: ReturnType<typeof vi.fn> };
   hud: DisposableSpy;
-  cinematicHud: DisposableSpy;
   gameHud: { destroy: ReturnType<typeof vi.fn>; show: ReturnType<typeof vi.fn>; hide: ReturnType<typeof vi.fn> };
   gibs: DisposableSpy;
   damage: DisposableSpy;
@@ -82,7 +81,6 @@ function seedPlayback(
   const cinematic = disposable();
   const renderer = { ...disposable(), setHiddenEntity: vi.fn() };
   const hud = disposable(`demo-hud-${generation}`);
-  const cinematicHud = disposable(`cinematic-hud-${generation}`);
   const hudRoot = document.body.appendChild(document.createElement("div"));
   hudRoot.className = `game-hud-${generation}`;
   const gameHud = {
@@ -104,7 +102,6 @@ function seedPlayback(
     activeCinematicPlayer: cinematic,
     remoteRenderer: renderer,
     demoHud: hud,
-    cinematicHud,
     gameHud,
     demoGibs: gibs,
     demoDamageNumbers: damage,
@@ -120,7 +117,6 @@ function seedPlayback(
     demoOverlays: {
       bindKeyboard(target: Document): void;
       setNormalHud(overlay: { show(): void; hide(): void }): void;
-      setCinematicHud(overlay: { show(): void; hide(): void }): void;
       setChat(overlay: { show(): void; hide(): void }): void;
     };
     chargingGlows: Map<string, { dispose(): void; getScene(): null }>;
@@ -129,13 +125,12 @@ function seedPlayback(
   };
   internals.demoOverlays.bindKeyboard(document);
   internals.demoOverlays.setNormalHud({ show: vi.fn(), hide: vi.fn() });
-  internals.demoOverlays.setCinematicHud({ show: vi.fn(), hide: vi.fn() });
   internals.chargingGlows.set(`player_${generation}`, glow);
   internals.chargingPlayers.add(`player_${generation}`);
   internals._enemyWeapons.set(`player_${generation}`, "rocket");
   lifecycle.setActiveController("spectator");
 
-  return { viewer, cinematic, renderer, hud, cinematicHud, gameHud, gibs, damage, drops, glow, demoWvm };
+  return { viewer, cinematic, renderer, hud, gameHud, gibs, damage, drops, glow, demoWvm };
 }
 
 describe("DemoService playback lifecycle", () => {
@@ -175,7 +170,6 @@ describe("DemoService playback lifecycle", () => {
       normal.cinematic,
       normal.renderer,
       normal.hud,
-      normal.cinematicHud,
       normal.gibs,
       normal.damage,
       normal.drops,
