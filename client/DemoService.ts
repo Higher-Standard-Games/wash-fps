@@ -11,28 +11,14 @@
  *   4. `demoplay cinematic <min>` → loadAndPlayCinematic(viewer, cameraSystem, minutes)
  */
 
-import { PointLight } from "@babylonjs/core/Lights/pointLight";
-import { Color3 } from "@babylonjs/core/Maths/math.color";
+import type { PointLight } from "@babylonjs/core/Lights/pointLight";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import { EventBus } from "../../../engine/core/EventBus";
-import { addToDynamicLightCluster, disposeClusteredLight } from "../../../engine/lighting/DynamicLightCluster";
+import { disposeClusteredLight } from "../../../engine/lighting/DynamicLightCluster";
 import { SnapshotBuffer } from "../../../engine/network/client/SnapshotBuffer";
 import type { GameState } from "../../../engine/network/core/GameState";
-import type {
-  DamageEvent,
-  DeathEvent,
-  ProjectileImpactEvent,
-  VoltaicBeamEvent,
-  WeaponFireEvent,
-} from "../../../engine/network/core/SnapshotEvent";
-import {
-  BLADE_EXPLOSION,
-  GRENADE_EXPLOSION,
-  getExplosionEffect,
-  PLASMA_EXPLOSION,
-  ROCKET_EXPLOSION,
-} from "../../../engine/weapon/ExplosionEffect";
+import { getExplosionEffect } from "../../../engine/weapon/ExplosionEffect";
 import { getHitscanEffects } from "../../../engine/weapon/HitscanEffects";
 import { getProjectileManager } from "../../../engine/weapon/ProjectileManager";
 import { WeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
@@ -41,39 +27,29 @@ import type { DemoInfo } from "../../../lobby/types";
 import { DemoAnalyzer } from "../../../shared/demo/DemoAnalyzer";
 import { normalizeDemoMapName } from "../../../shared/demo/DemoMapName";
 import { DemoReader } from "../../../shared/demo/DemoReader";
+import { canonicalWeaponId, WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
 import { isClientKey } from "../ClientEntityKey";
-import { FPSPickup } from "../world/FPSPickup";
+import { getAmmoStatus } from "./AmmoStatus";
 import { CinematicDemoPlayer } from "./CinematicDemoPlayer";
 import type { CinematicHUD } from "./CinematicHUD";
+import { Crosshair } from "./Crosshair";
 import { DamageNumbers } from "./DamageNumbers";
 import { demoLoadCancelled, downloadDemo } from "./DemoDownload";
-import { DemoEventOverlay } from "./DemoEventOverlay";
 import { DemoEventTimeline } from "./DemoEventTimeline";
 import { DemoOverlayController, type DemoOverlayMode } from "./DemoOverlayController";
 import type { DemoViewer, DemoViewerInfo } from "./DemoViewer";
 import type { DemoViewerHUD } from "./DemoViewerHUD";
-import { type DroppedWeaponInfo, DroppedWeaponRenderer } from "./DroppedWeaponRenderer";
+import { DroppedWeaponRenderer } from "./DroppedWeaponRenderer";
 import { FollowedViewWeapon } from "./FollowedViewWeapon";
 import { preloadFPSAudio } from "./FPSAudio";
-import {
-  playDamageConfirmationSound,
-  playKillEcho,
-  playPlayerDeathSound,
-  playPlayerPainSound,
-  playProjectileImpactSound,
-  playWeaponFireSound,
-} from "./FPSCombatAudio";
-import { processFPSMovementAudio, resetFPSMovementAudio } from "./FPSMovementAudio";
-import { playPickupSound } from "./FPSPickupAudio";
-import {
-  handleRemoteWeaponFire,
-  handleVoltaicBeam,
-  type ProjectileSyncState,
-  processProjectileEntities,
-  WEAPON_EFFECT_COLORS,
-} from "./GameEvents";
+import type { FPSHud } from "./FPSHud";
+import { resetFPSMovementAudio } from "./FPSMovementAudio";
+import { type GameEventContext, handleServerStateUpdate, type ProjectileSyncState } from "./GameEvents";
 import { GibSystem } from "./GibSystem";
+import { HUDState } from "./HUDState";
+import { MatchStateManager } from "./MatchStateManager";
 import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
+import { PlayerWeaponStates, storeSnapshotState } from "./SnapshotStateStore";
 
 export class DemoService {
   private static _instance: DemoService | null = null;
@@ -99,7 +75,6 @@ export class DemoService {
   private remoteRenderer: RemotePlayerRenderer | null = null;
   private demoHud: DemoViewerHUD | null = null;
   private cinematicHud: CinematicHUD | null = null;
-  private demoEventOverlay: DemoEventOverlay | null = null;
   private readonly demoEventTimeline = new DemoEventTimeline();
   private readonly demoOverlays = new DemoOverlayController();
   private playbackRaf: number | null = null;
@@ -111,9 +86,6 @@ export class DemoService {
   private readonly chargingPlayers = new Set<string>();
   private readonly chargingGlows = new Map<string, PointLight>();
   private lastEffectTick: number | null = null;
-  /** Tick of the last _syncPersistentDemoState run — same tick = same recorded
-   *  state, so the O(entities) rebuild is skipped (delivery bursts re-call it). */
-  private lastPersistentSyncTick: number | null = null;
 
   // Demo spectator state
   private _followedEntityId: string | null = null;
@@ -127,17 +99,18 @@ export class DemoService {
   private _unsubCameraChange: (() => void) | null = null;
   /** What the followed player's weapon does; the same code live spectating runs. */
   private readonly _followed = new FollowedViewWeapon(() => this._demoWvm);
-  private _isSeeking = false;
   /** entityId → currentWeapon, fed to RemotePlayerRenderer for 3rd-person weapon models */
   private _enemyWeapons: Map<string, string> = new Map();
 
-  // Followed-player HUD stats (health/armor/weapon/ammo)
-  private _specHealth = 0;
-  private _specArmor = 0;
-  private _specWeapon = "";
-  private _specAmmo = "";
-
   /** In-flight server projectile visuals (rockets/plasma/grenades mid-air) */
+  /** The game's HUD over normal playback, watching; null otherwise. */
+  private gameHud: FPSHud | null = null;
+  private gameHudVisible = true;
+  /** The game's event context over playback's own systems; built with them. */
+  private eventCtx: GameEventContext | null = null;
+  /** Every player's weapon, as the game keeps it. */
+  private readonly demoWeapons = new PlayerWeaponStates();
+
   private _projectiles: ProjectileSyncState = {
     active: new Set<string>(),
     defIds: new Map<string, string>(),
@@ -484,12 +457,11 @@ export class DemoService {
     this.remoteRenderer = null;
 
     this.demoOverlays.reset();
+    this._stopGameHud();
     this.demoHud?.dispose();
     this.demoHud = null;
     this.cinematicHud?.dispose();
     this.cinematicHud = null;
-    this.demoEventOverlay?.destroy();
-    this.demoEventOverlay = null;
     this.demoEventTimeline.clear();
     this.demoGibs?.dispose();
     this.demoGibs = null;
@@ -499,19 +471,13 @@ export class DemoService {
     this.droppedWeaponRenderer = null;
     this._clearDemoCharge();
     this.lastEffectTick = null;
-    this.lastPersistentSyncTick = null;
 
     this.latestState = null;
     this._followedEntityId = null;
     this._followed.follow(null);
-    this._isSeeking = false;
     this._enemyWeapons.clear();
     this._clearDemoProjectiles();
     clearDemoWorldEffects();
-    this._specHealth = 0;
-    this._specArmor = 0;
-    this._specWeapon = "";
-    this._specAmmo = "";
 
     this._demoWvm?.dispose();
     this._demoWvm = null;
@@ -631,45 +597,23 @@ export class DemoService {
     // continues while paused, and seek landing reconstructs the exact item set.
     this.droppedWeaponRenderer = new DroppedWeaponRenderer(scene, true);
 
+    this.eventCtx = this._createEventContext();
+
     viewer.onFrame((state) => {
       this.latestState = state;
-      this._updateEnemyWeapons(state);
       const playback = viewer.getInfo();
-      const discontinuous = this._syncDemoPresentationClock(playback);
+      this._syncDemoPresentationClock(playback);
       this._pushPlaybackClock(playback);
       this.remoteRenderer?.pushDemoSnapshot(state, "");
       this.refreshHudPlayerList();
-      this._updateDemoLifeState(state);
-      this._updateDemoWeapon(state, discontinuous);
-      this._updateDemoHud(state);
-      // Persistent bookkeeping must run UNCONDITIONALLY — projectile defIds
-      // are announced once (projectile_spawn is a one-tick edge); if that tick
-      // is a suppressed seek-landing frame, the projectile would fly modelless
-      // for its entire flight. One-shot *presentation* stays gated below.
-      for (const event of state.events) {
-        if (event.type === "projectile_spawn") {
-          const e = event as unknown as { entityId?: string; defId?: string };
-          if (e.entityId && e.defId) this._projectiles.defIds.set(e.entityId, e.defId);
-        }
-      }
-      if (this.demoEventTimeline.canPresentOneShots()) {
-        this._updateDemoRecoil(state);
-        this._processDemoEffects(state);
-        processFPSMovementAudio(state, this._followedEntityId ?? undefined);
-      }
-      this._syncPersistentDemoState(state);
-      // Spawn/despawn in-flight projectile visuals + buffer them for interpolation.
-      // (runs after _processDemoEffects so projectile_spawn defIds are set first)
-      this._projectiles.muzzleForShot = (position, velocity) => this._followed.muzzleFor(position, velocity);
-      processProjectileEntities(state, this._projectiles);
+      this._presentFrame(state, this.demoEventTimeline.canPresentOneShots());
       this.demoEventTimeline.finishPresentationFrame();
     });
 
     if (!withHud || typeof document === "undefined") return;
+    if (overlayMode === "normal") await this._startGameHud();
     const { DemoViewerHUD } = await import("./DemoViewerHUD");
     this.demoHud = new DemoViewerHUD();
-    this.demoEventOverlay = new DemoEventOverlay(this.demoEventTimeline);
-    this.demoOverlays.setChat(this.demoEventOverlay);
     this.demoOverlays.setMode(overlayMode);
     this.demoOverlays.setNormalHud(this.demoHud);
     this.demoOverlays.bindKeyboard(document);
@@ -684,7 +628,6 @@ export class DemoService {
       this.activeDemoViewer?.cycleSpeed();
     });
     this.demoHud.onSeek((progress) => {
-      this._isSeeking = true;
       // Drop in-flight projectiles before the jump — their spawn events are
       // one-shots that a seek skips, and their positions/buffer are now stale.
       this._clearDemoProjectiles();
@@ -692,11 +635,12 @@ export class DemoService {
       // Collapse the interpolation buffer so models snap to the seeked position
       // instead of interpolating across the discontinuous tick jump.
       this.remoteRenderer?.flushInterpolation();
-      this._isSeeking = false;
     });
     this.demoHud.onPlayerSelect((entityId) => {
       this._selectSpectateTarget(entityId);
     });
+    this.demoHud.onHudToggle(() => this.setGameHudVisible(!this.gameHudVisible));
+    this.demoHud.setGameHudVisible(this.gameHudVisible);
   }
 
   private async ensureCinematicHud(player: CinematicDemoPlayer): Promise<void> {
@@ -731,16 +675,11 @@ export class DemoService {
     this._followed.follow(entityId, this._isDemoEntityDead(entityId));
     this.remoteRenderer?.setHiddenEntity(entityId);
     this._attachWeaponViewToSpectatorCam();
-    // Their gun, stats and place in the player list come from frames, and a
-    // paused demo delivers none: present them from the frame on screen, or the
+    // Their gun, HUD and place in the player list come from frames, and a
+    // paused demo delivers none: present the frame on screen for them, or the
     // previous player's stay up until playback resumes (D7).
-    this._specHealth = 0;
-    this._specArmor = 0;
-    this._specWeapon = "";
-    this._specAmmo = "";
     if (this.latestState) {
-      this._updateDemoWeapon(this.latestState, true);
-      this._updateDemoHud(this.latestState);
+      this._presentFrame(this.latestState, false);
       // The list picks a target itself when the camera has none; only once the
       // camera holds this one can it not come back here.
       if (spectator?.getTargetEntityId?.() === entityId) this.refreshHudPlayerList();
@@ -783,7 +722,7 @@ export class DemoService {
     applyCamera?.();
     this.remoteRenderer?.render();
     this._renderDemoProjectiles();
-    this.demoEventOverlay?.render();
+    this._updateCrosshair();
     this.demoHud?.update(playback);
     if (this.activeCinematicPlayer) this.cinematicHud?.updateProgress(this.activeCinematicPlayer.getReelInfo());
   }
@@ -959,183 +898,122 @@ export class DemoService {
   }
 
   /**
-   * combat_state is emitted on every full demo frame, so it is the persistent
-   * source of truth for death/respawn reconstruction after seeks.
+   * The game's own HUD, watching: what the followed player saw on screen.
+   * Fed by the same HUD state the game feeds it, through `_presentFrame`.
    */
-  private _updateDemoLifeState(state: GameState): void {
-    for (const event of state.events) {
-      if (event.type !== "combat_state" || !event.entityId) continue;
-      const dead = !!(event as { dead?: boolean }).dead;
-      if (dead) {
-        this.remoteRenderer?.markDead(event.entityId);
-      } else {
-        this.remoteRenderer?.markAlive(event.entityId);
-      }
-      if (event.entityId !== this._followedEntityId) continue;
-      this._followed.setDead(dead);
-    }
+  private async _startGameHud(): Promise<void> {
+    const { FPSHud } = await import("./FPSHud");
+    const hud = FPSHud.getInstance();
+    await hud.init({ watchOnly: true });
+    hud.start();
+    this.gameHud = hud;
+    Crosshair.getInstance().init();
+    this.setGameHudVisible(this.gameHudVisible);
+  }
+
+  private _stopGameHud(): void {
+    if (!this.gameHud) return;
+    this.gameHud.destroy();
+    this.gameHud = null;
+    Crosshair.getInstance().dispose();
+    // The match and HUD state were the demo's; nothing of it outlives playback
+    HUDState.destroy();
+    MatchStateManager.getInstance().reset();
+  }
+
+  /** Show or hide the game HUD and crosshair over playback. */
+  setGameHudVisible(visible: boolean): void {
+    this.gameHudVisible = visible;
+    if (visible) this.gameHud?.show();
+    else this.gameHud?.hide();
+    this.demoHud?.setGameHudVisible(visible);
+  }
+
+  isGameHudVisible(): boolean {
+    return this.gameHudVisible;
+  }
+
+  /** The crosshair the followed player had: their weapon's, spread by their speed. */
+  private _updateCrosshair(): void {
+    if (!this.gameHud) return;
+    const followed = this._followedEntityId;
+    const hud = HUDState.getInstance();
+    const weaponId = canonicalWeaponId(hud.currentWeapon);
+    const sample = followed ? this.remoteRenderer?.getDemoEntitySample(followed) : null;
+    const hidden = !this.gameHudVisible || !followed || this._isDemoEntityDead(followed);
+    Crosshair.getInstance().update(
+      0,
+      sample ? Math.hypot(sample.vx, sample.vz) : 0,
+      WEAPONS[weaponId]?.crosshair ?? null,
+      hidden,
+      true,
+      getAmmoStatus(weaponId, hud.ammo[weaponId]).outOfAmmo,
+      true,
+    );
   }
 
   /**
-   * Feed the demo HUD the followed player's live stats (health/armor/weapon/ammo)
-   * from the per-frame combat_state + weapon_state events.
+   * A recorded frame through the game's own snapshot path, with the followed
+   * player as the one being watched: the same events, sounds, effects and HUD
+   * as live play. Without one-off moments the state still applies — a seek's
+   * landing frame, or the frame on screen shown for a newly followed player.
    */
-  private _updateDemoHud(state: GameState): void {
-    if (!this.demoHud) return;
-    if (!this._followedEntityId) {
-      this.demoHud.setSpectatorStats(null);
-      return;
-    }
-    for (const event of state.events) {
-      if (event.entityId !== this._followedEntityId) continue;
-      if (event.type === "combat_state") {
-        this._specHealth = (event as { health?: number }).health ?? this._specHealth;
-        this._specArmor = (event as { armor?: number }).armor ?? this._specArmor;
-      } else if (event.type === "weapon_state") {
-        const we = event as { currentWeapon?: string; ammo?: Record<string, unknown> };
-        this._specWeapon = we.currentWeapon ?? this._specWeapon;
-        this._specAmmo = this._formatAmmo(we.ammo?.[this._specWeapon]);
-      }
-    }
-    let name = this._followedEntityId;
-    for (const player of state.players.values()) {
-      if (player.entityId === this._followedEntityId) {
-        name = player.name || this._followedEntityId;
-        break;
-      }
-    }
-    this.demoHud.setSpectatorStats({
-      name,
-      health: this._specHealth,
-      armor: this._specArmor,
-      weapon: this._specWeapon,
-      ammo: this._specAmmo,
+  private _presentFrame(state: GameState, oneShots: boolean): void {
+    storeSnapshotState(state, {
+      weapons: this.demoWeapons,
+      enemyWeapons: this._enemyWeapons,
+      localEntityId: undefined,
     });
+    const ctx = this.eventCtx;
+    if (!ctx) return;
+    ctx.spectatingEntityId = this._followedEntityId;
+    ctx.presentOneShots = oneShots;
+    handleServerStateUpdate(ctx, state);
   }
 
   /**
-   * Replay this frame's combat events as visuals: weapon fire (hitscan tracers /
-   * beams / pellets / blade slash), chain lightning, and projectile impacts.
-   * Reuses the same effect singletons + fire handler as live play.
+   * The game's event context, over demo playback's own systems: its renderer,
+   * its followed viewmodel, gibs and hit numbers on the demo clock, and its
+   * projectile bookkeeping. Nobody is the local player.
    */
-  private _processDemoEffects(state: GameState): void {
-    for (const event of state.events) {
-      if (event.type === "chat") {
-        // Replay recorded chat at its original tick (chat lands in demos via
-        // the shared snapshot instance — see docs/research/ingame-chat.md).
-        const e = event as unknown as { senderName?: string; team?: string; text?: string };
-        const prefix = e.team === "spectator" ? "[SPEC] " : "";
-        this._addDemoEvent("chat", `${prefix}${e.senderName || "unknown"}: ${String(e.text ?? "")}`, 8000);
-      } else if (event.type === "weapon_fire") {
-        playWeaponFireSound(event as WeaponFireEvent, event.entityId === this._followedEntityId);
-        handleRemoteWeaponFire(event as WeaponFireEvent, this.remoteRenderer);
-      } else if (event.type === "voltaic_beam") {
-        handleVoltaicBeam(
-          event as VoltaicBeamEvent,
-          false,
-          this.remoteRenderer?.getKnownWeaponId(event.entityId) ?? undefined,
-        );
-      } else if (event.type === "death") {
-        playPlayerDeathSound(event as DeathEvent, event.entityId === this._followedEntityId);
-        if (event.killerId === this._followedEntityId && event.entityId !== this._followedEntityId) playKillEcho();
-        // Immediate edge for older demos; persistent combat_state above remains
-        // authoritative for seeks and respawns.
-        if (event.entityId) {
-          this.remoteRenderer?.markDead(event.entityId);
-          if (event.entityId === this._followedEntityId) this._followed.setDead(true);
-        }
-        const victim = this._resolveDemoPlayerName(event.entityId, state);
-        const killer = this._resolveDemoPlayerName(event.killerId, state);
-        if (killer && victim && event.killerId !== event.entityId) {
-          this._addDemoEvent("kill", `${killer} eliminated ${victim}`, 5000);
-        }
-        if (Number.isFinite(event.x) && Number.isFinite(event.y) && Number.isFinite(event.z)) {
-          this.demoGibs?.spawn(event.x, event.y, event.z, event.velX || 0, event.velY || 0, event.velZ || 0);
-        }
-      } else if (event.type === "damage") {
-        playPlayerPainSound(event as DamageEvent, event.entityId === this._followedEntityId);
-        if (
-          event.attackerId === this._followedEntityId &&
-          event.damage > 0 &&
-          Number.isFinite(event.x) &&
-          Number.isFinite(event.y) &&
-          Number.isFinite(event.z)
-        ) {
-          playDamageConfirmationSound(event as DamageEvent);
-          this.demoDamageNumbers?.spawn(event.x, event.y, event.z, event.damage, event.hitLocation);
-        }
-        if (event.entityId === this._followedEntityId && event.damage > 0) {
-          this._addDemoEvent("damage", `-${Math.round(event.damage)}`, 700);
-        }
-      } else if (event.type === "award") {
-        const awardType = String(event.awardType || "")
-          .replace(/_/g, " ")
-          .toUpperCase();
-        const playerName = String(event.playerName || this._resolveDemoPlayerName(event.playerId, state) || "PLAYER");
-        if (awardType !== "FRAG") {
-          this._addDemoEvent("award", `${playerName}: ${awardType}`, 5000);
-        }
-        if (this._isAwardForFollowedPlayer(event, state)) {
-          const target = event.targetName ? ` - ${event.targetName}` : "";
-          this._addDemoEvent("banner", `${awardType}${target}`, 3000);
-        }
-      } else if (event.type === "weapon_charge") {
-        if (event.charging && event.entityId) {
-          this.chargingPlayers.add(event.entityId);
-        } else if (event.entityId) {
-          this.chargingPlayers.delete(event.entityId);
-          const chargeGlow = this.chargingGlows.get(event.entityId);
-          if (chargeGlow) disposeClusteredLight(chargeGlow);
-          this.chargingGlows.delete(event.entityId);
-        }
-      } else if (event.type === "weapon_drop") {
-        if (event.entityId) {
-          this.droppedWeaponRenderer?.stashVelocity(
-            event.entityId,
-            new Vector3(event.velX || 0, event.velY || 0, event.velZ || 0),
-          );
-        }
-      } else if (event.type === "pickup_notify" && event.entityId === this._followedEntityId) {
-        const label = String(event.label || "PICKUP");
-        playPickupSound(label);
-        this._addDemoEvent("pickup", label, 1800);
-      } else if (event.type === "projectile_spawn") {
-        const e = event as unknown as { entityId?: string; defId?: string };
-        if (e.entityId && e.defId) this._projectiles.defIds.set(e.entityId, e.defId);
-      } else if (event.type === "weapon_chain") {
-        const fx = getHitscanEffects();
-        const pts = ((event as { points?: Array<{ x: number; y: number; z: number }> }).points ?? []).map(
-          (p) => new Vector3(p.x, p.y, p.z),
-        );
-        const rgb = WEAPON_EFFECT_COLORS.voltaic;
-        const color = new Color3(rgb[0], rgb[1], rgb[2]);
-        for (let i = 0; i < pts.length - 1; i++) {
-          fx.fireLightningArc(pts[i], pts[i + 1], color);
-        }
-      } else if (event.type === "projectile_impact") {
-        const e = event as unknown as {
-          x: number;
-          y: number;
-          z: number;
-          normalX: number;
-          normalY: number;
-          normalZ: number;
-          defId: string;
-        };
-        const pos = new Vector3(e.x, e.y, e.z);
-        playProjectileImpactSound(event as ProjectileImpactEvent);
-        const normal = new Vector3(e.normalX, e.normalY, e.normalZ);
-        const config =
-          e.defId === "grenade" || e.defId === "glauncher"
-            ? GRENADE_EXPLOSION
-            : e.defId === "plasma_bolt" || e.defId === "plasmagun"
-              ? PLASMA_EXPLOSION
-              : e.defId === "blade_blast"
-                ? BLADE_EXPLOSION
-                : ROCKET_EXPLOSION;
-        getExplosionEffect().spawn(pos, config, normal);
-      }
-    }
+  private _createEventContext(): GameEventContext {
+    const projectiles = this._projectiles;
+    return {
+      localPlayerId: "",
+      isNetworkMode: false,
+      gameHost: null,
+      playback: "demo",
+      presentOneShots: true,
+      damageNumbers: this.demoDamageNumbers ?? undefined,
+      v2Client: null,
+      remoteRenderer: this.remoteRenderer,
+      droppedWeaponRenderer: this.droppedWeaponRenderer,
+      _lastServerWeapon: undefined,
+      enemyWeapons: this._enemyWeapons,
+      _localCharging: false,
+      chargingPlayers: this.chargingPlayers,
+      chargingGlows: this.chargingGlows,
+      serverProjectileDefIds: projectiles.defIds,
+      activeServerProjectiles: projectiles.active,
+      projectileSeenTicks: projectiles.seenTicks,
+      projectileBuffer: projectiles.buffer,
+      _isPlayerDead: false,
+      isWatcher: true,
+      spectatingEntityId: this._followedEntityId,
+      followedWeapon: this._followed,
+      _respawnRequested: false,
+      _respawnCooldownEnd: 0,
+      _gibSystem: this.demoGibs,
+      _pendingGibSpawns: [],
+      _ragdollSystem: null,
+      _cartoonHit: null,
+      _deathCamera: null,
+      onStateUpdateCallbacks: [],
+      pendingTick: 0,
+      _tabReturnFrameSkips: 0,
+      _stateUpdateCount: 0,
+      sendRequestSpawn: () => {},
+    };
   }
 
   private _syncDemoPresentationClock(playback: DemoViewerInfo): boolean {
@@ -1150,9 +1028,6 @@ export class DemoService {
       this._clearDemoCharge();
       this._clearDemoProjectiles();
       this.lastEffectTick = playback.playheadTick;
-      // The clears above wiped presentation the persistent sync rebuilds —
-      // force it to run even if the landing frame has the same tick.
-      this.lastPersistentSyncTick = null;
     } else {
       const deltaTicks =
         playback.state === "playing" && this.lastEffectTick !== null
@@ -1184,98 +1059,10 @@ export class DemoService {
     );
   }
 
-  /** Rebuild presentation whose source of truth exists in every delivered state. */
-  private _syncPersistentDemoState(state: GameState): void {
-    if (state.tick === this.lastPersistentSyncTick) return; // same recorded state
-    this.lastPersistentSyncTick = state.tick;
-
-    FPSPickup.reconcileActiveSet(state.pickupActiveMask);
-
-    const itemEntities = new Map<string, DroppedWeaponInfo>();
-    for (const [id, entity] of state.entities) {
-      if (!id.startsWith("item_")) continue;
-      const transform = entity.getComponent("transform") as
-        | { position?: { x: number; y: number; z: number } }
-        | undefined;
-      const weaponMeta = entity.getComponent("weaponMeta") as { weaponId?: string; settled?: boolean } | undefined;
-      if (!transform?.position) continue;
-      itemEntities.set(id, {
-        x: transform.position.x,
-        y: transform.position.y,
-        z: transform.position.z,
-        weaponId: weaponMeta?.weaponId,
-        settled: weaponMeta?.settled ?? false,
-      });
-    }
-    this.droppedWeaponRenderer?.syncServerEntities(itemEntities);
-    this._updateDemoChargeGlows(state);
-  }
-
-  private _updateDemoChargeGlows(state: GameState): void {
-    for (const [entityId, glow] of this.chargingGlows) {
-      if (!this.chargingPlayers.has(entityId) || !state.entities.has(entityId)) {
-        disposeClusteredLight(glow);
-        this.chargingGlows.delete(entityId);
-      }
-    }
-
-    const scene = CameraSystem.getInstance().getCamera()?.getScene();
-    if (!scene) return;
-    let slots = 0;
-    for (const entityId of this.chargingPlayers) {
-      const entity = state.entities.get(entityId);
-      const transform = entity?.getComponent("transform") as
-        | { position?: { x: number; y: number; z: number } }
-        | undefined;
-      const position = transform?.position;
-      // Cluster-rendered (WS1) — the slot cap is a sanity budget, not a shader limit.
-      if (!position || slots++ >= 6) {
-        const overflow = this.chargingGlows.get(entityId);
-        if (overflow) disposeClusteredLight(overflow);
-        this.chargingGlows.delete(entityId);
-        continue;
-      }
-      let glow = this.chargingGlows.get(entityId);
-      if (!glow) {
-        glow = new PointLight(`demo_charge_glow_${entityId}`, Vector3.Zero(), scene);
-        glow.diffuse = new Color3(1, 0.15, 0.05);
-        glow.specular = new Color3(1, 0.1, 0);
-        glow.range = 60;
-        glow.intensity = 8;
-        addToDynamicLightCluster(scene, glow);
-        this.chargingGlows.set(entityId, glow);
-      }
-      glow.position.set(position.x, position.y + 30, position.z);
-    }
-  }
-
   private _clearDemoCharge(): void {
     for (const glow of this.chargingGlows.values()) disposeClusteredLight(glow);
     this.chargingGlows.clear();
     this.chargingPlayers.clear();
-  }
-
-  private _addDemoEvent(kind: Parameters<DemoEventTimeline["push"]>[0], text: string, durationMs: number): void {
-    if (this.demoEventOverlay) {
-      this.demoEventOverlay.add(kind, text, durationMs);
-    } else {
-      this.demoEventTimeline.push(kind, text, durationMs);
-    }
-  }
-
-  private _resolveDemoPlayerName(entityId: unknown, state: GameState): string {
-    if (typeof entityId !== "string" || !entityId) return "";
-    for (const player of state.players.values()) {
-      if (player.entityId === entityId) return player.name || entityId;
-    }
-    return entityId.replace(/^player_/, "player ");
-  }
-
-  private _isAwardForFollowedPlayer(event: Record<string, unknown>, state: GameState): boolean {
-    if (!this._followedEntityId) return false;
-    if (event.playerId === this._followedEntityId) return true;
-    const followedName = this._resolveDemoPlayerName(this._followedEntityId, state);
-    return typeof event.playerName === "string" && event.playerName === followedName;
   }
 
   /**
@@ -1307,53 +1094,6 @@ export class DemoService {
     this._projectiles.defIds.clear();
     this._projectiles.seenTicks.clear();
     this._projectiles.buffer.reset();
-  }
-
-  /** Format a weapon's ammo value ({clip,reserve} or number) for the HUD. */
-  private _formatAmmo(ammo: unknown): string {
-    if (ammo && typeof ammo === "object") {
-      const a = ammo as { clip?: number; reserve?: number };
-      if (a.clip !== undefined || a.reserve !== undefined) return `${a.clip ?? 0} / ${a.reserve ?? 0}`;
-    }
-    if (typeof ammo === "number") return String(ammo);
-    return "";
-  }
-
-  /**
-   * Populate the entityId → currentWeapon map from per-frame weapon_state events
-   * so RemotePlayerRenderer can attach the correct 3rd-person weapon model.
-   */
-  private _updateEnemyWeapons(state: GameState): void {
-    for (const event of state.events) {
-      if (event.type !== "weapon_state") continue;
-      const weapon = (event as { entityId?: string; currentWeapon?: string }).currentWeapon;
-      const entityId = (event as { entityId?: string }).entityId;
-      if (entityId && weapon) this._enemyWeapons.set(entityId, weapon);
-    }
-  }
-
-  /**
-   * Put the followed player's weapon in the viewmodel: a cut during seeks,
-   * the switch animation during normal play.
-   */
-  private _updateDemoWeapon(state: GameState, discontinuous = false): void {
-    if (!this._followedEntityId) return;
-    for (const event of state.events) {
-      if (event.type !== "weapon_state") continue;
-      if (event.entityId !== this._followedEntityId) continue;
-      this._followed.showWeapon(event.currentWeapon as string, this._isSeeking || discontinuous);
-      return;
-    }
-  }
-
-  /** Flash and kick the viewmodel on weapon_fire events for the followed player. */
-  private _updateDemoRecoil(state: GameState): void {
-    if (!this._followedEntityId) return;
-    for (const event of state.events) {
-      if (event.type !== "weapon_fire") continue;
-      if (event.entityId !== this._followedEntityId) continue;
-      this._followed.fired();
-    }
   }
 
   /**

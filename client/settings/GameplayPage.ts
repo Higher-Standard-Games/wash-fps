@@ -267,6 +267,24 @@ export class GameplayPage {
       wedge.setAttribute("d", `M0 84 L${-x} ${y} A${radius} ${radius} 0 0 1 ${x} ${y} Z`);
     });
 
+    for (const [cvar, name, help] of [
+      ["show_fps", "FPS counter", "Frames per second in the top-right corner"],
+      ["cl_showspeed", "Movement speed", "Your speed at the bottom of the screen"],
+    ]) {
+      seg(this.host, fields, {
+        name,
+        help,
+        choices: [
+          { value: 0, label: "Off" },
+          { value: 1, label: "On" },
+        ],
+        get: () => (Cvar.getNumber(cvar) > 0 ? 1 : 0),
+        set: (value) => {
+          Cvar.set(cvar, value);
+        },
+      });
+    }
+
     seg(this.host, fields, {
       name: "Connection info",
       help: "Ping and packet loss in a corner of the screen",

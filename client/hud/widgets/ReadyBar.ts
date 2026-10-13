@@ -27,7 +27,11 @@ export class FPSReadyBar implements FPSHudWidget {
     // A spectator has no F4 to press, whether chasing someone or flying free.
     const isSpectating = state.watcher;
 
-    if (mgr.isWarmup() && !isSpectating) {
+    if (state.playback) {
+      // A recording: the bar is about readying up, which the watcher is not doing
+      this.element.classList.add("hidden");
+      this.shown = "";
+    } else if (mgr.isWarmup() && !isSpectating) {
       // Joined player: gold count cell + prompt with keycap chip
       const readyText = mgr.isReady
         ? `<span class="fps-ready-text">Ready! Waiting for others</span>`

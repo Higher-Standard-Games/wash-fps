@@ -242,6 +242,10 @@ describe("switching POV while paused", () => {
         entities: new Map(),
       },
     });
+    // The game's event context, as playback builds it with its systems
+    Object.assign(internals, {
+      eventCtx: (internals as unknown as { _createEventContext(): unknown })._createEventContext(),
+    });
     try {
       (internals as unknown as { _selectSpectateTarget(id: string): void })._selectSpectateTarget("player_3");
       // Paused, no frame comes to change it: the previous player's gun stayed up (D7).

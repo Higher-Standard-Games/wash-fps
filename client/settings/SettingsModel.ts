@@ -594,6 +594,8 @@ export const PAGE_CVARS: Record<SettingsPageId, string[]> = {
     "cg_crosshairSpread",
     "cg_crosshairDmgColor",
     "cl_fov",
+    "show_fps",
+    "cl_showspeed",
     "cl_netgraph",
   ],
   video: [

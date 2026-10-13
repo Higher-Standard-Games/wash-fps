@@ -101,6 +101,19 @@ export interface GameEventContext {
   isNetworkMode: boolean;
   gameHost: IGameHost | null;
 
+  /**
+   * A recorded demo rather than a live connection. Demo playback feeds its own
+   * recorded-tick timeline to the renderer, and has no clock to sync.
+   */
+  playback?: "demo";
+  /**
+   * False on a frame whose one-off effects must not play — a demo seek's
+   * landing frame. State still applies; sounds, effects and messages do not.
+   */
+  presentOneShots?: boolean;
+  /** Hit numbers on a clock of their own (a demo's); the shared ones otherwise. */
+  damageNumbers?: { spawn(x: number, y: number, z: number, damage: number, hitLocation?: HitLocationName): void };
+
   // V2 Client (prediction/reconciliation)
   v2Client: V2NetworkClient | null;
 
@@ -217,12 +230,32 @@ const MAX_REMOTE_CHARGE_GLOW_LIGHTS = 6;
  * Process a server state update: dispatch events, sync weapon state,
  * buffer snapshots, update HUD, and feed V2Client.
  */
+/**
+ * Events that are a moment rather than a state: a shot, a hit, a death, a
+ * message. A demo seek lands without them; everything else still applies.
+ */
+const ONE_SHOT_EVENTS: ReadonlySet<string> = new Set([
+  "weapon_fire",
+  "voltaic_beam",
+  "electro_rail",
+  "weapon_chain",
+  "projectile_impact",
+  "damage",
+  "death",
+  "weapon_drop",
+  "award",
+  "chat",
+  "pickup_notify",
+  "powerup_spawn",
+  "item_pickup",
+]);
+
 export function handleServerStateUpdate(ctx: GameEventContext, state: GameState): void {
   ctx._stateUpdateCount++;
 
   // Record snapshot for NetGraph
   const localPlayer = state.players.get(ctx.localPlayerId);
-  NetGraph.recordSnapshot(localPlayer?.ping ?? 0, state.tick);
+  if (ctx.playback !== "demo") NetGraph.recordSnapshot(localPlayer?.ping ?? 0, state.tick);
 
   // Feed ClockSync offset to NetGraph for display
   const networkHost = networkHostOf(ctx.gameHost);
@@ -246,6 +279,10 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
   // person — their gun, their footsteps, their pain, their pickups — is what
   // the screen shows. What changes our own state stays on localEntityId.
   const viewEntityId = ctx.spectatingEntityId ?? localEntityId;
+  let viewPlayerId: string | undefined;
+  for (const [playerId, player] of state.players) {
+    if (player.entityId === viewEntityId) viewPlayerId = playerId;
+  }
   /** Powerups this snapshot says the viewed player holds; any other has ended. */
   const runningPowerups = new Set<string>();
 
@@ -259,6 +296,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
     // snapshot still runs, so a failing effect cannot take the kill feed, the
     // damage numbers or our own weapon sync with it.
     for (const event of state.events as SnapshotEvent[]) {
+      if (ctx.presentOneShots === false && ONE_SHOT_EVENTS.has(event.type)) continue;
       try {
         switch (event.type) {
           case "match_state":
@@ -275,7 +313,8 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
             // must reach the HUD and the viewmodel WITHOUT touching any of that,
             // or watching someone reload would desync your own weapon.
             if (ctx.spectatingEntityId && event.entityId === ctx.spectatingEntityId) {
-              handleSpectatedWeaponState(event, ctx.followedWeapon);
+              // A seek lands with the weapon already in hand
+              handleSpectatedWeaponState(event, ctx.followedWeapon, ctx.presentOneShots === false);
             }
             break;
 
@@ -433,6 +472,10 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
               }
             } else if (!event.dead && ctx.remoteRenderer) {
               ctx.remoteRenderer.markAlive(event.entityId);
+            } else if (ctx.presentOneShots === false && ctx.remoteRenderer) {
+              // A seek lands past the death without its event; the death
+              // event detaches the model for the ragdoll, so only then
+              ctx.remoteRenderer.markDead(event.entityId);
             }
             break;
 
@@ -510,7 +553,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
             break;
 
           case "award":
-            handleAwardEvent(ctx, event);
+            handleAwardEvent(ctx, event, viewPlayerId);
             break;
 
           case "chat":
@@ -577,7 +620,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
   // showing and sounding now, not when its old countdown would have run out.
   keepOnlyLocalPowerups(runningPowerups);
 
-  processFPSMovementAudio(state, viewEntityId);
+  if (ctx.presentOneShots !== false) processFPSMovementAudio(state, viewEntityId);
 
   // === Update charge glow positions from entity data ===
   // Charge glows render through the gameplay light cluster (WS1), so many
@@ -629,12 +672,14 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
   hudState.localPlayerId = ctx.localPlayerId;
   hudState.spectating = ctx.spectatingEntityId ?? "";
   hudState.watcher = ctx.isWatcher;
+  hudState.playback = ctx.playback === "demo";
   hudState.updateScoreboard(state);
   hudState.expireTransients();
   hudState.updateDebugOverlay();
 
   // === Remote player snapshot buffering ===
-  if (ctx.remoteRenderer) {
+  // A demo feeds the renderer its own recorded-tick timeline instead.
+  if (ctx.remoteRenderer && ctx.playback !== "demo") {
     let serverLocalTime: number | undefined;
     const nh = networkHostOf(ctx.gameHost);
     if (state.serverTimestamp && nh?.clockSync.isSynced()) {
@@ -1053,6 +1098,7 @@ export function handleSpectatedWeaponState(
     ammo: Record<string, ServerAmmoState>;
   },
   followed: FollowedViewWeapon,
+  instant = false,
 ): void {
   const weapon = canonicalWeaponId(event.currentWeapon);
   const weapons = [...new Set((event.weapons ?? []).map(canonicalWeaponId))];
@@ -1066,7 +1112,7 @@ export function handleSpectatedWeaponState(
   // switches play as switches; the first weapon after a target change is
   // already in hand. Our own weapon comes back through the local
   // reconciliation when we respawn.
-  followed.showWeapon(weapon);
+  followed.showWeapon(weapon, instant);
 }
 
 /** Our own shot as the server fired it: its ray, spread included, and any pellet seed. */
@@ -1369,12 +1415,16 @@ export function handleOutgoingDamage(ctx: GameEventContext, event: LocatedDamage
   playDamageConfirmationSound(event);
   Crosshair.getInstance().notifyHit(event.hitLocation);
   if (event.x !== undefined && event.damage > 0) {
-    const numbers = DamageNumbers.getInstance();
-    // init() does nothing once the numbers have a scene, and spawn() does nothing
-    // until they have one, so there is nothing to check first.
-    const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
-    if (gameScene) numbers.init(gameScene);
-    numbers.spawn(event.x, event.y, event.z, event.damage, event.hitLocation);
+    if (ctx.damageNumbers) {
+      ctx.damageNumbers.spawn(event.x, event.y, event.z, event.damage, event.hitLocation);
+    } else {
+      const numbers = DamageNumbers.getInstance();
+      // init() does nothing once the numbers have a scene, and spawn() does nothing
+      // until they have one, so there is nothing to check first.
+      const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
+      if (gameScene) numbers.init(gameScene);
+      numbers.spawn(event.x, event.y, event.z, event.damage, event.hitLocation);
+    }
   }
   if (event.x !== undefined && ctx._cartoonHit) {
     ctx._cartoonHit.spawn(event.x, event.y, event.z, event.damage);
@@ -1382,7 +1432,7 @@ export function handleOutgoingDamage(ctx: GameEventContext, event: LocatedDamage
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: duck-typed snapshot event
-function handleAwardEvent(ctx: GameEventContext, event: AwardSnapshotEvent): void {
+function handleAwardEvent(ctx: GameEventContext, event: AwardSnapshotEvent, viewPlayerId?: string): void {
   const awardType: string = event.awardType || "";
   const playerId: string = event.playerId || "";
   const playerName: string = event.playerName || "";
@@ -1390,14 +1440,13 @@ function handleAwardEvent(ctx: GameEventContext, event: AwardSnapshotEvent): voi
 
   devLog(`[Award] ${playerName}: ${awardType} (target=${targetName}, value=${event.value})`);
 
-  // Match against multiple ID formats since server/client may use different formats
-  const isLocalPlayer =
-    playerId === ctx.localPlayerId ||
-    playerId === toClientKey(ctx.localPlayerId) ||
-    toClientKey(playerId) === ctx.localPlayerId;
+  // Match against multiple ID formats since server/client may use different
+  // formats. The banner is for whoever the view is behind: you, or the player
+  // you watch.
+  const viewer = viewPlayerId ?? ctx.localPlayerId;
+  const isViewedPlayer = playerId === viewer || playerId === toClientKey(viewer) || toClientKey(playerId) === viewer;
 
-  // Personal award banner (only for local player)
-  if (isLocalPlayer && awardType !== "frag") {
+  if (isViewedPlayer && awardType !== "frag") {
     import("../../../engine/ui/hud/AwardBanner").then((m) => {
       m.AwardBanner.getInstance().show(awardType, playerName, targetName);
     });

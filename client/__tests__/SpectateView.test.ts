@@ -418,7 +418,7 @@ describe("SpectateView", () => {
       const hud = vi.spyOn(HUDState.getInstance(), "processWeaponState");
       view._spectatingEntityId = "player_2";
       view.syncFollowedSubject();
-      expect(followed.showWeapon).toHaveBeenCalledWith("machinegun");
+      expect(followed.showWeapon).toHaveBeenCalledWith("machinegun", false);
       expect(hud).toHaveBeenCalledWith({
         currentWeapon: "machinegun",
         weapons: ["blade", "machinegun"],

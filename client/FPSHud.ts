@@ -90,6 +90,9 @@ export class FPSHud {
   /** Aborted by destroy(), so document listeners never outlive this HUD (and keep it alive). */
   private _listeners: AbortController | null = null;
   private _chatKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+  private _unsubscribePhase: (() => void) | null = null;
+  /** Shows a match being watched (a demo): no chat input, menus or lobby return. */
+  private _watchOnly = false;
   /** Single-match post-game: timer for the ~6s "open up" beat (mouse+chat+return). */
   private _openUpTimer: number | null = null;
 
@@ -107,9 +110,11 @@ export class FPSHud {
   // ===========================================================================
 
   /**
-   * Initialize the FPS HUD system
+   * Initialize the FPS HUD system. `watchOnly` shows a match without taking
+   * part: everything on screen, nothing that types, opens menus or leaves.
    */
-  public async init(): Promise<void> {
+  public async init(options: { watchOnly?: boolean } = {}): Promise<void> {
+    this._watchOnly = options.watchOnly ?? false;
     console.log("[FPSHud] Initializing...");
 
     // 1. Inject WashikiTheme CSS
@@ -134,7 +139,8 @@ export class FPSHud {
     // hidden; only the winner slam + locked board (outside the container) and
     // the 3D showcase remain. Aim is locked (pointer lock stays held). All
     // undone when the next warmup begins.
-    MatchStateManager.getInstance().onPhaseChange((newPhase) => {
+    this._unsubscribePhase?.();
+    this._unsubscribePhase = MatchStateManager.getInstance().onPhaseChange((newPhase) => {
       if (!this._scoreboard) return;
       const postGame = newPhase === MatchPhase.PostGame;
 
@@ -162,7 +168,7 @@ export class FPSHud {
         // up), chat ready for banter, and the way home. The server releases
         // bots at +10s and closes stragglers at +120s; the lobby is already
         // reset and waiting (docs/research/single_game_server_lobby.md).
-        if (mgr.flow === "single") {
+        if (mgr.flow === "single" && !this._watchOnly) {
           this._openUpTimer = window.setTimeout(() => {
             this._openUpTimer = null;
             document.exitPointerLock();
@@ -199,6 +205,10 @@ export class FPSHud {
     // mouse look keeps working; game binds are suppressed by the InputSystem
     // text-field guard while the input has focus). Enter sends via the server
     // round-trip (no local echo), Esc cancels — both handled inside FPSChat.
+    if (this._watchOnly) {
+      console.log(`[FPSHud] Initialized with ${this.widgets.size} widgets, watching`);
+      return;
+    }
     this._chat.onSend((text) => {
       import("../Game")
         .then(({ Game }) => Game.getInstance().sendChat(text))
@@ -612,6 +622,8 @@ export class FPSHud {
    */
   public destroy(): void {
     this.stop();
+    this._unsubscribePhase?.();
+    this._unsubscribePhase = null;
 
     this._listeners?.abort();
     this._listeners = null;

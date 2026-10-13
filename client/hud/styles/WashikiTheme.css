@@ -1393,7 +1393,7 @@
 }
 
 /* ============================================================================
-   Speedometer — opt-in movement readout (cl_showspeed 1), bottom-center plate
+   Speedometer — movement readout (cl_showspeed 1 by default), bottom-center plate
    ============================================================================ */
 
 .fps-speedometer {

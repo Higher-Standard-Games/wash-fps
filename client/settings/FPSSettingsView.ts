@@ -7,6 +7,7 @@
 
 import { AudioManager } from "../../../../engine/AudioManager";
 import { Cvar } from "../../../../engine/core/Cvar";
+import { registerFpsDisplayCvar } from "../../../../engine/core/FpsDisplaySettings";
 import { EventBus } from "../../../../engine/core/EventBus";
 import { failedPreferenceKeys, PREFERENCE_STORAGE_EVENT } from "../../../../engine/core/PreferenceStorage";
 import { InputSystem } from "../../../../engine/input/InputSystem";
@@ -60,6 +61,7 @@ export class FPSSettingsView {
     injectRaisedKeyStyles();
     UIStyles.injectCSS("fps-settings-view", settingsCss);
     Cvar.init();
+    registerFpsDisplayCvar();
     registerPlayerModelVisualCvars();
     RenderVars.getInstance();
     AudioManager.getInstance();

@@ -132,6 +132,11 @@ export class HUDState {
   spectating: string = "";
   /** We are a spectator rather than a player, chasing someone or flying free. */
   watcher: boolean = false;
+  /**
+   * A recording, not a match we are in: the screen is the recorded player's,
+   * and nothing about our own part in a match (readying up) applies.
+   */
+  playback: boolean = false;
 
   /**
    * A spectator flying free, watching nobody. There is no player's health,

@@ -23,11 +23,10 @@ export class DemoViewerHUD {
   private playerList: HTMLDivElement | null = null;
   private statusLabel: HTMLSpanElement | null = null;
   private collapseBtn: HTMLButtonElement | null = null;
-  private specStats: HTMLDivElement | null = null;
+  private hudBtn: HTMLButtonElement | null = null;
 
   /** Signature of the last-rendered player list — avoids rebuilding buttons every frame (eats clicks) */
   private _playerListSig = "";
-  private _hasSpectatorStats = false;
 
   // Collapse state
   private collapsed = false;
@@ -37,6 +36,7 @@ export class DemoViewerHUD {
   private _onPlayPause: (() => void) | null = null;
   private _onSpeedChange: (() => void) | null = null;
   private _onPlayerSelect: ((entityId: string) => void) | null = null;
+  private _onHudToggle: (() => void) | null = null;
 
   // State
   private isDragging = false;
@@ -143,6 +143,22 @@ export class DemoViewerHUD {
     `;
     this.controlsRow.appendChild(this.speedLabel);
 
+    // The game HUD over playback: the followed player's own screen
+    this.hudBtn = document.createElement("button");
+    this.hudBtn.textContent = "HUD";
+    this.hudBtn.title = "Show or hide the game HUD";
+    this.hudBtn.style.cssText = `
+      cursor: pointer;
+      padding: 2px 8px;
+      border-radius: 3px;
+      border: 1px solid rgba(255,255,255,0.15);
+      color: inherit;
+      font: inherit;
+    `;
+    this.hudBtn.addEventListener("click", () => this._onHudToggle?.());
+    this.controlsRow.appendChild(this.hudBtn);
+    this.setGameHudVisible(true);
+
     // Time
     this.timeLabel = document.createElement("span");
     this.timeLabel.textContent = "0:00 / 0:00";
@@ -186,18 +202,6 @@ export class DemoViewerHUD {
     this.controlsRow.appendChild(this.collapseBtn);
 
     this.container.appendChild(this.controlsRow);
-
-    // ── Spectated-player stats (hidden until a target is followed) ──
-    this.specStats = document.createElement("div");
-    this.specStats.style.cssText = `
-      display: none;
-      align-items: center;
-      gap: 16px;
-      font-size: 13px;
-      font-variant-numeric: tabular-nums;
-      padding: 2px 2px 0;
-    `;
-    this.container.appendChild(this.specStats);
 
     // ── Player list (hidden by default) ─────────
     this.playerList = document.createElement("div");
@@ -332,32 +336,6 @@ export class DemoViewerHUD {
     }
   }
 
-  /**
-   * Show the currently-spectated player's live stats (health / armor / weapon / ammo).
-   * Pass null to hide the row.
-   */
-  setSpectatorStats(stats: { name: string; health: number; armor: number; weapon: string; ammo: string } | null): void {
-    if (!this.specStats) return;
-    if (!stats) {
-      this._hasSpectatorStats = false;
-      this.specStats.style.display = "none";
-      return;
-    }
-    this._hasSpectatorStats = true;
-    this.specStats.style.display = this.collapsed ? "none" : "flex";
-    const weaponLabel = stats.weapon ? stats.weapon.replace(/_/g, " ") : "—";
-    const ammo = stats.ammo ? ` <span style="opacity:0.7">${this.escape(stats.ammo)}</span>` : "";
-    this.specStats.innerHTML =
-      `<span style="font-weight:600">${this.escape(stats.name)}</span>` +
-      `<span style="color:#ff6b6b">♥ ${Math.max(0, Math.round(stats.health))}</span>` +
-      `<span style="color:#ffd93d">▲ ${Math.max(0, Math.round(stats.armor))}</span>` +
-      `<span style="text-transform:uppercase;letter-spacing:0.5px">${this.escape(weaponLabel)}${ammo}</span>`;
-  }
-
-  private escape(s: string): string {
-    return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c);
-  }
-
   // ── Callbacks ───────────────────────────────────────────────────
 
   onSeek(callback: (progress: number) => void): void {
@@ -372,6 +350,18 @@ export class DemoViewerHUD {
     this._onSpeedChange = callback;
   }
 
+  onHudToggle(callback: () => void): void {
+    this._onHudToggle = callback;
+  }
+
+  /** Reflect whether the game HUD is on. */
+  setGameHudVisible(visible: boolean): void {
+    if (!this.hudBtn) return;
+    this.hudBtn.setAttribute("aria-pressed", String(visible));
+    this.hudBtn.style.background = visible ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.06)";
+    this.hudBtn.style.opacity = visible ? "1" : "0.6";
+  }
+
   onPlayerSelect(callback: (entityId: string) => void): void {
     this._onPlayerSelect = callback;
   }
@@ -380,7 +370,7 @@ export class DemoViewerHUD {
 
   private _toggleCollapse(): void {
     this.collapsed = !this.collapsed;
-    if (!this.controlsRow || !this.playerList || !this.specStats || !this.container || !this.collapseBtn) return;
+    if (!this.controlsRow || !this.playerList || !this.container || !this.collapseBtn) return;
     for (const child of Array.from(this.controlsRow.children)) {
       if (child === this.collapseBtn) continue;
       (child as HTMLElement).style.display = this.collapsed ? "none" : "";
@@ -389,7 +379,6 @@ export class DemoViewerHUD {
     this.controlsRow.style.display = "flex";
     if (this.collapsed) {
       this.playerList.style.display = "none";
-      this.specStats.style.display = "none";
       this.container.style.padding = "0";
       this.collapseBtn.textContent = "▲";
       this.collapseBtn.title = "Expand HUD";
@@ -398,7 +387,6 @@ export class DemoViewerHUD {
       this.container.style.background = "transparent";
     } else {
       this.playerList.style.display = this.playerList.childElementCount > 0 ? "flex" : "none";
-      this.specStats.style.display = this._hasSpectatorStats ? "flex" : "none";
       this.container.style.padding = "12px 20px 16px";
       this.collapseBtn.textContent = "▼";
       this.collapseBtn.title = "Minimize HUD";
@@ -452,7 +440,7 @@ export class DemoViewerHUD {
     this.playerList = null;
     this.statusLabel = null;
     this.collapseBtn = null;
-    this.specStats = null;
+    this.hudBtn = null;
     this._onSeek = null;
     this._onPlayPause = null;
     this._onSpeedChange = null;

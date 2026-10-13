@@ -171,6 +171,8 @@ export class Crosshair {
    * @param isDead       Hide crosshair when dead
    * @param isJoined     Only show when actually in-game
    * @param outOfAmmo    Draw a large red X instead of the normal reticle
+   * @param watching     Behind someone else's eyes (a demo): shown without
+   *                     being in the game or holding the pointer
    */
   update(
     adsProgress: number,
@@ -179,6 +181,7 @@ export class Crosshair {
     isDead: boolean,
     isJoined: boolean,
     outOfAmmo: boolean = false,
+    watching: boolean = false,
   ): void {
     if (!this.ctx || !this.canvas || !this.container) return;
 
@@ -187,7 +190,7 @@ export class Crosshair {
 
     // Hide conditions: disabled, dead, not joined, or pointer lock lost (pause menu)
     const hasPointerLock = !!document.pointerLockElement;
-    const shouldShow = enabled && !isDead && isJoined && hasPointerLock;
+    const shouldShow = enabled && !isDead && (watching || (isJoined && hasPointerLock));
     this.container.style.display = shouldShow ? "" : "none";
     if (!shouldShow) return;
 

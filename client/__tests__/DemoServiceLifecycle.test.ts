@@ -71,7 +71,7 @@ function seedPlayback(
   renderer: DisposableSpy & { setHiddenEntity: ReturnType<typeof vi.fn> };
   hud: DisposableSpy;
   cinematicHud: DisposableSpy;
-  eventOverlay: { destroy: ReturnType<typeof vi.fn>; show: ReturnType<typeof vi.fn>; hide: ReturnType<typeof vi.fn> };
+  gameHud: { destroy: ReturnType<typeof vi.fn>; show: ReturnType<typeof vi.fn>; hide: ReturnType<typeof vi.fn> };
   gibs: DisposableSpy;
   damage: DisposableSpy;
   drops: DisposableSpy;
@@ -83,10 +83,10 @@ function seedPlayback(
   const renderer = { ...disposable(), setHiddenEntity: vi.fn() };
   const hud = disposable(`demo-hud-${generation}`);
   const cinematicHud = disposable(`cinematic-hud-${generation}`);
-  const eventRoot = document.body.appendChild(document.createElement("div"));
-  eventRoot.className = `event-overlay-${generation}`;
-  const eventOverlay = {
-    destroy: vi.fn(() => eventRoot.remove()),
+  const hudRoot = document.body.appendChild(document.createElement("div"));
+  hudRoot.className = `game-hud-${generation}`;
+  const gameHud = {
+    destroy: vi.fn(() => hudRoot.remove()),
     show: vi.fn(),
     hide: vi.fn(),
   };
@@ -105,7 +105,7 @@ function seedPlayback(
     remoteRenderer: renderer,
     demoHud: hud,
     cinematicHud,
-    demoEventOverlay: eventOverlay,
+    gameHud,
     demoGibs: gibs,
     demoDamageNumbers: damage,
     droppedWeaponRenderer: drops,
@@ -130,13 +130,12 @@ function seedPlayback(
   internals.demoOverlays.bindKeyboard(document);
   internals.demoOverlays.setNormalHud({ show: vi.fn(), hide: vi.fn() });
   internals.demoOverlays.setCinematicHud({ show: vi.fn(), hide: vi.fn() });
-  internals.demoOverlays.setChat(eventOverlay);
   internals.chargingGlows.set(`player_${generation}`, glow);
   internals.chargingPlayers.add(`player_${generation}`);
   internals._enemyWeapons.set(`player_${generation}`, "rocket");
   lifecycle.setActiveController("spectator");
 
-  return { viewer, cinematic, renderer, hud, cinematicHud, eventOverlay, gibs, damage, drops, glow, demoWvm };
+  return { viewer, cinematic, renderer, hud, cinematicHud, gameHud, gibs, damage, drops, glow, demoWvm };
 }
 
 describe("DemoService playback lifecycle", () => {
@@ -184,7 +183,7 @@ describe("DemoService playback lifecycle", () => {
       expect(owner.dispose).toHaveBeenCalledOnce();
     }
     expect(normal.renderer.setHiddenEntity).toHaveBeenCalledWith(null);
-    expect(normal.eventOverlay.destroy).toHaveBeenCalledOnce();
+    expect(normal.gameHud.destroy).toHaveBeenCalledOnce();
     expect(normal.glow.dispose).toHaveBeenCalledOnce();
     expect(document.querySelector('[class$="-normal"]')).toBeNull();
 
@@ -194,7 +193,7 @@ describe("DemoService playback lifecycle", () => {
     expect(cinematic.viewer.pause).toHaveBeenCalledOnce();
     expect(cinematic.cinematic.dispose).toHaveBeenCalledOnce();
     expect(cinematic.renderer.setHiddenEntity).toHaveBeenCalledWith(null);
-    expect(cinematic.eventOverlay.destroy).toHaveBeenCalledOnce();
+    expect(cinematic.gameHud.destroy).toHaveBeenCalledOnce();
     expect(document.querySelector('[class$="-cinematic"]')).toBeNull();
     expect(lifecycle.spectator.clearSpectateTarget).toHaveBeenCalledTimes(2);
     expect(lifecycle.spectator.clearTargetProvider).toHaveBeenCalledTimes(2);
