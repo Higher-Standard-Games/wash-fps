@@ -295,7 +295,8 @@ function createBoneConfig(): BoneConfig[] {
 interface ActiveRagdoll {
   model: PlayerModelInstance;
   ragdoll: Ragdoll;
-  spawnTime: number;
+  /** Seconds lived, by the clock update() is handed: wall time live, the playhead in a demo. */
+  age: number;
   disposed: boolean;
   /** Speed trail mesh attached to hips bone */
   trail: TrailMesh | null;
@@ -334,6 +335,13 @@ export class RagdollSystem {
       RagdollSystem.instance = new RagdollSystem();
     }
     return RagdollSystem.instance;
+  }
+
+  /** Create an independently-owned instance for demo playback. */
+  static create(scene: Scene): RagdollSystem {
+    const system = new RagdollSystem();
+    system.init(scene);
+    return system;
   }
 
   // ========================================================================
@@ -538,7 +546,7 @@ export class RagdollSystem {
       const active: ActiveRagdoll = {
         model,
         ragdoll: ragdollInstance,
-        spawnTime: performance.now(),
+        age: 0,
         disposed: false,
         trail,
         trailMat,
@@ -575,10 +583,10 @@ export class RagdollSystem {
   // Per-frame update
   // ========================================================================
 
-  update(_dt: number): void {
+  /** Age every ragdoll by `dt` seconds: trails fade, then each fades out and bursts. */
+  update(dt: number): void {
     if (!this.scene) return;
 
-    const now = performance.now();
     for (let i = this.ragdolls.length - 1; i >= 0; i--) {
       const active = this.ragdolls[i];
       if (active.disposed) {
@@ -586,7 +594,8 @@ export class RagdollSystem {
         continue;
       }
 
-      const age = (now - active.spawnTime) / 1000;
+      active.age += Math.max(0, dt);
+      const age = active.age;
 
       // Fade and dispose trail after TRAIL_LIFETIME
       if (active.trail && age < TRAIL_LIFETIME) {

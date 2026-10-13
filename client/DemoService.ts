@@ -14,6 +14,7 @@
 import { Ray } from "@babylonjs/core/Culling/ray";
 import type { PointLight } from "@babylonjs/core/Lights/pointLight";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import type { Scene } from "@babylonjs/core/scene";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import { EventBus } from "../../../engine/core/EventBus";
 import { disposeClusteredLight } from "../../../engine/lighting/DynamicLightCluster";
@@ -50,6 +51,7 @@ import { type GameEventContext, handleServerStateUpdate, type ProjectileSyncStat
 import { GibSystem } from "./GibSystem";
 import { HUDState } from "./HUDState";
 import { MatchStateManager } from "./MatchStateManager";
+import { RagdollSystem } from "./RagdollSystem";
 import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
 import { PlayerWeaponStates, storeSnapshotState } from "./SnapshotStateStore";
 
@@ -82,6 +84,13 @@ export class DemoService {
   private lastFrameTimeMs: number = 0;
   private latestState: GameState | null = null;
   private demoGibs: GibSystem | null = null;
+  /** Bodies that fall as they did, on the playhead: paused with it, slowed with it. */
+  private demoRagdolls: RagdollSystem | null = null;
+  /**
+   * The scene playback steps physics for, and whether its own stepping was on
+   * before: the demo hands Havok the playhead's time instead of the frame's.
+   */
+  private physicsScene: { scene: Scene; wasEnabled: boolean } | null = null;
   private demoDamageNumbers: DamageNumbers | null = null;
   private droppedWeaponRenderer: DroppedWeaponRenderer | null = null;
   private readonly chargingPlayers = new Set<string>();
@@ -499,6 +508,10 @@ export class DemoService {
     this.demoHud = null;
     this.demoEventTimeline.clear();
     this.demoGibs?.dispose();
+    this.demoRagdolls?.dispose();
+    this.demoRagdolls = null;
+    if (this.physicsScene) this.physicsScene.scene.physicsEnabled = this.physicsScene.wasEnabled;
+    this.physicsScene = null;
     this.demoGibs = null;
     this.demoDamageNumbers?.dispose();
     this.demoDamageNumbers = null;
@@ -628,6 +641,10 @@ export class DemoService {
     await preloadFPSAudio();
     resetFPSMovementAudio();
     this.demoGibs = GibSystem.create(scene);
+    this.demoRagdolls = RagdollSystem.create(scene);
+    // A body that lies long enough bursts, as it does in the game
+    this.demoRagdolls.setGibCallback((x, y, z, vx, vy, vz) => this.demoGibs?.spawn(x, y, z, vx, vy, vz));
+    this.physicsScene = { scene, wasEnabled: scene.physicsEnabled };
     this.demoDamageNumbers = DamageNumbers.create(scene);
     // Demo playback uses snapshot transforms directly: no wall-clock Havok toss
     // continues while paused, and seek landing reconstructs the exact item set.
@@ -1063,7 +1080,7 @@ export class DemoService {
       _respawnCooldownEnd: 0,
       _gibSystem: this.demoGibs,
       _pendingGibSpawns: [],
-      _ragdollSystem: null,
+      _ragdollSystem: this.demoRagdolls,
       _cartoonHit: null,
       _deathCamera: null,
       onStateUpdateCallbacks: [],
@@ -1082,6 +1099,7 @@ export class DemoService {
       resetFPSMovementAudio();
       clearDemoWorldEffects();
       this.demoGibs?.clear();
+      this.demoRagdolls?.disposeAll();
       this.demoDamageNumbers?.clear();
       this._clearDemoCharge();
       this._clearDemoProjectiles();
@@ -1097,12 +1115,28 @@ export class DemoService {
       const demoDeltaSeconds = Math.min(0.25, deltaTicks / (tickRate > 0 ? tickRate : 60));
       if (demoDeltaSeconds > 0) {
         this.demoGibs?.update(demoDeltaSeconds);
+        this.demoRagdolls?.update(demoDeltaSeconds);
+        this.stepDemoPhysics(demoDeltaSeconds);
         this.demoDamageNumbers?.update(demoDeltaSeconds);
       }
       this.lastEffectTick = playback.playheadTick;
     }
 
     return discontinuous;
+  }
+
+  /**
+   * Step Havok by the playhead's time. The scene would step it by the frame's
+   * — a ragdoll kept falling while paused and fell at full speed in slow
+   * motion — so its own stepping stays off for the length of playback (it is
+   * set again each frame: enabling physics late, on the first ragdoll, turns
+   * it back on).
+   */
+  private stepDemoPhysics(seconds: number): void {
+    const held = this.physicsScene;
+    if (!held?.scene.getPhysicsEngine()) return;
+    held.scene.physicsEnabled = false;
+    held.scene._advancePhysicsEngineStep(seconds * 1000);
   }
 
   /** Push the playback clock to the renderer — the single site for this tuple
