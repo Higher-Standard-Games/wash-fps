@@ -68,7 +68,7 @@ describe("extractEntities", () => {
   it("reads the movement components, preferring linear velocity", () => {
     const s = state(
       entity("player_1", {
-        transform: { position: { x: 1, y: 2, z: 3 }, rotation: { y: 0.5 } },
+        transform: { position: { x: 1, y: 2, z: 3 }, rotation: { x: -0.25, y: 0.5 } },
         velocity: { x: 9, y: 9, z: 9, linear: { x: 4, y: 5, z: 6 }, grounded: false },
         movementState: {
           isCrouching: true,
@@ -86,6 +86,7 @@ describe("extractEntities", () => {
       y: 2,
       z: 3,
       yaw: 0.5,
+      pitch: -0.25,
       vx: 4,
       vy: 5,
       vz: 6,
@@ -113,6 +114,7 @@ describe("extractEntities", () => {
             y: 0,
             z: 0,
             yaw: 0,
+            pitch: 0,
             vx: 3,
             vy: 0,
             vz: 4,

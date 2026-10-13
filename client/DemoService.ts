@@ -899,7 +899,7 @@ export class DemoService {
         y: sampled?.y ?? transform.position.y,
         z: sampled?.z ?? transform.position.z,
         yaw: sampled?.yaw ?? transform.rotation?.y ?? 0,
-        pitch: transform.rotation?.x ?? 0,
+        pitch: sampled?.pitch ?? transform.rotation?.x ?? 0,
         eyeHeight: pov?.eyeHeight,
         bobRight: pov?.cameraBobRight,
         bobUp: pov?.cameraBobUp,

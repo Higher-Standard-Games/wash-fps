@@ -36,6 +36,14 @@ describe("DemoEntityTimeline", () => {
     expect(result?.crouchViewOffset).toBe(-12);
   });
 
+  it("interpolates the view pitch with the rest of the pose", () => {
+    const timeline = new DemoEntityTimeline();
+    timeline.push(100, frame("player", entity({ pitch: -0.4 })));
+    timeline.push(104, frame("player", entity({ pitch: 0.4 })));
+    expect(timeline.sample("player", 101)?.pitch).toBeCloseTo(-0.2);
+    expect(timeline.sample("player", 103)?.pitch).toBeCloseTo(0.2);
+  });
+
   it("uses shortest-path yaw interpolation", () => {
     const timeline = new DemoEntityTimeline();
     timeline.push(10, frame("player", entity({ yaw: Math.PI * 0.9 })));

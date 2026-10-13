@@ -6,7 +6,7 @@
  * newest recorded state.
  */
 
-import type { EntitySnapshot, InterpolatedEntity } from "../../../engine/network/client/SnapshotBuffer";
+import { type EntitySnapshot, type InterpolatedEntity, lerpPitch } from "../../../engine/network/client/SnapshotBuffer";
 
 interface DemoTimelineSnapshot {
   tick: number;
@@ -126,6 +126,7 @@ export class DemoEntityTimeline {
       y: a.y + (b.y - a.y) * t,
       z: a.z + (b.z - a.z) * t,
       yaw: a.yaw + yawDelta * t,
+      pitch: lerpPitch(a.pitch, b.pitch, t),
       vx: a.vx + (b.vx - a.vx) * t,
       vy: a.vy + (b.vy - a.vy) * t,
       vz: a.vz + (b.vz - a.vz) * t,

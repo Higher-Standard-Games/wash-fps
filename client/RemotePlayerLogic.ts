@@ -44,6 +44,7 @@ export function extractEntities(state: GameState, localEntityId: string): Map<st
       y: transform.position.y,
       z: transform.position.z,
       yaw: transform.rotation?.y ?? 0,
+      pitch: transform.rotation?.x ?? 0,
       vx: velocity?.linear?.x ?? velocity?.x ?? 0,
       vy: velocity?.linear?.y ?? velocity?.y ?? 0,
       vz: velocity?.linear?.z ?? velocity?.z ?? 0,
