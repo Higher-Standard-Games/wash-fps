@@ -9,7 +9,7 @@ import type { StandardMaterial } from "@babylonjs/core/Materials/standardMateria
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Scene } from "@babylonjs/core/scene";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getProceduralPickupRecipe } from "../ProceduralPickupRecipes";
+import { allProceduralPickupRecipes, getProceduralPickupRecipe } from "../ProceduralPickupRecipes";
 import { ProceduralPickupVisual } from "../ProceduralPickupVisual";
 
 let engine: NullEngine;
@@ -33,21 +33,25 @@ function transientMeshes(): number {
 }
 
 describe("ProceduralPickupVisual", () => {
-  it("keeps every armor tier clear of the floor at the bottom of its bob", () => {
-    for (const id of ["armor_shard", "armor_ga", "armor_ya", "armor_ra"]) {
-      const recipe = getProceduralPickupRecipe(id);
-      if (!recipe) throw new Error(`recipe missing: ${id}`);
-      // Pickup.dropToGround places the fixed anchor 12 units above the floor.
-      const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 12, 0), false, 0);
-      visual.setActive(true);
-      visual.update(1, 0.75 / recipe.bobFrequency);
-      const armorMeshes = visual.root.getChildMeshes().filter((mesh) => mesh.name.includes("armor"));
-      expect(armorMeshes.length).toBeGreaterThan(0);
-      for (const mesh of armorMeshes) {
-        mesh.computeWorldMatrix(true);
-        expect(mesh.getBoundingInfo().boundingBox.minimumWorld.y).toBeGreaterThan(0);
+  it("keeps all pickup tiers above the floor throughout their faster bob at server-landed height", () => {
+    for (const recipe of allProceduralPickupRecipes()) {
+      // The shared item collision box rests at +4u, lower than local +12u placement.
+      for (const seed of [0, 17, 91]) {
+        const anchor = new Vector3(0, 4, 0);
+        const visual = new ProceduralPickupVisual(scene, recipe, anchor, false, seed);
+        visual.setActive(true);
+        const meshes = visual.root.getChildMeshes().filter((mesh) => !mesh.name.includes("beacon"));
+        expect(meshes.length).toBeGreaterThan(0);
+        for (let step = 0; step <= 32; step++) {
+          visual.update(1 / 60, step / (32 * recipe.bobFrequency * 1.2));
+          for (const mesh of meshes) {
+            mesh.computeWorldMatrix(true);
+            expect(mesh.getBoundingInfo().boundingBox.minimumWorld.y, `${recipe.id}: ${mesh.name}`).toBeGreaterThan(2);
+          }
+          expect(visual.root.position.equals(anchor)).toBe(true);
+        }
+        visual.dispose();
       }
-      visual.dispose();
     }
   });
 

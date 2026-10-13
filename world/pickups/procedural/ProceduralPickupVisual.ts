@@ -45,16 +45,16 @@ import type { ProceduralPickupRecipe } from "./types";
 const TAU = Math.PI * 2;
 const DEG2RAD = Math.PI / 180;
 
-// The pickup anchor sits `dropToGround` +12u above the floor; the beacon drops
-// back down to the floor to rise as a column.
+// Server-landed anchors sit about 4u above the floor; local dropToGround uses
+// 12u. Hover clearance must cover the lower server anchor and full bob amplitude.
 const BEACON_HEIGHT = 90;
 const BEACON_BASE_BELOW = 12;
 /** Extra rest height above the anchor so the item floats clearly off the floor. */
-const HOVER_LIFT = 9;
-/** Plate carriers need more clearance than the compact health and ammo shapes. */
-const ARMOR_HOVER_LIFT = 21;
+const HOVER_LIFT = 30;
 /** Amplifies each recipe's bob so the up/down float is clearly visible. */
 const BOB_GAIN = 2.6;
+/** A slightly livelier float without changing spin, pulse or color-flow speeds. */
+const BOB_SPEED = 1.2;
 /** Speed of the shell's color↔accent flow (cycles/sec — slow). */
 const COLOR_FLOW_SPEED = 0.22;
 /** How fast the ring gradient travels around the ring (UV turns/sec). */
@@ -120,6 +120,7 @@ export class ProceduralPickupVisual implements PickupVisual {
     this.root.position.copyFrom(position);
     this.cosmetic = new TransformNode(`pp_cosmetic_${recipe.id}_${seed}`, scene);
     this.cosmetic.parent = this.root;
+    this.cosmetic.position.y = HOVER_LIFT;
 
     const s = recipe.scale * PROCEDURAL_GLOBAL_SCALE;
 
@@ -261,7 +262,7 @@ export class ProceduralPickupVisual implements PickupVisual {
         family: this.recipe.family,
         center: {
           x: this.cosmetic.position.x,
-          y: this.cosmetic.position.y || (this.recipe.family === "armor" ? ARMOR_HOVER_LIFT : HOVER_LIFT),
+          y: this.cosmetic.position.y || HOVER_LIFT,
         },
       },
     );
@@ -293,9 +294,8 @@ export class ProceduralPickupVisual implements PickupVisual {
     }
 
     // Float higher off the floor, with a clearly visible slow up/down bob.
-    const bobW = t * r.bobFrequency * TAU;
-    this.cosmetic.position.y =
-      (r.family === "armor" ? ARMOR_HOVER_LIFT : HOVER_LIFT) + Math.sin(bobW) * r.bobAmplitude * BOB_GAIN;
+    const bobW = t * r.bobFrequency * BOB_SPEED * TAU;
+    this.cosmetic.position.y = HOVER_LIFT + Math.sin(bobW) * r.bobAmplitude * BOB_GAIN;
     this.cosmetic.position.x = r.figureEight ? Math.sin(bobW * 2) * r.bobAmplitude * 0.35 : 0;
     this.cosmetic.rotation.y = r.family === "powerup" ? 0.28 * Math.sin(t * 0.45 * TAU) : t * r.spinSpeed * DEG2RAD;
 
