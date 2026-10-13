@@ -107,7 +107,7 @@ export function processFPSMovementAudio(state: GameState, localEntityId?: string
     // rejected by the travel cap below.
     if (previous.grounded && !velocity.grounded && velocity.linear.y > 60 && horizontalTravel < 256) {
       const path = bobotJumps[jumpSequence++ % bobotJumps.length];
-      playAtPlayer(path, position, local, 0.72);
+      playAtPlayer(path, position, local, 0.72, "players", `${entityId}:body`);
     }
 
     // Ladders get their own cadence off vertical travel: a climber is neither
@@ -171,10 +171,11 @@ function playAtPlayer(
   local: boolean,
   volume: number,
   channel: SfxChannel = "players",
+  slot?: string,
 ): void {
   const audio = AudioManager.getInstance();
   if (local) audio.playSfx2D(path, volume, 2, channel);
-  else audio.playSfx3D(path, position, { volume, channel });
+  else audio.playSfx3D(path, position, { volume, channel, slot });
 }
 
 function getGroundSurfaceFlags(position: { x: number; y: number; z: number }): number {

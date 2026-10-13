@@ -172,14 +172,15 @@ export function playPlayerPainSound(event: DamageEvent, localVictim: boolean, no
   const path = bobotPainSounds[damageTier(event.damage)];
   const audio = AudioManager.getInstance();
   if (localVictim) audio.playSfx2D(path, 0.65, 2, "players");
-  else audio.playSfx3D(path, event, { volume: 0.72, channel: "players" });
+  else audio.playSfx3D(path, event, { volume: 0.72, channel: "players", slot: `${event.entityId}:pain` });
 }
 
 /** Bobot is the initial Washoi player voice until model-specific banks are configured. */
 export function playPlayerDeathSound(event: DeathEvent, localVictim: boolean): void {
   const audio = AudioManager.getInstance();
   if (localVictim) audio.playSfx2D(BOBOT_DEATH_SOUND, 0.9, 1, "players");
-  else audio.playSfx3D(BOBOT_DEATH_SOUND, event, { volume: 0.95, channel: "players" });
+  // The pain slot: dying cuts the last pain short
+  else audio.playSfx3D(BOBOT_DEATH_SOUND, event, { volume: 0.95, channel: "players", slot: `${event.entityId}:pain` });
 }
 
 /** The deliberately huge Warsow frag confirmation echo. */
