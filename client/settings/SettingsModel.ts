@@ -369,7 +369,7 @@ export const VIDEO_PRESETS: Array<CvarChoice<"smooth" | "balanced" | "pretty"> &
       r_anisotropy: 8,
       r_godrays: 1,
       r_godrays_samples: 60,
-      r_water_quality: 3,
+      r_water_quality: 2,
       r_water_actors: 1,
       r_arealights: 1,
       r_bsp_pbr: 1,
@@ -378,7 +378,7 @@ export const VIDEO_PRESETS: Array<CvarChoice<"smooth" | "balanced" | "pretty"> &
   {
     id: "pretty",
     label: "Pretty",
-    line: "Adds glow and reflections. Wants a strong graphics card.",
+    line: "Adds glow, reflections and see-through water. Wants a strong graphics card.",
     bars: 3,
     values: {
       r_bloom: 1.3,
