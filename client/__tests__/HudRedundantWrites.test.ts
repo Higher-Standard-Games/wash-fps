@@ -112,11 +112,14 @@ describe("ready bar", () => {
     const bar = new FPSReadyBar();
     bar.update(hud());
     const count = bar.getElement().firstElementChild;
+    const label = bar.getElement().querySelector(".fps-ready-count-label");
     expect(count).not.toBeNull();
+    expect(label?.textContent).toBe(manager.getReadyStatus());
 
     for (let tick = 0; tick < 10; tick++) bar.update(hud());
 
     expect(bar.getElement().firstElementChild).toBe(count);
+    expect(bar.getElement().querySelector(".fps-ready-count-label")).toBe(label);
   });
 
   it("changes when the player readies up, and when the count changes", () => {

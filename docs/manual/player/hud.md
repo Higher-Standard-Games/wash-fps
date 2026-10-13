@@ -138,6 +138,11 @@ attention:
 | **Death screen** | On death — who fragged you and how, and the respawn countdown |
 | **Match menu** | Escape, mid-match |
 
+During warmup, the larger ready banner stays on one line. Its gold-cell text
+gently grows and shrinks while you still need to press **F4**, keeping the cell
+itself still. It stops pulsing once you are ready. Spectator banners stay still,
+and the browser's reduced-motion preference disables the pulse.
+
 ## Awards and Streaks
 
 The server tracks a **kill streak** for every player: kills since you last died, which a death resets to zero. Awards are announced when you reach them:

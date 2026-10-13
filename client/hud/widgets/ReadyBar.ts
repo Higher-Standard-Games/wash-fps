@@ -35,7 +35,7 @@ export class FPSReadyBar implements FPSHudWidget {
 
       this.write(
         `player|${mgr.isReady}`,
-        `<span class="fps-ready-count">${mgr.getReadyStatus()}</span>${readyText}`,
+        `<span class="fps-ready-count"><span class="fps-ready-count-label">${mgr.getReadyStatus()}</span></span>${readyText}`,
         () => {
           this.element.classList.remove("hidden", "fps-ready-bar--spectating");
           this.element.classList.toggle("fps-ready-bar--ready", mgr.isReady);

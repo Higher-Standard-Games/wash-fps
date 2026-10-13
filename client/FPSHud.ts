@@ -14,14 +14,14 @@
 
 import { GamePaths } from "../../../engine/core/GamePaths";
 import { log } from "../../../engine/core/Log";
-// Import CSS as raw string (Vite)
-import washikiTheme from "../../../engine/ui/hud/styles/WashikiTheme.css?raw";
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import { UITheme } from "../../../engine/ui/UITheme";
 import { getWeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
 import { toClientKey } from "../ClientEntityKey";
 import { devLog } from "./DevLog";
 import { HUDState } from "./HUDState";
+// Import the game's HUD theme as raw CSS (Vite).
+import washikiTheme from "./hud/styles/WashikiTheme.css?raw";
 import { MatchPhase, MatchStateManager } from "./MatchStateManager";
 import { returnToLobby } from "./ReturnToLobby";
 
