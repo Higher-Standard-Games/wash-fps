@@ -38,6 +38,24 @@ function entity(x: number, yaw: number, crouchViewOffset = 0) {
   return { getComponent: (name: string) => components[name] };
 }
 
+function drawnSample(x: number, yaw: number, crouchViewOffset = 0) {
+  return {
+    x,
+    y: 0,
+    z: 0,
+    yaw,
+    pitch: 0.2,
+    vx: 0,
+    vy: 0,
+    vz: 0,
+    grounded: true,
+    crouching: crouchViewOffset < 0,
+    sliding: false,
+    wallJumping: false,
+    crouchViewOffset,
+  };
+}
+
 function setup() {
   const state = { dead: true, playerState: "playing" as "spectator" | "playing" };
   const rendered: Rendered = new Map([
@@ -46,10 +64,15 @@ function setup() {
     ["player_2", { position: { x: 2, y: 0, z: 0 }, dead: false }],
     ["player_9", { position: { x: 9, y: 0, z: 0 }, dead: false }],
   ]);
+  // What each player is drawn from this frame: the watched view's source.
+  const samples = new Map([
+    ["player_2", drawnSample(2, 0.5, -10)],
+    ["player_3", drawnSample(3, 0.7)],
+  ]);
   const remoteRenderer = {
     getRenderedPlayers: () => rendered,
     setHiddenEntity: vi.fn(),
-    getEntitySample: (id: string) => (id === "player_2" ? { id } : null),
+    getEntitySample: (id: string) => samples.get(id) ?? null,
   };
   const enemyWeapons = new Map([["player_2", "riotgun"]]);
   const playerWeapons = new PlayerWeaponStates();
@@ -126,6 +149,7 @@ function setup() {
     state,
     rendered,
     remoteRenderer,
+    samples,
     overlay,
     gameState,
     deathCamera,
@@ -201,9 +225,9 @@ describe("SpectateView", () => {
   });
 
   it("refuses a teammate it has no position for, and keeps the corpse camera", () => {
-    const { view, gameState, deathCamera } = setup();
-    // Absent from the snapshot, and (stood in for here) no longer drawn either.
-    gameState.entities.clear();
+    const { view, samples, deathCamera } = setup();
+    // No sample to draw them from, and (stood in for here) no longer drawn either.
+    samples.clear();
     match(MatchPhase.Active, 1);
     Object.assign(view as object, { drawnAt: () => null });
     view.applyDeathCamera(camera(), 1 / 60);
@@ -232,13 +256,13 @@ describe("SpectateView", () => {
     expect(view._spectatingEntityId).toBeNull();
   });
 
-  it("reads position and angles from one snapshot, with the crouch in the eye height", () => {
+  it("views from the sample the player is drawn with, at their crouched eye height", () => {
     const { view } = setup();
-    const sample = view.spectateEyeSample("player_2");
-    expect(sample).toMatchObject({ x: 2, y: 0, z: 0, yaw: 0.5, pitch: 0.2 });
-    const standing = view.spectateEyeSample("player_3");
-    expect((standing?.eyeHeight ?? 0) - (sample?.eyeHeight ?? 0)).toBe(10);
-    expect(view.spectateEyeSample("player_9")).toBeNull();
+    const crouched = view.eyePose("player_2");
+    expect(crouched).toMatchObject({ x: 2, z: 0, yaw: 0.5, pitch: 0.2 });
+    const standing = view.eyePose("player_3");
+    expect((standing?.y ?? 0) - (crouched?.y ?? 0)).toBe(10);
+    expect(view.eyePose("player_9")).toBeNull();
   });
 
   it("turns the round-end camera on the focus and drops the teammate view", () => {
@@ -455,12 +479,12 @@ describe("SpectateView", () => {
     });
 
     it("feeds the watched player's stride to their weapon", () => {
-      const { view, followed } = setup();
+      const { view, followed, samples } = setup();
       view.updateFollowedMotion();
       expect(followed.updateMotion).not.toHaveBeenCalled();
       followed.followedEntityId = "player_2";
       view.updateFollowedMotion();
-      expect(followed.updateMotion).toHaveBeenCalledWith({ id: "player_2" }, expect.anything());
+      expect(followed.updateMotion).toHaveBeenCalledWith(samples.get("player_2"), expect.anything());
     });
   });
 });

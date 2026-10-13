@@ -1,20 +1,27 @@
+import { FreeCamera } from "@babylonjs/core/Cameras/freeCamera";
+import { NullEngine } from "@babylonjs/core/Engines/nullEngine";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
-import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_VIEWHEIGHT } from "../../../../engine/physics/PlayerPhysicsConstants";
-import { SpectateEyeCamera, type SpectateEyeSample } from "../SpectateEyeCamera";
+import { Scene } from "@babylonjs/core/scene";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { FirstPersonPose } from "../../../../engine/camera/FirstPersonPose";
+import { createNeutralDelta } from "../../../../engine/viewport/ViewportDelta";
+import { SpectateEyeCamera } from "../SpectateEyeCamera";
 
-/** A stand-in for the Babylon FreeCamera the FPS controller hands us. */
-function fakeCamera(): { position: Vector3; rotation: Vector3 } {
-  return { position: new Vector3(), rotation: new Vector3() };
-}
-
-const standing: SpectateEyeSample = { x: 100, y: 50, z: 200, yaw: 1, pitch: 0.2 };
+const standing: FirstPersonPose = { x: 100, y: 84, z: 200, yaw: 1, pitch: 0.2 };
 
 describe("SpectateEyeCamera", () => {
-  let camera: ReturnType<typeof fakeCamera>;
+  let engine: NullEngine;
+  let scene: Scene;
+  let camera: FreeCamera;
 
   beforeEach(() => {
-    camera = fakeCamera();
+    engine = new NullEngine();
+    scene = new Scene(engine);
+    camera = new FreeCamera("fps", Vector3.Zero(), scene);
+  });
+  afterEach(() => {
+    scene.dispose();
+    engine.dispose();
   });
 
   it("does not touch the camera until it is started", () => {
@@ -24,23 +31,12 @@ describe("SpectateEyeCamera", () => {
     expect(camera.position.equals(Vector3.Zero())).toBe(true);
   });
 
-  it("puts the camera at the watched player's eyes, not behind them", () => {
+  it("puts the camera at the watched player's eyes, looking where they look", () => {
     const eye = new SpectateEyeCamera();
     eye.start(() => standing);
 
     expect(eye.update(0.016, camera)).toBe(true);
-    // First frame snaps: the eye is directly above the origin, offset by the
-    // view height. A third-person chase would sit metres away on the XZ plane.
-    expect(camera.position.x).toBe(standing.x);
-    expect(camera.position.z).toBe(standing.z);
-    expect(camera.position.y).toBe(standing.y + DEFAULT_VIEWHEIGHT);
-  });
-
-  it("looks where they are looking", () => {
-    const eye = new SpectateEyeCamera();
-    eye.start(() => standing);
-    eye.update(0.016, camera);
-
+    expect([camera.position.x, camera.position.y, camera.position.z]).toEqual([100, 84, 200]);
     expect(camera.rotation.y).toBe(standing.yaw);
     expect(camera.rotation.x).toBe(standing.pitch);
   });
@@ -56,107 +52,69 @@ describe("SpectateEyeCamera", () => {
     expect(camera.rotation.z).toBe(0);
   });
 
-  it("drops to the crouched eye height when they duck", () => {
+  it("follows each sample exactly: the sample is already interpolated", () => {
     const eye = new SpectateEyeCamera();
-    eye.start(() => ({ ...standing, eyeHeight: DEFAULT_VIEWHEIGHT - 20 }));
+    let pose = { ...standing };
+    eye.start(() => pose);
     eye.update(0.016, camera);
 
-    expect(camera.position.y).toBe(standing.y + DEFAULT_VIEWHEIGHT - 20);
+    pose = { ...standing, x: standing.x + 60, yaw: -3 };
+    eye.update(0.016, camera);
+    expect(camera.position.x).toBe(pose.x);
+    expect(camera.rotation.y).toBe(-3);
   });
 
-  it("eases toward a moving target rather than snapping each frame", () => {
+  it("lays their screen's effects over the pose", () => {
     const eye = new SpectateEyeCamera();
-    let sample = { ...standing };
-    eye.start(() => sample);
+    const effects = createNeutralDelta();
+    effects.positionOffset.set(0, -4, 0);
+    effects.rotationOffset.set(0, 0, 2);
+    effects.fovMultiplier = 1.2;
+    eye.start(() => ({ ...standing, effects }));
     eye.update(0.016, camera);
 
-    // A stride, not a teleport.
-    sample = { ...standing, x: standing.x + 60 };
-    eye.update(0.016, camera);
-
-    expect(camera.position.x).toBeGreaterThan(standing.x);
-    expect(camera.position.x).toBeLessThan(sample.x);
-  });
-
-  it("cuts instead of flying when the target teleports", () => {
-    const eye = new SpectateEyeCamera();
-    let sample = { ...standing };
-    eye.start(() => sample);
-    eye.update(0.016, camera);
-
-    sample = { ...standing, x: standing.x + 5000 };
-    eye.update(0.016, camera);
-
-    expect(camera.position.x).toBe(sample.x);
-  });
-
-  it("takes the short way round when their yaw wraps past pi", () => {
-    const eye = new SpectateEyeCamera();
-    let sample = { ...standing, yaw: Math.PI - 0.05 };
-    eye.start(() => sample);
-    eye.update(0.016, camera);
-
-    // Turning right through the wrap point. Lerping the raw difference would
-    // spin the view the long way round the compass.
-    sample = { ...sample, yaw: -Math.PI + 0.05 };
-    eye.update(0.016, camera);
-
-    expect(camera.rotation.y).toBeGreaterThan(Math.PI - 0.05);
+    expect(camera.position.y).toBeCloseTo(standing.y - 4);
+    expect(camera.rotation.z).toBeCloseTo((2 * Math.PI) / 180);
+    expect(camera.fov).toBeGreaterThan(1);
   });
 
   it("holds the last good frame when the target leaves PVS", () => {
     const eye = new SpectateEyeCamera();
-    let sample: SpectateEyeSample | null = { ...standing };
-    eye.start(() => sample);
+    let pose: FirstPersonPose | null = { ...standing };
+    eye.start(() => pose);
     eye.update(0.016, camera);
     const held = camera.position.clone();
 
     // Releasing the camera for the one frame a snapshot is missing would show
     // a flash of whatever the fallback camera does, then snap back.
-    sample = null;
+    pose = null;
     expect(eye.update(0.016, camera)).toBe(true);
     expect(camera.position.equals(held)).toBe(true);
   });
 
-  it("claims the very first frame when seeded, before any snapshot lands", () => {
+  it("claims the very first frame when seeded, and every frame after", () => {
     const eye = new SpectateEyeCamera();
     // Declining a frame is not neutral: the FPS controller falls back to the
     // forty-degree death tilt when nothing claims the camera, so a spectate
     // that could not produce a frame looked like the screen was stuck sideways.
     eye.start(() => null, standing);
 
-    expect(eye.update(0.016, camera)).toBe(true);
-    expect(camera.position.y).toBe(standing.y + DEFAULT_VIEWHEIGHT);
+    for (let i = 0; i < 10; i++) expect(eye.update(0.016, camera)).toBe(true);
+    expect(camera.position.y).toBe(standing.y);
     expect(camera.rotation.z).toBe(0);
   });
 
-  it("keeps claiming frames while the provider stays empty", () => {
+  it("refuses a pose that would put the camera nowhere", () => {
     const eye = new SpectateEyeCamera();
-    eye.start(() => null, standing);
+    eye.start(() => ({ ...standing, x: Number.NaN }), { ...standing, y: Number.POSITIVE_INFINITY });
 
-    for (let i = 0; i < 10; i++) expect(eye.update(0.016, camera)).toBe(true);
-  });
-
-  it("ignores a seed that is not a real place", () => {
-    const eye = new SpectateEyeCamera();
-    eye.start(() => standing, { ...standing, y: Number.POSITIVE_INFINITY });
-
-    // Falls back to priming from the first real sample instead.
-    eye.update(0.016, camera);
-    expect(camera.position.y).toBe(standing.y + DEFAULT_VIEWHEIGHT);
-  });
-
-  it("refuses a sample that would put the camera nowhere", () => {
-    const eye = new SpectateEyeCamera();
-    eye.start(() => ({ ...standing, x: Number.NaN }));
-
-    // Nothing primed and nothing usable — hand the view back rather than write
-    // a NaN into the camera, which poisons every matrix downstream of it.
+    // Nothing usable — hand the view back rather than write a NaN into the
+    // camera, which poisons every matrix downstream of it.
     expect(eye.update(0.016, camera)).toBe(false);
     expect(Number.isNaN(camera.position.x)).toBe(false);
   });
 
-  it("re-snaps after a stop and start, so a new target does not fly in", () => {
+  it("forgets the last target on stop", () => {
     const eye = new SpectateEyeCamera();
     eye.start(() => standing);
     eye.update(0.016, camera);
@@ -167,8 +125,6 @@ describe("SpectateEyeCamera", () => {
     const elsewhere = { x: -900, y: 12, z: 40, yaw: -2, pitch: 0 };
     eye.start(() => elsewhere);
     eye.update(0.016, camera);
-
     expect(camera.position.x).toBe(elsewhere.x);
-    expect(camera.position.z).toBe(elsewhere.z);
   });
 });

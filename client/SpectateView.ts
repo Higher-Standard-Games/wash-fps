@@ -14,11 +14,13 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { CameraSystem } from "../../../engine/camera";
 import type { SpectatorController } from "../../../engine/camera/controllers/SpectatorController";
 import type { SpectatorCycling } from "../../../engine/camera/controllers/SpectatorCycling";
+import type { FirstPersonPose } from "../../../engine/camera/FirstPersonPose";
 import type { GameState } from "../../../engine/network/core/GameState";
 import { DEFAULT_VIEWHEIGHT } from "../../../engine/physics/PlayerPhysicsConstants";
 import { getWeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
 import { clientKeyDisplayId } from "../ClientEntityKey";
 import { DeathCamera } from "./DeathCamera";
+import { watchedEyePose } from "./DemoPovState";
 import { devLog } from "./DevLog";
 import { FollowedViewWeapon } from "./FollowedViewWeapon";
 import { handleSpectatedWeaponState } from "./GameEvents";
@@ -286,12 +288,12 @@ export class SpectateView {
     // Refuse the handoff outright if there is nothing to seed with: a camera
     // that cannot produce a frame is not neutral, because the FPS controller
     // falls back to the forty-degree death tilt when nobody claims the view.
-    const seed = this.spectateEyeSample(entityId) ?? this.drawnAt(entityId);
+    const seed = this.eyePose(entityId) ?? this.drawnAt(entityId);
     if (!seed) return false;
 
     this._spectatingEntityId = entityId;
     this.host.remoteRenderer()?.setHiddenEntity(entityId);
-    this._eyeCamera.start(() => this.spectateEyeSample(entityId), seed);
+    this._eyeCamera.start(() => this.eyePose(entityId), seed);
     // Released only now the eye camera is primed and will claim every frame.
     this._deathCamera.stop();
     this.host.spectatorOverlay()?.setSpectatingTarget(this.spectateeName(entityId));
@@ -308,13 +310,13 @@ export class SpectateView {
    * unknown, so the camera keeps ours and picks theirs up on the next snapshot
    * rather than snapping to an arbitrary direction.
    */
-  private drawnAt(entityId: string): import("./SpectateEyeCamera").SpectateEyeSample | null {
+  private drawnAt(entityId: string): FirstPersonPose | null {
     const drawn = this.host.remoteRenderer()?.getRenderedPlayers().get(entityId);
     if (!drawn) return null;
     const camera = CameraSystem.getInstance().getCamera() as { rotation?: { x: number; y: number } } | null;
     return {
       x: drawn.position.x,
-      y: drawn.position.y,
+      y: drawn.position.y + DEFAULT_VIEWHEIGHT,
       z: drawn.position.z,
       yaw: camera?.rotation?.y ?? 0,
       pitch: camera?.rotation?.x ?? 0,
@@ -356,38 +358,17 @@ export class SpectateView {
   }
 
   /**
-   * Where the watched player is and what they are looking at, this frame.
-   *
-   * Position and angles come from the SAME snapshot deliberately. Taking the
-   * position from the renderer's interpolated copy and the angles from the
-   * latest packet would put the head a frame ahead of the body — a small lead
-   * that reads as the view sliding around independently of the player.
+   * The watched player's view this frame: the sample they are drawn with, at
+   * their eye height, with their screen's view effects — the pose the demo
+   * viewer builds for a recording. Taking the body and the view from one
+   * sample keeps the camera with the world around it, which is drawn on the
+   * same interpolation clock.
    */
-  spectateEyeSample(entityId: string): import("./SpectateEyeCamera").SpectateEyeSample | null {
-    const entity = this.host.latestGameState()?.entities.get(entityId);
-    if (!entity) return null;
-    const transform = entity.getComponent("transform") as
-      | { position?: { x: number; y: number; z: number }; rotation?: { x: number; y: number } }
-      | undefined;
-    if (!transform?.position) return null;
-    const movement = entity.getComponent("movementState") as { crouchViewOffset?: number } | undefined;
-    // Their stride's sway, rebuilt the way the demo viewer rebuilds it.
-    const pose = this._followedWeapon.presentation;
-    const sway = pose?.entityId === entityId ? pose : null;
-    return {
-      x: transform.position.x,
-      y: transform.position.y,
-      z: transform.position.z,
-      yaw: transform.rotation?.y ?? 0,
-      pitch: transform.rotation?.x ?? 0,
-      // Same sum the local FPS camera uses, so ducking under a rail looks the
-      // same watched as it does played.
-      eyeHeight: DEFAULT_VIEWHEIGHT + (movement?.crouchViewOffset ?? 0),
-      bobRight: sway?.cameraBobRight,
-      bobUp: sway?.cameraBobUp,
-      pitchOffsetDegrees: sway?.cameraPitchDegrees,
-      rollDegrees: sway?.cameraRollDegrees,
-    };
+  eyePose(entityId: string): FirstPersonPose | null {
+    const sample = this.host.remoteRenderer()?.getEntitySample(entityId);
+    if (!sample) return null;
+    const pov = this._followedWeapon.presentation;
+    return watchedEyePose(sample, pov?.entityId === entityId ? pov : null);
   }
 
   /** Display name for whoever we are watching, for the HUD banner. */

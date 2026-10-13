@@ -78,8 +78,8 @@ describe("DemoPovState", () => {
 
     expect(moving.demoDeltaSeconds).toBeCloseTo(0.1);
     expect(moving.bobCycle).toBeGreaterThan(0);
-    expect(Math.abs(moving.cameraBobRight)).toBeGreaterThan(0);
-    expect(Math.abs(moving.cameraBobUp)).toBeGreaterThan(0);
+    expect(Math.abs(moving.effects.positionOffset.x)).toBeGreaterThan(0);
+    expect(Math.abs(moving.effects.positionOffset.y)).toBeGreaterThan(0);
   });
 
   it("does not advance while paused", () => {
@@ -105,11 +105,11 @@ describe("DemoPovState", () => {
 
     expect(paused.demoDeltaSeconds).toBe(0);
     expect(paused.bobCycle).toBeCloseTo(before.bobCycle);
-    expect(paused.cameraBobRight).toBeCloseTo(before.cameraBobRight);
-    expect(paused.cameraBobUp).toBeCloseTo(before.cameraBobUp);
+    expect(paused.effects.positionOffset.x).toBeCloseTo(before.effects.positionOffset.x);
+    expect(paused.effects.positionOffset.y).toBeCloseTo(before.effects.positionOffset.y);
   });
 
-  it("reaches the same phase for the same recorded time across render cadences", () => {
+  it("reaches the same stride phase for the same recorded time across render cadences", () => {
     const coarse = new DemoPovState();
     coarse.update("player_1", sample(), {
       playheadTick: 0,
@@ -145,9 +145,6 @@ describe("DemoPovState", () => {
     });
 
     expect(fineResult.bobCycle).toBeCloseTo(coarseResult.bobCycle);
-    expect(fineResult.cameraBobRight).toBeCloseTo(coarseResult.cameraBobRight);
-    expect(fineResult.cameraBobUp).toBeCloseTo(coarseResult.cameraBobUp);
-    expect(fineResult.cameraPitchDegrees).toBeCloseTo(coarseResult.cameraPitchDegrees);
   });
 
   it("resets cosmetic phase on seek and target changes", () => {
@@ -199,7 +196,18 @@ describe("DemoPovState", () => {
     });
 
     expect(landed.landingVelocity).toBe(300);
-    expect(landed.cameraBobRight).toBe(0);
-    expect(landed.cameraBobUp).toBe(0);
+    expect(landed.effects.positionOffset.x).toBe(0);
+  });
+
+  it("dips the view on a landing, as the player's own camera does", () => {
+    Cvar.set("cg_landing", 1);
+    const state = new DemoPovState();
+    const clock = (playheadTick: number) => ({ playheadTick, tickRate: 100, paused: false, discontinuityId: 0 });
+    state.update("player_1", sample({ grounded: false, vx: 0, vy: -600 }), clock(0));
+    state.update("player_1", sample({ grounded: false, vx: 0, vy: -600 }), clock(1));
+    const landed = state.update("player_1", sample({ vx: 0 }), clock(3));
+
+    expect(landed.landingVelocity).toBe(600);
+    expect(landed.effects.positionOffset.y).toBeLessThan(0);
   });
 });

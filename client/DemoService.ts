@@ -37,6 +37,7 @@ import { DamageNumbers } from "./DamageNumbers";
 import { demoLoadCancelled, downloadDemo } from "./DemoDownload";
 import { DemoEventTimeline } from "./DemoEventTimeline";
 import { DemoOverlayController, type DemoOverlayMode } from "./DemoOverlayController";
+import { watchedEyePose } from "./DemoPovState";
 import type { DemoViewer, DemoViewerInfo } from "./DemoViewer";
 import type { DemoViewerHUD } from "./DemoViewerHUD";
 import { DroppedWeaponRenderer } from "./DroppedWeaponRenderer";
@@ -817,37 +818,14 @@ export class DemoService {
       cameraSystem.registerController("freefly", new FreeflyController());
     }
 
+    // The recorded player's screen: the sample they are drawn with, through
+    // the same pose live spectating builds. DemoEntityTimeline already
+    // interpolates it on the playhead, so a paused demo holds still.
     const spectatorProvider = (entityId: string) => {
-      const state = this.latestState;
-      if (!state) return null;
-      const entity = state.entities.get(entityId);
-      const transform = entity?.getComponent("transform") as
-        | {
-            position?: { x: number; y: number; z: number };
-            rotation?: { x?: number; y?: number };
-          }
-        | undefined;
-      if (!transform?.position) return null;
-
-      const sampled = this.remoteRenderer?.getDemoEntitySample(entityId);
-      const pose = this._followed.presentation;
-      const pov = pose?.entityId === entityId ? pose : null;
-
-      return {
-        x: sampled?.x ?? transform.position.x,
-        y: sampled?.y ?? transform.position.y,
-        z: sampled?.z ?? transform.position.z,
-        yaw: sampled?.yaw ?? transform.rotation?.y ?? 0,
-        pitch: sampled?.pitch ?? transform.rotation?.x ?? 0,
-        eyeHeight: pov?.eyeHeight,
-        bobRight: pov?.cameraBobRight,
-        bobUp: pov?.cameraBobUp,
-        pitchOffsetDegrees: pov?.cameraPitchDegrees,
-        rollDegrees: pov?.cameraRollDegrees,
-        // DemoEntityTimeline already supplies the interpolated base pose. Extra
-        // render-time smoothing would add lag and keep moving while paused.
-        snapToTarget: !!sampled,
-      };
+      const sample = this.remoteRenderer?.getDemoEntitySample(entityId);
+      if (!sample) return null;
+      const pov = this._followed.presentation;
+      return watchedEyePose(sample, pov?.entityId === entityId ? pov : null);
     };
 
     if (!cameraSystem.getController("spectator")) {

@@ -743,9 +743,9 @@ export class Game {
       const camSys = CameraSystem.getInstance();
       camSys.registerController("spectator", this.spectatorController);
 
-      // The chase camera reads the same eye sample the dead-teammate camera
-      // does: position, angles, crouch height and stride sway from one snapshot.
-      this.spectatorController.setTargetProvider((entityId: string) => this.spectate.spectateEyeSample(entityId));
+      // The chase camera reads the same pose the dead-teammate camera and the
+      // demo viewer do: the drawn sample, eye height and the screen's effects.
+      this.spectatorController.setTargetProvider((entityId: string) => this.spectate.eyePose(entityId));
 
       // ── Spectator cycling, chase-cam click, J to join, hold-Tab scoreboard ──
       this.matchInput.bind(document, {
