@@ -22,7 +22,7 @@ describe("judgeName", () => {
 
   it("turns down names kept for bots and new players", () => {
     expect(judgeName("Player_12").ok).toBe(false);
-    expect(judgeName("Nova").ok).toBe(false);
+    expect(judgeName("Ramen").ok).toBe(false);
   });
 
   it("accepts a name the lobby could give out", () => {

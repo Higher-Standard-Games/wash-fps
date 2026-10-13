@@ -10,6 +10,8 @@ export function ratingFeedback(status: string, reason: string): string {
     team_changed: "A player changed sides during the match.",
     participation_interrupted: "A player's participation was interrupted.",
     bot_reference_changed: "The bot configuration changed or its control connection was lost.",
+    bot_custom: "A bot with a custom difficulty has no rating to play against.",
+    bot_reference_missing: "A bot's difficulty could not be verified.",
     starting_roster_unavailable: "The original roster could not be verified.",
     invalid_starting_roster: "The original roster did not qualify.",
     incomplete_roster: "The played roster did not match the original roster.",
