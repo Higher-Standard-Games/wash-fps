@@ -1,0 +1,213 @@
+/* Demo playback bar: the HUD's ink plates, gold cells and keycaps.
+   It fades while a demo plays untouched, so the game HUD under it is the
+   player's screen; a move of the mouse, a pause or a hover brings it back. */
+
+#demo-viewer-hud {
+  position: fixed;
+  left: 24px;
+  right: 24px;
+  bottom: 18px;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 18px 12px;
+  background:
+    linear-gradient(172deg, hsla(250, 30%, 11%, 0.95), var(--w-void, hsla(255, 28%, 6%, 0.94)) 60%),
+    var(--w-scan-cyan, none);
+  clip-path: polygon(0.6% 0, 100% 0, 99.4% 100%, 0 100%);
+  box-shadow: inset 0 0 0 1px hsla(190, 90%, 72%, 0.16);
+  filter: drop-shadow(8px 8px 0 hsla(250, 45%, 4%, 0.6));
+  font-family: var(--w-font-body, "Rajdhani", sans-serif);
+  color: var(--w-cream, hsl(42, 95%, 92%));
+  user-select: none;
+  pointer-events: auto;
+  transition:
+    opacity 0.35s ease,
+    transform 0.35s ease;
+}
+
+#demo-viewer-hud.is-idle {
+  opacity: 0;
+  transform: translateY(14px);
+  pointer-events: none;
+}
+
+/* --- Timeline --- */
+
+.dvh-timeline {
+  position: relative;
+  height: 6px;
+  cursor: pointer;
+  background: hsla(42, 95%, 92%, 0.14);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
+  transition: height 0.15s ease;
+}
+
+.dvh-timeline:hover,
+.dvh-timeline.is-dragging {
+  height: 10px;
+}
+
+.dvh-timeline-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, hsl(36, 90%, 46%), hsl(42, 96%, 58%));
+}
+
+.dvh-timeline-handle {
+  position: absolute;
+  top: 50%;
+  left: 0%;
+  width: 6px;
+  height: 18px;
+  transform: translate(-50%, -50%) skewX(-12deg);
+  background: hsl(42, 96%, 62%);
+  box-shadow: 0 0 10px hsla(45, 100%, 55%, 0.6);
+  pointer-events: none;
+}
+
+/* --- Controls --- */
+
+.dvh-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 34px;
+}
+
+.dvh-spacer {
+  flex: 1;
+}
+
+/* Gold keycap: the one action that matters most */
+.dvh-play {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 32px;
+  border: 0;
+  cursor: pointer;
+  background: linear-gradient(105deg, hsl(42, 96%, 58%), hsl(36, 90%, 46%));
+  clip-path: polygon(10% 0, 100% 0, 90% 100%, 0 100%);
+  color: hsla(255, 45%, 10%, 0.92);
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.dvh-play:hover {
+  filter: brightness(1.1);
+}
+
+/* Ink chips: speed, HUD and players */
+.dvh-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 14px 6px;
+  border: 0;
+  cursor: pointer;
+  background: hsla(250, 30%, 16%, 0.9);
+  clip-path: polygon(8% 0, 100% 0, 92% 100%, 0 100%);
+  box-shadow: inset 0 0 0 1px hsla(190, 90%, 72%, 0.2);
+  color: var(--w-cream-dim, hsla(42, 95%, 92%, 0.62));
+  font-family: var(--w-font-body, "Rajdhani", sans-serif);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.dvh-chip:hover {
+  color: var(--w-cream, hsl(42, 95%, 92%));
+  background: hsla(250, 30%, 22%, 0.95);
+}
+
+.dvh-chip.is-on {
+  background: linear-gradient(105deg, hsl(186, 90%, 46%), hsl(190, 85%, 36%));
+  color: hsla(255, 45%, 8%, 0.95);
+}
+
+.dvh-speed {
+  min-width: 58px;
+  justify-content: center;
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dvh-time {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  color: var(--w-cream, hsl(42, 95%, 92%));
+}
+
+.dvh-time-total {
+  color: var(--w-cream-dim, hsla(42, 95%, 92%, 0.62));
+}
+
+/* --- Whose eyes --- */
+
+.dvh-players {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dvh-players-label {
+  margin-right: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--w-text-muted, hsl(220, 10%, 55%));
+}
+
+.dvh-player.is-target {
+  background: linear-gradient(105deg, hsl(42, 96%, 58%), hsl(36, 90%, 46%));
+  box-shadow: none;
+  color: hsla(255, 45%, 10%, 0.92);
+}
+
+.dvh-status {
+  min-width: 92px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--w-text-muted, hsl(220, 10%, 55%));
+}
+
+.dvh-status.is-playing {
+  color: hsl(186, 90%, 56%);
+}
+
+.dvh-status.is-paused {
+  color: hsl(320, 100%, 66%);
+}
+
+@media (max-width: 720px) {
+  #demo-viewer-hud {
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+  }
+
+  .dvh-players-label,
+  .dvh-status {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #demo-viewer-hud,
+  .dvh-timeline {
+    transition: none;
+  }
+}
