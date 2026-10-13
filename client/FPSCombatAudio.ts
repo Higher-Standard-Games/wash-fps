@@ -1,4 +1,5 @@
 import { AudioManager } from "../../../engine/AudioManager";
+import { Attenuation } from "../../../engine/audio/AudioV2Sfx";
 import type {
   DamageEvent,
   DeathEvent,
@@ -37,6 +38,20 @@ const projectileImpactSounds: Readonly<Record<string, readonly string[]>> = {
   rlauncher: ["sounds/weapons/rocket_strong_explosion.ogg"],
 };
 
+/** Plasma fire is quieter at range than the rest, as in Warsow. */
+const fireAttenuation: Readonly<Record<string, number>> = { plasmagun: Attenuation.Idle };
+
+/** Explosions carry; small impacts fade quickly. */
+const impactAttenuation: Readonly<Record<string, number>> = {
+  grenade: Attenuation.Distant,
+  glauncher: Attenuation.Distant,
+  rocket: Attenuation.Distant,
+  rlauncher: Attenuation.Distant,
+  plasma_bolt: Attenuation.Idle,
+  plasmagun: Attenuation.Idle,
+  blade_blast: Attenuation.Normal,
+};
+
 const damageConfirmationSounds = [
   "sounds/misc/hit_0.wav",
   "sounds/misc/hit_1.wav",
@@ -54,6 +69,7 @@ const bobotPainSounds = [
 export const BOBOT_DEATH_SOUND = "sounds/players/bobot/death.ogg";
 export const KILL_ECHO_SOUND = "sounds/misc/kill.wav";
 export const EMPTY_CLIP_SOUND = "sounds/weapons/weapon_noammo.ogg";
+const FIRE_VOLUME = 0.9;
 
 export const FPS_COMBAT_SOUND_PATHS = [
   ...new Set([
@@ -106,11 +122,16 @@ export function playWeaponFireSound(event: WeaponFireEvent, localShooter: boolea
   const path = chooseVariant(getWeaponFireSounds(event.weaponId));
   if (!path) return;
 
+  // The same level for everyone's gun: distance alone sets them apart
   const audio = AudioManager.getInstance();
   if (localShooter) {
-    audio.playSfx2D(path, 0.9, 6);
+    audio.playSfx2D(path, FIRE_VOLUME, 6);
   } else {
-    audio.playSfx3D(path, { x: event.originX, y: event.originY, z: event.originZ }, { volume: 0.95 });
+    audio.playSfx3D(
+      path,
+      { x: event.originX, y: event.originY, z: event.originZ },
+      { volume: FIRE_VOLUME, attenuation: fireAttenuation[canonicalWeaponId(event.weaponId)] ?? Attenuation.Normal },
+    );
   }
 }
 
@@ -119,8 +140,7 @@ export function playProjectileImpactSound(event: ProjectileImpactEvent): void {
   if (!path) return;
   AudioManager.getInstance().playSfx3D(path, event, {
     volume: 1,
-    minDistance: 128,
-    maxDistance: 3200,
+    attenuation: impactAttenuation[event.defId] ?? Attenuation.Distant,
   });
 }
 
@@ -137,14 +157,14 @@ export function playPlayerPainSound(event: DamageEvent, localVictim: boolean): v
   const path = bobotPainSounds[tier];
   const audio = AudioManager.getInstance();
   if (localVictim) audio.playSfx2D(path, 0.65, 2);
-  else audio.playSfx3D(path, event, { volume: 0.72, minDistance: 80, maxDistance: 1800 });
+  else audio.playSfx3D(path, event, { volume: 0.72 });
 }
 
 /** Bobot is the initial Washoi player voice until model-specific banks are configured. */
 export function playPlayerDeathSound(event: DeathEvent, localVictim: boolean): void {
   const audio = AudioManager.getInstance();
   if (localVictim) audio.playSfx2D(BOBOT_DEATH_SOUND, 0.9, 1);
-  else audio.playSfx3D(BOBOT_DEATH_SOUND, event, { volume: 0.95, minDistance: 96, maxDistance: 2600 });
+  else audio.playSfx3D(BOBOT_DEATH_SOUND, event, { volume: 0.95 });
 }
 
 /** The deliberately huge Warsow frag confirmation echo. */

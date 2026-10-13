@@ -16,14 +16,12 @@
  */
 
 import { AudioManager } from "../../../engine/AudioManager";
+import { Attenuation } from "../../../engine/audio/AudioV2Sfx";
 import type { PowerupKind } from "../../../shared/items/Powerups";
 
 const QUAD_SPAWN = "sounds/items/quad_spawn.ogg";
 const QUAD_PICKUP = "sounds/items/quad_pickup.ogg";
 const QUAD_FIRE = "sounds/items/quad_fire.ogg";
-
-/** Spawn cue carries across the arena — well past the default falloff. */
-const SPAWN_MAX_DISTANCE = 4000;
 
 export const FPS_POWERUP_SOUND_PATHS = [QUAD_SPAWN, QUAD_PICKUP, QUAD_FIRE] as const;
 
@@ -47,7 +45,8 @@ export function playPowerupPickupSound(kind: PowerupKind = "quad"): void {
 export function playPowerupSpawnSound(position: { x: number; y: number; z: number }): void {
   AudioManager.getInstance().playSfx3D(QUAD_SPAWN, position, {
     volume: 1.0,
-    maxDistance: SPAWN_MAX_DISTANCE,
+    // Carries across the arena, like an explosion
+    attenuation: Attenuation.Distant,
     maxInstances: 1,
   });
 }

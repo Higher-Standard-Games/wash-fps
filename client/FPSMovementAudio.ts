@@ -172,7 +172,7 @@ function playAtPlayer(
 ): void {
   const audio = AudioManager.getInstance();
   if (local) audio.playSfx2D(path, volume, 2);
-  else audio.playSfx3D(path, position, { volume, minDistance: 64, maxDistance: 1250 });
+  else audio.playSfx3D(path, position, { volume });
 }
 
 function getGroundSurfaceFlags(position: { x: number; y: number; z: number }): number {

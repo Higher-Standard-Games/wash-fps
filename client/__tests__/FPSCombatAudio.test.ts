@@ -10,6 +10,7 @@ vi.mock("../../../../engine/AudioManager", () => ({
   AudioManager: { getInstance: () => audio },
 }));
 
+import { Attenuation } from "../../../../engine/audio/AudioV2Sfx";
 import type { DamageEvent, DeathEvent, WeaponFireEvent } from "../../../../engine/network/core/SnapshotEvent";
 import {
   BOBOT_DEATH_SOUND,
@@ -21,6 +22,7 @@ import {
   playKillEcho,
   playPlayerDeathSound,
   playPlayerPainSound,
+  playProjectileImpactSound,
   playWeaponFireSound,
   preloadFPSCombatAudio,
 } from "../FPSCombatAudio";
@@ -98,7 +100,7 @@ describe("FPSCombatAudio", () => {
     expect(FPS_COMBAT_SOUND_PATHS).toContain("sounds/players/bobot/pain100.ogg");
   });
 
-  it("keeps own weapon fire listener-relative and remote fire spatial", () => {
+  it("keeps own weapon fire listener-relative and remote fire spatial, at the same level", () => {
     playWeaponFireSound(fireEvent, true);
     expect(audio.playSfx2D).toHaveBeenCalledWith("sounds/weapons/rocket_fire_strong.ogg", 0.9, 6);
 
@@ -106,8 +108,15 @@ describe("FPSCombatAudio", () => {
     expect(audio.playSfx3D).toHaveBeenCalledWith(
       "sounds/weapons/rocket_fire_strong.ogg",
       { x: 10, y: 20, z: 30 },
-      { volume: 0.95 },
+      { volume: 0.9, attenuation: Attenuation.Normal },
     );
+  });
+
+  it("fades plasma fire faster, and lets explosions carry", () => {
+    playWeaponFireSound({ ...fireEvent, weaponId: "plasmagun" }, false);
+    expect(audio.playSfx3D.mock.calls.at(-1)?.[2]).toMatchObject({ attenuation: Attenuation.Idle });
+    playProjectileImpactSound({ type: "projectile_impact", defId: "rocket", x: 0, y: 0, z: 0 } as never);
+    expect(audio.playSfx3D.mock.calls.at(-1)?.[2]).toMatchObject({ attenuation: Attenuation.Distant });
   });
 
   it("plays attacker confirmation, Bobot pain/death, and the frag echo on their intended channels", () => {

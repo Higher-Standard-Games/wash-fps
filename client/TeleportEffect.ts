@@ -251,7 +251,7 @@ export class TeleportEffect {
     this.ensureScene(scene);
     // Entry (in-going): ghost afterimage + imploding speed-lines + 3D sfx so the
     // grab of a remote player reads as "sucked in", not a silent disappearance.
-    AudioManager.getInstance().playSfx3D(TELE_IN_SOUND, from, { volume: 0.85, minDistance: 96, maxDistance: 3000 });
+    AudioManager.getInstance().playSfx3D(TELE_IN_SOUND, from, { volume: 0.85 });
     this.spawnGhost(from, fromYaw, team);
     this.spawnImplosion(from);
     // Exit (out-going): ghost + exploding burst.

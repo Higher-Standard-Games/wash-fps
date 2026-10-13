@@ -105,5 +105,5 @@ export function playLiquidCrossing(
   if (volume <= 0) return;
   const audio = AudioManager.getInstance();
   if (local) audio.playSfx2D(path, volume, 3);
-  else audio.playSfx3D(path, position, { volume, minDistance: 96, maxDistance: 2000 });
+  else audio.playSfx3D(path, position, { volume });
 }
