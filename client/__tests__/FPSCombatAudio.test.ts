@@ -144,6 +144,15 @@ describe("FPSCombatAudio", () => {
     ]);
   });
 
+  it("picks the pain by how hurt the victim is, when the server says", () => {
+    playPlayerPainSound({ ...damageEvent, entityId: "nearly_dead", damage: 5, painTier: 0 }, false, 5000);
+    playPlayerPainSound({ ...damageEvent, entityId: "healthy", damage: 90, painTier: 3 }, false, 5000);
+    expect(audio.playSfx3D.mock.calls.map(([path]) => path)).toEqual([
+      "sounds/players/bobot/pain25.ogg",
+      "sounds/players/bobot/pain100.ogg",
+    ]);
+  });
+
   it("hears one player's pain at most every 400 ms, and each player apart", () => {
     const hit = { ...damageEvent, entityId: "machinegunned" };
     playPlayerPainSound(hit, false, 1000);

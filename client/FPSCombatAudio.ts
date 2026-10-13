@@ -169,7 +169,9 @@ export function playPlayerPainSound(event: DamageEvent, localVictim: boolean, no
   lastPainAt.set(event.entityId, now);
   // Entity ids change across respawns; forget the long-quiet ones
   if (lastPainAt.size > 64) for (const [id, at] of lastPainAt) if (now - at >= PAIN_INTERVAL_MS) lastPainAt.delete(id);
-  const path = bobotPainSounds[damageTier(event.damage)];
+  // How hurt the victim is, as Warsow (pain25 the worst); an older server or demo sends no
+  // tier, and then the damage stands in for it
+  const path = bobotPainSounds[event.painTier ?? damageTier(event.damage)];
   const audio = AudioManager.getInstance();
   if (localVictim) audio.playSfx2D(path, 0.65, 2, "players");
   else audio.playSfx3D(path, event, { volume: 0.72, channel: "players", slot: `${event.entityId}:pain` });

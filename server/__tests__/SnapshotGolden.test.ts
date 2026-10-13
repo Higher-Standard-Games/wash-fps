@@ -486,6 +486,7 @@ describe("buildSnapshot golden", () => {
             "damage": 55,
             "entityId": "player_2",
             "hitLocation": "head",
+            "painTier": 0,
             "type": "damage",
             "weaponId": "bullet",
             "x": 100,

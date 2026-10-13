@@ -109,6 +109,11 @@ function f32(v: number): number {
  * This is a direct extraction of GameServer.toGameState() with hoisted closures
  * and an explicit context parameter instead of `this`.
  */
+/** Warsow's pain levels by remaining health: 0 at 20 or less, 1 up to 35, 2 up to 60, 3 above. */
+export function painTier(health: number): 0 | 1 | 2 | 3 {
+  return health <= 20 ? 0 : health <= 35 ? 1 : health <= 60 ? 2 : 3;
+}
+
 export function buildSnapshot(ctx: SnapshotContext): GameState {
   const state = ctx.simulation.getState();
   const gameState = new GameState();
@@ -632,6 +637,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
   // Add damage events (forwarded from CombatSystem for floating damage numbers)
   const damageEvents = ctx.combatSystem.getProcessedDamage();
   for (const dmg of damageEvents) {
+    const victimHealth = state.getEntity(dmg.victimId)?.health;
     emit({
       type: "damage",
       entityId: toClientKey(dmg.victimId),
@@ -640,6 +646,8 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
       // Where the hit landed ("body", "head" or "legs"). The wire format carries it once the
       // engine's damage event does; until then the codec leaves it out and clients assume body.
       hitLocation: dmg.hitLocation,
+      // How hurt the victim is after this tick's hits, for their pain sound
+      painTier: victimHealth ? painTier(victimHealth.health) : undefined,
       weaponId: dmg.damageType, // Use damageType as weapon identifier for now
       x: dmg.x,
       y: dmg.y,
