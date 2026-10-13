@@ -24,6 +24,7 @@
 import { AudioManager } from "../../../engine/AudioManager";
 import { DEFAULT_BOMB_RULES } from "../../../shared/server/gametype/BombModel";
 import { DEFAULT_PHYSICS_TICK_RATE } from "../../../shared/server/simulation/physics/constants";
+import type { FPSAnnouncer } from "./FPSAnnouncer";
 import { type BombObjectiveSnapshot, MatchPhase } from "./MatchStateManager";
 
 const BOMB_TIMER = "sounds/bomb/bombtimer.ogg";
@@ -134,6 +135,9 @@ export async function preloadFPSBombAudio(): Promise<void> {
 }
 
 export class FPSBombAudio {
+  /** The announcer lines go through the match's one voice; the beep does not. */
+  constructor(private readonly announcer: FPSAnnouncer) {}
+
   /** Seconds until the next beep. */
   private nextBeep = 0;
   /** Phase last seen, for edge-detecting the announcements. */
@@ -185,7 +189,7 @@ export class FPSBombAudio {
     else if (to === "armed") path = ANNOUNCE.armed[side];
     else if (to === "defused") path = ANNOUNCE.defused[side];
 
-    if (path) AudioManager.getInstance().playSfx2D(path, 1.0, 3);
+    if (path) this.announcer.queue(path);
   }
 
   /**
@@ -214,7 +218,7 @@ export class FPSBombAudio {
     if (!due) return;
 
     this.lastCallDone = true;
-    AudioManager.getInstance().playSfx2D(attacking ? LAST_CALL.offense : LAST_CALL.defense, 1.0, 3);
+    this.announcer.queue(attacking ? LAST_CALL.offense : LAST_CALL.defense);
   }
 
   /**
@@ -229,7 +233,7 @@ export class FPSBombAudio {
     this.lastCountSecond = second;
 
     const path = ROUND.count[second];
-    if (path) AudioManager.getInstance().playSfx2D(path, 1.0, 3);
+    if (path) this.announcer.say(path);
   }
 
   /**
@@ -250,11 +254,10 @@ export class FPSBombAudio {
     this.lastCallDone = false;
     this.lastCountSecond = null;
 
-    const audio = AudioManager.getInstance();
     if (phase === MatchPhase.Countdown) {
-      audio.playSfx2D(attacking ? ROUND.start.offense : ROUND.start.defense, 1.0, 3);
+      this.announcer.say(attacking ? ROUND.start.offense : ROUND.start.defense);
     } else if (phase === MatchPhase.Active) {
-      audio.playSfx2D(ROUND.go, 1.0, 3);
+      this.announcer.say(ROUND.go);
     }
   }
 
@@ -274,11 +277,13 @@ export class FPSBombAudio {
     if (phase === MatchPhase.Active && bomb) this.lastCall(bomb, timeRemaining, attacking);
   }
 
-  /** Round over, or a mode without a bomb. */
+  /**
+   * No bomb this frame. The round's once-only lines, the spoken count among
+   * them, reset on the next round's phase change rather than here: frames
+   * without a bomb come and go inside a round.
+   */
   reset(): void {
     this.nextBeep = 0;
     this.lastPhase = null;
-    this.lastCallDone = false;
-    this.lastCountSecond = null;
   }
 }

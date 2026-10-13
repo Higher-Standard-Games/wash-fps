@@ -6,6 +6,7 @@
  * instead of repeating the same `Promise.all([...])` at each load site.
  */
 
+import { preloadFPSAnnouncer } from "./FPSAnnouncer";
 import { preloadFPSBombAudio } from "./FPSBombAudio";
 import { preloadFPSCombatAudio } from "./FPSCombatAudio";
 import { preloadFPSLiquidAudio } from "./FPSLiquidAudio";
@@ -21,6 +22,7 @@ export async function preloadFPSAudio(): Promise<void> {
     preloadFPSPickupAudio(),
     preloadFPSPowerupAudio(),
     preloadFPSBombAudio(),
+    preloadFPSAnnouncer(),
     preloadFPSLiquidAudio(),
   ]);
 }

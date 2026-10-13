@@ -45,6 +45,7 @@ import { Crosshair } from "./client/Crosshair";
 import { devLog } from "./client/DevLog";
 import type { DroppedWeaponRenderer } from "./client/DroppedWeaponRenderer";
 import { registerFPSActions } from "./client/FPSActions";
+import { FPSAnnouncer } from "./client/FPSAnnouncer";
 import { preloadFPSAudio } from "./client/FPSAudio";
 import { FPSBombAudio } from "./client/FPSBombAudio";
 import { playEmptyClipSound } from "./client/FPSCombatAudio";
@@ -165,7 +166,8 @@ export class Game {
   private droppedWeaponRenderer: DroppedWeaponRenderer | null = null;
   private bombRenderer: BombRenderer | null = null;
   private bombSiteMarkers: BombSiteMarkers | null = null;
-  private readonly bombAudio = new FPSBombAudio();
+  private readonly announcer = new FPSAnnouncer();
+  private readonly bombAudio = new FPSBombAudio(this.announcer);
 
   // Server-driven projectile tracking (Q3-style)
   /** Server-driven projectiles: visuals spawned, defIds and interpolation buffer. */
@@ -1500,19 +1502,35 @@ export class Game {
     // playerTeams is keyed by the raw display id, not the "player_N" client key.
     const localTeam = match.playerTeams?.[clientKeyDisplayId(this.localPlayerId)] ?? undefined;
     const attacking = match.isAttacking(localTeam);
-    this.bombAudio.update(match.bomb, dtSec, attacking);
-
-    // Round transitions are MATCH phases, not bomb phases — nothing about the
-    // bomb changes when a freeze begins, so the announcer needs telling here.
-    // Edge-detected in the same place the side is resolved, because the line is
-    // side-specific and reading the two apart risks announcing the wrong job.
-    if (match.phase !== this._lastAnnouncedPhase) {
-      this.bombAudio.onMatchPhase(match.phase, this._lastAnnouncedPhase, attacking);
-      this._lastAnnouncedPhase = match.phase;
+    // Search and Destroy calls its own rounds; every other mode gets the
+    // generic match flow from the announcer.
+    const bombMode = match.objective?.kind === "bomb";
+    const displayId = clientKeyDisplayId(this.localPlayerId);
+    this.announcer.update(
+      {
+        phase: match.phase,
+        timeRemaining: match.timeRemaining,
+        overtime: match.overtime,
+        roundsCalledByMode: bombMode,
+        playing: !!this.localPlayerId && !match.spectators.some((s) => s.playerId === displayId),
+        ready: match.isReady,
+      },
+      dtSec,
+    );
+    if (bombMode) {
+      this.bombAudio.update(match.bomb, dtSec, attacking);
+      // Round transitions are MATCH phases, not bomb phases — nothing about the
+      // bomb changes when a freeze begins, so the announcer needs telling here.
+      // Edge-detected in the same place the side is resolved, because the line is
+      // side-specific and reading the two apart risks announcing the wrong job.
+      if (match.phase !== this._lastAnnouncedPhase) {
+        this.bombAudio.onMatchPhase(match.phase, this._lastAnnouncedPhase, attacking);
+      }
+      // The spoken 3-2-1 and the last call, both of which need the match clock
+      // rather than the bomb's.
+      this.bombAudio.updateRound(match.phase, match.timeRemaining, match.bomb, attacking);
     }
-    // The spoken 3-2-1 and the last call, both of which need the match clock
-    // rather than the bomb's.
-    this.bombAudio.updateRound(match.phase, match.timeRemaining, match.bomb, attacking);
+    this._lastAnnouncedPhase = match.phase;
 
     // Ragdolls, floating damage numbers, damage overlay, cartoon hit sprites
     this.effects.updateHitEffects(dtSec);
