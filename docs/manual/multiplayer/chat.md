@@ -8,6 +8,9 @@ Talk to the other players mid-match, without leaving the fight.
 - Type your message and press **Enter** to send.
 - Press **Esc** to cancel without sending.
 
+While composing text with an input method, Enter and Escape belong to the input
+method; confirm the text first, then press Enter to send.
+
 While the input is open, **your mouse look keeps working** and the pointer stays locked — you don't drop out of the game. Your movement keys type letters instead of moving you (WASD becomes text), so you stand still while typing. Any key held when you open chat is released cleanly (no stuck-forward).
 
 Chat is disabled while the match menu, settings, or console is open, so **T** there does nothing special.
@@ -15,7 +18,7 @@ Chat is disabled while the match menu, settings, or console is open, so **T** th
 ## Reading Chat
 
 - **Closed:** the last few messages float over the bottom-left of the screen and fade out after ~8 seconds.
-- **Talk mode:** opening chat expands the log into a **scrollable history dialog** showing everything from the match. Mouse-wheel to scroll back through it. Closing collapses back to the fading overlay.
+- **Talk mode:** opening chat expands the log into a **scrollable history dialog** showing the latest 100 messages. Mouse-wheel to scroll back through it; new messages follow automatically only when you are near the bottom. The oldest messages drop out as the history fills. Closing collapses back to the fading overlay.
 
 Sender names are colour-stamped by allegiance rather than by side: teammates in one colour, opponents in the other, whichever side you are on this half. Spectators are greyed.
 

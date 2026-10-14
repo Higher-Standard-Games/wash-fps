@@ -97,9 +97,15 @@ export class FPSChat {
     }
 
     // Talk mode shows everything (no fade); closed mode fades + trims.
+    const following = this.logEl.scrollHeight - this.logEl.scrollTop - this.logEl.clientHeight < 40;
+    const previousTop = this.logEl.scrollTop;
     this.logEl.appendChild(this.renderMessage(msg, !this.inputActive));
     if (this.inputActive) {
-      this.logEl.scrollTop = this.logEl.scrollHeight;
+      const heightBeforeTrim = this.logEl.scrollHeight;
+      while (this.logEl.children.length > FPSChat.HISTORY_MAX) this.logEl.firstChild?.remove();
+      this.logEl.scrollTop = following
+        ? this.logEl.scrollHeight
+        : Math.max(0, previousTop - (heightBeforeTrim - this.logEl.scrollHeight));
     } else {
       while (this.logEl.children.length > FPSChat.MAX_VISIBLE) {
         this.logEl.firstChild?.remove();
@@ -198,6 +204,8 @@ export class FPSChat {
   private handleKey(e: KeyboardEvent): void {
     // Keystrokes belong to the input while typing — never the game.
     e.stopPropagation();
+    // 229 covers composition-ending key events that some IMEs report without isComposing.
+    if (e.isComposing || e.keyCode === 229) return;
     if (e.key === "Enter") {
       const text = this.inputEl.value.trim();
       if (text && this.onSendCallback) {
