@@ -128,11 +128,14 @@ export class ProceduralPickupVisual implements PickupVisual {
       // Bright accent-coloured cross whose up/down faces take the (deeper) tier
       // colour, with a dark cel outline, inside a fresnel shell that rims at the
       // silhouette and stays near-clear face-on (so the emblem reads through it).
+      // The cross stays in the world's rendering group: a higher group clears
+      // depth first (the first-person weapon's does), and would show the cross
+      // through every floor and wall. The shell writes no depth, so the cross
+      // reads through it from the world group too.
       const cross = this.inst(set.cross, this.cosmetic, this.matAccent, "cross");
       if (cross && recipe.highTier) {
         cross.scaling.setAll(0.9);
         cross.billboardMode = Mesh.BILLBOARDMODE_ALL;
-        cross.renderingGroupId = 1;
       }
       this.inst(set.crossCaps, this.cosmetic, set.emblemFill, "cross_caps");
       this.matShell = createFresnelShellMaterial(scene, `pp_shell_${recipe.id}_${seed}`, recipe.color);

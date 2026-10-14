@@ -9,11 +9,27 @@
  */
 
 import type { GameState } from "../../../engine/network/core/GameState";
+import type { RecordedInput } from "../../../shared/demo/DemoInputs";
 import { type DemoFrame, type DemoHeader, type DemoIndex, DemoReader } from "../../../shared/demo/DemoReader";
 
 // ─── Types ───────────────────────────────────────────────────────
 
 export type DemoViewerState = "idle" | "loaded" | "playing" | "paused" | "ended";
+
+/** A death in the recording, placed on the timeline. */
+export interface DemoDeath {
+  tick: number;
+  /** Where it falls on the timeline (0–1), as a seek reads it. */
+  progress: number;
+  victimId: string;
+  /** Null for a death nobody caused (falling, the world). */
+  killerId: string | null;
+  victimName: string;
+  killerName: string | null;
+}
+
+/** Frames decoded between yields while scanning: a few milliseconds of work. */
+const SCAN_CHUNK = 2000;
 
 export interface DemoViewerInfo {
   state: DemoViewerState;
@@ -32,7 +48,8 @@ export interface DemoViewerInfo {
   skippedFrames: number;
 }
 
-export type DemoViewerCallback = (state: GameState, tick: number) => void;
+/** A frame as it is shown: its state, its tick, and the commands players sent over it. */
+export type DemoViewerCallback = (state: GameState, tick: number, inputs: readonly RecordedInput[]) => void;
 
 // ─── Constants ───────────────────────────────────────────────────
 
@@ -315,7 +332,7 @@ export class DemoViewer {
     const frame = this.readFrameCached(this.currentFrameIndex);
     if (frame) {
       this.presented = { frame: this.currentFrameIndex, discontinuityId: this.discontinuityId };
-      this.onFrameCallback(frame.state, frame.tick);
+      this.onFrameCallback(frame.state, frame.tick, frame.inputs);
     }
   }
 
@@ -366,6 +383,55 @@ export class DemoViewer {
   /**
    * Get complete viewer info for HUD display.
    */
+  /**
+   * Every death in the recording, for the timeline. Reads the whole file in
+   * chunks, yielding between them, so playback keeps its frames; resolves to
+   * null if `signal` aborts first or the viewer has no demo.
+   */
+  async scanDeaths(signal?: AbortSignal): Promise<DemoDeath[] | null> {
+    const reader = this.reader;
+    const index = this.index;
+    if (!reader || !index || index.frameCount === 0) return null;
+    const firstTick = index.entries[0].tick;
+    const span = Math.max(1, index.entries[index.frameCount - 1].tick - firstTick);
+    const deaths: DemoDeath[] = [];
+    for (let start = 0; start < index.frameCount; start += SCAN_CHUNK) {
+      if (signal?.aborted || this.reader !== reader) return null;
+      const end = Math.min(index.frameCount, start + SCAN_CHUNK);
+      for (let i = start; i < end; i++) {
+        const frame = reader.readFrame(i);
+        if (!frame) continue;
+        for (const event of frame.state.events) {
+          if (event["type"] !== "death") continue;
+          const victimId = event["entityId"] as string;
+          if (!victimId) continue;
+          const killer = (event["killerId"] as string) || null;
+          const killerId = killer && killer !== victimId ? killer : null;
+          const names = new Map<string, string>();
+          for (const player of frame.state.players.values()) names.set(player.entityId, player.name || player.entityId);
+          deaths.push({
+            tick: frame.tick,
+            progress: (frame.tick - firstTick) / span,
+            victimId,
+            killerId,
+            victimName: names.get(victimId) ?? victimId,
+            killerName: killerId ? (names.get(killerId) ?? killerId) : null,
+          });
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    return signal?.aborted || this.reader !== reader ? null : deaths;
+  }
+
+  /** Where a tick falls on the timeline (0–1), as a seek reads it. */
+  progressOfTick(tick: number): number {
+    if (!this.index || this.index.frameCount === 0) return 0;
+    const firstTick = this.index.entries[0].tick;
+    const span = Math.max(1, this.index.entries[this.index.frameCount - 1].tick - firstTick);
+    return Math.max(0, Math.min(1, (tick - firstTick) / span));
+  }
+
   getInfo(): DemoViewerInfo {
     const totalFrames = this.index?.frameCount ?? 0;
     const durationMs = this.getTimelineDurationMs();

@@ -2072,6 +2072,7 @@ export class Game {
       if (gameScene) {
         this.remoteRenderer = new RemotePlayerRenderer(gameScene);
         this.remoteRenderer.setEnemyWeapons(this.enemyWeapons);
+        this.remoteRenderer.setFollowedMuzzle(() => this.spectate._followedWeapon.beamMuzzle());
       }
     }
     handleServerStateUpdate(this.getEventContext(), state);

@@ -107,6 +107,41 @@ describe("FPSSettingsView", () => {
     expect(document.querySelector(".fps-set-toast")?.textContent).toBe("Controls back to defaults");
   });
 
+  it("locks Video over a match, and resets leave video alone there", () => {
+    view.destroy();
+    view.getElement().remove();
+    view = new FPSSettingsView({ inMatch: true });
+    document.body.append(view.getElement());
+    const root = view.getElement();
+
+    click(root.querySelector('[data-settings-page="video"]'));
+    expect(root.querySelector(".fps-set-locked")?.textContent).toContain("Video settings change in the lobby");
+    const locked = root.querySelector<HTMLElement>(".fps-set-video__locked");
+    expect(locked?.inert).toBe(true);
+    expect(locked?.querySelector(".fps-set-presets")).toBeTruthy();
+    expect(byText(root, ".raised-key--reset", "Reset page")?.hasAttribute("disabled")).toBe(true);
+
+    Cvar.set("r_ssr", 1);
+    Cvar.set("m_sensitivity", 4);
+    const all = byText(root, ".raised-key--reset", "Reset all");
+    click(all);
+    click(all);
+    expect(Cvar.getNumber("m_sensitivity")).toBe(1);
+    expect(Cvar.getNumber("r_ssr")).toBe(1);
+    expect(document.querySelector(".fps-set-toast")?.textContent).toBe("Everything but Video back to defaults");
+    Cvar.reset("r_ssr");
+
+    click(root.querySelector('[data-settings-page="controls"]'));
+    expect(byText(root, ".raised-key--reset", "Reset page")?.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("leaves Video open in the lobby", () => {
+    const root = view.getElement();
+    click(root.querySelector('[data-settings-page="video"]'));
+    expect(root.querySelector(".fps-set-locked")).toBeNull();
+    expect(root.querySelector(".fps-set-video__locked")).toBeNull();
+  });
+
   it("gives a key an action from its menu", () => {
     click(view.getElement().querySelector('.fps-set-cap[data-code="KeyH"]'));
     const menu = document.querySelector<HTMLElement>(".fps-set-pop");

@@ -55,7 +55,13 @@ const service = DemoService.getInstance();
 const internals = service as unknown as Internals;
 
 function viewer() {
-  return { load: vi.fn(async () => {}), play: vi.fn(), pause: vi.fn(), dispose: vi.fn() };
+  return {
+    load: vi.fn(async () => {}),
+    play: vi.fn(),
+    pause: vi.fn(),
+    dispose: vi.fn(),
+    scanDeaths: vi.fn(async () => null),
+  };
 }
 
 /** Every step of a start stubbed; the map load waits until released. */
@@ -194,6 +200,7 @@ describe("demo starts", () => {
       remoteRenderer: {
         getPlaybackModelStats: () => ({ alivePlayers: 0, loadedBodies: 0 }),
         setHiddenEntity: vi.fn(),
+        setPerspectiveEntity: vi.fn(),
         dispose: vi.fn(),
       },
     });

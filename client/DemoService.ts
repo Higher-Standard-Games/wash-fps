@@ -15,10 +15,12 @@ import { Ray } from "@babylonjs/core/Culling/ray";
 import type { PointLight } from "@babylonjs/core/Lights/pointLight";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { Scene } from "@babylonjs/core/scene";
+import { AudioManager } from "../../../engine/AudioManager";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import { EventBus } from "../../../engine/core/EventBus";
 import { disposeClusteredLight } from "../../../engine/lighting/DynamicLightCluster";
 import { SnapshotBuffer } from "../../../engine/network/client/SnapshotBuffer";
+import { InputButtons } from "../../../engine/network/components/InputComponent";
 import type { GameState } from "../../../engine/network/core/GameState";
 import { getExplosionEffect } from "../../../engine/weapon/ExplosionEffect";
 import { getHitscanEffects } from "../../../engine/weapon/HitscanEffects";
@@ -28,10 +30,11 @@ import type { LobbyClient } from "../../../lobby/LobbyClient";
 import type { DemoInfo } from "../../../lobby/types";
 import { SHOT_CONTENT_MASK } from "../../../shared/collision/CollisionWorld";
 import { DemoAnalyzer } from "../../../shared/demo/DemoAnalyzer";
+import type { RecordedInput } from "../../../shared/demo/DemoInputs";
 import { normalizeDemoMapName } from "../../../shared/demo/DemoMapName";
 import { DemoReader } from "../../../shared/demo/DemoReader";
 import { canonicalWeaponId, WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
-import { isClientKey } from "../ClientEntityKey";
+import { isClientKey, toClientKey } from "../ClientEntityKey";
 import { getAmmoStatus } from "./AmmoStatus";
 import { CinematicDemoPlayer, type ReelWorld, shotCard } from "./CinematicDemoPlayer";
 import { Crosshair } from "./Crosshair";
@@ -40,8 +43,8 @@ import { demoLoadCancelled, downloadDemo } from "./DemoDownload";
 import { DemoEventTimeline } from "./DemoEventTimeline";
 import { DemoOverlayController } from "./DemoOverlayController";
 import { watchedEyePose } from "./DemoPovState";
-import type { DemoViewer, DemoViewerInfo } from "./DemoViewer";
-import type { DemoViewerHUD } from "./DemoViewerHUD";
+import type { DemoDeath, DemoViewer, DemoViewerInfo } from "./DemoViewer";
+import type { DemoTimelineEvent, DemoViewerHUD } from "./DemoViewerHUD";
 import { DroppedWeaponRenderer } from "./DroppedWeaponRenderer";
 import { FollowedViewWeapon } from "./FollowedViewWeapon";
 import { preloadFPSAudio } from "./FPSAudio";
@@ -49,11 +52,18 @@ import type { FPSHud } from "./FPSHud";
 import { resetFPSMovementAudio } from "./FPSMovementAudio";
 import { type GameEventContext, handleServerStateUpdate, type ProjectileSyncState } from "./GameEvents";
 import { GibSystem } from "./GibSystem";
-import { HUDState } from "./HUDState";
+import { currentClip, HUDState } from "./HUDState";
 import { MatchStateManager } from "./MatchStateManager";
 import { RagdollSystem } from "./RagdollSystem";
 import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
 import { PlayerWeaponStates, storeSnapshotState } from "./SnapshotStateStore";
+
+/** Music while watching, and on leaving: a match's, then the menus'. */
+const GAME_PLAYLIST = "data/game.playlist.json";
+const MENU_PLAYLIST = "data/menu.playlist.json";
+
+/** How far before a frag a click on the timeline lands, to see it coming. */
+const TIMELINE_LEAD_SECONDS = 3;
 
 export class DemoService {
   private static _instance: DemoService | null = null;
@@ -99,6 +109,11 @@ export class DemoService {
 
   // Demo spectator state
   private _followedEntityId: string | null = null;
+  /** The demo's deaths, once scanned, for the timeline's lane. */
+  private _timelineDeaths: DemoDeath[] = [];
+  private _timelineScan: AbortController | null = null;
+  /** Players holding alt fire (aiming down sights) over the frame on screen. */
+  private _aimingEntities = new Set<string>();
   /**
    * Demo playback's OWN viewmodel instance, bound to the spectator camera
    * (QA-8). Never the live getInstance() — sharing one WeaponViewManager
@@ -304,8 +319,47 @@ export class DemoService {
       await viewer.load(data);
       if (this.abandonStart(start, viewer)) return;
       viewer.play();
-      if (!options.manual) this.startPlaybackLoop();
+      if (!options.manual) {
+        this.startPlaybackLoop();
+        this.scanTimelineEvents(viewer);
+      }
     });
+  }
+
+  /** Find the demo's frags and deaths in the background, then mark them. */
+  private scanTimelineEvents(viewer: DemoViewer): void {
+    this._timelineScan?.abort();
+    const scan = new AbortController();
+    this._timelineScan = scan;
+    this._timelineDeaths = [];
+    void viewer.scanDeaths(scan.signal).then((deaths) => {
+      if (!deaths || scan.signal.aborted || this.activeDemoViewer !== viewer) return;
+      this._timelineDeaths = deaths;
+      this.paintTimelineEvents();
+    });
+  }
+
+  /**
+   * Colour the timeline's frags and deaths from the followed player's side:
+   * their frags, their deaths, everyone else's frags. A click seeks to a few
+   * seconds before one, to see it coming.
+   */
+  private paintTimelineEvents(): void {
+    const viewer = this.activeDemoViewer;
+    if (!this.demoHud || !viewer) return;
+    const followed = this._followedEntityId;
+    const tickRate = viewer.getInfo().header?.tickRate ?? 60;
+    const events: DemoTimelineEvent[] = this._timelineDeaths.map((death) => {
+      const kind =
+        followed && death.killerId === followed ? "frag" : followed && death.victimId === followed ? "death" : "other";
+      return {
+        progress: death.progress,
+        seekTo: viewer.progressOfTick(death.tick - TIMELINE_LEAD_SECONDS * tickRate),
+        kind,
+        label: death.killerName ? `${death.killerName} fragged ${death.victimName}` : `${death.victimName} died`,
+      };
+    });
+    this.demoHud.setEvents(events);
   }
 
   // ── Cinematic playback ─────────────────────────────────────────────────────
@@ -475,6 +529,9 @@ export class DemoService {
 
   private stopPlayback(): void {
     this.stopPlaybackLoop();
+    this._timelineScan?.abort();
+    this._timelineScan = null;
+    this._timelineDeaths = [];
     this._unsubCameraChange?.();
     this._unsubCameraChange = null;
 
@@ -602,15 +659,22 @@ export class DemoService {
    * scene.activeCamera: left in place when a cinematic cut to a flyby, the
    * screen froze on the chase camera with the gun on top (D1). It lives only
    * while the spectator camera does.
+   *
+   * The followed player's body is hidden only behind their eyes. Any other
+   * camera, such as a reel's fly-by, sees them from outside, so it draws them.
    */
   private watchCameraController(): void {
     this._unsubCameraChange?.();
     this._unsubCameraChange = EventBus.on<{ type: string }>("camera:controller_changed", ({ type }) => {
       this.applyGameHud();
       if (type === "spectator") {
-        if (this._followedEntityId) this._attachWeaponViewToSpectatorCam();
+        if (this._followedEntityId) {
+          this.remoteRenderer?.setHiddenEntity(this._followedEntityId);
+          this._attachWeaponViewToSpectatorCam();
+        }
         return;
       }
+      this.remoteRenderer?.setHiddenEntity(null);
       this._demoWvm?.dispose();
       this._demoWvm = null;
     });
@@ -622,12 +686,15 @@ export class DemoService {
     if (!scene) {
       throw new Error("No active scene available for demo playback.");
     }
+    // A match's music, as in a lobby game; a timedemo (no HUD) measures in silence
+    if (withHud) void AudioManager.getInstance().loadPlaylist(GAME_PLAYLIST);
 
     this.watchCameraController();
 
     const { RemotePlayerRenderer } = await import("./RemotePlayerRenderer");
     this.remoteRenderer = new RemotePlayerRenderer(scene);
     this.remoteRenderer.enableDemoPlayback();
+    this.remoteRenderer.setFollowedMuzzle(() => this._followed.beamMuzzle());
     // Feed 3rd-person weapon models. In live play GameEvents populates this map;
     // in demo playback we own it and fill it from weapon_state events per frame.
     this.remoteRenderer.setEnemyWeapons(this._enemyWeapons);
@@ -652,7 +719,8 @@ export class DemoService {
 
     this.eventCtx = this._createEventContext();
 
-    viewer.onFrame((state) => {
+    viewer.onFrame((state, _tick, inputs) => {
+      this.noteAiming(state, inputs);
       this.latestState = state;
       const playback = viewer.getInfo();
       this._syncDemoPresentationClock(playback);
@@ -726,6 +794,8 @@ export class DemoService {
     this._followedEntityId = entityId;
     this._followed.follow(entityId, this._isDemoEntityDead(entityId));
     this.remoteRenderer?.setHiddenEntity(entityId);
+    this.remoteRenderer?.setPerspectiveEntity(entityId);
+    this.paintTimelineEvents();
     this._attachWeaponViewToSpectatorCam();
     // Their gun, HUD and place in the player list come from frames, and a
     // paused demo delivers none: present the frame on screen for them, or the
@@ -771,6 +841,9 @@ export class DemoService {
     const nextFrame = this.activeDemoViewer.getNextFrame();
     if (nextFrame) this.remoteRenderer?.pushDemoSnapshot(nextFrame.state, "", true);
     this._updateDemoPov(playback);
+    // The gun on screen is the demo's own weapon view: give its counter the
+    // number the HUD shows, as the live HUD does for the live one.
+    this._demoWvm?.setAmmoCount(currentClip(HUDState.getInstance()));
     applyCamera?.();
     this.remoteRenderer?.render();
     this._renderDemoProjectiles();
@@ -804,6 +877,8 @@ export class DemoService {
       this._followedEntityId = null;
       this._followed.follow(null);
       this.remoteRenderer?.setHiddenEntity(null);
+      this.remoteRenderer?.setPerspectiveEntity(null);
+      this.paintTimelineEvents();
       const cam = CameraSystem.getInstance();
       const spectator = cam.getController("spectator") as { clearSpectateTarget?(): void } | undefined;
       spectator?.clearSpectateTarget?.();
@@ -1001,6 +1076,8 @@ export class DemoService {
     const handler = this.exitHandler;
     this.exitHandler = null;
     this.stopAll();
+    // Back in the menus: their music again, as on leaving a lobby game
+    void AudioManager.getInstance().loadPlaylist(MENU_PLAYLIST);
     handler?.();
   }
 
@@ -1193,6 +1270,19 @@ export class DemoService {
    * demo playhead. Cinematic chase paths can change the spectator target
    * directly, so synchronize service ownership before sampling.
    */
+  /**
+   * Who is aiming down sights, from the commands recorded over this frame.
+   * A command names its player; the frame's roster names their entity.
+   */
+  private noteAiming(state: GameState, inputs: readonly RecordedInput[]): void {
+    this._aimingEntities.clear();
+    for (const input of inputs) {
+      if (!(input.buttons & InputButtons.ALT_FIRE)) continue;
+      const entityId = state.players.get(toClientKey(input.playerId))?.entityId;
+      if (entityId) this._aimingEntities.add(entityId);
+    }
+  }
+
   private _updateDemoPov(playback: DemoViewerInfo): void {
     const spectator = CameraSystem.getInstance().getController("spectator") as {
       getTargetEntityId?: () => string | null;
@@ -1203,6 +1293,7 @@ export class DemoService {
     }
 
     if (!this._followedEntityId || !this.remoteRenderer) return;
+    this._followed.setAiming(this._aimingEntities.has(this._followedEntityId));
     const sample = this.remoteRenderer.getDemoEntitySample(this._followedEntityId);
     if (!sample) return;
 

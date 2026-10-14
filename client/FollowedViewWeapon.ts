@@ -26,6 +26,7 @@ export class FollowedViewWeapon {
   private cut = true;
   private readonly stride = new DemoPovState();
   private pose: DemoPovPresentation | null = null;
+  private aiming = false;
 
   /** `view` resolves the weapon view to drive, or null while there is none. */
   constructor(private readonly view: () => WeaponViewManager | null) {}
@@ -109,6 +110,7 @@ export class FollowedViewWeapon {
     const pose = this.stride.update(this.entityId, sample, clock);
     this.pose = pose;
     this.readyView()?.updateFollowedBob({
+      aiming: this.aiming,
       deltaTime: pose.demoDeltaSeconds,
       grounded: pose.grounded,
       horizontalSpeed: pose.horizontalSpeed,
@@ -119,10 +121,25 @@ export class FollowedViewWeapon {
     return pose;
   }
 
+  /**
+   * Whether they are aiming down sights: their gun comes up to the sights and
+   * the view zooms. Known where a recording carries their buttons.
+   */
+  setAiming(aiming: boolean): void {
+    this.aiming = aiming;
+    this.stride.setAiming(aiming);
+  }
+
   /** Where their projectile leaves the barrel on screen, while their weapon is up. */
   muzzleFor(position: Vector3, velocity: Vector3): Vector3 | null {
     if (!this.entityId || this.dead) return null;
     return this.readyView()?.getProjectileMuzzlePosition(position, velocity) ?? null;
+  }
+
+  /** Where their beam leaves the barrel on screen, while their weapon is up. */
+  beamMuzzle(): Vector3 | null {
+    if (!this.entityId || this.dead) return null;
+    return this.readyView()?.getMuzzleWorldPosition() ?? null;
   }
 
   private readyView(): WeaponViewManager | null {

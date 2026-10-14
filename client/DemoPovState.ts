@@ -71,6 +71,11 @@ export class DemoPovState {
     bobCycle: 0,
   };
 
+  /** Whether they are aiming down sights: the view zooms as theirs did. */
+  setAiming(aiming: boolean): void {
+    this.state.isAiming = aiming;
+  }
+
   update(entityId: string, sample: InterpolatedEntity, clock: DemoPovClock): DemoPovPresentation {
     const discontinuous =
       this.lastEntityId !== entityId ||

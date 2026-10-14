@@ -72,6 +72,7 @@ function setup() {
   const remoteRenderer = {
     getRenderedPlayers: () => rendered,
     setHiddenEntity: vi.fn(),
+    setPerspectiveEntity: vi.fn(),
     getEntitySample: (id: string) => samples.get(id) ?? null,
   };
   const enemyWeapons = new Map([["player_2", "riotgun"]]);

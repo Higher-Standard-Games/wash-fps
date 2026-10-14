@@ -356,7 +356,9 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
             // draws a bolt for bolt weapons, so there is no double-draw.
             const localHero = event.entityId === localEntityId;
             const weaponId = localHero ? ctx._lastServerWeapon : ctx.enemyWeapons.get(event.entityId);
-            handleElectroRail(event, localHero, weaponId);
+            // Watched through their eyes, their rail leaves the gun on screen
+            const followedMuzzle = ctx.spectatingEntityId === event.entityId ? ctx.followedWeapon.beamMuzzle() : null;
+            handleElectroRail(event, localHero, weaponId, followedMuzzle);
             break;
           }
 
@@ -1245,14 +1247,20 @@ export function handleVoltaicBeam(event: VoltaicBeamEvent, localHero: boolean, w
 }
 
 /** Spawn a one-shot Electrobolt rail from the authoritative server truth. */
-export function handleElectroRail(event: ElectroRailEvent, localHero: boolean, weaponId = "electrobolt"): void {
+export function handleElectroRail(
+  event: ElectroRailEvent,
+  localHero: boolean,
+  weaponId = "electrobolt",
+  followedMuzzle: Vector3 | null = null,
+): void {
   const fx = getHitscanEffects();
   // Anchor the visible start to the actual gun muzzle for the local shooter. The
   // server origin is the eye (camera); a beam vertex exactly at the camera
   // projects degenerately (w≈0), smearing the near end to a screen corner and
   // making it emanate from the wrong side of the gun. The damage endpoint is
   // untouched — only the drawn start moves to the barrel (as the Voltaic beam does).
-  const muzzle = localHero ? getWeaponViewManager().getMuzzleWorldPosition() : null;
+  // A player watched through their eyes is the same case, with their gun on screen.
+  const muzzle = localHero ? getWeaponViewManager().getMuzzleWorldPosition() : followedMuzzle;
   if (muzzle) railTruthStart.copyFrom(muzzle);
   else railTruthStart.set(event.originX, event.originY, event.originZ);
   railTruthEnd.set(event.endX, event.endY, event.endZ);

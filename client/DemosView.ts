@@ -27,6 +27,19 @@ export const DEMO_LIST_LIMIT = 64;
 export const DEMO_ARCHIVE_TIMEOUT_MS = 10_000;
 const FEATURED_LIMIT = 6;
 const REEL_MINUTES = [1, 2, 5];
+/** A reel is at most a third of its demo. */
+const REEL_SHARE = 3;
+
+/**
+ * The reel lengths a demo can make: at most a third of its length. A demo under
+ * three minutes (shorter than an Amphi round) has no reel; 3–6 minutes gives
+ * 1 minute, 6–15 adds 2, and 15 or more adds 5.
+ */
+export function reelLengths(durationMs: number): number[] {
+  return REEL_MINUTES.filter((minutes) => durationMs >= minutes * REEL_SHARE * 60_000);
+}
+
+const TOO_SHORT = "Too short for a highlight reel";
 
 const ALL: RankedMode = {
   id: "all",
@@ -343,6 +356,18 @@ export class DemosView {
     return key;
   }
 
+  /**
+   * A Highlights key: a play key while the demo is long enough for a reel. A
+   * shorter one keeps its place, disabled for good, outside the play keys that
+   * a finished transfer re-enables.
+   */
+  private reelKey(key: HTMLButtonElement, allowed: readonly number[]): HTMLButtonElement {
+    if (allowed.length) return this.playKey(key);
+    key.disabled = true;
+    key.title = TOO_SHORT;
+    return key;
+  }
+
   // ── Asking ──
 
   private clearArchiveRequest(): void {
@@ -533,17 +558,28 @@ export class DemosView {
     const watch = this.playKey(createRaisedKey({ label: "▶ Watch", variants: ["watch"] }));
     watch.addEventListener("click", () => void this.play(demo, this.hero, watch));
     const reel = el("div", "dm-hero__reel");
-    const highlights = this.playKey(createRaisedKey({ label: "⚡ Highlights", variants: ["cream"] }));
-    highlights.addEventListener("click", () => void this.playReel(demo, this.hero, highlights, this.reelMinutes));
+    const allowed = reelLengths(demo.durationMs);
+    // The chosen length, or this demo's longest when it is too short for that
+    let chosen: number | undefined = allowed.includes(this.reelMinutes)
+      ? this.reelMinutes
+      : allowed[allowed.length - 1];
+    const highlights = this.reelKey(createRaisedKey({ label: "⚡ Highlights", variants: ["cream"] }), allowed);
+    highlights.addEventListener("click", () => {
+      if (chosen !== undefined) void this.playReel(demo, this.hero, highlights, chosen);
+    });
     const lengths = el("div", "dm-lens");
     lengths.setAttribute("role", "group");
     lengths.setAttribute("aria-label", "Highlight reel length");
+    // Every length keeps its place; one the demo is too short for is disabled
     for (const minutes of REEL_MINUTES) {
-      const key = el("button", minutes === this.reelMinutes ? "is-on" : "", `${minutes} min`);
+      const key = el("button", minutes === chosen ? "is-on" : "", `${minutes} min`);
       key.type = "button";
-      key.setAttribute("aria-pressed", String(minutes === this.reelMinutes));
+      key.disabled = !allowed.includes(minutes);
+      if (key.disabled) key.title = TOO_SHORT;
+      key.setAttribute("aria-pressed", String(minutes === chosen));
       key.addEventListener("click", () => {
         this.reelMinutes = minutes;
+        chosen = minutes;
         for (const other of lengths.children) {
           other.classList.toggle("is-on", other === key);
           other.setAttribute("aria-pressed", String(other === key));
@@ -789,7 +825,10 @@ export class DemosView {
     const watch = this.playKey(createRaisedKey({ label: "▶ Watch", variants: ["sm"] }));
     watch.addEventListener("click", () => void this.play(demo, card, watch));
     // The bolt alone on a narrow card; the label says the rest to a screen reader
-    const highlights = this.playKey(createRaisedKey({ label: "⚡", variants: ["sm", "cream"] }));
+    const highlights = this.reelKey(
+      createRaisedKey({ label: "⚡", variants: ["sm", "cream"] }),
+      reelLengths(demo.durationMs),
+    );
     highlights.querySelector(".raised-key__label")?.append(el("span", "dm-long", " Highlights"));
     highlights.setAttribute("aria-label", "Highlights");
     highlights.setAttribute("aria-haspopup", "dialog");
@@ -900,9 +939,12 @@ export class DemosView {
     const who =
       demo.players.length === 2 ? `${demo.players[0]} vs ${demo.players[1]}` : `${demo.players.length} players`;
     const options = el("div", "dm-reel__opts");
+    const allowed = reelLengths(demo.durationMs);
     for (const minutes of REEL_MINUTES) {
       const option = el("button", "dm-reel__opt");
       option.type = "button";
+      option.disabled = !allowed.includes(minutes);
+      if (option.disabled) option.title = TOO_SHORT;
       option.append(el("b", "", String(minutes)), el("small", "", "min"));
       option.setAttribute("aria-label", `${minutes} minute reel`);
       option.addEventListener("click", () => {

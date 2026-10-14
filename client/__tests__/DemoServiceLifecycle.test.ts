@@ -47,6 +47,8 @@ vi.mock("../../../../engine/weapon/WeaponViewManager", () => {
   return { WeaponViewManager };
 });
 
+import { AudioManager } from "../../../../engine/AudioManager";
+import { EventBus } from "../../../../engine/core/EventBus";
 import type { SnapshotBuffer } from "../../../../engine/network/client/SnapshotBuffer";
 import { DemoService } from "../DemoService";
 
@@ -79,7 +81,7 @@ function seedPlayback(
 } {
   const viewer = { ...disposable(), pause: vi.fn() };
   const cinematic = disposable();
-  const renderer = { ...disposable(), setHiddenEntity: vi.fn() };
+  const renderer = { ...disposable(), setHiddenEntity: vi.fn(), setPerspectiveEntity: vi.fn() };
   const hud = disposable(`demo-hud-${generation}`);
   const hudRoot = document.body.appendChild(document.createElement("div"));
   hudRoot.className = `game-hud-${generation}`;
@@ -158,6 +160,43 @@ describe("DemoService playback lifecycle", () => {
     lifecycle.setActiveController("spectator");
     service.stopAll();
     vi.clearAllMocks();
+  });
+
+  it("draws the followed player whenever the camera is not behind their eyes", () => {
+    const playback = seedPlayback(service, "flyby");
+    const internals = service as unknown as {
+      watchCameraController(): void;
+      applyGameHud(): void;
+      _attachWeaponViewToSpectatorCam(): void;
+      _unsubCameraChange: (() => void) | null;
+    };
+    const attach = vi.spyOn(internals, "_attachWeaponViewToSpectatorCam").mockImplementation(() => {});
+    const hud = vi.spyOn(internals, "applyGameHud").mockImplementation(() => {});
+    internals.watchCameraController();
+
+    // A reel cuts from the player's eyes to a fly-by: their body comes back
+    EventBus.emit("camera:controller_changed", { type: "freefly" });
+    expect(playback.renderer.setHiddenEntity).toHaveBeenLastCalledWith(null);
+
+    // And back behind their eyes: hidden again
+    EventBus.emit("camera:controller_changed", { type: "spectator" });
+    expect(playback.renderer.setHiddenEntity).toHaveBeenLastCalledWith("player_flyby");
+
+    attach.mockRestore();
+    hud.mockRestore();
+    service.stopAll();
+  });
+
+  it("leaves playback to the menus' music, then goes back where it started", () => {
+    seedPlayback(service, "exit");
+    const audio = AudioManager.getInstance();
+    const playlist = vi.spyOn(audio, "loadPlaylist").mockResolvedValue();
+    const back = vi.fn();
+    service.setExitHandler(back);
+    service.exit();
+    expect(playlist).toHaveBeenCalledWith("data/menu.playlist.json");
+    expect(back).toHaveBeenCalledOnce();
+    playlist.mockRestore();
   });
 
   it("fully releases consecutive normal and cinematic playback generations", () => {

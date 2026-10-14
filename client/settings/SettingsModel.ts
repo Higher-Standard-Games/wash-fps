@@ -383,7 +383,8 @@ export const VIDEO_PRESETS: Array<CvarChoice<"smooth" | "balanced" | "pretty"> &
     bars: 3,
     values: {
       r_bloom: 1.3,
-      r_glow: 1,
+      // A hint of glow on lit strips and signs; more turns every lamp into a blurred blob
+      r_glow: 0.35,
       r_ssr: 1,
       r_ssr_strength: 0.5,
       r_anisotropy: 16,

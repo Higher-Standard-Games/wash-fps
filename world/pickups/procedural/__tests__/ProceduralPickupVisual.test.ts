@@ -55,6 +55,19 @@ describe("ProceduralPickupVisual", () => {
     }
   });
 
+  it("draws every pickup in the world's rendering group, so walls and floors hide it", () => {
+    // A higher group clears depth before it draws (the first-person weapon's
+    // does), which showed the Mega Health's cross through every floor.
+    for (const recipe of allProceduralPickupRecipes()) {
+      const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 4, 0), false, 1);
+      visual.setActive(true);
+      for (const mesh of visual.root.getChildMeshes()) {
+        expect(mesh.renderingGroupId, `${recipe.id}: ${mesh.name}`).toBe(0);
+      }
+      visual.dispose();
+    }
+  });
+
   it("builds cloned geometry and disposes it cleanly (no clone/material leak)", () => {
     const recipe = getProceduralPickupRecipe("health_medium");
     if (!recipe) throw new Error("recipe missing");

@@ -10,6 +10,7 @@
  * thin strip along the bottom, for recording a reel.
  */
 
+import { createRaisedKey, injectRaisedKeyStyles, setRaisedKeyText } from "../../../engine/ui/components/RaisedKey";
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import type { DemoViewerInfo } from "./DemoViewer";
 import demoViewerHudCss from "./styles/DemoViewerHUD.css?raw";
@@ -41,6 +42,19 @@ export interface ReelProgress {
   speed: number;
 }
 
+/**
+ * A frag or death on a demo's timeline, coloured from the followed player's
+ * side: their frags, their deaths, and everyone else's frags.
+ */
+export interface DemoTimelineEvent {
+  /** Where it sits on the timeline (0–1). */
+  progress: number;
+  /** Where a click seeks to (0–1): a little before it, to see it coming. */
+  seekTo: number;
+  kind: "frag" | "death" | "other";
+  label: string;
+}
+
 /** A shot's card: what it is, whose it is, and what made it. */
 export interface ShotCard {
   kicker: string;
@@ -48,6 +62,16 @@ export interface ShotCard {
   player: string;
   detail: string;
   tags: string[];
+}
+
+/**
+ * A key on the bar: the menu's raised 3D key at the bar's one height. `classes`
+ * keep the key's own hooks (dvh-play, dvh-chip, …).
+ */
+function barKey(label: string, classes: string): HTMLButtonElement {
+  const key = createRaisedKey({ label, variants: ["bar", "inline"] });
+  key.classList.add(...classes.split(" ").filter(Boolean));
+  return key;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text = ""): HTMLElementTagNameMap[K] {
@@ -78,6 +102,7 @@ export class DemoViewerHUD {
   private timelineFill: HTMLDivElement | null = null;
   private timelineHandle: HTMLDivElement | null = null;
   private marks: HTMLDivElement | null = null;
+  private eventsLane: HTMLDivElement | null = null;
   private playPauseBtn: HTMLButtonElement | null = null;
   private prevBtn: HTMLButtonElement | null = null;
   private nextBtn: HTMLButtonElement | null = null;
@@ -111,6 +136,8 @@ export class DemoViewerHUD {
   private readonly listeners = new AbortController();
 
   constructor() {
+    // The key styles first, so this sheet's bar variant comes after them and wins
+    injectRaisedKeyStyles();
     UIStyles.injectCSS("demo-viewer-hud", demoViewerHudCss);
     this.build();
   }
@@ -128,16 +155,16 @@ export class DemoViewerHUD {
     this.timeline.append(this.timelineFill, this.marks, this.timelineHandle);
 
     const controls = el("div", "dvh-controls");
-    this.playPauseBtn = el("button", "dvh-play", "▶");
+    this.playPauseBtn = barKey("▶", "dvh-play");
     this.playPauseBtn.title = "Play or pause (Space)";
-    this.prevBtn = el("button", "dvh-chip dvh-reel-only", "◀◀");
+    this.prevBtn = barKey("◀◀", "dvh-chip dvh-reel-only");
     this.prevBtn.title = "Previous shot";
-    this.nextBtn = el("button", "dvh-chip dvh-reel-only", "▶▶");
+    this.nextBtn = barKey("▶▶", "dvh-chip dvh-reel-only");
     this.nextBtn.title = "Next shot";
-    this.speedBtn = el("button", "dvh-chip dvh-speed dvh-demo-only", "1x");
+    this.speedBtn = barKey("1x", "dvh-chip dvh-speed dvh-demo-only");
     this.speedBtn.title = "Playback speed";
     // The game HUD over playback: the followed player's own screen
-    this.hudBtn = el("button", "dvh-chip", "HUD");
+    this.hudBtn = barKey("HUD", "dvh-chip");
     this.hudBtn.title = "Show or hide the game HUD, seen from a player's eyes";
     const time = el("span", "dvh-time");
     this.timeNow = el("span", "", "0:00");
@@ -146,7 +173,7 @@ export class DemoViewerHUD {
     this.playerList = el("div", "dvh-players dvh-demo-only");
     this.shotLabel = el("span", "dvh-shot dvh-reel-only");
     this.statusLabel = el("span", "dvh-status", STATUS.idle);
-    this.minimizeBtn = el("button", "dvh-chip dvh-minimize", "▾");
+    this.minimizeBtn = barKey("▾", "dvh-chip dvh-minimize");
     this.minimizeBtn.title = "Minimize the controls to a strip";
     controls.append(
       this.playPauseBtn,
@@ -161,7 +188,10 @@ export class DemoViewerHUD {
       this.statusLabel,
       this.minimizeBtn,
     );
-    this.container.append(this.timeline, controls);
+    // The demo's frags and deaths, in a lane of their own under the seek bar
+    this.eventsLane = el("div", "dvh-events dvh-demo-only");
+    this.eventsLane.setAttribute("aria-label", "Frags and deaths");
+    this.container.append(this.timeline, this.eventsLane, controls);
 
     this.exitPlate = el("button", "dvh-exit", "✕");
     this.exitPlate.id = "demo-viewer-exit";
@@ -261,7 +291,7 @@ export class DemoViewerHUD {
     this.minimized = minimized;
     this.container?.classList.toggle("is-min", minimized);
     if (this.minimizeBtn) {
-      this.minimizeBtn.textContent = minimized ? "▴" : "▾";
+      setRaisedKeyText(this.minimizeBtn, minimized ? "▴" : "▾");
       this.minimizeBtn.title = minimized ? "Bring the controls back" : "Minimize the controls to a strip";
     }
   }
@@ -277,7 +307,7 @@ export class DemoViewerHUD {
     if (!this.container || this.reel) return;
     const progress = info.totalFrames > 1 ? info.currentFrame / (info.totalFrames - 1) : 0;
     this.render(progress, info.elapsedMs, info.durationMs, info.state);
-    if (this.speedBtn) this.speedBtn.textContent = `${info.playbackSpeed}x`;
+    if (this.speedBtn) setRaisedKeyText(this.speedBtn, `${info.playbackSpeed}x`);
   }
 
   /** Bring a reel's display up to date with the reel, once a frame. */
@@ -297,7 +327,7 @@ export class DemoViewerHUD {
     if (this.timelineFill) this.timelineFill.style.width = percent;
     if (this.timelineHandle) this.timelineHandle.style.left = percent;
     const playing = state === "playing";
-    if (this.playPauseBtn) this.playPauseBtn.textContent = playing ? "❚❚" : "▶";
+    if (this.playPauseBtn) setRaisedKeyText(this.playPauseBtn, playing ? "❚❚" : "▶");
     if (this.timeNow) this.timeNow.textContent = formatTime(elapsedMs);
     if (this.timeTotal) this.timeTotal.textContent = ` / ${formatTime(totalMs)}`;
     if (this.statusLabel) {
@@ -321,7 +351,7 @@ export class DemoViewerHUD {
     if (players.length === 0) return;
     this.playerList.append(el("span", "dvh-players-label", "POV"));
     for (const player of players) {
-      const btn = el("button", `dvh-chip dvh-player${player.isTarget ? " is-target" : ""}`, player.name);
+      const btn = barKey(player.name, `dvh-chip dvh-player${player.isTarget ? " is-target" : ""}`);
       btn.title = `Watch from ${player.name}`;
       btn.addEventListener("click", () => this._onPlayerSelect?.(player.entityId));
       this.playerList.appendChild(btn);
@@ -366,6 +396,23 @@ export class DemoViewerHUD {
   }
 
   // ── Callbacks ───────────────────────────────────────────────────
+
+  /** Mark the demo's frags and deaths under the seek bar; a click seeks to one. */
+  setEvents(events: readonly DemoTimelineEvent[]): void {
+    const lane = this.eventsLane;
+    if (!lane) return;
+    lane.replaceChildren(
+      ...events.map((event) => {
+        const mark = el("button", `dvh-event dvh-event--${event.kind}`);
+        mark.type = "button";
+        mark.style.left = `${Math.max(0, Math.min(1, event.progress)) * 100}%`;
+        mark.title = event.label;
+        mark.setAttribute("aria-label", event.label);
+        mark.addEventListener("click", () => this._onSeek?.(event.seekTo));
+        return mark;
+      }),
+    );
+  }
 
   onSeek(callback: (progress: number) => void): void {
     this._onSeek = callback;

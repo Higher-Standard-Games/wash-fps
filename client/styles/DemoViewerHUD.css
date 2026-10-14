@@ -106,6 +106,60 @@
   background: hsla(255, 45%, 8%, 0.85);
 }
 
+/* Frags and deaths, under the seek bar: big enough to find and to click */
+.dvh-events {
+  position: relative;
+  height: 12px;
+  margin-top: 3px;
+}
+
+.dvh-events:empty {
+  height: 0;
+  margin-top: 0;
+}
+
+.dvh-event {
+  position: absolute;
+  top: 1px;
+  width: 8px;
+  height: 10px;
+  padding: 0;
+  border: 0;
+  border-radius: 1px;
+  transform: translateX(-50%) skewX(-12deg);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+
+.dvh-event:is(:hover, :focus-visible) {
+  outline: none;
+  transform: translateX(-50%) skewX(-12deg) scale(1.35);
+}
+
+/* The followed player's frag */
+.dvh-event--frag {
+  background: hsl(44, 100%, 58%);
+  box-shadow: 0 0 6px hsla(44, 100%, 55%, 0.55);
+}
+
+/* The followed player's death */
+.dvh-event--death {
+  background: hsl(352, 88%, 58%);
+  box-shadow: 0 0 6px hsla(352, 90%, 55%, 0.5);
+}
+
+/* Someone else's frag */
+.dvh-event--other {
+  top: 3px;
+  width: 5px;
+  height: 6px;
+  background: hsla(42, 95%, 92%, 0.4);
+}
+
+#demo-viewer-hud.is-min .dvh-events {
+  display: none;
+}
+
 .dvh-timeline-handle {
   position: absolute;
   top: 50%;
@@ -131,65 +185,64 @@
   flex: 1;
 }
 
-/* Gold keycap: the one action that matters most */
-.dvh-play {
-  display: inline-flex;
-  align-items: center;
+/*
+ * The bar's keys: the menu's raised 3D key (RaisedKey), all at one height.
+ * Ink at rest; gold for what is on: play, the game HUD, the followed player.
+ */
+.raised-key--bar {
+  --key-d: 3px;
+  --key-cut: 9%;
+  --key-face: linear-gradient(180deg, hsl(250 28% 24%), hsl(250 36% 14%) 60%, hsl(252 40% 9%));
+  --key-side: linear-gradient(180deg, hsl(252 44% 6%), hsl(252 44% 3%));
+  --key-text: var(--w-cream, hsl(42 95% 92%));
+  --key-shadow: hsla(252, 70%, 3%, 0.55);
+  margin: 0 calc(var(--key-dx) + 2px) var(--key-d) 0;
+}
+
+.raised-key--bar .raised-key__face {
   justify-content: center;
-  width: 46px;
-  height: 32px;
-  border: 0;
-  cursor: pointer;
-  background: linear-gradient(105deg, hsl(42, 96%, 58%), hsl(36, 90%, 46%));
-  clip-path: polygon(10% 0, 100% 0, 90% 100%, 0 100%);
-  color: hsla(255, 45%, 10%, 0.92);
-  font-family: var(--w-font-display, "Orbitron", monospace);
-  font-size: 15px;
-  font-weight: 900;
+  gap: 0;
+  min-width: 44px;
+  min-height: 30px;
+  height: 30px;
+  padding: 0 14px;
 }
 
-.dvh-play:hover {
-  filter: brightness(1.1);
-}
-
-/* Ink chips: speed, HUD and players */
-.dvh-chip {
-  display: inline-flex;
-  align-items: center;
-  padding: 5px 14px 6px;
-  border: 0;
-  cursor: pointer;
-  background: hsla(250, 30%, 16%, 0.9);
-  clip-path: polygon(8% 0, 100% 0, 92% 100%, 0 100%);
-  box-shadow: inset 0 0 0 1px hsla(190, 90%, 72%, 0.2);
-  color: var(--w-cream-dim, hsla(42, 95%, 92%, 0.62));
-  font-family: var(--w-font-body, "Rajdhani", sans-serif);
-  font-size: 15px;
-  font-weight: 700;
+.raised-key--bar .raised-key__label {
+  font: 800 12px / 1 var(--w-font-display, "Orbitron", monospace);
   letter-spacing: 0.1em;
-  text-transform: uppercase;
   white-space: nowrap;
 }
 
-.dvh-chip:hover {
-  color: var(--w-cream, hsl(42, 95%, 92%));
-  background: hsla(250, 30%, 22%, 0.95);
+.raised-key--bar .raised-key__hint {
+  display: none;
 }
 
-.dvh-chip.is-on {
-  background: linear-gradient(105deg, hsl(186, 90%, 46%), hsl(190, 85%, 36%));
-  color: hsla(255, 45%, 8%, 0.95);
+.raised-key--bar:is(.dvh-play, .is-on, .is-target) {
+  --key-face: linear-gradient(180deg, hsl(51 100% 73%), hsl(46 100% 58%) 55%, hsl(42 100% 50%));
+  --key-side: linear-gradient(180deg, hsl(36 92% 40%), hsl(28 88% 25%));
+  --key-text: hsl(250 45% 8%);
 }
 
-.dvh-chip.is-unavailable {
+.raised-key--bar.dvh-play .raised-key__face {
+  min-width: 52px;
+}
+
+.raised-key--bar.dvh-play .raised-key__label {
+  font-size: 14px;
+}
+
+/* The game HUD switch while no player's eyes are on screen */
+.raised-key--bar.is-unavailable {
   opacity: 0.45;
 }
 
-.dvh-speed {
-  min-width: 58px;
-  justify-content: center;
-  font-family: var(--w-font-display, "Orbitron", monospace);
-  font-size: 13px;
+/* Wide enough for "0.25x", so the bar does not shift as the speed changes */
+.dvh-speed .raised-key__face {
+  min-width: 70px;
+}
+
+.dvh-speed .raised-key__label {
   font-variant-numeric: tabular-nums;
 }
 
@@ -221,12 +274,6 @@
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--w-text-muted, hsl(220, 10%, 55%));
-}
-
-.dvh-player.is-target {
-  background: linear-gradient(105deg, hsl(42, 96%, 58%), hsl(36, 90%, 46%));
-  box-shadow: none;
-  color: hsla(255, 45%, 10%, 0.92);
 }
 
 .dvh-shot {

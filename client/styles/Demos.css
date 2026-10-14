@@ -505,7 +505,7 @@
   box-shadow: 0 4px 0 hsl(250 40% 6%);
 }
 
-.dm-lens button:is(:hover, :focus-visible) {
+.dm-lens button:is(:hover, :focus-visible):not(:disabled) {
   outline: none;
   background: linear-gradient(180deg, hsl(278 92% 72%), hsl(268 72% 52%));
   color: var(--cream);
@@ -901,7 +901,7 @@
   text-transform: uppercase;
 }
 
-.dm-reel__opt:is(:hover, :focus-visible) {
+.dm-reel__opt:is(:hover, :focus-visible):not(:disabled) {
   outline: none;
   background: linear-gradient(180deg, hsl(278 92% 75%), hsl(268 72% 52%));
   color: hsl(45 100% 96%);
@@ -911,9 +911,16 @@
     0 10px 16px hsla(268, 80%, 14%, 0.45);
 }
 
-.dm-reel__opt:active {
+.dm-reel__opt:active:not(:disabled) {
   transform: translateY(4px);
   box-shadow: 0 1px 0 hsl(258 72% 22%);
+}
+
+/* A length the demo is too short for keeps its place */
+.dm-lens button:disabled,
+.dm-reel__opt:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .dm-reel__hint {

@@ -434,3 +434,12 @@ export class HUDState {
     HUDState.instance = null;
   }
 }
+
+/**
+ * The number the HUD shows for the weapon in hand (its clip, for a clip
+ * weapon), which is what the gun's own counter shows too.
+ */
+export function currentClip(state: HUDState): number {
+  const a = state.ammo[state.currentWeapon];
+  return a && typeof a === "object" ? a.clip : typeof a === "number" ? a : 0;
+}

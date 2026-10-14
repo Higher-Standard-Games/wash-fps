@@ -9,7 +9,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LobbyClient } from "../../../../lobby/LobbyClient";
 import type { DemoInfo } from "../../../../lobby/types";
-import { ago, DEMO_ARCHIVE_TIMEOUT_MS, DemosView, pageKeys } from "../DemosView";
+import { ago, DEMO_ARCHIVE_TIMEOUT_MS, DemosView, pageKeys, reelLengths } from "../DemosView";
 import type { RankedMode } from "../LeaderboardView";
 import { bindFeaturedDemos, type FeaturedDemo } from "../NewUiApi";
 
@@ -167,6 +167,39 @@ describe("DemosView", () => {
     const { view } = setup();
     view.destroy();
     expect(document.querySelector(".dm-reel")).toBeNull();
+  });
+});
+
+describe("highlight reels", () => {
+  const MIN = 60_000;
+
+  it("offers reels of at most a third of the demo", () => {
+    expect(reelLengths(2 * MIN + 59_000)).toEqual([]);
+    expect(reelLengths(3 * MIN)).toEqual([1]);
+    expect(reelLengths(5 * MIN + 32_000)).toEqual([1]);
+    expect(reelLengths(6 * MIN)).toEqual([1, 2]);
+    expect(reelLengths(15 * MIN)).toEqual([1, 2, 5]);
+  });
+
+  it("keeps a short demo's Highlights key in place, disabled", () => {
+    const { view, requestDemoList } = setup();
+    tabKey(view, "Latest").click();
+    const short = demo(1, "wdm2", "duel", ["A", "B"]);
+    const long = { ...demo(2, "wdm2", "duel", ["C", "D"]), durationMs: 5 * MIN + 32_000 };
+    view.receiveList("latest", [short, long], requestDemoList.mock.results.at(-1)!.value);
+    const keys = [...view.root.querySelectorAll<HTMLButtonElement>('.dm-card [aria-label="Highlights"]')];
+    expect(keys).toHaveLength(2);
+    const [shortKey, longKey] = keys;
+    expect(shortKey.disabled).toBe(true);
+    expect(shortKey.title).toBe("Too short for a highlight reel");
+    expect(shortKey.hasAttribute("data-demo-play")).toBe(false);
+    expect(longKey.disabled).toBe(false);
+
+    longKey.click();
+    const options = [...document.querySelectorAll<HTMLButtonElement>(".dm-reel__opt")];
+    expect(options.map((option) => option.textContent)).toEqual(["1min", "2min", "5min"]);
+    expect(options.map((option) => option.disabled)).toEqual([false, true, true]);
+    view.destroy();
   });
 });
 

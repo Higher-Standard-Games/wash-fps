@@ -118,7 +118,7 @@ describe("video", () => {
       for (const [name, value] of Object.entries(preset.values)) Cvar.set(name, value);
       expect(currentChoice(VIDEO_PRESETS)?.id).toBe(preset.id);
     }
-    Cvar.set("r_glow", 0.35);
+    Cvar.set("r_glow", 0.8);
     expect(currentChoice(VIDEO_PRESETS)).toBeNull();
   });
 

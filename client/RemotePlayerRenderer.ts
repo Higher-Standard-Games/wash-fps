@@ -234,6 +234,17 @@ export class RemotePlayerRenderer {
   private readonly voltaicMuzzleResolver: VoltaicRemoteStartResolver = (entityId, direction, result) =>
     this.getWeaponMuzzleWorldPositionToRef(entityId, direction, result);
 
+  /**
+   * The muzzle of the gun in front of the camera while someone is watched
+   * through their eyes. Their own body and gun are hidden then, so a beam must
+   * leave this barrel, the one on screen, as the local player's does.
+   */
+  private followedMuzzle: (() => Vector3 | null) | null = null;
+
+  setFollowedMuzzle(resolver: (() => Vector3 | null) | null): void {
+    this.followedMuzzle = resolver;
+  }
+
   constructor(scene: Scene) {
     this.scene = scene;
     registerPlayerModelVisualCvars();
@@ -436,7 +447,22 @@ export class RemotePlayerRenderer {
     this.localTeam = teamId ?? null;
   }
 
+  /**
+   * Whose eyes the viewer borrows in a demo: that player is coloured as your
+   * own side, and everyone else is read from their side, as in live play.
+   */
+  private perspectiveEntityId: string | null = null;
+
+  setPerspectiveEntity(entityId: string | null): void {
+    this.perspectiveEntityId = entityId;
+  }
+
   private resolvePlayerTeamSlot(entityId: string): PlayerTeamSlot {
+    const viewer = this.perspectiveEntityId;
+    if (viewer !== null) {
+      if (entityId === viewer) return "ally";
+      return getPlayerTeamSlot(this.teams.get(entityId), this.teams.get(viewer));
+    }
     return getPlayerTeamSlot(this.teams.get(entityId), this.localTeam);
   }
 
@@ -721,6 +747,13 @@ export class RemotePlayerRenderer {
 
   /** Allocation-free form used once per render frame by the retained Voltaic batch. */
   getWeaponMuzzleWorldPositionToRef(entityId: string, shotDirection: Vector3, result: Vector3): boolean {
+    if (entityId === this._hiddenEntityId && this.followedMuzzle) {
+      const muzzle = this.followedMuzzle();
+      if (muzzle) {
+        result.copyFrom(muzzle);
+        return true;
+      }
+    }
     const hitbox = this.hitboxes.get(entityId);
     if (!hitbox) return false;
 

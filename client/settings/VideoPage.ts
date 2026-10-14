@@ -3,6 +3,9 @@
  * four sections, closed until asked for and one open at a time. Every setting is
  * one of the renderer's own variables; the pips are estimates of what each pass
  * costs.
+ *
+ * In a match the page is locked: changing the renderer's passes mid-match can
+ * leave the view without the game drawn, so video settings change in the lobby.
  */
 
 import { Cvar } from "../../../../engine/core/Cvar";
@@ -49,7 +52,10 @@ export class VideoPage {
   private fullscreen = false;
   private readonly onFullscreenChange = () => void this.readFullscreen();
 
-  constructor(private readonly host: FieldHost & { toast(message: string): void }) {
+  constructor(
+    private readonly host: FieldHost & { toast(message: string): void },
+    locked = false,
+  ) {
     this.root = el("div", "fps-set-video");
 
     const presets = el("div", "fps-set-presets");
@@ -116,7 +122,21 @@ export class VideoPage {
     this.buildWorld(this.sectionFields.get("world")!);
     this.buildTextures(this.sectionFields.get("textures")!);
 
-    this.root.append(presets, bar, sections, this.panel);
+    if (locked) {
+      const notice = el("div", "fps-set-locked");
+      notice.setAttribute("role", "note");
+      notice.append(
+        el("b", "", "Video settings change in the lobby."),
+        " Leave the match to adjust them; fullscreen still works with Alt+Enter.",
+      );
+      const content = el("div", "fps-set-video__locked");
+      content.inert = true;
+      content.setAttribute("aria-disabled", "true");
+      content.append(presets, bar, sections, this.panel);
+      this.root.append(notice, content);
+    } else {
+      this.root.append(presets, bar, sections, this.panel);
+    }
     this.showSection(null);
     document.addEventListener("fullscreenchange", this.onFullscreenChange);
     void this.readFullscreen();

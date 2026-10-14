@@ -20,7 +20,7 @@ export class FPSSettingsOverlay extends GameDialogPanel {
   constructor() {
     super({ title: "Settings", closeOnBackdrop: false, showCloseButton: false });
     UIStyles.injectCSS("fps-match-menu", matchMenuCss);
-    this.settingsView = new FPSSettingsView();
+    this.settingsView = new FPSSettingsView({ inMatch: true });
 
     this.backdrop.className = "game-dialog-backdrop fps-match-menu fps-match-menu--settings";
     // A lobby rail as well, so the page keys stack and fold as they do there

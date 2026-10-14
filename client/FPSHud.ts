@@ -19,7 +19,7 @@ import { UITheme } from "../../../engine/ui/UITheme";
 import { getWeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
 import { toClientKey } from "../ClientEntityKey";
 import { devLog } from "./DevLog";
-import { HUDState } from "./HUDState";
+import { currentClip, HUDState } from "./HUDState";
 // Import the game's HUD theme as raw CSS (Vite).
 import washikiTheme from "./hud/styles/WashikiTheme.css?raw";
 import { MatchPhase, MatchStateManager } from "./MatchStateManager";
@@ -553,10 +553,9 @@ export class FPSHud {
     }
 
     // Drive the on-weapon ammo counter with the same number the HUD shows
-    // (clip for clip weapons). No-op for weapons without a counter.
-    const a = state.ammo[state.currentWeapon];
-    const clip = a && typeof a === "object" ? a.clip : typeof a === "number" ? a : 0;
-    getWeaponViewManager().setAmmoCount(clip);
+    // (clip for clip weapons). No-op for weapons without a counter. A demo
+    // drives its own weapon view the same way (DemoService).
+    getWeaponViewManager().setAmmoCount(currentClip(state));
   }
 
   // ===========================================================================

@@ -3,6 +3,9 @@
  *
  * The page keys belong to the view. The lobby and the in-game overlay both move
  * them into a rail with `takePageNav()`; without a host they sit above the page.
+ *
+ * Over a match (`inMatch`), the Video page is locked and resets leave video
+ * alone: its settings change in the lobby.
  */
 
 import { AudioManager } from "../../../../engine/AudioManager";
@@ -47,6 +50,7 @@ export class FPSSettingsView {
   private readonly video: VideoPage;
   private readonly resetPageKey: HTMLButtonElement;
   private readonly resetAllKey: HTMLButtonElement;
+  private readonly inMatch: boolean;
   private page: SettingsPageId = "controls";
   private armed: "page" | "all" | null = null;
   private armTimer = 0;
@@ -62,7 +66,8 @@ export class FPSSettingsView {
     }
   };
 
-  constructor() {
+  constructor(options: { inMatch?: boolean } = {}) {
+    this.inMatch = options.inMatch ?? false;
     injectRaisedKeyStyles();
     UIStyles.injectCSS("fps-settings-view", settingsCss);
     Cvar.init();
@@ -128,7 +133,7 @@ export class FPSSettingsView {
     };
     this.controls = new ControlsPage(host);
     this.gameplay = new GameplayPage(host);
-    this.video = new VideoPage(host);
+    this.video = new VideoPage(host, this.inMatch);
     const audio = new AudioPage(host);
 
     const panes = el("div", "fps-set-panes");
@@ -184,6 +189,7 @@ export class FPSSettingsView {
     }
     this.title.textContent = page.title;
     this.ghost.textContent = page.ghost;
+    this.resetPageKey.disabled = this.isLocked(id);
     this.disarm();
     this.redraw();
   }
@@ -238,8 +244,9 @@ export class FPSSettingsView {
           " back to defaults",
         );
       } else {
-        for (const page of SETTINGS_PAGES) resetPage(page.id);
-        this.toast({ bold: "Everything" }, " back to defaults");
+        for (const page of SETTINGS_PAGES) if (!this.isLocked(page.id)) resetPage(page.id);
+        if (this.inMatch) this.toast({ bold: "Everything but Video" }, " back to defaults");
+        else this.toast({ bold: "Everything" }, " back to defaults");
       }
       this.redraw();
       return;
@@ -251,6 +258,11 @@ export class FPSSettingsView {
     const pageTitle = SETTINGS_PAGES.find((page) => page.id === this.page)?.title ?? "";
     setRaisedKeyText(key, which === "all" ? "Sure? Everything" : `Sure? ${pageTitle}`);
     this.armTimer = window.setTimeout(() => this.disarm(), ARM_MS);
+  }
+
+  /** A page whose settings cannot change here: Video, over a match. */
+  private isLocked(page: SettingsPageId): boolean {
+    return this.inMatch && page === "video";
   }
 
   private disarm(): void {
