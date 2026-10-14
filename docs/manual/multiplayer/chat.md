@@ -47,6 +47,12 @@ Lines from the game rather than a player — why a join was refused, your place 
 ## Rules
 
 - Messages are limited to **128 characters**.
+- Lobby, room and match chat mask recognized English profanity as `***` on the
+  server, including private rooms, team chat and spectator chat. Names are
+  unchanged. The sender sees the same masked text as everyone else; new chat
+  histories and demo recordings store it too. This is a word filter, not a
+  guarantee against harassment or deliberately disguised words. A small list of
+  strong terms also matches inside words, so adding a letter does not hide them.
 - There's a light rate limit (roughly one message per 0.6s, with a short-burst cap) to stop spam. Over-limit messages are quietly dropped.
 - The server sanitizes and re-broadcasts every message, so what you see is authoritative. There is no local echo — your own message appears when the server sends it back (one snapshot later, effectively instant).
 

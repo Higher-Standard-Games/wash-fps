@@ -27,6 +27,7 @@ import type { BspEntity, BspModel } from "../../../engine/loader/bsp/BspLoader";
 // Protocol (client-compatible)
 import { MessageCodec, MessageType } from "../../../engine/network/protocol/MessageCodec";
 import type { CollisionWorld } from "../../../engine/network/systems/collision/CollisionWorld";
+import { filterChatText } from "../../../engine/server/ChatFilter";
 // PVS (Potentially Visible Set) for network culling
 import { ServerPVS, type ServerPVSData } from "../../../engine/server/ServerPVS";
 import type { PickupEntry } from "../../../shared/bsp/PickupTable";
@@ -1484,12 +1485,13 @@ export class GameServer {
       return;
     }
 
-    console.log(`[Chat] ${client.playerName}: ${text}`);
+    const filteredText = filterChatText(text, GameServer.CHAT_MAX_LENGTH);
+    console.log(`[Chat] ${client.playerName}: ${filteredText}`);
     this.pendingChatEvents.push({
       senderId: toClientKey(client.entityId),
       senderName: client.playerName,
       team,
-      text: teamOnly ? `[TEAM] ${text}` : text,
+      text: teamOnly ? `[TEAM] ${filteredText}` : filteredText,
       ...(teamOnly
         ? {
             recipientIds: [...this.clients.values()]

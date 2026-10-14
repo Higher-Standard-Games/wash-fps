@@ -55,23 +55,24 @@ it("delivers team chat to its sender and teammates only, while global chat reach
   const enemy = await join("enemy");
   const ally = await join("ally");
   const spectator = await join("watcher", false);
-  sender.send(MessageCodec.encodeChat("/say_team hold site"));
+  sender.send(MessageCodec.encodeChat("/say_team shit hold site"));
   await ally.waitFor(
-    (frame) => frame[0] === MessageType.Snapshot && chatTexts(ally).includes("[TEAM] hold site"),
+    (frame) => frame[0] === MessageType.Snapshot && chatTexts(ally).includes("[TEAM] *** hold site"),
     3000,
   );
-  expect(chatTexts(sender)).toContain("[TEAM] hold site");
+  expect(chatTexts(sender)).toContain("[TEAM] *** hold site");
+  expect(chatTexts(sender)).not.toContain("[TEAM] shit hold site");
   // Wait beyond delivery for another complete snapshot on every connection.
   await Promise.all([enemy, spectator].map((client) => client.waitForType(MessageType.Snapshot)));
-  expect(chatTexts(enemy)).not.toContain("[TEAM] hold site");
-  expect(chatTexts(spectator)).not.toContain("[TEAM] hold site");
-  enemy.send(MessageCodec.encodeChat("hello all"));
+  expect(chatTexts(enemy)).not.toContain("[TEAM] *** hold site");
+  expect(chatTexts(spectator)).not.toContain("[TEAM] *** hold site");
+  enemy.send(MessageCodec.encodeChat("shit hello all"));
   await Promise.all(
     [sender, ally, spectator].map((client) =>
-      client.waitFor((frame) => frame[0] === MessageType.Snapshot && chatTexts(client).includes("hello all"), 3000),
+      client.waitFor((frame) => frame[0] === MessageType.Snapshot && chatTexts(client).includes("*** hello all"), 3000),
     ),
   );
-  expect(chatTexts(enemy)).toContain("hello all");
+  expect(chatTexts(enemy)).toContain("*** hello all");
   spectator.send(MessageCodec.encodeChat("/say_team spy"));
   await spectator.waitFor(
     (frame) =>
@@ -89,4 +90,17 @@ it("rejects team chat in free-for-all instead of broadcasting it globally", asyn
       frame[0] === MessageType.ServerMessage && MessageCodec.decodeServerMessage(frame).message.includes("Team chat"),
   );
   expect(chatTexts(player)).not.toContain("[TEAM] private");
+});
+
+it("masks spectator chat before sender echo and delivery to players", async () => {
+  await start(false);
+  const player = await join("player");
+  const spectator = await join("watcher", false);
+  spectator.send(MessageCodec.encodeChat("fuckj nice shot"));
+  await Promise.all(
+    [player, spectator].map((client) =>
+      client.waitFor((frame) => frame[0] === MessageType.Snapshot && chatTexts(client).includes("***j nice shot"), 3000),
+    ),
+  );
+  for (const client of [player, spectator]) expect(chatTexts(client)).not.toContain("fuckj nice shot");
 });
