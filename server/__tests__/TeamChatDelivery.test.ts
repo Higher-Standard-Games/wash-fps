@@ -99,7 +99,10 @@ it("masks spectator chat before sender echo and delivery to players", async () =
   spectator.send(MessageCodec.encodeChat("fuckj nice shot"));
   await Promise.all(
     [player, spectator].map((client) =>
-      client.waitFor((frame) => frame[0] === MessageType.Snapshot && chatTexts(client).includes("***j nice shot"), 3000),
+      client.waitFor(
+        (frame) => frame[0] === MessageType.Snapshot && chatTexts(client).includes("***j nice shot"),
+        3000,
+      ),
     ),
   );
   for (const client of [player, spectator]) expect(chatTexts(client)).not.toContain("fuckj nice shot");
