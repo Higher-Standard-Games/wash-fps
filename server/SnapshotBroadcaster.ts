@@ -16,6 +16,7 @@ import { MessageCodec } from "../../../engine/network/protocol/MessageCodec";
 import type { ServerPVS } from "../../../engine/server/ServerPVS";
 import type { AgentDirective } from "../../../shared/server/gametype";
 import { toClientKey } from "../ClientEntityKey";
+import { chatVisibleTo } from "./ChatRouting";
 import type { ClientInfo } from "./Client";
 import { debugLog } from "./DebugLog";
 
@@ -97,7 +98,9 @@ export class SnapshotBroadcaster {
         clientState.events = this.leaveOutKnown(
           client,
           clientState.events.filter(
-            (event) => event.type !== "knockback_state" || event.entityId === toClientKey(client.entityId),
+            (event) =>
+              chatVisibleTo(event, toClientKey(client.entityId)) &&
+              (event.type !== "knockback_state" || event.entityId === toClientKey(client.entityId)),
           ),
           lasting,
           tick,

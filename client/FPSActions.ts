@@ -54,6 +54,7 @@ export const FPS = {
   // --- HUD / UI ---
   SCOREBOARD: "fps_scoreboard",
   CHAT: "fps_chat",
+  TEAM_CHAT: "fps_team_chat",
   READY: "fps_ready",
   JOIN_GAME: "fps_join_game",
   CONSOLE: "fps_console",
@@ -114,6 +115,7 @@ const FPS_ACTION_DEFS: ActionDefinition[] = [
   // --- HUD / UI ---
   { id: FPS.SCOREBOARD, type: "button", name: "Scoreboard", defaultBindings: [{ key: "Tab" }] },
   { id: FPS.CHAT, type: "button", name: "Chat", defaultBindings: [{ key: "KeyT" }] },
+  { id: FPS.TEAM_CHAT, type: "button", name: "Team chat", defaultBindings: [{ key: "KeyY" }] },
   { id: FPS.READY, type: "button", name: "Ready Up", defaultBindings: [{ key: "F4" }] },
   { id: FPS.JOIN_GAME, type: "button", name: "Join Game", defaultBindings: [{ key: "KeyJ" }] },
   { id: FPS.CONSOLE, type: "button", name: "Console", defaultBindings: [{ key: "Backquote" }] },
@@ -150,6 +152,7 @@ const FPS_GAMEPLAY_CONTEXT = {
     FPS.WEAPON_PREV,
     FPS.SCOREBOARD,
     FPS.CHAT,
+    FPS.TEAM_CHAT,
     FPS.READY,
     FPS.CONSOLE,
   ],
@@ -169,6 +172,7 @@ const FPS_SPECTATOR_CONTEXT = {
     FPS.SPRINT,
     FPS.SCOREBOARD,
     FPS.CHAT,
+    FPS.TEAM_CHAT,
     FPS.JOIN_GAME,
     FPS.CONSOLE,
   ],

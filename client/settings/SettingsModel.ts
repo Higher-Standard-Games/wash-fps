@@ -89,6 +89,7 @@ export const SETTINGS_ACTIONS: SettingsAction[] = [
     fixed: { codes: ["Tab"], does: "opens the scoreboard" },
   },
   { id: FPS.CHAT, group: "other", name: "Chat", fixed: { codes: ["KeyT", "Enter"], does: "opens chat" } },
+  { id: FPS.TEAM_CHAT, group: "other", name: "Team chat", fixed: { codes: ["KeyY"], does: "opens team chat" } },
   {
     id: FPS.CONSOLE,
     group: "other",

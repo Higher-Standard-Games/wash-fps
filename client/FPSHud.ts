@@ -140,7 +140,8 @@ export class FPSHud {
     // the 3D showcase remain. Aim is locked (pointer lock stays held). All
     // undone when the next warmup begins.
     this._unsubscribePhase?.();
-    this._unsubscribePhase = MatchStateManager.getInstance().onPhaseChange((newPhase) => {
+    this._unsubscribePhase = MatchStateManager.getInstance().onPhaseChange((newPhase, oldPhase) => {
+      if (oldPhase === MatchPhase.PostGame && newPhase !== MatchPhase.PostGame) this._chat?.clearMutes();
       if (!this._scoreboard) return;
       const postGame = newPhase === MatchPhase.PostGame;
 
@@ -209,14 +210,15 @@ export class FPSHud {
       console.log(`[FPSHud] Initialized with ${this.widgets.size} widgets, watching`);
       return;
     }
-    this._chat.onSend((text) => {
+    this._chat.onSend((text, teamOnly = false) => {
       import("../Game")
-        .then(({ Game }) => Game.getInstance().sendChat(text))
+        .then(({ Game }) => Game.getInstance().sendChat(text, teamOnly))
         .catch((e) => log.warn("FPSChat", "chat send failed:", e));
     });
     this._chatKeyHandler = (e: KeyboardEvent) => {
       // T (Q3 messagemode habit) or Enter (modern habit) both open talk mode.
-      if ((e.code !== "KeyT" && e.code !== "Enter" && e.code !== "NumpadEnter") || e.repeat) return;
+      if ((e.code !== "KeyT" && e.code !== "KeyY" && e.code !== "Enter" && e.code !== "NumpadEnter") || e.repeat)
+        return;
       if (e.altKey || e.ctrlKey || e.metaKey) return;
       if (!this._chat || this._chat.isInputActive()) return;
       // Only in gameplay: pointer locked, no menus/console/text fields open.
@@ -228,7 +230,7 @@ export class FPSHud {
       if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) return;
       e.preventDefault(); // don't leak the "t" into the input
       e.stopPropagation();
-      this._chat.openInput();
+      this._chat.openInput(e.code === "KeyY");
     };
     document.addEventListener("keydown", this._chatKeyHandler, true);
 

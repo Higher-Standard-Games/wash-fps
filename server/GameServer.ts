@@ -39,6 +39,7 @@ import { toClientKey } from "../ClientEntityKey";
 import { cleanClientText, nextAckedTick, rateLimited } from "./AuthorityGuards";
 // Bot names
 import { getNextBotName } from "./BotNames";
+import type { PendingChatEvent } from "./ChatRouting";
 // Client types (shared with SnapshotBuilder, SnapshotBroadcaster)
 import type { ClientInfo, GameServerConfig } from "./Client";
 import { ClientSilenceMonitor } from "./ClientSilenceMonitor";
@@ -174,7 +175,7 @@ export class GameServer {
   // Kill events cached for snapshot broadcast (postTick drains them from CombatSystem)
   private pendingKillEvents: import("./systems/CombatSystem").KillEvent[] = [];
   // Chat messages queued for snapshot broadcast (handleChat sanitizes + rate-limits)
-  private pendingChatEvents: Array<{ senderId: string; senderName: string; team: string; text: string }> = [];
+  private pendingChatEvents: PendingChatEvent[] = [];
 
   // Chat limits (server-authoritative; over-limit messages dropped, log-only)
   private static readonly CHAT_MAX_LENGTH = 128;
@@ -1455,8 +1456,14 @@ export class GameServer {
     if (!client) return;
 
     // Sanitize: strip control chars/newlines, collapse whitespace, cap length.
-    const text = cleanClientText(MessageCodec.decodeChat(data).text, GameServer.CHAT_MAX_LENGTH);
+    const raw = MessageCodec.decodeChat(data).text.trim();
+    const teamOnly = /^\/say_team(?:\s|$)/i.test(raw);
+    const text = cleanClientText(teamOnly ? raw.replace(/^\/say_team\s*/i, "") : raw, GameServer.CHAT_MAX_LENGTH);
     if (!text) return;
+
+    const team = client.isSpectator
+      ? "spectator"
+      : (this.gametypeController.getMatchState().getPlayerTeam(client.playerId) ?? "");
 
     // Rate limit (log-only drop, consistent with authority conventions):
     // min interval between messages + burst cap over a sliding window.
@@ -1471,15 +1478,28 @@ export class GameServer {
     client.chatStamps = stamps;
     client.lastChatMs = now;
 
-    const team = client.isSpectator
-      ? "spectator"
-      : (this.gametypeController.getMatchState().getPlayerTeam(client.playerId) ?? "");
+    // Invalid team-chat attempts share the chat budget too, bounding notice spam.
+    if (teamOnly && (!this.gametypeController.getGametype().teamBased || (team !== "udon" && team !== "soba"))) {
+      conn.sendReliable(MessageCodec.encodeServerMessage("Team chat is only available to players on a team.", "info"));
+      return;
+    }
+
     console.log(`[Chat] ${client.playerName}: ${text}`);
     this.pendingChatEvents.push({
       senderId: toClientKey(client.entityId),
       senderName: client.playerName,
       team,
-      text,
+      text: teamOnly ? `[TEAM] ${text}` : text,
+      ...(teamOnly
+        ? {
+            recipientIds: [...this.clients.values()]
+              .filter(
+                (peer) =>
+                  !peer.isSpectator && this.gametypeController.getMatchState().getPlayerTeam(peer.playerId) === team,
+              )
+              .map((peer) => toClientKey(peer.entityId)),
+          }
+        : {}),
     });
   }
 

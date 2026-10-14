@@ -1388,7 +1388,7 @@ function handleChatEvent(event: ChatSnapshotEvent): void {
     const prefix = event.team === "spectator" ? "[SPEC] " : "";
     import("./FPSHud")
       .then(({ FPSHud }) => {
-        FPSHud.getInstance().chat?.addMessage(prefix + name, String(event.text ?? ""), event.team ?? "");
+        FPSHud.getInstance().chat?.addMessage(prefix + name, String(event.text ?? ""), event.team ?? "", name);
       })
       .catch(() => {});
   } catch (e) {

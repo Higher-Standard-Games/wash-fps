@@ -17,6 +17,7 @@ import type { SnapshotEvent } from "../../../engine/network/core/SnapshotEvent";
 import { POWERUP_KINDS, packPowerupMask, powerupSecondsRemaining } from "../../../shared/items/Powerups";
 import { MatchPhase } from "../../../shared/server/gametype";
 import { toClientKey } from "../ClientEntityKey";
+import type { PendingChatEvent, ScopedChatEvent } from "./ChatRouting";
 import type { ClientInfo } from "./Client";
 import type { AwardEvent } from "./gametypes/AwardTracker";
 import type { GametypeController } from "./gametypes/GametypeController";
@@ -84,7 +85,7 @@ export interface SnapshotContext {
   /** Mutable: kill events cached since last snapshot */
   pendingKillEvents: KillEvent[];
   /** Chat messages queued by GameServer.handleChat (sanitized + rate-limited). */
-  pendingChatEvents: Array<{ senderId: string; senderName: string; team: string; text: string }>;
+  pendingChatEvents: PendingChatEvent[];
   /** Mutable: award events cached since last snapshot */
   pendingAwards: AwardEvent[];
   /** Mutable: clients that need initial pickup state sync */
@@ -687,13 +688,8 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
 
   // Add chat events (one-shots; recorded into demos automatically post-D16)
   for (const chat of ctx.pendingChatEvents) {
-    emit({
-      type: "chat",
-      senderId: chat.senderId,
-      senderName: chat.senderName,
-      team: chat.team,
-      text: chat.text,
-    });
+    const event: ScopedChatEvent = { type: "chat", ...chat };
+    emit(event);
   }
   ctx.pendingChatEvents.length = 0;
 

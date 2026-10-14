@@ -1033,14 +1033,14 @@ export class Game {
    * Send an in-game chat message (server sanitizes/rate-limits and
    * rebroadcasts as a `chat` snapshot event). Called by the HUD chat widget.
    */
-  sendChat(text: string): void {
+  sendChat(text: string, teamOnly = false): void {
     if (!this.gameHost || !this.isNetworkMode) {
       console.warn(`[Chat] send dropped — gameHost=${!!this.gameHost} networkMode=${this.isNetworkMode}`);
       return;
     }
     devLog(`[Chat] send → server: "${text}"`);
     const networkHost = this.gameHost as import("../../engine/network/client/hosts/NetworkGameHost").NetworkGameHost;
-    networkHost.sendChat(text);
+    networkHost.sendChat(text, teamOnly);
   }
 
   /** True while the kit picker is up: the match menu stays away from it. */

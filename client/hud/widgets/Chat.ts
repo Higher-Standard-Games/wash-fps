@@ -20,6 +20,7 @@ export interface ChatMessage {
   timestamp: number;
   /** From the game rather than a player: no sender stamp. */
   notice?: boolean;
+  playerName?: string;
 }
 
 export class FPSChat {
@@ -31,7 +32,10 @@ export class FPSChat {
   /** The viewer's own side, so a sender can be coloured ally or enemy. */
   private localTeam: string = "";
   private inputActive: boolean = false;
-  private onSendCallback: ((text: string) => void) | null = null;
+  private onSendCallback: ((text: string, teamOnly?: boolean) => void) | null = null;
+  private readonly mutedNames = new Set<string>();
+  private teamInput = false;
+  private prompt: HTMLElement;
 
   private static readonly MESSAGE_FADE_MS = 8000;
   /** Messages visible in the closed overlay. */
@@ -53,6 +57,7 @@ export class FPSChat {
     this.inputWrap.className = "fps-chat-input-wrap";
 
     const prompt = document.createElement("span");
+    this.prompt = prompt;
     prompt.className = "fps-chat-prompt";
     prompt.textContent = "SAY";
     this.inputWrap.appendChild(prompt);
@@ -74,7 +79,7 @@ export class FPSChat {
   /**
    * Set callback for when a message is sent
    */
-  public onSend(callback: (text: string) => void): void {
+  public onSend(callback: (text: string, teamOnly?: boolean) => void): void {
     this.onSendCallback = callback;
   }
 
@@ -86,8 +91,35 @@ export class FPSChat {
     this.localTeam = team ?? "";
   }
 
-  public addMessage(sender: string, text: string, team: string = ""): void {
-    this.push({ sender, text, team, timestamp: performance.now() });
+  public addMessage(sender: string, text: string, team: string = "", playerName = sender): void {
+    if (this.mutedNames.has(playerName.trim().toLowerCase())) return;
+    this.push({ sender, text, team, playerName, timestamp: performance.now() });
+  }
+
+  public clearMutes(): void {
+    this.mutedNames.clear();
+  }
+
+  private localCommand(text: string): boolean {
+    const match = text.match(/^\/(mute|unmute)(?:\s+(.*))?$/i);
+    if (!match) return false;
+    const name = (match[2] ?? "").trim().replace(/^"(.*)"$/, "$1");
+    const key = name.toLowerCase();
+    if (!key) {
+      this.addNotice(`Usage: /${match[1].toLowerCase()} <playername>`);
+      return true;
+    }
+    if (match[1].toLowerCase() === "mute") {
+      this.mutedNames.add(key);
+      this.messages = this.messages.filter(
+        (message) => message.notice || message.playerName?.trim().toLowerCase() !== key,
+      );
+      this.rebuildLog();
+      this.addNotice(`Muted ${name} for this match. Use /unmute ${name} to undo.`);
+    } else {
+      this.addNotice(this.mutedNames.delete(key) ? `Unmuted ${name}.` : `${name} is not muted.`);
+    }
+    return true;
   }
 
   private push(msg: ChatMessage): void {
@@ -169,7 +201,13 @@ export class FPSChat {
   /**
    * Open talk mode: expand to the scrollable history dialog + focus the input.
    */
-  public openInput(): void {
+  public openInput(teamOnly = false): void {
+    if (teamOnly && this.localTeam !== "udon" && this.localTeam !== "soba") {
+      this.addNotice("Team chat is only available to players on a team.");
+      return;
+    }
+    this.teamInput = teamOnly;
+    this.prompt.textContent = teamOnly ? "TEAM" : "SAY";
     this.inputActive = true;
     this.container.classList.add("fps-chat--history");
     this.inputWrap.classList.add("fps-chat-input-wrap--active");
@@ -208,8 +246,14 @@ export class FPSChat {
     if (e.isComposing || e.keyCode === 229) return;
     if (e.key === "Enter") {
       const text = this.inputEl.value.trim();
-      if (text && this.onSendCallback) {
-        this.onSendCallback(text);
+      if (text && !this.localCommand(text) && this.onSendCallback) {
+        const teamCommand = text.match(/^\/say_team(?:\s+(.*))?$/i);
+        if (teamCommand) {
+          const message = (teamCommand[1] ?? "").trim();
+          if (message) this.onSendCallback(message, true);
+          else this.addNotice("Usage: /say_team <message>");
+        } else if (this.teamInput) this.onSendCallback(text, true);
+        else this.onSendCallback(text);
       }
       this.closeInput();
       e.preventDefault();
@@ -220,6 +264,7 @@ export class FPSChat {
   }
 
   public destroy(): void {
+    this.clearMutes();
     this.container.remove();
   }
 }
