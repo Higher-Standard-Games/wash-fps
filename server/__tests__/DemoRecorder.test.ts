@@ -69,7 +69,7 @@ describe("DemoRecorder min-duration guard", () => {
     written.push(fp);
     const reader = new DemoReader(new Uint8Array(fs.readFileSync(fp)));
     expect(reader.readHeader()).toMatchObject({
-      version: 4,
+      version: 5,
       private: true,
       matchId: "match-verified",
       players: [

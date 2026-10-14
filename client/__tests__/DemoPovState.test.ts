@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Cvar } from "../../../../engine/core/Cvar";
 import type { InterpolatedEntity } from "../../../../engine/network/client/SnapshotBuffer";
-import { DemoPovState } from "../DemoPovState";
+import { DemoPovState, watchedEyePose } from "../DemoPovState";
 
 function sample(overrides: Partial<InterpolatedEntity> = {}): InterpolatedEntity {
   return {
@@ -209,5 +209,41 @@ describe("DemoPovState", () => {
 
     expect(landed.landingVelocity).toBe(600);
     expect(landed.effects.positionOffset.y).toBeLessThan(0);
+  });
+});
+
+describe("DemoPovState — the watched player's own motion", () => {
+  const clock = (playheadTick: number, paused = false) => ({ playheadTick, tickRate: 100, paused, discontinuityId: 0 });
+
+  it("leans with their strafe keys, as their own screen did", () => {
+    Cvar.set("cg_strafetilt", 1.5);
+    const pov = new DemoPovState();
+    pov.update("player_1", sample({ vx: 0 }), clock(0));
+    let roll = 0;
+    for (let tick = 1; tick <= 50; tick++)
+      roll = pov.update("player_1", sample({ vx: 0, strafeInput: 1 }), clock(tick)).effects.rotationOffset.z;
+    expect(roll).toBeLessThan(-1);
+  });
+
+  it("dips into a slide and lifts through a ledge grab", () => {
+    const pov = new DemoPovState();
+    expect(pov.update("player_1", sample({ slidePhase: 1 }), clock(0)).pitchOffset).toBeCloseTo(-0.22);
+    let lift = 0;
+    for (let tick = 1; tick <= 100; tick++)
+      lift = pov.update("player_1", sample({ ledgeGrabPhase: 1 }), clock(tick)).pitchOffset;
+    expect(lift).toBeCloseTo(0.15, 2);
+  });
+
+  it("eases up a step on its clock, and holds while paused", () => {
+    Cvar.set("cl_smoothfactor", 0.15);
+    const pov = new DemoPovState();
+    pov.update("player_1", sample({ y: 0 }), clock(0));
+    const climbing = pov.update("player_1", sample({ y: 16 }), clock(1)).smoothedY;
+    expect(climbing).toBeGreaterThan(0);
+    expect(climbing).toBeLessThan(16);
+    expect(pov.update("player_1", sample({ y: 16 }), clock(1, true)).smoothedY).toBe(climbing);
+    expect(watchedEyePose(sample({ y: 16 }), pov.update("player_1", sample({ y: 16 }), clock(1, true))).y).toBeCloseTo(
+      climbing + 34,
+    );
   });
 });

@@ -6,7 +6,12 @@
  * newest recorded state.
  */
 
-import { type EntitySnapshot, type InterpolatedEntity, lerpPitch } from "../../../engine/network/client/SnapshotBuffer";
+import {
+  type EntitySnapshot,
+  type InterpolatedEntity,
+  lerpOptional,
+  lerpPitch,
+} from "../../../engine/network/client/SnapshotBuffer";
 
 interface DemoTimelineSnapshot {
   tick: number;
@@ -139,6 +144,10 @@ export class DemoEntityTimeline {
         ((b.crouchViewOffset ?? (b.crouching || b.sliding ? -24 : 0)) -
           (a.crouchViewOffset ?? (a.crouching || a.sliding ? -24 : 0))) *
           t,
+      slidePhase: lerpOptional(a.slidePhase, b.slidePhase, t),
+      ledgeGrabPhase: lerpOptional(a.ledgeGrabPhase, b.ledgeGrabPhase, t),
+      strafeInput: t < 0.5 ? a.strafeInput : b.strafeInput,
+      forwardInput: t < 0.5 ? a.forwardInput : b.forwardInput,
     };
   }
 }

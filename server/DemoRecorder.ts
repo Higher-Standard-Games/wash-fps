@@ -36,8 +36,12 @@ import {
 /** Magic bytes identifying a .shagdemo file */
 const DEMO_MAGIC = new Uint8Array([0x53, 0x48, 0x41, 0x47]); // "SHAG"
 
-/** Current demo format version */
-const DEMO_VERSION = 4;
+/**
+ * Current demo format version. 5 has v4's header; its frames may carry each
+ * player's view behind bit 7 of the movement byte, which a v4 reader would
+ * misread, so it is a version of its own.
+ */
+const DEMO_VERSION = 5;
 
 // ── Types ───────────────────────────────────────────────────────────────
 

@@ -122,7 +122,6 @@ describe("extractEntities", () => {
             crouching: false,
             sliding: false,
             wallJumping: false,
-            crouchViewOffset: 0,
             powerupMask: 0,
             waterLevel: 0,
             onLadder: false,

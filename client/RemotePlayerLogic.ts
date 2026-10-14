@@ -52,7 +52,13 @@ export function extractEntities(state: GameState, localEntityId: string): Map<st
       crouching: movementState?.isCrouching ?? false,
       sliding: movementState?.isSliding ?? false,
       wallJumping: movementState?.wallJumpState === "charging",
-      crouchViewOffset: movementState?.crouchViewOffset ?? 0,
+      // Absent from a recording made before the server sent the view: the
+      // watched eye then falls back to the crouch flag.
+      crouchViewOffset: movementState?.crouchViewOffset,
+      strafeInput: movementState?.strafeInput,
+      forwardInput: movementState?.forwardInput,
+      slidePhase: movementState?.slidePhase,
+      ledgeGrabPhase: movementState?.ledgeGrabPhase,
       powerupMask: powerups?.mask ?? 0,
       waterLevel: movementState?.waterLevel ?? 0,
       onLadder: movementState?.onLadder ?? false,

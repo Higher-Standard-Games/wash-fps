@@ -77,12 +77,29 @@ function adaptInput(
   };
 }
 
+/**
+ * The keys behind a world-space wish direction: its part along the view's
+ * right and forward axes. Diagonals count on both; a tiny remainder counts on
+ * neither.
+ */
+export function movementKeys(
+  wish: { forward: number; right: number },
+  yaw: number,
+): { strafe: -1 | 0 | 1; forward: -1 | 0 | 1 } {
+  const along = (x: number, z: number) => wish.right * x + wish.forward * z;
+  const key = (amount: number): -1 | 0 | 1 => (amount > 0.25 ? 1 : amount < -0.25 ? -1 : 0);
+  return {
+    strafe: key(along(Math.cos(yaw), -Math.sin(yaw))),
+    forward: key(along(Math.sin(yaw), Math.cos(yaw))),
+  };
+}
+
 /** Apply movement simulation result to entity transform and physics */
 function applyResult(
   transform: { position: { x: number; y: number; z: number }; rotation?: { x: number; y: number; z: number } },
   physics: PhysicsComponent,
   result: AdvancedMovementResult,
-  input?: { pitch: number; yaw: number },
+  input?: { pitch: number; yaw: number; forward: number; right: number },
 ): void {
   transform.position = result.position;
   physics.velocity = result.velocity;
@@ -93,6 +110,13 @@ function applyResult(
   physics.wallJumpState = result.wallJumpState ?? "none";
   physics.ledgeGrabState = result.ledgeGrabState ?? "none";
   physics.actualHorizSpeed = result.actualHorizSpeed ?? 0;
+  physics.slidePhase = result.slidePhase ?? 0;
+  physics.ledgeGrabPhase = result.ledgeGrabPhase ?? 0;
+  if (input) {
+    const keys = movementKeys(input, input.yaw);
+    physics.strafeInput = keys.strafe;
+    physics.forwardInput = keys.forward;
+  }
   physics.waterLevel = result.waterLevel ?? 0;
   physics.liquidContents = result.liquidContents ?? 0;
 

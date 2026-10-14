@@ -199,9 +199,13 @@ describe("buildSnapshot golden", () => {
               "movementState": {
                 "actualHorizSpeed": 0,
                 "crouchViewOffset": 0,
+                "forwardInput": 0,
                 "isCrouching": false,
                 "isSliding": false,
+                "ledgeGrabPhase": 0,
                 "ledgeGrabState": "none",
+                "slidePhase": 0,
+                "strafeInput": 0,
                 "wallJumpState": "none",
               },
               "position": {
