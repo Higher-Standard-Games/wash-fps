@@ -9,7 +9,7 @@ The gold rail on the left is the whole menu:
 | Key | What it opens |
 |-----|---------------|
 | **Play** | The mode stage: Duel, Amphi, FFA, S&D. Pick one and find a room. FFA rooms hold 8 players, S&D rooms 10 (it starts from 2), Duel and Amphi 2 |
-| **Leaderboard** | Rankings per mode, for the last 30 days or all time |
+| **Leaderboard** | Skill rankings per mode, with separate Public and Private pools |
 | **Demos** | Replays of recorded matches; see [Demos](./demos.md) |
 | **Profile** | Your account and your ranked record |
 | **Settings** | The settings screen; see [HUD → Settings](../player/hud.md#settings-overlay) |
@@ -35,7 +35,7 @@ Pressing the big action under a mode puts you in a **room** for that mode, eithe
 In a room you can:
 
 - **Vote for a map.** Three maps are drawn from the mode's pool (only maps actually installed are offered, so there can be fewer than three); the most votes wins.
-- **Pick a side** in a team mode, add **bots**, and **chat** with the room.
+- **Pick a side** in a team mode, add **bots in private rooms**, and **chat** with the room.
 - **Ready up.** When everyone is ready the lobby starts a dedicated game server for that match alone and hands your client a ticket for your seat.
 
 See [Connecting → In the Ready Room](./connecting.md#in-the-ready-room) for the voting and bot rules.
@@ -48,29 +48,52 @@ A room whose match is under way shows **join** if it has space and **watch** if 
 
 ## Ranked matches
 
-Results are recorded for **ranked** matches only. Whether a match is ranked is decided from the roster at the moment it starts, and bots never take away a human's result; they only decide whether it counts:
+**Match records and skill ratings are separate.** A recorded match can contribute
+gameplay totals and history without changing your rating. Profile history shows
+whether it was rated and explains exclusions.
 
-| Mode type | Counts when |
-|-----------|-------------|
-| **Duel** and **Amphi** (1 v 1) | Both players are people |
-| **Team modes** (S&D) | More than half the players are people, and there is at least one person on each side |
-| **Free-for-all** | More than half the players are people, and at least two |
+| Pool | What counts toward its rating |
+|------|------------------------------|
+| **Public** | Eligible matches between verified human accounts; public rooms do not allow bots |
+| **Private** | Eligible human matches and matches against verified standard bot presets |
 
-A match that is abandoned, or that has too few people, is not ranked. A player's participation is tied to their account through their seat ticket, never to the name they typed.
+Ratings are separate for each mode and pool. The system uses **TrueSkill**, which
+tracks both estimated skill and uncertainty, rather than a win-count ladder or
+classic Elo. Your displayed rating is a conservative estimate. It is marked
+**Provisional** until you have at least 10 rated matches and uncertainty is low
+enough; provisional players can appear after their first rated match.
+
+The original roster, final standings and full-match participation must be
+verifiable. Late joins, side changes, interrupted participation and aborted
+matches can prevent a rating update. A supported 1v1 forfeit can still be rated.
+Custom bot configurations, unverified presets or bot configuration changes do not
+qualify. Standard preset bots have their own rating identities; playing them is
+not automatically an unrated practice session.
+
+Participation is tied to the verified account through its seat ticket, not its
+display name. A direct server connection does not by itself guarantee a lobby
+record or rating. Check Profile history for the stored decision.
 
 ## Leaderboard
 
 Pick a mode and see its ranking:
 
-- **Last 30 days**: a rolling window that never resets.
-- **All time**: since launch.
+- **Public / Private**: choose which independent ladder to read.
+- **30 days / All time**: choose the activity window; 30 days rolls continuously.
 - **Top 100**: the whole list, with a search.
 
-The top players are shown as a podium, and your own rank in every mode appears in the rail. Players are ordered by **wins**, then fewest **losses**, then most **draws**. The lobby records wins, losses and draws only, so there is no kill/death ratio on the leaderboard; each row also shows games played and win rate.
+The top players are shown as a podium, and your own rank in every mode appears in
+the rail. Players are ordered by conservative skill rating; wins, losses, draws,
+games and win rate provide context. The 30-day view filters recent activity; it
+does not reset your skill rating every month. Public and private positions can
+differ, and an unrated account has no ladder position yet.
 
 ## Profile
 
-Profile shows your name, your key and your **ranked record** (wins, losses and draws) per mode. It is also where you rename yourself or switch accounts.
+Profile shows your name and key, plus per-mode records for the selected Public or
+Private pool. It includes skill rating, provisional status, gameplay totals and
+match history, with rating changes or an explanation when a match was not rated.
+It is also where you rename yourself or switch accounts.
 
 ## Where this lives
 

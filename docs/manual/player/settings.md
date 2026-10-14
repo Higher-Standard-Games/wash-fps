@@ -10,7 +10,7 @@ slider, leave the page, or pause for 200 ms.
 ## Controls
 
 - **Keyboard and mouse.** A keyboard and a mouse drawn in colour by what each key does, with a list of every action beside them. Click a key to pick what it does, or click an action and then press the key, mouse button or wheel turn you want for it. A key does one thing, so giving it to an action takes it from the action that had it.
-- **Fixed keys.** **Escape** (menu/cancel), **Tab** (scoreboard), **T** and **Enter** (chat), **`** (console) and **J** (join) are read by the game directly and show as fixed.
+- **Fixed keys.** **Escape** (menu/cancel), **Tab** (scoreboard), **T** and **Enter** (global chat), **Y** (team chat), **`** (console) and **J** (join) are read by the game directly and show as fixed.
 - **Mouse feel** (cvars `m_sensitivity`, `cl_ads_sensitivity`, `cl_autorun`):
 
   | Setting | Default | Notes |

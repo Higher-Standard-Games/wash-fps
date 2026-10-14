@@ -10,7 +10,11 @@ demoplay analyze              # print the highlights it finds, without playing
 demoplay cinematic 2          # play a 2-minute reel
 ```
 
-From the lobby's Demos page, **⚡ Highlights** does the same and lets you pick a reel of **1, 2 or 5 minutes**. Press **H** during playback to hide or show the overlay. See [Demos](../multiplayer/demos.md) for recording, listing and normal playback.
+From the lobby's Demos page, **⚡ Highlights** does the same and lets you pick a reel
+of **1, 2 or 5 minutes**. The shared playback bar offers pause, a timeline and
+previous/next shot controls. **HUD** toggles the game HUD during first-person shots;
+**H** shows or hides playback overlays and replay chat.
+**Escape** or the gold exit plate leaves playback. See [Demos](../multiplayer/demos.md).
 
 ## How a reel is made
 

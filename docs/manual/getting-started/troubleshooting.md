@@ -25,7 +25,7 @@ The console's `map <name> <gametype>` also needs the lobby running, because it a
 
 ## A mode is missing from the Play stage, or won't start
 
-A mode the lobby doesn't run is reported as *"`<MODE>` is not offered by this lobby server yet"* and can't be started. **Team Deathmatch** is never offered; see [Team Deathmatch](../gametypes/team-deathmatch.md).
+A mode the lobby doesn't run is reported as *"`<MODE>` is not offered by this lobby server yet"* and can't be started. The first release offers Duel, Amphi, FFA and S&D.
 
 A mode with no maps is missing or fails to start. The lobby offers a map only when it is listed in `config/maps.json` **and** `map_<name>.pk3` exists in `public/data/`, and it reads that list once, **when it starts**. So after adding game data or editing the config, restart the lobby server. **Amphi** is the strictest: it is hidden completely unless its own map PK3s are installed. See [Maps](../gametypes/maps.md).
 

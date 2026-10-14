@@ -33,7 +33,12 @@ You can't, and you shouldn't. Dev-spawn is a developer affordance, not a public 
 
 ## "Bots are too easy / too hard."
 
-When you add a bot from a lobby room, the protocol takes `easy`, `medium` (the default), `hard` or `insane`; the room's key asks for the default. Presets live in `BotConfig.ts` in the engine repo, and the [Bot Server](../tools/bot-server.md#difficulty-tiers) page lists what each tier changes. The dedicated server's `spawn_bots` command makes simple bots with no tiers; see [Server Commands](../developer/server-commands.md).
+Bots are available in **Private** rooms. The room chooses a standard preset near
+your private rating, with medium as the new-player fallback. Explicit protocol
+presets are easy, medium, hard and insane. Presets live in `BotConfig.ts` in the
+engine repo; [Bot Server](../tools/bot-server.md#difficulty-tiers) lists the tiers.
+The dedicated server's `spawn_bots` command makes simple bots with no tiers; see
+[Server Commands](../developer/server-commands.md).
 
 ## "Why can't I join the match I clicked?"
 
@@ -49,7 +54,11 @@ Yes, within 20 seconds. Your seat is held and your client is given a resume toke
 
 ## "Why didn't my match show on the leaderboard?"
 
-Only ranked matches count: a 1v1 needs two people and no bots; other modes need more than half the players to be people (and one on each team in a team mode). See [Ranked matches](../multiplayer/lobby.md#ranked-matches).
+Check the **mode** and **Public / Private** pool first. Records and rating updates
+are separate: an unrated match may still appear in Profile history. Standard bot
+matches can rate in the private pool. Late joins, changed sides, interrupted
+participation and invalid results can prevent an update; history explains the
+decision. See [Ranked matches](../multiplayer/lobby.md#ranked-matches).
 
 ## "My recorded demo won't play back."
 

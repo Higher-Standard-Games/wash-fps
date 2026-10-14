@@ -1,12 +1,20 @@
 # Getting Started
 
+::: tip Just want to play?
+**Play Washiki Washoi in your browser at [washoi.net](https://washoi.net)**: nothing to install. Start with [Your first match](../player/first-match.md).
+
+This guide is for modders and developers who want to run the game locally from its source code.
+:::
+
 Washiki Washoi runs as a git submodule under `src/games/fps/` inside the SHAG engine repo. The engine handles BSP / PK3 / shaders / rendering / physics; this submodule is the game on top.
 
 ## Requirements
 
-- **Node.js 18+** (22 LTS recommended)
+- **Node.js 22.13+** with built-in `node:sqlite` enabled for the lobby. Tested
+  with Node 24.21.0. [Node's SQLite documentation](https://nodejs.org/download/release/latest-v24.x/docs/api/sqlite.html)
+  records when the module became available without an extra runtime flag.
 - **Git** with submodule support
-- A modern WebGL2-capable browser
+- A modern WebGL2-capable browser; WebGPU is also available on supported setups
 
 ## Setup
 
@@ -21,23 +29,24 @@ npm install
 ### Add to an existing engine clone
 
 ```bash
-git submodule add <fps-repo-url> src/games/fps
-git submodule update --init
+git submodule update --init --recursive
 ```
 
 ### Game data
 
 PK3 files (maps, textures, models, sounds) are **not** in this repo or the engine repo. Drop them into `public/data/` in the engine repo root:
 
-```
-public/data/
-├── maps/         # .bsp and .map files
-├── textures/
-├── music/
-└── *.pk3
-```
+| Package in `public/data/` | Purpose |
+| --- | --- |
+| `map_wdm2.pk3` | Example installed map archive |
+| `player_model_vanguard.pk3` | Player models and animation clips |
+| Other `*.pk3` packages | Shared textures, sounds and other game data |
 
 This directory is gitignored — each developer downloads or builds their own game data.
+
+Map loading uses the PK3 index rather than searching for loose BSP files. After
+adding packages, run `npm run tools:pk3-index`; restart the lobby so its installed
+map list is refreshed. See [Maps](../gametypes/maps.md).
 
 ## First Run
 
@@ -46,7 +55,10 @@ This directory is gitignored — each developer downloads or builds their own ga
 npm run dev
 ```
 
-Open `http://localhost:5173`. You should see the lobby UI. Press **Play** to enter a match.
+Run `npm run lobby:server` in another terminal for a local lobby. Open
+`http://localhost:5173`, choose **Play**, a mode and Public or Private, then enter
+a room and ready up. Run `npm run bot:server` as well to add bots in a private room.
+See [Your First Match](../player/first-match.md).
 
 For the developer flow with a one-keystroke server-backed map launch:
 
@@ -55,7 +67,7 @@ For the developer flow with a one-keystroke server-backed map launch:
 npm run lobby:server
 
 # Then in the in-game console (press the backquote key):
-map wdm2 duel
+developer 1; map wdm2 duel
 ```
 
 See the engine's Map Launching Guide (`docs/manual/guides/map-launching.md` in the engine repo) for the full developer flow.
@@ -74,7 +86,7 @@ Common flags (the full list, including `--name`, `--tickrate`, `--snapshotrate`,
 |------|---------|-------|
 | `--map` | `wdm7` | Map name (must exist in `public/data/`) |
 | `--port` | `7777` | WebSocket port |
-| `--gametype` | `Deathmatch` | `Deathmatch`, `TeamDeathmatch` (`tdm`), `Duel` (`1v1`), `Amphi`, `SnD` (`bomb`) |
+| `--gametype` | `Deathmatch` | Release modes: `Deathmatch` (`ffa`), `Duel` (`1v1`), `Amphi`, `SnD` (`bomb`) |
 | `--max` | `16` | Max clients |
 | `--shutdown` | off | Auto-exit when all clients disconnect |
 
@@ -95,6 +107,19 @@ npm run bot:server
 ```
 
 See [Tools → Bot Server](../tools/bot-server.md) for the full bot lifecycle, difficulty presets, and training pipeline.
+
+## Preview this manual
+
+From the engine repository root:
+
+```bash
+npm run docs:fps:dev
+npm run docs:fps:build
+npm run docs:fps:preview
+```
+
+The game manual has its own VitePress config and bundled fonts. The engine's
+`docs:dev` / `docs:build` scripts serve the engine manual instead.
 
 ## Next
 

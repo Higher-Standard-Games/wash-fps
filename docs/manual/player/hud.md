@@ -14,22 +14,15 @@ Use **Settings → Gameplay → View & info** to toggle either readout, or use
 `show_fps 0` / `cl_showspeed 0` in the console (`1` turns them back on). Your
 choices are saved. Existing saved preferences take priority over the defaults.
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│  [Kill feed]                                              [FPS]      │
-│                                                                  │
-│                                                                  │
-│                                                                  │
-│  [Weapon                          ✛                              │
-│   Rack]                       (crosshair)                        │
-│                                                                  │
-│                                                                  │
-│                                                                  │
-│                                                                  │
-│  [Combat State]                                                  │
-│  HP/Armor                 [Speed]               [Ammo Counter]   │
-└──────────────────────────────────────────────────────────────────┘
-```
+| Screen position | Readouts |
+| --- | --- |
+| Top-left | Kill/event feed |
+| Top-right | FPS counter |
+| Centre | Crosshair; contextual match and interaction messages |
+| Left side | Weapon rack |
+| Bottom-left | Combat state, health and armor; chat above them |
+| Bottom-centre | Movement speed |
+| Bottom-right | Ammo counter; optional connection diagnostics |
 
 The optional connection-info overlay (`cl_netgraph`) is anchored bottom-right. The diagram shows the default gameplay readouts; some overlays and modes add their own elements.
 
@@ -67,10 +60,7 @@ Large readout of the currently equipped weapon's ammo. The number reflects the *
 
 Format:
 
-```
-ROCKETS
-   42
-```
+Example: **ROCKETS** with **42** rounds remaining.
 
 Goes red when below the per-weapon "low ammo" threshold.
 
@@ -93,15 +83,18 @@ The crosshair briefly flashes to `cg_crosshairDmgColor` for ~200 ms when your sh
 
 Recent chat messages float here, just above the health and weapon bar, and fade after ~8 seconds. Lines from the game itself — why a join was refused, your place in the challengers queue, a round to wait for — appear among them in gold, without a name. Press **T** to talk — the panel expands into a scrollable history dialog. See [In-Game Chat](../multiplayer/chat.md).
 
+**Y** opens team chat with a **TEAM** prompt. Type `/mute <playername>` and
+`/unmute <playername>` in chat to manage a local ignore for this match.
+
 ## Event Feed / Kill Feed (top-left)
 
 Recent kills, last ~5 lines:
 
-```
-PlayerA  ⚒  PlayerB
-PlayerC  →[RL]→  PlayerD
-PlayerE  💀  (self)
-```
+| Example feed entry | Meaning |
+| --- | --- |
+| PlayerA, Blade icon, PlayerB | PlayerA killed PlayerB with a melee swing |
+| PlayerC, Rocket Launcher icon, PlayerD | PlayerC killed PlayerD with a rocket |
+| PlayerE, skull icon, self | PlayerE died to self/environmental damage |
 
 The middle glyph is the weapon used. Some special icons:
 
@@ -269,7 +262,8 @@ is saved as you change it.
   the game's defaults, and Pretty), then the settings themselves in four
   sections: Screen, Effects, World and Textures. Pips show each setting's
   frame-rate cost, and each section key how heavy it is set.
-- **Audio** — music and effects: on or off, and their volume.
+- **Audio** — music and effects: on or off, volume, and a mix for effects,
+  player sounds, hit confirmation and the announcer.
 
 **Reset page** and **Reset all** ask once: the first press arms the key, and a
 second within a few seconds does it.
@@ -278,9 +272,7 @@ second within a few seconds does it.
 
 A single-line overlay appears below the crosshair when you walk over a weapon pickup that needs a manual confirmation (see [Pickups & Inventory](./pickups-and-inventory.md)):
 
-```
-PRESS [F] TO SWAP TO ROCKET LAUNCHER
-```
+Example prompt: **Press F to swap to Rocket Launcher**.
 
 The prompt is suppressed in spectator / freefly mode and when the pointer isn't locked.
 

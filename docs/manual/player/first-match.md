@@ -10,7 +10,11 @@ A walkthrough from opening the game to your first frag. If you already know Quak
 
 ## 2. Make practice easy: add bots
 
-In the room, add one or two **bots** and set the map vote. Bots default to **medium**; the lowest tier is **easy**. A match with only you and bots is never ranked, so it is a safe place to learn. See [Connecting → In the Ready Room](../multiplayer/connecting.md#in-the-ready-room).
+Choose **Private** on the Play stage, then enter a room. Only private rooms allow
+bots. Add one or two and set the map vote; the room chooses a standard bot preset
+near your private rating, with **medium** as the fallback for a new player.
+Private bot matches can update your **private** rating and record, separately from
+public play. See [Connecting → In the Ready Room](../multiplayer/connecting.md#in-the-ready-room).
 
 Then **ready up**. When everyone is ready the match loads.
 
@@ -35,7 +39,8 @@ You spawn in a **warmup** where nothing scores and you can try things freely. Pr
 | **Tab** | Scoreboard |
 | **Esc** | Match menu and settings |
 
-Everything can be rebound in **Settings → Controls**; see [Settings](./settings.md).
+Movement and combat bindings can be changed in **Settings → Controls**. Menu,
+scoreboard, chat, console and join keys are fixed; see [Settings](./settings.md).
 
 ## 5. What to do first
 

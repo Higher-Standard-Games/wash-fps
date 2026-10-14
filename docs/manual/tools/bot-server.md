@@ -17,7 +17,9 @@ The bot server boots an interactive console. It can register itself with a lobby
 The lobby, the bot server and the game servers run on one machine and share a secret:
 - **Where it comes from:** `BOT_SECRET` when it's set. Otherwise the first process to start writes one to `<data-dir>/bot-secret` (the data directory is `--data-dir`, else `SERVER_DATA_DIR`, else `server-data/` at the repo root). Start both from the same folder, or give them the same `--data-dir`.
 - **The control port:** the lobby sends the secret when it asks for a bot. The bot server's control port (9100) listens on `127.0.0.1` only and closes any connection without it.
-- **Bot logins:** lobby bots log in with the secret. The lobby treats a connection as a bot only with the secret, from its own machine. Bots have no player account, and players can't take a bot's name.
+- **Bot logins:** lobby bots authenticate with the shared service secret, not a
+  human account key. Standard difficulty presets have rating identities for
+  private matches. Players cannot claim a bot's reserved name.
 
 ## Architecture
 
@@ -105,6 +107,12 @@ hands it a room id and, for a private room, that room's invite token. It then
 readies up on its own. From the room's side this is the Add bot key; from the
 lobby's side it is an invitation acknowledged only once the bot is actually
 seated.
+
+The player-facing **Add bot** action is available only in private rooms. Without
+an explicit preset, the lobby chooses one near the player's private rating for
+that mode; new players fall back to medium. Standard presets have rating accounts
+used by the private ladder. A bot client still authenticates with its service
+secret, not a human account key; see [Ranked matches](../multiplayer/lobby.md#ranked-matches).
 
 ## TODO
 

@@ -44,23 +44,34 @@ demoplay stop                     # Stop active playback
 
 ### Normal playback
 
-The demo loads as a tick stream. The client replays each tick's snapshot through the same render path as live play — entity interpolation, weapon view, particle effects, all of it. The HUD shows tick number and total ticks.
+The demo loads as a tick stream. The client replays recorded snapshots through
+the game's render path, including player models, weapon view and effects. Choose
+a player from the **POV** controls to follow their first-person view. The game
+HUD follows their recorded health, armor, ammo and match state.
 
 Playback is driven on screen rather than by console commands: the transport HUD carries a timeline you can click anywhere on to seek, a play/pause button, and a speed selector cycling 0.25×, 0.5×, 1×, 2× and 4×. Seeking rebuilds the world at the landing tick rather than fast-forwarding through it.
 
-Press `H` during playback to toggle the complete demo presentation layer. The
-same setting is available through `demoplay hud on`, `demoplay hud off`, and
-`demoplay hud toggle`. It covers the transport/player HUD, replay chat, and
-the cinematic reel overlay, but leaves the weapon viewmodel and world effects
-visible.
+**Space** plays or pauses. The bar's **HUD** button controls the game HUD seen
+from the followed player's eyes; it dims during camera shots that are not
+first-person. The playback bar fades when idle and reappears when you move the
+mouse. You can also minimize it to a strip.
+
+**H** and `demoplay hud on|off|toggle` separately show or hide the playback
+overlays and replay chat, including the exit plate. Press H again to restore them;
+Escape remains available to leave playback. This is separate from the HUD button.
+
+The gold **exit plate** at the top-left or **Escape** leaves playback. When you
+launched it from the lobby, this returns you to the lobby. Loading another demo
+or starting a live match also cancels the old playback.
 
 ### Cinematic mode
 
 `demoplay cinematic 2` analyses the demo for highlight moments (kills, multi-kills, airborne kills, streaks, first blood and standout movement) and assembles a 2-minute auto-edited reel with camera tracking, dramatic angles, and slow motion on key events.
 
-Cinematic playback uses its reel progress/highlight overlay instead of the
-normal interactive transport HUD. The shared `H`/`demoplay hud` setting
-applies to both modes.
+Cinematic playback uses the same control bar, with **previous / next shot**
+buttons instead of manual POV selection and playback speed. Its timeline skips
+to a shot in the reel. It can cut between first-person action, free-camera views
+and slow-motion replays; the game HUD appears only for first-person shots.
 
 The analyser runs as `DemoService.analyzeLoadedDemo()` and outputs a list of timestamped highlights with scores. `demoplay analyze` prints this list without starting playback — useful for debugging the heuristics.
 
@@ -81,7 +92,9 @@ The analyser runs as `DemoService.analyzeLoadedDemo()` and outputs a list of tim
 - All entity state deltas (position, velocity, health, animation state)
 - Server events (kills, pickups, match-state transitions, **chat**, weapon fire, projectile impacts, chain arcs) — captured verbatim, so replays show the full action *and* the match chatter at the right moments.
 
-Because the simulation is RNG-deterministic, a recorded run can be **re-simulated** and checksum-verified (`demo:verify`) — tamper-evident ground truth used by the anti-cheat substrate.
+Deterministic re-simulation checks use a separate **`.shagverify` bundle**, not an
+ordinary `.shagdemo` playback file. `npm run demo:verify -- <bundle.shagverify>`
+replays that bundle's commands and checks its recorded checksums.
 
 For full schema, read `src/shared/demo/DemoReader.ts` (TODO: extract this into a public doc page).
 

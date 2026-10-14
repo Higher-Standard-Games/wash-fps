@@ -33,7 +33,7 @@ In Amphi and any other round mode the banner is simply **`<name>` wins the round
 Hold **Tab** to see it. It also appears on its own at the end of a match. While the match menu is open, Tab moves between the menu's keys instead.
 
 - **Free-for-all and Duel:** one list with **Player**, **Score**, **Deaths** and **Ping**.
-- **Team modes:** two columns, **Team Soba on the left and Team Udon on the right**, with **Player**, **Score** and **Ping** for each. The team's score is in its header: frags in Team Deathmatch, **rounds won** in a round mode. In a round mode the round number sits above the columns.
+- **Team modes:** two columns, **Team Soba on the left and Team Udon on the right**, with **Player**, **Score** and **Ping** for each. The header shows **rounds won**, with the round number above the columns.
 - **Your row** is highlighted. Your own side is drawn in your ally colour and the other in your enemy colour, whichever side you are on; see [Settings](./settings.md).
 - **Search & Destroy:** a marker next to a name shows who is **carrying the bomb**.
 - **Players who left** stay in the list, dimmed, with **LEFT** where their ping was, so a match's final scores still add up.
@@ -48,7 +48,9 @@ The bottom of the screen tells you what happens next:
 - On a **lobby-hosted** match (every match started from the lobby), the server is finished. The message reads **GG — return to lobby for the next one**, and **Back to the lobby** returns you to the same room, ready for a rematch.
 - On a **dedicated server** that keeps running, it reads **Match over — next match starting soon…** and the next warmup begins.
 
-A match counts toward the [leaderboard](../multiplayer/lobby.md#ranked-matches) only if it was ranked.
+A recorded match can appear in history without changing your skill rating. See
+[Ranked matches](../multiplayer/lobby.md#ranked-matches) for eligibility and the
+separate Public and Private ladders.
 
 ## Loading and joining
 

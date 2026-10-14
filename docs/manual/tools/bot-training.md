@@ -7,8 +7,16 @@ top of the rule-based brain rather than replacing it.
 
 The chain, end to end:
 
-```
-match → .shagdemo → corpus → labels → fit → weights + metadata → a bot in a room
+```mermaid
+flowchart TD
+  accTitle: Bot training from a recorded match
+  accDescr: Recorded demo files become a verified-player corpus, labels, fitted networks, and weights loaded by a hybrid bot.
+  Match["Recorded match"] --> Demo[".shagdemo file"]
+  Demo --> Corpus["Verified-player corpus"]
+  Corpus --> Labels["Training labels"]
+  Labels --> Fit["Fit the networks"]
+  Fit --> Weights["Weights and metadata"]
+  Weights --> Bot["Hybrid bot in a room"]
 ```
 
 Nothing in it is automatic. A match records itself, but building a corpus and

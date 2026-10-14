@@ -2,72 +2,26 @@
 
 What lives where inside this submodule. Paths are relative to the submodule root (`src/games/fps/` from the engine repo's perspective).
 
-```
-src/games/fps/
-├── Game.ts                    # Network game manager — owns the active IGameHost
-├── FPSPlayer.ts               # High-level player entity (inventory + controller wiring)
-├── ClientEntityKey.ts         # Stable keys for client-side entities
-├── index.ts                   # Public exports (Game, registerFpsCommands, ...)
-├── game.json                  # Game manifest (name, version, entry point)
-│
-├── client/                    # Anything that runs only on the client
-│   ├── LobbyPanel.ts          # The lobby (play stage, rooms, rail menu)
-│   ├── ProfileView.ts         # Account, key and ranked record
-│   ├── LeaderboardView.ts     # Rankings per mode
-│   ├── DemosView.ts           # Demos page (featured / latest / yours)
-│   ├── WelcomeOverlay.ts      # First-run name / key screen
-│   ├── RoomChatView.ts        # Chat in a lobby room
-│   ├── FpsLobbyService.ts     # Shared lobby connection
-│   ├── FpsMapLauncher.ts      # `map <name> [gametype]` → lobby dev-spawn
-│   ├── FpsNetworkConnector.ts # Engine NetworkConnector adapter
-│   ├── V2NetworkClient.ts     # Prediction, reconciliation, snapshots
-│   ├── GameEvents.ts          # Server → client event handlers
-│   ├── DemoService.ts         # Demo loading + analysis
-│   ├── DemoViewer.ts          # Frame-by-frame playback engine
-│   ├── Spectator*.ts, Spectate*.ts  # Free-fly and follow-a-player spectating
-│   ├── RemotePlayerRenderer.ts, RagdollSystem.ts, GibSystem.ts, ...
-│   ├── FPS*Audio.ts           # Combat, movement, pickup, powerup and liquid sound
-│   ├── hud/                   # HUD widgets (weapon rack, vitals, scoreboard, match menu, ...)
-│   ├── settings/              # Settings screen (controls, gameplay, video, audio)
-│   └── styles/                # CSS for the lobby, menus, demos, leaderboard
-│
-├── console/                   # Game-specific console commands
-│   ├── index.ts               # registerFpsCommands() auto-discovery
-│   └── commands/              # Connect, Disconnect, Demo*, Loadout, Water, NetTest, audits
-│
-├── server/                    # Authoritative server code
-│   ├── GameServer.ts          # The orchestrator
-│   ├── SnapshotBuilder.ts, SnapshotBroadcaster.ts
-│   ├── DemoRecorder.ts
-│   ├── MovementValidator.ts, AuthorityGuards.ts
-│   ├── SuspendedSessions.ts   # Seats held through a dropped connection
-│   ├── gametypes/
-│   │   ├── GametypeController.ts, MatchState.ts, BaseGametype.ts
-│   │   ├── Duel.ts, Amphi.ts, Deathmatch.ts, TeamDeathmatch.ts, SearchAndDestroy.ts
-│   │   └── AwardTracker.ts, SpawnPointStrategy.ts
-│   └── systems/
-│       ├── PickupSystem.ts, WeaponSystem.ts, ProjectileSystem.ts
-│       ├── CombatSystem.ts, DroppedWeaponSystem.ts
-│       └── FPSMovementSubsystem.ts, LiquidWorldEffects.ts, ...
-│
-├── simulation/                # Physics + movement (shared between client + server)
-│   ├── FPSSimulation.ts       # The Simulation implementation
-│   ├── MovementProfile.ts     # Movement orchestrator + default config
-│   ├── Acceleration.ts        # Air / ground acceleration math
-│   ├── Slide.ts, WallJump.ts, LedgeGrab.ts
-│   ├── Ladder.ts, Swim.ts     # Climbing and swimming
-│   └── collision/             # FPS-specific BSP collision world wrapper
-│
-├── liquid/                    # Water, slime and lava state (shared by sim, server, client)
-├── models/                    # Trained bot model weights
-├── world/                     # In-world entities (FPS subclasses of engine types)
-│   ├── FPSPickup.ts           # Extends engine Pickup with type taxonomy + registry
-│   ├── InventoryManager.ts    # Q3-style 3-slot inventory + ammo
-│   ├── PickupPrompt.ts        # "PRESS [F] TO SWAP" HUD prompt
-│   └── pickups/procedural/    # Procedural pickup visuals
-├── docs/manual/               # This manual (VitePress)
-└── __tests__/                 # Tests live in __tests__ folders beside the code
-```
+Paths below are relative to `src/games/fps/`.
+
+| Area | Files and responsibility |
+| --- | --- |
+| Root | `Game.ts` owns the active game host; `FPSPlayer.ts` wires the player; `ClientEntityKey.ts` defines stable client keys; `index.ts` exports the game API; `game.json` describes the module |
+| `client/` — lobby | `LobbyPanel.ts`, `ProfileView.ts`, `LeaderboardView.ts`, `DemosView.ts`, `WelcomeOverlay.ts`, `RoomChatView.ts` |
+| `client/` — engine adapters | `FpsLobbyService.ts`, `FpsMapLauncher.ts`, `FpsNetworkConnector.ts` |
+| `client/` — gameplay | `V2NetworkClient.ts` handles prediction/snapshots; `GameEvents.ts` handles events; remote-player, ragdoll, gib and audio systems present the world |
+| `client/` — watching | `DemoService.ts`, `DemoViewer.ts`, `Spectator*.ts`, `Spectate*.ts` |
+| `client/hud/`, `client/settings/`, `client/styles/` | HUD widgets, settings pages and game UI styles |
+| `console/` | `index.ts` discovers game commands in `commands/` |
+| `server/` | `GameServer.ts`, `SnapshotBuilder.ts`, `SnapshotBroadcaster.ts`, `DemoRecorder.ts`, `MovementValidator.ts`, `AuthorityGuards.ts`, `SuspendedSessions.ts` |
+| `server/gametypes/` | `GametypeController.ts`, `MatchState.ts`, `BaseGametype.ts`; Duel, Amphi, Deathmatch and Search & Destroy; awards and spawn strategies |
+| `server/systems/` | Pickup, weapon, projectile, combat, dropped-weapon, movement and liquid subsystems |
+| `simulation/` | `FPSSimulation.ts`, `MovementProfile.ts`, `Acceleration.ts`, slide/wall-jump/ledge-grab/ladder/swim mechanics and `collision/` — shared by client and server |
+| `liquid/` | Water, slime and lava state shared by simulation, server and client |
+| `models/` | Trained bot model weights |
+| `world/` | `FPSPickup.ts`, `InventoryManager.ts`, `PickupPrompt.ts`, `pickups/procedural/` |
+| `docs/manual/` | This VitePress manual |
+| `__tests__/` folders | Tests alongside the systems they cover |
 
 Weapon and projectile definitions are **not** in this repo: they live in the engine at `src/shared/entities/definitions/`. See [Adding a Weapon](../developer/adding-a-weapon.md).
 

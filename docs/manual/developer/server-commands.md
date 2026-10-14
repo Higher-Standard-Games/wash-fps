@@ -45,7 +45,7 @@ npm run net:server -- --map wdm2 --gametype duel --port 7777
 | Flag | Default | Notes |
 |------|---------|-------|
 | `--map` | `wdm7` | Map name (must exist in `public/data/`) |
-| `--gametype`, `-g` | `Deathmatch` | `Deathmatch`, `TeamDeathmatch` (`tdm`), `Duel` (`1v1`), `Amphi`, `SnD` (`bomb`, `searchanddestroy`). Unknown values fall back to Deathmatch |
+| `--gametype`, `-g` | `Deathmatch` | Release modes: `Deathmatch` (`ffa`), `Duel` (`1v1`), `Amphi`, `SnD` (`bomb`, `searchanddestroy`). Unknown values fall back to Deathmatch |
 | `--port` | `7777` | WebSocket port |
 | `--name`, `--hostname` | `SHAG Server v2` | Server name |
 | `--max`, `--maxclients` | `16` | Max clients |

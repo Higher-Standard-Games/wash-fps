@@ -4,20 +4,11 @@ Building on Washiki Washoi. Architecture overview + how-tos for the common exten
 
 ## Architecture at a Glance
 
-```
-┌────────────────────────────────────────────────────────────┐
-│                     SHAG Engine                            │
-│        (BSP / PK3 / shaders / physics / networking)        │
-└─────────────────────────┬──────────────────────────────────┘
-                          │ extends + plugs into
-                          ▼
-┌────────────────────────────────────────────────────────────┐
-│                      Washiki Washoi                        │
-│                  (src/games/fps/, this submodule)          │
-│                                                            │
-│  client/      console/      world/      simulation/        │
-│  server/      gametypes      systems/   weapons/           │
-└────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart BT
+  accTitle: Engine and game architecture
+  accDescr: The FPS game extends the engine, which supplies asset loading, rendering, physics and networking.
+  Game["Washiki Washoi<br/>Client · Console · World · Simulation · Server<br/>src/games/fps"] -->|Extends and plugs into| Engine["SHAG Engine<br/>BSP · PK3 · Shaders · Physics · Networking"]
 ```
 
 Three things to understand before extending:

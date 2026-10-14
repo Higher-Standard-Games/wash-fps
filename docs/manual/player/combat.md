@@ -59,7 +59,7 @@ Your own explosions hurt you at the gametype's self-damage setting, which is ful
 | **Drowning, slime, lava** | See [Movement → Water](./movement.md#water-and-other-liquids); only drowning bypasses armor |
 | **Crushing** | A blocked mover damages you; see [Movement → Lifts](./movement.md#lifts-doors-and-movers). It counts as world damage and is credited to nobody |
 | **Telefrag** | Standing on a teleporter exit kills you instantly and credits the player who arrived |
-| **Friendly fire** | On in team modes; a teammate frag costs your team a point. See [Team Deathmatch](../gametypes/team-deathmatch.md#friendly-fire) |
+| **Friendly fire** | On in Search & Destroy; avoid shooting teammates. See [Friendly fire](../gametypes/search-and-destroy.md#friendly-fire) |
 
 ## Lag compensation
 

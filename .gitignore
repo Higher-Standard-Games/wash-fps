@@ -1,5 +1,6 @@
 # VitePress build artefacts
 docs/manual/.vitepress/cache/
+docs/manual/.vitepress/.temp/
 docs/manual/.vitepress/dist/
 dist-docs/
 

@@ -75,7 +75,7 @@ Override these only when the mode needs them; each has a no-op default.
 | `onPickup(player, classname, state)` | Return `false` to deny a pickup |
 | `onMatchPhaseChange(phase, state)` | React to phase changes |
 | `onPlayerLeave(playerId)` | **Required if you keep per-player state**, or a long-running server leaks a row per player |
-| `getAgentDirectives(ctx, state)` | Give bots mode-aware goals as plain data; see Team Deathmatch's regroup order and Search & Destroy's bomb orders |
+| `getAgentDirectives(ctx, state)` | Give bots mode-aware goals as plain data; see Search & Destroy's bomb orders |
 
 ## Registering it
 
@@ -86,7 +86,7 @@ A class on its own is not enough. Amphi needed all four of these:
 3. Add any alias to `normalizeGametype` in `client/FpsMapLauncher.ts`, which maps what a player types at `map <name> <gametype>` onto the lobby's ids.
 4. Add it to `GAMETYPE_SHELLS` in the engine repo's `src/lobby/LobbyServer.ts` with its player count, team flag and team names, or the lobby will never offer it. The lobby only advertises a mode whose maps are installed, so its maps also need entries in `config/maps.json`.
 
-Team Deathmatch is registered in steps 1–3 but not step 4, which is why it is not on the lobby's Play stage.
+Modes not enabled in step 4 are outside the first release's lobby selection.
 
 If the mode should be ranked, nothing more is needed: ranked rules are decided from the room's roster, not from the gametype (see [Ranked matches](../multiplayer/lobby.md#ranked-matches)).
 

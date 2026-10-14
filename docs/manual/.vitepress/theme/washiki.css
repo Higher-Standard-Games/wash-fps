@@ -1,0 +1,204 @@
+/* The game's print-slab palette, with a reading-focused body typeface. */
+.mermaid {
+  margin: 24px 0;
+  padding: 20px;
+  overflow-x: auto;
+  border: 1px solid var(--vp-c-divider);
+  border-top: 3px solid var(--wash-violet);
+  background: var(--vp-c-bg-soft);
+}
+.mermaid svg {
+  display: block;
+  margin-inline: auto;
+  min-width: 280px;
+}
+@font-face {
+  font-family: "Manual Inter";
+  src: url("../../public/fonts/Inter.ttf") format("truetype");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Manual Orbitron";
+  src: url("../../public/fonts/Orbitron.ttf") format("truetype");
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Manual Rajdhani";
+  src: url("../../public/fonts/Rajdhani.ttf") format("truetype");
+  font-weight: 600;
+  font-display: swap;
+}
+:root {
+  --wash-ink: hsl(250 45% 7%);
+  --wash-gold: hsl(46 100% 60%);
+  --wash-violet: hsl(276 90% 64%);
+  --vp-font-family-base: "Manual Inter", sans-serif;
+  --vp-c-brand-1: #785000;
+  --vp-c-brand-2: #946300;
+  --vp-c-brand-3: #ffcf33;
+  --vp-c-brand-soft: #edb70020;
+  --vp-c-bg: #fff9eb;
+  --vp-c-bg-alt: #f1e7d4;
+  --vp-c-bg-soft: #f5eddf;
+  --vp-c-text-1: #211b32;
+  --vp-c-text-2: #51465f;
+  --vp-c-divider: #d3c7b3;
+  --vp-button-brand-bg: var(--wash-gold);
+  --vp-button-brand-text: var(--wash-ink);
+  --vp-button-brand-hover-bg: #ffe080;
+  --vp-button-brand-hover-text: var(--wash-ink);
+  --vp-button-brand-active-bg: #efb928;
+  --vp-button-brand-active-text: var(--wash-ink);
+  --vp-home-hero-name-color: #785000;
+  --vp-code-block-bg: #efe4d3;
+}
+.dark {
+  --vp-c-brand-1: var(--wash-gold);
+  --vp-c-brand-2: #ffe080;
+  --vp-c-brand-3: #ffcc33;
+  --vp-c-brand-soft: #ffcc3318;
+  --vp-c-bg: var(--wash-ink);
+  --vp-c-bg-alt: #171326;
+  --vp-c-bg-soft: #211b32;
+  --vp-c-text-1: #fff8e6;
+  --vp-c-text-2: #c7bfd3;
+  --vp-c-divider: #3d334e;
+  --vp-home-hero-name-color: var(--wash-gold);
+  --vp-code-block-bg: #171326;
+}
+.VPNavBarTitle .title,
+.VPHero .name,
+.VPHero .text,
+.vp-doc h1 {
+  font-family: "Manual Orbitron", sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+}
+.VPNavBarTitle .title {
+  font-size: 15px;
+}
+.VPNavBar {
+  border-bottom: 3px solid var(--wash-gold);
+}
+.VPNavBarMenuLink,
+.VPButton,
+.VPSidebarItem .text,
+.VPFeature .title,
+.vp-doc h2,
+.vp-doc h3 {
+  font-family: "Manual Rajdhani", sans-serif;
+  font-weight: 600;
+}
+.VPNavBarMenuLink,
+.VPButton {
+  font-size: 17px;
+}
+.VPSidebarItem .text {
+  font-size: 17px;
+}
+.VPSidebar {
+  --vp-c-bg-alt: #ffcd33;
+  --vp-c-text-1: var(--wash-ink);
+  --vp-c-text-2: #352846;
+  --vp-c-text-3: #51405b;
+  --vp-c-brand-1: var(--wash-ink);
+  --vp-c-brand-soft: #2b19351a;
+  --vp-c-divider: #6f4a0033;
+  background: linear-gradient(165deg, #ffdb61, #f2b91e);
+  border-right: 4px solid var(--wash-violet);
+}
+.VPSidebarItem.is-active > .item {
+  background: var(--vp-c-brand-soft);
+  box-shadow: inset 3px 0 var(--vp-c-brand-1);
+  padding-left: 10px;
+}
+.VPButton,
+.VPFeature,
+.VPLocalSearchBox .shell,
+.custom-block,
+.vp-doc div[class*="language-"],
+.pager-link {
+  border-radius: 2px !important;
+}
+.VPButton {
+  border: 1px solid transparent;
+  box-shadow: 0 4px 0 #0005;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.VPButton.brand {
+  border-top-color: #fff8;
+}
+.VPButton.alt {
+  border-bottom: 3px solid var(--wash-violet);
+}
+.VPHero {
+  border-bottom: 1px solid var(--vp-c-divider);
+}
+.VPHero .text {
+  font-size: clamp(28px, 5vw, 52px);
+  line-height: 1.2;
+}
+.VPHero .tagline {
+  max-width: 640px;
+  font-size: 19px;
+  line-height: 1.6;
+}
+.VPFeature {
+  border-top: 3px solid var(--wash-violet);
+}
+.VPFeature .title {
+  font-size: 24px;
+}
+.vp-doc h1 {
+  font-size: clamp(26px, 4vw, 36px);
+  line-height: 1.4;
+}
+.vp-doc h2 {
+  font-size: 28px;
+  border-top: 2px solid var(--vp-c-divider);
+}
+.vp-doc h3 {
+  font-size: 23px;
+}
+.vp-doc a {
+  text-underline-offset: 3px;
+}
+.vp-doc table {
+  width: 100%;
+}
+.vp-doc th {
+  background: var(--vp-c-brand-soft);
+}
+.vp-doc kbd {
+  border: 1px solid var(--vp-c-divider);
+  border-bottom-width: 3px;
+  border-radius: 2px;
+  padding: 1px 5px;
+  font-size: 0.9em;
+}
+.custom-block.tip {
+  border-left: 4px solid var(--vp-c-brand-1);
+}
+:focus-visible {
+  outline: 3px solid var(--vp-c-brand-1);
+  outline-offset: 3px;
+}
+@media (max-width: 640px) {
+  .VPNavBarTitle .title {
+    font-size: 12px;
+  }
+  .VPHero .tagline {
+    font-size: 17px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}

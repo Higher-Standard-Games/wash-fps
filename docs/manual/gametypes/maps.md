@@ -13,13 +13,13 @@ Each room draws three maps at random from the pool for the vote, so a mode with 
 
 | Map | Name | Modes |
 |-----|------|-------|
-| `wdm1` | The Edge | FFA, TDM |
-| `wdm2` | Proving Grounds | Duel, FFA, TDM |
-| `wdm5` | Sinister | FFA, TDM |
-| `wdm7` | Brimstone | FFA, TDM |
+| `wdm1` | The Edge | FFA |
+| `wdm2` | Proving Grounds | Duel, FFA |
+| `wdm5` | Sinister | FFA |
+| `wdm7` | Brimstone | FFA |
 | `wdm11` | WDM11 | Duel |
 | `wdm12` | WDM12 | Duel |
-| `wdm14` | Aerowalk | FFA, TDM |
+| `wdm14` | Aerowalk | FFA |
 | `wdm17` | Le Toxiquet | Duel |
 | `acidwdm2` | Acid Warehouse | Duel |
 | `wamphi1` | Amphitheatre | Amphi |
@@ -28,7 +28,7 @@ Each room draws three maps at random from the pool for the vote, so a mode with 
 | `wbomb2` | Reactors | S&D |
 | `wbomb6` | Depot | S&D |
 
-The lobby does not offer TDM yet (see [Team Deathmatch](./team-deathmatch.md)); the table shows what the config says each map can play.
+The table shows the modes offered for the first release.
 
 ## Playing any installed map
 
@@ -39,7 +39,7 @@ Bomb maps (`wbomb*`) qualify for Search & Destroy when they have bomb sites **an
 ## Adding a map
 
 1. Put the map's `map_<name>.pk3` in `public/data/` in the engine repo, and rebuild the manifest (`npm run tools:manifest`).
-2. Add an entry to `config/maps.json` with a `displayName` and the `gametypes` it should be offered for (`duel`, `amphi`, `ffa`, `tdm`, `snd`).
+2. Add an entry to `config/maps.json` with a `displayName` and the release `gametypes` it should be offered for (`duel`, `amphi`, `ffa`, `snd`).
 3. Restart the lobby server. The map list is read once at startup.
 
 Maps are made in the engine's map editor; see the engine's documentation for building and compiling them.

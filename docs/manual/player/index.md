@@ -30,12 +30,14 @@ How to play. Read in order if you're new to Q3/Warsow-style arena shooters; jump
 | F | Pickup / interact |
 | R | Reload (where applicable) |
 | Tab | Scoreboard (hold) |
-| T | Chat |
+| T or Enter | Global chat |
+| Y | Team chat |
 | F4 | Ready up (warmup) |
 | J | Join game (while spectating) |
 | ` (backquote) | Open console |
 
-All keys are rebindable in **Settings → Controls** (lobby UI) or via the engine's `bind` command. See [Settings](./settings.md).
+Movement and combat keys are rebindable in **Settings → Controls** or through
+`bind`. Menu, scoreboard, chat, console and join keys are fixed. See [Settings](./settings.md).
 
 ## A note on physics
 

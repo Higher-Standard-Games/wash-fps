@@ -17,25 +17,22 @@
 | Movement | Strafe / bunny hop / wall jump (charge + boost) / ledge grab / crouchslide, plus ladders, swimming and moving platforms |
 | Map triggers | **Teleporters** (momentum-carrying, telefrag) and **jumppads** — client-predicted, with washoi VFX |
 | Fall damage | Floor-to-floor bands, crouch-soften, server-tunable (`sv_falldamage*`) |
-| Gametypes | Duel (1v1, 10 min, overtime on a draw), Amphi (1v1 best-of-three rounds with a chosen kit), Deathmatch (20 frags / 10 min), Team Deathmatch (50 frags / 15 min), Search & Destroy (bomb/defuse rounds, `wbomb*` maps) |
+| Gametypes | Duel (1v1, 10 min, overtime on a draw), Amphi (1v1 best-of-three rounds with a chosen kit), FFA / Deathmatch (20 frags / 10 min), Search & Destroy (bomb/defuse rounds, `wbomb*` maps) |
 | Weapons | Nine weapons; clip/pool/none reload models, Voltaic chain-lightning, blade step-in dash, instagun insta-jump, and a click-then-trade swap away from an empty gun |
 | Loadouts | Search & Destroy and Amphi spawn kits — blade + one primary + one secondary, chosen per round |
 | Pickups | Server-authoritative active-set; CoD-style plate armor; health tiers with mega overheal; timed powerups |
-| Chat | In-game chat (**T** to talk), scrollable history, recorded into demos |
+| Chat | Global (**T** / Enter) and team (**Y**) chat, scrollable history, per-match `/mute` and `/unmute`, recorded into demos |
 | Bots | Separate Bot Intelligence Server process, 4 difficulty tiers, BSP vision + NavGraph A*, optional TensorFlow.js dual-network brain |
 | Demos | Server-side recording (`.shagdemo` binary), lobby demo list, in-game playback (normal + cinematic), deterministic re-sim verification |
-| Lobby | Accounts with a portable key, rooms (open or private) with map votes, bots and chat, ranked results, a leaderboard and a profile |
+| Lobby | Portable account keys; Public and Private rooms with map votes and chat; bots in Private rooms; independent skill ladders, gameplay stats and match history |
 | Spectating | Fly free or follow a player and see what they see; drop into a match under way while it has room |
 | Netcode | Dedicated server, fixed-rate authoritative physics (1 dt/tick), client prediction + reconciliation, lag-compensated hits, snapshot baselines, seats held through a dropped connection, input sanitizer, log-only anti-cheat telemetry |
 | UI | Washoi manga print-slab HUD, the lobby's gold-rail screens (lobby, settings, leaderboard, profile, demos), match menu, loading and join screens |
 
-## What's Coming
+## What's Coming {#whats-coming}
 
 | Area | Notes |
 |------|-------|
-| CTF | Flag entities, scoring, team capture rules |
-| Team chat | say_team (**Y**), mute/ignore |
-| Neural-net match training | Training pipeline from recorded demos |
 | Anti-cheat enforcement | Detection substrate is in and log-only; gating waits on calibration |
 
 ## Next

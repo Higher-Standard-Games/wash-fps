@@ -14,9 +14,10 @@ Washiki Washoi uses a **3-slot COD-style inventory**:
 
 You can carry the Blade plus up to two other weapons. Picking up a fourth weapon prompts for a swap (see below). Ammo is tracked per-type (not per-weapon):
 
-```
-shells / bullets / rockets / cells / grenades / bolts / instas / blade(∞) / lasers
-```
+| Ammo types |
+| --- |
+| Shells, bullets, rockets, cells, grenades, bolts, instas and lasers |
+| Blade uses no finite ammo pool |
 
 The total ammo pool is shared across weapons of the same ammo type. Ammo pickups add to your pool; capacity defaults to 200 (per type).
 
@@ -29,7 +30,7 @@ The total ammo pool is shared across weapons of the same ammo type. Ammo pickups
 | **Health** | Restores HP (see below). | `item_health_small/medium/large/mega/ultra` |
 | **Armor** | Adds armor plates (see below). | `item_armor_shard/ga/ya/ra` |
 
-### Armor — plate model
+### Armor — plate model {#armor-plate-model}
 
 Armor is **one 0–100 pool** presented as **four plates × 25** (Call-of-Duty style, masked behind the classic Quake armor names). Damage depletes the pool continuously (~66% of incoming damage is absorbed by armor); plates only matter at *pickup* time — inserting a plate tops your current partial plate up to its 25-boundary:
 

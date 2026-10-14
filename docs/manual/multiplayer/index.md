@@ -11,16 +11,21 @@ How matches happen.
 
 ## High-Level Flow
 
-```
-┌──────────────┐                  ┌──────────────┐                ┌──────────────┐
-│ Lobby UI     │ ─── queue ──▶    │ Lobby Server │ ─── spawn ──▶  │ Game Server  │
-│ (browser)    │                  │ (Node)       │                │ (dedicated)  │
-└──────┬───────┘                  └──────────────┘                └──────┬───────┘
-       │                                                                 │
-       │  ◀───────────────── ws connect on player ready ─────────────────┘
-       │                       125 Hz tick / 60 Hz snapshots
-       ▼
-   gameplay
+```mermaid
+sequenceDiagram
+  accTitle: Lobby to live match
+  accDescr: Players ready in the lobby, receive a seat ticket, and exchange gameplay commands and snapshots with a dedicated match server.
+  participant UI as Lobby UI (browser)
+  participant Lobby as Lobby server
+  participant Game as Dedicated game server
+  UI->>Lobby: Join a room, vote and ready up
+  Lobby->>Game: Spawn a match server
+  Lobby-->>UI: Server address and seat ticket
+  UI->>Game: WebSocket connection and admission
+  loop Live match
+    UI->>Game: Input commands
+    Game-->>UI: Authoritative snapshots and events
+  end
 ```
 
 The lobby orchestrates matchmaking and spawns dedicated game servers via `GameServerSpawner`. Players never connect directly to the lobby for gameplay — they connect to the game server the lobby tells them about.
