@@ -13,22 +13,16 @@ Each room draws three maps at random from the pool for the vote, so a mode with 
 
 | Map | Name | Modes |
 |-----|------|-------|
-| `wdm1` | The Edge | FFA |
-| `wdm2` | Proving Grounds | Duel, FFA |
-| `wdm5` | Sinister | FFA |
-| `wdm7` | Brimstone | FFA |
-| `wdm11` | WDM11 | Duel |
-| `wdm12` | WDM12 | Duel |
-| `wdm14` | Aerowalk | FFA |
-| `wdm17` | Le Toxiquet | Duel |
-| `acidwdm2` | Acid Warehouse | Duel |
+| `wfdm1` | Flew over (Warfork) | Duel, FFA |
+| `wfdm11` | Warehouse C (Warfork) | Duel, FFA |
 | `wamphi1` | Amphitheatre | Amphi |
 | `wda1` | Arena One | Amphi |
 | `wda2` | Arena Two | Amphi |
 | `wbomb2` | Reactors | S&D |
 | `wbomb6` | Depot | S&D |
 
-The table shows the modes offered for the first release.
+The table shows the configured lobby pools. Duel and FFA offer `wfdm1` and
+`wfdm11` for the Warfork map trial; older maps remain playable through the console.
 
 ## Playing any installed map
 

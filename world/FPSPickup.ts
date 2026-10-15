@@ -19,6 +19,7 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Scene } from "@babylonjs/core/scene";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
+import { resolveModelAsset } from "../../../engine/loader/model/ModelAsset";
 import { Pickup, type PickupOptions } from "../../../engine/world/Pickup";
 import { FPS, getActionKeyLabel } from "../client/FPSActions";
 import { InventoryManager } from "./InventoryManager";
@@ -223,10 +224,8 @@ export class FPSPickup extends Pickup {
       const { ImportMeshAsync } = await import("@babylonjs/core/Loading/sceneLoader");
       for (const barrelDef of barrelDefs) {
         try {
-          const lastSlash = barrelDef.modelPath.lastIndexOf("/");
-          const dir = barrelDef.modelPath.substring(0, lastSlash + 1);
-          const file = barrelDef.modelPath.substring(lastSlash + 1);
-          const barrelResult = await ImportMeshAsync(file, this.getScene(), { rootUrl: dir });
+          const asset = await resolveModelAsset(barrelDef.modelPath);
+          const barrelResult = await ImportMeshAsync(asset.source, this.getScene(), asset.options);
           const barrelRoot = barrelResult.meshes[0];
           if (barrelRoot) {
             barrelRoot.parent = leaderMesh;
