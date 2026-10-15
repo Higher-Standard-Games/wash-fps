@@ -319,10 +319,3 @@
     flex-basis: min(100vw, 380px);
   }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .fps-match-menu,
-  .fps-match-menu__rail {
-    animation: none;
-  }
-}

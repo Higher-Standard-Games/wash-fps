@@ -53,10 +53,10 @@ const impactAttenuation: Readonly<Record<string, number>> = {
 };
 
 const damageConfirmationSounds = [
-  "sounds/misc/hit_0.wav",
-  "sounds/misc/hit_1.wav",
-  "sounds/misc/hit_2.wav",
   "sounds/misc/hit_3.wav",
+  "sounds/misc/hit_2.wav",
+  "sounds/misc/hit_1.wav",
+  "sounds/misc/hit_0.wav",
 ] as const;
 
 const bobotPainSounds = [
@@ -151,7 +151,7 @@ function damageTier(damage: number): 0 | 1 | 2 | 3 {
 
 /**
  * Warsow hit confirmation: only the attacker hears it, independent of world
- * distance, and it says how hard the hit was — `hit_0` the lightest.
+ * distance, and it says how hard the hit was — `hit_3` the lightest.
  */
 export function playDamageConfirmationSound(event: DamageEvent): void {
   if (event.damage <= 0) return;

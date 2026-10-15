@@ -14,6 +14,8 @@ import { EntityType, entityId } from "@engine/server/ecs/types";
 import type { LagCompensation, RewindView } from "@engine/server/lagcomp/LagCompensation";
 import type { WeaponLoadout } from "@shared/server/gametype";
 import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulation/physics/constants";
+import type { Vec3 } from "@shared/server/simulation/types";
+import { InputButtons } from "../../../../engine/network/components/InputComponent";
 import { type CollisionWorld, SHOT_CONTENT_MASK } from "../../../../engine/network/systems/collision/CollisionWorld";
 import { DEFAULT_VIEWHEIGHT } from "../../../../engine/physics/PlayerPhysicsConstants";
 import { rngFrom } from "../../../../shared/DeterministicRng";
@@ -174,8 +176,10 @@ export interface WeaponState {
   lastAltFireTick: number; // Last tick alt-fire was used
   wasAltFireDown: boolean; // Edge detection for alt-fire release
   wasReloadButtonDown: boolean; // Edge detection for manual reload
-  // hipfireBlocked: tick when fire was first pressed without ADS (0 = not pending)
-  hipfireAdsStartTick: number;
+  /** First tick of uninterrupted aim; null means the sights are down. */
+  adsStartTick: number | null;
+  /** Manual aim is tracked separately from primary-fire auto-aim. */
+  manualAdsStartTick: number | null;
   /**
    * Tick of the first trigger pull on an empty gun (0 = not pending). Pulling
    * again, or simply holding, trades the dead weapon for one that fires.
@@ -510,6 +514,8 @@ export class WeaponSystem extends Subsystem {
     // Left set, releasing it fired the blade's full charge with no charge-up
     // (heldTicks counted from tick 0). Still held, it now starts a fresh charge.
     state.wasAltFireDown = false;
+    state.adsStartTick = null;
+    state.manualAdsStartTick = null;
     state.dryFireTick = 0;
     state.switchReadyTick = raiseTicks > 0 ? tickNum + raiseTicks : 0;
     this.lastSwitchTick.set(entityId, tickNum);
@@ -869,7 +875,8 @@ export class WeaponSystem extends Subsystem {
       lastAltFireTick: 0,
       wasAltFireDown: false,
       wasReloadButtonDown: false,
-      hipfireAdsStartTick: 0,
+      adsStartTick: null,
+      manualAdsStartTick: null,
       dryFireTick: 0,
       switchReadyTick: 0,
       spreadHeat: 0,
@@ -930,6 +937,8 @@ export class WeaponSystem extends Subsystem {
           this.endCharge(entity.id, dead);
           // Still held at respawn, it starts a fresh charge rather than firing this one.
           dead.wasAltFireDown = false;
+          dead.adsStartTick = null;
+          dead.manualAdsStartTick = null;
         }
         continue;
       }
@@ -1090,26 +1099,13 @@ export class WeaponSystem extends Subsystem {
           // hipfireBlocked: determine if fire is allowed this tick
           let hipfireAllowFire = true;
 
+          const autoAds = (entity.input.buttons & InputButtons.AUTO_ADS) !== 0;
+          const aiming = isAltFiring || (weapon.hipfireBlocked && isFiring);
+          weaponState.adsStartTick = aiming ? (weaponState.adsStartTick ?? tickNum) : null;
+          weaponState.manualAdsStartTick = isAltFiring && !autoAds ? (weaponState.manualAdsStartTick ?? tickNum) : null;
           if (isFiring && weapon.hipfireBlocked) {
-            // On fire button edge (just pressed), decide: was player already ADS?
-            if (!weaponState.wasFireButtonDown) {
-              if (weaponState.wasAltFireDown) {
-                // Player was holding ADS BEFORE pressing fire — no delay
-                weaponState.hipfireAdsStartTick = -1; // sentinel: pre-ADS
-              } else {
-                // Fire pressed from hip — start ADS delay
-                weaponState.hipfireAdsStartTick = tickNum;
-              }
-            }
-
-            // If started from hip, enforce ADS transition delay
-            if (weaponState.hipfireAdsStartTick > 0) {
-              const adsTimeTicks = Math.ceil((weapon.ads?.time || 0.08) * TICK_RATE);
-              if (tickNum - weaponState.hipfireAdsStartTick < adsTimeTicks) {
-                hipfireAllowFire = false; // Still in ADS transition
-              }
-            }
-            // hipfireAdsStartTick === -1 means pre-ADS, fire immediately
+            const adsTimeTicks = Math.ceil((weapon.ads?.time ?? 0.08) * TICK_RATE);
+            hipfireAllowFire = tickNum - (weaponState.adsStartTick ?? tickNum) >= adsTimeTicks;
           }
 
           if (isFiring && hipfireAllowFire) {
@@ -1141,11 +1137,6 @@ export class WeaponSystem extends Subsystem {
                 this.handleDryFire(entity.id, weaponState, tickNum, !weaponState.wasFireButtonDown);
               }
             }
-          }
-
-          if (!isFiring) {
-            // Fire released — reset hipfire ADS timer
-            weaponState.hipfireAdsStartTick = 0;
           }
 
           // Always track fire + alt-fire state for edge detection
@@ -1200,7 +1191,14 @@ export class WeaponSystem extends Subsystem {
     const input = shooter.input!;
     // yaw/pitch are in radians from the client (Babylon.js camera). Negate pitch:
     // Babylon uses negative rotationX for looking UP. Beam wander bends the shot.
-    const isADS = (input.buttons & ALT_FIRE_BUTTON) !== 0;
+    const weaponState = this.weaponStates.get(shooter.id);
+    const timedAim = weapon.adsRequireReady;
+    const isADS =
+      (input.buttons & ALT_FIRE_BUTTON) !== 0 &&
+      (input.buttons & InputButtons.AUTO_ADS) === 0 &&
+      (!timedAim ||
+        (weaponState?.manualAdsStartTick != null &&
+          (tick as number) - weaponState.manualAdsStartTick >= Math.ceil((weapon.ads?.time ?? 0.08) * TICK_RATE)));
     const wander = this.beamWanderOffset(weapon, shooter.id, tick, isADS);
     const yaw = input.yaw + wander.dYaw;
     const pitch = -input.pitch + wander.dPitch;
@@ -1209,7 +1207,7 @@ export class WeaponSystem extends Subsystem {
       y: Math.sin(pitch),
       z: Math.cos(yaw) * Math.cos(pitch),
     };
-    if (!weapon.hitscan || weapon.meleeRadius) return { dir: look };
+    if (weapon.meleeRadius || (!weapon.hitscan && !weapon.adsRequireReady)) return { dir: look };
 
     if (firesPellets(weapon)) {
       const shotCount = (this.shotCounts.get(shooter.id) || 0) + 1;
@@ -1221,10 +1219,9 @@ export class WeaponSystem extends Subsystem {
       };
     }
 
-    if (weapon.hitscanType === "beam" || weapon.hitscanType === "bolt" || !(weapon.spread || weapon.spreadBloom)) {
+    if (weapon.hitscanType === "beam" || !(weapon.spread || weapon.spreadBloom)) {
       return { dir: look };
     }
-    const weaponState = this.weaponStates.get(shooter.id);
     const sinceLastShot = weaponState ? ((tick as number) - weaponState.spreadHeatTick) / TICK_RATE : Infinity;
     const idle = bloomIdleSeconds(sinceLastShot, fireIntervalTicks(weapon) / TICK_RATE);
     const heat = weaponState ? coolSpreadHeat(weapon, weaponState.spreadHeat, idle) : 0;
@@ -1274,7 +1271,7 @@ export class WeaponSystem extends Subsystem {
     } else if (weapon.hitscan && aim) {
       this.fireHitscan(state, shooter, weapon, aim);
     } else {
-      this.fireProjectile(state, shooter, weapon);
+      this.fireProjectile(state, shooter, weapon, weapon.adsRequireReady ? aim?.dir : undefined);
     }
   }
 
@@ -1889,7 +1886,7 @@ export class WeaponSystem extends Subsystem {
     return positions;
   }
 
-  private fireProjectile(state: WorldState, shooter: Readonly<Entity>, weapon: WeaponDef): void {
+  private fireProjectile(state: WorldState, shooter: Readonly<Entity>, weapon: WeaponDef, direction?: Vec3): void {
     if (!shooter.transform || !shooter.input || !shooter.ownerId) return;
 
     // Calculate fire direction (already in radians from client)
@@ -1897,8 +1894,7 @@ export class WeaponSystem extends Subsystem {
     let yaw = shooter.input.yaw;
     let pitch = -shooter.input.pitch;
 
-    // Apply random spread if weapon has it (e.g. plasmagun hipfire)
-    if (weapon.spread) {
+    if (!direction && weapon.spread) {
       const isADS = (shooter.input.buttons & ALT_FIRE_BUTTON) !== 0;
       const spreadDeg = isADS && weapon.adsSpread !== undefined ? weapon.adsSpread : weapon.spread;
       if (spreadDeg > 0) {
@@ -1912,9 +1908,9 @@ export class WeaponSystem extends Subsystem {
     const projectileDef = weapon.projectileId ? PROJECTILE_DEFS[weapon.projectileId] : undefined;
     const speed = projectileDef?.speed ?? weapon.projectileSpeed ?? 1000;
     const velocity = {
-      x: Math.sin(yaw) * Math.cos(pitch) * speed,
-      y: Math.sin(pitch) * speed,
-      z: Math.cos(yaw) * Math.cos(pitch) * speed,
+      x: (direction?.x ?? Math.sin(yaw) * Math.cos(pitch)) * speed,
+      y: (direction?.y ?? Math.sin(pitch)) * speed,
+      z: (direction?.z ?? Math.cos(yaw) * Math.cos(pitch)) * speed,
     };
 
     // Spawn projectile slightly in front of shooter, along look direction

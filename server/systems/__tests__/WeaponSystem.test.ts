@@ -232,7 +232,7 @@ describe("WeaponSystem - F3 reload models", () => {
 
     const shooter = makeShooter(0, 0);
     shooter.input.buttons = 1 << 9; // Hold ADS before pressing fire to bypass hipfireBlocked delay.
-    sys.update(makeState([shooter]) as never, 1 / 125, 99 as never);
+    sys.update(makeState([shooter]) as never, 1 / 125, 80 as never);
     shooter.input.buttons = FIRE_BUTTON | (1 << 9);
     sys.update(makeState([shooter]) as never, 1 / 125, 100 as never);
 
@@ -284,7 +284,7 @@ describe("WeaponSystem - fire view origin", () => {
       const spawn = vi.fn<(entity: Entity) => void>();
       const state = { ...makeState([shooter]), addEntity: spawn };
       shooter.input.buttons = 1 << 9;
-      sys.update(state as never, 1 / 125, 99 as never);
+      sys.update(state as never, 1 / 125, 90 as never);
       shooter.input.buttons |= FIRE_BUTTON;
       sys.update(state as never, 1 / 125, 100 as never);
       expect(spawn).toHaveBeenCalledOnce();
@@ -336,7 +336,7 @@ describe("WeaponSystem - fire view origin", () => {
     };
 
     shooter.input.buttons = 1 << 9; // hold ADS first to bypass glauncher's hipfireBlocked delay
-    sys.update(state as never, 1 / 125, 99 as never);
+    sys.update(state as never, 1 / 125, 80 as never);
     shooter.input.buttons = FIRE_BUTTON | (1 << 9);
     sys.update(state as never, 1 / 125, 100 as never);
 
@@ -647,7 +647,7 @@ describe("WeaponSystem — F8 projectiles registered by projectileId", () => {
 
     const shooter = makeShooter(0, 0);
     shooter.input.buttons = 1 << 9; // hold ADS first to bypass rlauncher's hipfireBlocked delay
-    sys.update(makeState([shooter]) as never, 1 / 125, 99 as never);
+    sys.update(makeState([shooter]) as never, 1 / 125, 80 as never);
     shooter.input.buttons = FIRE_BUTTON | (1 << 9);
     sys.update(makeState([shooter]) as never, 1 / 125, 100 as never);
 
@@ -679,7 +679,7 @@ describe("WeaponSystem — F8 projectiles registered by projectileId", () => {
     };
 
     shooter.input.buttons = 1 << 9; // hold ADS first to bypass glauncher's hipfireBlocked delay
-    sys.update(state as never, 1 / 125, 99 as never);
+    sys.update(state as never, 1 / 125, 80 as never);
     shooter.input.buttons = FIRE_BUTTON | (1 << 9);
     sys.update(state as never, 1 / 125, 100 as never);
 

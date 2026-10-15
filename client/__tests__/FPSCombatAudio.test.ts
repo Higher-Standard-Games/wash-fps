@@ -133,14 +133,14 @@ describe("FPSCombatAudio", () => {
     expect(audio.playSfx2D).toHaveBeenCalledWith(KILL_ECHO_SOUND, 1, 2, "hits");
   });
 
-  it("says how hard a hit was: hit_0 the lightest, hit_3 from 75 damage", () => {
+  it("says how hard a hit was: hit_3 the lightest, hit_0 from 75 damage", () => {
     for (const damage of [5, 25, 50, 75, 120]) playDamageConfirmationSound({ ...damageEvent, damage });
     expect(audio.playSfx2D.mock.calls.map(([path]) => path)).toEqual([
-      "sounds/misc/hit_0.wav",
-      "sounds/misc/hit_1.wav",
+      "sounds/misc/hit_3.wav",
       "sounds/misc/hit_2.wav",
-      "sounds/misc/hit_3.wav",
-      "sounds/misc/hit_3.wav",
+      "sounds/misc/hit_1.wav",
+      "sounds/misc/hit_0.wav",
+      "sounds/misc/hit_0.wav",
     ]);
   });
 

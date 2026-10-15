@@ -554,10 +554,3 @@
     display: none;
   }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .lb-plinth,
-  .lb-row.is-flash {
-    animation: none;
-  }
-}

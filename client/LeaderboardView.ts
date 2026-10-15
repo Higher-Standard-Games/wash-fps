@@ -540,8 +540,7 @@ export class LeaderboardView {
     this.renderBoard();
     const mine = this.list.querySelector<HTMLElement>(".lb-row.is-you");
     if (!mine) return;
-    const smooth = !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    mine.scrollIntoView({ block: "center", behavior: smooth ? "smooth" : "auto" });
+    mine.scrollIntoView({ block: "center", behavior: "smooth" });
     mine.classList.remove("is-flash");
     void mine.offsetWidth;
     mine.classList.add("is-flash");

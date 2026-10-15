@@ -840,12 +840,6 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .lobby__mode-key {
-    transition: none;
-  }
-}
-
 /* One equal column per mode */
 .lobby__play-tiles {
   display: grid;
@@ -1429,13 +1423,5 @@
 
   .lobby__rail--room .raised-key--send .raised-key__face {
     padding: 0 14px 0 16px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .lobby__orb,
-  .lobby__room--playing .lobby__room-mark,
-  .lobby-chat__msg {
-    animation: none;
   }
 }

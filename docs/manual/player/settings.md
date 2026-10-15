@@ -55,6 +55,9 @@ Two cards, **Music** and **Effects**, each with an on/off switch and a volume fr
 
 The **Mix** card separately adjusts Effects, Players, Hit sound and Announcer (`cg_volume_effects`, `cg_volume_players`, `cg_volume_hitsound`, `cg_volume_announcer`) as shares of the Effects volume.
 
+Hit confirmation uses four sounds for increasing damage: `hit_3` below 25,
+`hit_2` from 25, `hit_1` from 50 and `hit_0` from 75 damage.
+
 ## Console-only variables
 
 A few settings have no screen yet:

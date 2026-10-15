@@ -220,7 +220,12 @@ export class FPSMovementSubsystem extends Subsystem {
    *    aim and can't repeat, which still satisfies "no continuous fire from a frozen client."
    */
   private static readonly ACTION_BUTTON_MASK =
-    InputButtons.FIRE | InputButtons.ALT_FIRE | InputButtons.RELOAD | InputButtons.USE | InputButtons.JUMP;
+    InputButtons.FIRE |
+    InputButtons.ALT_FIRE |
+    InputButtons.AUTO_ADS |
+    InputButtons.RELOAD |
+    InputButtons.USE |
+    InputButtons.JUMP;
   /** Log-only authority tripwire; high enough to avoid normal movement/KB false positives. */
   private static readonly MAX_TICK_STEP = 128;
   /** Per-entity count of tripwire firings, surfaced as an anti-cheat signal (WO-AC2). */

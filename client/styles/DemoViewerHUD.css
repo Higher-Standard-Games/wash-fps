@@ -465,12 +465,3 @@
     display: none;
   }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  #demo-viewer-hud,
-  .dvh-timeline,
-  .dvh-exit,
-  .dvh-card {
-    transition: none;
-  }
-}

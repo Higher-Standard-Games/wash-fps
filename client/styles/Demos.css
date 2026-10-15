@@ -979,15 +979,3 @@
     scrollbar-width: thin;
   }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .dm-slab__face,
-  .dm-shot__img {
-    transition: none;
-  }
-
-  .dm-grid .dm-card,
-  .dm-reel {
-    animation: none;
-  }
-}

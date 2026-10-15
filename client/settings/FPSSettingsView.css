@@ -1747,21 +1747,3 @@
     gap: 3px;
   }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .fps-set-cap,
-  .fps-set-mzone,
-  .fps-set-sw,
-  .fps-set-seg__btn,
-  .fps-set-opt {
-    transition: none;
-  }
-
-  .fps-set-pop,
-  .fps-set-toast,
-  .fps-set-section-panel,
-  .fps-set-act__listen,
-  .is-flash {
-    animation: none;
-  }
-}

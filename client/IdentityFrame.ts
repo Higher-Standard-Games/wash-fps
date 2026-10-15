@@ -73,11 +73,8 @@ export function buildIdentityFrame(label: string, ghostText: string): IdentityFr
   return { root, inner, stage, ghost };
 }
 
-const reducedMotion = (): boolean => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-
 /** Widen the panel out of the rail: it starts at the rail's width and grows. */
 export function widenFromRail(root: HTMLElement): void {
-  if (reducedMotion()) return;
   root.classList.add("welcome--entering");
   // Two frames: the first lays the narrow panel out, the second lets it grow
   requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove("welcome--entering")));
@@ -86,13 +83,10 @@ export function widenFromRail(root: HTMLElement): void {
 /** Narrow the panel back onto the rail, then take the overlay away. */
 export function narrowOntoRail(root: HTMLElement, done: () => void): void {
   root.classList.add("welcome--leaving");
-  setTimeout(
-    () => {
-      root.remove();
-      done();
-    },
-    reducedMotion() ? 0 : MOVE_MS,
-  );
+  setTimeout(() => {
+    root.remove();
+    done();
+  }, MOVE_MS);
 }
 
 /** A screen: a kicker over a big title, and a line under it. */

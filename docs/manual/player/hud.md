@@ -141,8 +141,7 @@ attention:
 
 During warmup, the larger ready banner stays on one line. Its gold-cell text
 gently grows and shrinks while you still need to press **F4**, keeping the cell
-itself still. It stops pulsing once you are ready. Spectator banners stay still,
-and the browser's reduced-motion preference disables the pulse.
+itself still. It stops pulsing once you are ready. Spectator banners stay still.
 
 ## Awards and Streaks
 

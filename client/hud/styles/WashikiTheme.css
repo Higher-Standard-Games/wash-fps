@@ -1808,15 +1808,6 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .fps-pickup-toast {
-    animation: fps-float-up 2.3s ease-in-out forwards;
-  }
-  .fps-pickup-toast::before {
-    animation: none;
-  }
-}
-
 /* ============================================================================
    Ammo Warning — "OUT OF AMMO" / "RELOAD" print-slab, fixed above speedometer
    ============================================================================ */
@@ -3037,13 +3028,6 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .fps-death-fill,
-  .fps-death-card[data-next="ready"] .fps-death-respawn {
-    animation: none;
-  }
-}
-
 /* ============================================================================
    MangaPanel Dialog (Modal Base)
    ============================================================================ */
@@ -3410,12 +3394,6 @@
 
   50% {
     transform: scale(1.08);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .fps-ready-bar:not(.hidden):not(.fps-ready-bar--ready):not(.fps-ready-bar--spectating) .fps-ready-count-label {
-    animation: none;
   }
 }
 
@@ -4056,23 +4034,5 @@
   }
   50% {
     opacity: 0.55;
-  }
-}
-
-/* Keep warning labels/colors, without continuous motion when requested. */
-@media (prefers-reduced-motion: reduce) {
-  .fps-vitals--critical .fps-vitals-hp-slab,
-  .fps-timer--critical,
-  .fps-value-low,
-  .fps-value-bar--critical,
-  .fps-ammo-warning,
-  .fps-powerup-timer-slab--expiring,
-  .fps-death-card[data-next="ready"] .fps-death-respawn,
-  .fps-death-fill,
-  .fps-ready-bar:not(.hidden):not(.fps-ready-bar--ready):not(.fps-ready-bar--spectating) .fps-ready-count-label,
-  .fps-bomb-status--urgent .fps-bomb-status-phase,
-  .fps-bomb-status--carrying .fps-bomb-status-phase,
-  .fps-air-meter--drowning {
-    animation: none;
   }
 }

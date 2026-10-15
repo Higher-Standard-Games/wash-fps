@@ -146,6 +146,23 @@ Self-knockback uses the same math but is **halved**. See [Damage and Combat Rule
 
 Some weapons support ADS via Mouse 2 / right-click. The view zoom and reduced sway are cvar-controlled (`cl_ads_time`, etc.) and apply to the predicted local player only — remote players don't see your ADS state. Recoil scales down significantly while ADS is active.
 
+Only Rocket and Grenade Launchers automatically aim when you press primary fire.
+Plasma fires immediately from the hip with its 3° spread; Mouse 2 gives manual,
+accurate ADS. It has no automatic sight raise or launcher firing delay.
+
+Rocket and Grenade Launcher primary fire automatically raises the sights and
+waits for the weapon's **160 ms** ADS time. Hold fire through that delay; releasing
+early cancels the shot. Automatic aim still has spread: a **1° cone for rockets**
+and **4° for grenades**. Holding Mouse 2 until ADS is complete gives a straight
+shot; firing during manual ADS waits for the remaining raise time.
+
+Electrobolt hipfire is instant but scatters within a **20° cone**, making it
+unreliable at range. Complete its **375 ms** manual ADS for a straight shot.
+Hipfire has a heavy upward/backward weapon kick like the Riotgun; aiming reduces it.
+At close range the same angular spread causes less lateral displacement; there
+is no distance-based accuracy switch. These three weapons' sight transitions use
+their configured weapon ADS time rather than the cosmetic `cl_ads_time` setting.
+
 The Blade does not support ADS. The Instagun is effectively always-precise.
 
 ## See Also

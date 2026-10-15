@@ -93,6 +93,7 @@ export interface PlayerInputState {
   sprint: boolean;
   fire: boolean;
   altFire: boolean;
+  autoAds?: boolean;
   reload?: boolean;
   use: boolean;
   pitch: number; // Camera X rotation
@@ -1326,6 +1327,7 @@ export class Game {
     if (input.sprint) buttons |= InputButtons.SPRINT;
     if (input.fire) buttons |= InputButtons.FIRE;
     if (input.altFire) buttons |= InputButtons.ALT_FIRE;
+    if (input.fire && input.altFire && input.autoAds) buttons |= InputButtons.AUTO_ADS;
 
     // Pulling the trigger on an empty gun clicks, off our own ammo state so the
     // feedback lands on the press rather than a round trip later. The server

@@ -539,17 +539,6 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .welcome,
-  .welcome__panel,
-  .welcome__inner,
-  .welcome__stage,
-  .identity-slot__box::after,
-  .keyplate__groups {
-    transition: none;
-  }
-}
-
 /* ── Your record, on the stage: one line per mode the lobby ranks you in ── */
 
 .profile-record {
