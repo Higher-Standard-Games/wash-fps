@@ -259,10 +259,7 @@ export function createFresnelShellMaterial(scene: Scene, name: string, color: RG
   mat.specularColor = Color3.Black();
   mat.emissiveColor = toColor3(color).scale(ENERGY_BOOST);
 
-  // Emissive: hottest at grazing angles (left), cooler face-on (right). The
-  // face-on floor was 0.06, which is black in everything but name — the orb read
-  // as a dark hole ringed in colour. It carries the tier colour now, still well
-  // under the rim so the sphere keeps its depth.
+  // Emissive: hottest at grazing angles (left), cooler face-on (right).
   const emissiveFresnel = new FresnelParameters();
   emissiveFresnel.leftColor = Color3.White();
   emissiveFresnel.rightColor = new Color3(0.55, 0.55, 0.55);
@@ -270,16 +267,16 @@ export function createFresnelShellMaterial(scene: Scene, name: string, color: RG
   emissiveFresnel.power = 2.6;
   mat.emissiveFresnelParameters = emissiveFresnel;
 
-  // Opacity: solid rim, translucent center. Emissive is multiplied by alpha, so
-  // a 0.12 center cancelled most of whatever colour it was given.
+  // StandardMaterial adds opacity Fresnel to material alpha. Let Fresnel own
+  // the entire opacity so the face-on shell stays clear over the emblem.
   const opacityFresnel = new FresnelParameters();
-  opacityFresnel.leftColor = Color3.White();
-  opacityFresnel.rightColor = new Color3(0.42, 0.42, 0.42);
-  opacityFresnel.bias = 0.15;
+  opacityFresnel.leftColor = new Color3(0.9, 0.9, 0.9);
+  opacityFresnel.rightColor = new Color3(0.12, 0.12, 0.12);
+  opacityFresnel.bias = 0;
   opacityFresnel.power = 2.0;
   mat.opacityFresnelParameters = opacityFresnel;
 
-  mat.alpha = 0.95;
+  mat.alpha = 0;
   mat.transparencyMode = 2; // ALPHABLEND
   mat.backFaceCulling = true; // front hemisphere only — back faces would double the rim
   // The shell surrounds the emblem, so writing depth lets the near hemisphere

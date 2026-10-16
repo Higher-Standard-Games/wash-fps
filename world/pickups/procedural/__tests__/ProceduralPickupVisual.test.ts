@@ -141,11 +141,17 @@ describe("ProceduralPickupVisual", () => {
       // Without this the cross is depth-rejected however the fresnels are tuned.
       expect(material.disableDepthWrite).toBe(true);
 
-      // Face-on the shell must still carry its colour and enough alpha to show
-      // it — emissive is multiplied by opacity, so a dark floor on either one is
-      // enough to produce the hole.
+      // Babylon adds the Fresnel opacity to material alpha. Check the resulting
+      // opacity, not merely the two authored Fresnel endpoint colours.
       expect(material.emissiveFresnelParameters!.rightColor.r).toBeGreaterThan(0.3);
-      expect(material.opacityFresnelParameters!.rightColor.r).toBeGreaterThan(0.3);
+      const opacity = material.opacityFresnelParameters!;
+      const alphaAt = (cos: number) => {
+        const f = Math.min(1, Math.max(0, (opacity.bias + cos) ** opacity.power));
+        return material.alpha + opacity.leftColor.toLuminance() * (1 - f) + opacity.rightColor.toLuminance() * f;
+      };
+      expect(alphaAt(1)).toBeLessThan(0.25);
+      expect(alphaAt(0)).toBeGreaterThan(0.75);
+      expect(alphaAt(0)).toBeLessThanOrEqual(1);
       // The rim stays hotter than the centre, or the orb flattens into a ball.
       expect(material.emissiveFresnelParameters!.leftColor.r).toBeGreaterThan(
         material.emissiveFresnelParameters!.rightColor.r,
@@ -154,6 +160,18 @@ describe("ProceduralPickupVisual", () => {
 
       visual.dispose();
     }
+  });
+
+  it.each(["health_mega", "health_ultra"])("keeps %s cross caps aligned with the camera-facing emblem", (id) => {
+    const recipe = getProceduralPickupRecipe(id)!;
+    const visual = new ProceduralPickupVisual(scene, recipe, Vector3.Zero(), false, 1);
+    const body = scene.meshes.find((m) => m.name === `pp_cross_${id}`)!;
+    const caps = scene.meshes.find((m) => m.name === `pp_cross_caps_${id}`)!;
+    expect(body.billboardMode).not.toBe(0);
+    expect(caps.billboardMode).toBe(body.billboardMode);
+    expect(caps.scaling.equals(body.scaling)).toBe(true);
+    expect(caps.parent).toBe(body.parent);
+    visual.dispose();
   });
 
   it("builds a health shell and layered armor plates over a dark frame", () => {

@@ -133,13 +133,15 @@ export class ProceduralPickupVisual implements PickupVisual {
       // through every floor and wall. The shell writes no depth, so the cross
       // reads through it from the world group too.
       const cross = this.inst(set.cross, this.cosmetic, this.matAccent, "cross");
-      if (cross && recipe.highTier) {
-        cross.scaling.setAll(0.9);
-        cross.billboardMode = Mesh.BILLBOARDMODE_ALL;
+      const caps = this.inst(set.crossCaps, this.cosmetic, set.emblemFill, "cross_caps");
+      if (recipe.highTier) {
+        for (const part of [cross, caps]) {
+          if (!part) continue;
+          part.scaling.setAll(0.9);
+          part.billboardMode = Mesh.BILLBOARDMODE_ALL;
+        }
       }
-      this.inst(set.crossCaps, this.cosmetic, set.emblemFill, "cross_caps");
       this.matShell = createFresnelShellMaterial(scene, `pp_shell_${recipe.id}_${seed}`, recipe.color);
-      if (recipe.highTier) this.matShell.alpha = 0.62;
       this.inst(set.core, this.cosmetic, this.matShell, "shell");
     } else if (recipe.family === "ammo") {
       // The generated mark identifies ammo without texture assets. Optional
