@@ -56,17 +56,20 @@ Practical: approach a wall, **hold Space** as you get close, the screen tilts sl
 
 ## Ledge Grab
 
-Auto-grab + pull-up on ledges within reach during a fall.
+Auto-grab + pull-up when approaching a reachable ledge while airborne. Angled
+and curved walls use their contact geometry; they do not need to follow the map
+grid. The destination must have room for the player and a clear route onto it.
 
 | Value | Default | Notes |
 |-------|---------|-------|
 | Reach | 32 u | `ledgeReach` |
 | Maximum grabable ledge height | 64 u | `ledgeHeight` |
-| Minimum fall velocity to trigger | -50 u/s | `ledgeMinFall`; need to actually be falling |
-| Grab timeout | 2.0 s | `ledgeTimeout`; how long you can hang |
 | Pull-up duration | 0.5 s | `ledgePullTime` |
 
-Practical: jump or fall toward a ledge with a grabable lip. The game grabs automatically; the camera tilts and your view rises during the pull-up. You can cancel the grab early by jumping.
+Practical: jump or fall toward a ledge with a grabable lip. The game grabs
+automatically, lifts you clear of the lip, then moves you onto it. Hold crouch
+to cancel the initial grab pause. If the route becomes obstructed, the grab
+releases and a brief retry delay prevents immediately catching the same spot.
 
 ## Crouchslide
 

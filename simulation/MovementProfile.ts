@@ -349,11 +349,9 @@ export class MovementProfile implements IMovementProfile {
     // re-simulating old inputs recompute identical timelines anyway — surviving
     // reconciliation is safe by construction.
 
-    // NOTE: Do NOT reset ledge grab here either. Ledge grab is a client-side cosmetic
-    // state machine (server doesn't simulate it). Resetting during reconciliation
-    // forces the replay to re-detect the grab at a slightly different sub-unit position
-    // (FP drift through air-accel → slideMove → clip from different server start pos),
-    // causing 2-3 frame camera shake when the startPos differs between predictions.
+    // Retain the active grab across ground-state corrections. Both server and
+    // client simulate it; its progress uses sim-clock anchors and LedgeGrab
+    // validates the full hull along the active pull path.
   }
 
   /**

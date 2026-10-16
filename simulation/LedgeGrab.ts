@@ -9,8 +9,16 @@ import { InputButtons } from "../../../engine/network/components/InputComponent"
 import type { Vec3 } from "../../../engine/network/components/TransformComponent";
 import type { CollisionWorld } from "../../../engine/network/systems/collision/CollisionWorld";
 import type { MovementInput } from "../../../engine/network/systems/movement/MovementProfile";
+import { PLAYER_MAXS_Z, PLAYER_MINS_Z, PLAYER_RADIUS } from "../../../engine/physics/PlayerPhysicsConstants";
 import type { MovementConfig } from "./MovementConfig";
 import { vec3Add, vec3Clone, vec3Normalize, vec3Scale, vec3Zero } from "./Vec3Helpers";
+
+const PLAYER_BOUNDS = {
+  min: { x: -PLAYER_RADIUS, y: PLAYER_MINS_Z, z: -PLAYER_RADIUS },
+  max: { x: PLAYER_RADIUS, y: PLAYER_MAXS_Z, z: PLAYER_RADIUS },
+};
+const CLEARANCE = 1;
+const RETRY_DELAY_MS = 300;
 
 export class LedgeGrab {
   state: "none" | "grabbing" | "pulling" = "none";
@@ -59,6 +67,8 @@ export class LedgeGrab {
     if (this.state === "grabbing") {
       const grabElapsedSec = (nowMs - this.stateStartMs) / 1000;
 
+      if (!collision || collision.trace(pos, this.startPos, PLAYER_BOUNDS).hit) return this.abort(vel, nowMs);
+
       // Freeze position
       pos.x = this.startPos.x;
       pos.y = this.startPos.y;
@@ -75,10 +85,7 @@ export class LedgeGrab {
       const minGrabTime = 0.05;
       if (grabElapsedSec > minGrabTime) {
         if (input.isPressed(InputButtons.CROUCH)) {
-          this.state = "none";
-          this.phase = 0;
-          vel.y = -100;
-          return false;
+          return this.abort(vel, nowMs);
         }
       }
 
@@ -103,10 +110,33 @@ export class LedgeGrab {
       // Compute ledge grab phase (0.3→1 during pull)
       this.phase = 0.3 + t * 0.7;
 
-      // Interpolate position
-      pos.x = this.startPos.x + (this.targetPos.x - this.startPos.x) * t;
-      pos.y = this.startPos.y + (this.targetPos.y - this.startPos.y) * t;
-      pos.z = this.startPos.z + (this.targetPos.z - this.startPos.z) * t;
+      // Lift clear of the lip before moving inward, sweeping both legs.
+      // A diagonal interpolation would drive the feet through the wall.
+      const rise = this.targetPos.y - this.startPos.y;
+      const across = Math.hypot(this.targetPos.x - this.startPos.x, this.targetPos.z - this.startPos.z);
+      const travel = t * (rise + across);
+      const next =
+        travel <= rise
+          ? { x: this.startPos.x, y: this.startPos.y + travel, z: this.startPos.z }
+          : {
+              x:
+                this.startPos.x +
+                (this.targetPos.x - this.startPos.x) * Math.min(1, (travel - rise) / Math.max(across, 1e-9)),
+              y: this.targetPos.y,
+              z:
+                this.startPos.z +
+                (this.targetPos.z - this.startPos.z) * Math.min(1, (travel - rise) / Math.max(across, 1e-9)),
+            };
+      if (!collision) return this.abort(vel, nowMs);
+      if (pos.y < this.targetPos.y && travel > rise) {
+        const raised = { x: pos.x, y: this.targetPos.y, z: pos.z };
+        if (collision.trace(pos, raised, PLAYER_BOUNDS).hit) return this.abort(vel, nowMs);
+        pos.y = raised.y;
+      }
+      if (collision.trace(pos, next, PLAYER_BOUNDS).hit) return this.abort(vel, nowMs);
+      pos.x = next.x;
+      pos.y = next.y;
+      pos.z = next.z;
       vel.x = 0;
       vel.y = 0;
       vel.z = 0;
@@ -115,7 +145,7 @@ export class LedgeGrab {
         // Done climbing — cooldown prevents re-detection
         this.state = "none";
         this.phase = 0;
-        this.cooldownUntilMs = nowMs + 300;
+        this.cooldownUntilMs = nowMs + RETRY_DELAY_MS;
         const forward = vec3Normalize(input.direction);
         vel.x = forward.x * 50;
         vel.y = 0; // No upward boost — targetPos already has Y clearance
@@ -162,100 +192,30 @@ export class LedgeGrab {
       { x: forwardDir.x * cos60 + forwardDir.z * sin60, y: 0, z: -forwardDir.x * sin60 + forwardDir.z * cos60 },
     ];
 
-    // Find the closest wall across all probe directions
-    let bestWaistTrace: ReturnType<typeof collision.trace> | null = null;
-    let bestProbeDir = forwardDir;
-    let bestFraction = 1.0;
-
+    // Try each wall contact independently: a blocked corner must not hide a
+    // reachable ledge detected by another probe direction.
+    let targetPos: Vec3 | null = null;
+    let bestFraction = 1;
     for (const probeDir of probeDirections) {
-      // === TRACE 1: Check for wall at waist level ===
       const waistStart = { x: pos.x, y: eyeY - 16, z: pos.z };
       const waistEnd = vec3Add(waistStart, vec3Scale(probeDir, reach));
-      const waistTrace = collision.trace(waistStart, waistEnd);
-
-      if (waistTrace.hit && waistTrace.fraction < 1.0 && waistTrace.fraction < bestFraction) {
-        // === TRACE 2: Check if space is clear above eye level ===
-        const headStart = { x: pos.x, y: eyeY + 8, z: pos.z };
-        const headEnd = vec3Add(headStart, vec3Scale(probeDir, reach));
-        const headTrace = collision.trace(headStart, headEnd);
-
-        if (!headTrace.hit || headTrace.fraction >= 0.9) {
-          bestWaistTrace = waistTrace;
-          bestProbeDir = probeDir;
-          bestFraction = waistTrace.fraction;
-        }
+      const wall = collision.trace(waistStart, waistEnd);
+      if (!wall.hit || wall.fraction >= bestFraction || !wall.normal) continue;
+      const headStart = { x: pos.x, y: eyeY + 8, z: pos.z };
+      const head = collision.trace(headStart, vec3Add(headStart, vec3Scale(probeDir, reach)));
+      if (head.hit && head.fraction < 0.9) continue;
+      const contact = wall.hitPoint ?? {
+        x: waistStart.x + (waistEnd.x - waistStart.x) * wall.fraction,
+        y: waistStart.y,
+        z: waistStart.z + (waistEnd.z - waistStart.z) * wall.fraction,
+      };
+      const candidate = this.findTarget(pos, contact, wall.normal, collision, eyeY, climbHeight);
+      if (candidate) {
+        targetPos = candidate;
+        bestFraction = wall.fraction;
       }
     }
-
-    if (!bestWaistTrace) {
-      return false;
-    }
-
-    // === TRACE 3: Find ledge surface by tracing down from above ===
-    // Use the best probe direction (may be angled for 45° walls)
-    const aboveLedgeStart = vec3Add({ x: pos.x, y: eyeY, z: pos.z }, vec3Scale(bestProbeDir, reach * 0.7));
-    aboveLedgeStart.y += climbHeight;
-
-    const aboveLedgeEnd = { x: aboveLedgeStart.x, y: aboveLedgeStart.y - climbHeight - 48, z: aboveLedgeStart.z };
-    const ledgeTrace = collision.trace(aboveLedgeStart, aboveLedgeEnd);
-
-    if (!ledgeTrace.hit || ledgeTrace.fraction >= 1.0) {
-      return false;
-    }
-
-    if (!ledgeTrace.normal || ledgeTrace.normal.y < 0.7) {
-      return false;
-    }
-
-    // Calculate ledge surface Y position
-    const ledgeSurfaceY = aboveLedgeStart.y - (aboveLedgeStart.y - aboveLedgeEnd.y) * ledgeTrace.fraction;
-    const eyeToLedge = ledgeSurfaceY - eyeY;
-
-    if (eyeToLedge < -16) return false;
-    if (eyeToLedge > climbHeight) return false;
-
-    // === TRACE 4: Verify room to stand on ledge ===
-    // IMPORTANT: Use the wall normal to offset the target X,Z AWAY from the wall face.
-    // Previously, targetPos used aboveLedgeStart.x/z which pushes the player
-    // forward into/past the wall → player gets stuck inside geometry after pull.
-    const wallNormal = bestWaistTrace.normal || { x: -bestProbeDir.x, y: 0, z: -bestProbeDir.z };
-    const targetPos = {
-      x: pos.x + bestProbeDir.x * (reach * 0.3) + wallNormal.x * 2,
-      y: ledgeSurfaceY + 24 + 8,
-      z: pos.z + bestProbeDir.z * (reach * 0.3) + wallNormal.z * 2,
-    };
-
-    // === TRACE 4: Verify player hull fits at target position ===
-    // Use full player bounding box — point traces miss corners where the
-    // center is clear but the 32×64 hull clips adjacent walls.
-    const playerBounds = {
-      min: { x: -16, y: -24, z: -16 },
-      max: { x: 16, y: 32, z: 16 },
-    };
-    const solidCheck = collision.trace(targetPos, targetPos, playerBounds);
-    if (solidCheck.hit && solidCheck.fraction < 1.0) {
-      return false;
-    }
-
-    // === TRACE 5: Verify vertical clearance for pull-up path ===
-    // Trace full player hull upward from current position to target height.
-    // Prevents climbing through ceilings or into tight overhangs.
-    const ceilingStart = { x: pos.x, y: pos.y, z: pos.z };
-    const ceilingEnd = { x: pos.x, y: targetPos.y + 16, z: pos.z };
-    const ceilingTrace = collision.trace(ceilingStart, ceilingEnd, playerBounds);
-
-    if (ceilingTrace.hit && ceilingTrace.fraction < 0.9) {
-      return false;
-    }
-
-    // === TRACE 6: Verify standing room above target with full hull ===
-    const standStart = { x: targetPos.x, y: targetPos.y, z: targetPos.z };
-    const standEnd = { x: targetPos.x, y: targetPos.y + 32, z: targetPos.z };
-    const standTrace = collision.trace(standStart, standEnd, playerBounds);
-
-    if (standTrace.hit && standTrace.fraction < 0.8) {
-      return false;
-    }
+    if (!targetPos) return false;
 
     // === SUCCESS: Start grabbing! ===
     this.startGrab(targetPos, pos, nowMs);
@@ -267,6 +227,55 @@ export class LedgeGrab {
     vel.z = 0;
 
     return true;
+  }
+
+  /** Find a supported full-hull destination and an unobstructed lift/across route. */
+  private findTarget(
+    pos: Vec3,
+    contact: Vec3,
+    wallNormal: Vec3,
+    collision: CollisionWorld,
+    eyeY: number,
+    climbHeight: number,
+  ): Vec3 | null {
+    const length = Math.hypot(wallNormal.x, wallNormal.z);
+    if (length < 1e-6) return null;
+    const nx = wallNormal.x / length,
+      nz = wallNormal.z / length;
+    // A square hull reaches farther from its center at a diagonal wall.
+    const inset = PLAYER_RADIUS * (Math.abs(nx) + Math.abs(nz)) + CLEARANCE;
+    const above = { x: contact.x - nx * inset, y: eyeY + climbHeight, z: contact.z - nz * inset };
+    const surface = collision.trace(above, { ...above, y: eyeY - 48 });
+    if (!surface.hit || !surface.normal || surface.normal.y < 0.7) return null;
+    const surfaceY = above.y + (eyeY - 48 - above.y) * surface.fraction;
+    if (surfaceY - eyeY < -16 || surfaceY - eyeY > climbHeight) return null;
+
+    // Resolve support with the same standing hull used by movement, rather
+    // than assuming the point sample describes every corner under the feet.
+    const supportStart = { ...above, y: above.y - PLAYER_MINS_Z + CLEARANCE };
+    const supportEnd = { ...above, y: surfaceY - PLAYER_MINS_Z - 2 };
+    const support = collision.trace(supportStart, supportEnd, PLAYER_BOUNDS);
+    if (!support.hit || !support.normal || support.normal.y < 0.7) return null;
+    const target = {
+      x: above.x,
+      y: supportStart.y + (supportEnd.y - supportStart.y) * support.fraction + CLEARANCE,
+      z: above.z,
+    };
+    const standingSurfaceY = target.y + PLAYER_MINS_Z - CLEARANCE;
+    if (standingSurfaceY - eyeY < -16 || standingSurfaceY - eyeY > climbHeight) return null;
+    if (collision.trace(target, target, PLAYER_BOUNDS).hit) return null;
+    const raised = { x: pos.x, y: target.y, z: pos.z };
+    if (collision.trace(pos, raised, PLAYER_BOUNDS).hit) return null;
+    if (collision.trace(raised, target, PLAYER_BOUNDS).hit) return null;
+    return target;
+  }
+
+  private abort(vel: Vec3, nowMs: number): false {
+    this.state = "none";
+    this.phase = 0;
+    this.cooldownUntilMs = nowMs + RETRY_DELAY_MS;
+    vel.y = Math.min(vel.y, -100);
+    return false;
   }
 
   /** Start the grab state */
