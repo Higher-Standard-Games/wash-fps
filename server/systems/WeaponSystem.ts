@@ -1336,23 +1336,28 @@ export class WeaponSystem extends Subsystem {
     });
   }
 
-  /**
-   * Melee attack — cone check for all players within range and meleeRadius.
-   * Hits all targets in the forward cone (~60° half-angle).
-   */
+  /** Queue a step-in only while forward input and horizontal motion agree. */
   private queueMeleeDash(shooter: Readonly<Entity>, weapon: WeaponDef): void {
     const distance = weapon.meleeDashDistance ?? 0;
-    if (distance <= 0 || !this.movementSubsystem || !shooter.input) return;
+    if (distance <= 0 || !this.movementSubsystem || !shooter.input || !shooter.physics) return;
+    const buttons = shooter.input.buttons;
+    if (!(buttons & InputButtons.FORWARD) || buttons & InputButtons.BACK) return;
 
     const yaw = shooter.input.yaw;
+    const dirX = Math.sin(yaw);
+    const dirZ = Math.cos(yaw);
+    const velocity = shooter.physics.velocity;
+    // Ignore tiny perpendicular projection noise at rotated view angles.
+    if (!(velocity.x * dirX + velocity.z * dirZ > 0.001)) return;
     this.movementSubsystem.queueMeleeDash({
       entityId: shooter.id,
-      dirX: Math.sin(yaw),
-      dirZ: Math.cos(yaw),
+      dirX,
+      dirZ,
       distance,
     });
   }
 
+  /** Melee cone check for all targets within range and meleeRadius. */
   private fireMelee(state: WorldState, shooter: Readonly<Entity>, weapon: WeaponDef): void {
     if (!shooter.transform || !shooter.input) return;
 

@@ -23,8 +23,8 @@ Fire rates were retuned for the corrected 125 Hz server tick (v0.9.16): the rock
 The default melee weapon. Replaces the older "gunblade" in the Q3 lineage.
 
 - **Primary fire** — fast melee slash. 80 damage, ~100 unit reach, 500 ms cooldown (`fireRate: 2.0`).
-- **Step-in dash** — every accepted swing lunges you ~48 units forward (server-authoritative, `meleeDashDistance`). It's a horizontal position step, not knockback — no lift, no air-drag — and it's BSP-clamped so you never phase through walls. This is what makes the Blade a real closing tool: swing to cover the last gap.
-- **Charged fire** — hold alt-fire and release to send a red energy projectile (a `blade_blast`, speed 2500, no gravity). It needs at least 0.5 s of charge and does 25 damage at 0.5 s, rising to 50 at a full 1 s charge. Its knockback scale is 20, against 10 for a rocket. Great for dueling at mid range where the swing won't connect.
+- **Step-in dash** — an accepted swing lunges you ~48 units forward only while you hold forward and are already moving forward relative to your view (server-authoritative, `meleeDashDistance`). Forward diagonal movement qualifies; stationary, backward and sideways-only movement do not. Holding forward and back together cancels the dash. It's a horizontal position step, BSP-clamped against walls, with no lift or extra velocity.
+- **Charged fire** — hold alt-fire and release to send a teal energy projectile (a `blade_blast`, speed 2500, no gravity). It needs at least 0.5 s of charge and does 25 damage at 0.5 s, rising to 50 at a full 1 s charge. Its knockback scale is 20, against 10 for a rocket. Great for dueling at mid range where the swing won't connect.
 - **Agile** — carrying the Blade adds +10 to your run speed (410 u/s).
 - **Ammo** — infinite. The Blade is always usable.
 

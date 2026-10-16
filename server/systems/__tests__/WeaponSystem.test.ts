@@ -25,6 +25,7 @@ import { EntityType } from "@engine/server/ecs/types";
 import { LAG_COMPENSATION } from "@engine/server/lagcomp/config";
 import { LagCompensation } from "@engine/server/lagcomp/LagCompensation";
 import { describe, expect, it, vi } from "vitest";
+import { InputButtons } from "../../../../../engine/network/components/InputComponent";
 import { DEFAULT_VIEWHEIGHT } from "../../../../../engine/physics/PlayerPhysicsConstants";
 import { GRENADE } from "../../../../../shared/entities/definitions/projectiles/grenade";
 import { GRENADE_LAUNCHER } from "../../../../../shared/entities/definitions/weapons/glauncher";
@@ -354,7 +355,11 @@ describe("WeaponSystem - blade dash", () => {
     sys.setMovementSubsystem({ setSpeedBonus: vi.fn(), queueMeleeDash } as never);
     sys.initializeWeaponFromLoadout(1 as never, bladeLoadout as never);
 
-    const shooter = makeShooter(Math.PI / 2, 0);
+    const shooter = {
+      ...makeShooter(Math.PI / 2, 0),
+      physics: { velocity: { x: 200, y: 0, z: 0 } },
+    };
+    shooter.input.buttons |= InputButtons.FORWARD;
     sys.update(makeState([shooter]) as never, 1 / 125, 100 as never);
 
     expect(queueMeleeDash).toHaveBeenCalledTimes(1);
@@ -370,17 +375,39 @@ describe("WeaponSystem - blade dash", () => {
     sys.setMovementSubsystem({ setSpeedBonus: vi.fn(), queueMeleeDash } as never);
     sys.initializeWeaponFromLoadout(1 as never, bladeLoadout as never);
 
-    const shooter = makeShooter(0, 0);
+    const shooter = { ...makeShooter(0, 0), physics: { velocity: { x: 0, y: 0, z: 200 } } };
+    shooter.input.buttons |= InputButtons.FORWARD;
     const state = makeState([shooter]);
 
     sys.update(state as never, 1 / 125, 100 as never);
     sys.update(state as never, 1 / 125, 101 as never);
     shooter.input.buttons = 0;
     sys.update(state as never, 1 / 125, 102 as never);
-    shooter.input.buttons = FIRE_BUTTON;
+    shooter.input.buttons = FIRE_BUTTON | InputButtons.FORWARD;
     sys.update(state as never, 1 / 125, 103 as never);
 
     expect(queueMeleeDash).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["stationary with forward held", InputButtons.FORWARD, 0, 0, 0, 0, false],
+    ["coasting forward without forward held", 0, 0, 0, 200, 0, false],
+    ["moving backward with forward held", InputButtons.FORWARD, 0, 0, -200, 0, false],
+    ["strafing with forward held", InputButtons.FORWARD | InputButtons.RIGHT, 200, 0, 0, 0, false],
+    ["vertical motion only", InputButtons.FORWARD, 0, 200, 0, 0, false],
+    ["opposing forward/back input", InputButtons.FORWARD | InputButtons.BACK, 0, 0, 200, 0, false],
+    ["diagonal forward motion", InputButtons.FORWARD | InputButtons.RIGHT, 200, 0, 100, 0, true],
+    ["rotated sideways motion", InputButtons.FORWARD, 0, 0, 200, Math.PI / 2, false],
+  ])("gates the lunge for %s while accepting the swing", (_label, buttons, x, y, z, yaw, expected) => {
+    const sys = new WeaponSystem();
+    const queueMeleeDash = vi.fn();
+    sys.setMovementSubsystem({ setSpeedBonus: vi.fn(), queueMeleeDash } as never);
+    sys.initializeWeaponFromLoadout(1 as never, bladeLoadout as never);
+    const shooter = { ...makeShooter(yaw, 0), physics: { velocity: { x, y, z } } };
+    shooter.input.buttons = FIRE_BUTTON | buttons;
+    sys.update(makeState([shooter]) as never, 1 / 125, 100 as never);
+    expect(queueMeleeDash).toHaveBeenCalledTimes(expected ? 1 : 0);
+    expect(sys.getPendingFireEvents()).toHaveLength(1);
   });
 });
 describe("WeaponSystem — F1 fire cadence", () => {

@@ -4,6 +4,14 @@ Press **Escape** in a match and pick **Settings**, or use the **Settings** key o
 
 Most settings are console variables (cvars), for example `cl_fov 100`. Key bindings use their own storage. Fullscreen is a browser/window action and is not a saved cvar preference. Reset restores settings and bindings, not browser fullscreen state.
 
+Use **Alt+Enter** or the Fullscreen setting for fullscreen play. In browsers
+with Keyboard Lock support, allow keyboard capture when asked: while the mouse
+is captured for gameplay, movement shortcuts such as Ctrl+W then reach the game
+instead of closing the tab. Remapped movement keys are included. Escape stays
+available, and protection releases when you open menus/chat, leave fullscreen
+or switch away. Browser F11 fullscreen alone does not enable this feature.
+Without support or permission, browser shortcuts can still close the tab.
+
 Sliders apply immediately. Their saved values are combined until you release the
 slider, leave the page, or pause for 200 ms.
 

@@ -68,10 +68,34 @@ export type FPSActionId = (typeof FPS)[keyof typeof FPS];
 /** Default key/mouse bindings for all FPS actions */
 const FPS_ACTION_DEFS: ActionDefinition[] = [
   // --- Movement ---
-  { id: FPS.MOVE_FORWARD, type: "button", name: "Move Forward", defaultBindings: [{ key: "KeyW" }] },
-  { id: FPS.MOVE_BACKWARD, type: "button", name: "Move Backward", defaultBindings: [{ key: "KeyS" }] },
-  { id: FPS.MOVE_LEFT, type: "button", name: "Strafe Left", defaultBindings: [{ key: "KeyA" }] },
-  { id: FPS.MOVE_RIGHT, type: "button", name: "Strafe Right", defaultBindings: [{ key: "KeyD" }] },
+  {
+    id: FPS.MOVE_FORWARD,
+    type: "button",
+    name: "Move Forward",
+    lockInFullscreen: true,
+    defaultBindings: [{ key: "KeyW" }],
+  },
+  {
+    id: FPS.MOVE_BACKWARD,
+    type: "button",
+    name: "Move Backward",
+    lockInFullscreen: true,
+    defaultBindings: [{ key: "KeyS" }],
+  },
+  {
+    id: FPS.MOVE_LEFT,
+    type: "button",
+    name: "Strafe Left",
+    lockInFullscreen: true,
+    defaultBindings: [{ key: "KeyA" }],
+  },
+  {
+    id: FPS.MOVE_RIGHT,
+    type: "button",
+    name: "Strafe Right",
+    lockInFullscreen: true,
+    defaultBindings: [{ key: "KeyD" }],
+  },
   { id: FPS.JUMP, type: "button", name: "Jump", defaultBindings: [{ key: "Space" }] },
   {
     id: FPS.CROUCH,
