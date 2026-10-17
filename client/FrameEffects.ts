@@ -127,11 +127,15 @@ export class FrameEffects {
     if (!this.cartoonHit && !this.cartoonHitLoading) {
       this.cartoonHitLoading = true;
       import("./CartoonHitEffect")
-        .then((m) => {
+        .then(async (m) => {
           const ch = m.CartoonHitEffect.getInstance();
           const gameScene = this.scene();
           if (gameScene) {
-            ch.init(gameScene);
+            await ch.init(gameScene);
+            if (this.scene() !== gameScene || gameScene.isDisposed) {
+              this.cartoonHitLoading = false;
+              return;
+            }
             this.cartoonHit = ch;
             console.log("[CartoonHitEffect] Initialized");
           } else {

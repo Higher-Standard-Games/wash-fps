@@ -18,6 +18,8 @@ import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import type { Scene } from "@babylonjs/core/scene";
+import { PK3Index } from "../../../engine/loader/pk3/PK3Index";
+import { PK3Loader } from "../../../engine/loader/pk3/PK3Loader";
 import { devLog } from "./DevLog";
 
 // ============================================================================
@@ -49,7 +51,7 @@ const MAX_EFFECTS = 6;
 const Y_OFFSET = 30;
 
 /** Available hit sprite paths */
-const HIT_SPRITES = ["/data/effects/cartoonhit1.png", "/data/effects/cartoonhit2.png"];
+const HIT_SPRITES = ["effects/cartoonhit1.png", "effects/cartoonhit2.png"];
 
 // ============================================================================
 // Active Effect Instance
@@ -73,6 +75,9 @@ export class CartoonHitEffect {
   private effects: CartoonHitInstance[] = [];
   private textures: Texture[] = [];
   private texturesLoaded: boolean = false;
+  private textureUrls: string[] = [];
+  private loading: Promise<void> | null = null;
+  private loadVersion = 0;
 
   private constructor() {}
 
@@ -86,22 +91,45 @@ export class CartoonHitEffect {
   /**
    * Initialize with the gameplay scene. Preloads textures.
    */
-  init(scene: Scene): void {
+  init(scene: Scene): Promise<void> {
     if (this.scene && this.scene !== scene) {
       this.dispose();
     }
-    if (this.scene === scene) return;
+    if (this.scene === scene) return this.loading ?? Promise.resolve();
 
     this.scene = scene;
-
-    // Preload sprite textures
-    this.textures = HIT_SPRITES.map((path) => {
-      const tex = new Texture(path, scene, false, true, Texture.BILINEAR_SAMPLINGMODE);
-      tex.hasAlpha = true;
-      return tex;
+    const version = ++this.loadVersion;
+    this.loading = this.loadTextures(scene, version).catch((error) => {
+      if (this.loadVersion !== version) return;
+      this.dispose();
+      throw error;
     });
-    this.texturesLoaded = true;
+    return this.loading;
+  }
 
+  private async loadTextures(scene: Scene, version: number): Promise<void> {
+    const index = PK3Index.getInstance();
+    const loader = PK3Loader.getInstance();
+    await index.ensureIndex();
+    const packages = new Set(
+      HIT_SPRITES.map((path) => {
+        const owner = index.findFile(path);
+        if (!owner) throw new Error(`Missing cartoon hit sprite: ${path}`);
+        return owner;
+      }),
+    );
+    await Promise.all([...packages].map((owner) => loader.loadPK3(owner)));
+    const images = await Promise.all(HIT_SPRITES.map((path) => loader.getFile(path)));
+    if (this.loadVersion !== version || scene.isDisposed) return;
+    if (images.some((image) => !image)) throw new Error("Missing packaged cartoon hit image data");
+    for (const image of images) {
+      const url = URL.createObjectURL(new Blob([image!], { type: "image/png" }));
+      this.textureUrls.push(url);
+      const texture = new Texture(url, scene, false, true, Texture.BILINEAR_SAMPLINGMODE);
+      texture.hasAlpha = true;
+      this.textures.push(texture);
+    }
+    this.texturesLoaded = true;
     console.log(`[CartoonHitEffect] Initialized with ${HIT_SPRITES.length} sprites`);
   }
 
@@ -220,6 +248,8 @@ export class CartoonHitEffect {
    * Dispose all resources.
    */
   dispose(): void {
+    ++this.loadVersion;
+    this.loading = null;
     for (const effect of this.effects) {
       effect.mesh.dispose();
       effect.material.dispose();
@@ -230,6 +260,8 @@ export class CartoonHitEffect {
       tex.dispose();
     }
     this.textures = [];
+    for (const url of this.textureUrls) URL.revokeObjectURL(url);
+    this.textureUrls = [];
 
     this.scene = null;
     this.texturesLoaded = false;
