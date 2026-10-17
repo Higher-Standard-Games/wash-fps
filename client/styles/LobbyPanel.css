@@ -530,7 +530,11 @@
 }
 
 .game-panel--rail:has(.lobby__layout) .game-panel__scroll {
-  overflow: hidden;
+  overflow: visible;
+}
+
+.game-panel--rail:has(.lobby__layout) .game-panel__content {
+  overflow: visible;
 }
 
 .game-panel--rail .lobby__layout {
@@ -545,13 +549,31 @@
   display: flex;
   flex-direction: column;
   gap: 22px;
-  height: 100%;
+  /* Extend decoration behind the reserved links row; keep controls above it. */
+  height: calc(100% + var(--lobby-links-height, 0px));
   min-height: 0;
-  padding: 30px 52px 24px calc(28px + var(--rail-skew));
+  padding: 30px 52px calc(24px + var(--lobby-links-height, 0px)) calc(28px + var(--rail-skew));
   box-sizing: border-box;
   /* Clipped, not hidden: the backdrop word runs past the bottom, and a hidden
      overflow can still be scrolled into view by focus or scrollIntoView */
   overflow: clip;
+}
+
+/* A reserved stage footer; links never cover the chat input or page content. */
+.lobby__links {
+  position: relative;
+  z-index: 6;
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 0 max(52px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) calc(28px + var(--rail-skew));
+}
+
+.lobby__links:not(:has(> :not([hidden]))) {
+  display: none;
 }
 
 /* Drifting light: three blurred fields wandering slowly behind the stage.
@@ -1285,6 +1307,10 @@
     overflow-y: auto;
   }
 
+  .lobby__play-body {
+    flex: 0 0 auto;
+  }
+
   /* The Play page's chat, stacked under the mode detail; a room's chat on the
      rail keeps to the height the rail has */
   .lobby__play-lower .lobby-chat {
@@ -1293,6 +1319,9 @@
 }
 
 @media (max-width: 700px) {
+  .lobby__links {
+    padding-inline: 16px;
+  }
   .game-panel--rail {
     --rail-skew: 0px;
   }
@@ -1360,7 +1389,7 @@
   }
 
   .lobby__page {
-    padding: 20px 16px;
+    padding: 20px 16px calc(20px + var(--lobby-links-height, 0px));
   }
 
   .lobby__play-tiles {

@@ -364,7 +364,7 @@ describe("WeaponSystem - blade dash", () => {
 
     expect(queueMeleeDash).toHaveBeenCalledTimes(1);
     const dash = queueMeleeDash.mock.calls[0][0];
-    expect(dash).toMatchObject({ entityId: 1, distance: 48 });
+    expect(dash).toMatchObject({ entityId: 1, distance: 64 });
     expect(dash.dirX).toBeCloseTo(1, 6);
     expect(dash.dirZ).toBeCloseTo(0, 6);
   });

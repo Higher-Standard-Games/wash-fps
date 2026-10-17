@@ -182,11 +182,19 @@ describe("FPSSettingsView", () => {
     const smooth = byText(view.getElement(), ".raised-key--preset", "Smooth");
     click(smooth);
     expect(Cvar.getNumber("r_bloom")).toBe(0);
+    expect(Cvar.getNumber("r_picmip")).toBe(1);
     expect(smooth?.getAttribute("aria-pressed")).toBe("true");
     expect(view.getElement().querySelector(".fps-set-preset-status")?.textContent).toBe("Using Smooth");
 
     click(byText(view.getElement(), ".raised-key--preset", "Balanced"));
     expect(Cvar.getNumber("r_bloom")).toBe(1);
+    expect(Cvar.getNumber("r_picmip")).toBe(0);
+    click(byText(view.getElement(), ".raised-key--sect", "Advanced"));
+    click(byText(view.getElement(), "button", "Flat color"));
+    expect(Cvar.getNumber("r_picmip")).toBe(8);
+    click(byText(view.getElement(), ".raised-key--preset", "Pretty"));
+    expect(Cvar.getNumber("r_picmip")).toBe(0);
+    click(byText(view.getElement(), ".raised-key--preset", "Balanced"));
   });
 
   it("leaves nothing in the document when it goes", () => {

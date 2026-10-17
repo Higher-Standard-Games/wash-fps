@@ -48,7 +48,7 @@ Three **presets** change only what costs frames, and leave brightness and outlin
 | **Balanced** | The look the game ships with |
 | **Pretty** | Adds glow and reflections, and wants a strong graphics card |
 
-Below the presets the settings are in four sections. Pips beside each setting show its frame-rate cost (light, medium or heavy), and each section's key says how heavy it is set overall.
+Below the presets the settings are in five sections. Pips beside each setting show its frame-rate cost (light, medium or heavy), and each section's key says how heavy it is set overall.
 
 | Section | Settings |
 |---------|----------|
@@ -56,6 +56,12 @@ Below the presets the settings are in four sections. Pips beside each setting sh
 | **Effects** | Bloom (`r_bloom`), reflections (`r_ssr`) and their strength (`r_ssr_strength`), light shafts (`r_godrays`: Off, Low or High), glow (`r_glow`), comic outlines on the world (`r_cel_outlines`) |
 | **World** | Water quality (`r_water_quality`: Low, Medium or High), players reflected in water (`r_water_actors`, High water only), light cast from the map's glowing panels (`r_arealights`), how much the view warps under water (`r_underwater_distortion`) |
 | **Textures** | Sharpness at an angle (`r_anisotropy`), detailed surfaces (`r_bsp_pbr`) |
+| **Advanced** | Map texture detail (`r_picmip`): Full, Soft, Softer, Blurred or Flat color; applies next map |
+
+Map texture detail is available with every preset. Balanced and Pretty start at
+Full; Smooth starts at Soft (half-size base textures). Flat color removes the
+pattern from static opaque map surfaces while preserving lighting. Transparent
+effects, sky and shaders marked to preserve detail stay at full resolution.
 
 ## Audio
 

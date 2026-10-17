@@ -19,6 +19,26 @@ Below the keys the rail shows your name, and while you are on the Play stage it 
 
 ## Accounts
 
+### Welcome guide
+
+After initial loading and account setup, a red welcome dialog introduces Washoi,
+shows your current keyboard and mouse bindings, and explains crouchsliding and
+wall jumping. **Next »** advances through the three tabs; **Close** or Escape
+returns to the lobby. The background stays blurred and inactive while it is open.
+
+**Go to keyboard setup** opens Controls. **Back to welcome**, or leaving Settings,
+returns to the guide with your updated bindings. On the last tab, **Don't show
+this again** saves a preference in this browser. The **?** button in the lobby's
+bottom-right footer on the main **Play** page reopens the guide even when automatic display is disabled.
+Match rooms and other lobby pages hide the button and reclaim its footer space.
+Uncheck the preference there to enable it on future page loads.
+
+The guide appears once per client startup, not when returning from a match.
+Invite links continue after you close it. Its movement tips use standard rules;
+individual servers may configure movement differently.
+
+### Your identity
+
 You never register. The first time a browser reaches the lobby it makes you an account and asks what to call yourself.
 
 - **Name.** 2–16 characters: letters, numbers, `_` and `-`. Names reserved for bots and new players (the `Player_<number>` style) are refused. Leaving the name empty keeps the one you were given. You can rename later from Profile.

@@ -350,6 +350,7 @@ export const VIDEO_PRESETS: Array<CvarChoice<"smooth" | "balanced" | "pretty"> &
       r_ssr: 0,
       r_ssr_strength: 0.4,
       r_anisotropy: 4,
+      r_picmip: 1,
       r_godrays: 0,
       r_water_quality: 1,
       r_water_actors: 0,
@@ -368,6 +369,7 @@ export const VIDEO_PRESETS: Array<CvarChoice<"smooth" | "balanced" | "pretty"> &
       r_ssr: 0,
       r_ssr_strength: 0.4,
       r_anisotropy: 8,
+      r_picmip: 0,
       r_godrays: 1,
       r_godrays_samples: 60,
       r_water_quality: 2,
@@ -388,6 +390,7 @@ export const VIDEO_PRESETS: Array<CvarChoice<"smooth" | "balanced" | "pretty"> &
       r_ssr: 1,
       r_ssr_strength: 0.5,
       r_anisotropy: 16,
+      r_picmip: 0,
       r_godrays: 1,
       r_godrays_samples: 60,
       r_water_quality: 3,
@@ -419,7 +422,7 @@ export const COST_WORD: Record<FrameCost, string> = { low: "Light", mid: "Medium
  * pips on its settings (light 1, medium 2, heavy 3).
  */
 export const VIDEO_SECTIONS: Array<{
-  id: "screen" | "effects" | "world" | "textures";
+  id: "screen" | "effects" | "world" | "textures" | "advanced";
   name: string;
   load: () => number;
 }> = [
@@ -450,6 +453,7 @@ export const VIDEO_SECTIONS: Array<{
       (cvarNumber("r_anisotropy") >= 16 ? 2 : cvarNumber("r_anisotropy") >= 4 ? 1 : 0) +
       (cvarNumber("r_bsp_pbr") > 0 ? 2 : 0),
   },
+  { id: "advanced", name: "Advanced", load: () => (cvarNumber("r_picmip") === 0 ? 1 : 0) },
 ];
 
 /** Up to one point is light, up to three medium, more is heavy. */
@@ -601,6 +605,7 @@ export const PAGE_CVARS: Record<SettingsPageId, string[]> = {
     "cl_netgraph",
   ],
   video: [
+    "r_picmip",
     "r_bloom",
     "r_glow",
     "r_ssr",

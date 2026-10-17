@@ -122,6 +122,8 @@ export class CartoonHitEffect {
 
     // Apply texture — use diffuseTexture with alpha, same pattern as ProjectileManager sprites
     effect.material.diffuseTexture = texture;
+    // Glow samples emission separately from diffuse: retain the artwork's color and alpha.
+    effect.material.emissiveTexture = texture;
 
     // Store base Y for float-up animation
     effect.baseY = y + Y_OFFSET;

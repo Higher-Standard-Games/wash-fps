@@ -27,6 +27,7 @@ import { ensureFpsLobbyConnection, getFpsLobbyClient } from "./FpsLobbyService";
 import { LeaderboardView } from "./LeaderboardView";
 import { LobbyFullNotice, offlineRetryDelaySec } from "./LobbyFullNotice";
 import { describeRoom, playKeys, roomCountLabel, sortRooms } from "./LobbyRooms";
+import { LobbyWelcomeGuide } from "./LobbyWelcomeGuide";
 import { bindFeaturedDemos, bindLeaderboard, bindPlayerStats, newUiApi } from "./NewUiApi";
 import { ProfileView } from "./ProfileView";
 import { buildRailBrand } from "./RailBrand";
@@ -118,6 +119,8 @@ export class LobbyPanel extends GamePanel {
   private profileView: ProfileView | null = null;
   private profileKey: HTMLButtonElement | null = null;
   private welcomeOverlay: WelcomeOverlay | null = null;
+  private welcomeGuide: LobbyWelcomeGuide | null = null;
+  private linksObserver: ResizeObserver | null = null;
   /** Up while the lobby has turned this player away at its player cap. */
   private lobbyFullNotice: LobbyFullNotice | null = null;
   private loginAttempt: Promise<void> | null = null;
@@ -205,8 +208,32 @@ export class LobbyPanel extends GamePanel {
       if (tabId === "demos") this.demosView?.show();
       else this.demosView?.deactivate();
       if (tabId === "leaderboard") void this.leaderboardView?.refresh();
+      if (tabId !== "settings" && this.welcomeGuide?.suspended) this.welcomeGuide.resume();
+      this.welcomeGuide?.refresh();
     });
     this.tabBar.querySelector('[data-tab-id="matchmaking"]')?.setAttribute("aria-current", "page");
+    const links = document.createElement("nav");
+    links.className = "lobby__links";
+    links.setAttribute("aria-label", "Lobby links");
+    this.centerZone.append(links);
+    this.linksObserver = new ResizeObserver(() => {
+      this.centerZone.style.setProperty("--lobby-links-height", `${links.getBoundingClientRect().height}px`);
+    });
+    this.linksObserver.observe(links);
+    this.welcomeGuide = new LobbyWelcomeGuide({
+      root: this.root,
+      helpParent: links,
+      showHelp: () => this.currentTabId === "matchmaking" && !this.matchLobbyView,
+      canOpen: () => !this.welcomeOverlay && !this.profileView?.isOpen && !this.lobbyFullNotice?.isFull,
+      prepareOpen: () => this.settingsView?.pauseControls(),
+      openControls: (back) => {
+        this.switchTab("settings");
+        this.settingsView?.showPage("controls");
+        this.settingsView?.getElement().prepend(back);
+        back.focus();
+      },
+      finished: () => this.runDeepLinkJoin(),
+    });
     this.connected = this.initLobbyConnection();
   }
 
@@ -447,6 +474,7 @@ export class LobbyPanel extends GamePanel {
 
       this.unsubscribers.push(
         this.lobbyClient.on("_disconnected", (msg: { reason?: string }) => {
+          this.welcomeGuide?.setAuthenticated(false);
           const identity = currentIdentity();
           if (this.currentLobbyId && identity) {
             this.roomToRejoin = {
@@ -547,6 +575,7 @@ export class LobbyPanel extends GamePanel {
       await ensureFpsLobbyConnection();
     } catch (err) {
       if (this.destroyed) return;
+      this.welcomeGuide?.setAuthenticated(false);
       if (err instanceof LoginError && err.code === "lobby_full") {
         console.log("[LobbyPanel] Lobby is full; waiting to try again");
         this.lobbyFullNotice ??= new LobbyFullNotice(() => void this.logInToLobby());
@@ -570,7 +599,8 @@ export class LobbyPanel extends GamePanel {
     // A browser the lobby has just made an account for is asked who it is,
     // and joins a shared room link only once it has answered
     if (accountIsNew()) this.showWelcome();
-    else this.runDeepLinkJoin();
+    this.welcomeGuide?.setAuthenticated(true);
+    if (!accountIsNew()) this.runDeepLinkJoin();
   }
 
   /**
@@ -580,8 +610,10 @@ export class LobbyPanel extends GamePanel {
   private showWelcome(): void {
     if (this.welcomeOverlay) return;
     this.welcomeOverlay = new WelcomeOverlay(() => {
+      if (this.destroyed) return;
       this.welcomeOverlay = null;
       this.refreshPlayerCard();
+      this.welcomeGuide?.setAuthenticated(true);
       this.runDeepLinkJoin();
     });
     this.welcomeOverlay.open(this.root);
@@ -609,6 +641,8 @@ export class LobbyPanel extends GamePanel {
    * normal handler.
    */
   private runDeepLinkJoin(): void {
+    if (this.destroyed) return;
+    if (this.welcomeGuide && !this.welcomeGuide.readyForJoin) return;
     if (this.urlLobbyJoinAttempted || !this.lobbyClient.connected) return;
     this.urlLobbyJoinAttempted = true;
     const url = new URL(window.location.href);
@@ -774,6 +808,7 @@ export class LobbyPanel extends GamePanel {
       if (ghost) ghost.textContent = mode.title.toUpperCase();
     }
     this.playBodyEl.replaceWith(this.matchLobbyView.root);
+    this.welcomeGuide?.refresh();
     // A room opens at its top, however far down the Play page was scrolled
     this.modesContainer.scrollTop = 0;
     const railMiddle = this.railEl?.querySelector(".lobby__rail-mid--rooms");
@@ -790,12 +825,18 @@ export class LobbyPanel extends GamePanel {
     this.open();
     // A name screen opened while the lobby was still hidden could not take focus
     this.welcomeOverlay?.focus();
+    this.welcomeGuide?.show();
+  }
+  /** Initial boot handoff; ordinary lobby returns never call this. */
+  initialLoadingDismissed(): void {
+    this.welcomeGuide?.initialLoadingDismissed();
   }
   hide(): void {
     this.close();
   }
 
   public override close(): void {
+    this.welcomeGuide?.leaveLobby();
     this.demosView?.deactivate();
     super.close();
   }
@@ -1207,12 +1248,14 @@ export class LobbyPanel extends GamePanel {
           this.profileKey?.setAttribute("aria-expanded", "false");
           this.refreshPlayerCard();
           this.profileKey?.focus();
+          this.welcomeGuide?.setAuthenticated(this.lobbyClient.connected);
         },
       });
     }
     if (this.profileView.isOpen) return;
     this.profileKey?.setAttribute("aria-expanded", "true");
     this.profileView.open(this.root);
+    this.welcomeGuide?.refresh();
   }
 
   // Settings
@@ -1269,12 +1312,15 @@ export class LobbyPanel extends GamePanel {
     this.currentLobbyId = null;
     this.currentInviteToken = undefined;
     this.refreshPlayerCard();
+    this.welcomeGuide?.refresh();
 
     console.log("[LobbyPanel] Returned to Play stage");
   }
 
   public override destroy(): void {
+    this.linksObserver?.disconnect();
     this.destroyed = true;
+    this.welcomeGuide?.destroy();
     bindLeaderboard(this.lobbyClient, false);
     bindPlayerStats(this.lobbyClient, false);
     bindFeaturedDemos(this.lobbyClient, false);

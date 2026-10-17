@@ -1,6 +1,6 @@
 /**
  * Video: three presets for what costs frames, then the settings themselves in
- * four sections, closed until asked for and one open at a time. Every setting is
+ * five sections, closed until asked for and one open at a time. Every setting is
  * one of the renderer's own variables; the pips are estimates of what each pass
  * costs.
  *
@@ -121,6 +121,7 @@ export class VideoPage {
     this.buildEffects(this.sectionFields.get("effects")!);
     this.buildWorld(this.sectionFields.get("world")!);
     this.buildTextures(this.sectionFields.get("textures")!);
+    this.buildAdvanced(this.sectionFields.get("advanced")!);
 
     if (locked) {
       const notice = el("div", "fps-set-locked");
@@ -311,6 +312,25 @@ export class VideoPage {
       get: () => Cvar.getNumber("r_underwater_distortion"),
       set: (value) => Cvar.set("r_underwater_distortion", value),
       initial: () => Number(cvarDefault("r_underwater_distortion")),
+    });
+  }
+
+  private buildAdvanced(parent: HTMLElement): void {
+    seg(this.host, parent, {
+      name: "Map texture detail",
+      help: "Softer or flat-color walls and floors. Lighting and transparent effects stay intact.",
+      tag: "Next map",
+      choices: [
+        { value: 0, label: "Full" },
+        { value: 1, label: "Soft" },
+        { value: 2, label: "Softer" },
+        { value: 4, label: "Blurred" },
+        { value: 8, label: "Flat color" },
+      ],
+      get: () => Cvar.getNumber("r_picmip"),
+      set: (value) => {
+        Cvar.set("r_picmip", value);
+      },
     });
   }
 

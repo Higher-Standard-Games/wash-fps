@@ -42,6 +42,7 @@ import { getHitscanEffects } from "../../../engine/weapon/HitscanEffects";
 import type { VoltaicRemoteStartResolver } from "../../../engine/weapon/voltaic/VoltaicEffectRenderer";
 import { WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
 import { maskHasPowerup } from "../../../shared/items/Powerups";
+import { attachBladeToPlayer } from "./AttachedBlade";
 import { DemoAnimationTimeline } from "./DemoAnimationTimeline";
 import { DemoEntityTimeline } from "./DemoEntityTimeline";
 import { devLog } from "./DevLog";
@@ -834,6 +835,10 @@ export class RemotePlayerRenderer {
       disposeModelResources([result.root], { animationGroups: result.animationGroups });
       return;
     }
+    if (weaponId === "blade") {
+      attachBladeToPlayer(result, inst, visualScale, MODEL_SCALE);
+      return;
+    }
     if (leaderMesh.rotationQuaternion) leaderMesh.rotationQuaternion = null;
 
     const hand = inst.skeleton?.bones.find((b) => b.name === "mixamorig:RightHand");
@@ -842,11 +847,7 @@ export class RemotePlayerRenderer {
       leaderMesh.attachToBone(hand, inst.mesh);
       leaderMesh.position.set(0, 0, 0);
       leaderMesh.scaling.setAll((visualScale / MODEL_SCALE) * 0.5);
-      if (weaponId === "blade") {
-        leaderMesh.rotation.set(Math.PI, 0.9, 0);
-      } else {
-        leaderMesh.rotation.set(Math.PI, 0, -Math.PI / 2);
-      }
+      leaderMesh.rotation.set(Math.PI, 0, -Math.PI / 2);
     } else {
       leaderMesh.parent = inst.anchor;
       leaderMesh.position.set(0, 30, 0);
@@ -1832,6 +1833,12 @@ export class RemotePlayerRenderer {
           return;
         }
 
+        if (weaponId === "blade") {
+          hitbox.weaponRoot = attachBladeToPlayer(result, inst, visualScale, MODEL_SCALE);
+          hitbox.weaponMuzzle = null;
+          return;
+        }
+
         const muzzleNode = result.root
           .getDescendants(false)
           .find((node) => node.name === "tag_flash" && node instanceof TransformNode) as TransformNode | undefined;
@@ -1850,20 +1857,15 @@ export class RemotePlayerRenderer {
               leaderMesh.attachToBone(bone, inst.mesh);
               leaderMesh.position.set(0, 0, 0);
               // Scale: compensate for 36x player mesh + shrink for 3rd person.
-              // GLB weapons (blade) use their authored view-model scale; MD3s use world scale.
+              // GLB weapons use their authored view-model scale; MD3s use world scale.
               const thirdPersonScale = (visualScale / MODEL_SCALE) * 0.5;
               leaderMesh.scaling.setAll(thirdPersonScale);
 
               // Weapon-specific rotation in bone-local space
               // (differs from first-person loadGlbWeapon rotations)
-              if (weaponId === "blade") {
-                leaderMesh.rotation.set(Math.PI, 0.9, 0);
-              } else {
-                // IQM→GLB guns: barrel along +X in model space
-                // Bone +Y = along fingers (forward), so Z rot of -90° aligns barrel
-                // X rot of π flips right-side up
-                leaderMesh.rotation.set(Math.PI, 0, -Math.PI / 2);
-              }
+              // IQM→GLB guns: barrel along +X in model space.
+              // Bone +Y = along fingers; X/Z rotations align and right the gun.
+              leaderMesh.rotation.set(Math.PI, 0, -Math.PI / 2);
 
               attached = true;
               devLog(

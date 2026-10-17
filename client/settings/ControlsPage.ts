@@ -7,21 +7,18 @@
  */
 
 import { Cvar } from "../../../../engine/core/Cvar";
+import { createInputDiagram } from "./InputDiagram";
 import { card, el, type FieldHost, formatPercent, button as plainButton, seg, slider } from "./SettingsFields";
 import {
   ACTION_GROUPS,
-  ARROW_KEYS,
   actionFor,
   assignKey,
   codeName,
   codesFor,
   cvarDefault,
   FIXED_KEYS,
-  groupOf,
   type InputCode,
   inputName,
-  KEYBOARD_ROWS,
-  MOUSE_INPUTS,
   SETTINGS_ACTIONS,
   type SettingsAction,
 } from "./SettingsModel";
@@ -38,9 +35,10 @@ const MOUSE_BUTTON_CODES: Record<number, InputCode> = { 1: "mouse:middle", 2: "m
 
 export class ControlsPage {
   readonly root: HTMLElement;
-  private readonly caps = new Map<InputCode, HTMLButtonElement>();
-  private readonly zones = new Map<InputCode, HTMLButtonElement>();
-  private readonly mouseLabels = new Map<InputCode, HTMLButtonElement>();
+  private readonly diagram = createInputDiagram((element, code) => this.wireInput(element, code));
+  private readonly caps = this.diagram.caps;
+  private readonly zones = this.diagram.zones;
+  private readonly mouseLabels = this.diagram.labels;
   private readonly board: HTMLElement;
   private readonly mouseCard: HTMLElement;
   private readonly actsEl: HTMLElement;
@@ -55,12 +53,12 @@ export class ControlsPage {
     this.root = el("div", "fps-set-controls");
 
     const keyboard = card("Keyboard", "Click a key to choose what it does", "fps-set-card--keyboard");
-    this.board = el("div", "fps-set-board");
+    this.board = this.diagram.board;
     keyboard.append(this.board);
-    this.buildBoard();
 
     this.mouseCard = card("Mouse", undefined, "fps-set-card--mouse");
-    this.mouseCard.append(this.buildMouse());
+    this.mouseCard.append(this.diagram.mouse);
+    this.mouseCard.addEventListener("contextmenu", (event) => event.preventDefault());
 
     const actions = card("What each key does", "Click an action, then press the key you want", "fps-set-card--acts");
     this.actsEl = el("div", "fps-set-acts");
@@ -132,55 +130,6 @@ export class ControlsPage {
 
   // ── Building ──
 
-  private buildBoard(): void {
-    KEYBOARD_ROWS.forEach((row, index) => {
-      const rowEl = el("div", `fps-set-krow${index === 0 ? " fps-set-krow--f" : ""}`);
-      for (const [code, legend, width] of row) rowEl.append(this.cap(code, legend, width));
-      if (index === KEYBOARD_ROWS.length - 1) {
-        const arrows = el("div", "fps-set-arrows");
-        for (const [code, legend] of ARROW_KEYS) arrows.append(this.cap(code, legend));
-        rowEl.append(arrows);
-      }
-      this.board.append(rowEl);
-    });
-  }
-
-  private cap(code: InputCode, legend: string, width = 1): HTMLButtonElement {
-    const key = plainButton("fps-set-cap");
-    key.dataset.code = code;
-    key.style.setProperty("--w", String(width));
-    const act = el("span", "fps-set-cap__act");
-    act.append(el("span", "fps-set-cap__long"), el("span", "fps-set-cap__short"));
-    key.append(el("span", "fps-set-cap__legend", legend), act);
-    this.wireInput(key, code);
-    this.caps.set(code, key);
-    return key;
-  }
-
-  private buildMouse(): HTMLElement {
-    const wrap = el("div", "fps-set-mouse-wrap");
-    const mouse = el("div", "fps-set-mouse");
-    const labels = el("div", "fps-set-mlabels");
-    for (const { code, name } of MOUSE_INPUTS) {
-      const zone = plainButton("fps-set-mzone");
-      zone.dataset.code = code;
-      zone.setAttribute("aria-label", name);
-      this.wireInput(zone, code);
-      mouse.append(zone);
-      this.zones.set(code, zone);
-
-      const label = plainButton("fps-set-mlabel");
-      label.append(el("span", "fps-set-mlabel__slot", name), el("span", "fps-set-mlabel__act"));
-      this.wireInput(label, code);
-      labels.append(label);
-      this.mouseLabels.set(code, label);
-    }
-    // The browser's menu would cover the mouse picture on a right click there
-    this.mouseCard.addEventListener("contextmenu", (event) => event.preventDefault());
-    wrap.append(mouse, labels);
-    return wrap;
-  }
-
   /** A key cap, a mouse zone or its label: all open the menu and light their action. */
   private wireInput(target: HTMLElement, code: InputCode): void {
     target.addEventListener("click", () => {
@@ -199,33 +148,7 @@ export class ControlsPage {
   }
 
   private renderKeys(): void {
-    for (const [code, key] of this.caps) {
-      const action = actionFor(code);
-      const fixed = FIXED_KEYS.has(code);
-      key.classList.toggle("is-bound", action !== null);
-      key.classList.toggle("is-fixed", fixed);
-      key.style.setProperty("--c", action ? groupOf(action).color : "");
-      const long = action ? (action.onKey ?? action.name) : "";
-      key.querySelector(".fps-set-cap__long")!.textContent = long;
-      key.querySelector(".fps-set-cap__short")!.textContent = action ? (action.onNarrowKey ?? long) : "";
-      key.setAttribute(
-        "aria-label",
-        `${inputName(code)}: ${action ? `${action.name}${fixed ? " (fixed)" : ""}` : "nothing"}`,
-      );
-      key.title = key.getAttribute("aria-label") ?? "";
-    }
-    for (const [code, zone] of this.zones) {
-      const action = actionFor(code);
-      zone.classList.toggle("is-bound", action !== null);
-      zone.style.setProperty("--c", action ? groupOf(action).color : "");
-      zone.setAttribute("aria-label", `${inputName(code)}: ${action?.name ?? "nothing"}`);
-    }
-    for (const [code, label] of this.mouseLabels) {
-      const action = actionFor(code);
-      label.classList.toggle("is-empty", action === null);
-      label.style.setProperty("--c", action ? groupOf(action).color : "");
-      label.querySelector(".fps-set-mlabel__act")!.textContent = action?.name ?? "Nothing";
-    }
+    this.diagram.refresh();
   }
 
   private renderActs(): void {

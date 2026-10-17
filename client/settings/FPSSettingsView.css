@@ -1193,8 +1193,9 @@
 }
 
 .fps-set-seg__btn {
-  flex: 1 1 0;
-  min-width: 0;
+  flex: 1 0 auto;
+  min-width: max-content;
+  white-space: nowrap;
   min-height: 40px;
   padding: 0 12px;
   border: 0;
@@ -1541,7 +1542,7 @@
 /* Sections: a row of keys, closed by default. Each says how heavy it is set. */
 .fps-set-sections {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 22px;
   margin-top: 24px;
 }

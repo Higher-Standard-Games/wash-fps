@@ -160,6 +160,11 @@ export class FPSSettingsView {
     return this.root;
   }
 
+  /** Drop key capture/popovers before a modal takes focus over Settings. */
+  public pauseControls(): void {
+    this.controls.deactivate();
+  }
+
   /**
    * Hand the page keys to a host that shows them elsewhere, such as the lobby's
    * rail. The view keeps driving them.
