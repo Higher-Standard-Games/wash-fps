@@ -693,6 +693,7 @@ export class GameServer {
 
     const training = this.config.trainingDemo;
     this.demoRecorder = new DemoRecorder({
+      outputDir: process.env.SHAG_DEMO_DIR,
       map: this.config.mapName,
       gametype: gametypeName,
       ...(training
