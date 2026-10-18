@@ -48,6 +48,11 @@ describe("GameServer match-start world reset", () => {
     });
     state.addEntity(player);
 
+    const opponentId = playerId(2);
+    const opponentEntityId = state.generateEntityId();
+    internals.gametypeController.onPlayerJoin(opponentId, opponentEntityId, state, undefined, "Opponent");
+    state.addEntity(createPlayerEntity(opponentEntityId, opponentId, { x: 0, y: 0, z: 0 }));
+
     const pickups: PickupEntry[] = [
       {
         id: 0,

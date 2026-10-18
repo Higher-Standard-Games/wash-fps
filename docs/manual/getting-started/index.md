@@ -38,7 +38,7 @@ PK3 files (maps, textures, models, sounds) are **not** in this repo or the engin
 
 | Package in `public/data/` | Purpose |
 | --- | --- |
-| `map_washoidm2.pk3` | Example installed map archive |
+| `map_washoi_dm2.pk3` | Example installed map archive |
 | `player_model_vanguard.pk3` | Player models and animation clips |
 | Other `*.pk3` packages | Shared textures, sounds and other game data |
 
@@ -67,7 +67,7 @@ For the developer flow with a one-keystroke server-backed map launch:
 npm run lobby:server
 
 # Then in the in-game console (press the backquote key):
-developer 1; map washoidm2 duel
+developer 1; map washoi_dm2 duel
 ```
 
 See the engine's Map Launching Guide (`docs/manual/guides/map-launching.md` in the engine repo) for the full developer flow.
@@ -77,7 +77,7 @@ See the engine's Map Launching Guide (`docs/manual/guides/map-launching.md` in t
 The engine ships a headless dedicated server that runs this game's `GameServer` orchestrator:
 
 ```bash
-npm run net:server -- --map washoidm2 --port 7777 --gametype duel
+npm run net:server -- --map washoi_dm2 --port 7777 --gametype duel
 ```
 
 Common flags (the full list, including `--name`, `--tickrate`, `--snapshotrate`, `--single-match` and TLS options, is in [Server Commands](../developer/server-commands.md#server-launch-options)):

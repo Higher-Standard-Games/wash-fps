@@ -39,7 +39,7 @@ Bots spawned this way are not the Bot Intelligence Server's bots. For bots that 
 ## Server Launch Options
 
 ```bash
-npm run net:server -- --map washoidm2 --gametype duel --port 7777
+npm run net:server -- --map washoi_dm2 --gametype duel --port 7777
 ```
 
 | Flag | Default | Notes |

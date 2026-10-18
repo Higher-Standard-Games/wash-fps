@@ -33,7 +33,7 @@ slider, leave the page, or pause for 200 ms.
 - **Outline** (`cl_player_outline`, `cl_player_outline_size`): Off, Thin (the default) or Bold, which is twice as thick.
 - **Brighter players** (`cl_player_fullbright`, `cl_player_fullbright_intensity`): Off, Some or Lots. It makes players stand out in dark corners.
 - A preview on a real map shows all of the above as you change them.
-- **Crosshair** with its own preview: on or off, **opens up when moving** (tightens again while you aim), size, opacity, colour, and the colour it flashes **when you hit** someone. The defaults are green, flashing red on a hit. Cvars: `cg_crosshair`, `cg_crosshairSpread`, `cg_crosshairSize`, `cg_crosshairAlpha`, `cg_crosshairColor`, `cg_crosshairDmgColor`.
+- **Crosshair** with its own preview: on or off, **opens up when moving** (tightens again while you aim), size, opacity, colour, and the colour it flashes **when you hit** someone. The defaults are size 32 and green, flashing red on a hit. An empty weapon with no reserve shows a red X until ammunition is available. Cvars: `cg_crosshair`, `cg_crosshairSpread`, `cg_crosshairSize`, `cg_crosshairAlpha`, `cg_crosshairColor`, `cg_crosshairDmgColor`.
 - **Field of view** (`cl_fov`): 80 – 110 degrees, default 90, horizontal at 16:9.
 - **FPS counter** (`show_fps`) and **Movement speed** (`cl_showspeed`): both on by default, under View & info. Saved choices take priority.
 - **Connection info** (`cl_netgraph`): Off, Numbers (ping and estimated snapshot gaps in the bottom-right corner) or Graph. See [HUD → NetGraph](./hud.md#netgraph-bottom-right-optional).
@@ -90,3 +90,12 @@ A few settings have no screen yet:
 
 - [Controls](./index.md#controls-default) — the default key bindings
 - [HUD](./hud.md) — the on-screen elements these settings change
+
+
+## Clean screenshots
+
+Enter `cl_hud 0` in the console to hide the game HUD, crosshair, spectator
+instructions, demo controls, FPS counter and debug overlays. Close the console
+before taking the shot. Enter `cl_hud 1` to restore them. This is a session-only
+setting and defaults to visible after reloading. Menus and the console remain
+available. The weapon model is controlled separately.

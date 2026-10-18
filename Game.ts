@@ -16,6 +16,7 @@ import { EventBus } from "../../engine/core/EventBus";
 import { log } from "../../engine/core/Log";
 import { InputSystem } from "../../engine/input/InputSystem";
 import { disposeClusteredLight } from "../../engine/lighting/DynamicLightCluster";
+import { AssetPreloader } from "../../engine/loader/AssetPreloader";
 import { LocalGameHost } from "../../engine/network/client/hosts/LocalGameHost";
 import { NetworkGameHost } from "../../engine/network/client/hosts/NetworkGameHost";
 import { NetGraph } from "../../engine/network/client/NetGraph";
@@ -33,7 +34,6 @@ import { getExplosionEffect } from "../../engine/weapon/ExplosionEffect";
 import { getHitscanEffects } from "../../engine/weapon/HitscanEffects";
 import { getProjectileManager } from "../../engine/weapon/ProjectileManager";
 import { getWeaponViewManager } from "../../engine/weapon/WeaponViewManager";
-import { WEAPONS } from "../../shared/entities/definitions/weapons/WeaponsTable";
 import { describeLoadout, type LoadoutChoice, parseLoadout } from "../../shared/server/gametype/Loadout";
 import { DEFAULT_PHYSICS_TICK_RATE } from "../../shared/server/simulation/physics/constants";
 import { clientKeyDisplayId, ensureClientKey } from "./ClientEntityKey";
@@ -67,6 +67,7 @@ import { ServerProjectiles } from "./client/ServerProjectiles";
 import { PlayerWeaponStates, storeSnapshotState } from "./client/SnapshotStateStore";
 import { SpectateView } from "./client/SpectateView";
 import { type FPSInputCommand, FPSSimulation } from "./simulation/FPSSimulation";
+import { getProceduralPickupRecipe } from "./world/pickups/procedural/ProceduralPickupRecipes";
 
 export interface FPSGameConfig {
   tickRate?: number;
@@ -320,6 +321,9 @@ export class Game {
 
     // Register all FPS actions + contexts with InputSystem
     registerFPSActions();
+    AssetPreloader.getInstance().setPickupModelFilter(
+      (def) => (RenderVars.getInstance().get("r_pickupProcedural") ?? 1) < 0.5 || !getProceduralPickupRecipe(def.id),
+    );
 
     // Dropped weapons are independent root meshes. A scene/map teardown can
     // dispose those meshes without clearing the renderer's entity registry,
@@ -1576,18 +1580,14 @@ export class Game {
     // Drive the dynamic crosshair: COD-style spread that widens with movement and
     // converges to center when ADS'ing, plus a red-X override when out of ammo.
     const hud = HUDState.getInstance();
-    const weaponId = this.getCurrentWeaponId();
-    const crosshairCfg = WEAPONS[weaponId]?.crosshair ?? null;
     const adsProgress = getWeaponViewManager().getAdsProgress();
     const horizSpeed = this.v2Client?.getMovementState().actualHorizSpeed ?? 0;
-    const ammoStatus = getAmmoStatus(weaponId, hud.ammo[weaponId]);
-    Crosshair.getInstance().update(
+    Crosshair.getInstance().updateFromHUD(
       adsProgress,
       horizSpeed,
-      crosshairCfg,
+      hud,
       this._isPlayerDead,
       this.playerState === "playing",
-      ammoStatus.outOfAmmo,
     );
   }
 

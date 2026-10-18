@@ -32,9 +32,7 @@ import { SHOT_CONTENT_MASK } from "../../../shared/collision/CollisionWorld";
 import { DemoAnalyzer } from "../../../shared/demo/DemoAnalyzer";
 import type { RecordedInput } from "../../../shared/demo/DemoInputs";
 import { DemoReader } from "../../../shared/demo/DemoReader";
-import { canonicalWeaponId, WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
 import { isClientKey, toClientKey } from "../ClientEntityKey";
-import { getAmmoStatus } from "./AmmoStatus";
 import { CinematicDemoPlayer, type ReelWorld, shotCard } from "./CinematicDemoPlayer";
 import { Crosshair } from "./Crosshair";
 import { DamageNumbers } from "./DamageNumbers";
@@ -1090,18 +1088,9 @@ export class DemoService {
     if (!this.gameHud) return;
     const followed = this._followedEntityId;
     const hud = HUDState.getInstance();
-    const weaponId = canonicalWeaponId(hud.currentWeapon);
     const sample = followed ? this.remoteRenderer?.getDemoEntitySample(followed) : null;
     const hidden = !this.gameHudVisible || !this.isFirstPerson() || !followed || this._isDemoEntityDead(followed);
-    Crosshair.getInstance().update(
-      0,
-      sample ? Math.hypot(sample.vx, sample.vz) : 0,
-      WEAPONS[weaponId]?.crosshair ?? null,
-      hidden,
-      true,
-      getAmmoStatus(weaponId, hud.ammo[weaponId]).outOfAmmo,
-      true,
-    );
+    Crosshair.getInstance().updateFromHUD(0, sample ? Math.hypot(sample.vx, sample.vz) : 0, hud, hidden, true, true);
   }
 
   /**

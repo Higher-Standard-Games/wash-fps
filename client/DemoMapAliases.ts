@@ -1,9 +1,12 @@
 import { normalizeDemoMapName } from "../../../shared/demo/DemoMapName";
 
 const aliases = new Map([
-  ["wdm2", "washoidm2"],
-  ["wfdm5", "washoidm5"],
-  ["wfdm11", "washoidm11"],
+  ["washoidm2", "washoi_dm2"],
+  ["washoidm5", "washoi_dm5"],
+  ["washoidm11", "washoi_dm11"],
+  ["wdm2", "washoi_dm2"],
+  ["wfdm5", "washoi_dm5"],
+  ["wfdm11", "washoi_dm11"],
 ]);
 
 /** Resolve renamed media without rewriting a recording's identity or events. */

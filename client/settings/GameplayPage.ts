@@ -75,7 +75,7 @@ export class GameplayPage {
   private buildTeams(): HTMLElement {
     const root = card("Who's who", "Your side, and everyone you can shoot", "fps-set-card--wide");
     const split = el("div", "fps-set-split");
-    const preview = scene("wdm7");
+    const preview = scene("washoi_dm5");
     const figures = el("div", "fps-set-figures");
     figures.append(figure("ally", "Your side"), figure("enemy", "", true), figure("enemy", "Enemy"));
     preview.append(figures);
@@ -133,7 +133,7 @@ export class GameplayPage {
   private buildCrosshair(): HTMLElement {
     const root = card("Crosshair", undefined, "fps-set-card--wide");
     const split = el("div", "fps-set-split fps-set-split--x");
-    const preview = scene("wdm2");
+    const preview = scene("washoi_dm2");
     const reticle = svgEl("svg", { class: "fps-set-xhair", width: 96, height: 96, viewBox: "-48 -48 96 96" });
     reticle.setAttribute("aria-hidden", "true");
     preview.append(reticle);

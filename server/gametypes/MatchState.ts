@@ -447,12 +447,26 @@ export class MatchState {
    * ready before the match begins without them.
    */
   private allReady(): boolean {
-    if (this._totalPlayers < 2 || this._readyPlayers.size < this._totalPlayers) return false;
+    if (!this.hasOpposition() || this._readyPlayers.size < this._totalPlayers) return false;
     if (this._humanClients === 0) return this.botsMayStartAlone();
     for (const playerId of this._readyPlayers) {
       if (!this._botPlayers.has(playerId)) return true;
     }
     return false;
+  }
+
+  /** A competitive start needs opponents, not spectators or a single populated side. */
+  private hasOpposition(): boolean {
+    if (this._totalPlayers < 2) return false;
+    if (!this.teamBased) return true;
+    let udon = false;
+    let soba = false;
+    for (const id of this._activePlayers) {
+      const team = this._playerTeams.get(id);
+      if (team === "udon") udon = true;
+      if (team === "soba") soba = true;
+    }
+    return udon && soba;
   }
 
   /**
@@ -673,9 +687,8 @@ export class MatchState {
 
     switch (this._phase) {
       case MatchPhase.Warmup:
-        // Don't tick warmup timer when no players are connected
-        if (this._totalPlayers === 0) {
-          // Reset timer so warmup starts fresh when someone joins
+        // Keep a full warmup until the roster has opponents.
+        if (!this.hasOpposition()) {
           this._timeRemaining = this.config.warmupTimeout;
           break;
         }
@@ -688,8 +701,8 @@ export class MatchState {
         break;
 
       case MatchPhase.Countdown:
-        // If all players left during countdown, revert to warmup
-        if (this._totalPlayers === 0) {
+        // An opponent leaving or spectating cancels a pending start.
+        if (!this.hasOpposition()) {
           this.transition(MatchPhase.Warmup);
           break;
         }

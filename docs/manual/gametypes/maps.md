@@ -13,9 +13,9 @@ Each room draws three maps at random from the pool for the vote, so a mode with 
 
 | Map | Name | Modes |
 |-----|------|-------|
-| `washoidm2` | Washoi DM2 | Duel |
-| `washoidm5` | Washoi DM5 | Duel, FFA |
-| `washoidm11` | Washoi DM11 | Duel, FFA |
+| `washoi_dm2` | Washoi DM2 | Duel, FFA |
+| `washoi_dm5` | Washoi DM5 | Duel, FFA |
+| `washoi_dm11` | Washoi DM11 | Duel, FFA |
 | `wamphi1` | Amphitheatre | Amphi |
 | `wbomb2` | Reactors | S&D |
 | `wbomb6` | Depot | S&D |

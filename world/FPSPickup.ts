@@ -119,20 +119,15 @@ export class FPSPickup extends Pickup {
     if (!iconPath) return; // unknown ammo type — leave the plain box
 
     const scene = this.getScene();
-    const [{ ModelLoader }, { PK3TextureLoader }, { StandardMaterial }, { Color3 }] = await Promise.all([
+    const [{ ModelLoader }, { loadAmmoIconTexture }, { StandardMaterial }, { Color3 }] = await Promise.all([
       import("../../../engine/loader/model/ModelLoader"),
-      import("../../../engine/loader/pk3/PK3TextureLoader"),
+      import("./pickups/AmmoIconTexture"),
       import("@babylonjs/core/Materials/standardMaterial"),
       import("@babylonjs/core/Maths/math.color"),
     ]);
 
-    // Load the simpleitem icon FIRST. The Warsow icons live in the non-pure
-    // data0_21.pk3 (not in the loaded set), so we ship them loose under
-    // public/data/gfx/hud/icons/ammo/. Try the pk3 index, then fall back to the
-    // loose file (loadTexture fetches /data/<path> directly). Skip the quad
-    // entirely if neither resolves — never render a fullbright white placeholder.
-    const texLoader = PK3TextureLoader.getInstance();
-    const tex = (await texLoader.resolveAndLoadTexture(iconPath)) ?? (await texLoader.loadTexture(`${iconPath}.tga`));
+    // Skip the quad when artwork is unavailable instead of showing a white placeholder.
+    const tex = await loadAmmoIconTexture(iconPath);
     if (!tex) {
       console.warn(`[FPSPickup] Ammo icon not found: ${iconPath} — showing plain box`);
       return;

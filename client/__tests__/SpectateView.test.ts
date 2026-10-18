@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+﻿// @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -21,7 +21,12 @@ const cameraSystem = {
 };
 vi.mock("../../../../engine/camera", () => ({ CameraSystem: { getInstance: () => cameraSystem } }));
 vi.mock("../../../../engine/camera/CameraSystem", () => ({ CameraSystem: { getInstance: () => cameraSystem } }));
-vi.mock("../../../../engine/camera/controllers/FreeflyController", () => ({ FreeflyController: class {} }));
+vi.mock("../../../../engine/camera/controllers/FreeflyController", () => ({
+  FreeflyController: class {
+    static setCollisionEnabled = vi.fn();
+    setEnabled = vi.fn();
+  },
+}));
 
 const { SPECTATE_AFTER_DEATH_MS, SpectateView } = await import("../SpectateView");
 const { MatchPhase, MatchStateManager } = await import("../MatchStateManager");
@@ -179,6 +184,14 @@ const camera = () =>
 let now = 0;
 
 describe("SpectateView", () => {
+  it("reenables a reused freefly controller when entering spectator mode", async () => {
+    const { view } = setup();
+    const setEnabled = vi.fn();
+    cameraSystem.getController.mockReturnValueOnce({ setEnabled } as never);
+    await view.switchToFreeflyCamera();
+    expect(setEnabled).toHaveBeenCalledWith(true);
+    expect(cameraSystem.setController).toHaveBeenCalledWith("freefly");
+  });
   beforeEach(() => {
     now = 10_000;
     vi.spyOn(performance, "now").mockImplementation(() => now);

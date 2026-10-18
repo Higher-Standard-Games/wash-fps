@@ -2154,7 +2154,32 @@
    Scoreboard Overlay (Tab) — Washoi print board
    ============================================================================ */
 
+html[data-cl-hud="0"]
+:is(
+  #fps-hud,
+  #crosshair-overlay,
+  #spectator-overlay,
+  #spectator-bar,
+  #fps-speed-display,
+  #fps-display,
+  #debug-overlay,
+  #hud-debug-overlay,
+  #demo-viewer-hud,
+  #pickup-hud-prompt,
+  .fps-phase-message,
+  .fps-ready-bar,
+  .fps-damage-indicators,
+  .fps-bomb-plant-meter,
+  .fps-chat,
+  .demo-event-overlay,
+  .fps-scoreboard-overlay:not(.fps-scoreboard-overlay--postgame)
+) {
+  /* biome-ignore lint/complexity/noImportantStyles: Screenshot mode overrides each widget's inline display state. */
+  display: none !important;
+}
+
 .fps-scoreboard-overlay {
+  --scoreboard-scale: calc(var(--ui-scale, 1) * 1.5);
   /* The post-game's way home is the lobby's arcade key, in gold */
   --accent: hsl(46 100% 57%);
   --accent-hi: hsl(51 100% 73%);
@@ -2182,12 +2207,14 @@
 
 /* The board is a single cut slab; title/team plates are stamped onto it. */
 .fps-scoreboard {
+  box-sizing: border-box;
   position: relative;
-  width: calc(680px * var(--ui-scale, 1));
+  width: calc(680px * var(--scoreboard-scale, var(--ui-scale, 1)));
   max-width: 92vw;
   max-height: 82vh;
   overflow-y: auto;
-  padding: calc(64px * var(--ui-scale, 1)) calc(38px * var(--ui-scale, 1)) calc(30px * var(--ui-scale, 1));
+  padding: calc(64px * var(--scoreboard-scale, var(--ui-scale, 1)))
+    calc(38px * var(--scoreboard-scale, var(--ui-scale, 1))) calc(30px * var(--scoreboard-scale, var(--ui-scale, 1)));
   background: linear-gradient(172deg, hsla(250, 30%, 10%, 0.97), var(--w-void) 40%), var(--w-scan-cyan);
   clip-path: polygon(0 2%, 98.5% 0, 100% 97%, 1.5% 100%);
   box-shadow: inset 0 0 0 1px hsla(190, 90%, 72%, 0.14);
@@ -2210,16 +2237,17 @@
 /* Gold stamped title plate, top-left of the board: the lobby's plate colour */
 .fps-scoreboard-title {
   position: absolute;
-  top: calc(16px * var(--ui-scale, 1));
-  left: calc(22px * var(--ui-scale, 1));
-  padding: calc(8px * var(--ui-scale, 1)) calc(30px * var(--ui-scale, 1)) calc(10px * var(--ui-scale, 1))
-    calc(20px * var(--ui-scale, 1));
+  top: calc(16px * var(--scoreboard-scale, var(--ui-scale, 1)));
+  left: calc(22px * var(--scoreboard-scale, var(--ui-scale, 1)));
+  padding: calc(8px * var(--scoreboard-scale, var(--ui-scale, 1)))
+    calc(30px * var(--scoreboard-scale, var(--ui-scale, 1))) calc(10px * var(--scoreboard-scale, var(--ui-scale, 1)))
+    calc(20px * var(--scoreboard-scale, var(--ui-scale, 1)));
   background: linear-gradient(100deg, hsl(48, 100%, 60%), hsl(42, 96%, 50%)), var(--w-scan-cream);
   clip-path: polygon(0 8%, 100% 0, 96% 100%, 3% 92%);
   transform: skewX(-5deg);
   transform-origin: left bottom;
   font-family: var(--w-font-display);
-  font-size: calc(18px * var(--ui-scale, 1));
+  font-size: calc(18px * var(--scoreboard-scale, var(--ui-scale, 1)));
   font-weight: 900;
   text-transform: uppercase;
   letter-spacing: 0.12em;
@@ -2229,9 +2257,10 @@
 
 .fps-scoreboard-header {
   display: flex;
-  padding: calc(8px * var(--ui-scale, 1)) calc(14px * var(--ui-scale, 1));
+  padding: calc(8px * var(--scoreboard-scale, var(--ui-scale, 1)))
+    calc(14px * var(--scoreboard-scale, var(--ui-scale, 1)));
   font-family: var(--w-font-body);
-  font-size: calc(11px * var(--ui-scale, 1));
+  font-size: calc(11px * var(--scoreboard-scale, var(--ui-scale, 1)));
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.18em;
@@ -2242,9 +2271,10 @@
 .fps-scoreboard-row {
   display: flex;
   align-items: baseline;
-  padding: calc(8px * var(--ui-scale, 1)) calc(14px * var(--ui-scale, 1));
+  padding: calc(8px * var(--scoreboard-scale, var(--ui-scale, 1)))
+    calc(14px * var(--scoreboard-scale, var(--ui-scale, 1)));
   font-family: var(--w-font-body);
-  font-size: calc(15px * var(--ui-scale, 1));
+  font-size: calc(15px * var(--scoreboard-scale, var(--ui-scale, 1)));
   font-weight: 600;
   color: var(--w-text);
   border-bottom: 1px solid hsla(250, 30%, 25%, 0.35);
@@ -2312,7 +2342,8 @@
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   color: var(--w-cream);
-  text-shadow: calc(1px * var(--ui-scale, 1)) calc(2px * var(--ui-scale, 1)) 0 var(--w-ink);
+  text-shadow: calc(1px * var(--scoreboard-scale, var(--ui-scale, 1)))
+    calc(2px * var(--scoreboard-scale, var(--ui-scale, 1))) 0 var(--w-ink);
 }
 
 .fps-scoreboard-row--self .fps-scoreboard-col-score {
@@ -2329,7 +2360,7 @@
 .fps-scoreboard-col-ping {
   flex: 1;
   text-align: right;
-  font-size: calc(12px * var(--ui-scale, 1));
+  font-size: calc(12px * var(--scoreboard-scale, var(--ui-scale, 1)));
   font-variant-numeric: tabular-nums;
   color: var(--w-text-dim);
 }
@@ -2346,6 +2377,7 @@
    The veil stays clear over the stage and darkens under the board; no blur,
    since the model is world-rendered behind this DOM layer. */
 .fps-scoreboard-overlay--postgame {
+  --scoreboard-scale: var(--ui-scale, 1);
   background:
     radial-gradient(hsla(190, 100%, 72%, 0.03) 1px, transparent 1.5px) 0 0 / 7px 7px,
     linear-gradient(100deg, transparent 0%, transparent 34%, hsla(248, 30%, 4%, 0.72) 50%, hsla(248, 30%, 4%, 0.92) 80%);
@@ -2357,30 +2389,32 @@
 }
 
 .fps-scoreboard--postgame {
-  width: calc(820px * var(--ui-scale, 1));
+  width: calc(820px * var(--scoreboard-scale, var(--ui-scale, 1)));
   max-width: 50vw;
   max-height: 100%;
-  padding-top: calc(92px * var(--ui-scale, 1));
+  padding-top: calc(92px * var(--scoreboard-scale, var(--ui-scale, 1)));
 }
 
 /* The winner plate: stamped in once when the screen opens, then still. */
 .fps-scoreboard--postgame .fps-scoreboard-title {
-  padding: calc(12px * var(--ui-scale, 1)) calc(44px * var(--ui-scale, 1)) calc(14px * var(--ui-scale, 1))
-    calc(28px * var(--ui-scale, 1));
+  padding: calc(12px * var(--scoreboard-scale, var(--ui-scale, 1)))
+    calc(44px * var(--scoreboard-scale, var(--ui-scale, 1))) calc(14px * var(--scoreboard-scale, var(--ui-scale, 1)))
+    calc(28px * var(--scoreboard-scale, var(--ui-scale, 1)));
   background: linear-gradient(100deg, hsl(45, 100%, 55%), hsl(36, 96%, 46%)), var(--w-scan-cream);
-  font-size: calc(30px * var(--ui-scale, 1));
+  font-size: calc(30px * var(--scoreboard-scale, var(--ui-scale, 1)));
   color: hsl(246, 42%, 10%);
   text-shadow: none;
   animation: w-fight-stamp 0.45s cubic-bezier(0.16, 1.3, 0.3, 1) both;
 }
 
 .fps-scoreboard--postgame .fps-scoreboard-row {
-  padding: calc(12px * var(--ui-scale, 1)) calc(18px * var(--ui-scale, 1));
-  font-size: calc(20px * var(--ui-scale, 1));
+  padding: calc(12px * var(--scoreboard-scale, var(--ui-scale, 1)))
+    calc(18px * var(--scoreboard-scale, var(--ui-scale, 1)));
+  font-size: calc(20px * var(--scoreboard-scale, var(--ui-scale, 1)));
 }
 
 .fps-scoreboard--postgame .fps-scoreboard-col-score {
-  font-size: calc(26px * var(--ui-scale, 1));
+  font-size: calc(26px * var(--scoreboard-scale, var(--ui-scale, 1)));
 }
 
 /* The column's heading stays a heading; only the scores grow */
@@ -2389,7 +2423,7 @@
 }
 
 .fps-scoreboard--postgame .fps-scoreboard-col-ping {
-  font-size: calc(14px * var(--ui-scale, 1));
+  font-size: calc(14px * var(--scoreboard-scale, var(--ui-scale, 1)));
 }
 
 /* Stage caption: the winner's name, then their stat chips, above the model. */
@@ -2401,7 +2435,7 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: calc(18px * var(--ui-scale, 1));
+  gap: calc(18px * var(--scoreboard-scale, var(--ui-scale, 1)));
   pointer-events: none;
 }
 
@@ -2410,13 +2444,14 @@
   max-width: 100%;
   overflow-wrap: anywhere;
   font-family: var(--w-font-display);
-  font-size: calc(64px * var(--ui-scale, 1));
+  font-size: calc(64px * var(--scoreboard-scale, var(--ui-scale, 1)));
   font-weight: 900;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   line-height: 0.95;
   color: hsla(45, 100%, 62%, 0.34);
-  text-shadow: calc(2px * var(--ui-scale, 1)) calc(3px * var(--ui-scale, 1)) 0 hsla(250, 45%, 4%, 0.5);
+  text-shadow: calc(2px * var(--scoreboard-scale, var(--ui-scale, 1)))
+    calc(3px * var(--scoreboard-scale, var(--ui-scale, 1))) 0 hsla(250, 45%, 4%, 0.5);
   transform: skewX(-6deg);
   animation: fps-fade-in 0.6s ease-out;
 }
@@ -2425,14 +2460,15 @@
 .fps-postgame-stats {
   display: flex;
   flex-wrap: wrap;
-  gap: calc(10px * var(--ui-scale, 1));
+  gap: calc(10px * var(--scoreboard-scale, var(--ui-scale, 1)));
 }
 
 .fps-postgame-stats-row {
   display: flex;
   align-items: baseline;
-  gap: calc(14px * var(--ui-scale, 1));
-  padding: calc(6px * var(--ui-scale, 1)) calc(18px * var(--ui-scale, 1)) calc(8px * var(--ui-scale, 1));
+  gap: calc(14px * var(--scoreboard-scale, var(--ui-scale, 1)));
+  padding: calc(6px * var(--scoreboard-scale, var(--ui-scale, 1)))
+    calc(18px * var(--scoreboard-scale, var(--ui-scale, 1))) calc(8px * var(--scoreboard-scale, var(--ui-scale, 1)));
   background: linear-gradient(178deg, var(--w-cream), hsl(41, 92%, 85%) 78%), var(--w-scan-cyan);
   clip-path: polygon(2% 0, 100% 0, 98% 100%, 0 100%);
   transform: skewX(-4deg);
@@ -2441,7 +2477,7 @@
 
 .fps-postgame-stats-label {
   font-family: var(--w-font-body);
-  font-size: calc(14px * var(--ui-scale, 1));
+  font-size: calc(14px * var(--scoreboard-scale, var(--ui-scale, 1)));
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.12em;
@@ -2450,7 +2486,7 @@
 
 .fps-postgame-stats-value {
   font-family: var(--w-font-display);
-  font-size: calc(24px * var(--ui-scale, 1));
+  font-size: calc(24px * var(--scoreboard-scale, var(--ui-scale, 1)));
   font-weight: 900;
   font-variant-numeric: tabular-nums;
   color: hsl(246, 42%, 12%);
@@ -2489,8 +2525,9 @@
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: calc(20px * var(--ui-scale, 1));
-  padding: calc(10px * var(--ui-scale, 1)) 0 calc(6px * var(--ui-scale, 1));
+  gap: calc(20px * var(--scoreboard-scale, var(--ui-scale, 1)));
+  padding: calc(10px * var(--scoreboard-scale, var(--ui-scale, 1))) 0
+    calc(6px * var(--scoreboard-scale, var(--ui-scale, 1)));
 }
 
 .fps-versus-side {
@@ -2498,9 +2535,10 @@
 
   display: flex;
   flex-direction: column;
-  gap: calc(4px * var(--ui-scale, 1));
+  gap: calc(4px * var(--scoreboard-scale, var(--ui-scale, 1)));
   min-width: 0;
-  padding: calc(10px * var(--ui-scale, 1)) calc(16px * var(--ui-scale, 1));
+  padding: calc(10px * var(--scoreboard-scale, var(--ui-scale, 1)))
+    calc(16px * var(--scoreboard-scale, var(--ui-scale, 1)));
   font-family: var(--w-font-body);
   color: var(--w-text);
 }
@@ -2527,7 +2565,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: calc(22px * var(--ui-scale, 1));
+  font-size: calc(22px * var(--scoreboard-scale, var(--ui-scale, 1)));
   font-weight: 700;
   color: var(--w-cream);
 }
@@ -2537,7 +2575,7 @@
 }
 
 .fps-versus-line {
-  font-size: calc(13px * var(--ui-scale, 1));
+  font-size: calc(13px * var(--scoreboard-scale, var(--ui-scale, 1)));
   font-weight: 600;
   letter-spacing: 0.06em;
   font-variant-numeric: tabular-nums;
@@ -2545,7 +2583,7 @@
 }
 
 .fps-versus-ping {
-  font-size: calc(12px * var(--ui-scale, 1));
+  font-size: calc(12px * var(--scoreboard-scale, var(--ui-scale, 1)));
   letter-spacing: 0.08em;
   font-variant-numeric: tabular-nums;
   color: var(--w-text-dim);
@@ -2555,23 +2593,24 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: calc(2px * var(--ui-scale, 1));
+  gap: calc(2px * var(--scoreboard-scale, var(--ui-scale, 1)));
 }
 
 .fps-versus-figure {
   font-family: var(--w-font-display);
-  font-size: calc(44px * var(--ui-scale, 1));
+  font-size: calc(44px * var(--scoreboard-scale, var(--ui-scale, 1)));
   font-weight: 900;
   line-height: 1;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   color: var(--w-cream);
-  text-shadow: calc(2px * var(--ui-scale, 1)) calc(3px * var(--ui-scale, 1)) 0 var(--w-ink);
+  text-shadow: calc(2px * var(--scoreboard-scale, var(--ui-scale, 1)))
+    calc(3px * var(--scoreboard-scale, var(--ui-scale, 1))) 0 var(--w-ink);
 }
 
 .fps-versus-label {
   font-family: var(--w-font-body);
-  font-size: calc(11px * var(--ui-scale, 1));
+  font-size: calc(11px * var(--scoreboard-scale, var(--ui-scale, 1)));
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.22em;
@@ -2579,22 +2618,23 @@
 }
 
 .fps-scoreboard--postgame .fps-versus-name {
-  font-size: calc(28px * var(--ui-scale, 1));
+  font-size: calc(28px * var(--scoreboard-scale, var(--ui-scale, 1)));
 }
 
 .fps-scoreboard--postgame .fps-versus-figure {
-  font-size: calc(64px * var(--ui-scale, 1));
+  font-size: calc(64px * var(--scoreboard-scale, var(--ui-scale, 1)));
 }
 
 /* --- Team Scoreboard Variants --- */
 
 .fps-scoreboard-teams {
   display: flex;
-  gap: calc(24px * var(--ui-scale, 1));
+  gap: calc(24px * var(--scoreboard-scale, var(--ui-scale, 1)));
   width: 100%;
 }
 
 .fps-scoreboard-team {
+  min-width: 0;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -2603,12 +2643,13 @@
 /* Team title: small stamped plate in team color */
 .fps-scoreboard-team-title {
   align-self: center;
-  padding: calc(6px * var(--ui-scale, 1)) calc(24px * var(--ui-scale, 1)) calc(8px * var(--ui-scale, 1));
-  margin-bottom: calc(10px * var(--ui-scale, 1));
+  padding: calc(6px * var(--scoreboard-scale, var(--ui-scale, 1)))
+    calc(24px * var(--scoreboard-scale, var(--ui-scale, 1))) calc(8px * var(--scoreboard-scale, var(--ui-scale, 1)));
+  margin-bottom: calc(10px * var(--scoreboard-scale, var(--ui-scale, 1)));
   clip-path: polygon(2% 0, 100% 8%, 97% 100%, 0 90%);
   transform: skewX(-5deg);
   font-family: var(--w-font-display);
-  font-size: calc(15px * var(--ui-scale, 1));
+  font-size: calc(15px * var(--scoreboard-scale, var(--ui-scale, 1)));
   font-weight: 900;
   text-transform: uppercase;
   letter-spacing: 0.15em;
@@ -3428,35 +3469,36 @@
    ============================================================================ */
 
 .fps-scoreboard-spectators {
-  margin-top: calc(14px * var(--ui-scale, 1));
+  margin-top: calc(14px * var(--scoreboard-scale, var(--ui-scale, 1)));
   border-top: 1px solid hsla(190, 100%, 72%, 0.18);
-  padding-top: calc(10px * var(--ui-scale, 1));
+  padding-top: calc(10px * var(--scoreboard-scale, var(--ui-scale, 1)));
 }
 
 .fps-scoreboard-spectators-title {
   font-family: var(--w-font-body);
-  font-size: calc(11px * var(--ui-scale, 1));
+  font-size: calc(11px * var(--scoreboard-scale, var(--ui-scale, 1)));
   font-weight: 700;
   color: var(--w-cream-dim);
   text-align: center;
-  margin-bottom: calc(8px * var(--ui-scale, 1));
+  margin-bottom: calc(8px * var(--scoreboard-scale, var(--ui-scale, 1)));
   letter-spacing: 0.2em;
 }
 
 .fps-scoreboard-spectators-body {
   display: flex;
   flex-wrap: wrap;
-  gap: calc(8px * var(--ui-scale, 1));
+  gap: calc(8px * var(--scoreboard-scale, var(--ui-scale, 1)));
   justify-content: center;
 }
 
 /* Spectator chips: tiny cut plates */
 .fps-scoreboard-spectator-row {
   font-family: var(--w-font-body);
-  font-size: calc(12px * var(--ui-scale, 1));
+  font-size: calc(12px * var(--scoreboard-scale, var(--ui-scale, 1)));
   font-weight: 600;
   color: var(--w-text-muted);
-  padding: calc(3px * var(--ui-scale, 1)) calc(12px * var(--ui-scale, 1)) calc(4px * var(--ui-scale, 1));
+  padding: calc(3px * var(--scoreboard-scale, var(--ui-scale, 1)))
+    calc(12px * var(--scoreboard-scale, var(--ui-scale, 1))) calc(4px * var(--scoreboard-scale, var(--ui-scale, 1)));
   background: hsla(250, 30%, 14%, 0.75);
   clip-path: polygon(4% 0, 100% 6%, 96% 100%, 0 92%);
   transform: skewX(-5deg);
@@ -3617,13 +3659,14 @@
    is the columns; this is the one number they do not carry. */
 .fps-scoreboard-round {
   text-align: center;
-  margin-bottom: calc(6px * var(--ui-scale, 1));
+  margin-bottom: calc(6px * var(--scoreboard-scale, var(--ui-scale, 1)));
   font-family: var(--w-font-display);
-  font-size: calc(15px * var(--ui-scale, 1));
+  font-size: calc(15px * var(--scoreboard-scale, var(--ui-scale, 1)));
   font-weight: 800;
   letter-spacing: 0.18em;
   color: hsl(45, 90%, 62%);
-  text-shadow: calc(1px * var(--ui-scale, 1)) calc(1px * var(--ui-scale, 1)) 0 hsla(250, 45%, 4%, 0.7);
+  text-shadow: calc(1px * var(--scoreboard-scale, var(--ui-scale, 1)))
+    calc(1px * var(--scoreboard-scale, var(--ui-scale, 1))) 0 hsla(250, 45%, 4%, 0.7);
 }
 
 /* ============================================================================
@@ -3906,11 +3949,11 @@
 .fps-scoreboard-team-title {
   display: inline-flex;
   align-items: baseline;
-  gap: calc(14px * var(--ui-scale, 1));
+  gap: calc(14px * var(--scoreboard-scale, var(--ui-scale, 1)));
 }
 
 .fps-scoreboard-team-score {
-  font-size: calc(24px * var(--ui-scale, 1));
+  font-size: calc(24px * var(--scoreboard-scale, var(--ui-scale, 1)));
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
@@ -4034,5 +4077,18 @@
   }
   50% {
     opacity: 0.55;
+  }
+}
+
+.fps-scoreboard:not(.fps-scoreboard--postgame) :is(.fps-versus-line, .fps-scoreboard-col-deaths) {
+  color: var(--w-text);
+}
+.fps-scoreboard:not(.fps-scoreboard--postgame) :is(.fps-versus-ping, .fps-scoreboard-col-ping) {
+  color: var(--w-cream-dim);
+}
+
+@media (max-width: 860px) {
+  .fps-scoreboard-overlay:not(.fps-scoreboard-overlay--postgame) {
+    --scoreboard-scale: calc(var(--ui-scale, 1) * 1.15);
   }
 }

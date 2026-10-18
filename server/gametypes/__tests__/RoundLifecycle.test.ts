@@ -389,6 +389,7 @@ describe("the ready gate", () => {
     for (let i = 0; i < bots; i++) {
       const id = (100 + i) as never;
       m.addPlayer(id);
+      m.setPlayerTeam(id, i % 2 === 0 ? "udon" : "soba");
       botIds.add(id);
     }
     m.setBotPlayers(botIds);
@@ -409,6 +410,7 @@ describe("the ready gate", () => {
     const m = botMatch(1, 3);
     const human = 1 as never;
     m.addPlayer(human);
+    m.setPlayerTeam(human, "soba");
     m.playerReady(human);
     m.update(1);
     expect(m.phase).toBe(MatchPhase.Countdown);

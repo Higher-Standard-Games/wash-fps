@@ -3,9 +3,12 @@ import { resolveFPSDemoMap } from "../DemoMapAliases";
 
 describe("renamed demo map media", () => {
   it.each([
-    ["wdm2", "washoidm2"],
-    ["wfdm5", "washoidm5"],
-    ["wfdm11", "washoidm11"],
+    ["washoidm2", "washoi_dm2"],
+    ["washoidm5", "washoi_dm5"],
+    ["washoidm11", "washoi_dm11"],
+    ["wdm2", "washoi_dm2"],
+    ["wfdm5", "washoi_dm5"],
+    ["wfdm11", "washoi_dm11"],
   ])("loads %s recordings against %s", (oldName, newName) => {
     expect(resolveFPSDemoMap(oldName)).toBe(newName);
     expect(resolveFPSDemoMap(`maps/${oldName.toUpperCase()}.BSP`)).toBe(newName);

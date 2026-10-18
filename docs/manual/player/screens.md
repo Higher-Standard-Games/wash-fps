@@ -16,6 +16,11 @@ The server moves every match through the same phases. A banner in the middle of 
 
 How long each phase lasts depends on the mode: see the rules table on each [gametype page](../gametypes/index.md).
 
+Warmup waits for opposition: at least two active players in FFA, or an active
+player on each side in team modes, including Duel and Amphi. The warmup timer
+stays full while waiting. If opposition disappears during the countdown, the
+match returns to warmup and players must ready up again.
+
 ### Round results
 
 In Search & Destroy a banner names how the round ended, and who won it:

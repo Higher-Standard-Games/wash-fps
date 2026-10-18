@@ -140,11 +140,8 @@ export function createAmmoIconMaterial(scene: Scene, name: string, iconPath: str
 
   void (async () => {
     try {
-      const { PK3TextureLoader } = await import("../../../../../engine/loader/pk3/PK3TextureLoader");
-      const loader = PK3TextureLoader.getInstance();
-      // Warsow ships these in the non-pure data0 pk3, so fall back to the loose
-      // copy under public/data/ exactly like FPSPickup's MD3 path does.
-      const tex = (await loader.resolveAndLoadTexture(iconPath)) ?? (await loader.loadTexture(`${iconPath}.tga`));
+      const { loadAmmoIconTexture } = await import("../AmmoIconTexture");
+      const tex = await loadAmmoIconTexture(iconPath);
       // The scene cache may have torn the material down while we were loading.
       if (!tex || !mat.getScene()) return;
       tex.hasAlpha = true;

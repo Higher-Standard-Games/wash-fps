@@ -2,14 +2,14 @@
 
 Common questions, gotchas, and troubleshooting.
 
-## "Why does `map washoidm2` fail with 'No gameplay map launcher registered'?"
+## "Why does `map washoi_dm2` fail with 'No gameplay map launcher registered'?"
 
 The engine command `map` delegates to a launcher that the FPS game registers at boot. Two possibilities:
 
 1. The fps submodule isn't actually loaded / didn't register the launcher → make sure `npm run dev` starts cleanly, no errors in browser console, and `src/main.ts` is calling `registerGameplayMapLauncher(fpsModule.fpsMapLauncher)`.
 2. You're running in headless CLI mode (`npm run cli:game`) which intentionally doesn't auto-register the launcher → use `bsp load <name>` instead, or call `registerFpsCommands()` + `registerGameplayMapLauncher()` manually in your script.
 
-## "Why does `map washoidm2` say 'Timed out waiting for lobby server to spawn'?"
+## "Why does `map washoi_dm2` say 'Timed out waiting for lobby server to spawn'?"
 
 The lobby server isn't running. Start it:
 
@@ -17,7 +17,7 @@ The lobby server isn't running. Start it:
 npm run lobby:server
 ```
 
-Then retry `map washoidm2`.
+Then retry `map washoi_dm2`.
 
 ## "Why is my dedicated server slow / dropping ticks?"
 

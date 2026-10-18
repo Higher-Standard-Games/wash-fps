@@ -10,10 +10,13 @@
  */
 
 import { Cvar } from "../../../engine/core/Cvar";
+import { WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
 import { type CrosshairConfig, fireIntervalTicks, type WeaponDef } from "../../../shared/entities/WeaponDef";
 import { bloomIdleSeconds, coolSpreadHeat, heatAfterShot } from "../../../shared/SpreadUtils";
 import { DEFAULT_PHYSICS_TICK_RATE } from "../../../shared/server/simulation/physics/constants";
+import { getAmmoStatus } from "./AmmoStatus";
 import { type HitLocationName, isHeadHit } from "./HitLocationName";
+import type { HUDState } from "./HUDState";
 
 // ============================================================================
 // Default Crosshair Config (fallback when weapon has no crosshair field)
@@ -91,7 +94,7 @@ export class Crosshair {
         `;
 
     // Canvas: sized by cvar
-    const size = (Cvar.get("cg_crosshairSize") as number) ?? 24;
+    const size = (Cvar.get("cg_crosshairSize") as number) ?? 32;
     this.canvas = document.createElement("canvas");
     this.canvas.width = size * 2;
     this.canvas.height = size * 2;
@@ -162,6 +165,27 @@ export class Crosshair {
   // Per-frame Update
   // ========================================================================
 
+  /** Use the same equipped weapon and ammo state as the HUD warning banner. */
+  updateFromHUD(
+    adsProgress: number,
+    horizSpeed: number,
+    hud: Pick<HUDState, "currentWeapon" | "ammo">,
+    isDead: boolean,
+    isJoined: boolean,
+    watching = false,
+  ): void {
+    const weaponId = hud.currentWeapon;
+    this.update(
+      adsProgress,
+      horizSpeed,
+      WEAPONS[weaponId]?.crosshair,
+      isDead,
+      isJoined,
+      getAmmoStatus(weaponId, hud.ammo[weaponId]).outOfAmmo,
+      watching,
+    );
+  }
+
   /**
    * Redraw crosshair. Call once per frame.
    *
@@ -197,7 +221,7 @@ export class Crosshair {
     const config = weaponConfig ?? DEFAULT_CROSSHAIR;
 
     // Cvar values
-    const size = (Cvar.get("cg_crosshairSize") as number) ?? 24;
+    const size = (Cvar.get("cg_crosshairSize") as number) ?? 32;
     const colorHex = (Cvar.get("cg_crosshairColor") as string) ?? "00FF00";
     const alpha = (Cvar.get("cg_crosshairAlpha") as number) ?? 0.9;
     const spreadEnabled = ((Cvar.get("cg_crosshairSpread") as number) ?? 1) > 0;
@@ -373,7 +397,7 @@ Cvar.register("cg_crosshair", 1, {
   description: "Enable crosshair (0 = off, 1 = on)",
 });
 
-Cvar.register("cg_crosshairSize", 24, {
+Cvar.register("cg_crosshairSize", 32, {
   type: "int",
   min: 8,
   max: 64,

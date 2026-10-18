@@ -512,9 +512,13 @@ export class SpectateView {
       const { FreeflyController } = await import("../../../engine/camera/controllers/FreeflyController");
       const cameraSystem = CameraSystem.getInstance();
 
-      if (!cameraSystem.getController("freefly")) {
-        cameraSystem.registerController("freefly", new FreeflyController());
+      let controller = cameraSystem.getController("freefly");
+      if (!controller) {
+        controller = new FreeflyController();
+        cameraSystem.registerController("freefly", controller);
       }
+      FreeflyController.setCollisionEnabled(false);
+      controller.setEnabled(true);
       cameraSystem.setController("freefly");
 
       devLog("[Game] Switched to freefly camera");

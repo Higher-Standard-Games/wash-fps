@@ -17,8 +17,8 @@ See [Maps](./maps.md) for which maps each mode plays.
 Players pick a mode on the lobby's Play stage — **Duel, Amphi, FFA or S&D** — and take a room for it. For developer flows and dedicated servers, the engine's `map <name> [gametype]` command accepts a gametype keyword:
 
 ```
-map washoidm2 duel
-map washoidm2 dm        # alias for deathmatch / ffa
+map washoi_dm2 duel
+map washoi_dm2 dm        # alias for deathmatch / ffa
 map wbomb1 snd     # also: bomb, search, search_and_destroy
 map wamphi1 amphi
 ```

@@ -41,7 +41,7 @@ npm run tools:textures
 To check a map outside the game, from the engine repo:
 
 ```bash
-npm run cli:game -- --exec "bsp load washoidm2; bsp info; quit"
+npm run cli:game -- --exec "bsp load washoi_dm2; bsp info; quit"
 ```
 
 ## "Rankings are unavailable" and "Featured demos are unavailable"
