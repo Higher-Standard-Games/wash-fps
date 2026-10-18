@@ -50,7 +50,7 @@ When a match ends, the scoreboard locks open and is titled with the result. The 
 
 The bottom of the screen tells you what happens next:
 
-- On a **lobby-hosted** match (every match started from the lobby), the server is finished. The message reads **GG — return to lobby for the next one**, and **Back to the lobby** returns you to the same room, ready for a rematch.
+- On a **lobby-hosted** match (every match started from the lobby), the server is finished. The message reads **GG — return to lobby for the next one**, and **Back to the lobby** opens the main Play screen. It does not automatically rejoin the finished match's room.
 - On a **dedicated server** that keeps running, it reads **Match over — next match starting soon…** and the next warmup begins.
 
 A recorded match can appear in history without changing your skill rating. See

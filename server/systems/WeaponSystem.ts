@@ -453,6 +453,24 @@ export class WeaponSystem extends Subsystem {
     };
   }
 
+  /** Keep the authoritative muzzle offset on the shooter's side of nearby world geometry. */
+  private clipProjectileSpawn(origin: Vec3, proposed: Vec3): Vec3 {
+    if (!this.collisionWorld) return proposed;
+    const trace = this.collisionWorld.trace(
+      origin,
+      proposed,
+      { min: { x: -2, y: -2, z: -2 }, max: { x: 2, y: 2, z: 2 } },
+      SHOT_CONTENT_MASK,
+    );
+    if (trace.fraction >= 1 || !trace.hitPoint) return proposed;
+    const normal = trace.normal ?? { x: 0, y: 0, z: 0 };
+    return {
+      x: trace.hitPoint.x + normal.x * 0.1,
+      y: trace.hitPoint.y + normal.y * 0.1,
+      z: trace.hitPoint.z + normal.z * 0.1,
+    };
+  }
+
   private reloadModel(weapon: WeaponDef): "clip" | "pool" | "none" {
     return weapon.reloadModel ?? "pool";
   }
@@ -1480,11 +1498,11 @@ export class WeaponSystem extends Subsystem {
     };
 
     const offset = 50;
-    const position = {
+    const position = this.clipProjectileSpawn(origin, {
       x: origin.x + Math.sin(yaw) * Math.cos(pitch) * offset,
       y: origin.y + Math.sin(pitch) * offset,
       z: origin.z + Math.cos(yaw) * Math.cos(pitch) * offset,
-    };
+    });
 
     const projectile = createProjectileEntity(entityId(this.nextProjectileId++), shooter.ownerId, position, velocity);
 
@@ -1923,11 +1941,11 @@ export class WeaponSystem extends Subsystem {
     const offset = 50;
     const origin = this.getFireViewOrigin(shooter);
     if (!origin) return;
-    const position = {
+    const position = this.clipProjectileSpawn(origin, {
       x: origin.x + Math.sin(yaw) * Math.cos(pitch) * offset,
       y: origin.y + Math.sin(pitch) * offset,
       z: origin.z + Math.cos(yaw) * Math.cos(pitch) * offset,
-    };
+    });
 
     const projectile = createProjectileEntity(entityId(this.nextProjectileId++), shooter.ownerId, position, velocity);
 

@@ -1909,6 +1909,7 @@ export class Game {
           Game.getInstance().localPlayerId = v;
         },
         isNetworkMode: this.isNetworkMode,
+        reloadAudio: this.effects.reloadAudio,
         gameHost: this.gameHost,
         v2Client: this.v2Client,
         forgetLocalLiquid: () => {

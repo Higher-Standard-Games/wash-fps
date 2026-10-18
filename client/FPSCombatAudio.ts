@@ -7,6 +7,8 @@ import type {
   WeaponFireEvent,
 } from "../../../engine/network/core/SnapshotEvent";
 import { canonicalWeaponId } from "../../../shared/entities/definitions/weapons/WeaponsTable";
+import { FPS_PLAYER_SOUND_PATHS, type PlayerVoiceSet, playerVoiceSet, playerVoiceSound } from "./FPSPlayerAudio";
+import { RELOAD_SOUND_PATH } from "./FPSReloadAudio";
 
 const weaponFireSounds: Readonly<Record<string, readonly string[]>> = {
   blade: ["sounds/weapons/blade_strike1.ogg", "sounds/weapons/blade_strike2.ogg", "sounds/weapons/blade_strike3.ogg"],
@@ -59,14 +61,6 @@ const damageConfirmationSounds = [
   "sounds/misc/hit_0.wav",
 ] as const;
 
-const bobotPainSounds = [
-  "sounds/players/bobot/pain25.ogg",
-  "sounds/players/bobot/pain50.ogg",
-  "sounds/players/bobot/pain75.ogg",
-  "sounds/players/bobot/pain100.ogg",
-] as const;
-
-export const BOBOT_DEATH_SOUND = "sounds/players/bobot/death.ogg";
 export const KILL_ECHO_SOUND = "sounds/misc/kill.wav";
 export const EMPTY_CLIP_SOUND = "sounds/weapons/weapon_noammo.ogg";
 const FIRE_VOLUME = 0.9;
@@ -76,10 +70,10 @@ export const FPS_COMBAT_SOUND_PATHS = [
     ...Object.values(weaponFireSounds).flat(),
     ...Object.values(projectileImpactSounds).flat(),
     ...damageConfirmationSounds,
-    ...bobotPainSounds,
-    BOBOT_DEATH_SOUND,
+    ...FPS_PLAYER_SOUND_PATHS,
     KILL_ECHO_SOUND,
     EMPTY_CLIP_SOUND,
+    RELOAD_SOUND_PATH,
   ]),
 ] as const;
 
@@ -162,7 +156,12 @@ export function playDamageConfirmationSound(event: DamageEvent): void {
 const PAIN_INTERVAL_MS = 400;
 const lastPainAt = new Map<string, number>();
 
-export function playPlayerPainSound(event: DamageEvent, localVictim: boolean, now = performance.now()): void {
+export function playPlayerPainSound(
+  event: DamageEvent,
+  localVictim: boolean,
+  now = performance.now(),
+  voice: PlayerVoiceSet = playerVoiceSet(localVictim ? "ally" : "enemy"),
+): void {
   if (event.damage <= 0) return;
   const last = lastPainAt.get(event.entityId);
   if (last !== undefined && now - last < PAIN_INTERVAL_MS) return;
@@ -171,21 +170,29 @@ export function playPlayerPainSound(event: DamageEvent, localVictim: boolean, no
   if (lastPainAt.size > 64) for (const [id, at] of lastPainAt) if (now - at >= PAIN_INTERVAL_MS) lastPainAt.delete(id);
   // How hurt the victim is, as Warsow (pain25 the worst); an older server or demo sends no
   // tier, and then the damage stands in for it
-  const path = bobotPainSounds[event.painTier ?? damageTier(event.damage)];
+  const path = playerVoiceSound(
+    (["pain25", "pain50", "pain75", "pain100"] as const)[event.painTier ?? damageTier(event.damage)],
+    voice,
+  );
   const audio = AudioManager.getInstance();
   if (localVictim) audio.playSfx2D(path, 0.65, 2, "players");
   else audio.playSfx3D(path, event, { volume: 0.72, channel: "players", slot: `${event.entityId}:pain` });
 }
 
-/** Bobot is the initial Washoi player voice until model-specific banks are configured. */
-export function playPlayerDeathSound(event: DeathEvent, localVictim: boolean): void {
+/** Player voices are a client preference, independent of model and server team names. */
+export function playPlayerDeathSound(
+  event: DeathEvent,
+  localVictim: boolean,
+  voice: PlayerVoiceSet = playerVoiceSet(localVictim ? "ally" : "enemy"),
+): void {
+  const path = playerVoiceSound("death", voice);
   const audio = AudioManager.getInstance();
-  if (localVictim) audio.playSfx2D(BOBOT_DEATH_SOUND, 0.9, 1, "players");
+  if (localVictim) audio.playSfx2D(path, 0.9, 1, "players");
   // The pain slot: dying cuts the last pain short
-  else audio.playSfx3D(BOBOT_DEATH_SOUND, event, { volume: 0.95, channel: "players", slot: `${event.entityId}:pain` });
+  else audio.playSfx3D(path, event, { volume: 0.95, channel: "players", slot: `${event.entityId}:pain` });
 }
 
-/** The deliberately huge Warsow frag confirmation echo. */
+/** Frag confirmation, independent of world distance and on the hit-sound bus. */
 export function playKillEcho(): void {
   AudioManager.getInstance().playSfx2D(KILL_ECHO_SOUND, 1, 2, "hits");
 }

@@ -4,6 +4,7 @@
  */
 
 import { Cvar } from "../../../../engine/core/Cvar";
+import { PLAYER_VOICE_SETS, type PlayerVoiceSet, playerVoiceSet, setPlayerVoiceSet } from "../FPSPlayerAudio";
 import { card, el, type FieldHost, formatPercent, seg, slider, swatches } from "./SettingsFields";
 import {
   applyChoice,
@@ -84,8 +85,10 @@ export class GameplayPage {
     root.append(split);
 
     const colorChoices = TEAM_COLORS.map((color) => ({ value: color, label: color.label, css: color.css }));
-    const sideField = (side: Side, name: string, help?: string) =>
-      swatches<TeamColor>(this.host, fields, {
+    const sideField = (side: Side, name: string, help?: string) => {
+      const row = el("div", "fps-set-team-row");
+      fields.append(row);
+      swatches<TeamColor>(this.host, row, {
         name,
         help,
         choices: colorChoices,
@@ -96,6 +99,25 @@ export class GameplayPage {
           return other ? { value: other, why: "the other side has it" } : null;
         },
       });
+      const label = el("label", "fps-set-voice");
+      label.append(el("span", "fps-set-field__name", "Sounds"));
+      const select = el("select", "fps-set-voice__select");
+      select.setAttribute("aria-label", `${name} sounds`);
+      for (const voice of PLAYER_VOICE_SETS) {
+        const option = el("option", "", voice[0].toUpperCase() + voice.slice(1));
+        option.value = voice;
+        select.append(option);
+      }
+      select.addEventListener("change", () => {
+        setPlayerVoiceSet(side, select.value as PlayerVoiceSet);
+        this.host.changed();
+      });
+      this.host.addRefresh(() => {
+        select.value = playerVoiceSet(side);
+      });
+      label.append(select);
+      row.append(label);
+    };
     sideField("ally", "Your side");
     sideField("enemy", "Enemies", "In free-for-all, that's everyone else");
     seg(this.host, fields, {

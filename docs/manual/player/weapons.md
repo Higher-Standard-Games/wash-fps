@@ -2,6 +2,11 @@
 
 Nine weapons, organized by slot. Numbers below are server-authoritative defaults from the engine repo's `src/shared/entities/definitions/weapons/*.ts` and the matching projectile definitions in `src/shared/entities/definitions/projectiles/*.ts`. Balance is still evolving — file an issue if anything feels off.
 
+Clip weapons play a short mechanical cue when a reload starts. Your own weapon
+and a followed player's weapon use first-person audio; other players' reloads
+come from their position. Repeated snapshots do not repeat the cue, and seeking
+a demo does not replay an already-running reload.
+
 ## At a Glance
 
 | # | Weapon | Tag | Damage | Fire rate | Ammo (reload) | Notes |

@@ -2,6 +2,10 @@
 
 How a hit becomes damage, armor loss and a push. These rules are the same for every weapon and are applied by the server, so what you see on your screen is advice and the server's tick is the truth.
 
+A frag plays a kill-confirmation echo for the killer (also when following that
+player or watching their demo POV). Suicides do not play it. Its volume follows
+`cg_volume_hitsound`, alongside damage confirmation sounds, under the effects volume.
+
 ## Hit locations
 
 Hitscan weapons (Machinegun, Riotgun, Voltaic, Electrobolt, Instagun and the Blade) test where on the body the shot lands. The **Riotgun is the exception for the head**: see below.
@@ -36,6 +40,11 @@ Explosive weapons hurt everyone inside their radius, and the damage **falls off 
 | Instagun | 80 u | 50 | 10 |
 
 A projectile that hits a player directly does its full direct damage (80 for rockets and grenades), and that player is not also hit by the splash from the same explosion. Everyone else in the radius takes the falloff damage.
+
+Projectiles do not directly trigger on their shooter. Nearby world impacts,
+including plasma hitting a close wall, apply the same splash falloff and the
+gametype's self-damage multiplier. Muzzle offsets are traced against the world
+so a close wall cannot place the projectile on its far side.
 
 ## Knockback
 

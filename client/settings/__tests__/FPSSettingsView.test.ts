@@ -35,6 +35,25 @@ afterEach(() => {
 });
 
 describe("FPSSettingsView", () => {
+  it("saves player sound selections and restores Male/Bobot with Gameplay reset", async () => {
+    const root = view.getElement();
+    click(root.querySelector('[data-settings-page="gameplay"]'));
+    const own = root.querySelector<HTMLSelectElement>('select[aria-label="Your side sounds"]')!;
+    const enemy = root.querySelector<HTMLSelectElement>('select[aria-label="Enemies sounds"]')!;
+    expect([...own.options].map((option) => option.value)).toEqual(["male", "female", "bobot"]);
+    own.value = "female";
+    own.dispatchEvent(new Event("change"));
+    enemy.value = "male";
+    enemy.dispatchEvent(new Event("change"));
+    await Promise.resolve();
+    expect(Cvar.getString("cl_team_ally_sounds")).toBe("female");
+    expect(JSON.parse(localStorage.getItem("engine_cvars")!).cl_team_ally_sounds).toBe("female");
+    const reset = byText(root, ".raised-key--reset", "Reset page");
+    click(reset);
+    click(reset);
+    expect(own.value).toBe("male");
+    expect(enemy.value).toBe("bobot");
+  });
   it("keeps slider values live while coalescing saved preferences until release", () => {
     Cvar.set("cl_fov", 90);
     const save = vi.spyOn(Storage.prototype, "setItem");

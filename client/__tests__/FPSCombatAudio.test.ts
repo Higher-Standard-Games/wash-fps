@@ -13,7 +13,6 @@ vi.mock("../../../../engine/AudioManager", () => ({
 import { Attenuation } from "../../../../engine/audio/AudioV2Sfx";
 import type { DamageEvent, DeathEvent, WeaponFireEvent } from "../../../../engine/network/core/SnapshotEvent";
 import {
-  BOBOT_DEATH_SOUND,
   FPS_COMBAT_SOUND_PATHS,
   getProjectileImpactSounds,
   getWeaponFireSounds,
@@ -94,7 +93,7 @@ describe("FPSCombatAudio", () => {
   it("preloads the complete combat, Bobot pain/death, hit and kill bank", async () => {
     await preloadFPSCombatAudio();
     expect(audio.preloadSfx).toHaveBeenCalledWith(FPS_COMBAT_SOUND_PATHS);
-    expect(FPS_COMBAT_SOUND_PATHS).toContain(BOBOT_DEATH_SOUND);
+    expect(FPS_COMBAT_SOUND_PATHS).toContain("sounds/players/male/death.ogg");
     expect(FPS_COMBAT_SOUND_PATHS).toContain(KILL_ECHO_SOUND);
     expect(FPS_COMBAT_SOUND_PATHS).toContain("sounds/misc/hit_0.wav");
     expect(FPS_COMBAT_SOUND_PATHS).toContain("sounds/players/bobot/pain100.ogg");
@@ -127,7 +126,7 @@ describe("FPSCombatAudio", () => {
     expect(audio.playSfx3D).toHaveBeenCalledWith("sounds/players/bobot/pain75.ogg", damageEvent, expect.any(Object));
 
     playPlayerDeathSound(deathEvent, true);
-    expect(audio.playSfx2D).toHaveBeenCalledWith(BOBOT_DEATH_SOUND, 0.9, 1, "players");
+    expect(audio.playSfx2D).toHaveBeenCalledWith("sounds/players/male/death.ogg", 0.9, 1, "players");
 
     playKillEcho();
     expect(audio.playSfx2D).toHaveBeenCalledWith(KILL_ECHO_SOUND, 1, 2, "hits");

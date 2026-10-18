@@ -48,6 +48,7 @@ import { FollowedViewWeapon } from "./FollowedViewWeapon";
 import { preloadFPSAudio } from "./FPSAudio";
 import type { FPSHud } from "./FPSHud";
 import { resetFPSMovementAudio } from "./FPSMovementAudio";
+import { FPSReloadAudio } from "./FPSReloadAudio";
 import { type GameEventContext, handleServerStateUpdate, type ProjectileSyncState } from "./GameEvents";
 import { GibSystem } from "./GibSystem";
 import { currentClip, HUDState } from "./HUDState";
@@ -87,6 +88,7 @@ export class DemoService {
   private remoteRenderer: RemotePlayerRenderer | null = null;
   private demoHud: DemoViewerHUD | null = null;
   private readonly demoEventTimeline = new DemoEventTimeline();
+  private readonly demoReloadAudio = new FPSReloadAudio();
   private readonly demoOverlays = new DemoOverlayController();
   private playbackRaf: number | null = null;
   private lastFrameTimeMs: number = 0;
@@ -562,6 +564,7 @@ export class DemoService {
     this.demoHud?.dispose();
     this.demoHud = null;
     this.demoEventTimeline.clear();
+    this.demoReloadAudio.reset();
     this.demoGibs?.dispose();
     this.demoRagdolls?.dispose();
     this.demoRagdolls = null;
@@ -1125,6 +1128,7 @@ export class DemoService {
       gameHost: null,
       playback: "demo",
       presentOneShots: true,
+      reloadAudio: this.demoReloadAudio,
       damageNumbers: this.demoDamageNumbers ?? undefined,
       v2Client: null,
       remoteRenderer: this.remoteRenderer,
@@ -1162,6 +1166,7 @@ export class DemoService {
     const discontinuous = this.demoEventTimeline.setClock(playback.playheadTick, tickRate, playback.discontinuityId);
 
     if (discontinuous) {
+      this.demoReloadAudio.reset();
       resetFPSMovementAudio();
       clearDemoWorldEffects();
       this.demoGibs?.clear();

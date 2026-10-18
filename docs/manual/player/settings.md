@@ -1,5 +1,15 @@
 # Settings
 
+Effects volume defaults to **100%**. Existing saved volume choices are retained;
+use the Audio page's reset to restore the default, or set the Effects slider to 100%.
+
+In **Gameplay → Who's who**, each side has a **Sounds** dropdown beside its
+colors: Male, Female or Bobot. Your side defaults to Male and enemies to Bobot.
+The selection affects player pain, death and jumping; your own drowning voice
+also uses your side's bank. In FFA, everyone else uses the enemy bank. While
+following a player or watching their demo POV, sides are relative to that player.
+Selections save automatically and Gameplay reset restores the defaults.
+
 Press **Escape** in a match and pick **Settings**, or use the **Settings** key on the lobby's rail. The screen has four pages, and **preferences are saved as you change them**. If storage fails, a **Session only · could not save** notice explains that the changes work until the page is reloaded. **Reset page** and **Reset all** ask once: press the key, then press it again within a few seconds to confirm.
 
 Most settings are console variables (cvars), for example `cl_fov 100`. Key bindings use their own storage. Fullscreen is a browser/window action and is not a saved cvar preference. Reset restores settings and bindings, not browser fullscreen state.

@@ -583,6 +583,8 @@ export const SETTINGS_PAGES: Array<{ id: SettingsPageId; title: string; hint: st
 export const PAGE_CVARS: Record<SettingsPageId, string[]> = {
   controls: ["m_sensitivity", "cl_ads_sensitivity", "cl_autorun"],
   gameplay: [
+    "cl_team_ally_sounds",
+    "cl_team_enemy_sounds",
     "cl_team_ally_color",
     "cl_team_ally_outline_color",
     "cl_team_enemy_color",

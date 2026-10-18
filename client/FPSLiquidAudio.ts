@@ -1,9 +1,10 @@
 /**
  * The sound of entering, leaving and being under a liquid.
  *
- * Warsow authored the whole set and shipped it in the pk3s; none of it was
- * wired. `water_in`, `water_out` and `underwater` have lava counterparts, and
- * `hit_water` is the impact splash a projectile makes.
+ * The CC0 washoi_sounds.pk3 bank keeps the compatible sound paths.
+ * `water_in`, `water_out` and `underwater` have lava counterparts, and
+ * `hit_water` is the impact splash a projectile makes. Submerged loops are
+ * preloaded for compatibility; crossing and drowning cues have playback callers.
  *
  * Mirrors the other FPS audio banks: a path list, a `preload*`, and a small
  * classifier. Local sounds play 2D so they are distance-independent — your own
@@ -12,6 +13,7 @@
 
 import { AudioManager } from "../../../engine/AudioManager";
 import type { LiquidKind } from "../liquid/LiquidTypes";
+import { playerVoiceSet, playerVoiceSound } from "./FPSPlayerAudio";
 
 const WATER_IN = "sounds/world/water_in.ogg";
 const WATER_OUT = "sounds/world/water_out.ogg";
@@ -21,13 +23,6 @@ const LAVA_OUT = "sounds/world/lava_out.ogg";
 const UNDERLAVA = "sounds/world/underlava.ogg";
 /** Projectile and body impacts on a surface, rather than a body crossing it. */
 export const HIT_WATER = "sounds/misc/hit_water.wav";
-/**
- * Running out of air.
- *
- * Warsow shipped a per-character drown sound; Bobot's is the one this game's
- * player uses, matching the pain and jump voices already wired.
- */
-const DROWN = "sounds/players/bobot/drown.ogg";
 
 export const FPS_LIQUID_SOUND_PATHS = [
   WATER_IN,
@@ -37,7 +32,6 @@ export const FPS_LIQUID_SOUND_PATHS = [
   LAVA_OUT,
   UNDERLAVA,
   HIT_WATER,
-  DROWN,
 ] as const;
 
 export async function preloadFPSLiquidAudio(): Promise<void> {
@@ -47,7 +41,7 @@ export async function preloadFPSLiquidAudio(): Promise<void> {
 /**
  * Slime borrows water's sounds deliberately.
  *
- * Warsow authored no slime set, and lava's roar is wrong for it — slime is a
+ * The bank has no separate slime set, and lava's roar is wrong for it — slime is a
  * liquid you fall into, not a furnace. Water's splash with the slime visuals
  * over it reads correctly; inventing a third sound would be worse than reusing
  * the one that fits.
@@ -86,13 +80,13 @@ export function splashVolume(verticalSpeed: number): number {
  * sequence overlaps itself into noise rather than stacking into a wall.
  */
 export function playDrownGasp(): void {
-  AudioManager.getInstance().playSfx2D(DROWN, 1.0, 1, "players");
+  AudioManager.getInstance().playSfx2D(playerVoiceSound("drown", playerVoiceSet("ally")), 1.0, 1, "players");
 }
 
 export function playDrownTick(): void {
   // Quieter than the first: the first is news, the rest are a countdown the
   // player already knows they are in.
-  AudioManager.getInstance().playSfx2D(DROWN, 0.55, 1, "players");
+  AudioManager.getInstance().playSfx2D(playerVoiceSound("drown", playerVoiceSet("ally")), 0.55, 1, "players");
 }
 
 /** Play a body crossing the surface. Local plays 2D, remote plays in the world. */

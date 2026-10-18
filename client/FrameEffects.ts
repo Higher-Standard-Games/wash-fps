@@ -10,8 +10,10 @@
 
 import type { Scene } from "@babylonjs/core/scene";
 import { devLog } from "./DevLog";
+import { FPSReloadAudio } from "./FPSReloadAudio";
 
 export class FrameEffects {
+  readonly reloadAudio = new FPSReloadAudio();
   gibSystem: any = null;
   private gibSystemLoading = false; // true while import() is pending
   pendingGibSpawns: { x: number; y: number; z: number; vx: number; vy: number; vz: number }[] = [];
@@ -31,6 +33,7 @@ export class FrameEffects {
    * expire, and a ragdoll explodes into gibs, in the next one.
    */
   clearWorld(): void {
+    this.reloadAudio.reset();
     this.pendingGibSpawns = [];
     this.ragdollSystem?.disposeAll();
     this.gibSystem?.clear();

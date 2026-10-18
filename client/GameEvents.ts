@@ -89,6 +89,8 @@ import { FPSPickup } from "../world/FPSPickup";
 import type { ServerAmmoState } from "../world/InventoryManager";
 import { devLog } from "./DevLog";
 import type { FollowedViewWeapon } from "./FollowedViewWeapon";
+import { playerVoiceForEntity } from "./FPSPlayerAudio";
+import type { FPSReloadAudio } from "./FPSReloadAudio";
 import { networkHostOf } from "./NetworkHostAccess";
 
 /**
@@ -111,6 +113,7 @@ export interface GameEventContext {
    * landing frame. State still applies; sounds, effects and messages do not.
    */
   presentOneShots?: boolean;
+  reloadAudio?: FPSReloadAudio;
   /** Hit numbers on a clock of their own (a demo's); the shared ones otherwise. */
   damageNumbers?: { spawn(x: number, y: number, z: number, damage: number, hitLocation?: HitLocationName): void };
 
@@ -252,6 +255,7 @@ const ONE_SHOT_EVENTS: ReadonlySet<string> = new Set([
 
 export function handleServerStateUpdate(ctx: GameEventContext, state: GameState): void {
   ctx._stateUpdateCount++;
+  ctx.reloadAudio?.prune(state.entities.keys());
 
   // Record snapshot for NetGraph
   const localPlayer = state.players.get(ctx.localPlayerId);
@@ -305,6 +309,12 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
             break;
 
           case "weapon_state":
+            ctx.reloadAudio?.observe(
+              event,
+              event.entityId === viewEntityId,
+              state.entities.get(event.entityId)?.getComponent<TransformComponent>("transform")?.position,
+              ctx.presentOneShots !== false,
+            );
             if (event.entityId === localEntityId) {
               handleWeaponStateSync(ctx, event);
             }
@@ -483,7 +493,12 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
 
           case "damage": {
             HUDState.getInstance().processDamage(event);
-            playPlayerPainSound(event, event.entityId === viewEntityId);
+            playPlayerPainSound(
+              event,
+              event.entityId === viewEntityId,
+              undefined,
+              playerVoiceForEntity(state, event.entityId, viewEntityId),
+            );
 
             // === INCOMING DAMAGE: the player on screen is the victim ===
             if (event.entityId === viewEntityId && event.damage > 0) {
@@ -539,7 +554,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
 
           case "death": {
             const viewVictim = event.entityId === viewEntityId;
-            playPlayerDeathSound(event, viewVictim);
+            playPlayerDeathSound(event, viewVictim, playerVoiceForEntity(state, event.entityId, viewEntityId));
             if (event.killerId === viewEntityId && !viewVictim) playKillEcho();
             // Powerups do not survive death (GametypeController clears them on
             // respawn); drop the timers now so the HUD and the quad fire layer
@@ -657,8 +672,8 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
         let light = ctx.chargingGlows.get(entityId);
         if (!light) {
           light = new PointLight(`charge_glow_${entityId}`, new Vector3(pos.x, pos.y + 30, pos.z), scene);
-          light.diffuse = new Color3(1.0, 0.15, 0.05);
-          light.specular = new Color3(1.0, 0.1, 0.0);
+          light.diffuse = new Color3(0.05, 1.0, 0.9);
+          light.specular = new Color3(0.05, 1.0, 0.9);
           light.range = 60;
           light.intensity = 8;
           addToDynamicLightCluster(scene, light);

@@ -9,7 +9,7 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-it("constructs the match menu and falls back to reload when session storage is blocked", () => {
+it("constructs the match menu and opens Play when session storage is blocked", () => {
   vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
     throw new Error("Storage blocked");
   });
@@ -17,29 +17,20 @@ it("constructs the match menu and falls back to reload when session storage is b
   expect(document.body.textContent).toContain("Leave match");
   menu.destroy();
   const navigate = vi.fn();
-  const reload = vi.fn();
-  returnToLobby(navigate, reload);
-  expect(navigate).not.toHaveBeenCalled();
-  expect(reload).toHaveBeenCalledOnce();
+  vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+    throw new Error("Storage blocked");
+  });
+  returnToLobby(navigate);
+  expect(navigate).toHaveBeenCalledWith(new URL(window.location.origin).href);
 });
 
-it("returns to the private room and falls back safely if reading its invite fails", () => {
+it("returns to main Play without rejoining the old private room", () => {
   sessionStorage.setItem("shag.return_lobby", "room-one");
   sessionStorage.setItem("shag.private_invite.room-one", "test-invite");
   const navigate = vi.fn();
-  const reload = vi.fn();
-  returnToLobby(navigate, reload);
+  returnToLobby(navigate);
   const url = new URL(navigate.mock.calls[0][0]);
-  expect(url.searchParams.get("lobby")).toBe("room-one");
-  expect(url.searchParams.get("invite")).toBe("test-invite");
-  expect(reload).not.toHaveBeenCalled();
-  const read = Storage.prototype.getItem;
-  vi.spyOn(Storage.prototype, "getItem").mockImplementation(function (this: Storage, key) {
-    if (key.startsWith("shag.private_invite")) throw new Error("Storage blocked");
-    return read.call(this, key);
-  });
-  navigate.mockClear();
-  returnToLobby(navigate, reload);
-  expect(navigate).not.toHaveBeenCalled();
-  expect(reload).toHaveBeenCalledOnce();
+  expect(url.href).toBe(new URL(window.location.origin).href);
+  expect(sessionStorage.getItem("shag.return_lobby")).toBeNull();
+  expect(sessionStorage.getItem("shag.private_invite.room-one")).toBe("test-invite");
 });

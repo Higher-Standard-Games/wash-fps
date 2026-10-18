@@ -24,6 +24,7 @@ import { RenderVars } from "../../../../engine/rendering/RenderVars";
 import { createRaisedKey, injectRaisedKeyStyles, setRaisedKeyText } from "../../../../engine/ui/components/RaisedKey";
 import { UIStyles } from "../../../../engine/ui/UIStyles";
 import { registerFPSActions } from "../FPSActions";
+import { registerPlayerAudioCvars } from "../FPSPlayerAudio";
 import { registerPlayerModelVisualCvars } from "../PlayerModelVisualSettings";
 import "../Crosshair";
 import { AudioPage } from "./AudioPage";
@@ -73,6 +74,7 @@ export class FPSSettingsView {
     Cvar.init();
     registerFpsDisplayCvar();
     registerPlayerModelVisualCvars();
+    registerPlayerAudioCvars();
     RenderVars.getInstance();
     AudioManager.getInstance();
     MovementVars.getInstance();

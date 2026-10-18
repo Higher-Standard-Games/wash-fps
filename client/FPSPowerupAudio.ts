@@ -12,7 +12,7 @@
  *    every shot while quad is up. It is the running reminder that your damage
  *    is quadrupled, and it stops the instant the powerup lapses.
  *
- * Media: sounds/items/quad_*.ogg from data0_21pure.pk3 (mounted at map load).
+ * Media: sounds/items/quad_*.ogg from the indexed CC0 washoi_sounds.pk3 bank.
  */
 
 import { AudioManager } from "../../../engine/AudioManager";

@@ -234,13 +234,9 @@ export class ProjectileSystem extends Subsystem {
       for (const target of state.entitiesByType(EntityType.Player)) {
         if (!target.transform || !target.health || target.health.dead) continue;
 
-        // Self-damage: skip if selfDamage multiplier is 0
-        const isSelf = target.ownerId === projectile.ownerId;
-        if (isSelf && this.selfDamageMultiplier <= 0) continue;
-
-        // Grenades (bouncing projectiles) pass through their owner —
-        // prevents self-triggering on throw. Splash damage still applies.
-        if (isSelf && meta.bouncesLeft >= 0) continue;
+        // Projectiles leave their owner's body without direct-hit triggering.
+        // Nearby impacts hurt the shooter through the shared splash calculation.
+        if (target.ownerId === projectile.ownerId) continue;
 
         // Simple sphere collision
         const distSq =
@@ -253,7 +249,7 @@ export class ProjectileSystem extends Subsystem {
           // Direct hit!
           const weaponDef = WEAPONS[meta.defId];
           const baseDamage = meta.damageOverride ?? weaponDef?.damage ?? 80;
-          const damage = isSelf ? Math.round(baseDamage * this.selfDamageMultiplier) : baseDamage;
+          const damage = baseDamage;
 
           if (damage > 0) {
             // KB direction = projectile velocity (momentum transfer)

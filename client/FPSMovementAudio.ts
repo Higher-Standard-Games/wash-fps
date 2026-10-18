@@ -7,6 +7,7 @@ import type { VelocityComponent } from "../../../engine/network/components/Veloc
 import type { GameState } from "../../../engine/network/core/GameState";
 import { getCollisionManager } from "../../../engine/physics/CollisionManager";
 import { CollisionMasks, SurfaceFlags } from "../../../engine/physics/ContentFlags";
+import { playerVoiceForEntity, playerVoiceSound } from "./FPSPlayerAudio";
 
 const normalFootsteps = [
   "sounds/world/ft_step1.ogg",
@@ -18,15 +19,14 @@ const metalFootsteps = [
   "sounds/world/ft_step_met2.ogg",
   "sounds/world/ft_step_met3.ogg",
 ] as const;
-const bobotJumps = ["sounds/players/bobot/jump_1.ogg", "sounds/players/bobot/jump_2.ogg"] as const;
 
 /** Vertical units between ladder rung sounds. */
 const LADDER_RUNG_SPACING = 44;
 
-/** Warsow's own trigger_push sound, shipped in data0_000_nonfree_21pure.pk3. */
+/** Shared jumppad launch cue from the CC0 sound bank. */
 const jumppadLaunch = "sounds/world/jumppad.ogg";
 
-export const FPS_MOVEMENT_SOUND_PATHS = [...normalFootsteps, ...metalFootsteps, ...bobotJumps, jumppadLaunch] as const;
+export const FPS_MOVEMENT_SOUND_PATHS = [...normalFootsteps, ...metalFootsteps, jumppadLaunch] as const;
 
 /**
  * A jumppad throwing someone into the air.
@@ -106,7 +106,10 @@ export function processFPSMovementAudio(state: GameState, localEntityId?: string
     // A grounded -> rising edge is a jump, while teleports and seek jumps are
     // rejected by the travel cap below.
     if (previous.grounded && !velocity.grounded && velocity.linear.y > 60 && horizontalTravel < 256) {
-      const path = bobotJumps[jumpSequence++ % bobotJumps.length];
+      const path = playerVoiceSound(
+        jumpSequence++ % 2 === 0 ? "jump_1" : "jump_2",
+        playerVoiceForEntity(state, entityId, localEntityId),
+      );
       playAtPlayer(path, position, local, 0.72, "players", `${entityId}:body`);
     }
 
