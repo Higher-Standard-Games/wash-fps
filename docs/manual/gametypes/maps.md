@@ -13,16 +13,16 @@ Each room draws three maps at random from the pool for the vote, so a mode with 
 
 | Map | Name | Modes |
 |-----|------|-------|
-| `wfdm1` | Flew over (Warfork) | Duel, FFA |
-| `wfdm11` | Warehouse C (Warfork) | Duel, FFA |
+| `washoidm2` | Washoi DM2 | Duel |
+| `washoidm5` | Washoi DM5 | Duel, FFA |
+| `washoidm11` | Washoi DM11 | Duel, FFA |
 | `wamphi1` | Amphitheatre | Amphi |
-| `wda1` | Arena One | Amphi |
-| `wda2` | Arena Two | Amphi |
 | `wbomb2` | Reactors | S&D |
 | `wbomb6` | Depot | S&D |
 
-The table shows the configured lobby pools. Duel and FFA offer `wfdm1` and
-`wfdm11` for the Warfork map trial; older maps remain playable through the console.
+The table shows the configured lobby pools, filtered against installed packages.
+Existing demos recorded on `wdm2`, `wfdm5` or `wfdm11` load the corresponding
+Washoi BSP without changing their recorded metadata or texture references.
 
 ## Playing any installed map
 

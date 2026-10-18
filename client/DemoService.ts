@@ -31,7 +31,6 @@ import type { DemoInfo } from "../../../lobby/types";
 import { SHOT_CONTENT_MASK } from "../../../shared/collision/CollisionWorld";
 import { DemoAnalyzer } from "../../../shared/demo/DemoAnalyzer";
 import type { RecordedInput } from "../../../shared/demo/DemoInputs";
-import { normalizeDemoMapName } from "../../../shared/demo/DemoMapName";
 import { DemoReader } from "../../../shared/demo/DemoReader";
 import { canonicalWeaponId, WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
 import { isClientKey, toClientKey } from "../ClientEntityKey";
@@ -41,6 +40,7 @@ import { Crosshair } from "./Crosshair";
 import { DamageNumbers } from "./DamageNumbers";
 import { demoLoadCancelled, downloadDemo } from "./DemoDownload";
 import { DemoEventTimeline } from "./DemoEventTimeline";
+import { resolveFPSDemoMap } from "./DemoMapAliases";
 import { DemoOverlayController } from "./DemoOverlayController";
 import { watchedEyePose } from "./DemoPovState";
 import type { DemoDeath, DemoViewer, DemoViewerInfo } from "./DemoViewer";
@@ -612,7 +612,7 @@ export class DemoService {
     const header = reader?.readHeader();
     if (!header?.map) return;
 
-    const mapName = normalizeDemoMapName(header.map);
+    const mapName = resolveFPSDemoMap(header.map);
     if (!mapName) {
       throw new Error(`Demo has no usable map name (recorded: "${header.map}").`);
     }
