@@ -70,14 +70,14 @@ export class LobbyWelcomeDialog {
     document.body.style.overflow = "hidden";
     this.root.setAttribute("role", "dialog");
     this.root.setAttribute("aria-modal", "true");
-    this.root.setAttribute("aria-label", "Welcome to Washoi and movement tips");
+    this.root.setAttribute("aria-label", "Welcome to Washoi ALPHA and movement tips");
     const header = el("header", "lobby-guide__header");
     header.append(el("span", "lobby-guide__eyebrow", "WASHOI / READY TO PLAY"), el("h1", "", "Find your flow."));
     const tablist = el("div", "lobby-guide__tabs");
     tablist.setAttribute("role", "tablist");
     tablist.setAttribute("aria-label", "Welcome guide");
     const content = el("div", "lobby-guide__content");
-    const names = ["Welcome to Washoi!", "Your keys", "Tip of the day"];
+    const names = ["Welcome to Washoi ALPHA", "Your keys", "Tip of the day"];
     names.forEach((name, index) => {
       const tab = button("lobby-guide__tab", `${index + 1}. ${name}`);
       tab.id = `lobby-guide-tab-${index}`;
@@ -131,7 +131,7 @@ export class LobbyWelcomeDialog {
       el(
         "p",
         "",
-        "Welcome to Washoi, an arena shooter where movement makes the difference. Chain jumps, slide through corners and push off walls to keep your momentum.",
+        "Welcome to Washoi ALPHA, an arena shooter where movement makes the difference. Chain jumps, slide through corners and push off walls to keep your momentum.",
       ),
       el("p", "", "Pick a match in the lobby, experiment with your movement, and find your flow."),
       el("p", "lobby-guide__muted", "Here's a quick look at your controls and a few tricks to get you started."),

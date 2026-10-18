@@ -31,9 +31,6 @@ export class FPSSettingsOverlay extends GameDialogPanel {
     this.dialog.tabIndex = -1;
     this.dialog.replaceChildren();
 
-    const kanji = element("div", "fps-match-menu__kanji", "闘");
-    kanji.setAttribute("aria-hidden", "true");
-
     const head = element("div", "fps-match-menu__head");
     this.kickerEl = element("div", "fps-match-menu__kicker");
     head.append(buildRailBrand("fps-match-menu__logo"), this.kickerEl);
@@ -44,7 +41,6 @@ export class FPSSettingsOverlay extends GameDialogPanel {
     foot.append(back);
 
     this.dialog.append(
-      kanji,
       head,
       element("div", "fps-match-menu__label", "Settings"),
       this.settingsView.takePageNav(),

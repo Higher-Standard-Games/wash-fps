@@ -63,17 +63,6 @@
   z-index: 1;
 }
 
-.fps-match-menu__rail > .fps-match-menu__kanji {
-  position: absolute;
-  z-index: 0;
-  right: 14%;
-  bottom: 16%;
-  font: 400 clamp(180px, 19vw, 300px) / 0.8 serif;
-  color: hsla(30, 90%, 22%, 0.1);
-  pointer-events: none;
-  user-select: none;
-}
-
 .fps-match-menu__head {
   display: flex;
   flex: 0 0 auto;

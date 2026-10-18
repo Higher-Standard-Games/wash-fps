@@ -55,9 +55,6 @@ export class FPSPauseMenu extends GameDialogPanel {
     this.dialog.tabIndex = -1;
     this.dialog.replaceChildren();
 
-    const kanji = element("div", "fps-match-menu__kanji", "闘");
-    kanji.setAttribute("aria-hidden", "true");
-
     const head = element("div", "fps-match-menu__head");
     this.kickerEl = element("div", "fps-match-menu__kicker");
     head.append(
@@ -106,7 +103,7 @@ export class FPSPauseMenu extends GameDialogPanel {
     });
     foot.append(plate, leave);
 
-    this.dialog.append(kanji, head, keys, foot);
+    this.dialog.append(head, keys, foot);
   }
 
   public override open(): void {
