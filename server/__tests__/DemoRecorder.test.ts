@@ -69,7 +69,7 @@ describe("DemoRecorder min-duration guard", () => {
     written.push(fp);
     const reader = new DemoReader(new Uint8Array(fs.readFileSync(fp)));
     expect(reader.readHeader()).toMatchObject({
-      version: 5,
+      version: 6,
       private: true,
       matchId: "match-verified",
       players: [
@@ -97,6 +97,21 @@ describe("DemoRecorder min-duration guard", () => {
     ]);
     // …and the second has none, because nothing was pressed after the flush
     expect(frames[1].inputs).toEqual([]);
+  });
+
+  it("records persistent brush state in a v6 frame", async () => {
+    const rec = new DemoRecorder({ ...base, minDurationMs: 0 });
+    const state = frame(125);
+    state.events.push({
+      type: "match_state",
+      objective: { kind: "bomb", phase: "detonated", disabledModels: [5, 6] },
+    } as never);
+    rec.recordFrame(state);
+    const file = await rec.stop();
+    written.push(file);
+    const reader = new DemoReader(new Uint8Array(fs.readFileSync(file)));
+    expect(reader.readHeader().version).toBe(6);
+    expect(reader.readAllFrames()[0].state.events[0]).toMatchObject({ objective: { disabledModels: [5, 6] } });
   });
 
   it("never overwrites a demo that finished in the same second", async () => {

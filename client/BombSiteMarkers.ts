@@ -22,7 +22,9 @@ import { CreateTorus } from "@babylonjs/core/Meshes/Builders/torusBuilder";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Scene } from "@babylonjs/core/scene";
 import { AudioManager } from "../../../engine/AudioManager";
+import { getCollisionManager } from "../../../engine/physics/CollisionManager";
 import { getExplosionEffect, ROCKET_EXPLOSION } from "../../../engine/weapon/ExplosionEffect";
+import { BombSiteDebris } from "./BombSiteDebris";
 import { BOMB_BLAST_SOUND } from "./FPSBombAudio";
 import { type BombExplosionEvent, MatchStateManager } from "./MatchStateManager";
 
@@ -88,6 +90,7 @@ export function bombExplosionSignature(round: number, explosion: BombExplosionEv
 }
 
 export class BombSiteMarkers {
+  private readonly debris: BombSiteDebris;
   private readonly scene: Scene;
   private markers = new Map<number, Marker>();
   private elapsed = 0;
@@ -100,12 +103,17 @@ export class BombSiteMarkers {
 
   constructor(scene: Scene) {
     this.scene = scene;
+    this.debris = new BombSiteDebris(scene);
     getExplosionEffect().init(scene);
   }
 
   update(dt: number): void {
     this.elapsed += dt;
     const match = MatchStateManager.getInstance();
+    getCollisionManager()
+      .getSweepBackend()
+      ?.brushModels?.restore(match.bomb?.disabledModels ?? []);
+    this.debris.update(dt, match.round, match.bomb?.disabledModels ?? []);
 
     this.syncMarkers(match.bomb?.sites ?? []);
     this.scheduleExplosion(match);
@@ -316,6 +324,7 @@ export class BombSiteMarkers {
   }
 
   dispose(): void {
+    this.debris.dispose();
     this.clearMarkers();
     this.pending = [];
   }

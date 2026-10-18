@@ -34,16 +34,16 @@ const ANNOUNCE = {
   taken: { offense: "sounds/announcer/bomb/offense/taken.ogg", defense: null },
   /** Placed at a site, arm meter filling — the bomb is down but not yet live. */
   planted: {
-    offense: "sounds/announcer/bomb/offense/planted.ogg",
-    defense: "sounds/announcer/bomb/defense/planted.ogg",
+    offense: "sounds/announcer/bomb/offense/inplace.ogg",
+    defense: null,
   },
   /**
    * Armed and counting down. A separate moment from being placed, and the two
    * ask different things of you: "it is down" versus "it is live, go".
    */
   armed: {
-    offense: "sounds/announcer/bomb/offense/inplace.ogg",
-    defense: "sounds/announcer/bomb/defense/defuse.ogg",
+    offense: "sounds/announcer/bomb/offense/planted.ogg",
+    defense: "sounds/announcer/bomb/defense/planted.ogg",
   },
   defused: {
     offense: "sounds/announcer/bomb/offense/defused.ogg",
@@ -105,7 +105,6 @@ export const FPS_BOMB_SOUND_PATHS = [
   BOMB_BLAST_SOUND,
   ANNOUNCE.taken.offense,
   ANNOUNCE.planted.offense,
-  ANNOUNCE.planted.defense,
   ANNOUNCE.armed.offense,
   ANNOUNCE.armed.defense,
   ANNOUNCE.defused.offense,

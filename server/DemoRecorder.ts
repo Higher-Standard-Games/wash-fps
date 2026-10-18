@@ -37,11 +37,10 @@ import {
 const DEMO_MAGIC = new Uint8Array([0x53, 0x48, 0x41, 0x47]); // "SHAG"
 
 /**
- * Current demo format version. 5 has v4's header; its frames may carry each
- * player's view behind bit 7 of the movement byte, which a v4 reader would
- * misread, so it is a version of its own.
+ * Version 6 retains v5's header and player view encoding and adds optional
+ * persistent disabled brush models to the bomb objective's JSON state.
  */
-const DEMO_VERSION = 5;
+const DEMO_VERSION = 6;
 
 // ── Types ───────────────────────────────────────────────────────────────
 

@@ -41,6 +41,7 @@ import { log } from "../../../../engine/core/Log";
 import { PLAYER_ORIGIN_HEIGHT } from "../../../../engine/physics/PlayerPhysicsConstants";
 import type { BombSite, Vec3Like } from "../../../../shared/bsp/BombSiteTable";
 import { extractBombSites, isBombMap, spawnCentroid } from "../../../../shared/bsp/BombSiteTable";
+import { BrushModelState, extractBrushModels } from "../../../../shared/bsp/BrushModelState";
 import { WEAPON_PICKUP_CLASSNAMES } from "../../../../shared/bsp/PickupTable";
 import type { CollisionWorld } from "../../../../shared/collision/CollisionWorld";
 import { rngFrom } from "../../../../shared/DeterministicRng";
@@ -102,8 +103,6 @@ const PRIORITY_FETCH = 0.7;
 const PRIORITY_ESCORT = 0.55;
 /** Holding a site pre-plant is a default, not an order. */
 const PRIORITY_HOLD = 0.5;
-/** Going to find the carrier. Below arming — it is a means, not the end. */
-const PRIORITY_HUNT = 0.6;
 
 /** Within this of the planted bomb you can arm or defuse it. */
 const ARM_RADIUS = 64;
@@ -214,7 +213,9 @@ export class SearchAndDestroy extends BaseGametype {
   private explosionUntilTick = 0;
   /** Blasts of the detonation still to go off, each at the tick it lands. */
   private pendingBlasts: { tick: number; at: Vec3Like; radius: number }[] = [];
-  /** Site each defender covers this tick. Recomputed by `assignRoles`. */
+  private brushModels = new BrushModelState([]);
+  private pendingStructures: { tick: number; modelIndex: number }[] = [];
+  /** Stable site assignments, rebalanced when the living roster changes. */
   private siteByDefender = new Map<number, number>();
   /** The one attacker doing the job that needs exactly one person. */
   private bombWorkerId: number | null = null;
@@ -364,6 +365,8 @@ export class SearchAndDestroy extends BaseGametype {
    */
   onMapLoad(context: GametypeMapContext): void {
     this.collision = context.collision;
+    this.brushModels = new BrushModelState(extractBrushModels(context.entities, context.models));
+    this.pendingStructures = [];
     this.sites = [];
     this.bombSpawns.clear();
 
@@ -406,6 +409,10 @@ export class SearchAndDestroy extends BaseGametype {
     this.attackers = context.attackingTeam;
     this.round = context.round;
     this.pendingBlasts = [];
+    this.pendingStructures = [];
+    this.brushModels.reset();
+    this.collision?.brushModels?.reset();
+    this.siteByDefender.clear();
     this.bomb.reset(this.bombSpawns.get(BETA_TEAM) ?? { x: 0, y: 0, z: 0 });
 
     // A chosen kit takes effect here and nowhere else. Players respawn moments
@@ -423,6 +430,7 @@ export class SearchAndDestroy extends BaseGametype {
     this.attackers = context.attackingTeam;
     this.tick = context.tick as number;
     this.round = context.round;
+    this.updateStructures();
     if (!context.live) {
       this.fireBlasts(state, context);
       return null;
@@ -481,6 +489,7 @@ export class SearchAndDestroy extends BaseGametype {
     const beepTicks = this.bomb.beepIntervalTicks(this.tick);
     return {
       kind: "bomb",
+      disabledModels: this.brushModels.snapshot(),
       phase: this.bomb.phase,
       x: this.bomb.position.x,
       y: this.bomb.position.y,
@@ -687,6 +696,7 @@ export class SearchAndDestroy extends BaseGametype {
 
       switch (event.kind) {
         case "detonated":
+          this.scheduleStructures(this.bomb.siteId);
           this.explosion = this.buildExplosion(this.bomb.siteId);
           this.explosionUntilTick = (this.tick as number) + EXPLOSION_REPEAT_TICKS;
           this.scheduleBlasts(this.explosion);
@@ -809,10 +819,33 @@ export class SearchAndDestroy extends BaseGametype {
     // bots swapping sites forever. Entity id is arbitrary but constant.
     defenders.sort((a, b) => a.entityId - b.entityId);
 
-    this.siteByDefender.clear();
+    const living = new Set(defenders.map((player) => player.entityId));
+    for (const id of this.siteByDefender.keys()) {
+      if (!living.has(id)) this.siteByDefender.delete(id);
+    }
     if (this.sites.length > 0) {
-      for (let i = 0; i < defenders.length; i++) {
-        this.siteByDefender.set(defenders[i].entityId, this.sites[i % this.sites.length].id);
+      const counts = new Map(this.sites.map((site) => [site.id, 0]));
+      for (const siteId of this.siteByDefender.values()) counts.set(siteId, (counts.get(siteId) ?? 0) + 1);
+      for (const defender of defenders) {
+        if (this.siteByDefender.has(defender.entityId)) continue;
+        const site = this.sites.reduce((best, candidate) =>
+          (counts.get(candidate.id) ?? 0) < (counts.get(best.id) ?? 0) ? candidate : best,
+        );
+        this.siteByDefender.set(defender.entityId, site.id);
+        counts.set(site.id, (counts.get(site.id) ?? 0) + 1);
+      }
+      // Move only surplus defenders when casualties leave an uneven split.
+      // Unaffected assignments remain stable rather than rotating every tick.
+      while (true) {
+        const ordered = [...this.sites].sort((a, b) => (counts.get(a.id) ?? 0) - (counts.get(b.id) ?? 0));
+        const least = ordered[0].id;
+        const most = ordered[ordered.length - 1].id;
+        if ((counts.get(most) ?? 0) - (counts.get(least) ?? 0) <= 1) break;
+        const transfer = [...defenders].reverse().find((player) => this.siteByDefender.get(player.entityId) === most);
+        if (!transfer) break;
+        this.siteByDefender.set(transfer.entityId, least);
+        counts.set(most, (counts.get(most) ?? 0) - 1);
+        counts.set(least, (counts.get(least) ?? 0) + 1);
       }
     }
 
@@ -881,6 +914,15 @@ export class SearchAndDestroy extends BaseGametype {
     const bomb = this.bomb.position;
     const me = this.entityIdOf(context.entityId);
 
+    // A placed bomb identifies the attacked site before its arming meter is
+    // complete. Defenders rotate now, rather than holding the other site until
+    // the fuse starts. Proximity only defuses once the bomb is actually armed.
+    if (!attacking && this.bomb.phase === "planted") {
+      return [
+        this.directive("snd_contest_plant", "move_to", bomb, DEFUSE_RADIUS, PRIORITY_DEFUSE, expiresAtTick, "never"),
+      ];
+    }
+
     // ── Armed: the round has inverted ──────────────────────────────
     if (this.bomb.isArmed) {
       if (!attacking) {
@@ -925,19 +967,6 @@ export class SearchAndDestroy extends BaseGametype {
         ),
       );
 
-      // Killing the carrier drops the bomb, which is worth going to find them
-      // for — ordinary target selection only reacts to what is already visible.
-      const carrier = this.bomb.carrierId;
-      if (carrier !== null) {
-        directives.push({
-          id: "snd_hunt_carrier",
-          kind: "hunt",
-          target: { type: "player", entityId: toClientKey(carrier as EntityId) },
-          priority: PRIORITY_HUNT,
-          expiresAtTick,
-          interrupt: "higher_priority",
-        });
-      }
       return directives;
     }
 
@@ -1123,6 +1152,27 @@ export class SearchAndDestroy extends BaseGametype {
       }
     }
     return best;
+  }
+
+  private scheduleStructures(siteId: number | null): void {
+    const target = this.sites.find((site) => site.id === siteId)?.target;
+    if (!target) return;
+    this.pendingStructures = this.brushModels.definitions
+      .filter((definition) => definition.targetname === target)
+      .map((definition) => ({
+        modelIndex: definition.modelIndex,
+        tick: this.tick + Math.round(definition.delay * TICK_RATE),
+      }));
+    this.updateStructures();
+  }
+
+  private updateStructures(): void {
+    for (const structure of this.pendingStructures) {
+      if (structure.tick > this.tick) continue;
+      this.brushModels.setEnabled(structure.modelIndex, false);
+      this.collision?.brushModels?.setEnabled(structure.modelIndex, false);
+    }
+    this.pendingStructures = this.pendingStructures.filter((structure) => structure.tick > this.tick);
   }
 
   /** Is the surface under this point flat enough to plant on? */

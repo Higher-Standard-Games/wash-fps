@@ -5,6 +5,7 @@
  * match phase, timer, and ready status for HUD consumption.
  */
 
+import { getCollisionManager } from "../../../engine/physics/CollisionManager";
 import type {
   BombExplosionEvent,
   BombObjectiveSnapshot,
@@ -105,6 +106,9 @@ export class MatchStateManager {
     this._teamRoles = event.teamRoles ?? {};
     this._roundState = event.roundState ?? null;
     this._objective = event.objective ?? null;
+    getCollisionManager()
+      .getSweepBackend()
+      ?.brushModels?.restore(this.bomb?.disabledModels ?? []);
     this._roundResult = event.roundResult ?? null;
     this._explosion = event.explosion ?? null;
 
@@ -351,6 +355,10 @@ export class MatchStateManager {
   // ========================================================================
 
   reset(): void {
+    this._objective = null;
+    this._explosion = null;
+    this._round = 0;
+    getCollisionManager().getSweepBackend()?.brushModels?.reset();
     this._phase = MatchPhase.Warmup;
     this._timeRemaining = 0;
     this._readyCount = 0;

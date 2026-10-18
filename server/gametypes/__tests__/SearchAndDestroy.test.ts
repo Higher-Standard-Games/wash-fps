@@ -415,6 +415,38 @@ describe("agent directives", () => {
     expect(new Set(sites).size).toBe(2);
   });
 
+  it("preserves assignments after a casualty when both sites remain covered", () => {
+    const mode = loaded();
+    const players: FakePlayer[] = [
+      { id: 1, ownerId: 1, team: "udon", position: BOMB_SPAWN },
+      ...[10, 11, 12, 13].map((id) => ({ id, ownerId: id, team: "soba", position: { x: 3000, y: 0, z: 0 } })),
+    ];
+    run(mode, players, 1);
+    const assignment = (id: number) =>
+      mode.getAgentDirectives(directiveContext({ teamId: "soba", entityId: `player_${id}` }), fakeState(players))[0].id;
+    const before = new Map([11, 12, 13].map((id) => [id, assignment(id)]));
+    players.find((p) => p.id === 10)!.dead = true;
+    run(mode, players, 1, 1);
+    for (const [id, site] of before) expect(assignment(id)).toBe(site);
+  });
+
+  it("rotates one surplus defender when casualties leave a site empty", () => {
+    const mode = loaded();
+    const players: FakePlayer[] = [
+      { id: 1, ownerId: 1, team: "udon", position: BOMB_SPAWN },
+      ...[10, 11, 12, 13].map((id) => ({ id, ownerId: id, team: "soba", position: { x: 3000, y: 0, z: 0 } })),
+    ];
+    run(mode, players, 1);
+    for (const player of players) if (player.id === 10 || player.id === 12) player.dead = true;
+    run(mode, players, 1, 1);
+    const sites = [11, 13].map(
+      (id) =>
+        mode.getAgentDirectives(directiveContext({ teamId: "soba", entityId: `player_${id}` }), fakeState(players))[0]
+          .id,
+    );
+    expect(new Set(sites).size).toBe(2);
+  });
+
   it("gives the bomb to exactly one attacker and sends the rest to the site", () => {
     // Five bots piling onto the same 64 units of floor is the failure mode.
     const mode = loaded();
@@ -431,7 +463,7 @@ describe("agent directives", () => {
     expect(forFar[0].id).toMatch(/^snd_push_site_/);
   });
 
-  it("tells defenders to hunt the carrier, because killing them drops it", () => {
+  it("keeps defenders on their sites while the bomb is carried", () => {
     const mode = loaded();
     const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: BOMB_SPAWN };
     const defender: FakePlayer = { id: 2, ownerId: 2, team: "soba", position: { x: 3000, y: 0, z: 0 } };
@@ -442,8 +474,9 @@ describe("agent directives", () => {
       directiveContext({ teamId: "soba", entityId: "player_2" }),
       fakeState([]),
     );
-    const hunt = directives.find((d) => d.kind === "hunt");
-    expect(hunt?.target).toEqual({ type: "player", entityId: "player_1" });
+    expect(directives).toHaveLength(1);
+    expect(directives[0].id).toMatch(/^snd_defend_site_/);
+    expect(directives[0].kind).toBe("defend");
   });
 
   it("has exactly one attacker arm the bomb while the others cover", () => {
@@ -457,6 +490,12 @@ describe("agent directives", () => {
     expect(mode.bombState.phase).toBe("planted");
 
     const forArmer = mode.getAgentDirectives(directiveContext({ teamId: "udon", entityId: "player_1" }), fakeState([]));
+    const forDefender = mode.getAgentDirectives(
+      directiveContext({ teamId: "soba", entityId: "player_3" }),
+      fakeState([]),
+    );
+    expect(forDefender[0]).toMatchObject({ id: "snd_contest_plant", kind: "move_to", interrupt: "never" });
+    expect(forDefender[0].target).toMatchObject({ type: "position", position: mode.bombState.position });
     const forMate = mode.getAgentDirectives(directiveContext({ teamId: "udon", entityId: "player_2" }), fakeState([]));
     expect(forArmer[0].id).toBe("snd_arm");
     expect(forMate[0].id).toBe("snd_cover_plant");
@@ -765,6 +804,37 @@ describe("detonation", () => {
     expect(points).toHaveLength(2);
     expect(points[0]).toMatchObject({ x: 10, y: 30, z: 20, radius: 450 });
     expect(points[0].delay).toBeCloseTo(0.5, 5);
+  });
+
+  it("destroys only the detonated site's structures after their delay and restores next round", () => {
+    const model: GametypeMapContext["models"][number] = {
+      mins: [0, 0, 0],
+      maxs: [10, 10, 10],
+      firstFace: 0,
+      numFaces: 0,
+      firstBrush: 0,
+      numBrushes: 0,
+    };
+    const mode = loaded(
+      mapContext({
+        entities: [
+          { ...MAP_ENTITIES[0], properties: { ...MAP_ENTITIES[0].properties, target: "boom_a" } },
+          ...MAP_ENTITIES.slice(1),
+          entity("func_explosive", { model: "*1", targetname: "boom_a", delay: "0.6" }),
+          entity("func_explosive", { model: "*2", targetname: "boom_b", delay: "0.6" }),
+        ] as never,
+        models: [model, model, model],
+      }),
+    );
+    detonate(mode);
+    const at = (mode as unknown as { tick: number }).tick;
+    expect(mode.getObjectiveState()).toMatchObject({ disabledModels: [] });
+    run(mode, [], 1, at + 74, { live: false });
+    expect(mode.getObjectiveState()).toMatchObject({ disabledModels: [] });
+    run(mode, [], 1, at + 75, { live: false });
+    expect(mode.getObjectiveState()).toMatchObject({ disabledModels: [1] });
+    startRound(mode, 2, "udon");
+    expect(mode.getObjectiveState()).toMatchObject({ disabledModels: [] });
   });
 
   it("is deterministic, so a replayed demo explodes the same way", () => {

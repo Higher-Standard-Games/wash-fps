@@ -56,6 +56,14 @@ Other rules that decide rounds:
 Once the bomb is armed, the round no longer ends on the round timer. The fuse
 takes over: defenders must defuse or lose, whatever the clock says.
 
+On maps with destructible site structures, detonation removes those structures
+and their collision after the map's authored delay, revealing the damaged layout
+and throwing debris. The next round restores the intact site. Spectators joining
+after the explosion see the damaged layout without replaying old debris.
+
+Attackers hear “in place” when the bomb is set down. Both sides hear the planted
+announcement when arming completes and the fuse starts.
+
 ## Attackers and Defenders
 
 Teams are the usual **udon** and **soba**. Which one attacks is decided per
@@ -136,12 +144,22 @@ saying "fetch the bomb", "arm at site B", "defuse", "escort the carrier", "hold
 a site", each with a priority. The Bot Intelligence Server acts on whatever it is
 handed without knowing what a bomb is.
 
+Defenders retain their site assignments while the living team remains balanced,
+and rotate surplus defenders when casualties leave an uneven split. Carrying
+the bomb does not give every defender a carrier-hunting order. Plant/defuse work
+marked non-interruptible takes precedence over ordinary combat, chasing and
+item shopping; defenders still engage visible enemies during normal site defense.
+On reaching a defend or hold area, bots patrol nearby supported standing points
+inside the assigned radius, pausing briefly between moves. They hold position
+when no safe walking segment exists. Planting, arming and defusing orders remain
+stationary on arrival.
+
 ## Selecting the Gametype
 
 Through the lobby, queue for a Search & Destroy match. For developer flows:
 
 ```
-map wbomb1 snd
+map washoi_snd1 snd
 ```
 
 Or run a dedicated server directly:
