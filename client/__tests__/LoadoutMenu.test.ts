@@ -7,14 +7,22 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const previews = vi.hoisted(() => ({ live: 0, built: 0 }));
+
 vi.mock("../hud/widgets/WeaponPreview", () => ({
   WeaponPreview: class {
     canvas = document.createElement("canvas");
+    constructor() {
+      previews.built++;
+      previews.live++;
+    }
     show() {
       return Promise.resolve();
     }
     resize() {}
-    dispose() {}
+    dispose() {
+      previews.live--;
+    }
   },
 }));
 
@@ -91,6 +99,18 @@ describe("kit picker", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(onCancel).toHaveBeenCalledTimes(2);
     expect(onConfirm).not.toHaveBeenCalled();
+    picker.destroy();
+  });
+
+  it("builds the weapon stand only while open", () => {
+    previews.built = 0;
+    previews.live = 0;
+    const picker = new FPSLoadoutPicker("Deathmatch");
+    expect(previews.built).toBe(0);
+    picker.open(() => {}, undefined, { timing: "respawn" });
+    expect(previews.live).toBe(1);
+    confirmKey()?.click();
+    expect(previews.live).toBe(0);
     picker.destroy();
   });
 

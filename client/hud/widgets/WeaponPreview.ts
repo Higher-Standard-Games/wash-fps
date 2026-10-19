@@ -33,6 +33,8 @@ export class WeaponPreview {
 
   private engine: Engine | null = null;
   private scene: Scene | null = null;
+  /** One build however many `show` calls arrive while its imports load. */
+  private sceneLoading: Promise<Scene | null> | null = null;
   private camera: ArcRotateCamera | null = null;
   private root: AbstractMesh | null = null;
   /** Guards against a slow load landing after the selection moved on. */
@@ -95,9 +97,15 @@ export class WeaponPreview {
     this.camera.radius = Math.max(radius, 0.01);
   }
 
-  private async ensureScene(): Promise<Scene | null> {
-    if (this.scene) return this.scene;
+  private ensureScene(): Promise<Scene | null> {
+    // A second call before the first finished would build a second engine,
+    // and dispose() only knows the last one: the other renders to a detached
+    // canvas for the rest of the session.
+    this.sceneLoading ??= this.buildScene();
+    return this.sceneLoading;
+  }
 
+  private async buildScene(): Promise<Scene | null> {
     const [
       { Engine: EngineCtor },
       { Scene: SceneCtor },
@@ -156,6 +164,7 @@ export class WeaponPreview {
     this.scene = null;
     this.engine = null;
     this.camera = null;
+    this.sceneLoading = null;
     this.canvas.remove();
   }
 }

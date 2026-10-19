@@ -207,6 +207,9 @@ export class FPSLoadoutPicker {
   private buildPreview(): HTMLElement {
     const stage = document.createElement("div");
     stage.className = "fps-loadout-preview";
+    // The constructor renders the closed picker too; a stand built then would
+    // hold a WebGL context and a render loop until the picker next closes.
+    if (!this.visible) return stage;
 
     this.preview ??= new WeaponPreview();
     stage.appendChild(this.preview.canvas);
