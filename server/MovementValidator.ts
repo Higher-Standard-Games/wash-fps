@@ -3,8 +3,9 @@
  *
  * Watches for clients sending movement faster than real time. Two layers:
  *
- * 1. **Rate cap**: a hard limit on inputs accepted per server tick. Inputs over
- *    it are silently dropped; the client just sees its movement stutter.
+ * 1. **Flood guard**: a hard limit on inputs accepted per server tick, sized for
+ *    the backlog an honest link delivers at once after a half-second stall.
+ *    Inputs over it are silently dropped.
  * 2. **Time budget**: each client earns real-time credit between inputs, up to
  *    500 ms banked, and each input costs 1/expectedClientRate seconds. Running
  *    out only records a strike. It does not drop the input: honest links
@@ -37,6 +38,9 @@ interface ClientMovementState {
 /** What a player's record keeps while they are not playing. */
 type Lifetime = Pick<ClientMovementState, "warpStrikes" | "totalAccepted" | "totalRejected">;
 
+/** Inputs one tick accepts however they arrive: 512 ms of commands at 125 Hz. */
+export const MAX_BURST_INPUTS = 64;
+
 export class MovementValidator {
   private clients = new Map<PlayerId, ClientMovementState>();
   /** Records of players spectating or suspended, restored when they play again. */
@@ -60,7 +64,11 @@ export class MovementValidator {
   constructor(expectedClientRate: number = 144, serverTickRate: number = 128) {
     this.inputCostMs = 1000 / expectedClientRate;
     // ceil(clientRate/serverRate) + 2 for jitter tolerance
-    this.maxInputsPerTick = Math.ceil(expectedClientRate / serverTickRate) + 2;
+    // A client emits one burst per rendered frame, and a stalled TCP link
+    // delivers everything it held at once: a 20 FPS client already sends six
+    // or seven a frame. Only a flood is refused; the simulation's one-per-tick
+    // consumption is what keeps a fast sender from gaining time.
+    this.maxInputsPerTick = Math.max(Math.ceil(expectedClientRate / serverTickRate) + 2, MAX_BURST_INPUTS);
     // Allow banking up to ~500ms of time (handles bursty/jittery links)
     this.maxBudgetMs = 500;
     this.strikeWarnThreshold = 50;
@@ -103,7 +111,7 @@ export class MovementValidator {
 
   /**
    * Validate whether a client's input should be accepted.
-   * Returns false only over the per-tick rate cap; an exhausted time budget
+   * Returns false only over the per-tick flood guard; an exhausted time budget
    * records a strike and still accepts.
    *
    * Call this AFTER dedup (seq check) but BEFORE pushing to inputQueue.
@@ -114,7 +122,7 @@ export class MovementValidator {
 
     const now = performance.now();
 
-    // --- Layer 1: Rate cap ---
+    // --- Layer 1: Flood guard ---
     if (state.inputsThisTick >= this.maxInputsPerTick) {
       state.warpStrikes++;
       state.totalRejected++;

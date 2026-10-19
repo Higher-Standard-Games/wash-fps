@@ -1,16 +1,24 @@
 import { playerId } from "@engine/server/ecs/types";
 import { describe, expect, it, vi } from "vitest";
-import { MovementValidator } from "../MovementValidator";
+import { MAX_BURST_INPUTS, MovementValidator } from "../MovementValidator";
 
 describe("MovementValidator", () => {
-  it("rate cap still drops excess inputs in one server tick", () => {
+  it("flood guard still drops excess inputs in one server tick", () => {
     const v = new MovementValidator(144, 125);
     const p = playerId(1);
     v.addClient(p);
 
-    const results = Array.from({ length: 8 }, () => v.validateInput(p));
+    const results = Array.from({ length: MAX_BURST_INPUTS + 8 }, () => v.validateInput(p));
 
-    expect(results.filter(Boolean)).toHaveLength(4);
+    expect(results.filter(Boolean)).toHaveLength(MAX_BURST_INPUTS);
+  });
+
+  it("accepts a low frame-rate client's whole burst in one tick", () => {
+    // 20 FPS sends 6-7 commands per frame, and a stalled link delivers more.
+    const v = new MovementValidator(144, 125);
+    const p = playerId(1);
+    v.addClient(p);
+    for (let i = 0; i < 30; i++) expect(v.validateInput(p)).toBe(true);
   });
 
   it("budget overshoot records strikes but no longer drops", () => {
@@ -87,11 +95,11 @@ describe("MovementValidator", () => {
     });
   });
 
-  it("lets the rate cap through again on the next tick", () => {
+  it("lets the flood guard through again on the next tick", () => {
     const v = new MovementValidator(144, 125);
     const p = playerId(1);
     v.addClient(p);
-    for (let i = 0; i < 4; i++) expect(v.validateInput(p)).toBe(true);
+    for (let i = 0; i < MAX_BURST_INPUTS; i++) expect(v.validateInput(p)).toBe(true);
     expect(v.validateInput(p)).toBe(false);
     v.onTick();
     expect(v.validateInput(p)).toBe(true);
@@ -107,14 +115,14 @@ describe("MovementValidator", () => {
     const v = new MovementValidator(144, 125);
     const p = playerId(1);
     v.addClient(p);
-    for (let i = 0; i < 6; i++) v.validateInput(p); // two over the cap
+    for (let i = 0; i < MAX_BURST_INPUTS + 2; i++) v.validateInput(p); // two over the cap
     expect(v.getStrikes(p)).toBe(2);
 
     v.removeClient(p); // spectate, or a held seat
     expect(v.getStrikes(p)).toBe(2);
     v.addClient(p); // rejoin, or resume
     expect(v.getStrikes(p)).toBe(2);
-    expect(v.getStats(p)).toMatchObject({ rejected: 2, accepted: 4 });
+    expect(v.getStats(p)).toMatchObject({ rejected: 2, accepted: MAX_BURST_INPUTS });
 
     v.forgetClient(p);
     v.addClient(p);

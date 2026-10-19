@@ -200,12 +200,39 @@ export class FPSMovementSubsystem extends Subsystem {
    */
   private lastInput: Map<number, QueuedInput> = new Map();
 
-  /** Number of consecutive ticks where each entity has repeated stale input. */
+  /** Consecutive ticks each entity has heard nothing from its client, late commands included. */
   private starvationTicks: Map<number, number> = new Map();
 
+  /** Consecutive ticks each entity has run without a command of its own. */
+  private repeatTicks: Map<number, number> = new Map();
+
+  /**
+   * Newest command sequence each entity's physics has accounted for: the command
+   * it simulated, or the one a guess stood in for. It is the ACK clients replay from.
+   */
+  private accountedSeq: Map<number, number> = new Map();
+
+  /** Newest real command sequence each entity has taken from its queue, run or dropped. */
+  private newestRealSeq: Map<number, number> = new Map();
+
+  /** Smallest queue depth seen in the current drain window, and the window's age in ticks. */
+  private drainWindow: Map<number, { minDepth: number; ticks: number }> = new Map();
+
   /** Max buffered commands per entity — extras are dropped so a fast/flooding
-   *  client can't bank physics time (each server tick consumes exactly one). */
-  private static readonly MAX_INPUT_BUFFER = 6;
+   *  client can't bank physics time (each server tick consumes exactly one).
+   *  Holds a 20 FPS client's per-frame burst with room for jitter. */
+  private static readonly MAX_INPUT_BUFFER = 12;
+  /**
+   * Starved ticks that repeat the last command without standing in for the next
+   * one. Each such tick leaves one more command waiting in the queue afterwards,
+   * which is how the queue grows deep enough to cover a link's ordinary jitter.
+   */
+  private static readonly UNCLAIMED_REPEAT_TICKS = 2;
+  /** Furthest a run of guesses may account ahead of the newest real command (256 ms). */
+  private static readonly MAX_CLAIMED_AHEAD = 32;
+  /** A queue that never fell below this depth for a whole window gives one command up. */
+  private static readonly DRAIN_MIN_DEPTH = 3;
+  private static readonly DRAIN_WINDOW_TICKS = TICK_RATE;
   /** Ticks of repeated stale input tolerated before action buttons are cleared —
    *  ~24ms @125Hz, enough to ride out one dropped packet without stuttering. */
   private static readonly BUTTON_HOLD_GRACE_TICKS = 3;
@@ -309,6 +336,34 @@ export class FPSMovementSubsystem extends Subsystem {
     this.combatSystem = combat;
   }
 
+  /**
+   * Remove the oldest `count` queued commands and return the newest of them.
+   *
+   * A dropped command forfeits its physics; that is what stops a flooding
+   * client banking time. It must not forfeit a one-shot INTENT that no later
+   * command repeats: a frame hitch makes the client emit a burst, and a weapon
+   * switch rides only the first of them (N10). The request rides the oldest
+   * surviving command, or the returned one when nothing survives, so carrying
+   * it costs no extra physics step. Only the newest request survives, and only
+   * when nothing newer already asks for a different weapon.
+   */
+  private dropOldest(queue: QueuedInput[], count: number): QueuedInput | undefined {
+    const dropped = queue.splice(0, count);
+    let requested = 0;
+    for (const cmd of dropped) {
+      if (cmd.weaponSlot > 0) requested = cmd.weaponSlot;
+    }
+    let newest = dropped[dropped.length - 1];
+    if (requested > 0) {
+      if (queue.length > 0) {
+        if (queue[0].weaponSlot === 0) queue[0] = { ...queue[0], weaponSlot: requested };
+      } else if (newest && newest.weaponSlot === 0) {
+        newest = { ...newest, weaponSlot: requested };
+      }
+    }
+    return newest;
+  }
+
   /** Clear movement history/impulses that must not cross warmup into live play. */
   resetForMatch(): void {
     this.movementProfiles.clear();
@@ -318,6 +373,10 @@ export class FPSMovementSubsystem extends Subsystem {
     this.weaponSpeedBonuses.clear();
     this.lastInput.clear();
     this.starvationTicks.clear();
+    this.repeatTicks.clear();
+    this.accountedSeq.clear();
+    this.newestRealSeq.clear();
+    this.drainWindow.clear();
     this.fallStartY.clear();
     this.fallPeakY.clear();
     this.lastGroundY.clear();
@@ -729,49 +788,101 @@ export class FPSMovementSubsystem extends Subsystem {
       // physics by sending fewer/more commands. Input *content* still matters;
       // input *rate* cannot.
       const queue = input.inputQueue;
+      let accounted = this.accountedSeq.get(eid) ?? 0;
+      let newestReal = this.newestRealSeq.get(eid) ?? 0;
+
+      // De-duplication on ingest means sequences only rise within one command
+      // stream. A command at or below the newest real one starts a new stream:
+      // a resumed connection numbers its commands from 1 again.
+      if (queue.length > 0 && queue[0].sequence <= newestReal) {
+        accounted = queue[0].sequence - 1;
+        newestReal = accounted;
+      }
 
       // Cap the buffer: a client sending faster than the tick rate can't hoard
       // commands to gain extra physics later — keep the newest, drop old excess.
       if (queue.length > FPSMovementSubsystem.MAX_INPUT_BUFFER) {
-        const dropped = queue.splice(0, queue.length - FPSMovementSubsystem.MAX_INPUT_BUFFER);
-
-        // A dropped command forfeits its physics — that is the whole point, and
-        // it is what stops a flooding client banking time. It must not forfeit
-        // a one-shot INTENT that no later command repeats. A frame hitch makes
-        // the client emit a burst, and a weapon switch rides only the first of
-        // them, so capping the queue silently threw the switch away and the
-        // player kept firing the old gun (N10).
-        //
-        // Carrying the request forward costs no extra physics step: it rides
-        // the oldest surviving command rather than adding one. Only the newest
-        // request survives, and only when nothing newer already asks for a
-        // different weapon — the player's last word wins either way.
-        let requested = 0;
-        for (const cmd of dropped) {
-          if (cmd.weaponSlot > 0) requested = cmd.weaponSlot;
-        }
-        if (requested > 0 && queue.length > 0 && queue[0].weaponSlot === 0) {
-          queue[0] = { ...queue[0], weaponSlot: requested };
-        }
+        this.dropOldest(queue, queue.length - FPSMovementSubsystem.MAX_INPUT_BUFFER);
       }
+
+      // A guess past the repeat grace stood in for the client's next command
+      // (see below). That command still arrives, late, and its step has been
+      // taken, so it is dropped. Its aim, buttons and weapon request are the
+      // freshest the player has given, so they become the next guess.
+      let late: QueuedInput | undefined;
+      let lateCount = 0;
+      while (lateCount < queue.length && queue[lateCount].sequence <= accounted) lateCount++;
+      if (lateCount > 0) {
+        late = this.dropOldest(queue, lateCount);
+        if (late) newestReal = Math.max(newestReal, late.sequence);
+      }
+
+      // Repeats grow the queue; nothing else shrinks it. A queue that stayed
+      // this deep for a whole second holds latency no jitter used, so it gives
+      // one command up. The client then sees a one-step correction.
+      const drain = this.drainWindow.get(eid) ?? { minDepth: Number.POSITIVE_INFINITY, ticks: 0 };
+      drain.minDepth = Math.min(drain.minDepth, queue.length);
+      if (++drain.ticks >= FPSMovementSubsystem.DRAIN_WINDOW_TICKS) {
+        if (drain.minDepth >= FPSMovementSubsystem.DRAIN_MIN_DEPTH) {
+          const given = this.dropOldest(queue, 1);
+          if (given) {
+            accounted = Math.max(accounted, given.sequence);
+            newestReal = Math.max(newestReal, given.sequence);
+          }
+        }
+        drain.minDepth = Number.POSITIVE_INFINITY;
+        drain.ticks = 0;
+      }
+      this.drainWindow.set(eid, drain);
 
       // Consume one command this tick (FIFO); fall back to the last one we used.
       // On starvation (no fresh command) we keep repeating movement/aim so gravity
       // and momentum still advance, but strip the action buttons past a short grace
       // so a silent/frozen client can't keep firing/jumping (see ACTION_BUTTON_MASK).
+      //
+      // The first starved ticks repeat as extra steps: the commands they wait for
+      // run later, one tick behind, so the queue absorbs the next delay of that
+      // size. A longer starvation is a stall, and each further guess stands in
+      // for the next command, advancing the ACK. When the stalled commands
+      // arrive they are dropped as late, so the step the client predicted for
+      // each one was taken exactly once. The client sees only where a guess
+      // differed from what the player did, not the whole stall replayed on top.
       const fresh = queue.shift();
-      let cmd = fresh ?? this.lastInput.get(eid);
+      let cmd: QueuedInput | undefined;
       if (fresh) {
+        cmd = fresh;
+        accounted = fresh.sequence;
+        newestReal = Math.max(newestReal, fresh.sequence);
         this.starvationTicks.set(eid, 0);
-      } else if (cmd) {
-        const starved = (this.starvationTicks.get(eid) ?? 0) + 1;
-        this.starvationTicks.set(eid, starved);
-        if (starved > FPSMovementSubsystem.BUTTON_HOLD_GRACE_TICKS) {
+        this.repeatTicks.set(eid, 0);
+      } else {
+        const base = late ?? this.lastInput.get(eid);
+        if (base) {
+          const silent = late ? 0 : (this.starvationTicks.get(eid) ?? 0) + 1;
+          this.starvationTicks.set(eid, silent);
           // New object (don't mutate the shared lastInput in place); the stripped
           // version is then stored back as lastInput so buttons stay cleared.
-          cmd = { ...cmd, buttons: cmd.buttons & ~FPSMovementSubsystem.ACTION_BUTTON_MASK };
+          cmd =
+            silent > FPSMovementSubsystem.BUTTON_HOLD_GRACE_TICKS
+              ? { ...base, buttons: base.buttons & ~FPSMovementSubsystem.ACTION_BUTTON_MASK }
+              : base;
+          const repeats = (this.repeatTicks.get(eid) ?? 0) + 1;
+          this.repeatTicks.set(eid, repeats);
+          // A late command with nothing behind it means the client runs behind
+          // the guesses, by jitter or by frame time it lost and never sent. A
+          // claim now would make its next command late too, and so on forever,
+          // so this guess stays unclaimed and the client's commands run again.
+          if (
+            repeats > FPSMovementSubsystem.UNCLAIMED_REPEAT_TICKS &&
+            !late &&
+            accounted - newestReal < FPSMovementSubsystem.MAX_CLAIMED_AHEAD
+          ) {
+            accounted++;
+          }
         }
       }
+      this.accountedSeq.set(eid, accounted);
+      this.newestRealSeq.set(eid, newestReal);
       if (cmd) {
         input.forward = cmd.forward;
         input.right = cmd.right;
@@ -784,9 +895,9 @@ export class FPSMovementSubsystem extends Subsystem {
         input.viewTick = cmd.viewTick ?? 0;
         if (cmd.weaponSlot > 0) input.weaponSlot = cmd.weaponSlot;
         this.lastInput.set(eid, cmd);
-        // Ack the command we actually simulated (not the last one received), so
-        // client reconciliation stays aligned under the one-per-tick model.
-        input.lastProcessedSeq = cmd.sequence;
+        // Ack the newest command this entity's physics has accounted for (not the
+        // last one received), so client reconciliation replays exactly the rest.
+        input.lastProcessedSeq = accounted;
       }
 
       // Always simulate exactly one dt (even with no command ever — gravity applies).
@@ -1021,7 +1132,12 @@ export class FPSMovementSubsystem extends Subsystem {
     this.lastGroundY.delete(entityId);
     this.lastKBTick.delete(entityId);
     this.pendingMeleeDashes = this.pendingMeleeDashes.filter((dash) => (dash.entityId as number) !== entityId);
+    this.lastInput.delete(entityId);
     this.starvationTicks.delete(entityId);
+    this.repeatTicks.delete(entityId);
+    this.accountedSeq.delete(entityId);
+    this.newestRealSeq.delete(entityId);
+    this.drainWindow.delete(entityId);
     this.tripwireHits.delete(entityId);
   }
 

@@ -87,7 +87,7 @@ describe("Server-authoritative fixed-rate physics", () => {
     queueCmds(sim, id, ...Array.from({ length: 100 }, (_, i) => cmd(i + 1)));
     sim.tick();
     // Buffer is capped (extras dropped), not hoarded.
-    expect(cur(sim, id).input!.inputQueue.length).toBeLessThanOrEqual(6);
+    expect(cur(sim, id).input!.inputQueue.length).toBeLessThanOrEqual(12);
   });
 
   it("acks the last SIMULATED command sequence, not the last received", () => {
@@ -257,7 +257,7 @@ describe("Server effect clock tracks simulated time, not command identity", () =
 
   it("advances exactly one dt per tick across a burst the queue has to compact", () => {
     const { sim, movement, id } = airborneWithMovement();
-    queueCmds(sim, id, ...Array.from({ length: 12 }, (_, i) => cmd(i + 1)));
+    queueCmds(sim, id, ...Array.from({ length: 18 }, (_, i) => cmd(i + 1)));
 
     sim.tick();
     const before = effectClockMs(movement, 1);
@@ -280,8 +280,8 @@ describe("Queue compaction drops physics, not intent", () => {
     const sim = makeSim();
     const id = spawnAirborne(sim, 1);
     const before = slot(sim, id);
-    // One hitch: twelve commands at once, the switch only on the first.
-    queueCmds(sim, id, cmd(1, { weaponSlot: 3 }), ...Array.from({ length: 11 }, (_, i) => cmd(i + 2)));
+    // One hitch: eighteen commands at once, the switch only on the first.
+    queueCmds(sim, id, cmd(1, { weaponSlot: 3 }), ...Array.from({ length: 17 }, (_, i) => cmd(i + 2)));
 
     sim.tick();
     expect(slot(sim, id)).toBe(3);
@@ -291,7 +291,7 @@ describe("Queue compaction drops physics, not intent", () => {
   it("still consumes exactly one command per tick, so nothing banks physics", () => {
     const sim = makeSim();
     const id = spawnAirborne(sim, 1);
-    queueCmds(sim, id, cmd(1, { weaponSlot: 3 }), ...Array.from({ length: 11 }, (_, i) => cmd(i + 2)));
+    queueCmds(sim, id, cmd(1, { weaponSlot: 3 }), ...Array.from({ length: 17 }, (_, i) => cmd(i + 2)));
 
     const processed: number[] = [];
     for (let i = 0; i < 6; i++) {
@@ -309,11 +309,11 @@ describe("Queue compaction drops physics, not intent", () => {
       sim,
       id,
       cmd(1, { weaponSlot: 3 }),
-      ...Array.from({ length: 10 }, (_, i) => cmd(i + 2)),
-      cmd(12, { weaponSlot: 5 }),
+      ...Array.from({ length: 16 }, (_, i) => cmd(i + 2)),
+      cmd(18, { weaponSlot: 5 }),
     );
-    // seq 7 survives the cap and carries the 3; seq 12 asks for 5 afterwards.
-    for (let i = 0; i < 6; i++) sim.tick();
+    // seq 7 survives the cap and carries the 3; seq 18 asks for 5 afterwards.
+    for (let i = 0; i < 12; i++) sim.tick();
     expect(slot(sim, id)).toBe(5);
   });
 
@@ -325,7 +325,7 @@ describe("Queue compaction drops physics, not intent", () => {
       id,
       cmd(1, { weaponSlot: 3 }),
       cmd(2, { weaponSlot: 4 }),
-      ...Array.from({ length: 10 }, (_, i) => cmd(i + 3)),
+      ...Array.from({ length: 16 }, (_, i) => cmd(i + 3)),
     );
     sim.tick();
     expect(slot(sim, id)).toBe(4);
@@ -335,8 +335,121 @@ describe("Queue compaction drops physics, not intent", () => {
     const sim = makeSim();
     const id = spawnAirborne(sim, 1);
     const before = slot(sim, id);
-    queueCmds(sim, id, ...Array.from({ length: 12 }, (_, i) => cmd(i + 1)));
+    queueCmds(sim, id, ...Array.from({ length: 18 }, (_, i) => cmd(i + 1)));
     for (let i = 0; i < 6; i++) sim.tick();
     expect(slot(sim, id)).toBe(before);
+  });
+});
+
+/**
+ * A stalled link: the first starved ticks repeat as extra steps, which leaves
+ * the queue deep enough for ordinary jitter. Past them, each guess stands in for
+ * the client's next command and advances the ACK, and that command is dropped
+ * when it arrives, so a stall never replays on top of its own guesses.
+ */
+describe("Guesses account for the commands they stand in for", () => {
+  const ack = (sim: Simulation, id: EntityId) => cur(sim, id).input!.lastProcessedSeq;
+  const queued = (sim: Simulation, id: EntityId) => cur(sim, id).input!.inputQueue.length;
+
+  it("repeats two starved ticks unclaimed, then claims one command per tick", () => {
+    const sim = makeSim();
+    const id = spawnAirborne(sim, 1);
+    queueCmds(sim, id, cmd(1));
+    sim.tick();
+    const acks: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      sim.tick();
+      acks.push(ack(sim, id));
+    }
+    expect(acks).toEqual([1, 1, 2, 3, 4]);
+  });
+
+  it("drops the stalled commands its guesses already stood in for", () => {
+    const sim = makeSim();
+    const id = spawnAirborne(sim, 1);
+    queueCmds(sim, id, cmd(1));
+    sim.tick();
+    for (let i = 0; i < 5; i++) sim.tick(); // guesses stood in for 2, 3 and 4
+    queueCmds(sim, id, ...Array.from({ length: 6 }, (_, i) => cmd(i + 2)));
+    sim.tick();
+    expect(cur(sim, id).input!.sequence).toBe(5);
+    expect(ack(sim, id)).toBe(5);
+    expect(queued(sim, id)).toBe(2);
+  });
+
+  it("takes aim and weapon requests from a late command, not the stale one", () => {
+    const sim = makeSim();
+    const id = spawnAirborne(sim, 1);
+    queueCmds(sim, id, cmd(1, { yaw: 0.1 }));
+    sim.tick();
+    for (let i = 0; i < 3; i++) sim.tick(); // a guess stood in for 2
+    queueCmds(sim, id, cmd(2, { yaw: 0.7, weaponSlot: 4 }));
+    sim.tick();
+    expect(cur(sim, id).input!.yaw).toBe(0.7);
+    expect(cur(sim, id).input!.weaponSlot).toBe(4);
+  });
+
+  it("stops guessing ahead of a client that lost frame time, so its commands run again", () => {
+    const sim = makeSim();
+    const id = spawnAirborne(sim, 1);
+    queueCmds(sim, id, cmd(1));
+    sim.tick();
+    for (let i = 0; i < 12; i++) sim.tick(); // guesses stood in for 2..11
+    // The client resumes one command per tick from 2: it never sent the time it lost.
+    const ran: number[] = [];
+    for (let seq = 2; seq < 40; seq++) {
+      queueCmds(sim, id, cmd(seq));
+      sim.tick();
+      ran.push(cur(sim, id).input!.sequence);
+    }
+    // Late commands are dropped until the client catches up, then each runs on its own tick.
+    expect(ran.slice(-5)).toEqual([35, 36, 37, 38, 39]);
+    expect(ack(sim, id)).toBe(39);
+  });
+
+  it("starts over when a resumed connection numbers its commands from 1", () => {
+    const sim = makeSim();
+    const id = spawnAirborne(sim, 1);
+    queueCmds(sim, id, cmd(500));
+    sim.tick();
+    for (let i = 0; i < 8; i++) sim.tick();
+    queueCmds(sim, id, cmd(1, { yaw: 0.3 }));
+    sim.tick();
+    expect(cur(sim, id).input!.sequence).toBe(1);
+    expect(ack(sim, id)).toBe(1);
+  });
+
+  it("gives up one command when the queue stayed deep for a whole second", () => {
+    const sim = makeSim();
+    const id = spawnAirborne(sim, 1);
+    let seq = 1;
+    queueCmds(sim, id, cmd(seq++), cmd(seq++), cmd(seq++), cmd(seq++));
+    let depthAfter = 0;
+    for (let i = 0; i < 125; i++) {
+      queueCmds(sim, id, cmd(seq++));
+      sim.tick();
+      depthAfter = queued(sim, id);
+    }
+    // Steady input kept four waiting; the drain removed one in the window's last tick.
+    expect(depthAfter).toBe(3);
+  });
+
+  it("never runs more than one step a tick, whatever arrives", () => {
+    const { sim, movement, id } = (() => {
+      const s = new Simulation({ tickMs: 8 });
+      const m = new FPSMovementSubsystem();
+      s.addSubsystem(m);
+      s.initialize();
+      return { sim: s, movement: m, id: spawnAirborne(s, 1) };
+    })();
+    queueCmds(sim, id, cmd(1));
+    sim.tick();
+    const before = effectClockMs(movement, 1);
+    let seq = 2;
+    for (let i = 0; i < 60; i++) {
+      if (i % 7 === 0) queueCmds(sim, id, ...Array.from({ length: 9 }, () => cmd(seq++)));
+      sim.tick();
+    }
+    expect(effectClockMs(movement, 1) - before).toBe(60 * 8);
   });
 });
