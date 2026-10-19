@@ -1785,13 +1785,22 @@ export class RemotePlayerRenderer {
         if (!loader.isInitialized()) loader.init(this.scene);
 
         if (this.disposed || this.scene.isDisposed) return;
-        this.weaponModelCache ??= new ModelInstanceCache(this.scene, async (path, scale) =>
-          loader.loadModel(path, {
-            position: Vector3.Zero(),
-            scale,
-            hasCollision: false,
-            applyLighting: false,
-          }),
+        this.weaponModelCache ??= new ModelInstanceCache(
+          this.scene,
+          async (path, scale) =>
+            loader.loadModel(path, {
+              position: Vector3.Zero(),
+              scale,
+              hasCollision: false,
+              applyLighting: false,
+            }),
+          {
+            // Weapon highlights belong to meshes; these PBR materials are read-only.
+            shareStaticMaterials:
+              typeof navigator !== "undefined" &&
+              /Firefox\//.test(navigator.userAgent) &&
+              !this.scene.getEngine().isWebGPU,
+          },
         );
         const result = await this.weaponModelCache.createInstance(modelPath, defScale);
 

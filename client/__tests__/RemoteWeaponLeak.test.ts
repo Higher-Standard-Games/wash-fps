@@ -1,5 +1,6 @@
 import { AnimationGroup } from "@babylonjs/core/Animations/animationGroup";
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine";
+import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
@@ -16,7 +17,11 @@ import { WEAPONS } from "../../../../shared/entities/definitions/weapons/Weapons
  * groups stayed in the scene for good, switched off, so a match of weapon
  * switching left thousands that Babylon still walks every frame (R5).
  */
-const scene = vi.hoisted(() => ({ current: null as unknown as import("@babylonjs/core/scene").Scene, loads: 0 }));
+const scene = vi.hoisted(() => ({
+  current: null as unknown as import("@babylonjs/core/scene").Scene,
+  loads: 0,
+  pbr: false,
+}));
 
 vi.mock("../../../../engine/loader/model/ModelLoader", () => ({
   ModelLoader: {
@@ -28,7 +33,9 @@ vi.mock("../../../../engine/loader/model/ModelLoader", () => ({
         const between = new TransformNode("RootNode", scene.current);
         between.parent = root;
         const gun = MeshBuilder.CreateBox("gun", { size: 1 }, scene.current);
-        gun.material = new StandardMaterial("gun_mat", scene.current);
+        gun.material = scene.pbr
+          ? new PBRMaterial("gun_mat", scene.current)
+          : new StandardMaterial("gun_mat", scene.current);
         gun.parent = between;
         const idle = new AnimationGroup("idle", scene.current);
         return { root, meshes: [gun], animationGroups: [idle], skeletons: [] };
@@ -56,7 +63,42 @@ describe("remote weapon changes", () => {
   afterEach(() => {
     scene.current.getEngine().dispose();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     scene.loads = 0;
+    scene.pbr = false;
+  });
+
+  it.each([
+    ["Mozilla/5.0 Firefox/158.0", false, true],
+    ["Mozilla/5.0 Chrome/155.0", false, false],
+    ["Mozilla/5.0 Firefox/158.0", true, false],
+  ])("keeps material ownership correct for %s (WebGPU=%s)", async (userAgent, webGPU, shared) => {
+    vi.stubGlobal("navigator", { userAgent });
+    scene.current = new Scene(new NullEngine());
+    Object.defineProperty(scene.current.getEngine(), "isWebGPU", { value: webGPU });
+    scene.pbr = true;
+    const renderer = Object.create(RemotePlayerRenderer.prototype) as Internals;
+    Object.assign(renderer, {
+      scene: scene.current,
+      hitboxes: new Map(),
+      deadEntities: new Map(),
+      enemyWeapons: new Map(),
+    });
+    const weapon = Object.keys(WEAPONS).find((id) => WEAPONS[id].modelPath)!;
+    const hitboxes = ["one", "two"].map((id) => {
+      const anchor = new TransformNode(`anchor_${id}`, scene.current);
+      const body = MeshBuilder.CreateBox(`body_${id}`, {}, scene.current);
+      const inst = { anchor, mesh: body, skeleton: null, attachedWeapon: null } as unknown as PlayerModelInstance;
+      const hitbox = { model: inst, weaponRoot: null as TransformNode | null, weaponMuzzle: null, currentWeaponId: "" };
+      renderer.hitboxes.set(id, hitbox);
+      renderer.enemyWeapons.set(id, weapon);
+      renderer.updateWeaponModel(hitbox, inst, id);
+      return hitbox;
+    });
+    await vi.waitFor(() => expect(hitboxes.every((hitbox) => hitbox.weaponRoot)).toBe(true));
+    const [a, b] = hitboxes.map((hitbox) => (hitbox.weaponRoot as import("@babylonjs/core/Meshes/mesh").Mesh).material);
+    expect(a === b).toBe(shared);
+    expect(hitboxes[0].weaponRoot).not.toBe(hitboxes[1].weaponRoot);
   });
 
   it("leave the scene's nodes, meshes, materials and animation groups where they were", async () => {
