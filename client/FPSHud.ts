@@ -14,6 +14,7 @@
 
 import { GamePaths } from "../../../engine/core/GamePaths";
 import { log } from "../../../engine/core/Log";
+import { requestBrowserPointerLock } from "../../../engine/ui/BrowserControlFeedback";
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import { UITheme } from "../../../engine/ui/UITheme";
 import { getWeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
@@ -252,10 +253,7 @@ export class FPSHud {
 
     // Wire Resume -> re-request pointer lock (closes menu via onClose callback)
     this._pauseMenu.onResume(() => {
-      const canvas = document.querySelector("canvas");
-      if (canvas) {
-        canvas.requestPointerLock();
-      }
+      requestBrowserPointerLock(document.querySelector("canvas"));
     });
 
     // Wire Disconnect -> reload page (return to lobby)

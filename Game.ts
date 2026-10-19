@@ -29,6 +29,7 @@ import { MessageCodec } from "../../engine/network/protocol/MessageCodec";
 import { PlayerProfile } from "../../engine/player/PlayerProfile";
 import RenderVars from "../../engine/rendering/RenderVars";
 import { waterNeedsLocalReflection } from "../../engine/rendering/water/WaterActorReflection";
+import { requestBrowserPointerLock } from "../../engine/ui/BrowserControlFeedback";
 import { MapLoadingOverlay } from "../../engine/ui/MapLoadingOverlay";
 import { getExplosionEffect } from "../../engine/weapon/ExplosionEffect";
 import { getHitscanEffects } from "../../engine/weapon/HitscanEffects";
@@ -1026,10 +1027,7 @@ export class Game {
     }
 
     // Request pointer lock for FPS controls
-    const canvas = document.querySelector("canvas");
-    if (canvas) {
-      canvas.requestPointerLock();
-    }
+    requestBrowserPointerLock(document.querySelector("canvas"));
 
     console.log("[Game] Joined game (server-confirmed)");
   }
@@ -1085,7 +1083,7 @@ export class Game {
       (choice) => {
         this.rememberLoadout(choice);
         this.sendLoadout(choice.primary, choice.secondary);
-        if (this.playerState === "playing") document.querySelector("canvas")?.requestPointerLock();
+        if (this.playerState === "playing") requestBrowserPointerLock(document.querySelector("canvas"));
         else FPSHud.getInstance().showMatchMenu();
       },
       this.rememberedLoadout(),
