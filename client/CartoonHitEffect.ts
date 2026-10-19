@@ -118,7 +118,7 @@ export class CartoonHitEffect {
         return owner;
       }),
     );
-    await Promise.all([...packages].map((owner) => loader.loadPK3(owner)));
+    await Promise.all([...packages].map((owner) => loader.ensurePK3(owner)));
     const images = await Promise.all(HIT_SPRITES.map((path) => loader.getFile(path)));
     if (this.loadVersion !== version || scene.isDisposed) return;
     if (images.some((image) => !image)) throw new Error("Missing packaged cartoon hit image data");

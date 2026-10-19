@@ -10,7 +10,7 @@ vi.mock("../../../../engine/loader/pk3/PK3Index", () => ({
 vi.mock("../../../../engine/loader/pk3/PK3Loader", () => ({
   PK3Loader: { getInstance: () => loader },
 }));
-const loader = { loadPK3: vi.fn(async () => {}), getFile: vi.fn(async () => new ArrayBuffer(4)) };
+const loader = { ensurePK3: vi.fn(async () => {}), getFile: vi.fn(async () => new ArrayBuffer(4)) };
 
 /**
  * A POW! sprite lives 0.8 s of game time. It was ticked by FrameEffects and
@@ -47,7 +47,7 @@ describe("cartoon hit sprite timing", () => {
 
   it("does not install textures after disposal during a package request", async () => {
     let finish!: () => void;
-    vi.spyOn(PK3Loader.getInstance(), "loadPK3").mockImplementationOnce(
+    vi.spyOn(PK3Loader.getInstance(), "ensurePK3").mockImplementationOnce(
       () =>
         new Promise<void>((resolve) => {
           finish = resolve;

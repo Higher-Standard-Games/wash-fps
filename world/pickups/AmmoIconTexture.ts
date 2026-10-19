@@ -8,7 +8,7 @@ export async function loadAmmoIconTexture(iconPath: string): Promise<Texture | n
   const index = PK3Index.getInstance();
   await index.ensureIndex();
   const owner = index.findFile(`${iconPath}.tga`);
-  if (owner) await PK3Loader.getInstance().loadPK3(owner);
+  if (owner) await PK3Loader.getInstance().ensurePK3(owner);
   const loader = PK3TextureLoader.getInstance();
   return (await loader.resolveAndLoadTexture(iconPath)) ?? loader.loadTexture(`${iconPath}.tga`);
 }

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   ensureIndex: vi.fn(async () => {}),
   findFile: vi.fn(),
-  loadPK3: vi.fn(async () => {}),
+  ensurePK3: vi.fn(async () => {}),
   resolveAndLoadTexture: vi.fn(),
   loadTexture: vi.fn(),
 }));
@@ -21,7 +21,7 @@ describe("ammo artwork package loading", () => {
     const texture = {};
     mocks.findFile.mockReturnValue("washoi_gfx.pk3");
     mocks.resolveAndLoadTexture.mockImplementation(async () => {
-      expect(mocks.loadPK3).toHaveBeenCalledWith("washoi_gfx.pk3");
+      expect(mocks.ensurePK3).toHaveBeenCalledWith("washoi_gfx.pk3");
       return texture;
     });
     expect(await loadAmmoIconTexture("gfx/hud/icons/ammo/bulletsammo")).toBe(texture);
@@ -33,7 +33,7 @@ describe("ammo artwork package loading", () => {
     mocks.resolveAndLoadTexture.mockResolvedValue(null);
     mocks.loadTexture.mockResolvedValue(null);
     expect(await loadAmmoIconTexture("gfx/custom/ammo")).toBeNull();
-    expect(mocks.loadPK3).not.toHaveBeenCalled();
+    expect(mocks.ensurePK3).not.toHaveBeenCalled();
     expect(mocks.loadTexture).toHaveBeenCalledWith("gfx/custom/ammo.tga");
   });
 });
