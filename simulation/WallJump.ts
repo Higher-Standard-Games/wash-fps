@@ -22,6 +22,18 @@ const WALL_TRACE_BOUNDS = {
   max: { x: 4, y: 16, z: 4 },
 };
 
+export interface WallJumpState {
+  readonly state: "none" | "available" | "charging";
+  readonly normal: Readonly<Vec3>;
+  readonly position: Readonly<Vec3>;
+  readonly preVelocity: Readonly<Vec3>;
+  readonly keyReleased: boolean;
+  readonly chargeStartMs: number;
+  readonly cooldowns: ReadonlyArray<Readonly<{ startMs: number; untilMs: number }>>;
+  readonly graceUntilMs: number;
+  readonly groundGraceUntilMs: number;
+}
+
 export class WallJump {
   state: "none" | "available" | "charging" = "none";
   normal: Vec3 = vec3Zero();
@@ -66,6 +78,33 @@ export class WallJump {
     this.beginStep(nowMs);
     this.cooldowns.push({ startMs: nowMs, untilMs: nowMs + durationMs });
     if (this.cooldowns.length > 64) this.cooldowns.shift();
+  }
+
+  /** Everything that carries from one step to the next, for a replay to resume from. */
+  saveState(): WallJumpState {
+    return {
+      state: this.state,
+      normal: vec3Clone(this.normal),
+      position: vec3Clone(this.position),
+      preVelocity: vec3Clone(this.preVelocity),
+      keyReleased: this.keyReleased,
+      chargeStartMs: this.chargeStartMs,
+      cooldowns: this.cooldowns.map((cooldown) => ({ ...cooldown })),
+      graceUntilMs: this.graceUntilMs,
+      groundGraceUntilMs: this.groundGraceUntilMs,
+    };
+  }
+
+  loadState(saved: WallJumpState): void {
+    this.state = saved.state;
+    this.normal = vec3Clone(saved.normal);
+    this.position = vec3Clone(saved.position);
+    this.preVelocity = vec3Clone(saved.preVelocity);
+    this.keyReleased = saved.keyReleased;
+    this.chargeStartMs = saved.chargeStartMs;
+    this.cooldowns = saved.cooldowns.map((cooldown) => ({ ...cooldown }));
+    this.graceUntilMs = saved.graceUntilMs;
+    this.groundGraceUntilMs = saved.groundGraceUntilMs;
   }
 
   /** Reset state for reconciliation */

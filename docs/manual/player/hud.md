@@ -117,8 +117,8 @@ Connection diagnostics. Three modes via `cl_netgraph`:
 | Mode | What you see |
 |------|--------------|
 | 0 | Off |
-| 1 | Text overlay: ping, snapshot rate, estimated snapshot gaps %, interp delay, command rate |
-| 2 | Mode 1 + a rolling graph of the same metrics |
+| 1 | Text overlay: ping, snapshot rate, estimated snapshot gaps %, interp delay, command rate, prediction corrections, extra upload and download delay |
+| 2 | Mode 1 + a rolling graph of ping and snapshot gaps |
 
 Read the Engine Networking Guide (`docs/manual/guides/networking.md` in the engine repo) for what each number means and what's an acceptable range.
 

@@ -24,7 +24,8 @@ function makePlayer() {
       yaw: 0,
       buttons: 0,
       weaponSlot: 0,
-      inputQueue: [],
+      // One command waiting, so the tick takes a movement step.
+      inputQueue: [{ forward: 0, right: 0, pitch: 0, yaw: 0, buttons: 0, sequence: 1, weaponSlot: 0 }],
       sequence: 1,
       lastProcessedSeq: 0,
     },

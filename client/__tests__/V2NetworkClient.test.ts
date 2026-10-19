@@ -149,14 +149,20 @@ describe("V2NetworkClient reconciliation suppression bounds", () => {
       movement.wallJumpState = "none";
       movement.ledgeGrabState = "grabbing";
     }
+    // One movement step per snapshot here, so the ack advances with the tick.
     const correct = (tick: number, age: number | null, vx: number) => {
-      client.bufferSnapshot({ ...at(tick, 0), knockbackAgeTicks: age, velocity: { x: vx, y: 0, z: 0 } });
+      client.bufferSnapshot({
+        ...at(tick, 0),
+        ackedInputSeq: tick,
+        knockbackAgeTicks: age,
+        velocity: { x: vx, y: 0, z: 0 },
+      });
       client.processBufferedSnapshots();
     };
     correct(2, 0, 100); // New authoritative impulse despite zero position error.
     expect(client.getVelocity().x).toBe(100);
     expect(client.getDebugInfo().lastSuppressionRelease).toBe("knockback");
-    correct(3, 1, 110); // Same impulse (tick - age stays 2): ordinary suppression remains.
+    correct(3, 1, 110); // Same impulse (ack - age stays 2): ordinary suppression remains.
     expect(client.getVelocity().x).toBe(100);
     correct(4, 0, 200); // A second impulse starts a new drag window.
     expect(client.getVelocity().x).toBe(200);
@@ -210,9 +216,10 @@ describe("V2NetworkClient reconciliation suppression bounds", () => {
 });
 
 /**
- * N08: the replay budget is a deliberate CPU cap, but replaying the newest 32
+ * N08: the replay budget is a deliberate CPU cap, but replaying only the newest
  * commands from a server state that precedes all of them resumed the client at
- * a position its own history never passed through.
+ * a position its own history never passed through. The budget is two seconds
+ * of commands (250 at 125 Hz).
  */
 describe("V2NetworkClient replay budget", () => {
   const AUTHORITY = { x: 0, y: 5000, z: 0 };
@@ -240,29 +247,31 @@ describe("V2NetworkClient replay budget", () => {
 
   afterEach(() => vi.restoreAllMocks());
 
+  const BUDGET = 250;
+
   it("replays the whole backlog while it fits in the budget", () => {
-    const run = afterUnacked(32);
+    const run = afterUnacked(BUDGET);
     // Authority agrees with the prediction, so nothing should move.
     expect(run.after).toBe(run.before);
     expect(run.debug.resyncCount).toBe(0);
   });
 
   it("resynchronises rather than replaying a suffix past the budget", () => {
-    const run = afterUnacked(33);
+    const run = afterUnacked(BUDGET + 1);
     // One more command must not teleport the player upward, which is what
-    // replaying 32 of 33 from the pre-backlog state used to do.
+    // replaying a suffix from the pre-backlog state used to do.
     expect(run.debug.resyncCount).toBe(1);
     expect(run.after).toBe(AUTHORITY.y);
   });
 
   it("discards the commands it can no longer honour instead of retrying them", () => {
-    const run = afterUnacked(40);
+    const run = afterUnacked(BUDGET + 5);
     expect(run.debug.pendingInputs).toBe(0);
   });
 
   it("holds the boundary steady either side of it", () => {
-    expect(afterUnacked(31).debug.resyncCount).toBe(0);
-    expect(afterUnacked(32).debug.resyncCount).toBe(0);
-    expect(afterUnacked(33).debug.resyncCount).toBe(1);
+    expect(afterUnacked(BUDGET - 1).debug.resyncCount).toBe(0);
+    expect(afterUnacked(BUDGET).debug.resyncCount).toBe(0);
+    expect(afterUnacked(BUDGET + 1).debug.resyncCount).toBe(1);
   });
 });

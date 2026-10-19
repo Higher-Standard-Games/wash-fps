@@ -20,6 +20,15 @@ const PLAYER_BOUNDS = {
 const CLEARANCE = 1;
 const RETRY_DELAY_MS = 300;
 
+export interface LedgeGrabState {
+  readonly state: "none" | "grabbing" | "pulling";
+  readonly phase: number;
+  readonly stateStartMs: number;
+  readonly cooldownUntilMs: number;
+  readonly targetPos: Readonly<Vec3>;
+  readonly startPos: Readonly<Vec3>;
+}
+
 export class LedgeGrab {
   state: "none" | "grabbing" | "pulling" = "none";
   phase: number = 0; // Camera phase (0-1)
@@ -31,6 +40,27 @@ export class LedgeGrab {
   private cooldownUntilMs: number = 0; // Re-detection lockout deadline
   private targetPos: Vec3 = vec3Zero();
   private startPos: Vec3 = vec3Zero();
+
+  /** Everything that carries from one step to the next, for a replay to resume from. */
+  saveState(): LedgeGrabState {
+    return {
+      state: this.state,
+      phase: this.phase,
+      stateStartMs: this.stateStartMs,
+      cooldownUntilMs: this.cooldownUntilMs,
+      targetPos: vec3Clone(this.targetPos),
+      startPos: vec3Clone(this.startPos),
+    };
+  }
+
+  loadState(saved: LedgeGrabState): void {
+    this.state = saved.state;
+    this.phase = saved.phase;
+    this.stateStartMs = saved.stateStartMs;
+    this.cooldownUntilMs = saved.cooldownUntilMs;
+    this.targetPos = vec3Clone(saved.targetPos);
+    this.startPos = vec3Clone(saved.startPos);
+  }
 
   /** Reset state for reconciliation */
   reset(): void {

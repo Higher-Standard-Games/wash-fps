@@ -239,9 +239,12 @@ function predicted(
     peakPosition = Math.max(peakPosition, gap(client.getPosition(), truth[seq].position));
     peakVelocity = Math.max(peakVelocity, gap(client.getState().velocity, truth[seq].velocity));
   });
+  // A snapshot that matches the stored prediction is confirmed without a
+  // replay; it went through the reconcile path all the same.
+  const debug = client.getDebugInfo();
   return {
     position: client.getPosition(),
-    reconciles: client.getDebugInfo().reconcileCount,
+    reconciles: debug.reconcileCount + debug.confirmedCount,
     peakPosition,
     peakVelocity,
   };
@@ -402,7 +405,9 @@ describe("Reconciling an exact snapshot is a no-op", () => {
  * a wall-jump detection, and a flipped detection is worth hundreds of units.
  */
 describe("A sub-unit snapshot nudge stays sub-unit", () => {
-  const JITTER = 0.01;
+  // Just past the client's confirmation tolerance (0.01 u), so every snapshot
+  // still takes the replay path instead of confirming the prediction.
+  const JITTER = 0.02;
 
   it("running flat", async () => {
     const steps = Array.from({ length: 200 }, () => forward());
@@ -412,6 +417,18 @@ describe("A sub-unit snapshot nudge stays sub-unit", () => {
   it("crouch slide", async () => {
     const steps = Array.from({ length: 80 }, (_, i) => forward(i >= 1 ? InputButtons.CROUCH : 0));
     expect(await drift(steps, FAST, { ...SLIDE_CADENCE, jitter: JITTER })).toBeLessThan(1);
+  });
+
+  it("crouch slide entered after the acknowledged command", async () => {
+    // The live cadence: a snapshot every 2 ticks, acknowledging a command about
+    // 100 ms back. The slide starts inside the unacknowledged window, so the
+    // replay must resume from the movement state at the ack — not the newest
+    // one, whose slide would end on the first replayed step without crouch,
+    // start its cooldown and refuse to start again (36 u snaps at this lag).
+    const world = await room();
+    const steps = Array.from({ length: 120 }, (_, i) => forward(i >= 3 ? InputButtons.CROUCH : 0));
+    expect(observed(world, steps, FAST).slid).toBe(true);
+    expect(await drift(steps, FAST, { every: 2, lag: 12, jitter: JITTER })).toBeLessThan(1);
   });
 });
 

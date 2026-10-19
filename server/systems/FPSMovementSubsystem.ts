@@ -177,14 +177,20 @@ export class FPSMovementSubsystem extends Subsystem {
   /** Map trigger volumes (teleporters/jumppads) installed into every profile. */
   private triggerVolumes: TriggerVolume[] = [];
 
-  /** Last tick each entity received knockback (for air drag timing) */
-  private lastKBTick: Map<number, number> = new Map();
+  /** Effect-clock step each entity's knockback drag started from (for air drag timing). */
+  private knockbackStart: Map<number, number> = new Map();
   private lastMovementTick = 0;
 
-  /** Age AFTER the last simulated step (Simulation's published tick is one later). */
+  /**
+   * Drag age AFTER the last simulated step (Simulation's published tick is one
+   * later), counted in movement steps. Null until the impulse's first step: a
+   * player waiting for its commands has taken none yet.
+   */
   getKnockbackAge(entityId: number): number | null {
-    const start = this.lastKBTick.get(entityId);
-    return start === undefined ? null : this.lastMovementTick - start;
+    const start = this.knockbackStart.get(entityId);
+    if (start === undefined) return null;
+    const age = this.lastMovementTick + (this.stepOffset.get(entityId) ?? 0) - start;
+    return age >= 0 ? age : null;
   }
 
   /** Per-entity speed bonus from weapon (e.g., +25 for blade) */
@@ -203,8 +209,18 @@ export class FPSMovementSubsystem extends Subsystem {
   /** Consecutive ticks each entity has heard nothing from its client, late commands included. */
   private starvationTicks: Map<number, number> = new Map();
 
-  /** Consecutive ticks each entity has run without a command of its own. */
-  private repeatTicks: Map<number, number> = new Map();
+  /**
+   * Ticks each entity has waited without a step and not yet made up. Catch-up
+   * repays them; nothing else may run a second step in a tick.
+   */
+  private pauseDebt: Map<number, number> = new Map();
+
+  /**
+   * Each entity's effect clock relative to the world tick: one less for every
+   * tick it waited, one more for every catch-up step. Movement steps, not
+   * ticks, are what the client counts.
+   */
+  private stepOffset: Map<number, number> = new Map();
 
   /**
    * Newest command sequence each entity's physics has accounted for: the command
@@ -218,19 +234,28 @@ export class FPSMovementSubsystem extends Subsystem {
   /** Smallest queue depth seen in the current drain window, and the window's age in ticks. */
   private drainWindow: Map<number, { minDepth: number; ticks: number }> = new Map();
 
-  /** Max buffered commands per entity — extras are dropped so a fast/flooding
-   *  client can't bank physics time (each server tick consumes exactly one).
-   *  Holds a 20 FPS client's per-frame burst with room for jitter. */
-  private static readonly MAX_INPUT_BUFFER = 12;
   /**
-   * Starved ticks that repeat the last command without standing in for the next
-   * one. Each such tick leaves one more command waiting in the queue afterwards,
-   * which is how the queue grows deep enough to cover a link's ordinary jitter.
+   * Max buffered commands per entity: two seconds. A stalled upload delivers
+   * its backlog at once, and every command dropped here is a step the client
+   * predicted and the server never takes. Catch-up is bounded by owed ticks,
+   * so a deep queue banks nothing.
    */
-  private static readonly UNCLAIMED_REPEAT_TICKS = 2;
+  private static readonly MAX_INPUT_BUFFER = 2 * TICK_RATE;
+  /**
+   * Owed ticks past which a silent player is guessed for instead of waiting
+   * (500 ms). Bounds how far behind real time a player can fall, and so how
+   * long anyone can hang frozen or slowed by withholding commands.
+   */
+  private static readonly MAX_PAUSE_TICKS = TICK_RATE / 2;
+  /**
+   * Queue depth from which owed ticks are repaid at once, a second step per
+   * tick: deeper than a 10 FPS client's per-frame burst, so ordinary frame
+   * bursts keep their jitter buffer and only a stall's backlog runs fast.
+   */
+  private static readonly CATCH_UP_DEPTH = 12;
   /** Furthest a run of guesses may account ahead of the newest real command (256 ms). */
   private static readonly MAX_CLAIMED_AHEAD = 32;
-  /** A queue that never fell below this depth for a whole window gives one command up. */
+  /** A queue that never fell below this depth for a whole window catches up, or gives, one command. */
   private static readonly DRAIN_MIN_DEPTH = 3;
   private static readonly DRAIN_WINDOW_TICKS = TICK_RATE;
   /** Ticks of repeated stale input tolerated before action buttons are cleared —
@@ -369,11 +394,12 @@ export class FPSMovementSubsystem extends Subsystem {
     this.movementProfiles.clear();
     this.pendingImpulses = [];
     this.pendingMeleeDashes = [];
-    this.lastKBTick.clear();
+    this.knockbackStart.clear();
     this.weaponSpeedBonuses.clear();
     this.lastInput.clear();
     this.starvationTicks.clear();
-    this.repeatTicks.clear();
+    this.pauseDebt.clear();
+    this.stepOffset.clear();
     this.accountedSeq.clear();
     this.newestRealSeq.clear();
     this.drainWindow.clear();
@@ -666,7 +692,10 @@ export class FPSMovementSubsystem extends Subsystem {
         this.getProfile(impulse.entityId as number).resetPhysicsState(false);
 
         kbEntities.add(impulse.entityId as number);
-        this.lastKBTick.set(impulse.entityId as number, tickNum);
+        // Drag ages from the player's next movement step, which may come in a
+        // later tick if the player is waiting for its commands.
+        const kbId = impulse.entityId as number;
+        this.knockbackStart.set(kbId, tickNum + (this.stepOffset.get(kbId) ?? 0));
         debugLog(
           "kb",
           () =>
@@ -703,18 +732,6 @@ export class FPSMovementSubsystem extends Subsystem {
       this.pendingMeleeDashes = [];
     }
 
-    // === KNOCKBACK AIR DRAG ===
-    // After a free-fly window, smoothly decay horizontal velocity
-    // and add extra gravity so players arc down instead of floating.
-    for (const [entityId, kbTick] of this.lastKBTick) {
-      const ent = state.getEntityMut(entityId as unknown as EntityId);
-      if (!ent?.physics) continue;
-
-      const age = tickNum - kbTick;
-      if (ent.health?.dead || applyKnockbackDrag(ent.physics.velocity, ent.physics.grounded, age, dt) === null) {
-        this.lastKBTick.delete(entityId);
-      }
-    }
     // Process all player entities
     // Advance shared map movers ONCE per world tick, with all live riders.
     // Position references are obtained through COW before a lift can carry them.
@@ -757,12 +774,15 @@ export class FPSMovementSubsystem extends Subsystem {
         this.lastGroundY.delete(eid);
         this.fallArmed.delete(eid); // re-arm on first grounded tick after spawn
         this.lastSpawnTick.set(eid, spawnTick);
+        // A new life owes nothing: commands from before the death were cleared.
+        this.pauseDebt.delete(eid);
       }
 
       // Dead entities: skip physics entirely (no corpse movement).
       // Respawn is now handled by RequestSpawn reliable message -> wantsRespawn flag.
       if (entity.health?.dead) {
         this.clearFallTracking(eid);
+        this.knockbackStart.delete(eid);
         continue;
       }
 
@@ -771,25 +791,34 @@ export class FPSMovementSubsystem extends Subsystem {
       if (!mutable || !mutable.transform || !mutable.physics || !mutable.input) continue;
 
       const input = mutable.input;
-      const physics = mutable.physics;
-      const transform = mutable.transform;
 
       // Get movement profile for this entity
       const profile = this.getProfile(entity.id);
       // Apply weapon speed bonus (e.g., blade = +25)
       profile.speedBonus = this.weaponSpeedBonuses.get(entity.id as number) ?? 0;
 
-      // ── SERVER-AUTHORITATIVE FIXED-RATE PHYSICS ──────────────────────────
-      // Advance physics EXACTLY ONE dt per server tick, consuming at most one
-      // buffered command (in sequence order). If none arrived this tick, repeat
-      // the last input so gravity/momentum still advance. This decouples an
-      // entity's physics RATE from its input arrival RATE, so no client — human
-      // or bot, slow, laggy, or malicious — can slow, skip, or bank its own
-      // physics by sending fewer/more commands. Input *content* still matters;
-      // input *rate* cannot.
+      // ── SERVER-AUTHORITATIVE MOVEMENT: ONE STEP PER COMMAND ──────────────
+      // Each command the client predicted is one movement step here, so the
+      // client's prediction and this simulation take the same steps from the
+      // same commands, and reconciliation has nothing to correct.
+      //
+      // A tick normally runs the next queued command. When none has arrived the
+      // player PAUSES (Quake behaviour): no step, and the tick is owed. Owed
+      // ticks are repaid by running a second command in a later tick while a
+      // backlog is queued (catch-up), so a stall costs the player nothing in
+      // the end and other players see a brief hold. The debt is what bounds it:
+      // catch-up only repays ticks already lost, so no client can take more
+      // steps than real time allows by sending extra commands.
+      //
+      // A player cannot stay frozen or slowed for long either: past
+      // MAX_PAUSE_TICKS of debt the server guesses instead — repeating the last
+      // command so gravity and momentum go on — and each guess stands in for
+      // the next command, advancing the ACK. That command, arriving late, is
+      // dropped, and its aim, buttons and weapon request become the next guess.
       const queue = input.inputQueue;
       let accounted = this.accountedSeq.get(eid) ?? 0;
       let newestReal = this.newestRealSeq.get(eid) ?? 0;
+      let debt = this.pauseDebt.get(eid) ?? 0;
 
       // De-duplication on ingest means sequences only rise within one command
       // stream. A command at or below the newest real one starts a new stream:
@@ -797,18 +826,16 @@ export class FPSMovementSubsystem extends Subsystem {
       if (queue.length > 0 && queue[0].sequence <= newestReal) {
         accounted = queue[0].sequence - 1;
         newestReal = accounted;
+        debt = 0;
       }
 
-      // Cap the buffer: a client sending faster than the tick rate can't hoard
-      // commands to gain extra physics later — keep the newest, drop old excess.
+      // Cap the buffer. Catch-up cannot outrun the debt, so this bound is about
+      // memory and the longest stall worth holding; past it the oldest go.
       if (queue.length > FPSMovementSubsystem.MAX_INPUT_BUFFER) {
         this.dropOldest(queue, queue.length - FPSMovementSubsystem.MAX_INPUT_BUFFER);
       }
 
-      // A guess past the repeat grace stood in for the client's next command
-      // (see below). That command still arrives, late, and its step has been
-      // taken, so it is dropped. Its aim, buttons and weapon request are the
-      // freshest the player has given, so they become the next guess.
+      // A guess stood in for these commands, and its step has been taken.
       let late: QueuedInput | undefined;
       let lateCount = 0;
       while (lateCount < queue.length && queue[lateCount].sequence <= accounted) lateCount++;
@@ -817,17 +844,22 @@ export class FPSMovementSubsystem extends Subsystem {
         if (late) newestReal = Math.max(newestReal, late.sequence);
       }
 
-      // Repeats grow the queue; nothing else shrinks it. A queue that stayed
-      // this deep for a whole second holds latency no jitter used, so it gives
-      // one command up. The client then sees a one-step correction.
+      // A queue that stayed this deep for a whole second holds latency no
+      // jitter used. With ticks owed it catches one command up; with none owed
+      // (a client sending ahead of real time) the oldest command is given up.
+      let drainCatchUp = false;
       const drain = this.drainWindow.get(eid) ?? { minDepth: Number.POSITIVE_INFINITY, ticks: 0 };
       drain.minDepth = Math.min(drain.minDepth, queue.length);
       if (++drain.ticks >= FPSMovementSubsystem.DRAIN_WINDOW_TICKS) {
         if (drain.minDepth >= FPSMovementSubsystem.DRAIN_MIN_DEPTH) {
-          const given = this.dropOldest(queue, 1);
-          if (given) {
-            accounted = Math.max(accounted, given.sequence);
-            newestReal = Math.max(newestReal, given.sequence);
+          if (debt > 0) {
+            drainCatchUp = true;
+          } else {
+            const given = this.dropOldest(queue, 1);
+            if (given) {
+              accounted = Math.max(accounted, given.sequence);
+              newestReal = Math.max(newestReal, given.sequence);
+            }
           }
         }
         drain.minDepth = Number.POSITIVE_INFINITY;
@@ -835,55 +867,84 @@ export class FPSMovementSubsystem extends Subsystem {
       }
       this.drainWindow.set(eid, drain);
 
-      // Consume one command this tick (FIFO); fall back to the last one we used.
-      // On starvation (no fresh command) we keep repeating movement/aim so gravity
-      // and momentum still advance, but strip the action buttons past a short grace
-      // so a silent/frozen client can't keep firing/jumping (see ACTION_BUTTON_MASK).
-      //
-      // The first starved ticks repeat as extra steps: the commands they wait for
-      // run later, one tick behind, so the queue absorbs the next delay of that
-      // size. A longer starvation is a stall, and each further guess stands in
-      // for the next command, advancing the ACK. When the stalled commands
-      // arrive they are dropped as late, so the step the client predicted for
-      // each one was taken exactly once. The client sees only where a guess
-      // differed from what the player did, not the whole stall replayed on top.
+      const commands: QueuedInput[] = [];
       const fresh = queue.shift();
-      let cmd: QueuedInput | undefined;
       if (fresh) {
-        cmd = fresh;
+        commands.push(fresh);
         accounted = fresh.sequence;
         newestReal = Math.max(newestReal, fresh.sequence);
         this.starvationTicks.set(eid, 0);
-        this.repeatTicks.set(eid, 0);
+        // Repay one owed tick when a backlog has built up behind this one.
+        if (debt > 0 && queue.length > 0 && (drainCatchUp || queue.length >= FPSMovementSubsystem.CATCH_UP_DEPTH)) {
+          const next = queue.shift() as QueuedInput;
+          commands.push(next);
+          accounted = next.sequence;
+          newestReal = Math.max(newestReal, next.sequence);
+          debt--;
+        }
       } else {
         const base = late ?? this.lastInput.get(eid);
-        if (base) {
-          const silent = late ? 0 : (this.starvationTicks.get(eid) ?? 0) + 1;
-          this.starvationTicks.set(eid, silent);
-          // New object (don't mutate the shared lastInput in place); the stripped
-          // version is then stored back as lastInput so buttons stay cleared.
-          cmd =
-            silent > FPSMovementSubsystem.BUTTON_HOLD_GRACE_TICKS
-              ? { ...base, buttons: base.buttons & ~FPSMovementSubsystem.ACTION_BUTTON_MASK }
-              : base;
-          const repeats = (this.repeatTicks.get(eid) ?? 0) + 1;
-          this.repeatTicks.set(eid, repeats);
-          // A late command with nothing behind it means the client runs behind
-          // the guesses, by jitter or by frame time it lost and never sent. A
-          // claim now would make its next command late too, and so on forever,
-          // so this guess stays unclaimed and the client's commands run again.
-          if (
-            repeats > FPSMovementSubsystem.UNCLAIMED_REPEAT_TICKS &&
-            !late &&
-            accounted - newestReal < FPSMovementSubsystem.MAX_CLAIMED_AHEAD
-          ) {
-            accounted++;
+        const silent = late ? 0 : (this.starvationTicks.get(eid) ?? 0) + 1;
+        this.starvationTicks.set(eid, silent);
+        // Past the grace window a silent client stops acting, whether it waits
+        // or is guessed for (see ACTION_BUTTON_MASK).
+        const held =
+          base && silent > FPSMovementSubsystem.BUTTON_HOLD_GRACE_TICKS
+            ? { ...base, buttons: base.buttons & ~FPSMovementSubsystem.ACTION_BUTTON_MASK }
+            : base;
+        // A late command with nothing behind it means the client runs behind
+        // the guesses. Guessing again would make its next command late too, so
+        // the player waits for it instead.
+        const guess =
+          held !== undefined &&
+          !late &&
+          debt >= FPSMovementSubsystem.MAX_PAUSE_TICKS &&
+          accounted - newestReal < FPSMovementSubsystem.MAX_CLAIMED_AHEAD;
+        if (held && guess) {
+          commands.push(held);
+          accounted++;
+        } else if (!held && debt >= FPSMovementSubsystem.MAX_PAUSE_TICKS) {
+          // Never heard from at all: once the pause runs out, gravity and
+          // momentum still apply. The step stands in for no command.
+          commands.push({
+            forward: 0,
+            right: 0,
+            pitch: input.pitch,
+            yaw: input.yaw,
+            buttons: 0,
+            sequence: accounted,
+            weaponSlot: 0,
+          });
+        } else {
+          debt = Math.min(debt + 1, FPSMovementSubsystem.MAX_INPUT_BUFFER);
+          if (held) {
+            this.lastInput.set(eid, held);
+            input.buttons = held.buttons;
+            input.pitch = held.pitch;
+            input.yaw = held.yaw;
+            if (held.weaponSlot > 0) input.weaponSlot = held.weaponSlot;
           }
         }
       }
       this.accountedSeq.set(eid, accounted);
       this.newestRealSeq.set(eid, newestReal);
-      if (cmd) {
+      this.pauseDebt.set(eid, debt);
+
+      // The effect clock and drag age count movement steps, not ticks: a
+      // paused tick takes none and a catch-up tick takes two, exactly as the
+      // client's prediction counted one per command.
+      const firstStep = tickNum + (this.stepOffset.get(eid) ?? 0);
+      this.stepOffset.set(eid, firstStep + commands.length - 1 - tickNum);
+
+      // Weapons run once per tick, after movement. They see the newest command,
+      // with any action button or weapon request an earlier command of this
+      // tick carried, so a catch-up tick loses no press.
+      let actions = 0;
+      let weaponRequest = 0;
+      for (let i = 0; i < commands.length; i++) {
+        const cmd = commands[i];
+        actions |= cmd.buttons & FPSMovementSubsystem.ACTION_BUTTON_MASK;
+        if (cmd.weaponSlot > 0) weaponRequest = cmd.weaponSlot;
         input.forward = cmd.forward;
         input.right = cmd.right;
         input.pitch = cmd.pitch;
@@ -893,59 +954,24 @@ export class FPSMovementSubsystem extends Subsystem {
         // Weapons run after movement, so this is the view tick of the very
         // command whose fire button they are about to act on.
         input.viewTick = cmd.viewTick ?? 0;
-        if (cmd.weaponSlot > 0) input.weaponSlot = cmd.weaponSlot;
-        this.lastInput.set(eid, cmd);
+        // A step for a player never heard from is no command to guess from later.
+        if (this.lastInput.has(eid) || cmd.sequence > 0) this.lastInput.set(eid, cmd);
+        this.stepPlayer(state, entity.id, profile, firstStep + i, dt);
+      }
+      if (commands.length > 0) {
+        input.buttons |= actions;
+        if (weaponRequest > 0) input.weaponSlot = weaponRequest;
         // Ack the newest command this entity's physics has accounted for (not the
         // last one received), so client reconciliation replays exactly the rest.
         input.lastProcessedSeq = accounted;
       }
 
-      // Always simulate exactly one dt (even with no command ever — gravity applies).
-      const px = transform.position.x;
-      const py = transform.position.y;
-      const pz = transform.position.z;
-      const result = profile.simulate(
-        transform.position,
-        physics.velocity,
-        adaptInput(input, tickNum),
-        dt,
-        this.collisionWorld,
-      );
-      applyResult(transform, physics, result, input);
-
-      if (result.teleported) {
-        // A teleport is not a fall: measure any post-teleport drop from the
-        // exit, not from wherever the player left the ground pre-teleport.
-        this.clearFallTracking(eid);
-        this.lastGroundY.delete(eid);
-        // Server-only side effect: telefrag players occupying the exit (Q3).
-        this.telefragAtExit(state, entity.id, transform.position);
-      }
-      this.updateFallDamageTracking(
-        entity.id,
-        transform.position.y,
-        physics.grounded,
-        input.buttons,
-        physics.waterLevel,
-      );
-
+      // Air and burn run on world time, stepping or not.
+      const physics = mutable.physics;
       this.applyLiquidWorldEffects(entity.id, physics, entity.health?.dead ?? false, dt);
 
-      const mdx = transform.position.x - px;
-      const mdy = transform.position.y - py;
-      const mdz = transform.position.z - pz;
-      const moved = Math.sqrt(mdx * mdx + mdy * mdy + mdz * mdz);
-      // Teleports legitimately move the whole map in one tick — whitelisted
-      // from the position-delta tripwire (the profile applied them itself).
-      if (moved > FPSMovementSubsystem.MAX_TICK_STEP && !result.teleported) {
-        this.tripwireHits.set(eid, (this.tripwireHits.get(eid) ?? 0) + 1);
-        console.warn(
-          `[Authority] entity ${eid} moved ${moved.toFixed(0)}u in one tick ` +
-            `(max ${FPSMovementSubsystem.MAX_TICK_STEP}) pos=(${transform.position.x.toFixed(0)},${transform.position.y.toFixed(0)},${transform.position.z.toFixed(0)}) - log-only`,
-        );
-      }
-
       if (kbEntities.has(eid)) {
+        const transform = mutable.transform;
         debugLog(
           "kb",
           () =>
@@ -980,6 +1006,70 @@ export class FPSMovementSubsystem extends Subsystem {
 
     // After all movement: push overlapping players apart (Q3-style)
     this.separatePlayers(state);
+  }
+
+  /**
+   * One movement step for a live player, with the command already written to
+   * its input component. `simStep` is the step's place on the player's effect
+   * clock, the one its walljump, slide, ladder and water-jump deadlines use.
+   */
+  private stepPlayer(
+    state: WorldState,
+    entityId: EntityId,
+    profile: FPSMovementProfile,
+    simStep: number,
+    dt: number,
+  ): void {
+    const mutable = state.getEntityMut(entityId);
+    if (!mutable?.transform || !mutable.physics || !mutable.input) return;
+    const { transform, physics, input } = mutable;
+    const eid = entityId as number;
+
+    // Knockback drag runs before the step's movement, at the step's age — the
+    // order client prediction uses too.
+    const kbStart = this.knockbackStart.get(eid);
+    if (
+      kbStart !== undefined &&
+      applyKnockbackDrag(physics.velocity, physics.grounded, simStep - kbStart, dt) === null
+    ) {
+      this.knockbackStart.delete(eid);
+    }
+
+    const px = transform.position.x;
+    const py = transform.position.y;
+    const pz = transform.position.z;
+    const result = profile.simulate(
+      transform.position,
+      physics.velocity,
+      adaptInput(input, simStep),
+      dt,
+      this.collisionWorld,
+    );
+    applyResult(transform, physics, result, input);
+
+    if (result.teleported) {
+      // A teleport is not a fall: measure any post-teleport drop from the
+      // exit, not from wherever the player left the ground pre-teleport.
+      this.clearFallTracking(eid);
+      this.lastGroundY.delete(eid);
+      // Server-only side effect: telefrag players occupying the exit (Q3).
+      this.telefragAtExit(state, entityId, transform.position);
+    }
+    this.updateFallDamageTracking(entityId, transform.position.y, physics.grounded, input.buttons, physics.waterLevel);
+
+    const mdx = transform.position.x - px;
+    const mdy = transform.position.y - py;
+    const mdz = transform.position.z - pz;
+    const moved = Math.sqrt(mdx * mdx + mdy * mdy + mdz * mdz);
+    // Teleports legitimately move the whole map in one tick — whitelisted
+    // from the position-delta tripwire (the profile applied them itself).
+    if (moved > FPSMovementSubsystem.MAX_TICK_STEP && !result.teleported) {
+      this.tripwireHits.set(eid, (this.tripwireHits.get(eid) ?? 0) + 1);
+      console.warn(
+        `[Authority] entity ${eid} moved ${moved.toFixed(0)}u in one tick ` +
+          `(max ${FPSMovementSubsystem.MAX_TICK_STEP}) pos=(${transform.position.x.toFixed(0)},${transform.position.y.toFixed(0)},${transform.position.z.toFixed(0)}) - log-only`,
+      );
+    }
   }
 
   // ────────────────────────────────────────────────────────────────
@@ -1130,11 +1220,12 @@ export class FPSMovementSubsystem extends Subsystem {
     this.liquidEffects.delete(entityId);
     this.lastSpawnTick.delete(entityId);
     this.lastGroundY.delete(entityId);
-    this.lastKBTick.delete(entityId);
+    this.knockbackStart.delete(entityId);
     this.pendingMeleeDashes = this.pendingMeleeDashes.filter((dash) => (dash.entityId as number) !== entityId);
     this.lastInput.delete(entityId);
     this.starvationTicks.delete(entityId);
-    this.repeatTicks.delete(entityId);
+    this.pauseDebt.delete(entityId);
+    this.stepOffset.delete(entityId);
     this.accountedSeq.delete(entityId);
     this.newestRealSeq.delete(entityId);
     this.drainWindow.delete(entityId);

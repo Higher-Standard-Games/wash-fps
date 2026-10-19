@@ -4,16 +4,17 @@
  * Watches for clients sending movement faster than real time. Two layers:
  *
  * 1. **Flood guard**: a hard limit on inputs accepted per server tick, sized for
- *    the backlog an honest link delivers at once after a half-second stall.
+ *    the backlog an honest link delivers at once after a two-second stall.
  *    Inputs over it are silently dropped.
  * 2. **Time budget**: each client earns real-time credit between inputs, up to
- *    500 ms banked, and each input costs 1/expectedClientRate seconds. Running
- *    out only records a strike. It does not drop the input: honest links
- *    deliver in bursts, and dropping there made honest players stutter.
+ *    two seconds banked, and each input costs 1/expectedClientRate seconds.
+ *    Running out only records a strike. It does not drop the input: honest
+ *    links deliver in bursts, and dropping there made honest players stutter.
  *
- * The real speed-hack defence is elsewhere: the simulation runs one command per
- * entity per tick and holds at most `MAX_INPUT_BUFFER` of them, so a flood
- * cannot buy extra movement however it arrives. Strikes are a signal for
+ * The real speed-hack defence is elsewhere: the movement system runs one
+ * command per step and takes a second step in a tick only to repay ticks the
+ * player already waited, so a flood cannot buy extra movement however it
+ * arrives. Strikes are a signal for
  * telemetry, kept per player across spectating, rejoining and resuming, so
  * toggling spectate does not wipe the record. Only a real departure does.
  */
@@ -38,8 +39,13 @@ interface ClientMovementState {
 /** What a player's record keeps while they are not playing. */
 type Lifetime = Pick<ClientMovementState, "warpStrikes" | "totalAccepted" | "totalRejected">;
 
-/** Inputs one tick accepts however they arrive: 512 ms of commands at 125 Hz. */
-export const MAX_BURST_INPUTS = 64;
+/**
+ * Inputs one tick accepts however they arrive: two seconds of commands at
+ * 125 Hz, the depth of the movement input buffer. A stalled upload delivers its
+ * whole backlog at once, and each command refused here is a step the client
+ * predicted and the server never takes.
+ */
+export const MAX_BURST_INPUTS = 250;
 
 export class MovementValidator {
   private clients = new Map<PlayerId, ClientMovementState>();
@@ -66,11 +72,12 @@ export class MovementValidator {
     // ceil(clientRate/serverRate) + 2 for jitter tolerance
     // A client emits one burst per rendered frame, and a stalled TCP link
     // delivers everything it held at once: a 20 FPS client already sends six
-    // or seven a frame. Only a flood is refused; the simulation's one-per-tick
-    // consumption is what keeps a fast sender from gaining time.
+    // or seven a frame. Only a flood is refused; the movement system, which
+    // runs a second step in a tick only to repay ticks a player already waited,
+    // is what keeps a fast sender from gaining time.
     this.maxInputsPerTick = Math.max(Math.ceil(expectedClientRate / serverTickRate) + 2, MAX_BURST_INPUTS);
-    // Allow banking up to ~500ms of time (handles bursty/jittery links)
-    this.maxBudgetMs = 500;
+    // Bank up to two seconds, the backlog a stalled upload can deliver at once.
+    this.maxBudgetMs = 2000;
     this.strikeWarnThreshold = 50;
   }
 

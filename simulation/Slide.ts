@@ -34,6 +34,20 @@ function smoothstep01(t: number): number {
   return c * c * (3 - 2 * c);
 }
 
+export interface SlideState {
+  readonly isSliding: boolean;
+  readonly isCrouching: boolean;
+  readonly crouchViewOffset: number;
+  readonly slidePhase: number;
+  readonly slideStartMs: number;
+  readonly cooldownUntilMs: number;
+  readonly slideEndMs: number;
+  readonly slideEndPhase: number;
+  readonly crouchAnchorMs: number;
+  readonly crouchFromOffset: number;
+  readonly crouchTargetOffset: number;
+}
+
 export class Slide {
   isSliding: boolean = false;
   isCrouching: boolean = false;
@@ -52,6 +66,37 @@ export class Slide {
   /** True while the post-slide cooldown deadline is in the future */
   isOnCooldown(nowMs: number): boolean {
     return nowMs < this.cooldownUntilMs;
+  }
+
+  /** Everything that carries from one step to the next, for a replay to resume from. */
+  saveState(): SlideState {
+    return {
+      isSliding: this.isSliding,
+      isCrouching: this.isCrouching,
+      crouchViewOffset: this.crouchViewOffset,
+      slidePhase: this.slidePhase,
+      slideStartMs: this.slideStartMs,
+      cooldownUntilMs: this.cooldownUntilMs,
+      slideEndMs: this.slideEndMs,
+      slideEndPhase: this.slideEndPhase,
+      crouchAnchorMs: this.crouchAnchorMs,
+      crouchFromOffset: this.crouchFromOffset,
+      crouchTargetOffset: this.crouchTargetOffset,
+    };
+  }
+
+  loadState(state: SlideState): void {
+    this.isSliding = state.isSliding;
+    this.isCrouching = state.isCrouching;
+    this.crouchViewOffset = state.crouchViewOffset;
+    this.slidePhase = state.slidePhase;
+    this.slideStartMs = state.slideStartMs;
+    this.cooldownUntilMs = state.cooldownUntilMs;
+    this.slideEndMs = state.slideEndMs;
+    this.slideEndPhase = state.slideEndPhase;
+    this.crouchAnchorMs = state.crouchAnchorMs;
+    this.crouchFromOffset = state.crouchFromOffset;
+    this.crouchTargetOffset = state.crouchTargetOffset;
   }
 
   /** Reset state for reconciliation */

@@ -29,12 +29,12 @@ describe("MovementValidator", () => {
     v.addClient(p);
 
     let accepted = 0;
-    for (let i = 0; i < 200; i++) {
+    for (let i = 0; i < 400; i++) {
       v.onTick();
       if (v.validateInput(p)) accepted++;
     }
 
-    expect(accepted).toBe(200);
+    expect(accepted).toBe(400);
     expect(v.getStrikes(p)).toBeGreaterThan(0);
     now.mockRestore();
     warn.mockRestore();
@@ -51,8 +51,8 @@ describe("MovementValidator", () => {
       const v = new MovementValidator(100, 125); // 10 ms an input
       const p = playerId(1);
       v.addClient(p);
-      // Spend the 500 ms starting budget in one instant.
-      for (let i = 0; i < 50; i++) {
+      // Spend the two-second starting budget in one instant.
+      for (let i = 0; i < 200; i++) {
         v.onTick();
         v.validateInput(p);
       }
@@ -75,14 +75,14 @@ describe("MovementValidator", () => {
       warn.mockRestore();
     });
 
-    it("banks at most 500 ms, however long the client sat idle", () => {
+    it("banks at most two seconds, however long the client sat idle", () => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       const now = at(0);
       const v = new MovementValidator(100, 125);
       const p = playerId(1);
       v.addClient(p);
       now.mockReturnValue(60_000);
-      for (let i = 0; i < 50; i++) {
+      for (let i = 0; i < 200; i++) {
         v.onTick();
         v.validateInput(p);
       }

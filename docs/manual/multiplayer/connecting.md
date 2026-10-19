@@ -103,9 +103,11 @@ If you drop mid-match, your seat is held for 20 seconds and the server hands you
 
 ## Reading the NetGraph
 
-`cl_netgraph 1` shows ping, snapshot rate, estimated snapshot gaps, interpolation delay and command rate as text; `cl_netgraph 2` adds a rolling graph of the same numbers. See [HUD → NetGraph](../player/hud.md#netgraph-bottom-right-optional).
+`cl_netgraph 1` shows ping, snapshot rate, estimated snapshot gaps, interpolation delay, command rate, prediction corrections and extra upload and download delay as text; `cl_netgraph 2` adds a rolling graph of ping and gaps. See [HUD → NetGraph](../player/hud.md#netgraph-bottom-right-optional).
 
 - **Ping** is measured from the server's acknowledgement of your commands, and is the number the scoreboard shows.
+- **corr / max** count the times the server corrected your predicted position by more than half a unit, per second, and the largest in the last second. Normally both stay at zero.
+- **up / down** show how much longer than your best of the last 30 seconds your commands take to reach the server (`up`) and its updates take to reach you (`down`). A high ping with a high `up` means your upload is queueing behind something else — a file upload, a cloud sync, a weak Wi-Fi uplink. The game keeps you where you are while it waits and catches up afterwards, but nothing can make your shots arrive sooner.
 - **Hit registration is lag-compensated.** When you shoot, the server rewinds other players to the tick your client was showing you, so what you saw under your crosshair is what is tested for weapons that use it.
 
 ## Ticketed and ticketless connections

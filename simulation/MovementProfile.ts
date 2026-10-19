@@ -49,9 +49,9 @@ import {
   ladderAccelerate,
   ladderIntent,
 } from "./Ladder";
-import { LedgeGrab } from "./LedgeGrab";
+import { LedgeGrab, type LedgeGrabState } from "./LedgeGrab";
 import type { AdvancedMovementResult, MovementConfig } from "./MovementConfig";
-import { Slide } from "./Slide";
+import { Slide, type SlideState } from "./Slide";
 import {
   applyWaterFriction,
   checkWaterJump,
@@ -63,9 +63,28 @@ import {
   waterAccelerate,
 } from "./Swim";
 import { VEC3_ZERO, vec3Clone, vec3Length, vec3LengthXZ } from "./Vec3Helpers";
-import { WallJump } from "./WallJump";
+import { WallJump, type WallJumpState } from "./WallJump";
 
 /** Jumppad volume with its ballistic target (launch solved per-fire — see setTriggerVolumes). */
+/** A movement profile's step-to-step state; see {@link MovementProfile.saveState}. */
+export interface MovementProfileState {
+  readonly isGrounded: boolean;
+  readonly wasGroundedLastFrame: boolean;
+  readonly jumpConsumed: boolean;
+  readonly waterLevel: WaterLevel;
+  readonly waterJumpUntilMs: number;
+  readonly proneInWater: boolean;
+  readonly inLadderVolume: boolean;
+  readonly climbing: boolean;
+  readonly ladderDetachUntilMs: number;
+  readonly simNowMs: number;
+  readonly actualHorizSpeed: number;
+  readonly smoothedY: number;
+  readonly wallJump: WallJumpState;
+  readonly slide: SlideState;
+  readonly ledgeGrab: LedgeGrabState;
+}
+
 interface JumppadVolume {
   id: number;
   min: Vec3;
@@ -330,6 +349,60 @@ export class MovementProfile implements IMovementProfile {
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([key, value]) => `${key}=${value}`)
       .join(",");
+  }
+
+  /**
+   * Everything this profile carries from one step to the next — the state a
+   * step starts from besides position and velocity. Tuning, map volumes and the
+   * weapon speed bonus are inputs, not state, and are left out.
+   *
+   * A reconciliation replay must start from the state as it was after the
+   * acknowledged command, not as it is after the newest one: a slide entered
+   * after the ack would otherwise "end" on the first replayed step without
+   * crouch, start its cooldown, and refuse to start again where it really did.
+   */
+  saveState(): MovementProfileState {
+    return {
+      isGrounded: this.isGrounded,
+      wasGroundedLastFrame: this.wasGroundedLastFrame,
+      jumpConsumed: this.jumpConsumed,
+      waterLevel: this.waterLevel,
+      waterJumpUntilMs: this.waterJumpUntilMs,
+      proneInWater: this.proneInWater,
+      inLadderVolume: this.inLadderVolume,
+      climbing: this.climbing,
+      ladderDetachUntilMs: this.ladderDetachUntilMs,
+      simNowMs: this.simNowMs,
+      actualHorizSpeed: this.actualHorizSpeed,
+      smoothedY: this.smoothedY,
+      wallJump: this.wallJump.saveState(),
+      slide: this.slide.saveState(),
+      ledgeGrab: this.ledgeGrab.saveState(),
+    };
+  }
+
+  /** Resume from a state taken by {@link saveState}. */
+  loadState(state: MovementProfileState): void {
+    this.isGrounded = state.isGrounded;
+    this.wasGroundedLastFrame = state.wasGroundedLastFrame;
+    this.jumpConsumed = state.jumpConsumed;
+    this.waterLevel = state.waterLevel;
+    this.waterJumpUntilMs = state.waterJumpUntilMs;
+    this.proneInWater = state.proneInWater;
+    this.inLadderVolume = state.inLadderVolume;
+    this.climbing = state.climbing;
+    this.ladderDetachUntilMs = state.ladderDetachUntilMs;
+    this.simNowMs = state.simNowMs;
+    this.actualHorizSpeed = state.actualHorizSpeed;
+    this.smoothedY = state.smoothedY;
+    this.wallJump.loadState(state.wallJump);
+    this.slide.loadState(state.slide);
+    this.ledgeGrab.loadState(state.ledgeGrab);
+  }
+
+  /** Adopt an authoritative grounded flag for the next step, leaving everything else as it is. */
+  setGrounded(grounded: boolean): void {
+    this.isGrounded = grounded;
   }
 
   /**

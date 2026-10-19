@@ -9,16 +9,18 @@
  * - Guaranteed physics parity with server
  */
 
+import { NetGraph } from "../../../engine/network/client/NetGraph";
 import type { Vec3 } from "../../../engine/network/components/TransformComponent";
 import type { CollisionWorld } from "../../../engine/network/systems/collision/CollisionWorld";
 import type { MovementInput } from "../../../engine/network/systems/movement/MovementProfile";
+import type { LiftState } from "../../../shared/bsp/LiftSystem";
 import type { TriggerVolume } from "../../../shared/bsp/TriggerTable";
 import { sanitizeMovementOrZero } from "../../../shared/server/simulation/InputSanitizer";
 import { applyKnockbackDrag, readKnockbackAge } from "../simulation/Knockback";
 import type { AdvancedMovementResult } from "../simulation/MovementConfig";
 import { MovementProfile as FPSMovementProfile } from "../simulation/MovementProfile";
 import { devLog } from "./DevLog";
-import { InputHistory, type StoredInput } from "./InputHistory";
+import { InputHistory, type PredictedStep, type StoredInput } from "./InputHistory";
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -70,6 +72,8 @@ export interface ServerSnapshot {
    * re-applies an impulse.
    */
   knockbackAgeTicks?: number | null;
+  /** When the snapshot arrived (performance.now); stamped on buffering when absent. */
+  receivedAtMs?: number;
 }
 
 export interface V2ClientConfig {
@@ -82,10 +86,11 @@ export interface V2ClientConfig {
 // ═══════════════════════════════════════════════════════════════════
 // Suppression exists because a replayed wall jump or ledge grab re-runs its
 // traces from the server's position and hits at slightly different sub-tick
-// points, so adopting authority every snapshot reads as jitter. It is a
-// workaround for replay disagreement, not a fix for it — restoring the full
-// movement state is (T01). Until then it needs limits that do not depend on
-// the player eventually becoming ineligible.
+// points, so adopting authority every snapshot reads as jitter. Replays now
+// resume from the full movement state at the ack, and a snapshot within the
+// wire's precision of the prediction is confirmed without any replay, so the
+// suppression only meets real disagreement. It still needs limits that do not
+// depend on the player eventually becoming ineligible.
 
 /**
  * Hard cap on CONTINUOUS suppression. Measured in ms rather than snapshots
@@ -105,6 +110,48 @@ const MAX_SUPPRESSION_MS = 500;
  * simulated, and nothing that suppression is there to smooth.
  */
 const MAX_SUPPRESSED_DIVERGENCE = 400;
+
+/**
+ * How far a snapshot may sit from the stored prediction and still confirm it.
+ * Server and client run the same double-precision steps; the gap is the
+ * snapshot's float32 encoding (about 0.001 u at 8000 u from the origin).
+ */
+const CONFIRM_POSITION_EPSILON = 0.01;
+const CONFIRM_VELOCITY_EPSILON = 0.01;
+const CONFIRM_LIFT_EPSILON = 0.01;
+
+/** A reconciliation that moves the view further than this counts as a correction on the net graph. */
+const VISIBLE_CORRECTION = 0.5;
+
+/** Does the snapshot describe the state predicted for the command it acknowledges? */
+function confirms(predicted: PredictedStep, snapshot: ServerSnapshot): boolean {
+  if (predicted.grounded !== snapshot.grounded) return false;
+  if (predicted.knockbackAge !== readKnockbackAge(snapshot.knockbackAgeTicks)) return false;
+  if (!near(predicted.position, snapshot.position, CONFIRM_POSITION_EPSILON)) return false;
+  if (!near(predicted.velocity, snapshot.velocity, CONFIRM_VELOCITY_EPSILON)) return false;
+  if (!snapshot.lifts) return true;
+  return predicted.lifts !== undefined && liftsMatch(predicted.lifts, snapshot.lifts);
+}
+
+function near(a: Vec3, b: Vec3, epsilon: number): boolean {
+  return Math.abs(a.x - b.x) <= epsilon && Math.abs(a.y - b.y) <= epsilon && Math.abs(a.z - b.z) <= epsilon;
+}
+
+function liftsMatch(predicted: readonly LiftState[], server: readonly LiftState[]): boolean {
+  if (predicted.length !== server.length) return false;
+  for (let i = 0; i < server.length; i++) {
+    const a = predicted[i];
+    const b = server[i];
+    if (a.modelIndex !== b.modelIndex || a.phase !== b.phase) return false;
+    if (Math.abs(a.offset - b.offset) > CONFIRM_LIFT_EPSILON) return false;
+    if (Math.abs(a.remaining - b.remaining) > CONFIRM_LIFT_EPSILON) return false;
+    if (a.cooldowns.length !== b.cooldowns.length) return false;
+    for (let c = 0; c < a.cooldowns.length; c++) {
+      if (Math.abs(a.cooldowns[c] - b.cooldowns[c]) > CONFIRM_LIFT_EPSILON) return false;
+    }
+  }
+  return true;
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // V2 NETWORK CLIENT
@@ -141,9 +188,13 @@ export class V2NetworkClient {
   // Config
 
   private dt: number; // Fixed timestep
+  /** Most unacknowledged commands a reconciliation replays: two seconds of them. */
+  private readonly maxReplay: number;
 
   // Debug stats
   private reconcileCount: number = 0;
+  /** Snapshots that matched the stored prediction and needed no replay. */
+  private confirmedCount: number = 0;
   private lastReconcileError: number = 0;
   private _diagOffsetLogTimer: number = 0;
 
@@ -201,6 +252,7 @@ export class V2NetworkClient {
 
   constructor(config: V2ClientConfig) {
     this.dt = 1 / config.tickRate;
+    this.maxReplay = 2 * config.tickRate;
 
     // Same movement profile as server (CRITICAL for parity)
     this.movement = new FPSMovementProfile();
@@ -327,6 +379,7 @@ export class V2NetworkClient {
 
     // 4. Store predicted movement state for visual effects
     this.updatePredictedMovement(result);
+    this.inputHistory.setPredicted(seq, this.capturePredicted());
 
     return seq;
   }
@@ -340,7 +393,9 @@ export class V2NetworkClient {
    * Called from NetworkGameHost callback (async, any time).
    */
   bufferSnapshot(snapshot: ServerSnapshot): void {
-    this.pendingSnapshots.push(snapshot);
+    this.pendingSnapshots.push(
+      snapshot.receivedAtMs === undefined ? { ...snapshot, receivedAtMs: performance.now() } : snapshot,
+    );
   }
 
   /**
@@ -377,6 +432,7 @@ export class V2NetworkClient {
     // replay, ACK pruning, lift restore — may run for one.
     if (this.lastAppliedTick !== null && snapshot.tick <= this.lastAppliedTick) return false;
     this.lastAppliedTick = snapshot.tick;
+    this.recordPathDelays(snapshot);
 
     // Track that we've received at least one snapshot
     // This is crucial - position is (0,0,0) until first snapshot
@@ -412,10 +468,6 @@ export class V2NetworkClient {
       this.wallJumpReconcileSkipCount = 10;
     }
 
-    // Movers are world state, not player state. Sync them even when this player's
-    // own reconciliation is skipped, or one grab/walljump desyncs every lift on the map.
-    if (snapshot.lifts) this.collision?.lifts?.restore(snapshot.lifts);
-
     // How far prediction has drifted from authority, measured before any
     // correction. This has to be known BEFORE deciding to skip: a skip that
     // returns without looking cannot tell a sub-unit trace disagreement from a
@@ -429,11 +481,32 @@ export class V2NetworkClient {
 
     let releasedBy: string | null = null;
     const authoritativeAge = readKnockbackAge(snapshot.knockbackAgeTicks);
-    // Snapshot ticks and published ages advance together, even when input ACKs
-    // stall. Their difference identifies the impulse's server timeline. A new
-    // impulse or cancellation must not wait behind wall/ledge suppression.
-    const knockbackStartTick = authoritativeAge === null ? null : snapshot.tick - authoritativeAge;
+    // The server ages drag once per movement step, and every step accounts for
+    // exactly one command, so the acknowledged sequence and the published age
+    // advance together — also while the server waits for this client's
+    // commands. Their difference identifies the impulse. A new impulse or
+    // cancellation must not wait behind wall/ledge suppression.
+    const knockbackStartTick = authoritativeAge === null ? null : snapshot.ackedInputSeq - authoritativeAge;
     const knockbackChanged = knockbackStartTick !== this.authoritativeKnockbackStartTick;
+
+    // A snapshot that matches what this client predicted for the same command
+    // confirms the whole prediction since then: nothing to correct and nothing
+    // to replay. Most snapshots end here. Keeping the client's own state also
+    // keeps full precision instead of adopting the float32 wire position.
+    const acked = this.inputHistory.get(snapshot.ackedInputSeq)?.predicted;
+    if (!isFirstSnapshot && !this.forceTeleportOnNextSnapshot && acked && confirms(acked, snapshot)) {
+      this.authoritativeKnockbackStartTick = knockbackStartTick;
+      this.inputHistory.pruneAcked(snapshot.ackedInputSeq);
+      if (!inActiveGrab && this.grabReconcileSkipCount > 0) this.grabReconcileSkipCount--;
+      if (!inActiveWallJump && this.wallJumpReconcileSkipCount > 0) this.wallJumpReconcileSkipCount--;
+      this.confirmedCount++;
+      this.lastReconcileError = 0;
+      return true;
+    }
+
+    // Movers are world state, not player state. Sync them even when this player's
+    // own reconciliation is skipped, or one grab/walljump desyncs every lift on the map.
+    if (snapshot.lifts) this.collision?.lifts?.restore(snapshot.lifts);
     let skipReconcile = (this.grabReconcileSkipCount > 0 || this.wallJumpReconcileSkipCount > 0) && !isFirstSnapshot;
     if (skipReconcile) {
       const now = performance.now();
@@ -510,15 +583,24 @@ export class V2NetworkClient {
     this.kbAge = authoritativeAge;
     this.authoritativeKnockbackStartTick = knockbackStartTick;
 
-    // CRITICAL: Also reset FPSMovementProfile's internal grounded state!
-    // Without this, the movement profile's isGrounded doesn't match the server,
-    // causing gravity to be skipped/applied incorrectly during input replay.
-    this.movement.resetPhysicsState(snapshot.grounded);
+    // The replay resumes from the movement state the acknowledged command left
+    // (slide, wall jump, ledge grab, ladder, jump latch...), with the server's
+    // grounded flag. Without a stored state (first snapshot, or an ack older
+    // than the history) only the grounded state can be reset.
+    if (acked) {
+      this.movement.loadState(acked.movement);
+      this.movement.setGrounded(snapshot.grounded);
+    } else {
+      this.movement.resetPhysicsState(snapshot.grounded);
+    }
 
     // === STEP 2: Replay unacked inputs (re-predict from server state) ===
     // DEATH SPIRAL PREVENTION: replaying an unbounded backlog tanks FPS, which
-    // accumulates more backlog. The cap is deliberate; what it used to do when
-    // it fired was not.
+    // accumulates more backlog. The cap is two seconds of commands: a congested
+    // upload can hold the acknowledgement most of a second behind, and adopting
+    // authority there throws the player back a whole round trip on every
+    // snapshot. Confirmed snapshots never replay, so a long replay only runs
+    // when prediction was actually wrong.
     //
     // It replayed the newest 32 and dropped the rest. Those 32 commands assume
     // the dropped ones already happened, but the replay starts from the server
@@ -534,17 +616,17 @@ export class V2NetworkClient {
     // predict forward from the next one. The player loses the input in that
     // window, which is visible and truthful, rather than being left somewhere
     // neither side simulated.
-    const MAX_REPLAY = 32;
     let inputsToReplay = unacked;
 
-    if (unacked.length > MAX_REPLAY) {
+    if (unacked.length > this.maxReplay) {
       this.resyncCount++;
       inputsToReplay = [];
-      // Drop the whole unacked range. Keeping it would replay the same
-      // un-honourable commands against every later snapshot.
-      this.inputHistory.pruneAcked(unacked[unacked.length - 1].seq);
+      // Drop the whole history. Keeping the unacked range would replay the
+      // same un-honourable commands against every later snapshot, and its
+      // stored predictions no longer describe where the player is.
+      this.inputHistory.clear();
       console.warn(
-        `[V2Client] Resynchronising: ${unacked.length} unacked inputs exceeds the ${MAX_REPLAY} replay budget. ` +
+        `[V2Client] Resynchronising: ${unacked.length} unacked inputs exceeds the ${this.maxReplay} replay budget. ` +
           `Adopting authority at tick ${snapshot.tick} (acked seq ${snapshot.ackedInputSeq}) and discarding them.`,
       );
     }
@@ -568,6 +650,7 @@ export class V2NetworkClient {
 
       // Update predicted movement state from final replay result
       this.updatePredictedMovement(result);
+      this.inputHistory.setPredicted(input.seq, this.capturePredicted());
     }
 
     // === FIX: Preserve client grounded state when no inputs were replayed ===
@@ -607,6 +690,10 @@ export class V2NetworkClient {
       const corrY = preVisualY - postY;
       const corrZ = preVisualZ - postZ;
       const corrMag = Math.sqrt(corrX * corrX + corrY * corrY + corrZ * corrZ);
+
+      // What the player sees move, for the net graph. A forced teleport
+      // (respawn) is not a correction.
+      if (corrMag > VISIBLE_CORRECTION && !this.forceTeleportOnNextSnapshot) NetGraph.recordCorrection(corrMag);
 
       // Large correction = KB, teleport, or respawn → SNAP camera immediately.
       const SNAP_THRESHOLD = 50;
@@ -830,6 +917,7 @@ export class V2NetworkClient {
 
   getDebugInfo(): {
     reconcileCount: number;
+    confirmedCount: number;
     lastError: number;
     pendingInputs: number;
     suppressedSnapshots: number;
@@ -840,6 +928,7 @@ export class V2NetworkClient {
   } {
     return {
       reconcileCount: this.reconcileCount,
+      confirmedCount: this.confirmedCount,
       lastError: this.lastReconcileError,
       pendingInputs: this.inputHistory.getCount(),
       // Correction debt while suppressed: how long, how many snapshots, how far
@@ -858,6 +947,34 @@ export class V2NetworkClient {
    */
   setSpeedBonus(bonus: number): void {
     this.movement.speedBonus = bonus;
+  }
+
+  /**
+   * Feed the net graph this snapshot's one-way timings: from sending the
+   * command it acknowledges to its server tick, and from that tick to its
+   * arrival. Each carries the unknown clock offset; the graph shows how far
+   * each sits above its recent best, so a queue on the upload shows as such.
+   * The upload side includes the time the command waited in the server's
+   * input buffer, which the player feels the same way.
+   */
+  private recordPathDelays(snapshot: ServerSnapshot): void {
+    const sent = this.inputHistory.get(snapshot.ackedInputSeq);
+    if (!sent || snapshot.receivedAtMs === undefined) return;
+    const serverMs = snapshot.tick * this.dt * 1000;
+    NetGraph.recordPathDelays(serverMs - sent.timestamp, snapshot.receivedAtMs - serverMs);
+  }
+
+  /** The state the last simulated step left, for the history. */
+  private capturePredicted(): PredictedStep {
+    const lifts = this.collision?.lifts;
+    return {
+      position: { ...this.localState.position },
+      velocity: { ...this.localState.velocity },
+      grounded: this.localState.grounded,
+      knockbackAge: this.kbAge,
+      movement: this.movement.saveState(),
+      lifts: lifts?.definitions.length ? lifts.snapshot() : undefined,
+    };
   }
 
   /**
