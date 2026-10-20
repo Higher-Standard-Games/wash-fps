@@ -70,7 +70,7 @@ Many of our arenas come from Warsow and Warfork. Map authors are listed on the
 - **Washoi DM2** (`washoi_dm2`): from wdm2 "Le Dream On" by 36, kimza and crizis.
 - **Washoi DM5** (`washoi_dm5`): from wdm5 "Vicious' Lair" by blx and crizis, with German "Jal" Garcia.
 - **Washoi DM11** (`washoi_dm11`): from wdm11 "Warehouse: C" by crizis, with German "Jal" Garcia.
-- **Washoi Amphi1** (`washoi_amphi1`): *author to be added*.
+- **Washoi Amphi1** (`washoi_amphi1`): from wfamphi1 "Amphi 1" by ETR, crizis and kimza.
 - **Concrete Strike** (`washoi_snd1`): *author to be added*.
 
 Textures: the Warfork and Warsow texture packs,
