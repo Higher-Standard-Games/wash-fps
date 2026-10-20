@@ -1036,7 +1036,8 @@
   position: fixed;
   z-index: 20;
   right: 24px;
-  bottom: 24px;
+  /* Above the CREDITS and ? footer, which stays usable offline */
+  bottom: calc(24px + var(--lobby-links-height, 0px));
   width: min(380px, calc(100vw - 32px));
   padding: 18px 22px 18px;
   box-sizing: border-box;
@@ -1083,7 +1084,7 @@
 @media (max-width: 600px) {
   .lobby-full {
     right: 16px;
-    bottom: 16px;
+    bottom: calc(16px + var(--lobby-links-height, 0px));
   }
 }
 

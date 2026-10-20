@@ -222,7 +222,10 @@ export class LobbyPanel extends GamePanel {
     links.setAttribute("aria-label", "Lobby links");
     this.centerZone.append(links);
     this.linksObserver = new ResizeObserver(() => {
-      this.centerZone.style.setProperty("--lobby-links-height", `${links.getBoundingClientRect().height}px`);
+      const height = `${links.getBoundingClientRect().height}px`;
+      this.centerZone.style.setProperty("--lobby-links-height", height);
+      // The offline notice is fixed to the panel's corner and sits above the links.
+      this.root.style.setProperty("--lobby-links-height", height);
     });
     this.linksObserver.observe(links);
     this.welcomeGuide = new LobbyWelcomeGuide({
