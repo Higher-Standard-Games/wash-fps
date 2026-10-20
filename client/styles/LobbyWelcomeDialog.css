@@ -33,9 +33,13 @@
 .lobby-guide [hidden] {
   display: none;
 }
+/* The lobby rail's yellow, ink and violet, shared with the credits dialog. */
 .lobby-guide {
-  --cream: #fff4da;
-  --ink: #250b12;
+  --cream: hsl(45 100% 95%);
+  --ink: hsl(250 45% 7%);
+  --gold-text: hsl(46 100% 60%);
+  --violet: hsl(276 90% 64%);
+  --violet-ink: hsl(276 70% 40%);
   --display: var(--w-font-display, sans-serif);
   --body: var(--w-font-body, sans-serif);
   position: fixed;
@@ -46,7 +50,7 @@
   padding: clamp(12px, 3vw, 44px);
   box-sizing: border-box;
   background: #09050b70;
-  color: var(--cream);
+  color: var(--ink);
   font-family: var(--body);
   isolation: isolate;
 }
@@ -62,13 +66,16 @@
   flex-direction: column;
   min-height: 0;
   padding: clamp(20px, 3vw, 38px);
-  border: 1px solid #ffb4aa60;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #d93248, #a21835 60%, #75132e);
+  border: 0;
+  border-left: 6px solid var(--violet);
+  border-radius: 4px;
+  background:
+    radial-gradient(120% 55% at 25% 0%, hsla(54, 100%, 78%, 0.55), transparent 62%),
+    linear-gradient(172deg, hsl(46 100% 57%), hsl(41 96% 48%));
   box-shadow:
-    0 10px 0 #460d22,
+    0 10px 0 hsl(36 85% 28%),
     0 24px 70px #0009,
-    inset 0 2px 0 #ffffff40;
+    inset 0 2px 0 #ffffff60;
 }
 .lobby-guide__header {
   flex: 0 0 auto;
@@ -76,7 +83,7 @@
 .lobby-guide__eyebrow {
   font: 800 12px var(--display);
   letter-spacing: 0.17em;
-  opacity: 0.8;
+  opacity: 0.7;
 }
 .lobby-guide__header h1 {
   font: 900 clamp(26px, 3.5vw, 48px) / 1.1 var(--display);
@@ -95,39 +102,44 @@
   border: 0;
   border-radius: 3px;
   cursor: pointer;
-  color: var(--cream);
+  color: var(--gold-text);
   padding: 14px 18px;
   font: 800 13px / 1.3 var(--display);
-  background: linear-gradient(180deg, #7f162e, #541126);
+  background: linear-gradient(180deg, hsl(250 35% 18%), hsl(250 45% 9%));
   box-shadow:
-    0 4px 0 #390a1c,
-    inset 0 1px 0 #ffb6b142;
+    0 4px 0 hsl(250 50% 4%),
+    inset 0 1px 0 #ffffff25;
   white-space: nowrap;
 }
 .lobby-guide__tab {
   flex: 1 0 auto;
 }
-.lobby-guide__tab[aria-selected="true"] {
-  color: #7b1230;
-  background: #fff0d2;
-  box-shadow: 0 4px 0 #d4a0a0;
+.lobby-guide__tab:not([aria-selected="true"]) {
+  color: var(--ink);
+  background: linear-gradient(180deg, hsl(48 100% 72%), hsl(44 100% 62%));
+  box-shadow:
+    0 4px 0 hsl(36 85% 34%),
+    inset 0 1px 0 #ffffff80;
 }
 .lobby-guide__tab:hover,
 .lobby-guide__button:hover {
   filter: brightness(1.15);
 }
-.lobby-guide :focus-visible,
 .lobby-guide-help:focus-visible,
 .lobby-guide-back:focus-visible {
   outline: 3px solid #fff4da;
   outline-offset: 4px;
+}
+.lobby-guide :focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 3px;
 }
 .lobby-guide__content {
   overflow-y: auto;
   overscroll-behavior: contain;
   min-height: 0;
   padding: 10px 5px 20px;
-  scrollbar-color: #f99499 #79102a;
+  scrollbar-color: hsl(250 45% 7% / 0.55) hsl(41 90% 44%);
 }
 .lobby-guide__panel h2 {
   font: 800 clamp(20px, 2vw, 30px) / 1.3 var(--display);
@@ -142,7 +154,7 @@
   opacity: 0.78;
 }
 .lobby-guide__footer {
-  border-top: 1px solid #ffc0ae55;
+  border-top: 2px solid hsl(250 45% 7% / 0.2);
   padding-top: 20px;
   display: flex;
   align-items: center;
@@ -164,7 +176,7 @@
 .lobby-guide__preference input {
   width: 20px;
   height: 20px;
-  accent-color: #381326;
+  accent-color: var(--ink);
 }
 .lobby-guide__preference small {
   display: block;
@@ -179,6 +191,11 @@
 .lobby-guide__preview.fps-set-view {
   height: auto;
   overflow: visible;
+  padding: 16px 18px;
+  border-radius: 4px;
+  color: var(--cream);
+  background: linear-gradient(180deg, hsl(250 35% 16%), hsl(250 45% 9%));
+  box-shadow: inset 0 2px 8px #0008;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 225px;
   gap: 24px;
@@ -222,8 +239,8 @@
   clip-path: inset(50%);
 }
 .lobby-guide__lesson {
-  background: #530b2640;
-  border-left: 4px solid #ffc0ad;
+  background: hsl(250 45% 7% / 0.08);
+  border-left: 4px solid var(--violet-ink);
   padding: 4px 20px;
   margin: 18px 0;
   border-radius: 3px;
@@ -236,19 +253,19 @@
   margin: 8px 0 18px;
 }
 .lobby-guide__lesson--extra {
-  border-color: #fff4da;
-  background: #ffdbb512;
+  border-color: var(--ink);
+  background: hsl(48 100% 85% / 0.35);
 }
 .lobby-guide__bindings {
   display: inline;
 }
 .lobby-guide__keycap {
   display: inline-block;
-  background: linear-gradient(#fff6df, #eed8bb);
-  color: #521026;
+  background: linear-gradient(hsl(250 35% 18%), hsl(250 45% 9%));
+  color: var(--gold-text);
   padding: 3px 9px;
   border-radius: 3px;
-  box-shadow: 0 3px 0 #481026;
+  box-shadow: 0 3px 0 hsl(250 50% 4%);
   font: 800 14px / 1.4 var(--display);
   margin: 0 2px 4px;
 }

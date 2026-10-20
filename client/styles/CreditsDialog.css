@@ -1,4 +1,4 @@
-/* Credits: the welcome guide's card, with room for a long read. */
+/* Credits: the welcome guide's card (LobbyWelcomeDialog.css), sized for a long read. */
 .lobby-credits-key {
   border: 0;
   border-radius: 4px;
@@ -25,8 +25,11 @@
   display: none;
 }
 
-.lobby-credits__card {
+.lobby-guide.lobby-credits .lobby-guide__card {
   width: min(860px, 100%);
+}
+.lobby-guide.lobby-credits .lobby-guide__header h1 {
+  margin-bottom: 18px;
 }
 .lobby-credits__body {
   font-size: 17px;
@@ -41,7 +44,7 @@
   text-transform: uppercase;
   margin: 26px 0 8px;
   padding-bottom: 6px;
-  border-bottom: 1px solid #ffc0ae55;
+  border-bottom: 2px solid hsl(250 45% 7% / 0.2);
 }
 .lobby-credits__body h3,
 .lobby-credits__body h4 {
@@ -64,31 +67,33 @@
   margin: 4px 0;
 }
 .lobby-credits__body li::marker {
-  color: #ffc0ad;
+  color: var(--violet-ink);
 }
 .lobby-credits__body strong {
   font-weight: 800;
 }
 .lobby-credits__body em {
-  opacity: 0.82;
+  opacity: 0.72;
 }
 .lobby-credits__body a {
-  color: #fff4da;
+  color: var(--ink);
+  font-weight: 700;
   text-decoration: underline;
-  text-decoration-color: #ffc0ad;
+  text-decoration-color: var(--violet-ink);
+  text-decoration-thickness: 2px;
   text-underline-offset: 3px;
 }
 .lobby-credits__body a:hover {
-  text-decoration-color: #fff4da;
+  color: hsl(276 70% 32%);
 }
 .lobby-credits__body code {
   font: 600 0.9em var(--w-font-mono, monospace);
-  background: #530b2660;
+  background: hsl(250 45% 7% / 0.12);
   padding: 1px 6px;
   border-radius: 3px;
 }
 .lobby-credits__body hr {
   border: 0;
-  border-top: 1px solid #ffc0ae55;
+  border-top: 2px solid hsl(250 45% 7% / 0.2);
   margin: 22px 0;
 }

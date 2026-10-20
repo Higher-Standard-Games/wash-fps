@@ -21,7 +21,7 @@ Below the keys the rail shows your name, and while you are on the Play stage it 
 
 ### Welcome guide
 
-After initial loading and account setup, a red welcome dialog introduces Washoi,
+After initial loading and account setup, a yellow welcome dialog introduces Washoi,
 shows your current keyboard and mouse bindings, and explains crouchsliding and
 wall jumping. **Next »** advances through the three tabs; **Close** or Escape
 returns to the lobby. The background stays blurred and inactive while it is open.
