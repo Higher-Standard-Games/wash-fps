@@ -185,6 +185,15 @@ describe("overtime (duel: no draws)", () => {
     expect(ms.toSnapshot().overtime).toBe(1);
   });
 
+  it("counts time played on through overtime, for a count-up clock", () => {
+    const ms = makeOvertimeState();
+    expect(ms.toSnapshot().timeElapsed).toBe(0);
+    ms.update(4);
+    expect(ms.toSnapshot().timeElapsed).toBe(4);
+    ms.update(11); // past the limit, into overtime
+    expect(ms.toSnapshot().timeElapsed).toBe(15);
+  });
+
   it("stacks extensions while still tied, ends once someone leads", () => {
     const ms = makeOvertimeState();
     ms.update(11); // OT #1

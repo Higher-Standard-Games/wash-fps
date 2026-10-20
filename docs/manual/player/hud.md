@@ -31,6 +31,9 @@ The optional connection-info overlay (`cl_netgraph`) is anchored bottom-right. T
 Vertical list of weapon slots, 1 through 9. Each slot shows:
 
 - The weapon's two-letter tag (BL, MG, RG, GL, RL, PG, VT, EB, IG).
+- The weapon's colour behind the tag in the bottom loadout slots: Blade teal,
+  Machinegun grey, Riotgun orange, Grenade Launcher blue, Rocket Launcher red,
+  Plasmagun green, Voltaic yellow, Electrobolt a brighter teal, Instagun magenta.
 - Highlighted if you own the weapon.
 - Brighter highlight if it's your *currently equipped* weapon.
 - Ammo count below the tag (or `∞` for the Blade).
@@ -138,6 +141,11 @@ attention:
 | **Round result** | End-of-round banner in the round-based modes |
 | **Death screen** | On death — who fragged you and how, and the respawn countdown |
 | **Match menu** | Escape, mid-match |
+
+The timer counts down the time left. To count up from 0:00 instead (time
+played, running on through overtime), enter `cl_invertClock 1` in the console;
+`cl_invertClock 0` turns it back. It is saved with your other settings and
+needs a server from this version or later; an older one keeps the countdown.
 
 During warmup, the larger ready banner stays on one line. Its gold-cell text
 gently grows and shrinks while you still need to press **F4**, keeping the cell

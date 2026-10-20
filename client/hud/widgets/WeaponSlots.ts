@@ -7,17 +7,23 @@ import type { FPSHudWidget, HUDState } from "../HudWidget";
 // Weapon Slots — 3-slot loadout indicator
 // =============================================================================
 
-/** Map weapon ID → color variant class */
-const WEAPON_COLOR_MAP: Record<string, string> = {
-  blade: "cyan",
-  machinegun: "gold",
-  riotgun: "gold",
-  glauncher: "gold",
-  rlauncher: "gold",
-  plasmagun: "green",
-  voltaic: "cyan",
-  electrobolt: "magenta",
-  instagun: "magenta",
+/**
+ * Each weapon's colour, as "hue, saturation%, lightness%" for `hsla()`; slots
+ * are tinted with it. Players asked for these: blade teal, rockets red,
+ * grenades blue, electrobolt a brighter teal, voltaic yellow, machinegun grey,
+ * plasma green. The riotgun takes orange and the instagun magenta.
+ */
+export const WEAPON_SLOT_COLORS: Record<string, string> = {
+  blade: "172, 72%, 44%",
+  machinegun: "210, 6%, 62%",
+  riotgun: "28, 92%, 56%",
+  glauncher: "218, 88%, 60%",
+  rlauncher: "0, 84%, 56%",
+  plasmagun: "125, 74%, 50%",
+  voltaic: "52, 96%, 56%",
+  lasergun: "52, 96%, 56%",
+  electrobolt: "186, 96%, 60%",
+  instagun: "312, 88%, 64%",
 };
 
 /** Map weapon ID → 2-letter abbreviation */
@@ -119,7 +125,7 @@ export class FPSWeaponSlots implements FPSHudWidget {
       const weaponId = loadout[i];
       const isActive = weaponId !== null && weaponId === current;
       const isEmpty = weaponId === null;
-      const color = weaponId ? WEAPON_COLOR_MAP[weaponId] || "cyan" : "";
+      const color = weaponId ? WEAPON_SLOT_COLORS[weaponId] : undefined;
       const abbr = weaponId ? WEAPON_ABBR[weaponId] || weaponId.slice(0, 2).toUpperCase() : "--";
 
       // Update name
@@ -131,9 +137,9 @@ export class FPSWeaponSlots implements FPSHudWidget {
         slot.el.classList.add("fps-weapon-slot--empty");
       } else if (isActive) {
         slot.el.classList.add("fps-weapon-slot--active");
-      } else {
-        slot.el.classList.add(`fps-weapon-slot--${color}`);
       }
+      if (color) slot.el.style.setProperty("--slot-hsl", color);
+      else slot.el.style.removeProperty("--slot-hsl");
     }
   }
 

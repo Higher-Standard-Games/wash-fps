@@ -1030,7 +1030,9 @@
   transform-origin: right bottom;
 }
 
+/* --slot-hsl is the weapon's colour, set per slot by WeaponSlots.ts */
 .fps-weapon-slots .fps-weapon-slot {
+  --slot-hsl: 190, 84%, 54%;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -1040,12 +1042,13 @@
   width: calc(86px * var(--ui-scale, 1));
   height: calc(116px * var(--ui-scale, 1));
   border: 0;
+  color: hsl(var(--slot-hsl));
   background:
-    linear-gradient(120deg, hsla(190, 84%, 54%, 0.14), hsla(230, 42%, 11%, 0.82) 52%, hsla(255, 26%, 5%, 0.92)),
-    repeating-linear-gradient(0deg, hsla(190, 100%, 72%, 0.06) 0 1px, transparent 1px 8px);
+    linear-gradient(120deg, hsla(var(--slot-hsl), 0.42), hsla(230, 42%, 11%, 0.82) 58%, hsla(255, 26%, 5%, 0.92)),
+    repeating-linear-gradient(0deg, hsla(0, 0%, 100%, 0.06) 0 1px, transparent 1px 8px);
   clip-path: polygon(12% 0, 100% 8%, 91% 100%, 0 88%);
   box-shadow:
-    inset 0 0 0 calc(1px * var(--ui-scale, 1)) hsla(190, 90%, 72%, 0.16),
+    inset 0 0 0 calc(1px * var(--ui-scale, 1)) hsla(var(--slot-hsl), 0.3),
     var(--w-shadow-print-sm);
   overflow: hidden;
   pointer-events: auto;
@@ -1075,7 +1078,7 @@
   font-size: calc(13px * var(--ui-scale, 1));
   font-weight: 800;
   line-height: 1;
-  color: hsla(190, 100%, 78%, 0.62);
+  color: hsla(var(--slot-hsl), 0.75);
   text-shadow: none;
 }
 
@@ -1107,38 +1110,21 @@
 .fps-weapon-slots .fps-weapon-slot--active {
   width: calc(100px * var(--ui-scale, 1));
   height: calc(128px * var(--ui-scale, 1));
-  color: hsl(185, 98%, 62%);
   background:
-    linear-gradient(120deg, hsla(185, 95%, 58%, 0.34), hsla(210, 62%, 20%, 0.88) 52%, hsla(245, 30%, 7%, 0.96)),
-    repeating-linear-gradient(0deg, hsla(190, 100%, 72%, 0.1) 0 1px, transparent 1px 8px);
+    linear-gradient(120deg, hsla(var(--slot-hsl), 0.72), hsla(var(--slot-hsl), 0.3) 50%, hsla(245, 30%, 7%, 0.96)),
+    repeating-linear-gradient(0deg, hsla(0, 0%, 100%, 0.1) 0 1px, transparent 1px 8px);
   box-shadow:
-    inset 0 0 0 calc(2px * var(--ui-scale, 1)) hsla(184, 100%, 62%, 0.72),
+    inset 0 0 0 calc(2px * var(--ui-scale, 1)) hsla(var(--slot-hsl), 0.9),
     calc(8px * var(--ui-scale, 1)) calc(9px * var(--ui-scale, 1)) 0 hsla(250, 45%, 4%, 0.8);
 }
 
 .fps-weapon-slots .fps-weapon-slot--active .fps-weapon-slot-key {
-  color: hsl(185, 98%, 68%);
+  color: hsl(42, 95%, 92%);
 }
 
 .fps-weapon-slots .fps-weapon-slot--active .fps-weapon-slot-name {
   color: hsl(42, 95%, 92%);
   text-shadow: calc(3px * var(--ui-scale, 1)) calc(4px * var(--ui-scale, 1)) 0 hsl(250, 40%, 5%);
-}
-
-.fps-weapon-slots .fps-weapon-slot--gold {
-  color: hsl(42, 96%, 56%);
-}
-
-.fps-weapon-slots .fps-weapon-slot--cyan {
-  color: hsl(185, 98%, 62%);
-}
-
-.fps-weapon-slots .fps-weapon-slot--green {
-  color: hsl(125, 78%, 58%);
-}
-
-.fps-weapon-slots .fps-weapon-slot--magenta {
-  color: hsl(320, 90%, 66%);
 }
 
 .fps-ammo-counter {

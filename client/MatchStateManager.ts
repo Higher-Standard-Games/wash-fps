@@ -5,6 +5,7 @@
  * match phase, timer, and ready status for HUD consumption.
  */
 
+import { Cvar } from "../../../engine/core/Cvar";
 import { getCollisionManager } from "../../../engine/physics/CollisionManager";
 import type {
   BombExplosionEvent,
@@ -27,11 +28,20 @@ export type { MatchStateSnapshot } from "../../../shared/server/gametype/Gametyp
 
 export type PhaseChangeCallback = (newPhase: MatchPhase, oldPhase: MatchPhase) => void;
 
+Cvar.register("cl_invertClock", 0, {
+  type: "int",
+  min: 0,
+  max: 1,
+  description: "Match clock counts up from 0:00 (time played) instead of down (time left)",
+});
+
 export class MatchStateManager {
   private static instance: MatchStateManager | null = null;
 
   private _phase: MatchPhase = MatchPhase.Warmup;
   private _timeRemaining: number = 0;
+  /** Seconds into the live phase, from a server that sends it. */
+  private _timeElapsed: number | null = null;
   private _readyCount: number = 0;
   private _totalPlayers: number = 0;
   private _gametypeName: string = "";
@@ -83,6 +93,7 @@ export class MatchStateManager {
     const oldPhase = this._phase;
     this._phase = event.phase ?? MatchPhase.Warmup;
     this._timeRemaining = event.timeRemaining ?? 0;
+    this._timeElapsed = typeof event.timeElapsed === "number" ? event.timeElapsed : null;
     this._readyCount = event.readyCount ?? 0;
     this._totalPlayers = event.totalPlayers ?? 0;
     this._gametypeName = event.gametypeName ?? "";
@@ -290,8 +301,16 @@ export class MatchStateManager {
   /**
    * Get time as mm:ss string
    */
+  /**
+   * The clock as shown: time left, or with `cl_invertClock 1` and a live
+   * match, time played (counting on through overtime).
+   */
   getTimeString(): string {
-    const total = Math.max(0, Math.ceil(this._timeRemaining));
+    const countUp =
+      this._phase === MatchPhase.Active && this._timeElapsed !== null && Cvar.getNumber("cl_invertClock") > 0;
+    const total = countUp
+      ? Math.max(0, Math.floor(this._timeElapsed ?? 0))
+      : Math.max(0, Math.ceil(this._timeRemaining));
     const min = Math.floor(total / 60);
     const sec = total % 60;
     return `${min}:${sec.toString().padStart(2, "0")}`;
@@ -361,6 +380,7 @@ export class MatchStateManager {
     getCollisionManager().getSweepBackend()?.brushModels?.reset();
     this._phase = MatchPhase.Warmup;
     this._timeRemaining = 0;
+    this._timeElapsed = null;
     this._readyCount = 0;
     this._totalPlayers = 0;
     this._gametypeName = "";

@@ -459,6 +459,7 @@ describe("buildSnapshot golden", () => {
               "spectator": 0,
               "udon": 0,
             },
+            "timeElapsed": 0,
             "timeRemaining": 120,
             "totalPlayers": 0,
             "type": "match_state",

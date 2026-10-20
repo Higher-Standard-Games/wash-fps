@@ -42,6 +42,8 @@ const DEFAULT_MATCH_CONFIG: MatchConfig = {
 export class MatchState {
   private _phase: MatchPhase = MatchPhase.Warmup;
   private _timeRemaining: number;
+  /** Seconds into the live phase, through overtime; for a count-up clock. */
+  private _timeElapsed = 0;
   private _readyPlayers: Set<PlayerId> = new Set();
   /** Players currently occupying an active match slot (spectators excluded). */
   private _activePlayers: Set<PlayerId> = new Set();
@@ -718,6 +720,7 @@ export class MatchState {
           this.endMatch("aborted");
           break;
         }
+        if (!this._roundTimeExpired) this._timeElapsed += dt;
         if (this.config.timeLimit > 0) {
           this._timeRemaining -= dt;
           if (this._timeRemaining <= 0) {
@@ -810,6 +813,7 @@ export class MatchState {
         break;
       case MatchPhase.Active: {
         this._timeRemaining = this.config.timeLimit;
+        this._timeElapsed = 0;
         this._overtimeCount = 0;
         this._roundTimeExpired = false;
 
@@ -898,6 +902,7 @@ export class MatchState {
     return {
       phase: this._phase,
       timeRemaining: Math.max(0, this._timeRemaining),
+      timeElapsed: this._timeElapsed,
       readyCount: this._readyPlayers.size,
       totalPlayers: this._totalPlayers,
       gametypeName: this.gametypeName,
