@@ -88,7 +88,8 @@ verifiable. Late joins, side changes, interrupted participation and aborted
 matches can prevent a rating update. A supported 1v1 forfeit can still be rated.
 Custom bot configurations, unverified presets or bot configuration changes do not
 qualify. Standard preset bots have their own rating identities; playing them is
-not automatically an unrated practice session.
+not automatically an unrated practice session. The bots are rated but not listed:
+the leaderboard shows people only, ranked among themselves.
 
 Participation is tied to the verified account through its seat ticket, not its
 display name. A direct server connection does not by itself guarantee a lobby
