@@ -16,7 +16,6 @@ links and --- rules. Raw HTML is not shown; comments like this one are skipped.
 ## Team
 
 - **Tarmo Alexander "crizis" Sundström**: Product lead
-- **Name**: *role*
 
 ## Thanks
 
