@@ -19,8 +19,7 @@ links and --- rules. Raw HTML is not shown; comments like this one are skipped.
 
 ## Thanks
 
-Washoi grows out of **Warsow**. Thanks to the **Warsow Dev Team**, and to the
-original team behind it: crizis, Vic and Jal.
+Washoi grows out of **Warsow**. Thanks to the **Warsow Dev Team**.
 
 - **Victor "Vic" Luchitz**: Qfusion, the engine Warsow runs on
 - **German "Jal" Garcia**: the Warsow map improvements Washoi plays on, Qfusion
