@@ -2,7 +2,8 @@
  * MarkdownLite — the bit of Markdown our own documents use (CREDITS.md),
  * turned into DOM nodes for an in-game dialog.
  *
- * - `#`–`######` headings, paragraphs, `-`/`*`/`1.` lists (one level), `---` rules.
+ * - `#`–`######` headings, paragraphs, `-`/`*`/`1.` lists, nested one level by
+ *   indenting two or more spaces, and `---` rules.
  * - Inline `**bold**`, `*italic*` / `_italic_`, `` `code` ``, `[text](url)`.
  * - Links open in a new tab and only for http(s) and mailto; anything else is plain text.
  * - HTML comments are skipped and other HTML is shown as text: nodes are built
@@ -28,10 +29,18 @@ export function renderMarkdown(source: string, options: MarkdownOptions = {}): D
     .split("\n");
   let paragraph: string[] = [];
   let list: HTMLUListElement | HTMLOListElement | null = null;
-  let item: { node: HTMLLIElement; text: string[] } | null = null;
+  let item: ListItem | null = null;
+  let subList: HTMLUListElement | HTMLOListElement | null = null;
+  let subItem: ListItem | null = null;
 
+  const flushSub = () => {
+    writeItem(subItem);
+    subItem = null;
+    subList = null;
+  };
   const flushItem = () => {
-    if (item) item.node.append(inline(item.text.join(" ")));
+    flushSub();
+    writeItem(item);
     item = null;
   };
   const flush = () => {
@@ -69,22 +78,50 @@ export function renderMarkdown(source: string, options: MarkdownOptions = {}): D
     const numbered = bullet ? null : NUMBERED.exec(line);
     if (bullet || numbered) {
       const tag = bullet ? "ul" : "ol";
+      const text = (bullet ?? numbered)![1];
+      const parent: ListItem | null = item;
+      if (parent && raw.length - raw.trimStart().length >= 2) {
+        // An indented item nests under the item above it.
+        if (subList && subList.tagName.toLowerCase() !== tag) flushSub();
+        writeItem(subItem);
+        writeItem(parent);
+        if (!subList) {
+          subList = document.createElement(tag);
+          parent.node.append(subList);
+        }
+        subItem = { node: document.createElement("li"), text: [text] };
+        subList.append(subItem.node);
+        continue;
+      }
       if (paragraph.length || (list && list.tagName.toLowerCase() !== tag)) flush();
       flushItem();
       if (!list) {
         list = document.createElement(tag);
         out.append(list);
       }
-      item = { node: document.createElement("li"), text: [(bullet ?? numbered)![1]] };
+      item = { node: document.createElement("li"), text: [text] };
       list.append(item.node);
       continue;
     }
     // A wrapped line continues the list item or paragraph it follows.
-    if (item) item.text.push(line);
+    const open: ListItem | null = subItem ?? item;
+    if (open) open.text.push(line);
     else paragraph.push(line);
   }
   flush();
   return out;
+}
+
+interface ListItem {
+  node: HTMLLIElement;
+  /** Lines not yet written into `node`; emptied once written. */
+  text: string[];
+}
+
+function writeItem(item: ListItem | null): void {
+  if (!item?.text.length) return;
+  item.node.append(inline(item.text.join(" ")));
+  item.text = [];
 }
 
 /** Inline marks, links and code in one line of text. */

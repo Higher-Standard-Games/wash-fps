@@ -17,6 +17,12 @@ describe("MarkdownLite", () => {
     );
   });
 
+  it("nests indented items one level under the item above", () => {
+    expect(html("- Playtesters:\n  - one\n  - two\n    wrapped\n- Next")).toBe(
+      "<ul><li>Playtesters:<ul><li>one</li><li>two wrapped</li></ul></li><li>Next</li></ul>",
+    );
+  });
+
   it("shifts heading levels", () => {
     expect(html("# A\n## B\n###### C", 1)).toBe("<h2>A</h2><h3>B</h3><h6>C</h6>");
   });
