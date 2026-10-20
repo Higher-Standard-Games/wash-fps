@@ -67,9 +67,9 @@ From the [Warfork free sound packs](https://github.com/TeamForbiddenLLC/warfork-
 Many of our arenas come from Warsow and Warfork. Map authors are listed on the
 [Warfork wiki](https://warforkwiki.com/index.php?title=Maps).
 
-- **Washoi DM2** (`washoi_dm2`): Warsow's wdm2 by *author to be added*.
-- **Washoi DM5** (`washoi_dm5`): Warsow's wdm5 by *author to be added*, with German "Jal" Garcia.
-- **Washoi DM11** (`washoi_dm11`): *author to be added*, with German "Jal" Garcia.
+- **Washoi DM2** (`washoi_dm2`): from wdm2 "Le Dream On" by 36, kimza and crizis.
+- **Washoi DM5** (`washoi_dm5`): from wdm5 "Vicious' Lair" by blx and crizis, with German "Jal" Garcia.
+- **Washoi DM11** (`washoi_dm11`): from wdm11 "Warehouse: C" by crizis, with German "Jal" Garcia.
 - **Washoi Amphi1** (`washoi_amphi1`): *author to be added*.
 - **Concrete Strike** (`washoi_snd1`): *author to be added*.
 
