@@ -38,21 +38,48 @@ describe("FPSSettingsView", () => {
   it("saves player sound selections and restores Male/Bobot with Gameplay reset", async () => {
     const root = view.getElement();
     click(root.querySelector('[data-settings-page="gameplay"]'));
-    const own = root.querySelector<HTMLSelectElement>('select[aria-label="Your side sounds"]')!;
-    const enemy = root.querySelector<HTMLSelectElement>('select[aria-label="Enemies sounds"]')!;
-    expect([...own.options].map((option) => option.value)).toEqual(["male", "female", "bobot"]);
-    own.value = "female";
-    own.dispatchEvent(new Event("change"));
-    enemy.value = "male";
-    enemy.dispatchEvent(new Event("change"));
+    const own = root.querySelector<HTMLButtonElement>('button[aria-label="Your side sounds"]')!;
+    const enemy = root.querySelector<HTMLButtonElement>('button[aria-label="Enemies sounds"]')!;
+    // The list opens on the page itself, right under the field, and closes on a pick
+    const choose = (field: HTMLButtonElement, label: string) => {
+      click(field);
+      const list = document.querySelector<HTMLElement>(".fps-set-menu")!;
+      expect([...list.querySelectorAll("[role=option]")].map((o) => o.textContent)).toEqual([
+        "Male",
+        "Female",
+        "Bobot",
+      ]);
+      expect(field.getAttribute("aria-expanded")).toBe("true");
+      click(byText(list, "[role=option]", label));
+      expect(document.querySelector(".fps-set-menu")).toBeNull();
+    };
+    choose(own, "Female");
+    choose(enemy, "Male");
     await Promise.resolve();
     expect(Cvar.getString("cl_team_ally_sounds")).toBe("female");
+    expect(own.textContent).toBe("Female");
     expect(JSON.parse(localStorage.getItem("engine_cvars")!).cl_team_ally_sounds).toBe("female");
     const reset = byText(root, ".raised-key--reset", "Reset page");
     click(reset);
     click(reset);
-    expect(own.value).toBe("male");
-    expect(enemy.value).toBe("bobot");
+    expect(own.textContent).toBe("Male");
+    expect(enemy.textContent).toBe("Bobot");
+  });
+
+  it("works the sound drop-down from the keyboard", () => {
+    const root = view.getElement();
+    click(root.querySelector('[data-settings-page="gameplay"]'));
+    const own = root.querySelector<HTMLButtonElement>('button[aria-label="Your side sounds"]')!;
+    const key = (k: string) => own.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true }));
+    key("ArrowDown");
+    expect(document.querySelector(".fps-set-menu")).not.toBeNull();
+    key("End");
+    key("Enter");
+    expect(document.querySelector(".fps-set-menu")).toBeNull();
+    expect(Cvar.getString("cl_team_ally_sounds")).toBe("bobot");
+    key("Enter");
+    key("Escape");
+    expect(document.querySelector(".fps-set-menu")).toBeNull();
   });
   it("keeps slider values live while coalescing saved preferences until release", () => {
     Cvar.set("cl_fov", 90);

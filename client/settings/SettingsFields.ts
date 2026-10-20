@@ -26,6 +26,147 @@ export function button(className: string, text?: string): HTMLButtonElement {
   return node;
 }
 
+export interface SelectMenu {
+  /** The field's button; it shows the current choice and opens the list. */
+  root: HTMLButtonElement;
+  /** Show this choice as the current one. */
+  select(index: number): void;
+}
+
+/**
+ * A drop-down in the settings style, replacing the browser's own: a button that
+ * opens its list right under it. The list is placed on the page body (cards clip
+ * their content) and closes on a pick, Escape, Tab, a click elsewhere, scrolling
+ * or resizing. Arrow keys, Home, End, Enter and Space work as in a native one.
+ */
+export function selectMenu(labels: readonly string[], ariaLabel: string, onPick: (index: number) => void): SelectMenu {
+  const root = button("fps-set-voice__select fps-set-menu__button");
+  root.setAttribute("aria-haspopup", "listbox");
+  root.setAttribute("aria-expanded", "false");
+  root.setAttribute("aria-label", ariaLabel);
+  const text = el("span", "fps-set-menu__value");
+  root.append(text, el("span", "fps-set-menu__chevron"));
+  let current = 0;
+  let list: HTMLUListElement | null = null;
+  let active = 0;
+
+  const highlight = (index: number) => {
+    if (!list) return;
+    active = (index + labels.length) % labels.length;
+    list.querySelectorAll<HTMLElement>("[role=option]").forEach((option, i) => {
+      option.classList.toggle("is-active", i === active);
+      if (i === active) {
+        root.setAttribute("aria-activedescendant", option.id);
+        option.scrollIntoView?.({ block: "nearest" });
+      }
+    });
+  };
+  const close = (refocus = false) => {
+    if (!list) return;
+    list.remove();
+    list = null;
+    root.setAttribute("aria-expanded", "false");
+    root.removeAttribute("aria-activedescendant");
+    document.removeEventListener("pointerdown", outside, true);
+    window.removeEventListener("resize", dismiss);
+    window.removeEventListener("scroll", dismiss, true);
+    if (refocus) root.focus();
+  };
+  const pick = (index: number) => {
+    close(true);
+    if (index === current) return;
+    current = index;
+    text.textContent = labels[index] ?? "";
+    onPick(index);
+  };
+  const dismiss = () => close();
+  const outside = (event: PointerEvent) => {
+    const target = event.target as Node | null;
+    if (target && (root.contains(target) || list?.contains(target))) return;
+    close();
+  };
+  const open = () => {
+    if (list) return;
+    list = el("ul", "fps-set-menu");
+    list.setAttribute("role", "listbox");
+    list.setAttribute("aria-label", ariaLabel);
+    labels.forEach((label, index) => {
+      const option = el("li", "fps-set-menu__option", label);
+      option.id = `fps-set-menu-${Math.random().toString(36).slice(2)}-${index}`;
+      option.setAttribute("role", "option");
+      option.setAttribute("aria-selected", String(index === current));
+      if (index === current) option.classList.add("is-current");
+      option.addEventListener("pointerenter", () => highlight(index));
+      option.addEventListener("click", () => pick(index));
+      list?.append(option);
+    });
+    document.body.append(list);
+    const rect = root.getBoundingClientRect();
+    list.style.minWidth = `${rect.width}px`;
+    list.style.left = `${rect.left}px`;
+    // Right under the field; above it only when the window has no room below
+    const height = list.offsetHeight;
+    const below = rect.bottom + 6 + height <= window.innerHeight || rect.top - 6 - height < 0;
+    list.style.top = `${below ? rect.bottom + 6 : rect.top - 6 - height}px`;
+    root.setAttribute("aria-expanded", "true");
+    highlight(current);
+    document.addEventListener("pointerdown", outside, true);
+    window.addEventListener("resize", dismiss);
+    window.addEventListener("scroll", dismiss, true);
+  };
+
+  root.addEventListener("click", () => (list ? close() : open()));
+  root.addEventListener("keydown", (event) => {
+    const handled = (() => {
+      if (!list) {
+        if (["ArrowDown", "ArrowUp", "Enter", " "].includes(event.key)) {
+          open();
+          return true;
+        }
+        return false;
+      }
+      switch (event.key) {
+        case "ArrowDown":
+          highlight(active + 1);
+          return true;
+        case "ArrowUp":
+          highlight(active - 1);
+          return true;
+        case "Home":
+          highlight(0);
+          return true;
+        case "End":
+          highlight(labels.length - 1);
+          return true;
+        case "Enter":
+        case " ":
+          pick(active);
+          return true;
+        case "Escape":
+          close(true);
+          return true;
+        case "Tab":
+          close();
+          return false;
+        default:
+          return false;
+      }
+    })();
+    if (handled) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  });
+
+  return {
+    root,
+    select(index: number) {
+      current = Math.max(0, Math.min(labels.length - 1, index));
+      text.textContent = labels[current] ?? "";
+    },
+  };
+}
+
 /** What a page hands its controls: somewhere to redraw from, and a way to say a value changed. */
 export interface FieldHost {
   addRefresh(refresh: () => void): void;
@@ -230,23 +371,22 @@ export interface DropdownOptions<T> extends FieldOptions {
 /** A drop-down for choices too long for a segmented row, each with its own explanation. */
 export function dropdown<T>(host: FieldHost, parent: HTMLElement, options: DropdownOptions<T>): HTMLElement {
   const { root } = field(options);
-  const select = el("select", "fps-set-voice__select fps-set-select");
-  select.setAttribute("aria-label", options.name);
-  options.choices.forEach((choice, index) => {
-    const option = el("option", "", choice.label);
-    option.value = String(index);
-    select.append(option);
-  });
+  const menu = selectMenu(
+    options.choices.map((choice) => choice.label),
+    options.name,
+    (index) => {
+      const choice = options.choices[index];
+      if (choice) options.set(choice.value);
+      host.changed();
+    },
+  );
+  const select = menu.root;
+  select.classList.add("fps-set-select");
   const explain = el("div", "fps-set-field__help fps-set-select__help");
-  select.addEventListener("change", () => {
-    const choice = options.choices[Number(select.value)];
-    if (choice) options.set(choice.value);
-    host.changed();
-  });
   host.addRefresh(() => {
     const current = options.get();
     const index = options.choices.findIndex((choice) => choice.value === current);
-    select.value = String(Math.max(0, index));
+    menu.select(Math.max(0, index));
     const help = options.choices[index]?.help ?? "";
     explain.textContent = help;
     explain.hidden = help === "";

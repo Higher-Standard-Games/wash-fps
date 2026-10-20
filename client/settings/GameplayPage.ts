@@ -5,7 +5,7 @@
 
 import { Cvar } from "../../../../engine/core/Cvar";
 import { PLAYER_VOICE_SETS, type PlayerVoiceSet, playerVoiceSet, setPlayerVoiceSet } from "../FPSPlayerAudio";
-import { card, el, type FieldHost, formatPercent, seg, slider, swatches } from "./SettingsFields";
+import { card, el, type FieldHost, formatPercent, seg, selectMenu, slider, swatches } from "./SettingsFields";
 import {
   applyChoice,
   BOOST_CHOICES,
@@ -101,21 +101,18 @@ export class GameplayPage {
       });
       const label = el("label", "fps-set-voice");
       label.append(el("span", "fps-set-field__name", "Sounds"));
-      const select = el("select", "fps-set-voice__select");
-      select.setAttribute("aria-label", `${name} sounds`);
-      for (const voice of PLAYER_VOICE_SETS) {
-        const option = el("option", "", voice[0].toUpperCase() + voice.slice(1));
-        option.value = voice;
-        select.append(option);
-      }
-      select.addEventListener("change", () => {
-        setPlayerVoiceSet(side, select.value as PlayerVoiceSet);
-        this.host.changed();
-      });
+      const menu = selectMenu(
+        PLAYER_VOICE_SETS.map((voice) => voice[0].toUpperCase() + voice.slice(1)),
+        `${name} sounds`,
+        (index) => {
+          setPlayerVoiceSet(side, PLAYER_VOICE_SETS[index] as PlayerVoiceSet);
+          this.host.changed();
+        },
+      );
       this.host.addRefresh(() => {
-        select.value = playerVoiceSet(side);
+        menu.select(PLAYER_VOICE_SETS.indexOf(playerVoiceSet(side)));
       });
-      label.append(select);
+      label.append(menu.root);
       row.append(label);
     };
     sideField("ally", "Your side");
