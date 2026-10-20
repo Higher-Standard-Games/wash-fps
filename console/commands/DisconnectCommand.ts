@@ -2,7 +2,7 @@ import { Command } from "../../../../engine/console/Command";
 import { Game } from "../../Game";
 
 /**
- * Disconnect command - disconnects from current game server
+ * Disconnect command - leaves the current game server and returns to the lobby
  * Usage: disconnect
  */
 export default class DisconnectCommand extends Command {
@@ -22,6 +22,9 @@ export default class DisconnectCommand extends Command {
       }
 
       gameManager.shutdown();
+      // Same as the menu's Leave match: reload into the lobby. Shutting down
+      // alone left the last frame frozen on screen with sound still playing.
+      if (typeof window !== "undefined") window.location.reload();
       return `Disconnected from ${serverUrl}`;
     } catch (error) {
       return `Failed to disconnect: ${error}`;
