@@ -98,7 +98,7 @@ export class Deathmatch extends BaseGametype {
   onDeath(victim: Entity, killer: Entity | null, _state: WorldState): void {
     // Score is tracked by MatchState.addScore() called from GametypeController
     // We just log here for debugging
-    if (killer && killer.ownerId && killer.ownerId !== victim.ownerId) {
+    if (killer?.ownerId && killer.ownerId !== victim.ownerId) {
       debugLog("kills", () => `[Deathmatch] Kill: player ${killer.ownerId} → player ${victim.ownerId}`);
     }
   }

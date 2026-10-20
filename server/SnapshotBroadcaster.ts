@@ -85,7 +85,7 @@ export class SnapshotBroadcaster {
         // Without this, all clients share the same gameState reference and
         // get the LAST client's lastInputSeq — causing V2NetworkClient to
         // replay wrong inputs → position desync → collision world shift.
-        const pvsActive = !!(this.pvs && this.pvs.enabled);
+        const pvsActive = !!this.pvs?.enabled;
         const clientState = pvsActive ? this.filterStateForClient(gameState, client) : gameState.shallowCopy();
 
         // Ack the last command the SERVER actually SIMULATED for this client's

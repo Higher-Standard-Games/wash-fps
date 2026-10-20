@@ -6,8 +6,8 @@
  * the frag/time limit to end the match.
  */
 
-import * as fs from "fs";
-import * as path from "path";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@engine/server/network/transport/WebSocketTransport", () => import("./_fakeTransport"));

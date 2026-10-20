@@ -77,6 +77,7 @@ export class FPSPickup extends Pickup {
     instas: "gfx/hud/icons/ammo/instaammo",
   };
 
+  // biome-ignore lint/complexity/noUselessConstructor: narrows options to FPSPickupOptions
   constructor(name: string, scene: Scene, position: Vector3, options: FPSPickupOptions) {
     super(name, scene, position, options);
   }

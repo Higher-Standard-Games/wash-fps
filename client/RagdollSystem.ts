@@ -21,6 +21,7 @@ import { PhysicsConstraintType } from "@babylonjs/core/Physics/v2/IPhysicsEngine
 import { Ragdoll } from "@babylonjs/core/Physics/v2/ragdoll";
 import type { Scene } from "@babylonjs/core/scene";
 import { disposePlayerModel, type PlayerModelInstance } from "../../../engine/animation/PlayerModelManager";
+import { background } from "../../../engine/core/AsyncErrors";
 import { PhysicsSystem } from "../../../engine/physics/PhysicsSystem";
 import { devLog } from "./DevLog";
 
@@ -356,7 +357,7 @@ export class RagdollSystem {
     this.scene = scene;
 
     // Ensure Havok physics is enabled on this scene
-    this.ensurePhysics(scene);
+    background(this.ensurePhysics(scene), "RagdollSystem");
 
     devLog(`[RagdollSystem] Initialized`);
   }

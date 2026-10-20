@@ -8,6 +8,7 @@
  * against a repeated Welcome is per connection too.
  */
 
+import { logRejection } from "../../../engine/core/AsyncErrors";
 import { devLog } from "../../../engine/core/DevLog";
 import type { CollisionWorld } from "../../../engine/network/systems/collision/CollisionWorld";
 import { getCollisionManager } from "../../../engine/physics/CollisionManager";
@@ -87,13 +88,15 @@ export class MatchMapLoader {
             // per map load because the scene is rebuilt each time and the
             // previous view has to be disposed with it, or the next map
             // inherits fog it never asked for.
-            import("../../../engine/camera/CameraSystem").then(({ CameraSystem: cs }) => {
-              const underwaterScene = cs.getInstance().getCamera()?.getScene();
-              if (underwaterScene) {
-                this.host.startUnderwaterView(underwaterScene);
-                this.host.setCollisionWorld(collisionWorld);
-              }
-            });
+            import("../../../engine/camera/CameraSystem")
+              .then(({ CameraSystem: cs }) => {
+                const underwaterScene = cs.getInstance().getCamera()?.getScene();
+                if (underwaterScene) {
+                  this.host.startUnderwaterView(underwaterScene);
+                  this.host.setCollisionWorld(collisionWorld);
+                }
+              })
+              .catch(logRejection("MatchMapLoader"));
           } else {
             console.warn(`[Game] BSP collision world could not be created - backend not available`);
           }
@@ -108,34 +111,42 @@ export class MatchMapLoader {
 
             // Prewarm the generic teleport-ghost pool so the FIRST
             // teleport already has its afterimage.
-            import("../../../engine/camera/CameraSystem").then(({ CameraSystem: cs }) => {
-              const scene = cs.getInstance().getCamera()?.getScene();
-              if (scene) {
-                import("./TeleportEffect").then(({ TeleportEffect }) => {
-                  TeleportEffect.getInstance().prewarm(scene);
-                });
-              }
-            });
+            import("../../../engine/camera/CameraSystem")
+              .then(({ CameraSystem: cs }) => {
+                const scene = cs.getInstance().getCamera()?.getScene();
+                if (scene) {
+                  import("./TeleportEffect")
+                    .then(({ TeleportEffect }) => {
+                      TeleportEffect.getInstance().prewarm(scene);
+                    })
+                    .catch(logRejection("MatchMapLoader"));
+                }
+              })
+              .catch(logRejection("MatchMapLoader"));
 
             // Rotate the local camera to the exit yaw when our own
             // prediction teleports (fresh inputs only, not replays), and
             // play the generic VFX: your OWN afterimage at the entry
             // (turn around and you're standing there) + speed-line bursts.
             this.host.v2Client()!.onTeleport((exitYaw, from, to, entryYaw) => {
-              import("../../../engine/camera/CameraSystem").then(({ CameraSystem: cs }) => {
-                const controller = cs.getInstance().getController("fps");
-                if (controller && "setViewYaw" in controller) {
-                  (controller as import("../../../engine/camera/controllers/FPSController").FPSController).setViewYaw(
-                    exitYaw,
-                  );
-                }
-                const scene = cs.getInstance().getCamera()?.getScene();
-                if (scene) {
-                  import("./TeleportEffect").then(({ TeleportEffect }) => {
-                    TeleportEffect.getInstance().localTeleported(scene, from, to, entryYaw, exitYaw);
-                  });
-                }
-              });
+              import("../../../engine/camera/CameraSystem")
+                .then(({ CameraSystem: cs }) => {
+                  const controller = cs.getInstance().getController("fps");
+                  if (controller && "setViewYaw" in controller) {
+                    (controller as import("../../../engine/camera/controllers/FPSController").FPSController).setViewYaw(
+                      exitYaw,
+                    );
+                  }
+                  const scene = cs.getInstance().getCamera()?.getScene();
+                  if (scene) {
+                    import("./TeleportEffect")
+                      .then(({ TeleportEffect }) => {
+                        TeleportEffect.getInstance().localTeleported(scene, from, to, entryYaw, exitYaw);
+                      })
+                      .catch(logRejection("MatchMapLoader"));
+                  }
+                })
+                .catch(logRejection("MatchMapLoader"));
             });
           }
         } else {

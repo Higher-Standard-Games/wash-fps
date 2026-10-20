@@ -19,6 +19,7 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import type { Scene } from "@babylonjs/core/scene";
+import { background } from "../../../engine/core/AsyncErrors";
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
 import { BspManager } from "../../../engine/loader/bsp/BspManager";
 import { ModelInstanceCache } from "../../../engine/loader/model/ModelInstanceCache";
@@ -82,7 +83,7 @@ class DroppedWeaponVisual {
     this.useServerTransforms = useServerTransforms;
     this.serverPosition.copyFrom(position);
     activeDroppedWeaponVisuals.add(this);
-    this.loadModel(position, velocity);
+    background(this.loadModel(position, velocity), "DroppedWeaponRenderer");
   }
 
   private async loadModel(position: Vector3, velocity?: Vector3): Promise<void> {
@@ -552,7 +553,7 @@ export class DroppedWeaponRenderer {
     const cameraSystem = (globalThis as any).__cameraSystem;
     if (!cameraSystem) {
       // Try dynamic import cache
-      this._checkPickupProximityAsync();
+      background(this._checkPickupProximityAsync(), "DroppedWeaponRenderer");
       return;
     }
   }

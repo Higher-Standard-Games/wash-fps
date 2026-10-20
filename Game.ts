@@ -12,6 +12,7 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { AudioManager } from "../../engine/AudioManager";
 import { CameraSystem } from "../../engine/camera";
 import { setGameFrameHook } from "../../engine/camera/GameFrameHook";
+import { background, logRejection } from "../../engine/core/AsyncErrors";
 import { Cvar } from "../../engine/core/Cvar";
 import { EventBus } from "../../engine/core/EventBus";
 import { log } from "../../engine/core/Log";
@@ -500,7 +501,7 @@ export class Game {
 
     // 5. Revalidate textures/materials — GPU may have dropped them while hidden
     //    (async, runs in background — textures pop back in over 1-2 frames)
-    this.revalidateAfterTabReturn();
+    background(this.revalidateAfterTabReturn(), "Game");
   }
 
   /**
@@ -649,7 +650,7 @@ export class Game {
         },
         config,
       );
-      networkHost.onServerInfo((serverInfo) => mapLoader.onServerInfo(serverInfo));
+      networkHost.onServerInfo((serverInfo) => background(mapLoader.onServerInfo(serverInfo), "MatchMapLoader"));
 
       // Set up state BEFORE connect so the onServerInfo callback can use them
       this.gameHost = networkHost;
@@ -715,7 +716,7 @@ export class Game {
 
       // Initialize the dynamic canvas crosshair (spread + ADS-converge + hit flash).
       // Driven per-frame from renderRemotePlayers(); update() handles its own visibility.
-      import("./client/Crosshair").then((m) => m.Crosshair.getInstance().init());
+      import("./client/Crosshair").then((m) => m.Crosshair.getInstance().init()).catch(logRejection("Game"));
 
       // Initialize NetGraph overlay (cl_netgraph CVar)
       NetGraph.init();
@@ -748,12 +749,12 @@ export class Game {
         }
 
         this.spectatorOverlay.onJoinGame((teamId) => {
-          this.joinGame(teamId);
+          background(this.joinGame(teamId), "Game");
         });
         this.spectatorOverlay.onSpectate(() => {
           // Switch to freefly spectator (no entity, just camera)
           this.spectatorOverlay?.setMode("freefly");
-          this.switchToFreeflyCamera();
+          background(this.switchToFreeflyCamera(), "Game");
         });
       } // end if (!config.autoJoin)
 
@@ -1185,16 +1186,18 @@ export class Game {
     networkHost.sendSpectate();
 
     // Switch to freefly camera
-    this.switchToFreeflyCamera();
+    background(this.switchToFreeflyCamera(), "Game");
 
     // Update state
     this.playerState = "spectator";
     this.spectatorOverlay?.setMode("freefly");
 
     // Hide weapon view model
-    import("../../engine/weapon/WeaponViewManager").then((m) => {
-      m.getWeaponViewManager().setVisible(false);
-    });
+    import("../../engine/weapon/WeaponViewManager")
+      .then((m) => {
+        m.getWeaponViewManager().setVisible(false);
+      })
+      .catch(logRejection("Game"));
 
     // Hide speedometer (prevent overlap with spectator overlay)
     const speedEl = document.getElementById("fps-speed-display");
@@ -2071,7 +2074,7 @@ export class Game {
     // up, so the condition is the state itself rather than a race against it.
     if (this.playerState !== "playing" && !this._joinCompleting && this.localPlayerId) {
       const myPlayer = state.players.get(this.localPlayerId);
-      if (myPlayer && myPlayer.entityId && state.entities.has(myPlayer.entityId)) {
+      if (myPlayer?.entityId && state.entities.has(myPlayer.entityId)) {
         devLog(`[Game] Server confirmed join — entity ${myPlayer.entityId} found in snapshot`);
         // `completeJoinGame` is async and takes several frames; without this
         // every frame in between would start another one.

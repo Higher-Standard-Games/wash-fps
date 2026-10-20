@@ -98,7 +98,7 @@ export class TeamDeathmatch extends BaseGametype {
   }
 
   onDeath(victim: Entity, killer: Entity | null, _state: WorldState): void {
-    if (killer && killer.ownerId && killer.ownerId !== victim.ownerId) {
+    if (killer?.ownerId && killer.ownerId !== victim.ownerId) {
       debugLog("kills", () => `[TDM] Kill: player ${killer.ownerId} → player ${victim.ownerId}`);
     }
   }

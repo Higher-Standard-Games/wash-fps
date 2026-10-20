@@ -403,10 +403,10 @@ export class DemoViewer {
         const frame = reader.readFrame(i);
         if (!frame) continue;
         for (const event of frame.state.events) {
-          if (event["type"] !== "death") continue;
-          const victimId = event["entityId"] as string;
+          if (event.type !== "death") continue;
+          const victimId = event.entityId as string;
           if (!victimId) continue;
-          const killer = (event["killerId"] as string) || null;
+          const killer = (event.killerId as string) || null;
           const killerId = killer && killer !== victimId ? killer : null;
           const names = new Map<string, string>();
           for (const player of frame.state.players.values()) names.set(player.entityId, player.name || player.entityId);

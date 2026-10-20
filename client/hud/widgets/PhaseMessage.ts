@@ -48,7 +48,7 @@ export class FPSPhaseMessage implements FPSHudWidget {
       case MatchPhase.Warmup:
         this.lastCountdown = 0;
         this.showHtml(
-          `<div class="fps-phase-title">Warmup</div>` + `<div class="fps-phase-subtitle">${mgr.gametypeName}</div>`,
+          `<div class="fps-phase-title">Warmup</div><div class="fps-phase-subtitle">${mgr.gametypeName}</div>`,
         );
         break;
 

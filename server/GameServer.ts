@@ -22,6 +22,7 @@ import type { ClientConnection, Transport, TransportConfig } from "@engine/serve
 import { WebSocketServerTransport } from "@engine/server/network/transport/WebSocketTransport";
 import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulation/physics/constants";
 import type { Vec3 } from "@shared/server/simulation/types";
+import { background } from "../../../engine/core/AsyncErrors";
 import { log } from "../../../engine/core/Log";
 import type { BspEntity, BspModel } from "../../../engine/loader/bsp/BspLoader";
 // Protocol (client-compatible)
@@ -800,7 +801,7 @@ export class GameServer {
         this.noShowTimer = null;
         if (this.hasHadClients) return;
         console.log("[GameServer] Auto-shutdown: nobody joined");
-        this.stop().then(() => process.exit(0));
+        void this.stop().then(() => process.exit(0));
       }, NO_SHOW_SHUTDOWN_MS);
     }
   }
@@ -1096,7 +1097,7 @@ export class GameServer {
       }
       // Match ended → stop recording
       if (currentPhase === MatchPhase.PostGame && this.demoRecorder?.isRecording) {
-        this.stopRecording();
+        background(this.stopRecording(), "GameServer");
       }
       if (currentPhase === MatchPhase.PostGame) this.reportFinalMatch();
       // Single-match mode: remember when post-game began (drives bot kick +
@@ -1288,7 +1289,7 @@ export class GameServer {
         // Held seats count, as above: a player mid-resume needs the server.
         if (![...this.clients.values(), ...this.suspended.clients()].some((c) => !c.isBot)) {
           console.log("[GameServer] Auto-shutdown: no human clients remaining");
-          this.stop().then(() => process.exit(0));
+          void this.stop().then(() => process.exit(0));
         }
       }, 5000);
     }

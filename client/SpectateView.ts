@@ -15,6 +15,7 @@ import { CameraSystem } from "../../../engine/camera";
 import type { SpectatorController } from "../../../engine/camera/controllers/SpectatorController";
 import type { SpectatorCycling } from "../../../engine/camera/controllers/SpectatorCycling";
 import type { FirstPersonPose } from "../../../engine/camera/FirstPersonPose";
+import { background } from "../../../engine/core/AsyncErrors";
 import type { GameState } from "../../../engine/network/core/GameState";
 import { DEFAULT_VIEWHEIGHT } from "../../../engine/physics/PlayerPhysicsConstants";
 import { getWeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
@@ -470,7 +471,7 @@ export class SpectateView {
     // Whoever we were riding becomes a normal player again.
     this.host.remoteRenderer()?.setHiddenEntity(null);
     this.host.spectatorOverlay()?.setMode("freefly");
-    this.switchToFreeflyCamera();
+    background(this.switchToFreeflyCamera(), "SpectateView");
     devLog("[Game] Returned to freefly spectator");
   }
 

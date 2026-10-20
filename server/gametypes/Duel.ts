@@ -78,7 +78,7 @@ export class Duel extends BaseGametype {
   }
 
   onDeath(victim: Entity, killer: Entity | null, _state: WorldState): void {
-    if (killer && killer.ownerId && killer.ownerId !== victim.ownerId) {
+    if (killer?.ownerId && killer.ownerId !== victim.ownerId) {
       debugLog("kills", () => `[Duel] Kill: player ${killer.ownerId} → player ${victim.ownerId}`);
     }
   }

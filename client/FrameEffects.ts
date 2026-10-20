@@ -9,6 +9,7 @@
  */
 
 import type { Scene } from "@babylonjs/core/scene";
+import { logRejection } from "../../../engine/core/AsyncErrors";
 import { devLog } from "./DevLog";
 import { FPSReloadAudio } from "./FPSReloadAudio";
 
@@ -111,19 +112,23 @@ export class FrameEffects {
     if (this.damageNumbers) {
       this.damageNumbers.update(dtSec);
     } else {
-      import("./DamageNumbers").then((m) => {
-        const dn = m.DamageNumbers.getInstance();
-        if (dn["scene"]) this.damageNumbers = dn;
-      });
+      import("./DamageNumbers")
+        .then((m) => {
+          const dn = m.DamageNumbers.getInstance();
+          if (dn["scene"]) this.damageNumbers = dn;
+        })
+        .catch(logRejection("FrameEffects"));
     }
 
     // Update damage overlay (directional red triangles + vignette)
     if (this.damageOverlay) {
       this.damageOverlay.update(dtSec);
     } else {
-      import("../../../engine/ui/hud/DamageOverlay").then((m) => {
-        this.damageOverlay = m.DamageOverlay.getInstance();
-      });
+      import("../../../engine/ui/hud/DamageOverlay")
+        .then((m) => {
+          this.damageOverlay = m.DamageOverlay.getInstance();
+        })
+        .catch(logRejection("FrameEffects"));
     }
 
     // Update cartoon hit effects (Warsow-style POW! sprites)

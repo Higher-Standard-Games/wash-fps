@@ -26,6 +26,7 @@ import {
   type PlayerModelInstance,
   PlayerModelManager,
 } from "../../../engine/animation/PlayerModelManager";
+import { background } from "../../../engine/core/AsyncErrors";
 import { Cvar } from "../../../engine/core/Cvar";
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
 import { BspManager } from "../../../engine/loader/bsp/BspManager";
@@ -1276,7 +1277,7 @@ export class RemotePlayerRenderer {
           this.hitboxes.set(entityId, created);
           hitbox = created;
           // Trigger async model load on first remote player
-          this.ensureModelLoaded();
+          background(this.ensureModelLoaded(), "RemotePlayerRenderer");
         }
       }
 

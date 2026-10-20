@@ -3,6 +3,7 @@
 
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import type { FPSController } from "../../engine/camera/controllers/FPSController";
+import { background } from "../../engine/core/AsyncErrors";
 import { WeaponViewManager } from "../../engine/weapon/WeaponViewManager";
 import type { WeaponDef } from "../../shared/entities";
 import { devLog } from "./client/DevLog";
@@ -163,7 +164,7 @@ export class FPSPlayer {
     // Don't call equipWeapon() — let the server confirm the switch via weapon_state,
     // which will update currentWeaponId in syncFromServer().
     // Animation blocking is handled by setWeaponSwitchBlockedCheck callback.
-    WeaponViewManager.getInstance().switchWeaponAnimated(weaponId);
+    background(WeaponViewManager.getInstance().switchWeaponAnimated(weaponId), "FPSPlayer");
     devLog(`[FPSPlayer] Switching to weapon: ${weaponId}`);
   }
 

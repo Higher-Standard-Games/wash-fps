@@ -15,6 +15,7 @@ import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { disposePlayerModel } from "../../../engine/animation/PlayerModelManager";
 import { CameraSystem } from "../../../engine/camera";
+import { logRejection } from "../../../engine/core/AsyncErrors";
 import { log } from "../../../engine/core/Log";
 import { addToDynamicLightCluster, disposeClusteredLight } from "../../../engine/lighting/DynamicLightCluster";
 import { NetGraph } from "../../../engine/network/client/NetGraph";
@@ -455,14 +456,16 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
                 ctx._respawnRequested = false;
                 ctx._respawnCooldownEnd = Date.now() + 3000;
                 devLog("[GameEvents] Local player died");
-                import("../../../engine/weapon/WeaponViewManager").then((m) => {
-                  const wvm = m.getWeaponViewManager();
-                  wvm.setVisible(false);
-                  // Kill the continuous Voltaic beam (including legacy IDs) — death
-                  // cuts fire input without firing the normal beam-stop edge, so it
-                  // would otherwise stay stuck on screen through the respawn.
-                  wvm.setBeamActive(false);
-                });
+                import("../../../engine/weapon/WeaponViewManager")
+                  .then((m) => {
+                    const wvm = m.getWeaponViewManager();
+                    wvm.setVisible(false);
+                    // Kill the continuous Voltaic beam (including legacy IDs) — death
+                    // cuts fire input without firing the normal beam-stop edge, so it
+                    // would otherwise stay stuck on screen through the respawn.
+                    wvm.setBeamActive(false);
+                  })
+                  .catch(logRejection("GameEvents"));
               } else if (!event.dead && ctx._isPlayerDead) {
                 ctx._isPlayerDead = false;
                 ctx._respawnRequested = false;
@@ -478,9 +481,11 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
                 ctx.forgetLocalLiquid?.();
                 // And you come back with full lungs, not the ones you drowned on.
                 ctx.resetLocalAir?.();
-                import("../../../engine/weapon/WeaponViewManager").then((m) => {
-                  m.getWeaponViewManager().setVisible(true);
-                });
+                import("../../../engine/weapon/WeaponViewManager")
+                  .then((m) => {
+                    m.getWeaponViewManager().setVisible(true);
+                  })
+                  .catch(logRejection("GameEvents"));
               }
             } else if (!event.dead && ctx.remoteRenderer) {
               ctx.remoteRenderer.markAlive(event.entityId);
@@ -532,9 +537,11 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
               }
 
               // Trigger damage overlay (directional red triangles + vignette)
-              import("../../../engine/ui/hud/DamageOverlay").then((m) => {
-                m.DamageOverlay.getInstance().show(event.damage, damageAngle);
-              });
+              import("../../../engine/ui/hud/DamageOverlay")
+                .then((m) => {
+                  m.DamageOverlay.getInstance().show(event.damage, damageAngle);
+                })
+                .catch(logRejection("GameEvents"));
 
               // Pain camera shake (all weapon types). Only our own: it lives in
               // the FPS controller, which a spectate camera does not run.
@@ -720,11 +727,13 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
         const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
         if (gameScene) {
           // Synchronous import — DroppedWeaponRenderer is a small file, already bundled
-          import("../client/DroppedWeaponRenderer").then(({ DroppedWeaponRenderer }) => {
-            if (!ctx.droppedWeaponRenderer && gameScene) {
-              ctx.droppedWeaponRenderer = new DroppedWeaponRenderer(gameScene);
-            }
-          });
+          import("../client/DroppedWeaponRenderer")
+            .then(({ DroppedWeaponRenderer }) => {
+              if (!ctx.droppedWeaponRenderer && gameScene) {
+                ctx.droppedWeaponRenderer = new DroppedWeaponRenderer(gameScene);
+              }
+            })
+            .catch(logRejection("GameEvents"));
         }
       }
     }
@@ -752,7 +761,6 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
   // === Server-driven projectile entity processing (Q3-style) ===
   {
     let projectileSLT: number | undefined;
-    // biome-ignore lint/suspicious/noExplicitAny: gameHost clockSync is duck-typed
     const projNh = networkHostOf(ctx.gameHost);
     if (state.serverTimestamp && projNh?.clockSync.isSynced()) {
       projectileSLT = projNh.clockSync.toLocalTime(state.serverTimestamp);
@@ -846,9 +854,11 @@ function handleDeathEvent(ctx: GameEventContext, event: DeathEvent, state: GameS
   // Push kill message to EventFeed
   try {
     if (killerName && event.killerId !== event.entityId) {
-      import("../../../engine/ui/hud/EventFeed").then((m) => {
-        m.EventFeed.getInstance().addKill(killerName, victimName, event.damageType);
-      });
+      import("../../../engine/ui/hud/EventFeed")
+        .then((m) => {
+          m.EventFeed.getInstance().addKill(killerName, victimName, event.damageType);
+        })
+        .catch(logRejection("GameEvents"));
     }
   } catch (e) {
     console.error("[Death] EventFeed error:", e);
@@ -990,16 +1000,18 @@ function handleWeaponDrop(ctx: GameEventContext, event: WeaponDropEvent): void {
 
   // Lazy-init renderer
   if (!ctx.droppedWeaponRenderer && gameScene) {
-    import("../client/DroppedWeaponRenderer").then(({ DroppedWeaponRenderer }) => {
-      if (!ctx.droppedWeaponRenderer && gameScene) {
-        ctx.droppedWeaponRenderer = new DroppedWeaponRenderer(gameScene);
-      }
-      // Stash velocity for when entity appears in snapshot
-      if (ctx.droppedWeaponRenderer && event.entityId) {
-        const vel = new Vector3(event.velX || 0, event.velY || 0, event.velZ || 0);
-        ctx.droppedWeaponRenderer.stashVelocity(event.entityId, vel);
-      }
-    });
+    import("../client/DroppedWeaponRenderer")
+      .then(({ DroppedWeaponRenderer }) => {
+        if (!ctx.droppedWeaponRenderer && gameScene) {
+          ctx.droppedWeaponRenderer = new DroppedWeaponRenderer(gameScene);
+        }
+        // Stash velocity for when entity appears in snapshot
+        if (ctx.droppedWeaponRenderer && event.entityId) {
+          const vel = new Vector3(event.velX || 0, event.velY || 0, event.velZ || 0);
+          ctx.droppedWeaponRenderer.stashVelocity(event.entityId, vel);
+        }
+      })
+      .catch(logRejection("GameEvents"));
     return;
   }
 
@@ -1403,7 +1415,6 @@ export function processProjectileEntities(state: GameState, sync: ProjectileSync
 // ── Award Event Handler ────────────────────────────────────────────
 
 /** In-game chat event → HUD chat log (also fires during demo playback). */
-// biome-ignore lint/suspicious/noExplicitAny: duck-typed snapshot event
 function handleChatEvent(event: ChatSnapshotEvent): void {
   try {
     devLog(`[Chat] event ← server: ${event.senderName}: "${event.text}"`);
@@ -1454,7 +1465,6 @@ export function handleOutgoingDamage(ctx: GameEventContext, event: LocatedDamage
   }
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: duck-typed snapshot event
 function handleAwardEvent(ctx: GameEventContext, event: AwardSnapshotEvent, viewPlayerId?: string): void {
   const awardType: string = event.awardType || "";
   const playerId: string = event.playerId || "";
@@ -1470,16 +1480,20 @@ function handleAwardEvent(ctx: GameEventContext, event: AwardSnapshotEvent, view
   const isViewedPlayer = playerId === viewer || playerId === toClientKey(viewer) || toClientKey(playerId) === viewer;
 
   if (isViewedPlayer && awardType !== "frag") {
-    import("../../../engine/ui/hud/AwardBanner").then((m) => {
-      m.AwardBanner.getInstance().show(awardType, playerName, targetName);
-    });
+    import("../../../engine/ui/hud/AwardBanner")
+      .then((m) => {
+        m.AwardBanner.getInstance().show(awardType, playerName, targetName);
+      })
+      .catch(logRejection("GameEvents"));
   }
 
   // Global event feed (everyone sees streak/first blood awards, skip frag spam)
   if (awardType !== "frag") {
-    import("../../../engine/ui/hud/EventFeed").then((m) => {
-      m.EventFeed.getInstance().addAward(playerName, awardType, event.value || 0);
-    });
+    import("../../../engine/ui/hud/EventFeed")
+      .then((m) => {
+        m.EventFeed.getInstance().addAward(playerName, awardType, event.value || 0);
+      })
+      .catch(logRejection("GameEvents"));
   }
 }
 
