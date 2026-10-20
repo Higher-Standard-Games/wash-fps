@@ -18,12 +18,19 @@ import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Scene } from "@babylonjs/core/scene";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
+import type { FPSController } from "../../../engine/camera/controllers/FPSController";
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
 import { resolveModelAsset } from "../../../engine/loader/model/ModelAsset";
 import { Pickup, type PickupOptions } from "../../../engine/world/Pickup";
 import { FPS, getActionKeyLabel } from "../client/FPSActions";
 import { InventoryManager } from "./InventoryManager";
 import { hidePickupPrompt, showPickupPrompt } from "./PickupPrompt";
+
+/** The local player's inventory, when the first-person controller is active. */
+function activeInventory(): InventoryManager | null {
+  const controller = CameraSystem.getInstance().getActiveController();
+  return controller?.type === "fps" ? (controller as FPSController).inventory : null;
+}
 
 export type FPSPickupType = "weapon" | "ammo" | "health" | "armor" | "powerup";
 
@@ -286,9 +293,7 @@ export class FPSPickup extends Pickup {
     // We only show/hide the SWAP prompt here for the HUD.
     if (this.options.type !== "weapon") return;
 
-    const controller = CameraSystem.getInstance().getActiveController();
-    // biome-ignore lint/suspicious/noExplicitAny: controller adapter shape
-    const inventory = controller && ((controller as any).inventory as InventoryManager | null);
+    const inventory = activeInventory();
     const alreadyHas = inventory ? inventory.hasWeapon(this.options.value as string) : false;
     const hasRoom = inventory ? inventory.getSlotCount() < InventoryManager.MAX_WEAPONS : false;
 
@@ -448,9 +453,7 @@ export class FPSPickup extends Pickup {
 
     FPSPickup.nearbyWeaponPickup = pickup;
 
-    const controller = CameraSystem.getInstance().getActiveController();
-    // biome-ignore lint/suspicious/noExplicitAny: controller adapter shape
-    const inventory = controller && ((controller as any).inventory as InventoryManager | null);
+    const inventory = activeInventory();
     const weaponName = pickup.options.id.replace(/_/g, " ").toUpperCase();
 
     const useKey = getActionKeyLabel(FPS.USE);

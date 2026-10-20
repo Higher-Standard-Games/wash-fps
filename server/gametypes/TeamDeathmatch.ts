@@ -118,7 +118,7 @@ export class TeamDeathmatch extends BaseGametype {
    *
    * Pure: reads state, allocates a directive, mutates nothing.
    */
-  getAgentDirectives(context: AgentDirectiveContext, state: WorldState): readonly AgentDirective[] {
+  override getAgentDirectives(context: AgentDirectiveContext, state: WorldState): readonly AgentDirective[] {
     if (!context.alive || !context.teamId || context.teamId === "spectator") return [];
 
     // Team centre, excluding this player — otherwise a lone player is always

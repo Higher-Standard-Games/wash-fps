@@ -277,13 +277,13 @@ export class SearchAndDestroy extends BaseGametype {
    * only mean handing a joining player a default nobody asked for and making
    * them sit out a round to correct it.
    */
-  setPlayerLoadout(playerId: PlayerId, choice: LoadoutChoice): boolean {
+  override setPlayerLoadout(playerId: PlayerId, choice: LoadoutChoice): boolean {
     this.loadouts.choose(playerId, choice);
     return true;
   }
 
   /** True once this player has chosen. Gates spawning. */
-  hasChosenLoadout(playerId: PlayerId): boolean {
+  override hasChosenLoadout(playerId: PlayerId): boolean {
     return this.loadouts.has(playerId);
   }
 
@@ -346,7 +346,7 @@ export class SearchAndDestroy extends BaseGametype {
    * the two sites and beta's ~3800, so alpha is the side that starts nearer the
    * ground it has to hold.
    */
-  resolveSpawnTeam(teamId: string): string {
+  override resolveSpawnTeam(teamId: string): string {
     if (this.attackers === null) return teamId;
     return teamId === this.attackers ? BETA_TEAM : ALPHA_TEAM;
   }
@@ -363,7 +363,7 @@ export class SearchAndDestroy extends BaseGametype {
    * simply never becomes plantable, which is a legible failure rather than a
    * crash at map load.
    */
-  onMapLoad(context: GametypeMapContext): void {
+  override onMapLoad(context: GametypeMapContext): void {
     this.collision = context.collision;
     this.brushModels = new BrushModelState(extractBrushModels(context.entities, context.models));
     this.pendingStructures = [];
@@ -405,7 +405,7 @@ export class SearchAndDestroy extends BaseGametype {
    * half-swap work: the bomb follows the ROLE, not the team, so at the swap it
    * simply appears on the other side of the map with nothing else to change.
    */
-  onRoundStart(_state: WorldState, context: GametypeTickContext): void {
+  override onRoundStart(_state: WorldState, context: GametypeTickContext): void {
     this.attackers = context.attackingTeam;
     this.round = context.round;
     this.pendingBlasts = [];
@@ -426,7 +426,7 @@ export class SearchAndDestroy extends BaseGametype {
    *
    * Only ends a live round; the controller enforces that too.
    */
-  onTick(state: WorldState, context: GametypeTickContext): RoundOutcome | null {
+  override onTick(state: WorldState, context: GametypeTickContext): RoundOutcome | null {
     this.attackers = context.attackingTeam;
     this.tick = context.tick as number;
     this.round = context.round;
@@ -458,7 +458,7 @@ export class SearchAndDestroy extends BaseGametype {
    * bomb's own timer takes over as the pacing device. Otherwise the attackers
    * failed to arm, and that is a defensive win.
    */
-  onRoundTimeExpired(_state: WorldState): RoundOutcome | null {
+  override onRoundTimeExpired(_state: WorldState): RoundOutcome | null {
     if (this.bomb.isArmed) return null;
     return {
       winner: this.attackers === "udon" ? "soba" : "udon",
@@ -474,7 +474,7 @@ export class SearchAndDestroy extends BaseGametype {
    * ticks: the client has no tick rate to divide by, and a HUD that has to know
    * the simulation rate is a HUD that breaks when the rate changes.
    */
-  getObjectiveState(): ObjectiveSnapshot | null {
+  override getObjectiveState(): ObjectiveSnapshot | null {
     // Nothing before the first round. `BombModel` starts life "dropped" at the
     // world origin, so publishing unconditionally put a spinning bomb at 0,0,0
     // through the whole warmup, with both site markers up and the HUD saying
@@ -518,7 +518,7 @@ export class SearchAndDestroy extends BaseGametype {
    * packet would otherwise cost the client the entire explosion — and this is
    * the one moment of the mode that the whole intermission exists to show.
    */
-  getExplosion(): BombExplosionEvent | null {
+  override getExplosion(): BombExplosionEvent | null {
     return this.explosion && this.tick <= this.explosionUntilTick ? this.explosion : null;
   }
 
@@ -645,7 +645,7 @@ export class SearchAndDestroy extends BaseGametype {
    * attackers hold the initiative, after it the roles invert and the HUD should
    * say so.
    */
-  getRoundState(): string | null {
+  override getRoundState(): string | null {
     if (this.round <= 0) return null;
     return this.bomb.isArmed ? "post_plant" : "pre_plant";
   }
@@ -895,7 +895,7 @@ export class SearchAndDestroy extends BaseGametype {
    * bot still weighs them against staying alive and against being able to get
    * there, which is the arbitration the goal framework exists to do.
    */
-  getAgentDirectives(context: AgentDirectiveContext, _state: WorldState): readonly AgentDirective[] {
+  override getAgentDirectives(context: AgentDirectiveContext, _state: WorldState): readonly AgentDirective[] {
     if (!context.alive || !context.teamId || context.teamId === "spectator") return [];
     // Both of these silently disarm every bot on the server, and neither is
     // visible from the outside: a bot with no orders looks like a bot that
@@ -1093,7 +1093,7 @@ export class SearchAndDestroy extends BaseGametype {
     // Handled by controller loadout logic.
   }
 
-  onPlayerLeave(playerId: PlayerId): void {
+  override onPlayerLeave(playerId: PlayerId): void {
     this.loadouts.forget(playerId);
   }
 
@@ -1125,7 +1125,7 @@ export class SearchAndDestroy extends BaseGametype {
    * right in a mode named after them. They are worth a good gunfight each,
    * enough to notice and not enough to make the objective the only thing.
    */
-  scoreFromStats(stats: PlayerStats): number {
+  override scoreFromStats(stats: PlayerStats): number {
     return (
       (stats.frags - stats.teamFrags) * FRAG_POINTS +
       (stats.damageGiven - 2 * stats.teamDamageGiven) * DAMAGE_POINTS +

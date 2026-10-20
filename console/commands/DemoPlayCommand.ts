@@ -97,7 +97,7 @@ export default class DemoPlayCommand extends Command {
     return `Unknown subcommand '${args[0]}'. Usage: demoplay [cinematic <minutes> | hud <on|off|toggle> | analyze | stop]`;
   }
 
-  getCompletions(_input: string, args: string[]): string[] {
+  override getCompletions(_input: string, args: string[]): string[] {
     if (args[0]?.toLowerCase() === "hud") {
       return ["on", "off", "toggle"];
     }

@@ -53,7 +53,7 @@ export class Deathmatch extends BaseGametype {
     return this.loadouts.spawnKit(playerId);
   }
 
-  setPlayerLoadout(playerId: PlayerId, choice: LoadoutChoice): boolean {
+  override setPlayerLoadout(playerId: PlayerId, choice: LoadoutChoice): boolean {
     this.loadouts.choose(playerId, choice);
     return true;
   }
@@ -63,7 +63,7 @@ export class Deathmatch extends BaseGametype {
   // headless one, an older one) spawns with the default kit, which its next
   // spawn can correct. In a round mode a default would cost a whole round.
 
-  onPlayerLeave(playerId: PlayerId): void {
+  override onPlayerLeave(playerId: PlayerId): void {
     this.loadouts.forget(playerId);
   }
 

@@ -56,23 +56,23 @@ export class Amphi extends BaseGametype {
     return this.loadouts.spawnKit(playerId);
   }
 
-  setPlayerLoadout(playerId: PlayerId, choice: LoadoutChoice): boolean {
+  override setPlayerLoadout(playerId: PlayerId, choice: LoadoutChoice): boolean {
     // The first choice arms the player's first spawn; later choices wait for
     // the next round so a kit cannot be changed in the middle of a fight.
     this.loadouts.choose(playerId, choice);
     return true;
   }
 
-  hasChosenLoadout(playerId: PlayerId): boolean {
+  override hasChosenLoadout(playerId: PlayerId): boolean {
     return this.loadouts.has(playerId);
   }
 
-  onPlayerLeave(playerId: PlayerId): void {
+  override onPlayerLeave(playerId: PlayerId): void {
     this.loadouts.forget(playerId);
     this.playerTeams.delete(playerId);
   }
 
-  onRoundStart(_state: WorldState, _context: GametypeTickContext): void {
+  override onRoundStart(_state: WorldState, _context: GametypeTickContext): void {
     this.loadouts.startRound();
     this.roundFrags.clear();
     this.roundLive = false;
@@ -101,7 +101,7 @@ export class Amphi extends BaseGametype {
     else this.playerTeams.delete(playerId);
   }
   onSpawn(_player: Entity, _state: WorldState): void {}
-  onMatchPhaseChange(phase: MatchPhase): void {
+  override onMatchPhaseChange(phase: MatchPhase): void {
     this.roundLive = phase === MatchPhase.Active;
   }
 
@@ -119,7 +119,7 @@ export class Amphi extends BaseGametype {
     }
   }
 
-  onRoundTimeExpired(_state: WorldState): RoundOutcome | null {
+  override onRoundTimeExpired(_state: WorldState): RoundOutcome | null {
     const udon = this.roundFrags.get("udon") ?? 0;
     const soba = this.roundFrags.get("soba") ?? 0;
     if (udon === soba) return null;

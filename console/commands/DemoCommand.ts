@@ -50,7 +50,7 @@ export default class DemoCommand extends Command {
     }
   }
 
-  getCompletions(_input: string, _args: string[]): string[] {
+  override getCompletions(_input: string, _args: string[]): string[] {
     const service = DemoService.getInstance();
     return service.cachedDemoList.map((_d, i) => String(i + 1));
   }

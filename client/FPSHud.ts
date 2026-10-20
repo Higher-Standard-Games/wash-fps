@@ -196,10 +196,8 @@ export class FPSHud {
       import("../../../engine/camera/CameraSystem")
         .then(({ CameraSystem }) => {
           const controller = CameraSystem.getInstance().getActiveController();
-          // biome-ignore lint/suspicious/noExplicitAny: optional controller capability
-          (controller as any)?.setLookFrozen?.(postGame);
-          // biome-ignore lint/suspicious/noExplicitAny: optional controller capability
-          (controller as any)?.setGameplayFrozen?.(postGame);
+          controller?.setLookFrozen?.(postGame);
+          controller?.setGameplayFrozen?.(postGame);
         })
         .catch(() => {});
     });

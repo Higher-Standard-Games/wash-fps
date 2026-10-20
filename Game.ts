@@ -1000,9 +1000,7 @@ export class Game {
 
       // Enable network mode on FPS controller
       const controller = cameraSystem.getActiveController();
-      if (controller && controller.type === "fps" && typeof (controller as any).enableNetworkMode === "function") {
-        (controller as any).enableNetworkMode();
-      }
+      if (controller?.type === "fps") controller.enableNetworkMode?.();
     } catch (e) {
       console.warn("[Game] Could not switch to FPS camera:", e);
     }

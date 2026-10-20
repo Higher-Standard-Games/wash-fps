@@ -32,7 +32,7 @@ export default class DemoListCommand extends Command {
     return DemoService.formatDemoTable(demos);
   }
 
-  getCompletions(_input: string, _args: string[]): string[] {
+  override getCompletions(_input: string, _args: string[]): string[] {
     // Offer cached map/player names as completions
     const service = DemoService.getInstance();
     const maps = [...new Set(service.cachedDemoList.map((d) => d.map))];
