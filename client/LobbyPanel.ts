@@ -22,6 +22,7 @@ import { accountIsNew, currentIdentity, LoginError } from "../../../lobby/Accoun
 import { CLIENT_DISCONNECT_REASON, type LobbyClient } from "../../../lobby/LobbyClient";
 import type { DemoInfo, GametypeInfo, LiveMatchInfo, MatchLobbyInfo, PlayerInfo } from "../../../lobby/types";
 import { ChatScroll } from "./ChatScroll";
+import { CreditsDialog } from "./credits/CreditsDialog";
 import { DemoService } from "./DemoService";
 import { type DemoScope, DemosView } from "./DemosView";
 import { ensureFpsLobbyConnection, getFpsLobbyClient } from "./FpsLobbyService";
@@ -34,6 +35,7 @@ import { ProfileView } from "./ProfileView";
 import { buildRailBrand } from "./RailBrand";
 import { nameColor, RoomChatView } from "./RoomChatView";
 import { FPSSettingsView } from "./settings/FPSSettingsView";
+import creditsCSSRaw from "./styles/CreditsDialog.css?raw";
 import lobbyCSSRaw from "./styles/LobbyPanel.css?raw";
 import { WelcomeOverlay } from "./WelcomeOverlay";
 
@@ -121,6 +123,8 @@ export class LobbyPanel extends GamePanel {
   private profileKey: HTMLButtonElement | null = null;
   private welcomeOverlay: WelcomeOverlay | null = null;
   private welcomeGuide: LobbyWelcomeGuide | null = null;
+  private creditsKey: HTMLButtonElement | null = null;
+  private credits: CreditsDialog | null = null;
   private linksObserver: ResizeObserver | null = null;
   /** Up while the lobby has turned this player away at its player cap. */
   private lobbyFullNotice: LobbyFullNotice | null = null;
@@ -210,6 +214,7 @@ export class LobbyPanel extends GamePanel {
       if (tabId === "leaderboard") void this.leaderboardView?.refresh();
       if (tabId !== "settings" && this.welcomeGuide?.suspended) this.welcomeGuide.resume();
       this.welcomeGuide?.refresh();
+      this.syncCredits();
     });
     this.tabBar.querySelector('[data-tab-id="matchmaking"]')?.setAttribute("aria-current", "page");
     const links = document.createElement("nav");
@@ -234,7 +239,36 @@ export class LobbyPanel extends GamePanel {
       },
       finished: () => this.runDeepLinkJoin(),
     });
+    this.creditsKey = this.buildCreditsKey();
+    links.prepend(this.creditsKey);
     this.connected = this.initLobbyConnection();
+  }
+
+  /** Credits sit beside the welcome guide's ? on the Play page, online or not. */
+  private buildCreditsKey(): HTMLButtonElement {
+    UIStyles.injectCSS("lobby-credits", creditsCSSRaw);
+    const key = document.createElement("button");
+    key.type = "button";
+    key.className = "lobby-credits-key";
+    key.textContent = "CREDITS";
+    key.title = "Credits & copyrights";
+    key.setAttribute("aria-haspopup", "dialog");
+    key.addEventListener("click", () => {
+      if (this.credits) return;
+      this.credits = new CreditsDialog({ background: this.root, onClose: () => this.closeCredits() });
+    });
+    return key;
+  }
+
+  private syncCredits(): void {
+    if (!this.creditsKey) return;
+    this.creditsKey.hidden = this.currentTabId !== "matchmaking" || this.matchLobbyView !== null;
+    if (this.creditsKey.hidden) this.closeCredits(false);
+  }
+
+  private closeCredits(restoreFocus = true): void {
+    this.credits?.destroy(restoreFocus);
+    this.credits = null;
   }
 
   private buildRail(): HTMLElement {
@@ -809,6 +843,7 @@ export class LobbyPanel extends GamePanel {
     }
     this.playBodyEl.replaceWith(this.matchLobbyView.root);
     this.welcomeGuide?.refresh();
+    this.syncCredits();
     // A room opens at its top, however far down the Play page was scrolled
     this.modesContainer.scrollTop = 0;
     const railMiddle = this.railEl?.querySelector(".lobby__rail-mid--rooms");
@@ -1314,6 +1349,7 @@ export class LobbyPanel extends GamePanel {
     this.currentInviteToken = undefined;
     this.refreshPlayerCard();
     this.welcomeGuide?.refresh();
+    this.syncCredits();
 
     console.log("[LobbyPanel] Returned to Play stage");
   }
@@ -1323,6 +1359,7 @@ export class LobbyPanel extends GamePanel {
     this.destroyed = true;
     this.chatScroll?.destroy();
     this.welcomeGuide?.destroy();
+    this.closeCredits(false);
     bindLeaderboard(this.lobbyClient, false);
     bindPlayerStats(this.lobbyClient, false);
     bindFeaturedDemos(this.lobbyClient, false);

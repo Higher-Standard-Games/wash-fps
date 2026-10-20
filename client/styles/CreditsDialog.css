@@ -1,0 +1,94 @@
+/* Credits: the welcome guide's card, with room for a long read. */
+.lobby-credits-key {
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  height: 44px;
+  padding: 0 16px;
+  color: #fff6df;
+  font: 800 13px var(--w-font-display, sans-serif);
+  letter-spacing: 0.12em;
+  background: linear-gradient(160deg, #39354b, #191626);
+  box-shadow:
+    0 5px 0 #0d0b16,
+    inset 0 1px 0 #ffffff35,
+    0 9px 15px #0005;
+}
+.lobby-credits-key:hover {
+  background: linear-gradient(160deg, #574b6d, #282137);
+}
+.lobby-credits-key:focus-visible {
+  outline: 3px solid #fff4da;
+  outline-offset: 4px;
+}
+.lobby-credits-key[hidden] {
+  display: none;
+}
+
+.lobby-credits__card {
+  width: min(860px, 100%);
+}
+.lobby-credits__body {
+  font-size: 17px;
+  line-height: 1.6;
+}
+.lobby-credits__body:focus-visible {
+  outline-offset: -3px;
+}
+.lobby-credits__body h2 {
+  font: 800 13px var(--display);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin: 26px 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #ffc0ae55;
+}
+.lobby-credits__body h3,
+.lobby-credits__body h4 {
+  font: 800 16px var(--display);
+  margin: 18px 0 6px;
+}
+.lobby-credits__body p {
+  margin: 8px 0;
+  max-width: 760px;
+}
+.lobby-credits__body > p:first-child {
+  margin-top: 0;
+}
+.lobby-credits__body ul,
+.lobby-credits__body ol {
+  margin: 6px 0 10px;
+  padding-left: 22px;
+}
+.lobby-credits__body li {
+  margin: 4px 0;
+}
+.lobby-credits__body li::marker {
+  color: #ffc0ad;
+}
+.lobby-credits__body strong {
+  font-weight: 800;
+}
+.lobby-credits__body em {
+  opacity: 0.82;
+}
+.lobby-credits__body a {
+  color: #fff4da;
+  text-decoration: underline;
+  text-decoration-color: #ffc0ad;
+  text-underline-offset: 3px;
+}
+.lobby-credits__body a:hover {
+  text-decoration-color: #fff4da;
+}
+.lobby-credits__body code {
+  font: 600 0.9em var(--w-font-mono, monospace);
+  background: #530b2660;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.lobby-credits__body hr {
+  border: 0;
+  border-top: 1px solid #ffc0ae55;
+  margin: 22px 0;
+}

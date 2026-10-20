@@ -33,6 +33,14 @@ bottom-right footer on the main **Play** page reopens the guide even when automa
 Match rooms and other lobby pages hide the button and reclaim its footer space.
 Uncheck the preference there to enable it on future page loads.
 
+### Credits
+
+**CREDITS**, beside the **?** button on the **Play** page, opens the credits and
+copyrights: the team, the libraries and fonts the game uses, and where its
+weapons, sounds, player model and maps come from, with their licences. It shows
+`CREDITS.md` from the root of this repository, the same file GitHub shows, so
+edit that file to change the credits. **Close**, Escape or a click outside closes it.
+
 The guide appears once per client startup, not when returning from a match.
 Invite links continue after you close it. Its movement tips use standard rules;
 individual servers may configure movement differently.

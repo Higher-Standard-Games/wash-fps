@@ -1,0 +1,131 @@
+/**
+ * MarkdownLite — the bit of Markdown our own documents use (CREDITS.md),
+ * turned into DOM nodes for an in-game dialog.
+ *
+ * - `#`–`######` headings, paragraphs, `-`/`*`/`1.` lists (one level), `---` rules.
+ * - Inline `**bold**`, `*italic*` / `_italic_`, `` `code` ``, `[text](url)`.
+ * - Links open in a new tab and only for http(s) and mailto; anything else is plain text.
+ * - HTML comments are skipped and other HTML is shown as text: nodes are built
+ *   with textContent, never innerHTML, so the file cannot inject markup.
+ */
+
+export interface MarkdownOptions {
+  /** Added to each heading level: 1 makes `#` an h2. Levels stop at h6. */
+  headingOffset?: number;
+}
+
+const HEADING = /^(#{1,6})\s+(.*?)\s*#*$/;
+const RULE = /^(?:-{3,}|\*{3,}|_{3,})$/;
+const BULLET = /^[-*+]\s+(.*)$/;
+const NUMBERED = /^\d+[.)]\s+(.*)$/;
+
+export function renderMarkdown(source: string, options: MarkdownOptions = {}): DocumentFragment {
+  const offset = options.headingOffset ?? 0;
+  const out = document.createDocumentFragment();
+  const lines = source
+    .replace(/\r\n?/g, "\n")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .split("\n");
+  let paragraph: string[] = [];
+  let list: HTMLUListElement | HTMLOListElement | null = null;
+  let item: { node: HTMLLIElement; text: string[] } | null = null;
+
+  const flushItem = () => {
+    if (item) item.node.append(inline(item.text.join(" ")));
+    item = null;
+  };
+  const flush = () => {
+    if (paragraph.length) {
+      const p = document.createElement("p");
+      p.append(inline(paragraph.join(" ")));
+      out.append(p);
+      paragraph = [];
+    }
+    flushItem();
+    list = null;
+  };
+
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) {
+      flush();
+      continue;
+    }
+    const heading = HEADING.exec(line);
+    if (heading) {
+      flush();
+      const level = Math.min(6, heading[1].length + offset);
+      const node = document.createElement(`h${level}` as "h1");
+      node.append(inline(heading[2]));
+      out.append(node);
+      continue;
+    }
+    if (RULE.test(line)) {
+      flush();
+      out.append(document.createElement("hr"));
+      continue;
+    }
+    const bullet = BULLET.exec(line);
+    const numbered = bullet ? null : NUMBERED.exec(line);
+    if (bullet || numbered) {
+      const tag = bullet ? "ul" : "ol";
+      if (paragraph.length || (list && list.tagName.toLowerCase() !== tag)) flush();
+      flushItem();
+      if (!list) {
+        list = document.createElement(tag);
+        out.append(list);
+      }
+      item = { node: document.createElement("li"), text: [(bullet ?? numbered)![1]] };
+      list.append(item.node);
+      continue;
+    }
+    // A wrapped line continues the list item or paragraph it follows.
+    if (item) item.text.push(line);
+    else paragraph.push(line);
+  }
+  flush();
+  return out;
+}
+
+/** Inline marks, links and code in one line of text. */
+export function inline(text: string): DocumentFragment {
+  const out = document.createDocumentFragment();
+  let rest = text;
+  const pattern = /`([^`]+)`|\[([^\]]+)\]\(([^)\s]+)\)|\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|\b_(.+?)_\b/;
+  while (rest) {
+    const match = pattern.exec(rest);
+    if (!match) {
+      out.append(rest);
+      break;
+    }
+    if (match.index > 0) out.append(rest.slice(0, match.index));
+    const [whole, code, label, href, strong, strong2, em, em2] = match;
+    if (code !== undefined) {
+      const node = document.createElement("code");
+      node.textContent = code;
+      out.append(node);
+    } else if (label !== undefined) {
+      out.append(link(label, href));
+    } else if (strong !== undefined || strong2 !== undefined) {
+      const node = document.createElement("strong");
+      node.append(inline(strong ?? strong2));
+      out.append(node);
+    } else {
+      const node = document.createElement("em");
+      node.append(inline(em ?? em2));
+      out.append(node);
+    }
+    rest = rest.slice(match.index + whole.length);
+  }
+  return out;
+}
+
+function link(label: string, href: string): Node {
+  if (!/^(https?:|mailto:)/i.test(href)) return inline(label);
+  const node = document.createElement("a");
+  node.href = href;
+  node.target = "_blank";
+  node.rel = "noopener noreferrer";
+  node.append(inline(label));
+  return node;
+}
