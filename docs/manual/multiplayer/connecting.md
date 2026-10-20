@@ -67,7 +67,7 @@ in the ready room is what you play.
 
 ```
 connect ws://localhost:7777    # Connect to a running dedicated server
-disconnect                     # Leave the current server
+disconnect                     # Leave the match and return to the lobby
 cl_netgraph 2                  # Show live connection diagnostics
 ```
 
@@ -92,7 +92,7 @@ once the map is in: join the match, or spectate first.
 
 ## Disconnect Behaviour
 
-`disconnect` cleanly closes the WebSocket and tears down:
+`disconnect` does what **Leave match** in the match menu does: it closes the connection and returns you to the lobby. On the way out it tears down:
 
 - The active `NetworkGameHost`
 - The input loop

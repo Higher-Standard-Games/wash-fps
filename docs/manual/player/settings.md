@@ -17,6 +17,10 @@ says so and offers **Undo**. Colors you picked yourself are left alone.
 
 Press **Escape** in a match and pick **Settings**, or use the **Settings** key on the lobby's rail. The screen has four pages, and **preferences are saved as you change them**. If storage fails, a **Session only · could not save** notice explains that the changes work until the page is reloaded. Hovering a key or field with a hint shows it in the game's own tooltip. **Reset page** and **Reset all** ask once: press the key, then press it again within a few seconds to confirm.
 
+Over a match the **Video** page is locked with the notice **Video settings change in the lobby**; leave the match to change it. Fullscreen still works with **Alt+Enter**.
+
+Drop-down fields open their list under the field, mark the current choice, and work with the mouse or with the arrow keys, **Home**, **End**, **Enter** and **Escape**.
+
 Most settings are console variables (cvars), for example `cl_fov 100`. Key bindings use their own storage. Fullscreen is a browser/window action and is not a saved cvar preference. Reset restores settings and bindings, not browser fullscreen state.
 
 Use **Alt+Enter** or the Fullscreen setting for fullscreen play. In browsers
@@ -26,6 +30,17 @@ instead of closing the tab. Remapped movement keys are included. Escape stays
 available, and protection releases when you open menus/chat, leave fullscreen
 or switch away. Browser F11 fullscreen alone does not enable this feature.
 Without support or permission, browser shortcuts can still close the tab.
+
+### Settings follow your account
+
+While you are logged in to the lobby, your key bindings, game preferences (the
+`cl_`, `cg_`, `s_` and `m_` cvars, such as field of view and sensitivity), color
+blindness correction, HUD layout, UI theme and remembered loadouts are saved to
+your account and arrive in any browser that logs in with your key. Changes upload
+a moment after you make them. Graphics stay with the device, as do connection
+settings such as `cl_netgraph` and `cl_interp`. An account with no saved settings
+takes the first browser's; the first time an account's settings replace a
+browser's own, that browser keeps a copy of its previous settings.
 
 Sliders apply immediately. Their saved values are combined until you release the
 slider, leave the page, or pause for 200 ms.
@@ -53,7 +68,7 @@ slider, leave the page, or pause for 200 ms.
 - **FPS counter** (`show_fps`) and **Movement speed** (`cl_showspeed`): both on by default, under View & info. Saved choices take priority.
 - **Match clock** (`cl_invertClock`): **Time left** (the default) counts down to the end; **Time played** counts up from 0:00 and runs on through overtime. Needs a server from v0.9.37 or later; an older one keeps the countdown.
 - **Switch to picked-up weapons** (`cl_autoswitch`): **On** (the default) takes out a weapon as you walk over it. **Off** keeps what you hold, so a fight with the spawn blade is not interrupted by a gun you run across; switch to it yourself when you want it. The only switch left is when a new gun replaces the one in your hands. Needs a server from v0.9.37 or later.
-- **Connection info** (`cl_netgraph`): Off, Numbers (ping and estimated snapshot gaps in the bottom-right corner) or Graph. See [HUD → NetGraph](./hud.md#netgraph-bottom-right-optional).
+- **Connection info** (`cl_netgraph`): Off, Numbers (ping, snapshot gaps, corrections and upload and download delay in the bottom-right corner) or Graph. See [HUD → NetGraph](./hud.md#netgraph-bottom-right-optional).
 
 ## Video
 
@@ -73,16 +88,38 @@ Below the presets the settings are in five sections. Pips beside each setting sh
 | **Effects** | Bloom (`r_bloom`), reflections (`r_ssr`) and their strength (`r_ssr_strength`), light shafts (`r_godrays`: Off, Low or High), glow (`r_glow`), comic outlines on the world (`r_cel_outlines`) |
 | **World** | Water quality (`r_water_quality`: Low, Medium or High), players reflected in water (`r_water_actors`, High water only), light cast from the map's glowing panels (`r_arealights`), how much the view warps under water (`r_underwater_distortion`) |
 | **Textures** | Sharpness at an angle (`r_anisotropy`), detailed surfaces (`r_bsp_pbr`) |
-| **Advanced** | Map texture detail (`r_picmip`): Full, Soft, Softer, Blurred or Flat color; applies next map |
+| **Advanced** | Map texture detail (`r_picmip`): Full, Soft, Softer, Blurred or Flat color; applies next map. **Color blindness** and **Correction strength**; see below |
 
 Map texture detail is available with every preset. Balanced and Pretty start at
 Full; Smooth starts at Soft (half-size base textures). Flat color removes the
 pattern from static opaque map surfaces while preserving lighting. Transparent
 effects, sky and shaders marked to preserve detail stay at full resolution.
 
+### Color blindness
+
+**Color blindness** corrects the picture so colors that look alike to you move
+apart. Each choice explains itself in the list; if you are not sure which fits,
+try each and keep the one where colors are easiest to tell apart. **Correction
+strength** sets how far the colors shift. Presets do not change either setting,
+and both follow your account.
+
+| Choice | `r_colorcorrection` |
+|--------|--------------------:|
+| Off (default) | 0 |
+| Red-weak (protanopia) | 1 |
+| Green-weak (deuteranopia) | 2 |
+| Blue-yellow (tritanopia) | 3 |
+
+`r_colorcorrection_strength` runs from 0 to 1 (default 1). Both apply at once,
+also from the console in a match. Off, the correction costs nothing; on, it is
+one light full-screen pass.
+
+For map makers, `r_colorsimulation` 1, 2 or 3 shows the screen as a red-weak,
+green-weak or blue-yellow eye sees it. It is console-only and is not saved.
+
 ## Audio
 
-Two cards, **Music** and **Effects**, each with an on/off switch and a volume from 0 to 100% (`s_musicenabled` / `s_volume`, and `s_sfxenabled` / `s_sfxvolume`).
+Two cards, **Music** and **Effects**, each with an on/off switch and a volume from 0 to 100% (`s_musicenabled` / `s_volume`, and `s_sfxenabled` / `s_sfxvolume`). Your music choice applies from startup: with music off, no map, lobby or menu starts a playlist, and turning it back on resumes the current one.
 
 The **Mix** card separately adjusts Effects, Players, Hit sound and Announcer (`cg_volume_effects`, `cg_volume_players`, `cg_volume_hitsound`, `cg_volume_announcer`) as shares of the Effects volume.
 

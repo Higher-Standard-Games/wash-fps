@@ -120,10 +120,13 @@ and earshot is still believed there until the bot looks at its spot.
 ### Chat
 
 Bots say the odd line to humans (`bot/chat/`): "gl hf" as the match goes live,
-something cheeky after killing a human, gracious or mad after being killed by
-one, and "gg" near the end. Lines are about humans only, so bot-only matches
-stay quiet. Each bot says at most one line per 20 s, all bots on a bot server at
-most one per 5 s. Set `BOT_CHAT=0` on the bot server to turn it off; training
+something cheeky after killing a human (a blade show-off or a streak taunt among
+them), gracious or mad after being killed by one, a sulk after three deaths in a
+row, and "gg" in the last 30 seconds. The lines are English with a few Finnish
+ones. Each bot's name sets how chatty it is and how sore a loser. Lines are about
+humans only, so bot-only matches stay quiet. Each bot says at most one line per
+20 s, all bots on a bot server at most one per 5 s, and each line arrives
+0.8–2.5 s after its moment, as if typed. Set `BOT_CHAT=0` on the bot server to turn it off; training
 runs always have it off.
 
 ## Two AI Modes

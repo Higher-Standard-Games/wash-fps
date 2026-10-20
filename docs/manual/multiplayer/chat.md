@@ -42,7 +42,17 @@ if a player changes their name, mute the new name too.
 
 Sender names are colour-stamped by allegiance rather than by side: teammates in one colour, opponents in the other, whichever side you are on this half. Spectators are greyed.
 
+Bots in a match with people say the odd line too: a greeting as the match goes live, a reaction to a frag, "gg" near the end. See [Bot Server → Chat](../tools/bot-server.md#chat).
+
 Lines from the game rather than a player — why a join was refused, your place in the challengers queue, a round to wait for — have no name and are written in gold.
+
+## Lobby and Room Chat
+
+The lobby's chat and a room's chat sit in the rail on the **Play** page. Both
+open on the newest message and stay on it as new lines arrive, also when you
+come back to the Play page or resize the window. Scroll up to read back; scroll
+to the bottom again and the log follows new messages once more. On arrival the
+lobby log shows the last 50 messages and keeps up to 100.
 
 ## Rules
 

@@ -100,8 +100,9 @@ For full schema, read `src/shared/demo/DemoReader.ts` (TODO: extract this into a
 
 ## Finding demos outside the console
 
-The lobby's Demos page lists the same recordings without the console. Three
-boards sit at the top:
+The lobby's Demos page lists the same recordings without the console, except
+recordings shorter than two minutes: no board or search shows them, though the
+files are kept. Three boards sit at the top:
 
 - **Featured** — a server-selected handful from the last seven days: one large,
   the rest in a list beside it. The server prefers recordings with a player from

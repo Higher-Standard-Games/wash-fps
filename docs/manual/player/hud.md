@@ -263,12 +263,14 @@ is saved as you change it.
   aiming, and always run.
 - **Gameplay** — the colour of your side and of enemies (anyone you can shoot,
   in free-for-all too), outline thickness and a brightness boost, over a
-  preview on a real map; the crosshair with its own preview; field of view and
-  connection info.
+  preview on a real map; the crosshair with its own preview; field of view, the
+  match clock, switching to picked-up weapons, and connection info.
 - **Video** — three presets for what costs frames (Smooth, Balanced, which is
-  the game's defaults, and Pretty), then the settings themselves in four
-  sections: Screen, Effects, World and Textures. Pips show each setting's
-  frame-rate cost, and each section key how heavy it is set.
+  the game's defaults, and Pretty), then the settings themselves in five
+  sections: Screen, Effects, World, Textures and Advanced (map texture detail
+  and color blindness correction). Pips show each setting's frame-rate cost,
+  and each section key how heavy it is set. Over a match the page is locked;
+  change it from the lobby.
 - **Audio** — music and effects: on or off, volume, and a mix for effects,
   player sounds, hit confirmation and the announcer.
 
