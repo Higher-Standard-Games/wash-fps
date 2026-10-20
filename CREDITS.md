@@ -20,7 +20,7 @@ links and --- rules. Raw HTML is not shown; comments like this one are skipped.
 
 ## Thanks
 
-- Our playtesters: *names to be added*
+- Our playtesters: Li(Q)uid, -𝙖𝙣𝙩𝙞-𝙥𝙞𝙯𝙯𝙖-, dima, gorey and the Warsow Discord community
 - Everyone who played the alpha and told us what to fix
 
 ## Built with
