@@ -68,6 +68,7 @@ import { RemotePlayerRenderer } from "./client/RemotePlayerRenderer";
 import { ServerProjectiles } from "./client/ServerProjectiles";
 import { PlayerWeaponStates, storeSnapshotState } from "./client/SnapshotStateStore";
 import { SpectateView } from "./client/SpectateView";
+import { installTooltips } from "./client/Tooltip";
 import { type FPSInputCommand, FPSSimulation } from "./simulation/FPSSimulation";
 import { getProceduralPickupRecipe } from "./world/pickups/procedural/ProceduralPickupRecipes";
 
@@ -334,6 +335,8 @@ export class Game {
 
     // Register all FPS actions + contexts with InputSystem
     registerFPSActions();
+    // Our own tooltips in place of the browser's for every title in the UI
+    installTooltips();
     AssetPreloader.getInstance().setPickupModelFilter(
       (def) => (RenderVars.getInstance().get("r_pickupProcedural") ?? 1) < 0.5 || !getProceduralPickupRecipe(def.id),
     );
