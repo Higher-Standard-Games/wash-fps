@@ -40,6 +40,7 @@ copyrights: the team, the libraries and fonts the game uses, and where its
 weapons, sounds, player model and maps come from, with their licences. It shows
 `CREDITS.md` from the root of this repository, the same file GitHub shows, so
 edit that file to change the credits. **Close**, Escape or a click outside closes it.
+The game version, such as `v0.9.37`, is shown just left of **CREDITS**.
 
 The guide appears once per client startup, not when returning from a match.
 Invite links continue after you close it. Its movement tips use standard rules;
