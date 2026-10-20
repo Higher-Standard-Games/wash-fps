@@ -65,6 +65,30 @@ skills run 0 to 1, and `mistakeRate` is how often a bot is allowed to be wrong.
 Read the preset in source rather than a percentage here: these are the numbers
 the bot is actually built from.
 
+### How a bot turns
+
+The brain decides where to look about 30 times a second; the client turns the
+view there over the commands it sends (`BotAimController.ts`), so a bot turns
+like a hand on a mouse rather than snapping to each decision. Its speeds come
+from the preset's tracking, reaction and aim values:
+
+| Preset | Top turn speed | Settle time | Ignores changes under |
+|--------|---------------:|------------:|----------------------:|
+| Easy | 150°/s | 0.41 s | 4° |
+| Medium | 300°/s | 0.29 s | 3° |
+| Hard | 500°/s | 0.22 s | 2° |
+| Insane | 800°/s | 0.18 s | 1.5° |
+
+Pitch turns at 60% of these speeds. A bot that is firing tracks every change and
+follows its target's motion. A turn over 45° waits for the preset's reaction
+time (±20%) first. The aim error wanders slowly, about once a second, with the
+spread the old per-decision noise had. Movement follows the wanted heading at
+once, so a bot never runs where its view happens to point mid-turn. While
+walking a route the bot looks about 250 units ahead along it; in a jump pad's
+flight, and stepping onto a pad or teleporter, it keeps its view rather than
+turning to a landing spot it is passing over. Scripted moves (learned routes,
+validated jumps) set the view exactly and bypass all of this.
+
 ## Two AI Modes
 
 `BotBrain` is the interface; two brains implement it.
