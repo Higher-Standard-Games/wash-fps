@@ -604,6 +604,8 @@ export const PAGE_CVARS: Record<SettingsPageId, string[]> = {
     "cl_fov",
     "show_fps",
     "cl_showspeed",
+    "cl_invertClock",
+    "cl_autoswitch",
     "cl_netgraph",
   ],
   video: [

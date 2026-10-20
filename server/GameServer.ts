@@ -268,6 +268,12 @@ export class GameServer {
 
     // Wire weapon → projectile system for type tracking
     this.weaponSystem.setProjectileSystem(this.projectileSystem);
+    this.weaponSystem.setAutoSwitchPreference((entityId) => {
+      for (const client of this.clients.values()) {
+        if (client.entityId === entityId) return client.autoSwitch !== false;
+      }
+      return true;
+    });
 
     // Wire weapon → dropped weapon system for physical drops
     this.weaponSystem.setDroppedWeaponSystem(this.droppedWeaponSystem);
@@ -1385,6 +1391,12 @@ export class GameServer {
 
       if (msgType === MessageType.SetLoadout) {
         this.handleSetLoadout(conn, data);
+        return;
+      }
+
+      if (msgType === MessageType.ClientPrefs) {
+        const client = this.clients.get(conn.id);
+        if (client) client.autoSwitch = MessageCodec.decodeClientPrefs(data).autoSwitch;
         return;
       }
 

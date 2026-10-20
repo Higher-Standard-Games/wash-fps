@@ -83,3 +83,27 @@ describe("picking up a gun while holding the blade", () => {
     expect(currentWeapon(sys)).toBe("blade");
   });
 });
+
+describe("with auto-switch turned off (cl_autoswitch 0)", () => {
+  function noSwitch(weapons: string[]): WeaponSystem {
+    const sys = new WeaponSystem();
+    sys.setAutoSwitchPreference(() => false);
+    sys.initializeWeaponFromLoadout(ENTITY, loadout(weapons));
+    return sys;
+  }
+
+  it("keeps the blade out over a new gun, an owned one, and one declined at capacity", () => {
+    const fresh = noSwitch(["blade"]);
+    expect(fresh.addWeapon(ENTITY, "machinegun").added).toBe(true);
+    expect(currentWeapon(fresh)).toBe("blade");
+    expect(fresh.getWeaponState(ENTITY)?.weapons).toContain("machinegun");
+
+    const owned = noSwitch(["blade", "machinegun"]);
+    owned.addWeapon(ENTITY, "machinegun");
+    expect(currentWeapon(owned)).toBe("blade");
+
+    const full = noSwitch(["blade", "machinegun", "riotgun"]);
+    full.addWeapon(ENTITY, "rlauncher");
+    expect(currentWeapon(full)).toBe("blade");
+  });
+});

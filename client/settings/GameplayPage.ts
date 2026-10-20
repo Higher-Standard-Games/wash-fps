@@ -308,6 +308,32 @@ export class GameplayPage {
     }
 
     seg(this.host, fields, {
+      name: "Match clock",
+      help: "Count the match time down to the end, or up from the start",
+      choices: [
+        { value: 0, label: "Time left" },
+        { value: 1, label: "Time played" },
+      ],
+      get: () => (Cvar.getNumber("cl_invertClock") > 0 ? 1 : 0),
+      set: (value) => {
+        Cvar.set("cl_invertClock", value);
+      },
+    });
+
+    seg(this.host, fields, {
+      name: "Switch to picked-up weapons",
+      help: "Take out a weapon you walk over. Off keeps what you hold, so a blade fight stays a blade fight",
+      choices: [
+        { value: 0, label: "Off" },
+        { value: 1, label: "On" },
+      ],
+      get: () => (Cvar.getNumber("cl_autoswitch") > 0 ? 1 : 0),
+      set: (value) => {
+        Cvar.set("cl_autoswitch", value);
+      },
+    });
+
+    seg(this.host, fields, {
       name: "Connection info",
       help: "Ping and packet loss in a corner of the screen",
       choices: [

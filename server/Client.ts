@@ -99,6 +99,8 @@ export interface ClientInfo {
   /** true = AI bot client (from the bot server), false = human. Used to gate
    *  demo recording and auto-shutdown on the presence of real players. */
   isBot?: boolean;
+  /** Switch to a weapon on pickup; false when the player turned it off (`cl_autoswitch 0`). */
+  autoSwitch?: boolean;
   /** Verified by a lobby-issued seat ticket; never inferred from playerName. */
   accountId?: number | null;
   seatTeam?: string;

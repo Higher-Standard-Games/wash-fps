@@ -143,9 +143,9 @@ attention:
 | **Match menu** | Escape, mid-match |
 
 The timer counts down the time left. To count up from 0:00 instead (time
-played, running on through overtime), enter `cl_invertClock 1` in the console;
-`cl_invertClock 0` turns it back. It is saved with your other settings and
-needs a server from this version or later; an older one keeps the countdown.
+played, running on through overtime), pick **Time played** for **Match clock**
+in Settings → Gameplay, or enter `cl_invertClock 1` in the console. It needs a
+server from v0.9.37 or later; an older one keeps the countdown.
 
 During warmup, the larger ready banner stays on one line. Its gold-cell text
 gently grows and shrinks while you still need to press **F4**, keeping the cell

@@ -233,6 +233,7 @@ export class WeaponSystem extends Subsystem {
   private pendingElectroRailEvents: ElectroRailEvent[] = [];
   private projectileSystem: ProjectileSystem | null = null;
   private droppedWeaponSystem: DroppedWeaponSystem | null = null;
+  private wantsAutoSwitch: (entityId: EntityId) => boolean = () => true;
   private collisionWorld: CollisionWorld | null = null;
   private lagCompensation: LagCompensation | null = null;
   /**
@@ -383,6 +384,14 @@ export class WeaponSystem extends Subsystem {
   /**
    * Set reference to DroppedWeaponSystem (for spawning dropped weapons)
    */
+  /**
+   * Whether a player wants to switch to a weapon they pick up. Players who
+   * turned it off (`cl_autoswitch 0`) keep what they hold, blade included.
+   */
+  setAutoSwitchPreference(wants: (entityId: EntityId) => boolean): void {
+    this.wantsAutoSwitch = wants;
+  }
+
   setDroppedWeaponSystem(system: DroppedWeaponSystem): void {
     this.droppedWeaponSystem = system;
   }
@@ -704,7 +713,7 @@ export class WeaponSystem extends Subsystem {
       // over a gun is an unambiguous request for one. Owning it already —
       // spawned with it, or out of ammo for it — does not make the request any
       // less clear, so the switch happens on this path too.
-      if (isDefaultWeapon(state.currentWeapon) && !isDefaultWeapon(weaponId)) {
+      if (isDefaultWeapon(state.currentWeapon) && !isDefaultWeapon(weaponId) && this.wantsAutoSwitch(entityId)) {
         this.autoSwitch(entityId, state, weaponId);
       }
       return { added: false };
@@ -716,7 +725,7 @@ export class WeaponSystem extends Subsystem {
     if (nonDefaultWeapons.length < MAX_PICKABLE) {
       // Have room — just add
       state.weapons.push(weaponId);
-      this.autoSwitch(entityId, state, weaponId); // auto-switch to new weapon
+      if (this.wantsAutoSwitch(entityId)) this.autoSwitch(entityId, state, weaponId);
       // Give ammo if not already present
       if (!state.ammo.has(weaponId) || this.ammoTotal(state.ammo.get(weaponId)) <= 0) {
         const weapon = WEAPONS[weaponId];
@@ -736,7 +745,7 @@ export class WeaponSystem extends Subsystem {
       // walk-over still says "I want a gun", and we are holding the one thing
       // that is not one. Arm them with what they already carry.
       const firstReal = state.weapons.find((w) => !isDefaultWeapon(w));
-      if (firstReal) {
+      if (firstReal && this.wantsAutoSwitch(entityId)) {
         this.autoSwitch(entityId, state, firstReal);
       }
       return { added: false };

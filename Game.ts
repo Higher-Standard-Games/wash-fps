@@ -12,6 +12,7 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { AudioManager } from "../../engine/AudioManager";
 import { CameraSystem } from "../../engine/camera";
 import { setGameFrameHook } from "../../engine/camera/GameFrameHook";
+import { Cvar } from "../../engine/core/Cvar";
 import { EventBus } from "../../engine/core/EventBus";
 import { log } from "../../engine/core/Log";
 import { InputSystem } from "../../engine/input/InputSystem";
@@ -149,6 +150,17 @@ function readLobbyTeam(): string | undefined {
 const JOIN_GAMETYPE_WAIT_MS = 100;
 /** Give up after this many — a join that never learns the mode still joins. */
 const MAX_JOIN_GAMETYPE_WAITS = 30;
+
+/** Sends the pickup preference to the server we are connected to; set while connected. */
+let sendClientPrefs: (() => void) | null = null;
+
+Cvar.register("cl_autoswitch", 1, {
+  type: "int",
+  min: 0,
+  max: 1,
+  description: "Switch to a weapon when you pick it up. 0 keeps what you hold, blade included",
+  onChange: () => sendClientPrefs?.(),
+});
 
 export class Game {
   private static instance: Game | null = null;
@@ -684,6 +696,9 @@ export class Game {
       console.log(`[Game] Connecting as "${profile.name}" (id: ${profile.id.substring(0, 8)}...)`);
 
       // Connect to server (this triggers onServerInfo callback which loads map and sets collision)
+      // Sent with every JoinAccept from here on, and again when the cvar changes
+      sendClientPrefs = () => networkHost.setClientPrefs({ autoSwitch: Cvar.getNumber("cl_autoswitch") > 0 });
+      sendClientPrefs();
       await networkHost.connect(url, profile.name, config.admissionTicket);
 
       // Update player ID after connect (server assigns it during handshake)

@@ -46,6 +46,8 @@ slider, leave the page, or pause for 200 ms.
 - **Crosshair** with its own preview: on or off, **opens up when moving** (tightens again while you aim), size, opacity, colour, and the colour it flashes **when you hit** someone. The defaults are size 32 and green, flashing red on a hit. An empty weapon with no reserve shows a red X until ammunition is available. Cvars: `cg_crosshair`, `cg_crosshairSpread`, `cg_crosshairSize`, `cg_crosshairAlpha`, `cg_crosshairColor`, `cg_crosshairDmgColor`.
 - **Field of view** (`cl_fov`): 80 – 110 degrees, default 90, horizontal at 16:9.
 - **FPS counter** (`show_fps`) and **Movement speed** (`cl_showspeed`): both on by default, under View & info. Saved choices take priority.
+- **Match clock** (`cl_invertClock`): **Time left** (the default) counts down to the end; **Time played** counts up from 0:00 and runs on through overtime. Needs a server from v0.9.37 or later; an older one keeps the countdown.
+- **Switch to picked-up weapons** (`cl_autoswitch`): **On** (the default) takes out a weapon as you walk over it. **Off** keeps what you hold, so a fight with the spawn blade is not interrupted by a gun you run across; switch to it yourself when you want it. The only switch left is when a new gun replaces the one in your hands. Needs a server from v0.9.37 or later.
 - **Connection info** (`cl_netgraph`): Off, Numbers (ping and estimated snapshot gaps in the bottom-right corner) or Graph. See [HUD → NetGraph](./hud.md#netgraph-bottom-right-optional).
 
 ## Video
