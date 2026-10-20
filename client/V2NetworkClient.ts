@@ -265,7 +265,7 @@ export class V2NetworkClient {
       grounded: false,
     };
 
-    console.log("[V2Client] Initialized with", config.tickRate, "Hz physics");
+    devLog("[V2Client] Initialized with", config.tickRate, "Hz physics");
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -277,7 +277,7 @@ export class V2NetworkClient {
    */
   setCollisionWorld(collision: CollisionWorld | null): void {
     this.collision = collision;
-    console.log("[V2Client] Collision world set:", collision ? "yes" : "no");
+    devLog("[V2Client] Collision world set:", collision ? "yes" : "no");
   }
 
   /**
@@ -287,7 +287,7 @@ export class V2NetworkClient {
    */
   setTriggerVolumes(volumes: TriggerVolume[]): void {
     this.movement.setTriggerVolumes(volumes);
-    console.log(`[V2Client] ${volumes.length} trigger volumes set`);
+    devLog(`[V2Client] ${volumes.length} trigger volumes set`);
   }
 
   /**
@@ -440,10 +440,10 @@ export class V2NetworkClient {
     this.hasReceivedSnapshot = true;
 
     if (isFirstSnapshot) {
-      console.log(
+      devLog(
         `[V2Client] FIRST SNAPSHOT RECEIVED: pos=(${snapshot.position.x.toFixed(1)}, ${snapshot.position.y.toFixed(1)}, ${snapshot.position.z.toFixed(1)}), grounded=${snapshot.grounded}`,
       );
-      console.log(`[V2Client] RESETTING localState to server position`);
+      devLog(`[V2Client] RESETTING localState to server position`);
     }
 
     // Track server tick

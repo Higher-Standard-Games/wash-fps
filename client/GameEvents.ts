@@ -1089,7 +1089,7 @@ export function handleWeaponStateSync(ctx: GameEventContext, event: WeaponStateE
       // dropped switch input) — animate to the authoritative weapon. The
       // !isSwitching guard leaves an in-flight predicted switch alone so normal
       // switching stays responsive.
-      console.log(`[GameEvents] Reconciling viewmodel ${displayed} → server ${serverWeapon}`);
+      devLog(`[GameEvents] Reconciling viewmodel ${displayed} → server ${serverWeapon}`);
       wvm.switchWeaponAnimated(serverWeapon).catch((err) => {
         console.error(`[GameEvents] Failed to switch weapon: ${serverWeapon}`, err);
       });

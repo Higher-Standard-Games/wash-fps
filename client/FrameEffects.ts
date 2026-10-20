@@ -54,7 +54,7 @@ export class FrameEffects {
           }
           if (gibs["scene"]) {
             this.gibSystem = gibs;
-            console.log(`[GibSystem] Initialized, flushing ${this.pendingGibSpawns.length} pending spawns`);
+            devLog(`[GibSystem] Initialized, flushing ${this.pendingGibSpawns.length} pending spawns`);
             // Flush any gib spawns that queued while loading
             for (const pending of this.pendingGibSpawns) {
               gibs.spawn(pending.x, pending.y, pending.z, pending.vx, pending.vy, pending.vz);
@@ -93,7 +93,7 @@ export class FrameEffects {
               });
             }
             this.ragdollSystem = ragdolls;
-            console.log("[RagdollSystem] Initialized");
+            devLog("[RagdollSystem] Initialized");
           } else {
             devLog("[RagdollSystem] Scene not ready, will retry");
             this.ragdollSystemLoading = false;
@@ -140,7 +140,7 @@ export class FrameEffects {
               return;
             }
             this.cartoonHit = ch;
-            console.log("[CartoonHitEffect] Initialized");
+            devLog("[CartoonHitEffect] Initialized");
           } else {
             this.cartoonHitLoading = false;
           }

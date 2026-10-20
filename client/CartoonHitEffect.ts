@@ -130,7 +130,7 @@ export class CartoonHitEffect {
       this.textures.push(texture);
     }
     this.texturesLoaded = true;
-    console.log(`[CartoonHitEffect] Initialized with ${HIT_SPRITES.length} sprites`);
+    devLog(`[CartoonHitEffect] Initialized with ${HIT_SPRITES.length} sprites`);
   }
 
   /**

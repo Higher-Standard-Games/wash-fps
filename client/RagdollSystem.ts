@@ -358,7 +358,7 @@ export class RagdollSystem {
     // Ensure Havok physics is enabled on this scene
     this.ensurePhysics(scene);
 
-    console.log(`[RagdollSystem] Initialized`);
+    devLog(`[RagdollSystem] Initialized`);
   }
 
   private async ensurePhysics(scene: Scene): Promise<void> {

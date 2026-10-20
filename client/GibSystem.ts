@@ -17,6 +17,7 @@ import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
 import type { Scene } from "@babylonjs/core/scene";
 import { getCollisionManager } from "../../../engine/physics/CollisionManager";
 import { CollisionMasks } from "../../../engine/physics/ContentFlags";
+import { devLog } from "./DevLog";
 
 // ============================================================================
 // Constants
@@ -134,7 +135,7 @@ export class GibSystem {
     if (this.scene === scene) return;
     if (this.scene) {
       // Dispose old resources from previous scene
-      console.log(`[GibSystem] Re-initializing with new scene (old scene was stale)`);
+      devLog(`[GibSystem] Re-initializing with new scene (old scene was stale)`);
       for (const gib of this.gibs) {
         gib.mesh.dispose();
       }
@@ -165,7 +166,7 @@ export class GibSystem {
     this.templateMesh = this.createTriangleMesh(scene);
     this.templateMesh.setEnabled(false);
     this.templateMesh.isPickable = false;
-    console.log(`[GibSystem] Initialized in scene: ${scene.uid}`);
+    devLog(`[GibSystem] Initialized in scene: ${scene.uid}`);
   }
 
   dispose(): void {

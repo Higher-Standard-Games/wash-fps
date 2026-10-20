@@ -25,6 +25,7 @@ import { ChatScroll } from "./ChatScroll";
 import { CreditsDialog } from "./credits/CreditsDialog";
 import { DemoService } from "./DemoService";
 import { type DemoScope, DemosView } from "./DemosView";
+import { devLog } from "./DevLog";
 import { ensureFpsLobbyConnection, getFpsLobbyClient } from "./FpsLobbyService";
 import { LeaderboardView } from "./LeaderboardView";
 import { LobbyFullNotice, offlineRetryDelaySec } from "./LobbyFullNotice";
@@ -560,7 +561,7 @@ export class LobbyPanel extends GamePanel {
       this.unsubscribers.push(
         this.lobbyClient.on("match:ended", (msg) => {
           this.demosView?.matchEnded();
-          console.log(`[LobbyPanel] Match ended (${msg.matchId}) — staying in rematch lobby`);
+          devLog(`[LobbyPanel] Match ended (${msg.matchId}) — staying in rematch lobby`);
           this.appendChatMessage("", "⚔ Match ended — ready up to rematch", true);
         }),
       );
@@ -856,7 +857,7 @@ export class LobbyPanel extends GamePanel {
       this.railEl?.classList.add("lobby__rail--room");
     }
     this.refreshPlayerCard();
-    console.log(`[LobbyPanel] Opened match lobby: ${lobby.id}`);
+    devLog(`[LobbyPanel] Opened match lobby: ${lobby.id}`);
   }
 
   show(): void {
@@ -1354,7 +1355,7 @@ export class LobbyPanel extends GamePanel {
     this.welcomeGuide?.refresh();
     this.syncCredits();
 
-    console.log("[LobbyPanel] Returned to Play stage");
+    devLog("[LobbyPanel] Returned to Play stage");
   }
 
   public override destroy(): void {

@@ -31,6 +31,7 @@ import type { Observer } from "@babylonjs/core/Misc/observable";
 import type { Scene } from "@babylonjs/core/scene";
 import { AudioManager } from "../../../engine/AudioManager";
 import { type PlayerModelInstance, PlayerModelManager } from "../../../engine/animation/PlayerModelManager";
+import { devLog } from "./DevLog";
 
 // ============================================================================
 // Constants
@@ -208,7 +209,7 @@ export class TeleportEffect {
 
         this.ghostPool.push({ instance, material: mat, busy: false });
       }
-      console.log(`[TeleportEffect] ghost pool ready (${this.ghostPool.length} instances)`);
+      devLog(`[TeleportEffect] ghost pool ready (${this.ghostPool.length} instances)`);
     } catch (e) {
       console.warn("[TeleportEffect] ghost pool load failed:", e);
       this.ghostManager = null;

@@ -362,7 +362,7 @@ export class RemotePlayerRenderer {
         console.error("[RemotePlayerRenderer] Player model failed to load — remote players will be invisible");
         return;
       }
-      console.log("[RemotePlayerRenderer] Player model loaded");
+      devLog("[RemotePlayerRenderer] Player model loaded");
       await loadingManager.setOutlineProxyEnabled(Cvar.getBool("cl_player_outline_proxy"));
       if (this.disposed || this.modelManager !== loadingManager) {
         loadingManager.dispose();

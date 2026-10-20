@@ -198,7 +198,7 @@ export async function startPostGameShowcase(
   scene.activeCameras = [diorama];
   scene.activeCamera = diorama;
   dioramaCamera = diorama;
-  console.log("[PostGameShowcase] winner model spawned + diorama camera framed");
+  devLog("[PostGameShowcase] winner model spawned + diorama camera framed");
 
   if (weaponId) {
     renderer

@@ -117,7 +117,7 @@ export class FPSHud {
    */
   public async init(options: { watchOnly?: boolean } = {}): Promise<void> {
     this._watchOnly = options.watchOnly ?? false;
-    console.log("[FPSHud] Initializing...");
+    devLog("[FPSHud] Initializing...");
 
     // 1. Inject WashikiTheme CSS
     UIStyles.injectCSS("washiki-theme", washikiTheme);
@@ -209,7 +209,7 @@ export class FPSHud {
     // text-field guard while the input has focus). Enter sends via the server
     // round-trip (no local echo), Esc cancels — both handled inside FPSChat.
     if (this._watchOnly) {
-      console.log(`[FPSHud] Initialized with ${this.widgets.size} widgets, watching`);
+      devLog(`[FPSHud] Initialized with ${this.widgets.size} widgets, watching`);
       return;
     }
     this._chat.onSend((text, teamOnly = false) => {
@@ -292,7 +292,7 @@ export class FPSHud {
       { signal: this._listeners.signal },
     );
 
-    console.log(`[FPSHud] Initialized with ${this.widgets.size} widgets + overlays + dialogs`);
+    devLog(`[FPSHud] Initialized with ${this.widgets.size} widgets + overlays + dialogs`);
   }
 
   /**
@@ -660,6 +660,6 @@ export class FPSHud {
 
     UIStyles.removeCSS("washiki-theme");
     FPSHud.instance = null;
-    console.log("[FPSHud] Destroyed");
+    devLog("[FPSHud] Destroyed");
   }
 }
