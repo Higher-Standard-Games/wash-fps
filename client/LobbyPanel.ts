@@ -102,6 +102,8 @@ const CHAT_LOG_LIMIT = 100;
 const DROP_IN_ANSWER_MS = 8000;
 
 const ACCENT_PROPERTIES = ["--accent", "--accent-hi", "--accent-lo", "--accent-side-hi", "--accent-side-lo"];
+/** The team's devlog, opened from the Play page's links bar in a new tab. */
+const DEVLOG_URL = "https://washoi.net/devlog";
 
 /** Give `element` a mode's accent, for the keys and light inside it. */
 function applyAccent(element: HTMLElement, mode: GameMode): void {
@@ -127,6 +129,7 @@ export class LobbyPanel extends GamePanel {
   private welcomeGuide: LobbyWelcomeGuide | null = null;
   private creditsKey: HTMLButtonElement | null = null;
   private versionTag: HTMLSpanElement | null = null;
+  private devlogLink: HTMLAnchorElement | null = null;
   private credits: CreditsDialog | null = null;
   private linksObserver: ResizeObserver | null = null;
   /** Up while the lobby has turned this player away at its player cap. */
@@ -250,7 +253,14 @@ export class LobbyPanel extends GamePanel {
     this.versionTag = document.createElement("span");
     this.versionTag.className = "lobby-version";
     this.versionTag.textContent = EngineVersion.getInstance().getVersionString();
-    links.prepend(this.versionTag, this.creditsKey);
+    this.devlogLink = document.createElement("a");
+    this.devlogLink.className = "lobby-credits-key";
+    this.devlogLink.href = DEVLOG_URL;
+    this.devlogLink.target = "_blank";
+    this.devlogLink.rel = "noopener noreferrer";
+    this.devlogLink.textContent = "DEVLOG";
+    this.devlogLink.title = "News from the team, in a new tab";
+    links.prepend(this.versionTag, this.devlogLink, this.creditsKey);
     this.connected = this.initLobbyConnection();
   }
 
@@ -274,6 +284,7 @@ export class LobbyPanel extends GamePanel {
     if (!this.creditsKey) return;
     this.creditsKey.hidden = this.currentTabId !== "matchmaking" || this.matchLobbyView !== null;
     if (this.versionTag) this.versionTag.hidden = this.creditsKey.hidden;
+    if (this.devlogLink) this.devlogLink.hidden = this.creditsKey.hidden;
     if (this.creditsKey.hidden) this.closeCredits(false);
   }
 
