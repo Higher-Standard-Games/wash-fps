@@ -21,7 +21,7 @@ links and --- rules. Raw HTML is not shown; comments like this one are skipped.
 
 - **German "Jal" Garcia**: Qfusion consulting, mapping and makebsp
 - **Victor "Vic" Luchitz**
-- Our playtesters: Li(Q)uid, -𝙖𝙣𝙩𝙞-𝙥𝙞𝙯𝙯𝙖-, dima, gorey and the Warsow Discord community
+- Our playtesters: Li(Q)uid, -𝙖𝙣𝙩𝙞-𝙥𝙞𝙯𝙯𝙖-, dima, gorey, FragStealer and the Warsow Discord community
 - Everyone who played the alpha and told us what to fix
 
 ## Built with
