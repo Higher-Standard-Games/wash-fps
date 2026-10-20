@@ -1,5 +1,6 @@
 import { Engine } from "@babylonjs/core/Engines/engine";
 import type { WebGPUEngine } from "@babylonjs/core/Engines/webgpuEngine";
+import { devLog } from "../../../engine/core/DevLog";
 // EngineInstrumentation needs the GPU frame-time counter (timeQuery) and, on
 // WebGL, the timer-query implementation (engine.query); WebGPU bundles its own.
 import "@babylonjs/core/Engines/AbstractEngine/abstractEngine.timeQuery";
@@ -116,7 +117,7 @@ export class TimedemoService {
 
   private publish(): void {
     (window as unknown as { timedemoReport: TimedemoReport | null }).timedemoReport = this.report;
-    console.log("TIMEDEMO_REPORT", this.report);
+    devLog("TIMEDEMO_REPORT", this.report);
   }
 
   private async run(id: string, repeats: number, signal: AbortSignal): Promise<void> {
@@ -222,7 +223,7 @@ export class TimedemoService {
       this.controller = null;
       this.progress = this.report?.status ?? "failed";
       this.publish();
-      console.log(this.formatReport());
+      devLog(this.formatReport());
     }
   }
 

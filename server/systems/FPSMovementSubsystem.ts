@@ -314,7 +314,7 @@ export class FPSMovementSubsystem extends Subsystem {
    */
   setCollisionWorld(world: CollisionWorld | null): void {
     this.collisionWorld = world;
-    console.log(`[FPSMovementSubsystem] Collision world set: ${world ? "yes" : "no"}`);
+    debugLog("setup", () => `[FPSMovementSubsystem] Collision world set: ${world ? "yes" : "no"}`);
   }
 
   /**

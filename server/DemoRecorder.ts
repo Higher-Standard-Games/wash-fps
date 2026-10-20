@@ -30,6 +30,7 @@ import {
   encodeInputs,
   type RecordedInput,
 } from "../../../shared/demo/DemoInputs";
+import { debugLog } from "./DebugLog";
 
 // ── Magic & Version ─────────────────────────────────────────────────────
 
@@ -110,7 +111,10 @@ export class DemoRecorder {
     this._config.outputDir = dir;
 
     console.log(`[DemoRecorder] ✓ Recording started for map "${config.map}" (${config.gametype})`);
-    console.log(`[DemoRecorder]   Tick rate: ${config.tickRate}Hz, Snapshot rate: ${config.snapshotRate}Hz`);
+    debugLog(
+      "setup",
+      () => `[DemoRecorder]   Tick rate: ${config.tickRate}Hz, Snapshot rate: ${config.snapshotRate}Hz`,
+    );
   }
 
   // ── Player Roster ────────────────────────────────────────────────

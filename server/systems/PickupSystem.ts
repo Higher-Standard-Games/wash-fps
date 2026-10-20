@@ -34,6 +34,7 @@ import {
 } from "../../../../shared/items/ItemRespawn";
 import { POWERUP_DISPLAY, type PowerupKind } from "../../../../shared/items/Powerups";
 import { createPowerups, grantPowerup } from "../../../../shared/server/simulation/components/PowerupComponent";
+import { debugLog } from "../DebugLog";
 import type { DroppedWeaponSystem } from "./DroppedWeaponSystem";
 import type { WeaponSystem } from "./WeaponSystem";
 
@@ -147,7 +148,7 @@ export class PickupSystem extends Subsystem {
    */
   setRespawnMode(mode: ItemRespawnMode): void {
     this.respawnMode = mode;
-    console.log(`[PickupSystem] Item respawn mode: ${mode}`);
+    debugLog("setup", () => `[PickupSystem] Item respawn mode: ${mode}`);
   }
 
   /** Resolve the respawn duration (ticks) for a pickup entry by type/kind. */

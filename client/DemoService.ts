@@ -17,6 +17,7 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { Scene } from "@babylonjs/core/scene";
 import { AudioManager } from "../../../engine/AudioManager";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
+import { devLog } from "../../../engine/core/DevLog";
 import { EventBus } from "../../../engine/core/EventBus";
 import { disposeClusteredLight } from "../../../engine/lighting/DynamicLightCluster";
 import { SnapshotBuffer } from "../../../engine/network/client/SnapshotBuffer";
@@ -634,7 +635,7 @@ export class DemoService {
       const { Game } = await import("../Game");
       const game = Game.getInstance();
       if (game.isConnectedToServer()) {
-        console.log("[DemoService] Shutting down live game session before demo playback");
+        devLog("[DemoService] Shutting down live game session before demo playback");
         game.shutdown();
       }
     } catch (err) {

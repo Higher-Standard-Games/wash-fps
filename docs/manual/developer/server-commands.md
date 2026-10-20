@@ -83,6 +83,12 @@ SHAG_DEBUG=phys,kb npm run server
 | `input` | A sample of the input buttons every 200 commands |
 | `perf` | Snapshot encode cost every 100 ticks |
 | `discharge` | A shot fired into water |
+| `tickrate` | The measured tick rate every 5 s, also when it is on target |
+| `telemetry` | One line per playing client every 5 s: jitter, loss, aim and strikes |
+| `spawn` | Respawn requests, the spawn point picked and the respawn |
+| `kills` | One line per kill |
+| `bot` | Bot server: each bot's status line, deaths and respawns |
+| `setup` | A match's configuration: spawn points, collision, PVS, pickups and the tick loop |
 
 ## Game Console Commands
 

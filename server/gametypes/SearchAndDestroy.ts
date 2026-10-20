@@ -48,6 +48,7 @@ import { rngFrom } from "../../../../shared/DeterministicRng";
 import type { BombEvent, BombPlayerView } from "../../../../shared/server/gametype/BombModel";
 import { BombModel } from "../../../../shared/server/gametype/BombModel";
 import { clientKeyDisplayId, toClientKey } from "../../ClientEntityKey";
+import { debugLog } from "../DebugLog";
 import {
   BaseGametype,
   type GameResult,
@@ -376,7 +377,7 @@ export class SearchAndDestroy extends BaseGametype {
     }
 
     this.sites = extractBombSites(context.entities, context.models);
-    console.log(`[S&D] ${this.sites.length} bombsites: ${this.sites.map((s) => s.label).join(", ")}`);
+    debugLog("setup", () => `[S&D] ${this.sites.length} bombsites: ${this.sites.map((s) => s.label).join(", ")}`);
 
     // The bomb starts where the ATTACKERS spawn, dropped to the floor. That is
     // beta's area every round, because attackers use beta's spawn set whichever

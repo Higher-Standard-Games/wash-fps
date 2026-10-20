@@ -6,6 +6,7 @@
  */
 
 import { Cvar } from "../../../engine/core/Cvar";
+import { devLog } from "../../../engine/core/DevLog";
 import { getCollisionManager } from "../../../engine/physics/CollisionManager";
 import type {
   BombExplosionEvent,
@@ -125,7 +126,7 @@ export class MatchStateManager {
 
     // Fire phase change callbacks
     if (oldPhase !== this._phase) {
-      console.log(`[MatchState] Phase changed: ${MatchPhase[oldPhase]} → ${MatchPhase[this._phase]}`);
+      devLog(`[MatchState] Phase changed: ${MatchPhase[oldPhase]} → ${MatchPhase[this._phase]}`);
       for (const cb of this._phaseCallbacks) {
         try {
           cb(this._phase, oldPhase);

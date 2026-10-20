@@ -8,6 +8,7 @@
  * Transport controls: play/pause, speed (0.25x–4x), seek, timeline.
  */
 
+import { devLog } from "../../../engine/core/DevLog";
 import type { GameState } from "../../../engine/network/core/GameState";
 import type { RecordedInput } from "../../../shared/demo/DemoInputs";
 import { type DemoFrame, type DemoHeader, type DemoIndex, DemoReader } from "../../../shared/demo/DemoReader";
@@ -114,7 +115,7 @@ export class DemoViewer {
     this.frameCache.clear();
     this.setState("loaded");
 
-    console.log(`[DemoViewer] Loaded demo: ${this.reader.getSummary()}`);
+    devLog(`[DemoViewer] Loaded demo: ${this.reader.getSummary()}`);
   }
 
   /**

@@ -14,6 +14,7 @@
  *   if (input.wasPressed(FPS.SCOREBOARD)) { ... }
  */
 
+import { devLog } from "../../../engine/core/DevLog";
 import { InputSystem } from "../../../engine/input/InputSystem";
 import type { ActionDefinition } from "../../../engine/input/InputTypes";
 
@@ -228,7 +229,7 @@ export function registerFPSActions(): void {
   // Activate gameplay context by default (spectator can be pushed later)
   input.pushContext("fps_gameplay");
 
-  console.log(`[FPSActions] Registered ${FPS_ACTION_DEFS.length} actions, 2 contexts (gameplay active)`);
+  devLog(`[FPSActions] Registered ${FPS_ACTION_DEFS.length} actions, 2 contexts (gameplay active)`);
 }
 
 // ==================== Helpers ====================

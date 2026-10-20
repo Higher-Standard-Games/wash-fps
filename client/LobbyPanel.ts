@@ -415,7 +415,7 @@ export class LobbyPanel extends GamePanel {
         this.lobbyClient.on("welcome", (msg) => {
           this.loginFailures = 0;
           this.lobbyFullNotice?.close();
-          console.log("[LobbyPanel] Welcome from lobby server:", msg.playerId);
+          devLog("[LobbyPanel] Welcome from lobby server:", msg.playerId);
           this.localLobbyPlayerId = msg.playerId;
           this.refreshPlayerCard(msg.identity?.name);
           this.serverGametypes = msg.gametypes || [];
@@ -634,14 +634,14 @@ export class LobbyPanel extends GamePanel {
       if (this.destroyed) return;
       this.welcomeGuide?.setAuthenticated(false);
       if (err instanceof LoginError && err.code === "lobby_full") {
-        console.log("[LobbyPanel] Lobby is full; waiting to try again");
+        devLog("[LobbyPanel] Lobby is full; waiting to try again");
         this.lobbyFullNotice ??= new LobbyFullNotice(() => void this.logInToLobby());
         this.lobbyFullNotice.wait(this.root, err.retryAfterSec);
         this.showDisconnectedState(false);
         return;
       }
       console.warn("[LobbyPanel] Could not connect to lobby server:", err);
-      console.log("[LobbyPanel] Showing disconnected lobby state");
+      devLog("[LobbyPanel] Showing disconnected lobby state");
       this.scheduleOfflineRetry();
       this.showDisconnectedState(false);
       return;
@@ -706,7 +706,7 @@ export class LobbyPanel extends GamePanel {
     const pathMatch = url.pathname.match(/\/lobby\/([A-Za-z0-9_-]+)/);
     const deepLinkLobby = url.searchParams.get("lobby") || pathMatch?.[1];
     if (deepLinkLobby) {
-      console.log(`[LobbyPanel] Deep link → joining lobby ${deepLinkLobby}`);
+      devLog(`[LobbyPanel] Deep link → joining lobby ${deepLinkLobby}`);
       let inviteToken = url.searchParams.get("invite") || undefined;
       if (!inviteToken) {
         try {

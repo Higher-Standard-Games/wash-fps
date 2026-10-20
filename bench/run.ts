@@ -20,6 +20,7 @@
 import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { devLog } from "../../../engine/core/DevLog";
 import { compareResults, formatComparison } from "./compare";
 import { type BenchResult, environment, medianOfRuns } from "./harness";
 import { parseArgs } from "./options";
@@ -70,18 +71,18 @@ function main(): void {
 
   if (options.compare) {
     const [a, b] = options.compare.map((file) => JSON.parse(fs.readFileSync(file, "utf8")) as BenchResult);
-    console.log(formatComparison(compareResults(a, b)));
+    devLog(formatComparison(compareResults(a, b)));
     return;
   }
 
   const chosen = SCENARIOS.filter((scenario) => !options.only || scenario.name.includes(options.only));
   if (options.list) {
-    for (const scenario of chosen) console.log(`${scenario.name.padEnd(26)} ${scenario.description}\n`);
+    for (const scenario of chosen) devLog(`${scenario.name.padEnd(26)} ${scenario.description}\n`);
     return;
   }
 
   const env = environment();
-  console.log(`${env.cpu} (${env.cores} cores), Node ${env.node}, ${options.runs} runs each, commit ${commit()}\n`);
+  devLog(`${env.cpu} (${env.cores} cores), Node ${env.node}, ${options.runs} runs each, commit ${commit()}\n`);
   if (options.out) fs.mkdirSync(options.out, { recursive: true });
 
   for (const scenario of chosen) {
@@ -90,7 +91,7 @@ function main(): void {
     if (new Set(runs.map((run) => run.checksum)).size > 1) {
       console.error(`!! ${scenario.name}: the checksum differs between runs, so the workload is not deterministic`);
     }
-    console.log(row(result));
+    devLog(row(result));
     if (options.out)
       fs.writeFileSync(path.join(options.out, `${scenario.name}.json`), `${JSON.stringify(result, null, 2)}\n`);
   }

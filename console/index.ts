@@ -14,6 +14,7 @@
 
 import type { Command } from "../../../engine/console/Command";
 import { CommandRegistry } from "../../../engine/console/CommandRegistry";
+import { devLog } from "../../../engine/core/DevLog";
 
 /**
  * Register all fps-specific commands.
@@ -42,5 +43,5 @@ export async function registerFpsCommands(): Promise<void> {
     }
   }
 
-  console.log(`[FPS Console] Registered ${count} fps commands`);
+  devLog(`[FPS Console] Registered ${count} fps commands`);
 }

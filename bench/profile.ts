@@ -13,6 +13,7 @@
 
 import * as fs from "node:fs";
 import { Session } from "node:inspector";
+import { devLog } from "../../../engine/core/DevLog";
 import { SCENARIOS } from "./scenarios";
 
 interface ProfileNode {
@@ -86,12 +87,12 @@ async function main(): Promise<void> {
   if (out) fs.writeFileSync(out, JSON.stringify(profile));
   const rows = selfTimes(profile);
   const total = rows.reduce((sum, row) => sum + row.micros, 0);
-  console.log(
+  devLog(
     `${scenario.name}: ${calls} calls in ${seconds}s, ${(total / calls).toFixed(1)} us of sampled time per call\n`,
   );
   for (const row of rows.slice(0, top)) {
     const share = ((row.micros / total) * 100).toFixed(1).padStart(5);
-    console.log(`${share}%  ${(row.micros / calls).toFixed(2).padStart(8)} us/call  ${row.name}  ${row.where}`);
+    devLog(`${share}%  ${(row.micros / calls).toFixed(2).padStart(8)} us/call  ${row.name}  ${row.where}`);
   }
 }
 

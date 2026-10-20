@@ -345,7 +345,7 @@ export class GameServer {
       onError: (conn, error) => this.handleError(conn, error),
     });
 
-    console.log(`[GameServer] Created with ${this.simulation.getSubsystems().length} subsystems`);
+    debugLog("setup", () => `[GameServer] Created with ${this.simulation.getSubsystems().length} subsystems`);
     console.log(`[GameServer] Gametype: ${gt.name}`);
     // Anti-warp: init with expected client rate and server tick rate
     this.movementValidator = new MovementValidator(144, config.tickRate);
@@ -521,7 +521,7 @@ export class GameServer {
     this.droppedWeaponSystem.setCollisionWorld(collision);
     this.gametypeController.setCollisionWorld(collision);
     this.lagCompensation.setCollisionWorld(collision);
-    console.log(`[GameServer] Collision world configured`);
+    debugLog("setup", () => `[GameServer] Collision world configured`);
   }
 
   /** Note when a snapshot left, so the ack for it can be timed. */
@@ -573,7 +573,7 @@ export class GameServer {
   setPickupItems(entries: PickupEntry[]): void {
     const excluded = new Set(this.gametypeController.getGametype().getItemSpawnRules().excludeClassnames ?? []);
     const count = entries.filter((e) => excluded.has(e.classname)).length;
-    if (count > 0) console.log(`[GameServer] ${count} pickups excluded by gametype`);
+    if (count > 0) debugLog("setup", () => `[GameServer] ${count} pickups excluded by gametype`);
     this.pickupSystem.setPickupItems(entries, excluded);
   }
 
@@ -584,7 +584,7 @@ export class GameServer {
    */
   setTriggerVolumes(volumes: TriggerVolume[]): void {
     this.physicsSystem.setTriggerVolumes(volumes);
-    console.log(`[GameServer] ${volumes.length} trigger volumes configured`);
+    debugLog("setup", () => `[GameServer] ${volumes.length} trigger volumes configured`);
   }
 
   /**
@@ -602,7 +602,7 @@ export class GameServer {
   setPVSData(data: ServerPVSData): void {
     const pvs = new ServerPVS(data);
     this.broadcaster.setPVS(pvs);
-    console.log(`[GameServer] PVS configured: ${pvs.numClusters} clusters, enabled: ${pvs.enabled}`);
+    debugLog("setup", () => `[GameServer] PVS configured: ${pvs.numClusters} clusters, enabled: ${pvs.enabled}`);
   }
 
   getGametypeController(): GametypeController {
@@ -790,7 +790,7 @@ export class GameServer {
     this.diagMaxTickMs = 0;
     this.scheduleNextTick();
 
-    console.log(`[GameServer] Tick loop started at ${this.config.tickRate}Hz`);
+    debugLog("setup", () => `[GameServer] Tick loop started at ${this.config.tickRate}Hz`);
 
     // A lobby-spawned server whose player never arrives (the client gave up
     // waiting for it, or the browser closed) would otherwise run forever:
@@ -1179,7 +1179,7 @@ export class GameServer {
       this.shutdownTimer = null;
       console.log("[GameServer] Shutdown timer cancelled — client connected");
     }
-    console.log(`[GameServer] WebSocket connected: ${conn.id}`);
+    debugLog("setup", () => `[GameServer] WebSocket connected: ${conn.id}`);
   }
 
   /** @param holdSeat False once the grace has passed: the drop is now a departure. */
@@ -1603,7 +1603,7 @@ export class GameServer {
       this.refreshHumanClientCount();
 
       console.log(`[GameServer] Player ${pid} connected as spectator`);
-      console.log(`[GameServer] Connected clients: ${this.clients.size}/${this.config.maxClients}`);
+      debugLog("setup", () => `[GameServer] Connected clients: ${this.clients.size}/${this.config.maxClients}`);
     }
 
     this.sendWelcome(client);
@@ -2012,7 +2012,7 @@ export class GameServer {
 
     const acceptBytes = MessageCodec.encodeJoinAccept(client.id, playerId, entityId);
     client.connection.sendReliable(acceptBytes);
-    console.log(`[GameServer] Sent JoinAccept: playerId=${playerId}, entityId=${entityId}`);
+    debugLog("setup", () => `[GameServer] Sent JoinAccept: playerId=${playerId}, entityId=${entityId}`);
   }
 
   // ========================================================================

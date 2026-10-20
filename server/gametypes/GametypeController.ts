@@ -97,11 +97,11 @@ export class GametypeController {
     // default returns null and MatchState keeps counting frags.
     if (gametype.scoreFromStats(emptyPlayerStats()) !== null) {
       this.matchState.setScoreFormula((stats) => gametype.scoreFromStats(stats) ?? 0);
-      console.log(`[GametypeController] Score derived from stats`);
+      debugLog("setup", () => `[GametypeController] Score derived from stats`);
     }
 
-    console.log(`[GametypeController] Initialized: ${gametype.name}`);
-    console.log(`[GametypeController] Spawn strategy: ${gametype.getSpawnStrategy()}`);
+    debugLog("setup", () => `[GametypeController] Initialized: ${gametype.name}`);
+    debugLog("setup", () => `[GametypeController] Spawn strategy: ${gametype.getSpawnStrategy()}`);
     console.log(
       `[GametypeController] Score limit: ${this.matchConfig.scoreLimit}, Time limit: ${this.matchConfig.timeLimit}s`,
     );
@@ -170,7 +170,7 @@ export class GametypeController {
     if (protection > 0 && this.gametype.teamBased) {
       const windowTicks = Math.floor(protection * TICK_RATE);
       combat.setDamageFilter((event, tick) => this.allowDamage(event, tick, windowTicks));
-      console.log(`[GametypeController] Team spawn protection: ${protection}s`);
+      debugLog("setup", () => `[GametypeController] Team spawn protection: ${protection}s`);
     }
   }
 
@@ -260,9 +260,9 @@ export class GametypeController {
         this.spawnStrategy.setTeamPoints(team, teamSpawns);
       }
       const summary = [...teamPoints].map(([t, p]) => `${t}=${p.length}`).join(", ");
-      console.log(`[GametypeController] Team spawn points: ${summary || "none"}`);
+      debugLog("setup", () => `[GametypeController] Team spawn points: ${summary || "none"}`);
     }
-    console.log(`[GametypeController] ${points.length} spawn points loaded`);
+    debugLog("setup", () => `[GametypeController] ${points.length} spawn points loaded`);
   }
 
   /**
@@ -271,7 +271,7 @@ export class GametypeController {
    */
   setCollisionWorld(world: CollisionWorld): void {
     this.collisionWorld = world;
-    console.log(`[GametypeController] Collision world set for spawn validation`);
+    debugLog("setup", () => `[GametypeController] Collision world set for spawn validation`);
   }
 
   /**

@@ -8,6 +8,7 @@
  * against a repeated Welcome is per connection too.
  */
 
+import { devLog } from "../../../engine/core/DevLog";
 import type { CollisionWorld } from "../../../engine/network/systems/collision/CollisionWorld";
 import { getCollisionManager } from "../../../engine/physics/CollisionManager";
 import type { FPSGameConfig } from "../Game";
@@ -42,7 +43,7 @@ export class MatchMapLoader {
     }
     this.started = true;
 
-    console.log(`[Game] Server map: ${serverInfo.map}`);
+    devLog(`[Game] Server map: ${serverInfo.map}`);
 
     // Keep the loading screen down until the GAME is ready, not just the
     // map. Everything below — audio decode, collision world, trigger
@@ -174,7 +175,7 @@ export class MatchMapLoader {
 
         // Auto-join if requested (lobby flow — skip spectator overlay)
         if (this.config.autoJoin) {
-          console.log("[Game] Auto-joining game (lobby flow)");
+          devLog("[Game] Auto-joining game (lobby flow)");
           // Small delay to ensure everything is settled
           setTimeout(() => this.host.joinGame(), 200);
         }
@@ -183,7 +184,7 @@ export class MatchMapLoader {
       }
     } catch (error) {
       console.error(`[Game] Failed to load map ${serverInfo.map}:`, error);
-      console.log(`[Game] Disconnecting due to map load error...`);
+      devLog(`[Game] Disconnecting due to map load error...`);
       this.host.shutdown();
     } finally {
       // Whatever happened above, the curtain has to come up.

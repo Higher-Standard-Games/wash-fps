@@ -17,6 +17,7 @@
  *   spawn        respawn requests, the spawn point picked and the respawn itself
  *   kills        one line per kill
  *   bot          bot server: each bot's status line, its deaths and respawns
+ *   setup        a match's configuration: spawn points, collision, PVS, pickups, tick loop
  *
  * Everything else the server prints is a lifecycle event (a player joins, a match starts, a demo
  * is saved) or a problem. Nothing prints per tick, per snapshot, per hit or per death unless
@@ -35,7 +36,8 @@ export type DebugTopic =
   | "telemetry"
   | "spawn"
   | "kills"
-  | "bot";
+  | "bot"
+  | "setup";
 
 function parseTopics(value: string | undefined): ReadonlySet<string> {
   return new Set(

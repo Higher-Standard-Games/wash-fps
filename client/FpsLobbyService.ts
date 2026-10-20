@@ -1,3 +1,4 @@
+import { devLog } from "../../../engine/core/DevLog";
 import { LoginError, logIn, restoreAccount } from "../../../lobby/AccountSession";
 import { LobbyClient } from "../../../lobby/LobbyClient";
 import { normalizeKey } from "../../../lobby/PlayerIdentity";
@@ -59,7 +60,7 @@ export async function switchFpsAccount(pastedKey: string, url: string = DEFAULT_
   // Let a login already under way finish, so it can't answer for the new connection
   await connectPromise?.catch(() => undefined);
 
-  console.log("[FpsLobbyService] Switching account: reconnecting to", url);
+  devLog("[FpsLobbyService] Switching account: reconnecting to", url);
   client.disconnect();
   await client.connect(url);
   try {

@@ -1950,7 +1950,7 @@ export class RemotePlayerRenderer {
     const speed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz);
     const g = inst.masterGroup;
     const frame = g?.animatables?.[0]?.masterFrame;
-    console.log(
+    devLog(
       `[AnimDebug] ${entityId} anim=${animName} speed=${speed.toFixed(0)} grounded=${interp.grounded} ` +
         `vy=${interp.vy.toFixed(0)} ratio=${g?.speedRatio?.toFixed(2) ?? "—"} ` +
         `playing=${g?.isPlaying ?? false} frame=${frame?.toFixed(1) ?? "—"}`,

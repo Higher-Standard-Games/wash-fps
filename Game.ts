@@ -416,7 +416,7 @@ export class Game {
           const mgr = MatchStateManager.getInstance();
           const winnerPlayerId = mgr.resolveWinnerPlayerId();
           if (!winnerPlayerId) {
-            console.log(`[PostGameShowcase] no showcase — winner=${JSON.stringify(mgr.winner)}`);
+            devLog(`[PostGameShowcase] no showcase — winner=${JSON.stringify(mgr.winner)}`);
             return;
           }
 
@@ -425,7 +425,7 @@ export class Game {
           const winnerKey = ensureClientKey(winnerPlayerId);
           const entityId = this._latestGameState?.players.get(winnerKey)?.entityId ?? null;
           if (!entityId) {
-            console.log(
+            devLog(
               `[PostGameShowcase] no entity for winner ${winnerKey} (players: ${[...(this._latestGameState?.players.keys() ?? [])].join(", ")})`,
             );
             return;
@@ -477,7 +477,7 @@ export class Game {
    */
   private onTabReturn(): void {
     if (!this.isRunning) return;
-    console.log("[Game] Tab returned — resetting visual state");
+    devLog("[Game] Tab returned — resetting visual state");
 
     // 1. Clamp dt for next 3 frames (prevents catch-up stutter)
     this._tabReturnFrameSkips = 3;
@@ -525,16 +525,16 @@ export class Game {
         });
         engine.onContextRestoredObservable.add(() => {
           const backend = engine.isWebGPU ? "WebGPU" : "WebGL";
-          console.log(`[Game] ${backend} context restored — revalidating materials`);
+          devLog(`[Game] ${backend} context restored — revalidating materials`);
           void this.revalidateAfterTabReturn();
         });
         this._contextLossHandlersInstalled = true;
-        console.log("[Game] Renderer context loss/restore handlers installed");
+        devLog("[Game] Renderer context loss/restore handlers installed");
       }
 
       const { revalidateMaterials } = await import("../../engine/weapon/EffectPreloader");
       await revalidateMaterials(scene);
-      console.log("[Game] Material revalidation complete");
+      devLog("[Game] Material revalidation complete");
     } catch (err) {
       console.warn("[Game] Material revalidation failed:", err);
     }
@@ -612,7 +612,7 @@ export class Game {
     // Consumed in `joinGame` once it has actually been sent, which still stops
     // a later direct connect inheriting a side from an old lobby.
     this._preferredTeam = readLobbyTeam() ?? this._preferredTeam;
-    console.log(`[Game] Lobby handoff team: ${this._preferredTeam ?? "none"}`);
+    devLog(`[Game] Lobby handoff team: ${this._preferredTeam ?? "none"}`);
     this._seated = !!config.admissionTicket;
     this._seatTicket = null;
     this._seatRequest = config.requestSeat ?? null;
@@ -679,7 +679,7 @@ export class Game {
 
       // Listen for server messages (queue notifications, join rejections)
       networkHost.onServerMessage((msg) => {
-        console.log(`[Game] Server message [${msg.type}]: ${msg.message}`);
+        devLog(`[Game] Server message [${msg.type}]: ${msg.message}`);
         // If server rejected our join, clear pending state
         if (msg.type === "queue" || msg.type === "error") {
           this._joinPending = false;
@@ -696,7 +696,7 @@ export class Game {
 
       // Load player profile and connect with display name
       const profile = PlayerProfile.load();
-      console.log(`[Game] Connecting as "${profile.name}" (id: ${profile.id.substring(0, 8)}...)`);
+      devLog(`[Game] Connecting as "${profile.name}" (id: ${profile.id.substring(0, 8)}...)`);
 
       // Connect to server (this triggers onServerInfo callback which loads map and sets collision)
       // Sent with every JoinAccept from here on, and again when the cvar changes
@@ -957,7 +957,7 @@ export class Game {
     // Timeout: revert if server doesn't respond within 5 seconds
     this._joinPendingTimeout = setTimeout(() => {
       if (this._joinPending) {
-        console.log("[Game] joinGame() — timed out waiting for server confirmation");
+        devLog("[Game] joinGame() — timed out waiting for server confirmation");
         this._joinPending = false;
       }
     }, 5000);
@@ -977,7 +977,7 @@ export class Game {
       this._joinPendingTimeout = null;
     }
 
-    console.log("[Game] completeJoinGame() — server confirmed, transitioning to playing");
+    devLog("[Game] completeJoinGame() — server confirmed, transitioning to playing");
 
     // Clear any active chase-cam state before switching
     this.spectatorCycling?.clearTarget();
@@ -1045,7 +1045,7 @@ export class Game {
     // Request pointer lock for FPS controls
     requestBrowserPointerLock(document.querySelector("canvas"));
 
-    console.log("[Game] Joined game (server-confirmed)");
+    devLog("[Game] Joined game (server-confirmed)");
   }
 
   /**
@@ -1205,7 +1205,7 @@ export class Game {
     // Release pointer lock
     document.exitPointerLock();
 
-    console.log("[Game] Now spectating");
+    devLog("[Game] Now spectating");
   }
 
   /** Chase-cam: start following a specific player entity. */
@@ -1794,7 +1794,7 @@ export class Game {
    */
   sendReady(): void {
     if (!this.isNetworkMode || !this.gameHost) {
-      console.log("[Game] Cannot send ready — not connected");
+      devLog("[Game] Cannot send ready — not connected");
       return;
     }
 
@@ -1905,7 +1905,7 @@ export class Game {
     this.forgetLocalLiquid();
     this.clearWorldEffects();
 
-    console.log("[Game] Shutdown complete");
+    devLog("[Game] Shutdown complete");
   } // ========================================================================
   // Event Context
   // ========================================================================
@@ -2072,7 +2072,7 @@ export class Game {
     if (this.playerState !== "playing" && !this._joinCompleting && this.localPlayerId) {
       const myPlayer = state.players.get(this.localPlayerId);
       if (myPlayer && myPlayer.entityId && state.entities.has(myPlayer.entityId)) {
-        console.log(`[Game] Server confirmed join — entity ${myPlayer.entityId} found in snapshot`);
+        devLog(`[Game] Server confirmed join — entity ${myPlayer.entityId} found in snapshot`);
         // `completeJoinGame` is async and takes several frames; without this
         // every frame in between would start another one.
         this._joinCompleting = true;
