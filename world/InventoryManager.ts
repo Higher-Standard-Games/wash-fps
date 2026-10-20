@@ -87,7 +87,9 @@ export class InventoryManager {
    */
   public giveAmmo(ammoType: string, amount: number): number {
     const current = this.ammo[ammoType] || 0;
-    const max = InventoryManager.MAX_AMMO; // TODO: Get from AmmoDef
+    // Reserve is keyed by weapon id; other keys use the shared fallback cap.
+    const def = EntityRegistry.getInstance().get<WeaponDef>(ammoType);
+    const max = def?.type === EntityType.WEAPON && def.maxAmmo > 0 ? def.maxAmmo : InventoryManager.MAX_AMMO;
 
     const added = Math.min(amount, max - current);
     this.ammo[ammoType] = current + added;
@@ -196,8 +198,8 @@ export class InventoryManager {
       return false;
     }
 
+    // The caller loads the view model (WeaponViewManager); the inventory only tracks state.
     this.currentWeaponId = weaponId;
-    // TODO: Notify weapon view manager
     devLog(`[InventoryManager] Equipped: ${this.weapons.get(weaponId)?.name}`);
     return true;
   }

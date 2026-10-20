@@ -1414,7 +1414,7 @@ export class Game {
       yaw: input.yaw,
       buttons,
       weaponSlot: input.weaponSlot || 0,
-      serialize: () => new Uint8Array(), // TODO: Implement for network
+      serialize: () => new Uint8Array(), // Local only: network play encodes input in V2NetworkClient
     };
 
     // === V2 CLIENT: Process input for instant local prediction ===

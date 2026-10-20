@@ -75,7 +75,10 @@ function hide(): void {
 }
 
 function place(el: HTMLElement): void {
-  if (!tip || !el.isConnected) return hide();
+  if (!tip || !el.isConnected) {
+    hide();
+    return;
+  }
   const box = el.getBoundingClientRect();
   const width = tip.offsetWidth;
   const height = tip.offsetHeight;

@@ -39,10 +39,6 @@ export class FPSServerGame {
   private setupSubsystems(): void {
     // Add physics system
     this.simulation.addSubsystem(new CharacterPhysicsSystem());
-
-    // TODO: Add more systems
-    // this.simulation.addSubsystem(new FPSCombatSystem());
-    // this.simulation.addSubsystem(new FPSWeaponSystem());
   }
 
   /**
