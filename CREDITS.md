@@ -43,7 +43,7 @@ All fonts are used under the [SIL Open Font License 1.1](https://openfontlicense
 
 ## Weapons
 
-- **Weapon models**: the Warsow team, by adsn. Creative Commons (*licence version to be added*).
+- **Weapon models**: the Warsow team, by adsn, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 - **Arc Blade**: "[Neo-Arc Blade – Sci-Fi Energy Sword](https://sketchfab.com/3d-models/neo-arc-blade-sci-fi-energy-sword-54e0845b1054497698093a72110ba73e)"
   by [SURVIVED](https://sketchfab.com/survivedua),
   [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
@@ -67,7 +67,11 @@ From the [Warfork free sound packs](https://github.com/TeamForbiddenLLC/warfork-
 Many of our arenas come from Warsow and Warfork. Map authors are listed on the
 [Warfork wiki](https://warforkwiki.com/index.php?title=Maps).
 
-- *Map, author and licence, one line per map, to be added*
+- **Washoi DM2** (`washoi_dm2`): Warsow's wdm2 by *author to be added*.
+- **Washoi DM5** (`washoi_dm5`): Warsow's wdm5 by *author to be added*, with German "Jal" Garcia.
+- **Washoi DM11** (`washoi_dm11`): *author to be added*, with German "Jal" Garcia.
+- **Washoi Amphi1** (`washoi_amphi1`): *author to be added*.
+- **Concrete Strike** (`washoi_snd1`): *author to be added*.
 
 Models in our maps:
 
