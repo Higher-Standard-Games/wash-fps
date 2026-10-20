@@ -21,6 +21,7 @@ import { UIStyles } from "../../../engine/ui/UIStyles";
 import { accountIsNew, currentIdentity, LoginError } from "../../../lobby/AccountSession";
 import { CLIENT_DISCONNECT_REASON, type LobbyClient } from "../../../lobby/LobbyClient";
 import type { DemoInfo, GametypeInfo, LiveMatchInfo, MatchLobbyInfo, PlayerInfo } from "../../../lobby/types";
+import { ChatScroll } from "./ChatScroll";
 import { DemoService } from "./DemoService";
 import { type DemoScope, DemosView } from "./DemosView";
 import { ensureFpsLobbyConnection, getFpsLobbyClient } from "./FpsLobbyService";
@@ -92,7 +93,7 @@ const GAME_MODES: GameMode[] = [
 ];
 
 /** Messages kept in the chat log; older ones scroll away for good. */
-const CHAT_LOG_LIMIT = 200;
+const CHAT_LOG_LIMIT = 100;
 /** How long a spectator's Join waits on the lobby for a seat. */
 const DROP_IN_ANSWER_MS = 8000;
 
@@ -135,6 +136,7 @@ export class LobbyPanel extends GamePanel {
   private serverGametypes: GametypeInfo[] = [];
   private playerCountBadge: HTMLElement | null = null;
   private chatMessagesEl: HTMLElement | null = null;
+  private chatScroll: ChatScroll | null = null;
   private chatColumnEl: HTMLElement | null = null;
   private chatInputEl: HTMLInputElement | null = null;
   private chatSendEl: HTMLButtonElement | null = null;
@@ -200,9 +202,7 @@ export class LobbyPanel extends GamePanel {
       }
       // A page that is not on screen has no scroll position, so the chat has to
       // be sent back to its newest message when the Play page returns.
-      if (tabId === "matchmaking" && this.chatMessagesEl) {
-        this.chatMessagesEl.scrollTop = this.chatMessagesEl.scrollHeight;
-      }
+      if (tabId === "matchmaking") this.chatScroll?.toBottom();
       this.showRailMiddle(tabId);
       if (tabId === "settings") void this.settingsView?.refresh();
       if (tabId === "demos") this.demosView?.show();
@@ -392,6 +392,7 @@ export class LobbyPanel extends GamePanel {
             this.appendChatMessage(c.from, c.text, false, c.ts);
           }
           this.showChatEmpty();
+          this.chatScroll?.toBottom();
           this.restoreRoom(msg.identity?.id);
         }),
       );
@@ -736,11 +737,10 @@ export class LobbyPanel extends GamePanel {
       msg.append(time, who, span("lobby-chat__text", text));
     }
 
-    // Follow new messages only when already at the bottom, so reading back isn't interrupted
-    const following = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
     log.appendChild(msg);
     while (log.childElementCount > CHAT_LOG_LIMIT) log.firstElementChild?.remove();
-    if (following) log.scrollTop = log.scrollHeight;
+    // Follows new messages only when already at the bottom, so reading back isn't interrupted
+    this.chatScroll?.follow();
   }
 
   private handleLobbyCreated(lobby: MatchLobbyInfo): void {
@@ -1166,6 +1166,7 @@ export class LobbyPanel extends GamePanel {
     log.className = "lobby-chat__log";
     log.setAttribute("role", "log");
     this.chatMessagesEl = log;
+    this.chatScroll = new ChatScroll(log);
     panel.appendChild(log);
     this.showChatEmpty();
 
@@ -1320,6 +1321,7 @@ export class LobbyPanel extends GamePanel {
   public override destroy(): void {
     this.linksObserver?.disconnect();
     this.destroyed = true;
+    this.chatScroll?.destroy();
     this.welcomeGuide?.destroy();
     bindLeaderboard(this.lobbyClient, false);
     bindPlayerStats(this.lobbyClient, false);

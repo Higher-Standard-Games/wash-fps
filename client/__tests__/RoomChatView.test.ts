@@ -120,3 +120,37 @@ describe("RoomChatView", () => {
     view.destroy();
   });
 });
+
+describe("RoomChatView scrolling", () => {
+  function sized(log: HTMLElement, height: () => number, client: number) {
+    Object.defineProperty(log, "scrollHeight", { configurable: true, get: height });
+    Object.defineProperty(log, "clientHeight", { configurable: true, get: () => client });
+  }
+
+  it("opens on the newest message and follows new ones until the reader scrolls up", () => {
+    const client = new FakeClient();
+    const history = Array.from({ length: 30 }, (_, i) => ({ from: "Alice", fromId: "a", text: `m${i}`, ts: i }));
+    const view = new RoomChatView(client as never, { ...room, chatHistory: history }, "me");
+    const log = view.root.querySelector<HTMLElement>(".lobby-chat__log")!;
+    let height = 1000;
+    sized(log, () => height, 200);
+    document.body.appendChild(view.root);
+
+    // Laid out after the history came in: still taken to the bottom
+    log.scrollTop = 0;
+    (view as unknown as { scroll: { toBottom(): void } }).scroll.toBottom();
+    expect(log.scrollTop).toBe(1000);
+
+    height = 1040;
+    client.emit("lobby:chat_message", { lobbyId: "room-a", from: "Bob", fromId: "b", text: "new", ts: 99 });
+    expect(log.scrollTop).toBe(1040);
+
+    // Reading back: a new message does not pull the reader down
+    log.scrollTop = 100;
+    log.dispatchEvent(new Event("scroll"));
+    height = 1080;
+    client.emit("lobby:chat_message", { lobbyId: "room-a", from: "Bob", fromId: "b", text: "newer", ts: 100 });
+    expect(log.scrollTop).toBe(100);
+    view.destroy();
+  });
+});

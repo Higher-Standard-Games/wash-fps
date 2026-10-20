@@ -11,6 +11,7 @@ import type {
   MatchLobbyInfo,
   RoomChatBroadcastMessage,
 } from "../../../lobby/types";
+import { ChatScroll } from "./ChatScroll";
 
 const MAX_VISIBLE_MESSAGES = 50;
 
@@ -29,6 +30,7 @@ export class RoomChatView {
   private readonly localPlayerId: string | null;
   private readonly supported: boolean;
   private readonly log: HTMLElement;
+  private readonly scroll: ChatScroll;
   private readonly input: HTMLInputElement;
   private readonly send: HTMLButtonElement;
   private readonly here: HTMLElement;
@@ -60,6 +62,7 @@ export class RoomChatView {
     this.log.className = "lobby-chat__log";
     this.log.setAttribute("role", "log");
     this.log.setAttribute("aria-live", "polite");
+    this.scroll = new ChatScroll(this.log);
 
     const form = document.createElement("form");
     form.className = "lobby-chat__form";
@@ -88,6 +91,7 @@ export class RoomChatView {
     this.refreshHere();
     for (const message of lobby.chatHistory ?? []) this.appendMessage(message);
     if (this.log.childElementCount === 0) this.showEmpty();
+    this.scroll.toBottom();
     this.refreshConnection();
 
     this.unsubscribers.push(
@@ -120,6 +124,7 @@ export class RoomChatView {
   destroy(): void {
     for (const unsubscribe of this.unsubscribers) unsubscribe();
     this.unsubscribers.length = 0;
+    this.scroll.destroy();
     this.root.remove();
   }
 
@@ -150,7 +155,6 @@ export class RoomChatView {
   /** A line of the room's own: someone came or went. */
   private appendNote(text: string): void {
     this.log.querySelector(".lobby-chat__empty")?.remove();
-    const following = this.log.scrollHeight - this.log.scrollTop - this.log.clientHeight < 40;
     const row = document.createElement("div");
     row.className = "lobby-chat__msg lobby-chat__msg--sys";
     const time = document.createElement("span");
@@ -162,7 +166,7 @@ export class RoomChatView {
     row.append(time, line);
     this.log.appendChild(row);
     this.trim();
-    if (following) this.log.scrollTop = this.log.scrollHeight;
+    this.scroll.follow();
   }
 
   private trim(): void {
@@ -172,7 +176,6 @@ export class RoomChatView {
   }
 
   private appendMessage(message: ChatMessage): void {
-    const following = this.log.scrollHeight - this.log.scrollTop - this.log.clientHeight < 40;
     const row = document.createElement("div");
     row.className = "lobby-chat__msg";
     if (message.fromId === this.localPlayerId) row.classList.add("lobby-chat__msg--me");
@@ -190,6 +193,6 @@ export class RoomChatView {
     row.append(time, who, text);
     this.log.appendChild(row);
     this.trim();
-    if (following) this.log.scrollTop = this.log.scrollHeight;
+    this.scroll.follow();
   }
 }
