@@ -7,6 +7,23 @@
  */
 
 /* ============================================================================
+   Scrollbars: one thin look everywhere the game draws UI
+   ============================================================================ */
+
+/* Violet on the dark stage and dialogs; scrollbar-color inherits, so a panel
+   that sets its own (ink on the yellow rail and cards) still wins. :where()
+   keeps these at zero specificity, below any panel's own rule. */
+:where(body) {
+  scrollbar-color: hsla(276, 90%, 64%, 0.45) transparent;
+}
+:where(body *) {
+  scrollbar-width: thin;
+}
+:where(.lobby__rail) {
+  scrollbar-color: hsla(250, 45%, 8%, 0.45) transparent;
+}
+
+/* ============================================================================
    Override GamePanel content area for full-width lobby layout
    ============================================================================ */
 
