@@ -73,6 +73,9 @@ Many of our arenas come from Warsow and Warfork. Map authors are listed on the
 - **Washoi Amphi1** (`washoi_amphi1`): *author to be added*.
 - **Concrete Strike** (`washoi_snd1`): *author to be added*.
 
+Textures: the Warfork and Warsow texture packs,
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
 Models in our maps:
 
 - "[LowPoly SciFi Containers Pack](https://skfb.ly/6YBZX)" by Raoul_in_Red,
