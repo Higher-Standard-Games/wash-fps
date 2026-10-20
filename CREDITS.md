@@ -19,8 +19,12 @@ links and --- rules. Raw HTML is not shown; comments like this one are skipped.
 
 ## Thanks
 
-- **German "Jal" Garcia**: Qfusion consulting, mapping and makebsp
-- **Victor "Vic" Luchitz**
+Washoi grows out of **Warsow**. Thanks to the **Warsow Dev Team**, and to the
+original team behind it: crizis, Vic and Jal.
+
+- **Victor "Vic" Luchitz**: Qfusion, the engine Warsow runs on
+- **German "Jal" Garcia**: the Warsow map improvements Washoi plays on, Qfusion
+  consulting, mapping and makebsp
 - Our playtesters: Li(Q)uid, -𝙖𝙣𝙩𝙞-𝙥𝙞𝙯𝙯𝙖-, dima, gorey, FragStealer and the Warsow Discord community
 - Everyone who played the alpha and told us what to fix
 
