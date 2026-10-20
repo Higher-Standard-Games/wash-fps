@@ -10,6 +10,7 @@ import { Cvar } from "../../../../../engine/core/Cvar";
 import { InputSystem } from "../../../../../engine/input/InputSystem";
 import { FPS } from "../../FPSActions";
 import { FPSSettingsView } from "../FPSSettingsView";
+import { resetSideColors, setSideColor, sideColor, sideColorsAreDefault, TEAM_COLORS } from "../SettingsModel";
 
 let view: FPSSettingsView;
 const input = InputSystem.getInstance();
@@ -81,6 +82,42 @@ describe("FPSSettingsView", () => {
     key("Escape");
     expect(document.querySelector(".fps-set-menu")).toBeNull();
   });
+  it("swaps default team colors when color blindness turns on, says so, and undoes", () => {
+    if (!Cvar.exists("r_colorcorrection")) Cvar.register("r_colorcorrection", 0);
+    if (!Cvar.exists("r_colorcorrection_strength")) Cvar.register("r_colorcorrection_strength", 1);
+    Cvar.set("r_colorcorrection", 0);
+    resetSideColors();
+    view.destroy();
+    view.getElement().remove();
+    view = new FPSSettingsView();
+    document.body.append(view.getElement());
+    void view.refresh();
+    const root = view.getElement();
+    click(root.querySelector('[data-settings-page="video"]'));
+    const notice = root.querySelector<HTMLElement>(".fps-set-notice");
+    expect(notice?.hidden).toBe(true);
+    click(root.querySelector('button[aria-label="Color blindness"]'));
+    click(byText(document, ".fps-set-menu__option", "Green-weak"));
+    expect(Cvar.getInt("r_colorcorrection")).toBe(2);
+    expect(sideColor("ally")?.id).toBe("cyan");
+    expect(sideColor("enemy")?.id).toBe("orange");
+    expect(notice?.hidden).toBe(false);
+    expect(notice?.textContent).toContain("Cyan for your side and Orange for enemies");
+    click(notice?.querySelector(".fps-set-notice__undo"));
+    expect(sideColorsAreDefault()).toBe(true);
+    expect(notice?.hidden).toBe(true);
+
+    // A player's own colors are left alone.
+    Cvar.set("r_colorcorrection", 0);
+    setSideColor("ally", TEAM_COLORS.find((color) => color.id === "lime")!);
+    click(root.querySelector('button[aria-label="Color blindness"]'));
+    click(byText(document, ".fps-set-menu__option", "Red-weak"));
+    expect(sideColor("ally")?.id).toBe("lime");
+    expect(notice?.hidden).toBe(true);
+    resetSideColors();
+    Cvar.set("r_colorcorrection", 0);
+  });
+
   it("keeps slider values live while coalescing saved preferences until release", () => {
     Cvar.set("cl_fov", 90);
     const save = vi.spyOn(Storage.prototype, "setItem");

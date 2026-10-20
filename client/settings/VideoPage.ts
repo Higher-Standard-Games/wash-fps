@@ -11,15 +11,19 @@
 import { Cvar } from "../../../../engine/core/Cvar";
 import { requestBrowserFullscreen } from "../../../../engine/ui/BrowserControlFeedback";
 import { createRaisedKey } from "../../../../engine/ui/components/RaisedKey";
-import { costPips, dropdown, el, type FieldHost, formatPercent, seg, slider } from "./SettingsFields";
+import { button, costPips, dropdown, el, type FieldHost, formatPercent, seg, slider } from "./SettingsFields";
 import {
   applyChoice,
+  COLOR_BLIND_SIDE_COLORS,
   COST_WORD,
   currentChoice,
   cvarDefault,
   GODRAY_CHOICES,
   godrayChoice,
   loadLevel,
+  resetSideColors,
+  setSideColor,
+  sideColorsAreDefault,
   VIDEO_PRESETS,
   VIDEO_SECTIONS,
 } from "./SettingsModel";
@@ -361,8 +365,36 @@ export class VideoPage {
         },
       ],
       get: () => Cvar.getInt("r_colorcorrection"),
-      set: (value) => Cvar.set("r_colorcorrection", value),
+      set: (value) => {
+        const turningOn = Cvar.getInt("r_colorcorrection") === 0 && value > 0;
+        Cvar.set("r_colorcorrection", value);
+        // The default team colours are a pair colour-blind eyes mix up; swap
+        // them, but only when the player never picked their own, and say so.
+        if (turningOn && sideColorsAreDefault()) {
+          setSideColor("ally", COLOR_BLIND_SIDE_COLORS.ally);
+          setSideColor("enemy", COLOR_BLIND_SIDE_COLORS.enemy);
+          notice.hidden = false;
+        } else if (value === 0) notice.hidden = true;
+      },
     });
+    const notice = el("div", "fps-set-notice");
+    notice.setAttribute("role", "status");
+    notice.hidden = true;
+    const undo = button("fps-set-notice__undo", "Undo");
+    undo.addEventListener("click", () => {
+      resetSideColors();
+      notice.hidden = true;
+      this.host.changed();
+    });
+    notice.append(
+      el(
+        "span",
+        "",
+        `Team colors changed to ${COLOR_BLIND_SIDE_COLORS.ally.label} for your side and ${COLOR_BLIND_SIDE_COLORS.enemy.label} for enemies, which stay easier to tell apart. Change them under Gameplay, Who's who.`,
+      ),
+      undo,
+    );
+    parent.append(notice);
     slider(this.host, parent, {
       name: "Correction strength",
       min: 0,

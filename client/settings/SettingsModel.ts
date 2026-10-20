@@ -522,6 +522,22 @@ export function setSideColor(side: Side, color: TeamColor): void {
   }
 }
 
+/** Whether both sides still have the game's own colours. */
+export function sideColorsAreDefault(): boolean {
+  return [...SIDE_CVARS.ally, ...SIDE_CVARS.enemy].every((cvars) =>
+    [cvars.fill, cvars.outline].every((name) => sameRgb(Cvar.getString(name), String(cvarDefault(name) ?? ""))),
+  );
+}
+
+/**
+ * The default pink and cyan blur together for most colour-blind eyes; cyan and
+ * orange stay furthest apart under every kind the correction covers.
+ */
+export const COLOR_BLIND_SIDE_COLORS: Record<Side, TeamColor> = {
+  ally: TEAM_COLORS.find((color) => color.id === "cyan")!,
+  enemy: TEAM_COLORS.find((color) => color.id === "orange")!,
+};
+
 export function resetSideColors(): void {
   for (const cvars of [...SIDE_CVARS.ally, ...SIDE_CVARS.enemy]) {
     Cvar.reset(cvars.fill);

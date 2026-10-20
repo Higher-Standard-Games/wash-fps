@@ -10,7 +10,12 @@ also uses your side's bank. In FFA, everyone else uses the enemy bank. While
 following a player or watching their demo POV, sides are relative to that player.
 Selections save automatically and Gameplay reset restores the defaults.
 
-Press **Escape** in a match and pick **Settings**, or use the **Settings** key on the lobby's rail. The screen has four pages, and **preferences are saved as you change them**. If storage fails, a **Session only · could not save** notice explains that the changes work until the page is reloaded. **Reset page** and **Reset all** ask once: press the key, then press it again within a few seconds to confirm.
+Turning on **Video → Advanced → Color blindness** while both sides still have
+their default colors switches them to Cyan for your side and Orange for enemies,
+which stay apart for every kind of color blindness. A notice under the field
+says so and offers **Undo**. Colors you picked yourself are left alone.
+
+Press **Escape** in a match and pick **Settings**, or use the **Settings** key on the lobby's rail. The screen has four pages, and **preferences are saved as you change them**. If storage fails, a **Session only · could not save** notice explains that the changes work until the page is reloaded. Hovering a key or field with a hint shows it in the game's own tooltip. The game version is under the logo on the rail. **Reset page** and **Reset all** ask once: press the key, then press it again within a few seconds to confirm.
 
 Most settings are console variables (cvars), for example `cl_fov 100`. Key bindings use their own storage. Fullscreen is a browser/window action and is not a saved cvar preference. Reset restores settings and bindings, not browser fullscreen state.
 
