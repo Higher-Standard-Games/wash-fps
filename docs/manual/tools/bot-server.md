@@ -89,6 +89,43 @@ flight, and stepping onto a pad or teleporter, it keeps its view rather than
 turning to a landing spot it is passing over. Scripted moves (learned routes,
 validated jumps) set the view exactly and bypass all of this.
 
+### What a bot knows
+
+A bot knows what it sees and what it hears, not everything the server sends
+(`BotPerception.ts`). It sees enemies in line of sight within 55° of its view
+(70° for fast movers). It hears shots (1200 units; rockets, grenades, the
+electrobolt and instagun 2000), explosions (1500), running footsteps (500),
+jumps and landings (800), pain (800) and pickups (900; armour, mega and powerups
+2500). A heard enemy is known where the sound came from. A heard major pickup is
+timed, with an error that shrinks with item-timing skill, and the bot is back at
+the spot when it should return, watching the ways in. An item taken out of sight
+and earshot is still believed there until the bot looks at its spot.
+
+### How a bot fights
+
+- **Movement** (`BotCombatMovement.ts`, by dodge skill): strafe runs of 0.25–0.9 s
+  with double-backs, a jump or slide after a hit, a sidestep (and jump) off an
+  incoming rocket or grenade after the reaction time, hops at range for
+  strafe-jumpers, and a nearby ledge above the enemy with a splash weapon.
+- **Slide-blade lunge** (`SlideBladeSequence.ts`): from a run at slide speed, an
+  enemy 200–450 units ahead is closed in one crouch-slide with the blade.
+- **Combos** (`BotWeaponCombos.ts`, by prediction skill): a launching rocket into
+  the electrobolt or riotgun, a point-blank rocket into the blade, a rail between
+  plasma; and the gun for a heard enemy's distance readied before they appear.
+- **Moods and mistakes** (`BotMood.ts`): confident after two kills, tilted after
+  three deaths (looser aim, slower reactions), cautious on low health or against
+  an enemy with armour or a powerup. Each fight may carry one mistake at
+  `mistakeRate / 16` odds.
+
+### Chat
+
+Bots say the odd line to humans (`bot/chat/`): "gl hf" as the match goes live,
+something cheeky after killing a human, gracious or mad after being killed by
+one, and "gg" near the end. Lines are about humans only, so bot-only matches
+stay quiet. Each bot says at most one line per 20 s, all bots on a bot server at
+most one per 5 s. Set `BOT_CHAT=0` on the bot server to turn it off; training
+runs always have it off.
+
 ## Two AI Modes
 
 `BotBrain` is the interface; two brains implement it.
