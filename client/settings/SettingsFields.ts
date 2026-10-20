@@ -220,6 +220,44 @@ export function swatches<T>(host: FieldHost, parent: HTMLElement, options: Swatc
   return root;
 }
 
+export interface DropdownOptions<T> extends FieldOptions {
+  /** `help` here explains that choice, shown under the field while it is picked. */
+  choices: Array<{ value: T; label: string; help?: string }>;
+  get: () => T;
+  set: (value: T) => void;
+}
+
+/** A drop-down for choices too long for a segmented row, each with its own explanation. */
+export function dropdown<T>(host: FieldHost, parent: HTMLElement, options: DropdownOptions<T>): HTMLElement {
+  const { root } = field(options);
+  const select = el("select", "fps-set-voice__select fps-set-select");
+  select.setAttribute("aria-label", options.name);
+  options.choices.forEach((choice, index) => {
+    const option = el("option", "", choice.label);
+    option.value = String(index);
+    select.append(option);
+  });
+  const explain = el("div", "fps-set-field__help fps-set-select__help");
+  select.addEventListener("change", () => {
+    const choice = options.choices[Number(select.value)];
+    if (choice) options.set(choice.value);
+    host.changed();
+  });
+  host.addRefresh(() => {
+    const current = options.get();
+    const index = options.choices.findIndex((choice) => choice.value === current);
+    select.value = String(Math.max(0, index));
+    const help = options.choices[index]?.help ?? "";
+    explain.textContent = help;
+    explain.hidden = help === "";
+  });
+  root.insertBefore(select, root.children[1] ?? null);
+  root.append(explain);
+  trackEnabled(host, root, options);
+  parent.append(root);
+  return root;
+}
+
 /** A dark card with a title, and an optional note beside it. */
 export function card(title: string, note?: string, extraClass = ""): HTMLElement {
   const root = el("section", `fps-set-card ${extraClass}`.trim());

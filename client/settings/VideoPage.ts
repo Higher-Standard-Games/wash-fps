@@ -11,7 +11,7 @@
 import { Cvar } from "../../../../engine/core/Cvar";
 import { requestBrowserFullscreen } from "../../../../engine/ui/BrowserControlFeedback";
 import { createRaisedKey } from "../../../../engine/ui/components/RaisedKey";
-import { costPips, el, type FieldHost, formatPercent, seg, slider } from "./SettingsFields";
+import { costPips, dropdown, el, type FieldHost, formatPercent, seg, slider } from "./SettingsFields";
 import {
   applyChoice,
   COST_WORD,
@@ -122,6 +122,7 @@ export class VideoPage {
     this.buildWorld(this.sectionFields.get("world")!);
     this.buildTextures(this.sectionFields.get("textures")!);
     this.buildAdvanced(this.sectionFields.get("advanced")!);
+    this.buildColorCorrection(this.sectionFields.get("advanced")!);
 
     if (locked) {
       const notice = el("div", "fps-set-locked");
@@ -331,6 +332,48 @@ export class VideoPage {
       set: (value) => {
         Cvar.set("r_picmip", value);
       },
+    });
+  }
+
+  /** Accessibility, not frame cost: these follow the player's account and no preset touches them. */
+  private buildColorCorrection(parent: HTMLElement): void {
+    dropdown(this.host, parent, {
+      name: "Color blindness",
+      help: "Not sure which? Try each and keep the one where colors are easiest to tell apart.",
+      cost: "low",
+      shownIf: () => Cvar.exists("r_colorcorrection"),
+      choices: [
+        { value: 0, label: "Off", help: "Colors as the maps were made." },
+        {
+          value: 1,
+          label: "Red-weak (protanopia)",
+          help: "Reds look dark and close to greens. Their difference moves into blue and brightness.",
+        },
+        {
+          value: 2,
+          label: "Green-weak (deuteranopia)",
+          help: "The most common kind: reds and greens look alike. Their difference moves into blue and brightness.",
+        },
+        {
+          value: 3,
+          label: "Blue-yellow (tritanopia)",
+          help: "Blues look like greens, yellows like pinks. Their difference moves into red and green.",
+        },
+      ],
+      get: () => Cvar.getInt("r_colorcorrection"),
+      set: (value) => Cvar.set("r_colorcorrection", value),
+    });
+    slider(this.host, parent, {
+      name: "Correction strength",
+      min: 0,
+      max: 1,
+      step: 0.05,
+      format: formatPercent,
+      shownIf: () => Cvar.exists("r_colorcorrection"),
+      enabledIf: () => Cvar.getInt("r_colorcorrection") > 0,
+      get: () => Cvar.getNumber("r_colorcorrection_strength"),
+      set: (value) => Cvar.set("r_colorcorrection_strength", value),
+      initial: () => Number(cvarDefault("r_colorcorrection_strength")),
     });
   }
 
