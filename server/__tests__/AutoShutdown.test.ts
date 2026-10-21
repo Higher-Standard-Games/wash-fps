@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@engine/server/network/transport/WebSocketTransport", () => import("./_fakeTransport"));
 
-import { GameServer, type GameServerConfig } from "../GameServer";
+import { GameServer, type GameServerConfig, NO_PLAYERS_SHUTDOWN_MS } from "../GameServer";
 import { Deathmatch } from "../gametypes/Deathmatch";
 
 const config: GameServerConfig = {
@@ -95,6 +95,55 @@ describe("auto-shutdown when no human is left", () => {
     inner.clients.delete(human.id); // gone from the live connections, held in suspension
     inner.suspended.suspend({ ...human, isSpectator: false }, Date.now());
     await vi.advanceTimersByTimeAsync(10_000);
+    expect(stop).not.toHaveBeenCalled();
+  });
+});
+
+describe("auto-shutdown when humans only watch", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(process, "exit").mockImplementation((() => {}) as never);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  function watched() {
+    const { inner, stop } = server();
+    inner.running = true;
+    const sent: unknown[] = [];
+    const human = connect(inner, false);
+    (human as Inner).connection = { id: human.id, close: () => {}, sendReliable: (data: unknown) => sent.push(data) };
+    connect(inner, true).isSpectator = false;
+    return { inner, stop, human, sent };
+  }
+
+  it("closes a bot match two minutes after its only human started spectating", () => {
+    const { inner, stop, sent } = watched();
+    inner.checkNoPlayers(0);
+    inner.checkNoPlayers(NO_PLAYERS_SHUTDOWN_MS - 1);
+    expect(stop).not.toHaveBeenCalled();
+    inner.checkNoPlayers(NO_PLAYERS_SHUTDOWN_MS);
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(sent).toHaveLength(1); // the human is told why, the bot is not
+  });
+
+  it("restarts the wait whenever a human plays, and keeps a held seat's server", () => {
+    const { inner, stop, human } = watched();
+    inner.checkNoPlayers(0);
+    human.isSpectator = false;
+    inner.checkNoPlayers(NO_PLAYERS_SHUTDOWN_MS);
+    human.isSpectator = true;
+    inner.checkNoPlayers(NO_PLAYERS_SHUTDOWN_MS + 1000);
+    expect(stop).not.toHaveBeenCalled();
+    inner.suspended.suspend({ ...human, isSpectator: false, isBot: false }, 0);
+    inner.checkNoPlayers(10 * NO_PLAYERS_SHUTDOWN_MS);
+    expect(stop).not.toHaveBeenCalled();
+  });
+
+  it("leaves a server that does not shut down on empty alone", () => {
+    const { inner, stop } = watched();
+    inner.config = { ...inner.config, shutdownOnEmpty: false };
+    inner.checkNoPlayers(0);
+    inner.checkNoPlayers(10 * NO_PLAYERS_SHUTDOWN_MS);
     expect(stop).not.toHaveBeenCalled();
   });
 });

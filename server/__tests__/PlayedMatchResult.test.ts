@@ -242,6 +242,20 @@ describe("played match result over real sockets", () => {
     });
   });
 
+  it("honours Spectate right after joining, and holds back an instant rejoin", async () => {
+    const { match } = await setup();
+    // No reset of the join stamp: Esc → Spectate within 3 s of joining used to
+    // be dropped silently while the client had already switched to watching.
+    clients[0].send(MessageCodec.encodeSpectate());
+    await vi.waitFor(() => expect(match.totalPlayers).toBe(2));
+    clients[0].send(MessageCodec.encodeJoinGame());
+    const text = (frame: Uint8Array) => new TextDecoder().decode(frame);
+    await clients[0].waitFor(
+      (frame) => frame[0] === MessageType.ServerMessage && text(frame).includes("Wait a moment"),
+    );
+    expect(match.totalPlayers).toBe(2);
+  });
+
   it.each(["duel", "amphi"] as const)("rates a real %s forfeit from lobby display sides", async (mode) => {
     const { match, ids, expected } = await setup(mode, 2, true);
     expect(match.getPlayerTeam(ids[0])).toBe("soba");

@@ -73,6 +73,12 @@ export type { ClientInfo, GameServerConfig };
 
 /** How long a lobby-spawned server waits for its first player before exiting. */
 const NO_SHOW_SHUTDOWN_MS = 2 * 60_000;
+/**
+ * How long a lobby-spawned server keeps running once no human is playing, only
+ * watching. Spectating out of a bot match froze its warmup (no opposition left)
+ * while the watcher kept the server alive: a match that could never start or end.
+ */
+export const NO_PLAYERS_SHUTDOWN_MS = 2 * 60_000;
 
 /**
  * Whether a 5 s tick-rate sample means the server fell behind: under 95% of the target rate, or a
@@ -202,6 +208,10 @@ export class GameServer {
   private shutdownTimer: ReturnType<typeof setTimeout> | null = null;
   /** Lobby-spawned servers exit if nobody ever joins (see `NO_SHOW_SHUTDOWN_MS`). */
   private noShowTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Checks for humans who only watch (see `NO_PLAYERS_SHUTDOWN_MS`). */
+  private noPlayersTimer: ReturnType<typeof setInterval> | null = null;
+  /** When a human was last seen playing (or holding a seat); null before anyone connected. */
+  private humanPlayedAtMs: number | null = null;
 
   // Demo recording (optional)
   private demoRecorder: DemoRecorder | null = null;
@@ -803,7 +813,33 @@ export class GameServer {
         console.log("[GameServer] Auto-shutdown: nobody joined");
         void this.stop().then(() => process.exit(0));
       }, NO_SHOW_SHUTDOWN_MS);
+      this.noPlayersTimer = setInterval(() => this.checkNoPlayers(Date.now()), 5000);
     }
+  }
+
+  /**
+   * Lobby-spawned servers close once humans have only been watching for
+   * `NO_PLAYERS_SHUTDOWN_MS`. The empty-server countdown counts a spectator as
+   * a human, so a player who spectated out of a bot match kept the server alive
+   * indefinitely, its warmup frozen for want of an opponent. A finished match
+   * already has its own post-game lifecycle and is left alone.
+   */
+  private checkNoPlayers(nowMs: number): void {
+    if (!this.config.shutdownOnEmpty || !this.running || !this.hasHadClients) return;
+    const playing =
+      [...this.clients.values()].some((c) => !c.isSpectator && !c.isBot) ||
+      this.suspended.clients().some((c) => !c.isBot);
+    if (playing || this.humanPlayedAtMs === null || this.gametypeController.getPhase() === MatchPhase.PostGame) {
+      this.humanPlayedAtMs = nowMs;
+      return;
+    }
+    if (nowMs - this.humanPlayedAtMs < NO_PLAYERS_SHUTDOWN_MS) return;
+    console.log("[GameServer] Auto-shutdown: nobody has been playing, only watching");
+    const notice = MessageCodec.encodeServerMessage("Nobody is playing, so this match is closing.", "info");
+    for (const client of this.clients.values()) if (!client.isBot) client.connection.sendReliable(notice);
+    if (this.noPlayersTimer) clearInterval(this.noPlayersTimer);
+    this.noPlayersTimer = null;
+    void this.stop().then(() => process.exit(0));
   }
 
   async stop(): Promise<void> {
@@ -814,6 +850,14 @@ export class GameServer {
     if (this.noShowTimer) {
       clearTimeout(this.noShowTimer);
       this.noShowTimer = null;
+    }
+    if (this.noPlayersTimer) {
+      clearInterval(this.noPlayersTimer);
+      this.noPlayersTimer = null;
+    }
+    if (this.shutdownTimer) {
+      clearTimeout(this.shutdownTimer);
+      this.shutdownTimer = null;
     }
 
     if (this.tickTimer) {
@@ -1723,7 +1767,11 @@ export class GameServer {
     // must still count, or a client could spam JoinGame against a full server.
     if (!fromQueue) {
       const now = performance.now();
-      if (rateLimited(client.lastTeamSwitchMs, now, 3000)) return;
+      if (rateLimited(client.lastTeamSwitchMs, now, 3000)) {
+        // Said, not silent: unanswered, the client's Join looks like a dead key.
+        conn.sendReliable(MessageCodec.encodeServerMessage("Wait a moment before joining again.", "error"));
+        return;
+      }
       client.lastTeamSwitchMs = now;
     }
 
@@ -1847,9 +1895,11 @@ export class GameServer {
       console.log(`[GameServer] Player ${client.playerId} tried to Spectate but is already spectating`);
       return;
     }
-    const now = performance.now();
-    if (rateLimited(client.lastTeamSwitchMs, now, 3000)) return;
-    client.lastTeamSwitchMs = now;
+    // Never rate-limited: the client switches to the spectator camera as soon as
+    // it asks, so a dropped request left it watching while its player stayed in
+    // the match. Leaving play is always safe; the stamp still keeps an instant
+    // rejoin (a free respawn) behind the join rate gate.
+    client.lastTeamSwitchMs = performance.now();
 
     // Remove player entity from simulation
     this.capturePlayingSeat(client);
