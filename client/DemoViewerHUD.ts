@@ -484,22 +484,32 @@ export class DemoViewerHUD {
     this.endKeys?.classList.toggle("is-shown", ended);
   }
 
-  /** The reel's opening card: its mode, map and who played. */
+  /**
+   * The reel's opening card: who against whom, cut like the scoreboard. Each
+   * team is a slab under its plate; a duel's players are a slab each; a
+   * free-for-all is one slab of everyone.
+   */
   setTitle(title: ReelTitle | null): void {
     const card = this.titleCard;
     if (!card) return;
     card.replaceChildren();
     if (!title) return;
-    const sides = el("div", `dvh-title-sides${title.sides.length === 1 ? " is-everyone" : ""}`);
+    const kind = title.sides.length === 1 ? "everyone" : title.sides.some((s) => s.label) ? "teams" : "duel";
+    const sides = el("div", `dvh-title-sides is-${kind}`);
     title.sides.forEach((side, i) => {
       if (i > 0) sides.append(el("span", "dvh-title-vs", "vs"));
-      const column = el("div", "dvh-title-side");
-      if (side.label) column.append(el("div", "dvh-title-team", side.label));
-      for (const name of side.names) column.append(el("div", "dvh-title-name", name));
-      if (title.more > 0 && title.sides.length === 1) column.append(el("div", "dvh-title-more", `+${title.more} more`));
-      sides.append(column);
+      const slab = el("div", "dvh-title-slab");
+      if (side.team) slab.dataset.team = side.team;
+      if (side.label) slab.append(el("div", "dvh-title-team", side.label));
+      const rows = el("div", "dvh-title-rows");
+      for (const name of side.names) rows.append(el("div", "dvh-title-name", name));
+      if (title.more > 0 && kind === "everyone")
+        rows.append(el("div", "dvh-title-name is-more", `+${title.more} more`));
+      rows.style.setProperty("--dvh-rows", String(Math.ceil(rows.childElementCount / 2)));
+      slab.append(rows);
+      sides.append(slab);
     });
-    card.append(el("div", "dvh-title-mode", title.mode), el("div", "dvh-title-map", title.map), sides);
+    card.append(sides);
   }
 
   /** Show the opening card while the reel holds on black; it fades as the picture comes up. */
@@ -513,16 +523,16 @@ export class DemoViewerHUD {
     if (!card) return;
     card.replaceChildren();
     if (!summary) return;
-    const row = (label: string, value: string) => {
-      const line = el("div", "dvh-end-row");
+    const chip = (label: string, value: string) => {
+      const line = el("div", "dvh-end-chip");
       line.append(el("span", "dvh-end-label", label), el("span", "dvh-end-value", value));
       card.append(line);
     };
     if (summary.topFragger) {
       const { name, frags } = summary.topFragger;
-      row("Top fragger", `${name} · ${frags} ${frags === 1 ? "frag" : "frags"}`);
+      chip("Top fragger", `${name} · ${frags} ${frags === 1 ? "frag" : "frags"}`);
     }
-    if (summary.best) row("Best moment", `${summary.best.title} · ${summary.best.player}`);
+    if (summary.best) chip("Best moment", `${summary.best.title} · ${summary.best.player}`);
     const counts = [`${summary.frags} ${summary.frags === 1 ? "highlight" : "highlights"}`];
     if (summary.tricks > 0) counts.push(`${summary.tricks} ${summary.tricks === 1 ? "trick jump" : "trick jumps"}`);
     card.append(el("div", "dvh-end-counts", counts.join(" · ")));

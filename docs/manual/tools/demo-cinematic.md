@@ -19,11 +19,11 @@ previous/next shot controls; the card and counter number the highlights. **HUD**
 
 ## Title and end cards
 
-A reel fades in on a **title card** held for a few seconds over black: the mode,
-the map, and who played.
+A reel fades in on a **title card** held for a few seconds over black: who
+played against whom, cut like the scoreboard.
 
-- **Teams:** each team's name over all its players.
-- **Duel:** the two players, one against the other.
+- **Teams:** each team's plate over all its players, Udon against Soba.
+- **Duel:** the two players' names on gold plates, one against the other.
 - **Free for all:** everyone, up to eight names and a count of the rest.
 
 When the reel has faded out, an **end card** sits above the Replay and Exit keys:

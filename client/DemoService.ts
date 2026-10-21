@@ -23,7 +23,6 @@ import { disposeClusteredLight } from "../../../engine/lighting/DynamicLightClus
 import { SnapshotBuffer } from "../../../engine/network/client/SnapshotBuffer";
 import { InputButtons } from "../../../engine/network/components/InputComponent";
 import type { GameState } from "../../../engine/network/core/GameState";
-import { mapTitle } from "../../../engine/ui/MapTitles";
 import { getExplosionEffect } from "../../../engine/weapon/ExplosionEffect";
 import { getHitscanEffects } from "../../../engine/weapon/HitscanEffects";
 import { getProjectileManager } from "../../../engine/weapon/ProjectileManager";
@@ -415,8 +414,7 @@ export class DemoService {
       this.demoHud?.onReplay(() => player.replay());
       await player.loadAndPlay(data, durationMinutes);
       if (this.abandonStart(start, viewer)) return;
-      const header = viewer.getInfo().header;
-      this.demoHud?.setTitle(player.getTitle(header ? mapTitle(header.map) : undefined));
+      this.demoHud?.setTitle(player.getTitle());
       this.demoHud?.setReel(player.getShotStarts());
       this.startPlaybackLoop();
     });

@@ -153,13 +153,11 @@ describe("DemoViewerHUD", () => {
   it("shows a reel's title card while asked, and its end card with the keys", () => {
     const hud = new DemoViewerHUD();
     hud.setTitle({
-      mode: "Duel",
-      map: "Campgrounds",
       sides: [{ names: ["Ann"] }, { names: ["Bo"] }],
       more: 0,
     });
     const title = document.querySelector<HTMLElement>("#demo-viewer-title")!;
-    expect(title.textContent).toBe("DuelCampgroundsAnnvsBo");
+    expect(title.textContent).toBe("AnnvsBo");
     hud.setTitleVisible(true);
     expect(title.classList.contains("is-shown")).toBe(true);
     hud.setTitleVisible(false);

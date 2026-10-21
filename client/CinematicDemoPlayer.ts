@@ -331,8 +331,8 @@ export class CinematicDemoPlayer {
   }
 
   /** The opening card for this reel's demo; null before one is loaded. */
-  getTitle(mapTitle?: string): ReelTitle | null {
-    return this.header ? reelTitle(this.header, mapTitle) : null;
+  getTitle(): ReelTitle | null {
+    return this.header ? reelTitle(this.header) : null;
   }
 
   /** The closing card for this reel; null before one is built. */

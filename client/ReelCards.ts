@@ -1,37 +1,24 @@
 /**
- * A highlight reel's opening and closing cards: what the match was, who
- * played, and how it went. Pure data from the demo; DemoViewerHUD draws them.
+ * A highlight reel's opening and closing cards: who played, and how it went. Pure data from the demo; DemoViewerHUD draws them.
  */
 
 import type { DemoAnalysis } from "../../../shared/demo/DemoAnalyzer";
-import { normalizeDemoMapName } from "../../../shared/demo/DemoMapName";
 import type { DemoHeader } from "../../../shared/demo/DemoReader";
 import type { CinematicReel, CinematicSegment } from "../../../shared/demo/SequenceBuilder";
-
-const MODE_TITLES: Record<string, string> = {
-  duel: "Duel",
-  amphi: "Amphi",
-  ffa: "Free for all",
-  deathmatch: "Free for all",
-  snd: "Search & destroy",
-  searchanddestroy: "Search & destroy",
-  tdm: "Team deathmatch",
-  teamdeathmatch: "Team deathmatch",
-};
 
 /** Names shown for a free-for-all before the rest are counted. */
 const FFA_NAMES_SHOWN = 8;
 
 /** One side of the match: a team with its players, or everyone in a free-for-all. */
 export interface ReelSide {
+  /** The team's id ("udon", "soba"); none for a duel's player or a free-for-all. */
+  team?: string;
   /** The team's name; none for a duel's player or a free-for-all. */
   label?: string;
   names: string[];
 }
 
 export interface ReelTitle {
-  mode: string;
-  map: string;
   /** Two sides face each other ("vs" between); one side is everyone. */
   sides: ReelSide[];
   /** Players a free-for-all's list leaves out. */
@@ -41,13 +28,11 @@ export interface ReelTitle {
 const capitalize = (word: string) => word.charAt(0).toUpperCase() + word.slice(1);
 
 /**
- * The opening card. Teams show as two sides with every player's name; a duel
- * as its two players; a free-for-all as everyone, up to FFA_NAMES_SHOWN.
+ * The opening card: who against whom. Teams show as two sides with every
+ * player's name, Udon first; a duel as its two players; a free-for-all as
+ * everyone, up to FFA_NAMES_SHOWN.
  */
-export function reelTitle(header: DemoHeader, mapTitle?: string): ReelTitle {
-  const modeId = header.gametype.toLowerCase().replace(/[^a-z]/g, "");
-  const mode = MODE_TITLES[modeId] ?? capitalize(header.gametype.replace(/_/g, " "));
-  const map = mapTitle || normalizeDemoMapName(header.map);
+export function reelTitle(header: Pick<DemoHeader, "players">): ReelTitle {
   const players = header.players.filter((p) => p.name);
 
   const teams = new Map<string, string[]>();
@@ -58,19 +43,16 @@ export function reelTitle(header: DemoHeader, mapTitle?: string): ReelTitle {
     teams.set(player.team, names);
   }
   if (teams.size >= 2) {
-    const sides = [...teams].map(([team, names]) => ({ label: capitalize(team), names }));
-    return { mode, map, sides, more: 0 };
+    const sides = [...teams]
+      .sort(([a], [b]) => Number(b === "udon") - Number(a === "udon"))
+      .map(([team, names]) => ({ team, label: capitalize(team), names }));
+    return { sides, more: 0 };
   }
   if (players.length === 2) {
-    return { mode, map, sides: players.map((p) => ({ names: [p.name] })), more: 0 };
+    return { sides: players.map((p) => ({ names: [p.name] })), more: 0 };
   }
   const names = players.map((p) => p.name);
-  return {
-    mode,
-    map,
-    sides: [{ names: names.slice(0, FFA_NAMES_SHOWN) }],
-    more: Math.max(0, names.length - FFA_NAMES_SHOWN),
-  };
+  return { sides: [{ names: names.slice(0, FFA_NAMES_SHOWN) }], more: Math.max(0, names.length - FFA_NAMES_SHOWN) };
 }
 
 export interface ReelSummary {

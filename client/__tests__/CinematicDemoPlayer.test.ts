@@ -522,7 +522,7 @@ describe("CinematicDemoPlayer", () => {
     expect(player.isShowingTitle()).toBe(true);
     expect(player.getVeil()).toEqual({ color: "black", opacity: 1 });
     expect(viewer.pause).toHaveBeenCalled();
-    expect(player.getTitle()?.map).toBeTruthy();
+    expect(player.getTitle()?.sides.length).toBeGreaterThan(0);
 
     viewer.play.mockClear();
     player.update(1500);
