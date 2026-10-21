@@ -331,6 +331,10 @@ export class PickupSystem extends Subsystem {
       }
     }
 
+    // Dropped weapons, gathered once per tick on first need: walking every
+    // entity for them inside the player loop scanned the world once per player
+    let droppedItems: Array<{ id: EntityId }> | null = null;
+
     // Check each player against each active pickup
     for (const player of state.entitiesByType(EntityType.Player)) {
       if (!player.transform || !player.input || !player.health || player.health.dead) continue;
@@ -467,8 +471,11 @@ export class PickupSystem extends Subsystem {
       // Skip if a static pickup already happened this tick (one pickup per tick)
       // Auto-pickup when player has room, require USE key when at capacity
       if (!pickedUpThisTick && this.droppedWeaponSystem) {
-        for (const itemEntity of state.entitiesByType(EntityType.Item)) {
-          if (!itemEntity.transform) continue;
+        droppedItems ??= [...state.entitiesByType(EntityType.Item)];
+        for (const { id } of droppedItems) {
+          // Read it afresh: another player may have taken it earlier this tick
+          const itemEntity = state.getEntity(id);
+          if (!itemEntity?.transform) continue;
 
           const dx = px - itemEntity.transform.position.x;
           const dz = pz - itemEntity.transform.position.z;
