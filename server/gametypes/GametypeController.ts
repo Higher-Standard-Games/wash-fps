@@ -35,7 +35,7 @@ import { debugLog } from "../DebugLog";
 import { type CombatSystem, DamageType, HitLocation } from "../systems/CombatSystem";
 import type { WeaponSystem } from "../systems/WeaponSystem";
 import { type AwardEvent, AwardTracker } from "./AwardTracker";
-import type { BaseGametype, GametypeTickContext, RoundOutcome } from "./BaseGametype";
+import { BaseGametype, type GametypeTickContext, type RoundOutcome } from "./BaseGametype";
 import { MatchState } from "./MatchState";
 import { createSpawnStrategy, type SpawnPointStrategy, TeamSpawnStrategy } from "./SpawnPointStrategy";
 
@@ -54,6 +54,9 @@ interface RespawnEntry {
 // ============================================================================
 // Controller
 // ============================================================================
+
+const NO_DIRECTIVES: ReadonlyMap<string, AgentDirective[]> = new Map();
+const ORIGIN: Readonly<Vec3> = Object.freeze({ x: 0, y: 0, z: 0 });
 
 export class GametypeController {
   private gametype: BaseGametype;
@@ -923,7 +926,9 @@ export class GametypeController {
    *
    * Keyed by client entity id because that is what the snapshot addresses.
    */
-  collectAgentDirectives(state: WorldState, tick: number): Map<string, AgentDirective[]> {
+  collectAgentDirectives(state: WorldState, tick: number): ReadonlyMap<string, AgentDirective[]> {
+    // A mode that never overrides the hook has nothing to say to anyone.
+    if (this.gametype.getAgentDirectives === BaseGametype.prototype.getAgentDirectives) return NO_DIRECTIVES;
     const byEntity = new Map<string, AgentDirective[]>();
 
     for (const entity of state.entitiesByType(EntityType.Player)) {
@@ -935,9 +940,9 @@ export class GametypeController {
         playerId: entity.ownerId as number,
         entityId,
         teamId: this.matchState.getPlayerTeam(entity.ownerId),
-        position: entity.transform?.position ?? { x: 0, y: 0, z: 0 },
+        position: entity.transform?.position ?? ORIGIN,
         alive: !entity.health?.dead,
-        teamOf: (id: number) => this.matchState.getPlayerTeam(id as PlayerId),
+        teamOf: this.directiveTeamOf,
       };
 
       // A misbehaving gametype must not take the server down mid-snapshot.
@@ -1027,6 +1032,7 @@ export class GametypeController {
       blast: this.ctxBlast,
     };
   }
+  private readonly directiveTeamOf = (id: number) => this.matchState.getPlayerTeam(id as PlayerId);
   // Built once: tickContext runs every tick and the callbacks never change.
   private readonly ctxTeamOf = (playerId: PlayerId) => this.matchState.getPlayerTeam(playerId);
   private readonly ctxCredit = (playerId: PlayerId, kind: "plant" | "defuse") => this.recordObjective(playerId, kind);

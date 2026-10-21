@@ -590,6 +590,9 @@ export class WeaponSystem extends Subsystem {
     return Math.max(0, weapon.maxAmmo);
   }
 
+  /** A melee weapon's full ammo, worked out once per weapon definition. */
+  private readonly fullMeleeAmmo = new WeakMap<WeaponDef, WeaponAmmo>();
+
   private createAmmoState(weapon: WeaponDef, amount: number): WeaponAmmo {
     const total = Math.max(0, Math.min(this.maxTotalAmmo(weapon), Math.floor(amount)));
     const model = this.reloadModel(weapon);
@@ -1032,8 +1035,17 @@ export class WeaponSystem extends Subsystem {
         // === MELEE WEAPON LOGIC (blade) ===
         // FIRE = melee slash, ALT_FIRE = hold-to-charge projectile
         if (weapon.meleeRadius && weapon.chargedProjectileId) {
-          // Keep ammo at max (infinite melee)
-          weaponState.ammo.set(weaponState.currentWeapon, this.createAmmoState(weapon, weapon.maxAmmo || 1));
+          // Keep ammo at max (infinite melee). Only replaced when it changed:
+          // this runs every tick a blade is held, and it is nearly always full.
+          let full = this.fullMeleeAmmo.get(weapon);
+          if (!full) {
+            full = this.createAmmoState(weapon, weapon.maxAmmo || 1);
+            this.fullMeleeAmmo.set(weapon, full);
+          }
+          const held = weaponState.ammo.get(weaponState.currentWeapon);
+          if (!held || held.clip !== full.clip || held.reserve !== full.reserve) {
+            weaponState.ammo.set(weaponState.currentWeapon, { ...full });
+          }
 
           // --- Primary fire: melee slash (semi-auto on press) ---
           if (isFiring && !weaponState.wasFireButtonDown) {

@@ -23,7 +23,19 @@ import { debugLog } from "./DebugLog";
 const ROSTER_KEY = "roster";
 /** Snapshot key prefix of a dropped weapon (SnapshotBuilder). */
 const DROPPED_WEAPON_PREFIX = "item_";
-const weaponKey = (entityId: string) => `weapon:${entityId}`;
+// Looked up for every weapon_state event for every client every snapshot, so
+// the key strings are built once per entity rather than each time. Entity ids
+// only grow as players come and go; the cap keeps a long-lived server bounded.
+const weaponKeys = new Map<string, string>();
+function weaponKey(entityId: string): string {
+  let key = weaponKeys.get(entityId);
+  if (key === undefined) {
+    if (weaponKeys.size >= 4096) weaponKeys.clear();
+    key = `weapon:${entityId}`;
+    weaponKeys.set(entityId, key);
+  }
+  return key;
+}
 
 type SnapshotEvent = GameState["events"][number];
 
@@ -90,7 +102,7 @@ export class SnapshotBroadcaster {
   broadcast(
     clients: Map<string, ClientInfo>,
     gameState: GameState,
-    agentDirectives?: Map<string, AgentDirective[]>,
+    agentDirectives?: ReadonlyMap<string, AgentDirective[]>,
   ): void {
     if (clients.size === 0) return;
 
