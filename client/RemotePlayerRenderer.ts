@@ -825,8 +825,7 @@ export class RemotePlayerRenderer {
       if (m instanceof Mesh && m.getTotalVertices() > 0) {
         if (!leaderMesh) leaderMesh = m;
         if (m.material && "maxSimultaneousLights" in m.material) {
-          // biome-ignore lint/suspicious/noExplicitAny: Babylon material introspection
-          applySafeMaxSimultaneousLights(m.material as any);
+          applySafeMaxSimultaneousLights(m.material);
         }
         m.alwaysSelectAsActiveMesh = true;
         m.isVisible = true;
@@ -1829,7 +1828,7 @@ export class RemotePlayerRenderer {
             }
             // Cap lights to prevent shader overflow
             if (m.material && "maxSimultaneousLights" in m.material) {
-              applySafeMaxSimultaneousLights(m.material as any);
+              applySafeMaxSimultaneousLights(m.material);
             }
             // Disable frustum culling
             m.alwaysSelectAsActiveMesh = true;

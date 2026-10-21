@@ -22,6 +22,7 @@ import type { FPSController } from "../../../engine/camera/controllers/FPSContro
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
 import { resolveModelAsset } from "../../../engine/loader/model/ModelAsset";
 import { Pickup, type PickupOptions } from "../../../engine/world/Pickup";
+import type { WeaponDef } from "../../../shared/entities/WeaponDef";
 import { FPS, getActionKeyLabel } from "../client/FPSActions";
 import { InventoryManager } from "./InventoryManager";
 import { hidePickupPrompt, showPickupPrompt } from "./PickupPrompt";
@@ -185,11 +186,8 @@ export class FPSPickup extends Pickup {
   private async _loadBarrels(leaderMesh: Mesh, weaponId: string): Promise<void> {
     try {
       const { EntityRegistry } = await import("../../../shared/entities/EntityRegistry");
-      // biome-ignore lint/suspicious/noExplicitAny: weapon def schema introspection
-      const wdef = EntityRegistry.getInstance().get(weaponId) as any;
-      const barrelDefs = wdef?.barrels as
-        | Array<{ modelPath: string; offset?: { x: number; y: number; z: number } }>
-        | undefined;
+      const wdef = EntityRegistry.getInstance().get<WeaponDef>(weaponId);
+      const barrelDefs = wdef?.barrels;
       if (!barrelDefs?.length) return;
 
       const firstPath = barrelDefs[0].modelPath;
@@ -254,8 +252,7 @@ export class FPSPickup extends Pickup {
             }
             for (const bm of barrelResult.meshes) {
               if (bm.material && "maxSimultaneousLights" in bm.material) {
-                // biome-ignore lint/suspicious/noExplicitAny: Babylon material introspection
-                applySafeMaxSimultaneousLights(bm.material as any);
+                applySafeMaxSimultaneousLights(bm.material);
               }
             }
           }

@@ -13,11 +13,14 @@
  *   5. After RAGDOLL_LIFETIME seconds → gib-explode and dispose (Warsow-style)
  */
 
+import type { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { TrailMesh } from "@babylonjs/core/Meshes/trailMesh";
+import type { IPhysicsEngine } from "@babylonjs/core/Physics/IPhysicsEngine";
 import { PhysicsConstraintType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
+import type { PhysicsEngine } from "@babylonjs/core/Physics/v2/physicsEngine";
 import { Ragdoll } from "@babylonjs/core/Physics/v2/ragdoll";
 import type { Scene } from "@babylonjs/core/scene";
 import { disposePlayerModel, type PlayerModelInstance } from "../../../engine/animation/PlayerModelManager";
@@ -463,22 +466,25 @@ export class RagdollSystem {
       }
 
       // 5. Create BabylonJS Ragdoll
-      //    Cast 'as any' because the .d.ts type doesn't declare the 'bone' property
-      //    but the source code uses it to map config entries to skeleton bones
+      //    The .d.ts type doesn't declare the 'bone' property, but the source code
+      //    uses it to map config entries to skeleton bones
       devLog(`[RagdollSystem] Creating ragdoll with ${boneConfig.length} bone configs`);
 
       const ragdollInstance = new Ragdoll(
         model.skeleton,
         model.mesh, // rootTransformNode — the skinned mesh
-        boneConfig as any,
+        boneConfig,
       );
 
       // 6. Raise Havok’s global max velocity so our launch isn’t clamped
-      const physicsEngine = this.scene!.getPhysicsEngine();
+      // Only the v2 engine has velocity limits; the shared interface omits them.
+      const physicsEngine = this.scene!.getPhysicsEngine() as
+        | (IPhysicsEngine & Partial<Pick<PhysicsEngine, "getMaxLinearVelocity" | "setVelocityLimits">>)
+        | null;
       if (physicsEngine) {
-        const currentMax = (physicsEngine as any).getMaxLinearVelocity?.() ?? 0;
+        const currentMax = physicsEngine.getMaxLinearVelocity?.() ?? 0;
         if (currentMax < HAVOK_MAX_LINEAR_VELOCITY) {
-          (physicsEngine as any).setVelocityLimits?.(HAVOK_MAX_LINEAR_VELOCITY, 100);
+          physicsEngine.setVelocityLimits?.(HAVOK_MAX_LINEAR_VELOCITY, 100);
           devLog(`[RagdollSystem] Raised Havok max linear velocity from ${currentMax} to ${HAVOK_MAX_LINEAR_VELOCITY}`);
         }
       }
@@ -636,7 +642,7 @@ export class RagdollSystem {
   private extractModelColor(model: PlayerModelInstance): Color3 {
     const allMeshes = [model.mesh, ...model.mesh.getChildMeshes()];
     for (const mesh of allMeshes) {
-      const mat = mesh.material as any;
+      const mat = mesh.material as PBRMaterial | null;
       if (mat?.albedoColor) {
         // Team colors are HDR (>1.0), clamp for trail material
         return new Color3(

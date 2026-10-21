@@ -4,6 +4,9 @@
  */
 
 import type { EntitySnapshot, InterpolatedEntity } from "../../../engine/network/client/SnapshotBuffer";
+import type { MovementStateComponent } from "../../../engine/network/components/MovementStateComponent";
+import type { TransformComponent, Vec3 } from "../../../engine/network/components/TransformComponent";
+import type { VelocityComponent } from "../../../engine/network/components/VelocityComponent";
 import type { GameState } from "../../../engine/network/core/GameState";
 import { isClientKey } from "../ClientEntityKey";
 import type { PlayerTeamSlot } from "./PlayerModelVisualSettings";
@@ -22,6 +25,25 @@ export const SWIM_IDLE_SPEED_THRESHOLD = 70;
 export const RUN_SPEED_THRESHOLD = 300;
 
 /**
+ * A snapshot entity's velocity: the decoder's carries the linear velocity both
+ * as `linear` and flat as x/y/z, and any field may be missing.
+ */
+type SnapshotVelocity = Partial<Pick<VelocityComponent, "linear" | "grounded"> & Vec3>;
+
+/**
+ * A snapshot entity's movement state: the simulation's component, or the
+ * decoder's reconstruction of it with the recorded view fields. Any field may
+ * be missing.
+ */
+type SnapshotMovementState = Partial<
+  Pick<
+    MovementStateComponent,
+    "isCrouching" | "isSliding" | "wallJumpState" | "crouchViewOffset" | "waterLevel" | "onLadder"
+  > &
+    Pick<EntitySnapshot, "strafeInput" | "forwardInput" | "slidePhase" | "ledgeGrabPhase">
+>;
+
+/**
  * Remote players' movement state from one snapshot, keyed by client entity id.
  * The local player and non-player entities (projectiles, dropped weapons) are
  * left out, as is any entity without a position.
@@ -32,9 +54,9 @@ export function extractEntities(state: GameState, localEntityId: string): Map<st
     if (entityId === localEntityId) continue;
     if (!isClientKey(entityId)) continue;
 
-    const transform = entity.getComponent("transform") as any;
-    const velocity = entity.getComponent("velocity") as any;
-    const movementState = entity.getComponent("movementState") as any;
+    const transform = entity.getComponent<TransformComponent>("transform");
+    const velocity = entity.getComponent("velocity") as SnapshotVelocity | undefined;
+    const movementState = entity.getComponent("movementState") as SnapshotMovementState | undefined;
     const powerups = entity.getComponent("powerups") as { mask?: number } | undefined;
 
     if (!transform?.position) continue;

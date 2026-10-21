@@ -10,6 +10,7 @@
  * - HUD updates (combat state, damage numbers, kill feed)
  */
 
+import type { TargetCamera } from "@babylonjs/core/Cameras/targetCamera";
 import { PointLight } from "@babylonjs/core/Lights/pointLight";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
@@ -20,8 +21,9 @@ import { log } from "../../../engine/core/Log";
 import { addToDynamicLightCluster, disposeClusteredLight } from "../../../engine/lighting/DynamicLightCluster";
 import { NetGraph } from "../../../engine/network/client/NetGraph";
 import type { EntitySnapshot, SnapshotBuffer } from "../../../engine/network/client/SnapshotBuffer";
-import type { TransformComponent } from "../../../engine/network/components/TransformComponent";
+import type { TransformComponent, Vec3 } from "../../../engine/network/components/TransformComponent";
 import type { VelocityComponent } from "../../../engine/network/components/VelocityComponent";
+import type { IComponent } from "../../../engine/network/core/Component";
 import type { GameState } from "../../../engine/network/core/GameState";
 import type { IGameHost } from "../../../engine/network/core/IGameHost";
 import {
@@ -93,6 +95,20 @@ import type { FollowedViewWeapon } from "./FollowedViewWeapon";
 import { playerVoiceForEntity } from "./FPSPlayerAudio";
 import type { FPSReloadAudio } from "./FPSReloadAudio";
 import { networkHostOf } from "./NetworkHostAccess";
+
+/** The decoded `weaponMeta` snapshot component of an `item_` entity. */
+interface WeaponMetaComponent extends IComponent {
+  weaponId: string;
+  settled: boolean;
+}
+
+/**
+ * The local player's decoded `velocity` component, read for the movement state of
+ * a {@link PlayerStateUpdate}. The decoder sets only `isCrouching` and `isSliding`
+ * on it; the other fields fall back to their defaults.
+ */
+type DecodedVelocity = VelocityComponent &
+  Partial<Omit<PlayerStateUpdate, "position" | "velocity" | "grounded" | "tick">>;
 
 /**
  * Mutable context shared with Game.
@@ -528,7 +544,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
                   const worldAngle = Math.atan2(worldDz, worldDx);
 
                   // Get camera yaw to convert to screen-space
-                  const cam = CameraSystem.getInstance().getCamera() as any;
+                  const cam = CameraSystem.getInstance().getCamera() as TargetCamera | null;
                   const cameraYaw = cam?.rotation?.y ?? 0;
 
                   // Screen-space angle: positive X = right, positive Y = down
@@ -546,9 +562,9 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
               // Pain camera shake (all weapon types). Only our own: it lives in
               // the FPS controller, which a spectate camera does not run.
               const fpsCtrl = CameraSystem.getInstance().getController("fps");
-              if (event.entityId === localEntityId && fpsCtrl && "shakeCamera" in fpsCtrl) {
+              if (event.entityId === localEntityId && fpsCtrl?.shakeCamera) {
                 const painIntensity = Math.min(Math.max(event.damage / 100, 0.05), 0.6);
-                (fpsCtrl as any).shakeCamera(painIntensity);
+                fpsCtrl.shakeCamera(painIntensity);
               }
             }
 
@@ -741,8 +757,8 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
       const itemEntities = new Map<string, DroppedWeaponInfo>();
       for (const [id, entity] of state.entities) {
         if (id.startsWith("item_")) {
-          const t = entity.getComponent("transform") as any;
-          const wm = entity.getComponent("weaponMeta") as any;
+          const t = entity.getComponent<TransformComponent>("transform");
+          const wm = entity.getComponent<WeaponMetaComponent>("weaponMeta");
           if (t?.position) {
             itemEntities.set(id, {
               x: t.position.x,
@@ -794,7 +810,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
   const velocity = entity.getComponent<VelocityComponent>("velocity");
   if (!transform || !velocity) return;
 
-  const physics = velocity as any;
+  const physics: DecodedVelocity = velocity;
 
   // === V2 CLIENT: Buffer snapshot for frame-synchronized processing ===
   if (ctx.v2Client && ctx.isNetworkMode) {
@@ -1335,10 +1351,9 @@ export function processProjectileEntities(state: GameState, sync: ProjectileSync
     if (!entityId.startsWith("proj_")) continue;
     aliveThisSnapshot.add(entityId);
 
-    // biome-ignore lint/suspicious/noExplicitAny: duck-typed snapshot components
-    const posComp = entity.getComponent("position") as any;
-    // biome-ignore lint/suspicious/noExplicitAny: duck-typed snapshot components
-    const velComp = entity.getComponent("velocity") as any;
+    const posComp = entity.getComponent<IComponent & Vec3>("position");
+    // The decoder's velocity carries its linear velocity as plain x/y/z too.
+    const velComp = entity.getComponent<IComponent & Vec3>("velocity");
     if (!posComp) continue;
 
     projEntities.set(entityId, {

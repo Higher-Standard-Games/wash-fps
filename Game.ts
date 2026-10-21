@@ -633,7 +633,7 @@ export class Game {
       const transport = await TransportFactory.create(url);
 
       // Create network game host with FPSSimulation for client-side prediction
-      // Cast needed due to FPSInputCommand vs Command generic variance
+      // biome-ignore lint/suspicious/noExplicitAny: NetworkGameHost takes a Simulation<GameState, Command> and feeds it plain Commands; FPSSimulation handles FPSInputCommand
       const networkHost = new NetworkGameHost(transport, simConfig, FPSSimulation as any);
 
       // When the server names its map: load it, then set up prediction, cameras and
@@ -1475,8 +1475,8 @@ export class Game {
       isSliding: ms.isSliding,
       isCrouching: ms.isCrouching,
       crouchViewOffset: ms.crouchViewOffset,
-      wallJumpState: ms.wallJumpState as any,
-      ledgeGrabState: ms.ledgeGrabState as any,
+      wallJumpState: ms.wallJumpState,
+      ledgeGrabState: ms.ledgeGrabState,
       actualHorizSpeed: ms.actualHorizSpeed,
       slidePhase: ms.slidePhase,
       ledgeGrabPhase: ms.ledgeGrabPhase,
@@ -1636,8 +1636,8 @@ export class Game {
       isSliding: ms.isSliding,
       isCrouching: ms.isCrouching,
       crouchViewOffset: ms.crouchViewOffset,
-      wallJumpState: ms.wallJumpState as any,
-      ledgeGrabState: ms.ledgeGrabState as any,
+      wallJumpState: ms.wallJumpState,
+      ledgeGrabState: ms.ledgeGrabState,
       actualHorizSpeed: ms.actualHorizSpeed,
       slidePhase: ms.slidePhase,
       ledgeGrabPhase: ms.ledgeGrabPhase,
@@ -1729,7 +1729,7 @@ export class Game {
     // For NetworkGameHost (legacy path without V2Client), use interpolated entity
     const interpolatedEntity = this.gameHost.getInterpolatedEntity(player.entityId);
     if (interpolatedEntity) {
-      const transform = interpolatedEntity.getComponent("transform") as any;
+      const transform = interpolatedEntity.getComponent<TransformComponent>("transform");
       if (transform?.position) {
         return {
           x: transform.position.x,

@@ -19,6 +19,7 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import type { Scene } from "@babylonjs/core/scene";
+import type { FPSController } from "../../../engine/camera/controllers/FPSController";
 import { background } from "../../../engine/core/AsyncErrors";
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
 import { BspManager } from "../../../engine/loader/bsp/BspManager";
@@ -27,6 +28,7 @@ import type { ModelLoadResult } from "../../../engine/loader/model/ModelLoader";
 import { bindLoaderLeftovers, disposeModelResources } from "../../../engine/loader/model/ModelSourceCache";
 import { describeModelRender } from "../../../engine/world/ModelRenderAudit";
 import { EntityRegistry } from "../../../shared/entities/EntityRegistry";
+import type { WeaponDef } from "../../../shared/entities/WeaponDef";
 import { hidePickupPrompt, showPickupPrompt } from "../world/PickupPrompt";
 import { FPS, getActionKeyLabel } from "./FPSActions";
 
@@ -92,7 +94,7 @@ class DroppedWeaponVisual {
     try {
       // Look up model path from EntityRegistry
       const registry = EntityRegistry.getInstance();
-      const def = registry.get(this.weaponId) as any;
+      const def = registry.get<WeaponDef>(this.weaponId);
       const modelPath = def?.modelPath || `models/weapons/${this.weaponId}/${this.weaponId}.md3`;
       const defScale = def?.scale ?? 1.5;
 
@@ -130,7 +132,7 @@ class DroppedWeaponVisual {
           if (m instanceof Mesh && m.getTotalVertices() > 0) {
             // Cap lights to prevent shader uniform block overflow
             if (m.material && "maxSimultaneousLights" in m.material) {
-              applySafeMaxSimultaneousLights(m.material as any);
+              applySafeMaxSimultaneousLights(m.material);
             }
             if (!leaderMesh) {
               leaderMesh = m;
@@ -171,9 +173,7 @@ class DroppedWeaponVisual {
 
           // === BARREL SUB-MODELS ===
           // Load barrel GLBs (e.g. plasmagun dual chambers) and parent to leader
-          const barrelDefs = (def as any)?.barrels as
-            | Array<{ modelPath: string; offset?: { x: number; y: number; z: number } }>
-            | undefined;
+          const barrelDefs = def?.barrels;
           if (barrelDefs?.length) {
             // Load tags.txt for bone-based positioning
             const firstPath = barrelDefs[0].modelPath;
@@ -240,7 +240,7 @@ class DroppedWeaponVisual {
                   }
                   for (const bm of barrelResult.meshes) {
                     if (bm.material && "maxSimultaneousLights" in bm.material) {
-                      applySafeMaxSimultaneousLights(bm.material as any);
+                      applySafeMaxSimultaneousLights(bm.material);
                     }
                   }
                 }
@@ -550,12 +550,7 @@ export class DroppedWeaponRenderer {
    */
   private checkPickupProximity(): void {
     // Lazy-import to avoid circular dependencies
-    const cameraSystem = (globalThis as any).__cameraSystem;
-    if (!cameraSystem) {
-      // Try dynamic import cache
-      background(this._checkPickupProximityAsync(), "DroppedWeaponRenderer");
-      return;
-    }
+    background(this._checkPickupProximityAsync(), "DroppedWeaponRenderer");
   }
 
   private _cachedCameraModule: typeof import("../../../engine/camera/CameraSystem") | null = null;
@@ -598,17 +593,12 @@ export class DroppedWeaponRenderer {
 
     // Get player position
     let playerPos = camera.position;
-    if (
-      activeController &&
-      "getPlayerPosition" in activeController &&
-      typeof (activeController as any).getPlayerPosition === "function"
-    ) {
-      playerPos = (activeController as any).getPlayerPosition();
+    if (activeController && typeof activeController.getPlayerPosition === "function") {
+      playerPos = activeController.getPlayerPosition();
     }
 
     // Get inventory
-    const inventory =
-      activeController && ((activeController as any).inventory as InstanceType<typeof InventoryManager> | null);
+    const inventory = activeController?.type === "fps" ? (activeController as FPSController).inventory : null;
 
     // Find nearest dropped weapon in range
     let nearest: DroppedWeaponVisual | null = null;
