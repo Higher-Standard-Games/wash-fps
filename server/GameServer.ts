@@ -1090,9 +1090,7 @@ export class GameServer {
 
     // 0.8. Refresh per-client latency so this tick's shots rewind by the right
     // amount. Cheap: one map read per connected client.
-    // A client caught mid-disconnect may already have lost its connection.
-    for (const client of this.clients.values())
-      this.lagCompensation.updateClientLatency(client.playerId, client.connection?.latency ?? 0);
+    for (const client of this.clients.values()) this.lagCompensation.updateClientLatency(client.playerId, client.ping);
 
     // 1. Run simulation (physics, weapons, combat)
     this.simulation.tick();

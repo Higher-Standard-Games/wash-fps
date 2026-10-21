@@ -373,7 +373,8 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
         };
         gameState.players.set(playerId, playerState);
 
-        // Emit combat_state event (health/armor — private to owning player)
+        // Emit combat_state event (health/armor). Every client gets it, but only
+        // the owner, spectators and teammates get the bars (SnapshotBroadcaster).
         if (entity.health) {
           emit({
             type: "combat_state",
@@ -429,7 +430,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
       spectators.push({
         playerId: toClientKey(client.entityId),
         name: client.playerName,
-        ping: 0,
+        ping: rosterPing(client, tickNum),
       });
     }
   }
@@ -457,7 +458,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
         matchState.phase === MatchPhase.PostGame
           ? matchState.getStats(client.playerId).deaths
           : matchState.getDeaths(client.playerId),
-      ping: client.connection?.latency ?? 0,
+      ping: rosterPing(client, tickNum),
     });
   }
 
@@ -712,4 +713,19 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
   ctx.pendingAwards.length = 0;
 
   return gameState;
+}
+
+/**
+ * The roster's ping for a client: its measured round trip, re-read once a
+ * second (see ClientInfo.rosterPing). The roster used to read a transport
+ * latency nothing ever set, so the results screen and the spectator list
+ * always showed 0 ms.
+ */
+function rosterPing(client: ClientInfo, tick: number): number {
+  let shown = client.rosterPing;
+  if (!shown || tick - shown.tick >= TICK_RATE || tick < shown.tick) {
+    shown = { ms: Math.round(client.ping), tick };
+    client.rosterPing = shown;
+  }
+  return shown.ms;
 }

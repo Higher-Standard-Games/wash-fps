@@ -25,6 +25,21 @@ const ROSTER_KEY = "roster";
 const DROPPED_WEAPON_PREFIX = "item_";
 const weaponKey = (entityId: string) => `weapon:${entityId}`;
 
+type SnapshotEvent = GameState["events"][number];
+
+/**
+ * Who may read each player's health and armor this snapshot. combat_state goes
+ * out for every player because a spectator, or a dead S&D player chasing a
+ * teammate, needs the watched player's bars. Everyone else used to receive
+ * every opponent's health too, which a modified client could draw over heads.
+ */
+function healthAudienceOf(state: GameState): { teamBased: boolean; teamOf: Map<string, string> } {
+  const teamOf = new Map<string, string>();
+  for (const player of state.players.values()) teamOf.set(player.entityId, player.team);
+  const match = state.events.find((event) => event.type === "match_state") as { teamBased?: boolean } | undefined;
+  return { teamBased: match?.teamBased === true, teamOf };
+}
+
 /** This snapshot's lasting state as strings, by key, made once and compared for every client. */
 function lastingStateOf(state: GameState): Map<string, string> {
   const lasting = new Map<string, string>();
@@ -53,7 +68,9 @@ export class SnapshotBroadcaster {
   /** BSP cluster of each entity this snapshot, looked up once rather than once per client. */
   private readonly clusterOf = new Map<string, number>();
   /** match_state without the roster, per snapshot's match_state event. */
-  private readonly rosterOmitted = new WeakMap<GameState["events"][number], GameState["events"][number]>();
+  private readonly rosterOmitted = new WeakMap<SnapshotEvent, SnapshotEvent>();
+  /** combat_state with the bars zeroed, for clients that may not read them. */
+  private readonly healthHidden = new WeakMap<SnapshotEvent, SnapshotEvent>();
 
   constructor(simulation: Simulation) {
     this.simulation = simulation;
@@ -82,6 +99,7 @@ export class SnapshotBroadcaster {
     let totalEncodeMs = 0;
     let totalCulled = 0;
     const lasting = lastingStateOf(gameState);
+    const healthAudience = healthAudienceOf(gameState);
     this.clusterOf.clear();
     for (const client of clients.values()) {
       try {
@@ -101,6 +119,14 @@ export class SnapshotBroadcaster {
         const processedSeq = (simEntity?.input as { lastProcessedSeq?: number } | undefined)?.lastProcessedSeq;
         clientState.ackedInputSeq = processedSeq ?? client.lastInputSeq;
         const ownKey = toClientKey(client.entityId);
+        // Spectators see everyone's bars; a player sees their own and, in a
+        // team mode, their team's (the ones they can watch once dead)
+        const ownTeam = healthAudience.teamOf.get(ownKey);
+        const seesAllHealth = client.isSpectator || ownTeam === undefined || ownTeam === "spectator";
+        const seesHealthOf = (entityId: string) =>
+          seesAllHealth ||
+          entityId === ownKey ||
+          (healthAudience.teamBased && healthAudience.teamOf.get(entityId) === ownTeam);
         clientState.events = this.leaveOutKnown(
           client,
           clientState.events.filter(
@@ -108,6 +134,7 @@ export class SnapshotBroadcaster {
           ),
           lasting,
           tick,
+          seesHealthOf,
         );
 
         // Agent directives are addressed to ONE client. Appending them here —
@@ -198,6 +225,7 @@ export class SnapshotBroadcaster {
     events: GameState["events"],
     lasting: Map<string, string>,
     tick: number,
+    seesHealthOf: (entityId: string) => boolean = () => true,
   ): GameState["events"] {
     client.sentState ??= new Map();
     const sent = client.sentState;
@@ -218,6 +246,16 @@ export class SnapshotBroadcaster {
     const out: GameState["events"] = [];
     for (const event of events) {
       if (event.type === "weapon_state" && event.entityId !== own && !needs(weaponKey(event.entityId))) {
+        continue;
+      }
+      if (event.type === "combat_state" && !seesHealthOf(event.entityId)) {
+        // Whether they are dead is public (the kill feed says so); the bars are not
+        let hidden = this.healthHidden.get(event);
+        if (!hidden) {
+          hidden = { ...event, health: 0, armor: 0 };
+          this.healthHidden.set(event, hidden);
+        }
+        out.push(hidden);
         continue;
       }
       if (event.type === "match_state" && !needs(ROSTER_KEY)) {

@@ -72,6 +72,12 @@ export interface ClientInfo {
    * is what a player means by ping — not a number the client reports about itself.
    */
   ping: number;
+  /**
+   * `ping` as the match_state roster shows it, refreshed once a second. The
+   * roster goes out again whenever it changes, so a ping that moved on every
+   * ack would resend it to everyone every snapshot.
+   */
+  rosterPing?: { ms: number; tick: number };
   /** Wall-clock (performance.now) of the last accepted respawn request. */
   lastRespawnReqMs?: number;
   /** Wall-clock (performance.now) of the last accepted team/spectate switch. */

@@ -434,7 +434,7 @@ describe("buildSnapshot golden", () => {
                 "deaths": 0,
                 "frags": 0,
                 "name": "Ada",
-                "ping": 0,
+                "ping": 24,
                 "playerId": "player_1",
                 "score": 0,
               },
