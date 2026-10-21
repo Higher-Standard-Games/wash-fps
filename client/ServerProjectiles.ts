@@ -8,7 +8,7 @@
  */
 
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
-import { SnapshotBuffer } from "../../../engine/network/client/SnapshotBuffer";
+import { type InterpolatedEntity, SnapshotBuffer } from "../../../engine/network/client/SnapshotBuffer";
 import { getProjectileManager } from "../../../engine/weapon/ProjectileManager";
 import type { LiquidInteractionSystem } from "../liquid/client/LiquidInteractionSystem";
 
@@ -22,30 +22,38 @@ export class ServerProjectiles {
   /** SnapshotBuffer for projectile entity interpolation (Q3-style lerp between snapshots) */
   readonly buffer: SnapshotBuffer = new SnapshotBuffer();
 
+  // Per-frame scratch, overwritten for each projectile
+  private readonly sample = {} as InterpolatedEntity;
+  private readonly position = new Vector3();
+  private readonly velocity = new Vector3();
+  private readonly point = { x: 0, y: 0, z: 0 };
+
   /**
    * Per-frame interpolated rendering of server-driven projectiles.
    * Samples the SnapshotBuffer for each active projectile entity,
    * giving smooth lerp between two snapshots (same as remote players).
    */
   render(liquidInteractions: LiquidInteractionSystem | null): void {
+    if (this.active.size === 0) return;
     const projMgr = getProjectileManager();
+    // One bracket search for the frame and scratch vectors, rather than a
+    // fresh sample and two Vector3s per projectile per frame
+    this.buffer.beginFrame();
+    const { sample, position, velocity, point } = this;
     for (const entityId of this.active) {
-      const interp = this.buffer.sample(entityId);
+      const interp = this.buffer.sampleInFrame(entityId, sample);
       if (!interp) continue;
-      projMgr.updateServerPosition(
-        entityId,
-        new Vector3(interp.x, interp.y, interp.z),
-        new Vector3(interp.vx, interp.vy, interp.vz),
-      );
+      position.set(interp.x, interp.y, interp.z);
+      velocity.set(interp.vx, interp.vy, interp.vz);
+      projMgr.updateServerPosition(entityId, position, velocity);
 
       // A rocket into a pool used to land in silence: water is NONSOLID, so
       // nothing impacts it and no event fires. This loop already has the
       // per-frame position, which is all a crossing needs.
-      liquidInteractions?.notifyProjectile(
-        entityId,
-        { x: interp.x, y: interp.y, z: interp.z },
-        Math.hypot(interp.vx, interp.vy, interp.vz),
-      );
+      point.x = interp.x;
+      point.y = interp.y;
+      point.z = interp.z;
+      liquidInteractions?.notifyProjectile(entityId, point, Math.hypot(interp.vx, interp.vy, interp.vz));
     }
   }
 

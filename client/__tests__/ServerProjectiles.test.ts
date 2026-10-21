@@ -12,8 +12,9 @@ describe("ServerProjectiles", () => {
     const projectiles = new ServerProjectiles();
     projectiles.active.add("proj_1");
     projectiles.active.add("proj_2");
-    vi.spyOn(projectiles.buffer, "sample").mockImplementation(
-      (id: string) => (id === "proj_1" ? sample : null) as never,
+    vi.spyOn(projectiles.buffer, "beginFrame").mockImplementation(() => {});
+    vi.spyOn(projectiles.buffer, "sampleInFrame").mockImplementation(
+      (id: string, out) => (id === "proj_1" ? Object.assign(out, sample) : null) as never,
     );
     const liquid = { notifyProjectile: vi.fn() };
 
@@ -30,7 +31,7 @@ describe("ServerProjectiles", () => {
   it("renders without a water system", () => {
     const projectiles = new ServerProjectiles();
     projectiles.active.add("proj_1");
-    vi.spyOn(projectiles.buffer, "sample").mockReturnValue(sample as never);
+    vi.spyOn(projectiles.buffer, "sampleInFrame").mockImplementation((_id, out) => Object.assign(out, sample));
     expect(() => projectiles.render(null)).not.toThrow();
   });
 

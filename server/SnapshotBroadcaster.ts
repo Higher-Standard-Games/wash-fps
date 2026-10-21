@@ -52,6 +52,8 @@ export class SnapshotBroadcaster {
   private pvs: ServerPVS | null = null;
   /** BSP cluster of each entity this snapshot, looked up once rather than once per client. */
   private readonly clusterOf = new Map<string, number>();
+  /** match_state without the roster, per snapshot's match_state event. */
+  private readonly rosterOmitted = new WeakMap<GameState["events"][number], GameState["events"][number]>();
 
   constructor(simulation: Simulation) {
     this.simulation = simulation;
@@ -219,8 +221,15 @@ export class SnapshotBroadcaster {
         continue;
       }
       if (event.type === "match_state" && !needs(ROSTER_KEY)) {
-        const { standings: _standings, spectators: _spectators, ...rest } = event;
-        out.push({ ...rest, rosterOmitted: true });
+        // One copy per snapshot, shared by every client that has the roster, so
+        // its JSON is built once (BinaryProtocol caches it per event object)
+        let omitted = this.rosterOmitted.get(event);
+        if (!omitted) {
+          const { standings: _standings, spectators: _spectators, ...rest } = event;
+          omitted = { ...rest, rosterOmitted: true };
+          this.rosterOmitted.set(event, omitted);
+        }
+        out.push(omitted);
       } else {
         out.push(event);
       }

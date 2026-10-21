@@ -319,6 +319,8 @@ export class LiquidInteractionSystem {
     // First sighting establishes a baseline, like a body's does — a projectile
     // spawned already inside liquid never entered it.
     if (previous === undefined || previous === wet || !wet) return;
+    // The caller reuses `position` every frame; the splash may outlive this call
+    position = { x: position.x, y: position.y, z: position.z };
 
     // Projectiles hit harder than bodies drift, so the splash is scaled off
     // their own speed rather than the body gate, which they would always clear.
