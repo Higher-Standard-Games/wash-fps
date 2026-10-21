@@ -199,8 +199,11 @@ export class CombatSystem extends Subsystem {
    * Get kills from last tick.
    * GametypeController drains these via drainKills().
    */
-  getRecentKills(): KillEvent[] {
-    return [...this.kills];
+  getRecentKills(): readonly KillEvent[] {
+    // Read-only view, not a copy: both readers only look, twice every tick,
+    // and the list is nearly always empty. Clearing swaps in a new array rather
+    // than emptying this one, so a view handed out is never wiped under a reader.
+    return this.kills;
   }
 
   /**

@@ -1022,11 +1022,16 @@ export class GametypeController {
       live: this.matchState.phase === MatchPhase.Active,
       attackingTeam: this.matchState.attackingTeam,
       defendingTeam: this.matchState.defendingTeam,
-      teamOf: (playerId: PlayerId) => this.matchState.getPlayerTeam(playerId),
-      credit: (playerId: PlayerId, kind: "plant" | "defuse") => this.recordObjective(playerId, kind),
-      blast: (entityId: EntityId, damage: number, push: Vec3) => this.queueBlast(entityId, damage, push),
+      teamOf: this.ctxTeamOf,
+      credit: this.ctxCredit,
+      blast: this.ctxBlast,
     };
   }
+  // Built once: tickContext runs every tick and the callbacks never change.
+  private readonly ctxTeamOf = (playerId: PlayerId) => this.matchState.getPlayerTeam(playerId);
+  private readonly ctxCredit = (playerId: PlayerId, kind: "plant" | "defuse") => this.recordObjective(playerId, kind);
+  private readonly ctxBlast = (entityId: EntityId, damage: number, push: Vec3) =>
+    this.queueBlast(entityId, damage, push);
 
   /**
    * A bomb blast, as a hit from no one.

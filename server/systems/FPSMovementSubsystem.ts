@@ -40,7 +40,18 @@ const CONFIG: SubsystemConfig = {
  *
  * Uses the stored buttons bitmask directly so ALL button flags
  * (including SPRINT) are correctly passed through to simulate().
+ *
+ * Written into one reused object: this runs for every movement step of every
+ * player, and simulate() reads the input during the call and keeps none of it.
  */
+const adapted: MovementInput & { simStep: number } = {
+  direction: { x: 0, y: 0, z: 0 },
+  viewAngles: { pitch: 0, yaw: 0 },
+  buttons: 0,
+  sequence: undefined,
+  simStep: 0,
+  isPressed: (button: number) => (adapted.buttons & button) !== 0,
+};
 function adaptInput(
   input: {
     forward: number; // World-space Z component (= direction.z from client)
@@ -56,25 +67,21 @@ function adaptInput(
   // input.forward = command.direction.z
   // input.right = command.direction.x
   // These are ALREADY rotated by yaw on the client, so use them directly
-  const wishX = input.right; // X component of world-space wish direction
-  const wishZ = input.forward; // Z component of world-space wish direction
-
+  adapted.direction.x = input.right;
+  adapted.direction.y = 0;
+  adapted.direction.z = input.forward;
+  adapted.viewAngles.pitch = input.pitch;
+  adapted.viewAngles.yaw = input.yaw;
   // Use the stored buttons bitmask directly — preserves SPRINT and all flags
-  const buttons = input.buttons;
-
-  return {
-    direction: { x: wishX, y: 0, z: wishZ },
-    viewAngles: { pitch: input.pitch, yaw: input.yaw },
-    buttons,
-    sequence: input.sequence,
-    // The effect clock counts server ticks, not command sequences. Physics
-    // advances exactly one dt per tick whether or not a command arrived, so a
-    // starved player's walljump window, slide, ladder cooldown and water jump
-    // have to expire on the same schedule as the gravity pulling them down
-    // (N04). A repeated command reuses its sequence; it never reuses a step.
-    simStep: simStep,
-    isPressed: (button: number) => (buttons & button) !== 0,
-  };
+  adapted.buttons = input.buttons;
+  adapted.sequence = input.sequence;
+  // The effect clock counts server ticks, not command sequences. Physics
+  // advances exactly one dt per tick whether or not a command arrived, so a
+  // starved player's walljump window, slide, ladder cooldown and water jump
+  // have to expire on the same schedule as the gravity pulling them down
+  // (N04). A repeated command reuses its sequence; it never reuses a step.
+  adapted.simStep = simStep;
+  return adapted;
 }
 
 /**
