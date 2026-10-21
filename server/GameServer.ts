@@ -1929,12 +1929,15 @@ export class GameServer {
     // Spectators don't send input — skip silently
     if (client.isSpectator) return;
 
-    const { command } = MessageCodec.decodeCommand(data);
-    const seq = command.seq || 0;
-
     // Deduplicate: reject commands already processed (from command redundancy)
     // Client sends last 3 commands per tick for packet loss resilience.
     // Without this guard, each command would be applied 3x → triple movement speed.
+    // The sequence is peeked first so the redundant copies skip the full decode.
+    const peeked = MessageCodec.peekCommandSeq(data);
+    if (peeked !== null && (peeked || 0) <= client.lastInputSeq) return;
+
+    const { command } = MessageCodec.decodeCommand(data);
+    const seq = command.seq || 0;
     if (seq <= client.lastInputSeq) {
       return; // Already processed this or an older command
     }
