@@ -401,6 +401,8 @@ export class DemoService {
       player.onSegmentChange((segment) => {
         this.demoHud?.showCard(shotCard(segment, player.getReelInfo().totalScenes));
       });
+      player.onStateChange((state) => this.demoHud?.setReelEnded(state === "ended"));
+      this.demoHud?.onReplay(() => player.replay());
       await player.loadAndPlay(data, durationMinutes);
       if (this.abandonStart(start, viewer)) return;
       this.demoHud?.setReel(player.getShotStarts());

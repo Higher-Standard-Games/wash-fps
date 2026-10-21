@@ -14,7 +14,7 @@ From the lobby's Demos page, **⚡ Highlights** does the same and lets you pick 
 of **1, 2 or 3 minutes**. The shared playback bar offers pause, a timeline and
 previous/next shot controls; the card and counter number the highlights. **HUD** toggles the game HUD during first-person shots;
 **H** shows or hides playback overlays and replay chat.
-**Escape** or the gold exit plate leaves playback. See [Demos](../multiplayer/demos.md).
+**Escape** or the gold exit plate leaves playback. When a reel ends, **Replay** plays it again and **Exit** goes back to the demos. See [Demos](../multiplayer/demos.md).
 
 ## How a reel is made
 

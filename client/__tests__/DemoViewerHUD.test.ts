@@ -128,6 +128,28 @@ describe("DemoViewerHUD", () => {
     hud.dispose();
   });
 
+  it("fades in Replay and Exit once a reel has ended, and takes them away when it plays on", () => {
+    const hud = new DemoViewerHUD();
+    const replay = vi.fn();
+    const exit = vi.fn();
+    hud.onReplay(replay);
+    hud.onExit(exit);
+    const keys = document.querySelector<HTMLElement>("#demo-viewer-end")!;
+    expect(keys.classList.contains("is-shown")).toBe(false);
+
+    hud.setReelEnded(true);
+    expect(keys.classList.contains("is-shown")).toBe(true);
+    keys.querySelector<HTMLButtonElement>(".dvh-end-replay")!.click();
+    keys.querySelector<HTMLButtonElement>(".dvh-end-exit")!.click();
+    expect(replay).toHaveBeenCalledTimes(1);
+    expect(exit).toHaveBeenCalledTimes(1);
+
+    hud.setReelEnded(false);
+    expect(keys.classList.contains("is-shown")).toBe(false);
+    hud.dispose();
+    expect(document.querySelector("#demo-viewer-end")).toBeNull();
+  });
+
   it("shows a shot's card", () => {
     const hud = new DemoViewerHUD();
     hud.showCard({ kicker: "Highlight 1/3", title: "Frag", player: "Ramen → Gyoza", detail: "rocket", tags: ["Air"] });

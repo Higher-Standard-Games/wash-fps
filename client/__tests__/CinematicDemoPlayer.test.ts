@@ -492,6 +492,25 @@ describe("CinematicDemoPlayer", () => {
     expect(player.getVeil()).toEqual({ color: "black", opacity: 1 });
   });
 
+  it("replays a finished reel from its first shot", async () => {
+    await player.loadAndPlay(new Uint8Array(8), 2);
+    const states: CinematicPlayerState[] = [];
+    player.onStateChange((state) => states.push(state));
+    const reel = (player as unknown as { reel: import("../../../../shared/demo/SequenceBuilder").CinematicReel }).reel;
+    player.skipToSegment(reel.segments.length - 1);
+    viewer.getInfo.mockReturnValue({ ...viewer.getInfo(), playheadTick: reel.segments.at(-1)!.endTick });
+    player.update(16);
+    expect(player.getState()).toBe("ended");
+
+    viewer.seekToTick.mockClear();
+    player.replay();
+    expect(player.getState()).toBe("playing");
+    expect(viewer.seekToTick).toHaveBeenCalledWith(reel.segments[0].startTick);
+    expect(player.getReelInfo().currentSegment).toBe(0);
+    expect(states).toEqual(["ended", "playing"]);
+    expect(player.getVeil()).toEqual({ color: "black", opacity: 1 });
+  });
+
   it("eases into a speed keyframe instead of snapping to it", async () => {
     await player.loadAndPlay(new Uint8Array(8), 2);
 

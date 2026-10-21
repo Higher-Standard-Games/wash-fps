@@ -297,7 +297,12 @@ export class CinematicDemoPlayer {
     const clamped = Math.max(0, Math.min(index, this.reel.segments.length - 1));
     this.currentSegmentIndex = clamped;
     this._applySegment(this.reel.segments[clamped]);
-    if (this.state === "paused") this._setState("playing");
+    if (this.state === "paused" || this.state === "ended") this._setState("playing");
+  }
+
+  /** Play the reel again from its first shot, its opening fade and all. */
+  replay(): void {
+    this.skipToSegment(0);
   }
 
   nextSegment(): void {

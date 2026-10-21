@@ -99,6 +99,8 @@ export class DemoViewerHUD {
   private card: HTMLDivElement | null = null;
   /** A reel's transitions over the picture; part of the picture, so H leaves it. */
   private veil: HTMLDivElement | null = null;
+  /** A finished reel's way on: watch it again, or back to the demos. */
+  private endKeys: HTMLDivElement | null = null;
   private timeline: HTMLDivElement | null = null;
   private timelineFill: HTMLDivElement | null = null;
   private timelineHandle: HTMLDivElement | null = null;
@@ -127,6 +129,7 @@ export class DemoViewerHUD {
   private _onExit: (() => void) | null = null;
   private _onPrev: (() => void) | null = null;
   private _onNext: (() => void) | null = null;
+  private _onReplay: (() => void) | null = null;
 
   private reel = false;
   private minimized = false;
@@ -206,9 +209,19 @@ export class DemoViewerHUD {
     this.veil = el("div", "dvh-veil");
     this.veil.id = "demo-viewer-veil";
 
+    this.endKeys = el("div", "dvh-end");
+    this.endKeys.id = "demo-viewer-end";
+    const replay = createRaisedKey({ label: "Replay", variants: ["cta"] });
+    replay.classList.add("dvh-end-replay");
+    replay.addEventListener("click", () => this._onReplay?.());
+    const exit = createRaisedKey({ label: "Exit", variants: ["cta"] });
+    exit.classList.add("dvh-end-exit");
+    exit.addEventListener("click", () => this._onExit?.());
+    this.endKeys.append(replay, exit);
+
     this.setGameHudVisible(true);
     this.setupEvents();
-    document.body.append(this.veil, this.container, this.exitPlate, this.card);
+    document.body.append(this.veil, this.container, this.exitPlate, this.card, this.endKeys);
   }
 
   private setupEvents(): void {
@@ -447,6 +460,18 @@ export class DemoViewerHUD {
     this._onNext = callback;
   }
 
+  onReplay(callback: () => void): void {
+    this._onReplay = callback;
+  }
+
+  /**
+   * After a reel's closing fade to black, fade in its two keys: Replay and
+   * Exit. They go again as soon as the reel plays on.
+   */
+  setReelEnded(ended: boolean): void {
+    this.endKeys?.classList.toggle("is-shown", ended);
+  }
+
   // ── Visibility ──────────────────────────────────────────────────
 
   show(): void {
@@ -470,6 +495,8 @@ export class DemoViewerHUD {
     this.card?.remove();
     this.veil?.remove();
     this.veil = null;
+    this.endKeys?.remove();
+    this.endKeys = null;
     this.container = null;
     this.exitPlate = null;
     this.card = null;
@@ -496,6 +523,7 @@ export class DemoViewerHUD {
     this._onExit = null;
     this._onPrev = null;
     this._onNext = null;
+    this._onReplay = null;
     UIStyles.removeCSS("demo-viewer-hud");
   }
 }

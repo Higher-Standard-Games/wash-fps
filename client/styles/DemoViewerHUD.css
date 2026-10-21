@@ -363,6 +363,47 @@
   pointer-events: none;
 }
 
+/* --- A finished reel's keys, over its closing black --- */
+
+.dvh-end {
+  /* The post-game's arcade key, in gold */
+  --accent: hsl(46 100% 57%);
+  --accent-hi: hsl(51 100% 73%);
+  --accent-lo: hsl(42 100% 50%);
+  --accent-side-hi: hsl(36 92% 40%);
+  --accent-side-lo: hsl(28 88% 25%);
+
+  position: fixed;
+  right: 25vw;
+  bottom: 25vh;
+  z-index: 10002;
+  display: flex;
+  gap: 28px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.6s ease,
+    visibility 0s linear 0.6s;
+}
+
+.dvh-end.is-shown {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  /* Once the picture has gone to black */
+  transition:
+    opacity 0.6s ease 0.4s,
+    visibility 0s linear 0.4s;
+}
+
+@media (max-width: 900px) {
+  .dvh-end {
+    right: 8vw;
+    bottom: 18vh;
+  }
+}
+
 /* --- A reel's shot card --- */
 
 .dvh-card {
