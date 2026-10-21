@@ -377,6 +377,59 @@ export class Game {
    * Where the local player stands, from the scoreboard everyone sees: against
    * the other teams in a team mode, against the other players otherwise.
    */
+  /**
+   * Whether the local player is playing and where they stand, worked out again
+   * only when a snapshot replaces what it reads: the scoreboard, team scores
+   * and spectator list arrive as new arrays and objects, and this runs every
+   * frame.
+   */
+  private standing(
+    match: MatchStateManager,
+    localTeam: string | undefined,
+    displayId: string,
+  ): { playing: boolean; lead: Lead | null } {
+    const hud = HUDState.getInstance();
+    const memo = this._standing;
+    if (
+      memo &&
+      memo.scoreboard === hud.scoreboard &&
+      memo.teamScores === match.teamScores &&
+      memo.spectators === match.spectators &&
+      memo.teamBased === match.teamBased &&
+      memo.localTeam === localTeam &&
+      memo.localPlayerId === this.localPlayerId &&
+      memo.hudPlayerId === hud.localPlayerId
+    ) {
+      return memo.result;
+    }
+    const result = {
+      playing: !!this.localPlayerId && !match.spectators.some((s) => s.playerId === displayId),
+      lead: this.localLead(match, localTeam),
+    };
+    this._standing = {
+      scoreboard: hud.scoreboard,
+      teamScores: match.teamScores,
+      spectators: match.spectators,
+      teamBased: match.teamBased,
+      localTeam,
+      localPlayerId: this.localPlayerId,
+      hudPlayerId: hud.localPlayerId,
+      result,
+    };
+    return result;
+  }
+
+  private _standing: {
+    scoreboard: unknown;
+    teamScores: unknown;
+    spectators: unknown;
+    teamBased: boolean;
+    localTeam: string | undefined;
+    localPlayerId: string;
+    hudPlayerId: string;
+    result: { playing: boolean; lead: Lead | null };
+  } | null = null;
+
   private localLead(match: MatchStateManager, localTeam: string | undefined): Lead | null {
     if (match.teamBased) {
       const scores = match.teamScores;
@@ -1556,9 +1609,8 @@ export class Game {
         timeRemaining: match.timeRemaining,
         overtime: match.overtime,
         roundsCalledByMode: bombMode,
-        playing: !!this.localPlayerId && !match.spectators.some((s) => s.playerId === displayId),
+        ...this.standing(match, localTeam, displayId),
         ready: match.isReady,
-        lead: this.localLead(match, localTeam),
         teamBased: match.teamBased,
       },
       dtSec,

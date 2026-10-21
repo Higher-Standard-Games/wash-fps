@@ -127,31 +127,22 @@ export class SnapshotBroadcaster {
           seesAllHealth ||
           entityId === ownKey ||
           (healthAudience.teamBased && healthAudience.teamOf.get(entityId) === ownTeam);
-        clientState.events = this.leaveOutKnown(
-          client,
-          clientState.events.filter(
-            (event) => chatVisibleTo(event, ownKey) && (event.type !== "knockback_state" || event.entityId === ownKey),
-          ),
-          lasting,
-          tick,
-          seesHealthOf,
-        );
+        // One pass builds this client's events: it was a copy, a filter and a
+        // rebuild per client per snapshot, over a list a few events per player long
+        clientState.events = this.leaveOutKnown(client, clientState.events, lasting, tick, seesHealthOf);
 
         // Agent directives are addressed to ONE client. Appending them here —
         // rather than broadcasting every player's orders in the shared snapshot
         // — keeps tactics private, which matters the moment a mode issues
         // anything a human opponent could exploit ("flank left", "he is low").
-        // `shallowCopy()` shares the events array, so it must be cloned first.
-        const clientDirectives = agentDirectives?.get(toClientKey(client.entityId));
+        // leaveOutKnown returned this client's own array, so it can take them.
+        const clientDirectives = agentDirectives?.get(ownKey);
         if (clientDirectives && clientDirectives.length > 0) {
-          clientState.events = [
-            ...clientState.events,
-            {
-              type: "agent_directives",
-              entityId: toClientKey(client.entityId),
-              directives: clientDirectives,
-            },
-          ];
+          clientState.events.push({
+            type: "agent_directives",
+            entityId: ownKey,
+            directives: clientDirectives,
+          });
         }
 
         // ACKs arrive later than snapshots. Name the exact acknowledged state
@@ -217,6 +208,9 @@ export class SnapshotBroadcaster {
    * (lost, late, rejected) never make a value count as delivered. Plan and reasoning:
    * docs/research/v0.9.25-network-improvements.md.
    *
+   * Also drops what is not this client's: chat addressed to others and other players'
+   * knockback_state. Returns a new array the caller owns.
+   *
    * The shared events are never changed (the demo records them after the broadcast); a client
    * that is left without the roster gets a copied match_state saying so with `rosterOmitted`.
    */
@@ -245,6 +239,9 @@ export class SnapshotBroadcaster {
     const own = toClientKey(client.entityId);
     const out: GameState["events"] = [];
     for (const event of events) {
+      // Addressed chat goes to its recipients; knockback only to its owner
+      if (!chatVisibleTo(event, own)) continue;
+      if (event.type === "knockback_state" && event.entityId !== own) continue;
       if (event.type === "weapon_state" && event.entityId !== own && !needs(weaponKey(event.entityId))) {
         continue;
       }
@@ -303,7 +300,7 @@ export class SnapshotBroadcaster {
     filtered.serverTimestamp = state.serverTimestamp;
     filtered.ackedInputSeq = state.ackedInputSeq;
     filtered.players = state.players;
-    filtered.events = [...state.events];
+    filtered.events = state.events; // shared; leaveOutKnown builds each client's own list
     filtered.pickupActiveMask = state.pickupActiveMask; // global, not PVS-filtered
     filtered.matchSnapshot = state.matchSnapshot;
 
