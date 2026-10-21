@@ -2,6 +2,8 @@ import { writePreference } from "../../../engine/core/PreferenceStorage";
 import { InputSystem } from "../../../engine/input/InputSystem";
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import { DEFAULT_FPS_MOVEMENT_CONFIG } from "../simulation/MovementProfile";
+import terms from "../TERMS.md?raw";
+import { renderMarkdown } from "./credits/MarkdownLite";
 import { FPS } from "./FPSActions";
 import settingsCSS from "./settings/FPSSettingsView.css?raw";
 import { createInputDiagram } from "./settings/InputDiagram";
@@ -10,9 +12,23 @@ import { codesFor, inputName, SETTINGS_ACTIONS } from "./settings/SettingsModel"
 import welcomeCSS from "./styles/LobbyWelcomeDialog.css?raw";
 
 export const WELCOME_PREFERENCE = "washoi.welcome.hideAutomatically";
+/** Holds the TERMS_VERSION the player agreed to. */
+export const TERMS_PREFERENCE = "washoi.terms.agreed";
+/** The terms' "Last Updated" date: new terms ask again. */
+export const TERMS_VERSION = /\*\*Last Updated:\*\*\s*(.+)/.exec(terms)?.[1].trim() ?? "";
+
+export function termsAgreed(): boolean {
+  try {
+    return localStorage.getItem(TERMS_PREFERENCE) === TERMS_VERSION;
+  } catch {
+    return false;
+  }
+}
+
+/** The guide opens by itself unless the player turned that off; never before they agreed to the terms. */
 export function welcomeIsHidden(): boolean {
   try {
-    return localStorage.getItem(WELCOME_PREFERENCE) === "true";
+    return termsAgreed() && localStorage.getItem(WELCOME_PREFERENCE) === "true";
   } catch {
     return false;
   }
@@ -43,6 +59,10 @@ export class LobbyWelcomeDialog {
   private readonly setup = button("lobby-guide__button lobby-guide__setup", "Go to keyboard setup");
   private readonly preference = el("label", "lobby-guide__preference");
   private readonly saveStatus = el("span", "lobby-guide__save-status");
+  private readonly agree = document.createElement("input");
+  private readonly agreeLabel = el("label", "lobby-guide__preference lobby-guide__agree");
+  /** Until the terms are agreed to, the guide stays on its first page and cannot be closed. */
+  private agreed = termsAgreed();
   private readonly previousFocus = document.activeElement as HTMLElement | null;
   private readonly previousInert: boolean;
   private readonly previousBlur: boolean;
@@ -70,14 +90,14 @@ export class LobbyWelcomeDialog {
     document.body.style.overflow = "hidden";
     this.root.setAttribute("role", "dialog");
     this.root.setAttribute("aria-modal", "true");
-    this.root.setAttribute("aria-label", "Welcome to Washoi ALPHA and movement tips");
+    this.root.setAttribute("aria-label", "Welcome to Washoi ALPHA, terms of service and movement tips");
     const header = el("header", "lobby-guide__header");
     header.append(el("span", "lobby-guide__eyebrow", "WASHOI / READY TO PLAY"), el("h1", "", "Find your flow."));
     const tablist = el("div", "lobby-guide__tabs");
     tablist.setAttribute("role", "tablist");
     tablist.setAttribute("aria-label", "Welcome guide");
     const content = el("div", "lobby-guide__content");
-    const names = ["Welcome to Washoi ALPHA", "Your keys", "Tip of the day"];
+    const names = ["Welcome & terms", "Your keys", "Tip of the day"];
     names.forEach((name, index) => {
       const tab = button("lobby-guide__tab", `${index + 1}. ${name}`);
       tab.id = `lobby-guide-tab-${index}`;
@@ -111,8 +131,12 @@ export class LobbyWelcomeDialog {
     this.preference.append(checkbox, prefText);
     this.saveStatus.setAttribute("role", "status");
     this.setup.addEventListener("click", options.onSetup);
-    this.next.addEventListener("click", () => (this.tab === 2 ? options.onClose() : this.select(this.tab + 1)));
-    footer.append(this.setup, this.preference, this.next);
+    this.next.addEventListener("click", () => {
+      if (!this.agreed) return;
+      if (this.tab === 2) options.onClose();
+      else this.select(this.tab + 1);
+    });
+    footer.append(this.setup, this.agreeLabel, this.preference, this.next);
     this.card.append(header, tablist, content, this.saveStatus, footer);
     this.root.append(this.card);
     document.body.append(this.root);
@@ -121,7 +145,7 @@ export class LobbyWelcomeDialog {
     window.addEventListener("keydown", this.onKey, true);
     window.addEventListener("keyup", this.onKeyUp, true);
     document.addEventListener("focusin", this.onFocus, true);
-    this.select(options.tab ?? 0);
+    this.select(this.agreed ? (options.tab ?? 0) : 0);
     this.tabs[this.tab].focus();
   }
 
@@ -131,11 +155,24 @@ export class LobbyWelcomeDialog {
       el(
         "p",
         "",
-        "Welcome to Washoi ALPHA, an arena shooter where movement makes the difference. Chain jumps, slide through corners and push off walls to keep your momentum.",
+        "Welcome to Washoi ALPHA, an arena shooter where movement makes the difference. Before your first match, please read our terms: everything played on our servers is public.",
       ),
-      el("p", "", "Pick a match in the lobby, experiment with your movement, and find your flow."),
-      el("p", "lobby-guide__muted", "Here's a quick look at your controls and a few tricks to get you started."),
     );
+    const termsBox = el("div", "lobby-guide__terms");
+    termsBox.tabIndex = 0;
+    termsBox.setAttribute("aria-label", "Terms of service");
+    termsBox.append(renderMarkdown(terms, { headingOffset: 2 }));
+    this.agree.type = "checkbox";
+    this.agree.checked = this.agreed;
+    this.agree.addEventListener("change", () => {
+      this.agreed = this.agree.checked;
+      const saved = writePreference(TERMS_PREFERENCE, this.agreed ? TERMS_VERSION : "");
+      this.saveStatus.textContent =
+        saved || !this.agreed ? "" : "Your agreement couldn't be saved. The terms will be asked again next time.";
+      this.select(this.tab);
+    });
+    this.agreeLabel.append(this.agree, el("span", "", "I agree to the terms of service"));
+    this.panels[0].append(termsBox);
     const diagram = createInputDiagram();
     diagram.refresh();
     const preview = el("div", "fps-set-view lobby-guide__preview");
@@ -192,17 +229,21 @@ export class LobbyWelcomeDialog {
     this.tab = tab;
     this.options.onTab(tab);
     this.tabs.forEach((key, index) => {
+      key.disabled = index > 0 && !this.agreed;
       key.setAttribute("aria-selected", String(index === tab));
       key.tabIndex = index === tab ? 0 : -1;
       this.panels[index].hidden = index !== tab;
     });
     this.next.textContent = tab === 2 ? "Close" : "Next »";
+    this.next.disabled = !this.agreed;
+    this.next.title = this.agreed ? "" : "Agree to the terms to continue";
     this.next.setAttribute(
       "aria-label",
       tab === 2 ? "Close welcome guide" : `Next: ${tab === 0 ? "Your keys" : "Tip of the day"}`,
     );
     this.setup.hidden = tab !== 1;
     this.preference.hidden = tab !== 2;
+    this.agreeLabel.hidden = tab !== 0;
     this.card.querySelector(".lobby-guide__content")!.scrollTop = 0;
   }
 
@@ -227,7 +268,7 @@ export class LobbyWelcomeDialog {
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopImmediatePropagation();
-      this.options.onClose();
+      if (this.agreed) this.options.onClose();
       return;
     }
     if (event.key === "Tab") {
@@ -240,6 +281,7 @@ export class LobbyWelcomeDialog {
       const direction = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
       if (direction || event.key === "Home" || event.key === "End") {
         event.preventDefault();
+        if (!this.agreed) return;
         this.select(event.key === "Home" ? 0 : event.key === "End" ? 2 : (this.tab + direction + 3) % 3);
         this.tabs[this.tab].focus();
       }

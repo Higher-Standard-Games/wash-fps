@@ -5,7 +5,7 @@ import { InputSystem } from "../../../../engine/input/InputSystem";
 import { DEFAULT_FPS_MOVEMENT_CONFIG } from "../../simulation/MovementProfile";
 import { FPS, registerFPSActions } from "../FPSActions";
 import { LobbyPanel } from "../LobbyPanel";
-import { WELCOME_PREFERENCE, welcomeIsHidden } from "../LobbyWelcomeDialog";
+import { TERMS_PREFERENCE, TERMS_VERSION, WELCOME_PREFERENCE, welcomeIsHidden } from "../LobbyWelcomeDialog";
 import { LobbyWelcomeGuide, type WelcomeBootState } from "../LobbyWelcomeGuide";
 
 let root: HTMLElement, guide: LobbyWelcomeGuide, state: WelcomeBootState, blocked: boolean, playPage: boolean;
@@ -25,6 +25,7 @@ beforeEach(() => {
   input.resetAllBindings();
   input.setContext("gameplay");
   localStorage.clear();
+  localStorage.setItem(TERMS_PREFERENCE, TERMS_VERSION);
   document.body.replaceChildren();
   document.body.style.overflow = "auto";
   root = document.createElement("div");
@@ -52,6 +53,49 @@ afterEach(() => {
   vi.restoreAllMocks();
   document.body.replaceChildren();
   document.body.style.overflow = "";
+});
+
+describe("the terms of service on the guide's first page", () => {
+  const agree = () => document.querySelector<HTMLInputElement>(".lobby-guide__agree input")!;
+  const nextKey = () => document.querySelector<HTMLButtonElement>(".lobby-guide__next")!;
+  const pressEscape = () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+
+  it("shows the terms and holds the player on them until they agree", () => {
+    localStorage.removeItem(TERMS_PREFERENCE);
+    start();
+    expect(TERMS_VERSION).toBe("October 21, 2026");
+    expect(document.querySelector(".lobby-guide__terms h3")?.textContent).toBe("Terms of Service");
+    expect(agree().checked).toBe(false);
+    expect(nextKey().disabled).toBe(true);
+    expect(document.querySelector<HTMLButtonElement>("#lobby-guide-tab-1")!.disabled).toBe(true);
+    pressEscape();
+    expect(dialog()).not.toBeNull();
+    expect(finished).not.toHaveBeenCalled();
+
+    agree().click();
+    expect(localStorage.getItem(TERMS_PREFERENCE)).toBe(TERMS_VERSION);
+    expect(nextKey().disabled).toBe(false);
+    next();
+    expect(document.querySelector<HTMLElement>("#lobby-guide-panel-1")!.hidden).toBe(false);
+  });
+
+  it("asks again when the terms change, even with the guide turned off", () => {
+    localStorage.setItem(WELCOME_PREFERENCE, "true");
+    expect(welcomeIsHidden()).toBe(true);
+    localStorage.setItem(TERMS_PREFERENCE, "January 1, 2026");
+    expect(welcomeIsHidden()).toBe(false);
+    start();
+    expect(dialog()).not.toBeNull();
+    expect(agree().checked).toBe(false);
+  });
+
+  it("remembers an earlier agreement", () => {
+    start();
+    expect(agree().checked).toBe(true);
+    expect(nextKey().disabled).toBe(false);
+    pressEscape();
+    expect(finished).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("lobby welcome lifecycle", () => {
@@ -171,7 +215,9 @@ describe("lobby welcome lifecycle", () => {
     guide.help.click();
     next();
     next();
-    const checkbox = dialog()!.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    const checkbox = dialog()!.querySelector<HTMLInputElement>(
+      ".lobby-guide__preference:not(.lobby-guide__agree) input",
+    )!;
     expect(checkbox.checked).toBe(true);
     checkbox.click();
     expect(localStorage.getItem(WELCOME_PREFERENCE)).toBe("false");
@@ -188,7 +234,7 @@ describe("lobby welcome lifecycle", () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("denied");
     });
-    dialog()!.querySelector<HTMLInputElement>("input")!.click();
+    dialog()!.querySelector<HTMLInputElement>(".lobby-guide__preference:not(.lobby-guide__agree) input")!.click();
     expect(dialog()?.textContent).toContain("couldn't be saved");
     expect(localStorage.getItem(WELCOME_PREFERENCE)).toBeNull();
     next();
@@ -240,7 +286,9 @@ describe("lobby welcome lifecycle", () => {
     let nextKey = dialog()!.querySelector<HTMLButtonElement>(".lobby-guide__next")!;
     activate("Enter", nextKey);
     activate("Enter", nextKey);
-    const checkbox = dialog()!.querySelector<HTMLInputElement>("input")!;
+    const checkbox = dialog()!.querySelector<HTMLInputElement>(
+      ".lobby-guide__preference:not(.lobby-guide__agree) input",
+    )!;
     activate(" ", checkbox);
     expect(localStorage.getItem(WELCOME_PREFERENCE)).toBe("true");
     nextKey = dialog()!.querySelector<HTMLButtonElement>(".lobby-guide__next")!;

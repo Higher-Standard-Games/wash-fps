@@ -8,8 +8,9 @@ A walkthrough from opening the game to your first frag. If you already know Quak
 2. **Keep your account key.** Open **Profile** and use **Copy key** or **Save as file**. It is the only way to get your account back on another computer. See [Accounts](../multiplayer/lobby.md#accounts).
 3. On the **Play** stage pick a mode. For learning, **FFA** (free-for-all) is the most forgiving, and **Duel** is the classic 1 v 1.
 
-The welcome guide appears after account setup. It shows your current controls
-and movement tips; use **Go to keyboard setup** to adjust bindings. Reopen it
+The welcome guide appears after account setup. Its first page has the terms of
+service: tick **I agree to the terms of service** to continue. It then shows
+your current controls and movement tips; use **Go to keyboard setup** to adjust bindings. Reopen it
 anytime with **?** in the lobby's bottom-right footer.
 
 ## 2. Make practice easy: add bots
