@@ -325,8 +325,13 @@ export class PickupSystem extends Subsystem {
     // (health > 100) back toward 100 at 1 HP/s.
     if (tickNum % TICK_RATE === 0) {
       for (const player of state.entitiesByType(EntityType.Player)) {
-        if (player.health && !player.health.dead) {
-          player.health.health = decayOverheal(player.health.health, 1);
+        if (!player.health || player.health.dead) continue;
+        const health = decayOverheal(player.health.health, 1);
+        // Write through the copy-on-write handle (and only on a change): the
+        // entity from entitiesByType() may still be shared with an earlier tick
+        if (health !== player.health.health) {
+          const mutable = state.getEntityMut(player.id)?.health;
+          if (mutable) mutable.health = health;
         }
       }
     }
@@ -370,7 +375,9 @@ export class PickupSystem extends Subsystem {
           const before = player.health.armor;
           const after = armorAfterPickup(before, pickup.kind as ArmorKind);
           if (after <= before) continue; // full / no benefit — leave it
-          player.health.armor = after;
+          const mutable = state.getEntityMut(player.id)?.health;
+          if (!mutable) continue;
+          mutable.armor = after;
           this.consumePickup(pickup, player.id, tickNum);
           this.notifyPickup(player.id, pickup.type, pickup.kind);
           pickedUpThisTick = true;
@@ -380,7 +387,9 @@ export class PickupSystem extends Subsystem {
           const before = player.health.health;
           const after = healthAfterPickup(before, pickup.kind as HealthKind);
           if (after <= before) continue;
-          player.health.health = after;
+          const mutable = state.getEntityMut(player.id)?.health;
+          if (!mutable) continue;
+          mutable.health = after;
           this.consumePickup(pickup, player.id, tickNum);
           this.notifyPickup(player.id, pickup.type, pickup.kind);
           pickedUpThisTick = true;
@@ -389,15 +398,13 @@ export class PickupSystem extends Subsystem {
 
         // ── POWERUP: auto-pickup, always beneficial (re-taking extends it) ──
         if (pickup.type === "powerup") {
-          // `player` comes from entitiesByType() as Readonly<Entity>, so attaching
-          // a missing component needs the mutable handle. Players built by
-          // createPlayerEntity() already carry one; this covers anything else.
-          let powerups = player.powerups;
-          if (!powerups) {
-            const mut = state.getEntityMut(player.id);
-            if (!mut) continue;
-            powerups = mut.powerups = createPowerups();
-          }
+          // `player` comes from entitiesByType() as Readonly<Entity>: granting goes
+          // through the mutable handle, which also attaches a missing component.
+          // Players built by createPlayerEntity() already carry one.
+          const mut = state.getEntityMut(player.id);
+          if (!mut) continue;
+          mut.powerups ??= createPowerups();
+          const powerups = mut.powerups;
           grantPowerup(powerups, pickup.kind as PowerupKind, tickNum, TICK_RATE);
           this.consumePickup(pickup, player.id, tickNum);
           this.notifyPickup(player.id, pickup.type, pickup.kind);

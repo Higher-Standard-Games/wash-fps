@@ -21,6 +21,8 @@ function makePlayer(x = 0, y = 0, z = 0) {
 function makeState(player: ReturnType<typeof makePlayer>) {
   return {
     entitiesByType: (t: EntityType) => (t === EntityType.Player ? [player] : []),
+    // One copy, so writes through the copy-on-write handle land on `player`
+    getEntityMut: (id: string) => (id === player.id ? player : undefined),
     removeEntity: () => {},
   };
 }
@@ -293,5 +295,24 @@ describe("PickupSystem - items the mode leaves out", () => {
     }
     sys.resetForRound(70 * TICK_RATE);
     expect(sys.getActiveMask()[2]).toBe(false);
+  });
+});
+
+describe("PickupSystem - copy-on-write", () => {
+  it("heals the current tick's player without touching the previous tick's", async () => {
+    const { WorldState } = await import("@engine/server/core/WorldState");
+    const { createPlayerEntity } = await import("@engine/server/ecs/Entity");
+    const previous = new WorldState();
+    const body = createPlayerEntity(1 as never, 1 as never, { x: 0, y: 0, z: 0 });
+    body.health!.health = 50;
+    previous.addEntity(body);
+    const current = previous.nextTick(); // shares the entity until a write clones it
+
+    const sys = new PickupSystem();
+    sys.setPickupItems([healthEntry("medium")]);
+    sys.update(current, 0.008, 10 as never);
+
+    expect(current.getEntity(body.id)?.health?.health).toBe(75);
+    expect(previous.getEntity(body.id)?.health?.health).toBe(50);
   });
 });
