@@ -69,8 +69,8 @@ function playerEntity(
 function frame(tick: number, events: Array<Record<string, unknown>>, killerAirborne: boolean): GameState {
   const s = new GameState();
   s.tick = tick;
-  // Killer at height, moving fast upward (rocket-jump) and airborne on the kill.
-  s.entities.set("player_1", playerEntity("player_1", { x: 0, y: 200, z: 0 }, { x: 0, y: 220, z: 0 }, !killerAirborne));
+  // Killer at height, rising faster than any jump (a rocket jump) and airborne on the kill.
+  s.entities.set("player_1", playerEntity("player_1", { x: 0, y: 200, z: 0 }, { x: 0, y: 520, z: 0 }, !killerAirborne));
   s.entities.set("player_2", playerEntity("player_2", { x: 2000, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, true));
   s.events = events as GameState["events"];
   return s;
@@ -144,4 +144,57 @@ describe("Demo highlights pipeline (record → read → analyze)", () => {
     expect(h.tags).toContain("long_range");
     expect(h.type).toBe("airborne_frag");
   });
+
+  it("finds a wall-jump climb from a recorded demo's movement state", async () => {
+    const rec = new DemoRecorder({
+      map: "wdm7",
+      gametype: "duel",
+      tickRate: 125,
+      snapshotRate: 60,
+      outputDir: tmpDir,
+      minDurationMs: 0,
+    });
+    rec.addPlayer("1", "Jumper", "");
+    // Two seconds at 520 u/s in the air, a wall jump's charge a third of the way
+    // in, then a climb; the movement state goes through the real snapshot format
+    for (let tick = 0; tick <= 250; tick += 2) {
+      const charging = tick >= 80 && tick < 106;
+      const climb = tick < 106 ? 0 : Math.min(160, (tick - 106) * 2);
+      const s = new GameState();
+      s.tick = tick;
+      const e = playerEntity(
+        "player_1",
+        { x: tick * 4, y: 100 + climb, z: 0 },
+        charging ? { x: 0, y: 0, z: 0 } : { x: 520, y: 0, z: 0 },
+        false,
+      );
+      e.addComponent("movementState", {
+        isSliding: false,
+        isCrouching: false,
+        wallJumpState: charging ? "charging" : "none",
+        serialize: noop,
+        deserialize: noop,
+        clone() {
+          return { ...this };
+        },
+      });
+      s.entities.set("player_1", e);
+      rec.recordFrame(s);
+    }
+    const filepath = await rec.stop();
+    written.push(filepath);
+
+    const reader = new DemoReader(new Uint8Array(fs.readFileSync(filepath)));
+    const analysis = new DemoAnalyzer().analyze(
+      reader.readAllFrames(),
+      reader.readHeader(),
+      reader.readIndex().durationMs,
+    );
+    const move = analysis.highlights.find((h) => h.type === "movement");
+    expect(move).toBeDefined();
+    expect(move!.primaryPlayerName).toBe("Jumper");
+    expect(move!.tags).toEqual(expect.arrayContaining(["wall_jump", "height_gain"]));
+    expect(move!.path!.length).toBeGreaterThan(10);
+  });
 });
+
