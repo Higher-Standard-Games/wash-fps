@@ -162,6 +162,8 @@ const PLAYER_SEPARATION_BOUNDS = {
 };
 const PLAYER_SEPARATION_COLLISION_EPSILON = 0.02;
 
+const LIFT_RIDER_TYPES = [EntityType.Player, EntityType.Item] as const;
+
 export class FPSMovementSubsystem extends Subsystem {
   private collisionWorld: CollisionWorld | null = null;
 
@@ -739,8 +741,10 @@ export class FPSMovementSubsystem extends Subsystem {
       const actors: LiftActor[] = [];
       // Anything with a body rides, so corpses and dropped weapons travel with
       // the floor instead of hanging in the air. Only a live player calls a lift.
-      for (const type of [EntityType.Player, EntityType.Item])
+      for (const type of LIFT_RIDER_TYPES)
         for (const entity of state.entitiesByType(type)) {
+          // Check before taking a writable copy: most items have no body.
+          if (!entity.transform || !entity.physics) continue;
           const mutable = state.getEntityMut(entity.id);
           if (!mutable?.transform || !mutable.physics) continue;
           actors.push({

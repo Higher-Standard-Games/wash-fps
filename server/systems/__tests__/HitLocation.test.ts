@@ -102,6 +102,17 @@ describe("merging damage that lands as one number", () => {
     expect(combat.getProcessedDamage()[0].hitLocation).toBe(HitLocation.Legs);
   });
 
+  it("merges hits from every tick since the last snapshot, as one number", () => {
+    const { combat, state, pellet } = combatWithVictim();
+    pellet(HitLocation.Body);
+    combat.update(state as never, 0.008, 5 as never);
+    pellet(HitLocation.Body);
+    combat.update(state as never, 0.008, 6 as never);
+    const processed = combat.getProcessedDamage();
+    expect(processed).toHaveLength(1);
+    expect(processed[0].damage).toBe(20);
+  });
+
   it("reports body for a single ordinary hit", () => {
     const { combat, state, pellet } = combatWithVictim();
     pellet(HitLocation.Body);

@@ -225,6 +225,10 @@ export class CombatSystem extends Subsystem {
    * Contains final damage values (after location multipliers).
    */
   getProcessedDamage(): readonly ProcessedDamage[] {
+    // Merged here, once per snapshot, rather than every tick: the buffer only
+    // empties at the snapshot rate, so merging per tick re-merged everything
+    // gathered so far on every tick in between, for the same result.
+    this.aggregateProcessedDamage();
     return this.processedDamage;
   }
 
@@ -267,9 +271,8 @@ export class CombatSystem extends Subsystem {
     }
     this.pendingDamage = [];
 
-    // Aggregate same-tick damage to the same victim from the same attacker+type
-    // (merges 20 pellet hits into one combined damage number for client display)
-    this.aggregateProcessedDamage();
+    // Damage to the same victim from the same attacker+type is merged when the
+    // snapshot reads it (getProcessedDamage), so 20 pellets show as one number.
     // NOTE: Respawning is now handled by GametypeController.postTick()
   }
 
