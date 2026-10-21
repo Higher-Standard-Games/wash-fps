@@ -28,7 +28,7 @@ import type { BspEntity, BspModel } from "../../../engine/loader/bsp/BspLoader";
 // Protocol (client-compatible)
 import { MessageCodec, MessageType } from "../../../engine/network/protocol/MessageCodec";
 import type { CollisionWorld } from "../../../engine/network/systems/collision/CollisionWorld";
-import { filterChatText } from "../../../engine/server/ChatFilter";
+import { filterChatText, filterPlayerName } from "../../../engine/server/ChatFilter";
 // PVS (Potentially Visible Set) for network culling
 import { ServerPVS, type ServerPVSData } from "../../../engine/server/ServerPVS";
 import type { PickupEntry } from "../../../shared/bsp/PickupTable";
@@ -1586,7 +1586,7 @@ export class GameServer {
         connection: conn,
         playerId: pid,
         entityId: eid,
-        playerName: grant?.name ?? (playerName || `Player ${pid}`),
+        playerName: filterPlayerName(grant?.name ?? (playerName || `Player ${pid}`)),
         accountId: grant?.accountId,
         seatTeam: grant?.team,
         preGameAdmissionGrant: grant ?? undefined,

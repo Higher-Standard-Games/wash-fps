@@ -57,12 +57,16 @@ lobby log shows the last 50 messages and keeps up to 100.
 ## Rules
 
 - Messages are limited to **128 characters**.
-- Lobby, room and match chat mask recognized English profanity as `***` on the
-  server, including private rooms, team chat and spectator chat. Names are
-  unchanged. The sender sees the same masked text as everyone else; new chat
+- Lobby, room and match chat replace recognized English profanity on the
+  server with a fun word: a Japanese noodle, a fruit or a silly animal ("What
+  the duck is this?!"). This covers private rooms, team chat and spectator chat.
+  The sender sees the same filtered text as everyone else; new chat
   histories and demo recordings store it too. This is a word filter, not a
   guarantee against harassment or deliberately disguised words. A small list of
   strong terms also matches inside words, so adding a letter does not hide them.
+- **Player names** go through the same filter. A name it catches can't be
+  picked, and one taken earlier shows to everyone as a silly name of its own,
+  such as Soggy_Ramen, the same one every time.
 - There's a light rate limit (roughly one message per 0.6s, with a short-burst cap) to stop spam. Over-limit messages are quietly dropped.
 - The server sanitizes and re-broadcasts every message, so what you see is authoritative. There is no local echo — your own message appears when the server sends it back (one snapshot later, effectively instant).
 

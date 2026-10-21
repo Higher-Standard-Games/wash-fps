@@ -1,6 +1,7 @@
 import { afterEach, expect, it } from "vitest";
 import { MessageType } from "../../../../engine/network/protocol/BinaryProtocol";
 import { MessageCodec } from "../../../../engine/network/protocol/MessageCodec";
+import { FUN_WORDS } from "../../../../engine/server/ChatFilter";
 import { GameServer } from "../GameServer";
 import { Deathmatch } from "../gametypes/Deathmatch";
 import { TeamDeathmatch } from "../gametypes/TeamDeathmatch";
@@ -13,12 +14,14 @@ afterEach(async () => {
   clients.length = 0;
   await server?.stop();
 });
+// A filtered word becomes a random fun word; read each back as *** to compare
+const funWord = new RegExp(`\\b(?:${FUN_WORDS.join("|")})`, "g");
 const chatTexts = (client: ProtocolTestClient) =>
   client.frames.flatMap((frame) => {
     if (frame[0] !== MessageType.Snapshot) return [];
     return MessageCodec.decodeSnapshot(frame)
       .events.filter((event) => event.type === "chat")
-      .map((event) => event.text);
+      .map((event) => event.text.replace(funWord, "***"));
   });
 async function join(name: string, play = true) {
   const client = await ProtocolTestClient.connect(server.getPort());
