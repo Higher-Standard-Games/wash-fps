@@ -197,4 +197,3 @@ describe("Demo highlights pipeline (record → read → analyze)", () => {
     expect(move!.path!.length).toBeGreaterThan(10);
   });
 });
-
