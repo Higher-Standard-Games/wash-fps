@@ -107,6 +107,9 @@ export class DemoService {
   private readonly chargingPlayers = new Set<string>();
   private readonly chargingGlows = new Map<string, PointLight>();
   private lastEffectTick: number | null = null;
+  /** The demo's playhead in seconds, as the shared effects age by it. */
+  private demoEffectSeconds = 0;
+  private readonly demoEffectClock = (): number => this.demoEffectSeconds;
 
   // Demo spectator state
   private _followedEntityId: string | null = null;
@@ -585,6 +588,7 @@ export class DemoService {
     this._enemyWeapons.clear();
     this._clearDemoProjectiles();
     clearDemoWorldEffects();
+    getHitscanEffects().setPresentationClock(null);
 
     this._demoWvm?.dispose();
     this._demoWvm = null;
@@ -705,6 +709,10 @@ export class DemoService {
     // weapon_fire / projectile_impact / weapon_chain events render (these guard
     // on a scene being set and no-op otherwise).
     getHitscanEffects().init(scene);
+    // Beams, rails and flashes age on the demo's clock: in a reel's slow motion
+    // a lightning beam's updates arrive slowed down too, and on the wall clock
+    // it faded out between them
+    getHitscanEffects().setPresentationClock(this.demoEffectClock);
     getExplosionEffect().init(scene);
     getProjectileManager().init(scene);
     await preloadFPSAudio();
@@ -1165,6 +1173,7 @@ export class DemoService {
   private _syncDemoPresentationClock(playback: DemoViewerInfo): boolean {
     const tickRate = playback.header?.tickRate ?? 60;
     const discontinuous = this.demoEventTimeline.setClock(playback.playheadTick, tickRate, playback.discontinuityId);
+    this.demoEffectSeconds = playback.playheadTick / (tickRate > 0 ? tickRate : 60);
 
     if (discontinuous) {
       this.demoReloadAudio.reset();

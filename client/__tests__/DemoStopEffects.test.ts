@@ -21,4 +21,13 @@ describe("stopping a demo", () => {
     expect(hitscan).toHaveBeenCalled();
     expect(explosions).toHaveBeenCalled();
   });
+
+  it("gives the shared effects back the wall clock", () => {
+    getHitscanEffects().setPresentationClock(() => 42);
+    const clock = vi.spyOn(getHitscanEffects(), "setPresentationClock");
+
+    DemoService.getInstance().stopAll();
+
+    expect(clock).toHaveBeenCalledWith(null);
+  });
 });
