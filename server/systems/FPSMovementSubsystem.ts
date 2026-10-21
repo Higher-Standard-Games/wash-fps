@@ -788,7 +788,7 @@ export class FPSMovementSubsystem extends Subsystem {
 
       // Get mutable entity (COW)
       const mutable = state.getEntityMut(entity.id);
-      if (!mutable || !mutable.transform || !mutable.physics || !mutable.input) continue;
+      if (!mutable?.transform || !mutable.physics || !mutable.input) continue;
 
       const input = mutable.input;
 

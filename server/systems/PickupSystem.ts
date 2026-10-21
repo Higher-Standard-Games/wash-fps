@@ -15,7 +15,7 @@
 import { Subsystem, type SubsystemConfig } from "@engine/server/core/Subsystem";
 import type { WorldState } from "@engine/server/core/WorldState";
 import type { EntityId, TickNumber } from "@engine/server/ecs/types";
-import { EntityType } from "@engine/server/ecs/types";
+import { EntityType, entityId } from "@engine/server/ecs/types";
 import type { ItemRespawnMode } from "@shared/server/gametype";
 import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulation/physics/constants";
 // Shared pickup table (client+server agree on ids) + pure grant math.
@@ -292,7 +292,7 @@ export class PickupSystem extends Subsystem {
         events.push({
           pickupId: pickup.id,
           weaponId: pickup.type === "weapon" || pickup.type === "ammo" ? pickup.kind : "",
-          entityId: 0 as any, // Not relevant for initial state
+          entityId: entityId(0), // Not relevant for initial state
           x: pickup.position.x,
           y: pickup.position.y,
           z: pickup.position.z,

@@ -10,19 +10,24 @@
 
 import type { Scene } from "@babylonjs/core/scene";
 import { logRejection } from "../../../engine/core/AsyncErrors";
+import type { DamageOverlay } from "../../../engine/ui/hud/DamageOverlay";
+import type { CartoonHitEffect } from "./CartoonHitEffect";
+import type { DamageNumbers } from "./DamageNumbers";
 import { devLog } from "./DevLog";
 import { FPSReloadAudio } from "./FPSReloadAudio";
+import type { GibSystem } from "./GibSystem";
+import type { RagdollSystem } from "./RagdollSystem";
 
 export class FrameEffects {
   readonly reloadAudio = new FPSReloadAudio();
-  gibSystem: any = null;
+  gibSystem: GibSystem | null = null;
   private gibSystemLoading = false; // true while import() is pending
   pendingGibSpawns: { x: number; y: number; z: number; vx: number; vy: number; vz: number }[] = [];
-  private damageNumbers: any = null;
-  private damageOverlay: any = null;
-  ragdollSystem: any = null;
+  private damageNumbers: DamageNumbers | null = null;
+  private damageOverlay: DamageOverlay | null = null;
+  ragdollSystem: RagdollSystem | null = null;
   private ragdollSystemLoading = false;
-  cartoonHit: any = null;
+  cartoonHit: CartoonHitEffect | null = null;
   private cartoonHitLoading = false;
 
   /** @param scene the game scene, read when a system finishes loading. */

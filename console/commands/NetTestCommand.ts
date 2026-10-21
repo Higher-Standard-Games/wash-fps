@@ -388,7 +388,9 @@ export default class NetTestCommand extends Command {
       }
 
       // Subscribe to state updates
-      let lastUpdate: import("../../Game").PlayerStateUpdate | null = null;
+      // Asserted rather than annotated: the callback assigns it, which flow
+      // analysis does not see, so an annotated `null` would stay narrowed to null.
+      let lastUpdate = null as import("../../Game").PlayerStateUpdate | null;
       gameManager.onPlayerStateUpdate((state) => {
         lastUpdate = state;
       });
@@ -421,7 +423,7 @@ export default class NetTestCommand extends Command {
       // Show last state update
       if (lastUpdate) {
         lines.push(
-          `Last state update: (${(lastUpdate as any).position.x.toFixed(2)}, ${(lastUpdate as any).position.y.toFixed(2)}, ${(lastUpdate as any).position.z.toFixed(2)})`,
+          `Last state update: (${lastUpdate.position.x.toFixed(2)}, ${lastUpdate.position.y.toFixed(2)}, ${lastUpdate.position.z.toFixed(2)})`,
         );
       }
 

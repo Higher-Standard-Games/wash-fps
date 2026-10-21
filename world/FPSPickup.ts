@@ -47,7 +47,7 @@ export interface FPSPickupOptions extends PickupOptions {
 
 export class FPSPickup extends Pickup {
   // Narrow the inherited options type.
-  protected declare options: FPSPickupOptions;
+  declare protected options: FPSPickupOptions;
 
   // ═════════════════════════════════════════════════════════════════
   // STATIC: pickup registry (for server-authoritative active-set reconcile)
@@ -78,7 +78,6 @@ export class FPSPickup extends Pickup {
     instas: "gfx/hud/icons/ammo/instaammo",
   };
 
-  // biome-ignore lint/complexity/noUselessConstructor: narrows options to FPSPickupOptions
   constructor(name: string, scene: Scene, position: Vector3, options: FPSPickupOptions) {
     super(name, scene, position, options);
   }

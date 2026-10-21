@@ -75,7 +75,7 @@ export class CharacterPhysicsSystem extends Subsystem {
 
       // Get mutable entity (COW)
       const mutable = state.getEntityMut(entity.id);
-      if (!mutable || !mutable.transform || !mutable.physics || !mutable.input) continue;
+      if (!mutable?.transform || !mutable.physics || !mutable.input) continue;
 
       const input = mutable.input;
       const physics = mutable.physics;

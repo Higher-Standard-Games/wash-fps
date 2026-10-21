@@ -7,6 +7,8 @@
 
 import { Cvar } from "../../../engine/core/Cvar";
 import { devLog } from "../../../engine/core/DevLog";
+import type { GameEvent } from "../../../engine/network/core/GameState";
+import type { MatchStateEvent } from "../../../engine/network/core/SnapshotEvent";
 import { getCollisionManager } from "../../../engine/physics/CollisionManager";
 import type {
   BombExplosionEvent,
@@ -23,9 +25,15 @@ import type {
 import { MatchPhase } from "../../../shared/server/gametype/GametypeTypes";
 import type { LoadoutMode } from "../../../shared/server/gametype/Loadout";
 
-export { MatchPhase };
-export type { BombExplosionEvent, BombObjectiveSnapshot, MatchWinner, ObjectiveSnapshot, RoundResult };
 export type { MatchStateSnapshot } from "../../../shared/server/gametype/GametypeTypes";
+export type { BombExplosionEvent, BombObjectiveSnapshot, MatchWinner, ObjectiveSnapshot, RoundResult };
+export { MatchPhase };
+
+/**
+ * A match_state event as the client receives it. SnapshotBroadcaster marks the
+ * copy it sends without the roster with `rosterOmitted`.
+ */
+type ReceivedMatchState = MatchStateEvent & { rosterOmitted?: boolean };
 
 export type PhaseChangeCallback = (newPhase: MatchPhase, oldPhase: MatchPhase) => void;
 
@@ -88,8 +96,9 @@ export class MatchStateManager {
    * Process a match_state event from snapshot.
    * Called by Game when it receives state updates.
    */
-  processEvent(event: any): void {
-    if (event.type !== "match_state") return;
+  processEvent(received: GameEvent): void {
+    if (received.type !== "match_state") return;
+    const event = received as ReceivedMatchState;
 
     const oldPhase = this._phase;
     this._phase = event.phase ?? MatchPhase.Warmup;

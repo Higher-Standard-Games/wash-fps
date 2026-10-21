@@ -34,10 +34,15 @@ const _noopSerialize = () => ({});
 const _noopDeserialize = () => {
   /* no-op */
 };
-function _shallowClone(this: any) {
+interface XYZ {
+  x: number;
+  y: number;
+  z: number;
+}
+function _shallowClone<T extends object>(this: T): T {
   return { ...this };
 }
-function _transformClone(this: any) {
+function _transformClone(this: { position: XYZ; rotation: XYZ & { w: number } }) {
   return {
     position: { ...this.position },
     rotation: { ...this.rotation },
@@ -46,7 +51,7 @@ function _transformClone(this: any) {
     clone: _transformClone,
   };
 }
-function _velocityClone(this: any) {
+function _velocityClone(this: XYZ & { linear: XYZ; angular: XYZ; grounded: boolean }) {
   return {
     x: this.x,
     y: this.y,

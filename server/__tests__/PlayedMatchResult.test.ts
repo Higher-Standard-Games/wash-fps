@@ -262,31 +262,31 @@ describe("played match result over real sockets", () => {
     expect(matchRatingGroups(snapshot)).toMatchObject({ status: "applied" });
   });
 
-  it.each([
-    "duel",
-    "amphi",
-  ] as const)("declares a %s forfeit only after grace, preserving scores and both seats", async (mode) => {
-    const { match, ids, expected } = await setup(mode, 2);
-    match.addTeamScore("udon", 5);
-    await clients[0].close();
-    await vi.waitFor(() => expect(sessions().size).toBe(1));
-    expect(match.phase).toBe(MatchPhase.Active);
-    expect(reports).toHaveLength(0);
-    await expire([ids[0]]);
-    const report = await final(expected);
-    expect(report.details?.completion).toBe("forfeit");
-    expect(report.participants).toMatchObject([
-      { accountId: 10, score: 5, outcome: "loss" },
-      { accountId: 11, score: 0, outcome: "win" },
-    ]);
-    expect(report.details?.seats).toMatchObject([
-      { forfeited: true, disconnected: true, placement: 2, participationInterrupted: false },
-      { forfeited: false, disconnected: false, placement: 1, participationInterrupted: false },
-    ]);
-    expect(match.winner).toMatchObject({ kind: "team", id: "soba" });
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(reports).toHaveLength(1);
-  });
+  it.each(["duel", "amphi"] as const)(
+    "declares a %s forfeit only after grace, preserving scores and both seats",
+    async (mode) => {
+      const { match, ids, expected } = await setup(mode, 2);
+      match.addTeamScore("udon", 5);
+      await clients[0].close();
+      await vi.waitFor(() => expect(sessions().size).toBe(1));
+      expect(match.phase).toBe(MatchPhase.Active);
+      expect(reports).toHaveLength(0);
+      await expire([ids[0]]);
+      const report = await final(expected);
+      expect(report.details?.completion).toBe("forfeit");
+      expect(report.participants).toMatchObject([
+        { accountId: 10, score: 5, outcome: "loss" },
+        { accountId: 11, score: 0, outcome: "win" },
+      ]);
+      expect(report.details?.seats).toMatchObject([
+        { forfeited: true, disconnected: true, placement: 2, participationInterrupted: false },
+        { forfeited: false, disconnected: false, placement: 1, participationInterrupted: false },
+      ]);
+      expect(match.winner).toMatchObject({ kind: "team", id: "soba" });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(reports).toHaveLength(1);
+    },
+  );
 
   it("marks simultaneous Duel departures as aborted, with no winner or forfeit", async () => {
     const { ids, expected } = await setup("duel", 2);

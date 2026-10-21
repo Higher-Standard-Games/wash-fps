@@ -40,29 +40,29 @@ describe("truthful settings persistence", () => {
     await vi.waitFor(() => expect(on.getAttribute("aria-pressed")).toBe("true"));
     expect(document.documentElement.requestFullscreen).toHaveBeenCalledTimes(2);
   });
-  it.each([
-    "cvars",
-    "bindings",
-  ])("shows a session-only status after failed %s writes and clears it after success", (kind) => {
-    view = new FPSSettingsView();
-    document.body.append(view.getElement());
-    const saved = view.getElement().querySelector<HTMLElement>(".fps-set-saved")!;
-    const blocked = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new DOMException("Storage denied", "SecurityError");
-    });
-    if (kind === "cvars") Cvar.set("m_sensitivity", Cvar.getNumber("m_sensitivity") + 0.25);
-    else InputSystem.getInstance().rebind(FPS.JUMP, [{ key: "KeyP" }]);
-    expect(saved.textContent).toContain("could not save");
-    expect(saved.title).toContain("reload");
-    expect(saved.classList.contains("is-session-only")).toBe(true);
-    if (kind === "bindings")
-      expect(InputSystem.getInstance().getBindingsForAction(FPS.JUMP)).toEqual([{ key: "KeyP" }]);
-    blocked.mockRestore();
-    if (kind === "cvars") Cvar.set("m_sensitivity", Cvar.getNumber("m_sensitivity") + 0.25);
-    else InputSystem.getInstance().resetBinding(FPS.JUMP);
-    expect(saved.textContent).toBe("Saved as you go");
-    view.destroy();
-    writePreference("engine_cvars", "{}");
-    expect(saved.textContent).toBe("Saved as you go");
-  });
+  it.each(["cvars", "bindings"])(
+    "shows a session-only status after failed %s writes and clears it after success",
+    (kind) => {
+      view = new FPSSettingsView();
+      document.body.append(view.getElement());
+      const saved = view.getElement().querySelector<HTMLElement>(".fps-set-saved")!;
+      const blocked = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+        throw new DOMException("Storage denied", "SecurityError");
+      });
+      if (kind === "cvars") Cvar.set("m_sensitivity", Cvar.getNumber("m_sensitivity") + 0.25);
+      else InputSystem.getInstance().rebind(FPS.JUMP, [{ key: "KeyP" }]);
+      expect(saved.textContent).toContain("could not save");
+      expect(saved.title).toContain("reload");
+      expect(saved.classList.contains("is-session-only")).toBe(true);
+      if (kind === "bindings")
+        expect(InputSystem.getInstance().getBindingsForAction(FPS.JUMP)).toEqual([{ key: "KeyP" }]);
+      blocked.mockRestore();
+      if (kind === "cvars") Cvar.set("m_sensitivity", Cvar.getNumber("m_sensitivity") + 0.25);
+      else InputSystem.getInstance().resetBinding(FPS.JUMP);
+      expect(saved.textContent).toBe("Saved as you go");
+      view.destroy();
+      writePreference("engine_cvars", "{}");
+      expect(saved.textContent).toBe("Saved as you go");
+    },
+  );
 });

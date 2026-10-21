@@ -26,8 +26,8 @@ export function createBSPCollisionWorld(): CollisionWorld | null {
   }
 
   // Extract the Q3 sweep collision backend
-  const backend = (cm as any).backends?.get("q3");
-  if (!backend || typeof backend.stepSlideMove !== "function") {
+  const backend = cm.getSweepBackend();
+  if (!backend) {
     console.warn("[BSPCollisionWorld] Q3 backend not available");
     return null;
   }

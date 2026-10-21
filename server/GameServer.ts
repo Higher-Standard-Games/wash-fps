@@ -1303,7 +1303,7 @@ export class GameServer {
     while (this.challengersQueue.length > 0) {
       const nextConnId = this.challengersQueue.shift()!;
       const nextClient = this.clients.get(nextConnId);
-      if (!nextClient || !nextClient.isSpectator) continue; // disconnected or already playing
+      if (!nextClient?.isSpectator) continue; // disconnected or already playing
 
       // Find the connection object
       const nextConn = nextClient.connection;

@@ -42,7 +42,7 @@ export class FPSSimulation extends Simulation<GameState, FPSInputCommand> {
   // ES2022 class field initializers run AFTER super() returns, which would overwrite
   // the value set during registerSystems(). By using 'declare', we tell TypeScript
   // the field exists but don't emit any initialization code.
-  private declare movementSystem: MovementSystem;
+  declare private movementSystem: MovementSystem;
   private pendingCollisionWorld: CollisionWorld | null = null;
   private spawnPoints: Array<{ x: number; y: number; z: number }> = [];
   private nextEntityId: number = 1;

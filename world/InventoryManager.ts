@@ -254,7 +254,7 @@ export class InventoryManager {
    */
   public needsReload(weaponId: string): boolean {
     const def = this.weapons.get(weaponId);
-    if (!def || def.reloadModel !== "clip" || !def.clipSize) return false;
+    if (def?.reloadModel !== "clip" || !def.clipSize) return false;
 
     this.ensureWeaponState(weaponId, def.clipSize);
     const state = this.weaponStates.get(weaponId)!;

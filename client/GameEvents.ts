@@ -14,7 +14,7 @@ import type { TargetCamera } from "@babylonjs/core/Cameras/targetCamera";
 import { PointLight } from "@babylonjs/core/Lights/pointLight";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
-import { disposePlayerModel } from "../../../engine/animation/PlayerModelManager";
+import { disposePlayerModel, type PlayerModelInstance } from "../../../engine/animation/PlayerModelManager";
 import { CameraSystem } from "../../../engine/camera";
 import { logRejection } from "../../../engine/core/AsyncErrors";
 import { log } from "../../../engine/core/Log";
@@ -58,6 +58,7 @@ import { canonicalWeaponId, WEAPONS } from "../../../shared/entities/definitions
 import { DEFAULT_PHYSICS_TICK_RATE } from "../../../shared/server/simulation/physics/constants";
 import { toClientKey } from "../ClientEntityKey";
 import type { ServerSnapshot, V2NetworkClient } from "../client";
+import type { CartoonHitEffect } from "../client/CartoonHitEffect";
 import { Crosshair } from "../client/Crosshair";
 import { DamageNumbers } from "../client/DamageNumbers";
 import type { DroppedWeaponInfo, DroppedWeaponRenderer } from "../client/DroppedWeaponRenderer";
@@ -94,7 +95,9 @@ import { devLog } from "./DevLog";
 import type { FollowedViewWeapon } from "./FollowedViewWeapon";
 import { playerVoiceForEntity } from "./FPSPlayerAudio";
 import type { FPSReloadAudio } from "./FPSReloadAudio";
+import type { GibSystem } from "./GibSystem";
 import { networkHostOf } from "./NetworkHostAccess";
+import type { RagdollSystem } from "./RagdollSystem";
 
 /** The decoded `weaponMeta` snapshot component of an `item_` entity. */
 interface WeaponMetaComponent extends IComponent {
@@ -179,10 +182,10 @@ export interface GameEventContext {
   _respawnCooldownEnd: number;
 
   // Lazy effect systems
-  _gibSystem: any;
+  _gibSystem: GibSystem | null;
   _pendingGibSpawns: { x: number; y: number; z: number; vx: number; vy: number; vz: number }[];
-  _ragdollSystem: any;
-  _cartoonHit: any;
+  _ragdollSystem: RagdollSystem | null;
+  _cartoonHit: CartoonHitEffect | null;
   /** Smoothed corpse-follow death camera (driven by FPSController via Game). */
   _deathCamera: import("./DeathCamera").DeathCamera | null;
 
@@ -973,7 +976,7 @@ function startLocalRagdollDeathCamera(ctx: GameEventContext, event: DeathEvent):
     : Promise.resolve(renderer.createDetachedModelAt(event.entityId, event.x, event.y, event.z, camYaw));
 
   createModel
-    .then((model: any) => {
+    .then((model) => {
       if (!model) return;
       if (!ctx._isPlayerDead) {
         disposeDetachedModel(model);
@@ -994,7 +997,7 @@ function getCurrentCameraYaw(): number {
   return cam?.rotation?.y ?? 0;
 }
 
-function disposeDetachedModel(model: any): void {
+function disposeDetachedModel(model: PlayerModelInstance): void {
   try {
     model.attachedWeapon?.dispose?.(false, true);
     model.masterGroup?.stop?.();

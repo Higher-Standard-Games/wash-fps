@@ -315,6 +315,14 @@ export class MatchState {
     this.transition(MatchPhase.RoundEnd);
   }
 
+  /**
+   * Run out the warmup timer, so the next update starts the match the way a
+   * timed-out warmup does. Does nothing outside warmup.
+   */
+  expireWarmup(): void {
+    if (this._phase === MatchPhase.Warmup) this._timeRemaining = 0;
+  }
+
   /** Resume a tied live round for another fixed overtime period. */
   extendRoundOvertime(seconds: number): void {
     if (!this.roundBased || this._phase !== MatchPhase.Active || !this._roundTimeExpired) return;

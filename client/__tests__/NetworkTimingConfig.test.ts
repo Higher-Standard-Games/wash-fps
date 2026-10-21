@@ -5,19 +5,19 @@ import { Game, type PlayerInputState } from "../../Game";
 
 afterEach(() => vi.restoreAllMocks());
 
-it.each([
-  0,
-  60,
-  250,
-  Number.NaN,
-])("rejects FPS network config %sHz before transport or game setup", async (tickRate) => {
-  const create = vi.spyOn(TransportFactory, "create");
-  const game = Object.create(Game.prototype) as Game;
-  const shutdown = vi.spyOn(game, "shutdown");
-  await expect(game.initializeNetwork("ws://test", { tickRate })).rejects.toThrow("Unsupported FPS network tick rate");
-  expect(create).not.toHaveBeenCalled();
-  expect(shutdown).not.toHaveBeenCalled();
-});
+it.each([0, 60, 250, Number.NaN])(
+  "rejects FPS network config %sHz before transport or game setup",
+  async (tickRate) => {
+    const create = vi.spyOn(TransportFactory, "create");
+    const game = Object.create(Game.prototype) as Game;
+    const shutdown = vi.spyOn(game, "shutdown");
+    await expect(game.initializeNetwork("ws://test", { tickRate })).rejects.toThrow(
+      "Unsupported FPS network tick rate",
+    );
+    expect(create).not.toHaveBeenCalled();
+    expect(shutdown).not.toHaveBeenCalled();
+  },
+);
 
 it("does not predict inputs while the timing handshake is unconfirmed", () => {
   const processInput = vi.fn();

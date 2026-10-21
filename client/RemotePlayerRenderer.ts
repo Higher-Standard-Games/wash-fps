@@ -949,7 +949,7 @@ export class RemotePlayerRenderer {
   detachModel(entityId: string): import("../../../engine/animation/PlayerModelManager").PlayerModelInstance | null {
     this.forgetLife(entityId);
     const hitbox = this.hitboxes.get(entityId);
-    if (!hitbox || !hitbox.model) {
+    if (!hitbox?.model) {
       if (hitbox) {
         hitbox.mesh.dispose();
         if (hitbox.weaponRoot) {
