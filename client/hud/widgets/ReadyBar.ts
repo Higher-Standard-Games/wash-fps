@@ -29,7 +29,7 @@ export class FPSReadyBar implements FPSHudWidget {
 
     if (state.playback) {
       // A recording: the bar is about readying up, which the watcher is not doing
-      this.element.classList.add("hidden");
+      this.setClasses({ hidden: true });
       this.shown = "";
     } else if (mgr.isWarmup() && !isSpectating) {
       // Joined player: gold count cell + prompt with keycap chip
@@ -41,18 +41,16 @@ export class FPSReadyBar implements FPSHudWidget {
         `player|${mgr.isReady}`,
         `<span class="fps-ready-count"><span class="fps-ready-count-label">${mgr.getReadyStatus()}</span></span>${readyText}`,
         () => {
-          this.element.classList.remove("hidden", "fps-ready-bar--spectating");
-          this.element.classList.toggle("fps-ready-bar--ready", mgr.isReady);
+          this.setClasses({ hidden: false, "fps-ready-bar--spectating": false, "fps-ready-bar--ready": mgr.isReady });
         },
       );
     } else if (isSpectating) {
       // Spectating (in or out of warmup): magenta plate, no count cell
       this.write("spectating", `<span class="fps-ready-text">Spectating</span>`, () => {
-        this.element.classList.remove("hidden", "fps-ready-bar--ready");
-        this.element.classList.add("fps-ready-bar--spectating");
+        this.setClasses({ hidden: false, "fps-ready-bar--ready": false, "fps-ready-bar--spectating": true });
       });
     } else {
-      this.element.classList.add("hidden");
+      this.setClasses({ hidden: true });
       this.shown = "";
     }
   }
@@ -68,6 +66,15 @@ export class FPSReadyBar implements FPSHudWidget {
    * from what is showing: the HUD polls 20 times a second, and rewriting identical markup throws
    * the elements away and restarts their CSS animations each time.
    */
+  /**
+   * toggle() with a force that matches leaves the class attribute alone, where
+   * add() and remove() rewrite it every call. This runs 20 times a second, and
+   * each rewrite makes the browser restyle the bar.
+   */
+  private setClasses(classes: Record<string, boolean>): void {
+    for (const [name, on] of Object.entries(classes)) this.element.classList.toggle(name, on);
+  }
+
   private write(mode: string, html: string, applyClasses: () => void): void {
     applyClasses();
     const key = `${mode}|${html}`;

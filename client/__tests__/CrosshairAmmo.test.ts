@@ -112,4 +112,15 @@ describe("crosshair ammo feedback", () => {
     expect(document.querySelector("canvas")?.width).toBe(80);
     expect(strokes).not.toContain("rgba(255, 40, 40, 0.9)");
   });
+
+  it("repaints only when the reticle changes", () => {
+    const crosshair = Crosshair.getInstance();
+    crosshair.init();
+    const hud = { currentWeapon: "blade", ammo: {} };
+    crosshair.updateFromHUD(0, 0, hud, false, true);
+    crosshair.updateFromHUD(0, 0, hud, false, true);
+    expect(context.clearRect).toHaveBeenCalledTimes(1);
+    crosshair.updateFromHUD(0, 400, hud, false, true);
+    expect(context.clearRect).toHaveBeenCalledTimes(2);
+  });
 });

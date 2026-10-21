@@ -48,6 +48,8 @@ export class Crosshair {
 
   // Damage flash
   private hitFlashUntil: number = 0; // performance.now() timestamp
+  /** What the canvas shows now, so an unchanged reticle is not repainted. */
+  private drawnKey = "";
   /**
    * Spread bloom of the weapon last fired, 0..1, as of `bloomAt` (seconds),
    * following the server's heat rule from our own shots: the gap opens while
@@ -101,6 +103,7 @@ export class Crosshair {
     this.canvas.style.cssText = `image-rendering: pixelated;`;
 
     this.ctx = this.canvas.getContext("2d")!;
+    this.drawnKey = "";
     this.container.appendChild(this.canvas);
     document.body.appendChild(this.container);
 
@@ -187,7 +190,7 @@ export class Crosshair {
   }
 
   /**
-   * Redraw crosshair. Call once per frame.
+   * Redraw crosshair. Call once per frame; the canvas repaints only when the reticle changes.
    *
    * @param adsProgress  0 = hip-fire, 1 = fully ADS
    * @param horizSpeed   Horizontal speed (units/sec) for movement spread
@@ -215,7 +218,8 @@ export class Crosshair {
     // Hide conditions: disabled, dead, not joined, or pointer lock lost (pause menu)
     const hasPointerLock = !!document.pointerLockElement;
     const shouldShow = enabled && !isDead && (watching || (isJoined && hasPointerLock));
-    this.container.style.display = shouldShow ? "" : "none";
+    const display = shouldShow ? "" : "none";
+    if (this.container.style.display !== display) this.container.style.display = display;
     if (!shouldShow) return;
 
     const config = weaponConfig ?? DEFAULT_CROSSHAIR;
@@ -232,6 +236,7 @@ export class Crosshair {
     if (this.canvas.width !== canvasSize || this.canvas.height !== canvasSize) {
       this.canvas.width = canvasSize;
       this.canvas.height = canvasSize;
+      this.drawnKey = ""; // resizing wiped the canvas
     }
 
     // Determine color: damage flash overrides normal color
@@ -260,6 +265,12 @@ export class Crosshair {
     const sizeScale = size / 24; // 24 = reference size
     const lineLen = Math.round(config.lineLength * sizeScale);
     const lineW = Math.max(1, Math.round(config.lineWidth * sizeScale));
+
+    // Repaint only when the reticle changed. A canvas redrawn every frame is a
+    // layer the compositor must re-upload every frame, which Firefox feels most.
+    const key = `${config.style}|${color}|${gap}|${lineLen}|${lineW}|${outOfAmmo}|${size}`;
+    if (key === this.drawnKey) return;
+    this.drawnKey = key;
 
     // Clear
     const ctx = this.ctx;
