@@ -250,6 +250,10 @@ export class GameServer {
     // Create simulation
     this.simulation = new Simulation({
       tickMs: this.timing.tickMs,
+      // Nothing here reads an earlier tick's world: snapshots, delta baselines
+      // and lag compensation all copy the values they keep. Cloning every
+      // player on its first write each tick bought no isolation, only garbage.
+      copyOnWrite: false,
     });
 
     this.ticksPerSnapshot = this.timing.ticksPerSnapshot;
