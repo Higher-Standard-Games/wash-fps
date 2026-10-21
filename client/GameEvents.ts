@@ -103,12 +103,11 @@ interface WeaponMetaComponent extends IComponent {
 }
 
 /**
- * The local player's decoded `velocity` component, read for the movement state of
- * a {@link PlayerStateUpdate}. The decoder sets only `isCrouching` and `isSliding`
- * on it; the other fields fall back to their defaults.
+ * The local player's `movementState`: the simulation's component offline, or the
+ * snapshot decoder's reconstruction of it (crouch, slide, wall jump and the view
+ * fields) in a network game. Any field may be missing.
  */
-type DecodedVelocity = VelocityComponent &
-  Partial<Omit<PlayerStateUpdate, "position" | "velocity" | "grounded" | "tick">>;
+type SnapshotMovementState = Partial<Omit<PlayerStateUpdate, "position" | "velocity" | "grounded" | "tick">>;
 
 /**
  * Mutable context shared with Game.
@@ -810,7 +809,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
   const velocity = entity.getComponent<VelocityComponent>("velocity");
   if (!transform || !velocity) return;
 
-  const physics: DecodedVelocity = velocity;
+  const movement = entity.getComponent("movementState") as SnapshotMovementState | undefined;
 
   // === V2 CLIENT: Buffer snapshot for frame-synchronized processing ===
   if (ctx.v2Client && ctx.isNetworkMode) {
@@ -835,14 +834,14 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
     velocity: { ...velocity.linear },
     grounded: velocity.grounded,
     tick: state.tick,
-    isSliding: physics.isSliding ?? false,
-    isCrouching: physics.isCrouching ?? false,
-    crouchViewOffset: physics.crouchViewOffset ?? 0,
-    wallJumpState: physics.wallJumpState ?? "none",
-    ledgeGrabState: physics.ledgeGrabState ?? "none",
-    actualHorizSpeed: physics.actualHorizSpeed ?? 0,
-    slidePhase: physics.slidePhase ?? 0,
-    ledgeGrabPhase: physics.ledgeGrabPhase ?? 0,
+    isSliding: movement?.isSliding ?? false,
+    isCrouching: movement?.isCrouching ?? false,
+    crouchViewOffset: movement?.crouchViewOffset ?? 0,
+    wallJumpState: movement?.wallJumpState ?? "none",
+    ledgeGrabState: movement?.ledgeGrabState ?? "none",
+    actualHorizSpeed: movement?.actualHorizSpeed ?? 0,
+    slidePhase: movement?.slidePhase ?? 0,
+    ledgeGrabPhase: movement?.ledgeGrabPhase ?? 0,
   };
 
   for (const callback of ctx.onStateUpdateCallbacks) {
