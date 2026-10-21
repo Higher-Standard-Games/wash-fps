@@ -38,7 +38,11 @@ describe("SnapshotBroadcaster PVS filtering", () => {
       getState: () => ({ getEntity: () => viewer }),
     } as unknown as Simulation;
     const broadcaster = new SnapshotBroadcaster(simulation);
-    broadcaster.setPVS({ enabled: true, isVisible: () => false } as unknown as ServerPVS);
+    broadcaster.setPVS({
+      enabled: true,
+      getCluster: () => 0,
+      isClusterVisibleFrom: () => false,
+    } as unknown as ServerPVS);
 
     const state = new GameState();
     state.serverTimestamp = 123;
@@ -67,7 +71,11 @@ describe("SnapshotBroadcaster PVS filtering", () => {
     const viewer = { transform: { position: { x: 0, y: 0, z: 0 } }, health: { dead: false } };
     const simulation = { getState: () => ({ getEntity: () => viewer }) } as unknown as Simulation;
     const broadcaster = new SnapshotBroadcaster(simulation);
-    broadcaster.setPVS({ enabled: true, isVisible: () => false } as unknown as ServerPVS);
+    broadcaster.setPVS({
+      enabled: true,
+      getCluster: () => 0,
+      isClusterVisibleFrom: () => false,
+    } as unknown as ServerPVS);
 
     const state = new GameState();
     state.entities.set("player_10", spatialEntity("player_10", 0));
@@ -84,5 +92,28 @@ describe("SnapshotBroadcaster PVS filtering", () => {
     // A dropped weapon out of view used to be left out, which the client read as
     // picked up: it disposed the weapon and rebuilt it on the way back in.
     expect([...filter.filterStateForClient(state, client).entities.keys()]).toEqual(["player_10", "item_7"]);
+  });
+
+  it("looks up each entity's cluster once per snapshot, not once per client", () => {
+    const viewer = { transform: { position: { x: 0, y: 0, z: 0 } }, health: { dead: false } };
+    const simulation = { getState: () => ({ getEntity: () => viewer }) } as unknown as Simulation;
+    const broadcaster = new SnapshotBroadcaster(simulation);
+    let lookups = 0;
+    broadcaster.setPVS({
+      enabled: true,
+      getCluster: () => lookups++,
+      isClusterVisibleFrom: () => true,
+    } as unknown as ServerPVS);
+
+    const state = new GameState();
+    for (const id of ["player_10", "player_20", "player_30", "proj_8"]) state.entities.set(id, spatialEntity(id, 0));
+    const filter = broadcaster as unknown as {
+      filterStateForClient(value: GameState, info: ClientInfo): GameState;
+    };
+    for (const entityId of [10, 20, 30]) {
+      filter.filterStateForClient(state, { playerId: entityId, entityId } as unknown as ClientInfo);
+    }
+    // Three viewers, plus the four entities once each (no client looks up its own)
+    expect(lookups).toBe(3 + 4);
   });
 });

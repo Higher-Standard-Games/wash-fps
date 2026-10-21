@@ -21,6 +21,7 @@ import type { RagdollSystem } from "./RagdollSystem";
 export class FrameEffects {
   readonly reloadAudio = new FPSReloadAudio();
   gibSystem: GibSystem | null = null;
+  private damageNumbersLoading = false;
   private gibSystemLoading = false; // true while import() is pending
   pendingGibSpawns: { x: number; y: number; z: number; vx: number; vy: number; vz: number }[] = [];
   private damageNumbers: DamageNumbers | null = null;
@@ -116,13 +117,22 @@ export class FrameEffects {
     // Update floating damage numbers (float upward, fade out)
     if (this.damageNumbers) {
       this.damageNumbers.update(dtSec);
-    } else {
+    } else if (!this.damageNumbersLoading) {
+      // Load once and give them the scene, like the gibs. Waiting for a hit to
+      // do it re-ran this import every frame for a player who never landed one.
+      this.damageNumbersLoading = true;
       import("./DamageNumbers")
         .then((m) => {
           const dn = m.DamageNumbers.getInstance();
+          const gameScene = this.scene();
+          if (gameScene) dn.init(gameScene);
           if (dn["scene"]) this.damageNumbers = dn;
+          this.damageNumbersLoading = false;
         })
-        .catch(logRejection("FrameEffects"));
+        .catch((e) => {
+          this.damageNumbersLoading = false;
+          logRejection("FrameEffects")(e);
+        });
     }
 
     // Update damage overlay (directional red triangles + vignette)

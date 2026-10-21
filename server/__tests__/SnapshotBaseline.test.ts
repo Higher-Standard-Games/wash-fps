@@ -71,7 +71,8 @@ function setup(pvs: boolean, isVisible = () => true) {
     }),
   } as unknown as Simulation;
   const broadcaster = new SnapshotBroadcaster(simulation);
-  if (pvs) broadcaster.setPVS({ enabled: true, isVisible } as unknown as ServerPVS);
+  if (pvs)
+    broadcaster.setPVS({ enabled: true, getCluster: () => 0, isClusterVisibleFrom: isVisible } as unknown as ServerPVS);
   const client = {
     id: "qa",
     playerId: 1,

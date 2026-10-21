@@ -50,6 +50,8 @@ export class SnapshotBroadcaster {
 
   private simulation: Simulation;
   private pvs: ServerPVS | null = null;
+  /** BSP cluster of each entity this snapshot, looked up once rather than once per client. */
+  private readonly clusterOf = new Map<string, number>();
 
   constructor(simulation: Simulation) {
     this.simulation = simulation;
@@ -78,6 +80,7 @@ export class SnapshotBroadcaster {
     let totalEncodeMs = 0;
     let totalCulled = 0;
     const lasting = lastingStateOf(gameState);
+    this.clusterOf.clear();
     for (const client of clients.values()) {
       try {
         // PVS filtering: build per-client filtered state if PVS is available
@@ -95,12 +98,11 @@ export class SnapshotBroadcaster {
         const simEntity = this.simulation.getState().getEntity(client.entityId);
         const processedSeq = (simEntity?.input as { lastProcessedSeq?: number } | undefined)?.lastProcessedSeq;
         clientState.ackedInputSeq = processedSeq ?? client.lastInputSeq;
+        const ownKey = toClientKey(client.entityId);
         clientState.events = this.leaveOutKnown(
           client,
           clientState.events.filter(
-            (event) =>
-              chatVisibleTo(event, toClientKey(client.entityId)) &&
-              (event.type !== "knockback_state" || event.entityId === toClientKey(client.entityId)),
+            (event) => chatVisibleTo(event, ownKey) && (event.type !== "knockback_state" || event.entityId === ownKey),
           ),
           lasting,
           tick,
@@ -245,7 +247,8 @@ export class SnapshotBroadcaster {
     const clientEntity = simState.getEntity(client.entityId);
     if (!clientEntity?.transform) return state.shallowCopy();
 
-    const viewerPos = clientEntity.transform.position;
+    const viewerCluster = this.pvs.getCluster(clientEntity.transform.position);
+    const own = toClientKey(client.entityId);
 
     // Build filtered state — shallow copy with filtered entities
     const filtered = new GameState();
@@ -269,7 +272,7 @@ export class SnapshotBroadcaster {
     }
 
     for (const [id, entity] of state.entities) {
-      if (id === toClientKey(client.entityId)) {
+      if (id === own) {
         filtered.entities.set(id, entity);
         continue;
       }
@@ -295,8 +298,12 @@ export class SnapshotBroadcaster {
         continue;
       }
 
-      const targetPos = { x: posComp.x, y: posComp.y, z: posComp.z };
-      if (this.pvs.isVisible(viewerPos, targetPos)) {
+      let targetCluster = this.clusterOf.get(id);
+      if (targetCluster === undefined) {
+        targetCluster = this.pvs.getCluster(posComp);
+        this.clusterOf.set(id, targetCluster);
+      }
+      if (this.pvs.isClusterVisibleFrom(viewerCluster, targetCluster)) {
         filtered.entities.set(id, entity);
       }
     }

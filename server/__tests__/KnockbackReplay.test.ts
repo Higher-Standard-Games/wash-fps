@@ -329,7 +329,12 @@ describe("knockback_state is private to its owner", () => {
       }),
     } as unknown as Simulation;
     const broadcaster = new SnapshotBroadcaster(simulation);
-    if (pvs) broadcaster.setPVS({ enabled: true, isVisible: () => true } as unknown as ServerPVS);
+    if (pvs)
+      broadcaster.setPVS({
+        enabled: true,
+        getCluster: () => 0,
+        isClusterVisibleFrom: () => true,
+      } as unknown as ServerPVS);
 
     const client = (n: number): ClientInfo => {
       packets.set(`c${n}`, []);

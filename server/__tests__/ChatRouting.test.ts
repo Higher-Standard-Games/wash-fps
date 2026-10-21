@@ -13,7 +13,12 @@ it.each([false, true])(
       getState: () => ({ getEntity: () => ({ transform: { position: { x: 0, y: 0, z: 0 } } }) }),
     } as unknown as Simulation;
     const broadcaster = new SnapshotBroadcaster(simulation);
-    if (pvs) broadcaster.setPVS({ enabled: true, isVisible: () => true } as unknown as ServerPVS);
+    if (pvs)
+      broadcaster.setPVS({
+        enabled: true,
+        getCluster: () => 0,
+        isClusterVisibleFrom: () => true,
+      } as unknown as ServerPVS);
     const packets = new Map<number, Uint8Array>();
     const clients = new Map<string, ClientInfo>();
     for (const id of [1, 2])
