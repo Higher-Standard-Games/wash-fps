@@ -23,6 +23,7 @@ import { disposeClusteredLight } from "../../../engine/lighting/DynamicLightClus
 import { SnapshotBuffer } from "../../../engine/network/client/SnapshotBuffer";
 import { InputButtons } from "../../../engine/network/components/InputComponent";
 import type { GameState } from "../../../engine/network/core/GameState";
+import { mapTitle } from "../../../engine/ui/MapTitles";
 import { getExplosionEffect } from "../../../engine/weapon/ExplosionEffect";
 import { getHitscanEffects } from "../../../engine/weapon/HitscanEffects";
 import { getProjectileManager } from "../../../engine/weapon/ProjectileManager";
@@ -41,6 +42,7 @@ import { demoLoadCancelled, downloadDemo } from "./DemoDownload";
 import { DemoEventTimeline } from "./DemoEventTimeline";
 import { resolveFPSDemoMap } from "./DemoMapAliases";
 import { DemoOverlayController } from "./DemoOverlayController";
+import { type DemoKeyAction, demoKeyAction, fragSeekTick } from "./DemoPlaybackKeys";
 import { watchedEyePose } from "./DemoPovState";
 import type { DemoDeath, DemoViewer, DemoViewerInfo } from "./DemoViewer";
 import type { DemoTimelineEvent, DemoViewerHUD } from "./DemoViewerHUD";
@@ -57,6 +59,9 @@ import { MatchStateManager } from "./MatchStateManager";
 import { RagdollSystem } from "./RagdollSystem";
 import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
 import { PlayerWeaponStates, storeSnapshotState } from "./SnapshotStateStore";
+
+/** How long a reel holds on black under its title card before the first shot. */
+const REEL_TITLE_MS = 2800;
 
 /** Music while watching, and on leaving: a match's, then the menus'. */
 const GAME_PLAYLIST = "data/game.playlist.json";
@@ -107,6 +112,8 @@ export class DemoService {
   private readonly chargingPlayers = new Set<string>();
   private readonly chargingGlows = new Map<string, PointLight>();
   private lastEffectTick: number | null = null;
+  /** The playback keys' listener, while playback has its controls up. */
+  private playbackKeys: AbortController | null = null;
   /** The demo's playhead in seconds, as the shared effects age by it. */
   private demoEffectSeconds = 0;
   private readonly demoEffectClock = (): number => this.demoEffectSeconds;
@@ -396,15 +403,20 @@ export class DemoService {
       this.activeDemoViewer = viewer;
       await this.ensureRuntimeWiring(viewer, "reel");
       if (this.abandonStart(start, viewer)) return;
-      const player = new CinematicDemoPlayer(viewer, cameraSystem, this.reelWorld());
+      const player = new CinematicDemoPlayer(viewer, cameraSystem, this.reelWorld(), { titleHoldMs: REEL_TITLE_MS });
       this.activeCinematicPlayer = player;
       player.onSegmentChange((segment) => {
         this.demoHud?.showCard(shotCard(segment, player.getReelInfo().totalScenes));
       });
-      player.onStateChange((state) => this.demoHud?.setReelEnded(state === "ended"));
+      player.onStateChange((state) => {
+        if (state === "ended") this.demoHud?.setEndCard(player.getSummary());
+        this.demoHud?.setReelEnded(state === "ended");
+      });
       this.demoHud?.onReplay(() => player.replay());
       await player.loadAndPlay(data, durationMinutes);
       if (this.abandonStart(start, viewer)) return;
+      const header = viewer.getInfo().header;
+      this.demoHud?.setTitle(player.getTitle(header ? mapTitle(header.map) : undefined));
       this.demoHud?.setReel(player.getShotStarts());
       this.startPlaybackLoop();
     });
@@ -534,6 +546,8 @@ export class DemoService {
   }
 
   private stopPlayback(): void {
+    this.playbackKeys?.abort();
+    this.playbackKeys = null;
     this.stopPlaybackLoop();
     this._timelineScan?.abort();
     this._timelineScan = null;
@@ -783,6 +797,108 @@ export class DemoService {
     });
     this.demoHud.onHudToggle(() => this.setGameHudVisible(!this.gameHudVisible));
     this.demoHud.setGameHudVisible(this.gameHudVisible);
+    this.bindPlaybackKeys(document);
+  }
+
+  /** The playback keyboard (see DemoPlaybackKeys), until playback stops. */
+  private bindPlaybackKeys(target: Document): void {
+    this.playbackKeys?.abort();
+    this.playbackKeys = new AbortController();
+    target.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.repeat && !event.code.startsWith("Arrow") && event.code !== "Comma" && event.code !== "Period")
+          return;
+        const el = event.target as HTMLElement | null;
+        if (el?.closest?.("input, textarea, select, [contenteditable='true'], #console, .console")) return;
+        const action = demoKeyAction(event, {
+          reel: this.activeCinematicPlayer !== null,
+          freeCamera:
+            CameraSystem.getInstance().getActiveController()?.type === "freefly" && !this.activeCinematicPlayer,
+        });
+        if (!action) return;
+        event.preventDefault();
+        this.runKeyAction(action);
+      },
+      { signal: this.playbackKeys.signal },
+    );
+  }
+
+  private runKeyAction(action: DemoKeyAction): void {
+    const viewer = this.activeDemoViewer;
+    const reel = this.activeCinematicPlayer;
+    switch (action.type) {
+      case "toggle_pause":
+        if (reel) reel.togglePlayPause();
+        else viewer?.togglePlayPause();
+        return;
+      case "shot":
+        if (action.step > 0) reel?.nextSegment();
+        else reel?.prevSegment();
+        return;
+      case "seek": {
+        if (!viewer) return;
+        const info = viewer.getInfo();
+        const tickRate = info.header?.tickRate ?? 60;
+        this.seekDemo(() => viewer.seekToTick(Math.max(0, info.playheadTick + action.seconds * tickRate)));
+        return;
+      }
+      case "frame": {
+        if (!viewer) return;
+        viewer.pause();
+        const frame = viewer.getInfo().currentFrame + action.step;
+        this.seekDemo(() => viewer.seekToFrame(frame));
+        return;
+      }
+      case "speed":
+        viewer?.stepSpeed(action.step);
+        return;
+      case "frag": {
+        if (!viewer) return;
+        const info = viewer.getInfo();
+        const frags = this._timelineDeaths.filter((death) => death.killerId !== null).map((death) => death.tick);
+        const tick = fragSeekTick(frags, info.playheadTick, action.step, info.header?.tickRate ?? 60);
+        if (tick !== null) this.seekDemo(() => viewer.seekToTick(tick));
+        return;
+      }
+      case "player": {
+        const order = this.playerOrder();
+        if (order.length === 0) return;
+        const at = this._followedEntityId ? order.indexOf(this._followedEntityId) : -1;
+        this._selectSpectateTarget(order[(at + action.step + order.length) % order.length]);
+        return;
+      }
+      case "player_at": {
+        const entityId = this.playerOrder()[action.index];
+        if (entityId) this._selectSpectateTarget(entityId);
+        return;
+      }
+    }
+  }
+
+  /** A jump in a whole demo, as the seek bar makes it: no stale shots or smeared models. */
+  private seekDemo(seek: () => void): void {
+    this._clearDemoProjectiles();
+    seek();
+    this.remoteRenderer?.flushInterpolation();
+  }
+
+  /** The players in the frame on screen, in the player list's order. */
+  private playerOrder(): string[] {
+    return this.hudPlayerRows().map((row) => row.entityId);
+  }
+
+  private hudPlayerRows(): Array<{ entityId: string; name: string }> {
+    if (!this.latestState) return [];
+    const playersByEntity = new Map<string, string>();
+    for (const player of this.latestState.players.values()) {
+      playersByEntity.set(player.entityId, player.name || player.entityId);
+    }
+    const rows: Array<{ entityId: string; name: string }> = [];
+    for (const [entityId] of this.latestState.entities) {
+      if (isClientKey(entityId)) rows.push({ entityId, name: playersByEntity.get(entityId) ?? entityId });
+    }
+    return rows.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   /**
@@ -872,6 +988,7 @@ export class DemoService {
         isReplay: reel.isReplay,
         speed: reel.currentSpeed,
       });
+      this.demoHud?.setTitleVisible(this.activeCinematicPlayer.isShowingTitle());
       const veil = this.activeCinematicPlayer.getVeil();
       this.demoHud?.setVeil(veil.color, veil.opacity);
     } else {
@@ -931,11 +1048,6 @@ export class DemoService {
   private refreshHudPlayerList(): void {
     if (!this.demoHud || !this.latestState) return;
 
-    const playersByEntity = new Map<string, string>();
-    for (const player of this.latestState.players.values()) {
-      playersByEntity.set(player.entityId, player.name || player.entityId);
-    }
-
     const cameraSystem = CameraSystem.getInstance();
     const spectator = cameraSystem.getController("spectator") as {
       getTargetEntityId?: () => string | null;
@@ -943,17 +1055,7 @@ export class DemoService {
     } | null;
     let currentTarget = spectator?.getTargetEntityId?.() ?? null;
 
-    const rows: Array<{ entityId: string; name: string; isTarget: boolean }> = [];
-    for (const [entityId] of this.latestState.entities) {
-      if (!isClientKey(entityId)) continue;
-      rows.push({
-        entityId,
-        name: playersByEntity.get(entityId) ?? entityId,
-        isTarget: currentTarget === entityId,
-      });
-    }
-
-    rows.sort((a, b) => a.name.localeCompare(b.name));
+    const rows = this.hudPlayerRows().map((row) => ({ ...row, isTarget: currentTarget === row.entityId }));
     if (!currentTarget && rows.length > 0) {
       const first = rows[0].entityId;
       this._selectSpectateTarget(first);

@@ -150,6 +150,48 @@ describe("DemoViewerHUD", () => {
     expect(document.querySelector("#demo-viewer-end")).toBeNull();
   });
 
+  it("shows a reel's title card while asked, and its end card with the keys", () => {
+    const hud = new DemoViewerHUD();
+    hud.setTitle({
+      mode: "Duel",
+      map: "Campgrounds",
+      sides: [{ names: ["Ann"] }, { names: ["Bo"] }],
+      more: 0,
+    });
+    const title = document.querySelector<HTMLElement>("#demo-viewer-title")!;
+    expect(title.textContent).toBe("DuelCampgroundsAnnvsBo");
+    hud.setTitleVisible(true);
+    expect(title.classList.contains("is-shown")).toBe(true);
+    hud.setTitleVisible(false);
+    expect(title.classList.contains("is-shown")).toBe(false);
+
+    hud.setEndCard({
+      topFragger: { name: "Ann", frags: 1 },
+      best: { title: "Frag", player: "Ann" },
+      frags: 3,
+      tricks: 0,
+    });
+    const end = document.querySelector<HTMLElement>("#demo-viewer-end")!;
+    expect(end.textContent).toContain("Top fragger");
+    expect(end.textContent).toContain("Ann · 1 frag");
+    expect(end.textContent).toContain("Best momentFrag · Ann");
+    expect(end.textContent).toContain("3 highlights");
+    expect(end.textContent).not.toContain("trick");
+    hud.dispose();
+  });
+
+  it("clears the picture of controls and the pointer in the clean view, and brings them back", () => {
+    const hud = new DemoViewerHUD();
+    hud.hide();
+    expect(bar()!.style.display).toBe("none");
+    expect(document.body.classList.contains("dvh-clean")).toBe(true);
+    hud.show();
+    expect(document.body.classList.contains("dvh-clean")).toBe(false);
+    hud.hide();
+    hud.dispose();
+    expect(document.body.classList.contains("dvh-clean")).toBe(false);
+  });
+
   it("shows a shot's card", () => {
     const hud = new DemoViewerHUD();
     hud.showCard({ kicker: "Highlight 1/3", title: "Frag", player: "Ramen → Gyoza", detail: "rocket", tags: ["Air"] });

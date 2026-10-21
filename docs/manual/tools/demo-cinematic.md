@@ -13,8 +13,24 @@ demoplay cinematic 2          # play a 2-minute reel
 From the lobby's Demos page, **⚡ Highlights** does the same and lets you pick a reel
 of **1, 2 or 3 minutes**. The shared playback bar offers pause, a timeline and
 previous/next shot controls; the card and counter number the highlights. **HUD** toggles the game HUD during first-person shots;
-**H** shows or hides playback overlays and replay chat.
-**Escape** or the gold exit plate leaves playback. When a reel ends, **Replay** plays it again and **Exit** goes back to the demos. See [Demos](../multiplayer/demos.md).
+**Space** pauses, **←** / **→** go to the previous or next shot, and **H** switches the clean view
+(no overlays, chat or pointer) for recording.
+**Escape** or the gold exit plate leaves playback. When a reel ends, **Replay** plays it again and **Exit** goes back to the demos. See [Demos](../multiplayer/demos.md#keys) for every key.
+
+## Title and end cards
+
+A reel fades in on a **title card** held for a few seconds over black: the mode,
+the map, and who played.
+
+- **Teams:** each team's name over all its players.
+- **Duel:** the two players, one against the other.
+- **Free for all:** everyone, up to eight names and a count of the rest.
+
+When the reel has faded out, an **end card** sits above the Replay and Exit keys:
+the match's **top fragger** with their frags, the reel's **best moment** and who
+made it, and how many highlights and trick jumps the reel held. Both cards stay
+up in the clean view, so they are part of a recording; Replay shows the title
+card again.
 
 ## How a reel is made
 
@@ -95,4 +111,4 @@ A zoom's field of view stays with its own shot; the next shot, and the free came
 ## Tips
 
 - **Reel too short or empty?** Run `demoplay analyze` first. A demo of two idle players can have few highlights, and a longer reel cannot invent more.
-- **Exporting.** There is no built-in video export; record the reel with a screen recorder.
+- **Exporting.** There is no built-in video export; record the reel with a screen recorder. Press **H** first for the clean view: the recording then starts and ends on black, with the title and end cards and no pointer.

@@ -378,7 +378,9 @@
   bottom: 25vh;
   z-index: 10002;
   display: flex;
-  gap: 28px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 26px;
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -402,6 +404,151 @@
     right: 8vw;
     bottom: 18vh;
   }
+}
+
+.dvh-end-keys {
+  display: flex;
+  gap: 28px;
+}
+
+.dvh-end-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  color: var(--w-cream, hsl(42, 95%, 92%));
+  font-family: var(--w-font-body, "Rajdhani", sans-serif);
+  text-align: right;
+}
+
+.dvh-end-row {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+
+.dvh-end-label {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: hsl(42, 96%, 62%);
+}
+
+.dvh-end-value {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+.dvh-end-counts {
+  margin-top: 4px;
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  opacity: 0.72;
+}
+
+/* --- The clean view (H): no pointer over the picture, but the end keys still take one --- */
+
+body.dvh-clean,
+body.dvh-clean canvas {
+  cursor: none;
+}
+
+body.dvh-clean .dvh-end.is-shown {
+  cursor: auto;
+}
+
+/* --- A reel's title card, over its opening black --- */
+
+.dvh-title {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 8vw;
+  color: var(--w-cream, hsl(42, 95%, 92%));
+  font-family: var(--w-font-body, "Rajdhani", sans-serif);
+  text-align: center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.7s ease;
+}
+
+.dvh-title.is-shown {
+  opacity: 1;
+  transition: opacity 0.4s ease;
+}
+
+.dvh-title-mode {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: hsl(42, 96%, 62%);
+}
+
+.dvh-title-map {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: clamp(34px, 5.4vw, 72px);
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.dvh-title-sides {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4vw;
+  margin-top: 22px;
+}
+
+.dvh-title-side {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dvh-title-sides.is-everyone .dvh-title-side {
+  flex-flow: row wrap;
+  justify-content: center;
+  gap: 6px 28px;
+  max-width: 70vw;
+}
+
+.dvh-title-team {
+  margin-bottom: 4px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: hsl(42, 96%, 62%);
+}
+
+.dvh-title-name {
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: clamp(18px, 2vw, 28px);
+  font-weight: 800;
+}
+
+.dvh-title-more {
+  align-self: center;
+  font-size: 16px;
+  opacity: 0.7;
+}
+
+.dvh-title-vs {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  opacity: 0.6;
 }
 
 /* --- A reel's shot card --- */

@@ -511,6 +511,34 @@ describe("CinematicDemoPlayer", () => {
     expect(player.getVeil()).toEqual({ color: "black", opacity: 1 });
   });
 
+  it("holds on black under the title card before the first shot, and again on a replay", async () => {
+    player = new CinematicDemoPlayer(
+      viewer as unknown as import("../DemoViewer").DemoViewer,
+      cameraSystem as unknown as import("../../../../engine/camera/CameraSystem").CameraSystem,
+      undefined,
+      { titleHoldMs: 2000 },
+    );
+    await player.loadAndPlay(new Uint8Array(8), 2);
+    expect(player.isShowingTitle()).toBe(true);
+    expect(player.getVeil()).toEqual({ color: "black", opacity: 1 });
+    expect(viewer.pause).toHaveBeenCalled();
+    expect(player.getTitle()?.map).toBeTruthy();
+
+    viewer.play.mockClear();
+    player.update(1500);
+    expect(player.isShowingTitle()).toBe(true);
+    expect(viewer.play).not.toHaveBeenCalled();
+    player.update(600);
+    expect(player.isShowingTitle()).toBe(false);
+    expect(viewer.play).toHaveBeenCalled();
+
+    // Skipping on drops the hold; a replay brings it back
+    player.replay();
+    expect(player.isShowingTitle()).toBe(true);
+    player.nextSegment();
+    expect(player.isShowingTitle()).toBe(false);
+  });
+
   it("eases into a speed keyframe instead of snapping to it", async () => {
     await player.loadAndPlay(new Uint8Array(8), 2);
 

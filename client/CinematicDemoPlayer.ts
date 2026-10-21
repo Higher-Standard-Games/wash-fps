@@ -21,9 +21,10 @@ import type { SpectatorController } from "../../../engine/camera/controllers/Spe
 import { type CameraPathResult, generateCameraPath, interpolatePath } from "../../../shared/demo/CinematicCameraPaths";
 import type { DemoAnalysis, HighlightCandidate } from "../../../shared/demo/DemoAnalyzer";
 import { DemoAnalyzer } from "../../../shared/demo/DemoAnalyzer";
-import { DemoReader } from "../../../shared/demo/DemoReader";
+import { type DemoHeader, DemoReader } from "../../../shared/demo/DemoReader";
 import { type CinematicReel, type CinematicSegment, SequenceBuilder } from "../../../shared/demo/SequenceBuilder";
 import type { DemoViewer } from "./DemoViewer";
+import { type ReelSummary, type ReelTitle, reelSummary, reelTitle } from "./ReelCards";
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -154,6 +155,12 @@ export class CinematicDemoPlayer {
   private chaseTarget: string | null = null;
   /** The fly-by camera's own field of view, from before the reel first changed it. */
   private baseFov: number | null = null;
+  /** How long the reel holds on black under its title card before the first shot. */
+  private readonly titleHoldTotalMs: number;
+  /** What is left of that hold; 0 once the first shot plays. */
+  private titleHoldMs = 0;
+  private header: DemoHeader | null = null;
+  private analysis: DemoAnalysis | null = null;
 
   // Callbacks
   private onSegmentChangeCb: ((segment: CinematicSegment, index: number) => void) | null = null;
@@ -164,9 +171,11 @@ export class CinematicDemoPlayer {
     demoViewer: DemoViewer,
     cameraSystem: CameraSystem,
     private readonly world: ReelWorld = NO_WORLD,
+    options: { titleHoldMs?: number } = {},
   ) {
     this.demoViewer = demoViewer;
     this.cameraSystem = cameraSystem;
+    this.titleHoldTotalMs = options.titleHoldMs ?? 0;
   }
 
   // ── Callback registration ─────────────────────────────────────────────────
@@ -201,6 +210,8 @@ export class CinematicDemoPlayer {
     const analysis: DemoAnalysis = new DemoAnalyzer().analyze(frames, header, index.durationMs);
 
     this.tickRate = header.tickRate;
+    this.header = header;
+    this.analysis = analysis;
     this.reel = new SequenceBuilder().build(analysis, durationMinutes, header.tickRate, header);
 
     // Pre-generate camera paths for every segment
@@ -222,6 +233,13 @@ export class CinematicDemoPlayer {
    */
   update(deltaMs: number): void {
     if (this.state !== "playing" || !this.reel) return;
+
+    // The title card over black: the first shot waits, already in place
+    if (this.titleHoldMs > 0) {
+      this.titleHoldMs = Math.max(0, this.titleHoldMs - deltaMs);
+      if (this.titleHoldMs === 0) this.demoViewer.play();
+      return;
+    }
 
     const segment = this.reel.segments[this.currentSegmentIndex];
     if (!segment) return;
@@ -284,7 +302,7 @@ export class CinematicDemoPlayer {
   resume(): void {
     if (this.state !== "paused") return;
     this._setState("playing");
-    this.demoViewer.play();
+    if (this.titleHoldMs === 0) this.demoViewer.play();
   }
 
   togglePlayPause(): void {
@@ -296,13 +314,38 @@ export class CinematicDemoPlayer {
     if (!this.reel) return;
     const clamped = Math.max(0, Math.min(index, this.reel.segments.length - 1));
     this.currentSegmentIndex = clamped;
+    this.titleHoldMs = 0;
     this._applySegment(this.reel.segments[clamped]);
     if (this.state === "paused" || this.state === "ended") this._setState("playing");
   }
 
-  /** Play the reel again from its first shot, its opening fade and all. */
+  /** Play the reel again from its first shot, its title card and opening fade and all. */
   replay(): void {
     this.skipToSegment(0);
+    this._holdForTitle();
+  }
+
+  /** The reel is holding on black under its title card. */
+  isShowingTitle(): boolean {
+    return this.titleHoldMs > 0 && this.state !== "ended";
+  }
+
+  /** The opening card for this reel's demo; null before one is loaded. */
+  getTitle(mapTitle?: string): ReelTitle | null {
+    return this.header ? reelTitle(this.header, mapTitle) : null;
+  }
+
+  /** The closing card for this reel; null before one is built. */
+  getSummary(): ReelSummary | null {
+    const reel = this.reel;
+    if (!reel || !this.analysis) return null;
+    return reelSummary(reel, this.analysis, (segment) => shotCard(segment, reel.totalScenes).title);
+  }
+
+  private _holdForTitle(): void {
+    if (this.titleHoldTotalMs <= 0) return;
+    this.titleHoldMs = this.titleHoldTotalMs;
+    this.demoViewer.pause();
   }
 
   nextSegment(): void {
@@ -411,6 +454,7 @@ export class CinematicDemoPlayer {
     this.currentSegmentIndex = 0;
     this._applySegment(this.reel.segments[0]);
     this._setState("playing");
+    this._holdForTitle();
   }
 
   /**
@@ -427,6 +471,7 @@ export class CinematicDemoPlayer {
     }
     const segment = this.reel?.segments[this.currentSegmentIndex];
     if (!segment) return { color: "black", opacity: 0 };
+    if (this.titleHoldMs > 0) return { color: "black", opacity: 1 };
     const span = Math.max(1, segment.transitionDurationMs);
     // The reel opens out of black and closes into it over a full second, so a
     // recording of it starts and ends clean for editing

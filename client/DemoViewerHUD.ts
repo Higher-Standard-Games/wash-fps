@@ -13,6 +13,7 @@
 import { createRaisedKey, injectRaisedKeyStyles, setRaisedKeyText } from "../../../engine/ui/components/RaisedKey";
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import type { DemoViewerInfo } from "./DemoViewer";
+import type { ReelSummary, ReelTitle } from "./ReelCards";
 import demoViewerHudCss from "./styles/DemoViewerHUD.css?raw";
 
 /** How long the controls stay up after the mouse or a key last moved. */
@@ -101,6 +102,10 @@ export class DemoViewerHUD {
   private veil: HTMLDivElement | null = null;
   /** A finished reel's way on: watch it again, or back to the demos. */
   private endKeys: HTMLDivElement | null = null;
+  /** How the match went, over the end keys. */
+  private endCard: HTMLDivElement | null = null;
+  /** The reel's opening card, over its first black. */
+  private titleCard: HTMLDivElement | null = null;
   private timeline: HTMLDivElement | null = null;
   private timelineFill: HTMLDivElement | null = null;
   private timelineHandle: HTMLDivElement | null = null;
@@ -162,11 +167,11 @@ export class DemoViewerHUD {
     this.playPauseBtn = barKey("▶", "dvh-play");
     this.playPauseBtn.title = "Play or pause (Space)";
     this.prevBtn = barKey("◀◀", "dvh-chip dvh-reel-only");
-    this.prevBtn.title = "Previous shot";
+    this.prevBtn.title = "Previous shot (←)";
     this.nextBtn = barKey("▶▶", "dvh-chip dvh-reel-only");
-    this.nextBtn.title = "Next shot";
+    this.nextBtn.title = "Next shot (→)";
     this.speedBtn = barKey("1x", "dvh-chip dvh-speed dvh-demo-only");
-    this.speedBtn.title = "Playback speed";
+    this.speedBtn.title = "Playback speed (↑ ↓)";
     // The game HUD over playback: the followed player's own screen
     this.hudBtn = barKey("HUD", "dvh-chip");
     this.hudBtn.title = "Show or hide the game HUD, seen from a player's eyes";
@@ -209,19 +214,26 @@ export class DemoViewerHUD {
     this.veil = el("div", "dvh-veil");
     this.veil.id = "demo-viewer-veil";
 
+    this.titleCard = el("div", "dvh-title");
+    this.titleCard.id = "demo-viewer-title";
+    this.titleCard.setAttribute("aria-live", "polite");
+
     this.endKeys = el("div", "dvh-end");
     this.endKeys.id = "demo-viewer-end";
+    this.endCard = el("div", "dvh-end-card");
     const replay = createRaisedKey({ label: "Replay", variants: ["cta"] });
     replay.classList.add("dvh-end-replay");
     replay.addEventListener("click", () => this._onReplay?.());
     const exit = createRaisedKey({ label: "Exit", variants: ["cta"] });
     exit.classList.add("dvh-end-exit");
     exit.addEventListener("click", () => this._onExit?.());
-    this.endKeys.append(replay, exit);
+    const keys = el("div", "dvh-end-keys");
+    keys.append(replay, exit);
+    this.endKeys.append(this.endCard, keys);
 
     this.setGameHudVisible(true);
     this.setupEvents();
-    document.body.append(this.veil, this.container, this.exitPlate, this.card, this.endKeys);
+    document.body.append(this.veil, this.titleCard, this.container, this.exitPlate, this.card, this.endKeys);
   }
 
   private setupEvents(): void {
@@ -472,21 +484,73 @@ export class DemoViewerHUD {
     this.endKeys?.classList.toggle("is-shown", ended);
   }
 
+  /** The reel's opening card: its mode, map and who played. */
+  setTitle(title: ReelTitle | null): void {
+    const card = this.titleCard;
+    if (!card) return;
+    card.replaceChildren();
+    if (!title) return;
+    const sides = el("div", `dvh-title-sides${title.sides.length === 1 ? " is-everyone" : ""}`);
+    title.sides.forEach((side, i) => {
+      if (i > 0) sides.append(el("span", "dvh-title-vs", "vs"));
+      const column = el("div", "dvh-title-side");
+      if (side.label) column.append(el("div", "dvh-title-team", side.label));
+      for (const name of side.names) column.append(el("div", "dvh-title-name", name));
+      if (title.more > 0 && title.sides.length === 1) column.append(el("div", "dvh-title-more", `+${title.more} more`));
+      sides.append(column);
+    });
+    card.append(el("div", "dvh-title-mode", title.mode), el("div", "dvh-title-map", title.map), sides);
+  }
+
+  /** Show the opening card while the reel holds on black; it fades as the picture comes up. */
+  setTitleVisible(visible: boolean): void {
+    this.titleCard?.classList.toggle("is-shown", visible);
+  }
+
+  /** How the match went, shown with the end keys. */
+  setEndCard(summary: ReelSummary | null): void {
+    const card = this.endCard;
+    if (!card) return;
+    card.replaceChildren();
+    if (!summary) return;
+    const row = (label: string, value: string) => {
+      const line = el("div", "dvh-end-row");
+      line.append(el("span", "dvh-end-label", label), el("span", "dvh-end-value", value));
+      card.append(line);
+    };
+    if (summary.topFragger) {
+      const { name, frags } = summary.topFragger;
+      row("Top fragger", `${name} · ${frags} ${frags === 1 ? "frag" : "frags"}`);
+    }
+    if (summary.best) row("Best moment", `${summary.best.title} · ${summary.best.player}`);
+    const counts = [`${summary.frags} ${summary.frags === 1 ? "highlight" : "highlights"}`];
+    if (summary.tricks > 0) counts.push(`${summary.tricks} ${summary.tricks === 1 ? "trick jump" : "trick jumps"}`);
+    card.append(el("div", "dvh-end-counts", counts.join(" · ")));
+  }
+
   // ── Visibility ──────────────────────────────────────────────────
 
   show(): void {
+    document.body.classList.remove("dvh-clean");
     if (this.container) this.container.style.display = "flex";
     if (this.exitPlate) this.exitPlate.style.display = "";
     if (this.card) this.card.style.display = "";
   }
 
+  /**
+   * The clean view (H): nothing over the picture but the picture, for
+   * recording. The controls, the exit plate, the shot cards and the mouse
+   * pointer go; a reel's title and end cards are part of the video and stay.
+   */
   hide(): void {
+    document.body.classList.add("dvh-clean");
     if (this.container) this.container.style.display = "none";
     if (this.exitPlate) this.exitPlate.style.display = "none";
     if (this.card) this.card.style.display = "none";
   }
 
   dispose(): void {
+    document.body.classList.remove("dvh-clean");
     this.listeners.abort();
     if (this.cardTimer !== null) clearTimeout(this.cardTimer);
     this.cardTimer = null;
@@ -497,6 +561,9 @@ export class DemoViewerHUD {
     this.veil = null;
     this.endKeys?.remove();
     this.endKeys = null;
+    this.endCard = null;
+    this.titleCard?.remove();
+    this.titleCard = null;
     this.container = null;
     this.exitPlate = null;
     this.card = null;

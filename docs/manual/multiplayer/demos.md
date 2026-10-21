@@ -51,14 +51,32 @@ HUD follows their recorded health, armor, ammo and match state.
 
 Playback is driven on screen rather than by console commands: the transport HUD carries a timeline you can click anywhere on to seek, a play/pause button, and a speed selector cycling 0.25×, 0.5×, 1×, 2× and 4×. Seeking rebuilds the world at the landing tick rather than fast-forwarding through it.
 
-**Space** plays or pauses. The bar's **HUD** button controls the game HUD seen
+#### Keys
+
+| Key | Demo | Highlight reel |
+|-----|------|----------------|
+| **Space** | Play or pause | Play or pause |
+| **←** / **→** | 5 seconds back or on | Previous or next shot |
+| **,** / **.** | One frame back or on (pauses) | |
+| **↑** / **↓** | Faster or slower, through 0.25× to 4× | |
+| **P** / **N** | The previous or next frag, from two seconds before it | |
+| **Tab** / **Shift+Tab** | The next or previous player's eyes | |
+| **1** – **9** | That player's eyes, in the bar's player order | |
+| **H** | Clean view: hide the overlays, chat and pointer | Same |
+| **Escape** | Leave playback | Leave playback |
+
+Keys held down repeat for the arrows and frame steps only. While you fly the
+free camera, Space and the arrows move it instead.
+
+The bar's **HUD** button controls the game HUD seen
 from the followed player's eyes; it dims during camera shots that are not
 first-person. The playback bar fades when idle and reappears when you move the
 mouse. You can also minimize it to a strip.
 
-**H** and `demoplay hud on|off|toggle` separately show or hide the playback
-overlays and replay chat, including the exit plate. Press H again to restore them;
-Escape remains available to leave playback. This is separate from the HUD button.
+**H** and `demoplay hud on|off|toggle` switch the **clean view**: the playback
+overlays, replay chat, exit plate and mouse pointer go, leaving just the picture
+for screen recording. Press H again to bring them back; Escape still leaves
+playback. This is separate from the HUD button.
 
 The gold **exit plate** at the top-left or **Escape** leaves playback. When you
 launched it from the lobby, this returns you to the lobby. Loading another demo
@@ -70,7 +88,8 @@ or starting a live match also cancels the old playback.
 
 Cinematic playback uses the same control bar, with **previous / next shot**
 buttons instead of manual POV selection and playback speed. Its timeline skips
-to a shot in the reel. It can cut between first-person action, free-camera views
+to a shot in the reel. A reel opens on a title card and closes on an end card;
+see [Demo Cinematic Mode](../tools/demo-cinematic.md#title-and-end-cards). It can cut between first-person action, free-camera views
 and slow-motion replays; the game HUD appears only for first-person shots.
 
 The analyser runs as `DemoService.analyzeLoadedDemo()` and outputs a list of timestamped highlights with scores. `demoplay analyze` prints this list without starting playback — useful for debugging the heuristics.

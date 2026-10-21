@@ -241,6 +241,16 @@ export class DemoViewer {
     return this.playbackSpeed;
   }
 
+  /** One preset faster (1) or slower (-1), stopping at either end. */
+  stepSpeed(step: 1 | -1): number {
+    const nearest = SPEED_OPTIONS.reduce((a, b) =>
+      Math.abs(b - this.playbackSpeed) < Math.abs(a - this.playbackSpeed) ? b : a,
+    );
+    const index = SPEED_OPTIONS.indexOf(nearest) + step;
+    this.playbackSpeed = SPEED_OPTIONS[Math.max(0, Math.min(SPEED_OPTIONS.length - 1, index))];
+    return this.playbackSpeed;
+  }
+
   /**
    * Get available speed options.
    */
