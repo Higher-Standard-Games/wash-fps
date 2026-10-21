@@ -116,7 +116,7 @@ files are kept. Three boards sit at the top:
 The mode keys at the top right and the maps in the rail filter every board; the
 rail counts the recordings on each map. Latest and Yours also take a search by
 player or map. **▶ Watch** plays a recording from the start; **⚡ Highlights**
-cuts one down to 1, 2 or 5 minutes of its best moments.
+cuts one down to 1, 2 or 3 minutes of its best moments.
 
 A card shows what a recording's header holds: the map, the mode, who played, how
 long it ran, when, and its size. The header has no final score, so a card shows

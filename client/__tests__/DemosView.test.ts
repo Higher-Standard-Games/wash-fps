@@ -178,7 +178,9 @@ describe("highlight reels", () => {
     expect(reelLengths(3 * MIN)).toEqual([1]);
     expect(reelLengths(5 * MIN + 32_000)).toEqual([1]);
     expect(reelLengths(6 * MIN)).toEqual([1, 2]);
-    expect(reelLengths(15 * MIN)).toEqual([1, 2, 5]);
+    expect(reelLengths(8 * MIN + 59_000)).toEqual([1, 2]);
+    expect(reelLengths(9 * MIN)).toEqual([1, 2, 3]);
+    expect(reelLengths(60 * MIN)).toEqual([1, 2, 3]);
   });
 
   it("keeps a short demo's Highlights key in place, disabled", () => {
@@ -197,7 +199,7 @@ describe("highlight reels", () => {
 
     longKey.click();
     const options = [...document.querySelectorAll<HTMLButtonElement>(".dm-reel__opt")];
-    expect(options.map((option) => option.textContent)).toEqual(["1min", "2min", "5min"]);
+    expect(options.map((option) => option.textContent)).toEqual(["1min", "2min", "3min"]);
     expect(options.map((option) => option.disabled)).toEqual([false, true, true]);
     view.destroy();
   });

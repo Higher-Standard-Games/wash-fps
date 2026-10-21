@@ -3,7 +3,7 @@
  *
  * Usage:
  *   demoplay                    — normal playback
- *   demoplay cinematic <min>    — highlight reel for <min> minutes
+ *   demoplay cinematic <min>    — highlight reel for <min> minutes (at most 3)
  *   demoplay analyze            — print highlight analysis to console
  *   demoplay hud <mode>         — show, hide, or toggle demo overlays
  *   demoplay stop               — stop any active playback
@@ -17,6 +17,8 @@ import { CameraSystem } from "../../../../engine/camera/CameraSystem";
 import { Command, type CommandDef } from "../../../../engine/console/Command";
 import { DemoService } from "../../client/DemoService";
 import { DemoViewer } from "../../client/DemoViewer";
+
+const MAX_REEL_MINUTES = 3;
 
 export default class DemoPlayCommand extends Command {
   readonly definition: CommandDef = {
@@ -68,10 +70,12 @@ export default class DemoPlayCommand extends Command {
     // ── demoplay cinematic <minutes> ──────────────────────────────
     if (subcommand === "cinematic") {
       const minutesArg = args[1];
-      const minutes = parseFloat(minutesArg ?? "");
-      if (Number.isNaN(minutes) || minutes <= 0) {
+      const asked = parseFloat(minutesArg ?? "");
+      if (Number.isNaN(asked) || asked <= 0) {
         return "Usage: demoplay cinematic <minutes>\nExample: demoplay cinematic 2";
       }
+      // A highlight reel is a short video: longer stops being highlights
+      const minutes = Math.min(asked, MAX_REEL_MINUTES);
 
       try {
         const viewer = new DemoViewer();

@@ -26,14 +26,14 @@ export const DEMOS_PER_PAGE = 6;
 export const DEMO_LIST_LIMIT = 64;
 export const DEMO_ARCHIVE_TIMEOUT_MS = 10_000;
 const FEATURED_LIMIT = 6;
-const REEL_MINUTES = [1, 2, 5];
+const REEL_MINUTES = [1, 2, 3];
 /** A reel is at most a third of its demo. */
 const REEL_SHARE = 3;
 
 /**
  * The reel lengths a demo can make: at most a third of its length. A demo under
  * three minutes (shorter than an Amphi round) has no reel; 3–6 minutes gives
- * 1 minute, 6–15 adds 2, and 15 or more adds 5.
+ * 1 minute, 6–9 adds 2, and 9 or more adds 3.
  */
 export function reelLengths(durationMs: number): number[] {
   return REEL_MINUTES.filter((minutes) => durationMs >= minutes * REEL_SHARE * 60_000);

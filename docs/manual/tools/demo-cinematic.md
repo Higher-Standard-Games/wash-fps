@@ -11,7 +11,7 @@ demoplay cinematic 2          # play a 2-minute reel
 ```
 
 From the lobby's Demos page, **⚡ Highlights** does the same and lets you pick a reel
-of **1, 2 or 5 minutes**. The shared playback bar offers pause, a timeline and
+of **1, 2 or 3 minutes**. The shared playback bar offers pause, a timeline and
 previous/next shot controls; the card and counter number the highlights. **HUD** toggles the game HUD during first-person shots;
 **H** shows or hides playback overlays and replay chat.
 **Escape** or the gold exit plate leaves playback. See [Demos](../multiplayer/demos.md).
@@ -30,7 +30,24 @@ Every highlight is cut the same way, so the reel reads like one edited video:
 2. **Eyes**: a quick white flash rewinds to the same moment, seen through the killer's eyes (or the victim's, when they saw it coming), with a beat of half speed on the frag. A multi-kill plays its whole run here.
 3. **Ending**: a crossfade into a slow 0.4× orbit round the frag.
 
-Each scene then ends with a fade to black, a white flash or a crossfade into the next one. The effect is picked from the highlight itself, so the same demo always cuts the same way. The reel always opens and closes on black.
+Each scene then ends with a fade to black, a white flash or a crossfade into the next one. The effect is picked from the highlight itself, so the same demo always cuts the same way. The reel always fades in from black and out to black over a full second, so a recording of it starts and ends clean.
+
+### Movement clips
+
+Between frag scenes the reel cuts in the best **trick jumps**: about one for every two frag scenes, at most two in a row, and never as the opening or closing shot. A clip follows the run from behind with a beat of slow motion on its best moment (the top of a wall-jump climb, else the first wall jump, else the fastest point), then flashes back into the player's eyes for that moment. A demo with no frags at all makes a reel of trick jumps alone.
+
+A run counts while the player goes faster than sprinting (450 u/s) in the air or on a slide, touching the ground for no more than about a third of a second between hops, for at least 1.2 seconds. It is kept when it has a wall jump, three or more hops, a slide into a jump, or tops 700 u/s:
+
+| Tag | When | × |
+|-----|------|--:|
+| `wall_jump` | One or more wall jumps | 1.3 |
+| `bunny_hop` | Three or more hops | 1.2 |
+| `slide` | A slide in the run | 1.1 |
+| `height_gain` | Wall jumps that climb 96 u or more | 1.2 |
+| `trick_jump` | Two of wall jumps, hops and slides in one run | 1.3 |
+| `high_speed` | Over 700 u/s | 1.2 |
+
+Trick jumps are scored among themselves (from 5 points), so they never compete with frags for a place.
 
 The analyser works on the recorded frames alone and touches no rendering or network code. It lives in the engine repo (`src/shared/demo/`); the player is `client/CinematicDemoPlayer.ts`.
 
@@ -43,34 +60,34 @@ The analyser works on the recorded frames alone and touches no rendering or netw
 | `airborne_frag` | A kill made while the killer was in the air |
 | `streak_kill` | A kill that extends a streak |
 | `first_blood` | The match's first kill |
-| `movement` | A trick jump, a high-speed run or a big height gain, with no kill |
+| `movement` | A trick jump: wall jumps, slides or a chain of hops, faster than sprinting |
 
 Each moment carries 3 seconds of lead-in and 2 seconds of follow-through.
 
 ### Scoring
 
-A kill starts at 10 points and a movement moment at 5. Tags then multiply the score:
+A kill starts at 10 points. Tags then multiply the score:
 
 | Tag | × | Tag | × |
 |-----|--:|-----|--:|
-| `rocket_jump` | 1.8 | `unstoppable` | 1.6 |
+| `rocket_jump` (rising over 450 u/s) | 1.8 | `unstoppable` | 1.6 |
 | `airborne` | 1.5 | `raging` | 1.4 |
 | `first_blood` | 1.5 | `low_hp` (under 30 HP) | 1.3 |
-| `trick_jump` | 1.3 | `long_range` (over 1500 u) | 1.2 |
-| `on_fire` | 1.2 | `high_speed` (over 600 u/s) | 1.2 |
-| `height_gain` | 1.2 | `close_range` (under 150 u), `revenge` | 1.1 |
+| `on_fire` | 1.2 | `long_range` (over 1500 u) | 1.2 |
+| `high_speed` (over 600 u/s) | 1.2 | `close_range` (under 150 u), `revenge` | 1.1 |
 
-A rocket jump replaces the airborne bonus rather than stacking with it, and a multi-kill adds 50% per extra kill. Where two moments overlap in time, only the higher-scoring one is kept.
+A rocket jump replaces the airborne bonus rather than stacking with it, and a multi-kill adds 50% per extra kill. Where two frags overlap in time, only the higher-scoring one is kept.
 
 ## Cameras and speed
 
 | Preset | Shot | Look |
 |--------|------|------|
-| `rocket_jump_hero` | Intro, for a rocket jump | Ahead of and below the jump along its heading, then beside it, then behind the apex |
+| `rocket_jump_hero` | Intro, for a rocket jump (rising faster than a plain or wall jump can) | Ahead of and below the jump along its heading, then beside it, then behind the apex |
 | `dramatic_zoom` | Intro, for a long-range frag | Wide-to-tight dolly onto the victim |
 | `orbit_kill` | Intro, otherwise | Starts over the killer's shoulder and swings round the action, about 90° a second |
 | `chase_hero` | Eyes | The killer's view |
 | `victim_pov` | Eyes, when the victim faced the killer (never twice running) | The victim's view, then the killer's once they die |
+| `trick_follow` | Movement clip | Rides behind and beside the player along their recorded route |
 | `replay_orbit` | Ending | Orbits both players when they're close, the victim when the shot crossed the map |
 
 A zoom's field of view stays with its own shot; the next shot, and the free camera after the reel, get theirs back.

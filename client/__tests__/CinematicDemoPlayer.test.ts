@@ -461,16 +461,35 @@ describe("CinematicDemoPlayer", () => {
     shot.transitionOut = "cut";
     shot.speedKeyframes = undefined;
     viewer.getInfo.mockReturnValue({ ...viewer.getInfo(), playheadTick: shot.startTick });
+    // The reel opens out of black over a full second
     expect(player.getVeil()).toEqual({ color: "black", opacity: 1 });
-    player.update(shot.transitionDurationMs / 2);
+    player.update(500);
     expect(player.getVeil().opacity).toBeCloseTo(0.5);
-    player.update(shot.transitionDurationMs);
+    player.update(500);
     expect(player.getVeil().opacity).toBe(0);
     // The flash rises over the shot's last moments, into the replay after it.
     shot.transitionOut = "white_flash";
     viewer.getInfo.mockReturnValue({ ...viewer.getInfo(), playheadTick: shot.endTick - 0.001 });
     expect(player.getVeil()).toMatchObject({ color: "white" });
     expect(player.getVeil().opacity).toBeGreaterThan(0.8);
+  });
+
+  it("closes the reel into black over a full second, and stays black once it ends", async () => {
+    await player.loadAndPlay(new Uint8Array(8), 2);
+    const reel = (player as unknown as { reel: import("../../../../shared/demo/SequenceBuilder").CinematicReel }).reel;
+    const last = reel.segments.at(-1)!;
+    expect(last.transitionOut).toBe("fade_to_black");
+    player.skipToSegment(last.segmentIndex);
+    player.update(2000);
+    // Half a second of footage left, at the shot's own speed
+    const halfSecond = (0.5 * 60 * last.playbackSpeed) / 1;
+    viewer.getInfo.mockReturnValue({ ...viewer.getInfo(), playheadTick: last.endTick - halfSecond });
+    expect(player.getVeil().opacity).toBeGreaterThan(0.3);
+    expect(player.getVeil().opacity).toBeLessThan(0.7);
+    viewer.getInfo.mockReturnValue({ ...viewer.getInfo(), playheadTick: last.endTick });
+    player.update(16);
+    expect(player.getReelInfo().state).toBe("ended");
+    expect(player.getVeil()).toEqual({ color: "black", opacity: 1 });
   });
 
   it("eases into a speed keyframe instead of snapping to it", async () => {

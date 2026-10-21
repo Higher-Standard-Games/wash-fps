@@ -35,7 +35,7 @@ const HIGHLIGHT_LABELS: Record<string, string> = {
   airborne_frag: "Airborne frag",
   streak_kill: "Streak kill",
   first_blood: "First blood",
-  movement: "Movement",
+  movement: "Trick jump",
 };
 
 const TAG_LABELS: Record<string, string> = {
@@ -51,8 +51,11 @@ const TAG_LABELS: Record<string, string> = {
   raging: "Raging",
   unstoppable: "Unstoppable",
   high_speed: "Speed",
-  trick_jump: "Trick",
-  height_gain: "Height",
+  trick_jump: "Combo",
+  height_gain: "Climb",
+  wall_jump: "Wall jump",
+  slide: "Slide",
+  bunny_hop: "Hops",
 };
 
 /** A shot's card, as the playback controls show it when the shot starts. */
@@ -91,6 +94,9 @@ export interface ReelInfo {
  * snapping from full speed.
  */
 const SPEED_EASE_RATE = 12;
+
+/** How long the reel takes to fade in from black at its start and out to black at its end. */
+const REEL_FADE_MS = 1000;
 
 /** How strongly a crossfade between two shots dips through black at its deepest. */
 const CROSSFADE_DIP = 0.6;
@@ -409,16 +415,22 @@ export class CinematicDemoPlayer {
    * replay). A cut is clear.
    */
   getVeil(): ReelVeil {
+    // Once the reel has ended it stays on its closing black: the index has run past its last shot
+    if (this.state === "ended") {
+      const last = this.reel?.segments.at(-1);
+      return { color: "black", opacity: last?.transitionOut === "fade_to_black" ? 1 : 0 };
+    }
     const segment = this.reel?.segments[this.currentSegmentIndex];
     if (!segment) return { color: "black", opacity: 0 };
-    if (this.state === "ended") {
-      return { color: "black", opacity: segment.transitionOut === "fade_to_black" ? 1 : 0 };
-    }
     const span = Math.max(1, segment.transitionDurationMs);
-    const into = 1 - Math.min(1, this.shotPlayedMs / span);
+    // The reel opens out of black and closes into it over a full second, so a
+    // recording of it starts and ends clean for editing
+    const first = this.currentSegmentIndex === 0;
+    const last = this.currentSegmentIndex === (this.reel?.segments.length ?? 0) - 1;
+    const into = 1 - Math.min(1, this.shotPlayedMs / (first ? REEL_FADE_MS : span));
     const ticksLeft = segment.endTick - this.demoViewer.getInfo().playheadTick;
     const msLeft = ((ticksLeft / this.tickRate) * 1000) / Math.max(0.05, this.speed);
-    const out = 1 - Math.min(1, Math.max(0, msLeft) / span);
+    const out = 1 - Math.min(1, Math.max(0, msLeft) / (last ? REEL_FADE_MS : span));
 
     let veil: ReelVeil = { color: "black", opacity: 0 };
     const take = (color: ReelVeil["color"], opacity: number) => {
