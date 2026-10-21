@@ -396,7 +396,7 @@ export class DemoService {
       const player = new CinematicDemoPlayer(viewer, cameraSystem, this.reelWorld());
       this.activeCinematicPlayer = player;
       player.onSegmentChange((segment) => {
-        this.demoHud?.showCard(shotCard(segment, player.getReelInfo().totalSegments));
+        this.demoHud?.showCard(shotCard(segment, player.getReelInfo().totalScenes));
       });
       await player.loadAndPlay(data, durationMinutes);
       if (this.abandonStart(start, viewer)) return;
@@ -857,8 +857,8 @@ export class DemoService {
         progress: reel.reelProgress,
         elapsedMs: reel.reelElapsedMs,
         totalMs: reel.reelTotalMs,
-        segment: reel.currentSegment,
-        segments: reel.totalSegments,
+        segment: reel.currentScene,
+        segments: reel.totalScenes,
         isReplay: reel.isReplay,
         speed: reel.currentSpeed,
       });

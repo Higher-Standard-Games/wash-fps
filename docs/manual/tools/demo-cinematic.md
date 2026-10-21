@@ -12,15 +12,25 @@ demoplay cinematic 2          # play a 2-minute reel
 
 From the lobby's Demos page, **⚡ Highlights** does the same and lets you pick a reel
 of **1, 2 or 5 minutes**. The shared playback bar offers pause, a timeline and
-previous/next shot controls. **HUD** toggles the game HUD during first-person shots;
+previous/next shot controls; the card and counter number the highlights. **HUD** toggles the game HUD during first-person shots;
 **H** shows or hides playback overlays and replay chat.
 **Escape** or the gold exit plate leaves playback. See [Demos](../multiplayer/demos.md).
 
 ## How a reel is made
 
 1. **Analyse.** `DemoAnalyzer` scans every frame of the demo for moments worth keeping and scores each one.
-2. **Build.** `SequenceBuilder` picks the best moments to fit the length you asked for (about 8 seconds a segment on average), gives each a camera and a speed, and adds transitions. The top 15% of moments also get an **instant replay** from another angle.
-3. **Play.** `CinematicDemoPlayer` drives the normal demo viewer through the segments, switching the camera for each one.
+2. **Build.** `SequenceBuilder` picks the best moments to fit the length you asked for (about 11 seconds a highlight), and films each one as a **scene** of three shots of the same moment (see below).
+3. **Play.** `CinematicDemoPlayer` drives the normal demo viewer through the shots, rewinding and switching the camera for each one.
+
+### A scene
+
+Every highlight is cut the same way, so the reel reads like one edited video:
+
+1. **Intro**: a third-person fly-by from 2 seconds before the frag (a rocket jump from its take-off), slowing to 0.35× for the last 0.6 seconds.
+2. **Eyes**: a quick white flash rewinds to the same moment, seen through the killer's eyes (or the victim's, when they saw it coming), with a beat of half speed on the frag. A multi-kill plays its whole run here.
+3. **Ending**: a crossfade into a slow 0.4× orbit round the frag.
+
+Each scene then ends with a fade to black, a white flash or a crossfade into the next one. The effect is picked from the highlight itself, so the same demo always cuts the same way. The reel always opens and closes on black.
 
 The analyser works on the recorded frames alone and touches no rendering or network code. It lives in the engine repo (`src/shared/demo/`); the player is `client/CinematicDemoPlayer.ts`.
 
@@ -54,16 +64,16 @@ A rocket jump replaces the airborne bonus rather than stacking with it, and a mu
 
 ## Cameras and speed
 
-| Preset | Look | Speed |
-|--------|------|-------|
-| `chase_hero` | First-person chase on the killer | Normal |
-| `orbit_kill` | Free camera orbiting the action | Slows to half speed just before the kill, then back |
-| `rocket_jump_hero` | Below the jump arc, looking up | 0.75×, dropping to 0.25× at the peak |
-| `victim_pov` | Chase on the victim before they die | Half speed just before the kill |
-| `dramatic_zoom` | Wide-to-tight dolly | 0.25× around the kill |
-| `replay_orbit` | Slow 360° orbit for the instant replay | 0.25× |
+| Preset | Shot | Look |
+|--------|------|------|
+| `rocket_jump_hero` | Intro, for a rocket jump | Ahead of and below the jump along its heading, then beside it, then behind the apex |
+| `dramatic_zoom` | Intro, for a long-range frag | Wide-to-tight dolly onto the victim |
+| `orbit_kill` | Intro, otherwise | Starts over the killer's shoulder and swings round the action, about 90° a second |
+| `chase_hero` | Eyes | The killer's view |
+| `victim_pov` | Eyes, when the victim faced the killer (never twice running) | The victim's view, then the killer's once they die |
+| `replay_orbit` | Ending | Orbits both players when they're close, the victim when the shot crossed the map |
 
-Transitions between segments are a cut, a crossfade, a white flash or a fade to black.
+A zoom's field of view stays with its own shot; the next shot, and the free camera after the reel, get theirs back.
 
 ## Tips
 

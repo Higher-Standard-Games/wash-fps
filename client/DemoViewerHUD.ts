@@ -36,6 +36,7 @@ export interface ReelProgress {
   progress: number;
   elapsedMs: number;
   totalMs: number;
+  /** The highlight (scene) on screen, 0-based, and how many the reel has. */
   segment: number;
   segments: number;
   isReplay: boolean;
@@ -316,7 +317,7 @@ export class DemoViewerHUD {
     this.render(info.progress, info.elapsedMs, info.totalMs, info.state);
     if (this.shotLabel) {
       const speed = info.speed < 0.99 ? ` · ${Math.round(info.speed * 100) / 100}x` : "";
-      this.shotLabel.textContent = `${info.isReplay ? "Replay" : "Shot"} ${info.segment + 1}/${info.segments}${speed}`;
+      this.shotLabel.textContent = `${info.isReplay ? "Replay" : "Highlight"} ${info.segment + 1}/${info.segments}${speed}`;
       this.shotLabel.classList.toggle("is-replay", info.isReplay);
     }
   }

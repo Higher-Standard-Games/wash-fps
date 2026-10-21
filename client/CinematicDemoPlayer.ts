@@ -56,11 +56,11 @@ const TAG_LABELS: Record<string, string> = {
 };
 
 /** A shot's card, as the playback controls show it when the shot starts. */
-export function shotCard(segment: CinematicSegment, totalSegments: number) {
+export function shotCard(segment: CinematicSegment, totalScenes: number) {
   const h = segment.highlight;
   const kills = h.killCount && h.killCount > 1 ? ` ×${h.killCount}` : "";
   return {
-    kicker: `${segment.isReplay ? "Replay" : "Highlight"} ${segment.segmentIndex + 1}/${totalSegments}`,
+    kicker: `${segment.isReplay ? "Replay" : "Highlight"} ${segment.scene + 1}/${totalScenes}`,
     title: `${HIGHLIGHT_LABELS[h.type] ?? h.type.replace(/_/g, " ")}${kills}`,
     player: h.victimPlayerName ? `${h.primaryPlayerName} → ${h.victimPlayerName}` : h.primaryPlayerName,
     detail: h.weaponId ? h.weaponId.replace(/_/g, " ") : "",
@@ -72,6 +72,10 @@ export interface ReelInfo {
   state: CinematicPlayerState;
   currentSegment: number;
   totalSegments: number;
+  /** The scene (highlight) the current shot belongs to, 0-based. */
+  currentScene: number;
+  /** Highlights in the reel; each is a scene of several shots. */
+  totalScenes: number;
   reelElapsedMs: number;
   reelTotalMs: number;
   /** 0.0 – 1.0 */
@@ -142,6 +146,8 @@ export class CinematicDemoPlayer {
   private speed = 1;
   /** Whose eyes the chase camera is behind in this segment. */
   private chaseTarget: string | null = null;
+  /** The fly-by camera's own field of view, from before the reel first changed it. */
+  private baseFov: number | null = null;
 
   // Callbacks
   private onSegmentChangeCb: ((segment: CinematicSegment, index: number) => void) | null = null;
@@ -242,7 +248,9 @@ export class CinematicDemoPlayer {
     if (path?.type === "freefly" && path.keyframes?.length) {
       const planned = interpolatePath(path.keyframes, playheadTick, path.interpolation);
       const { position, lookAt } = this._frameFlyby(segment, planned.position, planned.lookAt, deltaMs);
-      const fov = planned.fov;
+      // A path that sets its own field of view (the zoom) uses it; every other
+      // shot gets the camera's own back, so a zoom never carries into later shots
+      const fov = path.keyframes.some((kf) => kf.fov !== undefined) ? planned.fov * (Math.PI / 180) : this.baseFov;
 
       const freeflyCtrl = this.cameraSystem.getController("freefly") as FreeflyController | undefined;
       freeflyCtrl?.setPosition(new Vector3(position.x, position.y, position.z));
@@ -253,9 +261,8 @@ export class CinematicDemoPlayer {
       if (cam) {
         const { pitch, yaw } = this._lookAtRotation(position, lookAt);
         cam.rotation.set(pitch, yaw, 0);
-        if (fov !== 90) {
-          cam.fov = fov * (Math.PI / 180);
-        }
+        this.baseFov ??= cam.fov;
+        cam.fov = fov ?? cam.fov;
       }
     }
   }
@@ -296,6 +303,7 @@ export class CinematicDemoPlayer {
   }
 
   stop(): void {
+    this._restoreFov();
     this._setState("idle");
     this.reel = null;
     this.cameraPaths = [];
@@ -351,7 +359,9 @@ export class CinematicDemoPlayer {
     return {
       state: this.state,
       currentSegment: this.currentSegmentIndex,
+      currentScene: segment?.scene ?? 0,
       totalSegments: this.reel?.totalSegments ?? 0,
+      totalScenes: this.reel?.totalScenes ?? 0,
       reelElapsedMs: elapsedMs,
       reelTotalMs: totalMs,
       reelProgress: totalMs > 0 ? Math.min(1, elapsedMs / totalMs) : 0,
@@ -371,6 +381,15 @@ export class CinematicDemoPlayer {
   }
 
   // ── Private helpers ───────────────────────────────────────────────────────
+
+  /** Give the fly-by camera back the field of view it had before the reel. */
+  private _restoreFov(): void {
+    if (this.baseFov === null) return;
+    const freeflyCtrl = this.cameraSystem.getController("freefly") as FreeflyController | undefined;
+    const cam = freeflyCtrl?.getCamera() ?? this.cameraSystem.getFreeCamera();
+    if (cam) cam.fov = this.baseFov;
+    this.baseFov = null;
+  }
 
   private _startPlayback(): void {
     if (!this.reel || this.reel.segments.length === 0) {
@@ -479,14 +498,16 @@ export class CinematicDemoPlayer {
   ): { position: Vec3; lookAt: Vec3 } {
     // The shot is the killer's play: look at them, and at the victim too only
     // while the two fit one frame. Aiming between two players across a room
-    // shows neither.
+    // shows neither. A scene's ending orbits the frag itself, so when the two
+    // are apart it watches the victim take the hit.
     const killer = this.world.positionOf(segment.highlight.primaryPlayer);
     const victim = segment.highlight.victimPlayer ? this.world.positionOf(segment.highlight.victimPlayer) : null;
     const together =
       killer &&
       victim &&
       Math.hypot(killer.x - victim.x, killer.y - victim.y, killer.z - victim.z) <= FRAME_BOTH_WITHIN;
-    const subjects = together ? [killer, victim] : [killer ?? victim].filter((p): p is Vec3 => p !== null);
+    const lead = segment.cameraPreset === "replay_orbit" ? (victim ?? killer) : (killer ?? victim);
+    const subjects = together ? [killer, victim] : [lead].filter((p): p is Vec3 => p !== null);
     const focus = subjects.length
       ? {
           x: subjects.reduce((sum, p) => sum + p.x, 0) / subjects.length,

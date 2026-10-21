@@ -134,10 +134,10 @@ function makeMockFreeCamera() {
 function makeMockCameraSystem(freeCamera = makeMockFreeCamera()) {
   const controllers = new Map<
     string,
-    { setSpectateTarget?: (id: string) => void; setPosition?: (v: unknown) => void }
+    { setSpectateTarget?: (id: string) => void; setPosition?: (v: unknown) => void; getCamera?: () => unknown }
   >();
   controllers.set("spectator", { setSpectateTarget: vi.fn() });
-  controllers.set("freefly", { setPosition: vi.fn() });
+  controllers.set("freefly", { setPosition: vi.fn(), getCamera: () => null });
 
   return {
     setController: vi.fn(),
@@ -549,5 +549,38 @@ describe("CinematicDemoPlayer", () => {
 
     expect(flyCam.rotation.set).toHaveBeenCalledWith(-0, Math.PI / 2, 0);
     expect(flyCam.fov).toBeCloseTo(Math.PI / 3);
+  });
+
+  it("gives later shots and the free camera back their own field of view after a zoom", async () => {
+    await player.loadAndPlay(new Uint8Array(8), 2);
+    const reel = (player as unknown as { reel: import("../../../../shared/demo/SequenceBuilder").CinematicReel }).reel!;
+    const [zoom, next] = reel.segments;
+    const paths = (
+      player as unknown as { cameraPaths: import("../../../../shared/demo/CinematicCameraPaths").CameraPathResult[] }
+    ).cameraPaths;
+    const at = (tick: number, fov?: number) => ({
+      tick,
+      position: { x: 0, y: 0, z: 0 },
+      lookAt: { x: 100, y: 0, z: 0 },
+      ...(fov !== undefined ? { fov } : {}),
+    });
+    paths[zoom.segmentIndex] = { type: "freefly", keyframes: [at(zoom.startTick, 50)] } as never;
+    paths[next.segmentIndex] = { type: "freefly", keyframes: [at(next.startTick)] } as never;
+    const flyCam = makeMockFreeCamera();
+    cameraSystem.getFreeCamera.mockReturnValue(flyCam);
+
+    viewer.getInfo.mockReturnValue({ ...viewer.getInfo(), playheadTick: zoom.startTick });
+    player.update(16);
+    expect(flyCam.fov).toBeCloseTo((50 * Math.PI) / 180);
+
+    player.skipToSegment(next.segmentIndex);
+    viewer.getInfo.mockReturnValue({ ...viewer.getInfo(), playheadTick: next.startTick });
+    player.update(16);
+    expect(flyCam.fov).toBe(1.0);
+
+    paths[next.segmentIndex] = { type: "freefly", keyframes: [at(next.startTick, 50)] } as never;
+    player.update(16);
+    player.stop();
+    expect(flyCam.fov).toBe(1.0);
   });
 });
