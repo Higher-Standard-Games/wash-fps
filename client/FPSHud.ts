@@ -21,6 +21,7 @@ import { getWeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
 import { toClientKey } from "../ClientEntityKey";
 import { devLog } from "./DevLog";
 import { currentClip, HUDState } from "./HUDState";
+import "./HudBlur";
 import "./HudVisibility";
 // Import the game's HUD theme as raw CSS (Vite).
 import washikiTheme from "./hud/styles/WashikiTheme.css?raw";
