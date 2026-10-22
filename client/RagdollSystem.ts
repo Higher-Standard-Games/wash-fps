@@ -23,7 +23,11 @@ import { PhysicsConstraintType } from "@babylonjs/core/Physics/v2/IPhysicsEngine
 import type { PhysicsEngine } from "@babylonjs/core/Physics/v2/physicsEngine";
 import { Ragdoll } from "@babylonjs/core/Physics/v2/ragdoll";
 import type { Scene } from "@babylonjs/core/scene";
-import { disposePlayerModel, type PlayerModelInstance } from "../../../engine/animation/PlayerModelManager";
+import {
+  disposePlayerModel,
+  type PlayerModelInstance,
+  releaseLocomotionGroups,
+} from "../../../engine/animation/PlayerModelManager";
 import { background } from "../../../engine/core/AsyncErrors";
 import { PhysicsSystem } from "../../../engine/physics/PhysicsSystem";
 import { devLog } from "./DevLog";
@@ -414,11 +418,7 @@ export class RagdollSystem {
 
     try {
       // 1. FULLY DISPOSE all animations — they fight with physics
-      if (model.masterGroup) {
-        model.masterGroup.stop();
-        model.masterGroup.dispose();
-        model.masterGroup = null;
-      }
+      releaseLocomotionGroups(model);
       for (const anim of model.anims) {
         for (const entry of anim.animations) {
           if (entry.target) {
