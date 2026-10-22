@@ -13,6 +13,10 @@ import type { AdvancedMovementResult, MovementConfig } from "./MovementConfig";
 import { VEC3_ZERO, vec3Clone, vec3LengthXZ, vec3MulAdd, vec3Zero } from "./Vec3Helpers";
 
 /** Grace period for detection hysteresis (ms of sim time) */
+/** The rose's 22.5° turn, exact: the rounded 0.924/0.383 made those probes 0.3% short. */
+const COS_22_5 = Math.cos(Math.PI / 8);
+const SIN_22_5 = Math.sin(Math.PI / 8);
+
 const DETECTION_GRACE_MS = 100;
 
 /** Bounding box for wall detection traces — small box catches angled BSP faces
@@ -180,10 +184,18 @@ export class WallJump {
     // Check 8 directions for walls (full rose — catches 45° walls reliably)
     const directions = [
       forward, // Forward
-      { x: forward.x * 0.924 - forward.z * 0.383, y: 0, z: forward.x * 0.383 + forward.z * 0.924 }, // +22.5°
-      { x: forward.x * 0.924 + forward.z * 0.383, y: 0, z: -forward.x * 0.383 + forward.z * 0.924 }, // -22.5°
-      { x: forward.x * 0.707 - forward.z * 0.707, y: 0, z: forward.x * 0.707 + forward.z * 0.707 }, // +45°
-      { x: forward.x * 0.707 + forward.z * 0.707, y: 0, z: -forward.x * 0.707 + forward.z * 0.707 }, // -45°
+      { x: forward.x * COS_22_5 - forward.z * SIN_22_5, y: 0, z: forward.x * SIN_22_5 + forward.z * COS_22_5 }, // +22.5°
+      { x: forward.x * COS_22_5 + forward.z * SIN_22_5, y: 0, z: -forward.x * SIN_22_5 + forward.z * COS_22_5 }, // -22.5°
+      {
+        x: forward.x * Math.SQRT1_2 - forward.z * Math.SQRT1_2,
+        y: 0,
+        z: forward.x * Math.SQRT1_2 + forward.z * Math.SQRT1_2,
+      }, // +45°
+      {
+        x: forward.x * Math.SQRT1_2 + forward.z * Math.SQRT1_2,
+        y: 0,
+        z: -forward.x * Math.SQRT1_2 + forward.z * Math.SQRT1_2,
+      }, // -45°
       { x: -forward.z, y: 0, z: forward.x }, // +90° (left)
       { x: forward.z, y: 0, z: -forward.x }, // -90° (right)
       { x: -forward.x, y: 0, z: -forward.z }, // Backward

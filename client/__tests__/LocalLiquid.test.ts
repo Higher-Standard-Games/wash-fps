@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /** LocalLiquid's life cycle and wiring, as it worked inside Game. */
 
-const made: { views: any[]; interactions: any[]; trackers: any[] } = { views: [], interactions: [], trackers: [] };
+/** A mocked instance: every member the tests read is a vi.fn(). */
+type Made = Record<string, ReturnType<typeof vi.fn>>;
+const made: { views: Made[]; interactions: Made[]; trackers: Made[] } = { views: [], interactions: [], trackers: [] };
 let waterQuality: number | undefined = 3;
 let crownsAvailable = true;
 const weaponView = { submersionAmount: 0 };
@@ -16,7 +18,7 @@ vi.mock("../../liquid/client/UnderwaterView", () => ({
     dispose = vi.fn();
     setCollisionWorld = vi.fn();
     constructor(public scene: unknown) {
-      made.views.push(this);
+      made.views.push(this as unknown as Made);
     }
   },
 }));
@@ -30,7 +32,7 @@ vi.mock("../../liquid/client/LiquidInteractionSystem", () => ({
     setCollisionWorld = vi.fn();
     enableCrowns = vi.fn(() => crownsAvailable);
     constructor(public scene: unknown) {
-      made.interactions.push(this);
+      made.interactions.push(this as unknown as Made);
     }
   },
 }));
@@ -43,7 +45,7 @@ vi.mock("../../liquid/client/LocalAirTracker", () => ({
     reset = vi.fn();
     update = vi.fn();
     constructor() {
-      made.trackers.push(this);
+      made.trackers.push(this as unknown as Made);
     }
   },
 }));

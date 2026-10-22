@@ -308,7 +308,7 @@ describe("WeaponSystem - fire view origin", () => {
     sys.initializeWeaponFromLoadout(1 as never, mgLoadout as never);
 
     const shooter = makeShooter(0, 0);
-    (shooter as any).physics = { crouchViewOffset: -20 };
+    Object.assign(shooter, { physics: { crouchViewOffset: -20 } });
 
     sys.update(makeState([shooter]) as never, 1 / 125, 100 as never);
 
@@ -328,7 +328,7 @@ describe("WeaponSystem - fire view origin", () => {
     );
 
     const shooter = makeShooter(0, 0);
-    (shooter as any).physics = { crouchViewOffset: -20 };
+    Object.assign(shooter, { physics: { crouchViewOffset: -20 } });
     const state = {
       ...makeState([shooter]),
       addEntity: (entity: { transform?: { position?: { x?: number; y?: number; z?: number } } }) => {
