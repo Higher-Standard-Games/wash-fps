@@ -88,6 +88,10 @@ function formatTime(ms: number): string {
   return `${Math.floor(totalSeconds / 60)}:${(totalSeconds % 60).toString().padStart(2, "0")}`;
 }
 
+function setText(element: HTMLElement, text: string): void {
+  if (element.textContent !== text) element.textContent = text;
+}
+
 function isTextEntry(target: EventTarget | null): boolean {
   const element = target as HTMLElement | null;
   if (!element?.tagName) return false;
@@ -96,6 +100,11 @@ function isTextEntry(target: EventTarget | null): boolean {
 
 export class DemoViewerHUD {
   private container: HTMLDivElement | null = null;
+  /** What render() last wrote, so a frame that changes nothing writes nothing. */
+  private lastPercent = "";
+  private lastElapsedSec = -1;
+  private lastTotalMs = -1;
+  private readonly keyLabels = new WeakMap<HTMLElement, string>();
   private exitPlate: HTMLButtonElement | null = null;
   private card: HTMLDivElement | null = null;
   /** A reel's transitions over the picture; part of the picture, so H leaves it. */
@@ -155,6 +164,9 @@ export class DemoViewerHUD {
 
   private build(): void {
     this.container = el("div", "");
+    this.lastPercent = "";
+    this.lastElapsedSec = -1;
+    this.lastTotalMs = -1;
     this.container.id = "demo-viewer-hud";
 
     this.timeline = el("div", "dvh-timeline");
@@ -322,6 +334,13 @@ export class DemoViewerHUD {
     }
   }
 
+  /** setRaisedKeyText, skipped when the key already shows this label. */
+  private setKey(key: HTMLElement, label: string): void {
+    if (this.keyLabels.get(key) === label) return;
+    this.keyLabels.set(key, label);
+    setRaisedKeyText(key, label);
+  }
+
   isMinimized(): boolean {
     return this.minimized;
   }
@@ -333,7 +352,7 @@ export class DemoViewerHUD {
     if (!this.container || this.reel) return;
     const progress = info.totalFrames > 1 ? info.currentFrame / (info.totalFrames - 1) : 0;
     this.render(progress, info.elapsedMs, info.durationMs, info.state);
-    if (this.speedBtn) setRaisedKeyText(this.speedBtn, `${info.playbackSpeed}x`);
+    if (this.speedBtn) this.setKey(this.speedBtn, `${info.playbackSpeed}x`);
   }
 
   /** Bring a reel's display up to date with the reel, once a frame. */
@@ -342,22 +361,34 @@ export class DemoViewerHUD {
     this.render(info.progress, info.elapsedMs, info.totalMs, info.state);
     if (this.shotLabel) {
       const speed = info.speed < 0.99 ? ` · ${Math.round(info.speed * 100) / 100}x` : "";
-      this.shotLabel.textContent = `${info.isReplay ? "Replay" : "Highlight"} ${info.segment + 1}/${info.segments}${speed}`;
+      setText(this.shotLabel, `${info.isReplay ? "Replay" : "Highlight"} ${info.segment + 1}/${info.segments}${speed}`);
       this.shotLabel.classList.toggle("is-replay", info.isReplay);
     }
   }
 
   private render(progress: number, elapsedMs: number, totalMs: number, state: string): void {
     if (!this.container) return;
+    // Runs every frame, paused or not, so each field is written only when it
+    // changes: the clock moves once a second, the rest rarely.
     const percent = `${Math.max(0, Math.min(1, progress)) * 100}%`;
-    if (this.timelineFill) this.timelineFill.style.width = percent;
-    if (this.timelineHandle) this.timelineHandle.style.left = percent;
+    if (percent !== this.lastPercent) {
+      this.lastPercent = percent;
+      if (this.timelineFill) this.timelineFill.style.width = percent;
+      if (this.timelineHandle) this.timelineHandle.style.left = percent;
+    }
     const playing = state === "playing";
-    if (this.playPauseBtn) setRaisedKeyText(this.playPauseBtn, playing ? "❚❚" : "▶");
-    if (this.timeNow) this.timeNow.textContent = formatTime(elapsedMs);
-    if (this.timeTotal) this.timeTotal.textContent = ` / ${formatTime(totalMs)}`;
+    if (this.playPauseBtn) this.setKey(this.playPauseBtn, playing ? "❚❚" : "▶");
+    const elapsedSec = Math.floor(elapsedMs / 1000);
+    if (this.timeNow && elapsedSec !== this.lastElapsedSec) {
+      this.lastElapsedSec = elapsedSec;
+      this.timeNow.textContent = formatTime(elapsedMs);
+    }
+    if (this.timeTotal && totalMs !== this.lastTotalMs) {
+      this.lastTotalMs = totalMs;
+      this.timeTotal.textContent = ` / ${formatTime(totalMs)}`;
+    }
     if (this.statusLabel) {
-      this.statusLabel.textContent = STATUS[state] ?? STATUS.idle;
+      setText(this.statusLabel, STATUS[state] ?? STATUS.idle);
       this.statusLabel.classList.toggle("is-playing", playing);
       this.statusLabel.classList.toggle("is-paused", state === "paused");
     }

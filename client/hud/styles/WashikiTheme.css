@@ -1628,6 +1628,12 @@
   translate: 0 0;
 }
 
+/* The feed's fade-out: one CSS transition, timed by EventFeed's MESSAGE_FADE_TIME. */
+.fps-event-entry--in.fps-event-entry--out {
+  opacity: 0;
+  transition: opacity 1s linear;
+}
+
 .fps-event-killer {
   color: hsl(185, 98%, 68%);
   font-weight: 800;

@@ -220,7 +220,8 @@ export class SpectatorOverlay {
 
   /** Set the target player name for first-person spectating bar */
   public setSpectatingTarget(playerName: string): void {
-    this.spectatingNameEl.textContent = playerName;
+    // Called every snapshot; the name almost never changes.
+    if (this.spectatingNameEl.textContent !== playerName) this.spectatingNameEl.textContent = playerName;
   }
 
   // ── Callbacks ───────────────────────────────────────────────
