@@ -63,7 +63,7 @@ describe("the terms of service on the guide's first page", () => {
   it("shows the terms and holds the player on them until they agree", () => {
     localStorage.removeItem(TERMS_PREFERENCE);
     start();
-    expect(TERMS_VERSION).toBe("October 21, 2026");
+    expect(TERMS_VERSION).toBe("October 22, 2026");
     expect(document.querySelector(".lobby-guide__terms h3")?.textContent).toBe("Terms of Service");
     expect(agree().checked).toBe(false);
     expect(nextKey().disabled).toBe(true);
