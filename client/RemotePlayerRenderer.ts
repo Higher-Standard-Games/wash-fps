@@ -1423,6 +1423,9 @@ export class RemotePlayerRenderer {
    * never gains or loses a mesh (the hand weapon hangs off a bone, not the
    * body), and listing them built a new array per player per frame.
    */
+  /** applyAttachedWeaponQuadOutline's meshes and their fixed scale, per weapon model. */
+  private readonly weaponOutlineMeshes = new WeakMap<object, { mesh: AbstractMesh; scale: number }[]>();
+
   private bodyPartsOf(inst: PlayerModelInstance): AbstractMesh[] {
     let parts = this.bodyParts.get(inst);
     if (!parts) {
@@ -1469,13 +1472,23 @@ export class RemotePlayerRenderer {
   ): void {
     const root = hitbox.weaponRoot;
     if (!root) return;
-    const meshes: AbstractMesh[] =
-      root instanceof Mesh ? [root, ...root.getChildMeshes(false)] : root.getChildMeshes(false);
+    // Listed, and their scale measured, once per weapon model: this runs every
+    // frame while quad is held, and the scale of an attached weapon is fixed.
+    let outlined = this.weaponOutlineMeshes.get(root);
+    if (!outlined) {
+      outlined = [];
+      const meshes: AbstractMesh[] =
+        root instanceof Mesh ? [root, ...root.getChildMeshes(false)] : root.getChildMeshes(false);
+      for (const mesh of meshes) {
+        if (mesh.getTotalVertices() <= 0) continue;
+        mesh.computeWorldMatrix(true);
+        const scale = Math.max(0.001, mesh.absoluteScaling.x, mesh.absoluteScaling.y, mesh.absoluteScaling.z);
+        outlined.push({ mesh, scale });
+      }
+      this.weaponOutlineMeshes.set(root, outlined);
+    }
 
-    for (const mesh of meshes) {
-      if (mesh.getTotalVertices() <= 0) continue;
-      mesh.computeWorldMatrix(true);
-      const scale = Math.max(0.001, mesh.absoluteScaling.x, mesh.absoluteScaling.y, mesh.absoluteScaling.z);
+    for (const { mesh, scale } of outlined) {
       mesh.renderOutline = active;
       if (active) {
         mesh.outlineColor = color;

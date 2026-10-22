@@ -268,10 +268,21 @@ export class FPSPickup extends Pickup {
   // Proximity prompt (FPS-specific weapon-swap UX)
   // ═════════════════════════════════════════════════════════════════
 
+  private static suppressedFrame = -1;
+  private static suppressed = false;
+  /** Freefly or paused, worked out once per frame rather than once per pickup. */
+  private static promptsSuppressed(frame: number): boolean {
+    if (frame !== FPSPickup.suppressedFrame) {
+      FPSPickup.suppressedFrame = frame;
+      const activeController = CameraSystem.getInstance().getActiveController();
+      FPSPickup.suppressed = activeController?.type === "freefly" || !document.pointerLockElement;
+    }
+    return FPSPickup.suppressed;
+  }
+
   protected override onProximity(_playerPos: Vector3, inRange: boolean): void {
     // Suppress prompts in spectator (freefly) mode or when paused (no pointer lock).
-    const activeController = CameraSystem.getInstance().getActiveController();
-    if (activeController?.type === "freefly" || !document.pointerLockElement) {
+    if (FPSPickup.promptsSuppressed(this.getScene().getFrameId())) {
       if (FPSPickup.nearbyWeaponPickup === this) {
         FPSPickup.clearNearbyWeapon();
       }
