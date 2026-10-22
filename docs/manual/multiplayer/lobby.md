@@ -46,7 +46,7 @@ copyrights: the team, the libraries and fonts the game uses, and where its
 weapons, sounds, player model and maps come from, with their licences. It shows
 `CREDITS.md` from the root of this repository, the same file GitHub shows, so
 edit that file to change the credits. **Close**, Escape or a click outside closes it.
-The game version, such as `v0.9.37`, is shown just left of **CREDITS**, and
+The game version, such as `v1.0.0-alpha`, is shown just left of **CREDITS**, and
 **DEVLOG** between them opens washoi.net/devlog in a new browser tab.
 
 The guide appears once per client startup, not when returning from a match.

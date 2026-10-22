@@ -145,7 +145,7 @@ attention:
 The timer counts down the time left. To count up from 0:00 instead (time
 played, running on through overtime), pick **Time played** for **Match clock**
 in Settings → Gameplay, or enter `cl_invertClock 1` in the console. It needs a
-server from v0.9.37 or later; an older one keeps the countdown.
+server from v1.0.0-alpha or later; an older one keeps the countdown.
 
 During warmup, the larger ready banner stays on one line. Its gold-cell text
 gently grows and shrinks while you still need to press **F4**, keeping the cell
