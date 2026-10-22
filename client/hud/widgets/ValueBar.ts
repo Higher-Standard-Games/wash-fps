@@ -1,5 +1,10 @@
 // Extracted from FPSHud.ts
+
 import type { FPSHudWidget, HUDState } from "../HudWidget";
+import { restartFlash } from "../restartFlash";
+
+const FLASH_CLASSES = ["fps-flash-loss", "fps-flash-gain"] as const;
+const FLASH_NAMES = ["fps-flash-loss", "fps-flash-gain"] as const;
 
 /**
  * Configuration for a value bar widget
@@ -101,13 +106,9 @@ export class FPSValueBar implements FPSHudWidget {
 
     // Flash on change
     if (newValue < oldValue) {
-      this.element.classList.remove("fps-flash-loss");
-      void this.element.offsetWidth;
-      this.element.classList.add("fps-flash-loss");
+      restartFlash(this.element, "fps-flash-loss", FLASH_CLASSES, FLASH_NAMES);
     } else if (newValue > oldValue) {
-      this.element.classList.remove("fps-flash-gain");
-      void this.element.offsetWidth;
-      this.element.classList.add("fps-flash-gain");
+      restartFlash(this.element, "fps-flash-gain", FLASH_CLASSES, FLASH_NAMES);
     }
 
     // Low value warning

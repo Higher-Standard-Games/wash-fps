@@ -1,5 +1,10 @@
 // Extracted from FPSHud.ts
+
 import type { FPSHudWidget, HUDState } from "../HudWidget";
+import { restartFlash } from "../restartFlash";
+
+const BUMP_CLASSES = ["fps-frag-counter--bump"] as const;
+const BUMP_NAMES = ["w-stamp"] as const;
 
 // =============================================================================
 // Frag Counter — displays local player's score next to the timer
@@ -51,9 +56,7 @@ export class FPSFragCounter implements FPSHudWidget {
 
     // Stamp-punch the number on score changes (not on the initial render)
     if (!wasInitial) {
-      this.element.classList.remove("fps-frag-counter--bump");
-      void this.element.offsetWidth;
-      this.element.classList.add("fps-frag-counter--bump");
+      restartFlash(this.element, "fps-frag-counter--bump", BUMP_CLASSES, BUMP_NAMES);
     }
   }
 

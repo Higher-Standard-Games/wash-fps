@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HUDState, type ScoreboardEntry } from "../HUDState";
 import { FPSScoreboard } from "../hud/widgets/Scoreboard";
 import { MatchStateManager } from "../MatchStateManager";
@@ -62,6 +62,7 @@ describe("post-game scoreboard", () => {
     expect(text).toContain("K/D2.00");
     delete hud.scoreboard[0].frags;
     hud.scoreboard[0].score++;
+    hud.scoreboard = [...hud.scoreboard]; // a snapshot replaces the array
     board.refresh();
     expect(document.querySelector(".fps-postgame-stats")!.textContent).not.toContain("K/D");
   });
@@ -77,6 +78,20 @@ describe("post-game scoreboard", () => {
     board.destroy();
   });
 
+  it("does no work between snapshots, while the scoreboard array is the same one", () => {
+    const hud = duelHud();
+    board.setPostGame("SUNDFLUX WINS!", "player_1", "sundflux");
+    board.refresh();
+    const stringify = vi.spyOn(JSON, "stringify");
+    board.refresh();
+    board.refresh();
+    expect(stringify).not.toHaveBeenCalled();
+    hud.scoreboard = [...hud.scoreboard];
+    board.refresh();
+    expect(stringify).toHaveBeenCalledOnce();
+    stringify.mockRestore();
+  });
+
   it("keeps the winner plate while pings change", () => {
     const hud = duelHud();
     board.setPostGame("SUNDFLUX WINS!", "player_1", "sundflux");
@@ -86,6 +101,7 @@ describe("post-game scoreboard", () => {
 
     for (let ping = 5; ping < 15; ping++) {
       hud.scoreboard[0].ping = ping;
+      hud.scoreboard = [...hud.scoreboard]; // a snapshot replaces the array
       board.refresh();
     }
 

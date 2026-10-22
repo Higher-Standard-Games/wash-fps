@@ -35,6 +35,14 @@ export class FPSScoreboard {
   private locked: boolean = false;
   /** Structure signature of the last rebuild (everything but ping) — refresh() skips when unchanged. */
   private lastSignature: string = "";
+  /** What the last refresh() was computed from, compared by identity. */
+  private readonly lastInputs: {
+    scoreboard: unknown;
+    localPlayerId: string;
+    round: number;
+    carrier: unknown;
+    winner: string | null;
+  } = { scoreboard: null, localPlayerId: "", round: -1, carrier: null, winner: null };
   /** Post-game roster memory: players seen on the board since the lock. When a
    *  client disconnects during the post-game (bots leave at +10s, ragequits),
    *  their row stays — dimmed — instead of vanishing from the final board. */
@@ -186,9 +194,32 @@ export class FPSScoreboard {
     if (!this.visible) return;
 
     const state = HUDState.getInstance();
-    const entries = this.collectEntries(state);
     const localPlayerId = state.localPlayerId;
-    const round = MatchStateManager.getInstance().round;
+    const match = MatchStateManager.getInstance();
+    const round = match.round;
+    const carrier = match.bomb?.carrier ?? null;
+
+    // The board's inputs only change when a snapshot replaces the scoreboard
+    // array (pings included), so between snapshots, which is most HUD ticks,
+    // there is nothing to compare or write.
+    const inputs = this.lastInputs;
+    if (
+      this.lastSignature !== "" &&
+      inputs.scoreboard === state.scoreboard &&
+      inputs.localPlayerId === localPlayerId &&
+      inputs.round === round &&
+      inputs.carrier === carrier &&
+      inputs.winner === this.winnerPlayerId
+    ) {
+      return;
+    }
+    inputs.scoreboard = state.scoreboard;
+    inputs.localPlayerId = localPlayerId;
+    inputs.round = round;
+    inputs.carrier = carrier;
+    inputs.winner = this.winnerPlayerId;
+
+    const entries = this.collectEntries(state);
 
     const signature = JSON.stringify([
       state.teamBased,
@@ -197,7 +228,7 @@ export class FPSScoreboard {
       entries.map((e) => [e.playerId, e.name, e.score, e.frags, e.deaths, e.teamId, e.departed === true]),
       localPlayerId,
       round,
-      MatchStateManager.getInstance().bomb?.carrier ?? null,
+      carrier,
       this.winnerPlayerId,
     ]);
     if (signature !== this.lastSignature) {

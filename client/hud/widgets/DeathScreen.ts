@@ -202,8 +202,12 @@ export class FPSDeathScreen implements FPSHudWidget {
     }
   }
 
+  /** Whether this death's countdown layout is already on the card. */
+  private countdownShown = false;
+
   private startCountdown(): void {
     this.stopCountdown();
+    this.countdownShown = false;
     this.updateTimer();
     this.countdownInterval = window.setInterval(() => this.updateTimer(), 50);
   }
@@ -234,11 +238,17 @@ export class FPSDeathScreen implements FPSHudWidget {
     this.fillEl.style.width = `${Math.min(100, (elapsed / RESPAWN_DELAY_SECS) * 100)}%`;
 
     if (remaining > 0) {
-      this.cardEl.dataset.next = "countdown";
-      this.nextLabelEl.textContent = "Respawn in";
-      this.timerEl.textContent = remaining.toFixed(1);
-      this.timerEl.style.display = "";
-      this.respawnEl.style.display = "none";
+      // The card's countdown layout is set once; after that only the number
+      // moves, and it changes every other tick at most (tenths of a second).
+      if (!this.countdownShown) {
+        this.countdownShown = true;
+        this.cardEl.dataset.next = "countdown";
+        this.nextLabelEl.textContent = "Respawn in";
+        this.timerEl.style.display = "";
+        this.respawnEl.style.display = "none";
+      }
+      const text = remaining.toFixed(1);
+      if (this.timerEl.textContent !== text) this.timerEl.textContent = text;
     } else {
       this.cardEl.dataset.next = "ready";
       this.nextLabelEl.textContent = "Ready";

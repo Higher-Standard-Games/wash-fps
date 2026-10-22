@@ -1,5 +1,15 @@
 // Washoi manga-style combined health + armor readout.
+
 import type { FPSHudWidget, HUDState } from "../HudWidget";
+import { restartFlash } from "../restartFlash";
+
+const FLASH_CLASSES = [
+  "fps-vitals--loss",
+  "fps-vitals--gain",
+  "fps-vitals--armor-gain",
+  "fps-vitals--armor-loss",
+] as const;
+const FLASH_NAMES = ["fps-vitals-ink-hit", "fps-vitals-plate-chip"] as const;
 
 const ARMOR_PLATE_VALUE = 25;
 const ARMOR_PLATES = 4;
@@ -122,14 +132,7 @@ export class FPSVitalsBlock implements FPSHudWidget {
   }
 
   private flash(className: string): void {
-    this.element.classList.remove(
-      "fps-vitals--loss",
-      "fps-vitals--gain",
-      "fps-vitals--armor-gain",
-      "fps-vitals--armor-loss",
-    );
-    void this.element.offsetWidth;
-    this.element.classList.add(className);
+    restartFlash(this.element, className, FLASH_CLASSES, FLASH_NAMES);
   }
 
   public show(): void {

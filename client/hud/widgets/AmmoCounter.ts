@@ -1,6 +1,10 @@
 // Extracted from FPSHud.ts
 import { WEAPONS } from "../../../../../shared/entities/definitions/weapons/WeaponsTable";
 import type { FPSHudWidget, HUDState } from "../HudWidget";
+import { restartFlash } from "../restartFlash";
+
+const FLASH_CLASSES = ["fps-flash-loss"] as const;
+const FLASH_NAMES = ["fps-flash-loss"] as const;
 
 /**
  * FPSAmmoCounter - Ammo count + weapon name display
@@ -113,9 +117,7 @@ export class FPSAmmoCounter implements FPSHudWidget {
       }
 
       if (oldAmmo >= 0 && primaryAmmo < oldAmmo) {
-        this.element.classList.remove("fps-flash-loss");
-        void this.element.offsetWidth;
-        this.element.classList.add("fps-flash-loss");
+        restartFlash(this.element, "fps-flash-loss", FLASH_CLASSES, FLASH_NAMES);
       }
 
       if (primaryAmmo >= 0 && primaryAmmo <= 5) {
