@@ -1,6 +1,6 @@
 # Credits
 
-**Washiki Washoi** is made by [Higher Standard Games](https://github.com/Higher-Standard-Games).
+**Washiki Washoi** is made by [Higher Standard Games](https://higherstandardgames.com/).
 
 © 2026 Higher Standard Games.
 
