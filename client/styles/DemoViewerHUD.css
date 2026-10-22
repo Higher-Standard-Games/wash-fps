@@ -675,25 +675,28 @@ body.dvh-clean .dvh-end.is-shown {
   }
 }
 
-/* --- A reel's shot card --- */
+/* --- A reel's shot card ---
+   Top right, under the FPS plate: the kill feed keeps the top left, where it
+   sits in a match, and the card would cover its newest lines. */
 
 .dvh-card {
   position: fixed;
   top: calc(56px * var(--ui-scale, 1));
-  left: 24px;
+  right: 24px;
   z-index: 10000;
   min-width: 220px;
-  padding: 12px 22px 14px 18px;
+  padding: 12px 18px 14px 22px;
   background:
-    linear-gradient(172deg, hsla(250, 30%, 11%, 0.95), var(--w-void, hsla(255, 28%, 6%, 0.94)) 60%),
+    linear-gradient(188deg, hsla(250, 30%, 11%, 0.95), var(--w-void, hsla(255, 28%, 6%, 0.94)) 60%),
     var(--w-scan-cyan, none);
-  clip-path: polygon(0 0, 100% 0, calc(100% - 12px) 100%, 0 100%);
-  box-shadow: inset 3px 0 0 hsl(42, 96%, 58%);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 12px 100%);
+  box-shadow: inset -3px 0 0 hsl(42, 96%, 58%);
   color: var(--w-cream, hsl(42, 95%, 92%));
   font-family: var(--w-font-body, "Rajdhani", sans-serif);
+  text-align: right;
   pointer-events: none;
   opacity: 0;
-  transform: translateX(-12px);
+  transform: translateX(12px);
   transition:
     opacity 0.3s ease,
     transform 0.3s ease;
@@ -738,6 +741,7 @@ body.dvh-clean .dvh-end.is-shown {
 .dvh-card-tags {
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 6px;
   margin-top: 8px;
 }
