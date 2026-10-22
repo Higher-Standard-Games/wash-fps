@@ -122,6 +122,20 @@
   color: var(--ink);
 }
 
+.identity-agree {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.identity-agree input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--ink);
+}
+
 /* ── The key itself: a dark plate on the gold, blurred until it's asked for ── */
 
 .keyplate {

@@ -1,7 +1,7 @@
 /**
  * ProfileView — the player's account, on the gold panel the Welcome screen uses:
- * the key that opens it from any browser first, then changing the name and
- * playing as someone else as screens of their own. The ranked record sits on
+ * the key that opens it from any browser first, then changing the name,
+ * playing as someone else and deleting the account as screens of their own. The ranked record sits on
  * the stage beside the panel.
  *
  * The key never leaves the browser except to be copied or saved by the player;
@@ -13,6 +13,7 @@ import { createRaisedKey } from "../../../engine/ui/components/RaisedKey";
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import {
   currentIdentity,
+  deleteAccount,
   LoginError,
   loginFailureText,
   playerKeyIsSessionOnly,
@@ -21,7 +22,7 @@ import {
   storedPlayerKey,
 } from "../../../lobby/AccountSession";
 import type { LobbyClient } from "../../../lobby/LobbyClient";
-import { formatKey, KEY_LENGTH } from "../../../lobby/PlayerIdentity";
+import { DELETED_ACCOUNT_NAME, formatKey, KEY_LENGTH, normalizeKey } from "../../../lobby/PlayerIdentity";
 import type { GametypeInfo, RankingScope } from "../../../lobby/types";
 import type { RatingMode } from "../../../shared/ranking/RatingPolicy";
 import { switchFpsAccount } from "./FpsLobbyService";
@@ -46,7 +47,7 @@ interface PasswordCredentialConstructor {
   new (data: { id: string; password: string; name?: string }): Credential;
 }
 
-export type ProfileScreen = "key" | "name" | "switch";
+export type ProfileScreen = "key" | "name" | "switch" | "delete";
 
 export interface ProfileOptions {
   client: LobbyClient;
@@ -84,6 +85,10 @@ export class ProfileView {
   private switchSlot!: Slot;
   private switchKey!: HTMLButtonElement;
   private switching = false;
+  private deleteSlot!: Slot;
+  private deleteAgree!: HTMLInputElement;
+  private deleteKey!: HTMLButtonElement;
+  private deleting = false;
   private recordStatusEl!: HTMLElement;
   private recordRowsEl!: HTMLElement;
   private recordSeq = 0;
@@ -149,7 +154,12 @@ export class ProfileView {
   private build(): HTMLElement {
     const frame = buildIdentityFrame("Profile", "");
     this.ghostEl = frame.ghost;
-    frame.inner.append(this.buildKeyScreen(), this.buildNameScreen(), this.buildSwitchScreen());
+    frame.inner.append(
+      this.buildKeyScreen(),
+      this.buildNameScreen(),
+      this.buildSwitchScreen(),
+      this.buildDeleteScreen(),
+    );
     frame.stage.append(this.buildRecord());
     frame.root.classList.add("welcome--profile");
     this.refresh();
@@ -163,9 +173,14 @@ export class ProfileView {
       this.nameSlot.setValue(currentIdentity()?.name ?? "");
       this.refreshNameState();
       this.nameSlot.input.focus();
-    } else {
+    } else if (screen === "switch") {
       this.refreshSwitchState();
       this.switchSlot.input.focus();
+    } else {
+      this.deleteAgree.checked = false;
+      this.deleteSlot.input.value = "";
+      this.refreshDeleteState();
+      this.deleteAgree.focus();
     }
   }
 
@@ -267,6 +282,7 @@ export class ProfileView {
         ["Change name", () => this.show("name")],
         ["Use another key", () => this.show("switch")],
       ]),
+      this.altRow("Done with Washoi?", [["Delete account", () => this.show("delete")]]),
     );
     this.screens.set("key", screen);
     return screen;
@@ -338,6 +354,56 @@ export class ProfileView {
     );
     form.hidden = true;
     this.screens.set("switch", form);
+    return form;
+  }
+
+  /**
+   * Deleting is for good, so it takes two deliberate steps: ticking that you
+   * understand, and pasting the whole key again. The lobby checks the key too.
+   */
+  private buildDeleteScreen(): HTMLElement {
+    const form = identityScreen(
+      "Delete account",
+      "Delete this player?",
+      `Your name becomes ${DELETED_ACCOUNT_NAME} on the leaderboards and in the demo list, your synced settings are erased, and your key stops working. Demos already recorded stay as they are.`,
+    );
+    const agree = document.createElement("label");
+    agree.className = "identity-warn identity-agree";
+    this.deleteAgree = document.createElement("input");
+    this.deleteAgree.type = "checkbox";
+    this.deleteAgree.addEventListener("change", () => this.refreshDeleteState());
+    const strong = document.createElement("b");
+    strong.textContent = "I understand this can't be undone.";
+    const text = document.createElement("span");
+    text.append(strong, " Nobody can bring this player, its name or its rankings back.");
+    agree.append(this.deleteAgree, text);
+
+    this.deleteSlot = createSlot({
+      id: "profile-delete-key",
+      label: "This player's key, to confirm",
+      placeholder: "XXXX-XXXX-XXXX-XXXX-XXXX-XXXX",
+      prefix: "WASHOI-",
+      say: "Paste this player's whole key to confirm.",
+    });
+    this.deleteKey = createRaisedKey({ label: "Delete for good", hint: "Can't be undone", variants: ["ink", "go"] });
+    this.deleteKey.type = "submit";
+    this.deleteKey.disabled = true;
+    wireKeySlot(this.deleteSlot, () => this.refreshDeleteState());
+    const go = document.createElement("div");
+    go.className = "welcome__go";
+    go.appendChild(this.deleteKey);
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      void this.deleteThisAccount();
+    });
+    form.append(
+      agree,
+      this.deleteSlot.root,
+      go,
+      this.altRow("Changed your mind?", [["Back to your key", () => this.show("key")]]),
+    );
+    form.hidden = true;
+    this.screens.set("delete", form);
     return form;
   }
 
@@ -622,6 +688,7 @@ export class ProfileView {
     if (document.activeElement !== this.nameSlot.input) this.nameSlot.setValue(name);
     this.refreshNameState();
     this.refreshSwitchState();
+    this.refreshDeleteState();
     void this.refreshRecord();
   }
 
@@ -649,6 +716,46 @@ export class ProfileView {
     if (this.isInRoom()) this.switchSlot.tell("Leave your room before switching player.");
     else if (!this.client.connected) this.switchSlot.tell("The lobby is offline.");
     else this.switchSlot.tell(`${KEY_LENGTH} characters. Dashes and spaces don't matter.`);
+  }
+
+  /** Whether the pasted key is whole and, when this browser has the key, the same one. */
+  private deleteKeyMatches(): boolean {
+    const pasted = normalizeKey(this.deleteSlot.input.value);
+    const stored = storedPlayerKey();
+    return !!pasted && (!stored || normalizeKey(stored) === pasted);
+  }
+
+  private refreshDeleteState(): void {
+    const pasted = normalizeKey(this.deleteSlot.input.value);
+    const inRoom = this.isInRoom();
+    const offline = !this.client.connected || !currentIdentity();
+    this.deleteKey.disabled =
+      this.deleting || inRoom || offline || !this.deleteAgree.checked || !this.deleteKeyMatches();
+    if (this.deleting) return;
+    if (inRoom) this.deleteSlot.tell("Leave your room before deleting your account.");
+    else if (offline) this.deleteSlot.tell("Connect to the lobby to delete your account.");
+    else if (pasted && !this.deleteKeyMatches()) this.deleteSlot.tell("That isn't this player's key.", "bad");
+    else if (pasted && !this.deleteAgree.checked) this.deleteSlot.tell("Tick the box above to go on.");
+  }
+
+  private async deleteThisAccount(): Promise<void> {
+    if (!this.deleteAgree.checked || !this.deleteKeyMatches()) return;
+    this.deleting = true;
+    this.deleteKey.disabled = true;
+    this.deleteSlot.tell("Asking the lobby…");
+    const outcome = await deleteAccount(this.deleteSlot.input.value, this.deleteAgree.checked);
+    this.deleting = false;
+    if (!outcome.ok) {
+      this.refreshDeleteState();
+      this.deleteSlot.tell(renameFailureText(outcome.code), "bad");
+      return;
+    }
+    this.deleteSlot.input.value = "";
+    this.deleteAgree.checked = false;
+    this.deleteKey.disabled = true;
+    this.deleteSlot.tell("Your account is deleted. Starting over as a new player…", "ok");
+    // A fresh page makes a fresh player, the way a first visit does
+    setTimeout(() => location.reload(), 2000);
   }
 
   private async rename(): Promise<void> {

@@ -27,8 +27,7 @@ Even without an email, some of what we keep can still identify you, so here it i
 
 - **What:** your username and key, your match stats, recorded demos of your matches (including chat), and the IP address our servers see when you connect.
 - **Why:** to run matches, show leaderboards and demos, keep play fair, promote the game, and train our bots (see section 5).
-- **How long:** for as long as the game runs, unless it is cleared in a reset or removed on request.
-- **Removal:** you can ask us to remove your username, stats, and chat from our servers through the contact in section 10.
+- **Demos are a permanent public record.** We don't edit or remove them, and we may archive them.
 
 ## 4. Stats and Leaderboards
 
@@ -77,4 +76,4 @@ To the extent the law allows, the game, servers, and stats come "as is" and "as 
 
 - **Age:** you must be at least 13 years old to play on our servers.
 - **Changes:** when these terms change, the game shows you the new version before you play again.
-- **Contact:** for questions or removal requests, open an issue at [github.com/Higher-Standard-Games/shag](https://github.com/Higher-Standard-Games/shag).
+- **Contact:** for questions, open an issue at [github.com/Higher-Standard-Games/shag](https://github.com/Higher-Standard-Games/shag).
