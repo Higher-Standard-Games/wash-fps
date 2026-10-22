@@ -6,13 +6,14 @@
  * the delete key stays off and nothing is sent.
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { logIn, resetAccountSessionForTests } from "../../../../lobby/AccountSession";
 import { formatKey, normalizeKey } from "../../../../lobby/PlayerIdentity";
 import { ProfileView } from "../ProfileView";
 
 const KEY = "0123456789ABCDEFGHJKMNPQ";
 const OTHER_KEY = "QPNMKJHGFEDCBA9876543210";
+const views: ProfileView[] = [];
 
 function fakeClient() {
   const handlers = new Map<string, Set<(msg: unknown) => void>>();
@@ -37,6 +38,7 @@ async function mount() {
   const client = fakeClient();
   await logIn(client as never);
   const view = new ProfileView({ client: client as never, isInRoom: () => false, modes: () => [] });
+  views.push(view);
   document.body.append(view.root);
   view.open(document.body, "delete");
   const screen = [...view.root.querySelectorAll<HTMLFormElement>("form.welcome__screen")].find((form) => !form.hidden)!;
@@ -59,6 +61,11 @@ beforeEach(() => {
   document.body.replaceChildren();
   localStorage.clear();
   resetAccountSessionForTests();
+});
+
+afterEach(() => {
+  for (const view of views.splice(0)) view.destroy();
+  vi.useRealTimers();
 });
 
 describe("deleting the account", () => {
