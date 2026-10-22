@@ -11,6 +11,8 @@
  *   derives animation state from velocity/grounded/yaw, and plays animations
  */
 
+import type { Bone } from "@babylonjs/core/Bones/bone";
+import type { Skeleton } from "@babylonjs/core/Bones/skeleton";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Frustum } from "@babylonjs/core/Maths/math.frustum";
 import type { Plane } from "@babylonjs/core/Maths/math.plane";
@@ -162,6 +164,7 @@ export class RemotePlayerRenderer {
   private hitboxes: Map<string, RemotePlayerHitbox> = new Map();
   private readonly renderedPlayers = new Map<string, RenderedPlayer>();
   private readonly renderedEntries = new Map<string, RenderedPlayer>();
+  private readonly bonesByName = new WeakMap<Skeleton, Map<string, Bone | null>>();
   private snapshotBuffer: SnapshotBuffer = new SnapshotBuffer();
   private demoTimeline: DemoEntityTimeline | null = null;
   private demoPlayheadTick: number = 0;
@@ -955,12 +958,26 @@ export class RemotePlayerRenderer {
     const model = this.hitboxes.get(entityId)?.model;
     if (!model?.skeleton) return null;
 
-    // glTF import writes Mixamo names with a colon; the shared rig map uses the
-    // sanitized form. Accept either rather than making callers guess.
-    const bone =
-      model.skeleton.bones.find((b) => b.name === `mixamorig:${boneName}`) ??
-      model.skeleton.bones.find((b) => b.name === `mixamorig${boneName}`) ??
-      model.skeleton.bones.find((b) => b.name.toLowerCase().endsWith(boneName.toLowerCase()));
+    // The bomb asks for its carrier's spine every frame, and a rig's bones do
+    // not change after load: look each name up once per skeleton.
+    let byName = this.bonesByName.get(model.skeleton);
+    if (!byName) {
+      byName = new Map();
+      this.bonesByName.set(model.skeleton, byName);
+    }
+    let bone = byName.get(boneName);
+    if (bone === undefined) {
+      // glTF import writes Mixamo names with a colon; the shared rig map uses the
+      // sanitized form. Accept either rather than making callers guess.
+      const bones = model.skeleton.bones;
+      const suffix = boneName.toLowerCase();
+      bone =
+        bones.find((b) => b.name === `mixamorig:${boneName}`) ??
+        bones.find((b) => b.name === `mixamorig${boneName}`) ??
+        bones.find((b) => b.name.toLowerCase().endsWith(suffix)) ??
+        null;
+      byName.set(boneName, bone);
+    }
     return bone?.getTransformNode() ?? null;
   }
 
