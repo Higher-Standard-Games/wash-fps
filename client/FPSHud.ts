@@ -78,6 +78,8 @@ export class FPSHud {
   private container: HTMLElement | null = null;
   private areas: Map<FPSHudArea, HTMLElement> = new Map();
   private widgets: Map<string, FPSHudWidget> = new Map();
+  /** Set by hide(): widgets skip their tick until show(). */
+  private hidden = false;
   private updateInterval: number | null = null;
   private running: boolean = false;
   private fontsLoaded: boolean = false;
@@ -534,13 +536,18 @@ export class FPSHud {
    */
   private update(): void {
     const state = HUDState.getInstance();
-    for (const widget of this.widgets.values()) {
-      widget.update(state);
+    // A hidden HUD (the post-game screen, a demo's fly-by shots) has nothing
+    // to draw, so its widgets wait; show() brings them up to date at once.
+    if (!this.hidden) {
+      for (const widget of this.widgets.values()) {
+        widget.update(state);
+      }
+      this.container?.classList.toggle("fps-hud--subjectless", state.subjectless);
     }
-    this.container?.classList.toggle("fps-hud--subjectless", state.subjectless);
 
     // The chat log is not a widget, so it never sees the state tick — but it
     // needs the viewer's side to tell a teammate's name from an opponent's.
+    // It stays up on the post-game screen, so it is kept current regardless.
     this._chat?.setLocalTeam(state.scoreboard.find((e) => e.playerId === state.localPlayerId)?.teamId ?? "");
 
     // Keep the scoreboard live while open — it's a standalone overlay (not a
@@ -601,6 +608,10 @@ export class FPSHud {
     if (this.container) {
       this.container.style.display = "";
     }
+    if (this.hidden) {
+      this.hidden = false;
+      this.update();
+    }
   }
 
   /**
@@ -610,6 +621,7 @@ export class FPSHud {
     if (this.container) {
       this.container.style.display = "none";
     }
+    this.hidden = true;
   }
 
   // ===========================================================================
@@ -621,6 +633,7 @@ export class FPSHud {
    */
   public destroy(): void {
     this.stop();
+    this.hidden = false;
     this._unsubscribePhase?.();
     this._unsubscribePhase = null;
 

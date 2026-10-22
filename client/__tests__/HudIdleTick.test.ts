@@ -40,5 +40,23 @@ it("leaves the page alone on ticks where nothing changed", async () => {
     observer.disconnect();
     expect(writes, name).toEqual([]);
   }
+
+  // Hidden (the post-game screen), the widgets wait even when the state moves,
+  // and catch up the moment the HUD is shown again.
+  hud.hide();
+  const widgets = (hud as unknown as { widgets: Map<string, { update(s: unknown): void }> }).widgets;
+  const calls: string[] = [];
+  for (const [id, widget] of widgets) {
+    const original = widget.update.bind(widget);
+    widget.update = (s) => {
+      calls.push(id);
+      original(s);
+    };
+  }
+  Object.assign(state, { health: 42 });
+  tick();
+  expect(calls).toEqual([]);
+  hud.show();
+  expect(calls.length).toBe(widgets.size);
   hud.destroy();
 });
