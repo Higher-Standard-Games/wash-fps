@@ -76,4 +76,4 @@ To the extent the law allows, the game, servers, and stats come "as is" and "as 
 
 - **Age:** you must be at least 13 years old to play on our servers.
 - **Changes:** when these terms change, the game shows you the new version before you play again.
-- **Contact:** for questions, open an issue at [github.com/Higher-Standard-Games/shag](https://github.com/Higher-Standard-Games/shag).
+- **Contact:** for questions, open an issue at [github.com/Higher-Standard-Games/wash-fps](https://github.com/Higher-Standard-Games/wash-fps/issues).
