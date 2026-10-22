@@ -79,6 +79,14 @@ const NO_SHOW_SHUTDOWN_MS = 2 * 60_000;
  * while the watcher kept the server alive: a match that could never start or end.
  */
 export const NO_PLAYERS_SHUTDOWN_MS = 2 * 60_000;
+/** Countdown before an empty lobby-spawned server stops. */
+const EMPTY_SHUTDOWN_MS = 5_000;
+/**
+ * How long a connection that has not joined yet holds an empty server open: a
+ * player arriving joins within a second or two. One that never joins — a
+ * refused resume, a stalled client — must not keep a finished server alive.
+ */
+const HANDSHAKE_GRACE_MS = 15_000;
 
 /**
  * Whether a 5 s tick-rate sample means the server fell behind: under 95% of the target rate, or a
@@ -206,6 +214,8 @@ export class GameServer {
   // Auto-shutdown: track if any client has ever connected
   private hasHadClients = false;
   private shutdownTimer: ReturnType<typeof setTimeout> | null = null;
+  /** A demo save in progress; stopping the server waits for it. */
+  private demoSave: Promise<string | null> | null = null;
   /** Lobby-spawned servers exit if nobody ever joins (see `NO_SHOW_SHUTDOWN_MS`). */
   private noShowTimer: ReturnType<typeof setTimeout> | null = null;
   /** Checks for humans who only watch (see `NO_PLAYERS_SHUTDOWN_MS`). */
@@ -761,15 +771,26 @@ export class GameServer {
       return null;
     }
 
+    // The save compresses in the background while the match ticks on; a
+    // server stopping meanwhile waits for it rather than exit mid-write.
+    const save = this.saveRecording(this.demoRecorder);
+    this.demoSave = save;
+    void save.then(() => {
+      if (this.demoSave === save) this.demoSave = null;
+    });
+    return save;
+  }
+
+  private async saveRecording(recorder: DemoRecorder): Promise<string | null> {
     try {
-      const filepath = await this.demoRecorder.stop();
+      const filepath = await recorder.stop();
       console.log(`[GameServer] 🟢 Demo saved: ${filepath}`);
-      this.demoRecorder = null;
       return filepath;
     } catch (err) {
       console.error("[GameServer] Failed to save demo:", err);
-      this.demoRecorder = null;
       return null;
+    } finally {
+      if (this.demoRecorder === recorder) this.demoRecorder = null;
     }
   }
 
@@ -874,6 +895,9 @@ export class GameServer {
     this.simulation.cleanup();
     this.playedSeats.clear();
     this.suspended.clear();
+
+    // A save already under way finishes before the process may exit.
+    if (this.demoSave) await this.demoSave;
 
     // Finalize demo recording if active
     if (this.demoRecorder?.isRecording) {
@@ -1219,14 +1243,35 @@ export class GameServer {
   }
 
   private handleConnect(conn: ClientConnection): void {
-    this.hasHadClients = true;
-    // Cancel any pending shutdown timer
+    // A connection may be a player arriving, so an empty server waits for it to
+    // join. It only waits: if the connection never joins, the countdown still
+    // ends the server.
     if (this.shutdownTimer) {
-      clearTimeout(this.shutdownTimer);
-      this.shutdownTimer = null;
-      console.log("[GameServer] Shutdown timer cancelled — client connected");
+      this.armEmptyShutdown(HANDSHAKE_GRACE_MS);
+      console.log("[GameServer] Shutdown deferred — a client is connecting");
     }
     debugLog("setup", () => `[GameServer] WebSocket connected: ${conn.id}`);
+  }
+
+  /** A human playing, spectating, or holding a seat to resume into. */
+  private hasHumanPresent(): boolean {
+    return [...this.clients.values(), ...this.suspended.clients()].some((c) => !c.isBot);
+  }
+
+  /**
+   * Start (or restart) the empty-server countdown of a lobby-spawned server.
+   * One countdown at a time. Connections that have not joined do not count when
+   * it ends; held seats do, because a player mid-resume needs the server.
+   */
+  private armEmptyShutdown(delayMs = EMPTY_SHUTDOWN_MS): void {
+    if (!this.config.shutdownOnEmpty || !this.hasHadClients || this.hasHumanPresent()) return;
+    if (this.shutdownTimer) clearTimeout(this.shutdownTimer);
+    this.shutdownTimer = setTimeout(() => {
+      this.shutdownTimer = null;
+      if (this.hasHumanPresent()) return;
+      console.log("[GameServer] Auto-shutdown: no human clients remaining");
+      void this.stop().then(() => process.exit(0));
+    }, delayMs);
   }
 
   /** @param holdSeat False once the grace has passed: the drop is now a departure. */
@@ -1324,20 +1369,9 @@ export class GameServer {
 
     // Auto-shutdown (lobby-spawned mode) when no humans remain — even if bots are
     // still connected — so a lone/bot-only match tears down instead of idling.
-    const humansConnected = [...this.clients.values(), ...this.suspended.clients()].some((c) => !c.isBot);
-    if (this.config.shutdownOnEmpty && this.hasHadClients && !humansConnected) {
+    if (this.config.shutdownOnEmpty && this.hasHadClients && !this.hasHumanPresent()) {
       console.log("[GameServer] No human clients remaining — shutting down in 5 seconds...");
-      // One countdown at a time. Each bot leaving after the match used to start
-      // another and orphan the last, and a connect cancels only the newest.
-      if (this.shutdownTimer) clearTimeout(this.shutdownTimer);
-      this.shutdownTimer = setTimeout(() => {
-        this.shutdownTimer = null;
-        // Held seats count, as above: a player mid-resume needs the server.
-        if (![...this.clients.values(), ...this.suspended.clients()].some((c) => !c.isBot)) {
-          console.log("[GameServer] Auto-shutdown: no human clients remaining");
-          void this.stop().then(() => process.exit(0));
-        }
-      }, 5000);
+      this.armEmptyShutdown();
     }
   }
 
@@ -1647,6 +1681,7 @@ export class GameServer {
         isBot,
       };
       this.clients.set(conn.id, client);
+      this.hasHadClients = true;
       this.refreshHumanClientCount();
 
       console.log(`[GameServer] Player ${pid} connected as spectator`);
@@ -1691,6 +1726,7 @@ export class GameServer {
     client.snapshotsSinceRefresh = undefined;
     client.lastInputSeq = 0;
     this.clients.set(conn.id, client);
+    this.hasHadClients = true;
     this.capturePlayingSeat(client);
     this.refreshHumanClientCount();
 

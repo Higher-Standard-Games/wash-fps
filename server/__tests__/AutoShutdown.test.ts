@@ -77,13 +77,38 @@ describe("auto-shutdown when no human is left", () => {
     expect(stop).toHaveBeenCalledTimes(1);
   });
 
-  it("is cancelled by a human connecting, even after several bots left", async () => {
+  it("waits for a connecting human to join, even after several bots left", async () => {
     const { inner, stop } = server();
     const bots = [connect(inner, true), connect(inner, true)];
     for (const bot of bots) inner.handleDisconnect(bot.connection, "post-game");
     inner.handleConnect({ id: "conn_human", address: "127.0.0.1" });
     await vi.advanceTimersByTimeAsync(10_000);
     expect(stop).not.toHaveBeenCalled();
+    connect(inner, false); // the connection joins
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(stop).not.toHaveBeenCalled();
+  });
+
+  it("stops anyway when a connection never joins (a refused resume after the match)", async () => {
+    // Production: the last human left, reconnected to resume, was refused (no
+    // seat is held after the match) and kept that connection open. The connect
+    // cancelled the countdown, nothing restarted it, and the server ran empty
+    // for hours.
+    const { inner, stop } = server();
+    const human = connect(inner, false);
+    inner.handleDisconnect(human.connection, "match over");
+    inner.handleConnect({ id: "conn_resume", address: "127.0.0.1" });
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let an open connection that never joined hold an empty server", async () => {
+    const { inner, stop } = server();
+    const human = connect(inner, false);
+    inner.handleConnect({ id: "conn_idle", address: "127.0.0.1" }); // opens, never joins
+    inner.handleDisconnect(human.connection, "left");
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(stop).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the server for a human whose seat is held when the countdown ends", async () => {

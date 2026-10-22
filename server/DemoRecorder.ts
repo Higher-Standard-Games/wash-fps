@@ -19,6 +19,7 @@
  *   const filepath = await recorder.stop();
  */
 
+import { once } from "node:events";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as zlib from "node:zlib";
@@ -31,6 +32,17 @@ import {
   type RecordedInput,
 } from "../../../shared/demo/DemoInputs";
 import { debugLog } from "./DebugLog";
+
+/** Join byte chunks into one array. */
+function concat(chunks: readonly Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
 
 // ── Magic & Version ─────────────────────────────────────────────────────
 
@@ -223,23 +235,23 @@ export class DemoRecorder {
     // Generate filename: map_gametype_YYYYMMDD_HHmmss.shagdemo
     const dir = this._config.outputDir!;
 
-    // Ensure output directory exists
-    fs.mkdirSync(dir, { recursive: true });
+    await fs.promises.mkdir(dir, { recursive: true });
 
-    // Build the complete binary file
-    const demoBuffer = this._buildDemoBuffer(duration);
+    // Gzip compress (like pk3 = zip, .shagdemo is gzipped binary). The match is
+    // still running while this happens — at match end, and mid-match when the
+    // last human leaves — so none of it may hold the tick thread: a long match
+    // is hundreds of MB raw, and compressing it in one synchronous call froze
+    // every player for half a second. The file is fed to zlib in chunks and
+    // compressed on the libuv thread pool; only the compressed result is kept.
+    const { compressed, rawBytes } = await this._compress(duration);
 
-    // Gzip compress (like pk3 = zip, .shagdemo is gzipped binary)
-    const compressed = zlib.gzipSync(demoBuffer, { level: 6 });
-
-    // Write compressed data to disk (Uint8Array copy: Node's Buffer no longer
-    // satisfies the ArrayBuffer-backed view type under TS 5.9 strict generics)
-    const filepath = this._writeUnclaimed(dir, this._generateFilename(), new Uint8Array(compressed));
+    // Write compressed data to disk
+    const filepath = await this._writeUnclaimed(dir, this._generateFilename(), compressed);
     const filename = path.basename(filepath);
 
-    const rawMB = (demoBuffer.byteLength / (1024 * 1024)).toFixed(2);
+    const rawMB = (rawBytes / (1024 * 1024)).toFixed(2);
     const compMB = (compressed.byteLength / (1024 * 1024)).toFixed(2);
-    const ratio = ((1 - compressed.byteLength / demoBuffer.byteLength) * 100).toFixed(0);
+    const ratio = ((1 - compressed.byteLength / rawBytes) * 100).toFixed(0);
     console.log(
       `[DemoRecorder] ✓ Demo saved: ${filename} (${compMB} MB, ${ratio}% compressed from ${rawMB} MB, ${this._frameCount} frames)`,
     );
@@ -249,17 +261,45 @@ export class DemoRecorder {
 
   // ── Private: Binary Format Builder ───────────────────────────────
 
-  private _buildDemoBuffer(duration: number): Uint8Array {
-    const encoder = new BinaryEncoder(1024 * 1024); // Start with 1MB buffer
+  /** The whole file, uncompressed, in one buffer — for readers that want a recording without a file. */
+  _buildDemoBuffer(duration: number): Uint8Array {
+    return concat([...this._rawChunks(duration)]);
+  }
+
+  /** Gzip the file without holding the event loop: chunks go to zlib's thread pool. */
+  private async _compress(duration: number): Promise<{ compressed: Uint8Array; rawBytes: number }> {
+    const gzip = zlib.createGzip({ level: 6 });
+    const output: Uint8Array[] = [];
+    gzip.on("data", (chunk: Uint8Array) => output.push(chunk));
+    const finished = once(gzip, "end");
+    let rawBytes = 0;
+    for (const chunk of this._rawChunks(duration)) {
+      rawBytes += chunk.byteLength;
+      if (!gzip.write(chunk)) await once(gzip, "drain");
+    }
+    gzip.end();
+    await finished;
+    return { compressed: concat(output), rawBytes };
+  }
+
+  /**
+   * The file as a sequence of chunks of about a megabyte: header, frames,
+   * index table, footer. Frame offsets in the index are positions in the whole
+   * uncompressed file.
+   */
+  private *_rawChunks(duration: number): Generator<Uint8Array> {
+    const CHUNK_BYTES = 1024 * 1024;
 
     // ── Section 1: Header ────────────────────────────────────────
+    let encoder = new BinaryEncoder(CHUNK_BYTES);
     this._writeHeader(encoder);
 
     // ── Section 2: Frames ────────────────────────────────────────
     const frameOffsets: number[] = [];
+    let flushed = 0; // bytes yielded before the current encoder
 
     for (let i = 0; i < this._frames.length; i++) {
-      frameOffsets.push(encoder.getOffset());
+      frameOffsets.push(flushed + encoder.getOffset());
 
       const frame = this._frames[i];
       // Write tick number
@@ -272,10 +312,17 @@ export class DemoRecorder {
       const inputs = this._frameInputs[i] ?? new Uint8Array(0);
       encoder.writeUint32(inputs.byteLength);
       encoder.writeBytes(inputs);
+
+      if (encoder.getOffset() >= CHUNK_BYTES) {
+        const chunk = encoder.toBytes();
+        flushed += chunk.byteLength;
+        yield chunk;
+        encoder = new BinaryEncoder(CHUNK_BYTES);
+      }
     }
 
     // ── Section 3: Index Table ───────────────────────────────────
-    const indexOffset = encoder.getOffset();
+    const indexOffset = flushed + encoder.getOffset();
 
     // Frame count
     encoder.writeUint32(this._frameCount);
@@ -290,7 +337,7 @@ export class DemoRecorder {
     encoder.writeUint32(Math.round(duration)); // Total duration ms
     encoder.writeUint32(indexOffset); // Offset to index table (for seeking)
 
-    return encoder.toBytes();
+    yield encoder.toBytes();
   }
 
   private _writeHeader(encoder: BinaryEncoder): void {
@@ -348,7 +395,7 @@ export class DemoRecorder {
    * servers that stopped together each see it free, and each write over the
    * others, leaving one recording of three.
    */
-  private _writeUnclaimed(dir: string, filename: string, data: Uint8Array): string {
+  private async _writeUnclaimed(dir: string, filename: string, data: Uint8Array): Promise<string> {
     const stem = filename.replace(/\.shagdemo$/, "");
     const candidates = [filename];
     for (let n = 2; n <= 99; n++) candidates.push(`${stem}_${n}.shagdemo`);
@@ -359,7 +406,7 @@ export class DemoRecorder {
     for (const name of candidates) {
       const candidate = path.join(dir, name);
       try {
-        fs.writeFileSync(candidate, data, { flag: "wx" });
+        await fs.promises.writeFile(candidate, data, { flag: "wx" });
         return candidate;
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
