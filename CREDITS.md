@@ -2,10 +2,11 @@
 
 **Washiki Washoi** is made by [Higher Standard Games](https://github.com/Higher-Standard-Games).
 
-© 2026 Higher Standard Games. All rights reserved.
+© 2026 Higher Standard Games.
 
-The SHAG engine underneath it is open source under the
-[MIT License](https://github.com/Higher-Standard-Games/shag/blob/main/LICENSE).
+The game and the SHAG engine underneath it are open source under the MIT
+License: [the game's](https://github.com/Higher-Standard-Games/wash-fps/blob/main/LICENSE)
+and [the engine's](https://github.com/Higher-Standard-Games/shag/blob/main/LICENSE).
 
 <!--
 This file is shown in game under Credits on the Play page, and on GitHub as is.
