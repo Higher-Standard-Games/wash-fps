@@ -44,6 +44,8 @@ vi.mock("../../../../engine/loader/model/ModelLoader", () => ({
   },
 }));
 
+// Resolve the mocked lazy module before timing weapon attachment assertions.
+await import("../../../../engine/loader/model/ModelLoader");
 const { RemotePlayerRenderer } = await import("../RemotePlayerRenderer");
 
 interface Internals {
