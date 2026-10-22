@@ -21,11 +21,18 @@ interface DemoTimelineSnapshot {
 const MAX_SNAPSHOTS = 16;
 const TELEPORT_SNAP_DIST = 256;
 
+const NO_IDS: ReadonlySet<string> = new Set();
+
 export class DemoEntityTimeline {
   private snapshots: DemoTimelineSnapshot[] = [];
   private lastInsertedTick: number | null = null;
+  /** Bumped by every push, clear and flush: lets a caller tell nothing has changed. */
+  version = 0;
+  /** getEntityIds per snapshot entry, built once: the renderer asks every frame. */
+  private readonly idSets = new WeakMap<DemoTimelineSnapshot, ReadonlySet<string>>();
 
   push(tick: number, entities: Map<string, EntitySnapshot>): void {
+    this.version++;
     const existing = this.snapshots.findIndex((snapshot) => snapshot.tick === tick);
     const entry = { tick, entities };
     if (existing >= 0) {
@@ -71,10 +78,16 @@ export class DemoEntityTimeline {
     return entity ? { ...entity } : null;
   }
 
-  getEntityIds(playheadTick: number): Set<string> {
+  getEntityIds(playheadTick: number): ReadonlySet<string> {
     const { before, after } = this.findBrackets(playheadTick);
     const snapshot = before ?? after;
-    return snapshot ? new Set(snapshot.entities.keys()) : new Set();
+    if (!snapshot) return NO_IDS;
+    let ids = this.idSets.get(snapshot);
+    if (!ids) {
+      ids = new Set(snapshot.entities.keys());
+      this.idSets.set(snapshot, ids);
+    }
+    return ids;
   }
 
   getSize(): number {
@@ -82,12 +95,14 @@ export class DemoEntityTimeline {
   }
 
   clear(): void {
+    this.version++;
     this.snapshots = [];
     this.lastInsertedTick = null;
   }
 
   /** Keep only the most recently inserted frame as a seek baseline. */
   flush(): void {
+    this.version++;
     if (this.lastInsertedTick === null) {
       this.clear();
       return;

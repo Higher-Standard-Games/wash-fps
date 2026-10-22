@@ -86,4 +86,17 @@ describe("DemoEntityTimeline", () => {
     expect(timeline.getEntityIds(15)).toEqual(new Set(["old"]));
     expect(timeline.getEntityIds(20)).toEqual(new Set(["new"]));
   });
+
+  it("hands back the same id set until the timeline changes", () => {
+    const timeline = new DemoEntityTimeline();
+    timeline.push(100, frame("player", entity()));
+    const before = timeline.version;
+    const ids = timeline.getEntityIds(100);
+    expect(timeline.getEntityIds(100)).toBe(ids);
+    expect([...ids]).toEqual(["player"]);
+
+    timeline.push(104, frame("bot", entity()));
+    expect(timeline.version).toBeGreaterThan(before);
+    expect([...timeline.getEntityIds(104)]).toEqual(["bot"]);
+  });
 });

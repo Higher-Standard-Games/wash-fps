@@ -78,6 +78,12 @@ import { installTeamColorBridge } from "./TeamColorBridge";
 // ─── Types ───────────────────────────────────────────────────────
 
 /** Per-entity hitbox wrapper */
+/** A rendered remote player as spectating and the bomb see them. */
+export interface RenderedPlayer {
+  position: Vector3;
+  dead: boolean;
+}
+
 interface RemotePlayerHitbox {
   mesh: Mesh;
   smoothedPos: Vector3;
@@ -154,6 +160,8 @@ const JUMP_VELOCITY = 320;
 export class RemotePlayerRenderer {
   private scene: Scene;
   private hitboxes: Map<string, RemotePlayerHitbox> = new Map();
+  private readonly renderedPlayers = new Map<string, RenderedPlayer>();
+  private readonly renderedEntries = new Map<string, RenderedPlayer>();
   private snapshotBuffer: SnapshotBuffer = new SnapshotBuffer();
   private demoTimeline: DemoEntityTimeline | null = null;
   private demoPlayheadTick: number = 0;
@@ -262,6 +270,9 @@ export class RemotePlayerRenderer {
   }
 
   /** Enable deterministic recorded-tick sampling instead of live network buffering. */
+  private lastLookaheadState: GameState | null = null;
+  private lastLookaheadVersion = -1;
+
   enableDemoPlayback(): void {
     this.demoTimeline = new DemoEntityTimeline();
     this.demoAnimationTimeline = new DemoAnimationTimeline();
@@ -563,10 +574,20 @@ export class RemotePlayerRenderer {
    */
   pushDemoSnapshot(state: GameState, localEntityId: string, lookahead = false): void {
     if (!this.demoTimeline) this.enableDemoPlayback();
+    // The render loop pushes the next frame as lookahead every frame, and it
+    // is the same frame until the playhead moves: at 144 fps on a 60 Hz demo,
+    // two or three identical rebuilds. Skip it when nothing touched the
+    // timeline since this very push.
+    const timeline = this.demoTimeline;
+    if (lookahead && timeline && state === this.lastLookaheadState && timeline.version === this.lastLookaheadVersion) {
+      return;
+    }
     const localTeam = applyRoster(this.teams, state.players.values(), localEntityId);
     if (localTeam !== undefined) this.localTeam = localTeam;
     const entities = extractEntities(state, localEntityId);
     this.demoTimeline?.push(state.tick, entities);
+    this.lastLookaheadState = lookahead ? state : null;
+    this.lastLookaheadVersion = this.demoTimeline?.version ?? -1;
     if (!lookahead) {
       this.clearRespawnedEntities(entities);
     }
@@ -886,10 +907,25 @@ export class RemotePlayerRenderer {
    * are not a candidate to spectate. Following someone the client cannot see
    * would be a camera pointed at a guess.
    */
-  getRenderedPlayers(): Map<string, { position: Vector3; dead: boolean }> {
-    const out = new Map<string, { position: Vector3; dead: boolean }>();
+  getRenderedPlayers(): ReadonlyMap<string, Readonly<RenderedPlayer>> {
+    // Spectating asks every frame, so the map and its entries are reused rather
+    // than rebuilt: valid until the next call, which is all any caller needs.
+    const out = this.renderedPlayers;
+    out.clear();
     for (const [entityId, hitbox] of this.hitboxes) {
-      out.set(entityId, { position: hitbox.smoothedPos, dead: this.deadEntities.has(entityId) });
+      let entry = this.renderedEntries.get(entityId);
+      if (!entry) {
+        entry = { position: hitbox.smoothedPos, dead: false };
+        this.renderedEntries.set(entityId, entry);
+      }
+      entry.position = hitbox.smoothedPos;
+      entry.dead = this.deadEntities.has(entityId);
+      out.set(entityId, entry);
+    }
+    if (this.renderedEntries.size > out.size) {
+      for (const entityId of this.renderedEntries.keys()) {
+        if (!out.has(entityId)) this.renderedEntries.delete(entityId);
+      }
     }
     return out;
   }
