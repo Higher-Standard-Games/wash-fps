@@ -13,6 +13,14 @@ interface Fragment {
 }
 
 /** Cosmetic, bounded model fragments. Persistent layout comes from the snapshot. */
+const TRACE_POINT = { radius: 0, height: 0, contentMask: 1 };
+
+function sameMembers(set: ReadonlySet<number>, list: readonly number[]): boolean {
+  if (set.size !== list.length) return false;
+  for (const value of list) if (!set.has(value)) return false;
+  return true;
+}
+
 export class BombSiteDebris {
   private readonly templates = new Map<string, ModelLoadResult>();
   private readonly loading = new Set<string>();
@@ -20,6 +28,9 @@ export class BombSiteDebris {
   private previous: Set<number> | null = null;
   private round = -1;
   private disposed = false;
+  private preloadedFor: readonly BrushModelDefinition[] | null = null;
+  private readonly to = new Vector3();
+  private readonly bounce = new Vector3();
 
   constructor(private readonly scene: Scene) {}
 
@@ -34,37 +45,52 @@ export class BombSiteDebris {
       this.previous = null;
       return;
     }
-    for (const definition of definitions) for (const path of definition.debris) this.preload(path);
-    const current = new Set(disabled);
-    if (this.previous) {
-      for (const definition of definitions) {
-        if (current.has(definition.modelIndex) && !this.previous.has(definition.modelIndex)) this.emit(definition);
-      }
+    // The definitions belong to the map: preload their debris once per map,
+    // not every frame.
+    if (definitions !== this.preloadedFor) {
+      this.preloadedFor = definitions;
+      for (const definition of definitions) for (const path of definition.debris) this.preload(path);
     }
-    // The first snapshot establishes state: joining after an explosion emits nothing.
-    this.previous = current;
+    // The same disabled list arrives frame after frame; a new set is only
+    // needed when it changes.
+    if (!this.previous || !sameMembers(this.previous, disabled)) {
+      const current = new Set(disabled);
+      if (this.previous) {
+        for (const definition of definitions) {
+          if (current.has(definition.modelIndex) && !this.previous.has(definition.modelIndex)) this.emit(definition);
+        }
+      }
+      // The first snapshot establishes state: joining after an explosion emits nothing.
+      this.previous = current;
+    }
+    if (this.fragments.length === 0) return;
     const step = Math.min(Math.max(dt, 0), 0.05);
-    this.fragments = this.fragments.filter((fragment) => {
+    const backend = getCollisionManager().getSweepBackend();
+    let kept = 0;
+    for (const fragment of this.fragments) {
       fragment.age += step;
       if (fragment.age > 4) {
         fragment.root.dispose();
-        return false;
+        continue;
       }
+      this.fragments[kept++] = fragment;
       fragment.velocity.y -= 600 * step;
       const from = fragment.root.position;
-      const to = from.add(fragment.velocity.scale(step));
-      const hit = getCollisionManager().getSweepBackend()?.trace(from, to, { radius: 0, height: 0, contentMask: 1 });
+      const to = from.addToRef(fragment.velocity.scaleToRef(step, this.to), this.to);
+      const hit = backend?.trace(from, to, TRACE_POINT);
       if (hit && hit.fraction < 1) {
         from.copyFrom(hit.endPos);
         if (hit.normal) {
-          from.addInPlace(hit.normal.scale(1));
-          fragment.velocity.subtractInPlace(hit.normal.scale(1.45 * Vector3.Dot(fragment.velocity, hit.normal)));
+          from.addInPlace(hit.normal);
+          fragment.velocity.subtractInPlace(
+            hit.normal.scaleToRef(1.45 * Vector3.Dot(fragment.velocity, hit.normal), this.bounce),
+          );
           fragment.velocity.scaleInPlace(0.65);
         }
       } else from.copyFrom(to);
-      fragment.root.rotation.addInPlace(fragment.spin.scale(step));
-      return true;
-    });
+      fragment.spin.scaleAndAddToRef(step, fragment.root.rotation);
+    }
+    this.fragments.length = kept;
   }
 
   private preload(path: string): void {

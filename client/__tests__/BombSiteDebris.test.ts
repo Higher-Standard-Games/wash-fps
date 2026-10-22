@@ -7,6 +7,7 @@ import { BrushModelState } from "../../../../shared/bsp/BrushModelState";
 
 const context = vi.hoisted(() => ({
   state: undefined as BrushModelState | undefined,
+  loads: 0,
   scene: undefined as Scene | undefined,
 }));
 vi.mock("../../../../engine/physics/CollisionManager", () => ({
@@ -18,6 +19,7 @@ vi.mock("../../../../engine/loader/model/ModelLoader", () => ({
   ModelLoader: {
     getInstance: () => ({
       loadModel: async () => {
+        context.loads++;
         const root = new TransformNode("template", context.scene);
         new Mesh("chunk", context.scene).parent = root;
         return { root, meshes: [], animationGroups: [], skeletons: [] };
@@ -61,6 +63,36 @@ describe("site debris lifecycle", () => {
       debris.update(0, 3, [5]);
       for (let i = 0; i < 90; i++) debris.update(0.05, 3, [5]);
       expect(count()).toBe(0);
+    } finally {
+      debris.dispose();
+      scene.dispose();
+      engine.dispose();
+      context.scene = undefined;
+      context.state = undefined;
+    }
+  });
+
+  it("preloads a map's debris once, not every frame", () => {
+    const engine = new NullEngine(),
+      scene = new Scene(engine);
+    context.scene = scene;
+    context.loads = 0;
+    context.state = new BrushModelState([
+      {
+        modelIndex: 5,
+        initiallyEnabled: true,
+        targetname: "a",
+        delay: 0.6,
+        origin: { x: 0, y: 0, z: 0 },
+        min: { x: 0, y: 0, z: 0 },
+        max: { x: 10, y: 10, z: 10 },
+        debris: ["chunk.md3", "plank.md3"],
+      },
+    ]);
+    const debris = new BombSiteDebris(scene);
+    try {
+      for (let i = 0; i < 30; i++) debris.update(0.016, 1, []);
+      expect(context.loads).toBe(2);
     } finally {
       debris.dispose();
       scene.dispose();
