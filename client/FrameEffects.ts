@@ -41,7 +41,8 @@ export class FrameEffects {
    */
   clearWorld(): void {
     this.reloadAudio.reset();
-    this.pendingGibSpawns = [];
+    // Emptied in place: Game's event context holds this array
+    this.pendingGibSpawns.length = 0;
     this.ragdollSystem?.disposeAll();
     this.gibSystem?.clear();
   }
@@ -66,7 +67,7 @@ export class FrameEffects {
             for (const pending of this.pendingGibSpawns) {
               gibs.spawn(pending.x, pending.y, pending.z, pending.vx, pending.vy, pending.vz);
             }
-            this.pendingGibSpawns = [];
+            this.pendingGibSpawns.length = 0;
           } else {
             // Scene not ready yet — allow retry on next frame
             devLog(`[GibSystem] Scene not ready, will retry next frame`);
@@ -93,12 +94,13 @@ export class FrameEffects {
           const gameScene = this.scene();
           if (gameScene) {
             ragdolls.init(gameScene);
-            // Wire gib explosion callback (Warsow-style ragdoll cleanup)
-            if (this.gibSystem) {
-              ragdolls.setGibCallback((x: number, y: number, z: number, vx: number, vy: number, vz: number) => {
-                this.gibSystem?.spawn(x, y, z, vx, vy, vz);
-              });
-            }
+            // An expiring ragdoll bursts into gibs. Wired whether or not the gib
+            // system has loaded yet: both load in the background, and a ragdoll
+            // that loaded first must still burst, into the queue if need be.
+            ragdolls.setGibCallback((x: number, y: number, z: number, vx: number, vy: number, vz: number) => {
+              if (this.gibSystem) this.gibSystem.spawn(x, y, z, vx, vy, vz);
+              else this.pendingGibSpawns.push({ x, y, z, vx, vy, vz });
+            });
             this.ragdollSystem = ragdolls;
             devLog("[RagdollSystem] Initialized");
           } else {

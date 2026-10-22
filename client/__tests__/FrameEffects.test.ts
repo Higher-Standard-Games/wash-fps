@@ -104,4 +104,39 @@ describe("FrameEffects", () => {
     gibCallback(1, 2, 3, 4, 5, 6);
     expect(gibs.spawn).toHaveBeenCalledWith(1, 2, 3, 4, 5, 6);
   });
+
+  it("still gibs a ragdoll when ragdolls finish loading before gibs", async () => {
+    // The gib system has no scene on the first frame, so only the ragdolls load
+    let gibScene: object | null = null;
+    gibs.init.mockImplementation(function (this: { scene: unknown }) {
+      this.scene = gibScene;
+    });
+    try {
+      const effects = new FrameEffects(() => ({}) as never);
+      await frame(effects);
+      expect(effects.gibSystem).toBeNull();
+      expect(effects.ragdollSystem).toBe(ragdolls);
+      const gibCallback = ragdolls.setGibCallback.mock.calls[0]?.[0] as (...n: number[]) => void;
+      expect(gibCallback).toBeTypeOf("function");
+      gibCallback(1, 2, 3, 4, 5, 6);
+      expect(gibs.spawn).not.toHaveBeenCalled();
+
+      gibScene = {};
+      await frame(effects);
+      expect(gibs.spawn).toHaveBeenCalledWith(1, 2, 3, 4, 5, 6);
+    } finally {
+      gibs.init.mockImplementation(function (this: { scene: unknown }, scene: unknown) {
+        this.scene = scene;
+      });
+    }
+  });
+
+  it("keeps one queue for the event handlers across flushes and world clears", async () => {
+    const effects = new FrameEffects(() => null);
+    const queue = effects.pendingGibSpawns; // what Game's event context holds
+    queue.push({ x: 1, y: 1, z: 1, vx: 0, vy: 0, vz: 0 });
+    effects.clearWorld();
+    expect(effects.pendingGibSpawns).toBe(queue);
+    expect(queue).toEqual([]);
+  });
 });
