@@ -23,6 +23,7 @@ import type { FPSController } from "../../../engine/camera/controllers/FPSContro
 import { background } from "../../../engine/core/AsyncErrors";
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
 import { BspManager } from "../../../engine/loader/bsp/BspManager";
+import { resolveModelAsset } from "../../../engine/loader/model/ModelAsset";
 import { ModelInstanceCache } from "../../../engine/loader/model/ModelInstanceCache";
 import type { ModelLoadResult } from "../../../engine/loader/model/ModelLoader";
 import { bindLoaderLeftovers, disposeModelResources } from "../../../engine/loader/model/ModelSourceCache";
@@ -412,11 +413,11 @@ export class DroppedWeaponRenderer {
     if (this.disposed || this.scene.isDisposed) return null;
     this.barrelCache ??= new ModelInstanceCache(this.scene, async (modelPath) => {
       const { ImportMeshAsync } = await import("@babylonjs/core/Loading/sceneLoader");
+      // From the weapon package, as the view weapon's barrels are: the barrel
+      // GLBs ship inside a pk3, not as files the web server can hand out
+      const asset = await resolveModelAsset(modelPath);
       if (this.disposed || this.scene.isDisposed) return null;
-      const slash = modelPath.lastIndexOf("/");
-      const result = await ImportMeshAsync(modelPath.substring(slash + 1), this.scene, {
-        rootUrl: modelPath.substring(0, slash + 1),
-      });
+      const result = await ImportMeshAsync(asset.source, this.scene, asset.options);
       if (this.disposed || this.scene.isDisposed) {
         disposeModelResources([...result.meshes, ...result.transformNodes], result);
         return null;
