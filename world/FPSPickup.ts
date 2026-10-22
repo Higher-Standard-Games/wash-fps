@@ -20,6 +20,8 @@ import type { Scene } from "@babylonjs/core/scene";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import type { FPSController } from "../../../engine/camera/controllers/FPSController";
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
+import { BspManager } from "../../../engine/loader/bsp/BspManager";
+import type { PVSCuller } from "../../../engine/loader/bsp/PVSCuller";
 import { resolveModelAsset } from "../../../engine/loader/model/ModelAsset";
 import { Pickup, type PickupOptions } from "../../../engine/world/Pickup";
 import type { WeaponDef } from "../../../shared/entities/WeaponDef";
@@ -78,8 +80,29 @@ export class FPSPickup extends Pickup {
     instas: "gfx/hud/icons/ammo/instaammo",
   };
 
+  /** The PVS cluster this pickup stands in, per culler (one per map load). */
+  private pvsCuller: PVSCuller | null = null;
+  private pvsCluster = -1;
+  private readonly pvsAt = new Vector3(Number.NaN, 0, 0);
+
   constructor(name: string, scene: Scene, position: Vector3, options: FPSPickupOptions) {
     super(name, scene, position, options);
+  }
+
+  /**
+   * In PVS from the camera: a map pickup does not move, so its cluster is
+   * looked up once (again only if the map or its position changes).
+   */
+  protected override isInView(): boolean {
+    const culler = BspManager.getInstance().getPvsCuller();
+    if (!culler) return true;
+    const at = this.getAbsolutePosition();
+    if (culler !== this.pvsCuller || !at.equals(this.pvsAt)) {
+      this.pvsCuller = culler;
+      this.pvsAt.copyFrom(at);
+      this.pvsCluster = culler.findClusterAtPosition(at);
+    }
+    return culler.isClusterVisible(this.pvsCluster);
   }
 
   /** A server-managed MAP pickup (not a dropped-weapon visual) that never got a

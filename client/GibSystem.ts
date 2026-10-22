@@ -101,10 +101,17 @@ export interface GibHandle {
 // GibSystem
 // ============================================================================
 
+/** A shot-mask point trace, shared by every gib bounce test. */
+const GIB_TRACE = { radius: 0, contentMask: CollisionMasks.SHOT };
+
 export class GibSystem {
   private static instance: GibSystem | null = null;
 
   private scene: Scene | null = null;
+  private readonly traceOrigin = new Vector3();
+  private readonly traceDir = new Vector3();
+  private readonly traceEnd = new Vector3();
+  private readonly traceHit = { point: Vector3.Zero(), normal: Vector3.Up() };
   private gibs: Gib[] = [];
   private materials: StandardMaterial[] = [];
   private templateMesh: Mesh | null = null;
@@ -404,16 +411,17 @@ export class GibSystem {
    */
   private traceBounce(gib: Gib, speed: number, dt: number): { point: Vector3; normal: Vector3 } | null {
     const reach = speed * dt + GIB_SIZE;
-    const origin = new Vector3(gib.posX, gib.posY, gib.posZ);
-    const dir = new Vector3(gib.velX / speed, gib.velY / speed, gib.velZ / speed);
+    // Scratch, not fresh vectors: every airborne hero gib traces every frame.
+    const origin = this.traceOrigin.set(gib.posX, gib.posY, gib.posZ);
+    const dir = this.traceDir.set(gib.velX / speed, gib.velY / speed, gib.velZ / speed);
     const collision = getCollisionManager();
     if (collision.isInitialized()) {
-      const trace = collision.trace(origin, origin.add(dir.scale(reach)), {
-        radius: 0,
-        contentMask: CollisionMasks.SHOT,
-      });
+      const end = dir.scaleToRef(reach, this.traceEnd).addInPlace(origin);
+      const trace = collision.trace(origin, end, GIB_TRACE);
       if (trace.startSolid || trace.fraction >= 1 || !trace.normal) return null;
-      return { point: trace.endPos, normal: trace.normal };
+      this.traceHit.point = trace.endPos;
+      this.traceHit.normal = trace.normal;
+      return this.traceHit;
     }
     const hit = this.scene?.pickWithRay(new Ray(origin, dir, reach), (m) => m.isPickable && !m.name.startsWith("gib_"));
     const normal = hit?.hit ? hit.getNormal(true) : null;

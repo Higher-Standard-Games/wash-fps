@@ -96,6 +96,8 @@ export class ProceduralPickupVisual implements PickupVisual {
 
   private prevActive: boolean | null = null;
   private visible = false;
+  /** In PVS this frame; out of it the sculpture neither draws nor animates. */
+  private inView = true;
   private assembleAge = Number.POSITIVE_INFINITY;
   private readonly assembleDuration: number;
   private disposed = false;
@@ -231,7 +233,13 @@ export class ProceduralPickupVisual implements PickupVisual {
 
   private applyVisible(v: boolean): void {
     this.visible = v;
-    this.cosmetic.setEnabled(v);
+    this.cosmetic.setEnabled(v && this.inView);
+  }
+
+  setInView(inView: boolean): void {
+    if (inView === this.inView) return;
+    this.inView = inView;
+    this.cosmetic.setEnabled(this.visible && inView);
   }
 
   setActive(active: boolean): void {
@@ -297,6 +305,10 @@ export class ProceduralPickupVisual implements PickupVisual {
       const p = Math.min(1, this.assembleAge / this.assembleDuration);
       assembleScale = 0.35 + 0.65 * (1 - (1 - p) * (1 - p));
     }
+
+    // Behind walls, nothing to draw. Everything below is a function of `t`, so
+    // skipping it here leaves no trace once the pickup is back in view.
+    if (!this.inView) return;
 
     // Float higher off the floor, with a clearly visible slow up/down bob.
     const bobW = t * r.bobFrequency * BOB_SPEED * TAU;

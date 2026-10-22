@@ -346,4 +346,40 @@ describe("ProceduralPickupVisual — quad powerup", () => {
 
     visual.dispose();
   });
+
+  it("stops drawing and animating out of view, and comes back as if it never paused", () => {
+    for (const id of ["health_mega", "armor_ra", "powerup_quad"]) {
+      const recipe = getProceduralPickupRecipe(id) ?? allProceduralPickupRecipes()[0];
+      const watched = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 4, 0), false, 9);
+      const hidden = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 4, 0), false, 9);
+      const cosmetic = (v: ProceduralPickupVisual) =>
+        (v as unknown as { cosmetic: import("@babylonjs/core/Meshes/transformNode").TransformNode }).cosmetic;
+      watched.setActive(true);
+      hidden.setActive(true);
+      let elapsed = 0;
+      for (let frame = 0; frame < 240; frame++) {
+        elapsed += 1 / 60;
+        const away = frame >= 30 && frame < 200;
+        hidden.setInView(!away);
+        watched.update(1 / 60, elapsed);
+        const before = cosmetic(hidden).rotation.y;
+        hidden.update(1 / 60, elapsed);
+        if (away) {
+          expect(cosmetic(hidden).isEnabled(false), id).toBe(false);
+          expect(cosmetic(hidden).rotation.y).toBe(before);
+        }
+      }
+      expect(cosmetic(hidden).isEnabled(false)).toBe(true);
+      expect(cosmetic(hidden).position.asArray()).toEqual(cosmetic(watched).position.asArray());
+      expect(cosmetic(hidden).rotation.asArray()).toEqual(cosmetic(watched).rotation.asArray());
+      expect(cosmetic(hidden).scaling.asArray()).toEqual(cosmetic(watched).scaling.asArray());
+      // Collected while out of view, it stays hidden on return until respawned.
+      hidden.setInView(false);
+      hidden.setActive(false);
+      hidden.setInView(true);
+      expect(cosmetic(hidden).isEnabled(false)).toBe(false);
+      watched.dispose();
+      hidden.dispose();
+    }
+  });
 });
