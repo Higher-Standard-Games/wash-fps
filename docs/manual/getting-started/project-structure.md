@@ -13,6 +13,8 @@ Paths below are relative to `src/games/fps/`.
 | `client/` — watching | `DemoService.ts`, `DemoViewer.ts`, `Spectator*.ts`, `Spectate*.ts` |
 | `client/hud/`, `client/settings/`, `client/styles/` | HUD widgets, settings pages and game UI styles |
 | `console/` | `index.ts` discovers game commands in `commands/` |
+| `cli/` | Dedicated-server and lobby application startup; map-loading composition |
+| `scripts/` | Server build recipe with explicit artifact names and atomic output publication |
 | `server/` | `GameServer.ts`, `SnapshotBuilder.ts`, `SnapshotBroadcaster.ts`, `DemoRecorder.ts`, `MovementValidator.ts`, `AuthorityGuards.ts`, `SuspendedSessions.ts` |
 | `server/gametypes/` | `GametypeController.ts`, `MatchState.ts`, `BaseGametype.ts`; Duel, Amphi, Deathmatch and Search & Destroy; awards and spawn strategies |
 | `server/systems/` | Pickup, weapon, projectile, combat, dropped-weapon, movement and liquid subsystems |
@@ -27,6 +29,28 @@ Weapon, projectile, ammo and item definitions live in this repo at
 `shared/entities/definitions/`, alongside `shared/entities/initEntityDefs.ts`.
 Both the client and server use these same definitions. Generic interfaces and
 the registry remain in the engine. See [Adding a Weapon](../developer/adding-a-weapon.md).
+
+## Server assembly commands
+
+With this game checked out at `src/games/fps/` inside the SHAG checkout and
+dependencies installed at the assembled root, run these from that root:
+
+```bash
+node src/games/fps/scripts/build-servers.mjs
+node dist-server/lobby-server.mjs --port 9000 --data-dir ./server-data
+```
+
+The build recipe belongs to this repository; its default output remains the
+assembled root's `dist-server/`. An optional first argument selects another
+output directory, absolute or relative to the assembled root. The root's
+`npm run build:server` and `npm run lobby:server:dev` commands delegate to the
+game-owned recipe and source entry. The lobby, bot server and match server
+artifact filenames stay the same. Use a scratch `--data-dir` for automated tests.
+
+The recipe also builds the bot application and runtime/benchmark probes whose
+source entry points still live in SHAG. Reusable lobby, account, result and
+networking services remain engine-owned; the game supplies their application
+startup and the dedicated-server entry descriptor.
 
 ## Where things plug into the engine
 
