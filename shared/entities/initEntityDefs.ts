@@ -34,11 +34,13 @@ import {
 } from "./definitions/weapons/index";
 
 /**
- * Register all entity definitions with the registry.
- * Call this once during engine/game initialization.
+ * Register all entity definitions with the registry. Safe to call from every
+ * path that needs them (network start, map load, joining); only the first
+ * call into a registry registers.
  */
 export function initializeEntityDefs(): void {
   const registry = getEntityRegistry();
+  if (registry.get(MACHINEGUN.id) === MACHINEGUN) return;
 
   console.log("[EntityDefs] Registering entity definitions...");
 

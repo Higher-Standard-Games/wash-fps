@@ -681,6 +681,10 @@ export class Game {
       gameRules: {},
     };
 
+    // Snapshots can name projectiles and weapons from the first message, while
+    // the map is still loading; their definitions have to be there already.
+    (await import("./shared/entities")).initializeEntityDefs();
+
     try {
       // Create transport (auto-selects WebTransport or WebSocket)
       const transport = await TransportFactory.create(url);
