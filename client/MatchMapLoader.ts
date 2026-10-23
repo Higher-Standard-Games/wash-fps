@@ -133,9 +133,7 @@ export class MatchMapLoader {
                 .then(({ CameraSystem: cs }) => {
                   const controller = cs.getInstance().getController("fps");
                   if (controller && "setViewYaw" in controller) {
-                    (controller as import("../../../engine/camera/controllers/FPSController").FPSController).setViewYaw(
-                      exitYaw,
-                    );
+                    (controller as import("../camera/FPSController").FPSController).setViewYaw(exitYaw);
                   }
                   const scene = cs.getInstance().getCamera()?.getScene();
                   if (scene) {
@@ -154,7 +152,7 @@ export class MatchMapLoader {
         }
 
         const { CameraSystem } = await import("../../../engine/camera/CameraSystem");
-        const { FPSController } = await import("../../../engine/camera/controllers/FPSController");
+        const { FPSController } = await import("../camera/FPSController");
         const { FreeflyController } = await import("../../../engine/camera/controllers/FreeflyController");
         const cameraSystem = CameraSystem.getInstance();
 

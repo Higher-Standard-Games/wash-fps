@@ -1044,7 +1044,7 @@ export class Game {
     // Switch to FPS camera controller
     try {
       const { CameraSystem } = await import("../../engine/camera/CameraSystem");
-      const { FPSController } = await import("../../engine/camera/controllers/FPSController");
+      const { FPSController } = await import("./camera/FPSController");
       const cameraSystem = CameraSystem.getInstance();
 
       if (!cameraSystem.getController("fps")) {
@@ -1256,7 +1256,7 @@ export class Game {
     const speedEl = document.getElementById("fps-speed-display");
     if (speedEl) speedEl.remove();
     // Reset static refs so a fresh widget is created on rejoin
-    (await import("../../engine/camera/controllers/FPSController")).FPSController.resetSpeedDisplay?.();
+    (await import("./camera/FPSController")).FPSController.resetSpeedDisplay?.();
 
     // Release pointer lock
     document.exitPointerLock();

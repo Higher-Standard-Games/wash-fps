@@ -2,10 +2,10 @@
 // import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 
 import { Color3 } from "@babylonjs/core/Maths/math.color";
-import type { FPSController } from "../../engine/camera/controllers/FPSController";
 import { background } from "../../engine/core/AsyncErrors";
 import { WeaponViewManager } from "../../engine/weapon/WeaponViewManager";
 import type { WeaponDef } from "../../shared/entities";
+import type { FPSController } from "./camera/FPSController";
 import { devLog } from "./client/DevLog";
 import { HUDState } from "./client/HUDState";
 import { isLocalPowerupActive } from "./client/LocalPowerupState";

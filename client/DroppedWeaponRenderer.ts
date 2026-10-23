@@ -19,7 +19,6 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import type { Scene } from "@babylonjs/core/scene";
-import type { FPSController } from "../../../engine/camera/controllers/FPSController";
 import { background } from "../../../engine/core/AsyncErrors";
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
 import { BspManager } from "../../../engine/loader/bsp/BspManager";
@@ -30,6 +29,7 @@ import { bindLoaderLeftovers, disposeModelResources } from "../../../engine/load
 import { describeModelRender } from "../../../engine/world/ModelRenderAudit";
 import { EntityRegistry } from "../../../shared/entities/EntityRegistry";
 import type { WeaponDef } from "../../../shared/entities/WeaponDef";
+import type { FPSController } from "../camera/FPSController";
 import { hidePickupPrompt, showPickupPrompt } from "../world/PickupPrompt";
 import { FPS, getActionKeyLabel } from "./FPSActions";
 

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { FPSController } from "../../../engine/camera/controllers/FPSController";
 import type { WeaponDef } from "../../../shared/entities";
+import type { FPSController } from "../camera/FPSController";
 
 const weaponView = vi.hoisted(() => ({
   isSwitching: vi.fn(() => false),

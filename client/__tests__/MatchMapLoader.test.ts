@@ -54,7 +54,7 @@ vi.mock("../../../../engine/camera/CameraSystem", () => ({
     }),
   },
 }));
-vi.mock("../../../../engine/camera/controllers/FPSController", () => ({ FPSController: class {} }));
+vi.mock("../../camera/FPSController", () => ({ FPSController: class {} }));
 vi.mock("../../../../engine/camera/controllers/FreeflyController", () => ({ FreeflyController: class {} }));
 
 const { MatchMapLoader } = await import("../MatchMapLoader");
