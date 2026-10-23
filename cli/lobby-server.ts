@@ -18,7 +18,9 @@ import { RatingStore } from "../../../lobby/RatingStore";
 import { loadBotSecret, resolveDataDir } from "../../../lobby/ServerData";
 import { describeServerRuntime } from "../../../lobby/ServerRuntime";
 import { SettingsStore } from "../../../lobby/SettingsStore";
+import { resolveFPSDemoMap } from "../client/DemoMapAliases";
 import { FPS_SERVER_APPLICATION } from "../server/FpsServerApplication";
+import { isBotName } from "../shared/bot/BotNames";
 
 console.log(`[ServerRuntime] ${describeServerRuntime()}`);
 
@@ -120,7 +122,7 @@ console.log("══════════════════════�
 console.log();
 
 const dataDir = resolveDataDir(dataDirArg);
-const players = PlayerStore.open(dataDir);
+const players = PlayerStore.open(dataDir, isBotName);
 const results = MatchResultStore.open(dataDir);
 const settings = SettingsStore.open(dataDir);
 const maxPlayers = maxPlayersArg === undefined || maxPlayersArg === "" ? DEFAULT_MAX_PLAYERS : Number(maxPlayersArg);
@@ -130,6 +132,7 @@ if (!Number.isInteger(maxPlayers) || maxPlayers < 0) {
 }
 const server = new LobbyServer(port, new GameServerSpawner(undefined, FPS_SERVER_APPLICATION), {
   botSecret: loadBotSecret(dataDir),
+  resolveDemoMap: resolveFPSDemoMap,
   players,
   results,
   settings,

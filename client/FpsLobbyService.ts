@@ -3,6 +3,7 @@ import { LoginError, logIn, restoreAccount } from "../../../lobby/AccountSession
 import { LobbyClient } from "../../../lobby/LobbyClient";
 import { normalizeKey } from "../../../lobby/PlayerIdentity";
 import type { WelcomeMessage } from "../../../lobby/types";
+import { isBotName } from "../shared/bot/BotNames";
 import { DemoService } from "./DemoService";
 
 const DEFAULT_LOBBY_URL = import.meta.env.VITE_LOBBY_URL || "ws://localhost:9000";
@@ -36,7 +37,7 @@ export async function ensureFpsLobbyConnection(url: string = DEFAULT_LOBBY_URL):
 
       if (!authenticated) {
         // Every player has an account: the stored key opens it, or the lobby makes one
-        await logIn(client);
+        await logIn(client, isBotName);
         authenticated = true;
       }
 
@@ -70,7 +71,7 @@ export async function switchFpsAccount(pastedKey: string, url: string = DEFAULT_
   } catch (err) {
     if (err instanceof LoginError && client.connected) {
       try {
-        await logIn(client);
+        await logIn(client, isBotName);
         authenticated = true;
       } catch (loginErr) {
         console.warn("[FpsLobbyService] Could not log back in after a refused key:", loginErr);

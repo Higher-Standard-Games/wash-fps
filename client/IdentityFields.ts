@@ -5,6 +5,7 @@
  */
 
 import { checkPlayerName, KEY_LENGTH, keyCharacters, NAME_PATTERN } from "../../../lobby/PlayerIdentity";
+import { isBotName } from "../shared/bot/BotNames";
 
 export type SayTone = "" | "ok" | "bad";
 
@@ -97,7 +98,7 @@ export function judgeName(name: string): { ok: boolean; text: string; tone: SayT
       ? { ok: false, text: "One more character", tone: "" }
       : { ok: false, text: "Letters, numbers, _ and - only", tone: "bad" };
   }
-  if (checkPlayerName(name) === "name_reserved") {
+  if (checkPlayerName(name, isBotName) === "name_reserved") {
     return { ok: false, text: `${name} is kept for bots and new players`, tone: "bad" };
   }
   return { ok: true, text: `${name} looks good`, tone: "ok" };

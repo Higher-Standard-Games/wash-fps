@@ -52,6 +52,13 @@ source entry points still live in SHAG. Reusable lobby, account, result and
 networking services remain engine-owned; the game supplies their application
 startup and the dedicated-server entry descriptor.
 
+The lobby CLI supplies `isBotName` to SHAG's `PlayerStore.open` and
+`resolveFPSDemoMap` through `LobbyServerOptions.resolveDemoMap`. The browser's
+`FpsLobbyService` passes the same bot-name predicate into account login, and
+`IdentityFields` uses it for name validation. Keep these inputs aligned when
+changing reservations. Demo aliases affect levelshot media lookup while the
+recorded map identity remains unchanged.
+
 ## Where things plug into the engine
 
 | Submodule file | Engine extension point |
