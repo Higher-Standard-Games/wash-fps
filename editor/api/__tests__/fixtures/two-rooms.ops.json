@@ -1,0 +1,31 @@
+[
+  {
+    "op": "gen.room",
+    "id": "west",
+    "min": { "x": -512, "y": -192, "z": 0 },
+    "max": { "x": -128, "y": 192, "z": 256 },
+    "openings": [{ "side": "+X", "min": { "x": 0, "y": -64, "z": 0 }, "max": { "x": 0, "y": 64, "z": 128 } }]
+  },
+  {
+    "op": "gen.room",
+    "id": "east",
+    "min": { "x": 128, "y": -192, "z": 0 },
+    "max": { "x": 512, "y": 192, "z": 256 },
+    "openings": [{ "side": "-X", "min": { "x": 0, "y": -64, "z": 0 }, "max": { "x": 0, "y": 64, "z": 128 } }]
+  },
+  { "op": "gen.corridor", "id": "hall", "from": { "x": -112, "y": 0, "z": 0 }, "to": { "x": 112, "y": 0, "z": 0 } },
+  {
+    "op": "entity.place",
+    "id": "spawn-west",
+    "classname": "info_player_deathmatch",
+    "origin": { "x": -400, "y": 0, "z": 24 }
+  },
+  {
+    "op": "entity.place",
+    "id": "spawn-east",
+    "classname": "info_player_deathmatch",
+    "origin": { "x": 400, "y": 0, "z": 24 },
+    "keys": { "angle": "180" }
+  },
+  { "op": "entity.place", "id": "rl", "classname": "weapon_rocketlauncher", "origin": { "x": 320, "y": 128, "z": 16 } }
+]
