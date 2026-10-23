@@ -10,3 +10,4 @@ export { fpsMapLauncher } from "./client/FpsMapLauncher";
 export { fpsNetworkConnector } from "./client/FpsNetworkConnector";
 export { registerFpsCommands } from "./console";
 export { Game } from "./Game";
+export { fpsMapEntities } from "./world/FpsMapEntities";
