@@ -172,7 +172,7 @@ readies up on its own. From the room's side this is the Add bot key; from the
 lobby's side it is an invitation acknowledged only once the bot is actually
 seated.
 
-The player-facing **Add bot** action is available only in private rooms. Without
+The player-facing **Add bot** action works in any waiting room; bots play only in private rooms, so in a public room it makes the room private first. Without
 an explicit preset, the lobby chooses one near the player's private rating for
 that mode; new players fall back to medium. Standard presets have rating accounts
 used by the private ladder. A bot client still authenticates with its service

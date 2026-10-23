@@ -57,7 +57,7 @@ npm run dev
 
 Run `npm run lobby:server` in another terminal for a local lobby. Open
 `http://localhost:5173`, choose **Play**, a mode and Public or Private, then enter
-a room and ready up. Run `npm run bot:server` as well to add bots in a private room.
+a room and ready up. Run `npm run bot:server` as well to add bots; a room with a bot is private.
 See [Your First Match](../player/first-match.md).
 
 For the developer flow with a one-keystroke server-backed map launch:

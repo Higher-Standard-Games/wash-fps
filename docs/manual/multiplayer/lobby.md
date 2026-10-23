@@ -71,7 +71,7 @@ Pressing the big action under a mode puts you in a **room** for that mode, eithe
 In a room you can:
 
 - **Vote for a map.** Three maps are drawn from the mode's pool (only maps actually installed are offered, so there can be fewer than three); the most votes wins.
-- **Pick a side** in a team mode, add **bots in private rooms**, and **chat** with the room.
+- **Pick a side** in a team mode, add **bots** (a public room becomes private when you do), and **chat** with the room.
 - **Ready up.** When everyone is ready the lobby starts a dedicated game server for that match alone and hands your client a ticket for your seat.
 
 See [Connecting → In the Ready Room](./connecting.md#in-the-ready-room) for the voting and bot rules.

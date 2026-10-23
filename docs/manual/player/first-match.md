@@ -15,8 +15,9 @@ anytime with **?** in the lobby's bottom-right footer.
 
 ## 2. Make practice easy: add bots
 
-Choose **Private** on the Play stage, then enter a room. Only private rooms allow
-bots. Add one or two and set the map vote; the room chooses a standard bot preset
+Enter any room and press **Add bot**. Bots play only in private rooms, so a
+public room turns private when the first bot joins; its invite link still brings
+your friends in. Add one or two and set the map vote; the room chooses a standard bot preset
 near your private rating, with **medium** as the fallback for a new player.
 Private bot matches can update your **private** rating and record, separately from
 public play. See [Connecting → In the Ready Room](../multiplayer/connecting.md#in-the-ready-room).

@@ -47,7 +47,7 @@ the next round.
 | **Vote map** | Three maps are drawn from the gametype's pool; most votes wins |
 | **Switch side** | Immediate, no vote — it affects only you and it is reversible |
 | **Vote shuffle** | Randomises the teams; needs a majority (`ceil(players / 2)`) |
-| **Add bot** | Private rooms only. Fills a seat using a standard preset near your private rating; new players fall back to medium. The protocol also supports explicit easy, medium, hard and insane presets |
+| **Add bot** | In any waiting room; a public room becomes private, and its link changes to an invite. Fills a seat using a standard preset near your private rating; new players fall back to medium. The protocol also supports explicit easy, medium, hard and insane presets |
 | **Ready** | Toggles your ready state |
 
 On a team gametype you are auto-assigned to the smaller side on join. Switching
