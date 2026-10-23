@@ -1077,11 +1077,10 @@ export class Game {
       if (scene && camera instanceof FreeCamera) {
         initializeEntityDefs();
         const wvm = getWeaponViewManager();
-        wvm.init(scene, camera);
+        if (!wvm.usePreparedView(scene, camera)) wvm.init(scene, camera);
         devLog("[Game] completeJoinGame() — WVM initialized");
-        wvm.loadWeapon(this._lastServerWeapon || "blade").then((success) => {
-          devLog(`[Game] completeJoinGame() — initial weapon loadWeapon result: ${success}`);
-        });
+        const weaponLoaded = await wvm.loadWeapon(this._lastServerWeapon || "blade");
+        devLog(`[Game] completeJoinGame() — initial weapon loadWeapon result: ${weaponLoaded}`);
 
         // Preload projectile models (independent of weapon load)
         const projMgr = getProjectileManager();

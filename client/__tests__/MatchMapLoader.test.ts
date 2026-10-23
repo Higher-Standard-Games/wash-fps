@@ -11,6 +11,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const calls: string[] = [];
 let mapResult: unknown = "ok";
 let collisionReady = true;
+let weaponLoading: Promise<void> | null = null;
+let weaponError: Error | null = null;
 let bsp: { entities: unknown[]; models: unknown[] } | null = { entities: [], models: [] };
 const controllers = new Map<string, unknown>();
 const scene = { name: "scene" };
@@ -29,6 +31,13 @@ vi.mock("../../../../engine/loader/map/ClientMapLoader", () => ({
   },
 }));
 vi.mock("../FPSAudio", () => ({ preloadFPSAudio: async () => calls.push("audio") }));
+vi.mock("../FPSWeaponPreloader", () => ({
+  preloadFPSWeapons: async () => {
+    calls.push("weapons");
+    if (weaponError) throw weaponError;
+    await weaponLoading;
+  },
+}));
 vi.mock("../../../../engine/physics/CollisionManager", () => ({
   getCollisionManager: () => ({ isInitialized: () => collisionReady, getBsp: () => bsp }),
 }));
@@ -45,6 +54,7 @@ vi.mock("../../../../engine/camera/CameraSystem", () => ({
   CameraSystem: {
     getInstance: () => ({
       getCamera: () => ({ getScene: () => scene }),
+      getFreeCamera: () => ({ getScene: () => scene }),
       getController: (name: string) => controllers.get(name),
       registerController: (name: string, controller: unknown) => {
         calls.push(`register:${name}`);
@@ -87,6 +97,8 @@ describe("MatchMapLoader", () => {
     calls.length = 0;
     mapResult = "ok";
     collisionReady = true;
+    weaponLoading = null;
+    weaponError = null;
     bsp = { entities: [], models: [] };
     controllers.clear();
   });
@@ -103,9 +115,12 @@ describe("MatchMapLoader", () => {
     expect(calls).toContain("underwater");
     expect(calls).toContain("prewarm");
     const release = calls.indexOf("release:fps:postload");
+    expect(calls).toContain("weapons");
     expect(calls.indexOf("register:fps")).toBeLessThan(release);
     expect(calls.indexOf("register:freefly")).toBeLessThan(release);
     expect(calls.indexOf("camera:freefly")).toBeLessThan(release);
+    expect(calls.indexOf("weapons")).toBeGreaterThan(calls.indexOf("camera:freefly"));
+    expect(calls.indexOf("weapons")).toBeLessThan(release);
     expect(h.shutdown).not.toHaveBeenCalled();
   });
 
@@ -114,6 +129,28 @@ describe("MatchMapLoader", () => {
     await loader.onServerInfo({ map: "wdm7" });
     await loader.onServerInfo({ map: "wdm7" });
     expect(calls.filter((c) => c.startsWith("load:"))).toHaveLength(1);
+  });
+
+  it("does not release the screen or auto-join until held weapons are prepared", async () => {
+    let ready!: () => void;
+    weaponLoading = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    const pending = new MatchMapLoader(host(), {}).onServerInfo({ map: "wdm7" });
+    await vi.waitFor(() => expect(calls).toContain("weapons"));
+    expect(calls).not.toContain("release:fps:postload");
+    ready();
+    await pending;
+    expect(calls.at(-1)).toBe("release:fps:postload");
+  });
+
+  it("disconnects and releases the screen if held weapon preparation fails", async () => {
+    weaponError = new Error("missing weapon");
+    const h = host();
+    await new MatchMapLoader(h, { autoJoin: true }).onServerInfo({ map: "wdm7" });
+    expect(h.shutdown).toHaveBeenCalledOnce();
+    expect(h.joinGame).not.toHaveBeenCalled();
+    expect(calls.at(-1)).toBe("release:fps:postload");
   });
 
   it("shuts down and still releases the curtain when the map load reports failure", async () => {

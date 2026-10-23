@@ -77,6 +77,18 @@ const counts = () => [
   scene.skeletons.length,
   scene.transformNodes.length,
 ];
+
+it("prepares held models and barrels before joining and consumes the warm view only once", async () => {
+  const camera = scene.activeCameras?.[0] as FreeCamera;
+  await view.preloadWeapons(["riotgun", "plasmagun"]);
+  const importedBeforeJoin = imports.mock.calls.length;
+  expect(view.isWeaponModelLoaded).toBe(false);
+  expect(view.usePreparedView(scene, camera)).toBe(true);
+  expect(await view.loadWeapon("plasmagun")).toBe(true);
+  expect(imports.mock.calls.length).toBe(importedBeforeJoin);
+  expect(view.isWeaponModelLoaded).toBe(true);
+  expect(view.usePreparedView(scene, camera)).toBe(false);
+});
 beforeEach(() => {
   registerWeaponIdResolver(canonicalWeaponId);
   engine = new NullEngine();

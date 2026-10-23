@@ -15,6 +15,7 @@ import { getCollisionManager } from "../../../engine/physics/CollisionManager";
 import type { FPSGameConfig } from "../Game";
 import { createBSPCollisionWorld } from "../simulation/collision/BSPCollisionWorld";
 import { preloadFPSAudio } from "./FPSAudio";
+import { preloadFPSWeapons } from "./FPSWeaponPreloader";
 import type { V2NetworkClient } from "./V2NetworkClient";
 
 export interface MatchMapHost {
@@ -72,6 +73,7 @@ export class MatchMapLoader {
       // Decode the compact Warsow combat bank while the lobby/map loading
       // flow is still active, so the first accepted shot has no fetch/decode stall.
       await preloadFPSAudio();
+      const { CameraSystem } = await import("../../../engine/camera/CameraSystem");
 
       // === CRITICAL: Set up FPS controller AFTER map loads ===
       // This prevents the race condition where scene empty/map command overrides the controller
@@ -151,7 +153,6 @@ export class MatchMapLoader {
           console.warn(`[Game] CollisionManager NOT initialized - client prediction will NOT have BSP collision!`);
         }
 
-        const { CameraSystem } = await import("../../../engine/camera/CameraSystem");
         const { FPSController } = await import("../camera/FPSController");
         const { FreeflyController } = await import("../../../engine/camera/controllers/FreeflyController");
         const cameraSystem = CameraSystem.getInstance();
@@ -167,6 +168,16 @@ export class MatchMapLoader {
         }
         // Start in freefly mode (spectator default)
         cameraSystem.setController("freefly");
+
+        const camera = cameraSystem.getFreeCamera();
+        if (camera) {
+          try {
+            await preloadFPSWeapons(camera.getScene(), camera, () => MapLoadingOverlay.hold("fps:postload"));
+          } catch (error) {
+            this.host.shutdown();
+            throw error;
+          }
+        }
 
         // WATCH mode: start auto-chase polling AFTER map loads
         // (must be here, not earlier — otherwise the freefly reset above overwrites the spectator camera)
