@@ -76,6 +76,14 @@ In a room you can:
 
 See [Connecting → In the Ready Room](./connecting.md#in-the-ready-room) for the voting and bot rules.
 
+**Add bot** chooses at least Hard difficulty; stronger rating matches can select
+Insane. In Duel, bots listen for movement, chase with slides and strafe jumps,
+and prefer controlling reachable upper floors when healthy and armed. They
+patrol around timed items and recover from stalled routes or ledge hangs.
+Normal navigation favors running and crouchslides, with jumps for traversal or
+dodging threats. A bot leading Duel by more than two frags reacts slightly slower
+until the gap narrows.
+
 When a match ends, **Back to the lobby** returns you to the same room, ready for a rematch.
 
 ### Joining a match that has started
