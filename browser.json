@@ -1,0 +1,5 @@
+{
+  "entry": "client/main.ts",
+  "html": "index.html",
+  "engine": { "defaultGame": "fps", "engineAssetsPath": "/engine" }
+}

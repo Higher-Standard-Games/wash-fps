@@ -50,13 +50,22 @@ map list is refreshed. See [Maps](../gametypes/maps.md).
 
 ## First Run
 
-```bash
-# In the engine repo root
+```powershell
+# In the engine repo root (PowerShell)
+$env:SHAG_APP = 'src/games/fps'
 npm run dev
 ```
 
+Washoi owns `client/main.ts`, `index.html` and `browser.json`. SHAG supplies the
+renderer and engine services. Use the same `SHAG_APP` selection for `npm run build`.
+To keep the selection across terminals, create `.shag-application.json` in the
+engine root with `{ "application": "src/games/fps" }`; this file is ignored by Git.
+An explicit `SHAG_APP=engine` opens SHAG's example instead. Media remains under
+the engine's `public/data/` directory. The tracked submodule still exists during
+the repository split; the checkout commands above remain applicable until cutover.
+
 Run `npm run lobby:server` in another terminal for a local lobby. Open
-`http://localhost:5173`, choose **Play**, a mode and Public or Private, then enter
+`http://localhost:3000`, choose **Play**, a mode and Public or Private, then enter
 a room and ready up. Run `npm run bot:server` as well to add bots; a room with a bot is private.
 See [Your First Match](../player/first-match.md).
 
