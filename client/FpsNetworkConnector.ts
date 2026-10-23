@@ -2,8 +2,8 @@
  * FpsNetworkConnector — bridges the engine's `NetworkConnector` lobby
  * interface to the FPS `Game` singleton.
  *
- * The engine's `ConnectingOverlay` (and any future lobby-style UI) calls
- * the registered `NetworkConnector` to start a connection without knowing
+ * The engine's `ConnectingOverlay` and `join` command call the registered
+ * `NetworkConnector` to connect or request participation without knowing
  * anything about the FPS module. This file is the FPS-side
  * implementation; `src/main.ts` registers it at boot after the engine
  * commands and fps commands are wired up.
@@ -24,6 +24,10 @@ export const fpsNetworkConnector: NetworkConnector = {
       admissionTicket: options.admissionTicket,
       requestSeat: options.requestSeat,
     });
+  },
+
+  async join(): Promise<void> {
+    await Game.getInstance().joinGame();
   },
 
   claimSeat(serverUrl: string, admissionTicket: string): boolean {

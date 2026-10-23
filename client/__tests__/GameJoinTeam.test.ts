@@ -2,6 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Game } from "../../Game";
+import { fpsNetworkConnector } from "../FpsNetworkConnector";
 import { MatchPhase, MatchStateManager } from "../MatchStateManager";
 import { ServerProjectiles } from "../ServerProjectiles";
 
@@ -43,7 +44,10 @@ function joinableGame(
   return game;
 }
 
-afterEach(() => MatchStateManager.destroy());
+afterEach(() => {
+  MatchStateManager.destroy();
+  vi.restoreAllMocks();
+});
 
 it("clears live projectile ids and accepts the next server's earlier ticks", () => {
   const projectiles = new ServerProjectiles();
@@ -76,12 +80,13 @@ describe("Game team selection", () => {
     clearTimeout(game._joinPendingTimeout);
   });
 
-  it("sends the lobby handoff unflagged, so the server does not rebalance it", async () => {
+  it("joins through the network adapter with the lobby handoff unflagged", async () => {
     const sendJoinGame = vi.fn();
     const game = joinableGame(sendJoinGame);
+    vi.spyOn(Game, "getInstance").mockReturnValue(game as unknown as Game);
 
     // No argument — this is the lobby's assignment, carried in `_preferredTeam`.
-    await game.joinGame();
+    await fpsNetworkConnector.join?.();
 
     expect(sendJoinGame).toHaveBeenCalledWith("udon", false, undefined);
     clearTimeout(game._joinPendingTimeout);
