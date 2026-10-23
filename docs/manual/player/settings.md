@@ -77,7 +77,7 @@ Three **presets** change only what costs frames, and leave brightness and outlin
 | Preset | What it does |
 |--------|--------------|
 | **Smooth** | The most frames: plain water, no light shafts, no bloom, no reflections |
-| **Balanced** | The look the game ships with |
+| **Balanced** | The look the game ships with: bloom off, 4× texture sharpness |
 | **Pretty** | Adds glow and reflections, and wants a strong graphics card |
 
 Below the presets the settings are in five sections. Pips beside each setting show its frame-rate cost (light, medium or heavy), and each section's key says how heavy it is set overall.

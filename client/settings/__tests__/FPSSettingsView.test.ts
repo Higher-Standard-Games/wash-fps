@@ -270,7 +270,8 @@ describe("FPSSettingsView", () => {
     expect(view.getElement().querySelector(".fps-set-preset-status")?.textContent).toBe("Using Smooth");
 
     click(byText(view.getElement(), ".raised-key--preset", "Balanced"));
-    expect(Cvar.getNumber("r_bloom")).toBe(1);
+    expect(Cvar.getNumber("r_bloom")).toBe(0);
+    expect(Cvar.getNumber("r_anisotropy")).toBe(4);
     expect(Cvar.getNumber("r_picmip")).toBe(0);
     click(byText(view.getElement(), ".raised-key--sect", "Advanced"));
     click(byText(view.getElement(), "button", "Flat color"));

@@ -364,11 +364,11 @@ export const VIDEO_PRESETS: Array<CvarChoice<"smooth" | "balanced" | "pretty"> &
     line: "The look the game ships with.",
     bars: 2,
     values: {
-      r_bloom: 1,
+      r_bloom: 0,
       r_glow: 0,
       r_ssr: 0,
       r_ssr_strength: 0.4,
-      r_anisotropy: 8,
+      r_anisotropy: 4,
       r_picmip: 0,
       r_godrays: 1,
       r_godrays_samples: 60,
