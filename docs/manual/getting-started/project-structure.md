@@ -23,7 +23,10 @@ Paths below are relative to `src/games/fps/`.
 | `docs/manual/` | This VitePress manual |
 | `__tests__/` folders | Tests alongside the systems they cover |
 
-Weapon and projectile definitions are **not** in this repo: they live in the engine at `src/shared/entities/definitions/`. See [Adding a Weapon](../developer/adding-a-weapon.md).
+Weapon, projectile, ammo and item definitions live in this repo at
+`shared/entities/definitions/`, alongside `shared/entities/initEntityDefs.ts`.
+Both the client and server use these same definitions. Generic interfaces and
+the registry remain in the engine. See [Adding a Weapon](../developer/adding-a-weapon.md).
 
 ## Where things plug into the engine
 

@@ -1068,7 +1068,7 @@ export class Game {
       const { CameraSystem } = await import("../../engine/camera/CameraSystem");
       const { getWeaponViewManager } = await import("../../engine/weapon/WeaponViewManager");
       const { getProjectileManager } = await import("../../engine/weapon/ProjectileManager");
-      const { initializeEntityDefs } = await import("../../shared/entities");
+      const { initializeEntityDefs } = await import("./shared/entities");
       const { FreeCamera } = await import("@babylonjs/core/Cameras/freeCamera");
 
       const camera = CameraSystem.getInstance().getCamera();

@@ -6,7 +6,7 @@ import type {
   ProjectileImpactEvent,
   WeaponFireEvent,
 } from "../../../engine/network/core/SnapshotEvent";
-import { canonicalWeaponId } from "../../../shared/entities/definitions/weapons/WeaponsTable";
+import { canonicalWeaponId } from "../shared/entities/definitions/weapons/WeaponsTable";
 import { FPS_PLAYER_SOUND_PATHS, type PlayerVoiceSet, playerVoiceSet, playerVoiceSound } from "./FPSPlayerAudio";
 import { RELOAD_SOUND_PATH } from "./FPSReloadAudio";
 

@@ -4,7 +4,7 @@ import { EntityType, entityId, playerId, tickNumber } from "@engine/server/ecs/t
 import { describe, expect, it } from "vitest";
 import { InputButtons } from "../../../../../engine/network/components/InputComponent";
 import type { CollisionWorld } from "../../../../../engine/network/systems/collision/CollisionWorld";
-import { WEAPONS } from "../../../../../shared/entities/definitions/weapons/WeaponsTable";
+import { WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
 import { CombatSystem, DamageType } from "../CombatSystem";
 import { ProjectileSystem } from "../ProjectileSystem";
 import { WeaponSystem } from "../WeaponSystem";

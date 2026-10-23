@@ -1,5 +1,4 @@
 import { createRaisedKey } from "../../../../../engine/ui/components/RaisedKey";
-import { WEAPONS } from "../../../../../shared/entities/definitions/weapons/WeaponsTable";
 import {
   DEFAULT_LOADOUT,
   type LoadoutChoice,
@@ -10,6 +9,7 @@ import {
   type SecondaryWeapon,
   WEAPON_LABELS,
 } from "../../../../../shared/server/gametype/Loadout";
+import { WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
 import { WeaponPreview } from "./WeaponPreview";
 
 // =============================================================================

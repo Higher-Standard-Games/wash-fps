@@ -54,7 +54,6 @@ import {
 import { getProjectileManager } from "../../../engine/weapon/ProjectileManager";
 import type { RailEffectSample } from "../../../engine/weapon/rail/RailProfiles";
 import { getWeaponViewManager, type LocalShot } from "../../../engine/weapon/WeaponViewManager";
-import { canonicalWeaponId, WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
 import { DEFAULT_PHYSICS_TICK_RATE } from "../../../shared/server/simulation/physics/constants";
 import { toClientKey } from "../ClientEntityKey";
 import type { ServerSnapshot, V2NetworkClient } from "../client";
@@ -89,6 +88,7 @@ import {
 import type { RemotePlayerRenderer } from "../client/RemotePlayerRenderer";
 import { FPSPlayer } from "../FPSPlayer";
 import type { PlayerStateUpdate } from "../Game";
+import { canonicalWeaponId, WEAPONS } from "../shared/entities/definitions/weapons/WeaponsTable";
 import { FPSPickup } from "../world/FPSPickup";
 import type { ServerAmmoState } from "../world/InventoryManager";
 import { devLog } from "./DevLog";

@@ -7,7 +7,7 @@ import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { Scene } from "@babylonjs/core/scene";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PlayerModelInstance } from "../../../../engine/animation/PlayerModelManager";
-import { WEAPONS } from "../../../../shared/entities/definitions/weapons/WeaponsTable";
+import { WEAPONS } from "../../shared/entities/definitions/weapons/WeaponsTable";
 
 /**
  * A remote player's weapon changes leave nothing behind (NullEngine).

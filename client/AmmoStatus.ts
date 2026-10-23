@@ -8,7 +8,7 @@
  * widget read through here so the two signals never drift apart.
  */
 
-import { WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
+import { WEAPONS } from "../shared/entities/definitions/weapons/WeaponsTable";
 import type { HUDWeaponAmmo } from "./HUDState";
 
 export interface AmmoStatus {

@@ -27,8 +27,8 @@ import { LagCompensation } from "@engine/server/lagcomp/LagCompensation";
 import { describe, expect, it, vi } from "vitest";
 import { InputButtons } from "../../../../../engine/network/components/InputComponent";
 import { DEFAULT_VIEWHEIGHT } from "../../../../../engine/physics/PlayerPhysicsConstants";
-import { GRENADE } from "../../../../../shared/entities/definitions/projectiles/grenade";
-import { GRENADE_LAUNCHER } from "../../../../../shared/entities/definitions/weapons/glauncher";
+import { GRENADE } from "../../../shared/entities/definitions/projectiles/grenade";
+import { GRENADE_LAUNCHER } from "../../../shared/entities/definitions/weapons/glauncher";
 import { fireIntervalTicks, WeaponSystem } from "../WeaponSystem";
 
 const FIRE_BUTTON = 1 << 8; // must match InputComponent.FIRE

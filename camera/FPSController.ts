@@ -762,7 +762,7 @@ export class FPSController implements ICameraController {
       if (this.keys.fire && !this.keys.aim && this.gameManager) {
         // Ensure weapons map is loaded (lazy init, same as crosshair section)
         if (!this._weaponsMap) {
-          import("../../../shared/entities/definitions/weapons/WeaponsTable")
+          import("../shared/entities/definitions/weapons/WeaponsTable")
             .then((m) => {
               this._weaponsMap = m.WEAPONS;
             })

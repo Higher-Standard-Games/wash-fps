@@ -11,7 +11,7 @@
 import { log } from "../../../engine/core/Log";
 import type { GameState } from "../../../engine/network/core/GameState";
 import type { WeaponStateEvent } from "../../../engine/network/core/SnapshotEvent";
-import { canonicalWeaponId } from "../../../shared/entities/definitions/weapons/WeaponsTable";
+import { canonicalWeaponId } from "../shared/entities/definitions/weapons/WeaponsTable";
 import { MatchStateManager } from "./MatchStateManager";
 
 /** The last weapon_state seen for each player, by entity id. Lives as long as the connection. */

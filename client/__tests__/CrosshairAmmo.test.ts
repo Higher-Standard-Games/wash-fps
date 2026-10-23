@@ -6,8 +6,8 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Scene } from "@babylonjs/core/scene";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Cvar } from "../../../../engine/core/Cvar";
-import { WEAPONS } from "../../../../shared/entities/definitions/weapons/WeaponsTable";
 import { FPSController } from "../../camera/FPSController";
+import { WEAPONS } from "../../shared/entities/definitions/weapons/WeaponsTable";
 import { Crosshair } from "../Crosshair";
 
 let strokes: string[];

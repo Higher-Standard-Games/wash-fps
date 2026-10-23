@@ -10,8 +10,8 @@
 
 import { EntityType } from "@engine/server/ecs/types";
 import { describe, expect, it } from "vitest";
-import { GRENADE } from "../../../../../shared/entities/definitions/projectiles/grenade";
-import { WEAPONS } from "../../../../../shared/entities/definitions/weapons/WeaponsTable";
+import { GRENADE } from "../../../shared/entities/definitions/projectiles/grenade";
+import { WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
 import { DamageType } from "../CombatSystem";
 import { ProjectileSystem } from "../ProjectileSystem";
 

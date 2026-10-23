@@ -1,6 +1,6 @@
 import { AudioManager } from "../../../engine/AudioManager";
 import type { WeaponStateEvent } from "../../../engine/network/core/SnapshotEvent";
-import { canonicalWeaponId, WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
+import { canonicalWeaponId, WEAPONS } from "../shared/entities/definitions/weapons/WeaponsTable";
 
 export const RELOAD_SOUND_PATH = "sounds/weapons/reload.ogg";
 

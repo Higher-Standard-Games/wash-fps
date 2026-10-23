@@ -16,7 +16,7 @@
 import type { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { InterpolatedEntity } from "../../../engine/network/client/SnapshotBuffer";
 import type { WeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
-import { canonicalWeaponId } from "../../../shared/entities/definitions/weapons/WeaponsTable";
+import { canonicalWeaponId } from "../shared/entities/definitions/weapons/WeaponsTable";
 import { type DemoPovClock, type DemoPovPresentation, DemoPovState } from "./DemoPovState";
 
 export class FollowedViewWeapon {

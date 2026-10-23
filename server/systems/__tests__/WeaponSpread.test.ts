@@ -11,9 +11,9 @@
 import { EntityType } from "@engine/server/ecs/types";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_VIEWHEIGHT } from "../../../../../engine/physics/PlayerPhysicsConstants";
-import { MACHINEGUN } from "../../../../../shared/entities/definitions/weapons/machinegun";
-import { RIOTGUN } from "../../../../../shared/entities/definitions/weapons/riotgun";
 import { generateSpreadDirections, yawPitchFromDirection } from "../../../../../shared/SpreadUtils";
+import { MACHINEGUN } from "../../../shared/entities/definitions/weapons/machinegun";
+import { RIOTGUN } from "../../../shared/entities/definitions/weapons/riotgun";
 import { fireIntervalTicks, WeaponSystem } from "../WeaponSystem";
 
 const FIRE_BUTTON = 1 << 8;

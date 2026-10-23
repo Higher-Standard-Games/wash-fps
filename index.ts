@@ -10,4 +10,5 @@ export { fpsMapLauncher } from "./client/FpsMapLauncher";
 export { fpsNetworkConnector } from "./client/FpsNetworkConnector";
 export { registerFpsCommands } from "./console";
 export { Game } from "./Game";
+export { canonicalWeaponId } from "./shared/entities/definitions/weapons/WeaponsTable";
 export { fpsMapEntities } from "./world/FpsMapEntities";

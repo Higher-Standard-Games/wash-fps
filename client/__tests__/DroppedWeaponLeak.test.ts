@@ -7,8 +7,8 @@ import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { Scene } from "@babylonjs/core/scene";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PLASMAGUN } from "../../../../shared/entities/definitions/weapons/plasmagun";
 import { EntityRegistry } from "../../../../shared/entities/EntityRegistry";
+import { PLASMAGUN } from "../../shared/entities/definitions/weapons/plasmagun";
 import type { DroppedWeaponInfo } from "../DroppedWeaponRenderer";
 
 /**

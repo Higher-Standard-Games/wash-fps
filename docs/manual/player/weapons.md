@@ -1,6 +1,6 @@
 # Weapons
 
-Nine weapons, organized by slot. Numbers below are server-authoritative defaults from the engine repo's `src/shared/entities/definitions/weapons/*.ts` and the matching projectile definitions in `src/shared/entities/definitions/projectiles/*.ts`. Balance is still evolving — file an issue if anything feels off.
+Nine weapons, organized by slot. Numbers below are server-authoritative defaults from this game's `shared/entities/definitions/weapons/*.ts` and the matching projectile definitions in `shared/entities/definitions/projectiles/*.ts`. Balance is still evolving — file an issue if anything feels off.
 
 Clip weapons play a short mechanical cue when a reload starts. Your own weapon
 and a followed player's weapon use first-person audio; other players' reloads

@@ -10,10 +10,10 @@
  */
 
 import { Cvar } from "../../../engine/core/Cvar";
-import { WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
 import { type CrosshairConfig, fireIntervalTicks, type WeaponDef } from "../../../shared/entities/WeaponDef";
 import { bloomIdleSeconds, coolSpreadHeat, heatAfterShot } from "../../../shared/SpreadUtils";
 import { DEFAULT_PHYSICS_TICK_RATE } from "../../../shared/server/simulation/physics/constants";
+import { WEAPONS } from "../shared/entities/definitions/weapons/WeaponsTable";
 import { getAmmoStatus } from "./AmmoStatus";
 import { type HitLocationName, isHeadHit } from "./HitLocationName";
 import type { HUDState } from "./HUDState";

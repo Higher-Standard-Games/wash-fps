@@ -2,11 +2,13 @@
 
 Weapons are **data**: one definition object in the engine's shared entity registry, read by the server for ballistics and by the client for display. Neither side has per-weapon code for the ordinary cases, so most new weapons are a new definition file plus a handful of registrations.
 
-The definitions live in the **engine repo**, not in this one, under `src/shared/entities/`:
+The concrete definitions live in this game repo under `shared/entities/`, shared
+by the client and server. Generic interfaces and the registry remain in the
+engine's `src/shared/entities/`:
 
 | File | Holds |
 |------|-------|
-| `WeaponDef.ts` | The `WeaponDef` type, every field documented |
+| Engine: `src/shared/entities/WeaponDef.ts` | The `WeaponDef` type, every field documented |
 | `definitions/weapons/*.ts` | One file per weapon (`riotgun.ts` is a good template) |
 | `definitions/weapons/WeaponsTable.ts` | The `WEAPONS` lookup the server and client both use |
 | `definitions/projectiles/*.ts` | Projectile definitions, for weapons that fire one |

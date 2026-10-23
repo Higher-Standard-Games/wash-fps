@@ -1,5 +1,5 @@
 // Extracted from FPSHud.ts
-import { WEAPONS } from "../../../../../shared/entities/definitions/weapons/WeaponsTable";
+import { WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
 import type { FPSHudWidget, HUDState } from "../HudWidget";
 import { restartFlash } from "../restartFlash";
 

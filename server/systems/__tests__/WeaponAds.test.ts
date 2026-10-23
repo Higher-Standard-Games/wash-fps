@@ -2,11 +2,11 @@ import { EntityType } from "@engine/server/ecs/types";
 import { describe, expect, it } from "vitest";
 import { InputButtons } from "../../../../../engine/network/components/InputComponent";
 import { MessageCodec } from "../../../../../engine/network/protocol/MessageCodec";
-import { ELECTROBOLT } from "../../../../../shared/entities/definitions/weapons/electrobolt";
-import { GRENADE_LAUNCHER } from "../../../../../shared/entities/definitions/weapons/glauncher";
-import { PLASMAGUN } from "../../../../../shared/entities/definitions/weapons/plasmagun";
-import { ROCKET_LAUNCHER } from "../../../../../shared/entities/definitions/weapons/rlauncher";
-import { WEAPONS } from "../../../../../shared/entities/definitions/weapons/WeaponsTable";
+import { ELECTROBOLT } from "../../../shared/entities/definitions/weapons/electrobolt";
+import { GRENADE_LAUNCHER } from "../../../shared/entities/definitions/weapons/glauncher";
+import { PLASMAGUN } from "../../../shared/entities/definitions/weapons/plasmagun";
+import { ROCKET_LAUNCHER } from "../../../shared/entities/definitions/weapons/rlauncher";
+import { WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
 import { fireIntervalTicks, WeaponSystem } from "../WeaponSystem";
 
 const { FIRE, ALT_FIRE, AUTO_ADS } = InputButtons;

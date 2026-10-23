@@ -9,9 +9,9 @@
  * - Weapon definitions
  */
 
-export { WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
 // Weapon defs/table live in shared (QA-14); re-export for existing consumers.
 export type { WeaponDef } from "../../../shared/entities/WeaponDef";
+export { WEAPONS } from "../shared/entities/definitions/weapons/WeaponsTable";
 export { FPSServerGame } from "./FPSServerGame";
 export * from "./gametypes";
 export * from "./systems";

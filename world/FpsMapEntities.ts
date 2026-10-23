@@ -1,5 +1,5 @@
 import type { GameMapEntities } from "../../../engine/loader/map/GameMapEntities";
-import { initializeEntityDefs } from "../../../shared/entities";
+import { initializeEntityDefs } from "../shared/entities";
 import { EntityManager } from "./EntityManager";
 
 export const fpsMapEntities: GameMapEntities = {

@@ -19,8 +19,6 @@ import { InputButtons } from "../../../../engine/network/components/InputCompone
 import { type CollisionWorld, SHOT_CONTENT_MASK } from "../../../../engine/network/systems/collision/CollisionWorld";
 import { DEFAULT_VIEWHEIGHT } from "../../../../engine/physics/PlayerPhysicsConstants";
 import { rngFrom } from "../../../../shared/DeterministicRng";
-import { GRENADE } from "../../../../shared/entities/definitions/projectiles/grenade";
-import { canonicalWeaponId, WEAPONS } from "../../../../shared/entities/definitions/weapons/WeaponsTable";
 import type { ProjectileDef } from "../../../../shared/entities/ProjectileDef";
 import type { WeaponDef } from "../../../../shared/entities/WeaponDef";
 import { fireIntervalTicks } from "../../../../shared/entities/WeaponDef";
@@ -33,6 +31,8 @@ import {
   type SpreadDir,
   spreadCone,
 } from "../../../../shared/SpreadUtils";
+import { GRENADE } from "../../shared/entities/definitions/projectiles/grenade";
+import { canonicalWeaponId, WEAPONS } from "../../shared/entities/definitions/weapons/WeaponsTable";
 import { debugLog } from "../DebugLog";
 import { classifyHitLocation, type DamageEvent, DamageType, HitLocation } from "./CombatSystem";
 import type { DroppedWeaponSystem } from "./DroppedWeaponSystem";

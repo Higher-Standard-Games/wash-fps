@@ -1,7 +1,7 @@
 import { EntityType } from "@engine/server/ecs/types";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_VIEWHEIGHT } from "../../../../../engine/physics/PlayerPhysicsConstants";
-import { WEAPONS } from "../../../../../shared/entities/definitions/weapons/WeaponsTable";
+import { WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
 import {
   CombatSystem,
   classifyHitLocation,
