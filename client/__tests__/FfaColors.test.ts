@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Cvar } from "../../../../engine/core/Cvar";
-import { FfaColors, hasSide, registerPlayerModelVisualCvars } from "../PlayerModelVisualSettings";
+import { MatchStateManager } from "../MatchStateManager";
+import { FfaColors, registerPlayerModelVisualCvars } from "../PlayerModelVisualSettings";
+import { RemotePlayerRenderer } from "../RemotePlayerRenderer";
 import { TEAM_COLORS } from "../settings/SettingsModel";
 
 afterEach(() => {
   Cvar.reset("cl_team_ally_color");
+  MatchStateManager.getInstance().reset();
   vi.restoreAllMocks();
 });
 
@@ -39,11 +42,18 @@ describe("FFA opponent colours", () => {
     expect(worn).toContain("pink");
   });
 
-  it("tells a free-for-all player from one on a side", () => {
-    expect(hasSide("ffa")).toBe(false);
-    expect(hasSide(undefined)).toBe(false);
-    expect(hasSide("udon")).toBe(true);
-    expect(hasSide("alpha")).toBe(true);
-    expect(hasSide("spectator")).toBe(true);
+  it("colours by gametype: FFA players, whose team the server leaves at spectator, but no team mode", () => {
+    const renderer = Object.assign(Object.create(RemotePlayerRenderer.prototype), { ffaColors: new FfaColors() }) as {
+      ffaColor(entityId: string, slot: string): { id: string } | null;
+    };
+    const matchState = (teamBased: boolean) =>
+      MatchStateManager.getInstance().processEvent({ type: "match_state", teamBased } as never);
+
+    matchState(false);
+    expect(renderer.ffaColor("bot", "ffa")).not.toBeNull();
+    // Duel and the other team modes keep the side colours, spectated or not
+    matchState(true);
+    expect(renderer.ffaColor("bot", "ffa")).toBeNull();
+    expect(renderer.ffaColor("bot", "enemy")).toBeNull();
   });
 });

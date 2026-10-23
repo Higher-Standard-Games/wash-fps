@@ -165,11 +165,6 @@ export function getPlayerTeamSlot(teamId: string | null | undefined, localTeamId
   return them === me ? "ally" : "enemy";
 }
 
-/** True when the player is on a side (or spectating one), false in a free-for-all. */
-export function hasSide(teamId: string | null | undefined): boolean {
-  return canonicalTeam(teamId) !== null;
-}
-
 /** Fold the lobby's and the BSP's team names onto the match's two. */
 function canonicalTeam(teamId: string | null | undefined): string | null {
   switch ((teamId ?? "").trim().toLowerCase()) {

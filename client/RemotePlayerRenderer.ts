@@ -50,13 +50,13 @@ import { attachBladeToPlayer } from "./AttachedBlade";
 import { DemoAnimationTimeline } from "./DemoAnimationTimeline";
 import { DemoEntityTimeline } from "./DemoEntityTimeline";
 import { devLog } from "./DevLog";
+import { MatchStateManager } from "./MatchStateManager";
 import {
   FfaColors,
   getFfaPlayerModelVisualStyle,
   getPlayerModelVisualStyle,
   getPlayerModelVisualStyleKey,
   getPlayerTeamSlot,
-  hasSide,
   type PlayerTeamSlot,
   registerPlayerModelVisualCvars,
 } from "./PlayerModelVisualSettings";
@@ -487,9 +487,14 @@ export class RemotePlayerRenderer {
     return getPlayerTeamSlot(this.teams.get(entityId), this.localTeam);
   }
 
-  /** A free-for-all opponent's own colour; null for anyone on a side. */
+  /**
+   * A free-for-all opponent's own colour; null in a team gametype (Duel
+   * included: two sides of one), where the slot colours apply even to a
+   * spectator's view. FFA players have no side, so the gametype decides,
+   * not their team, which the server leaves at "spectator".
+   */
   private ffaColor(entityId: string, slot: PlayerTeamSlot) {
-    if (slot !== "ffa" || hasSide(this.teams.get(entityId))) return null;
+    if (slot !== "ffa" || MatchStateManager.getInstance().teamBased) return null;
     return this.ffaColors.colorFor(entityId);
   }
 
