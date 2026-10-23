@@ -10,7 +10,7 @@ import type { WorldState } from "@engine/server/core/WorldState";
 import type { EntityId, TickNumber } from "@engine/server/ecs/types";
 import { applyDamage } from "@shared/server/simulation/components/HealthComponent";
 import { clearPowerups } from "@shared/server/simulation/components/PowerupComponent";
-import { powerupDamageMultiplier } from "../../../../shared/items/Powerups";
+import { powerupDamageMultiplier } from "../../shared/items/Powerups";
 import type { FPSMovementSubsystem } from "./FPSMovementSubsystem";
 
 const CONFIG: SubsystemConfig = {

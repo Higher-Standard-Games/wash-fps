@@ -14,9 +14,9 @@ import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulatio
 import { Entity } from "../../../engine/network/core/Entity";
 import { GameState, type PlayerState } from "../../../engine/network/core/GameState";
 import type { SnapshotEvent } from "../../../engine/network/core/SnapshotEvent";
-import { POWERUP_KINDS, packPowerupMask, powerupSecondsRemaining } from "../../../shared/items/Powerups";
 import { MatchPhase } from "../../../shared/server/gametype";
 import { toClientKey } from "../ClientEntityKey";
+import { POWERUP_KINDS, packPowerupMask, powerupSecondsRemaining } from "../shared/items/Powerups";
 import type { PendingChatEvent, ScopedChatEvent } from "./ChatRouting";
 import type { ClientInfo } from "./Client";
 import type { AwardEvent } from "./gametypes/AwardTracker";

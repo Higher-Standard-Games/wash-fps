@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { POWERUP_DURATION_SECONDS } from "../../../../../shared/items/Powerups";
+import { POWERUP_DURATION_SECONDS } from "../../../shared/items/Powerups";
 import { CombatSystem, DamageType, HEAD_DAMAGE_MULTIPLIER, HitLocation } from "../CombatSystem";
 
 const TICK_RATE = 125;

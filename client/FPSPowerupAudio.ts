@@ -17,7 +17,7 @@
 
 import { AudioManager } from "../../../engine/AudioManager";
 import { Attenuation } from "../../../engine/audio/AudioV2Sfx";
-import type { PowerupKind } from "../../../shared/items/Powerups";
+import type { PowerupKind } from "../shared/items/Powerups";
 
 const QUAD_SPAWN = "sounds/items/quad_spawn.ogg";
 const QUAD_PICKUP = "sounds/items/quad_pickup.ogg";

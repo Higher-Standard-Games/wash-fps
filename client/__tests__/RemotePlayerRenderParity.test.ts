@@ -19,7 +19,7 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 import { type PlayerModelInstance, PlayerModelManager } from "../../../../engine/animation/PlayerModelManager";
 import { Cvar } from "../../../../engine/core/Cvar";
 import type { GameState } from "../../../../engine/network/core/GameState";
-import { POWERUP_KINDS } from "../../../../shared/items/Powerups";
+import { POWERUP_KINDS } from "../../shared/items/Powerups";
 
 /**
  * Everything a remote player looks like, frame by frame, held to a recording.

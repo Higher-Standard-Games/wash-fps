@@ -4,8 +4,8 @@
  * Armor from its own guess at the respawn would be early or late every time.
  */
 
-import { POWERUP_RESPAWN_SECONDS, type PowerupKind } from "../../../../shared/items/Powerups";
 import type { PickupType } from "../bsp/PickupTable";
+import { POWERUP_RESPAWN_SECONDS, type PowerupKind } from "./Powerups";
 
 /** Respawn times by item class, seconds. Weapons take the gametype's value instead. */
 export const ITEM_RESPAWN_SECONDS = {
