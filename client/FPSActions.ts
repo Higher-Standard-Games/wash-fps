@@ -14,6 +14,7 @@
  *   if (input.wasPressed(FPS.SCOREBOARD)) { ... }
  */
 
+import { type FreeflyInput, registerFreeflyInput } from "../../../engine/camera/FreeflyInput";
 import { devLog } from "../../../engine/core/DevLog";
 import { InputSystem } from "../../../engine/input/InputSystem";
 import type { ActionDefinition } from "../../../engine/input/InputTypes";
@@ -63,6 +64,20 @@ export const FPS = {
 
 /** Type for any FPS action ID */
 export type FPSActionId = (typeof FPS)[keyof typeof FPS];
+
+/** Freefly shares the player's movement bindings and gameplay input contexts. */
+export const fpsFreeflyInput: FreeflyInput = {
+  actions: {
+    forward: FPS.MOVE_FORWARD,
+    backward: FPS.MOVE_BACKWARD,
+    left: FPS.MOVE_LEFT,
+    right: FPS.MOVE_RIGHT,
+    up: FPS.JUMP,
+    down: FPS.CROUCH,
+    sprint: FPS.SPRINT,
+  },
+  prepare: registerFPSActions,
+};
 
 // ==================== Default Bindings ====================
 
@@ -212,6 +227,7 @@ let _registered = false;
  * Safe to call multiple times (idempotent).
  */
 export function registerFPSActions(): void {
+  registerFreeflyInput(fpsFreeflyInput);
   if (_registered) return;
   _registered = true;
 

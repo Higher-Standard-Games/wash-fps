@@ -5,6 +5,7 @@
  * It exports the game manager and shared types/utilities.
  */
 
+export { fpsFreeflyInput } from "./client/FPSActions";
 export { fpsMapLauncher } from "./client/FpsMapLauncher";
 export { fpsNetworkConnector } from "./client/FpsNetworkConnector";
 export { registerFpsCommands } from "./console";
