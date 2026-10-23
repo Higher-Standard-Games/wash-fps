@@ -1,0 +1,136 @@
+﻿import fs from "node:fs/promises";
+import path from "node:path";
+import ts from "typescript";
+import { AudioManager } from "../../../engine/AudioManager";
+import { BspLoader } from "../../../engine/loader/bsp/BspLoader";
+import { resolveMapBspViaIndex } from "../../../engine/loader/pk3/NodePk3";
+import { extractLifts } from "../../../shared/bsp/LiftSystem";
+import { preloadFPSAudio } from "../client/FPSAudio";
+
+// Collect the game's actual expanded preload bank without creating an audio engine.
+const preloaded = new Set<string>();
+const audio = AudioManager.getInstance;
+AudioManager.getInstance = (() => ({
+  preloadSfx: async (paths: readonly string[]) => {
+    for (const file of paths) preloaded.add(file);
+  },
+})) as typeof AudioManager.getInstance;
+try {
+  await preloadFPSAudio();
+} finally {
+  AudioManager.getInstance = audio;
+}
+
+const references = new Map<string, Set<string>>();
+async function scan(dir: string): Promise<void> {
+  for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+    const file = path.join(dir, entry.name).replace(/\\/g, "/");
+    if (entry.isDirectory()) {
+      if (!["__tests__", "docs", "node_modules"].includes(entry.name)) await scan(file);
+    } else if (file.endsWith(".ts")) {
+      const tree = ts.createSourceFile(file, await fs.readFile(file, "utf8"), ts.ScriptTarget.Latest, true);
+      function visit(node: ts.Node): void {
+        if (ts.isStringLiteralLike(node) && (node.text.startsWith("sounds/") || node.text.startsWith("/sounds/"))) {
+          const key = node.text.replace(/^\//, "");
+          const owners = references.get(key) ?? new Set<string>();
+          owners.add(file);
+          references.set(key, owners);
+        }
+        ts.forEachChild(node, visit);
+      }
+      visit(tree);
+    }
+  }
+}
+await scan("src/engine");
+await scan("src/games/fps");
+await scan("src/shared");
+const mapReferences = new Map<string, string[]>();
+for (const map of ["washoi_dm2", "washoi_dm5", "washoi_dm11"]) {
+  const bytes = await resolveMapBspViaIndex(["public/data"], map);
+  if (!bytes) throw new Error(`Missing production BSP ${map}`);
+  const bsp = BspLoader.load(bytes);
+  const note = (sound: string, use: string) => {
+    if (!sound || sound.startsWith("*")) return;
+    const owners = mapReferences.get(sound) ?? [];
+    owners.push(`${map}: ${use}`);
+    mapReferences.set(sound, owners);
+  };
+  for (const lift of extractLifts(bsp.entities, bsp.models)) {
+    note(lift.sound, "lift move");
+    note(lift.soundStop, "lift stop");
+  }
+  for (const entity of bsp.entities) {
+    for (const [key, value] of Object.entries(entity.properties)) {
+      if (value.startsWith("sounds/") || /\.(wav|ogg|mp3)$/i.test(value)) note(value, `${entity.classname}.${key}`);
+    }
+  }
+}
+const recipe = JSON.parse(await fs.readFile("config/sound-package.json", "utf8"));
+const files = recipe.files.map((entry: { path: string; source: string; sha256: string; status: string }) => {
+  const owners = [...(references.get(entry.path) ?? [])];
+  const maps = mapReferences.get(entry.path) ?? mapReferences.get(entry.path.replace(/\.(ogg|wav|mp3)$/, "")) ?? [];
+  const isPreloaded = preloaded.has(entry.path);
+  const usage =
+    entry.path === "ui_click.wav" || entry.path === "button_press.wav"
+      ? "UI alias (AudioManager)"
+      : ["sounds/world/underwater.ogg", "sounds/world/underlava.ogg"].includes(entry.path)
+        ? "preload only; submerged loop not wired"
+        : isPreloaded
+          ? "FPS preload bank; supported cue"
+          : maps.length
+            ? "production BSP reference"
+            : owners.length
+              ? "literal code reference"
+              : "compatibility only; no current caller found";
+  return { ...entry, usage, preloaded: isPreloaded, code: owners, maps };
+});
+const unmatched = [...new Set([...preloaded, ...mapReferences.keys()])].filter(
+  (name) => !files.some((f: { path: string }) => f.path === name || f.path.replace(/\.(ogg|wav|mp3)$/, "") === name),
+);
+const result = {
+  date: "2026-10-18",
+  method:
+    "Expanded real FPS preloader (audio stubbed), TypeScript string-literal AST scan excluding tests, three production BSP entity/lift references. Preloading proves availability, not that a cue is played in a match.",
+  sourceRepository: recipe.sourceRepository,
+  sourceRevision: recipe.sourceRevision,
+  licenses: recipe.licenses,
+  files,
+  removed: recipe.excluded ?? [],
+  unmatched,
+  otherCodePaths: [...references]
+    .filter(([name]) => !files.some((f: { path: string }) => f.path === name))
+    .map(([name, owners]) => ({ name, code: [...owners] })),
+};
+await fs.mkdir("docs/research/media", { recursive: true });
+await fs.writeFile("docs/research/media/sound_replacement.json", `${JSON.stringify(result, null, 2)}\n`);
+await fs.writeFile(
+  "docs/research/media/sound_replacement_matrix.md",
+  "# Sound replacement file matrix\n\nGenerated by `npm run tools:sounds:audit`. Sources are relative to the upstream repository; `cc0/` files are CC0-1.0 and `cc-by-sa-30-us/` files are CC-BY-SA-3.0-US. “Supported cue” means the actual FPS preloader selects it; it does not mean every match plays it. Compatibility-only files are retained deliberately, not counted as active use. Detailed licenses, code/map references and hashes are in [sound_replacement.json](./sound_replacement.json).\n\n| Packaged file | Source | Status | Usage |\n| --- | --- | --- | --- |\n" +
+    files
+      .map(
+        (f: { path: string; source: string; status: string; usage: string }) =>
+          `| ${f.path} | ${f.source === f.path ? "same path" : f.source} | ${f.status} | ${f.usage} |`,
+      )
+      .join("\n") +
+    (recipe.excluded ?? [])
+      .map((f: { path: string; reason: string }) => `\n| ${f.path} | — | removed | ${f.reason} |`)
+      .join("") +
+    "\n",
+);
+console.log(
+  JSON.stringify(
+    {
+      files: files.length,
+      preloaded: preloaded.size,
+      statuses: files.reduce((counts: Record<string, number>, f: { usage: string }) => {
+        counts[f.usage] = (counts[f.usage] ?? 0) + 1;
+        return counts;
+      }, {}),
+      unmatched,
+    },
+    null,
+    2,
+  ),
+);
+if (unmatched.length) process.exitCode = 1;

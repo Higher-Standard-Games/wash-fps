@@ -19,7 +19,7 @@ const result = await build({
     "lobby-server": "src/games/fps/cli/lobby-server.ts",
     "bot-server": "src/games/fps/cli/bot-server.ts",
     ServerBenchmarkClient: "src/cli/ServerBenchmarkClient.ts",
-    ServerRuntimeProbe: "src/cli/ServerRuntimeProbe.ts",
+    ServerRuntimeProbe: "src/games/fps/cli/ServerRuntimeProbe.ts",
   },
   outdir: staging,
   outExtension: { ".js": ".mjs" },
