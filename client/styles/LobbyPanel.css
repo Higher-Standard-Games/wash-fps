@@ -312,6 +312,20 @@
   --key-sub: hsla(250, 45%, 8%, 0.62);
 }
 
+/* Quick play: pink, so a new player finds the way straight into a match */
+.lobby__rail-nav .raised-key--quick,
+.lobby__rail-nav .raised-key--quick:is(:hover, :focus-visible):not(:disabled) {
+  --key-face: linear-gradient(180deg, hsl(322 100% 77%), hsl(322 95% 62%) 55%, hsl(318 85% 50%));
+  --key-side: linear-gradient(180deg, hsl(312 70% 33%), hsl(306 70% 21%));
+  --key-text: hsl(250 45% 8%);
+  --key-sub: hsla(250, 45%, 8%, 0.62);
+  --key-shadow: hsla(306, 70%, 14%, 0.42);
+}
+
+.lobby__rail-nav .raised-key--quick:is(:hover, :focus-visible):not(:disabled) {
+  --key-face: linear-gradient(180deg, hsl(322 100% 84%), hsl(322 100% 70%) 55%, hsl(318 90% 57%));
+}
+
 @media (max-width: 1500px) {
   .lobby__rail-nav .raised-key__hint {
     display: none;

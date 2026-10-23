@@ -91,6 +91,10 @@ const GAME_MODES: GameMode[] = [
   },
 ];
 
+/** Quick play's mode, and the bots it fills the room with. */
+const QUICK_PLAY_MODE = "ffa";
+const QUICK_PLAY_BOTS = 4;
+
 /** Messages kept in the chat log; older ones scroll away for good. */
 const CHAT_LOG_LIMIT = 100;
 /** How long a spectator's Join waits on the lobby for a seat. */
@@ -159,6 +163,9 @@ export class LobbyPanel extends GamePanel {
   private privateLobbySupported = false;
   private leaderboardView: LeaderboardView | null = null;
   private pendingPrivateCreate = false;
+  /** The private room being created is quick play's: fill it with bots and ready up. */
+  private pendingQuickPlay = false;
+  private quickPlayKey: HTMLButtonElement | null = null;
 
   private currentLobbyId: string | null = null;
   /** Lobby-server identity from Welcome; lobby roster order is not identity. */
@@ -299,6 +306,13 @@ export class LobbyPanel extends GamePanel {
     const nav = document.createElement("nav");
     nav.className = "lobby__rail-nav";
     nav.setAttribute("aria-label", "Pages");
+    // Quick play: the one key a new player needs, from here straight into a match
+    const quickPlay = createRaisedKey({ label: "Quick play", hint: "FFA vs bots", variants: ["nav", "quick"] });
+    quickPlay.title = "A private free-for-all against four bots, on a random map";
+    quickPlay.disabled = true;
+    quickPlay.addEventListener("click", () => this.startQuickPlay());
+    this.quickPlayKey = quickPlay;
+    nav.appendChild(quickPlay);
     this.tabBar.className = "lobby__rail-keys";
     for (const [id, hint] of [
       ["matchmaking", "4 modes"],
@@ -400,6 +414,25 @@ export class LobbyPanel extends GamePanel {
     }
     const playKey = this.tabButton("matchmaking");
     if (playKey) setRaisedKeyText(playKey, "Play", this.currentLobbyId ? "In a room" : "4 modes");
+    this.refreshQuickPlayKey();
+  }
+
+  /** Quick play needs the lobby, its private rooms and FFA, and no room already open. */
+  private refreshQuickPlayKey(): void {
+    if (!this.quickPlayKey) return;
+    this.quickPlayKey.disabled =
+      !this.lobbyClient.connected ||
+      !this.privateLobbySupported ||
+      this.queuePending ||
+      this.currentLobbyId !== null ||
+      newUiApi.getMode(QUICK_PLAY_MODE, this.serverGametypes).status !== "ready";
+  }
+
+  /** A private FFA room that adds its bots, votes a map and readies up by itself. */
+  private startQuickPlay(): void {
+    if (this.currentLobbyId) return;
+    this.switchTab("matchmaking");
+    if (this.showPrivateLobby(QUICK_PLAY_MODE)) this.pendingQuickPlay = true;
   }
 
   // Lobby Server Connection
@@ -507,6 +540,7 @@ export class LobbyPanel extends GamePanel {
           console.warn("[LobbyPanel] Lobby error:", msg.error);
           this.queuePending = false;
           this.pendingPrivateCreate = false;
+          this.pendingQuickPlay = false;
           if (this.playNoticeEl) this.playNoticeEl.textContent = msg.error;
           this.refreshModeAvailability();
         }),
@@ -537,6 +571,7 @@ export class LobbyPanel extends GamePanel {
           }
           this.queuePending = false;
           this.pendingPrivateCreate = false;
+          this.pendingQuickPlay = false;
           this.privateLobbySupported = false;
           bindLeaderboard(this.lobbyClient, false);
           bindPlayerStats(this.lobbyClient, false);
@@ -718,6 +753,7 @@ export class LobbyPanel extends GamePanel {
   private showDisconnectedState(announce = true): void {
     this.queuePending = false;
     this.pendingPrivateCreate = false;
+    this.pendingQuickPlay = false;
     this.privateLobbySupported = false;
     bindFeaturedDemos(this.lobbyClient, false);
     this.leaderboardView?.clear();
@@ -795,6 +831,7 @@ export class LobbyPanel extends GamePanel {
   }
 
   private handleLobbyCreated(lobby: MatchLobbyInfo): void {
+    const quickPlay = this.pendingQuickPlay && lobby.visibility === "private";
     if (this.matchLobbyView) this.showPlayStage();
     let inviteToken: string | null = null;
     if (lobby.visibility === "private") {
@@ -806,6 +843,7 @@ export class LobbyPanel extends GamePanel {
     }
     if (this.pendingPrivateCreate && (lobby.visibility !== "private" || !inviteToken)) {
       this.pendingPrivateCreate = false;
+      this.pendingQuickPlay = false;
       this.queuePending = false;
       this.lobbyClient.leaveLobby(lobby.id);
       if (this.playNoticeEl) this.playNoticeEl.textContent = "The server did not provide a private invite room.";
@@ -813,6 +851,7 @@ export class LobbyPanel extends GamePanel {
       return;
     }
     this.pendingPrivateCreate = false;
+    this.pendingQuickPlay = false;
     this.queuePending = false;
     if (this.playNoticeEl) this.playNoticeEl.textContent = "";
     this.currentLobbyId = lobby.id;
@@ -839,6 +878,7 @@ export class LobbyPanel extends GamePanel {
       this.lobbyClient,
       lobby,
       this.localLobbyPlayerId ?? undefined,
+      { fillWithBots: quickPlay ? QUICK_PLAY_BOTS : 0 },
     );
     this.matchLobbyView.onLeave(() => {
       if (this.currentLobbyId) {
@@ -1052,6 +1092,7 @@ export class LobbyPanel extends GamePanel {
       this.privateButton.disabled = keys.private.disabled;
       this.privateButton.title = keys.private.title;
     }
+    this.refreshQuickPlayKey();
   }
 
   private refreshModeAvailability(): void {
@@ -1326,14 +1367,16 @@ export class LobbyPanel extends GamePanel {
     // Server sends lobby:created, which opens the room view.
   }
 
-  private showPrivateLobby(gametypeId: string): void {
-    if (!this.lobbyClient.connected || !this.privateLobbySupported || this.queuePending) return;
-    if (newUiApi.getMode(gametypeId, this.serverGametypes).status !== "ready") return;
+  /** Ask for a private room; false when it cannot be asked for right now. */
+  private showPrivateLobby(gametypeId: string): boolean {
+    if (!this.lobbyClient.connected || !this.privateLobbySupported || this.queuePending) return false;
+    if (newUiApi.getMode(gametypeId, this.serverGametypes).status !== "ready") return false;
     this.queuePending = true;
     this.pendingPrivateCreate = true;
     if (this.playNoticeEl) this.playNoticeEl.textContent = "Creating a private room...";
     this.refreshModeAvailability();
     this.lobbyClient.createLobby(gametypeId, "private");
+    return true;
   }
 
   private showPlayStage(): void {
