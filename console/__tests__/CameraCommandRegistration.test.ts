@@ -17,16 +17,20 @@ afterEach(() => {
   CommandRegistry.getInstance().unregister("spectator");
   CommandRegistry.getInstance().unregister("giveweapon");
   CommandRegistry.getInstance().unregister("spawn_pickable_entity");
+  CommandRegistry.getInstance().unregister("name");
   vi.restoreAllMocks();
 });
 
 it("discovers the moved commands only in the game and preserves their responses", async () => {
   const registry = CommandRegistry.getInstance();
+  registry.unregister("name");
   await registerEngineCommands();
+  expect(registry.getDefinition("name")).toBeUndefined();
   expect(registry.getDefinition("spectator")).toBeUndefined();
   expect(registry.getDefinition("giveweapon")).toBeUndefined();
   expect(registry.getDefinition("spawn_pickable_entity")).toBeUndefined();
   await registerFpsCommands();
+  expect(registry.getDefinition("name")?.usage).toBe("name [newname]");
   expect(registry.getDefinition("spectator")?.usage).toBe("spectator [0|1]");
   expect(registry.getDefinition("giveweapon")?.usage).toBe("giveweapon <weapon_id|all> [amount]");
   expect(registry.getDefinition("spawn_pickable_entity")?.usage).toBe("spawn_pickable_entity <entity_id>");
