@@ -29,6 +29,15 @@
 .lobby-guide-back:hover {
   background: linear-gradient(160deg, #574b6d, #282137);
 }
+/* Pressed: the key sinks onto its 5px base, as the lobby's raised keys do */
+.lobby-guide-help:active,
+.lobby-guide-back:active {
+  transform: translateY(4px);
+  box-shadow:
+    0 1px 0 #0d0b16,
+    inset 0 1px 0 #ffffff35,
+    0 3px 6px #0005;
+}
 .lobby-guide-help[hidden],
 .lobby-guide [hidden] {
   display: none;
