@@ -33,10 +33,7 @@ export const ROCKET: ProjectileDef = {
   lightIntensity: 10,
   lightRange: 30,
 
-  // Impact
-  impactModelPath: "models/weapon_hits/rlauncher/hit_rlauncher.md3",
-  impactScale: 3.0,
-  impactDuration: 0.5,
+  // Impact: the procedural explosion (ExplosionEffect), not a model
 
   trailEffect: "rocket_trail",
   impactEffect: "rocket_impact",

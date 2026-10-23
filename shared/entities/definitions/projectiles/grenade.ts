@@ -34,10 +34,7 @@ export const GRENADE: ProjectileDef = {
   lightIntensity: 6,
   lightRange: 20,
 
-  // Impact
-  impactModelPath: "models/weapon_hits/glauncher/hit_glauncher.md3",
-  impactScale: 2.5,
-  impactDuration: 0.4,
+  // Impact: the procedural explosion (ExplosionEffect), not a model
 
   trailEffect: "grenade_trail",
   impactEffect: "grenade_impact",

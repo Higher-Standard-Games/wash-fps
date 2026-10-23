@@ -34,10 +34,7 @@ export const BLADE_BLAST: ProjectileDef = {
   lightIntensity: 12,
   lightRange: 35,
 
-  // Impact — reuse gunblade hit for now
-  impactModelPath: "models/weapon_hits/gunblade/hit_blast.md3",
-  impactScale: 3.0,
-  impactDuration: 0.4,
+  // Impact: the procedural explosion (ExplosionEffect), not a model
 
   trailEffect: "blade_trail",
   impactEffect: "blade_impact",

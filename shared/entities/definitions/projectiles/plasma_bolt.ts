@@ -34,11 +34,7 @@ export const PLASMA_BOLT: ProjectileDef = {
   lightIntensity: 8,
   lightRange: 25,
 
-  // Impact model - the cool hit effect!
-  impactModelPath: "models/weapon_hits/plasmagun/hit_plasmagun.md3",
-  impactTexturePath: "models/weapon_hits/plasmagun/plasmagun_hit.tga",
-  impactScale: 2.0,
-  impactDuration: 0.3, // 300ms fade out
+  // Impact: the procedural explosion (ExplosionEffect), not a model
 
   trailEffect: "plasma_trail",
   impactEffect: "plasma_impact",
