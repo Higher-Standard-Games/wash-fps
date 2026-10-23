@@ -17,7 +17,7 @@ const result = await build({
   entryPoints: {
     "headless-netserver-v2": "src/games/fps/cli/headless-netserver-v2.ts",
     "lobby-server": "src/games/fps/cli/lobby-server.ts",
-    "bot-server": "src/cli/bot-server.ts",
+    "bot-server": "src/games/fps/cli/bot-server.ts",
     ServerBenchmarkClient: "src/cli/ServerBenchmarkClient.ts",
     ServerRuntimeProbe: "src/cli/ServerRuntimeProbe.ts",
   },

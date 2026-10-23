@@ -15,7 +15,7 @@
  *
  * - **Bots are a separate process** and cannot import any of this. The mode
  *   steers them through `getAgentDirectives`, which returns plain data. If
- *   Search & Destroy ever needs code in `src/bot`, the design has failed.
+ *   Search & Destroy ever needs code in `bot/`, the design has failed.
  */
 
 import type { WorldState } from "@engine/server/core/WorldState";

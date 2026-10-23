@@ -2,7 +2,14 @@
 
 Bots in Washiki Washoi run as a **separate Node.js process** that connects to game servers as real WebSocket clients. At the protocol level, a bot is indistinguishable from a human player.
 
-The bot system lives at `src/bot/` in the engine repo (not in this submodule).
+The bot system belongs to this game repository at `bot/`; in an assembled SHAG
+checkout that is `src/games/fps/bot/`. Its CLI is `cli/bot-server.ts`. Run commands
+from the assembled root so data, model and navigation-cache paths resolve there.
+The game-owned server build recipe produces `dist-server/bot-server.mjs`.
+
+The optional neural backend still uses the assembled root's TensorFlow
+installation and Windows native-library fixup. Moving the source does not change
+the native-first/pure-JavaScript fallback or the model format.
 
 ## Running
 

@@ -13,8 +13,8 @@ import {
  */
 async function mapReachability(doc: EditorDocumentData, mapName: string): Promise<MapReachabilityResult> {
   const [{ createBotVision }, { BotNavGraph }, { analyzeReachability }, { playerReachability }] = await Promise.all([
-    import("../../../../bot/BotVision"),
-    import("../../../../bot/BotNavGraph"),
+    import("../../bot/BotVision"),
+    import("../../bot/BotNavGraph"),
     import("../../../../engine/editor/api/Reachability"),
     import("../../../../engine/editor/server/PlayerReach"),
   ]);

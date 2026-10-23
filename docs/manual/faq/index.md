@@ -36,7 +36,7 @@ You can't, and you shouldn't. Dev-spawn is a developer affordance, not a public 
 Bots are available in **Private** rooms. The room chooses a standard preset near
 your private rating, with medium as the new-player fallback. Explicit protocol
 presets are easy, medium, hard and insane. Presets live in `BotConfig.ts` in the
-engine repo; [Bot Server](../tools/bot-server.md#difficulty-tiers) lists the tiers.
+game's `bot/` directory; [Bot Server](../tools/bot-server.md#difficulty-tiers) lists the tiers.
 The dedicated server's `spawn_bots` command makes simple bots with no tiers; see
 [Server Commands](../developer/server-commands.md).
 

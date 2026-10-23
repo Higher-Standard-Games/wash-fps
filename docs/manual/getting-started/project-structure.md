@@ -13,7 +13,8 @@ Paths below are relative to `src/games/fps/`.
 | `client/` — watching | `DemoService.ts`, `DemoViewer.ts`, `Spectator*.ts`, `Spectate*.ts` |
 | `client/hud/`, `client/settings/`, `client/styles/` | HUD widgets, settings pages and game UI styles |
 | `console/` | `index.ts` discovers game commands in `commands/` |
-| `cli/` | Dedicated-server and lobby application startup; map-loading composition |
+| `cli/` | Dedicated-server, lobby and bot application startup; map-loading composition |
+| `bot/` | Bot clients, navigation, brains, training and their tests |
 | `scripts/` | Server build recipe with explicit artifact names and atomic output publication |
 | `server/` | `GameServer.ts`, `SnapshotBuilder.ts`, `SnapshotBroadcaster.ts`, `DemoRecorder.ts`, `MovementValidator.ts`, `AuthorityGuards.ts`, `SuspendedSessions.ts` |
 | `server/gametypes/` | `GametypeController.ts`, `MatchState.ts`, `BaseGametype.ts`; Duel, Amphi, Deathmatch and Search & Destroy; awards and spawn strategies |
@@ -47,8 +48,8 @@ output directory, absolute or relative to the assembled root. The root's
 game-owned recipe and source entry. The lobby, bot server and match server
 artifact filenames stay the same. Use a scratch `--data-dir` for automated tests.
 
-The recipe also builds the bot application and runtime/benchmark probes whose
-source entry points still live in SHAG. Reusable lobby, account, result and
+The recipe also builds this game's `cli/bot-server.ts` and the runtime/benchmark
+probes whose source entry points still live in SHAG. Reusable lobby, account, result and
 networking services remain engine-owned; the game supplies their application
 startup and the dedicated-server entry descriptor.
 
@@ -70,6 +71,8 @@ recorded map identity remains unchanged.
 | `simulation/FPSSimulation.ts` | Implements engine `Simulation<State, Input>` |
 | `server/GameServer.ts` | Wraps engine networking transports + tick loop |
 
-## Bot Intelligence Server lives outside this submodule
+## Bot Intelligence Server
 
-The bot system runs as a separate Node.js process and lives at `src/bot/` in the engine repo (not in this submodule). See [Tools → Bot Server](../tools/bot-server.md).
+The bot system runs as a separate Node.js process and lives in this repository's
+`bot/` directory, with startup in `cli/bot-server.ts`. See
+[Tools → Bot Server](../tools/bot-server.md).
