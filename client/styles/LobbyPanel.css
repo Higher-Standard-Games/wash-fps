@@ -1150,11 +1150,11 @@
 
 .lobby-chat__msg {
   display: grid;
-  grid-template-columns: 46px auto 1fr;
+  grid-template-columns: 50px auto 1fr;
   align-items: baseline;
   gap: 12px;
   padding: 6px 8px 6px 4px;
-  font: 600 16px / 1.35 var(--w-font-body, "Rajdhani", sans-serif);
+  font: 600 18px / 1.35 var(--w-font-body, "Rajdhani", sans-serif);
   color: hsla(45, 100%, 95%, 0.9);
   animation: lobby-chat-in 0.22s ease-out;
 }
@@ -1167,13 +1167,13 @@
 }
 
 .lobby-chat__time {
-  font: 700 11px / 1 var(--w-font-body, "Rajdhani", sans-serif);
+  font: 700 12px / 1 var(--w-font-body, "Rajdhani", sans-serif);
   letter-spacing: 0.08em;
   color: hsla(45, 100%, 95%, 0.3);
 }
 
 .lobby-chat__who {
-  font: 800 13px / 1 var(--w-font-display, "Orbitron", monospace);
+  font: 800 14px / 1 var(--w-font-display, "Orbitron", monospace);
   letter-spacing: 0.04em;
   white-space: nowrap;
   color: var(--who, hsl(182 95% 60%));
@@ -1193,8 +1193,8 @@
 }
 
 .lobby-chat__msg--sys {
-  grid-template-columns: 46px 1fr;
-  font-size: 14px;
+  grid-template-columns: 50px 1fr;
+  font-size: 16px;
   font-style: italic;
   color: hsla(45, 100%, 95%, 0.45);
 }
@@ -1207,7 +1207,7 @@
 
 .lobby-chat__empty {
   margin: 14px 0;
-  font: 600 15px / 1.35 var(--w-font-body, "Rajdhani", sans-serif);
+  font: 600 17px / 1.35 var(--w-font-body, "Rajdhani", sans-serif);
   color: hsla(45, 100%, 95%, 0.5);
 }
 
@@ -1226,7 +1226,7 @@
   height: 44px;
   padding: 0 16px;
   box-sizing: border-box;
-  font: 600 16px / 1 var(--w-font-body, "Rajdhani", sans-serif);
+  font: 600 18px / 1 var(--w-font-body, "Rajdhani", sans-serif);
   color: var(--cream);
   background: hsla(250, 44%, 5%, 0.8);
   border: 1.5px solid hsla(276, 90%, 64%, 0.28);
@@ -1276,20 +1276,20 @@
 }
 
 .lobby__rail--room .lobby-chat__msg {
-  grid-template-columns: 38px auto 1fr;
+  grid-template-columns: 42px auto 1fr;
   gap: 8px;
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .lobby__rail--room .lobby-chat__msg--sys {
-  grid-template-columns: 38px 1fr;
-  font-size: 13px;
+  grid-template-columns: 42px 1fr;
+  font-size: 15px;
 }
 
 .lobby__rail--room .lobby-chat__empty {
   margin: 14px 0;
   color: hsla(45, 100%, 95%, 0.58);
-  font-size: 14px;
+  font-size: 16px;
 }
 
 /* ── Narrower screens ── */

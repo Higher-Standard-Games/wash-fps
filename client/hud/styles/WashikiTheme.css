@@ -2682,7 +2682,7 @@ html[data-cl-hud="0"]
   /* Clear of the bottom bar, whose vitals and weapon rack stand about 230px tall. */
   bottom: calc(236px * var(--ui-scale, 1));
   left: calc(20px * var(--ui-scale, 1));
-  width: calc(420px * var(--ui-scale, 1));
+  width: calc(460px * var(--ui-scale, 1));
   max-width: 50vw;
   /* Above the scoreboard overlay (600) — post-game banter happens over the
      board veil — but below modal dialogs (700). */
@@ -2696,13 +2696,13 @@ html[data-cl-hud="0"]
   display: flex;
   flex-direction: column;
   gap: calc(2px * var(--ui-scale, 1));
-  max-height: calc(160px * var(--ui-scale, 1));
+  max-height: calc(180px * var(--ui-scale, 1));
   overflow: hidden;
 }
 
 /* Talk mode: the log becomes a scrollable washoi history dialog */
 .fps-chat--history .fps-chat-log {
-  max-height: calc(320px * var(--ui-scale, 1));
+  max-height: calc(360px * var(--ui-scale, 1));
   overflow-y: auto;
   pointer-events: auto;
   padding: calc(8px * var(--ui-scale, 1)) calc(10px * var(--ui-scale, 1));
@@ -2724,7 +2724,7 @@ html[data-cl-hud="0"]
 
 .fps-chat-message {
   font-family: var(--w-font-body);
-  font-size: calc(14px * var(--ui-scale, 1));
+  font-size: calc(16px * var(--ui-scale, 1));
   font-weight: 600;
   color: var(--w-text);
   padding: calc(2px * var(--ui-scale, 1)) calc(6px * var(--ui-scale, 1));
@@ -2745,7 +2745,7 @@ html[data-cl-hud="0"]
 
 .fps-chat-sender {
   font-family: var(--w-font-display);
-  font-size: calc(11px * var(--ui-scale, 1));
+  font-size: calc(12px * var(--ui-scale, 1));
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2786,7 +2786,7 @@ html[data-cl-hud="0"]
 /* Gold SAY stamp — dark ink text, same treatment as the ESC menu title */
 .fps-chat-prompt {
   font-family: var(--w-font-display);
-  font-size: calc(10px * var(--ui-scale, 1));
+  font-size: calc(11px * var(--ui-scale, 1));
   font-weight: 800;
   letter-spacing: 0.14em;
   color: hsl(246, 38%, 7%);
@@ -2803,7 +2803,7 @@ html[data-cl-hud="0"]
   outline: none;
   color: var(--w-text);
   font-family: var(--w-font-body);
-  font-size: calc(14px * var(--ui-scale, 1));
+  font-size: calc(16px * var(--ui-scale, 1));
   font-weight: 600;
   caret-color: var(--w-gold);
 }
