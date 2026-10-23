@@ -198,7 +198,7 @@ export class RemotePlayerRenderer {
   /** Reference to enemyWeapons from GameEventContext — maps entityId → weaponId */
   private enemyWeapons: Map<string, string> = new Map();
 
-  /** entityId → server team id ("udon"/"soba"/"spectator"), from snapshot players */
+  /** entityId → server team id ("udon"/"soba"/"ffa"/"spectator"), from snapshot players */
   private teams: Map<string, string> = new Map();
   private readonly ffaColors = new FfaColors();
 
@@ -490,8 +490,8 @@ export class RemotePlayerRenderer {
   /**
    * A free-for-all opponent's own colour; null in a team gametype (Duel
    * included: two sides of one), where the slot colours apply even to a
-   * spectator's view. FFA players have no side, so the gametype decides,
-   * not their team, which the server leaves at "spectator".
+   * spectator's view. The gametype decides rather than the player's team,
+   * which older servers and demos sent as "spectator" for FFA players.
    */
   private ffaColor(entityId: string, slot: PlayerTeamSlot) {
     if (slot !== "ffa" || MatchStateManager.getInstance().teamBased) return null;

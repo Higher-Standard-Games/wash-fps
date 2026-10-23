@@ -14,7 +14,7 @@ import { log } from "../../../engine/core/Log";
 import { GameState } from "../../../engine/network/core/GameState";
 import { MessageCodec } from "../../../engine/network/protocol/MessageCodec";
 import type { ServerPVS } from "../../../engine/server/ServerPVS";
-import type { AgentDirective } from "../../../shared/server/gametype";
+import { type AgentDirective, isSide, sameSide } from "../../../shared/server/gametype";
 import { toClientKey } from "../ClientEntityKey";
 import { chatVisibleTo } from "./ChatRouting";
 import type { ClientInfo } from "./Client";
@@ -321,9 +321,9 @@ export class SnapshotBroadcaster {
     // the spectator camera cannot land on an entity missing from the snapshot.
     const ownPlayer = state.players.get(toClientKey(client.playerId));
     const teammateEntityIds = new Set<string>();
-    if (clientEntity.health?.dead && ownPlayer?.team && ownPlayer.team !== "spectator") {
+    if (clientEntity.health?.dead && isSide(ownPlayer?.team)) {
       for (const player of state.players.values()) {
-        if (player.team === ownPlayer.team) teammateEntityIds.add(player.entityId);
+        if (sameSide(player.team, ownPlayer.team)) teammateEntityIds.add(player.entityId);
       }
     }
 

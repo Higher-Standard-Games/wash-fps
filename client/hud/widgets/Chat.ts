@@ -15,7 +15,7 @@
 export interface ChatMessage {
   sender: string;
   text: string;
-  /** Server team id ("udon" / "soba" / "spectator" / "") — colors the sender stamp. */
+  /** Server team id ("udon" / "soba" / "ffa" / "spectator" / "") — colors the sender stamp. */
   team: string;
   timestamp: number;
   /** From the game rather than a player: no sender stamp. */
@@ -160,11 +160,12 @@ export class FPSChat {
       const senderEl = document.createElement("span");
       senderEl.className = "fps-chat-sender";
       // Allegiance, not team name — a teammate's name is the ally colour whichever
-      // side you are on this half.
+      // side you are on this half. A free-for-all player has no side and keeps
+      // the plain sender colour.
+      const side = msg.team === "udon" || msg.team === "soba";
       if (msg.team === "spectator") senderEl.classList.add("fps-chat-sender--spec");
-      else if (msg.team && this.localTeam && msg.team === this.localTeam)
-        senderEl.classList.add("fps-chat-sender--ally");
-      else if (msg.team) senderEl.classList.add("fps-chat-sender--enemy");
+      else if (side && msg.team === this.localTeam) senderEl.classList.add("fps-chat-sender--ally");
+      else if (side) senderEl.classList.add("fps-chat-sender--enemy");
       senderEl.textContent = msg.sender;
       el.appendChild(senderEl);
     }

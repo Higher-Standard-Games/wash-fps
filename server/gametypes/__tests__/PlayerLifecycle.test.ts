@@ -73,4 +73,42 @@ describe("player lifecycle bookkeeping", () => {
     expect(match.readyCount).toBe(1);
     expect(match.phase).toBe(MatchPhase.Warmup);
   });
+
+  it("puts FFA players on ffa, not spectator, and back to spectator when they watch", () => {
+    const controller = new GametypeController(new Deathmatch());
+    const state = new WorldState();
+    const match = controller.getMatchState();
+    controller.onPlayerJoin(P1, 1 as never, state, undefined, "one");
+    expect(match.getPlayerTeam(P1)).toBe("ffa");
+
+    controller.onPlayerSpectate(P1);
+    expect(match.getPlayerTeam(P1)).toBe("spectator");
+    controller.onPlayerJoin(P1, 1 as never, state, undefined, "one");
+    expect(match.getPlayerTeam(P1)).toBe("ffa");
+  });
+
+  it("protects a fresh spawn from its own side only: two FFA players are enemies", () => {
+    const hit = (controller: GametypeController) => {
+      const inner = controller as unknown as {
+        spawnTick: Map<number, number>;
+        lastState: { getEntity(id: number): { ownerId: PlayerId } };
+        allowDamage(event: { victimId: number; attackerId: number }, tick: number, window: number): boolean;
+      };
+      inner.spawnTick.set(2, 0);
+      inner.lastState = { getEntity: (id) => ({ ownerId: id as PlayerId }) };
+      return inner.allowDamage({ victimId: 2, attackerId: 1 }, 1, 100);
+    };
+
+    const ffa = new GametypeController(new Deathmatch());
+    ffa.getMatchState().setPlayerTeam(P1, "ffa");
+    ffa.getMatchState().setPlayerTeam(P2, "ffa");
+    expect(hit(ffa)).toBe(true);
+
+    const teams = new GametypeController(new SearchAndDestroy());
+    teams.getMatchState().setPlayerTeam(P1, "udon");
+    teams.getMatchState().setPlayerTeam(P2, "udon");
+    expect(hit(teams)).toBe(false);
+    teams.getMatchState().setPlayerTeam(P2, "soba");
+    expect(hit(teams)).toBe(true);
+  });
 });

@@ -892,7 +892,7 @@ export class MatchState {
    */
   toSnapshot(): MatchStateSnapshot {
     // Convert Maps to Records for simpler JSON serialization
-    const teamScoresRec: Record<TeamId, number> = {
+    const teamScoresRec: Record<Exclude<TeamId, "ffa">, number> = {
       udon: this._teamScores.get("udon") || 0,
       soba: this._teamScores.get("soba") || 0,
       spectator: 0,
@@ -901,7 +901,7 @@ export class MatchState {
     for (const [playerId, teamId] of this._playerTeams) {
       playerTeamsRec[playerId.toString()] = teamId;
     }
-    const teamNamesRec: Record<TeamId, string> = {
+    const teamNamesRec: Record<Exclude<TeamId, "ffa">, string> = {
       udon: this._teamNames.get("udon") || "Team Udon",
       soba: this._teamNames.get("soba") || "Team Soba",
       spectator: "Spectator",

@@ -67,6 +67,31 @@ describe("SnapshotBroadcaster PVS filtering", () => {
     expect([...aliveView.entities.keys()]).toEqual(["player_10"]);
   });
 
+  it("gives a dead FFA player no teammates: everyone else stays behind the PVS", () => {
+    const viewer = { transform: { position: { x: 0, y: 0, z: 0 } }, health: { dead: true } };
+    const simulation = { getState: () => ({ getEntity: () => viewer }) } as unknown as Simulation;
+    const broadcaster = new SnapshotBroadcaster(simulation);
+    broadcaster.setPVS({
+      enabled: true,
+      getCluster: () => 0,
+      isClusterVisibleFrom: () => false,
+    } as unknown as ServerPVS);
+
+    const state = new GameState();
+    state.entities.set("player_10", spatialEntity("player_10", 0));
+    state.entities.set("player_20", spatialEntity("player_20", 100));
+    state.entities.set("player_30", spatialEntity("player_30", 100));
+    state.players.set("player_1", player("player_10", "ffa"));
+    state.players.set("player_2", player("player_20", "ffa"));
+    state.players.set("player_3", player("player_30", "ffa"));
+
+    const client = { playerId: 1, entityId: 10 } as unknown as ClientInfo;
+    const filter = broadcaster as unknown as {
+      filterStateForClient(value: GameState, info: ClientInfo): GameState;
+    };
+    expect([...filter.filterStateForClient(state, client).entities.keys()]).toEqual(["player_10"]);
+  });
+
   it("sends every dropped weapon, whatever the PVS, and still culls players and projectiles", () => {
     const viewer = { transform: { position: { x: 0, y: 0, z: 0 } }, health: { dead: false } };
     const simulation = { getState: () => ({ getEntity: () => viewer }) } as unknown as Simulation;

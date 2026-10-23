@@ -21,7 +21,7 @@ import type {
   MatchStateSnapshot,
   TeamId,
 } from "@shared/server/gametype";
-import { emptyPlayerStats, MatchPhase, normalizeTeamId } from "@shared/server/gametype";
+import { emptyPlayerStats, MatchPhase, normalizeTeamId, sameSide } from "@shared/server/gametype";
 import { clearPowerups } from "@shared/server/simulation/components/PowerupComponent";
 import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulation/physics/constants";
 import type { Vec3 } from "@shared/server/simulation/types";
@@ -201,8 +201,7 @@ export class GametypeController {
     const victim = state.getEntity(event.victimId);
     if (attacker?.ownerId === undefined || victim?.ownerId === undefined) return true;
 
-    const attackerTeam = this.matchState.getPlayerTeam(attacker.ownerId);
-    return attackerTeam === "spectator" || attackerTeam !== this.matchState.getPlayerTeam(victim.ownerId);
+    return !sameSide(this.matchState.getPlayerTeam(attacker.ownerId), this.matchState.getPlayerTeam(victim.ownerId));
   }
 
   /**
@@ -369,6 +368,9 @@ export class GametypeController {
         }
       }
     }
+
+    // A gametype without sides puts every player on "ffa": in it, not watching it
+    if (!this.gametype.teamBased) this.matchState.setPlayerTeam(playerId, "ffa");
 
     // For team-based gametypes, spectators don't get spawned
     // For FFA/DM, skip this check — all players spawn
