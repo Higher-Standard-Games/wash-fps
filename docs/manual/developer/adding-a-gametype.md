@@ -82,7 +82,7 @@ Override these only when the mode needs them; each has a no-op default.
 A class on its own is not enough. Amphi needed all four of these:
 
 1. Export it from `server/gametypes/index.ts`.
-2. Add its keyword to the constructor mapping in `src/cli/headless-netserver-v2.ts` (engine repo), which is what a dedicated server picks from, including any aliases. Unknown keywords **fall through to Deathmatch** rather than failing.
+2. Add its keyword to the constructor mapping in `cli/headless-netserver-v2.ts` (Washoi repository), which is what a dedicated server picks from, including any aliases. Unknown keywords **fall through to Deathmatch** rather than failing.
 3. Add any alias to `normalizeGametype` in `client/FpsMapLauncher.ts`, which maps what a player types at `map <name> <gametype>` onto the lobby's ids.
 4. Add it to `GAMETYPE_SHELLS` in the engine repo's `src/lobby/LobbyServer.ts` with its player count, team flag and team names, or the lobby will never offer it. The lobby only advertises a mode whose maps are installed, so its maps also need entries in `config/maps.json`.
 
