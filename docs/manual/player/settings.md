@@ -59,7 +59,7 @@ slider, leave the page, or pause for 200 ms.
 
 ## Gameplay
 
-- **Team colours.** The colour of **your side** and of **enemies** (anyone you can shoot, so in free-for-all that is everyone else), each with its own outline colour. A colour already used by the other side is refused. Cvars: `cl_team_ally_color`, `cl_team_enemy_color`, `cl_team_ffa_color` and their `_outline_color` pairs.
+- **Team colours.** The colour of **your side** and of **enemies** (anyone you can shoot), each with its own outline colour. In free-for-all each opponent instead wears a colour of their own from the same palette, kept for the match, so you can tell them apart; your side's colour is left out of it. A colour already used by the other side is refused. Cvars: `cl_team_ally_color`, `cl_team_enemy_color`, `cl_team_ffa_color` and their `_outline_color` pairs.
 - **Outline** (`cl_player_outline`, `cl_player_outline_size`): Off, Thin (the default) or Bold, which is twice as thick.
 - **Brighter players** (`cl_player_fullbright`, `cl_player_fullbright_intensity`): Off, Some or Lots. It makes players stand out in dark corners.
 - A preview on a real map shows all of the above as you change them.

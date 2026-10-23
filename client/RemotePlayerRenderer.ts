@@ -27,6 +27,7 @@ import {
   PLAYER_POSE_BOUNDS,
   type PlayerModelInstance,
   PlayerModelManager,
+  type PlayerModelVisualStyle,
 } from "../../../engine/animation/PlayerModelManager";
 import { background } from "../../../engine/core/AsyncErrors";
 import { Cvar } from "../../../engine/core/Cvar";
@@ -50,9 +51,12 @@ import { DemoAnimationTimeline } from "./DemoAnimationTimeline";
 import { DemoEntityTimeline } from "./DemoEntityTimeline";
 import { devLog } from "./DevLog";
 import {
+  FfaColors,
+  getFfaPlayerModelVisualStyle,
   getPlayerModelVisualStyle,
   getPlayerModelVisualStyleKey,
   getPlayerTeamSlot,
+  hasSide,
   type PlayerTeamSlot,
   registerPlayerModelVisualCvars,
 } from "./PlayerModelVisualSettings";
@@ -196,6 +200,7 @@ export class RemotePlayerRenderer {
 
   /** entityId → server team id ("udon"/"soba"/"spectator"), from snapshot players */
   private teams: Map<string, string> = new Map();
+  private readonly ffaColors = new FfaColors();
 
   /** Each model's child meshes; see bodyPartsOf. */
   private readonly bodyParts = new WeakMap<PlayerModelInstance, AbstractMesh[]>();
@@ -482,16 +487,32 @@ export class RemotePlayerRenderer {
     return getPlayerTeamSlot(this.teams.get(entityId), this.localTeam);
   }
 
+  /** A free-for-all opponent's own colour; null for anyone on a side. */
+  private ffaColor(entityId: string, slot: PlayerTeamSlot) {
+    if (slot !== "ffa" || hasSide(this.teams.get(entityId))) return null;
+    return this.ffaColors.colorFor(entityId);
+  }
+
+  private visualStyle(entityId: string): { style: PlayerModelVisualStyle; key: string } {
+    const slot = this.resolvePlayerTeamSlot(entityId);
+    const color = this.ffaColor(entityId, slot);
+    return color
+      ? {
+          style: getFfaPlayerModelVisualStyle(color, MODEL_SCALE),
+          key: `${getPlayerModelVisualStyleKey(slot)}|${color.id}`,
+        }
+      : { style: getPlayerModelVisualStyle(slot, MODEL_SCALE), key: getPlayerModelVisualStyleKey(slot) };
+  }
+
   /** Keep legacy alpha/bravo names for older cosmetic effects. */
   private resolveLegacyTeamColor(entityId: string): "alpha" | "bravo" {
     return legacyTeamColor(this.resolvePlayerTeamSlot(entityId), entityId);
   }
 
   private applyModelVisualStyle(instance: PlayerModelInstance, entityId: string): string {
-    const slot = this.resolvePlayerTeamSlot(entityId);
-    const style = getPlayerModelVisualStyle(slot, MODEL_SCALE);
+    const { style, key } = this.visualStyle(entityId);
     this.modelManager?.applyVisualStyle(instance, style);
-    return getPlayerModelVisualStyleKey(slot);
+    return key;
   }
 
   /**
@@ -502,8 +523,7 @@ export class RemotePlayerRenderer {
    * the model renders as a black silhouette — it's lit only by the scene).
    */
   applyShowcaseVisualStyle(instance: PlayerModelInstance, entityId: string): void {
-    const slot = this.resolvePlayerTeamSlot(entityId);
-    const base = getPlayerModelVisualStyle(slot, MODEL_SCALE);
+    const base = this.visualStyle(entityId).style;
     this.modelManager?.applyVisualStyle(instance, {
       ...base,
       fullbrightEnabled: true,
@@ -521,6 +541,8 @@ export class RemotePlayerRenderer {
       key = getPlayerModelVisualStyleKey(slot);
       this.frameStyleKeys.set(slot, key);
     }
+    const color = this.ffaColor(entityId, slot);
+    if (color) key = `${key}|${color.id}`;
     if (hitbox.appliedVisualStyleKey === key) return;
     hitbox.appliedVisualStyleKey = this.applyModelVisualStyle(hitbox.model, entityId);
   }
@@ -562,6 +584,7 @@ export class RemotePlayerRenderer {
     this.snapshotBuffer.reset();
     this.deadEntities.clear();
     this.teams.clear();
+    this.ffaColors.clear();
     this.localTeam = null;
     this._hiddenEntityId = null;
     this.hiddenCorpse = null;
@@ -693,6 +716,7 @@ export class RemotePlayerRenderer {
     this.hitboxes.clear();
     this.deadEntities.clear();
     this.teams.clear();
+    this.ffaColors.clear();
     this.demoTimeline?.clear();
     this.demoTimeline = null;
     this.demoAnimationTimeline?.clear();
@@ -1204,7 +1228,7 @@ export class RemotePlayerRenderer {
       weaponMuzzle: null,
       handBone: null,
       currentWeaponId: "",
-      appliedVisualStyleKey: model ? getPlayerModelVisualStyleKey(this.resolvePlayerTeamSlot(entityId)) : null,
+      appliedVisualStyleKey: model ? this.visualStyle(entityId).key : null,
       powerupGlowActive: false,
     };
   }

@@ -1,6 +1,7 @@
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import type { PlayerModelVisualStyle } from "../../../engine/animation/PlayerModelManager";
 import { Cvar } from "../../../engine/core/Cvar";
+import { TEAM_COLORS, type TeamColor } from "./settings/SettingsModel";
 
 /**
  * Who a player is TO YOU, not which team they are on.
@@ -164,6 +165,11 @@ export function getPlayerTeamSlot(teamId: string | null | undefined, localTeamId
   return them === me ? "ally" : "enemy";
 }
 
+/** True when the player is on a side (or spectating one), false in a free-for-all. */
+export function hasSide(teamId: string | null | undefined): boolean {
+  return canonicalTeam(teamId) !== null;
+}
+
 /** Fold the lobby's and the BSP's team names onto the match's two. */
 function canonicalTeam(teamId: string | null | undefined): string | null {
   switch ((teamId ?? "").trim().toLowerCase()) {
@@ -209,4 +215,46 @@ export function getPlayerModelVisualStyleKey(slot: PlayerTeamSlot): string {
     Cvar.get("cl_player_fullbright"),
     Cvar.get("cl_player_fullbright_intensity"),
   ].join("|");
+}
+
+function sameColor(a: Color3, b: Color3): boolean {
+  return Math.abs(a.r - b.r) < 0.01 && Math.abs(a.g - b.g) < 0.01 && Math.abs(a.b - b.b) < 0.01;
+}
+
+/**
+ * In a free-for-all each opponent wears a colour of their own from the team
+ * palette, so they can be told apart. A colour is kept for the session, the
+ * least-worn ones are handed out first, and your own side's colour is never
+ * used, so it still means you (the player whose eyes a demo borrows).
+ */
+export class FfaColors {
+  private readonly assigned = new Map<string, TeamColor>();
+
+  colorFor(entityId: string): TeamColor {
+    const held = this.assigned.get(entityId);
+    if (held) return held;
+    registerPlayerModelVisualCvars();
+    const own = parseRgbCvar(Cvar.getString(TEAM_COLOR_CVARS.ally), PLAYER_MODEL_VISUAL_DEFAULTS.ally);
+    const choices = TEAM_COLORS.filter((color) => !sameColor(parseRgbCvar(color.fill, own), own));
+    const worn = (color: TeamColor) => [...this.assigned.values()].filter((other) => other === color).length;
+    const fewest = Math.min(...choices.map(worn));
+    const pool = choices.filter((color) => worn(color) === fewest);
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    this.assigned.set(entityId, pick);
+    return pick;
+  }
+
+  clear(): void {
+    this.assigned.clear();
+  }
+}
+
+/** The FFA style with this opponent's own colour in place of the shared one. */
+export function getFfaPlayerModelVisualStyle(color: TeamColor, modelScale: number): PlayerModelVisualStyle {
+  const base = getPlayerModelVisualStyle("ffa", modelScale);
+  return {
+    ...base,
+    tintColor: parseRgbCvar(color.fill, PLAYER_MODEL_VISUAL_DEFAULTS.ffa),
+    outlineColor: parseRgbCvar(color.outline, base.outlineColor),
+  };
 }

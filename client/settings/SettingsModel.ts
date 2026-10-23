@@ -488,7 +488,7 @@ export const TEAM_COLORS: TeamColor[] = [
 
 export type Side = "ally" | "enemy";
 
-/** Enemies covers free-for-all too: anyone you can shoot is one colour. */
+/** Enemies also covers players seen from no side, as when spectating a team match. FFA opponents wear FfaColors. */
 const SIDE_CVARS: Record<Side, Array<{ fill: string; outline: string }>> = {
   ally: [{ fill: "cl_team_ally_color", outline: "cl_team_ally_outline_color" }],
   enemy: [
