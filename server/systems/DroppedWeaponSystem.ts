@@ -18,7 +18,7 @@ import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulatio
 import type { EntityId, TickNumber } from "@shared/server/simulation/types";
 import { entityId } from "@shared/server/simulation/types";
 import type { CollisionWorld } from "../../../../engine/network/systems/collision/CollisionWorld";
-import { ITEM_GRAVITY, stepThrownItem } from "../../../../shared/items/ItemThrow";
+import { ITEM_GRAVITY, stepThrownItem } from "../../shared/items/ItemThrow";
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES

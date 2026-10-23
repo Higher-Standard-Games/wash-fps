@@ -13,7 +13,7 @@ import { ContentFlags } from "../../../../../engine/physics/ContentFlags";
 import { SweepBackendAdapter } from "../../../../../engine/physics/SweepBackendAdapter";
 import { SweepCollisionBackend } from "../../../../../engine/physics/SweepCollisionBackend";
 import { SharedCollisionWorld } from "../../../../../shared/collision/SharedCollisionWorld";
-import { landThrownItem } from "../../../../../shared/items/ItemThrow";
+import { landThrownItem } from "../../../shared/items/ItemThrow";
 import { DroppedWeaponSystem } from "../DroppedWeaponSystem";
 
 interface StubEntity {

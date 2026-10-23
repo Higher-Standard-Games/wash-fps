@@ -38,7 +38,7 @@ engine's `src/shared/entities/`:
 3. **Export it** from `definitions/weapons/index.ts` and add it to the `WEAPONS` table in `WeaponsTable.ts`. A projectile also needs an alias entry there (`rocket: ROCKET_LAUNCHER`), because the projectile system looks up damage and splash by projectile id. If you add a projectile, define it in `definitions/projectiles/` as well.
 4. **Register the definitions** in `initEntityDefs.ts`.
 5. **Add its ammo**, if it uses a new type: a definition in `definitions/ammo/`, registered the same way.
-6. **Let maps place it.** Add the classname to `CLASSNAME_TO_WEAPON` in `src/shared/bsp/PickupTable.ts` (shared by client and server, which is what keeps pickup ids matching on both sides). Add ammo classnames next to it.
+6. **Let maps place it.** Add the classname to `CLASSNAME_TO_WEAPON` in this game's `shared/bsp/PickupTable.ts` (shared by client and server, which is what keeps pickup ids matching on both sides). Add ammo classnames next to it.
 7. **Give it a slot on the HUD.** In this repo, add an entry to `WEAPON_SLOTS` in `client/hud/widgets/WeaponRack.ts` with its two-letter tag. Slots are bound to the number keys 1–9, so the game has room for nine weapons without adding another action to `client/FPSActions.ts`.
 8. **Models and sounds.** Put the model under `public/data/models/weapons/<id>/` in the engine repo, and the sounds at the paths the definition names.
 9. **Offer it in a loadout**, if a mode should be able to pick it: `PRIMARY_CHOICES` or `SECONDARY_CHOICES`, and its spawn ammo, in the shared loadout module (`src/shared/server/gametype/Loadout.ts`).

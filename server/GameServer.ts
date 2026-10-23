@@ -31,13 +31,13 @@ import type { CollisionWorld } from "../../../engine/network/systems/collision/C
 import { filterChatText, filterPlayerName } from "../../../engine/server/ChatFilter";
 // PVS (Potentially Visible Set) for network culling
 import { ServerPVS, type ServerPVSData } from "../../../engine/server/ServerPVS";
-import type { PickupEntry } from "../../../shared/bsp/PickupTable";
 import type { TriggerVolume } from "../../../shared/bsp/TriggerTable";
 import { MatchPhase } from "../../../shared/server/gametype/GametypeTypes";
 // Match phase tracking (for auto-recording)
 import { botLoadout, describeLoadout, parseLoadout } from "../../../shared/server/gametype/Loadout";
 import { sanitizeCommand } from "../../../shared/server/simulation/InputSanitizer";
 import { toClientKey } from "../ClientEntityKey";
+import type { PickupEntry } from "../shared/bsp/PickupTable";
 import { cleanClientText, nextAckedTick, rateLimited } from "./AuthorityGuards";
 // Bot names
 import { getNextBotName } from "./BotNames";

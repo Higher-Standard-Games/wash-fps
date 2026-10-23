@@ -4,7 +4,7 @@
 
 import { EntityType } from "@engine/server/ecs/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { PickupEntry } from "../../../../../shared/bsp/PickupTable";
+import type { PickupEntry } from "../../../shared/bsp/PickupTable";
 import { PickupSystem } from "../PickupSystem";
 
 const TICK_RATE = 125;

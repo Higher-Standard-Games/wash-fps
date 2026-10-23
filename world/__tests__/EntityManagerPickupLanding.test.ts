@@ -12,11 +12,11 @@ import { CollisionManager } from "../../../../engine/physics/CollisionManager";
 import { ContentFlags } from "../../../../engine/physics/ContentFlags";
 import { SweepBackendAdapter } from "../../../../engine/physics/SweepBackendAdapter";
 import { SweepCollisionBackend } from "../../../../engine/physics/SweepCollisionBackend";
-import { extractPickups } from "../../../../shared/bsp/PickupTable";
 import { SharedCollisionWorld } from "../../../../shared/collision/SharedCollisionWorld";
 import type { EntityDef } from "../../../../shared/entities/EntityDef";
 import { EntityType } from "../../../../shared/entities/EntityType";
-import { landMapPickups } from "../../../../shared/items/ItemThrow";
+import { extractPickups } from "../../shared/bsp/PickupTable";
+import { landMapPickups } from "../../shared/items/ItemThrow";
 import { EntityManager } from "../EntityManager";
 
 type Spawned = { position: { x: number; y: number; z: number }; options: Record<string, unknown> };

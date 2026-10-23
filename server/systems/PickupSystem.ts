@@ -18,8 +18,6 @@ import type { EntityId, TickNumber } from "@engine/server/ecs/types";
 import { EntityType, entityId } from "@engine/server/ecs/types";
 import type { ItemRespawnMode } from "@shared/server/gametype";
 import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulation/physics/constants";
-// Shared pickup table (client+server agree on ids) + pure grant math.
-import type { PickupEntry, PickupType } from "../../../../shared/bsp/PickupTable";
 import {
   type ArmorKind,
   armorAfterPickup,
@@ -27,13 +25,15 @@ import {
   type HealthKind,
   healthAfterPickup,
 } from "../../../../shared/items/ItemGrants";
+import { POWERUP_DISPLAY, type PowerupKind } from "../../../../shared/items/Powerups";
+import { createPowerups, grantPowerup } from "../../../../shared/server/simulation/components/PowerupComponent";
+// Shared pickup table (client+server agree on ids) + pure grant math.
+import type { PickupEntry, PickupType } from "../../shared/bsp/PickupTable";
 import {
   ITEM_RESPAWN_SECONDS,
   itemRespawnSeconds,
   MAJOR_ITEM_FIRST_SPAWN_SECONDS,
-} from "../../../../shared/items/ItemRespawn";
-import { POWERUP_DISPLAY, type PowerupKind } from "../../../../shared/items/Powerups";
-import { createPowerups, grantPowerup } from "../../../../shared/server/simulation/components/PowerupComponent";
+} from "../../shared/items/ItemRespawn";
 import { debugLog } from "../DebugLog";
 import type { DroppedWeaponSystem } from "./DroppedWeaponSystem";
 import type { WeaponSystem } from "./WeaponSystem";

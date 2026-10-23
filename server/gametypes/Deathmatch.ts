@@ -17,7 +17,7 @@ import type {
   SpawnStrategyType,
   WeaponLoadout,
 } from "@shared/server/gametype";
-import { WEAPON_PICKUP_CLASSNAMES } from "../../../../shared/bsp/PickupTable";
+import { WEAPON_PICKUP_CLASSNAMES } from "../../shared/bsp/PickupTable";
 import { debugLog } from "../DebugLog";
 import { BaseGametype, type GameResult } from "./BaseGametype";
 import { PlayerLoadouts } from "./PlayerLoadouts";

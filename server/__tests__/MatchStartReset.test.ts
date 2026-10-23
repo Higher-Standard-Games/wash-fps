@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@engine/server/network/transport/WebSocketTransport", () => import("./_fakeTransport"));
 
-import type { PickupEntry } from "../../../../shared/bsp/PickupTable";
+import type { PickupEntry } from "../../shared/bsp/PickupTable";
 import { GameServer, type GameServerConfig } from "../GameServer";
 import { DamageType, HitLocation } from "../systems/CombatSystem";
 

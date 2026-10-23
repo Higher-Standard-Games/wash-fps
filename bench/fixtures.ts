@@ -6,7 +6,6 @@
 import { Simulation } from "@engine/server/core/Simulation";
 import { createDroppedWeaponEntity, createPlayerEntity, createProjectileEntity } from "@engine/server/ecs/Entity";
 import { entityId, playerId } from "@engine/server/ecs/types";
-import type { PickupEntry } from "../../../shared/bsp/PickupTable";
 import { buildLoadout, DEFAULT_LOADOUT } from "../../../shared/server/gametype";
 import type { ClientInfo } from "../server/Client";
 import { Duel } from "../server/gametypes/Duel";
@@ -18,6 +17,7 @@ import { DroppedWeaponSystem } from "../server/systems/DroppedWeaponSystem";
 import { PickupSystem } from "../server/systems/PickupSystem";
 import { ProjectileSystem } from "../server/systems/ProjectileSystem";
 import { WeaponSystem } from "../server/systems/WeaponSystem";
+import type { PickupEntry } from "../shared/bsp/PickupTable";
 
 /** A small, fast, seedable generator (mulberry32), so a fixture is the same every run. */
 export function seededRandom(seed: number): () => number {

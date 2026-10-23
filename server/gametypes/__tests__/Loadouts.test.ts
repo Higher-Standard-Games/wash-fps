@@ -5,7 +5,7 @@
 import type { PlayerId } from "@engine/server/ecs/types";
 import { botLoadout, type LoadoutChoice, PRIMARY_CHOICES, SECONDARY_CHOICES } from "@shared/server/gametype";
 import { describe, expect, it } from "vitest";
-import { WEAPON_PICKUP_CLASSNAMES } from "../../../../../shared/bsp/PickupTable";
+import { WEAPON_PICKUP_CLASSNAMES } from "../../../shared/bsp/PickupTable";
 import { Amphi } from "../Amphi";
 import { Deathmatch } from "../Deathmatch";
 import { Duel } from "../Duel";

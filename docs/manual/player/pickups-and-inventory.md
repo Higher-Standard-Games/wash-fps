@@ -141,7 +141,7 @@ Pickups are fully server-authoritative and *convergent*. Rather than one-shot "y
 Two properties fall out of this:
 
 - **Self-healing.** A dropped packet can't cause a "ghost weapon" (visible but ungrantable) — the next snapshot re-states the truth and the client converges.
-- **Provably matching ids.** Both server and client derive the pickup list and its ids from the *same* BSP entity table (`extractPickups` in `src/shared/bsp/PickupTable.ts`), so pickup id N means the same object on both sides with no handshake. Unresolved ids fail *closed* (no phantom pickup) rather than guessing by position.
+- **Provably matching ids.** Both server and client derive the pickup list and its ids from the *same* BSP entity table (`extractPickups` in this game's `shared/bsp/PickupTable.ts`), so pickup id N means the same object on both sides with no handshake. Unresolved ids fail *closed* (no phantom pickup) rather than guessing by position.
 
 ## Inventory API (for developers)
 

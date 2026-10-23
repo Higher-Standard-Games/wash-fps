@@ -15,12 +15,12 @@ import { SweepBackendAdapter } from "../../../engine/physics/SweepBackendAdapter
 import { RenderVars } from "../../../engine/rendering/RenderVars";
 import type { Pickup } from "../../../engine/world/Pickup";
 import type { PickupVisualFactory } from "../../../engine/world/PickupVisual";
-import { extractPickups, type PickupEntry } from "../../../shared/bsp/PickupTable";
 import { SharedCollisionWorld } from "../../../shared/collision/SharedCollisionWorld";
 import type { EntityDef } from "../../../shared/entities/EntityDef";
 import { EntityRegistry } from "../../../shared/entities/EntityRegistry";
 import { EntityType } from "../../../shared/entities/EntityType";
-import { landMapPickups } from "../../../shared/items/ItemThrow";
+import { extractPickups, type PickupEntry } from "../shared/bsp/PickupTable";
+import { landMapPickups } from "../shared/items/ItemThrow";
 
 /** Health/armor render as procedural sculptures unless r_pickupProcedural is 0. */
 function proceduralPickupsEnabled(): boolean {
@@ -94,7 +94,7 @@ export class EntityManager {
   private entities: ActiveEntity[] = [];
   /**
    * Authoritative pickup table for the current map, derived from the SAME shared
-   * extractor the server uses (src/shared/bsp/PickupTable.ts). Pickup ids come
+   * extractor the server uses (shared/bsp/PickupTable.ts in the game). Pickup ids come
    * from here so they match the server exactly — no parallel counter — and map
    * entities are matched to it by their authored origin.
    * Rebuilt each map load via the pre-render hook registered in registerHandlers().
