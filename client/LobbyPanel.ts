@@ -50,7 +50,6 @@ interface GameMode {
   title: string;
   subtitle: string;
   hook: string;
-  specs: string[];
   /** Face, highlight, shade, and the two side tones of the mode's keys. */
   accent: [string, string, string, string, string];
   /** The mode's mark in the rail's room list, dark enough to read on cream. */
@@ -63,7 +62,6 @@ const GAME_MODES: GameMode[] = [
     title: "Duel",
     subtitle: "1 vs 1",
     hook: "Timing, aim, and nerve. Nothing extra.",
-    specs: ["One on one", "Control pace", "Item timing", "Rail · Rocket · Blade"],
     accent: ["hsl(182 95% 52%)", "hsl(182 100% 74%)", "hsl(188 90% 40%)", "hsl(192 85% 28%)", "hsl(198 80% 17%)"],
     mark: "hsl(186 95% 42%)",
   },
@@ -72,7 +70,6 @@ const GAME_MODES: GameMode[] = [
     title: "Amphi",
     subtitle: "Aim arena",
     hook: "Tiny arena, short rounds. Pick a kit, prove your aim.",
-    specs: ["One on one", "3 min rounds", "First to three", "Pick your loadout"],
     accent: ["hsl(100 85% 52%)", "hsl(98 95% 72%)", "hsl(108 80% 40%)", "hsl(115 70% 26%)", "hsl(125 65% 16%)"],
     mark: "hsl(104 80% 38%)",
   },
@@ -81,7 +78,6 @@ const GAME_MODES: GameMode[] = [
     title: "FFA",
     subtitle: "Free for all",
     hook: "Spawn hot, scrap hard, steal the lead.",
-    specs: ["Open pit", "Fast chaos", "Fast respawn", "GL · Rocket · Blade"],
     accent: ["hsl(46 100% 57%)", "hsl(51 100% 73%)", "hsl(41 100% 48%)", "hsl(34 90% 36%)", "hsl(28 85% 23%)"],
     mark: "hsl(38 100% 44%)",
   },
@@ -90,7 +86,6 @@ const GAME_MODES: GameMode[] = [
     title: "S&D",
     subtitle: "Search & destroy",
     hook: "Plant it, or make sure they never do.",
-    specs: ["5 vs 5 rounds", "One life", "Two sites", "Rocket · Bomb · Armor"],
     accent: ["hsl(322 95% 62%)", "hsl(322 100% 77%)", "hsl(318 85% 50%)", "hsl(312 70% 33%)", "hsl(306 70% 21%)"],
     mark: "hsl(322 90% 52%)",
   },
@@ -984,8 +979,6 @@ export class LobbyPanel extends GamePanel {
     detail.setAttribute("aria-label", "Selected mode");
     const tagline = document.createElement("p");
     tagline.className = "lobby__play-tagline";
-    const specs = document.createElement("div");
-    specs.className = "lobby__play-specs";
 
     const actions = document.createElement("div");
     actions.className = "lobby__play-actions";
@@ -1006,7 +999,7 @@ export class LobbyPanel extends GamePanel {
     notice.className = "lobby__play-notice";
     notice.setAttribute("role", "status");
     this.playNoticeEl = notice;
-    detail.append(tagline, specs, actions, notice);
+    detail.append(tagline, actions, notice);
     lower.append(detail, this.buildChatColumn());
     body.appendChild(lower);
     return stage;
@@ -1038,15 +1031,6 @@ export class LobbyPanel extends GamePanel {
     if (ghost) ghost.textContent = mode.title.toUpperCase();
     const tagline = stage.querySelector<HTMLElement>(".lobby__play-tagline");
     if (tagline) tagline.textContent = mode.hook;
-    const specs = stage.querySelector<HTMLElement>(".lobby__play-specs");
-    specs?.replaceChildren(
-      ...mode.specs.map((value) => {
-        const spec = document.createElement("span");
-        spec.className = "lobby__spec";
-        spec.textContent = value;
-        return spec;
-      }),
-    );
     this.refreshFindButton();
   }
 

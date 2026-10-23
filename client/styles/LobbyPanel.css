@@ -995,23 +995,6 @@
   color: hsla(45, 100%, 95%, 0.9);
 }
 
-.lobby__play-specs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.lobby__spec {
-  padding: 7px 15px;
-  font: 700 12px / 1 var(--w-font-body, "Rajdhani", sans-serif);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: hsla(45, 100%, 95%, 0.82);
-  background: hsla(250, 40%, 12%, 0.82);
-  border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
-  clip-path: polygon(7% 0, 100% 0, 93% 100%, 0 100%);
-}
-
 .lobby__play-actions {
   display: flex;
   flex-wrap: wrap;
