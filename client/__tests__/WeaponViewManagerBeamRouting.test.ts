@@ -34,6 +34,7 @@ interface BeamRoutingInternals {
   currentWeaponDef: WeaponDef | null;
   getMuzzleWorldPosition: () => Vector3 | null;
   updateMuzzleFlash: (deltaTime: number) => void;
+  updateBeam: () => void;
   muzzleSocket: TransformNode | null;
   weaponCamera: FreeCamera;
   weaponRoot: TransformNode;
@@ -55,10 +56,40 @@ describe("WeaponViewManager continuous beam routing", () => {
       internals.beamActive = true;
       internals.getMuzzleWorldPosition = () => new Vector3(2, -1, 4);
 
-      internals.updateMuzzleFlash(1 / 60);
+      internals.updateBeam();
 
       expect(hitscan.updateLightningBeam).toHaveBeenCalledOnce();
       expect(hitscan.updateBeam).not.toHaveBeenCalled();
+    } finally {
+      manager.dispose();
+      scene.dispose();
+      engine.dispose();
+    }
+  });
+
+  it("starts the beam at this frame's muzzle when the camera moves after the weapon view updates", () => {
+    const engine = new NullEngine();
+    const scene = new Scene(engine);
+    const camera = new FreeCamera("camera", Vector3.Zero(), scene);
+    const manager = new WeaponViewManager();
+
+    try {
+      // A prepared view keeps its update observer from before the map's
+      // first-person controller attached, so the camera moves after it
+      manager.init(scene, camera);
+      const muzzle = new Vector3(0, 0, 0);
+      scene.onBeforeRenderObservable.add(() => {
+        muzzle.x += 6;
+      });
+      const internals = manager as unknown as BeamRoutingInternals;
+      internals.currentWeaponDef = VOLTAIC;
+      internals.beamActive = true;
+      internals.getMuzzleWorldPosition = () => muzzle.clone();
+
+      scene.render();
+
+      expect(hitscan.updateLightningBeam).toHaveBeenCalledOnce();
+      expect(hitscan.updateLightningBeam.mock.calls[0][0].origin.x).toBe(6);
     } finally {
       manager.dispose();
       scene.dispose();
