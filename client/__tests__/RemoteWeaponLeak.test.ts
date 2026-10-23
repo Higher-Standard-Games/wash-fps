@@ -72,7 +72,7 @@ describe("remote weapon changes", () => {
 
   it.each([
     ["Mozilla/5.0 Firefox/158.0", false, true],
-    ["Mozilla/5.0 Chrome/155.0", false, false],
+    ["Mozilla/5.0 Chrome/155.0", false, true],
     ["Mozilla/5.0 Firefox/158.0", true, false],
   ])("keeps material ownership correct for %s (WebGPU=%s)", async (userAgent, webGPU, shared) => {
     vi.stubGlobal("navigator", { userAgent });

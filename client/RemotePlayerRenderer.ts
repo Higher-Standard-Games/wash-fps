@@ -1891,10 +1891,9 @@ export class RemotePlayerRenderer {
             }),
           {
             // Weapon highlights belong to meshes; these PBR materials are read-only.
-            shareStaticMaterials:
-              typeof navigator !== "undefined" &&
-              /Firefox\//.test(navigator.userAgent) &&
-              !this.scene.getEngine().isWebGPU,
+            // A weapon switch then builds no material, and so no shader. WebGPU
+            // keeps clones: sharing was only ever measured on WebGL.
+            shareStaticMaterials: !this.scene.getEngine().isWebGPU,
           },
         );
         const result = await this.weaponModelCache.createInstance(modelPath, defScale);
