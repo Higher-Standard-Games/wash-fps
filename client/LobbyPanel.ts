@@ -993,7 +993,7 @@ export class LobbyPanel extends GamePanel {
     this.findButton.addEventListener("click", () => this.showMatchLobby(this.selectedModeId));
     const privateButton = createRaisedKey({
       label: "🔒 Private lobby",
-      hint: "Invite only",
+      hint: "Invite only or bot matches",
       variants: ["cream", "private"],
     });
     this.privateButton = privateButton;
