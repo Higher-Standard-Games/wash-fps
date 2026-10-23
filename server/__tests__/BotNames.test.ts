@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BOT_NAMES, isBotName } from "../../../../shared/bot/BotNames";
+import { BOT_NAMES, isBotName } from "../../shared/bot/BotNames";
 import { getNextBotName } from "../BotNames";
 
 describe("getNextBotName", () => {

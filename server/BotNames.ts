@@ -2,7 +2,7 @@
  * Names for the game server's own bots, from the list every bot plays under.
  */
 
-import { BOT_NAMES } from "../../../shared/bot/BotNames";
+import { BOT_NAMES } from "../shared/bot/BotNames";
 
 /**
  * Get next available bot name, avoiding duplicates within the current match.
