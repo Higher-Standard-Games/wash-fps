@@ -62,6 +62,14 @@ recorded map identity remains unchanged.
 
 ## Where things plug into the engine
 
+Tests that exercise Washoi through SHAG services live with the game:
+`client/__tests__/` covers demo playback, local water-reflection presentation
+and FPS input bindings; `simulation/__tests__/SharedCollisionGrounding.test.ts`
+covers collision support with the game's movement profile;
+`server/__tests__/lobby/` covers demo ownership and real lobby/match/result
+integration. Run `npm run test:run` from the assembled root to discover them;
+`npm run ranking:acceptance` includes the lobby integration group.
+
 | Submodule file | Engine extension point |
 |----------------|------------------------|
 | `client/FpsNetworkConnector.ts` | `NetworkConnector` registry (`src/engine/ui/components/NetworkConnector.ts`) |
