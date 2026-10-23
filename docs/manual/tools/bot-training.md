@@ -22,6 +22,11 @@ flowchart TD
 Nothing in it is automatic. A match records itself, but building a corpus and
 training from it are commands you run.
 
+The command entry points belong to this game repository under `cli/`:
+`bot-analyze.ts`, `bot-learn.ts`, `bot-train.ts` and `bot-bench.ts`. Run the
+`bot:*` npm commands from the assembled SHAG root. Relative model, demo, report
+and learned-route paths resolve from that root.
+
 ## What a recording holds
 
 A game server starts recording when the match phase goes Active and stops at
@@ -57,7 +62,7 @@ self-play datasets, where the bot's own behaviour is the point.
 Point `--demo` at a file or at a directory. A directory is read as one corpus:
 
 ```bash
-npx vite-node src/cli/bot-train.ts -- --demo public/data/demos --epochs 50
+npx vite-node src/games/fps/cli/bot-train.ts -- --demo public/data/demos --epochs 50
 ```
 
 - Matches already counted are skipped by match id, so re-running over a growing
@@ -144,13 +149,13 @@ times as fast as it is.
 
 ```bash
 # One directory as a corpus, fifty passes over it
-npx vite-node src/cli/bot-train.ts -- --demo public/data/demos --epochs 50
+npx vite-node src/games/fps/cli/bot-train.ts -- --demo public/data/demos --epochs 50
 
 # Somewhere else for the weights
-npx vite-node src/cli/bot-train.ts -- --demo public/data/demos --models ./models/human
+npx vite-node src/games/fps/cli/bot-train.ts -- --demo public/data/demos --models ./models/human
 
 # Continue from weights that already exist
-npx vite-node src/cli/bot-train.ts -- --demo public/data/demos --resume
+npx vite-node src/games/fps/cli/bot-train.ts -- --demo public/data/demos --resume
 ```
 
 Useful flags: `--epochs`, `--batch`, `--lr`, `--models`, `--resume`,
@@ -243,7 +248,7 @@ other on a running server, record episodes, train, repeat.
 
 ```bash
 npm run net:server -- --port 17777 --map wdm7
-npx vite-node src/cli/bot-train.ts -- --map wdm7 --rounds 100
+npx vite-node src/games/fps/cli/bot-train.ts -- --map wdm7 --rounds 100
 ```
 
 Its bots are made the way the bot server makes them, with the map's vision and

@@ -13,7 +13,7 @@ Paths below are relative to `src/games/fps/`.
 | `client/` — watching | `DemoService.ts`, `DemoViewer.ts`, `Spectator*.ts`, `Spectate*.ts` |
 | `client/hud/`, `client/settings/`, `client/styles/` | HUD widgets, settings pages and game UI styles |
 | `console/` | `index.ts` discovers game commands in `commands/` |
-| `cli/` | Dedicated-server, lobby and bot application startup; map-loading composition |
+| `cli/` | Dedicated-server, lobby and bot startup; bot analysis/learning/training/benchmark tools; map-loading composition |
 | `bot/` | Bot clients, navigation, brains, training and their tests |
 | `scripts/` | Server build recipe with explicit artifact names and atomic output publication |
 | `server/` | `GameServer.ts`, `SnapshotBuilder.ts`, `SnapshotBroadcaster.ts`, `DemoRecorder.ts`, `MovementValidator.ts`, `AuthorityGuards.ts`, `SuspendedSessions.ts` |
