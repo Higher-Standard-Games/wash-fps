@@ -7,7 +7,6 @@
   },
   "optimizeDeps": [
     "@babylonjs/core/Materials/fresnelParameters",
-    "@babylonjs/core/Meshes/Builders/discBuilder",
     "@babylonjs/core/Meshes/Builders/torusBuilder",
     "@babylonjs/core/Meshes/trailMesh",
     "@babylonjs/core/Misc/brdfTextureTools",
