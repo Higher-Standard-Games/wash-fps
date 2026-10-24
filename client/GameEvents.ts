@@ -361,7 +361,14 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
               kickLocalView(event.weaponId, wvm.getAdsProgress());
               Crosshair.getInstance().notifyFired(WEAPONS[canonicalWeaponId(event.weaponId)]);
             } else {
-              handleRemoteWeaponFire(event, ctx.remoteRenderer);
+              // Live snapshots carry the beam's exact contact as voltaic_beam;
+              // the fallback trace is only for packets and demos without one
+              const beamTruth =
+                canonicalWeaponId(event.weaponId) === "voltaic" &&
+                (state.events as SnapshotEvent[]).some(
+                  (other) => other.type === "voltaic_beam" && other.entityId === event.entityId,
+                );
+              handleRemoteWeaponFire(event, ctx.remoteRenderer, beamTruth);
               // Flash and kick the viewmodel when the person we are watching
               // shoots. Only the presentation: their tracer is the one
               // handleRemoteWeaponFire just drew.
@@ -1196,7 +1203,12 @@ function kickLocalView(weaponId: string, adsProgress: number): void {
 /**
  * Spawn visual effects for another player's weapon fire.
  */
-export function handleRemoteWeaponFire(event: WeaponFireEvent, remoteRenderer: RemotePlayerRenderer | null): void {
+export function handleRemoteWeaponFire(
+  event: WeaponFireEvent,
+  remoteRenderer: RemotePlayerRenderer | null,
+  /** The same snapshot carries this shooter's voltaic_beam contact. */
+  beamTruth = false,
+): void {
   const fx = getHitscanEffects();
   const projMgr = getProjectileManager();
 
@@ -1247,8 +1259,10 @@ export function handleRemoteWeaponFire(event: WeaponFireEvent, remoteRenderer: R
       break;
     }
     case "voltaic":
-      // Legacy-demo / packet fallback. Live snapshots overwrite this immediately
-      // with exact player/world contact from the following voltaic_beam event.
+      // Legacy-demo / packet fallback. A snapshot with the shooter's
+      // voltaic_beam draws the exact contact from it; a scene ray pick here
+      // would only be overwritten, every shot of every remote beam.
+      if (beamTruth) break;
       fx.updateRemoteLightningFallback(event.entityId, {
         origin,
         traceOrigin: origin,
