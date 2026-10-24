@@ -15,7 +15,7 @@ Paths below are relative to `src/games/fps/`.
 | `console/` | `index.ts` discovers game commands in `commands/` |
 | `cli/` | Dedicated-server, lobby and bot startup; game console runner; simulation/server checks; demo recording/verification, collision and timedemo fixtures; sound audit; SHAGGED application entry points; bot tools and map-loading composition |
 | `bot/` | Bot clients, navigation, brains, training and their tests |
-| `scripts/` | Server build recipe with explicit artifact names and atomic output publication |
+| `scripts/` | Server build recipe with explicit artifact names and atomic output publication; optional water/experiment fixtures and historical probes under `diagnostics/` |
 | `server/` | `GameServer.ts`, `SnapshotBuilder.ts`, `SnapshotBroadcaster.ts`, `DemoRecorder.ts`, `MovementValidator.ts`, `AuthorityGuards.ts`, `SuspendedSessions.ts` |
 | `server/gametypes/` | `GametypeController.ts`, `MatchState.ts`, `BaseGametype.ts`; Duel, Amphi, Deathmatch and Search & Destroy; awards and spawn strategies |
 | `server/systems/` | Pickup, weapon, projectile, combat, dropped-weapon, movement and liquid subsystems |
