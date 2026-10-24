@@ -263,6 +263,8 @@ export class FPSController implements ICameraController {
 
   // Viewport effects system
   private viewportEffectsManager: ViewportEffectsManager | null = null;
+  /** The view effects this controller registered on the shared manager, removed on detach. */
+  private registeredEffects: string[] = [];
   private viewportApplicator: FPSApplicator | null = null;
   private baseFOV: number = 1.0;
   private landingVelocityCapture: number = 0;
@@ -609,7 +611,10 @@ export class FPSController implements ICameraController {
     this.viewportEffectsManager.init();
 
     // The same movement effects a watched first-person view runs
-    for (const effect of createFirstPersonEffects()) this.viewportEffectsManager.registerEffect(effect);
+    for (const effect of createFirstPersonEffects()) {
+      this.viewportEffectsManager.registerEffect(effect);
+      this.registeredEffects.push(effect.name);
+    }
 
     this.viewportApplicator = new FPSApplicator();
     devLog("[FPSController] Viewport effects initialized");
@@ -621,6 +626,9 @@ export class FPSController implements ICameraController {
   }
 
   detach(): void {
+    // The manager outlives this controller; the next attach registers its own
+    for (const name of this.registeredEffects) this.viewportEffectsManager?.unregisterEffect(name);
+    this.registeredEffects = [];
     if (this.renderObserver && this.scene) {
       this.scene.onBeforeRenderObservable.remove(this.renderObserver);
       this.renderObserver = null;
