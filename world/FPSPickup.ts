@@ -15,7 +15,7 @@
  */
 
 import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
-import { Mesh } from "@babylonjs/core/Meshes/mesh";
+import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Scene } from "@babylonjs/core/scene";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
