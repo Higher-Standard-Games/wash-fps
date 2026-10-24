@@ -78,7 +78,8 @@ export class TimedemoService {
 
   async list(): Promise<string[]> {
     const response = await fetch("/data/benchmarks/index.json");
-    if (!response.ok) throw new Error("No benchmark catalogue. Run scripts/benchmarks/create-fixture.mjs first.");
+    if (!response.ok)
+      throw new Error("No benchmark catalogue. Run src/games/fps/scripts/benchmarks/create-fixture.mjs first.");
     const ids: unknown = await response.json();
     if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string" || !isFixtureId(id)))
       throw new Error("Invalid timedemo catalogue");
