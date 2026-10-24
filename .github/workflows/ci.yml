@@ -1,0 +1,81 @@
+name: Washoi assembled CI
+
+on:
+  push:
+    branches: ["main", "*-qa-improvements"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout SHAG
+        uses: actions/checkout@v4
+        with:
+          repository: Higher-Standard-Games/shag
+          ref: ${{ vars.SHAG_REF || github.head_ref || github.ref_name }}
+          token: ${{ secrets.SHAG_CHECKOUT_TOKEN || github.token }}
+          submodules: false
+
+      - name: Checkout Washoi application
+        uses: actions/checkout@v4
+        with:
+          path: src/games/fps
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Server runtime equivalence
+        run: npm run test:runtime-equivalence
+
+      - name: Production server build and Bun import smoke
+        run: |
+          npm run build:server
+          bun dist-server/headless-netserver-v2.mjs --help
+
+      - name: Benchmark recipe tests
+        run: node --test scripts/benchmarks/__tests__/*.test.mjs src/games/fps/scripts/benchmarks/__tests__/*.test.mjs
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm run test:run
+
+      - name: Biome gate (no new diagnostics over baseline)
+        run: npm run gate:biome
+
+      - name: Build Washoi application
+        run: npm run build
+        env:
+          SHAG_APP: src/games/fps
+
+      - name: Build Washoi manual
+        run: npm run docs:fps:build
+
+      # QA-WO3 regression gate: the split reliable router (whose silent dead end
+      # shipped the broken-chat bug) must not come back — one router, both channels.
+      - name: Trap gate — no split reliable router
+        run: |
+          if grep -rnE "handleReliable\s*\(" src --include="*.ts"; then
+            echo "::error::handleReliable( reappeared — route both channels through handleDatagram (see docs/research/v0.9.18-QA.md QA-7)"
+            exit 1
+          fi
+          echo "OK — single message router intact"

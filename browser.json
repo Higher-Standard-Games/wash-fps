@@ -1,5 +1,18 @@
 {
   "entry": "client/main.ts",
   "html": "index.html",
-  "engine": { "defaultGame": "fps", "engineAssetsPath": "/engine" }
+  "engine": {
+    "defaultGame": "fps",
+    "engineAssetsPath": "/engine"
+  },
+  "optimizeDeps": [
+    "@babylonjs/core/Materials/fresnelParameters",
+    "@babylonjs/core/Meshes/Builders/discBuilder",
+    "@babylonjs/core/Meshes/Builders/torusBuilder",
+    "@babylonjs/core/Meshes/trailMesh",
+    "@babylonjs/core/Misc/brdfTextureTools",
+    "@babylonjs/core/Physics/IPhysicsEngine",
+    "@babylonjs/core/Physics/v2/physicsEngine",
+    "@babylonjs/core/Physics/v2/ragdoll"
+  ]
 }

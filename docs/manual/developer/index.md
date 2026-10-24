@@ -34,6 +34,26 @@ Three things to understand before extending:
 
 ## Tests
 
+Washoi owns `.github/workflows/ci.yml`. It checks out SHAG, places this
+repository at `src/games/fps`, installs dependencies at the assembled root,
+and runs the game/server checks, Node/Bun parity and benchmark recipe tests.
+SHAG's own workflow checks out and validates only the engine.
+
+The assembled workflow selects SHAG's matching branch (the pull request's
+head branch, or the pushed branch/tag). Set the repository variable `SHAG_REF`
+to a compatible engine branch, tag or commit when those names differ. If SHAG
+is private, provide `SHAG_CHECKOUT_TOKEN` with read access to it; the default
+game repository token only grants access to this repository.
+
+Browser and desktop builds use `SHAG_APP=src/games/fps`. `browser.json` owns
+the extra Babylon modules the game needs prebundled; the engine contributes
+its own list. Regenerate both lists with the game selected:
+
+```powershell
+$env:SHAG_APP = 'src/games/fps'
+npm run deps:babylon
+```
+
 Tests live in `__tests__/` directories next to the code they cover. Run from the outer engine repo:
 
 ```bash
