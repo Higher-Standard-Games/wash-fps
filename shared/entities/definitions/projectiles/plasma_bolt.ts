@@ -37,5 +37,7 @@ export const PLASMA_BOLT: ProjectileDef = {
   // Impact: the procedural explosion (ExplosionEffect), not a model
 
   trailEffect: "plasma_trail",
+  // A short streak: 60 frames of a 3750 u/s bolt would trail most of its flight
+  trailLength: 120,
   impactEffect: "plasma_impact",
 };
