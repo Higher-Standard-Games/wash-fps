@@ -396,44 +396,55 @@ export class DroppedWeaponRenderer {
     if (this.disposed || this.scene.isDisposed) return null;
     const { ModelLoader } = await import("../../../engine/loader/model/ModelLoader");
     if (this.disposed || this.scene.isDisposed) return null;
-    this.fallbackCache ??= new ModelInstanceCache(this.scene, async (modelPath, modelScale) => {
-      const loader = ModelLoader.getInstance();
-      if (!loader.isInitialized()) loader.init(this.scene);
-      return loader.loadModel(modelPath, {
-        position: Vector3.Zero(),
-        scale: modelScale,
-        hasCollision: false,
-        applyLighting: false,
-      });
-    });
+    this.fallbackCache ??= new ModelInstanceCache(
+      this.scene,
+      async (modelPath, modelScale) => {
+        const loader = ModelLoader.getInstance();
+        if (!loader.isInitialized()) loader.init(this.scene);
+        return loader.loadModel(modelPath, {
+          position: Vector3.Zero(),
+          scale: modelScale,
+          hasCollision: false,
+          applyLighting: false,
+        });
+      },
+      // A drop only moves and fades its meshes; its read-only PBR materials are
+      // shared, so a death in a fight builds no new material. WebGPU keeps
+      // clones, as remote held weapons do.
+      { shareStaticMaterials: !this.scene.getEngine().isWebGPU },
+    );
     return this.fallbackCache.createInstance(path, scale);
   }
 
   private async loadBarrelModel(path: string): Promise<ModelLoadResult | null> {
     if (this.disposed || this.scene.isDisposed) return null;
-    this.barrelCache ??= new ModelInstanceCache(this.scene, async (modelPath) => {
-      const { ImportMeshAsync } = await import("@babylonjs/core/Loading/sceneLoader");
-      // From the weapon package, as the view weapon's barrels are: the barrel
-      // GLBs ship inside a pk3, not as files the web server can hand out
-      const asset = await resolveModelAsset(modelPath);
-      if (this.disposed || this.scene.isDisposed) return null;
-      const result = await ImportMeshAsync(asset.source, this.scene, asset.options);
-      if (this.disposed || this.scene.isDisposed) {
-        disposeModelResources([...result.meshes, ...result.transformNodes], result);
-        return null;
-      }
-      // Retain the original glTF root and authored transforms. A neutral wrapper
-      // owns all imported nodes/rigs; the cloned glTF root is attached as before.
-      const root = new TransformNode("droppedBarrelSource", this.scene);
-      for (const node of [...result.transformNodes, ...result.meshes]) if (!node.parent) node.parent = root;
-      return {
-        root,
-        meshes: result.meshes.filter((mesh): mesh is Mesh => mesh instanceof Mesh),
-        skeletons: result.skeletons,
-        animationGroups: result.animationGroups,
-        lights: [],
-      };
-    });
+    this.barrelCache ??= new ModelInstanceCache(
+      this.scene,
+      async (modelPath) => {
+        const { ImportMeshAsync } = await import("@babylonjs/core/Loading/sceneLoader");
+        // From the weapon package, as the view weapon's barrels are: the barrel
+        // GLBs ship inside a pk3, not as files the web server can hand out
+        const asset = await resolveModelAsset(modelPath);
+        if (this.disposed || this.scene.isDisposed) return null;
+        const result = await ImportMeshAsync(asset.source, this.scene, asset.options);
+        if (this.disposed || this.scene.isDisposed) {
+          disposeModelResources([...result.meshes, ...result.transformNodes], result);
+          return null;
+        }
+        // Retain the original glTF root and authored transforms. A neutral wrapper
+        // owns all imported nodes/rigs; the cloned glTF root is attached as before.
+        const root = new TransformNode("droppedBarrelSource", this.scene);
+        for (const node of [...result.transformNodes, ...result.meshes]) if (!node.parent) node.parent = root;
+        return {
+          root,
+          meshes: result.meshes.filter((mesh): mesh is Mesh => mesh instanceof Mesh),
+          skeletons: result.skeletons,
+          animationGroups: result.animationGroups,
+          lights: [],
+        };
+      },
+      { shareStaticMaterials: !this.scene.getEngine().isWebGPU },
+    );
     return this.barrelCache.createInstance(path, 1);
   }
 
