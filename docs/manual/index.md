@@ -57,8 +57,8 @@ This manual covers the game. The engine that runs underneath it has its own manu
 ```bash
 # In the SHAG engine repo (this is a submodule under src/games/fps/)
 npm install
-npm run dev
-# In another terminal: npm run lobby:server
+npm --prefix src/games/fps run dev
+# In another terminal: npm --prefix src/games/fps run lobby:server
 # Open http://localhost:5173 and choose Play, a mode and a room
 ```
 

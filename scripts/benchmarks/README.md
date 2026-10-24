@@ -1,7 +1,9 @@
 # Washoi benchmark recipes
 
-Run these drivers from the assembled SHAG checkout root. Dependencies resolve
-from that checkout's `node_modules`; this folder is not a separate npm package.
+Run these drivers from the assembled SHAG checkout root with
+`npm --prefix src/games/fps run <command>`, or use `npm run <command>` from the
+game folder. They execute with the assembled root as cwd. Dependencies resolve
+from that checkout's `node_modules`; this folder has no separate installation.
 
 | npm command | Driver |
 | --- | --- |

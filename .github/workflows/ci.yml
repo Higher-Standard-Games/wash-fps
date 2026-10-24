@@ -43,32 +43,32 @@ jobs:
           bun-version-file: .bun-version
 
       - name: Server runtime equivalence
-        run: npm run test:runtime-equivalence
+        run: npm --prefix src/games/fps run test:runtime-equivalence
 
       - name: Production server build and Bun import smoke
         run: |
-          npm run build:server
+          npm --prefix src/games/fps run build:server
           bun dist-server/headless-netserver-v2.mjs --help
 
-      - name: Benchmark recipe tests
-        run: node --test scripts/benchmarks/__tests__/*.test.mjs src/games/fps/scripts/benchmarks/__tests__/*.test.mjs
+      - name: Game tooling tests
+        run: node --test scripts/benchmarks/__tests__/*.test.mjs src/games/fps/scripts/benchmarks/__tests__/*.test.mjs src/games/fps/scripts/__tests__/*.test.mjs
 
       - name: Typecheck
-        run: npm run typecheck
+        run: npm --prefix src/games/fps run typecheck
 
       - name: Tests
-        run: npm run test:run
+        run: npm --prefix src/games/fps run test:run
 
       - name: Biome gate (no new diagnostics over baseline)
-        run: npm run gate:biome
+        run: npm --prefix src/games/fps run gate:biome
 
       - name: Build Washoi application
-        run: npm run build
+        run: npm --prefix src/games/fps run build
         env:
           SHAG_APP: src/games/fps
 
       - name: Build Washoi manual
-        run: npm run docs:fps:build
+        run: npm --prefix src/games/fps run docs:build
 
       # QA-WO3 regression gate: the split reliable router (whose silent dead end
       # shipped the broken-chat bug) must not come back — one router, both channels.

@@ -112,7 +112,7 @@ The analyser runs as `DemoService.analyzeLoadedDemo()` and outputs a list of tim
 - Server events (kills, pickups, match-state transitions, **chat**, weapon fire, projectile impacts, chain arcs) — captured verbatim, so replays show the full action *and* the match chatter at the right moments.
 
 Deterministic re-simulation checks use a separate **`.shagverify` bundle**, not an
-ordinary `.shagdemo` playback file. `npm run demo:verify -- <bundle.shagverify>`
+ordinary `.shagdemo` playback file. `npm --prefix src/games/fps run demo:verify -- <bundle.shagverify>`
 replays that bundle's commands and checks its recorded checksums.
 
 For full schema, read `src/shared/demo/DemoReader.ts` (TODO: extract this into a public doc page).

@@ -7,18 +7,19 @@ import { type BotOptions, defaultGoalArbiterMode, resolveDifficulty } from "./Bo
 
 /**
  * The repository root: the nearest directory above this module with a
- * package.json. Found by walking up rather than by a fixed number of `..`, so it
+ * SHAG package.json. Found by walking up rather than by a fixed number of `..`, so it
  * is the same whether this file runs from `src/games/fps/bot/` or bundled into
  * `dist-server/`.
  */
 function repositoryRoot(): string {
   let dir = path.dirname(fileURLToPath(import.meta.url));
-  while (!fs.existsSync(path.join(dir, "package.json"))) {
+  for (;;) {
+    const manifest = path.join(dir, "package.json");
+    if (fs.existsSync(manifest) && JSON.parse(fs.readFileSync(manifest, "utf8")).name === "shag-engine") return dir;
     const parent = path.dirname(dir);
-    if (parent === dir) throw new Error("BotRatingIdentity: no package.json above this module");
+    if (parent === dir) throw new Error("BotRatingIdentity: no SHAG package.json above this module");
     dir = parent;
   }
-  return dir;
 }
 
 let behavior: string | undefined;

@@ -44,7 +44,7 @@ node dist-server/lobby-server.mjs --port 9000 --data-dir ./server-data
 The build recipe belongs to this repository; its default output remains the
 assembled root's `dist-server/`. An optional first argument selects another
 output directory, absolute or relative to the assembled root. The root's
-`npm run build:server` and `npm run lobby:server:dev` commands delegate to the
+`npm --prefix src/games/fps run build:server` and `npm --prefix src/games/fps run lobby:server:dev` commands delegate to the
 game-owned recipe and source entry. The lobby, bot server and match server
 artifact filenames stay the same. Use a scratch `--data-dir` for automated tests.
 
@@ -67,8 +67,8 @@ Tests that exercise Washoi through SHAG services live with the game:
 and FPS input bindings; `simulation/__tests__/SharedCollisionGrounding.test.ts`
 covers collision support with the game's movement profile;
 `server/__tests__/lobby/` covers demo ownership and real lobby/match/result
-integration. Run `npm run test:run` from the assembled root to discover them;
-`npm run ranking:acceptance` includes the lobby integration group.
+integration. Run `npm --prefix src/games/fps run test:run` from the assembled root to discover them;
+`npm --prefix src/games/fps run ranking:acceptance` includes the lobby integration group.
 
 | Submodule file | Engine extension point |
 |----------------|------------------------|

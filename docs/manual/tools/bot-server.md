@@ -14,7 +14,7 @@ the native-first/pure-JavaScript fallback or the model format.
 ## Running
 
 ```bash
-npm run bot:server
+npm --prefix src/games/fps run bot:server
 ```
 
 The bot server boots an interactive console. It can register itself with a lobby, queue for matches like a human player, and play autonomously.

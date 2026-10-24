@@ -165,7 +165,7 @@ map washoi_snd1 snd
 Or run a dedicated server directly:
 
 ```bash
-npm run net:server -- --map wbomb1 --gametype SnD
+npm --prefix src/games/fps run net:server -- --map wbomb1 --gametype SnD
 ```
 
 ## See Also

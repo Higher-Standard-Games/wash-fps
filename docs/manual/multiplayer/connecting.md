@@ -4,7 +4,7 @@ How to connect to a game server, manually or through the lobby.
 
 ## The menu (the normal way)
 
-1. Open the dev server (`npm run dev`).
+1. Open the dev server (`npm --prefix src/games/fps run dev`).
 2. The first time a browser reaches the lobby it is asked who you are. The name
    you pick is your account's; leaving it empty keeps the `Player_<number>` the
    lobby gave you. You already have a key at that point — it is what opens the

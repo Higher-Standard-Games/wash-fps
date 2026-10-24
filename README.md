@@ -25,10 +25,16 @@ Clone the engine repo with this submodule:
 git clone --recursive https://github.com/Higher-Standard-Games/shag.git
 cd shag
 npm install
-npm run dev
+npm --prefix src/games/fps run dev
 ```
 
-Open `http://localhost:5173` and press the lobby's **Play** button.
+Open `http://localhost:3000` and press the lobby's **Play** button.
+
+The private game package owns these commands. From the engine root use
+`npm --prefix src/games/fps run <command>`; from this folder use
+`npm run <command>`. The launcher selects Washoi and runs with the engine root
+as its working directory, preserving media, server-data and artifact paths.
+Install dependencies once at the engine root; no game-local install is needed.
 
 For developer flows (one-keystroke local match, dedicated server, bot AI), read [Getting Started](./docs/manual/getting-started/).
 

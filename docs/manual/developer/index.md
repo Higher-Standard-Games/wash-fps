@@ -51,7 +51,7 @@ its own list. Regenerate both lists with the game selected:
 
 ```powershell
 $env:SHAG_APP = 'src/games/fps'
-npm run deps:babylon
+npm --prefix src/games/fps run deps:babylon
 ```
 
 Tests live in `__tests__/` directories next to the code they cover. Run from the outer engine repo:

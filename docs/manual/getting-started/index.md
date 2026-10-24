@@ -52,28 +52,32 @@ map list is refreshed. See [Maps](../gametypes/maps.md).
 
 ```powershell
 # In the engine repo root (PowerShell)
-$env:SHAG_APP = 'src/games/fps'
-npm run dev
+npm --prefix src/games/fps run dev
 ```
 
 Washoi owns `client/main.ts`, `index.html` and `browser.json`. SHAG supplies the
-renderer and engine services. Use the same `SHAG_APP` selection for `npm run build`.
-To keep the selection across terminals, create `.shag-application.json` in the
-engine root with `{ "application": "src/games/fps" }`; this file is ignored by Git.
-An explicit `SHAG_APP=engine` opens SHAG's example instead. Media remains under
+renderer and engine services. The game package's commands select Washoi
+automatically, including `npm --prefix src/games/fps run build`. They run from
+the assembled root so media, storage and output paths keep the same meaning.
+Inside `src/games/fps`, the shorter `npm run dev` and `npm run build` also work.
+Install dependencies only at the engine root; the game package supplies commands
+and does not install another Babylon or TensorFlow dependency tree.
+
+The engine's own `npm run dev` uses `SHAG_APP` or `.shag-application.json`;
+set `SHAG_APP=engine` there to open its example instead. Media remains under
 the engine's `public/data/` directory. The tracked submodule still exists during
 the repository split; the checkout commands above remain applicable until cutover.
 
-Run `npm run lobby:server` in another terminal for a local lobby. Open
+Run `npm --prefix src/games/fps run lobby:server` in another terminal for a local lobby. Open
 `http://localhost:3000`, choose **Play**, a mode and Public or Private, then enter
-a room and ready up. Run `npm run bot:server` as well to add bots; a room with a bot is private.
+a room and ready up. Run `npm --prefix src/games/fps run bot:server` as well to add bots; a room with a bot is private.
 See [Your First Match](../player/first-match.md).
 
 For the developer flow with a one-keystroke server-backed map launch:
 
 ```
 # In a separate terminal
-npm run lobby:server
+npm --prefix src/games/fps run lobby:server
 
 # Then in the in-game console (press the backquote key):
 developer 1; map washoi_dm2 duel
@@ -86,7 +90,7 @@ See the engine's Map Launching Guide (`docs/manual/guides/map-launching.md` in t
 The engine ships a headless dedicated server that runs this game's `GameServer` orchestrator:
 
 ```bash
-npm run net:server -- --map washoi_dm2 --port 7777 --gametype duel
+npm --prefix src/games/fps run net:server -- --map washoi_dm2 --port 7777 --gametype duel
 ```
 
 Common flags (the full list, including `--name`, `--tickrate`, `--snapshotrate`, `--single-match` and TLS options, is in [Server Commands](../developer/server-commands.md#server-launch-options)):
@@ -112,7 +116,7 @@ connect ws://localhost:7777
 Bots run as a separate Node.js process and connect to game servers as real WebSocket clients — at the protocol level they are indistinguishable from human players.
 
 ```bash
-npm run bot:server
+npm --prefix src/games/fps run bot:server
 ```
 
 See [Tools → Bot Server](../tools/bot-server.md) for the full bot lifecycle, difficulty presets, and training pipeline.
@@ -122,9 +126,9 @@ See [Tools → Bot Server](../tools/bot-server.md) for the full bot lifecycle, d
 From the engine repository root:
 
 ```bash
-npm run docs:fps:dev
-npm run docs:fps:build
-npm run docs:fps:preview
+npm --prefix src/games/fps run docs:dev
+npm --prefix src/games/fps run docs:build
+npm --prefix src/games/fps run docs:preview
 ```
 
 The game manual has its own VitePress config and bundled fonts. The engine's

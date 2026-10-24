@@ -213,7 +213,7 @@ that barely did nudges, one that did not leaves the aim alone.
 ## Getting the weights into a bot
 
 ```bash
-npm run bot:server -- --models ./models/human
+npm --prefix src/games/fps run bot:server -- --models ./models/human
 ```
 
 The bot server passes its model directory to every bot it creates, including
@@ -229,7 +229,7 @@ To watch trained weights play before anyone plays against them, record a match
 of bots using them:
 
 ```bash
-npm run demo:record -- --map wdm12 --bots 2 --seconds 120 --models ./models/human
+npm --prefix src/games/fps run demo:record -- --map wdm12 --bots 2 --seconds 120 --models ./models/human
 ```
 
 Its recordings hold no verified players, so training reads them only with
@@ -247,7 +247,7 @@ to apologise for.
 other on a running server, record episodes, train, repeat.
 
 ```bash
-npm run net:server -- --port 17777 --map wdm7
+npm --prefix src/games/fps run net:server -- --port 17777 --map wdm7
 npx vite-node src/games/fps/cli/bot-train.ts -- --map wdm7 --rounds 100
 ```
 
@@ -265,7 +265,7 @@ there is no person in it. Demos are where that comes from.
 
 ## What it costs
 
-`npm run bot:bench` measures the neural overlay on a synthetic fight state — the
+`npm --prefix src/games/fps run bot:bench` measures the neural overlay on a synthetic fight state — the
 difference the network makes to a decision, without the vision and navigation a
 real map adds, since those are the state machine's cost either way.
 
@@ -285,7 +285,7 @@ correct.
 Run it yourself before assuming any of those numbers apply to your machine:
 
 ```bash
-npm run bot:bench -- --bots 8 --decisions 2000
+npm --prefix src/games/fps run bot:bench -- --bots 8 --decisions 2000
 ```
 
 ## Not yet

@@ -1,4 +1,6 @@
 # VitePress build artefacts
+node_modules/
+package-lock.json
 docs/manual/.vitepress/cache/
 docs/manual/.vitepress/.temp/
 docs/manual/.vitepress/dist/

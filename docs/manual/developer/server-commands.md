@@ -1,6 +1,6 @@
 # Server Commands
 
-The dedicated server (`npm run net:server -- ...`) accepts admin commands at runtime via its TTY.
+The dedicated server (`npm --prefix src/games/fps run net:server -- ...`) accepts admin commands at runtime via its TTY.
 
 ## Gameplay Cvars
 
@@ -34,12 +34,12 @@ The dedicated server reads commands from its terminal (stdin). In this version t
 
 Anything else prints `Unknown command`. There is no `kick`, `restart`, `endmatch` or map-rotation command; matches are started and ended through the lobby, or by restarting the process. A lobby-spawned server also receives one internal command from the lobby, used to seat a player who drops into a running match. It isn't meant to be typed by hand.
 
-Bots spawned this way are not the Bot Intelligence Server's bots. For bots that behave like players and have difficulty tiers, run [`npm run bot:server`](../tools/bot-server.md), or add bots from a lobby room.
+Bots spawned this way are not the Bot Intelligence Server's bots. For bots that behave like players and have difficulty tiers, run [`npm --prefix src/games/fps run bot:server`](../tools/bot-server.md), or add bots from a lobby room.
 
 ## Server Launch Options
 
 ```bash
-npm run net:server -- --map washoi_dm2 --gametype duel --port 7777
+npm --prefix src/games/fps run net:server -- --map washoi_dm2 --gametype duel --port 7777
 ```
 
 | Flag | Default | Notes |

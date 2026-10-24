@@ -15,11 +15,11 @@ git submodule update --init
 The rail's player card reads **Offline**, the room list reads **Lobby server offline.**, and chat says **Lobby offline**. The browser is running but the lobby server isn't.
 
 ```bash
-npm run lobby:server            # listens on port 9000
-npm run lobby:server -- --port 9001
+npm --prefix src/games/fps run lobby:server            # listens on port 9000
+npm --prefix src/games/fps run lobby:server -- --port 9001
 ```
 
-The browser looks for `ws://localhost:9000`. If you started the lobby on another port or host, set `VITE_LOBBY_URL` (for example `VITE_LOBBY_URL=ws://localhost:9001`) before `npm run dev`.
+The browser looks for `ws://localhost:9000`. If you started the lobby on another port or host, set `VITE_LOBBY_URL` (for example `VITE_LOBBY_URL=ws://localhost:9001`) before `npm --prefix src/games/fps run dev`.
 
 The console's `map <name> <gametype>` also needs the lobby running, because it asks the lobby to start a one-off server. If it reports `Timed out waiting for lobby server to spawn`, this is why.
 
@@ -41,12 +41,12 @@ npm run tools:textures
 To check a map outside the game, from the engine repo:
 
 ```bash
-npm run cli:game -- --exec "bsp load washoi_dm2; bsp info; quit"
+npm --prefix src/games/fps run cli:game -- --exec "bsp load washoi_dm2; bsp info; quit"
 ```
 
 ## "Rankings are unavailable" and "Featured demos are unavailable"
 
-These messages mean the lobby server you are connected to doesn't provide that feature, or you aren't connected. Start the lobby with `npm run lobby:server` from the engine repo to get the leaderboard and featured demos.
+These messages mean the lobby server you are connected to doesn't provide that feature, or you aren't connected. Start the lobby with `npm --prefix src/games/fps run lobby:server` from the engine repo to get the leaderboard and featured demos.
 
 ## Bots don't join
 
@@ -54,7 +54,7 @@ The bot server and the lobby share a secret, and the bot server's control port (
 
 - Start the lobby and the bot server **from the same folder**, or give both the same `--data-dir`, or set `BOT_SECRET` for both.
 - Run them on the same machine.
-- Remember the bot server is its own process: `npm run bot:server`.
+- Remember the bot server is its own process: `npm --prefix src/games/fps run bot:server`.
 
 See [Bot Server](../tools/bot-server.md#the-lobby-and-the-shared-secret).
 

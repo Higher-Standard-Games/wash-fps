@@ -6,15 +6,15 @@ Common questions, gotchas, and troubleshooting.
 
 The engine command `map` delegates to a launcher that the FPS game registers at boot. Two possibilities:
 
-1. The fps submodule isn't actually loaded / didn't register the launcher → make sure `npm run dev` starts cleanly, no errors in browser console, and `src/main.ts` is calling `registerGameplayMapLauncher(fpsModule.fpsMapLauncher)`.
-2. You're running in headless CLI mode (`npm run cli:game`) which intentionally doesn't auto-register the launcher → use `bsp load <name>` instead, or call `registerFpsCommands()` + `registerGameplayMapLauncher()` manually in your script.
+1. The fps submodule isn't actually loaded / didn't register the launcher → make sure `npm --prefix src/games/fps run dev` starts cleanly, no errors in browser console, and `src/main.ts` is calling `registerGameplayMapLauncher(fpsModule.fpsMapLauncher)`.
+2. You're running in headless CLI mode (`npm --prefix src/games/fps run cli:game`) which intentionally doesn't auto-register the launcher → use `bsp load <name>` instead, or call `registerFpsCommands()` + `registerGameplayMapLauncher()` manually in your script.
 
 ## "Why does `map washoi_dm2` say 'Timed out waiting for lobby server to spawn'?"
 
 The lobby server isn't running. Start it:
 
 ```bash
-npm run lobby:server
+npm --prefix src/games/fps run lobby:server
 ```
 
 Then retry `map washoi_dm2`.
@@ -29,7 +29,7 @@ Usually one of:
 
 ## "How do I disable the lobby's loopback-only dev-spawn restriction?"
 
-You can't, and you shouldn't. Dev-spawn is a developer affordance, not a public API. Real matches go through normal matchmaking, which has its own authentication + rate limiting. If you want a dedicated public server, run `npm run net:server -- ...` directly with a public host.
+You can't, and you shouldn't. Dev-spawn is a developer affordance, not a public API. Real matches go through normal matchmaking, which has its own authentication + rate limiting. If you want a dedicated public server, run `npm --prefix src/games/fps run net:server -- ...` directly with a public host.
 
 ## "Bots are too easy / too hard."
 
