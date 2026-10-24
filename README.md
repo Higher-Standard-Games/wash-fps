@@ -30,6 +30,16 @@ npm --prefix src/games/fps run dev
 
 Open `http://localhost:3000` and press the lobby's **Play** button.
 
+For local matches, start the lobby in another terminal at the engine root:
+
+```bash
+npm --prefix src/games/fps run lobby:server
+```
+
+For private-room bot invites, start `npm --prefix src/games/fps run bot:server`
+in a third terminal. The lobby starts match servers as needed. For direct
+connections, use `npm --prefix src/games/fps run net:server` instead.
+
 The private game package owns these commands. From the engine root use
 `npm --prefix src/games/fps run <command>`; from this folder use
 `npm run <command>`. The launcher selects Washoi and runs with the engine root

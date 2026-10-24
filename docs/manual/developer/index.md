@@ -50,15 +50,14 @@ the extra Babylon modules the game needs prebundled; the engine contributes
 its own list. Regenerate both lists with the game selected:
 
 ```powershell
-$env:SHAG_APP = 'src/games/fps'
 npm --prefix src/games/fps run deps:babylon
 ```
 
 Tests live in `__tests__/` directories next to the code they cover. Run from the outer engine repo:
 
 ```bash
-npm test           # all tests, including submodule
-npm test FPSPickup # filter by name pattern
+npm --prefix src/games/fps run test:run
+npm --prefix src/games/fps run test:run -- FPSPickup
 ```
 
 The outer `vitest` config picks up `src/games/fps/**/*.test.ts` automatically.

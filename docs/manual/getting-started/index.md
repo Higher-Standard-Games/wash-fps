@@ -87,7 +87,8 @@ See the engine's Map Launching Guide (`docs/manual/guides/map-launching.md` in t
 
 ## Dedicated Server
 
-The engine ships a headless dedicated server that runs this game's `GameServer` orchestrator:
+Washoi supplies a headless dedicated-server launcher that runs its `GameServer`
+using SHAG's reusable server services:
 
 ```bash
 npm --prefix src/games/fps run net:server -- --map washoi_dm2 --port 7777 --gametype duel
@@ -97,7 +98,7 @@ Common flags (the full list, including `--name`, `--tickrate`, `--snapshotrate`,
 
 | Flag | Default | Notes |
 |------|---------|-------|
-| `--map` | `wdm7` | Map name (must exist in `public/data/`) |
+| `--map` | `washoi_dm2` | Map name (must exist in `public/data/`) |
 | `--port` | `7777` | WebSocket port |
 | `--gametype` | `Deathmatch` | Release modes: `Deathmatch` (`ffa`), `Duel` (`1v1`), `Amphi`, `SnD` (`bomb`) |
 | `--max` | `16` | Max clients |

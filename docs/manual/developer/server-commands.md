@@ -2,6 +2,32 @@
 
 The dedicated server (`npm --prefix src/games/fps run net:server -- ...`) accepts admin commands at runtime via its TTY.
 
+## Starting servers
+
+Install dependencies once with `npm install` at the SHAG root. The game checkout
+must be at `src/games/fps`; see [Getting Started](../getting-started/index.md).
+Run each long-lived process in its own terminal. These examples start at the
+SHAG root:
+
+| Purpose | Command |
+| --- | --- |
+| Lobby, which starts match servers as needed | `npm --prefix src/games/fps run lobby:server` |
+| Bot service for private-room bot invites | `npm --prefix src/games/fps run bot:server` |
+| Standalone match server | `npm --prefix src/games/fps run net:server -- --map washoi_dm2 --gametype ffa` |
+| Build server bundles without starting a process | `npm --prefix src/games/fps run build:server` |
+
+The lobby flow needs the lobby and, for bot invites, the bot service. A standalone
+match server is an alternative for direct connections. The start commands build
+`dist-server/` before launching Node; `lobby:server:dev`, `bot:server:dev` and
+`net:server:dev` run source through `vite-node` instead.
+
+From `src/games/fps`, the equivalent short command is `npm run lobby:server`
+(and likewise for the other game commands). The launcher sets the working
+directory to the SHAG root in both cases: `public/data/`, `dist-server/`, and
+relative `--data-dir` paths resolve there. To use a separate test database,
+pass `-- --data-dir ./server-data-test` to both lobby and bot commands.
+Use the same data directory for both so they share their control secret.
+
 ## Gameplay Cvars
 
 Server-side tunables (defaults shown). Movement cvars live in `src/engine/movement/MovementVars.ts`.
@@ -44,7 +70,7 @@ npm --prefix src/games/fps run net:server -- --map washoi_dm2 --gametype duel --
 
 | Flag | Default | Notes |
 |------|---------|-------|
-| `--map` | `wdm7` | Map name (must exist in `public/data/`) |
+| `--map` | `washoi_dm2` | Map name (must exist in `public/data/`) |
 | `--gametype`, `-g` | `Deathmatch` | Release modes: `Deathmatch` (`ffa`), `Duel` (`1v1`), `Amphi`, `SnD` (`bomb`, `searchanddestroy`). Unknown values fall back to Deathmatch |
 | `--port` | `7777` | WebSocket port |
 | `--name`, `--hostname` | `SHAG Server v2` | Server name |
@@ -72,7 +98,7 @@ Three environment variables, read once at boot, change a gametype's limits. They
 The server console prints lifecycle events (joins, match start and end, demos saved) and problems. Anything that would print per tick, per hit or per message is off unless you ask for it:
 
 ```bash
-SHAG_DEBUG=phys,kb npm run server
+SHAG_DEBUG=phys,kb npm --prefix src/games/fps run net:server
 ```
 
 | Topic | Prints |

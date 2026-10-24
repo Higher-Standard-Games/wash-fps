@@ -10,6 +10,20 @@ This game is a git submodule of the engine, and a plain `git clone` leaves submo
 git submodule update --init
 ```
 
+## npm reports "Missing script: lobby:server"
+
+Game commands belong to the package in `src/games/fps`. From the SHAG root:
+
+```powershell
+npm --prefix src/games/fps run lobby:server
+npm --prefix src/games/fps run bot:server
+```
+
+Run these in separate terminals. Alternatively, enter `src/games/fps` and use
+`npm run lobby:server` or `npm run bot:server`. Both forms use the SHAG root for
+data and build output. Install dependencies at the SHAG root, once.
+See [Starting servers](../developer/server-commands.md#starting-servers).
+
 ## The lobby says "Offline"
 
 The rail's player card reads **Offline**, the room list reads **Lobby server offline.**, and chat says **Lobby offline**. The browser is running but the lobby server isn't.

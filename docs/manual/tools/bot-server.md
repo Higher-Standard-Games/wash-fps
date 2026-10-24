@@ -7,6 +7,11 @@ checkout that is `src/games/fps/bot/`. Its CLI is `cli/bot-server.ts`. Run comma
 from the assembled root so data, model and navigation-cache paths resolve there.
 The game-owned server build recipe produces `dist-server/bot-server.mjs`.
 
+Examples below start at the SHAG root. From `src/games/fps` you can instead use
+`npm run bot:server`; the launcher still uses the SHAG root as cwd. Dependencies
+are installed once at the SHAG root. `bot:server` builds its bundle before
+launching Node; `bot:server:dev` runs the source through `vite-node`.
+
 The optional neural backend still uses the assembled root's TensorFlow
 installation and Windows native-library fixup. Moving the source does not change
 the native-first/pure-JavaScript fallback or the model format.
