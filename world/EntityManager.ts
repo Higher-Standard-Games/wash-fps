@@ -12,7 +12,6 @@ import {
 } from "../../../engine/core/EntityHandlerRegistry";
 import { getCollisionManager } from "../../../engine/physics/CollisionManager";
 import { SweepBackendAdapter } from "../../../engine/physics/SweepBackendAdapter";
-import { RenderVars } from "../../../engine/rendering/RenderVars";
 import type { Pickup } from "../../../engine/world/Pickup";
 import type { PickupVisualFactory } from "../../../engine/world/PickupVisual";
 import { SharedCollisionWorld } from "../../../shared/collision/SharedCollisionWorld";
@@ -21,15 +20,6 @@ import { EntityRegistry } from "../../../shared/entities/EntityRegistry";
 import { EntityType } from "../../../shared/entities/EntityType";
 import { extractPickups, type PickupEntry } from "../shared/bsp/PickupTable";
 import { landMapPickups } from "../shared/items/ItemThrow";
-
-/** Health/armor render as procedural sculptures unless r_pickupProcedural is 0. */
-function proceduralPickupsEnabled(): boolean {
-  try {
-    return (RenderVars.getInstance().get("r_pickupProcedural") ?? 1) >= 0.5;
-  } catch {
-    return true;
-  }
-}
 
 /** A map weapon's resting yaw, from its pickup id, so a rack of them does not read as identical props. */
 function mapWeaponYaw(pickupId: number): number {
@@ -78,7 +68,6 @@ async function resolvePickupVisualFactory(
   type: ClientPickupType,
 ): Promise<PickupVisualFactory | undefined> {
   if (type === "weapon") return undefined;
-  if (!proceduralPickupsEnabled()) return undefined;
   const { createProceduralPickupFactory } = await import("./pickups/procedural/ProceduralPickupFactory");
   return createProceduralPickupFactory(def.id) ?? undefined;
 }
@@ -200,7 +189,7 @@ export class EntityManager {
       // Load the concrete pickup lazily, when spawning needs it.
       new (await import("./FPSPickup")).FPSPickup(`${id}_${Date.now()}`, scene, position, {
         id: def.id,
-        modelPath: def.modelPath || "models/items/ammo/ammobox/ammobox.md3",
+        modelPath: def.modelPath,
         type,
         value: pickupValue(def, type),
         scale: def.scale,
@@ -288,7 +277,7 @@ export class EntityManager {
 
     const pickup = new FPSPickup(name, scene, spawnAt, {
       id: def.id,
-      modelPath: def.modelPath || "models/items/ammo/ammobox/ammobox.md3",
+      modelPath: def.modelPath,
       type: type,
       value: value,
       // Server-authoritative: visibility/respawn is driven by the snapshot

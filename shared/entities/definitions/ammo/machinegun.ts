@@ -11,7 +11,6 @@ export const BULLET_AMMO: AmmoDef = {
   ammoType: "bullets",
   amount: 50,
 
-  modelPath: "models/items/ammo/ammobox/ammobox.md3",
   scale: 1.0,
 
   // Pickup glow (yellow)

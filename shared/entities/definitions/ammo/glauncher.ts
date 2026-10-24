@@ -11,7 +11,6 @@ export const GRENADE_AMMO: AmmoDef = {
   ammoType: "grenades",
   amount: 10,
 
-  modelPath: "models/items/ammo/ammobox/ammobox.md3",
   scale: 1.0,
 
   // Pickup glow (green)

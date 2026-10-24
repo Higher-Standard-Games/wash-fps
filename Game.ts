@@ -18,7 +18,6 @@ import { EventBus } from "../../engine/core/EventBus";
 import { log } from "../../engine/core/Log";
 import { InputSystem } from "../../engine/input/InputSystem";
 import { disposeClusteredLight } from "../../engine/lighting/DynamicLightCluster";
-import { AssetPreloader } from "../../engine/loader/AssetPreloader";
 import { LocalGameHost } from "../../engine/network/client/hosts/LocalGameHost";
 import { NetworkGameHost } from "../../engine/network/client/hosts/NetworkGameHost";
 import { NetGraph } from "../../engine/network/client/NetGraph";
@@ -71,7 +70,6 @@ import { PlayerWeaponStates, storeSnapshotState } from "./client/SnapshotStateSt
 import { SpectateView } from "./client/SpectateView";
 import { installTooltips } from "./client/Tooltip";
 import { type FPSInputCommand, FPSSimulation } from "./simulation/FPSSimulation";
-import { getProceduralPickupRecipe } from "./world/pickups/procedural/ProceduralPickupRecipes";
 
 export interface FPSGameConfig {
   tickRate?: number;
@@ -338,9 +336,6 @@ export class Game {
     registerFPSActions();
     // Our own tooltips in place of the browser's for every title in the UI
     installTooltips();
-    AssetPreloader.getInstance().setPickupModelFilter(
-      (def) => (RenderVars.getInstance().get("r_pickupProcedural") ?? 1) < 0.5 || !getProceduralPickupRecipe(def.id),
-    );
 
     // Dropped weapons are independent root meshes. A scene/map teardown can
     // dispose those meshes without clearing the renderer's entity registry,

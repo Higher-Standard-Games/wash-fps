@@ -68,17 +68,6 @@ export class FPSPickup extends Pickup {
   /** Currently-tracked nearby weapon pickup (for HUD swap prompt). */
   private static nearbyWeaponPickup: FPSPickup | null = null;
 
-  /** Ammo pool (weapon.ammoType) → Warsow simpleitem icon shown on the ammo box. */
-  private static readonly AMMO_ICONS: Record<string, string> = {
-    bullets: "gfx/hud/icons/ammo/bulletsammo",
-    shells: "gfx/hud/icons/ammo/riotammo",
-    grenades: "gfx/hud/icons/ammo/grenadeammo",
-    rockets: "gfx/hud/icons/ammo/rocketammo",
-    cells: "gfx/hud/icons/ammo/plasmaammo",
-    lasers: "gfx/hud/icons/ammo/laserammo",
-    bolts: "gfx/hud/icons/ammo/electroammo",
-  };
-
   /** The PVS cluster this pickup stands in, per culler (one per map load). */
   private pvsCuller: PVSCuller | null = null;
   private pvsCluster = -1;
@@ -135,71 +124,6 @@ export class FPSPickup extends Pickup {
     // After base model is loaded, attach weapon barrel sub-models (weapons only)
     if (this.options.type === "weapon" && this.options.value && this.mesh) {
       await this._loadBarrels(this.mesh, this.options.value as string);
-    }
-    // Ammo boxes share one generic model; overlay the per-ammo icon quad so each
-    // box reads as its ammo type (Warsow ammobox_icon.md3 + simpleitem icon).
-    if (this.options.type === "ammo" && this.options.value && this.mesh) {
-      await this._loadAmmoIcon(this.mesh, this.options.value as string);
-    }
-  }
-
-  /** Load the ammobox icon quad and skin it with the ammo type's simpleitem icon. */
-  private async _loadAmmoIcon(leaderMesh: Mesh, ammoType: string): Promise<void> {
-    const iconPath = FPSPickup.AMMO_ICONS[ammoType];
-    if (!iconPath) return; // unknown ammo type — leave the plain box
-
-    const scene = this.getScene();
-    const [{ ModelLoader }, { loadAmmoIconTexture }, { StandardMaterial }, { Color3 }] = await Promise.all([
-      import("../../../engine/loader/model/ModelLoader"),
-      import("./pickups/AmmoIconTexture"),
-      import("@babylonjs/core/Materials/standardMaterial"),
-      import("@babylonjs/core/Maths/math.color"),
-    ]);
-
-    // Skip the quad when artwork is unavailable instead of showing a white placeholder.
-    const tex = await loadAmmoIconTexture(iconPath);
-    if (!tex) {
-      console.warn(`[FPSPickup] Ammo icon not found: ${iconPath} — showing plain box`);
-      return;
-    }
-
-    // Load the icon quad (separate model, authored in the ammobox's own space).
-    const loader = ModelLoader.getInstance();
-    if (!loader.isInitialized()) loader.init(scene);
-    const iconResult = await loader.loadModel("models/items/ammo/ammobox/ammobox_icon.md3", {
-      position: Vector3.Zero(),
-      scale: 1.0,
-      hasCollision: false,
-      applyLighting: false,
-    });
-    if (!iconResult?.meshes?.length) return;
-
-    // The simpleitem icon, rendered unlit so it stays legible on the box like a decal.
-    tex.hasAlpha = true;
-    const mat = new StandardMaterial(`ammo_icon_${ammoType}`, scene);
-    mat.backFaceCulling = false;
-    mat.disableLighting = true;
-    mat.emissiveColor = Color3.White();
-    mat.diffuseTexture = tex;
-    mat.emissiveTexture = tex;
-    mat.useAlphaFromDiffuseTexture = true;
-    mat.transparencyMode = 2; // ALPHABLEND
-
-    for (const m of iconResult.meshes) {
-      if (!(m instanceof Mesh) || m.getTotalVertices() === 0) continue;
-      m.parent = leaderMesh;
-      m.position.setAll(0);
-      m.rotationQuaternion = null;
-      m.rotation.setAll(0);
-      m.scaling.setAll(1);
-      m.isVisible = true;
-      m.material = mat;
-    }
-
-    // Detach the loader root so it doesn't linger enabled in the scene graph.
-    if (iconResult.root) {
-      iconResult.root.parent = null;
-      iconResult.root.setEnabled(false);
     }
   }
 

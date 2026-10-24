@@ -10,7 +10,6 @@ export const PLASMA_AMMO: AmmoDef = {
   ammoType: "cells",
   amount: 50,
 
-  modelPath: "models/items/ammo/ammobox/ammobox.md3",
   scale: 1.0,
 
   // Pickup glow (green like plasmagun)

@@ -63,9 +63,8 @@ export interface ProceduralPickupRecipe {
 
   /**
    * Ammo only: pk3 path of the Warsow simpleitem icon stamped on the crate's
-   * sides (no extension — the loader tries the pk3 index then a loose `.tga`).
-   * This is the same icon set the old MD3 ammobox used, so a crate still reads
-   * as its ammo type at a glance.
+   * sides (no extension — the loader tries the pk3 index then a loose `.tga`),
+   * so a crate reads as its ammo type at a glance.
    */
   iconTexture?: string;
 }

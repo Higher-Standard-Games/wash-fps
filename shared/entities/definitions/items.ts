@@ -21,7 +21,6 @@ export const ARMOR_SHARD: EntityDef = {
   name: "Armor Shard",
   type: EntityType.ARMOR,
   classname: "item_armor_shard",
-  modelPath: "models/items/armor/shard/shard.md3",
   scale: 1.0,
   glowColor: { r: 0.3, g: 1.0, b: 0.3 },
 };
@@ -31,7 +30,6 @@ export const ARMOR_GREEN: EntityDef = {
   name: "Green Armor",
   type: EntityType.ARMOR,
   classname: "item_armor_ga",
-  modelPath: "models/items/armor/ga/ga.md3",
   scale: 1.0,
   glowColor: { r: 0.2, g: 1.0, b: 0.2 },
 };
@@ -41,7 +39,6 @@ export const ARMOR_YELLOW: EntityDef = {
   name: "Yellow Armor",
   type: EntityType.ARMOR,
   classname: "item_armor_ya",
-  modelPath: "models/items/armor/ya/ya.md3",
   scale: 1.0,
   glowColor: { r: 1.0, g: 0.85, b: 0.1 },
 };
@@ -51,7 +48,6 @@ export const ARMOR_RED: EntityDef = {
   name: "Red Armor",
   type: EntityType.ARMOR,
   classname: "item_armor_ra",
-  modelPath: "models/items/armor/ra/ra.md3",
   scale: 1.0,
   glowColor: { r: 1.0, g: 0.2, b: 0.2 },
 };
@@ -63,7 +59,6 @@ export const HEALTH_SMALL: EntityDef = {
   name: "Health (Small)",
   type: EntityType.HEALTH,
   classname: "item_health_small",
-  modelPath: "models/items/health/small/small_health.md3",
   scale: 1.0,
   glowColor: { r: 0.4, g: 0.6, b: 1.0 },
 };
@@ -75,7 +70,6 @@ export const HEALTH_MEDIUM: EntityDef = {
   classname: "item_health_medium",
   // Bare "item_health" is the Q3 default (+25) — behaves as medium.
   classnameAliases: ["item_health"],
-  modelPath: "models/items/health/medium/medium_health.md3",
   scale: 1.0,
   glowColor: { r: 0.45, g: 0.7, b: 1.0 },
 };
@@ -85,7 +79,6 @@ export const HEALTH_LARGE: EntityDef = {
   name: "Health (Large)",
   type: EntityType.HEALTH,
   classname: "item_health_large",
-  modelPath: "models/items/health/large/large_health.md3",
   scale: 1.0,
   glowColor: { r: 0.5, g: 0.8, b: 1.0 },
 };
@@ -95,7 +88,6 @@ export const HEALTH_MEGA: EntityDef = {
   name: "Mega Health",
   type: EntityType.HEALTH,
   classname: "item_health_mega",
-  modelPath: "models/items/health/mega/mega_health.md3",
   scale: 1.0,
   glowColor: { r: 1.0, g: 0.3, b: 0.3 },
 };
@@ -106,18 +98,13 @@ export const HEALTH_ULTRA: EntityDef = {
   name: "Ultra Health",
   type: EntityType.HEALTH,
   classname: "item_health_ultra",
-  modelPath: "models/items/health/ultra/ultra_health.md3",
   scale: 1.0,
   glowColor: { r: 1.0, g: 0.2, b: 0.5 },
 };
 
 // ── Powerups (timed; see shared/items/Powerups.ts for duration & effect) ──
 
-/**
- * Quad Damage. Unlike every other item here there is NO model to load: the pk3
- * ships only a HUD icon for it (gfx/hud/icons/powerup/quad.tga), so the world
- * item is procedural-only and `modelPath` is deliberately absent.
- */
+/** Quad Damage. */
 export const POWERUP_QUAD: EntityDef = {
   id: "powerup_quad",
   name: "Quad Damage",

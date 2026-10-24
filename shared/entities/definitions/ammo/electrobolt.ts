@@ -11,7 +11,6 @@ export const BOLT_AMMO: AmmoDef = {
   ammoType: "bolts",
   amount: 10,
 
-  modelPath: "models/items/ammo/ammobox/ammobox.md3",
   scale: 1.0,
 
   // Pickup glow (electric blue)

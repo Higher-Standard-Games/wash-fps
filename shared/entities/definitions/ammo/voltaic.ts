@@ -23,7 +23,6 @@ export const VOLTAIC_AMMO: AmmoDef = {
   ammoType: "lasers",
   amount: 100,
 
-  modelPath: "models/items/ammo/ammobox/ammobox.md3",
   scale: 1.0,
 
   // Pickup glow (electric cyan, matches voltaic)
