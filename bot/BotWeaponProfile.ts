@@ -13,7 +13,6 @@ import type { WeaponDef } from "../../../shared/entities/WeaponDef";
 import { BLADE } from "../shared/entities/definitions/weapons/blade";
 import { ELECTROBOLT } from "../shared/entities/definitions/weapons/electrobolt";
 import { GRENADE_LAUNCHER } from "../shared/entities/definitions/weapons/glauncher";
-import { INSTAGUN } from "../shared/entities/definitions/weapons/instagun";
 import { MACHINEGUN } from "../shared/entities/definitions/weapons/machinegun";
 import { PLASMAGUN } from "../shared/entities/definitions/weapons/plasmagun";
 import { RIOTGUN } from "../shared/entities/definitions/weapons/riotgun";
@@ -162,7 +161,6 @@ const ALL_WEAPON_DEFS: WeaponDef[] = [
   PLASMAGUN,
   ROCKET_LAUNCHER,
   GRENADE_LAUNCHER,
-  INSTAGUN,
 ];
 
 const PROFILES: Map<string, WeaponProfile> = new Map();

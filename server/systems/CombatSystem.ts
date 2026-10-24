@@ -43,13 +43,6 @@ export interface DamageEvent {
   knockbackDir?: { x: number; y: number; z: number };
   /** Knockback scale override (defaults to weapon's knockbackScale) */
   knockbackScale?: number;
-  /**
-   * Knockback magnitude source, decoupled from applied `damage`. When set, force
-   * uses this instead of the dealt damage — so a hit can push a target it barely
-   * (or doesn't) damage. Enables instagib "insta-jump" (self-knockback at 0
-   * self-damage) and no-death shoves. Defaults to the final applied damage.
-   */
-  knockbackDamage?: number;
 }
 
 export enum DamageType {
@@ -386,13 +379,9 @@ export class CombatSystem extends Subsystem {
     // Queue impulse for FPSMovementSubsystem to apply BEFORE simulate().
     // This ensures KB bypasses ground friction/clipping.
     if (kbDir && this.movementSubsystem) {
-      // Calculate force: knockback magnitude × weapon KB scale.
-      // knockbackDamage decouples the push from the dealt damage (0-damage shoves,
-      // instagib insta-jump); falls back to the applied damage for normal hits.
-      // `finalDamage` already carries the quad multiplier; an explicit
-      // knockbackDamage does not, so scale it here to keep quad knockback
-      // consistent for decoupled pushes (instagib insta-jump, 0-damage shoves).
-      const kbMagnitude = event.knockbackDamage !== undefined ? event.knockbackDamage * powerMultiplier : finalDamage;
+      // Calculate force: applied damage × weapon KB scale. `finalDamage`
+      // already carries the quad multiplier.
+      const kbMagnitude = finalDamage;
       const kbScale = event.knockbackScale ?? DEFAULT_KB_SCALE;
       const isSelf = event.attackerId !== undefined && event.attackerId === event.victimId;
       const selfMult = isSelf ? SELF_KB_MULTIPLIER : 1.0;

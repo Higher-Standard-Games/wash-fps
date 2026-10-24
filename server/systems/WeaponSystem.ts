@@ -213,7 +213,7 @@ export class WeaponSystem extends Subsystem {
   private slotResync: Set<EntityId> = new Set();
   /**
    * Per-entity accuracy accounting for anti-cheat telemetry (WO-AC1). Scoped to
-   * **single-ray hitscan** (machinegun/electrobolt/instagun/Voltaic, including
+   * **single-ray hitscan** (machinegun/electrobolt/Voltaic, including
    * legacy `lasergun` IDs) — the
    * cleanest signal, where one trigger pull = one ray = 0 or 1 hit. Pellet and
    * projectile/splash weapons are excluded (a blast has no clean shot↔hit mapping).
@@ -252,8 +252,6 @@ export class WeaponSystem extends Subsystem {
    */
   private static readonly INTERP_SNAPSHOT_INTERVALS = 1;
   private interpTicks = 1;
-  /** Gametype self-damage multiplier (1.0 = full, 0 = none). Mirrors ProjectileSystem. */
-  selfDamageMultiplier: number = 1.0;
   private movementSubsystem: import("./FPSMovementSubsystem").FPSMovementSubsystem | null = null;
   /** Pending drop positions — set by GameServer before tick when a swap happens */
   /** Per-entity shot counter for deterministic pellet spread seeds */
@@ -397,8 +395,7 @@ export class WeaponSystem extends Subsystem {
   }
 
   /**
-   * Set collision world (for hitscan splash weapons — instagun world-impact
-   * knockback / insta-jump).
+   * Set collision world (for the world-impact point of hitscan splash weapons).
    */
   setCollisionWorld(world: CollisionWorld): void {
     this.collisionWorld = world;
@@ -933,7 +930,6 @@ export class WeaponSystem extends Subsystem {
         plasmagun: 200,
         voltaic: 180,
         electrobolt: 10,
-        instagun: 5,
       },
       health: 100,
       armor: 0,
@@ -1570,7 +1566,7 @@ export class WeaponSystem extends Subsystem {
     // pendingFireEvents tracer visual: dir.y = sin(-input.pitch). This previously
     // double-negated (`const p = -pitch`, where pitch is already -input.pitch),
     // inverting vertical aim so the damage ray disagreed with the tracer and every
-    // other fire path — machinegun/electrobolt/instagun hit low when aiming up (F2).
+    // other fire path — machinegun/electrobolt hit low when aiming up (F2).
     // The shot's direction from aimShot: the machinegun's spread, or Voltaic's
     // hip-fire wander, already in it, and the same as the fire event's.
     const dir = aim.dir;
@@ -1599,15 +1595,6 @@ export class WeaponSystem extends Subsystem {
       if (links.length >= 2) {
         this.pendingChainEvents.push({ entityId: shooter.id, points: links });
       }
-    }
-
-    // Splash-knockback hitscan (instagun): shooting a surface launches players
-    // near the world-impact point. This is what makes instagib "insta-jump" work
-    // (shoot the floor/wall to rocket-jump without a projectile). Knockback is
-    // applied even at 0 self-damage via DamageEvent.knockbackDamage (F4).
-    if (weapon.splashRadius && this.collisionWorld) {
-      const impact = this.traceWorldImpact(start, dir, maxRange);
-      if (impact) this.applyHitscanSplash(state, shooter, weapon, impact);
     }
   }
 
@@ -1691,62 +1678,6 @@ export class WeaponSystem extends Subsystem {
       point: res.hitPoint,
       normal: res.normal ?? { x: -dir.x, y: -dir.y, z: -dir.z },
     };
-  }
-
-  /** Trace a ray against the BSP world; returns the impact point or null. */
-  private traceWorldImpact(
-    start: { x: number; y: number; z: number },
-    dir: { x: number; y: number; z: number },
-    maxRange: number,
-  ): { x: number; y: number; z: number } | null {
-    return this.traceWorldImpactDetails(start, dir, maxRange)?.point ?? null;
-  }
-
-  /**
-   * Radial splash-knockback at a hitscan world-impact point (instagun).
-   * Health damage is self-gated by selfDamageMultiplier (instagib self = 0), but
-   * the knockback magnitude is decoupled (knockbackDamage), so the shooter still
-   * launches — the whole point of insta-jump.
-   */
-  private applyHitscanSplash(
-    state: WorldState,
-    shooter: Readonly<Entity>,
-    weapon: WeaponDef,
-    center: { x: number; y: number; z: number },
-  ): void {
-    const radius = weapon.splashRadius ?? 0;
-    if (radius <= 0) return;
-    const baseSplash = weapon.splashDamage ?? weapon.damage;
-    const minSplash = weapon.minSplashDamage ?? 0;
-
-    for (const target of state.entitiesByType(EntityType.Player)) {
-      if (!target.transform || !target.health || target.health.dead) continue;
-
-      const dx = target.transform.position.x - center.x;
-      const dy = target.transform.position.y - center.y;
-      const dz = target.transform.position.z - center.z;
-      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-      if (dist >= radius) continue;
-
-      const falloff = 1 - dist / radius;
-      const magnitude = Math.round(minSplash + (baseSplash - minSplash) * falloff);
-      if (magnitude <= 0) continue;
-
-      const isSelf = target.id === shooter.id;
-      const healthDamage = isSelf ? Math.round(magnitude * this.selfDamageMultiplier) : magnitude;
-
-      this.pendingDamage.push({
-        victimId: target.id,
-        attackerId: shooter.id,
-        damage: healthDamage,
-        knockbackDamage: magnitude, // push regardless of self-damage gating (insta-jump)
-        armorPiercing: 0,
-        damageType: this.weaponToDamageType(weapon.id),
-        hitLocation: HitLocation.Body,
-        knockbackDir: { x: dx, y: dy, z: dz },
-        knockbackScale: weapon.knockbackScale,
-      });
-    }
   }
 
   /**
@@ -2002,8 +1933,6 @@ export class WeaponSystem extends Subsystem {
       case "voltaic":
         return DamageType.Plasma;
       case "electrobolt":
-        return DamageType.Rail;
-      case "instagun":
         return DamageType.Rail;
       default:
         return DamageType.Bullet;

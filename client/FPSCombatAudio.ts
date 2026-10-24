@@ -23,7 +23,6 @@ const weaponFireSounds: Readonly<Record<string, readonly string[]>> = {
   ],
   voltaic: ["sounds/weapons/laser_strong_fire.ogg"],
   electrobolt: ["sounds/weapons/electrobolt_strong.ogg"],
-  instagun: ["sounds/weapons/instagun_strong.ogg"],
 };
 
 const projectileImpactSounds: Readonly<Record<string, readonly string[]>> = {

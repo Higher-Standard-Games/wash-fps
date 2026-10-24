@@ -138,7 +138,7 @@ describe("weights change item choice with no code difference", () => {
     expect(duelWeapon?.desire).toBeGreaterThan(dmWeapon?.desire ?? 0);
   });
 
-  it("itemGreed 0 makes a bot ignore items entirely (Clan Arena / Instagib shape)", () => {
+  it("itemGreed 0 makes a bot ignore items entirely (Clan Arena shape)", () => {
     const mega = entry("item_health_mega", "health", "mega", 300);
     const result = new ItemGoalPlanner().select(makeState({ health: 50 }), {
       pickupPositions: [mega],

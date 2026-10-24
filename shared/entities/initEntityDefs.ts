@@ -10,7 +10,6 @@ import {
   BOLT_AMMO,
   BULLET_AMMO,
   GRENADE_AMMO,
-  INSTA_AMMO,
   PLASMA_AMMO,
   ROCKET_AMMO,
   SHELL_AMMO,
@@ -25,7 +24,6 @@ import {
   BLADE,
   ELECTROBOLT,
   GRENADE_LAUNCHER,
-  INSTAGUN,
   MACHINEGUN,
   PLASMAGUN,
   RIOTGUN,
@@ -53,7 +51,6 @@ export function initializeEntityDefs(): void {
   // weapon_lasergun is a classname alias on the one canonical Voltaic def.
   registry.register(VOLTAIC);
   registry.register(ELECTROBOLT);
-  registry.register(INSTAGUN);
   registry.register(BLADE);
 
   // Projectiles
@@ -70,7 +67,6 @@ export function initializeEntityDefs(): void {
   registry.register(ROCKET_AMMO);
   registry.register(VOLTAIC_AMMO);
   registry.register(BOLT_AMMO);
-  registry.register(INSTA_AMMO);
 
   // Armor, health & powerup pickups
   for (const def of ARMOR_DEFS) registry.register(def);

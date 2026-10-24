@@ -336,14 +336,6 @@ function ammoCrates(): ProceduralPickupRecipe[] {
       accent: { r: 0.7, g: 0.85, b: 1.0 },
       icon: "electroammo",
     },
-    // Instagun — magenta.
-    {
-      id: "ammo_instas",
-      kind: "instas",
-      color: { r: 0.85, g: 0.4, b: 1.0 },
-      accent: { r: 0.95, g: 0.72, b: 1.0 },
-      icon: "instaammo",
-    },
   ];
 
   return crates.map(({ id, kind, color, accent, icon }) => ({

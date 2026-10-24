@@ -30,10 +30,10 @@ The optional connection-info overlay (`cl_netgraph`) is anchored bottom-right. T
 
 Vertical list of weapon slots, 1 through 9. Each slot shows:
 
-- The weapon's two-letter tag (BL, MG, RG, GL, RL, PG, VT, EB, IG).
+- The weapon's two-letter tag (BL, MG, RG, GL, RL, PG, VT, EB).
 - The weapon's colour behind the tag in the bottom loadout slots: Blade teal,
   Machinegun grey, Riotgun orange, Grenade Launcher blue, Rocket Launcher red,
-  Plasmagun green, Voltaic yellow, Electrobolt a brighter teal, Instagun magenta.
+  Plasmagun green, Voltaic yellow, Electrobolt a brighter teal.
 - Highlighted if you own the weapon.
 - Brighter highlight if it's your *currently equipped* weapon.
 - Ammo count below the tag (or `∞` for the Blade).

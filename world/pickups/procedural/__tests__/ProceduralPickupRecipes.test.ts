@@ -21,7 +21,6 @@ const AMMO_IDS = [
   "ammo_plasmagun",
   "ammo_lasers",
   "ammo_bolts",
-  "ammo_instas",
 ];
 /** Powerups; quad is the only one implemented (see shared/items/Powerups.ts). */
 const POWERUP_IDS = ["powerup_quad"];

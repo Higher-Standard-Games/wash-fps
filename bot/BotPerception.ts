@@ -44,7 +44,7 @@ export const HEARING_RANGE = {
   majorPickup: 2500,
 } as const;
 
-const LOUD_WEAPONS = new Set(["rlauncher", "glauncher", "electrobolt", "instagun"]);
+const LOUD_WEAPONS = new Set(["rlauncher", "glauncher", "electrobolt"]);
 /** An explosion this close to an enemy gives them away. */
 const EXPLOSION_REVEAL_RADIUS = 200;
 

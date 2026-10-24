@@ -81,7 +81,6 @@ describe("FPSCombatAudio", () => {
       "voltaic",
       "lasergun",
       "electrobolt",
-      "instagun",
     ]) {
       expect(getWeaponFireSounds(weapon), weapon).not.toHaveLength(0);
     }

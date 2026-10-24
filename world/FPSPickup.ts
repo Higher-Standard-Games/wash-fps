@@ -77,7 +77,6 @@ export class FPSPickup extends Pickup {
     cells: "gfx/hud/icons/ammo/plasmaammo",
     lasers: "gfx/hud/icons/ammo/laserammo",
     bolts: "gfx/hud/icons/ammo/electroammo",
-    instas: "gfx/hud/icons/ammo/instaammo",
   };
 
   /** The PVS cluster this pickup stands in, per culler (one per map load). */

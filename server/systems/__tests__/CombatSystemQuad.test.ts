@@ -124,26 +124,6 @@ describe("CombatSystem — quad damage", () => {
     expect(quad.impulses).toHaveLength(1);
     expect(quad.impulses[0].force).toBe(plain.impulses[0].force * 4);
   });
-
-  it("quadruples an explicitly decoupled knockbackDamage as well", () => {
-    // 0-damage shoves / instagib insta-jump set knockbackDamage directly; that
-    // path bypasses finalDamage, so it needs the multiplier applied separately.
-    const { combat, impulses, state } = setup(true);
-    combat.queueDamage({
-      victimId: 1 as never,
-      attackerId: 2 as never,
-      damage: 0,
-      knockbackDamage: 50,
-      armorPiercing: 0,
-      damageType: DamageType.Explosion,
-      hitLocation: HitLocation.Body,
-      knockbackDir: { x: 0, y: 1, z: 0 },
-      knockbackScale: 10,
-    });
-    combat.update(state as never, 0.008, 10 as never);
-    // 50 * 4 quad * 10 scale, enemy so no self multiplier
-    expect(impulses[0].force).toBe(2000);
-  });
 });
 
 describe("CombatSystem — quad self-damage", () => {

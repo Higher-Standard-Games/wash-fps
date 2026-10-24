@@ -19,5 +19,4 @@ export { TeamDeathmatch } from "./TeamDeathmatch";
 // Future:
 // export { CaptureTheFlag } from './CaptureTheFlag';
 // export { Race } from './Race';
-// export { Instagib } from './Instagib';
 // export { ClanArena } from './ClanArena';

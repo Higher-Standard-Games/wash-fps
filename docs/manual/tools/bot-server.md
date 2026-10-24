@@ -101,7 +101,7 @@ validated jumps) set the view exactly and bypass all of this.
 A bot knows what it sees and what it hears, not everything the server sends
 (`BotPerception.ts`). It sees enemies in line of sight within 55° of its view
 (70° for fast movers). It hears shots (1200 units; rockets, grenades, the
-electrobolt and instagun 2000), explosions (1500), running footsteps (500),
+electrobolt 2000), explosions (1500), running footsteps (500),
 jumps and landings (800), pain (800) and pickups (900; armour, mega and powerups
 2500). A heard enemy is known where the sound came from. A heard major pickup is
 timed, with an error that shrinks with item-timing skill, and the bot is back at

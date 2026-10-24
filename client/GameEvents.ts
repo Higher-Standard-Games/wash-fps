@@ -209,7 +209,6 @@ export const WEAPON_EFFECT_COLORS: Record<string, [number, number, number]> = {
   riotgun: [1.0, 0.6, 0.2], // orange
   voltaic: [1.0, 0.7, 0.1], // warm orange (beam)
   electrobolt: [0.3, 0.6, 1.0], // blue
-  instagun: [0.8, 0.2, 1.0], // purple
 };
 
 // Reused because VoltaicEffectRenderer copies every field synchronously into
@@ -1272,7 +1271,6 @@ export function handleRemoteWeaponFire(
       });
       break;
     case "electrobolt":
-    case "instagun":
       // Rail is drawn from the authoritative electro_rail event (WO-EB3), not
       // from this predicted client-side trace — avoids a through-wall bolt and a
       // double draw. The muzzle flash still comes from the weapon_fire anim.

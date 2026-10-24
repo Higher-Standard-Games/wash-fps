@@ -5,7 +5,7 @@
  *
  *  F2 — single-ray hitscan pitch inversion. `fireHitscan` double-negated pitch
  *       (`const p = -pitch`, where `pitch` is already `-input.pitch`), so the
- *       machinegun/electrobolt/instagun damage ray had the opposite vertical sign
+ *       machinegun/electrobolt damage ray had the opposite vertical sign
  *       to the tracer visual and every other fire path. Symptom: aiming up hit low.
  *
  *  F1 — fire cadence used `Math.floor(125 / fireRate)`, truncating so weapons whose
@@ -439,40 +439,6 @@ describe("WeaponSystem — F1 fire cadence", () => {
     expect(fireTicks[0]).toBe(expected);
     const gaps = fireTicks.slice(1).map((t, i) => t - fireTicks[i]);
     expect([...new Set(gaps)]).toEqual([expected]);
-  });
-});
-
-describe("WeaponSystem — F4 instagun insta-jump (hitscan splash-knockback)", () => {
-  // Collision world stub: the ray always hits a floor just below the shooter.
-  const floorImpact = { fraction: 0.5, hitPoint: { x: 0, y: -6, z: 0 }, normal: { x: 0, y: 1, z: 0 } };
-  const collisionWorld = { trace: () => floorImpact };
-  const instaLoadout = { weapons: ["instagun"], ammo: { instagun: 5 }, health: 100, armor: 0 };
-
-  it("launches the shooter (upward knockback) with zero self-damage in instagib", () => {
-    const sys = new WeaponSystem();
-    sys.setCollisionWorld(collisionWorld as never);
-    sys.selfDamageMultiplier = 0; // instagib: no self-damage
-    sys.initializeWeaponFromLoadout(1 as never, instaLoadout as never);
-
-    const shooter = makeShooter(0, 1.5); // aim steeply down at the floor
-    sys.update(makeState([shooter]) as never, 1 / 125, 200 as never);
-
-    const selfEvent = sys.getPendingDamage().find((d) => d.victimId === 1);
-    expect(selfEvent).toBeDefined();
-    expect(selfEvent!.damage).toBe(0); // no suicide
-    expect(selfEvent!.knockbackDamage).toBeGreaterThan(0); // but still launched
-    expect(selfEvent!.knockbackDir!.y).toBeGreaterThan(0); // impact below → pushed up
-  });
-
-  it("does no self-knockback when there is no collision world (guard)", () => {
-    const sys = new WeaponSystem();
-    sys.selfDamageMultiplier = 0;
-    sys.initializeWeaponFromLoadout(1 as never, instaLoadout as never);
-
-    const shooter = makeShooter(0, 1.5);
-    sys.update(makeState([shooter]) as never, 1 / 125, 200 as never);
-
-    expect(sys.getPendingDamage()).toHaveLength(0);
   });
 });
 

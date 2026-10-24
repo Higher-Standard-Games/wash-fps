@@ -16,7 +16,7 @@ You can carry the Blade plus up to two other weapons. Picking up a fourth weapon
 
 | Ammo types |
 | --- |
-| Shells, bullets, rockets, cells, grenades, bolts, instas and lasers |
+| Shells, bullets, rockets, cells, grenades, bolts and lasers |
 | Blade uses no finite ammo pool |
 
 The total ammo pool is shared across weapons of the same ammo type. Ammo pickups add to your pool; capacity defaults to 200 (per type).

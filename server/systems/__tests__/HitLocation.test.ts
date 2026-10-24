@@ -228,7 +228,7 @@ describe("a real hitscan shot", () => {
 });
 
 describe("which weapons can score a head hit", () => {
-  const others = ["machinegun", "electrobolt", "instagun", "voltaic", "blade"];
+  const others = ["machinegun", "electrobolt", "voltaic", "blade"];
 
   it("recognises the riotgun as a pellet weapon, and no other", () => {
     expect(firesPellets(WEAPONS.riotgun)).toBe(true);

@@ -1,6 +1,6 @@
 # Weapons
 
-Nine weapons, organized by slot. Numbers below are server-authoritative defaults from this game's `shared/entities/definitions/weapons/*.ts` and the matching projectile definitions in `shared/entities/definitions/projectiles/*.ts`. Balance is still evolving — file an issue if anything feels off.
+Eight weapons, organized by slot. Numbers below are server-authoritative defaults from this game's `shared/entities/definitions/weapons/*.ts` and the matching projectile definitions in `shared/entities/definitions/projectiles/*.ts`. Balance is still evolving — file an issue if anything feels off.
 
 Clip weapons play a short mechanical cue when a reload starts. Your own weapon
 and a followed player's weapon use first-person audio; other players' reloads
@@ -19,7 +19,6 @@ a demo does not replay an already-running reload.
 | 6 | **Plasma Gun** | PG | 15 / bolt | 10/s | cells (clip) | Bolt projectile; 45 u splash; spam tool |
 | 7 | **Voltaic** | VT | 7 / tick | 20/s | lasers (clip) | Chain-lightning beam; unstable at the hip, precise under ADS |
 | 8 | **Electrobolt** | EB | 75 | 0.8/s | bolts (pool) | Hitscan rail; long reload |
-| 9 | **Instagun** | IG | 200 | 0.77/s | instas (pool) | Effectively one-shot; 80 u splash + insta-jump |
 
 Fire rates were retuned for the corrected 125 Hz server tick (v0.9.16): the rocket/grenade launcher and riotgun all sit at **1.25/s (800 ms)**.
 
@@ -108,18 +107,6 @@ Hitscan rail.
 
 High punish per shot, long reload. It is a heavy weapon: **−25 run speed** while held (375 u/s). Stand your ground in long sightlines. Missing hurts — the reload is more than enough time for an enemy to reposition and answer.
 
-## Slot 9 — Instagun
-
-The cleanup gun.
-
-- **Damage** — 200 (instakill for full-health, no-armor targets).
-- **Fire rate** — 0.77 shots/sec (1300 ms reload).
-- **Ammo** — `instas`.
-- **Splash** — 50 damage within 80 units (small but present).
-- **Insta-jump** — the splash applies **knockback but no self-damage**, so you can launch yourself off your own feet without dying (instagib-style rocket jumps). The launch always applies even when self-damage is gated to zero.
-
-Reserved for specific gametype configurations. In any mode where the Instagun is enabled, ammo is the limiting factor — picking up an instas pack is a meaningful pickup.
-
 ## Empty Guns: Click, Then Trade
 
 Pulling the trigger on a weapon with no ammo and nothing to reload from does not leave you stuck:
@@ -136,7 +123,7 @@ Each weapon uses one of three ammo/reload models (`reloadModel` in its definitio
 | Model | Weapons | Behavior |
 |-------|---------|----------|
 | **clip** | Machinegun (30), Riotgun (8), Plasma (50), Voltaic (120) | Magazine + reserve. Fire empties the clip, then **R** (or auto-reload) refills it from reserve; firing is blocked mid-reload. The HUD shows `clip / reserve`. |
-| **pool** | Rocket L., Grenade L., Electrobolt, Instagun | A single ammo count, no reload — fire until empty. |
+| **pool** | Rocket L., Grenade L., Electrobolt | A single ammo count, no reload — fire until empty. |
 | **none** | Blade | No ammo at all. |
 
 Clip sizes in parentheses.
@@ -168,7 +155,7 @@ At close range the same angular spread causes less lateral displacement; there
 is no distance-based accuracy switch. These three weapons' sight transitions use
 their configured weapon ADS time rather than the cosmetic `cl_ads_time` setting.
 
-The Blade does not support ADS. The Instagun is effectively always-precise.
+The Blade does not support ADS.
 
 ## See Also
 

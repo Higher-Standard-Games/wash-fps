@@ -11,7 +11,7 @@ afterEach(() => {
 
 it("installs Washoi definitions and primary/alias handlers, and delegates map disposal", () => {
   fpsMapEntities.initializeDefinitions();
-  expect(EntityRegistry.getInstance().getAllIds()).toHaveLength(31);
+  expect(EntityRegistry.getInstance().getAllIds()).toHaveLength(29);
   fpsMapEntities.registerHandlers();
   for (const id of ["rlauncher", "health_medium", "ammo_shells"]) {
     const def = EntityRegistry.getInstance().get(id)!;

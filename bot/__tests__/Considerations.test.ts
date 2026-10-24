@@ -21,7 +21,7 @@ import { ITEM_CONSIDERATIONS } from "../goals/ItemGoalPlanner";
 
 const TYPES: PickupType[] = ["weapon", "ammo", "armor", "health", "powerup"];
 const KINDS: Record<string, string[]> = {
-  weapon: ["machinegun", "rlauncher", "instagun", "blade"],
+  weapon: ["machinegun", "rlauncher", "electrobolt", "blade"],
   ammo: ["bullets", "rockets", "cells", "lasers", "shells"],
   armor: ["shard", "ga", "ya", "ra"],
   health: ["small", "medium", "large", "mega", "ultra"],

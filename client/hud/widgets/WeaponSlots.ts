@@ -11,7 +11,7 @@ import type { FPSHudWidget, HUDState } from "../HudWidget";
  * Each weapon's colour, as "hue, saturation%, lightness%" for `hsla()`; slots
  * are tinted with it. Players asked for these: blade teal, rockets red,
  * grenades blue, electrobolt a brighter teal, voltaic yellow, machinegun grey,
- * plasma green. The riotgun takes orange and the instagun magenta.
+ * plasma green. The riotgun takes orange.
  */
 export const WEAPON_SLOT_COLORS: Record<string, string> = {
   blade: "172, 72%, 44%",
@@ -23,7 +23,6 @@ export const WEAPON_SLOT_COLORS: Record<string, string> = {
   voltaic: "52, 96%, 56%",
   lasergun: "52, 96%, 56%",
   electrobolt: "186, 96%, 60%",
-  instagun: "312, 88%, 64%",
 };
 
 /** Map weapon ID → 2-letter abbreviation */
@@ -36,7 +35,6 @@ const WEAPON_ABBR: Record<string, string> = {
   plasmagun: "PG",
   voltaic: "VT",
   electrobolt: "EB",
-  instagun: "IG",
 };
 
 /** Check if a weapon ID is the permanent default weapon */

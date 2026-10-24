@@ -8,7 +8,7 @@ player or watching their demo POV). Suicides do not play it. Its volume follows
 
 ## Hit locations
 
-Hitscan weapons (Machinegun, Riotgun, Voltaic, Electrobolt, Instagun and the Blade) test where on the body the shot lands. The **Riotgun is the exception for the head**: see below.
+Hitscan weapons (Machinegun, Riotgun, Voltaic, Electrobolt and the Blade) test where on the body the shot lands. The **Riotgun is the exception for the head**: see below.
 
 | Location | Where | Damage |
 |----------|-------|-------:|
@@ -37,7 +37,6 @@ Explosive weapons hurt everyone inside their radius, and the damage **falls off 
 | Rocket Launcher | 150 u | 80 | 15 |
 | Grenade Launcher | 150 u | 80 | 15 |
 | Plasma Gun | 45 u | 15 | 5 |
-| Instagun | 80 u | 50 | 10 |
 
 A projectile that hits a player directly does its full direct damage (80 for rockets and grenades), and that player is not also hit by the splash from the same explosion. Everyone else in the radius takes the falloff damage.
 
@@ -48,13 +47,12 @@ so a close wall cannot place the projectile on its far side.
 
 ## Knockback
 
-Every hit pushes the victim away from the shot or explosion. The push is **damage × the weapon's knockback scale**, so high-damage, high-scale weapons shove hardest (rockets and grenades scale 10, the Instagun 12, the Electrobolt 3.5, the Machinegun 2). A few rules shape it:
+Every hit pushes the victim away from the shot or explosion. The push is **damage × the weapon's knockback scale**, so high-damage, high-scale weapons shove hardest (rockets and grenades scale 10, the Electrobolt 3.5, the Machinegun 2). A few rules shape it:
 
 - **The push has an upward bias**, so even a flat hit lifts you a little.
 - **Self-knockback is halved** compared with the same hit on an enemy. Rocket jumps are still strong, just not twice as strong.
 - **Quad Damage multiplies knockback too**, along with damage (×4), including on yourself.
 - **Stun.** A hit also strips horizontal speed from the victim, in proportion to the damage dealt (100 damage takes 80%, the maximum), so taking a hit mid-strafe-jump costs you momentum.
-- **Insta-jump.** The Instagun's push is independent of the damage you take, so you can launch yourself without being hurt.
 
 ## Self damage
 
@@ -72,7 +70,7 @@ Your own explosions hurt you at the gametype's self-damage setting, which is ful
 
 ## Lag compensation
 
-For weapons that use it (Machinegun, Riotgun, Voltaic, Electrobolt and Instagun; not the Blade or any projectile weapon), the server rewinds other players to the moment your client was showing you before testing the shot, so a shot that was on target on your screen hits. See [Connecting](../multiplayer/connecting.md#reading-the-netgraph).
+For weapons that use it (Machinegun, Riotgun, Voltaic and Electrobolt; not the Blade or any projectile weapon), the server rewinds other players to the moment your client was showing you before testing the shot, so a shot that was on target on your screen hits. See [Connecting](../multiplayer/connecting.md#reading-the-netgraph).
 
 ## See also
 

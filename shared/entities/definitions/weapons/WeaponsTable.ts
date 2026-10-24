@@ -12,7 +12,6 @@ import {
   BLADE,
   ELECTROBOLT,
   GRENADE_LAUNCHER,
-  INSTAGUN,
   MACHINEGUN,
   PLASMAGUN,
   RIOTGUN,
@@ -35,7 +34,6 @@ export const WEAPONS: Record<string, WeaponDef> = {
   // gameplay definition, not a parallel implementation.
   lasergun: VOLTAIC,
   [ELECTROBOLT.id]: ELECTROBOLT,
-  [INSTAGUN.id]: INSTAGUN,
   [BLADE.id]: BLADE,
   // ── Projectile aliases (F8) ──
   // Projectiles register under their own `projectileId` (not the firing weapon's id),

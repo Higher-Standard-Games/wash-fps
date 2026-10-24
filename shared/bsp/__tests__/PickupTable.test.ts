@@ -68,7 +68,6 @@ describe("extractPickups", () => {
       ent("ammo_rocketlauncher", "0 0 0"),
       ent("ammo_lasergun", "0 0 0"),
       ent("ammo_electrobolt", "0 0 0"),
-      ent("ammo_instagun", "0 0 0"),
     ]);
     expect(out.map((e) => `${e.kind}:${e.amount}`)).toEqual([
       "bullets:50",
@@ -78,7 +77,6 @@ describe("extractPickups", () => {
       // ammo_lasergun feeds the beam's own `lasers` pool, not the plasmagun's cells.
       "lasers:100",
       "bolts:10",
-      "instas:5",
     ]);
   });
 

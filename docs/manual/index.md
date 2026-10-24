@@ -3,7 +3,7 @@ layout: home
 hero:
   name: Washiki Washoi
   text: Learn the map. Own the fight.
-  tagline: The player manual for fast movement, nine weapons, four lobby modes and your next match.
+  tagline: The player manual for fast movement, eight weapons, four lobby modes and your next match.
   actions:
     - theme: brand
       text: Your first match

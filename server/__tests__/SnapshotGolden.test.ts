@@ -314,10 +314,6 @@ describe("buildSnapshot golden", () => {
                 "clip": 20,
                 "reserve": 0,
               },
-              "instagun": {
-                "clip": 5,
-                "reserve": 0,
-              },
               "machinegun": {
                 "clip": 30,
                 "reserve": 120,
@@ -372,10 +368,6 @@ describe("buildSnapshot golden", () => {
               },
               "glauncher": {
                 "clip": 20,
-                "reserve": 0,
-              },
-              "instagun": {
-                "clip": 5,
                 "reserve": 0,
               },
               "machinegun": {

@@ -344,7 +344,6 @@ export class GameServer {
     // Wire gametype self-damage config into projectile + weapon systems
     const matchConfig = this.gametypeController.getMatchState().getConfig();
     this.projectileSystem.selfDamageMultiplier = matchConfig.selfDamage;
-    this.weaponSystem.selfDamageMultiplier = matchConfig.selfDamage;
 
     // Create transport
     // Allow extra connection slots for spectators beyond the player limit.
