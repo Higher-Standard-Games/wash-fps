@@ -28,6 +28,15 @@ relative `--data-dir` paths resolve there. To use a separate test database,
 pass `-- --data-dir ./server-data-test` to both lobby and bot commands.
 Use the same data directory for both so they share their control secret.
 
+## Production operations
+
+Production operators use independent engine/game checkouts and select exact
+revisions in `/srv/washoi/release-pair.json`. The regional deploy and startup
+scripts, activation behavior and rollback procedure are documented in the
+[production runbook](https://github.com/Higher-Standard-Games/wash-fps/blob/main/scripts/deployment/README.md).
+Changing npm commands does not itself release new application code or restart
+running servers.
+
 ## Gameplay Cvars
 
 Server-side tunables (defaults shown). Movement cvars live in `src/engine/movement/MovementVars.ts`.
