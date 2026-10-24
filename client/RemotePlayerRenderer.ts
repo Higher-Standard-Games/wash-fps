@@ -44,6 +44,7 @@ import type { GameState } from "../../../engine/network/core/GameState";
 import { waterNeedsLocalReflection } from "../../../engine/rendering/water/WaterActorReflection";
 import { getHitscanEffects } from "../../../engine/weapon/HitscanEffects";
 import type { VoltaicRemoteStartResolver } from "../../../engine/weapon/voltaic/VoltaicEffectRenderer";
+import { dropDistantWeaponDetail } from "../../../engine/weapon/WeaponDetail";
 import { WEAPONS } from "../shared/entities/definitions/weapons/WeaponsTable";
 import { maskHasPowerup } from "../shared/items/Powerups";
 import { attachBladeToPlayer } from "./AttachedBlade";
@@ -1929,6 +1930,8 @@ export class RemotePlayerRenderer {
             m.isVisible = true;
           }
         }
+
+        dropDistantWeaponDetail(result.meshes);
 
         if (!leaderMesh) {
           console.warn(`[RemoteWeapon] No meshes with geometry for ${weaponId}`);

@@ -26,6 +26,7 @@ import { resolveModelAsset } from "../../../engine/loader/model/ModelAsset";
 import { ModelInstanceCache } from "../../../engine/loader/model/ModelInstanceCache";
 import type { ModelLoadResult } from "../../../engine/loader/model/ModelLoader";
 import { bindLoaderLeftovers, disposeModelResources } from "../../../engine/loader/model/ModelSourceCache";
+import { dropDistantWeaponDetail } from "../../../engine/weapon/WeaponDetail";
 import { describeModelRender } from "../../../engine/world/ModelRenderAudit";
 import { EntityRegistry } from "../../../shared/entities/EntityRegistry";
 import type { WeaponDef } from "../../../shared/entities/WeaponDef";
@@ -381,6 +382,12 @@ class DroppedWeaponVisual {
   }
 }
 
+/** A dropped weapon's small parts stop drawing at range, as held weapons' do. */
+function withDistantDetailDropped(result: ModelLoadResult | null): ModelLoadResult | null {
+  if (result) dropDistantWeaponDetail(result.meshes);
+  return result;
+}
+
 export class DroppedWeaponRenderer {
   private scene: Scene;
   private disposed = false;
@@ -413,7 +420,7 @@ export class DroppedWeaponRenderer {
       // clones, as remote held weapons do.
       { shareStaticMaterials: !this.scene.getEngine().isWebGPU },
     );
-    return this.fallbackCache.createInstance(path, scale);
+    return withDistantDetailDropped(await this.fallbackCache.createInstance(path, scale));
   }
 
   private async loadBarrelModel(path: string): Promise<ModelLoadResult | null> {
@@ -445,7 +452,7 @@ export class DroppedWeaponRenderer {
       },
       { shareStaticMaterials: !this.scene.getEngine().isWebGPU },
     );
-    return this.barrelCache.createInstance(path, 1);
+    return withDistantDetailDropped(await this.barrelCache.createInstance(path, 1));
   }
 
   /** Stashed initial velocities from weapon_drop events (entityId → velocity, when) */
