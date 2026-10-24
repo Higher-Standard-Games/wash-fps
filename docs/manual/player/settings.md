@@ -76,7 +76,7 @@ Three **presets** change only what costs frames, and leave brightness and outlin
 
 | Preset | What it does |
 |--------|--------------|
-| **Smooth** | The most frames: plain water, no light shafts, no bloom, no reflections |
+| **Smooth** | The most frames: plain water, no light shafts, no bloom, no reflections, hard-edged halos |
 | **Balanced** | The look the game ships with: bloom off, 4× texture sharpness |
 | **Pretty** | Adds glow and reflections, and wants a strong graphics card |
 
@@ -85,7 +85,7 @@ Below the presets the settings are in five sections. Pips beside each setting sh
 | Section | Settings |
 |---------|----------|
 | **Screen** | Fullscreen, brightness (`r_exposure`) and contrast (`r_contrast`) |
-| **Effects** | Bloom (`r_bloom`), reflections (`r_ssr`) and their strength (`r_ssr_strength`), light shafts (`r_godrays`: Off, Low or High), glow (`r_glow`), comic outlines on the world (`r_cel_outlines`) |
+| **Effects** | Bloom (`r_bloom`), reflections (`r_ssr`) and their strength (`r_ssr_strength`), light shafts (`r_godrays`: Off, Low or High), soft halos (`r_softhalos`: lamp halos and flares fade where they meet a wall instead of ending in a line), glow (`r_glow`), comic outlines on the world (`r_cel_outlines`) |
 | **World** | Water quality (`r_water_quality`: Low, Medium or High), players reflected in water (`r_water_actors`, High water only), light cast from the map's glowing panels (`r_arealights`), how much the view warps under water (`r_underwater_distortion`) |
 | **Textures** | Sharpness at an angle (`r_anisotropy`), detailed surfaces (`r_bsp_pbr`) |
 | **Advanced** | Map texture detail (`r_picmip`): Full, Soft, Softer, Blurred or Flat color; applies next map. **Color blindness** and **Correction strength**; see below |

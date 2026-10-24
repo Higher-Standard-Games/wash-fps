@@ -237,6 +237,16 @@ export class VideoPage {
       get: () => godrayChoice(),
       set: (choice) => applyChoice(choice),
     });
+    seg(this.host, parent, {
+      name: "Soft halos",
+      help: "Lamp halos fade into walls instead of ending in a line",
+      cost: "low",
+      choices: onOff,
+      get: () => flag("r_softhalos"),
+      set: (value) => {
+        Cvar.set("r_softhalos", value);
+      },
+    });
     slider(this.host, parent, {
       name: "Glow",
       help: "Signs, strips and energy shine",

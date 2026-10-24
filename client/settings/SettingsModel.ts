@@ -342,7 +342,7 @@ export const VIDEO_PRESETS: Array<CvarChoice<"smooth" | "balanced" | "pretty"> &
   {
     id: "smooth",
     label: "Smooth",
-    line: "The most frames. Plain water, no light shafts, no bloom.",
+    line: "The most frames. Plain water, no light shafts, no bloom, hard-edged halos.",
     bars: 1,
     values: {
       r_bloom: 0,
@@ -352,6 +352,7 @@ export const VIDEO_PRESETS: Array<CvarChoice<"smooth" | "balanced" | "pretty"> &
       r_anisotropy: 4,
       r_picmip: 1,
       r_godrays: 0,
+      r_softhalos: 0,
       r_water_quality: 1,
       r_water_actors: 0,
       r_arealights: 0,
@@ -372,6 +373,7 @@ export const VIDEO_PRESETS: Array<CvarChoice<"smooth" | "balanced" | "pretty"> &
       r_picmip: 0,
       r_godrays: 1,
       r_godrays_samples: 60,
+      r_softhalos: 1,
       r_water_quality: 2,
       r_water_actors: 1,
       r_arealights: 1,
@@ -393,6 +395,7 @@ export const VIDEO_PRESETS: Array<CvarChoice<"smooth" | "balanced" | "pretty"> &
       r_picmip: 0,
       r_godrays: 1,
       r_godrays_samples: 60,
+      r_softhalos: 1,
       r_water_quality: 3,
       r_water_actors: 1,
       r_arealights: 1,
@@ -435,6 +438,7 @@ export const VIDEO_SECTIONS: Array<{
       (cvarNumber("r_glow") > 0 ? 2 : 0) +
       (cvarNumber("r_ssr") > 0 ? 3 : 0) +
       { off: 0, low: 1, high: 2 }[godrayChoice().id] +
+      (cvarNumber("r_softhalos") > 0 ? 1 : 0) +
       (Cvar.getBool("r_cel_outlines") ? 1 : 0),
   },
   {
@@ -633,6 +637,7 @@ export const PAGE_CVARS: Record<SettingsPageId, string[]> = {
     "r_anisotropy",
     "r_godrays",
     "r_godrays_samples",
+    "r_softhalos",
     "r_water_quality",
     "r_water_actors",
     "r_arealights",
