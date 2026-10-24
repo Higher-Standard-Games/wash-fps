@@ -309,7 +309,6 @@ export class BombSiteMarkers {
       getExplosionEffect().spawn(blast.position, {
         ...ROCKET_EXPLOSION,
         scale: ROCKET_EXPLOSION.scale * BLAST_SCALE,
-        splashRadius: blast.radius,
         // Every blast shaking the camera at full strength during a thirty-point
         // chain is nausea, not drama.
         shakeIntensity: 0.35,
