@@ -209,9 +209,7 @@ describe("first-person prepared model sources", () => {
       [3, 4, 1],
       [3, 4, 5],
     ]);
-    expect(barrels[0].root.getChildMeshes(false)[0].material).not.toBe(
-      barrels[1].root.getChildMeshes(false)[0].material,
-    );
+    expect(barrels[0].root.getChildMeshes(false)[0].material).toBe(barrels[1].root.getChildMeshes(false)[0].material);
     for (let i = 0; i < 2; ++i) {
       await view.loadWeapon("riotgun");
       await view.loadWeapon("plasmagun");
