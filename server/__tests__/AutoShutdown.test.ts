@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@engine/server/network/transport/WebSocketTransport", () => import("./_fakeTransport"));
 
-import { GameServer, type GameServerConfig, NO_PLAYERS_SHUTDOWN_MS } from "../GameServer";
+import { GameServer, type GameServerConfig, INITIAL_LOAD_GRACE_MS, NO_PLAYERS_SHUTDOWN_MS } from "../GameServer";
 import { Deathmatch } from "../gametypes/Deathmatch";
 
 const config: GameServerConfig = {
@@ -50,6 +50,7 @@ function connect(inner: Inner, isBot: boolean) {
     lastAckedTick: 0,
     ping: 0,
     resumeToken: "",
+    initialLoadUntilMs: undefined as number | undefined,
   };
   inner.clients.set(id, client);
   return client;
@@ -170,5 +171,25 @@ describe("auto-shutdown when humans only watch", () => {
     inner.checkNoPlayers(0);
     inner.checkNoPlayers(10 * NO_PLAYERS_SHUTDOWN_MS);
     expect(stop).not.toHaveBeenCalled();
+  });
+
+  it("protects a loading human beyond two minutes but eventually closes an abandoned load", () => {
+    const { inner, stop, human } = watched();
+    human.initialLoadUntilMs = INITIAL_LOAD_GRACE_MS;
+    inner.checkNoPlayers(0);
+    inner.checkNoPlayers(3 * NO_PLAYERS_SHUTDOWN_MS);
+    expect(stop).not.toHaveBeenCalled();
+    inner.checkNoPlayers(INITIAL_LOAD_GRACE_MS - 1);
+    inner.checkNoPlayers(INITIAL_LOAD_GRACE_MS + NO_PLAYERS_SHUTDOWN_MS);
+    expect(stop).toHaveBeenCalledOnce();
+  });
+
+  it("does not let an intentional spectator retain the initial loading allowance", () => {
+    const { inner, stop, human } = watched();
+    human.initialLoadUntilMs = INITIAL_LOAD_GRACE_MS;
+    inner.handleSpectate(human.connection);
+    inner.checkNoPlayers(0);
+    inner.checkNoPlayers(NO_PLAYERS_SHUTDOWN_MS);
+    expect(stop).toHaveBeenCalledOnce();
   });
 });

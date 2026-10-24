@@ -21,6 +21,7 @@ vi.mock("../../../../engine/ui/MapLoadingOverlay", () => ({
   MapLoadingOverlay: {
     hold: (key: string) => calls.push(`hold:${key}`),
     release: (key: string) => calls.push(`release:${key}`),
+    cancel: () => calls.push("cancel-loading"),
   },
 }));
 vi.mock("../../../../engine/loader/map/ClientMapLoader", () => ({
@@ -151,6 +152,23 @@ describe("MatchMapLoader", () => {
     expect(h.shutdown).toHaveBeenCalledOnce();
     expect(h.joinGame).not.toHaveBeenCalled();
     expect(calls.at(-1)).toBe("release:fps:postload");
+  });
+
+  it("releases a cancelled load immediately and never auto-joins when its remaining work finishes", async () => {
+    let ready!: () => void;
+    weaponLoading = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    const h = host();
+    const loader = new MatchMapLoader(h, { autoJoin: true });
+    const pending = loader.onServerInfo({ map: "wdm7" });
+    await vi.waitFor(() => expect(calls).toContain("weapons"));
+    loader.cancel();
+    expect(calls).toContain("cancel-loading");
+    ready();
+    await pending;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(h.joinGame).not.toHaveBeenCalled();
   });
 
   it("shuts down and still releases the curtain when the map load reports failure", async () => {

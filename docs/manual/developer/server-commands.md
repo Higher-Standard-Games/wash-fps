@@ -30,6 +30,13 @@ Use the same data directory for both so they share their control secret.
 
 ## Production operations
 
+Lobby-admitted human players have a 15-minute initial-loading allowance while
+they remain connected as spectators. Entering play or explicitly choosing to
+spectate ends that allowance. After it expires, the spectator-only idle policy
+can close the match after two minutes without a playing human. Empty-server and
+post-game cleanup remain separate; this allowance does not reserve a dropped
+spectator connection for 15 minutes.
+
 Production operators use independent engine/game checkouts and select exact
 revisions in `/srv/washoi/release-pair.json`. The regional deploy and startup
 scripts, activation behavior and rollback procedure are documented in the

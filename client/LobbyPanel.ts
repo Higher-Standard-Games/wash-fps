@@ -29,6 +29,8 @@ import { type DemoScope, DemosView } from "./DemosView";
 import { devLog } from "./DevLog";
 import { ensureFpsLobbyConnection, getFpsLobbyClient } from "./FpsLobbyService";
 import { LeaderboardView } from "./LeaderboardView";
+import { LobbyAssetPreparation } from "./LobbyAssetPreparation";
+import { LobbyDownloadIndicator } from "./LobbyDownloadIndicator";
 import { LobbyFullNotice, offlineRetryDelaySec } from "./LobbyFullNotice";
 import { describeRoom, playKeys, roomCountLabel, sortRooms } from "./LobbyRooms";
 import { LobbyWelcomeGuide } from "./LobbyWelcomeGuide";
@@ -127,6 +129,7 @@ export class LobbyPanel extends GamePanel {
   private welcomeOverlay: WelcomeOverlay | null = null;
   private welcomeGuide: LobbyWelcomeGuide | null = null;
   private creditsKey: HTMLButtonElement | null = null;
+  private downloads: LobbyDownloadIndicator | null = null;
   private versionTag: HTMLSpanElement | null = null;
   private devlogLink: HTMLAnchorElement | null = null;
   private credits: CreditsDialog | null = null;
@@ -262,7 +265,8 @@ export class LobbyPanel extends GamePanel {
     this.devlogLink.rel = "noopener noreferrer";
     this.devlogLink.textContent = "DEVLOG";
     this.devlogLink.title = "News from the team, in a new tab";
-    links.prepend(this.versionTag, this.devlogLink, this.creditsKey);
+    this.downloads = new LobbyDownloadIndicator();
+    links.prepend(this.downloads.root, this.versionTag, this.devlogLink, this.creditsKey);
     this.connected = this.initLobbyConnection();
   }
 
@@ -284,6 +288,7 @@ export class LobbyPanel extends GamePanel {
 
   private syncCredits(): void {
     if (!this.creditsKey) return;
+    if (this.downloads) this.downloads.root.hidden = this.currentTabId !== "matchmaking";
     this.creditsKey.hidden = this.currentTabId !== "matchmaking" || this.matchLobbyView !== null;
     if (this.versionTag) this.versionTag.hidden = this.creditsKey.hidden;
     if (this.devlogLink) this.devlogLink.hidden = this.creditsKey.hidden;
@@ -878,7 +883,10 @@ export class LobbyPanel extends GamePanel {
       this.lobbyClient,
       lobby,
       this.localLobbyPlayerId ?? undefined,
-      { fillWithBots: quickPlay ? QUICK_PLAY_BOTS : 0 },
+      {
+        fillWithBots: quickPlay ? QUICK_PLAY_BOTS : 0,
+        onMapSelection: (map) => LobbyAssetPreparation.shared.selectMap(map),
+      },
     );
     this.matchLobbyView.onLeave(() => {
       if (this.currentLobbyId) {
@@ -1395,6 +1403,7 @@ export class LobbyPanel extends GamePanel {
     this.railEl?.classList.remove("lobby__rail--room");
     this.matchLobbyView = null;
     this.currentLobbyId = null;
+    LobbyAssetPreparation.shared.selectMap(null);
     this.currentInviteToken = undefined;
     this.refreshPlayerCard();
     this.welcomeGuide?.refresh();
@@ -1404,6 +1413,7 @@ export class LobbyPanel extends GamePanel {
   }
 
   public override destroy(): void {
+    this.downloads?.destroy();
     this.linksObserver?.disconnect();
     this.destroyed = true;
     this.chatScroll?.destroy();

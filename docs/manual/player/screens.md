@@ -2,6 +2,31 @@
 
 What you see from the moment a match is found to the result screen, and how to read the scoreboard.
 
+## Downloads before a match
+
+Open the download button for a package list. Each package shows whether it is
+queued, being transferred or ready. **Ready** includes packages reused from
+cache; it does not imply a fresh download or guarantee permanent browser storage.
+Click outside the popup to close it.
+
+The Play page shows download status beside the version and links. The lobby
+prepares common game assets and the room's chosen map in the background; map
+votes can change which map is prepared. Open the indicator for package sizes,
+transfer speeds, the **Pause background downloads** checkbox and **Retry**.
+Uncheck the box to resume. A browser requesting reduced data use starts with background work
+paused. Pausing optional work does not block downloads needed to join a match.
+
+Joining reuses downloads already underway. Completed, versioned packages are
+cached across page reloads when browser storage is available. Browser storage
+can be cleared or evicted, and each website origin has its own cache.
+**Downloads ready** covers the preparation set; joining may still need more
+assets, model setup and shader compilation. The match loading screen remains
+until that setup finishes.
+
+A failed match connection shows **Connection lost** and **Back to lobby** rather
+than leaving a frozen spectator view. Return to the lobby to start another join;
+successfully cached packages remain available.
+
 ## The phases of a match
 
 The server moves every match through the same phases. A banner in the middle of the screen tells you which one you are in.

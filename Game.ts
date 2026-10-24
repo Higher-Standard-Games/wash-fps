@@ -693,6 +693,11 @@ export class Game {
       const mapLoader = new MatchMapLoader(
         {
           shutdown: () => this.shutdown(),
+          showFailure: (message) =>
+            background(
+              import("./client/MatchConnectionFailure").then((module) => module.showMatchConnectionFailure(message)),
+              "MatchConnectionFailure",
+            ),
           setCollisionWorld: (collision) => this.setCollisionWorld(collision),
           startUnderwaterView: (scene) => this.startUnderwaterView(scene),
           v2Client: () => this.v2Client,
@@ -703,6 +708,18 @@ export class Game {
         config,
       );
       networkHost.onServerInfo((serverInfo) => background(mapLoader.onServerInfo(serverInfo), "MatchMapLoader"));
+      networkHost.onSessionEnded((error) => {
+        mapLoader.cancel();
+        this.shutdown();
+        background(
+          import("../../engine/loader/map/ClientMapLoader").then((module) => module.unloadClientMap()),
+          "MatchConnectionFailure",
+        );
+        background(
+          import("./client/MatchConnectionFailure").then((module) => module.showMatchConnectionFailure(error.message)),
+          "MatchConnectionFailure",
+        );
+      });
 
       // Set up state BEFORE connect so the onServerInfo callback can use them
       this.gameHost = networkHost;

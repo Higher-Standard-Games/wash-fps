@@ -79,6 +79,7 @@ const NO_SHOW_SHUTDOWN_MS = 2 * 60_000;
  * while the watcher kept the server alive: a match that could never start or end.
  */
 export const NO_PLAYERS_SHUTDOWN_MS = 2 * 60_000;
+export const INITIAL_LOAD_GRACE_MS = 15 * 60_000;
 /** Countdown before an empty lobby-spawned server stops. */
 const EMPTY_SHUTDOWN_MS = 5_000;
 /**
@@ -853,7 +854,15 @@ export class GameServer {
     const playing =
       [...this.clients.values()].some((c) => !c.isSpectator && !c.isBot) ||
       this.suspended.clients().some((c) => !c.isBot);
-    if (playing || this.humanPlayedAtMs === null || this.gametypeController.getPhase() === MatchPhase.PostGame) {
+    const loading = [...this.clients.values()].some(
+      (client) => !client.isBot && client.isSpectator && (client.initialLoadUntilMs ?? 0) > nowMs,
+    );
+    if (
+      loading ||
+      playing ||
+      this.humanPlayedAtMs === null ||
+      this.gametypeController.getPhase() === MatchPhase.PostGame
+    ) {
       this.humanPlayedAtMs = nowMs;
       return;
     }
@@ -1669,6 +1678,7 @@ export class GameServer {
         accountId: grant?.accountId,
         seatTeam: grant?.team,
         preGameAdmissionGrant: grant ?? undefined,
+        initialLoadUntilMs: grant && !isBot ? Date.now() + INITIAL_LOAD_GRACE_MS : undefined,
         ...(grant?.botReference === undefined ? {} : { botReference: grant.botReference }),
         // The seat this client can take back after a drop. Unguessable, so only
         // the client it was handed to can claim the session.
@@ -1754,6 +1764,7 @@ export class GameServer {
   ): void {
     const client = this.clients.get(conn.id);
     if (!client) return;
+    client.initialLoadUntilMs = undefined;
     if (this.matchAdmission && this.gametypeController.getPhase() === MatchPhase.PostGame) {
       conn.sendReliable(MessageCodec.encodeServerMessage("This match has ended.", "error"));
       return;
@@ -1928,6 +1939,7 @@ export class GameServer {
   private handleSpectate(conn: ClientConnection): void {
     const client = this.clients.get(conn.id);
     if (!client) return;
+    client.initialLoadUntilMs = undefined;
     if (client.isSpectator) {
       console.log(`[GameServer] Player ${client.playerId} tried to Spectate but is already spectating`);
       return;

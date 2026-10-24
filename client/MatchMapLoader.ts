@@ -10,6 +10,7 @@
 
 import { logRejection } from "../../../engine/core/AsyncErrors";
 import { devLog } from "../../../engine/core/DevLog";
+import { PackageStore } from "../../../engine/loader/pk3/PackageStore";
 import type { CollisionWorld } from "../../../engine/network/systems/collision/CollisionWorld";
 import { getCollisionManager } from "../../../engine/physics/CollisionManager";
 import type { FPSGameConfig } from "../Game";
@@ -20,6 +21,7 @@ import type { V2NetworkClient } from "./V2NetworkClient";
 
 export interface MatchMapHost {
   shutdown(): void;
+  showFailure?(message: string): void;
   setCollisionWorld(collision: CollisionWorld | null): void;
   startUnderwaterView(scene: import("@babylonjs/core/scene").Scene): void;
   /** Read at each use, as Game's own field was: a shutdown mid-load clears it. */
@@ -32,6 +34,13 @@ export interface MatchMapHost {
 export class MatchMapLoader {
   /** Welcome can arrive more than once; the map loads for the first only. */
   private started = false;
+  private cancelled = false;
+  private releaseHold: (() => void) | null = null;
+
+  cancel(): void {
+    this.cancelled = true;
+    this.releaseHold?.();
+  }
 
   constructor(
     private readonly host: MatchMapHost,
@@ -56,23 +65,36 @@ export class MatchMapLoader {
     // complete first, and released in the `finally` below so a failure
     // cannot leave anyone staring at a loading screen.
     const { MapLoadingOverlay } = await import("../../../engine/ui/MapLoadingOverlay");
+    if (this.cancelled) return;
     MapLoadingOverlay.hold("fps:postload");
+    const releaseForeground = PackageStore.shared.foregroundScope();
+    const holdTimer = setInterval(() => MapLoadingOverlay.hold("fps:postload"), 5000);
+    this.releaseHold = () => {
+      clearInterval(holdTimer);
+      releaseForeground();
+      MapLoadingOverlay.release("fps:postload");
+      MapLoadingOverlay.cancel();
+    };
 
     // Load the server's map via console command
     try {
       const { loadClientMap } = await import("../../../engine/loader/map/ClientMapLoader");
       const result = await loadClientMap(serverInfo.map);
 
+      if (this.cancelled) return;
+
       // Check if map load failed
       if (typeof result === "string" && result.includes("Failed")) {
         console.error(`[Game] Map load failed, disconnecting...`);
         this.host.shutdown();
+        this.host.showFailure?.(String(result));
         return;
       }
 
       // Decode the compact Warsow combat bank while the lobby/map loading
       // flow is still active, so the first accepted shot has no fetch/decode stall.
       await preloadFPSAudio();
+      if (this.cancelled) return;
       const { CameraSystem } = await import("../../../engine/camera/CameraSystem");
 
       // === CRITICAL: Set up FPS controller AFTER map loads ===
@@ -175,9 +197,12 @@ export class MatchMapLoader {
             await preloadFPSWeapons(camera.getScene(), camera, () => MapLoadingOverlay.hold("fps:postload"));
           } catch (error) {
             this.host.shutdown();
+            this.host.showFailure?.(`Could not prepare weapon models: ${String(error)}`);
             throw error;
           }
         }
+
+        if (this.cancelled) return;
 
         // WATCH mode: start auto-chase polling AFTER map loads
         // (must be here, not earlier — otherwise the freefly reset above overwrites the spectator camera)
@@ -197,7 +222,9 @@ export class MatchMapLoader {
         if (this.config.autoJoin) {
           devLog("[Game] Auto-joining game (lobby flow)");
           // Small delay to ensure everything is settled
-          setTimeout(() => this.host.joinGame(), 200);
+          setTimeout(() => {
+            if (!this.cancelled) this.host.joinGame();
+          }, 200);
         }
       } catch (e) {
         console.warn(`[Game] Could not set up FPS controller after map load:`, e);
@@ -206,8 +233,12 @@ export class MatchMapLoader {
       console.error(`[Game] Failed to load map ${serverInfo.map}:`, error);
       devLog(`[Game] Disconnecting due to map load error...`);
       this.host.shutdown();
+      this.host.showFailure?.(`Could not prepare the match: ${String(error)}`);
     } finally {
       // Whatever happened above, the curtain has to come up.
+      clearInterval(holdTimer);
+      releaseForeground();
+      this.releaseHold = null;
       MapLoadingOverlay.release("fps:postload");
     }
   }
