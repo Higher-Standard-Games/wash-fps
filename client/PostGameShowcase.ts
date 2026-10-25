@@ -2,7 +2,7 @@
  * PostGameShowcase — the winner's player model presented during the post-game
  * screen (docs/research/post_game_screen.md §7, first slice of the Face-Off).
  *
- * Spawns a detached copy of the winning player's model (team tint/outline resolve
+ * Spawns a detached copy of the winning player's model (its tint resolves
  * locally per viewer, so it's automatically personalized) holding their last-known
  * weapon, dropped at a clear world spot in front of the frozen camera. Disposed
  * when the next warmup begins.
@@ -14,6 +14,8 @@
  */
 
 import type { Camera } from "@babylonjs/core/Cameras/camera";
+import type { Light } from "@babylonjs/core/Lights/light";
+import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
 import { disposePlayerModel, type PlayerModelInstance } from "../../../engine/animation/PlayerModelManager";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import { devLog } from "./DevLog";
@@ -58,6 +60,15 @@ let currentModel: PlayerModelInstance | null = null;
 let generation = 0;
 let dioramaCamera: Camera | null = null;
 let savedActiveCameras: Camera[] | null = null;
+let showcaseLight: Light | null = null;
+
+/** Strength of the light the showcase model gets from in front and above. */
+const SHOWCASE_LIGHT_INTENSITY = 1.15;
+
+/** The model's meshes and its weapon's: the only meshes the showcase light reaches. */
+function showcaseMeshes(model: PlayerModelInstance): AbstractMesh[] {
+  return [model.mesh, ...model.mesh.getChildMeshes(), ...(model.attachedWeapon?.getChildMeshes() ?? [])];
+}
 
 /**
  * Show the winner's model in front of the local camera. Safe to call with
@@ -143,9 +154,8 @@ export async function startPostGameShowcase(
   }
   currentModel = model;
 
-  // Self-lit hero styling: the camera-relative spawn can land in a dark part of
-  // the map, where a scene-lit model renders as a black silhouette. Force
-  // fullbright emissive (team tint kept) so the winner always reads.
+  // The player's tint without fullbright or outline, so the model's detail
+  // shows; the light below keeps it from going black in a dark corner.
   renderer.applyShowcaseVisualStyle(model, winnerEntityId);
 
   // Anti-culling: the model is a SKINNED mesh playing an animation — Babylon
@@ -165,7 +175,10 @@ export async function startPostGameShowcase(
   // standing = clear space), clamped to the available distance so it can't clip a
   // wall behind it. Swapping scene.activeCameras also drops the viewmodel overlay,
   // so the gun isn't floating in the hero shot.
-  const { FreeCamera } = await import("@babylonjs/core/Cameras/freeCamera");
+  const [{ FreeCamera }, { HemisphericLight }] = await Promise.all([
+    import("@babylonjs/core/Cameras/freeCamera"),
+    import("@babylonjs/core/Lights/hemisphericLight"),
+  ]);
   if (gen !== generation) {
     disposeModel(model);
     currentModel = null;
@@ -198,12 +211,22 @@ export async function startPostGameShowcase(
   scene.activeCameras = [diorama];
   scene.activeCamera = diorama;
   dioramaCamera = diorama;
+
+  // A light from the camera's side and above, reaching only the model and its
+  // weapon: the map around it keeps its own lighting.
+  const light = new HemisphericLight("postgame_key", new Vector3(faceX / faceLen, 1.2, faceZ / faceLen), scene);
+  light.intensity = SHOWCASE_LIGHT_INTENSITY;
+  light.includedOnlyMeshes = showcaseMeshes(model);
+  showcaseLight = light;
   devLog("[PostGameShowcase] winner model spawned + diorama camera framed");
 
   if (weaponId) {
     renderer
       .attachShowcaseWeapon(model, weaponId)
-      .then(() => devLog(`[PostGameShowcase] weapon attached: ${weaponId}`))
+      .then(() => {
+        if (gen === generation && showcaseLight) showcaseLight.includedOnlyMeshes = showcaseMeshes(model);
+        devLog(`[PostGameShowcase] weapon attached: ${weaponId}`);
+      })
       .catch((e) => console.warn("[PostGameShowcase] weapon attach failed", e));
   }
 
@@ -228,6 +251,8 @@ export async function startPostGameShowcase(
 export function stopPostGameShowcase(): void {
   generation++;
   removeDioramaCamera();
+  showcaseLight?.dispose();
+  showcaseLight = null;
   if (currentModel) {
     disposeModel(currentModel);
     currentModel = null;

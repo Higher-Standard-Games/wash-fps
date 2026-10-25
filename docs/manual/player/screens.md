@@ -71,7 +71,7 @@ Hold **Tab** to see it. It also appears on its own at the end of a match. While 
 
 ## The result screen
 
-When a match ends, the scoreboard locks open and is titled with the result. The winner's player model stands in front of the camera, holding the weapon they last carried, in the left third of the screen. A panel beside it lists the winner's **Frags**, **Deaths** and **K/D**.
+When a match ends, the scoreboard locks open and is titled with the result. The winner's player model stands in front of the camera, holding the weapon they last carried, in the left third of the screen. It wears the player's colour but not the **Brighter players** glow or outline, and has a light of its own, so its detail shows wherever the match ended. A panel beside it lists the winner's **Frags**, **Deaths** and **K/D**.
 
 The bottom of the screen tells you what happens next:
 

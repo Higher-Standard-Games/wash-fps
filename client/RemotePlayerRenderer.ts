@@ -522,18 +522,17 @@ export class RemotePlayerRenderer {
   }
 
   /**
-   * Force a self-lit style on a detached showcase model (post-game winner).
-   * Keeps the team tint/outline but forces fullbright emissive on regardless of
-   * the `cl_player_fullbright` cvar, so the winner is a clear hero shot even
-   * when the camera-relative spawn spot is a dark corner of the map (otherwise
-   * the model renders as a black silhouette — it's lit only by the scene).
+   * Style a detached showcase model (post-game winner): the player's tint
+   * colour, without the fullbright lift or outline whatever the player's
+   * settings, so the model's detail shows. The showcase lights it itself.
    */
   applyShowcaseVisualStyle(instance: PlayerModelInstance, entityId: string): void {
     const base = this.visualStyle(entityId).style;
     this.modelManager?.applyVisualStyle(instance, {
       ...base,
-      fullbrightEnabled: true,
-      fullbrightIntensity: Math.max(base.fullbrightIntensity, 0.6),
+      fullbrightEnabled: false,
+      fullbrightIntensity: 0,
+      outlineEnabled: false,
     });
   }
 
