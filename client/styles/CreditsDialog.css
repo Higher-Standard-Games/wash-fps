@@ -33,6 +33,21 @@
   outline: 3px solid #fff4da;
   outline-offset: 4px;
 }
+/* The lobby music key: a speaker, held down while the music is off */
+.lobby-music-key {
+  justify-content: center;
+  width: 44px;
+  padding: 0;
+}
+.lobby-music-key[aria-pressed="true"] {
+  transform: translateY(4px);
+  color: hsl(45 100% 92% / 0.6);
+  background: linear-gradient(160deg, #221f31, #120f1c);
+  box-shadow:
+    0 1px 0 #0d0b16,
+    inset 0 2px 4px #0008,
+    0 3px 6px #0005;
+}
 /* The game version, beside the Credits key in the links bar. */
 .lobby-version {
   font: 700 15px / 1 var(--w-font-display, "Orbitron", monospace);

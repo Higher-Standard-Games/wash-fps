@@ -16,6 +16,7 @@ import type { PointLight } from "@babylonjs/core/Lights/pointLight";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { Scene } from "@babylonjs/core/scene";
 import { AudioManager } from "../../../engine/AudioManager";
+import { MENU_PLAYLIST } from "../../../engine/audio/MenuPlaylist";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import { devLog } from "../../../engine/core/DevLog";
 import { EventBus } from "../../../engine/core/EventBus";
@@ -62,9 +63,8 @@ import { PlayerWeaponStates, storeSnapshotState } from "./SnapshotStateStore";
 /** How long a reel holds on black under its title card before the first shot. */
 const REEL_TITLE_MS = 2800;
 
-/** Music while watching, and on leaving: a match's, then the menus'. */
+/** Music while watching: a match's. Leaving plays the menus' again. */
 const GAME_PLAYLIST = "data/game.playlist.json";
-const MENU_PLAYLIST = "data/menu.playlist.json";
 
 /** How far before a frag a click on the timeline lands, to see it coming. */
 const TIMELINE_LEAD_SECONDS = 3;

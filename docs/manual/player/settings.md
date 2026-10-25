@@ -119,7 +119,7 @@ green-weak or blue-yellow eye sees it. It is console-only and is not saved.
 
 ## Audio
 
-Two cards, **Music** and **Effects**, each with an on/off switch and a volume from 0 to 100% (`s_musicenabled` / `s_volume`, and `s_sfxenabled` / `s_sfxvolume`). Your music choice applies from startup: with music off, no map, lobby or menu starts a playlist, and turning it back on resumes the current one.
+Two cards, **Music** and **Effects**, each with an on/off switch and a volume from 0 to 100% (`s_musicenabled` / `s_volume`, and `s_sfxenabled` / `s_sfxvolume`). Your music choice applies from startup: with music off, no map, lobby or menu starts a playlist, and turning it back on resumes the current one. To silence only the lobby's music, press the speaker key beside **Credits** on the Play page: it stays down while the lobby music is off, match music still plays, and your browser remembers the choice.
 
 The **Mix** card separately adjusts Effects, Players, Hit sound and Announcer (`cg_volume_effects`, `cg_volume_players`, `cg_volume_hitsound`, `cg_volume_announcer`) as shares of the Effects volume.
 

@@ -32,6 +32,7 @@ import { LeaderboardView } from "./LeaderboardView";
 import { LobbyAssetPreparation } from "./LobbyAssetPreparation";
 import { LobbyDownloadIndicator } from "./LobbyDownloadIndicator";
 import { LobbyFullNotice, offlineRetryDelaySec } from "./LobbyFullNotice";
+import { createLobbyMusicKey } from "./LobbyMusicKey";
 import { describeRoom, playKeys, roomCountLabel, sortRooms } from "./LobbyRooms";
 import { LobbyWelcomeGuide } from "./LobbyWelcomeGuide";
 import { bindFeaturedDemos, bindLeaderboard, bindPlayerStats, newUiApi } from "./NewUiApi";
@@ -132,6 +133,7 @@ export class LobbyPanel extends GamePanel {
   private downloads: LobbyDownloadIndicator | null = null;
   private versionTag: HTMLSpanElement | null = null;
   private devlogLink: HTMLAnchorElement | null = null;
+  private musicKey: HTMLButtonElement | null = null;
   private credits: CreditsDialog | null = null;
   private linksObserver: ResizeObserver | null = null;
   /** Up while the lobby has turned this player away at its player cap. */
@@ -266,7 +268,8 @@ export class LobbyPanel extends GamePanel {
     this.devlogLink.textContent = "DEVLOG";
     this.devlogLink.title = "News from the team, in a new tab";
     this.downloads = new LobbyDownloadIndicator();
-    links.prepend(this.downloads.root, this.versionTag, this.devlogLink, this.creditsKey);
+    this.musicKey = createLobbyMusicKey();
+    links.prepend(this.downloads.root, this.versionTag, this.devlogLink, this.creditsKey, this.musicKey);
     this.connected = this.initLobbyConnection();
   }
 
@@ -292,6 +295,7 @@ export class LobbyPanel extends GamePanel {
     this.creditsKey.hidden = this.currentTabId !== "matchmaking" || this.matchLobbyView !== null;
     if (this.versionTag) this.versionTag.hidden = this.creditsKey.hidden;
     if (this.devlogLink) this.devlogLink.hidden = this.creditsKey.hidden;
+    if (this.musicKey) this.musicKey.hidden = this.creditsKey.hidden;
     if (this.creditsKey.hidden) this.closeCredits(false);
   }
 
