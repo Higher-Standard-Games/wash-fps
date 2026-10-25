@@ -101,9 +101,9 @@ describe("demo starts", () => {
     const second = viewer();
 
     const a = service.loadAndPlayNormal(first as unknown as DemoViewer);
-    await settle();
+    await vi.waitFor(() => expect(mapLoads).toHaveLength(1));
     const b = service.loadAndPlayNormal(second as unknown as DemoViewer);
-    await settle();
+    await vi.waitFor(() => expect(mapLoads).toHaveLength(2));
     // The second map load finishes first; the first one's is the late one.
     mapLoads[1]();
     await b;
@@ -121,7 +121,7 @@ describe("demo starts", () => {
     const demo = viewer();
 
     const start = service.loadAndPlayNormal(demo as unknown as DemoViewer);
-    await settle();
+    await vi.waitFor(() => expect(mapLoads).toHaveLength(1));
     service.stopAll();
     mapLoads[0]();
     await start;
@@ -185,7 +185,7 @@ describe("demo starts", () => {
     await service.loadAndPlayNormal(demo as unknown as DemoViewer, { manual: true });
     expect(demo.play).toHaveBeenCalledOnce();
     expect(internals.startPlaybackLoop).not.toHaveBeenCalled();
-    expect(wiring).toHaveBeenCalledWith(demo, "normal", false);
+    expect(wiring).toHaveBeenCalledWith(demo, "normal", false, expect.any(AbortSignal), expect.any(Function));
   });
   it("counts living recorded actors even when the renderer failed to create any bodies", () => {
     Object.assign(internals, {

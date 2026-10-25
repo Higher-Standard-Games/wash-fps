@@ -28,7 +28,11 @@ The loading screen also prepares your held weapons and projectile models.
 If required weapon preparation fails, the client reports the failure and
 disconnects rather than joining with missing models. Returning from a hidden
 tab rechecks rendering readiness; those checks have bounded waits and can be
-cancelled when the match connection ends.
+cancelled when the match connection ends. GPU preparation pauses while the tab
+is hidden rather than spending its timeout budget in the background. Player
+bodies and combat models are prepared before entering; failed required collision
+or model preparation reports an error. Audio prepares alongside the world and
+can fall back if the browser cannot finish decoding it promptly.
 
 Rooms you can join are listed down the left rail. The Leaderboard shows your
 rank in every mode in its rail, and Profile shows your ranked record beside

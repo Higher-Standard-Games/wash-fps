@@ -20,7 +20,9 @@ import { MENU_PLAYLIST } from "../../../engine/audio/MenuPlaylist";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import { devLog } from "../../../engine/core/DevLog";
 import { EventBus } from "../../../engine/core/EventBus";
+import { createLoadingOperationId } from "../../../engine/core/LoadingEvents";
 import { disposeClusteredLight } from "../../../engine/lighting/DynamicLightCluster";
+import { waitForPreparation } from "../../../engine/loader/map/GpuPreparation";
 import { SnapshotBuffer } from "../../../engine/network/client/SnapshotBuffer";
 import { InputButtons } from "../../../engine/network/components/InputComponent";
 import type { GameState } from "../../../engine/network/core/GameState";
@@ -52,6 +54,7 @@ import { preloadFPSAudio } from "./FPSAudio";
 import type { FPSHud } from "./FPSHud";
 import { resetFPSMovementAudio } from "./FPSMovementAudio";
 import { FPSReloadAudio } from "./FPSReloadAudio";
+import { preloadFPSWeapons } from "./FPSWeaponPreloader";
 import { type GameEventContext, handleServerStateUpdate, type ProjectileSyncState } from "./GameEvents";
 import { GibSystem } from "./GibSystem";
 import { currentClip, HUDState } from "./HUDState";
@@ -162,6 +165,7 @@ export class DemoService {
    * stopAll() counts too, so a stop during loading wins over the load.
    */
   private startGeneration = 0;
+  private startController: AbortController | null = null;
   private loadGeneration = 0;
   private loadController: AbortController | null = null;
 
@@ -175,6 +179,7 @@ export class DemoService {
 
   /** Cancel file loading or startup without touching a live game's view. */
   cancelPendingLoad(): void {
+    this.startController?.abort(demoLoadCancelled());
     this.loadController?.abort(demoLoadCancelled());
     this.loadController = null;
     this.loadGeneration++;
@@ -306,7 +311,7 @@ export class DemoService {
     const data = this.loadedDemoData;
     const reader = this.loadedDemoReader;
     const start = ++this.startGeneration;
-    return this.runStart(start, viewer, async () => {
+    return this.runStart(start, viewer, async (signal, operationId, pulse) => {
       // 1. Own the scene: stop any live game + any prior demo playback.
       await this.teardownLiveSession();
       if (start !== this.startGeneration) return;
@@ -319,12 +324,12 @@ export class DemoService {
       this.beginDemoCamera(cameraSystem);
 
       // 3. Render the recorded map locally (no server).
-      await this.ensureDemoMapLoaded(reader);
+      await this.ensureDemoMapLoaded(reader, signal, operationId);
       if (start !== this.startGeneration) return;
 
       // 4. Wire the frame callback → renderer/HUD, then play.
       this.activeDemoViewer = viewer;
-      await this.ensureRuntimeWiring(viewer, "normal", !options.manual);
+      await this.ensureRuntimeWiring(viewer, "normal", !options.manual, signal, pulse);
       if (this.abandonStart(start, viewer)) return;
       await viewer.load(data);
       if (this.abandonStart(start, viewer)) return;
@@ -383,7 +388,7 @@ export class DemoService {
     const data = this.loadedDemoData;
     const reader = this.loadedDemoReader;
     const start = ++this.startGeneration;
-    return this.runStart(start, viewer, async () => {
+    return this.runStart(start, viewer, async (signal, operationId, pulse) => {
       // 1. Own the scene: stop any live game + any prior demo playback.
       await this.teardownLiveSession();
       if (start !== this.startGeneration) return;
@@ -395,12 +400,12 @@ export class DemoService {
       this.beginDemoCamera(cameraSystem);
 
       // 3. Render the recorded map locally (no server).
-      await this.ensureDemoMapLoaded(reader);
+      await this.ensureDemoMapLoaded(reader, signal, operationId);
       if (start !== this.startGeneration) return;
 
       // 4. Wire the frame callback, then start the cinematic player.
       this.activeDemoViewer = viewer;
-      await this.ensureRuntimeWiring(viewer, "reel");
+      await this.ensureRuntimeWiring(viewer, "reel", true, signal, pulse);
       if (this.abandonStart(start, viewer)) return;
       const player = new CinematicDemoPlayer(viewer, cameraSystem, this.reelWorld(), { titleHoldMs: REEL_TITLE_MS });
       this.activeCinematicPlayer = player;
@@ -452,14 +457,31 @@ export class DemoService {
     };
   }
 
-  private async runStart(start: number, viewer: DemoViewer, run: () => Promise<void>): Promise<void> {
+  private async runStart(
+    start: number,
+    viewer: DemoViewer,
+    run: (signal: AbortSignal, operationId: string, pulse: () => void) => Promise<void>,
+  ): Promise<void> {
+    this.startController?.abort(demoLoadCancelled());
+    const controller = new AbortController();
+    this.startController = controller;
+    const operationId = createLoadingOperationId();
+    const { MapLoadingOverlay } = await import("../../../engine/ui/MapLoadingOverlay");
+    if (start !== this.startGeneration) return;
+    const lease = MapLoadingOverlay.acquire("demo:postload", operationId, () =>
+      controller.abort(new Error("Demo preparation timed out. Please retry.")),
+    );
     try {
-      await run();
+      await run(controller.signal, operationId, () => lease.pulse());
     } catch (error) {
       // An obsolete map/wiring failure must not reopen the menu over a newer game.
       if (start !== this.startGeneration) return;
       if (this.activeDemoViewer === viewer) this.stopPlayback();
       throw error;
+    } finally {
+      lease.release();
+      if (controller.signal.aborted) MapLoadingOverlay.cancel(operationId);
+      if (this.startController === controller) this.startController = null;
     }
   }
 
@@ -628,7 +650,11 @@ export class DemoService {
    * lobby and joins it as a player. A demo just needs the world rendered so the
    * replayed frames have somewhere to be drawn.
    */
-  private async ensureDemoMapLoaded(reader: DemoReader | null): Promise<void> {
+  private async ensureDemoMapLoaded(
+    reader: DemoReader | null,
+    signal: AbortSignal,
+    operationId: string,
+  ): Promise<void> {
     const header = reader?.readHeader();
     if (!header?.map) return;
 
@@ -638,7 +664,9 @@ export class DemoService {
     }
 
     const { loadClientMap } = await import("../../../engine/loader/map/ClientMapLoader");
-    const result = await loadClientMap(mapName);
+    signal.throwIfAborted();
+    const result = await loadClientMap(mapName, { signal, operationId });
+    signal.throwIfAborted();
     if (/failed to load map|no scene available|camerasystem not available/i.test(result)) {
       throw new Error(`Demo map load failed for "${mapName}": ${result}`);
     }
@@ -700,7 +728,13 @@ export class DemoService {
     });
   }
 
-  private async ensureRuntimeWiring(viewer: DemoViewer, mode: "normal" | "reel", withHud = true): Promise<void> {
+  private async ensureRuntimeWiring(
+    viewer: DemoViewer,
+    mode: "normal" | "reel",
+    withHud = true,
+    signal?: AbortSignal,
+    pulse?: () => void,
+  ): Promise<void> {
     const camera = CameraSystem.getInstance().getCamera();
     const scene = camera?.getScene();
     if (!scene) {
@@ -712,6 +746,7 @@ export class DemoService {
     this.watchCameraController();
 
     const { RemotePlayerRenderer } = await import("./RemotePlayerRenderer");
+    signal?.throwIfAborted();
     this.remoteRenderer = new RemotePlayerRenderer(scene);
     this.remoteRenderer.enableDemoPlayback();
     this.remoteRenderer.setFollowedMuzzle(() => this._followed.beamMuzzle());
@@ -729,7 +764,28 @@ export class DemoService {
     getHitscanEffects().setPresentationClock(this.demoEffectClock);
     getExplosionEffect().init(scene);
     getProjectileManager().init(scene);
-    await preloadFPSAudio();
+    await preloadFPSAudio(signal);
+    signal?.throwIfAborted();
+    if (signal) {
+      await waitForPreparation(this.remoteRenderer.waitForModels(), scene, "demo player models", signal, 60000);
+      signal.throwIfAborted();
+      const view = new WeaponViewManager();
+      this._demoWvm = view;
+      try {
+        await preloadFPSWeapons(
+          scene,
+          camera as import("@babylonjs/core/Cameras/freeCamera").FreeCamera,
+          () => pulse?.(),
+          signal,
+          view,
+        );
+        signal.throwIfAborted();
+      } catch (error) {
+        view.dispose();
+        if (this._demoWvm === view) this._demoWvm = null;
+        throw error;
+      }
+    }
     resetFPSMovementAudio();
     this.demoGibs = GibSystem.create(scene);
     this.demoRagdolls = RagdollSystem.create(scene);
@@ -759,8 +815,10 @@ export class DemoService {
     // A demo opens on the player's screen; a reel opens in movie mode, the
     // game HUD off and the controls down to a strip.
     this.gameHudVisible = mode === "normal";
-    await this._startGameHud();
+    await this._startGameHud(signal);
+    signal?.throwIfAborted();
     const { DemoViewerHUD } = await import("./DemoViewerHUD");
+    signal?.throwIfAborted();
     this.demoHud = new DemoViewerHUD();
     this.demoHud.setReel(mode === "reel" ? [] : null);
     this.demoHud.setMinimized(mode === "reel");
@@ -1132,10 +1190,12 @@ export class DemoService {
    * The game's own HUD, watching: what the followed player saw on screen.
    * Fed by the same HUD state the game feeds it, through `_presentFrame`.
    */
-  private async _startGameHud(): Promise<void> {
+  private async _startGameHud(signal?: AbortSignal): Promise<void> {
     const { FPSHud } = await import("./FPSHud");
+    signal?.throwIfAborted();
     const hud = FPSHud.getInstance();
     await hud.init({ watchOnly: true });
+    signal?.throwIfAborted();
     hud.start();
     this.gameHud = hud;
     Crosshair.getInstance().init();

@@ -4,6 +4,10 @@ const view = vi.hoisted(() => ({ init: vi.fn(), preloadWeapons: vi.fn(async () =
 const projectiles = vi.hoisted(() => ({ prepare: vi.fn(async () => {}) }));
 vi.mock("../../../../engine/weapon/WeaponViewManager", () => ({ getWeaponViewManager: () => view }));
 vi.mock("../../../../engine/weapon/ProjectileManager", () => ({ getProjectileManager: () => projectiles }));
+vi.mock("../../../../engine/loader/map/GpuPreparation", () => ({
+  sceneGpuReady: vi.fn(),
+  waitForGpuCondition: vi.fn(async () => {}),
+}));
 
 import { getEntityRegistry } from "../../../../shared/entities";
 import { initializeEntityDefs } from "../../shared/entities";

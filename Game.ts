@@ -700,6 +700,23 @@ export class Game {
             ),
           setCollisionWorld: (collision) => this.setCollisionWorld(collision),
           startUnderwaterView: (scene) => this.startUnderwaterView(scene),
+          preparePlayers: async (scene, signal) => {
+            const { waitForPreparation } = await import("../../engine/loader/map/GpuPreparation");
+            signal.throwIfAborted();
+            this.remoteRenderer?.dispose();
+            const renderer = new RemotePlayerRenderer(scene);
+            this.remoteRenderer = renderer;
+            renderer.setEnemyWeapons(this.enemyWeapons);
+            renderer.setFollowedMuzzle(() => this.spectate._followedWeapon.beamMuzzle());
+            try {
+              await waitForPreparation(renderer.waitForModels(), scene, "player models", signal, 60000);
+              signal.throwIfAborted();
+            } catch (error) {
+              renderer.dispose();
+              if (this.remoteRenderer === renderer) this.remoteRenderer = null;
+              throw error;
+            }
+          },
           v2Client: () => this.v2Client,
           spectatorCycling: () => this.spectatorCycling,
           nextSpectateTarget: () => this.nextSpectateTarget(),
@@ -712,7 +729,9 @@ export class Game {
         mapLoader.cancel();
         this.shutdown();
         background(
-          import("../../engine/loader/map/ClientMapLoader").then((module) => module.unloadClientMap()),
+          import("../../engine/loader/map/ClientMapLoader").then((module) =>
+            module.unloadClientMap(mapLoader.operationId),
+          ),
           "MatchConnectionFailure",
         );
         background(

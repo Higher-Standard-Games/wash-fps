@@ -19,6 +19,17 @@ const scene = { name: "scene" };
 
 vi.mock("../../../../engine/ui/MapLoadingOverlay", () => ({
   MapLoadingOverlay: {
+    acquire: (key: string) => {
+      calls.push(`hold:${key}`);
+      let released = false;
+      return {
+        pulse: () => {},
+        release: () => {
+          if (!released) calls.push(`release:${key}`);
+          released = true;
+        },
+      };
+    },
     hold: (key: string) => calls.push(`hold:${key}`),
     release: (key: string) => calls.push(`release:${key}`),
     cancel: () => calls.push("cancel-loading"),
@@ -110,7 +121,7 @@ describe("MatchMapLoader", () => {
     await new MatchMapLoader(h, {}).onServerInfo({ map: "wdm7" });
     await settle();
 
-    expect(calls.slice(0, 4)).toEqual(["hold:fps:postload", "load:wdm7", "audio", "collision"]);
+    expect(calls.slice(0, 4)).toEqual(["hold:fps:postload", "audio", "load:wdm7", "collision"]);
     expect(calls).toContain("triggers:volume");
     expect(h.v2.onTeleport).toHaveBeenCalledTimes(1);
     expect(calls).toContain("underwater");
@@ -176,7 +187,7 @@ describe("MatchMapLoader", () => {
     const h = host();
     await new MatchMapLoader(h, {}).onServerInfo({ map: "wdm99" });
     expect(h.shutdown).toHaveBeenCalledTimes(1);
-    expect(calls).not.toContain("audio");
+    expect(calls).not.toContain("weapons");
     expect(calls.at(-1)).toBe("release:fps:postload");
   });
 
@@ -188,13 +199,14 @@ describe("MatchMapLoader", () => {
     expect(calls.at(-1)).toBe("release:fps:postload");
   });
 
-  it("skips collision and triggers without a collision manager, but still sets up cameras", async () => {
+  it("fails the join without required collision instead of exposing an unprepared game", async () => {
     collisionReady = false;
     const h = host();
     await new MatchMapLoader(h, {}).onServerInfo({ map: "wdm7" });
     expect(h.setCollisionWorld).not.toHaveBeenCalled();
     expect(h.v2.setTriggerVolumes).not.toHaveBeenCalled();
-    expect(calls).toContain("camera:freefly");
+    expect(calls).not.toContain("camera:freefly");
+    expect(h.shutdown).toHaveBeenCalledOnce();
   });
 
   it("keeps existing camera controllers rather than registering new ones", async () => {
