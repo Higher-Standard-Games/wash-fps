@@ -35,10 +35,12 @@ export class MatchMapLoader {
   /** Welcome can arrive more than once; the map loads for the first only. */
   private started = false;
   private cancelled = false;
+  private readonly controller = new AbortController();
   private releaseHold: (() => void) | null = null;
 
   cancel(): void {
     this.cancelled = true;
+    this.controller.abort(new Error("Match load cancelled"));
     this.releaseHold?.();
   }
 
@@ -194,8 +196,14 @@ export class MatchMapLoader {
         const camera = cameraSystem.getFreeCamera();
         if (camera) {
           try {
-            await preloadFPSWeapons(camera.getScene(), camera, () => MapLoadingOverlay.hold("fps:postload"));
+            await preloadFPSWeapons(
+              camera.getScene(),
+              camera,
+              () => MapLoadingOverlay.hold("fps:postload"),
+              this.controller.signal,
+            );
           } catch (error) {
+            if (this.cancelled) return;
             this.host.shutdown();
             this.host.showFailure?.(`Could not prepare weapon models: ${String(error)}`);
             throw error;
@@ -230,6 +238,7 @@ export class MatchMapLoader {
         console.warn(`[Game] Could not set up FPS controller after map load:`, e);
       }
     } catch (error) {
+      if (this.cancelled) return;
       console.error(`[Game] Failed to load map ${serverInfo.map}:`, error);
       devLog(`[Game] Disconnecting due to map load error...`);
       this.host.shutdown();

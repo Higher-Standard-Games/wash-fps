@@ -92,6 +92,12 @@ it("prepares held models and barrels before joining and consumes the warm view o
 beforeEach(() => {
   registerWeaponIdResolver(canonicalWeaponId);
   engine = new NullEngine();
+  const createRawTexture = engine.createRawTexture.bind(engine);
+  vi.spyOn(engine, "createRawTexture").mockImplementation((...args) => {
+    const texture = createRawTexture(...args);
+    texture.isReady = true;
+    return texture;
+  });
   scene = new Scene(engine);
   view = new WeaponViewManager();
   view.init(scene, new FreeCamera("main", Vector3.Zero(), scene));
@@ -117,6 +123,24 @@ afterEach(async () => {
 });
 
 describe("first-person prepared model sources", () => {
+  it("cancels preparation without letting a late import display its weapon", async () => {
+    let complete!: (result: ReturnType<typeof imported>) => void;
+    imports.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    const controller = new AbortController();
+    const pending = view.preloadWeapons(["riotgun"], undefined, controller.signal);
+    const rejected = expect(pending).rejects.toThrow("cancelled");
+    await vi.waitFor(() => expect(complete).toBeTypeOf("function"));
+    controller.abort(new Error("cancelled"));
+    await rejected;
+    complete(imported("riotgun.glb", scene));
+    await settle();
+    expect(view.isWeaponModelLoaded).toBe(false);
+  });
   it("normalizes Washoi compatibility IDs when loading and switching views", async () => {
     EntityRegistry.getInstance().register(VOLTAIC);
     expect(await view.loadWeapon("lasergun")).toBe(true);

@@ -24,6 +24,12 @@ How to connect to a game server, manually or through the lobby.
 7. When the match ends, **Back to the lobby** brings you back to the same room,
    ready for a rematch.
 
+The loading screen also prepares your held weapons and projectile models.
+If required weapon preparation fails, the client reports the failure and
+disconnects rather than joining with missing models. Returning from a hidden
+tab rechecks rendering readiness; those checks have bounded waits and can be
+cancelled when the match connection ends.
+
 Rooms you can join are listed down the left rail. The Leaderboard shows your
 rank in every mode in its rail, and Profile shows your ranked record beside
 your key.
