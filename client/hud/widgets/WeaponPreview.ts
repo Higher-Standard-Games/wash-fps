@@ -22,6 +22,7 @@ import type { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
 import type { Engine } from "@babylonjs/core/Engines/engine";
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
 import type { Scene } from "@babylonjs/core/scene";
+import { resolveModelAsset } from "../../../../../engine/loader/model/ModelAsset";
 
 /** Radians per second the weapon turns on its stand. */
 const SPIN_RATE = 0.6;
@@ -59,12 +60,9 @@ export class WeaponPreview {
       if (!scene || gen !== this.generation || this.disposed) return;
 
       const { ImportMeshAsync } = await import("@babylonjs/core/Loading/sceneLoader");
-      // Same split the weapon view and model loader use: Babylon resolves the
-      // .bin and textures against rootUrl, so passing the whole path loses them.
-      const lastSlash = modelPath.lastIndexOf("/");
-      const dir = modelPath.substring(0, lastSlash + 1);
-      const file = modelPath.substring(lastSlash + 1);
-      const result = await ImportMeshAsync(file, scene, { rootUrl: dir });
+      const asset = await resolveModelAsset(modelPath);
+      if (gen !== this.generation || this.disposed) return;
+      const result = await ImportMeshAsync(asset.source, scene, asset.options);
       if (gen !== this.generation || this.disposed) {
         for (const mesh of result.meshes) mesh.dispose();
         return;
@@ -81,7 +79,7 @@ export class WeaponPreview {
     } catch {
       // A weapon with no model, a bad path, or a context the browser refused.
       // The names still work as a picker.
-      this.clearModel();
+      if (gen === this.generation && !this.disposed) this.clearModel();
     }
   }
 
