@@ -97,6 +97,7 @@ describe("remote weapon changes", () => {
       renderer.updateWeaponModel(hitbox, inst, id);
       return hitbox;
     });
+    await vi.dynamicImportSettled();
     await vi.waitFor(() => expect(hitboxes.every((hitbox) => hitbox.weaponRoot)).toBe(true));
     const [a, b] = hitboxes.map((hitbox) => (hitbox.weaponRoot as import("@babylonjs/core/Meshes/mesh").Mesh).material);
     expect(a === b).toBe(shared);
