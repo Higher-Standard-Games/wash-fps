@@ -13,6 +13,8 @@ function frag(seq: number, over: Partial<KillFeedEntry> = {}): KillFeedEntry {
     weaponId: "rail",
     byLocal: true,
     ofLocal: false,
+    byViewed: true,
+    ofViewed: false,
     seq,
     timestamp: 0,
     ...over,
@@ -34,18 +36,25 @@ describe("frag message", () => {
   it("says nothing of other players' frags, or of your own death", () => {
     const widget = new FPSFragMessage();
     widget.update(hud([]));
-    widget.update(hud([frag(1, { byLocal: false }), frag(2, { byLocal: true, ofLocal: true })]));
+    widget.update(hud([frag(1, { byViewed: false }), frag(2, { byViewed: true, ofViewed: true })]));
     expect(messages(widget)).toEqual([]);
   });
 
   it("keeps confirming once the capped feed stops growing", () => {
     const widget = new FPSFragMessage();
-    const feed = [1, 2, 3, 4, 5].map((seq) => frag(seq, { byLocal: false }));
+    const feed = [1, 2, 3, 4, 5].map((seq) => frag(seq, { byViewed: false }));
     widget.update(hud(feed));
 
     // The feed holds five: a new frag pushes the oldest out, and its length stays 5
     widget.update(hud([...feed.slice(1), frag(6)]));
     expect(messages(widget)).toEqual(["FRAGGED Bot 6"]);
+  });
+
+  it("confirms the frags of the player a demo or spectator follows", () => {
+    const widget = new FPSFragMessage();
+    widget.update(hud([]));
+    widget.update(hud([frag(1, { byLocal: false, byViewed: true })]));
+    expect(messages(widget)).toEqual(["FRAGGED Bot 1"]);
   });
 
   it("does not replay frags that were in the feed before it was looking", () => {

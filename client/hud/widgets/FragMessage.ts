@@ -6,7 +6,8 @@ import type { FPSHudWidget, HUDState } from "../HudWidget";
 // =============================================================================
 
 /**
- * FPSFragMessage - "FRAGGED PLAYER" center screen message
+ * FPSFragMessage - "FRAGGED PLAYER" center screen message, for frags by the
+ * player the view is behind: you, or whoever a demo or spectator follows
  *
  * Reads the kill feed and shows a message when the local player takes a frag.
  * Auto-removes after animation completes.
@@ -41,7 +42,7 @@ export class FPSFragMessage implements FPSHudWidget {
 
     for (const kill of feed) {
       if (kill.seq <= this.seenSeq) continue;
-      if (kill.byLocal && !kill.ofLocal) this.showFragMessage(kill.victimName);
+      if (kill.byViewed && !kill.ofViewed) this.showFragMessage(kill.victimName);
     }
     this.seenSeq = newest;
   }

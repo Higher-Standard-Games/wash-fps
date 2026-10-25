@@ -133,6 +133,8 @@ function death(over: Partial<KillFeedEntry>): KillFeedEntry {
     weaponId: "bullet",
     byLocal: false,
     ofLocal: true,
+    byViewed: false,
+    ofViewed: true,
     seq: 1,
     timestamp: performance.now(),
     ...over,

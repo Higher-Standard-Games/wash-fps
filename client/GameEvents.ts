@@ -869,8 +869,9 @@ function handleDeathEvent(ctx: GameEventContext, event: DeathEvent, state: GameS
   const victimName = resolvePlayerName(event.entityId, state) || "unknown";
   const killerName = event.killerId ? resolvePlayerName(event.killerId, state) : "";
   const localEntityId = state.players.get(ctx.localPlayerId)?.entityId;
+  const viewEntityId = ctx.spectatingEntityId ?? localEntityId;
   try {
-    HUDState.getInstance().processDeath(event, { killerName, victimName, localEntityId });
+    HUDState.getInstance().processDeath(event, { killerName, victimName, localEntityId, viewEntityId });
   } catch (e) {
     console.error("[Death] HUD processDeath error:", e);
   }

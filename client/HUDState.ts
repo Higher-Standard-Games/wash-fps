@@ -43,6 +43,12 @@ export interface KillFeedEntry {
   byLocal: boolean;
   ofLocal: boolean;
   /**
+   * The player the view is behind took this frag, or was fragged: the local
+   * player in play, the followed player when spectating or watching a demo.
+   */
+  byViewed: boolean;
+  ofViewed: boolean;
+  /**
    * Counts every death since the page loaded. The feed is capped and expires,
    * so its length cannot tell a reader which entries are new; this can.
    */
@@ -56,6 +62,8 @@ export interface DeathParties {
   victimName: string;
   /** The local player's entity id, when known */
   localEntityId?: string;
+  /** The entity id of the player the view is behind, when known */
+  viewEntityId?: string;
 }
 
 export interface ScoreboardEntry {
@@ -216,6 +224,7 @@ export class HUDState {
     const victimId = event.entityId ?? "";
     const killerId = event.killerId ?? "";
     const local = parties.localEntityId;
+    const viewed = parties.viewEntityId;
     this.killFeed.push({
       victimId,
       killerId,
@@ -224,6 +233,8 @@ export class HUDState {
       weaponId: event.weaponId ?? "",
       byLocal: !!local && killerId === local,
       ofLocal: !!local && victimId === local,
+      byViewed: !!viewed && killerId === viewed,
+      ofViewed: !!viewed && victimId === viewed,
       seq: ++HUDState.deathSeq,
       timestamp: performance.now(),
     });
