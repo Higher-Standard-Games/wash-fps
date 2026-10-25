@@ -74,6 +74,8 @@ From the [Warfork free sound packs](https://github.com/TeamForbiddenLLC/warfork-
 - **Announcer, item, menu and other sounds**: Team Forbidden LLC, Caine and MaxCarnage,
   [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/).
 
+**Soundtrack**: [Suno](https://suno.com), Suno Premier.
+
 ## Maps
 
 Many of our arenas come from Warsow and Warfork. Map authors are listed on the
