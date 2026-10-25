@@ -17,7 +17,7 @@ export const VOLTAIC: WeaponDef = {
   classnameAliases: ["weapon_lasergun"],
 
   // Runtime conversion of the modern Lasergun IQM supplied by washoi_weapons.pk3.
-  modelPath: "/data/models/weapons/lasergun/lasergun.glb",
+  modelPath: "/data/models/weapons/voltaic/voltaic.glb",
   scale: 2.0,
 
   // Pickup glow — electric cyan
@@ -57,7 +57,7 @@ export const VOLTAIC: WeaponDef = {
 
   // View model — runtime conversion of the modern z_weapons IQM.
   viewModel: {
-    modelPath: "/data/models/weapons/lasergun/lasergun.glb",
+    modelPath: "/data/models/weapons/voltaic/voltaic.glb",
     viewModelFormat: "glb",
 
     hipOffset: { x: 0, y: -25, z: -1 },

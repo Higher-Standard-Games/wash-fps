@@ -99,7 +99,7 @@ describe("WeaponViewManager continuous beam routing", () => {
 
   it("exports Lasergun as the exact canonical Voltaic definition", () => {
     expect(LASERGUN).toBe(VOLTAIC);
-    expect(VOLTAIC.modelPath).toBe("/data/models/weapons/lasergun/lasergun.glb");
+    expect(VOLTAIC.modelPath).toBe("/data/models/weapons/voltaic/voltaic.glb");
     expect(VOLTAIC.viewModel.modelPath).toBe(VOLTAIC.modelPath);
     expect(VOLTAIC.viewModel.viewModelFormat).toBe("glb");
     expect(VOLTAIC.viewModel.adsOffset).toEqual({ x: 0, y: -21, z: -5 });
