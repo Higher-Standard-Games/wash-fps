@@ -5,7 +5,7 @@ import { PK3Loader } from "../../../../engine/loader/pk3/PK3Loader";
 import { CartoonHitEffect } from "../CartoonHitEffect";
 
 vi.mock("../../../../engine/loader/pk3/PK3Index", () => ({
-  PK3Index: { getInstance: () => ({ ensureIndex: async () => {}, findFile: () => "effects.pk3" }) },
+  PK3Index: { getInstance: () => ({ ensureIndex: async () => {}, findFile: () => "washoi_effects.pk3" }) },
 }));
 vi.mock("../../../../engine/loader/pk3/PK3Loader", () => ({
   PK3Loader: { getInstance: () => loader },

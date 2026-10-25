@@ -16,7 +16,7 @@ export class LobbyAssetPreparation {
     "washoi_weapons.pk3",
     "washoi_player_model.pk3",
     "washoi_sounds.pk3",
-    "effects.pk3",
+    "washoi_effects.pk3",
     "washoi_gfx.pk3",
   ];
 

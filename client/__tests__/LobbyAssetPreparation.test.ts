@@ -47,7 +47,7 @@ it("downloads common assets, only the chosen map and its declared shared bank wi
     "washoi_weapons.pk3",
     "washoi_player_model.pk3",
     "washoi_sounds.pk3",
-    "effects.pk3",
+    "washoi_effects.pk3",
     "washoi_gfx.pk3",
     "map_arena.pk3",
     "tex_arena.pk3",
