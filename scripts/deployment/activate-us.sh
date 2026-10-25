@@ -1,35 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
-ROOT=/srv/washoi
+ROOT=${WASHOI_ROOT:-/srv/washoi}
 STATE="$ROOT/.deploy-state"
 [[ -f "$STATE/pending.sha" ]] || exit 0
 exec 9<>"$STATE/deploy.lock"
 flock -n 9 || exit 0
-# Caddy's upstream connections include waiting rooms; child processes include matches.
-if ss -Hnt state established '( sport = :9000 )' | grep -q .; then
-  echo 'activation deferred: lobby connections remain'
-  exit 0
-fi
-main=$(systemctl show washoi-lobby -p MainPID --value)
-cg=$(systemctl show washoi-lobby -p ControlGroup --value)
-if [[ -n $cg && -f /sys/fs/cgroup$cg/cgroup.procs ]]; then
-  while read -r pid; do
-    if [[ $pid != "$main" ]]; then echo 'activation deferred: a match process remains'; exit 0; fi
-  done <"/sys/fs/cgroup$cg/cgroup.procs"
-fi
-# Block new lobby handshakes while checking again for in-flight connections.
+# A published update replaces the running version even with connected players.
 install -m 644 /dev/null "$ROOT/.maintenance"
-trap 'rm -f /srv/washoi/.maintenance' EXIT
-sleep 1
-if ss -Hnt state established '( sport = :9000 )' | grep -q .; then
-  echo 'activation deferred: a lobby connection arrived during the idle check'
-  exit 0
-fi
-if [[ -n $cg && -f /sys/fs/cgroup$cg/cgroup.procs ]]; then
-  while read -r pid; do
-    if [[ $pid != "$main" ]]; then echo 'activation deferred: a match started during the idle check'; exit 0; fi
-  done <"/sys/fs/cgroup$cg/cgroup.procs"
-fi
+trap 'rm -f "$ROOT/.maintenance"' EXIT
 sha=$(cat "$STATE/pending.sha")
 [[ $sha =~ ^[0-9a-f]{40}$ ]]
 stage="$ROOT/.pending/$sha"
@@ -44,5 +22,5 @@ fi
 systemctl restart washoi-lobby washoi-bots
 sleep 3
 systemctl is-active --quiet washoi-lobby washoi-bots
-sudo -u washoi /bin/bash -c 'printf "%s\n" "$1" > /srv/washoi/.deploy-state/game.sha; rm /srv/washoi/.deploy-state/pending.sha' -- "$sha"
+sudo -u washoi /bin/bash -c 'printf "%s\n" "$1" > "$2/game.sha"; rm "$2/pending.sha"' -- "$sha" "$STATE"
 echo "activated $sha"

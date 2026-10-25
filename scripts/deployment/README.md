@@ -16,10 +16,15 @@ to the game, not SHAG. Installing them does not publish an application release.
 - `/srv/washoi/release-pair.json` selects exact 40-character engine and game
   commit IDs: `{"engine":"<engine SHA>","game":"<game SHA>"}`.
 
-The deploy timers read that file. Pushing either repository alone does not
-select a new production pair. Fetches use each repository's own origin;
-`git submodule update` and `git clean` are not part of deployment. The helper
-defers a code checkout while lobby connections or match processes remain.
+Deploy timers follow engine `main` by default (`"mode":"main"`, also the
+default when omitted). Each run selects the game gitlink recorded by that
+engine commit and verifies it is published on game `main` before atomically
+updating the pair file. Publish game `main` first, then engine `main` with its
+matching pin. A game-only push does not select an unrelated game revision.
+Use `"mode":"pinned"` with exact revisions to hold a release or roll back.
+Fetches use each repository's own origin; `git submodule update` and `git clean`
+are not part of deployment. Connected lobbies and matches do not defer updates;
+successful publication restarts the backend and disconnects existing sessions.
 The root repository may still contain an old gitlink until its source cutover;
 the production game metadata and fetch process are already independent of it.
 
@@ -32,6 +37,20 @@ the production game metadata and fetch process are already independent of it.
 | `deploy-eu.sh` or `deploy-us.sh` | `/srv/washoi/deploy.sh` |
 | `validate-us.sh` | `/srv/washoi/validate.sh` on US |
 | `activate-us.sh` | `/usr/local/sbin/washoi-activate` on US |
+| `activate-eu.sh` | `/usr/local/sbin/washoi-activate` on EU |
+| `auto-activate.conf` | `/etc/systemd/system/washoi-deploy.service.d/30-auto-activate.conf` |
+
+Both deploy services install a `30-auto-activate.conf` drop-in:
+
+```ini
+[Service]
+ExecStartPost=+/usr/local/sbin/washoi-activate
+```
+
+The `+` runs activation as root after the unprivileged build succeeds. EU tracks
+the restarted backend fingerprint in `.deploy-state/backend.sha`; US activates
+its pending artifacts. Failed builds do not run activation. The existing US
+activation timer also retries pending activation.
 
 The lobby and bot systemd units retain their existing user, environment files,
 working directory, resource limits and sandbox settings. The
@@ -60,21 +79,21 @@ new application release is published.
    pair, deploy-state files and built artifacts for rollback.
 2. Back up the actual persistent data, database, configuration and links. Never
    replace the checkout with an empty directory or delete ignored media.
-3. On EU, wait until the region is idle, then stop its lobby and bots before
-   changing code: it still runs source until its first bundled-server restart.
-   This prevents a new connection arriving during the checkout/build window.
-   On US, keep the existing staged-build and idle-activation procedure.
+3. Normal deployment follows engine `main` automatically. Current backends use
+   bundles; successful builds replace them and restart lobby and bots even when
+   players are connected. Allow for the deploy timer interval and build time.
 4. Write both full commit IDs to a temporary JSON file on the target host,
    validate it with `jq`, then atomically rename it to `release-pair.json`.
-   Do not independently select the latest engine and game main tips.
-5. Let the deploy timer run, or invoke `/srv/washoi/deploy.sh` (EU can select
-   `game engine-docs fps-docs`). An active lobby connection or match defers a
-   changed-pair checkout. Do not force a restart of an occupied region.
+   Set `"mode":"pinned"` when manually holding a pair. Do not independently
+   select the latest engine and game main tips.
+5. Let the deploy timer run, or start `washoi-deploy.service` to build and run
+   its activation hook. Invoking `/srv/washoi/deploy.sh` directly builds without
+   the systemd post-hook; run `/usr/local/sbin/washoi-activate` afterward.
 6. US builds client and server artifacts in `.pending/<pair fingerprint>/`,
    records the actual revisions in `revisions.json` and activates through the
-   existing idle-activation timer. EU publishes static surfaces and builds
-   server bundles; restart its lobby and bots explicitly when idle to use the
-   new bundles. A static publish alone does not restart EU's backend.
+   activation hook. EU publishes static surfaces and builds server bundles;
+   its activation hook restarts lobby and bots when the published fingerprint
+   differs from the running backend.
 7. Verify game HTTP, lobby upgrade, representative media, account continuity
    and a real match before considering the application release deployed.
 
@@ -85,8 +104,8 @@ engine-only revision change therefore invalidates the relevant build state.
 Publication protects the existing `data/` directory from `rsync --delete`.
 Media is copied separately without deletion; demos and the legacy shared
 texture archive are excluded from that copy. The canonical assets and live
-demos under `assets/data` remain in place. US retains its idle guard and
-maintenance handshake gate. Old staged builds are retained for rollback.
+demos under `assets/data` remain in place. US retains its maintenance handshake
+gate during activation. Old staged builds are retained for rollback.
 
 ## 2026-10-24 operator cutover
 

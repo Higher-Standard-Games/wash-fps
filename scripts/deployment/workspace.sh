@@ -19,16 +19,38 @@ washoi_pair_id() {
   printf '%s\n%s\n' "$WASHOI_ENGINE" "$WASHOI_GAME" | sha1sum | cut -d' ' -f1
 }
 
+# Engine main selects its tested game gitlink, never an unrelated game main tip.
+washoi_pair_select() {
+  local d="$WASHOI_ROOT/repos/shag" config="$WASHOI_ROOT/release-pair.json" mode engine game tmp
+  mode=$(jq -er '.mode // "main"' "$config") || return 1
+  case "$mode" in
+    pinned) washoi_pair_read; return $? ;;
+    main) ;;
+    *) echo "ERROR: unknown release mode: $mode" >&2; return 1 ;;
+  esac
+  git -C "$d" fetch --quiet origin refs/heads/main:refs/remotes/origin/main || return 1
+  engine=$(git -C "$d" rev-parse refs/remotes/origin/main) || return 1
+  game=$(git -C "$d" ls-tree "$engine" -- src/games/fps | awk '$1 == "160000" && $2 == "commit" {print $3}') || return 1
+  [[ $engine =~ ^[0-9a-f]{40}$ && $game =~ ^[0-9a-f]{40}$ ]] || {
+    echo 'ERROR: engine main has no valid game revision' >&2; return 1;
+  }
+  git -C "$d/src/games/fps" fetch --quiet origin refs/heads/main:refs/remotes/origin/main || return 1
+  git -C "$d/src/games/fps" merge-base --is-ancestor "$game" refs/remotes/origin/main || {
+    echo 'ERROR: selected game revision is not published on game main' >&2; return 1;
+  }
+  tmp=$(mktemp "$config.XXXXXX") || return 1
+  if ! jq -n --arg engine "$engine" --arg game "$game" '{mode:"main",engine:$engine,game:$game}' >"$tmp"; then
+    rm -f "$tmp"; return 1
+  fi
+  mv "$tmp" "$config" || return 1
+  washoi_pair_read
+}
+
 washoi_prepare() {
   local d="$WASHOI_ROOT/repos/shag" mode=${1:-fetch}
   washoi_media_check || return 1
-  washoi_pair_read || return 1
-  if [[ $(git -C "$d" rev-parse HEAD) != "$WASHOI_ENGINE" || $(git -C "$d/src/games/fps" rev-parse HEAD) != "$WASHOI_GAME" ]]; then
-    if ss -Hnt state established '( sport = :9000 )' | grep . >/dev/null || pgrep -f '[h]eadless-netserver' >/dev/null; then
-      echo 'checkout deferred: lobby connections or match processes remain'
-      return 75
-    fi
-  fi
+  if [[ $mode == --no-fetch ]]; then washoi_pair_read || return 1
+  else washoi_pair_select || return 1; fi
   # Fetch each repository directly. Never run submodule update or git clean.
   if [[ $mode != --no-fetch ]]; then
     git -C "$d" fetch --quiet origin "$WASHOI_ENGINE" || return 1

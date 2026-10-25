@@ -137,7 +137,7 @@ deploy_site() {
   mark site "$cur"; DEPLOYED=1
 }
 
-# Engine/game revisions are an explicit pair, fetched independently.
+# Engine main selects a matching engine/game pair, fetched independently.
 source "$ROOT/workspace.sh"
 prepare_shag() {
   local d="$REPOS/shag"

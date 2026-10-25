@@ -38,7 +38,10 @@ post-game cleanup remain separate; this allowance does not reserve a dropped
 spectator connection for 15 minutes.
 
 Production operators use independent engine/game checkouts and select exact
-revisions in `/srv/washoi/release-pair.json`. The regional deploy and startup
+revisions in `/srv/washoi/release-pair.json`. By default, deployment follows
+engine `main` and its recorded game revision, then restarts the backend even
+with connected players. Set `mode` to `pinned` to hold or roll back a pair.
+The regional deploy and startup
 scripts, activation behavior and rollback procedure are documented in the
 [production runbook](https://github.com/Higher-Standard-Games/wash-fps/blob/main/scripts/deployment/README.md).
 Changing npm commands does not itself release new application code or restart
