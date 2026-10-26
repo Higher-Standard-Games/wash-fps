@@ -9,7 +9,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 /** A body's colour, carried from the death to its gibs. */
 const RED = { r: 1, g: 0, b: 0 };
 
-
 function system(name: string) {
   return {
     name,
