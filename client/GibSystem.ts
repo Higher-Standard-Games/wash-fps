@@ -17,6 +17,7 @@ import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
 import type { Scene } from "@babylonjs/core/scene";
 import { getCollisionManager } from "../../../engine/physics/CollisionManager";
 import { CollisionMasks } from "../../../engine/physics/ContentFlags";
+import { registerPooledMeshCandidate } from "../../../engine/rendering/PooledMeshCandidates";
 import { devLog } from "./DevLog";
 
 // ============================================================================
@@ -443,6 +444,7 @@ export class GibSystem {
     mesh.name = `gib_${this.gibs.length}`;
     mesh.setEnabled(false);
     mesh.isPickable = false;
+    registerPooledMeshCandidate(mesh);
 
     const gib: Gib = {
       mesh,
