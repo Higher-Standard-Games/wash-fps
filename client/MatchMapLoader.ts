@@ -153,6 +153,17 @@ export class MatchMapLoader {
             const { extractTriggerVolumes } = await import("../../../shared/bsp/TriggerTable");
             this.controller.signal.throwIfAborted();
             this.host.v2Client()!.setTriggerVolumes(extractTriggerVolumes(bsp.entities, bsp.models));
+            const { extractSpawnFacings } = await import("../../../shared/bsp/SpawnPointTable");
+            this.controller.signal.throwIfAborted();
+            this.host.v2Client()!.setSpawnFacings(extractSpawnFacings(bsp.entities));
+            // Face the way the map's spawn point faces whenever the server places us there.
+            this.host.v2Client()!.onSpawnFacing((yaw) => {
+              if (this.controller.signal.aborted) return;
+              const controller = CameraSystem.getInstance().getController("fps");
+              if (controller && "faceSpawn" in controller) {
+                (controller as import("../camera/FPSController").FPSController).faceSpawn(yaw);
+              }
+            });
 
             // Prewarm the generic teleport-ghost pool so the FIRST
             // teleport already has its afterimage.

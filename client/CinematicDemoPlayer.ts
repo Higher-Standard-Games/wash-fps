@@ -18,8 +18,9 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { CameraSystem } from "../../../engine/camera/CameraSystem";
 import type { FreeflyController } from "../../../engine/camera/controllers/FreeflyController";
 import type { SpectatorController } from "../../../engine/camera/controllers/SpectatorController";
+import { PLAYER_ORIGIN_HEIGHT } from "../../../shared/bsp/SpawnPointTable";
 import { type CameraPathResult, generateCameraPath, interpolatePath } from "../../../shared/demo/CinematicCameraPaths";
-import type { DemoAnalysis, HighlightCandidate } from "../../../shared/demo/DemoAnalyzer";
+import type { DemoAnalysis, GroundClearance, HighlightCandidate } from "../../../shared/demo/DemoAnalyzer";
 import { DemoAnalyzer } from "../../../shared/demo/DemoAnalyzer";
 import { type DemoHeader, DemoReader } from "../../../shared/demo/DemoReader";
 import { type CinematicReel, type CinematicSegment, SequenceBuilder } from "../../../shared/demo/SequenceBuilder";
@@ -123,6 +124,17 @@ export interface ReelWorld {
 
 const NO_WORLD: ReelWorld = { positionOf: () => null, blockedAt: () => null };
 
+/** How far below a player the ground is looked for when scoring airborne frags. */
+const GROUND_PROBE_DEPTH = 1024;
+
+/** Feet height above the map below a player origin, measured in `world`; null where it cannot tell. */
+export function groundClearanceIn(world: ReelWorld): GroundClearance {
+  return (origin) => {
+    const floor = world.blockedAt(origin, { x: origin.x, y: origin.y - GROUND_PROBE_DEPTH, z: origin.z });
+    return floor ? Math.max(0, origin.y - floor.y - PLAYER_ORIGIN_HEIGHT) : null;
+  };
+}
+
 /** How fast the fly-by camera turns toward the players and settles on its spot, per second. */
 const FLYBY_FOLLOW_RATE = 8;
 /** How far in front of a wall a pulled-in fly-by camera stops. */
@@ -207,7 +219,11 @@ export class CinematicDemoPlayer {
     await this.demoViewer.load(data);
 
     const frames = reader.readAllFrames();
-    const analysis: DemoAnalysis = new DemoAnalyzer().analyze(frames, header, index.durationMs);
+    const analysis: DemoAnalysis = new DemoAnalyzer(groundClearanceIn(this.world)).analyze(
+      frames,
+      header,
+      index.durationMs,
+    );
 
     this.tickRate = header.tickRate;
     this.header = header;

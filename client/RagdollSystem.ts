@@ -10,7 +10,8 @@
  *   2. Stop/dispose animations
  *   3. Create Ragdoll from skeleton + bone config → call .ragdoll() to activate
  *   4. Apply initial velocity to root bone aggregate
- *   5. After RAGDOLL_LIFETIME seconds → gib-explode and dispose (Warsow-style)
+ *   5. Once the body comes to rest (or after RAGDOLL_LIFETIME at the latest)
+ *      → fade out, gib-explode and dispose (Warsow-style)
  */
 
 import type { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial";
@@ -36,8 +37,19 @@ import { devLog } from "./DevLog";
 // Constants
 // ============================================================================
 
-/** How long ragdoll simulates before gib-exploding (seconds) */
+/** Longest a ragdoll simulates before gib-exploding, resting or not (seconds) */
 const RAGDOLL_LIFETIME = 5.0;
+/** Seconds a ragdoll takes to fade out before it bursts into gibs. */
+const RAGDOLL_FADE = 1.0;
+/** A ragdoll is not judged at rest before it has flown this long (seconds). */
+const REST_MIN_AGE = 0.5;
+/**
+ * At rest: the hips stay within this distance of where they were for
+ * REST_SECONDS. A body rolling or jittering in a corner moves without going
+ * anywhere, so position, not speed, decides.
+ */
+const REST_RADIUS = 12;
+const REST_SECONDS = 0.4;
 
 /** Maximum simultaneous ragdolls (oldest are force-disposed) */
 const MAX_RAGDOLLS = 4;
@@ -306,6 +318,11 @@ interface ActiveRagdoll {
   /** Seconds lived, by the clock update() is handed: wall time live, the playhead in a demo. */
   age: number;
   disposed: boolean;
+  /** Where the hips were when the current rest check began, and for how long they have stayed. */
+  restAnchor: Vector3 | null;
+  restSeconds: number;
+  /** Age at which the fade-out began, once the body came to rest or ran out of time. */
+  fadeStart: number | null;
   /** Speed trail mesh attached to hips bone */
   trail: TrailMesh | null;
   trailMat: StandardMaterial | null;
@@ -555,6 +572,9 @@ export class RagdollSystem {
         ragdoll: ragdollInstance,
         age: 0,
         disposed: false,
+        restAnchor: null,
+        restSeconds: 0,
+        fadeStart: null,
         trail,
         trailMat,
       };
@@ -617,19 +637,24 @@ export class RagdollSystem {
         }
       }
 
-      // Fade mesh visibility in last second
-      if (age > RAGDOLL_LIFETIME - 1.0) {
-        const fade = Math.max(0, RAGDOLL_LIFETIME - age);
+      // Start the fade once the body has come to rest, or at the latest so it
+      // is gone by RAGDOLL_LIFETIME.
+      if (active.fadeStart === null) {
+        if (this.cameToRest(active, dt)) active.fadeStart = age;
+        else if (age >= RAGDOLL_LIFETIME - RAGDOLL_FADE) active.fadeStart = RAGDOLL_LIFETIME - RAGDOLL_FADE;
+      }
+
+      if (active.fadeStart !== null) {
+        const fade = Math.max(0, 1 - (age - active.fadeStart) / RAGDOLL_FADE);
         active.model.mesh.visibility = fade;
         for (const child of active.model.mesh.getChildMeshes()) {
           child.visibility = fade;
         }
-      }
-
-      // Expire: gib-explode and dispose
-      if (age >= RAGDOLL_LIFETIME) {
-        this.disposeRagdoll(active, true);
-        this.ragdolls.splice(i, 1);
+        // Faded: gib-explode and dispose
+        if (fade <= 0) {
+          this.disposeRagdoll(active, true);
+          this.ragdolls.splice(i, 1);
+        }
       }
     }
   }
@@ -637,6 +662,25 @@ export class RagdollSystem {
   // ========================================================================
   // Helpers
   // ========================================================================
+
+  /** Whether the hips have stayed within REST_RADIUS for REST_SECONDS, advancing that check by `dt`. */
+  private cameToRest(active: ActiveRagdoll, dt: number): boolean {
+    if (active.age < REST_MIN_AGE) return false;
+    let hips: Vector3 | null = null;
+    try {
+      hips = active.ragdoll.getAggregate(0)?.body?.transformNode?.getAbsolutePosition() ?? null;
+    } catch {
+      hips = null;
+    }
+    if (!hips) return false;
+    if (active.restAnchor && Vector3.DistanceSquared(hips, active.restAnchor) <= REST_RADIUS * REST_RADIUS) {
+      active.restSeconds += Math.max(0, dt);
+    } else {
+      active.restAnchor = hips.clone();
+      active.restSeconds = 0;
+    }
+    return active.restSeconds >= REST_SECONDS;
+  }
 
   /** Extract dominant color from player model's PBR material (team color) */
   private extractModelColor(model: PlayerModelInstance): Color3 {

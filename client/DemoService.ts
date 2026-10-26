@@ -37,7 +37,7 @@ import { DemoAnalyzer } from "../../../shared/demo/DemoAnalyzer";
 import type { RecordedInput } from "../../../shared/demo/DemoInputs";
 import { DemoReader } from "../../../shared/demo/DemoReader";
 import { isClientKey, toClientKey } from "../ClientEntityKey";
-import { CinematicDemoPlayer, type ReelWorld, shotCard } from "./CinematicDemoPlayer";
+import { CinematicDemoPlayer, groundClearanceIn, type ReelWorld, shotCard } from "./CinematicDemoPlayer";
 import { Crosshair } from "./Crosshair";
 import { DamageNumbers } from "./DamageNumbers";
 import { demoLoadCancelled, downloadDemo } from "./DemoDownload";
@@ -511,7 +511,7 @@ export class DemoService {
     const header = reader.readHeader();
     const index = reader.readIndex();
     const frames = reader.readAllFrames();
-    const analysis = new DemoAnalyzer().analyze(frames, header, index.durationMs);
+    const analysis = new DemoAnalyzer(groundClearanceIn(this.reelWorld())).analyze(frames, header, index.durationMs);
 
     const { highlights } = analysis;
     if (highlights.length === 0) {

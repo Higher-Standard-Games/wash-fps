@@ -147,6 +147,13 @@ export class FPSController implements ICameraController {
    * Must write BOTH the input handler's mouse accumulator and the camera,
    * otherwise the next mouse move snaps the view back to the old yaw.
    */
+  /** Spawn view: the spawn point's facing, level, as Quake sets the client view angles on spawn. */
+  public faceSpawn(yaw: number): void {
+    this.mouseRotationX = 0;
+    if (this.inputHandler) this.inputHandler.mouseRotationX = 0;
+    this.setViewYaw(yaw);
+  }
+
   public setViewYaw(yaw: number): void {
     this.mouseRotationY = yaw;
     if (this.inputHandler) {

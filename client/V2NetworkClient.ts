@@ -14,6 +14,7 @@ import type { Vec3 } from "../../../engine/network/components/TransformComponent
 import type { CollisionWorld } from "../../../engine/network/systems/collision/CollisionWorld";
 import type { MovementInput } from "../../../engine/network/systems/movement/MovementProfile";
 import type { LiftState } from "../../../shared/bsp/LiftSystem";
+import { type SpawnFacing, spawnFacingNear } from "../../../shared/bsp/SpawnPointTable";
 import type { TriggerVolume } from "../../../shared/bsp/TriggerTable";
 import { sanitizeMovementOrZero } from "../../../shared/server/simulation/InputSanitizer";
 import { applyKnockbackDrag, readKnockbackAge } from "../simulation/Knockback";
@@ -122,6 +123,13 @@ const CONFIRM_LIFT_EPSILON = 0.01;
 
 /** A reconciliation that moves the view further than this counts as a correction on the net graph. */
 const VISIBLE_CORRECTION = 0.5;
+
+/**
+ * A server snap at least this far is a placement, not a correction: knockback
+ * and prediction errors stay well below it. Only such snaps (and the first
+ * snapshot after joining or respawning) may turn the view to a spawn facing.
+ */
+const SPAWN_SNAP_DISTANCE = 128;
 
 /** Does the snapshot describe the state predicted for the command it acknowledges? */
 function confirms(predicted: PredictedStep, snapshot: ServerSnapshot): boolean {
@@ -249,6 +257,8 @@ export class V2NetworkClient {
   private forceTeleportOnNextSnapshot: boolean = false;
   /** Fired when a FRESH predicted input teleports the local player (camera yaw + VFX). */
   private onTeleportCallback: ((exitYaw: number, from: Vec3, to: Vec3, entryYaw: number) => void) | null = null;
+  private spawnFacings: SpawnFacing[] = [];
+  private onSpawnFacingCallback: ((yaw: number) => void) | null = null;
 
   constructor(config: V2ClientConfig) {
     this.dt = 1 / config.tickRate;
@@ -296,6 +306,19 @@ export class V2NetworkClient {
    * the camera). The game rotates the view to the teleporter's exit yaw and
    * plays the entry/exit VFX.
    */
+  /** Install the map's spawn points and their authored facings (shared SpawnPointTable). */
+  setSpawnFacings(facings: SpawnFacing[]): void {
+    this.spawnFacings = facings;
+  }
+
+  /**
+   * Called with the spawn's facing when the server places the local player at
+   * a spawn point: joining, respawning, or a round start moving a survivor.
+   */
+  onSpawnFacing(callback: (yaw: number) => void): void {
+    this.onSpawnFacingCallback = callback;
+  }
+
   onTeleport(callback: (exitYaw: number, from: Vec3, to: Vec3, entryYaw: number) => void): void {
     this.onTeleportCallback = callback;
   }
@@ -674,6 +697,7 @@ export class V2NetworkClient {
     // === STEP 5: Compute visual offset for smoothing ===
     // Maintain visual position continuity: camera stays where it was,
     // then decays toward the new physics position.
+    let snappedFar = false;
     if (!isFirstSnapshot) {
       // Where camera was visually BEFORE reconciliation
       const preVisualX = preReconcilePos.x + this.visualOffset.x;
@@ -703,6 +727,7 @@ export class V2NetworkClient {
         this.visualOffset.x = 0;
         this.visualOffset.y = 0;
         this.visualOffset.z = 0;
+        snappedFar = corrMag > SPAWN_SNAP_DISTANCE && !inLedgeGrab;
         if (this.forceTeleportOnNextSnapshot) {
           devLog(
             `[V2Client] Force teleport on snapshot: snapping to (${postX.toFixed(1)}, ${postY.toFixed(1)}, ${postZ.toFixed(1)})`,
@@ -727,6 +752,14 @@ export class V2NetworkClient {
         this.visualOffset.y = Math.max(-MAX_OFFSET, Math.min(MAX_OFFSET, this.visualOffset.y));
         this.visualOffset.z = Math.max(-MAX_OFFSET, Math.min(MAX_OFFSET, this.visualOffset.z));
       }
+    }
+
+    // The server placed us at a spawn (join, respawn, or a round start moving a
+    // survivor there): face the way the spawn point does. Yaw is ours to send,
+    // so the client applies it. Predicted teleports turn the view separately.
+    if ((isFirstSnapshot || snappedFar) && this.onSpawnFacingCallback) {
+      const yaw = spawnFacingNear(this.spawnFacings, this.localState.position);
+      if (yaw !== null) this.onSpawnFacingCallback(yaw);
     }
 
     // Track reconciliation count and error for diagnostics

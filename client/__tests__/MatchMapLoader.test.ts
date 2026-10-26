@@ -85,6 +85,8 @@ function host(over: { aliveCount?: number; v2?: boolean } = {}) {
   const v2Client = {
     setTriggerVolumes: vi.fn((volumes: unknown) => calls.push(`triggers:${String(volumes)}`)),
     onTeleport: vi.fn(),
+    setSpawnFacings: vi.fn(),
+    onSpawnFacing: vi.fn(),
   };
   return {
     v2: v2Client,
@@ -124,6 +126,8 @@ describe("MatchMapLoader", () => {
     expect(calls.slice(0, 4)).toEqual(["hold:fps:postload", "audio", "load:wdm7", "collision"]);
     expect(calls).toContain("triggers:volume");
     expect(h.v2.onTeleport).toHaveBeenCalledTimes(1);
+    expect(h.v2.setSpawnFacings).toHaveBeenCalledTimes(1);
+    expect(h.v2.onSpawnFacing).toHaveBeenCalledTimes(1);
     expect(calls).toContain("underwater");
     expect(calls).toContain("prewarm");
     const release = calls.indexOf("release:fps:postload");

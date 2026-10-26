@@ -69,8 +69,11 @@ function playerEntity(
 function frame(tick: number, events: Array<Record<string, unknown>>, killerAirborne: boolean): GameState {
   const s = new GameState();
   s.tick = tick;
-  // Killer at height, rising faster than any jump (a rocket jump) and airborne on the kill.
-  s.entities.set("player_1", playerEntity("player_1", { x: 0, y: 200, z: 0 }, { x: 0, y: 520, z: 0 }, !killerAirborne));
+  // Killer on the floor, then 200 units up and rising faster than any jump (a rocket jump) on the kill.
+  s.entities.set(
+    "player_1",
+    playerEntity("player_1", { x: 0, y: killerAirborne ? 200 : 0, z: 0 }, { x: 0, y: 520, z: 0 }, !killerAirborne),
+  );
   s.entities.set("player_2", playerEntity("player_2", { x: 2000, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, true));
   s.events = events as GameState["events"];
   return s;

@@ -33,6 +33,7 @@ import { BotPerception } from "./BotPerception";
 import { initialBotReference, modelDigest } from "./BotRatingIdentity";
 import { duelLeadReactionDelay } from "./BotReactionTuning";
 import type { BotVision, VisionResult } from "./BotVision";
+import { pulseMeleeFire } from "./BotWeaponProfile";
 import { BotChat } from "./chat/BotChat";
 import { StateMachineBrain } from "./StateMachineBrain";
 
@@ -97,6 +98,8 @@ export class BotClient extends EventEmitter {
   // 125Hz input loop (matches server tick rate)
   private _inputLoopTimer: ReturnType<typeof setInterval> | null = null;
   private _lastBotInput: BotInput | null = null; // Cached AI decision, re-sent at 125Hz
+  /** Whether the last command sent pressed the melee attack (see _pulsedMeleeFire). */
+  private _meleePress = false;
   /** Turns the view toward each decision's angles over the commands that carry it. */
   private _aim: BotAimController;
   /** Narrows each snapshot to what this bot can see and hear. */
@@ -687,12 +690,20 @@ export class BotClient extends EventEmitter {
    * runs again on the view actually sent, which is where the shot goes.
    */
   private _aimed(input: BotInput, dt: number): BotInput {
+    input = this._pulsedMeleeFire(input);
     const attack = InputButtons.FIRE | InputButtons.ALT_FIRE;
     const firing = (input.buttons & attack) !== 0;
     if (!this._aim.started) this._aim.reset(this._gameState.self.yaw, this._gameState.self.pitch);
     const view = this._aim.step(dt, input.yaw, input.pitch, firing);
     const aimed: BotInput = { ...input, yaw: view.yaw, pitch: view.pitch, moveYaw: travelYaw(input) };
     return firing ? applyFriendlyFireSafety(aimed, this._gameState).input : aimed;
+  }
+
+  /** Melee fire as sent this command: see `pulseMeleeFire`. */
+  private _pulsedMeleeFire(input: BotInput): BotInput {
+    const { buttons, pressed } = pulseMeleeFire(input.buttons, this._gameState.self.currentWeapon, this._meleePress);
+    this._meleePress = pressed;
+    return buttons === input.buttons ? input : { ...input, buttons };
   }
 
   private _stopInputLoop(): void {

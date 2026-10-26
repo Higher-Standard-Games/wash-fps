@@ -73,7 +73,7 @@ The analyser works on the recorded frames alone and touches no rendering or netw
 |------|------------|
 | `frag` | A kill |
 | `multi_kill` | Several kills within 200 ticks (1.6 s) |
-| `airborne_frag` | A kill made while the killer was in the air |
+| `airborne_frag` | A kill made with the killer's feet at least 32 units above the ground (a hop off a step does not count) |
 | `streak_kill` | A kill that extends a streak |
 | `first_blood` | The match's first kill |
 | `movement` | A trick jump: wall jumps, slides or a chain of hops, faster than sprinting |

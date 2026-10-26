@@ -19,6 +19,7 @@ import { RIOTGUN } from "../shared/entities/definitions/weapons/riotgun";
 import { ROCKET_LAUNCHER } from "../shared/entities/definitions/weapons/rlauncher";
 import { VOLTAIC } from "../shared/entities/definitions/weapons/voltaic";
 import { canonicalWeaponId } from "../shared/entities/definitions/weapons/WeaponsTable";
+import { InputButtons } from "./BotConfig";
 
 // ── Profile Interface ───────────────────────────────────────────────
 
@@ -262,4 +263,21 @@ export function selectBestWeapon(
   }
 
   return { slot: bestSlot, profile: bestProfile };
+}
+
+/**
+ * The attack buttons for one command with `weaponId` out. A blade swings only on
+ * a fresh press, and a press made while the last swing or the weapon switch is
+ * still cooling down is lost: held fire would swing once and never again. With
+ * a melee weapon, fire is pressed and released on alternate commands, so the
+ * next press lands within two ticks of the blade being ready. `pressedLast` is
+ * whether the previous command pressed it; the result says whether this one does.
+ */
+export function pulseMeleeFire(
+  buttons: number,
+  weaponId: string,
+  pressedLast: boolean,
+): { buttons: number; pressed: boolean } {
+  if ((buttons & InputButtons.FIRE) === 0 || !getWeaponProfile(weaponId).isMelee) return { buttons, pressed: false };
+  return pressedLast ? { buttons: buttons & ~InputButtons.FIRE, pressed: false } : { buttons, pressed: true };
 }
