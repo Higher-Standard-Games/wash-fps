@@ -510,6 +510,15 @@ export class RemotePlayerRenderer {
       : { style: getPlayerModelVisualStyle(slot, MODEL_SCALE), key: getPlayerModelVisualStyleKey(slot) };
   }
 
+  /**
+   * The colour this player is drawn with from the current view: their own
+   * colour in FFA, the enemy or ally colour otherwise. Null when untinted.
+   */
+  playerColor(entityId: string): { r: number; g: number; b: number } | null {
+    const tint = this.visualStyle(entityId).style.tintColor;
+    return tint ? { r: tint.r, g: tint.g, b: tint.b } : null;
+  }
+
   /** Keep legacy alpha/bravo names for older cosmetic effects. */
   private resolveLegacyTeamColor(entityId: string): "alpha" | "bravo" {
     return legacyTeamColor(this.resolvePlayerTeamSlot(entityId), entityId);

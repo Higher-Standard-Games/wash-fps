@@ -58,11 +58,58 @@ const BODY_PART_OFFSETS = [
 // Gib Colors — Digital breakup palette
 // ============================================================================
 
-const GIB_COLORS = [
+interface GibShade {
+  diffuse: Color3;
+  emissive: Color3;
+}
+
+/** Shards of a body whose colour is unknown. Index 2 is also the body-part drops' shade. */
+const GIB_COLORS: GibShade[] = [
   { diffuse: new Color3(1.0, 0.2, 0.6), emissive: new Color3(0.5, 0.05, 0.2) }, // Pink
   { diffuse: new Color3(0.0, 0.87, 0.75), emissive: new Color3(0.0, 0.3, 0.25) }, // Teal
   { diffuse: new Color3(0.53, 0.56, 0.63), emissive: new Color3(0.05, 0.05, 0.08) }, // Grey
 ];
+
+/** The colour a player is drawn with; model tints run past 1.0. */
+export interface GibColor {
+  r: number;
+  g: number;
+  b: number;
+}
+
+/**
+ * A body breaking down into its own colour: the player's exact hue, a lighter
+ * tint and a darker shade, in that order. The darker shade (index 2) also
+ * colours the body-part drops. Model tints are emissive multipliers that run
+ * past 1.0, so the hue is taken at full brightness (brightest channel at 1),
+ * as the team colour bridge does for the UI.
+ */
+export function gibPalette(color: GibColor): GibShade[] {
+  const peak = Math.max(color.r, color.g, color.b);
+  const scale = Number.isFinite(peak) && peak > 1 ? 1 / peak : 1;
+  const base = new Color3(Math.max(0, color.r * scale), Math.max(0, color.g * scale), Math.max(0, color.b * scale));
+  const shade = (diffuse: Color3, glow: number): GibShade => ({ diffuse, emissive: diffuse.scale(glow) });
+  return [shade(base, 0.45), shade(Color3.Lerp(base, Color3.White(), 0.5), 0.4), shade(base.scale(0.4), 0.15)];
+}
+
+/** A gib burst waiting for the system to load. */
+export interface PendingGibSpawn {
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  color?: GibColor | null;
+}
+
+/** One material set per player colour; a few distinct colours a match. */
+const MAX_PALETTES = 32;
+
+/** Palette cache key: colours equal to two decimals share materials. */
+function paletteKey(color: GibColor): string {
+  return `${color.r.toFixed(2)},${color.g.toFixed(2)},${color.b.toFixed(2)}`;
+}
 
 // ============================================================================
 // Gib Instance
@@ -115,6 +162,8 @@ export class GibSystem {
   private readonly traceHit = { point: Vector3.Zero(), normal: Vector3.Up() };
   private gibs: Gib[] = [];
   private materials: StandardMaterial[] = [];
+  /** Materials for each player colour gibbed so far, by `paletteKey`. Shares the default set's shader. */
+  private palettes = new Map<string, StandardMaterial[]>();
   private templateMesh: Mesh | null = null;
   private nextGibGeneration = 0;
 
@@ -148,10 +197,7 @@ export class GibSystem {
         gib.mesh.dispose();
       }
       this.gibs = [];
-      for (const mat of this.materials) {
-        mat.dispose();
-      }
-      this.materials = [];
+      this.disposeMaterials();
       if (this.templateMesh) {
         this.templateMesh.dispose();
         this.templateMesh = null;
@@ -159,16 +205,8 @@ export class GibSystem {
     }
     this.scene = scene;
 
-    // Create materials for each color
-    for (let i = 0; i < GIB_COLORS.length; i++) {
-      const mat = new StandardMaterial(`gib_mat_${i}`, scene);
-      mat.diffuseColor = GIB_COLORS[i].diffuse;
-      mat.emissiveColor = GIB_COLORS[i].emissive;
-      mat.specularColor = Color3.Black();
-      mat.backFaceCulling = false;
-      mat.disableLighting = false;
-      this.materials.push(mat);
-    }
+    // Materials for bodies of unknown colour
+    this.materials = this.createMaterials(scene, GIB_COLORS, "gib_mat");
 
     // Create template triangle mesh
     this.templateMesh = this.createTriangleMesh(scene);
@@ -182,10 +220,7 @@ export class GibSystem {
       gib.mesh.dispose();
     }
     this.gibs = [];
-    for (const mat of this.materials) {
-      mat.dispose();
-    }
-    this.materials = [];
+    this.disposeMaterials();
     if (this.templateMesh) {
       this.templateMesh.dispose();
       this.templateMesh = null;
@@ -207,11 +242,53 @@ export class GibSystem {
   // Spawn Gibs
   // ========================================================================
 
+  private createMaterials(scene: Scene, shades: GibShade[], name: string): StandardMaterial[] {
+    return shades.map((shade, i) => {
+      const mat = new StandardMaterial(`${name}_${i}`, scene);
+      mat.diffuseColor = shade.diffuse;
+      mat.emissiveColor = shade.emissive;
+      mat.specularColor = Color3.Black();
+      mat.backFaceCulling = false;
+      mat.disableLighting = false;
+      return mat;
+    });
+  }
+
+  private disposeMaterials(): void {
+    for (const mat of this.materials) mat.dispose();
+    this.materials = [];
+    for (const set of this.palettes.values()) for (const mat of set) mat.dispose();
+    this.palettes.clear();
+  }
+
+  /** The materials a body of `color` breaks into; the default palette when unknown. */
+  private materialsFor(color: GibColor | null | undefined): StandardMaterial[] {
+    if (!color || !this.scene) return this.materials;
+    const key = paletteKey(color);
+    let set = this.palettes.get(key);
+    if (!set) {
+      if (this.palettes.size >= MAX_PALETTES) return this.materials;
+      set = this.createMaterials(this.scene, gibPalette(color), `gib_mat_${key}`);
+      this.palettes.set(key, set);
+    }
+    return set;
+  }
+
   /**
-   * Spawn gibs at death position with victim velocity.
+   * Spawn gibs at death position with victim velocity, in the colour the body
+   * was drawn with (`color`), or the default palette when it is unknown.
    */
-  spawn(x: number, y: number, z: number, velX: number, velY: number, velZ: number): GibHandle | null {
+  spawn(
+    x: number,
+    y: number,
+    z: number,
+    velX: number,
+    velY: number,
+    velZ: number,
+    color?: GibColor | null,
+  ): GibHandle | null {
     if (!this.scene || !this.templateMesh) return null;
+    const materials = this.materialsFor(color);
 
     // Enforce hard cap
     const activeCount = this.gibs.filter((g) => g.active).length;
@@ -240,7 +317,7 @@ export class GibSystem {
       gib.velY = velY + upward + spreadY;
       gib.velZ = velZ + spreadZ;
 
-      this.initGibCommon(gib, y, i < TRACED_GIB_COUNT, false, generation);
+      this.initGibCommon(gib, y, i < TRACED_GIB_COUNT, false, generation, materials);
       // Sync mesh position immediately so gib is visible on spawn frame
       gib.mesh.position.set(gib.posX, gib.posY, gib.posZ);
     }
@@ -265,7 +342,7 @@ export class GibSystem {
       const scale = 0.9 + Math.random() * 0.4;
       gib.mesh.scaling.setAll(scale * (DROP_GIB_SIZE / GIB_SIZE));
 
-      this.initGibCommon(gib, y, false, true, generation);
+      this.initGibCommon(gib, y, false, true, generation, materials);
       // Sync mesh position immediately
       gib.mesh.position.set(gib.posX, gib.posY, gib.posZ);
     }
@@ -274,7 +351,14 @@ export class GibSystem {
   }
 
   /** Shared gib initialization */
-  private initGibCommon(gib: Gib, floorY: number, traced: boolean, isDrop: boolean, generation: number): void {
+  private initGibCommon(
+    gib: Gib,
+    floorY: number,
+    traced: boolean,
+    isDrop: boolean,
+    generation: number,
+    materials: StandardMaterial[],
+  ): void {
     gib.rotX = Math.random() * Math.PI * 2;
     gib.rotY = Math.random() * Math.PI * 2;
     gib.rotZ = Math.random() * Math.PI * 2;
@@ -286,13 +370,12 @@ export class GibSystem {
     gib.tumbleZ = (tMin + Math.random() * (tMax - tMin)) * (Math.random() > 0.5 ? 1 : -1);
 
     if (!isDrop) {
-      const colorIdx = Math.floor(Math.random() * GIB_COLORS.length);
-      gib.mesh.material = this.materials[colorIdx];
+      gib.mesh.material = materials[Math.floor(Math.random() * materials.length)];
       const scale = 0.7 + Math.random() * 0.6;
       gib.mesh.scaling.setAll(scale);
     } else {
-      // Body drops use grey/darker tones
-      gib.mesh.material = this.materials[2]; // grey
+      // Body drops take the darkest shade
+      gib.mesh.material = materials[2];
     }
 
     gib.age = 0;

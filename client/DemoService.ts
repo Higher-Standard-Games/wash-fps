@@ -790,7 +790,7 @@ export class DemoService {
     this.demoGibs = GibSystem.create(scene);
     this.demoRagdolls = RagdollSystem.create(scene);
     // A body that lies long enough bursts, as it does in the game
-    this.demoRagdolls.setGibCallback((x, y, z, vx, vy, vz) => this.demoGibs?.spawn(x, y, z, vx, vy, vz));
+    this.demoRagdolls.setGibCallback((x, y, z, vx, vy, vz, color) => this.demoGibs?.spawn(x, y, z, vx, vy, vz, color));
     this.physicsScene = { scene, wasEnabled: scene.physicsEnabled };
     this.demoDamageNumbers = DamageNumbers.create(scene);
     // Demo playback uses snapshot transforms directly: no wall-clock Havok toss

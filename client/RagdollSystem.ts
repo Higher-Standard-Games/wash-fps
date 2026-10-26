@@ -32,10 +32,22 @@ import {
 import { background } from "../../../engine/core/AsyncErrors";
 import { PhysicsSystem } from "../../../engine/physics/PhysicsSystem";
 import { devLog } from "./DevLog";
+import type { GibColor } from "./GibSystem";
 
 // ============================================================================
 // Constants
 // ============================================================================
+
+/** Bursts a ragdoll into gibs where it lies, in the colour its body was drawn with. */
+export type GibCallback = (
+  x: number,
+  y: number,
+  z: number,
+  vx: number,
+  vy: number,
+  vz: number,
+  color: GibColor | null,
+) => void;
 
 /** Longest a ragdoll simulates before gib-exploding, resting or not (seconds) */
 const RAGDOLL_LIFETIME = 5.0;
@@ -318,6 +330,8 @@ interface ActiveRagdoll {
   /** Seconds lived, by the clock update() is handed: wall time live, the playhead in a demo. */
   age: number;
   disposed: boolean;
+  /** The colour the body was drawn with, which its gibs take; null when untinted. */
+  color: GibColor | null;
   /** Where the hips were when the current rest check began, and for how long they have stayed. */
   restAnchor: Vector3 | null;
   restSeconds: number;
@@ -351,7 +365,7 @@ export class RagdollSystem {
   private physicsReady = false;
 
   /** Callback for gib explosion on ragdoll cleanup */
-  private onGibExplode: ((x: number, y: number, z: number, vx: number, vy: number, vz: number) => void) | null = null;
+  private onGibExplode: GibCallback | null = null;
 
   private constructor() {}
 
@@ -398,7 +412,7 @@ export class RagdollSystem {
     this.physicsReady = true;
   }
 
-  setGibCallback(cb: (x: number, y: number, z: number, vx: number, vy: number, vz: number) => void): void {
+  setGibCallback(cb: GibCallback): void {
     this.onGibExplode = cb;
   }
 
@@ -572,6 +586,7 @@ export class RagdollSystem {
         ragdoll: ragdollInstance,
         age: 0,
         disposed: false,
+        color: this.modelTint(model),
         restAnchor: null,
         restSeconds: 0,
         fadeStart: null,
@@ -682,6 +697,15 @@ export class RagdollSystem {
     return active.restSeconds >= REST_SECONDS;
   }
 
+  /** The tint the player model was drawn with (its albedo), unclamped; null when it has none. */
+  private modelTint(model: PlayerModelInstance): GibColor | null {
+    for (const mesh of [model.mesh, ...model.mesh.getChildMeshes()]) {
+      const albedo = (mesh.material as PBRMaterial | null)?.albedoColor;
+      if (albedo) return { r: albedo.r, g: albedo.g, b: albedo.b };
+    }
+    return null;
+  }
+
   /** Extract dominant color from player model's PBR material (team color) */
   private extractModelColor(model: PlayerModelInstance): Color3 {
     const allMeshes = [model.mesh, ...model.mesh.getChildMeshes()];
@@ -718,7 +742,7 @@ export class RagdollSystem {
       } catch {
         pos = active.model.anchor.getAbsolutePosition();
       }
-      this.onGibExplode(pos.x, pos.y, pos.z, 0, 0, 0);
+      this.onGibExplode(pos.x, pos.y, pos.z, 0, 0, 0, active.color);
     }
 
     // Dispose trail

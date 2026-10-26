@@ -95,7 +95,7 @@ import { devLog } from "./DevLog";
 import type { FollowedViewWeapon } from "./FollowedViewWeapon";
 import { playerVoiceForEntity } from "./FPSPlayerAudio";
 import type { FPSReloadAudio } from "./FPSReloadAudio";
-import type { GibSystem } from "./GibSystem";
+import type { GibSystem, PendingGibSpawn } from "./GibSystem";
 import { networkHostOf } from "./NetworkHostAccess";
 import type { RagdollSystem } from "./RagdollSystem";
 
@@ -183,7 +183,7 @@ export interface GameEventContext {
 
   // Lazy effect systems
   _gibSystem: GibSystem | null;
-  _pendingGibSpawns: { x: number; y: number; z: number; vx: number; vy: number; vz: number }[];
+  _pendingGibSpawns: PendingGibSpawn[];
   _ragdollSystem: RagdollSystem | null;
   _cartoonHit: CartoonHitEffect | null;
   /** Smoothed corpse-follow death camera (driven by FPSController via Game). */
@@ -920,9 +920,19 @@ function handleDeathEvent(ctx: GameEventContext, event: DeathEvent, state: GameS
     }
     if (event.x !== undefined) {
       devLog(`[GibSystem] Gib death: dmgType=${damageType} dmg=${finalDamage}`);
+      // The body breaks down into the colour it was drawn with
+      const color = event.entityId ? (ctx.remoteRenderer?.playerColor(event.entityId) ?? null) : null;
       let gibHandle: { getPosition(): Vector3 | null } | null = null;
       if (ctx._gibSystem) {
-        gibHandle = ctx._gibSystem.spawn(event.x, event.y, event.z, event.velX || 0, event.velY || 0, event.velZ || 0);
+        gibHandle = ctx._gibSystem.spawn(
+          event.x,
+          event.y,
+          event.z,
+          event.velX || 0,
+          event.velY || 0,
+          event.velZ || 0,
+          color,
+        );
       } else {
         ctx._pendingGibSpawns.push({
           x: event.x,
@@ -931,6 +941,7 @@ function handleDeathEvent(ctx: GameEventContext, event: DeathEvent, state: GameS
           vx: event.velX || 0,
           vy: event.velY || 0,
           vz: event.velZ || 0,
+          color,
         });
       }
       if (isLocalDeath && gibHandle && ctx._deathCamera) {
@@ -956,7 +967,8 @@ function handleDeathEvent(ctx: GameEventContext, event: DeathEvent, state: GameS
       console.warn("[Death] RagdollSystem not ready, falling back to gibs");
       disposePlayerModel(model);
       if (event.x !== undefined && ctx._gibSystem) {
-        ctx._gibSystem.spawn(event.x, event.y, event.z, event.velX || 0, event.velY || 0, event.velZ || 0);
+        const color = event.entityId ? (ctx.remoteRenderer?.playerColor(event.entityId) ?? null) : null;
+        ctx._gibSystem.spawn(event.x, event.y, event.z, event.velX || 0, event.velY || 0, event.velZ || 0, color);
       }
     } else {
       try {

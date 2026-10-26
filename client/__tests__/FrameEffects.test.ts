@@ -6,6 +6,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * cycle, which it inherited from Game.renderRemotePlayers.
  */
 
+/** A body's colour, carried from the death to its gibs. */
+const RED = { r: 1, g: 0, b: 0 };
+
+
 function system(name: string) {
   return {
     name,
@@ -75,9 +79,9 @@ describe("FrameEffects", () => {
 
   it("flushes gibs queued while the gib system was loading", async () => {
     const effects = new FrameEffects(() => ({}) as never);
-    effects.pendingGibSpawns.push({ x: 1, y: 2, z: 3, vx: 4, vy: 5, vz: 6 });
+    effects.pendingGibSpawns.push({ x: 1, y: 2, z: 3, vx: 4, vy: 5, vz: 6, color: RED });
     await frame(effects);
-    expect(gibs.spawn).toHaveBeenCalledWith(1, 2, 3, 4, 5, 6);
+    expect(gibs.spawn).toHaveBeenCalledWith(1, 2, 3, 4, 5, 6, RED);
     expect(effects.pendingGibSpawns).toEqual([]);
   });
 
@@ -100,9 +104,9 @@ describe("FrameEffects", () => {
     const effects = new FrameEffects(() => ({}) as never);
     await frame(effects);
     expect(ragdolls.setGibCallback).toHaveBeenCalledTimes(1);
-    const gibCallback = ragdolls.setGibCallback.mock.calls[0][0] as (...n: number[]) => void;
-    gibCallback(1, 2, 3, 4, 5, 6);
-    expect(gibs.spawn).toHaveBeenCalledWith(1, 2, 3, 4, 5, 6);
+    const gibCallback = ragdolls.setGibCallback.mock.calls[0][0] as (...args: unknown[]) => void;
+    gibCallback(1, 2, 3, 4, 5, 6, RED);
+    expect(gibs.spawn).toHaveBeenCalledWith(1, 2, 3, 4, 5, 6, RED);
   });
 
   it("still gibs a ragdoll when ragdolls finish loading before gibs", async () => {
@@ -116,14 +120,14 @@ describe("FrameEffects", () => {
       await frame(effects);
       expect(effects.gibSystem).toBeNull();
       expect(effects.ragdollSystem).toBe(ragdolls);
-      const gibCallback = ragdolls.setGibCallback.mock.calls[0]?.[0] as (...n: number[]) => void;
+      const gibCallback = ragdolls.setGibCallback.mock.calls[0]?.[0] as (...args: unknown[]) => void;
       expect(gibCallback).toBeTypeOf("function");
-      gibCallback(1, 2, 3, 4, 5, 6);
+      gibCallback(1, 2, 3, 4, 5, 6, RED);
       expect(gibs.spawn).not.toHaveBeenCalled();
 
       gibScene = {};
       await frame(effects);
-      expect(gibs.spawn).toHaveBeenCalledWith(1, 2, 3, 4, 5, 6);
+      expect(gibs.spawn).toHaveBeenCalledWith(1, 2, 3, 4, 5, 6, RED);
     } finally {
       gibs.init.mockImplementation(function (this: { scene: unknown }, scene: unknown) {
         this.scene = scene;

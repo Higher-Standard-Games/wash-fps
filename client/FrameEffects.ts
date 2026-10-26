@@ -15,7 +15,7 @@ import type { CartoonHitEffect } from "./CartoonHitEffect";
 import type { DamageNumbers } from "./DamageNumbers";
 import { devLog } from "./DevLog";
 import { FPSReloadAudio } from "./FPSReloadAudio";
-import type { GibSystem } from "./GibSystem";
+import type { GibColor, GibSystem, PendingGibSpawn } from "./GibSystem";
 import type { RagdollSystem } from "./RagdollSystem";
 
 export class FrameEffects {
@@ -23,7 +23,7 @@ export class FrameEffects {
   gibSystem: GibSystem | null = null;
   private damageNumbersLoading = false;
   private gibSystemLoading = false; // true while import() is pending
-  pendingGibSpawns: { x: number; y: number; z: number; vx: number; vy: number; vz: number }[] = [];
+  pendingGibSpawns: PendingGibSpawn[] = [];
   private damageNumbers: DamageNumbers | null = null;
   private damageOverlay: DamageOverlay | null = null;
   ragdollSystem: RagdollSystem | null = null;
@@ -65,7 +65,7 @@ export class FrameEffects {
             devLog(`[GibSystem] Initialized, flushing ${this.pendingGibSpawns.length} pending spawns`);
             // Flush any gib spawns that queued while loading
             for (const pending of this.pendingGibSpawns) {
-              gibs.spawn(pending.x, pending.y, pending.z, pending.vx, pending.vy, pending.vz);
+              gibs.spawn(pending.x, pending.y, pending.z, pending.vx, pending.vy, pending.vz, pending.color);
             }
             this.pendingGibSpawns.length = 0;
           } else {
@@ -97,10 +97,12 @@ export class FrameEffects {
             // An expiring ragdoll bursts into gibs. Wired whether or not the gib
             // system has loaded yet: both load in the background, and a ragdoll
             // that loaded first must still burst, into the queue if need be.
-            ragdolls.setGibCallback((x: number, y: number, z: number, vx: number, vy: number, vz: number) => {
-              if (this.gibSystem) this.gibSystem.spawn(x, y, z, vx, vy, vz);
-              else this.pendingGibSpawns.push({ x, y, z, vx, vy, vz });
-            });
+            ragdolls.setGibCallback(
+              (x: number, y: number, z: number, vx: number, vy: number, vz: number, color: GibColor | null) => {
+                if (this.gibSystem) this.gibSystem.spawn(x, y, z, vx, vy, vz, color);
+                else this.pendingGibSpawns.push({ x, y, z, vx, vy, vz, color });
+              },
+            );
             this.ragdollSystem = ragdolls;
             devLog("[RagdollSystem] Initialized");
           } else {

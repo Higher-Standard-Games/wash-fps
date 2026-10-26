@@ -28,6 +28,9 @@ afterEach(() => {
   engine.dispose();
 });
 
+/** The colour the body was drawn with; its gibs take it. */
+const RED = { r: 1, g: 0, b: 0 };
+
 /**
  * A stand-in active ragdoll: what update() reads and disposeRagdoll() touches.
  * `hips` is where its hips are reported; null reports none, so it never rests.
@@ -45,6 +48,7 @@ function body(hips: () => Vector3 | null = () => null) {
     },
     age: 0,
     disposed: false,
+    color: RED,
     restAnchor: null,
     restSeconds: 0,
     fadeStart: null,
@@ -71,7 +75,7 @@ describe("ragdoll clock", () => {
     expect(one.model.mesh.visibility).toBeCloseTo(0.5);
     system.update(0.5);
     expect(one.disposed).toBe(true);
-    expect(burst).toHaveBeenCalledWith(1, 2, 3, 0, 0, 0);
+    expect(burst).toHaveBeenCalledWith(1, 2, 3, 0, 0, 0, RED);
     expect(one.ragdoll.dispose).toHaveBeenCalledOnce();
     system.dispose();
   });
