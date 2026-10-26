@@ -16,6 +16,7 @@ import { Scene } from "@babylonjs/core/scene";
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 import { getMD3Loader, type MD3LoadResult } from "../../../../engine/loader/model/MD3Loader";
 import { PK3Loader } from "../../../../engine/loader/pk3/PK3Loader";
+import { PK3TextureLoader } from "../../../../engine/loader/pk3/PK3TextureLoader";
 import { ProjectileManager } from "../../../../engine/weapon/ProjectileManager";
 import { getEntityRegistry } from "../../../../shared/entities";
 import { BLADE_BLAST } from "../../shared/entities/definitions/projectiles/blade_blast";
@@ -92,6 +93,23 @@ describe("ProjectileManager model cache", () => {
     expect(material.alphaMode).toBe(Constants.ALPHA_ADD);
     expect(material.disableDepthWrite).toBe(true);
   });
+  it("builds a model again when a map change cleared the texture cache while it loaded", async () => {
+    // The first build's texture request straddles the clear, so its image never
+    // arrives: cached like that, an additive bolt draws nothing behind its trail.
+    createMeshes.mockImplementationOnce(() => {
+      const model = loadedModel();
+      (model.meshes[0].material as StandardMaterial).diffuseTexture = null;
+      model.textureLoadPromises = [Promise.resolve().then(() => PK3TextureLoader.getInstance().clearCache())];
+      return model;
+    });
+
+    expect(await manager.preloadModel("rocket")).toBe(true);
+    expect(createMeshes).toHaveBeenCalledTimes(2);
+    const cached = createMeshes.mock.results[1].value as MD3LoadResult;
+    expect((cached.meshes[0].material as StandardMaterial).diffuseTexture).not.toBeNull();
+    expect(bodyVertices(fire())).toBeGreaterThan(0);
+  });
+
   it("loads a projectile model again after the scene clear disposed it", async () => {
     await manager.preloadModel("rocket");
     expect(bodyVertices(fire())).toBeGreaterThan(0);
