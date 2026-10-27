@@ -33,6 +33,7 @@ import { background } from "../../../engine/core/AsyncErrors";
 import { PhysicsSystem } from "../../../engine/physics/PhysicsSystem";
 import { devLog } from "./DevLog";
 import type { GibColor } from "./GibSystem";
+import { BatchedPoseSync } from "./ragdoll/BatchedPoseSync";
 
 // ============================================================================
 // Constants
@@ -327,6 +328,7 @@ function createBoneConfig(): BoneConfig[] {
 interface ActiveRagdoll {
   model: PlayerModelInstance;
   ragdoll: Ragdoll;
+  poseSync: BatchedPoseSync | null;
   /** Seconds lived, by the clock update() is handed: wall time live, the playhead in a demo. */
   age: number;
   disposed: boolean;
@@ -447,6 +449,8 @@ export class RagdollSystem {
       }
     }
 
+    let createdRagdoll: Ragdoll | null = null;
+    let poseSync: BatchedPoseSync | null = null;
     try {
       // 1. FULLY DISPOSE all animations — they fight with physics
       releaseLocomotionGroups(model);
@@ -506,6 +510,7 @@ export class RagdollSystem {
         model.mesh, // rootTransformNode — the skinned mesh
         boneConfig,
       );
+      createdRagdoll = ragdollInstance;
 
       // 6. Raise Havok’s global max velocity so our launch isn’t clamped
       // Only the v2 engine has velocity limits; the shared interface omits them.
@@ -522,6 +527,12 @@ export class RagdollSystem {
 
       // 7. Activate ragdoll mode — Havok Physics takes over bone transforms
       ragdollInstance.ragdoll();
+      poseSync = BatchedPoseSync.create(
+        model.skeleton,
+        model.mesh,
+        ragdollInstance,
+        boneConfig.map((cfg) => cfg.bone),
+      );
       devLog("[RagdollSystem] Ragdoll mode activated");
 
       // 8. Apply knockback velocity to ALL bone aggregates.
@@ -584,6 +595,7 @@ export class RagdollSystem {
       const active: ActiveRagdoll = {
         model,
         ragdoll: ragdollInstance,
+        poseSync,
         age: 0,
         disposed: false,
         color: this.modelTint(model),
@@ -616,6 +628,12 @@ export class RagdollSystem {
       };
     } catch (e) {
       console.error("[RagdollSystem] Failed to create ragdoll:", e);
+      poseSync?.dispose();
+      try {
+        createdRagdoll?.dispose();
+      } catch (cleanupError) {
+        console.warn("[RagdollSystem] Failed to release ragdoll:", cleanupError);
+      }
       this.disposeModel(model);
       return null;
     }
@@ -764,6 +782,7 @@ export class RagdollSystem {
     }
 
     // Dispose ragdoll (cleans up physics bodies + joints)
+    active.poseSync?.dispose();
     try {
       active.ragdoll.dispose();
     } catch (e) {
