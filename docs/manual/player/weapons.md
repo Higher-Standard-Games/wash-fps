@@ -75,6 +75,9 @@ The headline weapon.
 - **Fire rate** — 1.25 shots/sec (800 ms between shots).
 - **Ammo** — `rockets` (pool — no reload).
 
+Rocket and grenade explosions shake the camera within 324 units, at full
+strength within about 136.
+
 Straight-line projectile, speed 1814 u/s. Predict your target's movement. Rocket-jumping is the cleanest way to traverse height differences — splash to your feet, accept the self-damage, gain enormous vertical.
 
 ## Slot 6 — Plasma Gun
@@ -99,6 +102,8 @@ Chain-lightning beam — its own weapon, not just a re-skinned lasergun.
 - **Ammo** — `lasers` (120-round clip). Its **own pool** — the Voltaic no longer shares the plasmagun's `cells`, so carrying both does not mean fighting over one ammo bar.
 - **Chain lightning** — the beam arcs from its primary hit to up to **2 nearby enemies** within 280 units, at 50% falloff per hop (100% → 50% → 25%). All players see the arcs. Superb in crowded rooms.
 - **Unstable hipfire** — fired from the hip the beam **wanders/bends** (`beamWanderDeg`, ~4°) — deliberately imprecise. **ADS (Mouse 2) locks it dead straight** (Warsow-LG feel). Aim down sights for range, spray from the hip up close.
+
+Voltaic hits use 70% of the usual damage-based camera shake.
 
 ## Slot 8 — Electrobolt
 
