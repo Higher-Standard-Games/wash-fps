@@ -76,7 +76,7 @@ export class FPSVitalsBlock implements FPSHudWidget {
 
       const fill = document.createElement("div");
       fill.className = "fps-vitals-armor-fill";
-      fill.style.width = "0%";
+      fill.style.transform = "scaleX(0)";
       plate.appendChild(fill);
 
       plates.appendChild(plate);
@@ -127,7 +127,7 @@ export class FPSVitalsBlock implements FPSHudWidget {
     for (let i = 0; i < this.plateFillEls.length; i++) {
       const start = i * ARMOR_PLATE_VALUE;
       const fill = clamp01((armor - start) / ARMOR_PLATE_VALUE);
-      this.plateFillEls[i].style.width = `${fill * 100}%`;
+      this.plateFillEls[i].style.transform = `scaleX(${fill})`;
     }
   }
 

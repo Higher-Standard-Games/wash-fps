@@ -32,6 +32,8 @@ export class FPSAirMeter implements FPSHudWidget {
   private label: HTMLElement;
   /** Last rendered step, or null when hidden. */
   private rendered: number | null = null;
+  private renderedLow = false;
+  private renderedDrowning = false;
 
   constructor() {
     this.element = document.createElement("div");
@@ -72,15 +74,19 @@ export class FPSAirMeter implements FPSHudWidget {
     }
 
     const step = Math.round(air * STEPS);
-    if (step === this.rendered) return;
+    const low = air <= LOW_AIR;
+    const drowning = game.localDrowning;
+    if (step === this.rendered && low === this.renderedLow && drowning === this.renderedDrowning) return;
     this.rendered = step;
+    this.renderedLow = low;
+    this.renderedDrowning = drowning;
 
     this.fill.style.width = `${(step / STEPS) * 100}%`;
-    this.element.classList.toggle("fps-air-meter--low", air <= LOW_AIR);
+    this.element.classList.toggle("fps-air-meter--low", low);
     // Out of air entirely: the bar is empty and the damage has started, so the
     // label carries the news the bar no longer can.
-    this.element.classList.toggle("fps-air-meter--drowning", game.localDrowning);
-    this.label.textContent = game.localDrowning ? "DROWNING" : "AIR";
+    this.element.classList.toggle("fps-air-meter--drowning", drowning);
+    this.label.textContent = drowning ? "DROWNING" : "AIR";
     this.element.style.display = "";
   }
 

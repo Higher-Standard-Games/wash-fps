@@ -66,7 +66,7 @@ export class FPSAmmoCounter implements FPSHudWidget {
 
     this.fillEl = document.createElement("div");
     this.fillEl.className = "fps-value-bar-fill";
-    this.fillEl.style.width = "100%";
+    this.fillEl.style.transform = "scaleX(1)";
     track.appendChild(this.fillEl);
 
     return wrapper;
@@ -85,13 +85,14 @@ export class FPSAmmoCounter implements FPSHudWidget {
     const primaryAmmo: number = structuredAmmo ? structuredAmmo.clip : (ammo as number);
     const reserveAmmo = usesReserve ? structuredAmmo.reserve : null;
     const ammoKey = `${primaryAmmo}:${reserveAmmo ?? ""}`;
+    const weaponChanged = weapon !== this.currentWeapon;
 
-    if (weapon !== this.currentWeapon) {
+    if (weaponChanged) {
       this.currentWeapon = weapon;
       this.weaponEl.textContent = weapon.toUpperCase();
     }
 
-    if (ammoKey !== this.currentAmmo) {
+    if (weaponChanged || ammoKey !== this.currentAmmo) {
       const oldAmmo = this.currentPrimaryAmmo;
       this.currentAmmo = ammoKey;
       this.currentPrimaryAmmo = primaryAmmo;
@@ -100,7 +101,7 @@ export class FPSAmmoCounter implements FPSHudWidget {
         this.numberEl.textContent = "INF";
         this.reserveEl.textContent = "";
         this.reserveEl.style.display = "none";
-        this.fillEl.style.width = "100%";
+        this.fillEl.style.transform = "scaleX(1)";
       } else {
         this.numberEl.textContent = String(primaryAmmo);
         if (reserveAmmo !== null) {
@@ -112,11 +113,11 @@ export class FPSAmmoCounter implements FPSHudWidget {
         }
 
         const maxAmmo = def?.reloadModel === "clip" ? (def.clipSize ?? 1) : (def?.maxAmmo ?? 100);
-        const percent = Math.max(0, Math.min(100, (primaryAmmo / maxAmmo) * 100));
-        this.fillEl.style.width = `${percent}%`;
+        const fraction = Math.max(0, Math.min(1, primaryAmmo / maxAmmo));
+        this.fillEl.style.transform = `scaleX(${fraction})`;
       }
 
-      if (oldAmmo >= 0 && primaryAmmo < oldAmmo) {
+      if (!weaponChanged && oldAmmo >= 0 && primaryAmmo < oldAmmo) {
         restartFlash(this.element, "fps-flash-loss", FLASH_CLASSES, FLASH_NAMES);
       }
 

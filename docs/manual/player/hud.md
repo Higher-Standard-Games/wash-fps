@@ -59,13 +59,21 @@ until the next round.
 
 ## Ammo Counter (bottom-right)
 
-Large readout of the currently equipped weapon's ammo. The number reflects the *ammo pool* for that weapon's ammo type — so if you're holding the rocket launcher and pick up a different `rockets` pickup elsewhere, both update simultaneously.
+The large number shows rounds in the clip for weapons with magazines, with
+**RES** showing reserve ammo. The fill represents the fraction of that weapon's
+clip remaining, so switching weapons can change the fill even when the round
+count is the same. Other weapons show their ammo pool; the blade reads **INF**.
 
-Format:
+Five rounds or fewer trigger low-ammo styling. Spending ammo flashes the
+readout; switching to another weapon does not trigger a shot flash. Ammo and
+armor fills animate smoothly as their values change.
 
-Example: **ROCKETS** with **42** rounds remaining.
+## Air Meter
 
-Goes red when below the per-weapon "low ammo" threshold.
+While your air is below full, a breath bar shows the amount remaining in
+five-percent steps. It turns amber at 30% or less and shows **DROWNING** when
+your lungs are empty. The meter stays hidden while you are dead, including
+when you are watching a living teammate.
 
 ## Crosshair (centre)
 

@@ -800,10 +800,12 @@
   left: 0;
   top: 0;
   bottom: 0;
-  width: 0%;
+  width: 100%;
+  transform: scaleX(0);
+  transform-origin: left;
   background: linear-gradient(180deg, hsl(185, 98%, 68%), hsl(198, 92%, 46%));
   box-shadow: inset calc(0px * var(--ui-scale, 1)) calc(3px * var(--ui-scale, 1)) 0 hsla(0, 0%, 100%, 0.36);
-  transition: width 0.18s ease-out;
+  transition: transform 0.18s ease-out;
 }
 
 .fps-vitals-armor-number {
@@ -956,6 +958,12 @@
   border-radius: calc(2px * var(--ui-scale, 1));
   transition: width 0.15s ease-out;
   box-shadow: 0 0 6px currentColor;
+}
+
+.fps-ammo-counter .fps-value-bar-fill {
+  width: 100%;
+  transform-origin: left;
+  transition: transform 0.15s ease-out;
 }
 
 /* Color variants */
