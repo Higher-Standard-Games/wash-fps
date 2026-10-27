@@ -572,7 +572,8 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
               const fpsCtrl = CameraSystem.getInstance().getController("fps");
               if (event.entityId === localEntityId && fpsCtrl?.shakeCamera) {
                 const painIntensity = Math.min(Math.max(event.damage / 100, 0.05), 0.6);
-                fpsCtrl.shakeCamera(painIntensity);
+                const painScale = event.weaponId === "plasmagun" || event.weaponId === "plasma_bolt" ? 0.5 : 1;
+                fpsCtrl.shakeCamera(painIntensity * painScale);
               }
             }
 

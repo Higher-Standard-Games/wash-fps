@@ -85,6 +85,9 @@ Spammable bolt projectile.
 - **Fire rate** — 10 shots/sec.
 - **Ammo** — `cells` (50-round clip).
 
+Plasma hits use half the usual damage-based camera shake. Nearby impacts also
+use light camera shake, keeping sustained plasma fire easier to follow.
+
 The pressure tool. Hose down corridors, deny corners, finish off injured targets. The small splash radius means you can self-knockback without serious damage — useful for plasma climbing.
 
 ## Slot 7 — Voltaic
