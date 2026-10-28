@@ -1,36 +1,48 @@
 /**
- * DroppedWeaponRenderer — Hybrid: entity-driven lifecycle + client Havok physics.
+ * DroppedWeaponRenderer — entity-driven lifecycle, the server's own throw.
  *
  * Architecture:
  *   Lifecycle : Server-authoritative via entity snapshots (spawn/despawn)
- *   Physics   : Client-side Havok (arc, tumble, settle, BSP collision)
+ *   Motion    : The shared item throw (shared/items/ItemThrow), replayed from
+ *               the drop's start over the same collision world the server
+ *               steps it through, so it lands where the server puts it
  *   Materials : Cloned from AssetPreloader cache or fresh ModelLoader load
  *
  * Flow:
- *   1. weapon_drop event → stash initial velocity (velX/Y/Z) in pendingVelocities
- *   2. syncServerEntities() sees new item_ entity → spawn model + Havok body
- *   3. Havok handles visual physics (gravity, tumble, collision with BSP trimesh)
- *   4. Once settled, Havok body frozen — position locked
- *   5. Entity gone from snapshot → dispose Havok body + visual
+ *   1. weapon_drop event → stash the throw's start and velocity
+ *   2. syncServerEntities() sees new item_ entity → spawn model, start the throw
+ *   3. The throw steps at the server's rate until it settles; the model spins
+ *      while airborne and comes to rest on its side
+ *   4. A weapon seen without its drop event (joined late) eases to the
+ *      server's position
+ *   5. Entity gone from snapshot → dispose visual
  */
 
-import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
-import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
-import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
+import type { Observer } from "@babylonjs/core/Misc/observable";
 import type { Scene } from "@babylonjs/core/scene";
 import { background } from "../../../engine/core/AsyncErrors";
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
 import { BspManager } from "../../../engine/loader/bsp/BspManager";
-import { resolveModelAsset } from "../../../engine/loader/model/ModelAsset";
 import { ModelInstanceCache } from "../../../engine/loader/model/ModelInstanceCache";
 import type { ModelLoadResult } from "../../../engine/loader/model/ModelLoader";
 import { bindLoaderLeftovers, disposeModelResources } from "../../../engine/loader/model/ModelSourceCache";
+import { getCollisionManager } from "../../../engine/physics/CollisionManager";
+import { SweepBackendAdapter } from "../../../engine/physics/SweepBackendAdapter";
+import {
+  attachWorldBarrels,
+  loadBarrelSource,
+  prepareWorldWeaponMaterials,
+} from "../../../engine/weapon/WeaponBarrels";
 import { dropDistantWeaponDetail } from "../../../engine/weapon/WeaponDetail";
 import { describeModelRender } from "../../../engine/world/ModelRenderAudit";
+import type { CollisionWorld } from "../../../shared/collision/CollisionWorld";
+import { SharedCollisionWorld } from "../../../shared/collision/SharedCollisionWorld";
 import { EntityRegistry } from "../../../shared/entities/EntityRegistry";
 import type { WeaponDef } from "../../../shared/entities/WeaponDef";
 import type { FPSController } from "../camera/FPSController";
+import { ITEM_STEP_SECONDS, stepThrownItem, type ThrownItem } from "../shared/items/ItemThrow";
 import { hidePickupPrompt, showPickupPrompt } from "../world/PickupPrompt";
 import { FPS, getActionKeyLabel } from "./FPSActions";
 
@@ -55,20 +67,52 @@ interface DroppedModelSources {
   barrel(path: string): Promise<ModelLoadResult | null>;
 }
 
-/** Visual representation of a single dropped weapon with Havok physics */
+/** The start of a weapon's throw, from its weapon_drop event. */
+export interface DropThrow {
+  start: Vector3;
+  velocity: Vector3;
+}
+
+/** The collision world items are thrown through, for the current map's sweep backend. */
+let throwWorld: { sweep: object; world: CollisionWorld } | null = null;
+function itemCollisionWorld(): CollisionWorld | null {
+  const sweep = getCollisionManager().getSweepBackend();
+  if (!sweep) return null;
+  if (throwWorld?.sweep !== sweep)
+    throwWorld = { sweep, world: new SharedCollisionWorld(new SweepBackendAdapter(sweep)) };
+  return throwWorld.world;
+}
+
+/** Most a frame advances a throw: a stalled tab catches up without a burst of steps. */
+const MAX_THROW_CATCHUP_SECONDS = 0.25;
+/** How fast a landed weapon's tumble eases onto its side (per second). */
+const SETTLE_LEVEL_RATE = 12;
+
+/** Visual representation of a single dropped weapon */
 class DroppedWeaponVisual {
   readonly entityId: string;
   readonly weaponId: string;
   mesh: Mesh | null = null;
   private scene: Scene;
   private disposed: boolean = false;
-  private settled: boolean = false;
-  private settleCheckTimer: ReturnType<typeof setInterval> | null = null;
   private readonly useServerTransforms: boolean;
-  hasPhysics: boolean = false;
   private loadSource: "pending" | "cache-flat" | "cached-fallback" = "pending";
-  /** Server's authoritative position — used to align visual after Havok settles */
+  /** Server's authoritative position */
   private serverPosition: Vector3 = Vector3.Zero();
+  /** The server's throw replayed here, or null when only the server's position is known */
+  private throw: ThrownItem | null = null;
+  private readonly throwWorld: CollisionWorld | null;
+  /** Where the throw was one step ago, for drawing between steps */
+  private readonly throwPrevious = new Vector3();
+  private throwElapsed = 0;
+  private lastUpdateMs = performance.now();
+  /** Airborne spin (yaw), roll around the barrel (x) and end-over-end tumble (z), radians per second */
+  private readonly spin = (Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 4);
+  private readonly rollRate = (Math.random() < 0.5 ? -1 : 1) * (6 + Math.random() * 5);
+  private readonly tumbleRate = (Math.random() < 0.5 ? -1 : 1) * (4 + Math.random() * 4);
+  private yaw = Math.random() * Math.PI * 2;
+  private roll = 0;
+  private tumble = 0;
   /** Whether the camera can see it (set by the renderer, applied once the model is in). */
   private visible = true;
 
@@ -78,7 +122,7 @@ class DroppedWeaponVisual {
     scene: Scene,
     position: Vector3,
     private readonly sources: DroppedModelSources,
-    velocity?: Vector3,
+    thrown?: DropThrow,
     useServerTransforms = false,
   ) {
     this.entityId = entityId;
@@ -86,11 +130,20 @@ class DroppedWeaponVisual {
     this.scene = scene;
     this.useServerTransforms = useServerTransforms;
     this.serverPosition.copyFrom(position);
+    this.throwWorld = useServerTransforms ? null : itemCollisionWorld();
+    if (thrown && this.throwWorld) {
+      this.throw = {
+        position: { x: thrown.start.x, y: thrown.start.y, z: thrown.start.z },
+        velocity: { x: thrown.velocity.x, y: thrown.velocity.y, z: thrown.velocity.z },
+        settled: false,
+      };
+      this.throwPrevious.copyFrom(thrown.start);
+    }
     activeDroppedWeaponVisuals.add(this);
-    background(this.loadModel(position, velocity), "DroppedWeaponRenderer");
+    background(this.loadModel(this.throw ? thrown!.start : position), "DroppedWeaponRenderer");
   }
 
-  private async loadModel(position: Vector3, velocity?: Vector3): Promise<void> {
+  private async loadModel(position: Vector3): Promise<void> {
     if (this.disposed) return;
 
     try {
@@ -130,6 +183,7 @@ class DroppedWeaponVisual {
         let leaderMesh: Mesh | null = null;
         const otherMeshes: Mesh[] = [];
 
+        prepareWorldWeaponMaterials(result.meshes);
         for (const m of result.meshes) {
           if (m instanceof Mesh && m.getTotalVertices() > 0) {
             // Cap lights to prevent shader uniform block overflow
@@ -145,10 +199,8 @@ class DroppedWeaponVisual {
         }
 
         if (leaderMesh) {
-          // CRITICAL: Havok needs root-level mesh (no parent).
-          // This is identical to how Pickup.loadModel works.
+          // A root-level mesh, placed and turned in world space by update()
           leaderMesh.parent = null;
-          // Unique name so PhysicsSystem body map doesn't collide
           leaderMesh.name = `droppedWeapon_${this.entityId}`;
           leaderMesh.position.copyFrom(position);
           leaderMesh.rotationQuaternion = null;
@@ -156,7 +208,7 @@ class DroppedWeaponVisual {
           leaderMesh.isVisible = true;
           leaderMesh.scaling.setAll(defScale);
 
-          // Parent other meshes under leader (follow Havok movement)
+          // Parent other meshes under leader (they move with it)
           for (const m of otherMeshes) {
             m.parent = leaderMesh;
             m.position.setAll(0);
@@ -173,110 +225,17 @@ class DroppedWeaponVisual {
           result.root.setEnabled(false);
           bindLoaderLeftovers(leaderMesh, result.root, result.animationGroups);
 
-          // === BARREL SUB-MODELS ===
-          // Load barrel GLBs (e.g. plasmagun dual chambers) and parent to leader
-          const barrelDefs = def?.barrels;
-          if (barrelDefs?.length) {
-            // Load tags.txt for bone-based positioning
-            const firstPath = barrelDefs[0].modelPath;
-            const modelDir = firstPath.substring(0, firstPath.lastIndexOf("/") + 1);
-            const { loadTags, findTag } = await import("../../../engine/loader/model/TagsLoader");
-            const tags = await loadTags(modelDir);
-            const barrelTag = findTag(tags, "tag_barrel");
-            const attachment =
-              (barrelTag?.boneName && result.attachmentPoints?.[barrelTag.boneName]) ||
-              result.attachmentPoints?.tag_barrel;
-
-            // Find bone position if tag references a bone
-            let boneOffX = attachment?.position.x ?? 0,
-              boneOffY = attachment?.position.y ?? 0,
-              boneOffZ = attachment?.position.z ?? 0;
-            if (!attachment && barrelTag?.boneName) {
-              for (const skeleton of this.scene.skeletons) {
-                const bone = skeleton.bones.find((b) => b.name === barrelTag.boneName);
-                if (bone) {
-                  const boneNode = bone.getTransformNode();
-                  if (boneNode) {
-                    boneOffX = boneNode.position.x;
-                    boneOffY = boneNode.position.y;
-                    boneOffZ = boneNode.position.z;
-                    break;
-                  }
-                }
-              }
-            }
-
-            for (const barrelDef of barrelDefs) {
-              if (this.disposed) break;
-              try {
-                const barrelResult = await this.sources.barrel(barrelDef.modelPath);
-                if (!barrelResult) continue;
-                if (this.disposed) {
-                  disposeModelResources([barrelResult.root], barrelResult);
-                  break;
-                }
-                bindLoaderLeftovers(leaderMesh, barrelResult.root, barrelResult.animationGroups);
-                const barrelRoot = barrelResult.meshes[0];
-                if (barrelRoot) {
-                  barrelRoot.parent = leaderMesh;
-                  // Apply: bone position + tag offset + per-barrel def offset
-                  const tagOff = barrelTag?.offset;
-                  const defOff = barrelDef.offset;
-                  barrelRoot.position.set(
-                    boneOffX + (tagOff?.x ?? 0) + (defOff?.x ?? 0),
-                    boneOffY + (tagOff?.y ?? 0) + (defOff?.y ?? 0),
-                    boneOffZ + (tagOff?.z ?? 0) + (defOff?.z ?? 0),
-                  );
-                  if (attachment?.rotationQuaternion) {
-                    const q = attachment.rotationQuaternion;
-                    barrelRoot.rotationQuaternion = new Quaternion(q.x, q.y, q.z, q.w);
-                  } else if (attachment) {
-                    barrelRoot.rotationQuaternion = null;
-                    barrelRoot.rotation.copyFrom(attachment.rotation);
-                  } else if (tagOff) {
-                    barrelRoot.rotationQuaternion = null;
-                    barrelRoot.rotation.set(barrelTag!.rotation.x, barrelTag!.rotation.y, barrelTag!.rotation.z);
-                  } else {
-                    barrelRoot.rotationQuaternion = null;
-                    barrelRoot.rotation.setAll(0);
-                  }
-                  for (const bm of barrelResult.meshes) {
-                    if (bm.material && "maxSimultaneousLights" in bm.material) {
-                      applySafeMaxSimultaneousLights(bm.material);
-                    }
-                  }
-                }
-              } catch (e) {
-                console.warn(`[DroppedWeapon] Barrel load failed:`, e);
-              }
-            }
-          }
-
-          // === HAVOK PHYSICS ===
-          // Create dynamic body identical to Pickup.loadModel()
-          const { PhysicsSystem } = await import("../../../engine/physics/PhysicsSystem");
-          const physics = PhysicsSystem.getInstance();
-          if (!this.useServerTransforms && physics.isInitialized() && !this.disposed) {
-            physics.createDynamicBody(leaderMesh, PhysicsShapeType.CONVEX_HULL, 10, 0.3);
-            this.hasPhysics = true;
-
-            if (leaderMesh.physicsBody) {
-              if (velocity) {
-                // Toss arc from weapon_drop event velocity
-                leaderMesh.physicsBody.setLinearVelocity(velocity);
-              }
-              // Random tumble rotation (same as Pickup)
-              const randomRot = new Vector3(
-                (Math.random() - 0.5) * 12,
-                (Math.random() - 0.5) * 12,
-                (Math.random() - 0.5) * 12,
-              );
-              leaderMesh.physicsBody.setAngularVelocity(randomRot);
-
-              // Settle detection: freeze when velocity < 2
-              this.scheduleSettleCheck();
-            }
-          }
+          // === BARREL SUB-MODELS === (e.g. the plasmagun's dual chambers)
+          await attachWorldBarrels({
+            leader: leaderMesh,
+            barrels: def?.barrels ?? [],
+            attachmentPoints: result.attachmentPoints,
+            scene: this.scene,
+            load: (path) => this.sources.barrel(path),
+            adopt: (barrel) => bindLoaderLeftovers(leaderMesh, barrel.root, barrel.animationGroups),
+            stale: () => this.disposed,
+            label: "DroppedWeapon",
+          });
         }
 
         if (!leaderMesh) disposeModelResources([result.root], result);
@@ -286,34 +245,8 @@ class DroppedWeaponVisual {
     }
   }
 
-  /** Settle detection — check velocity every 500ms, freeze when near-zero */
-  private scheduleSettleCheck(): void {
-    this.settleCheckTimer = setInterval(() => {
-      if (this.disposed || !this.mesh?.physicsBody) {
-        if (this.settleCheckTimer) clearInterval(this.settleCheckTimer);
-        return;
-      }
-      const linVel = this.mesh.physicsBody.getLinearVelocity();
-      const speed = linVel.length();
-      if (speed < 2) {
-        // Physics done: the weapon goes to the server's position from here.
-        // A body left in the world, even stopped, had Havok write its place over
-        // that lerp every step, so the weapon could rest away from where pickup
-        // works, with the swap prompt showing where it fails (W3).
-        const name = this.mesh.name;
-        this.mesh.physicsBody.dispose();
-        import("../../../engine/physics/PhysicsSystem")
-          .then(({ PhysicsSystem }) => PhysicsSystem.getInstance().removeBody(name))
-          .catch(() => {});
-        this.settled = true;
-        if (this.settleCheckTimer) clearInterval(this.settleCheckTimer);
-      }
-    }, 500);
-  }
-
-  /** Update server position from snapshot data */
   /**
-   * Draw it or not. A hidden weapon keeps its model and physics body: out of
+   * Draw it or not. A hidden weapon keeps its model and its throw: out of
    * view is not gone, and rebuilding it on the way back in re-tossed it.
    */
   setVisible(visible: boolean): void {
@@ -326,47 +259,81 @@ class DroppedWeaponVisual {
     return this.mesh?.position ?? this.serverPosition;
   }
 
-  setServerPosition(x: number, y: number, z: number): void {
+  /** Whether it has come to rest: its throw settled, or the server said so. */
+  get resting(): boolean {
+    return this.throw ? this.throw.settled : this.serverSettled;
+  }
+  private serverSettled = false;
+
+  setServerPosition(x: number, y: number, z: number, settled = false): void {
     this.serverPosition.set(x, y, z);
+    this.serverSettled = settled;
     if (this.useServerTransforms && this.mesh) {
       this.mesh.position.copyFrom(this.serverPosition);
     }
   }
 
-  /** Update each frame: lerp to server position after settle */
+  /** Update each frame: step the throw, place and turn the model. */
   update(): void {
-    if (!this.mesh) return;
+    const now = performance.now();
+    const dt = Math.min(MAX_THROW_CATCHUP_SECONDS, (now - this.lastUpdateMs) / 1000);
+    this.lastUpdateMs = now;
+    const mesh = this.mesh;
 
-    // After Havok settles, lerp mesh to server's authoritative position
-    // so visual matches the actual pickup zone
-    if (this.settled && this.serverPosition.lengthSquared() > 0) {
-      const lerpFactor = 0.15; // Smooth convergence over ~10 frames
-      this.mesh.position.x += (this.serverPosition.x - this.mesh.position.x) * lerpFactor;
-      this.mesh.position.y += (this.serverPosition.y - this.mesh.position.y) * lerpFactor;
-      this.mesh.position.z += (this.serverPosition.z - this.mesh.position.z) * lerpFactor;
+    let between = 0;
+    if (this.throw && this.throwWorld && !this.throw.settled) {
+      this.throwElapsed += dt;
+      while (this.throwElapsed >= ITEM_STEP_SECONDS && !this.throw.settled) {
+        const { x, y, z } = this.throw.position;
+        this.throwPrevious.set(x, y, z);
+        stepThrownItem(this.throw, this.throwWorld);
+        this.throwElapsed -= ITEM_STEP_SECONDS;
+      }
+      between = this.throw.settled ? 1 : this.throwElapsed / ITEM_STEP_SECONDS;
     }
+    if (!mesh || this.useServerTransforms) return;
+
+    if (this.throw && !(this.throw.settled && this.serverSettled)) {
+      // The server's path, drawn between its steps
+      const { x, y, z } = this.throw.position;
+      const from = this.throwPrevious;
+      mesh.position.set(
+        from.x + (x - from.x) * between,
+        from.y + (y - from.y) * between,
+        from.z + (z - from.z) * between,
+      );
+    } else if (this.throw) {
+      // Both at rest. The drop's start crossed the network rounded, so a throw
+      // that slid along an edge can stop a little off the server's spot,
+      // where the pickup is: settle onto it gently
+      Vector3.LerpToRef(mesh.position, this.serverPosition, Math.min(1, dt * 4), mesh.position);
+    } else {
+      // Only the server's word: follow it, without the jumps of its snapshot rate
+      Vector3.LerpToRef(mesh.position, this.serverPosition, Math.min(1, dt * 20), mesh.position);
+    }
+
+    // Spinning, rolling and tumbling while it flies. At rest it lies flat on
+    // whichever side it was nearer to, at its last heading: on its side a gun
+    // is thin enough to lie on the floor, where upright its grip would sink in
+    if (this.resting) {
+      const ease = Math.min(1, dt * SETTLE_LEVEL_RATE);
+      const side = Math.round((this.roll - Math.PI / 2) / Math.PI) * Math.PI + Math.PI / 2;
+      const flat = Math.round(this.tumble / Math.PI) * Math.PI;
+      this.roll += (side - this.roll) * ease;
+      this.tumble += (flat - this.tumble) * ease;
+    } else {
+      this.yaw += this.spin * dt;
+      this.roll += this.rollRate * dt;
+      this.tumble += this.tumbleRate * dt;
+    }
+    mesh.rotation.set(this.roll, this.yaw, this.tumble);
   }
 
   dispose(): void {
     this.disposed = true;
     activeDroppedWeaponVisuals.delete(this);
-    if (this.settleCheckTimer) {
-      clearInterval(this.settleCheckTimer);
-      this.settleCheckTimer = null;
-    }
     if (this.mesh) {
-      const meshName = this.mesh.name;
-      // Clean up PhysicsSystem body map reference
-      import("../../../engine/physics/PhysicsSystem")
-        .then(({ PhysicsSystem }) => {
-          PhysicsSystem.getInstance().removeBody(meshName);
-        })
-        .catch(() => {});
       if (!this.mesh.isDisposed()) {
-        // Remove Havok body first
-        if (this.mesh.physicsBody) {
-          this.mesh.physicsBody.dispose();
-        }
         // The weapon, its parts and barrels, and the loader leftovers bound to
         // it. Materials shared with the AssetPreloader cache and other clones
         // are still drawn by them, so they stay; ones only this weapon used go.
@@ -428,35 +395,21 @@ export class DroppedWeaponRenderer {
     this.barrelCache ??= new ModelInstanceCache(
       this.scene,
       async (modelPath) => {
-        const { ImportMeshAsync } = await import("@babylonjs/core/Loading/sceneLoader");
-        // From the weapon package, as the view weapon's barrels are: the barrel
-        // GLBs ship inside a pk3, not as files the web server can hand out
-        const asset = await resolveModelAsset(modelPath);
         if (this.disposed || this.scene.isDisposed) return null;
-        const result = await ImportMeshAsync(asset.source, this.scene, asset.options);
+        const source = await loadBarrelSource(modelPath, this.scene, "droppedBarrelSource");
         if (this.disposed || this.scene.isDisposed) {
-          disposeModelResources([...result.meshes, ...result.transformNodes], result);
+          disposeModelResources([source.root], source);
           return null;
         }
-        // Retain the original glTF root and authored transforms. A neutral wrapper
-        // owns all imported nodes/rigs; the cloned glTF root is attached as before.
-        const root = new TransformNode("droppedBarrelSource", this.scene);
-        for (const node of [...result.transformNodes, ...result.meshes]) if (!node.parent) node.parent = root;
-        return {
-          root,
-          meshes: result.meshes.filter((mesh): mesh is Mesh => mesh instanceof Mesh),
-          skeletons: result.skeletons,
-          animationGroups: result.animationGroups,
-          lights: [],
-        };
+        return source;
       },
       { shareStaticMaterials: !this.scene.getEngine().isWebGPU },
     );
     return withDistantDetailDropped(await this.barrelCache.createInstance(path, 1));
   }
 
-  /** Stashed initial velocities from weapon_drop events (entityId → velocity, when) */
-  private pendingVelocities: Map<string, { velocity: Vector3; atMs: number }> = new Map();
+  /** Throws stashed from weapon_drop events (entityId → throw, when) */
+  private pendingThrows: Map<string, { thrown: DropThrow; atMs: number }> = new Map();
 
   /** How long after its weapon_drop event a weapon first seen is still in the air. */
   private static readonly TOSS_FRESH_MS = 500;
@@ -469,31 +422,40 @@ export class DroppedWeaponRenderer {
     return `pickup_audit: dropped weapons: ${entries.length > 0 ? entries.join("; ") : "none"}`;
   }
 
+  /** Moves and turns every dropped weapon each frame, between server updates */
+  private readonly frameObserver: Observer<Scene> | null;
+
   constructor(
     scene: Scene,
     private readonly useServerTransforms = false,
   ) {
     this.scene = scene;
+    this.frameObserver = scene.onBeforeRenderObservable?.add(() => this.updateVisuals()) ?? null;
+  }
+
+  /** Step each weapon's throw and place its model for this frame. */
+  updateVisuals(): void {
+    for (const visual of this.weapons.values()) visual.update();
   }
 
   /**
-   * Stash initial velocity from weapon_drop event.
-   * Called from GameEvents when weapon_drop fires — the velocity is used
-   * by Havok when the corresponding item_ entity appears in snapshot.
+   * Stash a throw from its weapon_drop event.
+   * Called from GameEvents when weapon_drop fires — the throw is replayed
+   * when the corresponding item_ entity appears in snapshot.
    */
-  stashVelocity(entityId: string, velocity: Vector3): void {
-    this.pendingVelocities.set(entityId, { velocity, atMs: performance.now() });
+  stashThrow(entityId: string, thrown: DropThrow): void {
+    this.pendingThrows.set(entityId, { thrown, atMs: performance.now() });
     // Auto-clean after 5 seconds (if entity never appears)
-    setTimeout(() => this.pendingVelocities.delete(entityId), 5000);
+    setTimeout(() => this.pendingThrows.delete(entityId), 5000);
   }
 
   /**
    * Sync with server entity state — the ONLY entry point for lifecycle management.
    * Called each frame with all item_ entities from the server snapshot.
    *
-   * - New entity → spawn visual with Havok body
-   * - Existing entity → let Havok handle position (update glow only)
-   * - Missing entity → dispose Havok body + visual (the server sends every
+   * - New entity → spawn visual, replaying its throw when its drop was seen
+   * - Existing entity → step its throw, or follow the server's position
+   * - Missing entity → dispose visual (the server sends every
    *   dropped weapon regardless of PVS, so missing means picked up or expired)
    * - Out of the camera's PVS → hidden, kept
    */
@@ -524,17 +486,16 @@ export class DroppedWeaponRenderer {
       const existing = this.weapons.get(entityId);
       if (existing) {
         // Update server position + glow/lerp
-        existing.setServerPosition(info.x, info.y, info.z);
-        existing.update();
+        existing.setServerPosition(info.x, info.y, info.z, info.settled);
       } else if (info.weaponId) {
-        // New entity — spawn visual with Havok physics
+        // New entity — spawn visual
         // A toss only while the drop is fresh. One first seen seconds later has
         // landed: thrown again from there, it hopped off its resting place (W7).
-        const pending = this.pendingVelocities.get(entityId);
-        this.pendingVelocities.delete(entityId);
-        const vel =
+        const pending = this.pendingThrows.get(entityId);
+        this.pendingThrows.delete(entityId);
+        const thrown =
           pending && performance.now() - pending.atMs <= DroppedWeaponRenderer.TOSS_FRESH_MS
-            ? pending.velocity
+            ? pending.thrown
             : undefined;
 
         const visual = new DroppedWeaponVisual(
@@ -543,7 +504,7 @@ export class DroppedWeaponRenderer {
           this.scene,
           new Vector3(info.x, info.y, info.z),
           this.sources,
-          vel, // Initial toss velocity from weapon_drop event
+          thrown,
           this.useServerTransforms,
         );
         this.weapons.set(entityId, visual);
@@ -691,13 +652,14 @@ export class DroppedWeaponRenderer {
   /** Dispose all weapons. */
   dispose(): void {
     this.disposed = true;
+    if (this.frameObserver) this.scene.onBeforeRenderObservable.remove(this.frameObserver);
     DroppedWeaponRenderer.nearbyDroppedWeapon = null;
     hidePickupPrompt("dropped");
     for (const visual of this.weapons.values()) {
       visual.dispose();
     }
     this.weapons.clear();
-    this.pendingVelocities.clear();
+    this.pendingThrows.clear();
     this.fallbackCache?.dispose();
     this.barrelCache?.dispose();
   }

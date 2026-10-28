@@ -14,14 +14,14 @@
  * `src/engine/world/Pickup.ts`.
  */
 
-import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Scene } from "@babylonjs/core/scene";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
-import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
 import { BspManager } from "../../../engine/loader/bsp/BspManager";
 import type { PVSCuller } from "../../../engine/loader/bsp/PVSCuller";
-import { resolveModelAsset } from "../../../engine/loader/model/ModelAsset";
+import { bindLoaderLeftovers } from "../../../engine/loader/model/ModelSourceCache";
+import { attachWorldBarrels, loadBarrelSource } from "../../../engine/weapon/WeaponBarrels";
 import { Pickup, type PickupOptions } from "../../../engine/world/Pickup";
 import type { WeaponDef } from "../../../shared/entities/WeaponDef";
 import type { FPSController } from "../camera/FPSController";
@@ -129,85 +129,23 @@ export class FPSPickup extends Pickup {
 
   /** Load barrel sub-model GLBs and parent them to the weapon's authored attachment point. */
   private async _loadBarrels(leaderMesh: Mesh, weaponId: string): Promise<void> {
-    try {
-      const { EntityRegistry } = await import("../../../shared/entities/EntityRegistry");
-      const wdef = EntityRegistry.getInstance().get<WeaponDef>(weaponId);
-      const barrelDefs = wdef?.barrels;
-      if (!barrelDefs?.length) return;
-
-      const firstPath = barrelDefs[0].modelPath;
-      const modelDir = firstPath.substring(0, firstPath.lastIndexOf("/") + 1);
-
-      const { loadTags, findTag } = await import("../../../engine/loader/model/TagsLoader");
-      const tags = await loadTags(modelDir);
-      const barrelTag = findTag(tags, "tag_barrel");
-
-      // GLB attachment nodes are the authoritative model-space anchors. They
-      // must be snapshotted by ModelLoader/AssetPreloader because the pickup
-      // cache intentionally flattens render meshes and otherwise loses tags.
-      const attachment =
-        (barrelTag?.boneName && this.modelAttachmentPoints[barrelTag.boneName]) ||
-        this.modelAttachmentPoints.tag_barrel;
-
-      let boneOffX = attachment?.position.x ?? 0;
-      let boneOffY = attachment?.position.y ?? 0;
-      let boneOffZ = attachment?.position.z ?? 0;
-      if (!attachment && barrelTag?.boneName) {
-        for (const skeleton of this.getScene().skeletons) {
-          const bone = skeleton.bones.find((b) => b.name === barrelTag.boneName);
-          if (bone) {
-            const boneNode = bone.getTransformNode();
-            if (boneNode) {
-              boneOffX = boneNode.position.x;
-              boneOffY = boneNode.position.y;
-              boneOffZ = boneNode.position.z;
-              break;
-            }
-          }
-        }
-      }
-
-      const { ImportMeshAsync } = await import("@babylonjs/core/Loading/sceneLoader");
-      for (const barrelDef of barrelDefs) {
-        try {
-          const asset = await resolveModelAsset(barrelDef.modelPath);
-          const barrelResult = await ImportMeshAsync(asset.source, this.getScene(), asset.options);
-          const barrelRoot = barrelResult.meshes[0];
-          if (barrelRoot) {
-            barrelRoot.parent = leaderMesh;
-            const tagOff = barrelTag?.offset;
-            const defOff = barrelDef.offset;
-            barrelRoot.position.set(
-              boneOffX + (tagOff?.x ?? 0) + (defOff?.x ?? 0),
-              boneOffY + (tagOff?.y ?? 0) + (defOff?.y ?? 0),
-              boneOffZ + (tagOff?.z ?? 0) + (defOff?.z ?? 0),
-            );
-            if (attachment?.rotationQuaternion) {
-              const q = attachment.rotationQuaternion;
-              barrelRoot.rotationQuaternion = new Quaternion(q.x, q.y, q.z, q.w);
-            } else if (attachment) {
-              barrelRoot.rotationQuaternion = null;
-              barrelRoot.rotation.copyFrom(attachment.rotation);
-            } else if (tagOff && barrelTag) {
-              barrelRoot.rotationQuaternion = null;
-              barrelRoot.rotation.set(barrelTag.rotation.x, barrelTag.rotation.y, barrelTag.rotation.z);
-            } else {
-              barrelRoot.rotationQuaternion = null;
-              barrelRoot.rotation.setAll(0);
-            }
-            for (const bm of barrelResult.meshes) {
-              if (bm.material && "maxSimultaneousLights" in bm.material) {
-                applySafeMaxSimultaneousLights(bm.material);
-              }
-            }
-          }
-        } catch (e) {
-          console.warn(`[FPSPickup] Barrel load failed:`, e);
-        }
-      }
-    } catch {
-      /* EntityRegistry or TagsLoader not available */
-    }
+    const { EntityRegistry } = await import("../../../shared/entities/EntityRegistry");
+    const barrels = EntityRegistry.getInstance().get<WeaponDef>(weaponId)?.barrels;
+    if (!barrels?.length) return;
+    const scene = this.getScene();
+    // A pickup without its barrels still works: a failure here is logged
+    await attachWorldBarrels({
+      leader: leaderMesh,
+      barrels,
+      // Snapshotted by ModelLoader/AssetPreloader: the pickup cache flattens
+      // render meshes and would otherwise lose the authored tags
+      attachmentPoints: this.modelAttachmentPoints,
+      scene,
+      load: (path) => loadBarrelSource(path, scene, "pickupBarrelSource"),
+      adopt: (barrel) => bindLoaderLeftovers(leaderMesh, barrel.root, barrel.animationGroups),
+      stale: () => leaderMesh.isDisposed(),
+      label: "FPSPickup",
+    }).catch((error) => console.warn("[FPSPickup] Barrels not attached:", error));
   }
 
   // ═════════════════════════════════════════════════════════════════

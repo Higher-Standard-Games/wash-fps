@@ -69,6 +69,16 @@ export const MACHINEGUN: WeaponDef = {
     scale: 2.0,
   },
 
+  // The bolt in the receiver's side port: it cycles back on each shot and is
+  // racked once while reloading
+  barrels: [
+    {
+      modelPath: "/data/models/weapons/machinegun/machinegun_barrel.glb",
+      spinSpeed: 0,
+      slideDistance: 1.5,
+    },
+  ],
+
   // ADS
   ads: {
     time: 0.08,

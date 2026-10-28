@@ -48,9 +48,7 @@ export class FPSPlayer {
   private _serverLastFireTick: number = 0; // track server fire tick for drift correction
 
   // Beam charge state
-  private static readonly BEAM_CHARGE_TIME = 0.25; // 250ms charge in hipfire
-  private beamChargeTimer: number = 0;
-  private beamCharged: boolean = false;
+  private beamActive = false;
 
   constructor(controller: FPSController) {
     this.controller = controller;
@@ -213,7 +211,7 @@ export class FPSPlayer {
       return;
     }
 
-    // Beam charge-up / activation. Presentation follows authoritative clip
+    // Beam activation. Presentation follows authoritative clip
     // state, not the held input alone, so an empty/reloading weapon cannot keep
     // drawing a damage-looking beam after the server stops accepting shots.
     const hasBeamAmmo = currentWeaponId !== null && this.inventory.getLoadedAmmo(currentWeaponId) > 0;
@@ -224,24 +222,10 @@ export class FPSPlayer {
       const mfColor = currentWeapon.muzzleFlash?.color;
       const color = mfColor ? new Color3(mfColor.r, mfColor.g, mfColor.b) : new Color3(1.0, 0.7, 0.1);
 
-      if (this.controller.isAiming()) {
-        // ADS: fire immediately, no charge needed
-        this.beamCharged = true;
-        this.beamChargeTimer = FPSPlayer.BEAM_CHARGE_TIME;
-        wvm.setBeamActive(true, color);
-      } else if (!this.beamCharged) {
-        // Hipfire: charge up 250ms before beam fires
-        this.beamChargeTimer += _deltaTime;
-        const progress = Math.min(1, this.beamChargeTimer / FPSPlayer.BEAM_CHARGE_TIME);
-        wvm.setBeamCharging(progress);
-        if (this.beamChargeTimer >= FPSPlayer.BEAM_CHARGE_TIME) {
-          this.beamCharged = true;
-          wvm.setBeamActive(true, color);
-        }
-      } else {
-        // Already charged — keep beam active
-        wvm.setBeamActive(true, color);
-      }
+      // The beam shows from the first frame, aimed or from the hip: its
+      // shots, and their damage, start then too
+      this.beamActive = true;
+      wvm.setBeamActive(true, color);
     }
 
     // Cooldown check
@@ -277,15 +261,10 @@ export class FPSPlayer {
     }
   }
 
-  /** Stop every local beam layer and reset the charge latch as one operation. */
+  /** Stop every local beam layer as one operation. */
   private stopBeamPresentation(): void {
-    if (this.beamCharged || this.beamChargeTimer > 0) {
-      const wvm = WeaponViewManager.getInstance();
-      wvm.setBeamActive(false);
-      wvm.setBeamCharging(0);
-    }
-    this.beamChargeTimer = 0;
-    this.beamCharged = false;
+    if (this.beamActive) WeaponViewManager.getInstance().setBeamActive(false);
+    this.beamActive = false;
   }
 
   private executeFire(_mgr: WeaponViewManager): void {

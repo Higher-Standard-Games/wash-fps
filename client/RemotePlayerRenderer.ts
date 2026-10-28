@@ -34,6 +34,7 @@ import { Cvar } from "../../../engine/core/Cvar";
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
 import { BspManager } from "../../../engine/loader/bsp/BspManager";
 import { ModelInstanceCache } from "../../../engine/loader/model/ModelInstanceCache";
+import type { ModelLoadResult } from "../../../engine/loader/model/ModelLoader";
 import { bindLoaderLeftovers, disposeModelResources } from "../../../engine/loader/model/ModelSourceCache";
 import {
   type EntitySnapshot,
@@ -44,7 +45,13 @@ import type { GameState } from "../../../engine/network/core/GameState";
 import { waterNeedsLocalReflection } from "../../../engine/rendering/water/WaterActorReflection";
 import { getHitscanEffects } from "../../../engine/weapon/HitscanEffects";
 import type { VoltaicRemoteStartResolver } from "../../../engine/weapon/voltaic/VoltaicEffectRenderer";
+import {
+  attachWorldBarrels,
+  loadBarrelSource,
+  prepareWorldWeaponMaterials,
+} from "../../../engine/weapon/WeaponBarrels";
 import { dropDistantWeaponDetail } from "../../../engine/weapon/WeaponDetail";
+import type { WeaponDef } from "../../../shared/entities/WeaponDef";
 import { WEAPONS } from "../shared/entities/definitions/weapons/WeaponsTable";
 import { maskHasPowerup } from "../shared/items/Powerups";
 import { attachBladeToPlayer } from "./AttachedBlade";
@@ -192,6 +199,7 @@ export class RemotePlayerRenderer {
   private modelManager: PlayerModelManager | null = null;
   private modelLoadPromise: Promise<void> | null = null;
   private weaponModelCache?: ModelInstanceCache;
+  private barrelModelCache?: ModelInstanceCache;
   private localReflectionModel: PlayerModelInstance | null = null;
   private localReflectionLoadAttempted = false;
   private disposed = false;
@@ -740,6 +748,7 @@ export class RemotePlayerRenderer {
       this.modelManager = null;
     }
     this.weaponModelCache?.dispose();
+    this.barrelModelCache?.dispose();
   }
 
   /**
@@ -883,6 +892,7 @@ export class RemotePlayerRenderer {
     }
 
     let leaderMesh: Mesh | null = null;
+    prepareWorldWeaponMaterials(result.meshes);
     for (const m of result.meshes) {
       if (m instanceof Mesh && m.getTotalVertices() > 0) {
         if (!leaderMesh) leaderMesh = m;
@@ -931,6 +941,7 @@ export class RemotePlayerRenderer {
     result.root.setEnabled(false);
     bindLoaderLeftovers(leaderMesh, result.root, result.animationGroups);
     inst.attachedWeapon = leaderMesh;
+    await this.attachBarrels(leaderMesh, weaponDef, result);
   }
 
   /**
@@ -1924,6 +1935,7 @@ export class RemotePlayerRenderer {
 
         // Find leader mesh (first mesh with geometry) — same as DroppedWeaponRenderer
         let leaderMesh: Mesh | null = null;
+        prepareWorldWeaponMaterials(result.meshes);
         for (const m of result.meshes) {
           if (m instanceof Mesh && m.getTotalVertices() > 0) {
             if (!leaderMesh) {
@@ -2031,6 +2043,16 @@ export class RemotePlayerRenderer {
         // blade ride the death ragdoll and vanish with it instead of leaking a
         // floating mesh that piles up over a match.
         inst.attachedWeapon = leaderMesh as unknown as TransformNode;
+        const leader = leaderMesh;
+        background(
+          this.attachBarrels(
+            leader,
+            weaponDef,
+            result,
+            () => hitbox.currentWeaponId !== weaponId || hitbox.weaponLoadGeneration !== generation,
+          ),
+          "RemoteWeapon barrels",
+        );
         devLog(
           `[RemoteWeapon] ✓ Done: ${weaponId} for ${entityId}, bone: ${attached}, scale: ${attached ? visualScale / MODEL_SCALE : visualScale}`,
         );
@@ -2038,6 +2060,51 @@ export class RemotePlayerRenderer {
       .catch((err) => {
         console.warn(`[RemoteWeapon] Failed to load ${weaponId} for ${entityId}:`, err);
       });
+  }
+
+  /**
+   * Put a weapon's barrel sub-models (the plasmagun's chambers, the grenade
+   * launcher's drum) on a gun held in a player's hand. They go with the gun.
+   */
+  private async attachBarrels(
+    leader: Mesh,
+    weaponDef: WeaponDef,
+    result: ModelLoadResult,
+    replaced: () => boolean = () => false,
+  ): Promise<void> {
+    if (!weaponDef.barrels?.length) return;
+    await attachWorldBarrels({
+      leader,
+      barrels: weaponDef.barrels,
+      attachmentPoints: result.attachmentPoints,
+      scene: this.scene,
+      load: (path) => this.loadBarrelModel(path),
+      adopt: (barrel) => {
+        dropDistantWeaponDetail(barrel.meshes);
+        for (const mesh of barrel.meshes) mesh.alwaysSelectAsActiveMesh = true;
+        bindLoaderLeftovers(leader, barrel.root, barrel.animationGroups);
+      },
+      stale: () => this.disposed || leader.isDisposed() || replaced(),
+      label: "RemoteWeapon",
+    });
+  }
+
+  /** One barrel instance from a shared source; the sources go with the renderer. */
+  private async loadBarrelModel(path: string): Promise<ModelLoadResult | null> {
+    if (this.disposed || this.scene.isDisposed) return null;
+    this.barrelModelCache ??= new ModelInstanceCache(
+      this.scene,
+      async (modelPath) => {
+        const source = await loadBarrelSource(modelPath, this.scene, "remoteBarrelSource");
+        if (this.disposed || this.scene.isDisposed) {
+          disposeModelResources([source.root], source);
+          return null;
+        }
+        return source;
+      },
+      { shareStaticMaterials: !this.scene.getEngine().isWebGPU },
+    );
+    return this.barrelModelCache.createInstance(path, 1);
   }
 
   /**

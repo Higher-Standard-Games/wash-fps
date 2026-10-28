@@ -19,6 +19,7 @@ const hitscan = vi.hoisted(() => ({
   stopLightning: vi.fn(),
   setMuzzleAnchorResolver: vi.fn(),
   fireMuzzleFlash: vi.fn(),
+  refreshRailStarts: vi.fn(),
 }));
 
 vi.mock("../../../../engine/weapon/HitscanEffects", () => ({

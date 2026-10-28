@@ -34,11 +34,11 @@ const BEAM_WEAPON = {
   muzzleFlash: { color: { r: 1, g: 0.2, b: 0.05 } },
 } as unknown as WeaponDef;
 
-function makeController(): FPSController {
+function makeController(aiming = true): FPSController {
   return {
     isEnabled: () => true,
     isFiring: () => true,
-    isAiming: () => true,
+    isAiming: () => aiming,
     setInventory: vi.fn(),
     setWeaponSwitchBlockedCheck: vi.fn(),
     onWeaponSelect: null,
@@ -79,13 +79,23 @@ describe("FPSPlayer beam ammo presentation", () => {
     expect(weaponView.setBeamActive).toHaveBeenLastCalledWith(true, expect.anything());
 
     weaponView.setBeamActive.mockClear();
-    weaponView.setBeamCharging.mockClear();
     loadedAmmo = 0;
     player.update(1 / 60);
 
     expect(weaponView.setBeamActive).toHaveBeenCalledWith(false);
     expect(weaponView.setBeamActive).not.toHaveBeenCalledWith(true, expect.anything());
-    expect(weaponView.setBeamCharging).toHaveBeenCalledWith(0);
+    player.dispose();
+  });
+
+  it("draws the beam from the first frame when fired from the hip", () => {
+    const player = new FPSPlayer(makeController(false));
+    vi.spyOn(player.inventory, "getCurrentWeapon").mockReturnValue(BEAM_WEAPON);
+    vi.spyOn(player.inventory, "getCurrentWeaponId").mockReturnValue("voltaic");
+    vi.spyOn(player.inventory, "getLoadedAmmo").mockReturnValue(10);
+
+    player.update(1 / 60);
+
+    expect(weaponView.setBeamActive).toHaveBeenLastCalledWith(true, expect.anything());
     player.dispose();
   });
 

@@ -60,7 +60,7 @@ describe("ProjectileSystem — F6 per-weapon gravity", () => {
     expect(proj.physics.velocity.y).toBeCloseTo(-expectedDrop, 3);
   });
 
-  it("grenade defaults travel in the Warsow-like 45-degree range before timeout", () => {
+  it("a grenade thrown at 45 degrees travels its tuned range before the fuse", () => {
     const sys = new ProjectileSystem({ trace: () => ({ fraction: 1 }) } as never);
     const grenadeGravity = GRENADE.gravity ?? 0;
     const component = GRENADE.speed / Math.SQRT2;
@@ -85,8 +85,8 @@ describe("ProjectileSystem — F6 per-weapon gravity", () => {
     }
 
     const horizontalDistance = Math.hypot(proj.transform.position.x, proj.transform.position.z);
-    expect(horizontalDistance).toBeGreaterThanOrEqual(940);
-    expect(horizontalDistance).toBeLessThanOrEqual(1100);
+    expect(horizontalDistance).toBeGreaterThanOrEqual(1220);
+    expect(horizontalDistance).toBeLessThanOrEqual(1430);
   });
 });
 

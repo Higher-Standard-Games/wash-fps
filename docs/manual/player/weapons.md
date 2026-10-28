@@ -63,7 +63,10 @@ Arcing projectile that bounces.
 - **Damage** — 80 direct, 80 splash within 150 units.
 - **Fire rate** — 1.25 shots/sec (800 ms between shots).
 - **Ammo** — `grenades` (pool — no reload).
-- **Ballistics** — retuned to a Warsow baseline: speed 900, gentle gravity, 3 bounces (each loses about half its speed) and a 1.5 s fuse.
+- **Ballistics** — speed 1080, a gentle arc (about 930 u/s² of gravity), 3 bounces (each loses about half its speed) and a 1.625 s fuse.
+
+The drum on the side turns a full revolution and one chamber over the 800 ms
+between shots, loading the next grenade.
 
 Best for area denial and indirect angles. The arc makes lobbing into corridors and around corners straightforward; pre-aiming under doorways is the classic move. Grenade jumps work and are recoverable thanks to armor scaling.
 
@@ -87,6 +90,9 @@ Spammable bolt projectile.
 - **Damage** — 15 per bolt + 15 splash within 45 units.
 - **Fire rate** — 10 shots/sec.
 - **Ammo** — `cells` (50-round clip).
+
+Its two plasma chambers turn slowly while idle, spin up to almost four times
+that speed while firing, and wind down over 1.5 s after the last shot.
 
 Plasma hits use half the usual damage-based camera shake. Nearby impacts also
 use light camera shake, keeping sustained plasma fire easier to follow.

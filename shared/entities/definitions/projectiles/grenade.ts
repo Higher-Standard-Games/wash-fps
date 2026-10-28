@@ -20,12 +20,14 @@ export const GRENADE: ProjectileDef = {
   scale: 1.0,
 
   // Gameplay (server-authoritative)
-  speed: 900,
+  // An aimed arc reaches speed² / gravity: 1080 u/s against ~930 u/s² carries
+  // 30% farther than 900 against ~840, and the fuse lasts as much longer
+  speed: 1080,
   damage: 80,
   splashDamage: 15,
   splashRadius: 125,
-  lifetime: 1.5, // 1500ms timeout
-  gravity: 1.05, // Warsow-like arc: ~840 u/s^2
+  lifetime: 1.625,
+  gravity: 1.163,
   bounces: 3, // Bounces before explode
   bounceFactor: 0.45,
 

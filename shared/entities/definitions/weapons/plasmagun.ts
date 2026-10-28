@@ -69,13 +69,17 @@ export const PLASMAGUN: WeaponDef = {
   barrels: [
     {
       modelPath: "/data/models/weapons/plasmagun/plasmagun_barrel.glb",
-      spinSpeed: 4.0,
+      spinSpeed: 2.6,
+      firingSpinSpeed: 9.75,
+      spinDownSeconds: 1.5,
       spinDirection: 1,
       offset: { x: 0, y: 0, z: -4 },
     },
     {
       modelPath: "/data/models/weapons/plasmagun/plasmagun_barrel.glb",
-      spinSpeed: 4.0,
+      spinSpeed: 2.6,
+      firingSpinSpeed: 9.75,
+      spinDownSeconds: 1.5,
       spinDirection: -1,
       offset: { x: 0, y: 0, z: 0 },
     },

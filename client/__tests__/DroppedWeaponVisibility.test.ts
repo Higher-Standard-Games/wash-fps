@@ -31,6 +31,10 @@ vi.mock("../../../../engine/physics/PhysicsSystem", () => ({
   PhysicsSystem: { getInstance: () => ({ removeBody: vi.fn(() => true) }) },
 }));
 vi.mock("../../world/PickupPrompt", () => ({ hidePickupPrompt: vi.fn(), showPickupPrompt: vi.fn() }));
+// A map's collision is there; nothing here steps a throw through it
+vi.mock("../../../../engine/physics/CollisionManager", () => ({
+  getCollisionManager: () => ({ getSweepBackend: () => ({}) }),
+}));
 
 const { DroppedWeaponRenderer } = await import("../DroppedWeaponRenderer");
 
@@ -40,9 +44,9 @@ interface Visual {
   dispose(): void;
 }
 
-function renderer() {
-  // Demo-style (server transforms) so no pickup prompt or physics is involved.
-  const r = new DroppedWeaponRenderer({} as Scene, true);
+function renderer(serverTransforms = true) {
+  // Demo-style (server transforms) by default, so no pickup prompt or throw is involved.
+  const r = new DroppedWeaponRenderer({} as Scene, serverTransforms);
   const weapons = (r as unknown as { weapons: Map<string, Visual> }).weapons;
   const sync = (ids: Record<string, number>) => {
     const entities = new Map<string, DroppedWeaponInfo>();
@@ -90,63 +94,52 @@ describe("dropped weapons and the camera's PVS", () => {
     r.dispose();
   });
 
-  it("lets go of physics once settled, so the weapon rests where the server has it", () => {
-    vi.useFakeTimers();
+  it("eases a weapon seen without its drop onto the server's position", () => {
+    const { r, weapons, sync } = renderer(false);
+    let clock = 1000;
+    const now = vi.spyOn(performance, "now").mockImplementation(() => (clock += 16));
     try {
-      const { r, weapons, sync } = renderer();
       sync({ item_1: 100 });
-      const visual = weapons.get("item_1") as unknown as Visual & { scheduleSettleCheck(): void };
+      const visual = weapons.get("item_1") as unknown as Visual;
       const mesh = {
         name: "dropped_item_1",
         position: new Vector3(90, 0, 0),
+        rotation: new Vector3(),
         setEnabled: vi.fn(),
         isDisposed: () => false,
-        physicsBody: {
-          getLinearVelocity: () => Vector3.Zero(),
-          setLinearVelocity: vi.fn(),
-          setAngularVelocity: vi.fn(),
-          dispose: vi.fn(() => {
-            mesh.physicsBody = null as never;
-          }),
-        },
       };
       visual.mesh = mesh;
-      visual.scheduleSettleCheck();
-      vi.advanceTimersByTime(500);
-
-      // A stopped body still in the world had Havok write its place over the
-      // lerp every step: it could rest away from the pickup spot (W3).
-      expect(mesh.physicsBody).toBeNull();
-      for (let i = 0; i < 60; i++) sync({ item_1: 100 });
+      for (let i = 0; i < 60; i++) {
+        sync({ item_1: 100 });
+        r.updateVisuals();
+      }
       expect(mesh.position.x).toBeCloseTo(100, 1);
       visual.mesh = null;
-      r.dispose();
     } finally {
-      vi.useRealTimers();
+      now.mockRestore();
+      r.dispose();
     }
   });
 
-  it("tosses a weapon first seen as it drops, not one first seen after it landed", () => {
-    const { r, weapons, sync } = renderer();
-    sync({ item_0: 0 });
-    const proto = Object.getPrototypeOf(weapons.get("item_0"));
-    const loadModel = vi.spyOn(proto, "loadModel");
+  it("replays the throw of a weapon first seen as it drops, not of one first seen after it landed", () => {
+    const { r, weapons, sync } = renderer(false);
     const now = vi.spyOn(performance, "now");
+    const throwOf = (id: string) => (weapons.get(id) as unknown as { throw: { position: unknown } | null }).throw;
     try {
-      const toss = new Vector3(0, 200, 300);
+      const thrown = { start: new Vector3(10, 64, 20), velocity: new Vector3(0, 200, 300) };
       now.mockReturnValue(1000);
-      r.stashVelocity("item_1", toss);
-      r.stashVelocity("item_2", toss);
+      r.stashThrow("item_1", thrown);
+      r.stashThrow("item_2", thrown);
       now.mockReturnValue(1050);
-      sync({ item_0: 0, item_1: 100 });
-      expect(loadModel).toHaveBeenLastCalledWith(expect.anything(), toss);
+      sync({ item_1: 100 });
+      // From the drop's start, as the server steps it, not the first snapshot's place
+      expect(throwOf("item_1")?.position).toEqual({ x: 10, y: 64, z: 20 });
 
       // Seen four seconds on, it has landed: thrown again, it hopped (W7).
       now.mockReturnValue(5000);
-      sync({ item_0: 0, item_1: 100, item_2: 200 });
-      expect(loadModel).toHaveBeenLastCalledWith(expect.anything(), undefined);
+      sync({ item_2: 200 });
+      expect(throwOf("item_2")).toBeNull();
     } finally {
-      loadModel.mockRestore();
       now.mockRestore();
       r.dispose();
     }

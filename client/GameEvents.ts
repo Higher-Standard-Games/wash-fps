@@ -1036,9 +1036,8 @@ function disposeDetachedModel(model: PlayerModelInstance): void {
 }
 
 function handleWeaponDrop(ctx: GameEventContext, event: WeaponDropEvent): void {
-  // Capture velocity from weapon_drop event for Havok physics.
-  // The entity-driven system spawns the visual when the item_ entity
-  // appears in snapshot, but needs the initial toss velocity from this event.
+  // The entity-driven system spawns the visual when the item_ entity appears
+  // in snapshot, and replays the throw this event starts.
   const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
 
   // Lazy-init renderer
@@ -1050,19 +1049,25 @@ function handleWeaponDrop(ctx: GameEventContext, event: WeaponDropEvent): void {
         }
         // Stash velocity for when entity appears in snapshot
         if (ctx.droppedWeaponRenderer && event.entityId) {
-          const vel = new Vector3(event.velX || 0, event.velY || 0, event.velZ || 0);
-          ctx.droppedWeaponRenderer.stashVelocity(event.entityId, vel);
+          ctx.droppedWeaponRenderer.stashThrow(event.entityId, dropThrowOf(event));
         }
       })
       .catch(logRejection("GameEvents"));
     return;
   }
 
-  // Stash velocity for Havok body creation
+  // Stash the throw for when the item appears
   if (ctx.droppedWeaponRenderer && event.entityId) {
-    const vel = new Vector3(event.velX || 0, event.velY || 0, event.velZ || 0);
-    ctx.droppedWeaponRenderer.stashVelocity(event.entityId, vel);
+    ctx.droppedWeaponRenderer.stashThrow(event.entityId, dropThrowOf(event));
   }
+}
+
+/** The throw a weapon_drop starts: where it leaves the hand, and how fast. */
+function dropThrowOf(event: WeaponDropEvent): { start: Vector3; velocity: Vector3 } {
+  return {
+    start: new Vector3(event.x, event.y, event.z),
+    velocity: new Vector3(event.velX || 0, event.velY || 0, event.velZ || 0),
+  };
 }
 
 /**
@@ -1344,7 +1349,18 @@ export function handleElectroRail(
   const rgb = WEAPON_EFFECT_COLORS[canonicalWeaponId(weaponId)] ?? WEAPON_EFFECT_COLORS.electrobolt;
   railTruthColor.set(rgb[0], rgb[1], rgb[2]);
   railTruthSample.impactKind = event.impactKind === 2 ? "player" : event.impactKind === 1 ? "world" : "none";
-  fx.fireRail(railTruthSample);
+  // Your own rail stays on your barrel while the gun kicks and turns, as long
+  // as that gun is still in your hands
+  const shotFrom = localHero ? getWeaponViewManager().getDisplayedWeaponId() : null;
+  fx.fireRail(
+    railTruthSample,
+    shotFrom
+      ? () => {
+          const view = getWeaponViewManager();
+          return view.getDisplayedWeaponId() === shotFrom ? view.getMuzzleWorldPosition() : null;
+        }
+      : undefined,
+  );
 }
 
 /**

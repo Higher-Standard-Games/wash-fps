@@ -64,13 +64,14 @@ export const GRENADE_LAUNCHER: WeaponDef = {
     scale: 2.0,
   },
 
-  // Barrel sub-models (spinning chamber)
+  // Barrel sub-model: turns a full revolution and one 45° step while the
+  // next grenade loads
   barrels: [
     {
       modelPath: "/data/models/weapons/glauncher/glauncher_barrel.glb",
       spinSpeed: 0,
       spinDirection: 1,
-      fireStepDegrees: 45,
+      fireStepDegrees: 405,
     },
   ],
 
