@@ -26,7 +26,12 @@ Washoi BSP without changing their recorded metadata or texture references.
 
 ## Playing any installed map
 
-The lobby list is only what is offered by default. `map <name> <gametype>` in the console, or `--map` on a dedicated server, will load **any installed map** with any gametype, whether or not it is in `maps.json`. For instance `map wbomb1 snd` tries Search & Destroy on `wbomb1`, a bomb map the lobby does not currently list. It only works on maps that qualify as bomb maps (below). See [Selecting a Gametype](./index.md#selecting-a-gametype).
+To look around a map alone, open the console and type `map <name>`, for
+example `map washoi_dm5`. The lobby starts a server just for you on one of its
+maps, with no bots and nothing rated; leaving it closes it. You can have one
+at a time.
+
+The lobby list is only what is offered by default. On the lobby's own machine, `map <name> <gametype>` in the console, or `--map` on a dedicated server, will load **any installed map** with any gametype, whether or not it is in `maps.json`. For instance `map wbomb1 snd` tries Search & Destroy on `wbomb1`, a bomb map the lobby does not currently list. It only works on maps that qualify as bomb maps (below). See [Selecting a Gametype](./index.md#selecting-a-gametype).
 
 Bomb maps (`wbomb*`) qualify for Search & Destroy when they have bomb sites **and** team spawns. See [Search & Destroy → Maps](./search-and-destroy.md#maps).
 
