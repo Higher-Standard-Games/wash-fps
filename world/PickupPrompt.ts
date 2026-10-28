@@ -5,8 +5,9 @@
  * Only one prompt can be visible at a time (singleton element).
  * Callers set/clear via show()/hide() and track their own "isShowing" state.
  *
- * Visual: bright Washoi cream print-slab. Any `[KEY]` token in the text renders
- * as a keycap chip, and the final word (the item name) is accented — so callers
+ * Visual: the HUD's ready-bar look, as the hints wear it: a gold WEAPON cell,
+ * then the dark slab with the line. Any `[KEY]` token in the text renders as a
+ * gold key cap, and the final word (the item name) is accented — so callers
  * just build a string like "PRESS [F] TO SWAP TO RIOTGUN" (with the key resolved
  * from the live binding via getActionKeyLabel).
  */
@@ -32,10 +33,16 @@ function getOrCreateElement(): HTMLDivElement {
   return promptElement;
 }
 
-/** Build the print-slab content: plain text, a keycap for any `[KEY]`, and an
- *  accented final word (the item name). */
-function renderPromptContent(el: HTMLElement, text: string): void {
-  el.textContent = "";
+/** Build the content: the WEAPON cell, then the slab with plain text, a key cap
+ *  for any `[KEY]`, and an accented final word (the item name). */
+function renderPromptContent(root: HTMLElement, text: string): void {
+  root.textContent = "";
+  const cell = document.createElement("span");
+  cell.className = "fps-pickup-prompt-cell";
+  cell.textContent = "Weapon";
+  const el = document.createElement("span");
+  el.className = "fps-pickup-prompt-slab";
+  root.append(cell, el);
 
   const addText = (value: string, extraClass?: string): void => {
     if (!value) return;
@@ -55,7 +62,7 @@ function renderPromptContent(el: HTMLElement, text: string): void {
   addText(prefix);
 
   const keycap = document.createElement("span");
-  keycap.className = "fps-keycap";
+  keycap.className = "fps-pickup-prompt-key";
   keycap.textContent = key;
   el.appendChild(keycap);
 
@@ -85,11 +92,9 @@ function render(text: string): void {
   const el = getOrCreateElement();
   renderPromptContent(el, text);
   el.style.opacity = "1";
-  // inline-block (not inline-flex): the prompt is position:fixed, so inline-flex
-  // blockifies to flex, and each text span becomes a flex item whose trailing
-  // whitespace is trimmed at the item's line-box edge — that ate the space in
-  // "TO SWAP TO<space>PLASMAGUN". Block-level inline flow preserves it.
-  el.style.display = "inline-block";
+  // Flex lays out the cell and the slab; the slab keeps inline flow, where
+  // flex items would trim the space in "TO SWAP TO<space>PLASMAGUN"
+  el.style.display = "flex";
 }
 
 /**

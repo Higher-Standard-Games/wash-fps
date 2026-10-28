@@ -42,6 +42,7 @@ import { FPSDeathScreen } from "./hud/widgets/DeathScreen";
 import { FPSFragCounter } from "./hud/widgets/FragCounter";
 import { FPSFragMessage } from "./hud/widgets/FragMessage";
 import { FPSGametypeBadge } from "./hud/widgets/GametypeBadge";
+import { FPSHintPanel } from "./hud/widgets/HintPanel";
 import { FPSPauseMenu } from "./hud/widgets/PauseMenu";
 import { FPSPhaseMessage } from "./hud/widgets/PhaseMessage";
 import { FPSPickupToast } from "./hud/widgets/PickupToast";
@@ -493,6 +494,9 @@ export class FPSHud {
 
     // Pickup toast - bottom center
     this.addWidget("pickup", new FPSPickupToast(), "bottom-center");
+
+    // Movement and aiming hints - above the weapons, bottom right
+    this.addWidget("hint", new FPSHintPanel(), "overlay");
 
     // Death screen - full overlay, managed via widget system
     this.addWidget("death", new FPSDeathScreen(), "overlay");

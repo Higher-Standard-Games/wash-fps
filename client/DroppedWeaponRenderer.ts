@@ -42,7 +42,7 @@ import { SharedCollisionWorld } from "../../../shared/collision/SharedCollisionW
 import { EntityRegistry } from "../../../shared/entities/EntityRegistry";
 import type { WeaponDef } from "../../../shared/entities/WeaponDef";
 import type { FPSController } from "../camera/FPSController";
-import { ITEM_STEP_SECONDS, stepThrownItem, type ThrownItem } from "../shared/items/ItemThrow";
+import { DROPPED_WEAPON_BOUNCE, ITEM_STEP_SECONDS, stepThrownItem, type ThrownItem } from "../shared/items/ItemThrow";
 import { hidePickupPrompt, showPickupPrompt } from "../world/PickupPrompt";
 import { FPS, getActionKeyLabel } from "./FPSActions";
 
@@ -86,7 +86,15 @@ function itemCollisionWorld(): CollisionWorld | null {
 /** Most a frame advances a throw: a stalled tab catches up without a burst of steps. */
 const MAX_THROW_CATCHUP_SECONDS = 0.25;
 /** How fast a landed weapon's tumble eases onto its side (per second). */
-const SETTLE_LEVEL_RATE = 12;
+const SETTLE_LEVEL_RATE = 6;
+/** Vertical speed either side of a step that makes it a bounce (units/s). */
+const BOUNCE_SPEED = 20;
+/** Spin kept through a bounce off the floor. */
+const BOUNCE_SPIN_KEPT = 0.5;
+/** Spin kept per throw step while sliding along the floor. */
+const SLIDE_SPIN_KEPT = 0.96;
+/** Roll per unit slid, so a sliding gun rolls with its speed (radians per unit). */
+const SLIDE_ROLL_PER_UNIT = 0.02;
 
 /** Visual representation of a single dropped weapon */
 class DroppedWeaponVisual {
@@ -107,9 +115,9 @@ class DroppedWeaponVisual {
   private throwElapsed = 0;
   private lastUpdateMs = performance.now();
   /** Airborne spin (yaw), roll around the barrel (x) and end-over-end tumble (z), radians per second */
-  private readonly spin = (Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 4);
-  private readonly rollRate = (Math.random() < 0.5 ? -1 : 1) * (6 + Math.random() * 5);
-  private readonly tumbleRate = (Math.random() < 0.5 ? -1 : 1) * (4 + Math.random() * 4);
+  private spin = (Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 4);
+  private rollRate = (Math.random() < 0.5 ? -1 : 1) * (6 + Math.random() * 5);
+  private tumbleRate = (Math.random() < 0.5 ? -1 : 1) * (4 + Math.random() * 4);
   private yaw = Math.random() * Math.PI * 2;
   private roll = 0;
   private tumble = 0;
@@ -136,6 +144,7 @@ class DroppedWeaponVisual {
         position: { x: thrown.start.x, y: thrown.start.y, z: thrown.start.z },
         velocity: { x: thrown.velocity.x, y: thrown.velocity.y, z: thrown.velocity.z },
         settled: false,
+        bounce: DROPPED_WEAPON_BOUNCE,
       };
       this.throwPrevious.copyFrom(thrown.start);
     }
@@ -273,6 +282,27 @@ class DroppedWeaponVisual {
     }
   }
 
+  /**
+   * Turn the model's spin with what the throw did this step: a bounce knocks
+   * spin out of it and jolts it a little; sliding on the floor rolls it with
+   * its speed while the spin dies away.
+   */
+  private reactToStep(fallingBefore: number): void {
+    const velocity = this.throw!.velocity;
+    // A real fall turned into a real rise: the slide move leaves a sliver of
+    // upward speed on a dead landing, which is not a bounce
+    if (fallingBefore < -BOUNCE_SPEED && velocity.y > BOUNCE_SPEED) {
+      this.spin *= BOUNCE_SPIN_KEPT;
+      this.tumbleRate = this.tumbleRate * BOUNCE_SPIN_KEPT + (Math.random() - 0.5) * 4;
+      this.rollRate = this.rollRate * BOUNCE_SPIN_KEPT + (Math.random() - 0.5) * 4;
+    } else if (velocity.y === 0) {
+      const sliding = Math.hypot(velocity.x, velocity.z);
+      this.spin *= SLIDE_SPIN_KEPT;
+      this.tumbleRate *= SLIDE_SPIN_KEPT;
+      this.rollRate = this.rollRate * SLIDE_SPIN_KEPT + Math.sign(this.rollRate || 1) * sliding * SLIDE_ROLL_PER_UNIT;
+    }
+  }
+
   /** Update each frame: step the throw, place and turn the model. */
   update(): void {
     const now = performance.now();
@@ -286,7 +316,9 @@ class DroppedWeaponVisual {
       while (this.throwElapsed >= ITEM_STEP_SECONDS && !this.throw.settled) {
         const { x, y, z } = this.throw.position;
         this.throwPrevious.set(x, y, z);
+        const falling = this.throw.velocity.y;
         stepThrownItem(this.throw, this.throwWorld);
+        this.reactToStep(falling);
         this.throwElapsed -= ITEM_STEP_SECONDS;
       }
       between = this.throw.settled ? 1 : this.throwElapsed / ITEM_STEP_SECONDS;

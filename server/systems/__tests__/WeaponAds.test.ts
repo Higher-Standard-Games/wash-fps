@@ -139,10 +139,26 @@ it("fires EB hipfire instantly with wide deterministic spread, and complete manu
   expect(ELECTROBOLT.ads!.time).toBe(0.375);
   const [manual] = aimed.step(1000 + delay, FIRE | ALT_FIRE);
   expect([manual.dirX, manual.dirY, manual.dirZ]).toEqual([0, 0, 1]);
+  expect(hip.step(1000 + fireIntervalTicks(ELECTROBOLT), FIRE)).toHaveLength(1);
+});
+
+it("holds EB fire during a manual ADS raise, then fires straight", () => {
+  const delay = Math.ceil(ELECTROBOLT.ads!.time / 0.008);
+  // Aim and fire pressed together
+  const both = setup("electrobolt");
+  for (let tick = 1000; tick < 1000 + delay; tick++) expect(both.step(tick, FIRE | ALT_FIRE)).toHaveLength(0);
+  const [together] = both.step(1000 + delay, FIRE | ALT_FIRE);
+  expect([together.dirX, together.dirY, together.dirZ]).toEqual([0, 0, 1]);
+  // Fire pulled partway through the raise
   const partial = setup("electrobolt");
   partial.step(1000, ALT_FIRE);
-  expect(angle(partial.step(1000 + delay - 1, FIRE | ALT_FIRE)[0])).toBeGreaterThan(0);
-  expect(hip.step(1000 + fireIntervalTicks(ELECTROBOLT), FIRE)).toHaveLength(1);
+  expect(partial.step(1000 + delay - 1, FIRE | ALT_FIRE)).toHaveLength(0);
+  const [late] = partial.step(1000 + delay, FIRE | ALT_FIRE);
+  expect([late.dirX, late.dirY, late.dirZ]).toEqual([0, 0, 1]);
+  // Letting go of aim before it is up cancels the wait; fire alone is hipfire
+  const dropped = setup("electrobolt");
+  dropped.step(1000, FIRE | ALT_FIRE);
+  expect(angle(dropped.step(1010, FIRE)[0])).toBeGreaterThan(0);
 });
 
 it("preserves the automatic ADS marker in the existing command packet", () => {

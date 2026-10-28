@@ -2259,6 +2259,11 @@ export class Game {
     return this.liquid.airFraction;
   }
 
+  /** How deep the local player is, predicted: 0 dry, 1 wading, 2 swimming, 3 under. */
+  public get localWaterLevel(): number {
+    return this.v2Client?.getMovementState().waterLevel ?? 0;
+  }
+
   /** True once the lungs are empty. Drives the HUD's alarm state. */
   public get localDrowning(): boolean {
     return this.liquid.drowning;

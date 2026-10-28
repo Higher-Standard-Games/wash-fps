@@ -289,6 +289,11 @@ export class GameplayPage {
     for (const [cvar, name, help] of [
       ["show_fps", "FPS counter", "Frames per second in the top-right corner"],
       ["cl_showspeed", "Movement speed", "Your speed at the bottom of the screen"],
+      [
+        "cl_hints",
+        "Hints",
+        "Tips about movement, weapons and items, above your weapons. Shown in warmup and for the first 2 minutes of a match",
+      ],
     ]) {
       seg(this.host, fields, {
         name,

@@ -18,7 +18,7 @@ import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulatio
 import type { EntityId, TickNumber } from "@shared/server/simulation/types";
 import { entityId } from "@shared/server/simulation/types";
 import type { CollisionWorld } from "../../../../engine/network/systems/collision/CollisionWorld";
-import { ITEM_GRAVITY, stepThrownItem } from "../../shared/items/ItemThrow";
+import { DROPPED_WEAPON_BOUNCE, ITEM_GRAVITY, stepThrownItem } from "../../shared/items/ItemThrow";
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -230,7 +230,7 @@ export class DroppedWeaponSystem extends Subsystem {
 
       if (this.collisionWorld) {
         // The shared item throw: step-slide through BSP collision, ground friction, settling.
-        const item = { position: pos, velocity: vel, settled: false };
+        const item = { position: pos, velocity: vel, settled: false, bounce: DROPPED_WEAPON_BOUNCE };
         stepThrownItem(item, this.collisionWorld, this.dt);
         meta.settled = item.settled;
       } else {

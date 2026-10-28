@@ -33,6 +33,18 @@ const SETTLE_SPEED = 5;
 /** How long a map weapon's throw is followed before it is treated as never landing. */
 const MAX_LANDING_STEPS = 5 * 125;
 
+/**
+ * Share of its falling speed a dropped weapon keeps as it bounces off the
+ * floor. Map items land without bouncing, so where they rest is unchanged.
+ */
+export const DROPPED_WEAPON_BOUNCE = 0.35;
+
+/** Falling speed below which a landing is a stop rather than a bounce (units/s). */
+const BOUNCE_MIN_SPEED = 90;
+
+/** Horizontal velocity kept through a bounce. */
+const BOUNCE_KEEP_HORIZONTAL = 0.7;
+
 /** Upward pop given to a map-spawned weapon. */
 const MAP_TOSS_UP = 95;
 
@@ -43,6 +55,8 @@ export interface ThrownItem {
   position: Vec3;
   velocity: Vec3;
   settled: boolean;
+  /** Share of falling speed kept on hitting the floor; none when absent */
+  bounce?: number;
 }
 
 /** Advance a thrown item one step: gravity, collision, then ground friction and settling. */
@@ -50,6 +64,7 @@ export function stepThrownItem(item: ThrownItem, collision: CollisionWorld, dt: 
   if (item.settled) return;
   const { position, velocity } = item;
   velocity.y -= ITEM_GRAVITY * dt;
+  const fallSpeed = -velocity.y;
 
   const result = collision.stepSlideMove(
     { x: position.x, y: position.y, z: position.z },
@@ -65,6 +80,13 @@ export function stepThrownItem(item: ThrownItem, collision: CollisionWorld, dt: 
   velocity.z = result.velocity.z;
 
   if (!result.grounded) return;
+  if (item.bounce && fallSpeed * item.bounce > BOUNCE_MIN_SPEED) {
+    // Off the floor again, with what the landing left it
+    velocity.y = fallSpeed * item.bounce;
+    velocity.x *= BOUNCE_KEEP_HORIZONTAL;
+    velocity.z *= BOUNCE_KEEP_HORIZONTAL;
+    return;
+  }
   velocity.x *= GROUND_FRICTION;
   velocity.z *= GROUND_FRICTION;
   const horizontalSpeed = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);

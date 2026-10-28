@@ -16,7 +16,14 @@ import { SweepCollisionBackend } from "../../../../../engine/physics/SweepCollis
 import type { CollisionWorld } from "../../../../../shared/collision/CollisionWorld";
 import { SharedCollisionWorld } from "../../../../../shared/collision/SharedCollisionWorld";
 import type { PickupEntry } from "../../bsp/PickupTable";
-import { landMapPickups, landThrownItem, mapWeaponTossVelocity } from "../ItemThrow";
+import {
+  DROPPED_WEAPON_BOUNCE,
+  landMapPickups,
+  landThrownItem,
+  mapWeaponTossVelocity,
+  stepThrownItem,
+  type ThrownItem,
+} from "../ItemThrow";
 
 type Triple = [number, number, number];
 
@@ -153,6 +160,43 @@ describe("landThrownItem", () => {
     const collision = await world([{ ...FLOOR, min: [5000, 5000, -10], max: [5100, 5100, 0] }]);
 
     expect(landThrownItem({ x: 0, y: 500, z: 0 }, { x: 0, y: 0, z: 0 }, collision)).toBeNull();
+  });
+});
+
+describe("dropped weapon bounce", () => {
+  it("bounces off the floor a few times, each lower, then comes to rest; without it lands dead", async () => {
+    const collision = await level();
+    const throwFrom = (bounce?: number) => {
+      const item: ThrownItem = {
+        position: { x: 400, y: 120, z: 0 },
+        velocity: { x: 60, y: 200, z: 0 },
+        settled: false,
+        bounce,
+      };
+      const peaks: number[] = [];
+      let rising = true;
+      for (let step = 0; step < 5 * 125 && !item.settled; step++) {
+        const before = item.velocity.y;
+        stepThrownItem(item, collision);
+        if (before < -20 && item.velocity.y > 20) rising = true;
+        if (rising && item.velocity.y <= 0) {
+          peaks.push(item.position.y);
+          rising = false;
+        }
+      }
+      return { item, peaks };
+    };
+
+    const bounced = throwFrom(DROPPED_WEAPON_BOUNCE);
+    expect(bounced.item.settled).toBe(true);
+    expectRestingOn(bounced.item.position.y, 0);
+    // The throw's own peak, then lower and lower bounces
+    expect(bounced.peaks.length).toBeGreaterThan(1);
+    for (let i = 1; i < bounced.peaks.length; i++) expect(bounced.peaks[i]).toBeLessThan(bounced.peaks[i - 1]);
+
+    const dead = throwFrom();
+    expect(dead.item.settled).toBe(true);
+    expect(dead.peaks).toHaveLength(1);
   });
 });
 

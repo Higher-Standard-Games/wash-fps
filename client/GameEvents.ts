@@ -96,6 +96,12 @@ import type { FollowedViewWeapon } from "./FollowedViewWeapon";
 import { playerVoiceForEntity } from "./FPSPlayerAudio";
 import type { FPSReloadAudio } from "./FPSReloadAudio";
 import type { GibSystem, PendingGibSpawn } from "./GibSystem";
+import {
+  canAimWith,
+  noteLocalChargeForHints,
+  noteLocalFallForHints,
+  noteLocalShotForHints,
+} from "./hud/widgets/HintPanel";
 import { networkHostOf } from "./NetworkHostAccess";
 import type { RagdollSystem } from "./RagdollSystem";
 
@@ -358,6 +364,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
               if (ctx._localCharging) ctx._localCharging = false;
               wvm.fire({ isProjectileFire, shot: shotOf(event) });
               kickLocalView(event.weaponId, wvm.getAdsProgress());
+              noteLocalShotForHints(canAimWith(event.weaponId));
               Crosshair.getInstance().notifyFired(WEAPONS[canonicalWeaponId(event.weaponId)]);
             } else {
               // Live snapshots carry the beam's exact contact as voltaic_beam;
@@ -400,6 +407,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
           case "weapon_charge":
             if (event.entityId === localEntityId) {
               ctx._localCharging = event.charging;
+              if (event.charging) noteLocalChargeForHints();
             } else if (event.charging) {
               ctx.chargingPlayers.add(event.entityId);
             } else {
@@ -570,6 +578,9 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
               // Pain camera shake (all weapon types). Only our own: it lives in
               // the FPS controller, which a spectate camera does not run.
               const fpsCtrl = CameraSystem.getInstance().getController("fps");
+              if (event.entityId === localEntityId && (event.weaponId === "fall" || event.weaponId === "fall_crush")) {
+                noteLocalFallForHints();
+              }
               if (event.entityId === localEntityId && fpsCtrl?.shakeCamera) {
                 const painIntensity = Math.min(Math.max(event.damage / 100, 0.05), 0.6);
                 const painScale =
@@ -1341,7 +1352,9 @@ export function handleElectroRail(
   // making it emanate from the wrong side of the gun. The damage endpoint is
   // untouched — only the drawn start moves to the barrel (as the Voltaic beam does).
   // A player watched through their eyes is the same case, with their gun on screen.
-  const muzzle = localHero ? getWeaponViewManager().getMuzzleWorldPosition() : followedMuzzle;
+  // The start stays where the shot was fired, a little further along the
+  // screen ray through the muzzle, so the beam does not open at the near plane.
+  const muzzle = localHero ? getWeaponViewManager().getMuzzleWorldPosition(RAIL_START_DISTANCE) : followedMuzzle;
   if (muzzle) railTruthStart.copyFrom(muzzle);
   else railTruthStart.set(event.originX, event.originY, event.originZ);
   railTruthEnd.set(event.endX, event.endY, event.endZ);
@@ -1349,19 +1362,11 @@ export function handleElectroRail(
   const rgb = WEAPON_EFFECT_COLORS[canonicalWeaponId(weaponId)] ?? WEAPON_EFFECT_COLORS.electrobolt;
   railTruthColor.set(rgb[0], rgb[1], rgb[2]);
   railTruthSample.impactKind = event.impactKind === 2 ? "player" : event.impactKind === 1 ? "world" : "none";
-  // Your own rail stays on your barrel while the gun kicks and turns, as long
-  // as that gun is still in your hands
-  const shotFrom = localHero ? getWeaponViewManager().getDisplayedWeaponId() : null;
-  fx.fireRail(
-    railTruthSample,
-    shotFrom
-      ? () => {
-          const view = getWeaponViewManager();
-          return view.getDisplayedWeaponId() === shotFrom ? view.getMuzzleWorldPosition() : null;
-        }
-      : undefined,
-  );
+  fx.fireRail(railTruthSample);
 }
+
+/** How far along the screen ray through the muzzle the local rail starts (units). */
+const RAIL_START_DISTANCE = 32;
 
 /**
  * Process server-driven projectile entities (Q3-style spawn/despawn/interpolation).
@@ -1510,6 +1515,8 @@ export type LocatedDamageEvent = DamageEvent & { hitLocation?: HitLocationName }
  * added a promise per hit.
  */
 export function handleOutgoingDamage(ctx: GameEventContext, event: LocatedDamageEvent): void {
+  // Hurting yourself (a fall, your own splash) is not a hit: the pain sound is the feedback
+  if (event.attackerId === event.entityId) return;
   playDamageConfirmationSound(event);
   Crosshair.getInstance().notifyHit(event.hitLocation);
   if (event.x !== undefined && event.damage > 0) {

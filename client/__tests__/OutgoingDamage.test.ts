@@ -60,6 +60,14 @@ describe("outgoing damage feedback", () => {
     spawn = vi.spyOn(DamageNumbers.getInstance(), "spawn").mockImplementation(() => {});
   });
 
+  it("gives no hit feedback for damage you did to yourself, a fall or your own splash", () => {
+    handleOutgoingDamage(ctx(), hit({ entityId: "e1", weaponId: "fall" }));
+    handleOutgoingDamage(ctx(), hit({ entityId: "e1" }));
+    expect(confirm).not.toHaveBeenCalled();
+    expect(flash).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
   it("confirms the hit with a sound and flashes the crosshair, immediately", () => {
     handleOutgoingDamage(ctx(), hit());
 

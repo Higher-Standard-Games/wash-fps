@@ -1141,6 +1141,11 @@ export class WeaponSystem extends Subsystem {
           if (isFiring && weapon.hipfireBlocked) {
             const adsTimeTicks = Math.ceil((weapon.ads?.time ?? 0.08) * TICK_RATE);
             hipfireAllowFire = tickNum - (weaponState.adsStartTick ?? tickNum) >= adsTimeTicks;
+          } else if (isFiring && weapon.adsRequireReady && weaponState.manualAdsStartTick !== null) {
+            // Aim held: the shot waits for the sights to come up and goes
+            // straight, rather than leaving the hip mid-raise
+            const adsTimeTicks = Math.ceil((weapon.ads?.time ?? 0.08) * TICK_RATE);
+            hipfireAllowFire = tickNum - weaponState.manualAdsStartTick >= adsTimeTicks;
           }
 
           if (isFiring && hipfireAllowFire) {

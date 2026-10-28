@@ -8,6 +8,7 @@ import type { WeaponDef } from "../../shared/entities";
 import type { FPSController } from "./camera/FPSController";
 import { devLog } from "./client/DevLog";
 import { HUDState } from "./client/HUDState";
+import { noteEmptyClipForHints } from "./client/hud/widgets/HintPanel";
 import { isLocalPowerupActive } from "./client/LocalPowerupState";
 import { MatchStateManager } from "./client/MatchStateManager";
 import {
@@ -254,6 +255,9 @@ export class FPSPlayer {
     if (readyToFire) {
       // Auto-reload check
       if (currentWeaponId && currentWeapon.reloadModel === "clip" && !hasBeamAmmo) {
+        // A number is a pool weapon's ammo: no clip, so nothing in reserve
+        const ammo = HUDState.getInstance().ammo[currentWeaponId];
+        if (typeof ammo === "object" && ammo.reserve > 0) noteEmptyClipForHints();
         this.startReload(currentWeapon, currentWeaponId);
       } else {
         this.executeFire(weaponMgr);

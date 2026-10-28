@@ -97,6 +97,53 @@ Recent chat messages float here, just above the health and weapon bar, and fade 
 **Y** opens team chat with a **TEAM** prompt. Type `/mute <playername>` and
 `/unmute <playername>` in chat to manage a local ignore for this match.
 
+## Hints (bottom-right)
+
+Tips for new players, in a bar above your weapons that mirrors chat on the
+left and is dressed like the warmup ready bar: a gold **Hint** cell, then the
+tip with your own keys (the first two bound to each action). A hint appears
+when it fits what you are doing, stays four and a half seconds and fades away.
+
+**Movement**
+
+| Hint | When |
+| --- | --- |
+| When moving 400+ ups, hold *crouch* to crouchslide! | You run on the ground at slide speed (375 ups) for a moment without sliding |
+| Hold *forward* and *jump* to bunny hop! / At 400+ ups, hold *crouch* to crouchslide for a speed boost! | You jump twice within two seconds (one of the two, at random) |
+| In the air, hold *left* or *right* and turn the mouse to gain speed! | You jump twice within two seconds holding only forward in the air |
+| Press *jump* on a wall to walljump! | You are in the air with a wall close enough to jump off, or you jump three times in a row |
+| Jump at a ledge holding *forward* to climb up; *crouch* lets go! | You grab a ledge |
+| Hold *crouch* when falling to absorb damage! | You take fall damage |
+
+**Weapons**
+
+| Hint | When |
+| --- | --- |
+| Hold *aim* to aim! | You fire from the hip, or hold fire there for a second, with a weapon that can aim |
+| Press *1*, *2*, *3* or scroll to switch weapons! | The blade is out for 8 seconds while you carry a gun |
+| With the blade, hold *aim* to charge a blast! | The blade is out for 12 seconds without a charged blast |
+| Press *jump* and fire *fire* at your feet to rocket jump! | You have spent 10 seconds on the ground with the Rocket Launcher out |
+| Grenades bounce: bank them around corners! | You first take out the Grenade Launcher (once) |
+| Press *reload* to reload before your clip runs dry! | Your clip runs empty with ammo in reserve |
+| Firing the *Voltaic* / *Electrobolt* underwater shocks you and everyone in the water! | You hold either in water at least waist deep |
+
+**Survival and the match**
+
+| Hint | When |
+| --- | --- |
+| Look for health items to recover! | Your health stays under 50 for three seconds |
+| Find armor items for protection! | You go 15 seconds of a live match without armor |
+| Surface for air! | Your air is half gone |
+| Hold *scoreboard* to see the scores! | 20 seconds into a live match (once) |
+| Stand still on flat ground at a bomb site to arm the bomb! | You carry the bomb for three seconds (Search & Destroy) |
+| Stand by the planted bomb to defuse it! | The bomb is planted and your team defends (Search & Destroy) |
+
+A different hint replaces the one on screen straight away; the same hint
+shows at most once a minute, and the two marked once only once. There are no
+hints while dead, spectating or after the match. Hints show all through
+warmup, and only for the first two minutes of the live match. Turn them off
+under Settings → Gameplay → Hints, or with `cl_hints 0`.
+
 ## Event Feed / Kill Feed (top-left)
 
 Recent kills, last ~5 lines:

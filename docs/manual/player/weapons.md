@@ -164,6 +164,9 @@ shot; firing during manual ADS waits for the remaining raise time.
 
 Electrobolt hipfire is instant but scatters within a **20° cone**, making it
 unreliable at range. Complete its **375 ms** manual ADS for a straight shot.
+With Mouse 2 held, fire waits for the sights: pressing both together, or firing
+partway through the raise, shoots straight once ADS is complete. Releasing
+Mouse 2 before then makes it a hipfire shot again.
 Hipfire has a heavy upward/backward weapon kick like the Riotgun; aiming reduces it.
 At close range the same angular spread causes less lateral displacement; there
 is no distance-based accuracy switch. These three weapons' sight transitions use

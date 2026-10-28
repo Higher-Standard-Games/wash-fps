@@ -1966,42 +1966,76 @@
 }
 
 /* ============================================================================
-   Pickup / weapon-swap prompt — bright cream print-slab, centered.
+   Pickup / weapon-swap prompt — dressed as the ready bar and the hints: a gold
+   WEAPON cell, then the dark slab with the line. Centred, above the hint bar.
    ============================================================================ */
 .fps-pickup-prompt {
   position: fixed;
   left: 50%;
-  bottom: 25%;
-  transform: translateX(-50%);
+  /* Clear of the hint bar at the bottom right, at 236px */
+  bottom: calc(340px * var(--ui-scale, 1));
+  transform: translateX(-50%) skewX(-5deg);
   z-index: 900;
   pointer-events: none;
-  /* inline-block (not inline-flex): position:fixed blockifies inline-flex to
-     flex, and flex items get their trailing whitespace trimmed at the line-box
-     edge — that dropped the space before the item name ("TO SWAP TO PLASMAGUN").
-     Block-level inline flow keeps the keycap + text on one line and preserves
-     the mid-line space. Kept in sync with PickupPrompt.ts's inline display. */
-  display: inline-block;
+  align-items: stretch;
   white-space: nowrap;
-  padding: calc(12px * var(--ui-scale, 1)) calc(36px * var(--ui-scale, 1)) calc(14px * var(--ui-scale, 1));
-  background: linear-gradient(178deg, var(--w-cream), hsl(41, 92%, 85%) 78%), var(--w-scan-cyan);
-  clip-path: polygon(2% 0, 100% 0, 98% 100%, 0 100%);
+  background: linear-gradient(172deg, hsla(250, 30%, 11%, 0.95), var(--w-void) 60%), var(--w-scan-cyan);
+  clip-path: polygon(1.5% 0, 100% 0, 98.5% 100%, 0 94%);
+  box-shadow: inset 0 0 0 1px hsla(190, 90%, 72%, 0.16);
   filter: var(--w-drop-print-sm);
-  box-shadow: inset 0 calc(-3px * var(--ui-scale, 1)) 0 hsla(190, 70%, 45%, 0.28);
+  font-family: var(--w-font-body);
   transition: opacity 0.15s ease;
 }
 
-.fps-pickup-prompt-text {
+.fps-pickup-prompt-cell {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  padding: calc(12px * var(--ui-scale, 1)) calc(22px * var(--ui-scale, 1)) calc(14px * var(--ui-scale, 1))
+    calc(16px * var(--ui-scale, 1));
+  background: linear-gradient(105deg, hsl(42, 96%, 58%), hsl(36, 90%, 46%));
+  clip-path: polygon(0 0, 100% 0, 88% 100%, 0 100%);
   font-family: var(--w-font-display);
-  font-size: calc(25px * var(--ui-scale, 1));
-  font-weight: 800;
-  letter-spacing: 0.05em;
+  font-size: calc(19px * var(--ui-scale, 1));
+  font-weight: 900;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: hsl(246, 42%, 12%);
+  color: hsla(255, 45%, 10%, 0.92);
 }
 
-/* The item being picked up / swapped to — punchy teal so it pops off the cream. */
+/* Inline flow, not flex: flex items would trim the space before the item name */
+.fps-pickup-prompt-slab {
+  display: block;
+  align-self: center;
+  padding: calc(12px * var(--ui-scale, 1)) calc(26px * var(--ui-scale, 1)) calc(14px * var(--ui-scale, 1))
+    calc(18px * var(--ui-scale, 1));
+}
+
+.fps-pickup-prompt-text {
+  font-size: max(14px, calc(18px * var(--ui-scale, 1)));
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: hsla(42, 30%, 92%, 0.85);
+}
+
+/* The item being picked up or swapped to, in the HUD's cyan */
 .fps-pickup-prompt-weapon {
-  color: hsl(196, 96%, 32%);
+  color: hsl(182, 95%, 60%);
+}
+
+.fps-pickup-prompt-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 calc(6px * var(--ui-scale, 1));
+  padding: calc(2px * var(--ui-scale, 1)) calc(10px * var(--ui-scale, 1)) calc(3px * var(--ui-scale, 1));
+  background: hsl(42, 96%, 56%);
+  clip-path: polygon(6% 0, 100% 8%, 94% 100%, 0 92%);
+  font-family: var(--w-font-display);
+  font-size: max(13px, calc(16px * var(--ui-scale, 1)));
+  font-weight: 900;
+  color: hsl(255, 45%, 10%);
 }
 
 /* ============================================================================
@@ -2079,6 +2113,83 @@
   letter-spacing: 0.04em;
   white-space: nowrap;
   color: hsla(45, 100%, 95%, 0.86);
+}
+
+/* Hint: a short tip above the weapons, bottom right, mirroring chat on the
+   left. Dressed as the warmup ready bar: a gold HINT cell, the dark slab with
+   the tip, gold key caps. Slides in, holds, fades away. */
+.fps-hint {
+  position: absolute;
+  bottom: calc(236px * var(--ui-scale, 1));
+  right: calc(20px * var(--ui-scale, 1));
+  display: flex;
+  align-items: stretch;
+  max-width: min(calc(640px * var(--ui-scale, 1)), 50vw);
+  background: linear-gradient(172deg, hsla(250, 30%, 11%, 0.95), var(--w-void) 60%), var(--w-scan-cyan);
+  clip-path: polygon(1.5% 0, 100% 0, 98.5% 100%, 0 94%);
+  box-shadow: inset 0 0 0 1px hsla(190, 90%, 72%, 0.16);
+  filter: var(--w-drop-print-sm);
+  font-family: var(--w-font-body);
+  opacity: 0;
+  transform: translateX(calc(24px * var(--ui-scale, 1))) skewX(-5deg);
+  transition:
+    opacity 0.6s ease,
+    transform 0.6s ease;
+  pointer-events: none;
+}
+
+.fps-hint--shown {
+  opacity: 1;
+  transform: skewX(-5deg);
+  transition:
+    opacity 0.18s ease-out,
+    transform 0.18s ease-out;
+}
+
+.fps-hint-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  padding: calc(12px * var(--ui-scale, 1)) calc(22px * var(--ui-scale, 1)) calc(14px * var(--ui-scale, 1))
+    calc(16px * var(--ui-scale, 1));
+  background: linear-gradient(105deg, hsl(42, 96%, 58%), hsl(36, 90%, 46%));
+  clip-path: polygon(0 0, 100% 0, 88% 100%, 0 100%);
+  font-family: var(--w-font-display);
+  font-size: calc(19px * var(--ui-scale, 1));
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: hsla(255, 45%, 10%, 0.92);
+}
+
+.fps-hint-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  row-gap: calc(6px * var(--ui-scale, 1));
+  padding: calc(12px * var(--ui-scale, 1)) calc(26px * var(--ui-scale, 1)) calc(14px * var(--ui-scale, 1))
+    calc(18px * var(--ui-scale, 1));
+  font-size: max(14px, calc(18px * var(--ui-scale, 1)));
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: hsla(42, 30%, 92%, 0.85);
+}
+
+.fps-hint-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 calc(6px * var(--ui-scale, 1));
+  padding: calc(2px * var(--ui-scale, 1)) calc(10px * var(--ui-scale, 1)) calc(3px * var(--ui-scale, 1));
+  background: hsl(42, 96%, 56%);
+  clip-path: polygon(6% 0, 100% 8%, 94% 100%, 0 92%);
+  font-family: var(--w-font-display);
+  font-size: max(13px, calc(16px * var(--ui-scale, 1)));
+  font-weight: 900;
+  letter-spacing: normal;
+  color: hsl(255, 45%, 10%);
 }
 
 /* Spectating: whom you are watching, above the bottom HUD, between the keys
