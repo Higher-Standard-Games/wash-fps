@@ -15,6 +15,7 @@ function actions(over: Partial<MatchInputActions> = {}): MatchInputActions {
     isKeyDown: () => false,
     joinGame: vi.fn(),
     menuOpen: () => false,
+    openMatchMenu: vi.fn(),
     joinOverlayOpen: () => false,
     showScoreboard: vi.fn(),
     hideScoreboard: vi.fn(),
@@ -42,6 +43,32 @@ describe("MatchInputBindings", () => {
   afterEach(() => {
     bindings.unbind();
     lockPointer(false);
+  });
+
+  it("opens the match menu on Escape while spectating with the mouse free", () => {
+    const a = actions();
+    bindings.bind(document, a);
+    key("keydown", "Escape");
+    expect(a.openMatchMenu).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves Escape to the mouse release, an open menu, or play", () => {
+    const locked = actions();
+    bindings.bind(document, locked);
+    lockPointer(true);
+    key("keydown", "Escape");
+    expect(locked.openMatchMenu).not.toHaveBeenCalled();
+    lockPointer(false);
+
+    const menu = actions({ menuOpen: () => true });
+    bindings.bind(document, menu);
+    key("keydown", "Escape");
+    expect(menu.openMatchMenu).not.toHaveBeenCalled();
+
+    const playing = actions({ playerState: () => "playing" });
+    bindings.bind(document, playing);
+    key("keydown", "Escape");
+    expect(playing.openMatchMenu).not.toHaveBeenCalled();
   });
 
   it("cycles spectate targets with the arrows while spectating", () => {
@@ -96,6 +123,27 @@ describe("MatchInputBindings", () => {
     bindings.bind(document, playing);
     click(0);
     expect(playing.nextSpectateTarget).not.toHaveBeenCalled();
+  });
+
+  it("moves to the next player on a click on the game view while watching one", () => {
+    const canvas = document.body.appendChild(document.createElement("canvas"));
+    const clickOn = (element: Element) => {
+      const event = new MouseEvent("mousedown", { button: 0, cancelable: true, bubbles: true });
+      element.dispatchEvent(event);
+      return event;
+    };
+    const watching = actions({ isChasing: () => true });
+    bindings.bind(document, watching);
+    expect(clickOn(canvas).defaultPrevented).toBe(true);
+    expect(watching.nextSpectateTarget).toHaveBeenCalledTimes(1);
+    clickOn(document.body);
+    expect(watching.nextSpectateTarget).toHaveBeenCalledTimes(1);
+
+    const flying = actions();
+    bindings.bind(document, flying);
+    clickOn(canvas);
+    expect(flying.nextSpectateTarget).not.toHaveBeenCalled();
+    canvas.remove();
   });
 
   it("joins on J while spectating", () => {

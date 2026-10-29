@@ -40,7 +40,7 @@ type SnapshotMovementState = Partial<
     MovementStateComponent,
     "isCrouching" | "isSliding" | "wallJumpState" | "crouchViewOffset" | "waterLevel" | "onLadder"
   > &
-    Pick<EntitySnapshot, "strafeInput" | "forwardInput" | "slidePhase" | "ledgeGrabPhase">
+    Pick<EntitySnapshot, "strafeInput" | "forwardInput" | "slidePhase" | "ledgeGrabPhase"> & { isAiming: boolean }
 >;
 
 /**
@@ -74,6 +74,7 @@ export function extractEntities(state: GameState, localEntityId: string): Map<st
       crouching: movementState?.isCrouching ?? false,
       sliding: movementState?.isSliding ?? false,
       wallJumping: movementState?.wallJumpState === "charging",
+      aiming: movementState?.isAiming,
       // Absent from a recording made before the server sent the view: the
       // watched eye then falls back to the crouch flag.
       crouchViewOffset: movementState?.crouchViewOffset,

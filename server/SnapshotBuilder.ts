@@ -11,6 +11,7 @@ import type { Simulation } from "@engine/server/core/Simulation";
 import type { EntityId, PlayerId } from "@engine/server/ecs/types";
 import { EntityType } from "@engine/server/ecs/types";
 import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulation/physics/constants";
+import { InputButtons } from "../../../engine/network/components/InputComponent";
 import { Entity } from "../../../engine/network/core/Entity";
 import { GameState, type PlayerState } from "../../../engine/network/core/GameState";
 import type { SnapshotEvent } from "../../../engine/network/core/SnapshotEvent";
@@ -303,6 +304,8 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
           isCrouching: entity.physics.isCrouching ?? false,
           crouchViewOffset: entity.physics.crouchViewOffset ?? 0,
           wallJumpState: entity.physics.wallJumpState ?? "none",
+          // The sights are up while alt-fire is held, as on the player's own screen
+          isAiming: ((entity.input?.buttons ?? 0) & InputButtons.ALT_FIRE) !== 0,
           ledgeGrabState: entity.physics.ledgeGrabState ?? "none",
           actualHorizSpeed: entity.physics.actualHorizSpeed ?? 0,
           strafeInput: entity.physics.strafeInput ?? 0,

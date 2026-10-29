@@ -222,6 +222,13 @@ export class Game {
   private _joinPendingTimeout: ReturnType<typeof setTimeout> | null = null;
   /** True while `completeJoinGame` is in flight, so it is not started twice. */
   private _joinCompleting = false;
+  /** Our entity in the last snapshot. */
+  private _ownEntityId: string | undefined;
+  /**
+   * The entity we left play with. Snapshots sent before the server took our
+   * Spectate still carry it; it is not a join. A rejoin gets a fresh entity.
+   */
+  private _leftEntityId: string | undefined;
   /** True when the side came from an in-game button rather than the lobby. */
   private _teamWasPicked = false;
   /** Last match phase the announcer spoke for, so each transition fires once. */
@@ -875,6 +882,7 @@ export class Game {
           const hud = FPSHud.getInstance();
           return !!(hud.pauseMenu?.isOpen() || hud.settings?.isOpen());
         },
+        openMatchMenu: () => FPSHud.getInstance().showMatchMenu(),
         joinOverlayOpen: () => this.spectatorOverlay?.getMode() === "join-overlay",
         // Not over the loading screen: the scoreboard belongs to the match
         showScoreboard: () => {
@@ -1270,6 +1278,7 @@ export class Game {
     this.spectate.stopTeammateSpectate();
 
     // Tell server to remove our entity
+    this._leftEntityId = this._ownEntityId;
     networkHost.sendSpectate();
 
     // Switch to freefly camera
@@ -1921,6 +1930,8 @@ export class Game {
     }
     this._joinPending = false;
     this._joinCompleting = false;
+    this._ownEntityId = undefined;
+    this._leftEntityId = undefined;
     this._joinGametypeWaits = 0;
     this._preferredTeam = undefined;
     this._teamWasPicked = false;
@@ -2158,9 +2169,10 @@ export class Game {
     // in freefly watching a bot, with no path back. The entity being in the
     // snapshot while we are not playing IS the confirmation, whenever it shows
     // up, so the condition is the state itself rather than a race against it.
+    const myPlayer = this.localPlayerId ? state.players.get(this.localPlayerId) : undefined;
+    this._ownEntityId = myPlayer?.entityId;
     if (this.playerState !== "playing" && !this._joinCompleting && this.localPlayerId) {
-      const myPlayer = state.players.get(this.localPlayerId);
-      if (myPlayer?.entityId && state.entities.has(myPlayer.entityId)) {
+      if (myPlayer?.entityId && myPlayer.entityId !== this._leftEntityId && state.entities.has(myPlayer.entityId)) {
         devLog(`[Game] Server confirmed join — entity ${myPlayer.entityId} found in snapshot`);
         // `completeJoinGame` is async and takes several frames; without this
         // every frame in between would start another one.

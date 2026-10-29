@@ -120,7 +120,7 @@ export class SpectatorOverlay {
     who.append(el("span", "fps-spectator-bar-label", "Spectating"), this.spectatingNameEl);
 
     const nextBtn = el("span", "fps-spectator-bar-nav");
-    nextBtn.title = "Next player";
+    nextBtn.title = "Next player (→, or click the view)";
     nextBtn.appendChild(el("span", "fps-spectator-bar-key", "→"));
     nextBtn.addEventListener("click", () => this._onNextPlayerCallback?.());
 

@@ -1,7 +1,7 @@
 /**
  * MatchInputBindings — the document-level keys and clicks a connected match
- * listens for: spectator target cycling, chase-cam on Mouse1, J to join, and
- * hold-Tab for the scoreboard.
+ * listens for: spectator target cycling, chase-cam on Mouse1, J to join,
+ * hold-Tab for the scoreboard, and Escape for the match menu while spectating.
  *
  * Game decides what each one does through {@link MatchInputActions}; this class
  * owns when they fire and their lifetime. Every listener shares one
@@ -25,6 +25,8 @@ export interface MatchInputActions {
   joinGame(): void;
   /** A pause or settings menu is open, which Tab then belongs to. */
   menuOpen(): boolean;
+  /** Open the match menu. */
+  openMatchMenu(): void;
   /** The spectator's join overlay is showing. */
   joinOverlayOpen(): boolean;
   showScoreboard(): void;
@@ -81,18 +83,40 @@ export class MatchInputBindings {
     // ── Mouse1 (left click): chase-cam ──
     // Matches the freefly cue label ("MOUSE1 Chase Player"). Enter chase from
     // freefly, or advance to the next player while already chasing; ←/→ cycle
-    // and Space/Backspace returns to freefly. Ignored until the pointer is
-    // locked so the click that engages mouselook doesn't jump straight into a
-    // chase. Middle-click is reserved for "fly down" (crouch), so it is NOT a
-    // chase alias here.
+    // and Space/Backspace returns to freefly. In freefly it is ignored until the
+    // pointer is locked, so the click that engages mouselook doesn't jump
+    // straight into a chase. Watching a player leaves the mouse free, so there
+    // a click on the game view itself moves on; clicks on the HUD do not.
+    // Middle-click is reserved for "fly down" (crouch), so it is NOT a chase
+    // alias here.
     target.addEventListener(
       "mousedown",
       (e: MouseEvent) => {
         if (actions.playerState() !== "spectator") return;
         if (e.button !== 0) return;
-        if (!target.pointerLockElement) return;
+        if (!target.pointerLockElement && !(actions.isChasing() && e.target instanceof HTMLCanvasElement)) return;
         e.preventDefault();
         actions.nextSpectateTarget();
+      },
+      options,
+    );
+
+    // ── Escape: the match menu while spectating ──
+    // In play and in free flight, Escape releases the mouse and the release
+    // opens the menu. Watching a player leaves the mouse free, so there is no
+    // release; the key itself opens it. A menu that is open closes itself first.
+    target.addEventListener(
+      "keydown",
+      (e: KeyboardEvent) => {
+        if (e.code !== "Escape" || e.repeat || e.defaultPrevented) return;
+        if (actions.playerState() !== "spectator" || target.pointerLockElement) return;
+        if (
+          e.target instanceof HTMLElement &&
+          (e.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName))
+        )
+          return;
+        if (actions.menuOpen()) return;
+        actions.openMatchMenu();
       },
       options,
     );

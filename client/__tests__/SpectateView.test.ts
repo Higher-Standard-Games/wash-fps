@@ -147,6 +147,7 @@ function setup() {
       followed.followedEntityId = id;
     }),
     showWeapon: vi.fn(),
+    setAiming: vi.fn(),
     updateMotion: vi.fn(),
   };
   Object.assign(view, { _deathCamera: deathCamera, _eyeCamera: eyeCamera, _followedWeapon: followed });
@@ -492,13 +493,17 @@ describe("SpectateView", () => {
       expect(viewWeapon.init).toHaveBeenCalledWith("scene", expect.anything());
     });
 
-    it("feeds the watched player's stride to their weapon", () => {
+    it("feeds the watched player's stride and sights to their weapon", () => {
       const { view, followed, samples } = setup();
       view.updateFollowedMotion();
       expect(followed.updateMotion).not.toHaveBeenCalled();
       followed.followedEntityId = "player_2";
       view.updateFollowedMotion();
       expect(followed.updateMotion).toHaveBeenCalledWith(samples.get("player_2"), expect.anything());
+      expect(followed.setAiming).toHaveBeenLastCalledWith(false);
+      Object.assign(samples.get("player_2")!, { aiming: true });
+      view.updateFollowedMotion();
+      expect(followed.setAiming).toHaveBeenLastCalledWith(true);
     });
   });
 });

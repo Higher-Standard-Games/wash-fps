@@ -2,6 +2,7 @@ import { Simulation } from "@engine/server/core/Simulation";
 import { createDroppedWeaponEntity, createPlayerEntity, createProjectileEntity } from "@engine/server/ecs/Entity";
 import { entityId, playerId } from "@engine/server/ecs/types";
 import { describe, expect, it } from "vitest";
+import { InputButtons } from "../../../../engine/network/components/InputComponent";
 import type { GameState } from "../../../../engine/network/core/GameState";
 import { BinaryProtocol } from "../../../../shared/net/BinaryProtocol";
 import type { ClientInfo } from "../Client";
@@ -200,6 +201,7 @@ describe("buildSnapshot golden", () => {
                 "actualHorizSpeed": 0,
                 "crouchViewOffset": 0,
                 "forwardInput": 0,
+                "isAiming": false,
                 "isCrouching": false,
                 "isSliding": false,
                 "ledgeGrabPhase": 0,
@@ -561,6 +563,16 @@ describe("buildSnapshot golden", () => {
     expect(pickup).toMatchObject({ pickupId: 4, weaponId: "machinegun", entityId: "1" });
     expect(decoded.events.find((e) => e.type === "weapon_drop")).toMatchObject({ entityId: "item_50001", velY: 50 });
     expect([...decoded.entities.keys()].sort()).toEqual([...built.entities.keys()].sort());
+  });
+
+  it("shows a player's sights up while they hold alt-fire, over the wire", () => {
+    const ctx = world();
+    ctx.simulation.getStateMut().getEntityMut(entityId(1))!.input!.buttons |= InputButtons.ALT_FIRE;
+    const decoded = BinaryProtocol.decodeSnapshot(BinaryProtocol.encodeSnapshot(buildSnapshot(ctx)));
+    const movement = decoded.entities.get("player_1")?.getComponent("movementState") as unknown as {
+      isAiming?: boolean;
+    };
+    expect(movement.isAiming).toBe(true);
   });
 
   it("sends one-shot events once: a second build has no spawn, damage, kill, chat or award", () => {

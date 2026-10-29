@@ -568,7 +568,9 @@ export class SpectateView {
     const entityId = this._followedWeapon.followedEntityId;
     if (!entityId) return;
     const sample = this.host.remoteRenderer()?.getEntitySample(entityId);
-    if (sample) this._followedWeapon.updateMotion(sample, FollowedViewWeapon.liveClock(performance.now()));
+    if (!sample) return;
+    this._followedWeapon.setAiming(sample.aiming ?? false);
+    this._followedWeapon.updateMotion(sample, FollowedViewWeapon.liveClock(performance.now()));
   }
 
   /**
