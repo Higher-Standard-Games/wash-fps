@@ -16,9 +16,10 @@ Each room draws three maps at random from the pool for the vote, so a mode with 
 | `washoi_dm2` | Washoi DM2 | Duel, FFA |
 | `washoi_dm5` | Washoi DM5 | Duel, FFA |
 | `washoi_dm11` | Washoi DM11 | Duel, FFA |
-| `wamphi1` | Amphitheatre | Amphi |
-| `wbomb2` | Reactors | S&D |
-| `wbomb6` | Depot | S&D |
+| `washoi_dm7` | Washoi DM7 | FFA |
+| `washoi_dm14` | Washoi DM14 | Duel, FFA |
+| `washoi_amphi1` | Washoi Amphi1 | Amphi |
+| `washoi_snd1` | Concrete Strike | S&D |
 
 The table shows the configured lobby pools, filtered against installed packages.
 Existing demos recorded on `wdm2`, `wfdm5` or `wfdm11` load the corresponding
