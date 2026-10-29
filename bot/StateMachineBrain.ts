@@ -168,6 +168,9 @@ export class StateMachineBrain extends BotBrain {
   private _chargeStartTick: number | null = null;
   private _chargeReleaseTick: number | null = null;
 
+  /** Tick ADS was first held with the weapon now up, while it stays held. */
+  private _adsSinceTick: number | null = null;
+
   // Random look-around for human-feel
   private _lookAroundTimer: number = 0;
   private _lookAroundYaw: number = 0;
@@ -607,13 +610,19 @@ export class StateMachineBrain extends BotBrain {
     } else {
       this._clearChargedProjectileFire();
 
-      // ADS: Only when weapon needs it AND we're firing
-      if (currentProfile.needsADS && wantsFire) {
-        buttons |= InputButtons.ALT_FIRE; // ADS
-      }
+      // ADS whenever it tightens the shot; firing walks anyway, so aiming costs no speed.
+      // A weapon whose aim takes time to settle holds fire until the server
+      // counts the shot as aimed, which starts once that weapon is up.
+      const aimsDownSights = currentProfile.aimsDownSights && wantsFire;
+      if (aimsDownSights) buttons |= InputButtons.ALT_FIRE;
+      if (!aimsDownSights || state.self.currentWeapon !== selectedWeaponId) this._adsSinceTick = null;
+      else this._adsSinceTick ??= state.tick;
+      const aimReady =
+        currentProfile.adsReadyTicks === 0 ||
+        (this._adsSinceTick !== null && state.tick - this._adsSinceTick >= currentProfile.adsReadyTicks);
 
       // Fire
-      if (wantsFire) {
+      if (wantsFire && aimReady) {
         buttons |= InputButtons.FIRE;
       }
 

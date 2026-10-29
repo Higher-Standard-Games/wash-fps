@@ -4,6 +4,7 @@ import { type BotInput, BotState } from "../BotBrain";
 import { type BotDifficulty, InputButtons } from "../BotConfig";
 import { BotGameState, type VisiblePlayer } from "../BotGameState";
 import { BotNavGraph, type NavEdgeType, type NavPath } from "../BotNavGraph";
+import { getWeaponProfile } from "../BotWeaponProfile";
 import { StateMachineBrain } from "../StateMachineBrain";
 
 const difficulty: BotDifficulty = {
@@ -88,7 +89,29 @@ describe("StateMachineBrain combat", () => {
     const input = brain.decide(state);
     expect(input.weaponSlot).toBe(2);
     expect(input.buttons & InputButtons.FIRE).not.toBe(0);
-    expect(input.buttons & InputButtons.ALT_FIRE).toBe(0);
+    // The machinegun's cone tightens when aimed; the server switches before it fires
+    expect(input.buttons & InputButtons.ALT_FIRE).not.toBe(0);
+  });
+
+  it("holds the electrobolt's sights until the shot counts as aimed", () => {
+    const brain = new StateMachineBrain(difficulty);
+    const state = makeState(
+      { currentWeapon: "electrobolt", weapons: ["electrobolt"], ammo: { electrobolt: 10 } },
+      1500,
+    );
+    const ready = getWeaponProfile("electrobolt").adsReadyTicks;
+
+    const first = brain.decide(state);
+    expect(first.buttons & InputButtons.ALT_FIRE).not.toBe(0);
+    expect(first.buttons & InputButtons.FIRE).toBe(0);
+
+    state.tick = ready - 1;
+    expect(brain.decide(state).buttons & InputButtons.FIRE).toBe(0);
+
+    state.tick = ready;
+    const aimed = brain.decide(state);
+    expect(aimed.buttons & InputButtons.ALT_FIRE).not.toBe(0);
+    expect(aimed.buttons & InputButtons.FIRE).not.toBe(0);
   });
 
   it("aims hitscan fire from eye height toward the enemy origin", () => {

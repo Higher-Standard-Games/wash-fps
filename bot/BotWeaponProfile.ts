@@ -6,7 +6,7 @@
  *
  * Usage:
  *   const profile = getWeaponProfile('machinegun');
- *   if (profile.needsADS) buttons |= InputButtons.ALT_FIRE;
+ *   if (profile.aimsDownSights) buttons |= InputButtons.ALT_FIRE;
  */
 
 import type { WeaponDef } from "../../../shared/entities/WeaponDef";
@@ -41,6 +41,12 @@ export interface WeaponProfile {
 
   /** True if weapon cannot hipfire (must ADS to shoot) */
   needsADS: boolean;
+
+  /** True if aiming down sights makes its shots land closer to the aim (tighter spread, no beam wander) */
+  aimsDownSights: boolean;
+
+  /** Server ticks ADS must be held before a shot counts as aimed (0 when it counts at once) */
+  adsReadyTicks: number;
 
   /** True if has splash damage */
   hasSplash: boolean;
@@ -88,6 +94,8 @@ function buildProfile(def: WeaponDef): WeaponProfile {
   const isProjectile = !isHitscan && !isMelee;
   const hasSplash = (def.splashRadius ?? 0) > 0;
   const needsADS = def.hipfireBlocked === true;
+  const aimsDownSights =
+    !isMelee && (needsADS || (def.adsSpread ?? def.spread ?? 0) < (def.spread ?? 0) || (def.beamWanderDeg ?? 0) > 0);
   const hasChargedProjectile = Boolean(def.chargedProjectileId);
 
   // Compute ideal range brackets
@@ -136,6 +144,8 @@ function buildProfile(def: WeaponDef): WeaponProfile {
     isProjectile,
     isBeam,
     needsADS,
+    aimsDownSights,
+    adsReadyTicks: def.adsRequireReady ? Math.ceil((def.ads?.time ?? 0.08) * 125) : 0,
     hasSplash,
     hasChargedProjectile,
     chargeMinTicks: Math.ceil((def.chargeMinTime ?? 0.5) * 125),
@@ -177,6 +187,8 @@ const DEFAULT_PROFILE: WeaponProfile = {
   isProjectile: false,
   isBeam: false,
   needsADS: false,
+  aimsDownSights: false,
+  adsReadyTicks: 0,
   hasSplash: false,
   hasChargedProjectile: false,
   chargeMinTicks: 0,
