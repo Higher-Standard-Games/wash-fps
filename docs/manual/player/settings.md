@@ -57,6 +57,11 @@ slider, leave the page, or pause for 200 ms.
   | Sensitivity while aiming | 0.5 | `cl_ads_sensitivity`; a fraction of normal, 0.1 – 1 |
   | Always run | On | On: you run all the time, and holding **Sprint (Shift) walks**. Off: you walk, and Shift runs |
 
+  In Chrome and Edge the game reads the mouse raw: the system's pointer
+  acceleration (Windows' "Enhance pointer precision") does not apply while you
+  play, and the same hand movement always turns the view the same amount.
+  Firefox reads the mouse through the system's pointer settings.
+
 ## Gameplay
 
 - **Team colours.** The colour of **your side** and of **enemies** (anyone you can shoot), each with its own outline colour. In free-for-all each opponent instead wears a colour of their own from the same palette, kept for the match, so you can tell them apart; your side's colour is left out of it. A colour already used by the other side is refused. Cvars: `cl_team_ally_color`, `cl_team_enemy_color`, `cl_team_ffa_color` and their `_outline_color` pairs.
