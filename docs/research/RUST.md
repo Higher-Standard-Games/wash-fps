@@ -1,6 +1,6 @@
 # A native Washoi client in Rust
 
-Opened: October 31, 2026. Status: research, rounds 1 to 4. No port code yet.
+Opened: October 31, 2026. Status: research, rounds 1 to 5. No port code yet.
 
 **End goal:** a native Washoi game client, written in Rust, that connects to the
 servers that run today (`wss://eu.washoi.net`, `wss://us.washoi.net`), plays a
@@ -45,6 +45,7 @@ Paths starting `src/` are in SHAG; the others are in this repository.
 18. [Round 2: the protocol at function level](#18-round-2-the-protocol-at-function-level)
 19. [Round 3: the shared simulation](#19-round-3-the-shared-simulation)
 20. [Round 4: assets](#20-round-4-assets)
+21. [Round 5: the renderer](#21-round-5-the-renderer)
 
 ---
 
@@ -921,6 +922,7 @@ washoi-native/
 ├─ Cargo.toml                    workspace
 ├─ crates/
 │  ├─ shagger_shared/            ← src/shared        (no GPU, no window, no async)
+│  ├─ shagger_babylon/           ← code ported from Babylon.js (Apache-2.0, see 21.1)
 │  │  └─ src/{net,server,bsp,collision,entities,demo,settings}/
 │  ├─ shagger/                   ← src/engine (minus editor and server) + src/lobby/LobbyClient.ts
 │  │  └─ src/{core,network,lobby,physics,movement,loader,render,lighting,
@@ -1057,7 +1059,7 @@ measured; each later round should revise its own layer.
 | 2 (done, section 18) | Protocol, function level | Full Rust type definitions for `GameState`, all events and `MatchStateSnapshot`; the golden-vector scripts written out; the lobby message enum; the exact JoinReject and ServerMessage cases the server sends |
 | 3 (done, section 19) | Simulation | Each movement file mapped function by function; every cvar that reaches the simulation; the `sim replay` JSON dump format; a check of `libm` against V8 on recorded inputs |
 | 4 (done, section 20) | Assets | The production data URL and caching headers; pk3 index entries in detail; which texture and model formats the shipped pk3s actually contain, by count |
-| 5 | Renderer | Q3 stage features used by shipped maps; pass list and pipeline keys; the WGSL fragments lifted into stand-alone shaders; which Babylon Lite groundwork packages apply |
+| 5 (done, section 21) | Renderer | Q3 stage features used by shipped maps; pass list and pipeline keys; the WGSL fragments lifted into stand-alone shaders; which Babylon Lite groundwork packages apply |
 | 6 | Audio | Babylon AudioV2 defaults (panning model, distances), the attenuation presets, the bus layout |
 | 7 | Input and console | Binding name table against winit; which console commands a player can use; cvar file format |
 | 8 | UI | HUD widget inventory with each widget's `HUDState` inputs; egui versus web view spike |
@@ -1945,3 +1947,358 @@ building, which round 5 covers with the renderer.
   KTX1 is a fallback the native client can skip.
 - 15, milestone 5 (assets, 3 to 4 weeks): unchanged, but KTX2 moves to a later
   optional step, and the BSP loader moves earlier, into milestone 3.
+
+---
+
+## 21. Round 5: the renderer
+
+Round 5 reads the renderer as it runs today and turns it into a `wgpu` design.
+Rendering is the one layer that cannot be translated line by line, because
+SHAG draws through Babylon's scene, materials and cameras. Sources: SHAG's
+`src/engine/{loader/bsp,loader/shader,rendering,lighting,effects,weapon,animation}`,
+`MapRenderer.ts`, and the renderer research notes of 2026-10-25 to 10-27
+(`babylon-classic-*`, `babylon-lite-*`, `RENDERING_PIPELINE.md`).
+
+### 21.1 License rule
+
+The project owner set this rule on 2026-10-31: **code ported or copied from
+Babylon.js is Apache License 2.0; all other code is MIT.** Babylon.js itself is
+Apache-2.0, and SHAG and wash-fps are MIT.
+
+To keep the rule easy to follow and to audit, Babylon-derived code lives in
+its own crate:
+
+```text
+crates/
+  shagger_babylon/      license = "Apache-2.0"   LICENSE-APACHE, NOTICE
+    src/standard_light.wgsl   Blinn-Phong terms of StandardMaterial (world look)
+    src/pbr.wgsl              PBR BRDF for glTF models, if we port Babylon's
+    src/image_processing.wgsl exposure, contrast, tone map, vignette
+    src/bloom.rs, bloom.wgsl  DefaultRenderingPipeline bloom
+    src/chromatic.wgsl
+    src/glow_layer.rs         GlowLayer (emissive blur)
+    src/clustered.rs          ClusteredLightContainer layout and culling
+  shagger/              license = "MIT"
+  shagger_shared/       license = "MIT"
+  washoi/               license = "MIT"
+```
+
+- Every file in `shagger_babylon` starts with an Apache header naming the
+  Babylon source file and version (9.31.2) it came from.
+- `NOTICE` lists those files.
+- `shagger` depends on `shagger_babylon` and never copies its code back.
+- `cargo deny` with a license allow-list (`MIT`, `Apache-2.0`, and the
+  permissive licenses of our crates.io dependencies) fails CI on anything
+  else.
+- The shipped client binary includes both license texts.
+
+The split also decides how some things are built. Where we only need the same
+*result*, writing our own code from the published spec keeps it MIT:
+
+- glTF PBR from the Khronos sample BRDF;
+- ACES or Reinhard tone mapping from their papers;
+- a plain Gaussian bloom.
+
+Where the *look* must match pixel for pixel, porting Babylon's shader is
+faster and the code goes into the Apache crate. The world's Blinn-Phong
+lighting is the main case: Washoi maps were tuned against it. 21.9 records
+the choice for each item.
+
+SHAG's own material plugins are MIT, even though they inject into Babylon
+shaders. Our snippets can be lifted as MIT, but the Babylon shader code around
+them cannot (21.6).
+
+### 21.2 One frame today
+
+The frame order assembled from the code:
+
+| # | Pass | Owner | Target | Notes |
+| ---: | --- | --- | --- | --- |
+| 1 | Sky portal | `rendering/SkyPortal.ts` | render target | only when a portal sky is visible; sky meshes on their own layer mask |
+| 2 | Water reflection and refraction | `rendering/water/*` (`MirrorTexture`, refraction RTT, cached `ReflectionProbe`s) | render targets | only when water is visible; probes are cached, not per frame |
+| 3 | Main camera, group 0 | sky box or dome first, then opaque world, models, players | post-process input target | opaque sorted front to back by Babylon |
+| 3a | Depth copy | `rendering/SceneDepthCapture.ts` | float depth texture | copies the main pass's depth to camera-space Z between opaque and transparent, for soft particles and water |
+| 3b | Main camera, transparent | world blended stages, effects | same | sorted back to front by Babylon |
+| 4 | Main camera, group 1 | fog volumes (`BspFogVolume.ts:544`), hit effects, debug | same | drawn after group 0, depth kept |
+| 5 | Group 2 | bomb site markers | same | |
+| 6 | Glow | `effects/GlowEffect.ts` (`GlowLayer`) | blur chain | emissive surfaces |
+| 7 | Weapon camera | `weapon/WeaponViewManager.ts:236` | same | a second camera after the world camera, with its own FOV (`cg_weaponfov`); weapon meshes in group 1 |
+| 8 | Post | `effects/PostProcessingManager.ts` (`DefaultRenderingPipeline`: bloom, image processing with contrast 1.05 and exposure 1.0, vignette, chromatic aberration), `ColorCorrectionPostProcess`, `CelOutlinePostProcess` | swap chain | each one behind `r_*` cvars |
+| 9 | HUD and menus | DOM (round 8) | browser compositor | not part of the GPU frame today |
+
+Dynamic lights go through one `ClusteredLightContainer` (`lighting/DynamicLightCluster.ts`),
+so materials see a single stable light no matter how many effects are lit.
+That design exists to avoid recompiles, and it carries over directly as a
+storage buffer of lights.
+
+### 21.3 The Rust frame graph
+
+The same order, written as fixed passes rather than Babylon groups and cameras:
+
+```text
+per frame:
+  visibility: PVS cluster → candidate world batches, frustum cull, model cull
+  [portal sky]          → sky_target          (only when visible)
+  [water captures]      → reflection/refraction targets (only when due)
+  main pass  (HDR colour Rgba16Float, Depth32Float, MSAA per cvar):
+      sky
+      opaque world      (lightmapped, vertex-lit, alpha-tested)
+      opaque models     (players, items, projectiles)
+  depth resolve         → camera-space Z texture   (when soft particles or water need it)
+  main pass, continued (load colour and depth):
+      translucent world and effects, sorted back to front by surface centre
+      fog volumes
+      markers
+  view model pass  (load colour, clear depth, own projection with cg_weaponfov)
+  post: glow, bloom, image processing, outline, colour correction  → swap chain (sRGB)
+  HUD (egui)                                                       → swap chain
+```
+
+Two places where Rust should not copy Babylon:
+
+- **The view model clears depth** instead of relying on group ordering. That
+  is the classic Q3 approach. It removes the depth fights the browser avoids
+  with group 1, and keeps the weapon out of world geometry.
+- **The depth copy is a resolve step**, not the main-pass split SHAG had to
+  engineer around Babylon's depth textures (`SceneDepthCapture.ts` header).
+  In wgpu the main depth texture can be created with `TEXTURE_BINDING`, and
+  the second half of the pass reads it.
+
+### 21.4 Pipelines: what goes into the key
+
+The alpha.7 note found that the WebGPU stall after loading a map was
+render-pipeline creation: about 105 pipelines, against 3 to 5 shader compiles
+(`babylon-classic-frame-floor-2026-10-26.md`, `babylon-classic-alpha7-results-2026-10-27.md`).
+Light-layout changes after warmup then built new pipelines mid-match. A native
+renderer can design that problem away.
+
+Put only what wgpu requires in the pipeline key, and everything else in
+uniforms:
+
+```rust
+#[derive(Hash, Eq, PartialEq, Clone, Copy)]
+pub struct PipelineKey {
+    pub program: Program,        // WorldLightmap, WorldVertexLit, Sky, ModelSkinned,
+                                 // ModelRigid, Md3, Sprite, FogVolume, Beam, Particle, ViewModel
+    pub blend: BlendKey,         // Opaque, Add, Blend, Filter, or the (src, dst) pair
+    pub depth_write: bool,
+    pub depth_func: DepthFunc,   // LessEqual or Equal
+    pub cull: Cull,              // Front, Back, None (Q3 "disable" = None)
+    pub alpha_test: AlphaTest,   // None, Gt0, Lt128, Ge128 (a shader override constant)
+    pub samples: u8,
+}
+```
+
+- **In uniforms, not in the key:**
+  - every `tcMod` (folded into one 2×3 UV matrix per stage per frame, on the
+    CPU as `ShaderAnimationSystem` does);
+  - `rgbGen` and `alphaGen` (a colour and an alpha per stage per frame);
+  - `tcGen` mode;
+  - fog;
+  - the dynamic light count, from the light buffer's length.
+- **Variants:** `alpha_test` and the program's optional features (deluxe,
+  vertex colour) use WGSL `override` constants. wgpu folds those at pipeline
+  creation, so they cost pipelines but not shader modules.
+- **Precompile at map load:** collect the key of every surface the map can
+  draw, plus the fixed set for models, effects and the view model. Build them
+  all behind the loading screen with `wgpu::PipelineCache`, which is
+  persisted to disk on Vulkan. The pipeline count stops depending on what
+  happens in the match.
+
+### 21.5 Map surfaces
+
+| Piece | TypeScript | Port |
+| --- | --- | --- |
+| Face building: polygons, meshes, patches, billboards | `bsp/mesh/faceBuilders.ts`, `vertices.ts`, `tangents.ts`, `coordinates.ts` (1,407 lines in `mesh/`) | direct; the output is `Vec<Vertex>` and `Vec<u32>` instead of Babylon `VertexData`. Patch level is fixed at 8 (`faceBuilders.ts:89`), with one shared grid per patch so there are no cracks |
+| Batching by material and space | `BspMeshBuilder.ts` (2,222 lines), `mesh/spatialBatching.ts` | logic direct; one vertex and index buffer for the whole map, with draw ranges per batch |
+| PVS | `PVSCuller.ts`, `mesh/pvs.ts` | direct. Add the face-level PVS the 2026-10-26 note measured (20 to 46% fewer triangles): rewriting an index buffer on cluster change is cheap in wgpu |
+| Lightmaps | `mesh/lightmaps.ts`, `BspBakedLightingPlugin.ts` | lightmap pages become one `texture_2d_array`, with the layer in lightmap U as `u + 2 * layer`. Only the **primary light style** is used (`BspBakedLightingPlugin.ts:70`), so FBSP slots 1 to 3 can be parsed and ignored |
+| Deluxe maps and gloss | `r_deluxe`, `DELUXE_MAP_SUPPORT.md` | in the WorldLightmap program as an `override` |
+| Vertex lighting | `BspVertexLightingPlugin.ts` | WorldVertexLit program |
+| Light grid for models | `LightGridSampling.ts` (79 lines) | direct: trilinear, invalid sites skipped, weights renormalized, in Q3 space |
+| Texture arrays | `rendering/TextureArrays.ts` | not needed: wgpu builds arrays at upload |
+| Sky | `texture/SkyboxLoader.ts` (1,288 lines), `mesh/skyClouds.ts`, `SkyPortal.ts` | farbox cube first; clouds and portals later |
+| Fog volumes | `BspFogVolume.ts` (913 lines), `AtmosphericFogPlugin.ts`, `WorldFogController.ts` | after the first milestone |
+| Autosprite | `Q3AutospritePlugin.ts`, `mesh/autosprite*.ts` | the vertex attributes and the vertex-shader math port directly |
+| Brush models (movers) | `mesh/brushModelBuilder.ts` | direct, drawn with a model matrix from the lift state (19.4) |
+
+### 21.6 Shaders: what can be lifted
+
+SHAG's WGSL lives in Babylon `MaterialPluginBase` plugins: ten of them across
+`loader/shader`, `loader/bsp` and `rendering`. Each plugin supplies GLSL and
+WGSL snippets that Babylon splices into its StandardMaterial or PBR shader at
+named points such as `CUSTOM_FRAGMENT_BEFORE_FOG`. They are fragments, not
+shaders.
+
+- **Liftable (MIT):** the snippet bodies. These include:
+  - the lightmap layer addressing and baked lighting terms;
+  - stage colour;
+  - autosprite turning;
+  - distance ramps;
+  - the environment and cube map lookups;
+  - soft-particle fade;
+  - Warfork's atmospheric fog blend rules (`AtmosphericFogPlugin.ts`, which
+    follows `r_backend_program.c`).
+
+  They hold the math that matches qfusion, and they move into our own WGSL
+  programs nearly unchanged.
+- **Not liftable as MIT:** the Babylon shader around them. That covers
+  StandardMaterial's light loop, the specular terms, and Babylon's fog,
+  image processing and PBR. Either port it into `shagger_babylon` (Apache) or
+  write it from scratch.
+- **Effect materials:** twelve `ShaderMaterial`s with our own GLSL (rail,
+  voltaic, muzzle flash, impact sparks, explosions, tracers, unified water,
+  water actor reflection, glow overlay, filter blend, fog volume, splash
+  droplets) are MIT. Translate them to
+  WGSL by hand, or with `naga`'s GLSL front end as a first draft.
+- **NodeMaterial:** the one `NodeMaterial` (`Q3NodeMaterialBuilder.ts`,
+  multi-stage shaders) is a graph built in code. Its *meaning* is the Q3 stage
+  list, so the Rust side does not port the graph. It generates the same stages
+  into the WorldLightmap program's stage loop (21.7).
+
+### 21.7 Q3 shader stages
+
+The parser (`Q3ShaderParser.ts`, 1,149 lines) and the types
+(`Q3ShaderTypes.ts`) port directly. The feature set the renderer must cover is
+the parser's:
+
+- **Stage settings:** `blendFunc` (`add`, `blend`, `filter`, or a factor
+  pair), `alphaFunc`, `rgbGen` and `alphaGen` (including waves and distance
+  ramps), `depthWrite`, `depthFunc`, `detail`, and conditional blocks for
+  `deluxe` and `textureCubeMap`.
+- **Texture mapping:** `tcMod` (`scroll`, `scale`, `rotate`, `stretch`,
+  `turb`, `transform`), `tcGen` (`base`, `lightmap`, `environment`,
+  `surround`, `vector`), `animMap`, `clampMap`, `cubeMap`, and the Warsow
+  `material` directive.
+- **Shader-wide settings:** `deformVertexes` (`wave`, `normal`, `bulge`,
+  `move`, `autosprite`, `autosprite2`), `skyParms`, `fogParms`, `cull`, `sort`,
+  `portal`, `polygonOffset`, `nomipmaps`, `nopicmip`, and Warsow templates.
+
+**How stages draw.** SHAG collapses the common patterns into one draw:
+
+- base × lightmap;
+- base × lightmap + glow;
+- filter blends;
+- additive only.
+
+Other multi-stage shaders also become a single draw, a NodeMaterial graph
+(`Q3ShaderMaterialFactory.ts`). Some materials use more than one pass
+(`ResolveMaterialOptions.passIndex`). The Rust renderer does the same:
+
+- a WorldLightmap program with up to four stage slots, each with its own
+  texture, UV matrix, colour and blend-into-previous rule;
+- extra passes only where SHAG uses them.
+
+Keeping SHAG's choices gives the same look, even where SHAG differs from
+classic Q3's one pass per stage.
+
+**Which features the shipped maps use is not known yet.** The `.shader`
+scripts live in the pk3s, and only two are in git. Before building the
+WorldLightmap program, run a small Node audit tool, `shader:audit`. It runs
+`Q3ShaderParser` over every package in `assets/data` and counts each keyword,
+blend pair, tcMod and deform type, per map and in total. It prints JSON next to
+`config/map-texture-encoding.json`. Features with zero uses are not built. This
+needs a machine with the data directory (a dev box or the EU host), not the
+live web servers.
+
+### 21.8 Models and effects
+
+- **glTF players** (`animation/`, 2,841 lines: `PlayerModelManager`,
+  `AnimationBlender`, `HumanoidRig`, `ProceduralLayers`, `PlayerAnimationController`):
+  - the logic ports directly over our own skeleton types;
+  - skinning is the standard four-bone linear blend in the vertex shader,
+    with bone matrices in a storage buffer;
+  - animations are separate `.glb` clips (20.7), sampled with glTF's own
+    interpolation rules, then blended and layered as `AnimationBlender` does;
+  - procedural aim stays on the CPU.
+- **Lighting models:** sample the light grid at the model origin (ambient plus
+  one directional, like Q3), and add the clustered dynamic lights. That
+  replaces Babylon's PBR plus scene lights for the first milestone.
+- **MD3:** vertex frames lerped on the CPU or in the vertex shader, with tags
+  for attachments.
+- **View model:** `WeaponViewManager.ts` (2,275 lines) is mostly motion, bob,
+  sockets and state, and ports directly. Only the camera setup changes (21.3).
+  Its muzzle projection through the weapon camera (lines 255 to 280) must be
+  kept exactly, or tracers start from the wrong pixel.
+- **Effects:** `effects/` (4,247 lines) and `weapon/` (12,331 lines with
+  subfolders) mix Babylon object management with timing and shape logic.
+  The logic ports directly, and the Babylon parts are replaced. The renderers that matter for a
+  match are beams (rail, voltaic), tracers, muzzle flashes, impact sparks,
+  explosions and projectile glows. Each becomes one instanced draw with a
+  small storage buffer, which is also what the Lite study proposes
+  (`babylon-lite-native-performance-2026-10-26.md`).
+- **Particles:** Babylon `ParticleSystem` is used for debris and rain only.
+  These are later work, using our own CPU-simulated instanced quads.
+- **Ragdolls and gibs:** Havok today; `rapier3d` later (8.2).
+
+### 21.9 Babylon pieces: port or rewrite
+
+| Piece | Choice | Crate and license | Why |
+| --- | --- | --- | --- |
+| StandardMaterial lighting (diffuse, Blinn-Phong specular, lightmap combine) | port the WGSL terms | `shagger_babylon`, Apache-2.0 | maps were tuned against it; it must match |
+| Babylon EXP fog | port | Apache-2.0 | small, and world fog uses it outside Warfork fog |
+| Image processing (exposure, contrast, vignette, tone mapping) | port | Apache-2.0 | the whole picture shifts if it differs |
+| Bloom, chromatic aberration, GlowLayer | rewrite later, compare by screenshot | MIT | effects, not tuning |
+| Clustered light container | rewrite: a light storage buffer with a forward loop, clustered later if needed | MIT | desktop GPUs handle a few dozen lights forward; the important part, no recompiles, is design, not code |
+| glTF PBR | rewrite from the Khronos reference | MIT | players are tinted and lit by the grid anyway |
+| Mirror texture, reflection probe | rewrite | MIT | they are just a camera and a target |
+| Camera matrices (left-handed, Y up) | `glam` `*_lh` functions | MIT | 7.2 |
+| glTF loading | `gltf` crate | MIT or Apache (crate) | |
+
+### 21.10 First playable renderer
+
+The cut for milestone 6 plus 7 (section 15). It is enough to play a match and
+read it:
+
+- **In:**
+  - the world, lightmapped and vertex-lit, with deluxe;
+  - Q3 stages for the features that `shader:audit` finds in use;
+  - alpha test, autosprite, patches and the farbox sky;
+  - PVS and frustum culling;
+  - glTF players with skinning, blending and light-grid lighting;
+  - MD3 items and projectiles;
+  - the view model with its own FOV;
+  - beams, tracers, muzzle flashes, impacts and explosions;
+  - dynamic lights as a forward storage buffer;
+  - HDR target, exposure, contrast and sRGB output;
+  - pipeline precompile at load.
+- **Out, until milestone 11:**
+  - water reflection and refraction (water draws as a translucent surface);
+  - fog volumes and atmospheric fog;
+  - soft particles and the depth resolve;
+  - sky clouds and portal skies;
+  - environment cube maps;
+  - bloom, glow, chromatic aberration, outlines and colour correction;
+  - rain and debris particles;
+  - ragdolls;
+  - SSR.
+
+### 21.11 Estimate update
+
+Round 1 gave 6 to 8 weeks for milestone 6 and 6 to 8 weeks for milestone 7.
+With the reading above:
+
+| Work | Weeks |
+| --- | ---: |
+| wgpu device, surface, frame graph, pipeline cache and precompile | 1.5 |
+| Map surfaces: faces, patches, batching, PVS, lightmaps, light grid, sky farbox | 2.5 |
+| WorldLightmap and WorldVertexLit programs, Q3 stage evaluation, `shader:audit` | 2 |
+| Ported StandardMaterial terms and image processing (Apache crate), screenshot comparison harness | 1.5 |
+| glTF skinning, animation blending, players, MD3 | 3 |
+| View model, effect renderers, dynamic lights | 3 |
+| **Total for the first playable renderer** | **13.5** |
+
+That is inside the round 1 range of 12 to 16 weeks for milestones 6 and 7. The
+remaining visuals of milestone 11 stay at 6 to 10 weeks. The biggest risk
+left is no longer the code. It is visual parity: matching the browser
+picture closely enough that players don't notice. The screenshot harness of
+8.3 carries that, and it should be built in the first week.
+
+### 21.12 Changes to earlier sections
+
+- 8.2 said to start from the WGSL in the material plugins. It now says
+  to lift only SHAG's own snippet bodies (21.6), and to port or rewrite
+  Babylon's surrounding shader under the license rule (21.1, 21.9).
+- 8.2 pass list: the view model clears depth, and the depth copy becomes a
+  resolve step (21.3).
+- 14, workspace: adds the `shagger_babylon` crate, Apache-2.0.
