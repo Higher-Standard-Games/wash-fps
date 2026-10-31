@@ -1908,7 +1908,35 @@ map load never blocks a frame.
   archives are not in git. The counts in 20.4 come from the configs that build
   them, which is enough for planning.
 
-### 20.10 Changes to earlier sections
+### 20.10 What stays in TypeScript
+
+The whole media pipeline stays in SHAG and wash-fps, and is not ported:
+
+- packaging (`package-*.mjs`, `map-media.ts`);
+- WebP encoding and the encoding list;
+- `convert-ktx2.js`;
+- `pk3-index-build.ts`, the manifest and index generation;
+- the editor's publish path;
+- the deploy scripts.
+
+The Rust client reads the same `data/` directory that the browser reads, from
+the same servers, so one asset build serves both clients.
+
+What Rust must have is the **read side**, because it runs on the player's
+machine:
+
+- the index parser and its hash;
+- the download cache;
+- zip reading;
+- the BSP, MD3 and shader parsers;
+- image decoding (through crates);
+- the lookup rules of 20.3.
+
+That is the `shagger::loader` list in 20.8, and about a third of
+`src/engine/loader` by line count. The rest is Babylon-side material and mesh
+building, which round 5 covers with the renderer.
+
+### 20.11 Changes to earlier sections
 
 - 7.1: the public data URL is `https://<region>.washoi.net/data/`, and package
   integrity uses SHA-256 per package. The index hash itself is djb2, not
