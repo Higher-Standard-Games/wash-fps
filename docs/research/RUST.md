@@ -1,6 +1,6 @@
 # A native Washoi client in Rust
 
-Opened: October 31, 2026. Status: research, rounds 1 to 5. No port code yet.
+Opened: October 31, 2026. Status: research, rounds 1 to 6. No port code yet.
 
 **End goal:** a native Washoi game client, written in Rust, that connects to the
 servers that run today (`wss://eu.washoi.net`, `wss://us.washoi.net`), plays a
@@ -46,6 +46,7 @@ Paths starting `src/` are in SHAG; the others are in this repository.
 19. [Round 3: the shared simulation](#19-round-3-the-shared-simulation)
 20. [Round 4: assets](#20-round-4-assets)
 21. [Round 5: the renderer](#21-round-5-the-renderer)
+22. [Round 6: audio](#22-round-6-audio)
 
 ---
 
@@ -1059,7 +1060,7 @@ measured; each later round should revise its own layer.
 | 3 (done, section 19) | Simulation | Each movement file mapped function by function; every cvar that reaches the simulation; the `sim replay` JSON dump format; a check of `libm` against V8 on recorded inputs |
 | 4 (done, section 20) | Assets | The production data URL and caching headers; pk3 index entries in detail; which texture and model formats the shipped pk3s actually contain, by count |
 | 5 (done, section 21) | Renderer | Q3 stage features used by shipped maps; pass list and pipeline keys; the WGSL fragments lifted into stand-alone shaders; which Babylon Lite groundwork packages apply |
-| 6 | Audio | Babylon AudioV2 defaults (panning model, distances), the attenuation presets, the bus layout |
+| 6 (done, section 22) | Audio | Babylon AudioV2 defaults (panning model, distances), the attenuation presets, the bus layout |
 | 7 | Input and console | Binding name table against winit; which console commands a player can use; cvar file format |
 | 8 | UI | HUD widget inventory with each widget's `HUDState` inputs; egui versus web view spike |
 | 9 | Game glue | `Game.ts` and `FPSController.ts` split into Rust modules; the frame order written down as code |
@@ -2298,3 +2299,219 @@ picture closely enough that players don't notice. The screenshot harness of
 - 8.2 pass list: the view model clears depth, and the depth copy becomes a
   resolve step (21.3).
 - 14, workspace: adds the `shagger/src/babylon/` folder, Apache-2.0.
+
+---
+
+## 22. Round 6: audio
+
+Round 6 reads the audio path from a game event to the speaker. Sources:
+SHAG's `src/engine/audio/AudioV2Sfx.ts` (455 lines) and `src/engine/AudioManager.ts`
+(706 lines); wash-fps `client/FPS*Audio.ts`, `FPSAnnouncer.ts`,
+`GameEvents.ts` and `shag/src/engine/loader/bsp/AmbientEntityHandlers.ts`; and
+the published `@babylonjs/core@9.31.2` AudioV2 sources, read to settle
+Babylon's defaults.
+
+### 22.1 What reaches the speakers
+
+```text
+AudioContext destination
+└─ main bus (Babylon)
+   └─ sfx bus                 s_sfxvolume (0 when s_sfxenabled 0 or muted)
+      ├─ sfx-effects          cg_volume_effects    weapons, impacts, world
+      ├─ sfx-players          cg_volume_players    voices, steps
+      ├─ sfx-hits             cg_volume_hitsound   hit and kill confirmation
+      └─ sfx-announcer        cg_volume_announcer
+HTMLAudioElement (not in the graph)   s_volume, s_musicenabled   music
+```
+
+- All volumes are linear gains from 0 to 1, and a sound's gain is the product
+  of its play volume, its channel and the sfx bus.
+- Babylon smooths every parameter change over 10 ms (`parameterRampDuration`).
+- Music does not go through Babylon at all. It is a streamed
+  `HTMLAudioElement`, faded by 0.02 every 50 ms (a 1.25 s fade at the default
+  0.5 volume).
+- There is no ducking, compressor or limiter anywhere. Loud moments simply
+  sum, and the browser clips at the output.
+
+### 22.2 Where a sound is placed
+
+`AudioV2Sfx.spatialOptions` sets the distance model; everything else is
+Babylon's default (`_SpatialAudioDefaults` in `abstractSpatialAudio.js`):
+
+| Setting | Value | Source |
+| --- | --- | --- |
+| Distance model | `inverse` | SHAG |
+| `refDistance` (minDistance) | 125 | SHAG `REFERENCE_DISTANCE` |
+| `maxDistance` | 8000 (not used by `inverse`) | SHAG |
+| `rolloffFactor` | the attenuation class (22.3) | SHAG |
+| Panning model | `equalpower` | Babylon default |
+| Cone | full circle, so no directivity | Babylon default |
+| Doppler | none (Web Audio has none) | |
+| Sound position | fixed when the sound starts; sounds do not follow entities | SHAG |
+| Listener | the first active camera (the eye, not the weapon camera), updated every frame | SHAG `syncListener` |
+
+The two formulas, from the W3C Web Audio specification, which Rust implements
+directly as MIT code:
+
+```text
+distance gain (inverse):  g = ref / (ref + rolloff × (max(d, ref) − ref))
+equal-power pan, mono source:
+    azimuth a in degrees, from the listener's frame, folded to the front
+    (a > 90 → 180 − a,  a < −90 → −180 − a)
+    x = (a + 90) / 90
+    left = cos(x·π/2),  right = sin(x·π/2)
+```
+
+Stereo sources pan differently: the spec keeps both channels and moves gain
+from one side to the other. The Rust mixer needs both cases, and the sound
+package (290 files, 22.4) must be scanned once to find out which files are
+stereo.
+
+**A handedness trap that turns out not to matter.** Babylon's world is
+left-handed, but Web Audio is right-handed. Babylon passes positions through
+unchanged and points the listener with `RightHandedForwardReadOnly`
+(`spatialWebAudioListener.js`). As a result, left and right come out correct,
+but in front and behind are swapped. Equal-power panning folds the back onto
+the front, so nobody can hear the swap. The Rust client must do the same: use
+the left-handed right vector for panning, and ignore front and back. If HRTF
+panning is ever added, on either client, the swap becomes audible and must be
+fixed first.
+
+### 22.3 Attenuation classes
+
+`Attenuation` in `AudioV2Sfx.ts` uses Quake's classes as the rolloff factor:
+
+| Class | Rolloff | Half volume at | Used by |
+| --- | ---: | ---: | --- |
+| None | 0 | everywhere full | |
+| Distant | 0.5 | 375 | rocket and grenade fire, projectile impacts (default), quad spawn |
+| Normal | 1 | 250 | default: other players' fire, steps, voices, reloads, teleports |
+| Idle | 2.5 | 175 | plasma fire and plasma impacts |
+| Static | 5 | 150 | map `target_speaker`-style entity sounds (`BspEntityHandlers.ts:346`) |
+| Whisper | 10 | 137.5 | |
+
+Half volume is where `g = 0.5`, which is `d = ref + ref / rolloff`. Maps can
+set their own value, which is passed through.
+
+### 22.4 What plays, and when
+
+The sound package holds 290 files: 272 OGG Vorbis and 18 WAV
+(`config/sound-package.json`, 20.4). About 27 call sites in wash-fps play
+them:
+
+| Module | Sounds | Trigger | 2D or 3D |
+| --- | --- | --- | --- |
+| `FPSCombatAudio.ts` | weapon fire (8 weapons, some with random variants), projectile impacts, hit confirmation by damage tier, pain and death, kill echo, empty clip | server events: `weapon_fire`, `projectile_impact`, `damage`, `death` | 2D for the viewed player, 3D for others |
+| `FPSMovementAudio.ts` | steps by stride, ladder by rung spacing (44), jump grunts, landings, jumppads | derived each snapshot from player position, velocity and grounded state | 2D local, 3D others, with a `slot` per player |
+| `FPSPickupAudio.ts`, `FPSPowerupAudio.ts` | pickups, quad pickup, spawn and fire | server events; quad fire is layered on your own shots | 2D, quad spawn 3D (Distant) |
+| `FPSLiquidAudio.ts` | enter, exit, under water, splash by vertical speed, drowning | local prediction for the local player, snapshots for others | 2D local, 3D others |
+| `FPSReloadAudio.ts` | reload | `weapon_state` changes | 2D viewed, 3D others |
+| `FPSBombAudio.ts` | bomb timer beeps, blast, last-call lines | match state | 2D |
+| `FPSAnnouncer.ts` | match flow, leads, awards | match state, through its own queue | 2D, announcer channel |
+| `TeleportEffect.ts` | teleport in and out | events and local teleports | 3D others, 2D local |
+| `AmbientEntityHandlers.ts` | map ambient loops and one-shots | map load | loop 3D or global |
+
+**An observation, not a change for the port.** Your own fire sound plays
+when the `weapon_fire` event arrives in a snapshot, so it lags your click by
+about one round trip. The Rust client copies that for parity. Predicting it
+locally would be an improvement for both clients, and it belongs upstream
+first.
+
+`ONE_SHOT_EVENTS` (`GameEvents.ts:263`) lists the events a demo seek skips.
+The Rust event dispatcher keeps that same set, so seeking never plays a burst
+of sounds.
+
+### 22.5 Voice limits
+
+| Rule | Value | Where |
+| --- | --- | --- |
+| Spatial one-shots playing at once | 48. Over the cap, cut the one **closest to its end** | `MAX_ACTIVE_SPATIAL_SOUNDS` |
+| Per-slot exclusivity | a new sound in a slot (for example `<entity>:pain`) cuts the previous one | `slot` option |
+| 2D sound instances per sound and channel | `maxInstances` per call: 8 by default, 1 to 6 at the call sites. Over it, the oldest started instance stops | Babylon `AbstractSound.play` |
+| Announcer | one line at a time; the rest waits in a queue | `FPSAnnouncer.queue` |
+| Muted while away | `setMuted` bumps an epoch, so sounds still loading never start | `AudioV2Sfx.setMuted` |
+
+These rules decide what you hear in a busy fight, so the Rust mixer copies
+them exactly. They are about 60 lines of logic.
+
+### 22.6 Music
+
+- **Playlists** are JSON files (`{ name, loop, shuffle, tracks: [{ file, title }] }`).
+  The menu uses `data/menu.playlist.json`, and maps can have their own.
+- **Shuffle** is Fisher-Yates with `Math.random`, done once when a playlist
+  starts. The next track starts when the current one ends.
+- **Switching playlists** stops the old one at once, with no crossfade. A single
+  track fades in and out by the 0.02-per-50-ms steps above.
+- **Mute** keeps one named playlist silent without turning music off.
+
+Rust streams music through symphonia from the cached pk3 or the data URL,
+decoding into a ring buffer, on the same mixer as the sound effects but on its
+own bus. That also gives music the 10 ms parameter smoothing for free.
+
+### 22.7 Library choice
+
+| Option | Exact Web Audio panner and inverse model | Voice rules of 22.5 | Weight | Verdict |
+| --- | --- | --- | --- | --- |
+| `kira` | no: its spatial tracks use their own attenuation and panning curves | partly | medium | not for gameplay sound |
+| `rodio` | no spatial model to speak of | no | small | no |
+| **Own mixer on `cpal`** | yes, written from the spec | yes | about 800 lines | **chosen** |
+
+The mixer, `shagger::audio`:
+
+```text
+decode     symphonia (ogg, vorbis, wav features) → f32 PCM, resampled once
+           to the device rate with rubato, cached per path like getBuffer()
+mixer      runs on cpal's audio thread; no allocation, no locks on that thread
+           voices: one-shot | loop | stream, each with gain, bus, optional
+           position, slot, and end time
+           buses:  sfx → effects / players / hits / announcer, music
+           every gain change is ramped over 10 ms
+control    game thread → audio thread through a lock-free queue (rtrb):
+           Play, Stop, SetListener, SetBusGain, SetMuted
+spatial    per voice per audio block: inverse distance gain, equal-power pan
+           from the listener frame of 22.2
+```
+
+All of this is MIT. Nothing is ported from Babylon: the behaviour comes from
+the Web Audio spec and SHAG's own rules. So the license rule of 21.1 does not
+touch audio.
+
+### 22.8 Parity test
+
+Rust plays audio in real time, so the test renders offline. Both clients take
+the same list of timed events (sound, position, listener position and
+orientation, and volume) and render it to a stereo WAV:
+
+- the browser with an `OfflineAudioContext`, through `AudioV2Sfx` with the
+  same buses;
+- Rust through the mixer without `cpal`.
+
+Then compare RMS per channel in 10 ms windows. The script holds:
+
+- one sound walked through distances 0 to 4000 for each attenuation class;
+- one walked around the listener at 30-degree steps, to check panning and
+  the front-back fold;
+- a 60-voice burst, to check the cap and which sounds are cut.
+
+The harness lives next to the golden protocol vectors of 18.6.
+
+### 22.9 Estimate
+
+Round 1 gave 2 to 3 weeks for milestone 8. With the reading above:
+
+| Work | Weeks |
+| --- | ---: |
+| Mixer, buses, ramps, spatial model, voice rules, cpal device handling (hot-plug, sample rates) | 1.5 |
+| Decode cache, music streaming, playlists, cvars | 0.5 |
+| Port the `FPS*Audio` modules, the announcer and ambient entities | 1 |
+| Offline parity harness | 0.5 |
+| **Total** | **3.5** |
+
+That is slightly over round 1's range, because round 1 assumed `kira` would
+fit and did not count the parity harness.
+
+### 22.10 Changes to earlier sections
+
+- 9 (audio layer): replace "kira" with the custom mixer of 22.7, and add the
+  music path.
+- 15, milestone 8: 3.5 weeks.
