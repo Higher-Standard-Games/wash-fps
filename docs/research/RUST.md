@@ -918,24 +918,53 @@ core or otherwise not specific to Washoi goes into SHAGGER; Washoi is a game on
 top of it, exactly as wash-fps sits on SHAG today. Folder names inside each
 crate follow the TypeScript, so a SHAG path points straight at its SHAGGER file.
 
+The code lives in two repositories, mirroring SHAG and wash-fps:
+
+| Repository | Holds | TypeScript counterpart |
+| --- | --- | --- |
+| [`Higher-Standard-Games/shagger`](https://github.com/Higher-Standard-Games/shagger) | the engine: `shagger_shared`, `shagger` (with `src/babylon/`, 21.1), engine tools | `shag` |
+| [`Higher-Standard-Games/wash-fps-rust`](https://github.com/Higher-Standard-Games/wash-fps-rust) | the game: `washoi`, the client binary, game tools | `wash-fps` |
+
 ```text
-washoi-native/
+shagger/                         engine repository, its own Cargo workspace
 ├─ Cargo.toml                    workspace
 ├─ crates/
 │  ├─ shagger_shared/            ← src/shared        (no GPU, no window, no async)
 │  │  └─ src/{net,server,bsp,collision,entities,demo,settings}/
-│  ├─ shagger/                   ← src/engine (minus editor and server) + src/lobby/LobbyClient.ts
-│  │  └─ src/{core,network,lobby,physics,movement,loader,render,lighting,
-│  │          effects,sprites,animation,camera,viewport,input,audio,console,ui}/
-│  ├─ washoi/                    ← wash-fps, client side
-│  │  └─ src/{simulation,liquid,shared,world,camera,console,client,weapons,
-│  │          game.rs,fps_player.rs,main.rs}
-│  └─ tools/
-│     ├─ proto_dump/             demo and golden-vector decoder (milestone 1)
-│     ├─ headless_client/        lobby + match client without a window (milestones 2–3)
-│     └─ sim_parity/             tick-by-tick movement diff against `sim replay`
-└─ reference/                    SHAG checkout with wash-fps at src/games/fps, pinned
+│  └─ shagger/                   ← src/engine (minus editor and server) + src/lobby/LobbyClient.ts
+│     └─ src/{core,network,lobby,physics,movement,loader,render,lighting,
+│             effects,sprites,animation,camera,viewport,input,audio,console,ui,babylon}/
+├─ tools/
+│  └─ proto_dump/                demo and golden-vector decoder (milestone 1)
+└─ reference/                    SHAG checkout, pinned (submodule)
+
+wash-fps-rust/                   game repository
+├─ Cargo.toml                    depends on shagger by git rev
+├─ src/                          ← wash-fps, client side
+│  └─ {simulation,liquid,shared,world,camera,console,client,weapons,
+│      game.rs,fps_player.rs,main.rs}
+├─ tools/
+│  ├─ headless_client/           lobby + match client without a window (milestones 2–3)
+│  └─ sim_parity/                step-by-step movement diff against sim:dump (19.7)
+└─ reference/                    wash-fps checkout, pinned (submodule)
 ```
+
+**How the two repositories connect.** SHAG includes wash-fps as a submodule;
+the Rust side turns that around, as Cargo expects. `wash-fps-rust` depends on
+`shagger` by git revision:
+
+```toml
+shagger = { git = "https://github.com/Higher-Standard-Games/shagger", rev = "..." }
+```
+
+A developer working on both clones them side by side and adds a local
+`[patch]` in an untracked `.cargo/config.toml`. CI builds `wash-fps-rust`
+against the pinned revision, and also against `shagger`'s `main` branch, which
+shows engine changes that break the game before the pin moves.
+
+The golden vectors (18.6) and the `sim:dump` harness (19.7) are produced by
+TypeScript in SHAG and wash-fps. Each Rust repository pins the TypeScript
+commit it was checked against, under `reference/`.
 
 Dependency rule, enforced by Cargo: `washoi → shagger → shagger_shared`, never
 the other way. SHAG keeps "engine must not import the game" by convention and an
