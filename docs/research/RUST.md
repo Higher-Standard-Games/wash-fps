@@ -1790,7 +1790,7 @@ archives.
 | --- | --- | --- | ---: | --- |
 | Map geometry | `map_<name>.pk3` | IBSP v46 or FBSP v1 | 27 maps listed | `config/maps.json` |
 | Map textures | `tex_<name>.pk3` | **WebP** (from 690 TGA and 194 PNG sources) | 884 textures: 347 colour, 235 normal, 178 gloss, 100 alpha, 24 sky | `config/map-texture-encoding.json` |
-| Billboards and branding | `tex_billboard.pk3` (dynamic) | PNG | 12 entries | `config/billboard-package.json` |
+| Billboards and branding | `tex_billboard.pk3` (dynamic) | PNG | 11 entries | `config/billboard-package.json` |
 | Level previews | `data/levelshots/<map>.jpg` (outside pk3s) | JPEG made from `levelshots/<map>.png` | one per map | `pk3-index-build.ts` |
 | Sounds | sound package | OGG Vorbis 272, WAV 18 | 290 | `config/sound-package.json` |
 | Player model | `washoi_player_model.pk3` | glTF `.glb` plus one `.glb` per animation | 1 model | `config/player-model-vanguard.json` |
