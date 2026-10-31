@@ -1,5 +1,9 @@
 # A native Washoi client in Rust
 
+> **Moved.** This plan is now maintained in
+> [wash-fps-rust](https://github.com/Higher-Standard-Games/wash-fps-rust/blob/main/docs/research/RUST.md).
+> This copy is kept for history and is no longer updated.
+
 Opened: October 31, 2026. Status: research, rounds 1 to 6. No port code yet.
 
 **End goal:** a native Washoi game client, written in Rust, that connects to the
