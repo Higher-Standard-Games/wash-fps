@@ -1932,8 +1932,8 @@ machine:
 - image decoding (through crates);
 - the lookup rules of 20.3.
 
-That is the `shagger::loader` list in 20.8, and about a third of
-`src/engine/loader` by line count. The rest is Babylon-side material and mesh
+That is the `shagger::loader` list in 20.8: about 5,700 of the 26,300 lines in
+`src/engine/loader`. The rest is Babylon-side material and mesh
 building, which round 5 covers with the renderer.
 
 ### 20.11 Changes to earlier sections
