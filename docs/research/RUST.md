@@ -922,7 +922,6 @@ washoi-native/
 ├─ Cargo.toml                    workspace
 ├─ crates/
 │  ├─ shagger_shared/            ← src/shared        (no GPU, no window, no async)
-│  ├─ shagger_babylon/           ← code ported from Babylon.js (Apache-2.0, see 21.1)
 │  │  └─ src/{net,server,bsp,collision,entities,demo,settings}/
 │  ├─ shagger/                   ← src/engine (minus editor and server) + src/lobby/LobbyClient.ts
 │  │  └─ src/{core,network,lobby,physics,movement,loader,render,lighting,
@@ -1965,32 +1964,29 @@ The project owner set this rule on 2026-10-31: **code ported or copied from
 Babylon.js is Apache License 2.0; all other code is MIT.** Babylon.js itself is
 Apache-2.0, and SHAG and wash-fps are MIT.
 
-To keep the rule easy to follow and to audit, Babylon-derived code lives in
-its own crate:
+Babylon-derived code lives in its own folder inside the `shagger` crate,
+with the license next to it. It is not a separate crate or repository:
 
 ```text
-crates/
-  shagger_babylon/      license = "Apache-2.0"   LICENSE-APACHE, NOTICE
-    src/standard_light.wgsl   Blinn-Phong terms of StandardMaterial (world look)
-    src/pbr.wgsl              PBR BRDF for glTF models, if we port Babylon's
-    src/image_processing.wgsl exposure, contrast, tone map, vignette
-    src/bloom.rs, bloom.wgsl  DefaultRenderingPipeline bloom
-    src/chromatic.wgsl
-    src/glow_layer.rs         GlowLayer (emissive blur)
-    src/clustered.rs          ClusteredLightContainer layout and culling
-  shagger/              license = "MIT"
-  shagger_shared/       license = "MIT"
-  washoi/               license = "MIT"
+crates/shagger/
+  Cargo.toml            license = "MIT AND Apache-2.0"
+  LICENSE               MIT
+  src/babylon/
+    LICENSE             Apache-2.0 text
+    NOTICE              each ported file, its Babylon source path and version (9.31.2)
+    mod.rs
+    standard_light.wgsl Blinn-Phong terms of StandardMaterial (world look)
+    fog.wgsl            Babylon EXP fog
+    image_processing.wgsl exposure, contrast, tone map, vignette
 ```
 
-- Every file in `shagger_babylon` starts with an Apache header naming the
-  Babylon source file and version (9.31.2) it came from.
-- `NOTICE` lists those files.
-- `shagger` depends on `shagger_babylon` and never copies its code back.
-- `cargo deny` with a license allow-list (`MIT`, `Apache-2.0`, and the
-  permissive licenses of our crates.io dependencies) fails CI on anything
-  else.
-- The shipped client binary includes both license texts.
+- Every file under `src/babylon/` starts with a short header that says it is
+  Apache-2.0 and names the Babylon file it came from.
+- Babylon-derived code goes in this folder and nowhere else. The rest of
+  `shagger` calls into it, but never copies its code.
+- `shagger_shared` and `washoi` stay `MIT`.
+- The shipped client binary includes both license texts. `cargo deny` checks
+  the dependency licenses against an allow-list.
 
 The split also decides how some things are built. Where we only need the same
 *result*, writing our own code from the published spec keeps it MIT:
@@ -2000,7 +1996,7 @@ The split also decides how some things are built. Where we only need the same
 - a plain Gaussian bloom.
 
 Where the *look* must match pixel for pixel, porting Babylon's shader is
-faster and the code goes into the Apache crate. The world's Blinn-Phong
+faster, and the code goes into `src/babylon/`. The world's Blinn-Phong
 lighting is the main case: Washoi maps were tuned against it. 21.9 records
 the choice for each item.
 
@@ -2144,8 +2140,8 @@ shaders.
   programs nearly unchanged.
 - **Not liftable as MIT:** the Babylon shader around them. That covers
   StandardMaterial's light loop, the specular terms, and Babylon's fog,
-  image processing and PBR. Either port it into `shagger_babylon` (Apache) or
-  write it from scratch.
+  image processing and PBR. Either port it into `shagger/src/babylon/`
+  (Apache) or write it from scratch.
 - **Effect materials:** twelve `ShaderMaterial`s with our own GLSL (rail,
   voltaic, muzzle flash, impact sparks, explosions, tracers, unified water,
   water actor reflection, glow overlay, filter blend, fog volume, splash
@@ -2233,9 +2229,9 @@ live web servers.
 
 ### 21.9 Babylon pieces: port or rewrite
 
-| Piece | Choice | Crate and license | Why |
+| Piece | Choice | Where and license | Why |
 | --- | --- | --- | --- |
-| StandardMaterial lighting (diffuse, Blinn-Phong specular, lightmap combine) | port the WGSL terms | `shagger_babylon`, Apache-2.0 | maps were tuned against it; it must match |
+| StandardMaterial lighting (diffuse, Blinn-Phong specular, lightmap combine) | port the WGSL terms | `src/babylon/`, Apache-2.0 | maps were tuned against it; it must match |
 | Babylon EXP fog | port | Apache-2.0 | small, and world fog uses it outside Warfork fog |
 | Image processing (exposure, contrast, vignette, tone mapping) | port | Apache-2.0 | the whole picture shifts if it differs |
 | Bloom, chromatic aberration, GlowLayer | rewrite later, compare by screenshot | MIT | effects, not tuning |
@@ -2283,7 +2279,7 @@ With the reading above:
 | wgpu device, surface, frame graph, pipeline cache and precompile | 1.5 |
 | Map surfaces: faces, patches, batching, PVS, lightmaps, light grid, sky farbox | 2.5 |
 | WorldLightmap and WorldVertexLit programs, Q3 stage evaluation, `shader:audit` | 2 |
-| Ported StandardMaterial terms and image processing (Apache crate), screenshot comparison harness | 1.5 |
+| Ported StandardMaterial terms and image processing (`src/babylon/`), screenshot comparison harness | 1.5 |
 | glTF skinning, animation blending, players, MD3 | 3 |
 | View model, effect renderers, dynamic lights | 3 |
 | **Total for the first playable renderer** | **13.5** |
@@ -2301,4 +2297,4 @@ picture closely enough that players don't notice. The screenshot harness of
   Babylon's surrounding shader under the license rule (21.1, 21.9).
 - 8.2 pass list: the view model clears depth, and the depth copy becomes a
   resolve step (21.3).
-- 14, workspace: adds the `shagger_babylon` crate, Apache-2.0.
+- 14, workspace: adds the `shagger/src/babylon/` folder, Apache-2.0.
