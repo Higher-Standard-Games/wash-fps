@@ -1654,11 +1654,9 @@ and fills in the asset facts round 1 left open. Sources: SHAG's
 wash-fps `scripts/deployment/*`, and SHAG's research notes
 `DOWNLOAD_IMPROVEMENTS_ALPHA4.md` and `per_map_texture_packages.md`.
 
-The session's network policy refused `eu.washoi.net` and `us.washoi.net`
-(HTTP 403 from the proxy), so nothing below was fetched live. Header values are
-quoted from SHAG's dated research notes, and the format counts come from the
-build configs that produce the packages. 20.9 lists what to re-check against
-the real servers.
+Nothing below was fetched live, and it does not need to be: the repos hold the
+deploy scripts, the planned server config, the index builder and the package
+configs. 20.9 says what that settles.
 
 ### 20.1 Where the data lives
 
@@ -1888,20 +1886,27 @@ WebSocket (4.x), and hands finished archives to the main thread through a
 channel. Archive reads and decodes run on a small thread pool (`rayon`), so a
 map load never blocks a frame.
 
-### 20.9 Still to check against the live servers
+### 20.9 What the repos settle without the live servers
 
-Allow `eu.washoi.net` and `us.washoi.net` in the environment's network policy,
-then run these checks:
-
-1. `curl -I` the manifest, the index and one pk3 on both regions, and record
-   `Cache-Control`, `ETag`, `Content-Encoding` and whether `Content-Length`
-   matches the index `size`. Rust's progress bar relies on that match.
-2. `GET data/ktx2cache/manifest.json`, to find out whether production serves
-   KTX2 sidecars at all. If it answers 404, KTX2 drops out of the native plan.
-3. Download the index and count `files` by extension per package. That turns
-   20.4's config-based counts into shipped counts.
-4. Run `pk3_index_hash` in Rust over the live index text and compare it with
-   `indexHash`. This is the first golden vector for this layer.
+- **KTX2 sidecars.** The deploy runs `npm run build` (`deploy-eu.sh:179`), not
+  `build:prod`, so `tools:textures` (`convert-ktx2.js`) never runs on deploy.
+  `data/ktx2cache/` exists only if someone generated it by hand into the
+  persistent `assets/data`. The plan treats KTX2 as not shipped.
+- **Index and manifest.** Both are built from repo code on every deploy
+  (`prebuild` runs `tools:pk3-index`). The Rust `pk3_index_hash` can therefore
+  be tested against the TypeScript function on any text, including non-ASCII.
+- **Cache headers.** The planned Caddy blocks for `eu.washoi.net` and
+  `us.washoi.net` (`washoi.net/docs/research/deploy.md`) give `/data/*`
+  `public, max-age=31536000, immutable` with `encode zstd gzip`. The US
+  measurement of 2026-10-24 found `max-age=3600, must-revalidate` instead, so
+  the live config differs from the plan. The Rust client works either way:
+  - it revalidates the manifest;
+  - it keys packages by SHA-256;
+  - it treats `Content-Length` as unknown when `Content-Encoding` is set, as
+    `PackageDownload.response` does.
+- **Still open:** exact file counts inside the shipped pk3s, because the
+  archives are not in git. The counts in 20.4 come from the configs that build
+  them, which is enough for planning.
 
 ### 20.10 Changes to earlier sections
 
