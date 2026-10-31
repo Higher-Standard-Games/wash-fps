@@ -1,6 +1,6 @@
 # A native Washoi client in Rust
 
-Opened: October 31, 2026. Status: research, rounds 1 to 3. No port code yet.
+Opened: October 31, 2026. Status: research, rounds 1 to 4. No port code yet.
 
 **End goal:** a native Washoi game client, written in Rust, that connects to the
 servers that run today (`wss://eu.washoi.net`, `wss://us.washoi.net`), plays a
@@ -44,6 +44,7 @@ Paths starting `src/` are in SHAG; the others are in this repository.
 17. [Next rounds](#17-next-rounds)
 18. [Round 2: the protocol at function level](#18-round-2-the-protocol-at-function-level)
 19. [Round 3: the shared simulation](#19-round-3-the-shared-simulation)
+20. [Round 4: assets](#20-round-4-assets)
 
 ---
 
@@ -1055,7 +1056,7 @@ measured; each later round should revise its own layer.
 | --- | --- | --- |
 | 2 (done, section 18) | Protocol, function level | Full Rust type definitions for `GameState`, all events and `MatchStateSnapshot`; the golden-vector scripts written out; the lobby message enum; the exact JoinReject and ServerMessage cases the server sends |
 | 3 (done, section 19) | Simulation | Each movement file mapped function by function; every cvar that reaches the simulation; the `sim replay` JSON dump format; a check of `libm` against V8 on recorded inputs |
-| 4 | Assets | The production data URL and caching headers; pk3 index entries in detail; which texture and model formats the shipped pk3s actually contain, by count |
+| 4 (done, section 20) | Assets | The production data URL and caching headers; pk3 index entries in detail; which texture and model formats the shipped pk3s actually contain, by count |
 | 5 | Renderer | Q3 stage features used by shipped maps; pass list and pipeline keys; the WGSL fragments lifted into stand-alone shaders; which Babylon Lite groundwork packages apply |
 | 6 | Audio | Babylon AudioV2 defaults (panning model, distances), the attenuation presets, the bus layout |
 | 7 | Input and console | Binding name table against winit; which console commands a player can use; cvar file format |
@@ -1641,3 +1642,273 @@ the last differences (hypot, sin, ordering), up to 1 week. That is still 4.5 to
   command, and the ledge grab), so `js_hypot` is required, not optional.
 - 6.3: replaced by 19.7.
 - 18.1 point 8: corrected in 19.5.
+
+---
+
+## 20. Round 4: assets
+
+Round 4 follows a map from the published manifest down to a texture upload,
+and fills in the asset facts round 1 left open. Sources: SHAG's
+`src/engine/loader/{pk3,map,bsp,texture}`, `src/cli/pk3-index-build.ts`,
+`src/cli/map-texture-encoding.ts`, `scripts/convert-ktx2.js`, `config/*.json`,
+wash-fps `scripts/deployment/*`, and SHAG's research notes
+`DOWNLOAD_IMPROVEMENTS_ALPHA4.md` and `per_map_texture_packages.md`.
+
+The session's network policy refused `eu.washoi.net` and `us.washoi.net`
+(HTTP 403 from the proxy), so nothing below was fetched live. Header values are
+quoted from SHAG's dated research notes, and the format counts come from the
+build configs that produce the packages. 20.9 lists what to re-check against
+the real servers.
+
+### 20.1 Where the data lives
+
+- **Origin.** The game is served at `https://eu.washoi.net/` and
+  `https://us.washoi.net/`, and the data at `https://<region>.washoi.net/data/`.
+  On the hosts that is `/srv/washoi/releases/game/data/`, which the deploy
+  scripts sync from the persistent `/srv/washoi/assets/data/`
+  (`deploy-eu.sh:183`, `activate-us.sh:20`). The deploy leaves out `demos/`
+  and the retired `washoi_textures.pk3`.
+- **Mirror.** `VITE_PK3_MIRROR_URL` is unset in production, and the 2026-10-22
+  upload note says no mirror is configured. A native client still keeps the
+  same rule (`Pk3Mirror.ts`): the origin decides, and a mirror copy is used only
+  when a HEAD to the origin agrees on the size.
+- **Caching headers** (`DOWNLOAD_IMPROVEMENTS_ALPHA4.md`, US, 2026-10-24): the
+  pk3s and `pk3_index.json` are sent with
+  `Cache-Control: public, max-age=3600, must-revalidate`, `ETag` and
+  `Last-Modified`. The browser asks for the manifest and the index with
+  `cache: "no-cache"`, so they are revalidated on every start.
+- **Which region.** Data is per region. A Rust client takes its data from the
+  region whose lobby it joined, because each region's index only lists that
+  region's packages.
+
+### 20.2 Startup: manifest, index, then lazy packages
+
+```text
+GET data/pk3_manifest.json                (revalidate)
+    { "files": [ "map_wdm2.pk3", ... ], "indexHash": "1a2b3c4d",
+      "indexFile": "pk3_index.<sha256 of the index text>.json" }
+GET data/<indexFile>                      (revalidate; immutable by name)
+    { "version": 2, "listChecksum", "lastUpdated",
+      "packages": [ { "pk3", "size", "fileCount", "sha256" } ],
+      "files":   { "<lowercase path>": "<owner pk3>" },
+      "shaders": { "<shader name>":    "<owner pk3>" },
+      "maps":    { "<map name>":       "<owner pk3>" } }
+GET data/<pk3>?sha256=<hex>               (on demand, per map)
+```
+
+`parsePublishedIndex` (`PK3PublishedIndex.ts`) refuses the whole snapshot on
+any problem, and the Rust parser must refuse the same cases:
+
+- `indexHash` does not match the text;
+- the version is not 2;
+- a package name is not `^[a-z0-9][a-z0-9_.-]*\.pk3$`;
+- a package is listed twice, or the index and manifest lists differ;
+- a `sha256` is not 64 lowercase hex characters;
+- a dictionary key is not lowercase with forward slashes;
+- an owner is not in the manifest;
+- `maps[m]` is not the owner of `files["maps/<m>.bsp"]`;
+- `listChecksum` is not the hash of the sorted `pk3:size` pairs joined by `|`.
+
+When validation fails, the browser falls back to downloading and scanning every
+archive. A native client should not copy that fallback. It should report the
+error and retry later instead.
+
+**Two different hashes.** The index file *name* uses SHA-256, but `indexHash`
+and `listChecksum` use `pk3IndexHash`, which is djb2 with XOR. It runs over
+UTF-16 code units with JavaScript's 32-bit wrapping, and is printed as unpadded
+lowercase hex. In Rust:
+
+```rust
+pub fn pk3_index_hash(text: &str) -> String {
+    let mut h: i32 = 5381;
+    for unit in text.encode_utf16() {
+        h = (h << 5).wrapping_add(h) ^ unit as i32;
+    }
+    format!("{:x}", h as u32)
+}
+```
+
+Iterating `chars()` or bytes instead of `encode_utf16()` gives the same result
+only for ASCII. A golden test against the real manifest belongs with 18.6.
+
+**Package integrity.** Each package carries its SHA-256 in the index.
+`PackageStore` adds it as `?sha256=` (a cache key, not authentication), checks
+the digest after download, and keeps packages in CacheStorage
+(`shag-packages-v1`, 512 MB on disk, 128 MB in memory). The download has three
+timeouts: 15 s for headers, 60 s when idle, and 15 min in total. It is retried
+twice for 5xx, 408 and 429 responses, waiting 500 ms between tries.
+
+Natively the cache is simpler and stronger:
+
+- store each package as `<cache dir>/packages/<sha256>.pk3`;
+- check the digest while the download streams (`sha2`);
+- write to a temporary file and rename it into place;
+- remove the least recently used files beyond the 512 MB budget.
+
+A package that is already on disk with the right name needs no HTTP request at
+all, so the hourly revalidation goes away. Then memory-map the file (`memmap2`)
+and open it with `zip::ZipArchive`, so nothing is read until it is used.
+
+### 20.3 Which packages a map needs
+
+`MapLoader.buildBspMap` and `prepareMapTextureBank` give the order, and the
+Rust map loader keeps it:
+
+1. **Map package:** `index.maps[name]`, for example `map_wdm2.pk3`. Read
+   `maps/<name>.bsp`.
+2. **Texture bank:** `tex_<name>.pk3`. It must hold `media-manifests/<name>.json`,
+   with `map` equal to the name and an optional `sharedDependencies` list of
+   `{ package, dynamic, texturePrefixes }`. Mounting it also sets the
+   **package scope**: the other maps' `tex_*.pk3` banks become invisible to
+   lookups, so a texture is never taken from a different map's bank.
+3. **Shared banks:** for example `tex_billboard.pk3`. A dynamic bank gets
+   `?pk3v=<index lastUpdated>`, so its artwork can change without a client
+   build.
+4. **Overrides:** a file or shader in the bank whose index owner is another
+   package that is not loaded yet pulls that owner in.
+5. **Textures named by the BSP:** for each BSP texture, the package that owns
+   its shader, or the first of `<name>.webp`, `.tga`, `.jpg`, `.png`, `.ktx`,
+   with and without a `textures/` prefix.
+6. **Entity models**, from the BSP entities through the entity definitions,
+   then `washoi_weapons.pk3`.
+7. **Shaders:** every `scripts/*.shader` in the mounted packages.
+8. **Sky:** the packages for sky textures, resolved after the shaders, because
+   the sky names come from shader `skyParms`.
+
+In Rust, `PK3PackageScope` becomes a field of a `Vfs` struct, and every lookup
+goes through `Vfs::find(path)`. Later packages win, scoped banks are skipped,
+and paths are lowercased with forward slashes. Make the scope a value passed
+into the loader rather than global state, so a background map preload cannot
+change the scope of the map being played.
+
+### 20.4 What the shipped packages contain
+
+These counts come from the configs that build the packages, not from the
+archives.
+
+| Content | Package(s) | Format on the wire | Count | Source |
+| --- | --- | --- | ---: | --- |
+| Map geometry | `map_<name>.pk3` | IBSP v46 or FBSP v1 | 27 maps listed | `config/maps.json` |
+| Map textures | `tex_<name>.pk3` | **WebP** (from 690 TGA and 194 PNG sources) | 884 textures: 347 colour, 235 normal, 178 gloss, 100 alpha, 24 sky | `config/map-texture-encoding.json` |
+| Billboards and branding | `tex_billboard.pk3` (dynamic) | PNG | 12 entries | `config/billboard-package.json` |
+| Level previews | `data/levelshots/<map>.jpg` (outside pk3s) | JPEG made from `levelshots/<map>.png` | one per map | `pk3-index-build.ts` |
+| Sounds | sound package | OGG Vorbis 272, WAV 18 | 290 | `config/sound-package.json` |
+| Player model | `washoi_player_model.pk3` | glTF `.glb` plus one `.glb` per animation | 1 model | `config/player-model-vanguard.json` |
+| Weapons | `washoi_weapons.pk3` (85.9 MB) | `.glb` | 21 `.glb` paths in wash-fps | `config/weapon-models.json` |
+| Items and projectiles | Warsow data packages | MD3 | 9 `.md3` paths in wash-fps | `shared/entities/definitions` |
+| KTX2 sidecars | `data/ktx2cache/` (optional) | KTX2, ETC1S or UASTC with zstd | not known (20.9) | `scripts/convert-ktx2.js` |
+| ETC1 `.ktx` | legacy packages | KTX1 | fallback only | `PK3TextureLoader.ts:196` |
+
+**WebP is the main texture format.** Round 1 listed TGA first. In fact, the map
+banks re-encode every listed TGA and PNG as WebP under the same path
+(`map-texture-encoding.ts`). The qualities are 85 for colour, 85 for alpha with
+a lossless alpha channel, 92 for normals, 90 for gloss and 95 for sky. Shaders
+still name `foo.tga`, and the loader tries `foo.webp` first
+(`TextureExtensions.ts`, `PACKAGED_TEXTURE_EXTENSION`). The Rust lookup must
+strip the extension and try the same order.
+
+The `image` crate (0.25) decodes both lossy and lossless WebP in pure Rust
+(`image-webp`), so the first texture path needs no C library. TGA is kept for
+older data and user maps.
+
+**Texture classes decide colour space.** In the encoding list, `colour`,
+`alpha` and `sky` are sRGB. `normal` and `gloss` are linear data.
+`convert-ktx2.js` makes the same split, using `_normal`, `_norm`, `_n.` and
+similar name patterns to pick UASTC with a linear transfer function. The Rust
+loader needs one function that maps a texture path to `Rgba8UnormSrgb` or
+`Rgba8Unorm`. Getting it wrong shows up as washed-out or overly dark lighting,
+not as an error.
+
+### 20.5 BSP details that matter for the port
+
+- **Two formats in one loader.** IBSP v46 has 44-byte vertices and 128×128
+  lightmaps. FBSP v1 (Warsow) has 80-byte vertices: position, uv, four
+  lightmap uvs, normal and four RGBA colours. It also has four lightmap slots
+  per surface for light styles, and lightmaps whose size is set by the map,
+  512×512 by default. Both have 17 lumps.
+- **A wrong comment.** The comment on `BspVertexFBSP` in `BspLoader.ts:139`
+  says 68 bytes, but the parser and the collision path both use 80, which
+  matches the RBSP layout. Port the code, not the comment.
+- **Coordinates.** Convert once at the loader edge (7.2). The collision lumps
+  keep their Q3 values, and `SweepBackendAdapter` converts (19.4).
+- **BSP texture names have no extension.** Every lookup goes through the
+  extension order in 20.3, step 5.
+
+`BspLoader.ts` (1,246 lines) imports nothing but the logger, so it translates
+directly into a `shagger::loader::bsp` module over `&[u8]` using `bytemuck` or
+`zerocopy` structs. It is the first thing worth porting: the collision crate of
+19.4 and the `sim:dump` harness of 19.7 both need it.
+
+### 20.6 Textures: what a native client decodes
+
+| Path | Browser | Native plan |
+| --- | --- | --- |
+| WebP from `tex_*.pk3` | browser image decode | `image` (WebP), then mipmaps on the GPU with a compute or blit pass |
+| TGA, PNG, JPEG | `TgaDecoder.ts`, browser decode | `image`; port `TgaDecoder.ts` only if `image` disagrees on Q3 quirks (origin bit, RLE) |
+| KTX2 sidecar (`r_ktx2 1`) | Babylon KTX2 worker, transcodes Basis to a GPU format | phase 2: `ktx2` crate plus `basis-universal` bindings, to BC7 on desktop |
+| ETC1 `.ktx` | `KTX1Loader.ts` | skip: desktop GPUs rarely support ETC; decode the WebP or TGA instead |
+| `r_picmip` | reduces map textures | `image::imageops::resize` before upload, same rules |
+
+Desktop VRAM is plentiful, so plain RGBA8 uploads from WebP are fine for the
+first native milestones. KTX2 adds a C++ dependency (the Basis transcoder) for
+memory and load-time savings that only matter later. Mark the KTX2 path behind
+the same `r_ktx2` cvar, defaulting to 0 natively until it is measured.
+
+### 20.7 Models and sounds
+
+- **glTF:** the player, weapons and effects. The `gltf` crate reads `.glb`,
+  including embedded textures, which use the same decoders as 20.6. Animations
+  come as separate `.glb` files, one per clip
+  (`player-model-vanguard.json`), and are retargeted by bone name. Port the
+  retarget table from SHAG's player model code rather than re-deriving it.
+- **MD3:** items and projectiles (`MD3Loader.ts`, 743 lines, plus
+  `TagsLoader.ts`). It is a small fixed-layout format, and is translated by
+  hand like the BSP.
+- **Sounds:** OGG Vorbis and WAV only, so `symphonia` with its `ogg`,
+  `vorbis` and `wav` features covers them. The `mp3` feature can be left out.
+
+### 20.8 Crates and module layout for assets
+
+```text
+shagger::loader
+  pk3::published_index   PK3PublishedIndex.ts   serde, pk3_index_hash
+  pk3::package_store     PackageStore.ts        reqwest (stream), sha2, tempfile, memmap2, zip
+  pk3::mirror            Pk3Mirror.ts           reqwest
+  pk3::vfs               PK3Index + PK3Loader + PK3PackageScope
+  bsp                    BspLoader.ts           bytemuck
+  shader                 Q3ShaderParser.ts      (none)
+  texture                TextureExtensions, TgaDecoder, encoding classes   image
+  model::md3             MD3Loader.ts, TagsLoader.ts
+  model::gltf            Babylon glTF loader    gltf
+washoi::assets           entity model paths, media manifest rules, map list
+```
+
+The package store runs on the tokio runtime that already carries the
+WebSocket (4.x), and hands finished archives to the main thread through a
+channel. Archive reads and decodes run on a small thread pool (`rayon`), so a
+map load never blocks a frame.
+
+### 20.9 Still to check against the live servers
+
+Allow `eu.washoi.net` and `us.washoi.net` in the environment's network policy,
+then run these checks:
+
+1. `curl -I` the manifest, the index and one pk3 on both regions, and record
+   `Cache-Control`, `ETag`, `Content-Encoding` and whether `Content-Length`
+   matches the index `size`. Rust's progress bar relies on that match.
+2. `GET data/ktx2cache/manifest.json`, to find out whether production serves
+   KTX2 sidecars at all. If it answers 404, KTX2 drops out of the native plan.
+3. Download the index and count `files` by extension per package. That turns
+   20.4's config-based counts into shipped counts.
+4. Run `pk3_index_hash` in Rust over the live index text and compare it with
+   `indexHash`. This is the first golden vector for this layer.
+
+### 20.10 Changes to earlier sections
+
+- 7.1: the public data URL is `https://<region>.washoi.net/data/`, and package
+  integrity uses SHA-256 per package. The index hash itself is djb2, not
+  SHA-256 (20.2).
+- 7.2: WebP is the main map texture format (20.4). MP3 is not shipped. ETC1
+  KTX1 is a fallback the native client can skip.
+- 15, milestone 5 (assets, 3 to 4 weeks): unchanged, but KTX2 moves to a later
+  optional step, and the BSP loader moves earlier, into milestone 3.
