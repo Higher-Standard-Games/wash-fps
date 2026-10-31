@@ -1,6 +1,6 @@
 # A native Washoi client in Rust
 
-Opened: October 31, 2026. Status: research, rounds 1 and 2. No port code yet.
+Opened: October 31, 2026. Status: research, rounds 1 to 3. No port code yet.
 
 **End goal:** a native Washoi game client, written in Rust, that connects to the
 servers that run today (`wss://eu.washoi.net`, `wss://us.washoi.net`), plays a
@@ -43,6 +43,7 @@ Paths starting `src/` are in SHAG; the others are in this repository.
 16. [Risks and things to settle](#16-risks-and-things-to-settle)
 17. [Next rounds](#17-next-rounds)
 18. [Round 2: the protocol at function level](#18-round-2-the-protocol-at-function-level)
+19. [Round 3: the shared simulation](#19-round-3-the-shared-simulation)
 
 ---
 
@@ -1053,7 +1054,7 @@ measured; each later round should revise its own layer.
 | Round | Layer | Questions to answer |
 | --- | --- | --- |
 | 2 (done, section 18) | Protocol, function level | Full Rust type definitions for `GameState`, all events and `MatchStateSnapshot`; the golden-vector scripts written out; the lobby message enum; the exact JoinReject and ServerMessage cases the server sends |
-| 3 | Simulation | Each movement file mapped function by function; every cvar that reaches the simulation; the `sim replay` JSON dump format; a check of `libm` against V8 on recorded inputs |
+| 3 (done, section 19) | Simulation | Each movement file mapped function by function; every cvar that reaches the simulation; the `sim replay` JSON dump format; a check of `libm` against V8 on recorded inputs |
 | 4 | Assets | The production data URL and caching headers; pk3 index entries in detail; which texture and model formats the shipped pk3s actually contain, by count |
 | 5 | Renderer | Q3 stage features used by shipped maps; pass list and pipeline keys; the WGSL fragments lifted into stand-alone shaders; which Babylon Lite groundwork packages apply |
 | 6 | Audio | Babylon AudioV2 defaults (panning model, distances), the attenuation presets, the bus layout |
@@ -1361,3 +1362,282 @@ fixtures the same day (risk 16.4).
 - 16: the protocol version proposal should also carry a refusal code (18.3).
 - 16: `types.ts` is missing four server messages (18.4); worth adding there so
   both clients read the same list.
+
+---
+
+## 19. Round 3: the shared simulation
+
+Round 3 follows one predicted step from `Game.sendInput` down to the brush
+trace, on both sides, and records everything a Rust copy must reproduce.
+Sources: `simulation/*.ts`, `client/V2NetworkClient.ts`,
+`client/InputHistory.ts`, `server/systems/FPSMovementSubsystem.ts`,
+`server/ReSim.ts`, SHAG's `src/shared/server/simulation/InputSanitizer.ts`,
+`src/shared/collision/*`, `src/engine/physics/{SweepCollisionBackend,SweepBackendAdapter}.ts`.
+
+### 19.1 One predicted step
+
+Per command, in this order (`V2NetworkClient.processInput`):
+
+1. `sanitizeMovementOrZero`: clamp |direction| to 1 (with `Math.hypot`),
+   clamp pitch to ±π/2, wrap yaw to (−π, π], mask buttons to 16 bits. The
+   server runs the same function on ingest (`sanitizeCommand`).
+2. Store the input in `InputHistory` under the next sequence number.
+3. Step the lifts (`collision.lifts.step(dt, [localState])`).
+4. Step knockback drag (`applyKnockbackDrag`), **before** movement, reading the
+   grounded state the step starts from.
+5. `MovementProfile.simulate(position, velocity, input, dt = 1/125, collision)`.
+6. Save the prediction for that sequence: position, velocity, grounded,
+   knockback age, the full `MovementProfile.saveState()`, and the lift states.
+   Reconciliation compares against this and replays from it (5.1).
+
+Inside `simulate` (`MovementProfile.ts` lines 449 to 1030):
+
+```text
+sample water level and ladder volume at the start position
+simulateCore:
+  sim clock  ← input.simStep × 8 ms        (falls back to sequence, then to dt)
+  wallJump.beginStep
+  deep water or ladder → reset wall jump and ledge grab, exit slide
+  wall jump charging   → WallJump.handleCharging, return early
+  ledge grab active    → LedgeGrab.update, return early when it owns the step
+  climb decision (ladderIntent)
+  gravity (×1.25 when falling; off while swimming or climbing)
+  input: walk/run speed (+ weapon speedBonus), crouch, jump (slope check by
+         trace, normal.y > 0.85), jump off ladder
+  movement branch: water jump | ladder | swim | ground (friction, wade, accel)
+                   | air (forward accel, strafe-bunny accel, or normal air accel)
+  wall jump detection in air
+  crouchslide, crouch state
+  ground-plane clip (OVERCLIP 1.001) then collision.stepSlideMove
+  map triggers: teleporters first, then jumppads (re-aimed from the current
+                position on every tick inside the pad)
+  speed tracking, smoothed Y
+sample water level and ladder again at the end position
+```
+
+Every timer (slide, wall jump, ledge grab, water jump, ladder detach) is an
+absolute time on the **sim clock**, which is `simStep × 8 ms`. The client uses
+the command sequence as `simStep`; the server uses its own step count. Only
+differences between times matter, so the bases never have to agree. A Rust
+port must keep that rule: no `Instant::now()` anywhere in the simulation.
+
+### 19.2 File by file
+
+| File | Lines | What it holds | Rust |
+| --- | ---: | --- | --- |
+| `MovementProfile.ts` | 1,073 | the step above; hulls; trigger volumes; `saveState`/`loadState`; `getDeterminismFingerprint` | `washoi::simulation::movement_profile`, one `struct` with the same fields |
+| `Acceleration.ts` | 198 | `applyFriction`, `groundAccelerate`, `calcAccelFalloff`, `airAccelerateForward`, `strafeBunnyAccelerate` (`STRAFE_BUNNY_ACCEL = 50`), `normalAirAccelerate` | free functions over `&mut DVec3` |
+| `Slide.ts` | 242 | crouchslide state machine and crouch view timing (fade 400/250 ms, crouch down 140, up 260, offset −24) | `struct Slide` with `save_state`/`load_state` |
+| `WallJump.ts` | 385 | detection with 100 ms grace, charge, boost and instant variants, cooldown | `struct WallJump` |
+| `LedgeGrab.ts` | 318 | detection by traces, grab and pull, 300 ms retry delay | `struct LedgeGrab` |
+| `Swim.ts` | 217 | water friction and acceleration, wade scale, swim intent, idle sink, water jump check | free functions + `LiquidMovementProfile` |
+| `Ladder.ts` | 187 | ladder friction, intent, acceleration, climb delta | free functions + `LadderMovementProfile` |
+| `Knockback.ts` | 48 | drag after a hit: 50-tick delay, 75-tick ramp, horizontal 0.96, extra gravity 600 | free functions |
+| `MovementConfig.ts` | 149 | `MovementConfig` and the result types | `struct MovementConfig` (see 19.3) |
+| `FPSSimulation.ts` | 207 | local practice simulation, random spawn pick | only for offline play; not needed to connect |
+| `Vec3Helpers.ts` | 60 | small vector helpers | `glam::DVec3` methods |
+| `liquid/LiquidVolumeSampler.ts` and `LiquidTypes.ts` | part of 1,637 | water level 0 to 3 from point contents | free functions |
+| `src/shared/server/simulation/InputSanitizer.ts` | 130 | 19.1 step 1 | `shagger_shared::server::input_sanitizer` |
+| `src/shared/bsp/LiftSystem.ts`, `TriggerTable.ts`, `BrushModelState.ts` | about 900 | movers, trigger volumes, inline brush models | `shagger_shared::bsp` |
+
+The three state machines (`Slide`, `WallJump`, `LedgeGrab`) each already have
+`saveState`, `loadState` and `reset`. In Rust they become plain `Clone`
+structs and the save and load pair becomes a copy, which removes a class of
+"forgot a field in saveState" bugs.
+
+### 19.3 Configuration: nothing to sync
+
+The movement tuning is one constant, `DEFAULT_FPS_MOVEMENT_CONFIG`
+(`MovementProfile.ts:96`), and both the client (`new FPSMovementProfile()` in
+`V2NetworkClient.ts:268`) and the server (`FPSMovementSubsystem.getProfile`)
+build it with no overrides. The `sv_*` and `cl_*` movement cvars
+(`MovementVars`) do not reach the shared simulation; on the server they only
+drive fall damage, and on the client only the camera (stair smoothing, view
+height). The one runtime input is `speedBonus` (for example +25 with the
+blade), set from the weapon the player holds.
+
+So the Rust client copies the constant, and a test compares it with the
+TypeScript: `getDeterminismFingerprint()` returns every config field as
+sorted `key=value` pairs, and Rust can build the same string. One string
+comparison in CI proves the tuning matches.
+
+Other constants that must match: hulls `(-16,-24,-16)..(16,32,16)` standing,
+`..(16,8,16)` crouched, `(-16,-14,-16)..(16,14,16)` swimming
+(`MovementProfile.ts:142`); `TELEPORT_EXIT_LIFT = 25`; the player constants in
+`src/engine/physics/PlayerPhysicsConstants.ts`; and the liquid and ladder
+profiles (`DEFAULT_LIQUID_MOVEMENT`, `DEFAULT_LADDER_MOVEMENT`).
+
+### 19.4 Collision as the simulation sees it
+
+The simulation only knows `CollisionWorld` (`src/shared/collision/CollisionWorld.ts`):
+`trace`, `stepSlideMove`, `pointContents`, `isInLadder`, plus `lifts` and
+`brushModels`. `SharedCollisionWorld` implements it on top of a `SweepBackend`
+(the Q3 brush trace), and adds ground detection after each slide move.
+
+Three things to copy exactly, or the Rust client will disagree with the server:
+
+1. **Two content-flag vocabularies.** The BSP backend uses raw Q3 bits
+   (`WATER = 0x20`, `LAVA = 0x8`, ...); the shared code uses its own compact set
+   (`WATER = 1 << 1`, `LAVA = 1 << 2`, ...). `SweepBackendAdapter.toSharedContents`
+   translates, and the comment there notes that raw `LAVA` equals shared
+   `SLIME`. Keep the two as separate Rust types (`RawContents`, `Contents`) so
+   the compiler refuses to mix them.
+2. **The slide-move hull ignores crouch and swim.** `SharedCollisionWorld.stepSlideMove`
+   uses the hardcoded `PLAYER_RADIUS` and `PLAYER_HEIGHT` for anything whose
+   radius is not well under the player's, so the crouched and swimming bounds
+   only affect the other traces. This looks like a bug, but the server does the
+   same, so the port must do the same. Fixing it is a gameplay change for both
+   sides.
+3. **Coordinates.** The backend works in Q3 space internally and converts at
+   its edges (`SweepBackendAdapter`); the simulation sees Babylon space. Port
+   the adapter as it is.
+
+The backend itself (`SweepCollisionBackend.ts`, 1,783 lines: BSP node and leaf
+traversal, brush and patch facet traces, clip brush index, ladder index,
+`clipVelocity`, `stepSlideMove`, `pointContents`) imports Babylon only for
+`Vector3`. It reads planes as `f32` from the BSP and computes in `f64`
+(`Float64Array` for facet planes), so Rust stores `f32` from the file and
+widens on use.
+
+Player-versus-player separation runs only on the server
+(`FPSMovementSubsystem`, "post-movement separation"). The client does not
+predict it, so bumping into someone causes a small correction in the browser
+too. The Rust client does the same, deliberately.
+
+### 19.5 How the server consumes commands
+
+The server steps a player **once per command, not once per tick**
+(`FPSMovementSubsystem.ts` around line 810):
+
+- A tick runs the next queued command. With none queued, the player pauses and
+  the tick becomes debt; later ticks with a backlog run two commands to repay
+  it.
+- Past a debt limit the server guesses by repeating the last command (action
+  buttons stripped after a grace window), and the late real command is then
+  dropped.
+- A queue that stays deep for a second gets drained by one command.
+- A sequence at or below the newest one seen starts a new stream: that is how a
+  resumed connection's numbering is accepted.
+- `ackedInputSeq` is the last command physics accounted for, real or guessed.
+
+What this means for the client: send exactly one command per 8 ms of real time,
+smoothly. Bursts are tolerated but delay you; long gaps make the server guess.
+This is why `FPSController` runs a fixed 125 Hz accumulator capped at 0.25 s.
+Correction to 18.1 point 8: the browser client keeps counting after a resume,
+and the server would also accept a restart from 1; either works.
+
+### 19.6 Determinism audit
+
+| Operation | Where | Risk | Rust |
+| --- | --- | --- | --- |
+| `+ − × ÷`, `Math.sqrt`, `abs`, `min`, `max`, `floor` | everywhere | none: IEEE-exact on both sides | `f64` operators |
+| `Math.sin`, `Math.cos` | 18 calls: jump direction, water jump, ladder and swim intent, ledge grab, wall jump (`COS_22_5`, `SIN_22_5`) | low to medium: V8 uses an fdlibm port; platform libm differs by an ulp | the `libm` crate, checked against V8 on a table of angles |
+| `Math.hypot` | `InputSanitizer` (every command), `LedgeGrab.ts:146` and `:271` | medium: V8's `Math.hypot` is not C `hypot`; it scales by the largest value and sums with compensation | port V8's algorithm into a `js_hypot` helper; never call `f64::hypot` |
+| `Math.round` | `stateChecksum`, ledge and slide code | rounds ties up, unlike `f64::round` | `js_round` helper (6.2) |
+| `angle % twoPi` | `wrapAngle` | none: JS `%` and Rust `%` on `f64` are both the IEEE remainder of truncated division | `%` |
+| `Math.random` | `FPSSimulation.ts:139` only | none for the client | not ported into prediction |
+| Map iteration order | trigger volumes, lifts | low: insertion order in JS | `Vec` in file order |
+
+**A finding worth fixing upstream.** The browser predicts with its own `f64`
+yaw, pitch and direction, but the server simulates the `f32` values it decoded
+from the command (`BinaryProtocol.encodeCommand` writes `f32`; nothing in
+`client/` or `Game.ts` calls `Math.fround`). So every predicted step starts
+from slightly different inputs than the server's. The 0.01-unit confirm
+tolerance mostly hides it, but long air-strafing chains or a wall jump at a
+corner can tip over. The Rust client should round the sanitized direction,
+pitch and yaw to `f32` before predicting, which makes its inputs identical to
+the server's. The same one-line change in `V2NetworkClient.processInput`
+(`Math.fround` on the three fields) would help the browser too; it is worth a
+measurement with the net graph's confirmed count before and after.
+
+### 19.7 A parity harness that actually exercises the map
+
+Section 6.3 suggested `sim replay`. Reading it in round 3 rules it out:
+`headless-game.ts` runs `sim replay` through `CharacterPhysicsSystem` with no
+collision world and no map, starting in mid-air, so it tests neither the
+movement profile the client predicts with nor any collision.
+
+Two existing pieces come closer:
+
+- `server/ReSim.ts` and `ReSimBundle.ts` replay a recorded usercmd log through
+  `FPSMovementSubsystem` and checksum every tick (`stateChecksum`: position and
+  velocity ×100 rounded, grounded, health). `cli/demo-verify.ts` checks a
+  `.shagverify` bundle against its golden checksums. It covers the server's
+  command scheduling, but runs without a collision world today.
+- Demo version 3 records inputs, but aggregated per frame (buttons OR-ed, the
+  last aim kept; `DemoInputs.ts`), so it cannot drive an exact re-simulation.
+
+So round 3 recommends one new Node tool, `sim:dump`, with the same inputs as
+the Rust `sim_parity` tool:
+
+```text
+input:  map name, spawn position and yaw, a command list (one line per 8 ms step:
+        dirX dirZ pitch yaw buttons), optional speedBonus
+run:    SharedCollisionWorld over the map's pk3 (NodePk3 resolveMapBspViaIndex),
+        lifts and trigger volumes from the BSP, new FPSMovementProfile(),
+        the exact V2NetworkClient step order of 19.1
+output: one JSON line per step: position, velocity (full f64), grounded,
+        knockback age, saveState(), lift states, water level, onLadder
+```
+
+Command lists come from three places: hand-written scripts for each technique
+in SHAG's `MOVEMENT_TECHNIQUES.md` (strafe jump, bunny hop, crouchslide, wall
+jump, ledge grab, ladder, swim, teleporter, jumppad, lift); a fuzzer that
+produces random but plausible inputs; and real play, captured by logging
+`InputHistory` from the browser client in a local match. Rust and TypeScript
+must agree to the bit on every step; any difference is printed with the step
+number and the first field that differs.
+
+This harness needs no server and no network, so it can run in CI on every
+SHAG change, next to the golden protocol vectors of 18.6.
+
+### 19.8 What the Rust simulation crate looks like
+
+```rust
+// washoi::simulation
+pub struct MovementProfile {
+    config: MovementConfig,            // copied from DEFAULT_FPS_MOVEMENT_CONFIG
+    state: MovementProfileState,       // everything saveState() returns, Clone
+    jumppads: Vec<JumppadVolume>,
+    teleporters: Vec<TriggerVolume>,
+    pub speed_bonus: f64,
+}
+
+impl MovementProfile {
+    pub fn simulate(&mut self, pos: DVec3, vel: DVec3, input: &MovementInput,
+                    dt: f64, world: &dyn CollisionWorld) -> MovementResult { /* 19.1 */ }
+    pub fn save_state(&self) -> MovementProfileState { self.state.clone() }
+    pub fn load_state(&mut self, s: &MovementProfileState) { self.state = s.clone(); }
+    pub fn determinism_fingerprint(&self) -> String { /* 19.3 */ }
+}
+
+pub struct MovementInput {
+    pub direction: DVec3,   // already sanitized and rounded to f32 (19.6)
+    pub pitch: f64,
+    pub yaw: f64,
+    pub buttons: u16,
+    pub sequence: u32,
+    pub sim_step: u32,      // = sequence on the client
+}
+```
+
+`CollisionWorld` is a trait in `shagger_shared::collision`, implemented by
+`SharedCollisionWorld<B: SweepBackend>` with the Q3 backend in
+`shagger::physics`. The simulation never sees the renderer, so `washoi`'s
+simulation module and its harness build without `wgpu`.
+
+### 19.9 Estimate update for milestone 3
+
+Round 1 estimated 4 to 6 weeks. With the harness design above it splits into:
+BSP parse and collision backend, about 2 weeks; movement profile and the three
+state machines, about 1.5 weeks; lifts, triggers, liquid and ladder, about
+1 week; `sim:dump`, the scripted cases and the fuzzer, about 1 week; chasing
+the last differences (hypot, sin, ordering), up to 1 week. That is still 4.5 to
+6.5 weeks, now with each part's acceptance test named.
+
+### 19.10 Changes to earlier sections
+
+- 6.2: `Math.hypot` is used by the simulation after all (the sanitizer on every
+  command, and the ledge grab), so `js_hypot` is required, not optional.
+- 6.3: replaced by 19.7.
+- 18.1 point 8: corrected in 19.5.
