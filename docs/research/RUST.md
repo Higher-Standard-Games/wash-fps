@@ -1,6 +1,6 @@
 # A native Washoi client in Rust
 
-Opened: October 31, 2026. Status: research, round 1. No port code yet.
+Opened: October 31, 2026. Status: research, rounds 1 and 2. No port code yet.
 
 **End goal:** a native Washoi game client, written in Rust, that connects to the
 servers that run today (`wss://eu.washoi.net`, `wss://us.washoi.net`), plays a
@@ -38,10 +38,11 @@ Paths starting `src/` are in SHAG; the others are in this repository.
 11. [Layer 8: HUD, menus and lobby UI](#11-layer-8-hud-menus-and-lobby-ui)
 12. [Module to crate map](#12-module-to-crate-map)
 13. [Translating TypeScript patterns to Rust](#13-translating-typescript-patterns-to-rust)
-14. [Proposed workspace](#14-proposed-workspace)
+14. [Proposed workspace: the SHAGGER engine and Washoi](#14-proposed-workspace-the-shagger-engine-and-washoi)
 15. [Milestones and estimates](#15-milestones-and-estimates)
 16. [Risks and things to settle](#16-risks-and-things-to-settle)
 17. [Next rounds](#17-next-rounds)
+18. [Round 2: the protocol at function level](#18-round-2-the-protocol-at-function-level)
 
 ---
 
@@ -837,37 +838,40 @@ in round 8; not the default.
 
 ## 12. Module to crate map
 
+`shagger` and `shagger_shared` are the SHAGGER engine, the Rust counterpart of
+SHAG; `washoi` is the game. Section 14 sets out which side each piece is on.
+
 | SHAG / Washoi module | Rust module | Main crates | Translation |
 | --- | --- | --- | --- |
-| `src/shared/net/BinaryProtocol.ts` | `shag_shared::net::binary` | (none) | 1:1 |
-| `src/shared/net/{GameState,Entity,Component}.ts` | `shag_shared::net::state` | (none) | 1:1, typed structs replace component maps |
-| `src/engine/network/protocol/MessageCodec.ts` | `shag_engine::network::protocol` | (none) | 1:1 |
-| `src/engine/network/client/{SnapshotReceiver,SnapshotBuffer,ClockSync,ConnectionWatchdog,NetGraph}.ts` | `shag_engine::network::client` | (none) | 1:1 |
-| `src/engine/network/client/hosts/NetworkGameHost.ts` | `shag_engine::network::host` | `tokio`, `crossbeam-channel` | 1:1 minus the legacy prediction path |
-| `src/engine/network/client/transport/*` | `shag_engine::network::transport` | `tokio-tungstenite`, `rustls`, `webpki-roots`; later `quinn` or `wtransport` | trait 1:1 |
-| `src/lobby/LobbyClient.ts`, `types.ts` | `shag_engine::lobby` | `serde`, `serde_json` | 1:1 |
-| `src/shared/server/*` | `shag_shared::server` | `serde` | 1:1 |
-| `src/shared/{bsp,collision,entities,demo}` | `shag_shared::{bsp,collision,entities,demo}` | `flate2` | 1:1 |
-| `src/engine/physics/{SweepCollisionBackend,FacetBevels,PatchTessellator,CollisionSpatialIndex,ContentFlags}.ts` | `shag_engine::physics` | `glam` (f64) | 1:1 |
+| `src/shared/net/BinaryProtocol.ts` | `shagger_shared::net::binary` | (none) | 1:1 |
+| `src/shared/net/{GameState,Entity,Component}.ts` | `shagger_shared::net::state` | (none) | 1:1, typed structs replace component maps |
+| `src/engine/network/protocol/MessageCodec.ts` | `shagger::network::protocol` | (none) | 1:1 |
+| `src/engine/network/client/{SnapshotReceiver,SnapshotBuffer,ClockSync,ConnectionWatchdog,NetGraph}.ts` | `shagger::network::client` | (none) | 1:1 |
+| `src/engine/network/client/hosts/NetworkGameHost.ts` | `shagger::network::host` | `tokio`, `crossbeam-channel` | 1:1 minus the legacy prediction path |
+| `src/engine/network/client/transport/*` | `shagger::network::transport` | `tokio-tungstenite`, `rustls`, `webpki-roots`; later `quinn` or `wtransport` | trait 1:1 |
+| `src/lobby/LobbyClient.ts`, `types.ts` | `shagger::lobby` | `serde`, `serde_json` | 1:1 |
+| `src/shared/server/*` | `shagger_shared::server` | `serde` | 1:1 |
+| `src/shared/{bsp,collision,entities,demo}` | `shagger_shared::{bsp,collision,entities,demo}` | `flate2` | 1:1 |
+| `src/engine/physics/{SweepCollisionBackend,FacetBevels,PatchTessellator,CollisionSpatialIndex,ContentFlags}.ts` | `shagger::physics` | `glam` (f64) | 1:1 |
 | `simulation/`, `liquid/LiquidVolumeSampler.ts` | `washoi::simulation`, `washoi::liquid` | `glam`, `libm` | 1:1 |
 | `shared/` (Washoi entities, items, bsp helpers) | `washoi::shared` | `serde` | 1:1 |
 | `client/V2NetworkClient.ts`, `InputHistory.ts`, `RemotePlayerLogic.ts` | `washoi::client::net` | (none) | 1:1 |
-| `src/engine/core/{EventBus,GameTimer,Cvar,GamePaths}.ts` | `shag_engine::core` | `directories`, `serde` | adapted |
-| `src/engine/loader/pk3/*` | `shag_engine::loader::pk3` | `zip`, `reqwest`, `sha2` | 1:1 logic, new I/O |
-| `src/engine/loader/bsp/BspLoader.ts` | `shag_engine::loader::bsp` | `bytemuck` | 1:1 |
-| `src/engine/loader/bsp/BspMeshBuilder.ts`, `mesh/*` | `shag_engine::loader::bsp::mesh` | `glam` | logic 1:1, output becomes GPU buffers |
-| `src/engine/loader/shader/Q3ShaderParser.ts`, `Q3ShaderTypes.ts`, `Q3StageEvaluation.ts` | `shag_engine::loader::shader` | (none) | 1:1 |
-| `src/engine/loader/shader/*Plugin.ts`, `Q3ShaderMaterialFactory.ts` | `shag_engine::render::q3` | `wgpu` | rewritten, WGSL math reused |
-| `src/engine/loader/texture/*` | `shag_engine::loader::texture` | `image`, `ktx2`, Basis Universal transcoder | replaced |
-| `src/engine/loader/model/*` | `shag_engine::loader::model` | `gltf` | MD3 1:1, glTF by crate |
-| `src/engine/{rendering,lighting,sprites}` | `shag_engine::render` | `wgpu` | rewritten |
-| `src/engine/effects`, `src/engine/weapon` | `shag_engine::{effects,weapon}` | `wgpu` | logic 1:1, drawing rewritten |
-| `src/engine/animation` | `shag_engine::animation` | `gltf` | rewritten |
-| `src/engine/{camera,viewport}` | `shag_engine::{camera,viewport}` | `glam` | mostly 1:1 |
-| `src/engine/input` | `shag_engine::input` | `winit` | adapted |
-| `src/engine/AudioManager.ts`, `src/engine/audio` | `shag_engine::audio` | `kira`, `symphonia` | adapted |
-| `src/engine/console` | `shag_engine::console` | (none) | registry 1:1 |
-| `src/engine/ui`, `client/hud`, `client/settings`, lobby views | `shag_engine::ui`, `washoi::client::hud`, `washoi::client::ui` | `egui`, `egui-wgpu`, `egui-winit` | rewritten |
+| `src/engine/core/{EventBus,GameTimer,Cvar,GamePaths}.ts` | `shagger::core` | `directories`, `serde` | adapted |
+| `src/engine/loader/pk3/*` | `shagger::loader::pk3` | `zip`, `reqwest`, `sha2` | 1:1 logic, new I/O |
+| `src/engine/loader/bsp/BspLoader.ts` | `shagger::loader::bsp` | `bytemuck` | 1:1 |
+| `src/engine/loader/bsp/BspMeshBuilder.ts`, `mesh/*` | `shagger::loader::bsp::mesh` | `glam` | logic 1:1, output becomes GPU buffers |
+| `src/engine/loader/shader/Q3ShaderParser.ts`, `Q3ShaderTypes.ts`, `Q3StageEvaluation.ts` | `shagger::loader::shader` | (none) | 1:1 |
+| `src/engine/loader/shader/*Plugin.ts`, `Q3ShaderMaterialFactory.ts` | `shagger::render::q3` | `wgpu` | rewritten, WGSL math reused |
+| `src/engine/loader/texture/*` | `shagger::loader::texture` | `image`, `ktx2`, Basis Universal transcoder | replaced |
+| `src/engine/loader/model/*` | `shagger::loader::model` | `gltf` | MD3 1:1, glTF by crate |
+| `src/engine/{rendering,lighting,sprites}` | `shagger::render` | `wgpu` | rewritten |
+| `src/engine/effects`, `src/engine/weapon` | `shagger::{effects,weapon}`, Washoi weapon effects in `washoi::weapons` (14.2) | `wgpu` | logic 1:1, drawing rewritten |
+| `src/engine/animation` | `shagger::animation` | `gltf` | rewritten |
+| `src/engine/{camera,viewport}` | `shagger::{camera,viewport}` | `glam` | mostly 1:1 |
+| `src/engine/input` | `shagger::input` | `winit` | adapted |
+| `src/engine/AudioManager.ts`, `src/engine/audio` | `shagger::audio` | `kira`, `symphonia` | adapted |
+| `src/engine/console` | `shagger::console` | (none) | registry 1:1 |
+| `src/engine/ui`, `client/hud`, `client/settings`, lobby views | `shagger::ui`, `washoi::client::hud`, `washoi::client::ui` | `egui`, `egui-wgpu`, `egui-winit` | rewritten |
 | `client/RagdollSystem.ts`, `GibSystem.ts` | `washoi::client::ragdoll` | `rapier3d` | rewritten |
 | `Game.ts`, `FPSPlayer.ts`, `camera/FPSController.ts`, `world/` | `washoi::game`, `washoi::camera`, `washoi::world` | | logic 1:1 |
 | `client/main.ts` | `washoi` binary `main.rs` | `winit`, `tracing` | adapted |
@@ -894,43 +898,90 @@ quickly and must agree with each other.
 | String ids for entities and players | An interned id (`Arc<str>`, or a `u32` from a per-connection interner) so maps hash cheaply. The wire stays strings. |
 | Duck typing (`typeof sim.spawnPlayer === "function"`) | Traits, or just the concrete type: the Rust client has one simulation. |
 | Promises, `background(...)`, `setInterval` | The network and downloads run on a `tokio` runtime; the frame loop polls channels. Timers become checks against the frame clock. |
-| Service registries (`GameplayMapLauncher`, `NetworkConnector`, `GameFrameHook`, ...) | Traits implemented by the `washoi` crate and passed to `shag_engine` at startup, which keeps the "engine must not import the game" rule as a crate dependency rule the compiler enforces. |
+| Service registries (`GameplayMapLauncher`, `NetworkConnector`, `GameFrameHook`, ...) | Traits implemented by the `washoi` crate and passed to `shagger` at startup, which keeps the "engine must not import the game" rule as a crate dependency rule the compiler enforces. |
 | `performance.now()`, `Date.now()` | `Instant`, and `SystemTime` milliseconds as `f64` only where the wire needs them. |
 
 The last row deserves a note: SHAG already separates engine and game by
 convention and by an audit script (`docs/research/engine-game-split-*.md`). In
-Cargo, `shag_engine` simply cannot depend on `washoi`, so the rule becomes free.
+Cargo, `shagger` simply cannot depend on `washoi`, so the rule becomes free.
 
 ---
 
-## 14. Proposed workspace
+## 14. Proposed workspace: the SHAGGER engine and Washoi
 
-Keep the folder names so a TypeScript path points straight at its Rust file.
+SHAG gets a Rust counterpart named **SHAGGER**. Everything that is rendering,
+core or otherwise not specific to Washoi goes into SHAGGER; Washoi is a game on
+top of it, exactly as wash-fps sits on SHAG today. Folder names inside each
+crate follow the TypeScript, so a SHAG path points straight at its SHAGGER file.
 
 ```text
 washoi-native/
-├─ Cargo.toml                  workspace
+├─ Cargo.toml                    workspace
 ├─ crates/
-│  ├─ shag_shared/             ← src/shared       (no GPU, no window, no async)
-│  │  └─ src/{net,server,bsp,collision,entities,demo}/
-│  ├─ shag_engine/             ← src/engine (minus editor, server)
+│  ├─ shagger_shared/            ← src/shared        (no GPU, no window, no async)
+│  │  └─ src/{net,server,bsp,collision,entities,demo,settings}/
+│  ├─ shagger/                   ← src/engine (minus editor and server) + src/lobby/LobbyClient.ts
 │  │  └─ src/{core,network,lobby,physics,movement,loader,render,lighting,
-│  │          effects,weapon,animation,camera,viewport,input,audio,console,ui}/
-│  ├─ washoi/                  ← wash-fps (client side)
-│  │  └─ src/{simulation,liquid,shared,world,camera,console,client,game.rs,fps_player.rs,main.rs}
+│  │          effects,sprites,animation,camera,viewport,input,audio,console,ui}/
+│  ├─ washoi/                    ← wash-fps, client side
+│  │  └─ src/{simulation,liquid,shared,world,camera,console,client,weapons,
+│  │          game.rs,fps_player.rs,main.rs}
 │  └─ tools/
-│     ├─ proto_dump/           demo and golden-vector decoder (milestone 1)
-│     ├─ headless_client/      lobby + match client without a window (milestones 2–3)
-│     └─ sim_parity/           tick-by-tick movement diff against `sim replay`
-└─ reference/                  SHAG checkout with wash-fps at src/games/fps, pinned
+│     ├─ proto_dump/             demo and golden-vector decoder (milestone 1)
+│     ├─ headless_client/        lobby + match client without a window (milestones 2–3)
+│     └─ sim_parity/             tick-by-tick movement diff against `sim replay`
+└─ reference/                    SHAG checkout with wash-fps at src/games/fps, pinned
 ```
 
-`shag_shared` stays free of GPU and async code so it can later serve a Rust
+Dependency rule, enforced by Cargo: `washoi → shagger → shagger_shared`, never
+the other way. SHAG keeps "engine must not import the game" by convention and an
+audit script (`docs/research/engine-game-split-*.md` in SHAG); in SHAGGER the
+compiler keeps it.
+
+### 14.1 What goes where
+
+| SHAGGER (`shagger`, `shagger_shared`) | Washoi (`washoi`) |
+| --- | --- |
+| Binary reader and writer, message framing, snapshot envelope, baselines, acks, clock sync, watchdog, resume, transports | Washoi's event catalogue and `match_state` content (see 14.2) |
+| Generic game state: entities, players, components, pickup mask | Entity id conventions (`player_`, `proj_`, `item_`) and what each entity means |
+| Lobby client and lobby message types (SHAG owns `src/lobby`) | Lobby screens, rooms, welcome and terms dialogs |
+| Collision world, Q3 brush trace, patches, lifts, triggers, BSP tables | Movement profile and its parts (slide, wall jump, ledge grab, swim, ladder, knockback), liquid sampling |
+| PK3, published index, downloads, BSP, Q3 shaders, textures, MD3, glTF, sounds | Washoi data: entity defs, weapon catalogue, playlists |
+| Renderer: world, Q3 stages, lighting, sky, fog, water surface, sprites, particles, post-processing | Washoi visuals built from those parts: weapon effects (rail, voltaic, blade), gibs, quad glow, cartoon hit glow |
+| Skeletal animation, model instancing | Player model choice and animation states |
+| Camera controllers, first-person view effects | `FPSController`, spectating, death camera |
+| Input actions and bindings, console, cvars, settings storage | Washoi's action map (`FPSActions`), commands, settings pages |
+| Audio engine, buses, spatial falloff, music playlists | `FPS*Audio`, announcer |
+| UI toolkit: 2D HUD batch, egui integration, theme, fonts, loading screens | The 27 HUD widgets, scoreboard, menus |
+
+### 14.2 Where SHAGGER should not copy SHAG one to one
+
+A few things live in SHAG today but are Washoi's in substance. The plan keeps
+the code one to one and only moves the file to the side it belongs to:
+
+- **The snapshot event list.** `BinaryProtocol.ts` hardcodes Washoi's 25 event
+  codes (weapon fire, voltaic beam, bomb-era `agent_directives` and so on), and
+  `MatchStateSnapshot` carries the bomb objective. In SHAGGER the snapshot codec
+  calls an `EventCodec` trait for the event section; Washoi implements it with
+  the exact layouts of section 4.5 and 18.2. The bytes on the wire do not change.
+- **`src/engine/weapon` (12,331 lines).** The framework (view model, bob, recoil,
+  switch and reload motion, barrels, point light pool, effect geometry) is
+  generic and goes to SHAGGER. The effects named after Washoi weapons
+  (`rail`, `voltaic`, `WeaponSlash`, `BladeEnvironment`) go to `washoi::weapons`.
+- **`src/engine/animation`.** The blender and rig code is generic; the humanoid
+  player rig and player model assets are Washoi's.
+
+SHAG's own split log (`ENGINE_GAME_SPLIT_*.md`) lists more of these; round 9
+checks each against it.
+
+`shagger_shared` stays free of GPU and async code so it can later serve a Rust
 game server or a WebAssembly build without changes.
 
 Where the code lives is still open (section 16). A separate repository keeps the
 Rust toolchain and CI apart from the TypeScript gates, and pins the TypeScript
 it was translated from as a submodule, the same way SHAG pins wash-fps today.
+SHAGGER could later get its own repository, as SHAG has, once a second game uses
+it.
 
 ---
 
@@ -943,7 +994,7 @@ measured; each later round should revise its own layer.
 | # | Milestone | Proves | Weeks |
 | ---: | --- | --- | ---: |
 | 0 | Workspace, CI, reference checkout, TypeScript golden-vector scripts | the harness exists | 1 |
-| 1 | `shag_shared::net` + `MessageCodec`: decode every demo and every delta vector identically | the wire format | 2 |
+| 1 | `shagger_shared::net` + `MessageCodec`: decode every demo and every delta vector identically | the wire format | 2 |
 | 2 | Headless client: lobby auth, `lobby:connect`, game handshake, acks, clock sync, watchdog, resume; joins as spectator and prints the scoreboard | live servers accept us | 2–3 |
 | 3 | BSP parse, collision, lifts, triggers, liquid, the full movement profile; `sim_parity` clean on all maps | the simulation matches | 4–6 |
 | 4 | `V2NetworkClient`, `InputHistory`, `SnapshotBuffer`; headless client plays with scripted input and mostly confirms | prediction matches the server | 2 |
@@ -1001,7 +1052,7 @@ measured; each later round should revise its own layer.
 
 | Round | Layer | Questions to answer |
 | --- | --- | --- |
-| 2 | Protocol, function level | Full Rust type definitions for `GameState`, all events and `MatchStateSnapshot`; the golden-vector scripts written out; the lobby message enum; the exact JoinReject and ServerMessage cases the server sends |
+| 2 (done, section 18) | Protocol, function level | Full Rust type definitions for `GameState`, all events and `MatchStateSnapshot`; the golden-vector scripts written out; the lobby message enum; the exact JoinReject and ServerMessage cases the server sends |
 | 3 | Simulation | Each movement file mapped function by function; every cvar that reaches the simulation; the `sim replay` JSON dump format; a check of `libm` against V8 on recorded inputs |
 | 4 | Assets | The production data URL and caching headers; pk3 index entries in detail; which texture and model formats the shipped pk3s actually contain, by count |
 | 5 | Renderer | Q3 stage features used by shipped maps; pass list and pipeline keys; the WGSL fragments lifted into stand-alone shaders; which Babylon Lite groundwork packages apply |
@@ -1010,3 +1061,303 @@ measured; each later round should revise its own layer.
 | 8 | UI | HUD widget inventory with each widget's `HUDState` inputs; egui versus web view spike |
 | 9 | Game glue | `Game.ts` and `FPSController.ts` split into Rust modules; the frame order written down as code |
 
+
+---
+
+## 18. Round 2: the protocol at function level
+
+Round 2 reads the server side of every message the client handles, because
+several rules that a client has to follow are only visible there. Sources:
+`server/SnapshotBuilder.ts`, `server/SnapshotBroadcaster.ts`,
+`server/GameServer.ts`, `server/MovementValidator.ts`,
+`client/SnapshotStateStore.ts`, `client/MatchStateManager.ts`, SHAG's
+`src/engine/network/core/SnapshotEvent.ts`, `src/lobby/*` and
+`src/shared/demo/DemoReader.ts`.
+
+### 18.1 Findings that change the client
+
+These were not visible from the codec alone. Each is something a Rust client
+would get wrong if it only translated `BinaryProtocol.ts`.
+
+1. **The server leaves out state you already acknowledged.** In
+   `SnapshotBroadcaster.leaveOutKnown`, two kinds of "lasting" state are sent
+   only until the client acks a snapshot that carried them: other players'
+   `weapon_state`, and the scoreboard roster (`standings` and `spectators`)
+   inside `match_state`. A `match_state` without the roster carries
+   `rosterOmitted: true`. Every 125th snapshot (about 2 s) sends everything
+   again as a safety net. So the client **must** keep the last `weapon_state`
+   per entity and the last roster for the whole connection, and must store them
+   before anything else runs on the snapshot, because the ack has already gone
+   out (`client/SnapshotStateStore.ts`, `MatchStateManager.processEvent`).
+   Your own `weapon_state` is always sent.
+2. **Absent is not the same as removed.** With PVS on, the server drops entities
+   the viewer cannot see (`filterStateForClient`). Dead players are left out of
+   `entities` entirely but stay in `players` and still get `combat_state`
+   (`SnapshotBuilder.ts` around line 250). Always present: your own entity,
+   dropped weapons (`item_*`), and teammates while you are a dead S&D player
+   spectating. The renderer should treat "not in this snapshot" as "do not draw",
+   not as "destroyed with an effect".
+3. **The wire carries no entity type.** The type is in the id:
+   `player_<n>` (players, `ClientEntityKey.ts`), `proj_<n>` (projectiles),
+   `item_<n>` (dropped weapons). Player ids in `players` use the same
+   `player_<n>` form. Entity ids are never reused within a match.
+4. **Some fields are zeroed for you.** `combat_state` for a player you are not
+   allowed to see has `health` and `armor` set to 0; only `dead` is real. You
+   see your own, your team's in team modes, and everyone's as a spectator.
+   `knockback_state` arrives only for your own entity, chat only if you are a
+   recipient, `agent_directives` only for you.
+5. **Ping is measured from your acks.** The server times the round trip from
+   a snapshot to its `Ack` (`recordAckRoundTrip`). Ack as soon as a snapshot
+   decodes, on the network thread, not at the next rendered frame, or your
+   ping on the scoreboard reads high. (Lag compensation uses the view tick, not
+   this ping.)
+6. **Pings are rate-limited.** A `Ping` within 25 ms of the last one gets no
+   `Pong` (`PING_MIN_GAP_MS`). The ClockSync burst (100 ms apart) is fine.
+7. **Commands are checked.** `sanitizeCommand` rejects non-finite values;
+   pitch beyond ±π/2 or a direction longer than 1 is clamped and counted as a
+   violation; `MovementValidator` drops commands over a per-tick cap and
+   against a 2-second real-time budget. A Rust client must clamp pitch itself
+   and normalise the direction exactly as `Game.sendInput` does.
+8. **Sequences start at 1 and never go back.** The client's counter starts
+   at 1 (`NetworkGameHost.commandSequence`). On `Resume` the server resets its
+   own last-seen sequence, so the client simply continues counting.
+9. **Joining is two steps.** `Join` always registers you as a spectator with an
+   entity id reserved, and answers with Welcome, JoinAccept and ResumeToken.
+   Playing needs `JoinGame`. The server sends positions and velocities already
+   rounded to `f32` (`SnapshotBuilder.f32`), so its own history matches what
+   the client decodes.
+10. **`MatchPhase` in JSON is a number**: Warmup 0, Countdown 1, Active 2,
+    PostGame 3, RoundEnd 4.
+
+### 18.2 Rust types for the snapshot
+
+Typed structs replace the component maps, keeping the decode rules of 4.5. The
+event enum follows `SnapshotEvent` in SHAG one to one (it is the union the
+server's `emit` is checked against), plus `lift_state`, which travels outside
+that union.
+
+```rust
+// shagger_shared::net::state
+pub struct GameState {
+    pub tick: u32,
+    pub server_timestamp: f64,      // server Date.now(), ms
+    pub acked_input_seq: u32,       // last command the server SIMULATED for us
+    pub entities: IndexMap<EntityId, NetEntity>, // wire order kept: the encoder iterates a Map
+    pub players: IndexMap<PlayerId, NetPlayer>,
+    pub events: Vec<GameEvent>,     // Washoi's catalogue, see 14.2
+    pub pickup_active: Option<BitVec>, // None when the payload had no tail
+}
+
+pub struct NetPlayer {
+    pub entity_id: EntityId,
+    pub name: String,
+    pub score: i32,
+    pub deaths: u32,
+    pub ping: u16,
+    pub team: String,               // "udon" | "soba" | "ffa" | "spectator"
+}
+
+// washoi::shared::net::events
+pub enum GameEvent {
+    CombatState { entity_id: EntityId, health: u16, armor: u16, dead: bool },
+    MatchState(Box<MatchStateEvent>),
+    WeaponState(WeaponState),
+    WeaponFire { entity_id: EntityId, weapon_id: String, origin: Vec3, dir: Vec3,
+                 pellets: Option<(i32, f32)> },               // code 24
+    WeaponCharge { entity_id: EntityId, weapon_id: String, charging: bool },
+    WeaponChain { entity_id: EntityId, points: Vec<Vec3> },
+    VoltaicBeam(BeamHit),
+    ElectroRail(BeamHit),
+    ProjectileSpawn { entity_id: EntityId, def_id: String },
+    ProjectileImpact { def_id: String, pos: Vec3, normal: Vec3 },
+    ItemPickup { pickup_id: i16, weapon_id: String, entity_id: EntityId,
+                 dropped_weapon_id: String, pos: Vec3 },
+    WeaponDrop { entity_id: EntityId, weapon_id: String, pos: Vec3, vel: Vec3 },
+    Damage { entity_id: EntityId, attacker_id: String, damage: u16, weapon_id: String,
+             pos: Vec3, hit_location: Option<HitLocation>, pain_tier: Option<u8> }, // 10, 23, 25
+    Death { entity_id: EntityId, killer_id: String, weapon_id: String, damage_type: String,
+            final_damage: u16, pos: Vec3, vel: Vec3, kb_dir: Vec3 },
+    Award { award_type: String, player_id: String, player_name: String,
+            target_name: String, value: u16 },
+    Chat { sender_id: String, sender_name: String, team: String, text: String },
+    PickupNotify { entity_id: EntityId, label: String },
+    PowerupState { entity_id: EntityId, kind: String, seconds: u16 },
+    PowerupSpawn { kind: String, pos: Vec3 },
+    AgentDirectives { entity_id: EntityId, directives: serde_json::Value },
+    LiftState(Vec<LiftState>),
+    KnockbackState { entity_id: EntityId, age_ticks: Option<u8> }, // 255 on the wire = None
+}
+
+pub struct BeamHit { pub entity_id: EntityId, pub origin: Vec3, pub dir: Vec3,
+                     pub end: Vec3, pub normal: Vec3, pub impact_kind: u8 } // 0..=2
+
+#[derive(Deserialize)] #[serde(rename_all = "camelCase")]
+pub struct WeaponState {
+    pub entity_id: EntityId,
+    pub current_weapon: String,
+    pub weapons: Vec<String>,                       // JSON string on the wire
+    pub ammo: HashMap<String, Ammo>,                // JSON string on the wire
+    pub reloading: bool,
+    pub last_fire_tick: u32,
+}
+#[derive(Deserialize)] pub struct Ammo { pub clip: i32, pub reserve: i32 }
+```
+
+`Vec3` here is `f32` as decoded; the simulation widens to `f64`. `IndexMap`
+keeps the server's order, which the golden-vector diff needs and which some
+client code (the first player in a list) may rely on.
+
+`match_state` is JSON with every field optional (`Partial<MatchStateSnapshot>`
+in `SnapshotEvent.ts`):
+
+```rust
+#[derive(Deserialize, Default)] #[serde(rename_all = "camelCase", default)]
+pub struct MatchStateEvent {
+    pub phase: u8,                       // MatchPhase as a number
+    pub time_remaining: f64,
+    pub time_elapsed: Option<f64>,
+    pub ready_count: u32,
+    pub total_players: u32,
+    pub gametype_name: String,
+    pub score_limit: i32,
+    pub team_based: Option<bool>,
+    pub team_scores: Option<HashMap<String, i32>>,
+    pub player_teams: Option<HashMap<String, String>>,
+    pub team_names: Option<HashMap<String, String>>,
+    pub standings: Option<Vec<Standing>>,       // absent when roster_omitted
+    pub spectators: Option<Vec<SpectatorEntry>>,
+    pub roster_omitted: bool,
+    pub winner: Option<MatchWinner>,            // { kind: player|team|draw, id?, name? }
+    pub overtime: Option<u32>,
+    pub loadouts: Option<String>,               // "round" | "respawn"
+    pub flow: Option<String>,                   // "single" | "continuous"
+    pub round: Option<u32>,
+    pub team_roles: Option<HashMap<String, String>>,
+    pub round_state: Option<String>,
+    pub objective: Option<Objective>,           // tagged by "kind"; only "bomb" today
+    pub round_result: Option<RoundResult>,
+    pub explosion: Option<BombExplosion>,
+}
+```
+
+Unknown fields must be ignored (serde's default) so a newer server does not
+break an older native client. The full field list for `Objective`
+(`BombObjectiveSnapshot`), `RoundResult` and `BombExplosionEvent` is in
+`src/shared/server/gametype/GametypeTypes.ts` lines 68, 317 and 361.
+
+### 18.3 Server messages and refusals
+
+`JoinReject` (`0x03`) is defined but the server never sends it. Refusals come
+as a `ServerMessage` (type `"info"`, `"error"` or `"queue"`) or as a closed
+socket. From `GameServer.ts`:
+
+| What happens | How the client hears it |
+| --- | --- |
+| Join with an invalid or used ticket | socket closed with reason `invalid match ticket` |
+| Server full | close code 1013, `Server full` (`WebSocketTransport.ts:195`) |
+| Resume on a seat that is gone | error: "Your session has expired — rejoin from the lobby." |
+| Resumed from another connection | old socket closed: `resumed on another connection` |
+| JoinGame after the match ended | error: "This match has ended." |
+| JoinGame on a seat taken | error: "That seat is no longer available." |
+| JoinGame without a ticket on a lobby server | error: "A match ticket is required to play." |
+| JoinGame too soon after the last | error: "Wait a moment before joining again." |
+| S&D before choosing a kit | info: "Choose a loadout before joining." |
+| Round in progress | info: "Round in progress — you are in from the next one." |
+| Server full of players | queue messages, then info "You have been promoted from the challengers queue!" |
+| Team chat without a team | info: "Team chat is only available to players on a team." |
+| Match over | socket closed: `match over` or `match over — returning to lobby` |
+| Nobody playing | info: "Nobody is playing, so this match is closing." |
+
+The browser shows these texts as they are, so the Rust client can too. Mapping
+the `"error"` ones to a typed reason would be nicer, but needs a code on the
+wire; it belongs with the protocol version in 16.1.
+
+### 18.4 The lobby, completed
+
+`src/lobby/types.ts` is not the whole protocol. The server also sends
+`lobby:chat_message` (room chat, `{ lobbyId, from, fromId, text, ts }`),
+`lobby:shuffle_progress` (`{ votes, needed }`), `queue:left` and `stats:error`
+(`{ requestId, reason }`), none of which have an interface there. And
+`lobby:created` is reused as the full room state whenever you create, join or
+drop into a room, not only on creation.
+
+So the Rust enum gets a catch-all, and these four are added by hand:
+
+```rust
+#[derive(Deserialize)] #[serde(tag = "type")]
+pub enum LobbyIn {
+    #[serde(rename = "welcome")] Welcome(Welcome),
+    #[serde(rename = "auth:error")] AuthError { code: String, online: Option<u32>,
+        #[serde(rename = "maxPlayers")] max_players: Option<u32>,
+        #[serde(rename = "retryAfterSec")] retry_after_sec: Option<u32> },
+    #[serde(rename = "lobby:created")] RoomState { lobby: MatchLobbyInfo },
+    #[serde(rename = "lobby:connect")] Connect(LobbyConnect),
+    #[serde(rename = "lobby:chat_message")] RoomChat(RoomChat),
+    #[serde(rename = "lobby:shuffle_progress")] ShuffleProgress { votes: u32, needed: u32 },
+    #[serde(rename = "queue:left")] QueueLeft,
+    #[serde(rename = "stats:error")] StatsError { #[serde(rename = "requestId")] request_id: String, reason: String },
+    // ... one variant per remaining server message in types.ts (about 40) ...
+    #[serde(other)] Unknown,
+}
+```
+
+`add_lobby_bot` goes to the bot server only, and the `dev:*` messages are
+development tools; the native client needs neither. The auth error codes are
+`unknown_key`, `rate_limited`, `already_authenticated` and `lobby_full`.
+
+### 18.5 The demo file, for the golden corpus
+
+`DemoReader.ts`, all little-endian, strings as in 4.2, the whole file
+optionally gzip (`1f 8b`):
+
+```text
+"SHAG" version:u8 (1..=6)
+map:str gametype:str tickRate:u8 snapshotRate:u8 startTimeHigh:u32 startTimeLow:u32
+v2+: matchId:str
+v4+: visibility:u8 (0 public, 1 private)
+playerCount:u8, then per player: playerId:str name:str team:str [v2+: accountId:str]
+frames: tick:u32 frameLen:u32 raw-snapshot[frameLen] [v3+: inputLen:u32 inputs[inputLen]]
+index: frameCount:u32, then frameCount × (tick:u32 offset:u32)
+trailer: durationMs:u32 indexOffset:u32          (the last 8 bytes)
+```
+
+Each frame is a full raw snapshot with no envelope, decoded without a baseline.
+Version 6 changes only the `match_state` JSON (bomb brush state), so the
+decoder is the same from version 5 on.
+
+### 18.6 Golden vectors: the plan
+
+Three sets of fixtures, each produced by the TypeScript and checked by Rust:
+
+1. **Demo frames.** A Node script reads every `.shagdemo` with `DemoReader`
+   and writes one JSON line per frame. Rust decodes the same file with
+   `proto_dump` and writes the same JSON. The diff must be empty. This covers
+   full snapshots and every event the recordings contain.
+2. **Deltas.** A Node script takes consecutive demo frames, encodes frame *n*
+   against frame *n − k* with `MessageCodec.encodeSnapshot(state, baseline)`
+   for several *k*, and writes `{ baselineTick, bytes, expected }` per case.
+   Rust decodes against the same baseline. This exercises every carry-forward
+   rule in 4.5, including the movement view bytes and the powerup mask.
+3. **Messages.** Every encoder in `MessageCodec.ts` called with edge values
+   (empty strings, multi-byte UTF-8, the optional trailing fields present and
+   absent), written as hex. Rust both decodes them and re-encodes the
+   client-to-server ones byte for byte.
+
+Canonical JSON for the diff: object keys sorted, `undefined` fields dropped,
+and numbers compared after parsing rather than as text, because JavaScript and
+Rust print some floats differently (for example `1e21`) while meaning the same
+`f64`. The TypeScript decoder adds both
+`position` and `transform` for every entity; the script flattens components to
+the Rust shape before writing, so the diff compares meaning, not layout.
+
+Where the scripts live: wash-fps `scripts/rust-golden/` once the Rust work
+starts, run in CI after SHAG changes, so a protocol change fails the Rust
+fixtures the same day (risk 16.4).
+
+### 18.7 Changes to earlier sections
+
+- 4.4: `JoinReject` is never sent; refusals are listed in 18.3.
+- 4.5: absent entities may be out of view, not removed (18.1, point 2).
+- 16: the protocol version proposal should also carry a refusal code (18.3).
+- 16: `types.ts` is missing four server messages (18.4); worth adding there so
+  both clients read the same list.
