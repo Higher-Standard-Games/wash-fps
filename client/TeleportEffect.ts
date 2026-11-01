@@ -229,6 +229,9 @@ export class TeleportEffect {
           m.isPickable = false;
         }
         instance.anchor.setEnabled(false);
+        // A hidden ghost's rig would still be posed every frame, 52 bones a
+        // slot; it animates only while a teleport shows it
+        this.ghostManager.setAnimationActive(instance, false);
 
         this.ghostPool.push({ instance, material: mat, busy: false });
       }
@@ -341,6 +344,7 @@ export class TeleportEffect {
       if (anchor.rotationQuaternion) anchor.rotationQuaternion = null;
       anchor.rotation.set(0, yaw, 0);
       anchor.setEnabled(true);
+      this.ghostManager?.setAnimationActive(slot.instance, true);
       slot.instance.mesh.isVisible = true;
       for (const m of slot.instance.mesh.getChildMeshes()) {
         m.isVisible = true;
@@ -478,6 +482,7 @@ export class TeleportEffect {
           // Pooled ghost: hide + release, never dispose.
           try {
             fx.ghostSlot.instance.anchor.setEnabled(false);
+            this.ghostManager?.setAnimationActive(fx.ghostSlot.instance, false);
           } catch (_) {
             /* noop */
           }
