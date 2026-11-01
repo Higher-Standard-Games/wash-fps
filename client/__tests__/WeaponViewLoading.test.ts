@@ -358,7 +358,10 @@ describe("first-person prepared model sources", () => {
     expect(fill.canAffectMesh(worldMesh)).toBe(false);
     view.setPowerupOutlineOverride(true, new Color3(1, 0.3, 0), 0.3);
     await view.loadWeapon("riotgun");
-    expect(fill.isEnabled()).toBe(false);
+    // The light never toggles (each toggle is a new shader variant); guns are out of its layer
+    expect(fill.isEnabled()).toBe(true);
+    expect(internals().currentWeapon.meshes.some((mesh) => fill.canAffectMesh(mesh))).toBe(false);
+    expect(internals().currentWeapon.meshes.every((mesh) => !mesh.lightSources.includes(fill))).toBe(true);
     await view.loadWeapon("blade");
     expect(fill.isEnabled()).toBe(true);
     expect(internals().currentWeapon.meshes.find((mesh) => mesh.material)!.lightSources[0]).toBe(fill);

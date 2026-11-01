@@ -33,6 +33,7 @@ import { background } from "../../../engine/core/AsyncErrors";
 import { Cvar } from "../../../engine/core/Cvar";
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
 import { BspManager } from "../../../engine/loader/bsp/BspManager";
+import { prepareMaterial } from "../../../engine/loader/map/GpuPreparation";
 import { ModelInstanceCache } from "../../../engine/loader/model/ModelInstanceCache";
 import type { ModelLoadResult } from "../../../engine/loader/model/ModelLoader";
 import { bindLoaderLeftovers, disposeModelResources } from "../../../engine/loader/model/ModelSourceCache";
@@ -358,10 +359,26 @@ export class RemotePlayerRenderer {
 
   // ── Model Loading ────────────────────────────────────────────
 
-  /** Explicit readiness boundary for unattended demo benchmarks. */
+  /**
+   * Readiness boundary the match and demo loaders wait on behind the loading
+   * screen: the model is loaded and the shaders its first player draws with
+   * are compiled. Compiled effects stay cached (Effect.PersistentMode), so the
+   * throwaway instance leaves them for the real players.
+   */
   async waitForModels(): Promise<void> {
     await this.ensureModelLoaded();
     if (!this.modelManager?.isLoaded) throw new Error("Timedemo player model failed to load");
+    const instance = this.createModelInstance("shader-warmup");
+    if (!instance) return;
+    // Compiled, never drawn: readiness is checked on the material directly
+    instance.anchor.setEnabled(false);
+    try {
+      for (const mesh of [instance.mesh, ...instance.mesh.getChildMeshes()]) {
+        if (mesh.material) await prepareMaterial(mesh.material, mesh);
+      }
+    } finally {
+      this.modelManager?.disposeInstance(instance);
+    }
   }
 
   getPlaybackModelStats(): { alivePlayers: number; loadedBodies: number } {
