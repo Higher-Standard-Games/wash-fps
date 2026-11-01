@@ -1,7 +1,8 @@
 /**
  * FrameEffects — the client effect systems Game ticks every frame: gibs,
- * ragdolls, floating damage numbers, the damage overlay and cartoon hit
- * sprites. Each is loaded on first use and initialised once a scene exists.
+ * ragdolls, floating damage numbers and cartoon hit sprites, plus the damage
+ * overlay, which is only loaded here and animates itself. Each is loaded on
+ * first use and initialised once a scene exists.
  *
  * Moved out of Game.renderRemotePlayers unchanged. The systems are shared with
  * the event handlers through Game's event context (gibSystem, pendingGibSpawns,
@@ -10,7 +11,6 @@
 
 import type { Scene } from "@babylonjs/core/scene";
 import { logRejection } from "../../../engine/core/AsyncErrors";
-import type { DamageOverlay } from "../../../engine/ui/hud/DamageOverlay";
 import type { CartoonHitEffect } from "./CartoonHitEffect";
 import type { DamageNumbers } from "./DamageNumbers";
 import { devLog } from "./DevLog";
@@ -25,7 +25,7 @@ export class FrameEffects {
   private gibSystemLoading = false; // true while import() is pending
   pendingGibSpawns: PendingGibSpawn[] = [];
   private damageNumbers: DamageNumbers | null = null;
-  private damageOverlay: DamageOverlay | null = null;
+  private damageOverlayLoading = false;
   ragdollSystem: RagdollSystem | null = null;
   private ragdollSystemLoading = false;
   cartoonHit: CartoonHitEffect | null = null;
@@ -139,15 +139,17 @@ export class FrameEffects {
         });
     }
 
-    // Update damage overlay (directional red triangles + vignette)
-    if (this.damageOverlay) {
-      this.damageOverlay.update(dtSec);
-    } else {
+    // The damage overlay animates itself; load it once so the first hit finds it ready
+    if (!this.damageOverlayLoading) {
+      this.damageOverlayLoading = true;
       import("../../../engine/ui/hud/DamageOverlay")
         .then((m) => {
-          this.damageOverlay = m.DamageOverlay.getInstance();
+          m.DamageOverlay.getInstance();
         })
-        .catch(logRejection("FrameEffects"));
+        .catch((e) => {
+          this.damageOverlayLoading = false;
+          logRejection("FrameEffects")(e);
+        });
     }
 
     // Update cartoon hit effects (Warsow-style POW! sprites)

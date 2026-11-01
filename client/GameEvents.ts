@@ -568,7 +568,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
                 }
               }
 
-              // Trigger damage overlay (directional red triangles + vignette)
+              // Trigger damage overlay (vignette + glow on the edge facing the damage)
               import("../../../engine/ui/hud/DamageOverlay")
                 .then((m) => {
                   m.DamageOverlay.getInstance().show(event.damage, damageAngle);

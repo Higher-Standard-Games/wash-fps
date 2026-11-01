@@ -225,7 +225,7 @@ A breath gauge appears only while your head is underwater and disappears the mom
 
 ## Damage Direction Arrows
 
-When you are hit, an arrow around the crosshair points toward where the damage came from and fades away on its own.
+When you are hit, an arrow around the crosshair points toward where the damage came from and fades away on its own. The screen also flashes red at its edges, brightest on the side the damage came from; a harder hit flashes brighter and fades more slowly.
 
 ## Powerup Timer
 
