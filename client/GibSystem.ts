@@ -6,18 +6,25 @@
  * collision traces, tumble with random rotation, and fade out after 5s.
  *
  * Warsow-style: player "breaks digitally" into triangular fragments.
+ *
+ * Every shard is a thin instance: one mesh per shade draws all of that shade's
+ * shards, and a second, blended one draws those fading out, so a death costs a
+ * few draws however many shards fly.
  */
 
 import { Ray } from "@babylonjs/core/Culling/ray";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
-import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { Matrix, Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
+import "@babylonjs/core/Meshes/thinInstanceMesh";
 import type { Scene } from "@babylonjs/core/scene";
+import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
+import { prepareMaterial } from "../../../engine/loader/map/GpuPreparation";
 import { getCollisionManager } from "../../../engine/physics/CollisionManager";
 import { CollisionMasks } from "../../../engine/physics/ContentFlags";
-import { registerPooledMeshCandidate } from "../../../engine/rendering/PooledMeshCandidates";
+import { isSceneRendererPolicyApplied } from "../../../engine/rendering/SceneRendererPolicy";
 import { devLog } from "./DevLog";
 
 // ============================================================================
@@ -116,7 +123,8 @@ function paletteKey(color: GibColor): string {
 // ============================================================================
 
 interface Gib {
-  mesh: Mesh;
+  material: StandardMaterial;
+  scale: number;
   posX: number;
   posY: number;
   posZ: number;
@@ -149,6 +157,21 @@ export interface GibHandle {
 // GibSystem
 // ============================================================================
 
+/** One shade's shards as thin instances of the shard mesh; colour alpha fades the blended one. */
+interface GibBatch {
+  mesh: Mesh;
+  matrices: Float32Array;
+  colors: Float32Array;
+  count: number;
+}
+
+/** A shade's solid shards, and those in their last second and a half, which blend. */
+interface ShadeBatches {
+  solid: GibBatch;
+  fading: GibBatch;
+  fadeMaterial: StandardMaterial;
+}
+
 /** A shot-mask point trace, shared by every gib bounce test. */
 const GIB_TRACE = { radius: 0, contentMask: CollisionMasks.SHOT };
 
@@ -166,6 +189,11 @@ export class GibSystem {
   private palettes = new Map<string, StandardMaterial[]>();
   private templateMesh: Mesh | null = null;
   private nextGibGeneration = 0;
+  private batches = new Map<StandardMaterial, ShadeBatches>();
+  private readonly pose = new Matrix();
+  private readonly poseRotation = new Quaternion();
+  private readonly posePosition = new Vector3();
+  private readonly poseScaling = new Vector3();
 
   static getInstance(): GibSystem {
     if (!GibSystem.instance) {
@@ -193,9 +221,6 @@ export class GibSystem {
     if (this.scene) {
       // Dispose old resources from previous scene
       devLog(`[GibSystem] Re-initializing with new scene (old scene was stale)`);
-      for (const gib of this.gibs) {
-        gib.mesh.dispose();
-      }
       this.gibs = [];
       this.disposeMaterials();
       if (this.templateMesh) {
@@ -216,9 +241,6 @@ export class GibSystem {
   }
 
   dispose(): void {
-    for (const gib of this.gibs) {
-      gib.mesh.dispose();
-    }
     this.gibs = [];
     this.disposeMaterials();
     if (this.templateMesh) {
@@ -232,10 +254,8 @@ export class GibSystem {
   /** Remove active shards on seeks while keeping the mesh pool allocated. */
   clear(): void {
     this.nextGibGeneration++;
-    for (const gib of this.gibs) {
-      gib.active = false;
-      gib.mesh.setEnabled(false);
-    }
+    for (const gib of this.gibs) gib.active = false;
+    this.writeBatches();
   }
 
   // ========================================================================
@@ -250,11 +270,21 @@ export class GibSystem {
       mat.specularColor = Color3.Black();
       mat.backFaceCulling = false;
       mat.disableLighting = false;
+      // A palette is made at a death and drawn that frame, before the renderer
+      // policy reaches it: give it the light cap now, or its first frame and
+      // every one after compile different variants
+      if (isSceneRendererPolicyApplied(scene)) applySafeMaxSimultaneousLights(mat);
       return mat;
     });
   }
 
   private disposeMaterials(): void {
+    for (const batches of this.batches.values()) {
+      batches.solid.mesh.dispose();
+      batches.fading.mesh.dispose();
+      batches.fadeMaterial.dispose();
+    }
+    this.batches.clear();
     for (const mat of this.materials) mat.dispose();
     this.materials = [];
     for (const set of this.palettes.values()) for (const mat of set) mat.dispose();
@@ -318,8 +348,6 @@ export class GibSystem {
       gib.velZ = velZ + spreadZ;
 
       this.initGibCommon(gib, y, i < TRACED_GIB_COUNT, false, generation, materials);
-      // Sync mesh position immediately so gib is visible on spawn frame
-      gib.mesh.position.set(gib.posX, gib.posY, gib.posZ);
     }
 
     // === BODY-PART DROP GIBS ===
@@ -340,13 +368,13 @@ export class GibSystem {
 
       // Larger scale for body fragments
       const scale = 0.9 + Math.random() * 0.4;
-      gib.mesh.scaling.setAll(scale * (DROP_GIB_SIZE / GIB_SIZE));
+      gib.scale = scale * (DROP_GIB_SIZE / GIB_SIZE);
 
       this.initGibCommon(gib, y, false, true, generation, materials);
-      // Sync mesh position immediately
-      gib.mesh.position.set(gib.posX, gib.posY, gib.posZ);
     }
 
+    // Visible on the spawn frame
+    this.writeBatches();
     return this.createHandle(spawned, generation);
   }
 
@@ -370,12 +398,11 @@ export class GibSystem {
     gib.tumbleZ = (tMin + Math.random() * (tMax - tMin)) * (Math.random() > 0.5 ? 1 : -1);
 
     if (!isDrop) {
-      gib.mesh.material = materials[Math.floor(Math.random() * materials.length)];
-      const scale = 0.7 + Math.random() * 0.6;
-      gib.mesh.scaling.setAll(scale);
+      gib.material = materials[Math.floor(Math.random() * materials.length)];
+      gib.scale = 0.7 + Math.random() * 0.6;
     } else {
       // Body drops take the darkest shade
-      gib.mesh.material = materials[2];
+      gib.material = materials[2];
     }
 
     gib.age = 0;
@@ -385,7 +412,6 @@ export class GibSystem {
     gib.traced = traced;
     gib.isDrop = isDrop;
     gib.generation = generation;
-    gib.mesh.setEnabled(true);
   }
 
   // ========================================================================
@@ -406,7 +432,6 @@ export class GibSystem {
       // Lifetime expired
       if (gib.age >= GIB_LIFETIME) {
         gib.active = false;
-        gib.mesh.setEnabled(false);
         continue;
       }
 
@@ -469,17 +494,98 @@ export class GibSystem {
       gib.rotX += gib.tumbleX * dt;
       gib.rotY += gib.tumbleY * dt;
       gib.rotZ += gib.tumbleZ * dt;
+    }
+    this.writeBatches();
+  }
 
-      // Apply to mesh
-      gib.mesh.position.set(gib.posX, gib.posY, gib.posZ);
-      gib.mesh.rotation.set(gib.rotX, gib.rotY, gib.rotZ);
+  /** Write every active shard into its shade's batch, solid or fading. */
+  private writeBatches(): void {
+    for (const batches of this.batches.values()) {
+      batches.solid.count = 0;
+      batches.fading.count = 0;
+    }
+    for (const gib of this.gibs) {
+      if (!gib.active) continue;
+      const batches = this.batchesFor(gib.material);
+      if (!batches) continue;
+      const fading = gib.age > GIB_FADE_START;
+      const batch = fading ? batches.fading : batches.solid;
+      if (batch.count * 16 >= batch.matrices.length) continue;
+      // The shard's rotation is Euler angles, applied as a mesh's rotation would be
+      Quaternion.RotationYawPitchRollToRef(gib.rotY, gib.rotX, gib.rotZ, this.poseRotation);
+      this.poseScaling.setAll(gib.scale);
+      this.posePosition.set(gib.posX, gib.posY, gib.posZ);
+      Matrix.ComposeToRef(this.poseScaling, this.poseRotation, this.posePosition, this.pose);
+      this.pose.copyToArray(batch.matrices, batch.count * 16);
+      batch.colors[batch.count * 4 + 3] = fading ? 1 - (gib.age - GIB_FADE_START) / (GIB_LIFETIME - GIB_FADE_START) : 1;
+      batch.count++;
+    }
+    for (const batches of this.batches.values()) {
+      for (const batch of [batches.solid, batches.fading]) {
+        const mesh = batch.mesh;
+        if (batch.count === 0) {
+          if (mesh.isEnabled()) {
+            mesh.thinInstanceCount = 0;
+            mesh.setEnabled(false);
+          }
+          continue;
+        }
+        mesh.thinInstanceBufferUpdated("matrix");
+        mesh.thinInstanceBufferUpdated("color");
+        mesh.thinInstanceCount = batch.count;
+        if (!mesh.isEnabled()) mesh.setEnabled(true);
+      }
+    }
+  }
 
-      // Fade out during last second
-      if (gib.age > GIB_FADE_START) {
-        const fadeProgress = (gib.age - GIB_FADE_START) / (GIB_LIFETIME - GIB_FADE_START);
-        gib.mesh.visibility = 1.0 - fadeProgress;
-      } else {
-        gib.mesh.visibility = 1.0;
+  /** A shade's two batches, made on its first shard. */
+  private batchesFor(material: StandardMaterial): ShadeBatches | null {
+    const existing = this.batches.get(material);
+    if (existing) return existing;
+    if (!this.scene) return null;
+    // Same shader as the solid one; alpha below 1 makes it blend, and the
+    // instance alpha fades each shard
+    const fadeMaterial = material.clone(`${material.name}_fade`);
+    fadeMaterial.alpha = 0.999;
+    const batches: ShadeBatches = {
+      solid: this.createBatch(material, `gib_batch_${material.name}`),
+      fading: this.createBatch(fadeMaterial, `gib_batch_${material.name}_fade`),
+      fadeMaterial,
+    };
+    this.batches.set(material, batches);
+    return batches;
+  }
+
+  private createBatch(material: StandardMaterial, name: string): GibBatch {
+    const mesh = this.createTriangleMesh(this.scene!);
+    mesh.name = name;
+    mesh.isPickable = false;
+    // Shards spread across the room: one shard's bounds would cull the rest
+    mesh.alwaysSelectAsActiveMesh = true;
+    mesh.material = material;
+    const matrices = new Float32Array(MAX_ACTIVE_GIBS * 16);
+    const colors = new Float32Array(MAX_ACTIVE_GIBS * 4).fill(1);
+    mesh.thinInstanceSetBuffer("matrix", matrices, 16, false);
+    mesh.thinInstanceSetBuffer("color", colors, 4, false);
+    mesh.thinInstanceCount = 0;
+    mesh.setEnabled(false);
+    return { mesh, matrices, colors, count: 0 };
+  }
+
+  /**
+   * Compile the shard shaders ahead of the first death: one shade's batches,
+   * whose variant every shade shares. A thin-instanced mesh compiles its
+   * instanced variant only while it has an instance.
+   */
+  async prepareShaders(signal?: AbortSignal): Promise<void> {
+    const batches = this.materials[0] ? this.batchesFor(this.materials[0]) : null;
+    if (!batches) return;
+    for (const batch of [batches.solid, batches.fading]) {
+      batch.mesh.thinInstanceCount = 1;
+      try {
+        await prepareMaterial(batch.mesh.material!, batch.mesh, signal);
+      } finally {
+        batch.mesh.thinInstanceCount = batch.count;
       }
     }
   }
@@ -522,15 +628,9 @@ export class GibSystem {
       if (!gib.active) return gib;
     }
 
-    // Create new gib mesh — fresh geometry each time (avoid clone issues)
-    const mesh = this.createTriangleMesh(this.scene!);
-    mesh.name = `gib_${this.gibs.length}`;
-    mesh.setEnabled(false);
-    mesh.isPickable = false;
-    registerPooledMeshCandidate(mesh);
-
     const gib: Gib = {
-      mesh,
+      material: this.materials[0],
+      scale: 1,
       posX: 0,
       posY: 0,
       posZ: 0,
