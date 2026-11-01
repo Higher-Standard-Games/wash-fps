@@ -44,9 +44,8 @@ describe("gib materials", () => {
     const gibs = GibSystem.create(scene);
     const colorsOf = (color?: { r: number; g: number; b: number }) => {
       gibs.spawn(0, 0, 0, 0, 0, 0, color);
-      const active = (gibs as unknown as { gibs: Array<{ active: boolean; mesh: { material: StandardMaterial } }> })
-        .gibs;
-      const names = new Set(active.filter((g) => g.active).map((g) => g.mesh.material.name));
+      const active = (gibs as unknown as { gibs: Array<{ active: boolean; material: StandardMaterial }> }).gibs;
+      const names = new Set(active.filter((g) => g.active).map((g) => g.material.name));
       gibs.clear();
       return names;
     };

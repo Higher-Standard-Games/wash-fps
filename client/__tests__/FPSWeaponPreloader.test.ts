@@ -9,11 +9,13 @@ const projectiles = vi.hoisted(() => ({ prepare: vi.fn(async () => {}) }));
 const hitscan = vi.hoisted(() => ({ preparePelletShader: vi.fn(async () => {}) }));
 const numbers = vi.hoisted(() => ({ prepareShaders: vi.fn(async () => {}), dispose: vi.fn() }));
 const teleport = vi.hoisted(() => ({ prepare: vi.fn(async () => {}) }));
+const gibs = vi.hoisted(() => ({ prepareShaders: vi.fn(async () => {}), dispose: vi.fn() }));
 vi.mock("../../../../engine/weapon/WeaponViewManager", () => ({ getWeaponViewManager: () => view }));
 vi.mock("../../../../engine/weapon/ProjectileManager", () => ({ getProjectileManager: () => projectiles }));
 vi.mock("../../../../engine/weapon/HitscanEffects", () => ({ getHitscanEffects: () => hitscan }));
 vi.mock("../DamageNumbers", () => ({ DamageNumbers: { create: () => numbers } }));
 vi.mock("../TeleportEffect", () => ({ TeleportEffect: { getInstance: () => teleport } }));
+vi.mock("../GibSystem", () => ({ GibSystem: { create: () => gibs } }));
 vi.mock("../../../../engine/loader/map/GpuPreparation", () => ({
   sceneGpuReady: vi.fn(),
   waitForGpuCondition: vi.fn(async () => {}),
@@ -44,6 +46,8 @@ describe("map-load weapon preload", () => {
     // A throwaway damage-number system: its pool belongs to no match
     expect(numbers.dispose).toHaveBeenCalledOnce();
     expect(teleport.prepare).toHaveBeenCalledWith(scene, undefined);
+    expect(gibs.prepareShaders).toHaveBeenCalledOnce();
+    expect(gibs.dispose).toHaveBeenCalledOnce();
   });
 
   it("reports its progress from none to all of its steps, in order", async () => {

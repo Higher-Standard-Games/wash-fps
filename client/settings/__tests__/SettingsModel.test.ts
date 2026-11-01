@@ -10,9 +10,12 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Cvar } from "../../../../../engine/core/Cvar";
 import { InputSystem } from "../../../../../engine/input/InputSystem";
 import { RenderVars } from "../../../../../engine/rendering/RenderVars";
+import { WorldFogController } from "../../../../../engine/rendering/WorldFogController";
 import { FPS, registerFPSActions } from "../../FPSActions";
 import { registerPlayerModelVisualCvars } from "../../PlayerModelVisualSettings";
 import "../../Crosshair";
+// The video presets set the distant-player pose rate, which this module registers
+import "../../RemotePlayerRenderer";
 import {
   actionFor,
   assignKey,
@@ -37,6 +40,11 @@ const input = InputSystem.getInstance();
 beforeAll(() => {
   Cvar.init();
   RenderVars.getInstance();
+  WorldFogController.getInstance().registerCvars();
+  // Ultralow turns the cel outlines off; PostProcessingManager registers them
+  // at boot, from a scene this test does not build
+  Cvar.register("r_cel_outlines", 0, { type: "int", min: 0, max: 1 });
+  Cvar.register("r_cel_weapon_outlines", 1, { type: "int", min: 0, max: 1 });
   registerPlayerModelVisualCvars();
   registerFPSActions();
 });

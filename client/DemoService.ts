@@ -62,6 +62,7 @@ import { MatchStateManager } from "./MatchStateManager";
 import { RagdollSystem } from "./RagdollSystem";
 import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
 import { PlayerWeaponStates, storeSnapshotState } from "./SnapshotStateStore";
+import { WatchedDeathView } from "./WatchedDeathView";
 
 /** How long a reel holds on black under its title card before the first shot. */
 const REEL_TITLE_MS = 2800;
@@ -137,6 +138,8 @@ export class DemoService {
   private _unsubCameraChange: (() => void) | null = null;
   /** What the followed player's weapon does; the same code live spectating runs. */
   private readonly _followed = new FollowedViewWeapon(() => this._demoWvm);
+  /** Once the recorded player dies, the chase of their body instead of their eyes. */
+  private readonly watchedDeath = new WatchedDeathView();
   /** entityId → currentWeapon, fed to RemotePlayerRenderer for 3rd-person weapon models */
   private _enemyWeapons: Map<string, string> = new Map();
 
@@ -1135,10 +1138,19 @@ export class DemoService {
     // the same pose live spectating builds. DemoEntityTimeline already
     // interpolates it on the playhead, so a paused demo holds still.
     const spectatorProvider = (entityId: string) => {
-      const sample = this.remoteRenderer?.getDemoEntitySample(entityId);
-      if (!sample) return null;
+      const sample = this.remoteRenderer?.getDemoEntitySample(entityId) ?? null;
+      const dead = this._followed.isDead && this._followed.followedEntityId === entityId;
+      if (!sample && !dead) return null;
       const pov = this._followed.presentation;
-      return watchedEyePose(sample, pov?.entityId === entityId ? pov : null);
+      const eye = sample ? watchedEyePose(sample, pov?.entityId === entityId ? pov : null) : null;
+      // Only the dead are chased, and only the chase tests walls
+      return this.watchedDeath.pose(
+        entityId,
+        eye,
+        sample,
+        dead,
+        dead ? (cameraSystem.getCamera()?.getScene() ?? null) : null,
+      );
     };
 
     if (!cameraSystem.getController("spectator")) {

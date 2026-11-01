@@ -31,6 +31,7 @@ import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
 import type { PlayerWeaponStates } from "./SnapshotStateStore";
 import { SpectateEyeCamera } from "./SpectateEyeCamera";
 import type { SpectatorOverlay } from "./SpectatorOverlay";
+import { WatchedDeathView } from "./WatchedDeathView";
 
 /**
  * How long the death camera keeps your own corpse before handing over to a
@@ -71,6 +72,8 @@ export class SpectateView {
    * weapon. The same code the demo viewer drives its own instance with.
    */
   readonly _followedWeapon = new FollowedViewWeapon(() => getWeaponViewManager());
+  /** Once the watched player dies, the chase of their body instead of their eyes. */
+  private readonly watchedDeath = new WatchedDeathView();
 
   /** True while the round-end camera owns the view, so we know what to stop. */
   private _roundEndCameraActive = false;
@@ -366,10 +369,19 @@ export class SpectateView {
    * same interpolation clock.
    */
   eyePose(entityId: string): FirstPersonPose | null {
-    const sample = this.host.remoteRenderer()?.getEntitySample(entityId);
-    if (!sample) return null;
+    const sample = this.host.remoteRenderer()?.getEntitySample(entityId) ?? null;
+    const dead = this._followedWeapon.isDead && this._followedWeapon.followedEntityId === entityId;
+    if (!sample && !dead) return null;
     const pov = this._followedWeapon.presentation;
-    return watchedEyePose(sample, pov?.entityId === entityId ? pov : null);
+    const eye = sample ? watchedEyePose(sample, pov?.entityId === entityId ? pov : null) : null;
+    return this.watchedDeath.pose(
+      entityId,
+      eye,
+      sample,
+      dead,
+      // Only the dead are chased, and only the chase tests walls
+      dead ? (CameraSystem.getInstance().getCamera()?.getScene() ?? null) : null,
+    );
   }
 
   /** Display name for whoever we are watching, for the HUD banner. */

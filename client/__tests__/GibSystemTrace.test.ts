@@ -1,7 +1,6 @@
 import { FreeCamera } from "@babylonjs/core/Cameras/freeCamera";
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
-import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder";
 import { Scene } from "@babylonjs/core/scene";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -86,28 +85,30 @@ describe("GibSystem hero bounces", () => {
     scene.getEngine().dispose();
   });
 
-  it("reuses pooled gibs immediately and removes idle candidates after clear and expiry", () => {
+  it("draws each shade as one batch of instances, reused across bursts and gone when they expire", () => {
+    collision.trace.mockReturnValue({ startSolid: false, fraction: 1 });
     const { gibs, scene } = setup();
     new FreeCamera("eye", Vector3.Zero(), scene);
-    const candidates = () => {
-      const source = scene.getActiveMeshCandidates();
-      return source.data.slice(0, source.length);
-    };
-    const shards = () => candidates().filter((mesh) => /^gib_\d+$/.test(mesh.name));
-    expect(shards()).toHaveLength(28);
+    const batches = () => scene.meshes.filter((mesh) => mesh.name.startsWith("gib_batch_") && mesh.isEnabled());
+    const instances = () =>
+      batches().reduce((sum, mesh) => sum + (mesh as unknown as { thinInstanceCount: number }).thinInstanceCount, 0);
+    // A burst is 28 shards, in at most three shades: a few draws, not one a shard
+    expect(instances()).toBe(28);
+    expect(batches().length).toBeLessThanOrEqual(3);
+    expect(scene.meshes.some((mesh) => /^gib_d+$/.test(mesh.name))).toBe(false);
     const count = scene.meshes.length;
     gibs.clear();
-    expect(shards()).toHaveLength(0);
+    expect(batches()).toHaveLength(0);
     gibs.spawn(0, 0, 0, 0, 0, 0);
     expect(scene.meshes).toHaveLength(count);
-    expect(shards()).toHaveLength(28);
-    gibs.update(9);
-    expect(shards()).toHaveLength(0);
-    const foreign = CreateBox("unmanaged", {}, scene);
-    foreign.setEnabled(false);
-    expect(candidates()).toContain(foreign);
+    expect(instances()).toBe(28);
+    // Into the fade: those shards move to the blended batches, then expire
+    gibs.update(7);
+    expect(batches().every((mesh) => mesh.name.endsWith("_fade"))).toBe(true);
+    gibs.update(2);
+    expect(batches()).toHaveLength(0);
     gibs.dispose();
-    expect(candidates()).toEqual([foreign]);
+    expect(scene.meshes.some((mesh) => mesh.name.startsWith("gib_batch_"))).toBe(false);
     scene.getEngine().dispose();
   });
 });

@@ -1,5 +1,5 @@
 /**
- * Video: three presets for what costs frames, then the settings themselves in
+ * Video: four presets for what costs frames, then the settings themselves in
  * five sections, closed until asked for and one open at a time. Every setting is
  * one of the renderer's own variables; the pips are estimates of what each pass
  * costs.
@@ -205,6 +205,29 @@ export class VideoPage {
         initial: () => Number(cvarDefault(name)),
       });
     }
+    slider(this.host, parent, {
+      name: "Render resolution",
+      help: "Below 100% the world draws at fewer pixels and looks softer; the HUD stays sharp",
+      cost: "high",
+      min: 0.25,
+      max: 1,
+      step: 0.05,
+      format: formatPercent,
+      get: () => Cvar.getNumber("r_renderscale"),
+      set: (value) => Cvar.set("r_renderscale", value),
+      initial: () => Number(cvarDefault("r_renderscale")),
+    });
+    seg(this.host, parent, {
+      name: "Antialiasing",
+      help: "Smooth edges on geometry",
+      cost: "mid",
+      tag: "Restart",
+      choices: onOff,
+      get: () => flag("r_msaa"),
+      set: (value) => {
+        Cvar.set("r_msaa", value);
+      },
+    });
   }
 
   private buildEffects(parent: HTMLElement): void {
@@ -279,6 +302,33 @@ export class VideoPage {
         Cvar.set("r_cel_outlines", value);
       },
     });
+    seg(this.host, parent, {
+      name: "Dynamic lights",
+      help: "Light from shots, rockets, explosions and muzzle flashes",
+      cost: "mid",
+      tag: "Next map",
+      choices: onOff,
+      get: () => flag("r_dynamiclight"),
+      set: (value) => {
+        Cvar.set("r_dynamiclight", value);
+      },
+    });
+    for (const [name, label, help] of [
+      ["r_gibs", "Gibs", "The shards a player breaks into"],
+      ["r_marks", "Wall marks", "Holes and scorches where shots hit"],
+      ["r_teleport_ghost", "Teleport afterimage", "The silhouette left where someone teleported from"],
+    ]) {
+      seg(this.host, parent, {
+        name: label,
+        help,
+        cost: "low",
+        choices: onOff,
+        get: () => flag(name),
+        set: (value) => {
+          Cvar.set(name, value);
+        },
+      });
+    }
   }
 
   private buildWorld(parent: HTMLElement): void {
@@ -315,6 +365,16 @@ export class VideoPage {
       get: () => flag("r_arealights"),
       set: (value) => {
         Cvar.set("r_arealights", value);
+      },
+    });
+    seg(this.host, parent, {
+      name: "Fog",
+      help: "The map's own haze and distance fog",
+      cost: "low",
+      choices: onOff,
+      get: () => flag("r_fog"),
+      set: (value) => {
+        Cvar.set("r_fog", value === 1);
       },
     });
     slider(this.host, parent, {

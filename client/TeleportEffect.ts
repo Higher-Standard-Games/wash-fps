@@ -32,6 +32,7 @@ import type { Scene } from "@babylonjs/core/scene";
 import { AudioManager } from "../../../engine/AudioManager";
 import { type PlayerModelInstance, PlayerModelManager } from "../../../engine/animation/PlayerModelManager";
 import { prepareMaterial } from "../../../engine/loader/map/GpuPreparation";
+import { renderToggle } from "../../../engine/rendering/RenderToggles";
 import { devLog } from "./DevLog";
 
 // ============================================================================
@@ -194,7 +195,8 @@ export class TeleportEffect {
   }
 
   private ensureGhostPool(): Promise<void> {
-    if (!this.scene || this.ghostPool.length > 0) return Promise.resolve();
+    // Off (r_teleport_ghost 0), the pool is not even loaded: four rigs fewer
+    if (!this.scene || this.ghostPool.length > 0 || !renderToggle("r_teleport_ghost")) return Promise.resolve();
     this.ghostPoolTask ??= this.loadGhostPool().finally(() => {
       this.ghostPoolTask = null;
     });
@@ -229,6 +231,9 @@ export class TeleportEffect {
           m.isPickable = false;
         }
         instance.anchor.setEnabled(false);
+        // A hidden ghost's rig would still be posed every frame, 52 bones a
+        // slot; it animates only while a teleport shows it
+        this.ghostManager.setAnimationActive(instance, false);
 
         this.ghostPool.push({ instance, material: mat, busy: false });
       }
@@ -322,7 +327,7 @@ export class TeleportEffect {
    * teleport has ghosts — prewarm() avoids even that).
    */
   private spawnGhost(pos: { x: number; y: number; z: number }, yaw: number, team: "alpha" | "bravo"): void {
-    if (!this.scene) return;
+    if (!this.scene || !renderToggle("r_teleport_ghost")) return;
     if (this.ghostPool.length === 0) {
       void this.ensureGhostPool();
       return;
@@ -341,6 +346,7 @@ export class TeleportEffect {
       if (anchor.rotationQuaternion) anchor.rotationQuaternion = null;
       anchor.rotation.set(0, yaw, 0);
       anchor.setEnabled(true);
+      this.ghostManager?.setAnimationActive(slot.instance, true);
       slot.instance.mesh.isVisible = true;
       for (const m of slot.instance.mesh.getChildMeshes()) {
         m.isVisible = true;
@@ -478,6 +484,7 @@ export class TeleportEffect {
           // Pooled ghost: hide + release, never dispose.
           try {
             fx.ghostSlot.instance.anchor.setEnabled(false);
+            this.ghostManager?.setAnimationActive(fx.ghostSlot.instance, false);
           } catch (_) {
             /* noop */
           }

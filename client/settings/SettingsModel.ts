@@ -336,9 +336,46 @@ export function applyChoice(choice: CvarChoice): void {
 
 /**
  * Presets set only what costs frames; brightness, outlines and the like are left
- * alone. Balanced is the game's own defaults.
+ * alone. Balanced is the game's own defaults. Ultralow is the exception: for the
+ * most frames it also turns outlines off, and the others leave them as they are.
  */
-export const VIDEO_PRESETS: Array<CvarChoice<"smooth" | "balanced" | "pretty"> & { line: string; bars: number }> = [
+export const VIDEO_PRESETS: Array<
+  CvarChoice<"ultralow" | "smooth" | "balanced" | "pretty"> & { line: string; bars: number }
+> = [
+  {
+    id: "ultralow",
+    label: "Ultralow",
+    line: "Frames above all: half resolution, flat map colours, no antialiasing, lights, gibs, marks, fog or outlines.",
+    bars: 0,
+    values: {
+      r_bloom: 0,
+      r_glow: 0,
+      r_ssr: 0,
+      r_ssr_strength: 0.4,
+      r_anisotropy: 1,
+      // Flat colour: map surfaces lose their pattern and keep their lighting
+      r_picmip: 8,
+      r_godrays: 0,
+      r_softhalos: 0,
+      r_water_quality: 1,
+      r_water_actors: 0,
+      r_arealights: 0,
+      r_bsp_pbr: 0,
+      r_renderscale: 0.5,
+      r_msaa: 0,
+      r_dynamiclight: 0,
+      r_marks: 0,
+      r_gibs: 0,
+      r_teleport_ghost: 0,
+      r_fog: false,
+      r_underwater_distortion: 0,
+      r_deluxe: 0,
+      cl_player_pose_hz: 10,
+      cl_player_outline: 0,
+      r_cel_outlines: 0,
+      r_cel_weapon_outlines: 0,
+    },
+  },
   {
     id: "smooth",
     label: "Smooth",
@@ -357,6 +394,16 @@ export const VIDEO_PRESETS: Array<CvarChoice<"smooth" | "balanced" | "pretty"> &
       r_water_actors: 0,
       r_arealights: 0,
       r_bsp_pbr: 0,
+      r_renderscale: 1,
+      r_msaa: 1,
+      r_dynamiclight: 1,
+      r_marks: 1,
+      r_gibs: 1,
+      r_teleport_ghost: 1,
+      r_fog: true,
+      r_underwater_distortion: 1,
+      r_deluxe: 1,
+      cl_player_pose_hz: 30,
     },
   },
   {
@@ -378,6 +425,16 @@ export const VIDEO_PRESETS: Array<CvarChoice<"smooth" | "balanced" | "pretty"> &
       r_water_actors: 1,
       r_arealights: 1,
       r_bsp_pbr: 1,
+      r_renderscale: 1,
+      r_msaa: 1,
+      r_dynamiclight: 1,
+      r_marks: 1,
+      r_gibs: 1,
+      r_teleport_ghost: 1,
+      r_fog: true,
+      r_underwater_distortion: 1,
+      r_deluxe: 1,
+      cl_player_pose_hz: 30,
     },
   },
   {
@@ -400,6 +457,16 @@ export const VIDEO_PRESETS: Array<CvarChoice<"smooth" | "balanced" | "pretty"> &
       r_water_actors: 1,
       r_arealights: 1,
       r_bsp_pbr: 1,
+      r_renderscale: 1,
+      r_msaa: 1,
+      r_dynamiclight: 1,
+      r_marks: 1,
+      r_gibs: 1,
+      r_teleport_ghost: 1,
+      r_fog: true,
+      r_underwater_distortion: 1,
+      r_deluxe: 1,
+      cl_player_pose_hz: 30,
     },
   },
 ];
@@ -429,7 +496,14 @@ export const VIDEO_SECTIONS: Array<{
   name: string;
   load: () => number;
 }> = [
-  { id: "screen", name: "Screen", load: () => 0 },
+  {
+    id: "screen",
+    name: "Screen",
+    // Full resolution is the heavy setting here; antialiasing adds to it
+    load: () =>
+      (cvarNumber("r_renderscale") >= 0.95 ? 2 : cvarNumber("r_renderscale") >= 0.7 ? 1 : 0) +
+      (cvarNumber("r_msaa") > 0 ? 1 : 0),
+  },
   {
     id: "effects",
     name: "Effects",
@@ -439,7 +513,8 @@ export const VIDEO_SECTIONS: Array<{
       (cvarNumber("r_ssr") > 0 ? 3 : 0) +
       { off: 0, low: 1, high: 2 }[godrayChoice().id] +
       (cvarNumber("r_softhalos") > 0 ? 1 : 0) +
-      (Cvar.getBool("r_cel_outlines") ? 1 : 0),
+      (Cvar.getBool("r_cel_outlines") ? 1 : 0) +
+      (cvarNumber("r_dynamiclight") > 0 ? 1 : 0),
   },
   {
     id: "world",
