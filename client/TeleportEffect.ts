@@ -31,6 +31,7 @@ import type { Observer } from "@babylonjs/core/Misc/observable";
 import type { Scene } from "@babylonjs/core/scene";
 import { AudioManager } from "../../../engine/AudioManager";
 import { type PlayerModelInstance, PlayerModelManager } from "../../../engine/animation/PlayerModelManager";
+import { prepareMaterial } from "../../../engine/loader/map/GpuPreparation";
 import { devLog } from "./DevLog";
 
 // ============================================================================
@@ -130,7 +131,8 @@ export class TeleportEffect {
   // Generic ghost pool (own vanguard instances — see header)
   private ghostManager: PlayerModelManager | null = null;
   private ghostPool: GhostSlot[] = [];
-  private ghostPoolLoading = false;
+  /** The pool load in flight: every caller waits on the same one. */
+  private ghostPoolTask: Promise<void> | null = null;
 
   private constructor() {}
 
@@ -176,10 +178,31 @@ export class TeleportEffect {
     void AudioManager.getInstance().preloadSfx([TELE_IN_SOUND]);
   }
 
-  private async ensureGhostPool(): Promise<void> {
-    if (!this.scene || this.ghostPoolLoading || this.ghostPool.length > 0) return;
-    this.ghostPoolLoading = true;
+  /**
+   * Load the ghost pool and compile its silhouette shader, so the first
+   * teleport neither waits for the model nor compiles. Every slot shares one
+   * material setup, so one slot's meshes cover the pool.
+   */
+  async prepare(scene: Scene, signal?: AbortSignal): Promise<void> {
+    this.ensureScene(scene);
+    await this.ensureGhostPool();
+    const slot = this.ghostPool[0];
+    if (!slot) return;
+    for (const mesh of [slot.instance.mesh, ...slot.instance.mesh.getChildMeshes()]) {
+      if (mesh.material && mesh.getTotalVertices() > 0) await prepareMaterial(mesh.material, mesh, signal);
+    }
+  }
 
+  private ensureGhostPool(): Promise<void> {
+    if (!this.scene || this.ghostPool.length > 0) return Promise.resolve();
+    this.ghostPoolTask ??= this.loadGhostPool().finally(() => {
+      this.ghostPoolTask = null;
+    });
+    return this.ghostPoolTask;
+  }
+
+  private async loadGhostPool(): Promise<void> {
+    if (!this.scene) return;
     try {
       // Own manager, idle-only animation set (vanguard.glb + one anim GLB —
       // both already browser-cached by the remote-player renderer).
@@ -214,8 +237,6 @@ export class TeleportEffect {
       console.warn("[TeleportEffect] ghost pool load failed:", e);
       this.ghostManager = null;
       this.ghostPool = [];
-    } finally {
-      this.ghostPoolLoading = false;
     }
   }
 

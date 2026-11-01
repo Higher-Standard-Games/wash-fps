@@ -460,7 +460,7 @@ export class DemoService {
   private async runStart(
     start: number,
     viewer: DemoViewer,
-    run: (signal: AbortSignal, operationId: string, pulse: () => void) => Promise<void>,
+    run: (signal: AbortSignal, operationId: string, pulse: (fraction?: number) => void) => Promise<void>,
   ): Promise<void> {
     this.startController?.abort(demoLoadCancelled());
     const controller = new AbortController();
@@ -472,7 +472,9 @@ export class DemoService {
       controller.abort(new Error("Demo preparation timed out. Please retry.")),
     );
     try {
-      await run(controller.signal, operationId, () => lease.pulse());
+      await run(controller.signal, operationId, (fraction) =>
+        fraction === undefined ? lease.pulse() : lease.progress(fraction, "Compiling shaders"),
+      );
     } catch (error) {
       // An obsolete map/wiring failure must not reopen the menu over a newer game.
       if (start !== this.startGeneration) return;
@@ -733,7 +735,7 @@ export class DemoService {
     mode: "normal" | "reel",
     withHud = true,
     signal?: AbortSignal,
-    pulse?: () => void,
+    pulse?: (fraction?: number) => void,
   ): Promise<void> {
     const camera = CameraSystem.getInstance().getCamera();
     const scene = camera?.getScene();
@@ -775,7 +777,7 @@ export class DemoService {
         await preloadFPSWeapons(
           scene,
           camera as import("@babylonjs/core/Cameras/freeCamera").FreeCamera,
-          () => pulse?.(),
+          (done, total) => pulse?.(done / total),
           signal,
           view,
         );
