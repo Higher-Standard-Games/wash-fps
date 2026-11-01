@@ -94,7 +94,8 @@ interface JumppadVolume {
 
 /** Authoritative baseline used by simulation and offline bot planning. */
 export const DEFAULT_FPS_MOVEMENT_CONFIG: Readonly<MovementConfig> = {
-  maxSpeed: 280,
+  // Strafing, back-pedalling, diagonals and forward without sprint; sprint is runSpeed
+  maxSpeed: 320,
   runSpeed: 400,
   groundAcceleration: 10,
   airAcceleration: 1,

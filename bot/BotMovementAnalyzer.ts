@@ -119,7 +119,7 @@ const DEFAULT_CONFIG: BotMovementAnalyzerConfig = {
   maxRollouts: 4096,
   landingRadius: 48,
   stableGroundTicks: 2,
-  candidateSpeeds: [0, 160, 280, 400],
+  candidateSpeeds: [0, 160, 320, 400],
 };
 
 const ROLLOUT_PROFILE_OVERRIDES = {

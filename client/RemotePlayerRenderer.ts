@@ -162,7 +162,7 @@ const MODEL_Y_OFFSET = 0;
 
 // Mixamo animation natural speeds (Q3 units/s at 1x playback)
 // Lower values → higher speedRatio → faster feet to match actual movement.
-// Tuned so feet track the ground at game speeds (maxSpeed=280, runSpeed=350).
+// Tuned so feet track the ground at game speeds (maxSpeed=320, runSpeed=400).
 const WALK_NATURAL_SPEED = 40;
 const RUN_NATURAL_SPEED = 100;
 const STRAFE_NATURAL_SPEED = 29;

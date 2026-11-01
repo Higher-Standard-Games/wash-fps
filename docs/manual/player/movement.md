@@ -6,8 +6,8 @@ Q3-style core with Warsow extensions. All defaults below come from `simulation/M
 
 | Value | Default | Notes |
 |-------|---------|-------|
-| Max ground speed | 280 u/s | `maxSpeed`; the soft cap, before air-strafe gains |
-| Run speed | 400 u/s | `runSpeed`; only moving **straight forward** (strafing, backpedalling and diagonals use the 280 walking speed), and not while firing, aiming or crouching. With **Always run** on (the default) you run without holding anything and **Shift walks** instead |
+| Max ground speed | 320 u/s | `maxSpeed`; the soft cap, before air-strafe gains |
+| Run speed | 400 u/s | `runSpeed`; only moving **straight forward** (strafing, backpedalling and diagonals use the 320 walking speed), and not while firing, aiming or crouching. With **Always run** on (the default) you run without holding anything and **Shift walks** instead |
 | Ground acceleration | 10 | `groundAcceleration` |
 | Air acceleration | 1 | `airAcceleration`; this is what makes air strafing work |
 | Max added air speed per tick | 30 u/s | `maxAirSpeed`; the per-tick cap |

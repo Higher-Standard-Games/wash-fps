@@ -22,7 +22,8 @@ import { SweepBackendAdapter } from "../../../../engine/physics/SweepBackendAdap
 import { SweepCollisionBackend } from "../../../../engine/physics/SweepCollisionBackend";
 import type { CollisionWorld } from "../../../../shared/collision/CollisionWorld";
 import { SharedCollisionWorld } from "../../../../shared/collision/SharedCollisionWorld";
-import { MovementProfile } from "../../simulation/MovementProfile";
+import { DEFAULT_FPS_MOVEMENT_CONFIG, MovementProfile } from "../../simulation/MovementProfile";
+import { DEFAULT_LIQUID_MOVEMENT } from "../../simulation/Swim";
 
 type Triple = [number, number, number];
 
@@ -101,14 +102,14 @@ function buildBsp(boxes: BoxSpec[]): BspFile {
   } as unknown as BspFile;
 }
 
-async function deepPool(): Promise<CollisionWorld> {
+async function deepPool(halfWidth = 256): Promise<CollisionWorld> {
   const backend = new SweepCollisionBackend();
   await backend.init(
     buildBsp([
       { min: [-4000, -4000, -4000], max: [4000, 4000, 0], name: "floor", contentFlags: ContentFlags.SOLID },
       {
-        min: [-256, -256, 0],
-        max: [256, 256, 512],
+        min: [-halfWidth, -halfWidth, 0],
+        max: [halfWidth, halfWidth, 512],
         name: "textures/test/water1",
         contentFlags: ContentFlags.WATER | ContentFlags.TRANSLUCENT,
         surfaceFlags: SurfaceFlags.NONSOLID,
@@ -234,16 +235,19 @@ describe("swimming", () => {
   });
 
   it("caps horizontal swim speed well below running speed", async () => {
-    const collision = await deepPool();
+    // Wide enough that the swimmer is still in the water at the end
+    const collision = await deepPool(4096);
 
     const end = hold(new MovementProfile(), collision, SUBMERGED, 250, (i) =>
       command(i, { dir: { x: 0, y: 0, z: 1 }, buttons: InputButtons.FORWARD }),
     );
 
     const horizontal = Math.hypot(end.velocity.x, end.velocity.z);
-    // Base speed is 280 and the swim cap is half of it. Friction keeps the
+    // The swim cap is a share of the base ground speed. Friction keeps the
     // steady state under the cap rather than at it.
-    expect(horizontal).toBeLessThanOrEqual(141);
+    const cap = DEFAULT_FPS_MOVEMENT_CONFIG.maxSpeed * DEFAULT_LIQUID_MOVEMENT.swimScale;
+    expect(horizontal).toBeLessThanOrEqual(cap + 1);
+    expect(cap).toBeLessThan(DEFAULT_FPS_MOVEMENT_CONFIG.runSpeed / 2);
     expect(horizontal).toBeGreaterThan(0);
   });
 });

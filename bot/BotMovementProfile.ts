@@ -99,7 +99,7 @@ export const MOVEMENT: Record<string, MovementMechanic> = {
     duration: 0,
     cooldown: 0,
     inputMask: InputButtons.FORWARD,
-    description: "Standard ground movement (280 ups)",
+    description: "Standard ground movement (320 ups)",
   },
 
   sprint: {
