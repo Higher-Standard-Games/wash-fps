@@ -345,7 +345,7 @@ export const VIDEO_PRESETS: Array<
   {
     id: "ultralow",
     label: "Ultralow",
-    line: "Frames above all: half resolution, no antialiasing, lights, gibs, marks, fog or outlines.",
+    line: "Frames above all: half resolution, flat map colours, no antialiasing, lights, gibs, marks, fog or outlines.",
     bars: 0,
     values: {
       r_bloom: 0,
@@ -353,7 +353,8 @@ export const VIDEO_PRESETS: Array<
       r_ssr: 0,
       r_ssr_strength: 0.4,
       r_anisotropy: 1,
-      r_picmip: 2,
+      // Flat colour: map surfaces lose their pattern and keep their lighting
+      r_picmip: 8,
       r_godrays: 0,
       r_softhalos: 0,
       r_water_quality: 1,

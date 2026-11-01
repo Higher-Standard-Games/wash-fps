@@ -81,7 +81,7 @@ Four **presets** change only what costs frames, and leave brightness and outline
 
 | Preset | What it does |
 |--------|--------------|
-| **Ultralow** | Frames above all: half render resolution, no antialiasing, no dynamic lights, gibs, wall marks, teleport afterimages, fog or outlines, quarter-size map textures. The other presets turn its frame-cost switches back on, but not the outlines: turn those back on yourself |
+| **Ultralow** | Frames above all: half render resolution, no antialiasing, no dynamic lights, gibs, wall marks, teleport afterimages, fog or outlines, and map surfaces in flat colour. The other presets turn its frame-cost switches back on, but not the outlines: turn those back on yourself |
 | **Smooth** | Many frames with the game's look intact: plain water, no light shafts, no bloom, no reflections, hard-edged halos |
 | **Balanced** | The look the game ships with: bloom off, 4× texture sharpness |
 | **Pretty** | Adds glow and reflections, and wants a strong graphics card |
@@ -97,8 +97,8 @@ Below the presets the settings are in five sections. Pips beside each setting sh
 | **Advanced** | Map texture detail (`r_picmip`): Full, Soft, Softer, Blurred or Flat color; applies next map. **Color blindness** and **Correction strength**; see below |
 
 Map texture detail is available with every preset. Balanced and Pretty start at
-Full; Smooth starts at Soft (half-size base textures) and Ultralow at Softer
-(quarter-size). Flat color removes the
+Full; Smooth starts at Soft (half-size base textures) and Ultralow at Flat
+color. Flat color removes the
 pattern from static opaque map surfaces while preserving lighting. Transparent
 effects, sky and shaders marked to preserve detail stay at full resolution.
 
