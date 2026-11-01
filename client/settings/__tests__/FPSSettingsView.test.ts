@@ -12,6 +12,7 @@ import { WorldFogController } from "../../../../../engine/rendering/WorldFogCont
 // The video presets set the distant-player pose rate, which this module registers
 import "../../RemotePlayerRenderer";
 import { FPS } from "../../FPSActions";
+import { registerPlayerModelVisualCvars } from "../../PlayerModelVisualSettings";
 import { FPSSettingsView } from "../FPSSettingsView";
 import { resetSideColors, setSideColor, sideColor, sideColorsAreDefault, TEAM_COLORS } from "../SettingsModel";
 
@@ -40,6 +41,9 @@ afterEach(() => {
 
 // The video presets set world fog, registered with the fog controller
 WorldFogController.getInstance().registerCvars();
+// and turn player and weapon outlines back on, registered by the player visuals and post-processing
+registerPlayerModelVisualCvars();
+if (!Cvar.exists("r_cel_weapon_outlines")) Cvar.register("r_cel_weapon_outlines", 1);
 
 describe("FPSSettingsView", () => {
   it("saves player sound selections and restores Male/Bobot with Gameplay reset", async () => {
