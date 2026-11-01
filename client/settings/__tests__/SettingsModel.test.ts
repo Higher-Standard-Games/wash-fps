@@ -130,6 +130,20 @@ describe("video", () => {
     expect(currentChoice(VIDEO_PRESETS)).toBeNull();
   });
 
+  it("turns outlines back on after Ultralow, keeping the outline size", () => {
+    const apply = (id: string) => {
+      const preset = VIDEO_PRESETS.find((p) => p.id === id);
+      for (const [name, value] of Object.entries(preset?.values ?? {})) Cvar.set(name, value);
+    };
+    Cvar.set("cl_player_outline_size", 50);
+    apply("ultralow");
+    expect(Cvar.getNumber("cl_player_outline")).toBe(0);
+    apply("balanced");
+    expect(Cvar.getNumber("cl_player_outline")).toBe(1);
+    expect(Cvar.getNumber("r_cel_weapon_outlines")).toBe(1);
+    expect(Cvar.getNumber("cl_player_outline_size")).toBe(50);
+  });
+
   it("calls light shafts off whatever their sample count", () => {
     Cvar.set("r_godrays", 0);
     Cvar.set("r_godrays_samples", 30);

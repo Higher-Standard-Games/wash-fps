@@ -337,7 +337,8 @@ export function applyChoice(choice: CvarChoice): void {
 /**
  * Presets set only what costs frames; brightness, outlines and the like are left
  * alone. Balanced is the game's own defaults. Ultralow is the exception: for the
- * most frames it also turns outlines off, and the others leave them as they are.
+ * most frames it also turns outlines off, so the others turn player and weapon
+ * outlines back on (leaving the outline size, so Bold stays Bold).
  */
 export const VIDEO_PRESETS: Array<
   CvarChoice<"ultralow" | "smooth" | "balanced" | "pretty"> & { line: string; bars: number }
@@ -404,6 +405,8 @@ export const VIDEO_PRESETS: Array<
       r_underwater_distortion: 1,
       r_deluxe: 1,
       cl_player_pose_hz: 30,
+      cl_player_outline: 1,
+      r_cel_weapon_outlines: 1,
     },
   },
   {
@@ -435,6 +438,8 @@ export const VIDEO_PRESETS: Array<
       r_underwater_distortion: 1,
       r_deluxe: 1,
       cl_player_pose_hz: 30,
+      cl_player_outline: 1,
+      r_cel_weapon_outlines: 1,
     },
   },
   {
@@ -467,6 +472,8 @@ export const VIDEO_PRESETS: Array<
       r_underwater_distortion: 1,
       r_deluxe: 1,
       cl_player_pose_hz: 30,
+      cl_player_outline: 1,
+      r_cel_weapon_outlines: 1,
     },
   },
 ];
