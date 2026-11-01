@@ -8,6 +8,7 @@
  * against a repeated Welcome is per connection too.
  */
 
+import { AudioManager } from "../../../engine/AudioManager";
 import { logRejection } from "../../../engine/core/AsyncErrors";
 import { devLog } from "../../../engine/core/DevLog";
 import { createLoadingOperationId } from "../../../engine/core/LoadingEvents";
@@ -59,6 +60,19 @@ export class MatchMapLoader {
     }
     this.started = true;
 
+    // The server streams the match from Welcome on, shots and footsteps
+    // included, while the loading screen only mutes them once the map load
+    // starts. Mute from here; the loading screen's own mute overlaps this one
+    // and lasts until it is gone.
+    const releaseSfx = AudioManager.getInstance().muteSfx();
+    try {
+      await this.loadServerMap(serverInfo);
+    } finally {
+      releaseSfx();
+    }
+  }
+
+  private async loadServerMap(serverInfo: { map: string }): Promise<void> {
     devLog(`[Game] Server map: ${serverInfo.map}`);
 
     // Keep the loading screen down until the GAME is ready, not just the
@@ -234,7 +248,12 @@ export class MatchMapLoader {
           await this.host.preparePlayers?.(camera.getScene(), this.controller.signal);
           this.controller.signal.throwIfAborted();
           try {
-            await preloadFPSWeapons(camera.getScene(), camera, () => hold.pulse(), this.controller.signal);
+            await preloadFPSWeapons(
+              camera.getScene(),
+              camera,
+              (done, total) => hold.progress(done / total, "Compiling shaders"),
+              this.controller.signal,
+            );
           } catch (error) {
             if (this.cancelled) return;
             throw error;

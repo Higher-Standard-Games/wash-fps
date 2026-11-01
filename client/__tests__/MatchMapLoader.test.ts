@@ -77,6 +77,16 @@ vi.mock("../../../../engine/camera/CameraSystem", () => ({
   },
 }));
 vi.mock("../../camera/FPSController", () => ({ FPSController: class {} }));
+vi.mock("../../../../engine/AudioManager", () => ({
+  AudioManager: {
+    getInstance: () => ({
+      muteSfx: () => {
+        calls.push("mute-sfx");
+        return () => calls.push("unmute-sfx");
+      },
+    }),
+  },
+}));
 vi.mock("../../../../engine/camera/controllers/FreeflyController", () => ({ FreeflyController: class {} }));
 
 const { MatchMapLoader } = await import("../MatchMapLoader");
@@ -123,7 +133,9 @@ describe("MatchMapLoader", () => {
     await new MatchMapLoader(h, {}).onServerInfo({ map: "wdm7" });
     await settle();
 
-    expect(calls.slice(0, 4)).toEqual(["hold:fps:postload", "audio", "load:wdm7", "collision"]);
+    expect(calls.slice(0, 5)).toEqual(["mute-sfx", "hold:fps:postload", "audio", "load:wdm7", "collision"]);
+    // The match streams shots and footsteps from Welcome on: silent until the curtain is down
+    expect(calls.indexOf("unmute-sfx")).toBeGreaterThan(calls.indexOf("release:fps:postload"));
     expect(calls).toContain("triggers:volume");
     expect(h.v2.onTeleport).toHaveBeenCalledTimes(1);
     expect(h.v2.setSpawnFacings).toHaveBeenCalledTimes(1);
@@ -157,7 +169,7 @@ describe("MatchMapLoader", () => {
     expect(calls).not.toContain("release:fps:postload");
     ready();
     await pending;
-    expect(calls.at(-1)).toBe("release:fps:postload");
+    expect(calls.slice(-2)).toEqual(["release:fps:postload", "unmute-sfx"]);
   });
 
   it("disconnects and releases the screen if held weapon preparation fails", async () => {
@@ -166,7 +178,7 @@ describe("MatchMapLoader", () => {
     await new MatchMapLoader(h, { autoJoin: true }).onServerInfo({ map: "wdm7" });
     expect(h.shutdown).toHaveBeenCalledOnce();
     expect(h.joinGame).not.toHaveBeenCalled();
-    expect(calls.at(-1)).toBe("release:fps:postload");
+    expect(calls.slice(-2)).toEqual(["release:fps:postload", "unmute-sfx"]);
   });
 
   it("releases a cancelled load immediately and never auto-joins when its remaining work finishes", async () => {
@@ -192,7 +204,14 @@ describe("MatchMapLoader", () => {
     await new MatchMapLoader(h, {}).onServerInfo({ map: "wdm99" });
     expect(h.shutdown).toHaveBeenCalledTimes(1);
     expect(calls).not.toContain("weapons");
-    expect(calls.at(-1)).toBe("release:fps:postload");
+    expect(calls.slice(-2)).toEqual(["release:fps:postload", "unmute-sfx"]);
+  });
+
+  it("gives the sound back when the load fails", async () => {
+    mapResult = new Error("boom");
+    await new MatchMapLoader(host(), {}).onServerInfo({ map: "wdm7" });
+    expect(calls.filter((c) => c === "mute-sfx")).toHaveLength(1);
+    expect(calls.filter((c) => c === "unmute-sfx")).toHaveLength(1);
   });
 
   it("shuts down and still releases the curtain when the map load throws", async () => {
@@ -200,7 +219,7 @@ describe("MatchMapLoader", () => {
     const h = host();
     await new MatchMapLoader(h, {}).onServerInfo({ map: "wdm7" });
     expect(h.shutdown).toHaveBeenCalledTimes(1);
-    expect(calls.at(-1)).toBe("release:fps:postload");
+    expect(calls.slice(-2)).toEqual(["release:fps:postload", "unmute-sfx"]);
   });
 
   it("fails the join without required collision instead of exposing an unprepared game", async () => {

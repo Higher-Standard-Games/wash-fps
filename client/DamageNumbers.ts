@@ -17,6 +17,7 @@ import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import type { Scene } from "@babylonjs/core/scene";
+import { prepareMaterial } from "../../../engine/loader/map/GpuPreparation";
 import { type HitLocationName, isHeadHit } from "./HitLocationName";
 
 // ============================================================================
@@ -103,6 +104,16 @@ export class DamageNumbers {
     this.numbers = [];
     this.scene = null;
     if (DamageNumbers.instance === this) DamageNumbers.instance = null;
+  }
+
+  /** Compile the numbers' shader through a pooled entry, which stays in the pool for the first hit. */
+  async prepareShaders(signal?: AbortSignal): Promise<void> {
+    if (!this.scene) return;
+    const num = this.getOrCreate();
+    // A dynamic texture is not ready until its canvas is first uploaded, which
+    // spawn does after drawing; the material waits on it
+    num.texture.update();
+    await prepareMaterial(num.material, num.mesh, signal);
   }
 
   /** Remove active presentation without releasing scene-owned pool resources. */

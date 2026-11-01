@@ -19,8 +19,10 @@ How to connect to a game server, manually or through the lobby.
    match alone and hands your client its address and a ticket for your seat.
 6. The connecting screen takes over and becomes the loading screen where it
    stands: its third step, MAP LOAD, lights up, the stage names the map over its
-   levelshot, and a bar fills as the map loads. When the game has set itself
-   up, the screen fades and you spawn.
+   levelshot, and a bar fills as the map loads. The game then compiles the
+   shaders your weapons and effects draw with, shown as COMPILING SHADERS and a
+   percentage, so nothing stalls the first fight. When it is done, the screen
+   fades and you spawn. The match's sounds stay muted until then.
 7. When the match ends, **Back to the lobby** brings you back to the same room,
    ready for a rematch.
 
