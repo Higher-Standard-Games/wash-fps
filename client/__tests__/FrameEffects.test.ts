@@ -72,7 +72,8 @@ describe("FrameEffects", () => {
     expect(gibs.update).toHaveBeenLastCalledWith(0.5);
     expect(ragdolls.update).toHaveBeenLastCalledWith(0.5);
     expect(cartoon.update).toHaveBeenLastCalledWith(0.5);
-    expect(damageOverlay.update).toHaveBeenLastCalledWith(0.5);
+    // The overlay animates itself: loaded, never ticked
+    expect(damageOverlay.update).not.toHaveBeenCalled();
     expect(damageNumbers.update).toHaveBeenLastCalledWith(0.5);
   });
 
