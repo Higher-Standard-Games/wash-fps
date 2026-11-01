@@ -32,6 +32,7 @@ import type { Scene } from "@babylonjs/core/scene";
 import { AudioManager } from "../../../engine/AudioManager";
 import { type PlayerModelInstance, PlayerModelManager } from "../../../engine/animation/PlayerModelManager";
 import { prepareMaterial } from "../../../engine/loader/map/GpuPreparation";
+import { renderToggle } from "../../../engine/rendering/RenderToggles";
 import { devLog } from "./DevLog";
 
 // ============================================================================
@@ -194,7 +195,8 @@ export class TeleportEffect {
   }
 
   private ensureGhostPool(): Promise<void> {
-    if (!this.scene || this.ghostPool.length > 0) return Promise.resolve();
+    // Off (r_teleport_ghost 0), the pool is not even loaded: four rigs fewer
+    if (!this.scene || this.ghostPool.length > 0 || !renderToggle("r_teleport_ghost")) return Promise.resolve();
     this.ghostPoolTask ??= this.loadGhostPool().finally(() => {
       this.ghostPoolTask = null;
     });
@@ -325,7 +327,7 @@ export class TeleportEffect {
    * teleport has ghosts — prewarm() avoids even that).
    */
   private spawnGhost(pos: { x: number; y: number; z: number }, yaw: number, team: "alpha" | "bravo"): void {
-    if (!this.scene) return;
+    if (!this.scene || !renderToggle("r_teleport_ghost")) return;
     if (this.ghostPool.length === 0) {
       void this.ensureGhostPool();
       return;

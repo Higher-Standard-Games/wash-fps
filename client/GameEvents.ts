@@ -39,6 +39,7 @@ import {
   type WeaponFireEvent,
   type WeaponStateEvent,
 } from "../../../engine/network/core/SnapshotEvent";
+import { renderToggle } from "../../../engine/rendering/RenderToggles";
 import {
   BLADE_EXPLOSION,
   GRENADE_EXPLOSION,
@@ -719,6 +720,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
 
         let light = ctx.chargingGlows.get(entityId);
         if (!light) {
+          if (!renderToggle("r_dynamiclight")) continue;
           light = new PointLight(`charge_glow_${entityId}`, new Vector3(pos.x, pos.y + 30, pos.z), scene);
           light.diffuse = new Color3(0.05, 1.0, 0.9);
           light.specular = new Color3(0.05, 1.0, 0.9);
@@ -961,10 +963,13 @@ function handleDeathEvent(ctx: GameEventContext, event: DeathEvent, state: GameS
           color,
         });
       }
-      if (isLocalDeath && gibHandle && ctx._deathCamera) {
+      // With gibs off (r_gibs 0) nothing flies, but the view still pulls back
+      // from where the body was rather than stay inside it
+      const gibsOff = !renderToggle("r_gibs");
+      if (isLocalDeath && (gibHandle || gibsOff) && ctx._deathCamera) {
         const camYaw = getCurrentCameraYaw();
         const deathPos = new Vector3(event.x, event.y, event.z);
-        ctx._deathCamera.start(() => gibHandle?.getPosition() ?? null, deathPos, camYaw);
+        ctx._deathCamera.start(() => gibHandle?.getPosition() ?? (gibsOff ? deathPos : null), deathPos, camYaw);
       }
     }
   } else {

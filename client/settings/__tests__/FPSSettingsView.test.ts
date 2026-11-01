@@ -8,6 +8,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Cvar } from "../../../../../engine/core/Cvar";
 import { InputSystem } from "../../../../../engine/input/InputSystem";
+import { WorldFogController } from "../../../../../engine/rendering/WorldFogController";
+// The video presets set the distant-player pose rate, which this module registers
+import "../../RemotePlayerRenderer";
 import { FPS } from "../../FPSActions";
 import { FPSSettingsView } from "../FPSSettingsView";
 import { resetSideColors, setSideColor, sideColor, sideColorsAreDefault, TEAM_COLORS } from "../SettingsModel";
@@ -34,6 +37,9 @@ afterEach(() => {
   view.getElement().remove();
   input.resetAllBindings();
 });
+
+// The video presets set world fog, registered with the fog controller
+WorldFogController.getInstance().registerCvars();
 
 describe("FPSSettingsView", () => {
   it("saves player sound selections and restores Male/Bobot with Gameplay reset", async () => {

@@ -77,11 +77,12 @@ slider, leave the page, or pause for 200 ms.
 
 ## Video
 
-Three **presets** change only what costs frames, and leave brightness and outlines alone. **Balanced** is what the game ships with.
+Four **presets** change only what costs frames, and leave brightness and outlines alone; **Ultralow** is the one exception and also turns outlines off. **Balanced** is what the game ships with.
 
 | Preset | What it does |
 |--------|--------------|
-| **Smooth** | The most frames: plain water, no light shafts, no bloom, no reflections, hard-edged halos |
+| **Ultralow** | Frames above all: half render resolution, no antialiasing, no dynamic lights, gibs, wall marks, teleport afterimages, fog or outlines, quarter-size map textures. The other presets turn its frame-cost switches back on, but not the outlines: turn those back on yourself |
+| **Smooth** | Many frames with the game's look intact: plain water, no light shafts, no bloom, no reflections, hard-edged halos |
 | **Balanced** | The look the game ships with: bloom off, 4× texture sharpness |
 | **Pretty** | Adds glow and reflections, and wants a strong graphics card |
 
@@ -89,14 +90,15 @@ Below the presets the settings are in five sections. Pips beside each setting sh
 
 | Section | Settings |
 |---------|----------|
-| **Screen** | Fullscreen, brightness (`r_exposure`) and contrast (`r_contrast`) |
-| **Effects** | Bloom (`r_bloom`), reflections (`r_ssr`) and their strength (`r_ssr_strength`), light shafts (`r_godrays`: Off, Low or High), soft halos (`r_softhalos`: lamp halos and flares fade where they meet a wall instead of ending in a line), glow (`r_glow`), comic outlines on the world (`r_cel_outlines`) |
-| **World** | Water quality (`r_water_quality`: Low, Medium or High), players reflected in water (`r_water_actors`, High water only), light cast from the map's glowing panels (`r_arealights`), how much the view warps under water (`r_underwater_distortion`) |
+| **Screen** | Fullscreen, brightness (`r_exposure`), contrast (`r_contrast`), render resolution (`r_renderscale`, 25-100% of the window; the HUD stays sharp) and antialiasing (`r_msaa`, applies at the next start) |
+| **Effects** | Bloom (`r_bloom`), reflections (`r_ssr`) and their strength (`r_ssr_strength`), light shafts (`r_godrays`: Off, Low or High), soft halos (`r_softhalos`: lamp halos and flares fade where they meet a wall instead of ending in a line), glow (`r_glow`), comic outlines on the world (`r_cel_outlines`), dynamic lights from shots, rockets, explosions and muzzle flashes (`r_dynamiclight`, applies next map), gibs (`r_gibs`), wall marks (`r_marks`) and the teleport afterimage (`r_teleport_ghost`) |
+| **World** | Water quality (`r_water_quality`: Low, Medium or High), players reflected in water (`r_water_actors`, High water only), light cast from the map's glowing panels (`r_arealights`), fog (`r_fog`), how much the view warps under water (`r_underwater_distortion`) |
 | **Textures** | Sharpness at an angle (`r_anisotropy`), detailed surfaces (`r_bsp_pbr`) |
 | **Advanced** | Map texture detail (`r_picmip`): Full, Soft, Softer, Blurred or Flat color; applies next map. **Color blindness** and **Correction strength**; see below |
 
 Map texture detail is available with every preset. Balanced and Pretty start at
-Full; Smooth starts at Soft (half-size base textures). Flat color removes the
+Full; Smooth starts at Soft (half-size base textures) and Ultralow at Softer
+(quarter-size). Flat color removes the
 pattern from static opaque map surfaces while preserving lighting. Transparent
 effects, sky and shaders marked to preserve detail stay at full resolution.
 

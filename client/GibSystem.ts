@@ -24,6 +24,7 @@ import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/Dynamic
 import { prepareMaterial } from "../../../engine/loader/map/GpuPreparation";
 import { getCollisionManager } from "../../../engine/physics/CollisionManager";
 import { CollisionMasks } from "../../../engine/physics/ContentFlags";
+import { renderToggle } from "../../../engine/rendering/RenderToggles";
 import { isSceneRendererPolicyApplied } from "../../../engine/rendering/SceneRendererPolicy";
 import { devLog } from "./DevLog";
 
@@ -317,7 +318,7 @@ export class GibSystem {
     velZ: number,
     color?: GibColor | null,
   ): GibHandle | null {
-    if (!this.scene || !this.templateMesh) return null;
+    if (!this.scene || !this.templateMesh || !renderToggle("r_gibs")) return null;
     const materials = this.materialsFor(color);
 
     // Enforce hard cap
