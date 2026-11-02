@@ -22,6 +22,7 @@ Each room draws three maps at random from the pool for the vote, so a mode with 
 | `washoi_amphi2` | Washoi Amphi2 | Amphi |
 | `washoi_snd1` | Concrete Strike | S&D |
 | `washoi_snd6` | Depot | S&D |
+| `washoi_snd4` | Shepas | S&D |
 
 The table shows the configured lobby pools, filtered against installed packages.
 Existing demos recorded on `wdm2`, `wfdm5` or `wfdm11` load the corresponding
