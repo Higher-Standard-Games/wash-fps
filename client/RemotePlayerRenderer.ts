@@ -11,6 +11,7 @@
  *   derives animation state from velocity/grounded/yaw, and plays animations
  */
 
+import type { AnimationGroup } from "@babylonjs/core/Animations/animationGroup";
 import type { Bone } from "@babylonjs/core/Bones/bone";
 import type { Skeleton } from "@babylonjs/core/Bones/skeleton";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
@@ -36,7 +37,12 @@ import { BspManager } from "../../../engine/loader/bsp/BspManager";
 import { prepareMaterial } from "../../../engine/loader/map/GpuPreparation";
 import { ModelInstanceCache } from "../../../engine/loader/model/ModelInstanceCache";
 import type { ModelLoadResult } from "../../../engine/loader/model/ModelLoader";
-import { bindLoaderLeftovers, disposeModelResources } from "../../../engine/loader/model/ModelSourceCache";
+import {
+  bindLoaderLeftovers,
+  disposeModelResources,
+  loaderAnimationGroups,
+  setModelRecycler,
+} from "../../../engine/loader/model/ModelSourceCache";
 import {
   type EntitySnapshot,
   type InterpolatedEntity,
@@ -98,6 +104,17 @@ export interface RenderedPlayer {
   position: Vector3;
   dead: boolean;
 }
+
+/** A third-person gun, assembled once: geometry under its leader mesh, muzzle tag, barrels. */
+interface HeldWeapon {
+  leader: Mesh;
+  muzzle: TransformNode | null;
+  /** Animation groups paused while it was parked, played again when it is held. */
+  paused: AnimationGroup[];
+}
+
+/** Parked guns kept per weapon: enough for every player of a full FFA to switch back. */
+const MAX_IDLE_WEAPONS_PER_KIND = 8;
 
 interface RemotePlayerHitbox {
   mesh: Mesh;
@@ -201,6 +218,8 @@ export class RemotePlayerRenderer {
   private modelLoadPromise: Promise<void> | null = null;
   private weaponModelCache?: ModelInstanceCache;
   private barrelModelCache?: ModelInstanceCache;
+  /** Guns nobody holds, by weapon id (`parkWeapon`). */
+  private readonly idleWeapons = new Map<string, HeldWeapon[]>();
   private localReflectionModel: PlayerModelInstance | null = null;
   private localReflectionLoadAttempted = false;
   private disposed = false;
@@ -764,6 +783,13 @@ export class RemotePlayerRenderer {
       this.modelManager.dispose();
       this.modelManager = null;
     }
+    for (const idle of this.idleWeapons.values()) {
+      for (const weapon of idle) {
+        setModelRecycler(weapon.leader, null);
+        disposeModelResources([weapon.leader]);
+      }
+    }
+    this.idleWeapons.clear();
     this.weaponModelCache?.dispose();
     this.barrelModelCache?.dispose();
   }
@@ -1890,7 +1916,7 @@ export class RemotePlayerRenderer {
     const generation = (hitbox.weaponLoadGeneration ?? 0) + 1;
     hitbox.weaponLoadGeneration = generation;
 
-    // Dispose previous weapon
+    // Dispose previous weapon (a gun is parked for reuse instead)
     if (hitbox.weaponRoot) {
       disposeModelResources([hitbox.weaponRoot]);
       hitbox.weaponRoot = null;
@@ -1909,6 +1935,13 @@ export class RemotePlayerRenderer {
     const defScale = weaponDef.scale ?? 1.5;
     const isGlbWeapon = weaponDef.viewModel.viewModelFormat === "glb" || modelPath.toLowerCase().endsWith(".glb");
     const visualScale = isGlbWeapon ? (weaponDef.viewModel.scale ?? defScale) : defScale;
+
+    // A parked gun of this kind is already assembled: cloning one took 2–12 ms
+    const parked = this.takeParkedWeapon(weaponId);
+    if (parked) {
+      this.holdWeapon(hitbox, inst, entityId, weaponId, parked, visualScale);
+      return;
+    }
 
     // Load weapon via ModelLoader — same approach as DroppedWeaponRenderer.loadModel()
     import("../../../engine/loader/model/ModelLoader")
@@ -1988,46 +2021,6 @@ export class RemotePlayerRenderer {
 
         if (leaderMesh.rotationQuaternion) leaderMesh.rotationQuaternion = null;
 
-        // Use Babylon.js attachToBone() API — the official way to attach
-        // external meshes to animated skeleton bones.
-        // attachToBone(bone, affectedTransformNode) where affectedTransformNode
-        // is the mesh that owns the skeleton.
-        let attached = false;
-        if (inst.skeleton) {
-          for (const bone of inst.skeleton.bones) {
-            if (bone.name === "mixamorig:RightHand") {
-              leaderMesh.parent = null;
-              leaderMesh.attachToBone(bone, inst.mesh);
-              leaderMesh.position.set(0, 0, 0);
-              // Scale: compensate for 36x player mesh + shrink for 3rd person.
-              // GLB weapons use their authored view-model scale; MD3s use world scale.
-              const thirdPersonScale = (visualScale / MODEL_SCALE) * 0.5;
-              leaderMesh.scaling.setAll(thirdPersonScale);
-
-              // Weapon-specific rotation in bone-local space
-              // (differs from first-person loadGlbWeapon rotations)
-              // IQM→GLB guns: barrel along +X in model space.
-              // Bone +Y = along fingers; X/Z rotations align and right the gun.
-              leaderMesh.rotation.set(Math.PI, 0, -Math.PI / 2);
-
-              attached = true;
-              devLog(
-                `[RemoteWeapon] ✓ attachToBone: ${weaponId} → RightHand, scale: ${(visualScale / MODEL_SCALE).toFixed(4)}`,
-              );
-              break;
-            }
-          }
-        }
-
-        if (!attached) {
-          // Fallback: parent to anchor
-          leaderMesh.parent = inst.anchor;
-          leaderMesh.position.set(0, 30, 0);
-          leaderMesh.rotation.setAll(0);
-          leaderMesh.scaling.setAll(visualScale);
-          console.warn(`[RemoteWeapon] No RightHand bone, using anchor for ${entityId}`);
-        }
-
         // Parent other meshes under leader
         for (const m of result.meshes) {
           if (m instanceof Mesh && m !== leaderMesh && m.getTotalVertices() > 0) {
@@ -2053,30 +2046,92 @@ export class RemotePlayerRenderer {
           bindLoaderLeftovers(leaderMesh, result.root, result.animationGroups);
         }
 
-        hitbox.weaponRoot = leaderMesh as unknown as TransformNode;
-        hitbox.weaponMuzzle = muzzleNode ?? null;
-        // Track the weapon on the model instance so it is disposed WITH the model
-        // (bone-attached meshes aren't scene-graph children). This makes a dropped
-        // blade ride the death ragdoll and vanish with it instead of leaking a
-        // floating mesh that piles up over a match.
-        inst.attachedWeapon = leaderMesh as unknown as TransformNode;
-        const leader = leaderMesh;
+        const weapon: HeldWeapon = { leader: leaderMesh, muzzle: muzzleNode ?? null, paused: [] };
+        // Every path that disposes the gun (switch, death, leaving, ragdoll
+        // expiry) parks it here instead, assembled, barrels and all.
+        setModelRecycler(leaderMesh, () => this.parkWeapon(weaponId, weapon));
+        // The barrels belong to the gun, wherever it is held or parked.
         background(
-          this.attachBarrels(
-            leader,
-            weaponDef,
-            result,
-            () => hitbox.currentWeaponId !== weaponId || hitbox.weaponLoadGeneration !== generation,
-          ),
+          this.attachBarrels(leaderMesh, weaponDef, result, () => leaderMesh.isDisposed()),
           "RemoteWeapon barrels",
         );
-        devLog(
-          `[RemoteWeapon] ✓ Done: ${weaponId} for ${entityId}, bone: ${attached}, scale: ${attached ? visualScale / MODEL_SCALE : visualScale}`,
-        );
+        this.holdWeapon(hitbox, inst, entityId, weaponId, weapon, visualScale);
       })
       .catch((err) => {
         console.warn(`[RemoteWeapon] Failed to load ${weaponId} for ${entityId}:`, err);
       });
+  }
+
+  /** Put an assembled gun in a player's right hand (the anchor without one). */
+  private holdWeapon(
+    hitbox: RemotePlayerHitbox,
+    inst: PlayerModelInstance,
+    entityId: string,
+    weaponId: string,
+    weapon: HeldWeapon,
+    visualScale: number,
+  ): void {
+    const leader = weapon.leader;
+    const hand = inst.skeleton?.bones.find((bone) => bone.name === "mixamorig:RightHand");
+    if (hand) {
+      // attachToBone(bone, affectedTransformNode): the mesh that owns the skeleton
+      leader.parent = null;
+      leader.attachToBone(hand, inst.mesh);
+      leader.position.set(0, 0, 0);
+      // Scale: compensate for 36x player mesh + shrink for 3rd person.
+      // GLB weapons use their authored view-model scale; MD3s use world scale.
+      leader.scaling.setAll((visualScale / MODEL_SCALE) * 0.5);
+      // Weapon-specific rotation in bone-local space
+      // (differs from first-person loadGlbWeapon rotations)
+      // IQM→GLB guns: barrel along +X in model space.
+      // Bone +Y = along fingers; X/Z rotations align and right the gun.
+      leader.rotation.set(Math.PI, 0, -Math.PI / 2);
+    } else {
+      leader.parent = inst.anchor;
+      leader.position.set(0, 30, 0);
+      leader.rotation.setAll(0);
+      leader.scaling.setAll(visualScale);
+      console.warn(`[RemoteWeapon] No RightHand bone, using anchor for ${entityId}`);
+    }
+    leader.setEnabled(true);
+    for (const group of weapon.paused.splice(0)) group.play(group.loopAnimation);
+
+    hitbox.weaponRoot = leader as unknown as TransformNode;
+    hitbox.weaponMuzzle = weapon.muzzle;
+    // Track the weapon on the model instance so it goes WITH the model
+    // (bone-attached meshes aren't scene-graph children): a dead player's gun
+    // rides the ragdoll and is parked when the ragdoll goes.
+    inst.attachedWeapon = leader as unknown as TransformNode;
+    devLog(`[RemoteWeapon] ✓ ${weaponId} for ${entityId}, bone: ${!!hand}`);
+  }
+
+  /** Take a gun back from its holder for the next player who switches to it; false disposes it. */
+  private parkWeapon(weaponId: string, weapon: HeldWeapon): boolean {
+    if (this.disposed || this.scene.isDisposed || weapon.leader.isDisposed()) return false;
+    let idle = this.idleWeapons.get(weaponId);
+    if (!idle) {
+      idle = [];
+      this.idleWeapons.set(weaponId, idle);
+    }
+    if (idle.length >= MAX_IDLE_WEAPONS_PER_KIND) return false;
+    weapon.leader.detachFromBone();
+    weapon.leader.parent = null;
+    weapon.leader.setEnabled(false);
+    for (const group of loaderAnimationGroups(weapon.leader)) {
+      if (!group.isPlaying) continue;
+      group.pause();
+      weapon.paused.push(group);
+    }
+    idle.push(weapon);
+    return true;
+  }
+
+  private takeParkedWeapon(weaponId: string): HeldWeapon | null {
+    const idle = this.idleWeapons.get(weaponId);
+    for (let weapon = idle?.pop(); weapon; weapon = idle?.pop()) {
+      if (!weapon.leader.isDisposed()) return weapon;
+    }
+    return null;
   }
 
   /**

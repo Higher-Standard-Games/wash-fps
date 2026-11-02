@@ -62,9 +62,16 @@ export interface DroppedWeaponInfo {
 
 const activeDroppedWeaponVisuals = new Set<DroppedWeaponVisual>();
 
+/** Parked drop models kept per weapon. */
+const MAX_IDLE_DROPS_PER_KIND = 4;
+
 interface DroppedModelSources {
   main(path: string, scale: number): Promise<ModelLoadResult | null>;
   barrel(path: string): Promise<ModelLoadResult | null>;
+  /** An assembled weapon of this kind left by an earlier drop, or null. */
+  take(weaponId: string): Mesh | null;
+  /** Keep an assembled weapon for the next drop of its kind; false means dispose it. */
+  park(weaponId: string, mesh: Mesh): boolean;
 }
 
 /** The start of a weapon's throw, from its weapon_drop event. */
@@ -123,6 +130,8 @@ class DroppedWeaponVisual {
   private tumble = 0;
   /** Whether the camera can see it (set by the renderer, applied once the model is in). */
   private visible = true;
+  /** The model is whole (barrels attached), so it can be parked for the next drop. */
+  private assembled = false;
 
   constructor(
     entityId: string,
@@ -161,6 +170,14 @@ class DroppedWeaponVisual {
       const def = registry.get<WeaponDef>(this.weaponId);
       const modelPath = def?.modelPath || `models/weapons/${this.weaponId}/${this.weaponId}.md3`;
       const defScale = def?.scale ?? 1.5;
+
+      // An earlier drop's model, assembled: cloning one took 2–10 ms
+      const parked = this.sources.take(this.weaponId);
+      if (parked) {
+        this.place(parked, position, defScale);
+        this.assembled = true;
+        return;
+      }
 
       // Try AssetPreloader cache first for instant spawn
       let result: ModelLoadResult | null = null;
@@ -208,15 +225,6 @@ class DroppedWeaponVisual {
         }
 
         if (leaderMesh) {
-          // A root-level mesh, placed and turned in world space by update()
-          leaderMesh.parent = null;
-          leaderMesh.name = `droppedWeapon_${this.entityId}`;
-          leaderMesh.position.copyFrom(position);
-          leaderMesh.rotationQuaternion = null;
-          leaderMesh.rotation.setAll(0);
-          leaderMesh.isVisible = true;
-          leaderMesh.scaling.setAll(defScale);
-
           // Parent other meshes under leader (they move with it)
           for (const m of otherMeshes) {
             m.parent = leaderMesh;
@@ -226,8 +234,7 @@ class DroppedWeaponVisual {
             m.isVisible = true;
           }
 
-          this.mesh = leaderMesh;
-          this.mesh.setEnabled(this.visible);
+          this.place(leaderMesh, position, defScale);
           // Bind before awaiting barrels: a pickup/map disposal during that
           // await must also release the main model's detached rig and clips.
           result.root.parent = null;
@@ -245,6 +252,7 @@ class DroppedWeaponVisual {
             stale: () => this.disposed,
             label: "DroppedWeapon",
           });
+          this.assembled = !this.disposed;
         }
 
         if (!leaderMesh) disposeModelResources([result.root], result);
@@ -252,6 +260,19 @@ class DroppedWeaponVisual {
     } catch (e) {
       console.error(`[DroppedWeaponVisual] Failed to load model for ${this.weaponId}:`, e);
     }
+  }
+
+  /** A root-level mesh, placed and turned in world space by update(). */
+  private place(leader: Mesh, position: Vector3, scale: number): void {
+    leader.parent = null;
+    leader.name = `droppedWeapon_${this.entityId}`;
+    leader.position.copyFrom(position);
+    leader.rotationQuaternion = null;
+    leader.rotation.setAll(0);
+    leader.isVisible = true;
+    leader.scaling.setAll(scale);
+    this.mesh = leader;
+    leader.setEnabled(this.visible);
   }
 
   /**
@@ -366,10 +387,11 @@ class DroppedWeaponVisual {
     activeDroppedWeaponVisuals.delete(this);
     if (this.mesh) {
       if (!this.mesh.isDisposed()) {
-        // The weapon, its parts and barrels, and the loader leftovers bound to
-        // it. Materials shared with the AssetPreloader cache and other clones
-        // are still drawn by them, so they stay; ones only this weapon used go.
-        disposeModelResources([this.mesh]);
+        // Parked whole for the next drop of this weapon, or else: the weapon,
+        // its parts and barrels, and the loader leftovers bound to it. Materials
+        // shared with the AssetPreloader cache and other clones are still drawn
+        // by them, so they stay; ones only this weapon used go.
+        if (!this.assembled || !this.sources.park(this.weaponId, this.mesh)) disposeModelResources([this.mesh]);
       }
       this.mesh = null;
     }
@@ -396,7 +418,26 @@ export class DroppedWeaponRenderer {
   private readonly sources: DroppedModelSources = {
     main: (path, scale) => this.loadFallbackModel(path, scale),
     barrel: (path) => this.loadBarrelModel(path),
+    take: (weaponId) => {
+      const idle = this.idle.get(weaponId);
+      for (let mesh = idle?.pop(); mesh; mesh = idle?.pop()) if (!mesh.isDisposed()) return mesh;
+      return null;
+    },
+    park: (weaponId, mesh) => {
+      if (this.disposed || this.scene.isDisposed) return false;
+      let idle = this.idle.get(weaponId);
+      if (!idle) {
+        idle = [];
+        this.idle.set(weaponId, idle);
+      }
+      if (idle.length >= MAX_IDLE_DROPS_PER_KIND) return false;
+      mesh.setEnabled(false);
+      idle.push(mesh);
+      return true;
+    },
   };
+  /** Assembled models of picked-up or expired drops, by weapon id. */
+  private readonly idle = new Map<string, Mesh[]>();
 
   private async loadFallbackModel(path: string, scale: number): Promise<ModelLoadResult | null> {
     if (this.disposed || this.scene.isDisposed) return null;
@@ -691,6 +732,8 @@ export class DroppedWeaponRenderer {
       visual.dispose();
     }
     this.weapons.clear();
+    for (const idle of this.idle.values()) disposeModelResources(idle);
+    this.idle.clear();
     this.pendingThrows.clear();
     this.fallbackCache?.dispose();
     this.barrelCache?.dispose();

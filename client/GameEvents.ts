@@ -19,6 +19,7 @@ import { CameraSystem } from "../../../engine/camera";
 import { logRejection } from "../../../engine/core/AsyncErrors";
 import { log } from "../../../engine/core/Log";
 import { addToDynamicLightCluster, disposeClusteredLight } from "../../../engine/lighting/DynamicLightCluster";
+import { disposeModelResources } from "../../../engine/loader/model/ModelSourceCache";
 import { NetGraph } from "../../../engine/network/client/NetGraph";
 import type { EntitySnapshot, SnapshotBuffer } from "../../../engine/network/client/SnapshotBuffer";
 import type { TransformComponent, Vec3 } from "../../../engine/network/components/TransformComponent";
@@ -1040,7 +1041,9 @@ function getCurrentCameraYaw(): number {
 
 function disposeDetachedModel(model: PlayerModelInstance): void {
   try {
-    model.attachedWeapon?.dispose?.(false, true);
+    // Through the model helper, so a gun's owner can park it for reuse
+    if (model.attachedWeapon) disposeModelResources([model.attachedWeapon]);
+    model.attachedWeapon = null;
     model.masterGroup?.stop?.();
     model.masterGroup?.dispose?.();
     model.mesh?.dispose?.();
