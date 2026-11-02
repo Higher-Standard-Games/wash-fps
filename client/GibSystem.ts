@@ -531,9 +531,11 @@ export class GibSystem {
           }
           continue;
         }
-        mesh.thinInstanceBufferUpdated("matrix");
-        mesh.thinInstanceBufferUpdated("color");
+        // Count first, then upload exactly the live shards: a full update sends
+        // the previous count, so a new shard drew with stale data for a frame
         mesh.thinInstanceCount = batch.count;
+        mesh.thinInstancePartialBufferUpdate("matrix", batch.count, 0);
+        mesh.thinInstancePartialBufferUpdate("color", batch.count, 0);
         if (!mesh.isEnabled()) mesh.setEnabled(true);
       }
     }
