@@ -15,6 +15,9 @@ import { Ray } from "@babylonjs/core/Culling/ray";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
 import type { Scene } from "@babylonjs/core/scene";
+import type { TraceOptions } from "../../../engine/physics/CollisionBackend";
+import { getCollisionManager } from "../../../engine/physics/CollisionManager";
+import { ContentFlags } from "../../../engine/physics/ContentFlags";
 
 /** Live world position of the follow target, or null once gone. */
 export type FollowPositionFn = () => Vector3 | null;
@@ -48,6 +51,8 @@ const MIN_LOOK_HEIGHT_ABOVE_DEATH = 8;
 const CAMERA_WALL_PADDING = 18;
 /** Keep at least this much distance from corpse to camera after wall clamps. */
 const MIN_CAMERA_TARGET_DISTANCE = 36;
+/** A ray through solid brushes. */
+const CAMERA_TRACE: TraceOptions = { radius: 0, height: 0, contentMask: ContentFlags.SOLID };
 
 export class DeathCamera {
   private active = false;
@@ -128,13 +133,26 @@ export class DeathCamera {
     if (distance <= MIN_CAMERA_TARGET_DISTANCE) return desired;
 
     const dir = offset.scale(1 / distance);
-    const hit = scene.pickWithRay(new Ray(lookTarget, dir, distance), (mesh) => this.isMapMesh(mesh));
-    if (!hit?.hit || !hit.pickedPoint) return desired;
-
-    const hitDistance = Vector3.Distance(lookTarget, hit.pickedPoint);
+    const hitDistance = this.wallDistance(scene, lookTarget, desired, dir, distance);
+    if (hitDistance === null) return desired;
     const clampedDistance = Math.max(MIN_CAMERA_TARGET_DISTANCE, hitDistance - CAMERA_WALL_PADDING);
     if (clampedDistance >= distance) return desired;
     return lookTarget.add(dir.scale(clampedDistance));
+  }
+
+  /**
+   * Distance from `from` to the first wall on the way to `to`, or null when the
+   * way is clear. Traces the map's collision brushes, a few BSP nodes; picking
+   * the rendered map instead tests every triangle of every map mesh each frame.
+   */
+  private wallDistance(scene: Scene, from: Vector3, to: Vector3, dir: Vector3, distance: number): number | null {
+    const sweep = getCollisionManager().getSweepBackend();
+    if (sweep) {
+      const result = sweep.trace(from, to, CAMERA_TRACE);
+      if (!result.startSolid) return result.fraction < 1 ? result.fraction * distance : null;
+    }
+    const hit = scene.pickWithRay(new Ray(from, dir, distance), (mesh) => this.isMapMesh(mesh));
+    return hit?.hit && hit.pickedPoint ? Vector3.Distance(from, hit.pickedPoint) : null;
   }
 
   private isMapMesh(mesh: AbstractMesh): boolean {
