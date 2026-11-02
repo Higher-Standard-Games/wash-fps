@@ -385,7 +385,7 @@ export class RemotePlayerRenderer {
    * throwaway instance leaves them for the real players.
    */
   async waitForModels(): Promise<void> {
-    await this.ensureModelLoaded();
+    await Promise.all([this.ensureModelLoaded(), this.prepareParkedWeapons()]);
     if (!this.modelManager?.isLoaded) throw new Error("Timedemo player model failed to load");
     const instance = this.createModelInstance("shader-warmup");
     if (!instance) return;
@@ -1943,36 +1943,9 @@ export class RemotePlayerRenderer {
       return;
     }
 
-    // Load weapon via ModelLoader — same approach as DroppedWeaponRenderer.loadModel()
-    import("../../../engine/loader/model/ModelLoader")
-      .then(async ({ ModelLoader }) => {
-        const loader = ModelLoader.getInstance();
-        if (!loader.isInitialized()) loader.init(this.scene);
-
-        if (this.disposed || this.scene.isDisposed) return;
-        this.weaponModelCache ??= new ModelInstanceCache(
-          this.scene,
-          async (path, scale) =>
-            loader.loadModel(path, {
-              position: Vector3.Zero(),
-              scale,
-              hasCollision: false,
-              applyLighting: false,
-            }),
-          {
-            // Weapon highlights belong to meshes; these PBR materials are read-only.
-            // A weapon switch then builds no material, and so no shader. WebGPU
-            // keeps clones: sharing was only ever measured on WebGL.
-            shareStaticMaterials: !this.scene.getEngine().isWebGPU,
-          },
-        );
-        const result = await this.weaponModelCache.createInstance(modelPath, defScale);
-
-        if (!result?.root) {
-          console.warn(`[RemoteWeapon] ModelLoader returned null for ${weaponId}`);
-          return;
-        }
-
+    background(
+      this.loadWeaponModel(modelPath, defScale).then((result) => {
+        if (!result?.root) return;
         if (
           this.hitboxes.get(entityId) !== hitbox ||
           this.deadEntities.has(entityId) ||
@@ -1982,84 +1955,153 @@ export class RemotePlayerRenderer {
           disposeModelResources([result.root], result);
           return;
         }
-
-        // Find leader mesh (first mesh with geometry) — same as DroppedWeaponRenderer
-        let leaderMesh: Mesh | null = null;
-        prepareWorldWeaponMaterials(result.meshes);
-        for (const m of result.meshes) {
-          if (m instanceof Mesh && m.getTotalVertices() > 0) {
-            if (!leaderMesh) {
-              leaderMesh = m;
-            }
-            // Cap lights to prevent shader overflow
-            if (m.material && "maxSimultaneousLights" in m.material) {
-              applySafeMaxSimultaneousLights(m.material);
-            }
-            // Disable frustum culling
-            m.alwaysSelectAsActiveMesh = true;
-            m.isVisible = true;
-          }
-        }
-
-        dropDistantWeaponDetail(result.meshes);
-
-        if (!leaderMesh) {
-          console.warn(`[RemoteWeapon] No meshes with geometry for ${weaponId}`);
-          disposeModelResources([result.root], { animationGroups: result.animationGroups });
-          return;
-        }
-
+        const leader = this.prepareWeaponMeshes(weaponId, result);
+        if (!leader) return;
         if (weaponId === "blade") {
           hitbox.weaponRoot = attachBladeToPlayer(result, inst, visualScale, MODEL_SCALE);
           hitbox.weaponMuzzle = null;
           return;
         }
-
-        const muzzleNode = result.root
-          .getDescendants(false)
-          .find((node) => node.name === "tag_flash" && node instanceof TransformNode) as TransformNode | undefined;
-
-        if (leaderMesh.rotationQuaternion) leaderMesh.rotationQuaternion = null;
-
-        // Parent other meshes under leader
-        for (const m of result.meshes) {
-          if (m instanceof Mesh && m !== leaderMesh && m.getTotalVertices() > 0) {
-            m.parent = leaderMesh;
-            m.position.setAll(0);
-            if (m.rotationQuaternion) m.rotationQuaternion = null;
-            m.rotation.setAll(0);
-            m.isVisible = true;
-            m.alwaysSelectAsActiveMesh = true;
-          }
-        }
-
-        // Preserve the authored muzzle tag when detaching the geometry from the
-        // loader root. Its model-space transform now follows the hand-attached
-        // leader exactly, including animation, scale, and rotation.
-        if (muzzleNode) muzzleNode.parent = leaderMesh;
-
-        // Detach loader root. It may still hold the bones a skinned weapon is
-        // drawn with, so it goes when the weapon goes, not now.
-        if (result.root) {
-          result.root.parent = null;
-          result.root.setEnabled(false);
-          bindLoaderLeftovers(leaderMesh, result.root, result.animationGroups);
-        }
-
-        const weapon: HeldWeapon = { leader: leaderMesh, muzzle: muzzleNode ?? null, paused: [] };
-        // Every path that disposes the gun (switch, death, leaving, ragdoll
-        // expiry) parks it here instead, assembled, barrels and all.
-        setModelRecycler(leaderMesh, () => this.parkWeapon(weaponId, weapon));
-        // The barrels belong to the gun, wherever it is held or parked.
-        background(
-          this.attachBarrels(leaderMesh, weaponDef, result, () => leaderMesh.isDisposed()),
-          "RemoteWeapon barrels",
-        );
+        const { weapon, barrels } = this.assembleGun(weaponId, weaponDef, result, leader);
+        background(barrels, "RemoteWeapon barrels");
         this.holdWeapon(hitbox, inst, entityId, weaponId, weapon, visualScale);
-      })
-      .catch((err) => {
-        console.warn(`[RemoteWeapon] Failed to load ${weaponId} for ${entityId}:`, err);
-      });
+      }),
+      `RemoteWeapon ${weaponId}`,
+    );
+  }
+
+  /** One instance of a weapon's model, from sources the renderer shares between players. */
+  private async loadWeaponModel(modelPath: string, scale: number): Promise<ModelLoadResult | null> {
+    const { ModelLoader } = await import("../../../engine/loader/model/ModelLoader");
+    if (this.disposed || this.scene.isDisposed) return null;
+    const loader = ModelLoader.getInstance();
+    if (!loader.isInitialized()) loader.init(this.scene);
+    this.weaponModelCache ??= new ModelInstanceCache(
+      this.scene,
+      async (path, modelScale) =>
+        loader.loadModel(path, {
+          position: Vector3.Zero(),
+          scale: modelScale,
+          hasCollision: false,
+          applyLighting: false,
+        }),
+      {
+        // Weapon highlights belong to meshes; these PBR materials are read-only.
+        // A weapon switch then builds no material, and so no shader. WebGPU
+        // keeps clones: sharing was only ever measured on WebGL.
+        shareStaticMaterials: !this.scene.getEngine().isWebGPU,
+      },
+    );
+    const result = await this.weaponModelCache.createInstance(modelPath, scale);
+    if (!result?.root) console.warn(`[RemoteWeapon] ModelLoader returned null for ${modelPath}`);
+    return result;
+  }
+
+  /** World-weapon materials and drawing flags; the leader is the first mesh with geometry. */
+  private prepareWeaponMeshes(weaponId: string, result: ModelLoadResult): Mesh | null {
+    let leaderMesh: Mesh | null = null;
+    prepareWorldWeaponMaterials(result.meshes);
+    for (const m of result.meshes) {
+      if (m instanceof Mesh && m.getTotalVertices() > 0) {
+        if (!leaderMesh) {
+          leaderMesh = m;
+        }
+        // Cap lights to prevent shader overflow
+        if (m.material && "maxSimultaneousLights" in m.material) {
+          applySafeMaxSimultaneousLights(m.material);
+        }
+        // Disable frustum culling
+        m.alwaysSelectAsActiveMesh = true;
+        m.isVisible = true;
+      }
+    }
+    dropDistantWeaponDetail(result.meshes);
+    if (!leaderMesh) {
+      console.warn(`[RemoteWeapon] No meshes with geometry for ${weaponId}`);
+      disposeModelResources([result.root], { animationGroups: result.animationGroups });
+    }
+    return leaderMesh;
+  }
+
+  /**
+   * Assemble a gun once: its geometry under the leader mesh, the muzzle tag, the
+   * barrels (`barrels` settles when they are on). Every path that disposes it
+   * afterwards (switch, death, leaving, ragdoll expiry) parks it instead.
+   */
+  private assembleGun(
+    weaponId: string,
+    weaponDef: WeaponDef,
+    result: ModelLoadResult,
+    leaderMesh: Mesh,
+  ): { weapon: HeldWeapon; barrels: Promise<void> } {
+    const muzzleNode = result.root
+      .getDescendants(false)
+      .find((node) => node.name === "tag_flash" && node instanceof TransformNode) as TransformNode | undefined;
+
+    if (leaderMesh.rotationQuaternion) leaderMesh.rotationQuaternion = null;
+
+    // Parent other meshes under leader
+    for (const m of result.meshes) {
+      if (m instanceof Mesh && m !== leaderMesh && m.getTotalVertices() > 0) {
+        m.parent = leaderMesh;
+        m.position.setAll(0);
+        if (m.rotationQuaternion) m.rotationQuaternion = null;
+        m.rotation.setAll(0);
+        m.isVisible = true;
+        m.alwaysSelectAsActiveMesh = true;
+      }
+    }
+
+    // Preserve the authored muzzle tag when detaching the geometry from the
+    // loader root. Its model-space transform now follows the hand-attached
+    // leader exactly, including animation, scale, and rotation.
+    if (muzzleNode) muzzleNode.parent = leaderMesh;
+
+    // Detach loader root. It may still hold the bones a skinned weapon is
+    // drawn with, so it goes when the weapon goes, not now.
+    result.root.parent = null;
+    result.root.setEnabled(false);
+    bindLoaderLeftovers(leaderMesh, result.root, result.animationGroups);
+
+    const weapon: HeldWeapon = { leader: leaderMesh, muzzle: muzzleNode ?? null, paused: [] };
+    setModelRecycler(leaderMesh, () => this.parkWeapon(weaponId, weapon));
+    // The barrels belong to the gun, wherever it is held or parked.
+    const barrels = this.attachBarrels(leaderMesh, weaponDef, result, () => leaderMesh.isDisposed());
+    return { weapon, barrels };
+  }
+
+  /**
+   * One parked gun of every kind, assembled and with its shaders compiled, so a
+   * player's first switch to a weapon loads, uploads and clones nothing.
+   */
+  private async prepareParkedWeapons(): Promise<void> {
+    await Promise.all(
+      Object.entries(WEAPONS).map(async ([weaponId, def]) => {
+        // Canonical ids only: aliases (lasergun, rocket, plasma_bolt, ...) share their weapon's definition
+        if (weaponId !== def.id || weaponId === "blade" || this.idleWeapons.get(weaponId)?.length) return;
+        // A gun that fails here loads on its first switch instead; the match still starts
+        await this.prepareParkedWeapon(weaponId, def).catch((error: unknown) =>
+          console.warn(`[RemoteWeapon] Could not prepare ${weaponId}:`, error),
+        );
+      }),
+    );
+  }
+
+  private async prepareParkedWeapon(weaponId: string, def: WeaponDef): Promise<void> {
+    if (!def.modelPath) return;
+    const result = await this.loadWeaponModel(def.modelPath, def.scale ?? 1.5);
+    if (!result?.root || this.disposed) {
+      if (result?.root) disposeModelResources([result.root], result);
+      return;
+    }
+    const leader = this.prepareWeaponMeshes(weaponId, result);
+    if (!leader) return;
+    const { weapon, barrels } = this.assembleGun(weaponId, def, result, leader);
+    await barrels;
+    for (const mesh of [leader, ...leader.getChildMeshes(false)]) {
+      if (mesh.material) await prepareMaterial(mesh.material, mesh);
+    }
+    if (!this.parkWeapon(weaponId, weapon)) disposeModelResources([leader]);
   }
 
   /** Put an assembled gun in a player's right hand (the anchor without one). */
