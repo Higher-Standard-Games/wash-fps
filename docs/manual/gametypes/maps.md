@@ -18,6 +18,7 @@ Each room draws three maps at random from the pool for the vote, so a mode with 
 | `washoi_dm11` | Washoi DM11 | Duel, FFA |
 | `washoi_dm7` | Washoi DM7 | FFA |
 | `washoi_dm14` | Washoi DM14 | Duel, FFA |
+| `washoi_dm12` | Washoi DM12 | Duel, FFA |
 | `washoi_amphi1` | Washoi Amphi1 | Amphi |
 | `washoi_amphi2` | Washoi Amphi2 | Amphi |
 | `washoi_snd1` | Concrete Strike | S&D |
