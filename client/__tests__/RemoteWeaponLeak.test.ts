@@ -53,6 +53,7 @@ interface Internals {
   hitboxes: Map<string, unknown>;
   deadEntities: Map<string, number>;
   enemyWeapons: Map<string, string>;
+  idleWeapons: Map<string, unknown[]>;
   updateWeaponModel(hitbox: unknown, inst: PlayerModelInstance, entityId: string): void;
   attachShowcaseWeapon(inst: PlayerModelInstance, weaponId: string): Promise<void>;
 }
@@ -85,6 +86,7 @@ describe("remote weapon changes", () => {
       hitboxes: new Map(),
       deadEntities: new Map(),
       enemyWeapons: new Map(),
+      idleWeapons: new Map(),
     });
     const weapon = Object.keys(WEAPONS).find((id) => WEAPONS[id].modelPath)!;
     const hitboxes = ["one", "two"].map((id) => {
@@ -119,6 +121,7 @@ describe("remote weapon changes", () => {
     renderer.hitboxes = new Map([["player_2", hitbox]]);
     renderer.deadEntities = new Map();
     renderer.enemyWeapons = new Map();
+    renderer.idleWeapons = new Map();
 
     const [a, b] = Object.entries(WEAPONS)
       .filter(([, def]) => def.modelPath)
@@ -153,6 +156,7 @@ describe("remote weapon changes", () => {
       hitboxes: new Map([["player_2", hitbox]]),
       deadEntities: new Map(),
       enemyWeapons: new Map(),
+      idleWeapons: new Map(),
     });
     const [a, b] = Object.entries(WEAPONS)
       .filter(([, def]) => def.modelPath)
