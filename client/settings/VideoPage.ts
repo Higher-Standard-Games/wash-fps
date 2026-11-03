@@ -393,15 +393,15 @@ export class VideoPage {
   private buildAdvanced(parent: HTMLElement): void {
     seg(this.host, parent, {
       name: "Renderer",
-      help: "WebGPU draws faster where the browser has it, and falls back to WebGL2 where it does not",
+      help: "WebGPU draws faster. Where the browser or graphics card has none, the game uses WebGL2 on its own",
       tag: "Restart",
       choices: [
-        { value: 0, label: "WebGL2" },
         { value: 1, label: "WebGPU" },
+        { value: 0, label: "WebGL2" },
       ],
-      get: () => flag("r_webgpu"),
+      get: () => flag("r_renderer"),
       set: (value) => {
-        Cvar.set("r_webgpu", value);
+        Cvar.set("r_renderer", value);
       },
     });
     seg(this.host, parent, {
