@@ -34,7 +34,7 @@ import { background } from "../../../engine/core/AsyncErrors";
 import { Cvar } from "../../../engine/core/Cvar";
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
 import { BspManager } from "../../../engine/loader/bsp/BspManager";
-import { prepareMaterial } from "../../../engine/loader/map/GpuPreparation";
+import { prepareMaterial, waitForGpuCondition } from "../../../engine/loader/map/GpuPreparation";
 import { ModelInstanceCache } from "../../../engine/loader/model/ModelInstanceCache";
 import type { ModelLoadResult } from "../../../engine/loader/model/ModelLoader";
 import {
@@ -49,6 +49,7 @@ import {
   SnapshotBuffer,
 } from "../../../engine/network/client/SnapshotBuffer";
 import type { GameState } from "../../../engine/network/core/GameState";
+import { warmHiddenMeshes } from "../../../engine/rendering/PipelineWarmup";
 import { waterNeedsLocalReflection } from "../../../engine/rendering/water/WaterActorReflection";
 import { getHitscanEffects } from "../../../engine/weapon/HitscanEffects";
 import type { VoltaicRemoteStartResolver } from "../../../engine/weapon/voltaic/VoltaicEffectRenderer";
@@ -389,12 +390,36 @@ export class RemotePlayerRenderer {
     if (!this.modelManager?.isLoaded) throw new Error("Timedemo player model failed to load");
     const instance = this.createModelInstance("shader-warmup");
     if (!instance) return;
-    // Compiled, never drawn: readiness is checked on the material directly
+    // Compiled first, readiness checked on the material directly
     instance.anchor.setEnabled(false);
     try {
-      for (const mesh of [instance.mesh, ...instance.mesh.getChildMeshes()]) {
+      const meshes = [instance.mesh, ...instance.mesh.getChildMeshes()];
+      for (const mesh of meshes) {
         if (mesh.material) await prepareMaterial(mesh.material, mesh);
       }
+      // Then drawn for a few frames, outlined: WebGPU builds a render pipeline
+      // on a mesh's first draw (an outline draws twice more, with different
+      // write masks), which in play is the first player in view. The instance
+      // is disposed below, so its outline is not put back.
+      const outlined = meshes.filter((mesh) => mesh.getTotalVertices() > 0);
+      for (const mesh of outlined) {
+        mesh.renderOutline = true;
+        mesh.outlineWidth ||= 1;
+      }
+      // The outline effect compiles apart from the material, and an outline
+      // that is not ready skips its draw
+      const outline = this.scene.getOutlineRenderer();
+      try {
+        await waitForGpuCondition(
+          this.scene,
+          () => outlined.every((mesh) => mesh.subMeshes.every((subMesh) => outline.isReady(subMesh, false))),
+          "player outline",
+        );
+      } catch (error) {
+        // Not ready in time: its pipelines are built on the first outline in play instead
+        console.warn("[RemotePlayerRenderer] Player outline did not compile ahead of play", error);
+      }
+      await warmHiddenMeshes(this.scene, undefined, meshes);
     } finally {
       this.modelManager?.disposeInstance(instance);
     }

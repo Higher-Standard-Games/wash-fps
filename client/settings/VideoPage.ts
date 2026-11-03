@@ -392,6 +392,19 @@ export class VideoPage {
 
   private buildAdvanced(parent: HTMLElement): void {
     seg(this.host, parent, {
+      name: "Renderer",
+      help: "WebGPU draws faster. Where the browser or graphics card has none, the game uses WebGL2 on its own",
+      tag: "Restart",
+      choices: [
+        { value: 1, label: "WebGPU" },
+        { value: 0, label: "WebGL2" },
+      ],
+      get: () => flag("r_renderer"),
+      set: (value) => {
+        Cvar.set("r_renderer", value);
+      },
+    });
+    seg(this.host, parent, {
       name: "Map texture detail",
       help: "Softer or flat-color walls and floors. Lighting and transparent effects stay intact.",
       tag: "Next map",

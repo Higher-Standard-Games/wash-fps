@@ -70,6 +70,7 @@ slider, leave the page, or pause for 200 ms.
 - A preview on a real map shows all of the above as you change them.
 - **Crosshair** with its own preview: on or off, **opens up when moving** (tightens again while you aim), size, opacity, colour, and the colour it flashes **when you hit** someone. The defaults are size 32 and green, flashing red on a hit. An empty weapon with no reserve shows a red X until ammunition is available. Cvars: `cg_crosshair`, `cg_crosshairSpread`, `cg_crosshairSize`, `cg_crosshairAlpha`, `cg_crosshairColor`, `cg_crosshairDmgColor`.
 - **Field of view** (`cl_fov`): 80 – 110 degrees, default 90, horizontal at 16:9.
+- **Screen shake** (`cg_screenshake`): on by default, under View & info. Off, the view stays still when you are hit or an explosion (rocket, grenade, plasma or blade) goes off near you. Your own weapon's recoil kick is separate and stays.
 - **FPS counter** (`show_fps`) and **Movement speed** (`cl_showspeed`): both on by default, under View & info. Saved choices take priority.
 - **Match clock** (`cl_invertClock`): **Time left** (the default) counts down to the end; **Time played** counts up from 0:00 and runs on through overtime. Needs a server from v1.0.0-alpha or later; an older one keeps the countdown.
 - **Switch to picked-up weapons** (`cl_autoswitch`): **On** (the default) takes out a weapon as you walk over it. **Off** keeps what you hold, so a fight with the spawn blade is not interrupted by a gun you run across; switch to it yourself when you want it. The only switch left is when a new gun replaces the one in your hands. Needs a server from v1.0.0-alpha or later.
@@ -94,7 +95,7 @@ Below the presets the settings are in five sections. Pips beside each setting sh
 | **Effects** | Bloom (`r_bloom`), reflections (`r_ssr`) and their strength (`r_ssr_strength`), light shafts (`r_godrays`: Off, Low or High), soft halos (`r_softhalos`: lamp halos and flares fade where they meet a wall instead of ending in a line), glow (`r_glow`), comic outlines on the world (`r_cel_outlines`), dynamic lights from shots, rockets, explosions and muzzle flashes (`r_dynamiclight`, applies next map), gibs (`r_gibs`), wall marks (`r_marks`) and the teleport afterimage (`r_teleport_ghost`) |
 | **World** | Water quality (`r_water_quality`: Low, Medium or High), players reflected in water (`r_water_actors`, High water only), light cast from the map's glowing panels (`r_arealights`), fog (`r_fog`), how much the view warps under water (`r_underwater_distortion`) |
 | **Textures** | Sharpness at an angle (`r_anisotropy`), detailed surfaces (`r_bsp_pbr`) |
-| **Advanced** | Map texture detail (`r_picmip`): Full, Soft, Softer, Blurred or Flat color; applies next map. **Color blindness** and **Correction strength**; see below |
+| **Advanced** | Renderer (`r_renderer`): WebGPU (the default) or WebGL2. WebGPU draws faster, and the game uses WebGL2 on its own where the browser or graphics card has no WebGPU; applies at the next start. Map texture detail (`r_picmip`): Full, Soft, Softer, Blurred or Flat color; applies next map. **Color blindness** and **Correction strength**; see below |
 
 Map texture detail is available with every preset. Balanced and Pretty start at
 Full; Smooth starts at Soft (half-size base textures) and Ultralow at Flat

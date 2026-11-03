@@ -28,8 +28,9 @@ afterEach(() => {
 function cloneMeshes(): string[] {
   return scene.meshes.filter((m) => m.name.startsWith("pp_")).map((m) => m.name);
 }
+/** Collection burst pieces on show; finished bursts keep theirs, disabled, for the next collection. */
 function transientMeshes(): number {
-  return scene.meshes.filter((m) => m.name.startsWith("pp_transient")).length;
+  return scene.meshes.filter((m) => m.name.startsWith("pp_transient") && m.isEnabled()).length;
 }
 
 describe("ProceduralPickupVisual", () => {
@@ -40,7 +41,10 @@ describe("ProceduralPickupVisual", () => {
         const anchor = new Vector3(0, 4, 0);
         const visual = new ProceduralPickupVisual(scene, recipe, anchor, false, seed);
         visual.setActive(true);
-        const meshes = visual.root.getChildMeshes().filter((mesh) => !mesh.name.includes("beacon"));
+        // The collection burst is parked (disabled) until a collection plays it
+        const meshes = visual.root
+          .getChildMeshes()
+          .filter((mesh) => !mesh.name.includes("beacon") && !mesh.name.startsWith("pp_transient"));
         expect(meshes.length).toBeGreaterThan(0);
         for (let step = 0; step <= 32; step++) {
           visual.update(1 / 60, step / (32 * recipe.bobFrequency * 1.2));
@@ -104,7 +108,7 @@ describe("ProceduralPickupVisual", () => {
     visual.dispose();
   });
 
-  it("spawns a collection transient on active→inactive that self-disposes", () => {
+  it("spawns a collection transient on active→inactive that hides when done", () => {
     const recipe = getProceduralPickupRecipe("armor_ya");
     if (!recipe) throw new Error("recipe missing");
 
@@ -120,6 +124,29 @@ describe("ProceduralPickupVisual", () => {
     // the persistent visual is hidden. Advance well past its duration.
     for (let i = 0; i < 60; i++) visual.update(0.05, 1 + i * 0.05);
     expect(transientMeshes()).toBe(0);
+
+    visual.dispose();
+    expect(scene.meshes.filter((m) => m.name.startsWith("pp_transient"))).toHaveLength(0);
+  });
+
+  it("plays the same pieces again on the next collection", () => {
+    const recipe = getProceduralPickupRecipe("health_medium");
+    if (!recipe) throw new Error("recipe missing");
+    const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 50, 0), true, 5);
+    visual.setActive(true);
+    visual.setActive(false);
+    const pieces = scene.meshes.filter((m) => m.name.startsWith("pp_transient"));
+    expect(pieces).toHaveLength(7);
+    visual.update(1, 2);
+    expect(transientMeshes()).toBe(0);
+
+    visual.setActive(true);
+    visual.setActive(false);
+    expect(scene.meshes.filter((m) => m.name.startsWith("pp_transient"))).toEqual(pieces);
+    expect(transientMeshes()).toBe(7);
+    const start = pieces[0].position.clone();
+    visual.update(0.1, 2.1);
+    expect(pieces[0].position.equals(start)).toBe(false);
 
     visual.dispose();
     expect(cloneMeshes()).toHaveLength(0);

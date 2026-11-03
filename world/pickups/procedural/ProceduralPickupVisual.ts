@@ -16,7 +16,7 @@
  * Implements the engine `PickupVisual` contract: a fixed anchor + an animated
  * cosmetic root, assembled by cloning scene-cached prototype geometry and driven
  * from an elapsed clock (frame-rate independent, drift-free). It disposes its own
- * clones + private materials + in-flight transients; shared prototype geometry
+ * clones + private materials + its collection burst; shared prototype geometry
  * and the structural material are cache-owned and outlive it.
  */
 
@@ -92,7 +92,8 @@ export class ProceduralPickupVisual implements PickupVisual {
   private readonly ringMaterials: StandardMaterial[] = [];
   private readonly rings: RingEl[] = [];
   private readonly satellites: SatEl[] = [];
-  private readonly transients: ProceduralPickupTransient[] = [];
+  /** The collection burst, played again on each collection. */
+  private transient: ProceduralPickupTransient | null = null;
 
   private prevActive: boolean | null = null;
   private visible = false;
@@ -209,6 +210,7 @@ export class ProceduralPickupVisual implements PickupVisual {
     // Fail-closed initial visibility WITHOUT committing prevActive, so the first
     // server reconcile is treated as the initial (silent) state, not a respawn.
     this.applyVisible(!startHidden);
+    this.transient = this.createTransient();
   }
 
   private track(mat: StandardMaterial): void {
@@ -262,8 +264,16 @@ export class ProceduralPickupVisual implements PickupVisual {
   }
 
   private spawnCollectTransient(): void {
+    this.transient?.play({
+      x: this.cosmetic.position.x,
+      y: this.cosmetic.position.y || HOVER_LIFT,
+    });
+  }
+
+  /** The collection burst, built parked with the pickup so it is drawn while the map loads. */
+  private createTransient(): ProceduralPickupTransient {
     const eff = this.recipe.scale * PROCEDURAL_GLOBAL_SCALE;
-    const t = new ProceduralPickupTransient(
+    return new ProceduralPickupTransient(
       this.scene,
       this.root,
       new Color3(this.recipe.color.r, this.recipe.color.g, this.recipe.color.b),
@@ -273,25 +283,16 @@ export class ProceduralPickupVisual implements PickupVisual {
         style: this.recipe.collectStyle,
         scale: eff,
         family: this.recipe.family,
-        center: {
-          x: this.cosmetic.position.x,
-          y: this.cosmetic.position.y || HOVER_LIFT,
-        },
       },
     );
-    this.transients.push(t);
   }
 
   update(dt: number, elapsed: number): void {
     if (this.disposed) return;
 
-    // Transients run even while the persistent visual is hidden (parented to the
-    // always-enabled anchor).
-    if (this.transients.length > 0) {
-      for (let i = this.transients.length - 1; i >= 0; i--) {
-        if (!this.transients[i].update(dt)) this.transients.splice(i, 1);
-      }
-    }
+    // The burst runs even while the persistent visual is hidden (parented to
+    // the always-enabled anchor).
+    this.transient?.update(dt);
 
     if (!this.visible) return;
 
@@ -354,8 +355,8 @@ export class ProceduralPickupVisual implements PickupVisual {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    for (const t of this.transients) t.dispose();
-    this.transients.length = 0;
+    this.transient?.dispose();
+    this.transient = null;
     // Recursively dispose clones (their SHARED geometry survives via the cache
     // prototype; disposeMaterialAndTextures=false leaves shared materials alone).
     this.root.dispose(false, false);

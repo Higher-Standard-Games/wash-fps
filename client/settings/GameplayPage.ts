@@ -287,6 +287,7 @@ export class GameplayPage {
     });
 
     for (const [cvar, name, help] of [
+      ["cg_screenshake", "Screen shake", "The view shakes when you are hit or an explosion goes off near you"],
       ["show_fps", "FPS counter", "Frames per second in the top-right corner"],
       ["cl_showspeed", "Movement speed", "Your speed at the bottom of the screen"],
       [
