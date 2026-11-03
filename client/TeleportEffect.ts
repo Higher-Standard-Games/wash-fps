@@ -17,7 +17,9 @@
  *    fans, camera-billboarded, the inner one spinning) that pops and vanishes.
  *
  * Self-updating via an onBeforeRender observer (same pattern as
- * CartoonHitEffect). All effects hard-cap + self-dispose. Call prewarm()
+ * CartoonHitEffect). All effects hard-cap. Ghosts and bursts come from pools
+ * and are disabled when they end, not disposed, so a teleport adds no meshes
+ * or materials to the scene once each pool has grown. Call prewarm()
  * after map load so the first teleport doesn't miss its ghost while the
  * pool model streams in.
  */
@@ -110,6 +112,16 @@ interface ActiveEffect {
   spinMesh?: Mesh;
   /** Pooled ghost slot to release (disable, not dispose) when the effect ends. */
   ghostSlot?: GhostSlot;
+  /** Pooled burst slot to release (disable, not dispose) when the effect ends. */
+  burstSlot?: BurstSlot;
+}
+
+/** A starburst: the billboarded fan, its spinning child, their shared material. */
+interface BurstSlot {
+  mesh: Mesh;
+  spin: Mesh;
+  material: StandardMaterial;
+  busy: boolean;
 }
 
 interface GhostSlot {
@@ -134,6 +146,7 @@ export class TeleportEffect {
   private ghostPool: GhostSlot[] = [];
   /** The pool load in flight: every caller waits on the same one. */
   private ghostPoolTask: Promise<void> | null = null;
+  private burstPool: BurstSlot[] = [];
 
   private constructor() {}
 
@@ -152,7 +165,7 @@ export class TeleportEffect {
     }
     // Effects + pool belong to the old scene — drop them.
     for (const fx of this.effects) {
-      if (fx.ghostSlot) continue; // pool instances are torn down below
+      if (fx.ghostSlot || fx.burstSlot) continue; // pool instances are torn down below
       try {
         fx.root.dispose();
         fx.material.dispose();
@@ -162,6 +175,7 @@ export class TeleportEffect {
     }
     this.effects = [];
     this.disposeGhostPool();
+    this.disposeBurstPool();
     this.scene = scene;
     this.lastTime = performance.now();
     this.observer = scene.onBeforeRenderObservable.add(() => this.update());
@@ -382,51 +396,79 @@ export class TeleportEffect {
     const endScale = implode ? IMPLOSION_END_SCALE : BURST_END_SCALE;
 
     try {
-      // Billboard the PARENT and spin the child: with billboardMode set,
-      // Babylon overrides the node's own rotation, so the spin must live one
-      // level below the billboarded transform.
-      const mesh = this.buildStarburstMesh();
-      mesh.isPickable = false;
-      mesh.alwaysSelectAsActiveMesh = true;
-      mesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
+      const slot = this.takeBurstSlot();
+      const { mesh, spin, material } = slot;
       mesh.position.set(pos.x, pos.y + BURST_Y_OFFSET, pos.z);
       mesh.scaling.setAll(startScale);
-
-      const spin = this.buildStarburstMesh();
-      spin.parent = mesh;
-      spin.position.setAll(0);
       spin.rotation.z = Math.PI / BURST_SPIKES; // interleave the two fans
-      spin.scaling.setAll(0.8);
-      spin.isPickable = false;
-      spin.alwaysSelectAsActiveMesh = true;
-
-      const mat = new StandardMaterial(`tp_burst_mat_${Date.now()}`, this.scene);
-      mat.emissiveColor = BURST_COLOR;
-      mat.diffuseColor = Color3.Black();
-      mat.specularColor = Color3.Black();
-      mat.disableLighting = true;
-      mat.alpha = BURST_ALPHA_STEPS[0];
-      mat.backFaceCulling = false;
-      mesh.material = mat;
-      spin.material = mat;
+      material.alpha = BURST_ALPHA_STEPS[0];
+      mesh.setEnabled(true);
 
       this.effects.push({
         root: mesh,
-        material: mat,
+        material,
         elapsedMs: 0,
         lifetimeMs: BURST_LIFETIME_MS,
         alphaSteps: BURST_ALPHA_STEPS,
         scaleFrom: startScale,
         scaleTo: endScale,
         spinMesh: spin,
+        burstSlot: slot,
       });
     } catch (e) {
       console.warn("[TeleportEffect] burst spawn failed:", e);
     }
   }
 
+  /** A free burst from the pool, built when every one is playing. */
+  private takeBurstSlot(): BurstSlot {
+    let slot = this.burstPool.find((candidate) => !candidate.busy);
+    if (!slot) {
+      const index = this.burstPool.length;
+      // Billboard the PARENT and spin the child: with billboardMode set,
+      // Babylon overrides the node's own rotation, so the spin must live one
+      // level below the billboarded transform.
+      const mesh = this.buildStarburstMesh(`tp_burst_${index}`);
+      mesh.isPickable = false;
+      mesh.alwaysSelectAsActiveMesh = true;
+      mesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
+
+      const spin = this.buildStarburstMesh(`tp_burst_${index}_spin`);
+      spin.parent = mesh;
+      spin.position.setAll(0);
+      spin.scaling.setAll(0.8);
+      spin.isPickable = false;
+      spin.alwaysSelectAsActiveMesh = true;
+
+      const material = new StandardMaterial(`tp_burst_mat_${index}`, this.scene!);
+      material.emissiveColor = BURST_COLOR;
+      material.diffuseColor = Color3.Black();
+      material.specularColor = Color3.Black();
+      material.disableLighting = true;
+      material.backFaceCulling = false;
+      mesh.material = material;
+      spin.material = material;
+      slot = { mesh, spin, material, busy: false };
+      this.burstPool.push(slot);
+    }
+    slot.busy = true;
+    return slot;
+  }
+
+  private disposeBurstPool(): void {
+    for (const slot of this.burstPool) {
+      try {
+        slot.mesh.dispose();
+        slot.material.dispose();
+      } catch (_) {
+        /* noop */
+      }
+    }
+    this.burstPool = [];
+  }
+
   /** Radial fan of tapered spikes in the local XY plane (billboarded to camera). */
-  private buildStarburstMesh(): Mesh {
+  private buildStarburstMesh(name: string): Mesh {
     const positions: number[] = [];
     const indices: number[] = [];
 
@@ -454,7 +496,7 @@ export class TeleportEffect {
       indices.push(baseIndex, baseIndex + 1, baseIndex + 2);
     }
 
-    const mesh = new Mesh(`tp_burst_${Date.now()}`, this.scene);
+    const mesh = new Mesh(name, this.scene);
     const data = new VertexData();
     data.positions = positions;
     data.indices = indices;
@@ -489,6 +531,10 @@ export class TeleportEffect {
             /* noop */
           }
           fx.ghostSlot.busy = false;
+        } else if (fx.burstSlot) {
+          // Pooled burst: hide + release, never dispose.
+          fx.burstSlot.mesh.setEnabled(false);
+          fx.burstSlot.busy = false;
         } else {
           try {
             fx.root.dispose(false, false);
@@ -527,7 +573,7 @@ export class TeleportEffect {
       this.observer = null;
     }
     for (const fx of this.effects) {
-      if (fx.ghostSlot) continue; // pool instances are torn down below
+      if (fx.ghostSlot || fx.burstSlot) continue; // pool instances are torn down below
       try {
         fx.root.dispose();
         fx.material.dispose();
@@ -537,6 +583,7 @@ export class TeleportEffect {
     }
     this.effects = [];
     this.disposeGhostPool();
+    this.disposeBurstPool();
     this.scene = null;
   }
 }

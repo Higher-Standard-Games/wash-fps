@@ -1,4 +1,9 @@
-/** A short, client-only burst of pieces shaped and colored for the collected item. */
+/**
+ * A short, client-only burst of pieces shaped and colored for the collected
+ * item. A pickup keeps one and plays it again on each collection: the pieces
+ * are disabled between bursts rather than created and disposed per burst, so
+ * collecting changes no more than what is shown.
+ */
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
@@ -20,6 +25,8 @@ export interface TransientOptions {
 
 interface Fragment {
   mesh: Mesh;
+  /** Start position relative to the burst's center. */
+  offset: Vector3;
   start: Vector3;
   travel: Vector3;
   tumble: Vector3;
@@ -60,7 +67,9 @@ export class ProceduralPickupTransient {
   private readonly materials: StandardMaterial[];
   private readonly duration: number;
   private age = 0;
-  private done = false;
+  /** Between bursts: pieces disabled, nothing to advance. */
+  private idle = false;
+  private disposed = false;
 
   constructor(scene: Scene, parent: TransformNode, color: Color3, opts: TransientOptions) {
     this.duration = opts.duration;
@@ -110,12 +119,11 @@ export class ProceduralPickupTransient {
       mesh.material = i % 3 === 0 ? dark : bright;
       mesh.isPickable = false;
       mesh.parent = parent;
-      const start = new Vector3(opts.center.x + x * 2.5 * opts.scale, opts.center.y + y * 2.5 * opts.scale, 0);
-      mesh.position.copyFrom(start);
+      const offset = new Vector3(x * 2.5 * opts.scale, y * 2.5 * opts.scale, 0);
       const angle = (i / layout.length) * Math.PI * 2;
       const travel = new Vector3(Math.cos(angle) * spread, (0.4 + (i % 3) * 0.18) * spread, Math.sin(angle) * spread);
       const tumble = new Vector3((i % 2 ? 1 : -1) * 1.4, ((i % 3) - 1) * 1.8, (i % 2 ? -1 : 1) * 1.5);
-      this.fragments.push({ mesh, start, travel, tumble, baseRotationZ });
+      this.fragments.push({ mesh, offset, start: new Vector3(), travel, tumble, baseRotationZ });
     }
 
     this.flash = MeshBuilder.CreateIcoSphere(
@@ -126,12 +134,30 @@ export class ProceduralPickupTransient {
     this.flash.material = flashMat;
     this.flash.isPickable = false;
     this.flash.parent = parent;
-    this.flash.position.set(opts.center.x, opts.center.y, 0);
+    this.play(opts.center);
   }
 
-  /** Advance the effect. Returns false once finished and disposed. */
+  /** Start a burst from `center` (local to the parent), from the beginning. */
+  play(center: { x: number; y: number }): void {
+    if (this.disposed) return;
+    this.age = 0;
+    this.idle = false;
+    for (const fragment of this.fragments) {
+      fragment.start.set(center.x + fragment.offset.x, center.y + fragment.offset.y, 0);
+      fragment.mesh.position.copyFrom(fragment.start);
+      fragment.mesh.rotation.set(0, 0, fragment.baseRotationZ);
+      fragment.mesh.scaling.setAll(1);
+      fragment.mesh.setEnabled(true);
+    }
+    this.flash.position.set(center.x, center.y, 0);
+    this.flash.scaling.setAll(1);
+    this.flash.setEnabled(true);
+    for (const material of this.materials) material.alpha = 1;
+  }
+
+  /** Advance the effect. Returns false once the burst has finished. */
   update(dt: number): boolean {
-    if (this.done) return false;
+    if (this.idle || this.disposed) return false;
     this.age += dt;
     const p = Math.min(1, this.age / this.duration);
     const ease = 1 - (1 - p) * (1 - p);
@@ -148,15 +174,17 @@ export class ProceduralPickupTransient {
     this.materials[2].alpha = Math.max(0, 1 - p * 4);
 
     if (p >= 1) {
-      this.dispose();
+      this.idle = true;
+      for (const { mesh } of this.fragments) mesh.setEnabled(false);
+      this.flash.setEnabled(false);
       return false;
     }
     return true;
   }
 
   dispose(): void {
-    if (this.done) return;
-    this.done = true;
+    if (this.disposed) return;
+    this.disposed = true;
     for (const { mesh } of this.fragments) mesh.dispose();
     this.flash.dispose();
     for (const material of this.materials) material.dispose();
