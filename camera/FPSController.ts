@@ -433,10 +433,12 @@ export class FPSController implements ICameraController {
   }
 
   /**
-   * Trigger camera shake (e.g. from nearby explosions)
+   * Trigger camera shake (e.g. from nearby explosions); nothing with
+   * cg_screenshake 0.
    * @param intensity - Shake strength (0-1 range, where 1 = very close explosion)
    */
   shakeCamera(intensity: number): void {
+    if (Cvar.getNumber("cg_screenshake") <= 0) return;
     // Stack with existing shake but cap at 1.0
     this.shakeIntensity = Math.min(1.0, this.shakeIntensity + intensity);
   }
@@ -1429,6 +1431,13 @@ export class FPSController implements ICameraController {
     this.detach();
   }
 }
+
+Cvar.register("cg_screenshake", 1, {
+  type: "int",
+  min: 0,
+  max: 1,
+  description: "Shake the view when you are hit or an explosion goes off near you (0 = off, 1 = on)",
+});
 
 // Debug bbox visualization cvar
 Cvar.register("cl_debugbbox", 0, {
