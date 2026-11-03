@@ -392,6 +392,19 @@ export class VideoPage {
 
   private buildAdvanced(parent: HTMLElement): void {
     seg(this.host, parent, {
+      name: "Renderer",
+      help: "WebGPU draws faster where the browser has it, and falls back to WebGL2 where it does not",
+      tag: "Restart",
+      choices: [
+        { value: 0, label: "WebGL2" },
+        { value: 1, label: "WebGPU" },
+      ],
+      get: () => flag("r_webgpu"),
+      set: (value) => {
+        Cvar.set("r_webgpu", value);
+      },
+    });
+    seg(this.host, parent, {
       name: "Map texture detail",
       help: "Softer or flat-color walls and floors. Lighting and transparent effects stay intact.",
       tag: "Next map",

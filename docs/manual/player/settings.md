@@ -94,7 +94,7 @@ Below the presets the settings are in five sections. Pips beside each setting sh
 | **Effects** | Bloom (`r_bloom`), reflections (`r_ssr`) and their strength (`r_ssr_strength`), light shafts (`r_godrays`: Off, Low or High), soft halos (`r_softhalos`: lamp halos and flares fade where they meet a wall instead of ending in a line), glow (`r_glow`), comic outlines on the world (`r_cel_outlines`), dynamic lights from shots, rockets, explosions and muzzle flashes (`r_dynamiclight`, applies next map), gibs (`r_gibs`), wall marks (`r_marks`) and the teleport afterimage (`r_teleport_ghost`) |
 | **World** | Water quality (`r_water_quality`: Low, Medium or High), players reflected in water (`r_water_actors`, High water only), light cast from the map's glowing panels (`r_arealights`), fog (`r_fog`), how much the view warps under water (`r_underwater_distortion`) |
 | **Textures** | Sharpness at an angle (`r_anisotropy`), detailed surfaces (`r_bsp_pbr`) |
-| **Advanced** | Map texture detail (`r_picmip`): Full, Soft, Softer, Blurred or Flat color; applies next map. **Color blindness** and **Correction strength**; see below |
+| **Advanced** | Renderer (`r_webgpu`): WebGL2 or WebGPU, which draws faster where the browser has it and falls back to WebGL2 where it does not; applies at the next start. Map texture detail (`r_picmip`): Full, Soft, Softer, Blurred or Flat color; applies next map. **Color blindness** and **Correction strength**; see below |
 
 Map texture detail is available with every preset. Balanced and Pretty start at
 Full; Smooth starts at Soft (half-size base textures) and Ultralow at Flat
