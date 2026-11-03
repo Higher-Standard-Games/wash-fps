@@ -11,9 +11,30 @@ export function attachBladeToPlayer(
   playerScale: number,
 ): TransformNode {
   const grip = new TransformNode("blade_hand_attachment", player.mesh.getScene());
+  const modelXSign = player.mesh.getScene().useRightHandedSystem ? 1 : -1;
+  const offset = new TransformNode("blade_grip_offset", player.mesh.getScene());
+  offset.parent = grip;
+  // The packaged export's handle centre is at X=-0.45 model units.
+  offset.position.x = 0.45 * modelXSign;
+  result.root.parent = offset;
+  result.root.setEnabled(true);
+  bindLoaderLeftovers(grip, null, result.animationGroups);
+  holdBladeGrip(grip, player, visualScale, playerScale);
+  return grip;
+}
+
+/** Put a blade's grip (from `attachBladeToPlayer`) in a player's right hand. */
+export function holdBladeGrip(
+  grip: TransformNode,
+  player: PlayerModelInstance,
+  visualScale: number,
+  playerScale: number,
+): void {
   const hand = player.skeleton?.bones.find((bone) => bone.name === "mixamorig:RightHand");
+  grip.parent = null;
   if (hand) {
     grip.attachToBone(hand, player.mesh);
+    grip.position.setAll(0);
     grip.scaling.setAll(visualScale / playerScale);
   } else {
     grip.parent = player.anchor;
@@ -23,13 +44,6 @@ export function attachBladeToPlayer(
   // glTF's left-handed conversion reverses export X; hand +Y follows the fingers.
   const modelXSign = player.mesh.getScene().useRightHandedSystem ? 1 : -1;
   grip.rotation.set(Math.PI, 0, (-modelXSign * Math.PI) / 2);
-  const offset = new TransformNode("blade_grip_offset", player.mesh.getScene());
-  offset.parent = grip;
-  // The packaged export's handle centre is at X=-0.45 model units.
-  offset.position.x = 0.45 * modelXSign;
-  result.root.parent = offset;
-  result.root.setEnabled(true);
-  bindLoaderLeftovers(grip, null, result.animationGroups);
+  grip.setEnabled(true);
   player.attachedWeapon = grip;
-  return grip;
 }

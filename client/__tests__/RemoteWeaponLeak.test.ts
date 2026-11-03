@@ -143,6 +143,52 @@ describe("remote weapon changes", () => {
     expect(scene.loads).toBe(2); // One import per distinct path, not twenty switches.
   });
 
+  it("parks a blade between switches and holds the same one again", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    scene.current = new Scene(new NullEngine());
+    const anchor = new TransformNode("anchor", scene.current);
+    const body = MeshBuilder.CreateBox("body", { size: 1 }, scene.current);
+    body.parent = anchor;
+    const inst = { anchor, mesh: body, skeleton: null, attachedWeapon: null } as unknown as PlayerModelInstance;
+    const hitbox = { model: inst, weaponRoot: null as TransformNode | null, weaponMuzzle: null, currentWeaponId: "" };
+    const renderer = Object.create(RemotePlayerRenderer.prototype) as Internals;
+    Object.assign(renderer, {
+      scene: scene.current,
+      hitboxes: new Map([["player_2", hitbox]]),
+      deadEntities: new Map(),
+      enemyWeapons: new Map(),
+      idleWeapons: new Map(),
+    });
+    const gun = Object.keys(WEAPONS).find(
+      (id) => id !== "blade" && WEAPONS[id].modelPath && !WEAPONS[id].barrels?.length,
+    )!;
+    const counts = () => {
+      const s = scene.current;
+      return [s.transformNodes.length, s.meshes.length, s.materials.length, s.animationGroups.length];
+    };
+    const hold = async (weaponId: string) => {
+      renderer.enemyWeapons.set("player_2", weaponId);
+      renderer.updateWeaponModel(hitbox, inst, "player_2");
+      await settle();
+    };
+
+    await hold("blade");
+    const blade = hitbox.weaponRoot;
+    expect(blade?.name).toBe("blade_hand_attachment");
+    await hold(gun);
+    expect(blade?.isDisposed()).toBe(false);
+    expect(blade?.isEnabled()).toBe(false);
+    await hold("blade");
+    expect(hitbox.weaponRoot).toBe(blade);
+    expect(blade?.isEnabled()).toBe(true);
+    expect(inst.attachedWeapon).toBe(blade);
+
+    const warmed = counts();
+    for (let change = 0; change < 10; change++) await hold(change % 2 ? "blade" : gun);
+    expect(counts()).toEqual(warmed);
+  });
+
   it("rejects the old A load after A→B→A and attaches only the latest instance", async () => {
     scene.current = new Scene(new NullEngine());
     const anchor = new TransformNode("anchor", scene.current);

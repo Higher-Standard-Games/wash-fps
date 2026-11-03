@@ -62,7 +62,7 @@ import { dropDistantWeaponDetail } from "../../../engine/weapon/WeaponDetail";
 import type { WeaponDef } from "../../../shared/entities/WeaponDef";
 import { WEAPONS } from "../shared/entities/definitions/weapons/WeaponsTable";
 import { maskHasPowerup } from "../shared/items/Powerups";
-import { attachBladeToPlayer } from "./AttachedBlade";
+import { attachBladeToPlayer, holdBladeGrip } from "./AttachedBlade";
 import { DemoAnimationTimeline } from "./DemoAnimationTimeline";
 import { DemoEntityTimeline } from "./DemoEntityTimeline";
 import { devLog } from "./DevLog";
@@ -106,15 +106,18 @@ export interface RenderedPlayer {
   dead: boolean;
 }
 
-/** A third-person gun, assembled once: geometry under its leader mesh, muzzle tag, barrels. */
+/**
+ * A third-person weapon, assembled once: a gun's geometry under its leader
+ * mesh with its muzzle tag and barrels, or a blade under its grip.
+ */
 interface HeldWeapon {
-  leader: Mesh;
+  leader: TransformNode;
   muzzle: TransformNode | null;
   /** Animation groups paused while it was parked, played again when it is held. */
   paused: AnimationGroup[];
 }
 
-/** Parked guns kept per weapon: enough for every player of a full FFA to switch back. */
+/** Parked weapons kept per kind: enough for every player of a full FFA to switch back. */
 const MAX_IDLE_WEAPONS_PER_KIND = 8;
 
 interface RemotePlayerHitbox {
@@ -219,7 +222,7 @@ export class RemotePlayerRenderer {
   private modelLoadPromise: Promise<void> | null = null;
   private weaponModelCache?: ModelInstanceCache;
   private barrelModelCache?: ModelInstanceCache;
-  /** Guns nobody holds, by weapon id (`parkWeapon`). */
+  /** Weapons nobody holds, by weapon id (`parkWeapon`). */
   private readonly idleWeapons = new Map<string, HeldWeapon[]>();
   private localReflectionModel: PlayerModelInstance | null = null;
   private localReflectionLoadAttempted = false;
@@ -1961,8 +1964,15 @@ export class RemotePlayerRenderer {
     const isGlbWeapon = weaponDef.viewModel.viewModelFormat === "glb" || modelPath.toLowerCase().endsWith(".glb");
     const visualScale = isGlbWeapon ? (weaponDef.viewModel.scale ?? defScale) : defScale;
 
-    // A parked gun of this kind is already assembled: cloning one took 2–12 ms
+    // A parked weapon of this kind is already assembled: cloning one took 2–12 ms
     const parked = this.takeParkedWeapon(weaponId);
+    if (parked && weaponId === "blade") {
+      holdBladeGrip(parked.leader, inst, visualScale, MODEL_SCALE);
+      for (const group of parked.paused.splice(0)) group.play(group.loopAnimation);
+      hitbox.weaponRoot = parked.leader;
+      hitbox.weaponMuzzle = null;
+      return;
+    }
     if (parked) {
       this.holdWeapon(hitbox, inst, entityId, weaponId, parked, visualScale);
       return;
@@ -1983,7 +1993,10 @@ export class RemotePlayerRenderer {
         const leader = this.prepareWeaponMeshes(weaponId, result);
         if (!leader) return;
         if (weaponId === "blade") {
-          hitbox.weaponRoot = attachBladeToPlayer(result, inst, visualScale, MODEL_SCALE);
+          const grip = attachBladeToPlayer(result, inst, visualScale, MODEL_SCALE);
+          const blade: HeldWeapon = { leader: grip, muzzle: null, paused: [] };
+          setModelRecycler(grip, () => this.parkWeapon("blade", blade));
+          hitbox.weaponRoot = grip;
           hitbox.weaponMuzzle = null;
           return;
         }
@@ -2172,7 +2185,7 @@ export class RemotePlayerRenderer {
     devLog(`[RemoteWeapon] ✓ ${weaponId} for ${entityId}, bone: ${!!hand}`);
   }
 
-  /** Take a gun back from its holder for the next player who switches to it; false disposes it. */
+  /** Take a weapon back from its holder for the next player who switches to it; false disposes it. */
   private parkWeapon(weaponId: string, weapon: HeldWeapon): boolean {
     if (this.disposed || this.scene.isDisposed || weapon.leader.isDisposed()) return false;
     let idle = this.idleWeapons.get(weaponId);
