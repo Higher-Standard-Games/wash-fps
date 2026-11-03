@@ -10,13 +10,15 @@
 #
 # Usage:
 #   deploy.sh [--force] [SURFACE...]
-# Surfaces: site engine-docs fps-docs game studio  (default: all)
+# Surfaces: site engine-docs fps-docs game studio client  (default: all)
 #
 #   studio      higherstandardgames/dist -> releases/studio (higherstandardgames.com)
 #   site        washoi-net/dist            -> releases/site     (washoi.net)
 #   engine-docs shag dist-docs + docs/api  -> releases/docs     (shag.dev)
 #   fps-docs    fps/dist-docs              -> releases/manual   (manual.washoi.net)
 #   game        shag/dist (VITE_LOBBY_URL) -> releases/game     (eu.washoi.net)
+#   client      newest published wash-fps-rust release -> releases/site/client
+#               (washoi.net/client/), read with env/client-release.token
 #
 # Idempotent: a surface rebuilds only when its commit changed (or --force).
 # Never runs `git clean` (the ignored public/data symlink must survive, §12).
@@ -70,7 +72,7 @@ TARGETS=()
 for a in "$@"; do
   case "$a" in
     --force) FORCE=1 ;;
-    site|engine-docs|fps-docs|game|studio|all) TARGETS+=("$a") ;;
+    site|engine-docs|fps-docs|game|studio|client|all) TARGETS+=("$a") ;;
     *) die "unknown argument: $a" ;;
   esac
 done
@@ -133,7 +135,8 @@ deploy_site() {
   ensure_deps "$d"
   log "build site"
   ( cd "$d" && npm run typecheck && npm run build )
-  publish "$d/dist/" "$RELEASES/site/"
+  # The native game's downloads live beside the site (deploy_client).
+  publish "$d/dist/" "$RELEASES/site/" --exclude 'client/'
   mark site "$cur"; DEPLOYED=1
 }
 
@@ -197,6 +200,21 @@ deploy_studio() {
   mark studio "$cur"; DEPLOYED=1
 }
 
+# The native game: GitHub's newest published (not draft) release.
+# Not installed yet: the other surfaces deploy as before. A failed fetch
+# keeps the last release served and does not fail the deploy (activation
+# runs after a successful deploy only).
+deploy_client() {
+  if [[ ! -f "$ROOT/client-release.sh" ]]; then
+    log "client: $ROOT/client-release.sh is not installed; skipped"
+    return
+  fi
+  source "$ROOT/client-release.sh"
+  washoi_client_publish https://api.github.com Higher-Standard-Games/wash-fps-rust \
+    "$ROOT/env/client-release.token" "$RELEASES/site/client" https://washoi.net/client \
+    "$STATE/client.tag" || log "client: release not published; the previous one stays"
+}
+
 # ---- run -------------------------------------------------------------------
 log "deploy start: targets=${TARGETS[*]} force=$FORCE"
 
@@ -205,6 +223,7 @@ want engine-docs && deploy_engine_docs
 want fps-docs    && deploy_fps_docs
 want game        && deploy_game
 want studio      && deploy_studio
+want client      && deploy_client
 
 if [[ $DEPLOYED -eq 1 ]]; then
   log "deploy done — published content updated (Caddy serves from disk; no reload needed)"
