@@ -251,8 +251,12 @@ describe("first-person prepared model sources", () => {
       "plasmagun_barrel.glb",
       "riotgun.glb",
     ]);
-    expect(first.root.isDisposed()).toBe(true);
+    // A switch back brings the same model out again, the other one put away disabled
+    expect(first.root.isDisposed()).toBe(false);
     const active = internals().currentWeapon;
+    expect(active).toBe(first);
+    const riotgun = scene.meshes.find((mesh) => mesh.name.startsWith("riotgun"));
+    expect(riotgun?.isEnabled()).toBe(false);
     expect(active.meshes.find((mesh) => mesh.getTotalVertices() > 0)!.geometry).toBe(geometry);
     expect(
       active.meshes
