@@ -35,6 +35,7 @@ the production game metadata and fetch process are already independent of it.
 | `workspace.sh` | `/srv/washoi/workspace.sh` |
 | `run-server.sh` | `/srv/washoi/run-server.sh` |
 | `deploy-eu.sh` or `deploy-us.sh` | `/srv/washoi/deploy.sh` |
+| `client-release.sh` | `/srv/washoi/client-release.sh` on EU |
 | `validate-us.sh` | `/srv/washoi/validate.sh` on US |
 | `activate-us.sh` | `/usr/local/sbin/washoi-activate` on US |
 | `activate-eu.sh` | `/usr/local/sbin/washoi-activate` on EU |
@@ -72,6 +73,27 @@ Game commands use the game package when present. The alpha.2 fallback uses its
 existing root scripts, including `docs:fps:build`; a new game checkout uses
 `npm --prefix ... run docs:build`. This allows the operator update before the
 new application release is published.
+
+## Native game downloads
+
+EU's `client` surface publishes the newest *published* release of
+`Higher-Standard-Games/wash-fps-rust` under `releases/site/client/`, served as
+`https://washoi.net/client/`: one folder per version holding the
+`washoi-<version>-<os>-<arch>` packages, and `latest.json`, which the game reads
+at start to offer an update. The release workflow creates drafts; publishing
+a draft on GitHub is what ships it, at the next deploy run. The newest three
+versions are kept; the site's own publication leaves `client/` alone.
+
+The server reads the release with a fine-grained token that has only
+**Contents: read** on that one repository, in
+`/srv/washoi/env/client-release.token` (owner `washoi`, mode `0600`). Without
+the token, or without `client-release.sh` installed, the surface is skipped and
+everything else deploys as before. A failed download keeps the previous release
+served and does not fail the deploy. `latest.json` should not be cached for
+long: in the `washoi.net` site block, `header /client/latest.json
+Cache-Control "no-cache"`.
+
+`tests/client-release.test.sh` runs the script against a fake API on disk.
 
 ## Selecting a release
 
