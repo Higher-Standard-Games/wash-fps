@@ -1,6 +1,7 @@
 import type { FreeCamera } from "@babylonjs/core/Cameras/freeCamera";
 import type { Scene } from "@babylonjs/core/scene";
 import { sceneGpuReady, waitForGpuCondition } from "../../../engine/loader/map/GpuPreparation";
+import { warmHiddenMeshes } from "../../../engine/rendering/PipelineWarmup";
 import { getHitscanEffects } from "../../../engine/weapon/HitscanEffects";
 import { getProjectileManager } from "../../../engine/weapon/ProjectileManager";
 import type { WeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
@@ -64,34 +65,26 @@ export async function preloadFPSWeapons(
   step();
   await warmEffect("pellets", () => getHitscanEffects().preparePelletShader(signal), signal);
   step();
-  await warmEffect(
-    "damage numbers",
-    async () => {
-      const numbers = DamageNumbers.create(scene);
-      try {
-        await numbers.prepareShaders(signal);
-      } finally {
-        numbers.dispose();
-      }
-    },
-    signal,
-  );
-  step();
-  await warmEffect("teleport afterimage", () => TeleportEffect.getInstance().prepare(scene, signal), signal);
-  step();
-  await warmEffect(
-    "gibs",
-    async () => {
-      const gibs = GibSystem.create(scene);
-      try {
-        await gibs.prepareShaders(signal);
-      } finally {
-        gibs.dispose();
-      }
-    },
-    signal,
-  );
-  step();
+  // Damage numbers and gibs are made per fight; the ones made here stay until
+  // the hidden-mesh draw below has drawn them too
+  const numbers = DamageNumbers.create(scene);
+  const gibs = GibSystem.create(scene);
+  try {
+    await warmEffect("damage numbers", () => numbers.prepareShaders(signal), signal);
+    step();
+    await warmEffect("teleport afterimage", () => TeleportEffect.getInstance().prepare(scene, signal), signal);
+    step();
+    await warmEffect("gibs", () => gibs.prepareShaders(signal), signal);
+    step();
+    // Compiled is not drawn: WebGPU builds a render pipeline on a mesh's first
+    // draw. Everything hidden now (unheld weapons, pooled effects, projectile
+    // models, these numbers and gibs) draws here for a few frames, so a
+    // fight's first rocket, gib or damage number does not stall a frame.
+    await warmEffect("render pipelines", async () => void (await warmHiddenMeshes(scene, signal)), signal);
+  } finally {
+    numbers.dispose();
+    gibs.dispose();
+  }
   await waitForGpuCondition(scene, () => sceneGpuReady(scene), "FPS presentation", signal, 15000);
   step();
 }

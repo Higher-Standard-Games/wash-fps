@@ -92,7 +92,7 @@ export class ProceduralPickupVisual implements PickupVisual {
   private readonly ringMaterials: StandardMaterial[] = [];
   private readonly rings: RingEl[] = [];
   private readonly satellites: SatEl[] = [];
-  /** The collection burst, made on the first collection and played again on each. */
+  /** The collection burst, played again on each collection. */
   private transient: ProceduralPickupTransient | null = null;
 
   private prevActive: boolean | null = null;
@@ -210,6 +210,7 @@ export class ProceduralPickupVisual implements PickupVisual {
     // Fail-closed initial visibility WITHOUT committing prevActive, so the first
     // server reconcile is treated as the initial (silent) state, not a respawn.
     this.applyVisible(!startHidden);
+    this.transient = this.createTransient();
   }
 
   private track(mat: StandardMaterial): void {
@@ -263,16 +264,16 @@ export class ProceduralPickupVisual implements PickupVisual {
   }
 
   private spawnCollectTransient(): void {
-    const center = {
+    this.transient?.play({
       x: this.cosmetic.position.x,
       y: this.cosmetic.position.y || HOVER_LIFT,
-    };
-    if (this.transient) {
-      this.transient.play(center);
-      return;
-    }
+    });
+  }
+
+  /** The collection burst, built parked with the pickup so it is drawn while the map loads. */
+  private createTransient(): ProceduralPickupTransient {
     const eff = this.recipe.scale * PROCEDURAL_GLOBAL_SCALE;
-    this.transient = new ProceduralPickupTransient(
+    return new ProceduralPickupTransient(
       this.scene,
       this.root,
       new Color3(this.recipe.color.r, this.recipe.color.g, this.recipe.color.b),
@@ -282,7 +283,6 @@ export class ProceduralPickupVisual implements PickupVisual {
         style: this.recipe.collectStyle,
         scale: eff,
         family: this.recipe.family,
-        center,
       },
     );
   }

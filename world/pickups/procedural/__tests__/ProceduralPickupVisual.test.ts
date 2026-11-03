@@ -41,7 +41,10 @@ describe("ProceduralPickupVisual", () => {
         const anchor = new Vector3(0, 4, 0);
         const visual = new ProceduralPickupVisual(scene, recipe, anchor, false, seed);
         visual.setActive(true);
-        const meshes = visual.root.getChildMeshes().filter((mesh) => !mesh.name.includes("beacon"));
+        // The collection burst is parked (disabled) until a collection plays it
+        const meshes = visual.root
+          .getChildMeshes()
+          .filter((mesh) => !mesh.name.includes("beacon") && !mesh.name.startsWith("pp_transient"));
         expect(meshes.length).toBeGreaterThan(0);
         for (let step = 0; step <= 32; step++) {
           visual.update(1 / 60, step / (32 * recipe.bobFrequency * 1.2));

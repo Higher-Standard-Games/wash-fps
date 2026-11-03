@@ -19,8 +19,6 @@ export interface TransientOptions {
   style: "collapse" | "shatter";
   scale: number;
   family: ProceduralPickupFamily;
-  /** Local position of the animated item above its fixed pickup anchor. */
-  center: { x: number; y: number };
 }
 
 interface Fragment {
@@ -134,10 +132,11 @@ export class ProceduralPickupTransient {
     this.flash.material = flashMat;
     this.flash.isPickable = false;
     this.flash.parent = parent;
-    this.play(opts.center);
+    // Built parked: the first collection plays it
+    this.park();
   }
 
-  /** Start a burst from `center` (local to the parent), from the beginning. */
+  /** Start a burst from `center` (local to the parent: the animated item above its anchor). */
   play(center: { x: number; y: number }): void {
     if (this.disposed) return;
     this.age = 0;
@@ -174,12 +173,17 @@ export class ProceduralPickupTransient {
     this.materials[2].alpha = Math.max(0, 1 - p * 4);
 
     if (p >= 1) {
-      this.idle = true;
-      for (const { mesh } of this.fragments) mesh.setEnabled(false);
-      this.flash.setEnabled(false);
+      this.park();
       return false;
     }
     return true;
+  }
+
+  /** Between bursts: pieces disabled, nothing to advance. */
+  private park(): void {
+    this.idle = true;
+    for (const { mesh } of this.fragments) mesh.setEnabled(false);
+    this.flash.setEnabled(false);
   }
 
   dispose(): void {
