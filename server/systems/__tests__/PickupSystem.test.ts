@@ -133,12 +133,21 @@ describe("PickupSystem - health", () => {
     expect(sys.getActiveMask()[0]).toBe(false);
   });
 
-  it("small health is left on the map at full HP (stays visible, not consumed)", () => {
+  it("small health is taken at full HP, overhealing by 5", () => {
     sys.setPickupItems([healthEntry("small")]);
     const player = makePlayer(); // starts at 100
     sys.update(makeState(player) as never, 0.008, 10 as never);
-    expect(player.health.health).toBe(100); // no benefit → not taken
-    expect(sys.getActiveMask()[0]).toBe(true); // still active/visible
+    expect(player.health.health).toBe(105);
+    expect(sys.getActiveMask()[0]).toBe(false);
+  });
+
+  it("small health is left on the map at 200 HP", () => {
+    sys.setPickupItems([healthEntry("small")]);
+    const player = makePlayer();
+    player.health.health = 200;
+    sys.update(makeState(player) as never, 0.008, 10 as never);
+    expect(player.health.health).toBe(200); // no benefit → not taken
+    expect(sys.getActiveMask()[0]).toBe(true);
   });
 
   it("small health grants +5 when the player is hurt", () => {

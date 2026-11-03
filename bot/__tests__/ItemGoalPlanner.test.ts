@@ -104,11 +104,11 @@ describe("item goal selection — tier beats proximity", () => {
 });
 
 describe("item goal selection — overcap and gating", () => {
-  it("gates out a health bubble at full health rather than scoring it low", () => {
+  it("gates out a health bubble at full overheal rather than scoring it low", () => {
     // The server refuses this pickup (`after <= before`), so a bot that walks to
     // one stands on it forever. It must not be a candidate at all.
     const bubble = entry("item_health_small", "health", "small", 100);
-    const result = choose(makeState({ health: 100 }), [bubble]);
+    const result = choose(makeState({ health: 200 }), [bubble]);
     expect(result.goal).toBeNull();
     expect(result.traces[0].gate).toBe(0);
     expect(result.traces[0].gateReason).toBe("no_gain");
@@ -296,9 +296,9 @@ describe("mistakes (BotDifficulty.mistakeRate)", () => {
   it("never picks a gated candidate as the mistake", () => {
     // A mistake is a plausible misjudgement, not an impossible one: an item the
     // server would refuse must stay unreachable through every path.
-    const best = mega();
+    const best = entry("item_armor_ra", "armor", "ra", 300);
     const uncollectable = entry("item_health_small", "health", "small", 100);
-    const state = makeState({ health: 100 }); // bubble grants nothing
+    const state = makeState({ health: 200 }); // bubble grants nothing
     const result = new ItemGoalPlanner(16, () => 0).select(state, {
       pickupPositions: [best, uncollectable],
       maxDistance: 1500,
@@ -330,7 +330,7 @@ describe("decision explanation", () => {
 
   it("reports why everything was rejected when nothing is worth taking", () => {
     const bubble = entry("item_health_small", "health", "small", 100);
-    const result = choose(makeState({ health: 100 }), [bubble]);
+    const result = choose(makeState({ health: 200 }), [bubble]);
     expect(result.explain).toContain("goal=none");
     expect(result.explain).toContain("gated=1");
   });

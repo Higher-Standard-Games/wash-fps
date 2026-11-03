@@ -45,7 +45,7 @@ Armor is **one 0–100 pool** presented as **four plates × 25** (Call-of-Duty s
 
 | Pickup | Classname | Effect |
 |--------|-----------|--------|
-| Small | `item_health_small` | +5, capped at 100 (does not overheal) |
+| Small | `item_health_small` | +5 **overhealing to 200**, so it is taken at full health too; above 100 it decays like mega |
 | Medium | `item_health_medium` (or bare `item_health`) | +25, capped at 100 |
 | Large | `item_health_large` | +50, capped at 100 |
 | Mega / Ultra | `item_health_mega` / `_ultra` | +100 **overhealing to 200**, then decaying 1 HP/s back toward 100 |

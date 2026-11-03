@@ -13,13 +13,10 @@
  *     shard → +5 flat   ga → +1 plate   ya → +2 plates   ra → fill (4 plates)
  *
  * HEALTH (Warsow amounts):
- *   small +5, medium +25, large +50 — capped at 100.
- *   mega/ultra +100 — overheals to 200, then decays 1 HP/s back toward 100.
- *
- * Note: small does NOT overheal — if it did, it would auto-pick-up at full HP
- * (105 > 100) and be hidden by the active-set mask on contact, so the pickup
- * model would rarely be visible. Capping at 100 keeps small health items on the
- * map until the player is actually hurt (same as medium/large).
+ *   medium +25, large +50 — capped at 100, so they stay on the map until the
+ *   player is hurt.
+ *   small +5, mega/ultra +100 — overheal to 200, then decay 1 HP/s back toward
+ *   100. A small bubble is therefore taken at full health too.
  */
 
 export const ARMOR_MAX = 100;
@@ -60,14 +57,14 @@ const HEALTH_AMOUNT: Record<HealthKind, number> = {
   ultra: 100, // ultra is an alias for mega
 };
 
-/** True if this health kind overheals past HEALTH_MAX (mega/ultra only). */
+/** True if this health kind overheals past HEALTH_MAX (small, mega and ultra). */
 export function healthOverheals(kind: HealthKind): boolean {
-  return kind === "mega" || kind === "ultra";
+  return kind === "small" || kind === "mega" || kind === "ultra";
 }
 
 /**
- * Resulting health after picking up the given kind. small/large cap at 100;
- * mega/ultra overheal to 200. Pure — callers gate on `result > current`.
+ * Resulting health after picking up the given kind. medium/large cap at 100;
+ * small and mega/ultra overheal to 200. Pure — callers gate on `result > current`.
  */
 export function healthAfterPickup(current: number, kind: HealthKind): number {
   const cap = healthOverheals(kind) ? HEALTH_OVERHEAL_MAX : HEALTH_MAX;

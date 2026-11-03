@@ -322,7 +322,7 @@ export class PickupSystem extends Subsystem {
       }
     }
 
-    // Mega-health overheal decay: once per second, bleed overhealed players
+    // Overheal decay: once per second, bleed overhealed players
     // (health > 100) back toward 100 at 1 HP/s.
     if (tickNum % TICK_RATE === 0) {
       for (const player of state.entitiesByType(EntityType.Player)) {

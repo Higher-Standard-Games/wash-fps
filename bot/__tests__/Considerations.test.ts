@@ -192,7 +192,7 @@ describe("item_denial", () => {
 
 describe("item_value", () => {
   it("scores zero for an item that would grant nothing", () => {
-    const full = makeContext({ type: "health", kind: "small", health: 100, armor: 0, routeCost: 100, enemies: 1 });
+    const full = makeContext({ type: "health", kind: "small", health: 200, armor: 0, routeCost: 100, enemies: 1 });
     expect(ItemValue.score(full)).toBe(0);
   });
 
