@@ -287,7 +287,12 @@ export class GameplayPage {
     });
 
     for (const [cvar, name, help] of [
-      ["cg_screenshake", "Screen shake", "The view shakes when you are hit or an explosion goes off near you"],
+      [
+        "cg_screenshake",
+        "Explosion shake",
+        "The view shakes when a rocket, grenade, plasma or blade blast goes off near you",
+      ],
+      ["cg_hitshake", "Shake when hit", "The view shakes when you take damage"],
       ["show_fps", "FPS counter", "Frames per second in the top-right corner"],
       ["cl_showspeed", "Movement speed", "Your speed at the bottom of the screen"],
       [

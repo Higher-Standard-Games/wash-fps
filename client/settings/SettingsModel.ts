@@ -705,6 +705,7 @@ export const PAGE_CVARS: Record<SettingsPageId, string[]> = {
     "cg_crosshairDmgColor",
     "cl_fov",
     "cg_screenshake",
+    "cg_hitshake",
     "show_fps",
     "cl_showspeed",
     "cl_hints",

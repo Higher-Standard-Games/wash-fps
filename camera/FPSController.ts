@@ -30,7 +30,11 @@ import { devLog } from "../../../engine/core/DevLog";
 // import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import "@babylonjs/loaders";
 import { CameraInputHandler } from "../../../engine/camera/CameraInputHandler";
-import type { CameraControllerConfig, ICameraController } from "../../../engine/camera/controllers/ICameraController";
+import type {
+  CameraControllerConfig,
+  CameraShakeCause,
+  ICameraController,
+} from "../../../engine/camera/controllers/ICameraController";
 import { ViewKick } from "../../../engine/camera/controllers/ViewKick";
 import { easeLedgePitch, slidePitch, smoothStepUp } from "../../../engine/camera/FirstPersonMotion";
 import { currentBaseFov } from "../../../engine/camera/FovSettings";
@@ -433,12 +437,12 @@ export class FPSController implements ICameraController {
   }
 
   /**
-   * Trigger camera shake (e.g. from nearby explosions); nothing with
-   * cg_screenshake 0.
+   * Trigger camera shake: an explosion near the player (cg_screenshake) or a
+   * hit they took (cg_hitshake), each only with its setting on.
    * @param intensity - Shake strength (0-1 range, where 1 = very close explosion)
    */
-  shakeCamera(intensity: number): void {
-    if (Cvar.getNumber("cg_screenshake") <= 0) return;
+  shakeCamera(intensity: number, cause: CameraShakeCause = "explosion"): void {
+    if (Cvar.getNumber(cause === "hit" ? "cg_hitshake" : "cg_screenshake") <= 0) return;
     // Stack with existing shake but cap at 1.0
     this.shakeIntensity = Math.min(1.0, this.shakeIntensity + intensity);
   }
@@ -1436,7 +1440,14 @@ Cvar.register("cg_screenshake", 1, {
   type: "int",
   min: 0,
   max: 1,
-  description: "Shake the view when you are hit or an explosion goes off near you (0 = off, 1 = on)",
+  description: "Shake the view when an explosion goes off near you (0 = off, 1 = on)",
+});
+
+Cvar.register("cg_hitshake", 0, {
+  type: "int",
+  min: 0,
+  max: 1,
+  description: "Shake the view when you are hit (0 = off, 1 = on)",
 });
 
 // Debug bbox visualization cvar

@@ -584,14 +584,14 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
                 noteLocalFallForHints();
               }
               if (event.entityId === localEntityId && fpsCtrl?.shakeCamera) {
-                const painIntensity = Math.min(Math.max(event.damage / 100, 0.05), 0.6);
+                const painIntensity = Math.min(Math.max(event.damage / 200, 0.025), 0.3);
                 const painScale =
                   event.weaponId === "plasmagun" || event.weaponId === "plasma_bolt"
                     ? 0.5
                     : event.weaponId === "voltaic" || event.weaponId === "lasergun"
                       ? 0.7
                       : 1;
-                fpsCtrl.shakeCamera(painIntensity * painScale);
+                fpsCtrl.shakeCamera(painIntensity * painScale, "hit");
               }
             }
 
