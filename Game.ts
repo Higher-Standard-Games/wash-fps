@@ -17,6 +17,7 @@ import { Cvar } from "../../engine/core/Cvar";
 import { EventBus } from "../../engine/core/EventBus";
 import { log } from "../../engine/core/Log";
 import { InputSystem } from "../../engine/input/InputSystem";
+import { enterPlay, leavePlay } from "../../engine/input/PlayCapture";
 import { disposeClusteredLight } from "../../engine/lighting/DynamicLightCluster";
 import { LocalGameHost } from "../../engine/network/client/hosts/LocalGameHost";
 import { NetworkGameHost } from "../../engine/network/client/hosts/NetworkGameHost";
@@ -30,7 +31,6 @@ import { MessageCodec } from "../../engine/network/protocol/MessageCodec";
 import { PlayerProfile } from "../../engine/player/PlayerProfile";
 import RenderVars from "../../engine/rendering/RenderVars";
 import { waterNeedsLocalReflection } from "../../engine/rendering/water/WaterActorReflection";
-import { requestBrowserPointerLock } from "../../engine/ui/BrowserControlFeedback";
 import { MapLoadingOverlay } from "../../engine/ui/MapLoadingOverlay";
 import { getExplosionEffect } from "../../engine/weapon/ExplosionEffect";
 import { getHitscanEffects } from "../../engine/weapon/HitscanEffects";
@@ -1005,7 +1005,7 @@ export class Game {
 
       // Released so the player can actually click; completeJoinGame takes it
       // back when the round starts.
-      document.exitPointerLock?.();
+      leavePlay();
       this._loadoutPicker.open(
         (choice) => {
           this._loadoutChosen = true;
@@ -1138,8 +1138,8 @@ export class Game {
       console.warn("[Game] Failed to init weapon view:", e);
     }
 
-    // Request pointer lock for FPS controls
-    requestBrowserPointerLock(document.querySelector("canvas"));
+    // Into play: pointer lock, or touch play on a touch screen
+    enterPlay(document.querySelector("canvas"));
 
     devLog("[Game] Joined game (server-confirmed)");
   }
@@ -1195,7 +1195,7 @@ export class Game {
       (choice) => {
         this.rememberLoadout(choice);
         this.sendLoadout(choice.primary, choice.secondary);
-        if (this.playerState === "playing") requestBrowserPointerLock(document.querySelector("canvas"));
+        if (this.playerState === "playing") enterPlay(document.querySelector("canvas"));
         else FPSHud.getInstance().showMatchMenu();
       },
       this.rememberedLoadout(),
@@ -1301,8 +1301,8 @@ export class Game {
     // Reset static refs so a fresh widget is created on rejoin
     (await import("./camera/FPSController")).FPSController.resetSpeedDisplay?.();
 
-    // Release pointer lock
-    document.exitPointerLock();
+    // Leave play
+    leavePlay();
 
     devLog("[Game] Now spectating");
   }

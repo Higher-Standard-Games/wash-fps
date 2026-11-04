@@ -41,6 +41,7 @@ import { currentBaseFov } from "../../../engine/camera/FovSettings";
 import { Cvar } from "../../../engine/core/Cvar";
 import { DeveloperBar } from "../../../engine/debug/DeveloperBar";
 import { InputSystem } from "../../../engine/input/InputSystem";
+import { leavePlay } from "../../../engine/input/PlayCapture";
 import { MovementVars } from "../../../engine/movement/MovementVars";
 import {
   CROUCH_HEIGHT,
@@ -711,9 +712,9 @@ export class FPSController implements ICameraController {
     this.keys.reload = input.isActive(FPS.RELOAD);
     this.keys.use = input.isActive(FPS.USE);
 
-    // Fire/Aim: only when pointer locked (InputSystem tracks globally)
-    this.keys.fire = this.inputHandler.isPointerLocked && input.isActive(FPS.FIRE);
-    this.keys.aim = this.inputHandler.isPointerLocked && input.isActive(FPS.AIM);
+    // Fire/Aim: only in play (InputSystem tracks buttons globally)
+    this.keys.fire = this.inputHandler.inPlay && input.isActive(FPS.FIRE);
+    this.keys.aim = this.inputHandler.inPlay && input.isActive(FPS.AIM);
 
     // One-shot callbacks via wasPressed()
     if (input.wasPressed(FPS.RELOAD) && this.onReload) this.onReload();
@@ -761,9 +762,9 @@ export class FPSController implements ICameraController {
     if (!this.enabled || !this.camera) return;
     let autoAds = false;
 
-    // When pointer lock is lost (e.g. pause menu), zero out inputs to prevent moving
+    // Out of play (e.g. pause menu), zero out inputs to prevent moving
     // but DO NOT return early so we still process networking and render remote players.
-    if (!this.inputHandler.isPointerLocked) {
+    if (!this.inputHandler.inPlay) {
       this.keys.forward = false;
       this.keys.backward = false;
       this.keys.left = false;
@@ -1357,7 +1358,7 @@ export class FPSController implements ICameraController {
     const deg = (radians: number) => ((radians * 180) / Math.PI).toFixed(1);
     return (
       `view: roll=${deg(this.camera.rotation.z)}° pitch=${deg(this.camera.rotation.x)}° ` +
-      `enabled=${this.enabled} locked=${this.inputHandler.isPointerLocked} ` +
+      `enabled=${this.enabled} inPlay=${this.inputHandler.inPlay} ` +
       `effects=${this.viewportEffectsManager !== null && this.viewportApplicator !== null} ` +
       `deathCam(phase=${this.deathCamPhase.toFixed(2)},roll=${deg(this.deathCamRoll)}°,drop=${this.deathCamHeightDrop.toFixed(1)}) ` +
       `mouse(pitch=${deg(this.mouseRotationX)}°,yaw=${deg(this.mouseRotationY)}°)`
@@ -1411,9 +1412,7 @@ export class FPSController implements ICameraController {
       this.keys.right = false;
       this.keys.up = false;
       this.keys.sprint = false;
-      if (this.inputHandler.isPointerLocked) {
-        document.exitPointerLock();
-      }
+      if (this.inputHandler.inPlay) leavePlay();
     }
   }
 

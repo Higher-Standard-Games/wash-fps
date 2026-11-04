@@ -23,6 +23,7 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Observer } from "@babylonjs/core/Misc/observable";
 import type { Scene } from "@babylonjs/core/scene";
 import { background } from "../../../engine/core/AsyncErrors";
+import { inPlay } from "../../../engine/input/PlayCapture";
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
 import { BspManager } from "../../../engine/loader/bsp/BspManager";
 import { ModelInstanceCache } from "../../../engine/loader/model/ModelInstanceCache";
@@ -636,7 +637,7 @@ export class DroppedWeaponRenderer {
     if (!camera) return;
 
     const activeController = CameraSystem.getInstance().getActiveController();
-    if (activeController?.type === "freefly" || !document.pointerLockElement) {
+    if (activeController?.type === "freefly" || !inPlay()) {
       if (DroppedWeaponRenderer.nearbyDroppedWeapon) {
         DroppedWeaponRenderer.nearbyDroppedWeapon = null;
         hidePickupPrompt("dropped");

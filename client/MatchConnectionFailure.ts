@@ -1,3 +1,4 @@
+import { leavePlay } from "../../../engine/input/PlayCapture";
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import washikiTheme from "./hud/styles/WashikiTheme.css?raw";
 import failureCSS from "./styles/MatchConnectionFailure.css?raw";
@@ -9,7 +10,7 @@ import failureCSS from "./styles/MatchConnectionFailure.css?raw";
  */
 export function showMatchConnectionFailure(message: string, onBack?: () => void): void {
   if (document.getElementById("match-connection-failure")) return;
-  document.exitPointerLock?.();
+  leavePlay();
   // The match can fail before the HUD has brought in the game's fonts
   UIStyles.injectCSS("washiki-theme", washikiTheme);
   UIStyles.injectCSS("match-connection-failure", failureCSS);
