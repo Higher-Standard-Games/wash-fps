@@ -8,6 +8,7 @@
  */
 
 import type { WeaponDef } from "../../../../../../shared/entities/WeaponDef";
+import { BLADE_BLAST } from "../projectiles/blade_blast";
 import {
   BLADE,
   ELECTROBOLT,
@@ -43,8 +44,14 @@ export const WEAPONS: Record<string, WeaponDef> = {
   rocket: ROCKET_LAUNCHER,
   grenade: GRENADE_LAUNCHER,
   plasma_bolt: PLASMAGUN,
-  // Blade's charged blast gets RL-equal knockback (KB = damage × scale: 50×20 = 1000).
-  blade_blast: { ...BLADE, knockbackScale: 20.0 },
+  // Blade's charged blast gets RL-equal knockback (KB = damage × scale: 50×20 = 1000),
+  // and its projectile's splash, which hurts whoever is in it, its owner included.
+  blade_blast: {
+    ...BLADE,
+    knockbackScale: 20.0,
+    splashRadius: BLADE_BLAST.splashRadius,
+    splashDamage: BLADE_BLAST.splashDamage,
+  },
 };
 
 /** Normalize compatibility names before they enter inventories or snapshots. */

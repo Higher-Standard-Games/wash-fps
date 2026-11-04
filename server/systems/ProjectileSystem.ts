@@ -176,7 +176,15 @@ export class ProjectileSystem extends Subsystem {
           // Apply splash damage
           const weaponDef = WEAPONS[meta.defId];
           if (weaponDef?.splashRadius) {
-            this.applySplashDamage(state, pos, projectile.ownerId, weaponDef.splashRadius, meta.defId);
+            this.applySplashDamage(
+              state,
+              pos,
+              projectile.ownerId,
+              weaponDef.splashRadius,
+              meta.defId,
+              undefined,
+              meta.damageOverride,
+            );
           }
         }
 
@@ -281,7 +289,15 @@ export class ProjectileSystem extends Subsystem {
           // Apply splash damage on direct hit too (for weapons with splash)
           // Skip the direct-hit entity to prevent stacking
           if (weaponDef?.splashRadius) {
-            this.applySplashDamage(state, newPos, projectile.ownerId, weaponDef.splashRadius, meta.defId, target.id);
+            this.applySplashDamage(
+              state,
+              newPos,
+              projectile.ownerId,
+              weaponDef.splashRadius,
+              meta.defId,
+              target.id,
+              meta.damageOverride,
+            );
           }
 
           hitPlayer = true;
@@ -326,7 +342,15 @@ export class ProjectileSystem extends Subsystem {
           // Apply splash damage
           const weaponDef = WEAPONS[meta.defId];
           if (weaponDef?.splashRadius) {
-            this.applySplashDamage(state, newPos, projectile.ownerId, weaponDef.splashRadius, meta.defId);
+            this.applySplashDamage(
+              state,
+              newPos,
+              projectile.ownerId,
+              weaponDef.splashRadius,
+              meta.defId,
+              undefined,
+              meta.damageOverride,
+            );
           }
 
           this.projectilesToRemove.push(projectile.id);
@@ -373,6 +397,7 @@ export class ProjectileSystem extends Subsystem {
     damageOverride?: number,
   ): void {
     const weaponDef = WEAPONS[defId];
+    // A charge-scaled projectile (the blade blast) splashes up to its own charged damage
     const baseSplashDamage = damageOverride ?? weaponDef?.splashDamage ?? weaponDef?.damage ?? 80;
 
     for (const target of state.entitiesByType(EntityType.Player)) {

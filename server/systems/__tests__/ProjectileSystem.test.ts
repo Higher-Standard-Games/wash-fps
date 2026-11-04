@@ -128,3 +128,39 @@ describe("ProjectileSystem — F8 projectile identity", () => {
     expect(direct!.damageType).toBe(DamageType.Explosion);
   });
 });
+
+describe("ProjectileSystem — blade blast splash", () => {
+  it("hurts its owner and anyone else in its radius, up to its charged damage", () => {
+    // The wall right ahead: the blast bursts on the first tick
+    const wall = { x: 0, y: 1000, z: 4 };
+    const sys = new ProjectileSystem({
+      trace: () => ({ fraction: 0.5, hitPoint: { ...wall }, normal: { x: 0, y: 0, z: -1 } }),
+    } as never);
+    const proj = {
+      id: 1,
+      ownerId: 99,
+      transform: { position: { x: 0, y: 1000, z: 0 } },
+      physics: { velocity: { x: 0, y: 0, z: 2500 } },
+    };
+    const health = () => ({ dead: false, health: 100, armor: 0, maxHealth: 100, maxArmor: 100 });
+    const owner = { id: 10, ownerId: 99, transform: { position: { x: 0, y: 1000, z: -20 } }, health: health() };
+    const far = { id: 11, ownerId: 5, transform: { position: { x: 0, y: 1000, z: 200 } }, health: health() };
+    const state = {
+      entitiesByType: (t: EntityType) =>
+        t === EntityType.Projectile ? [proj] : t === EntityType.Player ? [owner, far] : [],
+      getEntityMut: (id: number) => (id === 1 ? proj : undefined),
+      getEntityByOwner: () => undefined,
+      removeEntity: () => {},
+    };
+
+    expect(WEAPONS.blade_blast.splashRadius).toBeGreaterThan(24);
+    sys.registerProjectileType(1 as never, "blade_blast", { gravity: 0, lifetime: 5, damageOverride: 40 });
+    sys.update(state as never, 1 / 125, 1 as never);
+
+    const toOwner = sys.getPendingDamage().find((d) => (d.victimId as unknown as number) === 10);
+    expect(toOwner).toBeDefined();
+    expect(toOwner!.damage).toBeGreaterThan(0);
+    expect(toOwner!.damage).toBeLessThanOrEqual(40);
+    expect(sys.getPendingDamage().some((d) => (d.victimId as unknown as number) === 11)).toBe(false);
+  });
+});
