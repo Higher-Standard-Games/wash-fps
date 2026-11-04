@@ -335,3 +335,25 @@ body.touch-play .fps-weapon-slots {
 body.touch-play .fps-hint {
   display: none;
 }
+
+/* Portrait: the game asks to be turned sideways (iPhone cannot lock landscape) */
+.touch-controls__rotate {
+  display: none;
+  position: absolute;
+  inset: 0;
+  place-items: center;
+  padding: 24px;
+  background: hsla(250, 40%, 4%, 0.94);
+  color: hsl(42, 95%, 92%);
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 18px;
+  letter-spacing: 0.12em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+@media (orientation: portrait) {
+  .touch-controls__rotate {
+    display: grid;
+  }
+}

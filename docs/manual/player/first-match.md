@@ -54,7 +54,9 @@ scoreboard, chat, console and join keys are fixed; see [Settings](./settings.md)
 
 ### On a phone or tablet
 
-Hold the device sideways. Tap the game to play; the touch controls appear.
+The start tap takes the game fullscreen and sideways where the browser
+allows it. An iPhone cannot do either for a web page: hold it sideways
+yourself. Tap the game to play; the touch controls appear.
 Use a mouse or keyboard instead and they step aside and the match menu opens:
 click the game to play on with the mouse.
 

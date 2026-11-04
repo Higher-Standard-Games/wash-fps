@@ -175,6 +175,8 @@ export class TouchControls {
     this.aimButton = button("aim", "touch-btn--aim", ICONS.aim, "Aim", "", "AIM");
     this.aimCap = this.aimButton.querySelector(".touch-btn__cap") as HTMLElement;
     this.inner.append(this.aimButton, this.readyButton);
+    // Where the browser cannot lock landscape (an iPhone), portrait asks for it
+    this.root.append(element("div", "touch-controls__rotate", "Turn your device sideways to play"));
     document.body.append(this.root);
 
     const signal = this.listeners.signal;
@@ -234,6 +236,7 @@ export class TouchControls {
 
   private down(e: PointerEvent): void {
     e.preventDefault();
+    if (window.matchMedia?.("(orientation: portrait)").matches) return;
     const target = (e.target as HTMLElement).closest<HTMLElement>("[data-control]");
     const rect = this.inner.getBoundingClientRect();
     const control =
