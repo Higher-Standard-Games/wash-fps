@@ -75,6 +75,8 @@ export interface ScoreboardEntry {
   deaths: number;
   ping: number;
   teamId?: string;
+  /** Playing with touch or a controller (aim-assisted); the scoreboard shows a controller for it. */
+  assisted?: boolean;
 }
 
 export interface WeaponAmmoState {
@@ -264,9 +266,8 @@ export class HUDState {
 
     for (const [playerId, player] of state.players) {
       const teamId = sideOf(clientKeyDisplayId(playerId));
-      const final = matchState.isPostGame()
-        ? matchState.standings.find((entry) => entry.playerId === playerId)
-        : undefined;
+      const standing = matchState.standings.find((entry) => entry.playerId === playerId);
+      const final = matchState.isPostGame() ? standing : undefined;
       this.scoreboard.push({
         playerId,
         entityId: player.entityId,
@@ -276,6 +277,7 @@ export class HUDState {
         frags: final?.frags,
         ping: player.ping,
         teamId,
+        assisted: standing?.assisted === true,
       });
     }
     // Sort by score descending
@@ -297,6 +299,7 @@ export class HUDState {
           frags: entry.frags,
           ping: entry.ping,
           teamId: sideOf(clientKeyDisplayId(entry.playerId)),
+          assisted: entry.assisted === true,
         });
       }
       this.scoreboard.sort((a, b) => b.score - a.score);

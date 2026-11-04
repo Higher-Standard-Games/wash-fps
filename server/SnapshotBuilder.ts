@@ -449,9 +449,13 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
     frags: number;
     deaths: number;
     ping: number;
+    assisted?: boolean;
   }> = [];
+  const simState = ctx.simulation.getState();
   for (const client of ctx.clients.values()) {
     if (client.playerId === undefined) continue;
+    // Touch or a controller, as the player's newest command says: shown on the scoreboard
+    const buttons = simState.getEntity(client.entityId)?.input?.buttons ?? 0;
     standings.push({
       playerId: toClientKey(client.entityId),
       name: client.playerName,
@@ -462,6 +466,7 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
           ? matchState.getStats(client.playerId).deaths
           : matchState.getDeaths(client.playerId),
       ping: rosterPing(client, tickNum),
+      ...((buttons & InputButtons.ASSISTED_AIM) !== 0 ? { assisted: true } : {}),
     });
   }
 

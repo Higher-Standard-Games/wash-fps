@@ -30,7 +30,7 @@ Then **ready up**. When everyone is ready the match loads.
 
 ## 3. Warmup
 
-You spawn in a **warmup** where nothing scores and you can try things freely. Press **F4** to ready up; the match starts when everyone has. Use this time to learn the map's layout and to try the controls.
+You spawn in a **warmup** where nothing scores and you can try things freely. Press **F4** to ready up (on a touch screen, tap **READY**); the match starts when everyone has. Use this time to learn the map's layout and to try the controls.
 
 ## 4. The controls you need
 
@@ -51,6 +51,37 @@ You spawn in a **warmup** where nothing scores and you can try things freely. Pr
 
 Movement and combat bindings can be changed in **Settings → Controls**. Menu,
 scoreboard, chat, console and join keys are fixed; see [Settings](./settings.md).
+
+### On a phone or tablet
+
+The start tap takes the game fullscreen and sideways where the browser
+allows it. An iPhone cannot do either for a web page: hold it sideways
+yourself. Tap the game to play; the touch controls appear.
+Use a mouse or keyboard instead and they step aside and the match menu opens:
+click the game to play on with the mouse.
+
+| Touch | Does |
+|-------|------|
+| **Left side** | Move at any angle: the stick appears under your thumb. Pointing it straight ahead (within about 22°) runs, as **W** alone does |
+| **Right side** | Look: drag. A fast drag turns further; hold your thumb at either edge of the right side to keep turning |
+| **FIRE** | Fire; keep your thumb down and drag to aim while firing. While you fire, turning the phone turns the view too (gyro) |
+| **AIM** | Tap to aim down sights, tap again to stop. With the blade, hold it to charge a blast |
+| **◆ between FIRE and AIM** | Fire and aim at once with one thumb |
+| **JUMP**, **CROUCH** | Hold, as the keys |
+| **RELOAD** | Reload |
+| **«** / **»** | Previous / next weapon |
+| **BL** | The blade; tap again for the gun you had |
+| **≡** (top left) | Match menu and settings |
+| **☰** beside it | Hold for the scoreboard |
+| **Chat** (top right) | Chat, with the phone's keyboard |
+| **READY** | Shown in warmup: ready up |
+| **USE** | Pops up under the pick-up message when there is a weapon to pick up or swap to |
+
+Looking with your thumb has a slight aim assist: turning slows a little while
+your crosshair is on an opponent you can see, and a turn toward one bends a
+little closer. It only works while your thumb is moving, and never for a mouse.
+The scoreboard shows a controller before your name, so everyone can see who
+plays with aim assist.
 
 ## 5. What to do first
 

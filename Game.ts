@@ -17,6 +17,7 @@ import { Cvar } from "../../engine/core/Cvar";
 import { EventBus } from "../../engine/core/EventBus";
 import { log } from "../../engine/core/Log";
 import { InputSystem } from "../../engine/input/InputSystem";
+import { enterPlay, leavePlay } from "../../engine/input/PlayCapture";
 import { disposeClusteredLight } from "../../engine/lighting/DynamicLightCluster";
 import { LocalGameHost } from "../../engine/network/client/hosts/LocalGameHost";
 import { NetworkGameHost } from "../../engine/network/client/hosts/NetworkGameHost";
@@ -30,7 +31,6 @@ import { MessageCodec } from "../../engine/network/protocol/MessageCodec";
 import { PlayerProfile } from "../../engine/player/PlayerProfile";
 import RenderVars from "../../engine/rendering/RenderVars";
 import { waterNeedsLocalReflection } from "../../engine/rendering/water/WaterActorReflection";
-import { requestBrowserPointerLock } from "../../engine/ui/BrowserControlFeedback";
 import { MapLoadingOverlay } from "../../engine/ui/MapLoadingOverlay";
 import { getExplosionEffect } from "../../engine/weapon/ExplosionEffect";
 import { getHitscanEffects } from "../../engine/weapon/HitscanEffects";
@@ -103,6 +103,14 @@ export interface PlayerInputState {
   yaw: number; // Camera Y rotation
   /** Weapon slot (1-based, 0 = no change) */
   weaponSlot: number;
+  /**
+   * A touch move stick's direction, length 1 (see client/MoveStick). When set,
+   * the move direction takes its exact angle; the four keys above already
+   * carry the keys it covers.
+   */
+  moveAxis?: { forward: number; right: number };
+  /** Playing with touch or a controller (ASSISTED_AIM): the scoreboard shows it to everyone. */
+  assistedAim?: boolean;
 }
 
 /**
@@ -936,6 +944,11 @@ export class Game {
   /**
    * Get current player state
    */
+  /** The remote players being drawn, for systems that look at them (touch aim assist). */
+  getRemotePlayerRenderer(): RemotePlayerRenderer | null {
+    return this.remoteRenderer;
+  }
+
   getPlayerState(): "spectator" | "playing" {
     return this.playerState;
   }
@@ -1005,7 +1018,7 @@ export class Game {
 
       // Released so the player can actually click; completeJoinGame takes it
       // back when the round starts.
-      document.exitPointerLock?.();
+      leavePlay();
       this._loadoutPicker.open(
         (choice) => {
           this._loadoutChosen = true;
@@ -1138,8 +1151,8 @@ export class Game {
       console.warn("[Game] Failed to init weapon view:", e);
     }
 
-    // Request pointer lock for FPS controls
-    requestBrowserPointerLock(document.querySelector("canvas"));
+    // Into play: pointer lock, or touch play on a touch screen
+    enterPlay(document.querySelector("canvas"));
 
     devLog("[Game] Joined game (server-confirmed)");
   }
@@ -1195,7 +1208,7 @@ export class Game {
       (choice) => {
         this.rememberLoadout(choice);
         this.sendLoadout(choice.primary, choice.secondary);
-        if (this.playerState === "playing") requestBrowserPointerLock(document.querySelector("canvas"));
+        if (this.playerState === "playing") enterPlay(document.querySelector("canvas"));
         else FPSHud.getInstance().showMatchMenu();
       },
       this.rememberedLoadout(),
@@ -1301,8 +1314,8 @@ export class Game {
     // Reset static refs so a fresh widget is created on rejoin
     (await import("./camera/FPSController")).FPSController.resetSpeedDisplay?.();
 
-    // Release pointer lock
-    document.exitPointerLock();
+    // Leave play
+    leavePlay();
 
     devLog("[Game] Now spectating");
   }
@@ -1382,6 +1395,7 @@ export class Game {
     // the post-game case was mirrored here; the round freeze at the top of
     // every single round was not.
     if (MatchStateManager.getInstance().isMovementFrozen()) {
+      input.moveAxis = undefined;
       input.forward = false;
       input.backward = false;
       input.left = false;
@@ -1459,6 +1473,7 @@ export class Game {
 
     if (input.reload) buttons |= InputButtons.RELOAD;
     if (input.use) buttons |= InputButtons.USE;
+    if (input.assistedAim) buttons |= InputButtons.ASSISTED_AIM;
 
     // Build world-space direction from buttons using Babylon.js LEFT-HANDED coordinate system
     // In left-handed Y rotation: forward = (sin(yaw), 0, cos(yaw)), right = (cos(yaw), 0, -sin(yaw))
@@ -1473,24 +1488,29 @@ export class Game {
     const rightX = cosYaw;
     const rightZ = -sinYaw;
 
-    // Build world direction from local input
+    // Build world direction from local input: a stick's own angle, or the keys
     let dirX = 0;
     let dirZ = 0;
-    if (input.forward) {
-      dirX += forwardX;
-      dirZ += forwardZ;
-    }
-    if (input.backward) {
-      dirX -= forwardX;
-      dirZ -= forwardZ;
-    }
-    if (input.left) {
-      dirX -= rightX;
-      dirZ -= rightZ;
-    }
-    if (input.right) {
-      dirX += rightX;
-      dirZ += rightZ;
+    if (input.moveAxis) {
+      dirX = forwardX * input.moveAxis.forward + rightX * input.moveAxis.right;
+      dirZ = forwardZ * input.moveAxis.forward + rightZ * input.moveAxis.right;
+    } else {
+      if (input.forward) {
+        dirX += forwardX;
+        dirZ += forwardZ;
+      }
+      if (input.backward) {
+        dirX -= forwardX;
+        dirZ -= forwardZ;
+      }
+      if (input.left) {
+        dirX -= rightX;
+        dirZ -= rightZ;
+      }
+      if (input.right) {
+        dirX += rightX;
+        dirZ += rightZ;
+      }
     }
 
     // Normalize the final direction

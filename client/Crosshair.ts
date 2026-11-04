@@ -10,6 +10,7 @@
  */
 
 import { Cvar } from "../../../engine/core/Cvar";
+import { inPlay, PLAY_CHANGE } from "../../../engine/input/PlayCapture";
 import { type CrosshairConfig, fireIntervalTicks, type WeaponDef } from "../../../shared/entities/WeaponDef";
 import { bloomIdleSeconds, coolSpreadHeat, heatAfterShot } from "../../../shared/SpreadUtils";
 import { DEFAULT_PHYSICS_TICK_RATE } from "../../../shared/server/simulation/physics/constants";
@@ -107,12 +108,12 @@ export class Crosshair {
     this.container.appendChild(this.canvas);
     document.body.appendChild(this.container);
 
-    // Hide crosshair when pointer lock is lost (pause menu / ESC)
+    // Hide crosshair when play ends (pause menu / ESC)
     this.listeners = new AbortController();
     document.addEventListener(
-      "pointerlockchange",
+      PLAY_CHANGE,
       () => {
-        if (!document.pointerLockElement && this.container) {
+        if (!inPlay() && this.container) {
           this.container.style.display = "none";
         }
       },
@@ -215,9 +216,8 @@ export class Crosshair {
     // Cvar: crosshair enabled?
     const enabled = ((Cvar.get("cg_crosshair") as number) ?? 1) > 0;
 
-    // Hide conditions: disabled, dead, not joined, or pointer lock lost (pause menu)
-    const hasPointerLock = !!document.pointerLockElement;
-    const shouldShow = enabled && !isDead && (watching || (isJoined && hasPointerLock));
+    // Hide conditions: disabled, dead, not joined, or out of play (pause menu)
+    const shouldShow = enabled && !isDead && (watching || (isJoined && inPlay()));
     const display = shouldShow ? "" : "none";
     if (this.container.style.display !== display) this.container.style.display = display;
     if (!shouldShow) return;

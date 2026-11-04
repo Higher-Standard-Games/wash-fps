@@ -189,7 +189,7 @@ attention:
 |---------|---------------|
 | **Timer** | Always in a timed match — a round clock in the round-based modes, Search & Destroy and Amphi, and a match clock elsewhere |
 | **Gametype badge** | The mode you are in |
-| **Scoreboard** | Held **Tab**, and automatically at match end |
+| **Scoreboard** | Held **Tab**, and automatically at match end. A small keyboard before a name means keyboard and mouse; a gold controller means touch or a controller, which gets a slight aim assist |
 | **Frag counter / frag message** | Your score, and **FRAGGED** with the name, above the crosshair, when you take one |
 | **Ready bar** | Warmup — who is ready, and how many are still needed. **F4** readies you up |
 | **Phase message** | Warmup, countdown, round start, round result, match end |

@@ -26,6 +26,7 @@ import { background } from "../../../engine/core/AsyncErrors";
 import { log } from "../../../engine/core/Log";
 import type { BspEntity, BspModel } from "../../../engine/loader/bsp/BspLoader";
 // Protocol (client-compatible)
+import { InputButtons } from "../../../engine/network/components/InputComponent";
 import { MessageCodec, MessageType } from "../../../engine/network/protocol/MessageCodec";
 import type { CollisionWorld } from "../../../engine/network/systems/collision/CollisionWorld";
 import { filterChatText, filterPlayerName } from "../../../engine/server/ChatFilter";
@@ -1109,7 +1110,8 @@ export class GameServer {
           `peakFlick=${m.peakViewSpeedDps.toFixed(0)}dps flickHist=${m.flickHistogram.join(",")} ` +
           `warpStrikes=${strikes} ` +
           `acc=${accStr} hs=${hsStr} shots=${acc.shots} ` +
-          `rejected=${m.rejectedCmds} clamped=${m.clampedCmds} tripwire=${tripwire}`,
+          `rejected=${m.rejectedCmds} clamped=${m.clampedCmds} tripwire=${tripwire} ` +
+          `assisted=${(m.assistedShare * 100).toFixed(0)}% assistSwitches=${m.assistedSwitches}`,
       );
     }
   }
@@ -2053,8 +2055,16 @@ export class GameServer {
       });
       client.lastInputSeq = seq;
       // Telemetry (WO-12): sample this accepted usercmd — arrival time for jitter,
-      // seq for loss, sanitized view angles for the aim-flick signal.
-      this.telemetry.recordInput(client.playerId, performance.now(), seq, clean.pitch, clean.yaw);
+      // seq for loss, sanitized view angles for the aim-flick signal, and the
+      // claim of touch or a controller that aim assist explains.
+      this.telemetry.recordInput(
+        client.playerId,
+        performance.now(),
+        seq,
+        clean.pitch,
+        clean.yaw,
+        (buttons & InputButtons.ASSISTED_AIM) !== 0,
+      );
     }
   }
 

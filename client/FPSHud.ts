@@ -14,7 +14,7 @@
 
 import { GamePaths } from "../../../engine/core/GamePaths";
 import { log } from "../../../engine/core/Log";
-import { requestBrowserPointerLock } from "../../../engine/ui/BrowserControlFeedback";
+import { enterPlay, inPlay, leavePlay, PLAY_CHANGE } from "../../../engine/input/PlayCapture";
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import { UITheme } from "../../../engine/ui/UITheme";
 import { getWeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
@@ -56,6 +56,7 @@ import { FPSTimer } from "./hud/widgets/Timer";
 // Import widget classes
 import { FPSVitalsBlock } from "./hud/widgets/VitalsBlock";
 import { FPSWeaponSlots } from "./hud/widgets/WeaponSlots";
+import { TouchControls } from "./TouchControls";
 
 /**
  * HUD anchor positions
@@ -88,6 +89,7 @@ export class FPSHud {
   // Phase 3: Standalone overlays (not area-based widgets)
   private _scoreboard: FPSScoreboard | null = null;
   private _chat: FPSChat | null = null;
+  private _touch: TouchControls | null = null;
   private _damageIndicators: FPSDamageIndicators | null = null;
 
   // Phase 4: Dialogs & Menus
@@ -178,7 +180,7 @@ export class FPSHud {
         if (mgr.flow === "single" && !this._watchOnly) {
           this._openUpTimer = window.setTimeout(() => {
             this._openUpTimer = null;
-            document.exitPointerLock();
+            leavePlay();
             this._chat?.openInput();
             this._scoreboard?.setReturnAction(() => returnToLobby());
           }, 6000);
@@ -225,10 +227,10 @@ export class FPSHud {
         return;
       if (e.altKey || e.ctrlKey || e.metaKey) return;
       if (!this._chat || this._chat.isInputActive()) return;
-      // Only in gameplay: pointer locked, no menus/console/text fields open.
-      // Exception: the single-match post-game deliberately releases pointer
-      // lock (open-up beat) — chat must stay reopenable for the banter.
-      if (!document.pointerLockElement && !MatchStateManager.getInstance().isPostGame()) return;
+      // Only in gameplay: in play, no menus/console/text fields open.
+      // Exception: the single-match post-game deliberately leaves play
+      // (open-up beat) — chat must stay reopenable for the banter.
+      if (!inPlay() && !MatchStateManager.getInstance().isPostGame()) return;
       if (this._pauseMenu?.isOpen() || this._settings?.isOpen()) return;
       const active = document.activeElement;
       if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) return;
@@ -237,6 +239,13 @@ export class FPSHud {
       this._chat.openInput(e.code === "KeyY");
     };
     document.addEventListener("keydown", this._chatKeyHandler, true);
+
+    // On-screen controls for touch play; they hide themselves otherwise
+    this._touch = new TouchControls({
+      openChat: () => this._chat?.openInput(),
+      showScoreboard: () => this._scoreboard?.show(),
+      hideScoreboard: () => this._scoreboard?.hide(),
+    });
 
     // 6. Create dialogs & menus
     this._pauseMenu = new FPSPauseMenu();
@@ -248,14 +257,14 @@ export class FPSHud {
       this._settings?.open();
     });
 
-    // Back from settings is back to the match menu, while the pointer is free
+    // Back from settings is back to the match menu, while out of play
     this._settings.onClose(() => {
-      if (!document.pointerLockElement) this.showMatchMenu();
+      if (!inPlay()) this.showMatchMenu();
     });
 
-    // Wire Resume -> re-request pointer lock (closes menu via onClose callback)
+    // Wire Resume -> back into play (closes menu via onClose callback)
     this._pauseMenu.onResume(() => {
-      requestBrowserPointerLock(document.querySelector("canvas"));
+      enterPlay(document.querySelector("canvas"));
     });
 
     // Wire Disconnect -> reload page (return to lobby)
@@ -277,17 +286,17 @@ export class FPSHud {
       gm.joinGame(teamId);
     });
 
-    // 7. Listen for pointer lock changes (ESC releases pointer lock -> show pause menu)
+    // 7. Listen for play changes (ESC releases pointer lock -> show pause menu)
     this._listeners?.abort();
     this._listeners = new AbortController();
     document.addEventListener(
-      "pointerlockchange",
+      PLAY_CHANGE,
       () => {
-        if (!document.pointerLockElement) {
-          // Pointer lock was lost (ESC pressed) — show the match menu
+        if (!inPlay()) {
+          // Play ended (ESC pressed) — show the match menu
           this.showMatchMenu();
         } else {
-          // Pointer lock was acquired — close pause menu
+          // Back in play — close pause menu
           this._pauseMenu?.close();
         }
       },
@@ -612,6 +621,7 @@ export class FPSHud {
     if (this.container) {
       this.container.style.display = "";
     }
+    this._touch?.setHudHidden(false);
     if (this.hidden) {
       this.hidden = false;
       this.update();
@@ -625,6 +635,7 @@ export class FPSHud {
     if (this.container) {
       this.container.style.display = "none";
     }
+    this._touch?.setHudHidden(true);
     this.hidden = true;
   }
 
@@ -660,6 +671,8 @@ export class FPSHud {
     this._scoreboard = null;
     this._chat?.destroy();
     this._chat = null;
+    this._touch?.destroy();
+    this._touch = null;
     this._damageIndicators?.destroy();
     this._damageIndicators = null;
 

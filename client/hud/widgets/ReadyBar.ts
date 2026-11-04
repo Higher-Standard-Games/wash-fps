@@ -1,5 +1,6 @@
 // Extracted from FPSHud.ts
 
+import { InputDevice } from "../../../../../engine/input/InputDevice";
 import { MatchStateManager } from "../../MatchStateManager";
 import type { FPSHudWidget, HUDState } from "../HudWidget";
 
@@ -32,13 +33,16 @@ export class FPSReadyBar implements FPSHudWidget {
       this.setClasses({ hidden: true });
       this.shown = "";
     } else if (mgr.isWarmup() && !isSpectating) {
-      // Joined player: gold count cell + prompt with keycap chip
+      // Joined player: gold count cell + prompt with keycap chip (the touch controls' READY on a touch screen)
+      const touch = InputDevice.getInstance().current === "touch";
       const readyText = mgr.isReady
         ? `<span class="fps-ready-text">Ready! Waiting for others</span>`
-        : `<span class="fps-ready-text">Press <span class="fps-ready-key">F4</span> when ready</span>`;
+        : touch
+          ? `<span class="fps-ready-text">Tap <span class="fps-ready-key">READY</span> when ready</span>`
+          : `<span class="fps-ready-text">Press <span class="fps-ready-key">F4</span> when ready</span>`;
 
       this.write(
-        `player|${mgr.isReady}`,
+        `player|${mgr.isReady}|${touch}`,
         `<span class="fps-ready-count"><span class="fps-ready-count-label">${mgr.getReadyStatus()}</span></span>${readyText}`,
         () => {
           this.setClasses({ hidden: false, "fps-ready-bar--spectating": false, "fps-ready-bar--ready": mgr.isReady });

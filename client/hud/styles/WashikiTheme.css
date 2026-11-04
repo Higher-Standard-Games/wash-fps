@@ -2415,6 +2415,30 @@ html[data-cl-hud="0"]
   white-space: nowrap;
 }
 
+/* Keyboard and mouse, or touch and controllers (aim-assisted), ahead of the name */
+.fps-scoreboard-input {
+  display: inline-block;
+  width: 1.15em;
+  height: 1.15em;
+  margin-right: 0.45em;
+  vertical-align: -0.2em;
+  color: var(--w-text-muted);
+}
+
+.fps-scoreboard-input svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.fps-scoreboard-input--assisted {
+  color: var(--w-gold);
+}
+
 /* Bomb carrier — a lit fuse ahead of the name, plus a warm edge on the row.
    Drawn rather than an emoji so it matches the print-slab HUD and renders the
    same on every platform. */

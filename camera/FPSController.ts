@@ -29,7 +29,7 @@ import { devLog } from "../../../engine/core/DevLog";
 // import { Animation } from "@babylonjs/core/Animations/animation";
 // import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import "@babylonjs/loaders";
-import { CameraInputHandler } from "../../../engine/camera/CameraInputHandler";
+import { CameraInputHandler, type LookShape } from "../../../engine/camera/CameraInputHandler";
 import type {
   CameraControllerConfig,
   CameraShakeCause,
@@ -40,8 +40,11 @@ import { easeLedgePitch, slidePitch, smoothStepUp } from "../../../engine/camera
 import { currentBaseFov } from "../../../engine/camera/FovSettings";
 import { Cvar } from "../../../engine/core/Cvar";
 import { DeveloperBar } from "../../../engine/debug/DeveloperBar";
+import { InputDevice } from "../../../engine/input/InputDevice";
 import { InputSystem } from "../../../engine/input/InputSystem";
+import { leavePlay } from "../../../engine/input/PlayCapture";
 import { MovementVars } from "../../../engine/movement/MovementVars";
+import { getCollisionManager } from "../../../engine/physics/CollisionManager";
 import {
   CROUCH_HEIGHT,
   DEFAULT_VIEWHEIGHT,
@@ -69,7 +72,9 @@ import type { InventoryManager } from "../world/InventoryManager";
 // import { WeaponDef } from "../../../shared/entities";
 
 import { logRejection } from "../../../engine/core/AsyncErrors";
+import { type AimTarget, assistTurn, nearestTarget } from "../client/AimAssist";
 import { FPS, getWeaponSlotPressed, registerFPSActions } from "../client/FPSActions";
+import { type MoveAxis, stickDirection, stickKeys } from "../client/MoveStick";
 import { Game } from "../Game";
 import { PlayerVisuals } from "./components/PlayerVisuals";
 
@@ -344,6 +349,11 @@ export class FPSController implements ICameraController {
     reload: false, // R (reload)
     use: false, // F (interact/pickup)
   };
+
+  // A touch move stick, as the touch controls last set it, and its direction
+  // as applied this frame (null when centred, out of play or frozen)
+  private moveAxis: MoveAxis | null = null;
+  private stick: MoveAxis | null = null;
 
   // ADS sensitivity lerp (matches ADS animation timing)
   private adsSensitivityProgress: number = 0;
@@ -711,9 +721,19 @@ export class FPSController implements ICameraController {
     this.keys.reload = input.isActive(FPS.RELOAD);
     this.keys.use = input.isActive(FPS.USE);
 
-    // Fire/Aim: only when pointer locked (InputSystem tracks globally)
-    this.keys.fire = this.inputHandler.isPointerLocked && input.isActive(FPS.FIRE);
-    this.keys.aim = this.inputHandler.isPointerLocked && input.isActive(FPS.AIM);
+    // A touch move stick adds the keys it covers; its exact angle goes to sendInput
+    this.stick = stickDirection(this.moveAxis);
+    if (this.stick) {
+      const keys = stickKeys(this.stick);
+      this.keys.forward ||= keys.forward;
+      this.keys.backward ||= keys.backward;
+      this.keys.left ||= keys.left;
+      this.keys.right ||= keys.right;
+    }
+
+    // Fire/Aim: only in play (InputSystem tracks buttons globally)
+    this.keys.fire = this.inputHandler.inPlay && input.isActive(FPS.FIRE);
+    this.keys.aim = this.inputHandler.inPlay && input.isActive(FPS.AIM);
 
     // One-shot callbacks via wasPressed()
     if (input.wasPressed(FPS.RELOAD) && this.onReload) this.onReload();
@@ -760,10 +780,11 @@ export class FPSController implements ICameraController {
   update(deltaTime: number): void {
     if (!this.enabled || !this.camera) return;
     let autoAds = false;
+    this.stick = null;
 
-    // When pointer lock is lost (e.g. pause menu), zero out inputs to prevent moving
+    // Out of play (e.g. pause menu), zero out inputs to prevent moving
     // but DO NOT return early so we still process networking and render remote players.
-    if (!this.inputHandler.isPointerLocked) {
+    if (!this.inputHandler.inPlay) {
       this.keys.forward = false;
       this.keys.backward = false;
       this.keys.left = false;
@@ -982,6 +1003,8 @@ export class FPSController implements ICameraController {
           autoAds,
           reload: this.keys.reload,
           use: this.keys.use,
+          moveAxis: this.stick ?? undefined,
+          assistedAim: InputDevice.getInstance().current === "touch",
           // Aim without our own view kick (visual only)
           pitch: this.camera!.rotation.x - this.appliedKickPitch,
           yaw: this.camera!.rotation.y - this.appliedKickYaw,
@@ -1357,11 +1380,45 @@ export class FPSController implements ICameraController {
     const deg = (radians: number) => ((radians * 180) / Math.PI).toFixed(1);
     return (
       `view: roll=${deg(this.camera.rotation.z)}° pitch=${deg(this.camera.rotation.x)}° ` +
-      `enabled=${this.enabled} locked=${this.inputHandler.isPointerLocked} ` +
+      `enabled=${this.enabled} inPlay=${this.inputHandler.inPlay} ` +
       `effects=${this.viewportEffectsManager !== null && this.viewportApplicator !== null} ` +
       `deathCam(phase=${this.deathCamPhase.toFixed(2)},roll=${deg(this.deathCamRoll)}°,drop=${this.deathCamHeightDrop.toFixed(1)}) ` +
       `mouse(pitch=${deg(this.mouseRotationX)}°,yaw=${deg(this.mouseRotationY)}°)`
     );
+  }
+
+  /**
+   * Turn the view by a touch drag: `dx`, `dy` pixels at `sensitivity` radians
+   * each. With `assist` (a real touch's drag), through touch aim assist
+   * (in_touchassist); never for the gyro or a script-made event.
+   */
+  touchLook(dx: number, dy: number, sensitivity: number, assist: boolean): void {
+    if (!this.inputHandler.inPlay) return;
+    const shape = assist && (Cvar.getNumber("in_touchassist") ?? 1) > 0 ? this.aimAssist : undefined;
+    this.inputHandler.applyLookDelta(dx, dy, sensitivity, shape);
+  }
+
+  // Touch aim assist toward the remote players in sight (client/AimAssist)
+  private readonly aimEye = new Vector3();
+  private readonly aimPoint = new Vector3();
+  private readonly aimAssist: LookShape = (yaw, pitch, viewYaw, viewPitch) => {
+    const camera = this.camera;
+    const targets = this.gameManager?.getRemotePlayerRenderer()?.getAimTargets();
+    if (!camera || !targets?.length) return [yaw, pitch];
+    const eye = this.aimEye.copyFrom(camera.position);
+    const view = { x: eye.x, y: eye.y, z: eye.z, yaw: viewYaw, pitch: viewPitch };
+    const backend = getCollisionManager().getSweepBackend();
+    const visible = (target: AimTarget) => {
+      if (!backend) return true;
+      this.aimPoint.set(target.x, target.y, target.z);
+      return backend.trace(eye, this.aimPoint, AIM_TRACE).fraction >= 1;
+    };
+    return assistTurn(yaw, pitch, nearestTarget(view, targets, visible));
+  };
+
+  /** The touch move stick's reading (forward and right, up to 1), or null when released. */
+  setMoveAxis(axis: MoveAxis | null): void {
+    this.moveAxis = axis ? { forward: axis.forward, right: axis.right } : null;
   }
 
   setLookFrozen(frozen: boolean): void {
@@ -1411,9 +1468,7 @@ export class FPSController implements ICameraController {
       this.keys.right = false;
       this.keys.up = false;
       this.keys.sprint = false;
-      if (this.inputHandler.isPointerLocked) {
-        document.exitPointerLock();
-      }
+      if (this.inputHandler.inPlay) leavePlay();
     }
   }
 
@@ -1435,6 +1490,16 @@ export class FPSController implements ICameraController {
     this.detach();
   }
 }
+
+/** A line of sight: a point trace through world geometry. */
+const AIM_TRACE = { radius: 0, height: 0, contentMask: 1 };
+
+Cvar.register("in_touchassist", 1, {
+  type: "int",
+  min: 0,
+  max: 1,
+  description: "Touch aim assist: slower turning over an enemy and a slight pull toward one (0 = off)",
+});
 
 Cvar.register("cg_screenshake", 1, {
   type: "int",

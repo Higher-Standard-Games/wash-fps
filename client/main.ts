@@ -27,6 +27,7 @@ import type { LoadingProgressEvent, LoadingStartEvent } from "../../../engine/co
 import { DebugConsole } from "../../../engine/debug";
 import { BrowserEditorHost } from "../../../engine/editor/BrowserEditorHost";
 import { PLAYTEST_RETURN_KEY, registerEditorLauncher } from "../../../engine/editor/EditorLauncher";
+import { leavePlay } from "../../../engine/input/PlayCapture";
 import { PK3Index } from "../../../engine/loader/pk3/PK3Index";
 import {
   installRendererRuntimeDiagnostics,
@@ -269,7 +270,7 @@ async function main() {
       const wasLobbyVisible = lobby.isVisible();
       controller.setEnabled(false);
       camera.detachControl();
-      if (document.pointerLockElement) void document.exitPointerLock();
+      leavePlay();
       if (wasLobbyVisible) lobby.hide();
       // Leave the console's own open/closed state alone: it stays usable
       // while editing (~ still toggles it), so a mapper mid-command when

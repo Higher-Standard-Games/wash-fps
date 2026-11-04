@@ -68,6 +68,7 @@ export class MatchStateManager {
     frags?: number;
     deaths: number;
     ping: number;
+    assisted?: boolean;
   }> = [];
   private _winner: MatchWinner | null = null;
   private _overtime: number = 0;
@@ -238,6 +239,7 @@ export class MatchStateManager {
     frags?: number;
     deaths: number;
     ping: number;
+    assisted?: boolean;
   }> {
     return this._standings;
   }

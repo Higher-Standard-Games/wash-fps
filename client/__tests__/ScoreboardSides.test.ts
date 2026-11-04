@@ -35,6 +35,30 @@ function players(...rows: Array<[id: string, name: string, score: number]>): Gam
 
 afterEach(() => MatchStateManager.getInstance().reset());
 
+describe("scoreboard input icons", () => {
+  it("marks the players the roster calls assisted (touch or a controller)", () => {
+    const manager = MatchStateManager.getInstance();
+    manager.reset();
+    manager.processEvent({
+      type: "match_state",
+      phase: 2,
+      timeRemaining: 90,
+      gametypeName: "Deathmatch",
+      teamBased: false,
+      playerTeams: {},
+      spectators: [],
+      standings: [
+        { playerId: toClientKey("14"), name: "Thumbs", score: 0, deaths: 0, ping: 10, assisted: true },
+        { playerId: toClientKey("15"), name: "Mouse", score: 0, deaths: 0, ping: 10 },
+      ],
+    } as never);
+    const hud = HUDState.getInstance();
+    hud.updateScoreboard(players(["14", "Thumbs", 3], ["15", "Mouse", 2]));
+    expect(hud.scoreboard.find((e) => e.name === "Thumbs")?.assisted).toBe(true);
+    expect(hud.scoreboard.find((e) => e.name === "Mouse")?.assisted).toBe(false);
+  });
+});
+
 describe("scoreboard sides", () => {
   it("counts everyone in a free-for-all as playing, whatever the roster calls them", () => {
     matchState(false, { "14": "spectator", "15": "spectator" });

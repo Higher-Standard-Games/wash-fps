@@ -175,3 +175,27 @@ describe("Telemetry", () => {
     expect(t.get(P)!.flickHistogram[0]).toBe(1);
   });
 });
+
+describe("Telemetry: assisted input", () => {
+  it("counts the share of usercmds claiming touch or a controller, and each switch of the claim", () => {
+    const t = new Telemetry();
+    const id = "p" as never;
+    t.add(id);
+    const claims = [false, false, true, true, true, false, true, true];
+    claims.forEach((assisted, i) => {
+      t.recordInput(id, i * 8, i, 0, 0, assisted);
+    });
+    const m = t.get(id);
+    expect(m?.assistedShare).toBeCloseTo(5 / 8);
+    expect(m?.assistedSwitches).toBe(3);
+  });
+
+  it("reads keyboard and mouse when the claim is left out", () => {
+    const t = new Telemetry();
+    const id = "p" as never;
+    t.add(id);
+    t.recordInput(id, 0, 1, 0, 0);
+    expect(t.get(id)?.assistedShare).toBe(0);
+    expect(t.get(id)?.assistedSwitches).toBe(0);
+  });
+});

@@ -18,6 +18,7 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Scene } from "@babylonjs/core/scene";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
+import { inPlay } from "../../../engine/input/PlayCapture";
 import { BspManager } from "../../../engine/loader/bsp/BspManager";
 import type { PVSCuller } from "../../../engine/loader/bsp/PVSCuller";
 import { bindLoaderLeftovers } from "../../../engine/loader/model/ModelSourceCache";
@@ -159,7 +160,7 @@ export class FPSPickup extends Pickup {
     if (frame !== FPSPickup.suppressedFrame) {
       FPSPickup.suppressedFrame = frame;
       const activeController = CameraSystem.getInstance().getActiveController();
-      FPSPickup.suppressed = activeController?.type === "freefly" || !document.pointerLockElement;
+      FPSPickup.suppressed = activeController?.type === "freefly" || !inPlay();
     }
     return FPSPickup.suppressed;
   }
