@@ -90,6 +90,22 @@ export function pageKeys(page: number, pages: number): number[] {
     .sort((a, b) => a - b);
 }
 
+/**
+ * Plays a recording somewhere other than this page: the native client's own
+ * player (wash-fps-rust docs/research/WEBVIEW_LOBBY.md, section 10). It
+ * resolves once playback has started and calls `ended` when it is over.
+ */
+export interface DemoPlayer {
+  play(demo: DemoInfo, reelMinutes: number | undefined, signal: AbortSignal, ended: () => void): Promise<void>;
+}
+
+let demoPlayer: DemoPlayer | null = null;
+
+/** Hand the Demos page's playback to `player` (null: this page's own). */
+export function registerDemoPlayer(player: DemoPlayer | null): void {
+  demoPlayer = player;
+}
+
 export interface DemosHost {
   client: LobbyClient;
   modes: readonly RankedMode[];
@@ -846,13 +862,13 @@ export class DemosView {
   // ── Watching ──
 
   private async play(demo: DemoInfo, card: HTMLElement, key: HTMLButtonElement): Promise<void> {
-    await this.run(demo, card, key, async (service) => {
+    await this.run(demo, card, key, undefined, async (service) => {
       await service.loadAndPlayNormal(new DemoViewer());
     });
   }
 
   private async playReel(demo: DemoInfo, card: HTMLElement, key: HTMLButtonElement, minutes: number): Promise<void> {
-    await this.run(demo, card, key, async (service) => {
+    await this.run(demo, card, key, minutes, async (service) => {
       await service.loadAndPlayCinematic(new DemoViewer(), CameraSystem.getInstance(), minutes);
     });
   }
@@ -862,6 +878,7 @@ export class DemosView {
     demo: DemoInfo,
     card: HTMLElement,
     key: HTMLButtonElement,
+    reelMinutes: number | undefined,
     start: (service: DemoService) => Promise<void>,
   ): Promise<void> {
     // One selection at a time. Cancel makes another selection available at once.
@@ -890,6 +907,21 @@ export class DemosView {
     this.transferAction.onclick = () => this.deactivate();
     let handedOff = false;
     try {
+      const player = demoPlayer;
+      if (player) {
+        // Another player fetches and plays it; this page waits, hidden, for the end.
+        await player.play(demo, reelMinutes, controller.signal, () => this.host.show?.());
+        if (!ownsRun()) return;
+        this.transfer.hidden = true;
+        this.handingOff = true;
+        try {
+          this.host.leave();
+        } finally {
+          this.handingOff = false;
+        }
+        handedOff = true;
+        return;
+      }
       const service = DemoService.getInstance();
       await service.fetchAndLoad(demo.filename, { signal: controller.signal });
       if (!ownsRun()) return;
@@ -920,7 +952,7 @@ export class DemosView {
       this.transferText.setAttribute("role", "alert");
       this.transferText.textContent = error instanceof Error ? error.message : String(error);
       setRaisedKeyText(this.transferAction, "Try again");
-      this.transferAction.onclick = () => void this.run(demo, card, key, start);
+      this.transferAction.onclick = () => void this.run(demo, card, key, reelMinutes, start);
     } finally {
       if (generation === this.playGeneration) this.finishTransfer();
     }

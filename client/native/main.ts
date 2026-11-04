@@ -22,10 +22,12 @@ import { UIScale } from "../../../../engine/ui/UIScale";
 import { UITheme } from "../../../../engine/ui/UITheme";
 import browserConfig from "../../browser.json";
 import gameJson from "../../game.json";
+import { registerDemoPlayer } from "../DemosView";
 import { LobbyPanel } from "../LobbyPanel";
 import { showMatchConnectionFailure } from "../MatchConnectionFailure";
 import { installLinkPolicy } from "./LinkPolicy";
 import { NativeBridge } from "./NativeBridge";
+import { NativeDemoPlayer } from "./NativeDemoPlayer";
 import { NativeNetworkConnector, takeAfterMatch } from "./NativeNetworkConnector";
 import { applyNativeStorage, installStorageMirror, registerNativeCvars } from "./NativeStorage";
 import { installNativeKeys, installShellControls } from "./ShellControls";
@@ -74,6 +76,7 @@ async function main(): Promise<void> {
     installLinkPolicy(bridge);
     installNativeKeys(bridge);
     registerNetworkConnector(new NativeNetworkConnector(bridge));
+    if (bridge.has("demo")) registerDemoPlayer(new NativeDemoPlayer(bridge));
   }
 
   DebugConsole.getInstance().enable();
