@@ -1,0 +1,337 @@
+/* Touch controls: a full-screen layer over the game while touch play is on.
+   The right thumb's buttons are placed in screen heights (cqh) from the
+   bottom-right corner, so the cluster keeps its shape on any phone width. */
+
+.touch-controls {
+  position: fixed;
+  inset: 0;
+  z-index: 510;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px)
+    env(safe-area-inset-left, 0px);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  --touch-alpha: 0.55;
+}
+
+.touch-controls[hidden] {
+  display: none;
+}
+
+.touch-controls__inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  container-type: size;
+}
+
+/* First-use labels: each side's fades once it has been used */
+.touch-controls__label {
+  position: absolute;
+  top: 18cqh;
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 2.4cqh;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: hsla(42, 95%, 92%, 0.62);
+  text-shadow: 0.2cqh 0.25cqh 0 hsl(250, 40%, 5%);
+  transition: opacity 400ms;
+  pointer-events: none;
+}
+
+.touch-controls__label--move {
+  left: 6%;
+}
+
+.touch-controls__label--look {
+  left: 48%;
+}
+
+.touch-controls__label.used {
+  opacity: 0;
+}
+
+/* The move stick: a faint ghost where thumbs rest, the live one where the thumb lands */
+.touch-controls__stick {
+  position: absolute;
+  width: 22cqh;
+  height: 22cqh;
+  margin: -11cqh 0 0 -11cqh;
+  border-radius: 50%;
+  border: 2px solid hsla(42, 95%, 92%, calc(var(--touch-alpha) * 0.8));
+  background: hsla(250, 40%, 5%, calc(var(--touch-alpha) * 0.45));
+  pointer-events: none;
+}
+
+.touch-controls__knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 9cqh;
+  height: 9cqh;
+  margin: -4.5cqh 0 0 -4.5cqh;
+  border-radius: 50%;
+  background: hsla(42, 95%, 92%, var(--touch-alpha));
+}
+
+.touch-controls__stick--ghost {
+  left: 18%;
+  top: 66%;
+  opacity: 0.45;
+}
+
+.touch-controls__stick--live {
+  display: none;
+  border-color: hsla(180, 100%, 50%, 0.75);
+}
+
+.touch-controls__stick--live .touch-controls__knob {
+  background: hsl(180, 100%, 50%);
+}
+
+.touch-controls--moving .touch-controls__stick--ghost {
+  display: none;
+}
+
+.touch-controls--moving .touch-controls__stick--live {
+  display: block;
+}
+
+/* Edge spin: the look side's edges glow while a held thumb keeps turning */
+.touch-controls__edge {
+  position: absolute;
+  top: 15cqh;
+  bottom: 13cqh;
+  width: 7%;
+  opacity: 0;
+  transition: opacity 120ms;
+  pointer-events: none;
+}
+
+.touch-controls__edge--left {
+  left: 43%;
+  background: linear-gradient(90deg, hsla(180, 100%, 50%, 0.32), transparent);
+}
+
+.touch-controls__edge--right {
+  right: 0;
+  background: linear-gradient(270deg, hsla(180, 100%, 50%, 0.32), transparent);
+}
+
+.touch-controls__edge.on {
+  opacity: 1;
+}
+
+/* Buttons: ink discs with cream line icons and the HUD's print shadow; a press lights them */
+.touch-btn {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: hsla(250, 40%, 5%, calc(var(--touch-alpha) * 0.85));
+  border: 2px solid hsla(42, 95%, 92%, var(--touch-alpha));
+  color: hsla(42, 95%, 92%, calc(var(--touch-alpha) + 0.3));
+  box-shadow: 0.4cqh 0.55cqh 0 hsla(250, 45%, 4%, calc(var(--touch-alpha) * 1.2));
+}
+
+.touch-btn svg {
+  width: 52%;
+  height: 52%;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.touch-btn__cap {
+  position: absolute;
+  bottom: -3.8cqh;
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-size: 2.2cqh;
+  letter-spacing: 0.14em;
+  color: hsla(42, 95%, 92%, 0.62);
+  text-shadow: 0.2cqh 0.2cqh 0 hsl(250, 40%, 5%);
+  white-space: nowrap;
+}
+
+.touch-btn.down {
+  background: hsla(180, 100%, 50%, 0.28);
+  border-color: hsl(180, 100%, 50%);
+  color: hsl(42, 95%, 92%);
+  transform: translate(0.3cqh, 0.4cqh);
+  box-shadow: none;
+}
+
+.touch-btn.on {
+  border-color: hsl(45, 100%, 55%);
+  color: hsl(45, 100%, 55%);
+}
+
+.touch-btn--fire {
+  width: 27.3cqh;
+  height: 27.3cqh;
+  right: 30.9cqh;
+  bottom: 28.6cqh;
+  border-width: 3px;
+  border-color: hsla(320, 100%, 60%, calc(var(--touch-alpha) + 0.2));
+  color: hsl(320, 100%, 75%);
+}
+
+.touch-btn--fire.down {
+  background: hsla(320, 100%, 60%, 0.32);
+  border-color: hsl(320, 100%, 60%);
+}
+
+.touch-btn--aim {
+  width: 15.6cqh;
+  height: 15.6cqh;
+  right: 14.2cqh;
+  bottom: 28.3cqh;
+}
+
+.touch-btn--fire .touch-btn__cap,
+.touch-btn--aim .touch-btn__cap {
+  bottom: auto;
+  top: -3.8cqh;
+}
+
+/* A thumb is one touch point: the seam between FIRE and AIM presses both */
+.touch-btn--seam {
+  width: 9.8cqh;
+  height: 9.8cqh;
+  right: 25.6cqh;
+  bottom: 33.5cqh;
+  border-radius: 2.1cqh;
+  transform: rotate(45deg);
+  border-color: hsla(320, 100%, 60%, calc(var(--touch-alpha) + 0.15));
+  background: linear-gradient(
+    135deg,
+    hsla(42, 95%, 92%, calc(var(--touch-alpha) * 0.35)),
+    hsla(320, 100%, 60%, calc(var(--touch-alpha) * 0.45))
+  );
+  box-shadow: none;
+}
+
+.touch-btn--seam.down {
+  transform: rotate(45deg);
+  background: hsla(45, 100%, 55%, 0.45);
+  border-color: hsl(45, 100%, 55%);
+}
+
+.touch-btn--jump {
+  width: 19.5cqh;
+  height: 19.5cqh;
+  right: 24.2cqh;
+  bottom: 9.9cqh;
+}
+
+.touch-btn--crouch {
+  width: 16.3cqh;
+  height: 16.3cqh;
+  right: 50.7cqh;
+  bottom: 13.6cqh;
+}
+
+.touch-btn--reload {
+  width: 13.7cqh;
+  height: 13.7cqh;
+  right: 60.7cqh;
+  bottom: 32.1cqh;
+}
+
+.touch-btn--weapon {
+  width: 15cqh;
+  height: 15cqh;
+  border-radius: 3.6cqh;
+}
+
+.touch-btn--next {
+  right: 17.2cqh;
+  bottom: 53.6cqh;
+}
+
+.touch-btn--prev {
+  right: 38cqh;
+  bottom: 60cqh;
+}
+
+.touch-btn--blade {
+  width: 13cqh;
+  height: 13cqh;
+  border-radius: 3.1cqh;
+  right: 58.5cqh;
+  bottom: 54.6cqh;
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-weight: 900;
+  font-size: 4.2cqh;
+  letter-spacing: 0.04em;
+}
+
+.touch-btn--small {
+  width: 9cqh;
+  height: 9cqh;
+  border-radius: 2.2cqh;
+  top: 2.2cqh;
+}
+
+.touch-btn--menu {
+  left: 2.2cqh;
+}
+
+.touch-btn--score {
+  left: 13cqh;
+}
+
+.touch-btn--chat {
+  right: 2.2cqh;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .touch-controls__label,
+  .touch-controls__edge {
+    transition: none;
+  }
+}
+
+/* READY: shown while warmup's ready bar asks for it */
+.touch-btn--ready {
+  display: none;
+  left: 50%;
+  top: 30cqh;
+  width: auto;
+  height: 9cqh;
+  padding: 0 3.2cqh;
+  border-radius: 2.2cqh;
+  transform: translateX(-50%);
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-weight: 900;
+  font-size: 3cqh;
+  letter-spacing: 0.12em;
+  border-color: hsl(45, 100%, 55%);
+  color: hsl(45, 100%, 55%);
+}
+
+.touch-btn--ready.shown {
+  display: grid;
+}
+
+.touch-btn--ready.down {
+  transform: translate(-50%, 0.4cqh);
+}
+
+/* In touch play the HUD's bottom row ends before the right thumb's buttons,
+   and the weapon strip gives way to « » BL */
+body.touch-play .fps-hud-bottom-bar {
+  right: 82vh;
+}
+
+body.touch-play .fps-weapon-slots {
+  display: none;
+}
+
+/* The HUD's hints name keys and mouse buttons, which a touch player has none of */
+body.touch-play .fps-hint {
+  display: none;
+}

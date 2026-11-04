@@ -1383,6 +1383,11 @@ export class FPSController implements ICameraController {
     );
   }
 
+  /** Turn the view by a touch drag: `dx`, `dy` pixels at `sensitivity` radians each. */
+  touchLook(dx: number, dy: number, sensitivity: number): void {
+    if (this.inputHandler.inPlay) this.inputHandler.applyLookDelta(dx, dy, sensitivity);
+  }
+
   /** The touch move stick's reading (forward and right, up to 1), or null when released. */
   setMoveAxis(axis: MoveAxis | null): void {
     this.moveAxis = axis ? { forward: axis.forward, right: axis.right } : null;

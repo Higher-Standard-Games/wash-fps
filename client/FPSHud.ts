@@ -56,6 +56,7 @@ import { FPSTimer } from "./hud/widgets/Timer";
 // Import widget classes
 import { FPSVitalsBlock } from "./hud/widgets/VitalsBlock";
 import { FPSWeaponSlots } from "./hud/widgets/WeaponSlots";
+import { TouchControls } from "./TouchControls";
 
 /**
  * HUD anchor positions
@@ -88,6 +89,7 @@ export class FPSHud {
   // Phase 3: Standalone overlays (not area-based widgets)
   private _scoreboard: FPSScoreboard | null = null;
   private _chat: FPSChat | null = null;
+  private _touch: TouchControls | null = null;
   private _damageIndicators: FPSDamageIndicators | null = null;
 
   // Phase 4: Dialogs & Menus
@@ -237,6 +239,13 @@ export class FPSHud {
       this._chat.openInput(e.code === "KeyY");
     };
     document.addEventListener("keydown", this._chatKeyHandler, true);
+
+    // On-screen controls for touch play; they hide themselves otherwise
+    this._touch = new TouchControls({
+      openChat: () => this._chat?.openInput(),
+      showScoreboard: () => this._scoreboard?.show(),
+      hideScoreboard: () => this._scoreboard?.hide(),
+    });
 
     // 6. Create dialogs & menus
     this._pauseMenu = new FPSPauseMenu();
@@ -612,6 +621,7 @@ export class FPSHud {
     if (this.container) {
       this.container.style.display = "";
     }
+    this._touch?.setHudHidden(false);
     if (this.hidden) {
       this.hidden = false;
       this.update();
@@ -625,6 +635,7 @@ export class FPSHud {
     if (this.container) {
       this.container.style.display = "none";
     }
+    this._touch?.setHudHidden(true);
     this.hidden = true;
   }
 
@@ -660,6 +671,8 @@ export class FPSHud {
     this._scoreboard = null;
     this._chat?.destroy();
     this._chat = null;
+    this._touch?.destroy();
+    this._touch = null;
     this._damageIndicators?.destroy();
     this._damageIndicators = null;
 
