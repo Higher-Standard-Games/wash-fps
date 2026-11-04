@@ -28,9 +28,10 @@ import { showMatchConnectionFailure } from "../MatchConnectionFailure";
 import { installLinkPolicy } from "./LinkPolicy";
 import { NativeBridge } from "./NativeBridge";
 import { NativeDemoPlayer } from "./NativeDemoPlayer";
+import { installDownloads } from "./NativeDownloads";
 import { NativeNetworkConnector, takeAfterMatch } from "./NativeNetworkConnector";
 import { applyNativeStorage, installStorageMirror, registerNativeCvars } from "./NativeStorage";
-import { installNativeKeys, installShellControls } from "./ShellControls";
+import { installNativeKeys, installShellControls, installUpdateNotice } from "./ShellControls";
 
 /** How long past the player's click the start-up screen waits for the lobby to log them in. */
 const LOBBY_ANSWER_WAIT_MS = 4000;
@@ -74,7 +75,9 @@ async function main(): Promise<void> {
       console.warn("[NativeLobby] The client did not answer hello:", error);
     }
     installLinkPolicy(bridge);
+    if (bridge.has("file-save")) installDownloads(bridge);
     installNativeKeys(bridge);
+    installUpdateNotice(bridge);
     registerNetworkConnector(new NativeNetworkConnector(bridge));
     if (bridge.has("demo")) registerDemoPlayer(new NativeDemoPlayer(bridge));
   }
