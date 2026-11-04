@@ -23,10 +23,12 @@ import { UITheme } from "../../../../engine/ui/UITheme";
 import browserConfig from "../../browser.json";
 import gameJson from "../../game.json";
 import { registerDemoPlayer } from "../DemosView";
+import { SettingsRailOverlay } from "../hud/widgets/SettingsRailOverlay";
 import { LobbyPanel } from "../LobbyPanel";
 import { showMatchConnectionFailure } from "../MatchConnectionFailure";
 import { installInvitePaste } from "./InvitePaste";
 import { installLinkPolicy } from "./LinkPolicy";
+import { installMatchSettings } from "./MatchSettings";
 import { NativeBridge } from "./NativeBridge";
 import { NativeDemoPlayer } from "./NativeDemoPlayer";
 import { installDownloads } from "./NativeDownloads";
@@ -122,7 +124,11 @@ async function main(): Promise<void> {
   loadingScreen.hide();
   lobby.show();
   lobby.initialLoadingDismissed();
-  if (bridge.isNative()) installShellControls(bridge);
+  if (bridge.isNative()) {
+    installShellControls(bridge);
+    // The match menu's Settings key, once the lobby (and its settings) is up.
+    installMatchSettings(bridge, () => new SettingsRailOverlay());
+  }
   if (afterMatch?.message) showMatchConnectionFailure(afterMatch.message, () => undefined);
   (window as Window & { __lobbyPanel?: LobbyPanel }).__lobbyPanel = lobby;
 }
