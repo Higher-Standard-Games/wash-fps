@@ -103,6 +103,12 @@ export interface PlayerInputState {
   yaw: number; // Camera Y rotation
   /** Weapon slot (1-based, 0 = no change) */
   weaponSlot: number;
+  /**
+   * A touch move stick's direction, length 1 (see client/MoveStick). When set,
+   * the move direction takes its exact angle; the four keys above already
+   * carry the keys it covers.
+   */
+  moveAxis?: { forward: number; right: number };
 }
 
 /**
@@ -1382,6 +1388,7 @@ export class Game {
     // the post-game case was mirrored here; the round freeze at the top of
     // every single round was not.
     if (MatchStateManager.getInstance().isMovementFrozen()) {
+      input.moveAxis = undefined;
       input.forward = false;
       input.backward = false;
       input.left = false;
@@ -1473,24 +1480,29 @@ export class Game {
     const rightX = cosYaw;
     const rightZ = -sinYaw;
 
-    // Build world direction from local input
+    // Build world direction from local input: a stick's own angle, or the keys
     let dirX = 0;
     let dirZ = 0;
-    if (input.forward) {
-      dirX += forwardX;
-      dirZ += forwardZ;
-    }
-    if (input.backward) {
-      dirX -= forwardX;
-      dirZ -= forwardZ;
-    }
-    if (input.left) {
-      dirX -= rightX;
-      dirZ -= rightZ;
-    }
-    if (input.right) {
-      dirX += rightX;
-      dirZ += rightZ;
+    if (input.moveAxis) {
+      dirX = forwardX * input.moveAxis.forward + rightX * input.moveAxis.right;
+      dirZ = forwardZ * input.moveAxis.forward + rightZ * input.moveAxis.right;
+    } else {
+      if (input.forward) {
+        dirX += forwardX;
+        dirZ += forwardZ;
+      }
+      if (input.backward) {
+        dirX -= forwardX;
+        dirZ -= forwardZ;
+      }
+      if (input.left) {
+        dirX -= rightX;
+        dirZ -= rightZ;
+      }
+      if (input.right) {
+        dirX += rightX;
+        dirZ += rightZ;
+      }
     }
 
     // Normalize the final direction

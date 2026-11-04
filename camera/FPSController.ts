@@ -71,6 +71,7 @@ import type { InventoryManager } from "../world/InventoryManager";
 
 import { logRejection } from "../../../engine/core/AsyncErrors";
 import { FPS, getWeaponSlotPressed, registerFPSActions } from "../client/FPSActions";
+import { type MoveAxis, stickDirection, stickKeys } from "../client/MoveStick";
 import { Game } from "../Game";
 import { PlayerVisuals } from "./components/PlayerVisuals";
 
@@ -345,6 +346,11 @@ export class FPSController implements ICameraController {
     reload: false, // R (reload)
     use: false, // F (interact/pickup)
   };
+
+  // A touch move stick, as the touch controls last set it, and its direction
+  // as applied this frame (null when centred, out of play or frozen)
+  private moveAxis: MoveAxis | null = null;
+  private stick: MoveAxis | null = null;
 
   // ADS sensitivity lerp (matches ADS animation timing)
   private adsSensitivityProgress: number = 0;
@@ -712,6 +718,16 @@ export class FPSController implements ICameraController {
     this.keys.reload = input.isActive(FPS.RELOAD);
     this.keys.use = input.isActive(FPS.USE);
 
+    // A touch move stick adds the keys it covers; its exact angle goes to sendInput
+    this.stick = stickDirection(this.moveAxis);
+    if (this.stick) {
+      const keys = stickKeys(this.stick);
+      this.keys.forward ||= keys.forward;
+      this.keys.backward ||= keys.backward;
+      this.keys.left ||= keys.left;
+      this.keys.right ||= keys.right;
+    }
+
     // Fire/Aim: only in play (InputSystem tracks buttons globally)
     this.keys.fire = this.inputHandler.inPlay && input.isActive(FPS.FIRE);
     this.keys.aim = this.inputHandler.inPlay && input.isActive(FPS.AIM);
@@ -761,6 +777,7 @@ export class FPSController implements ICameraController {
   update(deltaTime: number): void {
     if (!this.enabled || !this.camera) return;
     let autoAds = false;
+    this.stick = null;
 
     // Out of play (e.g. pause menu), zero out inputs to prevent moving
     // but DO NOT return early so we still process networking and render remote players.
@@ -983,6 +1000,7 @@ export class FPSController implements ICameraController {
           autoAds,
           reload: this.keys.reload,
           use: this.keys.use,
+          moveAxis: this.stick ?? undefined,
           // Aim without our own view kick (visual only)
           pitch: this.camera!.rotation.x - this.appliedKickPitch,
           yaw: this.camera!.rotation.y - this.appliedKickYaw,
@@ -1363,6 +1381,11 @@ export class FPSController implements ICameraController {
       `deathCam(phase=${this.deathCamPhase.toFixed(2)},roll=${deg(this.deathCamRoll)}°,drop=${this.deathCamHeightDrop.toFixed(1)}) ` +
       `mouse(pitch=${deg(this.mouseRotationX)}°,yaw=${deg(this.mouseRotationY)}°)`
     );
+  }
+
+  /** The touch move stick's reading (forward and right, up to 1), or null when released. */
+  setMoveAxis(axis: MoveAxis | null): void {
+    this.moveAxis = axis ? { forward: axis.forward, right: axis.right } : null;
   }
 
   setLookFrozen(frozen: boolean): void {
