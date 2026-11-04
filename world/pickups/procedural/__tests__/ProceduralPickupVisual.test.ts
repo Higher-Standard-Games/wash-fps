@@ -392,11 +392,20 @@ describe("ProceduralPickupVisual — quad powerup", () => {
         const before = cosmetic(hidden).rotation.y;
         hidden.update(1 / 60, elapsed);
         if (away) {
-          expect(cosmetic(hidden).isEnabled(false), id).toBe(false);
+          expect(
+            cosmetic(hidden)
+              .getChildMeshes(false)
+              .some((mesh) => mesh.isEnabled(false)),
+            id,
+          ).toBe(false);
           expect(cosmetic(hidden).rotation.y).toBe(before);
         }
       }
-      expect(cosmetic(hidden).isEnabled(false)).toBe(true);
+      expect(
+        cosmetic(hidden)
+          .getChildMeshes(false)
+          .every((mesh) => mesh.isEnabled(false)),
+      ).toBe(true);
       expect(cosmetic(hidden).position.asArray()).toEqual(cosmetic(watched).position.asArray());
       expect(cosmetic(hidden).rotation.asArray()).toEqual(cosmetic(watched).rotation.asArray());
       expect(cosmetic(hidden).scaling.asArray()).toEqual(cosmetic(watched).scaling.asArray());
@@ -404,7 +413,11 @@ describe("ProceduralPickupVisual — quad powerup", () => {
       hidden.setInView(false);
       hidden.setActive(false);
       hidden.setInView(true);
-      expect(cosmetic(hidden).isEnabled(false)).toBe(false);
+      expect(
+        cosmetic(hidden)
+          .getChildMeshes(false)
+          .some((mesh) => mesh.isEnabled(false)),
+      ).toBe(false);
       watched.dispose();
       hidden.dispose();
     }

@@ -235,13 +235,23 @@ export class ProceduralPickupVisual implements PickupVisual {
 
   private applyVisible(v: boolean): void {
     this.visible = v;
-    this.cosmetic.setEnabled(v && this.inView);
+    this.showCosmetic(v && this.inView);
   }
 
   setInView(inView: boolean): void {
     if (inView === this.inView) return;
     this.inView = inView;
-    this.cosmetic.setEnabled(this.visible && inView);
+    this.showCosmetic(this.visible && inView);
+  }
+
+  /**
+   * Show or hide each cosmetic mesh itself, its nodes staying enabled. A WebGPU
+   * snapshot recording draws a mesh hidden by its own state (collapsed), but
+   * not one hidden by a disabled ancestor, so a respawn shows the pickup
+   * without a new recording.
+   */
+  private showCosmetic(shown: boolean): void {
+    for (const mesh of this.cosmetic.getChildMeshes(false)) mesh.setEnabled(shown);
   }
 
   setActive(active: boolean): void {
