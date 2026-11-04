@@ -6,7 +6,7 @@ import { InputSystem } from "../../../../engine/input/InputSystem";
 import { setTouchPlay } from "../../../../engine/input/PlayCapture";
 import { hidePickupPrompt, showPickupPrompt } from "../../world/PickupPrompt";
 import { FPS } from "../FPSActions";
-import { edgeSpin, lookBoost, TouchControls } from "../TouchControls";
+import { edgeSpin, gyroTurn, lookBoost, TouchControls } from "../TouchControls";
 
 describe("touch look curves", () => {
   it("turns slow drags as dragged and fast ones up to 2.8 times as far", () => {
@@ -21,6 +21,21 @@ describe("touch look curves", () => {
     expect(edgeSpin(0.965, false)).toBeCloseTo(0.5);
     expect(edgeSpin(0.42, true)).toBe(-1);
     expect(edgeSpin(0.42, false)).toBe(0);
+  });
+});
+
+describe("gyro aim", () => {
+  it("turns the view as far as the phone turns, in either landscape", () => {
+    const [yaw, pitch] = gyroTurn(-10, 5, 90, 1);
+    expect(yaw).toBeCloseTo((10 * Math.PI) / 180);
+    expect(pitch).toBeCloseTo((5 * Math.PI) / 180);
+    const [flippedYaw, flippedPitch] = gyroTurn(-10, 5, 270, 1);
+    expect(flippedYaw).toBeCloseTo(-yaw);
+    expect(flippedPitch).toBeCloseTo(-pitch);
+  });
+
+  it("ignores a hand's tremor and turns nothing in portrait", () => {
+    for (const turn of [...gyroTurn(0.5, -0.5, 90, 1), ...gyroTurn(30, 30, 0, 1)]) expect(turn).toBeCloseTo(0);
   });
 });
 

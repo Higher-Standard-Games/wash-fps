@@ -17,6 +17,11 @@
  *                      aim-flick signal WO-13 keys off.
  *  - peakViewSpeedDps— largest single-sample angular speed seen.
  *  - flickHistogram  - fixed-bucket per-usercmd angular-speed shape (log-only).
+ *  - assistedShare   — fraction of usercmds claiming touch or a controller
+ *                      (ASSISTED_AIM), whose aim assist explains stickier aim;
+ *                      read accuracy and flick outliers against it.
+ *  - assistedSwitches— times the claim flipped between usercmds: switching
+ *                      between touch and a mouse mid-match is itself unusual.
  *
  * Anti-warp strikes are NOT stored here — they live in MovementValidator; the
  * caller composes both at log time (keeps this module a pure function of the
@@ -49,6 +54,10 @@ export interface ClientMetrics {
   /** usercmds the sanitizer had to clamp (pitch beyond ±90° or |wishdir|>1) —
    *  also a contract violation; honest clients stay in range (WO-AC2). */
   clampedCmds: number;
+  /** Fraction of usercmds claiming aim-assisted input (touch or a controller), 0..1. */
+  assistedShare: number;
+  /** Times the assisted claim flipped between consecutive usercmds. */
+  assistedSwitches: number;
 }
 
 interface ClientState {
@@ -66,6 +75,9 @@ interface ClientState {
   received: number;
   rejectedCmds: number;
   clampedCmds: number;
+  assistedCmds: number;
+  assistedSwitches: number;
+  lastAssisted: boolean | null;
 }
 
 /** Shortest angular distance between two angles (radians), in degrees. */
@@ -110,6 +122,9 @@ export class Telemetry {
       received: 0,
       rejectedCmds: 0,
       clampedCmds: 0,
+      assistedCmds: 0,
+      assistedSwitches: 0,
+      lastAssisted: null,
     });
   }
 
@@ -134,14 +149,18 @@ export class Telemetry {
   /**
    * Record one ACCEPTED usercmd (call after dedup, so `seq` is strictly
    * increasing). `nowMs` is wall-clock arrival time; `pitch`/`yaw` are the
-   * sanitized view angles in radians.
+   * sanitized view angles in radians; `assisted` is the usercmd's claim of
+   * touch or a controller (ASSISTED_AIM).
    */
-  recordInput(playerId: PlayerId, nowMs: number, seq: number, pitch: number, yaw: number): void {
+  recordInput(playerId: PlayerId, nowMs: number, seq: number, pitch: number, yaw: number, assisted = false): void {
     const s = this.clients.get(playerId);
     if (!s) return;
 
     s.received++;
     if (s.firstSeq === null) s.firstSeq = seq;
+    if (assisted) s.assistedCmds++;
+    if (s.lastAssisted !== null && s.lastAssisted !== assisted) s.assistedSwitches++;
+    s.lastAssisted = assisted;
 
     if (s.lastArrivalMs !== null) {
       const interArrival = nowMs - s.lastArrivalMs;
@@ -192,6 +211,8 @@ export class Telemetry {
       inputs: s.received,
       rejectedCmds: s.rejectedCmds,
       clampedCmds: s.clampedCmds,
+      assistedShare: s.received > 0 ? s.assistedCmds / s.received : 0,
+      assistedSwitches: s.assistedSwitches,
     };
   }
 }

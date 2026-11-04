@@ -9,6 +9,10 @@
  * - the right side, FIRE and the FIRE + AIM seam turn the view, faster for a
  *   fast drag (the acceleration curve), and keep turning while the thumb is
  *   held at either edge of the right side (edge spin);
+ * - while FIRE or the seam is held, turning the phone turns the view too
+ *   (gyro, in_gyro), as big mobile shooters do;
+ * - aim assist helps only drags made by real touches, never script-made
+ *   events or the gyro;
  * - the buttons hold their actions through InputSystem.setVirtualAction;
  *   chat and the scoreboard, which the keyboard opens directly, go through
  *   the HUD.
@@ -17,6 +21,7 @@
  */
 
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
+import { background } from "../../../engine/core/AsyncErrors";
 import { Cvar } from "../../../engine/core/Cvar";
 import { EventBus } from "../../../engine/core/EventBus";
 import { INPUT_DEVICE_CHANGED, InputDevice } from "../../../engine/input/InputDevice";
@@ -57,6 +62,34 @@ export function edgeSpin(x: number, lookDrag: boolean): number {
   return 0;
 }
 
+/** Gyro rotation slower than this, in degrees per second, is a hand's tremor and does nothing. */
+const GYRO_DEAD_ZONE = 0.8;
+
+/**
+ * The view turn (yaw right, pitch down, radians) for the phone's rotation
+ * rate over `seconds`: the screen turning one degree turns the view one
+ * degree. `beta` and `gamma` turn about the device's own x and y axes, which in
+ * landscape run up the screen and across it; `angle` is the screen's
+ * orientation angle (90 or 270), and portrait turns nothing.
+ */
+export function gyroTurn(beta: number, gamma: number, angle: number, seconds: number): [number, number] {
+  const sign = angle === 90 ? 1 : angle === 270 || angle === -90 ? -1 : 0;
+  if (sign === 0) return [0, 0];
+  const live = (rate: number) => (Math.abs(rate) < GYRO_DEAD_ZONE ? 0 : rate);
+  const toRadians = (Math.PI / 180) * seconds;
+  return [-sign * live(beta) * toRadians, sign * live(gamma) * toRadians];
+}
+
+/** Ask for the gyro where the browser wants permission first (an iPhone); quiet otherwise. */
+async function askForMotion(): Promise<void> {
+  const motion = globalThis.DeviceMotionEvent as unknown as { requestPermission?: () => Promise<string> } | undefined;
+  try {
+    await motion?.requestPermission?.();
+  } catch {
+    // Refused or not offered: shooting turns with the thumbs alone
+  }
+}
+
 /** What the HUD opens for the touch controls. */
 export interface TouchHud {
   openChat(): void;
@@ -69,7 +102,7 @@ interface TouchDriven {
   readonly type: string;
   currentWeaponSlot: number;
   setMoveAxis(axis: MoveAxis | null): void;
-  touchLook(dx: number, dy: number, sensitivity: number): void;
+  touchLook(dx: number, dy: number, sensitivity: number, assist: boolean): void;
 }
 
 type Control =
@@ -101,6 +134,8 @@ interface Finger {
   dragged: boolean;
   /** Actions this finger holds, released when it lifts. */
   holds: string[];
+  /** A real touch, not a script-made event: only real touches get aim assist. */
+  trusted: boolean;
   /** For the seam: whether aim was toggled on before the thumb came down. */
   aimBefore?: boolean;
 }
@@ -138,6 +173,13 @@ export class TouchControls {
   private lastGunSlot = 1;
   private frame = 0;
   private lastFrame = 0;
+  /** The gyro's latest rotation rate (degrees per second), while the controls are up. */
+  private motion: { beta: number; gamma: number } | null = null;
+  private motionAsked = false;
+  private readonly onMotion = (e: DeviceMotionEvent): void => {
+    const rate = e.rotationRate;
+    this.motion = rate ? { beta: rate.beta ?? 0, gamma: rate.gamma ?? 0 } : null;
+  };
 
   constructor(private readonly hud: TouchHud) {
     UIStyles.injectCSS("touch-controls", touchCSS);
@@ -225,9 +267,12 @@ export class TouchControls {
     if (visible) {
       this.lastFrame = performance.now();
       this.frame = requestAnimationFrame((now) => this.tick(now));
+      window.addEventListener("devicemotion", this.onMotion);
       return;
     }
     cancelAnimationFrame(this.frame);
+    window.removeEventListener("devicemotion", this.onMotion);
+    this.motion = null;
     for (const id of [...this.fingers.keys()]) this.release(id);
     this.setAimToggled(false);
   }
@@ -255,6 +300,7 @@ export class TouchControls {
       t: performance.now(),
       dragged: false,
       holds: [],
+      trusted: e.isTrusted,
     };
     this.fingers.set(e.pointerId, finger);
     try {
@@ -362,13 +408,18 @@ export class TouchControls {
       const height = Math.max(1, this.inner.clientHeight);
       const speed = Math.hypot(dx, dy) / height / (dt / 1000);
       const boost = lookBoost(speed, Cvar.getNumber("in_touchaccel") ?? 1);
-      this.controller()?.touchLook(dx, dy, this.lookSensitivity() * boost);
+      this.controller()?.touchLook(dx, dy, this.lookSensitivity() * boost, finger.trusted && e.isTrusted);
     }
   }
 
   private up(e: PointerEvent): void {
     const finger = this.fingers.get(e.pointerId);
     if (!finger) return;
+    // An iPhone asks before sharing the gyro, and only from a tap: the first one
+    if (e.isTrusted && !this.motionAsked) {
+      this.motionAsked = true;
+      background(askForMotion(), "TouchControls");
+    }
     if (!finger.dragged) {
       // Taps
       if (finger.control === "aim" && finger.holds.length === 0) this.setAimToggled(!this.aimToggled);
@@ -431,17 +482,29 @@ export class TouchControls {
     this.lastFrame = now;
     const rect = this.inner.getBoundingClientRect();
     let spin = 0;
+    let spinTrusted = false;
+    let shooting = false;
     for (const finger of this.fingers.values()) {
+      if (finger.control === "fire" || finger.control === "seam") shooting = true;
       if (!finger.dragged || !this.turns(finger.control)) continue;
       const rate = edgeSpin((finger.x - rect.left) / Math.max(1, rect.width), finger.control === "look");
-      if (rate !== 0) spin = rate;
+      if (rate !== 0) {
+        spin = rate;
+        spinTrusted = finger.trusted;
+      }
     }
     this.edgeLeft.classList.toggle("on", spin < 0);
     this.edgeRight.classList.toggle("on", spin > 0);
     const controller = this.controller();
     if (spin !== 0 && controller) {
       const radians = ((spin * EDGE_SPIN * Math.PI) / 180) * dt * (Cvar.getNumber("in_touchsens") ?? 1);
-      controller.touchLook(radians, 0, 1);
+      controller.touchLook(radians, 0, 1, spinTrusted);
+    }
+    const motion = this.motion;
+    if (shooting && motion && controller && (Cvar.getNumber("in_gyro") ?? 1) > 0) {
+      const angle = screen.orientation?.angle ?? 90;
+      const [yaw, pitch] = gyroTurn(motion.beta, motion.gamma, angle, dt * (Cvar.getNumber("in_gyrosens") ?? 1));
+      if (yaw !== 0 || pitch !== 0) controller.touchLook(yaw, pitch, 1, false);
     }
     const blade = controller?.currentWeaponSlot === 0;
     const caption = blade ? "CHARGE" : "AIM";
@@ -481,6 +544,20 @@ Cvar.register("in_touchsens", 1, {
   min: 0.2,
   max: 4,
   description: "Touch look sensitivity: 1 turns 130 degrees per screen height of drag",
+});
+
+Cvar.register("in_gyro", 1, {
+  type: "int",
+  min: 0,
+  max: 1,
+  description: "Gyro aim while shooting on a touch screen: turning the phone turns the view (0 = off)",
+});
+
+Cvar.register("in_gyrosens", 1, {
+  type: "float",
+  min: 0.2,
+  max: 3,
+  description: "Gyro aim speed: 1 turns the view as far as the phone turns",
 });
 
 Cvar.register("in_touchaccel", 1, {

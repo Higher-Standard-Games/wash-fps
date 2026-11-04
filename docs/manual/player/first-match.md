@@ -64,7 +64,7 @@ click the game to play on with the mouse.
 |-------|------|
 | **Left side** | Move at any angle: the stick appears under your thumb. Pointing it straight ahead (within about 22°) runs, as **W** alone does |
 | **Right side** | Look: drag. A fast drag turns further; hold your thumb at either edge of the right side to keep turning |
-| **FIRE** | Fire; keep your thumb down and drag to aim while firing |
+| **FIRE** | Fire; keep your thumb down and drag to aim while firing. While you fire, turning the phone turns the view too (gyro) |
 | **AIM** | Tap to aim down sights, tap again to stop. With the blade, hold it to charge a blast |
 | **◆ between FIRE and AIM** | Fire and aim at once with one thumb |
 | **JUMP**, **CROUCH** | Hold, as the keys |
@@ -80,6 +80,8 @@ click the game to play on with the mouse.
 Looking with your thumb has a slight aim assist: turning slows a little while
 your crosshair is on an opponent you can see, and a turn toward one bends a
 little closer. It only works while your thumb is moving, and never for a mouse.
+The scoreboard shows a controller before your name, so everyone can see who
+plays with aim assist.
 
 ## 5. What to do first
 

@@ -10,6 +10,22 @@ import { MatchStateManager } from "../../MatchStateManager";
 /** A board row: a scoreboard entry, or a post-game row kept for a player who left. */
 type BoardEntry = ScoreboardEntry & { departed?: boolean };
 
+const KEYBOARD_ICON =
+  '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h1M10 10h1M14 10h1M18 10h1M7 14h10"/>';
+const CONTROLLER_ICON =
+  '<path d="M7 8h10a4 4 0 0 1 3.9 4.8l-.7 3.6a2 2 0 0 1-3.5.9L15 15H9l-1.7 2.3a2 2 0 0 1-3.5-.9l-.7-3.6A4 4 0 0 1 7 8z"/><path d="M8 11v3M6.5 12.5h3M15.5 11.5h.01M17.5 13.5h.01"/>';
+
+/** What the player plays with, before the name: keyboard and mouse, or touch or a controller (aim-assisted). */
+function inputIcon(assisted: boolean): HTMLElement {
+  const icon = document.createElement("span");
+  icon.className = `fps-scoreboard-input fps-scoreboard-input--${assisted ? "assisted" : "keyboard"}`;
+  icon.setAttribute("role", "img");
+  icon.setAttribute("aria-label", assisted ? "Touch or controller" : "Keyboard and mouse");
+  icon.title = assisted ? "Touch or controller (aim assist)" : "Keyboard and mouse";
+  icon.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${assisted ? CONTROLLER_ICON : KEYBOARD_ICON}</svg>`;
+  return icon;
+}
+
 /** The two sides of a team mode, in the order the lobby lists them. */
 const SIDES = ["soba", "udon"] as const;
 
@@ -225,7 +241,7 @@ export class FPSScoreboard {
       state.teamBased,
       state.teamNames,
       state.teamScores,
-      entries.map((e) => [e.playerId, e.name, e.score, e.frags, e.deaths, e.teamId, e.departed === true]),
+      entries.map((e) => [e.playerId, e.name, e.score, e.frags, e.deaths, e.teamId, e.departed === true, e.assisted]),
       localPlayerId,
       round,
       carrier,
@@ -456,8 +472,9 @@ export class FPSScoreboard {
     for (const column of columns) {
       const cell = document.createElement("span");
       cell.className = `fps-scoreboard-col-${column}`;
-      if (column === "name") cell.textContent = entry.name;
-      else if (column === "score") cell.textContent = String(entry.score);
+      if (column === "name") {
+        cell.append(inputIcon(entry.assisted === true), entry.name);
+      } else if (column === "score") cell.textContent = String(entry.score);
       else if (column === "deaths") cell.textContent = String(entry.deaths);
       else cell.dataset.pingFor = entry.playerId;
       row.appendChild(cell);

@@ -109,6 +109,8 @@ export interface PlayerInputState {
    * carry the keys it covers.
    */
   moveAxis?: { forward: number; right: number };
+  /** Playing with touch or a controller (ASSISTED_AIM): the scoreboard shows it to everyone. */
+  assistedAim?: boolean;
 }
 
 /**
@@ -1471,6 +1473,7 @@ export class Game {
 
     if (input.reload) buttons |= InputButtons.RELOAD;
     if (input.use) buttons |= InputButtons.USE;
+    if (input.assistedAim) buttons |= InputButtons.ASSISTED_AIM;
 
     // Build world-space direction from buttons using Babylon.js LEFT-HANDED coordinate system
     // In left-handed Y rotation: forward = (sin(yaw), 0, cos(yaw)), right = (cos(yaw), 0, -sin(yaw))

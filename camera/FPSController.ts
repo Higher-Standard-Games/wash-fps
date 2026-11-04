@@ -40,6 +40,7 @@ import { easeLedgePitch, slidePitch, smoothStepUp } from "../../../engine/camera
 import { currentBaseFov } from "../../../engine/camera/FovSettings";
 import { Cvar } from "../../../engine/core/Cvar";
 import { DeveloperBar } from "../../../engine/debug/DeveloperBar";
+import { InputDevice } from "../../../engine/input/InputDevice";
 import { InputSystem } from "../../../engine/input/InputSystem";
 import { leavePlay } from "../../../engine/input/PlayCapture";
 import { MovementVars } from "../../../engine/movement/MovementVars";
@@ -1003,6 +1004,7 @@ export class FPSController implements ICameraController {
           reload: this.keys.reload,
           use: this.keys.use,
           moveAxis: this.stick ?? undefined,
+          assistedAim: InputDevice.getInstance().current === "touch",
           // Aim without our own view kick (visual only)
           pitch: this.camera!.rotation.x - this.appliedKickPitch,
           yaw: this.camera!.rotation.y - this.appliedKickYaw,
@@ -1387,12 +1389,13 @@ export class FPSController implements ICameraController {
 
   /**
    * Turn the view by a touch drag: `dx`, `dy` pixels at `sensitivity` radians
-   * each, through touch aim assist (in_touchassist).
+   * each. With `assist` (a real touch's drag), through touch aim assist
+   * (in_touchassist); never for the gyro or a script-made event.
    */
-  touchLook(dx: number, dy: number, sensitivity: number): void {
+  touchLook(dx: number, dy: number, sensitivity: number, assist: boolean): void {
     if (!this.inputHandler.inPlay) return;
-    const assist = (Cvar.getNumber("in_touchassist") ?? 1) > 0 ? this.aimAssist : undefined;
-    this.inputHandler.applyLookDelta(dx, dy, sensitivity, assist);
+    const shape = assist && (Cvar.getNumber("in_touchassist") ?? 1) > 0 ? this.aimAssist : undefined;
+    this.inputHandler.applyLookDelta(dx, dy, sensitivity, shape);
   }
 
   // Touch aim assist toward the remote players in sight (client/AimAssist)

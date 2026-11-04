@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { InputButtons } from "../../../../engine/network/components/InputComponent";
 import { Game, type PlayerInputState } from "../../Game";
 import { STICK_DEAD_ZONE, stickDirection, stickKeys } from "../MoveStick";
 
@@ -28,7 +29,7 @@ describe("move stick", () => {
 });
 
 describe("Game.sendInput with a move stick", () => {
-  function sentDirection(input: Partial<PlayerInputState>) {
+  function sent(input: Partial<PlayerInputState>) {
     const sendCommand = vi.fn();
     const game = Object.assign(Object.create(Game.prototype), {
       isRunning: true,
@@ -40,8 +41,14 @@ describe("Game.sendInput with a move stick", () => {
       v2Client: null,
     }) as Game;
     game.sendInput({ pitch: 0, yaw: 0, weaponSlot: 0, ...input } as PlayerInputState);
-    return sendCommand.mock.calls[0]?.[0]?.direction as { x: number; z: number };
+    return sendCommand.mock.calls[0]?.[0] as { direction: { x: number; z: number }; buttons: number };
   }
+  const sentDirection = (input: Partial<PlayerInputState>) => sent(input).direction;
+
+  it("says when the player aims with touch or a controller", () => {
+    expect(sent({ assistedAim: true }).buttons & InputButtons.ASSISTED_AIM).toBe(InputButtons.ASSISTED_AIM);
+    expect(sent({}).buttons & InputButtons.ASSISTED_AIM).toBe(0);
+  });
 
   it("moves at the stick's own angle rather than the nearest of eight", () => {
     const dir = sentDirection({ forward: true, right: true, moveAxis: at(30) });
