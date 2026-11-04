@@ -27,6 +27,7 @@ import { showMatchConnectionFailure } from "../MatchConnectionFailure";
 import { installLinkPolicy } from "./LinkPolicy";
 import { NativeBridge } from "./NativeBridge";
 import { NativeNetworkConnector, takeAfterMatch } from "./NativeNetworkConnector";
+import { applyNativeStorage, installStorageMirror, registerNativeCvars } from "./NativeStorage";
 import { installNativeKeys, installShellControls } from "./ShellControls";
 
 /** How long past the player's click the start-up screen waits for the lobby to log them in. */
@@ -37,6 +38,19 @@ async function main(): Promise<void> {
   if (bridge.isNative()) document.documentElement.dataset.shell = "native";
   // Back from a match: no start click again, and a failed match says why.
   const afterMatch = bridge.isNative() ? takeAfterMatch() : null;
+  if (bridge.isNative()) {
+    // The client's files first, before the cvars and the account read storage.
+    let session: Storage | null = null;
+    try {
+      session = window.sessionStorage;
+    } catch {
+      // See applyNativeStorage.
+    }
+    applyNativeStorage(bridge.info()?.storage, window.localStorage, session, (key, value) =>
+      bridge.post("storage:set", { key, value }),
+    );
+    installStorageMirror(bridge);
+  }
 
   configureLobbyTwin({ brand: { logo: "/data/washoi.png", name: "WASHIKI WASHOI" } });
   const loadingScreen = new LoadingScreen();
@@ -48,6 +62,8 @@ async function main(): Promise<void> {
   installStaleBuildNotice();
   registerEngineServices();
   await ServiceLocator.getInstance().initCore();
+  // The renderer's cvars (the Video page's) are declared by the client here.
+  if (bridge.isNative()) registerNativeCvars(bridge.info()?.cvars);
 
   if (bridge.isNative()) {
     try {

@@ -20,7 +20,10 @@ export interface NativeShellInfo {
   clientVersion: string;
   platform: string;
   capabilities: string[];
+  /** The mirrored local storage keys from the client's files (NativeStorage.ts). */
   storage?: Record<string, string>;
+  /** The client's cvar declarations (shagger `Cvars::declarations`). */
+  cvars?: unknown[];
   receive(message: BridgeMessage): void;
 }
 
