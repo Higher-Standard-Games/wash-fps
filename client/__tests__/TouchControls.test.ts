@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Cvar } from "../../../../engine/core/Cvar";
 import { InputSystem } from "../../../../engine/input/InputSystem";
 import { setTouchPlay } from "../../../../engine/input/PlayCapture";
+import { hidePickupPrompt, showPickupPrompt } from "../../world/PickupPrompt";
 import { FPS } from "../FPSActions";
 import { edgeSpin, lookBoost, TouchControls } from "../TouchControls";
 
@@ -58,6 +59,26 @@ describe("touch controls", () => {
     controls.setHudHidden(false);
     Cvar.set("in_touch", 0);
     expect(root()?.hidden).toBe(true);
+  });
+
+  it("pops USE up while the pick-up prompt shows, and holds Use while pressed", async () => {
+    const held = vi.spyOn(InputSystem.getInstance(), "setVirtualAction");
+    setTouchPlay(true);
+    const use = document.querySelector(".touch-btn--use") as HTMLElement;
+    const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+    await frame();
+    expect(use.classList.contains("shown")).toBe(false);
+    showPickupPrompt("touch-controls-test", "PRESS [F] TO PICKUP RIOTGUN");
+    await frame();
+    await frame();
+    expect(use.classList.contains("shown")).toBe(true);
+    pointer("pointerdown", use);
+    expect(held).toHaveBeenLastCalledWith(FPS.USE, true);
+    pointer("pointerup", use);
+    expect(held).toHaveBeenLastCalledWith(FPS.USE, false);
+    hidePickupPrompt("touch-controls-test");
+    // The prompt module keeps its element; later test files would find this one by id
+    document.getElementById("pickup-hud-prompt")?.remove();
   });
 
   it("holds fire while pressed, toggles aim on a tap and lets go of everything when hidden", () => {

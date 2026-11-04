@@ -942,6 +942,11 @@ export class Game {
   /**
    * Get current player state
    */
+  /** The remote players being drawn, for systems that look at them (touch aim assist). */
+  getRemotePlayerRenderer(): RemotePlayerRenderer | null {
+    return this.remoteRenderer;
+  }
+
   getPlayerState(): "spectator" | "playing" {
     return this.playerState;
   }

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it } from "vitest";
+import { Cvar } from "../../../../engine/core/Cvar";
 import { hidePickupPrompt, showPickupPrompt } from "../PickupPrompt";
 
 /**
@@ -29,5 +30,18 @@ describe("pickup prompt shared by two systems", () => {
     hidePickupPrompt("pickup");
     expect(prompt().style.opacity).toBe("1");
     hidePickupPrompt("dropped");
+  });
+});
+
+describe("pickup prompt on a touch screen", () => {
+  it("asks for a tap on USE, and names the key otherwise", () => {
+    Cvar.set("in_touch", 1);
+    showPickupPrompt("touch-test", "PRESS [F] TO SWAP TO RIOTGUN");
+    expect(document.getElementById("pickup-hud-prompt")?.textContent).toContain("TAP USE TO SWAP TO RIOTGUN");
+    Cvar.set("in_touch", 0);
+    showPickupPrompt("touch-test", "PRESS [F] TO SWAP TO RIOTGUN");
+    expect(document.getElementById("pickup-hud-prompt")?.textContent).toContain("PRESS F TO SWAP");
+    hidePickupPrompt("touch-test");
+    Cvar.set("in_touch", -1);
   });
 });

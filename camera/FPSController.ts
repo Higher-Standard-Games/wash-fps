@@ -29,7 +29,7 @@ import { devLog } from "../../../engine/core/DevLog";
 // import { Animation } from "@babylonjs/core/Animations/animation";
 // import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import "@babylonjs/loaders";
-import { CameraInputHandler } from "../../../engine/camera/CameraInputHandler";
+import { CameraInputHandler, type LookShape } from "../../../engine/camera/CameraInputHandler";
 import type {
   CameraControllerConfig,
   CameraShakeCause,
@@ -43,6 +43,7 @@ import { DeveloperBar } from "../../../engine/debug/DeveloperBar";
 import { InputSystem } from "../../../engine/input/InputSystem";
 import { leavePlay } from "../../../engine/input/PlayCapture";
 import { MovementVars } from "../../../engine/movement/MovementVars";
+import { getCollisionManager } from "../../../engine/physics/CollisionManager";
 import {
   CROUCH_HEIGHT,
   DEFAULT_VIEWHEIGHT,
@@ -70,6 +71,7 @@ import type { InventoryManager } from "../world/InventoryManager";
 // import { WeaponDef } from "../../../shared/entities";
 
 import { logRejection } from "../../../engine/core/AsyncErrors";
+import { type AimTarget, assistTurn, nearestTarget } from "../client/AimAssist";
 import { FPS, getWeaponSlotPressed, registerFPSActions } from "../client/FPSActions";
 import { type MoveAxis, stickDirection, stickKeys } from "../client/MoveStick";
 import { Game } from "../Game";
@@ -1383,10 +1385,33 @@ export class FPSController implements ICameraController {
     );
   }
 
-  /** Turn the view by a touch drag: `dx`, `dy` pixels at `sensitivity` radians each. */
+  /**
+   * Turn the view by a touch drag: `dx`, `dy` pixels at `sensitivity` radians
+   * each, through touch aim assist (in_touchassist).
+   */
   touchLook(dx: number, dy: number, sensitivity: number): void {
-    if (this.inputHandler.inPlay) this.inputHandler.applyLookDelta(dx, dy, sensitivity);
+    if (!this.inputHandler.inPlay) return;
+    const assist = (Cvar.getNumber("in_touchassist") ?? 1) > 0 ? this.aimAssist : undefined;
+    this.inputHandler.applyLookDelta(dx, dy, sensitivity, assist);
   }
+
+  // Touch aim assist toward the remote players in sight (client/AimAssist)
+  private readonly aimEye = new Vector3();
+  private readonly aimPoint = new Vector3();
+  private readonly aimAssist: LookShape = (yaw, pitch, viewYaw, viewPitch) => {
+    const camera = this.camera;
+    const targets = this.gameManager?.getRemotePlayerRenderer()?.getAimTargets();
+    if (!camera || !targets?.length) return [yaw, pitch];
+    const eye = this.aimEye.copyFrom(camera.position);
+    const view = { x: eye.x, y: eye.y, z: eye.z, yaw: viewYaw, pitch: viewPitch };
+    const backend = getCollisionManager().getSweepBackend();
+    const visible = (target: AimTarget) => {
+      if (!backend) return true;
+      this.aimPoint.set(target.x, target.y, target.z);
+      return backend.trace(eye, this.aimPoint, AIM_TRACE).fraction >= 1;
+    };
+    return assistTurn(yaw, pitch, nearestTarget(view, targets, visible));
+  };
 
   /** The touch move stick's reading (forward and right, up to 1), or null when released. */
   setMoveAxis(axis: MoveAxis | null): void {
@@ -1462,6 +1487,16 @@ export class FPSController implements ICameraController {
     this.detach();
   }
 }
+
+/** A line of sight: a point trace through world geometry. */
+const AIM_TRACE = { radius: 0, height: 0, contentMask: 1 };
+
+Cvar.register("in_touchassist", 1, {
+  type: "int",
+  min: 0,
+  max: 1,
+  description: "Touch aim assist: slower turning over an enemy and a slight pull toward one (0 = off)",
+});
 
 Cvar.register("cg_screenshake", 1, {
   type: "int",

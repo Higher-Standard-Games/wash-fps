@@ -44,8 +44,10 @@
   left: 6%;
 }
 
+/* Below the top-centre banners and ready bar, left of the weapon buttons */
 .touch-controls__label--look {
-  left: 48%;
+  left: 58%;
+  top: 34cqh;
 }
 
 .touch-controls__label.used {
@@ -356,4 +358,30 @@ body.touch-play .fps-hint {
   .touch-controls__rotate {
     display: grid;
   }
+}
+
+/* USE: pops up under the pick-up prompt while there is something to pick up */
+.touch-btn--use {
+  display: none;
+  left: 50%;
+  width: auto;
+  height: 12cqh;
+  padding: 0 5cqh;
+  border-radius: 2.6cqh;
+  transform: translateX(-50%);
+  font-family: var(--w-font-display, "Orbitron", monospace);
+  font-weight: 900;
+  font-size: 4cqh;
+  letter-spacing: 0.14em;
+  border-color: hsl(45, 100%, 55%);
+  color: hsl(45, 100%, 55%);
+  background: hsla(250, 40%, 5%, 0.8);
+}
+
+.touch-btn--use.shown {
+  display: grid;
+}
+
+.touch-btn--use.down {
+  transform: translate(-50%, 0.4cqh);
 }

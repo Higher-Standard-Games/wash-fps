@@ -87,7 +87,8 @@ type Control =
   | "menu"
   | "score"
   | "chat"
-  | "ready";
+  | "ready"
+  | "use";
 
 interface Finger {
   control: Control;
@@ -125,6 +126,7 @@ export class TouchControls {
   private readonly aimButton: HTMLElement;
   private readonly aimCap: HTMLElement;
   private readonly readyButton: HTMLElement;
+  private readonly useButton: HTMLElement;
   private readonly edgeLeft: HTMLElement;
   private readonly edgeRight: HTMLElement;
   private readonly fingers = new Map<number, Finger>();
@@ -172,9 +174,10 @@ export class TouchControls {
       button("jump", "touch-btn--jump", ICONS.jump, "Jump", "", "JUMP"),
     );
     this.readyButton = button("ready", "touch-btn--ready", "", "Ready", "READY");
+    this.useButton = button("use", "touch-btn--use", "", "Pick up", "USE");
     this.aimButton = button("aim", "touch-btn--aim", ICONS.aim, "Aim", "", "AIM");
     this.aimCap = this.aimButton.querySelector(".touch-btn__cap") as HTMLElement;
-    this.inner.append(this.aimButton, this.readyButton);
+    this.inner.append(this.aimButton, this.readyButton, this.useButton);
     // Where the browser cannot lock landscape (an iPhone), portrait asks for it
     this.root.append(element("div", "touch-controls__rotate", "Turn your device sideways to play"));
     document.body.append(this.root);
@@ -326,6 +329,9 @@ export class TouchControls {
       case "ready":
         hold(FPS.READY);
         break;
+      case "use":
+        hold(FPS.USE);
+        break;
     }
   }
 
@@ -401,13 +407,24 @@ export class TouchControls {
     return control === "look" || control === "fire" || control === "seam";
   }
 
+  private placeUseButton(inner: DOMRect): void {
+    const prompt = document.getElementById("pickup-hud-prompt");
+    const showing = !!prompt && prompt.style.display !== "none" && prompt.style.opacity !== "0";
+    this.useButton.classList.toggle("shown", showing);
+    if (!showing || !prompt) return;
+    const below = prompt.getBoundingClientRect().bottom - inner.top + inner.height * 0.02;
+    const top = `${Math.round(below)}px`;
+    if (this.useButton.style.top !== top) this.useButton.style.top = top;
+  }
+
   /** Radians per screen pixel of drag at sensitivity 1. */
   private lookSensitivity(): number {
     const height = Math.max(1, this.inner.clientHeight);
     return ((LOOK_DEGREES * Math.PI) / 180 / height) * (Cvar.getNumber("in_touchsens") ?? 1);
   }
 
-  // Edge spin, the AIM label for the weapon in hand, and READY while warmup asks for it
+  // Edge spin, the AIM label for the weapon in hand, READY while warmup asks
+  // for it, and USE under the pick-up prompt while there is one
   private tick(now: number): void {
     if (!this.visible) return;
     const dt = Math.min(0.05, (now - this.lastFrame) / 1000);
@@ -431,6 +448,7 @@ export class TouchControls {
     if (this.aimCap.textContent !== caption) this.aimCap.textContent = caption;
     const asking = !!document.querySelector(".fps-ready-bar:not(.hidden):not(.fps-ready-bar--spectating)");
     this.readyButton.classList.toggle("shown", asking);
+    this.placeUseButton(rect);
     this.frame = requestAnimationFrame((t) => this.tick(t));
   }
 }

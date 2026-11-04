@@ -62,6 +62,7 @@ import { dropDistantWeaponDetail } from "../../../engine/weapon/WeaponDetail";
 import type { WeaponDef } from "../../../shared/entities/WeaponDef";
 import { WEAPONS } from "../shared/entities/definitions/weapons/WeaponsTable";
 import { maskHasPowerup } from "../shared/items/Powerups";
+import type { AimTarget } from "./AimAssist";
 import { attachBladeToPlayer, holdBladeGrip } from "./AttachedBlade";
 import { DemoAnimationTimeline } from "./DemoAnimationTimeline";
 import { DemoEntityTimeline } from "./DemoEntityTimeline";
@@ -233,6 +234,7 @@ export class RemotePlayerRenderer {
   /** Reference to enemyWeapons from GameEventContext — maps entityId → weaponId */
   private enemyWeapons: Map<string, string> = new Map();
 
+  private readonly aimTargets: AimTarget[] = [];
   /** entityId → server team id ("udon"/"soba"/"ffa"/"spectator"), from snapshot players */
   private teams: Map<string, string> = new Map();
   private readonly ffaColors = new FfaColors();
@@ -1057,6 +1059,26 @@ export class RemotePlayerRenderer {
       }
     }
     return out;
+  }
+
+  /**
+   * The players touch aim assist may help toward: rendered, alive and not on
+   * the viewer's side, each as its hitbox centre and height. The list and its
+   * entries are reused: valid until the next call.
+   */
+  getAimTargets(): readonly AimTarget[] {
+    let count = 0;
+    for (const [entityId, hitbox] of this.hitboxes) {
+      if (this.deadEntities.has(entityId) || this.resolvePlayerTeamSlot(entityId) === "ally") continue;
+      const entry = this.aimTargets[count] ?? { x: 0, y: 0, z: 0, height: 0 };
+      this.aimTargets[count++] = entry;
+      entry.x = hitbox.mesh.position.x;
+      entry.y = hitbox.mesh.position.y;
+      entry.z = hitbox.mesh.position.z;
+      entry.height = hitbox.currentHeight;
+    }
+    this.aimTargets.length = count;
+    return this.aimTargets;
   }
 
   /**

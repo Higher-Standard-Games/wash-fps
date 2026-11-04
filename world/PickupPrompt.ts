@@ -12,6 +12,8 @@
  * from the live binding via getActionKeyLabel).
  */
 
+import { InputDevice } from "../../../engine/input/InputDevice";
+
 let promptElement: HTMLDivElement | null = null;
 /**
  * What each system wants shown, in the order they asked. The newest is on
@@ -90,6 +92,8 @@ export function showPickupPrompt(owner: string, text: string): void {
 
 function render(text: string): void {
   const el = getOrCreateElement();
+  // A touch screen has no key for it: the touch controls' USE button sits under the prompt
+  if (InputDevice.getInstance().current === "touch") text = text.replace(/^PRESS \[[^\]]+\]/, "TAP [USE]");
   renderPromptContent(el, text);
   el.style.opacity = "1";
   // Flex lays out the cell and the slab; the slab keeps inline flow, where

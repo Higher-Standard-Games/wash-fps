@@ -75,9 +75,11 @@ click the game to play on with the mouse.
 | **☰** beside it | Hold for the scoreboard |
 | **Chat** (top right) | Chat, with the phone's keyboard |
 | **READY** | Shown in warmup: ready up |
+| **USE** | Pops up under the pick-up message when there is a weapon to pick up or swap to |
 
-There is no button for **F**: picking up or swapping a dropped weapon needs a
-keyboard.
+Looking with your thumb has a slight aim assist: turning slows a little while
+your crosshair is on an opponent you can see, and a turn toward one bends a
+little closer. It only works while your thumb is moving, and never for a mouse.
 
 ## 5. What to do first
 
