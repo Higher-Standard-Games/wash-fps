@@ -2,8 +2,12 @@ import { UIStyles } from "../../../engine/ui/UIStyles";
 import washikiTheme from "./hud/styles/WashikiTheme.css?raw";
 import failureCSS from "./styles/MatchConnectionFailure.css?raw";
 
-/** Terminal match failure stays visible until the player returns to the lobby. */
-export function showMatchConnectionFailure(message: string): void {
+/**
+ * Terminal match failure stays visible until the player returns to the lobby.
+ * `onBack` replaces the reload, for a page that is already the lobby (the
+ * native client's, after its match failed).
+ */
+export function showMatchConnectionFailure(message: string, onBack?: () => void): void {
   if (document.getElementById("match-connection-failure")) return;
   document.exitPointerLock?.();
   // The match can fail before the HUD has brought in the game's fonts
@@ -33,7 +37,14 @@ export function showMatchConnectionFailure(message: string): void {
   back.type = "button";
   back.className = "match-failure__back";
   back.textContent = "Back to lobby";
-  back.addEventListener("click", () => window.location.reload());
+  back.addEventListener("click", () => {
+    if (!onBack) {
+      window.location.reload();
+      return;
+    }
+    root.remove();
+    onBack();
+  });
   card.append(eyebrow, title, text, back);
   root.append(card);
   root.addEventListener("keydown", (event) => {

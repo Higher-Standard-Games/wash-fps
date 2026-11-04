@@ -1,5 +1,5 @@
 {
-  "entry": "client/main.ts",
+  "entry": "client/boot.ts",
   "html": "index.html",
   "engine": {
     "defaultGame": "fps",
