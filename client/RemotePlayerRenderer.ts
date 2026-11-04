@@ -224,6 +224,8 @@ export class RemotePlayerRenderer {
   private barrelModelCache?: ModelInstanceCache;
   /** Weapons nobody holds, by weapon id (`parkWeapon`). */
   private readonly idleWeapons = new Map<string, HeldWeapon[]>();
+  /** Hitbox outlines of players without a body now, by entity id (`parkHitboxMesh`). */
+  private readonly spareHitboxes = new Map<string, { mesh: Mesh; builtHeight: number }>();
   private localReflectionModel: PlayerModelInstance | null = null;
   private localReflectionLoadAttempted = false;
   private disposed = false;
@@ -753,13 +755,14 @@ export class RemotePlayerRenderer {
     // Remove hitboxes for entities no longer alive
     for (const [entityId, hitbox] of this.hitboxes) {
       if (!aliveIds.has(entityId)) {
-        hitbox.mesh.dispose();
+        this.parkHitboxMesh(entityId, hitbox);
         if (hitbox.weaponRoot) {
           disposeModelResources([hitbox.weaponRoot]);
           hitbox.weaponRoot = null;
         }
+        // Kept for when they are back in view or alive again
         if (hitbox.model && this.modelManager) {
-          this.modelManager.disposeInstance(hitbox.model);
+          this.modelManager.releaseInstance(hitbox.model);
         }
         this.hitboxes.delete(entityId);
         this.deadEntities.delete(entityId);
@@ -786,6 +789,8 @@ export class RemotePlayerRenderer {
   /** Clean up all hitboxes and models */
   dispose(): void {
     this.disposed = true;
+    for (const spare of this.spareHitboxes.values()) spare.mesh.dispose();
+    this.spareHitboxes.clear();
     if (this.localReflectionModel && this.modelManager) this.modelManager.disposeInstance(this.localReflectionModel);
     this.localReflectionModel = null;
     getHitscanEffects().clearRemoteLightningMuzzleResolver(this.voltaicMuzzleResolver);
@@ -823,7 +828,7 @@ export class RemotePlayerRenderer {
   }
 
   /**
-   * Mark an entity as dead — dispose its mesh immediately.
+   * Mark an entity as dead — put its body away immediately.
    * Called from Game on death events.
    * A fresh hitbox will be created when the entity respawns and reappears in snapshots.
    */
@@ -831,13 +836,14 @@ export class RemotePlayerRenderer {
     this.forgetLife(entityId);
     const hitbox = this.hitboxes.get(entityId);
     if (hitbox) {
-      hitbox.mesh.dispose();
+      this.parkHitboxMesh(entityId, hitbox);
       if (hitbox.weaponRoot) {
         disposeModelResources([hitbox.weaponRoot]);
         hitbox.weaponRoot = null;
       }
+      // Kept for their next life
       if (hitbox.model && this.modelManager) {
-        this.modelManager.disposeInstance(hitbox.model);
+        this.modelManager.releaseInstance(hitbox.model);
       }
       this.hitboxes.delete(entityId);
     }
@@ -1124,7 +1130,7 @@ export class RemotePlayerRenderer {
     const hitbox = this.hitboxes.get(entityId);
     if (!hitbox?.model) {
       if (hitbox) {
-        hitbox.mesh.dispose();
+        this.parkHitboxMesh(entityId, hitbox);
         if (hitbox.weaponRoot) {
           disposeModelResources([hitbox.weaponRoot]);
           hitbox.weaponRoot = null;
@@ -1141,7 +1147,7 @@ export class RemotePlayerRenderer {
     this.poseBounded.delete(model);
     model.attachedWeapon = hitbox.weaponRoot;
     hitbox.weaponRoot = null;
-    hitbox.mesh.dispose();
+    this.parkHitboxMesh(entityId, hitbox);
     this.hitboxes.delete(entityId);
     // PVS or spectating may have switched the body and weapon off, and the
     // ragdoll draws whatever it is handed. The one we watched from inside
@@ -1301,9 +1307,28 @@ export class RemotePlayerRenderer {
     return mesh as unknown as Mesh;
   }
 
+  /**
+   * Keep a dead or departed player's hitbox outline for their next body: each
+   * one is a line mesh with a material of its own, and making and disposing
+   * them every life changed the frame's draw list.
+   */
+  private parkHitboxMesh(entityId: string, hitbox: RemotePlayerHitbox): void {
+    if (this.spareHitboxes.has(entityId) || hitbox.mesh.isDisposed()) {
+      hitbox.mesh.dispose();
+      return;
+    }
+    hitbox.mesh.setEnabled(false);
+    this.spareHitboxes.set(entityId, { mesh: hitbox.mesh, builtHeight: hitbox.builtHeight });
+  }
+
   private createHitbox(entityId: string, initialState: InterpolatedEntity): RemotePlayerHitbox | null {
     const height = initialState.crouching ? CROUCH_HEIGHT : PLAYER_HEIGHT;
-    const mesh = this.createHitboxMesh(entityId, height);
+    const spare = this.spareHitboxes.get(entityId);
+    this.spareHitboxes.delete(entityId);
+    const kept = spare && !spare.mesh.isDisposed() ? spare : null;
+    const mesh = kept?.mesh ?? this.createHitboxMesh(entityId, height);
+    const builtHeight = kept?.builtHeight ?? height;
+    mesh.scaling.y = height / builtHeight;
 
     const smoothedPos = new Vector3(initialState.x, initialState.y, initialState.z);
 
@@ -1318,7 +1343,7 @@ export class RemotePlayerRenderer {
       smoothedPos,
       smoothedYaw: initialState.yaw,
       currentHeight: height,
-      builtHeight: height,
+      builtHeight,
       model,
       weaponRoot: null,
       weaponMuzzle: null,

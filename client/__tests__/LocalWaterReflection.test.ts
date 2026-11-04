@@ -34,6 +34,7 @@ it("owns a hidden local model, updates its pose, suspends and disposes it", () =
     disposed: false,
     hitboxes: new Map(),
     idleWeapons: new Map(),
+    spareHitboxes: new Map(),
     deadEntities: new Map(),
     teams: new Map(),
     ffaColors: { clear: vi.fn() },

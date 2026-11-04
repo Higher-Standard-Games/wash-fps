@@ -25,9 +25,9 @@ import type { PhysicsEngine } from "@babylonjs/core/Physics/v2/physicsEngine";
 import { Ragdoll } from "@babylonjs/core/Physics/v2/ragdoll";
 import type { Scene } from "@babylonjs/core/scene";
 import {
-  disposePlayerModel,
   type PlayerModelInstance,
   releaseLocomotionGroups,
+  releasePlayerModel,
 } from "../../../engine/animation/PlayerModelManager";
 import { background } from "../../../engine/core/AsyncErrors";
 import { PhysicsSystem } from "../../../engine/physics/PhysicsSystem";
@@ -795,10 +795,10 @@ export class RagdollSystem {
   }
 
   private disposeModel(model: PlayerModelInstance): void {
-    // The same path every player model leaves by: hand weapon (bone-attached,
-    // so not a scene-graph child), cloned materials and the loader's leftovers.
+    // The body goes back to its player's next life (bones linked again, hand
+    // weapon to its pool), or is disposed with everything it owns.
     try {
-      disposePlayerModel(model);
+      releasePlayerModel(model);
     } catch (_) {
       /* noop */
     }

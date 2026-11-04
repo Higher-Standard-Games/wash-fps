@@ -65,6 +65,7 @@ function setup() {
     frameStyleKeys: new Map(),
     frameSample: {},
     poseBounded: new WeakSet(),
+    spareHitboxes: new Map(),
   });
   renderer.modelManager = {
     setOutlineProxyEnabled: vi.fn().mockResolvedValue(undefined),
