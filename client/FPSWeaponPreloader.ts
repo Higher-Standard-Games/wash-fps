@@ -3,6 +3,7 @@ import type { Scene } from "@babylonjs/core/scene";
 import { sceneGpuReady, waitForGpuCondition } from "../../../engine/loader/map/GpuPreparation";
 import { warmHiddenMeshes } from "../../../engine/rendering/PipelineWarmup";
 import { getHitscanEffects } from "../../../engine/weapon/HitscanEffects";
+import { getPointLightPool } from "../../../engine/weapon/PointLightPool";
 import { getProjectileManager } from "../../../engine/weapon/ProjectileManager";
 import type { WeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
 import { getWeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
@@ -38,6 +39,10 @@ export async function preloadFPSWeapons(
   preparedView?: WeaponViewManager,
 ): Promise<void> {
   initializeEntityDefs();
+  // The pool's lights live in the gameplay light cluster, which every lit
+  // material includes once it exists: weapons compiled before it would compile
+  // again when first held in play
+  getPointLightPool().init(scene);
   const view = preparedView ?? getWeaponViewManager();
   view.init(scene, camera);
   const weaponIds = Object.values(WEAPONS).map((weapon) => weapon.id);

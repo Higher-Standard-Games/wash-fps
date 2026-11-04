@@ -10,12 +10,14 @@ const hitscan = vi.hoisted(() => ({ preparePelletShader: vi.fn(async () => {}) }
 const numbers = vi.hoisted(() => ({ prepareShaders: vi.fn(async () => {}), dispose: vi.fn() }));
 const teleport = vi.hoisted(() => ({ prepare: vi.fn(async () => {}) }));
 const gibs = vi.hoisted(() => ({ prepareShaders: vi.fn(async () => {}), dispose: vi.fn() }));
+const lights = vi.hoisted(() => ({ init: vi.fn() }));
 vi.mock("../../../../engine/weapon/WeaponViewManager", () => ({ getWeaponViewManager: () => view }));
 vi.mock("../../../../engine/weapon/ProjectileManager", () => ({ getProjectileManager: () => projectiles }));
 vi.mock("../../../../engine/weapon/HitscanEffects", () => ({ getHitscanEffects: () => hitscan }));
 vi.mock("../DamageNumbers", () => ({ DamageNumbers: { create: () => numbers } }));
 vi.mock("../TeleportEffect", () => ({ TeleportEffect: { getInstance: () => teleport } }));
 vi.mock("../GibSystem", () => ({ GibSystem: { create: () => gibs } }));
+vi.mock("../../../../engine/weapon/PointLightPool", () => ({ getPointLightPool: () => lights }));
 vi.mock("../../../../engine/loader/map/GpuPreparation", () => ({
   sceneGpuReady: vi.fn(),
   waitForGpuCondition: vi.fn(async () => {}),
@@ -27,6 +29,13 @@ import { preloadFPSWeapons } from "../FPSWeaponPreloader";
 
 describe("map-load weapon preload", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("puts the gameplay lights in place before compiling weapons, so the variants are the ones play draws", async () => {
+    const scene = {} as never;
+    await preloadFPSWeapons(scene, {} as never);
+    expect(lights.init).toHaveBeenCalledWith(scene);
+    expect(lights.init.mock.invocationCallOrder[0]).toBeLessThan(view.preloadWeapons.mock.invocationCallOrder[0]);
+  });
 
   it("prepares every projectile a weapon fires, once each", async () => {
     const scene = {} as never;
