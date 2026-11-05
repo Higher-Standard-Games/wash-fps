@@ -41,7 +41,10 @@ const SIDES = ["soba", "udon"] as const;
  * home sits under the board's right edge. A 1v1 gets a head-to-head instead of
  * two team columns of one row each.
  */
+import { UINavigation } from "../../../../../engine/ui/navigation/UINavigation";
+
 export class FPSScoreboard {
+  private offNavigation: (() => void) | null = null;
   private overlay: HTMLElement;
   /** Everything below the title plate. Rebuilt; the plate is not, so its stamp plays once. */
   private contentEl: HTMLElement;
@@ -155,6 +158,8 @@ export class FPSScoreboard {
    */
   public setLocked(locked: boolean): void {
     this.locked = locked;
+    this.offNavigation?.();
+    this.offNavigation = locked ? UINavigation.getInstance().push({ root: this.overlay }) : null;
     if (locked) this.show();
   }
 
@@ -558,6 +563,7 @@ export class FPSScoreboard {
   }
 
   public destroy(): void {
+    this.offNavigation?.();
     this.overlay.remove();
   }
 }

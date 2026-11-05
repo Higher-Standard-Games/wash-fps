@@ -67,6 +67,11 @@ export class SettingsRailOverlay extends GameDialogPanel {
     this.settingsView.destroy();
     super.destroy();
   }
+
+  public override close(): void {
+    this.settingsView.pauseControls();
+    super.close();
+  }
 }
 
 function element(tag: string, className: string, text?: string): HTMLElement {

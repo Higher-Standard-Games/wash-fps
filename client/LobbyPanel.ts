@@ -17,6 +17,7 @@ import {
 } from "../../../engine/ui/components/RaisedKey";
 import matchLobbyCSSRaw from "../../../engine/ui/components/styles/MatchLobbyView.css?raw";
 import { rememberMapTitle } from "../../../engine/ui/MapTitles";
+import { UINavigation } from "../../../engine/ui/navigation/UINavigation";
 import { GamePanel } from "../../../engine/ui/panels/GamePanel";
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import { accountIsNew, currentIdentity, LoginError } from "../../../lobby/AccountSession";
@@ -271,6 +272,23 @@ export class LobbyPanel extends GamePanel {
     this.musicKey = createLobbyMusicKey();
     links.prepend(this.downloads.root, this.versionTag, this.devlogLink, this.creditsKey, this.musicKey);
     this.connected = this.initLobbyConnection();
+  }
+
+  protected override controllerInitialFocus(): HTMLElement | null {
+    if (this.currentTabId === "matchmaking" && this.matchLobbyView) {
+      const room = this.matchLobbyView.root;
+      const ready = room.querySelector<HTMLButtonElement>(".raised-key--ready:not(:disabled)");
+      if (!room.querySelector('[data-map][aria-pressed="true"]')) {
+        const map = room.querySelector<HTMLButtonElement>("button[data-map]:not(:disabled)");
+        if (map) return map;
+      }
+      if (ready) return ready;
+    }
+    if (this.currentTabId === "settings") {
+      const page = this.railEl?.querySelector<HTMLElement>('[data-settings-page][aria-current="page"]');
+      if (page) return page;
+    }
+    return this.railEl?.querySelector<HTMLButtonElement>(".lobby__rail-nav button:not(:disabled)") ?? null;
   }
 
   /** Credits sit beside the welcome guide's ? on the Play page, online or not. */
@@ -923,6 +941,7 @@ export class LobbyPanel extends GamePanel {
     }
     this.refreshPlayerCard();
     devLog(`[LobbyPanel] Opened match lobby: ${lobby.id}`);
+    UINavigation.getInstance().focusDefault(this.root);
   }
 
   show(): void {
@@ -940,6 +959,7 @@ export class LobbyPanel extends GamePanel {
   }
 
   public override close(): void {
+    this.settingsView?.pauseControls();
     this.welcomeGuide?.leaveLobby();
     this.demosView?.deactivate();
     super.close();
@@ -1187,6 +1207,7 @@ export class LobbyPanel extends GamePanel {
         badge.textContent = action;
 
         const row = createRaisedKey({ variants: ["sm", "cream", "room"], content: [mark, name, map, count, badge] });
+        row.dataset.navId = `room-${match.id}`;
         row.classList.add(`lobby__room--${match.state}`);
         row.style.setProperty("--mode-mark", mode?.mark ?? "hsl(250 20% 40%)");
         row.disabled = disabled;
@@ -1406,6 +1427,7 @@ export class LobbyPanel extends GamePanel {
     if (lower && this.chatColumnEl) lower.appendChild(this.chatColumnEl);
     this.railEl?.classList.remove("lobby__rail--room");
     this.matchLobbyView = null;
+    UINavigation.getInstance().focusDefault(this.root);
     this.currentLobbyId = null;
     LobbyAssetPreparation.shared.selectMap(null);
     this.currentInviteToken = undefined;

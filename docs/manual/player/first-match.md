@@ -52,6 +52,15 @@ You spawn in a **warmup** where nothing scores and you can try things freely. Pr
 Movement and combat bindings can be changed in **Settings → Controls**. Menu,
 scoreboard, chat, console and join keys are fixed; see [Settings](./settings.md).
 
+### Using an Xbox controller
+
+Press a controller button on the loading screen to choose controller mode;
+connecting the cable alone does not change controls. Use the left stick to
+move, right stick to look, RT/LT to fire/aim, A to jump, and B to crouch/slide.
+Menu opens the match menu. Menus use D-pad/left stick, A to select, and B to
+go back. Find presets, remapping, and sensitivity under
+[Settings → Controller](./settings.md#controller).
+
 ### On a phone or tablet
 
 The start tap takes the game fullscreen and sideways where the browser

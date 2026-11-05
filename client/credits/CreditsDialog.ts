@@ -5,6 +5,7 @@
  */
 
 import { InputSystem } from "../../../../engine/input/InputSystem";
+import { UINavigation } from "../../../../engine/ui/navigation/UINavigation";
 import { UIStyles } from "../../../../engine/ui/UIStyles";
 import credits from "../../CREDITS.md?raw";
 import { button, el } from "../settings/SettingsFields";
@@ -15,6 +16,7 @@ import { renderMarkdown } from "./MarkdownLite";
 const INPUT_CONTEXT = "fps_credits";
 
 export class CreditsDialog {
+  private offNavigation: (() => void) | null = null;
   readonly root = el("div", "lobby-guide lobby-credits");
   private readonly body = el("div", "lobby-guide__content lobby-credits__body");
   private readonly close = button("lobby-guide__button lobby-credits__close", "Close");
@@ -61,6 +63,7 @@ export class CreditsDialog {
       if (event.target === this.root) options.onClose();
     });
     document.body.append(this.root);
+    this.offNavigation = UINavigation.getInstance().push({ root: this.root, back: () => options.onClose() });
 
     this.input.registerContext({ id: INPUT_CONTEXT, blocking: true, actions: [] });
     this.input.pushContext(INPUT_CONTEXT);
@@ -100,6 +103,7 @@ export class CreditsDialog {
   destroy(restoreFocus = true): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.offNavigation?.();
     window.removeEventListener("keydown", this.onKey, true);
     window.removeEventListener("keyup", this.onKeyUp, true);
     document.removeEventListener("focusin", this.onFocus, true);

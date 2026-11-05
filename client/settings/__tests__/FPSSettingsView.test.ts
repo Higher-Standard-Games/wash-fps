@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Cvar } from "../../../../../engine/core/Cvar";
 import { InputSystem } from "../../../../../engine/input/InputSystem";
 import { WorldFogController } from "../../../../../engine/rendering/WorldFogController";
+import { UINavigation } from "../../../../../engine/ui/navigation/UINavigation";
 // The video presets set the distant-player pose rate, which this module registers
 import "../../RemotePlayerRenderer";
 import { FPS } from "../../FPSActions";
@@ -46,6 +47,19 @@ registerPlayerModelVisualCvars();
 if (!Cvar.exists("r_cel_weapon_outlines")) Cvar.register("r_cel_weapon_outlines", 1);
 
 describe("FPSSettingsView", () => {
+  it.each(["page change", "pause", "destroy"])("dismisses open body-mounted menus on %s", (reason) => {
+    view.showPage("gameplay");
+    const own = view.getElement().querySelector<HTMLButtonElement>('button[aria-label="Your side sounds"]')!;
+    own.click();
+    expect(document.querySelector(".fps-set-menu")).not.toBeNull();
+    expect(UINavigation.getInstance().active).toBe(true);
+    if (reason === "page change") view.showPage("controller");
+    else if (reason === "pause") view.pauseControls();
+    else view.destroy();
+    expect(document.querySelector(".fps-set-menu")).toBeNull();
+    expect(own.getAttribute("aria-expanded")).toBe("false");
+    expect(UINavigation.getInstance().active).toBe(false);
+  });
   it("saves player sound selections and restores Male/Bobot with Gameplay reset", async () => {
     const root = view.getElement();
     click(root.querySelector('[data-settings-page="gameplay"]'));
@@ -182,7 +196,8 @@ describe("FPSSettingsView", () => {
 
   it("hands its page keys to a host that shows them elsewhere", () => {
     const nav = view.takePageNav();
-    expect(nav.querySelectorAll("[data-settings-page]")).toHaveLength(4);
+    expect(nav.querySelectorAll("[data-settings-page]")).toHaveLength(5);
+    expect(nav.querySelector('[data-settings-page="controller"]')?.textContent).toContain("Controller");
     expect(view.getElement().classList.contains("fps-set-view--nav-outside")).toBe(true);
   });
 

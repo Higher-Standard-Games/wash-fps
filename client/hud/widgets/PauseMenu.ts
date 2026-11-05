@@ -1,4 +1,6 @@
 import { PLAYTEST_RETURN_KEY } from "../../../../../engine/editor/EditorLauncher";
+import { GamepadInput } from "../../../../../engine/input/GamepadInput";
+import { InputDevice } from "../../../../../engine/input/InputDevice";
 import { MapLoader } from "../../../../../engine/loader/map/MapLoader";
 import { PlayerProfile } from "../../../../../engine/player/PlayerProfile";
 import { createRaisedKey, injectRaisedKeyStyles } from "../../../../../engine/ui/components/RaisedKey";
@@ -43,7 +45,7 @@ export class FPSPauseMenu extends GameDialogPanel {
     // The menu mirrors pointer-lock state (unlocked = shown, Resume re-locks).
     // A backdrop click would hide it WITHOUT re-locking the pointer, stranding
     // the player with a free cursor and no menu, so only the keys and Esc close it.
-    super({ title: "Match menu", closeOnBackdrop: false, showCloseButton: false });
+    super({ title: "Match menu", closeOnBackdrop: false, showCloseButton: false, navigation: "vertical" });
     injectRaisedKeyStyles();
     UIStyles.injectCSS("fps-match-menu", matchMenuCss);
 
@@ -112,6 +114,12 @@ export class FPSPauseMenu extends GameDialogPanel {
     const where = map ? (mapTitle(map) ?? map) : "";
     this.kickerEl.textContent = [state.gametypeName, where].filter(Boolean).join(" · ");
     this.nameEl.textContent = PlayerProfile.load().name;
+    const note = this.dialog.querySelector(".fps-match-menu__note");
+    if (note)
+      note.textContent =
+        InputDevice.getInstance().current === "gamepad" && !GamepadInput.getInstance().pad
+          ? "Controller disconnected. Reconnect, release the controls, then resume."
+          : "The match keeps going while you're here.";
     this.lightFirstKey();
     super.open();
     // Tab starts inside the menu rather than behind it
@@ -120,6 +128,14 @@ export class FPSPauseMenu extends GameDialogPanel {
 
   public onResume(callback: () => void): void {
     this.onResumeCallback = callback;
+  }
+
+  protected override controllerBack(): void {
+    if (!this.resumeKey.hidden) this.resumeKey.click();
+    else {
+      this.close();
+      this.onResumeCallback?.();
+    }
   }
 
   public onSettings(callback: () => void): void {

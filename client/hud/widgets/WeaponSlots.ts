@@ -120,6 +120,8 @@ export class FPSWeaponSlots implements FPSHudWidget {
 
     for (let i = 0; i < 3; i++) {
       const slot = this.slots[i];
+      const keyLabel = getActionKeyLabel(`fps_weapon_${i + 1}`);
+      if (slot.keyEl.textContent !== keyLabel) slot.keyEl.textContent = keyLabel;
       const weaponId = loadout[i];
       const isActive = weaponId !== null && weaponId === current;
       const isEmpty = weaponId === null;

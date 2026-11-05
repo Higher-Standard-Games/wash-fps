@@ -350,7 +350,7 @@ export class FPSController implements ICameraController {
     use: false, // F (interact/pickup)
   };
 
-  // A touch move stick, as the touch controls last set it, and its direction
+  // An analog move stick, as the active device last set it, and its direction
   // as applied this frame (null when centred, out of play or frozen)
   private moveAxis: MoveAxis | null = null;
   private stick: MoveAxis | null = null;
@@ -721,7 +721,7 @@ export class FPSController implements ICameraController {
     this.keys.reload = input.isActive(FPS.RELOAD);
     this.keys.use = input.isActive(FPS.USE);
 
-    // A touch move stick adds the keys it covers; its exact angle goes to sendInput
+    // An analog move stick adds the keys it covers; its exact angle goes to sendInput
     this.stick = stickDirection(this.moveAxis);
     if (this.stick) {
       const keys = stickKeys(this.stick);
@@ -1004,7 +1004,7 @@ export class FPSController implements ICameraController {
           reload: this.keys.reload,
           use: this.keys.use,
           moveAxis: this.stick ?? undefined,
-          assistedAim: InputDevice.getInstance().current === "touch",
+          assistedAim: InputDevice.getInstance().current !== "keyboard_mouse",
           // Aim without our own view kick (visual only)
           pitch: this.camera!.rotation.x - this.appliedKickPitch,
           yaw: this.camera!.rotation.y - this.appliedKickYaw,
@@ -1398,6 +1398,17 @@ export class FPSController implements ICameraController {
     this.inputHandler.applyLookDelta(dx, dy, sensitivity, shape);
   }
 
+  /** Turns include the controller response curve and elapsed time, independently of mouse settings. */
+  controllerLook(yaw: number, pitch: number): void {
+    if (!this.inputHandler.inPlay || !this.enabled || this.gameplayFrozen) return;
+    const scale = 1 - this.adsSensitivityProgress * (1 - (Cvar.getNumber("in_pad_ads") || 0.5));
+    this.inputHandler.applyLookTurn(
+      yaw * scale,
+      pitch * scale,
+      Cvar.getBool("in_pad_assist") ? this.aimAssist : undefined,
+    );
+  }
+
   // Touch aim assist toward the remote players in sight (client/AimAssist)
   private readonly aimEye = new Vector3();
   private readonly aimPoint = new Vector3();
@@ -1416,7 +1427,7 @@ export class FPSController implements ICameraController {
     return assistTurn(yaw, pitch, nearestTarget(view, targets, visible));
   };
 
-  /** The touch move stick's reading (forward and right, up to 1), or null when released. */
+  /** The analog move stick's reading (forward and right, up to 1), or null when released. */
   setMoveAxis(axis: MoveAxis | null): void {
     this.moveAxis = axis ? { forward: axis.forward, right: axis.right } : null;
   }

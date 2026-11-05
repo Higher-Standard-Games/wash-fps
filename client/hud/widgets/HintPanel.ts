@@ -1,5 +1,6 @@
 import { CameraSystem } from "../../../../../engine/camera";
 import { Cvar } from "../../../../../engine/core/Cvar";
+import { InputDevice } from "../../../../../engine/input/InputDevice";
 import { InputSystem } from "../../../../../engine/input/InputSystem";
 import { getWeaponViewManager } from "../../../../../engine/weapon/WeaponViewManager";
 import { Game, type PlayerStateUpdate } from "../../../Game";
@@ -27,6 +28,7 @@ const MAX_KEYS = 2;
 
 /** The first keys bound to an action, as the player would name them. */
 function keyLabels(action: string): string[] {
+  if (InputDevice.getInstance().current === "gamepad") return [getActionKeyLabel(action)];
   const labels = InputSystem.getInstance()
     .getBindingsForAction(action)
     .map((binding) =>
@@ -60,7 +62,7 @@ function hintHtml(id: HintId): string {
     case "fall":
       return `Hold ${key(FPS.CROUCH)} when falling to absorb damage!`;
     case "strafe":
-      return `In the air, hold ${key(FPS.MOVE_LEFT)} or ${key(FPS.MOVE_RIGHT)} and turn the mouse to gain speed!`;
+      return `In the air, hold ${key(FPS.MOVE_LEFT)} or ${key(FPS.MOVE_RIGHT)} and ${InputDevice.getInstance().current === "gamepad" ? "turn with the look stick" : "turn the mouse"} to gain speed!`;
     case "ledge":
       return `Jump at a ledge holding ${key(FPS.MOVE_FORWARD)} to climb up; ${key(FPS.CROUCH)} lets go!`;
     case "health":
@@ -74,7 +76,9 @@ function hintHtml(id: HintId): string {
     case "air":
       return "Surface for air!";
     case "switch":
-      return `Press ${[FPS.WEAPON_1, FPS.WEAPON_2, FPS.WEAPON_3].map((slot) => firstKey(slot)).join(", ")} or scroll to switch weapons!`;
+      return InputDevice.getInstance().current === "gamepad"
+        ? `Press ${firstKey(FPS.WEAPON_PREV)} or ${firstKey(FPS.WEAPON_NEXT)} to switch weapons!`
+        : `Press ${[FPS.WEAPON_1, FPS.WEAPON_2, FPS.WEAPON_3].map((slot) => firstKey(slot)).join(", ")} or scroll to switch weapons!`;
     case "blade":
       return `With the blade, hold ${key(FPS.AIM)} to charge a blast!`;
     case "rocketjump":

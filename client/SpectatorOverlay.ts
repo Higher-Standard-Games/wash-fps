@@ -8,12 +8,16 @@
  * 3. Freefly spectator minimal UI
  */
 
+import { Cvar } from "../../../engine/core/Cvar";
 import { EventBus } from "../../../engine/core/EventBus";
 import { LOADING_EVENTS } from "../../../engine/core/LoadingEvents";
+import { INPUT_DEVICE_CHANGED, InputDevice } from "../../../engine/input/InputDevice";
+import { PLAY_CHANGE } from "../../../engine/input/PlayCapture";
 import { MapLoader } from "../../../engine/loader/map/MapLoader";
 import { buildTwinLight, buildTwinRail, TWIN_ROOT_CLASS, type TwinRail } from "../../../engine/ui/components/LobbyTwin";
 import { createRaisedKey, injectRaisedKeyStyles } from "../../../engine/ui/components/RaisedKey";
 import { mapTitle } from "../../../engine/ui/MapTitles";
+import { UINavigation } from "../../../engine/ui/navigation/UINavigation";
 import { titleLines } from "../../../engine/ui/TransferLoadingView";
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import { FPS, getActionKeyLabel } from "./FPSActions";
@@ -25,6 +29,7 @@ import "../../../engine/ui/components/styles/ConnectingOverlay.css";
 export type SpectatorMode = "join-overlay" | "freefly" | "first-person" | "hidden";
 
 export class SpectatorOverlay {
+  private offNavigation: (() => void) | null = null;
   private container: HTMLElement;
   private joinOverlay: HTMLElement;
   private spectatingBar: HTMLElement;
@@ -41,6 +46,43 @@ export class SpectatorOverlay {
   private rail: TwinRail;
   private shotEl: HTMLElement;
   private unsubscribeHidden: () => void;
+  private unsubscribeDevice: () => void;
+  private cueGrid: HTMLElement;
+  private prevKey: HTMLElement;
+  private nextKey: HTMLElement;
+  private cueSignature = "";
+  private readonly refreshControls = () => {
+    const controller = InputDevice.getInstance().current === "gamepad";
+    const moveKeys = controller
+      ? getActionKeyLabel(FPS.MOVE_FORWARD)
+      : [FPS.MOVE_FORWARD, FPS.MOVE_LEFT, FPS.MOVE_BACKWARD, FPS.MOVE_RIGHT].map(getActionKeyLabel).join("");
+    const bindings: [string, string][] = [
+      [moveKeys, "Fly"],
+      [controller ? (Cvar.getBool("in_pad_swap") ? "Left stick" : "Right stick") : "MOUSE", "Look"],
+      [getActionKeyLabel(FPS.SPRINT), "Fast"],
+      [getActionKeyLabel(FPS.JUMP), "Fly Up"],
+      [getActionKeyLabel(FPS.CROUCH), "Fly Down"],
+      [getActionKeyLabel(FPS.FIRE), "Chase Player"],
+      [getActionKeyLabel(FPS.JOIN_GAME), "Join Game"],
+      [controller ? "Menu" : "ESC", "Menu"],
+    ];
+    const prev = controller ? getActionKeyLabel(FPS.WEAPON_PREV) : "←";
+    const next = controller ? getActionKeyLabel(FPS.WEAPON_NEXT) : "→";
+    const signature = JSON.stringify([bindings, prev, next]);
+    if (signature === this.cueSignature) return;
+    this.cueSignature = signature;
+    this.prevKey.textContent = prev;
+    this.nextKey.textContent = next;
+    const half = Math.ceil(bindings.length / 2);
+    this.cueGrid.replaceChildren();
+    for (let i = 0; i < half; i++) {
+      for (const pair of [bindings[i], bindings[i + half]]) {
+        if (pair)
+          this.cueGrid.append(el("div", "fps-spectator-key", pair[0]), el("div", "fps-spectator-action", pair[1]));
+      }
+    }
+    if (this.mode === "join-overlay") this.refreshJoinPanel();
+  };
 
   // Reserved for first-person spectating (future)
   private _onNextPlayerCallback: (() => void) | null = null;
@@ -112,7 +154,8 @@ export class SpectatorOverlay {
 
     const prevBtn = el("span", "fps-spectator-bar-nav");
     prevBtn.title = "Previous player";
-    prevBtn.appendChild(el("span", "fps-spectator-bar-key", "←"));
+    this.prevKey = el("span", "fps-spectator-bar-key", "←");
+    prevBtn.appendChild(this.prevKey);
     prevBtn.addEventListener("click", () => this._onPrevPlayerCallback?.());
 
     const who = el("div", "fps-spectator-bar-who");
@@ -121,7 +164,8 @@ export class SpectatorOverlay {
 
     const nextBtn = el("span", "fps-spectator-bar-nav");
     nextBtn.title = "Next player (→, or click the view)";
-    nextBtn.appendChild(el("span", "fps-spectator-bar-key", "→"));
+    this.nextKey = el("span", "fps-spectator-bar-key", "→");
+    nextBtn.appendChild(this.nextKey);
     nextBtn.addEventListener("click", () => this._onNextPlayerCallback?.());
 
     this.spectatingBar.append(prevBtn, who, nextBtn);
@@ -137,49 +181,14 @@ export class SpectatorOverlay {
     header.textContent = "SPECTATOR";
     this.freeflyCue.appendChild(header);
 
-    // Dynamic key labels from InputSystem
-    const moveKeys = [
-      getActionKeyLabel(FPS.MOVE_FORWARD),
-      getActionKeyLabel(FPS.MOVE_LEFT),
-      getActionKeyLabel(FPS.MOVE_BACKWARD),
-      getActionKeyLabel(FPS.MOVE_RIGHT),
-    ].join("");
-    const sprintKey = getActionKeyLabel(FPS.SPRINT);
-    const fireKey = getActionKeyLabel(FPS.FIRE);
-    const joinKey2 = getActionKeyLabel(FPS.JOIN_GAME);
-    const jumpKey = getActionKeyLabel(FPS.JUMP);
-    const crouchKey = getActionKeyLabel(FPS.CROUCH);
-
-    const bindings: [string, string][] = [
-      [moveKeys, "Fly"],
-      ["MOUSE", "Look"],
-      [sprintKey, "Fast"],
-      [jumpKey, "Fly Up"],
-      [crouchKey, "Fly Down"],
-      [fireKey, "Chase Player"],
-      [joinKey2, "Join Game"],
-      ["ESC", "Menu"],
-    ];
-
-    // Two columns of key and action, read down the left column first
-    const half = Math.ceil(bindings.length / 2);
-    const leftCol = bindings.slice(0, half);
-    const rightCol = bindings.slice(half);
-
-    const grid = document.createElement("div");
-    grid.className = "fps-spectator-cue-grid";
-
-    for (let i = 0; i < half; i++) {
-      for (const pair of [leftCol[i], rightCol[i]]) {
-        if (!pair) continue;
-        grid.append(el("div", "fps-spectator-key", pair[0]), el("div", "fps-spectator-action", pair[1]));
-      }
-    }
-
-    this.freeflyCue.appendChild(grid);
+    this.cueGrid = el("div", "fps-spectator-cue-grid");
+    this.freeflyCue.appendChild(this.cueGrid);
     this.container.appendChild(this.freeflyCue);
 
     document.body.appendChild(this.container);
+    this.refreshControls();
+    this.unsubscribeDevice = EventBus.on(INPUT_DEVICE_CHANGED, this.refreshControls);
+    document.addEventListener(PLAY_CHANGE, this.refreshControls);
   }
 
   // ── Public API ──────────────────────────────────────────────
@@ -188,7 +197,10 @@ export class SpectatorOverlay {
    * Set the current spectator mode — controls what UI is visible
    */
   public setMode(mode: SpectatorMode): void {
+    this.offNavigation?.();
+    this.offNavigation = null;
     this.mode = mode;
+    this.refreshControls();
 
     // Hide everything first
     this.joinOverlay.style.display = "none";
@@ -202,6 +214,7 @@ export class SpectatorOverlay {
       case "join-overlay":
         this.refreshJoinPanel();
         this.joinOverlay.style.display = "";
+        this.offNavigation = UINavigation.getInstance().push({ root: this.joinOverlay });
         break;
       case "freefly":
         this.freeflyCue.style.display = "flex";
@@ -220,6 +233,7 @@ export class SpectatorOverlay {
 
   /** Set the target player name for first-person spectating bar */
   public setSpectatingTarget(playerName: string): void {
+    this.refreshControls();
     // Called every snapshot; the name almost never changes.
     if (this.spectatingNameEl.textContent !== playerName) this.spectatingNameEl.textContent = playerName;
   }
@@ -248,7 +262,10 @@ export class SpectatorOverlay {
   // ── Cleanup ─────────────────────────────────────────────────
 
   public destroy(): void {
+    this.offNavigation?.();
     this.unsubscribeHidden();
+    this.unsubscribeDevice();
+    document.removeEventListener(PLAY_CHANGE, this.refreshControls);
     this.container.remove();
   }
 

@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { EventBus } from "../../../../engine/core/EventBus";
+import { CONTROLLER_MATCH_INPUT } from "../ControllerEvents";
+import { FPS } from "../FPSActions";
 import { type MatchInputActions, MatchInputBindings } from "../MatchInputBindings";
 
 function actions(over: Partial<MatchInputActions> = {}): MatchInputActions {
@@ -43,6 +46,46 @@ describe("MatchInputBindings", () => {
   afterEach(() => {
     bindings.unbind();
     lockPointer(false);
+  });
+
+  it.each(["keyboard", "gamepad"])("keeps the scoreboard open while %s still holds it", (last) => {
+    const a = actions();
+    bindings.bind(document, a);
+    const controller = (held: boolean) =>
+      EventBus.emit(CONTROLLER_MATCH_INPUT, { action: FPS.SCOREBOARD, held, pressed: held });
+    key("keydown", "Tab");
+    controller(true);
+    if (last === "keyboard") controller(false);
+    else key("keyup", "Tab");
+    expect(a.hideScoreboard).not.toHaveBeenCalled();
+    if (last === "keyboard") key("keyup", "Tab");
+    else controller(false);
+    expect(a.hideScoreboard).toHaveBeenCalledOnce();
+  });
+
+  it("releases both scoreboard sources on blur and removes controller listeners on unbind", () => {
+    const a = actions();
+    bindings.bind(document, a);
+    key("keydown", "Tab");
+    EventBus.emit(CONTROLLER_MATCH_INPUT, { action: FPS.SCOREBOARD, held: true, pressed: true });
+    window.dispatchEvent(new Event("blur"));
+    expect(a.hideScoreboard).toHaveBeenCalledOnce();
+    bindings.unbind();
+    EventBus.emit(CONTROLLER_MATCH_INPUT, { action: FPS.SCOREBOARD, held: false, pressed: false });
+    window.dispatchEvent(new Event("blur"));
+    expect(a.hideScoreboard).toHaveBeenCalledOnce();
+  });
+
+  it("routes controller spectator cycling, join and menu actions through the match", () => {
+    const a = actions({ isChasing: () => true });
+    bindings.bind(document, a);
+    for (const action of [FPS.WEAPON_PREV, FPS.WEAPON_NEXT, FPS.FIRE, FPS.JUMP, FPS.JOIN_GAME, "menu"])
+      EventBus.emit(CONTROLLER_MATCH_INPUT, { action, held: true, pressed: true });
+    expect(a.prevSpectateTarget).toHaveBeenCalledOnce();
+    expect(a.nextSpectateTarget).toHaveBeenCalledTimes(2);
+    expect(a.exitChaseCam).toHaveBeenCalledOnce();
+    expect(a.joinGame).toHaveBeenCalledOnce();
+    expect(a.openMatchMenu).toHaveBeenCalledOnce();
   });
 
   it("opens the match menu on Escape while spectating with the mouse free", () => {

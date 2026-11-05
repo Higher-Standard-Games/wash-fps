@@ -1,5 +1,5 @@
 /**
- * The settings screen: Controls, Gameplay, Video and Audio, saved as you go.
+ * The settings screen: Controls, Controller, Gameplay, Video and Audio, saved as you go.
  *
  * The page keys belong to the view. The lobby and the in-game overlay both move
  * them into a rail with `takePageNav()`; without a host they sit above the page.
@@ -28,10 +28,11 @@ import { registerPlayerAudioCvars } from "../FPSPlayerAudio";
 import { registerPlayerModelVisualCvars } from "../PlayerModelVisualSettings";
 import "../Crosshair";
 import { AudioPage } from "./AudioPage";
+import { ControllerPage } from "./ControllerPage";
 import { ControlsPage } from "./ControlsPage";
 import settingsCss from "./FPSSettingsView.css?raw";
 import { GameplayPage } from "./GameplayPage";
-import { el } from "./SettingsFields";
+import { dismissSettingsMenus, el } from "./SettingsFields";
 import { resetPage, SETTINGS_PAGES, type SettingsPageId } from "./SettingsModel";
 import { VideoPage } from "./VideoPage";
 
@@ -47,6 +48,7 @@ export class FPSSettingsView {
   private readonly panes = new Map<SettingsPageId, HTMLElement>();
   private readonly pageKeys = new Map<SettingsPageId, HTMLButtonElement>();
   private readonly controls: ControlsPage;
+  private readonly controller: ControllerPage;
   private readonly gameplay: GameplayPage;
   private readonly video: VideoPage;
   private readonly resetPageKey: HTMLButtonElement;
@@ -134,6 +136,7 @@ export class FPSSettingsView {
       leftLimit: () => this.root.getBoundingClientRect().left + 60,
     };
     this.controls = new ControlsPage(host);
+    this.controller = new ControllerPage(host);
     this.gameplay = new GameplayPage(host);
     this.video = new VideoPage(host, this.inMatch);
     const audio = new AudioPage(host);
@@ -141,6 +144,7 @@ export class FPSSettingsView {
     const panes = el("div", "fps-set-panes");
     for (const [id, content] of [
       ["controls", this.controls.root],
+      ["controller", this.controller.root],
       ["gameplay", this.gameplay.root],
       ["video", this.video.root],
       ["audio", audio.root],
@@ -164,7 +168,9 @@ export class FPSSettingsView {
 
   /** Drop key capture/popovers before a modal takes focus over Settings. */
   public pauseControls(): void {
+    dismissSettingsMenus(this.root);
     this.controls.deactivate();
+    this.controller.deactivate();
   }
 
   /**
@@ -186,7 +192,9 @@ export class FPSSettingsView {
   }
 
   public showPage(id: SettingsPageId): void {
+    if (this.page !== id) dismissSettingsMenus(this.root);
     if (this.page === "controls" && id !== "controls") this.controls.deactivate();
+    if (this.page === "controller" && id !== "controller") this.controller.deactivate();
     this.page = id;
     const page = SETTINGS_PAGES.find((item) => item.id === id) ?? SETTINGS_PAGES[0];
     for (const [pageId, pane] of this.panes) pane.hidden = pageId !== id;
@@ -202,6 +210,7 @@ export class FPSSettingsView {
   }
 
   public destroy(): void {
+    dismissSettingsMenus(this.root);
     this.cancelScheduledRedraw?.();
     this.cancelScheduledRedraw = null;
     flushPreferenceWrites();
@@ -212,6 +221,7 @@ export class FPSSettingsView {
     this.toastEl = null;
     document.removeEventListener("keydown", this.onKeyDown, true);
     this.controls.destroy();
+    this.controller.destroy();
     this.gameplay.destroy();
     this.video.destroy();
   }

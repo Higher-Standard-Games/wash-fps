@@ -1,4 +1,5 @@
 import { createRaisedKey } from "../../../../../engine/ui/components/RaisedKey";
+import { UINavigation } from "../../../../../engine/ui/navigation/UINavigation";
 import {
   DEFAULT_LOADOUT,
   type LoadoutChoice,
@@ -39,6 +40,7 @@ export interface LoadoutPickerOptions {
  * other widget on the frames it is up.
  */
 export class FPSLoadoutPicker {
+  private offNavigation: (() => void) | null = null;
   private element: HTMLElement;
   private primary: PrimaryWeapon = DEFAULT_LOADOUT.primary;
   private secondary: SecondaryWeapon = DEFAULT_LOADOUT.secondary;
@@ -97,10 +99,19 @@ export class FPSLoadoutPicker {
     this.focus = this.primary;
     this.lastPreviewed = null;
     this.element.style.display = "";
+    this.offNavigation?.();
+    this.offNavigation = UINavigation.getInstance().push({
+      root: this.element,
+      back: () => {
+        if (this.options.onCancel) this.cancel();
+      },
+    });
     this.render();
   }
 
   public close(): void {
+    this.offNavigation?.();
+    this.offNavigation = null;
     this.visible = false;
     this.onConfirm = null;
     this.options = {};
@@ -114,6 +125,7 @@ export class FPSLoadoutPicker {
   }
 
   public destroy(): void {
+    this.offNavigation?.();
     window.removeEventListener("keydown", this.onKey, true);
     this.preview?.dispose();
     this.preview = null;
@@ -253,6 +265,7 @@ export class FPSLoadoutPicker {
       card.onclick = () => onPick(id);
       // Hovering previews without committing, so the stand can be browsed.
       card.onmouseenter = () => this.setFocus(key);
+      card.onfocus = () => this.setFocus(key);
       column.appendChild(card);
     }
 

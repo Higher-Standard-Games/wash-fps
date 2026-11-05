@@ -15,7 +15,10 @@
  */
 
 import { type FreeflyInput, registerFreeflyInput } from "../../../engine/camera/FreeflyInput";
+import { Cvar } from "../../../engine/core/Cvar";
 import { devLog } from "../../../engine/core/DevLog";
+import { padLabel } from "../../../engine/input/GamepadInput";
+import { InputDevice } from "../../../engine/input/InputDevice";
 import { InputSystem } from "../../../engine/input/InputSystem";
 import type { ActionDefinition } from "../../../engine/input/InputTypes";
 
@@ -288,6 +291,18 @@ export function getKeyLabel(code: string): string {
  */
 export function getActionKeyLabel(actionId: string): string {
   const input = InputSystem.getInstance();
+  if (InputDevice.getInstance().current === "gamepad") {
+    if ([FPS.MOVE_FORWARD, FPS.MOVE_BACKWARD, FPS.MOVE_LEFT, FPS.MOVE_RIGHT].some((id) => id === actionId))
+      return Cvar.getBool("in_pad_swap") ? "Right stick" : "Left stick";
+    if (actionId === FPS.FLY_UP) actionId = FPS.JUMP;
+    if (actionId === FPS.FLY_DOWN) actionId = FPS.CROUCH;
+    return (
+      input
+        .getBindingsForAction(`gamepad:v1:${actionId}`)
+        .flatMap((binding) => (binding.gamepadButton === undefined ? [] : [padLabel(binding.gamepadButton)]))
+        .join(" / ") || "Unbound"
+    );
+  }
   const bindings = input.getBindingsForAction(actionId);
   if (!bindings || bindings.length === 0) return "?";
 

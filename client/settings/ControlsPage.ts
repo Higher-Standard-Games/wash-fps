@@ -7,6 +7,7 @@
  */
 
 import { Cvar } from "../../../../engine/core/Cvar";
+import { UINavigation } from "../../../../engine/ui/navigation/UINavigation";
 import { createInputDiagram } from "./InputDiagram";
 import { card, el, type FieldHost, formatPercent, button as plainButton, seg, slider } from "./SettingsFields";
 import {
@@ -48,6 +49,7 @@ export class ControlsPage {
   private popAnchor: HTMLElement | null = null;
   private eatContextMenu = false;
   private readonly cleanup: Array<() => void> = [];
+  private offNavigation: (() => void) | null = null;
 
   constructor(private readonly host: ControlsHost) {
     this.root = el("div", "fps-set-controls");
@@ -137,6 +139,7 @@ export class ControlsPage {
       else this.openPop(code, target);
     });
     target.addEventListener("mouseenter", () => this.focusAction(actionFor(code)?.id ?? null));
+    target.addEventListener("focus", () => this.focusAction(actionFor(code)?.id ?? null));
     target.addEventListener("mouseleave", () => this.focusAction(null));
   }
 
@@ -205,6 +208,7 @@ export class ControlsPage {
     if (action.fixed) row.addEventListener("click", () => this.sayFixed(action.fixed!.codes[0]));
     else row.addEventListener("click", () => this.toggleListening(action.id));
     row.addEventListener("mouseenter", () => this.focusAction(action.id));
+    row.addEventListener("focus", () => this.focusAction(action.id));
     row.addEventListener("mouseleave", () => this.focusAction(null));
     return row;
   }
@@ -389,6 +393,8 @@ export class ControlsPage {
     sheet.append(head, groups, foot);
     this.pop.replaceChildren(sheet);
     this.pop.hidden = false;
+    this.offNavigation?.();
+    this.offNavigation = UINavigation.getInstance().push({ root: this.pop, back: () => this.closePop(true) });
 
     for (const open of this.root.querySelectorAll(".is-open")) open.classList.remove("is-open");
     anchor.classList.add("is-open");
@@ -413,6 +419,8 @@ export class ControlsPage {
   private closePop(returnFocus = false): void {
     if (!this.popCode) return;
     this.pop.hidden = true;
+    this.offNavigation?.();
+    this.offNavigation = null;
     this.popCode = null;
     for (const open of this.root.querySelectorAll(".is-open")) open.classList.remove("is-open");
     if (returnFocus) this.popAnchor?.focus();

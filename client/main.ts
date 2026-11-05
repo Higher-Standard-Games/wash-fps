@@ -27,6 +27,8 @@ import type { LoadingProgressEvent, LoadingStartEvent } from "../../../engine/co
 import { DebugConsole } from "../../../engine/debug";
 import { BrowserEditorHost } from "../../../engine/editor/BrowserEditorHost";
 import { PLAYTEST_RETURN_KEY, registerEditorLauncher } from "../../../engine/editor/EditorLauncher";
+import { GamepadInput } from "../../../engine/input/GamepadInput";
+import { InputDevice } from "../../../engine/input/InputDevice";
 import { leavePlay } from "../../../engine/input/PlayCapture";
 import { PK3Index } from "../../../engine/loader/pk3/PK3Index";
 import {
@@ -50,6 +52,7 @@ import browserConfig from "../browser.json";
 import { FPSController } from "../camera/FPSController";
 import { FPSPlayer } from "../FPSPlayer";
 import gameJson from "../game.json";
+import { ControllerInput } from "./ControllerInput";
 import { FrameRateDisplay } from "./hud/FrameRateDisplay";
 import { LobbyPanel } from "./LobbyPanel";
 import { registerWashoiServices } from "./registerServices";
@@ -104,6 +107,21 @@ async function main() {
 
   // Initialize core services
   await ServiceLocator.getInstance().initCore();
+  InputDevice.getInstance().start();
+  const controllerInput = new ControllerInput();
+  controllerInput.start();
+  GamepadInput.getInstance().start();
+  const userReadyPromise = loadingScreen.waitForReady();
+  window.addEventListener("pagehide", () => {
+    controllerInput.stop();
+    GamepadInput.getInstance().stop();
+  });
+  window.addEventListener("pageshow", (event) => {
+    if (event.persisted) {
+      controllerInput.start();
+      GamepadInput.getInstance().start();
+    }
+  });
 
   // Auto-detect quality
   const qualityRecommendation = QualityDetector.getInstance().detectQuality();
@@ -162,7 +180,6 @@ async function main() {
   await uiTheme.loadShareTechMonoFont();
 
   // Start waiting for user click (non-blocking — runs in parallel)
-  const userReadyPromise = loadingScreen.waitForReady();
 
   // Pipe map loading progress into the splash screen
   const { EventBus } = await import("../../../engine/core/EventBus");

@@ -9,6 +9,7 @@ import { Cvar, type CvarValue } from "../../../../engine/core/Cvar";
 import { InputSystem } from "../../../../engine/input/InputSystem";
 import type { InputBinding } from "../../../../engine/input/InputTypes";
 import { FPS } from "../FPSActions";
+import { CONTROLLER_CVARS, resetController } from "./ControllerModel";
 
 // ═══════════════════════════════ KEYS ═══════════════════════════════
 
@@ -252,8 +253,9 @@ function defaultCodes(actionId: string, input: InputSystem): InputCode[] {
 function setCodes(actionId: string, codes: InputCode[], input: InputSystem): void {
   // Matching the defaults again is stored as "no override", so a later change
   // to the defaults reaches this player too
-  if (sameCodes(codes, defaultCodes(actionId, input))) input.resetBinding(actionId);
-  else input.rebind(actionId, codes.map(codeToBinding));
+  const preserved = input.getBindingsForAction(actionId).filter((binding) => bindingToCode(binding) === null);
+  if (!preserved.length && sameCodes(codes, defaultCodes(actionId, input))) input.resetBinding(actionId);
+  else input.rebind(actionId, [...codes.map(codeToBinding), ...preserved]);
 }
 
 export type AssignResult =
@@ -293,8 +295,8 @@ export function assignKey(
 
 /** Every listed action, and the slots it hides, back to the game's keys. */
 export function resetKeys(input: InputSystem = InputSystem.getInstance()): void {
-  for (const action of SETTINGS_ACTIONS) input.resetBinding(action.id);
-  for (const id of UNLISTED_ACTIONS) input.resetBinding(id);
+  for (const action of SETTINGS_ACTIONS) setCodes(action.id, defaultCodes(action.id, input), input);
+  for (const id of UNLISTED_ACTIONS) setCodes(id, defaultCodes(id, input), input);
 }
 
 // ═══════════════════════════════ CVARS ═══════════════════════════════
@@ -672,10 +674,11 @@ export const HIT_COLORS: HexColor[] = [
 
 // ── Pages ──
 
-export type SettingsPageId = "controls" | "gameplay" | "video" | "audio";
+export type SettingsPageId = "controls" | "controller" | "gameplay" | "video" | "audio";
 
 export const SETTINGS_PAGES: Array<{ id: SettingsPageId; title: string; hint: string; ghost: string }> = [
   { id: "controls", title: "Controls", hint: "Keys · mouse", ghost: "KEYS" },
+  { id: "controller", title: "Controller", hint: "Sticks · buttons", ghost: "PAD" },
   { id: "gameplay", title: "Gameplay", hint: "Aim · colours", ghost: "AIM" },
   { id: "video", title: "Video", hint: "Quality", ghost: "VIDEO" },
   { id: "audio", title: "Audio", hint: "Volume", ghost: "SOUND" },
@@ -684,6 +687,7 @@ export const SETTINGS_PAGES: Array<{ id: SettingsPageId; title: string; hint: st
 /** The cvars each page's reset puts back. Controls also puts back every key. */
 export const PAGE_CVARS: Record<SettingsPageId, string[]> = {
   controls: ["m_sensitivity", "cl_ads_sensitivity", "cl_autorun"],
+  controller: CONTROLLER_CVARS,
   gameplay: [
     "cl_team_ally_sounds",
     "cl_team_enemy_sounds",
@@ -748,4 +752,5 @@ export const PAGE_CVARS: Record<SettingsPageId, string[]> = {
 export function resetPage(page: SettingsPageId, input: InputSystem = InputSystem.getInstance()): void {
   for (const name of PAGE_CVARS[page]) if (Cvar.exists(name)) Cvar.reset(name);
   if (page === "controls") resetKeys(input);
+  if (page === "controller") resetController();
 }

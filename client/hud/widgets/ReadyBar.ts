@@ -1,6 +1,7 @@
 // Extracted from FPSHud.ts
 
 import { InputDevice } from "../../../../../engine/input/InputDevice";
+import { FPS, getActionKeyLabel } from "../../FPSActions";
 import { MatchStateManager } from "../../MatchStateManager";
 import type { FPSHudWidget, HUDState } from "../HudWidget";
 
@@ -35,11 +36,12 @@ export class FPSReadyBar implements FPSHudWidget {
     } else if (mgr.isWarmup() && !isSpectating) {
       // Joined player: gold count cell + prompt with keycap chip (the touch controls' READY on a touch screen)
       const touch = InputDevice.getInstance().current === "touch";
+      const readyKey = InputDevice.getInstance().current === "gamepad" ? getActionKeyLabel(FPS.READY) : "F4";
       const readyText = mgr.isReady
         ? `<span class="fps-ready-text">Ready! Waiting for others</span>`
         : touch
           ? `<span class="fps-ready-text">Tap <span class="fps-ready-key">READY</span> when ready</span>`
-          : `<span class="fps-ready-text">Press <span class="fps-ready-key">F4</span> when ready</span>`;
+          : `<span class="fps-ready-text">Press <span class="fps-ready-key">${readyKey}</span> when ready</span>`;
 
       this.write(
         `player|${mgr.isReady}|${touch}`,

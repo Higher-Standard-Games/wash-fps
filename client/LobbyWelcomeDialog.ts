@@ -50,7 +50,10 @@ function bindings(action: string): HTMLElement {
   return root;
 }
 
+import { UINavigation } from "../../../engine/ui/navigation/UINavigation";
+
 export class LobbyWelcomeDialog {
+  private offNavigation: (() => void) | null = null;
   readonly root = el("div", "lobby-guide");
   private readonly card = el("section", "lobby-guide__card");
   private readonly panels: HTMLElement[] = [];
@@ -140,6 +143,12 @@ export class LobbyWelcomeDialog {
     this.card.append(header, tablist, content, this.saveStatus, footer);
     this.root.append(this.card);
     document.body.append(this.root);
+    this.offNavigation = UINavigation.getInstance().push({
+      root: this.root,
+      back: () => {
+        if (this.agreed) this.options.onClose();
+      },
+    });
     this.input.registerContext({ id: "fps_welcome", blocking: true, actions: [] });
     this.input.pushContext("fps_welcome");
     window.addEventListener("keydown", this.onKey, true);
@@ -297,6 +306,7 @@ export class LobbyWelcomeDialog {
   destroy(restoreFocus = true): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.offNavigation?.();
     window.removeEventListener("keydown", this.onKey, true);
     window.removeEventListener("keyup", this.onKeyUp, true);
     document.removeEventListener("focusin", this.onFocus, true);

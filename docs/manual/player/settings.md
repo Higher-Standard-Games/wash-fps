@@ -15,7 +15,7 @@ their default colors switches them to Cyan for your side and Orange for enemies,
 which stay apart for every kind of color blindness. A notice under the field
 says so and offers **Undo**. Colors you picked yourself are left alone.
 
-Press **Escape** in a match and pick **Settings**, or use the **Settings** key on the lobby's rail. The screen has four pages, and **preferences are saved as you change them**. If storage fails, a **Session only · could not save** notice explains that the changes work until the page is reloaded. Hovering a key or field with a hint shows it in the game's own tooltip. **Reset page** and **Reset all** ask once: press the key, then press it again within a few seconds to confirm.
+Press **Escape** in a match and pick **Settings**, or use the **Settings** key on the lobby's rail. The screen has five pages, and **preferences are saved as you change them**. If storage fails, a **Session only · could not save** notice explains that the changes work until the page is reloaded. Hovering a key or field with a hint shows it in the game's own tooltip. **Reset page** and **Reset all** ask once: press the key, then press it again within a few seconds to confirm.
 
 Over a match the **Video** page is locked with the notice **Video settings change in the lobby**; leave the match to change it. Fullscreen still works with **Alt+Enter**.
 
@@ -44,6 +44,61 @@ browser's own, that browser keeps a copy of its previous settings.
 
 Sliders apply immediately. Their saved values are combined until you release the
 slider, leave the page, or pause for 200 ms.
+
+## Controller
+
+Press a controller button on the loading screen to start in controller mode.
+Plugging one in, or moving a stick, does not select it. Starting with a click,
+Enter, or a touch keeps those controls. To change later, use **Settings →
+Controller → Use controller**, **Use keyboard / mouse**, or **Use touch** where
+touch is available. Controller mode stays selected while you type or move the
+mouse. A standard browser gamepad mapping is required; the page shows the
+detected device and explains when its mapping is unsupported.
+
+The existing menus work with **D-pad / left stick** to move the highlight,
+**A** to select, and **B** to go back. **Menu** pauses or resumes. Left/right
+adjusts a highlighted slider; **A** opens a dropdown, up/down changes its
+option, and **A/B** accepts/cancels. The right stick scrolls the selected
+control's scroll area. Text entry uses a physical or platform keyboard.
+
+Choose **Standard** or **Bumper jump**, or select an action and press its new
+button after releasing the controls. Select a button in the controller diagram
+to choose its action instead. Conflicts ask before replacing a mapping. **×**
+clears it. During press-to-bind, **B** can be assigned and **Menu** cancels.
+Menu navigation stays fixed even when gameplay buttons change.
+
+| Control | Standard | Bumper jump |
+| --- | --- | --- |
+| Left / right stick | Move / look | Same |
+| RT / LT | Fire / aim | Same |
+| A / B | Jump / crouch-slide | Previous weapon / crouch-slide |
+| X / Y | Use / reload | Same |
+| LB / RB | Previous / next weapon | Jump / next weapon |
+| LS click / RS click | Sprint-walk modifier / blade | Same |
+| D-pad left / right | Primary / secondary | Same |
+| D-pad up / down | Ready / join | Same |
+| View / Menu | Hold scoreboard / match menu | Same |
+
+**Stick feel** has sliders for horizontal/vertical turn speed, response curve,
+each stick's dead zone, and aiming sensitivity. Compact On/Off rows below the
+sliders control inversion, swapped sticks, and aim assist. Movement uses full
+speed outside its dead zone. With Always run on,
+hold LS to walk. Controller turning is independent of mouse sensitivity.
+The page shows live stick and trigger readings and highlights held buttons.
+The same dead zones determine when controls count as released after a menu or
+reconnection, so filtered stick drift does not prevent resuming. Back wins if
+pressed together with Select. Open dropdown lists close when their settings
+page closes or changes.
+Use D-pad or left-stick Up/Down to browse the pause menu, A to select, and B to
+go back. The main menu starts controller focus on its left rail. Entering a
+room starts on map voting, or Ready if a map is already selected.
+
+Controller mappings and personal look preferences follow your account. Dead
+zones stay on the device; the selected input mode lasts for this page session.
+**Reset page** on Controller leaves keyboard/mouse bindings alone, and resetting
+Controls leaves controller mappings alone. Disconnecting releases input and
+opens the match menu; reconnect, release the controls, and resume. The online
+match continues while its menu is open.
 
 ## Controls
 

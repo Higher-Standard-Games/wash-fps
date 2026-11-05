@@ -12,6 +12,8 @@
  * so live play and demo playback share this widget unchanged.
  */
 
+import { UINavigation } from "../../../../../engine/ui/navigation/UINavigation";
+
 export interface ChatMessage {
   sender: string;
   text: string;
@@ -24,6 +26,7 @@ export interface ChatMessage {
 }
 
 export class FPSChat {
+  private offNavigation: (() => void) | null = null;
   private container: HTMLElement;
   private logEl: HTMLElement;
   private inputWrap: HTMLElement;
@@ -215,12 +218,16 @@ export class FPSChat {
     this.rebuildLog();
     this.inputEl.value = "";
     this.inputEl.focus();
+    this.offNavigation?.();
+    this.offNavigation = UINavigation.getInstance().push({ root: this.inputWrap, back: () => this.closeInput() });
   }
 
   /**
    * Close talk mode: collapse back to the fading overlay.
    */
   public closeInput(): void {
+    this.offNavigation?.();
+    this.offNavigation = null;
     this.inputActive = false;
     this.container.classList.remove("fps-chat--history");
     this.inputWrap.classList.remove("fps-chat-input-wrap--active");
@@ -237,6 +244,7 @@ export class FPSChat {
   }
 
   public hide(): void {
+    if (this.inputActive) this.closeInput();
     this.container.style.display = "none";
   }
 
@@ -265,6 +273,7 @@ export class FPSChat {
   }
 
   public destroy(): void {
+    this.offNavigation?.();
     this.clearMutes();
     this.container.remove();
   }

@@ -5,6 +5,7 @@
  */
 
 import { deferPreferenceWrites, flushPreferenceWrites } from "../../../../engine/core/PreferenceStorage";
+import { UINavigation } from "../../../../engine/ui/navigation/UINavigation";
 import type { FrameCost } from "./SettingsModel";
 import { COST_WORD } from "./SettingsModel";
 
@@ -33,6 +34,13 @@ export interface SelectMenu {
   select(index: number): void;
 }
 
+const openMenus = new Map<HTMLElement, () => void>();
+
+/** Close body-mounted lists before their owning settings page is hidden or removed. */
+export function dismissSettingsMenus(owner: HTMLElement): void {
+  for (const [root, close] of openMenus) if (owner.contains(root)) close();
+}
+
 /**
  * A drop-down in the settings style, replacing the browser's own: a button that
  * opens its list right under it. The list is placed on the page body (cards clip
@@ -49,6 +57,7 @@ export function selectMenu(labels: readonly string[], ariaLabel: string, onPick:
   let current = 0;
   let list: HTMLUListElement | null = null;
   let active = 0;
+  let offNavigation: (() => void) | null = null;
 
   const highlight = (index: number) => {
     if (!list) return;
@@ -65,6 +74,9 @@ export function selectMenu(labels: readonly string[], ariaLabel: string, onPick:
     if (!list) return;
     list.remove();
     list = null;
+    openMenus.delete(root);
+    offNavigation?.();
+    offNavigation = null;
     root.setAttribute("aria-expanded", "false");
     root.removeAttribute("aria-activedescendant");
     document.removeEventListener("pointerdown", outside, true);
@@ -101,6 +113,17 @@ export function selectMenu(labels: readonly string[], ariaLabel: string, onPick:
       list?.append(option);
     });
     document.body.append(list);
+    openMenus.set(root, dismiss);
+    offNavigation = UINavigation.getInstance().push({
+      root: list,
+      intent: (intent) => {
+        if (intent === "down" || intent === "right") highlight(active + 1);
+        else if (intent === "up" || intent === "left") highlight(active - 1);
+        else if (intent === "confirm") pick(active);
+        else if (intent === "back") close(true);
+        return true;
+      },
+    });
     const rect = root.getBoundingClientRect();
     list.style.minWidth = `${rect.width}px`;
     list.style.left = `${rect.left}px`;

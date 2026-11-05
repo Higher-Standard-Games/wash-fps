@@ -57,7 +57,10 @@ export interface ProfileOptions {
   onClose?: () => void;
 }
 
+import { UINavigation } from "../../../engine/ui/navigation/UINavigation";
+
 export class ProfileView {
+  private offNavigation: (() => void) | null = null;
   readonly root: HTMLElement;
   private readonly client: LobbyClient;
   private readonly isInRoom: () => boolean;
@@ -131,6 +134,8 @@ export class ProfileView {
     this.closing = false;
     this.root.classList.remove("welcome--leaving");
     parent.appendChild(this.root);
+    this.offNavigation?.();
+    this.offNavigation = UINavigation.getInstance().push({ root: this.root, back: () => this.close() });
     this.opened = true;
     document.addEventListener("keydown", this.onKeyDown, true);
     widenFromRail(this.root);
@@ -144,6 +149,8 @@ export class ProfileView {
     this.hideKey();
     this.closing = true;
     this.opened = false;
+    this.offNavigation?.();
+    this.offNavigation = null;
     document.removeEventListener("keydown", this.onKeyDown, true);
     narrowOntoRail(this.root, () => {
       this.closing = false;
@@ -845,6 +852,7 @@ export class ProfileView {
   }
 
   destroy(): void {
+    this.offNavigation?.();
     this.recordSeq++;
     this.historySeq++;
     this.opened = false;

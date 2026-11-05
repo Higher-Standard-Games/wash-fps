@@ -9,6 +9,10 @@
  * added without a way out.
  */
 
+import { EventBus } from "../../../engine/core/EventBus";
+import { CONTROLLER_MATCH_INPUT, type ControllerMatchInput } from "./ControllerEvents";
+import { FPS } from "./FPSActions";
+
 export interface MatchInputActions {
   /** The local player's state; "spectator" means free spectating. */
   playerState(): string;
@@ -35,6 +39,7 @@ export interface MatchInputActions {
 
 export class MatchInputBindings {
   private abort: AbortController | null = null;
+  private offController: (() => void) | null = null;
 
   /** Start listening on `target` (the document). Rebinding first unbinds. */
   bind(target: Pick<Document, "addEventListener" | "pointerLockElement">, actions: MatchInputActions): void {
@@ -42,6 +47,43 @@ export class MatchInputBindings {
     const abort = new AbortController();
     this.abort = abort;
     const options = { signal: abort.signal };
+    const scoreboard = { keyboard: false, gamepad: false };
+    const refreshScoreboard = () => {
+      if ((scoreboard.keyboard || scoreboard.gamepad) && !actions.menuOpen() && !actions.joinOverlayOpen())
+        actions.showScoreboard();
+      else actions.hideScoreboard();
+    };
+    window.addEventListener(
+      "blur",
+      () => {
+        scoreboard.keyboard = scoreboard.gamepad = false;
+        refreshScoreboard();
+      },
+      options,
+    );
+    this.offController = EventBus.on<ControllerMatchInput>(CONTROLLER_MATCH_INPUT, ({ action, held, pressed }) => {
+      if (action === FPS.SCOREBOARD) {
+        scoreboard.gamepad = held;
+        refreshScoreboard();
+      }
+      if (!pressed || actions.menuOpen()) return;
+      if (action === "menu") {
+        actions.openMatchMenu();
+        return;
+      }
+      if (action === FPS.JOIN_GAME && actions.playerState() === "spectator") actions.joinGame();
+      if (actions.playerState() !== "spectator" && !actions.isSpectatingTeammate()) return;
+      if (action === FPS.WEAPON_3 || action === FPS.WEAPON_NEXT) {
+        if (actions.isSpectatingTeammate()) actions.cycleTeammate(1);
+        else actions.nextSpectateTarget();
+      }
+      if (action === FPS.WEAPON_2 || action === FPS.WEAPON_PREV) {
+        if (actions.isSpectatingTeammate()) actions.cycleTeammate(-1);
+        else actions.prevSpectateTarget();
+      }
+      if (action === FPS.FIRE) actions.nextSpectateTarget();
+      if (action === FPS.JUMP && actions.isChasing()) actions.exitChaseCam();
+    });
 
     // ── Spectator cycling (arrows + Space) ──
     target.addEventListener(
@@ -140,7 +182,8 @@ export class MatchInputBindings {
         if (actions.menuOpen()) return;
         if (actions.joinOverlayOpen()) return;
         e.preventDefault();
-        actions.showScoreboard();
+        scoreboard.keyboard = true;
+        refreshScoreboard();
       },
       options,
     );
@@ -149,7 +192,8 @@ export class MatchInputBindings {
       (e: KeyboardEvent) => {
         if (e.code !== "Tab") return;
         e.preventDefault();
-        actions.hideScoreboard();
+        scoreboard.keyboard = false;
+        refreshScoreboard();
       },
       options,
     );
@@ -157,6 +201,8 @@ export class MatchInputBindings {
 
   /** Remove every listener bind() added. Safe to call when not bound. */
   unbind(): void {
+    this.offController?.();
+    this.offController = null;
     this.abort?.abort();
     this.abort = null;
   }

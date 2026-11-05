@@ -8,6 +8,7 @@
  */
 
 import { createRaisedKey } from "../../../engine/ui/components/RaisedKey";
+import { UINavigation } from "../../../engine/ui/navigation/UINavigation";
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import {
   currentIdentity,
@@ -24,6 +25,7 @@ import { buildIdentityFrame, identityScreen, narrowOntoRail } from "./IdentityFr
 import identityCSSRaw from "./styles/Identity.css?raw";
 
 export class WelcomeOverlay {
+  private offNavigation: (() => void) | null = null;
   readonly root: HTMLElement;
   private readonly onDone: () => void;
   private ghostEl!: HTMLElement;
@@ -161,6 +163,8 @@ export class WelcomeOverlay {
   /** Put the overlay on `parent` and ask the first question. */
   open(parent: HTMLElement): void {
     parent.appendChild(this.root);
+    this.offNavigation?.();
+    this.offNavigation = UINavigation.getInstance().push({ root: this.root, back: () => this.show("name") });
     this.show("name");
   }
 
@@ -203,10 +207,13 @@ export class WelcomeOverlay {
   private leave(): void {
     if (this.leaving) return;
     this.leaving = true;
+    this.offNavigation?.();
+    this.offNavigation = null;
     narrowOntoRail(this.root, this.onDone);
   }
 
   destroy(): void {
+    this.offNavigation?.();
     this.leaving = true;
     this.root.remove();
   }
