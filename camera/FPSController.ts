@@ -1528,6 +1528,7 @@ Cvar.register("cg_hitshake", 0, {
 
 // Debug bbox visualization cvar
 Cvar.register("cl_debugbbox", 0, {
+  developer: true,
   type: "int",
   min: 0,
   max: 1,
@@ -1535,6 +1536,7 @@ Cvar.register("cl_debugbbox", 0, {
 });
 
 Cvar.register("cl_debugbbox_offset", 100, {
+  developer: true,
   type: "float",
   min: 0,
   max: 500,
@@ -1543,6 +1545,7 @@ Cvar.register("cl_debugbbox_offset", 100, {
 
 // Debug player model visualization cvars
 Cvar.register("cl_debugplayer", 0, {
+  developer: true,
   type: "int",
   min: 0,
   max: 1,
@@ -1550,6 +1553,7 @@ Cvar.register("cl_debugplayer", 0, {
 });
 
 Cvar.register("cl_debugplayer_offset", 100, {
+  developer: true,
   type: "float",
   min: 0,
   max: 500,
@@ -1557,6 +1561,7 @@ Cvar.register("cl_debugplayer_offset", 100, {
 });
 
 Cvar.register("cl_debugplayer_scale", 36, {
+  developer: true,
   type: "float",
   min: 1,
   max: 200,
@@ -1564,6 +1569,7 @@ Cvar.register("cl_debugplayer_scale", 36, {
 });
 
 Cvar.register("cl_debugplayer_walk_speed", 50, {
+  developer: true,
   type: "float",
   min: 10,
   max: 1000,
@@ -1571,6 +1577,7 @@ Cvar.register("cl_debugplayer_walk_speed", 50, {
 });
 
 Cvar.register("cl_debugplayer_run_speed", 400, {
+  developer: true,
   type: "float",
   min: 10,
   max: 1000,

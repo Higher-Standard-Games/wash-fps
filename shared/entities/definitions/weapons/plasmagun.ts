@@ -32,7 +32,7 @@ export const PLASMAGUN: WeaponDef = {
   reloadModel: "clip",
   ammoType: "cells",
   maxAmmo: 150,
-  reloadTime: 1.3, // clip reload: 163 ticks @125Hz = 1.304s
+  reloadTime: 1.5,
   range: 1500,
   hitscan: false,
   fireMode: "auto",

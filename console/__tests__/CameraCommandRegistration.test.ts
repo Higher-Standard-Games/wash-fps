@@ -32,7 +32,7 @@ it("discovers the moved commands only in the game and preserves their responses"
   await registerFpsCommands();
   expect(registry.getDefinition("name")?.usage).toBe("name [newname]");
   expect(registry.getDefinition("spectator")?.usage).toBe("spectator [0|1]");
-  expect(registry.getDefinition("giveweapon")?.usage).toBe("giveweapon <weapon_id|all> [amount]");
+  expect(registry.getDefinition("giveweapon")?.usage).toBe("giveweapon <weapon_id|ammo_type> [amount]");
   expect(registry.getDefinition("spawn_pickable_entity")?.usage).toBe("spawn_pickable_entity <entity_id>");
 
   const cameras = CameraSystem.getInstance();
@@ -45,7 +45,7 @@ it("discovers the moved commands only in the game and preserves their responses"
   expect(switchCamera).toHaveBeenLastCalledWith("fps");
   await expect(registry.execute("spectator 1")).resolves.toBe("Spectator mode (freefly)");
   expect(switchCamera).toHaveBeenLastCalledWith("freefly");
-  await expect(registry.execute("giveweapon rlauncher")).resolves.toBe("Error: Must be in FPS mode");
+  await expect(registry.execute("giveweapon rlauncher")).resolves.toContain("requires developer mode");
 
   const scene = {} as Scene;
   const camera = { position: new Vector3(10, 20, 30), getDirection: () => new Vector3(0, 0, 1), getScene: () => scene };
@@ -55,6 +55,7 @@ it("discovers the moved commands only in the game and preserves their responses"
   const developer = Cvar.get("developer") ?? 0;
   expect((await registry.executeChecked("developer 1")).ok).toBe(true);
   try {
+    await expect(registry.execute("giveweapon rlauncher")).resolves.toBe("Error: Must be in FPS mode");
     await expect(registry.execute("spawn_pickable_entity rlauncher")).resolves.toContain("Spawned rlauncher");
   } finally {
     Cvar.set("developer", developer);

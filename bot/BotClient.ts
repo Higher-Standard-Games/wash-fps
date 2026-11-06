@@ -1,16 +1,8 @@
 /**
- * BotClient - Headless network client for a single bot
- *
- * Connects to a game server via WebSocket, receives snapshots,
- * runs BotBrain AI decisions, and sends input commands.
- *
- * Based on src/cli/headless-netclient.ts but with:
- * - BotBrain integration for AI decisions
- * - BotGameState for world perception
- * - Proper protocol flow (Join → JoinGame → Game Loop)
- * - Death/respawn handling
- * - Human-like input timing with configurable delay
- * - Team auto-balance on join
+ * Headless WebSocket client for a single bot.
+ * Each instance owns one connection attempt.
+ * Processes snapshots into AI decisions and sends paced input commands.
+ * Handles joining, team selection, death and respawn requests.
  */
 
 import { EventEmitter } from "node:events";
@@ -23,8 +15,6 @@ import { type BotReference, canonicalBotReference } from "../../../shared/rankin
 import { debugEnabled, debugLog } from "../server/DebugLog";
 import { BotAimController } from "./BotAimController";
 import { type BotBrain, type BotInput, travelYaw } from "./BotBrain";
-// HybridBrain is imported dynamically — requires @tensorflow/tfjs-node native addon
-// import { HybridBrain } from './HybridBrain';
 import { type BotDifficulty, type BotOptions, defaultBotChat, defaultGoalArbiterMode, InputButtons } from "./BotConfig";
 import type { BotEpisodeRecorder } from "./BotEpisodeRecorder";
 import { applyFriendlyFireSafety } from "./BotFireSafety";
@@ -73,6 +63,7 @@ export class BotClient extends EventEmitter {
   // Connection state
   private _state: BotClientState = "disconnected";
   private _ws: WebSocket | null = null;
+  private _canConnect = true;
 
   // Protocol state
   private _playerId: string = "";
@@ -249,8 +240,7 @@ export class BotClient extends EventEmitter {
   }
 
   /**
-   * Set the vision system (shared per map).
-   * Call after construction, before connect.
+   * Set map-specific vision and reset perception.
    */
   setVision(vision: BotVision | null): void {
     this._vision = vision ?? null;
@@ -278,7 +268,8 @@ export class BotClient extends EventEmitter {
   }
 
   /**
-   * Connect to a game server.
+   * Connect this fresh client to a game server once.
+   * A failed attempt also requires a fresh client for retry.
    * Returns a promise that resolves when connection is established
    * and the bot has joined the game.
    */
@@ -286,7 +277,11 @@ export class BotClient extends EventEmitter {
     if (this._state !== "disconnected") {
       throw new Error(`${this._logPrefix} Already connected (state: ${this._state})`);
     }
+    if (this._disposed || !this._canConnect) {
+      throw new Error(`${this._logPrefix} BotClient is single-use; create a fresh client to connect`);
+    }
 
+    this._canConnect = false;
     this._state = "connecting";
     this._admissionTicket = admissionTicket;
     this._snapshotReceiver.reset();
@@ -329,6 +324,7 @@ export class BotClient extends EventEmitter {
 
         this._ws.on("close", (code, _reason) => {
           clearTimeout(connectTimeout);
+          this._stopInputLoop();
           console.log(`${this._logPrefix} Disconnected: ${code}`);
           this._state = "disconnected";
           this.emit("disconnected", code);
@@ -340,6 +336,7 @@ export class BotClient extends EventEmitter {
 
         this._ws.on("error", (err) => {
           clearTimeout(connectTimeout);
+          this._stopInputLoop();
           console.error(`${this._logPrefix} Connection error:`, err.message);
           this._state = "disconnected";
           if (!settled) {
@@ -354,8 +351,9 @@ export class BotClient extends EventEmitter {
     });
   }
 
-  /** Disconnect from the server */
+  /** Disconnect and retire this client. */
   async disconnect(): Promise<void> {
+    this._canConnect = false;
     this._stopInputLoop();
     if (this._ws) {
       console.log(`${this._logPrefix} Disconnecting...`);
@@ -365,7 +363,7 @@ export class BotClient extends EventEmitter {
     this._state = "disconnected";
     this._snapshotReceiver.reset();
 
-    // Reset all mutable state for potential reuse
+    // Clear active session identifiers, input and perception state.
     this._playerId = "";
     this._entityId = "";
     this._sequence = 0;
@@ -381,7 +379,7 @@ export class BotClient extends EventEmitter {
     this._perception.reset();
   }
 
-  /** Update difficulty settings */
+  /** Disconnect and release brain resources once. */
   async dispose(): Promise<void> {
     if (this._disposed) return;
     this._disposed = true;

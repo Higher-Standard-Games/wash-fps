@@ -54,6 +54,7 @@ import { preloadFPSAudio } from "./FPSAudio";
 import type { FPSHud } from "./FPSHud";
 import { resetFPSMovementAudio } from "./FPSMovementAudio";
 import { FPSReloadAudio } from "./FPSReloadAudio";
+import { FPSVoltaicAudio } from "./FPSVoltaicAudio";
 import { preloadFPSWeapons } from "./FPSWeaponPreloader";
 import { type GameEventContext, handleServerStateUpdate, type ProjectileSyncState } from "./GameEvents";
 import { GibSystem } from "./GibSystem";
@@ -98,6 +99,7 @@ export class DemoService {
   private demoHud: DemoViewerHUD | null = null;
   private readonly demoEventTimeline = new DemoEventTimeline();
   private readonly demoReloadAudio = new FPSReloadAudio();
+  private readonly demoVoltaicAudio = new FPSVoltaicAudio();
   private readonly demoOverlays = new DemoOverlayController();
   private playbackRaf: number | null = null;
   private lastFrameTimeMs: number = 0;
@@ -610,6 +612,7 @@ export class DemoService {
     this.demoHud = null;
     this.demoEventTimeline.clear();
     this.demoReloadAudio.reset();
+    this.demoVoltaicAudio.reset();
     this.demoGibs?.dispose();
     this.demoRagdolls?.dispose();
     this.demoRagdolls = null;
@@ -1314,6 +1317,8 @@ export class DemoService {
       playback: "demo",
       presentOneShots: true,
       reloadAudio: this.demoReloadAudio,
+      voltaicAudio: this.demoVoltaicAudio,
+      audioTickRate: this.activeDemoViewer?.getInfo().header?.tickRate ?? 60,
       damageNumbers: this.demoDamageNumbers ?? undefined,
       v2Client: null,
       remoteRenderer: this.remoteRenderer,
@@ -1350,9 +1355,11 @@ export class DemoService {
     const tickRate = playback.header?.tickRate ?? 60;
     const discontinuous = this.demoEventTimeline.setClock(playback.playheadTick, tickRate, playback.discontinuityId);
     this.demoEffectSeconds = playback.playheadTick / (tickRate > 0 ? tickRate : 60);
+    this.demoVoltaicAudio.setPlayback(playback.state === "playing", playback.playbackSpeed);
 
     if (discontinuous) {
       this.demoReloadAudio.reset();
+      this.demoVoltaicAudio.reset();
       resetFPSMovementAudio();
       clearDemoWorldEffects();
       this.demoGibs?.clear();

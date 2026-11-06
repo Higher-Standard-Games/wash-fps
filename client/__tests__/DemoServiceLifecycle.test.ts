@@ -50,7 +50,12 @@ vi.mock("../../../../engine/weapon/WeaponViewManager", () => {
 import { AudioManager } from "../../../../engine/AudioManager";
 import { EventBus } from "../../../../engine/core/EventBus";
 import type { SnapshotBuffer } from "../../../../engine/network/client/SnapshotBuffer";
+import { TransformComponent } from "../../../../engine/network/components/TransformComponent";
+import { Entity } from "../../../../shared/net/Entity";
+import { GameState } from "../../../../shared/net/GameState";
 import { DemoService } from "../DemoService";
+import type { DemoViewerInfo } from "../DemoViewer";
+import type { FPSVoltaicAudio } from "../FPSVoltaicAudio";
 
 interface DisposableSpy {
   dispose: ReturnType<typeof vi.fn>;
@@ -137,6 +142,59 @@ function seedPlayback(
 
 describe("DemoService playback lifecycle", () => {
   const service = DemoService.getInstance();
+
+  it("stops an active Voltaic on demo pause, seek and playback teardown", async () => {
+    const audio = AudioManager.getInstance();
+    const loops = Array.from({ length: 3 }, () => ({ stop: vi.fn() }));
+    const playLoop = vi.spyOn(audio, "playLoop3D");
+    for (const loop of loops) playLoop.mockResolvedValueOnce(loop);
+    const cue = vi.spyOn(audio, "playSfx2D").mockImplementation(() => {});
+    const internals = service as unknown as {
+      demoVoltaicAudio: FPSVoltaicAudio;
+      _syncDemoPresentationClock(info: DemoViewerInfo): boolean;
+    };
+    const clock: DemoViewerInfo = {
+      state: "playing",
+      header: null,
+      currentFrame: 0,
+      totalFrames: 100,
+      currentTick: 100,
+      playheadTick: 100,
+      durationMs: 10000,
+      elapsedMs: 0,
+      playbackSpeed: 1,
+      discontinuityId: 0,
+      skippedFrames: 0,
+    };
+    const state = new GameState();
+    const entity = new Entity("beam");
+    entity.addComponent("transform", new TransformComponent());
+    state.entities.set(entity.id, entity);
+    state.events = [{ type: "weapon_fire", entityId: entity.id, weaponId: "voltaic" }];
+    try {
+      for (let index = 0; index < 3; index++) {
+        clock.state = "playing";
+        internals._syncDemoPresentationClock(clock);
+        state.tick = clock.playheadTick;
+        internals.demoVoltaicAudio.present(state, entity.id);
+        await Promise.resolve();
+        expect(loops[index].stop).not.toHaveBeenCalled();
+        if (index === 0) {
+          clock.state = "paused";
+          internals._syncDemoPresentationClock(clock);
+        } else if (index === 1) {
+          clock.playheadTick = 50;
+          clock.discontinuityId++;
+          internals._syncDemoPresentationClock(clock);
+        } else service.stopAll();
+        expect(loops[index].stop).toHaveBeenCalledOnce();
+      }
+    } finally {
+      internals.demoVoltaicAudio.reset();
+      playLoop.mockRestore();
+      cue.mockRestore();
+    }
+  });
 
   it("accepts earlier projectile ticks after stopping or seeking backward", () => {
     const internals = service as unknown as {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PickupEntry } from "../../shared/bsp/PickupTable";
 import { BotGameState } from "../BotGameState";
-import { collectItemGoals, MAX_ITEM_CANDIDATES } from "../goals/ItemGoalSource";
+import { collectItemGoals, MAX_ITEM_CANDIDATES, respawnTickOf } from "../goals/ItemGoalSource";
 
 function entry(id: number, classname: string, type: PickupEntry["type"], kind: string, x: number): PickupEntry {
   return { id, classname, type, kind, position: { x, y: 0, z: 0 } };
@@ -52,6 +52,14 @@ describe("item timing", () => {
     state.tick = tick;
     return state;
   }
+
+  it.each(["constructor", "__proto__", "toString"])(
+    "assigns a finite respawn deadline to an unknown powerup kind: %s",
+    (kind) => {
+      const pickup = entry(0, "item_unknown", "powerup", kind, 400);
+      expect(respawnTickOf(takenAt1000(2000), pickup)).toBe(16000);
+    },
+  );
 
   it("offers a taken major item with the tick it returns, when timing", () => {
     const goals = collectItemGoals(takenAt1000(2000), {

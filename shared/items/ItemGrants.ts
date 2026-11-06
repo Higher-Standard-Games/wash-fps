@@ -1,22 +1,13 @@
 /**
- * ItemGrants — pure functions for armor/health pickup math.
+ * Pure armor and health pickup calculations used by PickupSystem.
  *
- * Server-authoritative (PickupSystem calls these), but kept pure and engine-free
- * so they're trivially unit-testable and shared. See the design discussion in
- * docs/research/SERVER_AUTHORITATIVE_PICKUPS.md.
+ * Armor is a 0..100 pool with 25-point plate boundaries. Each inserted plate
+ * advances armor to the next boundary: green inserts one (58 → 75), yellow
+ * inserts two (58 → 100), and red fills to 100. Shards add 5 directly.
  *
- * ARMOR (CoD-style plate model masked behind Quake armor names):
- *   One 0..100 pool (4 plates × 25). Damage depletes it continuously (so it
- *   lands on fractional values); plates only matter at PICKUP time. A "plate"
- *   tops the current partial plate up to its 25-boundary (CoD plate insertion),
- *   so e.g. 58 + green(1 plate) → 75, not 83.
- *     shard → +5 flat   ga → +1 plate   ya → +2 plates   ra → fill (4 plates)
- *
- * HEALTH (Warsow amounts):
- *   medium +25, large +50 — capped at 100, so they stay on the map until the
- *   player is hurt.
- *   small +5, mega/ultra +100 — overheal to 200, then decay 1 HP/s back toward
- *   100. A small bubble is therefore taken at full health too.
+ * Medium health adds 25 and large adds 50, capped at 100. Small health adds 5;
+ * mega and ultra add 100, capped at 200. PickupSystem applies increases only
+ * and decays health above 100 by 1 HP per second.
  */
 
 export const ARMOR_MAX = 100;
@@ -43,14 +34,14 @@ export function armorAfterPickup(current: number, kind: ArmorKind): number {
     return Math.min(ARMOR_MAX, current + 5);
   }
   const plates = ARMOR_PLATES[kind];
-  // Insert N plates: round the current partial plate up to its boundary, +N plates.
+  // Add the pickup's plate count to the number of complete plates.
   const filledPlates = Math.floor(current / ARMOR_PLATE);
   return Math.min(ARMOR_MAX, (filledPlates + plates) * ARMOR_PLATE);
 }
 
 /** Health amount added by each health kind. */
 const HEALTH_AMOUNT: Record<HealthKind, number> = {
-  small: 5, // Warsow bubble
+  small: 5,
   medium: 25,
   large: 50,
   mega: 100,

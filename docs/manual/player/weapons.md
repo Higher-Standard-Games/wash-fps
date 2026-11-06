@@ -7,6 +7,9 @@ and a followed player's weapon use first-person audio; other players' reloads
 come from their position. Repeated snapshots do not repeat the cue, and seeking
 a demo does not replay an already-running reload.
 
+Machinegun, Riotgun, Plasma and Voltaic magazines all reload in **1.5 seconds**
+(188 server ticks, or 1.504 seconds at 125 Hz). Pool-ammo weapons do not reload.
+
 ## At a Glance
 
 | # | Weapon | Tag | Damage | Fire rate | Ammo (reload) | Notes |
@@ -101,13 +104,18 @@ The pressure tool. Hose down corridors, deny corners, finish off injured targets
 
 ## Slot 7 — Voltaic
 
-Chain-lightning beam — its own weapon, not just a re-skinned lasergun.
+Continuous hitscan beam with chain lightning.
+
+Holding fire plays a sustained hum with a short attack and release cue. The hum
+overlaps its sample edges to keep playback continuous. Quad
+uses a distinct hum. Your own weapon and a followed player's weapon use
+first-person audio; other players' beams are heard from their position.
 
 - **Damage** — 7 per tick (≈140 DPS on target).
 - **Fire rate** — 20 ticks/sec.
-- **Ammo** — `lasers` (120-round clip). Its **own pool** — the Voltaic no longer shares the plasmagun's `cells`, so carrying both does not mean fighting over one ammo bar.
+- **Ammo** — `lasers` (120-round clip), separate from Plasma's `cells` pool.
 - **Chain lightning** — the beam arcs from its primary hit to up to **2 nearby enemies** within 280 units, at 50% falloff per hop (100% → 50% → 25%). All players see the arcs. Superb in crowded rooms.
-- **Unstable hipfire** — fired from the hip the beam **wanders/bends** (`beamWanderDeg`, ~4°) — deliberately imprecise. **ADS (Mouse 2) locks it dead straight** (Warsow-LG feel). Aim down sights for range, spray from the hip up close.
+- **Unstable hipfire** — fired from the hip the beam **wanders/bends** (`beamWanderDeg`, ~4°). **ADS (Mouse 2) locks it straight**. Aim down sights for range, spray from the hip up close.
 
 Voltaic hits use 70% of the usual damage-based camera shake.
 

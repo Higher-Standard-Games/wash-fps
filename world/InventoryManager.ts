@@ -21,23 +21,22 @@ export type ServerAmmoState = number | WeaponAmmoState;
 export class InventoryManager {
   private weapons: Map<string, WeaponDef> = new Map();
   private slots: string[] = [];
-  private ammo: AmmoState = {};
+  private ammo: AmmoState;
   private currentWeaponId: string | null = null;
 
   // Limits
   private static readonly MAX_AMMO = 200; // Default fallback
-  public static readonly MAX_WEAPONS = 3; // COD-style: blade + 2 pickable
+  public static readonly MAX_WEAPONS = 3;
 
   constructor() {
-    // Initialize with default ammo types (optional)
-    this.ammo = {
+    this.ammo = Object.assign(Object.create(null) as AmmoState, {
       shells: 0,
       bullets: 0,
       rockets: 0,
       cells: 0,
       slugs: 0,
       grenades: 0,
-    };
+    });
   }
 
   /**
@@ -86,12 +85,13 @@ export class InventoryManager {
    * @returns amount actually added
    */
   public giveAmmo(ammoType: string, amount: number): number {
+    if (!Number.isSafeInteger(amount) || amount <= 0) return 0;
     const current = this.ammo[ammoType] || 0;
-    // Reserve is keyed by weapon id; other keys use the shared fallback cap.
+    // Registered weapon-ID keys use their reserve cap; other keys use the fallback cap.
     const def = EntityRegistry.getInstance().get<WeaponDef>(ammoType);
     const max = def?.type === EntityType.WEAPON && def.maxAmmo > 0 ? def.maxAmmo : InventoryManager.MAX_AMMO;
 
-    const added = Math.min(amount, max - current);
+    const added = Math.max(0, Math.min(amount, max - current));
     this.ammo[ammoType] = current + added;
 
     return added;
@@ -118,8 +118,7 @@ export class InventoryManager {
       }
     }
 
-    // Add weapons we don't have — use direct add instead of giveWeapon()
-    // to avoid client-side drop logic (server already handles drops)
+    // Add authoritative weapons without applying local capacity/drop logic.
     for (const weaponId of serverWeapons) {
       if (!this.weapons.has(weaponId)) {
         const def = EntityRegistry.getInstance().get<WeaponDef>(weaponId);
@@ -133,7 +132,7 @@ export class InventoryManager {
     // Reorder slots to match server order
     this.slots = serverWeapons.filter((w) => this.weapons.has(w));
 
-    // Sync ammo — server sends ammo keyed by weaponId, but client reserve uses ammoType
+    // Weapon-ID entries store totals; ammo-type entries store reserves or pool ammo.
     for (const [weaponId, rawAmmo] of Object.entries(serverAmmo)) {
       const def = this.weapons.get(weaponId);
       const ammo = this.normalizeServerAmmo(rawAmmo, def);
@@ -150,15 +149,13 @@ export class InventoryManager {
         this.ensureWeaponState(weaponId, def.clipSize);
         const state = this.weaponStates.get(weaponId);
         if (state) {
-          // Server has ammo but client clip is empty — refill clip
+          // Copy the authoritative clip count, including partial and empty clips.
           state.loadedAmmo = ammo.clip;
         }
       }
     }
 
-    // Always set current weapon from server (authoritative)
-    // Don't guard on weapons.has() — that caused infinite animation loops
-    // when the weapon def wasn't in the local map yet
+    // Preserve the authoritative selection even if its definition is not loaded.
     this.currentWeaponId = serverCurrentWeapon;
 
     // Compare against PREVIOUS weapon to detect changes
@@ -300,6 +297,4 @@ export class InventoryManager {
   public setAmmo(ammoType: string, amount: number): void {
     this.ammo[ammoType] = amount;
   }
-
-  // Directly consumes reserve ammo
 }

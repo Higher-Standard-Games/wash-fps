@@ -3,6 +3,8 @@ import type { WeaponStateEvent } from "../../../engine/network/core/SnapshotEven
 import { canonicalWeaponId, WEAPONS } from "../shared/entities/definitions/weapons/WeaponsTable";
 
 export const RELOAD_SOUND_PATH = "sounds/weapons/reload.ogg";
+// Match the shipped weapon-pickup cue's level; the reload sample has lower RMS.
+const RELOAD_VOLUME = 1.6;
 
 /** One cue per reload edge, shared by live play, spectators and recorded POVs. */
 export class FPSReloadAudio {
@@ -26,8 +28,8 @@ export class FPSReloadAudio {
       return;
 
     const audio = AudioManager.getInstance();
-    if (viewed) audio.playSfx2D(RELOAD_SOUND_PATH, 0.65, 2);
-    else if (position) audio.playSfx3D(RELOAD_SOUND_PATH, position, { volume: 0.65 });
+    if (viewed) audio.playSfx2D(RELOAD_SOUND_PATH, RELOAD_VOLUME, 2);
+    else if (position) audio.playSfx3D(RELOAD_SOUND_PATH, position, { volume: RELOAD_VOLUME });
   }
 
   prune(entityIds: Iterable<string>): void {

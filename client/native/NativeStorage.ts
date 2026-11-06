@@ -142,6 +142,7 @@ export interface NativeCvar {
   persist?: boolean;
   readonly?: boolean;
   cheat?: boolean;
+  developer?: boolean;
   hidden?: boolean;
 }
 
@@ -161,6 +162,7 @@ export function registerNativeCvars(declarations: unknown): number {
       persist: d.persist,
       readonly: d.readonly,
       cheat: d.cheat,
+      developer: d.developer,
       hidden: d.hidden,
     });
     added++;

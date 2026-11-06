@@ -18,6 +18,7 @@ import { Game } from "../../Game";
  */
 export default class WaterCommand extends Command {
   readonly definition: CommandDef = {
+    developer: true,
     name: "water",
     description: "Inspect liquid state at the camera and the player",
     usage: "water [sample|splash|ripple|render]",

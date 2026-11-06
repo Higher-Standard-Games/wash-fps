@@ -122,6 +122,7 @@ export function registerPlayerModelVisualCvars(): void {
     persist: true,
   });
   Cvar.register("cl_player_outline_proxy", 0, {
+    developer: true,
     type: "int",
     min: 0,
     max: 1,

@@ -103,10 +103,8 @@ describe("WeaponViewManager continuous beam routing", () => {
     expect(VOLTAIC.viewModel.modelPath).toBe(VOLTAIC.modelPath);
     expect(VOLTAIC.viewModel.viewModelFormat).toBe("glb");
     expect(VOLTAIC.viewModel.adsOffset).toEqual({ x: 0, y: -21, z: -5 });
-    // Voltaic runs its own quick beam reload (0.5s) — no longer tied to the
-    // Plasmagun value, so a full 120-cell clip isn't interrupted every ~3s.
-    expect(VOLTAIC.reloadTime).toBe(0.5);
-    expect(VOLTAIC.reloadTime).toBeLessThan(PLASMAGUN.reloadTime);
+    expect(VOLTAIC.reloadTime).toBe(1.5);
+    expect(VOLTAIC.reloadTime).toBe(PLASMAGUN.reloadTime);
   });
 
   it("projects the authored muzzle socket to the same pixel in the world camera", () => {

@@ -377,6 +377,9 @@ async function settle(hitboxes: Map<string, Hitbox>): Promise<void> {
 }
 
 async function record(): Promise<string[]> {
+  const developer = Cvar.getBool("developer");
+  Cvar.register("developer", 0);
+  Cvar.set("developer", 1);
   const engine = new NullEngine();
   const scene = new Scene(engine);
   world.scene = scene;
@@ -451,6 +454,7 @@ async function record(): Promise<string[]> {
   } finally {
     renderer.dispose();
     for (const [name, value] of cvars.reverse()) Cvar.set(name, value as never);
+    Cvar.set("developer", developer);
     now.mockRestore();
     for (const spy of quiet) spy.mockRestore();
     scene.dispose();

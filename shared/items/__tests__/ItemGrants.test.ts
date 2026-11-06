@@ -1,13 +1,11 @@
 /**
- * ItemGrants.test.ts — locks the armor plate-insertion rule, health caps,
- * and mega-health overheal decay. Pure math; see the design in
- * docs/research/SERVER_AUTHORITATIVE_PICKUPS.md.
+ * Armor plate boundaries, health pickup caps and overheal decay.
  */
 
 import { describe, expect, it } from "vitest";
 import { armorAfterPickup, decayOverheal, healthAfterPickup } from "../ItemGrants";
 
-describe("armorAfterPickup — plate insertion (CoD-style)", () => {
+describe("armorAfterPickup — plate boundaries", () => {
   it("shard adds a flat +5, capped at 100", () => {
     expect(armorAfterPickup(0, "shard")).toBe(5);
     expect(armorAfterPickup(58, "shard")).toBe(63);
@@ -17,7 +15,7 @@ describe("armorAfterPickup — plate insertion (CoD-style)", () => {
 
   it("green (1 plate) tops the current partial plate up to its 25-boundary", () => {
     expect(armorAfterPickup(0, "ga")).toBe(25);
-    expect(armorAfterPickup(58, "ga")).toBe(75); // the headline example
+    expect(armorAfterPickup(58, "ga")).toBe(75);
     expect(armorAfterPickup(50, "ga")).toBe(75);
     expect(armorAfterPickup(75, "ga")).toBe(100);
     expect(armorAfterPickup(99, "ga")).toBe(100);

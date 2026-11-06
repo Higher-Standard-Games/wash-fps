@@ -1,19 +1,7 @@
 /**
- * WeaponSystem headless harness / regressions.
- *
- * Covers two v0.9.16 weapon-overhaul correctness fixes:
- *
- *  F2 — single-ray hitscan pitch inversion. `fireHitscan` double-negated pitch
- *       (`const p = -pitch`, where `pitch` is already `-input.pitch`), so the
- *       machinegun/electrobolt damage ray had the opposite vertical sign
- *       to the tracer visual and every other fire path. Symptom: aiming up hit low.
- *
- *  F1 — fire cadence used `Math.floor(125 / fireRate)`, truncating so weapons whose
- *       rate doesn't divide 125 fired slightly fast. Now `round` (nearest tick),
- *       overridable per weapon via `fireIntervalTicks`.
- *
- * Uses a minimal duck-typed WorldState/entity stub — the only surface
- * WeaponSystem.update touches for hitscan is entitiesByType + transform/input/health.
+ * Headless weapon regressions for aim, cadence, reload, projectiles and damage.
+ * Minimal world/entity stubs exercise WeaponSystem.update; view-direction
+ * checks use a NullEngine scene.
  */
 
 import { FreeCamera } from "@babylonjs/core/Cameras/freeCamera";
@@ -163,7 +151,34 @@ describe("WeaponSystem — hitscan world occlusion (no shooting through floors/w
   });
 });
 
-describe("WeaponSystem - F3 reload models", () => {
+describe("WeaponSystem - reload models", () => {
+  it.each(["machinegun", "riotgun", "plasmagun", "voltaic"])(
+    "%s completes a magazine reload after 188 server ticks",
+    (weaponId) => {
+      const sys = new WeaponSystem();
+      sys.initializeWeaponFromLoadout(
+        1 as never,
+        { weapons: [weaponId], ammo: { [weaponId]: 200 }, health: 100, armor: 0 } as never,
+      );
+      const ammo = sys.getWeaponState(1 as never)!.ammo.get(weaponId)!;
+      ammo.clip = 0;
+      ammo.reserve = 5;
+      const shooter = makeShooter(0, 0);
+      shooter.input.buttons = RELOAD_BUTTON;
+      const world = makeState([shooter]);
+      sys.update(world as never, 1 / 125, 100 as never);
+      expect(sys.getWeaponState(1 as never)!.reloadEndTick).toBe(288);
+      shooter.input.buttons = FIRE_BUTTON;
+      sys.update(world as never, 1 / 125, 287 as never);
+      expect(sys.getWeaponState(1 as never)!.reloading).toBe(true);
+      expect(sys.getPendingFireEvents()).toHaveLength(0);
+      shooter.input.buttons = 0;
+      sys.update(world as never, 1 / 125, 288 as never);
+      expect(sys.getWeaponState(1 as never)!.reloading).toBe(false);
+      expect(ammo).toEqual({ clip: 5, reserve: 0 });
+    },
+  );
+
   it("clip weapons deduct from clip and manual reload moves reserve into the magazine", () => {
     const sys = new WeaponSystem();
     sys.initializeWeaponFromLoadout(1 as never, mgLoadout as never);

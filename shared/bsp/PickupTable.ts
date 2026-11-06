@@ -1,16 +1,7 @@
 /**
- * PickupTable — single source of truth for weapon-pickup identity.
- *
- * Both the server (PickupSystem) and the client (EntityManager) derive their
- * weapon-pickup list from the SAME BSP entity array via `extractWeaponPickups`,
- * so the per-pickup `id` is provably identical on both sides without any network
- * handshake. That id is the authoritative key used by the snapshot active-set
- * (see docs/research/SERVER_AUTHORITATIVE_PICKUPS.md).
- *
- * Previously the two sides assigned ids with separate parallel counters
- * (server: PickupSystem.setPickupItems, client: EntityManager.nextPickupId),
- * a fragile hand-maintained invariant that could drift and cause "ghost weapon"
- * desyncs.
+ * Shared pickup classification and deterministic ids for client and server.
+ * Entries are extracted in BSP entity order; their ids index the authoritative
+ * pickup active-set mask. Weapon-only extraction retains the full table's ids.
  */
 
 /** BSP weapon classname → game weapon id. Canonical map shared by client + server. */
@@ -21,7 +12,7 @@ export const CLASSNAME_TO_WEAPON: Record<string, string> = {
   weapon_rocketlauncher: "rlauncher",
   weapon_plasmagun: "plasmagun",
   weapon_voltaic: "voltaic",
-  weapon_lasergun: "voltaic", // Warsow compatibility classname
+  weapon_lasergun: "voltaic", // Map classname alias for the beam weapon.
   weapon_electrobolt: "electrobolt",
 };
 
@@ -38,36 +29,30 @@ interface PickupClassInfo {
 }
 
 const AMMO_CLASSNAMES: Record<string, PickupClassInfo> = {
-  // Warsow per-weapon ammo classnames — what every shipped map actually uses.
-  // (kind = the weapon's ammoType pool; see games/fps/shared/entities/definitions/weapons/*.)
+  // Weapon-specific ammo classnames; kind names the weapon's ammoType pool.
   ammo_machinegun: { type: "ammo", kind: "bullets", amount: 50 },
   ammo_riotgun: { type: "ammo", kind: "shells", amount: 10 },
   ammo_grenadelauncher: { type: "ammo", kind: "grenades", amount: 10 },
   ammo_rocketlauncher: { type: "ammo", kind: "rockets", amount: 10 },
   ammo_plasmagun: { type: "ammo", kind: "cells", amount: 50 },
-  // Lasers are the beam weapon's OWN pool — not shared with plasma cells.
+  // The beam weapon uses its own lasers pool, separate from plasma cells.
   ammo_lasergun: { type: "ammo", kind: "lasers", amount: 100 },
   ammo_electrobolt: { type: "ammo", kind: "bolts", amount: 10 },
-  // Legacy Quake-style names — a couple of old maps still use these.
+  // Ammo-pool classnames.
   ammo_bullets: { type: "ammo", kind: "bullets", amount: 50 },
   ammo_shells: { type: "ammo", kind: "shells", amount: 10 },
   ammo_rockets: { type: "ammo", kind: "rockets", amount: 10 },
-  // Quake's `cells` are plasma ammo; match the plasma box rather than the beam's.
+  // Cells feed the plasma ammo pool.
   ammo_cells: { type: "ammo", kind: "cells", amount: 50 },
   ammo_grenades: { type: "ammo", kind: "grenades", amount: 10 },
   ammo_bolts: { type: "ammo", kind: "bolts", amount: 10 },
   ammo_lasers: { type: "ammo", kind: "lasers", amount: 100 },
 };
 
-/**
- * Canonical map of every server-tracked pickup classname → {type, kind}.
- * Shared by client (visual spawn + id assignment) and server (tracking + grant).
- * Legacy Warsow/Quake armor & health classnames are mapped onto the unified
- * plate-armor and health systems (see ItemGrants.ts).
- */
-/** Every map weapon's classname: what a mode with kits leaves off the map. */
+/** Weapon classnames used by gametype pickup exclusions. */
 export const WEAPON_PICKUP_CLASSNAMES: readonly string[] = Object.keys(CLASSNAME_TO_WEAPON);
 
+/** Shared map from tracked pickup classnames to their types, kinds and amounts. */
 export const PICKUP_CLASSNAMES: Record<string, PickupClassInfo> = {
   // Weapons (kind = weapon id)
   ...Object.fromEntries(
@@ -78,22 +63,19 @@ export const PICKUP_CLASSNAMES: Record<string, PickupClassInfo> = {
   ),
   // Ammo (kind = ammo type)
   ...AMMO_CLASSNAMES,
-  // Armor (kind = ArmorKind) — Warsow classnames
+  // Armor (kind = ArmorKind)
   item_armor_shard: { type: "armor", kind: "shard" },
   item_armor_ga: { type: "armor", kind: "ga" },
   item_armor_ya: { type: "armor", kind: "ya" },
   item_armor_ra: { type: "armor", kind: "ra" },
-  // Health (kind = HealthKind) — Warsow classnames
+  // Health (kind = HealthKind)
   item_health_small: { type: "health", kind: "small" }, // +5 bubble
   item_health_medium: { type: "health", kind: "medium" }, // +25
-  item_health: { type: "health", kind: "medium" }, // bare Q3 default (+25) → medium
+  item_health: { type: "health", kind: "medium" }, // Alias for medium health.
   item_health_large: { type: "health", kind: "large" }, // +50
   item_health_mega: { type: "health", kind: "mega" },
   item_health_ultra: { type: "health", kind: "ultra" }, // alias → mega behavior
-  // Powerups (kind = PowerupKind). Every shipped map places exactly one
-  // item_quad; item_warshell / item_regen are present in map data but not yet
-  // implemented, so they stay untracked and invisible rather than spawning an
-  // item that does nothing when grabbed.
+  // Powerups (kind = PowerupKind). Unsupported powerups are omitted.
   item_quad: { type: "powerup", kind: "quad" },
 };
 
@@ -104,24 +86,22 @@ export interface PickupEntry {
   classname: string;
   /** Pickup type. */
   type: PickupType;
-  /** Game-specific kind: weapon id, ammo type, ArmorKind, or HealthKind. */
+  /** Game-specific kind: weapon id, ammo type, ArmorKind, HealthKind or PowerupKind. */
   kind: string;
   /** Ammo amount, only for type === "ammo". */
   amount?: number;
-  /** Babylon-space position (Q3 Y↔Z swapped), matching the BSP origin. */
+  /** Position in the game's Y-up coordinate system. */
   position: { x: number; y: number; z: number };
   /** Spawnflag 1: the map wants the item to hang where it is put, not drop to the floor. */
   suspended?: true;
 }
 
-/** Back-compat alias — weapon pickups are PickupEntry with type "weapon". */
+/** Weapon-oriented alias for the shared pickup entry shape. */
 export type WeaponPickupEntry = PickupEntry;
 
 /**
- * Extract the ordered list of ALL server-tracked pickups (weapons, armor,
- * health, ammo) from BSP entities. Iterates in BSP order, keeps only classnames in
- * PICKUP_CLASSNAMES, and assigns sequential ids. Deterministic: identical input
- * → identical output, so server and client agree on every pickup id.
+ * Extract tracked weapons, armor, health, ammo and powerups in BSP entity order.
+ * Only registered classnames with valid origins receive sequential pickup ids.
  */
 export function extractPickups(
   entities: Array<{ classname: string; properties: Record<string, string> }>,
@@ -130,14 +110,18 @@ export function extractPickups(
   let id = 0;
 
   for (const entity of entities) {
-    const info = PICKUP_CLASSNAMES[entity.classname];
+    const info: PickupClassInfo | undefined = Object.getOwnPropertyDescriptor(
+      PICKUP_CLASSNAMES,
+      entity.classname,
+    )?.value;
     if (!info) continue;
 
     const origin = entity.properties.origin;
     if (!origin) continue;
 
-    const [x, y, z] = origin.split(" ").map(Number);
-    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue;
+    const parts = origin.trim().split(/\s+/).map(Number);
+    if (parts.length !== 3 || parts.some((value) => !Number.isFinite(value))) continue;
+    const [x, y, z] = parts;
 
     const entry: PickupEntry = {
       id: id++,
@@ -145,7 +129,7 @@ export function extractPickups(
       type: info.type,
       kind: info.kind,
       amount: info.amount,
-      position: { x, y: z, z: y }, // Q3→Babylon coord swap
+      position: { x, y: z, z: y }, // Convert the BSP's Z-up origin to Y-up.
     };
     if ((Number(entity.properties.spawnflags) || 0) & 1) entry.suspended = true;
     out.push(entry);
@@ -155,9 +139,7 @@ export function extractPickups(
 }
 
 /**
- * Back-compat helper: extract only weapon pickups. Note ids are assigned over
- * the FULL pickup set (extractPickups) so they stay consistent with the active-
- * set mask once armor/health/ammo share the same id space.
+ * Return only weapons, retaining their ids from the full pickup table.
  */
 export function extractWeaponPickups(
   entities: Array<{ classname: string; properties: Record<string, string> }>,

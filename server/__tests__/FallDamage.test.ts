@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Cvar } from "../../../../engine/core/Cvar";
 import { MovementVars } from "../../../../engine/movement/MovementVars";
 import { InputButtons } from "../../../../engine/network/components/InputComponent";
 import { Simulation } from "../../../../engine/server/core/Simulation";
@@ -82,13 +83,19 @@ function makeFallSim(drop: number, buttons = 0, health = 100, armor = 0) {
   );
 }
 
+let developer = false;
 beforeEach(() => {
+  developer = Cvar.getBool("developer");
+  Cvar.register("developer", 0);
+  Cvar.set("developer", 1);
   vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
   MovementVars.getInstance().resetAll();
 });
 
 afterEach(() => {
+  MovementVars.getInstance().resetAll();
+  Cvar.set("developer", developer);
   vi.restoreAllMocks();
 });
 

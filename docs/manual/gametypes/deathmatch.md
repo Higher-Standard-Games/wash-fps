@@ -16,13 +16,17 @@ Free-for-all frag derby. Up to 16 players, everyone for themselves.
 | Post-game | 15 seconds on the result screen |
 | Self damage | Full |
 | Spawns | Furthest from other players |
-| Loadout | Blade only; everything else comes from the map |
+| Loadout | Blade + chosen primary + chosen secondary; changes apply at your next spawn |
 
 A kill is +1 frag. Killing yourself costs 1 frag. There are no teams, so there is no friendly fire; the scoreboard lists every player.
 
 ## Items
 
-Weapons respawn every 15 s, ammo 15 s, armor 25 s, health 20 s and mega health 60 s. Armor and mega health are absent for the first 15 seconds of a match. The Quad Damage is on the map. See [Pickups & Inventory](../player/pickups-and-inventory.md).
+Map weapons do not spawn; choose your kit through the HUD's loadout picker or
+`loadout <primary> <secondary>`. You spawn with no armor. See
+[Loadouts](../player/pickups-and-inventory.md#loadouts).
+
+Ammo respawns every 15 s, armor 25 s, health 20 s and mega health 60 s. Armor and mega health are absent for the first 15 seconds of a match. The Quad Damage is on the map. See [Pickups & Inventory](../player/pickups-and-inventory.md).
 
 ## Joining and spectating
 

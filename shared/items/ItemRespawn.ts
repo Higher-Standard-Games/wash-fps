@@ -1,13 +1,11 @@
 /**
- * When a taken pickup comes back. Shared so the server that runs the timers and
- * the bots that time items read the same numbers; a bot that times the Red
- * Armor from its own guess at the respawn would be early or late every time.
+ * Pickup respawn durations shared by server timers and bot item timing.
  */
 
 import type { PickupType } from "../bsp/PickupTable";
-import { POWERUP_RESPAWN_SECONDS, type PowerupKind } from "./Powerups";
+import { isPowerupKind, POWERUP_RESPAWN_SECONDS } from "./Powerups";
 
-/** Respawn times by item class, seconds. Weapons take the gametype's value instead. */
+/** Respawn times by item class, seconds. Callers can override the weapon duration. */
 export const ITEM_RESPAWN_SECONDS = {
   weapon: 15,
   ammo: 15,
@@ -33,7 +31,7 @@ export function itemRespawnSeconds(
     case "armor":
       return ITEM_RESPAWN_SECONDS.armor;
     case "powerup":
-      return POWERUP_RESPAWN_SECONDS[kind as PowerupKind] ?? 120;
+      return isPowerupKind(kind) ? POWERUP_RESPAWN_SECONDS[kind] : 120;
     default:
       return kind === "mega" || kind === "ultra" ? ITEM_RESPAWN_SECONDS.megaHealth : ITEM_RESPAWN_SECONDS.health;
   }

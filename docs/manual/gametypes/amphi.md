@@ -45,9 +45,9 @@ wins remain on the match score. Suicides cost one frag, as in normal deathmatch.
 
 ## The arena between rounds
 
-Pickups return on the standard timers within a round: weapons 15 s,
-armor 25 s, health 20 s, ammo 15 s, and mega health 60 s. The map's pickup
-state also resets for the next round.
+Map weapons do not spawn; players use their chosen kits. Other pickups return
+on the standard timers within a round: armor 25 s, health 20 s, ammo 15 s,
+and mega health 60 s. The map's pickup state also resets for the next round.
 
 ## Maps
 

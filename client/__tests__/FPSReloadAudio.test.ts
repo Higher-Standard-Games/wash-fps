@@ -27,7 +27,7 @@ describe("reload audio", () => {
     cues.observe(event(false), true);
     cues.observe(event(true), true);
     expect(audio.playSfx2D).toHaveBeenCalledTimes(2);
-    expect(audio.playSfx2D).toHaveBeenCalledWith(RELOAD_SOUND_PATH, 0.65, 2);
+    expect(audio.playSfx2D).toHaveBeenCalledWith(RELOAD_SOUND_PATH, 1.6, 2);
   });
 
   it("places other players' cues in the world and keeps the viewed POV in 2D", () => {
@@ -35,7 +35,7 @@ describe("reload audio", () => {
     const position = { x: 1, y: 2, z: 3 };
     cues.observe(event(true), false, position);
     cues.observe(event(true, "two"), true, position);
-    expect(audio.playSfx3D).toHaveBeenCalledWith(RELOAD_SOUND_PATH, position, { volume: 0.65 });
+    expect(audio.playSfx3D).toHaveBeenCalledWith(RELOAD_SOUND_PATH, position, { volume: 1.6 });
     expect(audio.playSfx2D).toHaveBeenCalledTimes(1);
   });
 

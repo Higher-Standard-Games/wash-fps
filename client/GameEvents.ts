@@ -97,6 +97,7 @@ import { devLog } from "./DevLog";
 import type { FollowedViewWeapon } from "./FollowedViewWeapon";
 import { playerVoiceForEntity } from "./FPSPlayerAudio";
 import type { FPSReloadAudio } from "./FPSReloadAudio";
+import type { FPSVoltaicAudio } from "./FPSVoltaicAudio";
 import type { GibSystem, PendingGibSpawn } from "./GibSystem";
 import {
   canAimWith,
@@ -141,6 +142,8 @@ export interface GameEventContext {
    */
   presentOneShots?: boolean;
   reloadAudio?: FPSReloadAudio;
+  voltaicAudio?: FPSVoltaicAudio;
+  audioTickRate?: number;
   /** Hit numbers on a clock of their own (a demo's); the shared ones otherwise. */
   damageNumbers?: { spawn(x: number, y: number, z: number, damage: number, hitLocation?: HitLocationName): void };
 
@@ -309,6 +312,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
   // person — their gun, their footsteps, their pain, their pickups — is what
   // the screen shows. What changes our own state stays on localEntityId.
   const viewEntityId = ctx.spectatingEntityId ?? localEntityId;
+  ctx.voltaicAudio?.present(state, viewEntityId, ctx.presentOneShots !== false, ctx.audioTickRate);
   let viewPlayerId: string | undefined;
   for (const [playerId, player] of state.players) {
     if (player.entityId === viewEntityId) viewPlayerId = playerId;
@@ -357,9 +361,10 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
           case "weapon_fire": {
             const localShooter = event.entityId === localEntityId;
             playWeaponFireSound(event, event.entityId === viewEntityId);
-            // Quad layers its own crack over your weapon on every shot — the
-            // running reminder that this shot hits four times as hard.
-            if (localShooter && isLocalPowerupActive("quad")) playPowerupFireSound();
+            // Voltaic uses its quad hum; other weapons layer a crack on each shot.
+            if (localShooter && canonicalWeaponId(event.weaponId) !== "voltaic" && isLocalPowerupActive("quad")) {
+              playPowerupFireSound();
+            }
             if (localShooter) {
               const wvm = getWeaponViewManager();
               const isProjectileFire = ctx._localCharging;

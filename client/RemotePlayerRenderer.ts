@@ -2332,6 +2332,7 @@ export class RemotePlayerRenderer {
 // ─── Cvar Registration ───────────────────────────────────────────
 
 Cvar.register("cl_remotehitbox", 0, {
+  developer: true,
   type: "int",
   min: 0,
   max: 1,
@@ -2347,6 +2348,7 @@ Cvar.register("cl_player_pose_hz", 30, {
 });
 
 Cvar.register("cl_animdebug", 0, {
+  developer: true,
   type: "int",
   min: 0,
   max: 1,

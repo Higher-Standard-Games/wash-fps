@@ -23,16 +23,14 @@ export const RIOTGUN: WeaponDef = {
   glowColor: { r: 1.0, g: 0.6, b: 0.2 },
 
   // Gameplay (server-authoritative)
-  // 5 damage per pellet × 18 pellets = 90 max damage. Pellet damage is rounded
-  // per hit (CombatSystem), so shaving the 100 down via fractional damage would
-  // not work — 4.5 rounds straight back to 5. Fewer pellets it is.
+  // 5 damage per pellet × 18 pellets = 90 maximum damage before falloff.
   damage: 5,
   fireRate: 1.25, // 800ms between shots
   clipSize: 8,
   reloadModel: "clip",
   ammoType: "shells",
   maxAmmo: 24,
-  reloadTime: 0.832,
+  reloadTime: 1.5,
   range: 8192,
   hitscan: true,
   hitscanType: "pellet",

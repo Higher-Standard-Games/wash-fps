@@ -32,13 +32,13 @@ The total ammo pool is shared across weapons of the same ammo type. Ammo pickups
 
 ### Armor — plate model {#armor-plate-model}
 
-Armor is **one 0–100 pool** presented as **four plates × 25** (Call-of-Duty style, masked behind the classic Quake armor names). Damage depletes the pool continuously (~66% of incoming damage is absorbed by armor); plates only matter at *pickup* time — inserting a plate tops your current partial plate up to its 25-boundary:
+Armor is **one 0–100 pool** presented as **four plates × 25**. Armor absorbs about 66% of incoming damage until depleted. At pickup time, each inserted plate advances armor to the next multiple of 25; all pickups cap armor at 100.
 
 | Pickup | Classname | Effect |
 |--------|-----------|--------|
 | Shard | `item_armor_shard` | +5 flat |
-| Green Armor | `item_armor_ga` | +1 plate (round up to the next 25, then +25) — e.g. 58 → 75 |
-| Yellow Armor | `item_armor_ya` | +2 plates |
+| Green Armor | `item_armor_ga` | Advance to the next multiple of 25 — e.g. 58 → 75 or 50 → 75 |
+| Yellow Armor | `item_armor_ya` | Advance by two plate boundaries — e.g. 58 → 100 or 25 → 75 |
 | Red Armor | `item_armor_ra` | fill to 100 |
 
 ### Health
@@ -83,7 +83,7 @@ Map-spawned pickups respawn on a per-type timer, the same in every gametype:
 Armor and mega/ultra health are also **absent for the first 15s of a match** so nobody grabs a power item off spawn. Dropped weapons do **not** respawn — they're one-and-done.
 
 ::: info Implementation note
-The weapon timer is set by the server launcher (`setPickupRespawnTime(15)` in the dedicated-server CLI) and overrides the 30 s each gametype declares in `getItemSpawnRules()`. The other timers are fixed defaults in `PickupSystem.ts`; the per-gametype ammo, armor, health and mega-health values in `getItemSpawnRules()` are not read today.
+The weapon timer is set by the server launcher (`setPickupRespawnTime(15)` in the dedicated-server CLI) and overrides the 30 s each gametype declares in `getItemSpawnRules()`. The other timers come from `ItemRespawn.ts`, with powerup respawn durations defined in `Powerups.ts`; server timers and bot item timing use this shared lookup. Unrecognized powerup kinds use a 120 s fallback. The per-gametype ammo, armor, health and mega-health values in `getItemSpawnRules()` are not read.
 :::
 
 A gametype can also change *when* items return (`respawnMode`):
@@ -118,21 +118,26 @@ Things worth knowing:
 `item_warshell` and `item_regen` exist in the map data and in the pk3 icon and
 sound banks, but are deliberately **not** implemented.
 
-## Loadouts (Search & Destroy)
+## Loadouts
 
-In [Search & Destroy](../gametypes/search-and-destroy.md) you do not start with
-just a blade — you spawn with a chosen kit of **blade + one primary + one
-secondary**, plus full spawn armor. Map items still spawn on top of that.
+In Search & Destroy, Amphi and FFA, you spawn with a chosen kit of
+**blade + one primary + one secondary**. Map weapons are excluded in these modes;
+ammo, health and armor pickups remain available.
 
-The choice applies from the **next** round. Pick it from the HUD's loadout
-picker during the freeze, or from the console:
+| Mode | Spawn armor | When a changed kit applies |
+| --- | ---: | --- |
+| [Search & Destroy](../gametypes/search-and-destroy.md) | 100 | Next round |
+| [Amphi](../gametypes/amphi.md) | 100 | Next round |
+| [FFA](../gametypes/deathmatch.md) | 0 | Next spawn |
+
+Your first choice supplies your initial kit. Later changes follow the timing
+above. Pick a kit from the HUD's loadout picker or from the console:
 
 ```
 loadout rlauncher machinegun
 ```
 
-Everywhere else, the spawn loadout is blade-only and the map is the whole
-economy.
+In Duel, you spawn with the blade and collect other weapons from the map.
 
 ## Server-Authoritative Active Set
 
@@ -143,16 +148,21 @@ Two properties fall out of this:
 - **Self-healing.** A dropped packet can't cause a "ghost weapon" (visible but ungrantable) — the next snapshot re-states the truth and the client converges.
 - **Provably matching ids.** Both server and client derive the pickup list and its ids from the *same* BSP entity table (`extractPickups` in this game's `shared/bsp/PickupTable.ts`), so pickup id N means the same object on both sides with no handshake. Unresolved ids fail *closed* (no phantom pickup) rather than guessing by position.
 
+Only registered pickup classnames with valid origins receive IDs. Unknown map
+entities are skipped and consume no pickup ID. An origin contains exactly three
+finite numbers separated by whitespace; surrounding or repeated whitespace is
+accepted. Malformed origins are skipped before IDs are assigned.
+
 ## Inventory API (for developers)
 
 `InventoryManager` lives at `src/games/fps/world/InventoryManager.ts` and is exposed on `FPSPlayer.inventory`. Notable methods:
 
 - `giveWeapon(weaponId)` — returns `{ acquired, dropped }`; if at capacity, drops the currently equipped weapon.
-- `removeWeapon(weaponId)` — manual remove.
-- `setCurrentWeapon(weaponId)` — switch equipped slot.
-- `giveAmmo(type, amount)` — adds to the type pool.
+- `dropWeapon(weaponId)` — remove a weapon and return its definition, or `null` if absent.
+- `equipWeapon(weaponId)` — select an owned weapon; returns whether selection succeeded. The caller handles the view model.
+- `giveAmmo(type, amount)` — returns the amount added, capped by the registered weapon ID's `maxAmmo` or the fallback limit of 200 for other keys. Invalid amounts add zero; positive grants do not reduce an existing count above the cap.
 - `setAmmo(type, amount)` — set absolute.
-- `getAmmo(type)` — current count for a type.
+- `getAmmoCount(type)` — current count for a type.
 - `getSlotCount()` — how many slots are filled.
 - `hasWeapon(weaponId)` — boolean.
 - `MAX_WEAPONS` (static) — 3 by design; see the comment in `InventoryManager.ts`.

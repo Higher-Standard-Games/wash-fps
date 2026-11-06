@@ -35,6 +35,25 @@ The lobby, the bot server and the game servers run on one machine and share a se
 
 ## Architecture
 
+Bot map loading uses the pk3 index in `public/data/` and `dist/data/` relative to
+the assembled root. Packages must contain the requested map. Missing maps or
+rejected published builds leave bot vision unavailable and log the loading error.
+Standalone BSP files are not a fallback for indexed loading.
+
+Bot map knowledge uses the same spawn-point extractor as the game server,
+including generic and team-tagged spawn entities. Whitespace-separated origins
+are accepted; nonfinite or incomplete positions are skipped. Maps with no usable
+spawns use the server's three fallback positions.
+
+Each `BotClient` owns one connection attempt. Retrying or rejoining creates a
+fresh client with the desired bot options. Failed attempts, disconnect and
+disposal consume the instance; a later `connect()` call is rejected before a
+socket is opened. The lobby retry loop already creates fresh clients. Map and
+navigation caches remain shared by `BotServer`.
+
+Each playing bot sends paced input through its own timer. An explicit
+disconnect, socket close or socket error stops that timer.
+
 | Component | Responsibility |
 |-----------|----------------|
 | `BotServer.ts` | Top-level orchestrator; manages a fleet of bot clients |

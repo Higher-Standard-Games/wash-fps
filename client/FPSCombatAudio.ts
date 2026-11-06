@@ -9,6 +9,7 @@ import type {
 import { canonicalWeaponId } from "../shared/entities/definitions/weapons/WeaponsTable";
 import { FPS_PLAYER_SOUND_PATHS, type PlayerVoiceSet, playerVoiceSet, playerVoiceSound } from "./FPSPlayerAudio";
 import { RELOAD_SOUND_PATH } from "./FPSReloadAudio";
+import { VOLTAIC_SOUNDS } from "./FPSVoltaicAudio";
 
 const weaponFireSounds: Readonly<Record<string, readonly string[]>> = {
   blade: ["sounds/weapons/blade_strike1.ogg", "sounds/weapons/blade_strike2.ogg", "sounds/weapons/blade_strike3.ogg"],
@@ -21,7 +22,7 @@ const weaponFireSounds: Readonly<Record<string, readonly string[]>> = {
     "sounds/weapons/plasmagun_strong2.ogg",
     "sounds/weapons/plasmagun_strong3.ogg",
   ],
-  voltaic: ["sounds/weapons/laser_strong_fire.ogg"],
+  voltaic: [VOLTAIC_SOUNDS.start],
   electrobolt: ["sounds/weapons/electrobolt_strong.ogg"],
 };
 
@@ -39,7 +40,7 @@ const projectileImpactSounds: Readonly<Record<string, readonly string[]>> = {
   rlauncher: ["sounds/weapons/rocket_strong_explosion.ogg"],
 };
 
-/** Plasma fire is quieter at range than the rest, as in Warsow. */
+/** Plasma fire fades faster with distance than the other weapons. */
 const fireAttenuation: Readonly<Record<string, number>> = { plasmagun: Attenuation.Idle };
 
 /** Explosions carry; small impacts fade quickly. */
@@ -73,6 +74,7 @@ export const FPS_COMBAT_SOUND_PATHS = [
     KILL_ECHO_SOUND,
     EMPTY_CLIP_SOUND,
     RELOAD_SOUND_PATH,
+    ...Object.values(VOLTAIC_SOUNDS),
   ]),
 ] as const;
 
@@ -112,6 +114,7 @@ export function playEmptyClipSound(): void {
 }
 
 export function playWeaponFireSound(event: WeaponFireEvent, localShooter: boolean): void {
+  if (canonicalWeaponId(event.weaponId) === "voltaic") return;
   const path = chooseVariant(getWeaponFireSounds(event.weaponId));
   if (!path) return;
 

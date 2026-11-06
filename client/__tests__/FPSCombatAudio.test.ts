@@ -25,6 +25,7 @@ import {
   playWeaponFireSound,
   preloadFPSCombatAudio,
 } from "../FPSCombatAudio";
+import { VOLTAIC_SOUNDS } from "../FPSVoltaicAudio";
 
 const fireEvent: WeaponFireEvent = {
   type: "weapon_fire",
@@ -96,6 +97,16 @@ describe("FPSCombatAudio", () => {
     expect(FPS_COMBAT_SOUND_PATHS).toContain(KILL_ECHO_SOUND);
     expect(FPS_COMBAT_SOUND_PATHS).toContain("sounds/misc/hit_0.wav");
     expect(FPS_COMBAT_SOUND_PATHS).toContain("sounds/players/bobot/pain100.ogg");
+    for (const path of Object.values(VOLTAIC_SOUNDS)) expect(FPS_COMBAT_SOUND_PATHS).toContain(path);
+  });
+
+  it("leaves Voltaic and its alias to the sustained voice owner", () => {
+    for (const weaponId of ["voltaic", "lasergun"]) {
+      playWeaponFireSound({ ...fireEvent, weaponId }, true);
+      playWeaponFireSound({ ...fireEvent, weaponId }, false);
+    }
+    expect(audio.playSfx2D).not.toHaveBeenCalled();
+    expect(audio.playSfx3D).not.toHaveBeenCalled();
   });
 
   it("keeps own weapon fire listener-relative and remote fire spatial, at the same level", () => {

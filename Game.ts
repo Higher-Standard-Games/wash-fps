@@ -2044,6 +2044,7 @@ export class Game {
         },
         isNetworkMode: this.isNetworkMode,
         reloadAudio: this.effects.reloadAudio,
+        voltaicAudio: this.effects.voltaicAudio,
         gameHost: this.gameHost,
         v2Client: this.v2Client,
         forgetLocalLiquid: () => {

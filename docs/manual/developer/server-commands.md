@@ -143,9 +143,9 @@ Registered by this game at boot (`console/commands/`), used from the in-game con
 |---------|--------------|
 | `connect <url>` / `disconnect` | Join or leave a game server; see [Connecting](../multiplayer/connecting.md) |
 | `demo`, `demolist`, `demoplay` | Load, list and play demos; see [Demos](../multiplayer/demos.md) |
-| `loadout <primary> <secondary>` | Pick your Search & Destroy or Amphi kit for the next round |
-| `water [sample\|splash\|ripple\|render]` | Inspect liquid state at the camera and the player |
-| `netsim <test\|spawn\|tick\|state\|input>` | Network simulation testing |
+| `loadout <primary> <secondary>` | Pick a kit: changes apply next round in Search & Destroy and Amphi, or next spawn in FFA |
+| `water [sample\|splash\|ripple\|render]` **dev** | Inspect liquid state at the camera and the player |
+| `netsim <test\|spawn\|tick\|state\|input>` **dev** | Network simulation testing |
 | `pickup_audit` | Audit client/server pickup active-set reconciliation |
 | `camera_audit` | Report what owns the camera and what is rolling the view |
 

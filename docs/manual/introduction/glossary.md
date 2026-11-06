@@ -16,7 +16,7 @@ Terms used across this manual.
 | **Frag** | A kill that scores. Killing yourself costs one |
 | **Freeze** | The pause before each round in Search & Destroy and Amphi, when you can pick a kit |
 | **Key (account key)** | The 24-character code that proves an account is yours. See [Lobby](../multiplayer/lobby.md#accounts) |
-| **Kit / loadout** | The blade plus a primary and a secondary weapon chosen for the next round |
+| **Kit / loadout** | The blade plus a chosen primary and secondary weapon; changes apply next round in Search & Destroy and Amphi, or next spawn in FFA |
 | **Lag compensation** | The server rewinding targets to what your client showed you when you fired |
 | **Mega health** | A +100 health pickup that overheals to 200 and then decays back to 100 |
 | **Overtime** | Extra time added when a Duel, or an Amphi round, is tied at the limit |

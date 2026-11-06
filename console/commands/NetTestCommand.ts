@@ -18,6 +18,7 @@ import { type FPSInputCommand, FPSSimulation } from "../../simulation/FPSSimulat
 
 export default class NetTestCommand extends Command {
   readonly definition: CommandDef = {
+    developer: true,
     name: "netsim",
     description: "Network simulation testing commands",
     usage: "netsim <test|spawn|tick|state|input>",

@@ -4,9 +4,8 @@
  * overlay, which is only loaded here and animates itself. Each is loaded on
  * first use and initialised once a scene exists.
  *
- * Moved out of Game.renderRemotePlayers unchanged. The systems are shared with
- * the event handlers through Game's event context (gibSystem, pendingGibSpawns,
- * ragdollSystem, cartoonHit), so those stay public.
+ * Systems and sustained weapon audio are shared with the event handlers
+ * through Game's event context.
  */
 
 import type { Scene } from "@babylonjs/core/scene";
@@ -15,11 +14,13 @@ import type { CartoonHitEffect } from "./CartoonHitEffect";
 import type { DamageNumbers } from "./DamageNumbers";
 import { devLog } from "./DevLog";
 import { FPSReloadAudio } from "./FPSReloadAudio";
+import { FPSVoltaicAudio } from "./FPSVoltaicAudio";
 import type { GibColor, GibSystem, PendingGibSpawn } from "./GibSystem";
 import type { RagdollSystem } from "./RagdollSystem";
 
 export class FrameEffects {
   readonly reloadAudio = new FPSReloadAudio();
+  readonly voltaicAudio = new FPSVoltaicAudio();
   gibSystem: GibSystem | null = null;
   private damageNumbersLoading = false;
   private gibSystemLoading = false; // true while import() is pending
@@ -41,13 +42,14 @@ export class FrameEffects {
    */
   clearWorld(): void {
     this.reloadAudio.reset();
+    this.voltaicAudio.reset();
     // Emptied in place: Game's event context holds this array
     this.pendingGibSpawns.length = 0;
     this.ragdollSystem?.disposeAll();
     this.gibSystem?.clear();
   }
 
-  /** Gib physics; Game runs this before the S&D bomb, as before. */
+  /** Gib physics; Game runs this before the S&D bomb. */
   updateGibs(dtSec: number): void {
     // Update gib physics (gravity, bouncing, tumble, fade)
     if (!this.gibSystem && !this.gibSystemLoading) {
@@ -152,7 +154,7 @@ export class FrameEffects {
         });
     }
 
-    // Update cartoon hit effects (Warsow-style POW! sprites)
+    // Update cartoon hit sprites.
     if (!this.cartoonHit && !this.cartoonHitLoading) {
       this.cartoonHitLoading = true;
       import("./CartoonHitEffect")

@@ -14,6 +14,24 @@ const ent = (classname: string, origin?: string): Ent => ({
 });
 
 describe("extractPickups", () => {
+  it.each(["constructor", "__proto__", "toString", "hasOwnProperty"])(
+    "ignores the unknown classname %s without consuming a pickup id",
+    (classname) => {
+      const entities = [
+        ent("item_health_medium", "0 0 0"),
+        ent(classname, "1 2 3"),
+        ent("weapon_rocketlauncher", "100 200 16"),
+        ent("item_quad", "10 20 30"),
+      ];
+      expect(extractPickups(entities).map((pickup) => [pickup.id, pickup.type, pickup.kind])).toEqual([
+        [0, "health", "medium"],
+        [1, "weapon", "rlauncher"],
+        [2, "powerup", "quad"],
+      ]);
+      expect(extractWeaponPickups(entities).map((pickup) => pickup.id)).toEqual([1]);
+    },
+  );
+
   it("keeps weapon/ammo/armor/health classnames in BSP order with one shared id space", () => {
     const out = extractPickups([
       ent("worldspawn"),
@@ -32,12 +50,31 @@ describe("extractPickups", () => {
     ]);
   });
 
-  it("applies the Q3->Babylon coordinate swap (origin 'x y z' -> {x, y:z, z:y})", () => {
+  it("converts a Z-up BSP origin to Y-up game coordinates", () => {
     const [rl] = extractPickups([ent("weapon_rocketlauncher", "100 200 16")]);
     expect(rl.position).toEqual({ x: 100, y: 16, z: 200 });
   });
 
-  it("maps Warsow ammo, armor, and health classnames to the right kinds", () => {
+  it.each(["100  200 16", " 100 200 16 ", "100\t200\t16", "100 \t200\n16"])(
+    "parses whitespace-separated pickup origins: %j",
+    (origin) => {
+      const pickups = extractPickups([ent("weapon_rocketlauncher", origin), ent("ammo_rockets", "120 220 16")]);
+      expect(pickups).toMatchObject([
+        { id: 0, kind: "rlauncher", position: { x: 100, y: 16, z: 200 } },
+        { id: 1, kind: "rockets", position: { x: 120, y: 16, z: 220 } },
+      ]);
+    },
+  );
+
+  it.each(["   ", "1 2", "1 2 3 4", "1 Infinity 3"])(
+    "skips malformed pickup origins without consuming an id: %j",
+    (origin) => {
+      const pickups = extractPickups([ent("item_health_medium", origin), ent("weapon_rocketlauncher", "100 200 16")]);
+      expect(pickups).toMatchObject([{ id: 0, kind: "rlauncher", position: { x: 100, y: 16, z: 200 } }]);
+    },
+  );
+
+  it("maps registered ammo, armor and health classnames to the right kinds", () => {
     const out = extractPickups([
       ent("ammo_rockets", "0 0 0"),
       ent("ammo_plasmagun", "0 0 0"),
@@ -60,7 +97,7 @@ describe("extractPickups", () => {
     ]);
   });
 
-  it("maps the Warsow per-weapon ammo classnames every shipped map uses", () => {
+  it("maps weapon-specific ammo classnames to their ammo pools", () => {
     const out = extractPickups([
       ent("ammo_machinegun", "0 0 0"),
       ent("ammo_riotgun", "0 0 0"),
@@ -136,7 +173,7 @@ describe("extractPickups", () => {
   });
 });
 
-describe("extractWeaponPickups (back-compat)", () => {
+describe("extractWeaponPickups", () => {
   it("returns only weapons but keeps ids from the full pickup id space", () => {
     const weapons = extractWeaponPickups([
       ent("item_armor_ga", "0 0 0"),
