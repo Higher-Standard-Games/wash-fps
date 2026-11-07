@@ -9,7 +9,7 @@ import type {
 import { canonicalWeaponId } from "../shared/entities/definitions/weapons/WeaponsTable";
 import { FPS_PLAYER_SOUND_PATHS, type PlayerVoiceSet, playerVoiceSet, playerVoiceSound } from "./FPSPlayerAudio";
 import { RELOAD_SOUND_PATH } from "./FPSReloadAudio";
-import { VOLTAIC_SOUNDS } from "./FPSVoltaicAudio";
+import { VOLTAIC_SOUNDS, voltaicLoopOptions } from "./FPSVoltaicAudio";
 
 const weaponFireSounds: Readonly<Record<string, readonly string[]>> = {
   blade: ["sounds/weapons/blade_strike1.ogg", "sounds/weapons/blade_strike2.ogg", "sounds/weapons/blade_strike3.ogg"],
@@ -97,7 +97,11 @@ export function getProjectileImpactSounds(defId: string): readonly string[] {
 
 /** Predecode the compact combat bank once the map's PK3 index is available. */
 export async function preloadFPSCombatAudio(): Promise<void> {
-  await AudioManager.getInstance().preloadSfx(FPS_COMBAT_SOUND_PATHS);
+  const audio = AudioManager.getInstance();
+  await Promise.all([
+    audio.preloadSfx(FPS_COMBAT_SOUND_PATHS),
+    ...[false, true].map((attack) => audio.preloadSfx([VOLTAIC_SOUNDS.start], voltaicLoopOptions(false, attack))),
+  ]);
 }
 
 /**

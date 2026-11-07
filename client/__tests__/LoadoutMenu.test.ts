@@ -117,7 +117,7 @@ describe("kit picker", () => {
   it("confirms the kit on screen", () => {
     const picker = new FPSLoadoutPicker("Amphi");
     const onConfirm = vi.fn();
-    picker.open(onConfirm, { primary: "voltaic", secondary: "plasmagun" }, { timing: "round" });
+    picker.open(onConfirm, { primary: "voltaic", secondary: "plasmagun" }, { timing: "respawn" });
     confirmKey()?.click();
     expect(onConfirm).toHaveBeenCalledWith({ primary: "voltaic", secondary: "plasmagun" });
     picker.destroy();

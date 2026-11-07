@@ -126,12 +126,13 @@ ammo, health and armor pickups remain available.
 
 | Mode | Spawn armor | When a changed kit applies |
 | --- | ---: | --- |
-| [Search & Destroy](../gametypes/search-and-destroy.md) | 100 | Next round |
-| [Amphi](../gametypes/amphi.md) | 100 | Next round |
+| [Search & Destroy](../gametypes/search-and-destroy.md) | 100 | Next spawn (at the next round) |
+| [Amphi](../gametypes/amphi.md) | 100 | Next spawn, including within the current round |
 | [FFA](../gametypes/deathmatch.md) | 0 | Next spawn |
 
-Your first choice supplies your initial kit. Later changes follow the timing
-above. Pick a kit from the HUD's loadout picker or from the console:
+Your first choice supplies your initial kit. Later changes apply on spawn and
+leave your live inventory unchanged. Pick a kit from the HUD's loadout picker or
+from the console:
 
 ```
 loadout rlauncher machinegun

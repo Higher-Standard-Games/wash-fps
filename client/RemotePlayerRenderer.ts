@@ -96,6 +96,7 @@ import {
   legacyTeamColor,
   sphereInFrustum,
 } from "./RemotePlayerLogic";
+import { SlideDust } from "./SlideDust";
 import { installTeamColorBridge } from "./TeamColorBridge";
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -671,6 +672,7 @@ export class RemotePlayerRenderer {
    * drops every hitbox missing from the (now empty) buffer on the next frame.
    */
   resetSession(): void {
+    SlideDust.reset(this.scene);
     this.snapshotBuffer.reset();
     this.deadEntities.clear();
     this.teams.clear();
@@ -791,6 +793,7 @@ export class RemotePlayerRenderer {
   /** Clean up all hitboxes and models */
   dispose(): void {
     this.disposed = true;
+    SlideDust.clear(this.scene);
     for (const spare of this.spareHitboxes.values()) spare.mesh.dispose();
     this.spareHitboxes.clear();
     if (this.localReflectionModel && this.modelManager) this.modelManager.disposeInstance(this.localReflectionModel);
@@ -1486,6 +1489,14 @@ export class RemotePlayerRenderer {
         ? this.demoTimeline.sample(entityId, this.demoPlayheadTick)
         : this.snapshotBuffer.sampleInFrame(entityId, this.frameSample);
       if (!interp) continue;
+      SlideDust.emit(
+        this.scene,
+        entityId,
+        interp,
+        interp.vx,
+        interp.vz,
+        interp.sliding && interp.grounded && !interp.waterLevel && !interp.onLadder,
+      );
 
       let hitbox = this.hitboxes.get(entityId);
 

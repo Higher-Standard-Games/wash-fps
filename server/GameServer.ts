@@ -1531,7 +1531,7 @@ export class GameServer {
    *
    * Server-authoritative in both directions: unknown weapon names are rejected
    * rather than defaulted, and the gametype decides when the choice takes
-   * effect — which for S&D is the next round, never this one.
+   * effect at the next spawn without changing the live inventory.
    */
   private handleSetLoadout(conn: ClientConnection, data: Uint8Array): void {
     const client = this.clients.get(conn.id);

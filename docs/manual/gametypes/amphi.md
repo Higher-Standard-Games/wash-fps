@@ -1,10 +1,10 @@
 # Amphi
 
-1v1 deathmatch, best of three rounds, with a kit you pick and live with.
+1v1 deathmatch, best of three rounds, with a chosen spawn kit.
 
 Where Duel is a ten-minute frag race over a whole map's item economy, Amphi
 plays three short deathmatch rounds in a small arena. Players respawn after
-kills and fight with a weapon set chosen before the round began.
+kills and receive their selected weapon set on each spawn.
 
 ## Rules
 
@@ -27,9 +27,9 @@ kills and fight with a weapon set chosen before the round began.
 Nobody is seated until they have chosen. Until both players have picked, both
 are spectators and the match stays in warmup.
 
-The round starts with the kit you chose. You respawn with that kit after a death.
-A choice made later takes effect at the **next** round, never in the current
-fight. The picker is the same one Search & Destroy uses during its freeze. See
+The round starts with the kit you chose. A changed selection applies on your
+**next spawn**, including a death and respawn within the current round. Changing
+the selection does not replace the weapons you are carrying while alive. See
 [HUD](../player/hud.md).
 
 ## How a round ends

@@ -62,6 +62,7 @@ import { currentClip, HUDState } from "./HUDState";
 import { MatchStateManager } from "./MatchStateManager";
 import { RagdollSystem } from "./RagdollSystem";
 import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
+import { SlideDust } from "./SlideDust";
 import { PlayerWeaponStates, storeSnapshotState } from "./SnapshotStateStore";
 import { WatchedDeathView } from "./WatchedDeathView";
 
@@ -1038,6 +1039,7 @@ export class DemoService {
     this._demoWvm?.setAmmoCount(currentClip(HUDState.getInstance()));
     applyCamera?.();
     this.remoteRenderer?.render();
+    SlideDust.flush(this.physicsScene?.scene);
     this._renderDemoProjectiles();
     this._updateCrosshair();
     if (this.activeCinematicPlayer) {
@@ -1358,6 +1360,7 @@ export class DemoService {
     this.demoVoltaicAudio.setPlayback(playback.state === "playing", playback.playbackSpeed);
 
     if (discontinuous) {
+      SlideDust.reset(this.physicsScene?.scene);
       this.demoReloadAudio.reset();
       this.demoVoltaicAudio.reset();
       resetFPSMovementAudio();
@@ -1378,6 +1381,7 @@ export class DemoService {
       // would teleport gibs through the floor. Cap the visual-effects step.
       const demoDeltaSeconds = Math.min(0.25, deltaTicks / (tickRate > 0 ? tickRate : 60));
       if (demoDeltaSeconds > 0) {
+        SlideDust.step(this.physicsScene?.scene, demoDeltaSeconds);
         this.demoGibs?.update(demoDeltaSeconds);
         this.demoRagdolls?.update(demoDeltaSeconds);
         this.stepDemoPhysics(demoDeltaSeconds);

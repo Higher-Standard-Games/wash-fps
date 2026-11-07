@@ -65,16 +65,20 @@ describe("Voltaic sustained audio", () => {
       owner.present(frame(tick, [shot(), weapon(tick)]), "one");
       await Promise.resolve();
     }
-    expect(audio.playSfx2D).toHaveBeenCalledExactlyOnceWith(VOLTAIC_SOUNDS.start, 0.9, 2);
+    expect(audio.playSfx2D).not.toHaveBeenCalled();
     expect(audio.playLoop3D).toHaveBeenCalledOnce();
-    expect(audio.playLoop3D.mock.calls[0].slice(0, 2)).toEqual([VOLTAIC_SOUNDS.hum, null]);
-    expect(audio.playLoop3D.mock.calls[0][2]).toMatchObject({ volume: 0.9, overlapSeconds: 0.1 });
+    expect(audio.playLoop3D.mock.calls[0].slice(0, 2)).toEqual([VOLTAIC_SOUNDS.start, null]);
+    expect(audio.playLoop3D.mock.calls[0][2]).toMatchObject({
+      volume: 0.9,
+      overlapSeconds: 0.03,
+      intro: { path: VOLTAIC_SOUNDS.start, holdSeconds: 0.12, fadeSeconds: 0.06 },
+    });
     owner.present(frame(132, [weapon(120)]), "one");
     expect(loops[0].stop).not.toHaveBeenCalled();
     owner.present(frame(136, [weapon(120)]), "one");
     owner.present(frame(140, [weapon(120)]), "one");
     expect(loops[0].stop).toHaveBeenCalledOnce();
-    expect(audio.playSfx2D).toHaveBeenCalledTimes(2);
+    expect(audio.playSfx2D).toHaveBeenCalledTimes(1);
     expect(audio.playSfx2D).toHaveBeenLastCalledWith(VOLTAIC_SOUNDS.stop, 0.9, 2);
   });
 
@@ -114,14 +118,14 @@ describe("Voltaic sustained audio", () => {
       "one",
     );
     expect(loops[0].stop).toHaveBeenCalledOnce();
-    expect(audio.playSfx2D).toHaveBeenCalledTimes(1);
+    expect(audio.playSfx2D).not.toHaveBeenCalled();
   });
 
   it("tracks independent moving spatial voices and relocates the viewed POV without another attack", async () => {
     owner.present(frame(100, [shot(), shot("two")], ["one", "two"]), "one");
     await Promise.resolve();
-    expect(audio.playSfx2D).toHaveBeenCalledTimes(1);
-    expect(audio.playSfx3D).toHaveBeenCalledTimes(1);
+    expect(audio.playSfx2D).not.toHaveBeenCalled();
+    expect(audio.playSfx3D).not.toHaveBeenCalled();
     expect(audio.playLoop3D.mock.calls[1][1]).toEqual({ x: 100, y: 2, z: 3 });
     owner.present(frame(104, [], ["one", "two"]), "one");
     expect(loops[1].setPosition).toHaveBeenLastCalledWith({ x: 104, y: 2, z: 3 });
@@ -131,23 +135,26 @@ describe("Voltaic sustained audio", () => {
     expect(loops[1].stop).toHaveBeenCalledOnce();
     expect(audio.playLoop3D.mock.calls[2][1]).toEqual({ x: 108, y: 2, z: 3 });
     expect(audio.playLoop3D.mock.calls[3][1]).toBeNull();
-    expect(audio.playSfx2D).toHaveBeenCalledTimes(1);
-    expect(audio.playSfx3D).toHaveBeenCalledTimes(1);
+    expect(audio.playSfx2D).not.toHaveBeenCalled();
+    expect(audio.playSfx3D).not.toHaveBeenCalled();
+    expect(audio.playLoop3D.mock.calls[2][2]).not.toHaveProperty("intro");
+    expect(audio.playLoop3D.mock.calls[3][2]).not.toHaveProperty("intro");
   });
 
-  it("uses the quad hum while the powerup is active, including weapon aliases", async () => {
+  it("raises the firing-body pitch during quad without replaying the attack", async () => {
     owner.present(
       frame(100, [shot("one", "lasergun"), { type: "powerup_state", entityId: "one", kind: "quad", seconds: 2 }]),
       "one",
     );
     await Promise.resolve();
-    expect(audio.playLoop3D.mock.calls[0][0]).toBe(VOLTAIC_SOUNDS.quadHum);
-    expect(audio.playLoop3D.mock.calls[0][2]).toMatchObject({ volume: 0.9, overlapSeconds: 0.05 });
+    expect(audio.playLoop3D.mock.calls[0][0]).toBe(VOLTAIC_SOUNDS.start);
+    expect(audio.playLoop3D.mock.calls[0][2]).toMatchObject({ volume: 0.9, overlapSeconds: 0.03, pitch: 150 });
     owner.present(frame(104), "one");
     await Promise.resolve();
     expect(loops[0].stop).toHaveBeenCalledOnce();
-    expect(audio.playLoop3D.mock.calls[1][0]).toBe(VOLTAIC_SOUNDS.hum);
-    expect(audio.playSfx2D).toHaveBeenCalledTimes(1);
+    expect(audio.playLoop3D.mock.calls[1][0]).toBe(VOLTAIC_SOUNDS.start);
+    expect(audio.playSfx2D).not.toHaveBeenCalled();
+    expect(audio.playLoop3D.mock.calls[1][2]).not.toHaveProperty("intro");
   });
 
   it("cancels a pending load on reset and rejects its late handle", async () => {

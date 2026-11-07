@@ -106,9 +106,9 @@ The pressure tool. Hose down corridors, deny corners, finish off injured targets
 
 Continuous hitscan beam with chain lightning.
 
-Holding fire plays a sustained hum with a short attack and release cue. The hum
-overlaps its sample edges to keep playback continuous. Quad
-uses a distinct hum. Your own weapon and a followed player's weapon use
+Holding fire blends the initial shot into a continuous firing sound, followed
+by a release cue when firing stops. Quad raises the firing sound's pitch.
+Your own weapon and a followed player's weapon use
 first-person audio; other players' beams are heard from their position.
 
 - **Damage** — 7 per tick (≈140 DPS on target).

@@ -24,8 +24,8 @@ export class Amphi extends BaseGametype {
   readonly maxPlayers = 2;
   readonly teamBased = true; // One player per side; the round score uses team scores.
 
-  /** Kits: a change waits for the next round. */
-  private loadouts = new PlayerLoadouts("round");
+  /** Kits are granted on spawn, including deaths within a round. */
+  private loadouts = new PlayerLoadouts();
   private playerTeams = new Map<PlayerId, TeamId>();
   private roundFrags = new Map<TeamId, number>();
   private roundLive = false;
@@ -41,7 +41,7 @@ export class Amphi extends BaseGametype {
       maxRespawnDelay: 4,
       selfDamage: 1,
       roundBased: true,
-      loadouts: "round",
+      loadouts: "respawn",
       roundRespawns: true,
       resetScoresEachRound: true,
       maxRounds: 3,
@@ -57,8 +57,6 @@ export class Amphi extends BaseGametype {
   }
 
   override setPlayerLoadout(playerId: PlayerId, choice: LoadoutChoice): boolean {
-    // The first choice arms the player's first spawn; later choices wait for
-    // the next round so a kit cannot be changed in the middle of a fight.
     this.loadouts.choose(playerId, choice);
     return true;
   }
@@ -73,7 +71,6 @@ export class Amphi extends BaseGametype {
   }
 
   override onRoundStart(_state: WorldState, _context: GametypeTickContext): void {
-    this.loadouts.startRound();
     this.roundFrags.clear();
     this.roundLive = false;
   }

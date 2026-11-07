@@ -19,29 +19,27 @@ const BOLT: LoadoutChoice = { primary: "electrobolt", secondary: "riotgun" };
 const weaponsOf = (kit: { weapons: string[] }) => kit.weapons;
 
 describe("player kits", () => {
-  it("arms a player's first choice at once", () => {
-    for (const mode of ["round", "respawn"] as const) {
-      const kits = new PlayerLoadouts(mode);
-      expect(kits.has(P)).toBe(false);
-      kits.choose(P, BOLT);
-      expect(kits.has(P)).toBe(true);
-      expect(weaponsOf(kits.spawnKit(P))).toEqual(["blade", "electrobolt", "riotgun"]);
-    }
-  });
-
-  it("holds a change for the next round in a round mode", () => {
-    const kits = new PlayerLoadouts("round");
-    kits.choose(P, ROCKET);
+  it("uses the first choice for the initial spawn", () => {
+    const kits = new PlayerLoadouts();
+    expect(kits.has(P)).toBe(false);
     kits.choose(P, BOLT);
-    expect(weaponsOf(kits.spawnKit(P))).toContain("rlauncher");
-    expect(kits.next(P)).toEqual(BOLT);
-    kits.startRound();
-    expect(weaponsOf(kits.spawnKit(P))).toContain("electrobolt");
+    expect(kits.has(P)).toBe(true);
+    expect(weaponsOf(kits.spawnKit(P))).toEqual(["blade", "electrobolt", "riotgun"]);
   });
 
-  it("applies a change at the next spawn in a respawning mode", () => {
-    const kits = new PlayerLoadouts("respawn");
+  it("keeps each player's selected kit independent", () => {
+    const kits = new PlayerLoadouts();
+    const other = 8 as PlayerId;
     kits.choose(P, ROCKET);
+    kits.choose(other, BOLT);
+    expect(weaponsOf(kits.spawnKit(P))).toContain("rlauncher");
+    expect(weaponsOf(kits.spawnKit(other))).toContain("electrobolt");
+  });
+
+  it("uses the latest selection at the next spawn", () => {
+    const kits = new PlayerLoadouts();
+    kits.choose(P, ROCKET);
+    expect(weaponsOf(kits.spawnKit(P))).toContain("rlauncher");
     kits.choose(P, BOLT);
     expect(kits.next(P)).toEqual(BOLT);
     expect(weaponsOf(kits.spawnKit(P))).toContain("electrobolt");
@@ -65,7 +63,7 @@ describe("player kits", () => {
   });
 
   it("forgets a player who leaves", () => {
-    const kits = new PlayerLoadouts("respawn");
+    const kits = new PlayerLoadouts();
     kits.choose(P, BOLT);
     kits.forget(P);
     expect(kits.has(P)).toBe(false);
@@ -90,7 +88,7 @@ describe("weapons on the map", () => {
     }
   });
 
-  it("covers every weapon classname, the Warsow lasergun alias included", () => {
+  it("covers every weapon classname, including the lasergun alias", () => {
     expect(WEAPON_PICKUP_CLASSNAMES).toEqual(expect.arrayContaining(["weapon_rocketlauncher", "weapon_lasergun"]));
   });
 });

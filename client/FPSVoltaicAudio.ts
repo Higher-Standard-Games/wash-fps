@@ -1,5 +1,5 @@
 import { AudioManager } from "../../../engine/AudioManager";
-import { Attenuation, type SfxLoop } from "../../../engine/audio/AudioV2Sfx";
+import { Attenuation, type LoopSfxPlayOptions, type SfxLoop } from "../../../engine/audio/AudioV2Sfx";
 import { background } from "../../../engine/core/AsyncErrors";
 import type { TransformComponent } from "../../../engine/network/components/TransformComponent";
 import type { SnapshotEvent, WeaponFireEvent, WeaponStateEvent } from "../../../engine/network/core/SnapshotEvent";
@@ -8,10 +8,19 @@ import { canonicalWeaponId } from "../shared/entities/definitions/weapons/Weapon
 
 export const VOLTAIC_SOUNDS = {
   start: "sounds/weapons/laser_strong_fire.ogg",
-  hum: "sounds/weapons/laser_strong_hum.ogg",
-  quadHum: "sounds/weapons/laser_strong_quad_hum.ogg",
   stop: "sounds/weapons/laser_strong_stop.ogg",
 } as const;
+
+export function voltaicLoopOptions(quad: boolean, attack: boolean): LoopSfxPlayOptions {
+  return {
+    volume: 0.9,
+    attenuation: Attenuation.Normal,
+    pitch: quad ? 150 : 0,
+    loopRegion: { startSeconds: 0.1, endSeconds: 0.25 },
+    overlapSeconds: 0.03,
+    ...(attack ? { intro: { path: VOLTAIC_SOUNDS.start, holdSeconds: 0.12, fadeSeconds: 0.06 } } : {}),
+  };
+}
 
 type Position = { x: number; y: number; z: number };
 interface Voice {
@@ -22,6 +31,7 @@ interface Voice {
   lastFireTick: number;
   cancellation: AbortController;
   loop: SfxLoop | null;
+  attack: boolean;
 }
 
 /** One sustained beam voice per shooter, refreshed by authoritative snapshots. */
@@ -68,8 +78,6 @@ export class FPSVoltaicAudio {
         continue;
       }
       const viewed = entityId === viewedEntityId;
-      // A single final shot still has an attack cue when it immediately starts a reload.
-      if (shot && !previous) this.cue(VOLTAIC_SOUNDS.start, viewed, position);
       const lastFireTick = Math.max(
         previous?.lastFireTick ?? -Infinity,
         shot ? state.tick : -Infinity,
@@ -80,6 +88,8 @@ export class FPSVoltaicAudio {
         state.tick < lastFireTick ||
         state.tick - lastFireTick > Math.ceil(tickRate * 0.12)
       ) {
+        // A final shot that immediately reloads still needs its attack cue.
+        if (shot && !previous) this.cue(VOLTAIC_SOUNDS.start, viewed, position);
         this.stop(entityId, true);
         continue;
       }
@@ -95,6 +105,7 @@ export class FPSVoltaicAudio {
           lastFireTick,
           cancellation: new AbortController(),
           loop: null,
+          attack: !previous,
         };
         this.voices.set(entityId, voice);
         background(this.startLoop(voice), "Voltaic audio");
@@ -115,9 +126,9 @@ export class FPSVoltaicAudio {
 
   private async startLoop(voice: Voice): Promise<void> {
     const loop = await AudioManager.getInstance().playLoop3D(
-      voice.quad ? VOLTAIC_SOUNDS.quadHum : VOLTAIC_SOUNDS.hum,
+      VOLTAIC_SOUNDS.start,
       voice.viewed ? null : voice.position,
-      { volume: 0.9, attenuation: Attenuation.Normal, overlapSeconds: voice.quad ? 0.05 : 0.1 },
+      voltaicLoopOptions(voice.quad, voice.attack),
       voice.cancellation.signal,
     );
     if (this.voices.get(voice.entityId) !== voice) {

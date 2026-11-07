@@ -17,6 +17,7 @@ import { FPSReloadAudio } from "./FPSReloadAudio";
 import { FPSVoltaicAudio } from "./FPSVoltaicAudio";
 import type { GibColor, GibSystem, PendingGibSpawn } from "./GibSystem";
 import type { RagdollSystem } from "./RagdollSystem";
+import { SlideDust } from "./SlideDust";
 
 export class FrameEffects {
   readonly reloadAudio = new FPSReloadAudio();
@@ -41,6 +42,7 @@ export class FrameEffects {
    * expire, and a ragdoll explodes into gibs, in the next one.
    */
   clearWorld(): void {
+    SlideDust.clear(this.scene());
     this.reloadAudio.reset();
     this.voltaicAudio.reset();
     // Emptied in place: Game's event context holds this array

@@ -11,6 +11,8 @@ const numbers = vi.hoisted(() => ({ prepareShaders: vi.fn(async () => {}), dispo
 const teleport = vi.hoisted(() => ({ prepare: vi.fn(async () => {}) }));
 const gibs = vi.hoisted(() => ({ prepareShaders: vi.fn(async () => {}), dispose: vi.fn() }));
 const lights = vi.hoisted(() => ({ init: vi.fn() }));
+const dust = vi.hoisted(() => ({ prepare: vi.fn(async () => {}) }));
+vi.mock("../SlideDust", () => ({ SlideDust: dust }));
 vi.mock("../../../../engine/weapon/WeaponViewManager", () => ({ getWeaponViewManager: () => view }));
 vi.mock("../../../../engine/weapon/ProjectileManager", () => ({ getProjectileManager: () => projectiles }));
 vi.mock("../../../../engine/weapon/HitscanEffects", () => ({ getHitscanEffects: () => hitscan }));
@@ -57,6 +59,7 @@ describe("map-load weapon preload", () => {
     expect(teleport.prepare).toHaveBeenCalledWith(scene, undefined);
     expect(gibs.prepareShaders).toHaveBeenCalledOnce();
     expect(gibs.dispose).toHaveBeenCalledOnce();
+    expect(dust.prepare).toHaveBeenCalledWith(scene, undefined);
   });
 
   it("reports its progress from none to all of its steps, in order", async () => {

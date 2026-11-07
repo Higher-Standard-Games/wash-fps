@@ -17,8 +17,8 @@ describe("kit modes, as the client hears them", () => {
   it("asks for a kit in S&D, Amphi and Deathmatch, while Duel and TDM join directly", () => {
     const match = MatchStateManager.getInstance();
     for (const [mode, timing] of [
-      [new SearchAndDestroy(), "round"],
-      [new Amphi(), "round"],
+      [new SearchAndDestroy(), "respawn"],
+      [new Amphi(), "respawn"],
       [new Deathmatch(), "respawn"],
       [new Duel(), null],
       [new TeamDeathmatch(), null],

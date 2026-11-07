@@ -1,5 +1,8 @@
 // @vitest-environment jsdom
 
+import { NullEngine } from "@babylonjs/core/Engines/nullEngine";
+import type { Mesh } from "@babylonjs/core/Meshes/mesh";
+import { Scene } from "@babylonjs/core/scene";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const lifecycle = vi.hoisted(() => {
@@ -56,6 +59,7 @@ import { GameState } from "../../../../shared/net/GameState";
 import { DemoService } from "../DemoService";
 import type { DemoViewerInfo } from "../DemoViewer";
 import type { FPSVoltaicAudio } from "../FPSVoltaicAudio";
+import { SlideDust } from "../SlideDust";
 
 interface DisposableSpy {
   dispose: ReturnType<typeof vi.fn>;
@@ -142,6 +146,66 @@ function seedPlayback(
 
 describe("DemoService playback lifecycle", () => {
   const service = DemoService.getInstance();
+
+  it("ages slide trails with playback, freezes on pause and clears them on seek", () => {
+    const engine = new NullEngine();
+    const scene = new Scene(engine);
+    const internals = service as unknown as {
+      physicsScene: { scene: Scene; wasEnabled: boolean } | null;
+      _syncDemoPresentationClock(info: DemoViewerInfo): boolean;
+    };
+    const clock: DemoViewerInfo = {
+      state: "playing",
+      header: null,
+      currentFrame: 0,
+      totalFrames: 100,
+      currentTick: 0,
+      playheadTick: 0,
+      durationMs: 10000,
+      elapsedMs: 0,
+      playbackSpeed: 1,
+      discontinuityId: 100,
+      skippedFrames: 0,
+    };
+    internals.physicsScene = { scene, wasEnabled: false };
+    try {
+      internals._syncDemoPresentationClock(clock);
+      SlideDust.emit(scene, "slider", { x: 0, y: 4, z: 0 }, 400, 0, true);
+      SlideDust.emit(scene, "slider", { x: 40, y: 4, z: 0 }, 400, 0, true);
+      clock.playheadTick = 6;
+      internals._syncDemoPresentationClock(clock);
+      SlideDust.flush(scene);
+      const mesh = scene.getMeshByName("slide-dust") as Mesh;
+      // Babylon's world-matrix getter caches snapshots across partial buffer uploads.
+      const uploadedMatrix = () =>
+        Array.from(
+          (
+            mesh as unknown as { _thinInstanceDataStorage: { matrixData: Float32Array } }
+          )._thinInstanceDataStorage.matrixData.subarray(0, 16),
+        );
+      const playing = uploadedMatrix();
+      expect(mesh.thinInstanceCount).toBe(2);
+      clock.state = "paused";
+      internals._syncDemoPresentationClock(clock);
+      SlideDust.flush(scene);
+      expect(uploadedMatrix()).toEqual(playing);
+      clock.state = "playing";
+      clock.playheadTick = 12;
+      internals._syncDemoPresentationClock(clock);
+      SlideDust.flush(scene);
+      expect(uploadedMatrix()).not.toEqual(playing);
+      clock.playheadTick = 0;
+      clock.discontinuityId++;
+      internals._syncDemoPresentationClock(clock);
+      expect(mesh.thinInstanceCount).toBe(1);
+      expect(mesh.isEnabled()).toBe(false);
+      expect(scene.meshes).toHaveLength(1);
+    } finally {
+      internals.physicsScene = null;
+      scene.dispose();
+      engine.dispose();
+    }
+  });
 
   it("stops an active Voltaic on demo pause, seek and playback teardown", async () => {
     const audio = AudioManager.getInstance();

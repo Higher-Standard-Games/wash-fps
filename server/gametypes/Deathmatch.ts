@@ -29,7 +29,7 @@ export class Deathmatch extends BaseGametype {
 
   private scores: Map<PlayerId, number> = new Map();
   /** Kits: a change applies at the player's next spawn. Spawn armor stays Deathmatch's own (none). */
-  private loadouts = new PlayerLoadouts("respawn", 0);
+  private loadouts = new PlayerLoadouts(0);
 
   // ========================================================================
   // Configuration

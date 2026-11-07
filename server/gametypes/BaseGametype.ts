@@ -125,17 +125,16 @@ export abstract class BaseGametype {
   /**
    * Weapons and ammo given to a player on spawn.
    *
-   * `playerId` is present for modes where the kit is the player's own choice
-   * (S&D). Modes with one kit for everyone ignore it, which is most of them.
+   * `playerId` identifies the selected kit in modes with player choices.
+   * Modes with a shared kit ignore it.
    */
   abstract getSpawnLoadout(playerId?: PlayerId): WeaponLoadout;
 
   /**
    * Remember a player's chosen spawn kit. Modes without loadouts ignore it.
    *
-   * Deliberately does not take effect immediately: a change made mid-round
-   * applies from the NEXT round, so nobody re-kits themselves out of a fight
-   * they are losing. Returns false if the mode has no loadouts to set.
+   * A selection applies at the next spawn without changing the live inventory.
+   * Returns false if the mode has no loadouts to set.
    */
   setPlayerLoadout(_playerId: PlayerId, _choice: LoadoutChoice): boolean {
     return false;
@@ -178,8 +177,8 @@ export abstract class BaseGametype {
    * A new round is starting, at the top of its freeze phase.
    *
    * Runs BEFORE the world reset and the respawns, so anything a mode wants to
-   * be true when players appear — which side attacks, where the bomb is, whose
-   * chosen loadout is now in force — must be settled here.
+   * be true when players appear — which side attacks and where the bomb is —
+   * must be settled here.
    */
   onRoundStart(_state: WorldState, _context: GametypeTickContext): void {
     // Default: no-op

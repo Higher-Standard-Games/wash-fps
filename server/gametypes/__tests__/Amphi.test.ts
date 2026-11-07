@@ -74,16 +74,18 @@ describe("Amphi", () => {
     expect(split.computeWinner(true)).toMatchObject({ kind: "team", id: "udon" });
   });
 
-  it("requires a chosen kit and applies changes only at the next round", () => {
+  it("requires a chosen kit and supplies the latest selection at the next spawn", () => {
     const mode = new Amphi();
     const rocket: LoadoutChoice = { primary: "rlauncher", secondary: "machinegun" };
     const bolt: LoadoutChoice = { primary: "electrobolt", secondary: "riotgun" };
     expect(mode.hasChosenLoadout(1 as never)).toBe(false);
     expect(mode.setPlayerLoadout(1 as never, rocket)).toBe(true);
     expect(mode.hasChosenLoadout(1 as never)).toBe(true);
-    expect(mode.getSpawnLoadout(1 as never).weapons).toContain("rlauncher");
+    const firstSpawn = mode.getSpawnLoadout(1 as never);
+    expect(firstSpawn.weapons).toContain("rlauncher");
     mode.setPlayerLoadout(1 as never, bolt);
-    expect(mode.getSpawnLoadout(1 as never).weapons).toContain("rlauncher");
+    expect(firstSpawn.weapons).toContain("rlauncher");
+    expect(mode.getSpawnLoadout(1 as never).weapons).toContain("electrobolt");
     mode.onRoundStart(world, context);
     expect(mode.getSpawnLoadout(1 as never).weapons).toContain("electrobolt");
     mode.onPlayerLeave(1 as never);

@@ -548,25 +548,22 @@ describe("loadouts", () => {
     expect(kit.armor).toBe(100);
   });
 
-  it("applies a player's FIRST choice at once", () => {
-    // They have no kit to re-kit and are not in the round yet. Making them sit
-    // out a round to correct a default nobody asked for would be perverse.
+  it("uses a player's first choice for the initial spawn", () => {
     const mode = loaded();
     mode.setPlayerLoadout(PLAYER, { primary: "electrobolt", secondary: "riotgun" });
     expect(mode.getSpawnLoadout(PLAYER).weapons).toEqual(["blade", "electrobolt", "riotgun"]);
     expect(mode.hasChosenLoadout(PLAYER)).toBe(true);
   });
 
-  it("does not change the kit a player already has this round", () => {
-    // The rule that makes this safe: re-kitting mid-round would turn a lost
-    // gunfight into a free retry.
+  it("supplies a changed selection for the next spawn without mutating an earlier kit", () => {
     const mode = loaded();
     mode.setPlayerLoadout(PLAYER, { primary: "voltaic", secondary: "machinegun" });
     startRound(mode, 2, "udon");
+    const firstSpawn = mode.getSpawnLoadout(PLAYER);
 
     mode.setPlayerLoadout(PLAYER, { primary: "electrobolt", secondary: "riotgun" });
-    expect(mode.getSpawnLoadout(PLAYER).weapons).not.toContain("electrobolt");
-    expect(mode.getSpawnLoadout(PLAYER).weapons).toContain("voltaic");
+    expect(firstSpawn.weapons).toEqual(["blade", "voltaic", "machinegun"]);
+    expect(mode.getSpawnLoadout(PLAYER).weapons).toEqual(["blade", "electrobolt", "riotgun"]);
   });
 
   it("applies a CHANGE at the start of the next round", () => {

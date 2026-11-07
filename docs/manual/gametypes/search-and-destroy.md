@@ -80,9 +80,10 @@ The bomb starts each round where the attackers spawn, dropped to the floor.
 
 ## Loadouts
 
-Search & Destroy is a loadout mode. You pick a kit; it applies from the **next**
-round, so the 10-second freeze is long enough for what you chose to be in your
-hands.
+Search & Destroy is a loadout mode. Your selected kit is granted at your **next
+spawn**. Dead players stay out of the current round and receive their new kit
+when the next round spawns them. Changing the selection does not replace a live
+player's weapons.
 
 Every kit is **blade + one primary + one secondary**:
 

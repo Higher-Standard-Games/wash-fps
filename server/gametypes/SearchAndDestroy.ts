@@ -222,8 +222,8 @@ export class SearchAndDestroy extends BaseGametype {
   private bombWorkerId: number | null = null;
   /** Site the attack is committed to. */
   private targetSiteId: number | null = null;
-  /** Kits: a change waits for the next round's rollover. */
-  private loadouts = new PlayerLoadouts("round");
+  /** A selected kit is granted on the next spawn. */
+  private loadouts = new PlayerLoadouts();
 
   // ========================================================================
   // Configuration
@@ -247,7 +247,7 @@ export class SearchAndDestroy extends BaseGametype {
       roundEndDuration: ROUND_END_SECONDS,
       teamSpawnProtection: TEAM_SPAWN_PROTECTION_SECONDS,
       roundBased: true,
-      loadouts: "round",
+      loadouts: "respawn",
       roundsPerHalf: ROUNDS_PER_HALF,
       leadRequired: LEAD_REQUIRED,
     };
@@ -266,17 +266,8 @@ export class SearchAndDestroy extends BaseGametype {
   }
 
   /**
-   * Remember a kit for the next round.
-   *
-   * Never for the current one, even if the player is dead: re-kitting mid-round
-   * turns a lost gunfight into a free retry, and a spectating teammate would be
-   * able to feed a live one a better weapon. Dead players changing loadout is
-   * exactly the intended use — they just wait for the round to turn over.
-   *
-   * The exception is a player's FIRST choice, which applies at once. They have
-   * no kit to re-kit and are not in the round yet, so "never mid-round" would
-   * only mean handing a joining player a default nobody asked for and making
-   * them sit out a round to correct it.
+   * Remember the next spawn kit. Live rounds do not respawn dead players;
+   * their selected kit is granted when the next round spawns them.
    */
   override setPlayerLoadout(playerId: PlayerId, choice: LoadoutChoice): boolean {
     this.loadouts.choose(playerId, choice);
@@ -415,11 +406,6 @@ export class SearchAndDestroy extends BaseGametype {
     this.collision?.brushModels?.reset();
     this.siteByDefender.clear();
     this.bomb.reset(this.bombSpawns.get(BETA_TEAM) ?? { x: 0, y: 0, z: 0 });
-
-    // A chosen kit takes effect here and nowhere else. Players respawn moments
-    // later in this same freeze, so promoting any later would arm them a round
-    // behind what they picked.
-    this.loadouts.startRound();
   }
 
   /**

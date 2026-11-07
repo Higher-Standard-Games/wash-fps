@@ -66,6 +66,7 @@ import { MatchPhase, MatchStateManager } from "./client/MatchStateManager";
 import { networkHostOf } from "./client/NetworkHostAccess";
 import { RemotePlayerRenderer } from "./client/RemotePlayerRenderer";
 import { ServerProjectiles } from "./client/ServerProjectiles";
+import { SlideDust } from "./client/SlideDust";
 import { PlayerWeaponStates, storeSnapshotState } from "./client/SnapshotStateStore";
 import { SpectateView } from "./client/SpectateView";
 import { installTooltips } from "./client/Tooltip";
@@ -965,12 +966,9 @@ export class Game {
   /**
    * Ask for a loadout before joining, in modes that have one.
    *
-   * Blocking on purpose. In S&D and Amphi the kit decides what you can do
-   * for a whole round with no respawn to correct it, so being dropped in
-   * holding a default nobody chose is worse than a moment spent choosing. The
-   * picker only appears where it means something: the server's gametype name
-   * identifies the mode even during warmup, when the objective intentionally is
-   * not published yet in S&D. Duel and FFA still join straight through.
+   * Kit modes collect an initial choice before sending JoinGame. The server's
+   * match state supplies the mode and timing, including during warmup.
+   * Modes without loadouts join directly.
    */
   async joinGame(teamId?: string): Promise<void> {
     // Explicit UI selection wins over the lobby handoff and is remembered for
@@ -1249,7 +1247,7 @@ export class Game {
    * Choose the spawn kit for modes that have one (S&D, Amphi, Deathmatch).
    *
    * Returns false when there is no server to tell. The choice is the server's
-   * to apply — it lands at the start of the next round, never this one.
+   * to apply at the next spawn; the current inventory is unchanged.
    */
   sendLoadout(primary: string, secondary: string): boolean {
     if (!this.gameHost || !this.isNetworkMode) return false;
@@ -1642,6 +1640,27 @@ export class Game {
 
     // Update gib physics (gravity, bouncing, tumble, fade)
     this.effects.updateGibs(dtSec);
+    const dustScene = CameraSystem.getInstance().getCamera()?.getScene();
+    const dustClient = this.v2Client;
+    if (dustScene && dustClient?.hasValidPosition()) {
+      const state = dustClient.getState();
+      const movement = dustClient.getMovementState();
+      SlideDust.emit(
+        dustScene,
+        "local",
+        dustClient.getVisualPosition(),
+        state.velocity.x,
+        state.velocity.z,
+        this.playerState === "playing" &&
+          !this._isPlayerDead &&
+          state.grounded &&
+          movement.isSliding &&
+          !movement.waterLevel &&
+          !movement.onLadder,
+      );
+    }
+    SlideDust.step(dustScene, dtSec);
+    SlideDust.flush(dustScene);
 
     // The S&D bomb. Lazily built once there is a scene, and a no-op in every
     // other mode — it hides itself when the objective snapshot has no bomb.

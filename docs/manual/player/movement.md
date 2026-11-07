@@ -75,6 +75,11 @@ releases and a brief retry delay prevents immediately catching the same spot.
 
 Run into a crouch to slide along the ground with a temporary speed bonus.
 
+Grounded slides leave small grey dust cubes in a narrow V-shaped wake. They stay
+along the route for about a second, drift outward and fade as they fall, so an exposed trail can briefly
+mark a slide around a corner. You can see your own trail and other players'
+trails nearby; walls still hide the dust. The effect is cosmetic.
+
 | Value | Default | Notes |
 |-------|---------|-------|
 | Duration | 800 ms | `slideDuration`; ends when this elapses or you cancel |

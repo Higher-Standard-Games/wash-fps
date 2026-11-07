@@ -54,8 +54,8 @@ comes up in the centre: **YOU GOT FRAGGED**, then a card with who fragged you an
 how — blown up, railed, melted, gunned down, cut down, telefragged — read from
 the damage the server reports, or nobody to blame for a fall or your own blast.
 Its bar counts down the three seconds of respawn protection and turns green when
-**fire** will respawn you. In a round mode there is no countdown: you are out
-until the next round.
+**fire** will respawn you. In Search & Destroy you stay out until the next round;
+Amphi allows respawns during the live round.
 
 ## Ammo Counter (bottom-right)
 
@@ -246,7 +246,7 @@ them.
 | **Arm / defuse bar** | Belongs to whoever is currently working the bomb, attacker or defender |
 | **Bomb site markers** | The two sites, marked in the world |
 | **Team scores** | Rounds won by each side |
-| **Loadout picker** | During the freeze — pick your primary and secondary for the next round. Amphi uses the same picker, and seats nobody until they have chosen |
+| **Loadout picker** | Choose a primary and secondary for your next spawn. Amphi permits changes for a mid-round respawn; S&D players return at the next round. An initial kit is chosen before joining |
 
 There is no countdown number during the round freeze. The bomb beep is the
 shared clock, and both teams hear it at the same time.
