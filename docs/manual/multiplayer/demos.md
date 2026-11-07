@@ -141,11 +141,46 @@ A card shows what a recording's header holds: the map, the mode, who played, how
 long it ran, when, and its size. The header has no final score, so a card shows
 none.
 
+## Development video export
+
+The development client can export a saved recording's highlights to a video
+file. Leave any live match, enable `developer 1`, then choose **Export video**
+inside a demo card's **Highlights** menu. For an already loaded recording,
+run `videoexport`. This feature is unavailable in release builds.
+
+Choose a 1, 2 or 3 minute highlight target, then **Generate video**. The same
+source-length limits as preview apply: at least 3, 6 or 9 minutes respectively.
+The finished movie includes title, shot and closing cards, so its exact length
+can differ from the target. Output is 1920×1080 at 60 FPS, SDR H.264 video and
+48 kHz stereo AAC audio in MP4. Chat and the gameplay HUD are omitted.
+
+**Background music** defaults to **`<none>`** for game audio only. Choose any
+packaged OST song to mix it underneath the game sounds. **Start from** selects
+the position in the song, as seconds, `m:ss` or `h:mm:ss` (for example `1:23.250`).
+Music plays continuously at normal speed across cuts and slow motion, with a
+short fade in and out. It stops at the end of the movie or song and does not loop.
+The start timestamp must be before the song ends.
+
+Generation uses an isolated WebGL2 scene and leaves the original recording
+loaded in its viewer. Keep the export window visible. **Cancel** stops an active
+job; **Discard video** releases a finished result. Close is protected while a
+job is active or its result has not been downloaded or discarded.
+
+After generation, click **Download** and choose a destination. Cancelling or
+failing a save keeps the finished video available for retry. The file picker
+requires a supported desktop Chromium browser and a secure context. Temporary
+browser storage must have enough space for the encoded movie, in addition to
+the destination copy. A browser-download fallback supports files up to 64 MiB
+and reports **Download started**, since it cannot confirm destination close.
+
+Export is bounded to four minutes of movie, 768 MiB of encoded temporary data
+and twenty minutes of processing. It stops on missing required sounds,
+unresolved projectile state, inconsistent traversals or graphics-context loss.
+WebGPU and other browser families are outside the development acceptance target.
+
 ## Not yet
 
 - Console equivalents for the transport (jump-to-tick, speed); today they are the demo HUD's
 - Demo upload and remote sharing (demos are lobby-local)
 - Cinematic heuristic tuning; see [Demo Cinematic](../tools/demo-cinematic.md)
 - A recording opt-out
-
-For now, the demo system's user-facing surface is `demo` / `demolist` / `demoplay` plus the lobby's Demos tab.

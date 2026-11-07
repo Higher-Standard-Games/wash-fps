@@ -31,6 +31,15 @@ import { type ReelSummary, type ReelTitle, reelSummary, reelTitle } from "./Reel
 
 export type CinematicPlayerState = "idle" | "analyzing" | "playing" | "paused" | "ended";
 
+/** Serializable shot/camera choices retained across the export's two traversals. */
+export interface CinematicRecipe {
+  header: DemoHeader;
+  analysis: DemoAnalysis;
+  reel: CinematicReel;
+  cameraPaths: CameraPathResult[];
+  titleHoldMs: number;
+}
+
 const HIGHLIGHT_LABELS: Record<string, string> = {
   frag: "Frag",
   multi_kill: "Multi kill",
@@ -176,6 +185,7 @@ export class CinematicDemoPlayer {
 
   // Callbacks
   private onSegmentChangeCb: ((segment: CinematicSegment, index: number) => void) | null = null;
+  private beforeSegmentCb: ((segment: CinematicSegment) => void) | null = null;
   private onReelEndCb: (() => void) | null = null;
   private onStateChangeCb: ((state: CinematicPlayerState) => void) | null = null;
 
@@ -196,6 +206,10 @@ export class CinematicDemoPlayer {
     this.onSegmentChangeCb = cb;
   }
 
+  onBeforeSegment(cb: (segment: CinematicSegment) => void): void {
+    this.beforeSegmentCb = cb;
+  }
+
   onReelEnd(cb: () => void): void {
     this.onReelEndCb = cb;
   }
@@ -209,7 +223,7 @@ export class CinematicDemoPlayer {
   /**
    * Full pipeline: parse → analyze → build reel → start playback.
    */
-  async loadAndPlay(data: Uint8Array, durationMinutes: number): Promise<void> {
+  async loadAndPlay(data: Uint8Array, durationMinutes: number, recipe?: CinematicRecipe): Promise<void> {
     this._setState("analyzing");
 
     const reader = await DemoReader.fromFile(data);
@@ -217,6 +231,23 @@ export class CinematicDemoPlayer {
     const index = reader.readIndex();
 
     await this.demoViewer.load(data);
+
+    if (recipe) {
+      if (
+        recipe.header.map !== header.map ||
+        recipe.header.tickRate !== header.tickRate ||
+        recipe.titleHoldMs !== this.titleHoldTotalMs
+      )
+        throw new Error("The frozen reel does not match this demo or title timing");
+      const copy = structuredClone(recipe);
+      this.tickRate = header.tickRate;
+      this.header = header;
+      this.analysis = copy.analysis;
+      this.reel = copy.reel;
+      this.cameraPaths = copy.cameraPaths;
+      this._startPlayback();
+      return;
+    }
 
     const frames = reader.readAllFrames();
     const analysis: DemoAnalysis = new DemoAnalyzer(groundClearanceIn(this.world)).analyze(
@@ -236,6 +267,21 @@ export class CinematicDemoPlayer {
     );
 
     this._startPlayback();
+  }
+
+  snapshotRecipe(): CinematicRecipe {
+    if (!this.header || !this.analysis || !this.reel) throw new Error("No prepared cinematic reel");
+    return structuredClone({
+      header: this.header,
+      analysis: this.analysis,
+      reel: this.reel,
+      cameraPaths: this.cameraPaths,
+      titleHoldMs: this.titleHoldTotalMs,
+    });
+  }
+
+  getShotElapsedMs(): number {
+    return this.shotPlayedMs;
   }
 
   // ── Update loop ───────────────────────────────────────────────────────────
@@ -513,6 +559,7 @@ export class CinematicDemoPlayer {
   }
 
   private _applySegment(segment: CinematicSegment): void {
+    this.beforeSegmentCb?.(segment);
     this.shotPlayedMs = 0;
     this.flybyPos = null;
     this.flybyLook = null;

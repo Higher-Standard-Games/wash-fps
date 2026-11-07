@@ -1,10 +1,10 @@
 /**
- * TeleportEffect — washoi manga teleporter VFX (WO-T4b)
+ * TeleportEffect — pooled teleport silhouettes and radial bursts.
  *
- * Two pieces, both cheap and print-styled (docs/research/triggerbrushes-and-targets.md):
+ * Two bounded, print-styled effects:
  *
- * 1. GHOST — a posterized afterimage silhouette (Warsow's transparent outline,
- *    celified): a flat unlit team-color player figure fading out in DISCRETE
+ * 1. GHOST — a posterized afterimage silhouette: a flat unlit team-color
+ *    player figure fading out in DISCRETE
  *    alpha steps (print/anime frames, not a smooth ghost). GENERIC by design:
  *    the effect owns a small POOL of dedicated vanguard instances (everyone
  *    uses the same model), so it works identically for remote players AND for
@@ -33,6 +33,7 @@ import type { Observer } from "@babylonjs/core/Misc/observable";
 import type { Scene } from "@babylonjs/core/scene";
 import { AudioManager } from "../../../engine/AudioManager";
 import { type PlayerModelInstance, PlayerModelManager } from "../../../engine/animation/PlayerModelManager";
+import { presentationNow } from "../../../engine/core/PresentationTime";
 import { prepareMaterial } from "../../../engine/loader/map/GpuPreparation";
 import { renderToggle } from "../../../engine/rendering/RenderToggles";
 import { devLog } from "./DevLog";
@@ -140,6 +141,23 @@ export class TeleportEffect {
   private effects: ActiveEffect[] = [];
   private observer: Observer<Scene> | null = null;
   private lastTime = 0;
+  private clock: (() => number) | null = null;
+
+  /** An isolated movie owner can advance effect age through an unrecorded lead-in. */
+  setPresentationClock(clock: (() => number) | null): void {
+    this.clock = clock;
+    this.lastTime = this.now();
+  }
+
+  private now(): number {
+    return this.clock?.() ?? presentationNow();
+  }
+
+  /** Hide active effects while retaining their reusable pools. */
+  clear(): void {
+    for (const effect of this.effects) effect.elapsedMs = effect.lifetimeMs;
+    this.update();
+  }
 
   // Generic ghost pool (own vanguard instances — see header)
   private ghostManager: PlayerModelManager | null = null;
@@ -177,7 +195,7 @@ export class TeleportEffect {
     this.disposeGhostPool();
     this.disposeBurstPool();
     this.scene = scene;
-    this.lastTime = performance.now();
+    this.lastTime = this.now();
     this.observer = scene.onBeforeRenderObservable.add(() => this.update());
   }
 
@@ -509,11 +527,9 @@ export class TeleportEffect {
   // ──────────────────────────────────────────────────────────────
 
   private update(): void {
-    // The clock runs while idle too. Left at the last effect's end, the first
-    // frame of the next teleport counted the whole idle gap, capped at 100 ms,
-    // and the ghosts lost that much of their life (E6).
-    const now = performance.now();
-    const dtMs = Math.min(100, now - this.lastTime);
+    // Refresh while idle so the next effect does not consume the idle interval.
+    const now = this.now();
+    const dtMs = Math.max(0, this.clock ? now - this.lastTime : Math.min(100, now - this.lastTime));
     this.lastTime = now;
     if (this.effects.length === 0) return;
 
@@ -568,6 +584,7 @@ export class TeleportEffect {
   }
 
   dispose(): void {
+    this.clock = null;
     if (this.scene && this.observer) {
       this.scene.onBeforeRenderObservable.remove(this.observer);
       this.observer = null;

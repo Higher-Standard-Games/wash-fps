@@ -158,14 +158,19 @@ export function playDamageConfirmationSound(event: DamageEvent): void {
   AudioManager.getInstance().playSfx2D(damageConfirmationSounds[damageTier(event.damage)], 0.72, 4, "hits");
 }
 
-/** A player in pain is heard at most this often, as Warsow's pain debounce. */
+/** Minimum interval between a player's pain cues. */
 const PAIN_INTERVAL_MS = 400;
 const lastPainAt = new Map<string, number>();
+
+export function resetFPSCombatAudio(): void {
+  lastPainAt.clear();
+  variantSequence = 0;
+}
 
 export function playPlayerPainSound(
   event: DamageEvent,
   localVictim: boolean,
-  now = performance.now(),
+  now = AudioManager.getInstance().getSfxPresentationTime(),
   voice: PlayerVoiceSet = playerVoiceSet(localVictim ? "ally" : "enemy"),
 ): void {
   if (event.damage <= 0) return;

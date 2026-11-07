@@ -196,6 +196,12 @@ const CLIMB_NATURAL_SPEED = 120;
 const JUMP_VELOCITY = 320;
 
 export class RemotePlayerRenderer {
+  private readonly pendingEffects = new Set<Promise<void>>();
+
+  /** Manual movie stepping waits for lazy effects before advancing its clock. */
+  async waitForPendingEffects(): Promise<void> {
+    while (this.pendingEffects.size) await Promise.all(this.pendingEffects);
+  }
   private scene: Scene;
   private hitboxes: Map<string, RemotePlayerHitbox> = new Map();
   private readonly renderedPlayers = new Map<string, RenderedPlayer>();
@@ -1772,13 +1778,16 @@ export class RemotePlayerRenderer {
     // Read now: the sample is reused for the next player before the import lands.
     const toYaw = interp.yaw;
     const team = this.resolveLegacyTeamColor(entityId);
-    import("./TeleportEffect")
-      .then(({ TeleportEffect }) => {
-        TeleportEffect.getInstance().playerTeleported(this.scene, from, to, fromYaw, toYaw, team);
-      })
-      .catch(() => {
-        /* effect is cosmetic — never break the render loop */
-      });
+    const discontinuity = this.demoDiscontinuityId;
+    const effect = import("./TeleportEffect").then(({ TeleportEffect }) => {
+      if (this.disposed || this.demoDiscontinuityId !== discontinuity) return;
+      TeleportEffect.getInstance().playerTeleported(this.scene, from, to, fromYaw, toYaw, team);
+    });
+    this.pendingEffects.add(effect);
+    background(
+      effect.finally(() => this.pendingEffects.delete(effect)),
+      "Remote teleport effect",
+    );
   }
 
   private updatePosition(hitbox: RemotePlayerHitbox, interp: InterpolatedEntity): void {

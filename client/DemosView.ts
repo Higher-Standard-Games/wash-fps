@@ -6,6 +6,8 @@
  */
 
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
+import { background } from "../../../engine/core/AsyncErrors";
+import { Cvar } from "../../../engine/core/Cvar";
 import { createRaisedKey, injectRaisedKeyStyles, setRaisedKeyText } from "../../../engine/ui/components/RaisedKey";
 import { rememberMapTitle } from "../../../engine/ui/MapTitles";
 import { UIStyles } from "../../../engine/ui/UIStyles";
@@ -15,6 +17,10 @@ import { DemoService } from "./DemoService";
 import { DemoViewer } from "./DemoViewer";
 import type { RankedMode } from "./LeaderboardView";
 import { type FeaturedDemo, newUiApi } from "./NewUiApi";
+import { REEL_MINUTES, reelLengths } from "./ReelLengths";
+
+export { reelLengths } from "./ReelLengths";
+
 import demosCss from "./styles/Demos.css?raw";
 
 export type DemoScope = "latest" | "yours";
@@ -26,19 +32,6 @@ export const DEMOS_PER_PAGE = 6;
 export const DEMO_LIST_LIMIT = 64;
 export const DEMO_ARCHIVE_TIMEOUT_MS = 10_000;
 const FEATURED_LIMIT = 6;
-const REEL_MINUTES = [1, 2, 3];
-/** A reel is at most a third of its demo. */
-const REEL_SHARE = 3;
-
-/**
- * The reel lengths a demo can make: at most a third of its length. A demo under
- * three minutes (shorter than an Amphi round) has no reel; 3–6 minutes gives
- * 1 minute, 6–9 adds 2, and 9 or more adds 3.
- */
-export function reelLengths(durationMs: number): number[] {
-  return REEL_MINUTES.filter((minutes) => durationMs >= minutes * REEL_SHARE * 60_000);
-}
-
 const TOO_SHORT = "Too short for a highlight reel";
 
 const ALL: RankedMode = {
@@ -170,9 +163,11 @@ export class DemosView {
   private readonly reel: HTMLElement;
   private reelDemo: { demo: DemoInfo; card: HTMLElement; key: HTMLButtonElement } | null = null;
   private readonly onDocumentDown = (event: MouseEvent) => {
+    if (document.querySelector("dialog[data-video-export][open]")) return;
     if (this.reelDemo && !(event.target as Element | null)?.closest?.(".dm-reel")) this.closeReel();
   };
   private readonly onKeyDown = (event: KeyboardEvent) => {
+    if (document.querySelector("dialog[data-video-export][open]")) return;
     if (event.key === "Escape" && this.reelDemo) {
       event.stopPropagation();
       this.closeReel(true);
@@ -576,7 +571,7 @@ export class DemosView {
     const reel = el("div", "dm-hero__reel");
     const allowed = reelLengths(demo.durationMs);
     // The chosen length, or this demo's longest when it is too short for that
-    let chosen: number | undefined = allowed.includes(this.reelMinutes)
+    let chosen: number | undefined = allowed.some((minutes) => minutes === this.reelMinutes)
       ? this.reelMinutes
       : allowed[allowed.length - 1];
     const highlights = this.reelKey(createRaisedKey({ label: "⚡ Highlights", variants: ["cream"] }), allowed);
@@ -991,6 +986,26 @@ export class DemosView {
       options,
       el("div", "dm-reel__hint", "Kills, sprees and close calls, cut together"),
     );
+    if (import.meta.env.DEV && Cvar.getBool("developer")) {
+      const exportVideo = el("button", "dm-reel__opt dm-reel__export");
+      exportVideo.append(el("b", "", "Export video"));
+      exportVideo.type = "button";
+      exportVideo.disabled = !allowed.length;
+      exportVideo.addEventListener("click", () => {
+        background(
+          import("./video/HighlightVideoExporter").then(({ openHighlightVideoExporter }) => {
+            openHighlightVideoExporter({
+              url: `${DemoService.demoBaseUrl()}/${encodeURIComponent(demo.filename)}`,
+              label: `${who} · ${mapName(demo)}`,
+              durationMs: demo.durationMs,
+              filename: demo.filename,
+            });
+          }),
+          "Opening highlight video export",
+        );
+      });
+      sheet.append(exportVideo);
+    }
     this.reel.replaceChildren(sheet);
     this.reel.hidden = false;
     const rect = key.getBoundingClientRect();

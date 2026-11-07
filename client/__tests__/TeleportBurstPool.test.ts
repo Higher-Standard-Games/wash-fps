@@ -9,6 +9,35 @@ import { TeleportEffect } from "../TeleportEffect";
  * them per teleport changed the scene's draw list every time.
  */
 describe("teleport burst pool", () => {
+  it("ages unrecorded movie lead-ins and clears effects without rebuilding the pool", () => {
+    const engine = new NullEngine();
+    const scene = new Scene(engine);
+    const fx = TeleportEffect.getInstance();
+    const internal = fx as unknown as {
+      ensureScene(scene: Scene): void;
+      spawnBurst(position: { x: number; y: number; z: number }): void;
+      update(): void;
+    };
+    let time = -2000;
+    try {
+      internal.ensureScene(scene);
+      fx.setPresentationClock(() => time);
+      internal.spawnBurst({ x: 0, y: 0, z: 0 });
+      const meshes = scene.meshes.filter((mesh) => mesh.name.startsWith("tp_burst"));
+      expect(meshes.some((mesh) => mesh.isEnabled())).toBe(true);
+      time = 0;
+      internal.update();
+      expect(meshes.every((mesh) => !mesh.isEnabled())).toBe(true);
+      internal.spawnBurst({ x: 0, y: 0, z: 0 });
+      fx.clear();
+      expect(meshes.every((mesh) => !mesh.isEnabled())).toBe(true);
+      expect(meshes.every((mesh) => !mesh.isDisposed())).toBe(true);
+    } finally {
+      fx.dispose();
+      scene.dispose();
+      engine.dispose();
+    }
+  });
   it("plays the same burst meshes again and disposes them with the effect", () => {
     const engine = new NullEngine();
     const scene = new Scene(engine);

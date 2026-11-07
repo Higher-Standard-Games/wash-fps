@@ -150,6 +150,7 @@ function makeMockCameraSystem(freeCamera = makeMockFreeCamera()) {
 // Vitest hoists vi.mock() calls before imports, so this import sees the mocks.
 
 import { CinematicDemoPlayer, type CinematicPlayerState } from "../CinematicDemoPlayer";
+import { assertReelMovieFrame, collectReelMovieSchedule } from "../video/ReelMovieSchedule";
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -170,6 +171,56 @@ describe("CinematicDemoPlayer", () => {
   // 1. Initial state is 'idle'
   it("starts in idle state", () => {
     expect(player.getState()).toBe("idle");
+  });
+
+  it("replays a frozen recipe with the same frame schedule, title hold and cuts", async () => {
+    let tick = 0,
+      speed = 1,
+      playing = false;
+    viewer.seekToTick.mockImplementation((value: number) => {
+      tick = value;
+    });
+    viewer.setSpeed.mockImplementation((value: number) => {
+      speed = value;
+    });
+    viewer.play.mockImplementation(() => {
+      playing = true;
+    });
+    viewer.pause.mockImplementation(() => {
+      playing = false;
+    });
+    const info = viewer.getInfo();
+    viewer.getInfo.mockImplementation(() => ({ ...info, playheadTick: tick, playbackSpeed: speed }));
+    const makePlayer = () =>
+      new CinematicDemoPlayer(
+        viewer as unknown as import("../DemoViewer").DemoViewer,
+        cameraSystem as unknown as import("../../../../engine/camera/CameraSystem").CameraSystem,
+        undefined,
+        { titleHoldMs: 2800 },
+      );
+    let current = makePlayer();
+    await current.loadAndPlay(new Uint8Array(), 1);
+    const recipe = current.snapshotRecipe();
+    const advance = (dt: number) => {
+      if (playing) tick += (dt / 1000) * 60 * speed;
+      current.update(dt);
+      return {
+        sourceTick: tick,
+        segment: current.getReelInfo().currentSegment,
+        speed,
+        title: current.isShowingTitle(),
+        ended: current.getState() === "ended",
+      };
+    };
+    const schedule = await collectReelMovieSchedule(advance, new AbortController().signal);
+    expect(schedule.filter((frame) => frame.title).length).toBeGreaterThan(160);
+    expect(schedule.filter((frame) => frame.ended)).toHaveLength(180);
+    expect(schedule.some((frame, index) => index > 0 && frame.sourceTick < schedule[index - 1].sourceTick)).toBe(true);
+    current = makePlayer();
+    await current.loadAndPlay(new Uint8Array(), 1, recipe);
+    recipe.reel.segments[0].startTick = 99999;
+    for (let index = 0; index < schedule.length; index++)
+      assertReelMovieFrame(schedule[index], advance(index === 0 ? 0 : 1000 / 60), index);
   });
 
   // 2. loadAndPlay transitions through analyzing → playing

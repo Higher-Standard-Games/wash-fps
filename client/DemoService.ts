@@ -37,7 +37,13 @@ import { DemoAnalyzer } from "../../../shared/demo/DemoAnalyzer";
 import type { RecordedInput } from "../../../shared/demo/DemoInputs";
 import { DemoReader } from "../../../shared/demo/DemoReader";
 import { isClientKey, toClientKey } from "../ClientEntityKey";
-import { CinematicDemoPlayer, groundClearanceIn, type ReelWorld, shotCard } from "./CinematicDemoPlayer";
+import {
+  CinematicDemoPlayer,
+  type CinematicRecipe,
+  groundClearanceIn,
+  type ReelWorld,
+  shotCard,
+} from "./CinematicDemoPlayer";
 import { Crosshair } from "./Crosshair";
 import { DamageNumbers } from "./DamageNumbers";
 import { demoLoadCancelled, downloadDemo } from "./DemoDownload";
@@ -51,6 +57,7 @@ import type { DemoTimelineEvent, DemoViewerHUD } from "./DemoViewerHUD";
 import { DroppedWeaponRenderer } from "./DroppedWeaponRenderer";
 import { FollowedViewWeapon } from "./FollowedViewWeapon";
 import { preloadFPSAudio } from "./FPSAudio";
+import { resetFPSCombatAudio } from "./FPSCombatAudio";
 import type { FPSHud } from "./FPSHud";
 import { resetFPSMovementAudio } from "./FPSMovementAudio";
 import { FPSReloadAudio } from "./FPSReloadAudio";
@@ -389,7 +396,12 @@ export class DemoService {
    * Start cinematic highlight reel.
    * viewer + cameraSystem are injected so callers control the rendering context.
    */
-  async loadAndPlayCinematic(viewer: DemoViewer, cameraSystem: CameraSystem, durationMinutes: number): Promise<void> {
+  async loadAndPlayCinematic(
+    viewer: DemoViewer,
+    cameraSystem: CameraSystem,
+    durationMinutes: number,
+    options: { manual?: boolean; recipe?: CinematicRecipe } = {},
+  ): Promise<void> {
     if (!this.loadedDemoData) throw new Error("No demo loaded. Use `demo <filename>` first.");
     const data = this.loadedDemoData;
     const reader = this.loadedDemoReader;
@@ -411,7 +423,7 @@ export class DemoService {
 
       // 4. Wire the frame callback, then start the cinematic player.
       this.activeDemoViewer = viewer;
-      await this.ensureRuntimeWiring(viewer, "reel", true, signal, pulse);
+      await this.ensureRuntimeWiring(viewer, "reel", !options.manual, signal, pulse);
       if (this.abandonStart(start, viewer)) return;
       const player = new CinematicDemoPlayer(viewer, cameraSystem, this.reelWorld(), { titleHoldMs: REEL_TITLE_MS });
       this.activeCinematicPlayer = player;
@@ -423,11 +435,11 @@ export class DemoService {
         this.demoHud?.setReelEnded(state === "ended");
       });
       this.demoHud?.onReplay(() => player.replay());
-      await player.loadAndPlay(data, durationMinutes);
+      await player.loadAndPlay(data, durationMinutes, options.recipe);
       if (this.abandonStart(start, viewer)) return;
       this.demoHud?.setTitle(player.getTitle());
       this.demoHud?.setReel(player.getShotStarts());
-      this.startPlaybackLoop();
+      if (!options.manual) this.startPlaybackLoop();
     });
   }
 
@@ -796,6 +808,7 @@ export class DemoService {
       }
     }
     resetFPSMovementAudio();
+    resetFPSCombatAudio();
     this.demoGibs = GibSystem.create(scene);
     this.demoRagdolls = RagdollSystem.create(scene);
     // A body that lies long enough bursts, as it does in the game
@@ -1024,10 +1037,10 @@ export class DemoService {
   }
 
   /** Shared frame body; a manual timedemo owns ordering inside the scene loop. */
-  updatePlaybackFrame(deltaMs: number, applyCamera?: () => void): void {
+  updatePlaybackFrame(deltaMs: number, applyCamera?: () => void, options: { preroll?: boolean } = {}): void {
     if (!this.activeDemoViewer) return;
     this.activeDemoViewer.update(deltaMs);
-    this.activeCinematicPlayer?.update(deltaMs);
+    if (!options.preroll) this.activeCinematicPlayer?.update(deltaMs);
     const playback = this.activeDemoViewer.getInfo();
     this._syncDemoPresentationClock(playback);
     this._pushPlaybackClock(playback);
@@ -1087,6 +1100,24 @@ export class DemoService {
 
   async waitForPlaybackModels(): Promise<void> {
     await this.remoteRenderer?.waitForModels();
+  }
+
+  hasPendingPlaybackWeapon(): boolean {
+    return this._demoWvm?.hasPendingWeaponLoads ?? false;
+  }
+
+  async waitForPlaybackWeapon(): Promise<void> {
+    await this._demoWvm?.waitForPendingWeaponLoads();
+  }
+
+  async waitForPlaybackEffects(): Promise<void> {
+    await this.remoteRenderer?.waitForPendingEffects();
+  }
+
+  getUnresolvedPlaybackProjectiles(): string[] {
+    return [...(this.latestState?.entities.keys() ?? [])].filter(
+      (id) => id.startsWith("proj_") && !this._projectiles.defIds.has(id),
+    );
   }
 
   getPlaybackModelStats() {
@@ -1364,6 +1395,7 @@ export class DemoService {
       this.demoReloadAudio.reset();
       this.demoVoltaicAudio.reset();
       resetFPSMovementAudio();
+      resetFPSCombatAudio();
       clearDemoWorldEffects();
       this.demoGibs?.clear();
       this.demoRagdolls?.disposeAll();

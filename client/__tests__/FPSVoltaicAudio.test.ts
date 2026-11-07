@@ -7,6 +7,7 @@ import { GameState } from "../../../../shared/net/GameState";
 
 const loops: Array<{ stop: ReturnType<typeof vi.fn>; setPosition: ReturnType<typeof vi.fn> }> = [];
 const audio = {
+  hasSfxSink: false,
   playSfx2D: vi.fn(),
   playSfx3D: vi.fn(),
   playLoop3D: vi.fn(async (..._args: unknown[]): Promise<SfxLoop | null> => {
@@ -54,10 +55,21 @@ describe("Voltaic sustained audio", () => {
     vi.clearAllMocks();
     loops.length = 0;
     owner = new FPSVoltaicAudio();
+    audio.hasSfxSink = false;
   });
   afterEach(() => {
     owner.reset();
     vi.useRealTimers();
+  });
+
+  it("does not let wall-clock encoding waits stop a collected offline voice", async () => {
+    audio.hasSfxSink = true;
+    owner.present(frame(100, [shot(), weapon(100)]), "one");
+    await Promise.resolve();
+    vi.advanceTimersByTime(5000);
+    expect(loops[0].stop).not.toHaveBeenCalled();
+    owner.present(frame(125, [weapon(100)]), "one");
+    expect(loops[0].stop).toHaveBeenCalledOnce();
   });
 
   it("plays one attack and hum across repeated beam shots, then one release", async () => {

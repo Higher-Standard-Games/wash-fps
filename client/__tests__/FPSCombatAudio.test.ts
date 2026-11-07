@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const audio = {
+  getSfxPresentationTime: () => performance.now(),
   preloadSfx: vi.fn(async () => {}),
   playSfx2D: vi.fn(),
   playSfx3D: vi.fn(),
@@ -24,6 +25,7 @@ import {
   playProjectileImpactSound,
   playWeaponFireSound,
   preloadFPSCombatAudio,
+  resetFPSCombatAudio,
 } from "../FPSCombatAudio";
 import { VOLTAIC_SOUNDS } from "../FPSVoltaicAudio";
 
@@ -70,6 +72,16 @@ const deathEvent: DeathEvent = {
 
 describe("FPSCombatAudio", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("restarts sound variants when demo presentation is reset", () => {
+    resetFPSCombatAudio();
+    playWeaponFireSound({ ...fireEvent, weaponId: "plasmagun" }, true);
+    const first = audio.playSfx2D.mock.calls.slice(-1)[0]?.[0];
+    playWeaponFireSound({ ...fireEvent, weaponId: "plasmagun" }, true);
+    resetFPSCombatAudio();
+    playWeaponFireSound({ ...fireEvent, weaponId: "plasmagun" }, true);
+    expect(audio.playSfx2D.mock.calls.slice(-1)[0]?.[0]).toBe(first);
+  });
 
   it("maps every Washoi weapon and projectile alias to PK3 sound paths", () => {
     for (const weapon of [

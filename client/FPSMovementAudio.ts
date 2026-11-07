@@ -62,6 +62,8 @@ export async function preloadFPSMovementAudio(): Promise<void> {
 
 export function resetFPSMovementAudio(): void {
   movementStates.clear();
+  footstepSequence = 0;
+  jumpSequence = 0;
   cachedBsp = null;
   surfaceFlagsByTexture.clear();
 }

@@ -157,6 +157,8 @@ export class FPSVoltaicAudio {
   private armWatchdog(): void {
     if (this.watchdog !== null) clearTimeout(this.watchdog);
     this.watchdog =
-      this.voices.size > 0 ? setTimeout(() => this.reset(), Math.max(500, 250 / this.playbackSpeed)) : null;
+      this.voices.size > 0 && !AudioManager.getInstance().hasSfxSink
+        ? setTimeout(() => this.reset(), Math.max(500, 250 / this.playbackSpeed))
+        : null;
   }
 }

@@ -7,9 +7,12 @@
  * wash-fps-rust docs/research/WEBVIEW_LOBBY.md, section 4.
  */
 
+import { logRejection } from "../../../engine/core/AsyncErrors";
 import { lobbyOnly } from "./native/NativeBridge";
 
-if (lobbyOnly(window)) {
+if (import.meta.env.DEV && new URLSearchParams(location.search).get("videoexport") === "1") {
+  import("./video/ExportPage").catch(logRejection("Opening video export"));
+} else if (lobbyOnly(window)) {
   void import("./native/main");
 } else {
   void import("./main");
