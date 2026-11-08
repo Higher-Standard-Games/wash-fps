@@ -22,6 +22,8 @@ export default class LoadoutCommand extends Command {
 
   async execute(args: string[]): Promise<CommandOutput> {
     if (args.length === 0) return this.help();
+    if (args.length === 1 && args[0].toLowerCase() === "status")
+      return Game.getInstance().describeLoadoutStateForAudit();
 
     const choice = parseLoadout(args[0], args[1]);
     if (!choice) return fail(`Unknown weapon: "${args[0]} ${args[1] ?? ""}".\n\n${this.help()}`);
@@ -38,6 +40,7 @@ export default class LoadoutCommand extends Command {
       ids.map((id) => `  ${id.padEnd(14)}${WEAPON_LABELS[id as keyof typeof WEAPON_LABELS]}`).join("\n");
     return [
       "Usage: loadout <primary> <secondary>",
+      "loadout status — inspect your selected kit, last server state, inventory and HUD",
       "",
       "Primary (pick one):",
       list(PRIMARY_CHOICES),

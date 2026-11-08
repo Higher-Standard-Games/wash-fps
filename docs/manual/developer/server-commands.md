@@ -143,6 +143,7 @@ Registered by this game at boot (`console/commands/`), used from the in-game con
 |---------|--------------|
 | `connect <url>` / `disconnect` | Join or leave a game server; see [Connecting](../multiplayer/connecting.md) |
 | `demo`, `demolist`, `demoplay` | Load, list and play demos; see [Demos](../multiplayer/demos.md) |
+| `loadout status` | Inspect the selected kit, authoritative server weapons, local inventory, HUD and displayed viewmodel without changing them |
 | `loadout <primary> <secondary>` | Pick a kit for your next spawn in Search & Destroy, Amphi or FFA |
 | `water [sample\|splash\|ripple\|render]` **dev** | Inspect liquid state at the camera and the player |
 | `netsim <test\|spawn\|tick\|state\|input>` **dev** | Network simulation testing |

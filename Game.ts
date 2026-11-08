@@ -70,6 +70,7 @@ import { SlideDust } from "./client/SlideDust";
 import { PlayerWeaponStates, storeSnapshotState } from "./client/SnapshotStateStore";
 import { SpectateView } from "./client/SpectateView";
 import { installTooltips } from "./client/Tooltip";
+import { FPSPlayer } from "./FPSPlayer";
 import { type FPSInputCommand, FPSSimulation } from "./simulation/FPSSimulation";
 
 export interface FPSGameConfig {
@@ -289,6 +290,39 @@ export class Game {
       `round=${match.round} phase=${match.phase} ` +
       `localPlayerId=${this.localPlayerId || "none"} localEntityId=${localEntityId ?? "UNRESOLVED"} ` +
       `snapshotPlayers=[${[...(players?.keys() ?? [])].join(", ") || "none"}]`
+    );
+  }
+
+  /** Read the current connection, selected kit and inventory mirrors without sending a request. */
+  public describeLoadoutStateForAudit(): string {
+    const entityId = this._latestGameState?.players.get(this.localPlayerId)?.entityId;
+    const player = FPSPlayer.getInstance();
+    const hud = HUDState.getInstance();
+    return JSON.stringify(
+      {
+        connected: this.isConnectedToServer(),
+        mode: MatchStateManager.getInstance().gametypeName,
+        playerState: this.playerState,
+        localPlayerId: this.localPlayerId,
+        hostPlayerId: this.gameHost?.localPlayerId ?? null,
+        entityId: entityId ?? null,
+        tick: this._latestGameState?.tick ?? null,
+        selected: this.rememberedLoadout() ?? null,
+        chosen: this._loadoutChosen,
+        server: entityId ? (this.playerWeapons.get(entityId) ?? null) : null,
+        inventory: player?.inventory.getWeapons() ?? null,
+        currentWeapon: player?.inventory.getCurrentWeaponId() ?? null,
+        hud: { weapons: hud.weapons, currentWeapon: hud.currentWeapon },
+        view: {
+          displayedWeapon: getWeaponViewManager().getDisplayedWeaponId(),
+          ready: getWeaponViewManager().isReady,
+          switching: getWeaponViewManager().isSwitching(),
+        },
+        spectatingEntityId: this.spectatingEntityId,
+        controllerMatches: player ? player.getController() === CameraSystem.getInstance().getActiveController() : null,
+      },
+      null,
+      2,
     );
   }
 
