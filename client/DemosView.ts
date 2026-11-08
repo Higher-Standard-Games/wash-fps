@@ -7,7 +7,6 @@
 
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import { background } from "../../../engine/core/AsyncErrors";
-import { Cvar } from "../../../engine/core/Cvar";
 import { createRaisedKey, injectRaisedKeyStyles, setRaisedKeyText } from "../../../engine/ui/components/RaisedKey";
 import { rememberMapTitle } from "../../../engine/ui/MapTitles";
 import { UIStyles } from "../../../engine/ui/UIStyles";
@@ -986,26 +985,24 @@ export class DemosView {
       options,
       el("div", "dm-reel__hint", "Kills, sprees and close calls, cut together"),
     );
-    if (import.meta.env.DEV && Cvar.getBool("developer")) {
-      const exportVideo = el("button", "dm-reel__opt dm-reel__export");
-      exportVideo.append(el("b", "", "Export video"));
-      exportVideo.type = "button";
-      exportVideo.disabled = !allowed.length;
-      exportVideo.addEventListener("click", () => {
-        background(
-          import("./video/HighlightVideoExporter").then(({ openHighlightVideoExporter }) => {
-            openHighlightVideoExporter({
-              url: `${DemoService.demoBaseUrl()}/${encodeURIComponent(demo.filename)}`,
-              label: `${who} · ${mapName(demo)}`,
-              durationMs: demo.durationMs,
-              filename: demo.filename,
-            });
-          }),
-          "Opening highlight video export",
-        );
-      });
-      sheet.append(exportVideo);
-    }
+    const exportVideo = el("button", "dm-reel__opt dm-reel__export");
+    exportVideo.append(el("b", "", "Export video"));
+    exportVideo.type = "button";
+    exportVideo.disabled = !allowed.length;
+    exportVideo.addEventListener("click", () => {
+      background(
+        import("./video/HighlightVideoExporter").then(({ openHighlightVideoExporter }) => {
+          openHighlightVideoExporter({
+            url: `${DemoService.demoBaseUrl()}/${encodeURIComponent(demo.filename)}`,
+            label: `${who} · ${mapName(demo)}`,
+            durationMs: demo.durationMs,
+            filename: demo.filename,
+          });
+        }),
+        "Opening highlight video export",
+      );
+    });
+    sheet.append(exportVideo);
     this.reel.replaceChildren(sheet);
     this.reel.hidden = false;
     const rect = key.getBoundingClientRect();

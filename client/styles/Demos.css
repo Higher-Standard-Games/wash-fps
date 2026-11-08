@@ -901,6 +901,10 @@
   min-height: 60px;
 }
 
+.dm-reel__export b {
+  font-size: 22px;
+}
+
 .dm-reel__opt small {
   font: 700 14px / 1 var(--w-font-body, "Rajdhani", sans-serif);
   letter-spacing: 0.14em;

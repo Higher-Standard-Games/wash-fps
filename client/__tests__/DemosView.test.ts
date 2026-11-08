@@ -52,6 +52,7 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 afterEach(() => {
   vi.clearAllTimers();
   vi.useRealTimers();
+  vi.unstubAllEnvs();
   bindFeaturedDemos({ connected: false } as LobbyClient, false);
   document.body.replaceChildren();
 });
@@ -183,7 +184,8 @@ describe("highlight reels", () => {
     expect(reelLengths(60 * MIN)).toEqual([1, 2, 3]);
   });
 
-  it("keeps a short demo's Highlights key in place, disabled", () => {
+  it("offers release video export while keeping short demos disabled", () => {
+    vi.stubEnv("DEV", false);
     const { view, requestDemoList } = setup();
     tabKey(view, "Latest").click();
     const short = demo(1, "wdm2", "duel", ["A", "B"]);
@@ -199,8 +201,8 @@ describe("highlight reels", () => {
 
     longKey.click();
     const options = [...document.querySelectorAll<HTMLButtonElement>(".dm-reel__opt")];
-    expect(options.map((option) => option.textContent)).toEqual(["1min", "2min", "3min"]);
-    expect(options.map((option) => option.disabled)).toEqual([false, true, true]);
+    expect(options.map((option) => option.textContent)).toEqual(["1min", "2min", "3min", "Export video"]);
+    expect(options.map((option) => option.disabled)).toEqual([false, true, true, false]);
     view.destroy();
   });
 });

@@ -6,7 +6,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { RemotePlayerRenderer } from "../RemotePlayerRenderer";
 
 vi.mock("../../../../engine/weapon/HitscanEffects", () => ({
-  getHitscanEffects: () => ({ clearRemoteLightningMuzzleResolver() {} }),
+  getHitscanEffects: () => ({ clearRemoteLightningMuzzleResolver() {}, clearLocalLightningTargetResolver() {} }),
 }));
 const engine = new NullEngine();
 const scene = new Scene(engine);

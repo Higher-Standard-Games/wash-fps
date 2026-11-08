@@ -4,11 +4,14 @@ import LoadoutCommand from "../LoadoutCommand";
 
 const context = vi.hoisted(() => ({
   sendLoadout: vi.fn(),
+  describeLoadout: vi.fn(() => "loadout audit"),
   loadoutMode: "round" as "round" | "respawn",
 }));
 
 vi.mock("../../../Game", () => ({
-  Game: { getInstance: () => ({ sendLoadout: context.sendLoadout }) },
+  Game: {
+    getInstance: () => ({ sendLoadout: context.sendLoadout, describeLoadoutStateForAudit: context.describeLoadout }),
+  },
 }));
 vi.mock("../../../client/MatchStateManager", () => ({
   MatchStateManager: { getInstance: () => ({ loadoutMode: context.loadoutMode }) },
@@ -17,6 +20,7 @@ vi.mock("../../../client/MatchStateManager", () => ({
 let registry: CommandRegistry;
 beforeEach(() => {
   context.sendLoadout.mockReset().mockReturnValue(true);
+  context.describeLoadout.mockClear();
   context.loadoutMode = "round";
   registry = CommandRegistry.getInstance();
   registry.register(new LoadoutCommand());
@@ -27,6 +31,12 @@ afterEach(() => {
 });
 
 describe("loadout command results", () => {
+  it("inspects the current kit without selecting, joining or respawning", async () => {
+    const result = await registry.executeChecked("loadout status");
+    expect(result).toEqual({ ok: true, output: "loadout audit" });
+    expect(context.describeLoadout).toHaveBeenCalledOnce();
+    expect(context.sendLoadout).not.toHaveBeenCalled();
+  });
   it("shows help successfully without sending a choice", async () => {
     const result = await registry.executeChecked("loadout");
     expect(result.ok).toBe(true);

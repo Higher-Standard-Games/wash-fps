@@ -104,7 +104,7 @@ function sync() {
   port?.postMessage({ type: "state", canClose: !controller && !saving && (!result || saved) });
 }
 
-/** Development harness: the UI and browser acceptance use the same job path. */
+/** Shared job path for the export UI and browser acceptance checks. */
 export const exportSession = {
   async run(
     recording: Uint8Array | ExportSource,

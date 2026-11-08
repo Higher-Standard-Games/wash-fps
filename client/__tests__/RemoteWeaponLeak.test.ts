@@ -101,7 +101,9 @@ describe("remote weapon changes", () => {
     });
     await vi.dynamicImportSettled();
     await vi.waitFor(() => expect(hitboxes.every((hitbox) => hitbox.weaponRoot)).toBe(true));
-    const [a, b] = hitboxes.map((hitbox) => (hitbox.weaponRoot as import("@babylonjs/core/Meshes/mesh").Mesh).material);
+    const [a, b] = hitboxes.map(
+      (hitbox) => hitbox.weaponRoot!.getChildMeshes(false).find((mesh) => mesh.material)?.material,
+    );
     expect(a === b).toBe(shared);
     expect(hitboxes[0].weaponRoot).not.toBe(hitboxes[1].weaponRoot);
   });
@@ -215,7 +217,9 @@ describe("remote weapon changes", () => {
     await settle();
     expect(scene.loads).toBe(2);
     expect(hitbox.currentWeaponId).toBe(a);
-    expect(scene.current.meshes.filter((mesh) => mesh.name === "gun" && mesh.isEnabled())).toEqual([hitbox.weaponRoot]);
+    const visible = scene.current.meshes.filter((mesh) => mesh.name === "gun" && mesh.isEnabled());
+    expect(visible).toHaveLength(1);
+    expect(visible[0].isDescendantOf(hitbox.weaponRoot!)).toBe(true);
     expect(inst.attachedWeapon).toBe(hitbox.weaponRoot);
   });
 

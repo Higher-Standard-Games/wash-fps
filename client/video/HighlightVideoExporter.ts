@@ -7,7 +7,6 @@ let active: HTMLDialogElement | null = null;
 
 /** Opens an isolated document; the source viewer retains its scene and bytes. */
 export function openHighlightVideoExporter(selected?: ExportSource): void {
-  if (!import.meta.env.DEV) throw new Error("Video export is available in the development client");
   if (Game.getInstance().isConnectedToServer()) throw new Error("Leave the live match before exporting a demo");
   const service = DemoService.getInstance();
   const bytes = service.loadedDemoData;

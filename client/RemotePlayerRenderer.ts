@@ -51,7 +51,7 @@ import {
 import type { GameState } from "../../../engine/network/core/GameState";
 import { warmHiddenMeshes } from "../../../engine/rendering/PipelineWarmup";
 import { waterNeedsLocalReflection } from "../../../engine/rendering/water/WaterActorReflection";
-import { getHitscanEffects } from "../../../engine/weapon/HitscanEffects";
+import { getHitscanEffects, type LocalLightningTargetResolver } from "../../../engine/weapon/HitscanEffects";
 import type { VoltaicRemoteStartResolver } from "../../../engine/weapon/voltaic/VoltaicEffectRenderer";
 import {
   attachWorldBarrels,
@@ -64,6 +64,7 @@ import { WEAPONS } from "../shared/entities/definitions/weapons/WeaponsTable";
 import { maskHasPowerup } from "../shared/items/Powerups";
 import type { AimTarget } from "./AimAssist";
 import { attachBladeToPlayer, holdBladeGrip } from "./AttachedBlade";
+import { createGunGrip, holdGunGrip } from "./AttachedGun";
 import { DemoAnimationTimeline } from "./DemoAnimationTimeline";
 import { DemoEntityTimeline } from "./DemoEntityTimeline";
 import { devLog } from "./DevLog";
@@ -121,6 +122,7 @@ interface HeldWeapon {
 
 /** Parked weapons kept per kind: enough for every player of a full FFA to switch back. */
 const MAX_IDLE_WEAPONS_PER_KIND = 8;
+const CONTACT_AXES = ["x", "y", "z"] as const;
 
 interface RemotePlayerHitbox {
   mesh: Mesh;
@@ -296,6 +298,9 @@ export class RemotePlayerRenderer {
   private readonly voltaicMuzzleResolver: VoltaicRemoteStartResolver = (entityId, direction, result) =>
     this.getWeaponMuzzleWorldPositionToRef(entityId, direction, result);
 
+  private readonly localLightningTargetResolver: LocalLightningTargetResolver = (origin, direction, range, result) =>
+    this.traceLocalLightningTarget(origin, direction, range, result);
+
   /**
    * The muzzle of the gun in front of the camera while someone is watched
    * through their eyes. Their own body and gun are hidden then, so a beam must
@@ -314,6 +319,7 @@ export class RemotePlayerRenderer {
     // and the lobby cannot disagree with the map.
     installTeamColorBridge();
     getHitscanEffects().setRemoteLightningMuzzleResolver(this.voltaicMuzzleResolver);
+    getHitscanEffects().setLocalLightningTargetResolver(this.localLightningTargetResolver);
   }
 
   /** Set reference to enemy weapons map from GameEventContext */
@@ -805,6 +811,7 @@ export class RemotePlayerRenderer {
     if (this.localReflectionModel && this.modelManager) this.modelManager.disposeInstance(this.localReflectionModel);
     this.localReflectionModel = null;
     getHitscanEffects().clearRemoteLightningMuzzleResolver(this.voltaicMuzzleResolver);
+    getHitscanEffects().clearLocalLightningTargetResolver(this.localLightningTargetResolver);
     for (const hitbox of this.hitboxes.values()) {
       hitbox.mesh.dispose();
       if (hitbox.weaponRoot) {
@@ -947,8 +954,8 @@ export class RemotePlayerRenderer {
 
   /**
    * Attach a weapon model to a DETACHED player model's right hand (post-game
-   * winner showcase). Same recipe as updateWeaponModel (ModelLoader → leader
-   * mesh → attachToBone RightHand → third-person scale/rotation) but without
+   * winner showcase). Keeps the imported hierarchy in the same right-hand
+   * grip as updateWeaponModel, without
    * the live-hitbox lifecycle guards — the caller owns the instance and must
    * dispose it (attachedWeapon is set so disposal cleans the gun too).
    */
@@ -999,37 +1006,10 @@ export class RemotePlayerRenderer {
       attachBladeToPlayer(result, inst, visualScale, MODEL_SCALE);
       return;
     }
-    if (leaderMesh.rotationQuaternion) leaderMesh.rotationQuaternion = null;
-
-    const hand = inst.skeleton?.bones.find((b) => b.name === "mixamorig:RightHand");
-    if (hand) {
-      leaderMesh.parent = null;
-      leaderMesh.attachToBone(hand, inst.mesh);
-      leaderMesh.position.set(0, 0, 0);
-      leaderMesh.scaling.setAll((visualScale / MODEL_SCALE) * 0.5);
-      leaderMesh.rotation.set(Math.PI, 0, -Math.PI / 2);
-    } else {
-      leaderMesh.parent = inst.anchor;
-      leaderMesh.position.set(0, 30, 0);
-      leaderMesh.scaling.setAll(visualScale);
-    }
-
-    for (const m of result.meshes) {
-      if (m instanceof Mesh && m !== leaderMesh && m.getTotalVertices() > 0) {
-        m.parent = leaderMesh;
-        m.position.setAll(0);
-        if (m.rotationQuaternion) m.rotationQuaternion = null;
-        m.rotation.setAll(0);
-        m.isVisible = true;
-        m.alwaysSelectAsActiveMesh = true;
-      }
-    }
-
-    result.root.parent = null;
-    result.root.setEnabled(false);
-    bindLoaderLeftovers(leaderMesh, result.root, result.animationGroups);
-    inst.attachedWeapon = leaderMesh;
-    await this.attachBarrels(leaderMesh, weaponDef, result);
+    const modelSpace = leaderMesh.parent instanceof TransformNode ? leaderMesh.parent : result.root;
+    const grip = createGunGrip(result);
+    holdGunGrip(grip, inst, visualScale, MODEL_SCALE);
+    await this.attachBarrels(modelSpace, weaponDef, result, () => grip.isDisposed(), grip);
   }
 
   /**
@@ -1068,6 +1048,47 @@ export class RemotePlayerRenderer {
       }
     }
     return out;
+  }
+
+  /** Nearest rendered player contact, capped by the local beam's world trace. */
+  private traceLocalLightningTarget(
+    origin: Vector3,
+    direction: Vector3,
+    maxDistance: number,
+    result: Vector3,
+  ): boolean {
+    let nearest = maxDistance;
+    let found = false;
+    for (const [entityId, hitbox] of this.hitboxes) {
+      if (this.deadEntities.has(entityId) || entityId === this._hiddenEntityId) continue;
+      const center = hitbox.mesh.position;
+      let enter = 0;
+      let exit = nearest;
+      for (const axis of CONTACT_AXES) {
+        const start = origin[axis];
+        const velocity = direction[axis];
+        const halfExtent = axis === "y" ? hitbox.currentHeight / 2 : PLAYER_RADIUS;
+        const min = center[axis] - halfExtent;
+        const max = center[axis] + halfExtent;
+        if (Math.abs(velocity) < 1e-8) {
+          if (start < min || start > max) {
+            exit = -1;
+            break;
+          }
+          continue;
+        }
+        const first = (min - start) / velocity;
+        const last = (max - start) / velocity;
+        enter = Math.max(enter, Math.min(first, last));
+        exit = Math.min(exit, Math.max(first, last));
+        if (enter > exit) break;
+      }
+      if (enter > exit || enter >= nearest) continue;
+      nearest = enter;
+      found = true;
+    }
+    if (found) direction.scaleToRef(nearest, result).addInPlace(origin);
+    return found;
   }
 
   /**
@@ -1868,8 +1889,9 @@ export class RemotePlayerRenderer {
       m.visibility = 1;
     }
 
-    // Derive animation from network data
-    // Skip if a one-shot animation (e.g. blade slash) is still playing
+    // Keep the next locomotion pose current while an attack owns the bones.
+    const animName = deriveAnimation(interp);
+    this.modelManager.playAnimation(inst, animName);
     if (this.demoAnimationTimeline) {
       const demoShot = this.demoAnimationTimeline.get(entityId);
       if (demoShot) {
@@ -1881,14 +1903,11 @@ export class RemotePlayerRenderer {
         // One-shot is playing — don't override with locomotion
         return;
       }
-      // Clear expired one-shot flag and force locomotion re-evaluation
+      // Clear the expired wall-clock deadline; locomotion is already current.
       if (inst.oneshotUntil > 0) {
         inst.oneshotUntil = 0;
-        inst.currentAnim = ""; // Force playAnimation to re-apply locomotion
       }
     }
-    const animName = deriveAnimation(interp);
-    this.modelManager.playAnimation(inst, animName);
     this._animDebug(entityId, animName, interp, inst);
 
     // Splashes come from the water level already on the wire, so a remote
@@ -2129,7 +2148,7 @@ export class RemotePlayerRenderer {
   }
 
   /**
-   * Assemble a gun once: its geometry under the leader mesh, the muzzle tag, the
+   * Assemble a gun once: its imported hierarchy under a grip, the muzzle tag, the
    * barrels (`barrels` settles when they are on). Every path that disposes it
    * afterwards (switch, death, leaving, ragdoll expiry) parks it instead.
    */
@@ -2143,35 +2162,12 @@ export class RemotePlayerRenderer {
       .getDescendants(false)
       .find((node) => node.name === "tag_flash" && node instanceof TransformNode) as TransformNode | undefined;
 
-    if (leaderMesh.rotationQuaternion) leaderMesh.rotationQuaternion = null;
-
-    // Parent other meshes under leader
-    for (const m of result.meshes) {
-      if (m instanceof Mesh && m !== leaderMesh && m.getTotalVertices() > 0) {
-        m.parent = leaderMesh;
-        m.position.setAll(0);
-        if (m.rotationQuaternion) m.rotationQuaternion = null;
-        m.rotation.setAll(0);
-        m.isVisible = true;
-        m.alwaysSelectAsActiveMesh = true;
-      }
-    }
-
-    // Preserve the authored muzzle tag when detaching the geometry from the
-    // loader root. Its model-space transform now follows the hand-attached
-    // leader exactly, including animation, scale, and rotation.
-    if (muzzleNode) muzzleNode.parent = leaderMesh;
-
-    // Detach loader root. It may still hold the bones a skinned weapon is
-    // drawn with, so it goes when the weapon goes, not now.
-    result.root.parent = null;
-    result.root.setEnabled(false);
-    bindLoaderLeftovers(leaderMesh, result.root, result.animationGroups);
-
-    const weapon: HeldWeapon = { leader: leaderMesh, muzzle: muzzleNode ?? null, paused: [] };
-    setModelRecycler(leaderMesh, () => this.parkWeapon(weaponId, weapon));
+    const modelSpace = leaderMesh.parent instanceof TransformNode ? leaderMesh.parent : result.root;
+    const grip = createGunGrip(result);
+    const weapon: HeldWeapon = { leader: grip, muzzle: muzzleNode ?? null, paused: [] };
+    setModelRecycler(grip, () => this.parkWeapon(weaponId, weapon));
     // The barrels belong to the gun, wherever it is held or parked.
-    const barrels = this.attachBarrels(leaderMesh, weaponDef, result, () => leaderMesh.isDisposed());
+    const barrels = this.attachBarrels(modelSpace, weaponDef, result, () => grip.isDisposed(), grip);
     return { weapon, barrels };
   }
 
@@ -2203,10 +2199,10 @@ export class RemotePlayerRenderer {
     if (!leader) return;
     const { weapon, barrels } = this.assembleGun(weaponId, def, result, leader);
     await barrels;
-    for (const mesh of [leader, ...leader.getChildMeshes(false)]) {
+    for (const mesh of weapon.leader.getChildMeshes(false)) {
       if (mesh.material) await prepareMaterial(mesh.material, mesh);
     }
-    if (!this.parkWeapon(weaponId, weapon)) disposeModelResources([leader]);
+    if (!this.parkWeapon(weaponId, weapon)) disposeModelResources([weapon.leader]);
   }
 
   /** Put an assembled gun in a player's right hand (the anchor without one). */
@@ -2219,28 +2215,7 @@ export class RemotePlayerRenderer {
     visualScale: number,
   ): void {
     const leader = weapon.leader;
-    const hand = inst.skeleton?.bones.find((bone) => bone.name === "mixamorig:RightHand");
-    if (hand) {
-      // attachToBone(bone, affectedTransformNode): the mesh that owns the skeleton
-      leader.parent = null;
-      leader.attachToBone(hand, inst.mesh);
-      leader.position.set(0, 0, 0);
-      // Scale: compensate for 36x player mesh + shrink for 3rd person.
-      // GLB weapons use their authored view-model scale; MD3s use world scale.
-      leader.scaling.setAll((visualScale / MODEL_SCALE) * 0.5);
-      // Weapon-specific rotation in bone-local space
-      // (differs from first-person loadGlbWeapon rotations)
-      // IQM→GLB guns: barrel along +X in model space.
-      // Bone +Y = along fingers; X/Z rotations align and right the gun.
-      leader.rotation.set(Math.PI, 0, -Math.PI / 2);
-    } else {
-      leader.parent = inst.anchor;
-      leader.position.set(0, 30, 0);
-      leader.rotation.setAll(0);
-      leader.scaling.setAll(visualScale);
-      console.warn(`[RemoteWeapon] No RightHand bone, using anchor for ${entityId}`);
-    }
-    leader.setEnabled(true);
+    holdGunGrip(leader, inst, visualScale, MODEL_SCALE);
     for (const group of weapon.paused.splice(0)) group.play(group.loopAnimation);
 
     hitbox.weaponRoot = leader as unknown as TransformNode;
@@ -2249,7 +2224,7 @@ export class RemotePlayerRenderer {
     // (bone-attached meshes aren't scene-graph children): a dead player's gun
     // rides the ragdoll and is parked when the ragdoll goes.
     inst.attachedWeapon = leader as unknown as TransformNode;
-    devLog(`[RemoteWeapon] ✓ ${weaponId} for ${entityId}, bone: ${!!hand}`);
+    devLog(`[RemoteWeapon] ✓ ${weaponId} for ${entityId}`);
   }
 
   /** Take a weapon back from its holder for the next player who switches to it; false disposes it. */
@@ -2286,10 +2261,11 @@ export class RemotePlayerRenderer {
    * launcher's drum) on a gun held in a player's hand. They go with the gun.
    */
   private async attachBarrels(
-    leader: Mesh,
+    leader: TransformNode,
     weaponDef: WeaponDef,
     result: ModelLoadResult,
     replaced: () => boolean = () => false,
+    owner: TransformNode = leader,
   ): Promise<void> {
     if (!weaponDef.barrels?.length) return;
     await attachWorldBarrels({
@@ -2301,7 +2277,7 @@ export class RemotePlayerRenderer {
       adopt: (barrel) => {
         dropDistantWeaponDetail(barrel.meshes);
         for (const mesh of barrel.meshes) mesh.alwaysSelectAsActiveMesh = true;
-        bindLoaderLeftovers(leader, barrel.root, barrel.animationGroups);
+        bindLoaderLeftovers(owner, barrel.root, barrel.animationGroups);
       },
       stale: () => this.disposed || leader.isDisposed() || replaced(),
       label: "RemoteWeapon",

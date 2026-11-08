@@ -3,9 +3,8 @@ import { Command, type CommandDef, type CommandOutput, fail } from "../../../../
 export default class VideoExportCommand extends Command {
   readonly definition: CommandDef = {
     name: "videoexport",
-    description: "Export a loaded demo's highlights to MP4 (development client)",
+    description: "Export a loaded demo's highlights to MP4",
     usage: "videoexport",
-    developer: true,
   };
 
   async execute(args: string[]): Promise<CommandOutput> {

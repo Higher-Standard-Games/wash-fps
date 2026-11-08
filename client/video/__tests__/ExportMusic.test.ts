@@ -79,10 +79,58 @@ describe("highlight soundtrack selection", () => {
     expect(source.playbackRate.value).toBe(1);
     expect(source.playbackRate.setValueAtTime).not.toHaveBeenCalled();
     expect(gain.gain.linearRampToValueAtTime.mock.calls).toEqual([
-      [0.22, 0.25],
+      [0.8, 0.25],
       [0, 60],
     ]);
     expect(source.disconnect).toHaveBeenCalledOnce();
     expect(prepare).not.toHaveBeenCalled();
   });
+
+  it.each([false, true])(
+    "layers effects under selected music while preserving game-only gain (music=%s)",
+    async (withMusic) => {
+      const parameter = () => ({ value: 1, setValueAtTime: vi.fn(), linearRampToValueAtTime: vi.fn() });
+      const gains: ReturnType<typeof parameter>[] = [];
+      vi.stubGlobal(
+        "OfflineAudioContext",
+        class {
+          destination = {};
+          listener = Object.fromEntries(
+            ["positionX", "positionY", "positionZ", "forwardX", "forwardY", "forwardZ", "upX", "upY", "upZ"].map(
+              (key) => [key, parameter()],
+            ),
+          );
+          createBufferSource = () => ({
+            connect() {},
+            disconnect() {},
+            start() {},
+            stop() {},
+            detune: parameter(),
+            playbackRate: parameter(),
+          });
+          createGain = () => {
+            const gain = parameter();
+            gains.push(gain);
+            return { gain, connect() {}, disconnect() {} };
+          };
+          startRendering = async () => ({ numberOfChannels: 2, getChannelData: () => new Float32Array(1) });
+        },
+      );
+      const capture = new ExportAudioCapture(async () => {});
+      capture.begin();
+      capture.play2D("shot", { volume: 0.6 });
+      capture.sampleListener({
+        position: { x: 0, y: 0, z: 0 },
+        forward: { x: 0, y: 0, z: -1 },
+        up: { x: 0, y: 1, z: 0 },
+      });
+      await mixExportAudio(
+        capture.snapshot(2),
+        async () => ({ buffer: { duration: 1 } as AudioBuffer, loopStart: 0 }),
+        new AbortController().signal,
+        withMusic ? { buffer: { duration: 180 } as AudioBuffer, startSeconds: 30 } : undefined,
+      );
+      expect(gains[gains.length - 1].setValueAtTime).toHaveBeenCalledWith(withMusic ? 0.21 : 0.6, 0);
+    },
+  );
 });

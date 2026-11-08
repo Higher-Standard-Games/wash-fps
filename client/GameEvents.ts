@@ -1336,8 +1336,9 @@ export function handleRemoteWeaponFire(
   }
 }
 
-/** Apply exact server beam truth while keeping all electrical detail client-side. */
+/** Remote and recorded beams follow server truth; the local view predicts its own beam. */
 export function handleVoltaicBeam(event: VoltaicBeamEvent, localHero: boolean, weaponId = "voltaic"): void {
+  if (localHero) return;
   const fx = getHitscanEffects();
   voltaicTruthOrigin.set(event.originX, event.originY, event.originZ);
   voltaicTruthDirection.set(event.dirX, event.dirY, event.dirZ);
@@ -1347,8 +1348,7 @@ export function handleVoltaicBeam(event: VoltaicBeamEvent, localHero: boolean, w
   voltaicTruthColor.set(rgb[0], rgb[1], rgb[2]);
   voltaicTruthConfig.impactKind = event.impactKind === 2 ? "player" : event.impactKind === 1 ? "world" : "none";
 
-  if (localHero) fx.updateLocalLightningTruth(voltaicTruthConfig);
-  else fx.updateRemoteLightningBeam(event.entityId, voltaicTruthConfig);
+  fx.updateRemoteLightningBeam(event.entityId, voltaicTruthConfig);
 }
 
 /** Spawn a one-shot Electrobolt rail from the authoritative server truth. */

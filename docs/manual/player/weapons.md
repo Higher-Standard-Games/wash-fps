@@ -10,6 +10,11 @@ a demo does not replay an already-running reload.
 Machinegun, Riotgun, Plasma and Voltaic magazines all reload in **1.5 seconds**
 (188 server ticks, or 1.504 seconds at 125 Hz). Pool-ammo weapons do not reload.
 
+If a chosen kit is missing, run `loadout status` in the console before reloading
+the page. It reports the saved selection, last server-reported weapons, local
+inventory and HUD, plus whether you are viewing another player. This diagnostic
+works with developer mode off and does not change your kit or respawn you.
+
 ## At a Glance
 
 | # | Weapon | Tag | Damage | Fire rate | Ammo (reload) | Notes |
@@ -116,6 +121,10 @@ first-person audio; other players' beams are heard from their position.
 - **Ammo** — `lasers` (120-round clip), separate from Plasma's `cells` pool.
 - **Chain lightning** — the beam arcs from its primary hit to up to **2 nearby enemies** within 280 units, at 50% falloff per hop (100% → 50% → 25%). All players see the arcs. Superb in crowded rooms.
 - **Unstable hipfire** — fired from the hip the beam **wanders/bends** (`beamWanderDeg`, ~4°). **ADS (Mouse 2) locks it straight**. Aim down sights for range, spray from the hip up close.
+
+Your own beam follows your current view smoothly, with predicted visual contact
+on walls and players. The server still decides hits and damage. Other players'
+beams and demo playback follow their recorded server contacts.
 
 Voltaic hits use 70% of the usual damage-based camera shake.
 

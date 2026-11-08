@@ -143,8 +143,9 @@ Registered by this game at boot (`console/commands/`), used from the in-game con
 |---------|--------------|
 | `connect <url>` / `disconnect` | Join or leave a game server; see [Connecting](../multiplayer/connecting.md) |
 | `demo`, `demolist`, `demoplay` | Load, list and play demos; see [Demos](../multiplayer/demos.md) |
-| `videoexport` | Open highlight MP4 export for a loaded demo; development client and `developer 1` required. See [Demos](../multiplayer/demos.md#development-video-export) |
+| `videoexport` | Open highlight MP4 export for a loaded demo, including release builds with `developer 0`. See [Demos](../multiplayer/demos.md#video-export) |
 | `loadout <primary> <secondary>` | Pick a kit for your next spawn in Search & Destroy, Amphi or FFA |
+| `loadout status` | Read your selected kit, last received server inventory, client inventory, HUD and viewed-player identity without changing the kit |
 | `water [sample\|splash\|ripple\|render]` **dev** | Inspect liquid state at the camera and the player |
 | `netsim <test\|spawn\|tick\|state\|input>` **dev** | Network simulation testing |
 | `pickup_audit` | Audit client/server pickup active-set reconciliation |

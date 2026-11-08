@@ -12,7 +12,6 @@ import { VOLTAIC } from "../../shared/entities/definitions/weapons/voltaic";
 
 const hitscan = vi.hoisted(() => ({
   init: vi.fn(),
-  beginLightning: vi.fn(),
   updateLightningBeam: vi.fn(),
   updateBeam: vi.fn(),
   stopBeam: vi.fn(),

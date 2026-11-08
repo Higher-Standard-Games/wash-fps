@@ -59,7 +59,7 @@ export async function mixExportAudio(
       const source = context.createBufferSource();
       source.buffer = music.buffer;
       const bed = context.createGain();
-      const volume = 0.22;
+      const volume = 0.8;
       bed.gain.setValueAtTime(0, 0);
       bed.gain.linearRampToValueAtTime(volume, window.fadeIn);
       bed.gain.setValueAtTime(volume, window.duration - window.fadeOut);
@@ -127,7 +127,7 @@ export async function mixExportAudio(
         if (frame.time > start) source.playbackRate.setValueAtTime(frame.rate, frame.time);
       }
       const gain = context.createGain();
-      const volume = Math.max(0, cue.options.volume ?? 1);
+      const volume = Math.max(0, cue.options.volume ?? 1) * (music ? 0.35 : 1);
       gain.gain.setValueAtTime(volume, start);
       // Shot-local tails end with a short fade; scheduled loop owners determine their own stops.
       if (!cue.loop && scopeEnd < plan.duration && end === scopeEnd) {

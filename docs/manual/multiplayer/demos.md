@@ -141,12 +141,13 @@ A card shows what a recording's header holds: the map, the mode, who played, how
 long it ran, when, and its size. The header has no final score, so a card shows
 none.
 
-## Development video export
+## Video export
 
-The development client can export a saved recording's highlights to a video
-file. Leave any live match, enable `developer 1`, then choose **Export video**
-inside a demo card's **Highlights** menu. For an already loaded recording,
-run `videoexport`. This feature is unavailable in release builds.
+Export a saved recording's highlights to a video file. Leave any live match,
+then choose **Export video** inside a demo card's **Highlights** menu. For an
+already loaded recording, run `videoexport`. Export is available in release
+builds with `developer 0`; rendering, encoding and temporary video storage run
+locally in your browser.
 
 Choose a 1, 2 or 3 minute highlight target, then **Generate video**. The same
 source-length limits as preview apply: at least 3, 6 or 9 minutes respectively.
@@ -155,14 +156,18 @@ can differ from the target. Output is 1920×1080 at 60 FPS, SDR H.264 video and
 48 kHz stereo AAC audio in MP4. Chat and the gameplay HUD are omitted.
 
 **Background music** defaults to **`<none>`** for game audio only. Choose any
-packaged OST song to mix it underneath the game sounds. **Start from** selects
+packaged OST song for the main soundtrack, with game sounds layered over it. **Start from** selects
 the position in the song, as seconds, `m:ss` or `h:mm:ss` (for example `1:23.250`).
 Music plays continuously at normal speed across cuts and slow motion, with a
 short fade in and out. It stops at the end of the movie or song and does not loop.
 The start timestamp must be before the song ends.
+Selected music uses a fixed 80% gain; game sounds play underneath at 35% of
+their game-audio-only level. The combined mix retains clipping protection.
 
 Generation uses an isolated WebGL2 scene and leaves the original recording
-loaded in its viewer. Keep the export window visible. **Cancel** stops an active
+loaded in its viewer. Camera motion follows movie time through shader compilation
+waits; audio preparation and video rendering must agree on the camera path.
+Keep the export window visible. **Cancel** stops an active
 job; **Discard video** releases a finished result. Close is protected while a
 job is active or its result has not been downloaded or discarded.
 

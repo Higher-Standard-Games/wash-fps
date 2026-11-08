@@ -1,13 +1,11 @@
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { Scene } from "@babylonjs/core/scene";
 import type { FirstPersonPose } from "../../../engine/camera/FirstPersonPose";
+import { presentationNow } from "../../../engine/core/PresentationTime";
 import { DeathCamera } from "./DeathCamera";
 
 /**
- * The view of a watched player who has died, live or in a demo: the death
- * camera's chase of their body, as a pose the spectator camera takes. Left
- * behind their eyes, the view held at the body, inside the weapon they dropped
- * at their feet, which filled the screen.
+ * Presents a watched player's corpse chase as a spectator pose, live or in a demo.
  */
 export class WatchedDeathView {
   private readonly camera = new DeathCamera();
@@ -48,7 +46,7 @@ export class WatchedDeathView {
     }
     if (!this.bodyKnown) return eye;
 
-    const now = performance.now();
+    const now = presentationNow();
     if (!this.camera.isActive) {
       this.camera.start(() => this.body, this.body.clone(), this.heading);
       this.lastMs = now;
