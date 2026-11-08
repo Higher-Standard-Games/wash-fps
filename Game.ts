@@ -313,6 +313,11 @@ export class Game {
         inventory: player?.inventory.getWeapons() ?? null,
         currentWeapon: player?.inventory.getCurrentWeaponId() ?? null,
         hud: { weapons: hud.weapons, currentWeapon: hud.currentWeapon },
+        view: {
+          displayedWeapon: getWeaponViewManager().getDisplayedWeaponId(),
+          ready: getWeaponViewManager().isReady,
+          switching: getWeaponViewManager().isSwitching(),
+        },
         spectatingEntityId: this.spectatingEntityId,
         controllerMatches: player ? player.getController() === CameraSystem.getInstance().getActiveController() : null,
       },

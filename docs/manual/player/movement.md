@@ -103,7 +103,7 @@ Maps place **`trigger_teleport`** brush volumes linked to a **`misc_teleporter_d
 
 ## Jumppads
 
-**`trigger_push`** brushes launch you at a fixed target (a `target_position`) — the classic accelerator pad. The launch is solved so your arc lands on the pad's target, and it's client-predicted like everything else. Velocity is **replaced**, not added, so you can't "pre-load" a pad by jumping into it — step on, get launched, and aim your air-strafe on the way up.
+**`trigger_push`** brushes launch you at a fixed target (for example, a `target_position` or `target_push` point entity) — the classic accelerator pad. The launch is solved so your arc lands on the pad's target, and it's client-predicted like everything else. Velocity is **replaced**, not added, so you can't "pre-load" a pad by jumping into it — step on, get launched, and aim your air-strafe on the way up.
 
 ## Ladders
 
