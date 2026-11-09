@@ -1,8 +1,16 @@
+import {
+  CARTEL_MODEL_ROOT,
+  FEMALE_MODEL_ROOT,
+  PLAYER_ANIMATION_ROOT,
+  RIOTKITTY_MODEL_ROOT,
+  ROBOT_MODEL_ROOT,
+} from "../../../engine/animation/PlayerModelAssets";
+import { playerModelChoice, registerPlayerModelSelection } from "./PlayerModelSelection";
 /**
  * RemotePlayerRenderer — Renders 3D models + hitbox wireframes for remote entities
  *
  * Each remote player gets:
- * - A `PlayerModelInstance` (vanguard.glb clone) with animation state machine
+ * - A `PlayerModelInstance` (a clone of the player's body) with animation state machine
  * - An optional wireframe hitbox overlay (toggled via `cl_remotehitbox` cvar)
  *
  * Architecture:
@@ -25,6 +33,7 @@ import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Scene } from "@babylonjs/core/scene";
 import {
   animationDeltaSeconds,
+  BLADE_STANCE,
   PLAYER_POSE_BOUNDS,
   type PlayerModelInstance,
   PlayerModelManager,
@@ -63,7 +72,7 @@ import type { WeaponDef } from "../../../shared/entities/WeaponDef";
 import { WEAPONS } from "../shared/entities/definitions/weapons/WeaponsTable";
 import { maskHasPowerup } from "../shared/items/Powerups";
 import type { AimTarget } from "./AimAssist";
-import { attachBladeToPlayer, holdBladeGrip } from "./AttachedBlade";
+import { attachBladeToPlayer, holdBladeGrip, setBladeStance } from "./AttachedBlade";
 import { createGunGrip, holdGunGrip } from "./AttachedGun";
 import { DemoAnimationTimeline } from "./DemoAnimationTimeline";
 import { DemoEntityTimeline } from "./DemoEntityTimeline";
@@ -150,6 +159,7 @@ interface RemotePlayerHitbox {
   powerupGlowActive: boolean;
   /** Pose sampled at the reduced rate (medium distance); see applyAnimationLod. */
   poseStepped?: boolean;
+  weaponReadyUntil?: number;
 }
 
 // ─── Constants (Q3-style player bounds) ──────────────────────────
@@ -179,7 +189,7 @@ const MODEL_SCALE = 36;
 
 // ─── Model Y offset (fine-tune feet vs floor alignment) ──
 // The anchor is placed at the player's feet (origin + PLAYER_MINS_Z = origin−24)
-// plus this offset. The Mixamo vanguard mesh's local origin sits at its feet, so
+// plus this offset. A fitted body's local origin sits at its feet, so
 // the offset should be ~0. It was previously 12, which floated remote players
 // ~12u off the floor while walking (reported 2026-07-12). Browser-confirm the
 // exact value if feet clip into / hover above the floor.
@@ -190,7 +200,13 @@ const MODEL_Y_OFFSET = 0;
 // Tuned so feet track the ground at game speeds (maxSpeed=320, runSpeed=400).
 const WALK_NATURAL_SPEED = 40;
 const RUN_NATURAL_SPEED = 100;
+/** The backwards run's hips cover 2.52 units a second against the forward run's 3.27. */
+const RUN_BACK_NATURAL_SPEED = 77;
+const NON_AIMING_ANIMATIONS = new Set(["swim", "swim_idle", "climb", "walljump", "slide"]);
 const STRAFE_NATURAL_SPEED = 29;
+/** Running clips' leg and upper-body rates, as shares of the speed-matched rate. */
+const RUN_LEGS_RATE = 0.75;
+const RUN_UPPER_RATE = 0.5;
 /** Climb rate the ladder clip reads naturally at 1x (ladder climbSpeed is 168). */
 const CLIMB_NATURAL_SPEED = 120;
 
@@ -212,6 +228,7 @@ export class RemotePlayerRenderer {
   private snapshotBuffer: SnapshotBuffer = new SnapshotBuffer();
   private demoTimeline: DemoEntityTimeline | null = null;
   private demoPlayheadTick: number = 0;
+  private demoTickRate = 60;
   private demoAnimationTimeScale: number = 1;
   private demoDiscontinuityId: number = -1;
   private demoAnimationTimeline: DemoAnimationTimeline | null = null;
@@ -227,7 +244,7 @@ export class RemotePlayerRenderer {
   /** Entities marked dead — value is death timestamp (performance.now) */
   private deadEntities: Map<string, number> = new Map();
 
-  /** Shared model manager — loads vanguard.glb once, creates cloned instances */
+  /** Shared model manager — loads each body once, creates cloned instances */
   private modelManager: PlayerModelManager | null = null;
   private modelLoadPromise: Promise<void> | null = null;
   private weaponModelCache?: ModelInstanceCache;
@@ -355,10 +372,12 @@ export class RemotePlayerRenderer {
       return;
     }
     if (discontinuityId !== this.demoDiscontinuityId) {
+      for (const hitbox of this.hitboxes.values()) hitbox.weaponReadyUntil = 0;
       this.demoTimeline?.clear();
       this.demoDiscontinuityId = discontinuityId;
     }
     this.demoPlayheadTick = playheadTick;
+    this.demoTickRate = tickRate > 0 ? tickRate : 60;
     this.demoAnimationTimeScale = paused ? 0 : playbackSpeed;
     this._demoSampleCache = null; // playhead moved — per-frame sample memo is stale
     const animationDiscontinuity =
@@ -461,7 +480,14 @@ export class RemotePlayerRenderer {
     this.modelManager = new PlayerModelManager(this.scene);
     const loadingManager = this.modelManager;
     this.modelLoadPromise = (async () => {
-      await loadingManager.loadModel();
+      registerPlayerModelSelection();
+      await Promise.all([
+        loadingManager.loadModel(),
+        loadingManager.loadVariant("female", FEMALE_MODEL_ROOT, "female.glb", PLAYER_ANIMATION_ROOT),
+        loadingManager.loadVariant("robot", ROBOT_MODEL_ROOT, "robot.glb", PLAYER_ANIMATION_ROOT),
+        loadingManager.loadVariant("cartel", CARTEL_MODEL_ROOT, "cartel.glb", PLAYER_ANIMATION_ROOT),
+        loadingManager.loadVariant("riotkitty", RIOTKITTY_MODEL_ROOT, "riotkitty.glb", PLAYER_ANIMATION_ROOT),
+      ]);
       if (this.disposed || this.modelManager !== loadingManager) {
         loadingManager.dispose();
         return;
@@ -498,7 +524,9 @@ export class RemotePlayerRenderer {
 
   private createModelInstance(entityId: string): PlayerModelInstance | null {
     if (!this.modelManager?.isLoaded) return null;
-    const instance = this.modelManager.createInstance(entityId, MODEL_SCALE);
+    const choice = this.modelChoiceFor(entityId);
+    const instance = this.modelManager.createInstance(entityId, MODEL_SCALE, choice === "police" ? undefined : choice);
+    if (instance) instance.modelKey = choice;
     if (instance) {
       // Explicit opt-in for the engine's optional near-water reflection layer.
       // Root metadata also covers model children; hidden POV roots stay excluded.
@@ -508,6 +536,12 @@ export class RemotePlayerRenderer {
       this.applyModelVisualStyle(instance, entityId);
     }
     return instance;
+  }
+
+  private modelChoiceFor(entityId: string) {
+    return playerModelChoice(
+      entityId === "water-local-body" || this.resolvePlayerTeamSlot(entityId) === "ally" ? "ally" : "enemy",
+    );
   }
 
   /** A local body exists only for water capture, never for main/depth/refraction
@@ -525,6 +559,10 @@ export class RemotePlayerRenderer {
         void this.ensureModelLoaded();
       }
       return;
+    }
+    if (this.localReflectionModel && this.localReflectionModel.modelKey !== playerModelChoice("ally")) {
+      this.modelManager.disposeInstance(this.localReflectionModel);
+      this.localReflectionModel = null;
     }
     if (!this.localReflectionModel) {
       this.localReflectionModel = this.createModelInstance("water-local-body");
@@ -1192,7 +1230,8 @@ export class RemotePlayerRenderer {
       return null;
     }
     const model = hitbox.model;
-    // A one-shot (a blade swing) is the manager's; the ragdoll drives the bones now.
+    // A one-shot (a blade swing) and the blade stance are the manager's; the ragdoll drives the bones now.
+    this.modelManager?.setUpperBodyStance(model, null);
     this.modelManager?.stopOneShot(model, false);
     // Physics carries the bones off the anchor, outside the pose bounds.
     this.modelManager?.selectAlways(model);
@@ -1254,6 +1293,16 @@ export class RemotePlayerRenderer {
       bufferSize: this.demoTimeline?.getSize() ?? this.snapshotBuffer.getBufferSize(),
       interpDelay: this.demoTimeline ? 0 : this.snapshotBuffer.getInterpDelay(),
     };
+  }
+
+  /** Keep the weapon raised briefly after each shot, using the playback clock in demos. */
+  noteWeaponFire(entityId: string): void {
+    const hitbox = this.hitboxes.get(entityId);
+    if (hitbox) hitbox.weaponReadyUntil = this.poseTimeSeconds() + 0.6;
+  }
+
+  private poseTimeSeconds(): number {
+    return this.demoTimeline ? this.demoPlayheadTick / this.demoTickRate : performance.now() / 1000;
   }
 
   /**
@@ -1550,6 +1599,19 @@ export class RemotePlayerRenderer {
         // first frame after switching away was a jump, taken for a teleport (R2).
         this.updatePosition(hitbox, interp);
         continue;
+      }
+
+      if (hitbox.model && hitbox.model.modelKey !== this.modelChoiceFor(entityId)) {
+        hitbox.weaponLoadGeneration = (hitbox.weaponLoadGeneration ?? 0) + 1;
+        if (hitbox.weaponRoot) disposeModelResources([hitbox.weaponRoot]);
+        hitbox.weaponRoot = null;
+        hitbox.weaponMuzzle = null;
+        hitbox.handBone = null;
+        hitbox.currentWeaponId = "";
+        this.modelManager?.releaseInstance(hitbox.model);
+        hitbox.model = null;
+        hitbox.appliedVisualStyleKey = null;
+        hitbox.poseStepped = false;
       }
 
       // Ensure model is assigned — catches any timing gaps during initial load
@@ -1868,7 +1930,7 @@ export class RemotePlayerRenderer {
 
     // Reset root motion each frame (position + rotation drift from anims)
     this.modelManager.resetRootMotion(inst);
-    inst.mesh.scaling.set(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE);
+    inst.mesh.scaling.setAll(inst.modelScale ?? MODEL_SCALE);
     if (inst.mesh.rotationQuaternion) inst.mesh.rotationQuaternion = null;
     inst.mesh.rotation.set(0, 0, 0);
 
@@ -1890,21 +1952,49 @@ export class RemotePlayerRenderer {
     }
 
     // Keep the next locomotion pose current while an attack owns the bones.
-    const animName = deriveAnimation(interp);
+    const locomotion = deriveAnimation(interp);
+    const weaponReady =
+      !!interp.aiming ||
+      (hitbox.currentWeaponId !== "blade" && (hitbox.weaponReadyUntil ?? 0) > this.poseTimeSeconds());
+    const backward =
+      (locomotion === "run" || locomotion === "walk") &&
+      movesBackward(interp) &&
+      inst.anims.some((clip) => clip.name === "run_back");
+    const relaxed =
+      !backward && locomotion === "run" && !weaponReady && inst.anims.some((clip) => clip.name === "run_relaxed");
+    const animName = backward ? "run_back" : relaxed ? "run_relaxed" : locomotion;
+    this.modelManager.setAimPitch(inst, !relaxed && !NON_AIMING_ANIMATIONS.has(locomotion) ? (interp.pitch ?? 0) : 0);
     this.modelManager.playAnimation(inst, animName);
+    // The blade is held in its own upper-body stance; swimming, climbing and
+    // the like keep their arms
+    const stance =
+      hitbox.currentWeaponId === "blade" &&
+      !NON_AIMING_ANIMATIONS.has(locomotion) &&
+      inst.anims.some((clip) => clip.name === BLADE_STANCE)
+        ? BLADE_STANCE
+        : null;
+    this.modelManager.setUpperBodyStance(inst, stance, animationTimeScale);
+    // The blade stands up from the fist in the stance; a swing holds it along the fingers
+    if (hitbox.currentWeaponId === "blade" && hitbox.weaponRoot) {
+      setBladeStance(hitbox.weaponRoot, inst, !!stance && !this.modelManager.isOneShotPlaying(inst));
+    }
     if (this.demoAnimationTimeline) {
       const demoShot = this.demoAnimationTimeline.get(entityId);
       if (demoShot) {
         this.modelManager.setOneShotTimeScale(inst, demoShot.timeScale);
-        return;
+        if (this.modelManager.isFullBodyOneShotPlaying(inst)) return;
       }
     } else {
-      if (inst.oneshotUntil > 0 && performance.now() < inst.oneshotUntil) {
+      if (
+        inst.oneshotUntil > 0 &&
+        performance.now() < inst.oneshotUntil &&
+        this.modelManager.isFullBodyOneShotPlaying(inst)
+      ) {
         // One-shot is playing — don't override with locomotion
         return;
       }
       // Clear the expired wall-clock deadline; locomotion is already current.
-      if (inst.oneshotUntil > 0) {
+      if (inst.oneshotUntil > 0 && performance.now() >= inst.oneshotUntil) {
         inst.oneshotUntil = 0;
       }
     }
@@ -1925,19 +2015,23 @@ export class RemotePlayerRenderer {
     // Scale animation speed to match movement speed (eliminate foot sliding)
     if (inst.masterGroup) {
       const speed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz);
+      // Running legs and upper body each play at their own share of the speed-matched rate
+      const running = animName === "run" || animName === "run_relaxed" || animName === "run_back";
+      const runLegs = Number(Cvar.get("cl_player_run_legs") ?? RUN_LEGS_RATE);
+      const runUpper = Number(Cvar.get("cl_player_run_upper") ?? RUN_UPPER_RATE);
 
-      if (animName === "run" || animName === "walk") {
-        const naturalSpeed = animName === "run" ? RUN_NATURAL_SPEED : WALK_NATURAL_SPEED;
-
-        // Detect backward movement
-        const fwdX = Math.sin(interp.yaw);
-        const fwdZ = Math.cos(interp.yaw);
-        const forwardDot = fwdX * interp.vx + fwdZ * interp.vz;
-        const isBackward = forwardDot < 0;
+      if (running || animName === "walk") {
+        const naturalSpeed =
+          animName === "walk"
+            ? WALK_NATURAL_SPEED
+            : animName === "run_back"
+              ? RUN_BACK_NATURAL_SPEED
+              : RUN_NATURAL_SPEED;
 
         let speedRatio = speed / naturalSpeed;
-        if (isBackward) speedRatio = -speedRatio;
-        inst.masterGroup.speedRatio = Math.max(-3.0, Math.min(3.0, speedRatio));
+        // The backwards clip moves backwards itself; the others play reversed
+        if (animName !== "run_back" && movesBackward(interp)) speedRatio = -speedRatio;
+        inst.masterGroup.speedRatio = Math.max(-3.0, Math.min(3.0, speedRatio)) * (running ? runLegs : 1);
       } else if (animName === "strafe_l" || animName === "strafe_r") {
         // Use lateral speed for strafe ratio
         const fwdX = Math.sin(interp.yaw);
@@ -2008,6 +2102,7 @@ export class RemotePlayerRenderer {
         inst.masterGroup.speedRatio = 1.0;
       }
       inst.masterGroup.speedRatio *= animationTimeScale;
+      this.modelManager.setUpperBodyShare(inst, running && runLegs > 0 ? runUpper / runLegs : 1);
     }
   }
 
@@ -2343,6 +2438,20 @@ Cvar.register("cl_player_pose_hz", 30, {
     "Pose rate for medium-distance remote players, in Hz (they still move every frame). 0 poses every player every frame",
 });
 
+Cvar.register("cl_player_run_legs", RUN_LEGS_RATE, {
+  type: "float",
+  min: 0.05,
+  max: 2,
+  description: "Running players' hips and legs, as a share of the rate that matches their speed",
+});
+
+Cvar.register("cl_player_run_upper", RUN_UPPER_RATE, {
+  type: "float",
+  min: 0,
+  max: 2,
+  description: "Running players' spine, arms and head, as a share of the rate that matches their speed",
+});
+
 Cvar.register("cl_animdebug", 0, {
   developer: true,
   type: "int",
@@ -2351,6 +2460,11 @@ Cvar.register("cl_animdebug", 0, {
   description:
     "Log remote/demo player animation state (derived anim, speed, grounded, whether the anim group advances)",
 });
+
+/** Whether a player moves against the way they face. */
+function movesBackward(interp: { yaw: number; vx: number; vz: number }): boolean {
+  return Math.sin(interp.yaw) * interp.vx + Math.cos(interp.yaw) * interp.vz < 0;
+}
 
 /** Switch a handed-over body and its weapon on, unless the ragdoll is already gone. */
 function showCorpse(model: PlayerModelInstance): void {

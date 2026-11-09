@@ -8,7 +8,7 @@ import { Scene } from "@babylonjs/core/scene";
 import { expect, it } from "vitest";
 import type { PlayerModelInstance } from "../../../../engine/animation/PlayerModelManager";
 import { disposeModelResources } from "../../../../engine/loader/model/ModelSourceCache";
-import { attachBladeToPlayer } from "../AttachedBlade";
+import { attachBladeToPlayer, bladeStanceTurn } from "../AttachedBlade";
 
 it("keeps nested export normalization and points a 60-unit blade along the hand", () => {
   const engine = new NullEngine();
@@ -50,4 +50,17 @@ it("keeps nested export normalization and points a 60-unit blade along the hand"
   } finally {
     engine.dispose();
   }
+});
+
+it.each([
+  ["X", new Vector3(1, 0, 0)],
+  ["Z", new Vector3(0, 0, 1)],
+])("stands a blade thin across %s on the stance axis with its flat faces to the side", (_name, thin) => {
+  const axis = new Vector3(0.2, 0.9, 0.3).normalize();
+  const side = Vector3.Cross(axis, new Vector3(0, 0, 1)).normalize();
+  const turn = bladeStanceTurn(thin, axis, side);
+  const length = Vector3.Up().rotateByQuaternionToRef(turn, new Vector3());
+  const faces = thin.rotateByQuaternionToRef(turn, new Vector3());
+  expect(Vector3.Distance(length, axis)).toBeLessThan(1e-6);
+  expect(Vector3.Distance(faces, side)).toBeLessThan(1e-6);
 });

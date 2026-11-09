@@ -90,18 +90,24 @@ async function main() {
       !Number.isInteger(options.port) || options.port < 1024 || options.port > 65535 ||
       !backends.length || new Set(backends).size !== backends.length || backends.some(b => !['webgl2', 'webgpu'].includes(b)) ||
       !counts.length || new Set(counts).size !== counts.length || counts.some(n => ![0, 2, 5, 10].includes(n))) throw new Error('Invalid crowd workload');
-  const recipeFile = path.join(root, 'benchmarks/recipes/player-crowd-v1.json'), recipeBytes = await fs.readFile(recipeFile), recipe = JSON.parse(recipeBytes);
-  const playerRecipe = JSON.parse(await fs.readFile(path.join(root, 'config/player-model-vanguard.json'), 'utf8'));
-  const playerArchivePath = path.join(root, 'public/data', playerRecipe.package);
-  const playerZip = await JSZip.loadAsync(await fs.readFile(playerArchivePath));
-  const assetFiles = [recipe.model.root + recipe.model.file, recipe.model.root + recipe.animation.file];
+  const recipeFile = path.join(root, 'benchmarks/recipes/player-crowd-v2.json'), recipeBytes = await fs.readFile(recipeFile), recipe = JSON.parse(recipeBytes);
+  // Shared clips first: their root is under models/players/ too, where the bodies are
+  const packages = [];
+  for (const config of ['config/player-animations.json', 'config/player-model.json']) {
+    const { package: name, root: packageRoot } = JSON.parse(await fs.readFile(path.join(root, config), 'utf8'));
+    const archive = path.join(root, 'public/data', name);
+    const prefix = config.endsWith('animations.json') ? packageRoot : 'models/players/';
+    packages.push({ prefix, archive, zip: await JSZip.loadAsync(await fs.readFile(archive)) });
+  }
+  const packageOf = file => packages.find(p => file.startsWith(p.prefix));
+  const assetFiles = [recipe.model.root + recipe.model.file, recipe.animation.root + recipe.animation.file];
   if (options.outlineProxy) {
     recipe.outlineGeometry = ['full', 'proxy'];
     assetFiles.push('/data/benchmarks/outline-proxy/player-outline-proxy-v1.glb', '/data/benchmarks/outline-proxy/player-outline-proxy-v1.glb.json');
   }
   const assets = await Promise.all(assetFiles.map(async file => {
-    const entry = file.startsWith(playerRecipe.root) ? playerZip.file(file) : null;
-    if (file.startsWith(playerRecipe.root) && !entry) throw new Error(`Crowd player asset missing from package: ${file}`);
+    const owner = packageOf(file), entry = owner ? owner.zip.file(file) : null;
+    if (owner && !entry) throw new Error(`Crowd player asset missing from package: ${file}`);
     const bytes = entry ? await entry.async('nodebuffer') : await fs.readFile(path.join(root, 'public', file.replace(/^\//, '')));
     return { file, sha256: hash(bytes) };
   }));
@@ -118,11 +124,11 @@ async function main() {
     digest.update(git(['diff', '--binary', 'HEAD', '--', 'src', 'package.json', 'vite.config.ts'])).update(git(['diff', '--binary', 'HEAD'], fps));
     for (const file of git(['ls-files', '--others', '--exclude-standard', 'src']).split('\n').filter(f => /\.(ts|json)$/.test(f)))
       digest.update(file).update(readFileSync(path.join(root, file)));
-    for (const file of ['src/games/fps/scripts/benchmarks/crowd-benchmark.mjs', 'benchmarks/crowd/index.html', 'benchmarks/recipes/player-crowd-v1.json', 'config/player-model-vanguard.json'])
+    for (const file of ['src/games/fps/scripts/benchmarks/crowd-benchmark.mjs', 'benchmarks/crowd/index.html', 'benchmarks/recipes/player-crowd-v2.json', 'config/player-animations.json', 'config/player-model.json'])
       digest.update(file).update(readFileSync(path.join(root, file)));
     if (options.outlineProxy) for (const file of ['src/games/fps/scripts/benchmarks/build-outline-proxy.mjs', 'benchmarks/recipes/player-outline-proxy-v1.json'])
       digest.update(file).update(readFileSync(path.join(root, file)));
-    for (const file of new Set(assetFiles.map(file => file.startsWith(playerRecipe.root) ? playerArchivePath : path.join(root, 'public', file.replace(/^\//, '')))))
+    for (const file of new Set(assetFiles.map(file => packageOf(file)?.archive ?? path.join(root, 'public', file.replace(/^\//, '')))))
       digest.update(file).update(readFileSync(file));
     return { outer: git(['rev-parse', 'HEAD']), fps: git(['rev-parse', 'HEAD'], fps), fingerprint: digest.digest('hex') };
   };

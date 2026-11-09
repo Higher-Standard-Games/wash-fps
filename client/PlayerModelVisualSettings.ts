@@ -136,6 +136,13 @@ export function registerPlayerModelVisualCvars(): void {
     description: "Third-person player model outline size, 0-100.",
     persist: true,
   });
+  Cvar.register("cl_player_tint", 1, {
+    type: "int",
+    min: 0,
+    max: 1,
+    description: "Apply the selected team tint to player textures; outlines keep their own colour.",
+    persist: true,
+  });
   Cvar.register("cl_player_fullbright", 0, {
     type: "int",
     min: 0,
@@ -191,7 +198,7 @@ export function getPlayerModelVisualStyle(slot: PlayerTeamSlot, modelScale: numb
   const outlineSize = Math.max(0, Cvar.getNumber("cl_player_outline_size"));
 
   return {
-    tintColor,
+    tintColor: Cvar.getBool("cl_player_tint") ? tintColor : null,
     fullbrightEnabled: Cvar.getBool("cl_player_fullbright"),
     fullbrightIntensity: Math.max(0, Math.min(1, Cvar.getNumber("cl_player_fullbright_intensity"))),
     outlineEnabled: Cvar.getBool("cl_player_outline") && outlineSize > 0,
@@ -208,6 +215,7 @@ export function getPlayerModelVisualStyleKey(slot: PlayerTeamSlot): string {
     Cvar.getString(TEAM_OUTLINE_CVARS[slot]),
     Cvar.get("cl_player_outline"),
     Cvar.get("cl_player_outline_size"),
+    Cvar.get("cl_player_tint"),
     Cvar.get("cl_player_fullbright"),
     Cvar.get("cl_player_fullbright_intensity"),
   ].join("|");
@@ -250,7 +258,7 @@ export function getFfaPlayerModelVisualStyle(color: TeamColor, modelScale: numbe
   const base = getPlayerModelVisualStyle("ffa", modelScale);
   return {
     ...base,
-    tintColor: parseRgbCvar(color.fill, PLAYER_MODEL_VISUAL_DEFAULTS.ffa),
+    tintColor: base.tintColor ? parseRgbCvar(color.fill, PLAYER_MODEL_VISUAL_DEFAULTS.ffa) : null,
     outlineColor: parseRgbCvar(color.outline, base.outlineColor),
   };
 }

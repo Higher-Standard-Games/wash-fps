@@ -69,11 +69,12 @@ function sourceIdentity() {
     for (const file of git(args, cwd).split('\n').filter(file => /\.(tsx?|json)$/.test(file)))
       digest.update(cwd + '/' + file).update(readFileSync(path.join(cwd, file)));
   }
-  const playerRecipePath = 'config/player-model-vanguard.json';
-  const playerRecipeBytes = readFileSync(path.join(root, playerRecipePath));
-  const playerRecipe = JSON.parse(playerRecipeBytes);
-  digest.update(playerRecipePath).update(playerRecipeBytes);
-  const playerAssets = [`public/data/${playerRecipe.package}`];
+  const playerAssets = [];
+  for (const config of ['config/player-model.json', 'config/player-animations.json']) {
+    const bytes = readFileSync(path.join(root, config));
+    digest.update(config).update(bytes);
+    playerAssets.push(`public/data/${JSON.parse(bytes).package}`);
+  }
   if (fixture.profile.requiredCvars.cl_player_outline_proxy !== undefined) playerAssets.push(
     'public/data/benchmarks/outline-proxy/player-outline-proxy-v1.glb',
     'public/data/benchmarks/outline-proxy/player-outline-proxy-v1.glb.json',

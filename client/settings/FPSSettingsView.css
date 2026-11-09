@@ -1551,13 +1551,13 @@
   gap: 8px;
 }
 
-.fps-set-figure svg {
+.fps-set-figure img {
   width: clamp(64px, 6vw, 104px);
   height: auto;
   overflow: visible;
 }
 
-.fps-set-figure--far svg {
+.fps-set-figure--far img {
   width: clamp(38px, 3.4vw, 60px);
 }
 
@@ -1907,4 +1907,99 @@
   .fps-set-krow {
     gap: 3px;
   }
+}
+
+.fps-set-player-preview {
+  object-fit: contain;
+}
+
+/* One transparent render surface supplies both team cards. */
+.fps-set-team-grid {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.fps-set-team-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--team-color) 45%, transparent);
+  border-top: 3px solid var(--team-color);
+  border-radius: 3px;
+  background: hsla(250, 35%, 10%, 0.8);
+}
+.fps-set-team-title {
+  position: relative;
+  z-index: 2;
+  margin: 0;
+  padding: 15px 18px;
+  color: var(--team-color);
+  font: 800 15px / 1.2 var(--display);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.fps-set-team-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: clamp(240px, 26vw, 340px);
+  aspect-ratio: auto;
+  border-radius: 0;
+  box-shadow: none;
+}
+.fps-set-team-preview .fps-set-player-preview {
+  width: auto;
+  height: 90%;
+  max-width: 100%;
+  object-fit: contain;
+}
+.fps-set-team-preview.is-live .fps-set-player-preview {
+  opacity: 0;
+}
+.fps-set-team-canvas {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.fps-set-team-controls {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  gap: 20px;
+  padding: 18px;
+}
+.fps-set-model {
+  display: grid;
+  gap: 9px;
+}
+.fps-set-team-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  margin-top: 24px;
+}
+@media (max-width: 620px) {
+  .fps-set-team-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .fps-set-team-preview {
+    height: 290px;
+  }
+  .fps-set-team-options {
+    grid-template-columns: 1fr;
+  }
+}
+
+.fps-set-preview-placeholder {
+  color: var(--team-color);
+  font: 800 16px / 1.2 var(--display);
+  letter-spacing: 0.05em;
+}
+.fps-set-team-preview.is-live .fps-set-preview-placeholder {
+  display: none;
 }

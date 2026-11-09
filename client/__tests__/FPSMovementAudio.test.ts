@@ -66,12 +66,12 @@ describe("FPSMovementAudio", () => {
     expect(audio.playSfx3D).not.toHaveBeenCalled();
   });
 
-  it("plays Bobot jump edges at the player location", () => {
+  it("plays Police jump edges at the player location", () => {
     processFPSMovementAudio(stateAt(0, true, 0, "player_2"), "player_1");
     processFPSMovementAudio(stateAt(20, false, 240, "player_2"), "player_1");
 
     expect(audio.playSfx3D).toHaveBeenCalledOnce();
-    expect(audio.playSfx3D.mock.calls[0][0]).toMatch(/^sounds\/players\/bobot\/jump_[12]\.ogg$/);
+    expect(audio.playSfx3D.mock.calls[0][0]).toMatch(/^sounds\/players\/male\/jump_[12]\.ogg$/);
     expect(audio.playSfx3D.mock.calls[0][1]).toEqual({ x: 20, y: 32, z: 0 });
   });
 });

@@ -102,7 +102,7 @@ describe("FPSCombatAudio", () => {
     }
   });
 
-  it("preloads the complete combat, Bobot pain/death, hit and kill bank", async () => {
+  it("preloads the complete combat, Police pain/death, hit and kill bank", async () => {
     await preloadFPSCombatAudio();
     expect(audio.preloadSfx).toHaveBeenCalledWith(FPS_COMBAT_SOUND_PATHS);
     expect(FPS_COMBAT_SOUND_PATHS).toContain("sounds/players/male/death.ogg");
@@ -140,12 +140,12 @@ describe("FPSCombatAudio", () => {
     expect(audio.playSfx3D.mock.calls.at(-1)?.[2]).toMatchObject({ attenuation: Attenuation.Distant });
   });
 
-  it("plays attacker confirmation, Bobot pain/death, and the frag echo on their intended channels", () => {
+  it("plays attacker confirmation, Police pain/death, and the frag echo on their intended channels", () => {
     playDamageConfirmationSound(damageEvent);
     expect(audio.playSfx2D.mock.calls[0][0]).toMatch(/^sounds\/misc\/hit_[0-3]\.wav$/);
 
     playPlayerPainSound(damageEvent, false);
-    expect(audio.playSfx3D).toHaveBeenCalledWith("sounds/players/bobot/pain75.ogg", damageEvent, expect.any(Object));
+    expect(audio.playSfx3D).toHaveBeenCalledWith("sounds/players/male/pain75.ogg", damageEvent, expect.any(Object));
 
     playPlayerDeathSound(deathEvent, true);
     expect(audio.playSfx2D).toHaveBeenCalledWith("sounds/players/male/death.ogg", 0.9, 1, "players");
@@ -169,8 +169,8 @@ describe("FPSCombatAudio", () => {
     playPlayerPainSound({ ...damageEvent, entityId: "nearly_dead", damage: 5, painTier: 0 }, false, 5000);
     playPlayerPainSound({ ...damageEvent, entityId: "healthy", damage: 90, painTier: 3 }, false, 5000);
     expect(audio.playSfx3D.mock.calls.map(([path]) => path)).toEqual([
-      "sounds/players/bobot/pain25.ogg",
-      "sounds/players/bobot/pain100.ogg",
+      "sounds/players/male/pain25.ogg",
+      "sounds/players/male/pain100.ogg",
     ]);
   });
 

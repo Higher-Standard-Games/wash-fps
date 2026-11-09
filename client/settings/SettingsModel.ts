@@ -641,10 +641,19 @@ export const OUTLINE_CHOICES: CvarChoice<"off" | "thin" | "bold">[] = [
 ];
 
 /** A glow of the players' own that makes them stand out in dark corners. */
-export const BOOST_CHOICES: CvarChoice<"off" | "some" | "lots">[] = [
-  { id: "off", label: "Off", values: { cl_player_fullbright: 0 } },
-  { id: "some", label: "Some", values: { cl_player_fullbright: 1, cl_player_fullbright_intensity: 0.25 } },
-  { id: "lots", label: "Lots", values: { cl_player_fullbright: 1, cl_player_fullbright_intensity: 0.6 } },
+export const BOOST_CHOICES: CvarChoice<"off" | "tint" | "some" | "lots">[] = [
+  { id: "off", label: "Off", values: { cl_player_tint: 0, cl_player_fullbright: 0 } },
+  { id: "tint", label: "Tint", values: { cl_player_tint: 1, cl_player_fullbright: 0 } },
+  {
+    id: "some",
+    label: "Some",
+    values: { cl_player_tint: 1, cl_player_fullbright: 1, cl_player_fullbright_intensity: 0.25 },
+  },
+  {
+    id: "lots",
+    label: "Lots",
+    values: { cl_player_tint: 1, cl_player_fullbright: 1, cl_player_fullbright_intensity: 0.6 },
+  },
 ];
 
 // ── Crosshair ──
@@ -689,8 +698,8 @@ export const PAGE_CVARS: Record<SettingsPageId, string[]> = {
   controls: ["m_sensitivity", "cl_ads_sensitivity", "cl_autorun"],
   controller: CONTROLLER_CVARS,
   gameplay: [
-    "cl_team_ally_sounds",
-    "cl_team_enemy_sounds",
+    "cl_team_ally_model",
+    "cl_team_enemy_model",
     "cl_team_ally_color",
     "cl_team_ally_outline_color",
     "cl_team_enemy_color",
@@ -699,6 +708,7 @@ export const PAGE_CVARS: Record<SettingsPageId, string[]> = {
     "cl_team_ffa_outline_color",
     "cl_player_outline",
     "cl_player_outline_size",
+    "cl_player_tint",
     "cl_player_fullbright",
     "cl_player_fullbright_intensity",
     "cg_crosshair",

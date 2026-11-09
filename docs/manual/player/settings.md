@@ -3,12 +3,29 @@
 Effects volume defaults to **100%**. Existing saved volume choices are retained;
 use the Audio page's reset to restore the default, or set the Effects slider to 100%.
 
-In **Gameplay → Who's who**, each side has a **Sounds** dropdown beside its
-colors: Male, Female or Bobot. Your side defaults to Male and enemies to Bobot.
-The selection affects player pain, death and jumping; your own drowning voice
-also uses your side's bank. In FFA, everyone else uses the enemy bank. While
-following a player or watching their demo POV, sides are relative to that player.
-Selections save automatically and Gameplay reset restores the defaults.
+In **Gameplay / Who's who**, **Your team** and **Enemy team** each have a live
+model preview, a **Model** dropdown and colour swatches underneath. Choose
+**Police**, **Female Police**, **Cartel**, **RiotKitty** or **Robot**. Both sides
+default to Police. Sound packs follow the model automatically: Police and
+Cartel use male sounds, Female Police and RiotKitty use female sounds, and
+Robot uses Bobot sounds.
+
+The previews animate gently and show colour, outline and brightness changes as
+you make them. They pause when hidden. A still image or model name is shown
+while the live preview loads or if live rendering is unavailable.
+
+The choice controls the bodies you see and player pain, death, jumping and your
+own drowning voice. In FFA, everyone else uses the enemy selection. While
+following a player or watching their demo POV, sides are relative to that
+player. These are local presentation preferences; model choice keeps the same
+player collision bounds. Bodies use a slightly enlarged visual fit for readability;
+weapon hit rules stay the same. Blade swings animate the upper body while the legs
+keep running, jumping or using the current movement animation.
+
+Selections save automatically and apply to existing players. Gameplay reset
+restores Police and **Thin** outlines (enabled, size 25). The console equivalents
+are `cl_team_ally_model` and `cl_team_enemy_model`, accepting `police`, `female`,
+`cartel`, `riotkitty` or `robot`. Saved outline choices stay until changed or reset.
 
 Turning on **Video → Advanced → Color blindness** while both sides still have
 their default colors switches them to Cyan for your side and Orange for enemies,
@@ -121,7 +138,7 @@ match continues while its menu is open.
 
 - **Team colours.** The colour of **your side** and of **enemies** (anyone you can shoot), each with its own outline colour. In free-for-all each opponent instead wears a colour of their own from the same palette, kept for the match, so you can tell them apart; your side's colour is left out of it. A colour already used by the other side is refused. Cvars: `cl_team_ally_color`, `cl_team_enemy_color`, `cl_team_ffa_color` and their `_outline_color` pairs.
 - **Outline** (`cl_player_outline`, `cl_player_outline_size`): Off, Thin (the default) or Bold, which is twice as thick.
-- **Brighter players** (`cl_player_fullbright`, `cl_player_fullbright_intensity`): Off, Some or Lots. It makes players stand out in dark corners.
+- **Brighter players** (`cl_player_tint`, `cl_player_fullbright`, `cl_player_fullbright_intensity`): Off keeps original model colours with a coloured outline. Tint applies the chosen team colour; Some and Lots also brighten the body for visibility in dark corners. Tint is the default.
 - A preview on a real map shows all of the above as you change them.
 - **Crosshair** with its own preview: on or off, **opens up when moving** (tightens again while you aim), size, opacity, colour, and the colour it flashes **when you hit** someone. The defaults are size 32 and green, flashing red on a hit. An empty weapon with no reserve shows a red X until ammunition is available. Cvars: `cg_crosshair`, `cg_crosshairSpread`, `cg_crosshairSize`, `cg_crosshairAlpha`, `cg_crosshairColor`, `cg_crosshairDmgColor`.
 - **Field of view** (`cl_fov`): 80 – 110 degrees, default 90, horizontal at 16:9.

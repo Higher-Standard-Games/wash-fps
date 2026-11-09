@@ -3,8 +3,16 @@
  * a preview over a slice of a real map, so colours are judged against the game.
  */
 
+import { background } from "../../../../engine/core/AsyncErrors";
 import { Cvar } from "../../../../engine/core/Cvar";
-import { PLAYER_VOICE_SETS, type PlayerVoiceSet, playerVoiceSet, setPlayerVoiceSet } from "../FPSPlayerAudio";
+import {
+  PLAYER_MODEL_LABELS,
+  PLAYER_MODEL_PREVIEW_IMAGES,
+  PLAYER_MODELS,
+  playerModelChoice,
+  setPlayerModelChoice,
+} from "../PlayerModelSelection";
+import type { PlayerTeamPreview } from "./PlayerTeamPreview";
 import { card, el, type FieldHost, formatPercent, seg, selectMenu, slider, swatches } from "./SettingsFields";
 import {
   applyChoice,
@@ -14,7 +22,6 @@ import {
   cvarDefault,
   HIT_COLORS,
   OUTLINE_CHOICES,
-  type Side,
   setSideColor,
   sideColor,
   TEAM_COLORS,
@@ -32,22 +39,6 @@ function svgEl<K extends keyof SVGElementTagNameMap>(
   return node;
 }
 
-/** A player's shape for the preview: a head and a body. */
-function figure(side: Side, tag: string, far = false): HTMLElement {
-  const box = el("div", `fps-set-figure${far ? " fps-set-figure--far" : ""}`);
-  box.dataset.side = side;
-  const svg = svgEl("svg", { viewBox: "0 0 60 120", "aria-hidden": "true" });
-  svg.append(
-    svgEl("circle", { cx: 30, cy: 13, r: 10 }),
-    svgEl("path", {
-      d: "M14 27 Q30 21 46 27 L52 60 L44 62 L41 88 L45 118 L34 118 L30 93 L26 118 L15 118 L19 88 L16 62 L8 60 Z",
-    }),
-  );
-  box.append(svg);
-  if (tag) box.append(el("span", "fps-set-figure__tag", tag));
-  return box;
-}
-
 /** A slice of an installed map behind a preview; a gradient when it is not there. */
 function scene(map: string): HTMLElement {
   const root = el("div", "fps-set-scene");
@@ -57,12 +48,18 @@ function scene(map: string): HTMLElement {
 }
 
 const OUTLINE_WIDTH = { off: 0, thin: 2.2, bold: 4.5 };
-const BOOST_BRIGHTNESS = { off: 1, some: 1.18, lots: 1.4 };
+const BOOST_BRIGHTNESS = { off: 1, tint: 1, some: 1.18, lots: 1.4 };
 
 export class GameplayPage {
   readonly root: HTMLElement;
   private hitUntil = 0;
   private hitTimer = 0;
+  private preview?: PlayerTeamPreview;
+  private previewObserver?: IntersectionObserver;
+  private previewPending = false;
+  private previewFailed = false;
+  private previewVisible = false;
+  private destroyed = false;
 
   constructor(private readonly host: FieldHost) {
     this.root = el("div", "fps-set-gameplay");
@@ -71,26 +68,50 @@ export class GameplayPage {
 
   destroy(): void {
     window.clearTimeout(this.hitTimer);
+    this.destroyed = true;
+    this.previewObserver?.disconnect();
+    this.preview?.dispose();
   }
 
   private buildTeams(): HTMLElement {
     const root = card("Who's who", "Your side, and everyone you can shoot", "fps-set-card--wide");
-    const split = el("div", "fps-set-split");
-    const preview = scene("washoi_dm5");
-    const figures = el("div", "fps-set-figures");
-    figures.append(figure("ally", "Your side"), figure("enemy", "", true), figure("enemy", "Enemy"));
-    preview.append(figures);
-    const fields = el("div", "fps-set-stack");
-    split.append(preview, fields);
-    root.append(split);
-
+    const teams = el("div", "fps-set-team-grid");
+    const slots: HTMLElement[] = [];
     const colorChoices = TEAM_COLORS.map((color) => ({ value: color, label: color.label, css: color.css }));
-    const sideField = (side: Side, name: string, help?: string) => {
-      const row = el("div", "fps-set-team-row");
-      fields.append(row);
-      swatches<TeamColor>(this.host, row, {
-        name,
-        help,
+    for (const side of ["ally", "enemy"] as const) {
+      const name = side === "ally" ? "Your team" : "Enemy team";
+      const team = el("section", "fps-set-team-card");
+      team.dataset.side = side;
+      team.setAttribute("aria-label", name);
+      team.append(el("h3", "fps-set-team-title", name));
+      const preview = scene("washoi_dm5");
+      preview.classList.add("fps-set-team-preview", "fps-set-figure");
+      preview.dataset.side = side;
+      preview.querySelector(".fps-set-scene__tag")?.remove();
+      const image = el("img", "fps-set-player-preview");
+      image.width = 240;
+      image.height = 320;
+      image.loading = "lazy";
+      const placeholder = el("span", "fps-set-preview-placeholder");
+      preview.append(image, placeholder);
+      slots.push(preview);
+      team.append(preview);
+      const controls = el("div", "fps-set-team-controls");
+      const label = el("label", "fps-set-model");
+      label.append(el("span", "fps-set-field__name", "Model"));
+      const menu = selectMenu(
+        PLAYER_MODELS.map((model) => PLAYER_MODEL_LABELS[model]),
+        `${name} model`,
+        (index) => {
+          setPlayerModelChoice(side, PLAYER_MODELS[index]);
+          this.host.changed();
+        },
+      );
+      label.append(menu.root);
+      controls.append(label);
+      swatches<TeamColor>(this.host, controls, {
+        name: "Colour",
+        help: side === "enemy" ? "Everyone else in free-for-all" : undefined,
         choices: colorChoices,
         get: () => sideColor(side),
         set: (color) => setSideColor(side, color),
@@ -99,24 +120,44 @@ export class GameplayPage {
           return other ? { value: other, why: "the other side has it" } : null;
         },
       });
-      const label = el("label", "fps-set-voice");
-      label.append(el("span", "fps-set-field__name", "Sounds"));
-      const menu = selectMenu(
-        PLAYER_VOICE_SETS.map((voice) => voice[0].toUpperCase() + voice.slice(1)),
-        `${name} sounds`,
-        (index) => {
-          setPlayerVoiceSet(side, PLAYER_VOICE_SETS[index] as PlayerVoiceSet);
-          this.host.changed();
-        },
-      );
+      team.append(controls);
+      teams.append(team);
       this.host.addRefresh(() => {
-        menu.select(PLAYER_VOICE_SETS.indexOf(playerVoiceSet(side)));
+        const model = playerModelChoice(side);
+        menu.select(PLAYER_MODELS.indexOf(model));
+        const path = PLAYER_MODEL_PREVIEW_IMAGES[model];
+        image.hidden = !path;
+        placeholder.hidden = !!path;
+        placeholder.textContent = PLAYER_MODEL_LABELS[model];
+        if (path) {
+          if (image.getAttribute("src") !== path) image.src = path;
+        } else image.removeAttribute("src");
+        image.alt = `${PLAYER_MODEL_LABELS[model]} preview`;
+        const color = (sideColor(side) ?? TEAM_COLORS[side === "ally" ? 0 : 1]).css;
+        team.style.setProperty("--team-color", color);
+        const outline = currentChoice(OUTLINE_CHOICES)?.id ?? "thin";
+        const boost = currentChoice(BOOST_CHOICES)?.id ?? "some";
+        image.style.filter = `brightness(${BOOST_BRIGHTNESS[boost]})${outline === "off" ? "" : ` drop-shadow(0 0 ${OUTLINE_WIDTH[outline]}px ${color})`}`;
       });
-      label.append(menu.root);
-      row.append(label);
-    };
-    sideField("ally", "Your side");
-    sideField("enemy", "Enemies", "In free-for-all, that's everyone else");
+    }
+    root.append(teams);
+    const fields = el("div", "fps-set-team-options");
+    root.append(fields);
+    if (typeof IntersectionObserver !== "undefined") {
+      const visible = new Set<Element>();
+      this.previewObserver = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) visible.add(entry.target);
+          else visible.delete(entry.target);
+        }
+        this.previewVisible = visible.size > 0;
+        if (this.previewVisible && !this.preview && !this.previewPending && !this.previewFailed)
+          background(this.loadPreview(teams, slots), "Settings player previews");
+        this.preview?.setVisible(this.previewVisible);
+      });
+      for (const slot of slots) this.previewObserver.observe(slot);
+    }
+    this.host.addRefresh(() => this.preview?.refresh());
     seg(this.host, fields, {
       name: "Outline",
       choices: OUTLINE_CHOICES.map((choice) => ({ value: choice, label: choice.label })),
@@ -131,22 +172,27 @@ export class GameplayPage {
       set: (choice) => applyChoice(choice),
     });
 
-    this.host.addRefresh(() => {
-      const outline = currentChoice(OUTLINE_CHOICES)?.id ?? "thin";
-      const boost = currentChoice(BOOST_CHOICES)?.id ?? "some";
-      for (const box of figures.children) {
-        const side = (box as HTMLElement).dataset.side as Side;
-        const color = (sideColor(side) ?? TEAM_COLORS[side === "ally" ? 0 : 1]).css;
-        const svg = box.querySelector("svg");
-        if (!svg) continue;
-        svg.style.fill = `color-mix(in srgb, ${color} 78%, hsl(250 40% 12%))`;
-        svg.style.stroke = color;
-        svg.style.strokeWidth = String(OUTLINE_WIDTH[outline]);
-        svg.style.filter = `brightness(${BOOST_BRIGHTNESS[boost]})${outline === "off" ? "" : ` drop-shadow(0 0 6px ${color})`}`;
-        (box as HTMLElement).style.setProperty("--tag", color);
-      }
-    });
     return root;
+  }
+
+  private async loadPreview(root: HTMLElement, slots: HTMLElement[]): Promise<void> {
+    this.previewPending = true;
+    try {
+      const { PlayerTeamPreview } = await import("./PlayerTeamPreview");
+      if (this.destroyed) return;
+      const preview = new PlayerTeamPreview(root, slots);
+      this.preview = preview;
+      await preview.initialize();
+      if (this.destroyed) preview.dispose();
+      else preview.setVisible(this.previewVisible);
+    } catch (error) {
+      this.previewFailed = true;
+      this.preview?.dispose();
+      this.preview = undefined;
+      console.warn("[Settings] Player previews unavailable", error);
+    } finally {
+      this.previewPending = false;
+    }
   }
 
   private buildCrosshair(): HTMLElement {

@@ -23,7 +23,11 @@ import type { Node } from "@babylonjs/core/node";
 import { Scene } from "@babylonjs/core/scene";
 import { formatPreflight, preflightGameAssets, resolveGameAssetDir } from "../../../cli/_assetPreflight";
 import { runCli } from "../../../cli/_runCli";
-import { VANGUARD_MODEL, VANGUARD_ROOT } from "../../../engine/animation/PlayerModelAssets";
+import {
+  PLAYER_ANIMATION_ROOT,
+  PLAYER_MODEL_FILE,
+  PLAYER_MODEL_ROOT,
+} from "../../../engine/animation/PlayerModelAssets";
 import { fail } from "../../../engine/console/Command";
 // Static imports for command system
 import { registerEngineCommands } from "../../../engine/console/commands/index";
@@ -614,9 +618,10 @@ async function registerCommands(_ctx: HeadlessContext): Promise<void> {
       // Determine files to inspect
       let files: string[];
       if (!fileName || fileName === "all") {
-        files = loader.listFiles().filter((file) => file.startsWith(VANGUARD_ROOT) && file.endsWith(".glb"));
+        files = loader.listFiles().filter((file) => file.startsWith(PLAYER_ANIMATION_ROOT) && file.endsWith(".glb"));
       } else {
-        const fullPath = fileName.includes("/") || fileName.includes("\\") ? fileName : VANGUARD_ROOT + fileName;
+        const fullPath =
+          fileName.includes("/") || fileName.includes("\\") ? fileName : PLAYER_ANIMATION_ROOT + fileName;
         if (!loader.hasFile(fullPath) && !fs.existsSync(fullPath)) {
           return `File not found: ${fullPath}`;
         }
@@ -628,27 +633,12 @@ async function registerCommands(_ctx: HeadlessContext): Promise<void> {
       // We need a fresh scene for inspection (don't pollute main scene)
       const { NullEngine } = await import("@babylonjs/core/Engines/nullEngine");
       const { Scene } = await import("@babylonjs/core/scene");
-      const { ImportAnimationsAsync, ImportMeshAsync } = await import("@babylonjs/core/Loading/sceneLoader");
+      const { LoadAssetContainerAsync } = await import("@babylonjs/core/Loading/sceneLoader");
       await import("@babylonjs/loaders/glTF");
 
+      // Each clip carries its own joint nodes, which name the animated targets
       const inspectEngine = new NullEngine();
       const inspectScene = new Scene(inspectEngine);
-
-      // Try loading the model first for bone names
-      const modelBuf = await loader.getFile(VANGUARD_ROOT + VANGUARD_MODEL);
-      if (modelBuf) {
-        try {
-          const modelB64 = Buffer.from(new Uint8Array(modelBuf)).toString("base64");
-          await ImportMeshAsync(`data:;base64,${modelB64}`, inspectScene, { pluginExtension: ".glb" });
-          // Stop embedded animations
-          for (const g of inspectScene.animationGroups) g.stop();
-          inspectScene.animationGroups.slice().forEach((g) => {
-            g.dispose();
-          });
-        } catch {
-          // Continue without model — targets will show as 'unknown'
-        }
-      }
 
       const results: string[] = [];
       results.push(`\n=== Animation Inspector (${files.length} files) ===\n`);
@@ -658,13 +648,11 @@ async function registerCommands(_ctx: HeadlessContext): Promise<void> {
           const buf = loader.hasFile(file) ? await loader.getFile(file) : fs.readFileSync(file);
           if (!buf) throw new Error(`Player asset missing: ${file}`);
           const b64 = Buffer.from(new Uint8Array(buf)).toString("base64");
-          await ImportAnimationsAsync(`data:;base64,${b64}`, inspectScene, {
-            overwriteAnimations: false,
+          const container = await LoadAssetContainerAsync(`data:;base64,${b64}`, inspectScene, {
             pluginExtension: ".glb",
           });
 
-          // Old static API returned the scene — iterate the scene's groups.
-          for (const group of inspectScene.animationGroups) {
+          for (const group of container.animationGroups) {
             const total = group.targetedAnimations.length;
             const positionTracks: string[] = [];
 
@@ -691,10 +679,8 @@ async function registerCommands(_ctx: HeadlessContext): Promise<void> {
             for (const pt of positionTracks) {
               results.push(pt);
             }
-
-            group.stop();
-            group.dispose();
           }
+          container.dispose();
         } catch (err) {
           results.push(`❌ ${path.basename(file)}: ${(err as Error).message}`);
         }
@@ -709,32 +695,27 @@ async function registerCommands(_ctx: HeadlessContext): Promise<void> {
 
     if (sub === "bones") {
       // List skeleton bones from model
-      const modelBuf = await PK3Loader.getInstance().getFile(VANGUARD_ROOT + VANGUARD_MODEL);
+      const modelBuf = await PK3Loader.getInstance().getFile(PLAYER_MODEL_ROOT + PLAYER_MODEL_FILE);
       if (!modelBuf) {
         return "Player model not found in the loaded PK3 assets";
       }
 
-      const { NullEngine } = await import("@babylonjs/core/Engines/nullEngine");
-      const { Scene } = await import("@babylonjs/core/scene");
-      const { ImportMeshAsync } = await import("@babylonjs/core/Loading/sceneLoader");
-      await import("@babylonjs/loaders/glTF");
-
-      const inspectEngine = new NullEngine();
-      const inspectScene = new Scene(inspectEngine);
-
-      const modelB64 = Buffer.from(new Uint8Array(modelBuf)).toString("base64");
-      const result = await ImportMeshAsync(`data:;base64,${modelB64}`, inspectScene, { pluginExtension: ".glb" });
-
-      const lines: string[] = [`\nSkeleton Bones (${result.skeletons[0]?.bones.length ?? 0}):\n`];
-      if (result.skeletons[0]) {
-        for (const bone of result.skeletons[0].bones) {
-          const depth = bone.getParent() ? "  " : "";
-          lines.push(`${depth}${bone.name}`);
-        }
+      // The skin's joints from the GLB's JSON chunk: the packaged bodies are
+      // Draco-compressed, and naming bones needs no decoded mesh
+      const glb = Buffer.from(new Uint8Array(modelBuf));
+      const gltf = JSON.parse(glb.subarray(20, 20 + glb.readUInt32LE(12)).toString("utf8")) as {
+        nodes?: { name?: string; children?: number[] }[];
+        skins?: { joints: number[] }[];
+      };
+      const nodes = gltf.nodes ?? [];
+      const joints = gltf.skins?.[0]?.joints ?? [];
+      const jointSet = new Set(joints);
+      const childOfJoint = new Set(joints.flatMap((joint) => nodes[joint]?.children ?? []));
+      const lines: string[] = [`\nSkeleton Bones (${joints.length}):\n`];
+      for (const joint of joints) {
+        const depth = childOfJoint.has(joint) && jointSet.has(joint) ? "  " : "";
+        lines.push(`${depth}${nodes[joint]?.name ?? `node ${joint}`}`);
       }
-
-      inspectScene.dispose();
-      inspectEngine.dispose();
       return lines.join("\n");
     }
 

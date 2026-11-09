@@ -27,6 +27,7 @@ const { RemotePlayerRenderer } = await import("../RemotePlayerRenderer");
 
 interface Internals {
   hitboxes: Map<string, unknown>;
+  noteWeaponFire(entityId: string): void;
   modelManager: unknown;
   deadEntities: Map<string, number>;
   _hiddenEntityId: string | null;
@@ -50,7 +51,14 @@ function setup() {
   body.parent = anchor;
   // Parented elsewhere, as attachToBone leaves it: not under the anchor.
   const weapon = new Mesh("weapon", scene);
-  const model = { anchor, mesh: body, skeleton: null, attachedWeapon: weapon } as unknown as PlayerModelInstance;
+  const model = {
+    anchor,
+    mesh: body,
+    skeleton: null,
+    attachedWeapon: weapon,
+    modelKey: "police",
+    anims: [{ name: "run_relaxed", animations: [] }],
+  } as unknown as PlayerModelInstance;
   const hitbox = { mesh: new Mesh("hitbox", scene), model, weaponRoot: weapon };
 
   const renderer = Object.create(RemotePlayerRenderer.prototype) as Internals;
@@ -66,13 +74,18 @@ function setup() {
     frameSample: {},
     poseBounded: new WeakSet(),
     spareHitboxes: new Map(),
+    teams: new Map(),
+    localTeam: null,
+    perspectiveEntityId: null,
   });
   renderer.modelManager = {
     setOutlineProxyEnabled: vi.fn().mockResolvedValue(undefined),
     resetRootMotion: vi.fn(),
     setAnimationActive: vi.fn(),
+    setAimPitch: vi.fn(),
     playAnimation: vi.fn(),
     stopOneShot: vi.fn(),
+    setUpperBodyStance: vi.fn(),
     useConservativeBounds: vi.fn(),
     selectAlways: vi.fn(),
   };
@@ -80,13 +93,13 @@ function setup() {
   renderer.applyHitboxVisualStyle = vi.fn();
   renderer.updateWeaponModel = vi.fn();
 
-  const frame = () => {
+  const frame = (overrides = {}) => {
     const visible = renderer.isInView(hitbox.mesh.position);
     hitbox.mesh.setEnabled(false);
-    const interp = { x: 0, y: 0, z: 0, yaw: 0, crouching: false, sliding: false };
+    const interp = { x: 0, y: 0, z: 0, yaw: 0, crouching: false, sliding: false, ...overrides };
     renderer.updateModel(hitbox, interp, "player_2", 1, visible);
   };
-  return { renderer, anchor, weapon, frame, model };
+  return { renderer, anchor, weapon, frame, model, hitbox };
 }
 
 describe("remote player visibility", () => {
@@ -203,5 +216,33 @@ describe("remote player visibility", () => {
     r.render();
 
     expect(teleport).not.toHaveBeenCalled();
+  });
+});
+
+describe("remote upper-body pose", () => {
+  afterEach(() => {
+    scene.getEngine().dispose();
+  });
+  it("runs naturally until aiming or firing, and raises the weapon using the demo clock", () => {
+    const { renderer, frame, model, hitbox } = setup();
+    const manager = renderer.modelManager as { playAnimation: Mock; setAimPitch: Mock };
+    const state = { grounded: true, vx: 0, vz: 400, aiming: false, pitch: 0.5 };
+    frame(state);
+    expect(manager.playAnimation).toHaveBeenLastCalledWith(model, "run_relaxed");
+    expect(manager.setAimPitch).toHaveBeenLastCalledWith(model, 0);
+    frame({ ...state, aiming: true });
+    expect(manager.playAnimation).toHaveBeenLastCalledWith(model, "run");
+    expect(manager.setAimPitch).toHaveBeenLastCalledWith(model, 0.5);
+    Object.assign(renderer, { demoTimeline: {}, demoPlayheadTick: 60, demoTickRate: 60 });
+    renderer.noteWeaponFire("player_2");
+    frame(state);
+    expect(manager.playAnimation).toHaveBeenLastCalledWith(model, "run");
+    Object.assign(renderer, { demoPlayheadTick: 97 });
+    frame(state);
+    expect(manager.playAnimation).toHaveBeenLastCalledWith(model, "run_relaxed");
+    Object.assign(hitbox, { currentWeaponId: "blade" });
+    renderer.noteWeaponFire("player_2");
+    frame(state);
+    expect(manager.playAnimation).toHaveBeenLastCalledWith(model, "run_relaxed");
   });
 });

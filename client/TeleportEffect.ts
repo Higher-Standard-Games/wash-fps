@@ -6,9 +6,8 @@
  * 1. GHOST — a posterized afterimage silhouette: a flat unlit team-color
  *    player figure fading out in DISCRETE
  *    alpha steps (print/anime frames, not a smooth ghost). GENERIC by design:
- *    the effect owns a small POOL of dedicated vanguard instances (everyone
- *    uses the same model), so it works identically for remote players AND for
- *    yourself — turn around after a tele and your own afterimage is standing
+ *    the effect owns a small POOL of dedicated default-body instances, so it
+ *    works identically for remote players AND for yourself — turn around after a tele and your own afterimage is standing
  *    at the entry. Spawned at BOTH entry and exit for remote players (arcade
  *    info: tele usage is trackable); entry-only for the local player (the
  *    exit ghost would sit inside your camera).
@@ -159,7 +158,7 @@ export class TeleportEffect {
     this.update();
   }
 
-  // Generic ghost pool (own vanguard instances — see header)
+  // Generic ghost pool (own default-body instances — see header)
   private ghostManager: PlayerModelManager | null = null;
   private ghostPool: GhostSlot[] = [];
   /** The pool load in flight: every caller waits on the same one. */
@@ -238,7 +237,7 @@ export class TeleportEffect {
   private async loadGhostPool(): Promise<void> {
     if (!this.scene) return;
     try {
-      // Own manager, idle-only animation set (vanguard.glb + one anim GLB —
+      // Own manager, idle-only animation set (the default body + one shared clip —
       // both already browser-cached by the remote-player renderer).
       this.ghostManager = new PlayerModelManager(this.scene);
       await this.ghostManager.loadModel(undefined, undefined, [{ name: "idle", file: "rifle aiming idle.glb" }]);

@@ -990,7 +990,7 @@ function handleDeathEvent(ctx: GameEventContext, event: DeathEvent, state: GameS
     }
 
     if (model && ctx._ragdollSystem) {
-      ctx._ragdollSystem.spawn(model, event.kbDirX || 0, event.kbDirY || 0, event.kbDirZ || 0);
+      ctx._ragdollSystem.spawn(model, event.kbDirX || 0, event.kbDirY || 0, event.kbDirZ || 0, event);
     } else if (model) {
       console.warn("[Death] RagdollSystem not ready, falling back to gibs");
       disposePlayerModel(model);
@@ -1029,7 +1029,7 @@ function startLocalRagdollDeathCamera(ctx: GameEventContext, event: DeathEvent):
         disposeDetachedModel(model);
         return;
       }
-      const handle = ragdolls.spawn(model, event.kbDirX || 0, event.kbDirY || 0, event.kbDirZ || 0);
+      const handle = ragdolls.spawn(model, event.kbDirX || 0, event.kbDirY || 0, event.kbDirZ || 0, event);
       if (handle && ctx._isPlayerDead) {
         deathCamera.start(() => handle.getPosition(), deathPos, camYaw);
       }
@@ -1256,6 +1256,7 @@ export function handleRemoteWeaponFire(
   /** The same snapshot carries this shooter's voltaic_beam contact. */
   beamTruth = false,
 ): void {
+  remoteRenderer?.noteWeaponFire(event.entityId);
   const fx = getHitscanEffects();
   const projMgr = getProjectileManager();
 

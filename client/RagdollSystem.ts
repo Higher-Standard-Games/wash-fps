@@ -1,3 +1,8 @@
+import { AnimationGroup } from "@babylonjs/core/Animations/animationGroup";
+import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
+import type { Observer } from "@babylonjs/core/Misc/observable";
+import { anchorYaw, chooseDeathClip, type DeathClip, type DeathFacts, deathClipYaw } from "./ragdoll/DeathClip";
+import { createRagdollFrame } from "./ragdoll/RagdollFrame";
 /**
  * RagdollSystem — Per-bone Havok ragdoll physics on death
  *
@@ -8,9 +13,13 @@
  * Lifecycle:
  *   1. On non-gib death → detach model from RemotePlayerRenderer
  *   2. Stop/dispose animations
- *   3. Create Ragdoll from skeleton + bone config → call .ragdoll() to activate
- *   4. Apply initial velocity to root bone aggregate
- *   5. Once the body comes to rest (or after RAGDOLL_LIFETIME at the latest)
+ *   3. A death that has a clip (see `chooseDeathClip`) is thrown first: the
+ *      body turns to the shot, one sphere flies the launch arc and the clip
+ *      plays once on the body, until the sphere touches a surface or the clip
+ *      ends
+ *   4. Create Ragdoll from skeleton + bone config → call .ragdoll() to activate
+ *   5. Give every bone the launch velocity, or the sphere's after a throw
+ *   6. Once the body comes to rest (or after RAGDOLL_LIFETIME at the latest)
  *      → fade out, gib-explode and dispose (Warsow-style)
  */
 
@@ -20,11 +29,18 @@ import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { TrailMesh } from "@babylonjs/core/Meshes/trailMesh";
 import type { IPhysicsEngine } from "@babylonjs/core/Physics/IPhysicsEngine";
-import { PhysicsConstraintType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
+import {
+  type IPhysicsCollisionEvent,
+  PhysicsConstraintType,
+  PhysicsEventType,
+  PhysicsShapeType,
+} from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
+import { PhysicsAggregate } from "@babylonjs/core/Physics/v2/physicsAggregate";
 import type { PhysicsEngine } from "@babylonjs/core/Physics/v2/physicsEngine";
 import { Ragdoll } from "@babylonjs/core/Physics/v2/ragdoll";
 import type { Scene } from "@babylonjs/core/scene";
 import {
+  cancelRootMotion,
   type PlayerModelInstance,
   releaseLocomotionGroups,
   releasePlayerModel,
@@ -95,6 +111,18 @@ const TRAIL_LENGTH = 30; // trail segment count
 
 /** Model scale used in RemotePlayerRenderer — physics boxes must match */
 const MODEL_SCALE = 36;
+
+/**
+ * The sphere a thrown body flies as: centred on the hips and as wide as the
+ * body reaches from them, so it meets a floor or wall before a limb of the
+ * posed body can pass into it, and the ragdoll never starts inside the world.
+ * Contacts in the first THROW_CONTACT_GRACE seconds do not end the throw, so
+ * the floor the player died standing on does not.
+ */
+const THROW_RADIUS = 34;
+const THROW_CONTACT_GRACE = 0.1;
+/** Hips height above the anchor when the body has no hips joint to measure. */
+const THROW_HIPS_HEIGHT = 34;
 
 // ============================================================================
 // Vanguard (Mixamo) bone config for ragdoll
@@ -321,14 +349,45 @@ function createBoneConfig(): BoneConfig[] {
   ];
 }
 
+/** A node's world position with its whole parent chain recomputed first. */
+function worldPositionNow(node: TransformNode): Vector3 {
+  const chain: TransformNode[] = [];
+  for (let n: TransformNode | null = node; n; n = n.parent as TransformNode | null) chain.unshift(n);
+  for (const n of chain) n.computeWorldMatrix(true);
+  return node.getAbsolutePosition().clone();
+}
+
 // ============================================================================
 // Active ragdoll instance
 // ============================================================================
 
+/** A body playing its death clip while one sphere flies the launch arc. */
+interface DeathThrow {
+  aggregate: PhysicsAggregate;
+  /** The sphere's node, at the hips; the body's anchor follows it. */
+  node: TransformNode;
+  hipsHeight: number;
+  group: AnimationGroup;
+  fromFrame: number;
+  framesPerSecond: number;
+  clipLength: number;
+  clipTime: number;
+  /** Set by the sphere's collision events once past the grace time. */
+  touched: boolean;
+  /** The world normal of the surface it touched, when the contact gave one. */
+  surface: Vector3 | null;
+  observer: Observer<IPhysicsCollisionEvent> | null;
+}
+
 interface ActiveRagdoll {
   model: PlayerModelInstance;
-  ragdoll: Ragdoll;
+  /** Null while the body is still thrown, before the ragdoll takes over. */
+  ragdoll: Ragdoll | null;
   poseSync: BatchedPoseSync | null;
+  frame: TransformNode | null;
+  throw: DeathThrow | null;
+  /** The throw's node, kept after the handoff to carry the trail along the hips. */
+  trailFollower: TransformNode | null;
   /** Seconds lived, by the clock update() is handed: wall time live, the playhead in a demo. */
   age: number;
   disposed: boolean;
@@ -422,7 +481,18 @@ export class RagdollSystem {
   // Spawn ragdoll
   // ========================================================================
 
-  spawn(model: PlayerModelInstance, dirX: number, dirY: number, dirZ: number): RagdollHandle | null {
+  /**
+   * Throw a dead body. With `facts` from its death event the body may play a
+   * death clip in flight first (see `chooseDeathClip`); without them, or with
+   * no clip for this death, it goes limp at once.
+   */
+  spawn(
+    model: PlayerModelInstance,
+    dirX: number,
+    dirY: number,
+    dirZ: number,
+    facts?: DeathFacts,
+  ): RagdollHandle | null {
     if (!this.scene) {
       console.warn("[RagdollSystem] Not initialized — disposing model");
       this.disposeModel(model);
@@ -434,6 +504,8 @@ export class RagdollSystem {
       this.disposeModel(model);
       return null;
     }
+
+    PhysicsSystem.getInstance().ensureBspCollision();
 
     if (!model.skeleton) {
       console.warn("[RagdollSystem] Model has no skeleton — disposing");
@@ -449,9 +521,12 @@ export class RagdollSystem {
       }
     }
 
-    let createdRagdoll: Ragdoll | null = null;
-    let poseSync: BatchedPoseSync | null = null;
+    let active: ActiveRagdoll | null = null;
     try {
+      // The clip is chosen against the way the body faced when it died
+      const clip = facts ? chooseDeathClip(facts, anchorYaw(model.anchor)) : null;
+      const clipAnim = clip ? model.anims.find((anim) => anim.name === clip && anim.animations.length) : undefined;
+
       // 1. FULLY DISPOSE all animations — they fight with physics
       releaseLocomotionGroups(model);
       for (const anim of model.anims) {
@@ -491,51 +566,14 @@ export class RagdollSystem {
       const boneNames = model.skeleton.bones.map((b) => b.name);
       devLog(`[RagdollSystem] Skeleton has ${boneNames.length} bones: ${boneNames.slice(0, 8).join(", ")}...`);
 
-      // 4. Build bone config and verify all required bones exist
-      const boneConfig = createBoneConfig();
-      const missingBones = boneConfig.filter((cfg) => !model.skeleton!.bones.some((b) => b.name === cfg.bone));
+      // 4. Verify all required bones exist
+      const missingBones = createBoneConfig().filter((cfg) => !model.skeleton!.bones.some((b) => b.name === cfg.bone));
       if (missingBones.length > 0) {
         console.warn(`[RagdollSystem] Missing bones: ${missingBones.map((b) => b.bone).join(", ")}`);
         this.disposeModel(model);
         return null;
       }
 
-      // 5. Create BabylonJS Ragdoll
-      //    The .d.ts type doesn't declare the 'bone' property, but the source code
-      //    uses it to map config entries to skeleton bones
-      devLog(`[RagdollSystem] Creating ragdoll with ${boneConfig.length} bone configs`);
-
-      const ragdollInstance = new Ragdoll(
-        model.skeleton,
-        model.mesh, // rootTransformNode — the skinned mesh
-        boneConfig,
-      );
-      createdRagdoll = ragdollInstance;
-
-      // 6. Raise Havok’s global max velocity so our launch isn’t clamped
-      // Only the v2 engine has velocity limits; the shared interface omits them.
-      const physicsEngine = this.scene!.getPhysicsEngine() as
-        | (IPhysicsEngine & Partial<Pick<PhysicsEngine, "getMaxLinearVelocity" | "setVelocityLimits">>)
-        | null;
-      if (physicsEngine) {
-        const currentMax = physicsEngine.getMaxLinearVelocity?.() ?? 0;
-        if (currentMax < HAVOK_MAX_LINEAR_VELOCITY) {
-          physicsEngine.setVelocityLimits?.(HAVOK_MAX_LINEAR_VELOCITY, 100);
-          devLog(`[RagdollSystem] Raised Havok max linear velocity from ${currentMax} to ${HAVOK_MAX_LINEAR_VELOCITY}`);
-        }
-      }
-
-      // 7. Activate ragdoll mode — Havok Physics takes over bone transforms
-      ragdollInstance.ragdoll();
-      poseSync = BatchedPoseSync.create(
-        model.skeleton,
-        model.mesh,
-        ragdollInstance,
-        boneConfig.map((cfg) => cfg.bone),
-      );
-      devLog("[RagdollSystem] Ragdoll mode activated");
-
-      // 8. Apply knockback velocity to ALL bone aggregates.
       // Fly along the FULL 3D direction the server sent (already normalized and
       // upward-biased by CombatSystem), scaled to the launch speed. A degenerate
       // direction pops straight up rather than picking a random heading.
@@ -545,40 +583,35 @@ export class RagdollSystem {
           ? new Vector3((dirX / dirLen) * LAUNCH_SPEED, (dirY / dirLen) * LAUNCH_SPEED, (dirZ / dirLen) * LAUNCH_SPEED)
           : new Vector3(0, LAUNCH_SPEED, 0);
 
-      for (let b = 0; b < boneConfig.length; b++) {
-        try {
-          const agg = ragdollInstance.getAggregate(b);
-          if (agg?.body) {
-            agg.body.setLinearVelocity(launchVel);
-            agg.body.setGravityFactor(RAGDOLL_GRAVITY_FACTOR);
-          }
-        } catch {
-          /* skip */
-        }
-      }
-      devLog(
-        `[RagdollSystem] Applied velocity (${launchVel.x.toFixed(0)}, ${launchVel.y.toFixed(0)}, ${launchVel.z.toFixed(0)}) gravity=${RAGDOLL_GRAVITY_FACTOR} to ${boneConfig.length} bones`,
-      );
+      active = {
+        model,
+        ragdoll: null,
+        poseSync: null,
+        frame: null,
+        throw: null,
+        trailFollower: null,
+        age: 0,
+        disposed: false,
+        color: this.modelTint(model),
+        restAnchor: null,
+        restSeconds: 0,
+        fadeStart: null,
+        trail: null,
+        trailMat: null,
+      };
 
-      // 9. Create speed trail attached to hips bone
-      let trail: TrailMesh | null = null;
-      let trailMat: StandardMaterial | null = null;
+      // 5. Throw the body with its clip playing, or let it go limp now
+      if (clip && clipAnim) active.throw = this.startThrow(model, clip, clipAnim.animations, launchVel, dirX, dirZ);
+      if (!active.throw) this.activateRagdoll(active, launchVel);
+
+      // 6. Create the speed trail, on the sphere or the hips bone
       try {
         // Extract player color from model's PBR material
         const trailColor = this.extractModelColor(model);
-
-        // Attach trail to hips bone aggregate transform
-        const hipsAgg = ragdollInstance.getAggregate(0);
-        if (hipsAgg?.body?.transformNode) {
-          trail = new TrailMesh(
-            "ragdoll_trail",
-            hipsAgg.body.transformNode,
-            this.scene!,
-            TRAIL_DIAMETER,
-            TRAIL_LENGTH,
-            true,
-          );
-          trailMat = new StandardMaterial("ragdoll_trail_mat", this.scene!);
+        const trailNode = active.throw?.node ?? active.ragdoll?.getAggregate(0)?.body?.transformNode;
+        if (trailNode) {
+          const trail = new TrailMesh("ragdoll_trail", trailNode, this.scene!, TRAIL_DIAMETER, TRAIL_LENGTH, true);
+          const trailMat = new StandardMaterial("ragdoll_trail_mat", this.scene!);
           trailMat.emissiveColor = trailColor;
           trailMat.diffuseColor = trailColor;
           trailMat.disableLighting = true;
@@ -586,55 +619,220 @@ export class RagdollSystem {
           trailMat.backFaceCulling = false;
           trail.material = trailMat;
           trail.isPickable = false;
+          active.trail = trail;
+          active.trailMat = trailMat;
         }
       } catch (e) {
         console.warn("[RagdollSystem] Trail creation failed:", e);
       }
 
-      // 10. Track active ragdoll
-      const active: ActiveRagdoll = {
-        model,
-        ragdoll: ragdollInstance,
-        poseSync,
-        age: 0,
-        disposed: false,
-        color: this.modelTint(model),
-        restAnchor: null,
-        restSeconds: 0,
-        fadeStart: null,
-        trail,
-        trailMat,
-      };
+      // 7. Track active ragdoll
       this.ragdolls.push(active);
 
       const worldPos = model.anchor.getAbsolutePosition();
       devLog(
-        `[RagdollSystem] Spawned per-bone ragdoll at (${worldPos.x.toFixed(0)}, ${worldPos.y.toFixed(0)}, ${worldPos.z.toFixed(0)}) (${this.ragdolls.length} active)`,
+        `[RagdollSystem] Spawned ${active.throw ? `thrown body (${clip})` : "per-bone ragdoll"} at (${worldPos.x.toFixed(0)}, ${worldPos.y.toFixed(0)}, ${worldPos.z.toFixed(0)}) (${this.ragdolls.length} active)`,
       );
 
-      // Follow handle — lets the death camera trail the hips bone without touching
+      // Follow handle — lets the death camera trail the body without touching
       // physics internals. Returns null once this ragdoll is disposed.
+      const followed = active;
       return {
-        getPosition: (): Vector3 | null => {
-          if (active.disposed) return null;
-          try {
-            const hips = ragdollInstance.getAggregate(0);
-            return hips?.body?.transformNode?.getAbsolutePosition() ?? null;
-          } catch {
-            return null;
-          }
-        },
-        isAlive: (): boolean => !active.disposed,
+        getPosition: (): Vector3 | null => this.bodyPosition(followed),
+        isAlive: (): boolean => !followed.disposed,
       };
     } catch (e) {
       console.error("[RagdollSystem] Failed to create ragdoll:", e);
-      poseSync?.dispose();
-      try {
-        createdRagdoll?.dispose();
-      } catch (cleanupError) {
-        console.warn("[RagdollSystem] Failed to release ragdoll:", cleanupError);
-      }
+      if (active) this.releaseBody(active);
       this.disposeModel(model);
+      return null;
+    }
+  }
+
+  /**
+   * Turn the body to the shot and fly it as one sphere along `launchVel`,
+   * with the death clip posed frame by frame from `update`. Null when the clip
+   * targets nothing on this body.
+   */
+  private startThrow(
+    model: PlayerModelInstance,
+    clip: DeathClip,
+    animations: PlayerModelInstance["anims"][number]["animations"],
+    launchVel: Vector3,
+    dirX: number,
+    dirZ: number,
+  ): DeathThrow | null {
+    const scene = this.scene!;
+    const group = new AnimationGroup(`death_${model.id}_${clip}`, scene);
+    for (const item of animations) {
+      if (item.target) group.addTargetedAnimation(item.animation, item.target);
+    }
+    if (!group.targetedAnimations.length) {
+      group.dispose();
+      return null;
+    }
+
+    // Measured before the turn. The local player's corpse is built this same
+    // tick and has never been drawn, so its matrices are brought up to date.
+    const anchorPos = worldPositionNow(model.anchor);
+    const measured = model.hipsBind ? worldPositionNow(model.hipsBind.node).y - anchorPos.y : Number.NaN;
+    const hipsHeight = measured > 5 && measured < 80 ? measured : THROW_HIPS_HEIGHT;
+
+    model.anchor.rotationQuaternion = null;
+    model.anchor.rotation.y = deathClipYaw(clip, dirX, dirZ);
+
+    const framesPerSecond = group.targetedAnimations[0].animation.framePerSecond || 60;
+    const fromFrame = group.from;
+    group.start(false, 1, group.from, group.to);
+    group.pause();
+    group.goToFrame(fromFrame);
+    cancelRootMotion(model);
+
+    const node = new TransformNode(`death_throw_${model.id}`, scene);
+    node.position.set(anchorPos.x, anchorPos.y + hipsHeight, anchorPos.z);
+    const aggregate = new PhysicsAggregate(
+      node,
+      PhysicsShapeType.SPHERE,
+      { mass: 1, radius: THROW_RADIUS, restitution: 0 },
+      scene,
+    );
+    // The sphere only carries the body's position: it never tumbles
+    aggregate.body.setMassProperties({ mass: 1, inertia: Vector3.Zero() });
+    aggregate.body.setLinearVelocity(launchVel);
+    aggregate.body.setGravityFactor(RAGDOLL_GRAVITY_FACTOR);
+    aggregate.body.setCollisionCallbackEnabled(true);
+
+    const thrown: DeathThrow = {
+      aggregate,
+      node,
+      hipsHeight,
+      group,
+      fromFrame,
+      framesPerSecond,
+      clipLength: (group.to - group.from) / framesPerSecond,
+      clipTime: 0,
+      touched: false,
+      surface: null,
+      observer: null,
+    };
+    thrown.observer = aggregate.body.getCollisionObservable().add((event) => {
+      if (event.type !== PhysicsEventType.COLLISION_FINISHED && thrown.clipTime >= THROW_CONTACT_GRACE) {
+        thrown.touched = true;
+        if (event.normal) thrown.surface = event.normal.clone();
+      }
+    });
+    return thrown;
+  }
+
+  /** Advance a thrown body's clip and carry it along its sphere; hand it to the ragdoll once it lands. */
+  private advanceThrow(active: ActiveRagdoll, dt: number): void {
+    const thrown = active.throw!;
+    // The pose drawn last frame is the one the ragdoll starts from, so the
+    // handoff happens before anything moves again
+    if (thrown.touched || thrown.clipTime >= thrown.clipLength) {
+      this.endThrow(active);
+      return;
+    }
+    thrown.clipTime = Math.min(thrown.clipLength, thrown.clipTime + Math.max(0, dt));
+    thrown.group.goToFrame(thrown.fromFrame + thrown.clipTime * thrown.framesPerSecond);
+    cancelRootMotion(active.model);
+    const p = thrown.node.position;
+    active.model.anchor.setAbsolutePosition(new Vector3(p.x, p.y - thrown.hipsHeight, p.z));
+  }
+
+  /** Let a thrown body go limp, moving as its sphere was. */
+  private endThrow(active: ActiveRagdoll): void {
+    const thrown = active.throw!;
+    active.throw = null;
+    const velocity = thrown.aggregate.body.getLinearVelocity();
+    // The ragdoll does not carry on into the surface the body landed on: a
+    // limb box driven into a floor or wall at speed passes through it
+    if (thrown.surface && thrown.surface.lengthSquared() > 1e-6) {
+      const normal = thrown.surface.normalize();
+      velocity.subtractInPlace(normal.scale(Vector3.Dot(velocity, normal)));
+    }
+    this.releaseThrow(thrown, !!active.trail);
+    if (active.trail) active.trailFollower = thrown.node;
+    try {
+      this.activateRagdoll(active, velocity);
+    } catch (e) {
+      console.error("[RagdollSystem] Failed to create ragdoll after the throw:", e);
+      this.disposeRagdoll(active, true);
+    }
+  }
+
+  /** Stop a throw's clip and remove its sphere; the node stays when the trail still rides it. */
+  private releaseThrow(thrown: DeathThrow, keepNode: boolean): void {
+    thrown.observer?.remove();
+    thrown.observer = null;
+    thrown.group.stop();
+    thrown.group.dispose();
+    try {
+      thrown.aggregate.dispose();
+    } catch (e) {
+      console.warn("[RagdollSystem] Failed to release the throw sphere:", e);
+    }
+    if (!keepNode) thrown.node.dispose();
+  }
+
+  /** Build the per-bone ragdoll from the body's current pose and launch every bone at `velocity`. */
+  private activateRagdoll(active: ActiveRagdoll, velocity: Vector3): void {
+    const { model } = active;
+    const boneConfig = createBoneConfig();
+
+    // The .d.ts type doesn't declare the 'bone' property, but the source code
+    // uses it to map config entries to skeleton bones
+    devLog(`[RagdollSystem] Creating ragdoll with ${boneConfig.length} bone configs`);
+    active.frame = createRagdollFrame(model);
+    const ragdollInstance = new Ragdoll(model.skeleton!, active.frame, boneConfig);
+    active.ragdoll = ragdollInstance;
+
+    // Raise Havok’s global max velocity so our launch isn’t clamped
+    // Only the v2 engine has velocity limits; the shared interface omits them.
+    const physicsEngine = this.scene!.getPhysicsEngine() as
+      | (IPhysicsEngine & Partial<Pick<PhysicsEngine, "getMaxLinearVelocity" | "setVelocityLimits">>)
+      | null;
+    if (physicsEngine) {
+      const currentMax = physicsEngine.getMaxLinearVelocity?.() ?? 0;
+      if (currentMax < HAVOK_MAX_LINEAR_VELOCITY) {
+        physicsEngine.setVelocityLimits?.(HAVOK_MAX_LINEAR_VELOCITY, 100);
+        devLog(`[RagdollSystem] Raised Havok max linear velocity from ${currentMax} to ${HAVOK_MAX_LINEAR_VELOCITY}`);
+      }
+    }
+
+    // Activate ragdoll mode — Havok Physics takes over bone transforms
+    ragdollInstance.ragdoll();
+    active.poseSync = BatchedPoseSync.create(
+      model.skeleton!,
+      active.frame,
+      ragdollInstance,
+      boneConfig.map((cfg) => cfg.bone),
+    );
+    devLog("[RagdollSystem] Ragdoll mode activated");
+
+    for (let b = 0; b < boneConfig.length; b++) {
+      try {
+        const agg = ragdollInstance.getAggregate(b);
+        if (agg?.body) {
+          agg.body.setLinearVelocity(velocity);
+          agg.body.setGravityFactor(RAGDOLL_GRAVITY_FACTOR);
+        }
+      } catch {
+        /* skip */
+      }
+    }
+    devLog(
+      `[RagdollSystem] Applied velocity (${velocity.x.toFixed(0)}, ${velocity.y.toFixed(0)}, ${velocity.z.toFixed(0)}) gravity=${RAGDOLL_GRAVITY_FACTOR} to ${boneConfig.length} bones`,
+    );
+  }
+
+  /** World position of the hips, or of the sphere while thrown; null once disposed. */
+  private bodyPosition(active: ActiveRagdoll): Vector3 | null {
+    if (active.disposed) return null;
+    if (active.throw) return active.throw.node.getAbsolutePosition();
+    try {
+      return active.ragdoll?.getAggregate(0)?.body?.transformNode?.getAbsolutePosition() ?? null;
+    } catch {
       return null;
     }
   }
@@ -646,6 +844,8 @@ export class RagdollSystem {
   /** Age every ragdoll by `dt` seconds: trails fade, then each fades out and bursts. */
   update(dt: number): void {
     if (!this.scene) return;
+    // Bodies land on the map, so its collision is built as soon as it is final
+    if (this.physicsReady) PhysicsSystem.getInstance().ensureBspCollision();
 
     for (let i = this.ragdolls.length - 1; i >= 0; i--) {
       const active = this.ragdolls[i];
@@ -656,6 +856,17 @@ export class RagdollSystem {
 
       active.age += Math.max(0, dt);
       const age = active.age;
+
+      if (active.throw) {
+        this.advanceThrow(active, dt);
+        if (active.disposed) {
+          this.ragdolls.splice(i, 1);
+          continue;
+        }
+      } else if (active.trailFollower) {
+        const hips = this.bodyPosition(active);
+        if (hips) active.trailFollower.position.copyFrom(hips);
+      }
 
       // Fade and dispose trail after TRAIL_LIFETIME
       if (active.trail && age < TRAIL_LIFETIME) {
@@ -668,6 +879,8 @@ export class RagdollSystem {
           active.trailMat.dispose();
           active.trailMat = null;
         }
+        active.trailFollower?.dispose();
+        active.trailFollower = null;
       }
 
       // Start the fade once the body has come to rest, or at the latest so it
@@ -698,13 +911,9 @@ export class RagdollSystem {
 
   /** Whether the hips have stayed within REST_RADIUS for REST_SECONDS, advancing that check by `dt`. */
   private cameToRest(active: ActiveRagdoll, dt: number): boolean {
-    if (active.age < REST_MIN_AGE) return false;
-    let hips: Vector3 | null = null;
-    try {
-      hips = active.ragdoll.getAggregate(0)?.body?.transformNode?.getAbsolutePosition() ?? null;
-    } catch {
-      hips = null;
-    }
+    // A thrown body is still flying
+    if (active.age < REST_MIN_AGE || !active.ragdoll) return false;
+    const hips = this.bodyPosition(active);
     if (!hips) return false;
     if (active.restAnchor && Vector3.DistanceSquared(hips, active.restAnchor) <= REST_RADIUS * REST_RADIUS) {
       active.restSeconds += Math.max(0, dt);
@@ -748,22 +957,22 @@ export class RagdollSystem {
 
   private disposeRagdoll(active: ActiveRagdoll, gibExplode: boolean): void {
     if (active.disposed) return;
-    active.disposed = true;
 
-    // Gib explosion at ragdoll's current position
+    // Gib explosion at the body's current position
     if (gibExplode && this.onGibExplode) {
-      // Get position from root aggregate or anchor
-      let pos: Vector3;
-      try {
-        const rootAgg = active.ragdoll.getAggregate(0);
-        pos = rootAgg?.transformNode?.getAbsolutePosition() ?? active.model.anchor.getAbsolutePosition();
-      } catch {
-        pos = active.model.anchor.getAbsolutePosition();
-      }
+      const pos = this.bodyPosition(active) ?? active.model.anchor.getAbsolutePosition();
       this.onGibExplode(pos.x, pos.y, pos.z, 0, 0, 0, active.color);
     }
+    active.disposed = true;
 
-    // Dispose trail
+    this.releaseBody(active);
+    // Dispose model
+    this.disposeModel(active.model);
+    devLog(`[RagdollSystem] Disposed ragdoll for ${active.model.id}`);
+  }
+
+  /** Release everything a dead body holds but the model itself: trail, throw, ragdoll and frame. */
+  private releaseBody(active: ActiveRagdoll): void {
     if (active.trail) {
       try {
         active.trail.dispose();
@@ -780,18 +989,25 @@ export class RagdollSystem {
       }
       active.trailMat = null;
     }
+    active.trailFollower?.dispose();
+    active.trailFollower = null;
+
+    if (active.throw) {
+      this.releaseThrow(active.throw, false);
+      active.throw = null;
+    }
 
     // Dispose ragdoll (cleans up physics bodies + joints)
     active.poseSync?.dispose();
+    active.poseSync = null;
     try {
-      active.ragdoll.dispose();
+      active.ragdoll?.dispose();
     } catch (e) {
       console.warn("[RagdollSystem] Error disposing ragdoll:", e);
     }
 
-    // Dispose model
-    this.disposeModel(active.model);
-    devLog(`[RagdollSystem] Disposed ragdoll for ${active.model.id}`);
+    active.frame?.dispose();
+    active.frame = null;
   }
 
   private disposeModel(model: PlayerModelInstance): void {

@@ -1475,6 +1475,7 @@ export class WeaponSystem extends Subsystem {
         armorPiercing: 0,
         damageType: DamageType.Melee,
         hitLocation,
+        weaponId: weapon.id,
         knockbackDir: { x: dir.x, y: 0.3, z: dir.z }, // Slight upward knockback
         knockbackScale: weapon.knockbackScale,
       });
@@ -1792,6 +1793,7 @@ export class WeaponSystem extends Subsystem {
       armorPiercing: 0,
       damageType: this.weaponToDamageType(weapon.id),
       hitLocation: best.hitLocation,
+      weaponId: weapon.id,
       knockbackDir: { x: dir.x, y: dir.y, z: dir.z },
       knockbackScale: weapon.knockbackScale,
     });
@@ -1856,6 +1858,7 @@ export class WeaponSystem extends Subsystem {
         armorPiercing: 0,
         damageType: this.weaponToDamageType(weapon.id),
         hitLocation: HitLocation.Body,
+        weaponId: weapon.id,
         knockbackDir: { x: p.x - from.x, y: p.y - from.y, z: p.z - from.z },
         knockbackScale: weapon.knockbackScale,
       });

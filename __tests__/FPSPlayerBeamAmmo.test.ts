@@ -20,6 +20,7 @@ vi.mock("../../../engine/weapon/WeaponViewManager", () => {
 
 import { HUDState } from "../client/HUDState";
 import { clearLocalPowerups, setLocalPowerup } from "../client/LocalPowerupState";
+import { MatchPhase, MatchStateManager } from "../client/MatchStateManager";
 import { FPSPlayer } from "../FPSPlayer";
 
 const BEAM_WEAPON = {
@@ -50,6 +51,7 @@ function makeController(aiming = true): FPSController {
 describe("FPSPlayer beam ammo presentation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    MatchStateManager.destroy();
     clearLocalPowerups();
     weaponView.isSwitching.mockReturnValue(false);
   });
@@ -118,5 +120,57 @@ describe("FPSPlayer beam ammo presentation", () => {
       HUDState.getInstance().localDead = false;
       player.dispose();
     }
+  });
+  it("clears a held warmup beam during countdown and stays clear after respawning with Blade", () => {
+    const player = new FPSPlayer(makeController());
+    let weapon = BEAM_WEAPON;
+    vi.spyOn(player.inventory, "getCurrentWeapon").mockImplementation(() => weapon);
+    vi.spyOn(player.inventory, "getCurrentWeaponId").mockImplementation(() => weapon.id);
+    vi.spyOn(player.inventory, "getLoadedAmmo").mockReturnValue(60);
+    const match = MatchStateManager.getInstance();
+    match.processEvent({ type: "match_state", phase: MatchPhase.Warmup, round: 0 });
+    player.update(1 / 60);
+    expect(weaponView.setBeamActive).toHaveBeenLastCalledWith(true, expect.anything());
+    match.processEvent({ type: "match_state", phase: MatchPhase.Countdown, round: 1 });
+    player.update(1 / 60);
+    expect(weaponView.setBeamActive).toHaveBeenLastCalledWith(false);
+    weaponView.setBeamActive.mockClear();
+    weapon = { id: "blade" } as WeaponDef;
+    match.processEvent({ type: "match_state", phase: MatchPhase.Active, round: 1 });
+    player.update(1 / 60);
+    expect(weaponView.setBeamActive).not.toHaveBeenCalledWith(true, expect.anything());
+    player.dispose();
+    MatchStateManager.destroy();
+  });
+
+  it.each(["disabled controls", "non-beam weapon", "missing weapon", "weapon switch"])(
+    "clears the beam on %s",
+    (reason) => {
+      const controller = makeController();
+      const player = new FPSPlayer(controller);
+      const current = vi.spyOn(player.inventory, "getCurrentWeapon").mockReturnValue(BEAM_WEAPON);
+      vi.spyOn(player.inventory, "getCurrentWeaponId").mockReturnValue("voltaic");
+      vi.spyOn(player.inventory, "getLoadedAmmo").mockReturnValue(60);
+      player.update(1 / 60);
+      weaponView.setBeamActive.mockClear();
+      if (reason === "disabled controls") vi.spyOn(controller, "isEnabled").mockReturnValue(false);
+      else if (reason === "weapon switch") weaponView.isSwitching.mockReturnValue(true);
+      else current.mockReturnValue(reason === "missing weapon" ? undefined : ({ id: "blade" } as WeaponDef));
+      player.update(1 / 60);
+      expect(weaponView.setBeamActive).toHaveBeenCalledWith(false);
+      player.dispose();
+    },
+  );
+
+  it("allows held fire during a continuous mode's non-frozen pre-match countdown", () => {
+    const player = new FPSPlayer(makeController());
+    vi.spyOn(player.inventory, "getCurrentWeapon").mockReturnValue(BEAM_WEAPON);
+    vi.spyOn(player.inventory, "getCurrentWeaponId").mockReturnValue("voltaic");
+    vi.spyOn(player.inventory, "getLoadedAmmo").mockReturnValue(60);
+    MatchStateManager.getInstance().processEvent({ type: "match_state", phase: MatchPhase.Countdown, round: 0 });
+    player.update(1 / 60);
+    expect(weaponView.setBeamActive).toHaveBeenLastCalledWith(true, expect.anything());
+    player.dispose();
+    MatchStateManager.destroy();
   });
 });

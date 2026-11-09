@@ -89,7 +89,10 @@ export class FPSPlayer {
     const quadOutlineWidth = QUAD_VIEW_WEAPON_OUTLINE_MIN + QUAD_VIEW_WEAPON_OUTLINE_RANGE * quadPulse;
     weaponView.setPowerupOutlineOverride(quadActive, QUAD_DAMAGE_COLOR, quadOutlineWidth);
 
-    if (!this.controller.isEnabled()) return;
+    if (!this.controller.isEnabled()) {
+      this.stopBeamPresentation();
+      return;
+    }
 
     // Handle reloading timer
     if (this.isReloading) {
@@ -168,14 +171,8 @@ export class FPSPlayer {
   }
 
   private updateFiring(_deltaTime: number): void {
-    // Post-game freeze: the fight is over on the end screen. `updateFiring` reads
-    // the controller directly (not the server input command, which is already
-    // frozen), so without this the held mouse still charges/fires the beam and
-    // swings melee locally. Only chat + "leave lobby" stay live in PostGame.
-    // Dead, the same: fire held through a death kept the beam latch on, so the
-    // beam drew from the corpse, or from a watched teammate's eyes in S&D,
-    // where fire picks the next teammate (L2).
-    if (MatchStateManager.getInstance().isPostGame() || HUDState.getInstance().localDead) {
+    // Frozen phases and death suppress firing presentation while input remains held.
+    if (MatchStateManager.getInstance().isMovementFrozen() || HUDState.getInstance().localDead) {
       this.stopBeamPresentation();
       this.fireReleased = true;
       return;
@@ -183,8 +180,12 @@ export class FPSPlayer {
 
     // Block firing during weapon switch animation
     const weaponMgr = WeaponViewManager.getInstance();
-    if (weaponMgr.isSwitching()) return;
+    if (weaponMgr.isSwitching()) {
+      this.stopBeamPresentation();
+      return;
+    }
     const currentWeapon = this.inventory.getCurrentWeapon();
+    if (currentWeapon?.hitscanType !== "beam") this.stopBeamPresentation();
     if (!currentWeapon) return;
     const currentWeaponId = this.inventory.getCurrentWeaponId();
 
@@ -313,6 +314,7 @@ export class FPSPlayer {
   }
 
   public dispose(): void {
+    this.stopBeamPresentation();
     WeaponViewManager.getInstance().setPowerupOutlineOverride(false, Color3.Black(), 0);
     this.controller.onWeaponSelect = null;
     this.controller.onReload = null;
