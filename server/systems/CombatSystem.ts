@@ -39,6 +39,8 @@ export interface DamageEvent {
   armorPiercing: number; // 0 = normal, 1 = full armor bypass
   damageType: DamageType;
   hitLocation: HitLocation;
+  /** The hitscan or melee weapon that dealt it; projectiles and the world leave it out. */
+  weaponId?: string;
   /** Knockback direction (unnormalized ok — will be normalized + biased upward) */
   knockbackDir?: { x: number; y: number; z: number };
   /** Knockback scale override (defaults to weapon's knockbackScale) */
@@ -129,6 +131,9 @@ export interface KillEvent {
   damageType: DamageType;
   /** Final damage of the killing blow (used for gib vs ragdoll decision) */
   finalDamage: number;
+  /** Where the killing blow landed and the weapon that dealt it, for the death animation */
+  hitLocation: HitLocation;
+  weaponId?: string;
   tick: TickNumber;
   /** Victim position at death (for gibs) */
   victimX: number;
@@ -429,6 +434,8 @@ export class CombatSystem extends Subsystem {
         killerId: event.attackerId,
         damageType: event.damageType,
         finalDamage,
+        hitLocation: event.hitLocation,
+        weaponId: event.weaponId,
         tick,
         victimX: pos.x,
         victimY: pos.y,

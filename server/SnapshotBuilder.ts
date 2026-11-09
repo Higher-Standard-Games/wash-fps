@@ -695,6 +695,9 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
       kbDirX: kill.kbDirX,
       kbDirY: kill.kbDirY,
       kbDirZ: kill.kbDirZ,
+      // Which death animation the body plays: the killing weapon and where the blow landed
+      killWeapon: kill.weaponId,
+      hitLocation: kill.hitLocation,
     });
   }
   // Clear cached kills after they've been sent

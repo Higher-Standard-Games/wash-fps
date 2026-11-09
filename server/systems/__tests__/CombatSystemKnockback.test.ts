@@ -96,6 +96,31 @@ describe("CombatSystem — kill event knockback direction", () => {
     expect(kills[0].kbDirZ).toBeCloseTo(impulses[0].dirZ, 6);
   });
 
+  it("names the killing weapon and where the blow landed, for the death animation", () => {
+    const combat = new CombatSystem();
+    const victim = {
+      id: 1,
+      health: { health: 10, armor: 0, dead: false, maxHealth: 100, maxArmor: 100 },
+      transform: { position: { x: 0, y: 0, z: 0 } },
+      physics: { velocity: { x: 0, y: 0, z: 0 } },
+    };
+    const state = { getEntityMut: () => victim, getEntity: () => victim };
+    combat.queueDamage({
+      victimId: 1 as never,
+      attackerId: 2 as never,
+      damage: 50,
+      armorPiercing: 0,
+      damageType: DamageType.Bullet,
+      hitLocation: HitLocation.Head,
+      weaponId: "machinegun",
+      knockbackDir: { x: 1, y: 0, z: 0 },
+    });
+    combat.update(state as never, 0.008, 1 as never);
+    const [k] = combat.getRecentKills();
+    expect(k.hitLocation).toBe(HitLocation.Head);
+    expect(k.weaponId).toBe("machinegun");
+  });
+
   it("keeps a strong upward component so the ragdoll pops rather than skates", () => {
     // Purely horizontal push still gets KB_UPWARD_BIAS folded in.
     const { kills } = kill({ x: 1, y: 0, z: 0 });
