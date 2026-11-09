@@ -66,6 +66,45 @@ describe("WeaponViewManager continuous beam routing", () => {
     }
   });
 
+  it.each(["weapon changed", "muzzle missing"])("stops an active beam when its %s", (reason) => {
+    const engine = new NullEngine(),
+      scene = new Scene(engine);
+    const camera = new FreeCamera("camera", Vector3.Zero(), scene);
+    const manager = new WeaponViewManager();
+    try {
+      manager.init(scene, camera);
+      const internals = manager as unknown as BeamRoutingInternals;
+      internals.currentWeaponDef = reason === "weapon changed" ? PLASMAGUN : VOLTAIC;
+      internals.beamActive = true;
+      internals.getMuzzleWorldPosition = () => (reason === "muzzle missing" ? null : Vector3.Zero());
+      internals.updateBeam();
+      expect(hitscan.stopLightning).toHaveBeenCalled();
+      expect(internals.beamActive).toBe(false);
+    } finally {
+      manager.dispose();
+      engine.dispose();
+    }
+  });
+
+  it("stops the beam even when clearing parks a loaded weapon", () => {
+    const engine = new NullEngine(),
+      scene = new Scene(engine);
+    const camera = new FreeCamera("camera", Vector3.Zero(), scene);
+    const manager = new WeaponViewManager();
+    try {
+      manager.init(scene, camera);
+      const internals = manager as unknown as BeamRoutingInternals;
+      internals.beamActive = true;
+      vi.spyOn(manager as unknown as { parkCurrentWeapon(): boolean }, "parkCurrentWeapon").mockReturnValue(true);
+      manager.clear();
+      expect(hitscan.stopLightning).toHaveBeenCalled();
+      expect(internals.beamActive).toBe(false);
+    } finally {
+      manager.dispose();
+      engine.dispose();
+    }
+  });
+
   it("starts the beam at this frame's muzzle when the camera moves after the weapon view updates", () => {
     const engine = new NullEngine();
     const scene = new Scene(engine);

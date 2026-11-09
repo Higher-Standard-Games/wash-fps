@@ -162,7 +162,10 @@ describe("first-person prepared model sources", () => {
     expect(muzzleFlash.mock.calls[1][0]).toMatchObject({ position: tip, duration: 0.16, scale: 0.4 });
     expect(muzzleFlash.mock.calls[1][0].color.g).toBe(1);
     muzzleFlash.mockClear();
+    const slash = (view as unknown as { weaponSlash: { trigger(): void } }).weaponSlash;
+    const trigger = vi.spyOn(slash, "trigger");
     view.presentFire({ isProjectileFire: true });
+    expect(trigger).toHaveBeenCalledOnce();
     expect(muzzleFlash).toHaveBeenCalledTimes(1);
     expect(
       internals()

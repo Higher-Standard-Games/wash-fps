@@ -39,7 +39,8 @@ PK3 files (maps, textures, models, sounds) are **not** in this repo or the engin
 | Package in `public/data/` | Purpose |
 | --- | --- |
 | `map_washoi_dm2.pk3` | Example installed map archive |
-| `player_model_vanguard.pk3` | Player models and animation clips |
+| `washoi_player_model.pk3` | Player bodies |
+| `washoi_player_animations.pk3` | Animation clips every body shares |
 | Other `*.pk3` packages | Shared textures, sounds and other game data |
 
 This directory is gitignored — each developer downloads or builds their own game data.

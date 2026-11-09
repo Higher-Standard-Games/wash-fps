@@ -1256,6 +1256,7 @@ export function handleRemoteWeaponFire(
   /** The same snapshot carries this shooter's voltaic_beam contact. */
   beamTruth = false,
 ): void {
+  remoteRenderer?.noteWeaponFire(event.entityId);
   const fx = getHitscanEffects();
   const projMgr = getProjectileManager();
 

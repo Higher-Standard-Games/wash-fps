@@ -33,9 +33,10 @@ export function holdBladeGrip(
   const hand = player.skeleton?.bones.find((bone) => bone.name === "mixamorig:RightHand");
   grip.parent = null;
   if (hand) {
-    grip.attachToBone(hand, player.mesh);
+    if (player.weaponHand) grip.parent = player.weaponHand;
+    else grip.attachToBone(hand, player.mesh);
     grip.position.setAll(0);
-    grip.scaling.setAll(visualScale / playerScale);
+    grip.scaling.setAll(visualScale / (player.modelScale ?? playerScale));
   } else {
     grip.parent = player.anchor;
     grip.position.set(0, 30, 0);

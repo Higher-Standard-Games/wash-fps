@@ -24,9 +24,10 @@ export function holdGunGrip(
   const hand = player.skeleton?.bones.find((bone) => bone.name === "mixamorig:RightHand");
   grip.parent = null;
   if (hand) {
-    grip.attachToBone(hand, player.mesh);
+    if (player.weaponHand) grip.parent = player.weaponHand;
+    else grip.attachToBone(hand, player.mesh);
     grip.position.setAll(0);
-    grip.scaling.setAll((visualScale / playerScale) * 0.5);
+    grip.scaling.setAll((visualScale / (player.modelScale ?? playerScale)) * 0.5);
     // The imported left-handed root reflects X; keep +Y on the hand's thumb side.
     grip.rotation.set(player.mesh.getScene().useRightHandedSystem ? Math.PI : 0, 0, -Math.PI / 2);
   } else {

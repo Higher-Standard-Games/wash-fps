@@ -1,3 +1,5 @@
+import type { TransformNode } from "@babylonjs/core/Meshes/transformNode";
+import { createRagdollFrame } from "./ragdoll/RagdollFrame";
 /**
  * RagdollSystem — Per-bone Havok ragdoll physics on death
  *
@@ -329,6 +331,7 @@ interface ActiveRagdoll {
   model: PlayerModelInstance;
   ragdoll: Ragdoll;
   poseSync: BatchedPoseSync | null;
+  frame: TransformNode;
   /** Seconds lived, by the clock update() is handed: wall time live, the playhead in a demo. */
   age: number;
   disposed: boolean;
@@ -451,6 +454,7 @@ export class RagdollSystem {
 
     let createdRagdoll: Ragdoll | null = null;
     let poseSync: BatchedPoseSync | null = null;
+    let frame: TransformNode | null = null;
     try {
       // 1. FULLY DISPOSE all animations — they fight with physics
       releaseLocomotionGroups(model);
@@ -505,11 +509,8 @@ export class RagdollSystem {
       //    uses it to map config entries to skeleton bones
       devLog(`[RagdollSystem] Creating ragdoll with ${boneConfig.length} bone configs`);
 
-      const ragdollInstance = new Ragdoll(
-        model.skeleton,
-        model.mesh, // rootTransformNode — the skinned mesh
-        boneConfig,
-      );
+      frame = createRagdollFrame(model);
+      const ragdollInstance = new Ragdoll(model.skeleton, frame, boneConfig);
       createdRagdoll = ragdollInstance;
 
       // 6. Raise Havok’s global max velocity so our launch isn’t clamped
@@ -529,7 +530,7 @@ export class RagdollSystem {
       ragdollInstance.ragdoll();
       poseSync = BatchedPoseSync.create(
         model.skeleton,
-        model.mesh,
+        frame,
         ragdollInstance,
         boneConfig.map((cfg) => cfg.bone),
       );
@@ -596,6 +597,7 @@ export class RagdollSystem {
         model,
         ragdoll: ragdollInstance,
         poseSync,
+        frame,
         age: 0,
         disposed: false,
         color: this.modelTint(model),
@@ -634,6 +636,7 @@ export class RagdollSystem {
       } catch (cleanupError) {
         console.warn("[RagdollSystem] Failed to release ragdoll:", cleanupError);
       }
+      frame?.dispose();
       this.disposeModel(model);
       return null;
     }
@@ -789,6 +792,7 @@ export class RagdollSystem {
       console.warn("[RagdollSystem] Error disposing ragdoll:", e);
     }
 
+    active.frame?.dispose();
     // Dispose model
     this.disposeModel(active.model);
     devLog(`[RagdollSystem] Disposed ragdoll for ${active.model.id}`);

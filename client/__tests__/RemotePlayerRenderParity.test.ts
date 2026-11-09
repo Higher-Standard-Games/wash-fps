@@ -408,6 +408,9 @@ async function record(): Promise<string[]> {
   internals.playTeleportEffect = (_hitbox, entityId) => teleports.push(entityId);
   const weapons = new Map<string, string>();
   renderer.setEnemyWeapons(weapons);
+  // The recording predates the separate running rates: legs and upper body at the matched rate
+  setCvar("cl_player_run_legs", 1);
+  setCvar("cl_player_run_upper", 1);
   // Vitest never settles two dynamic imports of a mocked module started in the
   // same frame (a browser does), so players draw their guns one frame apart.
   const armAt = (frame: number) => {

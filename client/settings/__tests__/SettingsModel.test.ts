@@ -12,12 +12,18 @@ import { InputSystem } from "../../../../../engine/input/InputSystem";
 import { RenderVars } from "../../../../../engine/rendering/RenderVars";
 import { WorldFogController } from "../../../../../engine/rendering/WorldFogController";
 import { FPS, registerFPSActions } from "../../FPSActions";
-import { registerPlayerModelVisualCvars } from "../../PlayerModelVisualSettings";
+import {
+  getFfaPlayerModelVisualStyle,
+  getPlayerModelVisualStyle,
+  getPlayerModelVisualStyleKey,
+  registerPlayerModelVisualCvars,
+} from "../../PlayerModelVisualSettings";
 import "../../Crosshair";
 // The video presets set the distant-player pose rate, which this module registers
 import "../../RemotePlayerRenderer";
 import {
   actionFor,
+  applyChoice,
   assignKey,
   BOOST_CHOICES,
   CROSSHAIR_COLORS,
@@ -162,7 +168,7 @@ describe("players and the crosshair", () => {
     expect(sideColor("ally")?.id).toBe("pink");
     expect(sideColor("enemy")?.id).toBe("cyan");
     expect(currentChoice(OUTLINE_CHOICES)?.id).toBe("thin");
-    expect(currentChoice(BOOST_CHOICES)?.id).toBe("off");
+    expect(currentChoice(BOOST_CHOICES)?.id).toBe("tint");
     expect(CROSSHAIR_COLORS.map((color) => color.value)).toContain(Cvar.getString("cg_crosshairColor").toUpperCase());
     expect(HIT_COLORS.map((color) => color.value)).toContain(Cvar.getString("cg_crosshairDmgColor").toUpperCase());
   });
@@ -188,5 +194,30 @@ describe("players and the crosshair", () => {
     resetPage("gameplay");
     expect(sideColor("ally")?.id).toBe("pink");
     expect(currentChoice(OUTLINE_CHOICES)?.id).toBe("thin");
+  });
+});
+
+describe("player brightness", () => {
+  it("offers untinted Off before Tint, Some and Lots, preserving coloured FFA outlines", () => {
+    expect(BOOST_CHOICES.map((choice) => choice.id)).toEqual(["off", "tint", "some", "lots"]);
+    resetPage("gameplay");
+    expect(currentChoice(BOOST_CHOICES)?.id).toBe("tint");
+    const tintedKey = getPlayerModelVisualStyleKey("enemy");
+    applyChoice(BOOST_CHOICES[0]);
+    expect(getPlayerModelVisualStyle("enemy", 36).tintColor).toBeNull();
+    expect(getPlayerModelVisualStyle("enemy", 36).fullbrightEnabled).toBe(false);
+    expect(getPlayerModelVisualStyleKey("enemy")).not.toBe(tintedKey);
+    const ffa = getFfaPlayerModelVisualStyle(
+      { id: "red", label: "Red", css: "red", fill: "1 0 0", outline: "1 0 0" },
+      36,
+    );
+    expect(ffa.tintColor).toBeNull();
+    expect(ffa.outlineColor.toHexString()).toBe("#FF0000");
+    for (const choice of BOOST_CHOICES.slice(1)) {
+      applyChoice(choice);
+      expect(getPlayerModelVisualStyle("enemy", 36).tintColor).not.toBeNull();
+      expect(getPlayerModelVisualStyle("enemy", 36).fullbrightEnabled).toBe(choice.id !== "tint");
+    }
+    resetPage("gameplay");
   });
 });
