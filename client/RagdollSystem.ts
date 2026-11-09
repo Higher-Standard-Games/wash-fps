@@ -14,11 +14,11 @@ import { createRagdollFrame } from "./ragdoll/RagdollFrame";
  *   1. On non-gib death → detach model from RemotePlayerRenderer
  *   2. Stop/dispose animations
  *   3. A death that has a clip (see `chooseDeathClip`) is thrown first: the
- *      body turns to the shot, one capsule flies the launch arc and the clip
- *      plays once on the body, until the capsule touches a surface or the clip
+ *      body turns to the shot, one sphere flies the launch arc and the clip
+ *      plays once on the body, until the sphere touches a surface or the clip
  *      ends
  *   4. Create Ragdoll from skeleton + bone config → call .ragdoll() to activate
- *   5. Give every bone the launch velocity, or the capsule's after a throw
+ *   5. Give every bone the launch velocity, or the sphere's after a throw
  *   6. Once the body comes to rest (or after RAGDOLL_LIFETIME at the latest)
  *      → fade out, gib-explode and dispose (Warsow-style)
  */
@@ -113,12 +113,13 @@ const TRAIL_LENGTH = 30; // trail segment count
 const MODEL_SCALE = 36;
 
 /**
- * The capsule a thrown body flies as: centred on the hips, spanning about the
- * player's height. Contacts in the first THROW_CONTACT_GRACE seconds do not
- * end the throw, so the floor the player died standing on does not.
+ * The sphere a thrown body flies as: centred on the hips and as wide as the
+ * body reaches from them, so it meets a floor or wall before a limb of the
+ * posed body can pass into it, and the ragdoll never starts inside the world.
+ * Contacts in the first THROW_CONTACT_GRACE seconds do not end the throw, so
+ * the floor the player died standing on does not.
  */
-const THROW_RADIUS = 16;
-const THROW_HALF_SEGMENT = 16;
+const THROW_RADIUS = 34;
 const THROW_CONTACT_GRACE = 0.1;
 /** Hips height above the anchor when the body has no hips joint to measure. */
 const THROW_HIPS_HEIGHT = 34;
@@ -360,10 +361,10 @@ function worldPositionNow(node: TransformNode): Vector3 {
 // Active ragdoll instance
 // ============================================================================
 
-/** A body playing its death clip while one capsule flies the launch arc. */
+/** A body playing its death clip while one sphere flies the launch arc. */
 interface DeathThrow {
   aggregate: PhysicsAggregate;
-  /** The capsule's node, at the hips; the body's anchor follows it. */
+  /** The sphere's node, at the hips; the body's anchor follows it. */
   node: TransformNode;
   hipsHeight: number;
   group: AnimationGroup;
@@ -371,8 +372,10 @@ interface DeathThrow {
   framesPerSecond: number;
   clipLength: number;
   clipTime: number;
-  /** Set by the capsule's collision events once past the grace time. */
+  /** Set by the sphere's collision events once past the grace time. */
   touched: boolean;
+  /** The world normal of the surface it touched, when the contact gave one. */
+  surface: Vector3 | null;
   observer: Observer<IPhysicsCollisionEvent> | null;
 }
 
@@ -502,6 +505,8 @@ export class RagdollSystem {
       return null;
     }
 
+    PhysicsSystem.getInstance().ensureBspCollision();
+
     if (!model.skeleton) {
       console.warn("[RagdollSystem] Model has no skeleton — disposing");
       this.disposeModel(model);
@@ -599,7 +604,7 @@ export class RagdollSystem {
       if (clip && clipAnim) active.throw = this.startThrow(model, clip, clipAnim.animations, launchVel, dirX, dirZ);
       if (!active.throw) this.activateRagdoll(active, launchVel);
 
-      // 6. Create the speed trail, on the capsule or the hips bone
+      // 6. Create the speed trail, on the sphere or the hips bone
       try {
         // Extract player color from model's PBR material
         const trailColor = this.extractModelColor(model);
@@ -645,7 +650,7 @@ export class RagdollSystem {
   }
 
   /**
-   * Turn the body to the shot and fly it as one capsule along `launchVel`,
+   * Turn the body to the shot and fly it as one sphere along `launchVel`,
    * with the death clip posed frame by frame from `update`. Null when the clip
    * targets nothing on this body.
    */
@@ -687,17 +692,11 @@ export class RagdollSystem {
     node.position.set(anchorPos.x, anchorPos.y + hipsHeight, anchorPos.z);
     const aggregate = new PhysicsAggregate(
       node,
-      PhysicsShapeType.CAPSULE,
-      {
-        mass: 1,
-        radius: THROW_RADIUS,
-        pointA: new Vector3(0, -THROW_HALF_SEGMENT, 0),
-        pointB: new Vector3(0, THROW_HALF_SEGMENT, 0),
-        restitution: 0,
-      },
+      PhysicsShapeType.SPHERE,
+      { mass: 1, radius: THROW_RADIUS, restitution: 0 },
       scene,
     );
-    // The capsule only carries the body's position: it never tumbles
+    // The sphere only carries the body's position: it never tumbles
     aggregate.body.setMassProperties({ mass: 1, inertia: Vector3.Zero() });
     aggregate.body.setLinearVelocity(launchVel);
     aggregate.body.setGravityFactor(RAGDOLL_GRAVITY_FACTOR);
@@ -713,17 +712,19 @@ export class RagdollSystem {
       clipLength: (group.to - group.from) / framesPerSecond,
       clipTime: 0,
       touched: false,
+      surface: null,
       observer: null,
     };
     thrown.observer = aggregate.body.getCollisionObservable().add((event) => {
       if (event.type !== PhysicsEventType.COLLISION_FINISHED && thrown.clipTime >= THROW_CONTACT_GRACE) {
         thrown.touched = true;
+        if (event.normal) thrown.surface = event.normal.clone();
       }
     });
     return thrown;
   }
 
-  /** Advance a thrown body's clip and carry it along its capsule; hand it to the ragdoll once it lands. */
+  /** Advance a thrown body's clip and carry it along its sphere; hand it to the ragdoll once it lands. */
   private advanceThrow(active: ActiveRagdoll, dt: number): void {
     const thrown = active.throw!;
     // The pose drawn last frame is the one the ragdoll starts from, so the
@@ -739,11 +740,17 @@ export class RagdollSystem {
     active.model.anchor.setAbsolutePosition(new Vector3(p.x, p.y - thrown.hipsHeight, p.z));
   }
 
-  /** Let a thrown body go limp, moving as its capsule was. */
+  /** Let a thrown body go limp, moving as its sphere was. */
   private endThrow(active: ActiveRagdoll): void {
     const thrown = active.throw!;
     active.throw = null;
     const velocity = thrown.aggregate.body.getLinearVelocity();
+    // The ragdoll does not carry on into the surface the body landed on: a
+    // limb box driven into a floor or wall at speed passes through it
+    if (thrown.surface && thrown.surface.lengthSquared() > 1e-6) {
+      const normal = thrown.surface.normalize();
+      velocity.subtractInPlace(normal.scale(Vector3.Dot(velocity, normal)));
+    }
     this.releaseThrow(thrown, !!active.trail);
     if (active.trail) active.trailFollower = thrown.node;
     try {
@@ -754,7 +761,7 @@ export class RagdollSystem {
     }
   }
 
-  /** Stop a throw's clip and remove its capsule; the node stays when the trail still rides it. */
+  /** Stop a throw's clip and remove its sphere; the node stays when the trail still rides it. */
   private releaseThrow(thrown: DeathThrow, keepNode: boolean): void {
     thrown.observer?.remove();
     thrown.observer = null;
@@ -763,7 +770,7 @@ export class RagdollSystem {
     try {
       thrown.aggregate.dispose();
     } catch (e) {
-      console.warn("[RagdollSystem] Failed to release the throw capsule:", e);
+      console.warn("[RagdollSystem] Failed to release the throw sphere:", e);
     }
     if (!keepNode) thrown.node.dispose();
   }
@@ -819,7 +826,7 @@ export class RagdollSystem {
     );
   }
 
-  /** World position of the hips, or of the capsule while thrown; null once disposed. */
+  /** World position of the hips, or of the sphere while thrown; null once disposed. */
   private bodyPosition(active: ActiveRagdoll): Vector3 | null {
     if (active.disposed) return null;
     if (active.throw) return active.throw.node.getAbsolutePosition();
@@ -837,6 +844,8 @@ export class RagdollSystem {
   /** Age every ragdoll by `dt` seconds: trails fade, then each fades out and bursts. */
   update(dt: number): void {
     if (!this.scene) return;
+    // Bodies land on the map, so its collision is built as soon as it is final
+    if (this.physicsReady) PhysicsSystem.getInstance().ensureBspCollision();
 
     for (let i = this.ragdolls.length - 1; i >= 0; i--) {
       const active = this.ragdolls[i];

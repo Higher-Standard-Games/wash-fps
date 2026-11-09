@@ -33,6 +33,7 @@ import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import type { Scene } from "@babylonjs/core/scene";
 import {
   animationDeltaSeconds,
+  BLADE_STANCE,
   PLAYER_POSE_BOUNDS,
   type PlayerModelInstance,
   PlayerModelManager,
@@ -71,7 +72,7 @@ import type { WeaponDef } from "../../../shared/entities/WeaponDef";
 import { WEAPONS } from "../shared/entities/definitions/weapons/WeaponsTable";
 import { maskHasPowerup } from "../shared/items/Powerups";
 import type { AimTarget } from "./AimAssist";
-import { attachBladeToPlayer, holdBladeGrip } from "./AttachedBlade";
+import { attachBladeToPlayer, holdBladeGrip, setBladeStance } from "./AttachedBlade";
 import { createGunGrip, holdGunGrip } from "./AttachedGun";
 import { DemoAnimationTimeline } from "./DemoAnimationTimeline";
 import { DemoEntityTimeline } from "./DemoEntityTimeline";
@@ -1229,7 +1230,8 @@ export class RemotePlayerRenderer {
       return null;
     }
     const model = hitbox.model;
-    // A one-shot (a blade swing) is the manager's; the ragdoll drives the bones now.
+    // A one-shot (a blade swing) and the blade stance are the manager's; the ragdoll drives the bones now.
+    this.modelManager?.setUpperBodyStance(model, null);
     this.modelManager?.stopOneShot(model, false);
     // Physics carries the bones off the anchor, outside the pose bounds.
     this.modelManager?.selectAlways(model);
@@ -1963,6 +1965,19 @@ export class RemotePlayerRenderer {
     const animName = backward ? "run_back" : relaxed ? "run_relaxed" : locomotion;
     this.modelManager.setAimPitch(inst, !relaxed && !NON_AIMING_ANIMATIONS.has(locomotion) ? (interp.pitch ?? 0) : 0);
     this.modelManager.playAnimation(inst, animName);
+    // The blade is held in its own upper-body stance; swimming, climbing and
+    // the like keep their arms
+    const stance =
+      hitbox.currentWeaponId === "blade" &&
+      !NON_AIMING_ANIMATIONS.has(locomotion) &&
+      inst.anims.some((clip) => clip.name === BLADE_STANCE)
+        ? BLADE_STANCE
+        : null;
+    this.modelManager.setUpperBodyStance(inst, stance, animationTimeScale);
+    // The blade stands up from the fist in the stance; a swing holds it along the fingers
+    if (hitbox.currentWeaponId === "blade" && hitbox.weaponRoot) {
+      setBladeStance(hitbox.weaponRoot, inst, !!stance && !this.modelManager.isOneShotPlaying(inst));
+    }
     if (this.demoAnimationTimeline) {
       const demoShot = this.demoAnimationTimeline.get(entityId);
       if (demoShot) {

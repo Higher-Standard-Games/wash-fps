@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Havok's wasm does not load under Node; these tests drive no physics.
 vi.mock("../../../../engine/physics/PhysicsSystem", () => ({
-  PhysicsSystem: { getInstance: () => ({ isInitialized: () => true }) },
+  PhysicsSystem: { getInstance: () => ({ isInitialized: () => true, ensureBspCollision: () => {} }) },
 }));
 
 const { RagdollSystem } = await import("../RagdollSystem");

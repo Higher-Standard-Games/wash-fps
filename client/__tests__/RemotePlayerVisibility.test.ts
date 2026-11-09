@@ -85,6 +85,7 @@ function setup() {
     setAimPitch: vi.fn(),
     playAnimation: vi.fn(),
     stopOneShot: vi.fn(),
+    setUpperBodyStance: vi.fn(),
     useConservativeBounds: vi.fn(),
     selectAlways: vi.fn(),
   };
