@@ -6,13 +6,19 @@
  * and lives in shared/items/ItemGrants.ts, keyed by the classname→kind map in
  * shared/bsp/PickupTable.ts. Classnames follow Warsow conventions.
  *
- * Models are the real Warsow item .md3s from the PK3 data (data0_21pure.pk3).
- * Their surface shaders (rotating glow / emissive effects) are resolved from the
- * PK3 scripts by the engine's Q3 shader parser automatically — no extra wiring.
+ * The armor pickups and the megahealth draw packaged models from
+ * washoi_models.pk3, which float, bob and turn like classic Quake items. The
+ * other health pickups are procedural (see
+ * world/pickups/procedural/ProceduralPickupRecipes.ts).
  */
 
 import type { EntityDef } from "../../../../../shared/entities/EntityDef";
 import { EntityType } from "../../../../../shared/entities/EntityType";
+
+/** The packaged item models are about 1.9 units tall; this makes them about 28. */
+const ITEM_MODEL_SCALE = 15;
+/** The armor shard is worth 5 and draws smaller than the armors: about 18 units. */
+const SHARD_MODEL_SCALE = 10;
 
 // ── Armor (unified plate model: shard +5, ga/ya/ra = 1/2/4 plates) ──
 
@@ -21,7 +27,8 @@ export const ARMOR_SHARD: EntityDef = {
   name: "Armor Shard",
   type: EntityType.ARMOR,
   classname: "item_armor_shard",
-  scale: 1.0,
+  modelPath: "/data/models/armor_shard.glb",
+  scale: SHARD_MODEL_SCALE,
   glowColor: { r: 0.3, g: 1.0, b: 0.3 },
 };
 
@@ -30,7 +37,8 @@ export const ARMOR_GREEN: EntityDef = {
   name: "Green Armor",
   type: EntityType.ARMOR,
   classname: "item_armor_ga",
-  scale: 1.0,
+  modelPath: "/data/models/ga.glb",
+  scale: ITEM_MODEL_SCALE,
   glowColor: { r: 0.2, g: 1.0, b: 0.2 },
 };
 
@@ -39,7 +47,8 @@ export const ARMOR_YELLOW: EntityDef = {
   name: "Yellow Armor",
   type: EntityType.ARMOR,
   classname: "item_armor_ya",
-  scale: 1.0,
+  modelPath: "/data/models/ya.glb",
+  scale: ITEM_MODEL_SCALE,
   glowColor: { r: 1.0, g: 0.85, b: 0.1 },
 };
 
@@ -48,7 +57,8 @@ export const ARMOR_RED: EntityDef = {
   name: "Red Armor",
   type: EntityType.ARMOR,
   classname: "item_armor_ra",
-  scale: 1.0,
+  modelPath: "/data/models/ra.glb",
+  scale: ITEM_MODEL_SCALE,
   glowColor: { r: 1.0, g: 0.2, b: 0.2 },
 };
 
@@ -88,7 +98,8 @@ export const HEALTH_MEGA: EntityDef = {
   name: "Mega Health",
   type: EntityType.HEALTH,
   classname: "item_health_mega",
-  scale: 1.0,
+  modelPath: "/data/models/mega.glb",
+  scale: ITEM_MODEL_SCALE,
   glowColor: { r: 1.0, g: 0.3, b: 0.3 },
 };
 

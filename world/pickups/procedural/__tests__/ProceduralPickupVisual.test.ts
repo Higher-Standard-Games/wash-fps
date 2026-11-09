@@ -11,6 +11,38 @@ import { Scene } from "@babylonjs/core/scene";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { allProceduralPickupRecipes, getProceduralPickupRecipe } from "../ProceduralPickupRecipes";
 import { ProceduralPickupVisual } from "../ProceduralPickupVisual";
+import type { ProceduralPickupRecipe } from "../types";
+
+/**
+ * The armor shard's recipe, kept here while the shard draws its packaged model,
+ * so the armor sculpture stays covered.
+ */
+const ARMOR_SHARD: ProceduralPickupRecipe = {
+  id: "armor_shard",
+  family: "armor",
+  kind: "shard",
+  color: { r: 0.35, g: 1.0, b: 0.4 },
+  accentColor: { r: 0.75, g: 1.0, b: 0.78 },
+  scale: 0.65,
+  ringCount: 0,
+  plateCount: 1,
+  moteCount: 0,
+  shellPieces: 0,
+  satelliteCount: 0,
+  bobAmplitude: 1.6,
+  bobFrequency: 0.28,
+  spinSpeed: 16,
+  pulseFrequency: 0.28,
+  figureEight: false,
+  beaconStrength: 0,
+  collectStyle: "shatter",
+  respawnStyle: "materialize",
+  highTier: false,
+  unstable: false,
+};
+
+/** A recipe by id, the kept armor shard included. */
+const recipeOf = (id: string) => (id === "armor_shard" ? ARMOR_SHARD : getProceduralPickupRecipe(id));
 
 let engine: NullEngine;
 let scene: Scene;
@@ -92,7 +124,7 @@ describe("ProceduralPickupVisual", () => {
   });
 
   it("applies the first authoritative state silently (no collection burst)", () => {
-    const recipe = getProceduralPickupRecipe("armor_ya");
+    const recipe = recipeOf("armor_shard");
     if (!recipe) throw new Error("recipe missing");
 
     const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 50, 0), true, 3);
@@ -109,7 +141,7 @@ describe("ProceduralPickupVisual", () => {
   });
 
   it("spawns a collection transient on active→inactive that hides when done", () => {
-    const recipe = getProceduralPickupRecipe("armor_ya");
+    const recipe = recipeOf("armor_shard");
     if (!recipe) throw new Error("recipe missing");
 
     const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 50, 0), true, 5);
@@ -157,7 +189,7 @@ describe("ProceduralPickupVisual", () => {
     // the shell wrote depth, so its near hemisphere rejected the cross behind
     // it; and the face-on fresnel floors were low enough that whatever survived
     // carried no colour. Mega has the same shell, which is why it went black too.
-    for (const id of ["health_large", "health_mega"]) {
+    for (const id of ["health_large", "health_ultra"]) {
       const recipe = getProceduralPickupRecipe(id);
       if (!recipe) throw new Error(`recipe missing: ${id}`);
       const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 50, 0), false, 1);
@@ -189,7 +221,7 @@ describe("ProceduralPickupVisual", () => {
     }
   });
 
-  it.each(["health_mega", "health_ultra"])("keeps %s cross caps aligned with the camera-facing emblem", (id) => {
+  it.each(["health_ultra"])("keeps %s cross caps aligned with the camera-facing emblem", (id) => {
     const recipe = getProceduralPickupRecipe(id)!;
     const visual = new ProceduralPickupVisual(scene, recipe, Vector3.Zero(), false, 1);
     const body = scene.meshes.find((m) => m.name === `pp_cross_${id}`)!;
@@ -203,8 +235,8 @@ describe("ProceduralPickupVisual", () => {
 
   it("builds a health shell and layered armor plates over a dark frame", () => {
     const health = getProceduralPickupRecipe("health_large");
-    const red = getProceduralPickupRecipe("armor_ra");
-    if (!health || !red) throw new Error("recipe missing");
+    const shard = recipeOf("armor_shard");
+    if (!health || !shard) throw new Error("recipe missing");
 
     const hv = new ProceduralPickupVisual(scene, health, new Vector3(0, 50, 0), false, 1);
     expect(scene.meshes.some((m) => m.name.startsWith("pp_shell_"))).toBe(true);
@@ -212,7 +244,7 @@ describe("ProceduralPickupVisual", () => {
     // The cross's up/down faces are a separate mesh in the tier colour.
     expect(scene.meshes.some((m) => m.name.startsWith("pp_cross_caps_"))).toBe(true);
 
-    const av = new ProceduralPickupVisual(scene, red, new Vector3(100, 50, 0), false, 2);
+    const av = new ProceduralPickupVisual(scene, shard, new Vector3(100, 50, 0), false, 2);
     // Broad colored plates sit in front of a dark backer.
     expect(scene.meshes.some((m) => m.name.startsWith("pp_armor_"))).toBe(true);
     expect(scene.meshes.some((m) => m.name.startsWith("pp_armor_frame_"))).toBe(true);
@@ -241,7 +273,7 @@ describe("ProceduralPickupVisual", () => {
   });
 
   it("never moves the authoritative anchor while animating", () => {
-    const recipe = getProceduralPickupRecipe("health_mega");
+    const recipe = getProceduralPickupRecipe("health_ultra");
     if (!recipe) throw new Error("recipe missing");
 
     const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(10, 64, -20), false, 0);
@@ -257,8 +289,8 @@ describe("ProceduralPickupVisual", () => {
   });
 
   it("bursts each item family from its visible position and clears the pieces", () => {
-    for (const id of ["health_medium", "armor_ra", "ammo_rockets", "powerup_quad"]) {
-      const recipe = getProceduralPickupRecipe(id);
+    for (const id of ["health_medium", "armor_shard", "ammo_rockets", "powerup_quad"]) {
+      const recipe = recipeOf(id);
       if (!recipe) throw new Error(`recipe missing: ${id}`);
       const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 12, 0), false, 0);
       visual.setActive(true);
@@ -375,8 +407,8 @@ describe("ProceduralPickupVisual — quad powerup", () => {
   });
 
   it("stops drawing and animating out of view, and comes back as if it never paused", () => {
-    for (const id of ["health_mega", "armor_ra", "powerup_quad"]) {
-      const recipe = getProceduralPickupRecipe(id) ?? allProceduralPickupRecipes()[0];
+    for (const id of ["health_ultra", "armor_shard", "powerup_quad"]) {
+      const recipe = recipeOf(id) ?? allProceduralPickupRecipes()[0];
       const watched = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 4, 0), false, 9);
       const hidden = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 4, 0), false, 9);
       const cosmetic = (v: ProceduralPickupVisual) =>

@@ -126,6 +126,11 @@ export class FPSPickup extends Pickup {
     if (this.options.type === "weapon" && this.options.value && this.mesh) {
       await this._loadBarrels(this.mesh, this.options.value as string);
     }
+    // The megahealth's blue core glows
+    if (this.options.id === "health_mega" && this.mesh) {
+      const { glowBlueParts } = await import("./pickups/BlueGlow");
+      await glowBlueParts(this.mesh);
+    }
   }
 
   /** Load barrel sub-model GLBs and parent them to the weapon's authored attachment point. */

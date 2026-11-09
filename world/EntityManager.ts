@@ -60,8 +60,9 @@ function pickupTypeOf(def: EntityDef, fallback: ClientPickupType): ClientPickupT
 
 /**
  * Resolve the procedural visual factory for a health/armor/ammo definition, or
- * undefined to keep the MD3 model path (weapons, unknown ids, or toggle off).
- * Weapons stay on models deliberately — the pickup IS the gun you collect.
+ * undefined to keep the model path (weapons, and items without a recipe such as
+ * the packaged armor and megahealth models). Weapons stay on models
+ * deliberately — the pickup IS the gun you collect.
  */
 async function resolvePickupVisualFactory(
   def: EntityDef,
@@ -196,6 +197,8 @@ export class EntityManager {
         gravity: options.gravity,
         glowColor: def.glowColor, // Pass glow color for pulsing light
         visualFactory,
+        // Item models float and turn like classic Quake items; a weapon lies still
+        bobbing: type !== "weapon",
       });
 
       return true;
@@ -289,6 +292,8 @@ export class EntityManager {
       visualFactory,
       yaw: type === "weapon" ? mapWeaponYaw(pickupId) : undefined,
       landedOnFloor: placed !== undefined,
+      // Item models float and turn like classic Quake items; a weapon lies still
+      bobbing: type !== "weapon",
     });
 
     // A map entity is not spawned until its visual construction has settled.
