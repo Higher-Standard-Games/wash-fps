@@ -15,10 +15,14 @@
 import type { EntityDef } from "../../../../../shared/entities/EntityDef";
 import { EntityType } from "../../../../../shared/entities/EntityType";
 
-/** The packaged item models are about 1.9 units tall; this makes them about 28. */
-const ITEM_MODEL_SCALE = 15;
-/** The armor shard is worth 5 and draws smaller than the armors: about 18 units. */
-const SHARD_MODEL_SCALE = 10;
+/** The packaged item models are about 1.9 units tall; this makes the megahealth about 34. */
+const ITEM_MODEL_SCALE = 18;
+/** The armors draw a tenth larger again: about 38 units; green a little smaller, red larger. */
+const ARMOR_MODEL_SCALE = 19.8;
+const GREEN_ARMOR_SCALE = ARMOR_MODEL_SCALE * 0.95;
+const RED_ARMOR_SCALE = ARMOR_MODEL_SCALE * 1.1;
+/** The armor shard is worth 5 and draws smaller than the armors: about 25 units. */
+const SHARD_MODEL_SCALE = 13.2;
 
 // ── Armor (unified plate model: shard +5, ga/ya/ra = 1/2/4 plates) ──
 
@@ -38,7 +42,7 @@ export const ARMOR_GREEN: EntityDef = {
   type: EntityType.ARMOR,
   classname: "item_armor_ga",
   modelPath: "/data/models/ga.glb",
-  scale: ITEM_MODEL_SCALE,
+  scale: GREEN_ARMOR_SCALE,
   glowColor: { r: 0.2, g: 1.0, b: 0.2 },
 };
 
@@ -48,7 +52,7 @@ export const ARMOR_YELLOW: EntityDef = {
   type: EntityType.ARMOR,
   classname: "item_armor_ya",
   modelPath: "/data/models/ya.glb",
-  scale: ITEM_MODEL_SCALE,
+  scale: ARMOR_MODEL_SCALE,
   glowColor: { r: 1.0, g: 0.85, b: 0.1 },
 };
 
@@ -58,7 +62,7 @@ export const ARMOR_RED: EntityDef = {
   type: EntityType.ARMOR,
   classname: "item_armor_ra",
   modelPath: "/data/models/ra.glb",
-  scale: ITEM_MODEL_SCALE,
+  scale: RED_ARMOR_SCALE,
   glowColor: { r: 1.0, g: 0.2, b: 0.2 },
 };
 
@@ -100,6 +104,8 @@ export const HEALTH_MEGA: EntityDef = {
   classname: "item_health_mega",
   modelPath: "/data/models/mega.glb",
   scale: ITEM_MODEL_SCALE,
+  // It floats higher than the armors, the prize it is
+  floatLift: 10,
   glowColor: { r: 1.0, g: 0.3, b: 0.3 },
 };
 

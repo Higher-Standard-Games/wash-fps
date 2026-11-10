@@ -4,12 +4,19 @@ import { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture";
 import { Texture } from "@babylonjs/core/Materials/Textures/texture";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
+import type { Scene } from "@babylonjs/core/scene";
+import { markSnapshotMaterialDynamic } from "../../../../engine/rendering/SnapshotFrames";
 
 /** How much brighter than the lit surface the blue parts glow; above 1, bloom picks them up. */
 const BLUE_GLOW_INTENSITY = 3;
 /** Blue leading red and green by this much (0-255) starts to glow, and by the upper value glows fully. */
 const BLUE_LEAD_START = 30;
 const BLUE_LEAD_FULL = 90;
+
+/** The glow breathes this many times a second, between these shares of its full strength. */
+const PULSE_RATE = 0.5;
+const PULSE_LOW = 0.7;
+const PULSE_HIGH = 1.15;
 
 /** One mask per base texture: every copy of the model shares it. */
 const masks = new WeakMap<BaseTexture, Promise<RawTexture | null>>();
@@ -64,16 +71,47 @@ async function buildMask(base: BaseTexture): Promise<RawTexture | null> {
   return mask;
 }
 
+/** The glowing materials of each scene, which one observer makes breathe together. */
+const pulses = new WeakMap<Scene, Set<PBRMaterial>>();
+
+function scenePulse(scene: Scene): Set<PBRMaterial> {
+  let cores = pulses.get(scene);
+  if (cores) return cores;
+  const breathing = new Set<PBRMaterial>();
+  cores = breathing;
+  pulses.set(scene, breathing);
+  const observer = scene.onBeforeRenderObservable.add(() => {
+    const t = performance.now() / 1000;
+    const strength = PULSE_LOW + (PULSE_HIGH - PULSE_LOW) * (0.5 + 0.5 * Math.sin(t * Math.PI * 2 * PULSE_RATE));
+    for (const core of breathing) core.emissiveIntensity = BLUE_GLOW_INTENSITY * strength;
+  });
+  scene.onDisposeObservable.addOnce(() => scene.onBeforeRenderObservable.remove(observer));
+  return cores;
+}
+
+/** Let a core material breathe with the others until it is disposed. */
+function breathe(cores: Set<PBRMaterial>, material: PBRMaterial): void {
+  if (cores.has(material)) return;
+  cores.add(material);
+  material.onDisposeObservable.addOnce(() => cores.delete(material));
+}
+
 /**
  * Make the strongly blue parts of a model's base texture glow: an emissive
- * texture holding only those texels, brighter than the lit surface. Built
- * once per texture from its pixels, so it works with any renderer.
+ * texture holding only those texels, brighter than the lit surface, breathing
+ * slowly. The mask is built once per texture from its pixels, so it works with
+ * any renderer.
  */
 export async function glowBlueParts(root: AbstractMesh): Promise<void> {
+  const cores = scenePulse(root.getScene());
   for (const mesh of [root, ...root.getChildMeshes(false)]) {
     const material = mesh.material as PBRMaterial | null;
     const base = material?.albedoTexture;
-    if (!material || !base || material.emissiveTexture) continue;
+    if (!material || !base) continue;
+    if (material.emissiveTexture) {
+      breathe(cores, material);
+      continue;
+    }
     let mask = masks.get(base);
     if (!mask) {
       mask = buildMask(base).catch((error: unknown) => {
@@ -88,5 +126,7 @@ export async function glowBlueParts(root: AbstractMesh): Promise<void> {
     material.emissiveTexture = texture;
     material.emissiveColor = Color3.White();
     material.emissiveIntensity = BLUE_GLOW_INTENSITY;
+    markSnapshotMaterialDynamic(material);
+    breathe(cores, material);
   }
 }

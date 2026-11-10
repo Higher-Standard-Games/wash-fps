@@ -199,6 +199,7 @@ export class EntityManager {
         visualFactory,
         // Item models float and turn like classic Quake items; a weapon lies still
         bobbing: type !== "weapon",
+        floatLift: def.floatLift,
       });
 
       return true;
@@ -294,6 +295,7 @@ export class EntityManager {
       landedOnFloor: placed !== undefined,
       // Item models float and turn like classic Quake items; a weapon lies still
       bobbing: type !== "weapon",
+      floatLift: def.floatLift,
     });
 
     // A map entity is not spawned until its visual construction has settled.
