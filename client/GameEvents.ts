@@ -95,7 +95,7 @@ import { FPSPickup } from "../world/FPSPickup";
 import type { ServerAmmoState } from "../world/InventoryManager";
 import { devLog } from "./DevLog";
 import type { FollowedViewWeapon } from "./FollowedViewWeapon";
-import { playerVoiceForEntity } from "./FPSPlayerAudio";
+import { playerVoiceForEntity, setLocalPlayerVoice } from "./FPSPlayerAudio";
 import type { FPSReloadAudio } from "./FPSReloadAudio";
 import type { FPSVoltaicAudio } from "./FPSVoltaicAudio";
 import type { GibSystem, PendingGibSpawn } from "./GibSystem";
@@ -312,6 +312,10 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
   // person — their gun, their footsteps, their pain, their pickups — is what
   // the screen shows. What changes our own state stays on localEntityId.
   const viewEntityId = ctx.spectatingEntityId ?? localEntityId;
+  // A player sounds like the model they are drawn with
+  const voiceOf = (entityId: string) =>
+    ctx.remoteRenderer?.voiceFor(entityId) ?? playerVoiceForEntity(state, entityId, viewEntityId);
+  setLocalPlayerVoice(localEntityId ? voiceOf(localEntityId) : null);
   ctx.voltaicAudio?.present(state, viewEntityId, ctx.presentOneShots !== false, ctx.audioTickRate);
   let viewPlayerId: string | undefined;
   for (const [playerId, player] of state.players) {
@@ -537,12 +541,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
 
           case "damage": {
             HUDState.getInstance().processDamage(event);
-            playPlayerPainSound(
-              event,
-              event.entityId === viewEntityId,
-              undefined,
-              playerVoiceForEntity(state, event.entityId, viewEntityId),
-            );
+            playPlayerPainSound(event, event.entityId === viewEntityId, undefined, voiceOf(event.entityId));
 
             // === INCOMING DAMAGE: the player on screen is the victim ===
             if (event.entityId === viewEntityId && event.damage > 0) {
@@ -609,7 +608,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
 
           case "death": {
             const viewVictim = event.entityId === viewEntityId;
-            playPlayerDeathSound(event, viewVictim, playerVoiceForEntity(state, event.entityId, viewEntityId));
+            playPlayerDeathSound(event, viewVictim, voiceOf(event.entityId));
             if (event.killerId === viewEntityId && !viewVictim) playKillEcho();
             // Powerups do not survive death (GametypeController clears them on
             // respawn); drop the timers now so the HUD and the quad fire layer
@@ -692,7 +691,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
   // showing and sounding now, not when its old countdown would have run out.
   keepOnlyLocalPowerups(runningPowerups);
 
-  if (ctx.presentOneShots !== false) processFPSMovementAudio(state, viewEntityId);
+  if (ctx.presentOneShots !== false) processFPSMovementAudio(state, viewEntityId, voiceOf);
 
   // === Update charge glow positions from entity data ===
   // Charge glows render through the gameplay light cluster (WS1), so many

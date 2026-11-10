@@ -13,7 +13,7 @@
 
 import { AudioManager } from "../../../engine/AudioManager";
 import type { LiquidKind } from "../liquid/LiquidTypes";
-import { playerVoiceSet, playerVoiceSound } from "./FPSPlayerAudio";
+import { localPlayerVoice, playerVoiceSound } from "./FPSPlayerAudio";
 
 const WATER_IN = "sounds/world/water_in.ogg";
 const WATER_OUT = "sounds/world/water_out.ogg";
@@ -80,13 +80,13 @@ export function splashVolume(verticalSpeed: number): number {
  * sequence overlaps itself into noise rather than stacking into a wall.
  */
 export function playDrownGasp(): void {
-  AudioManager.getInstance().playSfx2D(playerVoiceSound("drown", playerVoiceSet("ally")), 1.0, 1, "players");
+  AudioManager.getInstance().playSfx2D(playerVoiceSound("drown", localPlayerVoice()), 1.0, 1, "players");
 }
 
 export function playDrownTick(): void {
   // Quieter than the first: the first is news, the rest are a countdown the
   // player already knows they are in.
-  AudioManager.getInstance().playSfx2D(playerVoiceSound("drown", playerVoiceSet("ally")), 0.55, 1, "players");
+  AudioManager.getInstance().playSfx2D(playerVoiceSound("drown", localPlayerVoice()), 0.55, 1, "players");
 }
 
 /** Play a body crossing the surface. Local plays 2D, remote plays in the world. */

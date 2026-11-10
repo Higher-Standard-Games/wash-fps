@@ -7,7 +7,7 @@ import type { VelocityComponent } from "../../../engine/network/components/Veloc
 import type { GameState } from "../../../engine/network/core/GameState";
 import { getCollisionManager } from "../../../engine/physics/CollisionManager";
 import { CollisionMasks, SurfaceFlags } from "../../../engine/physics/ContentFlags";
-import { playerVoiceForEntity, playerVoiceSound } from "./FPSPlayerAudio";
+import { type PlayerVoiceSet, playerVoiceForEntity, playerVoiceSound } from "./FPSPlayerAudio";
 
 const normalFootsteps = [
   "sounds/world/ft_step1.ogg",
@@ -73,7 +73,11 @@ export function resetFPSMovementAudio(): void {
  * rather than a wall-clock timer, keeps cadence attached to actual movement and
  * naturally accelerates during strafe-jumps.
  */
-export function processFPSMovementAudio(state: GameState, localEntityId?: string): void {
+export function processFPSMovementAudio(
+  state: GameState,
+  localEntityId?: string,
+  voiceOf: (entityId: string) => PlayerVoiceSet = (entityId) => playerVoiceForEntity(state, entityId, localEntityId),
+): void {
   const alive = new Set<string>();
 
   for (const player of state.players.values()) {
@@ -108,10 +112,7 @@ export function processFPSMovementAudio(state: GameState, localEntityId?: string
     // A grounded -> rising edge is a jump, while teleports and seek jumps are
     // rejected by the travel cap below.
     if (previous.grounded && !velocity.grounded && velocity.linear.y > 60 && horizontalTravel < 256) {
-      const path = playerVoiceSound(
-        jumpSequence++ % 2 === 0 ? "jump_1" : "jump_2",
-        playerVoiceForEntity(state, entityId, localEntityId),
-      );
+      const path = playerVoiceSound(jumpSequence++ % 2 === 0 ? "jump_1" : "jump_2", voiceOf(entityId));
       playAtPlayer(path, position, local, 0.72, "players", `${entityId}:body`);
     }
 

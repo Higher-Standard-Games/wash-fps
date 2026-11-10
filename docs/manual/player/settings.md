@@ -15,10 +15,12 @@ you make them. They pause when hidden. A still image or model name is shown
 while the live preview loads or if live rendering is unavailable.
 
 The choice controls the bodies you see and player pain, death, jumping and your
-own drowning voice. In FFA the server gives every other player a body and a
-colour of their own, the same for everyone watching and in the match's demo,
-so these selections apply to your own side only; outline and brightness
-settings still apply. While
+own drowning voice. A player always sounds like the body they are drawn
+with. In FFA the server gives every player, you included, a body of their own,
+and every other player a colour, the same for everyone watching and in the
+match's demo. Your own voice there is that body's, so these selections apply
+in team modes, and in FFA only your own colour, outline and brightness follow
+your settings. While
 following a player or watching their demo POV, sides are relative to that
 player. These are local presentation preferences; model choice keeps the same
 player collision bounds. Bodies use a slightly enlarged visual fit for readability;

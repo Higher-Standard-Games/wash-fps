@@ -7,7 +7,13 @@ import type {
   WeaponFireEvent,
 } from "../../../engine/network/core/SnapshotEvent";
 import { canonicalWeaponId } from "../shared/entities/definitions/weapons/WeaponsTable";
-import { FPS_PLAYER_SOUND_PATHS, type PlayerVoiceSet, playerVoiceSet, playerVoiceSound } from "./FPSPlayerAudio";
+import {
+  FPS_PLAYER_SOUND_PATHS,
+  localPlayerVoice,
+  type PlayerVoiceSet,
+  playerVoiceSet,
+  playerVoiceSound,
+} from "./FPSPlayerAudio";
 import { RELOAD_SOUND_PATH } from "./FPSReloadAudio";
 import { VOLTAIC_SOUNDS, voltaicLoopOptions } from "./FPSVoltaicAudio";
 
@@ -171,7 +177,7 @@ export function playPlayerPainSound(
   event: DamageEvent,
   localVictim: boolean,
   now = AudioManager.getInstance().getSfxPresentationTime(),
-  voice: PlayerVoiceSet = playerVoiceSet(localVictim ? "ally" : "enemy"),
+  voice: PlayerVoiceSet = localVictim ? localPlayerVoice() : playerVoiceSet("enemy"),
 ): void {
   if (event.damage <= 0) return;
   const last = lastPainAt.get(event.entityId);
@@ -190,11 +196,11 @@ export function playPlayerPainSound(
   else audio.playSfx3D(path, event, { volume: 0.72, channel: "players", slot: `${event.entityId}:pain` });
 }
 
-/** Player voices are a client preference, independent of model and server team names. */
+/** A player's death cry, in the voice of the model they are drawn with. */
 export function playPlayerDeathSound(
   event: DeathEvent,
   localVictim: boolean,
-  voice: PlayerVoiceSet = playerVoiceSet(localVictim ? "ally" : "enemy"),
+  voice: PlayerVoiceSet = localVictim ? localPlayerVoice() : playerVoiceSet("enemy"),
 ): void {
   const path = playerVoiceSound("death", voice);
   const audio = AudioManager.getInstance();

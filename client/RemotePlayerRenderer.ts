@@ -6,7 +6,7 @@ import {
   ROBOT_MODEL_ROOT,
 } from "../../../engine/animation/PlayerModelAssets";
 import { decodeLook } from "../shared/players/PlayerLook";
-import { playerModelChoice, registerPlayerModelSelection } from "./PlayerModelSelection";
+import { PLAYER_MODEL_VOICES, playerModelChoice, registerPlayerModelSelection } from "./PlayerModelSelection";
 /**
  * RemotePlayerRenderer — Renders 3D models + hitbox wireframes for remote entities
  *
@@ -550,12 +550,34 @@ export class RemotePlayerRenderer {
     return decodeLook(look);
   }
 
+  /**
+   * The body the server gave a free-for-all player. Yours too: your own colour
+   * stays yours, but everyone sees the same body, and hears its voice.
+   */
+  private assignedModel(entityId: string) {
+    if (MatchStateManager.getInstance().teamBased) return null;
+    const own = this.isOwnBody(entityId);
+    const look = this.looks.get(entityId === "water-local-body" ? (this.ownEntityId ?? "") : entityId);
+    if (look === undefined) return null;
+    if (!own && entityId !== this.perspectiveEntityId && this.resolvePlayerTeamSlot(entityId) !== "ffa") return null;
+    return decodeLook(look)?.model ?? null;
+  }
+
+  /** The local player in live play, or their body in a water reflection. */
+  private isOwnBody(entityId: string): boolean {
+    return entityId === "water-local-body" || (this.ownEntityId !== null && entityId === this.ownEntityId);
+  }
+
   private modelChoiceFor(entityId: string) {
-    const assigned = this.assignedLook(entityId);
-    if (assigned && this.resolvePlayerTeamSlot(entityId) === "ffa") return assigned.model;
-    return playerModelChoice(
-      entityId === "water-local-body" || this.resolvePlayerTeamSlot(entityId) === "ally" ? "ally" : "enemy",
+    return (
+      this.assignedModel(entityId) ??
+      playerModelChoice(this.isOwnBody(entityId) || this.resolvePlayerTeamSlot(entityId) === "ally" ? "ally" : "enemy")
     );
+  }
+
+  /** The voice of the model this player is drawn with, so a body always sounds like itself. */
+  voiceFor(entityId: string) {
+    return PLAYER_MODEL_VOICES[this.modelChoiceFor(entityId)];
   }
 
   /** A local body exists only for water capture, never for main/depth/refraction
@@ -574,7 +596,7 @@ export class RemotePlayerRenderer {
       }
       return;
     }
-    if (this.localReflectionModel && this.localReflectionModel.modelKey !== playerModelChoice("ally")) {
+    if (this.localReflectionModel && this.localReflectionModel.modelKey !== this.modelChoiceFor("water-local-body")) {
       this.modelManager.disposeInstance(this.localReflectionModel);
       this.localReflectionModel = null;
     }
@@ -605,6 +627,8 @@ export class RemotePlayerRenderer {
 
   /** The viewer's own side, so everyone else can be read as ally or enemy. */
   private localTeam: string | null = null;
+  /** The local player's entity in live play; a demo has none. */
+  private ownEntityId: string | null = null;
 
   setLocalTeam(teamId: string | null | undefined): void {
     this.localTeam = teamId ?? null;
@@ -726,6 +750,7 @@ export class RemotePlayerRenderer {
     // the snapshot has been accepted.
     const entities = extractEntities(state, localEntityId);
     if (!this.snapshotBuffer.push(state.tick, entities, serverLocalTime)) return;
+    this.ownEntityId = localEntityId || null;
 
     // Track team per entity for team-colored models (keyed by client entityId)
     const localTeam = applyRoster(this.teams, state.players.values(), localEntityId);
@@ -771,6 +796,7 @@ export class RemotePlayerRenderer {
    */
   pushDemoSnapshot(state: GameState, localEntityId: string, lookahead = false): void {
     if (!this.demoTimeline) this.enableDemoPlayback();
+    this.ownEntityId = null;
     // The render loop pushes the next frame as lookahead every frame, and it
     // is the same frame until the playhead moves: at 144 fps on a 60 Hz demo,
     // two or three identical rebuilds. Skip it when nothing touched the
