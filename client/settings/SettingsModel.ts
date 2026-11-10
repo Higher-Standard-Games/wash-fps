@@ -560,7 +560,7 @@ export interface TeamColor {
 }
 
 /**
- * Each colour sets a side's body and its outline together. Pink and cyan are the
+ * Each colour sets a side's body and its outline together. Pink and white are the
  * game's defaults for your side and enemies.
  */
 export const TEAM_COLORS: TeamColor[] = [
@@ -618,8 +618,8 @@ export function sideColorsAreDefault(): boolean {
 }
 
 /**
- * The default pink and cyan blur together for most colour-blind eyes; cyan and
- * orange stay furthest apart under every kind the correction covers.
+ * Cyan and orange stay furthest apart under every kind of colour blindness the
+ * correction covers.
  */
 export const COLOR_BLIND_SIDE_COLORS: Record<Side, TeamColor> = {
   ally: TEAM_COLORS.find((color) => color.id === "cyan")!,

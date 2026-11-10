@@ -27,10 +27,19 @@ player collision bounds. Bodies use a slightly enlarged visual fit for readabili
 weapon hit rules stay the same. Blade swings animate the upper body while the legs
 keep running, jumping or using the current movement animation.
 
+The enemy model can also be **Random**, the default: each game you join draws
+one of the other bodies, never the one your own side wears, and keeps it for
+that game.
+
+Your side starts **Pink** and enemies **White**, with brightening off, so
+bodies keep their own colours inside a team-coloured outline.
+
 Selections save automatically and apply to existing players. Gameplay reset
-restores Police and **Thin** outlines (enabled, size 25). The console equivalents
-are `cl_team_ally_model` and `cl_team_enemy_model`, accepting `police`, `female`,
-`cartel`, `riotkitty` or `robot`. Saved outline choices stay until changed or reset.
+restores Police for your side, Random for enemies, Pink and White, and **Thin**
+outlines (enabled, size 25). The console equivalents are `cl_team_ally_model`
+and `cl_team_enemy_model`, accepting `police`, `female`, `cartel`, `riotkitty`
+or `robot`, and `random` for enemies. Saved outline choices stay until changed
+or reset.
 
 Turning on **Video → Advanced → Color blindness** while both sides still have
 their default colors switches them to Cyan for your side and Orange for enemies,
@@ -143,7 +152,7 @@ match continues while its menu is open.
 
 - **Team colours.** The colour of **your side** and of **enemies** (anyone you can shoot), each with its own outline colour. In free-for-all each opponent instead wears a colour of their own from the same palette, handed out by the server and kept for the match, so you can tell them apart and everyone sees the same colours; an opponent given your side's colour wears an unused one on your screen instead. A colour already used by the other side is refused. Cvars: `cl_team_ally_color`, `cl_team_enemy_color`, `cl_team_ffa_color` and their `_outline_color` pairs.
 - **Outline** (`cl_player_outline`, `cl_player_outline_size`): Off, Thin (the default) or Bold, which is twice as thick.
-- **Brighter players** (`cl_player_tint`, `cl_player_fullbright`, `cl_player_fullbright_intensity`): Off keeps original model colours with a coloured outline. Tint applies the chosen team colour; Some and Lots also brighten the body for visibility in dark corners. Tint is the default.
+- **Brighter players** (`cl_player_tint`, `cl_player_fullbright`, `cl_player_fullbright_intensity`): Off keeps original model colours with a coloured outline. Tint applies the chosen team colour; Some and Lots also brighten the body for visibility in dark corners. Off is the default.
 - A preview on a real map shows all of the above as you change them.
 - **Crosshair** with its own preview: on or off, **opens up when moving** (tightens again while you aim), size, opacity, colour, and the colour it flashes **when you hit** someone. The defaults are size 32 and green, flashing red on a hit. An empty weapon with no reserve shows a red X until ammunition is available. Cvars: `cg_crosshair`, `cg_crosshairSpread`, `cg_crosshairSize`, `cg_crosshairAlpha`, `cg_crosshairColor`, `cg_crosshairDmgColor`.
 - **Field of view** (`cl_fov`): 80 – 110 degrees, default 90, horizontal at 16:9. It applies in play, in spectator freefly and when watching a player.

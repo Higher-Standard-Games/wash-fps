@@ -411,6 +411,13 @@ async function record(): Promise<string[]> {
   // The recording predates the separate running rates: legs and upper body at the matched rate
   setCvar("cl_player_run_legs", 1);
   setCvar("cl_player_run_upper", 1);
+  // ...and predates white, untinted, randomly drawn enemies
+  setCvar("cl_player_tint", 1);
+  setCvar("cl_team_enemy_model", "police");
+  for (const slot of ["enemy", "ffa"]) {
+    setCvar(`cl_team_${slot}_color`, "0.1 1.15 1.85");
+    setCvar(`cl_team_${slot}_outline_color`, "0.16 1.35 2.2");
+  }
   // Vitest never settles two dynamic imports of a mocked module started in the
   // same frame (a browser does), so players draw their guns one frame apart.
   const armAt = (frame: number) => {

@@ -64,6 +64,7 @@ import { MatchInputBindings } from "./client/MatchInputBindings";
 import { MatchMapLoader } from "./client/MatchMapLoader";
 import { MatchPhase, MatchStateManager } from "./client/MatchStateManager";
 import { networkHostOf } from "./client/NetworkHostAccess";
+import { rerollRandomEnemyModel } from "./client/PlayerModelSelection";
 import { RemotePlayerRenderer } from "./client/RemotePlayerRenderer";
 import { ServerProjectiles } from "./client/ServerProjectiles";
 import { SlideDust } from "./client/SlideDust";
@@ -806,6 +807,7 @@ export class Game {
       // the rest of the process, so a reconnect inherits the previous session's
       // ticks, teams and death state unless the session boundary clears them.
       this.remoteRenderer?.resetSession();
+      rerollRandomEnemyModel();
 
       // Tell NetworkGameHost to skip its prediction - V2NetworkClient handles it
       networkHost.setExternalPrediction(true);

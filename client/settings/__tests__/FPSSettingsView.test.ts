@@ -60,7 +60,7 @@ describe("FPSSettingsView", () => {
     expect(own.getAttribute("aria-expanded")).toBe("false");
     expect(UINavigation.getInstance().active).toBe(false);
   });
-  it("saves paired model and voice selections and restores Police with Gameplay reset", async () => {
+  it("saves paired model and voice selections and restores Police and Random with Gameplay reset", async () => {
     const root = view.getElement();
     click(root.querySelector('[data-settings-page="gameplay"]'));
     const own = root.querySelector<HTMLButtonElement>('button[aria-label="Your team model"]')!;
@@ -69,7 +69,9 @@ describe("FPSSettingsView", () => {
     const choose = (field: HTMLButtonElement, label: string) => {
       click(field);
       const list = document.querySelector<HTMLElement>(".fps-set-menu")!;
+      // Only enemies can be drawn at random
       expect([...list.querySelectorAll("[role=option]")].map((o) => o.textContent)).toEqual([
+        ...(field === enemy ? ["Random"] : []),
         "Police",
         "Female Police",
         "Cartel",
@@ -103,7 +105,7 @@ describe("FPSSettingsView", () => {
     click(reset);
     click(reset);
     expect(own.textContent).toBe("Police");
-    expect(enemy.textContent).toBe("Police");
+    expect(enemy.textContent).toBe("Random");
   });
 
   it("selects Thin by default and restores it when Gameplay is reset", async () => {

@@ -9,7 +9,9 @@ import {
   PLAYER_MODEL_LABELS,
   PLAYER_MODEL_PREVIEW_IMAGES,
   PLAYER_MODELS,
+  type PlayerModelSetting,
   playerModelChoice,
+  playerModelSetting,
   setPlayerModelChoice,
 } from "../PlayerModelSelection";
 import type { PlayerTeamPreview } from "./PlayerTeamPreview";
@@ -99,11 +101,12 @@ export class GameplayPage {
       const controls = el("div", "fps-set-team-controls");
       const label = el("label", "fps-set-model");
       label.append(el("span", "fps-set-field__name", "Model"));
+      const settings: PlayerModelSetting[] = side === "enemy" ? ["random", ...PLAYER_MODELS] : [...PLAYER_MODELS];
       const menu = selectMenu(
-        PLAYER_MODELS.map((model) => PLAYER_MODEL_LABELS[model]),
+        settings.map((model) => (model === "random" ? "Random" : PLAYER_MODEL_LABELS[model])),
         `${name} model`,
         (index) => {
-          setPlayerModelChoice(side, PLAYER_MODELS[index]);
+          setPlayerModelChoice(side, settings[index]);
           this.host.changed();
         },
       );
@@ -111,7 +114,6 @@ export class GameplayPage {
       controls.append(label);
       swatches<TeamColor>(this.host, controls, {
         name: "Colour",
-        help: side === "enemy" ? "Everyone else in free-for-all" : undefined,
         choices: colorChoices,
         get: () => sideColor(side),
         set: (color) => setSideColor(side, color),
@@ -124,7 +126,7 @@ export class GameplayPage {
       teams.append(team);
       this.host.addRefresh(() => {
         const model = playerModelChoice(side);
-        menu.select(PLAYER_MODELS.indexOf(model));
+        menu.select(settings.indexOf(playerModelSetting(side)));
         const path = PLAYER_MODEL_PREVIEW_IMAGES[model];
         image.hidden = !path;
         placeholder.hidden = !!path;

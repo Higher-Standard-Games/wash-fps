@@ -14,7 +14,7 @@ import {
   playerVoiceSet,
   registerPlayerAudioCvars,
 } from "../FPSPlayerAudio";
-import { playerModelChoice, setPlayerModelChoice } from "../PlayerModelSelection";
+import { PLAYER_MODEL_VOICES, playerModelChoice, setPlayerModelChoice } from "../PlayerModelSelection";
 
 function roster(teams: string[]): GameState {
   const state = new GameState();
@@ -34,9 +34,10 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 describe("player voice sides", () => {
-  it("defaults to Male for self/allies and Male for enemies, using colour team aliases", () => {
+  it("defaults to Male for self/allies and a random model's voice for enemies, using colour team aliases", () => {
     const state = roster(["udon", "bravo", "soba"]);
-    expect(["p0", "p1", "p2"].map((id) => playerVoiceForEntity(state, id, "p0"))).toEqual(["male", "male", "male"]);
+    const enemy = PLAYER_MODEL_VOICES[playerModelChoice("enemy")];
+    expect(["p0", "p1", "p2"].map((id) => playerVoiceForEntity(state, id, "p0"))).toEqual(["male", "male", enemy]);
     expect(FPS_PLAYER_SOUND_PATHS).toHaveLength(24);
     expect(FPS_PLAYER_SOUND_PATHS.some((path) => path.includes("padpork"))).toBe(false);
   });

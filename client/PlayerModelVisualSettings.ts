@@ -7,7 +7,7 @@ import { TEAM_COLORS, type TeamColor } from "./settings/SettingsModel";
  * Who a player is TO YOU, not which team they are on.
  *
  * Team colour is relative on purpose: your own side is pink and everyone you
- * may shoot is cyan, so the question a colour answers in a firefight is "can I
+ * may shoot is white, so the question a colour answers in a firefight is "can I
  * shoot this" rather than "which of two names is this". An absolute
  * udon-is-always-X scheme cannot answer that — you would have to remember which
  * side you are on this half, at the exact moment you have no attention to spare.
@@ -29,17 +29,17 @@ const TEAM_OUTLINE_CVARS: Record<PlayerTeamSlot, string> = {
   ffa: "cl_team_ffa_outline_color",
 };
 
-/** Pink for your own side; cyan for anyone you can shoot. */
+/** Pink for your own side; white for anyone you can shoot. */
 export const PLAYER_MODEL_VISUAL_DEFAULTS: Record<PlayerTeamSlot, Color3> = {
   ally: new Color3(1.55, 0.2, 1.35),
-  enemy: new Color3(0.1, 1.15, 1.85),
-  ffa: new Color3(0.1, 1.15, 1.85),
+  enemy: new Color3(1.6, 1.6, 1.6),
+  ffa: new Color3(1.6, 1.6, 1.6),
 };
 
 export const PLAYER_MODEL_OUTLINE_DEFAULTS: Record<PlayerTeamSlot, Color3> = {
   ally: new Color3(1.85, 0.28, 1.65),
-  enemy: new Color3(0.16, 1.35, 2.2),
-  ffa: new Color3(0.16, 1.35, 2.2),
+  enemy: new Color3(1.9, 1.9, 1.9),
+  ffa: new Color3(1.9, 1.9, 1.9),
 };
 
 const DEFAULT_OUTLINE_COLOR = PLAYER_MODEL_OUTLINE_DEFAULTS.ffa;
@@ -136,7 +136,7 @@ export function registerPlayerModelVisualCvars(): void {
     description: "Third-person player model outline size, 0-100.",
     persist: true,
   });
-  Cvar.register("cl_player_tint", 1, {
+  Cvar.register("cl_player_tint", 0, {
     type: "int",
     min: 0,
     max: 1,

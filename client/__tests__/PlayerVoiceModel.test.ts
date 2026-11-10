@@ -4,7 +4,12 @@ import type { GameState } from "../../../../engine/network/core/GameState";
 import { encodeLook, LOOK_MODELS } from "../../shared/players/PlayerLook";
 import { playerVoiceForEntity } from "../FPSPlayerAudio";
 import { MatchStateManager } from "../MatchStateManager";
-import { registerPlayerModelSelection } from "../PlayerModelSelection";
+import {
+  playerModelChoice,
+  playerModelSetting,
+  registerPlayerModelSelection,
+  rerollRandomEnemyModel,
+} from "../PlayerModelSelection";
 import { RemotePlayerRenderer } from "../RemotePlayerRenderer";
 
 const FEMALE = encodeLook(LOOK_MODELS.indexOf("female"), 0);
@@ -60,5 +65,29 @@ describe("a player's voice follows their model", () => {
       players: new Map([["p1", { entityId: "me", team: "", look: FEMALE }]]),
     } as unknown as GameState;
     expect(playerVoiceForEntity(state, "me", "me")).toBe("female");
+  });
+});
+
+describe("random enemy model", () => {
+  it("draws one model a game, never your own side's, and a new one after a reroll", () => {
+    registerPlayerModelSelection();
+    Cvar.reset("cl_team_enemy_model");
+    expect(playerModelSetting("enemy")).toBe("random");
+    Cvar.set("cl_team_ally_model", "robot");
+    const seen = new Set<string>();
+    for (let game = 0; game < 40; game++) {
+      rerollRandomEnemyModel();
+      const pick = playerModelChoice("enemy");
+      expect(pick).not.toBe("robot");
+      expect(playerModelChoice("enemy")).toBe(pick);
+      seen.add(pick);
+    }
+    expect(seen.size).toBeGreaterThan(1);
+  });
+
+  it("is for enemies only", () => {
+    registerPlayerModelSelection();
+    Cvar.set("cl_team_ally_model", "random");
+    expect(playerModelSetting("ally")).toBe("police");
   });
 });

@@ -166,9 +166,9 @@ describe("players and the crosshair", () => {
 
   it("starts on the game's colours, outline and brightness", () => {
     expect(sideColor("ally")?.id).toBe("pink");
-    expect(sideColor("enemy")?.id).toBe("cyan");
+    expect(sideColor("enemy")?.id).toBe("white");
     expect(currentChoice(OUTLINE_CHOICES)?.id).toBe("thin");
-    expect(currentChoice(BOOST_CHOICES)?.id).toBe("tint");
+    expect(currentChoice(BOOST_CHOICES)?.id).toBe("off");
     expect(CROSSHAIR_COLORS.map((color) => color.value)).toContain(Cvar.getString("cg_crosshairColor").toUpperCase());
     expect(HIT_COLORS.map((color) => color.value)).toContain(Cvar.getString("cg_crosshairDmgColor").toUpperCase());
   });
@@ -201,7 +201,8 @@ describe("player brightness", () => {
   it("offers untinted Off before Tint, Some and Lots, preserving coloured FFA outlines", () => {
     expect(BOOST_CHOICES.map((choice) => choice.id)).toEqual(["off", "tint", "some", "lots"]);
     resetPage("gameplay");
-    expect(currentChoice(BOOST_CHOICES)?.id).toBe("tint");
+    expect(currentChoice(BOOST_CHOICES)?.id).toBe("off");
+    applyChoice(BOOST_CHOICES[1]);
     const tintedKey = getPlayerModelVisualStyleKey("enemy");
     applyChoice(BOOST_CHOICES[0]);
     expect(getPlayerModelVisualStyle("enemy", 36).tintColor).toBeNull();
