@@ -1,5 +1,6 @@
 import { writePreference } from "../../../engine/core/PreferenceStorage";
 import { InputSystem } from "../../../engine/input/InputSystem";
+import { raiseKey, setRaisedKeyText } from "../../../engine/ui/components/RaisedKey";
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import { DEFAULT_FPS_MOVEMENT_CONFIG } from "../simulation/MovementProfile";
 import terms from "../TERMS.md?raw";
@@ -58,8 +59,11 @@ export class LobbyWelcomeDialog {
   private readonly card = el("section", "lobby-guide__card");
   private readonly panels: HTMLElement[] = [];
   private readonly tabs: HTMLButtonElement[] = [];
-  private readonly next = button("lobby-guide__button lobby-guide__next");
-  private readonly setup = button("lobby-guide__button lobby-guide__setup", "Go to keyboard setup");
+  private readonly next = raiseKey(button("lobby-guide__button lobby-guide__next"), { variants: ["ink", "inline"] });
+  private readonly setup = raiseKey(button("lobby-guide__button lobby-guide__setup"), {
+    label: "Go to keyboard setup",
+    variants: ["ink", "inline"],
+  });
   private readonly preference = el("label", "lobby-guide__preference");
   private readonly saveStatus = el("span", "lobby-guide__save-status");
   private readonly agree = document.createElement("input");
@@ -93,16 +97,22 @@ export class LobbyWelcomeDialog {
     document.body.style.overflow = "hidden";
     this.root.setAttribute("role", "dialog");
     this.root.setAttribute("aria-modal", "true");
-    this.root.setAttribute("aria-label", "Welcome to Washoi ALPHA, terms of service and movement tips");
+    this.root.setAttribute("aria-label", "Welcome to Washiki Washoi, terms of service and movement tips");
     const header = el("header", "lobby-guide__header");
-    header.append(el("span", "lobby-guide__eyebrow", "WASHOI / READY TO PLAY"), el("h1", "", "Find your flow."));
+    header.append(
+      el("span", "lobby-guide__eyebrow", "WASHOI / READY TO PLAY"),
+      el("h1", "", "Welcome to Washiki Washoi!"),
+    );
     const tablist = el("div", "lobby-guide__tabs");
     tablist.setAttribute("role", "tablist");
     tablist.setAttribute("aria-label", "Welcome guide");
     const content = el("div", "lobby-guide__content");
-    const names = ["Welcome & terms", "Your keys", "Tip of the day"];
+    const names = ["Terms of service", "Your keys", "Tip of the day"];
     names.forEach((name, index) => {
-      const tab = button("lobby-guide__tab", `${index + 1}. ${name}`);
+      // A wizard's steps: the number in its badge, then the name
+      const tab = button("lobby-guide__tab");
+      tab.append(el("span", "lobby-guide__step", String(index + 1)), el("span", "lobby-guide__step-name", name));
+      tab.setAttribute("aria-label", `${index + 1}. ${name}`);
       tab.id = `lobby-guide-tab-${index}`;
       tab.setAttribute("role", "tab");
       tab.setAttribute("aria-controls", `lobby-guide-panel-${index}`);
@@ -159,12 +169,12 @@ export class LobbyWelcomeDialog {
   }
 
   private buildPages(secondary: number): void {
+    this.panels[0].classList.add("lobby-guide__panel--terms");
     this.panels[0].append(
-      el("h2", "", "Fast movement. Loud weapons. One more round."),
       el(
         "p",
         "",
-        "Welcome to Washoi ALPHA, an arena shooter where movement makes the difference. Before your first match, please read our terms: everything played on our servers is public.",
+        "Welcome to Washoi, an arena shooter where movement makes the difference. Before your first match, please read our terms: everything played on our servers is public.",
       ),
     );
     const termsBox = el("div", "lobby-guide__terms");
@@ -240,10 +250,11 @@ export class LobbyWelcomeDialog {
     this.tabs.forEach((key, index) => {
       key.disabled = index > 0 && !this.agreed;
       key.setAttribute("aria-selected", String(index === tab));
+      key.classList.toggle("is-done", index < tab);
       key.tabIndex = index === tab ? 0 : -1;
       this.panels[index].hidden = index !== tab;
     });
-    this.next.textContent = tab === 2 ? "Close" : "Next »";
+    setRaisedKeyText(this.next, tab === 2 ? "Close" : "Next »");
     this.next.disabled = !this.agreed;
     this.next.title = this.agreed ? "" : "Agree to the terms to continue";
     this.next.setAttribute(

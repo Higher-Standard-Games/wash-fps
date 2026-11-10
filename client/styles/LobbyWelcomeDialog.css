@@ -56,7 +56,8 @@
   z-index: 10010;
   display: grid;
   place-items: center;
-  padding: clamp(12px, 3vw, 44px);
+  --gutter-y: clamp(10px, 2.5vh, 28px);
+  padding: var(--gutter-y) clamp(12px, 3vw, 44px);
   box-sizing: border-box;
   background: #09050b70;
   color: var(--ink);
@@ -68,9 +69,11 @@
 .lobby-guide *::after {
   box-sizing: border-box;
 }
+/* One size for every page, so stepping through the guide never resizes it */
 .lobby-guide__card {
-  width: min(1160px, 100%);
-  max-height: calc(100dvh - 70px);
+  width: min(1400px, 100%);
+  /* The window less its gutters and the card's 10px base */
+  height: min(1080px, calc(100dvh - 2 * var(--gutter-y) - 10px));
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -90,56 +93,108 @@
   flex: 0 0 auto;
 }
 .lobby-guide__eyebrow {
-  font: 800 12px var(--display);
+  font: 800 14px var(--display);
   letter-spacing: 0.17em;
   opacity: 0.7;
 }
 .lobby-guide__header h1 {
   font: 900 clamp(26px, 3.5vw, 48px) / 1.1 var(--display);
   letter-spacing: -0.04em;
-  margin: 12px 0 24px;
+  margin: 10px 0 20px;
 }
+/* The steps: one chevron strip, each step pointing into the next */
 .lobby-guide__tabs {
+  --chevron: 24px;
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
   flex: 0 0 auto;
-  padding-bottom: 12px;
-}
-.lobby-guide__tab,
-.lobby-guide__button {
-  border: 0;
-  border-radius: 3px;
-  cursor: pointer;
-  color: var(--gold-text);
-  padding: 14px 18px;
-  font: 800 13px / 1.3 var(--display);
-  background: linear-gradient(180deg, hsl(250 35% 18%), hsl(250 45% 9%));
-  box-shadow:
-    0 4px 0 hsl(250 50% 4%),
-    inset 0 1px 0 #ffffff25;
-  white-space: nowrap;
+  padding-bottom: 20px;
+  filter: drop-shadow(0 5px 0 hsl(36 85% 30%));
 }
 .lobby-guide__tab {
-  flex: 1 0 auto;
-}
-.lobby-guide__tab:not([aria-selected="true"]) {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 62px;
+  margin-left: calc(var(--chevron) * -0.5);
+  padding: 10px calc(var(--chevron) + 14px);
+  border: 0;
+  cursor: pointer;
   color: var(--ink);
-  background: linear-gradient(180deg, hsl(48 100% 72%), hsl(44 100% 62%));
-  box-shadow:
-    0 4px 0 hsl(36 85% 34%),
-    inset 0 1px 0 #ffffff80;
+  font: 900 clamp(15px, 1.25vw, 20px) / 1.1 var(--display);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  background: linear-gradient(180deg, hsl(51 100% 76%), hsl(46 100% 62%));
+  clip-path: polygon(
+    0 0,
+    calc(100% - var(--chevron)) 0,
+    100% 50%,
+    calc(100% - var(--chevron)) 100%,
+    0 100%,
+    var(--chevron) 50%
+  );
+  transition: background 0.14s ease;
 }
-.lobby-guide__tab:hover,
-.lobby-guide__button:hover {
-  filter: brightness(1.15);
+.lobby-guide__tab:first-child {
+  margin-left: 0;
+  clip-path: polygon(0 0, calc(100% - var(--chevron)) 0, 100% 50%, calc(100% - var(--chevron)) 100%, 0 100%);
 }
-/* Waiting on the terms: Next and the later pages are locked */
-.lobby-guide__tab:disabled,
-.lobby-guide__button:disabled {
+.lobby-guide__step {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  color: var(--gold-text);
+  background: var(--ink);
+  font-size: 17px;
+  letter-spacing: 0;
+}
+.lobby-guide__step-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Steps behind you are done, the step you're on is inked */
+.lobby-guide__tab.is-done {
+  background: linear-gradient(180deg, hsl(44 100% 55%), hsl(40 95% 46%));
+}
+.lobby-guide__tab[aria-selected="true"] {
+  color: var(--gold-text);
+  background: linear-gradient(180deg, hsl(250 28% 21%), hsl(250 40% 10%) 60%, hsl(252 44% 6%));
+}
+.lobby-guide__tab[aria-selected="true"] .lobby-guide__step {
+  color: var(--ink);
+  background: var(--gold-text);
+}
+.lobby-guide__tab[aria-selected="true"]:focus-visible .lobby-guide__step {
+  box-shadow: 0 0 0 3px var(--violet);
+}
+/* Hover and keyboard focus: the menu keys' violet. The cut hides an outline, so the fill is the ring */
+.lobby-guide__tab:is(:hover, :focus-visible):not(:disabled):not([aria-selected="true"]) {
+  color: var(--cream);
+  background: linear-gradient(180deg, hsl(278 92% 75%), hsl(273 80% 61%) 55%, hsl(268 72% 50%));
+}
+.lobby-guide__tab:is(:hover, :focus-visible):not(:disabled):not([aria-selected="true"]) .lobby-guide__step {
+  color: var(--cream);
+  background: hsl(258 72% 19%);
+}
+.lobby-guide .lobby-guide__tab:focus-visible {
+  outline: none;
+}
+/* Waiting on the terms: the later pages are locked */
+.lobby-guide__tab:disabled {
   cursor: not-allowed;
-  filter: grayscale(0.7);
-  opacity: 0.5;
+}
+.lobby-guide__tab:disabled > * {
+  opacity: 0.45;
+}
+.lobby-guide__footer .raised-key {
+  margin-bottom: var(--key-d);
 }
 .lobby-guide-help:focus-visible,
 .lobby-guide-back:focus-visible {
@@ -151,30 +206,49 @@
   outline-offset: 3px;
 }
 .lobby-guide__content {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
   overscroll-behavior: contain;
   min-height: 0;
-  padding: 10px 5px 20px;
+  padding: 6px 5px 10px;
   scrollbar-color: hsl(250 45% 7% / 0.55) hsl(41 90% 44%);
 }
+.lobby-guide__panel {
+  flex: 0 0 auto;
+}
 .lobby-guide__panel h2 {
-  font: 800 clamp(20px, 2vw, 30px) / 1.3 var(--display);
-  max-width: 800px;
+  font: 800 clamp(24px, 2.3vw, 34px) / 1.3 var(--display);
+  max-width: 820px;
+  margin: 6px 0 8px;
 }
 .lobby-guide__panel p {
-  font-size: clamp(17px, 1.6vw, 21px);
-  line-height: 1.6;
-  max-width: 820px;
+  font-size: clamp(19px, 1.75vw, 23px);
+  line-height: 1.55;
+  max-width: 880px;
+  margin: 6px 0 14px;
 }
-/* The terms: a scrolling inset on the first page, the credits' reading style */
+/* The terms page: its text above, the terms filling the rest of the guide */
+.lobby-guide__panel--terms:not([hidden]) {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.lobby-guide__panel--terms > p {
+  flex: 0 0 auto;
+  margin-top: 4px;
+}
+/* The terms: a scrolling inset, the credits' reading style */
 .lobby-guide__terms {
-  max-height: min(34dvh, 360px);
-  max-width: 900px;
-  margin: 18px 0;
-  padding: 4px 22px 18px;
+  flex: 1 1 auto;
+  min-height: 180px;
+  margin: 8px 0 4px;
+  padding: 6px 30px 24px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  font-size: 16px;
+  font-size: 18px;
   line-height: 1.55;
   background: hsl(250 45% 7% / 0.1);
   box-shadow: inset 0 0 0 2px hsl(250 45% 7% / 0.22);
@@ -186,11 +260,11 @@
   outline-offset: 2px;
 }
 .lobby-guide__terms h3 {
-  font: 800 clamp(18px, 1.6vw, 22px) / 1.3 var(--display);
+  font: 800 clamp(21px, 1.9vw, 26px) / 1.3 var(--display);
   margin: 16px 0 4px;
 }
 .lobby-guide__terms h4 {
-  font: 800 13px var(--display);
+  font: 800 15px var(--display);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   margin: 22px 0 6px;
@@ -199,7 +273,8 @@
 }
 .lobby-guide__terms p,
 .lobby-guide__terms li {
-  font-size: 16px;
+  max-width: none;
+  font-size: 18px;
   line-height: 1.55;
   margin: 6px 0;
 }
@@ -231,23 +306,23 @@
 .lobby-guide__preference {
   display: flex;
   align-items: center;
-  gap: 12px;
-  font-size: 17px;
+  gap: 14px;
+  font-size: 20px;
   cursor: pointer;
 }
 .lobby-guide__preference input {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   accent-color: var(--ink);
 }
 .lobby-guide__preference small {
   display: block;
   opacity: 0.78;
   margin-top: 4px;
-  font-size: 13px;
+  font-size: 16px;
 }
 .lobby-guide__save-status {
-  font-size: 14px;
+  font-size: 16px;
   padding: 4px 0;
 }
 .lobby-guide__preview.fps-set-view {
@@ -263,7 +338,7 @@
   gap: 24px;
 }
 .lobby-guide__preview h3 {
-  font: 800 13px var(--display);
+  font: 800 15px var(--display);
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }
@@ -303,16 +378,16 @@
 .lobby-guide__lesson {
   background: hsl(250 45% 7% / 0.08);
   border-left: 4px solid var(--violet-ink);
-  padding: 4px 20px;
-  margin: 18px 0;
+  padding: 2px 20px;
+  margin: 12px 0;
   border-radius: 3px;
 }
 .lobby-guide__lesson h3 {
-  font: 800 16px var(--display);
+  font: 800 20px var(--display);
   margin: 15px 0 4px;
 }
 .lobby-guide__lesson p {
-  margin: 8px 0 18px;
+  margin: 6px 0 14px;
 }
 .lobby-guide__lesson--extra {
   border-color: var(--ink);
@@ -328,7 +403,7 @@
   padding: 3px 9px;
   border-radius: 3px;
   box-shadow: 0 3px 0 hsl(250 50% 4%);
-  font: 800 14px / 1.4 var(--display);
+  font: 800 16px / 1.4 var(--display);
   margin: 0 2px 4px;
 }
 @media (max-width: 820px) {
@@ -346,15 +421,25 @@
     min-width: 650px;
   }
   .lobby-guide__card {
-    max-height: calc(100dvh - 35px);
+    height: calc(100dvh - 2 * var(--gutter-y) - 10px);
     padding: 18px;
   }
   .lobby-guide__header h1 {
     margin-bottom: 16px;
   }
+  .lobby-guide__tabs {
+    --chevron: 14px;
+  }
   .lobby-guide__tab {
-    font-size: 11px;
-    padding: 11px 8px;
+    gap: 8px;
+    min-height: 50px;
+    padding: 8px calc(var(--chevron) + 6px);
+    font-size: 12px;
+  }
+  .lobby-guide__step {
+    width: 26px;
+    height: 26px;
+    font-size: 14px;
   }
   .lobby-guide__preference {
     flex-basis: 100%;
