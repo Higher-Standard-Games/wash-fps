@@ -11,7 +11,7 @@ Free-for-all frag derby. Up to 16 players, everyone for themselves.
 | Time limit | 10 minutes; most frags at time-up wins |
 | Tied at time-up | A draw (only [Duel](./duel.md) plays overtime) |
 | Warmup | Up to 2 minutes |
-| Countdown | 3 seconds |
+| Countdown | 5 seconds |
 | Player respawn | 3 s minimum before you can respawn, 6 s automatic |
 | Post-game | 15 seconds on the result screen |
 | Self damage | Full |

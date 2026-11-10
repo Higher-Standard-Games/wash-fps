@@ -17,9 +17,9 @@
 | Movement | Strafe / bunny hop / wall jump (charge + boost) / ledge grab / crouchslide, plus ladders, swimming and moving platforms |
 | Map triggers | **Teleporters** (momentum-carrying, telefrag) and **jumppads** — client-predicted, with washoi VFX |
 | Fall damage | Floor-to-floor bands, crouch-soften, server-tunable (`sv_falldamage*`) |
-| Gametypes | Duel (1v1, 10 min, overtime on a draw), Amphi (1v1 best-of-three rounds with a chosen kit), FFA / Deathmatch (20 frags / 10 min), Search & Destroy (bomb/defuse rounds, `wbomb*` maps) |
+| Gametypes | Duel (1v1, 10 min, overtime on a draw), Amphi (1v1 best-of-three rounds with a chosen kit), FFA / Deathmatch (20 frags / 10 min), Search & Destroy (bomb/defuse rounds on maps with bomb sites and team spawns) |
 | Weapons | Eight weapons; clip/pool/none reload models, Voltaic chain-lightning, blade step-in dash, and a click-then-trade swap away from an empty gun |
-| Loadouts | Search & Destroy and Amphi spawn kits — blade + one primary + one secondary, chosen per round |
+| Loadouts | FFA, Amphi and Search & Destroy spawn kits — blade + one primary + one secondary; changes apply at the next spawn |
 | Pickups | Server-authoritative active-set; CoD-style plate armor; health tiers with mega overheal; timed powerups |
 | Chat | Global (**T** / Enter) and team (**Y**) chat, scrollable history, per-match `/mute` and `/unmute`, recorded into demos |
 | Bots | Separate Bot Intelligence Server process, 4 difficulty tiers, BSP vision + NavGraph A*, optional TensorFlow.js dual-network brain |

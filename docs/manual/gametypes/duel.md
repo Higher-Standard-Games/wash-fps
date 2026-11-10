@@ -14,7 +14,7 @@ For short best-of-three rounds in a small arena, see [Amphi](./amphi.md).
 | Win condition | More frags when time is up |
 | Tied at time-up | Overtime: +1 minute, repeated until someone leads. A duel never ends in a draw |
 | Warmup | Up to 2 minutes, ends when both players are ready |
-| Countdown | 3 seconds |
+| Countdown | 5 seconds |
 | Player respawn | 3 s minimum before you can respawn, 6 s automatic |
 | Post-game | 18 seconds on the result screen |
 | Self damage | Full |

@@ -10,9 +10,8 @@ Washiki Washoi runs as a git submodule under `src/games/fps/` inside the SHAG en
 
 ## Requirements
 
-- **Node.js 22.13+** with built-in `node:sqlite` enabled for the lobby. Tested
-  with Node 24.21.0. [Node's SQLite documentation](https://nodejs.org/download/release/latest-v24.x/docs/api/sqlite.html)
-  records when the module became available without an extra runtime flag.
+- **Node.js 24 or later**; the engine's `.nvmrc` pins major version 24.
+  The lobby uses the built-in `node:sqlite` module.
 - **Git** with submodule support
 - A modern WebGL2-capable browser; WebGPU is also available on supported setups
 

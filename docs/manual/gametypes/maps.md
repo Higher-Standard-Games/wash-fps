@@ -7,7 +7,9 @@ Which maps exist, which modes they play, and how the lobby decides what to offer
 A map appears in a mode's room vote only when **both** are true:
 
 1. It is listed for that mode in `config/maps.json` (in the engine repo).
-2. Its `map_<name>.pk3` is installed in `public/data/`.
+2. Its `map_<name>.pk3` is installed in `public/data/`. SHAGGED's revisioned
+   `map_<name>_<revision>.pk3` packages also count for the base map name when
+   the numeric revision has at least five digits.
 
 Each room draws three maps at random from the pool for the vote, so a mode with fewer than three maps offers fewer. If `public/data/` has no map files at all (a development checkout without game data), the lobby skips the disk check and offers every listed map. Amphi is the exception: it is only offered when its own map PK3s are installed.
 
@@ -40,7 +42,9 @@ at a time.
 
 The lobby list is only what is offered by default. On the lobby's own machine, `map <name> <gametype>` in the console, or `--map` on a dedicated server, will load **any installed map** with any gametype, whether or not it is in `maps.json`. For instance `map wbomb1 snd` tries Search & Destroy on `wbomb1`, a bomb map the lobby does not currently list. It only works on maps that qualify as bomb maps (below). See [Selecting a Gametype](./index.md#selecting-a-gametype).
 
-Bomb maps (`wbomb*`) qualify for Search & Destroy when they have bomb sites **and** team spawns. See [Search & Destroy → Maps](./search-and-destroy.md#maps).
+Maps qualify for Search & Destroy when they have bomb sites **and** team
+spawns; the filename does not have to start with `wbomb`. See
+[Search & Destroy → Maps](./search-and-destroy.md#maps).
 
 ## Adding a map
 

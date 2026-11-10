@@ -99,8 +99,9 @@ Riotgun 15, Plasma 140, GL 10, MG 150 — plus full spawn armor. Enough to fight
 round with, not enough to stop caring about the map: an empty rocket launcher is
 a reason to go somewhere dangerous.
 
-Unlike Warsow Bomb, **map items still spawn.** The kit decides what you can do
-from spawn; the map decides what you can do if you take ground.
+**Map ammo, health and armor still spawn.** Map weapons and Quad Damage are
+excluded. Pickups return at the next round rather than on a timer within the
+round. The kit supplies your weapons; controlling ground supplies the rest.
 
 Pick a kit from the HUD's loadout picker during the freeze, or from the console:
 
@@ -122,11 +123,13 @@ otherwise end a teammate's whole round before they had moved.
 
 ## Maps
 
-Bomb maps are the `wbomb*` set. A map qualifies if it has bomb sites *and* team
-spawns; some maps carry site markers but no team spawns and are not playable in
-this mode. Site geometry is read from the BSP: authored `trigger_capture_area`
-volumes where they exist (wbomb1/5/6), and a radius around the site indicator
-where they do not (wbomb2/3/4).
+The configured lobby maps are `washoi_snd1`, `washoi_snd6` and `washoi_snd4`,
+filtered against installed packages. See [Maps](./maps.md).
+A map qualifies by its entities: it needs bomb sites *and* team spawns,
+regardless of its filename. Site geometry is read from the BSP: authored
+`trigger_capture_area` volumes where present, and a radius around the site
+indicator otherwise. Compatible `wbomb*` maps can also be loaded on a local
+development or dedicated server.
 
 ## HUD
 
@@ -171,7 +174,7 @@ map washoi_snd1 snd
 Or run a dedicated server directly:
 
 ```bash
-npm --prefix src/games/fps run net:server -- --map wbomb1 --gametype SnD
+npm --prefix src/games/fps run net:server -- --map washoi_snd1 --gametype SnD
 ```
 
 ## See Also

@@ -49,13 +49,12 @@ Game data is not in either repository. PK3 files (maps, textures, models, sounds
 
 ```bash
 npm run tools:manifest
-npm run tools:textures
 ```
 
 To check a map outside the game, from the engine repo:
 
 ```bash
-npm --prefix src/games/fps run cli:game -- --exec "bsp load washoi_dm2; bsp info; quit"
+npm --prefix src/games/fps run cli:game -- --exec "developer 1; bsp load washoi_dm2; bsp info; quit"
 ```
 
 ## "Rankings are unavailable" and "Featured demos are unavailable"
@@ -82,9 +81,11 @@ connect ws://localhost:7777
 - A server started by hand has no ticket system for you, so a console `connect` lets you **watch** and join from the [join screen](../player/hud.md#join-screen), but a playing seat in a lobby match belongs to a ticket.
 - The server's own terminal shows the map and gametype it loaded. Unknown `--gametype` values fall back to **Deathmatch** without an error, so a typo shows up as the wrong mode, not a failure. See [Server Commands](../developer/server-commands.md#server-launch-options).
 
-## TLS certificates (WebTransport)
+## TLS certificates (secure WebSocket)
 
-The dedicated server can use WebTransport, which needs a TLS certificate. For development, install [mkcert](https://github.com/FiloSottile/mkcert), then:
+The dedicated server uses WebSocket. With both certificate files present it
+serves `wss://`; without them it serves `ws://`. For development certificates,
+install [mkcert](https://github.com/FiloSottile/mkcert), then:
 
 ```bash
 mkcert -install
@@ -95,7 +96,8 @@ Move `localhost.pem` and `localhost-key.pem` into `./certs/`. The paths can be c
 
 ## Wrong Node version
 
-The repository pins Node **22** (`.nvmrc`). Node 18 is the minimum; use 22 if you can.
+Use **Node.js 24 or later**, matching the engine's `.nvmrc` major version 24.
+Install dependencies at the engine root after selecting that runtime.
 
 ## Lost an account, or a match didn't rank
 

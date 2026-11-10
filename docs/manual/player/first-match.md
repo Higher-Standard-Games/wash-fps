@@ -94,9 +94,9 @@ plays with aim assist.
 
 ## 5. What to do first
 
-- **You start with only the Blade.** Every other weapon, armor and health pack is on the map. Moving to pick things up is the game. A weapon icon on the left of the screen lights up when you own it; the number keys switch to it.
+- **Choose your kit in FFA, Amphi and S&D.** You spawn with the Blade, one primary and one secondary; changed selections apply at your next spawn. Duel starts with only the Blade and puts the other weapons on the map. A weapon icon on the left lights up when you own it; the number keys switch to it. See [Loadouts](./pickups-and-inventory.md#loadouts).
 - **Pick up armor and health when you are hurt.** Armor absorbs about two thirds of every hit. See [Pickups](./pickups-and-inventory.md).
-- **Watch the timers.** Items come back on a schedule, and the **Quad Damage** (×4 damage) comes back every two minutes. In a duel, controlling those timers wins matches.
+- **Watch the timers.** In Duel, FFA and Amphi, items return on timers; **Quad Damage** (×4 damage) returns every two minutes. S&D resets pickups each round and has no Quad. In a duel, controlling item timers wins matches.
 - **Run out of ammo?** Pull the trigger on the empty gun and, if you pull again, the game swaps you to a weapon that can fire. See [Weapons](./weapons.md#empty-guns-click-then-trade).
 - **Jumppads and teleporters** are in the maps. Walk into them. You keep your speed through a teleporter. See [Movement](./movement.md#teleporters).
 - **Don't stand on a teleporter exit.** Whoever arrives kills you.
@@ -104,7 +104,11 @@ plays with aim assist.
 
 ## 6. When you die
 
-You have a few seconds. The death screen says who fragged you and how, and when you can respawn. Press **fire** when the bar turns green. In a round mode you wait for the next round, and can **spectate** a teammate. See [HUD](./hud.md).
+The death screen says who fragged you and how, and when you can respawn.
+In Duel and FFA you can respawn after 3 seconds, automatically after 6;
+Amphi allows respawn after 2 seconds, automatically after 4, within the same
+round. Press **fire** when the bar turns green. In S&D you wait for the next
+round and can spectate a teammate. See [HUD](./hud.md).
 
 ## 7. Getting better
 
