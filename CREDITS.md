@@ -1,6 +1,6 @@
 # Credits
 
-**Washiki Washoi** is made by [Higher Standard Games](https://higherstandardgames.com/).
+**Washiki Washoi!** is made by [Higher Standard Games](https://higherstandardgames.com/).
 
 © 2026 Higher Standard Games.
 
@@ -16,7 +16,7 @@ links and --- rules. Raw HTML is not shown; comments like this one are skipped.
 
 ## Team
 
-- **Tarmo Alexander "crizis" Sundström**: Product lead
+- **Tarmo Alexander "sundflux" Sundström**: Product lead
 
 ## Thanks
 
@@ -31,8 +31,8 @@ Washoi grows out of **Warsow**. Thanks to the **Warsow Dev Team**.
   - dima
   - gorey
   - FragStealer
-  - the Warsow Discord community
-- Everyone who played the alpha and told us what to fix
+  - Washoi & Warsow Discord communities
+- Everyone who played the alpha
 
 ## Built with
 
@@ -63,7 +63,8 @@ All fonts are used under the [SIL Open Font License 1.1](https://openfontlicense
 
 ## Players
 
-- **Player model and animations**: [Mixamo](https://www.mixamo.com/) by Adobe.
+- **Player models**: [Higher Standard Games](https://www.higherstandardgames.com/) with Meshy.
+- **Animations**: [Mixamo](https://www.mixamo.com/) by Adobe.
 
 ## Sound
 
@@ -81,11 +82,19 @@ From the [Warfork free sound packs](https://github.com/TeamForbiddenLLC/warfork-
 Many of our arenas come from Warsow and Warfork. Map authors are listed on the
 [Warfork wiki](https://warforkwiki.com/index.php?title=Maps).
 
-- **Washoi DM2** (`washoi_dm2`): from wdm2 "Le Dream On" by 36, kimza and crizis.
-- **Washoi DM5** (`washoi_dm5`): from wdm5 "Vicious' Lair" by blx and crizis, with German "Jal" Garcia.
-- **Washoi DM11** (`washoi_dm11`): from wdm11 "Warehouse: C" by crizis, with German "Jal" Garcia.
-- **Washoi Amphi1** (`washoi_amphi1`): from wfamphi1 "Amphi 1" by ETR, crizis and kimza.
-- **Concrete Strike** (`washoi_snd1`): from wfbomb1 "Concrete Strike" by uz and jal.
+- **Washoi DM1** (`washoi_dm1`): from wfdm1
+- **Washoi DM2** (`washoi_dm2`): from wdm2
+- **Washoi DM3** (`washoi_dm3`): from wfdm3
+- **Washoi DM5** (`washoi_dm5`): from wdm5
+- **Washoi DM7** (`washoi_dm7`): from wfdm7
+- **Washoi DM11** (`washoi_dm11`): from wdm11
+- **Washoi DM12** (`washoi_dm12`): from wdm12
+- **Washoi DM14** (`washoi_dm14`): from wdm14
+- **Washoi Amphi1** (`washoi_amphi1`): from wfamphi1
+- **Washoi Amphi2** (`washoi_amphi2`): from wda5
+- **Washoi Snd1** (`washoi_snd1`): from wfbomb1
+- **Washoi Snd4** (`washoi_snd4`): from wfbomb4
+- **Washoi Snd6** (`washoi_snd6`): from wfbomb6
 
 Textures: the Warfork and Warsow texture packs,
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
