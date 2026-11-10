@@ -3,6 +3,7 @@ import "../../../../engine/ui/styles/WashikiFonts.css";
 import "../styles/LobbyWelcomeDialog.css";
 import "./ExportVideo.css";
 import { background } from "../../../../engine/core/AsyncErrors";
+import { raiseKey } from "../../../../engine/ui/components/RaisedKey";
 import { DemoReader } from "../../../../shared/demo/DemoReader";
 import { downloadDemo } from "../DemoDownload";
 import { REEL_MINUTES, type ReelMinutes, reelLengths } from "../ReelLengths";
@@ -48,6 +49,9 @@ const generate = document.querySelector<HTMLButtonElement>(".generate")!;
 const cancel = document.querySelector<HTMLButtonElement>(".cancel")!;
 const download = document.querySelector<HTMLButtonElement>(".download")!;
 const discard = document.querySelector<HTMLButtonElement>(".discard")!;
+for (const key of [generate, cancel, download, discard]) {
+  raiseKey(key, { label: key.textContent ?? "", variants: ["ink", "inline"] });
+}
 const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
 const musicSelect = document.querySelector<HTMLSelectElement>("#video-export-music")!;
 const songStart = document.querySelector<HTMLInputElement>("#video-export-song-start")!;

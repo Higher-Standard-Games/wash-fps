@@ -56,7 +56,7 @@ import { UINavigation } from "../../../engine/ui/navigation/UINavigation";
 export class LobbyWelcomeDialog {
   private offNavigation: (() => void) | null = null;
   readonly root = el("div", "lobby-guide");
-  private readonly card = el("section", "lobby-guide__card");
+  private readonly card = el("section", "lobby-guide__card lobby-guide__card--wizard");
   private readonly panels: HTMLElement[] = [];
   private readonly tabs: HTMLButtonElement[] = [];
   private readonly next = raiseKey(button("lobby-guide__button lobby-guide__next"), { variants: ["ink", "inline"] });

@@ -69,11 +69,10 @@
 .lobby-guide *::after {
   box-sizing: border-box;
 }
-/* One size for every page, so stepping through the guide never resizes it */
 .lobby-guide__card {
-  width: min(1400px, 100%);
+  width: min(1160px, 100%);
   /* The window less its gutters and the card's 10px base */
-  height: min(1080px, calc(100dvh - 2 * var(--gutter-y) - 10px));
+  max-height: calc(100dvh - 2 * var(--gutter-y) - 10px);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -88,6 +87,11 @@
     0 10px 0 hsl(36 85% 28%),
     0 24px 70px #0009,
     inset 0 2px 0 #ffffff60;
+}
+/* The welcome guide keeps one size on every page, so stepping through it never resizes it */
+.lobby-guide__card--wizard {
+  width: min(1400px, 100%);
+  height: min(1080px, calc(100dvh - 2 * var(--gutter-y) - 10px));
 }
 .lobby-guide__header {
   flex: 0 0 auto;
@@ -421,8 +425,10 @@
     min-width: 650px;
   }
   .lobby-guide__card {
-    height: calc(100dvh - 2 * var(--gutter-y) - 10px);
     padding: 18px;
+  }
+  .lobby-guide__card--wizard {
+    height: calc(100dvh - 2 * var(--gutter-y) - 10px);
   }
   .lobby-guide__header h1 {
     margin-bottom: 16px;
