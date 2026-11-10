@@ -4,7 +4,14 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { CLASSNAME_TO_WEAPON, extractPickups, extractWeaponPickups, PICKUP_CLASSNAMES } from "../PickupTable";
+import {
+  CLASSNAME_TO_WEAPON,
+  extractPickups,
+  extractWeaponPickups,
+  mapModeKeys,
+  PICKUP_CLASSNAMES,
+  spawnsIn,
+} from "../PickupTable";
 
 type Ent = { classname: string; properties: Record<string, string> };
 
@@ -192,5 +199,32 @@ describe("PICKUP_CLASSNAMES", () => {
       expect(PICKUP_CLASSNAMES[classname]?.type).toBe("weapon");
     }
     expect(PICKUP_CLASSNAMES.ammo_rockets).toMatchObject({ type: "ammo", kind: "rockets", amount: 10 });
+  });
+});
+
+describe("map gametype keys", () => {
+  const duel = { names: ["duel"], kind: "duel" } as const;
+  const ffa = { names: ["dm", "ffa"], kind: "free" } as const;
+  const snd = { names: ["bomb", "snd"], kind: "team" } as const;
+
+  it("reads the gametype list and the not-keys, and nothing from an entity without them", () => {
+    expect(mapModeKeys({ gametype: "Duel, tdm  ca" })).toEqual({ gametypes: ["duel", "tdm", "ca"] });
+    expect(mapModeKeys({ notduel: "1", notteam: "0", notfree: "2" })).toEqual({ notDuel: true, notFree: true });
+    expect(mapModeKeys({ origin: "0 0 0" })).toBeUndefined();
+  });
+
+  it("puts washoi_dm1's shared spot's megahealth in duels and its ultra health everywhere else", () => {
+    const [mega, ultra] = extractPickups([
+      { classname: "item_health_mega", properties: { origin: "-144 -720 -16", gametype: "duel" } },
+      { classname: "item_health_ultra", properties: { origin: "-144 -720 -16", notduel: "1" } },
+    ]);
+    expect([spawnsIn(mega.modes, duel), spawnsIn(ultra.modes, duel)]).toEqual([true, false]);
+    expect([spawnsIn(mega.modes, ffa), spawnsIn(ultra.modes, ffa)]).toEqual([false, true]);
+    expect([spawnsIn(mega.modes, snd), spawnsIn(ultra.modes, snd)]).toEqual([false, true]);
+  });
+
+  it("leaves team-only exclusions to team modes", () => {
+    const keys = mapModeKeys({ notteam: "1" });
+    expect([spawnsIn(keys, duel), spawnsIn(keys, ffa), spawnsIn(keys, snd)]).toEqual([true, true, false]);
   });
 });

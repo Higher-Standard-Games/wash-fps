@@ -42,8 +42,22 @@ describe("FFA opponent colours", () => {
     expect(worn).toContain("pink");
   });
 
+  it("wears the colour the server gave, unless it is your own side's", () => {
+    registerPlayerModelVisualCvars();
+    Cvar.set("cl_team_ally_color", TEAM_COLORS.find((color) => color.id === "lime")!.fill);
+    const colors = new FfaColors();
+    expect(colors.colorFor("a", "red").id).toBe("red");
+    // Lime means you: the opponent given it steps around every colour handed out
+    const handedOut = TEAM_COLORS.map((color) => color.id).filter((id) => id !== "violet");
+    expect(colors.colorFor("b", "lime", () => handedOut).id).toBe("violet");
+  });
+
   it("colours by gametype: FFA players, whose team the server leaves at spectator, but no team mode", () => {
-    const renderer = Object.assign(Object.create(RemotePlayerRenderer.prototype), { ffaColors: new FfaColors() }) as {
+    const renderer = Object.assign(Object.create(RemotePlayerRenderer.prototype), {
+      ffaColors: new FfaColors(),
+      looks: new Map(),
+      perspectiveEntityId: null,
+    }) as {
       ffaColor(entityId: string, slot: string): { id: string } | null;
     };
     const matchState = (teamBased: boolean) =>

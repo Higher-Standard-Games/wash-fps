@@ -22,6 +22,10 @@ is unavailable; the game tells you rather than sending the message globally.
 You can also type `/say_team <message>` in chat, or `say_team <message>` in the
 console. Global and team chat share the same message length and rate limits.
 
+`/timeout` and `/timein` in chat pause and resume the match in Duel, Amphi and
+Search & Destroy; see [Timeouts](./timeouts.md). Chat keeps working while the
+match is paused.
+
 ## Muting for this match
 
 Type `/mute <playername>` in chat to ignore that full name, without case

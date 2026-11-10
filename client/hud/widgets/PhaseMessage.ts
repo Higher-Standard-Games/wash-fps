@@ -16,6 +16,8 @@ import type { FPSHudWidget, HUDState } from "../HudWidget";
  * - Countdown: 3, 2, 1 with pulse animation
  * - Active: "FIGHT!" flash → auto-hide after 2s
  * - PostGame: "MATCH OVER"
+ * - A timeout: "TIMEOUT", who called it and the time left; the count back in;
+ *   "FIGHT!" when play resumes
  */
 export class FPSPhaseMessage implements FPSHudWidget {
   private element: HTMLElement;
@@ -23,6 +25,8 @@ export class FPSPhaseMessage implements FPSHudWidget {
   private lastOvertime: number = 0;
   private hideTimeout: ReturnType<typeof setTimeout> | null = null;
   private unsubPhase: (() => void) | null = null;
+  /** The timeout on screen, `state:caller`, so its clock ticks without redrawing it. */
+  private shownPause: string | null = null;
 
   constructor() {
     this.element = document.createElement("div");
@@ -118,6 +122,7 @@ export class FPSPhaseMessage implements FPSHudWidget {
 
   public update(state: HUDState): void {
     const mgr = MatchStateManager.getInstance();
+    if (this.updatePause(mgr)) return;
 
     // During warmup: keep showing (update gametype if it changes)
     if (mgr.isWarmup()) {
@@ -157,6 +162,46 @@ export class FPSPhaseMessage implements FPSHudWidget {
         this.hideTimeout = setTimeout(() => this.hideMessage(), 3000);
       }
     }
+  }
+
+  /** The timeout banner and its count back in. True while a pause holds the match. */
+  private updatePause(mgr: MatchStateManager): boolean {
+    const pause = mgr.pause;
+    if (!pause) {
+      if (this.shownPause === null) return false;
+      this.shownPause = null;
+      if (this.hideTimeout) clearTimeout(this.hideTimeout);
+      this.showHtml(`<div class="fps-phase-fight">Fight!</div>`);
+      this.hideTimeout = setTimeout(() => this.hideMessage(), 2000);
+      return true;
+    }
+    if (this.hideTimeout) {
+      clearTimeout(this.hideTimeout);
+      this.hideTimeout = null;
+    }
+    const left = Math.ceil(mgr.pauseSecondsLeft());
+    if (pause.state === "timein") {
+      const key = `timein:${left}`;
+      if (this.shownPause !== key && left > 0) {
+        this.shownPause = key;
+        this.showHtml(`<div class="fps-phase-countdown">${left}</div>`);
+      }
+      return true;
+    }
+    const key = `timeout:${pause.caller}:${pause.forDrop}`;
+    if (this.shownPause !== key) {
+      this.shownPause = key;
+      const caller = this.escapeHtml(pause.caller);
+      const why = pause.forDrop ? `${caller} dropped. Waiting for them to come back` : `Called by ${caller}`;
+      this.showHtml(
+        `<div class="fps-phase-title">Timeout</div><div class="fps-phase-subtitle">${why}</div>` +
+          `<div class="fps-phase-ready"><span class="fps-phase-pause-clock"></span> left. ` +
+          `Type <span class="fps-keycap">/timein</span> in chat to resume</div>`,
+      );
+    }
+    const clock = this.element.querySelector(".fps-phase-pause-clock");
+    if (clock) clock.textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+    return true;
   }
 
   public show(): void {

@@ -19,15 +19,23 @@ beforeEach(() => vi.resetAllMocks());
 describe("ammo artwork package loading", () => {
   it("loads the indexed owner before resolving the icon, without a loose request", async () => {
     const texture = {};
-    mocks.findFile.mockReturnValue("washoi_gfx.pk3");
+    mocks.findFile.mockImplementation((file: string) => (file.endsWith(".tga") ? "washoi_gfx.pk3" : undefined));
     mocks.resolveAndLoadTexture.mockImplementation(async () => {
       expect(mocks.ensurePK3).toHaveBeenCalledWith("washoi_gfx.pk3");
       return texture;
     });
     expect(await loadAmmoIconTexture("gfx/hud/icons/ammo/bulletsammo")).toBe(texture);
+    expect(mocks.findFile).toHaveBeenCalledWith("gfx/hud/icons/ammo/bulletsammo.webp");
     expect(mocks.findFile).toHaveBeenCalledWith("gfx/hud/icons/ammo/bulletsammo.tga");
     expect(mocks.ensureIndex).toHaveBeenCalledOnce();
     expect(mocks.loadTexture).not.toHaveBeenCalled();
+  });
+  it("finds the package of a packaged WebP symbol", async () => {
+    mocks.findFile.mockImplementation((file: string) => (file.endsWith(".webp") ? "washoi_gfx.pk3" : undefined));
+    mocks.resolveAndLoadTexture.mockResolvedValue({});
+    await loadAmmoIconTexture("gfx/simpleitems/weapon/riot");
+    expect(mocks.ensurePK3).toHaveBeenCalledWith("washoi_gfx.pk3");
+    expect(mocks.findFile).not.toHaveBeenCalledWith("gfx/simpleitems/weapon/riot.tga");
   });
   it("retains the loose TGA fallback for custom media without an indexed icon", async () => {
     mocks.resolveAndLoadTexture.mockResolvedValue(null);

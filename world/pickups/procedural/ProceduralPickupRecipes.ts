@@ -25,80 +25,153 @@ export const PROCEDURAL_RECIPE_REVISION = "v11";
  */
 export const PROCEDURAL_GLOBAL_SCALE = 1.9;
 
+/**
+ * The quad's generated badge: a stable, two-sided badge. Not registered: the
+ * quad draws its packaged model.
+ */
+export function quadRecipe(): ProceduralPickupRecipe {
+  return {
+    // Gold flowing to hot red. The gold is Warsow's own quad colour, sampled
+    // from gfx/hud/icons/powerup/quad.tga (rgb 224,192,0) so the world item and
+    // the HUD icon agree; the red accent is the danger colour a carrier glows.
+    id: "powerup_quad",
+    family: "powerup",
+    kind: "quad",
+    color: { r: 1.0, g: 0.84, b: 0.05 },
+    accentColor: { r: 1.0, g: 0.25, b: 0.1 },
+    scale: 1.15,
+    ringCount: 0,
+    plateCount: 0,
+    moteCount: 0,
+    shellPieces: 0,
+    satelliteCount: 0,
+    bobAmplitude: 3,
+    bobFrequency: 0.24,
+    spinSpeed: 12,
+    pulseFrequency: 0.4,
+    figureEight: false,
+    beaconStrength: 0,
+    collectStyle: "collapse",
+    respawnStyle: "assemble",
+    highTier: true,
+    unstable: false,
+  };
+}
+
+/**
+ * The ultra health's generated core. Not registered: the ultra health draws the
+ * packaged megahealth with a purple core.
+ */
+export function ultraHealthRecipe(): ProceduralPickupRecipe {
+  return {
+    id: "health_ultra",
+    family: "health",
+    kind: "ultra",
+    color: { r: 1.0, g: 0.15, b: 0.6 },
+    accentColor: { r: 1.0, g: 0.5, b: 0.9 },
+    scale: 1.15,
+    ringCount: 1,
+    plateCount: 0,
+    moteCount: 0,
+    shellPieces: 0,
+    satelliteCount: 0,
+    bobAmplitude: 3,
+    bobFrequency: 0.26,
+    spinSpeed: 22,
+    pulseFrequency: 0.34,
+    figureEight: false,
+    beaconStrength: 0,
+    collectStyle: "collapse",
+    respawnStyle: "assemble",
+    highTier: true,
+    unstable: true,
+  };
+}
+
+/**
+ * Health: glowing energy core + cross emblem, scrolling gradient. Not
+ * registered: the +5, +25 and +50 health draw the packaged health bubble.
+ */
+export function healthBubbleRecipes(): ProceduralPickupRecipe[] {
+  return [
+    {
+      id: "health_small",
+      family: "health",
+      kind: "small",
+      color: { r: 0.3, g: 0.95, b: 1.0 },
+      accentColor: { r: 0.8, g: 1.0, b: 1.0 },
+      scale: 0.7,
+      ringCount: 1,
+      plateCount: 0,
+      moteCount: 0,
+      shellPieces: 0,
+      satelliteCount: 0,
+      bobAmplitude: 1.8,
+      bobFrequency: 0.3,
+      spinSpeed: 12,
+      pulseFrequency: 0.26,
+      figureEight: false,
+      beaconStrength: 0,
+      collectStyle: "collapse",
+      respawnStyle: "materialize",
+      highTier: false,
+      unstable: false,
+    },
+    {
+      // 25 HP — bright yellow (gradient stays saturated, not washed to white).
+      id: "health_medium",
+      family: "health",
+      kind: "medium",
+      color: { r: 1.0, g: 0.82, b: 0.08 },
+      accentColor: { r: 1.0, g: 0.95, b: 0.35 },
+      scale: 0.82,
+      ringCount: 1,
+      plateCount: 0,
+      moteCount: 0,
+      shellPieces: 0,
+      satelliteCount: 0,
+      bobAmplitude: 2.2,
+      bobFrequency: 0.28,
+      spinSpeed: 12,
+      pulseFrequency: 0.24,
+      figureEight: false,
+      beaconStrength: 0,
+      collectStyle: "collapse",
+      respawnStyle: "assemble",
+      highTier: false,
+      unstable: false,
+    },
+    {
+      // 50 HP — orange scrolling to yellow.
+      id: "health_large",
+      family: "health",
+      kind: "large",
+      color: { r: 1.0, g: 0.48, b: 0.06 },
+      accentColor: { r: 1.0, g: 0.86, b: 0.16 },
+      scale: 0.95,
+      ringCount: 1,
+      plateCount: 0,
+      moteCount: 0,
+      shellPieces: 0,
+      satelliteCount: 0,
+      bobAmplitude: 2.6,
+      bobFrequency: 0.26,
+      spinSpeed: 14,
+      pulseFrequency: 0.24,
+      figureEight: false,
+      beaconStrength: 0,
+      collectStyle: "collapse",
+      respawnStyle: "assemble",
+      highTier: false,
+      unstable: false,
+    },
+  ];
+}
+
 // Bob/pulse frequencies are cycles-per-second (slow, calm motion).
 const RECIPE_LIST: ProceduralPickupRecipe[] = [
-  // ── Health: glowing energy core + cross emblem, scrolling gradient ──────
-  {
-    id: "health_small",
-    family: "health",
-    kind: "small",
-    color: { r: 0.3, g: 0.95, b: 1.0 },
-    accentColor: { r: 0.8, g: 1.0, b: 1.0 },
-    scale: 0.7,
-    ringCount: 1,
-    plateCount: 0,
-    moteCount: 0,
-    shellPieces: 0,
-    satelliteCount: 0,
-    bobAmplitude: 1.8,
-    bobFrequency: 0.3,
-    spinSpeed: 12,
-    pulseFrequency: 0.26,
-    figureEight: false,
-    beaconStrength: 0,
-    collectStyle: "collapse",
-    respawnStyle: "materialize",
-    highTier: false,
-    unstable: false,
-  },
-  {
-    // 25 HP — bright yellow (gradient stays saturated, not washed to white).
-    id: "health_medium",
-    family: "health",
-    kind: "medium",
-    color: { r: 1.0, g: 0.82, b: 0.08 },
-    accentColor: { r: 1.0, g: 0.95, b: 0.35 },
-    scale: 0.82,
-    ringCount: 1,
-    plateCount: 0,
-    moteCount: 0,
-    shellPieces: 0,
-    satelliteCount: 0,
-    bobAmplitude: 2.2,
-    bobFrequency: 0.28,
-    spinSpeed: 12,
-    pulseFrequency: 0.24,
-    figureEight: false,
-    beaconStrength: 0,
-    collectStyle: "collapse",
-    respawnStyle: "assemble",
-    highTier: false,
-    unstable: false,
-  },
-  {
-    // 50 HP — orange scrolling to yellow.
-    id: "health_large",
-    family: "health",
-    kind: "large",
-    color: { r: 1.0, g: 0.48, b: 0.06 },
-    accentColor: { r: 1.0, g: 0.86, b: 0.16 },
-    scale: 0.95,
-    ringCount: 1,
-    plateCount: 0,
-    moteCount: 0,
-    shellPieces: 0,
-    satelliteCount: 0,
-    bobAmplitude: 2.6,
-    bobFrequency: 0.26,
-    spinSpeed: 14,
-    pulseFrequency: 0.24,
-    figureEight: false,
-    beaconStrength: 0,
-    collectStyle: "collapse",
-    respawnStyle: "assemble",
-    highTier: false,
-    unstable: false,
-  },
+  // The +5, +25 and +50 health draw the packaged health bubble
+  // (washoi_models.pk3); their recipes are kept for now (healthBubbleRecipes).
   // health_mega draws its packaged model (washoi_models.pk3); its recipe is kept for now.
   // {
   //   id: "health_mega",
@@ -123,30 +196,6 @@ const RECIPE_LIST: ProceduralPickupRecipe[] = [
   //   highTier: true,
   //   unstable: false,
   // },
-  {
-    id: "health_ultra",
-    family: "health",
-    kind: "ultra",
-    color: { r: 1.0, g: 0.15, b: 0.6 },
-    accentColor: { r: 1.0, g: 0.5, b: 0.9 },
-    scale: 1.15,
-    ringCount: 1,
-    plateCount: 0,
-    moteCount: 0,
-    shellPieces: 0,
-    satelliteCount: 0,
-    bobAmplitude: 3,
-    bobFrequency: 0.26,
-    spinSpeed: 22,
-    pulseFrequency: 0.34,
-    figureEight: false,
-    beaconStrength: 0,
-    collectStyle: "collapse",
-    respawnStyle: "assemble",
-    highTier: true,
-    unstable: true,
-  },
-
   // ── Armor: broad plates over a backer; tier = colour + size ───
   // armor_shard draws its packaged model (washoi_models.pk3); its recipe is kept for now.
   // {
@@ -244,45 +293,19 @@ const RECIPE_LIST: ProceduralPickupRecipe[] = [
   //   highTier: true,
   //   unstable: false,
   // },
-  // ── Ammo: dark crates with colored panels and generated symbols ─
-  ...ammoCrates(),
-
-  // ── Powerup: a stable, two-sided badge ──
-  {
-    // Gold flowing to hot red. The gold is Warsow's own quad colour, sampled
-    // from gfx/hud/icons/powerup/quad.tga (rgb 224,192,0) so the world item and
-    // the HUD icon agree; the red accent is the danger colour a carrier glows.
-    id: "powerup_quad",
-    family: "powerup",
-    kind: "quad",
-    color: { r: 1.0, g: 0.84, b: 0.05 },
-    accentColor: { r: 1.0, g: 0.25, b: 0.1 },
-    scale: 1.15,
-    ringCount: 0,
-    plateCount: 0,
-    moteCount: 0,
-    shellPieces: 0,
-    satelliteCount: 0,
-    bobAmplitude: 3,
-    bobFrequency: 0.24,
-    spinSpeed: 12,
-    pulseFrequency: 0.4,
-    figureEight: false,
-    beaconStrength: 0,
-    collectStyle: "collapse",
-    respawnStyle: "assemble",
-    highTier: true,
-    unstable: false,
-  },
+  // Ammo draws the packaged ammo box (washoi_models.pk3) with its weapon's
+  // symbol on each side; the crate recipes are kept for now (ammoCrateRecipes).
+  // The quad draws its packaged model (washoi_models.pk3); its badge recipe is kept for now (quadRecipe).
 ];
 
 /**
  * Ammo crates share a chassis; color and the geometric mark distinguish the
  * types. The shared fields are filled in once here instead of being
  * copy-pasted eight times. Colours are the weapon identity colours so a crate
- * reads as "rockets" from across the arena before the icon is legible.
+ * reads as "rockets" from across the arena before the icon is legible. Not
+ * registered: ammo draws the packaged ammo box.
  */
-function ammoCrates(): ProceduralPickupRecipe[] {
+export function ammoCrateRecipes(): ProceduralPickupRecipe[] {
   const crates: Array<{ id: string; kind: string; color: RGB; accent: RGB; icon: string }> = [
     // Machinegun — brass.
     {
@@ -377,7 +400,7 @@ export function getProceduralPickupRecipe(id: string): ProceduralPickupRecipe | 
   return RECIPES_BY_ID.get(id) ?? null;
 }
 
-/** True if a registry id has a procedural recipe (health/armor only). */
+/** True if a registry id has a procedural recipe (the ultra health and the quad). */
 export function hasProceduralPickupRecipe(id: string): boolean {
   return RECIPES_BY_ID.has(id);
 }

@@ -29,6 +29,7 @@ import type {
 import type { Vec3 } from "@shared/server/simulation/types";
 import type { BspEntity, BspModel } from "../../../../engine/loader/bsp/BspLoader";
 import type { CollisionWorld } from "../../../../shared/collision/CollisionWorld";
+import type { MapMode } from "../../shared/bsp/PickupTable";
 
 export interface GameResult {
   winner?: PlayerId | "team1" | "team2" | "draw";
@@ -114,6 +115,12 @@ export abstract class BaseGametype {
   abstract readonly name: string;
   abstract readonly maxPlayers: number;
   abstract readonly teamBased: boolean;
+  /** How the map's gametype keys read this mode (see PickupTable's spawnsIn). */
+  readonly mapMode: MapMode = { names: ["dm", "ffa"], kind: "free" };
+  /** Players may call a timeout (see MatchPause). */
+  readonly timeouts: boolean = false;
+  /** A player dropping out of a live match pauses it until they are back. */
+  readonly timeoutOnDrop: boolean = false;
 
   // ========================================================================
   // Configuration — gametype defines these

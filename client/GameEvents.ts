@@ -1498,7 +1498,7 @@ export function processProjectileEntities(state: GameState, sync: ProjectileSync
 // ── Award Event Handler ────────────────────────────────────────────
 
 /** In-game chat event → HUD chat log (also fires during demo playback). */
-function handleChatEvent(event: ChatSnapshotEvent): void {
+export function handleChatEvent(event: ChatSnapshotEvent): void {
   try {
     devLog(`[Chat] event ← server: ${event.senderName}: "${event.text}"`);
     const name = event.senderName || "unknown";

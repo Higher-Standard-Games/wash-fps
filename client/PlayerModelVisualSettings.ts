@@ -227,22 +227,36 @@ function sameColor(a: Color3, b: Color3): boolean {
 
 /**
  * In a free-for-all each opponent wears a colour of their own from the team
- * palette, so they can be told apart. A colour is kept for the session, the
- * least-worn ones are handed out first, and your own side's colour is never
- * used, so it still means you (the player whose eyes a demo borrows).
+ * palette, so they can be told apart. The server hands the colours out, so
+ * every viewer sees a player the same way. Your own side's colour is never
+ * worn by an opponent, so it still means you (the player whose eyes a demo
+ * borrows): an opponent given it, or given none by an older server or demo,
+ * wears the least-worn other colour instead, kept for the session.
  */
 export class FfaColors {
   private readonly assigned = new Map<string, TeamColor>();
+  private ownSetting = "";
+  private ownColor: TeamColor | undefined;
 
-  colorFor(entityId: string): TeamColor {
+  /**
+   * @param given The colour id the server gave this player, if any.
+   * @param handedOut The colour ids the server gave everyone, counted when a pick has to step around them.
+   */
+  colorFor(entityId: string, given?: string, handedOut: () => Iterable<string> = () => []): TeamColor {
+    const own = this.own();
+    const server = given === undefined ? undefined : TEAM_COLORS.find((color) => color.id === given);
+    if (server && server !== own) return server;
     const held = this.assigned.get(entityId);
     if (held) return held;
-    registerPlayerModelVisualCvars();
-    const own = parseRgbCvar(Cvar.getString(TEAM_COLOR_CVARS.ally), PLAYER_MODEL_VISUAL_DEFAULTS.ally);
-    const choices = TEAM_COLORS.filter((color) => !sameColor(parseRgbCvar(color.fill, own), own));
-    const worn = (color: TeamColor) => [...this.assigned.values()].filter((other) => other === color).length;
-    const fewest = Math.min(...choices.map(worn));
-    const pool = choices.filter((color) => worn(color) === fewest);
+    const choices = TEAM_COLORS.filter((color) => color !== own);
+    const counts = new Map<TeamColor, number>();
+    const wear = (color: TeamColor | undefined) => {
+      if (color) counts.set(color, (counts.get(color) ?? 0) + 1);
+    };
+    for (const id of handedOut()) wear(TEAM_COLORS.find((color) => color.id === id));
+    for (const color of this.assigned.values()) wear(color);
+    const fewest = Math.min(...choices.map((color) => counts.get(color) ?? 0));
+    const pool = choices.filter((color) => (counts.get(color) ?? 0) === fewest);
     const pick = pool[Math.floor(Math.random() * pool.length)];
     this.assigned.set(entityId, pick);
     return pick;
@@ -250,6 +264,18 @@ export class FfaColors {
 
   clear(): void {
     this.assigned.clear();
+  }
+
+  /** The palette colour your own side wears, if it is one of them; read again only when the setting changes. */
+  private own(): TeamColor | undefined {
+    registerPlayerModelVisualCvars();
+    const setting = Cvar.getString(TEAM_COLOR_CVARS.ally);
+    if (setting !== this.ownSetting) {
+      this.ownSetting = setting;
+      const own = parseRgbCvar(setting, PLAYER_MODEL_VISUAL_DEFAULTS.ally);
+      this.ownColor = TEAM_COLORS.find((color) => sameColor(parseRgbCvar(color.fill, own), own));
+    }
+    return this.ownColor;
   }
 }
 

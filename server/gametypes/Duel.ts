@@ -12,6 +12,7 @@ import type { WorldState } from "@engine/server/core/WorldState";
 import type { Entity } from "@engine/server/ecs/Entity";
 import type { PlayerId } from "@engine/server/ecs/types";
 import type { ItemSpawnRules, MatchConfig, SpawnStrategyType, WeaponLoadout } from "@shared/server/gametype";
+import type { MapMode } from "../../shared/bsp/PickupTable";
 import { debugLog } from "../DebugLog";
 import { BaseGametype, type GameResult } from "./BaseGametype";
 
@@ -19,6 +20,9 @@ export class Duel extends BaseGametype {
   readonly name = "Duel";
   readonly maxPlayers = 2;
   readonly teamBased = true; // Use team infrastructure for 1v1 UI
+  override readonly mapMode: MapMode = { names: ["duel"], kind: "duel" };
+  override readonly timeouts = true;
+  override readonly timeoutOnDrop = true;
 
   // ========================================================================
   // Configuration

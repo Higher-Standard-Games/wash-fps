@@ -15,7 +15,7 @@ import type {
   WeaponLoadout,
 } from "@shared/server/gametype";
 import { MatchPhase } from "@shared/server/gametype";
-import { WEAPON_PICKUP_CLASSNAMES } from "../../shared/bsp/PickupTable";
+import { type MapMode, WEAPON_PICKUP_CLASSNAMES } from "../../shared/bsp/PickupTable";
 import { BaseGametype, type GameResult, type GametypeTickContext, type RoundOutcome } from "./BaseGametype";
 import { PlayerLoadouts } from "./PlayerLoadouts";
 
@@ -23,6 +23,10 @@ export class Amphi extends BaseGametype {
   readonly name = "Amphi";
   readonly maxPlayers = 2;
   readonly teamBased = true; // One player per side; the round score uses team scores.
+  // One against one: a map's duel items are Amphi's too
+  override readonly mapMode: MapMode = { names: ["amphi", "duel"], kind: "duel" };
+  override readonly timeouts = true;
+  override readonly timeoutOnDrop = true;
 
   /** Kits are granted on spawn, including deaths within a round. */
   private loadouts = new PlayerLoadouts();

@@ -86,6 +86,11 @@ export class ProtocolTestClient {
     });
   }
 
+  /** True once the socket has closed, from either end. */
+  get isClosed(): boolean {
+    return this.ws.readyState === WebSocket.CLOSED;
+  }
+
   send(bytes: Uint8Array): void {
     this.defer(() => {
       if (this.ws.readyState === WebSocket.OPEN) this.ws.send(bytes);

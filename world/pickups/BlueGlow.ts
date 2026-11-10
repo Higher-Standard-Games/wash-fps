@@ -44,29 +44,36 @@ export function blueGlowMask(pixels: Uint8Array): Uint8Array {
   return out;
 }
 
-async function buildMask(base: BaseTexture): Promise<RawTexture | null> {
+/** A loaded texture's RGBA bytes, in the order the texture holds them, or null if it cannot be read. */
+export async function texturePixels(
+  base: BaseTexture,
+): Promise<{ bytes: Uint8Array; width: number; height: number; scene: Scene } | null> {
   const scene = base.getScene();
   if (!scene) return null;
   await new Promise<void>((resolve) => {
     if (base.isReady()) resolve();
     else (base as Texture).onLoadObservable?.addOnce(() => resolve()) ?? resolve();
   });
-  const size = base.getSize();
+  const { width, height } = base.getSize();
   const pixels = await base.readPixels();
-  if (!pixels || !size.width || !size.height) return null;
+  if (!pixels || !width || !height) return null;
   const bytes = new Uint8Array(pixels.buffer, pixels.byteOffset, pixels.byteLength);
-  if (bytes.length < size.width * size.height * 4) return null;
-  // The pixels come back as the texture holds them, so the mask is uploaded
-  // the same way round and reads with the base texture's coordinates
-  const mask = RawTexture.CreateRGBATexture(
-    blueGlowMask(bytes),
-    size.width,
-    size.height,
-    scene,
-    true,
-    false,
-    Texture.TRILINEAR_SAMPLINGMODE,
-  );
+  if (bytes.length < width * height * 4) return null;
+  return { bytes, width, height, scene };
+}
+
+/**
+ * Upload RGBA bytes read from a texture as a new texture. The bytes are in the
+ * order the source holds them, so the result reads with its coordinates.
+ */
+export function textureFromPixels(bytes: Uint8Array, width: number, height: number, scene: Scene): RawTexture {
+  return RawTexture.CreateRGBATexture(bytes, width, height, scene, true, false, Texture.TRILINEAR_SAMPLINGMODE);
+}
+
+async function buildMask(base: BaseTexture): Promise<RawTexture | null> {
+  const read = await texturePixels(base);
+  if (!read) return null;
+  const mask = textureFromPixels(blueGlowMask(read.bytes), read.width, read.height, read.scene);
   mask.name = `${base.name}_blue_glow`;
   return mask;
 }

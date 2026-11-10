@@ -72,6 +72,7 @@ export class MatchState {
   private _matchStarted = false;
   private readonly resultPlayers = new Set<PlayerId>();
   private readonly departedScores = new Map<PlayerId, number>();
+  private readonly departedDeaths = new Map<PlayerId, number>();
   /** Overtime extensions granted this match (0 = regulation). */
   private _overtimeCount = 0;
 
@@ -406,14 +407,19 @@ export class MatchState {
     if (this._matchStarted) this.resultPlayers.add(playerId);
     this._totalPlayers = this._activePlayers.size;
     if (!this._stats.has(playerId)) this._stats.set(playerId, emptyPlayerStats());
-    if (!this._scores.has(playerId)) this._scores.set(playerId, 0);
-    if (!this._deaths.has(playerId)) this._deaths.set(playerId, 0);
+    // A player back in their seat after leaving it carries on with their score
+    if (!this._scores.has(playerId)) this._scores.set(playerId, this.departedScores.get(playerId) ?? 0);
+    if (!this._deaths.has(playerId)) this._deaths.set(playerId, this.departedDeaths.get(playerId) ?? 0);
+    this.departedScores.delete(playerId);
+    this.departedDeaths.delete(playerId);
     this._playerTeams.set(playerId, "spectator"); // default to spec
   }
 
   removePlayer(playerId: PlayerId): void {
-    if (this._flow === "single" && this.resultPlayers.has(playerId))
+    if (this._flow === "single" && this.resultPlayers.has(playerId)) {
       this.departedScores.set(playerId, this.getScore(playerId));
+      this.departedDeaths.set(playerId, this.getDeaths(playerId));
+    }
     this._activePlayers.delete(playerId);
     this._totalPlayers = this._activePlayers.size;
     if (this._flow !== "single" || !this.resultPlayers.has(playerId)) {
@@ -803,6 +809,7 @@ export class MatchState {
         this._matchStarted = false;
         this.resultPlayers.clear();
         this.departedScores.clear();
+        this.departedDeaths.clear();
         this._round = 0;
         this._roundTimeExpired = false;
         break;
@@ -835,6 +842,7 @@ export class MatchState {
           this.resultPlayers.clear();
           for (const id of this._activePlayers) this.resultPlayers.add(id);
           this.departedScores.clear();
+          this.departedDeaths.clear();
           this._stats.clear();
           this.activeMillis.clear();
           for (const [id] of this._scores) {

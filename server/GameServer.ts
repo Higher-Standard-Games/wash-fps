@@ -38,11 +38,12 @@ import { MatchPhase } from "../../../shared/server/gametype/GametypeTypes";
 import { botLoadout, describeLoadout, parseLoadout } from "../../../shared/server/gametype/Loadout";
 import { sanitizeCommand } from "../../../shared/server/simulation/InputSanitizer";
 import { toClientKey } from "../ClientEntityKey";
-import type { PickupEntry } from "../shared/bsp/PickupTable";
+import { type PickupEntry, spawnsIn } from "../shared/bsp/PickupTable";
+import { PlayerLooks } from "../shared/players/PlayerLook";
 import { cleanClientText, nextAckedTick, rateLimited } from "./AuthorityGuards";
 // Bot names
 import { getNextBotName } from "./BotNames";
-import type { PendingChatEvent } from "./ChatRouting";
+import { chatVisibleTo, type PendingChatEvent } from "./ChatRouting";
 // Client types (shared with SnapshotBuilder, SnapshotBroadcaster)
 import type { ClientInfo, GameServerConfig } from "./Client";
 import { ClientSilenceMonitor } from "./ClientSilenceMonitor";
@@ -55,6 +56,7 @@ import { Deathmatch } from "./gametypes/Deathmatch";
 // Gametype
 import { GametypeController } from "./gametypes/GametypeController";
 // Anti-cheat
+import { MatchPause } from "./MatchPause";
 import { MovementValidator } from "./MovementValidator";
 import { createServerTiming, type ServerTiming } from "./ServerTiming";
 import { SnapshotBroadcaster } from "./SnapshotBroadcaster";
@@ -89,6 +91,9 @@ const EMPTY_SHUTDOWN_MS = 5_000;
  * refused resume, a stalled client — must not keep a finished server alive.
  */
 const HANDSHAKE_GRACE_MS = 15_000;
+
+/** Commands a paused match queues per player: about a tenth of a second's worth. */
+const PAUSED_INPUT_LIMIT = 16;
 
 /**
  * Whether a 5 s tick-rate sample means the server fell behind: under 95% of the target rate, or a
@@ -160,11 +165,20 @@ export class GameServer {
   private readonly silenceMonitor = new ClientSilenceMonitor();
   private silenceCheckedAt = 0;
   /** Seats kept for clients whose connection dropped, until their grace runs out. */
-  private readonly suspended = new SuspendedSessions<ClientInfo>(20000);
+  private readonly suspended = new SuspendedSessions<ClientInfo>(60000);
   /** Clients that need initial pickup state sync (pickups deactivated before they joined) */
   private needsPickupSync: Set<string> = new Set();
   /** Bot player ID → display name */
   private botNames: Map<PlayerId, string> = new Map();
+  /** Timeouts: while paused the loop stands still; see MatchPause. */
+  private readonly pause = new MatchPause();
+  /** A timeout called for a dropped player ran out: their seat goes when play resumes. */
+  private dropTimeoutRanOut = false;
+  /** The newest tick whose snapshot went out, so a pause sends the one it interrupted. */
+  private lastBroadcastTick = -1;
+  private frozenSnapshotAt = 0;
+  /** Free-for-all bodies and colours; see SnapshotBuilder. */
+  private readonly playerLooks = new PlayerLooks();
   /** Set of bot names currently in use (for dedup) */
   private usedBotNames: Set<string> = new Set();
 
@@ -597,10 +611,11 @@ export class GameServer {
    * (extractPickups — ids are authoritative and shared with the client).
    */
   setPickupItems(entries: PickupEntry[]): void {
-    const excluded = new Set(this.gametypeController.getGametype().getItemSpawnRules().excludeClassnames ?? []);
-    const count = entries.filter((e) => excluded.has(e.classname)).length;
+    const gametype = this.gametypeController.getGametype();
+    const excluded = new Set(gametype.getItemSpawnRules().excludeClassnames ?? []);
+    const count = entries.filter((e) => excluded.has(e.classname) || !spawnsIn(e.modes, gametype.mapMode)).length;
     if (count > 0) debugLog("setup", () => `[GameServer] ${count} pickups excluded by gametype`);
-    this.pickupSystem.setPickupItems(entries, excluded);
+    this.pickupSystem.setPickupItems(entries, excluded, gametype.mapMode);
   }
 
   /**
@@ -950,7 +965,13 @@ export class GameServer {
         // capped to avoid a spiral of death if the event loop fell far behind.
         const MAX_CATCHUP = 5;
         let ran = 0;
-        while (performance.now() >= this.nextTickAt && ran < MAX_CATCHUP) {
+        // A paused match runs no ticks; the deadline moves along with the
+        // clock, so play resumes without a burst of catch-up ticks
+        if (this.pause.paused) {
+          this.updatePause();
+          this.nextTickAt = performance.now() + tickMs;
+        }
+        while (!this.pause.paused && performance.now() >= this.nextTickAt && ran < MAX_CATCHUP) {
           const t0 = performance.now();
           this.tick();
           this.diagMaxTickMs = Math.max(this.diagMaxTickMs, performance.now() - t0);
@@ -966,8 +987,12 @@ export class GameServer {
         }
 
         this.logTickRateDiagnostic();
-        this.checkClientSilence();
-        this.expireSuspendedSessions();
+        // A held seat's time does not run while the match stands still, and a
+        // paused client has nothing to send
+        if (!this.pause.paused) {
+          this.checkClientSilence();
+          this.expireSuspendedSessions();
+        }
       } catch (err) {
         // Anything thrown here would otherwise take the timer with it: no next
         // tick is ever scheduled, so the server stops simulating while its
@@ -1184,6 +1209,7 @@ export class GameServer {
       // grace close below). Reset if the phase ever leaves PostGame.
       this._postGameEnterTick = currentPhase === MatchPhase.PostGame ? (this.simulation.currentTick as number) : null;
       this._postGameBotsKicked = false;
+      if (currentPhase === MatchPhase.Warmup) this.pause.reset();
       this._lastMatchPhase = currentPhase;
     }
 
@@ -1232,6 +1258,7 @@ export class GameServer {
         );
         this.broadcaster.broadcast(this.clients, gameState, directives);
         this.markSnapshotSent(gameState.tick);
+        this.lastBroadcastTick = gameState.tick;
         if (recording) {
           this.demoRecorder?.recordFrame(gameState);
         }
@@ -1321,6 +1348,7 @@ export class GameServer {
       this.suspended.suspend(client, Date.now());
       this.movementValidator.removeClient(client.playerId);
       this.telemetry.remove(client.playerId);
+      this.timeoutForDrop(client);
       console.log(
         `[GameServer] Player ${client.playerId} "${client.playerName}" dropped (${reason}) — seat held for ${(this.suspended.graceMs / 1000).toFixed(0)}s`,
       );
@@ -1485,6 +1513,11 @@ export class GameServer {
         return;
       }
 
+      if (msgType === MessageType.CallPause) {
+        this.handleCallPause(conn, MessageCodec.decodeCallPause(data).timeout);
+        return;
+      }
+
       if (msgType === MessageType.ClientPrefs) {
         const client = this.clients.get(conn.id);
         if (client) client.autoSwitch = MessageCodec.decodeClientPrefs(data).autoSwitch;
@@ -1637,6 +1670,131 @@ export class GameServer {
     debugLog("spawn", () => `[GameServer] RequestSpawn from player ${client.playerId}`);
   }
 
+  // ========================================================================
+  // Timeouts
+  // ========================================================================
+
+  /** The clock held seats run on: it stands still while the match is paused. */
+  private holdClock(): number {
+    const now = Date.now();
+    return now - this.pause.heldFor(now);
+  }
+
+  /** The match phases a timeout can hold: live play, and a round's result. */
+  private pausable(): boolean {
+    const phase = this.gametypeController.getPhase();
+    return phase === MatchPhase.Active || phase === MatchPhase.RoundEnd;
+  }
+
+  /** A player calls a timeout or time in, from the `timeout` and `timein` commands. */
+  private handleCallPause(conn: ClientConnection, timeout: boolean): void {
+    const client = this.clients.get(conn.id);
+    if (!client) return;
+    const now = performance.now();
+    if (rateLimited(client.lastPauseCallMs, now, 1000)) return;
+    client.lastPauseCallMs = now;
+    const say = (text: string) => conn.sendReliable(MessageCodec.encodeServerMessage(text, "info"));
+    if (client.isSpectator) {
+      say(timeout ? "Only players can call a timeout." : "Only players can call time in.");
+      return;
+    }
+    if (!timeout) {
+      if (!this.pause.callTimein(Date.now())) {
+        say("There is no timeout to end.");
+        return;
+      }
+      console.log(`[GameServer] ${client.playerName} called time in`);
+      this.announcePause();
+      return;
+    }
+    const gametype = this.gametypeController.getGametype();
+    if (!gametype.timeouts) {
+      say(`${gametype.name} has no timeouts.`);
+      return;
+    }
+    if (!this.pausable()) {
+      say("A timeout can only be called while the match is being played.");
+      return;
+    }
+    const refused = this.pause.callTimeout(client.playerId, client.playerName, Date.now());
+    if (refused === "used") say("You have already used your timeout this match.");
+    else if (refused === "paused") say("The match is already paused.");
+    else {
+      console.log(`[GameServer] ${client.playerName} called a timeout`);
+      this.flushPausedTick();
+      this.announcePause();
+    }
+  }
+
+  /** A player dropped out of a live head-to-head match: hold it until they are back. */
+  private timeoutForDrop(client: ClientInfo): void {
+    if (!this.gametypeController.getGametype().timeoutOnDrop || !this.pausable()) return;
+    if (!this.pause.callForDrop(client.playerName, Date.now())) return;
+    console.log(`[GameServer] Timeout: ${client.playerName} dropped`);
+    this.flushPausedTick();
+    this.announcePause();
+  }
+
+  private announcePause(): void {
+    const notice = MessageCodec.encodePause(this.pause.notice(Date.now()));
+    for (const client of this.clients.values()) client.connection.sendReliable(notice);
+  }
+
+  /**
+   * Run while paused, in place of ticks: move the pause on when its time is
+   * up, deliver chat, and give a client that arrived during it the world it
+   * missed.
+   */
+  private updatePause(): void {
+    const now = Date.now();
+    const heldFor = this.pause.heldFor(now);
+    const wasDropTimeout = this.pause.state === "timeout" && this.pause.notice(now).forDrop;
+    const changed = this.pause.update(now);
+    if (changed === "timein" && wasDropTimeout) this.dropTimeoutRanOut = true;
+    if (changed === "running") {
+      // The held seats' time stood still with the match; but a seat whose own
+      // timeout ran out is given up, and the match goes on without it
+      this.suspended.delay(heldFor);
+      if (this.dropTimeoutRanOut) this.suspended.expireAll();
+      this.dropTimeoutRanOut = false;
+      console.log(`[GameServer] Play resumes after ${(heldFor / 1000).toFixed(1)}s`);
+    }
+    if (changed) this.announcePause();
+    if (!this.pause.paused) return;
+
+    for (const chat of this.pendingChatEvents) {
+      const line = MessageCodec.encodePausedChat(chat);
+      for (const client of this.clients.values())
+        if (chatVisibleTo({ type: "chat", ...chat }, toClientKey(client.entityId)))
+          client.connection.sendReliable(line);
+    }
+    this.pendingChatEvents.length = 0;
+
+    if (now - this.frozenSnapshotAt < 250) return;
+    this.frozenSnapshotAt = now;
+    const tick = this.simulation.currentTick as number;
+    const missing = new Map([...this.clients].filter(([, client]) => !client.sentSnapshots?.has(tick)));
+    if (missing.size > 0) this.broadcaster.broadcast(missing, buildSnapshot(this.getSnapshotContext()));
+  }
+
+  /**
+   * Send everyone the snapshot of the tick the pause interrupted, when the
+   * snapshot rate had skipped it: what happened on it reaches every client and
+   * the demo, rather than only those who arrive during the pause.
+   */
+  private flushPausedTick(): void {
+    const tick = this.simulation.currentTick as number;
+    if (this.lastBroadcastTick === tick) return;
+    const recording = !!this.demoRecorder?.isRecording;
+    if (this.clients.size === 0 && !recording) return;
+    const gameState = buildSnapshot(this.getSnapshotContext());
+    this.broadcaster.broadcast(this.clients, gameState);
+    this.markSnapshotSent(gameState.tick);
+    this.lastBroadcastTick = gameState.tick;
+    if (recording) this.demoRecorder?.recordFrame(gameState);
+    this.snapshotTickCounter = 0;
+  }
+
   private handleError(conn: ClientConnection, error: Error): void {
     console.error(`[GameServer] Client ${conn.id} error:`, error.message);
   }
@@ -1655,7 +1813,12 @@ export class GameServer {
     const decoded = MessageCodec.decodeJoin(data);
     const { isBot: claimedBot, admissionTicket } = decoded;
     const playerName = cleanClientText(decoded.playerName, GameServer.NAME_MAX_LENGTH);
-    const grant = this.matchAdmission?.consume(admissionTicket) ?? null;
+    let grant = this.matchAdmission?.consume(admissionTicket) ?? null;
+    if (admissionTicket && this.matchAdmission && !grant) {
+      if (this.reclaimSeat(conn, admissionTicket, playerName)) return;
+      // A claim held by a connection that never played was just released
+      grant = this.matchAdmission.consume(admissionTicket);
+    }
     if (admissionTicket && this.matchAdmission && !grant) {
       conn.close("invalid match ticket");
       return;
@@ -1719,13 +1882,78 @@ export class GameServer {
    */
   private handleResume(conn: ClientConnection, data: Uint8Array): void {
     const { token } = MessageCodec.decodeResume(data);
-    const client = this.suspended.take(token);
+    const client = this.suspended.take(token, this.holdClock());
     if (!client) {
       console.log(`[GameServer] Resume refused: no seat is held for that token`);
       conn.sendReliable(MessageCodec.encodeServerMessage("Your session has expired — rejoin from the lobby.", "error"));
       return;
     }
+    this.resumeSession(conn, client);
+  }
 
+  /**
+   * A player coming back into their own seat on a new connection with the
+   * lobby's recovery ticket, which outlives the resume token a reload loses.
+   * A connection still open on the seat is the one they left, so it is dropped
+   * first. While the seat is held they take back the same player, exactly as a
+   * resume would; once it was released they play again under their old player
+   * id, so their score carries on. False when the ticket takes back nothing.
+   */
+  private reclaimSeat(conn: ClientConnection, ticket: string, playerName: string): boolean {
+    const grant = this.matchAdmission?.reclaim(ticket);
+    if (!grant || this.gametypeController.getPhase() === MatchPhase.PostGame) return false;
+    const seatId = grant.seatId ?? grant.tokenHash;
+    const left = [...this.clients.values()].find(
+      (c) =>
+        c.playedSeatId === seatId || (c.preGameAdmissionGrant?.seatId ?? c.preGameAdmissionGrant?.tokenHash) === seatId,
+    );
+    if (left) {
+      this.handleDisconnect(left.connection, "rejoined on another connection");
+      left.connection.close("rejoined on another connection");
+    }
+    const held = this.suspended.clients().find((c) => c.playedSeatId === seatId);
+    if (held && this.suspended.take(held.resumeToken, this.holdClock())) {
+      console.log(`[GameServer] Player ${held.playerId} "${held.playerName}" rejoined their held seat`);
+      this.resumeSession(conn, held);
+      return true;
+    }
+    const seat = this.playedSeats.get(seatId);
+    if (
+      !seat ||
+      seat.accountId !== grant.accountId ||
+      [...this.clients.values()].some((c) => c.playerId === seat.playerId)
+    )
+      return false;
+    console.log(`[GameServer] ${playerName || grant.name} rejoined as player ${seat.playerId} "${seat.playerName}"`);
+    const client: ClientInfo = {
+      id: conn.id,
+      connection: conn,
+      playerId: seat.playerId,
+      entityId: this.simulation.getStateMut().generateEntityId(),
+      playerName: grant.name,
+      accountId: grant.accountId,
+      seatTeam: grant.team,
+      playedSeatTokenHash: seat.tokenHash,
+      playedSeatId: seatId,
+      resumeToken: crypto.randomUUID(),
+      lastInputSeq: 0,
+      lastAckedTick: 0,
+      ping: 0,
+      isSpectator: true,
+      isBot: false,
+    };
+    this.clients.set(conn.id, client);
+    this.hasHadClients = true;
+    this.refreshHumanClientCount();
+    this.sendWelcome(client);
+    this.sendJoinAccept(client);
+    conn.sendReliable(MessageCodec.encodeResumeToken(client.resumeToken, this.suspended.graceMs));
+    this.needsPickupSync.add(client.id);
+    return true;
+  }
+
+  /** Hand a held seat to the connection its owner came back on. */
+  private resumeSession(conn: ClientConnection, client: ClientInfo): void {
     client.connection.close("resumed on another connection");
     client.id = conn.id;
     client.connection = conn;
@@ -2020,6 +2248,9 @@ export class GameServer {
 
     const state = this.simulation.getStateMut();
     const mutEntity = state.getEntityMut(client.entityId);
+    // A paused match keeps the commands already on their way when it stopped,
+    // which the client predicted; more would play out as a burst on resume
+    if (this.pause.paused && (mutEntity?.input?.inputQueue.length ?? 0) >= PAUSED_INPUT_LIMIT) return;
     if (mutEntity?.input) {
       const buttons = clean.buttons;
       if (seq % 200 === 0) {
@@ -2089,6 +2320,7 @@ export class GameServer {
         gametypeController: this.gametypeController,
         clients: this.clients,
         botNames: this.botNames,
+        playerLooks: this.playerLooks,
         knownProjectileIds: this.knownProjectileIds,
         pendingKillEvents: this.pendingKillEvents,
         pendingChatEvents: this.pendingChatEvents,
@@ -2126,6 +2358,8 @@ export class GameServer {
     const acceptBytes = MessageCodec.encodeJoinAccept(client.id, playerId, entityId);
     client.connection.sendReliable(acceptBytes);
     debugLog("setup", () => `[GameServer] Sent JoinAccept: playerId=${playerId}, entityId=${entityId}`);
+    // A paused match sends no snapshots, so a client arriving now is told why
+    if (this.pause.paused) client.connection.sendReliable(MessageCodec.encodePause(this.pause.notice(Date.now())));
   }
 
   // ========================================================================

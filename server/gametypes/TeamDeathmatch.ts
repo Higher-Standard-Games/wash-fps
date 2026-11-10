@@ -20,6 +20,7 @@ import type {
   SpawnStrategyType,
   WeaponLoadout,
 } from "@shared/server/gametype";
+import type { MapMode } from "../../shared/bsp/PickupTable";
 import { debugLog } from "../DebugLog";
 import { BaseGametype, type GameResult } from "./BaseGametype";
 
@@ -36,6 +37,7 @@ export class TeamDeathmatch extends BaseGametype {
   readonly name = "Team Deathmatch";
   readonly maxPlayers = 16;
   readonly teamBased = true;
+  override readonly mapMode: MapMode = { names: ["tdm"], kind: "team" };
 
   // GametypeController passes its own MatchState around where needed,
   // but we can query it via controller if we needed to.

@@ -1,5 +1,6 @@
 import type { AmmoDef } from "../../../../../../shared/entities/AmmoDef";
 import { EntityType } from "../../../../../../shared/entities/EntityType";
+import { AMMO_BOX_MODEL, AMMO_BOX_SCALE } from "./box";
 
 export const BULLET_AMMO: AmmoDef = {
   id: "ammo_bullets",
@@ -11,7 +12,8 @@ export const BULLET_AMMO: AmmoDef = {
   ammoType: "bullets",
   amount: 50,
 
-  scale: 1.0,
+  modelPath: AMMO_BOX_MODEL,
+  scale: AMMO_BOX_SCALE,
 
   // Pickup glow (yellow)
   glowColor: { r: 1.0, g: 0.9, b: 0.3 },

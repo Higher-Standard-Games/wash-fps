@@ -12,6 +12,7 @@
 
 import type { AmmoDef } from "../../../../../../shared/entities/AmmoDef";
 import { EntityType } from "../../../../../../shared/entities/EntityType";
+import { AMMO_BOX_MODEL, AMMO_BOX_SCALE } from "./box";
 
 export const VOLTAIC_AMMO: AmmoDef = {
   id: "ammo_lasers",
@@ -23,7 +24,8 @@ export const VOLTAIC_AMMO: AmmoDef = {
   ammoType: "lasers",
   amount: 100,
 
-  scale: 1.0,
+  modelPath: AMMO_BOX_MODEL,
+  scale: AMMO_BOX_SCALE,
 
   // Pickup glow (electric cyan, matches voltaic)
   glowColor: { r: 0.2, g: 0.8, b: 1.0 },

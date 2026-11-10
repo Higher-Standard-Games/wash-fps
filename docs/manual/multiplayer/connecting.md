@@ -111,7 +111,7 @@ once the map is in: join the match, or spectate first.
 - The snapshot buffer
 - The client-side projectile / weapon-view state
 
-If you drop mid-match, your seat is held for 20 seconds and the server hands your client a resume token, so coming back inside that window puts you back in the same seat rather than a new one. Miss it and the seat is released and your name leaves the scoreboard.
+In Duel and Amphi, dropping out of a live match pauses it for up to two minutes, and your seat is held for as long as the pause lasts; see [Timeouts](./timeouts.md#when-a-player-drops). Otherwise, if you drop mid-match, your seat is held for 60 seconds and the server hands your client a resume token, so coming back inside that window puts you back in the same seat rather than a new one. If the game reloaded or you went back to the lobby, use **Rejoin match** in the match room: it takes the same seat back, as often as you need. Miss the 60 seconds and the seat is released and your name leaves the scoreboard; in Duel and Amphi your opponent wins by forfeit. In the other modes **Rejoin match** still brings you back with your score, but the match is no longer rated.
 
 ## Reading the NetGraph
 

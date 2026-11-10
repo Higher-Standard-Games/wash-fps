@@ -15,7 +15,10 @@ you make them. They pause when hidden. A still image or model name is shown
 while the live preview loads or if live rendering is unavailable.
 
 The choice controls the bodies you see and player pain, death, jumping and your
-own drowning voice. In FFA, everyone else uses the enemy selection. While
+own drowning voice. In FFA the server gives every other player a body and a
+colour of their own, the same for everyone watching and in the match's demo,
+so these selections apply to your own side only; outline and brightness
+settings still apply. While
 following a player or watching their demo POV, sides are relative to that
 player. These are local presentation preferences; model choice keeps the same
 player collision bounds. Bodies use a slightly enlarged visual fit for readability;
@@ -136,12 +139,13 @@ match continues while its menu is open.
 
 ## Gameplay
 
-- **Team colours.** The colour of **your side** and of **enemies** (anyone you can shoot), each with its own outline colour. In free-for-all each opponent instead wears a colour of their own from the same palette, kept for the match, so you can tell them apart; your side's colour is left out of it. A colour already used by the other side is refused. Cvars: `cl_team_ally_color`, `cl_team_enemy_color`, `cl_team_ffa_color` and their `_outline_color` pairs.
+- **Team colours.** The colour of **your side** and of **enemies** (anyone you can shoot), each with its own outline colour. In free-for-all each opponent instead wears a colour of their own from the same palette, handed out by the server and kept for the match, so you can tell them apart and everyone sees the same colours; an opponent given your side's colour wears an unused one on your screen instead. A colour already used by the other side is refused. Cvars: `cl_team_ally_color`, `cl_team_enemy_color`, `cl_team_ffa_color` and their `_outline_color` pairs.
 - **Outline** (`cl_player_outline`, `cl_player_outline_size`): Off, Thin (the default) or Bold, which is twice as thick.
 - **Brighter players** (`cl_player_tint`, `cl_player_fullbright`, `cl_player_fullbright_intensity`): Off keeps original model colours with a coloured outline. Tint applies the chosen team colour; Some and Lots also brighten the body for visibility in dark corners. Tint is the default.
 - A preview on a real map shows all of the above as you change them.
 - **Crosshair** with its own preview: on or off, **opens up when moving** (tightens again while you aim), size, opacity, colour, and the colour it flashes **when you hit** someone. The defaults are size 32 and green, flashing red on a hit. An empty weapon with no reserve shows a red X until ammunition is available. Cvars: `cg_crosshair`, `cg_crosshairSpread`, `cg_crosshairSize`, `cg_crosshairAlpha`, `cg_crosshairColor`, `cg_crosshairDmgColor`.
-- **Field of view** (`cl_fov`): 80 – 110 degrees, default 90, horizontal at 16:9.
+- **Field of view** (`cl_fov`): 80 – 110 degrees, default 90, horizontal at 16:9. It applies in play, in spectator freefly and when watching a player.
+- **Gun size** (`cl_gunsize`): Normal (0, the default), Small (1, a tenth smaller) or Smallest (2, a fifth smaller). Your own first-person gun shrinks into its corner of the screen; aiming down sights brings it back to full size so the sights stay centred.
 - **Explosion shake** (`cg_screenshake`): on by default, under View & info. The view shakes when a rocket, grenade, plasma or blade blast goes off near you; off, it stays still.
 - **Shake when hit** (`cg_hitshake`): off by default. On, the view shakes when you take damage. Your own weapon's recoil kick is separate from both and stays.
 - **FPS counter** (`show_fps`) and **Movement speed** (`cl_showspeed`): both on by default, under View & info. Saved choices take priority.
@@ -218,6 +222,8 @@ A few settings have no screen yet:
 | `cg_bobfrequency` | 0.03 | Bob speed, 0.01 – 0.06; higher is faster footsteps |
 | `cg_bobroll` | 0.35 | Roll tilt during the bob, in degrees, 0 – 2 |
 | `cg_boblean` | 1.0 | Forward lean while running fast, in degrees, 0 – 5 |
+| `cl_gun` | 1 | Draws your own first-person gun; 0 hides it. Other players' guns are unaffected |
+| `cg_weaponfov` | 60 | Field of view of your own first-person gun, 50 – 120 degrees; higher draws it smaller and further away |
 | `cl_interp` | 0 | Snapshot interpolation delay in ms; 0 picks it automatically |
 | `cl_remotehitbox` | 0 | Draws other players' hitboxes (a debugging aid) |
 
@@ -233,4 +239,4 @@ Enter `cl_hud 0` in the console to hide the game HUD, crosshair, spectator
 instructions, demo controls, FPS counter and debug overlays. Close the console
 before taking the shot. Enter `cl_hud 1` to restore them. This is a session-only
 setting and defaults to visible after reloading. Menus and the console remain
-available. The weapon model is controlled separately.
+available. The weapon model is controlled separately: `cl_gun 0` hides it.

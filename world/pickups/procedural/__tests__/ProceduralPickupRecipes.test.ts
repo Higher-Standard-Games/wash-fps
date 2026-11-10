@@ -1,19 +1,34 @@
 /**
- * Recipe-selection coverage: every health/armor/ammo kind resolves to a recipe
- * with the right family and a defined color; non-pickup ids resolve to null.
+ * Recipe-selection coverage: every procedural health kind resolves to a recipe
+ * with the right family and a defined color; items drawn from packaged models
+ * and non-pickup ids resolve to null.
  */
 
 import { describe, expect, it } from "vitest";
 import {
   allProceduralPickupRecipes,
+  ammoCrateRecipes,
   getProceduralPickupRecipe,
   hasProceduralPickupRecipe,
+  healthBubbleRecipes,
+  quadRecipe,
+  ultraHealthRecipe,
 } from "../ProceduralPickupRecipes";
 
-const HEALTH_IDS = ["health_small", "health_medium", "health_large", "health_ultra"];
 /** Items drawn from packaged models instead (washoi_models.pk3). */
-const MODEL_IDS = ["armor_shard", "armor_ga", "armor_ya", "armor_ra", "health_mega"];
-/** Must stay in step with the ids in `src/shared/entities/definitions/ammo/`. */
+const MODEL_IDS = [
+  "armor_shard",
+  "armor_ga",
+  "armor_ya",
+  "armor_ra",
+  "health_small",
+  "health_medium",
+  "health_large",
+  "health_mega",
+  "health_ultra",
+  "powerup_quad",
+];
+/** Must stay in step with the ids in `shared/entities/definitions/ammo/`; all draw the ammo box. */
 const AMMO_IDS = [
   "ammo_bullets",
   "ammo_shells",
@@ -24,23 +39,18 @@ const AMMO_IDS = [
   "ammo_bolts",
 ];
 /** Powerups; quad is the only one implemented (see shared/items/Powerups.ts). */
-const POWERUP_IDS = ["powerup_quad"];
 
 describe("getProceduralPickupRecipe", () => {
-  it("resolves every health kind to a health recipe", () => {
-    for (const id of HEALTH_IDS) {
-      const recipe = getProceduralPickupRecipe(id);
-      expect(recipe, id).not.toBeNull();
-      expect(recipe?.id).toBe(id);
-      expect(recipe?.family).toBe("health");
-      expect(recipe?.color).toBeDefined();
-    }
+  it("keeps an unregistered recipe for every health bubble", () => {
+    expect(healthBubbleRecipes().map((r) => r.id)).toEqual(["health_small", "health_medium", "health_large"]);
+    for (const recipe of healthBubbleRecipes()) expect(recipe.family).toBe("health");
   });
 
-  it("resolves every ammo kind to an ammo recipe carrying an icon path", () => {
+  it("keeps an unregistered crate recipe for every ammo kind, carrying an icon path", () => {
+    const crates = new Map(ammoCrateRecipes().map((r) => [r.id, r]));
     for (const id of AMMO_IDS) {
-      const recipe = getProceduralPickupRecipe(id);
-      expect(recipe, id).not.toBeNull();
+      const recipe = crates.get(id);
+      expect(recipe, id).toBeDefined();
       expect(recipe?.id).toBe(id);
       expect(recipe?.family).toBe("ammo");
       expect(recipe?.color).toBeDefined();
@@ -56,46 +66,25 @@ describe("getProceduralPickupRecipe", () => {
     expect(getProceduralPickupRecipe("does_not_exist")).toBeNull();
   });
 
-  it("only marks health/armor/ammo ids as having a procedural recipe", () => {
-    expect(hasProceduralPickupRecipe("health_ultra")).toBe(true);
-    expect(hasProceduralPickupRecipe("ammo_bolts")).toBe(true);
-    expect(hasProceduralPickupRecipe("powerup_quad")).toBe(true);
-    expect(hasProceduralPickupRecipe("rlauncher")).toBe(false);
+  it("keeps the ultra health's and the quad's recipes unregistered", () => {
+    expect(ultraHealthRecipe()).toMatchObject({ id: "health_ultra", family: "health", highTier: true });
+    expect(quadRecipe()).toMatchObject({ id: "powerup_quad", family: "powerup", highTier: true });
+    expect(quadRecipe().iconTexture).toBeUndefined();
   });
 
-  it("leaves the armor and megahealth with packaged models to their models", () => {
-    for (const id of MODEL_IDS) expect(hasProceduralPickupRecipe(id), id).toBe(false);
+  it("leaves the armor, every health, the quad and ammo to their packaged models", () => {
+    for (const id of [...MODEL_IDS, ...AMMO_IDS]) expect(hasProceduralPickupRecipe(id), id).toBe(false);
   });
 
-  it("resolves the quad to a powerup recipe with no icon texture", () => {
-    for (const id of POWERUP_IDS) {
-      const recipe = getProceduralPickupRecipe(id);
-      expect(recipe, id).not.toBeNull();
-      expect(recipe?.id).toBe(id);
-      expect(recipe?.family).toBe("powerup");
-      expect(recipe?.color).toBeDefined();
-      // The quad is built entirely from generated geometry — the pk3 ships only
-      // a HUD icon for it, never a world model or a decal.
-      expect(recipe?.iconTexture, id).toBeUndefined();
-    }
-  });
-
-  it("exposes exactly the health + armor + ammo + powerup entries", () => {
-    const recipes = allProceduralPickupRecipes();
-    expect(recipes).toHaveLength(HEALTH_IDS.length + AMMO_IDS.length + POWERUP_IDS.length);
-    // High-tier flag is set for the expensive tiers only — no crate is high tier.
-    const highTier = recipes
-      .filter((r) => r.highTier)
-      .map((r) => r.id)
-      .sort();
-    expect(highTier).toEqual(["health_ultra", "powerup_quad"]);
+  it("registers no recipe at all: every item has its packaged model", () => {
+    expect(allProceduralPickupRecipes()).toHaveLength(0);
   });
 
   it("keeps laser and plasma crates visually distinct (separate ammo pools)", () => {
     // Lasers used to share the plasmagun's `cells` pool, so the two crates were
     // the same object. They are separate pools now and must read as such.
-    const plasma = getProceduralPickupRecipe("ammo_plasmagun");
-    const lasers = getProceduralPickupRecipe("ammo_lasers");
+    const plasma = ammoCrateRecipes().find((r) => r.id === "ammo_plasmagun");
+    const lasers = ammoCrateRecipes().find((r) => r.id === "ammo_lasers");
     expect(plasma?.kind).toBe("cells");
     expect(lasers?.kind).toBe("lasers");
     expect(plasma?.iconTexture).not.toBe(lasers?.iconTexture);

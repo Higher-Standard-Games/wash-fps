@@ -1,4 +1,5 @@
 import type { GameState } from "../../../engine/network/core/GameState";
+import { decodeLook } from "../shared/players/PlayerLook";
 import {
   PLAYER_MODEL_VOICES,
   playerModelChoice,
@@ -25,15 +26,25 @@ export function setPlayerVoiceSet(side: PlayerVoiceSide, voice: PlayerVoiceSet):
   setPlayerModelChoice(side, voice === "female" ? "female" : voice === "bobot" ? "robot" : "police");
 }
 
-/** Match the colour allegiance, relative to the local or followed POV. */
+/**
+ * The voice of the body a player is drawn with: a free-for-all opponent's
+ * server-assigned one, otherwise by colour allegiance, relative to the local
+ * or followed POV.
+ */
 export function playerVoiceForEntity(state: GameState, entityId: string, viewEntityId?: string): PlayerVoiceSet {
   if (entityId === viewEntityId) return playerVoiceSet("ally");
   let team: string | undefined;
   let viewerTeam: string | undefined;
+  let look: number | undefined;
   for (const player of state.players.values()) {
-    if (player.entityId === entityId) team = player.team;
+    if (player.entityId === entityId) {
+      team = player.team;
+      look = player.look;
+    }
     if (player.entityId === viewEntityId) viewerTeam = player.team;
   }
+  const assigned = look === undefined ? null : decodeLook(look);
+  if (assigned) return PLAYER_MODEL_VOICES[assigned.model];
   return playerVoiceSet(getPlayerTeamSlot(team, viewerTeam) === "ally" ? "ally" : "enemy");
 }
 

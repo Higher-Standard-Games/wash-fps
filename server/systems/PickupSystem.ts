@@ -21,7 +21,7 @@ import type { ItemRespawnMode } from "@shared/server/gametype";
 import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulation/physics/constants";
 import { createPowerups } from "../../../../shared/server/simulation/components/PowerupComponent";
 // Shared pickup table (client+server agree on ids) + pure grant math.
-import type { PickupEntry, PickupType } from "../../shared/bsp/PickupTable";
+import { type MapMode, type PickupEntry, type PickupType, spawnsIn } from "../../shared/bsp/PickupTable";
 import {
   type ArmorKind,
   armorAfterPickup,
@@ -59,7 +59,7 @@ interface PickupItem {
   active: boolean; // Whether it can be picked up
   respawnTick: number; // Tick when it respawns (0 = active / no pending respawn)
   respawnTicks: number; // Per-type respawn duration in ticks
-  /** Left out by the mode (`excludeClassnames`): never active, never respawns. */
+  /** Left out by the mode (`excludeClassnames`) or by the map's gametype keys: never active, never respawns. */
   excluded?: boolean;
 }
 
@@ -168,7 +168,11 @@ export class PickupSystem extends Subsystem {
    * mask the client hides pickups by, and one whose id lay past the mask's end
    * was never told it was gone and stayed on the floor.
    */
-  setPickupItems(entries: PickupEntry[], excludedClassnames: ReadonlySet<string> = new Set()): void {
+  setPickupItems(
+    entries: PickupEntry[],
+    excludedClassnames: ReadonlySet<string> = new Set(),
+    mode: MapMode | null = null,
+  ): void {
     this.pickups = entries.map((e) => {
       return {
         id: e.id,
@@ -180,7 +184,7 @@ export class PickupSystem extends Subsystem {
         active: true,
         respawnTick: 0,
         respawnTicks: this.respawnTicksFor(e),
-        excluded: excludedClassnames.has(e.classname),
+        excluded: excludedClassnames.has(e.classname) || (mode !== null && !spawnsIn(e.modes, mode)),
       };
     });
     this.resetForMatch(0);

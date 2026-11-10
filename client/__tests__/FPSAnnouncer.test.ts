@@ -22,6 +22,8 @@ const moment = (phase: MatchPhase, timeRemaining = 0, extra: Partial<MatchMoment
   ready: false,
   lead: null,
   teamBased: false,
+  pause: null,
+  pauseSecondsLeft: 0,
   ...extra,
 });
 /** Runs `seconds` of frames at `dt`, the clock advancing with them. */
@@ -146,5 +148,24 @@ describe("Search and Destroy through the voice", () => {
       bomb.updateRound(MatchPhase.Countdown, t, null, true);
     }
     expect(lines()).toEqual(["bomb/offense/start", "countdown/3_", "countdown/2_", "countdown/1_"]);
+  });
+});
+
+describe("timeouts", () => {
+  it("calls the timeout, counts back in and calls the fight, holding everything else", () => {
+    const voice = announcer();
+    frames(voice, 1, () => moment(MatchPhase.Active));
+    played.length = 0;
+    // Overtime starting under a timeout is not called until play resumes
+    frames(voice, 5, () => moment(MatchPhase.Active, 0, { pause: "timeout", pauseSecondsLeft: 100, overtime: 1 }));
+    frames(voice, 3, (t) => moment(MatchPhase.Active, 0, { pause: "timein", pauseSecondsLeft: 3 - t, overtime: 1 }));
+    frames(voice, 2, () => moment(MatchPhase.Active, 0, { overtime: 1 }));
+    expect(lines()).toEqual([
+      "timeout/timeout",
+      "timeout/timein",
+      "countdown/1_",
+      "countdown/fight",
+      "overtime/overtime",
+    ]);
   });
 });

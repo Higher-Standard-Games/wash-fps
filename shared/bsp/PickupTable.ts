@@ -94,6 +94,53 @@ export interface PickupEntry {
   position: { x: number; y: number; z: number };
   /** Spawnflag 1: the map wants the item to hang where it is put, not drop to the floor. */
   suspended?: true;
+  /** The map's gametype keys, when it has any: which modes the item is in (see spawnsIn). */
+  modes?: MapModeKeys;
+}
+
+/**
+ * An entity's gametype keys, as maps write them: `gametype` lists the modes it
+ * appears in, and `notduel`, `notteam` and `notfree` leave it out of a kind of
+ * mode. A map can put a megahealth in duels and an ultra health everywhere
+ * else on the same spot.
+ */
+export interface MapModeKeys {
+  gametypes?: readonly string[];
+  notDuel?: true;
+  notTeam?: true;
+  notFree?: true;
+}
+
+/** How a mode reads those keys: its names in a `gametype` list, and which `not…` key leaves items out of it. */
+export interface MapMode {
+  names: readonly string[];
+  kind: "duel" | "team" | "free";
+}
+
+/** An entity's gametype keys, or undefined when it has none. */
+export function mapModeKeys(properties: Record<string, string>): MapModeKeys | undefined {
+  const keys: MapModeKeys = {};
+  const list = properties.gametype
+    ?.trim()
+    .toLowerCase()
+    .split(/[\s,]+/)
+    .filter(Boolean);
+  if (list?.length) keys.gametypes = list;
+  const set = (key: string) => (Number(properties[key]) || 0) !== 0;
+  if (set("notduel")) keys.notDuel = true;
+  if (set("notteam")) keys.notTeam = true;
+  if (set("notfree")) keys.notFree = true;
+  return Object.keys(keys).length ? keys : undefined;
+}
+
+/** Whether an item with these keys is in a mode. */
+export function spawnsIn(keys: MapModeKeys | undefined, mode: MapMode): boolean {
+  if (!keys) return true;
+  if (keys.gametypes && !keys.gametypes.some((name) => mode.names.includes(name))) return false;
+  if (mode.kind === "duel" && keys.notDuel) return false;
+  if (mode.kind === "team" && keys.notTeam) return false;
+  if (mode.kind === "free" && keys.notFree) return false;
+  return true;
 }
 
 /** Weapon-oriented alias for the shared pickup entry shape. */
@@ -132,6 +179,8 @@ export function extractPickups(
       position: { x, y: z, z: y }, // Convert the BSP's Z-up origin to Y-up.
     };
     if ((Number(entity.properties.spawnflags) || 0) & 1) entry.suspended = true;
+    const modes = mapModeKeys(entity.properties);
+    if (modes) entry.modes = modes;
     out.push(entry);
   }
 

@@ -27,7 +27,7 @@ import { InputButtons } from "../../engine/network/components/InputComponent";
 import type { TransformComponent } from "../../engine/network/components/TransformComponent";
 import type { GameState } from "../../engine/network/core/GameState";
 import type { IGameHost } from "../../engine/network/core/IGameHost";
-import { MessageCodec } from "../../engine/network/protocol/MessageCodec";
+import { type MatchPauseNotice, MessageCodec } from "../../engine/network/protocol/MessageCodec";
 import { PlayerProfile } from "../../engine/player/PlayerProfile";
 import RenderVars from "../../engine/rendering/RenderVars";
 import { waterNeedsLocalReflection } from "../../engine/rendering/water/WaterActorReflection";
@@ -55,7 +55,7 @@ import { FPSHud } from "./client/FPSHud";
 import { resetFPSMovementAudio } from "./client/FPSMovementAudio";
 import { FrameEffects } from "./client/FrameEffects";
 // Game event handling (extracted from this file)
-import { type GameEventContext, handleServerStateUpdate } from "./client/GameEvents";
+import { type GameEventContext, handleChatEvent, handleServerStateUpdate } from "./client/GameEvents";
 import { HUDState } from "./client/HUDState";
 import type { MatchMenuModeKey } from "./client/hud/widgets/PauseMenu";
 import { LocalLiquid } from "./client/LocalLiquid";
@@ -758,6 +758,7 @@ export class Game {
             this.remoteRenderer = renderer;
             renderer.setEnemyWeapons(this.enemyWeapons);
             renderer.setFollowedMuzzle(() => this.spectate._followedWeapon.beamMuzzle());
+            renderer.holdSnapshots(MatchStateManager.getInstance().pause !== null);
             try {
               await waitForPreparation(renderer.waitForModels(), scene, "player models", signal, 60000);
               signal.throwIfAborted();
@@ -832,6 +833,10 @@ export class Game {
         // that does nothing.
         this.showNotice(msg.message);
       });
+
+      // Timeouts: the server stops the match and sends no snapshots until it resumes
+      networkHost.onPause((notice) => this.onPause(notice));
+      networkHost.onPausedChat((chat) => handleChatEvent({ type: "chat", ...chat }));
 
       // Load player profile and connect with display name
       const profile = PlayerProfile.load();
@@ -1189,6 +1194,21 @@ export class Game {
     devLog("[Game] Joined game (server-confirmed)");
   }
 
+  /** Call a timeout (`true`) or time in; the server answers with the match's pause state. */
+  callPause(timeout: boolean): void {
+    if (!this.gameHost || !this.isNetworkMode) return;
+    const networkHost = this.gameHost as import("../../engine/network/client/hosts/NetworkGameHost").NetworkGameHost;
+    networkHost.sendCallPause(timeout);
+  }
+
+  /** The server paused the match, began counting back in, or resumed it. */
+  private onPause(notice: MatchPauseNotice): void {
+    MatchStateManager.getInstance().setPause(notice);
+    const held = notice.state !== "running";
+    this.remoteRenderer?.holdSnapshots(held);
+    this.projectiles.buffer.hold(held);
+  }
+
   /**
    * Send an in-game chat message (server sanitizes/rate-limits and
    * rebroadcasts as a `chat` snapshot event). Called by the HUD chat widget.
@@ -1415,6 +1435,10 @@ export class Game {
     if (this.playerState === "spectator") {
       return;
     }
+
+    // A paused match simulates nothing: predicting even a fall here would put
+    // the player somewhere the server never did
+    if (MatchStateManager.getInstance().pause) return;
 
     // Whenever the server is holding everyone still — the round freeze, the
     // round-end result, the post-game screen — strip the same input locally so
@@ -1725,6 +1749,8 @@ export class Game {
         timeRemaining: match.timeRemaining,
         overtime: match.overtime,
         roundsCalledByMode: bombMode,
+        pause: match.pause?.state ?? null,
+        pauseSecondsLeft: match.pauseSecondsLeft(),
         ...this.standing(match, localTeam, displayId),
         ready: match.isReady,
         teamBased: match.teamBased,
@@ -2265,6 +2291,7 @@ export class Game {
         this.remoteRenderer = new RemotePlayerRenderer(gameScene);
         this.remoteRenderer.setEnemyWeapons(this.enemyWeapons);
         this.remoteRenderer.setFollowedMuzzle(() => this.spectate._followedWeapon.beamMuzzle());
+        this.remoteRenderer.holdSnapshots(MatchStateManager.getInstance().pause !== null);
       }
     }
     handleServerStateUpdate(this.getEventContext(), state);

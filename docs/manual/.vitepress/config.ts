@@ -87,6 +87,7 @@ export default withMermaid(
               { text: "Lobby, Rooms & Accounts", link: "/multiplayer/lobby" },
               { text: "Connecting", link: "/multiplayer/connecting" },
               { text: "In-Game Chat", link: "/multiplayer/chat" },
+              { text: "Timeouts", link: "/multiplayer/timeouts" },
               { text: "Demos", link: "/multiplayer/demos" },
             ],
           },

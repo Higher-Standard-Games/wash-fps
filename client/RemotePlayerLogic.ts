@@ -111,6 +111,17 @@ export function applyRoster(
 }
 
 /**
+ * Track each player's server-assigned look (free-for-all body and colour) by
+ * entity id; a player without one, as in team modes and older demos, has none.
+ */
+export function applyLooks(looks: Map<string, number>, players: Iterable<{ entityId: string; look?: number }>): void {
+  for (const player of players) {
+    if (player.look === undefined) looks.delete(player.entityId);
+    else looks.set(player.entityId, player.look);
+  }
+}
+
+/**
  * Legacy alpha/bravo names for older cosmetic effects. Allies are alpha and
  * enemies bravo; with no sides, the entity id picks one so it stays stable.
  */

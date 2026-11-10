@@ -325,3 +325,20 @@ describe("PickupSystem - copy-on-write", () => {
     expect(previous.getEntity(body.id)?.health?.health).toBe(50);
   });
 });
+
+describe("PickupSystem - map gametype keys", () => {
+  it("never activates an item the map leaves out of the mode", () => {
+    const sys = new PickupSystem();
+    const player = makePlayer(9999, 0, 0);
+    sys.setPickupItems(
+      [
+        { ...healthEntry("mega", 0), modes: { gametypes: ["duel"] } },
+        { ...healthEntry("ultra", 1), modes: { notDuel: true } },
+      ],
+      new Set(),
+      { names: ["duel"], kind: "duel" },
+    );
+    sys.update(makeState(player) as never, 0.008, (60 * TICK_RATE) as never);
+    expect(sys.getActiveMask()).toEqual([true, false]);
+  });
+});

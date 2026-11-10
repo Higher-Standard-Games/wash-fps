@@ -75,6 +75,7 @@ function setup() {
     poseBounded: new WeakSet(),
     spareHitboxes: new Map(),
     teams: new Map(),
+    looks: new Map(),
     localTeam: null,
     perspectiveEntityId: null,
   });

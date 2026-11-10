@@ -5,6 +5,7 @@ import {
   RIOTKITTY_MODEL_ROOT,
   ROBOT_MODEL_ROOT,
 } from "../../../engine/animation/PlayerModelAssets";
+import { decodeLook } from "../shared/players/PlayerLook";
 import { playerModelChoice, registerPlayerModelSelection } from "./PlayerModelSelection";
 /**
  * RemotePlayerRenderer — Renders 3D models + hitbox wireframes for remote entities
@@ -99,6 +100,7 @@ import {
 } from "./QuadDamageVisual";
 import {
   animationLodRadiusSq,
+  applyLooks,
   applyRoster,
   deriveAnimation,
   extractEntities,
@@ -264,6 +266,8 @@ export class RemotePlayerRenderer {
   /** entityId → server team id ("udon"/"soba"/"ffa"/"spectator"), from snapshot players */
   private teams: Map<string, string> = new Map();
   private readonly ffaColors = new FfaColors();
+  /** entityId → server-assigned free-for-all look, from snapshot players */
+  private readonly looks = new Map<string, number>();
 
   /** Each model's child meshes; see bodyPartsOf. */
   private readonly bodyParts = new WeakMap<PlayerModelInstance, AbstractMesh[]>();
@@ -538,7 +542,17 @@ export class RemotePlayerRenderer {
     return instance;
   }
 
+  /** A free-for-all opponent's server-assigned body and colour, or null to use your settings. */
+  private assignedLook(entityId: string) {
+    const look = this.looks.get(entityId);
+    if (look === undefined || entityId === "water-local-body" || entityId === this.perspectiveEntityId) return null;
+    if (MatchStateManager.getInstance().teamBased) return null;
+    return decodeLook(look);
+  }
+
   private modelChoiceFor(entityId: string) {
+    const assigned = this.assignedLook(entityId);
+    if (assigned && this.resolvePlayerTeamSlot(entityId) === "ffa") return assigned.model;
     return playerModelChoice(
       entityId === "water-local-body" || this.resolvePlayerTeamSlot(entityId) === "ally" ? "ally" : "enemy",
     );
@@ -623,7 +637,15 @@ export class RemotePlayerRenderer {
    */
   private ffaColor(entityId: string, slot: PlayerTeamSlot) {
     if (slot !== "ffa" || MatchStateManager.getInstance().teamBased) return null;
-    return this.ffaColors.colorFor(entityId);
+    return this.ffaColors.colorFor(entityId, this.assignedLook(entityId)?.color, () => this.assignedColors());
+  }
+
+  /** The colours the server has handed out, for a pick that has to step around them. */
+  private *assignedColors(): Iterable<string> {
+    for (const entityId of this.looks.keys()) {
+      const color = this.assignedLook(entityId)?.color;
+      if (color) yield color;
+    }
   }
 
   private visualStyle(entityId: string): { style: PlayerModelVisualStyle; key: string } {
@@ -708,6 +730,7 @@ export class RemotePlayerRenderer {
     // Track team per entity for team-colored models (keyed by client entityId)
     const localTeam = applyRoster(this.teams, state.players.values(), localEntityId);
     if (localTeam !== undefined) this.localTeam = localTeam;
+    applyLooks(this.looks, state.players.values());
 
     this.clearRespawnedEntities(entities);
   }
@@ -721,11 +744,17 @@ export class RemotePlayerRenderer {
    * render that mix-up. Bodies themselves need no explicit removal — render()
    * drops every hitbox missing from the (now empty) buffer on the next frame.
    */
+  /** Hold everyone where the server stopped them while the match is paused. */
+  holdSnapshots(held: boolean): void {
+    this.snapshotBuffer.hold(held);
+  }
+
   resetSession(): void {
     SlideDust.reset(this.scene);
     this.snapshotBuffer.reset();
     this.deadEntities.clear();
     this.teams.clear();
+    this.looks.clear();
     this.ffaColors.clear();
     this.localTeam = null;
     this._hiddenEntityId = null;
@@ -752,6 +781,7 @@ export class RemotePlayerRenderer {
     }
     const localTeam = applyRoster(this.teams, state.players.values(), localEntityId);
     if (localTeam !== undefined) this.localTeam = localTeam;
+    applyLooks(this.looks, state.players.values());
     const entities = extractEntities(state, localEntityId);
     this.demoTimeline?.push(state.tick, entities);
     this.lastLookaheadState = lookahead ? state : null;
@@ -863,6 +893,7 @@ export class RemotePlayerRenderer {
     this.hitboxes.clear();
     this.deadEntities.clear();
     this.teams.clear();
+    this.looks.clear();
     this.ffaColors.clear();
     this.demoTimeline?.clear();
     this.demoTimeline = null;

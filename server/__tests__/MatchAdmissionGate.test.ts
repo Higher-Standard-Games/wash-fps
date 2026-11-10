@@ -124,10 +124,13 @@ describe("game-server match admission", () => {
     expect([...active.values()].some((client) => client.accountId === 28 && client.playerName === "Late Alice")).toBe(
       true,
     );
+    // The recovery ticket brings its owner back to the same player, never a second one
     const replay = await ProtocolTestClient.connect(server.getPort());
     clients.push(replay);
     replay.send(MessageCodec.encodeJoin("Late Alice", false, recoveryTickets.get(28)!.ticket));
-    await expect(replay.waitForType(MessageType.JoinAccept, 100)).rejects.toThrow("timed out");
+    const again = MessageCodec.decodeJoinAccept(await replay.waitForType(MessageType.JoinAccept));
+    expect(again).toMatchObject({ playerId: accept.playerId, entityId: accept.entityId });
+    await vi.waitFor(() => expect(recovered.isClosed).toBe(true));
     expect(server.getGametypeController().getMatchState().totalPlayers).toBe(1);
   });
 

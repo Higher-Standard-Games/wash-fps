@@ -18,6 +18,7 @@ import type { SnapshotEvent } from "../../../engine/network/core/SnapshotEvent";
 import { MatchPhase } from "../../../shared/server/gametype";
 import { toClientKey } from "../ClientEntityKey";
 import { POWERUP_KINDS, packPowerupMask, powerupSecondsRemaining } from "../shared/items/Powerups";
+import type { PlayerLooks } from "../shared/players/PlayerLook";
 import type { PendingChatEvent, ScopedChatEvent } from "./ChatRouting";
 import type { ClientInfo } from "./Client";
 import type { AwardEvent } from "./gametypes/AwardTracker";
@@ -85,6 +86,8 @@ export interface SnapshotContext {
   clients: Map<string, ClientInfo>;
   /** Bot player ID → display name */
   botNames: Map<PlayerId, string>;
+  /** Free-for-all players' bodies and colours, handed out by the server. */
+  playerLooks?: PlayerLooks;
 
   /** Mutable: track projectile entity IDs we've already sent spawn events for */
   knownProjectileIds: Set<number>;
@@ -421,6 +424,12 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
         });
       }
     }
+  }
+
+  // A free-for-all player's body and colour, the same for every viewer and demo
+  if (ctx.playerLooks && !ctx.gametypeController.getGametype().teamBased) {
+    const looks = ctx.playerLooks.assign(gameState.players.keys());
+    for (const [id, player] of gameState.players) player.look = looks.get(id);
   }
 
   // Add match state as event (client can read this for HUD). Spectators have

@@ -30,6 +30,21 @@ import { FPS, getActionKeyLabel } from "../client/FPSActions";
 import { InventoryManager } from "./InventoryManager";
 import { hidePickupPrompt, showPickupPrompt } from "./PickupPrompt";
 
+/** How many sparkles rise from each of the major items; ammo boxes take AMMO_SPARKLES. */
+const ITEM_SPARKLES: Readonly<Record<string, number>> = {
+  health_mega: 16,
+  health_ultra: 16,
+  powerup_quad: 16,
+  armor_ra: 10,
+  armor_ya: 10,
+  armor_ga: 8,
+  health_large: 8,
+  health_medium: 6,
+};
+const AMMO_SPARKLES = 5;
+/** The ultra health's core: the megahealth's blue turned purple. */
+const ULTRA_CORE_HUE = 285;
+
 /** The local player's inventory, when the first-person controller is active. */
 function activeInventory(): InventoryManager | null {
   const controller = CameraSystem.getInstance().getActiveController();
@@ -126,13 +141,38 @@ export class FPSPickup extends Pickup {
     if (this.options.type === "weapon" && this.options.value && this.mesh) {
       await this._loadBarrels(this.mesh, this.options.value as string);
     }
-    // The megahealth's blue core glows, and small sparkles rise from it
-    if (this.options.id === "health_mega" && this.mesh) {
+    const mesh = this.mesh;
+    if (!mesh) return;
+    const id = this.options.id;
+    // The megahealth's blue core glows; the ultra health is the same model with a purple core
+    if (id === "health_ultra") {
+      const { recolorBlueParts } = await import("./pickups/HealthTint");
+      await recolorBlueParts(mesh, ULTRA_CORE_HUE);
+    }
+    if (id === "health_mega" || id === "health_ultra" || id === "powerup_quad") {
       const { glowBlueParts } = await import("./pickups/BlueGlow");
-      await glowBlueParts(this.mesh);
-      const { ItemSparkles } = await import("./pickups/ItemSparkles");
-      // Disposed with the model; they rest while it is collected
-      if (!this.mesh.isDisposed()) new ItemSparkles(this.mesh);
+      await glowBlueParts(mesh);
+    }
+    // The quad's Q turns inside its ring, glowing in its own colours
+    if (id === "powerup_quad") {
+      const { addSpinningCore } = await import("./pickups/QuadCore");
+      addSpinningCore(mesh);
+    }
+    // The health bubbles take their tier's colour and glow
+    if (id === "health_small" || id === "health_medium" || id === "health_large") {
+      const { tintHealthBubble } = await import("./pickups/HealthTint");
+      await tintHealthBubble(mesh, id);
+    }
+    // An ammo box shows its weapon's symbol on each side
+    if (this.options.type === "ammo") {
+      const { addAmmoBoxSymbols } = await import("./pickups/AmmoBoxSymbols");
+      await addAmmoBoxSymbols(mesh, id);
+    }
+    // Small sparkles rise from the major items; they rest while it is collected
+    const sparkles = this.options.type === "ammo" ? AMMO_SPARKLES : (ITEM_SPARKLES[id] ?? 0);
+    if (sparkles > 0 && !mesh.isDisposed()) {
+      const { addItemSparkles } = await import("./pickups/ItemSparkles");
+      addItemSparkles(mesh, sparkles);
     }
   }
 

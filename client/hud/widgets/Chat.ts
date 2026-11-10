@@ -12,6 +12,8 @@
  * so live play and demo playback share this widget unchanged.
  */
 
+import { CommandRegistry } from "../../../../../engine/console/CommandRegistry";
+import { logRejection } from "../../../../../engine/core/AsyncErrors";
 import { UINavigation } from "../../../../../engine/ui/navigation/UINavigation";
 
 export interface ChatMessage {
@@ -104,6 +106,18 @@ export class FPSChat {
   }
 
   private localCommand(text: string): boolean {
+    // Timeouts are typed where the talking is: the console commands, from chat
+    const pause = text.match(/^\/(timeout|timein)\s*$/i);
+    if (pause) {
+      const command = pause[1].toLowerCase();
+      CommandRegistry.getInstance()
+        .executeChecked(command)
+        .then((result) => {
+          if (!result.ok && result.output) this.addNotice(result.output);
+        })
+        .catch(logRejection("Chat"));
+      return true;
+    }
     const match = text.match(/^\/(mute|unmute)(?:\s+(.*))?$/i);
     if (!match) return false;
     const name = (match[2] ?? "").trim().replace(/^"(.*)"$/, "$1");

@@ -47,7 +47,7 @@ import { rngFrom } from "../../../../shared/DeterministicRng";
 import type { BombEvent, BombPlayerView } from "../../../../shared/server/gametype/BombModel";
 import { BombModel } from "../../../../shared/server/gametype/BombModel";
 import { clientKeyDisplayId, toClientKey } from "../../ClientEntityKey";
-import { WEAPON_PICKUP_CLASSNAMES } from "../../shared/bsp/PickupTable";
+import { type MapMode, WEAPON_PICKUP_CLASSNAMES } from "../../shared/bsp/PickupTable";
 import { debugLog } from "../DebugLog";
 import {
   BaseGametype,
@@ -188,6 +188,8 @@ export class SearchAndDestroy extends BaseGametype {
   readonly name = "Search & Destroy";
   readonly maxPlayers = 10;
   readonly teamBased = true;
+  override readonly mapMode: MapMode = { names: ["bomb", "snd"], kind: "team" };
+  override readonly timeouts = true;
 
   private readonly bomb = new BombModel();
   private sites: BombSite[] = [];

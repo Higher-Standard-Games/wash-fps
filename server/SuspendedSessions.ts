@@ -21,7 +21,7 @@ export class SuspendedSessions<T extends { resumeToken: string }> {
   private readonly sessions = new Map<string, SuspendedSession<T>>();
 
   /** @param graceMs How long a dropped client may take to come back. */
-  constructor(readonly graceMs = 20000) {}
+  constructor(readonly graceMs = 60000) {}
 
   /** Hold a dropped client's seat. */
   suspend(client: T, now: number): void {
@@ -46,6 +46,16 @@ export class SuspendedSessions<T extends { resumeToken: string }> {
       gone.push(session.client);
     }
     return gone;
+  }
+
+  /** Add a pause to every hold: the match stood still, so their time did not run. */
+  delay(ms: number): void {
+    for (const session of this.sessions.values()) session.suspendedAt += ms;
+  }
+
+  /** End every hold now; expired() returns them. */
+  expireAll(): void {
+    for (const session of this.sessions.values()) session.suspendedAt = Number.NEGATIVE_INFINITY;
   }
 
   /** Everyone currently holding a seat: they still count as present on the server. */

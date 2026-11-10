@@ -50,10 +50,10 @@ function concat(chunks: readonly Uint8Array[]): Uint8Array {
 const DEMO_MAGIC = new Uint8Array([0x53, 0x48, 0x41, 0x47]); // "SHAG"
 
 /**
- * Version 6 retains v5's header and player view encoding and adds optional
- * persistent disabled brush models to the bomb objective's JSON state.
+ * Version 7 retains v6's layout and adds an optional look byte (flag 0x40) to
+ * each player's snapshot record: a free-for-all player's body and colour.
  */
-const DEMO_VERSION = 6;
+const DEMO_VERSION = 7;
 
 // ── Types ───────────────────────────────────────────────────────────────
 

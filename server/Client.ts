@@ -80,6 +80,8 @@ export interface ClientInfo {
   rosterPing?: { ms: number; tick: number };
   /** Wall-clock (performance.now) of the last accepted respawn request. */
   lastRespawnReqMs?: number;
+  /** Last timeout or time-in call, for its rate limit. */
+  lastPauseCallMs?: number;
   /** Wall-clock (performance.now) of the last accepted team/spectate switch. */
   lastTeamSwitchMs?: number;
   /** When the last clock-sync ping was answered (performance.now), for its rate limit. */

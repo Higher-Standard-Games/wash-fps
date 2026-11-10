@@ -45,7 +45,7 @@ describe("played match result over real sockets", () => {
 
   async function setup(gametype: "ffa" | "duel" | "amphi" = "ffa", count = 3, lobbyAliases = false) {
     const startedAt = Date.now();
-    const { manifest, tickets } = issueMatchAdmission(
+    const { manifest, tickets, recoveryTickets } = issueMatchAdmission(
       "played-result",
       Array.from({ length: count }, (_, i) => ({
         lobbyPlayerId: String(i),
@@ -55,6 +55,8 @@ describe("played match result over real sockets", () => {
         isBot: false,
       })),
       startedAt,
+      2 * 60_000,
+      30 * 60_000,
     );
     reports = [];
     const mode: BaseGametype =
@@ -94,7 +96,8 @@ describe("played match result over real sockets", () => {
     for (const client of clients) client.send(MessageCodec.encodeReady());
     await vi.waitFor(() => expect(match.phase).toBe(MatchPhase.Active));
     const expected = { matchId: manifest.matchId, map: "test", gametype, startedAt, admission: manifest };
-    return { match, ids, tokens, expected };
+    const recovery = (i: number) => recoveryTickets.get(10 + i)!.ticket;
+    return { match, ids, tokens, recovery, expected };
   }
 
   function sessions() {
@@ -111,7 +114,14 @@ describe("played match result over real sockets", () => {
     );
     // Advance the held records' clock, not the production grace or socket timers.
     for (const client of sessions().clients())
-      if (ids.includes(client.playerId)) sessions().suspend(client, Date.now() - 20_001);
+      if (ids.includes(client.playerId)) sessions().suspend(client, Date.now() - sessions().graceMs - 1);
+    // A drop out of a duel pauses it; run that timeout and its count out too
+    const pause = (server as unknown as { pause: { paused: boolean; endsAt: number } }).pause;
+    await vi.waitFor(() => {
+      if (!pause.paused) return;
+      pause.endsAt = 0;
+      throw new Error("still paused");
+    });
   }
 
   async function final(expected: Parameters<typeof verifyMatchResult>[2]) {
@@ -188,6 +198,64 @@ describe("played match result over real sockets", () => {
       lateJoin: false,
       participationInterrupted: false,
     });
+  });
+
+  async function rejoin(ticket: string) {
+    const returning = await ProtocolTestClient.connect(server.getPort());
+    clients.push(returning);
+    returning.send(MessageCodec.encodeJoin("Anyone", false, ticket));
+    return MessageCodec.decodeJoinAccept(await returning.waitForType(MessageType.JoinAccept));
+  }
+
+  it("takes a held seat back with the lobby's ticket after a reload lost the resume token", async () => {
+    const { match, ids, recovery, expected } = await setup();
+    match.addScore(ids[0], 4);
+    await clients[0].close();
+    await vi.waitFor(() => expect(sessions().size).toBe(1));
+    const accept = await rejoin(recovery(0));
+    expect(accept.playerId).toBe(`player_${ids[0]}`);
+    expect(sessions().size).toBe(0);
+    expect(match.getScore(ids[0])).toBe(4);
+    // and again: a second drop is no different
+    await clients.at(-1)!.close();
+    await vi.waitFor(() => expect(sessions().size).toBe(1));
+    expect((await rejoin(recovery(0))).playerId).toBe(`player_${ids[0]}`);
+    const report = await final(expected);
+    expect(report.participants.filter((player) => player.accountId === 10)).toEqual([
+      { tokenHash: expected.admission.grants[0].tokenHash, accountId: 10, score: 4, outcome: "win" },
+    ]);
+    expect(report.details?.seats[0]).toMatchObject({ disconnected: false, participationInterrupted: false });
+  });
+
+  it("drops the old connection when its owner rejoins before the server noticed it go", async () => {
+    const { match, ids, recovery } = await setup();
+    match.addScore(ids[0], 2);
+    const accept = await rejoin(recovery(0));
+    expect(accept.playerId).toBe(`player_${ids[0]}`);
+    await vi.waitFor(() => expect(clients[0].isClosed).toBe(true));
+    expect(match.totalPlayers).toBe(3);
+    expect(match.getScore(ids[0])).toBe(2);
+  });
+
+  it("brings a released FFA seat back with its score, as one result seat", async () => {
+    const { match, ids, recovery, expected } = await setup();
+    match.addScore(ids[0], 6);
+    match.addDeath(ids[0]);
+    await clients[0].close();
+    await expire([ids[0]]);
+    await vi.waitFor(() => expect(match.totalPlayers).toBe(2));
+    const accept = await rejoin(recovery(0));
+    expect(accept.playerId).toBe(`player_${ids[0]}`);
+    clients.at(-1)!.send(MessageCodec.encodeJoinGame());
+    await vi.waitFor(() => expect(match.totalPlayers).toBe(3));
+    expect(match.getScore(ids[0])).toBe(6);
+    expect(match.getDeaths(ids[0])).toBe(1);
+    const report = await final(expected);
+    expect(report.participants.filter((player) => player.accountId === 10)).toEqual([
+      { tokenHash: expected.admission.grants[0].tokenHash, accountId: 10, score: 6, outcome: "win" },
+    ]);
+    // Away past the hold: they keep their score, but the match is not rated
+    expect(report.details?.seats[0]).toMatchObject({ disconnected: false, participationInterrupted: true });
   });
 
   it("captures a late drop-in, excludes a watcher, and preserves tied FFA winners", async () => {

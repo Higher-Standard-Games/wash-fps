@@ -10,6 +10,8 @@
     "@babylonjs/core/Maths/math.axis",
     "@babylonjs/core/Meshes/Builders/discBuilder",
     "@babylonjs/core/Meshes/Builders/torusBuilder",
+    "@babylonjs/core/Meshes/buffer",
+    "@babylonjs/core/Meshes/geometry",
     "@babylonjs/core/Meshes/trailMesh",
     "@babylonjs/core/Misc/brdfTextureTools",
     "@babylonjs/core/Physics/IPhysicsEngine",

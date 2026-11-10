@@ -31,7 +31,7 @@ Because you spawn with only the Blade, **map control is the game**: who holds th
 
 ## Joining a duel
 
-The match holds two players. Anyone else who joins becomes a spectator and waits in the **challengers queue**, first come first served. When a player leaves or disconnects, the next challenger is promoted into the free slot. A player who drops mid-match keeps their seat for a short time so they can reconnect; see [Connecting](../multiplayer/connecting.md).
+The match holds two players. Anyone else who joins becomes a spectator and waits in the **challengers queue**, first come first served. When a player leaves or disconnects, the next challenger is promoted into the free slot. A player who drops mid-match pauses it and keeps their seat while they reconnect; see [Timeouts](../multiplayer/timeouts.md). Each player may also call one timeout a match.
 
 A match already under way takes new players while it has room, so you can drop into a duel that only has one player in it.
 

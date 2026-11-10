@@ -154,6 +154,32 @@ entities are skipped and consume no pickup ID. An origin contains exactly three
 finite numbers separated by whitespace; surrounding or repeated whitespace is
 accepted. Malformed origins are skipped before IDs are assigned.
 
+## Items for one mode
+
+A map can place an item for some modes only, with the gametype keys Warsow and
+Quake 3 maps use. The item keeps its id in every mode; in a mode it is left out
+of, the server never makes it active, so it is never drawn or picked up.
+
+| Key | Effect |
+| --- | --- |
+| `gametype` | The item is only in the modes listed (space- or comma-separated) |
+| `notduel` | Not 0: left out of Duel and Amphi |
+| `notteam` | Not 0: left out of Search & Destroy |
+| `notfree` | Not 0: left out of free-for-all |
+
+The names a `gametype` list may use for each mode:
+
+| Mode | Names |
+| --- | --- |
+| Duel | `duel` |
+| Amphi | `amphi`, `duel` |
+| Free-for-all | `dm`, `ffa` |
+| Search & Destroy | `bomb`, `snd` |
+
+washoi_dm1, for example, puts a megahealth (`"gametype" "duel"`) and an ultra
+health (`"notduel" "1"`) on the same spot: duels get the megahealth, every
+other mode the ultra health.
+
 ## Inventory API (for developers)
 
 `InventoryManager` lives at `src/games/fps/world/InventoryManager.ts` and is exposed on `FPSPlayer.inventory`. Notable methods:

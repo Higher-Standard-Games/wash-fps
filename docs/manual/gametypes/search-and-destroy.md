@@ -109,6 +109,11 @@ loadout rlauncher machinegun
 loadout voltaic riotgun
 ```
 
+## Timeouts
+
+Every player may call one timeout a match, during a round or its result; see
+[Timeouts](../multiplayer/timeouts.md).
+
 ## Friendly Fire
 
 Friendly fire is **on**. That is why there are three seconds of team spawn

@@ -69,7 +69,7 @@ describe("DemoRecorder min-duration guard", () => {
     written.push(fp);
     const reader = new DemoReader(new Uint8Array(fs.readFileSync(fp)));
     expect(reader.readHeader()).toMatchObject({
-      version: 6,
+      version: 7,
       private: true,
       matchId: "match-verified",
       players: [
@@ -110,7 +110,7 @@ describe("DemoRecorder min-duration guard", () => {
     const file = await rec.stop();
     written.push(file);
     const reader = new DemoReader(new Uint8Array(fs.readFileSync(file)));
-    expect(reader.readHeader().version).toBe(6);
+    expect(reader.readHeader().version).toBe(7);
     expect(reader.readAllFrames()[0].state.events[0]).toMatchObject({ objective: { disabledModels: [5, 6] } });
   });
 

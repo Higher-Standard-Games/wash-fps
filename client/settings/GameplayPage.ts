@@ -332,6 +332,20 @@ export class GameplayPage {
       wedge.setAttribute("d", `M0 84 L${-x} ${y} A${radius} ${radius} 0 0 1 ${x} ${y} Z`);
     });
 
+    seg(this.host, fields, {
+      name: "Gun size",
+      help: "How large your own gun is on screen. Smaller shows more of the view around it",
+      choices: [
+        { value: 0, label: "Normal" },
+        { value: 1, label: "Small" },
+        { value: 2, label: "Smallest" },
+      ],
+      get: () => Cvar.getNumber("cl_gunsize"),
+      set: (value) => {
+        Cvar.set("cl_gunsize", value);
+      },
+    });
+
     for (const [cvar, name, help] of [
       [
         "cg_screenshake",

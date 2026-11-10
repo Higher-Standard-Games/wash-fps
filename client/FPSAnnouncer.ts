@@ -15,7 +15,10 @@
  *  - the lead: taken, tied or lost, yours or your team's, while the match is live;
  *  - overtime: "overtime" each time it is extended;
  *  - the match ends: "game over";
- *  - warmup: "please ready up" once a minute to a player who is not ready.
+ *  - warmup: "please ready up" once a minute to a player who is not ready;
+ *  - a timeout: "timeout" when it is called, "time in" as the count back in
+ *    starts, 1 on its last second, and "fight" when play resumes. A pause
+ *    holds every other call, in every mode.
  *
  * Media: `sounds/announcer/*` from the shipped pk3s; most lines have two reads.
  */
@@ -41,6 +44,8 @@ const FIGHT = "sounds/announcer/countdown/fight0";
 const GAME_OVER = "sounds/announcer/postmatch/game_over0";
 const OVERTIME = ["sounds/announcer/overtime/overtime.ogg", "sounds/announcer/overtime/overtime02.ogg"] as const;
 const READY_UP = "sounds/announcer/pleasereadyup.ogg";
+const TIMEOUT = "sounds/announcer/timeout/timeout0";
+const TIMEIN = "sounds/announcer/timeout/timein0";
 
 /** The lead lines and how many reads each has; the team's are the team's lead. */
 const LEAD = {
@@ -77,6 +82,8 @@ export const FPS_ANNOUNCER_SOUND_PATHS = [
   ...both(GAME_OVER),
   ...OVERTIME,
   READY_UP,
+  ...both(TIMEOUT),
+  ...both(TIMEIN),
   ...Object.values(LEAD).flatMap(({ own, team }) => [...all(own[0], own[1]), ...all(team[0], team[1])]),
 ] as const;
 
@@ -100,6 +107,10 @@ export interface MatchMoment {
   /** Your standing, or your team's in a team mode; null with no one to lead. */
   lead: Lead | null;
   teamBased: boolean;
+  /** A timeout holding the match, or its count back in. */
+  pause: "timeout" | "timein" | null;
+  /** Seconds until the timeout runs out or the count ends. */
+  pauseSecondsLeft: number;
 }
 
 export class FPSAnnouncer {
@@ -110,6 +121,8 @@ export class FPSAnnouncer {
   private lastOvertime = 0;
   private warmupSeconds = 0;
   private lastLead: Lead | null = null;
+  private lastPause: MatchMoment["pause"] = null;
+  private lastPauseSecond: number | null = null;
 
   constructor(private readonly now: () => number = () => performance.now()) {}
 
@@ -134,12 +147,35 @@ export class FPSAnnouncer {
     this.lastOvertime = 0;
     this.warmupSeconds = 0;
     this.lastLead = null;
+    this.lastPause = null;
+    this.lastPauseSecond = null;
   }
 
   /** Called every frame: releases queued lines, and calls the match. `dt` in seconds. */
   update(moment: MatchMoment, dt: number): void {
-    this.callMatch(moment, dt);
+    if (!this.callPause(moment)) this.callMatch(moment, dt);
     this.release();
+  }
+
+  /** True while a pause holds the match, and with it every other call. */
+  private callPause(moment: MatchMoment): boolean {
+    const previous = this.lastPause;
+    this.lastPause = moment.pause;
+    if (moment.pause === "timeout") {
+      if (previous !== "timeout") this.say(read(TIMEOUT));
+      return true;
+    }
+    if (moment.pause === "timein") {
+      const second = Math.ceil(moment.pauseSecondsLeft);
+      if (previous !== "timein") this.say(read(TIMEIN));
+      // "time in" fills the first two seconds of the count
+      else if (second !== this.lastPauseSecond && second === 1) this.say(read(COUNT[1]));
+      this.lastPauseSecond = second;
+      return true;
+    }
+    this.lastPauseSecond = null;
+    if (previous === "timein") this.say(read(FIGHT));
+    return false;
   }
 
   private release(): void {

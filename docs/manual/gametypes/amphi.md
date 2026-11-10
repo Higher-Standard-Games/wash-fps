@@ -60,6 +60,12 @@ and mega health 60 s. The map's pickup state also resets for the next round.
 The lobby only advertises maps that are actually installed, so a room's map
 vote may offer fewer than three.
 
+## Timeouts
+
+Each player may call one timeout a match, and a player whose connection drops
+pauses the match until they are back or two minutes pass; see
+[Timeouts](../multiplayer/timeouts.md).
+
 ## Ranking
 
 An Amphi match counts for the leaderboard when both players are people. Playing

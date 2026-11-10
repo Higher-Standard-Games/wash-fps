@@ -9,6 +9,7 @@ import { Cvar } from "../../../engine/core/Cvar";
 import { devLog } from "../../../engine/core/DevLog";
 import type { GameEvent } from "../../../engine/network/core/GameState";
 import type { MatchStateEvent } from "../../../engine/network/core/SnapshotEvent";
+import type { MatchPauseNotice } from "../../../engine/network/protocol/MessageCodec";
 import { getCollisionManager } from "../../../engine/physics/CollisionManager";
 import type {
   BombExplosionEvent,
@@ -44,6 +45,14 @@ Cvar.register("cl_invertClock", 0, {
   description: "Match clock counts up from 0:00 (time played) instead of down (time left)",
 });
 
+/** A timeout as the client shows it: until `endsAt` (performance.now() ms). */
+export interface MatchPause {
+  state: "timeout" | "timein";
+  endsAt: number;
+  caller: string;
+  forDrop: boolean;
+}
+
 export class MatchStateManager {
   private static instance: MatchStateManager | null = null;
 
@@ -78,6 +87,8 @@ export class MatchStateManager {
   private _roundState: string | null = null;
   private _objective: ObjectiveSnapshot | null = null;
   private _roundResult: RoundResult | null = null;
+  /** A timeout holding the match, or its count back in; null while it runs. */
+  private _pause: MatchPause | null = null;
   private _explosion: BombExplosionEvent | null = null;
   private _isReady: boolean = false;
   private _phaseCallbacks: PhaseChangeCallback[] = [];
@@ -284,6 +295,29 @@ export class MatchStateManager {
   isActive(): boolean {
     return this._phase === MatchPhase.Active;
   }
+  /** The server's pause state, from its Pause message. */
+  setPause(notice: MatchPauseNotice): void {
+    this._pause =
+      notice.state === "running"
+        ? null
+        : {
+            state: notice.state,
+            endsAt: performance.now() + notice.msLeft,
+            caller: notice.caller,
+            forDrop: notice.forDrop,
+          };
+  }
+
+  /** The timeout holding the match, or null while it runs. */
+  get pause(): Readonly<MatchPause> | null {
+    return this._pause;
+  }
+
+  /** Seconds until the timeout runs out or the count ends; 0 while running. */
+  pauseSecondsLeft(): number {
+    return this._pause ? Math.max(0, (this._pause.endsAt - performance.now()) / 1000) : 0;
+  }
+
   isPostGame(): boolean {
     return this._phase === MatchPhase.PostGame;
   }
@@ -302,7 +336,7 @@ export class MatchStateManager {
    * is the pre-match one, which does NOT hold players still.
    */
   isMovementFrozen(): boolean {
-    if (this._phase === MatchPhase.PostGame) return true;
+    if (this._pause || this._phase === MatchPhase.PostGame) return true;
     // `round > 0` is what makes this a round mode, the same signal the rest of
     // the client uses. A deathmatch never sets it.
     const roundBased = this._round > 0;
@@ -386,6 +420,7 @@ export class MatchStateManager {
   // ========================================================================
 
   reset(): void {
+    this._pause = null;
     this._objective = null;
     this._explosion = null;
     this._round = 0;

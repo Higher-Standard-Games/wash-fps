@@ -7,9 +7,10 @@ import {
   ROBOT_MODEL_ROOT,
 } from "../../../engine/animation/PlayerModelAssets";
 import { Cvar } from "../../../engine/core/Cvar";
+import { LOOK_MODELS, type LookModel } from "../shared/players/PlayerLook";
 
-export const PLAYER_MODELS = ["police", "female", "cartel", "riotkitty", "robot"] as const;
-export type PlayerModelChoice = (typeof PLAYER_MODELS)[number];
+export const PLAYER_MODELS = LOOK_MODELS;
+export type PlayerModelChoice = LookModel;
 export type PlayerModelSide = "ally" | "enemy";
 export const PLAYER_MODEL_LABELS = {
   police: "Police",

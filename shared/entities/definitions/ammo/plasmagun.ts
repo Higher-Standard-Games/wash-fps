@@ -1,5 +1,6 @@
 import type { AmmoDef } from "../../../../../../shared/entities/AmmoDef";
 import { EntityType } from "../../../../../../shared/entities/EntityType";
+import { AMMO_BOX_MODEL, AMMO_BOX_SCALE } from "./box";
 
 export const PLASMA_AMMO: AmmoDef = {
   id: "ammo_plasmagun",
@@ -10,7 +11,8 @@ export const PLASMA_AMMO: AmmoDef = {
   ammoType: "cells",
   amount: 50,
 
-  scale: 1.0,
+  modelPath: AMMO_BOX_MODEL,
+  scale: AMMO_BOX_SCALE,
 
   // Pickup glow (green like plasmagun)
   glowColor: { r: 0.3, g: 1.0, b: 0.3 },

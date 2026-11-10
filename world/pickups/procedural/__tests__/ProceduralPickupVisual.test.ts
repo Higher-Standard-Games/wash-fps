@@ -9,7 +9,13 @@ import type { StandardMaterial } from "@babylonjs/core/Materials/standardMateria
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Scene } from "@babylonjs/core/scene";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { allProceduralPickupRecipes, getProceduralPickupRecipe } from "../ProceduralPickupRecipes";
+import {
+  ammoCrateRecipes,
+  getProceduralPickupRecipe,
+  healthBubbleRecipes,
+  quadRecipe,
+  ultraHealthRecipe,
+} from "../ProceduralPickupRecipes";
 import { ProceduralPickupVisual } from "../ProceduralPickupVisual";
 import type { ProceduralPickupRecipe } from "../types";
 
@@ -41,8 +47,18 @@ const ARMOR_SHARD: ProceduralPickupRecipe = {
   unstable: false,
 };
 
+/** The high-tier recipes kept unregistered: their packaged models replaced them. */
+const keptHighTier = () => [ultraHealthRecipe(), quadRecipe()];
+
 /** A recipe by id, the kept armor shard included. */
-const recipeOf = (id: string) => (id === "armor_shard" ? ARMOR_SHARD : getProceduralPickupRecipe(id));
+const recipeOf = (id: string) =>
+  id === "armor_shard"
+    ? ARMOR_SHARD
+    : (getProceduralPickupRecipe(id) ??
+      [...healthBubbleRecipes(), ultraHealthRecipe(), quadRecipe(), ...ammoCrateRecipes()].find(
+        (recipe) => recipe.id === id,
+      ) ??
+      null);
 
 let engine: NullEngine;
 let scene: Scene;
@@ -67,7 +83,7 @@ function transientMeshes(): number {
 
 describe("ProceduralPickupVisual", () => {
   it("keeps all pickup tiers above the floor throughout their faster bob at server-landed height", () => {
-    for (const recipe of allProceduralPickupRecipes()) {
+    for (const recipe of keptHighTier()) {
       // The shared item collision box rests at +4u, lower than local +12u placement.
       for (const seed of [0, 17, 91]) {
         const anchor = new Vector3(0, 4, 0);
@@ -94,7 +110,7 @@ describe("ProceduralPickupVisual", () => {
   it("draws every pickup in the world's rendering group, so walls and floors hide it", () => {
     // A higher group clears depth before it draws (the first-person weapon's
     // does), which showed the Mega Health's cross through every floor.
-    for (const recipe of allProceduralPickupRecipes()) {
+    for (const recipe of keptHighTier()) {
       const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 4, 0), false, 1);
       visual.setActive(true);
       for (const mesh of visual.root.getChildMeshes()) {
@@ -105,7 +121,7 @@ describe("ProceduralPickupVisual", () => {
   });
 
   it("builds cloned geometry and disposes it cleanly (no clone/material leak)", () => {
-    const recipe = getProceduralPickupRecipe("health_medium");
+    const recipe = recipeOf("health_medium");
     if (!recipe) throw new Error("recipe missing");
 
     const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 50, 0), true, 7);
@@ -162,7 +178,7 @@ describe("ProceduralPickupVisual", () => {
   });
 
   it("plays the same pieces again on the next collection", () => {
-    const recipe = getProceduralPickupRecipe("health_medium");
+    const recipe = recipeOf("health_medium");
     if (!recipe) throw new Error("recipe missing");
     const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 50, 0), true, 5);
     visual.setActive(true);
@@ -190,7 +206,7 @@ describe("ProceduralPickupVisual", () => {
     // it; and the face-on fresnel floors were low enough that whatever survived
     // carried no colour. Mega has the same shell, which is why it went black too.
     for (const id of ["health_large", "health_ultra"]) {
-      const recipe = getProceduralPickupRecipe(id);
+      const recipe = recipeOf(id);
       if (!recipe) throw new Error(`recipe missing: ${id}`);
       const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 50, 0), false, 1);
 
@@ -222,7 +238,7 @@ describe("ProceduralPickupVisual", () => {
   });
 
   it.each(["health_ultra"])("keeps %s cross caps aligned with the camera-facing emblem", (id) => {
-    const recipe = getProceduralPickupRecipe(id)!;
+    const recipe = recipeOf(id)!;
     const visual = new ProceduralPickupVisual(scene, recipe, Vector3.Zero(), false, 1);
     const body = scene.meshes.find((m) => m.name === `pp_cross_${id}`)!;
     const caps = scene.meshes.find((m) => m.name === `pp_cross_caps_${id}`)!;
@@ -234,7 +250,7 @@ describe("ProceduralPickupVisual", () => {
   });
 
   it("builds a health shell and layered armor plates over a dark frame", () => {
-    const health = getProceduralPickupRecipe("health_large");
+    const health = recipeOf("health_large");
     const shard = recipeOf("armor_shard");
     if (!health || !shard) throw new Error("recipe missing");
 
@@ -255,7 +271,7 @@ describe("ProceduralPickupVisual", () => {
   });
 
   it("gives every health tier a ring whose gradient scrolls, and disposes it", () => {
-    const small = getProceduralPickupRecipe("health_small");
+    const small = recipeOf("health_small");
     if (!small) throw new Error("recipe missing");
 
     const visual = new ProceduralPickupVisual(scene, small, new Vector3(0, 50, 0), false, 3);
@@ -273,7 +289,7 @@ describe("ProceduralPickupVisual", () => {
   });
 
   it("never moves the authoritative anchor while animating", () => {
-    const recipe = getProceduralPickupRecipe("health_ultra");
+    const recipe = recipeOf("health_ultra");
     if (!recipe) throw new Error("recipe missing");
 
     const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(10, 64, -20), false, 0);
@@ -311,7 +327,7 @@ describe("ProceduralPickupVisual", () => {
 
 describe("ProceduralPickupVisual — ammo crates", () => {
   it("builds a marked crate with optional side decals, and cleans it up", () => {
-    const recipe = getProceduralPickupRecipe("ammo_rockets");
+    const recipe = recipeOf("ammo_rockets");
     if (!recipe) throw new Error("recipe missing");
 
     const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 40, 0), false, 5);
@@ -325,7 +341,7 @@ describe("ProceduralPickupVisual — ammo crates", () => {
   });
 
   it("keeps the icon decal invisible until its texture resolves", () => {
-    const recipe = getProceduralPickupRecipe("ammo_bullets");
+    const recipe = recipeOf("ammo_bullets");
     if (!recipe) throw new Error("recipe missing");
 
     const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 40, 0), false, 6);
@@ -338,7 +354,7 @@ describe("ProceduralPickupVisual — ammo crates", () => {
   });
 
   it("carries no health or armor geometry", () => {
-    const recipe = getProceduralPickupRecipe("ammo_lasers");
+    const recipe = recipeOf("ammo_lasers");
     if (!recipe) throw new Error("recipe missing");
 
     const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 40, 0), false, 7);
@@ -352,7 +368,7 @@ describe("ProceduralPickupVisual — ammo crates", () => {
 
 describe("ProceduralPickupVisual — quad powerup", () => {
   it("builds the octagonal badge and luminous mark without a beacon, and cleans them up", () => {
-    const recipe = getProceduralPickupRecipe("powerup_quad");
+    const recipe = quadRecipe();
     if (!recipe) throw new Error("recipe missing");
 
     const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 50, 0), false, 11);
@@ -365,7 +381,7 @@ describe("ProceduralPickupVisual — quad powerup", () => {
   });
 
   it("borrows no health, armor or ammo geometry", () => {
-    const recipe = getProceduralPickupRecipe("powerup_quad");
+    const recipe = quadRecipe();
     if (!recipe) throw new Error("recipe missing");
 
     const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 50, 0), false, 12);
@@ -378,7 +394,7 @@ describe("ProceduralPickupVisual — quad powerup", () => {
   });
 
   it("keeps the quad badge near frontal through its gentle motion", () => {
-    const recipe = getProceduralPickupRecipe("powerup_quad");
+    const recipe = quadRecipe();
     if (!recipe) throw new Error("recipe missing");
 
     const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 50, 0), false, 13);
@@ -393,7 +409,7 @@ describe("ProceduralPickupVisual — quad powerup", () => {
   });
 
   it("keeps the authoritative anchor fixed while animating", () => {
-    const recipe = getProceduralPickupRecipe("powerup_quad");
+    const recipe = quadRecipe();
     if (!recipe) throw new Error("recipe missing");
 
     const visual = new ProceduralPickupVisual(scene, recipe, new Vector3(64, 32, -16), false, 14);
@@ -408,7 +424,7 @@ describe("ProceduralPickupVisual — quad powerup", () => {
 
   it("stops drawing and animating out of view, and comes back as if it never paused", () => {
     for (const id of ["health_ultra", "armor_shard", "powerup_quad"]) {
-      const recipe = recipeOf(id) ?? allProceduralPickupRecipes()[0];
+      const recipe = recipeOf(id) ?? keptHighTier()[0];
       const watched = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 4, 0), false, 9);
       const hidden = new ProceduralPickupVisual(scene, recipe, new Vector3(0, 4, 0), false, 9);
       const cosmetic = (v: ProceduralPickupVisual) =>

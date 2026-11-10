@@ -50,7 +50,7 @@ Use your account **key**: choose **Use my key** on the welcome screen, or **Prof
 
 ## "I dropped mid-match. Can I get back in?"
 
-Yes, within 20 seconds. Your seat is held and your client is given a resume token, so reconnecting puts you back in the same seat. After that the seat is released.
+Yes. Your seat is held for 60 seconds and your client reconnects into it by itself. After a reload, use **Rejoin match** in the match room. After 60 seconds the seat is released: a Duel or Amphi opponent wins by forfeit, and in other modes **Rejoin match** brings you back with your score.
 
 ## "Why didn't my match show on the leaderboard?"
 

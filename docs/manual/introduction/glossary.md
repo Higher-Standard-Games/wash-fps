@@ -26,7 +26,7 @@ Terms used across this manual.
 | **Ranked** | A match whose result counts for the leaderboard. See [Lobby](../multiplayer/lobby.md#ranked-matches) |
 | **Rocket jump** | Firing a rocket at your feet to launch yourself |
 | **Room** | The lobby space where players vote for a map, pick sides, add bots and ready up |
-| **Seat** | A player's place in a match. A seat is held for 20 seconds if the connection drops |
+| **Seat** | A player's place in a match. A seat is held for 60 seconds if the connection drops |
 | **Soba, Udon** | The two team names. Teams are *Team Udon* and *Team Soba* |
 | **Telefrag** | Killing someone by arriving on top of them through a teleporter |
 | **Ticket** | What the lobby gives your client so the game server admits your seat |
