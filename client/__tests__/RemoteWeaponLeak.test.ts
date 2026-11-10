@@ -7,6 +7,7 @@ import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { Scene } from "@babylonjs/core/scene";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PlayerModelInstance } from "../../../../engine/animation/PlayerModelManager";
+import { disposeModelResources } from "../../../../engine/loader/model/ModelSourceCache";
 import { WEAPONS } from "../../shared/entities/definitions/weapons/WeaponsTable";
 
 /**
@@ -243,5 +244,53 @@ describe("remote weapon changes", () => {
       0, 0, 0, 0,
     ]);
     expect(inst.attachedWeapon).toBeNull();
+  });
+
+  it("hands a gun to one player at a time after its holder's body is released", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    scene.current = new Scene(new NullEngine());
+    const renderer = Object.create(RemotePlayerRenderer.prototype) as Internals & {
+      dropWeapon(hitbox: unknown): void;
+    };
+    Object.assign(renderer, {
+      scene: scene.current,
+      hitboxes: new Map(),
+      deadEntities: new Map(),
+      enemyWeapons: new Map(),
+      idleWeapons: new Map(),
+    });
+    const gun = Object.keys(WEAPONS).find(
+      (id) => id !== "blade" && WEAPONS[id].modelPath && !WEAPONS[id].barrels?.length,
+    )!;
+    const player = (id: string) => {
+      const anchor = new TransformNode(`anchor_${id}`, scene.current);
+      const body = MeshBuilder.CreateBox(`body_${id}`, {}, scene.current);
+      const inst = { anchor, mesh: body, skeleton: null, attachedWeapon: null } as unknown as PlayerModelInstance;
+      const hitbox = { model: inst, weaponRoot: null as TransformNode | null, weaponMuzzle: null, currentWeaponId: "" };
+      renderer.hitboxes.set(id, hitbox);
+      return { inst, hitbox };
+    };
+    const hold = async (id: string, p: ReturnType<typeof player>) => {
+      renderer.enemyWeapons.set(id, gun);
+      renderer.updateWeaponModel(p.hitbox, p.inst, id);
+      await settle();
+    };
+
+    const dying = player("dying");
+    await hold("dying", dying);
+    expect(dying.inst.attachedWeapon).toBe(dying.hitbox.weaponRoot);
+    // A death: the gun is put down, then the body is released, which lets go of whatever it still holds
+    renderer.dropWeapon(dying.hitbox);
+    if (dying.inst.attachedWeapon) disposeModelResources([dying.inst.attachedWeapon]);
+    renderer.hitboxes.delete("dying");
+    expect(renderer.idleWeapons.get(gun)).toHaveLength(1);
+
+    const one = player("one");
+    const two = player("two");
+    await hold("one", one);
+    await hold("two", two);
+    expect(one.hitbox.weaponRoot).not.toBeNull();
+    expect(two.hitbox.weaponRoot).not.toBeNull();
+    expect(one.hitbox.weaponRoot).not.toBe(two.hitbox.weaponRoot);
   });
 });

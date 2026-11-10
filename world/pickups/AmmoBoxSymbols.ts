@@ -28,8 +28,23 @@ export function ammoSymbolPath(ammoId: string): string | undefined {
   return symbol ? `gfx/simpleitems/weapon/${symbol}` : undefined;
 }
 
-/** One unlit material per symbol and scene, shared by every box of that ammo type. */
-const materials = new WeakMap<Scene, Map<string, Promise<StandardMaterial | null>>>();
+interface SymbolMaterial {
+  ready: Promise<StandardMaterial | null>;
+  material: StandardMaterial | null;
+}
+
+/**
+ * One unlit material per symbol and scene, shared by every box of that ammo
+ * type. The package textures go with the map that loaded them, so a material
+ * whose texture is gone is built again for the next map: kept, it never draws,
+ * and the next map waits on it until its load times out.
+ */
+const materials = new WeakMap<Scene, Map<string, SymbolMaterial>>();
+
+function outlivedItsTexture(material: StandardMaterial): boolean {
+  const texture = material.diffuseTexture;
+  return !texture || texture.getInternalTexture() === null;
+}
 
 async function createSymbolMaterial(scene: Scene, path: string): Promise<StandardMaterial | null> {
   const texture = await loadAmmoIconTexture(path);
@@ -53,15 +68,23 @@ function symbolMaterial(scene: Scene, path: string): Promise<StandardMaterial | 
     byPath = new Map();
     materials.set(scene, byPath);
   }
-  let material = byPath.get(path);
-  if (!material) {
-    material = createSymbolMaterial(scene, path).catch((error: unknown) => {
+  const cached = byPath.get(path);
+  if (cached?.material && outlivedItsTexture(cached.material)) {
+    cached.material.dispose();
+    byPath.delete(path);
+  } else if (cached) return cached.ready;
+  const entry: SymbolMaterial = { ready: Promise.resolve(null), material: null };
+  entry.ready = createSymbolMaterial(scene, path)
+    .then((material) => {
+      entry.material = material;
+      return material;
+    })
+    .catch((error: unknown) => {
       console.warn(`[AmmoBoxSymbols] No symbol ${path}:`, error);
       return null;
     });
-    byPath.set(path, material);
-  }
-  return material;
+  byPath.set(path, entry);
+  return entry.ready;
 }
 
 /**

@@ -866,10 +866,7 @@ export class RemotePlayerRenderer {
     for (const [entityId, hitbox] of this.hitboxes) {
       if (!aliveIds.has(entityId)) {
         this.parkHitboxMesh(entityId, hitbox);
-        if (hitbox.weaponRoot) {
-          disposeModelResources([hitbox.weaponRoot]);
-          hitbox.weaponRoot = null;
-        }
+        this.dropWeapon(hitbox);
         // Kept for when they are back in view or alive again
         if (hitbox.model && this.modelManager) {
           this.modelManager.releaseInstance(hitbox.model);
@@ -908,10 +905,7 @@ export class RemotePlayerRenderer {
     getHitscanEffects().clearLocalLightningTargetResolver(this.localLightningTargetResolver);
     for (const hitbox of this.hitboxes.values()) {
       hitbox.mesh.dispose();
-      if (hitbox.weaponRoot) {
-        disposeModelResources([hitbox.weaponRoot]);
-        hitbox.weaponRoot = null;
-      }
+      this.dropWeapon(hitbox);
       if (hitbox.model && this.modelManager) {
         this.modelManager.disposeInstance(hitbox.model);
       }
@@ -950,10 +944,7 @@ export class RemotePlayerRenderer {
     const hitbox = this.hitboxes.get(entityId);
     if (hitbox) {
       this.parkHitboxMesh(entityId, hitbox);
-      if (hitbox.weaponRoot) {
-        disposeModelResources([hitbox.weaponRoot]);
-        hitbox.weaponRoot = null;
-      }
+      this.dropWeapon(hitbox);
       // Kept for their next life
       if (hitbox.model && this.modelManager) {
         this.modelManager.releaseInstance(hitbox.model);
@@ -1278,10 +1269,7 @@ export class RemotePlayerRenderer {
     if (!hitbox?.model) {
       if (hitbox) {
         this.parkHitboxMesh(entityId, hitbox);
-        if (hitbox.weaponRoot) {
-          disposeModelResources([hitbox.weaponRoot]);
-          hitbox.weaponRoot = null;
-        }
+        this.dropWeapon(hitbox);
         this.hitboxes.delete(entityId);
       }
       return null;
@@ -1660,8 +1648,7 @@ export class RemotePlayerRenderer {
 
       if (hitbox.model && hitbox.model.modelKey !== this.modelChoiceFor(entityId)) {
         hitbox.weaponLoadGeneration = (hitbox.weaponLoadGeneration ?? 0) + 1;
-        if (hitbox.weaponRoot) disposeModelResources([hitbox.weaponRoot]);
-        hitbox.weaponRoot = null;
+        this.dropWeapon(hitbox);
         hitbox.weaponMuzzle = null;
         hitbox.handBone = null;
         hitbox.currentWeaponId = "";
@@ -2183,10 +2170,7 @@ export class RemotePlayerRenderer {
     hitbox.weaponLoadGeneration = generation;
 
     // Dispose previous weapon (a gun is parked for reuse instead)
-    if (hitbox.weaponRoot) {
-      disposeModelResources([hitbox.weaponRoot]);
-      hitbox.weaponRoot = null;
-    }
+    this.dropWeapon(hitbox);
     hitbox.weaponMuzzle = null;
     inst.attachedWeapon = null;
 
@@ -2379,6 +2363,19 @@ export class RemotePlayerRenderer {
     devLog(`[RemoteWeapon] ✓ ${weaponId} for ${entityId}`);
   }
 
+  /**
+   * Put a player's weapon down, parked for reuse. The body lets go of it too:
+   * releasing the body later would otherwise park the same gun again, and hand
+   * it to two players at once, drawn in only one of their hands.
+   */
+  private dropWeapon(hitbox: RemotePlayerHitbox): void {
+    const weapon = hitbox.weaponRoot;
+    if (!weapon) return;
+    if (hitbox.model?.attachedWeapon === weapon) hitbox.model.attachedWeapon = null;
+    hitbox.weaponRoot = null;
+    disposeModelResources([weapon]);
+  }
+
   /** Take a weapon back from its holder for the next player who switches to it; false disposes it. */
   private parkWeapon(weaponId: string, weapon: HeldWeapon): boolean {
     if (this.disposed || this.scene.isDisposed || weapon.leader.isDisposed()) return false;
@@ -2387,6 +2384,8 @@ export class RemotePlayerRenderer {
       idle = [];
       this.idleWeapons.set(weaponId, idle);
     }
+    // Already parked: one gun is never handed out twice
+    if (idle.includes(weapon)) return true;
     if (idle.length >= MAX_IDLE_WEAPONS_PER_KIND) return false;
     weapon.leader.detachFromBone();
     weapon.leader.parent = null;
