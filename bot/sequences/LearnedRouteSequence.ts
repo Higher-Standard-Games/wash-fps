@@ -12,6 +12,15 @@ const STILL_SPEED = 20;
 const WALK_RADIUS = 96;
 /** Creeping pushes only below this speed. */
 const CREEP_SPEED = 80;
+/**
+ * Ground deceleration below stop speed, units/s² (stop speed 100 × friction 6):
+ * a bot at speed v coasts v² / (2 × this) before it stands still.
+ */
+const COAST_DECELERATION = 600;
+/** Once on the mark, stand still before judging it, unless pushed this far off. */
+const SETTLE_RADIUS = 24;
+/** Over the mark but this far above or below it: on another floor. */
+const START_HEIGHT = 32;
 /** Extra ticks after the script before the landing is judged. */
 const LANDING_GRACE_TICKS = 40;
 /** Landed when this close to the route's landing, horizontally and vertically. */
@@ -40,10 +49,12 @@ function toward(from: Vec3, to: Vec3, buttons: number): BotInput {
  * Push toward the mark while already looking the way the route starts. The
  * bearing to the mark flips round whenever the bot passes it, and turning the
  * view with it spun the bot on the spot until it stopped exactly there.
+ * Crouched, so each tick of push adds half the speed: a push runs on for a
+ * tick or two after the decision to stop it.
  */
 function creepToward(from: Vec3, to: Vec3, routeYaw: number): BotInput {
   return {
-    ...toward(from, to, InputButtons.FORWARD),
+    ...toward(from, to, InputButtons.FORWARD | InputButtons.CROUCH),
     moveYaw: Math.atan2(to.x - from.x, to.z - from.z),
     yaw: routeYaw,
   };
@@ -90,7 +101,7 @@ export class LearnedRouteSequence implements BotSequence {
       startedTick: context.state.tick,
       phaseStartedTick: context.state.tick,
       commitUntilTick: context.state.tick,
-      data: { route, script: decodeScript(route.script).map(toBotInput), sentTick: null },
+      data: { route, script: decodeScript(route.script).map(toBotInput), sentTick: null, settling: false },
     };
   }
 
@@ -120,8 +131,26 @@ export class LearnedRouteSequence implements BotSequence {
 
     const distance = horizontal(self.position, route.start);
     const speed = Math.hypot(self.velocity.x, self.velocity.z);
+    if (distance <= SETTLE_RADIUS && self.isGrounded && Math.abs(self.position.y - route.start.y) > START_HEIGHT) {
+      return { input: idle(self.yaw), status: "failed", phase: "approach", reason: "learned_route_start_other_floor" };
+    }
+    // Coming to rest takes a few units; judging the mark while still moving
+    // sent the bot back and forth across it.
+    if (
+      state.data.settling === true &&
+      distance <= SETTLE_RADIUS &&
+      (speed > STILL_SPEED || self.isCrouching) &&
+      self.isGrounded
+    ) {
+      return { input: idle(route.yaw), status: "running", phase: "settle" };
+    }
+    state.data.settling = false;
     if (distance <= START_RADIUS && self.isGrounded) {
-      if (speed > STILL_SPEED) return { input: idle(route.yaw), status: "running", phase: "settle" };
+      // The script was verified from standing, so stand up from the creep first.
+      if (speed > STILL_SPEED || self.isCrouching) {
+        state.data.settling = true;
+        return { input: idle(route.yaw), status: "running", phase: "settle" };
+      }
       state.data.sentTick = context.state.tick;
       const script = state.data.script as BotInput[];
       return {
@@ -131,10 +160,12 @@ export class LearnedRouteSequence implements BotSequence {
         commitForTicks: route.ticks + LANDING_GRACE_TICKS,
       };
     }
-    // Near the mark, creep: push only while slow and let friction take the
-    // rest, because running onto it overshoots.
+    // Near the mark, creep: push only while the coast from this speed stops
+    // short of it, and let friction take the rest, because running onto it
+    // overshoots.
     if (distance <= WALK_RADIUS) {
-      if (speed > CREEP_SPEED) return { input: idle(route.yaw), status: "running", phase: "creep" };
+      const coastSpeed = Math.min(CREEP_SPEED, Math.sqrt(2 * COAST_DECELERATION * distance));
+      if (speed > coastSpeed) return { input: idle(route.yaw), status: "running", phase: "creep" };
       return { input: creepToward(self.position, route.start, route.yaw), status: "running", phase: "creep" };
     }
     return {

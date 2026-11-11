@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { BotGameState, BotKillEvent } from "../BotGameState";
+import { type BotInput, BotState } from "../BotBrain";
+import { resolveDifficulty } from "../BotConfig";
+import { BotGameState, type BotKillEvent } from "../BotGameState";
 import type { BotSequenceContext } from "../BotSequence";
-import { BotVision, type MapKnowledgeData } from "../BotVision";
+import { BotVision, type MapKnowledgeData, type VisionResult } from "../BotVision";
 import type { LearnedRoute } from "../LearnedRoutes";
+import { StateMachineBrain } from "../StateMachineBrain";
 import { LearnedRouteSequence } from "../sequences/LearnedRouteSequence";
 
 /** Vision over an open map where enemies standing at a hidden x are behind a wall. */
@@ -112,5 +115,137 @@ describe("learned route approach", () => {
       expect(tick.input.yaw).toBeCloseTo(Math.PI / 2);
       expect(tick.input.moveYaw).toBeCloseTo(x > 0 ? -Math.PI / 2 : Math.PI / 2);
     }
+  });
+
+  const fresh = () => ({
+    phase: "approach",
+    startedTick: 0,
+    phaseStartedTick: 0,
+    commitUntilTick: 0,
+    data: { route, script: [], sentTick: null, settling: false },
+  });
+  const pushes = (tick: { input: { direction: { z: number } } }) => tick.input.direction.z !== 0;
+
+  it("stops pushing while the coast would carry it onto the mark", () => {
+    const sequence = new LearnedRouteSequence();
+    // 20 units off at 60 u/s coasts 3 units: push. 3 off at 70 coasts 4: let it coast.
+    expect(pushes(sequence.tick(context(-20, 60), fresh()))).toBe(true);
+    expect(pushes(sequence.tick(context(-3, 70), fresh()))).toBe(false);
+  });
+
+  it("gives up when it stands under or over the mark, on another floor", () => {
+    const below = context(0, 0);
+    below.state.self.position.y = -200;
+    expect(new LearnedRouteSequence().tick(below, fresh()).status).toBe("failed");
+  });
+
+  it("stands still on the mark before judging it, even if it coasts a little past", () => {
+    const sequence = new LearnedRouteSequence();
+    const state = fresh();
+    expect(sequence.tick(context(-4, 60), state).phase).toBe("settle");
+    const coasting = sequence.tick(context(12, 30), state);
+    expect(coasting.phase).toBe("settle");
+    expect(pushes(coasting)).toBe(false);
+    expect(sequence.tick(context(12, 0), state).phase).toBe("creep");
+  });
+});
+
+describe("heard enemy during an item run", () => {
+  function hearAt(z: number, armor: number): BotState {
+    const brain = new StateMachineBrain({ ...resolveDifficulty("hard"), mistakeRate: 0 });
+    const state = new BotGameState();
+    Object.assign(state.self, { health: 100, armor, isGrounded: true, position: { x: 0, y: 24, z: 0 } });
+    const vision: VisionResult = {
+      visibleEnemies: [],
+      audibleEnemies: [],
+      allKnownEnemies: [],
+      pickups: [],
+      trackedEnemies: [],
+      nearestCover: null,
+      tracesPerformed: 0,
+      chaseTarget: {
+        playerId: "foe",
+        entityId: "foe",
+        lastSeenPosition: { x: 0, y: 24, z },
+        lastSeenVelocity: { x: 0, y: 0, z: 0 },
+        lastSeenTick: 0,
+        predictedPosition: { x: 0, y: 24, z },
+        confidence: 0.6,
+        source: "sound",
+        lastDistance: z,
+      },
+    };
+    brain.decide(state, null, vision, null);
+    return brain.getState();
+  }
+
+  it("keeps going for the item when the sound is far", () => {
+    expect(hearAt(600, 0)).toBe(BotState.ITEM_RUN);
+  });
+
+  it("chases a sound close by", () => {
+    expect(hearAt(300, 0)).toBe(BotState.CHASE);
+  });
+
+  it("chases a far sound when it needs nothing", () => {
+    expect(hearAt(1400, 100)).toBe(BotState.CHASE);
+  });
+});
+
+describe("an item out of reach", () => {
+  it("is given up after the bot has stayed beside it for a second without taking it", () => {
+    const brain = new StateMachineBrain({ ...resolveDifficulty("hard"), mistakeRate: 0 });
+    const state = new BotGameState();
+    state.self.position = { x: 0, y: 24, z: 0 };
+    const goal = { id: "item:dropped:x", kind: "item", position: { x: 20, y: 120, z: 10 } };
+    const internals = brain as unknown as {
+      _activeItemGoal: unknown;
+      _blockedGoalIds: Map<string, number>;
+      _giveUpOnCircledItem(state: BotGameState): void;
+    };
+    internals._activeItemGoal = goal;
+    for (const tick of [100, 160, 220]) {
+      state.tick = tick;
+      internals._giveUpOnCircledItem(state);
+    }
+    expect(internals._blockedGoalIds.has(goal.id)).toBe(false);
+    state.tick = 230;
+    internals._giveUpOnCircledItem(state);
+    expect(internals._blockedGoalIds.has(goal.id)).toBe(true);
+    expect(internals._activeItemGoal).toBeNull();
+  });
+});
+
+describe("steering round a wall ahead", () => {
+  it("keeps turning the side it chose while the rays see the wall from new angles", () => {
+    const brain = new StateMachineBrain({ ...resolveDifficulty("hard"), mistakeRate: 0 });
+    const state = new BotGameState();
+    state.self.position = { x: 0, y: 24, z: 0 };
+    // Wall ahead; the side rays open alternately, as they do while turning.
+    let leftOpen = true;
+    const vision = {
+      collisionWorld: {
+        trace: (from: { x: number }, to: { x: number }) => {
+          const dx = to.x - from.x;
+          if (Math.abs(dx) < 1) return { hit: true, fraction: 0.3 };
+          return dx < 0 === leftOpen ? { hit: true, fraction: 0.9 } : { hit: true, fraction: 0.7 };
+        },
+      },
+    } as unknown as BotVision;
+    const steer = (
+      brain as unknown as { _applyFeelers(i: BotInput, s: BotGameState, v: BotVision): BotInput }
+    )._applyFeelers.bind(brain);
+    const turns: number[] = [];
+    for (const tick of [0, 4, 8, 12]) {
+      state.tick = tick;
+      leftOpen = !leftOpen;
+      const input = steer(
+        { direction: { x: 0, y: 0, z: 1 }, yaw: 0, pitch: 0, buttons: 0, weaponSlot: 0 },
+        state,
+        vision,
+      );
+      turns.push(Math.sign(input.yaw));
+    }
+    expect(new Set(turns).size).toBe(1);
   });
 });

@@ -13,11 +13,16 @@
  * - deaths per minute over all bots, so a change that calms the view without
  *   hurting how they fight can be told from one that stops them fighting.
  *
+ * The match demo goes to a temporary folder, deleted when the run ends.
+ *
  * Usage:
  *   npm run bot:motion -- --map washoi_dm2 --bots 4 --seconds 120
  *   npm run bot:motion -- --map washoi_dm1 --gametype duel --bots 2 --difficulty hard
  */
 
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { MatchPhase } from "@shared/server/gametype";
 import { runCli } from "../../../cli/_runCli";
 import type { BotCommandSample } from "../bot/BotClient";
@@ -136,6 +141,8 @@ interface Report {
   turnByState: Map<string, { turn: number; time: number }>;
   alive: number;
   still: number;
+  /** Seconds standing still, per brain state. */
+  stillByState: Map<string, number>;
   sliding: number;
   airborne: number;
   deaths: number;
@@ -171,7 +178,10 @@ function analyse(samples: Sample[], decisions: Decision[], report: Report): void
     }
     if (dt <= 0) continue;
     report.alive += dt;
-    if (b.speed < STILL) report.still += dt;
+    if (b.speed < STILL) {
+      report.still += dt;
+      report.stillByState.set(b.state, (report.stillByState.get(b.state) ?? 0) + dt);
+    }
     if (b.sliding) report.sliding += dt;
     if (!b.grounded) report.airborne += dt;
     if (i % window !== 0 || i < window) continue;
@@ -202,6 +212,8 @@ async function main(): Promise<void> {
   const args = parseArgs();
   const bsp = await loadBspCollision(args.map, "./game");
   if (!bsp) throw new Error(`Could not load map "${args.map}"`);
+  const demoDir = await mkdtemp(join(tmpdir(), "bot-motion-"));
+  process.env.SHAG_DEMO_DIR = demoDir;
 
   const server = new GameServer(
     {
@@ -260,16 +272,22 @@ async function main(): Promise<void> {
       turnByState: new Map(),
       alive: 0,
       still: 0,
+      stillByState: new Map(),
       sliding: 0,
       airborne: 0,
       deaths: 0,
     };
+    // Still time per bot: one bot stuck for a minute moves the total far more than run-to-run noise.
+    const stillPerBot: number[] = [];
     for (const log of logs) {
+      const still = report.still;
+      const alive = report.alive;
       analyse(
         log.samples.filter((s) => s.t >= liveAt),
         log.decisions.filter((d) => d.t >= liveAt),
         report,
       );
+      stillPerBot.push((report.still - still) / Math.max(1e-9, report.alive - alive));
     }
 
     console.log = print;
@@ -290,6 +308,12 @@ async function main(): Promise<void> {
     console.log(
       `  alive time      still ${pct(report.still)}, sliding ${pct(report.sliding)}, airborne ${pct(report.airborne)}`,
     );
+    const stillStates = [...report.stillByState]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4)
+      .map(([state, time]) => `${state} ${pct(time)}`);
+    console.log(`  still by state  ${stillStates.join(", ")}`);
+    console.log(`  still per bot   ${stillPerBot.map((f) => `${(100 * f).toFixed(0)}%`).join(", ")}`);
     console.log(`  deaths          ${(report.deaths / (args.seconds / 60)).toFixed(1)} per minute, all bots`);
     const top = [...report.byStates].sort((a, b) => b[1] - a[1]).slice(0, 8);
     if (top.length > 0) console.log("  flip-backs by brain state (before > during > after):");
@@ -298,6 +322,7 @@ async function main(): Promise<void> {
     console.log = print;
     await botServer.removeAllBots().catch(() => 0);
     await server.stop();
+    await rm(demoDir, { recursive: true, force: true });
   }
 }
 

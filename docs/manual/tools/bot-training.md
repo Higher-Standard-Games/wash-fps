@@ -299,6 +299,8 @@ a spectator:
 | flip-backs | The bot's wanted view jumps over 60° and comes back within 30° of where it was inside a second: the left-right-left a spectator notices. Turning after a strafing enemy does not count. Listed by brain state before, during and after, to show which behaviour does it. |
 | turning | How fast the view turns while not firing, and how often the turn reverses; then the turn rate in each brain state with at least 5 s of such time. |
 | alive time | Share of time alive spent nearly still (under 80 u/s), sliding and airborne. |
+| still by state | The four brain states with the most still time, as shares of time alive. |
+| still per bot | Each bot's still share. One bot far above the others is stuck somewhere. |
 | deaths | Deaths per minute over all bots. A change that calms the view should not lower it, or the bots are fighting less. |
 
 | Flag | Default |
@@ -315,7 +317,10 @@ npm --prefix src/games/fps run bot:motion -- --map washoi_dm1 --bots 4 --seconds
 ```
 
 Matches are random, so two runs of the same code differ by a few flip-backs per
-minute. Compare a change against a run of the code before it on the same map.
+minute and a few points of still time. Compare a change against runs of the code
+before it on the same map, with the same `--seconds` and run the same way: two
+runs side by side load the machine and move the numbers. The match demo goes to
+a temporary folder that is deleted when the run ends.
 
 ## Not yet
 

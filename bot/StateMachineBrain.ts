@@ -102,6 +102,8 @@ const FEELER_FORWARD_DIST = 300; // Forward ray distance
 const FEELER_SIDE_DIST = 200; // Side ray distance
 const FEELER_SIDE_ANGLE = Math.PI / 6; // 30° offset for side rays
 const FEELER_STEER_THRESHOLD = 0.6; // fraction below which we steer away
+/** A wall ahead keeps the bot turning the side it chose for this long. */
+const FEELER_SIDE_COMMIT_TICKS = 50;
 
 // Path following
 const PATH_ARRIVED_THRESHOLD = 100; // Distance to consider "arrived" at a waypoint
@@ -128,6 +130,11 @@ const ITEM_SLIDE_ALLY_RADIUS = 80;
 const PICKUP_FAILURE_COOLDOWN_TICKS = 625;
 /** A route that ends further than this from its item has not reached it. */
 const UNREACHED_ITEM_DISTANCE = 64;
+/** Beside an item, horizontally, for longer than ITEM_CIRCLE_TICKS without taking it: it is out of reach. */
+const ITEM_CIRCLE_RADIUS = 64;
+const ITEM_CIRCLE_TICKS = 125;
+/** A bot that needs an item chases a heard enemy only this close: round the next corner. */
+const SOUND_DIVERT_DISTANCE = 384;
 
 /** RETREAT wants healing, not shopping — see ItemGoalPlannerOptions.typeFilter. */
 const RETREAT_ITEM_TYPES: ReadonlySet<string> = new Set(["health"]);
@@ -162,6 +169,8 @@ export class StateMachineBrain extends BotBrain {
 
   // Movement variety
   private _strafeDirection: number = 1; // 1 or -1
+  /** Side chosen round a wall ahead (+1 right, -1 left), and until when. */
+  private _feelerSide: { sign: number; untilTick: number } | null = null;
 
   // Crouchslide cooldown. Sequence phases use authoritative server ticks.
   private _slideCooldownUntilTick: number = 0;
@@ -202,6 +211,8 @@ export class StateMachineBrain extends BotBrain {
   private readonly _blockedPickupIds = new Map<number, number>();
   /** Goals (by id, for dropped items with no pickup id) on the same cooldown: id → retry tick. */
   private readonly _blockedGoalIds = new Map<string, number>();
+  /** The item goal the bot has been beside, and since when. */
+  private _itemCircle: { goalId: string; sinceTick: number } | null = null;
   private _activeItemSlideTarget: { pickupId: number; position: Vec3 } | null = null;
 
   // Scored item-goal selection (docs/research/BOT_WEIGHTS_AND_GOALS.md Phase 1).
@@ -480,11 +491,26 @@ export class StateMachineBrain extends BotBrain {
     }
 
     // Priority 2.5: Lost sight of enemy but tracking them → chase!
-    // ...unless this fight's mistake is to forget them the moment they are gone
-    if (this._lastVision?.chaseTarget && this._mood.mistake(state.tick) !== "forget") {
-      return BotState.CHASE;
+    // ...unless this fight's mistake is to forget them the moment they are gone.
+    // A distant sound does not pull a bot off an item it needs: the track
+    // fades in about a second, and the bot would turn back to the item. Once
+    // chasing, it keeps chasing; distance alone would flip it in and out as
+    // the gap crosses the limit.
+    const chaseTarget = this._lastVision?.chaseTarget;
+    if (chaseTarget && this._mood.mistake(state.tick) !== "forget") {
+      const distantSound =
+        chaseTarget.source === "sound" &&
+        this.currentState !== BotState.CHASE &&
+        vec3Length(vec3Subtract(chaseTarget.lastSeenPosition, state.self.position)) > SOUND_DIVERT_DISTANCE;
+      return (distantSound ? this._evaluateItemState(state) : null) ?? BotState.CHASE;
     }
 
+    // Default: Hunt for enemies
+    return this._evaluateItemState(state) ?? BotState.HUNT;
+  }
+
+  /** RETREAT or ITEM_RUN when the bot has somewhere to be, else null. */
+  private _evaluateItemState(state: BotGameState): BotState | null {
     // Priority 3: Low health → retreat to find health
     if (state.self.health < this._mood.retreatHealth(LOW_HEALTH_THRESHOLD)) {
       const hasPickup = state.getNearestPickup(PICKUP_SEEK_RANGE);
@@ -504,9 +530,7 @@ export class StateMachineBrain extends BotBrain {
     if (state.directives.length > 0) {
       return BotState.ITEM_RUN;
     }
-
-    // Default: Hunt for enemies
-    return BotState.HUNT;
+    return null;
   }
 
   // ── FIGHT State ───────────────────────────────────────────────────
@@ -1456,7 +1480,34 @@ export class StateMachineBrain extends BotBrain {
     if (vec3Length(vec3Subtract(goal.position, target)) > 1) return;
     if (vec3Length(vec3Subtract(target, state.self.position)) <= UNREACHED_ITEM_DISTANCE) return;
     if (vision.isWalkable(state.self.position, target)) return;
-    const retry = state.tick + PICKUP_FAILURE_COOLDOWN_TICKS;
+    this._blockItemGoal(goal, state.tick);
+  }
+
+  /**
+   * Give up for a while on an item the bot has stayed beside without taking:
+   * one on a lip above or below it, which it circled at full speed.
+   */
+  private _giveUpOnCircledItem(state: BotGameState): void {
+    const goal = this._activeItemGoal;
+    const self = state.self.position;
+    if (
+      !goal ||
+      goal.directive ||
+      Math.hypot(goal.position.x - self.x, goal.position.z - self.z) > ITEM_CIRCLE_RADIUS
+    ) {
+      this._itemCircle = null;
+      return;
+    }
+    if (this._itemCircle?.goalId !== goal.id) {
+      this._itemCircle = { goalId: goal.id, sinceTick: state.tick };
+    } else if (state.tick - this._itemCircle.sinceTick > ITEM_CIRCLE_TICKS) {
+      this._itemCircle = null;
+      this._blockItemGoal(goal, state.tick);
+    }
+  }
+
+  private _blockItemGoal(goal: BotGoal, tick: number): void {
+    const retry = tick + PICKUP_FAILURE_COOLDOWN_TICKS;
     this._blockedGoalIds.set(goal.id, retry);
     if (goal.pickupId !== undefined) this._blockedPickupIds.set(goal.pickupId, retry);
     this._itemGoalPlanner.reset();
@@ -1503,6 +1554,7 @@ export class StateMachineBrain extends BotBrain {
     for (const [goalId, retryTick] of this._blockedGoalIds) {
       if (state.tick >= retryTick) this._blockedGoalIds.delete(goalId);
     }
+    this._giveUpOnCircledItem(state);
 
     const result = this._itemGoalPlanner.select(state, {
       pickupPositions: pickupPositions ?? [],
@@ -2122,6 +2174,15 @@ export class StateMachineBrain extends BotBrain {
         const leftDist = leftResult.fraction;
         const rightDist = rightResult.fraction;
         yawAdjust = leftDist > rightDist ? -0.4 : 0.4;
+      }
+      // Turning away changes what the rays see, and choosing again from the
+      // new heading swung the bot left, right and left at the same wall.
+      const side = this._feelerSide;
+      const sideClosed = side && (side.sign > 0 ? rightBlocked && !leftBlocked : leftBlocked && !rightBlocked);
+      if (side && state.tick < side.untilTick && !sideClosed) {
+        yawAdjust = side.sign * Math.abs(yawAdjust);
+      } else {
+        this._feelerSide = { sign: Math.sign(yawAdjust), untilTick: state.tick + FEELER_SIDE_COMMIT_TICKS };
       }
     } else if (leftBlocked && !rightBlocked) {
       yawAdjust = 0.2; // Gentle right

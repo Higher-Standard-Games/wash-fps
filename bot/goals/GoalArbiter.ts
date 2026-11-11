@@ -109,6 +109,8 @@ export class GoalArbiter {
   /** Currently committed goal id, and the tick its commitment window ends. */
   private currentGoalId: string | null = null;
   private commitmentUntilTick = 0;
+  /** The current goal is a runner-up taken by mistake, held for its window. */
+  private mistaken = false;
 
   constructor(considerations: readonly Consideration[], options: GoalArbiterOptions = {}) {
     this.considerations = considerations;
@@ -125,6 +127,7 @@ export class GoalArbiter {
   reset(): void {
     this.currentGoalId = null;
     this.commitmentUntilTick = 0;
+    this.mistaken = false;
   }
 
   /**
@@ -159,10 +162,22 @@ export class GoalArbiter {
     }
 
     // Human fallibility: sometimes take the second-best option. Rolled only on
-    // a genuine switch, so the bot commits to its mistake and looks like it
-    // misjudged rather than like it is malfunctioning.
+    // a genuine switch, and held for the commitment window while it passes its
+    // gates, so the bot looks like it misjudged rather than like it is
+    // malfunctioning. The hysteresis bonus alone would not hold it: the
+    // winner it passed over is usually well ahead.
     let mistaken = false;
-    if (best && best.id !== this.currentGoalId && this.mistakeChance > 0 && this.random() < this.mistakeChance) {
+    const held =
+      this.mistaken && tick < this.commitmentUntilTick
+        ? traces.find((t) => t.goalId === this.currentGoalId && t.gate === 1)
+        : undefined;
+    const heldGoal = held ? candidates.find((c) => c.id === held.goalId) : undefined;
+    if (held && heldGoal) {
+      best = heldGoal;
+      bestTrace = held;
+      bestDesire = held.desire;
+      mistaken = true;
+    } else if (best && best.id !== this.currentGoalId && this.mistakeChance > 0 && this.random() < this.mistakeChance) {
       const runnerUp = traces
         .filter((t) => t.gate === 1 && t.goalId !== best?.id)
         .sort((a, b) => b.desire - a.desire)[0];
@@ -183,6 +198,7 @@ export class GoalArbiter {
     } else if (!best) {
       this.reset();
     }
+    this.mistaken = mistaken;
 
     const explain = this.explain(best, bestTrace, traces);
     return {

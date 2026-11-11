@@ -15,7 +15,7 @@
 import { describe, expect, it } from "vitest";
 import type { PickupEntry } from "../../shared/bsp/PickupTable";
 import { BotGameState } from "../BotGameState";
-import { mistakeProbability } from "../goals/GoalArbiter";
+import { COMMITMENT_TICKS, mistakeProbability } from "../goals/GoalArbiter";
 import { ItemGoalPlanner } from "../goals/ItemGoalPlanner";
 
 // ── Fixture helpers ──────────────────────────────────────────────────
@@ -277,6 +277,18 @@ describe("mistakes (BotDifficulty.mistakeRate)", () => {
     });
     expect(result.goal?.pickupId).toBe(other.id);
     expect(result.explain).toContain("[mistake: took runner-up]");
+  });
+
+  it("holds the runner-up it took for the commitment window", () => {
+    const best = mega();
+    const other = medium();
+    const rolls = [0, 0.99, 0.99, 0.99];
+    const planner = new ItemGoalPlanner(8, () => rolls.shift() ?? 0.99);
+    const opts = { pickupPositions: [best, other], maxDistance: 1500, blockedPickupIds: new Set<number>() };
+    expect(planner.select(makeState({ health: 40, tick: 1000 }), opts).goal?.pickupId).toBe(other.id);
+    expect(planner.select(makeState({ health: 40, tick: 1010 }), opts).goal?.pickupId).toBe(other.id);
+    expect(planner.select(makeState({ health: 40, tick: 1100 }), opts).goal?.pickupId).toBe(other.id);
+    expect(planner.select(makeState({ health: 40, tick: 1000 + COMMITMENT_TICKS }), opts).goal?.pickupId).toBe(best.id);
   });
 
   it("takes the winner when the roll fails", () => {
