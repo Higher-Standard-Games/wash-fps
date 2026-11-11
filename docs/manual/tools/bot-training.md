@@ -302,6 +302,7 @@ a spectator:
 | still by state | The four brain states with the most still time, as shares of time alive. |
 | still per bot | Each bot's still share. One bot far above the others is stuck somewhere. |
 | picked up | Health and armor points gained while alive, per bot-minute: how well the bots gather items. It rises and falls with how much damage they take, so compare it over several runs. |
+| view out of a fight | In HUNT, ITEM_RUN and RETREAT: the median distance the view sees (the longer of a level ray and one 10° up, so stairs do not count, out to 1500 units), and the share of that time it ends at a wall within 192 units. |
 | deaths | Deaths per minute over all bots. A change that calms the view should not lower it, or the bots are fighting less. |
 
 | Flag | Default |

@@ -6,6 +6,11 @@
  *   or the riotgun close, while they hang in the air.
  * - A rocket hit at arm's length is followed by the blade.
  * - Long plasma pressure is broken by a rail shot now and then.
+ * - A slow gun just fired is swapped for the other gun carried while it
+ *   reloads, when that one fits the distance and can shoot well before the
+ *   slow one could again: a bolt then the machinegun, a rocket then the
+ *   riotgun. The server keeps one refire clock across a switch, timed by the
+ *   gun in hand, so the swap buys shots.
  * - Before a heard enemy comes into view, the gun for the distance they were
  *   heard at is already out (StateMachineBrain `_readyForHeard`).
  *
@@ -13,9 +18,10 @@
  * Easy, nine in ten on Insane.
  */
 
+import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "../../../shared/server/simulation/physics/constants";
 import type { BotGameState, VisiblePlayer } from "./BotGameState";
+import { getWeaponProfile } from "./BotWeaponProfile";
 
-const TICK_RATE = 125;
 /** A hit this recent still sets up a combo. */
 const HIT_FRESH_TICKS = Math.round(0.3 * TICK_RATE);
 /** Rising this fast after a rocket hit counts as thrown up. */
@@ -25,11 +31,19 @@ const BOLT_MIN_RANGE = 400;
 /** Plasma held this long at rail range invites a rail shot. */
 const PLASMA_SPELL_TICKS = Math.round(1.5 * TICK_RATE);
 const RAIL_RANGE = 500;
+/** A swap after a shot must let the other gun fire at least this much sooner. */
+const REFIRE_MIN_GAIN_TICKS = Math.round(0.25 * TICK_RATE);
+/** From the decision to swap until the server has the other gun out. */
+const SWAP_TICKS = 4;
+/** A gun swapped in fits the distance this far outside its ideal range. */
+const SWAP_RANGE_SLACK = 0.25;
 
 const HOLD = {
   launch: Math.round(0.8 * TICK_RATE),
   blade: Math.round(0.6 * TICK_RATE),
   rail: Math.round(0.7 * TICK_RATE),
+  /** Set per swap: until the gun just fired is ready again. */
+  refire: 0,
 };
 
 export type ComboKind = keyof typeof HOLD;
@@ -41,6 +55,7 @@ export class BotWeaponCombos {
   private _targetId: string | null = null;
   private _lastHitTick = -1;
   private _plasmaSince: number | null = null;
+  private _lastShotTick = -1;
 
   constructor(private readonly _random: () => number = Math.random) {}
 
@@ -69,7 +84,36 @@ export class BotWeaponCombos {
 
     this._rocketCombo(state, enemy, predictionSkill);
     if (!this._weapon) this._railBreak(state, enemy, predictionSkill, picked);
+    if (!this._weapon) this._refireSwap(state, enemy, predictionSkill);
     return this._weapon;
+  }
+
+  /** Rolled once per shot of the gun in hand. */
+  private _refireSwap(state: BotGameState, enemy: VisiblePlayer, skill: number): void {
+    const shot = state.lastOwnShot;
+    if (!shot || shot.tick <= this._lastShotTick) return;
+    this._lastShotTick = shot.tick;
+    if (shot.weaponId !== state.self.currentWeapon) return;
+
+    const readyAgain = shot.tick + getWeaponProfile(shot.weaponId).fireIntervalTicks;
+    const out = state.tick + SWAP_TICKS;
+    let best: string | null = null;
+    let bestDps = 0;
+    for (const weapon of state.self.weapons) {
+      if (weapon === shot.weaponId || !has(state, weapon)) continue;
+      const profile = getWeaponProfile(weapon);
+      const fits = profile.isMelee
+        ? enemy.distance < BLADE_REACH
+        : enemy.distance >= profile.idealMinRange * (1 - SWAP_RANGE_SLACK) &&
+          enemy.distance <= profile.idealMaxRange * (1 + SWAP_RANGE_SLACK);
+      const ready = Math.max(shot.tick + profile.fireIntervalTicks, out);
+      if (fits && readyAgain - ready >= REFIRE_MIN_GAIN_TICKS && profile.dps > bestDps) {
+        best = weapon;
+        bestDps = profile.dps;
+      }
+    }
+    if (!best || this._random() >= skill) return;
+    this._hold(state.tick, enemy, best, "refire", readyAgain - state.tick);
   }
 
   private _rocketCombo(state: BotGameState, enemy: VisiblePlayer, skill: number): void {
@@ -106,11 +150,11 @@ export class BotWeaponCombos {
     this._hold(state.tick, enemy, "electrobolt", "rail");
   }
 
-  private _hold(tick: number, enemy: VisiblePlayer, weapon: string, kind: ComboKind): void {
+  private _hold(tick: number, enemy: VisiblePlayer, weapon: string, kind: ComboKind, ticks = HOLD[kind]): void {
     this._weapon = weapon;
     this._kind = kind;
     this._targetId = enemy.playerId;
-    this._until = tick + HOLD[kind];
+    this._until = tick + ticks;
   }
 }
 

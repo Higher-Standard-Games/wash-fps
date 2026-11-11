@@ -107,6 +107,21 @@ const FEELER_STEER_THRESHOLD = 0.6; // fraction below which we steer away
 /** A wall ahead keeps the bot turning the side it chose for this long. */
 const FEELER_SIDE_COMMIT_TICKS = 50;
 
+// Looking round while running (out of a fight)
+/** Furthest the view turns from where the bot runs to look into open space. */
+const LOOK_MAX_OFF_TRAVEL = (45 * Math.PI) / 180;
+const LOOK_STEP = (15 * Math.PI) / 180;
+/** Sight lines are scored out to this far, units. */
+const LOOK_RANGE = 1500;
+/** What looking the full LOOK_MAX_OFF_TRAVEL aside costs, of a score out of 1. */
+const LOOK_OFF_COST = 0.3;
+/** How often the direction is chosen again, ticks. */
+const LOOK_INTERVAL_TICKS = 50;
+/** How much more open another direction must be to take over. */
+const LOOK_SWITCH_MARGIN = 0.2;
+/** What turning the view a quarter turn from where it is costs, of a score out of 1. */
+const LOOK_TURN_COST = 0.3;
+
 // Path following
 const PATH_ARRIVED_THRESHOLD = 100; // Distance to consider "arrived" at a waypoint
 /** How far along its route a walking bot looks. */
@@ -120,6 +135,8 @@ type PathFollowResult =
 
 const PATH_RECALC_INTERVAL = 120; // Recalculate path every ~2 seconds
 const NAV_EDGE_FAILURE_COOLDOWN_TICKS = 625;
+/** The cooldown doubles with each failure of the same edge, up to this many times. */
+const NAV_EDGE_FAILURE_MAX_SCALE = 8;
 
 const BOT_SLIDE_COOLDOWN_TICKS = Math.ceil((PHYSICS.SLIDE_COOLDOWN / 1000) * TICK_RATE);
 /** How far a route slide carries the bot on the heading it starts with, units. */
@@ -140,6 +157,24 @@ const ITEM_CIRCLE_RADIUS = 64;
 const ITEM_CIRCLE_TICKS = 125;
 /** A bot that needs an item chases a heard enemy only this close: round the next corner. */
 const SOUND_DIVERT_DISTANCE = 384;
+
+/** Rays this far up count too, so stairs ahead are not a wall. */
+const LOOK_UP_PITCH = (10 * Math.PI) / 180;
+
+/** How open the view is toward `yaw` from `eye`: 1 when nothing is within LOOK_RANGE. */
+function openFraction(vision: BotVision, eye: Vec3, yaw: number): number {
+  let best = 0;
+  for (const pitch of [0, LOOK_UP_PITCH]) {
+    const reach = LOOK_RANGE * Math.cos(pitch);
+    const end = {
+      x: eye.x + Math.sin(yaw) * reach,
+      y: eye.y + LOOK_RANGE * Math.sin(pitch),
+      z: eye.z + Math.cos(yaw) * reach,
+    };
+    best = Math.max(best, vision.collisionWorld.trace(eye, end).fraction);
+  }
+  return best;
+}
 
 /** An item goal, and an item worth taking on the way to it. */
 interface ItemGoalChoice {
@@ -182,6 +217,8 @@ export class StateMachineBrain extends BotBrain {
   private _strafeDirection: number = 1; // 1 or -1
   /** Side chosen round a wall ahead (+1 right, -1 left), and until when. */
   private _feelerSide: { sign: number; untilTick: number } | null = null;
+  /** Where the view looks while running, relative to the way the bot runs, and until when. */
+  private _look: { off: number; untilTick: number } | null = null;
 
   // Crouchslide cooldown. Sequence phases use authoritative server ticks.
   private _slideCooldownUntilTick: number = 0;
@@ -218,6 +255,8 @@ export class StateMachineBrain extends BotBrain {
   private _activeSequenceStep: NavStep | null = null;
   private _lastDecisionTick: number = 0;
   private readonly _blockedNavEdges = new Map<string, number>();
+  /** Times each nav edge has failed this bot, for the growing cooldown. */
+  private readonly _navEdgeFailures = new Map<string, number>();
 
   private readonly _blockedPickupIds = new Map<number, number>();
   /** Goals (by id, for dropped items with no pickup id) on the same cooldown: id → retry tick. */
@@ -339,6 +378,7 @@ export class StateMachineBrain extends BotBrain {
       this._sitePatrol = null;
       this._itemCircle = null;
       this._feelerSide = null;
+      this._look = null;
       this._combatMovement.reset();
       this._weaponCombos.reset();
       this._mood.endFight();
@@ -458,7 +498,64 @@ export class StateMachineBrain extends BotBrain {
       if (strafeInput) return strafeInput;
     }
 
+    if (vision) this._lookIntoOpenSpace(state, input, vision);
     return input;
+  }
+
+  /**
+   * Running out of a fight, lean the view toward the most open direction near
+   * where it looks (along the route ahead, or the way the bot runs): a sight
+   * line down a hall rather than the wall a route corner points at. Players
+   * look where someone could come from; a bot facing the wall it is turning
+   * round sees no one. Movement keeps its heading; the view stays within a
+   * quarter turn of it, as `_lookAlongRoute` keeps it.
+   */
+  private _lookIntoOpenSpace(state: BotGameState, input: BotInput, vision: BotVision): void {
+    const roaming =
+      this.currentState === BotState.HUNT ||
+      this.currentState === BotState.ITEM_RUN ||
+      this.currentState === BotState.RETREAT;
+    if (!roaming) {
+      this._look = null;
+      return;
+    }
+    // Not while firing or standing, nor in a scripted move; a hop or slide keeps the look.
+    const running =
+      (input.buttons & InputButtons.FORWARD) !== 0 &&
+      (input.buttons & (InputButtons.FIRE | InputButtons.ALT_FIRE)) === 0 &&
+      input.direction.x === 0 &&
+      input.direction.z > 0;
+    if (!running || this._sequenceRuntime.isActive) return;
+    const travel = travelYaw(input);
+    const base = input.yaw;
+    const allowed = (off: number) => Math.abs(wrapAngle(base + off - travel)) <= Math.PI / 2;
+    if (!this._look || state.tick >= this._look.untilTick || !allowed(this._look.off)) {
+      const eye = { x: state.self.position.x, y: state.self.position.y + 36, z: state.self.position.z };
+      // Turning from where the view is costs too: a route corner moves the
+      // way the bot runs, and choosing afresh from it swung the view across.
+      const score = (off: number) => {
+        const yaw = base + off;
+        return (
+          openFraction(vision, eye, yaw) -
+          (LOOK_OFF_COST * Math.abs(off)) / LOOK_MAX_OFF_TRAVEL -
+          (LOOK_TURN_COST * Math.abs(wrapAngle(yaw - state.self.yaw))) / (Math.PI / 2)
+        );
+      };
+      const held = this._look && allowed(this._look.off) ? this._look.off : 0;
+      let bestOff = held;
+      let bestScore = score(held) + LOOK_SWITCH_MARGIN;
+      for (let off = -LOOK_MAX_OFF_TRAVEL; off <= LOOK_MAX_OFF_TRAVEL + 1e-9; off += LOOK_STEP) {
+        if (Math.abs(off - held) < 1e-9 || !allowed(off)) continue;
+        const value = score(off);
+        if (value > bestScore) {
+          bestScore = value;
+          bestOff = off;
+        }
+      }
+      this._look = { off: bestOff, untilTick: state.tick + LOOK_INTERVAL_TICKS };
+    }
+    input.moveYaw = travel;
+    input.yaw = base + this._look.off;
   }
 
   // ── State Evaluation ──────────────────────────────────────────────
@@ -1333,16 +1430,22 @@ export class StateMachineBrain extends BotBrain {
     ) {
       this._navigationProgress = { position: { ...position }, tick: state.tick };
     } else if (state.tick - progress.tick >= 250 && (state.self.isGrounded || Math.abs(state.self.velocity.y) < 50)) {
-      return this._startRecovery(state);
+      return this._startRecovery(state, true);
     }
     return input;
   }
 
-  private _startRecovery(state: BotGameState): BotInput {
+  /**
+   * Step back and plan again. The step under way goes on cooldown, so the next
+   * route goes another way. `stuck` (no progress at all) also puts the item
+   * being fetched on cooldown; a missed jump or a blocked drop does not: the
+   * item is still worth having and other routes, other tricks, lead to it.
+   */
+  private _startRecovery(state: BotGameState, stuck = false): BotInput {
     this._cancelScript = true;
     const step = this._activeSequenceStep ?? this._currentPath?.steps[this._currentPath.cursor];
     if (step) this._cooldownNavStep(step, state.tick);
-    if (this.currentState !== BotState.CHASE && this._activeItemGoal?.pickupId !== undefined)
+    if (stuck && this.currentState !== BotState.CHASE && this._activeItemGoal?.pickupId !== undefined)
       this._blockedPickupIds.set(this._activeItemGoal.pickupId, state.tick + PICKUP_FAILURE_COOLDOWN_TICKS);
     this._interruptSequence(state, "no_navigation_progress", true);
     this._itemGoalPlanner.reset();
@@ -1648,8 +1751,18 @@ export class StateMachineBrain extends BotBrain {
     };
   }
 
+  /**
+   * Leave a failed step out of routes for a while, longer each time the same
+   * one fails: a jump missed again and again is one this bot cannot make
+   * from where its routes take it, and retrying it every few seconds kept it
+   * from the item beyond.
+   */
   private _cooldownNavStep(step: NavStep, tick: number): void {
-    this._blockedNavEdges.set(navEdgeKey(step.from.id, step.to.id, step.type), tick + NAV_EDGE_FAILURE_COOLDOWN_TICKS);
+    const key = navEdgeKey(step.from.id, step.to.id, step.type);
+    const failures = (this._navEdgeFailures.get(key) ?? 0) + 1;
+    this._navEdgeFailures.set(key, failures);
+    const scale = Math.min(NAV_EDGE_FAILURE_MAX_SCALE, 2 ** (failures - 1));
+    this._blockedNavEdges.set(key, tick + NAV_EDGE_FAILURE_COOLDOWN_TICKS * scale);
   }
 
   private _getSequenceContext(

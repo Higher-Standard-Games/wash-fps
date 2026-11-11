@@ -10,6 +10,9 @@
  *   state before, during and after.
  * - view turn rate while not firing, and how often the turn reverses.
  * - time standing still, sliding and airborne, of time alive.
+ * - how far the view sees out of a fight: the median sight line along the
+ *   view sent (level, or 10° up over stairs), and how much of the time it
+ *   ends at a wall close by.
  * - health and armor picked up per bot-minute.
  * - deaths per minute over all bots, so a change that calms the view without
  *   hurting how they fight can be told from one that stops them fighting.
@@ -26,6 +29,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MatchPhase } from "@shared/server/gametype";
 import { runCli } from "../../../cli/_runCli";
+import type { CollisionWorld } from "../../../engine/network/systems/collision/CollisionWorld";
 import { wrapAngle } from "../bot/BotAimController";
 import type { BotCommandSample } from "../bot/BotClient";
 import { InputButtons } from "../bot/BotConfig";
@@ -58,6 +62,14 @@ const TURNING = 60 / DEG;
 const DEATH_GAP = 1;
 /** Slower than this counts as standing still, units/s. */
 const STILL = 80;
+/** Sight lines are measured out to this far, units. */
+const SIGHT_RANGE = 1500;
+/** A view that ends this close is facing a wall, units. */
+const WALL = 192;
+/** Eye height above the origin, as the bots' own traces use. */
+const EYE = 36;
+/** Brain states that are not a fight, where where the bot looks is its own choice. */
+const ROAMING = new Set(["HUNT", "ITEM_RUN", "RETREAT"]);
 
 function parseArgs(): Args {
   const a: Args = { map: "washoi_dm2", bots: 4, seconds: 120, gametype: "ffa", difficulty: "medium", port: 7795 };
@@ -107,6 +119,8 @@ interface Sample {
   grounded: boolean;
   health: number;
   armor: number;
+  /** How far the view sent sees, level, out to SIGHT_RANGE. */
+  sight: number;
 }
 
 interface Decision {
@@ -115,8 +129,31 @@ interface Decision {
   state: string;
 }
 
-function record(samples: Sample[], decisions: Decision[], at: number, sample: BotCommandSample): void {
+/** The longer of a level ray and one 10° up, so stairs ahead do not count as a wall. */
+function sightLine(world: CollisionWorld, self: BotCommandSample["self"], yaw: number): number {
+  const eye = { x: self.position.x, y: self.position.y + EYE, z: self.position.z };
+  let best = 0;
+  for (const pitch of [0, 10 / DEG]) {
+    const reach = SIGHT_RANGE * Math.cos(pitch);
+    const end = {
+      x: eye.x + Math.sin(yaw) * reach,
+      y: eye.y + SIGHT_RANGE * Math.sin(pitch),
+      z: eye.z + Math.cos(yaw) * reach,
+    };
+    best = Math.max(best, world.trace(eye, end).fraction * SIGHT_RANGE);
+  }
+  return best;
+}
+
+function record(
+  world: CollisionWorld,
+  samples: Sample[],
+  decisions: Decision[],
+  at: number,
+  sample: BotCommandSample,
+): void {
   const firing = (sample.decision.buttons & (InputButtons.FIRE | InputButtons.ALT_FIRE)) !== 0;
+  const roaming = ROAMING.has(sample.brainState) && !sample.self.isDead;
   samples.push({
     t: at,
     wanted: sample.decision.yaw,
@@ -128,6 +165,7 @@ function record(samples: Sample[], decisions: Decision[], at: number, sample: Bo
     grounded: sample.self.isGrounded,
     health: sample.self.health,
     armor: sample.self.armor,
+    sight: roaming ? sightLine(world, sample.self, sample.sent.yaw) : Number.NaN,
   });
   const last = decisions[decisions.length - 1];
   if (!last || last.wanted !== sample.decision.yaw || last.state !== sample.brainState) {
@@ -153,6 +191,8 @@ interface Report {
   sliding: number;
   airborne: number;
   deaths: number;
+  /** Sight lines out of a fight, one per command. */
+  sights: number[];
 }
 
 function analyse(samples: Sample[], decisions: Decision[], report: Report): void {
@@ -191,6 +231,7 @@ function analyse(samples: Sample[], decisions: Decision[], report: Report): void
       report.still += dt;
       report.stillByState.set(b.state, (report.stillByState.get(b.state) ?? 0) + dt);
     }
+    if (!Number.isNaN(b.sight)) report.sights.push(b.sight);
     if (b.sliding) report.sliding += dt;
     if (!b.grounded) report.airborne += dt;
     if (i % window !== 0 || i < window) continue;
@@ -256,7 +297,9 @@ async function main(): Promise<void> {
     const bot = await botServer.addBot(`ws://localhost:${args.port}`, { difficulty: args.difficulty });
     const log = { samples: [] as Sample[], decisions: [] as Decision[] };
     logs.push(log);
-    unsubscribes.push(bot.observeCommands((sample) => record(log.samples, log.decisions, now(), sample)));
+    unsubscribes.push(
+      bot.observeCommands((sample) => record(bsp.collision, log.samples, log.decisions, now(), sample)),
+    );
   }
 
   // The match's own chatter would bury the report.
@@ -286,6 +329,7 @@ async function main(): Promise<void> {
       sliding: 0,
       airborne: 0,
       deaths: 0,
+      sights: [],
     };
     // Still time per bot: one bot stuck for a minute moves the total far more than run-to-run noise.
     const stillPerBot: number[] = [];
@@ -324,6 +368,12 @@ async function main(): Promise<void> {
       .map(([state, time]) => `${state} ${pct(time)}`);
     console.log(`  still by state  ${stillStates.join(", ")}`);
     console.log(`  still per bot   ${stillPerBot.map((f) => `${(100 * f).toFixed(0)}%`).join(", ")}`);
+    const sights = [...report.sights].sort((a, b) => a - b);
+    const median = sights.length > 0 ? sights[Math.floor(sights.length / 2)] : 0;
+    const walled = sights.filter((d) => d < WALL).length / Math.max(1, sights.length);
+    console.log(
+      `  view out of a fight  sees ${median.toFixed(0)} units (median), at a wall within ${WALL} ${(100 * walled).toFixed(0)}% of the time`,
+    );
     console.log(`  picked up       ${(report.gainedPoints / botMinutes).toFixed(0)} health and armor per bot-minute`);
     console.log(`  deaths          ${(report.deaths / (args.seconds / 60)).toFixed(1)} per minute, all bots`);
     const top = [...report.byStates].sort((a, b) => b[1] - a[1]).slice(0, 8);

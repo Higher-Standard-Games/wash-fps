@@ -17,7 +17,7 @@ import { BotAimController } from "./BotAimController";
 import { type BotBrain, type BotInput, travelYaw } from "./BotBrain";
 import { type BotDifficulty, type BotOptions, defaultBotChat, defaultGoalArbiterMode, InputButtons } from "./BotConfig";
 import type { BotEpisodeRecorder } from "./BotEpisodeRecorder";
-import { applyFriendlyFireSafety } from "./BotFireSafety";
+import { applyFriendlyFireSafety, holdFireOffAim } from "./BotFireSafety";
 import { BotGameState, type BotSelf } from "./BotGameState";
 import { BotPerception } from "./BotPerception";
 import { initialBotReference, modelDigest } from "./BotRatingIdentity";
@@ -106,6 +106,8 @@ export class BotClient extends EventEmitter {
   private _lastBotInput: BotInput | null = null; // Cached AI decision, re-sent at 125Hz
   /** Whether the last command sent pressed the melee attack (see _pulsedMeleeFire). */
   private _meleePress = false;
+  /** Whether the last command sent held fire on the aim (see holdFireOffAim). */
+  private _shooting = false;
   /** Turns the view toward each decision's angles over the commands that carry it. */
   private _aim: BotAimController;
   /** Narrows each snapshot to what this bot can see and hear. */
@@ -714,8 +716,9 @@ export class BotClient extends EventEmitter {
 
   /**
    * The decision as sent this tick: the view turned one step toward its
-   * angles, movement still along the wanted heading. The friendly-fire gate
-   * runs again on the view actually sent, which is where the shot goes.
+   * angles, movement still along the wanted heading. Fire waits until that
+   * view is on the aim, and the friendly-fire gate runs again on the view
+   * actually sent, which is where the shot goes.
    */
   private _aimed(input: BotInput, dt: number): BotInput {
     input = this._pulsedMeleeFire(input);
@@ -723,8 +726,16 @@ export class BotClient extends EventEmitter {
     const firing = (input.buttons & attack) !== 0;
     if (!this._aim.started) this._aim.reset(this._gameState.self.yaw, this._gameState.self.pitch);
     const view = this._aim.step(dt, input.yaw, input.pitch, firing);
-    const aimed: BotInput = { ...input, yaw: view.yaw, pitch: view.pitch, moveYaw: travelYaw(input) };
-    const sent = firing ? applyFriendlyFireSafety(aimed, this._gameState).input : aimed;
+    const held = holdFireOffAim(input.buttons, input, view, this._shooting);
+    this._shooting = held.shooting;
+    const aimed: BotInput = {
+      ...input,
+      buttons: held.buttons,
+      yaw: view.yaw,
+      pitch: view.pitch,
+      moveYaw: travelYaw(input),
+    };
+    const sent = (held.buttons & attack) !== 0 ? applyFriendlyFireSafety(aimed, this._gameState).input : aimed;
     this._commandObserver?.({
       decision: input,
       sent,
