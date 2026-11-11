@@ -1697,6 +1697,19 @@ export class StateMachineBrain extends BotBrain {
       const probe = this._lastBotVision?.probeDrop(step.from.position, step.to.position);
       if (probe && !probe.safe) {
         this._cooldownNavStep(step, state.tick);
+        // A bad landing is bad from every ledge above it. Blocking only this
+        // edge sent the next route down the neighbouring one: the bot turned
+        // away, came back and turned away again.
+        if (probe.reason === "landing_obstructed" || probe.reason === "no_landing") {
+          for (const edge of this._navGraph.edges) {
+            if (edge.type === "fall" && edge.to === step.to.id) {
+              this._blockedNavEdges.set(
+                navEdgeKey(edge.from, edge.to, edge.type),
+                state.tick + NAV_EDGE_FAILURE_COOLDOWN_TICKS,
+              );
+            }
+          }
+        }
         this._pathBlockedReason = `fall:${probe.reason}`;
         this._activeNavStep = null;
         this._currentPath = null;

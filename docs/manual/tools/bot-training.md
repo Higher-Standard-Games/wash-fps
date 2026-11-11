@@ -297,7 +297,7 @@ a spectator:
 | Line | Meaning |
 | --- | --- |
 | flip-backs | The bot's wanted view jumps over 60° and comes back within 30° of where it was inside a second: the left-right-left a spectator notices. Turning after a strafing enemy does not count. Listed by brain state before, during and after, to show which behaviour does it. |
-| turning | How fast the view turns while not firing, and how often the turn reverses. |
+| turning | How fast the view turns while not firing, and how often the turn reverses; then the turn rate in each brain state with at least 5 s of such time. |
 | alive time | Share of time alive spent nearly still (under 80 u/s), sliding and airborne. |
 | deaths | Deaths per minute over all bots. A change that calms the view should not lower it, or the bots are fighting less. |
 

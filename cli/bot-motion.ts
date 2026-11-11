@@ -132,6 +132,8 @@ interface Report {
   turn: number;
   reversals: number;
   quietTime: number;
+  /** View turning while not firing, per brain state: radians and seconds. */
+  turnByState: Map<string, { turn: number; time: number }>;
   alive: number;
   still: number;
   sliding: number;
@@ -182,6 +184,10 @@ function analyse(samples: Sample[], decisions: Decision[], report: Report): void
     const rate = wrap(b.view - w.view) / span;
     report.turn += Math.abs(rate) * span;
     report.quietTime += span;
+    const byState = report.turnByState.get(b.state) ?? { turn: 0, time: 0 };
+    byState.turn += Math.abs(rate) * span;
+    byState.time += span;
+    report.turnByState.set(b.state, byState);
     const sign = Math.abs(rate) > TURNING ? Math.sign(rate) : 0;
     if (sign && lastSign && sign !== lastSign) report.reversals++;
     if (sign) lastSign = sign;
@@ -251,6 +257,7 @@ async function main(): Promise<void> {
       turn: 0,
       reversals: 0,
       quietTime: 0,
+      turnByState: new Map(),
       alive: 0,
       still: 0,
       sliding: 0,
@@ -275,6 +282,11 @@ async function main(): Promise<void> {
     console.log(
       `  turning         ${((report.turn * DEG) / Math.max(1e-9, report.quietTime)).toFixed(0)}°/s while not firing, reversing ${((report.reversals / Math.max(1e-9, report.quietTime)) * 60).toFixed(0)} times a minute`,
     );
+    const states = [...report.turnByState]
+      .filter(([, v]) => v.time >= 5)
+      .sort((a, b) => b[1].time - a[1].time)
+      .map(([state, v]) => `${state} ${((v.turn * DEG) / v.time).toFixed(0)}°/s`);
+    console.log(`  turning by state ${states.join(", ")}`);
     console.log(
       `  alive time      still ${pct(report.still)}, sliding ${pct(report.sliding)}, airborne ${pct(report.airborne)}`,
     );
