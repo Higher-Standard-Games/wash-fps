@@ -60,6 +60,8 @@ export interface BotCommandSample {
   /** The command sent: the view turned one step toward the decision. */
   sent: BotInput;
   brainState: string;
+  /** Wall avoidance turned the decision's heading off a wall ahead. */
+  steeredOffWall: boolean;
   /** The bot's own state from its last snapshot (live, not a copy). */
   self: Readonly<BotSelf>;
   tick: number;
@@ -740,6 +742,7 @@ export class BotClient extends EventEmitter {
       decision: input,
       sent,
       brainState: this._brain.getState(),
+      steeredOffWall: this._brain.steeredOffWall(),
       self: this._gameState.self,
       tick: this._gameState.tick,
     });

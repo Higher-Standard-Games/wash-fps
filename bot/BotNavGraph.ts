@@ -22,6 +22,7 @@
  * One instance per map, shared by all bots.
  */
 
+import type { CollisionWorld } from "../../../engine/network/systems/collision/CollisionWorld";
 import {
   type FloodPosition,
   type FloodVec3,
@@ -227,6 +228,58 @@ const WALK_FLOOD_MAX_STATES = 4000;
 const WALK_FLOOD_ARRIVAL = 32;
 const WALK_FLOOD_ARRIVAL_HEIGHT = 24;
 
+// Keeping off walls
+/** Rays cast round a point to measure its clearance. */
+const CLEARANCE_RAYS = 16;
+/** Clearance a floor node is moved to have, from the hull's side, where the room allows. */
+const NODE_CLEARANCE = 48;
+/** Furthest a floor node moves off a wall, and the steps it tries. */
+const NODE_PUSH_MAX = 64;
+const NODE_PUSH_STEP = 16;
+/** A moved node stays on its floor: the surface under it within this. */
+const NODE_PUSH_FLOOR_STEP = 8;
+/** Walk edges are sampled this often for their clearance. */
+const EDGE_CLEARANCE_STEP = 32;
+/** Clearance under this along a walk edge costs extra, from the hull's side. */
+const EDGE_CLEARANCE = 48;
+/** Extra cost per unit of edge run touching a wall; scales down to 0 at EDGE_CLEARANCE. */
+const EDGE_WALL_COST = 0.6;
+/** Half the player hull's width. */
+const HULL_HALF = 16;
+/** Clearance is measured this far above the walk origin, above steps. */
+const CLEARANCE_LIFT = 16;
+
+/**
+ * Gap from the player hull to the nearest wall around `origin`, and the
+ * direction away from the walls closer than `want`, out to `want` + the hull.
+ */
+function wallClearance(
+  world: CollisionWorld,
+  origin: Vec3,
+  want: number,
+  rays = CLEARANCE_RAYS,
+): { gap: number; away: { x: number; z: number } } {
+  const reach = want + HULL_HALF;
+  const at = { x: origin.x, y: origin.y + CLEARANCE_LIFT, z: origin.z };
+  let nearest = reach;
+  let awayX = 0;
+  let awayZ = 0;
+  for (let i = 0; i < rays; i++) {
+    const angle = (i / rays) * Math.PI * 2;
+    const dx = Math.sin(angle);
+    const dz = Math.cos(angle);
+    const distance = world.trace(at, { x: at.x + dx * reach, y: at.y, z: at.z + dz * reach }).fraction * reach;
+    nearest = Math.min(nearest, distance);
+    awayX -= dx * (reach - distance);
+    awayZ -= dz * (reach - distance);
+  }
+  const length = Math.hypot(awayX, awayZ);
+  return {
+    gap: Math.max(0, nearest - HULL_HALF),
+    away: length > 1e-6 ? { x: awayX / length, z: awayZ / length } : { x: 0, z: 0 },
+  };
+}
+
 /** Teleporters are effectively instant, but keep a small cost so A* stays stable. */
 const TELEPORT_COST = 32;
 
@@ -256,6 +309,7 @@ export const BOT_NAV_MOVEMENT_FINGERPRINT = [
   "jumppad-landing:2",
   "teleport-carry:1",
   `gap-jump:${GAP_JUMP_MIN}`,
+  `clearance:${CLEARANCE_RAYS}:${NODE_CLEARANCE}:${NODE_PUSH_MAX}:${NODE_PUSH_STEP}:${EDGE_CLEARANCE_STEP}:${EDGE_CLEARANCE}:${EDGE_WALL_COST}:${CLEARANCE_LIFT}`,
   BOT_MOVEMENT_ANALYZER_FINGERPRINT,
 ].join("|");
 // ── BotNavGraph ─────────────────────────────────────────────────────
@@ -892,8 +946,9 @@ export class BotNavGraph {
           y = surfaceY - FLOOR_COLUMN_STEP;
 
           if (surfaceY > ceiling) continue;
-          const floorPos: Vec3 = { x: hit.hitPoint.x, y: surfaceY + 1, z: hit.hitPoint.z };
-          if (vision.isInsideSolid(floorPos)) continue;
+          const sampled: Vec3 = { x: hit.hitPoint.x, y: surfaceY + 1, z: hit.hitPoint.z };
+          if (vision.isInsideSolid(sampled)) continue;
+          const floorPos = this._awayFromWalls(vision, sampled);
           if (this._isTooCloseToExisting(floorPos)) continue;
 
           this._nodes.push({ id: nextId++, position: floorPos, type: "floor" });
@@ -923,7 +978,7 @@ export class BotNavGraph {
 
         // Walk edge: low height diff + path clear
         if (heightDiff < WALK_HEIGHT_MAX && vision.isWalkable(walkOrigin(a), walkOrigin(b))) {
-          const cost = dist;
+          const cost = dist + this._wallCost(vision.collisionWorld, walkOrigin(a), walkOrigin(b));
           this._edges.push({ from: a.id, to: b.id, type: "walk", cost });
           this._edges.push({ from: b.id, to: a.id, type: "walk", cost });
           continue;
@@ -1229,6 +1284,60 @@ export class BotNavGraph {
   }
 
   // ── Private: Utilities ──────────────────────────────────────────
+
+  /**
+   * A floor sample moved off the walls near it, as far as NODE_PUSH_MAX, so a
+   * route through it runs down the room rather than along its side. The move
+   * stays on the same floor and walkable from the sample; a sample in a
+   * corridor narrower than twice NODE_CLEARANCE settles where it is clearest.
+   */
+  private _awayFromWalls(vision: BotVision, sampled: Vec3): Vec3 {
+    const world = vision.collisionWorld;
+    const origin = { x: sampled.x, y: sampled.y + WALK_TEST_LIFT, z: sampled.z };
+    const start = wallClearance(world, origin, NODE_CLEARANCE);
+    if (start.gap >= NODE_CLEARANCE || (start.away.x === 0 && start.away.z === 0)) return sampled;
+    let best = sampled;
+    let bestGap = start.gap;
+    for (let push = NODE_PUSH_STEP; push <= NODE_PUSH_MAX; push += NODE_PUSH_STEP) {
+      const x = sampled.x + start.away.x * push;
+      const z = sampled.z + start.away.z * push;
+      const floor = world.trace({ x, y: origin.y, z }, { x, y: sampled.y - NODE_PUSH_FLOOR_STEP - 1, z });
+      if (!floor.hit || !floor.hitPoint) break;
+      if (Math.abs(floor.hitPoint.y + 1 - sampled.y) > NODE_PUSH_FLOOR_STEP) break;
+      const moved: Vec3 = { x, y: floor.hitPoint.y + 1, z };
+      if (
+        vision.isInsideSolid(moved) ||
+        !vision.isWalkable(origin, walkOrigin({ id: -1, type: "floor", position: moved }))
+      )
+        break;
+      const gap = wallClearance(world, walkOrigin({ id: -1, type: "floor", position: moved }), NODE_CLEARANCE).gap;
+      if (gap > bestGap) {
+        best = moved;
+        bestGap = gap;
+      }
+      if (gap >= NODE_CLEARANCE) break;
+    }
+    return best;
+  }
+
+  /**
+   * Extra route cost for the stretches of a straight walk where the hull
+   * would pass close to a wall, so A* takes the middle of a room and the
+   * outside of a corner when it costs little more. Never so much that a
+   * narrow door stops being a route.
+   */
+  private _wallCost(world: CollisionWorld, from: Vec3, to: Vec3): number {
+    const length = Math.hypot(to.x - from.x, to.z - from.z);
+    const samples = Math.max(1, Math.round(length / EDGE_CLEARANCE_STEP));
+    let cost = 0;
+    for (let i = 0; i <= samples; i++) {
+      const t = i / samples;
+      const at = { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t, z: from.z + (to.z - from.z) * t };
+      const gap = wallClearance(world, at, EDGE_CLEARANCE, 8).gap;
+      cost += (length / (samples + 1)) * EDGE_WALL_COST * Math.max(0, 1 - gap / EDGE_CLEARANCE);
+    }
+    return cost;
+  }
 
   private _isTooCloseToExisting(pos: Vec3): boolean {
     return this._findNearbyNode(pos, MIN_NODE_DISTANCE) !== null;

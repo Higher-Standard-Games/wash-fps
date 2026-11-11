@@ -302,6 +302,9 @@ a spectator:
 | still by state | The four brain states with the most still time, as shares of time alive. |
 | still per bot | Each bot's still share. One bot far above the others is stuck somewhere. |
 | picked up | Health and armor points gained while alive, per bot-minute: how well the bots gather items. It rises and falls with how much damage they take, so compare it over several runs. |
+| running clear | Out of a fight and moving: the median gap from the bot's hull to the nearest wall, the share of that time within 8 and 24 units, and how often wall avoidance turned the heading. Then the share within 24 units in each brain state. |
+| running speed | Out of a fight and moving: median speed, the share over 450 u/s and the share airborne. |
+| closest cells | The five 128-unit map cells with the most running time within 24 units of a wall, as shares of all running time. One cell far above the rest is one room worth looking at. |
 | view out of a fight | In HUNT, ITEM_RUN and RETREAT: the median distance the view sees (the longer of a level ray and one 10° up, so stairs do not count, out to 1500 units), and the share of that time it ends at a wall within 192 units. |
 | deaths | Deaths per minute over all bots. A change that calms the view should not lower it, or the bots are fighting less. |
 

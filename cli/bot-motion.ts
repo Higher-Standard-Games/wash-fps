@@ -10,6 +10,9 @@
  *   state before, during and after.
  * - view turn rate while not firing, and how often the turn reverses.
  * - time standing still, sliding and airborne, of time alive.
+ * - out of a fight, moving: how close the bot runs to walls (the gap from its
+ *   hull to the nearest wall), how often wall avoidance has to steer, how
+ *   fast it moves, and the map cells where it runs closest to walls most.
  * - how far the view sees out of a fight: the median sight line along the
  *   view sent (level, or 10° up over stairs), and how much of the time it
  *   ends at a wall close by.
@@ -64,6 +67,15 @@ const DEATH_GAP = 1;
 const STILL = 80;
 /** Sight lines are measured out to this far, units. */
 const SIGHT_RANGE = 1500;
+/** Rays cast round the bot for its clearance, and how far. */
+const CLEARANCE_RAYS = 16;
+const CLEARANCE_REACH = 256;
+/** Half the player hull's width: clearance is measured from its side. */
+const HULL_HALF = 16;
+/** Moving faster than this counts as running, units/s. */
+const RUNNING = 150;
+/** Map cells for the closest-to-walls list, units. */
+const CELL = 128;
 /** A view that ends this close is facing a wall, units. */
 const WALL = 192;
 /** Eye height above the origin, as the bots' own traces use. */
@@ -121,6 +133,11 @@ interface Sample {
   armor: number;
   /** How far the view sent sees, level, out to SIGHT_RANGE. */
   sight: number;
+  /** Out of a fight and running: gap from the hull to the nearest wall; NaN otherwise. */
+  clearance: number;
+  steered: boolean;
+  x: number;
+  z: number;
 }
 
 interface Decision {
@@ -145,6 +162,18 @@ function sightLine(world: CollisionWorld, self: BotCommandSample["self"], yaw: n
   return best;
 }
 
+/** Gap from the hull to the nearest wall at the bot's origin height, out to CLEARANCE_REACH. */
+function clearanceAt(world: CollisionWorld, self: BotCommandSample["self"]): number {
+  const p = self.position;
+  let nearest = CLEARANCE_REACH;
+  for (let i = 0; i < CLEARANCE_RAYS; i++) {
+    const a = (i / CLEARANCE_RAYS) * Math.PI * 2;
+    const end = { x: p.x + Math.sin(a) * CLEARANCE_REACH, y: p.y, z: p.z + Math.cos(a) * CLEARANCE_REACH };
+    nearest = Math.min(nearest, world.trace(p, end).fraction * CLEARANCE_REACH);
+  }
+  return Math.max(0, nearest - HULL_HALF);
+}
+
 function record(
   world: CollisionWorld,
   samples: Sample[],
@@ -154,18 +183,24 @@ function record(
 ): void {
   const firing = (sample.decision.buttons & (InputButtons.FIRE | InputButtons.ALT_FIRE)) !== 0;
   const roaming = ROAMING.has(sample.brainState) && !sample.self.isDead;
+  const speed = Math.hypot(sample.self.velocity.x, sample.self.velocity.z);
+  const running = roaming && speed > RUNNING;
   samples.push({
     t: at,
     wanted: sample.decision.yaw,
     view: sample.sent.yaw,
     state: sample.brainState,
     firing,
-    speed: Math.hypot(sample.self.velocity.x, sample.self.velocity.z),
+    speed,
     sliding: sample.self.isSliding,
     grounded: sample.self.isGrounded,
     health: sample.self.health,
     armor: sample.self.armor,
     sight: roaming ? sightLine(world, sample.self, sample.sent.yaw) : Number.NaN,
+    clearance: running ? clearanceAt(world, sample.self) : Number.NaN,
+    steered: sample.steeredOffWall,
+    x: sample.self.position.x,
+    z: sample.self.position.z,
   });
   const last = decisions[decisions.length - 1];
   if (!last || last.wanted !== sample.decision.yaw || last.state !== sample.brainState) {
@@ -193,6 +228,17 @@ interface Report {
   deaths: number;
   /** Sight lines out of a fight, one per command. */
   sights: number[];
+  /** Out of a fight and running, one per command. */
+  runs: Run[];
+}
+
+interface Run {
+  state: string;
+  clearance: number;
+  steered: boolean;
+  speed: number;
+  grounded: boolean;
+  cell: string;
 }
 
 function analyse(samples: Sample[], decisions: Decision[], report: Report): void {
@@ -232,6 +278,16 @@ function analyse(samples: Sample[], decisions: Decision[], report: Report): void
       report.stillByState.set(b.state, (report.stillByState.get(b.state) ?? 0) + dt);
     }
     if (!Number.isNaN(b.sight)) report.sights.push(b.sight);
+    if (!Number.isNaN(b.clearance)) {
+      report.runs.push({
+        state: b.state,
+        clearance: b.clearance,
+        steered: b.steered,
+        speed: b.speed,
+        grounded: b.grounded,
+        cell: `${Math.round(b.x / CELL) * CELL},${Math.round(b.z / CELL) * CELL}`,
+      });
+    }
     if (b.sliding) report.sliding += dt;
     if (!b.grounded) report.airborne += dt;
     if (i % window !== 0 || i < window) continue;
@@ -252,6 +308,36 @@ function analyse(samples: Sample[], decisions: Decision[], report: Report): void
     if (sign && lastSign && sign !== lastSign) report.reversals++;
     if (sign) lastSign = sign;
   }
+}
+
+const median = (values: number[]) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted.length > 0 ? sorted[Math.floor(sorted.length / 2)] : 0;
+};
+
+const share = (rows: Run[], test: (r: Run) => boolean) =>
+  `${((100 * rows.filter(test).length) / Math.max(1, rows.length)).toFixed(0)}%`;
+
+function printRunning(runs: Run[]): void {
+  const clear = median(runs.map((r) => r.clearance)).toFixed(0);
+  console.log(
+    `  running clear   ${clear} u from walls (median), within 8 u ${share(runs, (r) => r.clearance < 8)}, within 24 u ${share(runs, (r) => r.clearance < 24)}; wall avoidance steering ${share(runs, (r) => r.steered)}`,
+  );
+  const byState = [...ROAMING]
+    .map((state) => [state, runs.filter((r) => r.state === state)] as const)
+    .filter(([, rows]) => rows.length > 0)
+    .map(([state, rows]) => `${state} ${share(rows, (r) => r.clearance < 24)}`);
+  console.log(`  within 24 u by state ${byState.join(", ")}`);
+  console.log(
+    `  running speed   ${median(runs.map((r) => r.speed)).toFixed(0)} u/s (median), over 450 ${share(runs, (r) => r.speed > 450)}, airborne ${share(runs, (r) => !r.grounded)}`,
+  );
+  const cells = new Map<string, number>();
+  for (const r of runs) if (r.clearance < 24) cells.set(r.cell, (cells.get(r.cell) ?? 0) + 1);
+  const worst = [...cells]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([cell, close]) => `${cell} ${((100 * close) / Math.max(1, runs.length)).toFixed(0)}%`);
+  console.log(`  closest cells   ${worst.join(", ")} (x,z: share of running time within 24 u)`);
 }
 
 function makeGametype(name: string): BaseGametype {
@@ -330,6 +416,7 @@ async function main(): Promise<void> {
       airborne: 0,
       deaths: 0,
       sights: [],
+      runs: [],
     };
     // Still time per bot: one bot stuck for a minute moves the total far more than run-to-run noise.
     const stillPerBot: number[] = [];
@@ -368,6 +455,7 @@ async function main(): Promise<void> {
       .map(([state, time]) => `${state} ${pct(time)}`);
     console.log(`  still by state  ${stillStates.join(", ")}`);
     console.log(`  still per bot   ${stillPerBot.map((f) => `${(100 * f).toFixed(0)}%`).join(", ")}`);
+    printRunning(report.runs);
     const sights = [...report.sights].sort((a, b) => a - b);
     const median = sights.length > 0 ? sights[Math.floor(sights.length / 2)] : 0;
     const walled = sights.filter((d) => d < WALL).length / Math.max(1, sights.length);

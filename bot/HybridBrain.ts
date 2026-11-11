@@ -331,6 +331,10 @@ export class HybridBrain extends BotBrain {
     return this._stateMachine.getNavigationDebug();
   }
 
+  override steeredOffWall(): boolean {
+    return this._stateMachine.steeredOffWall();
+  }
+
   // ── Core Decision Loop ──────────────────────────────────────────
 
   decide(

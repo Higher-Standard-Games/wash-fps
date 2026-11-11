@@ -217,6 +217,8 @@ export class StateMachineBrain extends BotBrain {
   private _strafeDirection: number = 1; // 1 or -1
   /** Side chosen round a wall ahead (+1 right, -1 left), and until when. */
   private _feelerSide: { sign: number; untilTick: number } | null = null;
+  /** Whether the feelers turned this decision's heading. */
+  private _feelerSteered = false;
   /** Where the view looks while running, relative to the way the bot runs, and until when. */
   private _look: { off: number; untilTick: number } | null = null;
 
@@ -311,6 +313,10 @@ export class StateMachineBrain extends BotBrain {
   private _activeNavStep: NavStep["type"] | null = null;
   private _pathBlockedReason: string | null = null;
   private _suppressTraversalAutomation: boolean = false;
+  override steeredOffWall(): boolean {
+    return this._feelerSteered;
+  }
+
   override getNavigationDebug(): string | null {
     const goal = this._mandatoryGoal
       ? `order=${this._mandatoryGoal.directive?.id}`
@@ -358,6 +364,7 @@ export class StateMachineBrain extends BotBrain {
     navGraph?: BotNavGraph | null,
   ): BotInput {
     this._pathRecalcTimer++;
+    this._feelerSteered = false;
     this._lastVision = visionResult ?? null;
     this._lastDecisionTick = state.tick;
     this._lastBotVision = vision ?? null;
@@ -2342,6 +2349,7 @@ export class StateMachineBrain extends BotBrain {
     }
 
     if (yawAdjust !== 0) {
+      this._feelerSteered = true;
       // Steer the heading; a bot looking ahead along its route keeps looking there.
       if (input.moveYaw !== undefined) input.moveYaw += yawAdjust;
       else input.yaw += yawAdjust;
