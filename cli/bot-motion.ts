@@ -10,6 +10,7 @@
  *   state before, during and after.
  * - view turn rate while not firing, and how often the turn reverses.
  * - time standing still, sliding and airborne, of time alive.
+ * - health and armor picked up per bot-minute.
  * - deaths per minute over all bots, so a change that calms the view without
  *   hurting how they fight can be told from one that stops them fighting.
  *
@@ -104,6 +105,8 @@ interface Sample {
   speed: number;
   sliding: boolean;
   grounded: boolean;
+  health: number;
+  armor: number;
 }
 
 interface Decision {
@@ -123,6 +126,8 @@ function record(samples: Sample[], decisions: Decision[], at: number, sample: Bo
     speed: Math.hypot(sample.self.velocity.x, sample.self.velocity.z),
     sliding: sample.self.isSliding,
     grounded: sample.self.isGrounded,
+    health: sample.self.health,
+    armor: sample.self.armor,
   });
   const last = decisions[decisions.length - 1];
   if (!last || last.wanted !== sample.decision.yaw || last.state !== sample.brainState) {
@@ -143,6 +148,8 @@ interface Report {
   still: number;
   /** Seconds standing still, per brain state. */
   stillByState: Map<string, number>;
+  /** Health and armor points picked up while alive. */
+  gainedPoints: number;
   sliding: number;
   airborne: number;
   deaths: number;
@@ -178,6 +185,8 @@ function analyse(samples: Sample[], decisions: Decision[], report: Report): void
     }
     if (dt <= 0) continue;
     report.alive += dt;
+    // Rises while alive are pickups: respawning happens across a death gap.
+    report.gainedPoints += Math.max(0, b.health - a.health) + Math.max(0, b.armor - a.armor);
     if (b.speed < STILL) {
       report.still += dt;
       report.stillByState.set(b.state, (report.stillByState.get(b.state) ?? 0) + dt);
@@ -273,6 +282,7 @@ async function main(): Promise<void> {
       alive: 0,
       still: 0,
       stillByState: new Map(),
+      gainedPoints: 0,
       sliding: 0,
       airborne: 0,
       deaths: 0,
@@ -314,6 +324,7 @@ async function main(): Promise<void> {
       .map(([state, time]) => `${state} ${pct(time)}`);
     console.log(`  still by state  ${stillStates.join(", ")}`);
     console.log(`  still per bot   ${stillPerBot.map((f) => `${(100 * f).toFixed(0)}%`).join(", ")}`);
+    console.log(`  picked up       ${(report.gainedPoints / botMinutes).toFixed(0)} health and armor per bot-minute`);
     console.log(`  deaths          ${(report.deaths / (args.seconds / 60)).toFixed(1)} per minute, all bots`);
     const top = [...report.byStates].sort((a, b) => b[1] - a[1]).slice(0, 8);
     if (top.length > 0) console.log("  flip-backs by brain state (before > during > after):");

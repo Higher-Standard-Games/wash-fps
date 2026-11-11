@@ -450,3 +450,49 @@ describe("item goal selection — Duel item timing", () => {
     expect(result.goal?.respawnTick).toBe(1000 + 25 * 125);
   });
 });
+
+describe("a stopover on the way", () => {
+  const at = (e: PickupEntry, z: number): PickupEntry => ({ ...e, position: { ...e.position, z } });
+  const options = (pickups: PickupEntry[]) => ({
+    pickupPositions: pickups,
+    maxDistance: 1500,
+    blockedPickupIds: new Set<number>(),
+  });
+
+  it("takes a worthwhile item just off the way to the goal first, and keeps the goal", () => {
+    const mega = entry("item_health_mega", "health", "mega", 900);
+    const medium = at(entry("item_health_medium", "health", "medium", 450), 60);
+    const result = new ItemGoalPlanner().select(makeState({ health: 40 }), options([mega, medium]));
+    expect(result.goal?.pickupId).toBe(mega.id);
+    expect(result.stopover?.pickupId).toBe(medium.id);
+  });
+
+  it("makes no stopover for an item well off to the side", () => {
+    const mega = entry("item_health_mega", "health", "mega", 900);
+    const medium = at(entry("item_health_medium", "health", "medium", 450), 700);
+    const result = new ItemGoalPlanner().select(makeState({ health: 40 }), options([mega, medium]));
+    expect(result.goal?.pickupId).toBe(mega.id);
+    expect(result.stopover).toBeNull();
+  });
+
+  it("makes no stopover for an item worth almost nothing", () => {
+    const mega = entry("item_health_mega", "health", "mega", 900);
+    const bubble = entry("item_health_small", "health", "small", 450);
+    const result = new ItemGoalPlanner().select(makeState({ health: 97 }), options([mega, bubble]));
+    expect(result.stopover).toBeNull();
+  });
+
+  it("holds the stopover while the bot's detour to it grows", () => {
+    const mega = entry("item_health_mega", "health", "mega", 900);
+    const medium = at(entry("item_health_medium", "health", "medium", 450), 150);
+    const planner = new ItemGoalPlanner();
+    expect(planner.select(makeState({ health: 40, tick: 1000 }), options([mega, medium])).stopover?.pickupId).toBe(
+      medium.id,
+    );
+    // Further along and off to the other side, the detour alone would not pick it now.
+    const moved = makeState({ health: 40, tick: 1100 });
+    moved.self.position = { x: 500, y: 0, z: -150 };
+    expect(new ItemGoalPlanner().select(moved, options([mega, medium])).stopover).toBeNull();
+    expect(planner.select(moved, options([mega, medium])).stopover?.pickupId).toBe(medium.id);
+  });
+});

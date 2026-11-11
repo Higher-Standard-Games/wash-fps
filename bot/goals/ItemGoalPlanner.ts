@@ -17,7 +17,7 @@ import type { PickupEntry } from "../../shared/bsp/PickupTable";
 import { type ArmorKind, armorAfterPickup, type HealthKind, healthAfterPickup } from "../../shared/items/ItemGrants";
 import type { BotGameState, Vec3 } from "../BotGameState";
 import type { BotGoal } from "./BotGoal";
-import type { ConsiderationContext } from "./Consideration";
+import { type ConsiderationContext, clamp01 } from "./Consideration";
 import { Danger } from "./considerations/Danger";
 import { ItemDenial } from "./considerations/ItemDenial";
 import { ItemValue } from "./considerations/ItemValue";
@@ -116,6 +116,17 @@ function buildGates(blockedPickupIds: ReadonlySet<number>, blockedGoalIds: Reado
 const TIMING_LEAD_SECONDS = 10;
 /** Travel speed assumed for timing, units per second (running, not sprinting). */
 const TIMING_TRAVEL_SPEED = 320;
+/** A detour this long, units of route, is worth no stopover at all. */
+const TOUR_DETOUR = 400;
+/** A stopover must be worth at least this much item value (about 15 points of health). */
+const TOUR_MIN_VALUE = 0.1;
+/** How long a chosen stopover is held, ticks. */
+const TOUR_HOLD_TICKS = 375;
+
+/** Static pickups that are up: the only items a tour stops at or goes on to. */
+function isTourItem(goal: BotGoal): boolean {
+  return goal.pickupId !== undefined && goal.respawnTick === undefined && !goal.directive;
+}
 
 export interface ItemGoalPlannerOptions {
   /** Static pickup table for the map. */
@@ -160,9 +171,18 @@ export interface ItemGoalPlannerOptions {
   typeFilter?: ReadonlySet<string>;
 }
 
+export interface ItemGoalSelection extends ArbitrationResult {
+  /** An item to take first on the way to `goal`, when one is worth the detour. */
+  stopover: BotGoal | null;
+}
+
 export class ItemGoalPlanner {
   private readonly arbiter: GoalArbiter;
   private lastExplain = "";
+  /** Route cost between two static pickups, by goal ids; they never move. */
+  private readonly pairCosts = new Map<string, number | null>();
+  /** The stopover held on the way to a goal, and until when. */
+  private stopover: { goalId: string; stopId: string; untilTick: number } | null = null;
 
   /**
    * @param mistakeRate `BotDifficulty.mistakeRate`; 0 makes selection fully
@@ -189,6 +209,7 @@ export class ItemGoalPlanner {
   /** Drop commitment — on death, respawn, or a completed/failed goal. */
   reset(): void {
     this.arbiter.reset();
+    this.stopover = null;
     this.lastExplain = "";
   }
 
@@ -196,7 +217,7 @@ export class ItemGoalPlanner {
    * Choose the best item goal, or null when nothing is worth going for.
    * Pure with respect to the world: reads state, mutates only commitment.
    */
-  select(state: BotGameState, options: ItemGoalPlannerOptions): ArbitrationResult {
+  select(state: BotGameState, options: ItemGoalPlannerOptions): ItemGoalSelection {
     // Policy comes from the gametype the server already reports. An unknown or
     // not-yet-received gametype resolves to the deathmatch-shaped default, so a
     // bot is never left without a profile.
@@ -225,14 +246,75 @@ export class ItemGoalPlanner {
       candidates = candidates.concat(collectDirectiveGoals(state));
     }
 
+    const navGraph = options.navGraph ?? null;
+    const contexts = new Map(candidates.map((goal) => [goal.id, this.makeContext(goal, state, weights, navGraph)]));
     const result = this.arbiter.select(
       candidates,
-      (goal) => this.makeContext(goal, state, weights, options.navGraph ?? null),
+      (goal) => contexts.get(goal.id) ?? this.makeContext(goal, state, weights, navGraph),
       state.tick,
       gates,
     );
-    this.lastExplain = result.explain;
-    return result;
+    const stopover = result.goal
+      ? this.chooseStopover(result.goal, candidates, contexts, gates, navGraph, state.tick)
+      : null;
+    if (!result.goal) this.stopover = null;
+    this.lastExplain = stopover ? `${result.explain} via=${stopover.id}` : result.explain;
+    return { ...result, stopover };
+  }
+
+  /**
+   * A stopover on the way to `goal`: the item worth most for little detour
+   * (bot → it → goal, against bot → goal). Held, once chosen, until it is
+   * taken, gated or past its window, so the bot does not swing in and out of
+   * the detour as the distances change under it.
+   */
+  private chooseStopover(
+    goal: BotGoal,
+    candidates: readonly BotGoal[],
+    contexts: ReadonlyMap<string, ConsiderationContext>,
+    gates: readonly GoalGate[],
+    navGraph: RouteCostSource | null,
+    tick: number,
+  ): BotGoal | null {
+    const goalCtx = contexts.get(goal.id);
+    if (!goalCtx || goalCtx.routeCost === null || !isTourItem(goal)) return null;
+    const usable = (stop: BotGoal, ctx: ConsiderationContext | undefined): ctx is ConsiderationContext =>
+      ctx !== undefined && ctx.routeCost !== null && gates.every((gate) => gate(stop, ctx) === null);
+    const held = this.stopover;
+    if (held && held.goalId === goal.id && tick < held.untilTick) {
+      const stop = candidates.find((c) => c.id === held.stopId);
+      if (stop && usable(stop, contexts.get(stop.id))) return stop;
+    }
+    let best: BotGoal | null = null;
+    let bestScore = 0;
+    for (const stop of candidates) {
+      if (stop.id === goal.id || !isTourItem(stop)) continue;
+      const ctx = contexts.get(stop.id);
+      if (!usable(stop, ctx) || ctx.routeCost === null) continue;
+      const value = ItemValue.score(ctx);
+      if (value < TOUR_MIN_VALUE) continue;
+      const between = this.pairCost(stop, goal, navGraph);
+      if (between === null) continue;
+      const detour = ctx.routeCost + between - goalCtx.routeCost;
+      const score = value * clamp01(1 - detour / TOUR_DETOUR);
+      if (score > bestScore) {
+        bestScore = score;
+        best = stop;
+      }
+    }
+    this.stopover = best ? { goalId: goal.id, stopId: best.id, untilTick: tick + TOUR_HOLD_TICKS } : null;
+    return best;
+  }
+
+  private pairCost(from: BotGoal, to: BotGoal, navGraph: RouteCostSource | null): number | null {
+    const key = `${from.id}>${to.id}`;
+    const cached = this.pairCosts.get(key);
+    if (cached !== undefined) return cached;
+    const cost = navGraph
+      ? navGraph.estimateTravelCost(from.position, to.position)
+      : estimateRouteCost(from.position, to.position);
+    this.pairCosts.set(key, cost);
+    return cost;
   }
 
   private makeContext(

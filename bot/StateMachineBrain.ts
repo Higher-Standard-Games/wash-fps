@@ -224,6 +224,8 @@ export class StateMachineBrain extends BotBrain {
   private readonly _itemGoalPlanner: ItemGoalPlanner;
   private readonly _goalArbiterMode: GoalArbiterMode;
   private _activeItemGoal: BotGoal | null = null;
+  /** An item to take on the way to the active item goal, from the planner. */
+  private _itemStopover: BotGoal | null = null;
   private _mandatoryGoal: BotGoal | null = null;
   private _sitePatrol: { goalId: string; target: Vec3; expires: number; pauseUntil: number } | null = null;
   /**
@@ -327,6 +329,7 @@ export class StateMachineBrain extends BotBrain {
       // at 30 HP is a different proposition after respawning at 100.
       this._itemGoalPlanner.reset();
       this._activeItemGoal = null;
+      this._itemStopover = null;
       this._mandatoryGoal = null;
       this._sitePatrol = null;
       this._combatMovement.reset();
@@ -1052,6 +1055,9 @@ export class StateMachineBrain extends BotBrain {
     // Only a DIRECTIVE goal holds on arrival. An item goal has to be touched,
     // and a bot that stops next to a Red Armor never picks it up.
     if (goal) {
+      // An item worth having just off the way there is taken first.
+      const stopover = goal.directive || this._goalMemoTick !== state.tick ? null : this._itemStopover;
+      if (stopover) return this._navigateGoal(state, stopover, false);
       const territory =
         !goal.directive && goal.position.y < state.self.position.y - 48 ? this._duelTerritory(state) : null;
       return territory ? this._navigateTo(state, territory, false) : this._navigateGoal(state, goal, false);
@@ -1335,6 +1341,7 @@ export class StateMachineBrain extends BotBrain {
     this._interruptSequence(state, "no_navigation_progress", true);
     this._itemGoalPlanner.reset();
     this._activeItemGoal = null;
+    this._itemStopover = null;
     this._currentPath = null;
     this._pathTarget = null;
     this._huntPatrolTarget = null;
@@ -1518,6 +1525,7 @@ export class StateMachineBrain extends BotBrain {
     if (goal.pickupId !== undefined) this._blockedPickupIds.set(goal.pickupId, retry);
     this._itemGoalPlanner.reset();
     this._activeItemGoal = null;
+    this._itemStopover = null;
   }
 
   /**
@@ -1575,6 +1583,7 @@ export class StateMachineBrain extends BotBrain {
     });
 
     this._activeItemGoal = result.goal;
+    this._itemStopover = result.stopover;
     this._goalMemoTick = state.tick;
     this._goalMemoKey = memoKey;
     this._goalMemoResult = result.goal;

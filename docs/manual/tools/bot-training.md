@@ -301,6 +301,7 @@ a spectator:
 | alive time | Share of time alive spent nearly still (under 80 u/s), sliding and airborne. |
 | still by state | The four brain states with the most still time, as shares of time alive. |
 | still per bot | Each bot's still share. One bot far above the others is stuck somewhere. |
+| picked up | Health and armor points gained while alive, per bot-minute: how well the bots gather items. It rises and falls with how much damage they take, so compare it over several runs. |
 | deaths | Deaths per minute over all bots. A change that calms the view should not lower it, or the bots are fighting less. |
 
 | Flag | Default |
