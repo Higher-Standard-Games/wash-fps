@@ -201,15 +201,24 @@ deploy_studio() {
 }
 
 # The native game: GitHub's newest published (not draft) release.
-# Not installed yet: the other surfaces deploy as before. A failed fetch
-# keeps the last release served and does not fail the deploy (activation
-# runs after a successful deploy only).
+# The script is read from the pinned game checkout, which deploy_game has
+# just brought up to date, so a change to it ships when it is merged; an
+# installed /srv/washoi/client-release.sh is the fallback for a checkout
+# from before the script existed. Neither: the other surfaces deploy as
+# before. A failed fetch keeps the last release served and does not fail
+# the deploy (activation runs after a successful deploy only).
 deploy_client() {
-  if [[ ! -f "$ROOT/client-release.sh" ]]; then
-    log "client: $ROOT/client-release.sh is not installed; skipped"
+  local script="$REPOS/shag/src/games/fps/scripts/deployment/client-release.sh"
+  if [[ ! -f "$script" ]]; then
+    script="$ROOT/client-release.sh"
+  fi
+  if [[ ! -f "$script" ]]; then
+    log "client: no client-release.sh in the game checkout or $ROOT; skipped"
     return
   fi
-  source "$ROOT/client-release.sh"
+  log "client: publishing with $script"
+  # shellcheck source=client-release.sh
+  source "$script"
   washoi_client_publish https://api.github.com Higher-Standard-Games/wash-fps-rust \
     "$ROOT/env/client-release.token" "$RELEASES/site/client" https://washoi.net/client \
     "$STATE/client.tag" || log "client: release not published; the previous one stays"
