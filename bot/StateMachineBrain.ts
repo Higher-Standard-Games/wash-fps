@@ -126,6 +126,8 @@ const ITEM_SLIDE_MAX_DISTANCE = 760;
 const ITEM_SLIDE_MAX_VELOCITY_ERROR_RADIANS = Math.PI / 6;
 const ITEM_SLIDE_ALLY_RADIUS = 80;
 const PICKUP_FAILURE_COOLDOWN_TICKS = 625;
+/** A route that ends further than this from its item has not reached it. */
+const UNREACHED_ITEM_DISTANCE = 64;
 
 /** RETREAT wants healing, not shopping — see ItemGoalPlannerOptions.typeFilter. */
 const RETREAT_ITEM_TYPES: ReadonlySet<string> = new Set(["health"]);
@@ -198,6 +200,8 @@ export class StateMachineBrain extends BotBrain {
   private readonly _blockedNavEdges = new Map<string, number>();
 
   private readonly _blockedPickupIds = new Map<number, number>();
+  /** Goals (by id, for dropped items with no pickup id) on the same cooldown: id → retry tick. */
+  private readonly _blockedGoalIds = new Map<string, number>();
   private _activeItemSlideTarget: { pickupId: number; position: Vec3 } | null = null;
 
   // Scored item-goal selection (docs/research/BOT_WEIGHTS_AND_GOALS.md Phase 1).
@@ -1431,10 +1435,32 @@ export class StateMachineBrain extends BotBrain {
       }
       // Path complete — clear it
       this._currentPath = null;
+      this._dropUnreachableItemGoal(state, target);
     }
 
     // No path found — fall back to direct movement
     return this._moveToward(state, target, urgent);
+  }
+
+  /**
+   * The route ended short of the item being fetched and there is no clear walk
+   * from here to it: an item dropped down a ledge or behind a wall from the
+   * nearest node. Put it on the failure cooldown. Walking straight at it ran
+   * the bot into the wall, and the next decision found the same route back to
+   * the node, turning it round every few tenths of a second.
+   */
+  private _dropUnreachableItemGoal(state: BotGameState, target: Vec3): void {
+    const goal = this._activeItemGoal;
+    const vision = this._lastBotVision;
+    if (!goal || goal.directive || !vision) return;
+    if (vec3Length(vec3Subtract(goal.position, target)) > 1) return;
+    if (vec3Length(vec3Subtract(target, state.self.position)) <= UNREACHED_ITEM_DISTANCE) return;
+    if (vision.isWalkable(state.self.position, target)) return;
+    const retry = state.tick + PICKUP_FAILURE_COOLDOWN_TICKS;
+    this._blockedGoalIds.set(goal.id, retry);
+    if (goal.pickupId !== undefined) this._blockedPickupIds.set(goal.pickupId, retry);
+    this._itemGoalPlanner.reset();
+    this._activeItemGoal = null;
   }
 
   /**
@@ -1474,11 +1500,15 @@ export class StateMachineBrain extends BotBrain {
     for (const [pickupId, retryTick] of this._blockedPickupIds) {
       if (state.tick >= retryTick) this._blockedPickupIds.delete(pickupId);
     }
+    for (const [goalId, retryTick] of this._blockedGoalIds) {
+      if (state.tick >= retryTick) this._blockedGoalIds.delete(goalId);
+    }
 
     const result = this._itemGoalPlanner.select(state, {
       pickupPositions: pickupPositions ?? [],
       maxDistance: PICKUP_SEEK_RANGE,
       blockedPickupIds: new Set(this._blockedPickupIds.keys()),
+      blockedGoalIds: new Set(this._blockedGoalIds.keys()),
       typeFilter,
       ignoreDirectives,
       // Real graph distances when the map's nav graph is loaded, so an item

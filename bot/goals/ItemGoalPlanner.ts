@@ -61,10 +61,13 @@ export interface RouteCostSource {
  * will refuse this pickup" and "this item is mildly unattractive" must never be
  * the same thing.
  */
-function buildGates(blockedPickupIds: ReadonlySet<number>): GoalGate[] {
+function buildGates(blockedPickupIds: ReadonlySet<number>, blockedGoalIds: ReadonlySet<string>): GoalGate[] {
   return [
-    // Bot-local failure cooldown (missed the pickup, path failed).
-    (goal) => (goal.pickupId !== undefined && blockedPickupIds.has(goal.pickupId) ? "blocked" : null),
+    // Bot-local failure cooldown (missed the pickup, path failed, route ended short of it).
+    (goal) =>
+      (goal.pickupId !== undefined && blockedPickupIds.has(goal.pickupId)) || blockedGoalIds.has(goal.id)
+        ? "blocked"
+        : null,
 
     // The server gates health/armor pickups on `after > before`, so an item that
     // would grant nothing is not merely worthless — it is uncollectable, and a
@@ -121,6 +124,8 @@ export interface ItemGoalPlannerOptions {
   maxDistance: number;
   /** Pickup ids on a local failure cooldown. */
   blockedPickupIds: ReadonlySet<number>;
+  /** Goal ids on the same cooldown: dropped items have no pickup id. */
+  blockedGoalIds?: ReadonlySet<string>;
   /**
    * Override the behavioural profile. Normally omitted — the planner selects
    * one from the gametype reported in `match_state`. Tests and future
@@ -200,7 +205,7 @@ export class ItemGoalPlanner {
       selectWeightProfile(state.matchState.gametypeName, state.getOwnRole(), state.matchState.roundState);
     // Gates are per-call because the blocked set changes each tick; the arbiter
     // itself is long-lived because it owns the commitment window.
-    const gates = buildGates(options.blockedPickupIds);
+    const gates = buildGates(options.blockedPickupIds, options.blockedGoalIds ?? new Set());
 
     let candidates = collectItemGoals(state, {
       pickupPositions: options.pickupPositions,
