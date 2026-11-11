@@ -35,7 +35,7 @@ the production game metadata and fetch process are already independent of it.
 | `workspace.sh` | `/srv/washoi/workspace.sh` |
 | `run-server.sh` | `/srv/washoi/run-server.sh` |
 | `deploy-eu.sh` or `deploy-us.sh` | `/srv/washoi/deploy.sh` |
-| `client-release.sh` | `/srv/washoi/client-release.sh` on EU |
+| `client-release.sh` | read from the game checkout on EU (`/srv/washoi/client-release.sh` only as a fallback) |
 | `validate-us.sh` | `/srv/washoi/validate.sh` on US |
 | `activate-us.sh` | `/usr/local/sbin/washoi-activate` on US |
 | `activate-eu.sh` | `/usr/local/sbin/washoi-activate` on EU |
@@ -87,11 +87,19 @@ versions are kept; the site's own publication leaves `client/` alone.
 The server reads the release with a fine-grained token that has only
 **Contents: read** on that one repository, in
 `/srv/washoi/env/client-release.token` (owner `washoi`, mode `0600`). Without
-the token, or without `client-release.sh` installed, the surface is skipped and
+the token the surface is skipped and
 everything else deploys as before. A failed download keeps the previous release
 served and does not fail the deploy. `latest.json` should not be cached for
 long: in the `washoi.net` site block, `header /client/latest.json
 Cache-Control "no-cache"`.
+
+`deploy_client` sources `client-release.sh` from the pinned game checkout
+(`/srv/washoi/repos/shag/src/games/fps/scripts/deployment/`), after
+`deploy_game` has updated it, so a change to the script ships when it is
+merged and the pinned game reaches the server; nothing has to be installed by
+hand. An installed `/srv/washoi/client-release.sh` is used only when the
+checkout has none. `deploy-eu.sh` itself is still installed as
+`/srv/washoi/deploy.sh`, so this change needs that copy updated once.
 
 `tests/client-release.test.sh` runs the script against a fake API on disk.
 

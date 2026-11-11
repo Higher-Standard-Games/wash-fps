@@ -11,6 +11,7 @@
 import { PlayerProfile } from "../../../../engine/player/PlayerProfile";
 import type { NetworkConnectOptions, NetworkConnector } from "../../../../engine/ui/components/NetworkConnector";
 import { BridgeError, type NativeBridge } from "./NativeBridge";
+import { silencePageMusic } from "./PageMusic";
 
 /** How long a connection may take before the overlay gives up on it. */
 const CONNECT_TIMEOUT_MS = 60_000;
@@ -65,9 +66,12 @@ export class NativeNetworkConnector implements NetworkConnector {
   constructor(
     private readonly bridge: NativeBridge,
     private readonly reload: () => void = () => window.location.replace(`${window.location.origin}/client`),
+    private readonly silence: () => () => void = silencePageMusic,
   ) {
     bridge.on("match:started", () => {
       this.inMatch = true;
+      // The client plays the match's music; the reloaded lobby starts its own.
+      this.silence();
     });
     bridge.on("match:ended", (ended) => {
       this.inMatch = false;
