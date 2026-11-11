@@ -35,6 +35,7 @@ import { installDownloads } from "./NativeDownloads";
 import { NativeNetworkConnector, takeAfterMatch } from "./NativeNetworkConnector";
 import { applyNativeStorage, installStorageMirror, registerNativeCvars } from "./NativeStorage";
 import { installNativeKeys, installShellControls, installUpdateNotice } from "./ShellControls";
+import { clientTooOld, showUpdateRequired } from "./UpdateRequired";
 
 /** sessionStorage: the player clicked to start in this webview session. */
 const STARTED_KEY = "washoi.native.started";
@@ -99,6 +100,13 @@ async function main(): Promise<void> {
       console.warn("[NativeLobby] The client did not answer hello:", error);
     }
     installLinkPolicy(bridge);
+    // Too old for today's servers: the notice in place of the lobby.
+    if (clientTooOld(bridge.info()?.clientVersion)) {
+      installNativeKeys(bridge);
+      showUpdateRequired(bridge);
+      loadingScreen.hide();
+      return;
+    }
     if (bridge.has("file-save")) installDownloads(bridge);
     installNativeKeys(bridge);
     installUpdateNotice(bridge);
