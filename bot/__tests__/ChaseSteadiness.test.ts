@@ -214,6 +214,24 @@ describe("an item out of reach", () => {
     expect(internals._blockedGoalIds.has(goal.id)).toBe(true);
     expect(internals._activeItemGoal).toBeNull();
   });
+
+  it("is not given up while the bot waits beside it for it to return", () => {
+    const brain = new StateMachineBrain({ ...resolveDifficulty("hard"), mistakeRate: 0 });
+    const state = new BotGameState();
+    state.self.position = { x: 0, y: 24, z: 0 };
+    const goal = { id: "item:pickup:3", kind: "item", position: { x: 20, y: 24, z: 10 }, respawnTick: 2000 };
+    const internals = brain as unknown as {
+      _activeItemGoal: unknown;
+      _blockedGoalIds: Map<string, number>;
+      _giveUpOnCircledItem(state: BotGameState): void;
+    };
+    internals._activeItemGoal = goal;
+    for (let tick = 100; tick <= 1000; tick += 50) {
+      state.tick = tick;
+      internals._giveUpOnCircledItem(state);
+    }
+    expect(internals._blockedGoalIds.has(goal.id)).toBe(false);
+  });
 });
 
 describe("steering round a wall ahead", () => {

@@ -1493,9 +1493,12 @@ export class StateMachineBrain extends BotBrain {
   private _giveUpOnCircledItem(state: BotGameState): void {
     const goal = this._activeItemGoal;
     const self = state.self.position;
+    // Waiting beside a major item for its return is item timing, not circling.
+    const down = goal?.respawnTick !== undefined && goal.respawnTick > state.tick;
     if (
       !goal ||
       goal.directive ||
+      down ||
       Math.hypot(goal.position.x - self.x, goal.position.z - self.z) > ITEM_CIRCLE_RADIUS
     ) {
       this._itemCircle = null;
