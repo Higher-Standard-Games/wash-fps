@@ -12,15 +12,23 @@ function setup() {
   };
   const bridge = new NativeBridge(win as never);
   let reloads = 0;
-  const connector = new NativeNetworkConnector(bridge, () => reloads++);
-  return { bridge, connector, sent, reloads: () => reloads };
+  let silenced = 0;
+  const connector = new NativeNetworkConnector(
+    bridge,
+    () => reloads++,
+    () => {
+      silenced++;
+      return () => undefined;
+    },
+  );
+  return { bridge, connector, sent, reloads: () => reloads, silenced: () => silenced };
 }
 
 afterEach(() => sessionStorage.clear());
 
 describe("NativeNetworkConnector", () => {
   it("asks the client to play with the ticket, name and team", async () => {
-    const { bridge, connector, sent } = setup();
+    const { bridge, connector, sent, silenced } = setup();
     sessionStorage.setItem("shag.lobby_team", "red");
     const done = connector.connect("ws://game:7777", { admissionTicket: "t1" });
     expect(sent[0]).toMatchObject({
@@ -33,6 +41,8 @@ describe("NativeNetworkConnector", () => {
     bridge.receive({ v: 1, type: "match:started" });
     await done;
     expect(connector.isConnected()).toBe(true);
+    // The hidden lobby's music stops under the match's own.
+    expect(silenced()).toBe(1);
     expect(connector.claimSeat("ws://game:7777", "t2")).toBe(true);
     expect(sent.at(-1)).toMatchObject({ type: "match:seat", admissionTicket: "t2" });
     expect(connector.claimSeat("ws://other", "t3")).toBe(false);
@@ -44,7 +54,11 @@ describe("NativeNetworkConnector", () => {
       ipc: { postMessage: () => undefined },
       location: { pathname: "/client" },
     } as never);
-    const connector = new NativeNetworkConnector(bridge, () => undefined);
+    const connector = new NativeNetworkConnector(
+      bridge,
+      () => undefined,
+      () => () => undefined,
+    );
     bridge.receive({ v: 1, type: "match:started" });
     expect(connector.claimSeat("ws://game:7777", "t")).toBe(false);
   });

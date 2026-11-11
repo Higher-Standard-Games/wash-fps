@@ -10,7 +10,12 @@ function setup() {
     ipc: { postMessage: (text: string) => sent.push(JSON.parse(text)) },
     location: { pathname: "/client" },
   } as never);
-  return { bridge, sent, player: new NativeDemoPlayer(bridge, "https://eu.washoi.net/data/demos") };
+  const music = { silenced: 0, resumed: 0 };
+  const silence = () => {
+    music.silenced++;
+    return () => music.resumed++;
+  };
+  return { bridge, sent, music, player: new NativeDemoPlayer(bridge, "https://eu.washoi.net/data/demos", silence) };
 }
 
 const demo = { filename: "m1.shagdemo", map: "washoi_dm2" } as DemoInfo;
@@ -24,15 +29,19 @@ describe("demoBase", () => {
 
 describe("NativeDemoPlayer", () => {
   it("asks the client to play and hears when it ends", async () => {
-    const { bridge, sent, player } = setup();
+    const { bridge, sent, music, player } = setup();
     let ended = 0;
     const started = player.play(demo, 2, new AbortController().signal, () => ended++);
     expect(sent[0]).toMatchObject({ type: "demo:play", filename: "m1.shagdemo", reel: 2 });
+    // The menus' music plays on while the recording downloads.
+    expect(music.silenced).toBe(0);
     bridge.receive({ v: 1, type: "ok", id: sent[0].id as string });
     await started;
+    expect(music).toEqual({ silenced: 1, resumed: 0 });
     bridge.receive({ v: 1, type: "demo:ended" });
     bridge.receive({ v: 1, type: "demo:ended" });
     expect(ended).toBe(1);
+    expect(music).toEqual({ silenced: 1, resumed: 1 });
   });
 
   it("turns a cancel into an AbortError", async () => {
