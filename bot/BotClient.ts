@@ -26,6 +26,7 @@ import type { BotVision, VisionResult } from "./BotVision";
 import { pulseMeleeFire } from "./BotWeaponProfile";
 import { BotChat } from "./chat/BotChat";
 import { StateMachineBrain } from "./StateMachineBrain";
+import { teleportExitYaw } from "./TeleportExit";
 
 /** Most script commands sent in one timer firing, well under the server's input buffer. */
 const MAX_SCRIPT_BURST = 4;
@@ -500,7 +501,9 @@ export class BotClient extends EventEmitter {
       this._sendAck(snapshot.tick);
 
       // Update game state from snapshot, then keep only what this bot perceives
+      const before = { ...this._gameState.self.position };
       this._gameState.update(snapshot);
+      this._faceTeleportExit(before);
       this._perception.setDifficulty({
         ...this._difficulty,
         reactionTimeMs: this._difficulty.reactionTimeMs + duelLeadReactionDelay(this._gameState),
@@ -695,6 +698,21 @@ export class BotClient extends EventEmitter {
     const view = this._aim.step(dt, input.yaw, input.pitch, firing);
     const aimed: BotInput = { ...input, yaw: view.yaw, pitch: view.pitch, moveYaw: travelYaw(input) };
     return firing ? applyFriendlyFireSafety(aimed, this._gameState).input : aimed;
+  }
+
+  /**
+   * A teleporter sets the view to its exit yaw, as `setViewYaw` does for a
+   * human. Without this the aim would turn there from the entry view, waiting
+   * out the reaction time first, and the bot would come out looking backwards.
+   */
+  private _faceTeleportExit(before: { x: number; y: number; z: number }): void {
+    const self = this._gameState.self;
+    if (this._isDead || self.isDead || !this._aim.started || !this._vision) return;
+    const yaw = teleportExitYaw(before, self.position, this._vision.mapKnowledge.triggerVolumes);
+    if (yaw === null) return;
+    const pitch = this._aim.view?.pitch ?? self.pitch;
+    this._aim.reset(yaw, pitch);
+    self.yaw = yaw;
   }
 
   /** Melee fire as sent this command: see `pulseMeleeFire`. */
