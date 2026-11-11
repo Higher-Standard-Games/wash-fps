@@ -288,6 +288,35 @@ Run it yourself before assuming any of those numbers apply to your machine:
 npm --prefix src/games/fps run bot:bench -- --bots 8 --decisions 2000
 ```
 
+## How they move
+
+`npm --prefix src/games/fps run bot:motion` runs a headless match on a map,
+watches every command each bot sends, and reports how its movement would look to
+a spectator:
+
+| Line | Meaning |
+| --- | --- |
+| flip-backs | The bot's wanted view jumps over 60° and comes back within 30° of where it was inside a second: the left-right-left a spectator notices. Turning after a strafing enemy does not count. Listed by brain state before, during and after, to show which behaviour does it. |
+| turning | How fast the view turns while not firing, and how often the turn reverses. |
+| alive time | Share of time alive spent nearly still (under 80 u/s), sliding and airborne. |
+| deaths | Deaths per minute over all bots. A change that calms the view should not lower it, or the bots are fighting less. |
+
+| Flag | Default |
+| --- | --- |
+| `--map` | `washoi_dm2` |
+| `--bots` | `4` |
+| `--seconds` | `120` (at least 10) |
+| `--gametype` | `ffa`; `duel` for Duel |
+| `--difficulty` | `medium` |
+| `--port` | `7795`; the bot control socket uses this plus 100 |
+
+```bash
+npm --prefix src/games/fps run bot:motion -- --map washoi_dm1 --bots 4 --seconds 120
+```
+
+Matches are random, so two runs of the same code differ by a few flip-backs per
+minute. Compare a change against a run of the code before it on the same map.
+
 ## Not yet
 
 - Whether aim can be learned at all is unknown. Bot recordings cannot answer it —

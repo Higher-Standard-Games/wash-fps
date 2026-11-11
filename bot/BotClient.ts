@@ -18,7 +18,7 @@ import { type BotBrain, type BotInput, travelYaw } from "./BotBrain";
 import { type BotDifficulty, type BotOptions, defaultBotChat, defaultGoalArbiterMode, InputButtons } from "./BotConfig";
 import type { BotEpisodeRecorder } from "./BotEpisodeRecorder";
 import { applyFriendlyFireSafety } from "./BotFireSafety";
-import { BotGameState } from "./BotGameState";
+import { BotGameState, type BotSelf } from "./BotGameState";
 import { BotPerception } from "./BotPerception";
 import { initialBotReference, modelDigest } from "./BotRatingIdentity";
 import { duelLeadReactionDelay } from "./BotReactionTuning";
@@ -52,6 +52,20 @@ export type BotClientState =
   | "joining"
   | "playing"
   | "dead";
+
+/** One command as a bot sent it. */
+export interface BotCommandSample {
+  /** The brain's decision: where it wants to look and go. */
+  decision: BotInput;
+  /** The command sent: the view turned one step toward the decision. */
+  sent: BotInput;
+  brainState: string;
+  /** The bot's own state from its last snapshot (live, not a copy). */
+  self: Readonly<BotSelf>;
+  tick: number;
+}
+
+export type BotCommandObserver = (sample: BotCommandSample) => void;
 
 // ── BotClient ───────────────────────────────────────────────────────────
 
@@ -112,6 +126,7 @@ export class BotClient extends EventEmitter {
 
   // Vision (shared across bots on same map)
   private _vision: BotVision | null = null;
+  private _commandObserver: BotCommandObserver | null = null;
   private _lastVisionResult: VisionResult | null = null;
 
   // Navigation graph (shared across bots on same map)
@@ -238,6 +253,18 @@ export class BotClient extends EventEmitter {
   }
   get brainState(): string {
     return this._brain.getState();
+  }
+
+  /**
+   * Watch every command as it is sent, beside the decision it came from and
+   * what the bot knows of itself then: for measuring how bots move
+   * (`bot:motion`). One observer at a time; returns the unsubscribe.
+   */
+  observeCommands(observer: BotCommandObserver): () => void {
+    this._commandObserver = observer;
+    return () => {
+      if (this._commandObserver === observer) this._commandObserver = null;
+    };
   }
 
   /**
@@ -697,7 +724,15 @@ export class BotClient extends EventEmitter {
     if (!this._aim.started) this._aim.reset(this._gameState.self.yaw, this._gameState.self.pitch);
     const view = this._aim.step(dt, input.yaw, input.pitch, firing);
     const aimed: BotInput = { ...input, yaw: view.yaw, pitch: view.pitch, moveYaw: travelYaw(input) };
-    return firing ? applyFriendlyFireSafety(aimed, this._gameState).input : aimed;
+    const sent = firing ? applyFriendlyFireSafety(aimed, this._gameState).input : aimed;
+    this._commandObserver?.({
+      decision: input,
+      sent,
+      brainState: this._brain.getState(),
+      self: this._gameState.self,
+      tick: this._gameState.tick,
+    });
+    return sent;
   }
 
   /**
