@@ -26,9 +26,12 @@ washoi_client_publish "file://$api" o/r "$scratch/none" "$scratch/client" x "$sc
 
 release v1.2.0 washoi-1.2.0-linux-x86_64.tar.gz washoi-1.2.0-windows-x86_64.zip washoi-1.2.0-macos-aarch64.zip \
   washoi-1.2.0-windows-x86_64-setup.exe washoi-1.2.0-linux-x86_64-setup.exe \
+  washoi-1.2.0-linux-x86_64.AppImage washoi-1.2.0-windows-x86_64.AppImage \
   notes.txt washoi-1.1.0-linux-x86_64.tar.gz
 publish
-jq -e '.version == "1.2.0" and (.files | length) == 4' "$scratch/client/latest.json" >/dev/null
+jq -e '.version == "1.2.0" and (.files | length) == 5' "$scratch/client/latest.json" >/dev/null
+jq -e '[.files[] | select(.platform == "linux-x86_64") | .name] | sort
+  == ["washoi-1.2.0-linux-x86_64.AppImage", "washoi-1.2.0-linux-x86_64.tar.gz"]' "$scratch/client/latest.json" >/dev/null
 # The installer, under its platform, for the game's self-update.
 jq -e '[.files[] | select(.platform == "windows-x86_64") | .name] | sort
   == ["washoi-1.2.0-windows-x86_64-setup.exe", "washoi-1.2.0-windows-x86_64.zip"]' "$scratch/client/latest.json" >/dev/null
