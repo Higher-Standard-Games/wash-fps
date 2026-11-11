@@ -26,7 +26,7 @@ import { type BotNavGraph, type NavPath, type NavPathOptions, type NavStep, navE
 import { duelLeadReactionDelay } from "./BotReactionTuning";
 import { BotSequenceRegistry, BotSequenceRuntime, type BotSequenceRuntimeTick } from "./BotSequence";
 import { BotTerritory } from "./BotTerritory";
-import type { BotVision, VisionResult } from "./BotVision";
+import type { BotVision, EnemyTrack, VisionResult } from "./BotVision";
 import { BotWeaponCombos, has, slotFor } from "./BotWeaponCombos";
 import { getWeaponProfile, selectBestWeapon, type WeaponProfile } from "./BotWeaponProfile";
 import type { BotGoal } from "./goals/BotGoal";
@@ -48,6 +48,10 @@ import { ValidatedJumpSequence } from "./sequences/ValidatedJumpSequence";
 const LOW_HEALTH_THRESHOLD = 40;
 const RETREAT_HEALTH_THRESHOLD = 25;
 const FIGHT_RANGE = 2000;
+/** A chased enemy seen this recently is watched for rather than the route ahead. */
+const CHASE_WATCH_TICKS = Math.round(1.5 * 125);
+/** Furthest the view turns from where the bot runs to watch a lost enemy. */
+const CHASE_WATCH_MAX_OFF_TRAVEL = (110 * Math.PI) / 180;
 const PICKUP_SEEK_RANGE = 1500;
 /** A bot timing an item waits this close to it, inside its pickup reach. */
 const TIMED_ITEM_HOLD_RADIUS = 40;
@@ -900,6 +904,8 @@ export class StateMachineBrain extends BotBrain {
         target.predictedPosition.x - state.self.position.x,
         target.predictedPosition.z - state.self.position.z,
       );
+    } else {
+      this._watchLostEnemy(state, target, input);
     }
 
     // Only pre-fire when very close to predicted position (near corners)
@@ -920,6 +926,25 @@ export class StateMachineBrain extends BotBrain {
     }
 
     return input;
+  }
+
+  /**
+   * Keep looking where an enemy just went out of sight while running the
+   * route after them, as a player watches the corner. Looking along the route
+   * instead swung the view away and back each time sight came and went.
+   */
+  private _watchLostEnemy(state: BotGameState, target: EnemyTrack, input: BotInput): void {
+    if (target.source !== "visual" || state.tick - target.lastSeenTick > CHASE_WATCH_TICKS) return;
+    const delta = vec3Subtract(target.predictedPosition, this._getFireOrigin(state));
+    const horizontal = Math.hypot(delta.x, delta.z);
+    if (horizontal < 1) return;
+    const watchYaw = Math.atan2(delta.x, delta.z);
+    const moveYaw = travelYaw(input);
+    if (Math.abs(Math.atan2(Math.sin(watchYaw - moveYaw), Math.cos(watchYaw - moveYaw))) > CHASE_WATCH_MAX_OFF_TRAVEL)
+      return;
+    input.moveYaw = moveYaw;
+    input.yaw = watchYaw;
+    input.pitch = -Math.atan2(delta.y, horizontal);
   }
 
   // ── RETREAT State ─────────────────────────────────────────────────

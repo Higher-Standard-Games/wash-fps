@@ -37,6 +37,19 @@ function toward(from: Vec3, to: Vec3, buttons: number): BotInput {
 }
 
 /**
+ * Push toward the mark while already looking the way the route starts. The
+ * bearing to the mark flips round whenever the bot passes it, and turning the
+ * view with it spun the bot on the spot until it stopped exactly there.
+ */
+function creepToward(from: Vec3, to: Vec3, routeYaw: number): BotInput {
+  return {
+    ...toward(from, to, InputButtons.FORWARD),
+    moveYaw: Math.atan2(to.x - from.x, to.z - from.z),
+    yaw: routeYaw,
+  };
+}
+
+/**
  * A command as the bot client sends it: the client turns a view-relative
  * direction into world space by yaw, so turn the recorded world direction back.
  */
@@ -122,7 +135,7 @@ export class LearnedRouteSequence implements BotSequence {
     // rest, because running onto it overshoots.
     if (distance <= WALK_RADIUS) {
       if (speed > CREEP_SPEED) return { input: idle(route.yaw), status: "running", phase: "creep" };
-      return { input: toward(self.position, route.start, InputButtons.FORWARD), status: "running", phase: "creep" };
+      return { input: creepToward(self.position, route.start, route.yaw), status: "running", phase: "creep" };
     }
     return {
       input: toward(self.position, route.start, InputButtons.FORWARD | InputButtons.SPRINT),

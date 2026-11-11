@@ -165,6 +165,8 @@ const DAMAGE_CONFIDENCE = 0.8;
 
 /** Minimum confidence to consider a track actionable for chasing */
 const CHASE_CONFIDENCE_THRESHOLD = 0.3;
+/** How much more confident another track must be to take over the chase. */
+const CHASE_SWITCH_MARGIN = 0.25;
 
 /** Max number of enemy tracks to maintain */
 const MAX_ENEMY_TRACKS = 8;
@@ -202,6 +204,8 @@ export class BotVision {
 
   // Enemy memory: playerId → EnemyTrack (persists across ticks)
   private _enemyTracks: Map<string, EnemyTrack> = new Map();
+  /** The enemy the last chase target selection chose. */
+  private _chaseTargetId: string | null = null;
 
   constructor(collisionWorld: CollisionWorld, mapKnowledge: MapKnowledgeData, logInitialization: boolean = true) {
     this._collisionWorld = collisionWorld;
@@ -391,6 +395,13 @@ export class BotVision {
     }
 
     // ── Update enemy memory tracks ─────────────────────────────────
+    // A fragged enemy is gone, as the obituary tells every player: chasing
+    // where they would have run on to sends the bot after a corpse.
+    for (const kill of state.recentKills) {
+      for (const [playerId, track] of this._enemyTracks) {
+        if (track.entityId === kill.victimId) this._enemyTracks.delete(playerId);
+      }
+    }
     this._updateEnemyTracks(state, visibleEnemies, audibleEnemies);
 
     // ── Get current tracked enemies (phantoms behind cover) ───────
@@ -743,12 +754,19 @@ export class BotVision {
 
     // Strongly prefer recently-visible enemies over sound-tracked ones
     const visualTracks = trackedEnemies.filter((t) => t.source === "visual");
-    if (visualTracks.length > 0) {
-      return visualTracks[0]; // Already sorted by confidence
-    }
+    const best = visualTracks[0] ?? trackedEnemies[0]; // Already sorted by confidence
 
-    // Otherwise pick the highest confidence track
-    return trackedEnemies[0];
+    // Keep after the one being chased until another is clearly the better lead:
+    // re-picking on every decision turned the bot between enemies as their
+    // tracks faded past each other.
+    const current = trackedEnemies.find((t) => t.playerId === this._chaseTargetId);
+    const keep =
+      current !== undefined &&
+      (current.source === "visual" || best.source !== "visual") &&
+      best.confidence - current.confidence <= CHASE_SWITCH_MARGIN;
+    const chosen = keep ? current : best;
+    this._chaseTargetId = chosen.playerId;
+    return chosen;
   }
 
   /**
