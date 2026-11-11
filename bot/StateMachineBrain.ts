@@ -14,7 +14,9 @@
  */
 
 import { DEFAULT_VIEWHEIGHT } from "../../../engine/physics/PlayerPhysicsConstants";
+import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "../../../shared/server/simulation/physics/constants";
 import { selectWeightProfile } from "../shared/bot/WeightProfiles";
+import { wrapAngle } from "./BotAimController";
 import { BotBrain, type BotInput, BotState, travelYaw } from "./BotBrain";
 import { BotCombatMovement, findHighGround } from "./BotCombatMovement";
 import { type BotDifficulty, defaultGoalArbiterMode, type GoalArbiterMode, InputButtons } from "./BotConfig";
@@ -49,7 +51,7 @@ const LOW_HEALTH_THRESHOLD = 40;
 const RETREAT_HEALTH_THRESHOLD = 25;
 const FIGHT_RANGE = 2000;
 /** A chased enemy seen this recently is watched for rather than the route ahead. */
-const CHASE_WATCH_TICKS = Math.round(1.5 * 125);
+const CHASE_WATCH_TICKS = Math.round(1.5 * TICK_RATE);
 /** Furthest the view turns from where the bot runs to watch a lost enemy. */
 const CHASE_WATCH_MAX_OFF_TRAVEL = (110 * Math.PI) / 180;
 const PICKUP_SEEK_RANGE = 1500;
@@ -59,7 +61,7 @@ const TIMED_ITEM_HOLD_RADIUS = 40;
 const ENTRANCE_WATCH_TICKS = 375;
 const DODGE_REACT_TICKS = 30; // React to damage within last 30 ticks
 /** The slide's own cooldown plus its length, in server ticks, from the start of the last one. */
-const SLIDE_COOLDOWN_TICKS = Math.ceil(((PHYSICS.SLIDE_COOLDOWN + PHYSICS.SLIDE_DURATION) / 1000) * 125);
+const SLIDE_COOLDOWN_TICKS = Math.ceil(((PHYSICS.SLIDE_COOLDOWN + PHYSICS.SLIDE_DURATION) / 1000) * TICK_RATE);
 /** A lunge chance passed up is not rolled for again this soon. */
 const LUNGE_REROLL_TICKS = 125;
 /** Too hurt to dive in with a blade. */
@@ -119,7 +121,7 @@ type PathFollowResult =
 const PATH_RECALC_INTERVAL = 120; // Recalculate path every ~2 seconds
 const NAV_EDGE_FAILURE_COOLDOWN_TICKS = 625;
 
-const BOT_SLIDE_COOLDOWN_TICKS = Math.ceil((PHYSICS.SLIDE_COOLDOWN / 1000) * 125);
+const BOT_SLIDE_COOLDOWN_TICKS = Math.ceil((PHYSICS.SLIDE_COOLDOWN / 1000) * TICK_RATE);
 /** How far a route slide carries the bot on the heading it starts with, units. */
 const ROUTE_SLIDE_RUN = 320;
 /** The slide's run plus the room to come out of it at speed, units. */
@@ -138,6 +140,12 @@ const ITEM_CIRCLE_RADIUS = 64;
 const ITEM_CIRCLE_TICKS = 125;
 /** A bot that needs an item chases a heard enemy only this close: round the next corner. */
 const SOUND_DIVERT_DISTANCE = 384;
+
+/** An item goal, and an item worth taking on the way to it. */
+interface ItemGoalChoice {
+  goal: BotGoal;
+  stopover: BotGoal | null;
+}
 
 /** RETREAT wants healing, not shopping — see ItemGoalPlannerOptions.typeFilter. */
 const RETREAT_ITEM_TYPES: ReadonlySet<string> = new Set(["health"]);
@@ -224,8 +232,6 @@ export class StateMachineBrain extends BotBrain {
   private readonly _itemGoalPlanner: ItemGoalPlanner;
   private readonly _goalArbiterMode: GoalArbiterMode;
   private _activeItemGoal: BotGoal | null = null;
-  /** An item to take on the way to the active item goal, from the planner. */
-  private _itemStopover: BotGoal | null = null;
   private _mandatoryGoal: BotGoal | null = null;
   private _sitePatrol: { goalId: string; target: Vec3; expires: number; pauseUntil: number } | null = null;
   /**
@@ -239,7 +245,7 @@ export class StateMachineBrain extends BotBrain {
    */
   private _goalMemoTick = -1;
   private _goalMemoKey = "";
-  private _goalMemoResult: BotGoal | null = null;
+  private _goalMemoResult: ItemGoalChoice | null = null;
 
   constructor(difficulty: BotDifficulty, goalArbiterMode: GoalArbiterMode = defaultGoalArbiterMode()) {
     super(difficulty);
@@ -329,9 +335,10 @@ export class StateMachineBrain extends BotBrain {
       // at 30 HP is a different proposition after respawning at 100.
       this._itemGoalPlanner.reset();
       this._activeItemGoal = null;
-      this._itemStopover = null;
       this._mandatoryGoal = null;
       this._sitePatrol = null;
+      this._itemCircle = null;
+      this._feelerSide = null;
       this._combatMovement.reset();
       this._weaponCombos.reset();
       this._mood.endFight();
@@ -974,8 +981,7 @@ export class StateMachineBrain extends BotBrain {
     if (horizontal < 1) return;
     const watchYaw = Math.atan2(delta.x, delta.z);
     const moveYaw = travelYaw(input);
-    if (Math.abs(Math.atan2(Math.sin(watchYaw - moveYaw), Math.cos(watchYaw - moveYaw))) > CHASE_WATCH_MAX_OFF_TRAVEL)
-      return;
+    if (Math.abs(wrapAngle(watchYaw - moveYaw)) > CHASE_WATCH_MAX_OFF_TRAVEL) return;
     input.moveYaw = moveYaw;
     input.yaw = watchYaw;
     input.pitch = -Math.atan2(delta.y, horizontal);
@@ -988,7 +994,7 @@ export class StateMachineBrain extends BotBrain {
     // candidate set is filtered rather than left open — but within health the
     // arbiter still beats "nearest": it accounts for overcap (a bubble at 98 HP
     // is worthless), route cost, and mega vs. medium.
-    const healthGoal = this._selectItemGoal(state, RETREAT_ITEM_TYPES, true);
+    const healthGoal = this._selectItemGoal(state, RETREAT_ITEM_TYPES, true)?.goal;
     if (healthGoal) return this._navigateTo(state, healthGoal.position, true);
 
     // Try NavGraph path to nearest health (cached via _navigateToItem)
@@ -1051,13 +1057,13 @@ export class StateMachineBrain extends BotBrain {
     // took the nearest of whichever type came first, so a 5 HP bubble could
     // outrank Red Armor). Falls through to the legacy path when disabled or
     // when nothing scores.
-    const goal = this._selectItemGoal(state);
+    const choice = this._selectItemGoal(state);
     // Only a DIRECTIVE goal holds on arrival. An item goal has to be touched,
     // and a bot that stops next to a Red Armor never picks it up.
-    if (goal) {
+    if (choice) {
+      const goal = choice.goal;
       // An item worth having just off the way there is taken first.
-      const stopover = goal.directive || this._goalMemoTick !== state.tick ? null : this._itemStopover;
-      if (stopover) return this._navigateGoal(state, stopover, false);
+      if (choice.stopover && !goal.directive) return this._navigateGoal(state, choice.stopover, false);
       const territory =
         !goal.directive && goal.position.y < state.self.position.y - 48 ? this._duelTerritory(state) : null;
       return territory ? this._navigateTo(state, territory, false) : this._navigateGoal(state, goal, false);
@@ -1109,7 +1115,7 @@ export class StateMachineBrain extends BotBrain {
     // Prefer a scored goal over aimless patrol. Reached when the ladder falls
     // through to HUNT but the arbiter still has something worth doing — an
     // objective, or an item that did not meet _shouldSeekItems' cruder bar.
-    const goal = this._selectItemGoal(state);
+    const goal = this._selectItemGoal(state)?.goal;
     if (goal) return this._navigateGoal(state, goal, false);
 
     // Check if we know a last enemy position to investigate
@@ -1341,7 +1347,6 @@ export class StateMachineBrain extends BotBrain {
     this._interruptSequence(state, "no_navigation_progress", true);
     this._itemGoalPlanner.reset();
     this._activeItemGoal = null;
-    this._itemStopover = null;
     this._currentPath = null;
     this._pathTarget = null;
     this._huntPatrolTarget = null;
@@ -1525,7 +1530,6 @@ export class StateMachineBrain extends BotBrain {
     if (goal.pickupId !== undefined) this._blockedPickupIds.set(goal.pickupId, retry);
     this._itemGoalPlanner.reset();
     this._activeItemGoal = null;
-    this._itemStopover = null;
   }
 
   /**
@@ -1539,13 +1543,13 @@ export class StateMachineBrain extends BotBrain {
    * Returns null when the arbiter is disabled, when map pickup knowledge is not
    * loaded, or when nothing is worth going for — callers then fall through to
    * the legacy path, so a bot is never left standing still by this returning
-   * nothing.
+   * nothing. The goal comes with the item to take on the way to it, if any.
    */
   private _selectItemGoal(
     state: BotGameState,
     typeFilter?: ReadonlySet<string>,
     ignoreDirectives = false,
-  ): BotGoal | null {
+  ): ItemGoalChoice | null {
     if (this._goalArbiterMode === "legacy") return null;
 
     // One arbitration per decision, per distinct request shape.
@@ -1583,14 +1587,13 @@ export class StateMachineBrain extends BotBrain {
     });
 
     this._activeItemGoal = result.goal;
-    this._itemStopover = result.stopover;
     this._goalMemoTick = state.tick;
     this._goalMemoKey = memoKey;
-    this._goalMemoResult = result.goal;
+    this._goalMemoResult = result.goal ? { goal: result.goal, stopover: result.stopover } : null;
     if (this._goalArbiterMode === "verbose" && result.goal) {
       console.log(`[bot] ${result.explain}`);
     }
-    return result.goal;
+    return this._goalMemoResult;
   }
 
   private _navigateToItem(state: BotGameState, itemType: string, urgent: boolean): BotInput | null {
@@ -1998,8 +2001,9 @@ export class StateMachineBrain extends BotBrain {
    * Is there room for a slide along the route? A slide holds its heading for
    * ROUTE_SLIDE_RUN units and comes out fast: waypoints within the run must lie
    * close to that line, those beyond it up to ROUTE_SLIDE_REACH within 45° of
-   * where it ends, and the run must be walkable. Waypoints may be close together: the bot slides past
-   * them (BotNavGraph.getNextStep leaves a passed one behind).
+   * where it ends, and the run must be walkable. Waypoints may be close
+   * together: the bot slides past them (BotNavGraph.getNextStep leaves a
+   * passed one behind).
    */
   private _slideLaneOpen(state: BotGameState, path: NavPath, step: NavStep): boolean {
     if (step.type !== "walk" || step.requiresPreciseApproach) return false;

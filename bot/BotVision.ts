@@ -582,6 +582,7 @@ export class BotVision {
   clearCache(): void {
     this._losCache.clear();
     this._enemyTracks.clear();
+    this._chaseTargetId = null;
   }
 
   // ── Sound & Damage Event Registration ────────────────────────────────

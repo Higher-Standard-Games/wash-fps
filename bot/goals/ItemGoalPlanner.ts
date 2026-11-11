@@ -179,8 +179,9 @@ export interface ItemGoalSelection extends ArbitrationResult {
 export class ItemGoalPlanner {
   private readonly arbiter: GoalArbiter;
   private lastExplain = "";
-  /** Route cost between two static pickups, by goal ids; they never move. */
+  /** Route cost between two static pickups by goal ids, on `pairCostSource`'s map. */
   private readonly pairCosts = new Map<string, number | null>();
+  private pairCostSource: RouteCostSource | null = null;
   /** The stopover held on the way to a goal, and until when. */
   private stopover: { goalId: string; stopId: string; untilTick: number } | null = null;
 
@@ -247,13 +248,17 @@ export class ItemGoalPlanner {
     }
 
     const navGraph = options.navGraph ?? null;
-    const contexts = new Map(candidates.map((goal) => [goal.id, this.makeContext(goal, state, weights, navGraph)]));
-    const result = this.arbiter.select(
-      candidates,
-      (goal) => contexts.get(goal.id) ?? this.makeContext(goal, state, weights, navGraph),
-      state.tick,
-      gates,
-    );
+    // Built once per goal: the arbiter scores every candidate, and the stopover reuses its contexts.
+    const contexts = new Map<string, ConsiderationContext>();
+    const contextOf = (goal: BotGoal): ConsiderationContext => {
+      let ctx = contexts.get(goal.id);
+      if (!ctx) {
+        ctx = this.makeContext(goal, state, weights, navGraph);
+        contexts.set(goal.id, ctx);
+      }
+      return ctx;
+    };
+    const result = this.arbiter.select(candidates, contextOf, state.tick, gates);
     const stopover = result.goal
       ? this.chooseStopover(result.goal, candidates, contexts, gates, navGraph, state.tick)
       : null;
@@ -278,7 +283,10 @@ export class ItemGoalPlanner {
   ): BotGoal | null {
     const goalCtx = contexts.get(goal.id);
     if (!goalCtx || goalCtx.routeCost === null || !isTourItem(goal)) return null;
-    const usable = (stop: BotGoal, ctx: ConsiderationContext | undefined): ctx is ConsiderationContext =>
+    const usable = (
+      stop: BotGoal,
+      ctx: ConsiderationContext | undefined,
+    ): ctx is ConsiderationContext & { routeCost: number } =>
       ctx !== undefined && ctx.routeCost !== null && gates.every((gate) => gate(stop, ctx) === null);
     const held = this.stopover;
     if (held && held.goalId === goal.id && tick < held.untilTick) {
@@ -290,7 +298,7 @@ export class ItemGoalPlanner {
     for (const stop of candidates) {
       if (stop.id === goal.id || !isTourItem(stop)) continue;
       const ctx = contexts.get(stop.id);
-      if (!usable(stop, ctx) || ctx.routeCost === null) continue;
+      if (!usable(stop, ctx)) continue;
       const value = ItemValue.score(ctx);
       if (value < TOUR_MIN_VALUE) continue;
       const between = this.pairCost(stop, goal, navGraph);
@@ -307,6 +315,12 @@ export class ItemGoalPlanner {
   }
 
   private pairCost(from: BotGoal, to: BotGoal, navGraph: RouteCostSource | null): number | null {
+    // A new nav graph is a new map, or the same map with real routes in place
+    // of the straight-line estimates: costs from before it no longer hold.
+    if (navGraph !== this.pairCostSource) {
+      this.pairCosts.clear();
+      this.pairCostSource = navGraph;
+    }
     const key = `${from.id}>${to.id}`;
     const cached = this.pairCosts.get(key);
     if (cached !== undefined) return cached;

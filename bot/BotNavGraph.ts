@@ -348,8 +348,8 @@ const PASSED_HEIGHT = 48;
 /**
  * A bot that slid or ran past a walk waypoint without coming within the
  * arrival radius is already on the next walk segment: past the waypoint, and
- * beyond it along the next segment close to that segment's line. Turning back to touch the waypoint is what
- * a spectator sees as the bot losing its way.
+ * beyond it along the next segment close to that segment's line. Turning back
+ * to touch the waypoint is what a spectator sees as the bot losing its way.
  */
 function passedWalkWaypoint(botPos: Vec3, step: NavStep, next: NavStep | undefined): boolean {
   if (!next || step.type !== "walk" || next.type !== "walk" || step.requiresPreciseApproach) return false;

@@ -26,6 +26,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MatchPhase } from "@shared/server/gametype";
 import { runCli } from "../../../cli/_runCli";
+import { wrapAngle } from "../bot/BotAimController";
 import type { BotCommandSample } from "../bot/BotClient";
 import { InputButtons } from "../bot/BotConfig";
 import { BotServer } from "../bot/BotServer";
@@ -93,7 +94,6 @@ function parseArgs(): Args {
   return a;
 }
 
-const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 interface Sample {
@@ -159,10 +159,10 @@ function analyse(samples: Sample[], decisions: Decision[], report: Report): void
   for (let i = 1; i < decisions.length; i++) {
     const before = decisions[i - 1];
     const after = decisions[i];
-    if (Math.abs(wrap(after.wanted - before.wanted)) < JUMP) continue;
+    if (Math.abs(wrapAngle(after.wanted - before.wanted)) < JUMP) continue;
     report.jumps++;
     for (let j = i + 1; j < decisions.length && decisions[j].t - after.t <= FLIP_WINDOW; j++) {
-      if (Math.abs(wrap(decisions[j].wanted - before.wanted)) < BACK) {
+      if (Math.abs(wrapAngle(decisions[j].wanted - before.wanted)) < BACK) {
         const key = `${before.state} > ${after.state} > ${decisions[j].state}`;
         report.byStates.set(key, (report.byStates.get(key) ?? 0) + 1);
         report.flips++;
@@ -200,7 +200,7 @@ function analyse(samples: Sample[], decisions: Decision[], report: Report): void
       lastSign = 0;
       continue;
     }
-    const rate = wrap(b.view - w.view) / span;
+    const rate = wrapAngle(b.view - w.view) / span;
     report.turn += Math.abs(rate) * span;
     report.quietTime += span;
     const byState = report.turnByState.get(b.state) ?? { turn: 0, time: 0 };
