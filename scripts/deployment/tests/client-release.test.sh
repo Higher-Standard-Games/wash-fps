@@ -25,14 +25,18 @@ washoi_client_publish "file://$api" o/r "$scratch/none" "$scratch/client" x "$sc
 [[ ! -e "$scratch/client" ]]
 
 release v1.2.0 washoi-1.2.0-linux-x86_64.tar.gz washoi-1.2.0-windows-x86_64.zip washoi-1.2.0-macos-aarch64.zip \
+  washoi-1.2.0-windows-x86_64-setup.exe washoi-1.2.0-linux-x86_64-setup.exe \
   notes.txt washoi-1.1.0-linux-x86_64.tar.gz
 publish
-jq -e '.version == "1.2.0" and (.files | length) == 3' "$scratch/client/latest.json" >/dev/null
+jq -e '.version == "1.2.0" and (.files | length) == 4' "$scratch/client/latest.json" >/dev/null
+# The installer, under its platform, for the game's self-update.
+jq -e '[.files[] | select(.platform == "windows-x86_64") | .name] | sort
+  == ["washoi-1.2.0-windows-x86_64-setup.exe", "washoi-1.2.0-windows-x86_64.zip"]' "$scratch/client/latest.json" >/dev/null
 jq -e '.files[] | select(.platform == "macos-aarch64")
   | .url == "https://washoi.net/client/1.2.0/washoi-1.2.0-macos-aarch64.zip"' "$scratch/client/latest.json" >/dev/null
 [[ ! -e "$scratch/client/1.2.0/notes.txt" ]]
 [[ "$(sha256sum <"$scratch/client/1.2.0/washoi-1.2.0-windows-x86_64.zip" | cut -d' ' -f1)" == \
-   "$(jq -r '.files[] | select(.platform == "windows-x86_64") | .sha256' "$scratch/client/latest.json")" ]]
+   "$(jq -r '.files[] | select(.name == "washoi-1.2.0-windows-x86_64.zip") | .sha256' "$scratch/client/latest.json")" ]]
 
 # The same tag again: nothing fetched.
 rm "$scratch/assets/"*

@@ -12,6 +12,8 @@
 #
 # Layout under <dest>:
 #   <version>/washoi-<version>-<os>-<arch>.<zip|tar.gz>
+#   <version>/washoi-<version>-windows-<arch>-setup.exe   the installer, which
+#             the installed game downloads and runs to update itself
 #   latest.json   {"version","tag","publishedAt","files":[{platform,name,url,size,sha256}]}
 # The newest three versions are kept; latest.json is replaced last, by rename.
 
@@ -45,7 +47,7 @@ washoi_client_publish() {
   files="[]"
   # Only the game's own packages, by the names tools/package.sh gives them.
   assets="$(jq -c --arg v "$version" '.assets[]
-    | select(.name | test("^washoi-" + ($v | gsub("\\."; "\\.")) + "-(linux|macos|windows)-(x86_64|aarch64)\\.(zip|tar\\.gz)$"))
+    | select(.name | test("^washoi-" + ($v | gsub("\\."; "\\.")) + "-((linux|macos|windows)-(x86_64|aarch64)\\.(zip|tar\\.gz)|windows-(x86_64|aarch64)-setup\\.exe)$"))
     | {name, url, size}' <<<"$release")"
   if [[ -z "$assets" ]]; then
     echo "client: $tag has no game packages"
@@ -70,7 +72,7 @@ washoi_client_publish() {
       return 1
     fi
     sha="$(sha256sum "$stage/$name" | cut -d' ' -f1)"
-    platform="$(sed -E 's/^.*-((linux|macos|windows)-(x86_64|aarch64))\.(zip|tar\.gz)$/\1/' <<<"$name")"
+    platform="$(sed -E 's/^.*-((linux|macos|windows)-(x86_64|aarch64))(-setup\.exe|\.zip|\.tar\.gz)$/\1/' <<<"$name")"
     files="$(jq -c --arg p "$platform" --arg n "$name" --arg u "$public/$version/$name" \
       --argjson s "$size" --arg h "$sha" '. + [{platform:$p, name:$n, url:$u, size:$s, sha256:$h}]' <<<"$files")"
   done <<<"$assets"
