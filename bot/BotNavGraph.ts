@@ -340,6 +340,35 @@ function walkOrigin(node: NavNode): Vec3 {
   return { x: node.position.x, y: node.position.y + WALK_TEST_LIFT, z: node.position.z };
 }
 
+/** Off the next walk segment's line by more than this, a bot has not reached it. */
+const PASSED_LATERAL = 64;
+/** Above or below a waypoint by more than this, a bot has not passed it. */
+const PASSED_HEIGHT = 48;
+
+/**
+ * A bot that slid or ran past a walk waypoint without coming within the
+ * arrival radius is already on the next walk segment: past the waypoint, and
+ * beyond it along the next segment close to that segment's line. Turning back to touch the waypoint is what
+ * a spectator sees as the bot losing its way.
+ */
+function passedWalkWaypoint(botPos: Vec3, step: NavStep, next: NavStep | undefined): boolean {
+  if (!next || step.type !== "walk" || next.type !== "walk" || step.requiresPreciseApproach) return false;
+  if (step.to.type === "item" || Math.abs(botPos.y - step.to.position.y) > PASSED_HEIGHT) return false;
+  const corner = step.to.position;
+  const dx = next.to.position.x - corner.x;
+  const dz = next.to.position.z - corner.z;
+  const length = Math.hypot(dx, dz);
+  if (length < 1) return false;
+  const bx = botPos.x - corner.x;
+  const bz = botPos.z - corner.z;
+  // Past the corner along the segment it is on, too: on a switchback the bot
+  // can stand beside the next segment's line before reaching the corner.
+  if (bx * (corner.x - step.from.position.x) + bz * (corner.z - step.from.position.z) <= 0) return false;
+  const along = (bx * dx + bz * dz) / length;
+  const lateral = Math.abs(bx * dz - bz * dx) / length;
+  return along > 0 && along < length && lateral <= PASSED_LATERAL;
+}
+
 export class BotNavGraph {
   private _nodes: NavNode[] = [];
 
@@ -702,7 +731,11 @@ export class BotNavGraph {
           : step.type === "fall"
             ? Math.min(arrivedThreshold, 48)
             : arrivedThreshold;
-      if (vec3Distance(botPos, step.to.position) > stepThreshold) break;
+      if (
+        vec3Distance(botPos, step.to.position) > stepThreshold &&
+        !passedWalkWaypoint(botPos, step, path.steps[path.cursor + 1])
+      )
+        break;
       path.cursor++;
     }
     return path.steps[path.cursor] ?? null;

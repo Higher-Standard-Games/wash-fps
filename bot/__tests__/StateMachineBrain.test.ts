@@ -340,6 +340,42 @@ describe("StateMachineBrain traversal executors", () => {
     expect(brain.isSequenceActive()).toBe(false);
   });
 
+  it("slides down a straight corridor whose waypoints are close together", () => {
+    const brain = new StateMachineBrain(difficulty);
+    const state = makeState({ velocity: { x: 0, y: 0, z: 420 } });
+    state.players = [];
+    const nodes = [0, 150, 300, 450, 600, 750].map((z, id) => ({
+      id,
+      type: (id === 0 ? "spawn" : "floor") as "spawn" | "floor",
+      position: { x: id % 2 === 0 ? 0 : 20, y: 0, z },
+    }));
+    const harness = brain as unknown as TraversalHarness;
+    harness.currentState = BotState.HUNT;
+    harness._currentPath = {
+      nodes,
+      steps: nodes.slice(1).map((to, i) => ({
+        from: nodes[i],
+        to,
+        type: "walk" as const,
+        cost: 150,
+        horizontalDistance: 150,
+        heightDelta: 0,
+        requiresPreciseApproach: false,
+      })),
+      totalCost: 750,
+      cursor: 0,
+    };
+    const input: BotInput = {
+      direction: { x: 0, y: 0, z: 1 },
+      pitch: 0,
+      yaw: 0,
+      buttons: InputButtons.FORWARD | InputButtons.SPRINT,
+      weaponSlot: 0,
+    };
+    expect(harness._tryStartRouteCrouchslide(input, state)).not.toBeNull();
+    expect(brain.getNavigationDebug()).toContain("sequence=route_crouchslide");
+  });
+
   it("looks ahead round a corner while still walking to it", () => {
     const brain = new StateMachineBrain(difficulty);
     const state = makeState({ position: { x: 0, y: 0, z: 250 }, velocity: { x: 0, y: 0, z: 320 } });

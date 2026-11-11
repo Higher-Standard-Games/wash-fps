@@ -277,3 +277,34 @@ describe("BotNavGraph walk edges", () => {
     expect(item.position.y).toBe(3);
   });
 });
+
+describe("a walk waypoint slid past", () => {
+  function corner(next: { x: number; z: number }) {
+    const graph = new BotNavGraph("passed-waypoint");
+    graph.loadStaticData({
+      nodes: [
+        { id: 0, type: "floor", position: { x: 0, y: 0, z: 0 } },
+        { id: 1, type: "floor", position: { x: 0, y: 0, z: 600 } },
+        { id: 2, type: "floor", position: { x: next.x, y: 0, z: next.z } },
+      ],
+      edges: [
+        { from: 0, to: 1, type: "walk", cost: 600 },
+        { from: 1, to: 2, type: "walk", cost: 600 },
+      ],
+    });
+    const path = graph.findPath({ x: 0, y: 0, z: 0 }, { x: next.x, y: 0, z: next.z });
+    if (!path) throw new Error("no path");
+    return { graph, path };
+  }
+
+  it("is left behind once the bot is on the next segment", () => {
+    // A gentle bend: the slide carried the bot 150 past the waypoint and on.
+    const { graph, path } = corner({ x: 300, z: 1100 });
+    expect(graph.getNextStep({ x: 70, y: 0, z: 750 }, path)?.to.id).toBe(2);
+  });
+
+  it("is still walked to on a switchback, where the next segment runs back alongside", () => {
+    const { graph, path } = corner({ x: 60, z: 0 });
+    expect(graph.getNextStep({ x: 30, y: 0, z: 300 }, path)?.to.id).toBe(1);
+  });
+});

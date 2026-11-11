@@ -120,9 +120,12 @@ const PATH_RECALC_INTERVAL = 120; // Recalculate path every ~2 seconds
 const NAV_EDGE_FAILURE_COOLDOWN_TICKS = 625;
 
 const BOT_SLIDE_COOLDOWN_TICKS = Math.ceil((PHYSICS.SLIDE_COOLDOWN / 1000) * 125);
-const ROUTE_SLIDE_MIN_REMAINING_DISTANCE = 320;
-const ROUTE_SLIDE_LOOKAHEAD_DISTANCE = 520;
-const ROUTE_SLIDE_MAX_TURN_RADIANS = Math.PI / 4;
+/** How far a route slide carries the bot on the heading it starts with, units. */
+const ROUTE_SLIDE_RUN = 320;
+/** The slide's run plus the room to come out of it at speed, units. */
+const ROUTE_SLIDE_REACH = 520;
+/** Every waypoint inside a route slide's run lies within this of its line. */
+const ROUTE_SLIDE_LANE = 64;
 const ITEM_SLIDE_MIN_DISTANCE = 260;
 const ITEM_SLIDE_MAX_DISTANCE = 760;
 const ITEM_SLIDE_MAX_VELOCITY_ERROR_RADIANS = Math.PI / 6;
@@ -1979,6 +1982,41 @@ export class StateMachineBrain extends BotBrain {
     return this._tickActiveSequence(state);
   }
 
+  /**
+   * Is there room for a slide along the route? A slide holds its heading for
+   * ROUTE_SLIDE_RUN units and comes out fast: waypoints within the run must lie
+   * close to that line, those beyond it up to ROUTE_SLIDE_REACH within 45° of
+   * where it ends, and the run must be walkable. Waypoints may be close together: the bot slides past
+   * them (BotNavGraph.getNextStep leaves a passed one behind).
+   */
+  private _slideLaneOpen(state: BotGameState, path: NavPath, step: NavStep): boolean {
+    if (step.type !== "walk" || step.requiresPreciseApproach) return false;
+    const self = state.self.position;
+    const heading = { x: step.to.position.x - self.x, z: step.to.position.z - self.z };
+    const first = Math.hypot(heading.x, heading.z);
+    if (first < 1) return false;
+    const dx = heading.x / first;
+    const dz = heading.z / first;
+    let along = 0;
+    for (let i = path.cursor; i < path.steps.length; i++) {
+      const next = path.steps[i];
+      const point = next.to.position;
+      along = (point.x - self.x) * dx + (point.z - self.z) * dz;
+      if (along >= ROUTE_SLIDE_REACH) break;
+      const lateral = Math.abs((point.x - self.x) * dz - (point.z - self.z) * dx);
+      // A jump, drop or precise approach inside the reach is no place to slide,
+      // nor a turn inside the run. After the run the bot can turn up to 45°.
+      const lane = ROUTE_SLIDE_LANE + Math.max(0, along - ROUTE_SLIDE_RUN);
+      if (lateral > lane || next.type !== "walk" || next.requiresPreciseApproach) return false;
+    }
+    // A route ending inside the reach must still leave room for the slide.
+    if (along < ROUTE_SLIDE_RUN) return false;
+    const vision = this._lastBotVision;
+    if (!vision) return true;
+    const end = { x: self.x + dx * ROUTE_SLIDE_RUN, y: self.y, z: self.z + dz * ROUTE_SLIDE_RUN };
+    return vision.isWalkable(self, end);
+  }
+
   private _tryStartRouteCrouchslide(input: BotInput, state: BotGameState): BotInput | null {
     if (state.self.isDead || this._sequenceRuntime.isActive) return null;
     const movingForward = (input.buttons & InputButtons.FORWARD) !== 0 && (input.buttons & InputButtons.BACK) === 0;
@@ -2007,23 +2045,7 @@ export class StateMachineBrain extends BotBrain {
 
     const step = this._currentPath?.steps[this._currentPath.cursor] ?? null;
     if (this._currentPath && !step) return null;
-    if (step) {
-      if (step.type !== "walk" || step.requiresPreciseApproach) return null;
-      const remaining = vec3Length(vec3Subtract(step.to.position, state.self.position));
-      if (remaining < ROUTE_SLIDE_MIN_REMAINING_DISTANCE) return null;
-
-      const nextStep = this._currentPath?.steps[this._currentPath.cursor + 1] ?? null;
-      if (remaining < ROUTE_SLIDE_LOOKAHEAD_DISTANCE && nextStep) {
-        if (nextStep.type !== "walk" || nextStep.requiresPreciseApproach) return null;
-        const currentDirection = vec3Normalize(vec3Subtract(step.to.position, state.self.position));
-        const nextDirection = vec3Normalize(vec3Subtract(nextStep.to.position, step.to.position));
-        const dot = Math.max(
-          -1,
-          Math.min(1, currentDirection.x * nextDirection.x + currentDirection.z * nextDirection.z),
-        );
-        if (Math.acos(dot) > ROUTE_SLIDE_MAX_TURN_RADIANS) return null;
-      }
-    }
+    if (step && this._currentPath && !this._slideLaneOpen(state, this._currentPath, step)) return null;
 
     const context = this._getSequenceContext(state, step, input, true);
     if (!this._sequenceRuntime.start("route_crouchslide", context)) return null;
