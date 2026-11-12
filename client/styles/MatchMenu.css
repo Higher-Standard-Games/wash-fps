@@ -187,6 +187,13 @@
   -webkit-backdrop-filter: none;
 }
 
+/* In the native client the settings over a match open in the lobby page
+   (client/native/MatchSettings.ts), whose rail panel (GamePanel.css) sits at
+   z-index 800: above it, or the player sees the lobby instead. */
+:root[data-shell="native"] .fps-match-menu--settings {
+  z-index: 900;
+}
+
 .fps-match-menu__stage {
   flex: 1 1 auto;
   min-width: 0;
