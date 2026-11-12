@@ -142,7 +142,12 @@ and earshot is still believed there until the bot looks at its spot.
   enemy 200–450 units ahead is closed in one crouch-slide with the blade.
 - **Combos** (`BotWeaponCombos.ts`, by prediction skill): a launching rocket into
   the electrobolt or riotgun, a point-blank rocket into the blade, a rail between
-  plasma; and the gun for a heard enemy's distance readied before they appear.
+  plasma; after a slow gun's shot, the other gun carried while the slow one
+  reloads (an electrobolt into the machinegun or riotgun), when it fits the
+  distance and fires at least 0.25 s sooner; and the gun for a heard enemy's
+  distance readied before they appear.
+- **Firing on aim** (`BotFireSafety.ts`): fire waits until the view is within 12°
+  of the aim, so a bot turns round before it shoots.
 - **Moods and mistakes** (`BotMood.ts`): confident after two kills, tilted after
   three deaths (looser aim, slower reactions), cautious on low health or against
   an enemy with armour or a powerup. Each fight may carry one mistake at

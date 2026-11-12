@@ -1,6 +1,32 @@
+import { wrapAngle } from "./BotAimController";
 import type { BotInput } from "./BotBrain";
 import { InputButtons } from "./BotConfig";
 import type { BotGameState, VisiblePlayer } from "./BotGameState";
+
+const DEG = Math.PI / 180;
+/** A shot starts only once the view is this close to where the brain aims. */
+const FIRE_START_CONE = 12 * DEG;
+/** Once shooting, the trigger stays down until the view is this far off. */
+const FIRE_KEEP_CONE = 25 * DEG;
+
+/**
+ * Hold the trigger until the view sent is on the aim. The brain presses fire
+ * as soon as it decides to shoot, but the view takes a reaction time and a
+ * turn to get there: without this a bot shooting someone behind it fired all
+ * the way round, as no player does. Alt-fire (sights, the blade's charge) is
+ * left alone: a player raises the sights while still turning.
+ */
+export function holdFireOffAim(
+  buttons: number,
+  aim: { yaw: number; pitch: number },
+  view: { yaw: number; pitch: number },
+  shooting: boolean,
+): { buttons: number; shooting: boolean } {
+  if ((buttons & InputButtons.FIRE) === 0) return { buttons, shooting: false };
+  const off = Math.max(Math.abs(wrapAngle(aim.yaw - view.yaw)), Math.abs(aim.pitch - view.pitch));
+  if (off <= (shooting ? FIRE_KEEP_CONE : FIRE_START_CONE)) return { buttons, shooting: true };
+  return { buttons: buttons & ~InputButtons.FIRE, shooting: false };
+}
 
 export interface FireSafetyResult {
   input: BotInput;

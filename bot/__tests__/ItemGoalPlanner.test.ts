@@ -15,7 +15,7 @@
 import { describe, expect, it } from "vitest";
 import type { PickupEntry } from "../../shared/bsp/PickupTable";
 import { BotGameState } from "../BotGameState";
-import { mistakeProbability } from "../goals/GoalArbiter";
+import { COMMITMENT_TICKS, mistakeProbability } from "../goals/GoalArbiter";
 import { ItemGoalPlanner } from "../goals/ItemGoalPlanner";
 
 // ── Fixture helpers ──────────────────────────────────────────────────
@@ -279,6 +279,18 @@ describe("mistakes (BotDifficulty.mistakeRate)", () => {
     expect(result.explain).toContain("[mistake: took runner-up]");
   });
 
+  it("holds the runner-up it took for the commitment window", () => {
+    const best = mega();
+    const other = medium();
+    const rolls = [0, 0.99, 0.99, 0.99];
+    const planner = new ItemGoalPlanner(8, () => rolls.shift() ?? 0.99);
+    const opts = { pickupPositions: [best, other], maxDistance: 1500, blockedPickupIds: new Set<number>() };
+    expect(planner.select(makeState({ health: 40, tick: 1000 }), opts).goal?.pickupId).toBe(other.id);
+    expect(planner.select(makeState({ health: 40, tick: 1010 }), opts).goal?.pickupId).toBe(other.id);
+    expect(planner.select(makeState({ health: 40, tick: 1100 }), opts).goal?.pickupId).toBe(other.id);
+    expect(planner.select(makeState({ health: 40, tick: 1000 + COMMITMENT_TICKS }), opts).goal?.pickupId).toBe(best.id);
+  });
+
   it("takes the winner when the roll fails", () => {
     const best = mega();
     const other = medium();
@@ -436,5 +448,51 @@ describe("item goal selection — Duel item timing", () => {
     const result = choose(state, [armor]);
     expect(result.goal?.pickupId).toBe(armor.id);
     expect(result.goal?.respawnTick).toBe(1000 + 25 * 125);
+  });
+});
+
+describe("a stopover on the way", () => {
+  const at = (e: PickupEntry, z: number): PickupEntry => ({ ...e, position: { ...e.position, z } });
+  const options = (pickups: PickupEntry[]) => ({
+    pickupPositions: pickups,
+    maxDistance: 1500,
+    blockedPickupIds: new Set<number>(),
+  });
+
+  it("takes a worthwhile item just off the way to the goal first, and keeps the goal", () => {
+    const mega = entry("item_health_mega", "health", "mega", 900);
+    const medium = at(entry("item_health_medium", "health", "medium", 450), 60);
+    const result = new ItemGoalPlanner().select(makeState({ health: 40 }), options([mega, medium]));
+    expect(result.goal?.pickupId).toBe(mega.id);
+    expect(result.stopover?.pickupId).toBe(medium.id);
+  });
+
+  it("makes no stopover for an item well off to the side", () => {
+    const mega = entry("item_health_mega", "health", "mega", 900);
+    const medium = at(entry("item_health_medium", "health", "medium", 450), 700);
+    const result = new ItemGoalPlanner().select(makeState({ health: 40 }), options([mega, medium]));
+    expect(result.goal?.pickupId).toBe(mega.id);
+    expect(result.stopover).toBeNull();
+  });
+
+  it("makes no stopover for an item worth almost nothing", () => {
+    const mega = entry("item_health_mega", "health", "mega", 900);
+    const bubble = entry("item_health_small", "health", "small", 450);
+    const result = new ItemGoalPlanner().select(makeState({ health: 97 }), options([mega, bubble]));
+    expect(result.stopover).toBeNull();
+  });
+
+  it("holds the stopover while the bot's detour to it grows", () => {
+    const mega = entry("item_health_mega", "health", "mega", 900);
+    const medium = at(entry("item_health_medium", "health", "medium", 450), 150);
+    const planner = new ItemGoalPlanner();
+    expect(planner.select(makeState({ health: 40, tick: 1000 }), options([mega, medium])).stopover?.pickupId).toBe(
+      medium.id,
+    );
+    // Further along and off to the other side, the detour alone would not pick it now.
+    const moved = makeState({ health: 40, tick: 1100 });
+    moved.self.position = { x: 500, y: 0, z: -150 };
+    expect(new ItemGoalPlanner().select(moved, options([mega, medium])).stopover).toBeNull();
+    expect(planner.select(moved, options([mega, medium])).stopover?.pickupId).toBe(medium.id);
   });
 });

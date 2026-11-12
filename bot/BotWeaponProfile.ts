@@ -9,7 +9,7 @@
  *   if (profile.aimsDownSights) buttons |= InputButtons.ALT_FIRE;
  */
 
-import type { WeaponDef } from "../../../shared/entities/WeaponDef";
+import { fireIntervalTicks, type WeaponDef } from "../../../shared/entities/WeaponDef";
 import { BLADE } from "../shared/entities/definitions/weapons/blade";
 import { ELECTROBOLT } from "../shared/entities/definitions/weapons/electrobolt";
 import { GRENADE_LAUNCHER } from "../shared/entities/definitions/weapons/glauncher";
@@ -77,6 +77,9 @@ export interface WeaponProfile {
 
   /** Damage per second (damage × fireRate) */
   dps: number;
+
+  /** Server ticks from one shot to the next */
+  fireIntervalTicks: number;
 
   /** ADS movement speed penalty (0 = no penalty, 0.7 = 70% slower) */
   adsMovePenalty: number;
@@ -156,6 +159,7 @@ function buildProfile(def: WeaponDef): WeaponProfile {
     idealMinRange,
     idealMaxRange,
     dps,
+    fireIntervalTicks: fireIntervalTicks(def),
     adsMovePenalty: def.ads?.movementPenalty ?? 0,
     damagePerHit: damage * pellets,
   };
@@ -199,6 +203,7 @@ const DEFAULT_PROFILE: WeaponProfile = {
   idealMinRange: 100,
   idealMaxRange: 2000,
   dps: 50,
+  fireIntervalTicks: 100,
   adsMovePenalty: 0.5,
   damagePerHit: 10,
 };

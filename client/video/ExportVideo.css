@@ -205,9 +205,6 @@
   flex-wrap: wrap;
   gap: 12px;
 }
-.video-export-actions .lobby-guide__button {
-  min-height: 46px;
-}
 .video-export-status {
   font: 800 18px / 1.35 var(--body);
 }

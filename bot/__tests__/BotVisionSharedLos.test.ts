@@ -22,6 +22,7 @@ it("does not trace again for an enemy perception already checked this snapshot",
     heardEnemies: [],
     pickups: [],
     lastKnownEnemyPositions: new Map(),
+    recentKills: [],
   } as unknown as BotGameState;
 
   const traceFrom = vi.spyOn(vision, "canSeeFrom");

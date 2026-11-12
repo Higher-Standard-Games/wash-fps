@@ -288,6 +288,76 @@ Run it yourself before assuming any of those numbers apply to your machine:
 npm --prefix src/games/fps run bot:bench -- --bots 8 --decisions 2000
 ```
 
+## How they move
+
+`npm --prefix src/games/fps run bot:motion` runs a headless match on a map,
+watches every command each bot sends, and reports how its movement would look to
+a spectator:
+
+| Line | Meaning |
+| --- | --- |
+| flip-backs | The bot's wanted view jumps over 60° and comes back within 30° of where it was inside a second: the left-right-left a spectator notices. Turning after a strafing enemy does not count. Listed by brain state before, during and after, to show which behaviour does it. |
+| turning | How fast the view turns while not firing, and how often the turn reverses; then the turn rate in each brain state with at least 5 s of such time. |
+| alive time | Share of time alive spent nearly still (under 80 u/s), sliding and airborne. |
+| still by state | The four brain states with the most still time, as shares of time alive. |
+| still per bot | Each bot's still share. One bot far above the others is stuck somewhere. |
+| picked up | Health and armor points gained while alive, per bot-minute: how well the bots gather items. It rises and falls with how much damage they take, so compare it over several runs. |
+| running clear | Out of a fight and moving: the median gap from the bot's hull to the nearest wall, the share of that time within 8 and 24 units, and how often wall avoidance turned the heading. Then the share within 24 units in each brain state. |
+| running speed | Out of a fight and moving: median speed, the share over 450 u/s and the share airborne. |
+| closest cells | The five 128-unit map cells with the most running time within 24 units of a wall, as shares of all running time. One cell far above the rest is one room worth looking at. |
+| view out of a fight | In HUNT, ITEM_RUN and RETREAT: the median distance the view sees (the longer of a level ray and one 10° up, so stairs do not count, out to 1500 units), and the share of that time it ends at a wall within 192 units. |
+| deaths | Deaths per minute over all bots. A change that calms the view should not lower it, or the bots are fighting less. |
+
+| Flag | Default |
+| --- | --- |
+| `--map` | `washoi_dm2` |
+| `--bots` | `4` |
+| `--seconds` | `120` (at least 10) |
+| `--gametype` | `ffa`; `duel` for Duel |
+| `--difficulty` | `medium` |
+| `--port` | `7795`; the bot control socket uses this plus 100 |
+
+```bash
+npm --prefix src/games/fps run bot:motion -- --map washoi_dm1 --bots 4 --seconds 120
+```
+
+Matches are random, so two runs of the same code differ by a few flip-backs per
+minute and a few points of still time. Compare a change against runs of the code
+before it on the same map, with the same `--seconds` and run the same way: two
+runs side by side load the machine and move the numbers. The match demo goes to
+a temporary folder that is deleted when the run ends.
+
+### Route lines, checked offline
+
+Out of a fight a bot runs each plain walking stretch of its route along one
+line, built when the route is planned (`bot/RouteLine.ts`): the route's
+nodes are skipped where the hull can run straight past them, corners are
+moved up to 48 units off the walls, and an added point takes a stretch off
+any wall it passes within 24 units of. A walk the graph's flood found round a
+doorway or down a ledge keeps the corners of that walk (`via` on the edge),
+so the line follows it instead of cutting into the wall. Jumps, pads, drops
+and exact approaches to items and trick starts are left to the step
+executor, as before.
+
+`npm --prefix src/games/fps run bot:routes` checks those lines without a
+match. For every route from a spawn point to an item it builds the lines and
+runs a simple runner along them, and along the bare route node to node, with
+the game's own step-and-slide movement at 400 u/s:
+
+| Line | Meaning |
+| --- | --- |
+| node to node, smoothed line | Share of each line, sampled every 16 units, within 8 and 24 units of a wall, and how many points the lines have. |
+| run, nodes / run, smoothed | Share of the runner's ticks within 8 and 24 units of a wall, the share spent against a wall, and how the runs ended: arrived, stuck, off the line, out of time. |
+
+| Flag | Default |
+| --- | --- |
+| `--map` | `washoi_dm2` |
+| `--turn` | `300`: the runner's top turn rate, degrees a second |
+| `--ahead` | `128`: how far along the line the runner steers for, units; bots use 64 |
+
+It takes seconds, so run it after any change to the nav graph or the line
+builder, then `bot:motion` to see the bots run it.
+
 ## Not yet
 
 - Whether aim can be learned at all is unknown. Bot recordings cannot answer it —

@@ -82,3 +82,53 @@ describe("plasma into rail", () => {
     expect(combos.active).toBe("rail");
   });
 });
+
+describe("swap while reloading", () => {
+  /** A bot carrying two guns, as the server allows, plus the blade. */
+  function carrying(weapons: string[], current: string, distance: number) {
+    const s = scene(distance);
+    s.state.self.weapons = ["blade", ...weapons];
+    s.state.self.ammo = { machinegun: 50, riotgun: 10, rlauncher: 10, plasmagun: 50, electrobolt: 5 };
+    s.state.self.currentWeapon = current;
+    return s;
+  }
+
+  it("follows a bolt with the machinegun, held until the bolt is ready again", () => {
+    const { state, enemy } = carrying(["electrobolt", "machinegun"], "electrobolt", 700);
+    const combos = new BotWeaponCombos(always);
+    state.lastOwnShot = { weaponId: "electrobolt", tick: state.tick };
+    expect(combos.choose(state, enemy, 0.9, "electrobolt")).toBe("machinegun");
+    expect(combos.active).toBe("refire");
+    state.tick += 100;
+    expect(combos.choose(state, enemy, 0.9, "electrobolt")).toBe("machinegun");
+    // The bolt refires 156 ticks after its shot: back to it then
+    state.tick += 60;
+    expect(combos.choose(state, enemy, 0.9, "electrobolt")).toBeNull();
+  });
+
+  it("follows a rocket with the riotgun close", () => {
+    const { state, enemy } = carrying(["rlauncher", "riotgun"], "rlauncher", 300);
+    state.lastOwnShot = { weaponId: "rlauncher", tick: state.tick };
+    // The rocket refires in 100 ticks and the riotgun too: no gain, no swap.
+    expect(new BotWeaponCombos(always).choose(state, enemy, 0.9, "rlauncher")).toBeNull();
+
+    const bolt = carrying(["electrobolt", "riotgun"], "electrobolt", 400);
+    bolt.state.lastOwnShot = { weaponId: "electrobolt", tick: bolt.state.tick };
+    expect(new BotWeaponCombos(always).choose(bolt.state, bolt.enemy, 0.9, "electrobolt")).toBe("riotgun");
+  });
+
+  it("keeps the gun when the other one does not fit the distance", () => {
+    const { state, enemy } = carrying(["electrobolt", "riotgun"], "electrobolt", 2000);
+    state.lastOwnShot = { weaponId: "electrobolt", tick: state.tick };
+    expect(new BotWeaponCombos(always).choose(state, enemy, 0.9, "electrobolt")).toBeNull();
+  });
+
+  it("rolls once per shot, at prediction-skill odds", () => {
+    const { state, enemy } = carrying(["electrobolt", "machinegun"], "electrobolt", 700);
+    const combos = new BotWeaponCombos(() => 0.5);
+    state.lastOwnShot = { weaponId: "electrobolt", tick: state.tick };
+    expect(combos.choose(state, enemy, 0.2, "electrobolt")).toBeNull();
+    // Same shot, better odds: not rolled again
+    expect(combos.choose(state, enemy, 0.9, "electrobolt")).toBeNull();
+  });
+});

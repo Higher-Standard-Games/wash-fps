@@ -310,6 +310,8 @@ export class BotGameState {
   /** Hits this bot landed: the victim's entity, the weapon and when. */
   recentHits: Array<{ victimEntityId: string; weaponId: string; damage: number; tick: number }> = [];
   recentKills: BotKillEvent[] = [];
+  /** This bot's last shot as the server fired it: the weapon and when. */
+  lastOwnShot: { weaponId: string; tick: number } | null = null;
   /** Every player's name by entity id, bots included; for chat. */
   readonly playerNames = new Map<string, string>();
 
@@ -615,6 +617,7 @@ export class BotGameState {
 
         case "weapon_fire": {
           const evt = event as WeaponFireEvent;
+          if (evt.entityId === this.selfEntityId) this.lastOwnShot = { weaponId: evt.weaponId, tick: this.tick };
           // If someone fires near us, we "hear" it — track as last known position
           // (under perception, BotPerception decides what is heard)
           if (evt.entityId !== this.selfEntityId && !this.perceptionManaged) {

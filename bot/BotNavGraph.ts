@@ -22,6 +22,7 @@
  * One instance per map, shared by all bots.
  */
 
+import type { CollisionWorld } from "../../../engine/network/systems/collision/CollisionWorld";
 import {
   type FloodPosition,
   type FloodVec3,
@@ -77,6 +78,12 @@ export interface NavEdge {
   successMargin?: number;
   validated?: boolean;
   trigger?: NavTriggerMetadata;
+  /**
+   * A walk edge the straight line cannot take (round a doorway, down a
+   * ledge): the corners of the way the walk flood found, as node positions
+   * (1 above the floor). Routes run through them.
+   */
+  via?: Vec3[];
 }
 
 export interface NavStep {
@@ -94,6 +101,11 @@ export interface NavStep {
   successMargin?: number;
   validated?: boolean;
   trigger?: NavTriggerMetadata;
+  /**
+   * The graph edge this step is part of, when an edge's `via` corners split
+   * it into several steps: a failure on any of them is the edge's.
+   */
+  edge?: { from: number; to: number };
 }
 
 // ── Path Result ─────────────────────────────────────────────────────
@@ -227,6 +239,61 @@ const WALK_FLOOD_MAX_STATES = 4000;
 const WALK_FLOOD_ARRIVAL = 32;
 const WALK_FLOOD_ARRIVAL_HEIGHT = 24;
 
+// Keeping off walls
+/** Rays cast round a point to measure its clearance. */
+const CLEARANCE_RAYS = 16;
+/** Clearance a floor node is moved to have, from the hull's side, where the room allows. */
+const NODE_CLEARANCE = 48;
+/** Furthest a floor node moves off a wall, and the steps it tries. */
+const NODE_PUSH_MAX = 64;
+const NODE_PUSH_STEP = 16;
+/** A moved node stays on its floor: the surface under it within this. */
+const NODE_PUSH_FLOOR_STEP = 8;
+/** Walk edges are sampled this often for their clearance. */
+const EDGE_CLEARANCE_STEP = 32;
+/** Clearance under this along a walk edge costs extra, from the hull's side. */
+const EDGE_CLEARANCE = 48;
+/** Extra cost per unit of edge run touching a wall; scales down to 0 at EDGE_CLEARANCE. */
+const EDGE_WALL_COST = 0.6;
+/** Half the player hull's width. */
+const HULL_HALF = 16;
+/** Clearance is measured this far above the walk origin, above steps. */
+const CLEARANCE_LIFT = 16;
+
+/**
+ * Gap from the player hull to the nearest wall around `origin`, and the
+ * direction away from the walls closer than `want`, out to `want` + the hull.
+ */
+export function wallClearance(
+  world: CollisionWorld,
+  origin: Vec3,
+  want: number,
+  rays = CLEARANCE_RAYS,
+): { gap: number; away: { x: number; z: number } } {
+  const reach = want + HULL_HALF;
+  const at = { x: origin.x, y: origin.y + CLEARANCE_LIFT, z: origin.z };
+  let nearest = reach;
+  let awayX = 0;
+  let awayZ = 0;
+  for (let i = 0; i < rays; i++) {
+    const angle = (i / rays) * Math.PI * 2;
+    const dx = Math.sin(angle);
+    const dz = Math.cos(angle);
+    const distance = world.trace(at, { x: at.x + dx * reach, y: at.y, z: at.z + dz * reach }).fraction * reach;
+    nearest = Math.min(nearest, distance);
+    awayX -= dx * (reach - distance);
+    awayZ -= dz * (reach - distance);
+  }
+  const length = Math.hypot(awayX, awayZ);
+  return {
+    gap: Math.max(0, nearest - HULL_HALF),
+    away: length > 1e-6 ? { x: awayX / length, z: awayZ / length } : { x: 0, z: 0 },
+  };
+}
+
+/** Id of a corner waypoint a walk edge's `via` adds to a path; not a graph node. */
+export const VIA_NODE_ID = -1;
+
 /** Teleporters are effectively instant, but keep a small cost so A* stays stable. */
 const TELEPORT_COST = 32;
 
@@ -250,12 +317,16 @@ export const BOT_NAV_MOVEMENT_FINGERPRINT = [
   // Caches built before walk tests swept from standing height have almost no walk edges.
   `walk-origin:${WALK_TEST_LIFT}`,
   `walk-flood:${WALK_FLOOD_RADIUS}:${WALK_FLOOD_RISE_SLACK}:${WALK_FLOOD_STEP}:${WALK_FLOOD_MAX_DROP}:${WALK_FLOOD_MAX_STATES}:${WALK_FLOOD_ARRIVAL}:${WALK_FLOOD_ARRIVAL_HEIGHT}`,
-  // Walk sweeps must be wholly clear with floor beneath; caches with lenient sweeps hold edges into walls.
-  "walk-strict:2",
+  // Walk sweeps must be wholly clear with floor beneath that rises a step at a
+  // time; caches with lenient sweeps hold edges into walls and up ledges.
+  "walk-strict:3",
+  // Flood walks keep the corners of the way they found.
+  "walk-via:1",
   // Jump pad destination nodes moved from the aim point to the simulated landing.
   "jumppad-landing:2",
   "teleport-carry:1",
   `gap-jump:${GAP_JUMP_MIN}`,
+  `clearance:${CLEARANCE_RAYS}:${NODE_CLEARANCE}:${NODE_PUSH_MAX}:${NODE_PUSH_STEP}:${EDGE_CLEARANCE_STEP}:${EDGE_CLEARANCE}:${EDGE_WALL_COST}:${CLEARANCE_LIFT}`,
   BOT_MOVEMENT_ANALYZER_FINGERPRINT,
 ].join("|");
 // ── BotNavGraph ─────────────────────────────────────────────────────
@@ -281,22 +352,30 @@ class WalkReach {
   constructor(private readonly world: FloodWorld) {}
 
   distance(from: NavNode, to: NavNode): number | null {
+    return this.reach(from, to)?.distance ?? null;
+  }
+
+  /** The shortest walk the flood found from `from` to `to`: its length and the standing origins along it, start first. */
+  reach(from: NavNode, to: NavNode): { distance: number; way: FloodVec3[] } | null {
     const goal = this.origin(to);
     if (!goal || !this.origin(from)) return null;
     const cells = this.flood(from);
     const cx = Math.round(goal.x / WALK_FLOOD_STEP);
     const cz = Math.round(goal.z / WALK_FLOOD_STEP);
-    let best: number | null = null;
+    let best: FloodPosition | null = null;
     for (let dx = -1; dx <= 1; dx++) {
       for (let dz = -1; dz <= 1; dz++) {
         for (const p of cells.get(`${cx + dx},${cz + dz}`) ?? []) {
           if (Math.hypot(p.x - goal.x, p.z - goal.z) > WALK_FLOOD_ARRIVAL) continue;
           if (Math.abs(p.y - goal.y) > WALK_FLOOD_ARRIVAL_HEIGHT) continue;
-          if (best === null || p.distance < best) best = p.distance;
+          if (best === null || p.distance < best.distance) best = p;
         }
       }
     }
-    return best;
+    if (!best) return null;
+    const way: FloodVec3[] = [];
+    for (let p: FloodPosition | undefined = best; p; p = p.previous) way.unshift({ x: p.x, y: p.y, z: p.z });
+    return { distance: best.distance, way };
   }
 
   /** Standing origin of a node: its position lowered onto the floor beneath. */
@@ -338,6 +417,35 @@ class WalkReach {
 function walkOrigin(node: NavNode): Vec3 {
   if (!STANDS_ON_SURFACE.has(node.type)) return node.position;
   return { x: node.position.x, y: node.position.y + WALK_TEST_LIFT, z: node.position.z };
+}
+
+/** Off the next walk segment's line by more than this, a bot has not reached it. */
+const PASSED_LATERAL = 64;
+/** Above or below a waypoint by more than this, a bot has not passed it. */
+const PASSED_HEIGHT = 48;
+
+/**
+ * A bot that slid or ran past a walk waypoint without coming within the
+ * arrival radius is already on the next walk segment: past the waypoint, and
+ * beyond it along the next segment close to that segment's line. Turning back
+ * to touch the waypoint is what a spectator sees as the bot losing its way.
+ */
+function passedWalkWaypoint(botPos: Vec3, step: NavStep, next: NavStep | undefined): boolean {
+  if (!next || step.type !== "walk" || next.type !== "walk" || step.requiresPreciseApproach) return false;
+  if (step.to.type === "item" || Math.abs(botPos.y - step.to.position.y) > PASSED_HEIGHT) return false;
+  const corner = step.to.position;
+  const dx = next.to.position.x - corner.x;
+  const dz = next.to.position.z - corner.z;
+  const length = Math.hypot(dx, dz);
+  if (length < 1) return false;
+  const bx = botPos.x - corner.x;
+  const bz = botPos.z - corner.z;
+  // Past the corner along the segment it is on, too: on a switchback the bot
+  // can stand beside the next segment's line before reaching the corner.
+  if (bx * (corner.x - step.from.position.x) + bz * (corner.z - step.from.position.z) <= 0) return false;
+  const along = (bx * dx + bz * dz) / length;
+  const lateral = Math.abs(bx * dz - bz * dx) / length;
+  return along > 0 && along < length && lateral <= PASSED_LATERAL;
 }
 
 export class BotNavGraph {
@@ -702,7 +810,11 @@ export class BotNavGraph {
           : step.type === "fall"
             ? Math.min(arrivedThreshold, 48)
             : arrivedThreshold;
-      if (vec3Distance(botPos, step.to.position) > stepThreshold) break;
+      if (
+        vec3Distance(botPos, step.to.position) > stepThreshold &&
+        !passedWalkWaypoint(botPos, step, path.steps[path.cursor + 1])
+      )
+        break;
       path.cursor++;
     }
     return path.steps[path.cursor] ?? null;
@@ -859,8 +971,9 @@ export class BotNavGraph {
           y = surfaceY - FLOOR_COLUMN_STEP;
 
           if (surfaceY > ceiling) continue;
-          const floorPos: Vec3 = { x: hit.hitPoint.x, y: surfaceY + 1, z: hit.hitPoint.z };
-          if (vision.isInsideSolid(floorPos)) continue;
+          const sampled: Vec3 = { x: hit.hitPoint.x, y: surfaceY + 1, z: hit.hitPoint.z };
+          if (vision.isInsideSolid(sampled)) continue;
+          const floorPos = this._awayFromWalls(vision, sampled);
           if (this._isTooCloseToExisting(floorPos)) continue;
 
           this._nodes.push({ id: nextId++, position: floorPos, type: "floor" });
@@ -890,7 +1003,7 @@ export class BotNavGraph {
 
         // Walk edge: low height diff + path clear
         if (heightDiff < WALK_HEIGHT_MAX && vision.isWalkable(walkOrigin(a), walkOrigin(b))) {
-          const cost = dist;
+          const cost = dist + this._wallCost(vision.collisionWorld, walkOrigin(a), walkOrigin(b));
           this._edges.push({ from: a.id, to: b.id, type: "walk", cost });
           this._edges.push({ from: b.id, to: a.id, type: "walk", cost });
           continue;
@@ -907,9 +1020,16 @@ export class BotNavGraph {
             [a, b],
             [b, a],
           ] as const) {
-            const cost = walks.distance(from, to);
-            if (cost === null) continue;
-            this._edges.push({ from: from.id, to: to.id, type: "walk", cost });
+            const reach = walks.reach(from, to);
+            if (!reach) continue;
+            const via = this._corners(vision, reach.way);
+            this._edges.push({
+              from: from.id,
+              to: to.id,
+              type: "walk",
+              cost: reach.distance,
+              ...(via.length > 0 ? { via } : {}),
+            });
             walked.add(from);
           }
         }
@@ -1171,11 +1291,28 @@ export class BotNavGraph {
     for (let index = 1; index < nodeIds.length; index++) {
       const edge = cameByEdge.get(nodeIds[index]);
       if (!edge) throw new Error("A* path reconstruction lost edge metadata");
-      const from = nodes[index - 1];
+      let from = nodes[index - 1];
       const to = nodes[index];
+      // A walk round corners: a plain walk step to each corner first, all
+      // belonging to the edge, the last one carrying the edge's cost.
+      for (const corner of edge.via ?? []) {
+        const waypoint: NavNode = { id: VIA_NODE_ID, position: { ...corner }, type: "floor" };
+        steps.push({
+          from,
+          to: waypoint,
+          type: "walk",
+          cost: 0,
+          horizontalDistance: Math.hypot(corner.x - from.position.x, corner.z - from.position.z),
+          heightDelta: corner.y - from.position.y,
+          requiresPreciseApproach: false,
+          edge: { from: edge.from, to: edge.to },
+        });
+        from = waypoint;
+      }
       const dx = to.position.x - from.position.x;
       const dz = to.position.z - from.position.z;
       steps.push({
+        ...(edge.via ? { edge: { from: edge.from, to: edge.to } } : {}),
         from,
         to,
         type: edge.type,
@@ -1196,6 +1333,87 @@ export class BotNavGraph {
   }
 
   // ── Private: Utilities ──────────────────────────────────────────
+
+  /**
+   * The corners of a walk the flood found, as node positions: the string
+   * pulled through its standing origins with the walk test, so each stretch
+   * between corners is one a bot can run straight. Empty when the walk is
+   * straight already.
+   */
+  private _corners(vision: BotVision, way: readonly FloodVec3[]): Vec3[] {
+    if (way.length < 3) return [];
+    const corners: Vec3[] = [];
+    let from = 0;
+    while (from < way.length - 1) {
+      let next = from + 1;
+      for (let far = way.length - 1; far > from + 1; far--) {
+        if (vision.isWalkable(way[from], way[far])) {
+          next = far;
+          break;
+        }
+      }
+      if (next < way.length - 1) {
+        const p = way[next];
+        corners.push({ x: p.x, y: p.y - WALK_TEST_LIFT + 1, z: p.z });
+      }
+      from = next;
+    }
+    return corners;
+  }
+
+  /**
+   * A floor sample moved off the walls near it, as far as NODE_PUSH_MAX, so a
+   * route through it runs down the room rather than along its side. The move
+   * stays on the same floor and walkable from the sample; a sample in a
+   * corridor narrower than twice NODE_CLEARANCE settles where it is clearest.
+   */
+  private _awayFromWalls(vision: BotVision, sampled: Vec3): Vec3 {
+    const world = vision.collisionWorld;
+    const origin = { x: sampled.x, y: sampled.y + WALK_TEST_LIFT, z: sampled.z };
+    const start = wallClearance(world, origin, NODE_CLEARANCE);
+    if (start.gap >= NODE_CLEARANCE || (start.away.x === 0 && start.away.z === 0)) return sampled;
+    let best = sampled;
+    let bestGap = start.gap;
+    for (let push = NODE_PUSH_STEP; push <= NODE_PUSH_MAX; push += NODE_PUSH_STEP) {
+      const x = sampled.x + start.away.x * push;
+      const z = sampled.z + start.away.z * push;
+      const floor = world.trace({ x, y: origin.y, z }, { x, y: sampled.y - NODE_PUSH_FLOOR_STEP - 1, z });
+      if (!floor.hit || !floor.hitPoint) break;
+      if (Math.abs(floor.hitPoint.y + 1 - sampled.y) > NODE_PUSH_FLOOR_STEP) break;
+      const moved: Vec3 = { x, y: floor.hitPoint.y + 1, z };
+      if (
+        vision.isInsideSolid(moved) ||
+        !vision.isWalkable(origin, walkOrigin({ id: -1, type: "floor", position: moved }))
+      )
+        break;
+      const gap = wallClearance(world, walkOrigin({ id: -1, type: "floor", position: moved }), NODE_CLEARANCE).gap;
+      if (gap > bestGap) {
+        best = moved;
+        bestGap = gap;
+      }
+      if (gap >= NODE_CLEARANCE) break;
+    }
+    return best;
+  }
+
+  /**
+   * Extra route cost for the stretches of a straight walk where the hull
+   * would pass close to a wall, so A* takes the middle of a room and the
+   * outside of a corner when it costs little more. Never so much that a
+   * narrow door stops being a route.
+   */
+  private _wallCost(world: CollisionWorld, from: Vec3, to: Vec3): number {
+    const length = Math.hypot(to.x - from.x, to.z - from.z);
+    const samples = Math.max(1, Math.round(length / EDGE_CLEARANCE_STEP));
+    let cost = 0;
+    for (let i = 0; i <= samples; i++) {
+      const t = i / samples;
+      const at = { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t, z: from.z + (to.z - from.z) * t };
+      const gap = wallClearance(world, at, EDGE_CLEARANCE, 8).gap;
+      cost += (length / (samples + 1)) * EDGE_WALL_COST * Math.max(0, 1 - gap / EDGE_CLEARANCE);
+    }
+    return cost;
+  }
 
   private _isTooCloseToExisting(pos: Vec3): boolean {
     return this._findNearbyNode(pos, MIN_NODE_DISTANCE) !== null;

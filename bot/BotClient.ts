@@ -17,8 +17,8 @@ import { BotAimController } from "./BotAimController";
 import { type BotBrain, type BotInput, travelYaw } from "./BotBrain";
 import { type BotDifficulty, type BotOptions, defaultBotChat, defaultGoalArbiterMode, InputButtons } from "./BotConfig";
 import type { BotEpisodeRecorder } from "./BotEpisodeRecorder";
-import { applyFriendlyFireSafety } from "./BotFireSafety";
-import { BotGameState } from "./BotGameState";
+import { applyFriendlyFireSafety, holdFireOffAim } from "./BotFireSafety";
+import { BotGameState, type BotSelf } from "./BotGameState";
 import { BotPerception } from "./BotPerception";
 import { initialBotReference, modelDigest } from "./BotRatingIdentity";
 import { duelLeadReactionDelay } from "./BotReactionTuning";
@@ -26,6 +26,7 @@ import type { BotVision, VisionResult } from "./BotVision";
 import { pulseMeleeFire } from "./BotWeaponProfile";
 import { BotChat } from "./chat/BotChat";
 import { StateMachineBrain } from "./StateMachineBrain";
+import { teleportExitYaw } from "./TeleportExit";
 
 /** Most script commands sent in one timer firing, well under the server's input buffer. */
 const MAX_SCRIPT_BURST = 4;
@@ -51,6 +52,22 @@ export type BotClientState =
   | "joining"
   | "playing"
   | "dead";
+
+/** One command as a bot sent it. */
+export interface BotCommandSample {
+  /** The brain's decision: where it wants to look and go. */
+  decision: BotInput;
+  /** The command sent: the view turned one step toward the decision. */
+  sent: BotInput;
+  brainState: string;
+  /** Wall avoidance turned the decision's heading off a wall ahead. */
+  steeredOffWall: boolean;
+  /** The bot's own state from its last snapshot (live, not a copy). */
+  self: Readonly<BotSelf>;
+  tick: number;
+}
+
+export type BotCommandObserver = (sample: BotCommandSample) => void;
 
 // ── BotClient ───────────────────────────────────────────────────────────
 
@@ -91,6 +108,8 @@ export class BotClient extends EventEmitter {
   private _lastBotInput: BotInput | null = null; // Cached AI decision, re-sent at 125Hz
   /** Whether the last command sent pressed the melee attack (see _pulsedMeleeFire). */
   private _meleePress = false;
+  /** Whether the last command sent held fire on the aim (see holdFireOffAim). */
+  private _shooting = false;
   /** Turns the view toward each decision's angles over the commands that carry it. */
   private _aim: BotAimController;
   /** Narrows each snapshot to what this bot can see and hear. */
@@ -111,6 +130,7 @@ export class BotClient extends EventEmitter {
 
   // Vision (shared across bots on same map)
   private _vision: BotVision | null = null;
+  private _commandObserver: BotCommandObserver | null = null;
   private _lastVisionResult: VisionResult | null = null;
 
   // Navigation graph (shared across bots on same map)
@@ -237,6 +257,18 @@ export class BotClient extends EventEmitter {
   }
   get brainState(): string {
     return this._brain.getState();
+  }
+
+  /**
+   * Watch every command as it is sent, beside the decision it came from and
+   * what the bot knows of itself then: for measuring how bots move
+   * (`bot:motion`). One observer at a time; returns the unsubscribe.
+   */
+  observeCommands(observer: BotCommandObserver): () => void {
+    this._commandObserver = observer;
+    return () => {
+      if (this._commandObserver === observer) this._commandObserver = null;
+    };
   }
 
   /**
@@ -500,7 +532,9 @@ export class BotClient extends EventEmitter {
       this._sendAck(snapshot.tick);
 
       // Update game state from snapshot, then keep only what this bot perceives
+      const before = { ...this._gameState.self.position };
       this._gameState.update(snapshot);
+      this._faceTeleportExit(before);
       this._perception.setDifficulty({
         ...this._difficulty,
         reactionTimeMs: this._difficulty.reactionTimeMs + duelLeadReactionDelay(this._gameState),
@@ -684,8 +718,9 @@ export class BotClient extends EventEmitter {
 
   /**
    * The decision as sent this tick: the view turned one step toward its
-   * angles, movement still along the wanted heading. The friendly-fire gate
-   * runs again on the view actually sent, which is where the shot goes.
+   * angles, movement still along the wanted heading. Fire waits until that
+   * view is on the aim, and the friendly-fire gate runs again on the view
+   * actually sent, which is where the shot goes.
    */
   private _aimed(input: BotInput, dt: number): BotInput {
     input = this._pulsedMeleeFire(input);
@@ -693,8 +728,40 @@ export class BotClient extends EventEmitter {
     const firing = (input.buttons & attack) !== 0;
     if (!this._aim.started) this._aim.reset(this._gameState.self.yaw, this._gameState.self.pitch);
     const view = this._aim.step(dt, input.yaw, input.pitch, firing);
-    const aimed: BotInput = { ...input, yaw: view.yaw, pitch: view.pitch, moveYaw: travelYaw(input) };
-    return firing ? applyFriendlyFireSafety(aimed, this._gameState).input : aimed;
+    const held = holdFireOffAim(input.buttons, input, view, this._shooting);
+    this._shooting = held.shooting;
+    const aimed: BotInput = {
+      ...input,
+      buttons: held.buttons,
+      yaw: view.yaw,
+      pitch: view.pitch,
+      moveYaw: travelYaw(input),
+    };
+    const sent = (held.buttons & attack) !== 0 ? applyFriendlyFireSafety(aimed, this._gameState).input : aimed;
+    this._commandObserver?.({
+      decision: input,
+      sent,
+      brainState: this._brain.getState(),
+      steeredOffWall: this._brain.steeredOffWall(),
+      self: this._gameState.self,
+      tick: this._gameState.tick,
+    });
+    return sent;
+  }
+
+  /**
+   * A teleporter sets the view to its exit yaw, as `setViewYaw` does for a
+   * human. Without this the aim would turn there from the entry view, waiting
+   * out the reaction time first, and the bot would come out looking backwards.
+   */
+  private _faceTeleportExit(before: { x: number; y: number; z: number }): void {
+    const self = this._gameState.self;
+    if (this._isDead || self.isDead || !this._aim.started || !this._vision) return;
+    const yaw = teleportExitYaw(before, self.position, this._vision.mapKnowledge.triggerVolumes);
+    if (yaw === null) return;
+    const pitch = this._aim.view?.pitch ?? self.pitch;
+    this._aim.reset(yaw, pitch);
+    self.yaw = yaw;
   }
 
   /** Melee fire as sent this command: see `pulseMeleeFire`. */

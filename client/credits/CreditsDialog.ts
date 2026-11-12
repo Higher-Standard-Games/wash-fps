@@ -5,6 +5,7 @@
  */
 
 import { InputSystem } from "../../../../engine/input/InputSystem";
+import { raiseKey } from "../../../../engine/ui/components/RaisedKey";
 import { UINavigation } from "../../../../engine/ui/navigation/UINavigation";
 import { UIStyles } from "../../../../engine/ui/UIStyles";
 import credits from "../../CREDITS.md?raw";
@@ -19,7 +20,10 @@ export class CreditsDialog {
   private offNavigation: (() => void) | null = null;
   readonly root = el("div", "lobby-guide lobby-credits");
   private readonly body = el("div", "lobby-guide__content lobby-credits__body");
-  private readonly close = button("lobby-guide__button lobby-credits__close", "Close");
+  private readonly close = raiseKey(button("lobby-guide__button lobby-credits__close"), {
+    label: "Close",
+    variants: ["ink", "inline"],
+  });
   private readonly previousFocus = document.activeElement as HTMLElement | null;
   private readonly previousInert: boolean;
   private readonly previousBlur: boolean;

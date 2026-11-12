@@ -111,6 +111,10 @@ export abstract class BotBrain {
   getNavigationDebug(): string | null {
     return null;
   }
+  /** Whether wall avoidance turned the last decision's heading off a wall ahead. */
+  steeredOffWall(): boolean {
+    return false;
+  }
 
   /** Update difficulty settings */
   setDifficulty(difficulty: BotDifficulty): void {

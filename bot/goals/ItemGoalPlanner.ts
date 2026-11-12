@@ -17,7 +17,7 @@ import type { PickupEntry } from "../../shared/bsp/PickupTable";
 import { type ArmorKind, armorAfterPickup, type HealthKind, healthAfterPickup } from "../../shared/items/ItemGrants";
 import type { BotGameState, Vec3 } from "../BotGameState";
 import type { BotGoal } from "./BotGoal";
-import type { ConsiderationContext } from "./Consideration";
+import { type ConsiderationContext, clamp01 } from "./Consideration";
 import { Danger } from "./considerations/Danger";
 import { ItemDenial } from "./considerations/ItemDenial";
 import { ItemValue } from "./considerations/ItemValue";
@@ -61,10 +61,13 @@ export interface RouteCostSource {
  * will refuse this pickup" and "this item is mildly unattractive" must never be
  * the same thing.
  */
-function buildGates(blockedPickupIds: ReadonlySet<number>): GoalGate[] {
+function buildGates(blockedPickupIds: ReadonlySet<number>, blockedGoalIds: ReadonlySet<string>): GoalGate[] {
   return [
-    // Bot-local failure cooldown (missed the pickup, path failed).
-    (goal) => (goal.pickupId !== undefined && blockedPickupIds.has(goal.pickupId) ? "blocked" : null),
+    // Bot-local failure cooldown (missed the pickup, path failed, route ended short of it).
+    (goal) =>
+      (goal.pickupId !== undefined && blockedPickupIds.has(goal.pickupId)) || blockedGoalIds.has(goal.id)
+        ? "blocked"
+        : null,
 
     // The server gates health/armor pickups on `after > before`, so an item that
     // would grant nothing is not merely worthless — it is uncollectable, and a
@@ -113,6 +116,17 @@ function buildGates(blockedPickupIds: ReadonlySet<number>): GoalGate[] {
 const TIMING_LEAD_SECONDS = 10;
 /** Travel speed assumed for timing, units per second (running, not sprinting). */
 const TIMING_TRAVEL_SPEED = 320;
+/** A detour this long, units of route, is worth no stopover at all. */
+const TOUR_DETOUR = 400;
+/** A stopover must be worth at least this much item value (about 15 points of health). */
+const TOUR_MIN_VALUE = 0.1;
+/** How long a chosen stopover is held, ticks. */
+const TOUR_HOLD_TICKS = 375;
+
+/** Static pickups that are up: the only items a tour stops at or goes on to. */
+function isTourItem(goal: BotGoal): boolean {
+  return goal.pickupId !== undefined && goal.respawnTick === undefined && !goal.directive;
+}
 
 export interface ItemGoalPlannerOptions {
   /** Static pickup table for the map. */
@@ -121,6 +135,8 @@ export interface ItemGoalPlannerOptions {
   maxDistance: number;
   /** Pickup ids on a local failure cooldown. */
   blockedPickupIds: ReadonlySet<number>;
+  /** Goal ids on the same cooldown: dropped items have no pickup id. */
+  blockedGoalIds?: ReadonlySet<string>;
   /**
    * Override the behavioural profile. Normally omitted — the planner selects
    * one from the gametype reported in `match_state`. Tests and future
@@ -155,9 +171,19 @@ export interface ItemGoalPlannerOptions {
   typeFilter?: ReadonlySet<string>;
 }
 
+export interface ItemGoalSelection extends ArbitrationResult {
+  /** An item to take first on the way to `goal`, when one is worth the detour. */
+  stopover: BotGoal | null;
+}
+
 export class ItemGoalPlanner {
   private readonly arbiter: GoalArbiter;
   private lastExplain = "";
+  /** Route cost between two static pickups by goal ids, on `pairCostSource`'s map. */
+  private readonly pairCosts = new Map<string, number | null>();
+  private pairCostSource: RouteCostSource | null = null;
+  /** The stopover held on the way to a goal, and until when. */
+  private stopover: { goalId: string; stopId: string; untilTick: number } | null = null;
 
   /**
    * @param mistakeRate `BotDifficulty.mistakeRate`; 0 makes selection fully
@@ -184,6 +210,7 @@ export class ItemGoalPlanner {
   /** Drop commitment — on death, respawn, or a completed/failed goal. */
   reset(): void {
     this.arbiter.reset();
+    this.stopover = null;
     this.lastExplain = "";
   }
 
@@ -191,7 +218,7 @@ export class ItemGoalPlanner {
    * Choose the best item goal, or null when nothing is worth going for.
    * Pure with respect to the world: reads state, mutates only commitment.
    */
-  select(state: BotGameState, options: ItemGoalPlannerOptions): ArbitrationResult {
+  select(state: BotGameState, options: ItemGoalPlannerOptions): ItemGoalSelection {
     // Policy comes from the gametype the server already reports. An unknown or
     // not-yet-received gametype resolves to the deathmatch-shaped default, so a
     // bot is never left without a profile.
@@ -200,7 +227,7 @@ export class ItemGoalPlanner {
       selectWeightProfile(state.matchState.gametypeName, state.getOwnRole(), state.matchState.roundState);
     // Gates are per-call because the blocked set changes each tick; the arbiter
     // itself is long-lived because it owns the commitment window.
-    const gates = buildGates(options.blockedPickupIds);
+    const gates = buildGates(options.blockedPickupIds, options.blockedGoalIds ?? new Set());
 
     let candidates = collectItemGoals(state, {
       pickupPositions: options.pickupPositions,
@@ -220,14 +247,88 @@ export class ItemGoalPlanner {
       candidates = candidates.concat(collectDirectiveGoals(state));
     }
 
-    const result = this.arbiter.select(
-      candidates,
-      (goal) => this.makeContext(goal, state, weights, options.navGraph ?? null),
-      state.tick,
-      gates,
-    );
-    this.lastExplain = result.explain;
-    return result;
+    const navGraph = options.navGraph ?? null;
+    // Built once per goal: the arbiter scores every candidate, and the stopover reuses its contexts.
+    const contexts = new Map<string, ConsiderationContext>();
+    const contextOf = (goal: BotGoal): ConsiderationContext => {
+      let ctx = contexts.get(goal.id);
+      if (!ctx) {
+        ctx = this.makeContext(goal, state, weights, navGraph);
+        contexts.set(goal.id, ctx);
+      }
+      return ctx;
+    };
+    const result = this.arbiter.select(candidates, contextOf, state.tick, gates);
+    const stopover = result.goal
+      ? this.chooseStopover(result.goal, candidates, contexts, gates, navGraph, state.tick)
+      : null;
+    if (!result.goal) this.stopover = null;
+    this.lastExplain = stopover ? `${result.explain} via=${stopover.id}` : result.explain;
+    return { ...result, stopover };
+  }
+
+  /**
+   * A stopover on the way to `goal`: the item worth most for little detour
+   * (bot → it → goal, against bot → goal). Held, once chosen, until it is
+   * taken, gated or past its window, so the bot does not swing in and out of
+   * the detour as the distances change under it.
+   */
+  private chooseStopover(
+    goal: BotGoal,
+    candidates: readonly BotGoal[],
+    contexts: ReadonlyMap<string, ConsiderationContext>,
+    gates: readonly GoalGate[],
+    navGraph: RouteCostSource | null,
+    tick: number,
+  ): BotGoal | null {
+    const goalCtx = contexts.get(goal.id);
+    if (!goalCtx || goalCtx.routeCost === null || !isTourItem(goal)) return null;
+    const usable = (
+      stop: BotGoal,
+      ctx: ConsiderationContext | undefined,
+    ): ctx is ConsiderationContext & { routeCost: number } =>
+      ctx !== undefined && ctx.routeCost !== null && gates.every((gate) => gate(stop, ctx) === null);
+    const held = this.stopover;
+    if (held && held.goalId === goal.id && tick < held.untilTick) {
+      const stop = candidates.find((c) => c.id === held.stopId);
+      if (stop && usable(stop, contexts.get(stop.id))) return stop;
+    }
+    let best: BotGoal | null = null;
+    let bestScore = 0;
+    for (const stop of candidates) {
+      if (stop.id === goal.id || !isTourItem(stop)) continue;
+      const ctx = contexts.get(stop.id);
+      if (!usable(stop, ctx)) continue;
+      const value = ItemValue.score(ctx);
+      if (value < TOUR_MIN_VALUE) continue;
+      const between = this.pairCost(stop, goal, navGraph);
+      if (between === null) continue;
+      const detour = ctx.routeCost + between - goalCtx.routeCost;
+      const score = value * clamp01(1 - detour / TOUR_DETOUR);
+      if (score > bestScore) {
+        bestScore = score;
+        best = stop;
+      }
+    }
+    this.stopover = best ? { goalId: goal.id, stopId: best.id, untilTick: tick + TOUR_HOLD_TICKS } : null;
+    return best;
+  }
+
+  private pairCost(from: BotGoal, to: BotGoal, navGraph: RouteCostSource | null): number | null {
+    // A new nav graph is a new map, or the same map with real routes in place
+    // of the straight-line estimates: costs from before it no longer hold.
+    if (navGraph !== this.pairCostSource) {
+      this.pairCosts.clear();
+      this.pairCostSource = navGraph;
+    }
+    const key = `${from.id}>${to.id}`;
+    const cached = this.pairCosts.get(key);
+    if (cached !== undefined) return cached;
+    const cost = navGraph
+      ? navGraph.estimateTravelCost(from.position, to.position)
+      : estimateRouteCost(from.position, to.position);
+    this.pairCosts.set(key, cost);
+    return cost;
   }
 
   private makeContext(
