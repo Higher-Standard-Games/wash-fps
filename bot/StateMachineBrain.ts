@@ -115,6 +115,12 @@ const FEELER_STEER_THRESHOLD = 0.6; // fraction below which we steer away
 /** A wall ahead keeps the bot turning the side it chose for this long. */
 const FEELER_SIDE_COMMIT_TICKS = 50;
 
+// Shopping or hunting (see _shouldSeekItems)
+/** Desire an item goal needs to be worth shopping for at aggression 0. */
+const SEEK_DESIRE_BASE = 0.2;
+/** Extra desire per unit of the gametype's aggression. */
+const SEEK_DESIRE_PER_AGGRESSION = 0.25;
+
 // Looking round while running (out of a fight)
 /** Calm, the view rests this far below where the brain looks: people look at the floor ahead. */
 const CALM_PITCH = (10 * Math.PI) / 180;
@@ -202,6 +208,8 @@ function openFraction(vision: BotVision, eye: Vec3, yaw: number): number {
 interface ItemGoalChoice {
   goal: BotGoal;
   stopover: BotGoal | null;
+  /** The arbiter's score for `goal` (GoalArbiter: gate × attraction × discount). */
+  desire: number;
 }
 
 /** RETREAT wants healing, not shopping — see ItemGoalPlannerOptions.typeFilter. */
@@ -1764,7 +1772,7 @@ export class StateMachineBrain extends BotBrain {
     this._activeItemGoal = result.goal;
     this._goalMemoTick = state.tick;
     this._goalMemoKey = memoKey;
-    this._goalMemoResult = result.goal ? { goal: result.goal, stopover: result.stopover } : null;
+    this._goalMemoResult = result.goal ? { goal: result.goal, stopover: result.stopover, desire: result.desire } : null;
     if (this._goalArbiterMode === "verbose" && result.goal) {
       console.log(`[bot] ${result.explain}`);
     }
@@ -2500,20 +2508,28 @@ export class StateMachineBrain extends BotBrain {
 
   // ── Decision Helpers ──────────────────────────────────────────────
 
+  /**
+   * Whether to go shopping rather than hunt. Hurt or out of ammo, always; with
+   * 25 armor or more, no. Under 25 armor with no idea where an enemy is, yes:
+   * there is no one to hunt, so the item cycle is the better use of the time.
+   * Under 25 armor with an enemy to hunt, the item planner's best goal has to
+   * be worth it against the gametype's `aggression`: SEEK_DESIRE_BASE +
+   * SEEK_DESIRE_PER_AGGRESSION × aggression. Duel (aggression 0.5) keeps
+   * shopping for most items; Deathmatch (0.8) takes only the good ones.
+   * Before, any bot under 25 armor shopped, which is every bot after it spawns,
+   * and HUNT was about 1–2% of roaming time.
+   */
   private _shouldSeekItems(state: BotGameState): boolean {
-    // Seek items if:
-    // - Low on ammo for current weapon
-    // - Missing key weapons
-    // - Health below 50
-    // - Low armor
     if (state.self.health < 50) return true;
-    if (state.self.armor < 25) return true;
-
-    // Check ammo
     const currentAmmo = state.self.ammo[state.self.currentWeapon];
     if (currentAmmo !== undefined && currentAmmo < 3) return true;
 
-    return false;
+    if (state.self.armor >= 25) return false;
+    if (!this._getHuntTarget(state)) return true;
+    const best = this._selectItemGoal(state);
+    if (!best) return this._goalArbiterMode === "legacy";
+    const weights = selectWeightProfile(state.matchState.gametypeName, state.getOwnRole(), state.matchState.roundState);
+    return best.desire >= SEEK_DESIRE_BASE + SEEK_DESIRE_PER_AGGRESSION * weights.aggression;
   }
 
   private _getHuntTarget(state: BotGameState): Vec3 | null {

@@ -192,6 +192,12 @@ runs always have it off.
    everything cannot outscore a goal that is decisive about one thing. The
    arbiter's mode comes from `BOT_GOAL_ARBITER`: on by default, `legacy` to
    fall back to the older scoring, `verbose` to have it explain itself.
+   Out of a fight a bot under 50 health or out of ammo goes for items; one
+   with 25 armor or more hunts. Under 25 armor it runs its item cycle while it
+   has no idea where an enemy is, and with an enemy to hunt it shops only for
+   an item the arbiter scores at least `0.2 + 0.25 × aggression`, where
+   `aggression` comes from the gametype's weight profile: Duel (0.5) shops for
+   most items, Deathmatch (0.8) for the good ones only.
    Movement that takes more than a tick — a strafe-jump route, a crouch-slide
    into an item, a jumppad or teleporter traversal — runs as a **sequence**
    from `sequences/`, which the brain can interrupt.
