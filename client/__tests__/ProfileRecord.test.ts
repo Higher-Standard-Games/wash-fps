@@ -9,6 +9,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { GametypeInfo, LeaderboardEntry } from "../../../../lobby/types";
+import { RATING_POLICY } from "../../../../shared/ranking/RatingPolicy";
 import { bindLeaderboard } from "../NewUiApi";
 import { ProfileView } from "../ProfileView";
 
@@ -26,11 +27,11 @@ function fakeClient(
   return {
     connected,
     on: () => () => {},
-    requestLeaderboard: vi.fn(async (query: { gametype: string; scope: string }) => ({
+    requestLeaderboard: vi.fn(async (query: { gametype: string; scope?: string }) => ({
       entries: [],
-      scope: query.scope,
+      scope: query.scope ?? "overall",
       system: "trueskill",
-      policyVersion: "shag-trueskill-v1",
+      policyVersion: RATING_POLICY.version,
       ...(await answer(query.gametype)),
     })),
   };
@@ -105,7 +106,7 @@ describe("the record card", () => {
       ["AMPHITHEATRE", "#2", "1200 (P)", "5 W", "1 L", "1 D"],
       ["DUEL", "#9", "1200 (P)", "2 W", "7 L", "0 D"],
     ]);
-    expect(status(view)).toBe("16 public matches · best #2 in AMPHITHEATRE");
+    expect(status(view)).toBe("16 matches · best #2 in AMPHITHEATRE");
   });
 
   it("counts one match as a match", async () => {
@@ -115,7 +116,7 @@ describe("the record card", () => {
       ),
     );
     await view.refreshRecord();
-    expect(status(view)).toBe("1 public match · best #1 in DUEL");
+    expect(status(view)).toBe("1 match · best #1 in DUEL");
   });
 
   it("still shows the modes that answered when one does not", async () => {
@@ -127,7 +128,7 @@ describe("the record card", () => {
     );
     await view.refreshRecord();
     expect(rows(view)).toEqual([["AMPHITHEATRE", "#1", "1200 (P)", "3 W", "0 L", "0 D"]]);
-    expect(status(view)).toBe("3 public matches · best #1 in AMPHITHEATRE");
+    expect(status(view)).toBe("3 matches · best #1 in AMPHITHEATRE");
   });
 
   it("reports the refusal when nothing could be read", async () => {
@@ -136,22 +137,14 @@ describe("the record card", () => {
     expect(status(view)).toBe("Rankings timed out.");
     expect(rows(view)).toEqual([]);
   });
-  it("reads the chosen private pool and does not reuse the public row", async () => {
-    const client = fakeClient(() => ({ total: 1, localPlayerEntry: row() }));
+  it("reads one Overall ranking, with no Public/Private switch", async () => {
+    const client = fakeClient(() => ({ total: 0, localProcessing: { excluded: 1 } }) as never);
     const view = mount(client);
     await view.refreshRecord();
-    client.requestLeaderboard.mockImplementation(async (query: { scope: string }) => ({
-      entries: [],
-      total: 0,
-      scope: query.scope,
-      system: "trueskill",
-      policyVersion: "shag-trueskill-v1",
-      localProcessing: { excluded: 1 },
-    }));
-    view.root.querySelector<HTMLButtonElement>('[data-scope="private"]')!.click();
-    await vi.waitFor(() => expect(status(view)).toMatch(/\d+ matches? did not qualify for skill rating/));
-    expect(rows(view)).toEqual([]);
-    expect(client.requestLeaderboard.mock.calls.at(-1)?.[0]).toMatchObject({ scope: "private", system: "trueskill" });
+    expect(view.root.querySelector("[data-scope]")).toBeNull();
+    // Two modes, one excluded match each.
+    expect(status(view)).toMatch(/2 matches did not qualify for skill rating/);
+    expect(client.requestLeaderboard.mock.calls.at(-1)?.[0]).not.toHaveProperty("scope");
     view.destroy();
   });
 });

@@ -8,7 +8,6 @@
 import { createRaisedKey, injectRaisedKeyStyles } from "../../../engine/ui/components/RaisedKey";
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import { currentIdentity } from "../../../lobby/AccountSession";
-import type { RankingScope } from "../../../lobby/types";
 import { RATING_POLICY } from "../../../shared/ranking/RatingPolicy";
 import { type LeaderboardPage, newUiApi } from "./NewUiApi";
 import leaderboardCss from "./styles/Leaderboard.css?raw";
@@ -47,16 +46,6 @@ const AVATAR_COLORS = [
 
 type Loaded = { state: "loading" } | { state: "ready"; page: LeaderboardPage } | { state: "failed"; reason: string };
 
-const RANKING_SCOPE_SETTING = "shag.leaderboard.scope";
-
-function readRankingScope(): RankingScope {
-  try {
-    return localStorage.getItem(RANKING_SCOPE_SETTING) === "private" ? "private" : "public";
-  } catch {
-    return "public";
-  }
-}
-
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text?: string): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -93,7 +82,6 @@ export class LeaderboardView {
   private tab: Tab = "month";
   private listPeriod: Period = "month";
   private query = "";
-  private scope = readRankingScope();
   private readonly boards = new Map<string, Loaded>();
   private readonly ranks = new Map<string, Loaded>();
   /** Bumped when the connection or the lobby's answer may have changed: late replies are dropped. */
@@ -103,7 +91,6 @@ export class LeaderboardView {
   private readonly title: HTMLElement;
   private readonly ghost: HTMLElement;
   private readonly modeKeys = new Map<string, HTMLButtonElement>();
-  private readonly scopeKeys = new Map<RankingScope, HTMLButtonElement>();
   private readonly tabKeys = new Map<Tab, HTMLButtonElement>();
   private readonly rule: HTMLElement;
   private readonly status: HTMLElement;
@@ -149,27 +136,7 @@ export class LeaderboardView {
       this.modeKeys.set(mode.id, key);
     }
     const filters = el("div", "lb-filters");
-    const scopes = el("div", "lb-scopes");
-    scopes.setAttribute("role", "group");
-    scopes.setAttribute("aria-label", "Ranking scope");
-    for (const scope of ["public", "private"] as const) {
-      const key = el("button", "lobby__mode-key", scope === "public" ? "Public" : "Private");
-      key.type = "button";
-      key.dataset.scope = scope;
-      key.addEventListener("click", () => {
-        this.scope = scope;
-        try {
-          localStorage.setItem(RANKING_SCOPE_SETTING, scope);
-        } catch {
-          // Selection still works when browser storage is unavailable.
-        }
-        this.render();
-        void this.load();
-      });
-      scopes.append(key);
-      this.scopeKeys.set(scope, key);
-    }
-    filters.append(scopes, modeRow);
+    filters.append(modeRow);
     head.append(heading, filters);
 
     const tabs = el("div", "lobby__boards");
@@ -292,7 +259,7 @@ export class LeaderboardView {
   // ── Data ──
 
   private boardKey(modeId: string, period: Period): string {
-    return `${modeId}:${period}:${this.scope}`;
+    return `${modeId}:${period}`;
   }
 
   /** Fetch the board and ranks missing from the selected ranking's cache. */
@@ -306,12 +273,12 @@ export class LeaderboardView {
     const wanted: Array<Promise<void>> = [];
     const boardKey = this.boardKey(this.mode.id, period);
     if (!this.boards.has(boardKey))
-      wanted.push(this.fetch(this.boards, boardKey, this.mode.id, period, 100, generation, this.scope));
+      wanted.push(this.fetch(this.boards, boardKey, this.mode.id, period, 100, generation));
     for (const mode of this.modes) {
       const key = this.boardKey(mode.id, period);
       // A full board already carries your row
       if (!this.ranks.has(key) && !this.boards.has(key)) {
-        wanted.push(this.fetch(this.ranks, key, mode.id, period, 1, generation, this.scope));
+        wanted.push(this.fetch(this.ranks, key, mode.id, period, 1, generation));
       }
     }
     this.render();
@@ -325,10 +292,9 @@ export class LeaderboardView {
     period: Period,
     limit: number,
     generation: number,
-    scope: RankingScope,
   ): Promise<void> {
     into.set(key, { state: "loading" });
-    const result = await newUiApi.getLeaderboard({ gametype, period, offset: 0, limit, scope });
+    const result = await newUiApi.getLeaderboard({ gametype, period, offset: 0, limit });
     if (generation !== this.generation) return;
     into.set(
       key,
@@ -351,11 +317,7 @@ export class LeaderboardView {
 
   private render(): void {
     const tab = TABS.find((item) => item.id === this.tab) ?? TABS[0];
-    this.kicker.textContent = `Leaderboard · ${this.scope === "public" ? "Public" : "Private"} · ${this.mode.title}`;
-    for (const [scope, key] of this.scopeKeys) {
-      key.classList.toggle("is-on", scope === this.scope);
-      key.setAttribute("aria-pressed", String(scope === this.scope));
-    }
+    this.kicker.textContent = `Leaderboard · ${this.mode.title}`;
     this.title.textContent = tab.name;
     for (const [id, key] of this.modeKeys) {
       key.classList.toggle("is-on", id === this.mode.id);

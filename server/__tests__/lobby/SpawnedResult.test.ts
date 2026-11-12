@@ -88,7 +88,7 @@ describe("spawned match result handoff", () => {
         ratingReason: "eligible",
       });
       expect(results.ratings.getResult(server.matchId)?.snapshot.seats).toHaveLength(2);
-      expect(results.ratings.verifyReplay()).toEqual({ consistent: true, matches: 1, updates: 2, ratings: 2 });
+      expect(results.ratings.verifyReplay()).toEqual({ consistent: true, matches: 1, updates: 4, ratings: 4 });
     } finally {
       if (priorTime === undefined) delete process.env.SHAG_TIMELIMIT;
       else process.env.SHAG_TIMELIMIT = priorTime;

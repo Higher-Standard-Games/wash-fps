@@ -8,7 +8,7 @@
 
 import type { LobbyClient } from "../../../lobby/LobbyClient";
 import type { HistoryPage, StatsQuery, StatsSummary } from "../../../lobby/PlayerStatsStore";
-import type { FeaturedDemoInfo, GametypeInfo, LeaderboardEntry, RankingScope } from "../../../lobby/types";
+import type { FeaturedDemoInfo, GametypeInfo, LeaderboardEntry, RatingPool } from "../../../lobby/types";
 import { canonicalMatchStats } from "../../../shared/ranking/MatchStats";
 import { RATING_POLICY } from "../../../shared/ranking/RatingPolicy";
 
@@ -21,11 +21,12 @@ export interface LeaderboardQuery {
   period: "month" | "all";
   offset: number;
   limit: number;
-  scope?: RankingScope;
+  /** Omitted means Overall. */
+  scope?: RatingPool;
 }
 
 export interface LeaderboardPage {
-  scope?: RankingScope;
+  scope?: RatingPool;
   entries: LeaderboardEntry[];
   system?: "trueskill";
   policyVersion?: string;
@@ -163,7 +164,7 @@ export const newUiApi: NewUiApi = {
       let prior = query.beforeSequence ?? Number.MAX_SAFE_INTEGER;
       for (const entry of data.entries) {
         if (
-          entry.scope !== query.scope ||
+          (query.scope === "overall" ? !["public", "private"].includes(entry.scope) : entry.scope !== query.scope) ||
           entry.gametype !== query.gametype ||
           !Number.isSafeInteger(entry.sequence) ||
           entry.sequence < 1 ||
@@ -212,7 +213,7 @@ export const newUiApi: NewUiApi = {
         Number.isSafeInteger(row.ratedMatches) &&
         row.ratedMatches! > 0;
       if (
-        scope !== (query.scope ?? "public") ||
+        scope !== (query.scope ?? "overall") ||
         system !== "trueskill" ||
         policyVersion !== RATING_POLICY.version ||
         !entries.every(valid) ||

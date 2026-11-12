@@ -34,7 +34,7 @@ You can't, and you shouldn't. Dev-spawn is a developer affordance, not a public 
 ## "Bots are too easy / too hard."
 
 Bots are available in **Private** rooms. The room chooses a standard preset near
-your private rating, with medium as the new-player fallback. Explicit protocol
+your rating, with medium as the new-player fallback. Explicit protocol
 presets are easy, medium, hard and insane. Presets live in `BotConfig.ts` in the
 game's `bot/` directory; [Bot Server](../tools/bot-server.md#difficulty-tiers) lists the tiers.
 The dedicated server's `spawn_bots` command makes simple bots with no tiers; see
@@ -54,9 +54,9 @@ Yes. Your seat is held for 60 seconds and your client reconnects into it by itse
 
 ## "Why didn't my match show on the leaderboard?"
 
-Check the **mode** and **Public / Private** pool first. Records and rating updates
-are separate: an unrated match may still appear in Profile history. Standard bot
-matches can rate in the private pool. Late joins, changed sides, interrupted
+Check the **mode** first: every mode has its own board. Records and rating
+updates are separate: an unrated match may still appear in Profile history.
+Public and private matches, bot games included, all count toward the same board. Late joins, changed sides, interrupted
 participation and invalid results can prevent an update; history explains the
 decision. See [Ranked matches](../multiplayer/lobby.md#ranked-matches).
 

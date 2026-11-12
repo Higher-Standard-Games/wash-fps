@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LobbyClient } from "../../../../lobby/LobbyClient";
+import { RATING_POLICY } from "../../../../shared/ranking/RatingPolicy";
 import { bindFeaturedDemos, bindLeaderboard, newUiApi } from "../NewUiApi";
 
 afterEach(() => {
@@ -20,18 +21,18 @@ describe("leaderboard UI adapter", () => {
       total: 0,
       scope: "private",
       system: "trueskill",
-      policyVersion: "shag-trueskill-v1",
+      policyVersion: RATING_POLICY.version,
     });
     expect(await newUiApi.getLeaderboard(query)).toEqual({
       status: "ready",
-      data: { entries: [], total: 0, scope: "private", system: "trueskill", policyVersion: "shag-trueskill-v1" },
+      data: { entries: [], total: 0, scope: "private", system: "trueskill", policyVersion: RATING_POLICY.version },
     });
   });
   it("uses only the advertised lobby result and keeps offline servers unavailable", async () => {
     const page = {
-      scope: "public" as const,
+      scope: "overall" as const,
       system: "trueskill" as const,
-      policyVersion: "shag-trueskill-v1",
+      policyVersion: RATING_POLICY.version,
       entries: [
         {
           rank: 1,
@@ -88,7 +89,7 @@ describe("leaderboard UI adapter", () => {
       total: 1,
       scope: "public",
       system: "trueskill",
-      policyVersion: "shag-trueskill-v1",
+      policyVersion: RATING_POLICY.version,
     });
     expect((await newUiApi.getLeaderboard(query)).status).toBe("unavailable");
   });

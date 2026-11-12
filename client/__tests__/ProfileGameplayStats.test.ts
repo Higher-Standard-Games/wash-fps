@@ -39,7 +39,8 @@ function setup() {
             sequence: 2,
             matchId: "m-2",
             map: "wdm2",
-            ...query,
+            gametype: query.gametype,
+            scope: "private",
             startedAt: 1000,
             endedAt: 2000,
             completion: "normal",
@@ -79,31 +80,17 @@ describe("profile gameplay stats", () => {
     );
     expect(client.requestMatchHistory).toHaveBeenCalledWith({
       gametype: "duel",
-      scope: "public",
+      scope: "overall",
       limit: 10,
       beforeSequence: undefined,
     });
   });
-  it("does not let a late public history reply overwrite the private selection", async () => {
+  it("reads one Overall record with no Public/Private switch", async () => {
     const { view, client } = setup();
     await view.refreshRecord();
-    let release!: (data: HistoryPage) => void;
-    client.requestMatchHistory.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          release = resolve;
-        }),
-    );
-    view.root.querySelector<HTMLButtonElement>(".profile-record__history-key")!.click();
-    const privateKey = [...view.root.querySelectorAll<HTMLButtonElement>(".profile-record__scopes button")].find((b) =>
-      b.textContent?.includes("Private"),
-    )!;
-    privateKey.click();
-    await vi.waitFor(() =>
-      expect(client.requestMatchHistory).toHaveBeenCalledWith(expect.objectContaining({ scope: "private" })),
-    );
-    release({ gametype: "duel", scope: "public", entries: [], nextBeforeSequence: null });
-    await vi.waitFor(() => expect(view.root.querySelector(".profile-history h3")?.textContent).toContain("private"));
+    expect(client.requestPlayerStats).toHaveBeenCalledWith({ gametype: "duel", scope: "overall", period: "all" });
+    expect(view.root.querySelector("[aria-label='Ranking scope']")).toBeNull();
+    expect(view.root.querySelector(".profile-record__status")?.textContent).toMatch(/^3 matches/);
   });
   it("refuses malformed stats rather than rendering invented totals", async () => {
     const { client } = setup();

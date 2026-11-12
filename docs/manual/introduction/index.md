@@ -24,7 +24,7 @@
 | Chat | Global (**T** / Enter) and team (**Y**) chat, scrollable history, per-match `/mute` and `/unmute`, recorded into demos |
 | Bots | Separate Bot Intelligence Server process, 4 difficulty tiers, BSP vision + NavGraph A*, optional TensorFlow.js dual-network brain |
 | Demos | Server-side recording (`.shagdemo` binary), lobby demo list, in-game playback (normal + cinematic), deterministic re-sim verification |
-| Lobby | Portable account keys; Public and Private rooms with map votes and chat; bots in Private rooms; independent skill ladders, gameplay stats and match history |
+| Lobby | Portable account keys; Public and Private rooms with map votes and chat; bots in Private rooms; one skill ladder per mode, gameplay stats and match history |
 | Spectating | Fly free or follow a player and see what they see; drop into a match under way while it has room |
 | Netcode | Dedicated server, fixed-rate authoritative physics (1 dt/tick), client prediction + reconciliation, lag-compensated hits, snapshot baselines, seats held through a dropped connection, input sanitizer, log-only anti-cheat telemetry |
 | UI | Washoi manga print-slab HUD, the lobby's gold-rail screens (lobby, settings, leaderboard, profile, demos), match menu, loading and join screens |

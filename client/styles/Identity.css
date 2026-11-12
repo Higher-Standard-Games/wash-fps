@@ -604,16 +604,6 @@
   flex-direction: column;
 }
 
-.profile-record__scopes {
-  display: flex;
-  gap: 10px;
-  margin-top: 12px;
-}
-
-.profile-record__scopes [aria-pressed="false"] {
-  opacity: 0.6;
-}
-
 .profile-record__rating {
   color: var(--cream);
   font-variant-numeric: tabular-nums;

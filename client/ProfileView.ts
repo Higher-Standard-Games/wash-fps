@@ -23,7 +23,7 @@ import {
 } from "../../../lobby/AccountSession";
 import type { LobbyClient } from "../../../lobby/LobbyClient";
 import { DELETED_ACCOUNT_NAME, formatKey, KEY_LENGTH, normalizeKey } from "../../../lobby/PlayerIdentity";
-import type { GametypeInfo, RankingScope } from "../../../lobby/types";
+import type { GametypeInfo } from "../../../lobby/types";
 import type { RatingMode } from "../../../shared/ranking/RatingPolicy";
 import { switchFpsAccount } from "./FpsLobbyService";
 import { createSlot, judgeName, type Slot, wireKeySlot } from "./IdentityFields";
@@ -98,8 +98,6 @@ export class ProfileView {
   private historyEl!: HTMLElement;
   private historySeq = 0;
   private historyMode: RatingMode | null = null;
-  private recordScope: RankingScope = "public";
-  private readonly recordScopeKeys = new Map<RankingScope, HTMLButtonElement>();
   private readonly onKeyDown = (event: KeyboardEvent) => {
     if (event.key !== "Escape" || !this.opened) return;
     event.stopPropagation();
@@ -425,36 +423,12 @@ export class ProfileView {
     const hint = document.createElement("span");
     hint.textContent = "Career skill";
     head.append(title, hint);
-    const scopes = document.createElement("div");
-    scopes.className = "profile-record__scopes";
-    scopes.setAttribute("role", "group");
-    scopes.setAttribute("aria-label", "Ranking scope");
-    for (const scope of ["public", "private"] as const) {
-      const key = createRaisedKey({
-        label: scope === "public" ? "Public" : "Private",
-        variants: ["sm", "cream", "inline"],
-      });
-      key.dataset.scope = scope;
-      key.setAttribute("aria-pressed", String(scope === this.recordScope));
-      key.addEventListener("click", () => {
-        if (scope === this.recordScope) return;
-        this.recordScope = scope;
-        this.historySeq++;
-        this.historyEl.replaceChildren();
-        this.recordRowsEl.replaceChildren();
-        for (const [value, button] of this.recordScopeKeys)
-          button.setAttribute("aria-pressed", String(value === scope));
-        void this.refreshRecord();
-      });
-      this.recordScopeKeys.set(scope, key);
-      scopes.append(key);
-    }
     this.recordStatusEl = document.createElement("p");
     this.recordStatusEl.className = "profile-record__status";
     this.recordStatusEl.setAttribute("role", "status");
     this.recordRowsEl = document.createElement("div");
     this.recordRowsEl.className = "profile-record__rows";
-    record.append(head, scopes, this.recordStatusEl, this.recordRowsEl);
+    record.append(head, this.recordStatusEl, this.recordRowsEl);
     this.historyEl = document.createElement("section");
     this.historyEl.className = "profile-history";
     this.historyEl.setAttribute("aria-label", "Your recent matches");
@@ -500,7 +474,6 @@ export class ProfileView {
           period: "all",
           offset: 0,
           limit: 1,
-          scope: this.recordScope,
         }),
       })),
     );
@@ -528,7 +501,7 @@ export class ProfileView {
     }
     const played = standings.reduce((sum, { row }) => sum + row.wins + row.losses + row.draws, 0);
     const best = standings.reduce((top, one) => (one.row.rank < top.row.rank ? one : top));
-    this.recordStatusEl.textContent = `${played} ${this.recordScope} ${played === 1 ? "match" : "matches"} · best #${best.row.rank} in ${best.mode.name}${excluded ? ` · ${excluded} not rated` : ""}`;
+    this.recordStatusEl.textContent = `${played} ${played === 1 ? "match" : "matches"} · best #${best.row.rank} in ${best.mode.name}${excluded ? ` · ${excluded} not rated` : ""}`;
     for (const { mode, row } of standings.sort((a, b) => a.row.rank - b.row.rank)) {
       const line = document.createElement("div");
       line.className = "profile-record__row";
@@ -552,11 +525,10 @@ export class ProfileView {
 
   private async refreshStatsRecord(sequence: number): Promise<void> {
     const modes = this.modes().filter((mode) => ["duel", "amphi", "ffa", "snd"].includes(mode.id));
-    const scope = this.recordScope;
     const answers = await Promise.all(
       modes.map(async (mode) => ({
         mode,
-        result: await newUiApi.getPlayerStats({ gametype: mode.id as RatingMode, scope, period: "all" }),
+        result: await newUiApi.getPlayerStats({ gametype: mode.id as RatingMode, scope: "overall", period: "all" }),
       })),
     );
     if (sequence !== this.recordSeq) return;
@@ -609,21 +581,20 @@ export class ProfileView {
           : "No completed matches counted yet.";
       this.recordRowsEl.append(detail);
     }
-    this.recordStatusEl.textContent = `${matches} ${scope} ${matches === 1 ? "match" : "matches"}${excluded ? ` · ${excluded} not rated` : ""}${failure ? ` · ${failure}` : ""}`;
+    this.recordStatusEl.textContent = `${matches} ${matches === 1 ? "match" : "matches"}${excluded ? ` · ${excluded} not rated` : ""}${failure ? ` · ${failure}` : ""}`;
     if (this.historyMode) void this.refreshHistory();
   }
 
   private async refreshHistory(beforeSequence?: number): Promise<void> {
     if (!this.historyMode) return;
     const sequence = ++this.historySeq,
-      gametype = this.historyMode,
-      scope = this.recordScope;
+      gametype = this.historyMode;
     this.historyEl.textContent = "Reading your recent matches…";
-    const result = await newUiApi.getMatchHistory({ gametype, scope, limit: 10, beforeSequence });
+    const result = await newUiApi.getMatchHistory({ gametype, scope: "overall", limit: 10, beforeSequence });
     if (sequence !== this.historySeq) return;
     this.historyEl.replaceChildren();
     const heading = document.createElement("h3");
-    heading.textContent = `${gametype.toUpperCase()} · ${scope} recent matches`;
+    heading.textContent = `${gametype.toUpperCase()} · recent matches`;
     this.historyEl.append(heading);
     if (result.status !== "ready") {
       const status = document.createElement("p");

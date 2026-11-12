@@ -22,7 +22,7 @@ features:
     details: Duel, Amphi, FFA and Search & Destroy. Learn the rules before you ready up.
     link: /gametypes/
   - title: Keep your record
-    details: Public and private ladders, skill ratings, match history and a portable account key.
+    details: One skill ladder per mode, match history and a portable account key.
     link: /multiplayer/lobby
   - title: Watch and learn
     details: Follow a player's view or watch a highlight reel from a recorded match.

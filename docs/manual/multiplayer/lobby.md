@@ -10,7 +10,7 @@ The gold rail on the left is the whole menu:
 |-----|---------------|
 | **Quick play** | Straight into a match: a private FFA room against four bots on a random map, readied up for you |
 | **Play** | The mode stage: Duel, Amphi, FFA, S&D. Pick one and find a room. FFA rooms hold 8 players (it starts from 4), S&D rooms 10 (it starts from 2), Duel and Amphi 2 |
-| **Leaderboard** | Skill rankings per mode, with separate Public and Private pools |
+| **Leaderboard** | Skill rankings per mode, counting every match: public, private and against bots |
 | **Demos** | Replays of recorded matches; see [Demos](./demos.md) |
 | **Profile** | Your account and your ranked record |
 | **Settings** | The settings screen; see [HUD → Settings](../player/hud.md#settings-overlay) |
@@ -102,7 +102,7 @@ whether it was rated and explains exclusions.
 | **Public** | Eligible matches between verified human accounts; public rooms do not allow bots |
 | **Private** | Eligible human matches and matches against verified standard bot presets |
 
-Ratings are separate for each mode and pool. The system uses **TrueSkill**, which
+Ratings are separate for each mode. The system uses **TrueSkill**, which
 tracks both estimated skill and uncertainty, rather than a win-count ladder or
 classic Elo. Your displayed rating is a conservative estimate. It is marked
 **Provisional** until you have at least 10 rated matches and uncertainty is low
@@ -112,9 +112,10 @@ The original roster, final standings and full-match participation must be
 verifiable. Late joins, side changes, interrupted participation and aborted
 matches can prevent a rating update. A supported 1v1 forfeit can still be rated.
 Custom bot configurations, unverified presets or bot configuration changes do not
-qualify. Standard preset bots have their own rating identities; playing them is
-not automatically an unrated practice session. The bots are rated but not listed:
-the leaderboard shows people only, ranked among themselves.
+qualify. Standard preset bots play at fixed strengths, Easy lowest and Insane highest, so
+a game against one is rated like any other: beating Insane is worth far more
+than beating Easy. The bots themselves are not rated or listed: the leaderboard
+shows people only, ranked among themselves.
 
 Participation is tied to the verified account through its seat ticket, not its
 display name. A direct server connection does not by itself guarantee a lobby
@@ -124,20 +125,19 @@ record or rating. Check Profile history for the stored decision.
 
 Pick a mode and see its ranking:
 
-- **Public / Private**: choose which independent ladder to read.
 - **30 days / All time**: choose the activity window; 30 days rolls continuously.
 - **Top 100**: the whole list, with a search.
 
 The top players are shown as a podium, and your own rank in every mode appears in
 the rail. Players are ordered by conservative skill rating; wins, losses, draws,
 games and win rate provide context. The 30-day view filters recent activity; it
-does not reset your skill rating every month. Public and private positions can
-differ, and an unrated account has no ladder position yet.
+does not reset your skill rating every month. An unrated account has no ladder
+position yet.
 
 ## Profile
 
-Profile shows your name and key, plus per-mode records for the selected Public or
-Private pool. It includes skill rating, provisional status, gameplay totals and
+Profile shows your name and key, plus your record in each mode, counting every
+match. It includes skill rating, provisional status, gameplay totals and
 match history, with rating changes or an explanation when a match was not rated.
 It is also where you rename yourself or switch accounts.
 

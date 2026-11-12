@@ -15,6 +15,7 @@ import { PlayerStore } from "../../../../../lobby/PlayerStore";
 import type { GametypeInfo, MatchLobbyInfo } from "../../../../../lobby/types";
 import { DemoReader } from "../../../../../shared/demo/DemoReader";
 import { botReference } from "../../../../../shared/ranking/__tests__/_botReference";
+import { RATING_POLICY } from "../../../../../shared/ranking/RatingPolicy";
 import { FPS_SERVER_APPLICATION } from "../../FpsServerApplication";
 import { ProtocolTestClient } from "../_protocolTestClient";
 
@@ -158,8 +159,8 @@ describe("installed-map room to ranking", () => {
           client.send(MessageCodec.encodeJoinGame("ffa"));
         }
         for (const client of gameClients) client.send(MessageCodec.encodeReady());
-        // A private room's bot plays as its preset account: it is stored and
-        // rated as one more participant, but the boards list people only.
+        // A private room's bot keeps a record as its preset account, one more
+        // participant; only people are rated and listed.
         const participants = members.length + (visibility === "private" ? 1 : 0);
         const listed = members.length;
         await vi.waitFor(
@@ -170,9 +171,8 @@ describe("installed-map room to ranking", () => {
           },
           { timeout: 30_000, interval: 100 },
         );
-        expect(results.leaderboard({ gametype: "ffa", period: "all", offset: 0, limit: 10 }).total).toBe(
-          visibility === "private" ? 0 : 2,
-        );
+        // An unscoped board is Overall: every match, whatever its visibility.
+        expect(results.leaderboard({ gametype: "ffa", period: "all", offset: 0, limit: 10 }).total).toBe(listed);
         const otherScope = visibility === "private" ? "public" : "private";
         first.send({
           type: "leaderboard:get",
@@ -186,7 +186,7 @@ describe("installed-map room to ranking", () => {
         });
         expect(await first.waitFor("leaderboard:page", (message) => message.requestId === "skill-live")).toMatchObject({
           system: "trueskill",
-          policyVersion: "shag-trueskill-v1",
+          policyVersion: RATING_POLICY.version,
           scope: visibility,
           total: listed,
           localProcessing: { excluded: 0 },
@@ -208,7 +208,7 @@ describe("installed-map room to ranking", () => {
         const reopened = MatchResultStore.open(dir);
         try {
           // The real child's gameplay counters survive persistence, and a
-          // private bot match rates against the bot's preset account.
+          // private bot match rates against the bot preset's fixed strength.
           const statsQuery = { gametype: "ffa" as const, scope: visibility, period: "all" as const };
           const summary = reopened.playerStats.summary(members[0].account.id, statsQuery);
           expect(summary).toMatchObject({ matches: 1, draws: 1, statsMatches: 1, totals: { frags: 0 } });
@@ -253,14 +253,16 @@ describe("installed-map room to ranking", () => {
             expect(journal?.snapshot.startingRoster?.find((seat) => seat.isBot)?.botReference).toEqual(botReference());
             expect(journal?.snapshot.botReferenceChanged).toBe(false);
           }
+          // Each person once in the room's own pool and once in Overall.
           expect(reopened.ratings.verifyReplay()).toEqual({
             consistent: true,
             matches: 1,
-            updates: 2,
-            ratings: 2,
+            updates: members.length * 2,
+            ratings: members.length * 2,
           });
           for (const member of members) {
             expect(reopened.ratings.getRating(member.account.id, "ffa", visibility)?.state.ratedMatches).toBe(1);
+            expect(reopened.ratings.getRating(member.account.id, "ffa", "overall")?.state.ratedMatches).toBe(1);
             expect(reopened.ratings.getRating(member.account.id, "ffa", otherScope)).toBeNull();
           }
         } finally {

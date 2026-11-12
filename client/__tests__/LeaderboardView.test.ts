@@ -14,6 +14,7 @@ vi.mock("../../../../lobby/AccountSession", async (importOriginal) => ({
   currentIdentity: () => ({ id: "42", name: "This player" }),
 }));
 
+import { RATING_POLICY } from "../../../../shared/ranking/RatingPolicy";
 import { LeaderboardView, nextStep, type RankedMode } from "../LeaderboardView";
 import { bindLeaderboard, type LeaderboardPage, type LeaderboardQuery } from "../NewUiApi";
 
@@ -49,12 +50,12 @@ function bind(pages: Record<string, LeaderboardPage>): LeaderboardQuery[] {
     connected: true,
     requestLeaderboard: async (query: LeaderboardQuery) => {
       asked.push(query);
-      const page = pages[`${query.gametype}:${query.scope}`] ?? pages[query.gametype] ?? { entries: [], total: 0 };
+      const page = pages[query.gametype] ?? { entries: [], total: 0 };
       return {
         ...page,
         system: "trueskill",
-        policyVersion: "shag-trueskill-v1",
-        scope: query.scope ?? "public",
+        policyVersion: RATING_POLICY.version,
+        scope: query.scope ?? "overall",
         entries: page.entries.slice(0, query.limit),
       };
     },
@@ -116,8 +117,8 @@ describe("LeaderboardView", () => {
     expect(ranks[1]).toContain("Unranked");
     // The shown mode's board carries your row; the other mode asks for one row only
     expect(asked).toEqual([
-      { gametype: "duel", period: "month", offset: 0, limit: 100, scope: "public", system: "trueskill" },
-      { gametype: "amphi", period: "month", offset: 0, limit: 1, scope: "public", system: "trueskill" },
+      { gametype: "duel", period: "month", offset: 0, limit: 100, system: "trueskill" },
+      { gametype: "amphi", period: "month", offset: 0, limit: 1, system: "trueskill" },
     ]);
   });
 
@@ -177,78 +178,14 @@ describe("LeaderboardView", () => {
   });
 });
 
-describe("private ranking selection", () => {
-  it("defaults to public, remembers the global setting, and caches boards separately", async () => {
+describe("one board", () => {
+  it("reads the Overall ranking with no Public/Private switch", async () => {
     const asked = bind({ duel: { entries: duel, total: 12, localPlayerEntry: you } });
     const board = view();
     await board.refresh();
-    const publicKey = board.root.querySelector<HTMLButtonElement>('[data-scope="public"]')!;
-    const privateKey = board.root.querySelector<HTMLButtonElement>('[data-scope="private"]')!;
-    expect(publicKey.getAttribute("aria-pressed")).toBe("true");
-    expect(privateKey.closest(".lb-scopes")?.nextElementSibling?.className).toBe("lobby__modes");
-    privateKey.click();
-    await vi.waitFor(() => expect(asked.filter((query) => query.scope === "private")).toHaveLength(2));
-    board.root.querySelectorAll<HTMLButtonElement>(".lobby__modes .lobby__mode-key")[1].click();
-    await vi.waitFor(() => expect(asked.at(-1)).toMatchObject({ gametype: "amphi", limit: 100, scope: "private" }));
-    expect(privateKey.getAttribute("aria-pressed")).toBe("true");
-    await vi.waitFor(() => expect(board.root.querySelector(".lb-status")?.textContent).toContain("No ranked"));
-    const before = asked.length;
-    publicKey.click();
-    await vi.waitFor(() => expect(asked).toHaveLength(before + 1));
-    expect(asked.at(-1)).toMatchObject({ gametype: "amphi", scope: "public", limit: 100 });
-    privateKey.click();
-    await Promise.resolve();
-    expect(asked).toHaveLength(before + 1);
-    board.destroy();
-    const reopened = view();
-    expect(reopened.root.querySelector('[data-scope="private"]')?.getAttribute("aria-pressed")).toBe("true");
-    await reopened.refresh();
-    expect(asked.at(-1)?.scope).toBe("private");
-  });
-
-  it("keeps late public replies out of the private board and rail", async () => {
-    const pending: Array<{ query: LeaderboardQuery; resolve: (page: LeaderboardPage) => void }> = [];
-    bindLeaderboard(
-      {
-        connected: true,
-        requestLeaderboard: (query: LeaderboardQuery) =>
-          new Promise<LeaderboardPage>((resolve) => pending.push({ query, resolve })),
-      } as unknown as LobbyClient,
-      true,
-      true,
-    );
-    const board = view();
-    const refreshing = board.refresh();
-    board.root.querySelector<HTMLButtonElement>('[data-scope="private"]')!.click();
-    for (const request of pending.filter((item) => item.query.scope === "private")) {
-      const row = entry(1, 9, 0, "42", "Private player");
-      request.resolve({
-        entries: [row],
-        total: 1,
-        localPlayerEntry: row,
-        scope: "private",
-        system: "trueskill",
-        policyVersion: "shag-trueskill-v1",
-      });
-    }
-    await vi.waitFor(() => expect(board.root.textContent).toContain("Private player"));
-    for (const request of pending.filter((item) => item.query.scope === "public")) {
-      request.resolve({
-        entries: [you],
-        total: 1,
-        localPlayerEntry: you,
-        scope: "public",
-        system: "trueskill",
-        policyVersion: "shag-trueskill-v1",
-      });
-    }
-    await refreshing;
-    expect(board.root.textContent).toContain("Private player");
-    expect(board.railMiddle.textContent).toContain("1360");
-    expect(board.railMiddle.textContent).not.toContain("1120");
-    board.root.querySelector<HTMLButtonElement>('[data-scope="public"]')!.click();
-    expect(board.root.textContent).toContain(you.name);
-    expect(board.railMiddle.textContent).toContain("1120");
+    expect(board.root.querySelector("[data-scope], .lb-scopes")).toBeNull();
+    expect(board.root.querySelector(".lobby__kicker")?.textContent).toBe("Leaderboard · DUEL");
+    expect(asked.every((query) => query.scope === undefined)).toBe(true);
   });
 });
 
