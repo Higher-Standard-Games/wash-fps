@@ -39,8 +39,8 @@ export class Deathmatch extends BaseGametype {
     return {
       warmupTimeout: 120, // 2 minutes
       countdownDuration: 5, // get ready, then 3-2-1
-      scoreLimit: 20, // frags to win
-      timeLimit: 600, // 10 minutes
+      scoreLimit: 0, // none: the match runs its full time
+      timeLimit: 600, // 10 minutes; most frags wins
       postGameDuration: 15, // post-game screen duration
       respawnDelay: 3, // seconds min before respawn input accepted
       maxRespawnDelay: 6, // seconds auto-respawn deadline

@@ -7,7 +7,7 @@ Free-for-all frag derby. Up to 16 players, everyone for themselves.
 | Rule | Default |
 |------|---------|
 | Players | Up to 16 on a dedicated server; a lobby room holds 8 |
-| Score limit | 20 frags; the first player to reach it wins |
+| Score limit | None: every match runs its full time |
 | Time limit | 10 minutes; most frags at time-up wins |
 | Tied at time-up | A draw (only [Duel](./duel.md) plays overtime) |
 | Warmup | Up to 2 minutes |

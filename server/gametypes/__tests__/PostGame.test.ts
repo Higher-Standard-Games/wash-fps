@@ -164,6 +164,25 @@ describe("match pacing env overrides (dev/test)", () => {
   });
 });
 
+describe("FFA runs its full time", () => {
+  it("has no score limit: a player far ahead does not end it early", () => {
+    const config = new Deathmatch().getMatchConfig();
+    expect(config.scoreLimit).toBe(0);
+    expect(config.timeLimit).toBe(600);
+
+    const ms = new MatchState("Deathmatch", config);
+    ms.addPlayer(P1);
+    ms.addPlayer(P2);
+    activate(ms);
+    ms.addScore(P1, 50);
+    expect(ms.hasDecisiveLead()).toBe(false);
+    ms.update(599);
+    expect(ms.phase).toBe(MatchPhase.Active);
+    ms.update(2);
+    expect(ms.phase).toBe(MatchPhase.PostGame);
+  });
+});
+
 describe("overtime (duel: no draws)", () => {
   function makeOvertimeState(): MatchState {
     // teamBased like duel, tiny time limit, overtime enabled
