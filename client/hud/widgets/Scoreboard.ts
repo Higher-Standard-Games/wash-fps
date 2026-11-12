@@ -263,7 +263,8 @@ export class FPSScoreboard {
   /**
    * The rows to show. On the post-game board, everyone seen since the lock: a
    * player who has since disconnected (bots leave at +10s, ragequits) keeps a
-   * dimmed row with their final score instead of dropping off.
+   * dimmed row with their final score instead of dropping off, in its place
+   * by score.
    */
   private collectEntries(state: HUDState): BoardEntry[] {
     const entries: BoardEntry[] = [...state.scoreboard];
@@ -273,7 +274,8 @@ export class FPSScoreboard {
     for (const [playerId, remembered] of this.postGameRoster) {
       if (!liveIds.has(playerId)) entries.push({ ...remembered, departed: true });
     }
-    return entries;
+    // Highest score first; fewer deaths breaks a tie.
+    return entries.sort((a, b) => b.score - a.score || a.deaths - b.deaths);
   }
 
   private rebuild(state: HUDState, entries: BoardEntry[], localPlayerId: string, round: number): void {

@@ -163,4 +163,24 @@ describe("post-game scoreboard", () => {
     expect(document.querySelector(".fps-versus-side--departed .fps-versus-name")?.textContent).toBe("Wraith");
     expect(document.querySelector('[data-ping-for="player_2"]')?.textContent).toBe("LEFT");
   });
+
+  it("keeps a free-for-all board in score order when the winner has left", () => {
+    const hud = HUDState.getInstance();
+    hud.teamBased = false;
+    hud.localPlayerId = "player_1";
+    hud.scoreboard = [
+      entry({ playerId: "player_2", name: "Slurp-san", score: 20, deaths: 11 }),
+      entry({ playerId: "player_1", name: "sundflux", score: 18, deaths: 12 }),
+      entry({ playerId: "player_3", name: "Noodle Ninja", score: 15, deaths: 16 }),
+    ];
+    board.setPostGame("SLURP-SAN WINS!", "player_2", "Slurp-san");
+    // The bots leave; only the local player is still in the snapshot.
+    hud.scoreboard = hud.scoreboard.filter((e) => e.playerId === "player_1");
+    board.refresh();
+
+    const names = [...document.querySelectorAll(".fps-scoreboard-row .fps-scoreboard-col-name")].map(
+      (el) => el.textContent,
+    );
+    expect(names).toEqual(["Slurp-san", "sundflux", "Noodle Ninja"]);
+  });
 });
