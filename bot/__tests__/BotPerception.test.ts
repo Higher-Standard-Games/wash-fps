@@ -178,3 +178,37 @@ describe("item timing by ear", () => {
     expect(state.itemTakenTick.get(0)).toBe(5000 - Math.round((25 * 125) / 2));
   });
 });
+
+describe("pickups as the server sends them", () => {
+  // The server names an item_pickup's picker by bare numeric id; everything else by client key.
+  function pickedBy(picker: string, skill = 1) {
+    const state = new BotGameState();
+    state.selfEntityId = "player_1";
+    state.selfPlayerId = "bot";
+    const perception = new BotPerception({ reactionTimeMs: 0, itemTimingSkill: skill }, () => 0.5);
+    const snapshot = new GameState();
+    snapshot.tick = 500;
+    snapshot.players.set("bot", player("player_1"));
+    snapshot.players.set("foe", player("player_7"));
+    snapshot.entities.set("player_1", entity("player_1", { x: 0, y: 0, z: 0 }));
+    snapshot.entities.set("player_7", entity("player_7", { x: 0, y: 0, z: 1900 }));
+    snapshot.events = [{ type: "item_pickup", pickupId: 0, entityId: picker, x: 0, y: 0, z: 2000 }] as never;
+    snapshot.pickupActiveMask = [false];
+    state.update(snapshot as never);
+    perception.perceive({ state, snapshot: snapshot as never, viewYaw: 0, canSee: () => false, pickups: [RA] });
+    return state;
+  }
+
+  it("knows which enemy took a major item from the numeric id", () => {
+    const state = pickedBy("7");
+    expect(state.enemyMajorItems.get("foe")).toMatchObject({ type: "armor", kind: "ra" });
+    expect(state.heardEnemies.map((p) => p.playerId)).toEqual(["foe"]);
+  });
+
+  it("knows an item it took itself, to the tick", () => {
+    // Timing skill 0 notes no heard pickup: only knowing it was its own sets the time.
+    const state = pickedBy("1", 0);
+    expect(state.itemTakenTick.get(0)).toBe(500);
+    expect(state.enemyMajorItems.size).toBe(0);
+  });
+});

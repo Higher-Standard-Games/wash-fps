@@ -28,6 +28,7 @@
 
 import type { GameState } from "../../../engine/network/core/GameState";
 import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "../../../shared/server/simulation/physics/constants";
+import { toClientKey } from "../ClientEntityKey";
 import type { PickupEntry } from "../shared/bsp/PickupTable";
 import { itemRespawnSeconds } from "../shared/items/ItemRespawn";
 import type { BotDifficulty } from "./BotConfig";
@@ -244,8 +245,9 @@ export class BotPerception {
     for (const [playerId, player] of snapshot.players) {
       if (player.entityId && playerId !== state.selfPlayerId) byEntity.set(String(player.entityId), playerId);
     }
+    const playerOf = (entityId: unknown) => byEntity.get(String(entityId)) ?? byEntity.get(pickerKey(entityId));
     const hear = (entityId: unknown, at: Vec3, range: number) => {
-      const playerId = byEntity.get(String(entityId));
+      const playerId = playerOf(entityId);
       if (!playerId || !finite(at) || vec3Distance(self, at) > range) return;
       heard.set(playerId, at);
     };
@@ -281,7 +283,7 @@ export class BotPerception {
           const loud = pickup !== undefined && isMajorItem(pickup.type, pickup.kind);
           const at = xyz(e.x, e.y, e.z);
           hear(e.entityId, at, loud ? HEARING_RANGE.majorPickup : HEARING_RANGE.pickup);
-          const taker = byEntity.get(String(e.entityId));
+          const taker = playerOf(e.entityId);
           const takerTeam = taker ? snapshot.players.get(taker)?.team : undefined;
           const ally = onATeam(state.self.team) && takerTeam === state.self.team;
           if (loud && pickup && taker && !ally && finite(at) && vec3Distance(self, at) <= HEARING_RANGE.majorPickup) {
@@ -351,7 +353,7 @@ export class BotPerception {
       if (e.type !== "item_pickup" || typeof e.pickupId !== "number") continue;
       const entry = pickups.find((p) => p.id === e.pickupId);
       if (!entry) continue;
-      const mine = String(e.entityId) === state.selfEntityId;
+      const mine = String(e.entityId) === state.selfEntityId || pickerKey(e.entityId) === state.selfEntityId;
       const range = isMajorItem(entry.type, entry.kind) ? HEARING_RANGE.majorPickup : HEARING_RANGE.pickup;
       const near = vec3Distance(state.self.position, entry.position) <= range;
       if (mine) this._items.set(entry.id, { up: false, takenTick: state.tick });
@@ -421,6 +423,15 @@ type EntityLike = { getComponent(name: string): unknown };
 function entityPosition(entity: EntityLike): Vec3 | null {
   const transform = entity.getComponent("transform") as { position?: Vec3 } | undefined;
   return transform?.position ? { x: transform.position.x, y: transform.position.y, z: transform.position.z } : null;
+}
+
+/**
+ * The client key of an `item_pickup` event's picker. The server sends that one
+ * event with the picker's bare numeric id where every other event carries the
+ * client key (`player_<id>`), so bots matched no pickup to its taker.
+ */
+function pickerKey(entityId: unknown): string {
+  return toClientKey(String(entityId));
 }
 
 function slidingOf(entity: EntityLike | undefined): boolean {
