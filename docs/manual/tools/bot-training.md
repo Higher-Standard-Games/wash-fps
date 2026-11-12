@@ -365,6 +365,34 @@ npm --prefix src/games/fps run bot:motion -- --map washoi_dm5 --gametype duel --
 npm --prefix src/games/fps run bot:demo-motion -- public/data/demos .cache/bots-now
 ```
 
+### Two variants head to head
+
+`npm --prefix src/games/fps run bot:ab` plays many headless matches with one bot
+of arm A against one of arm B (`--per-arm` more of each for Deathmatch),
+alternating who joins first, and reports wins, the frag gap per match with a
+95% interval, a sign test on wins, and a verdict. Arms are bot options as JSON,
+the options a bot is added with. Matches run in `--parallel` worker processes.
+
+| Flag | Default |
+| --- | --- |
+| `--map` | `washoi_dm5` |
+| `--gametype` | `duel`; `ffa` for Deathmatch |
+| `--matches` | `12` |
+| `--seconds` | `120` per match (at least 20) |
+| `--parallel` | `3` worker processes |
+| `--per-arm` | `1` bot per arm |
+| `--port` | `8100`; each worker takes 200 ports from here |
+| `--a`, `--b` | `{}`: bot options as JSON, for example `{"difficulty":"hard"}` |
+
+```bash
+npm --prefix src/games/fps run bot:ab -- --matches 32 --parallel 4 --seconds 150 --a '{"difficulty":"hard"}' --b '{"difficulty":"easy"}'
+```
+
+Two-bot Duel is noisy: two runs of the same code can differ threefold in deaths,
+and 16 matches of Hard against Easy on washoi_dm5 ended 10–3 in wins (3 drawn),
+62–49 in frags, short of either test. Plan on 30 or more matches for a
+difference smaller than that.
+
 ### Route lines, checked offline
 
 Out of a fight a bot runs each plain walking stretch of its route along one
