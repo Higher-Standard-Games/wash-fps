@@ -120,6 +120,17 @@ flight, and stepping onto a pad or teleporter, it keeps its view rather than
 turning to a landing spot it is passing over. Scripted moves (learned routes,
 validated jumps) set the view exactly and bypass all of this.
 
+Out of a fight with no enemy in sight (running for an item, hunting, retreating,
+or chasing someone it can no longer see) a bot is calm: there is nothing to
+react to, so its view eases toward where it wants to look, at most 120°/s,
+ignores changes under five of the deadzones above, and rests about 10° below
+level, at the floor ahead. A turn of more than 90° is a turnaround and goes the
+ordinary way: the reaction wait, then a fast turn. Between glances the view
+rests on the route ahead; every 2–4 s the bot glances for about 0.7 s toward a
+clearly more open direction within 45° of where it runs. Recorded people look
+like this: out of a fight their view turns about 35°/s while their movement
+weaves under it (`bot:demo-motion`, [Bot training](./bot-training.md)).
+
 ### What a bot knows
 
 A bot knows what it sees and what it hears, not everything the server sends

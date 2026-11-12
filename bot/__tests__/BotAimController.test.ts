@@ -160,3 +160,51 @@ describe("BotAimController", () => {
     expect(sloppy.largestStep).toBeLessThan(sigma * 0.1);
   });
 });
+
+describe("BotAimController calm", () => {
+  /** The yaw sent each command toward a fixed calm goal. */
+  function calm(aim: BotAimController, seconds: number, yaw: number, pitch = 0): number[] {
+    const out: number[] = [];
+    for (let t = 0; t < seconds; t += DT) out.push(aim.step(DT, yaw, pitch, false, true).yaw);
+    return out;
+  }
+
+  it("eases a planned turn at most 120°/s, with no reaction wait", () => {
+    const aim = new BotAimController(exact("insane"), steady);
+    aim.reset(0, 0);
+    const yaws = calm(aim, 2, 80 * DEG);
+    // It starts at once: there is nothing to notice.
+    expect(yaws[Math.round(0.1 / DT)]).toBeGreaterThan(1 * DEG);
+    let fastest = 0;
+    for (let i = 1; i < yaws.length; i++) fastest = Math.max(fastest, Math.abs(yaws[i] - yaws[i - 1]) / DT);
+    expect(fastest / DEG).toBeLessThan(125);
+    expect(yaws[yaws.length - 1] / DEG).toBeGreaterThan(75);
+  });
+
+  it("ignores small changes of mind", () => {
+    const aim = new BotAimController(exact("medium"), steady);
+    aim.reset(0, 0);
+    // Five medium deadzones are 15°.
+    const yaws = calm(aim, 1, 12 * DEG);
+    expect(Math.abs(yaws[yaws.length - 1])).toBeLessThan(0.5 * DEG);
+  });
+
+  it("still looks down a few degrees", () => {
+    const aim = new BotAimController(exact("medium"), steady);
+    aim.reset(0, 0);
+    let pitch = 0;
+    for (let t = 0; t < 2; t += DT) pitch = aim.step(DT, 0, 10 * DEG, false, true).pitch;
+    expect(pitch / DEG).toBeGreaterThan(8);
+  });
+
+  it("turns round the ordinary way: a pause, then a fast turn", () => {
+    const aim = new BotAimController(exact("insane"), steady);
+    aim.reset(0, 0);
+    const yaws = calm(aim, 1.5, 170 * DEG);
+    const reaction = aimTuning(exact("insane")).reactionMs / 1000;
+    expect(Math.abs(yaws[Math.floor((reaction * 0.5) / DT)])).toBeLessThan(0.5 * DEG);
+    let fastest = 0;
+    for (let i = 1; i < yaws.length; i++) fastest = Math.max(fastest, Math.abs(wrapAngle(yaws[i] - yaws[i - 1])) / DT);
+    expect(fastest / DEG).toBeGreaterThan(300);
+  });
+});

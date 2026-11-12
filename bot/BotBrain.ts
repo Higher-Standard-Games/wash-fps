@@ -20,7 +20,7 @@ import type { BotVision, VisionResult } from "./BotVision";
 export interface BotInput {
   /** Movement direction (view-relative: z=forward, x=strafe) */
   direction: { x: number; y: number; z: number };
-  /** Look pitch (radians, positive = up) */
+  /** Look pitch (radians, positive = down) */
   pitch: number;
   /**
    * Look yaw (radians): where the bot wants to look. The client turns the view
@@ -46,6 +46,12 @@ export interface BotInput {
   script?: readonly BotInput[];
   /** Stop sending a previous movement script before applying this decision. */
   cancelScript?: boolean;
+  /**
+   * Out of a fight with no enemy in sight: the look is the bot's own choice and
+   * there is nothing to react to, so the client eases the view there instead of
+   * turning at once (BotAimController).
+   */
+  calm?: boolean;
 }
 
 /** The yaw a decision moves along: `direction` is relative to it. */

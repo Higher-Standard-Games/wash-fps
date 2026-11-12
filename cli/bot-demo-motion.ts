@@ -120,6 +120,7 @@ function samplesFor(
       pitch: input?.pitch ?? self.pitch ?? 0,
       firing,
       speed,
+      heading: Math.atan2(self.velocity.x, self.velocity.z),
       grounded: self.isGrounded,
       sliding: self.isSliding,
       health: self.health,

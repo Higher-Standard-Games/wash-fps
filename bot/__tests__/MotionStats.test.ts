@@ -17,6 +17,7 @@ function sample(t: number, over: Partial<MotionSample> = {}): MotionSample {
     pitch: 0,
     firing: false,
     speed: 300,
+    heading: 0,
     grounded: true,
     sliding: false,
     health: 100,

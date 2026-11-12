@@ -727,7 +727,7 @@ export class BotClient extends EventEmitter {
     const attack = InputButtons.FIRE | InputButtons.ALT_FIRE;
     const firing = (input.buttons & attack) !== 0;
     if (!this._aim.started) this._aim.reset(this._gameState.self.yaw, this._gameState.self.pitch);
-    const view = this._aim.step(dt, input.yaw, input.pitch, firing);
+    const view = this._aim.step(dt, input.yaw, input.pitch, firing, input.calm === true);
     const held = holdFireOffAim(input.buttons, input, view, this._shooting);
     this._shooting = held.shooting;
     const aimed: BotInput = {

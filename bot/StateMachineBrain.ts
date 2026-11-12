@@ -116,6 +116,10 @@ const FEELER_STEER_THRESHOLD = 0.6; // fraction below which we steer away
 const FEELER_SIDE_COMMIT_TICKS = 50;
 
 // Looking round while running (out of a fight)
+/** Calm, the view rests this far below where the brain looks: people look at the floor ahead. */
+const CALM_PITCH = (10 * Math.PI) / 180;
+/** Calm, the view never looks further down than this. */
+const CALM_MAX_PITCH = (45 * Math.PI) / 180;
 /** Furthest the view turns from where the bot runs to look into open space. */
 const LOOK_MAX_OFF_TRAVEL = (45 * Math.PI) / 180;
 const LOOK_STEP = (15 * Math.PI) / 180;
@@ -123,8 +127,12 @@ const LOOK_STEP = (15 * Math.PI) / 180;
 const LOOK_RANGE = 1500;
 /** What looking the full LOOK_MAX_OFF_TRAVEL aside costs, of a score out of 1. */
 const LOOK_OFF_COST = 0.3;
-/** How often the direction is chosen again, ticks. */
+/** With nothing worth a glance, how soon to look for one again, ticks. */
 const LOOK_INTERVAL_TICKS = 50;
+/** How long a glance holds, ticks (±30%). */
+const GLANCE_TICKS = 85;
+/** Rest between glances, ticks (from 0.67 to 1.33 of it). */
+const GLANCE_REST_TICKS = 375;
 /** How much more open another direction must be to take over. */
 const LOOK_SWITCH_MARGIN = 0.2;
 /** What turning the view a quarter turn from where it is costs, of a score out of 1. */
@@ -376,7 +384,27 @@ export class StateMachineBrain extends BotBrain {
   ): BotInput {
     this._cancelScript = false;
     const input = this._decide(state, vision, visionResult, navGraph);
+    if (this._isCalm(state, input)) {
+      input.calm = true;
+      // People look a little down while running, at the floor ahead (BS-1: 11°).
+      input.pitch = Math.min(CALM_MAX_PITCH, input.pitch + CALM_PITCH);
+    }
     return this._cancelScript ? { ...input, cancelScript: true } : input;
+  }
+
+  /** Roaming with no enemy in sight and no scripted move: see `BotInput.calm`. */
+  private _isCalm(state: BotGameState, input: BotInput): boolean {
+    if (state.self.isDead || input.script || this._sequenceRuntime.isActive) return false;
+    if ((input.buttons & (InputButtons.FIRE | InputButtons.ALT_FIRE)) !== 0) return false;
+    if ((this._lastVision?.visibleEnemies.length ?? 0) > 0) return false;
+    // A chase with the enemy out of sight turns toward where they were: a memory, not a sight.
+    return (
+      this.currentState === BotState.ITEM_RUN ||
+      this.currentState === BotState.HUNT ||
+      this.currentState === BotState.CHASE ||
+      this.currentState === BotState.RETREAT ||
+      this.currentState === BotState.IDLE
+    );
   }
 
   private _decide(
@@ -537,12 +565,15 @@ export class StateMachineBrain extends BotBrain {
   }
 
   /**
-   * Running out of a fight, lean the view toward the most open direction near
-   * where it looks (along the route ahead, or the way the bot runs): a sight
-   * line down a hall rather than the wall a route corner points at. Players
-   * look where someone could come from; a bot facing the wall it is turning
-   * round sees no one. Movement keeps its heading; the view stays within a
-   * quarter turn of it, as `_lookAlongRoute` keeps it.
+   * Running out of a fight, glance now and then toward the most open
+   * direction near where it looks: a sight line down a hall rather than the
+   * wall a route corner points at. Between glances the view rests where the
+   * bot runs, as a player's does: recorded people have the view more than 20°
+   * off their movement 38% of the time running, and bots that held the most
+   * open direction all the time 55% (docs/research/BOT_STRATEGY_LAYER.md).
+   * A glance lasts GLANCE_TICKS and comes every GLANCE_REST_TICKS or so, when
+   * a direction is clearly more open than straight ahead. Movement keeps its
+   * heading; the view stays within a quarter turn of it.
    */
   private _lookIntoOpenSpace(state: BotGameState, input: BotInput, vision: BotVision): void {
     const roaming =
@@ -563,7 +594,11 @@ export class StateMachineBrain extends BotBrain {
     const travel = travelYaw(input);
     const base = input.yaw;
     const allowed = (off: number) => Math.abs(wrapAngle(base + off - travel)) <= Math.PI / 2;
-    if (!this._look || state.tick >= this._look.untilTick || !allowed(this._look.off)) {
+    if (this._look && this._look.off !== 0 && (state.tick >= this._look.untilTick || !allowed(this._look.off))) {
+      // A glance ends: back to where the bot runs, for a rest of 2–4 s.
+      this._look = { off: 0, untilTick: state.tick + GLANCE_REST_TICKS * (0.67 + 0.67 * Math.random()) };
+    }
+    if (!this._look || state.tick >= this._look.untilTick) {
       const eye = { x: state.self.position.x, y: state.self.position.y + 36, z: state.self.position.z };
       // Turning from where the view is costs too: a route corner moves the
       // way the bot runs, and choosing afresh from it swung the view across.
@@ -575,18 +610,21 @@ export class StateMachineBrain extends BotBrain {
           (LOOK_TURN_COST * Math.abs(wrapAngle(yaw - state.self.yaw))) / (Math.PI / 2)
         );
       };
-      const held = this._look && allowed(this._look.off) ? this._look.off : 0;
-      let bestOff = held;
-      let bestScore = score(held) + LOOK_SWITCH_MARGIN;
+      let bestOff = 0;
+      let bestScore = score(0) + LOOK_SWITCH_MARGIN;
       for (let off = -LOOK_MAX_OFF_TRAVEL; off <= LOOK_MAX_OFF_TRAVEL + 1e-9; off += LOOK_STEP) {
-        if (Math.abs(off - held) < 1e-9 || !allowed(off)) continue;
+        if (Math.abs(off) < 1e-9 || !allowed(off)) continue;
         const value = score(off);
         if (value > bestScore) {
           bestScore = value;
           bestOff = off;
         }
       }
-      this._look = { off: bestOff, untilTick: state.tick + LOOK_INTERVAL_TICKS };
+      // Nothing worth a glance: look again in a moment.
+      this._look = {
+        off: bestOff,
+        untilTick: state.tick + (bestOff === 0 ? LOOK_INTERVAL_TICKS : GLANCE_TICKS * (0.7 + 0.6 * Math.random())),
+      };
     }
     input.moveYaw = travel;
     input.yaw = base + this._look.off;

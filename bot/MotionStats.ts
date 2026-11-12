@@ -33,6 +33,8 @@ export interface MotionSample {
   firing: boolean;
   /** Horizontal speed, units/s. */
   speed: number;
+  /** Direction of horizontal movement, radians, as yaw. */
+  heading: number;
   grounded: boolean;
   sliding: boolean;
   health: number;
@@ -58,6 +60,8 @@ const FLICK_SPEED = 300 / DEG;
 const OVERSHOOT_WINDOW = 0.2;
 /** A correction has to turn at least this fast, rad/s. */
 const CORRECTION_SPEED = 45 / DEG;
+/** The view this far off the movement direction is looking elsewhere, rad. */
+const VIEW_OFF_HEADING = 20 / DEG;
 /** Leaving the ground within this long of landing chains the hops, seconds. */
 const CHAIN_WINDOW = 0.25;
 /** A sample gap this long means the player was dead or gone in between, seconds. */
@@ -84,6 +88,11 @@ export interface MotionTotals {
   /** View out of a fight. */
   calmTime: number;
   calmTurn: number;
+  /** Out of a fight and running: how far the movement direction turned, and over how long. */
+  headingTurn: number;
+  headingTime: number;
+  /** Running out of a fight: samples with the view more than 20° off the movement direction. */
+  viewOffHeading: number;
   reversals: number;
   flicks: number;
   flickSizes: number[];
@@ -109,6 +118,9 @@ export function emptyTotals(): MotionTotals {
     runPitches: [],
     calmTime: 0,
     calmTurn: 0,
+    headingTurn: 0,
+    headingTime: 0,
+    viewOffHeading: 0,
     reversals: 0,
     flicks: 0,
     flickSizes: [],
@@ -164,6 +176,11 @@ export function accumulateMotion(samples: readonly MotionSample[], totals: Motio
       totals.runSpeeds.push(b.speed);
       totals.runPitches.push(b.pitch * DEG);
       if (!b.grounded) totals.runAirborne++;
+      if (Math.abs(wrap(b.yaw - b.heading)) > VIEW_OFF_HEADING) totals.viewOffHeading++;
+      if (a.speed > RUNNING_SPEED) {
+        totals.headingTurn += Math.abs(wrap(b.heading - a.heading));
+        totals.headingTime += dt;
+      }
       if (!Number.isNaN(b.clearance)) totals.clearances.push(b.clearance);
     }
 
@@ -234,6 +251,8 @@ export function motionRows(t: MotionTotals): [string, string][] {
     ["running within 8 u of a wall", within(8)],
     ["pitch running (median °)", num(median(t.runPitches), 1)],
     ["turning out of a fight (°/s)", t.calmTime > 0 ? num((t.calmTurn * DEG) / t.calmTime) : "-"],
+    ["movement turning, running (°/s)", t.headingTime > 0 ? num((t.headingTurn * DEG) / t.headingTime) : "-"],
+    ["view over 20° off movement, running", pct(t.viewOffHeading, t.runCount)],
     ["turn reversals per minute", per(t.reversals, t.calmTime)],
     ["flicks per minute", per(t.flicks, t.calmTime)],
     ["flick size (median °)", num(median(t.flickSizes))],

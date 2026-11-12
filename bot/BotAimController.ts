@@ -17,6 +17,14 @@
  *   hand pursue a moving target, so tracking does not trail behind it.
  * - A slowly wandering offset, about a second per swing, replaces the old
  *   fresh noise on every decision, which shook the view.
+ * - Calm (out of a fight, nothing in sight, the look the bot's own choice):
+ *   the goal eases toward the wanted view instead of jumping to it, at most
+ *   120°/s, and ignores yaw changes under five deadzones. A turn over 90°
+ *   is a turnaround and goes the ordinary way, noticed and then turned. There is nothing to
+ *   react to, so no reaction wait and no snap after it. Recorded people turn
+ *   their view 35°/s out of a fight while their movement weaves at 93°/s;
+ *   bots that jumped the goal to every new wanted view turned 110–145°/s
+ *   (docs/research/BOT_STRATEGY_LAYER.md, BS-1).
  *
  * All rates come from the difficulty's trackingSpeed, reactionTimeMs and
  * aimAccuracy, so the presets need no new fields:
@@ -57,6 +65,20 @@ const PURSUIT_BLEND = 0.5;
 const PURSUIT_MAX_STEP = 10 * DEG;
 /** Wanted angles unchanged this long mean the target has stopped. */
 const PURSUIT_STALE_SECONDS = 0.1;
+
+/** Calm: how quickly the goal eases toward the wanted view, seconds. */
+const CALM_EASE_SECONDS = 0.6;
+/** Calm: the goal moves at most this fast, rad/s. */
+const CALM_MAX_GOAL_SPEED = 120 * DEG;
+/**
+ * Calm: a turn bigger than this is a turnaround, which people make at once
+ * (a flick) rather than easing round while they run the other way.
+ */
+const CALM_MAX_EASED_TURN = 90 * DEG;
+/** Calm: yaw changes under this many deadzones are ignored. Pitch keeps one deadzone. */
+const CALM_DEADZONES = 5;
+/** Calm: once moving, the goal glides on to within this many deadzones of the wanted view. */
+const CALM_FINISH = 0.25;
 
 /** Deadzone by trackingSpeed, between the presets' points. */
 const DEADZONE_POINTS: readonly (readonly [number, number])[] = [
@@ -128,6 +150,8 @@ interface Axis {
   wanted: number;
   heldFor: number;
   pursuit: number;
+  /** Calm: the goal is gliding toward the wanted view. */
+  easing: boolean;
 }
 
 const axis = (value: number): Axis => ({
@@ -140,6 +164,7 @@ const axis = (value: number): Axis => ({
   wanted: value,
   heldFor: 0,
   pursuit: 0,
+  easing: false,
 });
 
 export class BotAimController {
@@ -190,8 +215,16 @@ export class BotAimController {
   /**
    * Advance by `dt` seconds toward the wanted angles and return the view to
    * send. `firing` turns off the deadzone, so a bot shooting keeps tracking.
+   * `calm` eases the goal instead of jumping it (see the header); firing
+   * overrides it.
    */
-  step(dt: number, wantedYaw: number, wantedPitch: number, firing: boolean): { yaw: number; pitch: number } {
+  step(
+    dt: number,
+    wantedYaw: number,
+    wantedPitch: number,
+    firing: boolean,
+    calm = false,
+  ): { yaw: number; pitch: number } {
     if (!this._yaw) this.reset(wantedYaw, wantedPitch);
     const yaw = this._yaw as Axis;
     const pitch = this._pitch;
@@ -199,7 +232,9 @@ export class BotAimController {
 
     track(yaw, wantedYaw, dt);
     track(pitch, wantedPitch, dt);
-    this._chooseGoal(dt, wantedYaw, wantedPitch, firing);
+    const eased = calm && !firing && Math.abs(wrapAngle(wantedYaw - yaw.goal)) <= CALM_MAX_EASED_TURN;
+    if (eased) this._easeGoal(dt, wantedYaw, wantedPitch);
+    else this._chooseGoal(dt, wantedYaw, wantedPitch, firing);
     this._drift(yaw, dt);
     this._drift(pitch, dt);
 
@@ -212,6 +247,28 @@ export class BotAimController {
     const pitchTarget = clampPitch(pitch.goal + pitch.offset + pitchSpeed * pitch.heldFor);
     pitch.value = clampPitch(follow(pitch, pitchTarget, pitchSpeed, t.maxPitchSpeed, t, dt));
     return { yaw: yaw.value, pitch: pitch.value };
+  }
+
+  /** Calm: glide the goal toward the wanted view, eased and speed-capped. */
+  private _easeGoal(dt: number, wantedYaw: number, wantedPitch: number): void {
+    const yaw = this._yaw as Axis;
+    const pitch = this._pitch;
+    this._pending = null;
+    const ignore = this._tuning.deadzone * CALM_DEADZONES;
+    const ease = 1 - Math.exp(-dt / CALM_EASE_SECONDS);
+    const cap = CALM_MAX_GOAL_SPEED * dt;
+    const yawOff = wrapAngle(wantedYaw - yaw.goal);
+    if (Math.abs(yawOff) > ignore || yaw.easing) {
+      const step = Math.max(-cap, Math.min(cap, yawOff * ease));
+      yaw.goal = wrapAngle(yaw.goal + step);
+      // Once moving, finish the turn rather than stopping a deadzone short.
+      yaw.easing = Math.abs(yawOff) > this._tuning.deadzone * CALM_FINISH;
+    }
+    const pitchOff = wantedPitch - pitch.goal;
+    if (Math.abs(pitchOff) > this._tuning.deadzone || pitch.easing) {
+      pitch.goal += Math.max(-cap, Math.min(cap, pitchOff * ease));
+      pitch.easing = Math.abs(pitchOff) > this._tuning.deadzone * CALM_FINISH;
+    }
   }
 
   private _chooseGoal(dt: number, wantedYaw: number, wantedPitch: number, firing: boolean): void {
