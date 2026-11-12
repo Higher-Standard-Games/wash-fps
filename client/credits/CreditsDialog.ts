@@ -5,6 +5,7 @@
  */
 
 import { InputSystem } from "../../../../engine/input/InputSystem";
+import { raiseKey } from "../../../../engine/ui/components/RaisedKey";
 import { UINavigation } from "../../../../engine/ui/navigation/UINavigation";
 import { UIStyles } from "../../../../engine/ui/UIStyles";
 import credits from "../../CREDITS.md?raw";
@@ -19,7 +20,11 @@ export class CreditsDialog {
   private offNavigation: (() => void) | null = null;
   readonly root = el("div", "lobby-guide lobby-credits");
   private readonly body = el("div", "lobby-guide__content lobby-credits__body");
-  private readonly close = button("lobby-guide__button lobby-credits__close", "Close");
+  // The welcome guide's footer key: inked and raised, as its Close is.
+  private readonly close = raiseKey(button("lobby-guide__button lobby-guide__next lobby-credits__close"), {
+    variants: ["ink", "inline"],
+    label: "Close",
+  });
   private readonly previousFocus = document.activeElement as HTMLElement | null;
   private readonly previousInert: boolean;
   private readonly previousBlur: boolean;
@@ -54,7 +59,6 @@ export class CreditsDialog {
     this.body.tabIndex = 0;
     this.body.setAttribute("aria-label", "Credits");
     const footer = el("footer", "lobby-guide__footer");
-    this.close.classList.add("lobby-guide__next");
     this.close.addEventListener("click", () => options.onClose());
     footer.append(this.close);
     card.append(header, this.body, footer);
