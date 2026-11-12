@@ -11,7 +11,11 @@
  *   second while still in line of sight. A newly seen enemy registers after
  *   half the reaction time; the view turn adds the rest.
  * - `heardEnemies` holds enemies only heard, where the sound came from: shots,
- *   explosions near them, footsteps, jumps and landings, pain, pickups.
+ *   explosions near them, footsteps, jumps, pain, pickups. Footsteps and jumps
+ *   are heard when a player's client would play them (on the ground faster
+ *   than 70 u/s and not sliding; leaving the ground faster than 60 u/s up)
+ *   and as far as they are loud enough. A landing makes no sound of its own;
+ *   one that hurts is heard as pain.
  * - Enemy memory (`lastKnownEnemyPositions`) is fed only from those.
  * - `pickupActiveMask` and `itemTakenTick` become what the bot believes: an
  *   item goes down when it saw or heard it taken or found the spot empty, and
@@ -33,12 +37,24 @@ import { isMajorItem } from "./goals/considerations/ItemFacts";
 const DEG = Math.PI / 180;
 
 /** How far each sound carries, in units. */
+/**
+ * Spatial sounds fall off as REFERENCE / distance beyond REFERENCE
+ * (`AudioV2Sfx`, normal attenuation). A bot notices a movement sound while it
+ * would play at NOTICED_GAIN of full volume or more, so each sound's range
+ * comes from the volume the client plays it at (`FPSMovementAudio`).
+ */
+const AUDIO_REFERENCE_DISTANCE = 125;
+const NOTICED_GAIN = 0.125;
+const FOOTSTEP_VOLUME = 0.5;
+const JUMP_VOLUME = 0.72;
+const audibleRange = (volume: number) => (AUDIO_REFERENCE_DISTANCE * volume) / NOTICED_GAIN;
+
 export const HEARING_RANGE = {
   fire: 1200,
   loudFire: 2000,
   explosion: 1500,
-  footsteps: 500,
-  movement: 800,
+  footsteps: audibleRange(FOOTSTEP_VOLUME),
+  jump: audibleRange(JUMP_VOLUME),
   pain: 800,
   pickup: 900,
   majorPickup: 2500,
@@ -52,12 +68,12 @@ const VIEW_HALF_ANGLE = 55 * DEG;
 const PERIPHERAL_HALF_ANGLE = 70 * DEG;
 /** Seen within this long, an enemy stays seen while in line of sight, wherever the view points. */
 const KEEP_SEEN_TICKS = TICK_RATE;
-/** Horizontal speed that makes footsteps and catches the eye at the edge of view. */
+/** Horizontal speed that catches the eye at the edge of view. */
 const RUNNING_SPEED = 250;
-/** Upward speed that marks a jump from the ground. */
-const JUMP_SPEED = 200;
-/** Downward speed at touchdown that makes a landing heard. */
-const LANDING_SPEED = 450;
+/** Horizontal speed on the ground that makes footsteps, as the client plays them. */
+const FOOTSTEP_SPEED = 70;
+/** Upward speed off the ground that plays a jump sound, as the client plays it. */
+const JUMP_SPEED = 60;
 /** Line-of-sight checks per snapshot, nearest enemies first. */
 const MAX_LOS_CHECKS = 8;
 /** Item spots checked per snapshot for whether they are there or gone. */
@@ -82,7 +98,6 @@ interface Sighting {
 
 interface Mover {
   grounded: boolean;
-  velocityY: number;
 }
 
 interface ItemBelief {
@@ -299,18 +314,15 @@ export class BotPerception {
       const grounded = groundedOf(entity) ?? before?.grounded ?? true;
       const d = player.distance;
       const speed = Math.hypot(player.velocity.x, player.velocity.z);
-      if (grounded && speed > RUNNING_SPEED && d <= HEARING_RANGE.footsteps)
+      if (grounded && !slidingOf(entity) && speed > FOOTSTEP_SPEED && d <= HEARING_RANGE.footsteps)
         heard.set(player.playerId, player.position);
-      if (before?.grounded && !grounded && player.velocity.y > JUMP_SPEED && d <= HEARING_RANGE.movement) {
-        heard.set(player.playerId, player.position);
-      }
-      if (before && !before.grounded && grounded && -before.velocityY > LANDING_SPEED && d <= HEARING_RANGE.movement) {
+      if (before?.grounded && !grounded && player.velocity.y > JUMP_SPEED && d <= HEARING_RANGE.jump) {
         heard.set(player.playerId, player.position);
       }
       if (explosions.some((at) => vec3Distance(at, player.position) <= EXPLOSION_REVEAL_RADIUS)) {
         heard.set(player.playerId, player.position);
       }
-      this._movers.set(player.entityId, { grounded, velocityY: player.velocity.y });
+      this._movers.set(player.entityId, { grounded });
     }
     for (const id of this._movers.keys()) if (!alive.has(id)) this._movers.delete(id);
     return heard;
@@ -409,6 +421,11 @@ type EntityLike = { getComponent(name: string): unknown };
 function entityPosition(entity: EntityLike): Vec3 | null {
   const transform = entity.getComponent("transform") as { position?: Vec3 } | undefined;
   return transform?.position ? { x: transform.position.x, y: transform.position.y, z: transform.position.z } : null;
+}
+
+function slidingOf(entity: EntityLike | undefined): boolean {
+  const movement = entity?.getComponent("movementState") as { isSliding?: boolean } | undefined;
+  return movement?.isSliding === true;
 }
 
 function groundedOf(entity: EntityLike | undefined): boolean | undefined {

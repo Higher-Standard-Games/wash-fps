@@ -136,9 +136,12 @@ weaves under it (`bot:demo-motion`, [Bot training](./bot-training.md)).
 A bot knows what it sees and what it hears, not everything the server sends
 (`BotPerception.ts`). It sees enemies in line of sight within 55° of its view
 (70° for fast movers). It hears shots (1200 units; rockets, grenades, the
-electrobolt 2000), explosions (1500), running footsteps (500),
-jumps and landings (800), pain (800) and pickups (900; armour, mega and powerups
-2500). A heard enemy is known where the sound came from. A heard major pickup is
+electrobolt 2000), explosions (1500), footsteps (500), jumps (720), pain (800)
+and pickups (900; armour, mega and powerups 2500). Footsteps and jumps are heard
+when a player's client would play them (on the ground faster than 70 u/s and not
+sliding; leaving the ground faster than 60 u/s up), as far as they still play at
+an eighth of full volume under the game's sound falloff. A landing makes no sound
+of its own; one that hurts is heard as pain. A heard enemy is known where the sound came from. A heard major pickup is
 timed, with an error that shrinks with item-timing skill, and the bot is back at
 the spot when it should return, watching the ways in. An item taken out of sight
 and earshot is still believed there until the bot looks at its spot.

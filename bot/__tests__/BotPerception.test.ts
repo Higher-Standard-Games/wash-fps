@@ -40,6 +40,7 @@ interface Scene {
   enemyVelocity?: Vec3;
   events?: Record<string, unknown>[];
   mask?: boolean[];
+  enemySliding?: boolean;
   tick?: number;
 }
 
@@ -54,7 +55,9 @@ function setup(skill = 1) {
     snapshot.players.set("bot", player("self"));
     snapshot.players.set("foe", player("enemy"));
     snapshot.entities.set("self", entity("self", { x: 0, y: 0, z: 0 }));
-    snapshot.entities.set("enemy", entity("enemy", scene.enemyAt, scene.enemyVelocity));
+    const enemy = entity("enemy", scene.enemyAt, scene.enemyVelocity);
+    if (scene.enemySliding) enemy.addComponent("movementState", { isSliding: true } as unknown as IComponent);
+    snapshot.entities.set("enemy", enemy);
     snapshot.events = (scene.events ?? []) as typeof snapshot.events;
     snapshot.pickupActiveMask = scene.mask ?? [true];
     state.update(snapshot as never);
@@ -66,6 +69,23 @@ function setup(skill = 1) {
 
 const clear = () => true;
 const walled = () => false;
+
+describe("hearing movement as a player hears it", () => {
+  it("hears footsteps from a walk, as a player's client plays them", () => {
+    const state = setup().step({ enemyAt: { x: 0, y: 0, z: 400 }, enemyVelocity: { x: 0, y: 0, z: 100 } }, walled);
+    expect(state.heardEnemies).toHaveLength(1);
+  });
+
+  it("hears no footsteps from a slide or from beyond the footstep range", () => {
+    const sliding = setup().step(
+      { enemyAt: { x: 0, y: 0, z: 400 }, enemyVelocity: { x: 0, y: 0, z: 400 }, enemySliding: true },
+      walled,
+    );
+    expect(sliding.heardEnemies).toHaveLength(0);
+    const far = setup().step({ enemyAt: { x: 0, y: 0, z: 520 }, enemyVelocity: { x: 0, y: 0, z: 400 } }, walled);
+    expect(far.heardEnemies).toHaveLength(0);
+  });
+});
 
 describe("seeing", () => {
   it("does not know about a silent enemy behind a wall", () => {
