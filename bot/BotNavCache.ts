@@ -155,6 +155,7 @@ function isStaticData(value: unknown): value is NavGraphStaticData {
       isOptionalFinite(edge.expectedTicks) &&
       isOptionalFinite(edge.successMargin) &&
       (edge.validated === undefined || typeof edge.validated === "boolean") &&
+      (edge.via === undefined || (Array.isArray(edge.via) && edge.via.every(isFiniteVec3))) &&
       (isTriggerEdge ? isTriggerMetadata(edge.trigger) : edge.trigger === undefined)
     );
   });

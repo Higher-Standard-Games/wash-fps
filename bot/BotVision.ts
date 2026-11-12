@@ -15,7 +15,10 @@
 
 import { type AABB, type CollisionWorld, MASK_SOLID } from "../../../engine/network/systems/collision/CollisionWorld";
 import { extractTriggerVolumes, type TriggerVolume } from "../../../shared/bsp/TriggerTable";
-import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "../../../shared/server/simulation/physics/constants";
+import {
+  STEP_HEIGHT,
+  DEFAULT_PHYSICS_TICK_RATE as TICK_RATE,
+} from "../../../shared/server/simulation/physics/constants";
 import type { Vec3 } from "../shared/bsp/BspDataLoader";
 import type { PickupEntry } from "../shared/bsp/PickupTable";
 import type { BotGameState, VisiblePickup, VisiblePlayer } from "./BotGameState";
@@ -127,6 +130,10 @@ const COVER_OFFSET = 50;
 /** Walk-edge floor check: sample spacing, and how far below the sweep the floor may be. */
 const FLOOR_SAMPLE_STEP = 64;
 const FLOOR_SAMPLE_DEPTH = 64;
+/** The most the floor may rise at once on a walk: a player steps up this, and jumps anything higher. */
+const WALK_STEP_UP = STEP_HEIGHT;
+/** Where the floor rises more than a step between samples, it is checked again this often: a stair riser at a time. */
+const WALK_RISE_STEP = 8;
 
 /**
  * The standing hull around an origin 24 units above the feet, as walk sweeps
@@ -449,14 +456,47 @@ export class BotVision {
   isWalkable(from: Vec3, to: Vec3): boolean {
     if (this._collisionWorld.trace(from, to, WALK_SWEEP_BOUNDS).fraction < 1) return false;
     const length = Math.hypot(to.x - from.x, to.z - from.z);
-    const samples = Math.floor(length / FLOOR_SAMPLE_STEP);
-    for (let i = 1; i < samples; i++) {
+    const samples = Math.max(1, Math.floor(length / FLOOR_SAMPLE_STEP));
+    // The sweep runs on the straight line between the two origins, so it
+    // passes over a ledge too high to step onto; the floor beneath says
+    // whether the climb comes a step at a time.
+    // Floor is needed under every point between the ends; at the ends it is
+    // only compared with, as a start in the air (a hop) or an end over a drop
+    // the sweep allows.
+    let previous = this._floorUnder(from, to, 0);
+    for (let i = 1; i <= samples; i++) {
       const t = i / samples;
-      const x = from.x + (to.x - from.x) * t;
-      const y = from.y + (to.y - from.y) * t;
-      const z = from.z + (to.z - from.z) * t;
-      const floor = this._collisionWorld.trace({ x, y, z }, { x, y: y - FLOOR_SAMPLE_DEPTH, z });
-      if (!floor.hit || floor.fraction >= 1) return false;
+      const floor = this._floorUnder(from, to, t);
+      if (floor === null) {
+        if (i < samples) return false;
+        break;
+      }
+      if (previous !== null && floor - previous > WALK_STEP_UP && !this._climbsInSteps(from, to, (i - 1) / samples, t))
+        return false;
+      previous = floor;
+    }
+    return true;
+  }
+
+  /** Height of the floor under the point `t` of the way from `from` to `to`, or null with none in reach. */
+  private _floorUnder(from: Vec3, to: Vec3, t: number): number | null {
+    const x = from.x + (to.x - from.x) * t;
+    const y = from.y + (to.y - from.y) * t;
+    const z = from.z + (to.z - from.z) * t;
+    const floor = this._collisionWorld.trace({ x, y, z }, { x, y: y - FLOOR_SAMPLE_DEPTH, z });
+    return floor.hit && floor.fraction < 1 && floor.hitPoint ? floor.hitPoint.y : null;
+  }
+
+  /** Whether the floor between `t0` and `t1` of the way rises no more than a step at a time. */
+  private _climbsInSteps(from: Vec3, to: Vec3, t0: number, t1: number): boolean {
+    const length = Math.hypot(to.x - from.x, to.z - from.z) * (t1 - t0);
+    const steps = Math.max(1, Math.ceil(length / WALK_RISE_STEP));
+    let previous = this._floorUnder(from, to, t0);
+    if (previous === null) return false;
+    for (let i = 1; i <= steps; i++) {
+      const floor = this._floorUnder(from, to, t0 + ((t1 - t0) * i) / steps);
+      if (floor === null || floor - previous > WALK_STEP_UP) return false;
+      previous = floor;
     }
     return true;
   }

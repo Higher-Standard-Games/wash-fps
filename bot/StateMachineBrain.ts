@@ -24,7 +24,14 @@ import type { BotGameState, Vec3, VisiblePlayer } from "./BotGameState";
 import { vec3Length, vec3Normalize, vec3Subtract } from "./BotGameState";
 import { BotMood, type Mood, type MoodEvent } from "./BotMood";
 import { canInitiateSlide, PHYSICS } from "./BotMovementProfile";
-import { type BotNavGraph, type NavPath, type NavPathOptions, type NavStep, navEdgeKey } from "./BotNavGraph";
+import {
+  type BotNavGraph,
+  type NavPath,
+  type NavPathOptions,
+  type NavStep,
+  navEdgeKey,
+  wallClearance,
+} from "./BotNavGraph";
 import { duelLeadReactionDelay } from "./BotReactionTuning";
 import { BotSequenceRegistry, BotSequenceRuntime, type BotSequenceRuntimeTick } from "./BotSequence";
 import { BotTerritory } from "./BotTerritory";
@@ -35,6 +42,7 @@ import type { BotGoal } from "./goals/BotGoal";
 import { collectDirectiveGoals } from "./goals/DirectiveGoalSource";
 import { ItemGoalPlanner } from "./goals/ItemGoalPlanner";
 import { planLedgeSlideJump } from "./LedgeSlideJump";
+import { buildRouteLine, lineEndStep, pointAlong, type RouteLine, type RouteWorld } from "./RouteLine";
 import { ItemSlideApproachSequence } from "./sequences/ItemSlideApproachSequence";
 import { LearnedRouteSequence } from "./sequences/LearnedRouteSequence";
 import { LedgeSlideJumpSequence } from "./sequences/LedgeSlideJumpSequence";
@@ -126,6 +134,12 @@ const LOOK_TURN_COST = 0.3;
 const PATH_ARRIVED_THRESHOLD = 100; // Distance to consider "arrived" at a waypoint
 /** How far along its route a walking bot looks. */
 const ROUTE_LOOK_AHEAD = 250;
+/** Running a route line, the bot heads for the point this far along it. */
+const ROUTE_LINE_AHEAD = 64;
+/** At the line's end within this, the steps it covered are done. */
+const ROUTE_LINE_ARRIVED = 48;
+/** Further than this from its line, a bot was knocked off it and plans the line again. */
+const ROUTE_LINE_OFF = 128;
 /** Closer than this the look point says nothing about where the route goes. */
 const ROUTE_LOOK_MIN_DISTANCE = 32;
 type PathFollowResult =
@@ -219,6 +233,14 @@ export class StateMachineBrain extends BotBrain {
   private _feelerSide: { sign: number; untilTick: number } | null = null;
   /** Whether the feelers turned this decision's heading. */
   private _feelerSteered = false;
+  /**
+   * The line through the walking stretch of the current route (RouteLine),
+   * for the path it was built on from step `fromStep`, and the stretch of it
+   * the bot is on.
+   */
+  private _routeLine: { path: NavPath; fromStep: number; line: RouteLine; stretch: number } | null = null;
+  /** This decision ran along a route line; the feelers stand aside. */
+  private _onRouteLine = false;
   /** Where the view looks while running, relative to the way the bot runs, and until when. */
   private _look: { off: number; untilTick: number } | null = null;
 
@@ -365,6 +387,7 @@ export class StateMachineBrain extends BotBrain {
   ): BotInput {
     this._pathRecalcTimer++;
     this._feelerSteered = false;
+    this._onRouteLine = false;
     this._lastVision = visionResult ?? null;
     this._lastDecisionTick = state.tick;
     this._lastBotVision = vision ?? null;
@@ -386,6 +409,7 @@ export class StateMachineBrain extends BotBrain {
       this._itemCircle = null;
       this._feelerSide = null;
       this._look = null;
+      this._routeLine = null;
       this._combatMovement.reset();
       this._weaponCombos.reset();
       this._mood.endFight();
@@ -476,10 +500,13 @@ export class StateMachineBrain extends BotBrain {
 
     input = this._recoverStalledNavigation(state, input);
 
-    // Apply feeler raycasts for wall avoidance (navigation states only)
+    // Apply feeler raycasts for wall avoidance (navigation states only). Not
+    // on a route line: it was built clear of the walls, and the feelers,
+    // seeing a wall beyond a corner, turned the bot off it.
     if (
       vision &&
       !this._suppressTraversalAutomation &&
+      !this._onRouteLine &&
       this.currentState !== BotState.FIGHT &&
       this.currentState !== BotState.DODGE
     ) {
@@ -1765,7 +1792,7 @@ export class StateMachineBrain extends BotBrain {
    * from the item beyond.
    */
   private _cooldownNavStep(step: NavStep, tick: number): void {
-    const key = navEdgeKey(step.from.id, step.to.id, step.type);
+    const key = navEdgeKey(step.edge?.from ?? step.from.id, step.edge?.to ?? step.to.id, step.type);
     const failures = (this._navEdgeFailures.get(key) ?? 0) + 1;
     this._navEdgeFailures.set(key, failures);
     const scale = Math.min(NAV_EDGE_FAILURE_MAX_SCALE, 2 ** (failures - 1));
@@ -1860,6 +1887,9 @@ export class StateMachineBrain extends BotBrain {
   private _followCurrentPath(state: BotGameState, urgent: boolean): PathFollowResult {
     if (!this._navGraph || !this._currentPath) return { status: "complete" };
 
+    const lined = this._followRouteLine(state, urgent);
+    if (lined) return { status: "moving", input: lined };
+
     const step = this._navGraph.getNextStep(state.self.position, this._currentPath, PATH_ARRIVED_THRESHOLD);
     if (!step) {
       this._activeNavStep = null;
@@ -1946,6 +1976,69 @@ export class StateMachineBrain extends BotBrain {
 
     this._lookAlongRoute(input, state, this._currentPath);
     return { status: "moving", input };
+  }
+
+  /**
+   * Run the walking stretch of the route along its line (RouteLine), built
+   * once for the stretch: down the middle of rooms and round corners on the
+   * outside, through the corners of walks that bend, instead of node to node.
+   * Null where the route goes on with a jump, pad, drop or exact approach,
+   * which the step executor handles, or without map knowledge.
+   */
+  private _followRouteLine(state: BotGameState, urgent: boolean): BotInput | null {
+    const path = this._currentPath;
+    const vision = this._lastBotVision;
+    if (!path || !vision) {
+      this._routeLine = null;
+      return null;
+    }
+    const self = state.self.position;
+    let held = this._routeLine;
+    if (held && (held.path !== path || path.cursor < held.fromStep || path.cursor >= held.line.endStep)) held = null;
+    if (held) {
+      const nearest = pointAlong(held.line.points, self, 0, held.stretch).point;
+      if (Math.hypot(nearest.x - self.x, nearest.z - self.z) > ROUTE_LINE_OFF) held = null;
+    }
+    if (!held) {
+      if (lineEndStep(path, path.cursor) === path.cursor) {
+        this._routeLine = null;
+        return null;
+      }
+      const world: RouteWorld = {
+        walkable: (from, to) => vision.isWalkable(from, to),
+        clearance: (at, want) => wallClearance(vision.collisionWorld, at, want, 16),
+      };
+      held = { path, fromStep: path.cursor, line: buildRouteLine(self, path, path.cursor, world), stretch: 0 };
+    }
+    this._routeLine = held;
+    const points = held.line.points;
+    const end = points[points.length - 1];
+    // Arrived on the same floor: standing over the end, a storey up, is not there yet.
+    if (
+      Math.hypot(end.x - self.x, end.z - self.z) < ROUTE_LINE_ARRIVED &&
+      Math.abs(end.y - self.y) < ROUTE_LINE_ARRIVED
+    ) {
+      // The stretch is run: on to the step after it.
+      path.cursor = held.line.endStep;
+      this._routeLine = null;
+      return null;
+    }
+    const along = pointAlong(points, self, ROUTE_LINE_AHEAD, held.stretch);
+    held.stretch = along.stretch;
+    const input = this._moveToward(state, along.point, urgent);
+    // Look further along the same line, as a player looks round the corner.
+    const look = pointAlong(points, self, ROUTE_LOOK_AHEAD, held.stretch).point;
+    if (Math.hypot(look.x - self.x, look.z - self.z) >= ROUTE_LOOK_MIN_DISTANCE) {
+      const lookYaw = Math.atan2(look.x - self.x, look.z - self.z);
+      if (Math.abs(wrapAngle(lookYaw - input.yaw)) <= Math.PI / 2) {
+        input.moveYaw = input.yaw;
+        input.yaw = lookYaw;
+      }
+    }
+    this._activeNavStep = "walk";
+    this._pathBlockedReason = null;
+    this._onRouteLine = true;
+    return input;
   }
 
   /**

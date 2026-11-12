@@ -78,6 +78,12 @@ export interface NavEdge {
   successMargin?: number;
   validated?: boolean;
   trigger?: NavTriggerMetadata;
+  /**
+   * A walk edge the straight line cannot take (round a doorway, down a
+   * ledge): the corners of the way the walk flood found, as node positions
+   * (1 above the floor). Routes run through them.
+   */
+  via?: Vec3[];
 }
 
 export interface NavStep {
@@ -95,6 +101,11 @@ export interface NavStep {
   successMargin?: number;
   validated?: boolean;
   trigger?: NavTriggerMetadata;
+  /**
+   * The graph edge this step is part of, when an edge's `via` corners split
+   * it into several steps: a failure on any of them is the edge's.
+   */
+  edge?: { from: number; to: number };
 }
 
 // ── Path Result ─────────────────────────────────────────────────────
@@ -253,7 +264,7 @@ const CLEARANCE_LIFT = 16;
  * Gap from the player hull to the nearest wall around `origin`, and the
  * direction away from the walls closer than `want`, out to `want` + the hull.
  */
-function wallClearance(
+export function wallClearance(
   world: CollisionWorld,
   origin: Vec3,
   want: number,
@@ -280,6 +291,9 @@ function wallClearance(
   };
 }
 
+/** Id of a corner waypoint a walk edge's `via` adds to a path; not a graph node. */
+export const VIA_NODE_ID = -1;
+
 /** Teleporters are effectively instant, but keep a small cost so A* stays stable. */
 const TELEPORT_COST = 32;
 
@@ -303,8 +317,11 @@ export const BOT_NAV_MOVEMENT_FINGERPRINT = [
   // Caches built before walk tests swept from standing height have almost no walk edges.
   `walk-origin:${WALK_TEST_LIFT}`,
   `walk-flood:${WALK_FLOOD_RADIUS}:${WALK_FLOOD_RISE_SLACK}:${WALK_FLOOD_STEP}:${WALK_FLOOD_MAX_DROP}:${WALK_FLOOD_MAX_STATES}:${WALK_FLOOD_ARRIVAL}:${WALK_FLOOD_ARRIVAL_HEIGHT}`,
-  // Walk sweeps must be wholly clear with floor beneath; caches with lenient sweeps hold edges into walls.
-  "walk-strict:2",
+  // Walk sweeps must be wholly clear with floor beneath that rises a step at a
+  // time; caches with lenient sweeps hold edges into walls and up ledges.
+  "walk-strict:3",
+  // Flood walks keep the corners of the way they found.
+  "walk-via:1",
   // Jump pad destination nodes moved from the aim point to the simulated landing.
   "jumppad-landing:2",
   "teleport-carry:1",
@@ -335,22 +352,30 @@ class WalkReach {
   constructor(private readonly world: FloodWorld) {}
 
   distance(from: NavNode, to: NavNode): number | null {
+    return this.reach(from, to)?.distance ?? null;
+  }
+
+  /** The shortest walk the flood found from `from` to `to`: its length and the standing origins along it, start first. */
+  reach(from: NavNode, to: NavNode): { distance: number; way: FloodVec3[] } | null {
     const goal = this.origin(to);
     if (!goal || !this.origin(from)) return null;
     const cells = this.flood(from);
     const cx = Math.round(goal.x / WALK_FLOOD_STEP);
     const cz = Math.round(goal.z / WALK_FLOOD_STEP);
-    let best: number | null = null;
+    let best: FloodPosition | null = null;
     for (let dx = -1; dx <= 1; dx++) {
       for (let dz = -1; dz <= 1; dz++) {
         for (const p of cells.get(`${cx + dx},${cz + dz}`) ?? []) {
           if (Math.hypot(p.x - goal.x, p.z - goal.z) > WALK_FLOOD_ARRIVAL) continue;
           if (Math.abs(p.y - goal.y) > WALK_FLOOD_ARRIVAL_HEIGHT) continue;
-          if (best === null || p.distance < best) best = p.distance;
+          if (best === null || p.distance < best.distance) best = p;
         }
       }
     }
-    return best;
+    if (!best) return null;
+    const way: FloodVec3[] = [];
+    for (let p: FloodPosition | undefined = best; p; p = p.previous) way.unshift({ x: p.x, y: p.y, z: p.z });
+    return { distance: best.distance, way };
   }
 
   /** Standing origin of a node: its position lowered onto the floor beneath. */
@@ -995,9 +1020,16 @@ export class BotNavGraph {
             [a, b],
             [b, a],
           ] as const) {
-            const cost = walks.distance(from, to);
-            if (cost === null) continue;
-            this._edges.push({ from: from.id, to: to.id, type: "walk", cost });
+            const reach = walks.reach(from, to);
+            if (!reach) continue;
+            const via = this._corners(vision, reach.way);
+            this._edges.push({
+              from: from.id,
+              to: to.id,
+              type: "walk",
+              cost: reach.distance,
+              ...(via.length > 0 ? { via } : {}),
+            });
             walked.add(from);
           }
         }
@@ -1259,11 +1291,28 @@ export class BotNavGraph {
     for (let index = 1; index < nodeIds.length; index++) {
       const edge = cameByEdge.get(nodeIds[index]);
       if (!edge) throw new Error("A* path reconstruction lost edge metadata");
-      const from = nodes[index - 1];
+      let from = nodes[index - 1];
       const to = nodes[index];
+      // A walk round corners: a plain walk step to each corner first, all
+      // belonging to the edge, the last one carrying the edge's cost.
+      for (const corner of edge.via ?? []) {
+        const waypoint: NavNode = { id: VIA_NODE_ID, position: { ...corner }, type: "floor" };
+        steps.push({
+          from,
+          to: waypoint,
+          type: "walk",
+          cost: 0,
+          horizontalDistance: Math.hypot(corner.x - from.position.x, corner.z - from.position.z),
+          heightDelta: corner.y - from.position.y,
+          requiresPreciseApproach: false,
+          edge: { from: edge.from, to: edge.to },
+        });
+        from = waypoint;
+      }
       const dx = to.position.x - from.position.x;
       const dz = to.position.z - from.position.z;
       steps.push({
+        ...(edge.via ? { edge: { from: edge.from, to: edge.to } } : {}),
         from,
         to,
         type: edge.type,
@@ -1284,6 +1333,33 @@ export class BotNavGraph {
   }
 
   // ── Private: Utilities ──────────────────────────────────────────
+
+  /**
+   * The corners of a walk the flood found, as node positions: the string
+   * pulled through its standing origins with the walk test, so each stretch
+   * between corners is one a bot can run straight. Empty when the walk is
+   * straight already.
+   */
+  private _corners(vision: BotVision, way: readonly FloodVec3[]): Vec3[] {
+    if (way.length < 3) return [];
+    const corners: Vec3[] = [];
+    let from = 0;
+    while (from < way.length - 1) {
+      let next = from + 1;
+      for (let far = way.length - 1; far > from + 1; far--) {
+        if (vision.isWalkable(way[from], way[far])) {
+          next = far;
+          break;
+        }
+      }
+      if (next < way.length - 1) {
+        const p = way[next];
+        corners.push({ x: p.x, y: p.y - WALK_TEST_LIFT + 1, z: p.z });
+      }
+      from = next;
+    }
+    return corners;
+  }
 
   /**
    * A floor sample moved off the walls near it, as far as NODE_PUSH_MAX, so a

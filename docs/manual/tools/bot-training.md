@@ -327,6 +327,37 @@ before it on the same map, with the same `--seconds` and run the same way: two
 runs side by side load the machine and move the numbers. The match demo goes to
 a temporary folder that is deleted when the run ends.
 
+### Route lines, checked offline
+
+Out of a fight a bot runs each plain walking stretch of its route along one
+line, built when the route is planned (`bot/RouteLine.ts`): the route's
+nodes are skipped where the hull can run straight past them, corners are
+moved up to 48 units off the walls, and an added point takes a stretch off
+any wall it passes within 24 units of. A walk the graph's flood found round a
+doorway or down a ledge keeps the corners of that walk (`via` on the edge),
+so the line follows it instead of cutting into the wall. Jumps, pads, drops
+and exact approaches to items and trick starts are left to the step
+executor, as before.
+
+`npm --prefix src/games/fps run bot:routes` checks those lines without a
+match. For every route from a spawn point to an item it builds the lines and
+runs a simple runner along them, and along the bare route node to node, with
+the game's own step-and-slide movement at 400 u/s:
+
+| Line | Meaning |
+| --- | --- |
+| node to node, smoothed line | Share of each line, sampled every 16 units, within 8 and 24 units of a wall, and how many points the lines have. |
+| run, nodes / run, smoothed | Share of the runner's ticks within 8 and 24 units of a wall, the share spent against a wall, and how the runs ended: arrived, stuck, off the line, out of time. |
+
+| Flag | Default |
+| --- | --- |
+| `--map` | `washoi_dm2` |
+| `--turn` | `300`: the runner's top turn rate, degrees a second |
+| `--ahead` | `128`: how far along the line the runner steers for, units; bots use 64 |
+
+It takes seconds, so run it after any change to the nav graph or the line
+builder, then `bot:motion` to see the bots run it.
+
 ## Not yet
 
 - Whether aim can be learned at all is unknown. Bot recordings cannot answer it —
