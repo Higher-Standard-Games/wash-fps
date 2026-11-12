@@ -112,7 +112,10 @@ from the preset's tracking, reaction and aim values:
 
 Pitch turns at 60% of these speeds. A bot that is firing tracks every change and
 follows its target's motion. A turn over 45° waits for the preset's reaction
-time (±20%) first. The aim error wanders slowly, about once a second, with the
+time first, drawn log-normal round it as people's are (one wait in ten is a third
+longer, one in a hundred nearly twice as long), and some of those turns overshoot
+by 4–12% and come back: about one in six at full aim accuracy, two in five on
+Easy. The aim error wanders slowly, about once a second, with the
 spread the old per-decision noise had. Movement follows the wanted heading at
 once, so a bot never runs where its view happens to point mid-turn. While
 walking a route the bot looks about 250 units ahead along it; in a jump pad's

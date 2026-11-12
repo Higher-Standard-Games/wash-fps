@@ -208,3 +208,33 @@ describe("BotAimController calm", () => {
     expect(fastest / DEG).toBeGreaterThan(300);
   });
 });
+
+describe("BotAimController reactions and flicks", () => {
+  /** Steps until the view first moves; seconds. */
+  function reactionWith(random: () => number): number {
+    const aim = new BotAimController(exact("medium"), random);
+    aim.reset(0, 0);
+    for (let t = 0; t < 2; t += DT) if (Math.abs(aim.step(DT, 120 * DEG, 0, true).yaw) > 0.5 * DEG) return t;
+    return 2;
+  }
+
+  it("waits the preset's reaction time at the median draw, and longer in the tail", () => {
+    const median = reactionWith(() => 0.5);
+    const slow = reactionWith(() => 0.99);
+    const reaction = DIFFICULTY_PRESETS.medium.reactionTimeMs / 1000;
+    expect(median).toBeGreaterThan(reaction * 0.9);
+    expect(median).toBeLessThan(reaction * 1.25);
+    expect(slow).toBeGreaterThan(median * 1.6);
+  });
+
+  it("sometimes flicks past a big turn and comes back", () => {
+    // Draws below the overshoot chance: the turn goes past, then settles on the goal.
+    const aim = new BotAimController({ ...exact("easy"), aimAccuracy: 0.25 }, () => 0.1);
+    aim.reset(0, 0);
+    const yaws: number[] = [];
+    for (let t = 0; t < 2.5; t += DT) yaws.push(aim.step(DT, 90 * DEG, 0, true).yaw);
+    // Low accuracy also leaves a steady aim offset; the flick goes past where the view settles.
+    const settled = yaws[yaws.length - 1];
+    expect((Math.max(...yaws) - settled) / DEG).toBeGreaterThan(2);
+  });
+});
