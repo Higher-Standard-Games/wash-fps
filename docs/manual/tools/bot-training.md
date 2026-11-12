@@ -316,6 +316,7 @@ a spectator:
 | `--gametype` | `ffa`; `duel` for Duel |
 | `--difficulty` | `medium` |
 | `--port` | `7795`; the bot control socket uses this plus 100 |
+| `--keep-demo` | none; a folder to keep the match demo in, for `bot:demo-motion` |
 
 ```bash
 npm --prefix src/games/fps run bot:motion -- --map washoi_dm1 --bots 4 --seconds 120
@@ -325,7 +326,44 @@ Matches are random, so two runs of the same code differ by a few flip-backs per
 minute and a few points of still time. Compare a change against runs of the code
 before it on the same map, with the same `--seconds` and run the same way: two
 runs side by side load the machine and move the numbers. The match demo goes to
-a temporary folder that is deleted when the run ends.
+a temporary folder that is deleted when the run ends, unless `--keep-demo` names
+a folder to keep it in.
+
+### People against bots
+
+`npm --prefix src/games/fps run bot:demo-motion -- <demo or folder>...` reads
+recorded matches and measures every player in them with the same code
+(`bot/MotionStats.ts`), one sample per demo frame. Players are grouped as
+people or bots by name, so a recorded match of a person against a bot gives
+both sides on the same map and at the same rate, and a demo kept by `bot:motion
+--keep-demo` measures today's bots the same way. "Out of a fight" here is "has
+not pressed fire for a second", which a demo can tell for anyone; players who
+ran for less than 20 s (idle, spectating) are left out.
+
+| Line | Meaning |
+| --- | --- |
+| still, sliding, airborne | Shares of time alive. For people this includes warmup and countdown. |
+| running speed, over 450 u/s, running airborne | Out of a fight and faster than 150 u/s. |
+| wall gap running, within 24 u, within 8 u | The gap from the hull to the nearest wall while running, from 16 level rays. |
+| pitch running | The median view pitch while running. |
+| turning, turn reversals | View turn rate out of a fight on windows of at least 45 ms, and how often it changes direction. |
+| flicks, flick size, ending in a correction | Turns faster than 300°/s; their median size; the share followed within 200 ms by a turn back (an overshoot corrected). |
+| take-offs, chained | Leaving the ground while running, per running minute; the share leaving again within 0.25 s of landing. |
+| health and armor, deaths | Per minute alive. |
+
+| Flag | Meaning |
+| --- | --- |
+| `--per-player` | One line per player and demo as well |
+| `--json <file>` | Write both columns as JSON |
+| `--no-walls` | Skip the wall gap (no map load) |
+
+Old recordings name maps as they were then: `wfdm5`, `wfdm11` and `wdm2` are
+measured on `washoi_dm5`, `washoi_dm11` and `washoi_dm2`.
+
+```bash
+npm --prefix src/games/fps run bot:motion -- --map washoi_dm5 --gametype duel --bots 2 --keep-demo .cache/bots-now
+npm --prefix src/games/fps run bot:demo-motion -- public/data/demos .cache/bots-now
+```
 
 ### Route lines, checked offline
 
