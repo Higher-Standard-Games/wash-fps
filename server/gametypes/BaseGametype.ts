@@ -45,6 +45,8 @@ export interface GameResult {
  * not have to know which mode wants what.
  */
 export interface GametypeMapContext {
+  /** The map's name, for data checked in per map (config/bot-lanes). */
+  mapName?: string;
   /** Raw BSP entity dictionaries, as parsed. */
   entities: readonly BspEntity[];
   /** BSP model records, for entities whose `model` is a `*N` brush reference. */

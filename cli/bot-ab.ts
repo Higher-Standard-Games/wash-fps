@@ -57,7 +57,11 @@ interface Args {
 }
 
 /** One match's result, as a worker prints it. */
-type ArmOptions = Partial<BotOptions> & { routesRoot?: string };
+type ArmOptions = Partial<BotOptions> & {
+  routesRoot?: string;
+  /** Search & Destroy: false plays this arm's team without the gametype's coach (lanes, staging, bomb cover). */
+  coach?: boolean;
+};
 
 export interface MatchResult {
   match: number;
@@ -151,6 +155,7 @@ function makeGametype(name: string): BaseGametype {
 async function playMatch(args: Args, port: number, aFirst: boolean, match: number): Promise<MatchResult> {
   const bsp = await loadBspCollision(args.map, "./game");
   if (!bsp) throw new Error(`Could not load map "${args.map}"`);
+  const gametype = makeGametype(args.gametype);
   const server = new GameServer(
     {
       port,
@@ -162,7 +167,7 @@ async function playMatch(args: Args, port: number, aFirst: boolean, match: numbe
       certPath: "",
       keyPath: "",
     },
-    makeGametype(args.gametype),
+    gametype,
   );
   server.setCollisionWorld(bsp.collision);
   server.setSpawnPoints(bsp.spawnPoints, bsp.teamSpawnPoints);
@@ -198,6 +203,9 @@ async function playMatch(args: Args, port: number, aFirst: boolean, match: numbe
   const rounds: NonNullable<MatchResult["rounds"]> = [];
   let planted = false;
   const controller = server.getGametypeController();
+  if (gametype instanceof SearchAndDestroy) {
+    for (const arm of ["a", "b"] as const) if (args[arm].coach === false) gametype.setTeamCoach(teamOf[arm], false);
+  }
   if (isTeamMode(args)) {
     const endRound = controller.endRound.bind(controller);
     controller.endRound = (winner, outcome) => {
@@ -218,7 +226,7 @@ async function playMatch(args: Args, port: number, aFirst: boolean, match: numbe
     const bots = [];
     for (const arm of order) {
       if (bots.length > 0) await wait(400);
-      const { routesRoot: _root, ...armOptions } = { chat: false, ...(arm === "a" ? args.a : args.b) };
+      const { routesRoot: _root, coach: _coach, ...armOptions } = { chat: false, ...(arm === "a" ? args.a : args.b) };
       const options = isTeamMode(args) ? { ...armOptions, team: teamOf[arm] } : armOptions;
       bots.push({ arm, bot: await servers[arm].addBot(`ws://localhost:${port}`, options) });
     }
@@ -325,7 +333,10 @@ bot:ab — ${args.map} Search & Destroy, ${n} matches of ${args.seconds} s, ${ar
 }
 
 function summarize(args: Args, results: MatchResult[]): void {
-  if (isTeamMode(args)) return summarizeRounds(args, results);
+  if (isTeamMode(args)) {
+    summarizeRounds(args, results);
+    return;
+  }
   const gaps = results.map((r) => r.frags.a - r.frags.b);
   const n = gaps.length;
   const mean = gaps.reduce((s, g) => s + g, 0) / Math.max(1, n);

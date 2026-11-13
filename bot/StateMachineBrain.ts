@@ -95,6 +95,10 @@ const ENTRANCE_WATCH_TICKS = 375;
 const CHARGE_RELEASE_CONE = (12 * Math.PI) / 180;
 /** …or this many ticks after its planned release, on the aim or not. */
 const CHARGE_AIM_GRACE_TICKS = Math.round(0.5 * TICK_RATE);
+/** An order's waypoint counts as passed within this, horizontally… */
+const VIA_RADIUS = 128;
+/** …and this, vertically. */
+const VIA_HEIGHT = 72;
 /** A blade charge is held out of a fight at most this long after it started. */
 const CHARGE_CARRY_TICKS = Math.round(2 * TICK_RATE);
 const DODGE_REACT_TICKS = 30; // React to damage within last 30 ticks
@@ -353,6 +357,8 @@ export class StateMachineBrain extends BotBrain {
   private _routeStrafeCooldownUntilTick: number = 0;
   private _routeStrafeSide: -1 | 1 = 1;
   // Charged weapon cadence (blade alt-fire: hold, then release to shoot)
+  /** Progress along the current order's `via` waypoints. */
+  private _via: { id: string; next: number } | null = null;
   /** BotOptions.weights: multipliers on the gametype's profile. */
   private _weightScale: Partial<BotWeightProfile> = {};
   /** BotOptions.trace: a DecisionTrace per decision. */
@@ -1846,6 +1852,8 @@ export class StateMachineBrain extends BotBrain {
   }
 
   private _navigateGoal(state: BotGameState, goal: BotGoal, urgent: boolean): BotInput {
+    const waypoint = this._nextWaypoint(state, goal);
+    if (waypoint) return this._navigateTo(state, waypoint, urgent);
     const radius = this._holdRadius(goal, state);
     // Planting and defusing use move_to: those orders must stay still on arrival.
     const patrol = goal.directive?.kind === "defend" || goal.directive?.kind === "hold_area";
@@ -1862,6 +1870,34 @@ export class StateMachineBrain extends BotBrain {
       return this._watchEntrances(state, goal.position);
     }
     return this._navigateTo(state, goal.position, urgent, radius);
+  }
+
+  /**
+   * The next of an order's `via` waypoints not yet passed, or null once all
+   * are (or it has none). Passed means within VIA_RADIUS on the same floor;
+   * progress is kept per order, so a new order starts its lane over.
+   */
+  private _nextWaypoint(state: BotGameState, goal: BotGoal): Vec3 | null {
+    const via = goal.directive?.via;
+    if (!via || via.length === 0) {
+      this._via = null;
+      return null;
+    }
+    const id = goal.directive?.id ?? "";
+    let progress = this._via;
+    if (!progress || progress.id !== id) {
+      progress = { id, next: 0 };
+      this._via = progress;
+    }
+    const self = state.self.position;
+    while (progress.next < via.length) {
+      const point = via[progress.next];
+      const near =
+        Math.hypot(point.x - self.x, point.z - self.z) <= VIA_RADIUS && Math.abs(point.y - self.y) <= VIA_HEIGHT;
+      if (!near) return point;
+      progress.next++;
+    }
+    return null;
   }
 
   private _duelTerritory(state: BotGameState, center?: Vec3): Vec3 | null {

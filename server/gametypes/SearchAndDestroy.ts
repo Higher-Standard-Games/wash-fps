@@ -57,6 +57,7 @@ import {
   type RoundOutcome,
 } from "./BaseGametype";
 import { PlayerLoadouts } from "./PlayerLoadouts";
+import { type Lane, type LaneFile, lanesInto, loadLanes } from "./SndLanes";
 
 // ── Match shape ──────────────────────────────────────────────────────
 //
@@ -102,6 +103,14 @@ const PRIORITY_ARM = 0.9;
 const PRIORITY_FETCH = 0.7;
 /** Staying with the carrier: useful, but not at the cost of your own life. */
 const PRIORITY_ESCORT = 0.55;
+/** How close to its staging point a group counts as staged. */
+const STAGING_RADIUS = 250;
+/** Groups go in this long after the attack plan is made, staged or not. */
+const STAGING_DEADLINE_TICKS = 35 * 125;
+/** Attackers covering a dropped bomb while one fetches it, and defenders guarding it. */
+const BOMB_COVER_COUNT = 2;
+const BOMB_COVER_RADIUS = 350;
+const BOMB_GUARD_RADIUS = 600;
 /** Holding a site pre-plant is a default, not an order. */
 const PRIORITY_HOLD = 0.5;
 
@@ -220,6 +229,30 @@ export class SearchAndDestroy extends BaseGametype {
   private pendingStructures: { tick: number; modelIndex: number }[] = [];
   /** Stable site assignments, rebalanced when the living roster changes. */
   private siteByDefender = new Map<number, number>();
+  /** The map's lanes into the sites (config/bot-lanes), or null. */
+  private lanes: LaneFile | null = null;
+  /** Teams whose bots play without the coach (a test switch). */
+  private readonly coachOff = new Set<string>();
+  /**
+   * The attack this round: which lane each attacker group takes, who is in
+   * which group, and whether the groups have been sent in.
+   */
+  private attackPlan: {
+    siteId: number;
+    carrier: number;
+    groupOf: Map<number, number>;
+    lanes: Lane[];
+    go: boolean;
+    madeAtTick: number;
+    attackers: number;
+  } | null = null;
+  /** The bomb has been carried this round: a drop after that is a fight's, not the round's start. */
+  private bombCarried = false;
+  /** The groups were sent in this round: a new carrier does not stage again. */
+  private attackSent = false;
+  /** Attackers covering a dropped bomb, and defenders guarding it. */
+  private bombCover = new Set<number>();
+  private bombGuard = new Set<number>();
   /** The one attacker doing the job that needs exactly one person. */
   private bombWorkerId: number | null = null;
   /** Site the attack is committed to. */
@@ -361,6 +394,7 @@ export class SearchAndDestroy extends BaseGametype {
    */
   override onMapLoad(context: GametypeMapContext): void {
     this.collision = context.collision;
+    this.lanes = context.mapName ? loadLanes(context.mapName) : null;
     this.brushModels = new BrushModelState(extractBrushModels(context.entities, context.models));
     this.pendingStructures = [];
     this.sites = [];
@@ -411,6 +445,11 @@ export class SearchAndDestroy extends BaseGametype {
     this.collision?.brushModels?.reset();
     this.siteByDefender.clear();
     this.targetSiteId = null;
+    this.attackPlan = null;
+    this.attackSent = false;
+    this.bombCarried = false;
+    this.bombCover.clear();
+    this.bombGuard.clear();
     this.bomb.reset(this.bombSpawns.get(BETA_TEAM) ?? { x: 0, y: 0, z: 0 });
   }
 
@@ -851,6 +890,105 @@ export class SearchAndDestroy extends BaseGametype {
     // round starts. Chosen again every tick, it followed the carrier and
     // flipped sites on the way.
     this.targetSiteId ??= this.nearestSite(this.bomb.position)?.id ?? null;
+    this.planAttack(attackers, context.attackingTeam);
+    this.planBombCover(attackers, defenders, context);
+  }
+
+  /**
+   * Play a team without the coach: no lanes, staging or bomb cover, as a
+   * test switch for head-to-head runs (`bot:ab` arm option `"coach": false`).
+   */
+  setTeamCoach(team: string, on: boolean): void {
+    if (on) this.coachOff.delete(team);
+    else this.coachOff.add(team);
+  }
+
+  /**
+   * The attack plan while the bomb is carried: groups of two on separate
+   * lanes into the target site, each waiting at its staging point until all
+   * are staged, the deadline passes or an attacker falls. Group 0 is the
+   * carrier and the attacker nearest them, on the shortest lane.
+   */
+  private planAttack(attackers: readonly BombPlayerView[], attackingTeam: string): void {
+    const carrier = this.bomb.carrierId;
+    const site = this.targetSiteId;
+    const lanes = site === null ? [] : lanesInto(this.lanes, site, "attack");
+    if (carrier === null || site === null || lanes.length === 0 || this.coachOff.has(attackingTeam)) {
+      this.attackPlan = null;
+      return;
+    }
+    let plan = this.attackPlan;
+    if (!plan || plan.siteId !== site || plan.carrier !== carrier) {
+      const carrierView = attackers.find((a) => a.entityId === carrier);
+      const others = attackers.filter((a) => a.entityId !== carrier);
+      const partner = carrierView ? this.nearestTo(others, carrierView.position) : null;
+      const rest = others.filter((a) => a.entityId !== partner).sort((a, b) => a.entityId - b.entityId);
+      const groupOf = new Map<number, number>([[carrier, 0]]);
+      if (partner !== null) groupOf.set(partner, 0);
+      rest.forEach((a, i) => {
+        groupOf.set(a.entityId, 1 + Math.floor(i / 2));
+      });
+      plan = {
+        siteId: site,
+        carrier,
+        groupOf,
+        lanes: [...lanes],
+        go: this.attackSent,
+        madeAtTick: plan?.madeAtTick ?? this.tick,
+        attackers: plan?.attackers ?? attackers.length,
+      };
+      this.attackPlan = plan;
+    }
+    if (plan.go) return;
+    const staged = new Map<number, boolean>();
+    for (const a of attackers) {
+      const group = plan.groupOf.get(a.entityId);
+      if (group === undefined) continue;
+      const stage = this.laneFor(plan, group).staging;
+      const near = Math.hypot(a.position.x - stage.x, a.position.z - stage.z) <= STAGING_RADIUS;
+      staged.set(group, (staged.get(group) ?? false) || near);
+    }
+    const allStaged = staged.size > 0 && [...staged.values()].every(Boolean);
+    const late = this.tick - plan.madeAtTick > STAGING_DEADLINE_TICKS;
+    const contact = attackers.length < plan.attackers;
+    if (allStaged || late || contact) {
+      plan.go = true;
+      this.attackSent = true;
+    }
+  }
+
+  private laneFor(plan: NonNullable<SearchAndDestroy["attackPlan"]>, group: number): Lane {
+    return plan.lanes[group % plan.lanes.length];
+  }
+
+  /** Who covers a dropped bomb while it is fetched, and who guards it, by nearness. */
+  private planBombCover(
+    attackers: readonly BombPlayerView[],
+    defenders: readonly BombPlayerView[],
+    context: GametypeTickContext,
+  ): void {
+    this.bombCover.clear();
+    this.bombGuard.clear();
+    if (this.bomb.phase === "carried") this.bombCarried = true;
+    // At the round's start the bomb lies at the attackers' spawn: nothing to cover or guard.
+    if (this.bomb.phase !== "dropped" || !this.bombCarried) return;
+    const byDistance = (list: readonly BombPlayerView[]) =>
+      [...list].sort(
+        (a, b) =>
+          Math.hypot(a.position.x - this.bomb.position.x, a.position.z - this.bomb.position.z) -
+          Math.hypot(b.position.x - this.bomb.position.x, b.position.z - this.bomb.position.z),
+      );
+    if (!this.coachOff.has(context.attackingTeam)) {
+      for (const a of byDistance(attackers.filter((p) => p.entityId !== this.bombWorkerId)).slice(
+        0,
+        BOMB_COVER_COUNT,
+      )) {
+        this.bombCover.add(a.entityId);
+      }
+    }
+    if (!this.coachOff.has(context.defendingTeam)) {
+      for (const d of byDistance(defenders).slice(0, BOMB_COVER_COUNT)) this.bombGuard.add(d.entityId);
+    }
   }
 
   /** Entity id of whoever in `candidates` is nearest `point`, or null. */
@@ -943,6 +1081,22 @@ export class SearchAndDestroy extends BaseGametype {
     if (!attacking) {
       const directives: AgentDirective[] = [];
 
+      // A dropped bomb is bait: the attackers have to come for it. The two
+      // defenders nearest it hold the ground round it rather than their site.
+      if (me !== null && this.bombGuard.has(me)) {
+        return [
+          this.directive(
+            "snd_guard_bomb",
+            "hold_area",
+            bomb,
+            BOMB_GUARD_RADIUS,
+            PRIORITY_HOLD + 0.05,
+            expiresAtTick,
+            "enemy_visible",
+          ),
+        ];
+      }
+
       const siteId = me === null ? null : (this.siteByDefender.get(me) ?? null);
       const site = this.sites.find((s) => s.id === siteId) ?? this.sites[0];
       directives.push(
@@ -989,6 +1143,21 @@ export class SearchAndDestroy extends BaseGametype {
 
     if (phase === "dropped") {
       const target = this.sites.find((s) => s.id === this.targetSiteId) ?? this.sites[0];
+      // Cover the spot while one fetches: whoever killed the carrier may be
+      // waiting there for the next to come.
+      if (!isWorker && me !== null && this.bombCover.has(me)) {
+        return [
+          this.directive(
+            "snd_cover_bomb",
+            "hold_area",
+            bomb,
+            BOMB_COVER_RADIUS,
+            PRIORITY_HOLD + 0.05,
+            expiresAtTick,
+            "enemy_visible",
+          ),
+        ];
+      }
       return isWorker
         ? [
             this.directive(
@@ -1021,6 +1190,39 @@ export class SearchAndDestroy extends BaseGametype {
     const carrier = this.bomb.carrierId;
     const isCarrier = carrier !== null && me === carrier;
     const target = this.sites.find((s) => s.id === this.targetSiteId) ?? this.sites[0];
+
+    // The coach's plan: each group along its lane to its staging point, in
+    // together once all are staged (see planAttack).
+    const plan = this.attackPlan;
+    const group = me === null ? undefined : plan?.groupOf.get(me);
+    if (plan && group !== undefined && !plan.go) {
+      const lane = this.laneFor(plan, group);
+      return [
+        this.directive(
+          `snd_stage_${target.id}_${group % plan.lanes.length}`,
+          "move_to",
+          lane.staging,
+          STAGING_RADIUS / 2,
+          isCarrier ? PRIORITY_ARM : PRIORITY_ESCORT,
+          expiresAtTick,
+          "enemy_visible",
+          lane.via,
+        ),
+      ];
+    }
+    if (plan && group !== undefined && group > 0 && !isCarrier) {
+      return [
+        this.directive(
+          `snd_push_site_${target.id}`,
+          "hold_area",
+          this.standingSpot(target),
+          SITE_ARRIVAL_RADIUS,
+          PRIORITY_HOLD,
+          expiresAtTick,
+          "enemy_visible",
+        ),
+      ];
+    }
 
     if (isCarrier) {
       return [
@@ -1058,6 +1260,7 @@ export class SearchAndDestroy extends BaseGametype {
     priority: number,
     expiresAtTick: number,
     interrupt: AgentDirective["interrupt"],
+    via?: readonly Vec3Like[],
   ): AgentDirective {
     return {
       id,
@@ -1066,6 +1269,7 @@ export class SearchAndDestroy extends BaseGametype {
       priority,
       expiresAtTick,
       interrupt,
+      ...(via && via.length > 0 ? { via: via.map((p) => ({ x: p.x, y: p.y, z: p.z })) } : {}),
     };
   }
 

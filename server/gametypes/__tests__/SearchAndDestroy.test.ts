@@ -460,7 +460,39 @@ describe("agent directives", () => {
     const forNear = mode.getAgentDirectives(directiveContext({ teamId: "udon", entityId: "player_1" }), fakeState([]));
     const forFar = mode.getAgentDirectives(directiveContext({ teamId: "udon", entityId: "player_2" }), fakeState([]));
     expect(forNear[0].id).toBe("snd_fetch_bomb");
+    // At the round's start the loose bomb is at the attackers' spawn: nothing to cover.
     expect(forFar[0].id).toMatch(/^snd_push_site_/);
+  });
+
+  it("covers and guards a bomb dropped by a fallen carrier", () => {
+    const mode = loaded();
+    const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: BOMB_SPAWN };
+    const mate: FakePlayer = { id: 2, ownerId: 2, team: "udon", position: { x: 500, y: 0, z: 0 } };
+    const spare: FakePlayer = { id: 4, ownerId: 4, team: "udon", position: { x: 2000, y: 0, z: 0 } };
+    const enemy: FakePlayer = { id: 3, ownerId: 3, team: "soba", position: { x: 3000, y: 0, z: 0 } };
+    run(mode, [carrier, mate, spare, enemy], 1);
+    expect(mode.bombState.carrierId).toBe(1);
+    run(mode, [{ ...carrier, dead: true }, mate, spare, enemy], 1, 1);
+    expect(mode.bombState.phase).toBe("dropped");
+    const orders = (id: number, team: string) =>
+      mode.getAgentDirectives(directiveContext({ teamId: team, entityId: `player_${id}` }), fakeState([]))[0].id;
+    // One fetches (the nearer), the other covers.
+    expect([orders(2, "udon"), orders(4, "udon")].sort()).toEqual(["snd_cover_bomb", "snd_fetch_bomb"]);
+    expect(orders(3, "soba")).toBe("snd_guard_bomb");
+  });
+
+  it("without the coach, sends the others to the site while one fetches", () => {
+    const mode = loaded();
+    mode.setTeamCoach("udon", false);
+    mode.setTeamCoach("soba", false);
+    const near: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: { x: BOMB_SPAWN.x - 200, y: 0, z: 0 } };
+    const far: FakePlayer = { id: 2, ownerId: 2, team: "udon", position: { x: 500, y: 0, z: 0 } };
+    const enemy: FakePlayer = { id: 3, ownerId: 3, team: "soba", position: { x: 3000, y: 0, z: 0 } };
+    mode.onTick(fakeState([near, far, enemy]), tickContext({ players: [near, far, enemy] }));
+    const forFar = mode.getAgentDirectives(directiveContext({ teamId: "udon", entityId: "player_2" }), fakeState([]));
+    expect(forFar[0].id).toMatch(/^snd_push_site_/);
+    const forEnemy = mode.getAgentDirectives(directiveContext({ teamId: "soba", entityId: "player_3" }), fakeState([]));
+    expect(forEnemy[0].id).toMatch(/^snd_defend_site_/);
   });
 
   it("keeps defenders on their sites while the bomb is carried", () => {

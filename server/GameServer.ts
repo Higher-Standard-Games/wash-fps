@@ -603,7 +603,7 @@ export class GameServer {
    * three together and most modes ignore all of it.
    */
   setMapData(entities: readonly BspEntity[], models: readonly BspModel[] = []): void {
-    this.gametypeController.setMapData(entities, models);
+    this.gametypeController.setMapData(entities, models, this.config.mapName);
   }
 
   /**

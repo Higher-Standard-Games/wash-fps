@@ -283,9 +283,10 @@ export class GametypeController {
    * tick — the mode gets one look at the map and is expected to extract and
    * cache whatever it needs. Modes that need nothing pay a single no-op call.
    */
-  setMapData(entities: readonly BspEntity[], models: readonly BspModel[] = []): void {
+  setMapData(entities: readonly BspEntity[], models: readonly BspModel[] = [], mapName?: string): void {
     try {
       this.gametype.onMapLoad({
+        mapName,
         entities,
         models,
         teamSpawnPoints: this.teamSpawnPoints,
