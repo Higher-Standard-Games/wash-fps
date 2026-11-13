@@ -15,7 +15,14 @@ import { type BotReference, canonicalBotReference } from "../../../shared/rankin
 import { debugEnabled, debugLog } from "../server/DebugLog";
 import { BotAimController } from "./BotAimController";
 import { type BotBrain, type BotInput, travelYaw } from "./BotBrain";
-import { type BotDifficulty, type BotOptions, defaultBotChat, defaultGoalArbiterMode, InputButtons } from "./BotConfig";
+import {
+  type BotDifficulty,
+  type BotOptions,
+  defaultBotChat,
+  defaultGoalArbiterMode,
+  InputButtons,
+  resolveDifficulty,
+} from "./BotConfig";
 import type { BotEpisodeRecorder } from "./BotEpisodeRecorder";
 import { applyFriendlyFireSafety, holdFireOffAim } from "./BotFireSafety";
 import { BotGameState, type BotSelf } from "./BotGameState";
@@ -152,8 +159,12 @@ export class BotClient extends EventEmitter {
 
     // Resolve difficulty
     this._ratingReference = initialBotReference(options);
-    this._difficulty = { ...this._ratingReference.difficulty };
-    if (options.strategy === false) this._difficulty.matchSense = 0;
+    // The rating reference keeps only the skills it rates by; match sense comes
+    // from the preset itself, which the behaviour fingerprint covers.
+    this._difficulty = {
+      ...this._ratingReference.difficulty,
+      matchSense: options.strategy === false ? 0 : resolveDifficulty(options.difficulty).matchSense,
+    };
 
     // Default to StateMachineBrain (no TF.js dependency)
     const brain = new StateMachineBrain(this._difficulty, options.goalArbiter ?? defaultGoalArbiterMode());
@@ -432,7 +443,7 @@ export class BotClient extends EventEmitter {
       difficulty,
       goalArbiter: this._ratingReference.goalArbiter,
     });
-    this._difficulty = { ...reference.difficulty };
+    this._difficulty = { ...reference.difficulty, matchSense: resolveDifficulty(difficulty).matchSense };
     this._brain.setDifficulty(this._difficulty);
     this._aim.setDifficulty(this._difficulty);
     this._perception.setDifficulty(this._difficulty);

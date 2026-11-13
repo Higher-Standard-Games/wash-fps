@@ -98,6 +98,20 @@ type ControlResponse =
 
 // ── BotServer ───────────────────────────────────────────────────────────
 
+/**
+ * The options a bot is created with: every option asked for, with a name, a
+ * difficulty and the server's model directory filled in. Every field passes
+ * through, so an option added to BotOptions reaches the bot without a change here.
+ */
+export function botOptionsFor(options: Partial<BotOptions> | undefined, modelDir: string | undefined): BotOptions {
+  return {
+    ...options,
+    name: options?.name || getNextBotName(),
+    difficulty: options?.difficulty || "medium",
+    modelDir: options?.modelDir ?? modelDir,
+  };
+}
+
 export class BotServer {
   private _wss: WebSocketServer | null = null;
   private _bots: Map<string, BotClient> = new Map();
@@ -200,14 +214,7 @@ export class BotServer {
    * Spawn a new bot and connect it to a game server.
    */
   async addBot(gameServerUrl: string, options?: Partial<BotOptions>): Promise<BotClient> {
-    const botOptions: BotOptions = {
-      name: options?.name || getNextBotName(),
-      difficulty: options?.difficulty || "medium",
-      team: options?.team,
-      modelDir: options?.modelDir ?? this._modelDir,
-      goalArbiter: options?.goalArbiter,
-      chat: options?.chat,
-    };
+    const botOptions = botOptionsFor(options, this._modelDir);
 
     const bot = new BotClient(botOptions);
 
