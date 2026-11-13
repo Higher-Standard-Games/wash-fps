@@ -84,8 +84,10 @@ export interface WeaponProfile {
   /** ADS movement speed penalty (0 = no penalty, 0.7 = 70% slower) */
   adsMovePenalty: number;
 
-  /** Raw damage per hit */
+  /** Raw damage per hit: every pellet of a multi-pellet shot. */
   damagePerHit: number;
+  /** Pellets per shot (1 for a single projectile or beam). */
+  pelletCount: number;
 }
 
 // ── Build profiles from weapon defs ─────────────────────────────────
@@ -162,6 +164,7 @@ function buildProfile(def: WeaponDef): WeaponProfile {
     fireIntervalTicks: fireIntervalTicks(def),
     adsMovePenalty: def.ads?.movementPenalty ?? 0,
     damagePerHit: damage * pellets,
+    pelletCount: pellets,
   };
 }
 
@@ -206,6 +209,7 @@ const DEFAULT_PROFILE: WeaponProfile = {
   fireIntervalTicks: 100,
   adsMovePenalty: 0.5,
   damagePerHit: 10,
+  pelletCount: 1,
 };
 
 // ── Public API ──────────────────────────────────────────────────────

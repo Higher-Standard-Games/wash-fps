@@ -66,9 +66,20 @@ export const ItemValue: Consideration = {
     if (!item) return 0;
     const value = itemValue(ctx);
     // The mode's policy on the big items (WeightProfiles: majorItemBias).
-    return isMajorItem(item.type, item.kind) ? clamp01(value * ctx.weights.majorItemBias) : value;
+    if (!isMajorItem(item.type, item.kind)) return value;
+    return majorItemValue(value, ctx.weights.majorItemBias);
   },
 };
+
+/**
+ * A major item's value under the mode's bias: above 1 it raises every major
+ * item toward 1 and below 1 lowers it, keeping their order. Multiplying and
+ * capping at 1 put a Red Armor, a Yellow Armor and a Mega all at 1 in Duel, so
+ * the bot took whichever was nearest.
+ */
+export function majorItemValue(value: number, bias: number): number {
+  return 1 - (1 - clamp01(value)) ** bias;
+}
 
 /** What the item is worth to this bot before the mode's bias. */
 function itemValue(ctx: ConsiderationContext): number {

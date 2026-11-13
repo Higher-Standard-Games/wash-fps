@@ -46,14 +46,20 @@ function behaviorDigest(): string {
   visit(root);
   const dependencies = path.resolve(root, "../package-lock.json");
   hash.update(new Uint8Array(fs.readFileSync(dependencies)));
-  const routes = path.resolve(root, "../config/bot-routes");
-  if (fs.existsSync(routes))
-    for (const file of fs.readdirSync(routes).sort()) {
+  // Learned routes and the bot-intel baseline are behaviour too.
+  for (const [dir, tag] of [
+    ["../config/bot-routes", "routes"],
+    ["../config/bot-intel", "intel"],
+  ] as const) {
+    const folder = path.resolve(root, dir);
+    if (!fs.existsSync(folder)) continue;
+    for (const file of fs.readdirSync(folder).sort()) {
       if (!file.endsWith(".json")) continue;
-      hash.update(`routes/${file}\0`);
-      hash.update(new Uint8Array(fs.readFileSync(path.join(routes, file))));
+      hash.update(`${tag}/${file}\0`);
+      hash.update(new Uint8Array(fs.readFileSync(path.join(folder, file))));
       hash.update("\0");
     }
+  }
   behavior = hash.digest("hex");
   return behavior;
 }

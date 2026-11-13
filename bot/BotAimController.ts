@@ -11,12 +11,24 @@
  *   at 60% of the yaw speed, as people move a mouse more sideways than up.
  * - A goal within the deadzone of the current one is ignored unless the bot is
  *   firing, so small changes of mind do not turn into movement.
- * - A goal more than 45° away waits for the bot's reaction time (±20%) before
- *   the view starts to turn, as a person has to notice before they turn.
+ * - A goal more than 45° away waits for the bot's reaction time before the
+ *   view starts to turn, as a person has to notice before they turn. The wait
+ *   is log-normal round the preset's time, as people's are: one in ten is a
+ *   third slower, one in a hundred nearly twice as slow.
+ * - Some of those turns overshoot by 4–12% and come back, as a flick of the
+ *   hand does; more often at lower aim accuracy.
  * - While firing, the view also follows the target's motion, as eyes and
  *   hand pursue a moving target, so tracking does not trail behind it.
  * - A slowly wandering offset, about a second per swing, replaces the old
  *   fresh noise on every decision, which shook the view.
+ * - Calm (out of a fight, nothing in sight, the look the bot's own choice):
+ *   the goal eases toward the wanted view instead of jumping to it, at most
+ *   120°/s, and ignores yaw changes under five deadzones. A turn over 90°
+ *   is a turnaround and goes the ordinary way, noticed and then turned. There is nothing to
+ *   react to, so no reaction wait and no snap after it. Recorded people turn
+ *   their view 35°/s out of a fight while their movement weaves at 93°/s;
+ *   bots that jumped the goal to every new wanted view turned 110–145°/s
+ *   (docs/research/BOT_STRATEGY_LAYER.md, BS-1).
  *
  * All rates come from the difficulty's trackingSpeed, reactionTimeMs and
  * aimAccuracy, so the presets need no new fields:
@@ -43,7 +55,17 @@ const BASE_SETTLE_SECONDS = 0.5;
 const SETTLE_OMEGA = 4.74;
 /** A turn this large has to be noticed first. */
 const REACTION_ANGLE = 45 * DEG;
-const REACTION_JITTER = 0.2;
+/** Spread of the log-normal reaction wait (σ of its logarithm). */
+const REACTION_SPREAD = 0.25;
+/** Chance a reactive turn overshoots, at perfect aim; more per unit of missing accuracy. */
+const OVERSHOOT_BASE = 0.15;
+const OVERSHOOT_PER_MISS = 0.35;
+/** How far past, as a share of the turn. */
+const OVERSHOOT_MIN = 0.04;
+const OVERSHOOT_MAX = 0.12;
+/** The correction starts once the view is this close to the overshot goal, or after OVERSHOOT_HOLD at most. */
+const OVERSHOOT_REACHED = 2 * DEG;
+const OVERSHOOT_HOLD = 1;
 /** How long the aim offset keeps one heading on average, in seconds (±40%). */
 const DRIFT_SECONDS = 1;
 /** How quickly the offset glides toward a new heading, in seconds. */
@@ -57,6 +79,20 @@ const PURSUIT_BLEND = 0.5;
 const PURSUIT_MAX_STEP = 10 * DEG;
 /** Wanted angles unchanged this long mean the target has stopped. */
 const PURSUIT_STALE_SECONDS = 0.1;
+
+/** Calm: how quickly the goal eases toward the wanted view, seconds. */
+const CALM_EASE_SECONDS = 0.6;
+/** Calm: the goal moves at most this fast, rad/s. */
+const CALM_MAX_GOAL_SPEED = 120 * DEG;
+/**
+ * Calm: a turn bigger than this is a turnaround, which people make at once
+ * (a flick) rather than easing round while they run the other way.
+ */
+const CALM_MAX_EASED_TURN = 90 * DEG;
+/** Calm: yaw changes under this many deadzones are ignored. Pitch keeps one deadzone. */
+const CALM_DEADZONES = 5;
+/** Calm: once moving, the goal glides on to within this many deadzones of the wanted view. */
+const CALM_FINISH = 0.25;
 
 /** Deadzone by trackingSpeed, between the presets' points. */
 const DEADZONE_POINTS: readonly (readonly [number, number])[] = [
@@ -128,6 +164,8 @@ interface Axis {
   wanted: number;
   heldFor: number;
   pursuit: number;
+  /** Calm: the goal is gliding toward the wanted view. */
+  easing: boolean;
 }
 
 const axis = (value: number): Axis => ({
@@ -140,6 +178,7 @@ const axis = (value: number): Axis => ({
   wanted: value,
   heldFor: 0,
   pursuit: 0,
+  easing: false,
 });
 
 export class BotAimController {
@@ -148,12 +187,16 @@ export class BotAimController {
   private _pitch: Axis = axis(0);
   /** A large turn waiting for the reaction time. */
   private _pending: { yaw: number; pitch: number; remaining: number } | null = null;
+  /** A reactive turn sent past its goal: how long it has had, before turning back. */
+  private _overshoot: { held: number } | null = null;
+  private _accuracy: number;
 
   constructor(
     difficulty: AimDifficulty,
     private readonly _random: () => number = Math.random,
   ) {
     this._tuning = aimTuning(difficulty);
+    this._accuracy = Math.max(0, Math.min(1, difficulty.aimAccuracy));
   }
 
   get tuning(): AimTuning {
@@ -162,6 +205,7 @@ export class BotAimController {
 
   setDifficulty(difficulty: AimDifficulty): void {
     this._tuning = aimTuning(difficulty);
+    this._accuracy = Math.max(0, Math.min(1, difficulty.aimAccuracy));
   }
 
   /** Whether the view has a position yet; the first step starts from the wanted angles otherwise. */
@@ -178,6 +222,7 @@ export class BotAimController {
   clear(): void {
     this._yaw = null;
     this._pending = null;
+    this._overshoot = null;
   }
 
   /** Look exactly here now, at rest: on spawn, and after a script set the view itself. */
@@ -185,13 +230,22 @@ export class BotAimController {
     this._yaw = axis(yaw);
     this._pitch = axis(pitch);
     this._pending = null;
+    this._overshoot = null;
   }
 
   /**
    * Advance by `dt` seconds toward the wanted angles and return the view to
    * send. `firing` turns off the deadzone, so a bot shooting keeps tracking.
+   * `calm` eases the goal instead of jumping it (see the header); firing
+   * overrides it.
    */
-  step(dt: number, wantedYaw: number, wantedPitch: number, firing: boolean): { yaw: number; pitch: number } {
+  step(
+    dt: number,
+    wantedYaw: number,
+    wantedPitch: number,
+    firing: boolean,
+    calm = false,
+  ): { yaw: number; pitch: number } {
     if (!this._yaw) this.reset(wantedYaw, wantedPitch);
     const yaw = this._yaw as Axis;
     const pitch = this._pitch;
@@ -199,7 +253,9 @@ export class BotAimController {
 
     track(yaw, wantedYaw, dt);
     track(pitch, wantedPitch, dt);
-    this._chooseGoal(dt, wantedYaw, wantedPitch, firing);
+    const eased = calm && !firing && Math.abs(wrapAngle(wantedYaw - yaw.goal)) <= CALM_MAX_EASED_TURN;
+    if (eased) this._easeGoal(dt, wantedYaw, wantedPitch);
+    else this._chooseGoal(dt, wantedYaw, wantedPitch, firing);
     this._drift(yaw, dt);
     this._drift(pitch, dt);
 
@@ -214,6 +270,29 @@ export class BotAimController {
     return { yaw: yaw.value, pitch: pitch.value };
   }
 
+  /** Calm: glide the goal toward the wanted view, eased and speed-capped. */
+  private _easeGoal(dt: number, wantedYaw: number, wantedPitch: number): void {
+    const yaw = this._yaw as Axis;
+    const pitch = this._pitch;
+    this._pending = null;
+    this._overshoot = null;
+    const ignore = this._tuning.deadzone * CALM_DEADZONES;
+    const ease = 1 - Math.exp(-dt / CALM_EASE_SECONDS);
+    const cap = CALM_MAX_GOAL_SPEED * dt;
+    const yawOff = wrapAngle(wantedYaw - yaw.goal);
+    if (Math.abs(yawOff) > ignore || yaw.easing) {
+      const step = Math.max(-cap, Math.min(cap, yawOff * ease));
+      yaw.goal = wrapAngle(yaw.goal + step);
+      // Once moving, finish the turn rather than stopping a deadzone short.
+      yaw.easing = Math.abs(yawOff) > this._tuning.deadzone * CALM_FINISH;
+    }
+    const pitchOff = wantedPitch - pitch.goal;
+    if (Math.abs(pitchOff) > this._tuning.deadzone || pitch.easing) {
+      pitch.goal += Math.max(-cap, Math.min(cap, pitchOff * ease));
+      pitch.easing = Math.abs(pitchOff) > this._tuning.deadzone * CALM_FINISH;
+    }
+  }
+
   private _chooseGoal(dt: number, wantedYaw: number, wantedPitch: number, firing: boolean): void {
     const yaw = this._yaw as Axis;
     const pitch = this._pitch;
@@ -221,20 +300,38 @@ export class BotAimController {
 
     if (jump > REACTION_ANGLE && this._tuning.reactionMs > 0) {
       if (!this._pending) {
-        const jitter = 1 + (this._random() * 2 - 1) * REACTION_JITTER;
-        this._pending = { yaw: wantedYaw, pitch: wantedPitch, remaining: (this._tuning.reactionMs / 1000) * jitter };
+        const wait = (this._tuning.reactionMs / 1000) * Math.exp(REACTION_SPREAD * standardNormal(this._random()));
+        this._pending = { yaw: wantedYaw, pitch: wantedPitch, remaining: wait };
       }
       this._pending.yaw = wantedYaw;
       this._pending.pitch = wantedPitch;
       this._pending.remaining -= dt;
       if (this._pending.remaining > 0) return;
+      const turn = wrapAngle(wantedYaw - yaw.goal);
       yaw.goal = wantedYaw;
       pitch.goal = wantedPitch;
       this._pending = null;
+      this._overshoot = null;
+      if (this._random() < OVERSHOOT_BASE + OVERSHOOT_PER_MISS * (1 - this._accuracy)) {
+        const past = OVERSHOOT_MIN + (OVERSHOOT_MAX - OVERSHOOT_MIN) * this._random();
+        yaw.goal = wrapAngle(wantedYaw + turn * past);
+        this._overshoot = { held: 0 };
+      }
       return;
     }
     // Back within reach before the bot reacted: it never turned away.
     this._pending = null;
+
+    // Past the goal after a flick: hold there until the view arrives, then turn back.
+    if (this._overshoot) {
+      this._overshoot.held += dt;
+      const arrived = Math.abs(wrapAngle(yaw.goal + yaw.offset - yaw.value)) < OVERSHOOT_REACHED;
+      if (!arrived && this._overshoot.held < OVERSHOOT_HOLD) return;
+      this._overshoot = null;
+      yaw.goal = wantedYaw;
+      pitch.goal = wantedPitch;
+      return;
+    }
 
     const deadzone = firing ? 0 : this._tuning.deadzone;
     if (Math.abs(wrapAngle(wantedYaw - yaw.goal)) > deadzone) yaw.goal = wantedYaw;
@@ -264,6 +361,16 @@ export class BotAimController {
     const v = this._random();
     return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
   }
+}
+
+/**
+ * A standard normal value from one uniform draw, by the logistic approximation
+ * of the normal quantile. 0.5 gives exactly 0, so a fixed random source in a
+ * test gives the preset's reaction time.
+ */
+function standardNormal(uniform: number): number {
+  const u = Math.max(0.001, Math.min(0.999, uniform));
+  return 0.5513 * Math.log(u / (1 - u));
 }
 
 const clampPitch = (pitch: number) => Math.max(-MAX_PITCH, Math.min(MAX_PITCH, pitch));

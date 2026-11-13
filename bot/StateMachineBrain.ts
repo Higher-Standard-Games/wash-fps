@@ -15,13 +15,21 @@
 
 import { DEFAULT_VIEWHEIGHT } from "../../../engine/physics/PlayerPhysicsConstants";
 import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "../../../shared/server/simulation/physics/constants";
-import { selectWeightProfile } from "../shared/bot/WeightProfiles";
+import { isBotName } from "../shared/bot/BotNames";
+import { type BotWeightProfile, selectWeightProfile } from "../shared/bot/WeightProfiles";
+import type { PickupEntry } from "../shared/bsp/PickupTable";
 import { wrapAngle } from "./BotAimController";
-import { BotBrain, type BotInput, BotState, travelYaw } from "./BotBrain";
+import { BotBrain, type BotInput, BotState, type BrainMatchReport, travelYaw } from "./BotBrain";
 import { BotCombatMovement, findHighGround } from "./BotCombatMovement";
-import { type BotDifficulty, defaultGoalArbiterMode, type GoalArbiterMode, InputButtons } from "./BotConfig";
+import {
+  type BotDifficulty,
+  defaultGoalArbiterMode,
+  type GoalArbiterMode,
+  HIT_ATTENTION_MS,
+  InputButtons,
+} from "./BotConfig";
 import type { BotGameState, Vec3, VisiblePlayer } from "./BotGameState";
-import { vec3Length, vec3Normalize, vec3Subtract } from "./BotGameState";
+import { vec3Distance, vec3Length, vec3Normalize, vec3Subtract } from "./BotGameState";
 import { BotMood, type Mood, type MoodEvent } from "./BotMood";
 import { canInitiateSlide, PHYSICS } from "./BotMovementProfile";
 import {
@@ -39,8 +47,12 @@ import type { BotVision, EnemyTrack, VisionResult } from "./BotVision";
 import { BotWeaponCombos, has, slotFor } from "./BotWeaponCombos";
 import { getWeaponProfile, selectBestWeapon, type WeaponProfile } from "./BotWeaponProfile";
 import type { BotGoal } from "./goals/BotGoal";
+import { isMajorItem } from "./goals/considerations/ItemFacts";
 import { collectDirectiveGoals } from "./goals/DirectiveGoalSource";
 import { ItemGoalPlanner } from "./goals/ItemGoalPlanner";
+import { respawnTickOf } from "./goals/ItemGoalSource";
+import { loadBaseline, payoffPriors } from "./intel/IntelBaseline";
+import { loadPeopleProfile, typicalStackAfter } from "./intel/PeopleProfile";
 import { planLedgeSlideJump } from "./LedgeSlideJump";
 import { buildRouteLine, lineEndStep, pointAlong, type RouteLine, type RouteWorld } from "./RouteLine";
 import { ItemSlideApproachSequence } from "./sequences/ItemSlideApproachSequence";
@@ -52,6 +64,9 @@ import { canLunge, SlideBladeSequence } from "./sequences/SlideBladeSequence";
 import { TraverseJumppadSequence } from "./sequences/TraverseJumppadSequence";
 import { TraverseTeleporterSequence } from "./sequences/TraverseTeleporterSequence";
 import { ValidatedJumpSequence } from "./sequences/ValidatedJumpSequence";
+import { MatchRead } from "./strategy/MatchRead";
+import { OpponentModel } from "./strategy/OpponentModel";
+import { applyStrategyWeights, STRATEGIES, Strategist, type Strategy, type StrategyId } from "./strategy/Strategist";
 
 // ── Constants ───────────────────────────────────────────────────────────
 
@@ -115,7 +130,45 @@ const FEELER_STEER_THRESHOLD = 0.6; // fraction below which we steer away
 /** A wall ahead keeps the bot turning the side it chose for this long. */
 const FEELER_SIDE_COMMIT_TICKS = 50;
 
+// Fading and escaping (see _shouldFade, _escapePoint)
+/** Damage taken in a fight that makes a fading strategy leave it. */
+const FADE_DAMAGE = 40;
+/** An escape point lies this far away, units. */
+const ESCAPE_MIN = 192;
+const ESCAPE_MAX = 900;
+/** ... and no more toward the threat than this (cosine). */
+const ESCAPE_MAX_TOWARD = 0.2;
+/** Reached when this close, units; given up after ESCAPE_HOLD_TICKS. */
+const ESCAPE_REACHED = 64;
+const ESCAPE_HOLD_TICKS = 375;
+/** Nearest candidate nodes checked for sight and route cost. */
+const ESCAPE_CANDIDATES = 24;
+/** With no way out found, look again after this long. */
+const ESCAPE_RETRY_TICKS = 60;
+
+// Habits (see _contested)
+/** Match sense from which a bot contests the items its opponent keeps taking. */
+const CONTEST_SENSE = 0.6;
+/** A taken major item coming back within this long is one to race for. */
+const TIMED_ITEM_HORIZON_SECONDS = 20;
+/** Route length over straight distance, roughly, for a quick travel estimate. */
+const ROUTE_WINDING = 1.3;
+/** Running speed for that estimate, units per second. */
+const TIMING_RUN_SPEED = 320;
+/** How much a test bot's fixed habit weighs, as itemDenial. */
+const HABIT_WEIGHT = 2;
+
+// Shopping or hunting (see _shouldSeekItems)
+/** Desire an item goal needs to be worth shopping for at aggression 0. */
+const SEEK_DESIRE_BASE = 0.2;
+/** Extra desire per unit of the gametype's aggression. */
+const SEEK_DESIRE_PER_AGGRESSION = 0.25;
+
 // Looking round while running (out of a fight)
+/** Calm, the view rests this far below where the brain looks: people look at the floor ahead. */
+const CALM_PITCH = (10 * Math.PI) / 180;
+/** Calm, the view never looks further down than this. */
+const CALM_MAX_PITCH = (45 * Math.PI) / 180;
 /** Furthest the view turns from where the bot runs to look into open space. */
 const LOOK_MAX_OFF_TRAVEL = (45 * Math.PI) / 180;
 const LOOK_STEP = (15 * Math.PI) / 180;
@@ -123,8 +176,12 @@ const LOOK_STEP = (15 * Math.PI) / 180;
 const LOOK_RANGE = 1500;
 /** What looking the full LOOK_MAX_OFF_TRAVEL aside costs, of a score out of 1. */
 const LOOK_OFF_COST = 0.3;
-/** How often the direction is chosen again, ticks. */
+/** With nothing worth a glance, how soon to look for one again, ticks. */
 const LOOK_INTERVAL_TICKS = 50;
+/** How long a glance holds, ticks (±30%). */
+const GLANCE_TICKS = 85;
+/** Rest between glances, ticks (from 0.67 to 1.33 of it). */
+const GLANCE_REST_TICKS = 375;
 /** How much more open another direction must be to take over. */
 const LOOK_SWITCH_MARGIN = 0.2;
 /** What turning the view a quarter turn from where it is costs, of a score out of 1. */
@@ -194,16 +251,28 @@ function openFraction(vision: BotVision, eye: Vec3, yaw: number): number {
 interface ItemGoalChoice {
   goal: BotGoal;
   stopover: BotGoal | null;
+  /** The arbiter's score for `goal` (GoalArbiter: gate × attraction × discount). */
+  desire: number;
 }
 
 /** RETREAT wants healing, not shopping — see ItemGoalPlannerOptions.typeFilter. */
 const RETREAT_ITEM_TYPES: ReadonlySet<string> = new Set(["health"]);
 
 const BOT_STRAFE_RETRY_TICKS = 30;
-const ROUTE_STRAFE_MIN_REMAINING_DISTANCE = 640;
+/** A strafe jump needs a lane of route this long and wide, plain walking out to the reach. */
+const ROUTE_STRAFE_RUN = 320;
+const ROUTE_STRAFE_REACH = 640;
+/** The most a hop chain's stretch of route line may turn in all. */
+const ROUTE_STRAFE_MAX_TURN = (75 * Math.PI) / 180;
+/** A hop steers for the route line this far ahead of the bot, units. */
+const ROUTE_STRAFE_STEER_AHEAD = 160;
+/** Without a route line: a straight lane of route this long and wide, plain walking to the reach. */
+const STRAIGHT_HOP_RUN = 480;
+const STRAIGHT_HOP_REACH = 640;
+const STRAIGHT_HOP_LANE = 48;
+/** The hop sequence ends this far before its target (RouteStrafeJumpSequence ENDPOINT_EXIT_DISTANCE). */
+const STRAIGHT_HOP_EXIT_MARGIN = 260;
 const ROUTE_STRAFE_ITEM_MIN_REMAINING_DISTANCE = 800;
-const ROUTE_STRAFE_LOOKAHEAD_DISTANCE = 900;
-const ROUTE_STRAFE_MAX_TURN_RADIANS = Math.PI / 6;
 const ROUTE_STRAFE_MAX_VELOCITY_ERROR_RADIANS = Math.PI / 6;
 const ROUTE_STRAFE_ALLY_LOOKAHEAD = 600;
 const ROUTE_STRAFE_ALLY_RADIUS = 80;
@@ -243,6 +312,25 @@ export class StateMachineBrain extends BotBrain {
   private _onRouteLine = false;
   /** Where the view looks while running, relative to the way the bot runs, and until when. */
   private _look: { off: number; untilTick: number } | null = null;
+  /** What the bot knows of how the match is going (strategy/MatchRead.ts). */
+  /** Player names by entity, from the last decision: people's stack curve is for people. */
+  private _names: ReadonlyMap<string, string> = new Map();
+  private readonly _matchRead = new MatchRead((seconds, entityId) =>
+    isBotName(this._names.get(entityId) ?? "") ? null : typicalStackAfter(loadPeopleProfile(), seconds),
+  );
+  /** What it needs to do to win (strategy/Strategist.ts), and the strategy in force. */
+  private _strategist: Strategist;
+  private _strategy: Strategy = STRATEGIES.standard;
+  /** The map and gametype whose baseline priors the strategist has. */
+  private _priorsFor: string | null = null;
+  /** A way out of an enemy's sight being taken (see _escapePoint). */
+  private _escape: { point: Vec3; untilTick: number } | null = null;
+  private _escapeRetryTick = 0;
+  /** The opponent's habits in this match (strategy/OpponentModel.ts). */
+  private readonly _opponents = new OpponentModel();
+  /** A test bot's fixation: it goes for every item of this kind (`BotOptions.habitItem`). */
+  private _habitItem: string | null = null;
+  private _strategyLimit: readonly StrategyId[] | null = null;
 
   // Crouchslide cooldown. Sequence phases use authoritative server ticks.
   private _slideCooldownUntilTick: number = 0;
@@ -313,6 +401,7 @@ export class StateMachineBrain extends BotBrain {
   constructor(difficulty: BotDifficulty, goalArbiterMode: GoalArbiterMode = defaultGoalArbiterMode()) {
     super(difficulty);
     this._goalArbiterMode = goalArbiterMode;
+    this._strategist = new Strategist(difficulty.matchSense ?? 0.5);
     // mistakeRate finally does something: an occasional runner-up pick.
     this._itemGoalPlanner = new ItemGoalPlanner(difficulty.mistakeRate);
     this._huntYaw = Math.random() * Math.PI * 2;
@@ -360,6 +449,123 @@ export class StateMachineBrain extends BotBrain {
     return goal ? `${nav} ${goal}` : nav;
   }
 
+  /** The bot's running read of the match. */
+  get matchRead(): MatchRead {
+    return this._matchRead;
+  }
+
+  /**
+   * Once per map and gametype: the strategy payoffs learned in earlier matches
+   * (config/bot-intel, IntelBaseline.ts) as the bandit's starting estimates.
+   */
+  private _loadPriors(state: BotGameState): void {
+    const map = this._lastBotVision?.mapKnowledge?.mapName;
+    const gametype = state.matchState.gametypeName;
+    if (!map || !gametype) return;
+    const key = `${map}|${gametype}`;
+    if (key === this._priorsFor) return;
+    this._priorsFor = key;
+    this._strategist.setPriors(payoffPriors(loadBaseline(map, gametype)));
+  }
+
+  override matchReport(): BrainMatchReport {
+    const score = this._matchRead.score();
+    return {
+      score: { own: score.own, bestOther: score.bestOther, deaths: score.deaths },
+      fights: this._matchRead.fights(Number.POSITIVE_INFINITY),
+      episodes: this._strategist.judged,
+    };
+  }
+
+  override get strategyId(): string {
+    return this._strategist.strategy.id;
+  }
+
+  /** The strategy in force and why, for diagnostics. */
+  get strategyExplain(): string {
+    return this._strategist.explain();
+  }
+
+  override setDifficulty(difficulty: BotDifficulty): void {
+    super.setDifficulty(difficulty);
+    this._strategist = new Strategist(difficulty.matchSense ?? 0.5);
+    this._strategist.limitTo(this._strategyLimit);
+    this._strategy = STRATEGIES.standard;
+  }
+
+  /** Play only these strategies (BotOptions.strategies), for head-to-head tests. */
+  limitStrategies(strategies: readonly StrategyId[] | null): void {
+    this._strategyLimit = strategies;
+    this._strategist.limitTo(strategies);
+  }
+
+  /**
+   * Make this bot go for every item of one kind ("ra", "mega", ...), as a
+   * player with a habit does: the opponent the strategist has to read.
+   * For head-to-head tests (`bot:ab`).
+   */
+  setHabitItem(kind: string | null): void {
+    this._habitItem = kind;
+  }
+
+  /** The opponent's habits the bot has learned, for diagnostics. */
+  get opponentHabits(): OpponentModel {
+    return this._opponents;
+  }
+
+  /** The gametype's weight profile with the strategy's multipliers. */
+  private _weights(state: BotGameState): BotWeightProfile {
+    const base = selectWeightProfile(state.matchState.gametypeName, state.getOwnRole(), state.matchState.roundState);
+    const weights = applyStrategyWeights(base, this._strategy);
+    if (this._habitItem) return { ...weights, itemDenial: Math.max(weights.itemDenial, HABIT_WEIGHT), itemTiming: 1 };
+    return weights;
+  }
+
+  /**
+   * Pickups to contest, 0..1 by pickup id: the opponent's habits, with enough
+   * match sense to read them; a test bot's own fixation.
+   */
+  private _contested(): ReadonlyMap<number, number> | undefined {
+    if (this._habitItem) {
+      const out = new Map<number, number>();
+      for (const pickup of this._lastBotVision?.mapKnowledge.pickupPositions ?? [])
+        if (pickup.kind === this._habitItem) out.set(pickup.id, 1);
+      return out;
+    }
+    if ((this.difficulty.matchSense ?? 0.5) < CONTEST_SENSE) return undefined;
+    return this._opponents.contested();
+  }
+
+  /**
+   * Is a major item the bot believes down coming back within
+   * TIMED_ITEM_HORIZON_SECONDS, near enough to be there when it does? Then
+   * item control is a race the bot can win, whatever its stack.
+   */
+  private _timedMajorInReach(state: BotGameState, pickups: readonly PickupEntry[] | undefined): boolean {
+    for (const entry of pickups ?? []) {
+      if (!isMajorItem(entry.type, entry.kind) || state.pickupActiveMask[entry.id] !== false) continue;
+      const back = respawnTickOf(state, entry);
+      if (back === null) continue;
+      const secondsLeft = (back - state.tick) / TICK_RATE;
+      if (secondsLeft < 0 || secondsLeft > TIMED_ITEM_HORIZON_SECONDS) continue;
+      const travel = (vec3Distance(state.self.position, entry.position) * ROUTE_WINDING) / TIMING_RUN_SPEED;
+      if (travel <= secondsLeft + 1) return true;
+    }
+    return false;
+  }
+
+  /** The match read's estimate of an enemy's health and armor, with its uncertainty. */
+  private _enemyEstimate(entityId: string): { health: number; armor: number; uncertainty: number } | null {
+    const enemy = this._matchRead.enemy(entityId);
+    const stack = this._matchRead.enemyStack(entityId);
+    return enemy && stack ? { health: enemy.health, armor: enemy.armor, uncertainty: stack.uncertainty } : null;
+  }
+
+  /** A retreat line from mood and strategy. */
+  private _retreatHealth(base: number): number {
+    return this._mood.retreatHealth(base) * this._strategy.stance.retreatScale;
+  }
+
   isSequenceActive(): boolean {
     return this._sequenceRuntime.isActive;
   }
@@ -376,7 +582,27 @@ export class StateMachineBrain extends BotBrain {
   ): BotInput {
     this._cancelScript = false;
     const input = this._decide(state, vision, visionResult, navGraph);
+    if (this._isCalm(state, input)) {
+      input.calm = true;
+      // People look a little down while running, at the floor ahead (BS-1: 11°).
+      input.pitch = Math.min(CALM_MAX_PITCH, input.pitch + CALM_PITCH);
+    }
     return this._cancelScript ? { ...input, cancelScript: true } : input;
+  }
+
+  /** Roaming with no enemy in sight and no scripted move: see `BotInput.calm`. */
+  private _isCalm(state: BotGameState, input: BotInput): boolean {
+    if (state.self.isDead || input.script || this._sequenceRuntime.isActive) return false;
+    if ((input.buttons & (InputButtons.FIRE | InputButtons.ALT_FIRE)) !== 0) return false;
+    if ((this._lastVision?.visibleEnemies.length ?? 0) > 0) return false;
+    // A chase with the enemy out of sight turns toward where they were: a memory, not a sight.
+    return (
+      this.currentState === BotState.ITEM_RUN ||
+      this.currentState === BotState.HUNT ||
+      this.currentState === BotState.CHASE ||
+      this.currentState === BotState.RETREAT ||
+      this.currentState === BotState.IDLE
+    );
   }
 
   private _decide(
@@ -390,6 +616,16 @@ export class StateMachineBrain extends BotBrain {
     this._onRouteLine = false;
     this._lastVision = visionResult ?? null;
     this._lastDecisionTick = state.tick;
+    this._names = state.playerNames;
+    this._matchRead.update(state);
+    this._loadPriors(state);
+    const before = this._strategy.id;
+    this._strategy = this._strategist.update(this._matchRead, state, {
+      timedItemInReach: this._timedMajorInReach(state, (vision ?? this._lastBotVision)?.mapKnowledge?.pickupPositions),
+    });
+    this._opponents.update(this._matchRead);
+    if (this._goalArbiterMode === "verbose" && this._strategy.id !== before)
+      console.log(`[bot] strategy ${this._strategist.explain()}`);
     this._lastBotVision = vision ?? null;
     this._navGraph = navGraph ?? null;
 
@@ -408,6 +644,7 @@ export class StateMachineBrain extends BotBrain {
       this._sitePatrol = null;
       this._itemCircle = null;
       this._feelerSide = null;
+      this._escape = null;
       this._look = null;
       this._routeLine = null;
       this._combatMovement.reset();
@@ -537,12 +774,15 @@ export class StateMachineBrain extends BotBrain {
   }
 
   /**
-   * Running out of a fight, lean the view toward the most open direction near
-   * where it looks (along the route ahead, or the way the bot runs): a sight
-   * line down a hall rather than the wall a route corner points at. Players
-   * look where someone could come from; a bot facing the wall it is turning
-   * round sees no one. Movement keeps its heading; the view stays within a
-   * quarter turn of it, as `_lookAlongRoute` keeps it.
+   * Running out of a fight, glance now and then toward the most open
+   * direction near where it looks: a sight line down a hall rather than the
+   * wall a route corner points at. Between glances the view rests where the
+   * bot runs, as a player's does: recorded people have the view more than 20°
+   * off their movement 38% of the time running, and bots that held the most
+   * open direction all the time 55% (docs/research/BOT_STRATEGY_LAYER.md).
+   * A glance lasts GLANCE_TICKS and comes every GLANCE_REST_TICKS or so, when
+   * a direction is clearly more open than straight ahead. Movement keeps its
+   * heading; the view stays within a quarter turn of it.
    */
   private _lookIntoOpenSpace(state: BotGameState, input: BotInput, vision: BotVision): void {
     const roaming =
@@ -563,7 +803,11 @@ export class StateMachineBrain extends BotBrain {
     const travel = travelYaw(input);
     const base = input.yaw;
     const allowed = (off: number) => Math.abs(wrapAngle(base + off - travel)) <= Math.PI / 2;
-    if (!this._look || state.tick >= this._look.untilTick || !allowed(this._look.off)) {
+    if (this._look && this._look.off !== 0 && (state.tick >= this._look.untilTick || !allowed(this._look.off))) {
+      // A glance ends: back to where the bot runs, for a rest of 2–4 s.
+      this._look = { off: 0, untilTick: state.tick + GLANCE_REST_TICKS * (0.67 + 0.67 * Math.random()) };
+    }
+    if (!this._look || state.tick >= this._look.untilTick) {
       const eye = { x: state.self.position.x, y: state.self.position.y + 36, z: state.self.position.z };
       // Turning from where the view is costs too: a route corner moves the
       // way the bot runs, and choosing afresh from it swung the view across.
@@ -575,18 +819,21 @@ export class StateMachineBrain extends BotBrain {
           (LOOK_TURN_COST * Math.abs(wrapAngle(yaw - state.self.yaw))) / (Math.PI / 2)
         );
       };
-      const held = this._look && allowed(this._look.off) ? this._look.off : 0;
-      let bestOff = held;
-      let bestScore = score(held) + LOOK_SWITCH_MARGIN;
+      let bestOff = 0;
+      let bestScore = score(0) + LOOK_SWITCH_MARGIN;
       for (let off = -LOOK_MAX_OFF_TRAVEL; off <= LOOK_MAX_OFF_TRAVEL + 1e-9; off += LOOK_STEP) {
-        if (Math.abs(off - held) < 1e-9 || !allowed(off)) continue;
+        if (Math.abs(off) < 1e-9 || !allowed(off)) continue;
         const value = score(off);
         if (value > bestScore) {
           bestScore = value;
           bestOff = off;
         }
       }
-      this._look = { off: bestOff, untilTick: state.tick + LOOK_INTERVAL_TICKS };
+      // Nothing worth a glance: look again in a moment.
+      this._look = {
+        off: bestOff,
+        untilTick: state.tick + (bestOff === 0 ? LOOK_INTERVAL_TICKS : GLANCE_TICKS * (0.7 + 0.6 * Math.random())),
+      };
     }
     input.moveYaw = travel;
     input.yaw = base + this._look.off;
@@ -598,7 +845,11 @@ export class StateMachineBrain extends BotBrain {
     // Non-interruptible work must reach the navigation executor before combat,
     // chase or item shopping can divert it. Death is handled by decide().
     if (this._mandatoryGoal) return BotState.ITEM_RUN;
-    const recentlyDamaged = state.wasRecentlyDamaged(DODGE_REACT_TICKS);
+    // A hit holds the bot on its attacker long enough to turn round and
+    // answer. Held only a quarter second, a bot shot in the back turned part
+    // way and went back to its item, and a chaser shot it in the back again.
+    const hitAttentionTicks = Math.round(((this.difficulty.hitAttentionMs ?? HIT_ATTENTION_MS) / 1000) * TICK_RATE);
+    const recentlyDamaged = state.wasRecentlyDamaged(hitAttentionTicks);
 
     // Use vision data if available, otherwise fall back to raw state
     const hasVisibleEnemy = this._lastVision
@@ -623,14 +874,15 @@ export class StateMachineBrain extends BotBrain {
         return BotState.FIGHT;
       }
       // Can't see attacker → dodge/retreat
-      if (state.self.health < this._mood.retreatHealth(RETREAT_HEALTH_THRESHOLD)) {
+      if (state.self.health < this._retreatHealth(RETREAT_HEALTH_THRESHOLD)) {
         return BotState.RETREAT;
       }
       return BotState.DODGE;
     }
 
-    // Priority 2: Enemy visible → fight
+    // Priority 2: Enemy visible → fight, unless the strategy says this one is costing too much.
     if (hasVisibleEnemy && nearestVisibleEnemy && nearestVisibleEnemy.distance < FIGHT_RANGE) {
+      if (this._shouldFade(state, nearestVisibleEnemy.entityId)) return BotState.RETREAT;
       return BotState.FIGHT;
     }
 
@@ -641,7 +893,8 @@ export class StateMachineBrain extends BotBrain {
     // chasing, it keeps chasing; distance alone would flip it in and out as
     // the gap crosses the limit.
     const chaseTarget = this._lastVision?.chaseTarget;
-    if (chaseTarget && this._mood.mistake(state.tick) !== "forget") {
+    // A strategy that wants no fight lets an enemy out of sight go.
+    if (chaseTarget && this._strategy.stance.chase && this._mood.mistake(state.tick) !== "forget") {
       const distantSound =
         chaseTarget.source === "sound" &&
         this.currentState !== BotState.CHASE &&
@@ -656,7 +909,7 @@ export class StateMachineBrain extends BotBrain {
   /** RETREAT or ITEM_RUN when the bot has somewhere to be, else null. */
   private _evaluateItemState(state: BotGameState): BotState | null {
     // Priority 3: Low health → retreat to find health
-    if (state.self.health < this._mood.retreatHealth(LOW_HEALTH_THRESHOLD)) {
+    if (state.self.health < this._retreatHealth(LOW_HEALTH_THRESHOLD)) {
       const hasPickup = state.getNearestPickup(PICKUP_SEEK_RANGE);
       if (hasPickup) {
         return BotState.RETREAT;
@@ -731,7 +984,13 @@ export class StateMachineBrain extends BotBrain {
     const combo =
       mistake === "wrong_weapon"
         ? null
-        : this._weaponCombos.choose(state, enemy, this.difficulty.predictionSkill, selectedWeaponId);
+        : this._weaponCombos.choose(
+            state,
+            enemy,
+            this.difficulty.predictionSkill,
+            selectedWeaponId,
+            this._enemyEstimate(enemy.entityId),
+          );
     if (combo) {
       weaponSlot = slotFor(state, combo);
       selectedWeaponId = combo;
@@ -1120,7 +1379,68 @@ export class StateMachineBrain extends BotBrain {
 
   // ── RETREAT State ─────────────────────────────────────────────────
 
+  /**
+   * Fade out of a fight: a strategy that fades (Recover, Protect lead), at least
+   * FADE_DAMAGE taken in this fight, and no stack advantage by the estimate.
+   */
+  private _shouldFade(state: BotGameState, enemyEntityId: string): boolean {
+    if (!this._strategy.stance.fade) return false;
+    const fight = this._matchRead.openFight(enemyEntityId);
+    if (!fight || fight.taken < FADE_DAMAGE) return false;
+    const enemy = this._matchRead.enemyStack(enemyEntityId);
+    const own = state.self.health + state.self.armor;
+    return !enemy || enemy.uncertainty > 0.5 || own <= enemy.stack;
+  }
+
+  /**
+   * A way out of a known enemy's sight: the nearest route node, within reach,
+   * that the enemy cannot see from where it was last known and that does not
+   * lie toward it. Reached once and dropped; null with no enemy or no node.
+   */
+  private _escapePoint(state: BotGameState): Vec3 | null {
+    const graph = this._navGraph;
+    const vision = this._lastBotVision;
+    if (!graph || !vision) return null;
+    const threat = this._lastVision?.visibleEnemies[0]?.player.position ?? this._getHuntTarget(state);
+    if (!threat) return null;
+    const self = state.self.position;
+    if (this._escape && state.tick < this._escape.untilTick) {
+      if (vec3Length(vec3Subtract(this._escape.point, self)) > ESCAPE_REACHED) return this._escape.point;
+      this._escape = null;
+      return null;
+    }
+    if (state.tick < this._escapeRetryTick) return null;
+    const toThreat = vec3Normalize(vec3Subtract(threat, self));
+    const eye = { x: threat.x, y: threat.y + 36, z: threat.z };
+    const candidates: { position: Vec3; distance: number }[] = [];
+    for (const node of graph.nodes) {
+      const offset = vec3Subtract(node.position, self);
+      const distance = vec3Length(offset);
+      if (distance < ESCAPE_MIN || distance > ESCAPE_MAX) continue;
+      const away = (offset.x * toThreat.x + offset.z * toThreat.z) / Math.max(1, distance);
+      if (away <= ESCAPE_MAX_TOWARD) candidates.push({ position: node.position, distance });
+    }
+    // Sight lines and route costs for the nearest few only.
+    candidates.sort((a, b) => a.distance - b.distance);
+    let best: { point: Vec3; cost: number } | null = null;
+    for (const { position } of candidates.slice(0, ESCAPE_CANDIDATES)) {
+      if (vision.canSee(eye, { x: position.x, y: position.y + 36, z: position.z })) continue;
+      const cost = graph.estimateTravelCost(self, position);
+      if (cost === null || (best && cost >= best.cost)) continue;
+      best = { point: position, cost };
+    }
+    this._escape = best ? { point: best.point, untilTick: state.tick + ESCAPE_HOLD_TICKS } : null;
+    if (!best) this._escapeRetryTick = state.tick + ESCAPE_RETRY_TICKS;
+    return best?.point ?? null;
+  }
+
   private _executeRetreat(state: BotGameState): BotInput {
+    // First out of the enemy's sight, then to health.
+    if (this._lastVision?.visibleEnemies.length) {
+      const wayOut = this._escapePoint(state);
+      if (wayOut) return this._navigateTo(state, wayOut, true);
+    } else this._escape = null;
+
     // Scored choice among HEALTH ONLY. Retreating is a specific intent, so the
     // candidate set is filtered rather than left open — but within health the
     // arbiter still beats "nearest": it accounts for overcap (a bubble at 98 HP
@@ -1718,6 +2038,8 @@ export class StateMachineBrain extends BotBrain {
       blockedGoalIds: new Set(this._blockedGoalIds.keys()),
       typeFilter,
       ignoreDirectives,
+      weights: this._weights(state),
+      contested: this._contested(),
       // Real graph distances when the map's nav graph is loaded, so an item
       // behind a wall is gated as unreachable instead of looking close.
       navGraph: this._navGraph,
@@ -1726,7 +2048,7 @@ export class StateMachineBrain extends BotBrain {
     this._activeItemGoal = result.goal;
     this._goalMemoTick = state.tick;
     this._goalMemoKey = memoKey;
-    this._goalMemoResult = result.goal ? { goal: result.goal, stopover: result.stopover } : null;
+    this._goalMemoResult = result.goal ? { goal: result.goal, stopover: result.stopover, desire: result.desire } : null;
     if (this._goalArbiterMode === "verbose" && result.goal) {
       console.log(`[bot] ${result.explain}`);
     }
@@ -2219,6 +2541,22 @@ export class StateMachineBrain extends BotBrain {
    * passed one behind).
    */
   private _slideLaneOpen(state: BotGameState, path: NavPath, step: NavStep): boolean {
+    return this._laneOpen(state, path, step, ROUTE_SLIDE_RUN, ROUTE_SLIDE_REACH, ROUTE_SLIDE_LANE);
+  }
+
+  /**
+   * Is the route ahead a lane `run` long, `lane` wide, walkable, with only plain
+   * walking up to `reach` and no turn over 45° just after the run? Waypoints may
+   * be close together: the bot passes them (BotNavGraph.getNextStep).
+   */
+  private _laneOpen(
+    state: BotGameState,
+    path: NavPath,
+    step: NavStep,
+    run: number,
+    reach: number,
+    laneWidth: number,
+  ): boolean {
     if (step.type !== "walk" || step.requiresPreciseApproach) return false;
     const self = state.self.position;
     const heading = { x: step.to.position.x - self.x, z: step.to.position.z - self.z };
@@ -2231,19 +2569,57 @@ export class StateMachineBrain extends BotBrain {
       const next = path.steps[i];
       const point = next.to.position;
       along = (point.x - self.x) * dx + (point.z - self.z) * dz;
-      if (along >= ROUTE_SLIDE_REACH) break;
+      if (along >= reach) break;
       const lateral = Math.abs((point.x - self.x) * dz - (point.z - self.z) * dx);
-      // A jump, drop or precise approach inside the reach is no place to slide,
+      // A jump, drop or precise approach inside the reach is no place for it,
       // nor a turn inside the run. After the run the bot can turn up to 45°.
-      const lane = ROUTE_SLIDE_LANE + Math.max(0, along - ROUTE_SLIDE_RUN);
+      const lane = laneWidth + Math.max(0, along - run);
       if (lateral > lane || next.type !== "walk" || next.requiresPreciseApproach) return false;
     }
-    // A route ending inside the reach must still leave room for the slide.
-    if (along < ROUTE_SLIDE_RUN) return false;
+    // A route ending inside the reach must still leave room for the run.
+    if (along < run) return false;
     const vision = this._lastBotVision;
     if (!vision) return true;
-    const end = { x: self.x + dx * ROUTE_SLIDE_RUN, y: self.y, z: self.z + dz * ROUTE_SLIDE_RUN };
+    const end = { x: self.x + dx * run, y: self.y, z: self.z + dz * run };
     return vision.isWalkable(self, end);
+  }
+
+  /**
+   * Where a hop chain can run: the route line being followed, when the next
+   * ROUTE_STRAFE_REACH of it is plain walking that turns at most
+   * ROUTE_STRAFE_MAX_TURN in all, and at least ROUTE_STRAFE_RUN of it is left.
+   * A chain steers along the line, so it may bend; a jump, drop or exact
+   * approach inside the reach is no place for one.
+   */
+  private _hopLine(state: BotGameState, path: NavPath): { points: readonly Vec3[]; end: Vec3 } | null {
+    const held = this._routeLine;
+    if (!held || held.path !== path) return null;
+    for (let i = path.cursor; i < Math.min(path.steps.length, held.line.endStep); i++) {
+      if (path.steps[i].type !== "walk" || path.steps[i].requiresPreciseApproach) return null;
+    }
+    const points = held.line.points;
+    const self = state.self.position;
+    const start = pointAlong(points, self, 0, held.stretch);
+    // Walk the line ahead: its length to the reach, and how much it turns.
+    let length = 0;
+    let turned = 0;
+    let previous = start.point;
+    let heading: number | null = null;
+    let end = start.point;
+    for (let i = start.stretch + 1; i < points.length && length < ROUTE_STRAFE_REACH; i++) {
+      const point = points[i];
+      const piece = Math.hypot(point.x - previous.x, point.z - previous.z);
+      if (piece < 1) continue;
+      const yaw = Math.atan2(point.x - previous.x, point.z - previous.z);
+      if (heading !== null) turned += Math.abs(wrapAngle(yaw - heading));
+      if (turned > ROUTE_STRAFE_MAX_TURN) break;
+      heading = yaw;
+      length += piece;
+      end = point;
+      previous = point;
+    }
+    if (length < ROUTE_STRAFE_RUN) return null;
+    return { points, end };
   }
 
   private _tryStartRouteCrouchslide(input: BotInput, state: BotGameState): BotInput | null {
@@ -2320,11 +2696,17 @@ export class StateMachineBrain extends BotBrain {
 
     const routeDelta = vec3Subtract(step.to.position, state.self.position);
     const remaining = Math.hypot(routeDelta.x, routeDelta.z);
-    const minRemaining =
-      this.currentState === BotState.ITEM_RUN && path.cursor === path.steps.length - 1
-        ? ROUTE_STRAFE_ITEM_MIN_REMAINING_DISTANCE
-        : ROUTE_STRAFE_MIN_REMAINING_DISTANCE;
-    if (remaining < minRemaining) return null;
+    // An open lane of route ahead, however many waypoints it passes, and room
+    // to stop before an item at its end.
+    const lastItemStep = this.currentState === BotState.ITEM_RUN && path.cursor === path.steps.length - 1;
+    if (lastItemStep && remaining < ROUTE_STRAFE_ITEM_MIN_REMAINING_DISTANCE) return null;
+    // Along the route line when one is held, else a straight lane of route.
+    const line =
+      this._hopLine(state, path) ??
+      (this._laneOpen(state, path, step, STRAIGHT_HOP_RUN, STRAIGHT_HOP_REACH, STRAIGHT_HOP_LANE)
+        ? { points: null, end: null }
+        : null);
+    if (!line) return null;
 
     const routeDirection = vec3Normalize({ x: routeDelta.x, y: 0, z: routeDelta.z });
     const horizontalSpeed = Math.hypot(state.self.velocity.x, state.self.velocity.z);
@@ -2334,17 +2716,6 @@ export class StateMachineBrain extends BotBrain {
         (state.self.velocity.x * routeDirection.x + state.self.velocity.z * routeDirection.z) / horizontalSpeed;
       const velocityError = Math.acos(Math.max(-1, Math.min(1, velocityDotRoute)));
       if (velocityError > ROUTE_STRAFE_MAX_VELOCITY_ERROR_RADIANS) return null;
-    }
-
-    const nextStep = path.steps[path.cursor + 1] ?? null;
-    if (remaining < ROUTE_STRAFE_LOOKAHEAD_DISTANCE && nextStep) {
-      if (nextStep.type !== "walk" || nextStep.requiresPreciseApproach) return null;
-      const nextDirection = vec3Normalize(vec3Subtract(nextStep.to.position, step.to.position));
-      const turnDot = Math.max(
-        -1,
-        Math.min(1, routeDirection.x * nextDirection.x + routeDirection.z * nextDirection.z),
-      );
-      if (Math.acos(turnDot) > ROUTE_STRAFE_MAX_TURN_RADIANS) return null;
     }
 
     const allyBlocksRoute = state.players.some((player) => {
@@ -2358,7 +2729,30 @@ export class StateMachineBrain extends BotBrain {
     });
     if (allyBlocksRoute) return null;
 
-    const context = this._getSequenceContext(state, step, input, false, true, this._routeStrafeSide);
+    const points = line.points;
+    const self = state.self.position;
+    const context = {
+      ...this._getSequenceContext(state, step, input, false, true, this._routeStrafeSide),
+      // Along a route line: steer with it to the end of the open stretch. On a
+      // straight lane: hold the heading to its end, past waypoints inside it.
+      routeStrafeEnd: line.end ?? {
+        x: self.x + routeDirection.x * (STRAIGHT_HOP_RUN + STRAIGHT_HOP_EXIT_MARGIN),
+        y: self.y,
+        z: self.z + routeDirection.z * (STRAIGHT_HOP_RUN + STRAIGHT_HOP_EXIT_MARGIN),
+      },
+      routeStrafeSteer: points
+        ? (at: Vec3) => {
+            const ahead = pointAlong(points, at, ROUTE_STRAFE_STEER_AHEAD).point;
+            return Math.atan2(ahead.x - at.x, ahead.z - at.z);
+          }
+        : null,
+      routeStrafeOffLine: points
+        ? (at: Vec3) => {
+            const near = pointAlong(points, at, 0).point;
+            return Math.hypot(near.x - at.x, near.z - at.z);
+          }
+        : null,
+    };
     if (!this._sequenceRuntime.start("route_strafe_jump", context)) return null;
     this._routeStrafeSide = this._routeStrafeSide === 1 ? -1 : 1;
     this._routeStrafeCooldownUntilTick = state.tick + BOT_STRAFE_RETRY_TICKS;
@@ -2462,20 +2856,31 @@ export class StateMachineBrain extends BotBrain {
 
   // ── Decision Helpers ──────────────────────────────────────────────
 
+  /**
+   * Whether to go shopping rather than hunt. Hurt or out of ammo, always; with
+   * 25 armor or more, no, unless the strategy shops armoured (Recover, Control,
+   * Protect lead), and then for an item worth it as below. Under 25 armor with no idea where an enemy is, yes:
+   * there is no one to hunt, so the item cycle is the better use of the time.
+   * Under 25 armor with an enemy to hunt, the item planner's best goal has to
+   * be worth it against the gametype's `aggression`: SEEK_DESIRE_BASE +
+   * SEEK_DESIRE_PER_AGGRESSION × aggression, scaled by the strategy's
+   * `seekScale`. Duel (aggression 0.5) keeps
+   * shopping for most items; Deathmatch (0.8) takes only the good ones.
+   * Before, any bot under 25 armor shopped, which is every bot after it spawns,
+   * and HUNT was about 1–2% of roaming time.
+   */
   private _shouldSeekItems(state: BotGameState): boolean {
-    // Seek items if:
-    // - Low on ammo for current weapon
-    // - Missing key weapons
-    // - Health below 50
-    // - Low armor
     if (state.self.health < 50) return true;
-    if (state.self.armor < 25) return true;
-
-    // Check ammo
     const currentAmmo = state.self.ammo[state.self.currentWeapon];
     if (currentAmmo !== undefined && currentAmmo < 3) return true;
 
-    return false;
+    const stance = this._strategy.stance;
+    if (state.self.armor >= 25 && !stance.shopArmored) return false;
+    if (state.self.armor < 25 && !this._getHuntTarget(state)) return true;
+    const best = this._selectItemGoal(state);
+    if (!best) return this._goalArbiterMode === "legacy" && state.self.armor < 25;
+    const worth = (SEEK_DESIRE_BASE + SEEK_DESIRE_PER_AGGRESSION * this._weights(state).aggression) * stance.seekScale;
+    return best.desire >= worth;
   }
 
   private _getHuntTarget(state: BotGameState): Vec3 | null {

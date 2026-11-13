@@ -141,12 +141,15 @@ export class RouteStrafeJumpSequence implements BotSequence {
       commitUntilTick: context.state.tick,
       data: {
         routeYaw,
-        routeEnd: { ...step.to.position },
+        // The end of the open lane when the brain checked one, else the waypoint.
+        routeEnd: { ...(context.routeStrafeEnd ?? step.to.position) },
         startPosition: { ...context.state.self.position },
         startSpeed: horizontalSpeed(context.state.self.velocity),
         targetSpeed: 360 + skill * 600,
         maxCrossTrack: 96 + skill * 64,
         side: context.routeStrafeSide ?? 1,
+        steer: context.routeStrafeSteer ?? null,
+        offLine: context.routeStrafeOffLine ?? null,
         lastTick: context.state.tick,
         wasAirborne: false,
       },
@@ -200,13 +203,20 @@ export class RouteStrafeJumpSequence implements BotSequence {
       };
     }
 
+    // Along a route line, the hop bends with it: steer for the line ahead, and
+    // measure the drift from the line. Else the straight line from the start.
+    const steer = state.data.steer as ((at: Vec3) => number) | null;
+    const offLine = state.data.offLine as ((at: Vec3) => number) | null;
+    if (steer) state.data.routeYaw = steer(self.position);
     const start = state.data.startPosition as Vec3;
     const displacement = {
       x: self.position.x - start.x,
       z: self.position.z - start.z,
     };
     const routeYaw = state.data.routeYaw as number;
-    const crossTrack = Math.abs(displacement.x * Math.cos(routeYaw) - displacement.z * Math.sin(routeYaw));
+    const crossTrack = offLine
+      ? offLine(self.position)
+      : Math.abs(displacement.x * Math.cos(routeYaw) - displacement.z * Math.sin(routeYaw));
     if (crossTrack > (state.data.maxCrossTrack as number)) {
       return {
         input: routeForwardInput(state, false),

@@ -12,6 +12,7 @@
  */
 
 import { type Consideration, type ConsiderationContext, clamp01 } from "../Consideration";
+import { isMajorItem } from "./ItemFacts";
 
 /**
  * Cost at which the discount halves. Tuned against the brain's existing
@@ -42,9 +43,21 @@ export const RouteCost: Consideration = {
         : 0;
     }
     if (ctx.routeCost <= 0) return 1;
-    return clamp01(1 / (1 + ctx.routeCost / ROUTE_HALF_COST));
+    return clamp01(1 / (1 + ctx.routeCost / routeHalfCost(ctx)));
   },
 };
+
+/**
+ * A major item is worth a longer run where the mode values the major items
+ * more (WeightProfiles: majorItemBias): in Duel a player crosses the map for
+ * a Red Armor. With one half cost for all, the nearest item won and a Red
+ * Armor up a climb was left standing.
+ */
+function routeHalfCost(ctx: ConsiderationContext): number {
+  const item = ctx.goal.item;
+  if (!item || !isMajorItem(item.type, item.kind)) return ROUTE_HALF_COST;
+  return ROUTE_HALF_COST * Math.max(1, ctx.weights.majorItemBias);
+}
 
 /** Vertical travel is dearer than horizontal — climbing costs time and speed. */
 const VERTICAL_PENALTY = 2.0;

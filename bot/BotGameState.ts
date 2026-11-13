@@ -307,8 +307,12 @@ export class BotGameState {
 
   // Recent events (cleared each tick)
   recentDamage: BotDamageEvent[] = [];
-  /** Hits this bot landed: the victim's entity, the weapon and when. */
-  recentHits: Array<{ victimEntityId: string; weaponId: string; damage: number; tick: number }> = [];
+  /**
+   * Hits this bot landed: the victim's entity, the weapon, the whole hit before
+   * armor, when, and the victim's pain tier after it when the server sent one
+   * (0 at 20 health or less, 1 up to 35, 2 up to 60, 3 above).
+   */
+  recentHits: Array<{ victimEntityId: string; weaponId: string; damage: number; tick: number; painTier?: number }> = [];
   recentKills: BotKillEvent[] = [];
   /** This bot's last shot as the server fired it: the weapon and when. */
   lastOwnShot: { weaponId: string; tick: number } | null = null;
@@ -330,7 +334,7 @@ export class BotGameState {
    * Major items (armour, Mega Health, powerups) this bot saw or heard each
    * enemy take, by player id: who is likely stacked. Filled by BotPerception.
    */
-  enemyMajorItems: Map<string, { type: string; kind: string; tick: number }> = new Map();
+  enemyMajorItems: Map<string, { type: string; kind: string; tick: number; pickupId?: number }> = new Map();
 
   // Last known enemy positions (persists across ticks for hunting)
   lastKnownEnemyPositions: Map<string, { position: Vec3; tick: number }> = new Map();
@@ -581,6 +585,7 @@ export class BotGameState {
               weaponId: evt.weaponId,
               damage: evt.damage,
               tick: this.tick,
+              painTier: evt.painTier,
             });
           }
           if (evt.entityId === this.selfEntityId) {

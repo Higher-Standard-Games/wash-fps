@@ -39,6 +39,7 @@ import { BotLobbyClient, type LobbyBotState } from "./BotLobbyClient";
 import { BotNavCacheStore } from "./BotNavCache";
 import { BotNavGraph } from "./BotNavGraph";
 import { type BotVision, createBotVision } from "./BotVision";
+import type { IntelStore, MatchReport } from "./intel/IntelStore";
 import { loadLearnedRoutes } from "./LearnedRoutes";
 
 // ── Control API Message Types ───────────────────────────────────────────
@@ -98,6 +99,20 @@ type ControlResponse =
 
 // ── BotServer ───────────────────────────────────────────────────────────
 
+/**
+ * The options a bot is created with: every option asked for, with a name, a
+ * difficulty and the server's model directory filled in. Every field passes
+ * through, so an option added to BotOptions reaches the bot without a change here.
+ */
+export function botOptionsFor(options: Partial<BotOptions> | undefined, modelDir: string | undefined): BotOptions {
+  return {
+    ...options,
+    name: options?.name || getNextBotName(),
+    difficulty: options?.difficulty || "medium",
+    modelDir: options?.modelDir ?? modelDir,
+  };
+}
+
 export class BotServer {
   private _wss: WebSocketServer | null = null;
   private _bots: Map<string, BotClient> = new Map();
@@ -122,10 +137,21 @@ export class BotServer {
   /** Shared with the lobby: guards the control port and marks lobby bots as bots. */
   private _secret: string | undefined;
 
-  constructor(port: number = 9100, options: { secret?: string; modelDir?: string } = {}) {
+  /** Where bots' match reports go (bot/intel/IntelStore.ts); none in headless tools. */
+  private _intel: IntelStore | null;
+
+  /** Where the learned route libraries are read from (`<root>/config/bot-routes`); the working directory by default. */
+  private readonly _routesRoot: string | undefined;
+
+  constructor(
+    port: number = 9100,
+    options: { secret?: string; modelDir?: string; intel?: IntelStore; routesRoot?: string } = {},
+  ) {
     this._port = port;
     this._secret = options.secret;
     this._modelDir = options.modelDir;
+    this._intel = options.intel ?? null;
+    this._routesRoot = options.routesRoot;
   }
 
   /** Where trained models live, for every bot this server spawns. */
@@ -197,19 +223,29 @@ export class BotServer {
   // ── Bot Management ────────────────────────────────────────────────
 
   /**
+   * Store the bot's match report in the bot-intel store when its match ends.
+   * Every game bot needs this, whether added directly or invited from a lobby.
+   */
+  private _recordReports(bot: BotClient): void {
+    const intel = this._intel;
+    if (!intel) return;
+    bot.on("matchReport", (report: MatchReport) => {
+      try {
+        intel.record(report);
+      } catch (error) {
+        console.warn(`[BotServer] Could not store ${bot.name}'s match report: ${(error as Error).message}`);
+      }
+    });
+  }
+
+  /**
    * Spawn a new bot and connect it to a game server.
    */
   async addBot(gameServerUrl: string, options?: Partial<BotOptions>): Promise<BotClient> {
-    const botOptions: BotOptions = {
-      name: options?.name || getNextBotName(),
-      difficulty: options?.difficulty || "medium",
-      team: options?.team,
-      modelDir: options?.modelDir ?? this._modelDir,
-      goalArbiter: options?.goalArbiter,
-      chat: options?.chat,
-    };
+    const botOptions = botOptionsFor(options, this._modelDir);
 
     const bot = new BotClient(botOptions);
+    this._recordReports(bot);
 
     bot.on("disconnected", () => {
       console.log(`[BotServer] Bot ${bot.name} (${bot.id}) disconnected`);
@@ -258,6 +294,7 @@ export class BotServer {
     // When lobby bot transitions to game, track the game BotClient
     lobbyBot.onGameBotCreated = (bot: BotClient) => {
       this._bots.set(bot.id, bot);
+      this._recordReports(bot);
       console.log(`[BotServer] Lobby bot ${lobbyBot.name} transitioned to game as ${bot.id}`);
 
       // Load vision asynchronously
@@ -341,7 +378,9 @@ export class BotServer {
           }
           // After the cache save: learned routes live in config/bot-routes and
           // change without the map changing, so they are never cached.
-          const learned = navGraph.addLearnedRoutes(loadLearnedRoutes(mapName));
+          const learned = navGraph.addLearnedRoutes(loadLearnedRoutes(mapName, this._routesRoot), (from, to) =>
+            vision.isWalkable(from, to),
+          );
           this._navGraphCache.set(mapName, navGraph);
           console.log(
             `[BotServer] NavGraph built → ${navGraph.nodeCount} nodes, ${navGraph.edgeCount} edges, ${learned} learned routes`,

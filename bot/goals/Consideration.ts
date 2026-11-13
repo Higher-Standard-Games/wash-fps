@@ -40,6 +40,11 @@ export interface ConsiderationContext {
    */
   routeCost: number | null;
   weights: BotWeightProfile;
+  /**
+   * Pickups an opponent keeps taking, by pickup id, 0..1 (strategy/OpponentModel):
+   * what the bot has learned in this match about where its opponent goes.
+   */
+  contested?: ReadonlyMap<number, number>;
 }
 
 export interface Consideration {
