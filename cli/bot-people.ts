@@ -69,7 +69,9 @@ async function main(): Promise<void> {
         }
         const age = (frame.tick - (spawnTick.get(e.entityId) ?? frame.tick)) / TICK_RATE;
         const bucket = Math.min(AGE_BUCKETS - 1, Math.floor(age / STACK_AGE_BUCKET));
-        (byAge[bucket] ??= []).push((e.health ?? 0) + (e.armor ?? 0));
+        const samples = byAge[bucket] ?? [];
+        byAge[bucket] = samples;
+        samples.push((e.health ?? 0) + (e.armor ?? 0));
       }
     }
   }
