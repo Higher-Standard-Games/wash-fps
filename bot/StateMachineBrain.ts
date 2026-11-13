@@ -52,6 +52,7 @@ import { canLunge, SlideBladeSequence } from "./sequences/SlideBladeSequence";
 import { TraverseJumppadSequence } from "./sequences/TraverseJumppadSequence";
 import { TraverseTeleporterSequence } from "./sequences/TraverseTeleporterSequence";
 import { ValidatedJumpSequence } from "./sequences/ValidatedJumpSequence";
+import { MatchRead } from "./strategy/MatchRead";
 
 // ── Constants ───────────────────────────────────────────────────────────
 
@@ -259,6 +260,8 @@ export class StateMachineBrain extends BotBrain {
   private _onRouteLine = false;
   /** Where the view looks while running, relative to the way the bot runs, and until when. */
   private _look: { off: number; untilTick: number } | null = null;
+  /** What the bot knows of how the match is going (strategy/MatchRead.ts). */
+  private readonly _matchRead = new MatchRead();
 
   // Crouchslide cooldown. Sequence phases use authoritative server ticks.
   private _slideCooldownUntilTick: number = 0;
@@ -376,6 +379,11 @@ export class StateMachineBrain extends BotBrain {
     return goal ? `${nav} ${goal}` : nav;
   }
 
+  /** The bot's running read of the match. */
+  get matchRead(): MatchRead {
+    return this._matchRead;
+  }
+
   isSequenceActive(): boolean {
     return this._sequenceRuntime.isActive;
   }
@@ -426,6 +434,7 @@ export class StateMachineBrain extends BotBrain {
     this._onRouteLine = false;
     this._lastVision = visionResult ?? null;
     this._lastDecisionTick = state.tick;
+    this._matchRead.update(state);
     this._lastBotVision = vision ?? null;
     this._navGraph = navGraph ?? null;
 
