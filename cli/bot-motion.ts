@@ -22,6 +22,8 @@
  *
  * The match demo goes to a temporary folder, deleted when the run ends, or
  * with `--keep-demo <folder>` is moved there for `bot:demo-motion`.
+ * `--routes-root <folder>` reads learned routes from that folder's
+ * `config/bot-routes` instead of the checked-in ones.
  *
  * Usage:
  *   npm run bot:motion -- --map washoi_dm2 --bots 4 --seconds 120
@@ -53,6 +55,7 @@ interface Args {
   port: number;
   /** Folder to keep the match demo in, for `bot:demo-motion`. */
   keepDemo: string | null;
+  routesRoot: string | null;
 }
 
 const DEG = 180 / Math.PI;
@@ -95,6 +98,7 @@ function parseArgs(): Args {
     difficulty: "medium",
     port: 7795,
     keepDemo: null,
+    routesRoot: null,
   };
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
@@ -121,10 +125,13 @@ function parseArgs(): Args {
       case "--keep-demo":
         a.keepDemo = next();
         break;
+      case "--routes-root":
+        a.routesRoot = next();
+        break;
       case "--help":
       case "-h":
         console.log(
-          "Usage: npm run bot:motion -- [--map washoi_dm2] [--bots 4] [--seconds 120] [--gametype ffa|duel] [--difficulty medium] [--port 7795] [--keep-demo <folder>]",
+          "Usage: npm run bot:motion -- [--map washoi_dm2] [--bots 4] [--seconds 120] [--gametype ffa|duel] [--difficulty medium] [--port 7795] [--keep-demo <folder>] [--routes-root <root with config/bot-routes>]",
         );
         process.exit(0);
     }
@@ -387,7 +394,7 @@ async function main(): Promise<void> {
   if (bsp.pvs) server.setPVSData(bsp.pvs);
   await server.start();
 
-  const botServer = new BotServer(args.port + 100, {});
+  const botServer = new BotServer(args.port + 100, args.routesRoot ? { routesRoot: args.routesRoot } : {});
   const started = performance.now();
   const now = () => (performance.now() - started) / 1000;
   const logs: { samples: Sample[]; decisions: Decision[] }[] = [];

@@ -378,7 +378,9 @@ export class BotServer {
           }
           // After the cache save: learned routes live in config/bot-routes and
           // change without the map changing, so they are never cached.
-          const learned = navGraph.addLearnedRoutes(loadLearnedRoutes(mapName, this._routesRoot));
+          const learned = navGraph.addLearnedRoutes(loadLearnedRoutes(mapName, this._routesRoot), (from, to) =>
+            vision.isWalkable(from, to),
+          );
           this._navGraphCache.set(mapName, navGraph);
           console.log(
             `[BotServer] NavGraph built → ${navGraph.nodeCount} nodes, ${navGraph.edgeCount} edges, ${learned} learned routes`,

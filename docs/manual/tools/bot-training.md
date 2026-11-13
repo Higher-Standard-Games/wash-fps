@@ -317,6 +317,7 @@ a spectator:
 | `--difficulty` | `medium` |
 | `--port` | `7795`; the bot control socket uses this plus 100 |
 | `--keep-demo` | none; a folder to keep the match demo in, for `bot:demo-motion` |
+| `--routes-root` | none; a folder whose `config/bot-routes` the bots read their learned routes from, to compare two route libraries |
 
 ```bash
 npm --prefix src/games/fps run bot:motion -- --map washoi_dm1 --bots 4 --seconds 120
