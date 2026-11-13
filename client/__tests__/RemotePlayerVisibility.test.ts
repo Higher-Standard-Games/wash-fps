@@ -28,6 +28,7 @@ const { RemotePlayerRenderer } = await import("../RemotePlayerRenderer");
 interface Internals {
   hitboxes: Map<string, unknown>;
   noteWeaponFire(entityId: string): void;
+  playKillTaunt(entityId: string, taunt: string): void;
   modelManager: unknown;
   deadEntities: Map<string, number>;
   _hiddenEntityId: string | null;
@@ -86,6 +87,9 @@ function setup() {
     setAimPitch: vi.fn(),
     playAnimation: vi.fn(),
     stopOneShot: vi.fn(),
+    activeOneShot: vi.fn().mockReturnValue(null),
+    isOneShotPlaying: vi.fn().mockReturnValue(false),
+    playOnce: vi.fn().mockReturnValue(true),
     setUpperBodyStance: vi.fn(),
     useConservativeBounds: vi.fn(),
     selectAlways: vi.fn(),
@@ -245,5 +249,46 @@ describe("remote upper-body pose", () => {
     renderer.noteWeaponFire("player_2");
     frame(state);
     expect(manager.playAnimation).toHaveBeenLastCalledWith(model, "run_relaxed");
+  });
+
+  it("ends a kill taunt on a shot or on aiming, and leaves a blade swing alone", () => {
+    const { renderer, frame, model } = setup();
+    const manager = renderer.modelManager as { activeOneShot: Mock; stopOneShot: Mock };
+    const running = { grounded: true, vx: 0, vz: 400, aiming: false, pitch: 0 };
+    manager.activeOneShot.mockReturnValue("taunt_1");
+    frame(running);
+    expect(manager.stopOneShot).not.toHaveBeenCalled();
+    renderer.noteWeaponFire("player_2");
+    expect(manager.stopOneShot).toHaveBeenCalledTimes(1);
+    expect(manager.stopOneShot).toHaveBeenLastCalledWith(model);
+    frame({ ...running, aiming: true });
+    expect(manager.stopOneShot).toHaveBeenCalledTimes(2);
+    manager.activeOneShot.mockReturnValue("blade_slash");
+    renderer.noteWeaponFire("player_2");
+    frame({ ...running, aiming: true });
+    expect(manager.stopOneShot).toHaveBeenCalledTimes(2);
+  });
+
+  it("starts a kill taunt after a blade swing still playing, but not once a second has passed", () => {
+    const { renderer, frame, model } = setup();
+    const manager = renderer.modelManager as { activeOneShot: Mock; isOneShotPlaying: Mock; playOnce: Mock };
+    const running = { grounded: true, vx: 0, vz: 400, aiming: false, pitch: 0 };
+    Object.assign(renderer, { demoTimeline: {}, demoPlayheadTick: 60, demoTickRate: 60 });
+    manager.activeOneShot.mockReturnValue("blade_slash");
+    manager.isOneShotPlaying.mockReturnValue(true);
+    renderer.playKillTaunt("player_2", "taunt_3");
+    frame(running);
+    expect(manager.playOnce).not.toHaveBeenCalled();
+    manager.activeOneShot.mockReturnValue(null);
+    manager.isOneShotPlaying.mockReturnValue(false);
+    frame(running);
+    expect(manager.playOnce).toHaveBeenCalledWith(model, "taunt_3", 1);
+    manager.activeOneShot.mockReturnValue("blade_slash");
+    manager.isOneShotPlaying.mockReturnValue(true);
+    renderer.playKillTaunt("player_2", "taunt_1");
+    Object.assign(renderer, { demoPlayheadTick: 130 });
+    manager.isOneShotPlaying.mockReturnValue(false);
+    frame(running);
+    expect(manager.playOnce).toHaveBeenCalledTimes(1);
   });
 });

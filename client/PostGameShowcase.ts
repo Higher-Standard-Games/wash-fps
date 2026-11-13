@@ -16,7 +16,12 @@
 import type { Camera } from "@babylonjs/core/Cameras/camera";
 import type { Light } from "@babylonjs/core/Lights/light";
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
-import { disposePlayerModel, type PlayerModelInstance } from "../../../engine/animation/PlayerModelManager";
+import {
+  disposePlayerModel,
+  type PlayerModelInstance,
+  PlayerModelManager,
+  VICTORY_ANIMS,
+} from "../../../engine/animation/PlayerModelManager";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
 import { devLog } from "./DevLog";
 import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
@@ -230,21 +235,18 @@ export async function startPostGameShowcase(
       .catch((e) => console.warn("[PostGameShowcase] weapon attach failed", e));
   }
 
-  // Victory dance! Random pick from whichever Mixamo dance clips are shipped
-  // (missing clips are skipped at load; playAnimation returns false → the
-  // model simply keeps its idle pose).
-  try {
-    const { DANCE_ANIMS, PlayerModelManager } = await import("../../../engine/animation/PlayerModelManager");
-    const dances = [...DANCE_ANIMS].sort(() => Math.random() - 0.5);
-    for (const dance of dances) {
-      if (PlayerModelManager.playAnimationOn(model, dance)) {
-        devLog(`[PostGameShowcase] victory dance: ${dance}`);
-        break;
-      }
-    }
-  } catch {
-    /* dances are a flourish — idle pose is fine */
+  // One of the loaded victory clips, each equally likely. A body without any
+  // keeps its idle pose.
+  const clip = pickVictoryClip(model.anims.map((anim) => anim.name));
+  if (clip && PlayerModelManager.playAnimationOn(model, clip)) {
+    devLog(`[PostGameShowcase] victory clip: ${clip}`);
   }
+}
+
+/** One of the victory clips among `loaded`, each equally likely, or null when none is loaded. */
+export function pickVictoryClip(loaded: readonly string[], random: () => number = Math.random): string | null {
+  const clips = VICTORY_ANIMS.filter((name) => loaded.includes(name));
+  return clips.length ? clips[Math.floor(random() * clips.length)] : null;
 }
 
 /** Remove the showcase model (next warmup / disconnect). Idempotent. */

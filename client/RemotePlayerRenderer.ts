@@ -39,6 +39,7 @@ import {
   type PlayerModelInstance,
   PlayerModelManager,
   type PlayerModelVisualStyle,
+  TAUNT_ANIMS,
 } from "../../../engine/animation/PlayerModelManager";
 import { background } from "../../../engine/core/AsyncErrors";
 import { Cvar } from "../../../engine/core/Cvar";
@@ -162,6 +163,8 @@ interface RemotePlayerHitbox {
   /** Pose sampled at the reduced rate (medium distance); see applyAnimationLod. */
   poseStepped?: boolean;
   weaponReadyUntil?: number;
+  /** A kill taunt waiting for the blade swing to end, until `until` on the pose clock. */
+  pendingTaunt?: { name: string; until: number };
 }
 
 // ─── Constants (Q3-style player bounds) ──────────────────────────
@@ -1340,10 +1343,39 @@ export class RemotePlayerRenderer {
     };
   }
 
-  /** Keep the weapon raised briefly after each shot, using the playback clock in demos. */
+  /** Keep the weapon raised briefly after each shot, using the playback clock in demos. A shot ends a taunt. */
   noteWeaponFire(entityId: string): void {
     const hitbox = this.hitboxes.get(entityId);
-    if (hitbox) hitbox.weaponReadyUntil = this.poseTimeSeconds() + 0.6;
+    if (!hitbox) return;
+    hitbox.weaponReadyUntil = this.poseTimeSeconds() + 0.6;
+    this.stopTaunt(entityId, hitbox);
+  }
+
+  /**
+   * Taunt over the upper body after a kill; the legs keep running. A blade
+   * swing still playing finishes first, if it ends within a second. The next
+   * shot, aiming down sights, a weapon switch, swimming, climbing or sliding
+   * ends the taunt.
+   */
+  playKillTaunt(entityId: string, taunt: string): void {
+    const hitbox = this.hitboxes.get(entityId);
+    if (!hitbox?.model || !this.modelManager) return;
+    const playing = this.modelManager.activeOneShot(hitbox.model);
+    if (playing && !TAUNT_ANIMS.includes(playing)) {
+      hitbox.pendingTaunt = { name: taunt, until: this.poseTimeSeconds() + 1 };
+      return;
+    }
+    this.playAttackAnim(entityId, taunt);
+  }
+
+  private stopTaunt(entityId: string, hitbox: RemotePlayerHitbox): void {
+    hitbox.pendingTaunt = undefined;
+    const model = hitbox.model;
+    if (!model || !this.modelManager) return;
+    const playing = this.modelManager.activeOneShot(model);
+    if (!playing || !TAUNT_ANIMS.includes(playing)) return;
+    this.demoAnimationTimeline?.delete(entityId);
+    this.modelManager.stopOneShot(model);
   }
 
   private poseTimeSeconds(): number {
@@ -2007,6 +2039,12 @@ export class RemotePlayerRenderer {
     const relaxed =
       !backward && locomotion === "run" && !weaponReady && inst.anims.some((clip) => clip.name === "run_relaxed");
     const animName = backward ? "run_back" : relaxed ? "run_relaxed" : locomotion;
+    if (interp.aiming || NON_AIMING_ANIMATIONS.has(locomotion)) this.stopTaunt(entityId, hitbox);
+    const pendingTaunt = hitbox.pendingTaunt;
+    if (pendingTaunt && !this.modelManager.isOneShotPlaying(inst)) {
+      hitbox.pendingTaunt = undefined;
+      if (this.poseTimeSeconds() < pendingTaunt.until) this.playAttackAnim(entityId, pendingTaunt.name);
+    }
     this.modelManager.setAimPitch(inst, !relaxed && !NON_AIMING_ANIMATIONS.has(locomotion) ? (interp.pitch ?? 0) : 0);
     this.modelManager.playAnimation(inst, animName);
     // The blade is held in its own upper-body stance; swimming, climbing and
@@ -2166,6 +2204,7 @@ export class RemotePlayerRenderer {
 
     devLog(`[RemoteWeapon] ★ Weapon change: ${entityId} → ${weaponId}`);
     hitbox.currentWeaponId = weaponId;
+    this.stopTaunt(entityId, hitbox);
     const generation = (hitbox.weaponLoadGeneration ?? 0) + 1;
     hitbox.weaponLoadGeneration = generation;
 
