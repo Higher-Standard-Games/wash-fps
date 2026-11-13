@@ -15,6 +15,7 @@
 
 import { DEFAULT_VIEWHEIGHT } from "../../../engine/physics/PlayerPhysicsConstants";
 import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "../../../shared/server/simulation/physics/constants";
+import { isBotName } from "../shared/bot/BotNames";
 import { type BotWeightProfile, selectWeightProfile } from "../shared/bot/WeightProfiles";
 import type { PickupEntry } from "../shared/bsp/PickupTable";
 import { wrapAngle } from "./BotAimController";
@@ -45,6 +46,7 @@ import { collectDirectiveGoals } from "./goals/DirectiveGoalSource";
 import { ItemGoalPlanner } from "./goals/ItemGoalPlanner";
 import { respawnTickOf } from "./goals/ItemGoalSource";
 import { loadBaseline, payoffPriors } from "./intel/IntelBaseline";
+import { loadPeopleProfile, typicalStackAfter } from "./intel/PeopleProfile";
 import { planLedgeSlideJump } from "./LedgeSlideJump";
 import { buildRouteLine, lineEndStep, pointAlong, type RouteLine, type RouteWorld } from "./RouteLine";
 import { ItemSlideApproachSequence } from "./sequences/ItemSlideApproachSequence";
@@ -305,7 +307,11 @@ export class StateMachineBrain extends BotBrain {
   /** Where the view looks while running, relative to the way the bot runs, and until when. */
   private _look: { off: number; untilTick: number } | null = null;
   /** What the bot knows of how the match is going (strategy/MatchRead.ts). */
-  private readonly _matchRead = new MatchRead();
+  /** Player names by entity, from the last decision: people's stack curve is for people. */
+  private _names: ReadonlyMap<string, string> = new Map();
+  private readonly _matchRead = new MatchRead((seconds, entityId) =>
+    isBotName(this._names.get(entityId) ?? "") ? null : typicalStackAfter(loadPeopleProfile(), seconds),
+  );
   /** What it needs to do to win (strategy/Strategist.ts), and the strategy in force. */
   private _strategist: Strategist;
   private _strategy: Strategy = STRATEGIES.standard;
@@ -604,6 +610,7 @@ export class StateMachineBrain extends BotBrain {
     this._onRouteLine = false;
     this._lastVision = visionResult ?? null;
     this._lastDecisionTick = state.tick;
+    this._names = state.playerNames;
     this._matchRead.update(state);
     this._loadPriors(state);
     const before = this._strategy.id;

@@ -435,6 +435,21 @@ the game's own step-and-slide movement at 400 u/s:
 It takes seconds, so run it after any change to the nav graph or the line
 builder, then `bot:motion` to see the bots run it.
 
+## How people play, as rules
+
+`npm --prefix src/games/fps run bot:people -- <demo or folder>...` measures
+people in demos, as rules that hold on every map, and writes them to
+`config/bot-intel/people.json`. Only people count: a player with an account
+and no bot name. Nothing per player or per map is kept. Run it on demand,
+review what changed and commit it; `--dry-run` only prints.
+
+The file holds one rule so far, `stackByAge`: a player's health plus armor by
+seconds since their spawn, as quartiles per 10 s. A bot's estimate of a person
+it has not seen for a while leans toward that curve, by how stale it is: people
+pick items up out of sight. Estimates of other bots do not use it.
+
+The file is part of a bot's behaviour fingerprint, like the route libraries.
+
 ## Not yet
 
 - Whether aim can be learned at all is unknown. Bot recordings cannot answer it —

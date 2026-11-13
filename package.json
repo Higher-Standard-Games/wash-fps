@@ -22,6 +22,7 @@
     "bot:demo-motion": "node scripts/run-in-engine.mjs node node_modules/vite-node/vite-node.mjs src/games/fps/cli/bot-demo-motion.ts --",
     "bot:ab": "node scripts/run-in-engine.mjs node node_modules/vite-node/vite-node.mjs src/games/fps/cli/bot-ab.ts --",
     "bot:intel": "node scripts/run-in-engine.mjs node node_modules/vite-node/vite-node.mjs src/games/fps/cli/bot-intel.ts --",
+    "bot:people": "node scripts/run-in-engine.mjs node node_modules/vite-node/vite-node.mjs src/games/fps/cli/bot-people.ts --",
     "bot:routes": "node scripts/run-in-engine.mjs node node_modules/vite-node/vite-node.mjs src/games/fps/cli/bot-routes.ts --",
     "server:tick": "node scripts/run-in-engine.mjs node node_modules/vite-node/vite-node.mjs src/games/fps/cli/server-tick.ts",
     "server:fuzz": "node scripts/run-in-engine.mjs node node_modules/vite-node/vite-node.mjs src/games/fps/cli/server-fuzz.ts --",

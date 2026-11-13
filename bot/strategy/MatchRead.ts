@@ -51,6 +51,8 @@ export interface EnemyEstimate {
   knownTick: number;
   /** Last tick seen. */
   seenTick: number;
+  /** When this life began, as near as the bot knows: first seen alive again. */
+  spawnTick: number;
   alive: boolean;
 }
 
@@ -89,6 +91,16 @@ export interface ScoreRead {
 }
 
 export class MatchRead {
+  /**
+   * @param typicalStack the stack an enemy typically has so many seconds after
+   *   spawning (PeopleProfile, for people), or null: an estimate gone stale
+   *   leans on it, since players pick items up out of sight. Without one a
+   *   stale estimate stays as it was last known.
+   */
+  constructor(
+    private readonly _typicalStack: ((secondsAlive: number, entityId: string) => number | null) | null = null,
+  ) {}
+
   private _tick = 0;
   private _lastStackSample = Number.NEGATIVE_INFINITY;
   private readonly _stacks: { tick: number; stack: number }[] = [];
@@ -157,6 +169,7 @@ export class MatchRead {
           armor: 0,
           knownTick: tick,
           seenTick: tick,
+          spawnTick: tick,
           alive: true,
         });
       } else known.seenTick = tick;
@@ -235,14 +248,20 @@ export class MatchRead {
     return this._enemies.get(entityId) ?? null;
   }
 
-  /** Estimated stack of an enemy, and how unsure it is (0 just learned, 1 long out of sight). */
+  /**
+   * Estimated stack of an enemy, and how unsure it is (0 just learned, 1 long
+   * out of sight). As the estimate goes stale it leans, by its uncertainty,
+   * toward the stack people typically have that long after spawning, when that
+   * is higher than what the bot last knew.
+   */
   enemyStack(entityId: string): { stack: number; uncertainty: number } | null {
     const enemy = this._enemies.get(entityId);
     if (!enemy?.alive) return null;
-    return {
-      stack: enemy.health + enemy.armor,
-      uncertainty: Math.min(1, (this._tick - enemy.knownTick) / ESTIMATE_FADE_TICKS),
-    };
+    const uncertainty = Math.min(1, (this._tick - enemy.knownTick) / ESTIMATE_FADE_TICKS);
+    const known = enemy.health + enemy.armor;
+    const typical = this._typicalStack?.((this._tick - enemy.spawnTick) / TICK_RATE, entityId) ?? null;
+    const stack = typical !== null && typical > known ? known + uncertainty * (typical - known) : known;
+    return { stack, uncertainty };
   }
 
   /** Enemies met, most recently learned about first. */
@@ -282,7 +301,7 @@ export class MatchRead {
   private _estimate(entityId: string, tick: number): EnemyEstimate {
     let enemy = this._enemies.get(entityId);
     if (!enemy) {
-      enemy = { entityId, health: SPAWN_HEALTH, armor: 0, knownTick: tick, seenTick: -1, alive: true };
+      enemy = { entityId, health: SPAWN_HEALTH, armor: 0, knownTick: tick, seenTick: -1, spawnTick: tick, alive: true };
       this._enemies.set(entityId, enemy);
     }
     return enemy;
