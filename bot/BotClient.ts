@@ -279,6 +279,10 @@ export class BotClient extends EventEmitter {
   get brainState(): string {
     return this._brain.getState();
   }
+  /** The strategy the brain plays now, or null without a strategist. */
+  get strategyId(): string | null {
+    return this._brain.strategyId;
+  }
 
   /**
    * Watch every command as it is sent, beside the decision it came from and

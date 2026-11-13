@@ -179,6 +179,31 @@ describe("item timing by ear", () => {
   });
 });
 
+describe("armor and health taken, which no event names", () => {
+  // The server sends item_pickup for weapons only; a person sees the item vanish.
+  it("sees an enemy take the Red Armor in front of it", () => {
+    const { step } = setup();
+    step({ enemyAt: { x: 0, y: 0, z: 1950 }, mask: [true], tick: 1000 }, clear);
+    const state = step({ enemyAt: { x: 0, y: 0, z: 1990 }, mask: [false], tick: 1002 }, clear);
+    expect(state.enemyMajorItems.get("foe")).toMatchObject({ kind: "ra", tick: 1002 });
+    expect(state.itemTakenTick.get(0)).toBe(1002);
+  });
+
+  it("knows its one opponent took an armor it finds gone", () => {
+    const { step } = setup();
+    const state = step({ enemyAt: { x: 0, y: 0, z: -3000 }, mask: [false], tick: 5000 }, clear);
+    expect(state.enemyMajorItems.get("foe")).toMatchObject({ kind: "ra", tick: 5000 - Math.round((25 * 125) / 2) });
+  });
+
+  it("credits no one with an armor taken out of its sight", () => {
+    const { step } = setup();
+    step({ enemyAt: { x: 0, y: 0, z: 1950 }, mask: [true], tick: 1000 }, walled);
+    const state = step({ enemyAt: { x: 0, y: 0, z: 1990 }, mask: [false], tick: 1002 }, walled);
+    expect(state.enemyMajorItems.size).toBe(0);
+    expect(state.pickupActiveMask).toEqual([true]);
+  });
+});
+
 describe("pickups as the server sends them", () => {
   // The server names an item_pickup's picker by bare numeric id; everything else by client key.
   function pickedBy(picker: string, skill = 1) {

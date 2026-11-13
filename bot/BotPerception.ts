@@ -81,6 +81,13 @@ const MAX_LOS_CHECKS = 8;
 const MAX_ITEM_CHECKS = 4;
 /** Items further than this cannot be told apart from the spot. */
 const ITEM_SIGHT_RANGE = 2000;
+/**
+ * Standing this close to an item that vanishes, the bot took it itself. A
+ * pickup lands from about 90 to 150 units of the item's spot, origin to spot.
+ */
+const SELF_TAKE_RADIUS = 180;
+/** A seen enemy this close to an item that vanishes took it. */
+const TAKER_RADIUS = 200;
 
 export interface PerceptionInput {
   state: BotGameState;
@@ -115,6 +122,8 @@ export class BotPerception {
   private readonly _movers = new Map<string, Mover>();
   private readonly _items = new Map<number, ItemBelief>();
   private _itemCursor = 0;
+  /** The server's item mask last snapshot, to see items vanish. */
+  private _serverBefore: readonly boolean[] = [];
 
   constructor(
     difficulty: Difficulty,
@@ -133,6 +142,7 @@ export class BotPerception {
     this._movers.clear();
     this._items.clear();
     this._itemCursor = 0;
+    this._serverBefore = [];
   }
 
   perceive(input: PerceptionInput): void {
@@ -338,8 +348,10 @@ export class BotPerception {
   // ── Items ───────────────────────────────────────────────────────────
 
   private _believeItems(input: PerceptionInput): void {
-    const { state, snapshot, canSee, pickups } = input;
+    const { state, snapshot, pickups } = input;
     const server = state.serverPickupMask;
+    const before = this._serverBefore;
+    this._serverBefore = server;
     if (server.length === 0 || pickups.length === 0) {
       state.pickupActiveMask = server;
       return;
@@ -365,6 +377,19 @@ export class BotPerception {
       else if (near && this._random() < skill) remember(entry.id, state.tick);
     }
 
+    // Major items seen being taken. No event names who takes armor or health,
+    // for a person's client either: they see the item vanish and who is at it.
+    const lone = loneOpponent(state, snapshot);
+    for (const entry of pickups) {
+      if (before[entry.id] !== true || server[entry.id] !== false) continue;
+      if (!isMajorItem(entry.type, entry.kind)) continue;
+      if (vec3Distance(state.self.position, entry.position) <= SELF_TAKE_RADIUS) continue;
+      if (!this._spotInSight(input, entry)) continue;
+      const taker = takerAt(state, entry.position) ?? lone;
+      remember(entry.id, state.tick);
+      if (taker) creditTake(state, taker, entry, state.tick);
+    }
+
     // A few spots looked at each snapshot: the ones the bot is wrong about first.
     const wrong = pickups.filter(
       (entry) => (server[entry.id] ?? true) !== this._believedUp(entry, state.tick, respawnTicks),
@@ -372,16 +397,16 @@ export class BotPerception {
     const order = wrong.length > 0 ? wrong : pickups;
     for (let n = 0; n < Math.min(MAX_ITEM_CHECKS, order.length); n++) {
       const entry = order[(this._itemCursor + n) % order.length];
-      const lift = { x: entry.position.x, y: entry.position.y - 24, z: entry.position.z };
-      if (vec3Distance(state.self.position, entry.position) > ITEM_SIGHT_RANGE) continue;
-      if (Math.abs(angleTo(state.self.position, entry.position, input.viewYaw)) > VIEW_HALF_ANGLE) continue;
-      if (!canSee?.(state.self.position, lift)) continue;
+      if (!this._spotInSight(input, entry)) continue;
       const up = server[entry.id] ?? true;
       const belief = this._items.get(entry.id);
       if (up) this._items.delete(entry.id);
       else if (!belief || belief.up) {
-        // Found gone: taken some time in the last respawn period.
-        remember(entry.id, state.tick - Math.round(respawnTicks(entry) / 2));
+        // Found gone: taken some time in the last respawn period. With one
+        // opponent and the bot not having taken it, the opponent has it.
+        const takenTick = state.tick - Math.round(respawnTicks(entry) / 2);
+        remember(entry.id, takenTick);
+        if (lone && isMajorItem(entry.type, entry.kind)) creditTake(state, lone, entry, takenTick);
       }
     }
     this._itemCursor = (this._itemCursor + MAX_ITEM_CHECKS) % Math.max(1, order.length);
@@ -398,6 +423,15 @@ export class BotPerception {
     state.pickupActiveMask = mask;
   }
 
+  /** Can the bot tell from here whether the item is at its spot? */
+  private _spotInSight(input: PerceptionInput, entry: PickupEntry): boolean {
+    const self = input.state.self.position;
+    if (vec3Distance(self, entry.position) > ITEM_SIGHT_RANGE) return false;
+    if (Math.abs(angleTo(self, entry.position, input.viewYaw)) > VIEW_HALF_ANGLE) return false;
+    const lift = { x: entry.position.x, y: entry.position.y - 24, z: entry.position.z };
+    return input.canSee?.(self, lift) ?? true;
+  }
+
   private _believedUp(entry: PickupEntry, tick: number, respawnTicks: (entry: PickupEntry) => number): boolean {
     const belief = this._items.get(entry.id);
     if (!belief || belief.up) return true;
@@ -407,6 +441,37 @@ export class BotPerception {
     }
     return false;
   }
+}
+
+/**
+ * The one other player in the match when there is just one and not a teammate
+ * (a Duel), by player id; else null. Duel gives its two players team ids.
+ */
+function loneOpponent(state: BotGameState, snapshot: GameState): string | null {
+  const others = [...snapshot.players].filter(([id]) => id !== state.selfPlayerId);
+  if (others.length !== 1) return null;
+  const [id, other] = others[0];
+  const ally = onATeam(state.self.team) && other.team === state.self.team;
+  return ally ? null : id;
+}
+
+/** The seen enemy standing at `at`, nearest first, by player id. */
+function takerAt(state: BotGameState, at: Vec3): string | null {
+  let best: string | null = null;
+  let bestDistance = TAKER_RADIUS;
+  for (const player of state.players) {
+    if (player.relation !== "enemy" || player.isDead) continue;
+    const d = vec3Distance(player.position, at);
+    if (d <= bestDistance) {
+      best = player.playerId;
+      bestDistance = d;
+    }
+  }
+  return best;
+}
+
+function creditTake(state: BotGameState, playerId: string, entry: PickupEntry, tick: number): void {
+  state.enemyMajorItems.set(playerId, { type: entry.type, kind: entry.kind, tick, pickupId: entry.id });
 }
 
 /** Angle from the view yaw to `to`, wrapped to (−π, π]. */

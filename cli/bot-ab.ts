@@ -52,6 +52,8 @@ export interface MatchResult {
   match: number;
   frags: { a: number; b: number };
   deaths: { a: number; b: number };
+  /** Seconds each arm's bots spent in each strategy, sampled once a second. */
+  strategies?: { a: Record<string, number>; b: Record<string, number> };
 }
 
 function parseArgs(): Args {
@@ -161,12 +163,19 @@ async function playMatch(args: Args, port: number, aFirst: boolean, match: numbe
     const state = server.getGametypeController().getMatchState();
     state.expireWarmup();
     for (let i = 0; i < 100 && state.phase !== MatchPhase.Active; i++) await wait(100);
-    await wait(args.seconds * 1000);
+    const strategies: MatchResult["strategies"] = { a: {}, b: {} };
+    for (let s = 0; s < args.seconds; s++) {
+      await wait(1000);
+      for (const { arm, bot } of bots) {
+        const id = bot.strategyId ?? "none";
+        strategies[arm][id] = (strategies[arm][id] ?? 0) + 1;
+      }
+    }
 
     // Every bot sees the scoreboard; read it from the first, by each bot's own player id.
     const board = (bots[0].bot as unknown as { _gameState: { scores: Map<string, { score: number; deaths: number }> } })
       ._gameState.scores;
-    const result: MatchResult = { match, frags: { a: 0, b: 0 }, deaths: { a: 0, b: 0 } };
+    const result: MatchResult = { match, frags: { a: 0, b: 0 }, deaths: { a: 0, b: 0 }, strategies };
     for (const { arm, bot } of bots) {
       const id = (bot as unknown as { _gameState: { selfPlayerId: string } })._gameState.selfPlayerId;
       const row = board.get(id);
@@ -216,6 +225,17 @@ function summarize(args: Args, results: MatchResult[]): void {
   console.log(
     `  frags           A ${total((r) => r.frags.a)}, B ${total((r) => r.frags.b)}; deaths A ${total((r) => r.deaths.a)}, B ${total((r) => r.deaths.b)}`,
   );
+  for (const arm of ["a", "b"] as const) {
+    const time: Record<string, number> = {};
+    for (const r of results)
+      for (const [id, s] of Object.entries(r.strategies?.[arm] ?? {})) time[id] = (time[id] ?? 0) + s;
+    const all = Object.values(time).reduce((sum, s) => sum + s, 0);
+    const shares = Object.entries(time)
+      .sort((x, y) => y[1] - x[1])
+      .map(([id, s]) => `${id} ${Math.round((100 * s) / Math.max(1, all))}%`)
+      .join(", ");
+    console.log(`  strategy time ${arm.toUpperCase()} ${shares}`);
+  }
   const p = signTest(winsA, winsB);
   console.log(`  wins sign test  p = ${p.toFixed(3)} (two-sided, draws left out)`);
   const shown = (!Number.isNaN(half) && Math.abs(mean) > half) || p < 0.05;

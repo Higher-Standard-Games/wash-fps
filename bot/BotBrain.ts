@@ -141,6 +141,11 @@ export abstract class BotBrain {
     return null;
   }
 
+  /** The strategy in force (Strategist), or null for a brain without one. */
+  get strategyId(): string | null {
+    return null;
+  }
+
   /** The settings the view should turn with now; a mood can loosen them. */
   get aimDifficulty(): BotDifficulty {
     return this.difficulty;

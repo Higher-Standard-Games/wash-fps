@@ -455,6 +455,10 @@ export class StateMachineBrain extends BotBrain {
     };
   }
 
+  override get strategyId(): string {
+    return this._strategist.strategy.id;
+  }
+
   /** The strategy in force and why, for diagnostics. */
   get strategyExplain(): string {
     return this._strategist.explain();
