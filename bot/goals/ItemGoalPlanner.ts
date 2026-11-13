@@ -18,6 +18,7 @@ import { type ArmorKind, armorAfterPickup, type HealthKind, healthAfterPickup } 
 import type { BotGameState, Vec3 } from "../BotGameState";
 import type { BotGoal } from "./BotGoal";
 import { type ConsiderationContext, clamp01 } from "./Consideration";
+import { ContestedItem } from "./considerations/ContestedItem";
 import { Danger } from "./considerations/Danger";
 import { ItemDenial } from "./considerations/ItemDenial";
 import { ItemValue } from "./considerations/ItemValue";
@@ -40,6 +41,7 @@ import { collectItemGoals } from "./ItemGoalSource";
 export const ITEM_CONSIDERATIONS = [
   ItemValue,
   ItemDenial,
+  ContestedItem,
   ObjectivePush,
   ObjectiveUrgency,
   TeamCohesion,
@@ -143,6 +145,8 @@ export interface ItemGoalPlannerOptions {
    * per-bot personalities use this.
    */
   weights?: BotWeightProfile;
+  /** Pickups an opponent keeps taking, 0..1 by pickup id (see ConsiderationContext.contested). */
+  contested?: ReadonlyMap<number, number>;
   /**
    * Navigation graph, when the map's is loaded.
    *
@@ -253,7 +257,7 @@ export class ItemGoalPlanner {
     const contextOf = (goal: BotGoal): ConsiderationContext => {
       let ctx = contexts.get(goal.id);
       if (!ctx) {
-        ctx = this.makeContext(goal, state, weights, navGraph);
+        ctx = this.makeContext(goal, state, weights, navGraph, options.contested);
         contexts.set(goal.id, ctx);
       }
       return ctx;
@@ -336,6 +340,7 @@ export class ItemGoalPlanner {
     state: BotGameState,
     weights: BotWeightProfile,
     navGraph: RouteCostSource | null,
+    contested?: ReadonlyMap<number, number>,
   ): ConsiderationContext {
     // Graph distance when the map is loaded — exact, and honest about
     // unreachable targets. Euclidean otherwise, which ranks acceptably but
@@ -343,6 +348,6 @@ export class ItemGoalPlanner {
     const routeCost = navGraph
       ? navGraph.estimateTravelCost(state.self.position, goal.position)
       : estimateRouteCost(state.self.position, goal.position);
-    return { goal, self: state.self, state, routeCost, weights };
+    return { goal, self: state.self, state, routeCost, weights, contested };
   }
 }

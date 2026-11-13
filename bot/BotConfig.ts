@@ -34,6 +34,14 @@ export interface BotDifficulty {
   mistakeRate: number;
   /** Random head scanning movement frequency (seconds between scans) */
   lookAroundInterval: number;
+  /**
+   * 0-1: how well the bot reads the match and changes plan to win it
+   * (strategy/Strategist.ts). Under 0.3 it plays the gametype's profile as it
+   * is; under 0.6 it recovers when understacked and protects a late lead;
+   * above that it also takes back item control and presses a weak or leading
+   * enemy. Absent counts as 0.5.
+   */
+  matchSense?: number;
 }
 
 /** Preset difficulty levels */
@@ -48,6 +56,7 @@ export const DIFFICULTY_PRESETS: Record<string, BotDifficulty> = {
     dodgeSkill: 0.15,
     mistakeRate: 8,
     lookAroundInterval: 2.0,
+    matchSense: 0,
   },
   medium: {
     aimAccuracy: 0.5,
@@ -59,6 +68,7 @@ export const DIFFICULTY_PRESETS: Record<string, BotDifficulty> = {
     dodgeSkill: 0.4,
     mistakeRate: 3,
     lookAroundInterval: 3.5,
+    matchSense: 0.45,
   },
   hard: {
     aimAccuracy: 0.75,
@@ -70,6 +80,7 @@ export const DIFFICULTY_PRESETS: Record<string, BotDifficulty> = {
     dodgeSkill: 0.7,
     mistakeRate: 1,
     lookAroundInterval: 5.0,
+    matchSense: 0.8,
   },
   insane: {
     aimAccuracy: 0.92,
@@ -81,6 +92,7 @@ export const DIFFICULTY_PRESETS: Record<string, BotDifficulty> = {
     dodgeSkill: 0.9,
     mistakeRate: 0.2,
     lookAroundInterval: 8.0,
+    matchSense: 1,
   },
 };
 
@@ -101,6 +113,16 @@ export interface BotOptions {
    * the BotServer control API. Defaults from BOT_GOAL_ARBITER.
    */
   goalArbiter?: GoalArbiterMode;
+  /**
+   * False plays without the strategist (matchSense 0) whatever the difficulty,
+   * for head-to-head tests (`bot:ab`). Not part of the bot's rating identity.
+   */
+  strategy?: boolean;
+  /**
+   * A fixed habit: go for every item of this kind ("ra", "mega", ...). Makes the
+   * predictable opponent a strategist should exploit, for head-to-head tests.
+   */
+  habitItem?: string;
   /**
    * Whether the bot says the odd line in chat to humans (bot/chat/BotChat.ts).
    * Defaults to on unless BOT_CHAT=0; training turns it off.

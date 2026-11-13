@@ -132,3 +132,28 @@ describe("swap while reloading", () => {
     expect(combos.choose(state, enemy, 0.9, "electrobolt")).toBeNull();
   });
 });
+
+describe("finishing an enemy the bot knows is low", () => {
+  it("takes the hitscan gun whose one hit kills, at its distance", () => {
+    const { state, enemy } = scene(700);
+    const combos = new BotWeaponCombos(always);
+    expect(combos.choose(state, enemy, 0.9, "rlauncher", { health: 30, armor: 0, uncertainty: 0 })).toBe("electrobolt");
+  });
+
+  it("does not act on an unsure or a healthy estimate", () => {
+    const { state, enemy } = scene(700);
+    expect(
+      new BotWeaponCombos(always).choose(state, enemy, 0.9, "rlauncher", { health: 30, armor: 0, uncertainty: 0.6 }),
+    ).toBeNull();
+    expect(
+      new BotWeaponCombos(always).choose(state, enemy, 0.9, "rlauncher", { health: 100, armor: 100, uncertainty: 0 }),
+    ).toBeNull();
+  });
+
+  it("counts the armor in the way", () => {
+    // Enough health to survive what gets past 100 armor, though not the whole hit.
+    const { state, enemy } = scene(700);
+    const combos = new BotWeaponCombos(always);
+    expect(combos.choose(state, enemy, 0.9, "rlauncher", { health: 40, armor: 100, uncertainty: 0 })).toBeNull();
+  });
+});

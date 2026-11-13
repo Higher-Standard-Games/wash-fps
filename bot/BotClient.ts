@@ -153,9 +153,12 @@ export class BotClient extends EventEmitter {
     // Resolve difficulty
     this._ratingReference = initialBotReference(options);
     this._difficulty = { ...this._ratingReference.difficulty };
+    if (options.strategy === false) this._difficulty.matchSense = 0;
 
     // Default to StateMachineBrain (no TF.js dependency)
-    this._brain = new StateMachineBrain(this._difficulty, options.goalArbiter ?? defaultGoalArbiterMode());
+    const brain = new StateMachineBrain(this._difficulty, options.goalArbiter ?? defaultGoalArbiterMode());
+    if (options.habitItem) brain.setHabitItem(options.habitItem);
+    this._brain = brain;
     this._aim = new BotAimController(this._difficulty);
     this._perception = new BotPerception(this._difficulty);
 

@@ -287,7 +287,12 @@ export class BotPerception {
           const takerTeam = taker ? snapshot.players.get(taker)?.team : undefined;
           const ally = onATeam(state.self.team) && takerTeam === state.self.team;
           if (loud && pickup && taker && !ally && finite(at) && vec3Distance(self, at) <= HEARING_RANGE.majorPickup) {
-            state.enemyMajorItems.set(taker, { type: pickup.type, kind: pickup.kind, tick: state.tick });
+            state.enemyMajorItems.set(taker, {
+              type: pickup.type,
+              kind: pickup.kind,
+              tick: state.tick,
+              pickupId: pickup.id,
+            });
           }
           break;
         }

@@ -60,6 +60,8 @@ export interface MajorTake {
   /** "self", or the taker's player id. */
   by: string;
   tick: number;
+  /** Which pickup, when known (enemies' takes heard or seen). */
+  pickupId?: number;
 }
 
 export interface Fight {
@@ -93,6 +95,8 @@ export class MatchRead {
   private readonly _enemies = new Map<string, EnemyEstimate>();
   private readonly _takes: MajorTake[] = [];
   private readonly _fights: Fight[] = [];
+  /** Who hurt this bot, and when. */
+  private readonly _attacks: { attacker: string; tick: number }[] = [];
   private _lastHitTick = Number.NEGATIVE_INFINITY;
   private _lastDamageTick = Number.NEGATIVE_INFINITY;
   private _lastEnemyItemTicks = new Map<string, number>();
@@ -109,6 +113,7 @@ export class MatchRead {
     this._enemies.clear();
     this._takes.length = 0;
     this._fights.length = 0;
+    this._attacks.length = 0;
     this._lastEnemyItemTicks.clear();
     this._lastHitTick = Number.NEGATIVE_INFINITY;
     this._lastDamageTick = Number.NEGATIVE_INFINITY;
@@ -171,8 +176,10 @@ export class MatchRead {
     // Damage taken.
     for (const hurt of state.recentDamage) {
       if (hurt.tick <= this._lastDamageTick) continue;
-      if (hurt.attackerId && hurt.attackerId !== state.selfEntityId)
+      if (hurt.attackerId && hurt.attackerId !== state.selfEntityId) {
         this._contact(hurt.attackerId, tick, state, { taken: hurt.damage });
+        this._attacks.push({ attacker: hurt.attackerId, tick });
+      }
     }
     if (state.recentDamage.length > 0)
       this._lastDamageTick = Math.max(this._lastDamageTick, ...state.recentDamage.map((d) => d.tick));
@@ -181,7 +188,7 @@ export class MatchRead {
     for (const [playerId, item] of state.enemyMajorItems) {
       if (this._lastEnemyItemTicks.get(playerId) === item.tick) continue;
       this._lastEnemyItemTicks.set(playerId, item.tick);
-      this._takes.push({ type: item.type, kind: item.kind, by: playerId, tick: item.tick });
+      this._takes.push({ type: item.type, kind: item.kind, by: playerId, tick: item.tick, pickupId: item.pickupId });
       const entityId = entityOfPlayer(state, playerId);
       if (entityId) applyPickup(this._estimate(entityId, tick), item.type, item.kind);
     }
@@ -261,6 +268,12 @@ export class MatchRead {
     return this._score;
   }
 
+  /** How many different enemies hurt this bot in the last `seconds`. */
+  attackers(seconds: number): number {
+    const from = this._tick - seconds * TICK_RATE;
+    return new Set(this._attacks.filter((a) => a.tick >= from).map((a) => a.attacker)).size;
+  }
+
   private _estimate(entityId: string, tick: number): EnemyEstimate {
     let enemy = this._enemies.get(entityId);
     if (!enemy) {
@@ -302,6 +315,7 @@ export class MatchRead {
     const from = tick - MEMORY_TICKS;
     while (this._stacks.length > 0 && this._stacks[0].tick < from) this._stacks.shift();
     while (this._takes.length > 0 && this._takes[0].tick < from) this._takes.shift();
+    while (this._attacks.length > 0 && this._attacks[0].tick < from) this._attacks.shift();
     while (this._fights.length > 0 && this._fights[0].startTick < from && this._fights[0].result !== "open")
       this._fights.shift();
   }

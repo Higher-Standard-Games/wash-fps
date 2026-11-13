@@ -15,7 +15,7 @@
 
 import { DEFAULT_VIEWHEIGHT } from "../../../engine/physics/PlayerPhysicsConstants";
 import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "../../../shared/server/simulation/physics/constants";
-import { selectWeightProfile } from "../shared/bot/WeightProfiles";
+import { type BotWeightProfile, selectWeightProfile } from "../shared/bot/WeightProfiles";
 import { wrapAngle } from "./BotAimController";
 import { BotBrain, type BotInput, BotState, travelYaw } from "./BotBrain";
 import { BotCombatMovement, findHighGround } from "./BotCombatMovement";
@@ -53,6 +53,8 @@ import { TraverseJumppadSequence } from "./sequences/TraverseJumppadSequence";
 import { TraverseTeleporterSequence } from "./sequences/TraverseTeleporterSequence";
 import { ValidatedJumpSequence } from "./sequences/ValidatedJumpSequence";
 import { MatchRead } from "./strategy/MatchRead";
+import { OpponentModel } from "./strategy/OpponentModel";
+import { applyStrategyWeights, STRATEGIES, Strategist, type Strategy } from "./strategy/Strategist";
 
 // ── Constants ───────────────────────────────────────────────────────────
 
@@ -115,6 +117,12 @@ const FEELER_SIDE_ANGLE = Math.PI / 6; // 30° offset for side rays
 const FEELER_STEER_THRESHOLD = 0.6; // fraction below which we steer away
 /** A wall ahead keeps the bot turning the side it chose for this long. */
 const FEELER_SIDE_COMMIT_TICKS = 50;
+
+// Habits (see _contested)
+/** Match sense from which a bot contests the items its opponent keeps taking. */
+const CONTEST_SENSE = 0.6;
+/** How much a test bot's fixed habit weighs, as itemDenial. */
+const HABIT_WEIGHT = 2;
 
 // Shopping or hunting (see _shouldSeekItems)
 /** Desire an item goal needs to be worth shopping for at aggression 0. */
@@ -262,6 +270,13 @@ export class StateMachineBrain extends BotBrain {
   private _look: { off: number; untilTick: number } | null = null;
   /** What the bot knows of how the match is going (strategy/MatchRead.ts). */
   private readonly _matchRead = new MatchRead();
+  /** What it needs to do to win (strategy/Strategist.ts), and the strategy in force. */
+  private _strategist: Strategist;
+  private _strategy: Strategy = STRATEGIES.standard;
+  /** The opponent's habits in this match (strategy/OpponentModel.ts). */
+  private readonly _opponents = new OpponentModel();
+  /** A test bot's fixation: it goes for every item of this kind (`BotOptions.habitItem`). */
+  private _habitItem: string | null = null;
 
   // Crouchslide cooldown. Sequence phases use authoritative server ticks.
   private _slideCooldownUntilTick: number = 0;
@@ -332,6 +347,7 @@ export class StateMachineBrain extends BotBrain {
   constructor(difficulty: BotDifficulty, goalArbiterMode: GoalArbiterMode = defaultGoalArbiterMode()) {
     super(difficulty);
     this._goalArbiterMode = goalArbiterMode;
+    this._strategist = new Strategist(difficulty.matchSense ?? 0.5);
     // mistakeRate finally does something: an occasional runner-up pick.
     this._itemGoalPlanner = new ItemGoalPlanner(difficulty.mistakeRate);
     this._huntYaw = Math.random() * Math.PI * 2;
@@ -382,6 +398,66 @@ export class StateMachineBrain extends BotBrain {
   /** The bot's running read of the match. */
   get matchRead(): MatchRead {
     return this._matchRead;
+  }
+
+  /** The strategy in force and why, for diagnostics. */
+  get strategyExplain(): string {
+    return this._strategist.explain();
+  }
+
+  override setDifficulty(difficulty: BotDifficulty): void {
+    super.setDifficulty(difficulty);
+    this._strategist = new Strategist(difficulty.matchSense ?? 0.5);
+    this._strategy = STRATEGIES.standard;
+  }
+
+  /**
+   * Make this bot go for every item of one kind ("ra", "mega", ...), as a
+   * player with a habit does: the opponent the strategist has to read.
+   * For head-to-head tests (`bot:ab`).
+   */
+  setHabitItem(kind: string | null): void {
+    this._habitItem = kind;
+  }
+
+  /** The opponent's habits the bot has learned, for diagnostics. */
+  get opponentHabits(): OpponentModel {
+    return this._opponents;
+  }
+
+  /** The gametype's weight profile with the strategy's multipliers. */
+  private _weights(state: BotGameState): BotWeightProfile {
+    const base = selectWeightProfile(state.matchState.gametypeName, state.getOwnRole(), state.matchState.roundState);
+    const weights = applyStrategyWeights(base, this._strategy);
+    if (this._habitItem) return { ...weights, itemDenial: Math.max(weights.itemDenial, HABIT_WEIGHT), itemTiming: 1 };
+    return weights;
+  }
+
+  /**
+   * Pickups to contest, 0..1 by pickup id: the opponent's habits, with enough
+   * match sense to read them; a test bot's own fixation.
+   */
+  private _contested(): ReadonlyMap<number, number> | undefined {
+    if (this._habitItem) {
+      const out = new Map<number, number>();
+      for (const pickup of this._lastBotVision?.mapKnowledge.pickupPositions ?? [])
+        if (pickup.kind === this._habitItem) out.set(pickup.id, 1);
+      return out;
+    }
+    if ((this.difficulty.matchSense ?? 0.5) < CONTEST_SENSE) return undefined;
+    return this._opponents.contested();
+  }
+
+  /** The match read's estimate of an enemy's health and armor, with its uncertainty. */
+  private _enemyEstimate(entityId: string): { health: number; armor: number; uncertainty: number } | null {
+    const enemy = this._matchRead.enemy(entityId);
+    const stack = this._matchRead.enemyStack(entityId);
+    return enemy && stack ? { health: enemy.health, armor: enemy.armor, uncertainty: stack.uncertainty } : null;
+  }
+
+  /** A retreat line from mood and strategy. */
+  private _retreatHealth(base: number): number {
+    return this._mood.retreatHealth(base) * this._strategy.stance.retreatScale;
   }
 
   isSequenceActive(): boolean {
@@ -435,6 +511,11 @@ export class StateMachineBrain extends BotBrain {
     this._lastVision = visionResult ?? null;
     this._lastDecisionTick = state.tick;
     this._matchRead.update(state);
+    const before = this._strategy.id;
+    this._strategy = this._strategist.update(this._matchRead, state);
+    this._opponents.update(this._matchRead);
+    if (this._goalArbiterMode === "verbose" && this._strategy.id !== before)
+      console.log(`[bot] strategy ${this._strategist.explain()}`);
     this._lastBotVision = vision ?? null;
     this._navGraph = navGraph ?? null;
 
@@ -678,7 +759,7 @@ export class StateMachineBrain extends BotBrain {
         return BotState.FIGHT;
       }
       // Can't see attacker → dodge/retreat
-      if (state.self.health < this._mood.retreatHealth(RETREAT_HEALTH_THRESHOLD)) {
+      if (state.self.health < this._retreatHealth(RETREAT_HEALTH_THRESHOLD)) {
         return BotState.RETREAT;
       }
       return BotState.DODGE;
@@ -696,7 +777,8 @@ export class StateMachineBrain extends BotBrain {
     // chasing, it keeps chasing; distance alone would flip it in and out as
     // the gap crosses the limit.
     const chaseTarget = this._lastVision?.chaseTarget;
-    if (chaseTarget && this._mood.mistake(state.tick) !== "forget") {
+    // A strategy that wants no fight lets an enemy out of sight go.
+    if (chaseTarget && this._strategy.stance.chase && this._mood.mistake(state.tick) !== "forget") {
       const distantSound =
         chaseTarget.source === "sound" &&
         this.currentState !== BotState.CHASE &&
@@ -711,7 +793,7 @@ export class StateMachineBrain extends BotBrain {
   /** RETREAT or ITEM_RUN when the bot has somewhere to be, else null. */
   private _evaluateItemState(state: BotGameState): BotState | null {
     // Priority 3: Low health → retreat to find health
-    if (state.self.health < this._mood.retreatHealth(LOW_HEALTH_THRESHOLD)) {
+    if (state.self.health < this._retreatHealth(LOW_HEALTH_THRESHOLD)) {
       const hasPickup = state.getNearestPickup(PICKUP_SEEK_RANGE);
       if (hasPickup) {
         return BotState.RETREAT;
@@ -786,7 +868,13 @@ export class StateMachineBrain extends BotBrain {
     const combo =
       mistake === "wrong_weapon"
         ? null
-        : this._weaponCombos.choose(state, enemy, this.difficulty.predictionSkill, selectedWeaponId);
+        : this._weaponCombos.choose(
+            state,
+            enemy,
+            this.difficulty.predictionSkill,
+            selectedWeaponId,
+            this._enemyEstimate(enemy.entityId),
+          );
     if (combo) {
       weaponSlot = slotFor(state, combo);
       selectedWeaponId = combo;
@@ -1773,6 +1861,8 @@ export class StateMachineBrain extends BotBrain {
       blockedGoalIds: new Set(this._blockedGoalIds.keys()),
       typeFilter,
       ignoreDirectives,
+      weights: this._weights(state),
+      contested: this._contested(),
       // Real graph distances when the map's nav graph is loaded, so an item
       // behind a wall is gated as unreachable instead of looking close.
       navGraph: this._navGraph,
@@ -2519,11 +2609,13 @@ export class StateMachineBrain extends BotBrain {
 
   /**
    * Whether to go shopping rather than hunt. Hurt or out of ammo, always; with
-   * 25 armor or more, no. Under 25 armor with no idea where an enemy is, yes:
+   * 25 armor or more, no, unless the strategy shops armoured (Recover, Control,
+   * Protect lead), and then for an item worth it as below. Under 25 armor with no idea where an enemy is, yes:
    * there is no one to hunt, so the item cycle is the better use of the time.
    * Under 25 armor with an enemy to hunt, the item planner's best goal has to
    * be worth it against the gametype's `aggression`: SEEK_DESIRE_BASE +
-   * SEEK_DESIRE_PER_AGGRESSION × aggression. Duel (aggression 0.5) keeps
+   * SEEK_DESIRE_PER_AGGRESSION × aggression, scaled by the strategy's
+   * `seekScale`. Duel (aggression 0.5) keeps
    * shopping for most items; Deathmatch (0.8) takes only the good ones.
    * Before, any bot under 25 armor shopped, which is every bot after it spawns,
    * and HUNT was about 1–2% of roaming time.
@@ -2533,12 +2625,13 @@ export class StateMachineBrain extends BotBrain {
     const currentAmmo = state.self.ammo[state.self.currentWeapon];
     if (currentAmmo !== undefined && currentAmmo < 3) return true;
 
-    if (state.self.armor >= 25) return false;
-    if (!this._getHuntTarget(state)) return true;
+    const stance = this._strategy.stance;
+    if (state.self.armor >= 25 && !stance.shopArmored) return false;
+    if (state.self.armor < 25 && !this._getHuntTarget(state)) return true;
     const best = this._selectItemGoal(state);
-    if (!best) return this._goalArbiterMode === "legacy";
-    const weights = selectWeightProfile(state.matchState.gametypeName, state.getOwnRole(), state.matchState.roundState);
-    return best.desire >= SEEK_DESIRE_BASE + SEEK_DESIRE_PER_AGGRESSION * weights.aggression;
+    if (!best) return this._goalArbiterMode === "legacy" && state.self.armor < 25;
+    const worth = (SEEK_DESIRE_BASE + SEEK_DESIRE_PER_AGGRESSION * this._weights(state).aggression) * stance.seekScale;
+    return best.desire >= worth;
   }
 
   private _getHuntTarget(state: BotGameState): Vec3 | null {

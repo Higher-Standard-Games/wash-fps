@@ -334,7 +334,7 @@ export class BotGameState {
    * Major items (armour, Mega Health, powerups) this bot saw or heard each
    * enemy take, by player id: who is likely stacked. Filled by BotPerception.
    */
-  enemyMajorItems: Map<string, { type: string; kind: string; tick: number }> = new Map();
+  enemyMajorItems: Map<string, { type: string; kind: string; tick: number; pickupId?: number }> = new Map();
 
   // Last known enemy positions (persists across ticks for hunting)
   lastKnownEnemyPositions: Map<string, { position: Vec3; tick: number }> = new Map();
