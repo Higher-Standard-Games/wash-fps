@@ -124,6 +124,12 @@ export interface BotOptions {
    */
   habitItem?: string;
   /**
+   * Only these strategies ("recover", "control", "pressure", "protect_lead");
+   * a diagnosis none of them answers is played as Standard. Measures one
+   * strategy at a time in head-to-head tests. Not part of the rating identity.
+   */
+  strategies?: string[];
+  /**
    * Whether the bot says the odd line in chat to humans (bot/chat/BotChat.ts).
    * Defaults to on unless BOT_CHAT=0; training turns it off.
    */

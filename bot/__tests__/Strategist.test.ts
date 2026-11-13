@@ -105,6 +105,18 @@ describe("Strategist", () => {
     expect(new Strategist(0.45, () => 0.5).update(read, s).id).toBe("standard");
   });
 
+  it("plays only the strategies it is limited to, else Standard", () => {
+    const { read, at } = stackedEnemy();
+    const now = at(150, 40);
+    read.update(now);
+    const control = new Strategist(1, () => 0.5);
+    control.limitTo(["control"]);
+    expect(control.update(read, now).id).toBe("control");
+    const pressure = new Strategist(1, () => 0.5);
+    pressure.limitTo(["pressure"]);
+    expect(pressure.update(read, now).id).toBe("standard");
+  });
+
   it("holds a strategy for a few seconds after its reason fades", () => {
     const { read, at } = stackedEnemy();
     const strategist = new Strategist(1, () => 0.5);

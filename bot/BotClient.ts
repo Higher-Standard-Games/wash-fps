@@ -35,6 +35,7 @@ import { pulseMeleeFire } from "./BotWeaponProfile";
 import { BotChat } from "./chat/BotChat";
 import type { MatchReport } from "./intel/IntelStore";
 import { StateMachineBrain } from "./StateMachineBrain";
+import type { StrategyId } from "./strategy/Strategist";
 import { teleportExitYaw } from "./TeleportExit";
 
 /** Most script commands sent in one timer firing, well under the server's input buffer. */
@@ -176,6 +177,7 @@ export class BotClient extends EventEmitter {
     // Default to StateMachineBrain (no TF.js dependency)
     const brain = new StateMachineBrain(this._difficulty, options.goalArbiter ?? defaultGoalArbiterMode());
     if (options.habitItem) brain.setHabitItem(options.habitItem);
+    if (options.strategies) brain.limitStrategies(options.strategies as StrategyId[]);
     this._brain = brain;
     this._aim = new BotAimController(this._difficulty);
     this._perception = new BotPerception(this._difficulty);

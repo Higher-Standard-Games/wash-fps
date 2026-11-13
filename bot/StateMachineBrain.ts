@@ -55,7 +55,7 @@ import { TraverseTeleporterSequence } from "./sequences/TraverseTeleporterSequen
 import { ValidatedJumpSequence } from "./sequences/ValidatedJumpSequence";
 import { MatchRead } from "./strategy/MatchRead";
 import { OpponentModel } from "./strategy/OpponentModel";
-import { applyStrategyWeights, STRATEGIES, Strategist, type Strategy } from "./strategy/Strategist";
+import { applyStrategyWeights, STRATEGIES, Strategist, type Strategy, type StrategyId } from "./strategy/Strategist";
 
 // ── Constants ───────────────────────────────────────────────────────────
 
@@ -309,6 +309,7 @@ export class StateMachineBrain extends BotBrain {
   private readonly _opponents = new OpponentModel();
   /** A test bot's fixation: it goes for every item of this kind (`BotOptions.habitItem`). */
   private _habitItem: string | null = null;
+  private _strategyLimit: readonly StrategyId[] | null = null;
 
   // Crouchslide cooldown. Sequence phases use authoritative server ticks.
   private _slideCooldownUntilTick: number = 0;
@@ -467,7 +468,14 @@ export class StateMachineBrain extends BotBrain {
   override setDifficulty(difficulty: BotDifficulty): void {
     super.setDifficulty(difficulty);
     this._strategist = new Strategist(difficulty.matchSense ?? 0.5);
+    this._strategist.limitTo(this._strategyLimit);
     this._strategy = STRATEGIES.standard;
+  }
+
+  /** Play only these strategies (BotOptions.strategies), for head-to-head tests. */
+  limitStrategies(strategies: readonly StrategyId[] | null): void {
+    this._strategyLimit = strategies;
+    this._strategist.limitTo(strategies);
   }
 
   /**

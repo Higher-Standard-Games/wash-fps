@@ -229,6 +229,8 @@ export class Strategist {
   private readonly _judged: JudgedEpisode[] = [];
   /** Prior payoff per "diagnosis:strategy", from the map's baseline (BS-18). */
   private _priors: ReadonlyMap<string, { n: number; mean: number }> = new Map();
+  /** The strategies it may play; null is all. */
+  private _allowed: ReadonlySet<StrategyId> | null = null;
 
   /**
    * @param sense the bot's matchSense, 0..1.
@@ -251,6 +253,14 @@ export class Strategist {
    */
   setPriors(priors: ReadonlyMap<string, { n: number; mean: number }>): void {
     this._priors = priors;
+  }
+
+  /**
+   * Play only these strategies; a diagnosis none of them answers gets Standard.
+   * For measuring one strategy at a time (`bot:ab`, BotOptions.strategies).
+   */
+  limitTo(strategies: readonly StrategyId[] | null): void {
+    this._allowed = strategies ? new Set(strategies) : null;
   }
 
   /** What the bandit has learned: per diagnosis and strategy, episodes and mean payoff. */
@@ -311,11 +321,14 @@ export class Strategist {
 
   /** The strategy for a diagnosis: the rule's answer, or what the bandit draws. */
   private _choose(diagnosis: DiagnosisId): StrategyId {
-    const rule = ANSWER[diagnosis].strategy;
+    const allowed = (s: StrategyId) => !this._allowed || this._allowed.has(s);
+    const choices = CHOICES[diagnosis].filter(allowed);
+    if (choices.length === 0) return "standard";
+    const rule = allowed(ANSWER[diagnosis].strategy) ? ANSWER[diagnosis].strategy : choices[0];
     if (this._sense < ADAPT_SENSE) return rule;
     let best = rule;
     let bestDraw = Number.NEGATIVE_INFINITY;
-    for (const strategy of CHOICES[diagnosis]) {
+    for (const strategy of choices) {
       const arm = this._arms.get(`${diagnosis}:${strategy}`) ?? { n: 0, mean: 0 };
       const learned = this._priors.get(`${diagnosis}:${strategy}`);
       const prior = learned && learned.n >= PRIOR_MIN_EPISODES ? learned.mean : strategy === rule ? RULE_PRIOR : 0;
