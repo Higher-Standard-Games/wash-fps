@@ -41,9 +41,10 @@ const LATE_GAP = 2;
 /** Being hurt by two or more enemies within this long is being focused. */
 const FOCUS_SECONDS = 20;
 /**
- * Control sends the bot to the items the opponent wants, where the opponent is
- * going. It is played only with a stack at most this far under the estimate of
- * theirs; further under, the bot recovers first.
+ * Control sends the bot to the major items, where the opponent is going too.
+ * It is played with a stack at most this far under the estimate of theirs, or
+ * when a taken major item comes back soon where the bot can be first; else the
+ * bot recovers first.
  */
 const CONTROL_STACK_MARGIN = 25;
 
@@ -86,10 +87,12 @@ export const STRATEGIES: Record<StrategyId, Strategy> = {
     weights: { riskTolerance: 0.5, itemGreed: 1.3, aggression: 0.5 },
     stance: { retreatScale: 1.6, seekScale: 0.6, shopArmored: true, chase: false, fade: true },
   },
-  // Losing the major items: time them, take them, deny them.
+  // Losing the major items: be at the next one as it comes back, take it and go.
+  // A short lead (itemTiming 0.3: about 3 s at Duel's full timing) so the bot
+  // does not wait at the item for the opponent who is timing it too.
   control: {
     id: "control",
-    weights: { itemTiming: 1.5, majorItemBias: 1.3, itemDenial: 1.5 },
+    weights: { itemTiming: 0.3, majorItemBias: 1.3 },
     stance: { retreatScale: 1, seekScale: 0.7, shopArmored: true, chase: true, fade: false },
   },
   // Behind late, or the enemy is weak: go and get them.
@@ -235,6 +238,8 @@ export class Strategist {
   private readonly _judged: JudgedEpisode[] = [];
   /** Prior payoff per "diagnosis:strategy", from the map's baseline (BS-18). */
   private _priors: ReadonlyMap<string, { n: number; mean: number }> = new Map();
+  /** Whether a timed major item can be reached first, this decision. */
+  private _timedItemInReach = false;
   /** The strategies it may play; null is all. */
   private _allowed: ReadonlySet<StrategyId> | null = null;
 
@@ -293,8 +298,13 @@ export class Strategist {
     this._judged.length = 0;
   }
 
-  /** Choose again when due; returns the strategy in force. */
-  update(read: MatchRead, state: BotGameState): Strategy {
+  /**
+   * Choose again when due; returns the strategy in force.
+   * `timedItemInReach`: a taken major item returns soon where the bot can be
+   * when it does (StateMachineBrain), which makes Control a race, not a fight.
+   */
+  update(read: MatchRead, state: BotGameState, options: { timedItemInReach?: boolean } = {}): Strategy {
+    this._timedItemInReach = options.timedItemInReach ?? false;
     const tick = state.tick;
     if (tick < this._nextTick) return this._current;
     this._nextTick = tick + STRATEGY_INTERVAL_TICKS;
@@ -352,11 +362,13 @@ export class Strategist {
   }
 
   /**
-   * Control is a fight at the item: taken only stacked enough to win it, as the
-   * read estimates the opponent (CONTROL_STACK_MARGIN). Otherwise Recover.
+   * Control is played stacked enough to win at the item, as the read estimates
+   * the opponent (CONTROL_STACK_MARGIN), or when the next major item can be
+   * reached as it returns. Otherwise Recover.
    */
   private _fit(strategy: StrategyId, read: MatchRead, state: BotGameState): StrategyId {
     if (strategy !== "control") return strategy;
+    if (this._timedItemInReach) return "control";
     const freshest = read.enemies().find((e) => e.alive);
     const estimate = freshest ? read.enemyStack(freshest.entityId) : null;
     const own = state.self.health + state.self.armor;

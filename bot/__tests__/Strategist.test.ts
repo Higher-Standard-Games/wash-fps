@@ -145,6 +145,13 @@ describe("Strategist", () => {
     expect(recovering.update(outstacked.read, outstacked.now).id).toBe("recover");
   });
 
+  it("races for an item it can reach as it returns, outstacked or not", () => {
+    const outstacked = losingItems(60, 0);
+    const strategist = new Strategist(1, () => 0.5);
+    strategist.limitTo(["control", "recover"]);
+    expect(strategist.update(outstacked.read, outstacked.now, { timedItemInReach: true }).id).toBe("control");
+  });
+
   it("leaves Control at once when the stack for it is gone", () => {
     const stacked = losingItems(200, 150);
     const strategist = new Strategist(1, () => 0.5);

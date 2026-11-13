@@ -16,12 +16,13 @@
 import { DEFAULT_VIEWHEIGHT } from "../../../engine/physics/PlayerPhysicsConstants";
 import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "../../../shared/server/simulation/physics/constants";
 import { type BotWeightProfile, selectWeightProfile } from "../shared/bot/WeightProfiles";
+import type { PickupEntry } from "../shared/bsp/PickupTable";
 import { wrapAngle } from "./BotAimController";
 import { BotBrain, type BotInput, BotState, type BrainMatchReport, travelYaw } from "./BotBrain";
 import { BotCombatMovement, findHighGround } from "./BotCombatMovement";
 import { type BotDifficulty, defaultGoalArbiterMode, type GoalArbiterMode, InputButtons } from "./BotConfig";
 import type { BotGameState, Vec3, VisiblePlayer } from "./BotGameState";
-import { vec3Length, vec3Normalize, vec3Subtract } from "./BotGameState";
+import { vec3Distance, vec3Length, vec3Normalize, vec3Subtract } from "./BotGameState";
 import { BotMood, type Mood, type MoodEvent } from "./BotMood";
 import { canInitiateSlide, PHYSICS } from "./BotMovementProfile";
 import {
@@ -39,8 +40,10 @@ import type { BotVision, EnemyTrack, VisionResult } from "./BotVision";
 import { BotWeaponCombos, has, slotFor } from "./BotWeaponCombos";
 import { getWeaponProfile, selectBestWeapon, type WeaponProfile } from "./BotWeaponProfile";
 import type { BotGoal } from "./goals/BotGoal";
+import { isMajorItem } from "./goals/considerations/ItemFacts";
 import { collectDirectiveGoals } from "./goals/DirectiveGoalSource";
 import { ItemGoalPlanner } from "./goals/ItemGoalPlanner";
+import { respawnTickOf } from "./goals/ItemGoalSource";
 import { loadBaseline, payoffPriors } from "./intel/IntelBaseline";
 import { planLedgeSlideJump } from "./LedgeSlideJump";
 import { buildRouteLine, lineEndStep, pointAlong, type RouteLine, type RouteWorld } from "./RouteLine";
@@ -138,6 +141,12 @@ const ESCAPE_RETRY_TICKS = 60;
 // Habits (see _contested)
 /** Match sense from which a bot contests the items its opponent keeps taking. */
 const CONTEST_SENSE = 0.6;
+/** A taken major item coming back within this long is one to race for. */
+const TIMED_ITEM_HORIZON_SECONDS = 20;
+/** Route length over straight distance, roughly, for a quick travel estimate. */
+const ROUTE_WINDING = 1.3;
+/** Running speed for that estimate, units per second. */
+const TIMING_RUN_SPEED = 320;
 /** How much a test bot's fixed habit weighs, as itemDenial. */
 const HABIT_WEIGHT = 2;
 
@@ -515,6 +524,24 @@ export class StateMachineBrain extends BotBrain {
     return this._opponents.contested();
   }
 
+  /**
+   * Is a major item the bot believes down coming back within
+   * TIMED_ITEM_HORIZON_SECONDS, near enough to be there when it does? Then
+   * item control is a race the bot can win, whatever its stack.
+   */
+  private _timedMajorInReach(state: BotGameState, pickups: readonly PickupEntry[] | undefined): boolean {
+    for (const entry of pickups ?? []) {
+      if (!isMajorItem(entry.type, entry.kind) || state.pickupActiveMask[entry.id] !== false) continue;
+      const back = respawnTickOf(state, entry);
+      if (back === null) continue;
+      const secondsLeft = (back - state.tick) / TICK_RATE;
+      if (secondsLeft < 0 || secondsLeft > TIMED_ITEM_HORIZON_SECONDS) continue;
+      const travel = (vec3Distance(state.self.position, entry.position) * ROUTE_WINDING) / TIMING_RUN_SPEED;
+      if (travel <= secondsLeft + 1) return true;
+    }
+    return false;
+  }
+
   /** The match read's estimate of an enemy's health and armor, with its uncertainty. */
   private _enemyEstimate(entityId: string): { health: number; armor: number; uncertainty: number } | null {
     const enemy = this._matchRead.enemy(entityId);
@@ -580,7 +607,9 @@ export class StateMachineBrain extends BotBrain {
     this._matchRead.update(state);
     this._loadPriors(state);
     const before = this._strategy.id;
-    this._strategy = this._strategist.update(this._matchRead, state);
+    this._strategy = this._strategist.update(this._matchRead, state, {
+      timedItemInReach: this._timedMajorInReach(state, (vision ?? this._lastBotVision)?.mapKnowledge?.pickupPositions),
+    });
     this._opponents.update(this._matchRead);
     if (this._goalArbiterMode === "verbose" && this._strategy.id !== before)
       console.log(`[bot] strategy ${this._strategist.explain()}`);
