@@ -11,7 +11,11 @@
  *   second while still in line of sight. A newly seen enemy registers after
  *   half the reaction time; the view turn adds the rest.
  * - `heardEnemies` holds enemies only heard, where the sound came from: shots,
- *   explosions near them, footsteps, jumps and landings, pain, pickups.
+ *   explosions near them, footsteps, jumps, pain, pickups. Footsteps and jumps
+ *   are heard when a player's client would play them (on the ground faster
+ *   than 70 u/s and not sliding; leaving the ground faster than 60 u/s up)
+ *   and as far as they are loud enough. A landing makes no sound of its own;
+ *   one that hurts is heard as pain.
  * - Enemy memory (`lastKnownEnemyPositions`) is fed only from those.
  * - `pickupActiveMask` and `itemTakenTick` become what the bot believes: an
  *   item goes down when it saw or heard it taken or found the spot empty, and
@@ -24,6 +28,7 @@
 
 import type { GameState } from "../../../engine/network/core/GameState";
 import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "../../../shared/server/simulation/physics/constants";
+import { toClientKey } from "../ClientEntityKey";
 import type { PickupEntry } from "../shared/bsp/PickupTable";
 import { itemRespawnSeconds } from "../shared/items/ItemRespawn";
 import type { BotDifficulty } from "./BotConfig";
@@ -33,12 +38,24 @@ import { isMajorItem } from "./goals/considerations/ItemFacts";
 const DEG = Math.PI / 180;
 
 /** How far each sound carries, in units. */
+/**
+ * Spatial sounds fall off as REFERENCE / distance beyond REFERENCE
+ * (`AudioV2Sfx`, normal attenuation). A bot notices a movement sound while it
+ * would play at NOTICED_GAIN of full volume or more, so each sound's range
+ * comes from the volume the client plays it at (`FPSMovementAudio`).
+ */
+const AUDIO_REFERENCE_DISTANCE = 125;
+const NOTICED_GAIN = 0.125;
+const FOOTSTEP_VOLUME = 0.5;
+const JUMP_VOLUME = 0.72;
+const audibleRange = (volume: number) => (AUDIO_REFERENCE_DISTANCE * volume) / NOTICED_GAIN;
+
 export const HEARING_RANGE = {
   fire: 1200,
   loudFire: 2000,
   explosion: 1500,
-  footsteps: 500,
-  movement: 800,
+  footsteps: audibleRange(FOOTSTEP_VOLUME),
+  jump: audibleRange(JUMP_VOLUME),
   pain: 800,
   pickup: 900,
   majorPickup: 2500,
@@ -52,18 +69,25 @@ const VIEW_HALF_ANGLE = 55 * DEG;
 const PERIPHERAL_HALF_ANGLE = 70 * DEG;
 /** Seen within this long, an enemy stays seen while in line of sight, wherever the view points. */
 const KEEP_SEEN_TICKS = TICK_RATE;
-/** Horizontal speed that makes footsteps and catches the eye at the edge of view. */
+/** Horizontal speed that catches the eye at the edge of view. */
 const RUNNING_SPEED = 250;
-/** Upward speed that marks a jump from the ground. */
-const JUMP_SPEED = 200;
-/** Downward speed at touchdown that makes a landing heard. */
-const LANDING_SPEED = 450;
+/** Horizontal speed on the ground that makes footsteps, as the client plays them. */
+const FOOTSTEP_SPEED = 70;
+/** Upward speed off the ground that plays a jump sound, as the client plays it. */
+const JUMP_SPEED = 60;
 /** Line-of-sight checks per snapshot, nearest enemies first. */
 const MAX_LOS_CHECKS = 8;
 /** Item spots checked per snapshot for whether they are there or gone. */
 const MAX_ITEM_CHECKS = 4;
 /** Items further than this cannot be told apart from the spot. */
 const ITEM_SIGHT_RANGE = 2000;
+/**
+ * Standing this close to an item that vanishes, the bot took it itself. A
+ * pickup lands from about 90 to 150 units of the item's spot, origin to spot.
+ */
+const SELF_TAKE_RADIUS = 180;
+/** A seen enemy this close to an item that vanishes took it. */
+const TAKER_RADIUS = 200;
 
 export interface PerceptionInput {
   state: BotGameState;
@@ -82,7 +106,6 @@ interface Sighting {
 
 interface Mover {
   grounded: boolean;
-  velocityY: number;
 }
 
 interface ItemBelief {
@@ -99,6 +122,8 @@ export class BotPerception {
   private readonly _movers = new Map<string, Mover>();
   private readonly _items = new Map<number, ItemBelief>();
   private _itemCursor = 0;
+  /** The server's item mask last snapshot, to see items vanish. */
+  private _serverBefore: readonly boolean[] = [];
 
   constructor(
     difficulty: Difficulty,
@@ -117,6 +142,7 @@ export class BotPerception {
     this._movers.clear();
     this._items.clear();
     this._itemCursor = 0;
+    this._serverBefore = [];
   }
 
   perceive(input: PerceptionInput): void {
@@ -229,8 +255,9 @@ export class BotPerception {
     for (const [playerId, player] of snapshot.players) {
       if (player.entityId && playerId !== state.selfPlayerId) byEntity.set(String(player.entityId), playerId);
     }
+    const playerOf = (entityId: unknown) => byEntity.get(String(entityId)) ?? byEntity.get(pickerKey(entityId));
     const hear = (entityId: unknown, at: Vec3, range: number) => {
-      const playerId = byEntity.get(String(entityId));
+      const playerId = playerOf(entityId);
       if (!playerId || !finite(at) || vec3Distance(self, at) > range) return;
       heard.set(playerId, at);
     };
@@ -266,11 +293,16 @@ export class BotPerception {
           const loud = pickup !== undefined && isMajorItem(pickup.type, pickup.kind);
           const at = xyz(e.x, e.y, e.z);
           hear(e.entityId, at, loud ? HEARING_RANGE.majorPickup : HEARING_RANGE.pickup);
-          const taker = byEntity.get(String(e.entityId));
+          const taker = playerOf(e.entityId);
           const takerTeam = taker ? snapshot.players.get(taker)?.team : undefined;
           const ally = onATeam(state.self.team) && takerTeam === state.self.team;
           if (loud && pickup && taker && !ally && finite(at) && vec3Distance(self, at) <= HEARING_RANGE.majorPickup) {
-            state.enemyMajorItems.set(taker, { type: pickup.type, kind: pickup.kind, tick: state.tick });
+            state.enemyMajorItems.set(taker, {
+              type: pickup.type,
+              kind: pickup.kind,
+              tick: state.tick,
+              pickupId: pickup.id,
+            });
           }
           break;
         }
@@ -299,18 +331,15 @@ export class BotPerception {
       const grounded = groundedOf(entity) ?? before?.grounded ?? true;
       const d = player.distance;
       const speed = Math.hypot(player.velocity.x, player.velocity.z);
-      if (grounded && speed > RUNNING_SPEED && d <= HEARING_RANGE.footsteps)
+      if (grounded && !slidingOf(entity) && speed > FOOTSTEP_SPEED && d <= HEARING_RANGE.footsteps)
         heard.set(player.playerId, player.position);
-      if (before?.grounded && !grounded && player.velocity.y > JUMP_SPEED && d <= HEARING_RANGE.movement) {
-        heard.set(player.playerId, player.position);
-      }
-      if (before && !before.grounded && grounded && -before.velocityY > LANDING_SPEED && d <= HEARING_RANGE.movement) {
+      if (before?.grounded && !grounded && player.velocity.y > JUMP_SPEED && d <= HEARING_RANGE.jump) {
         heard.set(player.playerId, player.position);
       }
       if (explosions.some((at) => vec3Distance(at, player.position) <= EXPLOSION_REVEAL_RADIUS)) {
         heard.set(player.playerId, player.position);
       }
-      this._movers.set(player.entityId, { grounded, velocityY: player.velocity.y });
+      this._movers.set(player.entityId, { grounded });
     }
     for (const id of this._movers.keys()) if (!alive.has(id)) this._movers.delete(id);
     return heard;
@@ -319,8 +348,10 @@ export class BotPerception {
   // ── Items ───────────────────────────────────────────────────────────
 
   private _believeItems(input: PerceptionInput): void {
-    const { state, snapshot, canSee, pickups } = input;
+    const { state, snapshot, pickups } = input;
     const server = state.serverPickupMask;
+    const before = this._serverBefore;
+    this._serverBefore = server;
     if (server.length === 0 || pickups.length === 0) {
       state.pickupActiveMask = server;
       return;
@@ -339,11 +370,24 @@ export class BotPerception {
       if (e.type !== "item_pickup" || typeof e.pickupId !== "number") continue;
       const entry = pickups.find((p) => p.id === e.pickupId);
       if (!entry) continue;
-      const mine = String(e.entityId) === state.selfEntityId;
+      const mine = String(e.entityId) === state.selfEntityId || pickerKey(e.entityId) === state.selfEntityId;
       const range = isMajorItem(entry.type, entry.kind) ? HEARING_RANGE.majorPickup : HEARING_RANGE.pickup;
       const near = vec3Distance(state.self.position, entry.position) <= range;
       if (mine) this._items.set(entry.id, { up: false, takenTick: state.tick });
       else if (near && this._random() < skill) remember(entry.id, state.tick);
+    }
+
+    // Major items seen being taken. No event names who takes armor or health,
+    // for a person's client either: they see the item vanish and who is at it.
+    const lone = loneOpponent(state, snapshot);
+    for (const entry of pickups) {
+      if (before[entry.id] !== true || server[entry.id] !== false) continue;
+      if (!isMajorItem(entry.type, entry.kind)) continue;
+      if (vec3Distance(state.self.position, entry.position) <= SELF_TAKE_RADIUS) continue;
+      if (!this._spotInSight(input, entry)) continue;
+      const taker = takerAt(state, entry.position) ?? lone;
+      remember(entry.id, state.tick);
+      if (taker) creditTake(state, taker, entry, state.tick);
     }
 
     // A few spots looked at each snapshot: the ones the bot is wrong about first.
@@ -353,16 +397,16 @@ export class BotPerception {
     const order = wrong.length > 0 ? wrong : pickups;
     for (let n = 0; n < Math.min(MAX_ITEM_CHECKS, order.length); n++) {
       const entry = order[(this._itemCursor + n) % order.length];
-      const lift = { x: entry.position.x, y: entry.position.y - 24, z: entry.position.z };
-      if (vec3Distance(state.self.position, entry.position) > ITEM_SIGHT_RANGE) continue;
-      if (Math.abs(angleTo(state.self.position, entry.position, input.viewYaw)) > VIEW_HALF_ANGLE) continue;
-      if (!canSee?.(state.self.position, lift)) continue;
+      if (!this._spotInSight(input, entry)) continue;
       const up = server[entry.id] ?? true;
       const belief = this._items.get(entry.id);
       if (up) this._items.delete(entry.id);
       else if (!belief || belief.up) {
-        // Found gone: taken some time in the last respawn period.
-        remember(entry.id, state.tick - Math.round(respawnTicks(entry) / 2));
+        // Found gone: taken some time in the last respawn period. With one
+        // opponent and the bot not having taken it, the opponent has it.
+        const takenTick = state.tick - Math.round(respawnTicks(entry) / 2);
+        remember(entry.id, takenTick);
+        if (lone && isMajorItem(entry.type, entry.kind)) creditTake(state, lone, entry, takenTick);
       }
     }
     this._itemCursor = (this._itemCursor + MAX_ITEM_CHECKS) % Math.max(1, order.length);
@@ -379,6 +423,15 @@ export class BotPerception {
     state.pickupActiveMask = mask;
   }
 
+  /** Can the bot tell from here whether the item is at its spot? */
+  private _spotInSight(input: PerceptionInput, entry: PickupEntry): boolean {
+    const self = input.state.self.position;
+    if (vec3Distance(self, entry.position) > ITEM_SIGHT_RANGE) return false;
+    if (Math.abs(angleTo(self, entry.position, input.viewYaw)) > VIEW_HALF_ANGLE) return false;
+    const lift = { x: entry.position.x, y: entry.position.y - 24, z: entry.position.z };
+    return input.canSee?.(self, lift) ?? true;
+  }
+
   private _believedUp(entry: PickupEntry, tick: number, respawnTicks: (entry: PickupEntry) => number): boolean {
     const belief = this._items.get(entry.id);
     if (!belief || belief.up) return true;
@@ -388,6 +441,37 @@ export class BotPerception {
     }
     return false;
   }
+}
+
+/**
+ * The one other player in the match when there is just one and not a teammate
+ * (a Duel), by player id; else null. Duel gives its two players team ids.
+ */
+function loneOpponent(state: BotGameState, snapshot: GameState): string | null {
+  const others = [...snapshot.players].filter(([id]) => id !== state.selfPlayerId);
+  if (others.length !== 1) return null;
+  const [id, other] = others[0];
+  const ally = onATeam(state.self.team) && other.team === state.self.team;
+  return ally ? null : id;
+}
+
+/** The seen enemy standing at `at`, nearest first, by player id. */
+function takerAt(state: BotGameState, at: Vec3): string | null {
+  let best: string | null = null;
+  let bestDistance = TAKER_RADIUS;
+  for (const player of state.players) {
+    if (player.relation !== "enemy" || player.isDead) continue;
+    const d = vec3Distance(player.position, at);
+    if (d <= bestDistance) {
+      best = player.playerId;
+      bestDistance = d;
+    }
+  }
+  return best;
+}
+
+function creditTake(state: BotGameState, playerId: string, entry: PickupEntry, tick: number): void {
+  state.enemyMajorItems.set(playerId, { type: entry.type, kind: entry.kind, tick, pickupId: entry.id });
 }
 
 /** Angle from the view yaw to `to`, wrapped to (−π, π]. */
@@ -409,6 +493,20 @@ type EntityLike = { getComponent(name: string): unknown };
 function entityPosition(entity: EntityLike): Vec3 | null {
   const transform = entity.getComponent("transform") as { position?: Vec3 } | undefined;
   return transform?.position ? { x: transform.position.x, y: transform.position.y, z: transform.position.z } : null;
+}
+
+/**
+ * The client key of an `item_pickup` event's picker. The server sends that one
+ * event with the picker's bare numeric id where every other event carries the
+ * client key (`player_<id>`), so bots matched no pickup to its taker.
+ */
+function pickerKey(entityId: unknown): string {
+  return toClientKey(String(entityId));
+}
+
+function slidingOf(entity: EntityLike | undefined): boolean {
+  const movement = entity?.getComponent("movementState") as { isSliding?: boolean } | undefined;
+  return movement?.isSliding === true;
 }
 
 function groundedOf(entity: EntityLike | undefined): boolean | undefined {

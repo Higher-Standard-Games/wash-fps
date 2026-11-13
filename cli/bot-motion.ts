@@ -20,14 +20,17 @@
  * - deaths per minute over all bots, so a change that calms the view without
  *   hurting how they fight can be told from one that stops them fighting.
  *
- * The match demo goes to a temporary folder, deleted when the run ends.
+ * The match demo goes to a temporary folder, deleted when the run ends, or
+ * with `--keep-demo <folder>` is moved there for `bot:demo-motion`.
+ * `--routes-root <folder>` reads learned routes from that folder's
+ * `config/bot-routes` instead of the checked-in ones.
  *
  * Usage:
  *   npm run bot:motion -- --map washoi_dm2 --bots 4 --seconds 120
  *   npm run bot:motion -- --map washoi_dm1 --gametype duel --bots 2 --difficulty hard
  */
 
-import { mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MatchPhase } from "@shared/server/gametype";
@@ -50,6 +53,9 @@ interface Args {
   gametype: string;
   difficulty: string;
   port: number;
+  /** Folder to keep the match demo in, for `bot:demo-motion`. */
+  keepDemo: string | null;
+  routesRoot: string | null;
 }
 
 const DEG = 180 / Math.PI;
@@ -84,7 +90,16 @@ const EYE = 36;
 const ROAMING = new Set(["HUNT", "ITEM_RUN", "RETREAT"]);
 
 function parseArgs(): Args {
-  const a: Args = { map: "washoi_dm2", bots: 4, seconds: 120, gametype: "ffa", difficulty: "medium", port: 7795 };
+  const a: Args = {
+    map: "washoi_dm2",
+    bots: 4,
+    seconds: 120,
+    gametype: "ffa",
+    difficulty: "medium",
+    port: 7795,
+    keepDemo: null,
+    routesRoot: null,
+  };
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
     const next = () => argv[++i];
@@ -107,10 +122,16 @@ function parseArgs(): Args {
       case "--port":
         a.port = Number(next()) || a.port;
         break;
+      case "--keep-demo":
+        a.keepDemo = next();
+        break;
+      case "--routes-root":
+        a.routesRoot = next();
+        break;
       case "--help":
       case "-h":
         console.log(
-          "Usage: npm run bot:motion -- [--map washoi_dm2] [--bots 4] [--seconds 120] [--gametype ffa|duel] [--difficulty medium] [--port 7795]",
+          "Usage: npm run bot:motion -- [--map washoi_dm2] [--bots 4] [--seconds 120] [--gametype ffa|duel] [--difficulty medium] [--port 7795] [--keep-demo <folder>] [--routes-root <root with config/bot-routes>]",
         );
         process.exit(0);
     }
@@ -373,7 +394,7 @@ async function main(): Promise<void> {
   if (bsp.pvs) server.setPVSData(bsp.pvs);
   await server.start();
 
-  const botServer = new BotServer(args.port + 100, {});
+  const botServer = new BotServer(args.port + 100, args.routesRoot ? { routesRoot: args.routesRoot } : {});
   const started = performance.now();
   const now = () => (performance.now() - started) / 1000;
   const logs: { samples: Sample[]; decisions: Decision[] }[] = [];
@@ -471,6 +492,10 @@ async function main(): Promise<void> {
     console.log = print;
     await botServer.removeAllBots().catch(() => 0);
     await server.stop();
+    if (args.keepDemo) {
+      await mkdir(args.keepDemo, { recursive: true });
+      for (const file of await readdir(demoDir)) await cp(join(demoDir, file), join(args.keepDemo, file));
+    }
     await rm(demoDir, { recursive: true, force: true });
   }
 }

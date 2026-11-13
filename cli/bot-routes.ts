@@ -99,7 +99,7 @@ async function main(): Promise<void> {
   }
   console.log = quiet;
   if (!vision || !nav) throw new Error(`Could not load map "${args.map}"`);
-  nav.addLearnedRoutes(loadLearnedRoutes(args.map));
+  nav.addLearnedRoutes(loadLearnedRoutes(args.map), (from, to) => vision.isWalkable(from, to));
   const world = vision.collisionWorld;
   const gapAt = (at: Vec3) => wallClearance(world, at, 64, 16).gap;
   const routeWorld: RouteWorld = {

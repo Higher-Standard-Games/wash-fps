@@ -316,6 +316,8 @@ a spectator:
 | `--gametype` | `ffa`; `duel` for Duel |
 | `--difficulty` | `medium` |
 | `--port` | `7795`; the bot control socket uses this plus 100 |
+| `--keep-demo` | none; a folder to keep the match demo in, for `bot:demo-motion` |
+| `--routes-root` | none; a folder whose `config/bot-routes` the bots read their learned routes from, to compare two route libraries |
 
 ```bash
 npm --prefix src/games/fps run bot:motion -- --map washoi_dm1 --bots 4 --seconds 120
@@ -325,7 +327,85 @@ Matches are random, so two runs of the same code differ by a few flip-backs per
 minute and a few points of still time. Compare a change against runs of the code
 before it on the same map, with the same `--seconds` and run the same way: two
 runs side by side load the machine and move the numbers. The match demo goes to
-a temporary folder that is deleted when the run ends.
+a temporary folder that is deleted when the run ends, unless `--keep-demo` names
+a folder to keep it in.
+
+### People against bots
+
+`npm --prefix src/games/fps run bot:demo-motion -- <demo or folder>...` reads
+recorded matches and measures every player in them with the same code
+(`bot/MotionStats.ts`), one sample per demo frame. Players are grouped as
+people or bots by name, so a recorded match of a person against a bot gives
+both sides on the same map and at the same rate, and a demo kept by `bot:motion
+--keep-demo` measures today's bots the same way. "Out of a fight" here is "has
+not pressed fire for a second", which a demo can tell for anyone; players who
+ran for less than 20 s (idle, spectating) are left out.
+
+| Line | Meaning |
+| --- | --- |
+| still, sliding, airborne | Shares of time alive. For people this includes warmup and countdown. |
+| running speed, over 450 u/s, running airborne | Out of a fight and faster than 150 u/s. |
+| wall gap running, within 24 u, within 8 u | The gap from the hull to the nearest wall while running, from 16 level rays. |
+| pitch running | The median view pitch while running. |
+| turning, turn reversals | View turn rate out of a fight on windows of at least 45 ms, and how often it changes direction. |
+| flicks, flick size, ending in a correction | Turns faster than 300°/s; their median size; the share followed within 200 ms by a turn back (an overshoot corrected). |
+| take-offs, chained | Leaving the ground while running, per running minute; the share leaving again within 0.25 s of landing. |
+| health and armor, deaths | Per minute alive. |
+
+| Flag | Meaning |
+| --- | --- |
+| `--per-player` | One line per player and demo as well |
+| `--json <file>` | Write both columns as JSON |
+| `--no-walls` | Skip the wall gap (no map load) |
+
+Old recordings name maps as they were then: `wfdm5`, `wfdm11` and `wdm2` are
+measured on `washoi_dm5`, `washoi_dm11` and `washoi_dm2`.
+
+```bash
+npm --prefix src/games/fps run bot:motion -- --map washoi_dm5 --gametype duel --bots 2 --keep-demo .cache/bots-now
+npm --prefix src/games/fps run bot:demo-motion -- public/data/demos .cache/bots-now
+```
+
+### Two variants head to head
+
+`npm --prefix src/games/fps run bot:ab` plays many headless matches with one bot
+of arm A against one of arm B (`--per-arm` more of each for Deathmatch),
+alternating who joins first, and reports wins, the frag gap per match with a
+95% interval, a sign test on wins, and a verdict. It also reports the major items
+each arm took per match (Red, Yellow and Green Armor, Mega Health), counted
+from the pickups the server grants, and how much of the match each arm spent
+in each strategy, sampled once a second (Standard only for a bot without the
+strategist). Arms are bot options as JSON, the
+options a bot is added with. Matches run in `--parallel` worker processes.
+
+Three options exist for these tests and are not part of a bot's rating
+identity: `"strategy": false` plays without the strategist,
+`"strategies": ["control"]` lets it play only the strategies listed (a
+diagnosis none of them answers is played as Standard), and
+`"habitItem": "ra"` makes a bot go for every item of that kind, the
+predictable opponent a strategist should beat. An arm's `"routesRoot"` is a folder holding a
+`config/bot-routes` of its own: each arm has its own bot server, so two route
+libraries can be played against each other.
+
+| Flag | Default |
+| --- | --- |
+| `--map` | `washoi_dm5` |
+| `--gametype` | `duel`; `ffa` for Deathmatch |
+| `--matches` | `12` |
+| `--seconds` | `120` per match (at least 20) |
+| `--parallel` | `3` worker processes |
+| `--per-arm` | `1` bot per arm |
+| `--port` | `8100`; each worker takes 200 ports from here |
+| `--a`, `--b` | `{}`: bot options as JSON, for example `{"difficulty":"hard"}` |
+
+```bash
+npm --prefix src/games/fps run bot:ab -- --matches 32 --parallel 4 --seconds 150 --a '{"difficulty":"hard"}' --b '{"difficulty":"easy"}'
+```
+
+Two-bot Duel is noisy: two runs of the same code can differ threefold in deaths,
+and 16 matches of Hard against Easy on washoi_dm5 ended 10–3 in wins (3 drawn),
+62–49 in frags, short of either test. Plan on 30 or more matches for a
+difference smaller than that.
 
 ### Route lines, checked offline
 
@@ -357,6 +437,21 @@ the game's own step-and-slide movement at 400 u/s:
 
 It takes seconds, so run it after any change to the nav graph or the line
 builder, then `bot:motion` to see the bots run it.
+
+## How people play, as rules
+
+`npm --prefix src/games/fps run bot:people -- <demo or folder>...` measures
+people in demos, as rules that hold on every map, and writes them to
+`config/bot-intel/people.json`. Only people count: a player with an account
+and no bot name. Nothing per player or per map is kept. Run it on demand,
+review what changed and commit it; `--dry-run` only prints.
+
+The file holds one rule so far, `stackByAge`: a player's health plus armor by
+seconds since their spawn, as quartiles per 10 s. A bot's estimate of a person
+it has not seen for a while leans toward that curve, by how stale it is: people
+pick items up out of sight. Estimates of other bots do not use it.
+
+The file is part of a bot's behaviour fingerprint, like the route libraries.
 
 ## Not yet
 

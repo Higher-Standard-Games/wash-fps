@@ -498,12 +498,15 @@ export class BotNavGraph {
   }
 
   /**
-   * Add routes learned from training demos (see LearnedRoutes.ts) as `jump`
-   * edges: from the node a player stands at the route's start, to the node at
-   * its landing, or a new node there when none is near. Replaces any learned
-   * routes added before, so loading twice does not duplicate edges.
+   * Add routes learned from demos (see LearnedRoutes.ts) as `jump` edges:
+   * from the node a player stands at the route's start, to the node at its
+   * landing, or a new node there when none is near. With `canWalk`, start and
+   * landing nodes are ones walkable from the route's ends, a new landing node
+   * links only to nodes it can walk to, and a route whose new landing links to
+   * none is left out. Replaces any learned routes added before, so loading
+   * twice does not duplicate edges.
    */
-  addLearnedRoutes(routes: readonly LearnedRoute[]): number {
+  addLearnedRoutes(routes: readonly LearnedRoute[], canWalk?: (from: Vec3, to: Vec3) => boolean): number {
     this._edges = this._edges.filter((edge) => !edge.opportunityId?.startsWith(LEARNED_PREFIX));
     this._learnedRoutes.clear();
     // Landing nodes from an earlier call go too; they sit after the graph's own.
@@ -511,9 +514,9 @@ export class BotNavGraph {
     else this._nodes.length = this._baseNodeCount;
     let added = 0;
     for (const route of routes) {
-      const from = this._findStandingNode(route.start);
+      const from = this._findStandingNode(route.start, canWalk);
       if (!from) continue;
-      let to = this._findStandingNode(route.landing);
+      let to = this._findStandingNode(route.landing, canWalk);
       const toOrigin = to && (STANDS_ON_SURFACE.has(to.type) ? walkOrigin(to) : to.position);
       if (!to || !toOrigin || vec3Distance(toOrigin, route.landing) > LEARNED_LANDING_SNAP) {
         const landing: NavNode = {
@@ -521,19 +524,25 @@ export class BotNavGraph {
           type: "floor",
           position: { x: route.landing.x, y: route.landing.y - WALK_TEST_LIFT, z: route.landing.z },
         };
-        this._nodes.push(landing);
         // A player stood here, so it is floor: link it to the nodes on the
-        // same floor around it, or a route would arrive at a dead end.
+        // same floor around it that it can walk to, or a route would arrive
+        // at a dead end. A link through a wall or over a rail stood the bot
+        // against it.
+        const links: NavEdge[] = [];
         for (const node of this._nodes) {
-          if (node.id === landing.id || !STANDS_ON_SURFACE.has(node.type)) continue;
+          if (!STANDS_ON_SURFACE.has(node.type)) continue;
           const reach = Math.hypot(node.position.x - landing.position.x, node.position.z - landing.position.z);
           if (reach > LEARNED_LANDING_LINK || Math.abs(node.position.y - landing.position.y) > LEARNED_LANDING_STEP) {
             continue;
           }
+          if (canWalk && !canWalk(walkOrigin(landing), walkOrigin(node))) continue;
           const cost = vec3Distance(node.position, landing.position);
-          this._edges.push({ from: landing.id, to: node.id, type: "walk", cost, opportunityId: LEARNED_LINK });
-          this._edges.push({ from: node.id, to: landing.id, type: "walk", cost, opportunityId: LEARNED_LINK });
+          links.push({ from: landing.id, to: node.id, type: "walk", cost, opportunityId: LEARNED_LINK });
+          links.push({ from: node.id, to: landing.id, type: "walk", cost, opportunityId: LEARNED_LINK });
         }
+        if (links.length === 0) continue;
+        this._nodes.push(landing);
+        this._edges.push(...links);
         to = landing;
       }
       if (to.id === from.id) continue;

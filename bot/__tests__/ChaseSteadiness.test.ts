@@ -267,3 +267,39 @@ describe("steering round a wall ahead", () => {
     expect(new Set(turns).size).toBe(1);
   });
 });
+
+describe("shopping or hunting, out of a fight", () => {
+  function evaluate(armor: number, enemyKnownAt: number | null): BotState {
+    const brain = new StateMachineBrain({ ...resolveDifficulty("hard"), mistakeRate: 0 });
+    const state = new BotGameState();
+    state.tick = 1000;
+    Object.assign(state.self, { health: 100, armor, isGrounded: true, position: { x: 0, y: 24, z: 0 } });
+    if (enemyKnownAt !== null)
+      state.lastKnownEnemyPositions.set("foe", { position: { x: 0, y: 24, z: 800 }, tick: enemyKnownAt });
+    const vision: VisionResult = {
+      visibleEnemies: [],
+      audibleEnemies: [],
+      allKnownEnemies: [],
+      pickups: [],
+      trackedEnemies: [],
+      nearestCover: null,
+      tracesPerformed: 0,
+      chaseTarget: null,
+    };
+    brain.decide(state, null, vision, null);
+    return brain.getState();
+  }
+
+  it("runs its item cycle under 25 armor when it has no idea where anyone is", () => {
+    expect(evaluate(0, null)).toBe(BotState.ITEM_RUN);
+    expect(evaluate(0, 100)).toBe(BotState.ITEM_RUN);
+  });
+
+  it("hunts an enemy it knows of when no item is worth the run", () => {
+    expect(evaluate(0, 950)).toBe(BotState.HUNT);
+  });
+
+  it("hunts with 25 armor or more", () => {
+    expect(evaluate(50, null)).toBe(BotState.HUNT);
+  });
+});

@@ -14,13 +14,15 @@ import type { BotGameState } from "./BotGameState";
 import type { Mood, MoodEvent } from "./BotMood";
 import type { BotNavGraph } from "./BotNavGraph";
 import type { BotVision, VisionResult } from "./BotVision";
+import type { Fight } from "./strategy/MatchRead";
+import type { JudgedEpisode } from "./strategy/Strategist";
 
 // ── Bot Input (what the brain outputs) ──────────────────────────────────
 
 export interface BotInput {
   /** Movement direction (view-relative: z=forward, x=strafe) */
   direction: { x: number; y: number; z: number };
-  /** Look pitch (radians, positive = up) */
+  /** Look pitch (radians, positive = down) */
   pitch: number;
   /**
    * Look yaw (radians): where the bot wants to look. The client turns the view
@@ -46,6 +48,12 @@ export interface BotInput {
   script?: readonly BotInput[];
   /** Stop sending a previous movement script before applying this decision. */
   cancelScript?: boolean;
+  /**
+   * Out of a fight with no enemy in sight: the look is the bot's own choice and
+   * there is nothing to react to, so the client eases the view there instead of
+   * turning at once (BotAimController).
+   */
+  calm?: boolean;
 }
 
 /** The yaw a decision moves along: `direction` is relative to it. */
@@ -79,6 +87,13 @@ export enum BotState {
 }
 
 // ── Abstract Base Class ─────────────────────────────────────────────────
+
+/** The brain's part of a match report (bot/intel/IntelStore.ts). */
+export interface BrainMatchReport {
+  score: { own: number; bestOther: number; deaths: number };
+  fights: readonly Fight[];
+  episodes: readonly JudgedEpisode[];
+}
 
 export abstract class BotBrain {
   protected difficulty: BotDifficulty;
@@ -119,6 +134,16 @@ export abstract class BotBrain {
   /** Update difficulty settings */
   setDifficulty(difficulty: BotDifficulty): void {
     this.difficulty = difficulty;
+  }
+
+  /** What the brain learned this match, for the bot-intel store; null when it keeps no read. */
+  matchReport(): BrainMatchReport | null {
+    return null;
+  }
+
+  /** The strategy in force (Strategist), or null for a brain without one. */
+  get strategyId(): string | null {
+    return null;
   }
 
   /** The settings the view should turn with now; a mood can loosen them. */

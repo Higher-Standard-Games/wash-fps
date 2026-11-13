@@ -22,6 +22,7 @@
 import { runCli } from "../../../cli/_runCli";
 import { loadBotSecret, resolveDataDir } from "../../../lobby/ServerData";
 import { BotServer } from "../bot/BotServer";
+import { IntelStore } from "../bot/intel/IntelStore";
 
 // ── Parse Arguments ─────────────────────────────────────────────────────
 
@@ -34,6 +35,8 @@ interface BotServerArgs {
   gametype: string;
   modelDir?: string;
   dataDir?: string;
+  /** Keep bots' match reports in <data-dir>/bot-intel.db (default on). */
+  intel: boolean;
 }
 
 function parseArgs(): BotServerArgs {
@@ -44,6 +47,7 @@ function parseArgs(): BotServerArgs {
     autoCount: 3,
     difficulty: "medium",
     gametype: "duel",
+    intel: true,
   };
 
   let namedFlagFound = false;
@@ -81,6 +85,10 @@ function parseArgs(): BotServerArgs {
         break;
       case "--data-dir":
         config.dataDir = args[++i];
+        namedFlagFound = true;
+        break;
+      case "--no-intel":
+        config.intel = false;
         namedFlagFound = true;
         break;
       case "--help":
@@ -121,7 +129,8 @@ Options:
   --difficulty <lvl>  Bot difficulty: easy, medium, hard, insane (default: medium)
   --models <dir>       Path to TF.js model directory for HybridBrain AI
   --data-dir <dir>    Server data directory holding the shared bot secret
-                      (default: SERVER_DATA_DIR, else ./server-data)
+                      and bot-intel.db (default: SERVER_DATA_DIR, else ./server-data)
+  --no-intel          Do not keep bots' match reports in bot-intel.db
   --help, -h          Show this help
 
 Examples:
@@ -149,9 +158,13 @@ async function main(): Promise<void> {
   console.log(`[BIS] Default difficulty: ${config.difficulty}`);
   console.log("");
 
+  const dataDir = resolveDataDir(config.dataDir);
+  const intel = config.intel ? IntelStore.open(dataDir) : undefined;
+  if (intel) console.log(`[BIS] Match reports: ${dataDir}/bot-intel.db`);
   const server = new BotServer(config.port, {
-    secret: loadBotSecret(resolveDataDir(config.dataDir)),
+    secret: loadBotSecret(dataDir),
     modelDir: config.modelDir,
+    intel,
   });
   await server.start();
 

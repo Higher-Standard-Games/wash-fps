@@ -92,6 +92,18 @@ function component<T>(components: unknown, name: string): T | undefined {
   return (components as Record<string, T> | undefined)?.[name];
 }
 
+/**
+ * Every command applied after sample `from` up to sample `to`, shifted by
+ * `delay` commands. A match server samples positions every other tick (once
+ * per snapshot), so there are more commands than samples: all of them are
+ * replayed, not one per sample.
+ */
+export function commandsBetween(timeline: Timeline, from: number, to: number, delay = 0): RouteCommand[] {
+  const { ticks, commands } = timeline;
+  const at = (n: number) => Math.max(0, Math.min(commands.length, n + delay));
+  return commands.slice(at(ticks[from].commandCount), at(ticks[to].commandCount));
+}
+
 /** Rebuild one player's per-tick state and command stream from demo frames. */
 export function buildTimeline(frames: readonly DemoFrame[], playerId: string): Timeline {
   const ticks: TimelineTick[] = [];
@@ -192,7 +204,7 @@ export type LearnOutcome = { route: LearnedRoute } | { rejected: string };
 
 /** Learn one trick as a route from a standstill, or say why not. */
 export function learnSegment(timeline: Timeline, segment: TrickSegment, context: LearnContext): LearnOutcome {
-  const { ticks, commands } = timeline;
+  const { ticks } = timeline;
   // Start the recording where a sprint from a standstill can take over: the
   // latest grounded tick no faster than a sprint, at least LEAD_TICKS before
   // takeoff. Hops and strafe jumps that built the speed stay in the script.
@@ -209,12 +221,8 @@ export function learnSegment(timeline: Timeline, segment: TrickSegment, context:
   const recordedLanding = ticks[end].position;
   const recordedStart = ticks[first];
 
-  // Commands for ticks first+1..end, at the offset that replays best.
-  const slice = (delay: number) =>
-    ticks.slice(first + 1, end + 1).map((t) => {
-      const index = Math.max(0, Math.min(commands.length - 1, t.commandCount - 1 + delay));
-      return commands[index];
-    });
+  // The commands between the start and end samples, at the offset that replays best.
+  const slice = (delay: number) => commandsBetween(timeline, first, end, delay);
   let best: { delay: number; error: number } | null = null;
   for (let delay = -MAX_DELAY; delay <= MAX_DELAY; delay++) {
     const replay = replayCommands(

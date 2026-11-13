@@ -87,9 +87,9 @@ export function powerupValue(kind: string): number {
  */
 export function denialValue(type: string, kind: string): number {
   if (type === "powerup") return powerupValue(kind);
-  if (type === "health") return kind === "mega" || kind === "ultra" ? 0.8 : 0.15;
+  if (type === "health") return kind === "mega" || kind === "ultra" ? 0.7 : 0.15;
   if (type === "armor") {
-    if (kind === "ra") return 0.7;
+    if (kind === "ra") return 0.8;
     if (kind === "ya") return 0.4;
     return 0.1;
   }
