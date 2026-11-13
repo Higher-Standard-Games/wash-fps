@@ -140,11 +140,18 @@ export class BotServer {
   /** Where bots' match reports go (bot/intel/IntelStore.ts); none in headless tools. */
   private _intel: IntelStore | null;
 
-  constructor(port: number = 9100, options: { secret?: string; modelDir?: string; intel?: IntelStore } = {}) {
+  /** Where the learned route libraries are read from (`<root>/config/bot-routes`); the working directory by default. */
+  private readonly _routesRoot: string | undefined;
+
+  constructor(
+    port: number = 9100,
+    options: { secret?: string; modelDir?: string; intel?: IntelStore; routesRoot?: string } = {},
+  ) {
     this._port = port;
     this._secret = options.secret;
     this._modelDir = options.modelDir;
     this._intel = options.intel ?? null;
+    this._routesRoot = options.routesRoot;
   }
 
   /** Where trained models live, for every bot this server spawns. */
@@ -371,7 +378,7 @@ export class BotServer {
           }
           // After the cache save: learned routes live in config/bot-routes and
           // change without the map changing, so they are never cached.
-          const learned = navGraph.addLearnedRoutes(loadLearnedRoutes(mapName));
+          const learned = navGraph.addLearnedRoutes(loadLearnedRoutes(mapName, this._routesRoot));
           this._navGraphCache.set(mapName, navGraph);
           console.log(
             `[BotServer] NavGraph built → ${navGraph.nodeCount} nodes, ${navGraph.edgeCount} edges, ${learned} learned routes`,

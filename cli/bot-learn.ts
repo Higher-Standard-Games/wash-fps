@@ -3,7 +3,8 @@
  *
  *   npm run bot:learn -- <demo> [<demo> ...] [--dry-run]
  *
- * A demo is a path or a name in public/data/demos/training/. Every trick in it
+ * A demo is a path or a name in public/data/demos/training/: a training demo,
+ * or a match demo, whose people are learned from (not its bots). Every trick in it
  * (a flight with a wall jump, a climb higher than a plain jump, a jump over a
  * gap, a teleport flown out of) is
  * re-simulated; the ones that replay reliably from a standstill are saved to
@@ -16,6 +17,7 @@ import { createBotVision } from "../bot/BotVision";
 import { type LearnedRoute, loadLearnedRoutes, saveLearnedRoutes } from "../bot/LearnedRoutes";
 import { buildTimeline, findTrickSegments, learnSegment } from "../bot/RouteLearner";
 import { resolveFPSDemoMap } from "../client/DemoMapAliases";
+import { isBotName } from "../shared/bot/BotNames";
 
 const TRAINING_DIR = path.join("public", "data", "demos", "training");
 
@@ -57,6 +59,8 @@ async function main(): Promise<void> {
     const learned = byMap.get(mapName) ?? [];
     byMap.set(mapName, learned);
     for (const player of header.players) {
+      // People only: a bot's moves in a match are routes it already has.
+      if (isBotName(player.name)) continue;
       const timeline = buildTimeline(frames, player.playerId);
       const segments = findTrickSegments(timeline, vision.collisionWorld);
       console.log(`${demo} (${header.map}), ${player.name}: ${segments.length} tricks`);

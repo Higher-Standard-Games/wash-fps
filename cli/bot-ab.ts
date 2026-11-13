@@ -41,14 +41,17 @@ interface Args {
   parallel: number;
   perArm: number;
   port: number;
-  a: Partial<BotOptions>;
-  b: Partial<BotOptions>;
+  /** Bot options, and `routesRoot`: a folder whose config/bot-routes this arm's routes come from. */
+  a: ArmOptions;
+  b: ArmOptions;
   worker: boolean;
   /** Worker: index of the first match it plays, for alternating join order. */
   first: number;
 }
 
 /** One match's result, as a worker prints it. */
+type ArmOptions = Partial<BotOptions> & { routesRoot?: string };
+
 export interface MatchResult {
   match: number;
   frags: { a: number; b: number };
@@ -165,15 +168,20 @@ async function playMatch(args: Args, port: number, aFirst: boolean, match: numbe
     counts[kind] = (counts[kind] ?? 0) + 1;
     granted.set(Number(id), counts);
   };
-  const botServer = new BotServer(port + 50, {});
+  // One bot server per arm, so an arm can read its own route libraries
+  // ("routesRoot" in its options: a folder holding config/bot-routes).
+  const servers = {
+    a: new BotServer(port + 50, { routesRoot: args.a.routesRoot }),
+    b: new BotServer(port + 51, { routesRoot: args.b.routesRoot }),
+  };
   try {
     const order: ("a" | "b")[] = [];
     for (let i = 0; i < args.perArm; i++) order.push(...((aFirst ? ["a", "b"] : ["b", "a"]) as ("a" | "b")[]));
     const bots = [];
     for (const arm of order) {
       if (bots.length > 0) await wait(400);
-      const options = { chat: false, ...(arm === "a" ? args.a : args.b) };
-      bots.push({ arm, bot: await botServer.addBot(`ws://localhost:${port}`, options) });
+      const { routesRoot: _root, ...options } = { chat: false, ...(arm === "a" ? args.a : args.b) };
+      bots.push({ arm, bot: await servers[arm].addBot(`ws://localhost:${port}`, options) });
     }
     await wait(2000);
     const state = server.getGametypeController().getMatchState();
@@ -205,7 +213,8 @@ async function playMatch(args: Args, port: number, aFirst: boolean, match: numbe
     }
     return result;
   } finally {
-    await botServer.removeAllBots().catch(() => 0);
+    await servers.a.removeAllBots().catch(() => 0);
+    await servers.b.removeAllBots().catch(() => 0);
     await server.stop();
   }
 }
