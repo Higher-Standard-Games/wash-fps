@@ -82,6 +82,12 @@ const PICKUP_SEEK_RANGE = 1500;
 const TIMED_ITEM_HOLD_RADIUS = 40;
 /** How long a bot waiting at a timed item watches one way in. */
 const ENTRANCE_WATCH_TICKS = 375;
+/** A charged blast is let go within this of the aim (radians)… */
+const CHARGE_RELEASE_CONE = (12 * Math.PI) / 180;
+/** …or this many ticks after its planned release, on the aim or not. */
+const CHARGE_AIM_GRACE_TICKS = Math.round(0.5 * TICK_RATE);
+/** A blade charge is held out of a fight at most this long after it started. */
+const CHARGE_CARRY_TICKS = Math.round(2 * TICK_RATE);
 const DODGE_REACT_TICKS = 30; // React to damage within last 30 ticks
 /** The slide's own cooldown plus its length, in server ticks, from the start of the last one. */
 const SLIDE_COOLDOWN_TICKS = Math.ceil(((PHYSICS.SLIDE_COOLDOWN + PHYSICS.SLIDE_DURATION) / 1000) * TICK_RATE);
@@ -582,6 +588,7 @@ export class StateMachineBrain extends BotBrain {
   ): BotInput {
     this._cancelScript = false;
     const input = this._decide(state, vision, visionResult, navGraph);
+    this._carryCharge(state, input);
     if (this._isCalm(state, input)) {
       input.calm = true;
       // People look a little down while running, at the floor ahead (BS-1: 11°).
@@ -1029,9 +1036,16 @@ export class StateMachineBrain extends BotBrain {
 
     // Weapon-aware combat behavior
     if (currentProfile.isMelee) {
-      const chargeFire = this._updateChargedProjectileFire(state, enemy, selectedWeaponId, currentProfile);
+      const chargeFire = this._updateChargedProjectileFire(
+        state,
+        enemy,
+        selectedWeaponId,
+        currentProfile,
+        aim,
+        wantsFire,
+      );
 
-      if (chargeFire.holdAltFire && wantsFire) {
+      if (chargeFire.holdAltFire) {
         buttons |= InputButtons.ALT_FIRE;
       }
 
@@ -1048,7 +1062,10 @@ export class StateMachineBrain extends BotBrain {
       // ADS whenever it tightens the shot; firing walks anyway, so aiming costs no speed.
       // A weapon whose aim takes time to settle holds fire until the server
       // counts the shot as aimed, which starts once that weapon is up.
-      const aimsDownSights = currentProfile.aimsDownSights && wantsFire;
+      // Only with that weapon up: alt-fire pressed while the blade is still
+      // out, mid-switch, starts a blade charge the switch then cancels.
+      const aimsDownSights =
+        currentProfile.aimsDownSights && wantsFire && state.self.currentWeapon === selectedWeaponId;
       if (aimsDownSights) buttons |= InputButtons.ALT_FIRE;
       if (!aimsDownSights || state.self.currentWeapon !== selectedWeaponId) this._adsSinceTick = null;
       else this._adsSinceTick ??= state.tick;
@@ -1224,6 +1241,8 @@ export class StateMachineBrain extends BotBrain {
     enemy: VisiblePlayer,
     weaponId: string,
     profile: WeaponProfile,
+    aim: { yaw: number; pitch: number },
+    wantsFire: boolean,
   ): { holdAltFire: boolean } {
     if (!profile.hasChargedProjectile || !weaponId || enemy.distance < MELEE_RANGE) {
       this._clearChargedProjectileFire();
@@ -1241,6 +1260,13 @@ export class StateMachineBrain extends BotBrain {
     const targetChanged = this._chargeTargetId !== enemy.playerId;
     const weaponChanged = this._chargeWeaponId !== weaponId;
     if (targetChanged || weaponChanged || this._chargeStartTick === null || this._chargeReleaseTick === null) {
+      // A charge starts only when the bot means to fire; once started it is
+      // held through a moment's hesitation, because letting go before the
+      // minimum cancels it on the server.
+      if (!wantsFire) {
+        this._clearChargedProjectileFire();
+        return { holdAltFire: false };
+      }
       this._chargeWeaponId = weaponId;
       this._chargeTargetId = enemy.playerId;
       this._chargeStartTick = state.tick;
@@ -1253,12 +1279,40 @@ export class StateMachineBrain extends BotBrain {
       return { holdAltFire: true };
     }
 
-    if (state.tick >= this._chargeReleaseTick) {
+    // Release on the aim: a blast let go while the view is still turning
+    // misses. The charge stops growing at its maximum, so waiting costs only
+    // time, and after CHARGE_AIM_GRACE_TICKS it goes anyway.
+    const off = Math.max(Math.abs(wrapAngle(aim.yaw - state.self.yaw)), Math.abs(aim.pitch - state.self.pitch));
+    const onAim = off <= CHARGE_RELEASE_CONE;
+    if (
+      state.tick >= this._chargeReleaseTick &&
+      (onAim || state.tick >= this._chargeReleaseTick + CHARGE_AIM_GRACE_TICKS)
+    ) {
       this._clearChargedProjectileFire();
       return { holdAltFire: false };
     }
 
     return { holdAltFire: true };
+  }
+
+  /**
+   * A blade charge outlives the fight decision that started it: the enemy
+   * steps out of sight, or a hit sends the bot dodging, and a player keeps
+   * holding to let go when they are back. Carried up to CHARGE_CARRY_TICKS
+   * with the charging weapon still out; any decision that lets go of
+   * alt-fire otherwise ends the charge, on the server and here.
+   */
+  private _carryCharge(state: BotGameState, input: BotInput): void {
+    if ((input.buttons & InputButtons.ALT_FIRE) !== 0 || this._chargeStartTick === null) return;
+    const carried =
+      !state.self.isDead &&
+      this.currentState !== BotState.FIGHT &&
+      state.self.currentWeapon === this._chargeWeaponId &&
+      !input.script &&
+      (input.weaponSlot ?? 0) === 0 &&
+      state.tick - this._chargeStartTick < CHARGE_CARRY_TICKS;
+    if (carried) input.buttons |= InputButtons.ALT_FIRE;
+    else this._clearChargedProjectileFire();
   }
 
   private _clearChargedProjectileFire(): void {

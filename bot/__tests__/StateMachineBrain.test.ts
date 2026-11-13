@@ -70,6 +70,50 @@ describe("StateMachineBrain combat", () => {
     expect(nextCharge.buttons & InputButtons.ALT_FIRE).not.toBe(0);
   });
 
+  it("holds a ready blade charge until the view is on the aim, then a short grace at most", () => {
+    const brain = new StateMachineBrain(difficulty);
+    const state = makeState({ currentWeapon: "blade", weapons: ["blade"], ammo: { blade: 1 }, yaw: 1.2 }, 700);
+    expect(brain.decide(state).buttons & InputButtons.ALT_FIRE).not.toBe(0);
+    state.tick = 130;
+    expect(brain.decide(state).buttons & InputButtons.ALT_FIRE).not.toBe(0);
+    state.self.yaw = 0;
+    state.tick = 140;
+    expect(brain.decide(state).buttons & InputButtons.ALT_FIRE).toBe(0);
+
+    const late = new StateMachineBrain(difficulty);
+    const off = makeState({ currentWeapon: "blade", weapons: ["blade"], ammo: { blade: 1 }, yaw: 1.2 }, 700);
+    late.decide(off);
+    off.tick = 400;
+    expect(late.decide(off).buttons & InputButtons.ALT_FIRE).toBe(0);
+  });
+
+  it("carries a blade charge while the enemy is out of sight, and lets it go on the aim", () => {
+    const brain = new StateMachineBrain(difficulty);
+    const state = makeState({ currentWeapon: "blade", weapons: ["blade"], ammo: { blade: 1 } }, 700);
+    expect(brain.decide(state).buttons & InputButtons.ALT_FIRE).not.toBe(0);
+    state.tick = 40;
+    state.players = [];
+    expect(brain.decide(state).buttons & InputButtons.ALT_FIRE).not.toBe(0);
+    state.players = [makeEnemy(700)];
+    state.tick = 140;
+    expect(brain.decide(state).buttons & InputButtons.ALT_FIRE).toBe(0);
+  });
+
+  it("lets a carried charge go after the carry, and starts the next one over", () => {
+    const brain = new StateMachineBrain(difficulty);
+    const state = makeState({ currentWeapon: "blade", weapons: ["blade"], ammo: { blade: 1 } }, 700);
+    brain.decide(state);
+    state.players = [];
+    state.tick = 300;
+    expect(brain.decide(state).buttons & InputButtons.ALT_FIRE).toBe(0);
+    state.players = [makeEnemy(700)];
+    state.tick = 310;
+    expect(brain.decide(state).buttons & InputButtons.ALT_FIRE).not.toBe(0);
+    // Short of the new charge's minimum: still held.
+    state.tick = 370;
+    expect(brain.decide(state).buttons & InputButtons.ALT_FIRE).not.toBe(0);
+  });
+
   it("swings the blade at melee range", () => {
     const brain = new StateMachineBrain(difficulty);
     const state = makeState({ currentWeapon: "blade", weapons: ["blade"], ammo: { blade: 1 } }, 80);
@@ -89,8 +133,12 @@ describe("StateMachineBrain combat", () => {
     const input = brain.decide(state);
     expect(input.weaponSlot).toBe(2);
     expect(input.buttons & InputButtons.FIRE).not.toBe(0);
-    // The machinegun's cone tightens when aimed; the server switches before it fires
-    expect(input.buttons & InputButtons.ALT_FIRE).not.toBe(0);
+    // No sights while the blade is still out: on the blade, alt-fire is its charge.
+    expect(input.buttons & InputButtons.ALT_FIRE).toBe(0);
+    // The machinegun up: its cone tightens when aimed.
+    state.self.currentWeapon = "machinegun";
+    state.tick = 2;
+    expect(brain.decide(state).buttons & InputButtons.ALT_FIRE).not.toBe(0);
   });
 
   it("holds the electrobolt's sights until the shot counts as aimed", () => {
