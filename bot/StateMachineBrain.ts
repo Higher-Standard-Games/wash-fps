@@ -21,7 +21,13 @@ import type { PickupEntry } from "../shared/bsp/PickupTable";
 import { wrapAngle } from "./BotAimController";
 import { BotBrain, type BotInput, BotState, type BrainMatchReport, travelYaw } from "./BotBrain";
 import { BotCombatMovement, findHighGround } from "./BotCombatMovement";
-import { type BotDifficulty, defaultGoalArbiterMode, type GoalArbiterMode, InputButtons } from "./BotConfig";
+import {
+  type BotDifficulty,
+  defaultGoalArbiterMode,
+  type GoalArbiterMode,
+  HIT_ATTENTION_MS,
+  InputButtons,
+} from "./BotConfig";
 import type { BotGameState, Vec3, VisiblePlayer } from "./BotGameState";
 import { vec3Distance, vec3Length, vec3Normalize, vec3Subtract } from "./BotGameState";
 import { BotMood, type Mood, type MoodEvent } from "./BotMood";
@@ -839,7 +845,11 @@ export class StateMachineBrain extends BotBrain {
     // Non-interruptible work must reach the navigation executor before combat,
     // chase or item shopping can divert it. Death is handled by decide().
     if (this._mandatoryGoal) return BotState.ITEM_RUN;
-    const recentlyDamaged = state.wasRecentlyDamaged(DODGE_REACT_TICKS);
+    // A hit holds the bot on its attacker long enough to turn round and
+    // answer. Held only a quarter second, a bot shot in the back turned part
+    // way and went back to its item, and a chaser shot it in the back again.
+    const hitAttentionTicks = Math.round(((this.difficulty.hitAttentionMs ?? HIT_ATTENTION_MS) / 1000) * TICK_RATE);
+    const recentlyDamaged = state.wasRecentlyDamaged(hitAttentionTicks);
 
     // Use vision data if available, otherwise fall back to raw state
     const hasVisibleEnemy = this._lastVision

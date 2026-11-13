@@ -42,7 +42,16 @@ export interface BotDifficulty {
    * enemy. Absent counts as 0.5.
    */
   matchSense?: number;
+  /**
+   * How long a hit keeps the bot on its attacker, ms: turning to find them,
+   * fighting them once in sight, or dodging while it cannot see them, before
+   * it goes back to what it was doing. Absent counts as HIT_ATTENTION_MS.
+   */
+  hitAttentionMs?: number;
 }
+
+/** Default for BotDifficulty.hitAttentionMs: long enough to turn round and answer. */
+export const HIT_ATTENTION_MS = 1500;
 
 /** Preset difficulty levels */
 export const DIFFICULTY_PRESETS: Record<string, BotDifficulty> = {
