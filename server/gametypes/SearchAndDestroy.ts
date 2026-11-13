@@ -40,7 +40,7 @@ import type { Vec3 } from "@shared/server/simulation/types";
 import { log } from "../../../../engine/core/Log";
 import { PLAYER_ORIGIN_HEIGHT } from "../../../../engine/physics/PlayerPhysicsConstants";
 import type { BombSite, Vec3Like } from "../../../../shared/bsp/BombSiteTable";
-import { extractBombSites, isBombMap, spawnCentroid } from "../../../../shared/bsp/BombSiteTable";
+import { extractBombSites, isBombMap, isInsideBombSite, spawnCentroid } from "../../../../shared/bsp/BombSiteTable";
 import { BrushModelState, extractBrushModels } from "../../../../shared/bsp/BrushModelState";
 import type { CollisionWorld } from "../../../../shared/collision/CollisionWorld";
 import { rngFrom } from "../../../../shared/DeterministicRng";
@@ -224,6 +224,8 @@ export class SearchAndDestroy extends BaseGametype {
   private bombWorkerId: number | null = null;
   /** Site the attack is committed to. */
   private targetSiteId: number | null = null;
+  /** Per site id, where a player stands in it: see `standingSpot`. */
+  private readonly standingSpots = new Map<number, Vec3Like>();
   /** A selected kit is granted on the next spawn. */
   private loadouts = new PlayerLoadouts();
 
@@ -362,6 +364,7 @@ export class SearchAndDestroy extends BaseGametype {
     this.brushModels = new BrushModelState(extractBrushModels(context.entities, context.models));
     this.pendingStructures = [];
     this.sites = [];
+    this.standingSpots.clear();
     this.bombSpawns.clear();
 
     if (!isBombMap(context.entities)) {
@@ -407,6 +410,7 @@ export class SearchAndDestroy extends BaseGametype {
     this.brushModels.reset();
     this.collision?.brushModels?.reset();
     this.siteByDefender.clear();
+    this.targetSiteId = null;
     this.bomb.reset(this.bombSpawns.get(BETA_TEAM) ?? { x: 0, y: 0, z: 0 });
   }
 
@@ -843,9 +847,10 @@ export class SearchAndDestroy extends BaseGametype {
     // free to cover, rather than stacking on the same 64 units of floor.
     this.bombWorkerId = this.nearestTo(attackers, this.bomb.position);
 
-    // Which site the attack commits to. Nearest to the bomb, so the team pushes
-    // together and the choice does not flip as individuals move around.
-    this.targetSiteId = this.nearestSite(this.bomb.position)?.id ?? null;
+    // Which site the attack commits to, once a round: nearest the bomb as the
+    // round starts. Chosen again every tick, it followed the carrier and
+    // flipped sites on the way.
+    this.targetSiteId ??= this.nearestSite(this.bomb.position)?.id ?? null;
   }
 
   /** Entity id of whoever in `candidates` is nearest `point`, or null. */
@@ -948,7 +953,7 @@ export class SearchAndDestroy extends BaseGametype {
           // which is exactly when re-committing is correct.
           `snd_defend_site_${site.id}`,
           "defend",
-          site.position,
+          this.standingSpot(site),
           SITE_ARRIVAL_RADIUS,
           PRIORITY_HOLD,
           expiresAtTick,
@@ -1002,7 +1007,7 @@ export class SearchAndDestroy extends BaseGametype {
             this.directive(
               `snd_push_site_${target.id}`,
               "hold_area",
-              target.position,
+              this.standingSpot(target),
               SITE_ARRIVAL_RADIUS,
               PRIORITY_HOLD,
               expiresAtTick,
@@ -1022,7 +1027,7 @@ export class SearchAndDestroy extends BaseGametype {
         this.directive(
           `snd_plant_site_${target.id}`,
           "move_to",
-          target.position,
+          this.standingSpot(target),
           PLANT_ARRIVAL_RADIUS,
           PRIORITY_ARM,
           expiresAtTick,
@@ -1162,6 +1167,24 @@ export class SearchAndDestroy extends BaseGametype {
       this.collision?.brushModels?.setEnabled(structure.modelIndex, false);
     }
     this.pendingStructures = this.pendingStructures.filter((structure) => structure.tick > this.tick);
+  }
+
+  /**
+   * Where a player stands in a site: the site's point dropped to the floor,
+   * at origin height. A site's point can float well above its floor, and a
+   * bot told to go there never counted as arrived: it kept running through
+   * the site, too fast to plant. The point itself when its floor is outside
+   * the site.
+   */
+  private standingSpot(site: BombSite): Vec3Like {
+    let spot = this.standingSpots.get(site.id);
+    if (!spot) {
+      const floor = this.dropToFloor(site.position);
+      const standing = { x: floor.x, y: floor.y + PLAYER_ORIGIN_HEIGHT, z: floor.z };
+      spot = isInsideBombSite(site, standing) ? standing : { ...site.position };
+      this.standingSpots.set(site.id, spot);
+    }
+    return spot;
   }
 
   /** Is the surface under this point flat enough to plant on? */

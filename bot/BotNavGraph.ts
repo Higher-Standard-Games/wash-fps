@@ -300,7 +300,12 @@ const TELEPORT_COST = 32;
 /** Jump pads cost roughly their flight commitment, cheaper than walking the same distance. */
 const JUMPPAD_COST_MULT = 0.45;
 
-export const BOT_NAV_GRAPH_SCHEMA_VERSION = 3;
+/** How far below a spawn point its floor is looked for. */
+const SPAWN_SETTLE_DROP = 512;
+/** A spawn whose walk origin is this far above where a player stands under it is in the air. */
+const SPAWN_FLOAT = 64;
+
+export const BOT_NAV_GRAPH_SCHEMA_VERSION = 4;
 export const BOT_NAV_TRIGGER_RESOLVER_VERSION = 1;
 
 /** Bump this when edge generation or movement assumptions change. */
@@ -867,9 +872,13 @@ export class BotNavGraph {
       addNode(item.position, "item", item.classname, item.id);
     }
 
-    // 2. Spawn points
+    // 2. Spawn points. One placed in the air (players drop when they spawn)
+    // goes onto the floor beneath it: left there, a bot standing under it
+    // never reached it and ran circles beneath it.
     for (const sp of knowledge.spawnPoints) {
-      addNode(sp, "spawn");
+      const standing = settle(vision.collisionWorld, sp, SPAWN_SETTLE_DROP);
+      const floats = standing !== null && sp.y + WALK_TEST_LIFT - standing.y > SPAWN_FLOAT;
+      addNode(floats ? { x: standing.x, y: standing.y - WALK_TEST_LIFT, z: standing.z } : sp, "spawn");
     }
 
     // 3. Trigger volumes. Source nodes sit at trigger AABB centers. A
