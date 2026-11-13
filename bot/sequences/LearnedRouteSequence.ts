@@ -213,10 +213,13 @@ export class LearnedRouteSequence implements BotSequence {
     }
     // Near the mark, creep: push only while the coast from this speed stops
     // short of it, and let friction take the rest, because running onto it
-    // overshoots.
+    // overshoots. The coast stays crouched: standing up between pushes
+    // bobbed the bot up and down several times a second.
     if (distance <= WALK_RADIUS) {
       const coastSpeed = Math.min(CREEP_SPEED, Math.sqrt(2 * COAST_DECELERATION * distance));
-      if (speed > coastSpeed) return { input: idle(route.yaw), status: "running", phase: "creep" };
+      if (speed > coastSpeed) {
+        return { input: { ...idle(route.yaw), buttons: InputButtons.CROUCH }, status: "running", phase: "creep" };
+      }
       return { input: creepToward(self.position, route.start, route.yaw), status: "running", phase: "creep" };
     }
     return {
