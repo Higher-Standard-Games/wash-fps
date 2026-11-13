@@ -382,7 +382,9 @@ identity: `"strategy": false` plays without the strategist,
 `"strategies": ["control"]` lets it play only the strategies listed (a
 diagnosis none of them answers is played as Standard), and
 `"habitItem": "ra"` makes a bot go for every item of that kind, the
-predictable opponent a strategist should beat.
+predictable opponent a strategist should beat. An arm's `"routesRoot"` is a folder holding a
+`config/bot-routes` of its own: each arm has its own bot server, so two route
+libraries can be played against each other.
 
 | Flag | Default |
 | --- | --- |
