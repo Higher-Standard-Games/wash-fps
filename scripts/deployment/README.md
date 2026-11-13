@@ -121,7 +121,9 @@ checkout has none. `deploy-eu.sh` itself is still installed as
    the systemd post-hook; run `/usr/local/sbin/washoi-activate` afterward.
 6. US builds client and server artifacts in `.pending/<pair fingerprint>/`,
    records the actual revisions in `revisions.json` and activates through the
-   activation hook. EU publishes static surfaces and builds server bundles;
+   activation hook. After a successful activation it removes older stages,
+   keeping the activated one and the newest earlier complete stage for
+   rollback. EU publishes static surfaces and builds server bundles;
    its activation hook restarts lobby and bots when the published fingerprint
    differs from the running backend.
 7. Verify game HTTP, lobby upgrade, representative media, account continuity
