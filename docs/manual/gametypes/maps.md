@@ -23,8 +23,12 @@ Each room draws three maps at random from the pool for the vote, so a mode with 
 | `washoi_dm7` | Washoi DM7 | FFA |
 | `washoi_dm14` | Washoi DM14 | Duel, FFA |
 | `washoi_dm12` | Washoi DM12 | Duel, FFA |
+| `washoi_dm16` | Washoi DM16 | FFA |
+| `washoi_dm17` | Washoi DM17 | Duel, FFA |
+| `washoi_dm18` | Washoi DM18 | FFA |
 | `washoi_amphi1` | Washoi Amphi1 | Amphi |
 | `washoi_amphi2` | Washoi Amphi2 | Amphi |
+| `washoi_amphi3` | Washoi Amphi3 | Amphi |
 | `washoi_snd1` | Concrete Strike | S&D |
 | `washoi_snd6` | Depot | S&D |
 | `washoi_snd4` | Shepas | S&D |
@@ -63,5 +67,6 @@ Maps are made in the engine's map editor; see the engine's documentation for bui
 | `SURF_LADDER` brushes | Ladders | [Movement](../player/movement.md#ladders) |
 | Water, slime and lava volumes | Swimming, drowning, damage | [Movement](../player/movement.md#water-and-other-liquids) |
 | Moving brush models (doors, platforms) | Lifts, with crush damage | [Movement](../player/movement.md#lifts-doors-and-movers) |
+| `func_button` | Calls the doors it targets; shot if it has `health`, touched if not | [Movement](../player/movement.md#lifts-doors-and-movers) |
 | `weapon_*`, `ammo_*`, `item_health_*`, `item_armor_*`, `item_quad` | Pickups | [Pickups](../player/pickups-and-inventory.md) |
 | Bomb site markers and team spawns | Search & Destroy | [Search & Destroy](./search-and-destroy.md) |

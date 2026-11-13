@@ -1784,7 +1784,11 @@ export class WeaponSystem extends Subsystem {
       };
     }
 
-    if (!best) return null;
+    if (!best) {
+      // The ray ended on the world: a shootable button there fires.
+      if (worldBlock) this.collisionWorld?.lifts?.strike(worldBlock.point);
+      return null;
+    }
 
     this.pendingDamage.push({
       victimId: best.id,

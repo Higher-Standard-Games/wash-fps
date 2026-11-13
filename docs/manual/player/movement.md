@@ -148,6 +148,7 @@ Moving brush models (`func_plat`, doors and similar) are simulated on the server
 - **You ride them.** Players, corpses and dropped weapons all travel with the floor.
 - **Crushing.** A mover that is blocked by a player damages them (20 hits per second, using the mover's own `dmg` value; 0 disables it). Most movers reverse when blocked; ones with the **crusher** flag keep pushing. Crush damage counts as world damage, like drowning, and is never credited to another player.
 - Activation, wait times and sounds are authored in the map.
+- **Buttons.** Some doors open from a button. A button you can shoot opens its door when a shot or projectile hits it, or an explosion lands close enough; walking into it does nothing. One of Washoi DM16's doors has such a button either side of it; standing right under either button also opens it.
 
 ## Fall Damage
 

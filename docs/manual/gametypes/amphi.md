@@ -55,6 +55,7 @@ and mega health 60 s. The map's pickup state also resets for the next round.
 |-----|------|
 | `washoi_amphi1` | Washoi Amphi1 |
 | `washoi_amphi2` | Washoi Amphi2 |
+| `washoi_amphi3` | Washoi Amphi3 |
 
 The lobby only advertises maps that are actually installed, so a room's map
 vote may offer fewer than two. See [Maps](./maps.md) for the configured pools.

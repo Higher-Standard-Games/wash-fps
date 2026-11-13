@@ -329,6 +329,7 @@ export class ProjectileSystem extends Subsystem {
           // Don't remove — projectile continues bouncing
         } else {
           // ── EXPLODE ON WORLD HIT ──
+          this.collisionWorld?.lifts?.strike(newPos);
           this.pendingImpacts.push({
             defId: meta.defId,
             x: newPos.x,
@@ -396,6 +397,8 @@ export class ProjectileSystem extends Subsystem {
     skipEntityId?: number,
     damageOverride?: number,
   ): void {
+    // A blast presses any shootable button within reach, as it hurts a player.
+    this.collisionWorld?.lifts?.strike(center, radius);
     const weaponDef = WEAPONS[defId];
     // A charge-scaled projectile (the blade blast) splashes up to its own charged damage
     const baseSplashDamage = damageOverride ?? weaponDef?.splashDamage ?? weaponDef?.damage ?? 80;
