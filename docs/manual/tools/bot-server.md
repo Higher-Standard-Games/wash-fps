@@ -86,12 +86,12 @@ Four presets in `BotConfig.ts`, each a set of skill dials rather than a single
 number. The values below are the committed presets; `aimAccuracy` and the other
 skills run 0 to 1, and `mistakeRate` is how often a bot is allowed to be wrong.
 
-| Preset | Aim | Reaction | Tracking | Prediction | Item timing | Strafe jump | Dodge | Mistakes |
-|--------|----:|---------:|---------:|-----------:|------------:|------------:|------:|---------:|
-| Easy | 0.25 | 450 ms | 1.5 | 0.2 | 0.1 | 0.1 | 0.15 | 8 |
-| Medium | 0.5 | 280 ms | 3.0 | 0.5 | 0.4 | 0.4 | 0.4 | 3 |
-| Hard | 0.75 | 150 ms | 5.0 | 0.75 | 0.7 | 0.7 | 0.7 | 1 |
-| Insane | 0.92 | 60 ms | 8.0 | 0.9 | 0.9 | 0.9 | 0.9 | 0.2 |
+| Preset | Aim | Reaction | Tracking | Prediction | Item timing | Strafe jump | Dodge | Mistakes | Match sense |
+|--------|----:|---------:|---------:|-----------:|------------:|------------:|------:|---------:|------------:|
+| Easy | 0.25 | 450 ms | 1.5 | 0.2 | 0.1 | 0.1 | 0.15 | 8 | 0 |
+| Medium | 0.5 | 280 ms | 3.0 | 0.5 | 0.4 | 0.4 | 0.4 | 3 | 0.45 |
+| Hard | 0.75 | 150 ms | 5.0 | 0.75 | 0.7 | 0.7 | 0.7 | 1 | 0.8 |
+| Insane | 0.92 | 60 ms | 8.0 | 0.9 | 0.9 | 0.9 | 0.9 | 0.2 | 1 |
 
 Read the preset in source rather than a percentage here: these are the numbers
 the bot is actually built from.
@@ -122,6 +122,15 @@ walking a route the bot looks about 250 units ahead along it; in a jump pad's
 flight, and stepping onto a pad or teleporter, it keeps its view rather than
 turning to a landing spot it is passing over. Scripted moves (learned routes,
 validated jumps) set the view exactly and bypass all of this.
+
+A learned route (a trick recorded by a player and checked by `bot:learn`) is a
+script from standing on a mark: a sprint run-up, then the trick. Where the ground
+behind the mark is walkable, a bot runs in along the route's line instead of
+stopping on it, and takes over the script at the run-up state it matches in
+place, speed and heading (`sequences/FlyingStart.ts`). It joins only once the
+game's own movement, simulated from where the bot will be when the script
+arrives (two to five ticks later), lands the rest where the route lands; else,
+or when the run-in misses, it walks to the mark and stops as before.
 
 Out of a fight with no enemy in sight (running for an item, hunting, retreating,
 or chasing someone it can no longer see) a bot is calm: there is nothing to
@@ -169,6 +178,47 @@ and earshot is still believed there until the bot looks at its spot.
   three deaths (looser aim, slower reactions), cautious on low health or against
   an enemy with armour or a powerup. Each fight may carry one mistake at
   `mistakeRate / 16` odds.
+
+### How a bot plays to win
+
+Each decision the brain updates a read of the match (`strategy/MatchRead.ts`)
+from what the bot perceived: its own health and armor over time; an estimate
+of each enemy's, from spawn values, the hits it lands (armor takes 66% of a hit
+while it lasts), the pain tier each hit gives away and the major items the enemy
+was seen or heard taking; who took the major items; each fight and how it ended;
+and the score. Every second the strategist (`strategy/Strategist.ts`) names
+what is going on and picks a strategy for it, held at least 6 s:
+
+| Diagnosis | When | Strategy |
+| --- | --- | --- |
+| Understacked | Fights started well under the enemy's stack, or a fresh estimate 40 or more above its own | Recover: retreat sooner, shop for items even armoured, no chasing, danger felt more |
+| Losing the items | Opponents took most of the major items in the last 90 s | Control: lead the timed items, value them and their denial more |
+| Enemy weak | A fresh estimate under 70 while its own stack is 100 or more | Pressure: retreat later, shop less, more aggression |
+| Focused | Two or more enemies hurt it in the last 20 s | Recover |
+| Ahead late | 2 or more frags up with under 90 s left | Protect lead: take no risks, stay stacked |
+| Behind late | 2 or more down with under 90 s left | Pressure |
+
+A strategy is data: multipliers on the gametype's weight profile, which the
+goal arbiter scores items with, and a stance for the state machine (retreat
+line, how readily it shops, whether it chases). The rules still play every
+command. `matchSense` sets how much of this a bot does: Easy none, Medium only
+Recover and Protect lead, Hard and Insane all of it. At 0.6 and above the bot
+also adapts within the match: each diagnosis has two strategies that can answer
+it, and a bandit keeps how each paid off against this opponent (the score gap,
+the major item balance and its stack over the next 30 s), playing what has
+worked and now and then trying the other. It learns the opponent's habits too
+(`strategy/OpponentModel.ts`): a major item an opponent took twice in the last
+three minutes becomes contested, and the goal arbiter scores being there first
+by the profile's `itemDenial` (`goals/considerations/ContestedItem.ts`).
+
+With a fresh estimate saying one hit would kill, a bot switches to the hitscan
+gun that does it at that distance (`BotWeaponCombos`), rolled at its prediction
+skill.
+
+`BOT_GOAL_ARBITER=verbose` logs each change of strategy and its reason. The bot
+options `strategy: false` (no strategist whatever the preset) and `habitItem`
+(go for every item of one kind, the predictable opponent a strategist should
+exploit) exist for head-to-head tests with `bot:ab`.
 
 ### Chat
 
