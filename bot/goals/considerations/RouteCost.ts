@@ -39,13 +39,16 @@ export const RouteCost: Consideration = {
     // giving up.
     if (ctx.routeCost === null) {
       return ctx.goal.directive
-        ? clamp01(1 / (1 + estimateRouteCost(ctx.self.position, ctx.goal.position) / ROUTE_HALF_COST))
+        ? clamp01(1 / (1 + estimateRouteCost(ctx.self.position, ctx.goal.position) / routeHalfCost(ctx)))
         : 0;
     }
     if (ctx.routeCost <= 0) return 1;
     return clamp01(1 / (1 + ctx.routeCost / routeHalfCost(ctx)));
   },
 };
+
+/** An order's half cost grows by this, times its priority (0..1). */
+const OBJECTIVE_ROUTE_SCALE = 4;
 
 /**
  * A major item is worth a longer run where the mode values the major items
@@ -54,6 +57,10 @@ export const RouteCost: Consideration = {
  * Armor up a climb was left standing.
  */
 function routeHalfCost(ctx: ConsiderationContext): number {
+  // A gametype order is the job, not an errand: discounted by distance like
+  // an item, a bomb site across the map lost to any pickup near the carrier.
+  const directive = ctx.goal.directive;
+  if (directive) return ROUTE_HALF_COST * (1 + OBJECTIVE_ROUTE_SCALE * Math.max(0, directive.priority));
   const item = ctx.goal.item;
   if (!item || !isMajorItem(item.type, item.kind)) return ROUTE_HALF_COST;
   return ROUTE_HALF_COST * Math.max(1, ctx.weights.majorItemBias);

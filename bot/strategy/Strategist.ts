@@ -305,6 +305,11 @@ export class Strategist {
     return this._current;
   }
 
+  /** The diagnosis the strategy in force answers, or null. */
+  get reason(): string | null {
+    return this._because?.id ?? null;
+  }
+
   /** One line for diagnostics: the strategy and why. */
   explain(): string {
     return this._because ? `${this._current.id} (${this._because.id}: ${this._because.evidence})` : this._current.id;

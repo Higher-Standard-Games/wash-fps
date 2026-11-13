@@ -313,11 +313,13 @@ a spectator:
 | `--map` | `washoi_dm2` |
 | `--bots` | `4` |
 | `--seconds` | `120` (at least 10) |
-| `--gametype` | `ffa`; `duel` for Duel |
+| `--gametype` | `ffa`; `duel` for Duel, `snd` for Search & Destroy |
 | `--difficulty` | `medium` |
 | `--port` | `7795`; the bot control socket uses this plus 100 |
 | `--keep-demo` | none; a folder to keep the match demo in, for `bot:demo-motion` |
 | `--routes-root` | none; a folder whose `config/bot-routes` the bots read their learned routes from, to compare two route libraries |
+| `--trace` | off; traces every decision and adds what the bots were doing while they stood still, by cause, and their crouch changes by state |
+| `--trace-out` | none; also writes every decision's trace to this file, one JSON line each (implies `--trace`) |
 
 ```bash
 npm --prefix src/games/fps run bot:motion -- --map washoi_dm1 --bots 4 --seconds 120
@@ -378,8 +380,10 @@ in each strategy, sampled once a second (Standard only for a bot without the
 strategist). Arms are bot options as JSON, the
 options a bot is added with. Matches run in `--parallel` worker processes.
 
-Three options exist for these tests and are not part of a bot's rating
-identity: `"strategy": false` plays without the strategist,
+These options exist for these tests and are not part of a bot's rating
+identity: `"weights": {"aggression": 1.5}` multiplies the gametype's
+weights (`shared/bot/WeightProfiles.ts`) before the strategy's, so a tuning
+can be compared without a code change; `"strategy": false` plays without the strategist,
 `"strategies": ["control"]` lets it play only the strategies listed (a
 diagnosis none of them answers is played as Standard), and
 `"habitItem": "ra"` makes a bot go for every item of that kind, the

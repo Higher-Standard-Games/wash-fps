@@ -30,6 +30,7 @@
  *   npm run bot:motion -- --map washoi_dm1 --gametype duel --bots 2 --difficulty hard
  */
 
+import { createWriteStream } from "node:fs";
 import { cp, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -40,10 +41,12 @@ import { wrapAngle } from "../bot/BotAimController";
 import type { BotCommandSample } from "../bot/BotClient";
 import { InputButtons } from "../bot/BotConfig";
 import { BotServer } from "../bot/BotServer";
+import { TraceStats } from "../bot/TraceStats";
 import { GameServer } from "../server/GameServer";
 import type { BaseGametype } from "../server/gametypes/BaseGametype";
 import { Deathmatch } from "../server/gametypes/Deathmatch";
 import { Duel } from "../server/gametypes/Duel";
+import { SearchAndDestroy } from "../server/gametypes/SearchAndDestroy";
 import { loadBspCollision } from "./HeadlessMapLoader";
 
 interface Args {
@@ -56,6 +59,10 @@ interface Args {
   /** Folder to keep the match demo in, for `bot:demo-motion`. */
   keepDemo: string | null;
   routesRoot: string | null;
+  /** Summarise decision traces (BotOptions.trace). */
+  trace: boolean;
+  /** Write every decision's trace to this file, one JSON line each. */
+  traceOut: string | null;
 }
 
 const DEG = 180 / Math.PI;
@@ -99,6 +106,8 @@ function parseArgs(): Args {
     port: 7795,
     keepDemo: null,
     routesRoot: null,
+    trace: false,
+    traceOut: null,
   };
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
@@ -128,10 +137,17 @@ function parseArgs(): Args {
       case "--routes-root":
         a.routesRoot = next();
         break;
+      case "--trace":
+        a.trace = true;
+        break;
+      case "--trace-out":
+        a.trace = true;
+        a.traceOut = next();
+        break;
       case "--help":
       case "-h":
         console.log(
-          "Usage: npm run bot:motion -- [--map washoi_dm2] [--bots 4] [--seconds 120] [--gametype ffa|duel] [--difficulty medium] [--port 7795] [--keep-demo <folder>] [--routes-root <root with config/bot-routes>]",
+          "Usage: npm run bot:motion -- [--map washoi_dm2] [--bots 4] [--seconds 120] [--gametype ffa|duel|snd] [--difficulty medium] [--port 7795] [--keep-demo <folder>] [--routes-root <root with config/bot-routes>] [--trace] [--trace-out <file.jsonl>]",
         );
         process.exit(0);
     }
@@ -362,7 +378,10 @@ function printRunning(runs: Run[]): void {
 }
 
 function makeGametype(name: string): BaseGametype {
-  return name.toLowerCase() === "duel" ? new Duel() : new Deathmatch();
+  const key = name.toLowerCase();
+  if (key === "duel") return new Duel();
+  if (key === "snd") return new SearchAndDestroy();
+  return new Deathmatch();
 }
 
 async function main(): Promise<void> {
@@ -399,13 +418,29 @@ async function main(): Promise<void> {
   const now = () => (performance.now() - started) / 1000;
   const logs: { samples: Sample[]; decisions: Decision[] }[] = [];
   const unsubscribes: (() => void)[] = [];
+  const traces = args.trace ? new TraceStats() : null;
+  const traceOut = args.traceOut ? createWriteStream(args.traceOut) : null;
+  let tracing = false;
   for (let i = 0; i < args.bots; i++) {
     if (i > 0) await wait(400);
-    const bot = await botServer.addBot(`ws://localhost:${args.port}`, { difficulty: args.difficulty });
+    const bot = await botServer.addBot(`ws://localhost:${args.port}`, {
+      difficulty: args.difficulty,
+      trace: args.trace,
+    });
     const log = { samples: [] as Sample[], decisions: [] as Decision[] };
     logs.push(log);
+    let lastTick = -1;
     unsubscribes.push(
-      bot.observeCommands((sample) => record(bsp.collision, log.samples, log.decisions, now(), sample)),
+      bot.observeCommands((sample) => {
+        record(bsp.collision, log.samples, log.decisions, now(), sample);
+        if (!tracing || !sample.trace) return;
+        traces?.add(bot.name, sample.trace, sample.self);
+        if (traceOut && sample.trace.tick !== lastTick) {
+          lastTick = sample.trace.tick;
+          traceOut.write(`${JSON.stringify({ bot: bot.name, ...sample.trace })}
+`);
+        }
+      }),
     );
   }
 
@@ -418,7 +453,10 @@ async function main(): Promise<void> {
     match.expireWarmup();
     for (let i = 0; i < 100 && match.phase !== MatchPhase.Active; i++) await wait(100);
     const liveAt = now();
+    tracing = true;
     await wait(args.seconds * 1000);
+    tracing = false;
+    traceOut?.end();
 
     for (const unsubscribe of unsubscribes) unsubscribe();
     const report: Report = {
@@ -485,6 +523,8 @@ async function main(): Promise<void> {
     );
     console.log(`  picked up       ${(report.gainedPoints / botMinutes).toFixed(0)} health and armor per bot-minute`);
     console.log(`  deaths          ${(report.deaths / (args.seconds / 60)).toFixed(1)} per minute, all bots`);
+    if (traces) for (const line of traces.lines()) console.log(line);
+    if (args.traceOut) console.log(`  traces          ${args.traceOut}`);
     const top = [...report.byStates].sort((a, b) => b[1] - a[1]).slice(0, 8);
     if (top.length > 0) console.log("  flip-backs by brain state (before > during > after):");
     for (const [states, count] of top) console.log(`    ${String(count).padStart(4)}  ${states}`);

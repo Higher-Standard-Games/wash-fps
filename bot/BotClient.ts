@@ -33,6 +33,7 @@ import { duelLeadReactionDelay } from "./BotReactionTuning";
 import type { BotVision, VisionResult } from "./BotVision";
 import { pulseMeleeFire } from "./BotWeaponProfile";
 import { BotChat } from "./chat/BotChat";
+import type { DecisionTrace } from "./DecisionTrace";
 import type { MatchReport } from "./intel/IntelStore";
 import { StateMachineBrain } from "./StateMachineBrain";
 import type { StrategyId } from "./strategy/Strategist";
@@ -72,6 +73,8 @@ export interface BotCommandSample {
   brainState: string;
   /** Wall avoidance turned the decision's heading off a wall ahead. */
   steeredOffWall: boolean;
+  /** The decision's record, with BotOptions.trace on. */
+  trace: DecisionTrace | null;
   /** The bot's own state from its last snapshot (live, not a copy). */
   self: Readonly<BotSelf>;
   tick: number;
@@ -178,6 +181,8 @@ export class BotClient extends EventEmitter {
     const brain = new StateMachineBrain(this._difficulty, options.goalArbiter ?? defaultGoalArbiterMode());
     if (options.habitItem) brain.setHabitItem(options.habitItem);
     if (options.strategies) brain.limitStrategies(options.strategies as StrategyId[]);
+    if (options.weights) brain.scaleWeights(options.weights);
+    if (options.trace) brain.setTracing(true);
     this._brain = brain;
     this._aim = new BotAimController(this._difficulty);
     this._perception = new BotPerception(this._difficulty);
@@ -771,6 +776,7 @@ export class BotClient extends EventEmitter {
       sent,
       brainState: this._brain.getState(),
       steeredOffWall: this._brain.steeredOffWall(),
+      trace: this._brain.lastTrace,
       self: this._gameState.self,
       tick: this._gameState.tick,
     });

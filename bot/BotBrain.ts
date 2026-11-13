@@ -14,6 +14,7 @@ import type { BotGameState } from "./BotGameState";
 import type { Mood, MoodEvent } from "./BotMood";
 import type { BotNavGraph } from "./BotNavGraph";
 import type { BotVision, VisionResult } from "./BotVision";
+import type { DecisionTrace } from "./DecisionTrace";
 import type { Fight } from "./strategy/MatchRead";
 import type { JudgedEpisode } from "./strategy/Strategist";
 
@@ -138,6 +139,14 @@ export abstract class BotBrain {
 
   /** What the brain learned this match, for the bot-intel store; null when it keeps no read. */
   matchReport(): BrainMatchReport | null {
+    return null;
+  }
+
+  /** Build a DecisionTrace with each decision (BotOptions.trace). */
+  setTracing(_on: boolean): void {}
+
+  /** The last decision's trace, when tracing is on. */
+  get lastTrace(): DecisionTrace | null {
     return null;
   }
 

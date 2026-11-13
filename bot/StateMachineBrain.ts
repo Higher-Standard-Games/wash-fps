@@ -46,6 +46,7 @@ import { BotTerritory } from "./BotTerritory";
 import type { BotVision, EnemyTrack, VisionResult } from "./BotVision";
 import { BotWeaponCombos, has, slotFor } from "./BotWeaponCombos";
 import { getWeaponProfile, selectBestWeapon, type WeaponProfile } from "./BotWeaponProfile";
+import { type DecisionTrace, TRACED_CANDIDATES } from "./DecisionTrace";
 import type { BotGoal } from "./goals/BotGoal";
 import { isMajorItem } from "./goals/considerations/ItemFacts";
 import { collectDirectiveGoals } from "./goals/DirectiveGoalSource";
@@ -67,6 +68,14 @@ import { ValidatedJumpSequence } from "./sequences/ValidatedJumpSequence";
 import { MatchRead } from "./strategy/MatchRead";
 import { OpponentModel } from "./strategy/OpponentModel";
 import { applyStrategyWeights, STRATEGIES, Strategist, type Strategy, type StrategyId } from "./strategy/Strategist";
+
+/** A weight profile with test multipliers applied (BotOptions.weights). */
+function scaleProfile(base: BotWeightProfile, scale: Partial<BotWeightProfile>): BotWeightProfile {
+  const out = { ...base };
+  for (const [key, factor] of Object.entries(scale) as [keyof BotWeightProfile, number][])
+    out[key] = base[key] * factor;
+  return out;
+}
 
 // ── Constants ───────────────────────────────────────────────────────────
 
@@ -344,6 +353,11 @@ export class StateMachineBrain extends BotBrain {
   private _routeStrafeCooldownUntilTick: number = 0;
   private _routeStrafeSide: -1 | 1 = 1;
   // Charged weapon cadence (blade alt-fire: hold, then release to shoot)
+  /** BotOptions.weights: multipliers on the gametype's profile. */
+  private _weightScale: Partial<BotWeightProfile> = {};
+  /** BotOptions.trace: a DecisionTrace per decision. */
+  private _tracing = false;
+  private _lastTrace: DecisionTrace | null = null;
   private _chargeWeaponId: string | null = null;
   private _chargeTargetId: string | null = null;
   private _chargeStartTick: number | null = null;
@@ -487,6 +501,47 @@ export class StateMachineBrain extends BotBrain {
     return this._strategist.strategy.id;
   }
 
+  override setTracing(on: boolean): void {
+    this._tracing = on;
+    if (!on) this._lastTrace = null;
+  }
+
+  override get lastTrace(): DecisionTrace | null {
+    return this._lastTrace;
+  }
+
+  /** The record of the decision just made (BotOptions.trace). */
+  private _trace(state: BotGameState): DecisionTrace {
+    const selection = this._itemGoalPlanner.lastSelection(state.tick);
+    const passed = (selection?.traces ?? []).filter((t) => t.gate === 1).sort((a, b) => b.desire - a.desire);
+    const path = this._currentPath;
+    const step = path ? path.steps[path.cursor] : undefined;
+    const sequence = this._sequenceRuntime.getDebug(state.tick);
+    const self = state.self;
+    return {
+      tick: state.tick,
+      state: this.currentState,
+      strategy: this._strategy.id,
+      reason: this._strategist.reason,
+      orders: state.directives.map((d) => d.id),
+      goal: selection?.goalId ?? null,
+      candidates: passed
+        .slice(0, TRACED_CANDIDATES)
+        .map((t) => ({ id: t.goalId, desire: Math.round(t.desire * 1000) / 1000, via: t.via })),
+      gated: (selection?.traces ?? []).length - passed.length,
+      step: step ? { type: step.type, to: { ...step.to.position }, route: step.opportunityId } : null,
+      sequence: sequence ?? null,
+      blocked: this._pathBlockedReason,
+      position: { ...self.position },
+      speed: Math.round(Math.hypot(self.velocity.x, self.velocity.z)),
+      grounded: self.isGrounded,
+      crouching: self.isCrouching,
+      health: self.health,
+      armor: self.armor,
+      weapon: self.currentWeapon,
+    };
+  }
+
   /** The strategy in force and why, for diagnostics. */
   get strategyExplain(): string {
     return this._strategist.explain();
@@ -497,6 +552,11 @@ export class StateMachineBrain extends BotBrain {
     this._strategist = new Strategist(difficulty.matchSense ?? 0.5);
     this._strategist.limitTo(this._strategyLimit);
     this._strategy = STRATEGIES.standard;
+  }
+
+  /** Multiply the gametype's weights (BotOptions.weights), for head-to-head tests. */
+  scaleWeights(scale: Partial<BotWeightProfile>): void {
+    this._weightScale = scale;
   }
 
   /** Play only these strategies (BotOptions.strategies), for head-to-head tests. */
@@ -521,7 +581,10 @@ export class StateMachineBrain extends BotBrain {
 
   /** The gametype's weight profile with the strategy's multipliers. */
   private _weights(state: BotGameState): BotWeightProfile {
-    const base = selectWeightProfile(state.matchState.gametypeName, state.getOwnRole(), state.matchState.roundState);
+    const base = scaleProfile(
+      selectWeightProfile(state.matchState.gametypeName, state.getOwnRole(), state.matchState.roundState),
+      this._weightScale,
+    );
     const weights = applyStrategyWeights(base, this._strategy);
     if (this._habitItem) return { ...weights, itemDenial: Math.max(weights.itemDenial, HABIT_WEIGHT), itemTiming: 1 };
     return weights;
@@ -589,6 +652,7 @@ export class StateMachineBrain extends BotBrain {
     this._cancelScript = false;
     const input = this._decide(state, vision, visionResult, navGraph);
     this._carryCharge(state, input);
+    if (this._tracing) this._lastTrace = this._trace(state);
     if (this._isCalm(state, input)) {
       input.calm = true;
       // People look a little down while running, at the floor ahead (BS-1: 11°).

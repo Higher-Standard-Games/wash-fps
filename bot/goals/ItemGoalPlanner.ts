@@ -183,6 +183,8 @@ export interface ItemGoalSelection extends ArbitrationResult {
 export class ItemGoalPlanner {
   private readonly arbiter: GoalArbiter;
   private lastExplain = "";
+  /** The last selection's scored candidates and tick, for decision traces. */
+  private last: { tick: number; traces: ArbitrationResult["traces"]; goalId: string | null } | null = null;
   /** Route cost between two static pickups by goal ids, on `pairCostSource`'s map. */
   private readonly pairCosts = new Map<string, number | null>();
   private pairCostSource: RouteCostSource | null = null;
@@ -204,6 +206,11 @@ export class ItemGoalPlanner {
   /** Committed goal id, for the brain's replan logic. */
   get committedGoalId(): string | null {
     return this.arbiter.committedGoalId;
+  }
+
+  /** The last selection, made on `tick`: its chosen goal and scored candidates. */
+  lastSelection(tick: number): { traces: ArbitrationResult["traces"]; goalId: string | null } | null {
+    return this.last && this.last.tick === tick ? this.last : null;
   }
 
   /** Last decision summary, for bot diagnostics. */
@@ -268,6 +275,7 @@ export class ItemGoalPlanner {
       : null;
     if (!result.goal) this.stopover = null;
     this.lastExplain = stopover ? `${result.explain} via=${stopover.id}` : result.explain;
+    this.last = { tick: state.tick, traces: result.traces, goalId: result.goal?.id ?? null };
     return { ...result, stopover };
   }
 

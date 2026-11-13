@@ -6,6 +6,7 @@
  */
 
 import { BOT_NAMES } from "../shared/bot/BotNames";
+import type { BotWeightProfile } from "../shared/bot/WeightProfiles";
 
 // Re-export InputButtons for convenience (bots use these to construct button bitmasks)
 export { InputButtons } from "../../../engine/network/components/InputComponent";
@@ -138,6 +139,14 @@ export interface BotOptions {
    * strategy at a time in head-to-head tests. Not part of the rating identity.
    */
   strategies?: string[];
+  /**
+   * Multipliers on the gametype's weight profile (shared/bot/WeightProfiles.ts),
+   * applied before the strategy's: compares a tuning in head-to-head tests
+   * without a code change. Not part of the rating identity.
+   */
+  weights?: Partial<BotWeightProfile>;
+  /** Build a DecisionTrace with every decision, for tools (bot:motion --trace). */
+  trace?: boolean;
   /**
    * Whether the bot says the odd line in chat to humans (bot/chat/BotChat.ts).
    * Defaults to on unless BOT_CHAT=0; training turns it off.
