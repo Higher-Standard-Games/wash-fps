@@ -25,7 +25,6 @@ Each room draws three maps at random from the pool for the vote, so a mode with 
 | `washoi_dm12` | Washoi DM12 | Duel, FFA |
 | `washoi_dm16` | Washoi DM16 | FFA |
 | `washoi_dm17` | Washoi DM17 | Duel, FFA |
-| `washoi_dm18` | Washoi DM18 | FFA |
 | `washoi_amphi1` | Washoi Amphi1 | Amphi |
 | `washoi_amphi2` | Washoi Amphi2 | Amphi |
 | `washoi_amphi3` | Washoi Amphi3 | Amphi |

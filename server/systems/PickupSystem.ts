@@ -472,7 +472,8 @@ export class PickupSystem extends Subsystem {
           y: pickup.position.y,
           z: pickup.position.z,
         });
-        if (result.added) this.notifyPickup(player.id, "weapon", pickup.kind);
+        // Taken either way: as a new weapon, or as ammo for one already held
+        this.notifyPickup(player.id, "weapon", pickup.kind);
 
         // Only pick up one weapon per tick
         pickedUpThisTick = true;
@@ -546,7 +547,8 @@ export class PickupSystem extends Subsystem {
             y: itemEntity.transform.position.y,
             z: itemEntity.transform.position.z,
           });
-          if (result.added) this.notifyPickup(player.id, "weapon", meta.weaponId);
+          // Taken either way: as a new weapon, or as ammo for one already held
+          this.notifyPickup(player.id, "weapon", meta.weaponId);
 
           // Only pick up one item per tick
           break;

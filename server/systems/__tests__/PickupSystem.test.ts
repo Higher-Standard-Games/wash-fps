@@ -212,6 +212,39 @@ describe("PickupSystem - ammo", () => {
   });
 });
 
+describe("PickupSystem - weapons", () => {
+  const rocketLauncher = (): PickupEntry => ({
+    id: 0,
+    classname: "weapon_rocketlauncher",
+    type: "weapon",
+    kind: "rlauncher",
+    position: { x: 0, y: 0, z: 0 },
+  });
+
+  it("tells the player about a weapon taken as ammo for one they hold", () => {
+    const sys = new PickupSystem();
+    const addWeapon = vi.fn(() => ({ added: false, dropped: "" }));
+    sys.setWeaponSystem({ getWeapons: () => ["blade", "rlauncher"], addWeapon } as never);
+    sys.setPickupItems([rocketLauncher()]);
+
+    sys.update(makeState(makePlayer()) as never, 0.008, (60 * TICK_RATE) as never);
+
+    expect(addWeapon).toHaveBeenCalled();
+    expect(sys.getActiveMask()[0]).toBe(false);
+    expect(sys.getPendingPickupNotifies()).toEqual([{ entityId: "p1", label: expect.any(String) }]);
+  });
+
+  it("tells the player about a new weapon", () => {
+    const sys = new PickupSystem();
+    sys.setWeaponSystem({ getWeapons: () => ["blade"], addWeapon: () => ({ added: true, dropped: "" }) } as never);
+    sys.setPickupItems([rocketLauncher()]);
+
+    sys.update(makeState(makePlayer()) as never, 0.008, (60 * TICK_RATE) as never);
+
+    expect(sys.getPendingPickupNotifies()).toHaveLength(1);
+  });
+});
+
 // ── Round-scoped items ───────────────────────────────────────────────
 
 describe("PickupSystem - round respawn modes", () => {
