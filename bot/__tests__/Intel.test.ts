@@ -118,3 +118,18 @@ describe("a bot's match report", () => {
     expect(reports[0]).toMatchObject({ map: "washoi_dm5", gametype: "Duel", preset: "hard", people: 1 });
   });
 });
+
+describe("the bot server's report store", () => {
+  it("records the report of any game bot it is given, lobby-invited ones included", async () => {
+    const { BotServer } = await import("../BotServer");
+    const { BotClient } = await import("../BotClient");
+    const intel = new IntelStore(":memory:");
+    const server = new BotServer(0, { intel });
+    const bot = new BotClient({ name: "Ramen", difficulty: "hard", chat: false });
+    // The hook both addBot and a lobby bot's onGameBotCreated call
+    (server as unknown as { _recordReports(b: InstanceType<typeof BotClient>): void })._recordReports(bot);
+    bot.emit("matchReport", report());
+    expect(intel.maps()).toEqual([{ map: "washoi_dm5", gametype: "Duel", matches: 1 }]);
+    intel.close();
+  });
+});

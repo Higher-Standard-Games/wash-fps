@@ -216,22 +216,29 @@ export class BotServer {
   // ── Bot Management ────────────────────────────────────────────────
 
   /**
+   * Store the bot's match report in the bot-intel store when its match ends.
+   * Every game bot needs this, whether added directly or invited from a lobby.
+   */
+  private _recordReports(bot: BotClient): void {
+    const intel = this._intel;
+    if (!intel) return;
+    bot.on("matchReport", (report: MatchReport) => {
+      try {
+        intel.record(report);
+      } catch (error) {
+        console.warn(`[BotServer] Could not store ${bot.name}'s match report: ${(error as Error).message}`);
+      }
+    });
+  }
+
+  /**
    * Spawn a new bot and connect it to a game server.
    */
   async addBot(gameServerUrl: string, options?: Partial<BotOptions>): Promise<BotClient> {
     const botOptions = botOptionsFor(options, this._modelDir);
 
     const bot = new BotClient(botOptions);
-    if (this._intel) {
-      const intel = this._intel;
-      bot.on("matchReport", (report: MatchReport) => {
-        try {
-          intel.record(report);
-        } catch (error) {
-          console.warn(`[BotServer] Could not store ${bot.name}'s match report: ${(error as Error).message}`);
-        }
-      });
-    }
+    this._recordReports(bot);
 
     bot.on("disconnected", () => {
       console.log(`[BotServer] Bot ${bot.name} (${bot.id}) disconnected`);
@@ -280,6 +287,7 @@ export class BotServer {
     // When lobby bot transitions to game, track the game BotClient
     lobbyBot.onGameBotCreated = (bot: BotClient) => {
       this._bots.set(bot.id, bot);
+      this._recordReports(bot);
       console.log(`[BotServer] Lobby bot ${lobbyBot.name} transitioned to game as ${bot.id}`);
 
       // Load vision asynchronously
