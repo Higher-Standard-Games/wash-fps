@@ -370,9 +370,11 @@ npm --prefix src/games/fps run bot:demo-motion -- public/data/demos .cache/bots-
 `npm --prefix src/games/fps run bot:ab` plays many headless matches with one bot
 of arm A against one of arm B (`--per-arm` more of each for Deathmatch),
 alternating who joins first, and reports wins, the frag gap per match with a
-95% interval, a sign test on wins, and a verdict. It also reports how much of
-the match each arm spent in each strategy, sampled once a second (Standard
-only for a bot without the strategist). Arms are bot options as JSON, the
+95% interval, a sign test on wins, and a verdict. It also reports the major items
+each arm took per match (Red, Yellow and Green Armor, Mega Health), counted
+from the pickups the server grants, and how much of the match each arm spent
+in each strategy, sampled once a second (Standard only for a bot without the
+strategist). Arms are bot options as JSON, the
 options a bot is added with. Matches run in `--parallel` worker processes.
 
 Three options exist for these tests and are not part of a bot's rating

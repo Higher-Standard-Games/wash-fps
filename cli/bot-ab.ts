@@ -26,6 +26,7 @@ import { runCli } from "../../../cli/_runCli";
 import { signTest } from "../bot/AbStats";
 import type { BotOptions } from "../bot/BotConfig";
 import { BotServer } from "../bot/BotServer";
+import { isMajorItem } from "../bot/goals/considerations/ItemFacts";
 import { GameServer } from "../server/GameServer";
 import type { BaseGametype } from "../server/gametypes/BaseGametype";
 import { Deathmatch } from "../server/gametypes/Deathmatch";
@@ -52,6 +53,8 @@ export interface MatchResult {
   match: number;
   frags: { a: number; b: number };
   deaths: { a: number; b: number };
+  /** Major items each arm took, by label (Red Armor, Mega Health, ...), as the server granted them. */
+  majors?: { a: Record<string, number>; b: Record<string, number> };
   /** Seconds each arm's bots spent in each strategy, sampled once a second. */
   strategies?: { a: Record<string, number>; b: Record<string, number> };
 }
@@ -149,6 +152,19 @@ async function playMatch(args: Args, port: number, aFirst: boolean, match: numbe
   server.setPickupRespawnTime(15);
   if (bsp.pvs) server.setPVSData(bsp.pvs);
   await server.start();
+  // Count the major items each bot is granted, from the server's own pickup notices.
+  const granted = new Map<number, Record<string, number>>();
+  const pickups = (
+    server as unknown as { pickupSystem: { notifyPickup(id: number, type: string, kind: string): void } }
+  ).pickupSystem;
+  const notify = pickups.notifyPickup.bind(pickups);
+  pickups.notifyPickup = (id, type, kind) => {
+    notify(id, type, kind);
+    if (!isMajorItem(type, kind)) return;
+    const counts = granted.get(Number(id)) ?? {};
+    counts[kind] = (counts[kind] ?? 0) + 1;
+    granted.set(Number(id), counts);
+  };
   const botServer = new BotServer(port + 50, {});
   try {
     const order: ("a" | "b")[] = [];
@@ -175,7 +191,12 @@ async function playMatch(args: Args, port: number, aFirst: boolean, match: numbe
     // Every bot sees the scoreboard; read it from the first, by each bot's own player id.
     const board = (bots[0].bot as unknown as { _gameState: { scores: Map<string, { score: number; deaths: number }> } })
       ._gameState.scores;
-    const result: MatchResult = { match, frags: { a: 0, b: 0 }, deaths: { a: 0, b: 0 }, strategies };
+    const majors: MatchResult["majors"] = { a: {}, b: {} };
+    for (const { arm, bot } of bots) {
+      const id = Number(String(bot.entityId).replace(/^player_/, ""));
+      for (const [kind, n] of Object.entries(granted.get(id) ?? {})) majors[arm][kind] = (majors[arm][kind] ?? 0) + n;
+    }
+    const result: MatchResult = { match, frags: { a: 0, b: 0 }, deaths: { a: 0, b: 0 }, strategies, majors };
     for (const { arm, bot } of bots) {
       const id = (bot as unknown as { _gameState: { selfPlayerId: string } })._gameState.selfPlayerId;
       const row = board.get(id);
@@ -224,6 +245,12 @@ function summarize(args: Args, results: MatchResult[]): void {
   );
   console.log(
     `  frags           A ${total((r) => r.frags.a)}, B ${total((r) => r.frags.b)}; deaths A ${total((r) => r.deaths.a)}, B ${total((r) => r.deaths.b)}`,
+  );
+  const kinds = ["ra", "ya", "ga", "mega"];
+  const perMatch = (arm: "a" | "b", kind: string) =>
+    (results.reduce((sum, r) => sum + (r.majors?.[arm][kind] ?? 0), 0) / Math.max(1, n)).toFixed(1);
+  console.log(
+    `  major items     per match, A–B: ${kinds.map((k) => `${k} ${perMatch("a", k)}–${perMatch("b", k)}`).join(", ")}`,
   );
   for (const arm of ["a", "b"] as const) {
     const time: Record<string, number> = {};
