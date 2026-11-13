@@ -5,6 +5,7 @@ import type {
   SpatialSfxPlayOptions,
 } from "../../../../engine/audio/AudioV2Sfx";
 import type { SfxPosition, SfxSink } from "../../../../engine/audio/SfxSink";
+import { MOVIE_FPS, REEL_MAX_SECONDS } from "./MovieClock";
 
 // Vector implementations can expose coordinates through prototype accessors.
 function copyPosition({ x, y, z }: SfxPosition): SfxPosition {
@@ -51,8 +52,20 @@ export class ExportAudioCapture implements SfxSink {
   private readonly scopeStarts = new Map<number, number>([[-1, 0]]);
   private readonly scopeEnds = new Map<number, number>();
   private motionSamples = 0;
+  private readonly maxListeners: number;
+  private readonly maxCues: number;
+  private readonly maxMotionSamples: number;
 
-  constructor(private readonly prepare: (paths: readonly string[], options?: LoopSfxPlayOptions) => Promise<void>) {}
+  /** Budgets scale with the movie: a reel's four minutes, or a whole match. */
+  constructor(
+    private readonly prepare: (paths: readonly string[], options?: LoopSfxPlayOptions) => Promise<void>,
+    maxSeconds = REEL_MAX_SECONDS,
+  ) {
+    const scale = maxSeconds / REEL_MAX_SECONDS;
+    this.maxListeners = Math.ceil(maxSeconds * MOVIE_FPS);
+    this.maxCues = Math.ceil(20_000 * scale);
+    this.maxMotionSamples = Math.ceil(250_000 * scale);
+  }
 
   get nowMs(): number {
     return this.time * 1000;
@@ -102,7 +115,7 @@ export class ExportAudioCapture implements SfxSink {
       },
       setPosition: (next) => {
         if (cue.end !== null || !position) return;
-        if (++this.motionSamples > 250_000) throw new Error("The reel exceeds the sound-motion budget");
+        if (++this.motionSamples > this.maxMotionSamples) throw new Error("The movie exceeds the sound-motion budget");
         cue.positions.push({ time: this.time, position: copyPosition(next) });
       },
     };
@@ -110,7 +123,7 @@ export class ExportAudioCapture implements SfxSink {
 
   sampleListener(frame: Omit<ExportListenerFrame, "time" | "rate" | "scope">): void {
     if (!this.recording) return;
-    if (this.listeners.length >= 14_400) throw new Error("The reel exceeds the audio timeline budget");
+    if (this.listeners.length >= this.maxListeners) throw new Error("The movie exceeds the audio timeline budget");
     this.listeners.push({
       time: this.time,
       rate: this.rate,
@@ -147,7 +160,7 @@ export class ExportAudioCapture implements SfxSink {
   }
 
   private add(path: string, position: SfxPosition | null, options: LoopSfxPlayOptions, loop: boolean): ExportSoundCue {
-    if (this.cues.length >= 20_000) throw new Error("The reel exceeds the sound-cue budget");
+    if (this.cues.length >= this.maxCues) throw new Error("The movie exceeds the sound-cue budget");
     const cue: ExportSoundCue = {
       path,
       start: this.time,

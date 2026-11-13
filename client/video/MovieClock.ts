@@ -1,4 +1,8 @@
 export const MOVIE_FPS = 60;
+/** A highlight reel's ceiling. */
+export const REEL_MAX_SECONDS = 240;
+/** A whole recorded match's ceiling: a ten-minute match with its warmup and result screen. */
+export const MATCH_MAX_SECONDS = 20 * 60;
 
 /** Integer timestamps from a frame index avoid cumulative rounding drift. */
 export function movieFrame(index: number, fps = MOVIE_FPS) {
@@ -35,9 +39,10 @@ export async function renderMovieFrames(
   count: number,
   signal: AbortSignal,
   render: (frame: ReturnType<typeof movieFrame>) => Promise<void>,
+  maxSeconds = REEL_MAX_SECONDS,
 ): Promise<void> {
-  if (!Number.isSafeInteger(count) || count < 1 || count > MOVIE_FPS * 240)
-    throw new Error("Movie must contain between one frame and four minutes");
+  if (!Number.isSafeInteger(count) || count < 1 || count > MOVIE_FPS * maxSeconds)
+    throw new Error(`Movie must contain between one frame and ${maxSeconds / 60} minutes`);
   for (let i = 0; i < count; i++) {
     signal.throwIfAborted();
     await abortable(render(movieFrame(i)), signal);

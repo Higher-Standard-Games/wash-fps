@@ -5,13 +5,24 @@ import "./ExportVideo.css";
 import { background } from "../../../../engine/core/AsyncErrors";
 import { raiseKey } from "../../../../engine/ui/components/RaisedKey";
 import { DemoReader } from "../../../../shared/demo/DemoReader";
+import { toClientKey } from "../../ClientEntityKey";
 import { downloadDemo } from "../DemoDownload";
 import { REEL_MINUTES, type ReelMinutes, reelLengths } from "../ReelLengths";
 import { loadExportMusicChoices } from "./ExportMusic";
 import { type ExportMusicSelection, parseSongStart } from "./ExportMusicSelection";
 import { renderDemoMovie } from "./ExportRenderer";
 import { type ExportSource, isExportSource } from "./ExportSource";
+import { MATCH_MAX_SECONDS } from "./MovieClock";
 import type { TemporaryVideo } from "./TemporaryVideo";
+
+type VideoKind = "reel" | "match";
+/** Who a full-match video can follow: the recording's roster. */
+interface RosterEntry {
+  key: string;
+  name: string;
+}
+
+const MATCH_MIN_MS = 10_000;
 
 document.body.innerHTML = `<div class="video-export-shell lobby-guide"><main class="video-export-page lobby-guide__card">
   <header class="lobby-guide__header">
@@ -21,8 +32,25 @@ document.body.innerHTML = `<div class="video-export-shell lobby-guide"><main cla
   </header>
   <p class="video-export-format">1080p · 60 FPS · MP4 · stereo game audio</p>
   <input type="file" accept=".shagdemo" aria-label="Choose a demo">
+  <details class="video-export-advanced">
+    <summary>Advanced</summary>
+    <div class="video-export-advanced__body">
+      <div class="video-export-field">
+        <label class="video-export-label" for="video-export-kind">Video</label>
+        <select id="video-export-kind">
+          <option value="reel">Highlight reel</option>
+          <option value="match">Full match with game HUD</option>
+        </select>
+      </div>
+      <div class="video-export-field">
+        <label class="video-export-label" for="video-export-follow">Follow player</label>
+        <select id="video-export-follow" disabled><option value="">Choose a recording first</option></select>
+      </div>
+      <p class="video-export-help video-export-kind-help">A highlight reel of the match's best moments, with cinematic cameras.</p>
+    </div>
+  </details>
   <div class="video-export-settings">
-    <fieldset><legend>Highlight length</legend><div class="lengths"></div></fieldset>
+    <fieldset class="video-export-lengths"><legend>Highlight length</legend><div class="lengths"></div></fieldset>
     <div class="video-export-music">
       <label class="video-export-label" for="video-export-music">Background music</label>
       <select id="video-export-music" disabled><option value="">&lt;none&gt;</option></select>
@@ -60,9 +88,21 @@ const catalogue = new AbortController();
 let musicReady = false;
 const sourceLabel = document.querySelector<HTMLElement>(".source")!;
 const lengths = document.querySelector<HTMLElement>(".lengths")!;
+const title = document.querySelector<HTMLElement>("h1")!;
+const format = document.querySelector<HTMLElement>(".video-export-format")!;
+const kindSelect = document.querySelector<HTMLSelectElement>("#video-export-kind")!;
+const followSelect = document.querySelector<HTMLSelectElement>("#video-export-follow")!;
+const kindHelp = document.querySelector<HTMLElement>(".video-export-kind-help")!;
+const musicBlock = document.querySelector<HTMLElement>(".video-export-music")!;
+const lengthsBlock = document.querySelector<HTMLElement>(".video-export-lengths")!;
 let source: ExportSource | null = null;
 let sourceReadId = 0;
 let selected: ReelMinutes = 1;
+let kind: VideoKind = "reel";
+/** The open recording's players; null until its header has been read. */
+let roster: RosterEntry[] | null = null;
+let rosterLoading = false;
+let rosterController: AbortController | null = null;
 const choices = REEL_MINUTES.map((minutes) => {
   const label = document.createElement("label");
   label.className = "video-export-length";
@@ -88,20 +128,41 @@ let saveController: AbortController | null = null;
 let result: TemporaryVideo | null = null;
 let saved = false;
 let saving = false;
+/** What the finished video is, for its file name: `highlights`, or `<player>-match`. */
+let resultName = "highlights";
 let port: MessagePort | null = null;
 const jobId = new URLSearchParams(location.search).get("job");
 
+/** Why the open recording cannot make a full-match video, or null if it can. */
+function matchUnavailable(durationMs: number): string | null {
+  if (durationMs < MATCH_MIN_MS) return "A full-match video needs at least ten seconds of recording";
+  if (durationMs > MATCH_MAX_SECONDS * 1000)
+    return `Full-match videos are limited to ${MATCH_MAX_SECONDS / 60} minutes of recording`;
+  return null;
+}
+
 function sync() {
+  const busy = !!controller || !!result || saving;
+  const match = kind === "match";
   const allowed = reelLengths(source?.durationMs ?? 0);
   if (!allowed.includes(selected)) selected = allowed[0] ?? 1;
   for (const radio of choices) {
     radio.checked = Number(radio.value) === selected;
-    radio.disabled = !allowed.includes(Number(radio.value) as ReelMinutes) || !!controller || !!result || saving;
+    radio.disabled = match || !allowed.includes(Number(radio.value) as ReelMinutes) || busy;
   }
-  generate.disabled = !allowed.length || !!controller || !!result || saving;
-  input.disabled = !!controller || !!result || saving;
-  musicSelect.disabled = !musicReady || !!controller || !!result || saving;
-  songStart.disabled = !musicSelect.value || !!controller || !!result || saving;
+  const matchReady = !!source && !matchUnavailable(source.durationMs) && !!followSelect.value;
+  generate.disabled = (match ? !matchReady : !allowed.length) || busy || rosterLoading;
+  input.disabled = busy;
+  kindSelect.disabled = busy;
+  followSelect.disabled = !match || !roster?.length || busy;
+  lengthsBlock.hidden = match;
+  musicBlock.hidden = match;
+  title.textContent = match ? "Export full match" : "Export highlights";
+  format.textContent = match
+    ? "1080p · 60 FPS · MP4 · stereo game audio · game HUD"
+    : "1080p · 60 FPS · MP4 · stereo game audio";
+  musicSelect.disabled = !musicReady || busy;
+  songStart.disabled = !musicSelect.value || busy;
   cancel.disabled = !controller && !saveController;
   download.disabled = !result || saving;
   discard.disabled = !result || saving;
@@ -112,15 +173,30 @@ function sync() {
 export const exportSession = {
   async run(
     recording: Uint8Array | ExportSource,
-    options: { fromSeconds?: number; stallMs?: number; reelMinutes?: ReelMinutes; music?: ExportMusicSelection } = {},
+    options: {
+      fromSeconds?: number;
+      stallMs?: number;
+      reelMinutes?: ReelMinutes;
+      music?: ExportMusicSelection;
+      match?: { follow: string };
+    } = {},
   ) {
     if (controller || result) throw new Error("Finish or discard the current export first");
     controller = new AbortController();
-    const frozenOptions = { ...options, music: options.music ? { ...options.music } : undefined };
+    const frozenOptions = {
+      ...options,
+      music: options.music ? { ...options.music } : undefined,
+      match: options.match ? { ...options.match } : undefined,
+    };
     saved = false;
+    kind = frozenOptions.match ? "match" : "reel";
+    kindSelect.value = kind;
+    const followed = frozenOptions.match && roster?.find((entry) => entry.key === frozenOptions.match!.follow);
+    resultName = frozenOptions.match ? `${followed?.name ?? "player"}-match` : "highlights";
     progress.value = 0;
     let lastProgress = -Infinity;
     let lastPhase = "";
+    let movieFrames = 0;
     sync();
     try {
       status.textContent = "Reading recording";
@@ -134,6 +210,11 @@ export const exportSession = {
         if (!reelLengths(reader.readIndex().durationMs).includes(frozenOptions.reelMinutes))
           throw new Error("This recording is too short for the selected highlight length");
       }
+      if (frozenOptions.match) {
+        const reader = await DemoReader.fromFile(bytes);
+        const unavailable = matchUnavailable(reader.readIndex().durationMs);
+        if (unavailable) throw new Error(unavailable);
+      }
       result = await renderDemoMovie(bytes, canvas, {
         ...frozenOptions,
         signal: controller.signal,
@@ -142,6 +223,8 @@ export const exportSession = {
           if (phase === lastPhase && now - lastProgress < 100 && frames !== total) return;
           lastProgress = now;
           lastPhase = phase;
+          if (total !== undefined && (phase.startsWith("Rendering") || phase.startsWith("Recording")))
+            movieFrames = total;
           status.textContent =
             frames === undefined
               ? phase
@@ -156,7 +239,13 @@ export const exportSession = {
       });
       const file = await result.file();
       progress.value = progress.max;
-      status.textContent = `Video ready: ${(progress.max / 60).toFixed(1)} seconds, ${(file.size / 1024 / 1024).toFixed(1)} MB. Download saves the finalized MP4.`;
+      const seconds = movieFrames / 60;
+      const whole = Math.round(seconds);
+      const length =
+        whole >= 60
+          ? `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`
+          : `${seconds.toFixed(1)} seconds`;
+      status.textContent = `Video ready: ${length}, ${(file.size / 1024 / 1024).toFixed(1)} MB. Download saves the finalized MP4.`;
     } catch (error) {
       const failure = controller.signal.aborted ? controller.signal.reason : error;
       status.textContent =
@@ -194,11 +283,103 @@ export const exportSession = {
   },
 };
 
+/** What the open recording can make with the current choices. */
+function readyText(): string {
+  if (!source) return "Waiting for a demo";
+  if (kind === "match") {
+    const unavailable = matchUnavailable(source.durationMs);
+    if (unavailable) return unavailable;
+    if (rosterLoading) return "Reading the players";
+    if (!roster?.length) return "This recording names no players to follow";
+    return "Ready to generate the full match";
+  }
+  return reelLengths(source.durationMs).length
+    ? "Ready to generate highlight video"
+    : "A highlight reel needs at least three minutes of recording";
+}
+
+function readRoster(reader: DemoReader): RosterEntry[] {
+  const seen = new Set<string>();
+  const entries: RosterEntry[] = [];
+  for (const player of reader.readHeader().players) {
+    const key = toClientKey(player.playerId);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    entries.push({ key, name: player.name || key });
+  }
+  return entries.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function showRoster(): void {
+  const previous = followSelect.value;
+  followSelect.replaceChildren();
+  if (!roster?.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = rosterLoading ? "Reading players…" : source ? "No players" : "Choose a recording first";
+    followSelect.append(option);
+    return;
+  }
+  for (const entry of roster) {
+    const option = document.createElement("option");
+    option.value = entry.key;
+    option.textContent = entry.name;
+    followSelect.append(option);
+  }
+  if (roster.some((entry) => entry.key === previous)) followSelect.value = previous;
+}
+
+/** A recording from the server is fetched when its roster is first needed, once. */
+function ensureRoster(): void {
+  if (roster || rosterLoading || !source) return;
+  const current = source;
+  const readId = sourceReadId;
+  rosterLoading = true;
+  rosterController = new AbortController();
+  const signal = rosterController.signal;
+  showRoster();
+  status.textContent = readyText();
+  sync();
+  background(
+    (async () => {
+      try {
+        const bytes = current.bytes ?? (await downloadDemo(current.url!, signal));
+        const reader = await DemoReader.fromFile(bytes);
+        if (readId !== sourceReadId || source !== current) return;
+        current.bytes = bytes;
+        roster = readRoster(reader);
+      } catch (error) {
+        if (readId !== sourceReadId || signal.aborted) return;
+        roster = [];
+        status.textContent = `Could not read the players: ${String(error)}`;
+      } finally {
+        if (readId === sourceReadId) {
+          rosterLoading = false;
+          rosterController = null;
+          showRoster();
+          if (roster?.length) status.textContent = readyText();
+          sync();
+        }
+      }
+    })(),
+    "Reading export roster",
+  );
+}
+
+function resetRoster(): void {
+  rosterController?.abort(new DOMException("Recording replaced", "AbortError"));
+  rosterController = null;
+  rosterLoading = false;
+  roster = null;
+  showRoster();
+}
+
 input.addEventListener("change", () => {
   const readId = ++sourceReadId;
   const file = input.files?.[0];
   if (!file) return;
   source = null;
+  resetRoster();
   status.textContent = "Reading recording";
   sync();
   background(
@@ -208,10 +389,10 @@ input.addEventListener("change", () => {
         const reader = await DemoReader.fromFile(bytes);
         if (readId !== sourceReadId) return;
         source = { bytes, label: file.name, filename: file.name, durationMs: reader.readIndex().durationMs };
+        roster = readRoster(reader);
+        showRoster();
         sourceLabel.textContent = source.label;
-        status.textContent = reelLengths(source.durationMs).length
-          ? "Ready to generate"
-          : "A highlight reel needs at least three minutes of recording";
+        status.textContent = readyText();
       } catch (error) {
         if (readId !== sourceReadId) return;
         status.textContent = `Could not open recording: ${String(error)}`;
@@ -221,7 +402,28 @@ input.addEventListener("change", () => {
     "Opening export demo",
   );
 });
+kindSelect.addEventListener("change", () => {
+  kind = kindSelect.value === "match" ? "match" : "reel";
+  kindHelp.textContent =
+    kind === "match"
+      ? "The whole match through one player's eyes, with their game HUD, as they played it. Takes a few times the match's length to make."
+      : "A highlight reel of the match's best moments, with cinematic cameras.";
+  if (kind === "match") ensureRoster();
+  status.textContent = readyText();
+  sync();
+});
+followSelect.addEventListener("change", () => sync());
 generate.addEventListener("click", () => {
+  if (kind === "match") {
+    if (source && followSelect.value)
+      background(
+        exportSession.run(source, { match: { follow: followSelect.value } }).catch((error) => {
+          if (!(error instanceof DOMException && error.name === "AbortError")) throw error;
+        }),
+        "Video export",
+      );
+    return;
+  }
   let music: ExportMusicSelection | undefined;
   if (musicSelect.value) {
     try {
@@ -279,7 +481,7 @@ download.addEventListener("click", () => {
     }
   ).showSaveFilePicker;
   // Acquire the picker promise during this click, before any asynchronous file work.
-  const filename = `${(source?.filename ?? "washoi").replace(/\.shagdemo$/i, "").replace(/[^a-zA-Z0-9_-]/g, "-")}-highlights.mp4`;
+  const filename = `${`${(source?.filename ?? "washoi").replace(/\.shagdemo$/i, "")}-${resultName}`.replace(/[^a-zA-Z0-9_-]/g, "-")}.mp4`;
   let destination: Promise<FileSystemFileHandle> | undefined;
   try {
     destination = picker?.({
@@ -341,6 +543,7 @@ window.addEventListener("beforeunload", (event) => {
 window.addEventListener("pagehide", () => {
   sourceReadId++;
   catalogue.abort();
+  rosterController?.abort();
   exportSession.cancel();
   if (result) background(result.dispose(), "Releasing temporary video");
   port?.close();
@@ -363,10 +566,12 @@ function acceptDemo(event: MessageEvent) {
   port = event.ports[0];
   const accepted: ExportSource = event.data.source;
   sourceReadId++;
+  resetRoster();
   source = accepted;
   sourceLabel.textContent = accepted.label;
-  status.textContent = "Ready to generate highlight video";
   input.hidden = true;
+  if (kind === "match") ensureRoster();
+  status.textContent = readyText();
   sync();
 }
 sync();

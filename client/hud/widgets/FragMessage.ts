@@ -1,4 +1,5 @@
 // Extracted from FPSHud.ts
+import { presentationTimeout } from "../../../../../engine/core/PresentationTime";
 import type { FPSHudWidget, HUDState } from "../HudWidget";
 
 // =============================================================================
@@ -54,7 +55,7 @@ export class FPSFragMessage implements FPSHudWidget {
     this.element.appendChild(msg);
 
     // Remove after animation (2.5s float-up)
-    setTimeout(() => msg.remove(), 2600);
+    presentationTimeout(() => msg.remove(), 2600);
   }
 
   public show(): void {

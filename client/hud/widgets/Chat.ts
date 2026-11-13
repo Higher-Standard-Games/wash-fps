@@ -14,6 +14,7 @@
 
 import { CommandRegistry } from "../../../../../engine/console/CommandRegistry";
 import { logRejection } from "../../../../../engine/core/AsyncErrors";
+import { presentationNow, presentationTimeout } from "../../../../../engine/core/PresentationTime";
 import { UINavigation } from "../../../../../engine/ui/navigation/UINavigation";
 
 export interface ChatMessage {
@@ -98,7 +99,7 @@ export class FPSChat {
 
   public addMessage(sender: string, text: string, team: string = "", playerName = sender): void {
     if (this.mutedNames.has(playerName.trim().toLowerCase())) return;
-    this.push({ sender, text, team, playerName, timestamp: performance.now() });
+    this.push({ sender, text, team, playerName, timestamp: presentationNow() });
   }
 
   public clearMutes(): void {
@@ -164,7 +165,7 @@ export class FPSChat {
 
   /** A line from the game rather than a player, such as why a join was refused. */
   public addNotice(text: string): void {
-    this.push({ sender: "", text, team: "", timestamp: performance.now(), notice: true });
+    this.push({ sender: "", text, team: "", timestamp: presentationNow(), notice: true });
   }
 
   private renderMessage(msg: ChatMessage, withFade: boolean): HTMLElement {
@@ -193,10 +194,10 @@ export class FPSChat {
     el.appendChild(textEl);
 
     if (withFade) {
-      const remaining = Math.max(0, FPSChat.MESSAGE_FADE_MS - (performance.now() - msg.timestamp));
-      setTimeout(() => {
+      const remaining = Math.max(0, FPSChat.MESSAGE_FADE_MS - (presentationNow() - msg.timestamp));
+      presentationTimeout(() => {
         el.classList.add("fps-chat-message--fading");
-        setTimeout(() => el.remove(), 1000);
+        presentationTimeout(() => el.remove(), 1000);
       }, remaining);
     }
     return el;
@@ -208,7 +209,7 @@ export class FPSChat {
     const source = this.inputActive ? this.messages : this.messages.slice(-FPSChat.MAX_VISIBLE);
     for (const msg of source) {
       // Closed mode: skip messages whose fade window already passed.
-      if (!this.inputActive && performance.now() - msg.timestamp >= FPSChat.MESSAGE_FADE_MS) continue;
+      if (!this.inputActive && presentationNow() - msg.timestamp >= FPSChat.MESSAGE_FADE_MS) continue;
       this.logEl.appendChild(this.renderMessage(msg, !this.inputActive));
     }
     if (this.inputActive) {

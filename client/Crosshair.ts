@@ -10,6 +10,7 @@
  */
 
 import { Cvar } from "../../../engine/core/Cvar";
+import { presentationNow } from "../../../engine/core/PresentationTime";
 import { inPlay, PLAY_CHANGE } from "../../../engine/input/PlayCapture";
 import { type CrosshairConfig, fireIntervalTicks, type WeaponDef } from "../../../shared/entities/WeaponDef";
 import { bloomIdleSeconds, coolSpreadHeat, heatAfterShot } from "../../../shared/SpreadUtils";
@@ -48,7 +49,7 @@ export class Crosshair {
   private listeners: AbortController | null = null;
 
   // Damage flash
-  private hitFlashUntil: number = 0; // performance.now() timestamp
+  private hitFlashUntil: number = 0; // presentationNow() timestamp
   /** What the canvas shows now, so an unchanged reticle is not repainted. */
   private drawnKey = "";
   /**
@@ -146,7 +147,7 @@ export class Crosshair {
   /** One of our own shots: opens the gap for a weapon whose spread blooms. */
   notifyFired(weapon: Pick<WeaponDef, "spreadBloom" | "fireRate" | "fireIntervalTicks"> | undefined): void {
     if (!weapon?.spreadBloom) return;
-    const now = performance.now() / 1000;
+    const now = presentationNow() / 1000;
     this.bloom = heatAfterShot(weapon, this.bloomNow(now));
     this.bloomWeapon = weapon;
     this.bloomAt = now;
@@ -162,7 +163,7 @@ export class Crosshair {
 
   notifyHit(hitLocation?: HitLocationName): void {
     const duration = isHeadHit(hitLocation) ? this.HEAD_HIT_FLASH_DURATION : this.HIT_FLASH_DURATION;
-    this.hitFlashUntil = performance.now() + duration;
+    this.hitFlashUntil = presentationNow() + duration;
   }
 
   // ========================================================================
@@ -240,7 +241,7 @@ export class Crosshair {
     }
 
     // Determine color: damage flash overrides normal color
-    const now = performance.now();
+    const now = presentationNow();
     const isFlashing = now < this.hitFlashUntil;
     const hex = isFlashing ? hitColorHex : (config.color ?? colorHex);
     const r = parseInt(hex.substring(0, 2), 16);

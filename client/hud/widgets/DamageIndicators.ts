@@ -1,3 +1,5 @@
+import { presentationTimeout } from "../../../../../engine/core/PresentationTime";
+
 // Extracted from FPSHud.ts
 
 // =============================================================================
@@ -40,7 +42,7 @@ export class FPSDamageIndicators {
     this.container.appendChild(arrow);
 
     // Remove after animation (0.6s)
-    setTimeout(() => arrow.remove(), 650);
+    presentationTimeout(() => arrow.remove(), 650);
   }
 
   public destroy(): void {

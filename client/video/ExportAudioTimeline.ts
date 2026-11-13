@@ -1,3 +1,5 @@
+import { MATCH_MAX_SECONDS } from "./MovieClock";
+
 /** Piecewise-constant rates sampled by the same fixed-step movie traversal. */
 export class ExportAudioTimeline {
   private readonly points: Array<{ time: number; source: number; rate: number }> = [];
@@ -6,7 +8,13 @@ export class ExportAudioTimeline {
     samples: readonly { time: number; rate: number }[],
     readonly duration: number,
   ) {
-    if (!samples.length || samples[0].time !== 0 || !Number.isFinite(duration) || duration <= 0 || duration > 240)
+    if (
+      !samples.length ||
+      samples[0].time !== 0 ||
+      !Number.isFinite(duration) ||
+      duration <= 0 ||
+      duration > MATCH_MAX_SECONDS
+    )
       throw new Error("Invalid audio movie duration");
     let source = 0;
     for (let i = 0; i < samples.length; i++) {

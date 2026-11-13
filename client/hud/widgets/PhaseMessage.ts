@@ -1,5 +1,6 @@
 // Extracted from FPSHud.ts
 
+import { type PresentationTimer, presentationTimeout } from "../../../../../engine/core/PresentationTime";
 import { FPS, getActionKeyLabel } from "../../FPSActions";
 import { MatchPhase, MatchStateManager } from "../../MatchStateManager";
 import type { FPSHudWidget, HUDState } from "../HudWidget";
@@ -23,7 +24,7 @@ export class FPSPhaseMessage implements FPSHudWidget {
   private element: HTMLElement;
   private lastCountdown: number = 0;
   private lastOvertime: number = 0;
-  private hideTimeout: ReturnType<typeof setTimeout> | null = null;
+  private hideTimeout: PresentationTimer | null = null;
   private unsubPhase: (() => void) | null = null;
   /** The timeout on screen, `state:caller`, so its clock ticks without redrawing it. */
   private shownPause: string | null = null;
@@ -43,7 +44,7 @@ export class FPSPhaseMessage implements FPSHudWidget {
 
   private onPhaseChange(phase: MatchPhase): void {
     if (this.hideTimeout) {
-      clearTimeout(this.hideTimeout);
+      this.hideTimeout.cancel();
       this.hideTimeout = null;
     }
 
@@ -62,7 +63,7 @@ export class FPSPhaseMessage implements FPSHudWidget {
 
       case MatchPhase.Active:
         this.showHtml(`<div class="fps-phase-fight">Fight!</div>`);
-        this.hideTimeout = setTimeout(() => this.hideMessage(), 2000);
+        this.hideTimeout = presentationTimeout(() => this.hideMessage(), 2000);
         break;
 
       case MatchPhase.PostGame: {
@@ -78,7 +79,7 @@ export class FPSPhaseMessage implements FPSHudWidget {
         this.showHtml(
           `<div class="fps-phase-fight">${title}</div>` + `<div class="fps-phase-subtitle">${subtitle}</div>`,
         );
-        this.hideTimeout = setTimeout(() => this.hideMessage(), 3500);
+        this.hideTimeout = presentationTimeout(() => this.hideMessage(), 3500);
         break;
       }
     }
@@ -155,11 +156,11 @@ export class FPSPhaseMessage implements FPSHudWidget {
     if (overtime !== this.lastOvertime) {
       this.lastOvertime = overtime;
       if (overtime > 0 && mgr.phase === MatchPhase.Active) {
-        if (this.hideTimeout) clearTimeout(this.hideTimeout);
+        if (this.hideTimeout) this.hideTimeout.cancel();
         this.showHtml(
           `<div class="fps-phase-fight">Overtime!</div><div class="fps-phase-subtitle">+1 minute — no draws</div>`,
         );
-        this.hideTimeout = setTimeout(() => this.hideMessage(), 3000);
+        this.hideTimeout = presentationTimeout(() => this.hideMessage(), 3000);
       }
     }
   }
@@ -170,13 +171,13 @@ export class FPSPhaseMessage implements FPSHudWidget {
     if (!pause) {
       if (this.shownPause === null) return false;
       this.shownPause = null;
-      if (this.hideTimeout) clearTimeout(this.hideTimeout);
+      if (this.hideTimeout) this.hideTimeout.cancel();
       this.showHtml(`<div class="fps-phase-fight">Fight!</div>`);
-      this.hideTimeout = setTimeout(() => this.hideMessage(), 2000);
+      this.hideTimeout = presentationTimeout(() => this.hideMessage(), 2000);
       return true;
     }
     if (this.hideTimeout) {
-      clearTimeout(this.hideTimeout);
+      this.hideTimeout.cancel();
       this.hideTimeout = null;
     }
     const left = Math.ceil(mgr.pauseSecondsLeft());
@@ -212,7 +213,7 @@ export class FPSPhaseMessage implements FPSHudWidget {
   }
 
   public destroy(): void {
-    if (this.hideTimeout) clearTimeout(this.hideTimeout);
+    if (this.hideTimeout) this.hideTimeout.cancel();
     if (this.unsubPhase) this.unsubPhase();
     this.element.remove();
   }

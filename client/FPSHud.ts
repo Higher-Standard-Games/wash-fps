@@ -14,6 +14,7 @@
 
 import { GamePaths } from "../../../engine/core/GamePaths";
 import { log } from "../../../engine/core/Log";
+import { type PresentationTimer, presentationInterval } from "../../../engine/core/PresentationTime";
 import { enterPlay, inPlay, leavePlay, PLAY_CHANGE } from "../../../engine/input/PlayCapture";
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import { UITheme } from "../../../engine/ui/UITheme";
@@ -82,7 +83,7 @@ export class FPSHud {
   private widgets: Map<string, FPSHudWidget> = new Map();
   /** Set by hide(): widgets skip their tick until show(). */
   private hidden = false;
-  private updateInterval: number | null = null;
+  private updateInterval: PresentationTimer | null = null;
   private running: boolean = false;
   private fontsLoaded: boolean = false;
 
@@ -527,7 +528,7 @@ export class FPSHud {
   public start(intervalMs: number = 50): void {
     if (this.running) return;
     this.running = true;
-    this.updateInterval = window.setInterval(() => this.update(), intervalMs);
+    this.updateInterval = presentationInterval(() => this.update(), intervalMs);
     devLog(`[FPSHud] Update loop started (${intervalMs}ms)`);
   }
 
@@ -538,7 +539,7 @@ export class FPSHud {
     if (!this.running) return;
     this.running = false;
     if (this.updateInterval !== null) {
-      clearInterval(this.updateInterval);
+      this.updateInterval.cancel();
       this.updateInterval = null;
     }
     devLog("[FPSHud] Update loop stopped");

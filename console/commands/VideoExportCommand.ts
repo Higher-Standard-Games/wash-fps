@@ -3,7 +3,7 @@ import { Command, type CommandDef, type CommandOutput, fail } from "../../../../
 export default class VideoExportCommand extends Command {
   readonly definition: CommandDef = {
     name: "videoexport",
-    description: "Export a loaded demo's highlights to MP4",
+    description: "Export a loaded demo to MP4: a highlight reel, or the full match with the game HUD",
     usage: "videoexport",
   };
 

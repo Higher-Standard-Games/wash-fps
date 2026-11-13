@@ -13,6 +13,7 @@
  * - players map   → scoreboard data
  */
 
+import { presentationNow } from "../../../engine/core/PresentationTime";
 import type { GameState } from "../../../engine/network/core/GameState";
 import type { CombatStateEvent, DamageEvent, DeathEvent } from "../../../engine/network/core/SnapshotEvent";
 import { clientKeyDisplayId } from "../ClientEntityKey";
@@ -215,7 +216,7 @@ export class HUDState {
       attackerId: event.attackerId ?? "",
       damage: event.damage ?? 0,
       weaponId: event.weaponId ?? "",
-      timestamp: performance.now(),
+      timestamp: presentationNow(),
     });
   }
 
@@ -238,7 +239,7 @@ export class HUDState {
       byViewed: !!viewed && killerId === viewed,
       ofViewed: !!viewed && victimId === viewed,
       seq: ++HUDState.deathSeq,
-      timestamp: performance.now(),
+      timestamp: presentationNow(),
     });
 
     // Cap kill feed length
@@ -327,7 +328,7 @@ export class HUDState {
    * Expire old transients (call once per frame).
    */
   expireTransients(): void {
-    const now = performance.now();
+    const now = presentationNow();
 
     // Expire damage numbers
     this.damageNumbers = this.damageNumbers.filter((d) => now - d.timestamp < HUDState.DAMAGE_EXPIRE_MS);

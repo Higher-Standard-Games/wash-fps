@@ -1,5 +1,10 @@
 import { CameraSystem } from "../../../../../engine/camera";
 import { Cvar } from "../../../../../engine/core/Cvar";
+import {
+  type PresentationTimer,
+  presentationNow,
+  presentationTimeout,
+} from "../../../../../engine/core/PresentationTime";
 import { InputDevice } from "../../../../../engine/input/InputDevice";
 import { InputSystem } from "../../../../../engine/input/InputSystem";
 import { getWeaponViewManager } from "../../../../../engine/weapon/WeaponViewManager";
@@ -143,7 +148,7 @@ export class FPSHintPanel implements FPSHudWidget {
   private readonly element: HTMLElement;
   private readonly text: HTMLElement;
   private readonly coach = new HintCoach();
-  private hideTimer: number | null = null;
+  private hideTimer: PresentationTimer | null = null;
   /** Whether hints may show now, from the last HUD tick */
   private live = false;
   /** When the live match began, as this client saw it; null in warmup */
@@ -181,7 +186,7 @@ export class FPSHintPanel implements FPSHudWidget {
     const controller = CameraSystem.getInstance().getController("fps") as { isFiring?(): boolean } | undefined;
     const view = getWeaponViewManager();
     const holding = controller?.isFiring?.() === true;
-    const now = performance.now();
+    const now = presentationNow();
     const hint =
       this.coach.holdingFire(
         now,
@@ -199,7 +204,7 @@ export class FPSHintPanel implements FPSHudWidget {
     return {
       health: state.health,
       armor: state.armor,
-      liveForMs: this.matchLiveSince === null ? null : performance.now() - this.matchLiveSince,
+      liveForMs: this.matchLiveSince === null ? null : presentationNow() - this.matchLiveSince,
       weapon,
       carriesGun: state.weapons.some((id) => canonicalWeaponId(id) !== "blade"),
       grounded: this.grounded,
@@ -226,7 +231,7 @@ export class FPSHintPanel implements FPSHudWidget {
         forward: input.isActive(FPS.MOVE_FORWARD),
         strafing: input.isActive(FPS.MOVE_LEFT) || input.isActive(FPS.MOVE_RIGHT),
       },
-      performance.now(),
+      presentationNow(),
     );
     if (hint) this.present(hint);
   }
@@ -234,19 +239,19 @@ export class FPSHintPanel implements FPSHudWidget {
   /** The local player's clip ran dry with ammo in reserve. */
   public clipEmptied(): void {
     if (!this.playing(HUDState.getInstance())) return;
-    const hint = this.coach.clipEmptied(performance.now());
+    const hint = this.coach.clipEmptied(presentationNow());
     if (hint) this.present(hint);
   }
 
   /** The local player began charging a blast. */
   public charged(): void {
-    this.coach.charged(performance.now());
+    this.coach.charged(presentationNow());
   }
 
   /** Fall damage to the local player. */
   public fell(): void {
     if (!this.playing(HUDState.getInstance())) return;
-    const hint = this.coach.fell(performance.now());
+    const hint = this.coach.fell(presentationNow());
     if (hint) this.present(hint);
   }
 
@@ -254,7 +259,7 @@ export class FPSHintPanel implements FPSHudWidget {
   public shot(canAim: boolean): void {
     if (!this.playing(HUDState.getInstance())) return;
     const fromHip = getWeaponViewManager().getAdsProgress() < AIMING;
-    const hint = this.coach.shot(performance.now(), fromHip, canAim);
+    const hint = this.coach.shot(presentationNow(), fromHip, canAim);
     if (hint) this.present(hint);
   }
 
@@ -264,7 +269,7 @@ export class FPSHintPanel implements FPSHudWidget {
    */
   private playing(state: HUDState): boolean {
     const match = MatchStateManager.getInstance();
-    const now = performance.now();
+    const now = presentationNow();
     if (match.isWarmup()) this.matchLiveSince = null;
     else if (match.isActive()) this.matchLiveSince ??= now;
     return (
@@ -282,14 +287,14 @@ export class FPSHintPanel implements FPSHudWidget {
     // Restart the fade-in for a hint replacing one still on screen
     void this.element.offsetWidth;
     this.element.classList.add("fps-hint--shown");
-    if (this.hideTimer !== null) clearTimeout(this.hideTimer);
-    this.hideTimer = window.setTimeout(() => this.dismiss(), HINT_SHOW_MS);
+    this.hideTimer?.cancel();
+    this.hideTimer = presentationTimeout(() => this.dismiss(), HINT_SHOW_MS);
   }
 
   private dismiss(): void {
     // Called on every tick while hints are off: touch the page only when one shows
     if (this.hideTimer === null) return;
-    clearTimeout(this.hideTimer);
+    this.hideTimer.cancel();
     this.hideTimer = null;
     this.element.classList.remove("fps-hint--shown");
   }

@@ -1,4 +1,5 @@
-const MAX_BYTES = 768 * 1024 * 1024;
+/** A highlight reel's ceiling; a full match passes its own. */
+const DEFAULT_MAX_BYTES = 768 * 1024 * 1024;
 const FILE_NAME = /^[0-9a-f-]{36}\.mp4$/;
 const ORPHAN_AGE_MS = 24 * 60 * 60 * 1000;
 
@@ -69,11 +70,12 @@ export class TemporaryVideo {
     private readonly handle: FileSystemFileHandle,
     private readonly writable: FileSystemWritableFileStream,
     private readonly release: () => Promise<void>,
+    maxBytes: number,
   ) {
     this.stream = new WritableStream({
       write: async (chunk) => {
         const end = chunk.position + chunk.data.byteLength;
-        if (!Number.isSafeInteger(end) || chunk.position < 0 || end > MAX_BYTES)
+        if (!Number.isSafeInteger(end) || chunk.position < 0 || end > maxBytes)
           throw new Error("The encoded video exceeds the temporary-file limit");
         await writable.write(chunk);
         this.bytes = Math.max(this.bytes, end);
@@ -89,7 +91,8 @@ export class TemporaryVideo {
     });
   }
 
-  static async create(expectedBytes: number): Promise<TemporaryVideo> {
+  static async create(expectedBytes: number, maxBytes = DEFAULT_MAX_BYTES): Promise<TemporaryVideo> {
+    if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new Error("Invalid temporary-file limit");
     if (!navigator.storage?.getDirectory) throw new Error("This browser cannot store a temporary video file");
     const root = await navigator.storage.getDirectory();
     const directory = await root.getDirectoryHandle("washoi-video-export", { create: true });
@@ -101,7 +104,7 @@ export class TemporaryVideo {
     const release = (await holdFile(name))!;
     try {
       const handle = await directory.getFileHandle(name, { create: true });
-      return new TemporaryVideo(directory, name, handle, await handle.createWritable(), release);
+      return new TemporaryVideo(directory, name, handle, await handle.createWritable(), release, maxBytes);
     } catch (error) {
       try {
         await directory.removeEntry(name);

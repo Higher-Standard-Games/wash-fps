@@ -1,4 +1,9 @@
 // Extracted from FPSHud.ts
+import {
+  type PresentationTimer,
+  presentationInterval,
+  presentationNow,
+} from "../../../../../engine/core/PresentationTime";
 import { FPS, getActionKeyLabel } from "../../FPSActions";
 import type { KillFeedEntry } from "../../HUDState";
 import { MatchStateManager } from "../../MatchStateManager";
@@ -77,7 +82,7 @@ export class FPSDeathScreen implements FPSHudWidget {
   /** The kill feed has named this death; until it does, keep looking */
   private named: boolean = false;
   private deathTime: number = 0;
-  private countdownInterval: number | null = null;
+  private countdownInterval: PresentationTimer | null = null;
 
   constructor() {
     this.element = document.createElement("div");
@@ -172,7 +177,7 @@ export class FPSDeathScreen implements FPSHudWidget {
     }
     this.shownForThisDeath = true;
     this.wasAlive = false;
-    this.deathTime = performance.now();
+    this.deathTime = presentationNow();
 
     this.named = false;
     this.howEl.textContent = "";
@@ -209,12 +214,12 @@ export class FPSDeathScreen implements FPSHudWidget {
     this.stopCountdown();
     this.countdownShown = false;
     this.updateTimer();
-    this.countdownInterval = window.setInterval(() => this.updateTimer(), 50);
+    this.countdownInterval = presentationInterval(() => this.updateTimer(), 50);
   }
 
   private stopCountdown(): void {
     if (this.countdownInterval !== null) {
-      clearInterval(this.countdownInterval);
+      this.countdownInterval.cancel();
       this.countdownInterval = null;
     }
   }
@@ -233,7 +238,7 @@ export class FPSDeathScreen implements FPSHudWidget {
       return;
     }
 
-    const elapsed = (performance.now() - this.deathTime) / 1000;
+    const elapsed = (presentationNow() - this.deathTime) / 1000;
     const remaining = Math.max(0, RESPAWN_DELAY_SECS - elapsed);
     this.fillEl.style.width = `${Math.min(100, (elapsed / RESPAWN_DELAY_SECS) * 100)}%`;
 

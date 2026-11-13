@@ -246,3 +246,53 @@
     right: 14px;
   }
 }
+.video-export-advanced {
+  border-top: 2px solid hsl(250 45% 7% / 0.15);
+  padding-top: 12px;
+}
+.video-export-advanced summary {
+  cursor: pointer;
+  font: 800 12px / 1.3 var(--display);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.video-export-advanced summary:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 3px;
+}
+.video-export-advanced__body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 24px;
+  margin-top: 14px;
+}
+.video-export-advanced__body .video-export-help {
+  grid-column: 1 / -1;
+}
+.video-export-advanced select {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 12px;
+  color: var(--ink);
+  background: #fff6df;
+  border: 2px solid #31223655;
+  border-radius: 3px;
+  font: 700 18px / 1.2 var(--body);
+}
+.video-export-advanced select:disabled {
+  opacity: 0.5;
+}
+.video-export-settings > [hidden] {
+  display: none;
+}
+/* While a full match records, the game HUD draws into the movie: it stays laid out on the page, unseen. */
+body.video-export-recording > :not(.video-export-shell):not(.video-export-world),
+body.video-export-recording > :not(.video-export-shell):not(.video-export-world) * {
+  /* biome-ignore lint/complexity/noImportantStyles: the HUD sets its own visibility; the page must win over it */
+  visibility: hidden !important;
+}
+@media (max-width: 700px) {
+  .video-export-advanced__body {
+    grid-template-columns: 1fr;
+  }
+}

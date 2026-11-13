@@ -7,7 +7,7 @@ import { AudioManager } from "../../../../engine/AudioManager";
 import { CameraSystem } from "../../../../engine/camera/CameraSystem";
 import { registerEngineServices } from "../../../../engine/core/EngineServices";
 import { GamePaths } from "../../../../engine/core/GamePaths";
-import { ownPresentationClock } from "../../../../engine/core/PresentationTime";
+import { ownPresentationClock, runPresentationTimers } from "../../../../engine/core/PresentationTime";
 import { ServiceLocator } from "../../../../engine/core/ServiceLocator";
 import { unloadClientMap } from "../../../../engine/loader/map/ClientMapLoader";
 import { registerGameMapEntities } from "../../../../engine/loader/map/GameMapEntities";
@@ -29,18 +29,24 @@ import { TeleportEffect } from "../TeleportEffect";
 import { assertAudioAgreement, assertAudioMovieRates } from "./ExportAudioAgreement";
 import { ExportAudioBuffers } from "./ExportAudioBuffers";
 import { ExportAudioCapture } from "./ExportAudioCapture";
-import { mixExportAudio } from "./ExportAudioMixer";
+import { mixExportAudio, streamExportAudio } from "./ExportAudioMixer";
 import { type PreparedExportMusic, prepareExportMusic } from "./ExportMusic";
 import type { ExportMusicSelection } from "./ExportMusicSelection";
 import { drawReelOverlay } from "./ExportOverlay";
 import { ExportSceneReadiness } from "./ExportSceneReadiness";
-import { abortable, MOVIE_FPS, renderMovieFrames } from "./MovieClock";
-import { Mp4Writer } from "./Mp4Writer";
+import { HudFrameCapture } from "./HudFrameCapture";
+import { abortable, MATCH_MAX_SECONDS, MOVIE_FPS, renderMovieFrames } from "./MovieClock";
+import { Mp4Writer, movieBytes } from "./Mp4Writer";
 import { assertReelMovieFrame, collectReelMovieSchedule, type ReelMovieFrame } from "./ReelMovieSchedule";
 import { warmShot } from "./ShotPreroll";
 import type { TemporaryVideo } from "./TemporaryVideo";
 
 let servicesRegistered = false;
+
+/** A whole match plays back at normal speed: YouTube's 1080p60 rate, not a reel's near-lossless one. */
+const MATCH_VIDEO_BITRATE = 12_000_000;
+/** The page's body class while a match records: the HUD is drawn into the movie, not over the page. */
+const RECORDING_CLASS = "video-export-recording";
 
 export interface ExportMovieOptions {
   signal: AbortSignal;
@@ -50,6 +56,8 @@ export interface ExportMovieOptions {
   stallMs?: number;
   reelMinutes?: 1 | 2 | 3;
   music?: ExportMusicSelection;
+  /** The whole match through this player's eyes (a client key), with their game HUD. */
+  match?: { follow: string };
 }
 
 /** Export-owned playback and rendering in a separate document. */
@@ -65,9 +73,11 @@ export async function renderDemoMovie(
   options.signal.addEventListener("abort", cancelJob, { once: true });
   if (options.signal.aborted) cancelJob();
   const world = document.createElement("canvas");
+  world.className = "video-export-world";
   world.style.cssText = "position:fixed;left:-10000px;width:1920px;height:1080px";
-  canvas.width = options.reelMinutes ? 1920 : 1280;
-  canvas.height = options.reelMinutes ? 1080 : 720;
+  const withAudio = !!options.reelMinutes || !!options.match;
+  canvas.width = withAudio ? 1920 : 1280;
+  canvas.height = withAudio ? 1080 : 720;
   const composed = canvas.getContext("2d", { alpha: false });
   if (!composed) {
     options.signal.removeEventListener("abort", cancelJob);
@@ -82,7 +92,7 @@ export async function renderDemoMovie(
     job.abort(new Error("The graphics context was lost. Try exporting again."));
   };
   world.addEventListener("webglcontextlost", contextLost);
-  const deadline = setTimeout(() => job.abort(new Error("Video export exceeded its twenty-minute limit")), 20 * 60_000);
+  let deadline = setTimeout(() => job.abort(new Error("Video export exceeded its twenty-minute limit")), 20 * 60_000);
   const minimumAnimationDelta = Scene.MinDeltaTime;
   Scene.MinDeltaTime = 0;
   const service = DemoService.getInstance();
@@ -93,6 +103,8 @@ export async function renderDemoMovie(
   let soundBuffers: ExportAudioBuffers | undefined;
   let preparedMusic: PreparedExportMusic | undefined;
   let capture: ExportAudioCapture | undefined;
+  let hud: HudFrameCapture | undefined;
+  let silent: TemporaryVideo | undefined;
   let releaseSoundSink: (() => void) | undefined;
   let succeeded = false;
   let exported: TemporaryVideo | undefined;
@@ -106,7 +118,15 @@ export async function renderDemoMovie(
   signal.addEventListener("abort", cancel, { once: true });
   if (signal.aborted) cancel();
   try {
-    await abortable(Mp4Writer.assertSupported(canvas.width, canvas.height, !!options.reelMinutes), preparation.signal);
+    await abortable(
+      Mp4Writer.assertSupported(
+        canvas.width,
+        canvas.height,
+        withAudio,
+        options.match ? MATCH_VIDEO_BITRATE : undefined,
+      ),
+      preparation.signal,
+    );
     progress("Preparing renderer");
     GamePaths.getInstance().initFromConfig(browserConfig.engine, gameJson.displayName);
     if (!servicesRegistered) {
@@ -135,9 +155,12 @@ export async function renderDemoMovie(
     const audio = AudioManager.getInstance();
     audio.setMusicEnabled(false);
     audio.setSfxEnabled(false);
-    if (options.reelMinutes) {
+    if (withAudio) {
       soundBuffers = new ExportAudioBuffers(signal);
-      capture = new ExportAudioCapture((paths, settings) => soundBuffers!.preload(paths, settings));
+      capture = new ExportAudioCapture(
+        (paths, settings) => soundBuffers!.preload(paths, settings),
+        options.match ? MATCH_MAX_SECONDS : undefined,
+      );
       releaseSoundSink = audio.ownSfxSink(capture);
     }
     const index = PK3Index.getInstance();
@@ -159,12 +182,17 @@ export async function renderDemoMovie(
         service.loadAndPlayCinematic(viewer, cameras, options.reelMinutes, { manual: true }),
         preparation.signal,
       );
-    else await abortable(service.loadAndPlayNormal(viewer, { manual: true }), preparation.signal);
+    else
+      await abortable(
+        service.loadAndPlayNormal(viewer, { manual: true, gameHud: !!options.match }),
+        preparation.signal,
+      );
     await abortable(service.waitForPlaybackModels(), preparation.signal);
     const first = viewer.getInfo();
     const fromSeconds = options.fromSeconds ?? 0;
     if (
       !options.reelMinutes &&
+      !options.match &&
       (!Number.isFinite(fromSeconds) || fromSeconds < 0 || first.durationMs < (fromSeconds + 10) * 1000)
     )
       throw new Error("The proof requires ten recorded seconds after its start");
@@ -219,6 +247,17 @@ export async function renderDemoMovie(
         ended: player.getState() === "ended",
       };
     };
+    const sampleListener = () => {
+      capture!.setTime(capture!.nowMs / 1000, viewer.getSpeed());
+      const view = scene.activeCameras?.[0] ?? scene.activeCamera;
+      if (!view) throw new Error("The export has no listening camera");
+      view.getViewMatrix(true);
+      capture!.sampleListener({
+        position: view.globalPosition,
+        forward: view.getDirection(new Vector3(0, 0, -1)),
+        up: view.getDirection(Vector3.Up()),
+      });
+    };
     if (options.reelMinutes) {
       const recipe = service.activeCinematicPlayer!.snapshotRecipe();
       if (!recipe.reel.segments.length) throw new Error("This demo has no highlights to export");
@@ -231,17 +270,6 @@ export async function renderDemoMovie(
         const player = service.activeCinematicPlayer!;
         player.onBeforeSegment((segment) => capture!.cut(capture!.nowMs / 1000, segment.segmentIndex));
         player.onReelEnd(() => capture!.cut(capture!.nowMs / 1000, recipe.reel.totalSegments));
-      };
-      const sampleListener = () => {
-        capture!.setTime(capture!.nowMs / 1000, viewer.getSpeed());
-        const view = scene.activeCameras?.[0] ?? scene.activeCamera;
-        if (!view) throw new Error("The export has no listening camera");
-        view.getViewMatrix(true);
-        capture!.sampleListener({
-          position: view.globalPosition,
-          forward: view.getDirection(new Vector3(0, 0, -1)),
-          up: view.getDirection(Vector3.Up()),
-        });
       };
       capture!.begin();
       bindAudio();
@@ -337,6 +365,94 @@ export async function renderDemoMovie(
       const result = await writer.finish();
       succeeded = true;
       exported = result;
+    } else if (options.match) {
+      const seconds = first.durationMs / 1000;
+      if (seconds < 10) throw new Error("A full-match video needs at least ten seconds of recording");
+      if (seconds > MATCH_MAX_SECONDS)
+        throw new Error(`Full-match videos are limited to ${MATCH_MAX_SECONDS / 60} minutes of recording`);
+      const total = Math.ceil(seconds * MOVIE_FPS);
+      const movieSeconds = total / MOVIE_FPS;
+      // Each recorded second takes a few to make: the limit follows the match's length
+      clearTimeout(deadline);
+      deadline = setTimeout(
+        () => job.abort(new Error("Video export exceeded its time limit")),
+        (30 * 60 + 6 * movieSeconds) * 1000,
+      );
+      const maxBytes = Math.max(768 * 1024 * 1024, 2 * movieBytes(movieSeconds, MATCH_VIDEO_BITRATE));
+      const follow = options.match.follow;
+      const followPlayer = () => {
+        const state = service.getPlaybackState();
+        if (!state) return;
+        const entityId = state.players.get(follow)?.entityId ?? follow;
+        if (state.entities.has(entityId)) service.setPlaybackSpectatorTarget(entityId);
+      };
+      const page = (element: Element) => element === world || element.classList.contains("video-export-shell");
+      hud = new HudFrameCapture(canvas.width, canvas.height, page);
+      document.body.classList.add(RECORDING_CLASS);
+      followPlayer();
+      capture!.begin();
+      writer = await Mp4Writer.create(canvas, movieSeconds, signal, undefined, {
+        videoBitrate: MATCH_VIDEO_BITRATE,
+        maxBytes,
+      });
+      const activeWriter = writer;
+      const activeHud = hud;
+      await renderMovieFrames(
+        total,
+        signal,
+        async (frame) => {
+          capture!.setTime(frame.index / MOVIE_FPS, viewer.getSpeed());
+          clock.deltaMs = frame.index === 0 ? 0 : 1000 / MOVIE_FPS;
+          clock.nowMs += clock.deltaMs;
+          effectClock.nowMs = clock.nowMs;
+          service.updatePlaybackFrame(clock.deltaMs);
+          followPlayer();
+          // The HUD's own timers (its update loop, its fades) run on the movie's clock
+          runPresentationTimers();
+          await settleWeapon();
+          // The HUD's picture decodes while the world draws
+          const overlay = activeHud.frame(clock.nowMs, signal);
+          clock.deltaMs = frame.index === 0 ? 0 : 1000 / MOVIE_FPS;
+          engine!.beginFrame();
+          try {
+            await readiness!.render(signal);
+            sampleListener();
+            composed.drawImage(renderer.canvas, 0, 0, canvas.width, canvas.height);
+          } finally {
+            engine!.endFrame();
+          }
+          const picture = await overlay;
+          if (picture) composed.drawImage(picture, 0, 0, canvas.width, canvas.height);
+          await activeWriter.add(frame);
+          progress("Recording full match", frame.index + 1, total);
+          if (frame.index % 4 === 0 || options.stallMs)
+            await abortable(new Promise<void>((resolve) => setTimeout(resolve, options.stallMs ?? 0)), signal);
+        },
+        MATCH_MAX_SECONDS,
+      );
+      if (viewer.getInfo().skippedFrames) throw new Error("Match recording skipped recorded events");
+      progress("Finalizing video");
+      writer = undefined;
+      silent = await activeWriter.finish();
+      const audioPlan = capture!.snapshot(movieSeconds);
+      progress("Mixing game audio");
+      const result = await Mp4Writer.withAudio(
+        silent,
+        movieSeconds,
+        signal,
+        async (add) => {
+          await streamExportAudio(
+            audioPlan,
+            (path, settings) => soundBuffers!.get(path, settings),
+            signal,
+            add,
+            (done, all) => progress("Mixing game audio", done, all),
+          );
+        },
+        maxBytes,
+      );
+      succeeded = true;
+      exported = result;
     } else {
       // One boundary seek, then sequential pre-roll and frame delivery.
       const preRoll = Math.min(2, fromSeconds);
@@ -389,6 +505,11 @@ export async function renderDemoMovie(
     world.removeEventListener("webglcontextlost", contextLost);
     const cleanup: Array<() => void | Promise<void>> = [
       () => engine?.stopRenderLoop(),
+      () => hud?.dispose(),
+      () => document.body.classList.remove(RECORDING_CLASS),
+      async () => {
+        await silent?.dispose();
+      },
       () => readiness?.dispose(),
       () => TeleportEffect.getInstance().setPresentationClock(null),
       () => service.stopAll(),

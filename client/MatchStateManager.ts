@@ -7,6 +7,7 @@
 
 import { Cvar } from "../../../engine/core/Cvar";
 import { devLog } from "../../../engine/core/DevLog";
+import { presentationNow } from "../../../engine/core/PresentationTime";
 import type { GameEvent } from "../../../engine/network/core/GameState";
 import type { MatchStateEvent } from "../../../engine/network/core/SnapshotEvent";
 import type { MatchPauseNotice } from "../../../engine/network/protocol/MessageCodec";
@@ -45,7 +46,7 @@ Cvar.register("cl_invertClock", 0, {
   description: "Match clock counts up from 0:00 (time played) instead of down (time left)",
 });
 
-/** A timeout as the client shows it: until `endsAt` (performance.now() ms). */
+/** A timeout as the client shows it: until `endsAt` (presentationNow() ms). */
 export interface MatchPause {
   state: "timeout" | "timein";
   endsAt: number;
@@ -302,7 +303,7 @@ export class MatchStateManager {
         ? null
         : {
             state: notice.state,
-            endsAt: performance.now() + notice.msLeft,
+            endsAt: presentationNow() + notice.msLeft,
             caller: notice.caller,
             forDrop: notice.forDrop,
           };
@@ -315,7 +316,7 @@ export class MatchStateManager {
 
   /** Seconds until the timeout runs out or the count ends; 0 while running. */
   pauseSecondsLeft(): number {
-    return this._pause ? Math.max(0, (this._pause.endsAt - performance.now()) / 1000) : 0;
+    return this._pause ? Math.max(0, (this._pause.endsAt - presentationNow()) / 1000) : 0;
   }
 
   isPostGame(): boolean {

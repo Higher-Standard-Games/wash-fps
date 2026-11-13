@@ -1,4 +1,5 @@
 // Extracted from FPSHud.ts
+import { type PresentationTimer, presentationTimeout } from "../../../../../engine/core/PresentationTime";
 import type { FPSHudWidget, HUDState } from "../HudWidget";
 
 // =============================================================================
@@ -18,7 +19,7 @@ export class FPSPickupToast implements FPSHudWidget {
   /** Only one toast is shown at a time (a rapid pickup burst would otherwise
    *  flood the screen). A new pickup replaces the current one in place. */
   private currentToast: HTMLElement | null = null;
-  private removeTimer: number | null = null;
+  private removeTimer: PresentationTimer | null = null;
 
   constructor() {
     this.element = document.createElement("div");
@@ -37,7 +38,7 @@ export class FPSPickupToast implements FPSHudWidget {
   public showPickup(text: string): void {
     // Replace any existing toast so pickups don't pile up on screen.
     if (this.removeTimer !== null) {
-      clearTimeout(this.removeTimer);
+      this.removeTimer.cancel();
       this.removeTimer = null;
     }
     this.currentToast?.remove();
@@ -61,7 +62,7 @@ export class FPSPickupToast implements FPSHudWidget {
     this.currentToast = toast;
 
     // Remove after the slam → hold → tumble animation completes.
-    this.removeTimer = window.setTimeout(() => {
+    this.removeTimer = presentationTimeout(() => {
       toast.remove();
       if (this.currentToast === toast) this.currentToast = null;
       this.removeTimer = null;

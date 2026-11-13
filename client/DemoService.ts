@@ -317,9 +317,11 @@ export class DemoService {
   /**
    * Start normal demo playback using a provided DemoViewer.
    * The caller is responsible for wiring the viewer's onFrame callback
-   * to the game renderer.
+   * to the game renderer. A manual start (a timedemo, a video export) runs
+   * without controls, music or HUD; `gameHud` brings back the game's own HUD
+   * for the followed player, as a full-match video shows it.
    */
-  async loadAndPlayNormal(viewer: DemoViewer, options: { manual?: boolean } = {}): Promise<void> {
+  async loadAndPlayNormal(viewer: DemoViewer, options: { manual?: boolean; gameHud?: boolean } = {}): Promise<void> {
     if (!this.loadedDemoData) throw new Error("No demo loaded. Use `demo <filename>` first.");
     const data = this.loadedDemoData;
     const reader = this.loadedDemoReader;
@@ -344,6 +346,11 @@ export class DemoService {
       this.activeDemoViewer = viewer;
       await this.ensureRuntimeWiring(viewer, "normal", !options.manual, signal, pulse);
       if (this.abandonStart(start, viewer)) return;
+      if (options.manual && options.gameHud) {
+        this.gameHudVisible = true;
+        await this._startGameHud(signal);
+        if (this.abandonStart(start, viewer)) return;
+      }
       await viewer.load(data);
       if (this.abandonStart(start, viewer)) return;
       viewer.play();

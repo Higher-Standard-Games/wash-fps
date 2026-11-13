@@ -153,7 +153,7 @@ Choose a 1, 2 or 3 minute highlight target, then **Generate video**. The same
 source-length limits as preview apply: at least 3, 6 or 9 minutes respectively.
 The finished movie includes title, shot and closing cards, so its exact length
 can differ from the target. Output is 1920×1080 at 60 FPS, SDR H.264 video and
-48 kHz stereo AAC audio in MP4. Chat and the gameplay HUD are omitted.
+48 kHz stereo AAC audio in MP4. A highlight reel leaves out chat and the gameplay HUD; a [full match](#full-match) keeps them.
 
 **Background music** defaults to **`<none>`** for game audio only. Choose any
 packaged OST song for the main soundtrack, with game sounds layered over it. **Start from** selects
@@ -163,6 +163,26 @@ short fade in and out. It stops at the end of the movie or song and does not loo
 The start timestamp must be before the song ends.
 Selected music uses a fixed 80% gain; game sounds play underneath at 35% of
 their game-audio-only level. The combined mix retains clipping protection.
+
+### Full match
+
+Open **Advanced** and set **Video** to **Full match with game HUD** to record
+the whole match through one player's eyes, as they played it. **Follow player**
+lists the recording's players. The video runs from the recording's first frame
+to its last at normal speed, in that player's first-person view, with the
+game's own HUD drawn into every frame: vitals, weapons and ammo, the timer and
+score, the kill feed, chat, frag and pickup messages, the crosshair and the
+post-game scoreboard. When the player dies, the video follows the death camera
+as demo playback does. The HUD's animations and timers run on the movie's clock,
+so they play at their real speed however long a frame takes to render.
+
+Output is 1920×1080 at 60 FPS, H.264 at a 12 Mbit/s target, with 48 kHz stereo
+AAC game audio. A full match has no background music. The recording must be
+between 10 seconds and 20 minutes long. Rendering takes about three and a half
+times the match's length on a desktop GPU: a 10-minute match takes about 35
+minutes. Game audio is mixed after the picture, in 30-second pieces, and
+added to the finished file, so temporary storage briefly holds two copies of
+the video. The file is saved as `<recording>-<player>-match.mp4`.
 
 Generation uses an isolated WebGL2 scene and leaves the original recording
 loaded in its viewer. Camera motion follows movie time through shader compilation
@@ -178,8 +198,10 @@ browser storage must have enough space for the encoded movie, in addition to
 the destination copy. A browser-download fallback supports files up to 64 MiB
 and reports **Download started**, since it cannot confirm destination close.
 
-Export is bounded to four minutes of movie, 768 MiB of encoded temporary data
-and twenty minutes of processing. It stops on missing required sounds,
+A highlight export is bounded to four minutes of movie, 768 MiB of encoded
+temporary data and twenty minutes of processing. A full-match export is bounded
+to twenty minutes of movie, twice its expected encoded size (at least 768 MiB)
+and thirty minutes plus six times the match's length of processing. It stops on missing required sounds,
 unresolved projectile state, inconsistent traversals or graphics-context loss.
 WebGPU and other browser families are outside the development acceptance target.
 
