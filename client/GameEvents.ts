@@ -105,6 +105,7 @@ import {
   noteLocalFallForHints,
   noteLocalShotForHints,
 } from "./hud/widgets/HintPanel";
+import { chooseKillTaunt } from "./KillTaunt";
 import { networkHostOf } from "./NetworkHostAccess";
 import type { RagdollSystem } from "./RagdollSystem";
 
@@ -325,6 +326,10 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
   const runningPowerups = new Set<string>();
 
   if (state.events && state.events.length > 0) {
+    // Killers taunt once the whole snapshot has run, so the killing shot's own
+    // fire event cannot end the taunt it caused
+    const killTaunts: { killerId: string; taunt: string }[] = [];
+
     // Dispatch by event type. Switching on the discriminated `type` (rather than
     // the old if/else-if chain with compound conditions) narrows each `event` so
     // field access is compiler-checked, and the exhaustive `default` catches an
@@ -616,6 +621,8 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
             if (viewVictim) clearLocalPowerups();
             if (ctx.spectatingEntityId && event.entityId === ctx.spectatingEntityId) ctx.followedWeapon.setDead(true);
             handleDeathEvent(ctx, event, state);
+            const taunt = chooseKillTaunt(event);
+            if (taunt) killTaunts.push({ killerId: event.killerId, taunt });
             break;
           }
 
@@ -686,6 +693,7 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
         log.errorRateLimited("GameEvents", `${event.type} event failed:`, err);
       }
     }
+    for (const { killerId, taunt } of killTaunts) ctx.remoteRenderer?.playKillTaunt(killerId, taunt);
   }
   // A Quad taken away early (a round start respawns its carrier alive) stops
   // showing and sounding now, not when its old countdown would have run out.
