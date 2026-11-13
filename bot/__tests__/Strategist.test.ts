@@ -109,12 +109,51 @@ describe("Strategist", () => {
     const { read, at } = stackedEnemy();
     const now = at(150, 40);
     read.update(now);
-    const control = new Strategist(1, () => 0.5);
-    control.limitTo(["control"]);
-    expect(control.update(read, now).id).toBe("control");
     const pressure = new Strategist(1, () => 0.5);
     pressure.limitTo(["pressure"]);
     expect(pressure.update(read, now).id).toBe("standard");
+  });
+
+  /** A read where the enemy took two armors and a Mega lately; own stack as given. */
+  function losingItems(health: number, armor: number): { read: MatchRead; now: BotGameState } {
+    const read = new MatchRead();
+    for (const [tick, kind, type] of [
+      [100, "ya", "armor"],
+      [600, "mega", "health"],
+      [1100, "ya", "armor"],
+    ] as const) {
+      const s = state(tick, health, armor);
+      s.players = [foe];
+      s.enemyMajorItems.set("player_2", { type, kind, tick });
+      read.update(s);
+    }
+    const now = state(1200, health, armor);
+    now.players = [foe];
+    read.update(now);
+    return { read, now };
+  }
+
+  it("contests the items only stacked enough to win the fight at them", () => {
+    const stacked = losingItems(200, 150);
+    const control = new Strategist(1, () => 0.5);
+    control.limitTo(["control"]);
+    expect(control.update(stacked.read, stacked.now).id).toBe("control");
+
+    const outstacked = losingItems(60, 0);
+    const recovering = new Strategist(1, () => 0.5);
+    recovering.limitTo(["control", "recover"]);
+    expect(recovering.update(outstacked.read, outstacked.now).id).toBe("recover");
+  });
+
+  it("leaves Control at once when the stack for it is gone", () => {
+    const stacked = losingItems(200, 150);
+    const strategist = new Strategist(1, () => 0.5);
+    strategist.limitTo(["control", "recover"]);
+    expect(strategist.update(stacked.read, stacked.now).id).toBe("control");
+    const hurt = state(1200 + 125, 40, 0);
+    hurt.players = [foe];
+    stacked.read.update(hurt);
+    expect(strategist.update(stacked.read, hurt).id).toBe("recover");
   });
 
   it("holds a strategy for a few seconds after its reason fades", () => {

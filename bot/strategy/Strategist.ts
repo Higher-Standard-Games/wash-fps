@@ -40,6 +40,12 @@ const LATE_SECONDS = 90;
 const LATE_GAP = 2;
 /** Being hurt by two or more enemies within this long is being focused. */
 const FOCUS_SECONDS = 20;
+/**
+ * Control sends the bot to the items the opponent wants, where the opponent is
+ * going. It is played only with a stack at most this far under the estimate of
+ * theirs; further under, the bot recovers first.
+ */
+const CONTROL_STACK_MARGIN = 25;
 
 export type DiagnosisId = "understacked" | "losing_items" | "enemy_weak" | "ahead_late" | "behind_late" | "focused";
 export type StrategyId = "standard" | "recover" | "control" | "pressure" | "protect_lead";
@@ -297,12 +303,14 @@ export class Strategist {
     const top = diagnose(read, state).find((d) => this._sense >= ANSWER[d.id].sense) ?? null;
     const episodeOver = this._episode !== null && tick - this._episode.startTick >= EPISODE_TICKS;
     if (episodeOver) this._judge(read, tick);
+    // Control held without the stack for it is left at once, hold or not.
+    const outstacked = this._current.id === "control" && this._fit("control", read, state) !== "control";
     const sameReason = top !== null && this._because !== null && top.id === this._because.id;
-    if (sameReason && !episodeOver) {
+    if (sameReason && !episodeOver && !outstacked) {
       this._because = top;
       return this._current;
     }
-    const next = top ? STRATEGIES[this._choose(top.id)] : STRATEGIES.standard;
+    const next = top ? STRATEGIES[this._fit(this._choose(top.id), read, state)] : STRATEGIES.standard;
     if (next.id === this._current.id) {
       this._because = top;
       if (top && !this._episode) this._open(top.id, next.id, read, tick);
@@ -310,7 +318,7 @@ export class Strategist {
     }
     const held = tick - this._since < STRATEGY_HOLD_TICKS;
     const stronger = top && (!this._because || top.strength >= this._because.strength + OVERRIDE_MARGIN);
-    if (held && !stronger) return this._current;
+    if (held && !stronger && !outstacked) return this._current;
     if (this._episode) this._judge(read, tick);
     this._current = next;
     this._because = top;
@@ -341,6 +349,20 @@ export class Strategist {
       }
     }
     return best;
+  }
+
+  /**
+   * Control is a fight at the item: taken only stacked enough to win it, as the
+   * read estimates the opponent (CONTROL_STACK_MARGIN). Otherwise Recover.
+   */
+  private _fit(strategy: StrategyId, read: MatchRead, state: BotGameState): StrategyId {
+    if (strategy !== "control") return strategy;
+    const freshest = read.enemies().find((e) => e.alive);
+    const estimate = freshest ? read.enemyStack(freshest.entityId) : null;
+    const own = state.self.health + state.self.armor;
+    const stacked = estimate !== null && own >= estimate.stack - CONTROL_STACK_MARGIN;
+    if (stacked) return "control";
+    return !this._allowed || this._allowed.has("recover") ? "recover" : "standard";
   }
 
   private _open(diagnosis: DiagnosisId, strategy: StrategyId, read: MatchRead, tick: number): void {
