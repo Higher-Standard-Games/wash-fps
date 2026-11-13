@@ -380,6 +380,18 @@ in each strategy, sampled once a second (Standard only for a bot without the
 strategist). Arms are bot options as JSON, the
 options a bot is added with. Matches run in `--parallel` worker processes.
 
+With `--gametype snd` each arm is a team of `--per-arm` bots in Search &
+Destroy, and the arms change teams from match to match. A side attacks for
+nine rounds before the swap, so a short match has one side attacking
+throughout; over an even number of matches each arm attacks as often. The
+report gives matches and rounds won, rounds won attacking and defending,
+plants, how the rounds ended, and each side's kills per death, so a tactic
+that wins rounds by fighting worse shows:
+
+```bash
+npm --prefix src/games/fps run bot:ab -- --map washoi_snd4 --gametype snd --per-arm 5 --matches 12 --parallel 2 --seconds 300 --a '{"difficulty":"hard"}' --b '{"difficulty":"hard"}'
+```
+
 These options exist for these tests and are not part of a bot's rating
 identity: `"weights": {"aggression": 1.5}` multiplies the gametype's
 weights (`shared/bot/WeightProfiles.ts`) before the strategy's, so a tuning
