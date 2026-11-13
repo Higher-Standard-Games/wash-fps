@@ -69,6 +69,20 @@ describe("diagnose", () => {
     expect(diagnose(read, s).map((d) => d.id)).toContain("behind_late");
   });
 
+  it("finds the bot stacked over an enemy it has just seen fresh, and presses", () => {
+    const read = new MatchRead();
+    const seen = state(100, 100, 100);
+    seen.players = [foe];
+    read.update(seen);
+    const found = diagnose(read, seen);
+    expect(found[0]).toMatchObject({ id: "stacked" });
+    expect(new Strategist(0.8, () => 0.5).update(read, seen).id).toBe("pressure");
+    const even = state(100, 100, 30);
+    even.players = [foe];
+    read.update(even);
+    expect(diagnose(read, even).map((d) => d.id)).not.toContain("stacked");
+  });
+
   it("finds nothing in an even match", () => {
     const read = new MatchRead();
     const s = state(100, 100, 50);
@@ -169,10 +183,10 @@ describe("Strategist", () => {
     const hurt = at(150, 40);
     read.update(hurt);
     expect(strategist.update(read, hurt).id).toBe("recover");
-    const healed = state(150 + 125 * 2, 200, 100);
+    const healed = state(150 + 125 * 2, 150, 0);
     read.update(healed);
     expect(strategist.update(read, healed).id).toBe("recover");
-    const later = state(150 + 125 * 10, 200, 100);
+    const later = state(150 + 125 * 10, 150, 0);
     read.update(later);
     expect(strategist.update(read, later).id).toBe("standard");
   });

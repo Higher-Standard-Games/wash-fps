@@ -47,8 +47,19 @@ const FOCUS_SECONDS = 20;
  * bot recovers first.
  */
 const CONTROL_STACK_MARGIN = 25;
+/** Stacked: health plus armor at least this… */
+const STACKED_OWN = 150;
+/** …and this far over the estimate of the opponent. */
+const STACKED_MARGIN = 40;
 
-export type DiagnosisId = "understacked" | "losing_items" | "enemy_weak" | "ahead_late" | "behind_late" | "focused";
+export type DiagnosisId =
+  | "understacked"
+  | "stacked"
+  | "losing_items"
+  | "enemy_weak"
+  | "ahead_late"
+  | "behind_late"
+  | "focused";
 export type StrategyId = "standard" | "recover" | "control" | "pressure" | "protect_lead";
 
 export interface Diagnosis {
@@ -114,6 +125,7 @@ const ANSWER: Record<DiagnosisId, { strategy: StrategyId; sense: number }> = {
   ahead_late: { strategy: "protect_lead", sense: 0.3 },
   behind_late: { strategy: "pressure", sense: 0.6 },
   understacked: { strategy: "recover", sense: 0.3 },
+  stacked: { strategy: "pressure", sense: 0.6 },
   enemy_weak: { strategy: "pressure", sense: 0.6 },
   losing_items: { strategy: "control", sense: 0.6 },
   focused: { strategy: "recover", sense: 0.6 },
@@ -124,6 +136,7 @@ const CHOICES: Record<DiagnosisId, readonly StrategyId[]> = {
   ahead_late: ["protect_lead", "control"],
   behind_late: ["pressure", "control"],
   understacked: ["recover", "control"],
+  stacked: ["pressure", "standard"],
   enemy_weak: ["pressure", "standard"],
   losing_items: ["control", "pressure"],
   focused: ["recover", "control"],
@@ -199,6 +212,15 @@ export function diagnose(read: MatchRead, state: BotGameState): Diagnosis[] {
       id: "understacked",
       strength: clamp(deficit / 120),
       evidence: `stack ${own} against about ${Math.round(own + deficit)}`,
+    });
+
+  // Stacked over the opponent: go and get them while the stack lasts, rather
+  // than shop for more. A person stops collecting here and hunts.
+  if (estimate && own >= STACKED_OWN && own >= estimate.stack + STACKED_MARGIN)
+    out.push({
+      id: "stacked",
+      strength: clamp(0.5 + (own - estimate.stack) / 200),
+      evidence: `stack ${own} against about ${Math.round(estimate.stack)}`,
     });
 
   if (estimate && estimate.uncertainty < 0.3 && estimate.stack < 70 && own >= 100)
