@@ -242,10 +242,20 @@ interface ItemGoalChoice {
 const RETREAT_ITEM_TYPES: ReadonlySet<string> = new Set(["health"]);
 
 const BOT_STRAFE_RETRY_TICKS = 30;
-const ROUTE_STRAFE_MIN_REMAINING_DISTANCE = 640;
+/** A strafe jump needs a lane of route this long and wide, plain walking out to the reach. */
+const ROUTE_STRAFE_RUN = 320;
+const ROUTE_STRAFE_REACH = 640;
+/** The most a hop chain's stretch of route line may turn in all. */
+const ROUTE_STRAFE_MAX_TURN = (75 * Math.PI) / 180;
+/** A hop steers for the route line this far ahead of the bot, units. */
+const ROUTE_STRAFE_STEER_AHEAD = 160;
+/** Without a route line: a straight lane of route this long and wide, plain walking to the reach. */
+const STRAIGHT_HOP_RUN = 480;
+const STRAIGHT_HOP_REACH = 640;
+const STRAIGHT_HOP_LANE = 48;
+/** The hop sequence ends this far before its target (RouteStrafeJumpSequence ENDPOINT_EXIT_DISTANCE). */
+const STRAIGHT_HOP_EXIT_MARGIN = 260;
 const ROUTE_STRAFE_ITEM_MIN_REMAINING_DISTANCE = 800;
-const ROUTE_STRAFE_LOOKAHEAD_DISTANCE = 900;
-const ROUTE_STRAFE_MAX_TURN_RADIANS = Math.PI / 6;
 const ROUTE_STRAFE_MAX_VELOCITY_ERROR_RADIANS = Math.PI / 6;
 const ROUTE_STRAFE_ALLY_LOOKAHEAD = 600;
 const ROUTE_STRAFE_ALLY_RADIUS = 80;
@@ -2473,6 +2483,22 @@ export class StateMachineBrain extends BotBrain {
    * passed one behind).
    */
   private _slideLaneOpen(state: BotGameState, path: NavPath, step: NavStep): boolean {
+    return this._laneOpen(state, path, step, ROUTE_SLIDE_RUN, ROUTE_SLIDE_REACH, ROUTE_SLIDE_LANE);
+  }
+
+  /**
+   * Is the route ahead a lane `run` long, `lane` wide, walkable, with only plain
+   * walking up to `reach` and no turn over 45° just after the run? Waypoints may
+   * be close together: the bot passes them (BotNavGraph.getNextStep).
+   */
+  private _laneOpen(
+    state: BotGameState,
+    path: NavPath,
+    step: NavStep,
+    run: number,
+    reach: number,
+    laneWidth: number,
+  ): boolean {
     if (step.type !== "walk" || step.requiresPreciseApproach) return false;
     const self = state.self.position;
     const heading = { x: step.to.position.x - self.x, z: step.to.position.z - self.z };
@@ -2485,19 +2511,57 @@ export class StateMachineBrain extends BotBrain {
       const next = path.steps[i];
       const point = next.to.position;
       along = (point.x - self.x) * dx + (point.z - self.z) * dz;
-      if (along >= ROUTE_SLIDE_REACH) break;
+      if (along >= reach) break;
       const lateral = Math.abs((point.x - self.x) * dz - (point.z - self.z) * dx);
-      // A jump, drop or precise approach inside the reach is no place to slide,
+      // A jump, drop or precise approach inside the reach is no place for it,
       // nor a turn inside the run. After the run the bot can turn up to 45°.
-      const lane = ROUTE_SLIDE_LANE + Math.max(0, along - ROUTE_SLIDE_RUN);
+      const lane = laneWidth + Math.max(0, along - run);
       if (lateral > lane || next.type !== "walk" || next.requiresPreciseApproach) return false;
     }
-    // A route ending inside the reach must still leave room for the slide.
-    if (along < ROUTE_SLIDE_RUN) return false;
+    // A route ending inside the reach must still leave room for the run.
+    if (along < run) return false;
     const vision = this._lastBotVision;
     if (!vision) return true;
-    const end = { x: self.x + dx * ROUTE_SLIDE_RUN, y: self.y, z: self.z + dz * ROUTE_SLIDE_RUN };
+    const end = { x: self.x + dx * run, y: self.y, z: self.z + dz * run };
     return vision.isWalkable(self, end);
+  }
+
+  /**
+   * Where a hop chain can run: the route line being followed, when the next
+   * ROUTE_STRAFE_REACH of it is plain walking that turns at most
+   * ROUTE_STRAFE_MAX_TURN in all, and at least ROUTE_STRAFE_RUN of it is left.
+   * A chain steers along the line, so it may bend; a jump, drop or exact
+   * approach inside the reach is no place for one.
+   */
+  private _hopLine(state: BotGameState, path: NavPath): { points: readonly Vec3[]; end: Vec3 } | null {
+    const held = this._routeLine;
+    if (!held || held.path !== path) return null;
+    for (let i = path.cursor; i < Math.min(path.steps.length, held.line.endStep); i++) {
+      if (path.steps[i].type !== "walk" || path.steps[i].requiresPreciseApproach) return null;
+    }
+    const points = held.line.points;
+    const self = state.self.position;
+    const start = pointAlong(points, self, 0, held.stretch);
+    // Walk the line ahead: its length to the reach, and how much it turns.
+    let length = 0;
+    let turned = 0;
+    let previous = start.point;
+    let heading: number | null = null;
+    let end = start.point;
+    for (let i = start.stretch + 1; i < points.length && length < ROUTE_STRAFE_REACH; i++) {
+      const point = points[i];
+      const piece = Math.hypot(point.x - previous.x, point.z - previous.z);
+      if (piece < 1) continue;
+      const yaw = Math.atan2(point.x - previous.x, point.z - previous.z);
+      if (heading !== null) turned += Math.abs(wrapAngle(yaw - heading));
+      if (turned > ROUTE_STRAFE_MAX_TURN) break;
+      heading = yaw;
+      length += piece;
+      end = point;
+      previous = point;
+    }
+    if (length < ROUTE_STRAFE_RUN) return null;
+    return { points, end };
   }
 
   private _tryStartRouteCrouchslide(input: BotInput, state: BotGameState): BotInput | null {
@@ -2574,11 +2638,17 @@ export class StateMachineBrain extends BotBrain {
 
     const routeDelta = vec3Subtract(step.to.position, state.self.position);
     const remaining = Math.hypot(routeDelta.x, routeDelta.z);
-    const minRemaining =
-      this.currentState === BotState.ITEM_RUN && path.cursor === path.steps.length - 1
-        ? ROUTE_STRAFE_ITEM_MIN_REMAINING_DISTANCE
-        : ROUTE_STRAFE_MIN_REMAINING_DISTANCE;
-    if (remaining < minRemaining) return null;
+    // An open lane of route ahead, however many waypoints it passes, and room
+    // to stop before an item at its end.
+    const lastItemStep = this.currentState === BotState.ITEM_RUN && path.cursor === path.steps.length - 1;
+    if (lastItemStep && remaining < ROUTE_STRAFE_ITEM_MIN_REMAINING_DISTANCE) return null;
+    // Along the route line when one is held, else a straight lane of route.
+    const line =
+      this._hopLine(state, path) ??
+      (this._laneOpen(state, path, step, STRAIGHT_HOP_RUN, STRAIGHT_HOP_REACH, STRAIGHT_HOP_LANE)
+        ? { points: null, end: null }
+        : null);
+    if (!line) return null;
 
     const routeDirection = vec3Normalize({ x: routeDelta.x, y: 0, z: routeDelta.z });
     const horizontalSpeed = Math.hypot(state.self.velocity.x, state.self.velocity.z);
@@ -2588,17 +2658,6 @@ export class StateMachineBrain extends BotBrain {
         (state.self.velocity.x * routeDirection.x + state.self.velocity.z * routeDirection.z) / horizontalSpeed;
       const velocityError = Math.acos(Math.max(-1, Math.min(1, velocityDotRoute)));
       if (velocityError > ROUTE_STRAFE_MAX_VELOCITY_ERROR_RADIANS) return null;
-    }
-
-    const nextStep = path.steps[path.cursor + 1] ?? null;
-    if (remaining < ROUTE_STRAFE_LOOKAHEAD_DISTANCE && nextStep) {
-      if (nextStep.type !== "walk" || nextStep.requiresPreciseApproach) return null;
-      const nextDirection = vec3Normalize(vec3Subtract(nextStep.to.position, step.to.position));
-      const turnDot = Math.max(
-        -1,
-        Math.min(1, routeDirection.x * nextDirection.x + routeDirection.z * nextDirection.z),
-      );
-      if (Math.acos(turnDot) > ROUTE_STRAFE_MAX_TURN_RADIANS) return null;
     }
 
     const allyBlocksRoute = state.players.some((player) => {
@@ -2612,7 +2671,30 @@ export class StateMachineBrain extends BotBrain {
     });
     if (allyBlocksRoute) return null;
 
-    const context = this._getSequenceContext(state, step, input, false, true, this._routeStrafeSide);
+    const points = line.points;
+    const self = state.self.position;
+    const context = {
+      ...this._getSequenceContext(state, step, input, false, true, this._routeStrafeSide),
+      // Along a route line: steer with it to the end of the open stretch. On a
+      // straight lane: hold the heading to its end, past waypoints inside it.
+      routeStrafeEnd: line.end ?? {
+        x: self.x + routeDirection.x * (STRAIGHT_HOP_RUN + STRAIGHT_HOP_EXIT_MARGIN),
+        y: self.y,
+        z: self.z + routeDirection.z * (STRAIGHT_HOP_RUN + STRAIGHT_HOP_EXIT_MARGIN),
+      },
+      routeStrafeSteer: points
+        ? (at: Vec3) => {
+            const ahead = pointAlong(points, at, ROUTE_STRAFE_STEER_AHEAD).point;
+            return Math.atan2(ahead.x - at.x, ahead.z - at.z);
+          }
+        : null,
+      routeStrafeOffLine: points
+        ? (at: Vec3) => {
+            const near = pointAlong(points, at, 0).point;
+            return Math.hypot(near.x - at.x, near.z - at.z);
+          }
+        : null,
+    };
     if (!this._sequenceRuntime.start("route_strafe_jump", context)) return null;
     this._routeStrafeSide = this._routeStrafeSide === 1 ? -1 : 1;
     this._routeStrafeCooldownUntilTick = state.tick + BOT_STRAFE_RETRY_TICKS;

@@ -34,6 +34,12 @@ export interface BotSequenceContext {
   routeStrafeReady?: boolean;
   /** Deterministic fallback side when route error does not prefer one. */
   routeStrafeSide?: -1 | 1;
+  /** Where the stretch of route a strafe jump was started on ends (StateMachineBrain._hopLine). */
+  routeStrafeEnd?: Vec3 | null;
+  /** The yaw that follows the route line from a position, for a hop that bends with it. */
+  routeStrafeSteer?: ((at: Vec3) => number) | null;
+  /** How far a position is from the route line, units. */
+  routeStrafeOffLine?: ((at: Vec3) => number) | null;
   ledgeSlidePlan?: LedgeSlideJumpPlan | null;
 }
 

@@ -174,3 +174,19 @@ describe("RouteStrafeJumpSequence", () => {
     ).toBeNull();
   });
 });
+
+describe("RouteStrafeJumpSequence lane end", () => {
+  it("hops on toward the end of the open lane rather than the nearer waypoint", () => {
+    const sequence = new RouteStrafeJumpSequence();
+    const { state, context } = makeHarness();
+    const near: NavStep = { ...routeStep, to: { ...routeStep.to, position: { x: 0, y: 0, z: 300 } } };
+    const started = sequence.start({ ...context, navStep: near, routeStrafeEnd: { x: 0, y: 0, z: 740 } });
+    expect(started.data.routeEnd).toEqual({ x: 0, y: 0, z: 740 });
+    // Airborne 100 units on: past the waypoint's exit distance, short of the lane's.
+    started.phase = "airborne";
+    started.data.wasAirborne = true;
+    state.self.isGrounded = false;
+    state.self.position = { x: 0, y: 0, z: 100 };
+    expect(sequence.tick({ ...context, navStep: near }, started).status).toBe("running");
+  });
+});
