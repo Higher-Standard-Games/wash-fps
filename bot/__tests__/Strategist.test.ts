@@ -142,3 +142,12 @@ describe("Deathmatch diagnoses", () => {
     expect(new Strategist(1, () => 0.5).update(read, s).id).toBe("recover");
   });
 });
+
+describe("stances", () => {
+  it("fades out of costly fights only when recovering or protecting a lead", () => {
+    expect(STRATEGIES.recover.stance.fade).toBe(true);
+    expect(STRATEGIES.protect_lead.stance.fade).toBe(true);
+    expect(STRATEGIES.pressure.stance.fade).toBe(false);
+    expect(STRATEGIES.standard.stance.fade).toBe(false);
+  });
+});

@@ -14,6 +14,8 @@ import type { BotGameState } from "./BotGameState";
 import type { Mood, MoodEvent } from "./BotMood";
 import type { BotNavGraph } from "./BotNavGraph";
 import type { BotVision, VisionResult } from "./BotVision";
+import type { Fight } from "./strategy/MatchRead";
+import type { JudgedEpisode } from "./strategy/Strategist";
 
 // ── Bot Input (what the brain outputs) ──────────────────────────────────
 
@@ -86,6 +88,13 @@ export enum BotState {
 
 // ── Abstract Base Class ─────────────────────────────────────────────────
 
+/** The brain's part of a match report (bot/intel/IntelStore.ts). */
+export interface BrainMatchReport {
+  score: { own: number; bestOther: number; deaths: number };
+  fights: readonly Fight[];
+  episodes: readonly JudgedEpisode[];
+}
+
 export abstract class BotBrain {
   protected difficulty: BotDifficulty;
   protected currentState: BotState = BotState.SPAWN;
@@ -125,6 +134,11 @@ export abstract class BotBrain {
   /** Update difficulty settings */
   setDifficulty(difficulty: BotDifficulty): void {
     this.difficulty = difficulty;
+  }
+
+  /** What the brain learned this match, for the bot-intel store; null when it keeps no read. */
+  matchReport(): BrainMatchReport | null {
+    return null;
   }
 
   /** The settings the view should turn with now; a mood can loosen them. */

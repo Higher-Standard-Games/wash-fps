@@ -134,3 +134,18 @@ describe("MatchRead", () => {
     expect(read.enemyStack("player_2")?.uncertainty).toBe(1);
   });
 });
+
+describe("MatchRead.openFight", () => {
+  it("is the fight under way with an enemy, and none once it has ended", () => {
+    const read = new MatchRead();
+    const s = state(100);
+    s.players = [foe()];
+    s.recentDamage = [
+      { attackerId: "player_2", damage: 45, weaponId: "rl", position: { x: 0, y: 0, z: 0 }, tick: 100 },
+    ];
+    read.update(s);
+    expect(read.openFight("player_2")).toMatchObject({ taken: 45, result: "open" });
+    read.update(state(100 + 125 * 4));
+    expect(read.openFight("player_2")).toBeNull();
+  });
+});

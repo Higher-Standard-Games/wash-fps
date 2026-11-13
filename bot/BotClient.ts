@@ -13,6 +13,7 @@ import { SnapshotReceiver } from "../../../engine/network/client/SnapshotReceive
 import { MessageCodec, MessageType } from "../../../engine/network/protocol/MessageCodec";
 import { type BotReference, canonicalBotReference } from "../../../shared/ranking/BotReference";
 import { debugEnabled, debugLog } from "../server/DebugLog";
+import { isBotName } from "../shared/bot/BotNames";
 import { BotAimController } from "./BotAimController";
 import { type BotBrain, type BotInput, travelYaw } from "./BotBrain";
 import {
@@ -32,6 +33,7 @@ import { duelLeadReactionDelay } from "./BotReactionTuning";
 import type { BotVision, VisionResult } from "./BotVision";
 import { pulseMeleeFire } from "./BotWeaponProfile";
 import { BotChat } from "./chat/BotChat";
+import type { MatchReport } from "./intel/IntelStore";
 import { StateMachineBrain } from "./StateMachineBrain";
 import { teleportExitYaw } from "./TeleportExit";
 
@@ -78,6 +80,9 @@ export type BotCommandObserver = (sample: BotCommandSample) => void;
 
 // ── BotClient ───────────────────────────────────────────────────────────
 
+/** MatchPhase post-game (shared/server/gametype). */
+const POST_GAME_PHASE = 3;
+
 export class BotClient extends EventEmitter {
   /** Unique ID for this bot instance */
   readonly id: string;
@@ -105,6 +110,8 @@ export class BotClient extends EventEmitter {
   private _gameState: BotGameState;
   private _difficulty: BotDifficulty;
   private readonly _chat: BotChat | null;
+  /** The match phase last seen, to hand in a report once when it ends. */
+  private _lastPhase = -1;
   private _ratingReference: BotReference;
   private _disposed = false;
   /** Resolves after model loading/fallback is known, before lobby authentication. */
@@ -568,6 +575,7 @@ export class BotClient extends EventEmitter {
       });
       this._brain.observe(this._gameState);
       this._chatter();
+      this._reportMatchEnd();
 
       this._lastSnapshotTick = snapshot.tick;
 
@@ -790,6 +798,37 @@ export class BotClient extends EventEmitter {
       clearInterval(this._inputLoopTimer);
       this._inputLoopTimer = null;
     }
+  }
+
+  /**
+   * When the match goes to post-game, hand in what the brain learned, once
+   * (`matchReport` event, written by BotServer to the bot-intel store).
+   */
+  private _reportMatchEnd(): void {
+    const phase = this._gameState.matchState.phase;
+    const ended = phase === POST_GAME_PHASE && this._lastPhase !== POST_GAME_PHASE;
+    this._lastPhase = phase;
+    if (!ended || this.listenerCount("matchReport") === 0) return;
+    const brain = this._brain.matchReport();
+    const map = this._vision?.mapKnowledge.mapName;
+    if (!brain || !map) return;
+    const names = this._gameState.playerNames;
+    const kindOf = (entityId: string): "human" | "bot" => (isBotName(names.get(entityId) ?? "") ? "bot" : "human");
+    let people = 0;
+    for (const [entityId, name] of names) if (entityId !== this._gameState.selfEntityId && !isBotName(name)) people++;
+    const report: MatchReport = {
+      map,
+      gametype: this._gameState.matchState.gametypeName,
+      preset: this._ratingReference.preset,
+      behavior: this._ratingReference.behavior,
+      score: brain.score.own,
+      bestOther: brain.score.bestOther,
+      deaths: brain.score.deaths,
+      people,
+      fights: brain.fights.map((fight) => ({ ...fight, against: kindOf(fight.enemy) })),
+      episodes: brain.episodes,
+    };
+    this.emit("matchReport", report);
   }
 
   /** Lets chat see the match and the brain's kills and deaths, and sends a line that is ready. */

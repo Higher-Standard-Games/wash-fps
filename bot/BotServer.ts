@@ -39,6 +39,7 @@ import { BotLobbyClient, type LobbyBotState } from "./BotLobbyClient";
 import { BotNavCacheStore } from "./BotNavCache";
 import { BotNavGraph } from "./BotNavGraph";
 import { type BotVision, createBotVision } from "./BotVision";
+import type { IntelStore, MatchReport } from "./intel/IntelStore";
 import { loadLearnedRoutes } from "./LearnedRoutes";
 
 // ── Control API Message Types ───────────────────────────────────────────
@@ -136,10 +137,14 @@ export class BotServer {
   /** Shared with the lobby: guards the control port and marks lobby bots as bots. */
   private _secret: string | undefined;
 
-  constructor(port: number = 9100, options: { secret?: string; modelDir?: string } = {}) {
+  /** Where bots' match reports go (bot/intel/IntelStore.ts); none in headless tools. */
+  private _intel: IntelStore | null;
+
+  constructor(port: number = 9100, options: { secret?: string; modelDir?: string; intel?: IntelStore } = {}) {
     this._port = port;
     this._secret = options.secret;
     this._modelDir = options.modelDir;
+    this._intel = options.intel ?? null;
   }
 
   /** Where trained models live, for every bot this server spawns. */
@@ -217,6 +222,16 @@ export class BotServer {
     const botOptions = botOptionsFor(options, this._modelDir);
 
     const bot = new BotClient(botOptions);
+    if (this._intel) {
+      const intel = this._intel;
+      bot.on("matchReport", (report: MatchReport) => {
+        try {
+          intel.record(report);
+        } catch (error) {
+          console.warn(`[BotServer] Could not store ${bot.name}'s match report: ${(error as Error).message}`);
+        }
+      });
+    }
 
     bot.on("disconnected", () => {
       console.log(`[BotServer] Bot ${bot.name} (${bot.id}) disconnected`);

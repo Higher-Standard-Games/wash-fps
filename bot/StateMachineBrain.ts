@@ -17,7 +17,7 @@ import { DEFAULT_VIEWHEIGHT } from "../../../engine/physics/PlayerPhysicsConstan
 import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "../../../shared/server/simulation/physics/constants";
 import { type BotWeightProfile, selectWeightProfile } from "../shared/bot/WeightProfiles";
 import { wrapAngle } from "./BotAimController";
-import { BotBrain, type BotInput, BotState, travelYaw } from "./BotBrain";
+import { BotBrain, type BotInput, BotState, type BrainMatchReport, travelYaw } from "./BotBrain";
 import { BotCombatMovement, findHighGround } from "./BotCombatMovement";
 import { type BotDifficulty, defaultGoalArbiterMode, type GoalArbiterMode, InputButtons } from "./BotConfig";
 import type { BotGameState, Vec3, VisiblePlayer } from "./BotGameState";
@@ -41,6 +41,7 @@ import { getWeaponProfile, selectBestWeapon, type WeaponProfile } from "./BotWea
 import type { BotGoal } from "./goals/BotGoal";
 import { collectDirectiveGoals } from "./goals/DirectiveGoalSource";
 import { ItemGoalPlanner } from "./goals/ItemGoalPlanner";
+import { loadBaseline, payoffPriors } from "./intel/IntelBaseline";
 import { planLedgeSlideJump } from "./LedgeSlideJump";
 import { buildRouteLine, lineEndStep, pointAlong, type RouteLine, type RouteWorld } from "./RouteLine";
 import { ItemSlideApproachSequence } from "./sequences/ItemSlideApproachSequence";
@@ -117,6 +118,22 @@ const FEELER_SIDE_ANGLE = Math.PI / 6; // 30° offset for side rays
 const FEELER_STEER_THRESHOLD = 0.6; // fraction below which we steer away
 /** A wall ahead keeps the bot turning the side it chose for this long. */
 const FEELER_SIDE_COMMIT_TICKS = 50;
+
+// Fading and escaping (see _shouldFade, _escapePoint)
+/** Damage taken in a fight that makes a fading strategy leave it. */
+const FADE_DAMAGE = 40;
+/** An escape point lies this far away, units. */
+const ESCAPE_MIN = 192;
+const ESCAPE_MAX = 900;
+/** ... and no more toward the threat than this (cosine). */
+const ESCAPE_MAX_TOWARD = 0.2;
+/** Reached when this close, units; given up after ESCAPE_HOLD_TICKS. */
+const ESCAPE_REACHED = 64;
+const ESCAPE_HOLD_TICKS = 375;
+/** Nearest candidate nodes checked for sight and route cost. */
+const ESCAPE_CANDIDATES = 24;
+/** With no way out found, look again after this long. */
+const ESCAPE_RETRY_TICKS = 60;
 
 // Habits (see _contested)
 /** Match sense from which a bot contests the items its opponent keeps taking. */
@@ -273,6 +290,11 @@ export class StateMachineBrain extends BotBrain {
   /** What it needs to do to win (strategy/Strategist.ts), and the strategy in force. */
   private _strategist: Strategist;
   private _strategy: Strategy = STRATEGIES.standard;
+  /** The map and gametype whose baseline priors the strategist has. */
+  private _priorsFor: string | null = null;
+  /** A way out of an enemy's sight being taken (see _escapePoint). */
+  private _escape: { point: Vec3; untilTick: number } | null = null;
+  private _escapeRetryTick = 0;
   /** The opponent's habits in this match (strategy/OpponentModel.ts). */
   private readonly _opponents = new OpponentModel();
   /** A test bot's fixation: it goes for every item of this kind (`BotOptions.habitItem`). */
@@ -400,6 +422,29 @@ export class StateMachineBrain extends BotBrain {
     return this._matchRead;
   }
 
+  /**
+   * Once per map and gametype: the strategy payoffs learned in earlier matches
+   * (config/bot-intel, IntelBaseline.ts) as the bandit's starting estimates.
+   */
+  private _loadPriors(state: BotGameState): void {
+    const map = this._lastBotVision?.mapKnowledge?.mapName;
+    const gametype = state.matchState.gametypeName;
+    if (!map || !gametype) return;
+    const key = `${map}|${gametype}`;
+    if (key === this._priorsFor) return;
+    this._priorsFor = key;
+    this._strategist.setPriors(payoffPriors(loadBaseline(map, gametype)));
+  }
+
+  override matchReport(): BrainMatchReport {
+    const score = this._matchRead.score();
+    return {
+      score: { own: score.own, bestOther: score.bestOther, deaths: score.deaths },
+      fights: this._matchRead.fights(Number.POSITIVE_INFINITY),
+      episodes: this._strategist.judged,
+    };
+  }
+
   /** The strategy in force and why, for diagnostics. */
   get strategyExplain(): string {
     return this._strategist.explain();
@@ -511,6 +556,7 @@ export class StateMachineBrain extends BotBrain {
     this._lastVision = visionResult ?? null;
     this._lastDecisionTick = state.tick;
     this._matchRead.update(state);
+    this._loadPriors(state);
     const before = this._strategy.id;
     this._strategy = this._strategist.update(this._matchRead, state);
     this._opponents.update(this._matchRead);
@@ -534,6 +580,7 @@ export class StateMachineBrain extends BotBrain {
       this._sitePatrol = null;
       this._itemCircle = null;
       this._feelerSide = null;
+      this._escape = null;
       this._look = null;
       this._routeLine = null;
       this._combatMovement.reset();
@@ -765,8 +812,9 @@ export class StateMachineBrain extends BotBrain {
       return BotState.DODGE;
     }
 
-    // Priority 2: Enemy visible → fight
+    // Priority 2: Enemy visible → fight, unless the strategy says this one is costing too much.
     if (hasVisibleEnemy && nearestVisibleEnemy && nearestVisibleEnemy.distance < FIGHT_RANGE) {
+      if (this._shouldFade(state, nearestVisibleEnemy.entityId)) return BotState.RETREAT;
       return BotState.FIGHT;
     }
 
@@ -1263,7 +1311,68 @@ export class StateMachineBrain extends BotBrain {
 
   // ── RETREAT State ─────────────────────────────────────────────────
 
+  /**
+   * Fade out of a fight: a strategy that fades (Recover, Protect lead), at least
+   * FADE_DAMAGE taken in this fight, and no stack advantage by the estimate.
+   */
+  private _shouldFade(state: BotGameState, enemyEntityId: string): boolean {
+    if (!this._strategy.stance.fade) return false;
+    const fight = this._matchRead.openFight(enemyEntityId);
+    if (!fight || fight.taken < FADE_DAMAGE) return false;
+    const enemy = this._matchRead.enemyStack(enemyEntityId);
+    const own = state.self.health + state.self.armor;
+    return !enemy || enemy.uncertainty > 0.5 || own <= enemy.stack;
+  }
+
+  /**
+   * A way out of a known enemy's sight: the nearest route node, within reach,
+   * that the enemy cannot see from where it was last known and that does not
+   * lie toward it. Reached once and dropped; null with no enemy or no node.
+   */
+  private _escapePoint(state: BotGameState): Vec3 | null {
+    const graph = this._navGraph;
+    const vision = this._lastBotVision;
+    if (!graph || !vision) return null;
+    const threat = this._lastVision?.visibleEnemies[0]?.player.position ?? this._getHuntTarget(state);
+    if (!threat) return null;
+    const self = state.self.position;
+    if (this._escape && state.tick < this._escape.untilTick) {
+      if (vec3Length(vec3Subtract(this._escape.point, self)) > ESCAPE_REACHED) return this._escape.point;
+      this._escape = null;
+      return null;
+    }
+    if (state.tick < this._escapeRetryTick) return null;
+    const toThreat = vec3Normalize(vec3Subtract(threat, self));
+    const eye = { x: threat.x, y: threat.y + 36, z: threat.z };
+    const candidates: { position: Vec3; distance: number }[] = [];
+    for (const node of graph.nodes) {
+      const offset = vec3Subtract(node.position, self);
+      const distance = vec3Length(offset);
+      if (distance < ESCAPE_MIN || distance > ESCAPE_MAX) continue;
+      const away = (offset.x * toThreat.x + offset.z * toThreat.z) / Math.max(1, distance);
+      if (away <= ESCAPE_MAX_TOWARD) candidates.push({ position: node.position, distance });
+    }
+    // Sight lines and route costs for the nearest few only.
+    candidates.sort((a, b) => a.distance - b.distance);
+    let best: { point: Vec3; cost: number } | null = null;
+    for (const { position } of candidates.slice(0, ESCAPE_CANDIDATES)) {
+      if (vision.canSee(eye, { x: position.x, y: position.y + 36, z: position.z })) continue;
+      const cost = graph.estimateTravelCost(self, position);
+      if (cost === null || (best && cost >= best.cost)) continue;
+      best = { point: position, cost };
+    }
+    this._escape = best ? { point: best.point, untilTick: state.tick + ESCAPE_HOLD_TICKS } : null;
+    if (!best) this._escapeRetryTick = state.tick + ESCAPE_RETRY_TICKS;
+    return best?.point ?? null;
+  }
+
   private _executeRetreat(state: BotGameState): BotInput {
+    // First out of the enemy's sight, then to health.
+    if (this._lastVision?.visibleEnemies.length) {
+      const wayOut = this._escapePoint(state);
+      if (wayOut) return this._navigateTo(state, wayOut, true);
+    } else this._escape = null;
+
     // Scored choice among HEALTH ONLY. Retreating is a specific intent, so the
     // candidate set is filtered rather than left open — but within health the
     // arbiter still beats "nearest": it accounts for overcap (a bubble at 98 HP

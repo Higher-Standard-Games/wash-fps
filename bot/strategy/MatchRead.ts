@@ -258,6 +258,11 @@ export class MatchRead {
     return { own, others: takes.length - own, takes };
   }
 
+  /** The fight under way with an enemy, if any. */
+  openFight(enemy: string): Fight | null {
+    return this._fights.find((f) => f.enemy === enemy && f.result === "open") ?? null;
+  }
+
   /** Fights that started in the last `seconds`, oldest first. */
   fights(seconds: number): readonly Fight[] {
     const from = this._tick - seconds * TICK_RATE;

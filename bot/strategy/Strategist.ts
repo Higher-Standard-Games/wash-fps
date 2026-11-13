@@ -59,6 +59,8 @@ export interface Stance {
   shopArmored: boolean;
   /** Keep after an enemy it lost sight of. */
   chase: boolean;
+  /** Leave a fight that is costing it, by a way out of the enemy's sight. */
+  fade: boolean;
 }
 
 export interface Strategy {
@@ -68,7 +70,7 @@ export interface Strategy {
   stance: Stance;
 }
 
-const STANDARD_STANCE: Stance = { retreatScale: 1, seekScale: 1, shopArmored: false, chase: true };
+const STANDARD_STANCE: Stance = { retreatScale: 1, seekScale: 1, shopArmored: false, chase: true, fade: false };
 
 export const STRATEGIES: Record<StrategyId, Strategy> = {
   standard: { id: "standard", weights: {}, stance: STANDARD_STANCE },
@@ -76,25 +78,25 @@ export const STRATEGIES: Record<StrategyId, Strategy> = {
   recover: {
     id: "recover",
     weights: { riskTolerance: 0.5, itemGreed: 1.3, aggression: 0.5 },
-    stance: { retreatScale: 1.6, seekScale: 0.6, shopArmored: true, chase: false },
+    stance: { retreatScale: 1.6, seekScale: 0.6, shopArmored: true, chase: false, fade: true },
   },
   // Losing the major items: time them, take them, deny them.
   control: {
     id: "control",
     weights: { itemTiming: 1.5, majorItemBias: 1.3, itemDenial: 1.5 },
-    stance: { retreatScale: 1, seekScale: 0.7, shopArmored: true, chase: true },
+    stance: { retreatScale: 1, seekScale: 0.7, shopArmored: true, chase: true, fade: false },
   },
   // Behind late, or the enemy is weak: go and get them.
   pressure: {
     id: "pressure",
     weights: { aggression: 1.5, riskTolerance: 1.6 },
-    stance: { retreatScale: 0.6, seekScale: 1.6, shopArmored: false, chase: true },
+    stance: { retreatScale: 0.6, seekScale: 1.6, shopArmored: false, chase: true, fade: false },
   },
   // Ahead late: stay stacked, take no risks.
   protect_lead: {
     id: "protect_lead",
     weights: { riskTolerance: 0.5, aggression: 0.6, majorItemBias: 1.2 },
-    stance: { retreatScale: 1.4, seekScale: 0.8, shopArmored: true, chase: false },
+    stance: { retreatScale: 1.4, seekScale: 0.8, shopArmored: true, chase: false, fade: true },
   },
 };
 
@@ -134,6 +136,17 @@ interface Arm {
   n: number;
   mean: number;
 }
+
+/** An episode as judged: for the match report and the baseline. */
+export interface JudgedEpisode {
+  diagnosis: DiagnosisId;
+  strategy: StrategyId;
+  reward: number;
+  seconds: number;
+}
+
+/** Baseline episodes an arm needs before its learned payoff replaces the rule's head start. */
+const PRIOR_MIN_EPISODES = 10;
 
 interface Episode {
   diagnosis: DiagnosisId;
@@ -213,6 +226,9 @@ export class Strategist {
   private _nextTick = Number.NEGATIVE_INFINITY;
   private readonly _arms = new Map<string, Arm>();
   private _episode: Episode | null = null;
+  private readonly _judged: JudgedEpisode[] = [];
+  /** Prior payoff per "diagnosis:strategy", from the map's baseline (BS-18). */
+  private _priors: ReadonlyMap<string, { n: number; mean: number }> = new Map();
 
   /**
    * @param sense the bot's matchSense, 0..1.
@@ -222,6 +238,20 @@ export class Strategist {
     private readonly _sense: number,
     private readonly _random: () => number = Math.random,
   ) {}
+
+  /** Every episode judged this match, oldest first: for the match report. */
+  get judged(): readonly JudgedEpisode[] {
+    return this._judged;
+  }
+
+  /**
+   * Payoffs learned from earlier matches on this map (config/bot-intel), by
+   * "diagnosis:strategy". They replace the rule's head start for an arm with
+   * enough of them.
+   */
+  setPriors(priors: ReadonlyMap<string, { n: number; mean: number }>): void {
+    this._priors = priors;
+  }
 
   /** What the bandit has learned: per diagnosis and strategy, episodes and mean payoff. */
   get arms(): ReadonlyMap<string, Arm> {
@@ -244,6 +274,7 @@ export class Strategist {
     this._nextTick = Number.NEGATIVE_INFINITY;
     this._arms.clear();
     this._episode = null;
+    this._judged.length = 0;
   }
 
   /** Choose again when due; returns the strategy in force. */
@@ -286,7 +317,8 @@ export class Strategist {
     let bestDraw = Number.NEGATIVE_INFINITY;
     for (const strategy of CHOICES[diagnosis]) {
       const arm = this._arms.get(`${diagnosis}:${strategy}`) ?? { n: 0, mean: 0 };
-      const prior = strategy === rule ? RULE_PRIOR : 0;
+      const learned = this._priors.get(`${diagnosis}:${strategy}`);
+      const prior = learned && learned.n >= PRIOR_MIN_EPISODES ? learned.mean : strategy === rule ? RULE_PRIOR : 0;
       // Posterior of a normal mean under a unit prior: shrinks toward the prior, narrows with episodes.
       const mean = (prior + arm.mean * arm.n) / (1 + arm.n);
       const draw = mean + (PRIOR_SD / Math.sqrt(1 + arm.n)) * gaussian(this._random);
@@ -316,6 +348,7 @@ export class Strategist {
       REWARD_PER_FRAG * (score.own - score.bestOther - episode.gap) +
       REWARD_PER_ITEM * (takes.own - takes.others) +
       REWARD_PER_STACK * (Number.isNaN(stack) ? 0 : (stack - 100) / 100);
+    this._judged.push({ diagnosis: episode.diagnosis, strategy: episode.strategy, reward, seconds });
     const key = `${episode.diagnosis}:${episode.strategy}`;
     const arm = this._arms.get(key) ?? { n: 0, mean: 0 };
     arm.n++;

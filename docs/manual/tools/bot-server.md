@@ -215,6 +215,23 @@ With a fresh estimate saying one hit would kill, a bot switches to the hitscan
 gun that does it at that distance (`BotWeaponCombos`), rolled at its prediction
 skill.
 
+A strategy that fades (Recover, Protect lead) leaves a fight once it has
+taken 40 damage in it without a stack advantage by the estimate, and a bot
+retreating from an enemy in sight first heads for the nearest route node, 192
+to 900 units away and not toward the enemy, that the enemy cannot see, then for
+health.
+
+Bots learn across matches through a baseline, not through memory of anyone.
+At the end of each match a bot hands in a report (map, gametype, preset,
+score, its fights by 256-unit map cell and whether against a person or a bot,
+and each strategy episode with its payoff); the bot server keeps them in
+`<data-dir>/bot-intel.db` (`--no-intel` to keep none) for 90 days.
+`npm --prefix src/games/fps run bot:intel` distils them, on demand, into
+`config/bot-intel/<map>.json`: per gametype, how fights went in each cell and
+what each strategy paid for each diagnosis. Review and commit it like a route
+library. Bots read the payoffs as the bandit's starting estimates once an arm
+has 10 episodes in it, and the file is part of the behaviour fingerprint.
+
 `BOT_GOAL_ARBITER=verbose` logs each change of strategy and its reason. The bot
 options `strategy: false` (no strategist whatever the preset) and `habitItem`
 (go for every item of one kind, the predictable opponent a strategist should
