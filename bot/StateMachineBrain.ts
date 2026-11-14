@@ -95,6 +95,8 @@ const ENTRANCE_WATCH_TICKS = 375;
 const CHARGE_RELEASE_CONE = (12 * Math.PI) / 180;
 /** …or this many ticks after its planned release, on the aim or not. */
 const CHARGE_AIM_GRACE_TICKS = Math.round(0.5 * TICK_RATE);
+/** A teammate's call of enemies is worth hunting this long, ticks. */
+const TEAM_SIGHTING_TICKS = 6 * 125;
 /** An order's waypoint counts as passed within this, horizontally… */
 const VIA_RADIUS = 128;
 /** …and this, vertically. */
@@ -357,6 +359,8 @@ export class StateMachineBrain extends BotBrain {
   private _routeStrafeCooldownUntilTick: number = 0;
   private _routeStrafeSide: -1 | 1 = 1;
   // Charged weapon cadence (blade alt-fire: hold, then release to shoot)
+  /** Where a teammate last called enemies, and when. */
+  private _teamSighting: { position: Vec3; tick: number } | null = null;
   /** Progress along the current order's `via` waypoints. */
   private _via: { id: string; next: number } | null = null;
   /** BotOptions.weights: multipliers on the gametype's profile. */
@@ -3048,8 +3052,16 @@ export class StateMachineBrain extends BotBrain {
         bestTarget = data.position;
       }
     }
+    // Else where a teammate last called enemies, while the call is fresh.
+    const call = this._teamSighting;
+    if (!bestTarget && call && state.tick - call.tick < TEAM_SIGHTING_TICKS) bestTarget = call.position;
 
     return bestTarget;
+  }
+
+  /** A teammate called enemies at a place (BotCallouts): somewhere to hunt. */
+  override noteTeamSighting(position: Vec3, tick: number): void {
+    this._teamSighting = { position: { ...position }, tick };
   }
 
   /**

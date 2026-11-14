@@ -32,6 +32,7 @@ import type { CollisionWorld } from "../../../engine/network/systems/collision/C
 import { filterChatText, filterPlayerName } from "../../../engine/server/ChatFilter";
 // PVS (Potentially Visible Set) for network culling
 import { ServerPVS, type ServerPVSData } from "../../../engine/server/ServerPVS";
+import { extractLocations, locationName, type MapLocation } from "../../../shared/bsp/LocationTable";
 import type { TriggerVolume } from "../../../shared/bsp/TriggerTable";
 import { MatchPhase } from "../../../shared/server/gametype/GametypeTypes";
 // Match phase tracking (for auto-recording)
@@ -219,6 +220,8 @@ export class GameServer {
    */
   private static readonly NAME_MAX_LENGTH = 32;
   private static readonly CHAT_MIN_INTERVAL_MS = 600;
+  /** The map's place names (target_location), for %L in team chat. */
+  private locations: MapLocation[] = [];
   private static readonly CHAT_BURST_WINDOW_MS = 5000;
   private static readonly CHAT_BURST_MAX = 5;
   // Award events cached for snapshot broadcast (postTick generates them via AwardTracker)
@@ -335,6 +338,10 @@ export class GameServer {
     // Create gametype controller
     const gt = gametype || new Deathmatch();
     this.gametypeController = new GametypeController(gt);
+    gt.setPersonCheck((entityId) => {
+      for (const client of this.clients.values()) if (client.entityId === entityId) return !client.isBot;
+      return false;
+    });
     this.gametypeController.setSubsystems(this.combatSystem, this.weaponSystem);
     this.gametypeController.setMatchStartReset((state, tickNum) => this.resetWorldForMatch(state, tickNum));
     // Per-match server mode: post-game is terminal (lobby return flow).
@@ -603,6 +610,7 @@ export class GameServer {
    * three together and most modes ignore all of it.
    */
   setMapData(entities: readonly BspEntity[], models: readonly BspModel[] = []): void {
+    this.locations = extractLocations(entities as never);
     this.gametypeController.setMapData(entities, models, this.config.mapName);
   }
 
@@ -1589,6 +1597,12 @@ export class GameServer {
    * which also lands in demo recordings for free (post-D16 the recorder gets
    * the same snapshot instance as the broadcaster).
    */
+  /** The place name nearest a player, or null. */
+  private locationOf(entityId: EntityId): string | null {
+    const position = this.simulation.getState().getEntity(entityId)?.transform?.position;
+    return position ? locationName(this.locations, position) : null;
+  }
+
   private handleChat(conn: ClientConnection, data: Uint8Array): void {
     const client = this.clients.get(conn.id);
     if (!client) return;
@@ -1622,7 +1636,10 @@ export class GameServer {
       return;
     }
 
-    const filteredText = filterChatText(text, GameServer.CHAT_MAX_LENGTH);
+    // %L: where the sender is, by the map's place names (Warsow team chat).
+    const located = text.includes("%L") ? text.split("%L").join(this.locationOf(client.entityId) ?? "") : text;
+    const filteredText = filterChatText(located, GameServer.CHAT_MAX_LENGTH);
+    if (teamOnly) this.gametypeController.getGametype().onTeamChat(client.entityId as number, team, filteredText);
     console.log(`[Chat] ${client.playerName}: ${filteredText}`);
     this.pendingChatEvents.push({
       senderId: toClientKey(client.entityId),

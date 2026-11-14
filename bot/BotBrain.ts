@@ -10,7 +10,7 @@
  */
 
 import type { BotDifficulty } from "./BotConfig";
-import type { BotGameState } from "./BotGameState";
+import type { BotGameState, Vec3 } from "./BotGameState";
 import type { Mood, MoodEvent } from "./BotMood";
 import type { BotNavGraph } from "./BotNavGraph";
 import type { BotVision, VisionResult } from "./BotVision";
@@ -141,6 +141,9 @@ export abstract class BotBrain {
   matchReport(): BrainMatchReport | null {
     return null;
   }
+
+  /** A teammate called enemies at `position` (team callouts). */
+  noteTeamSighting(_position: Vec3, _tick: number): void {}
 
   /** Build a DecisionTrace with each decision (BotOptions.trace). */
   setTracing(_on: boolean): void {}

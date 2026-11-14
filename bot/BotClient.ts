@@ -16,6 +16,7 @@ import { debugEnabled, debugLog } from "../server/DebugLog";
 import { isBotName } from "../shared/bot/BotNames";
 import { BotAimController } from "./BotAimController";
 import { type BotBrain, type BotInput, travelYaw } from "./BotBrain";
+import { BotCallouts, placePosition } from "./BotCallouts";
 import {
   type BotDifficulty,
   type BotOptions,
@@ -124,6 +125,8 @@ export class BotClient extends EventEmitter {
   // 125Hz input loop (matches server tick rate)
   private _inputLoopTimer: ReturnType<typeof setInterval> | null = null;
   private _lastBotInput: BotInput | null = null; // Cached AI decision, re-sent at 125Hz
+  /** Team callouts: what this bot tells its team, and what it heard. */
+  private readonly _callouts: BotCallouts;
   /** Whether the last command sent pressed the melee attack (see _pulsedMeleeFire). */
   private _meleePress = false;
   /** Whether the last command sent held fire on the aim (see holdFireOffAim). */
@@ -166,6 +169,7 @@ export class BotClient extends EventEmitter {
     this.id = `bot_${Date.now()}_${Math.random().toString(36).substring(7)}`;
     this.name = options.name;
     this._chat = (options.chat ?? defaultBotChat()) ? new BotChat(options.name) : null;
+    this._callouts = new BotCallouts();
     this._team = options.team;
 
     // Resolve difficulty
@@ -585,6 +589,7 @@ export class BotClient extends EventEmitter {
         pickups: vision?.mapKnowledge.pickupPositions ?? [],
       });
       this._brain.observe(this._gameState);
+      this._callout();
       this._chatter();
       this._reportMatchEnd();
 
@@ -841,6 +846,36 @@ export class BotClient extends EventEmitter {
       episodes: brain.episodes,
     };
     this.emit("matchReport", report);
+  }
+
+  /**
+   * Team callouts (BotCallouts): read teammates' lines, hand their sightings
+   * to the brain, and call what this bot sees.
+   */
+  private _callout(): void {
+    const state = this._gameState;
+    const locations = this._vision?.mapKnowledge.locations ?? [];
+    const now = performance.now();
+    for (const line of state.teamChat) {
+      const call = this._callouts.heard(line, now);
+      if (call && (call.kind === "enemies" || call.kind === "carrier")) {
+        const at = placePosition(locations, call.place);
+        if (at) this._brain.noteTeamSighting(at, state.tick);
+      }
+    }
+    if (state.self.isDead || this._state !== "playing") return;
+    const team = state.matchState.teamRoles && state.self.team ? state.self.team : null;
+    const line = this._callouts.observe({
+      nowMs: now,
+      team,
+      locations,
+      enemies: (this._lastVisionResult?.visibleEnemies ?? []).map((e) => ({
+        entityId: e.player.entityId,
+        position: e.player.position,
+      })),
+      objective: state.objective ?? undefined,
+    });
+    if (line) this._send(MessageCodec.encodeChat(line));
   }
 
   /** Lets chat see the match and the brain's kills and deaths, and sends a line that is ready. */

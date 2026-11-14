@@ -14,6 +14,7 @@
  */
 
 import { type AABB, type CollisionWorld, MASK_SOLID } from "../../../engine/network/systems/collision/CollisionWorld";
+import { extractLocations, type MapLocation } from "../../../shared/bsp/LocationTable";
 import { extractTriggerVolumes, type TriggerVolume } from "../../../shared/bsp/TriggerTable";
 import {
   STEP_HEIGHT,
@@ -101,6 +102,8 @@ export interface MapKnowledgeData {
   mapFingerprint: string;
   /** Map name */
   mapName: string;
+  /** Place names (target_location), for team callouts. */
+  locations?: MapLocation[];
 }
 
 // ── Constants ───────────────────────────────────────────────────────────
@@ -967,6 +970,7 @@ export async function createBotVision(mapName: string): Promise<BotVision | null
     pickupPositions: mapData.pickupItems,
     mapFingerprint,
     triggerVolumes,
+    locations: extractLocations(bsp.entities as never),
   };
 
   return new BotVision(collisionWorld, mapKnowledge);

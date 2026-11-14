@@ -178,6 +178,12 @@ export abstract class BaseGametype {
    * Called once, before the first tick, and again on a map change. Modes that
    * need nothing from the map ignore it — which is every mode but S&D today.
    */
+  /** GameServer tells the mode which players are people's, for modes that treat them differently. */
+  setPersonCheck(_check: (entityId: number) => boolean): void {}
+
+  /** A team chat line from a player, for modes that take calls from it. */
+  onTeamChat(_entityId: number, _team: string, _text: string): void {}
+
   onMapLoad(_context: GametypeMapContext): void {
     // Default: no-op
   }

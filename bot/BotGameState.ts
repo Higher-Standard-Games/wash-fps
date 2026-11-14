@@ -305,6 +305,20 @@ export class BotGameState {
    */
   directives: AgentDirective[] = [];
 
+  /**
+   * The match objective as every player sees it (match_state), for modes that
+   * have one: Search & Destroy's bomb. Null otherwise.
+   */
+  objective: {
+    phase: string;
+    position: Vec3 | null;
+    carrier: string | null;
+    site: string | null;
+  } | null = null;
+
+  /** Teammates' team chat lines this snapshot (not this bot's own). */
+  teamChat: string[] = [];
+
   // Recent events (cleared each tick)
   recentDamage: BotDamageEvent[] = [];
   /**
@@ -345,6 +359,7 @@ export class BotGameState {
    */
   update(snapshot: GameState): void {
     this.tick = snapshot.tick;
+    this.teamChat = [];
 
     // Clear per-tick data
     this.serverPickupMask = [...snapshot.pickupActiveMask];
@@ -522,6 +537,33 @@ export class BotGameState {
             roundState: typeof evt.roundState === "string" ? evt.roundState : undefined,
             timeRemaining: typeof evt.timeRemaining === "number" ? evt.timeRemaining : undefined,
           };
+          const objective = (event as { objective?: Record<string, unknown> }).objective;
+          if (objective && typeof objective.phase === "string") {
+            const sites = Array.isArray(objective.sites) ? (objective.sites as { id: number; label: string }[]) : [];
+            const at = [objective.x, objective.y, objective.z];
+            this.objective = {
+              phase: objective.phase,
+              position: at.every((v) => typeof v === "number")
+                ? { x: at[0] as number, y: at[1] as number, z: at[2] as number }
+                : null,
+              carrier: typeof objective.carrier === "string" ? objective.carrier : null,
+              site: sites.find((s) => s.id === objective.siteId)?.label ?? null,
+            };
+          } else this.objective = null;
+          break;
+        }
+
+        case "chat": {
+          const evt = event as { senderId?: unknown; team?: unknown; text?: unknown };
+          if (
+            typeof evt.text === "string" &&
+            evt.text.startsWith("[TEAM]") &&
+            evt.senderId !== this.selfEntityId &&
+            this.self.team !== "" &&
+            evt.team === this.self.team
+          ) {
+            this.teamChat.push(evt.text);
+          }
           break;
         }
 

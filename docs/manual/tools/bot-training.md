@@ -469,6 +469,33 @@ pick items up out of sight. Estimates of other bots do not use it.
 
 The file is part of a bot's behaviour fingerprint, like the route libraries.
 
+## Search & Destroy lanes
+
+`npm --prefix src/games/fps run bot:lanes -- --map washoi_snd1` finds the ways
+into each bombsite over the bot nav graph and writes them to
+`config/bot-lanes/<map>.json`; `--dry-run` only prints. Review the file and
+commit it. For each side's spawn (attackers use the beta spawn set, defenders
+the alpha set) and each site it keeps up to three lanes: the shortest route,
+then detours round regions of that route's last 1,800 units, kept by where they
+end, so each lane's staging point is at least 350 units from the others'. A
+lane is its waypoints, one about every 250 units, ending at a staging point
+about 300 units short of the site. A site with one way in gets one lane.
+
+The gametype coaches each team from these lanes:
+
+- While the bomb is carried, the carrier and the attacker nearest them form
+  the first group, on the shortest lane; the others go in pairs on the other
+  lanes. Each group goes along its lane to its staging point and waits there.
+  All go in once every group is staged, 35 s after the plan, or as soon as an
+  attacker falls. The carrier then plants with its partner escorting, and the
+  other groups push the site.
+- When a carrier falls, the attacker nearest the bomb fetches it and the next
+  two cover the spot; the two defenders nearest it guard the ground round it.
+  A bomb still lying at the attackers' spawn as the round starts is neither.
+
+A map without a lane file plays without the coach. In `bot:ab`, the arm option
+`"coach": false` plays that arm's team without it.
+
 ## Not yet
 
 - Whether aim can be learned at all is unknown. Bot recordings cannot answer it —

@@ -57,6 +57,7 @@ import {
   type RoundOutcome,
 } from "./BaseGametype";
 import { PlayerLoadouts } from "./PlayerLoadouts";
+import { siteCall } from "./SndCalls";
 import { type Lane, type LaneFile, lanesInto, loadLanes } from "./SndLanes";
 
 // ── Match shape ──────────────────────────────────────────────────────
@@ -106,11 +107,27 @@ const PRIORITY_ESCORT = 0.55;
 /** How close to its staging point a group counts as staged. */
 const STAGING_RADIUS = 250;
 /** Groups go in this long after the attack plan is made, staged or not. */
-const STAGING_DEADLINE_TICKS = 35 * 125;
+const STAGING_DEADLINE_TICKS = 25 * 125;
+/** Once the carrier's group is staged, the others are waited for this long at most. */
+const STAGING_WAIT_TICKS = 8 * 125;
 /** Attackers covering a dropped bomb while one fetches it, and defenders guarding it. */
 const BOMB_COVER_COUNT = 2;
 const BOMB_COVER_RADIUS = 350;
 const BOMB_GUARD_RADIUS = 600;
+/** A defender sees the carrier this far off, line of sight permitting. */
+const SPOT_RANGE = 2500;
+/** Eye height above a player's origin, for spotting traces. */
+const EYE_HEIGHT = 40;
+/** Spotting is traced this often, ticks. */
+const SPOT_EVERY_TICKS = 10;
+/** Rotators stay rotated this long after the carrier was last seen. */
+const ROTATE_TICKS = 20 * 125;
+/** Defenders regroup outside an armed site while more than this is left on the fuse. */
+const RETAKE_GO_TICKS = 14 * 125;
+/** How close to a regroup point a defender counts as there. */
+const REGROUP_RADIUS = 300;
+/** Attackers after a plant hold this far from the bomb towards each way in. */
+const CROSSFIRE_SHARE = 0.55;
 /** Holding a site pre-plant is a default, not an order. */
 const PRIORITY_HOLD = 0.5;
 
@@ -244,8 +261,27 @@ export class SearchAndDestroy extends BaseGametype {
     lanes: Lane[];
     go: boolean;
     madeAtTick: number;
+    /** When the carrier's group reached its staging point, or null. */
+    carrierStagedAt: number | null;
     attackers: number;
   } | null = null;
+  /** Whether an entity is a person's player (GameServer sets it); bots only otherwise. */
+  private isPerson: (entityId: number) => boolean = () => false;
+  /** Per attacking team, this match: rounds attacked at each site and plants made there. */
+  private readonly siteRecord = new Map<string, Map<number, { attacks: number; plants: number }>>();
+  /** Per defending team, this match: rounds each site was attacked. */
+  private readonly siteHits = new Map<string, Map<number, number>>();
+  /** A person's call for the attack site this round. */
+  private calledSite: number | null = null;
+  /** Where defenders last saw the carrier heading (its nearest site), this round. */
+  private spotted: { siteId: number; tick: number } | null = null;
+  /** Living attackers by entity id, for spreading them over ways in; and every living player's position. */
+  private livingAttackers: number[] = [];
+  private readonly positions = new Map<number, Vec3Like>();
+  /** One defender a site who stays whatever is spotted. */
+  private readonly anchors = new Set<number>();
+  /** The retake goes in: enough defenders regrouped, or the fuse is short. */
+  private retakeGo = false;
   /** The bomb has been carried this round: a drop after that is a fight's, not the round's start. */
   private bombCarried = false;
   /** The groups were sent in this round: a new carrier does not stage again. */
@@ -445,6 +481,11 @@ export class SearchAndDestroy extends BaseGametype {
     this.collision?.brushModels?.reset();
     this.siteByDefender.clear();
     this.targetSiteId = null;
+    this.recordRound();
+    this.calledSite = null;
+    this.spotted = null;
+    this.anchors.clear();
+    this.retakeGo = false;
     this.attackPlan = null;
     this.attackSent = false;
     this.bombCarried = false;
@@ -860,9 +901,14 @@ export class SearchAndDestroy extends BaseGametype {
       for (const siteId of this.siteByDefender.values()) counts.set(siteId, (counts.get(siteId) ?? 0) + 1);
       for (const defender of defenders) {
         if (this.siteByDefender.has(defender.entityId)) continue;
-        const site = this.sites.reduce((best, candidate) =>
-          (counts.get(candidate.id) ?? 0) < (counts.get(best.id) ?? 0) ? candidate : best,
-        );
+        // Fewest defenders first; on a tie, the site this attack has hit more.
+        const hits = this.siteHits.get(context.defendingTeam);
+        const site = this.sites.reduce((best, candidate) => {
+          const c = counts.get(candidate.id) ?? 0;
+          const b = counts.get(best.id) ?? 0;
+          if (c !== b) return c < b ? candidate : best;
+          return (hits?.get(candidate.id) ?? 0) > (hits?.get(best.id) ?? 0) ? candidate : best;
+        });
         this.siteByDefender.set(defender.entityId, site.id);
         counts.set(site.id, (counts.get(site.id) ?? 0) + 1);
       }
@@ -889,9 +935,13 @@ export class SearchAndDestroy extends BaseGametype {
     // Which site the attack commits to, once a round: nearest the bomb as the
     // round starts. Chosen again every tick, it followed the carrier and
     // flipped sites on the way.
-    this.targetSiteId ??= this.nearestSite(this.bomb.position)?.id ?? null;
+    this.targetSiteId ??= this.chooseSite(context.attackingTeam);
+    this.livingAttackers = attackers.map((a) => a.entityId).sort((a, b) => a - b);
+    this.positions.clear();
+    for (const p of [...attackers, ...defenders]) this.positions.set(p.entityId, p.position);
     this.planAttack(attackers, context.attackingTeam);
     this.planBombCover(attackers, defenders, context);
+    this.planDefence(attackers, defenders, context);
   }
 
   /**
@@ -903,11 +953,147 @@ export class SearchAndDestroy extends BaseGametype {
     else this.coachOff.add(team);
   }
 
+  /** GameServer tells the mode which players are people's. */
+  override setPersonCheck(check: (entityId: number) => boolean): void {
+    this.isPerson = check;
+  }
+
+  /**
+   * A team chat line. A site call ("a", "go b", ...) from the attacking team
+   * sets this round's target, from the defending team sends the rotators.
+   */
+  override onTeamChat(_entityId: number, team: string, text: string): void {
+    const label = siteCall(text);
+    const site = label ? this.sites.find((s) => s.label.toUpperCase() === label) : undefined;
+    if (!site || this.bomb.phase === "planted" || this.bomb.isArmed) return;
+    if (team === this.attackers) {
+      this.calledSite = site.id;
+      if (this.targetSiteId !== site.id) {
+        this.targetSiteId = site.id;
+        this.attackPlan = null;
+      }
+    } else this.spotted = { siteId: site.id, tick: this.tick };
+  }
+
+  /**
+   * The site to attack this round: a person's call, else the one with the
+   * best record against this defence this match (plants per attack, with an
+   * optimism that tries a site not yet tried), with a little chance so the
+   * attack cannot be read from the last round alone.
+   */
+  private chooseSite(attackingTeam: string): number | null {
+    if (this.calledSite !== null) return this.calledSite;
+    if (this.sites.length === 0) return null;
+    const record = this.siteRecord.get(attackingTeam);
+    const total = [...(record?.values() ?? [])].reduce((sum, r) => sum + r.attacks, 0);
+    let best = this.sites[0].id;
+    let bestScore = Number.NEGATIVE_INFINITY;
+    for (const site of this.sites) {
+      const r = record?.get(site.id) ?? { attacks: 0, plants: 0 };
+      const score =
+        (r.plants + 1) / (r.attacks + 2) +
+        0.4 * Math.sqrt(Math.log(total + 1) / (r.attacks + 1)) +
+        0.15 * Math.random();
+      if (score > bestScore) {
+        bestScore = score;
+        best = site.id;
+      }
+    }
+    return best;
+  }
+
+  /** At a round's start, before the reset: what the last round's attack did, for chooseSite and the defence split. */
+  private recordRound(): void {
+    const site = this.targetSiteId;
+    const attackers = this.attackers;
+    if (site === null || attackers === null) return;
+    const defenders = (["udon", "soba"] as const).find((t) => t !== attackers);
+    const planted =
+      this.bomb.phase === "planted" ||
+      this.bomb.isArmed ||
+      this.bomb.phase === "detonated" ||
+      this.bomb.phase === "defused";
+    const at = planted ? (this.bomb.siteId ?? site) : site;
+    const record = this.siteRecord.get(attackers) ?? new Map<number, { attacks: number; plants: number }>();
+    const entry = record.get(at) ?? { attacks: 0, plants: 0 };
+    entry.attacks++;
+    if (planted) entry.plants++;
+    record.set(at, entry);
+    this.siteRecord.set(attackers, record);
+    if (defenders) {
+      const hits = this.siteHits.get(defenders) ?? new Map<number, number>();
+      hits.set(at, (hits.get(at) ?? 0) + 1);
+      this.siteHits.set(defenders, hits);
+    }
+  }
+
+  /**
+   * Defence: one anchor a site who never leaves it; the carrier seen by a
+   * defender (line of sight, as a person would see and call it) sends the
+   * other defenders to the site nearest the carrier; and an armed bomb is
+   * retaken together.
+   */
+  private planDefence(
+    attackers: readonly BombPlayerView[],
+    defenders: readonly BombPlayerView[],
+    context: GametypeTickContext,
+  ): void {
+    this.anchors.clear();
+    if (this.coachOff.has(context.defendingTeam)) return;
+    for (const site of this.sites) {
+      const assigned = defenders
+        .filter((d) => this.siteByDefender.get(d.entityId) === site.id)
+        .sort((a, b) => a.entityId - b.entityId);
+      if (assigned.length > 0) this.anchors.add(assigned[0].entityId);
+    }
+    const carrier = attackers.find((a) => a.entityId === this.bomb.carrierId);
+    if (carrier && this.tick % SPOT_EVERY_TICKS === 0 && this.collision) {
+      const eye = (p: Vec3Like): Vec3 => ({ x: p.x, y: p.y + EYE_HEIGHT, z: p.z });
+      const seen = defenders.some(
+        (d) =>
+          Math.hypot(d.position.x - carrier.position.x, d.position.z - carrier.position.z) <= SPOT_RANGE &&
+          (this.collision?.trace(eye(d.position), eye(carrier.position)).fraction ?? 0) >= 1,
+      );
+      const near = seen ? this.nearestSite(carrier.position) : null;
+      if (near) this.spotted = { siteId: near.id, tick: this.tick };
+    }
+    if (this.bomb.isArmed && !this.retakeGo) {
+      const fuse = this.bomb.ticksUntilDetonation(this.tick) ?? 0;
+      const points = this.regroupPoints();
+      const there = defenders.filter((d) =>
+        points.some((p) => Math.hypot(d.position.x - p.x, d.position.z - p.z) <= REGROUP_RADIUS),
+      ).length;
+      if (fuse <= RETAKE_GO_TICKS || points.length === 0 || there >= Math.min(2, defenders.length))
+        this.retakeGo = true;
+    }
+  }
+
+  /** Where defenders gather before retaking the armed site: the defend lanes' staging points into it. */
+  private regroupPoints(): readonly Vec3Like[] {
+    const site = this.bomb.siteId;
+    return site === null ? [] : lanesInto(this.lanes, site, "defend").map((l) => l.staging);
+  }
+
+  private positionOf(entityId: number | null): Vec3Like | null {
+    return entityId === null ? null : (this.positions.get(entityId) ?? null);
+  }
+
+  /** The point a player regroups at: the nearest regroup point. */
+  private nearestPoint(points: readonly Vec3Like[], from: Vec3Like | null): Vec3Like | null {
+    if (points.length === 0) return null;
+    if (!from) return points[0];
+    return points.reduce((best, p) =>
+      Math.hypot(p.x - from.x, p.z - from.z) < Math.hypot(best.x - from.x, best.z - from.z) ? p : best,
+    );
+  }
+
   /**
    * The attack plan while the bomb is carried: groups of two on separate
-   * lanes into the target site, each waiting at its staging point until all
-   * are staged, the deadline passes or an attacker falls. Group 0 is the
-   * carrier and the attacker nearest them, on the shortest lane.
+   * lanes into the target site, each waiting at its staging point until the
+   * carrier's group and one more are staged (or the others have had
+   * STAGING_WAIT_TICKS to catch up), the deadline passes or an attacker falls.
+   * Group 0 is the carrier and the attacker nearest them, on the shortest
+   * lane. People are not grouped, and a person carrying goes when they like.
    */
   private planAttack(attackers: readonly BombPlayerView[], attackingTeam: string): void {
     const carrier = this.bomb.carrierId;
@@ -920,7 +1106,8 @@ export class SearchAndDestroy extends BaseGametype {
     let plan = this.attackPlan;
     if (!plan || plan.siteId !== site || plan.carrier !== carrier) {
       const carrierView = attackers.find((a) => a.entityId === carrier);
-      const others = attackers.filter((a) => a.entityId !== carrier);
+      // People are not told to wait: only bots go in groups.
+      const others = attackers.filter((a) => a.entityId !== carrier && !this.isPerson(a.entityId));
       const partner = carrierView ? this.nearestTo(others, carrierView.position) : null;
       const rest = others.filter((a) => a.entityId !== partner).sort((a, b) => a.entityId - b.entityId);
       const groupOf = new Map<number, number>([[carrier, 0]]);
@@ -933,8 +1120,10 @@ export class SearchAndDestroy extends BaseGametype {
         carrier,
         groupOf,
         lanes: [...lanes],
-        go: this.attackSent,
+        // A person carrying the bomb goes when they like; the bots go with them.
+        go: this.attackSent || this.isPerson(carrier),
         madeAtTick: plan?.madeAtTick ?? this.tick,
+        carrierStagedAt: plan?.carrierStagedAt ?? null,
         attackers: plan?.attackers ?? attackers.length,
       };
       this.attackPlan = plan;
@@ -948,10 +1137,16 @@ export class SearchAndDestroy extends BaseGametype {
       const near = Math.hypot(a.position.x - stage.x, a.position.z - stage.z) <= STAGING_RADIUS;
       staged.set(group, (staged.get(group) ?? false) || near);
     }
-    const allStaged = staged.size > 0 && [...staged.values()].every(Boolean);
+    // Go with the carrier's group and one more, or once the others have had
+    // STAGING_WAIT_TICKS to catch up: waiting for the farthest lane gave the
+    // defence the time, and a 90 s round ran out.
+    if (staged.get(0)) plan.carrierStagedAt ??= this.tick;
+    const another = [...staged].some(([group, there]) => group > 0 && there);
+    const carrierReady =
+      plan.carrierStagedAt !== null && (another || this.tick - plan.carrierStagedAt > STAGING_WAIT_TICKS);
     const late = this.tick - plan.madeAtTick > STAGING_DEADLINE_TICKS;
     const contact = attackers.length < plan.attackers;
-    if (allStaged || late || contact) {
+    if (carrierReady || late || contact) {
       plan.go = true;
       this.attackSent = true;
     }
@@ -1058,9 +1253,50 @@ export class SearchAndDestroy extends BaseGametype {
     // ── Armed: the round has inverted ──────────────────────────────
     if (this.bomb.isArmed) {
       if (!attacking) {
+        // Regroup outside first, while the fuse allows: retaking one by one
+        // feeds the attackers a kill at a time.
+        if (!this.retakeGo) {
+          const point = this.nearestPoint(this.regroupPoints(), this.positionOf(me));
+          if (point) {
+            return [
+              this.directive(
+                "snd_regroup",
+                "move_to",
+                point,
+                REGROUP_RADIUS / 2,
+                PRIORITY_DEFUSE,
+                expiresAtTick,
+                "enemy_visible",
+              ),
+            ];
+          }
+        }
         // The retake. The only order in the mode a bot should die for: with the
         // bomb ticking there is nothing left to preserve itself for.
         return [this.directive("snd_defuse", "move_to", bomb, DEFUSE_RADIUS, PRIORITY_DEFUSE, expiresAtTick, "never")];
+      }
+      // Crossfire: each attacker holds part way from the bomb towards one of
+      // the ways defenders come in, rather than all on the bomb.
+      const ways = this.regroupPoints();
+      if (ways.length > 0 && me !== null && !this.coachOff.has(context.teamId)) {
+        const order = this.livingAttackers.indexOf(me);
+        const way = ways[(order < 0 ? 0 : order) % ways.length];
+        const spot = {
+          x: bomb.x + (way.x - bomb.x) * CROSSFIRE_SHARE,
+          y: bomb.y + (way.y - bomb.y) * CROSSFIRE_SHARE,
+          z: bomb.z + (way.z - bomb.z) * CROSSFIRE_SHARE,
+        };
+        return [
+          this.directive(
+            `snd_hold_armed_${order % ways.length}`,
+            "hold_area",
+            spot,
+            200,
+            PRIORITY_ARM,
+            expiresAtTick,
+            "enemy_visible",
+          ),
+        ];
       }
       // Attackers won the plant; now they are the ones holding ground. Spread
       // around the bomb rather than onto it — the bomb needs no attending.
@@ -1097,7 +1333,10 @@ export class SearchAndDestroy extends BaseGametype {
         ];
       }
 
-      const siteId = me === null ? null : (this.siteByDefender.get(me) ?? null);
+      const assignedSite = me === null ? null : (this.siteByDefender.get(me) ?? null);
+      const rotate =
+        this.spotted !== null && me !== null && !this.anchors.has(me) && this.tick - this.spotted.tick <= ROTATE_TICKS;
+      const siteId = rotate && this.spotted ? this.spotted.siteId : assignedSite;
       const site = this.sites.find((s) => s.id === siteId) ?? this.sites[0];
       directives.push(
         this.directive(
