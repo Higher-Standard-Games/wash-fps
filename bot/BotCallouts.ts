@@ -140,7 +140,8 @@ export class BotCallouts {
     if (!objective?.position || phase === before || before !== "carried") return;
     const place = locationName(view.locations, objective.position);
     const due = view.nowMs + this.random() * NEWS_DELAY_MS;
-    if (phase === "dropped" && place) this.news = { call: { kind: "dropped", count: 1, place }, atMs: view.nowMs, dueMs: due };
+    if (phase === "dropped" && place)
+      this.news = { call: { kind: "dropped", count: 1, place }, atMs: view.nowMs, dueMs: due };
     if (phase === "planted" || phase === "armed") {
       const where = objective.site ?? place;
       if (where) this.news = { call: { kind: "planted", count: 1, place: where }, atMs: view.nowMs, dueMs: due };
