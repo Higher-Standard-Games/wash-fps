@@ -46,10 +46,11 @@ function behaviorDigest(): string {
   visit(root);
   const dependencies = path.resolve(root, "../package-lock.json");
   hash.update(new Uint8Array(fs.readFileSync(dependencies)));
-  // Learned routes and the bot-intel baseline are behaviour too.
+  // Learned routes, the bot-intel baseline and the S&D lanes are behaviour too.
   for (const [dir, tag] of [
     ["../config/bot-routes", "routes"],
     ["../config/bot-intel", "intel"],
+    ["../config/bot-lanes", "lanes"],
   ] as const) {
     const folder = path.resolve(root, dir);
     if (!fs.existsSync(folder)) continue;

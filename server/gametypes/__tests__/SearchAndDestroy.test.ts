@@ -415,6 +415,26 @@ describe("agent directives", () => {
     expect(new Set(sites).size).toBe(2);
   });
 
+  it("follows a site call in team chat: attackers go there, defenders other than the anchors move to it", () => {
+    const mode = loaded();
+    const siteB = mode.getObjectiveState()?.sites.find((site) => site.label === "B")?.id;
+    const players: FakePlayer[] = [
+      { id: 1, ownerId: 1, team: "udon", position: BOMB_SPAWN },
+      ...[10, 11, 12, 13].map((id) => ({ id, ownerId: id, team: "soba", position: { x: 3000, y: 0, z: 0 } })),
+    ];
+    run(mode, players, 1);
+    expect(mode.bombState.carrierId).toBe(1);
+    mode.onTeamChat(1, "udon", "[TEAM] go b");
+    mode.onTeamChat(10, "soba", "[TEAM] b");
+    run(mode, players, 1, 1);
+    const orders = (id: number, team: string) =>
+      mode.getAgentDirectives(directiveContext({ teamId: team, entityId: `player_${id}` }), fakeState(players))[0].id;
+    expect(orders(1, "udon")).toBe(`snd_plant_site_${siteB}`);
+    // Two anchors stay; the other two defenders go to B.
+    const defending = [10, 11, 12, 13].map((id) => orders(id, "soba"));
+    expect(defending.filter((id) => id === `snd_defend_site_${siteB}`).length).toBe(3);
+  });
+
   it("preserves assignments after a casualty when both sites remain covered", () => {
     const mode = loaded();
     const players: FakePlayer[] = [

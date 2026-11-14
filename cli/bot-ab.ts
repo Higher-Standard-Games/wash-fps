@@ -37,7 +37,7 @@ import { GameServer } from "../server/GameServer";
 import type { BaseGametype } from "../server/gametypes/BaseGametype";
 import { Deathmatch } from "../server/gametypes/Deathmatch";
 import { Duel } from "../server/gametypes/Duel";
-import { SearchAndDestroy } from "../server/gametypes/SearchAndDestroy";
+import { type CoachPart, SearchAndDestroy } from "../server/gametypes/SearchAndDestroy";
 import { loadBspCollision } from "./HeadlessMapLoader";
 
 interface Args {
@@ -59,8 +59,11 @@ interface Args {
 /** One match's result, as a worker prints it. */
 type ArmOptions = Partial<BotOptions> & {
   routesRoot?: string;
-  /** Search & Destroy: false plays this arm's team without the gametype's coach (lanes, staging, bomb cover). */
-  coach?: boolean;
+  /**
+   * Search & Destroy: false plays this arm's team without the gametype's
+   * coach; a list plays only those parts of it (COACH_PARTS).
+   */
+  coach?: boolean | CoachPart[];
 };
 
 export interface MatchResult {
@@ -204,7 +207,10 @@ async function playMatch(args: Args, port: number, aFirst: boolean, match: numbe
   let planted = false;
   const controller = server.getGametypeController();
   if (gametype instanceof SearchAndDestroy) {
-    for (const arm of ["a", "b"] as const) if (args[arm].coach === false) gametype.setTeamCoach(teamOf[arm], false);
+    for (const arm of ["a", "b"] as const) {
+      const coach = args[arm].coach;
+      if (coach !== undefined && coach !== true) gametype.setTeamCoach(teamOf[arm], coach);
+    }
   }
   if (isTeamMode(args)) {
     const endRound = controller.endRound.bind(controller);

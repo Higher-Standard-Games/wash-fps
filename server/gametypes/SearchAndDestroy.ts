@@ -104,6 +104,11 @@ const PRIORITY_ARM = 0.9;
 const PRIORITY_FETCH = 0.7;
 /** Staying with the carrier: useful, but not at the cost of your own life. */
 const PRIORITY_ESCORT = 0.55;
+/** The coach's parts, switchable per team for head-to-head tests. */
+export const COACH_PARTS = ["lanes", "cover", "defence", "memory", "crossfire"] as const;
+export type CoachPart = (typeof COACH_PARTS)[number];
+/** Bots in the carrier's group, the carrier with them. */
+const MAIN_GROUP = 3;
 /** How close to its staging point a group counts as staged. */
 const STAGING_RADIUS = 250;
 /** Groups go in this long after the attack plan is made, staged or not. */
@@ -248,8 +253,8 @@ export class SearchAndDestroy extends BaseGametype {
   private siteByDefender = new Map<number, number>();
   /** The map's lanes into the sites (config/bot-lanes), or null. */
   private lanes: LaneFile | null = null;
-  /** Teams whose bots play without the coach (a test switch). */
-  private readonly coachOff = new Set<string>();
+  /** Per team, the coach's parts it plays without (a test switch; all on by default). */
+  private readonly coachOff = new Map<string, ReadonlySet<CoachPart>>();
   /**
    * The attack this round: which lane each attacker group takes, who is in
    * which group, and whether the groups have been sent in.
@@ -902,7 +907,9 @@ export class SearchAndDestroy extends BaseGametype {
       for (const defender of defenders) {
         if (this.siteByDefender.has(defender.entityId)) continue;
         // Fewest defenders first; on a tie, the site this attack has hit more.
-        const hits = this.siteHits.get(context.defendingTeam);
+        const hits = this.coaches(context.defendingTeam, "defence")
+          ? this.siteHits.get(context.defendingTeam)
+          : undefined;
         const site = this.sites.reduce((best, candidate) => {
           const c = counts.get(candidate.id) ?? 0;
           const b = counts.get(best.id) ?? 0;
@@ -948,9 +955,14 @@ export class SearchAndDestroy extends BaseGametype {
    * Play a team without the coach: no lanes, staging or bomb cover, as a
    * test switch for head-to-head runs (`bot:ab` arm option `"coach": false`).
    */
-  setTeamCoach(team: string, on: boolean): void {
-    if (on) this.coachOff.delete(team);
-    else this.coachOff.add(team);
+  setTeamCoach(team: string, on: boolean | readonly CoachPart[]): void {
+    if (on === true) this.coachOff.delete(team);
+    else this.coachOff.set(team, new Set(COACH_PARTS.filter((part) => on === false || !on.includes(part))));
+  }
+
+  /** Whether `team` plays this part of the coach. */
+  private coaches(team: string, part: CoachPart): boolean {
+    return !this.coachOff.get(team)?.has(part);
   }
 
   /** GameServer tells the mode which players are people's. */
@@ -984,6 +996,7 @@ export class SearchAndDestroy extends BaseGametype {
   private chooseSite(attackingTeam: string): number | null {
     if (this.calledSite !== null) return this.calledSite;
     if (this.sites.length === 0) return null;
+    if (!this.coaches(attackingTeam, "memory")) return this.nearestSite(this.bomb.position)?.id ?? null;
     const record = this.siteRecord.get(attackingTeam);
     const total = [...(record?.values() ?? [])].reduce((sum, r) => sum + r.attacks, 0);
     let best = this.sites[0].id;
@@ -1039,7 +1052,7 @@ export class SearchAndDestroy extends BaseGametype {
     context: GametypeTickContext,
   ): void {
     this.anchors.clear();
-    if (this.coachOff.has(context.defendingTeam)) return;
+    if (!this.coaches(context.defendingTeam, "defence")) return;
     for (const site of this.sites) {
       const assigned = defenders
         .filter((d) => this.siteByDefender.get(d.entityId) === site.id)
@@ -1099,7 +1112,7 @@ export class SearchAndDestroy extends BaseGametype {
     const carrier = this.bomb.carrierId;
     const site = this.targetSiteId;
     const lanes = site === null ? [] : lanesInto(this.lanes, site, "attack");
-    if (carrier === null || site === null || lanes.length === 0 || this.coachOff.has(attackingTeam)) {
+    if (carrier === null || site === null || lanes.length === 0 || !this.coaches(attackingTeam, "lanes")) {
       this.attackPlan = null;
       return;
     }
@@ -1112,7 +1125,10 @@ export class SearchAndDestroy extends BaseGametype {
       const rest = others.filter((a) => a.entityId !== partner).sort((a, b) => a.entityId - b.entityId);
       const groupOf = new Map<number, number>([[carrier, 0]]);
       if (partner !== null) groupOf.set(partner, 0);
-      rest.forEach((a, i) => {
+      // The carrier's group takes MAIN_GROUP bots; the rest flank in pairs.
+      const main = rest.slice(0, Math.max(0, MAIN_GROUP - (partner === null ? 1 : 2)));
+      for (const a of main) groupOf.set(a.entityId, 0);
+      rest.slice(main.length).forEach((a, i) => {
         groupOf.set(a.entityId, 1 + Math.floor(i / 2));
       });
       plan = {
@@ -1173,7 +1189,7 @@ export class SearchAndDestroy extends BaseGametype {
           Math.hypot(a.position.x - this.bomb.position.x, a.position.z - this.bomb.position.z) -
           Math.hypot(b.position.x - this.bomb.position.x, b.position.z - this.bomb.position.z),
       );
-    if (!this.coachOff.has(context.attackingTeam)) {
+    if (this.coaches(context.attackingTeam, "cover")) {
       for (const a of byDistance(attackers.filter((p) => p.entityId !== this.bombWorkerId)).slice(
         0,
         BOMB_COVER_COUNT,
@@ -1181,7 +1197,7 @@ export class SearchAndDestroy extends BaseGametype {
         this.bombCover.add(a.entityId);
       }
     }
-    if (!this.coachOff.has(context.defendingTeam)) {
+    if (this.coaches(context.defendingTeam, "cover")) {
       for (const d of byDistance(defenders).slice(0, BOMB_COVER_COUNT)) this.bombGuard.add(d.entityId);
     }
   }
@@ -1278,7 +1294,7 @@ export class SearchAndDestroy extends BaseGametype {
       // Crossfire: each attacker holds part way from the bomb towards one of
       // the ways defenders come in, rather than all on the bomb.
       const ways = this.regroupPoints();
-      if (ways.length > 0 && me !== null && !this.coachOff.has(context.teamId)) {
+      if (ways.length > 0 && me !== null && this.coaches(context.teamId, "crossfire")) {
         const order = this.livingAttackers.indexOf(me);
         const way = ways[(order < 0 ? 0 : order) % ways.length];
         const spot = {
