@@ -163,6 +163,31 @@ inside the assigned radius, pausing briefly between moves. They hold position
 when no safe walking segment exists. Planting, arming and defusing orders remain
 stationary on arrival.
 
+The mode plays each team of bots as a team:
+
+- **Attack.** The carrier and the bot nearest them go together; the other bots
+  go in pairs, each pair by its own way into the target site. They wait just
+  outside, then go in together once the carrier's pair and one more are there,
+  within 25 seconds, or at once when one of them falls. The site is chosen by
+  how the attack has done at each against this defence in the match.
+- **Defence.** One bot holds each site whatever happens. When a defender sees
+  the carrier, the others move to the site the carrier is nearest. An armed
+  bomb is retaken together: defenders gather outside the site, then go in
+  once two are there or the fuse is short.
+- **A dropped bomb.** One attacker fetches it while two cover the spot; the two
+  defenders nearest it guard it.
+- **After a plant.** Attackers hold part way towards each way into the site.
+
+With people on the team, bots call what they see in team chat by the map's
+place names — "2 enemies at Old Town", "Bomb carrier at Warehouse B", "Bomb
+dropped at Station", "Bomb planted at A" — and act on each other's calls. Type
+`a` or `b` (or "go a", "rush b") in team chat and the bots on your team attack
+that site this round, or, defending, move to it. Carrying the bomb yourself,
+you go when you like; the bots go with you.
+
+The ways into each site come from `config/bot-lanes`, made per map with
+`bot:lanes`; a map without them plays without the team plans.
+
 ## Selecting the Gametype
 
 Through the lobby, queue for a Search & Destroy match. For developer flows:

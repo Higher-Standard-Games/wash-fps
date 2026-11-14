@@ -22,6 +22,10 @@ is unavailable; the game tells you rather than sending the message globally.
 You can also type `/say_team <message>` in chat, or `say_team <message>` in the
 console. Global and team chat share the same message length and rate limits.
 
+In chat, `%L` is replaced by where you are, by the map's place names:
+`/say_team going %L` sends "going Old Town" on a map that names its places. On a
+map without them it is left empty.
+
 `/timeout` and `/timein` in chat pause and resume the match in Duel, Amphi and
 Search & Destroy; see [Timeouts](./timeouts.md). Chat keeps working while the
 match is paused.

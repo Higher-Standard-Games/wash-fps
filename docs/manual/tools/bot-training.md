@@ -483,12 +483,25 @@ about 300 units short of the site. A site with one way in gets one lane.
 
 The gametype coaches each team from these lanes:
 
+- The attack site is chosen each round by its record against this defence
+  this match: plants per attack, with optimism for a site not yet tried and
+  a little chance. A person's call in team chat ("a", "go b") overrides it.
 - While the bomb is carried, the carrier and the attacker nearest them form
-  the first group, on the shortest lane; the others go in pairs on the other
-  lanes. Each group goes along its lane to its staging point and waits there.
-  All go in once every group is staged, 35 s after the plan, or as soon as an
-  attacker falls. The carrier then plants with its partner escorting, and the
-  other groups push the site.
+  the first group, on the shortest lane; the other bots go in pairs on the
+  other lanes. Each group goes along its lane to its staging point and waits.
+  All go in once the carrier's group and one more are staged, 8 s after the
+  carrier's group is, 25 s after the plan, or as soon as an attacker falls.
+  The carrier then plants with its partner escorting, and the other groups
+  push the site. People are not grouped, and a person carrying goes when
+  they like.
+- Defending, one anchor a site stays on it. When a defender sees the carrier
+  (line of sight within 2,500 units), the others go to the site nearest it
+  for 20 s; a defender's site call does the same. Defenders split towards the
+  site attacked more this match. An armed bomb is retaken together: they
+  gather at the defend lanes' staging points into the site, then go in once
+  two are there or 14 s are left on the fuse.
+- After a plant, attackers hold part way from the bomb towards each of those
+  ways in.
 - When a carrier falls, the attacker nearest the bomb fetches it and the next
   two cover the spot; the two defenders nearest it guard the ground round it.
   A bomb still lying at the attackers' spawn as the round starts is neither.
