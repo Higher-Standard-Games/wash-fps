@@ -96,7 +96,7 @@ const CHARGE_RELEASE_CONE = (12 * Math.PI) / 180;
 /** …or this many ticks after its planned release, on the aim or not. */
 const CHARGE_AIM_GRACE_TICKS = Math.round(0.5 * TICK_RATE);
 /** A teammate's call of enemies is worth hunting this long, ticks. */
-const TEAM_SIGHTING_TICKS = 6 * 125;
+const TEAM_SIGHTING_TICKS = 6 * TICK_RATE;
 /** An order's waypoint counts as passed within this, horizontally… */
 const VIA_RADIUS = 128;
 /** …and this, vertically. */

@@ -112,9 +112,9 @@ const MAIN_GROUP = 3;
 /** How close to its staging point a group counts as staged. */
 const STAGING_RADIUS = 250;
 /** Groups go in this long after the attack plan is made, staged or not. */
-const STAGING_DEADLINE_TICKS = 25 * 125;
+const STAGING_DEADLINE_TICKS = 25 * TICK_RATE;
 /** Once the carrier's group is staged, the others are waited for this long at most. */
-const STAGING_WAIT_TICKS = 8 * 125;
+const STAGING_WAIT_TICKS = 8 * TICK_RATE;
 /** Attackers covering a dropped bomb while one fetches it, and defenders guarding it. */
 const BOMB_COVER_COUNT = 2;
 const BOMB_COVER_RADIUS = 350;
@@ -126,9 +126,13 @@ const EYE_HEIGHT = 40;
 /** Spotting is traced this often, ticks. */
 const SPOT_EVERY_TICKS = 10;
 /** Rotators stay rotated this long after the carrier was last seen. */
-const ROTATE_TICKS = 20 * 125;
+const ROTATE_TICKS = 20 * TICK_RATE;
 /** Defenders regroup outside an armed site while more than this is left on the fuse. */
-const RETAKE_GO_TICKS = 14 * 125;
+const RETAKE_GO_TICKS = 14 * TICK_RATE;
+/** Defenders regroup about this far from the armed bomb… */
+const REGROUP_BACK = 900;
+/** …and not within this of where the attack lanes stage. */
+const REGROUP_CLEAR = 500;
 /** How close to a regroup point a defender counts as there. */
 const REGROUP_RADIUS = 300;
 /** Attackers after a plant hold this far from the bomb towards each way in. */
@@ -1081,8 +1085,35 @@ export class SearchAndDestroy extends BaseGametype {
     }
   }
 
-  /** Where defenders gather before retaking the armed site: the defend lanes' staging points into it. */
+  /**
+   * Where defenders gather before retaking the armed site: on each defend
+   * lane, the waypoint about REGROUP_BACK from the bomb, and none near where
+   * the attack lanes stage. At the defend lanes' staging points they gathered
+   * where the attackers had come in and were holding (snd6: the same points).
+   */
   private regroupPoints(): readonly Vec3Like[] {
+    const site = this.bomb.siteId;
+    if (site === null) return [];
+    const bomb = this.bomb.position;
+    const away = (p: Vec3Like) => Math.hypot(p.x - bomb.x, p.z - bomb.z);
+    const attackStaging = lanesInto(this.lanes, site, "attack").map((l) => l.staging);
+    const points: Vec3Like[] = [];
+    for (const lane of lanesInto(this.lanes, site, "defend")) {
+      const candidates = [...lane.via, lane.staging].filter((p) =>
+        attackStaging.every((a) => Math.hypot(a.x - p.x, a.z - p.z) >= REGROUP_CLEAR),
+      );
+      if (candidates.length === 0) continue;
+      points.push(
+        candidates.reduce((best, p) =>
+          Math.abs(away(p) - REGROUP_BACK) < Math.abs(away(best) - REGROUP_BACK) ? p : best,
+        ),
+      );
+    }
+    return points;
+  }
+
+  /** The ways defenders come into the armed site, for the attackers' crossfire: the defend lanes' staging points. */
+  private waysIn(): readonly Vec3Like[] {
     const site = this.bomb.siteId;
     return site === null ? [] : lanesInto(this.lanes, site, "defend").map((l) => l.staging);
   }
@@ -1109,10 +1140,11 @@ export class SearchAndDestroy extends BaseGametype {
    * lane. People are not grouped, and a person carrying goes when they like.
    */
   private planAttack(attackers: readonly BombPlayerView[], attackingTeam: string): void {
+    // One way in is no reason to split: the team goes together, as without a plan.
     const carrier = this.bomb.carrierId;
     const site = this.targetSiteId;
     const lanes = site === null ? [] : lanesInto(this.lanes, site, "attack");
-    if (carrier === null || site === null || lanes.length === 0 || !this.coaches(attackingTeam, "lanes")) {
+    if (carrier === null || site === null || lanes.length < 2 || !this.coaches(attackingTeam, "lanes")) {
       this.attackPlan = null;
       return;
     }
@@ -1293,7 +1325,7 @@ export class SearchAndDestroy extends BaseGametype {
       }
       // Crossfire: each attacker holds part way from the bomb towards one of
       // the ways defenders come in, rather than all on the bomb.
-      const ways = this.regroupPoints();
+      const ways = this.waysIn();
       if (ways.length > 0 && me !== null && this.coaches(context.teamId, "crossfire")) {
         const order = this.livingAttackers.indexOf(me);
         const way = ways[(order < 0 ? 0 : order) % ways.length];

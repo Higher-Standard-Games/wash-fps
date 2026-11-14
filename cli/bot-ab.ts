@@ -321,6 +321,18 @@ bot:ab — ${args.map} Search & Destroy, ${n} matches of ${args.seconds} s, ${ar
   console.log(
     `  rounds won      A ${won("a", "attacker") + won("a", "defender")} (attacking ${won("a", "attacker")}, defending ${won("a", "defender")}), B ${won("b", "attacker") + won("b", "defender")} (attacking ${won("b", "attacker")}, defending ${won("b", "defender")}) of ${all.length}`,
   );
+  // Rates, not counts: a side that wins its attacks fast plays more rounds attacking.
+  const played = (arm: "a" | "b", role: string) =>
+    all.filter(
+      (x) =>
+        (x.winner === arm && x.role === role) ||
+        (x.winner !== arm && x.winner !== null && x.role !== role && x.role !== "none"),
+    ).length;
+  const rate = (arm: "a" | "b", role: string) =>
+    `${Math.round((100 * won(arm, role)) / Math.max(1, played(arm, role)))}% of ${played(arm, role)}`;
+  console.log(
+    `  win rate        A attacking ${rate("a", "attacker")}, defending ${rate("a", "defender")}; B attacking ${rate("b", "attacker")}, defending ${rate("b", "defender")}`,
+  );
   console.log(`  plants          ${all.filter((x) => x.planted).length} of ${all.length} rounds`);
   console.log(
     `  round ends      ${[...reasons]

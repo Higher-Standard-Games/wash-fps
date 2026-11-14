@@ -477,9 +477,10 @@ into each bombsite over the bot nav graph and writes them to
 commit it. For each side's spawn (attackers use the beta spawn set, defenders
 the alpha set) and each site it keeps up to three lanes: the shortest route,
 then detours round regions of that route's last 1,800 units, kept by where they
-end, so each lane's staging point is at least 350 units from the others'. A
+end, so each lane's staging point is at least 500 units from the others'. A
 lane is its waypoints, one about every 250 units, ending at a staging point
-about 300 units short of the site. A site with one way in gets one lane.
+about 300 units short of the site. A site with one way in gets one lane, and
+an attack on it goes together without a plan.
 
 The gametype coaches each team from these lanes:
 
@@ -499,7 +500,9 @@ The gametype coaches each team from these lanes:
   for 20 s; a defender's site call does the same. Defenders split towards the
   site attacked more this match. An armed bomb is retaken together: they
   gather at the defend lanes' staging points into the site, then go in once
-  two are there or 14 s are left on the fuse.
+  two are there or 14 s are left on the fuse. The gathering point is the
+  waypoint of each defend lane about 900 units from the bomb, none within 500
+  of where the attack lanes stage.
 - After a plant, attackers hold part way from the bomb towards each of those
   ways in.
 - When a carrier falls, the attacker nearest the bomb fetches it and the next

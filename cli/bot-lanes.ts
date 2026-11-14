@@ -32,7 +32,7 @@ const LANES_PER_SITE = 3;
 /** A lane longer than this times the shortest is no lane anyone takes. */
 const MAX_DETOUR = 1.8;
 /** Lanes whose staging points are closer than this go in by the same way. */
-const MIN_STAGING_APART = 350;
+const MIN_STAGING_APART = 500;
 /** A detour avoids every node this close to the probed one, units. */
 const BLOCK_RADIUS = 300;
 /** Path searches per site and side. */
