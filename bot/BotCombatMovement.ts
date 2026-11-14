@@ -63,6 +63,11 @@ export class BotCombatMovement {
     this._projectiles.clear();
   }
 
+  /** Whether a dodge is under way: it outranks any other move. */
+  dodging(tick: number): boolean {
+    return tick < this._dodgeUntil;
+  }
+
   step(state: BotGameState, skills: Skills, _targetDistance: number): CombatMoves {
     const tick = state.tick;
     const skill = clamp01(skills.dodgeSkill);

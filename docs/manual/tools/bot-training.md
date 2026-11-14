@@ -482,6 +482,14 @@ lane is its waypoints, one about every 250 units, ending at a staging point
 about 300 units short of the site. A site with one way in gets one lane, and
 an attack on it goes together without a plan.
 
+The file also keeps each side's holds per site, up to three, at least 350
+units apart: nav floor points within 1,100 units of the site that see its
+floor, not within 250 units of the other side's ways in. Each scores 200 for
+every one of the other side's lanes it sees (any of the lane's last three
+waypoints) and a unit per unit of height over the site's floor, up to 320,
+less a tenth of its distance from the site. A hold keeps the way in it
+should watch: the shortest lane it sees.
+
 The gametype coaches each team from these lanes:
 
 - The attack site is chosen each round by its record against this defence
@@ -495,6 +503,9 @@ The gametype coaches each team from these lanes:
   The carrier then plants with its partner escorting, and the other groups
   push the site. People are not grouped, and a person carrying goes when
   they like.
+- Defending, the defenders bound for a site take its holds in turn, the
+  anchor the best, and stand there looking at the hold's way in, sweeping
+  either side; any more than there are holds patrol the site.
 - Defending, one anchor a site stays on it. When a defender sees the carrier
   (line of sight within 2,500 units), the others go to the site nearest it
   for 20 s; a defender's site call does the same. Defenders split towards the
@@ -503,14 +514,15 @@ The gametype coaches each team from these lanes:
   two are there or 14 s are left on the fuse. The gathering point is the
   waypoint of each defend lane about 900 units from the bomb, none within 500
   of where the attack lanes stage.
-- After a plant, attackers hold part way from the bomb towards each of those
-  ways in.
+- After a plant, attackers take the attack side's holds for the site, and any
+  more hold part way from the bomb towards each of those ways in.
 - When a carrier falls, the attacker nearest the bomb fetches it and the next
   two cover the spot; the two defenders nearest it guard the ground round it.
   A bomb still lying at the attackers' spawn as the round starts is neither.
 
 A map without a lane file plays without the coach. In `bot:ab`, the arm option
-`"coach": false` plays that arm's team without it.
+`"coach": false` plays that arm's team without it, and a list plays only
+those parts (`lanes`, `cover`, `defence`, `memory`, `crossfire`, `holds`).
 
 ## Not yet
 

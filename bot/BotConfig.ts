@@ -145,6 +145,11 @@ export interface BotOptions {
    * without a code change. Not part of the rating identity.
    */
   weights?: Partial<BotWeightProfile>;
+  /**
+   * Fight habits to play without ("cover", "height"), for head-to-head tests.
+   * Not part of the rating identity.
+   */
+  fightOff?: string[];
   /** Build a DecisionTrace with every decision, for tools (bot:motion --trace). */
   trace?: boolean;
   /**

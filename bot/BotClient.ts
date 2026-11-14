@@ -36,7 +36,7 @@ import { pulseMeleeFire } from "./BotWeaponProfile";
 import { BotChat } from "./chat/BotChat";
 import type { DecisionTrace } from "./DecisionTrace";
 import type { MatchReport } from "./intel/IntelStore";
-import { StateMachineBrain } from "./StateMachineBrain";
+import { type FightHabit, StateMachineBrain } from "./StateMachineBrain";
 import type { StrategyId } from "./strategy/Strategist";
 import { teleportExitYaw } from "./TeleportExit";
 
@@ -186,6 +186,7 @@ export class BotClient extends EventEmitter {
     if (options.habitItem) brain.setHabitItem(options.habitItem);
     if (options.strategies) brain.limitStrategies(options.strategies as StrategyId[]);
     if (options.weights) brain.scaleWeights(options.weights);
+    if (options.fightOff) brain.setFightOff(options.fightOff as FightHabit[]);
     if (options.trace) brain.setTracing(true);
     this._brain = brain;
     this._aim = new BotAimController(this._difficulty);

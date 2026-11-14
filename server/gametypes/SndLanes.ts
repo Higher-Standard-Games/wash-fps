@@ -25,6 +25,16 @@ export interface Lane {
   length: number;
 }
 
+/** A place to hold a site from, and where to look while there. */
+export interface Hold {
+  /** Standing height. */
+  at: LanePoint;
+  /** The way in the other side is likeliest to come by, seen from `at`. */
+  watch: LanePoint;
+  /** Height above the site's floor, units. */
+  rise: number;
+}
+
 export interface SiteLanes {
   siteId: number;
   label: string;
@@ -32,6 +42,12 @@ export interface SiteLanes {
   side: "attack" | "defend";
   /** Shortest first. */
   lanes: Lane[];
+  /**
+   * Where this side holds the site from, best first: for the defence before
+   * a plant, for the attack after one. Each sees the site and as many of the
+   * other side's ways in as it can, from as high as it can.
+   */
+  holds?: Hold[];
 }
 
 export interface LaneFile {
@@ -60,4 +76,9 @@ export function loadLanes(map: string, root = process.cwd()): LaneFile | null {
 /** The lanes from one side's spawn into one site, shortest first. */
 export function lanesInto(file: LaneFile | null, siteId: number, side: "attack" | "defend"): readonly Lane[] {
   return file?.sites.find((s) => s.siteId === siteId && s.side === side)?.lanes ?? [];
+}
+
+/** Where one side holds one site from, best first. */
+export function holdsAt(file: LaneFile | null, siteId: number, side: "attack" | "defend"): readonly Hold[] {
+  return file?.sites.find((s) => s.siteId === siteId && s.side === side)?.holds ?? [];
 }

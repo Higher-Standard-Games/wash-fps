@@ -25,7 +25,7 @@ import { BotNavCacheStore } from "../bot/BotNavCache";
 import { BotNavGraph, type NavPath, navEdgeKey } from "../bot/BotNavGraph";
 import { createBotVision } from "../bot/BotVision";
 import { loadLearnedRoutes } from "../bot/LearnedRoutes";
-import { LANES_DIR, type LaneFile, type SiteLanes } from "../server/gametypes/SndLanes";
+import { type Hold, LANES_DIR, type Lane, type LaneFile, type SiteLanes } from "../server/gametypes/SndLanes";
 import { loadBspCollision } from "./HeadlessMapLoader";
 
 const LANES_PER_SITE = 3;
@@ -47,6 +47,65 @@ const WAYPOINT_SPACING = 250;
 const STAGING_DISTANCE = 300;
 /** Player origin above the feet. */
 const ORIGIN_HEIGHT = 24;
+/** Eye above the origin (DEFAULT_VIEWHEIGHT). */
+const EYE_HEIGHT = 34;
+/** Holds are looked for this close to the site, units. */
+const HOLD_RANGE = 1100;
+/** Holds a site and side keeps, and how far apart. */
+const HOLDS_PER_SITE = 3;
+const HOLD_APART = 350;
+/** A hold is not in a doorway: at least this far from the other side's way in. */
+const DOOR_CLEARANCE = 250;
+/** The last waypoints of a lane that count as its way in. */
+const DOOR_POINTS = 3;
+/** Score: each way in seen, and each unit of height (capped at MAX_RISE). */
+const LANE_SEEN_SCORE = 200;
+const MAX_RISE = 320;
+
+/**
+ * Where a side holds a site from. A hold sees the site (to stop a plant, or a
+ * defuse) and scores for each of the other side's ways in it sees and for
+ * height over the site's floor: a player above an entrance sees them first
+ * and is hard to hit with splash. Watch is the shortest way in it sees.
+ */
+function holdsFor(
+  nav: BotNavGraph,
+  canSee: (from: Vec3, to: Vec3) => boolean,
+  site: Vec3,
+  ways: readonly Lane[],
+): Hold[] {
+  const doors = ways.map((lane) => lane.via.slice(-DOOR_POINTS));
+  const scored: { hold: Hold; score: number }[] = [];
+  const linked = new Set(nav.edges.map((e) => e.from));
+  for (const node of nav.nodes) {
+    if (node.type !== "floor") continue;
+    const at = { x: node.position.x, y: node.position.y + ORIGIN_HEIGHT, z: node.position.z };
+    const away = horizontal(at, site);
+    if (away > HOLD_RANGE) continue;
+    if (doors.some((door) => door.some((d) => horizontal(d, at) < DOOR_CLEARANCE))) continue;
+    if (!linked.has(node.id)) continue;
+    const eye = { x: at.x, y: at.y + EYE_HEIGHT, z: at.z };
+    if (!canSee(eye, site)) continue;
+    let watch: Vec3 | null = null;
+    let seen = 0;
+    for (const door of doors) {
+      const visible = [...door].reverse().find((d) => canSee(eye, d));
+      if (!visible) continue;
+      seen++;
+      watch ??= visible;
+    }
+    const rise = Math.round(at.y - site.y);
+    const score = seen * LANE_SEEN_SCORE + Math.max(-MAX_RISE, Math.min(MAX_RISE, rise)) - away / 10;
+    scored.push({ hold: { at: round(at), watch: round(watch ?? site), rise }, score });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  const kept: Hold[] = [];
+  for (const { hold } of scored) {
+    if (kept.length >= HOLDS_PER_SITE) break;
+    if (kept.every((k) => horizontal(k.at, hold.at) >= HOLD_APART)) kept.push(hold);
+  }
+  return kept;
+}
 
 const horizontal = (a: Vec3, b: Vec3) => Math.hypot(a.x - b.x, a.z - b.z);
 
@@ -204,6 +263,20 @@ async function main(): Promise<void> {
         `${map} site ${site.label} ${side}: ${lanes.length} lanes, ${lanes.map((l) => `${l.length}u/${l.via.length} waypoints`).join(", ")}`,
       );
     }
+  }
+  // Holds: the defence watches the attack's ways in; after a plant, the
+  // attack watches the defence's.
+  const eyeSee = (a: Vec3, b: Vec3) => vision.canSee(a, b);
+  for (const entry of file.sites) {
+    const site = sites.find((s) => s.id === entry.siteId);
+    if (!site) continue;
+    const floor = floorOf(site.position);
+    const spot = { x: floor.x, y: floor.y + ORIGIN_HEIGHT, z: floor.z };
+    const other = file.sites.find((s) => s.siteId === entry.siteId && s.side !== entry.side);
+    entry.holds = holdsFor(nav, eyeSee, spot, other?.lanes ?? []);
+    console.log(
+      `${map} site ${entry.label} ${entry.side} holds: ${entry.holds.map((h) => `(${h.at.x},${h.at.z}) rise ${h.rise}`).join(", ")}`,
+    );
   }
   if (argv.includes("--dry-run")) return;
   const out = path.join(process.cwd(), LANES_DIR, `${map}.json`);

@@ -58,7 +58,7 @@ import {
 } from "./BaseGametype";
 import { PlayerLoadouts } from "./PlayerLoadouts";
 import { siteCall } from "./SndCalls";
-import { type Lane, type LaneFile, lanesInto, loadLanes } from "./SndLanes";
+import { type Hold, holdsAt, type Lane, type LaneFile, lanesInto, loadLanes } from "./SndLanes";
 
 // ── Match shape ──────────────────────────────────────────────────────
 //
@@ -105,7 +105,7 @@ const PRIORITY_FETCH = 0.7;
 /** Staying with the carrier: useful, but not at the cost of your own life. */
 const PRIORITY_ESCORT = 0.55;
 /** The coach's parts, switchable per team for head-to-head tests. */
-export const COACH_PARTS = ["lanes", "cover", "defence", "memory", "crossfire"] as const;
+export const COACH_PARTS = ["lanes", "cover", "defence", "memory", "crossfire", "holds"] as const;
 export type CoachPart = (typeof COACH_PARTS)[number];
 /** Bots in the carrier's group, the carrier with them. */
 const MAIN_GROUP = 3;
@@ -139,6 +139,8 @@ const REGROUP_RADIUS = 300;
 const CROSSFIRE_SHARE = 0.55;
 /** Holding a site pre-plant is a default, not an order. */
 const PRIORITY_HOLD = 0.5;
+/** How close to a hold a player counts as on it. */
+const HOLD_RADIUS = 96;
 
 /** Within this of the planted bomb you can arm or defuse it. */
 const ARM_RADIUS = 64;
@@ -289,6 +291,8 @@ export class SearchAndDestroy extends BaseGametype {
   private readonly positions = new Map<number, Vec3Like>();
   /** One defender a site who stays whatever is spotted. */
   private readonly anchors = new Set<number>();
+  /** Defenders' holds this tick, by entity id: see `planDefence`. */
+  private readonly holdOf = new Map<number, Hold>();
   /** The retake goes in: enough defenders regrouped, or the fuse is short. */
   private retakeGo = false;
   /** The bomb has been carried this round: a drop after that is a fight's, not the round's start. */
@@ -494,6 +498,7 @@ export class SearchAndDestroy extends BaseGametype {
     this.calledSite = null;
     this.spotted = null;
     this.anchors.clear();
+    this.holdOf.clear();
     this.retakeGo = false;
     this.attackPlan = null;
     this.attackSent = false;
@@ -1056,12 +1061,29 @@ export class SearchAndDestroy extends BaseGametype {
     context: GametypeTickContext,
   ): void {
     this.anchors.clear();
+    this.holdOf.clear();
     if (!this.coaches(context.defendingTeam, "defence")) return;
     for (const site of this.sites) {
       const assigned = defenders
         .filter((d) => this.siteByDefender.get(d.entityId) === site.id)
         .sort((a, b) => a.entityId - b.entityId);
       if (assigned.length > 0) this.anchors.add(assigned[0].entityId);
+    }
+    // Holds: the defenders bound for a site take its holds in turn, the anchor
+    // the best; any more than there are holds keep to the site.
+    if (this.coaches(context.defendingTeam, "holds")) {
+      for (const site of this.sites) {
+        const holds = holdsAt(this.lanes, site.id, "defend");
+        const bound = defenders
+          .filter((d) => this.defendSiteOf(d.entityId) === site.id)
+          .sort(
+            (a, b) =>
+              Number(this.anchors.has(b.entityId)) - Number(this.anchors.has(a.entityId)) || a.entityId - b.entityId,
+          );
+        bound.slice(0, holds.length).forEach((d, i) => {
+          this.holdOf.set(d.entityId, holds[i]);
+        });
+      }
     }
     const carrier = attackers.find((a) => a.entityId === this.bomb.carrierId);
     if (carrier && this.tick % SPOT_EVERY_TICKS === 0 && this.collision) {
@@ -1083,6 +1105,13 @@ export class SearchAndDestroy extends BaseGametype {
       if (fuse <= RETAKE_GO_TICKS || points.length === 0 || there >= Math.min(2, defenders.length))
         this.retakeGo = true;
     }
+  }
+
+  /** The site a defender is bound for: its own, or the spotted carrier's while rotating. */
+  private defendSiteOf(entityId: number): number | null {
+    const rotate =
+      this.spotted !== null && !this.anchors.has(entityId) && this.tick - this.spotted.tick <= ROTATE_TICKS;
+    return rotate && this.spotted ? this.spotted.siteId : (this.siteByDefender.get(entityId) ?? null);
   }
 
   /**
@@ -1325,6 +1354,26 @@ export class SearchAndDestroy extends BaseGametype {
       }
       // Crossfire: each attacker holds part way from the bomb towards one of
       // the ways defenders come in, rather than all on the bomb.
+      const holds = this.bomb.siteId === null ? [] : holdsAt(this.lanes, this.bomb.siteId, "attack");
+      if (holds.length > 0 && me !== null && this.coaches(context.teamId, "holds")) {
+        const order = Math.max(0, this.livingAttackers.indexOf(me));
+        if (order < holds.length) {
+          const hold = holds[order];
+          return [
+            this.directive(
+              `snd_hold_armed_${order}`,
+              "hold_area",
+              hold.at,
+              HOLD_RADIUS,
+              PRIORITY_ARM,
+              expiresAtTick,
+              "enemy_visible",
+              undefined,
+              hold.watch,
+            ),
+          ];
+        }
+      }
       const ways = this.waysIn();
       if (ways.length > 0 && me !== null && this.coaches(context.teamId, "crossfire")) {
         const order = this.livingAttackers.indexOf(me);
@@ -1381,11 +1430,24 @@ export class SearchAndDestroy extends BaseGametype {
         ];
       }
 
-      const assignedSite = me === null ? null : (this.siteByDefender.get(me) ?? null);
-      const rotate =
-        this.spotted !== null && me !== null && !this.anchors.has(me) && this.tick - this.spotted.tick <= ROTATE_TICKS;
-      const siteId = rotate && this.spotted ? this.spotted.siteId : assignedSite;
+      const siteId = me === null ? null : this.defendSiteOf(me);
       const site = this.sites.find((s) => s.id === siteId) ?? this.sites[0];
+      const hold = me === null ? undefined : this.holdOf.get(me);
+      if (hold) {
+        return [
+          this.directive(
+            `snd_defend_site_${site.id}`,
+            "defend",
+            hold.at,
+            HOLD_RADIUS,
+            PRIORITY_HOLD,
+            expiresAtTick,
+            "enemy_visible",
+            undefined,
+            hold.watch,
+          ),
+        ];
+      }
       directives.push(
         this.directive(
           // Keyed by SITE, not by player: the id must be stable for goal
@@ -1548,6 +1610,7 @@ export class SearchAndDestroy extends BaseGametype {
     expiresAtTick: number,
     interrupt: AgentDirective["interrupt"],
     via?: readonly Vec3Like[],
+    watch?: Vec3Like,
   ): AgentDirective {
     return {
       id,
@@ -1557,6 +1620,7 @@ export class SearchAndDestroy extends BaseGametype {
       expiresAtTick,
       interrupt,
       ...(via && via.length > 0 ? { via: via.map((p) => ({ x: p.x, y: p.y, z: p.z })) } : {}),
+      ...(watch ? { watch: { x: watch.x, y: watch.y, z: watch.z } } : {}),
     };
   }
 

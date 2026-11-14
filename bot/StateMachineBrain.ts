@@ -28,6 +28,7 @@ import {
   HIT_ATTENTION_MS,
   InputButtons,
 } from "./BotConfig";
+import { BotCoverPeek } from "./BotCoverPeek";
 import type { BotGameState, Vec3, VisiblePlayer } from "./BotGameState";
 import { vec3Distance, vec3Length, vec3Normalize, vec3Subtract } from "./BotGameState";
 import { BotMood, type Mood, type MoodEvent } from "./BotMood";
@@ -103,6 +104,9 @@ const VIA_RADIUS = 128;
 const VIA_HEIGHT = 72;
 /** A blade charge is held out of a fight at most this long after it started. */
 const CHARGE_CARRY_TICKS = Math.round(2 * TICK_RATE);
+/** A held watch sweeps this far either side of the way in, radians, at this rate. */
+const HOLD_SWEEP = 0.3;
+const HOLD_SWEEP_RATE = 0.9;
 const DODGE_REACT_TICKS = 30; // React to damage within last 30 ticks
 /** The slide's own cooldown plus its length, in server ticks, from the start of the last one. */
 const SLIDE_COOLDOWN_TICKS = Math.ceil(((PHYSICS.SLIDE_COOLDOWN + PHYSICS.SLIDE_DURATION) / 1000) * TICK_RATE);
@@ -112,6 +116,11 @@ const LUNGE_REROLL_TICKS = 125;
 const LUNGE_MIN_HEALTH = 30;
 /** How often a bot with a splash weapon looks for a ledge to fight from. */
 const HIGH_GROUND_SEARCH_TICKS = 250;
+/** Cover is fought from at this range and further: closer, the fight is too quick for it. */
+const COVER_MIN_RANGE = 350;
+
+/** Fight habits a head-to-head test can turn off (`BotOptions.fightOff`). */
+export type FightHabit = "cover" | "height";
 /** A heard enemy this close gets the gun for its distance readied, held this long. */
 const READY_RANGE = 1500;
 const READY_TICKS = 250;
@@ -307,6 +316,11 @@ export class StateMachineBrain extends BotBrain {
   private _lastSlideTick = Number.NEGATIVE_INFINITY;
   private _lungeRollAfterTick = 0;
   private readonly _combatMovement = new BotCombatMovement();
+  private readonly _coverPeek: BotCoverPeek;
+  /** When the bot last fired the weapon out, for peeking between shots. */
+  private _firedTick = Number.NEGATIVE_INFINITY;
+  /** Fight habits turned off for head-to-head tests (`BotOptions.fightOff`). */
+  private _fightOff: ReadonlySet<FightHabit> = new Set();
   private readonly _weaponCombos = new BotWeaponCombos();
   private readonly _mood = new BotMood();
   /** Kills and deaths since the last `takeMoodEvents`, for chat. */
@@ -431,6 +445,7 @@ export class StateMachineBrain extends BotBrain {
   constructor(difficulty: BotDifficulty, goalArbiterMode: GoalArbiterMode = defaultGoalArbiterMode()) {
     super(difficulty);
     this._goalArbiterMode = goalArbiterMode;
+    this._coverPeek = new BotCoverPeek(difficulty.dodgeSkill);
     this._strategist = new Strategist(difficulty.matchSense ?? 0.5);
     // mistakeRate finally does something: an occasional runner-up pick.
     this._itemGoalPlanner = new ItemGoalPlanner(difficulty.mistakeRate);
@@ -584,6 +599,11 @@ export class StateMachineBrain extends BotBrain {
     this._habitItem = kind;
   }
 
+  /** Turn fight habits off, for head-to-head tests (`bot:ab`). */
+  setFightOff(habits: readonly FightHabit[]): void {
+    this._fightOff = new Set(habits);
+  }
+
   /** The opponent's habits the bot has learned, for diagnostics. */
   get opponentHabits(): OpponentModel {
     return this._opponents;
@@ -729,6 +749,7 @@ export class StateMachineBrain extends BotBrain {
       this._look = null;
       this._routeLine = null;
       this._combatMovement.reset();
+      this._coverPeek.reset();
       this._weaponCombos.reset();
       this._mood.endFight();
       this._readyWeapon = null;
@@ -967,6 +988,9 @@ export class StateMachineBrain extends BotBrain {
       return BotState.FIGHT;
     }
 
+    // Ducked into cover between shots: still the same fight.
+    if (this.currentState === BotState.FIGHT && this._coverPeek.holding(state.tick)) return BotState.FIGHT;
+
     // Priority 2.5: Lost sight of enemy but tracking them → chase!
     // ...unless this fight's mistake is to forget them the moment they are gone.
     // A distant sound does not pull a bot off an item it needs: the track
@@ -1087,12 +1111,20 @@ export class StateMachineBrain extends BotBrain {
 
     // Strafe while fighting: rhythm, dodges and hops from BotCombatMovement
     const moves = this._combatMovement.step(state, this.aimDifficulty, enemy.distance);
-    const strafeInput = moves.strafe;
+    let strafeInput = moves.strafe;
+    // At range, from the edge of cover: out to shoot, back while reloading.
+    const enemyInSight = this._lastVision
+      ? this._lastVision.visibleEnemies.some((e) => e.player.playerId === enemy.playerId)
+      : true;
+    const peek = this._peekFromCover(state, enemy, currentProfile, selectedWeaponId, aim.yaw, enemyInSight);
+    if (peek !== null && !this._combatMovement.dodging(state.tick)) strafeInput = peek;
+    const peeking = peek !== null;
     if (strafeInput !== 0) this._strafeDirection = strafeInput;
 
     // Build buttons
     let buttons = 0;
-    let wantsFire = this._hasAmmoForWeapon(state, selectedWeaponId);
+    // Out of sight in cover there is nothing to shoot at, and a rocket into the wall hits the bot.
+    let wantsFire = this._hasAmmoForWeapon(state, selectedWeaponId) && (enemyInSight || !peeking);
 
     if (mistake === "wild_shot") {
       // Fires before the aim is on: a few degrees off to one side
@@ -1174,6 +1206,12 @@ export class StateMachineBrain extends BotBrain {
     if (moves.jump) buttons |= InputButtons.JUMP;
     if (moves.crouch) buttons |= InputButtons.CROUCH;
 
+    if (wantsFire && (buttons & InputButtons.FIRE) !== 0 && state.self.currentWeapon === selectedWeaponId) {
+      if (state.tick - this._firedTick >= currentProfile.fireIntervalTicks) this._firedTick = state.tick;
+    }
+    // Using cover, the bot keeps its distance: walking in leaves the cover behind.
+    if (peeking) buttons &= ~(InputButtons.FORWARD | InputButtons.BACK);
+
     // Movement direction
     let forwardZ = 0;
     if (currentProfile.isMelee) {
@@ -1183,10 +1221,11 @@ export class StateMachineBrain extends BotBrain {
     } else if (enemy.distance < MELEE_RANGE || (currentProfile.hasSplash && enemy.distance < 250)) {
       forwardZ = -1;
     }
-    let strafeX = strafeInput * 0.5;
+    if (peeking) forwardZ = 0;
+    let strafeX = peeking ? strafeInput : strafeInput * 0.5;
 
     // With a splash weapon, take a ledge above the enemy when one is close
-    const ledge = currentProfile.hasSplash ? this._highGround(state, enemy) : null;
+    const ledge = currentProfile.hasSplash && !peeking ? this._highGround(state, enemy) : null;
     if (ledge) {
       const towardYaw = Math.atan2(ledge.x - state.self.position.x, ledge.z - state.self.position.z);
       const off = towardYaw - aim.yaw;
@@ -1211,7 +1250,7 @@ export class StateMachineBrain extends BotBrain {
     if (
       !vision ||
       !state.self.isGrounded ||
-      state.matchState.gametypeName.toLowerCase() !== "duel" ||
+      (this._fightOff.has("height") && state.matchState.gametypeName.toLowerCase() !== "duel") ||
       self.y - enemy.position.y < 64
     )
       return input;
@@ -1253,6 +1292,44 @@ export class StateMachineBrain extends BotBrain {
     const events = this._moodEvents;
     this._moodEvents = [];
     return events;
+  }
+
+  /**
+   * The strafe that fights from cover at range (BotCoverPeek), or null to
+   * fight in the open: close in, with the blade, or with the habit off.
+   */
+  private _peekFromCover(
+    state: BotGameState,
+    enemy: VisiblePlayer,
+    profile: WeaponProfile,
+    weaponId: string,
+    yaw: number,
+    inSight: boolean,
+  ): -1 | 0 | 1 | null {
+    const vision = this._lastBotVision;
+    if (
+      !vision ||
+      this._fightOff.has("cover") ||
+      profile.isMelee ||
+      enemy.distance < COVER_MIN_RANGE ||
+      !state.self.isGrounded ||
+      state.self.currentWeapon !== weaponId
+    ) {
+      this._coverPeek.reset();
+      return null;
+    }
+    const self = state.self.position;
+    const enemyEye = { x: enemy.position.x, y: enemy.position.y + DEFAULT_VIEWHEIGHT, z: enemy.position.z };
+    return this._coverPeek.step({
+      tick: state.tick,
+      self,
+      yaw,
+      hidden: (at) => !vision.canSee({ x: at.x, y: at.y + DEFAULT_VIEWHEIGHT, z: at.z }, enemyEye),
+      walkable: (to) => vision.isWalkable(self, to),
+      refireTicks: profile.fireIntervalTicks,
+      firedTick: this._firedTick,
+      visible: inSight,
+    });
   }
 
   /**
@@ -1862,6 +1939,8 @@ export class StateMachineBrain extends BotBrain {
     // Planting and defusing use move_to: those orders must stay still on arrival.
     const patrol = goal.directive?.kind === "defend" || goal.directive?.kind === "hold_area";
     if (patrol && radius !== undefined && vec3Length(vec3Subtract(goal.position, state.self.position)) <= radius) {
+      const watch = goal.directive?.watch;
+      if (watch) return this._holdWatching(state, watch);
       return this._patrolSite(state, goal, radius);
     }
     this._sitePatrol = null;
@@ -1923,12 +2002,14 @@ export class StateMachineBrain extends BotBrain {
 
   /** Recover from a route that issues commands without actually going anywhere. */
   private _recoverStalledNavigation(state: BotGameState, input: BotInput): BotInput {
-    if (
-      this._mandatoryGoal ||
-      this._activeItemGoal?.directive ||
-      this.currentState === BotState.FIGHT ||
-      this.currentState === BotState.DODGE
-    ) {
+    // A bot standing still on purpose (holding a site, planting, waiting at
+    // staging) is not stuck; one with an order that is trying to move is,
+    // and an order is no reason to stay wedged against a wall all round.
+    const standing =
+      input.direction.x === 0 &&
+      input.direction.z === 0 &&
+      (input.buttons & (InputButtons.FORWARD | InputButtons.BACK | InputButtons.LEFT | InputButtons.RIGHT)) === 0;
+    if (standing || this.currentState === BotState.FIGHT || this.currentState === BotState.DODGE) {
       this._navigationProgress = null;
       return input;
     }
@@ -2014,6 +2095,25 @@ export class StateMachineBrain extends BotBrain {
     const way = ways[Math.floor(state.tick / ENTRANCE_WATCH_TICKS) % ways.length];
     input.yaw = Math.atan2(way.x - state.self.position.x, way.z - state.self.position.z);
     return input;
+  }
+
+  /**
+   * On a hold with a way in to watch: stand and look at it, sweeping slowly
+   * either side so the edges of the doorway are covered too.
+   */
+  private _holdWatching(state: BotGameState, watch: Vec3): BotInput {
+    this._sitePatrol = null;
+    const self = state.self.position;
+    const dx = watch.x - self.x;
+    const dz = watch.z - self.z;
+    const sweep = Math.sin((state.tick / TICK_RATE) * HOLD_SWEEP_RATE) * HOLD_SWEEP;
+    return {
+      direction: { x: 0, y: 0, z: 0 },
+      pitch: -Math.atan2(watch.y - (self.y + DEFAULT_VIEWHEIGHT), Math.hypot(dx, dz)),
+      yaw: Math.atan2(dx, dz) + sweep,
+      buttons: 0,
+      weaponSlot: 0,
+    };
   }
 
   private _patrolSite(state: BotGameState, goal: BotGoal, radius: number): BotInput {

@@ -160,7 +160,8 @@ marked non-interruptible takes precedence over ordinary combat, chasing and
 item shopping; defenders still engage visible enemies during normal site defense.
 On reaching a defend or hold area, bots patrol nearby supported standing points
 inside the assigned radius, pausing briefly between moves. They hold position
-when no safe walking segment exists. Planting, arming and defusing orders remain
+when no safe walking segment exists. An order that names a way in to watch is held
+standing, looking at it. Planting, arming and defusing orders remain
 stationary on arrival.
 
 The mode plays each team of bots as a team:
@@ -170,13 +171,16 @@ The mode plays each team of bots as a team:
   outside, then go in together once the carrier's pair and one more are there,
   within 25 seconds, or at once when one of them falls. The site is chosen by
   how the attack has done at each against this defence in the match.
-- **Defence.** One bot holds each site whatever happens. When a defender sees
-  the carrier, the others move to the site the carrier is nearest. An armed
+- **Defence.** One bot holds each site whatever happens. Defenders hold from
+  set spots: high ground that sees the site and the ways the attack comes in,
+  looking at the likeliest one. When a defender sees the carrier, the others
+  move to the site the carrier is nearest. An armed
   bomb is retaken together: defenders gather outside the site, then go in
   once two are there or the fuse is short.
 - **A dropped bomb.** One attacker fetches it while two cover the spot; the two
   defenders nearest it guard it.
-- **After a plant.** Attackers hold part way towards each way into the site.
+- **After a plant.** Attackers hold from spots that see the bomb and the ways
+  defenders come in, or part way towards each way in.
 
 With people on the team, bots call what they see in team chat by the map's
 place names — "2 enemies at Old Town", "Bomb carrier at Warehouse B", "Bomb
