@@ -458,6 +458,21 @@
   color: var(--w-cream-dim, hsla(42, 95%, 92%, 0.62));
 }
 
+/* A video's end card has no keys: centred, and large enough to read on a TV */
+.dvh-end.is-movie {
+  right: auto;
+  bottom: auto;
+  left: 50%;
+  top: 50%;
+  align-items: center;
+  transform: translate(-50%, -50%) scale(1.6);
+}
+
+.dvh-end.is-movie .dvh-end-card {
+  align-items: center;
+  text-align: center;
+}
+
 /* --- The clean view (H): no pointer over the picture, but the end keys still take one --- */
 
 body.dvh-clean,
@@ -494,6 +509,15 @@ body.dvh-clean .dvh-end.is-shown {
 .dvh-title.is-shown {
   opacity: 1;
   transition: opacity 0.4s ease;
+}
+
+/* A demo's names come up over play, not black: dim the picture behind them,
+   and take a second to go */
+.dvh-title.is-over-play {
+  background:
+    radial-gradient(hsla(190, 100%, 72%, 0.045) 1px, transparent 1.5px) 0 0 / 7px 7px,
+    radial-gradient(ellipse at center, hsla(250, 45%, 4%, 0.62), hsla(250, 45%, 4%, 0.3) 70%);
+  transition: opacity 1s ease;
 }
 
 .dvh-title-sides {

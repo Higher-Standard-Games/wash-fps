@@ -1,8 +1,12 @@
 export const MOVIE_FPS = 60;
 /** A highlight reel's ceiling. */
 export const REEL_MAX_SECONDS = 240;
-/** A whole recorded match's ceiling: a ten-minute match with its warmup and result screen. */
+/** A whole recorded match's ceiling: twice a ten-minute match. */
 export const MATCH_MAX_SECONDS = 20 * 60;
+/** After a full match's last frame: the fade to black and the end card held. */
+export const MATCH_END_SECONDS = 5;
+/** The longest full-match movie: the longest recording and its end. */
+export const MATCH_MOVIE_MAX_SECONDS = MATCH_MAX_SECONDS + MATCH_END_SECONDS;
 
 /** Integer timestamps from a frame index avoid cumulative rounding drift. */
 export function movieFrame(index: number, fps = MOVIE_FPS) {

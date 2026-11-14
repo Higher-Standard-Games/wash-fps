@@ -13,7 +13,7 @@
 import { createRaisedKey, injectRaisedKeyStyles, setRaisedKeyText } from "../../../engine/ui/components/RaisedKey";
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import type { DemoViewerInfo } from "./DemoViewer";
-import type { ReelSummary, ReelTitle } from "./ReelCards";
+import type { EndCard, ReelTitle } from "./ReelCards";
 import demoViewerHudCss from "./styles/DemoViewerHUD.css?raw";
 
 /** How long the controls stay up after the mouse or a key last moved. */
@@ -153,7 +153,11 @@ export class DemoViewerHUD {
   private cardTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly listeners = new AbortController();
 
-  constructor() {
+  /**
+   * `movie` builds only what a video shows: the veil, the opening names and
+   * the end card, without controls, keys or listeners.
+   */
+  constructor(private readonly options: { movie?: boolean } = {}) {
     // The key styles first, so this sheet's bar variant comes after them and wins
     injectRaisedKeyStyles();
     UIStyles.injectCSS("demo-viewer-hud", demoViewerHudCss);
@@ -241,8 +245,15 @@ export class DemoViewerHUD {
     exit.addEventListener("click", () => this._onExit?.());
     const keys = el("div", "dvh-end-keys");
     keys.append(replay, exit);
-    this.endKeys.append(this.endCard, keys);
+    this.endKeys.append(this.endCard);
 
+    if (this.options.movie) {
+      this.titleCard.classList.add("is-over-play");
+      this.endKeys.classList.add("is-movie");
+      document.body.append(this.veil, this.titleCard, this.endKeys);
+      return;
+    }
+    this.endKeys.append(keys);
     this.setGameHudVisible(true);
     this.setupEvents();
     document.body.append(this.veil, this.titleCard, this.container, this.exitPlate, this.card, this.endKeys);
@@ -315,6 +326,8 @@ export class DemoViewerHUD {
   setReel(shotStarts: number[] | null): void {
     this.reel = shotStarts !== null;
     this.container?.classList.toggle("is-reel", this.reel);
+    // A reel's title is over black; a demo's over its first seconds of play
+    this.titleCard?.classList.toggle("is-over-play", !this.reel);
     this.marks?.replaceChildren(
       ...(shotStarts ?? []).map((at) => {
         const mark = el("span", "dvh-mark");
@@ -508,8 +521,8 @@ export class DemoViewerHUD {
   }
 
   /**
-   * After a reel's closing fade to black, fade in its two keys: Replay and
-   * Exit. They go again as soon as the reel plays on.
+   * After the closing fade to black of a reel or a demo, fade in its two keys:
+   * Replay and Exit. They go again as soon as playback moves on.
    */
   setReelEnded(ended: boolean): void {
     this.endKeys?.classList.toggle("is-shown", ended);
@@ -543,30 +556,23 @@ export class DemoViewerHUD {
     card.append(sides);
   }
 
-  /** Show the opening card while the reel holds on black; it fades as the picture comes up. */
+  /** Show the opening card: over a reel's opening black, or a demo's first seconds; it fades as it goes. */
   setTitleVisible(visible: boolean): void {
     this.titleCard?.classList.toggle("is-shown", visible);
   }
 
   /** How the match went, shown with the end keys. */
-  setEndCard(summary: ReelSummary | null): void {
+  setEndCard(summary: EndCard | null): void {
     const card = this.endCard;
     if (!card) return;
     card.replaceChildren();
     if (!summary) return;
-    const chip = (label: string, value: string) => {
+    for (const { label, value } of summary.chips) {
       const line = el("div", "dvh-end-chip");
       line.append(el("span", "dvh-end-label", label), el("span", "dvh-end-value", value));
       card.append(line);
-    };
-    if (summary.topFragger) {
-      const { name, frags } = summary.topFragger;
-      chip("Top fragger", `${name} · ${frags} ${frags === 1 ? "frag" : "frags"}`);
     }
-    if (summary.best) chip("Best moment", `${summary.best.title} · ${summary.best.player}`);
-    const counts = [`${summary.frags} ${summary.frags === 1 ? "highlight" : "highlights"}`];
-    if (summary.tricks > 0) counts.push(`${summary.tricks} ${summary.tricks === 1 ? "trick jump" : "trick jumps"}`);
-    card.append(el("div", "dvh-end-counts", counts.join(" · ")));
+    card.append(el("div", "dvh-end-counts", summary.counts));
   }
 
   // ── Visibility ──────────────────────────────────────────────────

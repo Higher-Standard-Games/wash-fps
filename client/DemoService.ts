@@ -68,6 +68,7 @@ import { GibSystem } from "./GibSystem";
 import { currentClip, HUDState } from "./HUDState";
 import { MatchStateManager } from "./MatchStateManager";
 import { RagdollSystem } from "./RagdollSystem";
+import { demoEndCard, reelEndCard, reelTitle } from "./ReelCards";
 import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
 import { SlideDust } from "./SlideDust";
 import { PlayerWeaponStates, storeSnapshotState } from "./SnapshotStateStore";
@@ -75,6 +76,12 @@ import { WatchedDeathView } from "./WatchedDeathView";
 
 /** How long a reel holds on black under its title card before the first shot. */
 const REEL_TITLE_MS = 2800;
+
+/** How long a demo's names stay up over its first seconds of play. */
+const DEMO_TITLE_MS = 3000;
+
+/** How long a finished demo takes to fade to black under its end card. */
+const DEMO_END_FADE_MS = 1000;
 
 /** Music while watching: a match's. Leaving plays the menus' again. */
 const GAME_PLAYLIST = "data/game.playlist.json";
@@ -136,6 +143,8 @@ export class DemoService {
   /** The demo's deaths, once scanned, for the timeline's lane. */
   private _timelineDeaths: DemoDeath[] = [];
   private _timelineScan: AbortController | null = null;
+  /** When a whole demo reached its end, on the page clock; null while it plays. */
+  private _demoEndedAt: number | null = null;
   /** Players holding alt fire (aiming down sights) over the frame on screen. */
   private _aimingEntities = new Set<string>();
   /**
@@ -353,12 +362,21 @@ export class DemoService {
       }
       await viewer.load(data);
       if (this.abandonStart(start, viewer)) return;
+      this._demoEndedAt = null;
+      if (this.demoHud && reader) this.demoHud.setTitle(reelTitle(reader.readHeader()));
       viewer.play();
       if (!options.manual) {
         this.startPlaybackLoop();
         this.scanTimelineEvents(viewer);
       }
     });
+  }
+
+  /** The demo's deaths, scanned before a video so its end card can count the frags. */
+  async scanDeaths(signal: AbortSignal): Promise<void> {
+    const deaths = await this.activeDemoViewer?.scanDeaths(signal);
+    signal.throwIfAborted();
+    this._timelineDeaths = deaths ?? [];
   }
 
   /** Find the demo's frags and deaths in the background, then mark them. */
@@ -438,7 +456,10 @@ export class DemoService {
         this.demoHud?.showCard(shotCard(segment, player.getReelInfo().totalScenes));
       });
       player.onStateChange((state) => {
-        if (state === "ended") this.demoHud?.setEndCard(player.getSummary());
+        if (state === "ended") {
+          const summary = player.getSummary();
+          this.demoHud?.setEndCard(summary ? reelEndCard(summary) : null);
+        }
         this.demoHud?.setReelEnded(state === "ended");
       });
       this.demoHud?.onReplay(() => player.replay());
@@ -881,6 +902,14 @@ export class DemoService {
       this._selectSpectateTarget(entityId);
     });
     this.demoHud.onHudToggle(() => this.setGameHudVisible(!this.gameHudVisible));
+    // A reel replays itself; a demo starts again from its first frame
+    if (mode === "normal")
+      this.demoHud.onReplay(() => {
+        const viewer = this.activeDemoViewer;
+        if (!viewer) return;
+        this.seekDemo(() => viewer.seekToFrame(0));
+        viewer.play();
+      });
     this.demoHud.setGameHudVisible(this.gameHudVisible);
     this.bindPlaybackKeys(document);
   }
@@ -889,13 +918,31 @@ export class DemoService {
   private bindPlaybackKeys(target: Document): void {
     this.playbackKeys?.abort();
     this.playbackKeys = new AbortController();
+    const signal = this.playbackKeys.signal;
+    const typing = (event: KeyboardEvent) =>
+      !!(event.target as HTMLElement | null)?.closest?.(
+        "input, textarea, select, [contenteditable='true'], #console, .console",
+      );
+    // Tab held shows the scoreboard over a whole demo, as it does in a match
+    target.addEventListener(
+      "keyup",
+      (event) => {
+        if (event.code === "Tab") this.setScoreboardHeld(false);
+      },
+      { signal },
+    );
+    target.defaultView?.addEventListener("blur", () => this.setScoreboardHeld(false), { signal });
     target.addEventListener(
       "keydown",
       (event) => {
+        if (event.code === "Tab" && !event.altKey && !event.ctrlKey && !event.metaKey && !typing(event)) {
+          event.preventDefault();
+          if (!event.repeat && !this.activeCinematicPlayer) this.setScoreboardHeld(true);
+          return;
+        }
         if (event.repeat && !event.code.startsWith("Arrow") && event.code !== "Comma" && event.code !== "Period")
           return;
-        const el = event.target as HTMLElement | null;
-        if (el?.closest?.("input, textarea, select, [contenteditable='true'], #console, .console")) return;
+        if (typing(event)) return;
         const action = demoKeyAction(event, {
           reel: this.activeCinematicPlayer !== null,
           freeCamera:
@@ -905,8 +952,15 @@ export class DemoService {
         event.preventDefault();
         this.runKeyAction(action);
       },
-      { signal: this.playbackKeys.signal },
+      { signal },
     );
+  }
+
+  /** The game HUD's scoreboard while Tab is held; the post-game screen keeps its own open. */
+  private setScoreboardHeld(held: boolean): void {
+    const board = this.gameHud?.scoreboard;
+    if (held) board?.show();
+    else board?.hide();
   }
 
   private runKeyAction(action: DemoKeyAction): void {
@@ -1079,7 +1133,47 @@ export class DemoService {
       this.demoHud?.setVeil(veil.color, veil.opacity);
     } else {
       this.demoHud?.update(playback);
+      if (this.demoHud) this.presentDemoEnds(this.demoHud, playback, performance.now());
     }
+  }
+
+  /**
+   * A whole demo's two ends, as a reel has them: the players' names over its
+   * first seconds, and at its last frame a fade to black, how the match went,
+   * and the keys to watch it again or leave. `nowMs` times the fade: the page
+   * clock over playback, the movie's in a full-match video.
+   */
+  presentDemoEnds(hud: DemoViewerHUD, playback: DemoViewerInfo, nowMs: number): void {
+    const ended = playback.state === "ended";
+    hud.setTitleVisible(!ended && playback.elapsedMs < DEMO_TITLE_MS);
+    if (!ended) {
+      if (this._demoEndedAt === null) return;
+      this._demoEndedAt = null;
+      hud.setVeil("black", 0);
+      hud.setReelEnded(false);
+      return;
+    }
+    const now = nowMs;
+    if (this._demoEndedAt === null) {
+      this._demoEndedAt = now;
+      const scores = HUDState.getInstance();
+      const players = scores.scoreboard.filter((entry) => entry.teamId !== "spectator");
+      const sides = scores.teamBased
+        ? Object.entries(scores.teamScores)
+            .filter(([team]) => team !== "spectator")
+            .map(([team, score]) => ({ name: scores.teamNames[team] ?? team, score }))
+        : undefined;
+      hud.setEndCard(
+        demoEndCard({
+          players,
+          sides,
+          frags: this._timelineDeaths.filter((death) => death.killerId !== null).length,
+          durationMs: playback.durationMs,
+        }),
+      );
+      hud.setReelEnded(true);
+    }
+    hud.setVeil("black", Math.min(1, (now - this._demoEndedAt) / DEMO_END_FADE_MS));
   }
 
   /** Timedemo camera changes retain normal POV weapon/recoil/hidden-body behavior. */

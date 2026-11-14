@@ -7,7 +7,7 @@ const BUMP_CLASSES = ["fps-frag-counter--bump"] as const;
 const BUMP_NAMES = ["w-stamp"] as const;
 
 // =============================================================================
-// Frag Counter — displays local player's score next to the timer
+// Frag Counter — displays the viewed player's score next to the timer
 // =============================================================================
 
 export class FPSFragCounter implements FPSHudWidget {
@@ -43,10 +43,13 @@ export class FPSFragCounter implements FPSHudWidget {
   }
 
   public update(state: HUDState): void {
-    if (!state.localPlayerId) return;
-
-    // Find local player in scoreboard
-    const entry = state.scoreboard.find((e) => e.playerId === state.localPlayerId);
+    // The score of whoever the view is behind: the followed player when
+    // spectating or watching a demo, which has no local player, ours otherwise
+    const entry = state.spectating
+      ? state.scoreboard.find((e) => e.entityId === state.spectating)
+      : state.localPlayerId
+        ? state.scoreboard.find((e) => e.playerId === state.localPlayerId)
+        : undefined;
     const score = entry ? entry.score : 0;
 
     if (score === this.currentScore) return;

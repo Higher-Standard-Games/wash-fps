@@ -27,15 +27,18 @@ describe("demo playback keys", () => {
     expect(demoKeyAction(key("ArrowDown"), demo)).toEqual({ type: "speed", step: -1 });
     expect(demoKeyAction(key("KeyN"), demo)).toEqual({ type: "frag", step: 1 });
     expect(demoKeyAction(key("KeyP"), demo)).toEqual({ type: "frag", step: -1 });
-    expect(demoKeyAction(key("Tab"), demo)).toEqual({ type: "player", step: 1 });
-    expect(demoKeyAction(key("Tab", { shiftKey: true }), demo)).toEqual({ type: "player", step: -1 });
+    expect(demoKeyAction(key("KeyE"), demo)).toEqual({ type: "player", step: 1 });
+    expect(demoKeyAction(key("KeyQ"), demo)).toEqual({ type: "player", step: -1 });
+    // Tab is held for the scoreboard, which the playback service owns
+    expect(demoKeyAction(key("Tab"), demo)).toBeNull();
     expect(demoKeyAction(key("Digit3"), demo)).toEqual({ type: "player_at", index: 2 });
   });
 
   it("moves between shots with the arrows in a reel, and leaves the demo-only keys alone", () => {
     expect(demoKeyAction(key("ArrowLeft"), reel)).toEqual({ type: "shot", step: -1 });
     expect(demoKeyAction(key("ArrowRight"), reel)).toEqual({ type: "shot", step: 1 });
-    for (const code of ["KeyN", "Tab", "Digit1", "Comma", "ArrowUp"]) expect(demoKeyAction(key(code), reel)).toBeNull();
+    for (const code of ["KeyN", "KeyE", "Digit1", "Comma", "ArrowUp"])
+      expect(demoKeyAction(key(code), reel)).toBeNull();
   });
 
   it("leaves the movement keys to a free-flying camera, and shortcuts with a modifier alone", () => {

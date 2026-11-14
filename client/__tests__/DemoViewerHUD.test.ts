@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DemoViewerInfo } from "../DemoViewer";
 import { DemoViewerHUD } from "../DemoViewerHUD";
+import { reelEndCard } from "../ReelCards";
 
 const info = (state: DemoViewerInfo["state"]): DemoViewerInfo =>
   ({
@@ -163,12 +164,14 @@ describe("DemoViewerHUD", () => {
     hud.setTitleVisible(false);
     expect(title.classList.contains("is-shown")).toBe(false);
 
-    hud.setEndCard({
-      topFragger: { name: "Ann", frags: 1 },
-      best: { title: "Frag", player: "Ann" },
-      frags: 3,
-      tricks: 0,
-    });
+    hud.setEndCard(
+      reelEndCard({
+        topFragger: { name: "Ann", frags: 1 },
+        best: { title: "Frag", player: "Ann" },
+        frags: 3,
+        tricks: 0,
+      }),
+    );
     const end = document.querySelector<HTMLElement>("#demo-viewer-end")!;
     expect(end.textContent).toContain("Top fragger");
     expect(end.textContent).toContain("Ann · 1 frag");
@@ -176,6 +179,20 @@ describe("DemoViewerHUD", () => {
     expect(end.textContent).toContain("3 highlights");
     expect(end.textContent).not.toContain("trick");
     hud.dispose();
+  });
+
+  it("builds only the veil and the cards for a video: no controls, no keys", () => {
+    const hud = new DemoViewerHUD({ movie: true });
+    expect(bar()).toBeNull();
+    expect(document.querySelector("#demo-viewer-exit")).toBeNull();
+    expect(document.querySelector("#demo-viewer-title")?.classList.contains("is-over-play")).toBe(true);
+    hud.setEndCard({ chips: [{ label: "Winner", value: "Ann" }], counts: "3 frags · 1:00" });
+    hud.setReelEnded(true);
+    const end = document.querySelector<HTMLElement>("#demo-viewer-end")!;
+    expect(end.classList.contains("is-movie")).toBe(true);
+    expect(end.textContent).toBe("WinnerAnn3 frags · 1:00");
+    hud.dispose();
+    expect(document.querySelector("#demo-viewer-end")).toBeNull();
   });
 
   it("clears the picture of controls and the pointer in the clean view, and brings them back", () => {

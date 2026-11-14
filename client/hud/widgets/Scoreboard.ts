@@ -215,7 +215,10 @@ export class FPSScoreboard {
     if (!this.visible) return;
 
     const state = HUDState.getInstance();
-    const localPlayerId = state.localPlayerId;
+    // A demo has no local player: the row marked as ours is the followed player's
+    const localPlayerId =
+      state.localPlayerId ||
+      (state.playback ? (state.scoreboard.find((e) => e.entityId === state.spectating)?.playerId ?? "") : "");
     const match = MatchStateManager.getInstance();
     const round = match.round;
     const carrier = match.bomb?.carrier ?? null;

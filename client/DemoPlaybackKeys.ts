@@ -7,10 +7,11 @@
  *   , / .        one frame back or on, paused
  *   ↑ / ↓        faster or slower
  *   P / N        the previous or next frag
- *   Tab          the next player's eyes (Shift+Tab the previous)
+ *   Q / E        the previous or next player's eyes
  *   1 – 9        that player's eyes, in the player list's order
  *
- * Esc (leave) and H (hide the overlays) are handled where they were before.
+ * Esc (leave), H (hide the overlays) and Tab (hold for the scoreboard) are
+ * handled by their owners.
  */
 
 export type DemoKeyAction =
@@ -64,8 +65,10 @@ export function demoKeyAction(
       return { type: "frag", step: 1 };
     case "KeyP":
       return { type: "frag", step: -1 };
-    case "Tab":
-      return { type: "player", step: event.shiftKey ? -1 : 1 };
+    case "KeyQ":
+      return { type: "player", step: -1 };
+    case "KeyE":
+      return { type: "player", step: 1 };
   }
   const digit = /^Digit([1-9])$/.exec(event.code);
   return digit ? { type: "player_at", index: Number(digit[1]) - 1 } : null;

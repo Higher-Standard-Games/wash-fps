@@ -1,4 +1,4 @@
-import { MATCH_MAX_SECONDS } from "./MovieClock";
+import { MATCH_MOVIE_MAX_SECONDS } from "./MovieClock";
 
 /** Piecewise-constant rates sampled by the same fixed-step movie traversal. */
 export class ExportAudioTimeline {
@@ -13,7 +13,7 @@ export class ExportAudioTimeline {
       samples[0].time !== 0 ||
       !Number.isFinite(duration) ||
       duration <= 0 ||
-      duration > MATCH_MAX_SECONDS
+      duration > MATCH_MOVIE_MAX_SECONDS
     )
       throw new Error("Invalid audio movie duration");
     let source = 0;

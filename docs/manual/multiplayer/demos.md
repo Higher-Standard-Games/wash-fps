@@ -8,7 +8,7 @@ The dedicated game server records every match by default. Recording is:
 
 - **Server-side** — the client is never the recording authority.
 - **Tick-aligned** — every player input and every entity state delta is captured per tick.
-- **The match only** — recording spans the active match through post-game, never warmup or countdown, so a demo opens on the first shot rather than on people idling at spawn.
+- **The match only** — recording spans the active match and stops as the post-game begins, never warmup or countdown, so a demo opens on the first shot rather than on people idling at spawn.
 - **Binary format** — `.shagdemo` is the on-disk format. Compact; not human-readable. Decoded by `DemoReader`.
 
 Recordings land in `public/data/demos/` on the game server's filesystem — the recorder takes an `outputDir` if a deployment wants them elsewhere, though the lobby scans that fixed path when it builds the list it serves to clients.
@@ -47,7 +47,17 @@ demoplay stop                     # Stop active playback
 The demo loads as a tick stream. The client replays recorded snapshots through
 the game's render path, including player models, weapon view and effects. Choose
 a player from the **POV** controls to follow their first-person view. The game
-HUD follows their recorded health, armor, ammo and match state.
+HUD follows their recorded health, armor, ammo, frag count and match state.
+
+A demo opens with the players' names over its first three seconds of play, as
+a highlight reel's title card shows them, and they fade as the match gets
+going. At the last frame the picture fades to black under an end card: the
+winner, read from the final scores, and the demo's frags and length. For a team
+match it also names the top fragger. **Replay** watches it again from the start
+and **Exit** leaves playback. The recording stops as the post-game begins, before
+the last round counts towards the match score. So where the round wins stand
+level at the end and each side is one player, as in Amphi, the frags of that
+last round decide the winner. Teams that stand level get no winner.
 
 Playback is driven on screen rather than by console commands: the transport HUD carries a timeline you can click anywhere on to seek, a play/pause button, and a speed selector cycling 0.25×, 0.5×, 1×, 2× and 4×. Seeking rebuilds the world at the landing tick rather than fast-forwarding through it.
 
@@ -60,7 +70,8 @@ Playback is driven on screen rather than by console commands: the transport HUD 
 | **,** / **.** | One frame back or on (pauses) | |
 | **↑** / **↓** | Faster or slower, through 0.25× to 4× | |
 | **P** / **N** | The previous or next frag, from two seconds before it | |
-| **Tab** / **Shift+Tab** | The next or previous player's eyes | |
+| **Tab** (hold) | The scoreboard | |
+| **Q** / **E** | The previous or next player's eyes | |
 | **1** – **9** | That player's eyes, in the bar's player order | |
 | **H** | Clean view: hide the overlays, chat and pointer | Same |
 | **Escape** | Leave playback | Leave playback |
@@ -171,14 +182,16 @@ the whole match through one player's eyes, as they played it. **Follow player**
 lists the recording's players. The video runs from the recording's first frame
 to its last at normal speed, in that player's first-person view, with the
 game's own HUD drawn into every frame: vitals, weapons and ammo, the timer and
-score, the kill feed, chat, frag and pickup messages, the crosshair and the
-post-game scoreboard. When the player dies, the video follows the death camera
+score, the kill feed, chat, frag and pickup messages, and the crosshair. It
+opens with the players' names over its first three seconds and ends as demo
+playback does: five more seconds that fade to black and hold the end card, without
+its keys. When the player dies, the video follows the death camera
 as demo playback does. The HUD's animations and timers run on the movie's clock,
 so they play at their real speed however long a frame takes to render.
 
 Output is 1920×1080 at 60 FPS, H.264 at a 12 Mbit/s target, with 48 kHz stereo
 AAC game audio. A full match has no background music. The recording must be
-between 10 seconds and 20 minutes long. Rendering takes about three and a half
+between 10 seconds and 20 minutes long; the video is five seconds longer. Rendering takes about three and a half
 times the match's length on a desktop GPU: a 10-minute match takes about 35
 minutes. Game audio is mixed after the picture, in 30-second pieces, and
 added to the finished file, so temporary storage briefly holds two copies of

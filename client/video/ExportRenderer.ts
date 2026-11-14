@@ -25,6 +25,8 @@ import { canonicalWeaponId } from "../../shared/entities/definitions/weapons/Wea
 import { fpsMapEntities } from "../../world/FpsMapEntities";
 import { DemoService } from "../DemoService";
 import { DemoViewer } from "../DemoViewer";
+import { DemoViewerHUD } from "../DemoViewerHUD";
+import { reelTitle } from "../ReelCards";
 import { TeleportEffect } from "../TeleportEffect";
 import { assertAudioAgreement, assertAudioMovieRates } from "./ExportAudioAgreement";
 import { ExportAudioBuffers } from "./ExportAudioBuffers";
@@ -35,7 +37,14 @@ import type { ExportMusicSelection } from "./ExportMusicSelection";
 import { drawReelOverlay } from "./ExportOverlay";
 import { ExportSceneReadiness } from "./ExportSceneReadiness";
 import { HudFrameCapture } from "./HudFrameCapture";
-import { abortable, MATCH_MAX_SECONDS, MOVIE_FPS, renderMovieFrames } from "./MovieClock";
+import {
+  abortable,
+  MATCH_END_SECONDS,
+  MATCH_MAX_SECONDS,
+  MATCH_MOVIE_MAX_SECONDS,
+  MOVIE_FPS,
+  renderMovieFrames,
+} from "./MovieClock";
 import { Mp4Writer, movieBytes } from "./Mp4Writer";
 import { assertReelMovieFrame, collectReelMovieSchedule, type ReelMovieFrame } from "./ReelMovieSchedule";
 import { warmShot } from "./ShotPreroll";
@@ -104,6 +113,8 @@ export async function renderDemoMovie(
   let preparedMusic: PreparedExportMusic | undefined;
   let capture: ExportAudioCapture | undefined;
   let hud: HudFrameCapture | undefined;
+  /** A full match's opening names and end card, drawn into the movie with its HUD. */
+  let cards: DemoViewerHUD | undefined;
   let silent: TemporaryVideo | undefined;
   let releaseSoundSink: (() => void) | undefined;
   let succeeded = false;
@@ -159,7 +170,7 @@ export async function renderDemoMovie(
       soundBuffers = new ExportAudioBuffers(signal);
       capture = new ExportAudioCapture(
         (paths, settings) => soundBuffers!.preload(paths, settings),
-        options.match ? MATCH_MAX_SECONDS : undefined,
+        options.match ? MATCH_MOVIE_MAX_SECONDS : undefined,
       );
       releaseSoundSink = audio.ownSfxSink(capture);
     }
@@ -370,7 +381,8 @@ export async function renderDemoMovie(
       if (seconds < 10) throw new Error("A full-match video needs at least ten seconds of recording");
       if (seconds > MATCH_MAX_SECONDS)
         throw new Error(`Full-match videos are limited to ${MATCH_MAX_SECONDS / 60} minutes of recording`);
-      const total = Math.ceil(seconds * MOVIE_FPS);
+      // The match, then its fade to black and end card
+      const total = Math.ceil((seconds + MATCH_END_SECONDS) * MOVIE_FPS);
       const movieSeconds = total / MOVIE_FPS;
       // Each recorded second takes a few to make: the limit follows the match's length
       clearTimeout(deadline);
@@ -388,6 +400,9 @@ export async function renderDemoMovie(
       };
       const page = (element: Element) => element === world || element.classList.contains("video-export-shell");
       hud = new HudFrameCapture(canvas.width, canvas.height, page);
+      await service.scanDeaths(signal);
+      cards = new DemoViewerHUD({ movie: true });
+      if (first.header) cards.setTitle(reelTitle(first.header));
       document.body.classList.add(RECORDING_CLASS);
       followPlayer();
       capture!.begin();
@@ -397,6 +412,7 @@ export async function renderDemoMovie(
       });
       const activeWriter = writer;
       const activeHud = hud;
+      const activeCards = cards;
       await renderMovieFrames(
         total,
         signal,
@@ -406,6 +422,7 @@ export async function renderDemoMovie(
           clock.nowMs += clock.deltaMs;
           effectClock.nowMs = clock.nowMs;
           service.updatePlaybackFrame(clock.deltaMs);
+          service.presentDemoEnds(activeCards, viewer.getInfo(), clock.nowMs);
           followPlayer();
           // The HUD's own timers (its update loop, its fades) run on the movie's clock
           runPresentationTimers();
@@ -428,7 +445,7 @@ export async function renderDemoMovie(
           if (frame.index % 4 === 0 || options.stallMs)
             await abortable(new Promise<void>((resolve) => setTimeout(resolve, options.stallMs ?? 0)), signal);
         },
-        MATCH_MAX_SECONDS,
+        MATCH_MOVIE_MAX_SECONDS,
       );
       if (viewer.getInfo().skippedFrames) throw new Error("Match recording skipped recorded events");
       progress("Finalizing video");
@@ -506,6 +523,7 @@ export async function renderDemoMovie(
     const cleanup: Array<() => void | Promise<void>> = [
       () => engine?.stopRenderLoop(),
       () => hud?.dispose(),
+      () => cards?.dispose(),
       () => document.body.classList.remove(RECORDING_CLASS),
       async () => {
         await silent?.dispose();
