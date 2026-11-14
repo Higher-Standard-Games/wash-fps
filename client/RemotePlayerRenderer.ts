@@ -195,9 +195,8 @@ const MODEL_SCALE = 36;
 // ─── Model Y offset (fine-tune feet vs floor alignment) ──
 // The anchor is placed at the player's feet (origin + PLAYER_MINS_Z = origin−24)
 // plus this offset. A fitted body's local origin sits at its feet, so
-// the offset should be ~0. It was previously 12, which floated remote players
-// ~12u off the floor while walking (reported 2026-07-12). Browser-confirm the
-// exact value if feet clip into / hover above the floor.
+// the offset is 0; a positive one floats remote players off the floor.
+// Browser-confirm the value if feet clip into or hover above the floor.
 const MODEL_Y_OFFSET = 0;
 
 // Mixamo animation natural speeds (Q3 units/s at 1x playback)

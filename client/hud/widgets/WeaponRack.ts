@@ -29,6 +29,9 @@ export class FPSWeaponRack implements FPSHudWidget {
   private slotEls: Map<string, HTMLElement> = new Map();
   private ammoEls: Map<string, HTMLElement> = new Map();
   private lastWeaponHash: string = "";
+  private lastWeapons: HUDState["weapons"] | null = null;
+  private lastAmmo: HUDState["ammo"] | null = null;
+  private lastActive: HUDState["currentWeapon"] | null = null;
 
   constructor() {
     this.element = this.createElement();
@@ -74,6 +77,13 @@ export class FPSWeaponRack implements FPSHudWidget {
     const owned = state.weapons;
     const active = state.currentWeapon;
     const ammoMap = state.ammo;
+
+    // The HUD state replaces these only when a weapon_state arrives; until then
+    // nothing can have changed, and the hash below is not worth building
+    if (owned === this.lastWeapons && ammoMap === this.lastAmmo && active === this.lastActive) return;
+    this.lastWeapons = owned;
+    this.lastAmmo = ammoMap;
+    this.lastActive = active;
 
     // Build a hash to detect changes
     const hash = `${active}|${owned.join(",")}|${JSON.stringify(ammoMap)}`;

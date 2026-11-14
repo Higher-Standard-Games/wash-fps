@@ -1040,10 +1040,8 @@ export class FPSController implements ICameraController {
         this.physicsZ = pos.z;
 
         // Apply stair smoothing — ONLY for upward stair-climbing movement.
-        // During freefall, the old 0.15 smoothFactor caused camera to lag 5-6 frames
-        // behind physics, making collision appear shifted (camera 40-80u above
-        // actual physics position). Then when lag exceeded stepHeight*2 it snapped,
-        // creating the jerky warping pattern during falls.
+        // Smoothing a fall would trail the camera several frames behind physics
+        // and snap it back once the lag passed stepHeight*2.
         const stepHeight = mv.get("sv_stepheight");
         const smoothFactor = mv.get("cl_smoothfactor");
 

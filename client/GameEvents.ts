@@ -330,10 +330,9 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
     // fire event cannot end the taunt it caused
     const killTaunts: { killerId: string; taunt: string }[] = [];
 
-    // Dispatch by event type. Switching on the discriminated `type` (rather than
-    // the old if/else-if chain with compound conditions) narrows each `event` so
-    // field access is compiler-checked, and the exhaustive `default` catches an
-    // unrouted type instead of letting it vanish silently (QA-6).
+    // Dispatch by event type. Switching on the discriminated `type` narrows each
+    // `event` so field access is compiler-checked, and the exhaustive `default`
+    // catches an unrouted type instead of letting it vanish silently.
     //
     // Each event runs on its own: one that throws is logged and the rest of the
     // snapshot still runs, so a failing effect cannot take the kill feed, the

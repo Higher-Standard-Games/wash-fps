@@ -495,11 +495,9 @@ export class Game {
 
   private watchMatchPhase(): void {
     MatchStateManager.getInstance().onPhaseChange((newPhase, oldPhase) => {
-      // Endgame music. This phase→music swap previously lived only in
-      // NetworkGameHost, so local matches (which don't route through it) went
-      // silent at match end — even though the showcase, triggered here
-      // host-agnostically, still ran. Fire it here too; loadPlaylist dedupes by
-      // name, so a network host also firing it is a harmless no-op.
+      // Endgame music, here so local matches (which do not go through
+      // NetworkGameHost) get it too; loadPlaylist dedupes by name, so a network
+      // host also starting it is a harmless no-op.
       const audio = AudioManager.getInstance();
       if (newPhase === MatchPhase.PostGame) {
         void audio.loadPlaylist("data/endgame.playlist.json");
