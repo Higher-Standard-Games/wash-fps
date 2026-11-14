@@ -92,6 +92,7 @@ Many of our arenas come from Warsow and Warfork. Map authors are listed on the
 - **Washoi DM14** (`washoi_dm14`): from wdm14
 - **Washoi DM16** (`washoi_dm16`): from wdm16
 - **Washoi DM17** (`washoi_dm17`): from wdm17
+- **Washoi DM18** (`washoi_dm18`): from wdm18
 - **Washoi Amphi1** (`washoi_amphi1`): from wfamphi1
 - **Washoi Amphi2** (`washoi_amphi2`): from wda5
 - **Washoi Amphi3** (`washoi_amphi3`): from wda2

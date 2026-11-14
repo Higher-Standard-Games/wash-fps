@@ -14,6 +14,7 @@ import { log } from "../../../engine/core/Log";
 import { GameState } from "../../../engine/network/core/GameState";
 import { MessageCodec } from "../../../engine/network/protocol/MessageCodec";
 import type { ServerPVS } from "../../../engine/server/ServerPVS";
+import { weaponStateSignature } from "../../../shared/net/BinaryProtocol";
 import { type AgentDirective, isSide, sameSide } from "../../../shared/server/gametype";
 import { toClientKey } from "../ClientEntityKey";
 import { chatVisibleTo } from "./ChatRouting";
@@ -59,7 +60,7 @@ function lastingStateOf(state: GameState): Map<string, string> {
     if (event.type === "match_state") {
       lasting.set(ROSTER_KEY, JSON.stringify([event.standings, event.spectators]));
     } else if (event.type === "weapon_state") {
-      lasting.set(weaponKey(event.entityId), JSON.stringify(event));
+      lasting.set(weaponKey(event.entityId), weaponStateSignature(event));
     }
   }
   return lasting;

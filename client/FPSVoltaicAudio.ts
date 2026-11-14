@@ -37,6 +37,14 @@ interface Voice {
 /** One sustained beam voice per shooter, refreshed by authoritative snapshots. */
 export class FPSVoltaicAudio {
   private readonly voices = new Map<string, Voice>();
+  /** What one snapshot says, per entity; refilled by every `present`. */
+  private readonly scratch = {
+    weapons: new Map<string, WeaponStateEvent>(),
+    shots: new Map<string, WeaponFireEvent>(),
+    dead: new Set<string>(),
+    quad: new Set<string>(),
+    candidates: new Set<string>(),
+  };
   private watchdog: ReturnType<typeof setTimeout> | null = null;
   private playing = true;
   private playbackSpeed = 1;
@@ -52,10 +60,13 @@ export class FPSVoltaicAudio {
       this.reset();
       return;
     }
-    const weapons = new Map<string, WeaponStateEvent>();
-    const shots = new Map<string, WeaponFireEvent>();
-    const dead = new Set<string>();
-    const quad = new Set<string>();
+    // Collections kept between snapshots and cleared, not built each time
+    const { weapons, shots, dead, quad, candidates } = this.scratch;
+    weapons.clear();
+    shots.clear();
+    dead.clear();
+    quad.clear();
+    candidates.clear();
     for (const event of state.events as SnapshotEvent[]) {
       if (event.type === "weapon_state") weapons.set(event.entityId, event);
       else if (event.type === "weapon_fire" && canonicalWeaponId(event.weaponId) === "voltaic") {
@@ -67,7 +78,10 @@ export class FPSVoltaicAudio {
       }
     }
 
-    for (const entityId of new Set([...this.voices.keys(), ...shots.keys()])) {
+    // A copy of the ids: stopping a voice removes it from this.voices mid-loop
+    for (const entityId of this.voices.keys()) candidates.add(entityId);
+    for (const entityId of shots.keys()) candidates.add(entityId);
+    for (const entityId of candidates) {
       const previous = this.voices.get(entityId);
       const entity = state.entities.get(entityId);
       const weapon = weapons.get(entityId);

@@ -495,11 +495,9 @@ export class Game {
 
   private watchMatchPhase(): void {
     MatchStateManager.getInstance().onPhaseChange((newPhase, oldPhase) => {
-      // Endgame music. This phase→music swap previously lived only in
-      // NetworkGameHost, so local matches (which don't route through it) went
-      // silent at match end — even though the showcase, triggered here
-      // host-agnostically, still ran. Fire it here too; loadPlaylist dedupes by
-      // name, so a network host also firing it is a harmless no-op.
+      // Endgame music, here so local matches (which do not go through
+      // NetworkGameHost) get it too; loadPlaylist dedupes by name, so a network
+      // host also starting it is a harmless no-op.
       const audio = AudioManager.getInstance();
       if (newPhase === MatchPhase.PostGame) {
         void audio.loadPlaylist("data/endgame.playlist.json");
@@ -736,8 +734,7 @@ export class Game {
       const transport = await TransportFactory.create(url);
 
       // Create network game host with FPSSimulation for client-side prediction
-      // biome-ignore lint/suspicious/noExplicitAny: NetworkGameHost takes a Simulation<GameState, Command> and feeds it plain Commands; FPSSimulation handles FPSInputCommand
-      const networkHost = new NetworkGameHost(transport, simConfig, FPSSimulation as any);
+      const networkHost = new NetworkGameHost(transport, simConfig, FPSSimulation);
 
       // When the server names its map: load it, then set up prediction, cameras and
       // the watch/auto-join start (see MatchMapLoader). One loader per connection.

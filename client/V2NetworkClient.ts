@@ -767,8 +767,8 @@ export class V2NetworkClient {
     this.lastReconcileError = preError;
 
     // === PERIODIC DIAGNOSTIC (every ~4 seconds) ===
-    // Grounded-flip and speed-change warnings moved here to prevent console spam
-    // during crouchslide (previously fired every reconciliation → 30-60Hz log storm)
+    // Grounded-flip and speed-change warnings live here, not in every
+    // reconciliation, which runs 30-60 times a second during a crouchslide.
     if (this.reconcileCount % 250 === 0) {
       const postGrounded = this.localState.grounded;
       const postHSpeed = this.predictedMovement.actualHorizSpeed;

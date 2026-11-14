@@ -216,6 +216,11 @@ export class GibSystem {
   // Lifecycle
   // ========================================================================
 
+  /** Whether init() has given it a scene to draw in. */
+  isInitialized(): boolean {
+    return this.scene !== null;
+  }
+
   init(scene: Scene): void {
     // Allow re-initialization if scene changes (e.g., stale UI scene → game scene)
     if (this.scene === scene) return;
