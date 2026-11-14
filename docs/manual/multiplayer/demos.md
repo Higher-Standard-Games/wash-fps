@@ -170,7 +170,8 @@ can differ from the target. Output is 1920×1080 at 60 FPS, SDR H.264 video and
 packaged OST song for the main soundtrack, with game sounds layered over it. **Start from** selects
 the position in the song, as seconds, `m:ss` or `h:mm:ss` (for example `1:23.250`).
 Music plays continuously at normal speed across cuts and slow motion, with a
-short fade in and out. It stops at the end of the movie or song and does not loop.
+short fade in and out. In a highlight reel it stops at the end of the movie or song and does not loop;
+a [full match](#full-match) carries on with the game's songs.
 The start timestamp must be before the song ends.
 Selected music uses a fixed 80% gain; game sounds play underneath at 35% of
 their game-audio-only level. The combined mix retains clipping protection.
@@ -190,7 +191,11 @@ as demo playback does. The HUD's animations and timers run on the movie's clock,
 so they play at their real speed however long a frame takes to render.
 
 Output is 1920×1080 at 60 FPS, H.264 at a 12 Mbit/s target, with 48 kHz stereo
-AAC game audio. A full match has no background music. The recording must be
+AAC game audio. **Background music** works as for a highlight reel, at the same
+levels. When the chosen song ends, the game's own playlist follows as it does in a
+match: its songs, without the one chosen, in a shuffled order that comes round
+again, with no gap between songs, until the video ends. The music fades out over
+the last second and a half of the end card. The recording must be
 between 10 seconds and 20 minutes long; the video is five seconds longer. Rendering takes about three and a half
 times the match's length on a desktop GPU: a 10-minute match takes about 35
 minutes. Game audio is mixed after the picture, in 30-second pieces, and

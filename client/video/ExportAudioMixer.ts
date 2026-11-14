@@ -3,7 +3,7 @@ import type { PreparedExportSound } from "./ExportAudioBuffers";
 import type { ExportAudioPlan, ExportSoundCue } from "./ExportAudioCapture";
 import { ExportAudioTimeline } from "./ExportAudioTimeline";
 import type { PreparedExportMusic } from "./ExportMusic";
-import { musicPlaybackWindow } from "./ExportMusicSelection";
+import { type MusicSegment, musicPlaybackWindow } from "./ExportMusicSelection";
 import { abortable, MOVIE_FPS } from "./MovieClock";
 
 type PrepareSound = (
@@ -34,6 +34,84 @@ interface MixPlan {
 }
 
 const SAMPLE_RATE = 48000;
+/** The music's level in the mix. */
+const MUSIC_VOLUME = 0.8;
+
+/** One song's stretch of the movie's music, with its buffer: fades in movie seconds. */
+interface MusicClip {
+  buffer: AudioBuffer;
+  /** Movie time the stretch begins. */
+  at: number;
+  /** Song position at `at`. */
+  offset: number;
+  duration: number;
+  fadeIn: number;
+  fadeOut: number;
+}
+
+/** A whole match's music: its songs in turn, each decoded only while a window needs it. */
+export interface MatchMusic {
+  segments: MusicSegment[];
+  load: (path: string, signal: AbortSignal) => Promise<AudioBuffer>;
+}
+
+/** The clip's level at movie time `t`: its fades as straight ramps. */
+function clipLevel(clip: MusicClip, t: number): number {
+  const end = clip.at + clip.duration;
+  if (clip.fadeIn > 0 && t < clip.at + clip.fadeIn) return (MUSIC_VOLUME * Math.max(0, t - clip.at)) / clip.fadeIn;
+  if (clip.fadeOut > 0 && t > end - clip.fadeOut) return (MUSIC_VOLUME * Math.max(0, end - t)) / clip.fadeOut;
+  return MUSIC_VOLUME;
+}
+
+/** Schedule the part of `clip` inside the window `from`..`to`, its fades continuing across window edges. */
+function scheduleClip(context: OfflineAudioContext, clip: MusicClip, from: number, to: number) {
+  const begin = Math.max(from, clip.at);
+  const until = Math.min(to, clip.at + clip.duration);
+  if (until <= begin) return null;
+  const source = context.createBufferSource();
+  source.buffer = clip.buffer;
+  const bed = context.createGain();
+  bed.gain.setValueAtTime(clipLevel(clip, begin), begin - from);
+  const end = clip.at + clip.duration;
+  const corners = [clip.at + clip.fadeIn, end - clip.fadeOut, end].filter((t) => t > begin && t < until);
+  for (const t of corners) bed.gain.linearRampToValueAtTime(clipLevel(clip, t), t - from);
+  bed.gain.linearRampToValueAtTime(clipLevel(clip, until), until - from);
+  source.connect(bed);
+  bed.connect(context.destination);
+  source.start(begin - from, clip.offset + (begin - clip.at));
+  source.stop(until - from);
+  return { source, bed };
+}
+
+/** The songs of `music` that sound in the window `from`..`to`, decoded; the last song stays loaded for the next window. */
+async function windowClips(
+  music: MatchMusic,
+  from: number,
+  to: number,
+  cache: Map<string, AudioBuffer>,
+  signal: AbortSignal,
+): Promise<MusicClip[]> {
+  const last = music.segments[music.segments.length - 1];
+  const clips: MusicClip[] = [];
+  const wanted = music.segments.filter((s) => s.at < to && s.at + s.duration > from);
+  for (const key of [...cache.keys()]) if (!wanted.some((s) => s.path === key)) cache.delete(key);
+  for (const segment of wanted) {
+    let buffer = cache.get(segment.path);
+    if (!buffer) {
+      buffer = await music.load(segment.path, signal);
+      cache.set(segment.path, buffer);
+    }
+    clips.push({
+      buffer,
+      at: segment.at,
+      offset: segment.offset,
+      duration: segment.duration,
+      fadeIn: segment === music.segments[0] ? Math.min(0.25, segment.duration / 2) : 0,
+      fadeOut: segment === last ? Math.min(1.5, segment.duration / 2) : 0,
+    });
+  }
+  return clips;
+}
 const yieldNow = (signal: AbortSignal) => abortable(new Promise<void>((resolve) => setTimeout(resolve, 0)), signal);
 
 /** Which cues sound, when, and from where in their buffers: the voice limits, decided once for the whole movie. */
@@ -152,7 +230,7 @@ async function renderWindow(
   from: number,
   to: number,
   signal: AbortSignal,
-  music?: PreparedExportMusic,
+  music: MusicClip[] = [],
 ): Promise<AudioBuffer> {
   const { timeline, voices } = mix;
   const context = new OfflineAudioContext(2, Math.round((to - from) * SAMPLE_RATE), SAMPLE_RATE);
@@ -167,23 +245,11 @@ async function renderWindow(
   };
   signal.addEventListener("abort", cancelled, { once: true });
   try {
-    if (music) {
-      if (from !== 0 || to !== plan.duration) throw new Error("Music is mixed in one piece");
-      const window = musicPlaybackWindow(music.buffer.duration, music.startSeconds, plan.duration);
-      const source = context.createBufferSource();
-      source.buffer = music.buffer;
-      const bed = context.createGain();
-      const volume = 0.8;
-      bed.gain.setValueAtTime(0, 0);
-      bed.gain.linearRampToValueAtTime(volume, window.fadeIn);
-      bed.gain.setValueAtTime(volume, window.duration - window.fadeOut);
-      bed.gain.linearRampToValueAtTime(0, window.duration);
-      source.connect(bed);
-      bed.connect(context.destination);
-      source.start(0, window.offset);
-      source.stop(window.duration);
-      nodes.push(source, bed);
-      sources.push(source);
+    for (const clip of music) {
+      const scheduled = scheduleClip(context, clip, from, to);
+      if (!scheduled) continue;
+      nodes.push(scheduled.source, scheduled.bed);
+      sources.push(scheduled.source);
     }
     const listener = context.listener;
     if (!listener.positionX || !listener.forwardX) throw new Error("Offline spatial audio automation is unsupported");
@@ -343,7 +409,12 @@ export async function mixExportAudio(
   music?: PreparedExportMusic,
 ): Promise<{ buffer: AudioBuffer; peak: number; gain: number; voices: number }> {
   const mix = await planVoices(plan, prepare, signal, !!music);
-  const buffer = await renderWindow(plan, mix, 0, plan.duration, signal, music);
+  const clips: MusicClip[] = [];
+  if (music) {
+    const window = musicPlaybackWindow(music.buffer.duration, music.startSeconds, plan.duration);
+    clips.push({ buffer: music.buffer, at: 0, ...window });
+  }
+  const buffer = await renderWindow(plan, mix, 0, plan.duration, signal, clips);
   const peak = peakOf(buffer);
   const gain = headroom(peak);
   scale(buffer, gain);
@@ -353,7 +424,8 @@ export async function mixExportAudio(
 /**
  * A long movie's mix, handed to `add` in windows of `windowSeconds`, so only
  * one window is ever in memory. It is rendered twice: once to find the whole
- * mix's peak, once to hand over at the level that peak allows.
+ * mix's peak, once to hand over at the level that peak allows. `music` plays
+ * under it, each song decoded only for the windows it sounds in.
  */
 export async function streamExportAudio(
   plan: ExportAudioPlan,
@@ -362,9 +434,13 @@ export async function streamExportAudio(
   add: (buffer: AudioBuffer) => Promise<void>,
   progress?: (done: number, total: number) => void,
   windowSeconds = 30,
+  music?: MatchMusic,
 ): Promise<{ peak: number; gain: number; voices: number }> {
   if (!Number.isFinite(windowSeconds) || windowSeconds <= 0) throw new Error("Invalid audio window");
-  const mix = await planVoices(plan, prepare, signal, false);
+  const mix = await planVoices(plan, prepare, signal, !!music);
+  const songs = new Map<string, AudioBuffer>();
+  const clips = (from: number, to: number) =>
+    music ? windowClips(music, from, to, songs, signal) : Promise.resolve([] as MusicClip[]);
   const windows: Array<[number, number]> = [];
   for (let from = 0; from < plan.duration; from += windowSeconds)
     windows.push([from, Math.min(plan.duration, from + windowSeconds)]);
@@ -373,16 +449,19 @@ export async function streamExportAudio(
   let peak = 0;
   for (let i = 0; i < windows.length; i++) {
     const [from, to] = edges[i];
-    peak = Math.max(peak, peakOf(await renderWindow(plan, mix, from / SAMPLE_RATE, to / SAMPLE_RATE, signal)));
+    const [start, end] = [from / SAMPLE_RATE, to / SAMPLE_RATE];
+    peak = Math.max(peak, peakOf(await renderWindow(plan, mix, start, end, signal, await clips(start, end))));
     progress?.(i + 1, windows.length * 2);
   }
   const gain = headroom(peak);
   for (let i = 0; i < windows.length; i++) {
     const [from, to] = edges[i];
-    const buffer = await renderWindow(plan, mix, from / SAMPLE_RATE, to / SAMPLE_RATE, signal);
+    const [start, end] = [from / SAMPLE_RATE, to / SAMPLE_RATE];
+    const buffer = await renderWindow(plan, mix, start, end, signal, await clips(start, end));
     scale(buffer, gain);
     await add(buffer);
     progress?.(windows.length + i + 1, windows.length * 2);
   }
-  return { peak, gain, voices: mix.voices.length };
+  songs.clear();
+  return { peak, gain, voices: mix.voices.length + (music?.segments.length ?? 0) };
 }

@@ -31,8 +31,8 @@ import { TeleportEffect } from "../TeleportEffect";
 import { assertAudioAgreement, assertAudioMovieRates } from "./ExportAudioAgreement";
 import { ExportAudioBuffers } from "./ExportAudioBuffers";
 import { ExportAudioCapture } from "./ExportAudioCapture";
-import { mixExportAudio, streamExportAudio } from "./ExportAudioMixer";
-import { type PreparedExportMusic, prepareExportMusic } from "./ExportMusic";
+import { type MatchMusic, mixExportAudio, streamExportAudio } from "./ExportAudioMixer";
+import { type PreparedExportMusic, prepareExportMusic, prepareMatchMusic } from "./ExportMusic";
 import type { ExportMusicSelection } from "./ExportMusicSelection";
 import { drawReelOverlay } from "./ExportOverlay";
 import { ExportSceneReadiness } from "./ExportSceneReadiness";
@@ -111,6 +111,7 @@ export async function renderDemoMovie(
   let readiness: ExportSceneReadiness | undefined;
   let soundBuffers: ExportAudioBuffers | undefined;
   let preparedMusic: PreparedExportMusic | undefined;
+  let matchMusic: MatchMusic | undefined;
   let capture: ExportAudioCapture | undefined;
   let hud: HudFrameCapture | undefined;
   /** A full match's opening names and end card, drawn into the movie with its HUD. */
@@ -177,8 +178,9 @@ export async function renderDemoMovie(
     const index = PK3Index.getInstance();
     index.setSearchPaths(["data/"]);
     await abortable(index.ensureIndex(progress), preparation.signal);
-    if (options.music) {
-      if (!options.reelMinutes) throw new Error("Music is supported for highlight exports.");
+    if (options.music && !options.reelMinutes && !options.match)
+      throw new Error("Music is supported for highlight and full-match exports.");
+    if (options.music && options.reelMinutes) {
       progress("Preparing selected OST song");
       preparedMusic = await prepareExportMusic({ ...options.music }, preparation.signal);
     }
@@ -391,6 +393,10 @@ export async function renderDemoMovie(
         (30 * 60 + 6 * movieSeconds) * 1000,
       );
       const maxBytes = Math.max(768 * 1024 * 1024, 2 * movieBytes(movieSeconds, MATCH_VIDEO_BITRATE));
+      if (options.music) {
+        progress("Preparing the OST songs");
+        matchMusic = await prepareMatchMusic({ ...options.music }, movieSeconds, signal);
+      }
       const follow = options.match.follow;
       const followPlayer = () => {
         const state = service.getPlaybackState();
@@ -464,6 +470,8 @@ export async function renderDemoMovie(
             signal,
             add,
             (done, all) => progress("Mixing game audio", done, all),
+            undefined,
+            matchMusic,
           );
         },
         maxBytes,
@@ -535,6 +543,7 @@ export async function renderDemoMovie(
       () => soundBuffers?.dispose(),
       () => {
         preparedMusic = undefined;
+        matchMusic = undefined;
       },
       async () => {
         if (writer && !succeeded) await writer.dispose();

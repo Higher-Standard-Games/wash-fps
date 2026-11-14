@@ -62,7 +62,8 @@ class Source extends Node {
   loopStart = 0;
   loopEnd = 0;
   readonly detune = { value: 0 };
-  readonly playbackRate = new Param();
+  // Web Audio starts a source at its natural rate
+  readonly playbackRate = Object.assign(new Param(), { value: 1 });
   when = 0;
   offset = 0;
   until = Number.POSITIVE_INFINITY;
@@ -202,5 +203,63 @@ describe("windowed match audio", () => {
     const mismatched = joined.filter((value, i) => Math.abs(value - reference[i]) > 0.002).length;
     expect(mismatched).toBeLessThan(10);
     expect(reference.reduce((max, value) => Math.max(max, value), 0)).toBeGreaterThan(0.5);
+  });
+
+  it("plays a match's songs across its windows as one piece, decoding each only while it sounds", async () => {
+    vi.stubGlobal(
+      "OfflineAudioContext",
+      class extends Context {
+        constructor(channels: number, length: number, sampleRate: number) {
+          super(channels, length, sampleRate);
+        }
+      },
+    );
+    const songs = new Map([
+      ["one", sound(3)],
+      ["two", sound(2)],
+    ]);
+    const loads: string[] = [];
+    const music = {
+      // Song one from 1 s in, then two, then one again: edges inside windows and on them
+      segments: [
+        { path: "one", at: 0, offset: 1, duration: 2 },
+        { path: "two", at: 2, offset: 0, duration: 2 },
+        { path: "one", at: 4, offset: 0, duration: 1.5 },
+      ],
+      load: async (path: string) => {
+        loads.push(path);
+        return songs.get(path)!;
+      },
+    };
+    const movie = plan(5.5, [cue("shot", 0.2, null)]);
+    const prepare = async () => ({ buffer: sound(0.7), loopStart: 0 });
+    const signal = new AbortController().signal;
+    const render = async (windowSeconds: number) => {
+      const parts: Buffer[] = [];
+      const result = await streamExportAudio(
+        movie,
+        prepare,
+        signal,
+        async (buffer) => {
+          parts.push(buffer as unknown as Buffer);
+        },
+        undefined,
+        windowSeconds,
+        music,
+      );
+      return { result, samples: parts.flatMap((part) => [...part.channels[0]]) };
+    };
+    const whole = await render(100);
+    loads.length = 0;
+    const windowed = await render(0.75);
+    expect(windowed.result.gain).toBeCloseTo(whole.result.gain, 9);
+    expect(windowed.samples).toHaveLength(whole.samples.length);
+    const mismatched = windowed.samples.filter((value, i) => Math.abs(value - whole.samples[i]) > 0.002).length;
+    expect(mismatched).toBeLessThan(10);
+    // Faded in at the start and out at the end, full between
+    expect(whole.samples[0]).toBeCloseTo(0);
+    expect(Math.abs(whole.samples[whole.samples.length - 1])).toBeLessThan(0.01);
+    // A song is decoded once per stretch it plays, not per window; the second pass opens on the song the first ended on
+    expect(loads).toEqual(["one", "two", "one", "two", "one"]);
   });
 });

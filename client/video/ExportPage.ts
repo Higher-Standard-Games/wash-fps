@@ -93,7 +93,6 @@ const format = document.querySelector<HTMLElement>(".video-export-format")!;
 const kindSelect = document.querySelector<HTMLSelectElement>("#video-export-kind")!;
 const followSelect = document.querySelector<HTMLSelectElement>("#video-export-follow")!;
 const kindHelp = document.querySelector<HTMLElement>(".video-export-kind-help")!;
-const musicBlock = document.querySelector<HTMLElement>(".video-export-music")!;
 const lengthsBlock = document.querySelector<HTMLElement>(".video-export-lengths")!;
 let source: ExportSource | null = null;
 let sourceReadId = 0;
@@ -156,7 +155,6 @@ function sync() {
   kindSelect.disabled = busy;
   followSelect.disabled = !match || !roster?.length || busy;
   lengthsBlock.hidden = match;
-  musicBlock.hidden = match;
   title.textContent = match ? "Export full match" : "Export highlights";
   format.textContent = match
     ? "1080p · 60 FPS · MP4 · stereo game audio · game HUD"
@@ -402,6 +400,14 @@ input.addEventListener("change", () => {
     "Opening export demo",
   );
 });
+/** The music line, for the chosen song and the kind of video. */
+function musicHelpText(): string {
+  if (!musicSelect.value) return "Game audio only. Choose a song to add the OST.";
+  return kind === "match"
+    ? "Timestamp in the song. When it ends, the game's songs follow in a shuffled order, as in a match."
+    : "Timestamp in the song. Music plays continuously at normal speed.";
+}
+
 kindSelect.addEventListener("change", () => {
   kind = kindSelect.value === "match" ? "match" : "reel";
   kindHelp.textContent =
@@ -409,21 +415,12 @@ kindSelect.addEventListener("change", () => {
       ? "The whole match through one player's eyes, with their game HUD, as they played it. Takes a few times the match's length to make."
       : "A highlight reel of the match's best moments, with cinematic cameras.";
   if (kind === "match") ensureRoster();
+  if (musicReady && musicSelect.value) musicHelp.textContent = musicHelpText();
   status.textContent = readyText();
   sync();
 });
 followSelect.addEventListener("change", () => sync());
 generate.addEventListener("click", () => {
-  if (kind === "match") {
-    if (source && followSelect.value)
-      background(
-        exportSession.run(source, { match: { follow: followSelect.value } }).catch((error) => {
-          if (!(error instanceof DOMException && error.name === "AbortError")) throw error;
-        }),
-        "Video export",
-      );
-    return;
-  }
   let music: ExportMusicSelection | undefined;
   if (musicSelect.value) {
     try {
@@ -434,9 +431,11 @@ generate.addEventListener("click", () => {
       return;
     }
   }
+  if (kind === "match" && !followSelect.value) return;
+  const job = kind === "match" ? { match: { follow: followSelect.value }, music } : { reelMinutes: selected, music };
   if (source)
     background(
-      exportSession.run(source, { reelMinutes: selected, music }).catch((error) => {
+      exportSession.run(source, job).catch((error) => {
         if (!(error instanceof DOMException && error.name === "AbortError")) throw error;
       }),
       "Video export",
@@ -445,9 +444,7 @@ generate.addEventListener("click", () => {
 songStart.addEventListener("input", () => songStart.setCustomValidity(""));
 musicSelect.addEventListener("change", () => {
   songStart.setCustomValidity("");
-  musicHelp.textContent = musicSelect.value
-    ? "Timestamp in the song. Music plays continuously at normal speed."
-    : "Game audio only. Choose a song to add the OST.";
+  musicHelp.textContent = musicHelpText();
   sync();
 });
 background(
