@@ -90,6 +90,11 @@ export class DamageNumbers {
   // Lifecycle
   // ========================================================================
 
+  /** Whether init() has given it a scene to draw in. */
+  isInitialized(): boolean {
+    return this.scene !== null;
+  }
+
   init(scene: Scene): void {
     if (this.scene) return;
     this.scene = scene;

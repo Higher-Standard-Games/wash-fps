@@ -7,6 +7,7 @@ import {
 } from "../../../../../engine/core/PresentationTime";
 import { InputDevice } from "../../../../../engine/input/InputDevice";
 import { InputSystem } from "../../../../../engine/input/InputSystem";
+import { escapeHtml } from "../../../../../engine/ui/EscapeHtml";
 import { getWeaponViewManager } from "../../../../../engine/weapon/WeaponViewManager";
 import { Game, type PlayerStateUpdate } from "../../../Game";
 import { canonicalWeaponId, WEAPONS } from "../../../shared/entities/definitions/weapons/WeaponsTable";
@@ -104,10 +105,6 @@ function hintHtml(id: HintId): string {
 /** The first key bound to an action, as a key cap. */
 function firstKey(action: string): string {
   return `<span class="fps-hint-key">${escapeHtml(keyLabels(action)[0] ?? "?")}</span>`;
-}
-
-function escapeHtml(text: string): string {
-  return text.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c);
 }
 
 /** Whether a weapon aims down sights: every gun with an ADS setup, not the blade. */

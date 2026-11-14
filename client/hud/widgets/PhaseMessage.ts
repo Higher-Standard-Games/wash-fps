@@ -1,6 +1,7 @@
 // Extracted from FPSHud.ts
 
 import { type PresentationTimer, presentationTimeout } from "../../../../../engine/core/PresentationTime";
+import { escapeHtml } from "../../../../../engine/ui/EscapeHtml";
 import { FPS, getActionKeyLabel } from "../../FPSActions";
 import { MatchPhase, MatchStateManager } from "../../MatchStateManager";
 import type { FPSHudWidget, HUDState } from "../HudWidget";
@@ -71,8 +72,7 @@ export class FPSPhaseMessage implements FPSHudWidget {
         // Auto-hides after the slam lands; the post-game scoreboard (also titled
         // with the winner) then owns the screen.
         const winner = mgr.winner;
-        const title =
-          winner && winner.kind !== "draw" && winner.name ? `${this.escapeHtml(winner.name)} wins!` : "Draw!";
+        const title = winner && winner.kind !== "draw" && winner.name ? `${escapeHtml(winner.name)} wins!` : "Draw!";
         // Single-match servers are terminal: the way forward is the lobby.
         const subtitle =
           mgr.flow === "single" ? "GG — return to lobby for the next one" : "Match over — next match starting soon...";
@@ -104,13 +104,6 @@ export class FPSPhaseMessage implements FPSHudWidget {
   private showHtmlIfChanged(html: string): void {
     if (html === this.lastHtml && !this.element.classList.contains("hidden")) return;
     this.showHtml(html);
-  }
-
-  /** Escape user-controlled text (player names) before innerHTML interpolation. */
-  private escapeHtml(text: string): string {
-    const div = document.createElement("div");
-    div.textContent = text;
-    return div.innerHTML;
   }
 
   private hideMessage(): void {
@@ -192,7 +185,7 @@ export class FPSPhaseMessage implements FPSHudWidget {
     const key = `timeout:${pause.caller}:${pause.forDrop}`;
     if (this.shownPause !== key) {
       this.shownPause = key;
-      const caller = this.escapeHtml(pause.caller);
+      const caller = escapeHtml(pause.caller);
       const why = pause.forDrop ? `${caller} dropped. Waiting for them to come back` : `Called by ${caller}`;
       this.showHtml(
         `<div class="fps-phase-title">Timeout</div><div class="fps-phase-subtitle">${why}</div>` +

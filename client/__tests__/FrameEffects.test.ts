@@ -16,6 +16,9 @@ function system(name: string) {
     init: vi.fn(function (this: { scene: unknown }, scene: unknown) {
       this.scene = scene;
     }),
+    isInitialized(this: { scene: unknown }) {
+      return this.scene !== null;
+    },
     update: vi.fn(),
     spawn: vi.fn(),
     setGibCallback: vi.fn(),

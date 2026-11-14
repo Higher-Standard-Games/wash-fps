@@ -132,166 +132,162 @@ export class MatchMapLoader {
 
       // === CRITICAL: Set up FPS controller AFTER map loads ===
       // This prevents the race condition where scene empty/map command overrides the controller
-      try {
-        // Set up BSP collision for client prediction
-        // This is critical for movement responsiveness (avoids "flying through walls" in prediction)
-        const cm = getCollisionManager();
-        if (cm.isInitialized()) {
-          const collisionWorld = createBSPCollisionWorld();
-          if (collisionWorld) {
-            this.host.setCollisionWorld(collisionWorld);
+      // Set up BSP collision for client prediction
+      // This is critical for movement responsiveness (avoids "flying through walls" in prediction)
+      const cm = getCollisionManager();
+      if (cm.isInitialized()) {
+        const collisionWorld = createBSPCollisionWorld();
+        if (collisionWorld) {
+          this.host.setCollisionWorld(collisionWorld);
 
-            // Underwater tint/fog for whatever camera is active. Started
-            // per map load because the scene is rebuilt each time and the
-            // previous view has to be disposed with it, or the next map
-            // inherits fog it never asked for.
-            import("../../../engine/camera/CameraSystem")
-              .then(({ CameraSystem: cs }) => {
-                if (this.controller.signal.aborted) return;
-                const underwaterScene = cs.getInstance().getCamera()?.getScene();
-                if (underwaterScene) {
-                  this.host.startUnderwaterView(underwaterScene);
-                  this.host.setCollisionWorld(collisionWorld);
-                }
-              })
-              .catch(logRejection("MatchMapLoader"));
-          } else {
-            throw new Error("Required client collision world is unavailable");
-          }
-
-          // Trigger volumes (teleporters/jumppads) for client prediction —
-          // the SAME shared TriggerTable extraction the server runs, so
-          // pads and teleporters are predicted with zero reconciliation snap.
-          const bsp = cm.getBsp();
-          if (bsp && this.host.v2Client()) {
-            const { extractTriggerVolumes } = await import("../../../shared/bsp/TriggerTable");
-            this.controller.signal.throwIfAborted();
-            this.host.v2Client()!.setTriggerVolumes(extractTriggerVolumes(bsp.entities, bsp.models));
-            const { extractSpawnFacings } = await import("../../../shared/bsp/SpawnPointTable");
-            this.controller.signal.throwIfAborted();
-            this.host.v2Client()!.setSpawnFacings(extractSpawnFacings(bsp.entities));
-            // Face the way the map's spawn point faces whenever the server places us there.
-            this.host.v2Client()!.onSpawnFacing((yaw) => {
+          // Underwater tint/fog for whatever camera is active. Started
+          // per map load because the scene is rebuilt each time and the
+          // previous view has to be disposed with it, or the next map
+          // inherits fog it never asked for.
+          import("../../../engine/camera/CameraSystem")
+            .then(({ CameraSystem: cs }) => {
               if (this.controller.signal.aborted) return;
-              const controller = CameraSystem.getInstance().getController("fps");
-              if (controller && "faceSpawn" in controller) {
-                (controller as import("../camera/FPSController").FPSController).faceSpawn(yaw);
+              const underwaterScene = cs.getInstance().getCamera()?.getScene();
+              if (underwaterScene) {
+                this.host.startUnderwaterView(underwaterScene);
+                this.host.setCollisionWorld(collisionWorld);
               }
-            });
+            })
+            .catch(logRejection("MatchMapLoader"));
+        } else {
+          throw new Error("Required client collision world is unavailable");
+        }
 
-            // Prewarm the generic teleport-ghost pool so the FIRST
-            // teleport already has its afterimage.
+        // Trigger volumes (teleporters/jumppads) for client prediction —
+        // the SAME shared TriggerTable extraction the server runs, so
+        // pads and teleporters are predicted with zero reconciliation snap.
+        const bsp = cm.getBsp();
+        if (bsp && this.host.v2Client()) {
+          const { extractTriggerVolumes } = await import("../../../shared/bsp/TriggerTable");
+          this.controller.signal.throwIfAborted();
+          this.host.v2Client()!.setTriggerVolumes(extractTriggerVolumes(bsp.entities, bsp.models));
+          const { extractSpawnFacings } = await import("../../../shared/bsp/SpawnPointTable");
+          this.controller.signal.throwIfAborted();
+          this.host.v2Client()!.setSpawnFacings(extractSpawnFacings(bsp.entities));
+          // Face the way the map's spawn point faces whenever the server places us there.
+          this.host.v2Client()!.onSpawnFacing((yaw) => {
+            if (this.controller.signal.aborted) return;
+            const controller = CameraSystem.getInstance().getController("fps");
+            if (controller && "faceSpawn" in controller) {
+              (controller as import("../camera/FPSController").FPSController).faceSpawn(yaw);
+            }
+          });
+
+          // Prewarm the generic teleport-ghost pool so the FIRST
+          // teleport already has its afterimage.
+          import("../../../engine/camera/CameraSystem")
+            .then(({ CameraSystem: cs }) => {
+              if (this.controller.signal.aborted) return;
+              const scene = cs.getInstance().getCamera()?.getScene();
+              if (scene) {
+                import("./TeleportEffect")
+                  .then(({ TeleportEffect }) => {
+                    if (this.controller.signal.aborted) return;
+                    TeleportEffect.getInstance().prewarm(scene);
+                  })
+                  .catch(logRejection("MatchMapLoader"));
+              }
+            })
+            .catch(logRejection("MatchMapLoader"));
+
+          // Rotate the local camera to the exit yaw when our own
+          // prediction teleports (fresh inputs only, not replays), and
+          // play the generic VFX: your OWN afterimage at the entry
+          // (turn around and you're standing there) + speed-line bursts.
+          this.host.v2Client()!.onTeleport((exitYaw, from, to, entryYaw) => {
             import("../../../engine/camera/CameraSystem")
               .then(({ CameraSystem: cs }) => {
                 if (this.controller.signal.aborted) return;
+                const controller = cs.getInstance().getController("fps");
+                if (controller && "setViewYaw" in controller) {
+                  (controller as import("../camera/FPSController").FPSController).setViewYaw(exitYaw);
+                }
                 const scene = cs.getInstance().getCamera()?.getScene();
                 if (scene) {
                   import("./TeleportEffect")
                     .then(({ TeleportEffect }) => {
                       if (this.controller.signal.aborted) return;
-                      TeleportEffect.getInstance().prewarm(scene);
+                      TeleportEffect.getInstance().localTeleported(scene, from, to, entryYaw, exitYaw);
                     })
                     .catch(logRejection("MatchMapLoader"));
                 }
               })
               .catch(logRejection("MatchMapLoader"));
-
-            // Rotate the local camera to the exit yaw when our own
-            // prediction teleports (fresh inputs only, not replays), and
-            // play the generic VFX: your OWN afterimage at the entry
-            // (turn around and you're standing there) + speed-line bursts.
-            this.host.v2Client()!.onTeleport((exitYaw, from, to, entryYaw) => {
-              import("../../../engine/camera/CameraSystem")
-                .then(({ CameraSystem: cs }) => {
-                  if (this.controller.signal.aborted) return;
-                  const controller = cs.getInstance().getController("fps");
-                  if (controller && "setViewYaw" in controller) {
-                    (controller as import("../camera/FPSController").FPSController).setViewYaw(exitYaw);
-                  }
-                  const scene = cs.getInstance().getCamera()?.getScene();
-                  if (scene) {
-                    import("./TeleportEffect")
-                      .then(({ TeleportEffect }) => {
-                        if (this.controller.signal.aborted) return;
-                        TeleportEffect.getInstance().localTeleported(scene, from, to, entryYaw, exitYaw);
-                      })
-                      .catch(logRejection("MatchMapLoader"));
-                  }
-                })
-                .catch(logRejection("MatchMapLoader"));
-            });
-          }
-        } else {
-          throw new Error("Required client map collision is not initialized");
+          });
         }
+      } else {
+        throw new Error("Required client map collision is not initialized");
+      }
 
-        const { FPSController } = await import("../camera/FPSController");
+      const { FPSController } = await import("../camera/FPSController");
+      this.controller.signal.throwIfAborted();
+      const { FreeflyController } = await import("../../../engine/camera/controllers/FreeflyController");
+      this.controller.signal.throwIfAborted();
+      const cameraSystem = CameraSystem.getInstance();
+
+      // Register FPS controller (but don't activate — player starts as spectator)
+      if (!cameraSystem.getController("fps")) {
+        cameraSystem.registerController("fps", new FPSController());
+      }
+
+      // Register and activate freefly controller for spectator mode
+      if (!cameraSystem.getController("freefly")) {
+        cameraSystem.registerController("freefly", new FreeflyController());
+      }
+      // Start in freefly mode (spectator default)
+      cameraSystem.setController("freefly");
+
+      const camera = cameraSystem.getFreeCamera();
+      if (camera) {
+        await this.host.preparePlayers?.(camera.getScene(), this.controller.signal);
         this.controller.signal.throwIfAborted();
-        const { FreeflyController } = await import("../../../engine/camera/controllers/FreeflyController");
-        this.controller.signal.throwIfAborted();
-        const cameraSystem = CameraSystem.getInstance();
-
-        // Register FPS controller (but don't activate — player starts as spectator)
-        if (!cameraSystem.getController("fps")) {
-          cameraSystem.registerController("fps", new FPSController());
+        try {
+          await preloadFPSWeapons(
+            camera.getScene(),
+            camera,
+            (done, total) => hold.progress(done / total, "Compiling shaders"),
+            this.controller.signal,
+          );
+        } catch (error) {
+          if (this.cancelled) return;
+          throw error;
         }
+      } else {
+        throw new Error("Required match camera is unavailable");
+      }
 
-        // Register and activate freefly controller for spectator mode
-        if (!cameraSystem.getController("freefly")) {
-          cameraSystem.registerController("freefly", new FreeflyController());
-        }
-        // Start in freefly mode (spectator default)
-        cameraSystem.setController("freefly");
+      if (this.cancelled) return;
 
-        const camera = cameraSystem.getFreeCamera();
-        if (camera) {
-          await this.host.preparePlayers?.(camera.getScene(), this.controller.signal);
-          this.controller.signal.throwIfAborted();
-          try {
-            await preloadFPSWeapons(
-              camera.getScene(),
-              camera,
-              (done, total) => hold.progress(done / total, "Compiling shaders"),
-              this.controller.signal,
-            );
-          } catch (error) {
-            if (this.cancelled) return;
-            throw error;
+      // WATCH mode: start auto-chase polling AFTER map loads
+      // (must be here, not earlier — otherwise the freefly reset above overwrites the spectator camera)
+      if (this.config.watchOnly) {
+        const autoChaseInterval = setInterval(() => {
+          if (this.cancelled) {
+            clearInterval(autoChaseInterval);
+            return;
           }
-        } else {
-          throw new Error("Required match camera is unavailable");
-        }
+          const spectatorCycling = this.host.spectatorCycling();
+          if (spectatorCycling && spectatorCycling.getAliveCount() > 0) {
+            clearInterval(autoChaseInterval);
+            this.host.nextSpectateTarget();
+          }
+        }, 200);
+        // Safety: stop polling after 30s
+        setTimeout(() => clearInterval(autoChaseInterval), 30000);
+      }
 
-        if (this.cancelled) return;
-
-        // WATCH mode: start auto-chase polling AFTER map loads
-        // (must be here, not earlier — otherwise the freefly reset above overwrites the spectator camera)
-        if (this.config.watchOnly) {
-          const autoChaseInterval = setInterval(() => {
-            if (this.cancelled) {
-              clearInterval(autoChaseInterval);
-              return;
-            }
-            const spectatorCycling = this.host.spectatorCycling();
-            if (spectatorCycling && spectatorCycling.getAliveCount() > 0) {
-              clearInterval(autoChaseInterval);
-              this.host.nextSpectateTarget();
-            }
-          }, 200);
-          // Safety: stop polling after 30s
-          setTimeout(() => clearInterval(autoChaseInterval), 30000);
-        }
-
-        // Auto-join if requested (lobby flow — skip spectator overlay)
-        if (this.config.autoJoin) {
-          devLog("[Game] Auto-joining game (lobby flow)");
-          // Small delay to ensure everything is settled
-          setTimeout(() => {
-            if (!this.cancelled) this.host.joinGame();
-          }, 200);
-        }
-      } catch (e) {
-        throw e;
+      // Auto-join if requested (lobby flow — skip spectator overlay)
+      if (this.config.autoJoin) {
+        devLog("[Game] Auto-joining game (lobby flow)");
+        // Small delay to ensure everything is settled
+        setTimeout(() => {
+          if (!this.cancelled) this.host.joinGame();
+        }, 200);
       }
     } catch (error) {
       if (this.cancelled) return;

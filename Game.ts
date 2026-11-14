@@ -734,8 +734,7 @@ export class Game {
       const transport = await TransportFactory.create(url);
 
       // Create network game host with FPSSimulation for client-side prediction
-      // biome-ignore lint/suspicious/noExplicitAny: NetworkGameHost takes a Simulation<GameState, Command> and feeds it plain Commands; FPSSimulation handles FPSInputCommand
-      const networkHost = new NetworkGameHost(transport, simConfig, FPSSimulation as any);
+      const networkHost = new NetworkGameHost(transport, simConfig, FPSSimulation);
 
       // When the server names its map: load it, then set up prediction, cameras and
       // the watch/auto-join start (see MatchMapLoader). One loader per connection.

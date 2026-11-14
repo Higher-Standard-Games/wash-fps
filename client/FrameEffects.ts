@@ -64,7 +64,7 @@ export class FrameEffects {
           if (gameScene) {
             gibs.init(gameScene); // init() handles scene changes gracefully
           }
-          if (gibs["scene"]) {
+          if (gibs.isInitialized()) {
             this.gibSystem = gibs;
             devLog(`[GibSystem] Initialized, flushing ${this.pendingGibSpawns.length} pending spawns`);
             // Flush any gib spawns that queued while loading
@@ -134,7 +134,7 @@ export class FrameEffects {
           const dn = m.DamageNumbers.getInstance();
           const gameScene = this.scene();
           if (gameScene) dn.init(gameScene);
-          if (dn["scene"]) this.damageNumbers = dn;
+          if (dn.isInitialized()) this.damageNumbers = dn;
           this.damageNumbersLoading = false;
         })
         .catch((e) => {

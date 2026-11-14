@@ -7,7 +7,7 @@ const fx = vi.hoisted(() => ({
   updateLocalLightningTruth: vi.fn(),
 }));
 vi.mock("../../../../engine/weapon/HitscanEffects", () => ({ getHitscanEffects: () => fx }));
-vi.mock("../../../../engine/weapon/ProjectileManager", () => ({ getProjectileManager: () => ({ scene: {} }) }));
+vi.mock("../../../../engine/weapon/ProjectileManager", () => ({ getProjectileManager: () => ({ isInitialized: () => true }) }));
 
 import { handleRemoteWeaponFire, handleVoltaicBeam } from "../GameEvents";
 

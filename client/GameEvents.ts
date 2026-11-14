@@ -1266,7 +1266,7 @@ export function handleRemoteWeaponFire(
   const fx = getHitscanEffects();
   const projMgr = getProjectileManager();
 
-  if (!projMgr["scene"]) {
+  if (!projMgr.isInitialized()) {
     const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
     if (gameScene) projMgr.init(gameScene);
   }
@@ -1451,7 +1451,7 @@ export function processProjectileEntities(state: GameState, sync: ProjectileSync
       const defId = sync.defIds.get(entityId);
       if (defId) {
         const projMgr = getProjectileManager();
-        if (!projMgr["scene"]) {
+        if (!projMgr.isInitialized()) {
           const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
           if (gameScene) projMgr.init(gameScene);
         }

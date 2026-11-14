@@ -14,7 +14,7 @@ import { DEFAULT_PHYSICS_TICK_RATE } from "../../../../shared/server/simulation/
  * The projectile and view managers are mocked at the module boundary: this is
  * about which projectiles are spawned, not how they render.
  */
-const projectiles = { scene: {}, spawnFromServer: vi.fn(), despawnByEntityId: vi.fn(), clear: vi.fn() };
+const projectiles = { isInitialized: () => true, spawnFromServer: vi.fn(), despawnByEntityId: vi.fn(), clear: vi.fn() };
 vi.mock("../../../../engine/weapon/ProjectileManager", () => ({
   getProjectileManager: () => projectiles,
 }));
