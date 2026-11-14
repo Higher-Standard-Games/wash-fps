@@ -156,7 +156,13 @@ an eighth of full volume under the game's sound falloff. A landing makes no soun
 of its own; one that hurts is heard as pain. A heard enemy is known where the sound came from. A heard major pickup is
 timed, with an error that shrinks with item-timing skill, and the bot is back at
 the spot when it should return, watching the ways in. An item taken out of sight
-and earshot is still believed there until the bot looks at its spot.
+and earshot is still believed there until the bot looks at its spot. No event
+names who takes armour or health, so the bot knows those as a player does: one
+that vanishes beside it is its own take, timed to the tick, and one it sees
+vanish or finds gone is the opponent's. Running out of a fight, a bot glances
+at an armour, mega or powerup spot it has not seen for 8 seconds when it is in
+sight within a quarter turn of where it runs, and dates one it finds gone from
+when it last saw the item there.
 
 ### How a bot fights
 
@@ -172,6 +178,12 @@ and earshot is still believed there until the bot looks at its spot.
   reloads (an electrobolt into the machinegun or riotgun), when it fits the
   distance and fires at least 0.25 s sooner; and the gun for a heard enemy's
   distance readied before they appear.
+- **Blocked** (`BotBlockedMove.ts`): a bot on the ground that has asked to
+  move for 0.6 s and stayed within 24 units, slower than 60 u/s and not
+  pressed against an enemy, turns round, in any state. Out of a fight it backs
+  off and plans its route again; in one it drops the route that led there,
+  runs the most open way for half a second with its aim kept, and strafes the
+  other way.
 - **Firing on aim** (`BotFireSafety.ts`): fire waits until the view is within 12°
   of the aim, so a bot turns round before it shoots.
 - **Moods and mistakes** (`BotMood.ts`): confident after two kills, tilted after

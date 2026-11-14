@@ -191,6 +191,7 @@ export class BotClient extends EventEmitter {
     this._brain = brain;
     this._aim = new BotAimController(this._difficulty);
     this._perception = new BotPerception(this._difficulty);
+    if (options.fightOff?.includes("itemcheck")) this._perception.setSpotWatch(false);
 
     // If modelDir is specified, try to load HybridBrain (requires TF.js)
     this.referenceReady = options.modelDir

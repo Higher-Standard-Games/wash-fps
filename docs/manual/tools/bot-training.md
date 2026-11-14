@@ -399,7 +399,11 @@ can be compared without a code change; `"strategy": false` plays without the str
 `"strategies": ["control"]` lets it play only the strategies listed (a
 diagnosis none of them answers is played as Standard), and
 `"habitItem": "ra"` makes a bot go for every item of that kind, the
-predictable opponent a strategist should beat. An arm's `"routesRoot"` is a folder holding a
+predictable opponent a strategist should beat. `"fightOff": ["unstick"]`
+plays without one of the bot's habits, to measure it: `cover` (cover peeking),
+`height` (taking a ledge above the enemy), `unstick` (turning round when
+blocked) and `itemcheck` (glancing at major item spots and dating a find
+from them). An arm's `"routesRoot"` is a folder holding a
 `config/bot-routes` of its own: each arm has its own bot server, so two route
 libraries can be played against each other.
 

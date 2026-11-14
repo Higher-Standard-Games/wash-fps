@@ -21,7 +21,10 @@
  *   item goes down when it saw or heard it taken or found the spot empty, and
  *   comes back when its estimated respawn passes or it sees it there.
  *   `itemTimingSkill` sets how often a heard pickup is noted and how far off
- *   the remembered time is.
+ *   the remembered time is. An item that vanishes beside the bot is its own
+ *   take, known to the tick. A major item's spot is watched whenever it is in
+ *   sight (`itemSpotSeenTick`), and one found gone was taken after the bot
+ *   last saw it there.
  *
  * Sound ranges are the same for every difficulty; the skill is in noticing.
  */
@@ -122,6 +125,10 @@ export class BotPerception {
   private readonly _movers = new Map<string, Mover>();
   private readonly _items = new Map<number, ItemBelief>();
   private _itemCursor = 0;
+  /** When each major item's spot was last in sight, and last seen with the item on it. */
+  private readonly _spotSeen = new Map<number, number>();
+  private readonly _seenUp = new Map<number, number>();
+  private _spotWatch = true;
   /** The server's item mask last snapshot, to see items vanish. */
   private _serverBefore: readonly boolean[] = [];
 
@@ -136,11 +143,22 @@ export class BotPerception {
     this._difficulty = difficulty;
   }
 
+  /**
+   * Watch major item spots in sight every snapshot (on by default). Off, they
+   * are checked only in turn with every other spot and a find is dated half a
+   * respawn back: for head-to-head tests (`fightOff: ["itemcheck"]`).
+   */
+  setSpotWatch(on: boolean): void {
+    this._spotWatch = on;
+  }
+
   /** Forget everything, as on a new map or connection. */
   reset(): void {
     this._sightings.clear();
     this._movers.clear();
     this._items.clear();
+    this._spotSeen.clear();
+    this._seenUp.clear();
     this._itemCursor = 0;
     this._serverBefore = [];
   }
@@ -363,6 +381,17 @@ export class BotPerception {
       this._items.set(id, { up: false, takenTick: Math.round(takenTick + off) });
     };
     const respawnTicks = (entry: PickupEntry) => Math.round(itemRespawnSeconds(entry.type, entry.kind) * TICK_RATE);
+    // Found gone: taken since the bot last saw it there, or some time in the last respawn period.
+    const foundGone = (entry: PickupEntry) => {
+      const seenUp = this._spotWatch ? this._seenUp.get(entry.id) : undefined;
+      const takenTick =
+        seenUp !== undefined && seenUp >= state.tick - respawnTicks(entry)
+          ? Math.round((seenUp + state.tick) / 2)
+          : state.tick - Math.round(respawnTicks(entry) / 2);
+      remember(entry.id, takenTick);
+      // With one opponent and the bot not having taken it, the opponent has it.
+      if (lone && isMajorItem(entry.type, entry.kind)) creditTake(state, lone, entry, takenTick);
+    };
 
     // Pickups heard (or made) this snapshot.
     for (const event of snapshot.events) {
@@ -377,18 +406,36 @@ export class BotPerception {
       else if (near && this._random() < skill) remember(entry.id, state.tick);
     }
 
-    // Major items seen being taken. No event names who takes armor or health,
-    // for a person's client either: they see the item vanish and who is at it.
+    // Items seen being taken. No event names who takes armor or health, for a
+    // person's client either: they see the item vanish and who is at it. One
+    // that vanishes beside the bot, it took itself.
     const lone = loneOpponent(state, snapshot);
     for (const entry of pickups) {
       if (before[entry.id] !== true || server[entry.id] !== false) continue;
+      if (vec3Distance(state.self.position, entry.position) <= SELF_TAKE_RADIUS) {
+        this._items.set(entry.id, { up: false, takenTick: state.tick });
+        continue;
+      }
       if (!isMajorItem(entry.type, entry.kind)) continue;
-      if (vec3Distance(state.self.position, entry.position) <= SELF_TAKE_RADIUS) continue;
       if (!this._spotInSight(input, entry)) continue;
       const taker = takerAt(state, entry.position) ?? lone;
       remember(entry.id, state.tick);
       if (taker) creditTake(state, taker, entry, state.tick);
     }
+
+    // Major item spots in sight, every snapshot.
+    if (this._spotWatch) {
+      for (const entry of pickups) {
+        if (!isMajorItem(entry.type, entry.kind) || !this._spotInSight(input, entry)) continue;
+        this._spotSeen.set(entry.id, state.tick);
+        const belief = this._items.get(entry.id);
+        if (server[entry.id] ?? true) {
+          this._items.delete(entry.id);
+          this._seenUp.set(entry.id, state.tick);
+        } else if (!belief || belief.up) foundGone(entry);
+      }
+    }
+    state.itemSpotSeenTick = this._spotSeen;
 
     // A few spots looked at each snapshot: the ones the bot is wrong about first.
     const wrong = pickups.filter(
@@ -401,13 +448,7 @@ export class BotPerception {
       const up = server[entry.id] ?? true;
       const belief = this._items.get(entry.id);
       if (up) this._items.delete(entry.id);
-      else if (!belief || belief.up) {
-        // Found gone: taken some time in the last respawn period. With one
-        // opponent and the bot not having taken it, the opponent has it.
-        const takenTick = state.tick - Math.round(respawnTicks(entry) / 2);
-        remember(entry.id, takenTick);
-        if (lone && isMajorItem(entry.type, entry.kind)) creditTake(state, lone, entry, takenTick);
-      }
+      else if (!belief || belief.up) foundGone(entry);
     }
     this._itemCursor = (this._itemCursor + MAX_ITEM_CHECKS) % Math.max(1, order.length);
 

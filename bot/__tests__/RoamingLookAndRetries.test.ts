@@ -79,6 +79,50 @@ describe("looking round while running", () => {
   });
 });
 
+describe("checking a major item's spot in passing", () => {
+  const ra = { id: 4, type: "armor", kind: "ra", classname: "item_armor_body", position: { x: 600, y: 24, z: 600 } };
+  const sightOf = (clear: boolean) =>
+    ({
+      ...roomOpenToward(0),
+      mapKnowledge: { pickupPositions: [ra] },
+      canSeeFrom: () => clear,
+    }) as unknown as BotVision;
+
+  it("glances at a Red Armor spot it has not seen lately, then runs on looking ahead", () => {
+    const b = brain() as unknown as Looker;
+    b.currentState = BotState.ITEM_RUN;
+    const state = new BotGameState();
+    state.tick = 5000;
+    state.self.position = { x: 0, y: 24, z: 0 };
+    const input = running(0);
+    b._lookIntoOpenSpace(state, input, sightOf(true));
+    expect(input.yaw).toBeCloseTo(45 * DEG, 6);
+    expect(input.moveYaw).toBe(0);
+    // Seen: the glance ends
+    state.itemSpotSeenTick = new Map([[4, 5001]]);
+    state.tick = 5001;
+    const next = running(0);
+    b._lookIntoOpenSpace(state, next, sightOf(true));
+    expect(next.yaw).toBe(0);
+  });
+
+  it("does not glance at a spot it saw lately or cannot see from here", () => {
+    for (const [seen, clear] of [
+      [4900, true],
+      [-1, false],
+    ] as const) {
+      const b = brain() as unknown as Looker;
+      b.currentState = BotState.ITEM_RUN;
+      const state = new BotGameState();
+      state.tick = 5000;
+      if (seen >= 0) state.itemSpotSeenTick = new Map([[4, seen]]);
+      const input = running(0);
+      b._lookIntoOpenSpace(state, input, sightOf(clear));
+      expect(input.yaw).toBe(0);
+    }
+  });
+});
+
 const step = {
   type: "jump",
   from: { id: 10, position: { x: 0, y: 0, z: 0 } },

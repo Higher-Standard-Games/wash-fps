@@ -30,6 +30,7 @@ function setup(type: "walk" | "fall") {
   const vision = {
     mapKnowledge: { pickupPositions: [pickup] },
     isWalkable: () => true,
+    canSeeFrom: () => false,
     probeDrop: () => ({ safe: false, reason: "no_landing" }),
     collisionWorld: {
       trace: (from: { y: number }, to: { y: number }) => ({ hit: to.y < from.y, fraction: to.y < from.y ? 0.5 : 1 }),

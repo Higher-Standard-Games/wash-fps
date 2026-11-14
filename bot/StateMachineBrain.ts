@@ -19,6 +19,7 @@ import { isBotName } from "../shared/bot/BotNames";
 import { type BotWeightProfile, selectWeightProfile } from "../shared/bot/WeightProfiles";
 import type { PickupEntry } from "../shared/bsp/PickupTable";
 import { wrapAngle } from "./BotAimController";
+import { BotBlockedMove } from "./BotBlockedMove";
 import { BotBrain, type BotInput, BotState, type BrainMatchReport, travelYaw } from "./BotBrain";
 import { BotCombatMovement, findHighGround } from "./BotCombatMovement";
 import {
@@ -108,6 +109,15 @@ const CHARGE_CARRY_TICKS = Math.round(2 * TICK_RATE);
 const HOLD_SWEEP = 0.3;
 const HOLD_SWEEP_RATE = 0.9;
 const DODGE_REACT_TICKS = 30; // React to damage within last 30 ticks
+/** Blocked in a fight, the bot runs the open way this long before the fight steers again. */
+const UNSTICK_TICKS = Math.round(0.5 * 125);
+/** How far ahead a way out must be walkable, units. */
+const UNSTICK_PROBE = 96;
+/** Slower than this across the floor, a bot asking to move is not getting anywhere. */
+const BLOCKED_SPEED = 60;
+/** An enemy this close is what the bot is pressing against, not a wall. */
+const ENEMY_BODY_RANGE = 72;
+const MOVE_KEYS = InputButtons.FORWARD | InputButtons.BACK | InputButtons.LEFT | InputButtons.RIGHT;
 /** The slide's own cooldown plus its length, in server ticks, from the start of the last one. */
 const SLIDE_COOLDOWN_TICKS = Math.ceil(((PHYSICS.SLIDE_COOLDOWN + PHYSICS.SLIDE_DURATION) / 1000) * TICK_RATE);
 /** A lunge chance passed up is not rolled for again this soon. */
@@ -120,7 +130,7 @@ const HIGH_GROUND_SEARCH_TICKS = 250;
 const COVER_MIN_RANGE = 350;
 
 /** Fight habits a head-to-head test can turn off (`BotOptions.fightOff`). */
-export type FightHabit = "cover" | "height";
+export type FightHabit = "cover" | "height" | "unstick" | "itemcheck";
 /** A heard enemy this close gets the gun for its distance readied, held this long. */
 const READY_RANGE = 1500;
 const READY_TICKS = 250;
@@ -216,6 +226,11 @@ const GLANCE_REST_TICKS = 375;
 const LOOK_SWITCH_MARGIN = 0.2;
 /** What turning the view a quarter turn from where it is costs, of a score out of 1. */
 const LOOK_TURN_COST = 0.3;
+/** A major item's spot unseen this long is worth a look in passing, ticks. */
+const SPOT_STALE_TICKS = 8 * TICK_RATE;
+/** Spots are looked at from this far to as far as perception tells them apart (BotPerception). */
+const SPOT_MIN_DISTANCE = 200;
+const SPOT_MAX_DISTANCE = 2000;
 
 // Path following
 const PATH_ARRIVED_THRESHOLD = 100; // Distance to consider "arrived" at a waypoint
@@ -346,7 +361,13 @@ export class StateMachineBrain extends BotBrain {
   /** This decision ran along a route line; the feelers stand aside. */
   private _onRouteLine = false;
   /** Where the view looks while running, relative to the way the bot runs, and until when. */
-  private _look: { off: number; untilTick: number } | null = null;
+  private _look: {
+    off: number;
+    untilTick: number;
+    spot?: { pickupId: number; position: Vec3; sinceTick: number };
+  } | null = null;
+  /** When a look at each major item's spot was last begun, by pickup id. */
+  private readonly _spotLooks = new Map<number, number>();
   /** What the bot knows of how the match is going (strategy/MatchRead.ts). */
   /** Player names by entity, from the last decision: people's stack curve is for people. */
   private _names: ReadonlyMap<string, string> = new Map();
@@ -403,6 +424,9 @@ export class StateMachineBrain extends BotBrain {
   private readonly _territory = new BotTerritory();
   private _navigationProgress: { position: Vec3; tick: number } | null = null;
   private _recovery: { target: Vec3; until: number } | null = null;
+  private readonly _blocked = new BotBlockedMove();
+  /** Blocked in a fight: the open way the bot runs, and until when. */
+  private _unstick: { yaw: number; untilTick: number } | null = null;
   private _ledgeProbeTick = 0;
   private _leadReactionDelayMs = 0;
   private _cancelScript = false;
@@ -680,7 +704,7 @@ export class StateMachineBrain extends BotBrain {
     navGraph?: BotNavGraph | null,
   ): BotInput {
     this._cancelScript = false;
-    const input = this._decide(state, vision, visionResult, navGraph);
+    const input = this._turnFromBlock(state, this._decide(state, vision, visionResult, navGraph));
     this._carryCharge(state, input);
     if (this._tracing) this._lastTrace = this._trace(state);
     if (this._isCalm(state, input)) {
@@ -757,6 +781,8 @@ export class StateMachineBrain extends BotBrain {
       this._territory.reset();
       this._navigationProgress = null;
       this._recovery = null;
+      this._blocked.reset();
+      this._unstick = null;
       // Clear vision cache on death
       if (vision) vision.clearCache();
       return this._noInput(state);
@@ -905,6 +931,23 @@ export class StateMachineBrain extends BotBrain {
     const travel = travelYaw(input);
     const base = input.yaw;
     const allowed = (off: number) => Math.abs(wrapAngle(base + off - travel)) <= Math.PI / 2;
+    const spot = this._look?.spot;
+    if (this._look && spot) {
+      // A look at an item's spot follows it, and ends once perception has seen it.
+      this._look.off = wrapAngle(bearingTo(state.self.position, spot.position) - base);
+      if ((state.itemSpotSeenTick.get(spot.pickupId) ?? -1) >= spot.sinceTick) this._look.untilTick = state.tick;
+    }
+    if (!this._look || this._look.off === 0) {
+      const check = this._fightOff.has("itemcheck") ? null : this._spotToCheck(state, base, allowed, vision);
+      if (check) {
+        this._spotLooks.set(check.pickupId, state.tick);
+        this._look = {
+          off: wrapAngle(bearingTo(state.self.position, check.position) - base),
+          untilTick: state.tick + GLANCE_TICKS,
+          spot: { ...check, sinceTick: state.tick },
+        };
+      }
+    }
     if (this._look && this._look.off !== 0 && (state.tick >= this._look.untilTick || !allowed(this._look.off))) {
       // A glance ends: back to where the bot runs, for a rest of 2–4 s.
       this._look = { off: 0, untilTick: state.tick + GLANCE_REST_TICKS * (0.67 + 0.67 * Math.random()) };
@@ -939,6 +982,38 @@ export class StateMachineBrain extends BotBrain {
     }
     input.moveYaw = travel;
     input.yaw = base + this._look.off;
+  }
+
+  /**
+   * A major item's spot to look at in passing, as a player checks the Red
+   * Armor: one not seen for SPOT_STALE_TICKS, in sight from here and within a
+   * quarter turn of where the bot runs, the longest unseen first. Seeing it
+   * there or gone is what dates its next return.
+   */
+  private _spotToCheck(
+    state: BotGameState,
+    base: number,
+    allowed: (off: number) => boolean,
+    vision: BotVision,
+  ): { pickupId: number; position: Vec3 } | null {
+    const self = state.self.position;
+    let best: { pickupId: number; position: Vec3 } | null = null;
+    let bestSeen = Number.POSITIVE_INFINITY;
+    // A vision with no map knowledge (a stand-in) has no spots to look at.
+    for (const entry of vision.mapKnowledge?.pickupPositions ?? []) {
+      if (!isMajorItem(entry.type, entry.kind)) continue;
+      const seen = state.itemSpotSeenTick.get(entry.id) ?? Number.NEGATIVE_INFINITY;
+      if (state.tick - seen < SPOT_STALE_TICKS || seen >= bestSeen) continue;
+      if (state.tick - (this._spotLooks.get(entry.id) ?? Number.NEGATIVE_INFINITY) < SPOT_STALE_TICKS) continue;
+      const distance = vec3Distance(self, entry.position);
+      if (distance < SPOT_MIN_DISTANCE || distance > SPOT_MAX_DISTANCE) continue;
+      if (!allowed(wrapAngle(bearingTo(self, entry.position) - base))) continue;
+      const lift = { x: entry.position.x, y: entry.position.y - 24, z: entry.position.z };
+      if (!vision.canSeeFrom(self, lift)) continue;
+      best = { pickupId: entry.id, position: entry.position };
+      bestSeen = seen;
+    }
+    return best;
   }
 
   // ── State Evaluation ──────────────────────────────────────────────
@@ -2029,12 +2104,86 @@ export class StateMachineBrain extends BotBrain {
   }
 
   /**
+   * Whatever the state, a bot that asks to move and goes nowhere turns away
+   * from what holds it and thinks again (BotBlockedMove). Out of a fight the
+   * route is planned again around the spot (`_startRecovery`). In one, where
+   * that recovery would be dropped at once, the route is dropped too, and the
+   * bot keeps its aim and fire, runs the open way for UNSTICK_TICKS and
+   * strafes the other way after.
+   */
+  private _turnFromBlock(state: BotGameState, input: BotInput): BotInput {
+    if (this._fightOff.has("unstick")) return input;
+    const self = state.self;
+    if (this._unstick && state.tick < this._unstick.untilTick && !self.isDead) {
+      return this._runOpen(input, this._unstick.yaw);
+    }
+    this._unstick = null;
+    const asking =
+      !self.isDead &&
+      self.isGrounded &&
+      Math.hypot(self.velocity.x, self.velocity.z) < BLOCKED_SPEED &&
+      (input.direction.x !== 0 || input.direction.z !== 0 || (input.buttons & MOVE_KEYS) !== 0) &&
+      !(this._lastVision?.visibleEnemies.some((enemy) => enemy.player.distance < ENEMY_BODY_RANGE) ?? false);
+    if (!this._blocked.update(state.tick, self.position, asking)) return input;
+    const heading = travelYaw(input) + Math.atan2(input.direction.x, input.direction.z);
+    const fighting =
+      this.currentState === BotState.FIGHT ||
+      this.currentState === BotState.DODGE ||
+      (this._lastVision ? this._lastVision.visibleEnemies.length > 0 : false) ||
+      state.wasRecentlyDamaged(DODGE_REACT_TICKS);
+    if (!fighting) return this._startRecovery(state, true, heading);
+    // The route that led here is planned again, another way.
+    const step = this._activeSequenceStep ?? this._currentPath?.steps[this._currentPath.cursor];
+    if (step) this._cooldownNavStep(step, state.tick);
+    this._currentPath = null;
+    this._pathTarget = null;
+    this._interruptSequence(state, "blocked", true);
+    this._cancelScript = true;
+    this._strafeDirection = -this._strafeDirection;
+    const yaw = this._openHeading(state, heading);
+    this._unstick = { yaw, untilTick: state.tick + UNSTICK_TICKS };
+    return this._runOpen(input, yaw);
+  }
+
+  /** The way out nearest to straight back from `heading` with floor to walk on. */
+  private _openHeading(state: BotGameState, heading: number): number {
+    const vision = this._lastBotVision;
+    const self = state.self.position;
+    for (const turn of [Math.PI, Math.PI / 2, -Math.PI / 2, (3 * Math.PI) / 4, (-3 * Math.PI) / 4]) {
+      const yaw = heading + turn;
+      if (!vision) return yaw;
+      const target = {
+        x: self.x + Math.sin(yaw) * UNSTICK_PROBE,
+        y: self.y,
+        z: self.z + Math.cos(yaw) * UNSTICK_PROBE,
+      };
+      if (!vision.isWalkable(self, target)) continue;
+      const floor = vision.collisionWorld.trace(target, { ...target, y: target.y - 64 });
+      if (floor.hit && floor.fraction < 1) return yaw;
+    }
+    return heading + Math.PI;
+  }
+
+  /** `input` with its movement replaced by a run toward `yaw`; aim and fire stay. */
+  private _runOpen(input: BotInput, yaw: number): BotInput {
+    return {
+      ...input,
+      moveYaw: yaw,
+      direction: { x: 0, y: 0, z: 1 },
+      buttons:
+        (input.buttons & ~(MOVE_KEYS | InputButtons.JUMP | InputButtons.CROUCH)) |
+        InputButtons.FORWARD |
+        InputButtons.SPRINT,
+    };
+  }
+
+  /**
    * Step back and plan again. The step under way goes on cooldown, so the next
    * route goes another way. `stuck` (no progress at all) also puts the item
    * being fetched on cooldown; a missed jump or a blocked drop does not: the
    * item is still worth having and other routes, other tricks, lead to it.
    */
-  private _startRecovery(state: BotGameState, stuck = false): BotInput {
+  private _startRecovery(state: BotGameState, stuck = false, blockedHeading?: number): BotInput {
     this._cancelScript = true;
     const step = this._activeSequenceStep ?? this._currentPath?.steps[this._currentPath.cursor];
     if (step) this._cooldownNavStep(step, state.tick);
@@ -2048,8 +2197,11 @@ export class StateMachineBrain extends BotBrain {
     this._huntPatrolTarget = null;
     this._territory.reset();
     this._navigationProgress = { position: { ...state.self.position }, tick: state.tick };
+    this._blocked.reset();
     const self = state.self.position;
-    const away = step ? Math.atan2(self.x - step.to.position.x, self.z - step.to.position.z) : state.self.yaw + Math.PI;
+    const away = step
+      ? Math.atan2(self.x - step.to.position.x, self.z - step.to.position.z)
+      : (blockedHeading ?? state.self.yaw) + Math.PI;
     for (const distance of [128, 64, 32]) {
       for (const turn of [0, Math.PI / 2, -Math.PI / 2, Math.PI]) {
         const target = {
@@ -3196,4 +3348,9 @@ export class StateMachineBrain extends BotBrain {
       weaponSlot: 0,
     };
   }
+}
+
+/** Yaw from `from` toward `to`, as the view measures it. */
+function bearingTo(from: Vec3, to: Vec3): number {
+  return Math.atan2(to.x - from.x, to.z - from.z);
 }

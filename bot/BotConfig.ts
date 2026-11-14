@@ -146,7 +146,7 @@ export interface BotOptions {
    */
   weights?: Partial<BotWeightProfile>;
   /**
-   * Fight habits to play without ("cover", "height"), for head-to-head tests.
+   * Habits to play without ("cover", "height", "unstick", "itemcheck"), for head-to-head tests.
    * Not part of the rating identity.
    */
   fightOff?: string[];

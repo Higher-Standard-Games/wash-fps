@@ -195,6 +195,36 @@ describe("armor and health taken, which no event names", () => {
     expect(state.enemyMajorItems.get("foe")).toMatchObject({ kind: "ra", tick: 5000 - Math.round((25 * 125) / 2) });
   });
 
+  it("dates an armor found gone from when it last saw it there", () => {
+    const { step } = setup();
+    step({ enemyAt: { x: 0, y: 0, z: -3000 }, mask: [true], tick: 4000 }, clear);
+    // Looks away, and finds it gone 8 s later: taken in between
+    step({ enemyAt: { x: 0, y: 0, z: -3000 }, mask: [false], tick: 4500 }, clear, Math.PI);
+    const state = step({ enemyAt: { x: 0, y: 0, z: -3000 }, mask: [false], tick: 5000 }, clear);
+    expect(state.itemTakenTick.get(0)).toBe(4500);
+    expect(state.itemSpotSeenTick.get(0)).toBe(5000);
+  });
+
+  it("knows an armor it took itself, to the tick, with no event for it", () => {
+    const state = new BotGameState();
+    state.selfEntityId = "self";
+    state.selfPlayerId = "bot";
+    const perception = new BotPerception({ reactionTimeMs: 0, itemTimingSkill: 0 }, () => 0.5);
+    for (const [tick, up] of [
+      [900, true],
+      [902, false],
+    ] as const) {
+      const snapshot = new GameState();
+      snapshot.tick = tick;
+      snapshot.players.set("bot", player("self"));
+      snapshot.entities.set("self", entity("self", { x: 0, y: 0, z: 1900 }));
+      snapshot.pickupActiveMask = [up];
+      state.update(snapshot as never);
+      perception.perceive({ state, snapshot: snapshot as never, viewYaw: Math.PI, canSee: clear, pickups: [RA] });
+    }
+    expect(state.itemTakenTick.get(0)).toBe(902);
+  });
+
   it("credits no one with an armor taken out of its sight", () => {
     const { step } = setup();
     step({ enemyAt: { x: 0, y: 0, z: 1950 }, mask: [true], tick: 1000 }, walled);

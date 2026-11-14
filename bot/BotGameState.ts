@@ -283,6 +283,13 @@ export class BotGameState {
    */
   itemTakenTick = new Map<number, number>();
 
+  /**
+   * Server tick each major item's spot was last in the bot's sight, by
+   * PickupEntry.id: how fresh its belief about the item is. Filled by
+   * BotPerception; empty without it.
+   */
+  itemSpotSeenTick: ReadonlyMap<number, number> = new Map();
+
   /** Server tick the match last went live, or null before it has. */
   liveSinceTick: number | null = null;
 
