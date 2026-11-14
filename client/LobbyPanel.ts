@@ -169,7 +169,7 @@ export class LobbyPanel extends GamePanel {
   private privateLobbySupported = false;
   private leaderboardView: LeaderboardView | null = null;
   private pendingPrivateCreate = false;
-  /** The private room being created is quick play's: fill it with bots and ready up. */
+  /** The private room being created is quick play's: fill it with bots. */
   private pendingQuickPlay = false;
   private quickPlayKey: HTMLButtonElement | null = null;
 

@@ -16,8 +16,8 @@ anytime with **?** in the lobby's bottom-right footer.
 ## 2. Make practice easy: add bots
 
 The quickest way is **Quick play**, the pink key at the top of the rail: it
-opens a private FFA room, adds four bots, votes a random map and readies you
-up, so the match loads on its own.
+opens a private FFA room, adds four bots and votes a random map. Press
+**Ready** when you are set; the match loads once you are ready.
 
 To pick the mode and map yourself, enter any room and press **Add bot**. Bots play only in private rooms, so a
 public room turns private when the first bot joins; its invite link still brings
