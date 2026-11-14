@@ -78,7 +78,7 @@ In a room you can:
 See [Connecting → In the Ready Room](./connecting.md#in-the-ready-room) for the voting and bot rules.
 
 **Add bot** chooses at least Hard difficulty; stronger rating matches can select
-Insane. In Duel, bots listen for movement, chase with slides and strafe jumps,
+Insane. The arrow beside it opens a menu to pick Easy, Medium, Hard or Insane. In Duel, bots listen for movement, chase with slides and strafe jumps,
 and prefer controlling reachable upper floors when healthy and armed. They
 patrol around timed items and recover from stalled routes or ledge hangs.
 Normal navigation favors running and crouchslides, with jumps for traversal or
