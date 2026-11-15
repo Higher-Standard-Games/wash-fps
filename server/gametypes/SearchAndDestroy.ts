@@ -114,7 +114,7 @@ export const COACH_PARTS = [
   "holds",
   "worker",
   "calls",
-  "roles",
+  "entry",
 ] as const;
 export type CoachPart = (typeof COACH_PARTS)[number];
 /** Bots in the carrier's group, the carrier with them. */
@@ -183,10 +183,6 @@ const SITE_WATCH_RADIUS = 900;
 const ENTRY_LEAD_TICKS = 2 * TICK_RATE;
 /** The carrier waits for the entry patrolling this close to its staging point. */
 const ENTRY_WAIT_RADIUS = 150;
-/** An attack that has lost this many since the go falls back, once a round… */
-const FALL_BACK_LOSSES = 2;
-/** …while at least this much of the round is left, ticks. */
-const FALL_BACK_MIN_LEFT = 30 * TICK_RATE;
 /** A call rides on its speaker's orders this long, so a snapshot lost on the way does not lose it, ticks. */
 const CALL_TICKS = 3 * TICK_RATE;
 /** A guard this close to its ground calls that it is covering, units. */
@@ -370,11 +366,8 @@ export class SearchAndDestroy extends BaseGametype {
   /** The bomb's phase last tick, and how often it has been dropped this round, for calls. */
   private lastBombPhase: string | null = null;
   private drops = 0;
-  /** When the attack went in this round, and how many attackers were alive then. */
+  /** When the attack went in this round. */
   private goTick: number | null = null;
-  private attackersAtGo = 0;
-  /** The attack has fallen back once this round. */
-  private fellBack = false;
   /** The bot that goes into the site first on the go, ahead of the carrier. */
   private entryId: number | null = null;
   /** Answers to a person's commands, made on the next tick by a bot of their team. */
@@ -588,8 +581,6 @@ export class SearchAndDestroy extends BaseGametype {
     this.drops = 0;
     this.acks = [];
     this.goTick = null;
-    this.attackersAtGo = 0;
-    this.fellBack = false;
     this.entryId = null;
     this.attackPlan = null;
     this.attackSent = false;
@@ -1055,7 +1046,7 @@ export class SearchAndDestroy extends BaseGametype {
     this.planAttack(attackers, context.attackingTeam);
     this.planBombCover(attackers, defenders, context);
     this.planDefence(attackers, defenders, context);
-    this.planRoles(attackers, defenders, context);
+    this.planRoles(attackers, context);
     this.planGuards(attackers, defenders, context);
     this.planCalls(attackers, defenders, context);
   }
@@ -1460,25 +1451,15 @@ export class SearchAndDestroy extends BaseGametype {
   }
 
   /**
-   * The attack's roles beyond the carrier: the entry, who goes into the site
-   * first on the go while the carrier waits a moment behind, and the fall
-   * back, once a round, when the attack has lost FALL_BACK_LOSSES since the go
-   * without planting: regroup on a new plan against the other site rather
-   * than feed the defence one at a time.
+   * The entry: the carrier's partner, who goes into the site first on the go
+   * while the carrier waits a moment behind, so the bomb is not the first
+   * thing through the door. Kept while alive.
    */
-  private planRoles(
-    attackers: readonly BombPlayerView[],
-    defenders: readonly BombPlayerView[],
-    context: GametypeTickContext,
-  ): void {
-    if (!this.coaches(context.attackingTeam, "roles")) {
-      this.entryId = null;
-      return;
-    }
+  private planRoles(attackers: readonly BombPlayerView[], context: GametypeTickContext): void {
     const plan = this.attackPlan;
     const carrier = this.bomb.carrierId;
     const living = new Set(attackers.map((a) => a.entityId));
-    if (plan && carrier !== null) {
+    if (plan && carrier !== null && this.coaches(context.attackingTeam, "entry")) {
       if (this.entryId === null || !living.has(this.entryId) || this.entryId === carrier) {
         const mates = [...plan.groupOf]
           .filter(([id, group]) => group === 0 && id !== carrier && living.has(id) && !this.isPerson(id))
@@ -1487,32 +1468,7 @@ export class SearchAndDestroy extends BaseGametype {
         this.entryId = mates[0] ?? null;
       }
     } else this.entryId = null;
-
-    if (this.attackSent && this.goTick === null) {
-      this.goTick = this.tick;
-      this.attackersAtGo = attackers.length;
-    }
-    const planted = this.bomb.phase === "planted" || this.bomb.isArmed;
-    const losing =
-      this.goTick !== null &&
-      !this.fellBack &&
-      !planted &&
-      attackers.length <= this.attackersAtGo - FALL_BACK_LOSSES &&
-      defenders.length >= attackers.length &&
-      this.roundTicksLeft() > FALL_BACK_MIN_LEFT;
-    if (!losing) return;
-    const other = this.sites.find((s) => s.id !== this.targetSiteId) ?? null;
-    this.fellBack = true;
-    this.attackSent = false;
-    this.goTick = null;
-    this.waitCalled = false;
-    this.attackPlan = null;
-    if (other) this.targetSiteId = other.id;
-    this.acks.push({
-      team: context.attackingTeam,
-      id: `r${this.round}:fallback`,
-      text: other ? `Fall back, regroup for ${other.label}` : "Fall back, regroup",
-    });
+    if (this.attackSent) this.goTick ??= this.tick;
   }
 
   /** A person's command to their team (SndCalls.teamCommand). */

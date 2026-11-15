@@ -170,7 +170,9 @@ The mode plays each team of bots as a team:
   go in pairs, each pair by its own way into the target site. They wait just
   outside, then go in together once the carrier's pair and one more are there,
   within 25 seconds, or at once when one of them falls. The site is chosen by
-  how the attack has done at each against this defence in the match.
+  how the attack has done at each against this defence in the match. On the go
+  the bot paired with the carrier goes into the site first, and the carrier
+  follows two seconds behind.
 - **Defence.** One bot holds each site whatever happens. Defenders hold from
   set spots: high ground that sees the site and the ways the attack comes in,
   looking at the likeliest one. When a defender sees the carrier, the others
