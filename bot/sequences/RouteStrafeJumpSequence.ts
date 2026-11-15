@@ -10,7 +10,7 @@ import type {
   BotSequenceTick,
   RouteStrafeLane,
 } from "../BotSequence";
-import { wallAheadSide } from "../BotVisionTracer";
+import { sideGaps, wallAheadSide } from "../BotVisionTracer";
 
 const SERVER_TICK_RATE = 125;
 const MOVEMENT = DEFAULT_FPS_MOVEMENT_CONFIG;
@@ -37,6 +37,12 @@ const SIDE_ACCEL = 50;
 const LINE_RETURN_DISTANCE = 300;
 /** How far off the best gain angle the least skilled strafer holds, radians. */
 const UNSKILLED_ANGLE_ERROR = 0.35;
+/** A wall nearer the hull than this beside a hop turns the hop off it, units. */
+const SIDE_WALL_GAP = 28;
+/** A hop does not take the side with a wall nearer than this when the other side has more room, units. */
+const TAKEOFF_SIDE_GAP = 72;
+/** Side walls are looked for this far out, units. */
+const SIDE_LOOK = 128;
 /** A bot that lands and does not take off again within this many ticks has stopped hopping. */
 const LANDED_GROUND_TICKS = 3;
 /** Room past a hop's landing a chain keeps before the end of its stretch, units. */
@@ -130,7 +136,13 @@ function strafeInput(context: BotSequenceContext, state: BotSequenceState, steer
   const velocityYaw = heading(self.velocity, routeYaw);
   // A wall coming up outranks the route: turn off it with the side key alone
   const world = context.vision?.collisionWorld;
-  const wall = world ? wallAheadSide(world, self.position, self.velocity) : 0;
+  let wall = world ? wallAheadSide(world, self.position, self.velocity) : 0;
+  // A wall close beside the hop turns it off too: the gaining side curves the flight toward the side held
+  if (wall === 0 && world) {
+    const gaps = sideGaps(world, self.position, velocityYaw, SIDE_LOOK);
+    if (gaps.right < SIDE_WALL_GAP && gaps.left > gaps.right) wall = -1;
+    else if (gaps.left < SIDE_WALL_GAP && gaps.right > gaps.left) wall = 1;
+  }
   const aim = aimYaw(context, state);
   const error = wall !== 0 ? wall * (Math.PI / 2) : normalizeAngle(aim - velocityYaw);
   const skill = context.difficulty?.strafeJumpSkill ?? 0;
@@ -194,6 +206,16 @@ function canOwnInput(context: BotSequenceContext): boolean {
   return horizontalSpeed(self.velocity) >= MIN_ENTRY_SPEED;
 }
 
+/** The hop's side, turned away from a wall close by on it when the other side has more room. */
+function sideAwayFromWall(context: BotSequenceContext, yaw: number, side: -1 | 1): -1 | 1 {
+  const world = context.vision?.collisionWorld;
+  if (!world) return side;
+  const gaps = sideGaps(world, context.state.self.position, yaw, SIDE_LOOK);
+  const near = side > 0 ? gaps.right : gaps.left;
+  const far = side > 0 ? gaps.left : gaps.right;
+  return near < TAKEOFF_SIDE_GAP && far > near ? (side > 0 ? -1 : 1) : side;
+}
+
 /** Take a new stretch of route for the next hop of the chain. */
 function takeLane(context: BotSequenceContext, state: BotSequenceState, lane: RouteStrafeLane): void {
   const self = context.state.self;
@@ -205,7 +227,11 @@ function takeLane(context: BotSequenceContext, state: BotSequenceState, lane: Ro
   state.data.startSpeed = horizontalSpeed(self.velocity);
   const velocityYaw = heading(self.velocity, lane.routeStrafeYaw);
   const fallback = state.data.side === 1 ? -1 : 1;
-  state.data.side = chooseSide(normalizeAngle(aimYaw(context, state) - velocityYaw), fallback);
+  state.data.side = sideAwayFromWall(
+    context,
+    velocityYaw,
+    chooseSide(normalizeAngle(aimYaw(context, state) - velocityYaw), fallback),
+  );
 }
 
 /**
@@ -266,7 +292,7 @@ export class RouteStrafeJumpSequence implements BotSequence {
     };
     const velocityYaw = heading(context.state.self.velocity, routeYaw);
     const error = normalizeAngle(aimYaw(context, state) - velocityYaw);
-    state.data.side = chooseSide(error, state.data.side as -1 | 1);
+    state.data.side = sideAwayFromWall(context, velocityYaw, chooseSide(error, state.data.side as -1 | 1));
     return state;
   }
 

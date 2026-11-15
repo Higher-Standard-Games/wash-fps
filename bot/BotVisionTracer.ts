@@ -150,6 +150,30 @@ export function wallAheadSide(world: CollisionWorld, position: Vec3, velocity: V
   return room(1) >= room(-1) ? 1 : -1;
 }
 
+/**
+ * The gap from the hull to the nearest wall square to each side of `yaw`,
+ * out to `reach` past the hull, units (−1 left, +1 right as yaw turns).
+ */
+export function sideGaps(
+  world: CollisionWorld,
+  position: Vec3,
+  yaw: number,
+  reach: number,
+): { left: number; right: number } {
+  const length = reach + HULL_HALF;
+  const gap = (side: number) => {
+    const a = yaw + side * (Math.PI / 2);
+    const hit = world.trace(position, {
+      x: position.x + Math.sin(a) * length,
+      y: position.y,
+      z: position.z + Math.cos(a) * length,
+    });
+    if (hit.fraction < 1 && hit.normal && Math.abs(hit.normal.y) >= FLOOR_NORMAL_Y) return reach;
+    return Math.max(0, hit.fraction * length - HULL_HALF);
+  };
+  return { left: gap(-1), right: gap(1) };
+}
+
 export interface SteerRequest {
   tick: number;
   /** Origin, 24 above the feet. */
