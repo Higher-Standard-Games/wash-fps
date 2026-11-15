@@ -2004,7 +2004,8 @@ export class SearchAndDestroy extends BaseGametype {
       return [
         this.directive(
           `snd_stage_${target.id}_${group % plan.lanes.length}`,
-          "move_to",
+          // Waiting for the go on the move, round the staging point
+          "hold_area",
           lane.staging,
           STAGING_RADIUS / 2,
           isCarrier ? PRIORITY_ARM : PRIORITY_ESCORT,

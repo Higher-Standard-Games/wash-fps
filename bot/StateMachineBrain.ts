@@ -51,6 +51,7 @@ import {
 } from "./BotSequence";
 import { BotTerritory } from "./BotTerritory";
 import type { BotVision, EnemyTrack, VisionResult } from "./BotVision";
+import { BotVisionTracer } from "./BotVisionTracer";
 import { BotWeaponCombos, has, slotFor } from "./BotWeaponCombos";
 import { getWeaponProfile, selectBestWeapon, type WeaponProfile } from "./BotWeaponProfile";
 import { type DecisionTrace, TRACED_CANDIDATES } from "./DecisionTrace";
@@ -112,6 +113,23 @@ const VIA_HEIGHT = 72;
 const CHARGE_CARRY_TICKS = Math.round(2 * TICK_RATE);
 /** A held watch sweeps this far either side of the way in, radians, at this rate. */
 const HOLD_SWEEP = 0.3;
+/** A move to a point this much lower than the bot means to drop off an edge, units. */
+const STEER_DROP_HEIGHT = 40;
+/** A target this much higher than the bot, behind something in the way, is worth a climb. */
+const CLIMB_RISE = 30;
+/** Climbs are looked for toward targets at most this far off, units. */
+const CLIMB_REACH = 500;
+/** The way ahead counts as in the way below this much clear run. */
+const CLIMB_BLOCKED = 0.7;
+/** A climb or wall jump is checked at most this often, ticks: each check runs the movement forward. */
+const TRICK_CHECK_TICKS = 20;
+const WALL_JUMP_CHECK_TICKS = 6;
+/** After a climbing jump, forward is held toward the target this long, for the ledge grab, ticks. */
+const CLIMB_HOLD_TICKS = 90;
+/** A wall jump is taken when it ends at least this much nearer the target than not jumping, units. */
+const WALL_JUMP_GAIN = 96;
+/** A wall this near the hull is one to wall jump from, units. */
+const WALL_JUMP_NEAR = 12;
 /** A guard picks its next patrol point once this close to the last, units. */
 const GUARD_POINT_REACHED = 56;
 /** Guard patrol points lie this far out from the spot, as shares of the order's radius. */
@@ -148,7 +166,7 @@ const HIGH_GROUND_SEARCH_TICKS = 250;
 const COVER_MIN_RANGE = 350;
 
 /** Fight habits a head-to-head test can turn off (`BotOptions.fightOff`). */
-export type FightHabit = "cover" | "height" | "unstick" | "itemcheck" | "holster";
+export type FightHabit = "cover" | "height" | "unstick" | "itemcheck" | "holster" | "steer";
 /** A heard enemy this close gets the gun for its distance readied, held this long. */
 const READY_RANGE = 1500;
 const READY_TICKS = 250;
@@ -382,6 +400,19 @@ export class StateMachineBrain extends BotBrain {
   private _routeLine: { path: NavPath; fromStep: number; line: RouteLine; stretch: number } | null = null;
   /** This decision ran along a route line; the feelers stand aside. */
   private _onRouteLine = false;
+  /** Keeps the feet clear of walls in every state (BotVisionTracer), made per collision world. */
+  private _tracer: BotVisionTracer | null = null;
+  private _tracerWorld: unknown = null;
+  /** The point this decision's movement makes for, when it has one: the tracer looks no further. */
+  private _steerTarget: Vec3 | null = null;
+  /** How clear the way ahead ran on the last steer, 0..1. */
+  private _steerClear = 1;
+  /** Next tick a climb or wall jump may be checked for; a climb under way holds forward to its target. */
+  private _trickCheckTick = 0;
+  private _climb: { target: Vec3; untilTick: number } | null = null;
+  /** A wall jump wants a fresh press: jump let go this decision, pressed on the next. */
+  private _wallJumpPress = false;
+  private _lastJumpHeld = false;
   /** Where the view looks while running, relative to the way the bot runs, and until when. */
   private _look: {
     off: number;
@@ -761,6 +792,8 @@ export class StateMachineBrain extends BotBrain {
     this._pathRecalcTimer++;
     this._feelerSteered = false;
     this._onRouteLine = false;
+    this._steerTarget = null;
+    this._steerClear = 1;
     this._lastVision = visionResult ?? null;
     this._lastDecisionTick = state.tick;
     this._names = state.playerNames;
@@ -887,17 +920,15 @@ export class StateMachineBrain extends BotBrain {
 
     input = this._recoverStalledNavigation(state, input);
 
-    // Apply feeler raycasts for wall avoidance (navigation states only). Not
-    // on a route line: it was built clear of the walls, and the feelers,
-    // seeing a wall beyond a corner, turned the bot off it.
-    if (
-      vision &&
-      !this._suppressTraversalAutomation &&
-      !this._onRouteLine &&
-      this.currentState !== BotState.FIGHT &&
-      this.currentState !== BotState.DODGE
-    ) {
-      input = this._applyFeelers(input, state, vision);
+    // Keep the feet clear of walls, corners and ledges in every state. Not on
+    // a verified approach to a trick, whose line is exact on purpose.
+    if (vision && !this._suppressTraversalAutomation) {
+      if (!this._fightOff.has("steer")) input = this._steer(input, state, vision);
+      else if (!this._onRouteLine && this.currentState !== BotState.FIGHT && this.currentState !== BotState.DODGE) {
+        // The feelers, for head-to-head tests: navigation only, and not on a
+        // route line, where they saw a wall beyond a corner and turned off it.
+        input = this._applyFeelers(input, state, vision);
+      }
     }
 
     const chase = this.currentState === BotState.CHASE ? this._lastVision?.chaseTarget : null;
@@ -925,6 +956,11 @@ export class StateMachineBrain extends BotBrain {
       const strafeInput = this._tryStartRouteStrafeJump(input, state);
       if (strafeInput) return strafeInput;
     }
+
+    if (vision && !this._suppressTraversalAutomation && !this._fightOff.has("steer")) {
+      input = this._tryTricks(state, input);
+    }
+    this._lastJumpHeld = (input.buttons & InputButtons.JUMP) !== 0;
 
     if (vision) this._lookIntoOpenSpace(state, input, vision);
     return input;
@@ -2943,6 +2979,7 @@ export class StateMachineBrain extends BotBrain {
    *   for the server's strafejump air acceleration to activate
    */
   private _moveToward(state: BotGameState, target: Vec3, _urgent: boolean): BotInput {
+    this._steerTarget = target;
     const delta = vec3Subtract(target, state.self.position);
     const distance = vec3Length(delta);
     const targetYaw = distance < 1 ? state.self.yaw : Math.atan2(delta.x, delta.z);
@@ -3313,6 +3350,114 @@ export class StateMachineBrain extends BotBrain {
           }
         : null,
     };
+  }
+
+  /**
+   * Turn the feet, not the view, onto the heading BotVisionTracer finds
+   * clear. The keys stay as the decision chose them: the move yaw turns so
+   * they carry the bot along the clear heading.
+   */
+  private _steer(input: BotInput, state: BotGameState, vision: BotVision): BotInput {
+    const keys = input.direction;
+    if (Math.hypot(keys.x, keys.z) < 0.01) return input;
+    if (!this._tracer || this._tracerWorld !== vision.collisionWorld) {
+      this._tracer = new BotVisionTracer(vision.collisionWorld);
+      this._tracerWorld = vision.collisionWorld;
+    }
+    const keyTurn = Math.atan2(keys.x, keys.z);
+    const moveYaw = travelYaw(input);
+    const self = state.self;
+    const target = this._steerTarget;
+    const result = this._tracer.steer({
+      tick: state.tick,
+      position: self.position,
+      velocity: self.velocity,
+      grounded: self.isGrounded,
+      yaw: moveYaw + keyTurn,
+      ...(target
+        ? {
+            targetDistance: Math.hypot(target.x - self.position.x, target.z - self.position.z),
+            dropping: target.y < self.position.y - STEER_DROP_HEIGHT,
+          }
+        : {}),
+    });
+    if (!result) return input;
+    this._steerClear = result.clear;
+    if (result.turned) this._feelerSteered = true;
+    return { ...input, moveYaw: result.yaw - keyTurn };
+  }
+
+  /**
+   * Tricks the tracer says work from here (BotVisionTracer.climbByJump,
+   * wallJumpGain), on the way to the point the bot makes for: a jump onto
+   * what stands in the way when the point is above it, and a wall jump when
+   * one ends nearer the point than falling on. Navigation only; a fight
+   * moves for the fight.
+   */
+  private _tryTricks(state: BotGameState, input: BotInput): BotInput {
+    const tracer = this._tracer;
+    const self = state.self;
+    const navigating =
+      this.currentState === BotState.HUNT ||
+      this.currentState === BotState.ITEM_RUN ||
+      this.currentState === BotState.RETREAT ||
+      this.currentState === BotState.CHASE;
+    if (!tracer || !navigating || self.isDead) {
+      this._climb = null;
+      this._wallJumpPress = false;
+      return input;
+    }
+    const toward = (target: Vec3) => Math.atan2(target.x - self.position.x, target.z - self.position.z);
+    const forwardTo = (target: Vec3, jump: boolean): BotInput => ({
+      ...input,
+      direction: { x: 0, y: 0, z: 1 },
+      moveYaw: toward(target),
+      buttons:
+        (input.buttons & ~(InputButtons.BACK | InputButtons.LEFT | InputButtons.RIGHT | InputButtons.CROUCH)) |
+        InputButtons.FORWARD |
+        (jump ? InputButtons.JUMP : 0),
+    });
+
+    // A climb under way: forward to its target until down again, for the ledge grab
+    const climb = this._climb;
+    if (climb) {
+      if (state.tick > climb.untilTick || (self.isGrounded && state.tick > climb.untilTick - CLIMB_HOLD_TICKS + 10)) {
+        this._climb = null;
+      } else if (!self.isGrounded) {
+        return forwardTo(climb.target, false);
+      }
+    }
+    const target = this._steerTarget;
+    if (!target) return input;
+
+    if (self.isGrounded) {
+      this._wallJumpPress = false;
+      const rise = target.y - self.position.y;
+      const far = Math.hypot(target.x - self.position.x, target.z - self.position.z);
+      if (rise < CLIMB_RISE || far > CLIMB_REACH || this._steerClear >= CLIMB_BLOCKED) return input;
+      if (state.tick < this._trickCheckTick) return input;
+      this._trickCheckTick = state.tick + TRICK_CHECK_TICKS;
+      const top = tracer.climbByJump(self.position, self.velocity, toward(target));
+      if (!top || top.y < self.position.y + CLIMB_RISE) return input;
+      this._climb = { target: { ...target }, untilTick: state.tick + CLIMB_HOLD_TICKS };
+      return forwardTo(target, true);
+    }
+
+    // In the air beside a wall: press for a wall jump that ends nearer the target
+    if (this._wallJumpPress) {
+      this._wallJumpPress = false;
+      return forwardTo(target, true);
+    }
+    if (state.tick < this._trickCheckTick || !tracer.wallWithin(self.position, WALL_JUMP_NEAR)) return input;
+    this._trickCheckTick = state.tick + WALL_JUMP_CHECK_TICKS;
+    const gain = tracer.wallJumpGain(self.position, self.velocity, toward(target), target);
+    if (gain === null || gain < WALL_JUMP_GAIN) return input;
+    // Jump held from the take-off would make this no fresh press: let go first
+    if (this._lastJumpHeld) {
+      this._wallJumpPress = true;
+      return forwardTo(target, false);
+    }
+    return forwardTo(target, true);
   }
 
   private _applyFeelers(input: BotInput, state: BotGameState, vision: BotVision): BotInput {

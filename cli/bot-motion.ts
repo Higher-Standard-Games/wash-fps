@@ -63,6 +63,8 @@ interface Args {
   trace: boolean;
   /** Write every decision's trace to this file, one JSON line each. */
   traceOut: string | null;
+  /** Habits the bots play without (BotOptions.fightOff), for before-and-after runs. */
+  fightOff: string[];
 }
 
 const DEG = 180 / Math.PI;
@@ -108,6 +110,7 @@ function parseArgs(): Args {
     routesRoot: null,
     trace: false,
     traceOut: null,
+    fightOff: [],
   };
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
@@ -144,10 +147,16 @@ function parseArgs(): Args {
         a.trace = true;
         a.traceOut = next();
         break;
+      case "--fight-off":
+        a.fightOff = next()
+          .split(",")
+          .map((h) => h.trim())
+          .filter(Boolean);
+        break;
       case "--help":
       case "-h":
         console.log(
-          "Usage: npm run bot:motion -- [--map washoi_dm2] [--bots 4] [--seconds 120] [--gametype ffa|duel|snd] [--difficulty medium] [--port 7795] [--keep-demo <folder>] [--routes-root <root with config/bot-routes>] [--trace] [--trace-out <file.jsonl>]",
+          "Usage: npm run bot:motion -- [--map washoi_dm2] [--bots 4] [--seconds 120] [--gametype ffa|duel|snd] [--difficulty medium] [--port 7795] [--keep-demo <folder>] [--routes-root <root with config/bot-routes>] [--trace] [--trace-out <file.jsonl>] [--fight-off steer,cover]",
         );
         process.exit(0);
     }
@@ -426,6 +435,7 @@ async function main(): Promise<void> {
     const bot = await botServer.addBot(`ws://localhost:${args.port}`, {
       difficulty: args.difficulty,
       trace: args.trace,
+      ...(args.fightOff.length > 0 ? { fightOff: args.fightOff } : {}),
     });
     const log = { samples: [] as Sample[], decisions: [] as Decision[] };
     logs.push(log);
