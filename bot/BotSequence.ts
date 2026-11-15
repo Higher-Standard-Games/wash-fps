@@ -7,6 +7,14 @@ import type { BotVision, VisionResult } from "./BotVision";
 import type { LearnedRoute } from "./LearnedRoutes";
 import type { LedgeSlideJumpPlan } from "./LedgeSlideJump";
 
+/** An open stretch of route for a strafe-jump chain (StateMachineBrain._routeStrafeLane). */
+export interface RouteStrafeLane {
+  routeStrafeYaw: number;
+  routeStrafeEnd: Vec3;
+  routeStrafeSteer: ((at: Vec3) => number) | null;
+  routeStrafeOffLine: ((at: Vec3) => number) | null;
+}
+
 export type BotSequenceStatus = "running" | "succeeded" | "failed";
 
 export interface BotSequenceContext {
@@ -40,6 +48,10 @@ export interface BotSequenceContext {
   routeStrafeSteer?: ((at: Vec3) => number) | null;
   /** How far a position is from the route line, units. */
   routeStrafeOffLine?: ((at: Vec3) => number) | null;
+  /** Heading of the route from where the hop starts, radians. */
+  routeStrafeYaw?: number;
+  /** Asked on each landing: the open stretch from here for the next hop, or null to stop. */
+  routeStrafeNext?: ((state: BotGameState) => RouteStrafeLane | null) | null;
   ledgeSlidePlan?: LedgeSlideJumpPlan | null;
 }
 

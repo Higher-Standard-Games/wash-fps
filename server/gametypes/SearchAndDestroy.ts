@@ -45,7 +45,7 @@ import { BrushModelState, extractBrushModels } from "../../../../shared/bsp/Brus
 import type { CollisionWorld } from "../../../../shared/collision/CollisionWorld";
 import { rngFrom } from "../../../../shared/DeterministicRng";
 import type { BombEvent, BombPlayerView } from "../../../../shared/server/gametype/BombModel";
-import { BombModel } from "../../../../shared/server/gametype/BombModel";
+import { BombModel, DEFAULT_BOMB_RULES } from "../../../../shared/server/gametype/BombModel";
 import { clientKeyDisplayId, toClientKey } from "../../ClientEntityKey";
 import { type MapMode, WEAPON_PICKUP_CLASSNAMES } from "../../shared/bsp/PickupTable";
 import { debugLog } from "../DebugLog";
@@ -105,7 +105,7 @@ const PRIORITY_FETCH = 0.7;
 /** Staying with the carrier: useful, but not at the cost of your own life. */
 const PRIORITY_ESCORT = 0.55;
 /** The coach's parts, switchable per team for head-to-head tests. */
-export const COACH_PARTS = ["lanes", "cover", "defence", "memory", "crossfire", "holds"] as const;
+export const COACH_PARTS = ["lanes", "cover", "defence", "memory", "crossfire", "holds", "worker"] as const;
 export type CoachPart = (typeof COACH_PARTS)[number];
 /** Bots in the carrier's group, the carrier with them. */
 const MAIN_GROUP = 3;
@@ -145,6 +145,14 @@ const HOLD_RADIUS = 96;
 /** Within this of the planted bomb you can arm or defuse it. */
 const ARM_RADIUS = 64;
 const DEFUSE_RADIUS = 64;
+/** Defenders contesting a planted bomb, and covering the one defusing it, fight within this of it. */
+const SITE_CLEAR_RADIUS = 320;
+/** Running speed a bot's walk to the bomb is reckoned at, units/s. */
+const WORKER_RUN_SPEED = 320;
+/** Spare time a worker keeps in hand before it stops fighting and works, ticks. */
+const WORKER_MARGIN_TICKS = 3 * TICK_RATE;
+/** Past this much progress the arm or defuse is finished whoever is shooting. */
+const WORKER_FINISH_PROGRESS = 0.6;
 /**
  * How close the carrier is told to get to the site.
  *
@@ -304,6 +312,10 @@ export class SearchAndDestroy extends BaseGametype {
   private bombGuard = new Set<number>();
   /** The one attacker doing the job that needs exactly one person. */
   private bombWorkerId: number | null = null;
+  /** The one defender who goes onto a planted bomb; the rest clear the site round it. */
+  private defuserId: number | null = null;
+  /** When this round went live, for the time left on its clock. */
+  private liveSinceTick: number | null = null;
   /** Site the attack is committed to. */
   private targetSiteId: number | null = null;
   /** Per site id, where a player stands in it: see `standingSpot`. */
@@ -500,6 +512,8 @@ export class SearchAndDestroy extends BaseGametype {
     this.anchors.clear();
     this.holdOf.clear();
     this.retakeGo = false;
+    this.defuserId = null;
+    this.liveSinceTick = null;
     this.attackPlan = null;
     this.attackSent = false;
     this.bombCarried = false;
@@ -522,6 +536,7 @@ export class SearchAndDestroy extends BaseGametype {
       this.fireBlasts(state, context);
       return null;
     }
+    this.liveSinceTick ??= this.tick;
 
     const players = this.collectPlayers(state, context);
     const events = this.bomb.update(context.tick as number, players, this.sites, context.attackingTeam);
@@ -947,6 +962,11 @@ export class SearchAndDestroy extends BaseGametype {
     // person: collecting it, or standing on it to arm. Everybody else is then
     // free to cover, rather than stacking on the same 64 units of floor.
     this.bombWorkerId = this.nearestTo(attackers, this.bomb.position);
+    // One defender for a planted bomb, kept while alive: handed to whoever is
+    // nearest each tick, the job swapped between two bots walking past each other.
+    if (this.bomb.phase !== "planted" && !this.bomb.isArmed) this.defuserId = null;
+    else if (this.defuserId === null || !defenders.some((d) => d.entityId === this.defuserId))
+      this.defuserId = this.nearestTo(defenders, this.bomb.position);
 
     // Which site the attack commits to, once a round: nearest the bomb as the
     // round starts. Chosen again every tick, it followed the carrier and
@@ -1263,6 +1283,25 @@ export class SearchAndDestroy extends BaseGametype {
     }
   }
 
+  /** Ticks for `entityId` to walk onto the bomb and finish the arm or defuse from where its meter stands. */
+  private workTicks(entityId: number | null, meterTicks: number): number {
+    const at = this.positionOf(entityId);
+    const bomb = this.bomb.position;
+    const walk = at ? (Math.hypot(at.x - bomb.x, at.z - bomb.z) / WORKER_RUN_SPEED) * TICK_RATE : 0;
+    return walk + meterTicks * (1 - this.bomb.progress);
+  }
+
+  /** Whether the worker must stop fighting and work: time is short, or the job nearly done. */
+  private mustWork(ticksLeft: number, workTicks: number): boolean {
+    return this.bomb.progress >= WORKER_FINISH_PROGRESS || ticksLeft <= workTicks + WORKER_MARGIN_TICKS;
+  }
+
+  /** Ticks left on the round clock, which stops mattering once the bomb is armed. */
+  private roundTicksLeft(): number {
+    const live = this.liveSinceTick ?? this.tick;
+    return ROUND_TIME_SECONDS * TICK_RATE - (this.tick - live);
+  }
+
   /** Entity id of whoever in `candidates` is nearest `point`, or null. */
   private nearestTo(candidates: readonly BombPlayerView[], point: Vec3Like): number | null {
     let best: number | null = null;
@@ -1322,8 +1361,35 @@ export class SearchAndDestroy extends BaseGametype {
     // complete. Defenders rotate now, rather than holding the other site until
     // the fuse starts. Proximity only defuses once the bomb is actually armed.
     if (!attacking && this.bomb.phase === "planted") {
+      // Nothing can be defused before the arming completes, and arming goes on
+      // whoever stands beside it: the bomb is saved by killing the armer, so
+      // the defenders fight their way in. The defuser alone goes onto it, to
+      // start the moment it arms.
+      if (!this.coaches(context.teamId, "worker")) {
+        return [
+          this.directive("snd_contest_plant", "move_to", bomb, DEFUSE_RADIUS, PRIORITY_DEFUSE, expiresAtTick, "never"),
+        ];
+      }
       return [
-        this.directive("snd_contest_plant", "move_to", bomb, DEFUSE_RADIUS, PRIORITY_DEFUSE, expiresAtTick, "never"),
+        me !== null && me === this.defuserId
+          ? this.directive(
+              "snd_contest_plant",
+              "move_to",
+              bomb,
+              DEFUSE_RADIUS,
+              PRIORITY_DEFUSE,
+              expiresAtTick,
+              "enemy_visible",
+            )
+          : this.directive(
+              "snd_clear_plant",
+              "hold_area",
+              bomb,
+              SITE_CLEAR_RADIUS,
+              PRIORITY_DEFUSE,
+              expiresAtTick,
+              "enemy_visible",
+            ),
       ];
     }
 
@@ -1350,7 +1416,32 @@ export class SearchAndDestroy extends BaseGametype {
         }
         // The retake. The only order in the mode a bot should die for: with the
         // bomb ticking there is nothing left to preserve itself for.
-        return [this.directive("snd_defuse", "move_to", bomb, DEFUSE_RADIUS, PRIORITY_DEFUSE, expiresAtTick, "never")];
+        if (!this.coaches(context.teamId, "worker")) {
+          return [
+            this.directive("snd_defuse", "move_to", bomb, DEFUSE_RADIUS, PRIORITY_DEFUSE, expiresAtTick, "never"),
+          ];
+        }
+        // One defuses; the rest clear the site round it. The defuser fights
+        // what it sees while the fuse leaves time to, then defuses whatever is shooting.
+        if (me !== null && me === this.defuserId) {
+          const left = this.bomb.ticksUntilDetonation(this.tick) ?? 0;
+          const work = this.workTicks(me, DEFAULT_BOMB_RULES.defuseTicks);
+          const interrupt = this.mustWork(left, work) ? "never" : "enemy_visible";
+          return [
+            this.directive("snd_defuse", "move_to", bomb, DEFUSE_RADIUS, PRIORITY_DEFUSE, expiresAtTick, interrupt),
+          ];
+        }
+        return [
+          this.directive(
+            "snd_clear_site",
+            "hold_area",
+            bomb,
+            SITE_CLEAR_RADIUS,
+            PRIORITY_DEFUSE,
+            expiresAtTick,
+            "enemy_visible",
+          ),
+        ];
       }
       // Crossfire: each attacker holds part way from the bomb towards one of
       // the ways defenders come in, rather than all on the bomb.
@@ -1475,8 +1566,14 @@ export class SearchAndDestroy extends BaseGametype {
       // One arms; the rest cover. Arming needs a body within 100 units and no
       // more bodies make it faster, so a second attacker standing there is a
       // second attacker not watching an entrance.
+      // The armer fights what it sees while the round clock leaves time to.
+      const armInterrupt =
+        !this.coaches(context.teamId, "worker") ||
+        this.mustWork(this.roundTicksLeft(), this.workTicks(me, DEFAULT_BOMB_RULES.armTicks))
+          ? "never"
+          : "enemy_visible";
       return isWorker
-        ? [this.directive("snd_arm", "move_to", bomb, ARM_RADIUS, PRIORITY_ARM, expiresAtTick, "never")]
+        ? [this.directive("snd_arm", "move_to", bomb, ARM_RADIUS, PRIORITY_ARM, expiresAtTick, armInterrupt)]
         : [
             this.directive(
               "snd_cover_plant",

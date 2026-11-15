@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { MovementInput } from "../../../../engine/network/systems/movement/MovementProfile";
 import { MovementProfile } from "../../simulation/MovementProfile";
-import type { BotInput } from "../BotBrain";
+import { type BotInput, travelYaw } from "../BotBrain";
 import type { BotDifficulty } from "../BotConfig";
 import { InputButtons } from "../BotConfig";
 import { BotGameState } from "../BotGameState";
 import type { NavStep } from "../BotNavGraph";
 import { BotSequenceRegistry, BotSequenceRuntime } from "../BotSequence";
-import { RouteStrafeJumpSequence } from "../sequences/RouteStrafeJumpSequence";
+import { RouteStrafeJumpSequence, strafeGainAngle } from "../sequences/RouteStrafeJumpSequence";
 
 const hardDifficulty: BotDifficulty = {
   aimAccuracy: 1,
@@ -60,8 +60,9 @@ function makeHarness(velocity = { x: 0, y: 0, z: 400 }) {
   return { state, runtime, context };
 }
 function toMovementInput(input: BotInput): MovementInput {
-  const cosYaw = Math.cos(input.yaw);
-  const sinYaw = Math.sin(input.yaw);
+  // The keys are relative to the move yaw, as BotClient sends them
+  const cosYaw = Math.cos(travelYaw(input));
+  const sinYaw = Math.sin(travelYaw(input));
   const worldX = input.direction.z * sinYaw + input.direction.x * cosYaw;
   const worldZ = input.direction.z * cosYaw - input.direction.x * sinYaw;
   return {
@@ -73,7 +74,7 @@ function toMovementInput(input: BotInput): MovementInput {
 }
 
 describe("RouteStrafeJumpSequence", () => {
-  it("takes off, uses pure side acceleration, and verifies the landing", () => {
+  it("takes off, accelerates with forward and a side key, and verifies the landing", () => {
     const { state, runtime, context } = makeHarness();
     expect(runtime.startBest(context)).toBe(true);
 
@@ -88,10 +89,15 @@ describe("RouteStrafeJumpSequence", () => {
     state.self.velocity = { x: 0, y: 300, z: 330 };
     const airborne = runtime.tick(context);
     expect(airborne).toMatchObject({ status: "running", phase: "airborne" });
-    expect(airborne!.input.direction).toEqual({ x: 1, y: 0, z: 0 });
+    expect(airborne!.input.direction.x).toBeCloseTo(Math.SQRT1_2);
+    expect(airborne!.input.direction.z).toBeCloseTo(Math.SQRT1_2);
     expect(airborne!.input.buttons & InputButtons.RIGHT).not.toBe(0);
-    expect(airborne!.input.buttons & InputButtons.FORWARD).toBe(0);
-    expect(airborne!.input.yaw).toBeLessThan(0);
+    expect(airborne!.input.buttons & InputButtons.FORWARD).not.toBe(0);
+    // Jump stays held, so the landing hops again
+    expect(airborne!.input.buttons & InputButtons.JUMP).not.toBe(0);
+    // The wish is the gain angle right of the velocity
+    const wish = travelYaw(airborne!.input) + Math.PI / 4;
+    expect(wish).toBeCloseTo(strafeGainAngle(330), 6);
 
     state.tick = 170;
 
@@ -120,9 +126,49 @@ describe("RouteStrafeJumpSequence", () => {
     state.self.isGrounded = false;
     state.self.velocity = { x: 100, y: 300, z: 300 };
     const airborne = runtime.tick(context);
-    expect(airborne!.input.direction.x).toBe(-1);
+    expect(airborne!.input.direction.x).toBeCloseTo(-Math.SQRT1_2);
     expect(airborne!.input.buttons & InputButtons.LEFT).not.toBe(0);
     expect(airborne!.input.buttons & InputButtons.RIGHT).toBe(0);
+  });
+
+  it("hops again off a landing while the brain gives it more open route", () => {
+    const { state, runtime, context } = makeHarness();
+    let lanes = 1;
+    const chained = {
+      ...context,
+      routeStrafeNext: () =>
+        lanes-- > 0
+          ? {
+              routeStrafeYaw: 0,
+              routeStrafeEnd: { x: 0, y: 0, z: 2000 },
+              routeStrafeSteer: null,
+              routeStrafeOffLine: null,
+            }
+          : null,
+    };
+    expect(runtime.startBest(chained)).toBe(true);
+    runtime.tick(chained);
+    state.tick = 104;
+    state.self.isGrounded = false;
+    state.self.velocity = { x: 0, y: 300, z: 420 };
+    runtime.tick(chained);
+
+    // Down on the stretch's next lane: still running, jump held to hop off the landing
+    state.tick = 180;
+    state.self.isGrounded = true;
+    state.self.position = { x: 0, y: 0, z: 300 };
+    state.self.velocity = { x: 0, y: 0, z: 450 };
+    const landing = runtime.tick(chained);
+    expect(landing).toMatchObject({ status: "running", phase: "airborne" });
+    expect(landing!.input.buttons & InputButtons.JUMP).not.toBe(0);
+
+    // Down again with no more route: hands back
+    state.tick = 184;
+    state.self.isGrounded = false;
+    runtime.tick(chained);
+    state.tick = 260;
+    state.self.isGrounded = true;
+    expect(runtime.tick(chained)).toMatchObject({ status: "succeeded", phase: "landed" });
   });
 
   it("stops the optional hop when cross-track error shows lost control", () => {

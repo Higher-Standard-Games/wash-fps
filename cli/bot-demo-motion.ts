@@ -126,6 +126,7 @@ function samplesFor(
       health: self.health,
       armor: self.armor,
       clearance: running && world ? clearanceAt(world, self.position) : Number.NaN,
+      ...(input ? { buttons: input.buttons } : {}),
     });
   }
   return samples;

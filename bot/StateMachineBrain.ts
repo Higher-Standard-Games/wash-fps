@@ -43,7 +43,12 @@ import {
   wallClearance,
 } from "./BotNavGraph";
 import { duelLeadReactionDelay } from "./BotReactionTuning";
-import { BotSequenceRegistry, BotSequenceRuntime, type BotSequenceRuntimeTick } from "./BotSequence";
+import {
+  BotSequenceRegistry,
+  BotSequenceRuntime,
+  type BotSequenceRuntimeTick,
+  type RouteStrafeLane,
+} from "./BotSequence";
 import { BotTerritory } from "./BotTerritory";
 import type { BotVision, EnemyTrack, VisionResult } from "./BotVision";
 import { BotWeaponCombos, has, slotFor } from "./BotWeaponCombos";
@@ -130,10 +135,12 @@ const HIGH_GROUND_SEARCH_TICKS = 250;
 const COVER_MIN_RANGE = 350;
 
 /** Fight habits a head-to-head test can turn off (`BotOptions.fightOff`). */
-export type FightHabit = "cover" | "height" | "unstick" | "itemcheck";
+export type FightHabit = "cover" | "height" | "unstick" | "itemcheck" | "holster";
 /** A heard enemy this close gets the gun for its distance readied, held this long. */
 const READY_RANGE = 1500;
 const READY_TICKS = 250;
+/** Out of a fight, the gun put up in place of the blade is the best one at this range. */
+const HOLSTER_RANGE = 800;
 /** How far off a wild shot goes, and how far an item may be to glance at. */
 const WILD_SHOT_OFFSET = (5 * Math.PI) / 180;
 const ITEM_GLANCE_RANGE = 1200;
@@ -305,20 +312,22 @@ const RETREAT_ITEM_TYPES: ReadonlySet<string> = new Set(["health"]);
 
 const BOT_STRAFE_RETRY_TICKS = 30;
 /** A strafe jump needs a lane of route this long and wide, plain walking out to the reach. */
-const ROUTE_STRAFE_RUN = 320;
+const ROUTE_STRAFE_RUN = 240;
 const ROUTE_STRAFE_REACH = 640;
+/** A strafe-jump chain starts from this speed: walking pace, since a hop off it already gains. */
+const ROUTE_STRAFE_ENTRY_SPEED = 320;
 /** The most a hop chain's stretch of route line may turn in all. */
-const ROUTE_STRAFE_MAX_TURN = (75 * Math.PI) / 180;
+const ROUTE_STRAFE_MAX_TURN = (120 * Math.PI) / 180;
 /** A hop steers for the route line this far ahead of the bot, units. */
 const ROUTE_STRAFE_STEER_AHEAD = 160;
 /** Without a route line: a straight lane of route this long and wide, plain walking to the reach. */
 const STRAIGHT_HOP_RUN = 480;
 const STRAIGHT_HOP_REACH = 640;
-const STRAIGHT_HOP_LANE = 48;
+const STRAIGHT_HOP_LANE = 96;
 /** The hop sequence ends this far before its target (RouteStrafeJumpSequence ENDPOINT_EXIT_DISTANCE). */
 const STRAIGHT_HOP_EXIT_MARGIN = 260;
 const ROUTE_STRAFE_ITEM_MIN_REMAINING_DISTANCE = 800;
-const ROUTE_STRAFE_MAX_VELOCITY_ERROR_RADIANS = Math.PI / 6;
+const ROUTE_STRAFE_MAX_VELOCITY_ERROR_RADIANS = Math.PI / 4;
 const ROUTE_STRAFE_ALLY_LOOKAHEAD = 600;
 const ROUTE_STRAFE_ALLY_RADIUS = 80;
 
@@ -1454,6 +1463,18 @@ export class StateMachineBrain extends BotBrain {
       }
     }
     if (this._readyWeapon && (input.weaponSlot ?? 0) === 0) input.weaponSlot = slotFor(state, this._readyWeapon.weapon);
+    // Out of a fight, the blade goes away for a gun: whoever comes round the
+    // next corner is more likely at mid range than in reach of a swing.
+    if (
+      (input.weaponSlot ?? 0) === 0 &&
+      state.self.currentWeapon === "blade" &&
+      this._chargeStartTick === null &&
+      !this._fightOff.has("holster")
+    ) {
+      const { slot } = selectBestWeapon(state.self.weapons, state.self.ammo, state.self.currentWeapon, HOLSTER_RANGE);
+      const weapon = slot > 0 ? state.self.weapons[slot - 1] : undefined;
+      if (weapon && weapon !== "blade") input.weaponSlot = slot;
+    }
   }
 
   private _hasAmmoForWeapon(state: BotGameState, weaponId: string): boolean {
@@ -3069,9 +3090,9 @@ export class StateMachineBrain extends BotBrain {
   }
 
   /**
-   * Starts one speed-building hop only after the route planner has established
-   * enough straight, unoccupied walk space. Re-running this gate on every
-   * landing creates a chain without hiding route changes inside the sequence.
+   * Starts a strafe-jump chain only after the route planner has established
+   * enough straight, unoccupied walk space. The chain asks again on every
+   * landing (`routeStrafeNext`), so a route change still ends it there.
    */
   private _tryStartRouteStrafeJump(input: BotInput, state: BotGameState): BotInput | null {
     if (
@@ -3082,13 +3103,7 @@ export class StateMachineBrain extends BotBrain {
     ) {
       return null;
     }
-
-    const navigationState =
-      this.currentState === BotState.HUNT ||
-      this.currentState === BotState.ITEM_RUN ||
-      this.currentState === BotState.RETREAT ||
-      this.currentState === BotState.CHASE;
-    if (!navigationState || !state.self.isGrounded || state.self.isSliding) return null;
+    if (!state.self.isGrounded || state.self.isSliding) return null;
 
     const required = InputButtons.FORWARD | InputButtons.SPRINT;
     const disallowed =
@@ -3099,6 +3114,46 @@ export class StateMachineBrain extends BotBrain {
       InputButtons.FIRE |
       InputButtons.ALT_FIRE;
     if ((input.buttons & required) !== required || (input.buttons & disallowed) !== 0) return null;
+
+    const lane = this._routeStrafeLane(state);
+    if (!lane) return null;
+    const step = this._currentPath?.steps[this._currentPath.cursor] ?? null;
+    const context = {
+      ...this._getSequenceContext(state, step, input, false, true, this._routeStrafeSide),
+      ...lane,
+      routeStrafeNext: (at: BotGameState) => {
+        this._advancePath(at);
+        return this._routeStrafeLane(at);
+      },
+    };
+    if (!this._sequenceRuntime.start("route_strafe_jump", context)) return null;
+    this._routeStrafeSide = this._routeStrafeSide === 1 ? -1 : 1;
+    this._routeStrafeCooldownUntilTick = state.tick + BOT_STRAFE_RETRY_TICKS;
+    return this._tickActiveSequence(state);
+  }
+
+  /**
+   * Bring the path up to where the bot is, as following it would: a sequence
+   * in the air passes waypoints the brain has not looked at.
+   */
+  private _advancePath(state: BotGameState): void {
+    if (!this._navGraph || !this._currentPath) return;
+    this._followRouteLine(state, false);
+    this._navGraph.getNextStep(state.self.position, this._currentPath, PATH_ARRIVED_THRESHOLD);
+  }
+
+  /**
+   * The open stretch of route a strafe jump may take from here, or null: a
+   * walk step with room ahead, at running speed and heading along it, and no
+   * ally in the way.
+   */
+  private _routeStrafeLane(state: BotGameState): RouteStrafeLane | null {
+    const navigationState =
+      this.currentState === BotState.HUNT ||
+      this.currentState === BotState.ITEM_RUN ||
+      this.currentState === BotState.RETREAT ||
+      this.currentState === BotState.CHASE;
+    if (!navigationState || state.self.isDead) return null;
 
     const path = this._currentPath;
     const step = path?.steps[path.cursor] ?? null;
@@ -3120,7 +3175,7 @@ export class StateMachineBrain extends BotBrain {
 
     const routeDirection = vec3Normalize({ x: routeDelta.x, y: 0, z: routeDelta.z });
     const horizontalSpeed = Math.hypot(state.self.velocity.x, state.self.velocity.z);
-    if (horizontalSpeed < PHYSICS.SPRINT_SPEED) return null;
+    if (horizontalSpeed < ROUTE_STRAFE_ENTRY_SPEED) return null;
     if (horizontalSpeed > 0.001) {
       const velocityDotRoute =
         (state.self.velocity.x * routeDirection.x + state.self.velocity.z * routeDirection.z) / horizontalSpeed;
@@ -3141,8 +3196,8 @@ export class StateMachineBrain extends BotBrain {
 
     const points = line.points;
     const self = state.self.position;
-    const context = {
-      ...this._getSequenceContext(state, step, input, false, true, this._routeStrafeSide),
+    return {
+      routeStrafeYaw: Math.atan2(routeDirection.x, routeDirection.z),
       // Along a route line: steer with it to the end of the open stretch. On a
       // straight lane: hold the heading to its end, past waypoints inside it.
       routeStrafeEnd: line.end ?? {
@@ -3163,10 +3218,6 @@ export class StateMachineBrain extends BotBrain {
           }
         : null,
     };
-    if (!this._sequenceRuntime.start("route_strafe_jump", context)) return null;
-    this._routeStrafeSide = this._routeStrafeSide === 1 ? -1 : 1;
-    this._routeStrafeCooldownUntilTick = state.tick + BOT_STRAFE_RETRY_TICKS;
-    return this._tickActiveSequence(state);
   }
 
   private _applyFeelers(input: BotInput, state: BotGameState, vision: BotVision): BotInput {

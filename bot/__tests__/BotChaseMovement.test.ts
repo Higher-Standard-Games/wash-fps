@@ -107,7 +107,7 @@ describe("heard-enemy pursuit movement", () => {
     state.tick = 8;
     state.self.isGrounded = false;
     const airborne = brain.decide(state, null, vision, graph);
-    expect(Math.abs(airborne.direction.x)).toBe(1);
+    expect(Math.abs(airborne.direction.x)).toBeCloseTo(Math.SQRT1_2);
   });
 
   it.each([0, 100, 280, 399])("runs without an optional hop below running speed (%i ups)", (speed) => {

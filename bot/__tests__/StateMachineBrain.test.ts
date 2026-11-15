@@ -457,7 +457,7 @@ describe("StateMachineBrain traversal executors", () => {
     expect(result.input.yaw).toBeCloseTo(Math.atan2(100, 150), 6);
   });
 
-  it("starts a pure-side strafe hop at running speed on a long straight route", () => {
+  it("starts a strafe hop at running speed on a long straight route", () => {
     const brain = new StateMachineBrain(difficulty);
     const state = makeState({ velocity: { x: 0, y: 0, z: 400 } });
     state.players = [];
@@ -499,9 +499,10 @@ describe("StateMachineBrain traversal executors", () => {
     state.self.velocity = { x: 0, y: 300, z: 330 };
     const airborne = harness._tickActiveSequence(state);
     expect(airborne).not.toBeNull();
-    expect(airborne!.direction.z).toBe(0);
-    expect(Math.abs(airborne!.direction.x)).toBe(1);
-    expect(airborne!.buttons & InputButtons.FORWARD).toBe(0);
+    // Forward and a side key: the wish an eighth turn off the move yaw
+    expect(airborne!.direction.z).toBeCloseTo(Math.SQRT1_2);
+    expect(Math.abs(airborne!.direction.x)).toBeCloseTo(Math.SQRT1_2);
+    expect(airborne!.buttons & InputButtons.FORWARD).not.toBe(0);
     expect(airborne!.buttons & (InputButtons.LEFT | InputButtons.RIGHT)).not.toBe(0);
   });
 
@@ -547,11 +548,24 @@ describe("StateMachineBrain traversal executors", () => {
       buttons: InputButtons.FORWARD | InputButtons.SPRINT,
       weaponSlot: 0,
     };
+    const longSteps = harness._currentPath.steps;
+    // A square turn inside the run
+    const nearCorner = { id: 3, type: "floor" as const, position: { x: 0, y: 0, z: 300 } };
+    const nearExit = { id: 4, type: "floor" as const, position: { x: 800, y: 0, z: 300 } };
+    harness._currentPath = {
+      nodes: [start, nearCorner, nearExit],
+      steps: [
+        { ...longSteps[0], to: nearCorner, cost: 300, horizontalDistance: 300 },
+        { ...longSteps[1], from: nearCorner, to: nearExit },
+      ],
+      totalCost: 1100,
+      cursor: 0,
+    };
     expect(harness._tryStartRouteStrafeJump(input, state)).toBeNull();
 
     harness._currentPath = {
       nodes: [start, corner],
-      steps: harness._currentPath.steps.slice(0, 1),
+      steps: longSteps.slice(0, 1),
       totalCost: 800,
       cursor: 0,
     };

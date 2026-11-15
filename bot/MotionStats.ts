@@ -41,6 +41,8 @@ export interface MotionSample {
   armor: number;
   /** Gap from the hull to the nearest wall, NaN when not measured. */
   clearance: number;
+  /** Buttons held during the interval, when the recording has them. */
+  buttons?: number;
 }
 
 const DEG = 180 / Math.PI;
@@ -64,6 +66,11 @@ const CORRECTION_SPEED = 45 / DEG;
 const VIEW_OFF_HEADING = 20 / DEG;
 /** Leaving the ground within this long of landing chains the hops, seconds. */
 const CHAIN_WINDOW = 0.25;
+/** Faster than this in the air is strafe-jumping speed, units/s: over walking pace. */
+const HOP_SPEED = 320;
+/** Movement keys, as InputButtons. */
+const FORWARD_KEYS = (1 << 0) | (1 << 1);
+const SIDE_KEYS = (1 << 2) | (1 << 3);
 /** A sample gap this long means the player was dead or gone in between, seconds. */
 const GAP = 1;
 
@@ -99,6 +106,15 @@ export interface MotionTotals {
   overshoots: number;
   takeoffs: number;
   chainedTakeoffs: number;
+  /** Seconds on the ground before each chained take-off. */
+  chainGround: number[];
+  /** Speed at each chained take-off less the speed at the one before, units/s. */
+  hopGains: number[];
+  /** Airborne samples over HOP_SPEED, by the movement keys held. */
+  airForwardSide: number;
+  airSide: number;
+  airForward: number;
+  airNoKeys: number;
   /** Running time, for take-offs per running minute. */
   runTime: number;
   gained: number;
@@ -127,6 +143,12 @@ export function emptyTotals(): MotionTotals {
     overshoots: 0,
     takeoffs: 0,
     chainedTakeoffs: 0,
+    chainGround: [],
+    hopGains: [],
+    airForwardSide: 0,
+    airSide: 0,
+    airForward: 0,
+    airNoKeys: 0,
     runTime: 0,
     gained: 0,
     deaths: 0,
@@ -137,6 +159,7 @@ export function emptyTotals(): MotionTotals {
 export function accumulateMotion(samples: readonly MotionSample[], totals: MotionTotals): void {
   let lastFire = Number.NEGATIVE_INFINITY;
   let landedAt = Number.NEGATIVE_INFINITY;
+  let lastTakeoffSpeed: number | null = null;
   let lastSign = 0;
   let windowStart = 0;
   /** Flick in progress: its direction, start view and when it ended. */
@@ -188,7 +211,21 @@ export function accumulateMotion(samples: readonly MotionSample[], totals: Motio
     if (!a.grounded && b.grounded) landedAt = b.t;
     if (a.grounded && !b.grounded && b.speed > RUNNING_SPEED) {
       totals.takeoffs++;
-      if (b.t - landedAt <= CHAIN_WINDOW) totals.chainedTakeoffs++;
+      if (b.t - landedAt <= CHAIN_WINDOW) {
+        totals.chainedTakeoffs++;
+        totals.chainGround.push(b.t - landedAt);
+        if (lastTakeoffSpeed !== null) totals.hopGains.push(b.speed - lastTakeoffSpeed);
+      }
+      lastTakeoffSpeed = b.speed;
+    }
+    if (b.grounded && b.t - landedAt > CHAIN_WINDOW) lastTakeoffSpeed = null;
+    if (!b.grounded && b.speed > HOP_SPEED && b.buttons !== undefined) {
+      const forward = (b.buttons & FORWARD_KEYS) !== 0;
+      const side = (b.buttons & SIDE_KEYS) !== 0;
+      if (forward && side) totals.airForwardSide++;
+      else if (side) totals.airSide++;
+      else if (forward) totals.airForward++;
+      else totals.airNoKeys++;
     }
 
     // View: turn rate over a window of at least TURN_WINDOW.
@@ -238,6 +275,8 @@ export function motionRows(t: MotionTotals): [string, string][] {
   const num = (v: number, digits = 0) => (Number.isNaN(v) ? "-" : v.toFixed(digits));
   const within = (limit: number) => pct(t.clearances.filter((c) => c < limit).length, t.clearances.length);
   const fast = t.runSpeeds.filter((s) => s > 450).length;
+  const faster = t.runSpeeds.filter((s) => s > 600).length;
+  const keyed = t.airForwardSide + t.airSide + t.airForward + t.airNoKeys;
   return [
     ["alive minutes", num(t.alive / 60, 1)],
     ["still", pct(t.still, t.alive)],
@@ -245,6 +284,7 @@ export function motionRows(t: MotionTotals): [string, string][] {
     ["airborne", pct(t.airborne, t.alive)],
     ["running speed (median u/s)", num(median(t.runSpeeds))],
     ["running over 450 u/s", pct(fast, t.runSpeeds.length)],
+    ["running over 600 u/s", pct(faster, t.runSpeeds.length)],
     ["running airborne", pct(t.runAirborne, t.runCount)],
     ["wall gap running (median u)", num(median(t.clearances))],
     ["running within 24 u of a wall", within(24)],
@@ -259,6 +299,11 @@ export function motionRows(t: MotionTotals): [string, string][] {
     ["flicks ending in a correction", pct(t.overshoots, t.flicks)],
     ["take-offs per running minute", per(t.takeoffs, t.runTime)],
     ["take-offs chained from a landing", pct(t.chainedTakeoffs, t.takeoffs)],
+    ["ground before a chained hop (median ms)", num(median(t.chainGround) * 1000)],
+    ["speed gained per chained hop (median u/s)", num(median(t.hopGains))],
+    ["in the air at speed: forward and side", pct(t.airForwardSide, keyed)],
+    ["in the air at speed: side only", pct(t.airSide, keyed)],
+    ["in the air at speed: forward only", pct(t.airForward, keyed)],
     ["health and armor per minute", per(t.gained, t.alive)],
     ["deaths per minute", per(t.deaths, t.alive)],
   ];

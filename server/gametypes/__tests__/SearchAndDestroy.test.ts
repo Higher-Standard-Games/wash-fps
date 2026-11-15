@@ -536,9 +536,10 @@ describe("agent directives", () => {
     const armer: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: BOMB_SPAWN };
     const mate: FakePlayer = { id: 2, ownerId: 2, team: "udon", position: { x: 900, y: 0, z: 0 } };
     const enemy: FakePlayer = { id: 3, ownerId: 3, team: "soba", position: { x: 3000, y: 0, z: 0 } };
-    run(mode, [armer, mate, enemy], 1);
+    const farEnemy: FakePlayer = { id: 4, ownerId: 4, team: "soba", position: { x: 4000, y: 0, z: 0 } };
+    run(mode, [armer, mate, enemy, farEnemy], 1);
     const planting = { ...armer, position: { x: 0, y: 0, z: 0 }, speed: 10 };
-    run(mode, [planting, mate, enemy], 1, 1);
+    run(mode, [planting, mate, enemy, farEnemy], 1, 1);
     expect(mode.bombState.phase).toBe("planted");
 
     const forArmer = mode.getAgentDirectives(directiveContext({ teamId: "udon", entityId: "player_1" }), fakeState([]));
@@ -546,8 +547,17 @@ describe("agent directives", () => {
       directiveContext({ teamId: "soba", entityId: "player_3" }),
       fakeState([]),
     );
-    expect(forDefender[0]).toMatchObject({ id: "snd_contest_plant", kind: "move_to", interrupt: "never" });
+    // The nearest defender goes for the bomb, fighting on the way; the other
+    // fights for the ground round it. Nothing defuses before the arming completes.
+    expect(forDefender[0]).toMatchObject({ id: "snd_contest_plant", kind: "move_to", interrupt: "enemy_visible" });
     expect(forDefender[0].target).toMatchObject({ type: "position", position: mode.bombState.position });
+    const forFarDefender = mode.getAgentDirectives(
+      directiveContext({ teamId: "soba", entityId: "player_4" }),
+      fakeState([]),
+    );
+    expect(forFarDefender[0]).toMatchObject({ id: "snd_clear_plant", kind: "hold_area", interrupt: "enemy_visible" });
+    // With the round clock long, the armer answers a fight first
+    expect(forArmer[0].interrupt).toBe("enemy_visible");
     const forMate = mode.getAgentDirectives(directiveContext({ teamId: "udon", entityId: "player_2" }), fakeState([]));
     expect(forArmer[0].id).toBe("snd_arm");
     expect(forMate[0].id).toBe("snd_cover_plant");
@@ -569,18 +579,42 @@ describe("agent directives", () => {
     run(mode, [planting, watcher], 4 * 125 + 20, 1);
     expect(mode.bombState.phase).toBe("armed");
 
-    const [defuse] = mode.getAgentDirectives(directiveContext({ teamId: "soba" }), fakeState([]));
+    const [defuse] = mode.getAgentDirectives(directiveContext({ teamId: "soba", entityId: "player_2" }), fakeState([]));
     const others = mode.getAgentDirectives(directiveContext({ teamId: "udon" }), fakeState([]));
     expect(defuse.id).toBe("snd_defuse");
-    // And it is the one order a bot should die for — nothing is left to
-    // preserve itself for once the bomb is ticking.
-    expect(defuse.interrupt).toBe("never");
+    // With time on the fuse to walk over, defuse and spare, the defuser fights what it sees first
+    expect(defuse.interrupt).toBe("enemy_visible");
     for (const other of others) expect(defuse.priority).toBeGreaterThan(other.priority);
+
+    // With the fuse short, it is the one order a bot should die for
+    run(mode, [planting, watcher], 18 * 125, 4 * 125 + 21);
+    expect(mode.bombState.phase).toBe("armed");
+    const [late] = mode.getAgentDirectives(directiveContext({ teamId: "soba", entityId: "player_2" }), fakeState([]));
+    expect(late).toMatchObject({ id: "snd_defuse", interrupt: "never" });
+  });
+
+  it("sends one defender onto an armed bomb while the rest clear the site", () => {
+    const mode = new SearchAndDestroy();
+    mode.onMapLoad(mapContext());
+    mode.onTick(fakeState([]), tickContext({ players: [], live: false }));
+    const carrier: FakePlayer = { id: 1, ownerId: 1, team: "udon", position: BOMB_SPAWN };
+    const near: FakePlayer = { id: 2, ownerId: 2, team: "soba", position: { x: 1500, y: 0, z: 0 } };
+    const far: FakePlayer = { id: 3, ownerId: 3, team: "soba", position: { x: 3000, y: 0, z: 0 } };
+    run(mode, [carrier, near, far], 1);
+    const planting = { ...carrier, position: { x: 0, y: 0, z: 0 }, speed: 10 };
+    run(mode, [planting, near, far], 4 * 125 + 20, 1);
+    expect(mode.bombState.phase).toBe("armed");
+    // Past the regroup: the fuse is short enough that the retake goes in
+    run(mode, [planting, near, far], 10 * 125, 4 * 125 + 21);
+    const forNear = mode.getAgentDirectives(directiveContext({ teamId: "soba", entityId: "player_2" }), fakeState([]));
+    const forFar = mode.getAgentDirectives(directiveContext({ teamId: "soba", entityId: "player_3" }), fakeState([]));
+    expect(forNear[0].id).toBe("snd_defuse");
+    expect(forFar[0]).toMatchObject({ id: "snd_clear_site", kind: "hold_area", interrupt: "enemy_visible" });
   });
 
   it("uses ids stable across snapshots, so goal commitment survives", () => {
     const mode = loaded();
-    const first = mode.getAgentDirectives(directiveContext({ teamId: "soba" }), fakeState([]));
+    const first = mode.getAgentDirectives(directiveContext({ teamId: "soba", entityId: "player_2" }), fakeState([]));
     const second = mode.getAgentDirectives(directiveContext({ teamId: "soba", tick: 2000 }), fakeState([]));
     expect(first.map((d) => d.id)).toEqual(second.map((d) => d.id));
     // ...but the expiry does move, or they would go stale.
