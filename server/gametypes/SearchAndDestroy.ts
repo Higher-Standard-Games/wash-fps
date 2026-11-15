@@ -105,7 +105,17 @@ const PRIORITY_FETCH = 0.7;
 /** Staying with the carrier: useful, but not at the cost of your own life. */
 const PRIORITY_ESCORT = 0.55;
 /** The coach's parts, switchable per team for head-to-head tests. */
-export const COACH_PARTS = ["lanes", "cover", "defence", "memory", "crossfire", "holds", "worker", "calls"] as const;
+export const COACH_PARTS = [
+  "lanes",
+  "cover",
+  "defence",
+  "memory",
+  "crossfire",
+  "holds",
+  "worker",
+  "calls",
+  "roles",
+] as const;
 export type CoachPart = (typeof COACH_PARTS)[number];
 /** Bots in the carrier's group, the carrier with them. */
 const MAIN_GROUP = 3;
@@ -169,6 +179,14 @@ const COVER_LEASH = 700;
 const SITE_QUIET_TICKS = 2 * TICK_RATE;
 /** An attacker this close to the bomb, seen by a defender, keeps the site from being quiet. */
 const SITE_WATCH_RADIUS = 900;
+/** On the go, the carrier waits this long for the entry bot to go in first, ticks. */
+const ENTRY_LEAD_TICKS = 2 * TICK_RATE;
+/** The carrier waits for the entry patrolling this close to its staging point. */
+const ENTRY_WAIT_RADIUS = 150;
+/** An attack that has lost this many since the go falls back, once a round… */
+const FALL_BACK_LOSSES = 2;
+/** …while at least this much of the round is left, ticks. */
+const FALL_BACK_MIN_LEFT = 30 * TICK_RATE;
 /** A call rides on its speaker's orders this long, so a snapshot lost on the way does not lose it, ticks. */
 const CALL_TICKS = 3 * TICK_RATE;
 /** A guard this close to its ground calls that it is covering, units. */
@@ -352,6 +370,13 @@ export class SearchAndDestroy extends BaseGametype {
   /** The bomb's phase last tick, and how often it has been dropped this round, for calls. */
   private lastBombPhase: string | null = null;
   private drops = 0;
+  /** When the attack went in this round, and how many attackers were alive then. */
+  private goTick: number | null = null;
+  private attackersAtGo = 0;
+  /** The attack has fallen back once this round. */
+  private fellBack = false;
+  /** The bot that goes into the site first on the go, ahead of the carrier. */
+  private entryId: number | null = null;
   /** Answers to a person's commands, made on the next tick by a bot of their team. */
   private acks: { team: string; id: string; text: string }[] = [];
   /** Site the attack is committed to. */
@@ -562,6 +587,10 @@ export class SearchAndDestroy extends BaseGametype {
     this.lastBombPhase = null;
     this.drops = 0;
     this.acks = [];
+    this.goTick = null;
+    this.attackersAtGo = 0;
+    this.fellBack = false;
+    this.entryId = null;
     this.attackPlan = null;
     this.attackSent = false;
     this.bombCarried = false;
@@ -1026,6 +1055,7 @@ export class SearchAndDestroy extends BaseGametype {
     this.planAttack(attackers, context.attackingTeam);
     this.planBombCover(attackers, defenders, context);
     this.planDefence(attackers, defenders, context);
+    this.planRoles(attackers, defenders, context);
     this.planGuards(attackers, defenders, context);
     this.planCalls(attackers, defenders, context);
   }
@@ -1427,6 +1457,62 @@ export class SearchAndDestroy extends BaseGametype {
     const length = Math.hypot(dx, dz);
     const share = length > 0 ? Math.min(GUARD_SHARE, GUARD_MAX_DISTANCE / length) : 0;
     return { spot: { x: bomb.x + dx * share, y: bomb.y + (way.y - bomb.y) * share, z: bomb.z + dz * share }, way };
+  }
+
+  /**
+   * The attack's roles beyond the carrier: the entry, who goes into the site
+   * first on the go while the carrier waits a moment behind, and the fall
+   * back, once a round, when the attack has lost FALL_BACK_LOSSES since the go
+   * without planting: regroup on a new plan against the other site rather
+   * than feed the defence one at a time.
+   */
+  private planRoles(
+    attackers: readonly BombPlayerView[],
+    defenders: readonly BombPlayerView[],
+    context: GametypeTickContext,
+  ): void {
+    if (!this.coaches(context.attackingTeam, "roles")) {
+      this.entryId = null;
+      return;
+    }
+    const plan = this.attackPlan;
+    const carrier = this.bomb.carrierId;
+    const living = new Set(attackers.map((a) => a.entityId));
+    if (plan && carrier !== null) {
+      if (this.entryId === null || !living.has(this.entryId) || this.entryId === carrier) {
+        const mates = [...plan.groupOf]
+          .filter(([id, group]) => group === 0 && id !== carrier && living.has(id) && !this.isPerson(id))
+          .map(([id]) => id)
+          .sort((a, b) => a - b);
+        this.entryId = mates[0] ?? null;
+      }
+    } else this.entryId = null;
+
+    if (this.attackSent && this.goTick === null) {
+      this.goTick = this.tick;
+      this.attackersAtGo = attackers.length;
+    }
+    const planted = this.bomb.phase === "planted" || this.bomb.isArmed;
+    const losing =
+      this.goTick !== null &&
+      !this.fellBack &&
+      !planted &&
+      attackers.length <= this.attackersAtGo - FALL_BACK_LOSSES &&
+      defenders.length >= attackers.length &&
+      this.roundTicksLeft() > FALL_BACK_MIN_LEFT;
+    if (!losing) return;
+    const other = this.sites.find((s) => s.id !== this.targetSiteId) ?? null;
+    this.fellBack = true;
+    this.attackSent = false;
+    this.goTick = null;
+    this.waitCalled = false;
+    this.attackPlan = null;
+    if (other) this.targetSiteId = other.id;
+    this.acks.push({
+      team: context.attackingTeam,
+      id: `r${this.round}:fallback`,
+      text: other ? `Fall back, regroup for ${other.label}` : "Fall back, regroup",
+    });
   }
 
   /** A person's command to their team (SndCalls.teamCommand). */
@@ -2023,6 +2109,39 @@ export class SearchAndDestroy extends BaseGametype {
           this.standingSpot(target),
           SITE_ARRIVAL_RADIUS,
           PRIORITY_HOLD,
+          expiresAtTick,
+          "enemy_visible",
+        ),
+      ];
+    }
+
+    // The entry goes into the site first and fights for it
+    if (me !== null && me === this.entryId && plan?.go) {
+      return [
+        this.directive(
+          `snd_entry_${target.id}`,
+          "hold_area",
+          this.standingSpot(target),
+          SITE_ARRIVAL_RADIUS,
+          PRIORITY_ARM - 0.02,
+          expiresAtTick,
+          "enemy_visible",
+          undefined,
+          undefined,
+          COVER_LEASH,
+        ),
+      ];
+    }
+    // The carrier lets the entry go first, waiting on the move behind
+    const entryLead = this.goTick !== null && this.tick - this.goTick < ENTRY_LEAD_TICKS && this.entryId !== null;
+    if (isCarrier && entryLead && plan) {
+      return [
+        this.directive(
+          `snd_entry_wait_${target.id}`,
+          "hold_area",
+          this.laneFor(plan, 0).staging,
+          ENTRY_WAIT_RADIUS,
+          PRIORITY_ARM,
           expiresAtTick,
           "enemy_visible",
         ),
