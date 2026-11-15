@@ -153,6 +153,22 @@ const WORKER_RUN_SPEED = 320;
 const WORKER_MARGIN_TICKS = 3 * TICK_RATE;
 /** Past this much progress the arm or defuse is finished whoever is shooting. */
 const WORKER_FINISH_PROGRESS = 0.6;
+/** Guards a worker on the bomb has, each watching one way in. */
+const WORKER_GUARDS = 2;
+/** A guard's ground lies this share of the way from the bomb to its way in… */
+const GUARD_SHARE = 0.45;
+/** …and no further from the bomb than this, units. */
+const GUARD_MAX_DISTANCE = 450;
+/** A guard patrols within this of its ground. */
+const GUARD_PATROL_RADIUS = 180;
+/** Nor does a fight take a guard further than this from its ground. */
+const GUARD_LEASH = 420;
+/** Bots covering the bomb fight within this of it. */
+const COVER_LEASH = 700;
+/** The defuser goes onto the bomb once no attacker has been seen near it for this long, ticks. */
+const SITE_QUIET_TICKS = 2 * TICK_RATE;
+/** An attacker this close to the bomb, seen by a defender, keeps the site from being quiet. */
+const SITE_WATCH_RADIUS = 900;
 /**
  * How close the carrier is told to get to the site.
  *
@@ -316,6 +332,11 @@ export class SearchAndDestroy extends BaseGametype {
   private defuserId: number | null = null;
   /** When this round went live, for the time left on its clock. */
   private liveSinceTick: number | null = null;
+  /** Guards round the attackers' and the defenders' bomb workers, in the order of the ways they watch. */
+  private attackGuards: number[] = [];
+  private defendGuards: number[] = [];
+  /** Last tick a defender saw an attacker near the planted bomb. */
+  private attackerSeenNearBomb = 0;
   /** Site the attack is committed to. */
   private targetSiteId: number | null = null;
   /** Per site id, where a player stands in it: see `standingSpot`. */
@@ -514,6 +535,9 @@ export class SearchAndDestroy extends BaseGametype {
     this.retakeGo = false;
     this.defuserId = null;
     this.liveSinceTick = null;
+    this.attackGuards = [];
+    this.defendGuards = [];
+    this.attackerSeenNearBomb = 0;
     this.attackPlan = null;
     this.attackSent = false;
     this.bombCarried = false;
@@ -978,6 +1002,7 @@ export class SearchAndDestroy extends BaseGametype {
     this.planAttack(attackers, context.attackingTeam);
     this.planBombCover(attackers, defenders, context);
     this.planDefence(attackers, defenders, context);
+    this.planGuards(attackers, defenders, context);
   }
 
   /**
@@ -1283,6 +1308,89 @@ export class SearchAndDestroy extends BaseGametype {
     }
   }
 
+  /**
+   * Who guards each side's bomb worker: the teammates nearest the bomb, kept
+   * while they live, so the job does not pass back and forth between two bots.
+   * Also notes when a defender last saw an attacker near the bomb.
+   */
+  private planGuards(
+    attackers: readonly BombPlayerView[],
+    defenders: readonly BombPlayerView[],
+    context: GametypeTickContext,
+  ): void {
+    const onBomb = this.bomb.phase === "planted" || this.bomb.isArmed;
+    const keep = (guards: number[], team: readonly BombPlayerView[], worker: number | null): number[] => {
+      const living = new Set(team.map((p) => p.entityId));
+      const kept = guards.filter((id) => living.has(id) && id !== worker);
+      const bomb = this.bomb.position;
+      const others = team
+        .filter((p) => p.entityId !== worker && !kept.includes(p.entityId))
+        .sort(
+          (a, b) =>
+            Math.hypot(a.position.x - bomb.x, a.position.z - bomb.z) -
+            Math.hypot(b.position.x - bomb.x, b.position.z - bomb.z),
+        );
+      for (const p of others) {
+        if (kept.length >= WORKER_GUARDS) break;
+        kept.push(p.entityId);
+      }
+      return kept;
+    };
+    const arming = this.bomb.phase === "planted" && !this.bomb.isArmed;
+    this.attackGuards =
+      arming && this.coaches(context.attackingTeam, "worker")
+        ? keep(this.attackGuards, attackers, this.bombWorkerId)
+        : [];
+    this.defendGuards =
+      onBomb && this.coaches(context.defendingTeam, "worker") ? keep(this.defendGuards, defenders, this.defuserId) : [];
+
+    if (!onBomb || this.tick % SPOT_EVERY_TICKS !== 0) return;
+    const bomb = this.bomb.position;
+    const eye = (p: Vec3Like): Vec3 => ({ x: p.x, y: p.y + EYE_HEIGHT, z: p.z });
+    const seen = attackers.some(
+      (a) =>
+        Math.hypot(a.position.x - bomb.x, a.position.z - bomb.z) <= SITE_WATCH_RADIUS &&
+        defenders.some((d) => (this.collision?.trace(eye(d.position), eye(a.position)).fraction ?? 0) >= 1),
+    );
+    if (seen) this.attackerSeenNearBomb = this.tick;
+  }
+
+  /**
+   * A guard's order: patrol ground between the bomb and the way in it
+   * watches, and fight from there. Attackers watch the ways defenders come in
+   * by; defenders the ways attackers do.
+   */
+  private guardDirective(
+    attacking: boolean,
+    index: number,
+    priority: number,
+    expiresAtTick: number,
+  ): AgentDirective | null {
+    const site = this.bomb.siteId;
+    if (site === null) return null;
+    const ways = lanesInto(this.lanes, site, attacking ? "defend" : "attack").map((l) => l.staging);
+    if (ways.length === 0) return null;
+    const bomb = this.bomb.position;
+    const way = ways[index % ways.length];
+    const dx = way.x - bomb.x;
+    const dz = way.z - bomb.z;
+    const length = Math.hypot(dx, dz);
+    const share = length > 0 ? Math.min(GUARD_SHARE, GUARD_MAX_DISTANCE / length) : 0;
+    const spot = { x: bomb.x + dx * share, y: bomb.y + (way.y - bomb.y) * share, z: bomb.z + dz * share };
+    return this.directive(
+      `snd_guard_${attacking ? "arm" : "defuse"}_${index}`,
+      "hold_area",
+      spot,
+      GUARD_PATROL_RADIUS,
+      priority,
+      expiresAtTick,
+      "enemy_visible",
+      undefined,
+      way,
+      GUARD_LEASH,
+    );
+  }
+
   /** Ticks for `entityId` to walk onto the bomb and finish the arm or defuse from where its meter stands. */
   private workTicks(entityId: number | null, meterTicks: number): number {
     const at = this.positionOf(entityId);
@@ -1370,26 +1478,35 @@ export class SearchAndDestroy extends BaseGametype {
           this.directive("snd_contest_plant", "move_to", bomb, DEFUSE_RADIUS, PRIORITY_DEFUSE, expiresAtTick, "never"),
         ];
       }
+      if (me !== null && me === this.defuserId) {
+        return [
+          this.directive(
+            "snd_contest_plant",
+            "move_to",
+            bomb,
+            DEFUSE_RADIUS,
+            PRIORITY_DEFUSE,
+            expiresAtTick,
+            "enemy_visible",
+          ),
+        ];
+      }
+      const guard = me === null ? -1 : this.defendGuards.indexOf(me);
+      const guarding = guard >= 0 ? this.guardDirective(false, guard, PRIORITY_DEFUSE, expiresAtTick) : null;
+      if (guarding) return [guarding];
       return [
-        me !== null && me === this.defuserId
-          ? this.directive(
-              "snd_contest_plant",
-              "move_to",
-              bomb,
-              DEFUSE_RADIUS,
-              PRIORITY_DEFUSE,
-              expiresAtTick,
-              "enemy_visible",
-            )
-          : this.directive(
-              "snd_clear_plant",
-              "hold_area",
-              bomb,
-              SITE_CLEAR_RADIUS,
-              PRIORITY_DEFUSE,
-              expiresAtTick,
-              "enemy_visible",
-            ),
+        this.directive(
+          "snd_clear_plant",
+          "hold_area",
+          bomb,
+          SITE_CLEAR_RADIUS,
+          PRIORITY_DEFUSE,
+          expiresAtTick,
+          "enemy_visible",
+          undefined,
+          undefined,
+          COVER_LEASH,
+        ),
       ];
     }
 
@@ -1404,7 +1521,7 @@ export class SearchAndDestroy extends BaseGametype {
             return [
               this.directive(
                 "snd_regroup",
-                "move_to",
+                "hold_area",
                 point,
                 REGROUP_RADIUS / 2,
                 PRIORITY_DEFUSE,
@@ -1426,11 +1543,33 @@ export class SearchAndDestroy extends BaseGametype {
         if (me !== null && me === this.defuserId) {
           const left = this.bomb.ticksUntilDetonation(this.tick) ?? 0;
           const work = this.workTicks(me, DEFAULT_BOMB_RULES.defuseTicks);
-          const interrupt = this.mustWork(left, work) ? "never" : "enemy_visible";
+          const mustWork = this.mustWork(left, work);
+          // Onto the bomb once the site is quiet, or when the fuse cannot wait:
+          // until then beside it with the guards, fighting.
+          if (!mustWork && this.tick - this.attackerSeenNearBomb < SITE_QUIET_TICKS) {
+            return [
+              this.directive(
+                "snd_defuse_wait",
+                "hold_area",
+                bomb,
+                SITE_CLEAR_RADIUS,
+                PRIORITY_DEFUSE,
+                expiresAtTick,
+                "enemy_visible",
+                undefined,
+                undefined,
+                COVER_LEASH,
+              ),
+            ];
+          }
+          const interrupt = mustWork ? "never" : "enemy_visible";
           return [
             this.directive("snd_defuse", "move_to", bomb, DEFUSE_RADIUS, PRIORITY_DEFUSE, expiresAtTick, interrupt),
           ];
         }
+        const guard = me === null ? -1 : this.defendGuards.indexOf(me);
+        const guarding = guard >= 0 ? this.guardDirective(false, guard, PRIORITY_DEFUSE, expiresAtTick) : null;
+        if (guarding) return [guarding];
         return [
           this.directive(
             "snd_clear_site",
@@ -1440,6 +1579,9 @@ export class SearchAndDestroy extends BaseGametype {
             PRIORITY_DEFUSE,
             expiresAtTick,
             "enemy_visible",
+            undefined,
+            undefined,
+            COVER_LEASH,
           ),
         ];
       }
@@ -1572,19 +1714,27 @@ export class SearchAndDestroy extends BaseGametype {
         this.mustWork(this.roundTicksLeft(), this.workTicks(me, DEFAULT_BOMB_RULES.armTicks))
           ? "never"
           : "enemy_visible";
-      return isWorker
-        ? [this.directive("snd_arm", "move_to", bomb, ARM_RADIUS, PRIORITY_ARM, expiresAtTick, armInterrupt)]
-        : [
-            this.directive(
-              "snd_cover_plant",
-              "hold_area",
-              bomb,
-              SITE_ARRIVAL_RADIUS,
-              PRIORITY_HOLD,
-              expiresAtTick,
-              "enemy_visible",
-            ),
-          ];
+      if (isWorker) {
+        return [this.directive("snd_arm", "move_to", bomb, ARM_RADIUS, PRIORITY_ARM, expiresAtTick, armInterrupt)];
+      }
+      // Two guard the armer from the ways defenders come in by; the rest cover the site.
+      const guard = me === null ? -1 : this.attackGuards.indexOf(me);
+      const guarding = guard >= 0 ? this.guardDirective(true, guard, PRIORITY_ARM - 0.01, expiresAtTick) : null;
+      if (guarding) return [guarding];
+      return [
+        this.directive(
+          "snd_cover_plant",
+          "hold_area",
+          bomb,
+          SITE_ARRIVAL_RADIUS,
+          PRIORITY_HOLD,
+          expiresAtTick,
+          "enemy_visible",
+          undefined,
+          undefined,
+          this.coaches(context.teamId, "worker") ? COVER_LEASH : undefined,
+        ),
+      ];
     }
 
     if (phase === "dropped") {
@@ -1708,6 +1858,7 @@ export class SearchAndDestroy extends BaseGametype {
     interrupt: AgentDirective["interrupt"],
     via?: readonly Vec3Like[],
     watch?: Vec3Like,
+    leash?: number,
   ): AgentDirective {
     return {
       id,
@@ -1718,6 +1869,7 @@ export class SearchAndDestroy extends BaseGametype {
       interrupt,
       ...(via && via.length > 0 ? { via: via.map((p) => ({ x: p.x, y: p.y, z: p.z })) } : {}),
       ...(watch ? { watch: { x: watch.x, y: watch.y, z: watch.z } } : {}),
+      ...(leash !== undefined ? { leash } : {}),
     };
   }
 

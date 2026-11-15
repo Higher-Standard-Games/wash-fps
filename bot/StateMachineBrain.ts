@@ -112,6 +112,19 @@ const VIA_HEIGHT = 72;
 const CHARGE_CARRY_TICKS = Math.round(2 * TICK_RATE);
 /** A held watch sweeps this far either side of the way in, radians, at this rate. */
 const HOLD_SWEEP = 0.3;
+/** A guard picks its next patrol point once this close to the last, units. */
+const GUARD_POINT_REACHED = 56;
+/** Guard patrol points lie this far out from the spot, as shares of the order's radius. */
+const GUARD_RINGS = [0.45, 0.85] as const;
+/** Directions round the spot a guard tries for patrol points. */
+const GUARD_DIRECTIONS = 10;
+/** Patrol points are kept within this of a guard's radius, units, however large the order. */
+const GUARD_MIN_RADIUS = 96;
+const GUARD_MAX_RADIUS = 420;
+/** With nowhere to walk, a guard strafes and turns the way back this often, ticks. */
+const GUARD_STRAFE_TICKS = 90;
+/** Eye height for a guard's check that a patrol point sees the way in. */
+const GUARD_EYE = 40;
 const HOLD_SWEEP_RATE = 0.9;
 const DODGE_REACT_TICKS = 30; // React to damage within last 30 ticks
 /** Blocked in a fight, the bot runs the open way this long before the fight steers again. */
@@ -890,6 +903,13 @@ export class StateMachineBrain extends BotBrain {
     const chase = this.currentState === BotState.CHASE ? this._lastVision?.chaseTarget : null;
     if (chase && state.self.health >= 50)
       input = this._keepUpperGround(state, { position: chase.lastSeenPosition }, input);
+    if (
+      this.currentState === BotState.FIGHT ||
+      this.currentState === BotState.CHASE ||
+      this.currentState === BotState.DODGE
+    ) {
+      input = this._applyLeash(state, input);
+    }
 
     if (this.currentState !== BotState.FIGHT && this.currentState !== BotState.DODGE) {
       this._readyForHeard(state, input);
@@ -1083,7 +1103,14 @@ export class StateMachineBrain extends BotBrain {
     // the gap crosses the limit.
     const chaseTarget = this._lastVision?.chaseTarget;
     // A strategy that wants no fight lets an enemy out of sight go.
-    if (chaseTarget && this._strategy.stance.chase && this._mood.mistake(state.tick) !== "forget") {
+    const leash = this._leashOrder(state);
+    const pastLeash =
+      chaseTarget !== null &&
+      chaseTarget !== undefined &&
+      leash !== null &&
+      Math.hypot(chaseTarget.lastSeenPosition.x - leash.center.x, chaseTarget.lastSeenPosition.z - leash.center.z) >
+        leash.leash;
+    if (chaseTarget && !pastLeash && this._strategy.stance.chase && this._mood.mistake(state.tick) !== "forget") {
       const distantSound =
         chaseTarget.source === "sound" &&
         this.currentState !== BotState.CHASE &&
@@ -2035,9 +2062,7 @@ export class StateMachineBrain extends BotBrain {
     // Planting and defusing use move_to: those orders must stay still on arrival.
     const patrol = goal.directive?.kind === "defend" || goal.directive?.kind === "hold_area";
     if (patrol && radius !== undefined && vec3Length(vec3Subtract(goal.position, state.self.position)) <= radius) {
-      const watch = goal.directive?.watch;
-      if (watch) return this._holdWatching(state, watch);
-      return this._patrolSite(state, goal, radius);
+      return this._guardPatrol(state, goal.id, goal.position, radius, goal.directive?.watch ?? null);
     }
     this._sitePatrol = null;
     const timed = !goal.directive && goal.respawnTick !== undefined && goal.respawnTick > state.tick;
@@ -2254,75 +2279,145 @@ export class StateMachineBrain extends BotBrain {
    * Wait by a timed item looking at the ways in, a few seconds each, rather
    * than at the item: whoever comes for it arrives through one of them.
    */
+  /** Waiting for an item: on the move round it, watching the ways in. */
   private _watchEntrances(state: BotGameState, item: Vec3): BotInput {
-    const input = this._holdPosition(state, item);
+    return this._guardPatrol(state, `item:${item.x},${item.z}`, item, TIMED_ITEM_HOLD_RADIUS, null);
+  }
+
+  /**
+   * Guarding: on the move round `center`, never standing. The guard runs
+   * between walkable points within `radius`, choosing ones that see the way
+   * in, and keeps its view on that way in (or on the ways into the spot) while
+   * it runs, as a player strafes about a doorway instead of standing in it.
+   * With nowhere to run, it strafes side to side facing the way in.
+   */
+  private _guardPatrol(
+    state: BotGameState,
+    goalId: string,
+    center: Vec3,
+    radius: number,
+    watch: Vec3 | null,
+  ): BotInput {
+    // These are verified walking segments, not approaches to a traversal trick.
+    this._suppressTraversalAutomation = true;
+    const self = state.self.position;
+    const look = watch ?? this._entranceToWatch(state, center);
+    const lookYaw = look ? Math.atan2(look.x - self.x, look.z - self.z) : state.self.yaw;
+    const sweep = Math.sin((state.tick / TICK_RATE) * HOLD_SWEEP_RATE) * HOLD_SWEEP;
+    const pitch = look
+      ? -Math.atan2(look.y - (self.y + DEFAULT_VIEWHEIGHT), Math.hypot(look.x - self.x, look.z - self.z))
+      : 0;
+
+    const previous = this._sitePatrol;
+    let target =
+      previous?.goalId === goalId &&
+      state.tick < previous.expires &&
+      vec3Length(vec3Subtract(previous.target, self)) > GUARD_POINT_REACHED
+        ? previous.target
+        : null;
+    if (!target) {
+      target = this._guardPoint(state, center, radius, look, previous?.goalId === goalId ? previous.target : null);
+      this._sitePatrol = target ? { goalId, target, expires: state.tick + 4 * TICK_RATE, pauseUntil: 0 } : null;
+    }
+    if (!target) {
+      // Strafe across the way in, turning back every so often
+      const side = Math.floor(state.tick / GUARD_STRAFE_TICKS) % 2 === 0 ? 1 : -1;
+      return {
+        direction: { x: side, y: 0, z: 0 },
+        pitch,
+        yaw: lookYaw + sweep,
+        moveYaw: lookYaw,
+        buttons: side < 0 ? InputButtons.LEFT : InputButtons.RIGHT,
+        weaponSlot: 0,
+      };
+    }
+    return {
+      direction: { x: 0, y: 0, z: 1 },
+      pitch,
+      yaw: lookYaw + sweep,
+      moveYaw: Math.atan2(target.x - self.x, target.z - self.z),
+      buttons: InputButtons.FORWARD | InputButtons.SPRINT,
+      weaponSlot: 0,
+    };
+  }
+
+  /**
+   * The next patrol point round `center`: walkable from here on this floor,
+   * away from the last one, and where the way in can be seen, if any can.
+   */
+  private _guardPoint(
+    state: BotGameState,
+    center: Vec3,
+    radius: number,
+    look: Vec3 | null,
+    last: Vec3 | null,
+  ): Vec3 | null {
+    const vision = this._lastBotVision;
+    if (!vision) return null;
+    const self = state.self.position;
+    const r = Math.max(GUARD_MIN_RADIUS, Math.min(GUARD_MAX_RADIUS, radius));
+    const offset = Math.random() * Math.PI * 2;
+    const candidates: { point: Vec3; score: number }[] = [];
+    for (const ring of GUARD_RINGS) {
+      for (let k = 0; k < GUARD_DIRECTIONS; k++) {
+        const a = offset + (k / GUARD_DIRECTIONS) * Math.PI * 2;
+        const point = { x: center.x + Math.sin(a) * r * ring, y: self.y, z: center.z + Math.cos(a) * r * ring };
+        if (vec3Length(vec3Subtract(point, self)) < 96) continue;
+        if (last && vec3Length(vec3Subtract(point, last)) < 96) continue;
+        if (!vision.isWalkable(self, point)) continue;
+        const sees =
+          look !== null && vision.canSee({ ...point, y: point.y + GUARD_EYE }, { ...look, y: look.y + GUARD_EYE });
+        candidates.push({ point, score: (sees ? 2 : 0) + Math.random() });
+      }
+    }
+    candidates.sort((a, b) => b.score - a.score);
+    return candidates[0]?.point ?? null;
+  }
+
+  /** One of the ways into `spot` on the nav graph, taken in turn over time; null if none. */
+  private _entranceToWatch(state: BotGameState, spot: Vec3): Vec3 | null {
     const graph = this._navGraph;
-    const node = graph?.findNearestNode(item);
-    if (!graph || !node) return input;
+    const node = graph?.findNearestNode(spot);
+    if (!graph || !node) return null;
     const ways = graph.edges
       .filter((edge) => edge.to === node.id && edge.from !== node.id)
       .map((edge) => graph.nodes.find((n) => n.id === edge.from)?.position)
       .filter((position): position is Vec3 => position !== undefined)
       .filter((position) => vec3Length(vec3Subtract(position, state.self.position)) > 64);
-    if (ways.length === 0) return input;
-    const way = ways[Math.floor(state.tick / ENTRANCE_WATCH_TICKS) % ways.length];
-    input.yaw = Math.atan2(way.x - state.self.position.x, way.z - state.self.position.z);
-    return input;
+    if (ways.length === 0) return null;
+    return ways[Math.floor(state.tick / ENTRANCE_WATCH_TICKS) % ways.length];
+  }
+
+  /** The guard order whose ground a fight or chase must not leave, if any. */
+  private _leashOrder(state: BotGameState): { center: Vec3; leash: number } | null {
+    let best: { center: Vec3; leash: number; priority: number } | null = null;
+    for (const order of state.directives) {
+      if (order.leash === undefined || order.target.type !== "position" || order.expiresAtTick <= state.tick) continue;
+      if (order.kind !== "hold_area" && order.kind !== "defend") continue;
+      if (!best || order.priority > best.priority) {
+        best = { center: order.target.position, leash: order.leash, priority: order.priority };
+      }
+    }
+    return best;
   }
 
   /**
-   * On a hold with a way in to watch: stand and look at it, sweeping slowly
-   * either side so the edges of the doorway are covered too.
+   * A guard in a fight that has drifted past its leash heads back while it
+   * keeps aiming: the fight is answered from the ground it was sent to hold.
    */
-  private _holdWatching(state: BotGameState, watch: Vec3): BotInput {
-    this._sitePatrol = null;
+  private _applyLeash(state: BotGameState, input: BotInput): BotInput {
+    const order = this._leashOrder(state);
+    if (!order) return input;
     const self = state.self.position;
-    const dx = watch.x - self.x;
-    const dz = watch.z - self.z;
-    const sweep = Math.sin((state.tick / TICK_RATE) * HOLD_SWEEP_RATE) * HOLD_SWEEP;
+    if (Math.hypot(self.x - order.center.x, self.z - order.center.z) <= order.leash) return input;
+    const back = Math.atan2(order.center.x - self.x, order.center.z - self.z);
+    const keep = InputButtons.FIRE | InputButtons.ALT_FIRE | InputButtons.JUMP | InputButtons.CROUCH;
     return {
-      direction: { x: 0, y: 0, z: 0 },
-      pitch: -Math.atan2(watch.y - (self.y + DEFAULT_VIEWHEIGHT), Math.hypot(dx, dz)),
-      yaw: Math.atan2(dx, dz) + sweep,
-      buttons: 0,
-      weaponSlot: 0,
+      ...input,
+      direction: { x: 0, y: 0, z: 1 },
+      moveYaw: back,
+      buttons: (input.buttons & keep) | InputButtons.FORWARD,
     };
-  }
-
-  private _patrolSite(state: BotGameState, goal: BotGoal, radius: number): BotInput {
-    // These are verified walking segments, not approaches to a traversal trick.
-    this._suppressTraversalAutomation = true;
-    const vision = this._lastBotVision;
-    if (!vision || !this._navGraph) return this._holdPosition(state, goal.position);
-    const previous = this._sitePatrol;
-    if (previous?.goalId === goal.id && state.tick < previous.expires) {
-      if (vec3Length(vec3Subtract(previous.target, state.self.position)) <= 48) {
-        if (!previous.pauseUntil) previous.pauseUntil = state.tick + 125;
-        if (state.tick < previous.pauseUntil) return this._holdPosition(state, goal.position);
-      } else if (vision.isWalkable(state.self.position, previous.target)) {
-        return this._moveTowardPrecise(state, previous.target);
-      }
-    }
-    // Use sampled standing surfaces, with a clear hull sweep and supported floor.
-    // Straight segments inside the site's sphere cannot wander off to another site.
-    const candidates = this._navGraph.nodes
-      .filter((node) => node.type === "floor" || node.type === "spawn")
-      .map((node) => ({ ...node.position, y: node.position.y + (node.type === "floor" ? 24 : 0) }))
-      .filter(
-        (position) =>
-          vec3Length(vec3Subtract(position, goal.position)) <= radius &&
-          vec3Length(vec3Subtract(position, state.self.position)) >= 96 &&
-          Math.abs(position.y - state.self.position.y) <= 40 &&
-          (!previous || vec3Length(vec3Subtract(position, previous.target)) > 48) &&
-          vision.isWalkable(state.self.position, position),
-      );
-    if (!candidates.length) {
-      this._sitePatrol = null;
-      return this._holdPosition(state, goal.position);
-    }
-    const target = candidates[Math.floor(Math.random() * candidates.length)];
-    this._sitePatrol = { goalId: goal.id, target, expires: state.tick + 1000, pauseUntil: 0 };
-    return this._moveTowardPrecise(state, target);
   }
 
   private _navigateTo(state: BotGameState, target: Vec3, urgent: boolean, holdRadius?: number): BotInput {
