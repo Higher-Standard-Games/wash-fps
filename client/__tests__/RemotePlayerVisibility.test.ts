@@ -77,6 +77,7 @@ function setup() {
     spareHitboxes: new Map(),
     teams: new Map(),
     looks: new Map(),
+    names: new Map(),
     localTeam: null,
     perspectiveEntityId: null,
   });

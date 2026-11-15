@@ -27,6 +27,17 @@ import {
 const BOTS_ONLY_START_GRACE_SECONDS = 30;
 
 /**
+ * A campaign match's start: no ready-up, a short wait for its players to load
+ * in, and a held countdown long enough to read the map before it goes live.
+ */
+export const CAMPAIGN_START = {
+  /** Longest wait for a player who never arrives, after which the match starts anyway. */
+  warmupTimeout: 60,
+  /** The opening countdown; later rounds of a round mode keep the mode's own. */
+  openingCountdown: 10,
+} as const;
+
+/**
  * Default match config (can be overridden by gametype)
  */
 const DEFAULT_MATCH_CONFIG: MatchConfig = {
@@ -94,6 +105,8 @@ export class MatchState {
   private _humanClients = 0;
   /** Lobby-spawned match: humans are coming, even if none have connected yet. */
   private _expectsHumans = false;
+  /** Campaign match: how many people the lobby seated; null for any other match. */
+  private _campaignHumans: number | null = null;
   private _stats: Map<PlayerId, PlayerStats> = new Map();
   private readonly activeMillis = new Map<PlayerId, number>();
   /**
@@ -217,6 +230,15 @@ export class MatchState {
   /** Choose which side attacks first (round modes). */
   setStartingAttacker(team: TeamId): void {
     this._startingAttacker = team;
+  }
+
+  /**
+   * `team` attacks in every round: no swap at the half, no overtime, and the
+   * first side to the round limit wins, by any margin (10-9 included).
+   */
+  setAttackersThroughout(team: TeamId): void {
+    this._startingAttacker = team;
+    this.config = { ...this.config, roundsPerHalf: 0, leadRequired: 1 };
   }
 
   /** Set the match flow mode (once, at server boot). */
@@ -519,6 +541,31 @@ export class MatchState {
     this._expectsHumans = expects;
   }
 
+  /**
+   * Start this match the campaign's way: it begins as soon as all `humans`
+   * seated players have entered (nobody readies up), or after
+   * CAMPAIGN_START.warmupTimeout if one never does, with a held opening
+   * countdown of CAMPAIGN_START.openingCountdown seconds.
+   */
+  setCampaignStart(humans: number): void {
+    this._campaignHumans = Math.max(1, humans);
+    this.config = { ...this.config, warmupTimeout: CAMPAIGN_START.warmupTimeout };
+    if (this._phase === MatchPhase.Warmup) this._timeRemaining = this.config.warmupTimeout;
+  }
+
+  /** Whether a countdown holds everyone still: a round mode's freeze, or a campaign's opening. */
+  get countdownFreezes(): boolean {
+    return this.roundBased || this._campaignHumans !== null;
+  }
+
+  /** Campaign start: every seated person is in the match, and they have someone to fight. */
+  private campaignPlayersIn(): boolean {
+    if (this._campaignHumans === null || !this.hasOpposition()) return false;
+    let humans = 0;
+    for (const id of this._activePlayers) if (!this._botPlayers.has(id)) humans++;
+    return humans >= this._campaignHumans;
+  }
+
   /** Bots, so the ready gate can tell them from players. */
   setBotPlayers(bots: ReadonlySet<PlayerId>): void {
     this._botPlayers = bots;
@@ -711,7 +758,10 @@ export class MatchState {
         if (this.config.warmupTimeout > 0) {
           this._timeRemaining -= dt;
         }
-        if (this.allReady() || (this.config.warmupTimeout > 0 && this._timeRemaining <= 0)) {
+        if (
+          (this._campaignHumans === null ? this.allReady() : this.campaignPlayersIn()) ||
+          (this.config.warmupTimeout > 0 && this._timeRemaining <= 0)
+        ) {
           this.transition(MatchPhase.Countdown);
         }
         break;
@@ -825,6 +875,9 @@ export class MatchState {
         // spawns where — needs the round it is setting up for, not the one
         // that just ended. At the half boundary those are different teams.
         if (this.roundBased) this._round++;
+        if (this._campaignHumans !== null && this._round <= 1) {
+          this._timeRemaining = CAMPAIGN_START.openingCountdown;
+        }
         break;
       case MatchPhase.Active: {
         this._timeRemaining = this.config.timeLimit;

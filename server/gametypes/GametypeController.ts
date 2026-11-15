@@ -234,6 +234,20 @@ export class GametypeController {
   }
 
   /**
+   * A campaign match: no ready-up, and a held 10-second opening countdown
+   * (see MatchState.setCampaignStart). `humans` is how many people the lobby
+   * seated, which the start waits for.
+   */
+  setCampaignStart(humans: number): void {
+    this.matchState.setCampaignStart(humans);
+  }
+
+  /** A campaign S&D: `team` attacks every round (see MatchState.setAttackersThroughout). */
+  setCampaignAttackers(team: TeamId): void {
+    this.matchState.setAttackersThroughout(team);
+  }
+
+  /**
    * Get the award tracker (for gametype scripts to emit custom awards).
    */
   getAwardTracker(): AwardTracker {
@@ -637,9 +651,21 @@ export class GametypeController {
         this.respawnAllPlayers(state, tickNum);
       }
 
-      // On match start (countdown → active), respawn all players
+      // A held opening countdown outside a round mode (a campaign match) is
+      // spent at the spawn points, so the match is reset when it begins.
+      const heldOpening =
+        !this.matchState.roundBased &&
+        this.matchState.countdownFreezes &&
+        this.matchState.phase === MatchPhase.Countdown;
+      if (heldOpening) {
+        this.matchStartReset?.(state, tickNum);
+        this.respawnAllPlayers(state, tickNum);
+      }
+
+      // On match start (countdown → active), respawn all players, unless the
+      // held countdown already put them there
       if (this.matchState.phase === MatchPhase.Active) {
-        if (!this.matchState.roundBased) {
+        if (!this.matchState.roundBased && !this.matchState.countdownFreezes) {
           this.matchStartReset?.(state, tickNum);
           this.respawnAllPlayers(state, tickNum);
         }
@@ -892,7 +918,7 @@ export class GametypeController {
     const freezing =
       this.matchState.phase === MatchPhase.PostGame ||
       this.matchState.phase === MatchPhase.RoundEnd ||
-      (this.matchState.roundBased && this.matchState.phase === MatchPhase.Countdown);
+      (this.matchState.countdownFreezes && this.matchState.phase === MatchPhase.Countdown);
     if (!freezing) return;
 
     for (const entity of state.allEntities()) {

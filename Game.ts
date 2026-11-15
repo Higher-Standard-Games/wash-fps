@@ -45,6 +45,7 @@ import { BombRenderer } from "./client/BombRenderer";
 import { BombSiteMarkers } from "./client/BombSiteMarkers";
 import { Crosshair } from "./client/Crosshair";
 import { devLog } from "./client/DevLog";
+import { campaignMatch } from "./client/campaign/CampaignSession";
 import type { DroppedWeaponRenderer } from "./client/DroppedWeaponRenderer";
 import { registerFPSActions } from "./client/FPSActions";
 import { FPSAnnouncer, type Lead, leadOf } from "./client/FPSAnnouncer";
@@ -64,7 +65,8 @@ import { MatchInputBindings } from "./client/MatchInputBindings";
 import { MatchMapLoader } from "./client/MatchMapLoader";
 import { MatchPhase, MatchStateManager } from "./client/MatchStateManager";
 import { networkHostOf } from "./client/NetworkHostAccess";
-import { rerollRandomEnemyModel } from "./client/PlayerModelSelection";
+import { forcePlayerModels, rerollRandomEnemyModel } from "./client/PlayerModelSelection";
+import { setCampaignTeammates } from "./client/PlayerModelVisualSettings";
 import { RemotePlayerRenderer } from "./client/RemotePlayerRenderer";
 import { ServerProjectiles } from "./client/ServerProjectiles";
 import { SlideDust } from "./client/SlideDust";
@@ -801,6 +803,13 @@ export class Game {
       this.v2Client = new V2NetworkClient({ tickRate });
 
       // The renderer is created lazily on the first snapshot and then reused for
+      // A campaign mission draws its own models (any other match the
+      // settings') and its crew in green, and its server holds everyone
+      // through the opening countdown
+      const campaign = campaignMatch();
+      forcePlayerModels(campaign?.models ?? null, campaign?.botModels);
+      MatchStateManager.getInstance().setCampaignCountdown(campaign !== null);
+      setCampaignTeammates(campaign !== null);
       // the rest of the process, so a reconnect inherits the previous session's
       // ticks, teams and death state unless the session boundary clears them.
       this.remoteRenderer?.resetSession();

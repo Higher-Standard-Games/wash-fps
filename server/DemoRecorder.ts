@@ -52,8 +52,10 @@ const DEMO_MAGIC = new Uint8Array([0x53, 0x48, 0x41, 0x47]); // "SHAG"
 /**
  * Version 7 retains v6's layout and adds an optional look byte (flag 0x40) to
  * each player's snapshot record: a free-for-all player's body and colour.
+ * Version 8 adds the campaign mission to the header, after the visibility
+ * byte; frames keep the version 7 layout.
  */
-const DEMO_VERSION = 7;
+const DEMO_VERSION = 8;
 
 // ── Types ───────────────────────────────────────────────────────────────
 
@@ -70,6 +72,8 @@ export interface DemoConfig {
   matchId?: string;
   /** Private lobby recording, excluded from featured picks. */
   private?: boolean;
+  /** Campaign mission id: a recording only its players see in their own demos. */
+  campaign?: string;
   /** Output directory for demo files */
   outputDir?: string;
   /** Folder under the default demo directory, when `outputDir` is not given. */
@@ -371,6 +375,9 @@ export class DemoRecorder {
 
     // Version 4: lobby visibility. Frames and inputs keep their version 3 layout.
     encoder.writeUint8(this._config.private ? 1 : 0);
+
+    // Version 8: the campaign mission, empty for every other match.
+    encoder.writeString(this._config.campaign || "");
 
     // Player roster
     const players = [...this._players.values()];

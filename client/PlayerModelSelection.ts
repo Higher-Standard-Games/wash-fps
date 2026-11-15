@@ -72,8 +72,43 @@ export function rerollRandomEnemyModel(): void {
   randomPick = null;
 }
 
+let forced: Partial<Record<PlayerModelSide, PlayerModelChoice>> | null = null;
+const forcedByName = new Map<string, PlayerModelChoice>();
+
+/**
+ * Draw this game's sides with these models whatever the settings say, as a
+ * campaign mission does, and the players named in `byName` with a model of
+ * their own (a mixed crew); null goes back to the settings. Unknown ids are
+ * ignored.
+ */
+export function forcePlayerModels(
+  models: Partial<Record<PlayerModelSide, string>> | null,
+  byName: Record<string, string> = {},
+): void {
+  forced = null;
+  forcedByName.clear();
+  if (!models) return;
+  for (const [name, model] of Object.entries(byName)) {
+    if (PLAYER_MODELS.includes(model as PlayerModelChoice)) forcedByName.set(name, model as PlayerModelChoice);
+  }
+  for (const side of ["ally", "enemy"] as const) {
+    const model = models[side];
+    if (PLAYER_MODELS.includes(model as PlayerModelChoice)) {
+      forced ??= {};
+      forced[side] = model as PlayerModelChoice;
+    }
+  }
+}
+
+/** The model a campaign gives this player by name, if it gives them one of their own. */
+export function forcedModelForName(name: string | undefined): PlayerModelChoice | null {
+  return name ? (forcedByName.get(name) ?? null) : null;
+}
+
 /** The model a side is drawn with; random is drawn once a game, never your own side's model. */
 export function playerModelChoice(side: PlayerModelSide): PlayerModelChoice {
+  const override = forced?.[side];
+  if (override) return override;
   const setting = playerModelSetting(side);
   if (setting !== "random") return setting;
   const own = playerModelChoice("ally");

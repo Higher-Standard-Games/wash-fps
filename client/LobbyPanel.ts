@@ -4,6 +4,7 @@
  * Full-screen rail navigation, Play stage, and server-backed lobby data.
  */
 
+import { background } from "../../../engine/core/AsyncErrors";
 import { EngineVersion } from "../../../engine/core/EngineVersion";
 import { DebugConsole } from "../../../engine/debug/DebugConsole";
 import { PlayerProfile } from "../../../engine/player/PlayerProfile";
@@ -22,8 +23,19 @@ import { GamePanel } from "../../../engine/ui/panels/GamePanel";
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import { accountIsNew, currentIdentity, LoginError } from "../../../lobby/AccountSession";
 import { CLIENT_DISCONNECT_REASON, type LobbyClient } from "../../../lobby/LobbyClient";
-import type { DemoInfo, GametypeInfo, LiveMatchInfo, MatchLobbyInfo, PlayerInfo } from "../../../lobby/types";
+import type {
+  CampaignMissionInfo,
+  DemoInfo,
+  GametypeInfo,
+  LiveMatchInfo,
+  MatchLobbyInfo,
+  PlayerInfo,
+} from "../../../lobby/types";
 import { ChatScroll } from "./ChatScroll";
+import { CampaignCutscene } from "./campaign/CampaignCutscene";
+import { cacheCampaign, cachedCampaign, rememberCampaignMatch, takeCampaignReturn } from "./campaign/CampaignSession";
+import { campaignStory } from "./campaign/CampaignStory";
+import { CampaignView } from "./campaign/CampaignView";
 import { CreditsDialog } from "./credits/CreditsDialog";
 import { DemoService } from "./DemoService";
 import { type DemoScope, DemosView } from "./DemosView";
@@ -41,6 +53,7 @@ import { ProfileView } from "./ProfileView";
 import { buildRailBrand } from "./RailBrand";
 import { nameColor, RoomChatView } from "./RoomChatView";
 import { FPSSettingsView } from "./settings/FPSSettingsView";
+import campaignCSSRaw from "./styles/Campaign.css?raw";
 import creditsCSSRaw from "./styles/CreditsDialog.css?raw";
 import lobbyCSSRaw from "./styles/LobbyPanel.css?raw";
 import { WelcomeOverlay } from "./WelcomeOverlay";
@@ -173,6 +186,16 @@ export class LobbyPanel extends GamePanel {
   private pendingQuickPlay = false;
   private quickPlayKey: HTMLButtonElement | null = null;
 
+  private campaignView: CampaignView | null = null;
+  /** The lobby runs the campaign (welcome's `campaign` feature). */
+  private campaignSupported = false;
+  /** The comic card of the mission being started, until its match connects. */
+  private campaignCutscene: CampaignCutscene | null = null;
+  /** The mission being started, from Start mission until its match connects or it fails. */
+  private startingMission: CampaignMissionInfo | null = null;
+  /** The card has been read, so the player is ready as soon as the room is. */
+  private campaignPanelsDone = false;
+
   private currentLobbyId: string | null = null;
   /** Lobby-server identity from Welcome; lobby roster order is not identity. */
   private localLobbyPlayerId: string | null = null;
@@ -206,7 +229,9 @@ export class LobbyPanel extends GamePanel {
     bindLeaderboard(this.lobbyClient, false);
     bindPlayerStats(this.lobbyClient, false);
     bindFeaturedDemos(this.lobbyClient, false);
+    UIStyles.injectCSS("campaign", campaignCSSRaw);
     this.addTab("matchmaking", "Play", this.buildMatchmakingTab());
+    this.addTab("campaign", "Campaign", this.buildCampaignTab());
     this.addTab("leaderboard", "Leaderboard", this.buildLeaderboardTab());
     this.addTab("demos", "Demos", this.buildDemosTab());
     this.addTab("settings", "Settings", this.buildSettingsTab());
@@ -226,6 +251,11 @@ export class LobbyPanel extends GamePanel {
       if (tabId === "demos") this.demosView?.show();
       else this.demosView?.deactivate();
       if (tabId === "leaderboard") void this.leaderboardView?.refresh();
+      if (tabId === "campaign") {
+        if (this.campaignSupported) this.lobbyClient.requestCampaign();
+        // Opened at the mission to play next, once the page has its size
+        requestAnimationFrame(() => this.campaignView?.showCurrent());
+      }
       if (tabId !== "settings" && this.welcomeGuide?.suspended) this.welcomeGuide.resume();
       this.welcomeGuide?.refresh();
       this.syncCredits();
@@ -272,6 +302,8 @@ export class LobbyPanel extends GamePanel {
     this.musicKey = createLobbyMusicKey();
     links.prepend(this.downloads.root, this.versionTag, this.devlogLink, this.creditsKey, this.musicKey);
     this.connected = this.initLobbyConnection();
+    // Back from a campaign match: the campaign is where the player was
+    if (takeCampaignReturn()) this.switchTab("campaign");
   }
 
   protected override controllerInitialFocus(): HTMLElement | null {
@@ -343,6 +375,7 @@ export class LobbyPanel extends GamePanel {
     this.tabBar.className = "lobby__rail-keys";
     for (const [id, hint] of [
       ["matchmaking", "4 modes"],
+      ["campaign", "Story"],
       ["leaderboard", "Top players"],
       ["demos", "Replays"],
     ]) {
@@ -442,6 +475,7 @@ export class LobbyPanel extends GamePanel {
     const playKey = this.tabButton("matchmaking");
     if (playKey) setRaisedKeyText(playKey, "Play", this.currentLobbyId ? "In a room" : "4 modes");
     this.refreshQuickPlayKey();
+    this.refreshCampaign();
   }
 
   /** Quick play needs the lobby, its private rooms and FFA, and no room already open. */
@@ -475,6 +509,9 @@ export class LobbyPanel extends GamePanel {
           this.refreshPlayerCard(msg.identity?.name);
           this.serverGametypes = msg.gametypes || [];
           this.privateLobbySupported = msg.features?.privateLobbies === true;
+          this.campaignSupported = msg.features?.campaign === true;
+          this.loadCachedCampaign(msg.identity?.id);
+          this.refreshCampaign();
           bindLeaderboard(this.lobbyClient, msg.features?.leaderboard === true, msg.features?.skillRatings === true);
           bindPlayerStats(this.lobbyClient, msg.features?.playerStats === true);
           bindFeaturedDemos(this.lobbyClient, msg.features?.featuredDemos === true);
@@ -546,6 +583,27 @@ export class LobbyPanel extends GamePanel {
         }),
       );
 
+      this.unsubscribers.push(
+        this.lobbyClient.on("campaign:state", (msg) => {
+          const accountId = currentIdentity()?.id;
+          if (accountId) cacheCampaign(accountId, msg);
+          this.campaignView?.setState(msg);
+          this.refreshCampaign();
+        }),
+      );
+
+      // A match is starting: a campaign match's mission and models go with it to the game
+      this.unsubscribers.push(
+        this.lobbyClient.on("lobby:connect", (msg) => {
+          rememberCampaignMatch(msg.campaign);
+          if (msg.campaign && this.campaignCutscene) {
+            this.campaignCutscene.close();
+            this.campaignCutscene = null;
+            this.startingMission = null;
+          }
+        }),
+      );
+
       // Lobby created (response to lobby:create)
       this.unsubscribers.push(
         this.lobbyClient.on("lobby:created", (msg) => {
@@ -556,6 +614,7 @@ export class LobbyPanel extends GamePanel {
       this.unsubscribers.push(
         this.lobbyClient.on("lobby:kicked", (msg) => {
           if (msg.lobbyId !== this.currentLobbyId) return;
+          this.failCampaignStart(`Left the mission: ${msg.reason}`);
           this.showPlayStage();
           this.appendChatMessage("", `Left room: ${msg.reason}`, true);
         }),
@@ -569,6 +628,7 @@ export class LobbyPanel extends GamePanel {
           this.pendingPrivateCreate = false;
           this.pendingQuickPlay = false;
           if (this.playNoticeEl) this.playNoticeEl.textContent = msg.error;
+          this.failCampaignStart(msg.error);
           this.refreshModeAvailability();
         }),
       );
@@ -600,6 +660,8 @@ export class LobbyPanel extends GamePanel {
           this.pendingPrivateCreate = false;
           this.pendingQuickPlay = false;
           this.privateLobbySupported = false;
+          this.campaignSupported = false;
+          this.failCampaignStart("Lost the lobby server.");
           bindLeaderboard(this.lobbyClient, false);
           bindPlayerStats(this.lobbyClient, false);
           bindFeaturedDemos(this.lobbyClient, false);
@@ -782,6 +844,7 @@ export class LobbyPanel extends GamePanel {
     this.pendingPrivateCreate = false;
     this.pendingQuickPlay = false;
     this.privateLobbySupported = false;
+    this.campaignSupported = false;
     bindFeaturedDemos(this.lobbyClient, false);
     this.leaderboardView?.clear();
     this.demosView?.disconnected();
@@ -858,7 +921,7 @@ export class LobbyPanel extends GamePanel {
   }
 
   private handleLobbyCreated(lobby: MatchLobbyInfo): void {
-    const quickPlay = this.pendingQuickPlay && lobby.visibility === "private";
+    const quickPlay = this.pendingQuickPlay && lobby.visibility === "private" && !lobby.campaign;
     if (this.matchLobbyView) this.showPlayStage();
     let inviteToken: string | null = null;
     if (lobby.visibility === "private") {
@@ -941,6 +1004,11 @@ export class LobbyPanel extends GamePanel {
     }
     this.refreshPlayerCard();
     devLog(`[LobbyPanel] Opened match lobby: ${lobby.id}`);
+    // A campaign room opens behind the comic card; the card keeps the focus
+    if (this.campaignCutscene && lobby.campaign) {
+      this.campaignRoomOpened();
+      return;
+    }
     UINavigation.getInstance().focusDefault(this.root);
   }
 
@@ -1374,6 +1442,108 @@ export class LobbyPanel extends GamePanel {
     this.welcomeGuide?.refresh();
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // TAB: CAMPAIGN
+  // ═══════════════════════════════════════════════════════════════════
+
+  private buildCampaignTab(): HTMLElement {
+    this.campaignView = new CampaignView({
+      start: (mission) => this.startCampaignMission(mission),
+    });
+    this.refreshCampaign();
+    return this.campaignView.root;
+  }
+
+  /** Draw the account's last known progress while the lobby's answer is on its way. */
+  private loadCachedCampaign(accountId: string | undefined): void {
+    const cached = accountId ? cachedCampaign(accountId) : null;
+    if (cached) this.campaignView?.setState(cached);
+  }
+
+  /** Mission keys work with a lobby that runs the campaign and no room open; the rail shows progress. */
+  private refreshCampaign(): void {
+    const view = this.campaignView;
+    if (!view) return;
+    const reason = !this.lobbyClient.connected
+      ? "The campaign needs the lobby server."
+      : !this.campaignSupported
+        ? "This lobby server does not run the campaign."
+        : this.currentLobbyId && !this.startingMission
+          ? "Leave your room on the Play page to start a mission."
+          : "";
+    view.setStartable(reason === "" && !this.queuePending && !this.startingMission, reason);
+    const key = this.tabButton("campaign");
+    if (key) setRaisedKeyText(key, "Campaign", view.progressHint());
+  }
+
+  /**
+   * Start a mission: the comic card plays on a black screen while the lobby
+   * sets up the mission's room and bots behind it, and the player readies up
+   * once the card has been read.
+   */
+  private startCampaignMission(mission: CampaignMissionInfo): void {
+    if (this.startingMission || this.currentLobbyId || this.queuePending) return;
+    if (!this.lobbyClient.connected || !this.campaignSupported) return;
+    const story = campaignStory(mission.id);
+    this.startingMission = mission;
+    this.campaignPanelsDone = false;
+    this.queuePending = true;
+    this.refreshModeAvailability();
+    this.refreshCampaign();
+    LobbyAssetPreparation.shared.selectMap(mission.map);
+    const label = `Operation ${String(mission.number).padStart(2, "0")}`;
+    const title = story?.title ?? mission.mapTitle;
+    const cutscene = new CampaignCutscene({
+      card: story?.card ?? { image: "", thumb: "", width: 1, height: 1, panels: [], thumbFocus: "" },
+      label,
+      title,
+      onPanelsDone: () => this.campaignCardRead(),
+    });
+    this.campaignCutscene = cutscene;
+    cutscene.setStatus(`Deploying to ${mission.mapTitle}…`);
+    this.lobbyClient.createCampaignLobby(mission.id, mission.gametype);
+    background(cutscene.play(), "CampaignCutscene");
+  }
+
+  /** The card is done: ready up now if the room is open, or as soon as it is. */
+  private campaignCardRead(): void {
+    this.campaignPanelsDone = true;
+    this.readyForCampaign();
+  }
+
+  private campaignRoomOpened(): void {
+    this.readyForCampaign();
+  }
+
+  private readyForCampaign(): void {
+    if (!this.campaignPanelsDone || !this.currentLobbyId || !this.startingMission) return;
+    const rival = campaignStory(this.startingMission.id)?.rival;
+    this.campaignCutscene?.setStatus(rival ? `${rival} incoming…` : "Starting the mission…");
+    // The lobby starts the match once every mission bot is seated as well
+    this.lobbyClient.setReady(this.currentLobbyId, true);
+  }
+
+  /** A mission that was starting has failed: say so on the card, and come back to the campaign. */
+  private failCampaignStart(message: string): void {
+    const cutscene = this.campaignCutscene;
+    if (!cutscene || !this.startingMission) return;
+    this.startingMission = null;
+    this.queuePending = false;
+    cutscene.fail(message, () => {
+      if (this.campaignCutscene === cutscene) this.campaignCutscene = null;
+      if (this.currentLobbyId) {
+        this.lobbyClient.leaveLobby(this.currentLobbyId);
+        this.currentLobbyId = null;
+        this.roomToRejoin = null;
+        this.currentInviteToken = undefined;
+      }
+      this.showPlayStage();
+      this.switchTab("campaign");
+      this.refreshCampaign();
+    });
+    this.refreshCampaign();
+  }
+
   // Settings
   private buildSettingsTab(): HTMLElement {
     if (!this.settingsView) {
@@ -1439,6 +1609,8 @@ export class LobbyPanel extends GamePanel {
   }
 
   public override destroy(): void {
+    this.campaignCutscene?.close();
+    this.campaignCutscene = null;
     this.downloads?.destroy();
     this.linksObserver?.disconnect();
     this.destroyed = true;

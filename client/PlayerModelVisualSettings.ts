@@ -190,8 +190,34 @@ function canonicalTeam(teamId: string | null | undefined): string | null {
   }
 }
 
+/** The palette's lime, which a campaign match draws every teammate in. */
+const CAMPAIGN_TEAMMATE = TEAM_COLORS.find((color) => color.id === "lime")!;
+/** The outline size a campaign teammate keeps when the setting has outlines off or thin. */
+const CAMPAIGN_TEAMMATE_OUTLINE_SIZE = 25;
+let campaignTeammates = false;
+
+/**
+ * In a campaign match teammates always wear the lime tint and outline,
+ * whatever the colour, tint and outline settings say, so the crew is told
+ * apart from the enemy at a glance. Set at connect; off for every other match.
+ */
+export function setCampaignTeammates(on: boolean): void {
+  campaignTeammates = on;
+}
+
 export function getPlayerModelVisualStyle(slot: PlayerTeamSlot, modelScale: number): PlayerModelVisualStyle {
   registerPlayerModelVisualCvars();
+  if (campaignTeammates && slot === "ally") {
+    const size = Math.max(CAMPAIGN_TEAMMATE_OUTLINE_SIZE, Cvar.getNumber("cl_player_outline_size"));
+    return {
+      tintColor: parseRgbCvar(CAMPAIGN_TEAMMATE.fill, PLAYER_MODEL_VISUAL_DEFAULTS.ally),
+      fullbrightEnabled: Cvar.getBool("cl_player_fullbright"),
+      fullbrightIntensity: Math.max(0, Math.min(1, Cvar.getNumber("cl_player_fullbright_intensity"))),
+      outlineEnabled: true,
+      outlineColor: parseRgbCvar(CAMPAIGN_TEAMMATE.outline, PLAYER_MODEL_OUTLINE_DEFAULTS.ally),
+      outlineWidth: size / Math.max(1, modelScale * 16),
+    };
+  }
 
   const tintColor = parseRgbCvar(Cvar.getString(TEAM_COLOR_CVARS[slot]), PLAYER_MODEL_VISUAL_DEFAULTS[slot]);
   const outlineColor = parseRgbCvar(Cvar.getString(TEAM_OUTLINE_CVARS[slot]), PLAYER_MODEL_OUTLINE_DEFAULTS[slot]);
@@ -209,6 +235,9 @@ export function getPlayerModelVisualStyle(slot: PlayerTeamSlot, modelScale: numb
 
 export function getPlayerModelVisualStyleKey(slot: PlayerTeamSlot): string {
   registerPlayerModelVisualCvars();
+  // The campaign's teammate style is its own look; every other key stays as it was
+  if (campaignTeammates && slot === "ally")
+    return `${slot}|campaign|${Cvar.get("cl_player_outline_size")}|${Cvar.get("cl_player_fullbright")}|${Cvar.get("cl_player_fullbright_intensity")}`;
   return [
     slot,
     Cvar.getString(TEAM_COLOR_CVARS[slot]),

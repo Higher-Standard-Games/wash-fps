@@ -2,8 +2,10 @@ import { issueDropInSeat, issueMatchAdmission } from "@engine/server/network/Mat
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MessageType } from "../../../../engine/network/protocol/BinaryProtocol";
 import { MessageCodec } from "../../../../engine/network/protocol/MessageCodec";
+import { MatchPhase } from "../../../../shared/server/gametype/GametypeTypes";
 import { GameServer, type GameServerConfig } from "../GameServer";
 import { Duel } from "../gametypes/Duel";
+import { SearchAndDestroy } from "../gametypes/SearchAndDestroy";
 import { TeamDeathmatch } from "../gametypes/TeamDeathmatch";
 import { ProtocolTestClient } from "./_protocolTestClient";
 
@@ -77,6 +79,75 @@ describe("game-server match admission", () => {
     replay.send(MessageCodec.encodeJoin("Verified Alice", false, tickets.get("p1")));
     await expect(replay.waitForType(MessageType.JoinAccept, 100)).rejects.toThrow("timed out");
     expect(server.getGametypeController().getMatchState().totalPlayers).toBe(1);
+  });
+
+  it("lets nobody but its ticket holders into a campaign match, and takes no drop-in seats", async () => {
+    const { manifest, tickets } = issueMatchAdmission(
+      "campaign-1",
+      [{ lobbyPlayerId: "p1", accountId: 31, name: "Solo", team: "udon", isBot: false }],
+      Date.now(),
+      120_000,
+      30 * 60_000,
+    );
+    // A ticket and its recovery ticket: two grants, one person
+    expect(manifest.grants).toHaveLength(2);
+    server = new GameServer(
+      {
+        port: 0,
+        serverName: "campaign",
+        mapName: "test",
+        maxClients: 2,
+        tickRate: 125,
+        snapshotRate: 60,
+        certPath: "",
+        keyPath: "",
+        matchAdmission: manifest,
+        campaign: "cartel-contract",
+      },
+      new Duel(),
+    );
+    await server.start();
+    const match = server.getGametypeController().getMatchState() as unknown as { _campaignHumans: number | null };
+    expect(match._campaignHumans).toBe(1);
+    const watcher = await ProtocolTestClient.connect(server.getPort());
+    clients.push(watcher);
+    watcher.send(MessageCodec.encodeJoin("Watcher"));
+    await expect(watcher.waitForType(MessageType.JoinAccept, 300)).rejects.toThrow();
+
+    const player = await ProtocolTestClient.connect(server.getPort());
+    clients.push(player);
+    player.send(MessageCodec.encodeJoin("Solo", false, tickets.get("p1")));
+    await player.waitForType(MessageType.JoinAccept);
+
+    const late = issueDropInSeat({ accountId: 32, name: "Late", team: "soba", isBot: false });
+    expect(server.admitSeat(late.grants)).toBe(false);
+  });
+
+  it("puts a campaign S&D's players on the attack for the whole match", async () => {
+    const { manifest } = issueMatchAdmission("campaign-snd", [
+      { lobbyPlayerId: "p1", accountId: 41, name: "Solo", team: "bravo", isBot: false },
+      { lobbyPlayerId: "b1", accountId: null, name: "Kade", team: "alpha", isBot: true },
+    ]);
+    server = new GameServer(
+      {
+        port: 0,
+        serverName: "campaign-snd",
+        mapName: "test",
+        maxClients: 10,
+        tickRate: 125,
+        snapshotRate: 60,
+        certPath: "",
+        keyPath: "",
+        matchAdmission: manifest,
+        campaign: "concrete-sabotage",
+        campaignSide: "attack",
+      },
+      new SearchAndDestroy(),
+    );
+    const match = server.getGametypeController().getMatchState();
+    expect(match.attackingTeam).toBe("udon");
+    for (let round = 0; round < 12; round++) match.transition(MatchPhase.Countdown);
+    expect(match.attackingTeam).toBe("udon");
   });
 
   it("admits an expired seat through its reserved ticket but cannot claim it twice", async () => {

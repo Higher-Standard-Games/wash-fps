@@ -1,0 +1,722 @@
+/* ============================================================================
+   Campaign: the operations page and the comic card before a mission.
+   Tokens (--ink, --cream, --accent...) come from the lobby's rail layout.
+   ============================================================================ */
+
+.campaign {
+  /* The campaign's own night: a deep purple the banner fades into */
+  --campaign-bg: hsl(268 52% 9%);
+  /*
+   * One fixed size for the banner and the squad in it, which looks right at
+   * every width; a short window shrinks both together. The heading sits over
+   * the banner's fading foot, so the operations start about a third down.
+   */
+  --banner-height: min(42vh, 580px);
+  --stage-height: calc(var(--banner-height) * 1.7);
+  --campaign-pink: hsl(322 95% 62%);
+  --campaign-cyan: hsl(182 95% 52%);
+  --campaign-gold: hsl(46 100% 57%);
+  --campaign-dim: hsl(250 14% 30%);
+  /* The track's column, and where a node sits on it */
+  --track: 64px;
+  --node: 34px;
+  --accent: var(--campaign-cyan);
+  gap: 14px;
+  background: linear-gradient(180deg, var(--campaign-bg) 0%, hsl(262 48% 7%) 100%);
+}
+
+/* ── The squad on their street, across the top ── */
+
+.campaign__banner {
+  position: relative;
+  flex: 0 0 auto;
+  height: var(--banner-height);
+  /* Edge to edge: out through the page's padding, under the rail's slant */
+  margin: -30px -52px -8px calc(-28px - var(--rail-skew));
+  overflow: hidden;
+  pointer-events: none;
+  /* How far the list has scrolled, capped, for the layers' drift */
+  --drift: min(var(--campaign-scroll, 0px), 600px);
+}
+
+.campaign__backdrop,
+.campaign__street,
+.campaign__squad {
+  position: absolute;
+  will-change: transform, translate;
+}
+
+/* The street again, softened, for the sides of a wide screen */
+.campaign__backdrop {
+  inset: -40px -20px 0;
+  background: url("/images/campaign/street.webp") center 30% / cover no-repeat;
+  filter: blur(8px) brightness(0.45) saturate(0.8);
+  transform: translateY(calc(var(--drift) * -0.02));
+}
+
+/* The stage: street and squad at one size, heads near the top, legs below the fold */
+.campaign__street,
+.campaign__squad {
+  top: calc(var(--stage-height) * -0.01);
+  left: 50%;
+  height: var(--stage-height);
+  width: auto;
+  aspect-ratio: 16 / 9;
+}
+
+.campaign__street {
+  background: url("/images/campaign/street.webp") center / 100% 100% no-repeat;
+  mask-image: linear-gradient(90deg, transparent 0, #000 14%, #000 86%, transparent 100%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 14%, #000 86%, transparent 100%);
+  /* The far layer drifts least */
+  transform: translate(-50%, calc(var(--drift) * -0.035));
+}
+
+.campaign__squad {
+  transform: translate(-50%, calc(var(--drift) * -0.08));
+  filter: drop-shadow(0 12px 18px rgba(0, 0, 0, 0.55));
+}
+
+/* The street's lower part dissolves into whatever the page shows beneath */
+.campaign__banner {
+  mask-image: linear-gradient(180deg, #000 0%, #000 40%, rgba(0, 0, 0, 0.5) 60%, transparent 80%);
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 40%, rgba(0, 0, 0, 0.5) 60%, transparent 80%);
+}
+
+/* Shade at the sides, where the stage meets the softened backdrop */
+.campaign__fade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--campaign-bg) 60%, transparent),
+    transparent 24%,
+    transparent 76%,
+    color-mix(in srgb, var(--campaign-bg) 60%, transparent)
+  );
+}
+
+/*
+ * A handheld camera on the squad: the street wanders a little and the squad,
+ * nearer the lens, a quarter as far, so the street slides behind them. It
+ * runs on `translate`, apart from the scroll drift on `transform`, and eases
+ * into each turn like a camera operator correcting their framing.
+ */
+.campaign__backdrop,
+.campaign__street {
+  animation: campaign-handheld-far 17s ease-in-out infinite;
+}
+
+.campaign__squad {
+  animation: campaign-handheld-near 17s ease-in-out infinite;
+}
+
+@keyframes campaign-handheld-far {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  21% {
+    translate: 16px -2px;
+  }
+  43% {
+    translate: 6px 2px;
+  }
+  64% {
+    translate: -18px -1px;
+  }
+  83% {
+    translate: -7px 2px;
+  }
+}
+
+@keyframes campaign-handheld-near {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  21% {
+    translate: 4px -0.5px;
+  }
+  43% {
+    translate: 1.5px 0.5px;
+  }
+  64% {
+    translate: -4.5px -0.25px;
+  }
+  83% {
+    translate: -1.75px 0.5px;
+  }
+}
+
+/* The heading sits on the banner's fading lower edge, which also leaves the list more room */
+.campaign__head {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: calc(var(--banner-height) * -0.36);
+}
+
+/* A stamped yellow plate, the way the game's banners are (WARMUP, FIGHT): the
+   page heading and the comic card's title wear it */
+.campaign-plate {
+  position: relative;
+  isolation: isolate;
+  padding: 0.1em 0.55em 0.16em 0.4em;
+  font-style: italic;
+  color: hsl(250 45% 7%);
+  text-shadow: 0.05em 0.06em 0 hsla(48, 100%, 80%, 0.55);
+}
+
+.campaign-plate::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background:
+    repeating-linear-gradient(180deg, hsla(40, 100%, 30%, 0.12) 0 2px, transparent 2px 5px),
+    linear-gradient(105deg, hsl(52 100% 66%), hsl(46 100% 57%) 45%, hsl(40 98% 47%));
+  /* Torn at the corners and the foot, like a stamped plate */
+  clip-path: polygon(2% 6%, 98% 0, 100% 84%, 55% 100%, 0 90%);
+  transform: skewX(-6deg);
+}
+
+/* Its printed shadow: the same plate in ink, set off behind it (a clip-path would cut a drop-shadow) */
+.campaign-plate::after {
+  content: "";
+  position: absolute;
+  z-index: -2;
+  inset: 0;
+  background: hsl(250 50% 3%);
+  clip-path: polygon(2% 6%, 98% 0, 100% 84%, 55% 100%, 0 90%);
+  transform: translate(6px, 7px) skewX(-6deg);
+}
+
+.campaign__count {
+  margin: 0;
+  text-shadow: 0 2px 8px hsl(250 50% 3%);
+  font: 700 15px / 1 var(--w-font-body, "Rajdhani", sans-serif);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: hsla(45, 100%, 95%, 0.7);
+}
+
+.campaign__count strong {
+  margin-right: 8px;
+  font: 900 30px / 1 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: 0;
+  color: var(--campaign-cyan);
+}
+
+.campaign__notice {
+  flex: 0 0 auto;
+  margin: 0;
+  font: 600 14px / 1.2 var(--w-font-body, "Rajdhani", sans-serif);
+  color: var(--campaign-gold);
+}
+
+.campaign__notice:empty {
+  display: none;
+}
+
+/* ── The operations, top to bottom, on a track ── */
+
+.campaign__list {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 6px 18px 40px 0;
+  list-style: none;
+  overflow-y: scroll;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--campaign-cyan) hsla(250, 40%, 8%, 0.6);
+  scrollbar-width: auto;
+}
+
+.campaign__list::-webkit-scrollbar {
+  width: 12px;
+}
+
+.campaign__list::-webkit-scrollbar-track {
+  background: hsla(250, 40%, 8%, 0.6);
+}
+
+.campaign__list::-webkit-scrollbar-thumb {
+  border: 2px solid hsla(250, 40%, 8%, 0.6);
+  background: var(--campaign-cyan);
+}
+
+.campaign-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--track) minmax(280px, 46%) minmax(0, 1fr);
+  align-items: center;
+  gap: 0 26px;
+  /* On a wide screen the details stay beside their card */
+  max-width: 1720px;
+  padding-bottom: 26px;
+}
+
+/* The track: a row draws the line into its node (in the colour of the
+   operation before) and the line on to the next one (in its own) */
+.campaign-card::before,
+.campaign-card::after {
+  content: "";
+  position: absolute;
+  left: calc(var(--track) / 2 - 2px);
+  width: 4px;
+  background: var(--campaign-dim);
+}
+
+.campaign-card::before {
+  top: 0;
+  height: calc(50% - 13px);
+}
+
+.campaign-card::after {
+  top: calc(50% - 13px);
+  bottom: 0;
+}
+
+.campaign-card:first-child::before,
+.campaign-card:last-child::after {
+  display: none;
+}
+
+.campaign-card--cleared::after,
+.campaign-card[data-from="cleared"]::before {
+  background: var(--campaign-cyan);
+  box-shadow: 0 0 12px hsla(182, 95%, 52%, 0.6);
+}
+
+.campaign-card--current::after,
+.campaign-card--open::after {
+  background: linear-gradient(180deg, var(--campaign-gold), var(--campaign-dim));
+}
+
+.campaign-card--locked::after,
+.campaign-card[data-from="locked"]::before {
+  background: repeating-linear-gradient(180deg, var(--campaign-dim) 0 10px, transparent 10px 18px);
+}
+
+.campaign-card__node {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  justify-self: center;
+  width: var(--node);
+  height: var(--node);
+  border: 3px solid var(--campaign-dim);
+  border-radius: 50%;
+  font: 900 13px / 1 var(--w-font-display, "Orbitron", monospace);
+  color: hsla(45, 100%, 95%, 0.6);
+  background: hsl(250 40% 10%);
+}
+
+.campaign-card--cleared .campaign-card__node {
+  border-color: var(--campaign-cyan);
+  font-size: 16px;
+  color: var(--ink);
+  background: var(--campaign-cyan);
+}
+
+.campaign-card--current .campaign-card__node,
+.campaign-card--open .campaign-card__node {
+  width: calc(var(--node) + 12px);
+  height: calc(var(--node) + 12px);
+  border-color: var(--campaign-gold);
+  color: var(--ink);
+  background: var(--campaign-gold);
+  box-shadow: 0 0 22px hsla(46, 100%, 57%, 0.7);
+}
+
+/* ── The comic card, whole ── */
+
+.campaign-card__art {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 3px solid hsla(182, 95%, 52%, 0.7);
+  background: repeating-linear-gradient(135deg, hsl(250 12% 15%) 0 12px, hsl(250 12% 12%) 12px 24px), hsl(250 12% 13%);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+.campaign-card--current .campaign-card__art {
+  border-color: var(--campaign-gold);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.45),
+    0 0 34px hsla(46, 100%, 57%, 0.35);
+}
+
+.campaign-card__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* A locked operation is a shallow strip, so the playable ones lead */
+.campaign-card--locked .campaign-card__art {
+  aspect-ratio: 32 / 7;
+  border-color: hsla(250, 15%, 60%, 0.3);
+  box-shadow: none;
+}
+
+.campaign-card--locked .campaign-card__img {
+  filter: grayscale(1) brightness(0.35) blur(3px);
+}
+
+.campaign-card__stamp {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%) rotate(-6deg);
+  padding: 4px 14px;
+  border: 2px solid hsla(45, 100%, 95%, 0.5);
+  font: 900 clamp(14px, 1.3vw, 22px) / 1 var(--w-font-display, "Orbitron", monospace);
+  font-style: italic;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: hsla(45, 100%, 95%, 0.55);
+}
+
+/* ── What the operation is, and the way in ── */
+
+.campaign-card__info {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.campaign-card__name {
+  margin: 0;
+  font: 900 clamp(24px, 2.4vw, 44px) / 1 var(--w-font-display, "Orbitron", monospace);
+  font-style: italic;
+  text-transform: uppercase;
+  color: var(--cream);
+  text-shadow: 3px 4px 0 hsl(250 50% 3%);
+}
+
+.campaign-card--locked .campaign-card__name {
+  font-size: clamp(16px, 1.4vw, 24px);
+  color: hsla(45, 100%, 95%, 0.45);
+  text-shadow: none;
+}
+
+.campaign-card__hook {
+  margin: 0;
+  max-width: 46ch;
+  font: 600 clamp(15px, 1.05vw, 19px) / 1.35 var(--w-font-body, "Rajdhani", sans-serif);
+  color: hsla(45, 100%, 95%, 0.8);
+}
+
+.campaign-card--locked .campaign-card__hook {
+  font-size: 14px;
+  color: hsla(45, 100%, 95%, 0.45);
+}
+
+.campaign-card__brief {
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  font: 600 16px / 1.45 var(--w-font-body, "Rajdhani", sans-serif);
+  color: var(--cream);
+}
+
+.campaign-card__brief li::before {
+  content: "■";
+  margin-right: 10px;
+  font-size: 9px;
+  vertical-align: 2px;
+  color: var(--campaign-pink);
+}
+
+.campaign-card__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 28px;
+  margin-top: 6px;
+}
+
+.campaign-card__foot .campaign-card__start {
+  flex: 0 1 auto;
+  width: min(100%, 320px);
+}
+
+.campaign-card__stats {
+  display: flex;
+  gap: 26px;
+  margin: 0;
+}
+
+.campaign-card__stat dt {
+  font: 700 11px / 1 var(--w-font-body, "Rajdhani", sans-serif);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: hsla(45, 100%, 95%, 0.55);
+}
+
+.campaign-card__stat dd {
+  margin: 4px 0 0;
+  font: 900 22px / 1 var(--w-font-display, "Orbitron", monospace);
+  color: var(--cream);
+}
+
+/* Narrow screens: the card above its details */
+@media (max-width: 1100px) {
+  .campaign-card {
+    grid-template-columns: var(--track) minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    gap: 14px 18px;
+  }
+  .campaign-card__node {
+    grid-row: span 2;
+  }
+  .campaign-card__info {
+    grid-column: 2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .campaign__list {
+    scroll-behavior: auto;
+  }
+}
+
+/* ============================================================================
+   The comic card before a mission
+   ============================================================================ */
+
+.campaign-cut {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  overflow: hidden;
+  background: #000;
+  opacity: 0;
+  cursor: pointer;
+  outline: none;
+  transition: opacity 450ms ease;
+  user-select: none;
+}
+
+.campaign-cut--black {
+  opacity: 1;
+}
+
+.campaign-cut--closing {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.campaign-cut__stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  /* Depth for the slight turn of the card, like a photo held in the hand */
+  perspective: 2400px;
+  opacity: 0;
+  transition: opacity 700ms ease;
+  will-change: transform;
+}
+
+.campaign-cut--art .campaign-cut__stage {
+  opacity: 1;
+}
+
+.campaign-cut__drift {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  will-change: transform;
+}
+
+.campaign-cut__art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Everything outside the panel being read */
+.campaign-cut__art--blur {
+  filter: blur(7px) brightness(0.38) saturate(0.75);
+}
+
+.campaign-cut__art--sharp {
+  filter: drop-shadow(0 0 24px rgba(0, 0, 0, 0.9));
+}
+
+/* Speed lines: uneven streaks, clear in the middle where the panel lands */
+.campaign-cut__speed {
+  position: absolute;
+  inset: -50%;
+  opacity: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(
+      180deg,
+      transparent 0 9px,
+      hsla(45, 100%, 95%, 0.8) 9px 11px,
+      transparent 11px 23px,
+      hsla(45, 100%, 95%, 0.5) 23px 26px,
+      transparent 26px 31px,
+      hsla(45, 100%, 95%, 0.7) 31px 33px,
+      transparent 33px 47px
+    ),
+    repeating-linear-gradient(180deg, transparent 0 61px, hsla(46, 100%, 70%, 0.65) 61px 64px, transparent 64px 97px);
+  mask-image: radial-gradient(ellipse 34% 30% at center, transparent 40%, #000 100%);
+  -webkit-mask-image: radial-gradient(ellipse 34% 30% at center, transparent 40%, #000 100%);
+}
+
+.campaign-cut__vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.75) 100%);
+  pointer-events: none;
+}
+
+.campaign-cut__corner,
+.campaign-cut__foot {
+  position: absolute;
+  opacity: 0;
+  transition: opacity 600ms ease 300ms;
+  pointer-events: none;
+}
+
+.campaign-cut__corner {
+  top: 26px;
+  left: 34px;
+}
+
+.campaign-cut__title {
+  display: inline-block;
+  font: 900 clamp(22px, 2.2vw, 38px) / 1 var(--w-font-display, "Orbitron", monospace);
+  font-style: italic;
+  text-transform: uppercase;
+}
+
+.campaign-cut__foot {
+  right: 34px;
+  bottom: 26px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.campaign-cut--art .campaign-cut__corner,
+.campaign-cut--art .campaign-cut__foot {
+  opacity: 1;
+}
+
+.campaign-cut__count {
+  display: inline-block;
+  font: 900 15px / 1 var(--w-font-display, "Orbitron", monospace);
+  letter-spacing: 0.06em;
+}
+
+.campaign-cut__pips {
+  display: flex;
+  gap: 10px;
+}
+
+/* A panel's segment, filling gold over the time it holds */
+.campaign-cut__pip {
+  position: relative;
+  width: 92px;
+  height: 18px;
+  overflow: hidden;
+  background: hsl(45 100% 95% / 0.16);
+  transform: skewX(-24deg);
+}
+
+.campaign-cut__pip-fill {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, hsl(40 98% 47%), hsl(52 100% 66%));
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+}
+
+.campaign-cut__pip--done .campaign-cut__pip-fill {
+  transform: scaleX(1);
+}
+
+.campaign-cut__status {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  margin: 0;
+  transform: translate(-50%, -50%);
+  font: 700 14px / 1.4 var(--w-font-body, "Rajdhani", sans-serif);
+  letter-spacing: 0.3em;
+  text-align: center;
+  text-transform: uppercase;
+  color: hsl(45 100% 95% / 0.65);
+  opacity: 0;
+  transition: opacity 500ms ease 400ms;
+}
+
+.campaign-cut--waiting .campaign-cut__status {
+  opacity: 1;
+  animation: campaign-cut-pulse 1.6s ease-in-out infinite alternate;
+}
+
+.campaign-cut--error .campaign-cut__status {
+  opacity: 1;
+  color: hsl(46 100% 60%);
+  letter-spacing: 0.12em;
+  text-transform: none;
+  font-size: 18px;
+}
+
+@keyframes campaign-cut-pulse {
+  from {
+    color: hsl(45 100% 95% / 0.35);
+  }
+  to {
+    color: hsl(45 100% 95% / 0.8);
+  }
+}
+
+.campaign-cut__back {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 48px);
+  transform: translateX(-50%);
+  padding: 10px 22px;
+  border: 2px solid hsl(45 100% 95% / 0.7);
+  background: transparent;
+  font: 700 14px / 1 var(--w-font-body, "Rajdhani", sans-serif);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: hsl(45 100% 95%);
+  cursor: pointer;
+}
+
+.campaign-cut__back:is(:hover, :focus-visible) {
+  border-color: hsl(46 100% 57%);
+  color: hsl(46 100% 57%);
+  outline: none;
+}
+
+.campaign-cut__back[hidden] {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .campaign-card--current {
+    animation: none;
+  }
+  .campaign-cut--waiting .campaign-cut__status {
+    animation: none;
+  }
+}

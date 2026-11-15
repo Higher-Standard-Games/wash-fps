@@ -10,7 +10,8 @@ import { MatchPhase, MatchStateManager } from "../MatchStateManager";
  * round freeze felt like before the client knew about it.
  *
  * The server's rule lives in `GametypeController.applyPostGameInputFreeze`:
- * PostGame, or a round mode in RoundEnd or Countdown.
+ * PostGame, a round mode in RoundEnd or Countdown, or a campaign match in
+ * Countdown.
  */
 function phase(p: MatchPhase, round: number): MatchStateManager {
   MatchStateManager.destroy();
@@ -50,5 +51,15 @@ describe("client movement freeze", () => {
     // that holds players on their spawns — and the server does not zero input
     // for it either.
     expect(phase(MatchPhase.Countdown, 0).isMovementFrozen()).toBe(false);
+  });
+
+  it("holds a campaign match's opening countdown, and nothing else extra", () => {
+    const match = phase(MatchPhase.Countdown, 0);
+    match.setCampaignCountdown(true);
+    expect(match.isMovementFrozen()).toBe(true);
+    match.processEvent({ type: "match_state", phase: MatchPhase.Active, round: 0, gametypeName: "FFA" });
+    expect(match.isMovementFrozen()).toBe(false);
+    match.processEvent({ type: "match_state", phase: MatchPhase.Warmup, round: 0, gametypeName: "FFA" });
+    expect(match.isMovementFrozen()).toBe(false);
   });
 });

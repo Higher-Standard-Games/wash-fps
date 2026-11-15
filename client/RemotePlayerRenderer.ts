@@ -6,7 +6,12 @@ import {
   ROBOT_MODEL_ROOT,
 } from "../../../engine/animation/PlayerModelAssets";
 import { decodeLook } from "../shared/players/PlayerLook";
-import { PLAYER_MODEL_VOICES, playerModelChoice, registerPlayerModelSelection } from "./PlayerModelSelection";
+import {
+  forcedModelForName,
+  PLAYER_MODEL_VOICES,
+  playerModelChoice,
+  registerPlayerModelSelection,
+} from "./PlayerModelSelection";
 /**
  * RemotePlayerRenderer — Renders 3D models + hitbox wireframes for remote entities
  *
@@ -270,6 +275,8 @@ export class RemotePlayerRenderer {
   private readonly ffaColors = new FfaColors();
   /** entityId → server-assigned free-for-all look, from snapshot players */
   private readonly looks = new Map<string, number>();
+  /** entityId → player name, from snapshot players: a campaign can give a named bot its own model */
+  private readonly names = new Map<string, string>();
 
   /** Each model's child meshes; see bodyPartsOf. */
   private readonly bodyParts = new WeakMap<PlayerModelInstance, AbstractMesh[]>();
@@ -573,6 +580,7 @@ export class RemotePlayerRenderer {
   private modelChoiceFor(entityId: string) {
     return (
       this.assignedModel(entityId) ??
+      forcedModelForName(this.names.get(entityId)) ??
       playerModelChoice(this.isOwnBody(entityId) || this.resolvePlayerTeamSlot(entityId) === "ally" ? "ally" : "enemy")
     );
   }
@@ -758,6 +766,7 @@ export class RemotePlayerRenderer {
     const localTeam = applyRoster(this.teams, state.players.values(), localEntityId);
     if (localTeam !== undefined) this.localTeam = localTeam;
     applyLooks(this.looks, state.players.values());
+    for (const player of state.players.values()) this.names.set(player.entityId, player.name);
 
     this.clearRespawnedEntities(entities);
   }
@@ -782,6 +791,7 @@ export class RemotePlayerRenderer {
     this.deadEntities.clear();
     this.teams.clear();
     this.looks.clear();
+    this.names.clear();
     this.ffaColors.clear();
     this.localTeam = null;
     this._hiddenEntityId = null;

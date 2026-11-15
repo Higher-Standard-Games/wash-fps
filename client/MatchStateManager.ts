@@ -90,6 +90,8 @@ export class MatchStateManager {
   private _roundResult: RoundResult | null = null;
   /** A timeout holding the match, or its count back in; null while it runs. */
   private _pause: MatchPause | null = null;
+  /** A campaign match holds everyone still through its opening countdown too. */
+  private _campaignCountdown = false;
   private _explosion: BombExplosionEvent | null = null;
   private _isReady: boolean = false;
   private _phaseCallbacks: PhaseChangeCallback[] = [];
@@ -334,15 +336,25 @@ export class MatchStateManager {
    * Round modes freeze during the Countdown — that is the "get ready" phase,
    * with everyone stood at their spawn — and during the round-end result, and
    * every mode freezes for the post-game screen. A non-round mode's countdown
-   * is the pre-match one, which does NOT hold players still.
+   * is the pre-match one, which holds players still only in a campaign match
+   * (`setCampaignCountdown`).
    */
   isMovementFrozen(): boolean {
     if (this._pause || this._phase === MatchPhase.PostGame) return true;
     // `round > 0` is what makes this a round mode, the same signal the rest of
     // the client uses. A deathmatch never sets it.
     const roundBased = this._round > 0;
-    if (!roundBased) return false;
-    return this._phase === MatchPhase.RoundEnd || this._phase === MatchPhase.Countdown;
+    if (this._phase === MatchPhase.Countdown) return roundBased || this._campaignCountdown;
+    return roundBased && this._phase === MatchPhase.RoundEnd;
+  }
+
+  /**
+   * Whether this match is a campaign match, whose server holds everyone still
+   * through the opening countdown as a round mode does through its freeze.
+   * Set on every connect; the campaign hand-off says which it is.
+   */
+  setCampaignCountdown(campaign: boolean): void {
+    this._campaignCountdown = campaign;
   }
 
   /**

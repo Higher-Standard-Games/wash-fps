@@ -28,6 +28,7 @@ function renderer(ownEntityId: string | null, perspectiveEntityId: string | null
       ["them", ROBOT],
     ]),
     teams: new Map(),
+    names: new Map(),
     localTeam: null,
     ownEntityId,
     perspectiveEntityId,

@@ -38,6 +38,7 @@ it("owns a hidden local model, updates its pose, suspends and disposes it", () =
     deadEntities: new Map(),
     teams: new Map(),
     looks: new Map(),
+    names: new Map(),
     ffaColors: { clear: vi.fn() },
     createModelInstance: () => model,
   });

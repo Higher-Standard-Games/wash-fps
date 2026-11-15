@@ -64,6 +64,7 @@ export default withMermaid(
               { text: "Pickups & Inventory", link: "/player/pickups-and-inventory" },
               { text: "HUD", link: "/player/hud" },
               { text: "Match Flow & Screens", link: "/player/screens" },
+              { text: "Campaign", link: "/player/campaign" },
               { text: "Settings", link: "/player/settings" },
             ],
           },

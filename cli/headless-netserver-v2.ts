@@ -52,6 +52,8 @@ function parseArgs(): GameServerConfig & { gamePath: string; gametype: string } 
     shutdownOnEmpty: false,
     singleMatch: false,
     privateMatch: false,
+    campaign: undefined as string | undefined,
+    campaignSide: undefined as "attack" | undefined,
     trainingDemo: undefined as string | undefined,
   };
 
@@ -105,6 +107,15 @@ function parseArgs(): GameServerConfig & { gamePath: string; gametype: string } 
       case "--private-match":
         config.privateMatch = true;
         break;
+      case "--campaign":
+        config.campaign = args[++i];
+        break;
+      case "--campaign-side": {
+        const side = args[++i];
+        if (side !== "attack") throw new Error(`--campaign-side: unknown side "${side}"`);
+        config.campaignSide = side;
+        break;
+      }
       case "--training-demo":
         config.trainingDemo = args[++i];
         break;
@@ -173,6 +184,8 @@ Options:
   --map <name>           Map to load (default: washoi_dm2)
   --gametype <name>      Gametype (Deathmatch, TeamDeathmatch, Duel, Amphi, SnD)
   --private-match        Mark recorded demos as private (set by the lobby)
+  --campaign <mission>   Campaign match: ticket holders only, no ready-up, held countdown (set by the lobby)
+  --campaign-side attack Campaign S&D: the players attack every round, first to 10 rounds wins
   --name <name>          Server name
   --max <n>              Max clients (default: 16)
   --snapshotrate <n>     Snapshot rate in Hz (default: 60)

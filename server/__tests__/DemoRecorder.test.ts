@@ -5,6 +5,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import * as zlib from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
 import { GameState } from "../../../../engine/network/core/GameState";
 import { BinaryEncoder, BinaryProtocol } from "../../../../engine/network/protocol/BinaryProtocol";
@@ -69,7 +70,7 @@ describe("DemoRecorder min-duration guard", () => {
     written.push(fp);
     const reader = new DemoReader(new Uint8Array(fs.readFileSync(fp)));
     expect(reader.readHeader()).toMatchObject({
-      version: 7,
+      version: 8,
       private: true,
       matchId: "match-verified",
       players: [
@@ -99,6 +100,61 @@ describe("DemoRecorder min-duration guard", () => {
     expect(frames[1].inputs).toEqual([]);
   });
 
+  it("marks a campaign match with its mission, and reads a version 7 header without one", async () => {
+    const rec = new DemoRecorder({
+      ...base,
+      matchId: "m-camp",
+      private: true,
+      campaign: "cartel-contract",
+      minDurationMs: 0,
+    });
+    rec.addPlayer("1", "One", "", 41);
+    rec.recordFrame(frame(1));
+    const file = await rec.stop();
+    written.push(file);
+    const stored = new Uint8Array(fs.readFileSync(file));
+    // Recordings are gzipped on disk; the header is in the plain bytes
+    const bytes = stored[0] === 0x1f && stored[1] === 0x8b ? new Uint8Array(zlib.gunzipSync(stored)) : stored;
+    expect(new DemoReader(bytes).readHeader()).toMatchObject({
+      version: 8,
+      campaign: "cartel-contract",
+      private: true,
+    });
+
+    // The same header as version 7 wrote it: no mission string after the visibility byte
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    let at = 5;
+    const skipString = () => {
+      at += 2 + view.getUint16(at, true);
+    };
+    skipString(); // map
+    skipString(); // gametype
+    at += 1 + 1 + 8; // tick rate, snapshot rate, start time
+    skipString(); // match id
+    at += 1; // visibility
+    const missionBytes = 2 + view.getUint16(at, true);
+    const v7 = new Uint8Array(bytes.length - missionBytes);
+    v7.set(bytes.subarray(0, at));
+    v7.set(bytes.subarray(at + missionBytes), at);
+    v7[4] = 7;
+    const old = new DemoReader(v7).readHeader();
+    expect(old).toMatchObject({
+      version: 7,
+      private: true,
+      matchId: "m-camp",
+      players: [{ playerId: "1", accountId: 41 }],
+    });
+    expect(old.campaign).toBeUndefined();
+  });
+
+  it("leaves the mission out of every other match", async () => {
+    const rec = new DemoRecorder({ ...base, minDurationMs: 0 });
+    rec.recordFrame(frame(1));
+    const file = await rec.stop();
+    written.push(file);
+    expect(new DemoReader(new Uint8Array(fs.readFileSync(file))).readHeader().campaign).toBeUndefined();
+  });
+
   it("records persistent brush state in a v6 frame", async () => {
     const rec = new DemoRecorder({ ...base, minDurationMs: 0 });
     const state = frame(125);
@@ -110,7 +166,7 @@ describe("DemoRecorder min-duration guard", () => {
     const file = await rec.stop();
     written.push(file);
     const reader = new DemoReader(new Uint8Array(fs.readFileSync(file)));
-    expect(reader.readHeader().version).toBe(7);
+    expect(reader.readHeader().version).toBe(8);
     expect(reader.readAllFrames()[0].state.events[0]).toMatchObject({ objective: { disabledModels: [5, 6] } });
   });
 

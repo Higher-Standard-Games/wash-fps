@@ -10,6 +10,7 @@
  *   npm run lobby:server -- --max-players 64
  */
 
+import { CampaignStore } from "../../../lobby/CampaignStore";
 import { GameServerSpawner } from "../../../lobby/GameServerSpawner";
 import { DEFAULT_MAX_PLAYERS, LobbyServer } from "../../../lobby/LobbyServer";
 import { MatchResultStore } from "../../../lobby/MatchResultStore";
@@ -125,6 +126,7 @@ const dataDir = resolveDataDir(dataDirArg);
 const players = PlayerStore.open(dataDir, isBotName);
 const results = MatchResultStore.open(dataDir);
 const settings = SettingsStore.open(dataDir);
+const campaign = CampaignStore.open(dataDir);
 const maxPlayers = maxPlayersArg === undefined || maxPlayersArg === "" ? DEFAULT_MAX_PLAYERS : Number(maxPlayersArg);
 if (!Number.isInteger(maxPlayers) || maxPlayers < 0) {
   console.error(`--max-players must be a whole number, 0 for no cap (got "${maxPlayersArg}").`);
@@ -136,6 +138,7 @@ const server = new LobbyServer(port, new GameServerSpawner(undefined, FPS_SERVER
   players,
   results,
   settings,
+  campaign,
   maxPlayers,
 });
 console.log(`  Data directory: ${dataDir}`);
@@ -151,6 +154,7 @@ server
   .catch((err) => {
     console.error("Failed to start lobby server:", err);
     settings.close();
+    campaign.close();
     results.close();
     players.close();
     process.exit(1);
@@ -161,6 +165,7 @@ process.on("SIGINT", async () => {
   console.log("\n[LobbyServer] Shutting down...");
   await server.stop();
   settings.close();
+  campaign.close();
   results.close();
   players.close();
   process.exit(0);
@@ -169,6 +174,7 @@ process.on("SIGINT", async () => {
 process.on("SIGTERM", async () => {
   await server.stop();
   settings.close();
+  campaign.close();
   results.close();
   players.close();
   process.exit(0);

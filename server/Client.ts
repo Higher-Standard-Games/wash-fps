@@ -40,6 +40,15 @@ export interface GameServerConfig {
   /** Lobby visibility at match start; recordings carry this flag. */
   privateMatch?: boolean;
   /**
+   * The campaign mission this match plays, from the lobby. A campaign match
+   * admits only its ticket holders (no spectators, no drop-in seats), starts
+   * without a ready-up behind a held countdown, and its demo is marked with
+   * the mission.
+   */
+  campaign?: string;
+  /** Campaign S&D: the players' side attacks every round, first to the round limit wins. */
+  campaignSide?: "attack";
+  /**
    * Record a training demo under this name: from the first human to join until
    * the last one leaves, a frame every server tick, into
    * `public/data/demos/training/<map>_<name>.shagdemo`. Bots learn movement

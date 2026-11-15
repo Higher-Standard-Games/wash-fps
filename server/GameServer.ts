@@ -34,7 +34,7 @@ import { filterChatText, filterPlayerName } from "../../../engine/server/ChatFil
 import { ServerPVS, type ServerPVSData } from "../../../engine/server/ServerPVS";
 import { extractLocations, locationName, type MapLocation } from "../../../shared/bsp/LocationTable";
 import type { TriggerVolume } from "../../../shared/bsp/TriggerTable";
-import { MatchPhase } from "../../../shared/server/gametype/GametypeTypes";
+import { MatchPhase, normalizeTeamId } from "../../../shared/server/gametype/GametypeTypes";
 // Match phase tracking (for auto-recording)
 import { botLoadout, describeLoadout, parseLoadout } from "../../../shared/server/gametype/Loadout";
 import { sanitizeCommand } from "../../../shared/server/simulation/InputSanitizer";
@@ -346,6 +346,17 @@ export class GameServer {
     this.gametypeController.setMatchStartReset((state, tickNum) => this.resetWorldForMatch(state, tickNum));
     // Per-match server mode: post-game is terminal (lobby return flow).
     this.gametypeController.setMatchFlow(this.config.singleMatch ? "single" : "continuous");
+    if (this.config.campaign) {
+      // One seat per person: a seat's ticket and recovery ticket are two grants with one seat id
+      const grants = this.config.matchAdmission?.grants ?? [];
+      const people = new Set(grants.filter((grant) => !grant.isBot).map((grant) => grant.seatId ?? grant.tokenHash))
+        .size;
+      this.gametypeController.setCampaignStart(people);
+      if (this.config.campaignSide === "attack") {
+        const side = normalizeTeamId(grants.find((grant) => !grant.isBot)?.team);
+        if (side === "udon" || side === "soba") this.gametypeController.setCampaignAttackers(side);
+      }
+    }
 
     // Wire name resolver for awards (resolves PlayerId → display name)
     this.gametypeController.setNameResolver((playerId) => {
@@ -703,6 +714,8 @@ export class GameServer {
    */
   admitSeat(grants: readonly unknown[]): boolean {
     if (!this.matchAdmission || this.gametypeController.getPhase() === MatchPhase.PostGame) return false;
+    // A campaign match is its own players' alone
+    if (this.config.campaign) return false;
     return this.matchAdmission.admit(grants);
   }
 
@@ -761,6 +774,7 @@ export class GameServer {
         : {}),
       matchId: this.matchAdmission?.manifest.matchId,
       private: this.config.privateMatch === true,
+      ...(this.config.campaign ? { campaign: this.config.campaign } : {}),
       tickRate: this.timing.tickRate,
       // Record the EFFECTIVE cadence, never the requested one: at 125/60 the
       // server broadcasts every 2 ticks = 62.5Hz, and recording "60" made
@@ -1838,6 +1852,11 @@ export class GameServer {
     }
     if (admissionTicket && this.matchAdmission && !grant) {
       conn.close("invalid match ticket");
+      return;
+    }
+    // Nobody watches or wanders into a campaign match: its seats are all there is
+    if (this.config.campaign && !grant) {
+      conn.close("campaign match");
       return;
     }
     // Only trust the bot flag from loopback (bots always connect locally).
