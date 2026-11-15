@@ -124,12 +124,19 @@ function setup() {
       ["player_2", entity(2, 0.5, -10)],
       ["player_3", entity(3, 0.7)],
     ]),
-    players: new Map([["player_2", { entityId: "player_2", name: "Alice" }]]),
+    // Keyed by player, each naming the entity it plays. The numbers differ, as
+    // on a live server: entity ids also count projectiles, drops and rejoins.
+    players: new Map([
+      ["player_4", { entityId: "player_1", name: "", team: "red" }],
+      ["player_5", { entityId: "player_2", name: "Alice", team: "red" }],
+      ["player_6", { entityId: "player_3", name: "", team: "red" }],
+      ["player_7", { entityId: "player_9", name: "", team: "blue" }],
+    ]),
   };
   const view = new SpectateView({
     isPlayerDead: () => state.dead,
     playerState: () => state.playerState,
-    localPlayerId: () => "player_1",
+    localPlayerId: () => "player_4",
     latestGameState: () => gameState as never,
     remoteRenderer: () => remoteRenderer as never,
     spectatorOverlay: () => overlay as never,
@@ -174,7 +181,7 @@ function match(phase: number, round: number, extra: Record<string, unknown> = {}
     type: "match_state",
     phase,
     round,
-    playerTeams: { 1: "red", 2: "red", 3: "red", 9: "blue" }, // keyed by bare id, as on the wire
+    playerTeams: { 4: "red", 5: "red", 6: "red", 7: "blue" }, // keyed by bare player id, as on the wire
     ...extra,
   });
 }
@@ -237,6 +244,26 @@ describe("SpectateView", () => {
     view.applyDeathCamera(camera(), 1 / 60);
     expect(view._spectatingEntityId).toBe("player_2");
     expect(overlay.setSpectatingTarget).toHaveBeenCalledWith("Alice");
+  });
+
+  it("finds teammates by entity, whatever the match table says under the same numbers", () => {
+    const { view, remoteRenderer } = setup();
+    // Read by entity number, this table makes the enemy (entity 9) a teammate
+    // and the teammates (entities 2 and 3) enemies: players 2, 3 and 9 are
+    // other people. Watching by it put the camera, and the hidden model, on an
+    // enemy.
+    match(MatchPhase.Active, 1, {
+      playerTeams: { 2: "blue", 3: "blue", 4: "red", 5: "red", 6: "red", 7: "blue", 9: "red" },
+    });
+    view.applyDeathCamera(camera(), 1 / 60);
+    now += SPECTATE_AFTER_DEATH_MS;
+    view.applyDeathCamera(camera(), 1 / 60);
+    expect(view._spectatingEntityId).toBe("player_3");
+    expect(remoteRenderer.setHiddenEntity).not.toHaveBeenCalledWith("player_9");
+    view.cycleTeammateSpectate(1);
+    expect(view._spectatingEntityId).toBe("player_2");
+    view.cycleTeammateSpectate(1);
+    expect(view._spectatingEntityId).toBe("player_3");
   });
 
   it("refuses a teammate it has no position for, and keeps the corpse camera", () => {

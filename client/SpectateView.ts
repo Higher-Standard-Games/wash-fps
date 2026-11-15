@@ -46,6 +46,39 @@ export const SPECTATE_AFTER_DEATH_MS = 3000;
  */
 const CHASE_RESPAWN_WAIT_MS = 8000;
 
+/** The players a dead player may watch, and who that player is, by entity key. */
+export interface TeammateRoster {
+  /** Our own entity key, or null when we have no body in the snapshot. */
+  ownEntityId: string | null;
+  /** Our team, or null when we have none. */
+  ownTeam: string | null;
+  /** Each player's team, by entity key. */
+  teamOf: ReadonlyMap<string, string>;
+}
+
+/**
+ * Who is on which side, by ENTITY key, from the snapshot's player list.
+ *
+ * Player ids and entity ids are different numbers: player ids count
+ * connections, entity ids also count every projectile, dropped weapon and
+ * rejoin. The match's team table is keyed by player id, and the rendered
+ * players by entity key, so they cannot be read against each other; the
+ * player list carries both for each player. `matchTeams` (by bare player id)
+ * stands in for our own team when we have no body in the snapshot.
+ */
+export function teammateRoster(
+  players: ReadonlyMap<string, { entityId: string; team: string }> | undefined,
+  localPlayerId: string,
+  matchTeams: Readonly<Record<string, string>> | undefined,
+): TeammateRoster {
+  const teamOf = new Map<string, string>();
+  for (const player of players?.values() ?? []) if (player.team) teamOf.set(player.entityId, player.team);
+  const own = players?.get(localPlayerId);
+  const ownEntityId = own?.entityId || null;
+  const ownTeam = own?.team || matchTeams?.[clientKeyDisplayId(localPlayerId)] || null;
+  return { ownEntityId, ownTeam, teamOf };
+}
+
 /** What the spectate cameras read from Game. Read live, every call. */
 export interface SpectateHost {
   isPlayerDead(): boolean;
@@ -259,16 +292,16 @@ export class SpectateView {
       if (current && !current.dead) return;
     }
 
-    const myTeam = match.playerTeams?.[clientKeyDisplayId(this.host.localPlayerId())];
-    if (!myTeam) return;
+    const roster = this.roster(match);
+    if (!roster.ownTeam) return;
 
     let chosen: string | null = null;
     for (const [entityId, player] of players) {
       // Your own hitbox is still in the renderer, just hidden — spectating it
       // would put the camera back on the corpse you were meant to leave.
-      if (entityId === this.host.localPlayerId()) continue;
+      if (entityId === roster.ownEntityId) continue;
       if (player.dead) continue;
-      if (match.playerTeams?.[clientKeyDisplayId(entityId)] !== myTeam) continue;
+      if (roster.teamOf.get(entityId) !== roster.ownTeam) continue;
       chosen = entityId;
       break;
     }
@@ -384,12 +417,16 @@ export class SpectateView {
     );
   }
 
+  private roster(match: MatchStateManager): TeammateRoster {
+    return teammateRoster(this.host.latestGameState()?.players, this.host.localPlayerId(), match.playerTeams);
+  }
+
   /** Display name for whoever we are watching, for the HUD banner. */
   private spectateeName(entityId: string): string {
     const players = this.host.latestGameState()?.players;
     if (players) {
       for (const player of players.values()) {
-        if (player.entityId === entityId) return player.name || entityId;
+        if (player.entityId === entityId && player.name) return player.name;
       }
     }
     return entityId.replace("player_", "Player ");
@@ -415,14 +452,13 @@ export class SpectateView {
   private spectatableTeammates(): string[] {
     const players = this.host.remoteRenderer()?.getRenderedPlayers();
     if (!players) return [];
-    const match = MatchStateManager.getInstance();
-    const myTeam = match.playerTeams?.[clientKeyDisplayId(this.host.localPlayerId())];
-    if (!myTeam) return [];
+    const roster = this.roster(MatchStateManager.getInstance());
+    if (!roster.ownTeam) return [];
 
     const out: string[] = [];
     for (const [entityId, player] of players) {
-      if (entityId === this.host.localPlayerId() || player.dead) continue;
-      if (match.playerTeams?.[clientKeyDisplayId(entityId)] !== myTeam) continue;
+      if (entityId === roster.ownEntityId || player.dead) continue;
+      if (roster.teamOf.get(entityId) !== roster.ownTeam) continue;
       out.push(entityId);
     }
     // Sorted, so ← and → stay opposites instead of following map insertion.
