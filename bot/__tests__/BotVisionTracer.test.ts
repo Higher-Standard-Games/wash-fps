@@ -6,7 +6,7 @@ import type { AABB, TraceResult } from "../../../../shared/collision/CollisionWo
 import { NullCollisionWorld } from "../../../../shared/collision/CollisionWorld";
 import { SharedCollisionWorld } from "../../../../shared/collision/SharedCollisionWorld";
 import type { Vec3 } from "../BotGameState";
-import { BotVisionTracer } from "../BotVisionTracer";
+import { BotVisionTracer, wallAheadSide } from "../BotVisionTracer";
 
 interface Box {
   min: Vec3;
@@ -227,6 +227,16 @@ describe("BotVisionTracer", () => {
       walled.dispose();
       open.dispose();
     }
+  });
+
+  it("says which way a flight should bend off a wall coming up, and nothing in the open", () => {
+    // A wall across the flight 80 ahead, from x −300 to +40: open to the right (+x)
+    const wall: Box = { min: { x: -300, y: 0, z: 100 }, max: { x: 40, y: 400, z: 116 } };
+    const flying = { x: 0, y: 100, z: 0 };
+    expect(wallAheadSide(new BoxWorld([floor, wall]), flying, running(0))).toBe(1);
+    expect(wallAheadSide(new BoxWorld([floor]), flying, running(0))).toBe(0);
+    // Too slow to matter
+    expect(wallAheadSide(new BoxWorld([floor, wall]), flying, { x: 0, y: 0, z: 100 })).toBe(0);
   });
 
   it("leaves the feet alone in the air", () => {

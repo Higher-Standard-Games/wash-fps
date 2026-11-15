@@ -51,7 +51,7 @@ import {
 } from "./BotSequence";
 import { BotTerritory } from "./BotTerritory";
 import type { BotVision, EnemyTrack, VisionResult } from "./BotVision";
-import { BotVisionTracer } from "./BotVisionTracer";
+import { BotVisionTracer, wallAheadSide } from "./BotVisionTracer";
 import { BotWeaponCombos, has, slotFor } from "./BotWeaponCombos";
 import { getWeaponProfile, selectBestWeapon, type WeaponProfile } from "./BotWeaponProfile";
 import { type DecisionTrace, TRACED_CANDIDATES } from "./DecisionTrace";
@@ -68,7 +68,7 @@ import { ItemSlideApproachSequence } from "./sequences/ItemSlideApproachSequence
 import { LearnedRouteSequence } from "./sequences/LearnedRouteSequence";
 import { LedgeSlideJumpSequence } from "./sequences/LedgeSlideJumpSequence";
 import { RouteCrouchslideSequence } from "./sequences/RouteCrouchslideSequence";
-import { RouteStrafeJumpSequence } from "./sequences/RouteStrafeJumpSequence";
+import { RouteStrafeJumpSequence, sideTurnAngle } from "./sequences/RouteStrafeJumpSequence";
 import { canLunge, SlideBladeSequence } from "./sequences/SlideBladeSequence";
 import { TraverseJumppadSequence } from "./sequences/TraverseJumppadSequence";
 import { TraverseTeleporterSequence } from "./sequences/TraverseTeleporterSequence";
@@ -3405,7 +3405,7 @@ export class StateMachineBrain extends BotBrain {
           }
         : {}),
     });
-    if (!result) return input;
+    if (!result) return self.isGrounded ? input : this._steerAir(input, state, vision);
     this._steerClear = result.clear;
     if (result.turned) this._feelerSteered = true;
     return { ...input, moveYaw: result.yaw - keyTurn };
@@ -3482,6 +3482,29 @@ export class StateMachineBrain extends BotBrain {
       return forwardTo(target, false);
     }
     return forwardTo(target, true);
+  }
+
+  /**
+   * In the air, about to fly into a wall: a side key alone toward the open
+   * side, at the angle that turns the flight without losing speed
+   * (sideTurnAngle), instead of the keys the decision held. Jump, fire and
+   * crouch stay as they were.
+   */
+  private _steerAir(input: BotInput, state: BotGameState, vision: BotVision): BotInput {
+    const self = state.self;
+    const side = wallAheadSide(vision.collisionWorld, self.position, self.velocity);
+    if (side === 0) return input;
+    this._feelerSteered = true;
+    const speed = Math.hypot(self.velocity.x, self.velocity.z);
+    const wish = Math.atan2(self.velocity.x, self.velocity.z) + side * sideTurnAngle(speed);
+    const keep = InputButtons.JUMP | InputButtons.FIRE | InputButtons.ALT_FIRE | InputButtons.CROUCH;
+    return {
+      ...input,
+      direction: { x: side, y: 0, z: 0 },
+      // The key is a quarter turn off the move yaw
+      moveYaw: wish - side * (Math.PI / 2),
+      buttons: (input.buttons & keep) | (side < 0 ? InputButtons.LEFT : InputButtons.RIGHT),
+    };
   }
 
   private _applyFeelers(input: BotInput, state: BotGameState, vision: BotVision): BotInput {

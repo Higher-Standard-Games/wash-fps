@@ -24,6 +24,10 @@
  * Only the feet are steered. The view, and so a fight's aim, stays as the
  * decision left it.
  *
+ * In the air the feet cannot be put down elsewhere, but the flight can be
+ * bent: `wallAheadSide` says whether the flight runs into a wall within
+ * AIR_LOOKAHEAD_SECONDS, and which side is open to turn to.
+ *
  * It also says beforehand whether a trick will work from where the bot is,
  * by running the game's own movement code forward (`rollout`), as the nav
  * graph's jump analysis does: whether a jump at a wall ends standing on top
@@ -116,6 +120,34 @@ export interface RolloutEnd {
   velocity: Vec3;
   grounded: boolean;
   ticks: number;
+}
+
+/** A flight is followed this far ahead for walls, in seconds of travel at its speed. */
+const AIR_LOOKAHEAD_SECONDS = 0.3;
+/** Slower than this in the air, there is nothing to bend, units/s. */
+const AIR_MIN_SPEED = 150;
+
+/**
+ * Whether a flight from `position` at `velocity` runs into a wall within
+ * AIR_LOOKAHEAD_SECONDS, and if so the side to turn to (−1 left, +1 right,
+ * as yaw turns): the one whose rays at 30° and 60° run clearer. 0 when the
+ * way is clear or the bot is too slow to matter.
+ */
+export function wallAheadSide(world: CollisionWorld, position: Vec3, velocity: Vec3): -1 | 0 | 1 {
+  const speed = Math.hypot(velocity.x, velocity.z);
+  if (speed < AIR_MIN_SPEED) return 0;
+  const yaw = Math.atan2(velocity.x, velocity.z);
+  const reach = speed * AIR_LOOKAHEAD_SECONDS;
+  const ray = (a: number, bounds?: AABB) =>
+    world.trace(
+      position,
+      { x: position.x + Math.sin(a) * reach, y: position.y, z: position.z + Math.cos(a) * reach },
+      bounds,
+    );
+  const ahead = ray(yaw, HULL_BOUNDS);
+  if (ahead.fraction >= 1 || (ahead.normal && Math.abs(ahead.normal.y) >= FLOOR_NORMAL_Y)) return 0;
+  const room = (side: number) => ray(yaw + side * (Math.PI / 6)).fraction + ray(yaw + side * (Math.PI / 3)).fraction;
+  return room(1) >= room(-1) ? 1 : -1;
 }
 
 export interface SteerRequest {

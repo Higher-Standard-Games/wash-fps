@@ -10,6 +10,7 @@ import type {
   BotSequenceTick,
   RouteStrafeLane,
 } from "../BotSequence";
+import { wallAheadSide } from "../BotVisionTracer";
 
 const SERVER_TICK_RATE = 125;
 const MOVEMENT = DEFAULT_FPS_MOVEMENT_CONFIG;
@@ -127,8 +128,11 @@ function strafeInput(context: BotSequenceContext, state: BotSequenceState, steer
   const speed = Math.max(MIN_CONTROL_SPEED, horizontalSpeed(self.velocity));
   const routeYaw = state.data.routeYaw as number;
   const velocityYaw = heading(self.velocity, routeYaw);
+  // A wall coming up outranks the route: turn off it with the side key alone
+  const world = context.vision?.collisionWorld;
+  const wall = world ? wallAheadSide(world, self.position, self.velocity) : 0;
   const aim = aimYaw(context, state);
-  const error = normalizeAngle(aim - velocityYaw);
+  const error = wall !== 0 ? wall * (Math.PI / 2) : normalizeAngle(aim - velocityYaw);
   const skill = context.difficulty?.strafeJumpSkill ?? 0;
 
   let moveYaw: number;
