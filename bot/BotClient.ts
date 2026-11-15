@@ -850,6 +850,9 @@ export class BotClient extends EventEmitter {
     this.emit("matchReport", report);
   }
 
+  /** Ids of the team calls this bot has made (AgentDirective.call). */
+  private readonly _saidCalls = new Set<string>();
+
   /**
    * Team callouts (BotCallouts): read teammates' lines, hand their sightings
    * to the brain, and call what this bot sees.
@@ -878,6 +881,14 @@ export class BotClient extends EventEmitter {
       objective: state.objective ?? undefined,
     });
     if (line) this._send(MessageCodec.encodeChat(line));
+    // The team's call the gametype gave this bot: said once
+    for (const order of state.directives) {
+      const call = order.call;
+      if (!call || this._saidCalls.has(call.id)) continue;
+      if (this._saidCalls.size > 200) this._saidCalls.clear();
+      this._saidCalls.add(call.id);
+      this._send(MessageCodec.encodeChat(`/say_team ${call.text}`));
+    }
   }
 
   /** Lets chat see the match and the brain's kills and deaths, and sends a line that is ready. */

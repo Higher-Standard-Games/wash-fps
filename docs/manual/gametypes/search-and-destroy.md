@@ -158,11 +158,11 @@ and rotate surplus defenders when casualties leave an uneven split. Carrying
 the bomb does not give every defender a carrier-hunting order. Plant/defuse work
 marked non-interruptible takes precedence over ordinary combat, chasing and
 item shopping; defenders still engage visible enemies during normal site defense.
-On reaching a defend or hold area, bots patrol nearby supported standing points
-inside the assigned radius, pausing briefly between moves. They hold position
-when no safe walking segment exists. An order that names a way in to watch is held
-standing, looking at it. Planting, arming and defusing orders remain
-stationary on arrival.
+On reaching a defend or hold area, bots keep moving: they run between walkable
+points inside the area, preferring ones that see the way in they watch, and
+keep their view on it as they run. With nowhere to walk they strafe across it.
+A guard's fight stays on its ground: it does not chase an enemy out of the
+area. Only planting, arming and defusing stand still.
 
 The mode plays each team of bots as a team:
 
@@ -179,6 +179,12 @@ The mode plays each team of bots as a team:
   once two are there or the fuse is short.
 - **A dropped bomb.** One attacker fetches it while two cover the spot; the two
   defenders nearest it guard it.
+- **On the bomb.** One bot arms it, and one defends it; it fights what it sees
+  while the clock leaves time to finish, and works whatever is shooting once
+  time is short or the meter is past 60%. Two teammates guard it, each between
+  the bomb and one way in, and the rest fight for the ground within 700 units.
+  A defuser waits beside the bomb until no attacker has been seen near it for
+  two seconds, unless the fuse cannot wait.
 - **After a plant.** Attackers hold from spots that see the bomb and the ways
   defenders come in, or part way towards each way in.
 
@@ -188,6 +194,19 @@ dropped at Station", "Bomb planted at A" — and act on each other's calls. Type
 `a` or `b` (or "go a", "rush b") in team chat and the bots on your team attack
 that site this round, or, defending, move to it. Carrying the bomb yourself,
 you go when you like; the bots go with you.
+
+Bots also call the team's plan, one bot for each call: the attack's site and
+its go ("Going A", "Go A, go!"), "Arming A, cover me", "Bomb down, I'm getting
+it", the defence's split ("2 on A, 3 on B"), "Rotating to B", the regroup and
+"Retake B, go!", "Defusing, cover me", and each guard's "Covering" with its
+place. You can give the team orders in team chat:
+
+| Type | Attacking | Defending |
+| --- | --- | --- |
+| `go`, `now`, `rush` | Go in now | With the bomb armed, retake now |
+| `wait`, `hold` | Hold outside until your `go` (or the 25 second deadline) | — |
+| `retake` | — | Retake an armed bomb now |
+| `stack a`, `all on b` | — | Every defender to that site this round |
 
 The ways into each site come from `config/bot-lanes`, made per map with
 `bot:lanes`; a map without them plays without the team plans.

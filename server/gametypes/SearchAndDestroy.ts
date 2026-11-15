@@ -57,7 +57,7 @@ import {
   type RoundOutcome,
 } from "./BaseGametype";
 import { PlayerLoadouts } from "./PlayerLoadouts";
-import { siteCall } from "./SndCalls";
+import { siteCall, type TeamCommand, teamCommand } from "./SndCalls";
 import { type Hold, holdsAt, type Lane, type LaneFile, lanesInto, loadLanes } from "./SndLanes";
 
 // ── Match shape ──────────────────────────────────────────────────────
@@ -105,7 +105,7 @@ const PRIORITY_FETCH = 0.7;
 /** Staying with the carrier: useful, but not at the cost of your own life. */
 const PRIORITY_ESCORT = 0.55;
 /** The coach's parts, switchable per team for head-to-head tests. */
-export const COACH_PARTS = ["lanes", "cover", "defence", "memory", "crossfire", "holds", "worker"] as const;
+export const COACH_PARTS = ["lanes", "cover", "defence", "memory", "crossfire", "holds", "worker", "calls"] as const;
 export type CoachPart = (typeof COACH_PARTS)[number];
 /** Bots in the carrier's group, the carrier with them. */
 const MAIN_GROUP = 3;
@@ -169,6 +169,10 @@ const COVER_LEASH = 700;
 const SITE_QUIET_TICKS = 2 * TICK_RATE;
 /** An attacker this close to the bomb, seen by a defender, keeps the site from being quiet. */
 const SITE_WATCH_RADIUS = 900;
+/** A call rides on its speaker's orders this long, so a snapshot lost on the way does not lose it, ticks. */
+const CALL_TICKS = 3 * TICK_RATE;
+/** A guard this close to its ground calls that it is covering, units. */
+const GUARD_ARRIVED = 220;
 /**
  * How close the carrier is told to get to the site.
  *
@@ -337,6 +341,19 @@ export class SearchAndDestroy extends BaseGametype {
   private defendGuards: number[] = [];
   /** Last tick a defender saw an attacker near the planted bomb. */
   private attackerSeenNearBomb = 0;
+  /** Calls made this round, by id, so each is made once. */
+  private callsMade = new Set<string>();
+  /** Calls waiting on their speaker's next orders. */
+  private callsDue = new Map<number, { id: string; text: string; tick: number }>();
+  /** A person on the attack said "wait": hold at the staging points until "go" or the deadline. */
+  private waitCalled = false;
+  /** A person on the defence said "stack": every defender to this site this round. */
+  private stackSite: number | null = null;
+  /** The bomb's phase last tick, and how often it has been dropped this round, for calls. */
+  private lastBombPhase: string | null = null;
+  private drops = 0;
+  /** Answers to a person's commands, made on the next tick by a bot of their team. */
+  private acks: { team: string; id: string; text: string }[] = [];
   /** Site the attack is committed to. */
   private targetSiteId: number | null = null;
   /** Per site id, where a player stands in it: see `standingSpot`. */
@@ -538,6 +555,13 @@ export class SearchAndDestroy extends BaseGametype {
     this.attackGuards = [];
     this.defendGuards = [];
     this.attackerSeenNearBomb = 0;
+    this.callsMade.clear();
+    this.callsDue.clear();
+    this.waitCalled = false;
+    this.stackSite = null;
+    this.lastBombPhase = null;
+    this.drops = 0;
+    this.acks = [];
     this.attackPlan = null;
     this.attackSent = false;
     this.bombCarried = false;
@@ -1003,6 +1027,7 @@ export class SearchAndDestroy extends BaseGametype {
     this.planBombCover(attackers, defenders, context);
     this.planDefence(attackers, defenders, context);
     this.planGuards(attackers, defenders, context);
+    this.planCalls(attackers, defenders, context);
   }
 
   /**
@@ -1028,7 +1053,12 @@ export class SearchAndDestroy extends BaseGametype {
    * A team chat line. A site call ("a", "go b", ...) from the attacking team
    * sets this round's target, from the defending team sends the rotators.
    */
-  override onTeamChat(_entityId: number, team: string, text: string): void {
+  override onTeamChat(entityId: number, team: string, text: string): void {
+    const command = this.isPerson(entityId) ? teamCommand(text) : null;
+    if (command) {
+      this.onCommand(team, command);
+      return;
+    }
     const label = siteCall(text);
     const site = label ? this.sites.find((s) => s.label.toUpperCase() === label) : undefined;
     if (!site || this.bomb.phase === "planted" || this.bomb.isArmed) return;
@@ -1154,6 +1184,7 @@ export class SearchAndDestroy extends BaseGametype {
 
   /** The site a defender is bound for: its own, or the spotted carrier's while rotating. */
   private defendSiteOf(entityId: number): number | null {
+    if (this.stackSite !== null) return this.stackSite;
     const rotate =
       this.spotted !== null && !this.anchors.has(entityId) && this.tick - this.spotted.tick <= ROTATE_TICKS;
     return rotate && this.spotted ? this.spotted.siteId : (this.siteByDefender.get(entityId) ?? null);
@@ -1268,7 +1299,8 @@ export class SearchAndDestroy extends BaseGametype {
       plan.carrierStagedAt !== null && (another || this.tick - plan.carrierStagedAt > STAGING_WAIT_TICKS);
     const late = this.tick - plan.madeAtTick > STAGING_DEADLINE_TICKS;
     const contact = attackers.length < plan.attackers;
-    if (carrierReady || late || contact) {
+    // A person's "wait" holds the go until their "go", the deadline or a fight
+    if ((carrierReady && !this.waitCalled) || late || contact) {
       plan.go = true;
       this.attackSent = true;
     }
@@ -1366,6 +1398,24 @@ export class SearchAndDestroy extends BaseGametype {
     priority: number,
     expiresAtTick: number,
   ): AgentDirective | null {
+    const ground = this.guardGround(attacking, index);
+    if (!ground) return null;
+    return this.directive(
+      `snd_guard_${attacking ? "arm" : "defuse"}_${index}`,
+      "hold_area",
+      ground.spot,
+      GUARD_PATROL_RADIUS,
+      priority,
+      expiresAtTick,
+      "enemy_visible",
+      undefined,
+      ground.way,
+      GUARD_LEASH,
+    );
+  }
+
+  /** The ground a guard patrols, and the way in it watches. */
+  private guardGround(attacking: boolean, index: number): { spot: Vec3Like; way: Vec3Like } | null {
     const site = this.bomb.siteId;
     if (site === null) return null;
     const ways = lanesInto(this.lanes, site, attacking ? "defend" : "attack").map((l) => l.staging);
@@ -1376,19 +1426,169 @@ export class SearchAndDestroy extends BaseGametype {
     const dz = way.z - bomb.z;
     const length = Math.hypot(dx, dz);
     const share = length > 0 ? Math.min(GUARD_SHARE, GUARD_MAX_DISTANCE / length) : 0;
-    const spot = { x: bomb.x + dx * share, y: bomb.y + (way.y - bomb.y) * share, z: bomb.z + dz * share };
-    return this.directive(
-      `snd_guard_${attacking ? "arm" : "defuse"}_${index}`,
-      "hold_area",
-      spot,
-      GUARD_PATROL_RADIUS,
-      priority,
-      expiresAtTick,
-      "enemy_visible",
-      undefined,
-      way,
-      GUARD_LEASH,
-    );
+    return { spot: { x: bomb.x + dx * share, y: bomb.y + (way.y - bomb.y) * share, z: bomb.z + dz * share }, way };
+  }
+
+  /** A person's command to their team (SndCalls.teamCommand). */
+  private onCommand(team: string, command: TeamCommand): void {
+    const r = `r${this.round}`;
+    if (team === this.attackers) {
+      if (command.kind === "go") {
+        this.waitCalled = false;
+        if (this.attackPlan) this.attackPlan.go = true;
+        this.attackSent = true;
+      } else if (command.kind === "wait" && !this.attackSent) {
+        this.waitCalled = true;
+        this.acks.push({ team, id: `${r}:wait`, text: "Holding, waiting for your call" });
+      }
+      return;
+    }
+    if ((command.kind === "go" || command.kind === "retake") && this.bomb.isArmed) this.retakeGo = true;
+    if (command.kind === "stack") {
+      const site = this.sites.find((s) => s.label.toUpperCase() === command.site);
+      if (site && this.bomb.phase !== "planted" && !this.bomb.isArmed) {
+        this.stackSite = site.id;
+        this.acks.push({ team, id: `${r}:stack:${site.id}`, text: `All on ${site.label}` });
+      }
+    }
+  }
+
+  /**
+   * The team's calls, each made once a round by one of its bots: where the
+   * attack goes and when, the bomb's news, where the defence stands and
+   * rotates, the retake, and who covers whom. People on the team see the
+   * plan; the bots follow the same plan, so the calls are for the people.
+   */
+  private planCalls(
+    attackers: readonly BombPlayerView[],
+    defenders: readonly BombPlayerView[],
+    context: GametypeTickContext,
+  ): void {
+    for (const [speaker, call] of this.callsDue) {
+      if (this.tick - call.tick > CALL_TICKS) this.callsDue.delete(speaker);
+    }
+    const r = `r${this.round}`;
+    const A = context.attackingTeam;
+    const D = context.defendingTeam;
+    const label = (id: number | null) => this.sites.find((s) => s.id === id)?.label ?? "";
+    for (const ack of this.acks.splice(0)) {
+      this.queueCall(ack.team, ack.id, ack.text, null, ack.team === A ? attackers : defenders);
+    }
+    const phase = this.bomb.phase;
+    if (this.lastBombPhase === "carried" && phase === "dropped") this.drops++;
+    this.lastBombPhase = phase;
+    const near = (id: number, at: Vec3Like) => {
+      const p = this.positions.get(id);
+      return p !== undefined && Math.hypot(p.x - at.x, p.z - at.z) <= GUARD_ARRIVED;
+    };
+
+    // ── Attack ──
+    if (this.coaches(A, "calls")) {
+      const target = this.targetSiteId;
+      const carrier = this.bomb.carrierId;
+      if (target !== null && phase !== "planted" && !this.bomb.isArmed) {
+        const withYou = this.calledSite === target;
+        this.queueCall(
+          A,
+          `${r}:plan:${target}`,
+          withYou ? `Going ${label(target)} with you` : `Going ${label(target)}`,
+          carrier,
+          attackers,
+        );
+        if (this.attackSent) this.queueCall(A, `${r}:go`, `Go ${label(target)}, go!`, carrier, attackers);
+      }
+      if (phase === "dropped" && this.drops > 0) {
+        this.queueCall(A, `${r}:dropped:${this.drops}`, "Bomb down, I'm getting it", this.bombWorkerId, attackers);
+      }
+      if (phase === "planted" && !this.bomb.isArmed) {
+        this.queueCall(A, `${r}:arming`, `Arming ${label(this.bomb.siteId)}, cover me`, this.bombWorkerId, attackers);
+      }
+      if (this.bomb.isArmed) {
+        this.queueCall(A, `${r}:armed`, `Bomb armed at ${label(this.bomb.siteId)}, hold the ways in`, null, attackers);
+      }
+      this.attackGuards.forEach((id, i) => {
+        const ground = this.guardGround(true, i);
+        if (ground && near(id, ground.spot)) this.queueCall(A, `${r}:guard:${id}`, "Covering %L", id, attackers, true);
+      });
+    }
+
+    // ── Defence ──
+    if (this.coaches(D, "calls")) {
+      if (phase !== "planted" && !this.bomb.isArmed && this.siteByDefender.size > 0 && this.stackSite === null) {
+        const counts = this.sites
+          .map((site) => ({ site, n: defenders.filter((d) => this.siteByDefender.get(d.entityId) === site.id).length }))
+          .filter((c) => c.n > 0)
+          .map((c) => `${c.n} on ${c.site.label}`);
+        if (counts.length > 0) this.queueCall(D, `${r}:setup`, counts.join(", "), null, defenders);
+      }
+      const spotted = this.spotted;
+      if (spotted && this.tick - spotted.tick <= ROTATE_TICKS && phase !== "planted" && !this.bomb.isArmed) {
+        const rotator = defenders.find(
+          (d) => !this.anchors.has(d.entityId) && this.siteByDefender.get(d.entityId) !== spotted.siteId,
+        );
+        if (rotator)
+          this.queueCall(
+            D,
+            `${r}:rotate:${spotted.siteId}`,
+            `Rotating to ${label(spotted.siteId)}`,
+            rotator.entityId,
+            defenders,
+          );
+      }
+      if (phase === "planted" && !this.bomb.isArmed) {
+        this.queueCall(
+          D,
+          `${r}:placed`,
+          `Bomb at ${label(this.bomb.siteId)}, stop the arming!`,
+          this.defuserId,
+          defenders,
+        );
+      }
+      if (this.bomb.isArmed && !this.retakeGo) {
+        this.queueCall(D, `${r}:regroup`, `Regroup for the retake of ${label(this.bomb.siteId)}`, null, defenders);
+      }
+      if (this.bomb.isArmed && this.retakeGo) {
+        this.queueCall(D, `${r}:retake`, `Retake ${label(this.bomb.siteId)}, go!`, null, defenders);
+        const defuser = this.defuserId;
+        if (defuser !== null) {
+          const left = this.bomb.ticksUntilDetonation(this.tick) ?? 0;
+          const quiet = this.tick - this.attackerSeenNearBomb >= SITE_QUIET_TICKS;
+          if (quiet || this.mustWork(left, this.workTicks(defuser, DEFAULT_BOMB_RULES.defuseTicks))) {
+            this.queueCall(D, `${r}:defusing`, "Defusing, cover me", defuser, defenders, true);
+          }
+        }
+      }
+      this.defendGuards.forEach((id, i) => {
+        const ground = this.guardGround(false, i);
+        if (ground && near(id, ground.spot)) this.queueCall(D, `${r}:guard:${id}`, "Covering %L", id, defenders, true);
+      });
+    }
+  }
+
+  /**
+   * Queue a call, once a round by id. The speaker is `preferred` when that is
+   * a living bot of the team (or the call needs that one: `only`), else the
+   * team's first living bot. A call nobody can make is dropped, not retried.
+   */
+  private queueCall(
+    team: string,
+    id: string,
+    text: string,
+    preferred: number | null,
+    living: readonly BombPlayerView[],
+    only = false,
+  ): void {
+    if (this.callsMade.has(id) || team === "") return;
+    const bots = living.map((m) => m.entityId).filter((entityId) => !this.isPerson(entityId));
+    const speaker =
+      preferred !== null && bots.includes(preferred)
+        ? preferred
+        : only
+          ? null
+          : (bots.sort((a, b) => a - b)[0] ?? null);
+    if (speaker === null || this.callsDue.has(speaker)) return;
+    this.callsMade.add(id);
+    this.callsDue.set(speaker, { id, text, tick: this.tick });
   }
 
   /** Ticks for `entityId` to walk onto the bomb and finish the arm or defuse from where its meter stands. */
@@ -1446,7 +1646,15 @@ export class SearchAndDestroy extends BaseGametype {
    * bot still weighs them against staying alive and against being able to get
    * there, which is the arbitration the goal framework exists to do.
    */
-  override getAgentDirectives(context: AgentDirectiveContext, _state: WorldState): readonly AgentDirective[] {
+  override getAgentDirectives(context: AgentDirectiveContext, state: WorldState): readonly AgentDirective[] {
+    const orders = this.ordersFor(context, state);
+    const me = this.entityIdOf(context.entityId);
+    const call = me === null ? undefined : this.callsDue.get(me);
+    if (!call || orders.length === 0 || this.tick - call.tick > CALL_TICKS) return orders;
+    return [{ ...orders[0], call: { id: call.id, text: call.text } }, ...orders.slice(1)];
+  }
+
+  private ordersFor(context: AgentDirectiveContext, _state: WorldState): readonly AgentDirective[] {
     if (!context.alive || !context.teamId || context.teamId === "spectator") return [];
     // Both of these silently disarm every bot on the server, and neither is
     // visible from the outside: a bot with no orders looks like a bot that
