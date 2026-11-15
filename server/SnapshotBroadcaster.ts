@@ -317,14 +317,25 @@ export class SnapshotBroadcaster {
     filtered.pickupActiveMask = state.pickupActiveMask; // global, not PVS-filtered
     filtered.matchSnapshot = state.matchSnapshot;
 
-    // A dead S&D player may chase teammates. Keep enemies PVS-filtered from the
-    // corpse viewpoint, but always replicate living/dead teammates so cycling
-    // the spectator camera cannot land on an entity missing from the snapshot.
+    // A dead S&D player watches teammates through their eyes. Teammates are
+    // always replicated, so cycling the camera cannot land on an entity missing
+    // from the snapshot; enemies are sent when the corpse or any teammate can
+    // see them, which is what watching that teammate shows. From the corpse
+    // alone, the teammate being watched shot at enemies the snapshot left out.
     const ownPlayer = state.players.get(toClientKey(client.playerId));
     const teammateEntityIds = new Set<string>();
+    const viewerClusters = [viewerCluster];
     if (clientEntity.health?.dead && isSide(ownPlayer?.team)) {
       for (const player of state.players.values()) {
-        if (sameSide(player.team, ownPlayer.team)) teammateEntityIds.add(player.entityId);
+        if (!sameSide(player.team, ownPlayer.team)) continue;
+        teammateEntityIds.add(player.entityId);
+        const at = state.entities.get(player.entityId)?.getComponent("position") as
+          | { x: number; y: number; z: number }
+          | undefined;
+        if (!at || player.entityId === own) continue;
+        const cluster = this.clusterOf.get(player.entityId) ?? this.pvs.getCluster(at);
+        this.clusterOf.set(player.entityId, cluster);
+        if (!viewerClusters.includes(cluster)) viewerClusters.push(cluster);
       }
     }
 
@@ -360,7 +371,8 @@ export class SnapshotBroadcaster {
         targetCluster = this.pvs.getCluster(posComp);
         this.clusterOf.set(id, targetCluster);
       }
-      if (this.pvs.isClusterVisibleFrom(viewerCluster, targetCluster)) {
+      const cluster = targetCluster;
+      if (viewerClusters.some((viewer) => this.pvs?.isClusterVisibleFrom(viewer, cluster))) {
         filtered.entities.set(id, entity);
       }
     }
