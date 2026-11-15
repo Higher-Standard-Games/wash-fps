@@ -3,8 +3,8 @@ import type { BspFile } from "../../../../engine/loader/bsp/BspLoader";
 import { SweepBackendAdapter } from "../../../../engine/physics/SweepBackendAdapter";
 import { SweepCollisionBackend } from "../../../../engine/physics/SweepCollisionBackend";
 import type { AABB, TraceResult } from "../../../../shared/collision/CollisionWorld";
-import { SharedCollisionWorld } from "../../../../shared/collision/SharedCollisionWorld";
 import { NullCollisionWorld } from "../../../../shared/collision/CollisionWorld";
+import { SharedCollisionWorld } from "../../../../shared/collision/SharedCollisionWorld";
 import type { Vec3 } from "../BotGameState";
 import { BotVisionTracer } from "../BotVisionTracer";
 
