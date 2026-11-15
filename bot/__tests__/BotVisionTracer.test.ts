@@ -169,6 +169,23 @@ describe("BotVisionTracer", () => {
     expect(result!.yaw).toBeLessThan(0.55);
   });
 
+  it("keeps out of a jump pad on its way unless the move means to use it", () => {
+    const pad = {
+      id: 0,
+      type: "push" as const,
+      min: { x: -60, y: -16, z: 80 },
+      max: { x: 60, y: 0, z: 180 },
+      dest: { x: 0, y: 300, z: 600 },
+    };
+    const tracer = new BotVisionTracer(new BoxWorld([floor]), [pad]);
+    const ask = (throughTriggers: boolean) =>
+      tracer.steer({ tick: 0, position: at(0, 0), velocity: running(0), grounded: true, yaw: 0, throughTriggers });
+    const avoided = ask(false);
+    expect(avoided?.turned).toBe(true);
+    expect(Math.abs(avoided!.yaw)).toBeGreaterThan(0.3);
+    expect(ask(true)).toMatchObject({ yaw: 0, turned: false });
+  });
+
   it("runs on along a wall it is touching, rather than seeing every way blocked", () => {
     // A wall 4 units off the hull on the left: inside the sweep's margin
     const wall: Box = { min: { x: -60, y: 0, z: -500 }, max: { x: -20, y: 200, z: 500 } };

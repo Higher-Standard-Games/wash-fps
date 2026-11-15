@@ -115,6 +115,8 @@ const CHARGE_CARRY_TICKS = Math.round(2 * TICK_RATE);
 const HOLD_SWEEP = 0.3;
 /** A move to a point this much lower than the bot means to drop off an edge, units. */
 const STEER_DROP_HEIGHT = 40;
+/** Rising faster than any jump, units/s: a jump pad has thrown the bot. */
+const PAD_LAUNCH_SPEED = 450;
 /** A target this much higher than the bot, behind something in the way, is worth a climb. */
 const CLIMB_RISE = 30;
 /** Climbs are looked for toward targets at most this far off, units. */
@@ -400,6 +402,8 @@ export class StateMachineBrain extends BotBrain {
   private _routeLine: { path: NavPath; fromStep: number; line: RouteLine; stretch: number } | null = null;
   /** This decision ran along a route line; the feelers stand aside. */
   private _onRouteLine = false;
+  /** Riding a jump pad's throw the route did not ask for, to where it throws, until down again. */
+  private _padRide: { dest: Vec3 } | null = null;
   /** This decision's move is an exact line (a sequence, a trick's approach): not steered. */
   private _exactMove = false;
   /** Keeps the feet clear of walls in every state (BotVisionTracer), made per collision world. */
@@ -3386,7 +3390,10 @@ export class StateMachineBrain extends BotBrain {
     const keys = input.direction;
     if (Math.hypot(keys.x, keys.z) < 0.01) return input;
     if (!this._tracer || this._tracerWorld !== vision.collisionWorld) {
-      this._tracer = new BotVisionTracer(vision.collisionWorld);
+      this._tracer = new BotVisionTracer(
+        vision.collisionWorld,
+        (vision.mapKnowledge?.triggerVolumes ?? []).filter((t) => t.type === "push" || t.type === "teleport"),
+      );
       this._tracerWorld = vision.collisionWorld;
     }
     const keyTurn = Math.atan2(keys.x, keys.z);
@@ -3400,6 +3407,7 @@ export class StateMachineBrain extends BotBrain {
       grounded: self.isGrounded,
       yaw: moveYaw + keyTurn,
       onLine: this._onRouteLine,
+      throughTriggers: this._routeUsesTrigger(),
       ...(target
         ? {
             targetDistance: Math.hypot(target.x - self.position.x, target.z - self.position.z),
@@ -3407,7 +3415,31 @@ export class StateMachineBrain extends BotBrain {
           }
         : {}),
     });
-    if (!result) return self.isGrounded ? input : this._steerAir(input, state, vision);
+    if (!result) {
+      if (self.isGrounded) {
+        this._padRide = null;
+        return input;
+      }
+      // Thrown by a pad with no sequence flying it (one the route did not mean to
+      // use, or one whose traversal gave up): fly on to where it throws, until
+      // down again. Its throw ends at the ledge it serves, and a bot that steers
+      // back toward its own way falls onto the pad and is thrown again.
+      if (!this._padRide && self.velocity.y > PAD_LAUNCH_SPEED && !this._sequenceRuntime.isActive) {
+        const pad = this._padUnder(self.position, vision);
+        if (pad) this._padRide = { dest: pad.dest };
+      }
+      if (this._padRide) {
+        const dest = this._padRide.dest;
+        const keep = InputButtons.FIRE | InputButtons.ALT_FIRE | InputButtons.CROUCH;
+        return {
+          ...input,
+          direction: { x: 0, y: 0, z: 1 },
+          moveYaw: Math.atan2(dest.x - self.position.x, dest.z - self.position.z),
+          buttons: (input.buttons & keep) | InputButtons.FORWARD,
+        };
+      }
+      return this._steerAir(input, state, vision);
+    }
     this._steerClear = result.clear;
     if (result.turned) this._feelerSteered = true;
     return { ...input, moveYaw: result.yaw - keyTurn };
@@ -3507,6 +3539,35 @@ export class StateMachineBrain extends BotBrain {
       moveYaw: wish - side * (Math.PI / 2),
       buttons: (input.buttons & keep) | (side < 0 ? InputButtons.LEFT : InputButtons.RIGHT),
     };
+  }
+
+  /** The jump pad at or just below `position` (the bot leaves it within a tick of the throw), or null. */
+  private _padUnder(position: Vec3, vision: BotVision): { dest: Vec3 } | null {
+    const pads = (vision.mapKnowledge?.triggerVolumes ?? []).filter((t) => t.type === "push");
+    for (const pad of pads) {
+      const inside =
+        position.x >= pad.min.x - 32 &&
+        position.x <= pad.max.x + 32 &&
+        position.z >= pad.min.z - 32 &&
+        position.z <= pad.max.z + 32 &&
+        position.y >= pad.min.y - 32 &&
+        position.y <= pad.max.y + 96;
+      if (inside) return { dest: pad.dest };
+    }
+    return null;
+  }
+
+  /** Whether the route's current step goes to or through a jump pad or teleporter. */
+  private _routeUsesTrigger(): boolean {
+    const path = this._currentPath;
+    const step = path?.steps[path.cursor];
+    if (!step) return false;
+    return (
+      step.type === "jumppad" ||
+      step.type === "teleporter" ||
+      step.to.type === "jumppad" ||
+      step.to.type === "teleporter"
+    );
   }
 
   private _applyFeelers(input: BotInput, state: BotGameState, vision: BotVision): BotInput {

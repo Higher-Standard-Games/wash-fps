@@ -17,6 +17,10 @@
  *    that side still works, so the bot rounds a corner instead of scraping it
  *    and does not swing left and right at a wall.
  *
+ * Jump pads and teleporters are walls to the sweep too, unless the move means
+ * to use one (`throughTriggers`): a bot that crosses a pad by accident is
+ * thrown off its way, and one that keeps crossing it bounces in place.
+ *
  * A surface the sweep meets that faces up (a ramp, a stair) is floor, not a
  * wall. A heading that runs out over a ledge counts as blocked, unless the
  * decision means to drop (`dropping`).
@@ -38,6 +42,7 @@
 
 import { InputButtons } from "../../../engine/network/components/InputComponent";
 import type { MovementInput } from "../../../engine/network/systems/movement/MovementProfile";
+import type { TriggerVolume } from "../../../shared/bsp/TriggerTable";
 import type { AABB, CollisionWorld } from "../../../shared/collision/CollisionWorld";
 import { MovementProfile } from "../simulation/MovementProfile";
 import type { Vec3 } from "./BotGameState";
@@ -186,6 +191,8 @@ export interface SteerRequest {
   targetDistance?: number;
   /** The move means to go down off an edge: a ledge ahead is the way, not a hazard. */
   dropping?: boolean;
+  /** The move means to use a jump pad or teleporter: they are not in the way. */
+  throughTriggers?: boolean;
   /**
    * Following a route line, which was built clear of the walls: a smaller
    * lean, and only what the hull itself would hit turns the bot. Leaning it
@@ -213,7 +220,11 @@ interface Probe {
 export class BotVisionTracer {
   private side: { sign: number; untilTick: number } | null = null;
 
-  constructor(private readonly world: CollisionWorld) {}
+  constructor(
+    private readonly world: CollisionWorld,
+    /** Jump pads and teleporters, which the sweep keeps out of unless told otherwise. */
+    private readonly triggers: readonly TriggerVolume[] = [],
+  ) {}
 
   /** The heading to move on for `request`, or null to leave it alone (in the air, or standing). */
   steer(request: SteerRequest): SteerResult | null {
@@ -223,6 +234,7 @@ export class BotVisionTracer {
     if (request.targetDistance !== undefined) reach = Math.max(32, Math.min(reach, request.targetDistance + HULL_HALF));
 
     const bounds = request.onLine ? HULL_BOUNDS : SWEEP_BOUNDS;
+    this.avoidTriggers = request.throughTriggers !== true;
     const wanted = this.probe(request.position, request.yaw, reach, bounds);
     const mindFloor = request.dropping !== true;
     if (wanted.clear >= 1 && (wanted.floor || !mindFloor)) {
@@ -385,10 +397,44 @@ export class BotVisionTracer {
     if (sweep.fraction <= 0 && bounds !== HULL_BOUNDS) sweep = this.world.trace(from, end, HULL_BOUNDS);
     // Running up a ramp meets it like a wall; a surface facing up is floor
     const blocked = sweep.fraction < 1 && !(sweep.normal && sweep.normal.y >= FLOOR_NORMAL_Y);
-    const clear = blocked ? sweep.fraction : 1;
+    const clear = Math.min(blocked ? sweep.fraction : 1, this.avoidTriggers ? this.triggerFraction(from, end) : 1);
     const at = clear >= 1 ? end : { x: from.x + dx * reach * clear, y: from.y, z: from.z + dz * reach * clear };
     const down = this.world.trace(at, { x: at.x, y: at.y - FLOOR_DEPTH, z: at.z });
     return { clear, floor: down.fraction < 1 };
+  }
+
+  /** Whether the current request keeps out of jump pads and teleporters. */
+  private avoidTriggers = true;
+
+  /**
+   * How far along the run from `from` to `end` the hull first enters a jump
+   * pad or teleporter, 0..1 (1: none). A trigger the bot already stands in
+   * does not count: the way out of it is the way it is going.
+   */
+  private triggerFraction(from: Vec3, end: Vec3): number {
+    let first = 1;
+    for (const t of this.triggers) {
+      // The hull reaches HULL_HALF round the origin, from 24 below it (the feet) to 40 above
+      if (from.y + 40 < t.min.y || from.y - 24 > t.max.y) continue;
+      const min = { x: t.min.x - HULL_HALF, z: t.min.z - HULL_HALF };
+      const max = { x: t.max.x + HULL_HALF, z: t.max.z + HULL_HALF };
+      if (from.x >= min.x && from.x <= max.x && from.z >= min.z && from.z <= max.z) continue;
+      let enter = 0;
+      let exit = 1;
+      for (const axis of ["x", "z"] as const) {
+        const d = end[axis] - from[axis];
+        if (Math.abs(d) < 1e-9) {
+          if (from[axis] < min[axis] || from[axis] > max[axis]) enter = 2;
+          continue;
+        }
+        const a = (min[axis] - from[axis]) / d;
+        const b = (max[axis] - from[axis]) / d;
+        enter = Math.max(enter, Math.min(a, b));
+        exit = Math.min(exit, Math.max(a, b));
+      }
+      if (enter <= exit && enter < first) first = enter;
+    }
+    return first;
   }
 
   /**
