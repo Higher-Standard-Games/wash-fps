@@ -34,7 +34,7 @@ const REGROUP_TRIGGER_DISTANCE = 1200;
 const REGROUP_ARRIVAL_RADIUS = 400;
 
 export class TeamDeathmatch extends BaseGametype {
-  readonly name = "Team Deathmatch";
+  readonly name: string = "Team Deathmatch";
   readonly maxPlayers = 16;
   readonly teamBased = true;
   override readonly mapMode: MapMode = { names: ["tdm"], kind: "team" };

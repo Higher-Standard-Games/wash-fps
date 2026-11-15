@@ -68,4 +68,9 @@ describe("decayOverheal", () => {
     expect(decayOverheal(200, 5)).toBe(195);
     expect(decayOverheal(102, 5)).toBe(100); // clamps to 100
   });
+
+  it("keeps a bigger body's own full health", () => {
+    expect(decayOverheal(150, 1, 150)).toBe(150);
+    expect(decayOverheal(190, 1, 150)).toBe(189);
+  });
 });

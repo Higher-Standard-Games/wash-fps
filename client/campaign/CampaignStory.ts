@@ -25,12 +25,20 @@ export interface CampaignCard {
   thumbFocus: string;
 }
 
+export interface CampaignBriefing {
+  goal: string;
+  points: string[];
+}
+
 export interface CampaignStory {
   title: string;
   /** One line under the title on the mission card. */
   hook: string;
   rival: string;
-  card: CampaignCard;
+  /** What to do, shown over the opening countdown: a goal and the rules that decide it. */
+  briefing: CampaignBriefing;
+  /** The comic card; absent until a mission's art is drawn, when it starts without one. */
+  card?: CampaignCard;
 }
 
 const CARD_W = 1536;
@@ -52,6 +60,14 @@ const STORIES: Record<string, CampaignStory> = {
     title: "Cartel Contract",
     hook: "Survive three rounds against the Cartel King.",
     rival: "Cartel King",
+    briefing: {
+      goal: "Beat the Cartel King!",
+      points: [
+        "Play best of three against the Cartel King.",
+        "Most frags takes a three-minute round.",
+        "Win two rounds to clear it.",
+      ],
+    },
     card: card(
       1,
       [
@@ -65,6 +81,10 @@ const STORIES: Record<string, CampaignStory> = {
     title: "Street Riot",
     hook: "Dropped straight into a Sector 1 street riot.",
     rival: "Street Rioters",
+    briefing: {
+      goal: "Take part in the street riot!",
+      points: ["You must finish as top scorer!", "The match lasts 10 minutes.", "Free for all!"],
+    },
     card: card(
       2,
       [
@@ -78,6 +98,15 @@ const STORIES: Record<string, CampaignStory> = {
     title: "Concrete Strike",
     hook: "Plant the EMP before Monday's billing cycle.",
     rival: "Metropol Riot Cops",
+    briefing: {
+      goal: "Plant the EMP before Monday's billing cycle!",
+      points: [
+        "Win 10 rounds against the Riot Police.",
+        "You have 4 teammates.",
+        "Plant the EMP on site A or B.",
+        "(Or kill everyone in the other team!)",
+      ],
+    },
     card: card(
       3,
       [
@@ -92,6 +121,10 @@ const STORIES: Record<string, CampaignStory> = {
     title: "Turf Duel",
     hook: "The Glitch Punks' boss wants your head.",
     rival: "Glitch Punk Leader",
+    briefing: {
+      goal: "Take down the Glitch Punk Leader!",
+      points: ["One on one, for 10 minutes.", "Finish with more frags than her.", "A tie goes to overtime."],
+    },
     card: card(
       4,
       [
@@ -101,9 +134,86 @@ const STORIES: Record<string, CampaignStory> = {
       "75% 40%",
     ),
   },
+  "bot-trap": {
+    title: "Bot Trap",
+    hook: "Caught in the bot trap. Last five minutes.",
+    rival: "Rival Cartel Bot Guards",
+    briefing: {
+      goal: "Survive the bot trap!",
+      points: [
+        "Last 5 minutes. One death ends the mission.",
+        "You start with the blade and a machine gun: grab more from the map.",
+        "More robots every minute, and tougher.",
+        "You heal slowly while you live.",
+      ],
+    },
+    card: card(
+      5,
+      [
+        { x: 8, y: 8, w: 697, h: 469 },
+        { x: 8, y: 487, w: 697, h: 369 },
+        { x: 719, y: 8, w: 809, h: 848 },
+      ],
+      "74% 45%",
+    ),
+  },
+  "siege-breaker": {
+    title: "Siege Breaker",
+    hook: "The final robot boss.",
+    rival: "Heavy Siege Bot",
+    briefing: {
+      goal: "Break the Heavy Siege Bot!",
+      points: [
+        "Play best of three against a giant robot.",
+        "It has 200 health, 200 armor and a new kit every life.",
+        "Mind the slime!",
+      ],
+    },
+    card: card(
+      6,
+      [
+        { x: 8, y: 8, w: 751, h: 848 },
+        { x: 778, y: 8, w: 749, h: 848 },
+      ],
+      "72% 35%",
+    ),
+  },
+  "depot-heist": {
+    title: "Depot Heist",
+    hook: "A high-profile cash heist at the Depot.",
+    rival: "Pink-Visor Spec-Ops and Unit 07",
+    briefing: {
+      goal: "Pull off the Depot cash heist!",
+      points: [
+        "Win 10 rounds against the spec-ops.",
+        "You have 4 teammates.",
+        "Plant the EMP on site A or B.",
+        "(Or kill everyone in the other team!)",
+      ],
+    },
+  },
+  "road-ends": {
+    title: "Road's End",
+    hook: "Your road ends here.",
+    rival: "Metropol Police Duo",
+    briefing: {
+      goal: "Your road ends here. Or theirs.",
+      points: [
+        "You alone against the Metropol Police duo.",
+        "First to 15 frags wins.",
+        "Or lead when the 10 minutes are up.",
+      ],
+    },
+  },
 };
 
 /** The story for a mission id, or null for one this client has no art for. */
 export function campaignStory(missionId: string): CampaignStory | null {
   return STORIES[missionId] ?? null;
+}
+
+/** A mission's operation number, its place in the campaign from 1; null for an unknown mission. */
+export function campaignOperationNumber(missionId: string): number | null {
+  const index = Object.keys(STORIES).indexOf(missionId);
+  return index < 0 ? null : index + 1;
 }

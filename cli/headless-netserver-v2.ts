@@ -20,6 +20,7 @@ import { ADMIT_ACK_PREFIX, ADMIT_COMMAND, type AdmissionManifest } from "../../.
 import { signMatchResult } from "../../../engine/server/network/MatchResultReport";
 import { persistFinalResult } from "../../../lobby/ResultOutbox";
 import { describeServerRuntime } from "../../../lobby/ServerRuntime";
+import type { CampaignMatchRules } from "../../../lobby/types";
 import { DEFAULT_PHYSICS_TICK_RATE } from "../../../shared/server/simulation/physics/constants";
 import { GameServer, type GameServerConfig } from "../server/GameServer";
 import { Amphi } from "../server/gametypes/Amphi";
@@ -27,6 +28,7 @@ import type { BaseGametype } from "../server/gametypes/BaseGametype";
 import { Deathmatch } from "../server/gametypes/Deathmatch";
 import { Duel } from "../server/gametypes/Duel";
 import { SearchAndDestroy } from "../server/gametypes/SearchAndDestroy";
+import { Survival } from "../server/gametypes/Survival";
 import { TeamDeathmatch } from "../server/gametypes/TeamDeathmatch";
 import { loadBspCollision } from "./HeadlessMapLoader";
 
@@ -53,7 +55,7 @@ function parseArgs(): GameServerConfig & { gamePath: string; gametype: string } 
     singleMatch: false,
     privateMatch: false,
     campaign: undefined as string | undefined,
-    campaignSide: undefined as "attack" | undefined,
+    campaignRules: undefined as CampaignMatchRules | undefined,
     trainingDemo: undefined as string | undefined,
   };
 
@@ -110,12 +112,9 @@ function parseArgs(): GameServerConfig & { gamePath: string; gametype: string } 
       case "--campaign":
         config.campaign = args[++i];
         break;
-      case "--campaign-side": {
-        const side = args[++i];
-        if (side !== "attack") throw new Error(`--campaign-side: unknown side "${side}"`);
-        config.campaignSide = side;
+      case "--campaign-rules":
+        config.campaignRules = parseCampaignRules(args[++i]);
         break;
-      }
       case "--training-demo":
         config.trainingDemo = args[++i];
         break;
@@ -185,7 +184,7 @@ Options:
   --gametype <name>      Gametype (Deathmatch, TeamDeathmatch, Duel, Amphi, SnD)
   --private-match        Mark recorded demos as private (set by the lobby)
   --campaign <mission>   Campaign match: ticket holders only, no ready-up, held countdown (set by the lobby)
-  --campaign-side attack Campaign S&D: the players attack every round, first to 10 rounds wins
+  --campaign-rules <json> Campaign rules beyond map and gametype: attack, limits, survival, scales (set by the lobby)
   --name <name>          Server name
   --max <n>              Max clients (default: 16)
   --snapshotrate <n>     Snapshot rate in Hz (default: 60)
@@ -219,6 +218,18 @@ Environment:
 // ============================================================================
 // Main
 // ============================================================================
+
+/** The lobby's `--campaign-rules` JSON; a malformed value stops the server rather than playing the wrong match. */
+function parseCampaignRules(raw: string | undefined): CampaignMatchRules {
+  let rules: unknown;
+  try {
+    rules = JSON.parse(raw ?? "");
+  } catch {
+    throw new Error("--campaign-rules: not JSON");
+  }
+  if (!rules || typeof rules !== "object" || Array.isArray(rules)) throw new Error("--campaign-rules: not an object");
+  return rules as CampaignMatchRules;
+}
 
 async function main(): Promise<void> {
   const config = parseArgs();
@@ -277,6 +288,9 @@ async function main(): Promise<void> {
     case "tdm":
     case "teamdeathmatch":
       gametypeInstance = new TeamDeathmatch();
+      break;
+    case "survival":
+      gametypeInstance = new Survival(config.campaignRules?.survival);
       break;
     case "duel":
     case "1v1":

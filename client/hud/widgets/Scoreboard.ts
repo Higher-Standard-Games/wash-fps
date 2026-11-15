@@ -68,6 +68,7 @@ export class FPSScoreboard {
   private postGameRoster: Map<string, BoardEntry> | null = null;
   private board: HTMLElement;
   private returnBtn: HTMLButtonElement;
+  private retryBtn: HTMLButtonElement;
   private statsEl: HTMLElement;
   private nameEl: HTMLElement;
   /** Winner's playerId ("player_<id>") while the post-game board is up. */
@@ -96,6 +97,11 @@ export class FPSScoreboard {
     this.returnBtn.classList.add("fps-scoreboard-return");
     this.returnBtn.style.display = "none";
     this.overlay.appendChild(this.returnBtn);
+    // Play a lost campaign mission again, above the way back
+    this.retryBtn = createRaisedKey({ label: "Retry", variants: ["cta"] });
+    this.retryBtn.classList.add("fps-scoreboard-retry");
+    this.retryBtn.style.display = "none";
+    this.overlay.appendChild(this.retryBtn);
 
     // Stage caption over the 3D showcase model: the winner's giant nameplate
     // and their stat chips, stacked so a long name pushes the chips down
@@ -125,6 +131,12 @@ export class FPSScoreboard {
   public setReturnAction(onReturn: (() => void) | null): void {
     this.returnBtn.onclick = onReturn;
     this.returnBtn.style.display = onReturn ? "" : "none";
+  }
+
+  /** Show the RETRY button with the given action (a lost campaign mission), or hide it (null). */
+  public setRetryAction(onRetry: (() => void) | null): void {
+    this.retryBtn.onclick = onRetry;
+    this.retryBtn.style.display = onRetry ? "" : "none";
   }
 
   public setTitle(title: string): void {
@@ -195,6 +207,7 @@ export class FPSScoreboard {
       this.setTitle("SCOREBOARD");
       this.setLocked(false);
       this.setReturnAction(null);
+      this.setRetryAction(null);
       this.hide();
     }
   }

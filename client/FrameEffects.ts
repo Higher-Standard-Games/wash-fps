@@ -16,6 +16,7 @@ import { devLog } from "./DevLog";
 import { FPSReloadAudio } from "./FPSReloadAudio";
 import { FPSVoltaicAudio } from "./FPSVoltaicAudio";
 import type { GibColor, GibSystem, PendingGibSpawn } from "./GibSystem";
+import { HitSpatter } from "./HitSpatter";
 import type { RagdollSystem } from "./RagdollSystem";
 import { SlideDust } from "./SlideDust";
 
@@ -49,6 +50,7 @@ export class FrameEffects {
     this.pendingGibSpawns.length = 0;
     this.ragdollSystem?.disposeAll();
     this.gibSystem?.clear();
+    HitSpatter.getInstance().clear();
   }
 
   /** Gib physics; Game runs this before the S&D bomb. */
@@ -121,6 +123,9 @@ export class FrameEffects {
     } else if (this.ragdollSystem) {
       this.ragdollSystem.update(dtSec);
     }
+
+    // Blood and sparks from hits
+    HitSpatter.getInstance().update(dtSec);
 
     // Update floating damage numbers (float upward, fade out)
     if (this.damageNumbers) {

@@ -189,6 +189,8 @@ export class BotClient extends EventEmitter {
     if (options.strategies) brain.limitStrategies(options.strategies as StrategyId[]);
     if (options.weights) brain.scaleWeights(options.weights);
     if (options.fightOff) brain.setFightOff(options.fightOff as FightHabit[]);
+    if (options.bodyScale) brain.setBodyScale(options.bodyScale);
+    if (options.liquidImmune) brain.setLiquidImmune(true);
     if (options.trace) brain.setTracing(true);
     this._brain = brain;
     this._aim = new BotAimController(this._difficulty);
@@ -291,6 +293,16 @@ export class BotClient extends EventEmitter {
   get entityId(): string {
     return this._entityId;
   }
+  /** Slime and lava do not hurt this bot (a campaign boss): it no longer gets out of them. */
+  setLiquidImmune(immune: boolean): void {
+    if (this._brain instanceof StateMachineBrain) this._brain.setLiquidImmune(immune);
+  }
+
+  /** This bot's body is `scale` times a player's (a campaign boss): it aims from its own eye. */
+  setBodyScale(scale: number): void {
+    if (this._brain instanceof StateMachineBrain) this._brain.setBodyScale(scale);
+  }
+
   get brainState(): string {
     return this._brain.getState();
   }

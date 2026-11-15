@@ -169,4 +169,20 @@ describe("highlight soundtrack selection", () => {
       expect(gains[gains.length - 1].setValueAtTime).toHaveBeenCalledWith(withMusic ? 0.21 : 0.6, 0);
     },
   );
+
+  it("loops the chosen song, from its top each time, in place of the game's songs", () => {
+    const segments = matchMusicSchedule(
+      { path: "Boss_Fight.mp3", startSeconds: 30, seconds: 100 },
+      [{ path: "Other.mp3", seconds: 200 }],
+      300,
+      () => 0,
+      true,
+    );
+    expect(segments.map((s) => [s.path, s.at, s.offset])).toEqual([
+      ["Boss_Fight.mp3", 0, 30],
+      ["Boss_Fight.mp3", 70, 0],
+      ["Boss_Fight.mp3", 170, 0],
+      ["Boss_Fight.mp3", 270, 0],
+    ]);
+  });
 });

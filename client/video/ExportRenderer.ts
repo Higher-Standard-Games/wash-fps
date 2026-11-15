@@ -28,6 +28,7 @@ import { DemoViewer } from "../DemoViewer";
 import { DemoViewerHUD } from "../DemoViewerHUD";
 import { reelTitle } from "../ReelCards";
 import { TeleportEffect } from "../TeleportEffect";
+import { type CampaignIntro, loadCampaignIntro } from "./CampaignIntro";
 import { assertAudioAgreement, assertAudioMovieRates } from "./ExportAudioAgreement";
 import { ExportAudioBuffers } from "./ExportAudioBuffers";
 import { ExportAudioCapture } from "./ExportAudioCapture";
@@ -383,8 +384,11 @@ export async function renderDemoMovie(
       if (seconds < 10) throw new Error("A full-match video needs at least ten seconds of recording");
       if (seconds > MATCH_MAX_SECONDS)
         throw new Error(`Full-match videos are limited to ${MATCH_MAX_SECONDS / 60} minutes of recording`);
-      // The match, then its fade to black and end card
-      const total = Math.ceil((seconds + MATCH_END_SECONDS) * MOVIE_FPS);
+      // A campaign demo opens on its comic card; the match follows it
+      const intro: CampaignIntro | null = await loadCampaignIntro(first.header?.campaign, signal);
+      const introFrames = intro ? Math.round(intro.seconds * MOVIE_FPS) : 0;
+      // The comic, the match, then its fade to black and end card
+      const total = introFrames + Math.ceil((seconds + MATCH_END_SECONDS) * MOVIE_FPS);
       const movieSeconds = total / MOVIE_FPS;
       // Each recorded second takes a few to make: the limit follows the match's length
       clearTimeout(deadline);
@@ -424,7 +428,17 @@ export async function renderDemoMovie(
         signal,
         async (frame) => {
           capture!.setTime(frame.index / MOVIE_FPS, viewer.getSpeed());
-          clock.deltaMs = frame.index === 0 ? 0 : 1000 / MOVIE_FPS;
+          // The comic plays first, the demo held at its start; the music runs over it
+          if (intro && frame.index < introFrames) {
+            // The mix hears the movie through one listener sample a frame, from its first
+            sampleListener();
+            intro.draw(composed, frame.index / MOVIE_FPS);
+            await activeWriter.add(frame);
+            progress("Recording the comic card", frame.index + 1, total);
+            return;
+          }
+          const matchFrame = frame.index - introFrames;
+          clock.deltaMs = matchFrame === 0 ? 0 : 1000 / MOVIE_FPS;
           clock.nowMs += clock.deltaMs;
           effectClock.nowMs = clock.nowMs;
           service.updatePlaybackFrame(clock.deltaMs);
@@ -435,7 +449,7 @@ export async function renderDemoMovie(
           await settleWeapon();
           // The HUD's picture decodes while the world draws
           const overlay = activeHud.frame(clock.nowMs, signal);
-          clock.deltaMs = frame.index === 0 ? 0 : 1000 / MOVIE_FPS;
+          clock.deltaMs = matchFrame === 0 ? 0 : 1000 / MOVIE_FPS;
           engine!.beginFrame();
           try {
             await readiness!.render(signal);
@@ -446,6 +460,14 @@ export async function renderDemoMovie(
           }
           const picture = await overlay;
           if (picture) composed.drawImage(picture, 0, 0, canvas.width, canvas.height);
+          // After the comic, the match comes up out of black
+          const black = intro?.gameFade(matchFrame / MOVIE_FPS) ?? 0;
+          if (black > 0) {
+            composed.globalAlpha = black;
+            composed.fillStyle = "#000";
+            composed.fillRect(0, 0, canvas.width, canvas.height);
+            composed.globalAlpha = 1;
+          }
           await activeWriter.add(frame);
           progress("Recording full match", frame.index + 1, total);
           if (frame.index % 4 === 0 || options.stallMs)

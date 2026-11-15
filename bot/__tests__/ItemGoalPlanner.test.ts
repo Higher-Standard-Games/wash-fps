@@ -86,6 +86,13 @@ describe("item goal selection — tier beats proximity", () => {
     expect(result.goal?.pickupId).toBe(redArmor.id);
   });
 
+  it("goes for nothing in Survival, where a robot may pick nothing up", () => {
+    const redArmor = entry("item_armor_ra", "armor", "ra", 700);
+    const state = makeState({ health: 20, armor: 0 });
+    state.matchState = { ...state.matchState, gametypeName: "Survival" };
+    expect(choose(state, [redArmor]).goal ?? null).toBeNull();
+  });
+
   it("prefers Mega Health over a closer medium at full health", () => {
     const medium = entry("item_health_medium", "health", "medium", 250);
     const mega = entry("item_health_mega", "health", "mega", 800);

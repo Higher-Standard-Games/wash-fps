@@ -74,6 +74,7 @@ export function rerollRandomEnemyModel(): void {
 
 let forced: Partial<Record<PlayerModelSide, PlayerModelChoice>> | null = null;
 const forcedByName = new Map<string, PlayerModelChoice>();
+const scaleByName = new Map<string, number>();
 
 /**
  * Draw this game's sides with these models whatever the settings say, as a
@@ -84,10 +85,15 @@ const forcedByName = new Map<string, PlayerModelChoice>();
 export function forcePlayerModels(
   models: Partial<Record<PlayerModelSide, string>> | null,
   byName: Record<string, string> = {},
+  scalesByName: Record<string, number> = {},
 ): void {
   forced = null;
   forcedByName.clear();
+  scaleByName.clear();
   if (!models) return;
+  for (const [name, scale] of Object.entries(scalesByName)) {
+    if (Number.isFinite(scale) && scale > 0) scaleByName.set(name, scale);
+  }
   for (const [name, model] of Object.entries(byName)) {
     if (PLAYER_MODELS.includes(model as PlayerModelChoice)) forcedByName.set(name, model as PlayerModelChoice);
   }
@@ -98,6 +104,11 @@ export function forcePlayerModels(
       forced[side] = model as PlayerModelChoice;
     }
   }
+}
+
+/** How many times a player's size a campaign draws this player (a boss); 1 for everyone else. */
+export function forcedScaleForName(name: string | undefined): number {
+  return name ? (scaleByName.get(name) ?? 1) : 1;
 }
 
 /** The model a campaign gives this player by name, if it gives them one of their own. */

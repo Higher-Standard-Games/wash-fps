@@ -19,11 +19,13 @@ import { enterPlay, inPlay, leavePlay, PLAY_CHANGE } from "../../../engine/input
 import { UIStyles } from "../../../engine/ui/UIStyles";
 import { UITheme } from "../../../engine/ui/UITheme";
 import { getWeaponViewManager } from "../../../engine/weapon/WeaponViewManager";
+import { normalizeTeamId } from "../../../shared/server/gametype";
 import { toClientKey } from "../ClientEntityKey";
 import { devLog } from "./DevLog";
 import { currentClip, HUDState } from "./HUDState";
 import "./HudBlur";
 import "./HudVisibility";
+import { campaignMatch, requestCampaignRetry } from "./campaign/CampaignSession";
 // Import the game's HUD theme as raw CSS (Vite).
 import washikiTheme from "./hud/styles/WashikiTheme.css?raw";
 import { MatchPhase, MatchStateManager } from "./MatchStateManager";
@@ -37,6 +39,7 @@ import { FPSAirMeter } from "./hud/widgets/AirMeter";
 import { FPSAmmoCounter } from "./hud/widgets/AmmoCounter";
 import { FPSAmmoWarning } from "./hud/widgets/AmmoWarning";
 import { FPSBombStatus } from "./hud/widgets/BombStatus";
+import { FPSCampaignBriefing } from "./hud/widgets/CampaignBriefing";
 import { FPSChat } from "./hud/widgets/Chat";
 import { FPSDamageIndicators } from "./hud/widgets/DamageIndicators";
 import { FPSDeathScreen } from "./hud/widgets/DeathScreen";
@@ -184,6 +187,14 @@ export class FPSHud {
             leavePlay();
             this._chat?.openInput();
             this._scoreboard?.setReturnAction(() => returnToLobby());
+            // A campaign mission not won is one click from playing again
+            const mission = campaignMatch()?.missionId;
+            if (mission && !this.localSideWon()) {
+              this._scoreboard?.setRetryAction(() => {
+                requestCampaignRetry(mission);
+                returnToLobby();
+              });
+            }
           }, 6000);
         }
       } else {
@@ -487,6 +498,9 @@ export class FPSHud {
     // top-center put it hard against the frag counter, reading as one control.
     this.addWidget("bomb", new FPSBombStatus(), "top-left");
 
+    // A campaign mission's briefing, over its opening countdown (placed by its own style)
+    this.addWidget("campaignbriefing", new FPSCampaignBriefing(), "top-left");
+
     // Match timer - top center
     this.addWidget("timer", new FPSTimer(), "top-center");
 
@@ -496,8 +510,9 @@ export class FPSHud {
     // Weapon rack - disabled, redundant with bottom-right weapon slots
     // this.addWidget("weapons", new FPSWeaponRack(), "left");
 
-    // Round result banner (S&D) - center screen
-    this.addWidget("roundresult", new FPSRoundResult(), "center");
+    // The intermission between rounds (S&D, Amphi): a full-screen overlay. It
+    // places itself; the centre area is transformed, which would pin it there
+    this.addWidget("roundresult", new FPSRoundResult(), "top-left");
 
     // Frag message - above the crosshair
     this.addWidget("frag", new FPSFragMessage(), "overlay");
@@ -548,6 +563,19 @@ export class FPSHud {
   /**
    * Update all widgets with current HUDState
    */
+  /** Whether the match just ended was won by this player, or by their side. */
+  private localSideWon(): boolean {
+    const winner = MatchStateManager.getInstance().winner;
+    if (!winner || winner.kind === "draw") return false;
+    const state = HUDState.getInstance();
+    if (winner.kind === "team") {
+      const mine = state.scoreboard.find((entry) => entry.playerId === state.localPlayerId)?.teamId;
+      return !!mine && normalizeTeamId(mine) === normalizeTeamId(winner.id);
+    }
+    const winnerId = MatchStateManager.getInstance().resolveWinnerPlayerId();
+    return winnerId !== null && toClientKey(winnerId) === state.localPlayerId;
+  }
+
   private update(): void {
     const state = HUDState.getInstance();
     // A hidden HUD (the post-game screen, a demo's fly-by shots) has nothing

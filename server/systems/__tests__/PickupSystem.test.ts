@@ -124,6 +124,16 @@ describe("PickupSystem - health", () => {
     expect(sys.getActiveMask()[0]).toBe(false);
   });
 
+  it("leaves the item for a player the gametype bars from picking up", () => {
+    sys.setPickupItems([healthEntry("small")]);
+    sys.setPickupFilter(() => false);
+    const player = makePlayer();
+    player.health.health = 50;
+    sys.update(makeState(player) as never, 0.008, 10 as never);
+    expect(player.health.health).toBe(50);
+    expect(sys.getActiveMask()[0]).toBe(true);
+  });
+
   it("medium health grants +25 immediately", () => {
     sys.setPickupItems([healthEntry("medium")]);
     const player = makePlayer();

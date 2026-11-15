@@ -20,7 +20,8 @@ import { createRagdollFrame } from "./ragdoll/RagdollFrame";
  *   4. Create Ragdoll from skeleton + bone config → call .ragdoll() to activate
  *   5. Give every bone the launch velocity, or the sphere's after a throw
  *   6. Once the body comes to rest (or after RAGDOLL_LIFETIME at the latest)
- *      → fade out, gib-explode and dispose (Warsow-style)
+ *      → freeze it where it lies, fade out, gib-explode and dispose
+ *      (Warsow-style)
  */
 
 import type { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial";
@@ -33,6 +34,7 @@ import {
   type IPhysicsCollisionEvent,
   PhysicsConstraintType,
   PhysicsEventType,
+  PhysicsMotionType,
   PhysicsShapeType,
 } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import { PhysicsAggregate } from "@babylonjs/core/Physics/v2/physicsAggregate";
@@ -100,6 +102,16 @@ const LAUNCH_SPEED = 670;
 
 /** Max linear velocity for Havok physics engine — must be raised to allow ragdoll launches */
 const HAVOK_MAX_LINEAR_VELOCITY = 10000;
+/** Max angular velocity (rad/s): a limb may whip round, a body may not spin like a top. */
+const HAVOK_MAX_ANGULAR_VELOCITY = 20;
+/** How quickly every bone's spin dies away, so a body on the ground settles instead of whirling. */
+const RAGDOLL_ANGULAR_DAMPING = 4;
+/**
+ * A thrown body that lands bounces once: this share of the speed it hit the
+ * surface with, straight back off it. The rest is lost, and the bones' damping
+ * and the freeze at rest see to the remainder.
+ */
+const LANDING_BOUNCE = 0.3;
 
 /** Ragdoll gravity multiplier (1.0 = normal, 0.8 = slightly floatier arcs) */
 const RAGDOLL_GRAVITY_FACTOR = 0.8;
@@ -398,6 +410,8 @@ interface ActiveRagdoll {
   restSeconds: number;
   /** Age at which the fade-out began, once the body came to rest or ran out of time. */
   fadeStart: number | null;
+  /** Its bones made static where they lay: a resting body lies still until it bursts. */
+  frozen: boolean;
   /** Speed trail mesh attached to hips bone */
   trail: TrailMesh | null;
   trailMat: StandardMaterial | null;
@@ -596,6 +610,7 @@ export class RagdollSystem {
         restAnchor: null,
         restSeconds: 0,
         fadeStart: null,
+        frozen: false,
         trail: null,
         trailMat: null,
       };
@@ -745,11 +760,13 @@ export class RagdollSystem {
     const thrown = active.throw!;
     active.throw = null;
     const velocity = thrown.aggregate.body.getLinearVelocity();
-    // The ragdoll does not carry on into the surface the body landed on: a
-    // limb box driven into a floor or wall at speed passes through it
+    // The ragdoll does not carry on into the surface the body landed on (a
+    // limb box driven into a floor or wall at speed passes through it): it
+    // bounces off once, a little
     if (thrown.surface && thrown.surface.lengthSquared() > 1e-6) {
       const normal = thrown.surface.normalize();
-      velocity.subtractInPlace(normal.scale(Vector3.Dot(velocity, normal)));
+      const into = Vector3.Dot(velocity, normal);
+      if (into < 0) velocity.subtractInPlace(normal.scale(into * (1 + LANDING_BOUNCE)));
     }
     this.releaseThrow(thrown, !!active.trail);
     if (active.trail) active.trailFollower = thrown.node;
@@ -795,7 +812,7 @@ export class RagdollSystem {
     if (physicsEngine) {
       const currentMax = physicsEngine.getMaxLinearVelocity?.() ?? 0;
       if (currentMax < HAVOK_MAX_LINEAR_VELOCITY) {
-        physicsEngine.setVelocityLimits?.(HAVOK_MAX_LINEAR_VELOCITY, 100);
+        physicsEngine.setVelocityLimits?.(HAVOK_MAX_LINEAR_VELOCITY, HAVOK_MAX_ANGULAR_VELOCITY);
         devLog(`[RagdollSystem] Raised Havok max linear velocity from ${currentMax} to ${HAVOK_MAX_LINEAR_VELOCITY}`);
       }
     }
@@ -816,6 +833,7 @@ export class RagdollSystem {
         if (agg?.body) {
           agg.body.setLinearVelocity(velocity);
           agg.body.setGravityFactor(RAGDOLL_GRAVITY_FACTOR);
+          agg.body.setAngularDamping(RAGDOLL_ANGULAR_DAMPING);
         }
       } catch {
         /* skip */
@@ -889,6 +907,8 @@ export class RagdollSystem {
         if (this.cameToRest(active, dt)) active.fadeStart = age;
         else if (age >= RAGDOLL_LIFETIME - RAGDOLL_FADE) active.fadeStart = RAGDOLL_LIFETIME - RAGDOLL_FADE;
       }
+      // Fading, it lies still: no twitching or spinning on the ground
+      if (active.fadeStart !== null && !active.frozen) this.freeze(active);
 
       if (active.fadeStart !== null) {
         const fade = Math.max(0, 1 - (age - active.fadeStart) / RAGDOLL_FADE);
@@ -908,6 +928,25 @@ export class RagdollSystem {
   // ========================================================================
   // Helpers
   // ========================================================================
+
+  /** Make every bone static where it lies, so the body keeps its last pose without moving. */
+  private freeze(active: ActiveRagdoll): void {
+    active.frozen = true;
+    const ragdoll = active.ragdoll;
+    if (!ragdoll) return;
+    const bones = createBoneConfig().length;
+    for (let b = 0; b < bones; b++) {
+      try {
+        const body = ragdoll.getAggregate(b)?.body;
+        if (!body) continue;
+        body.setLinearVelocity(Vector3.Zero());
+        body.setAngularVelocity(Vector3.Zero());
+        body.setMotionType(PhysicsMotionType.STATIC);
+      } catch {
+        /* skip */
+      }
+    }
+  }
 
   /** Whether the hips have stayed within REST_RADIUS for REST_SECONDS, advancing that check by `dt`. */
   private cameToRest(active: ActiveRagdoll, dt: number): boolean {

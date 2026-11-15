@@ -80,6 +80,7 @@ import {
   playPowerupSpawnSound,
 } from "../client/FPSPowerupAudio";
 import type { HitLocationName } from "../client/HitLocationName";
+import { HitSpatter, type HitZone } from "../client/HitSpatter";
 import { HUDState } from "../client/HUDState";
 import {
   clearLocalPowerups,
@@ -147,6 +148,8 @@ export interface GameEventContext {
   audioTickRate?: number;
   /** Hit numbers on a clock of their own (a demo's); the shared ones otherwise. */
   damageNumbers?: { spawn(x: number, y: number, z: number, damage: number, hitLocation?: HitLocationName): void };
+  /** Demo playback's own blood and sparks; live play uses the shared instance. */
+  hitSpatter?: HitSpatter;
 
   // V2 Client (prediction/reconciliation)
   v2Client: V2NetworkClient | null;
@@ -195,6 +198,11 @@ export interface GameEventContext {
 
   // Lazy effect systems
   _gibSystem: GibSystem | null;
+  /**
+   * A player's body flying after a death: their ragdoll, or their gibs'
+   * centre. A demo's watched-death camera chases it, as your own death's does.
+   */
+  onCorpse?: (entityId: string, body: { getPosition(): Vector3 | null }) => void;
   _pendingGibSpawns: PendingGibSpawn[];
   _ragdollSystem: RagdollSystem | null;
   _cartoonHit: CartoonHitEffect | null;
@@ -546,6 +554,8 @@ export function handleServerStateUpdate(ctx: GameEventContext, state: GameState)
           case "damage": {
             HUDState.getInstance().processDamage(event);
             playPlayerPainSound(event, event.entityId === viewEntityId, undefined, voiceOf(event.entityId));
+            // Blood or sparks where it landed, on anyone but the body the view is in
+            if (event.entityId !== viewEntityId) spatterHit(ctx, state, event);
 
             // === INCOMING DAMAGE: the player on screen is the victim ===
             if (event.entityId === viewEntityId && event.damage > 0) {
@@ -964,6 +974,7 @@ function handleDeathEvent(ctx: GameEventContext, event: DeathEvent, state: GameS
           event.velZ || 0,
           color,
         );
+        if (gibHandle && event.entityId) ctx.onCorpse?.(event.entityId, gibHandle);
       } else {
         ctx._pendingGibSpawns.push({
           x: event.x,
@@ -996,7 +1007,8 @@ function handleDeathEvent(ctx: GameEventContext, event: DeathEvent, state: GameS
     }
 
     if (model && ctx._ragdollSystem) {
-      ctx._ragdollSystem.spawn(model, event.kbDirX || 0, event.kbDirY || 0, event.kbDirZ || 0, event);
+      const corpse = ctx._ragdollSystem.spawn(model, event.kbDirX || 0, event.kbDirY || 0, event.kbDirZ || 0, event);
+      if (corpse && event.entityId) ctx.onCorpse?.(event.entityId, corpse);
     } else if (model) {
       console.warn("[Death] RagdollSystem not ready, falling back to gibs");
       disposePlayerModel(model);
@@ -1517,6 +1529,28 @@ export function handleChatEvent(event: ChatSnapshotEvent): void {
   } catch (e) {
     console.error("[Chat] event error:", e);
   }
+}
+
+/** Damage that knocks nothing out of a body: a fall, slime, lava, a crushing lift. */
+const BLOODLESS_DAMAGE = new Set(["fall", "fall_crush", "world"]);
+
+/** Spray blood (sparks off a robot) from where a hit landed, away from whoever made it. */
+function spatterHit(ctx: GameEventContext, state: GameState, event: LocatedDamageEvent): void {
+  if (event.x === undefined || event.damage <= 0 || BLOODLESS_DAMAGE.has(String(event.weaponId))) return;
+  const spatter = ctx.hitSpatter ?? HitSpatter.getInstance();
+  if (!spatter.isInitialized()) {
+    const gameScene = CameraSystem.getInstance().getCamera()?.getScene();
+    if (!gameScene) return;
+    spatter.init(gameScene);
+  }
+  const shooter =
+    event.attackerId && event.attackerId !== event.entityId
+      ? (state.entities.get(event.attackerId)?.getComponent("position") as { x: number; z: number } | undefined)
+      : undefined;
+  const away = shooter ? { x: event.x - shooter.x, z: event.z - shooter.z } : null;
+  const body = ctx.remoteRenderer?.hitBodyOf(event.entityId) ?? { robot: false, scale: 1 };
+  const zone: HitZone = event.hitLocation === "head" || event.hitLocation === "legs" ? event.hitLocation : "body";
+  spatter.spawn(event, zone, event.damage, away, body.robot, body.scale);
 }
 
 /**

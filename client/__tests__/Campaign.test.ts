@@ -3,15 +3,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Cvar } from "../../../../engine/core/Cvar";
 import type { CampaignMissionInfo } from "../../../../lobby/types";
 import { ART_FADE_MS, CampaignCutscene, PANEL_MS, panelClip, panelView } from "../campaign/CampaignCutscene";
+import { missionPlaylist } from "../campaign/CampaignMusic";
 import {
   cacheCampaign,
   cachedCampaign,
   campaignMatch,
   rememberCampaignMatch,
+  requestCampaignRetry,
+  takeCampaignRetry,
   takeCampaignReturn,
 } from "../campaign/CampaignSession";
 import { campaignStory } from "../campaign/CampaignStory";
 import { CampaignView, missionStatus } from "../campaign/CampaignView";
+import { FPSCampaignBriefing } from "../hud/widgets/CampaignBriefing";
+import { MatchPhase, MatchStateManager } from "../MatchStateManager";
 import {
   forcedModelForName,
   forcePlayerModels,
@@ -57,9 +62,75 @@ describe("campaign card", () => {
     );
   });
 
+  it("plays its own song only in the cartel and boss missions", () => {
+    expect(missionPlaylist("cartel-contract")).toBe("data/campaign_cartel.playlist.json");
+    expect(missionPlaylist("siege-breaker")).toBe("data/campaign_boss.playlist.json");
+    expect(missionPlaylist("road-ends")).toBe("data/campaign_boss.playlist.json");
+    for (const id of ["street-riot", "concrete-sabotage", "glitch-duel", "bot-trap", "depot-heist"]) {
+      expect(missionPlaylist(id)).toBeNull();
+    }
+  });
+
+  it("briefs every mission: a goal and what decides it", () => {
+    for (const id of [
+      "cartel-contract",
+      "street-riot",
+      "concrete-sabotage",
+      "glitch-duel",
+      "bot-trap",
+      "siege-breaker",
+      "depot-heist",
+      "road-ends",
+    ]) {
+      const briefing = campaignStory(id)!.briefing;
+      expect(briefing.goal.length).toBeGreaterThan(0);
+      expect(briefing.points.length).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("shows the briefing over a campaign match's opening countdown, and only then", () => {
+    const widget = new FPSCampaignBriefing();
+    const match = MatchStateManager.getInstance();
+    const phase = (value: MatchPhase) =>
+      match.processEvent({
+        type: "match_state",
+        phase: value,
+        timeRemaining: 10,
+        readyCount: 0,
+        totalPlayers: 5,
+        gametypeName: "Free For All",
+        scoreLimit: 0,
+        teamBased: false,
+      } as never);
+    const shown = () => widget.getElement().classList.contains("fps-campaign-briefing--shown");
+
+    match.reset();
+    phase(MatchPhase.Countdown);
+    widget.update({} as never);
+    // Not a campaign match: nothing to brief
+    expect(shown()).toBe(false);
+
+    rememberCampaignMatch({ missionId: "street-riot", models: { ally: "robot", enemy: "cartel" } });
+    widget.update({} as never);
+    expect(shown()).toBe(true);
+    expect(widget.getElement().textContent).toContain("You must finish as top scorer!");
+
+    phase(MatchPhase.Active);
+    widget.update({} as never);
+    expect(shown()).toBe(false);
+    widget.destroy();
+  });
+
   it("has a card with framed panels inside the image for every written mission", () => {
-    for (const id of ["cartel-contract", "street-riot", "concrete-sabotage", "glitch-duel"]) {
-      const card = campaignStory(id)!.card;
+    for (const id of [
+      "cartel-contract",
+      "street-riot",
+      "concrete-sabotage",
+      "glitch-duel",
+      "bot-trap",
+      "siege-breaker",
+    ]) {
+      const card = campaignStory(id)!.card!;
       expect(card.panels.length).toBeGreaterThanOrEqual(2);
       for (const panel of card.panels) {
         expect(panel.x + panel.w).toBeLessThanOrEqual(card.width);
@@ -82,7 +153,7 @@ describe("cutscene", () => {
 
   it("moves through the panels on a timer or a key, then hands over", async () => {
     const done = vi.fn();
-    const card = campaignStory("cartel-contract")!.card;
+    const card = campaignStory("cartel-contract")!.card!;
     const cutscene = new CampaignCutscene({
       card,
       label: "Operation 01",
@@ -116,7 +187,7 @@ describe("cutscene", () => {
     const done = vi.fn();
     const back = vi.fn();
     const cutscene = new CampaignCutscene({
-      card: campaignStory("street-riot")!.card,
+      card: campaignStory("street-riot")!.card!,
       label: "Operation 02",
       title: "Street Riot",
       onPanelsDone: done,
@@ -194,6 +265,13 @@ describe("campaign session", () => {
     expect(campaignMatch()?.models.enemy).toBe("cartel");
     expect(takeCampaignReturn()?.missionId).toBe("cartel-contract");
     expect(takeCampaignReturn()).toBeNull();
+  });
+
+  it("carries a retry back to the lobby once", () => {
+    expect(takeCampaignRetry()).toBeNull();
+    requestCampaignRetry("bot-trap");
+    expect(takeCampaignRetry()).toBe("bot-trap");
+    expect(takeCampaignRetry()).toBeNull();
   });
 
   it("forces the mission's models over the settings, until cleared", () => {

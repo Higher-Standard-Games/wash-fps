@@ -17,13 +17,15 @@ import { EntityType } from "@engine/server/ecs/types";
 import type {
   AgentDirective,
   AgentDirectiveContext,
+  LoadoutChoice,
   MatchConfig,
   MatchStateSnapshot,
   TeamId,
+  WeaponLoadout,
 } from "@shared/server/gametype";
-import { emptyPlayerStats, MatchPhase, normalizeTeamId, sameSide } from "@shared/server/gametype";
+import { emptyPlayerStats, MatchPhase, normalizeTeamId, randomLoadout, sameSide } from "@shared/server/gametype";
 import { clearPowerups } from "@shared/server/simulation/components/PowerupComponent";
-import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulation/physics/constants";
+import { MAX_HEALTH, DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "@shared/server/simulation/physics/constants";
 import type { Vec3 } from "@shared/server/simulation/types";
 import { log } from "../../../../engine/core/Log";
 import type { BspEntity, BspModel } from "../../../../engine/loader/bsp/BspLoader";
@@ -63,6 +65,10 @@ export class GametypeController {
   /** Match config with dev env overrides applied — use this, not gametype.getMatchConfig(). */
   private matchConfig: MatchConfig;
   private matchState: MatchState;
+  private hasRandomKit: (playerId: PlayerId) => boolean = () => false;
+  private spawnStats: (playerId: PlayerId) => { health?: number; armor?: number } | undefined = () => undefined;
+  /** The kit each random-kit player last spawned with, so the next one differs. */
+  private readonly randomKits = new Map<PlayerId, LoadoutChoice>();
   private spawnStrategy: SpawnPointStrategy;
   private spawnPoints: Vec3[] = [];
   private teamSpawnPoints: ReadonlyMap<string, Vec3[]> = new Map();
@@ -77,6 +83,8 @@ export class GametypeController {
    */
   private lastState: WorldState | null = null;
   private respawnQueue: RespawnEntry[] = [];
+  /** Bodies the gametype is holding out of play (Survival robots waiting for their wave). */
+  private readonly heldOut = new Set<EntityId>();
   private collisionWorld: CollisionWorld | null = null;
   /** Latest sim tick (from postTick) — seeds deterministic spawn selection for
    *  join-time spawns, which happen outside the tick loop (R3b / demo re-sim). */
@@ -92,6 +100,8 @@ export class GametypeController {
 
   constructor(gametype: BaseGametype) {
     this.gametype = gametype;
+    gametype.setBotCheck((playerId) => this.botPlayerIds.has(playerId));
+    gametype.setMatchClock(() => this.matchState.timeElapsed);
     this.matchConfig = GametypeController.applyEnvOverrides(gametype.getMatchConfig());
     this.matchState = new MatchState(gametype.name, this.matchConfig, gametype.teamBased);
     this.spawnStrategy = createSpawnStrategy(gametype.getSpawnStrategy());
@@ -245,6 +255,48 @@ export class GametypeController {
   /** A campaign S&D: `team` attacks every round (see MatchState.setAttackersThroughout). */
   setCampaignAttackers(team: TeamId): void {
     this.matchState.setAttackersThroughout(team);
+  }
+
+  /** A campaign mission's own score limit and time limit (seconds). */
+  setCampaignLimits(limits: { scoreLimit?: number; timeLimit?: number }): void {
+    // Both copies: the match state runs the clock, this controller checks the frag limit
+    this.matchState.setLimits(limits);
+    this.matchConfig = {
+      ...this.matchConfig,
+      ...(limits.scoreLimit !== undefined ? { scoreLimit: limits.scoreLimit } : {}),
+      ...(limits.timeLimit !== undefined ? { timeLimit: limits.timeLimit } : {}),
+    };
+    console.log(
+      `[GametypeController] Campaign limits: score ${this.matchConfig.scoreLimit}, time ${this.matchConfig.timeLimit}s`,
+    );
+  }
+
+  /** Players armed with a different random kit at every spawn (a campaign boss), in modes with kits. */
+  setRandomKits(check: (playerId: PlayerId) => boolean): void {
+    this.hasRandomKit = check;
+  }
+
+  /** Health and armor some players spawn with instead of their kit's (a campaign boss). */
+  setSpawnStats(stats: (playerId: PlayerId) => { health?: number; armor?: number } | undefined): void {
+    this.spawnStats = stats;
+  }
+
+  /** The kit a player spawns with; a random-kit player is first given a new one. */
+  private spawnLoadout(playerId: PlayerId | undefined, entityId: EntityId, tick: number): WeaponLoadout {
+    if (playerId !== undefined && this.matchConfig.loadouts && this.hasRandomKit(playerId)) {
+      // Its own stream, so spawn points stay as they were; seeded for re-sim like them
+      const kit = randomLoadout(rngFrom(tick, entityId as number, 1), this.randomKits.get(playerId));
+      this.randomKits.set(playerId, kit);
+      this.gametype.setPlayerLoadout(playerId, kit);
+    }
+    const loadout = this.gametype.getSpawnLoadout(playerId);
+    const stats = playerId !== undefined ? this.spawnStats(playerId) : undefined;
+    return stats ? { ...loadout, ...stats } : loadout;
+  }
+
+  /** `team` wins by lasting to the time limit (Survival). */
+  setSurvivors(team: TeamId): void {
+    this.matchState.setSurvivors(team);
   }
 
   /**
@@ -426,7 +478,7 @@ export class GametypeController {
 
     // Apply weapon loadout
     if (this.weaponSystem) {
-      const loadout = this.gametype.getSpawnLoadout(playerId);
+      const loadout = this.spawnLoadout(playerId, entityId, this.currentTick);
       this.weaponSystem.initializeWeaponFromLoadout(entityId, loadout);
     }
 
@@ -592,6 +644,11 @@ export class GametypeController {
               this.matchState.recordStat(victim.ownerId, (s) => {
                 s.deaths++;
               });
+              // Survival: the side that must last loses with its first death
+              if (this.matchState.survivorsFell(victim.ownerId)) {
+                console.log("[GametypeController] A survivor fell: the match is lost");
+                this.recordMatchWinner();
+              }
             }
           }
 
@@ -769,6 +826,12 @@ export class GametypeController {
     const remaining: RespawnEntry[] = [];
 
     for (const entry of this.respawnQueue) {
+      // A gametype holding this player out keeps them in the queue
+      if (!this.gametype.mayRespawn(entry.entityId, state, this.matchState.timeElapsed)) {
+        this.heldOut.add(entry.entityId);
+        remaining.push(entry);
+        continue;
+      }
       if (tickNum >= entry.maxRespawnTick) {
         // Auto-respawn deadline reached
         this.respawnPlayer(state, entry.entityId, tickNum);
@@ -793,7 +856,13 @@ export class GametypeController {
     this.respawnQueue = remaining;
   }
 
+  /** Whether the gametype is holding this body out of play for now: it waits, as a spectator would. */
+  isHeldOut(entityId: EntityId): boolean {
+    return this.heldOut.has(entityId);
+  }
+
   private respawnPlayer(state: WorldState, entityId: EntityId, tickNum: number): void {
+    this.heldOut.delete(entityId);
     const entity = state.getEntityMut(entityId);
     if (!entity) return;
 
@@ -813,12 +882,14 @@ export class GametypeController {
     const spawn = this.jitterSpawn(baseSpawn, spawnRng);
 
     // Get loadout from gametype — per-player, since S&D lets players choose.
-    const loadout = this.gametype.getSpawnLoadout(entity.ownerId);
+    const loadout = this.spawnLoadout(entity.ownerId, entityId, tickNum);
 
     // Reset health/armor
     if (entity.health) {
       entity.health.health = loadout.health;
       entity.health.armor = loadout.armor;
+      // Spawning with more than full health makes that this player's full health
+      entity.health.maxHealth = Math.max(MAX_HEALTH, loadout.health);
       entity.health.dead = false;
     }
 
@@ -881,11 +952,26 @@ export class GametypeController {
 
   private respawnAllPlayers(state: WorldState, tickNum: number): void {
     console.log(`[GametypeController] Match start — respawning all players`);
-    for (const entity of state.players()) {
-      this.respawnPlayer(state, entity.id, tickNum);
+    // Everyone goes down first, so a gametype counting who is in play sees
+    // only those let back in so far
+    const players = [...state.players()];
+    for (const entity of players) {
+      const mutable = state.getEntityMut(entity.id);
+      if (mutable?.health) mutable.health.dead = true;
     }
-    // Clear any pending respawns
     this.respawnQueue = [];
+    this.heldOut.clear();
+    for (const entity of players) {
+      if (this.gametype.mayRespawn(entity.id, state, 0)) {
+        this.respawnPlayer(state, entity.id, tickNum);
+      } else {
+        // Held out for now: waits in the queue until the gametype lets it in
+        const mutable = state.getEntityMut(entity.id);
+        if (mutable?.health) mutable.health.health = 0;
+        this.heldOut.add(entity.id);
+        this.respawnQueue.push({ entityId: entity.id, minRespawnTick: tickNum, maxRespawnTick: tickNum });
+      }
+    }
   }
 
   // ========================================================================

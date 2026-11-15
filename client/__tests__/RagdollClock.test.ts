@@ -7,6 +7,7 @@
 
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { PhysicsMotionType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import { Scene } from "@babylonjs/core/scene";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -37,13 +38,23 @@ const RED = { r: 1, g: 0, b: 0 };
  */
 function body(hips: () => Vector3 | null = () => null) {
   const mesh = { visibility: 1, getChildMeshes: () => [] };
+  const setMotionType = vi.fn();
   return {
     model: { mesh, anchor: { getAbsolutePosition: () => ({ x: 1, y: 2, z: 3 }) }, id: "player_2" },
     ragdoll: {
       dispose: vi.fn(),
       getAggregate: () => {
         const position = hips();
-        return position ? { body: { transformNode: { getAbsolutePosition: () => position } } } : null;
+        return position
+          ? {
+              body: {
+                transformNode: { getAbsolutePosition: () => position },
+                setLinearVelocity: () => {},
+                setAngularVelocity: () => {},
+                setMotionType,
+              },
+            }
+          : null;
       },
     },
     age: 0,
@@ -52,6 +63,8 @@ function body(hips: () => Vector3 | null = () => null) {
     restAnchor: null,
     restSeconds: 0,
     fadeStart: null,
+    frozen: false,
+    setMotionType,
     trail: null,
     trailMat: null,
   };
@@ -99,8 +112,12 @@ describe("ragdoll clock", () => {
     step(0.5);
     expect(one.fadeStart).toBeNull();
     // Rests for 0.4 s, then fades over a second and bursts.
+    expect(one.setMotionType).not.toHaveBeenCalled();
     step(0.5);
     expect(one.fadeStart).not.toBeNull();
+    // At rest it lies still: every bone made static
+    expect(one.frozen).toBe(true);
+    expect(one.setMotionType).toHaveBeenCalledWith(PhysicsMotionType.STATIC);
     step(1.1);
     expect(one.disposed).toBe(true);
     expect(one.age).toBeLessThan(2.5);

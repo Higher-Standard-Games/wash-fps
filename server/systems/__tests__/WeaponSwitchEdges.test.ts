@@ -16,6 +16,7 @@ import { WeaponSystem } from "../WeaponSystem";
 
 const ENTITY = entityId(1);
 const ALT_FIRE = 1 << 9;
+const AUTO_ADS = 1 << 12;
 
 function world(weapons: string[]) {
   const sim = new Simulation({ tickMs: 8 });
@@ -108,21 +109,43 @@ describe("the blade's charged attack", () => {
     expect(charged).not.toHaveBeenCalled();
   });
 
-  it("charges from the moment the blade is in hand when alt-fire stays held", () => {
-    const { sim, system, input } = world(["blade", "machinegun"]);
+  it("charges nothing with alt-fire held through the switch, until it is pressed again", () => {
+    const { sim, system, input, held } = world(["blade", "machinegun"]);
     const charged = vi.fn();
     (system as unknown as { fireChargedProjectile: typeof charged }).fireChargedProjectile = charged;
     const events = () => system.getPendingChargeEvents();
 
     input().weaponSlot = 2;
     input().buttons = ALT_FIRE;
-    for (let i = 0; i < 50; i++) sim.tick();
+    for (let i = 0; i < 50; i++) sim.tick(); // aiming the machinegun
     events();
     input().weaponSlot = 1;
+    for (let i = 0; i < 300; i++) sim.tick(); // still held, long past a full charge
+    expect(held()).toBe("blade");
+    expect(events()).not.toContainEqual(expect.objectContaining({ charging: true }));
+    input().buttons = 0;
     sim.tick();
-    sim.tick();
-    // The charge-up other players see starts on the blade, as a fresh press would.
+    expect(charged).not.toHaveBeenCalled();
+
+    // A fresh press on the blade charges as ever
+    input().buttons = ALT_FIRE;
+    for (let i = 0; i < 200; i++) sim.tick();
     expect(events()).toContainEqual(expect.objectContaining({ entityId: ENTITY, charging: true }));
+    input().buttons = 0;
+    sim.tick();
+    expect(charged).toHaveBeenCalledOnce();
+  });
+
+  it("is not charged by the aim a gun that cannot fire from the hip injects", () => {
+    const { sim, system, input } = world(["blade"]);
+    const charged = vi.fn();
+    (system as unknown as { fireChargedProjectile: typeof charged }).fireChargedProjectile = charged;
+    // Primary fire held with the auto-aim the client adds for such a gun
+    input().buttons = ALT_FIRE | AUTO_ADS;
+    for (let i = 0; i < 300; i++) sim.tick();
+    input().buttons = 0;
+    sim.tick();
+    expect(charged).not.toHaveBeenCalled();
   });
 });
 

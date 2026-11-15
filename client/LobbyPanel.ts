@@ -4,6 +4,8 @@
  * Full-screen rail navigation, Play stage, and server-backed lobby data.
  */
 
+import { AudioManager } from "../../../engine/AudioManager";
+import { MENU_PLAYLIST } from "../../../engine/audio/MenuPlaylist";
 import { background } from "../../../engine/core/AsyncErrors";
 import { EngineVersion } from "../../../engine/core/EngineVersion";
 import { DebugConsole } from "../../../engine/debug/DebugConsole";
@@ -33,7 +35,15 @@ import type {
 } from "../../../lobby/types";
 import { ChatScroll } from "./ChatScroll";
 import { CampaignCutscene } from "./campaign/CampaignCutscene";
-import { cacheCampaign, cachedCampaign, rememberCampaignMatch, takeCampaignReturn } from "./campaign/CampaignSession";
+import { CAMPAIGN_MENU_PLAYLIST } from "./campaign/CampaignMusic";
+import {
+  cacheCampaign,
+  cachedCampaign,
+  cacheMissionLooks,
+  rememberCampaignMatch,
+  takeCampaignRetry,
+  takeCampaignReturn,
+} from "./campaign/CampaignSession";
 import { campaignStory } from "./campaign/CampaignStory";
 import { CampaignView } from "./campaign/CampaignView";
 import { CreditsDialog } from "./credits/CreditsDialog";
@@ -187,6 +197,17 @@ export class LobbyPanel extends GamePanel {
   private quickPlayKey: HTMLButtonElement | null = null;
 
   private campaignView: CampaignView | null = null;
+  /**
+   * A lost mission the player asked to play again. It starts once the lobby
+   * has sent the campaign and the lobby is on screen: started behind the
+   * start-up screen, its map would load while the lobby is hidden, and the
+   * lobby would then come up over the match.
+   */
+  private campaignRetry: string | null = null;
+  /** The campaign as the lobby last sent it, for a retry waiting to start. */
+  private campaignMissions: { missions: CampaignMissionInfo[]; unlockedThrough: number } | null = null;
+  /** The start-up screen is gone and the lobby is on screen. */
+  private lobbyOnScreen = false;
   /** The lobby runs the campaign (welcome's `campaign` feature). */
   private campaignSupported = false;
   /** The comic card of the mission being started, until its match connects. */
@@ -251,6 +272,7 @@ export class LobbyPanel extends GamePanel {
       if (tabId === "demos") this.demosView?.show();
       else this.demosView?.deactivate();
       if (tabId === "leaderboard") void this.leaderboardView?.refresh();
+      this.playPageMusic();
       if (tabId === "campaign") {
         if (this.campaignSupported) this.lobbyClient.requestCampaign();
         // Opened at the mission to play next, once the page has its size
@@ -304,6 +326,7 @@ export class LobbyPanel extends GamePanel {
     this.connected = this.initLobbyConnection();
     // Back from a campaign match: the campaign is where the player was
     if (takeCampaignReturn()) this.switchTab("campaign");
+    this.campaignRetry = takeCampaignRetry();
   }
 
   protected override controllerInitialFocus(): HTMLElement | null {
@@ -587,8 +610,12 @@ export class LobbyPanel extends GamePanel {
         this.lobbyClient.on("campaign:state", (msg) => {
           const accountId = currentIdentity()?.id;
           if (accountId) cacheCampaign(accountId, msg);
+          // A campaign demo is drawn as its mission was, from these
+          cacheMissionLooks(msg.missions);
           this.campaignView?.setState(msg);
           this.refreshCampaign();
+          this.campaignMissions = { missions: msg.missions, unlockedThrough: msg.unlockedThrough };
+          this.retryCampaignMission();
         }),
       );
 
@@ -1017,10 +1044,15 @@ export class LobbyPanel extends GamePanel {
     // A name screen opened while the lobby was still hidden could not take focus
     this.welcomeOverlay?.focus();
     this.welcomeGuide?.show();
+    // Back from a match on the campaign page, its music comes back too
+    this.playPageMusic();
   }
   /** Initial boot handoff; ordinary lobby returns never call this. */
   initialLoadingDismissed(): void {
     this.welcomeGuide?.initialLoadingDismissed();
+    this.lobbyOnScreen = true;
+    this.playPageMusic();
+    this.retryCampaignMission();
   }
   hide(): void {
     this.close();
@@ -1477,11 +1509,33 @@ export class LobbyPanel extends GamePanel {
   }
 
   /**
+   * The campaign page plays its own opener; leaving it, the menus' playlist
+   * carries on from where it was. Each is paused, not stopped, while the other
+   * plays. Only once the lobby is on screen: behind the start-up screen the
+   * menus' playlist is still starting.
+   */
+  private playPageMusic(): void {
+    if (!this.lobbyOnScreen) return;
+    const playlist = this.currentTabId === "campaign" ? CAMPAIGN_MENU_PLAYLIST : MENU_PLAYLIST;
+    background(AudioManager.getInstance().switchPlaylist(playlist), "LobbyPanel");
+  }
+
+  /** Play again the mission the player asked to retry, straight from the black screen. */
+  private retryCampaignMission(): void {
+    const missionId = this.campaignRetry;
+    if (!missionId || !this.lobbyOnScreen || !this.campaignMissions) return;
+    this.campaignRetry = null;
+    const { missions, unlockedThrough } = this.campaignMissions;
+    const mission = missions.find((candidate) => candidate.id === missionId);
+    if (mission && mission.number <= unlockedThrough) this.startCampaignMission(mission, true);
+  }
+
+  /**
    * Start a mission: the comic card plays on a black screen while the lobby
    * sets up the mission's room and bots behind it, and the player readies up
-   * once the card has been read.
+   * once the card has been read. A retry skips the card.
    */
-  private startCampaignMission(mission: CampaignMissionInfo): void {
+  private startCampaignMission(mission: CampaignMissionInfo, retry = false): void {
     if (this.startingMission || this.currentLobbyId || this.queuePending) return;
     if (!this.lobbyClient.connected || !this.campaignSupported) return;
     const story = campaignStory(mission.id);
@@ -1494,7 +1548,7 @@ export class LobbyPanel extends GamePanel {
     const label = `Operation ${String(mission.number).padStart(2, "0")}`;
     const title = story?.title ?? mission.mapTitle;
     const cutscene = new CampaignCutscene({
-      card: story?.card ?? { image: "", thumb: "", width: 1, height: 1, panels: [], thumbFocus: "" },
+      card: (!retry && story?.card) || { image: "", thumb: "", width: 1, height: 1, panels: [], thumbFocus: "" },
       label,
       title,
       onPanelsDone: () => this.campaignCardRead(),

@@ -18,6 +18,7 @@ import type { Scene } from "@babylonjs/core/scene";
 import { AudioManager } from "../../../engine/AudioManager";
 import { MENU_PLAYLIST } from "../../../engine/audio/MenuPlaylist";
 import { CameraSystem } from "../../../engine/camera/CameraSystem";
+import { background } from "../../../engine/core/AsyncErrors";
 import { devLog } from "../../../engine/core/DevLog";
 import { EventBus } from "../../../engine/core/EventBus";
 import { createLoadingOperationId } from "../../../engine/core/LoadingEvents";
@@ -45,6 +46,9 @@ import {
   shotCard,
 } from "./CinematicDemoPlayer";
 import { Crosshair } from "./Crosshair";
+import { CampaignCutscene } from "./campaign/CampaignCutscene";
+import { missionLook } from "./campaign/CampaignSession";
+import { campaignOperationNumber, campaignStory } from "./campaign/CampaignStory";
 import { DamageNumbers } from "./DamageNumbers";
 import { demoLoadCancelled, downloadDemo } from "./DemoDownload";
 import { DemoEventTimeline } from "./DemoEventTimeline";
@@ -65,8 +69,11 @@ import { FPSVoltaicAudio } from "./FPSVoltaicAudio";
 import { preloadFPSWeapons } from "./FPSWeaponPreloader";
 import { type GameEventContext, handleServerStateUpdate, type ProjectileSyncState } from "./GameEvents";
 import { GibSystem } from "./GibSystem";
+import { HitSpatter } from "./HitSpatter";
 import { currentClip, HUDState } from "./HUDState";
 import { MatchStateManager } from "./MatchStateManager";
+import { forcePlayerModels } from "./PlayerModelSelection";
+import { setCampaignTeammates } from "./PlayerModelVisualSettings";
 import { RagdollSystem } from "./RagdollSystem";
 import { demoEndCard, reelEndCard, reelTitle } from "./ReelCards";
 import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
@@ -128,6 +135,7 @@ export class DemoService {
    */
   private physicsScene: { scene: Scene; wasEnabled: boolean } | null = null;
   private demoDamageNumbers: DamageNumbers | null = null;
+  private demoHitSpatter: HitSpatter | null = null;
   private droppedWeaponRenderer: DroppedWeaponRenderer | null = null;
   private readonly chargingPlayers = new Set<string>();
   private readonly chargingGlows = new Map<string, PointLight>();
@@ -159,6 +167,10 @@ export class DemoService {
   private readonly _followed = new FollowedViewWeapon(() => this._demoWvm);
   /** Once the recorded player dies, the chase of their body instead of their eyes. */
   private readonly watchedDeath = new WatchedDeathView();
+  /** Each player's body flying after their latest death, for the watched-death camera to chase. */
+  private readonly corpses = new Map<string, { getPosition(): Vector3 | null }>();
+  /** The followed player's own body is shown: the camera chases it after their death. */
+  private chasingCorpse = false;
   /** entityId → currentWeapon, fed to RemotePlayerRenderer for 3rd-person weapon models */
   private _enemyWeapons: Map<string, string> = new Map();
 
@@ -364,12 +376,51 @@ export class DemoService {
       if (this.abandonStart(start, viewer)) return;
       this._demoEndedAt = null;
       if (this.demoHud && reader) this.demoHud.setTitle(reelTitle(reader.readHeader()));
+      // A campaign demo opens on its mission's comic card, as the mission did
+      const mission = reader?.readHeader().campaign;
+      if (mission && !options.manual) {
+        await this.playCampaignCard(mission);
+        if (this.abandonStart(start, viewer)) return;
+      }
       viewer.play();
       if (!options.manual) {
         this.startPlaybackLoop();
         this.scanTimelineEvents(viewer);
       }
     });
+  }
+
+  /** A campaign mission's comic card over black, until it has been read (or skipped); nothing without a card. */
+  private playCampaignCard(missionId: string): Promise<void> {
+    const story = campaignStory(missionId);
+    const card = story?.card;
+    if (!story || !card) return Promise.resolve();
+    const number = campaignOperationNumber(missionId);
+    return new Promise((resolve) => {
+      const cutscene = new CampaignCutscene({
+        card,
+        label: number ? `Operation ${String(number).padStart(2, "0")}` : "Campaign",
+        title: story.title,
+        onPanelsDone: () => {
+          cutscene.close();
+          resolve();
+        },
+      });
+      background(cutscene.play(), "DemoService");
+    });
+  }
+
+  /**
+   * Draw a campaign demo as its match was drawn: the mission's models, its
+   * bots' own models and sizes (a boss), its crew in green. Null puts every
+   * match back to the player's settings.
+   */
+  private applyCampaignLook(missionId: string | null): void {
+    const look = missionId ? missionLook(missionId) : null;
+    if (missionId && !look)
+      console.warn(`[DemoService] No look known for campaign mission "${missionId}": open the campaign page once`);
+    forcePlayerModels(look?.models ?? null, look?.botModels, look?.botScales);
+    setCampaignTeammates(look !== null);
   }
 
   /** The demo's deaths, scanned before a video so its end card can count the frags. */
@@ -614,6 +665,7 @@ export class DemoService {
   }
 
   private stopPlayback(): void {
+    this.applyCampaignLook(null);
     this.playbackKeys?.abort();
     this.playbackKeys = null;
     this.stopPlaybackLoop();
@@ -662,6 +714,10 @@ export class DemoService {
     this.demoGibs = null;
     this.demoDamageNumbers?.dispose();
     this.demoDamageNumbers = null;
+    this.demoHitSpatter?.dispose();
+    this.demoHitSpatter = null;
+    this.corpses.clear();
+    this.chasingCorpse = false;
     this.droppedWeaponRenderer?.dispose();
     this.droppedWeaponRenderer = null;
     this._clearDemoCharge();
@@ -705,6 +761,8 @@ export class DemoService {
     operationId: string,
   ): Promise<void> {
     const header = reader?.readHeader();
+    // A campaign demo is drawn as its mission was, from its first frame
+    this.applyCampaignLook(header?.campaign ?? null);
     if (!header?.map) return;
 
     const mapName = resolveFPSDemoMap(header.map);
@@ -843,6 +901,7 @@ export class DemoService {
     this.demoRagdolls.setGibCallback((x, y, z, vx, vy, vz, color) => this.demoGibs?.spawn(x, y, z, vx, vy, vz, color));
     this.physicsScene = { scene, wasEnabled: scene.physicsEnabled };
     this.demoDamageNumbers = DamageNumbers.create(scene);
+    this.demoHitSpatter = HitSpatter.create(scene);
     // Demo playback uses snapshot transforms directly: no wall-clock Havok toss
     // continues while paused, and seek landing reconstructs the exact item set.
     this.droppedWeaponRenderer = new DroppedWeaponRenderer(scene, true);
@@ -1281,10 +1340,18 @@ export class DemoService {
       const pov = this._followed.presentation;
       const eye = sample ? watchedEyePose(sample, pov?.entityId === entityId ? pov : null) : null;
       // Only the dead are chased, and only the chase tests walls
+      // A dead player's camera chases their ragdoll or gibs, as your own death's
+      // does, and shows the body it chases; back alive, it is behind their eyes again
+      if (!dead) this.corpses.delete(entityId);
+      if (dead !== this.chasingCorpse) {
+        this.chasingCorpse = dead;
+        this.remoteRenderer?.setHiddenEntity(dead ? null : entityId);
+      }
+      const corpse = dead ? (this.corpses.get(entityId)?.getPosition() ?? null) : null;
       return this.watchedDeath.pose(
         entityId,
         eye,
-        sample,
+        corpse ?? sample,
         dead,
         dead ? (cameraSystem.getCamera()?.getScene() ?? null) : null,
       );
@@ -1454,6 +1521,7 @@ export class DemoService {
       voltaicAudio: this.demoVoltaicAudio,
       audioTickRate: this.activeDemoViewer?.getInfo().header?.tickRate ?? 60,
       damageNumbers: this.demoDamageNumbers ?? undefined,
+      hitSpatter: this.demoHitSpatter ?? undefined,
       v2Client: null,
       remoteRenderer: this.remoteRenderer,
       droppedWeaponRenderer: this.droppedWeaponRenderer,
@@ -1473,6 +1541,7 @@ export class DemoService {
       _respawnRequested: false,
       _respawnCooldownEnd: 0,
       _gibSystem: this.demoGibs,
+      onCorpse: (entityId, body) => this.corpses.set(entityId, body),
       _pendingGibSpawns: [],
       _ragdollSystem: this.demoRagdolls,
       _cartoonHit: null,
@@ -1501,6 +1570,9 @@ export class DemoService {
       this.demoGibs?.clear();
       this.demoRagdolls?.disposeAll();
       this.demoDamageNumbers?.clear();
+      this.demoHitSpatter?.clear();
+      this.corpses.clear();
+      this.chasingCorpse = false;
       this._clearDemoCharge();
       this._clearDemoProjectiles();
       this.lastEffectTick = playback.playheadTick;
@@ -1519,6 +1591,7 @@ export class DemoService {
         this.demoRagdolls?.update(demoDeltaSeconds);
         this.stepDemoPhysics(demoDeltaSeconds);
         this.demoDamageNumbers?.update(demoDeltaSeconds);
+        this.demoHitSpatter?.update(demoDeltaSeconds);
       }
       this.lastEffectTick = playback.playheadTick;
     }

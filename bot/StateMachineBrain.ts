@@ -15,6 +15,7 @@
 
 import { DEFAULT_VIEWHEIGHT } from "../../../engine/physics/PlayerPhysicsConstants";
 import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "../../../shared/server/simulation/physics/constants";
+import { scaledBodyHeight } from "../shared/BodyScale";
 import { isBotName } from "../shared/bot/BotNames";
 import { type BotWeightProfile, selectWeightProfile } from "../shared/bot/WeightProfiles";
 import type { PickupEntry } from "../shared/bsp/PickupTable";
@@ -63,6 +64,7 @@ import { respawnTickOf } from "./goals/ItemGoalSource";
 import { loadBaseline, payoffPriors } from "./intel/IntelBaseline";
 import { loadPeopleProfile, typicalStackAfter } from "./intel/PeopleProfile";
 import { planLedgeSlideJump } from "./LedgeSlideJump";
+import { inHarmfulLiquid, liquidEscapeTarget } from "./LiquidEscape";
 import { buildRouteLine, lineEndStep, pointAlong, type RouteLine, type RouteWorld } from "./RouteLine";
 import { ItemSlideApproachSequence } from "./sequences/ItemSlideApproachSequence";
 import { LearnedRouteSequence } from "./sequences/LearnedRouteSequence";
@@ -149,6 +151,8 @@ const HOLD_SWEEP_RATE = 0.9;
 const DODGE_REACT_TICKS = 30; // React to damage within last 30 ticks
 /** Blocked in a fight, the bot runs the open way this long before the fight steers again. */
 const UNSTICK_TICKS = Math.round(0.5 * 125);
+/** How often a bot in slime or lava chooses its way out again (a quarter second). */
+const LIQUID_ESCAPE_REPLAN_TICKS = Math.round(0.25 * 125);
 /** How far ahead a way out must be walkable, units. */
 const UNSTICK_PROBE = 96;
 /** Slower than this across the floor, a bot asking to move is not getting anywhere. */
@@ -486,6 +490,12 @@ export class StateMachineBrain extends BotBrain {
   private readonly _blocked = new BotBlockedMove();
   /** Blocked in a fight: the open way the bot runs, and until when. */
   private _unstick: { yaw: number; untilTick: number } | null = null;
+  /** Where a bot in slime or lava is heading to get out, and when that was chosen; null when dry. */
+  private _liquidEscape: { target: Vec3 | null; chosenTick: number } | null = null;
+  /** How many times a player's size this bot's body is; 1 but for a campaign boss. */
+  private _bodyScale = 1;
+  /** Slime and lava do not hurt this bot (a campaign boss), so it does not get out of them. */
+  private _liquidImmune = false;
   private _ledgeProbeTick = 0;
   private _leadReactionDelayMs = 0;
   private _cancelScript = false;
@@ -687,6 +697,16 @@ export class StateMachineBrain extends BotBrain {
     this._fightOff = new Set(habits);
   }
 
+  /** Slime and lava do not hurt this bot: it fights on in them. */
+  setLiquidImmune(immune: boolean): void {
+    this._liquidImmune = immune;
+  }
+
+  /** This bot's body is `scale` times a player's (a campaign boss): its shots leave from its own eye. */
+  setBodyScale(scale: number): void {
+    this._bodyScale = scale;
+  }
+
   /** The opponent's habits the bot has learned, for diagnostics. */
   get opponentHabits(): OpponentModel {
     return this._opponents;
@@ -763,7 +783,10 @@ export class StateMachineBrain extends BotBrain {
     navGraph?: BotNavGraph | null,
   ): BotInput {
     this._cancelScript = false;
-    const input = this._turnFromBlock(state, this._decide(state, vision, visionResult, navGraph));
+    const input = this._escapeLiquid(
+      state,
+      this._turnFromBlock(state, this._decide(state, vision, visionResult, navGraph)),
+    );
     this._carryCharge(state, input);
     if (this._tracing) this._lastTrace = this._trace(state);
     if (this._isCalm(state, input)) {
@@ -2073,10 +2096,11 @@ export class StateMachineBrain extends BotBrain {
 
   // ── Movement Helpers ──────────────────────────────────────────────
 
+  /** Where this bot's shots leave from: its eye, as the game server places it. */
   private _getFireOrigin(state: BotGameState): Vec3 {
     return {
       x: state.self.position.x,
-      y: state.self.position.y + DEFAULT_VIEWHEIGHT,
+      y: state.self.position.y + scaledBodyHeight(DEFAULT_VIEWHEIGHT, this._bodyScale),
       z: state.self.position.z,
     };
   }
@@ -2244,6 +2268,29 @@ export class StateMachineBrain extends BotBrain {
     return this._runOpen(input, yaw);
   }
 
+  /**
+   * In slime or lava, whatever the state, the bot jumps for the nearest dry
+   * ground (LiquidEscape): back up to a ledge or on to an island, whichever is
+   * nearer. Aim and fire stay.
+   */
+  private _escapeLiquid(state: BotGameState, input: BotInput): BotInput {
+    const self = state.self;
+    const world = this._lastBotVision?.collisionWorld;
+    if (self.isDead || !world || this._liquidImmune || !inHarmfulLiquid(world, self.position)) {
+      this._liquidEscape = null;
+      return input;
+    }
+    if (!this._liquidEscape || state.tick - this._liquidEscape.chosenTick >= LIQUID_ESCAPE_REPLAN_TICKS) {
+      const target = liquidEscapeTarget(world, self.position, this._navGraph?.nodes ?? []);
+      this._liquidEscape = { target, chosenTick: state.tick };
+    }
+    const target = this._liquidEscape.target;
+    const yaw = target ? Math.atan2(target.x - self.position.x, target.z - self.position.z) : travelYaw(input);
+    // Jump held: it hops off the bottom and swims up
+    const out = this._runOpen(input, yaw);
+    return { ...out, buttons: out.buttons | InputButtons.JUMP };
+  }
+
   /** The way out nearest to straight back from `heading` with floor to walk on. */
   private _openHeading(state: BotGameState, heading: number): number {
     const vision = this._lastBotVision;
@@ -2358,7 +2405,10 @@ export class StateMachineBrain extends BotBrain {
     const lookYaw = look ? Math.atan2(look.x - self.x, look.z - self.z) : state.self.yaw;
     const sweep = Math.sin((state.tick / TICK_RATE) * HOLD_SWEEP_RATE) * HOLD_SWEEP;
     const pitch = look
-      ? -Math.atan2(look.y - (self.y + DEFAULT_VIEWHEIGHT), Math.hypot(look.x - self.x, look.z - self.z))
+      ? -Math.atan2(
+          look.y - (self.y + scaledBodyHeight(DEFAULT_VIEWHEIGHT, this._bodyScale)),
+          Math.hypot(look.x - self.x, look.z - self.z),
+        )
       : 0;
 
     const previous = this._sitePatrol;

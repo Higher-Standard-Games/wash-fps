@@ -150,6 +150,13 @@ export interface BotOptions {
    * Not part of the rating identity.
    */
   fightOff?: string[];
+  /**
+   * How many times a player's size this bot's body is (a campaign boss), so it
+   * aims from its own eye. Not part of the rating identity.
+   */
+  bodyScale?: number;
+  /** Slime and lava do not hurt this bot (a campaign boss): it fights on in them. Not part of the rating identity. */
+  liquidImmune?: boolean;
   /** Build a DecisionTrace with every decision, for tools (bot:motion --trace). */
   trace?: boolean;
   /**

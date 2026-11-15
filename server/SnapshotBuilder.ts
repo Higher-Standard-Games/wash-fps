@@ -437,8 +437,10 @@ export function buildSnapshot(ctx: SnapshotContext): GameState {
   // roster here (from the client list) so the scoreboard can list them.
   const matchSnapshot = ctx.gametypeController.getMatchSnapshot();
   const spectators: Array<{ playerId: string; name: string; ping: number }> = [];
+  const playing = ctx.gametypeController.getMatchState().phase !== MatchPhase.PostGame;
   for (const client of ctx.clients.values()) {
-    if (client.isSpectator) {
+    // A body the gametype holds out of play (a Survival robot waiting for its wave) waits as a spectator
+    if (client.isSpectator || (playing && ctx.gametypeController.isHeldOut(client.entityId))) {
       spectators.push({
         playerId: toClientKey(client.entityId),
         name: client.playerName,

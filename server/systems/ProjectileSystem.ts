@@ -14,6 +14,7 @@ import { type CollisionWorld, SHOT_CONTENT_MASK } from "../../../../engine/netwo
 import { DEFAULT_PROJECTILE_BOUNCE_FACTOR } from "../../../../shared/entities/ProjectileDef";
 import { WEAPONS } from "../../shared/entities/definitions/weapons/WeaponsTable";
 import { type DamageEvent, DamageType, HitLocation } from "./CombatSystem";
+import { type HitScaleLookup, NORMAL_SIZE, scaledHitSphere } from "./HitScale";
 
 /**
  * Event emitted when a projectile impacts, for network broadcast
@@ -55,6 +56,14 @@ const CONFIG: SubsystemConfig = {
 // ═══════════════════════════════════════════════════════════════════
 
 export class ProjectileSystem extends Subsystem {
+  /** Players bigger than normal (a campaign boss), by entity. */
+  private hitScale: HitScaleLookup = NORMAL_SIZE;
+
+  /** Tell direct-hit checks which players are bigger than normal. */
+  setHitScale(lookup: HitScaleLookup): void {
+    this.hitScale = lookup;
+  }
+
   private pendingDamage: DamageEvent[] = [];
   private pendingImpacts: ProjectileImpactEvent[] = [];
   private projectilesToRemove: EntityId[] = [];
@@ -246,13 +255,12 @@ export class ProjectileSystem extends Subsystem {
         // Nearby impacts hurt the shooter through the shared splash calculation.
         if (target.ownerId === projectile.ownerId) continue;
 
-        // Simple sphere collision
+        // Simple sphere collision: projectile + player radius, bigger for a bigger body
+        const body = scaledHitSphere(target.transform.position, 50, this.hitScale(target.id));
         const distSq =
-          (newPos.x - target.transform.position.x) ** 2 +
-          (newPos.y - target.transform.position.y) ** 2 +
-          (newPos.z - target.transform.position.z) ** 2;
+          (newPos.x - body.center.x) ** 2 + (newPos.y - body.center.y) ** 2 + (newPos.z - body.center.z) ** 2;
 
-        const hitRadius = 50; // Projectile + player radius
+        const hitRadius = body.radius;
         if (distSq < hitRadius ** 2) {
           // Direct hit!
           const weaponDef = WEAPONS[meta.defId];

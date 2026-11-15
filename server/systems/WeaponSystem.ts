@@ -31,12 +31,14 @@ import {
   type SpreadDir,
   spreadCone,
 } from "../../../../shared/SpreadUtils";
+import { normalBodyHeight, scaledBodyHeight } from "../../shared/BodyScale";
 import { GRENADE } from "../../shared/entities/definitions/projectiles/grenade";
 import { canonicalWeaponId, WEAPONS } from "../../shared/entities/definitions/weapons/WeaponsTable";
 import { debugLog } from "../DebugLog";
 import { classifyHitLocation, type DamageEvent, DamageType, HitLocation } from "./CombatSystem";
 import type { DroppedWeaponSystem } from "./DroppedWeaponSystem";
 import { caughtInDischarge, dischargeDamageAt, dischargesInWater } from "./ElectricalDischarge";
+import { type HitScaleLookup, NORMAL_SIZE, scaledHitSphere } from "./HitScale";
 import type { ProjectileSystem } from "./ProjectileSystem";
 
 /** Must match InputButtons.FIRE from engine/network/components/InputComponent.ts */
@@ -175,6 +177,11 @@ export interface WeaponState {
   // Alt-fire state (blade projectile)
   lastAltFireTick: number; // Last tick alt-fire was used
   wasAltFireDown: boolean; // Edge detection for alt-fire release
+  /**
+   * Alt-fire held over from the weapon before a switch: it neither aims nor
+   * charges the new one until it is let go and pressed again.
+   */
+  altFireHeldOver: boolean;
   wasReloadButtonDown: boolean; // Edge detection for manual reload
   /** First tick of uninterrupted aim; null means the sights are down. */
   adsStartTick: number | null;
@@ -194,6 +201,8 @@ export interface WeaponState {
   /** Bloom heat (0 = cold, 1 = fully opened spread) as of `spreadHeatTick`; see `aimShot`. */
   spreadHeat: number;
   spreadHeatTick: number;
+  /** Aiming down sights does nothing this life (the spawn kit said so): shots keep the hip's spread. */
+  adsDisabled: boolean;
 }
 
 export interface WeaponAmmo {
@@ -236,6 +245,8 @@ export class WeaponSystem extends Subsystem {
   private wantsAutoSwitch: (entityId: EntityId) => boolean = () => true;
   private collisionWorld: CollisionWorld | null = null;
   private lagCompensation: LagCompensation | null = null;
+  /** Players bigger than normal (a campaign boss), by entity. */
+  private hitScale: HitScaleLookup = NORMAL_SIZE;
   /**
    * Snapshot intervals a client is assumed to render behind its newest snapshot.
    *
@@ -407,6 +418,11 @@ export class WeaponSystem extends Subsystem {
    * your connection is. With it, a shot is judged against the world the shooter
    * actually saw.
    */
+  /** Tell hit checks which players are bigger than normal. */
+  setHitScale(lookup: HitScaleLookup): void {
+    this.hitScale = lookup;
+  }
+
   setLagCompensation(lag: LagCompensation | null, ticksPerSnapshot = 1): void {
     this.lagCompensation = lag;
     // A client does not render the newest snapshot it holds — it renders behind
@@ -452,9 +468,11 @@ export class WeaponSystem extends Subsystem {
   private getFireViewOrigin(shooter: Readonly<Entity>): { x: number; y: number; z: number } | null {
     if (!shooter.transform) return null;
     const pos = shooter.transform.position;
+    // A bigger body (a boss) shoots from its own eye
+    const eye = DEFAULT_VIEWHEIGHT + (shooter.physics?.crouchViewOffset ?? 0);
     return {
       x: pos.x,
-      y: pos.y + DEFAULT_VIEWHEIGHT + (shooter.physics?.crouchViewOffset ?? 0),
+      y: pos.y + scaledBodyHeight(eye, this.hitScale(shooter.id)),
       z: pos.z,
     };
   }
@@ -534,10 +552,13 @@ export class WeaponSystem extends Subsystem {
     state.currentWeapon = weaponId;
     state.reloading = false;
     state.reloadEndTick = 0;
-    // An alt-fire held over from the old weapon is not a charge on this one.
-    // Left set, releasing it fired the blade's full charge with no charge-up
-    // (heldTicks counted from tick 0). Still held, it now starts a fresh charge.
+    // An alt-fire held over from the old weapon is not a charge on this one:
+    // it charges nothing until let go and pressed again. Left set, releasing it
+    // fired the blade's full charge with no charge-up (heldTicks counted from
+    // tick 0); counted as a fresh press, the blade charged straight after an
+    // empty gun swapped to it.
     state.wasAltFireDown = false;
+    state.altFireHeldOver = true;
     state.adsStartTick = null;
     state.manualAdsStartTick = null;
     state.dryFireTick = 0;
@@ -901,6 +922,7 @@ export class WeaponSystem extends Subsystem {
       wasFireButtonDown: false,
       lastAltFireTick: 0,
       wasAltFireDown: false,
+      altFireHeldOver: false,
       wasReloadButtonDown: false,
       adsStartTick: null,
       manualAdsStartTick: null,
@@ -908,6 +930,7 @@ export class WeaponSystem extends Subsystem {
       switchReadyTick: 0,
       spreadHeat: 0,
       spreadHeatTick: 0,
+      adsDisabled: loadout.adsDisabled === true,
     });
     // Reset edge detection so weapon slot changes are detected cleanly after respawn
     this.lastWeaponSlot.delete(id);
@@ -1091,7 +1114,13 @@ export class WeaponSystem extends Subsystem {
           const chargeMaxTicks = Math.ceil((weapon.chargeTime || 1.0) * TICK_RATE);
           const chargeMinTicks = Math.ceil((weapon.chargeMinTime || 0.5) * TICK_RATE);
 
-          if (isAltFiring) {
+          // Only a press made on the blade charges it: not one held over from the
+          // weapon before (see `equip`), nor the aim fire injects for a gun that
+          // cannot fire from the hip
+          const autoAimed = (entity.input.buttons & InputButtons.AUTO_ADS) !== 0;
+          if (weaponState.altFireHeldOver || autoAimed) {
+            if (!isAltFiring) weaponState.altFireHeldOver = false;
+          } else if (isAltFiring) {
             if (!weaponState.wasAltFireDown) {
               // ALT_FIRE just pressed — start charging
               weaponState.chargeStartTick = tickNum;
@@ -1103,8 +1132,8 @@ export class WeaponSystem extends Subsystem {
               });
             }
             // While held: charging (no action)
-          } else if (weaponState.wasAltFireDown) {
-            // ALT_FIRE just released — fire if charged enough
+          } else if (weaponState.wasAltFireDown && weaponState.chargeStartTick > 0) {
+            // ALT_FIRE just released on a charge it started — fire if charged enough
             const heldTicks = tickNum - weaponState.chargeStartTick;
 
             if (heldTicks >= chargeMinTicks) {
@@ -1135,9 +1164,11 @@ export class WeaponSystem extends Subsystem {
           let hipfireAllowFire = true;
 
           const autoAds = (entity.input.buttons & InputButtons.AUTO_ADS) !== 0;
-          const aiming = isAltFiring || (weapon.hipfireBlocked && isFiring);
+          // A player whose kit disables aiming down sights holds alt-fire to no effect
+          const aimHeld = isAltFiring && !weaponState.adsDisabled;
+          const aiming = aimHeld || (weapon.hipfireBlocked && isFiring);
           weaponState.adsStartTick = aiming ? (weaponState.adsStartTick ?? tickNum) : null;
-          weaponState.manualAdsStartTick = isAltFiring && !autoAds ? (weaponState.manualAdsStartTick ?? tickNum) : null;
+          weaponState.manualAdsStartTick = aimHeld && !autoAds ? (weaponState.manualAdsStartTick ?? tickNum) : null;
           if (isFiring && weapon.hipfireBlocked) {
             const adsTimeTicks = Math.ceil((weapon.ads?.time ?? 0.08) * TICK_RATE);
             hipfireAllowFire = tickNum - (weaponState.adsStartTick ?? tickNum) >= adsTimeTicks;
@@ -1236,6 +1267,7 @@ export class WeaponSystem extends Subsystem {
     const isADS =
       (input.buttons & ALT_FIRE_BUTTON) !== 0 &&
       (input.buttons & InputButtons.AUTO_ADS) === 0 &&
+      !weaponState?.adsDisabled &&
       (!timedAim ||
         (weaponState?.manualAdsStartTick != null &&
           (tick as number) - weaponState.manualAdsStartTick >= Math.ceil((weapon.ads?.time ?? 0.08) * TICK_RATE)));
@@ -1422,11 +1454,14 @@ export class WeaponSystem extends Subsystem {
       if (target.id === shooter.id) continue;
       if (!target.transform || !target.health || target.health.dead) continue;
 
+      // 32 = player capsule radius; a bigger body is a bigger sphere, about its middle
+      const scale = this.hitScale(target.id);
+      const body = scaledHitSphere(target.transform.position, 32, scale);
       // Vector to target
       const toTarget = {
-        x: target.transform.position.x - start.x,
-        y: target.transform.position.y - start.y,
-        z: target.transform.position.z - start.z,
+        x: body.center.x - start.x,
+        y: body.center.y - start.y,
+        z: body.center.z - start.z,
       };
 
       // Distance to target
@@ -1458,14 +1493,14 @@ export class WeaponSystem extends Subsystem {
       };
 
       const perpDistSq =
-        (closestPoint.x - target.transform.position.x) ** 2 +
-        (closestPoint.y - target.transform.position.y) ** 2 +
-        (closestPoint.z - target.transform.position.z) ** 2;
+        (closestPoint.x - body.center.x) ** 2 +
+        (closestPoint.y - body.center.y) ** 2 +
+        (closestPoint.z - body.center.z) ** 2;
 
-      if (perpDistSq > (hitRadius + 32) ** 2) continue; // 32 = player capsule radius
+      if (perpDistSq > (hitRadius + body.radius) ** 2) continue;
 
-      // Hit!
-      const yOffset = closestPoint.y - target.transform.position.y;
+      // Hit! Head, body or legs as on a normal body
+      const yOffset = normalBodyHeight(closestPoint.y - target.transform.position.y, scale);
       const hitLocation = locateHit(weapon, yOffset);
 
       this.pendingDamage.push({
@@ -1729,7 +1764,11 @@ export class WeaponSystem extends Subsystem {
       // Judge the shot against where the shooter saw this body, not where it has
       // since run to. A target with no recorded position (just spawned) falls
       // back to the present rather than being made unhittable.
-      const targetPos = rewind?.positions.get(target.id) ?? target.transform.position;
+      // A bigger body (a boss) is a bigger, higher sphere; everyone else exactly as before
+      const origin = rewind?.positions.get(target.id) ?? target.transform.position;
+      const scale = this.hitScale(target.id);
+      const body = scaledHitSphere(origin, 32, scale);
+      const targetPos = body.center;
 
       // Simple sphere intersection test
       const toTarget = {
@@ -1752,7 +1791,7 @@ export class WeaponSystem extends Subsystem {
       const distSq =
         (closestPoint.x - targetPos.x) ** 2 + (closestPoint.y - targetPos.y) ** 2 + (closestPoint.z - targetPos.z) ** 2;
 
-      const hitRadius = 32; // Player capsule radius
+      const hitRadius = body.radius; // Player capsule radius
       if (distSq >= hitRadius ** 2) continue;
 
       const entryDistance = Math.max(0, dot - Math.sqrt(Math.max(0, hitRadius ** 2 - distSq)));
@@ -1770,8 +1809,8 @@ export class WeaponSystem extends Subsystem {
       const normalY = impactPoint.y - targetPos.y;
       const normalZ = impactPoint.z - targetPos.z;
       const normalLength = Math.sqrt(normalX * normalX + normalY * normalY + normalZ * normalZ) || 1;
-      // Hit! Determine location based on Y offset
-      const yOffset = closestPoint.y - targetPos.y;
+      // Hit! Head, body or legs by its height on the body, as on a normal one
+      const yOffset = normalBodyHeight(closestPoint.y - origin.y, scale);
       const hitLocation = locateHit(weapon, yOffset);
 
       best = {
@@ -1882,7 +1921,7 @@ export class WeaponSystem extends Subsystem {
     let pitch = -shooter.input.pitch;
 
     if (!direction && weapon.spread) {
-      const isADS = (shooter.input.buttons & ALT_FIRE_BUTTON) !== 0;
+      const isADS = (shooter.input.buttons & ALT_FIRE_BUTTON) !== 0 && !this.weaponStates.get(shooter.id)?.adsDisabled;
       const spreadDeg = isADS && weapon.adsSpread !== undefined ? weapon.adsSpread : weapon.spread;
       if (spreadDeg > 0) {
         const spreadRad = (spreadDeg * Math.PI) / 180;

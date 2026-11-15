@@ -52,7 +52,7 @@ describe("heard-enemy pursuit movement", () => {
     const { brain, state, graph, vision } = chase(0);
     const geometry = {
       isWalkable: () => true,
-      collisionWorld: { trace: () => ({ hit: true, fraction: 0.1 }) },
+      collisionWorld: { pointContents: () => 0, trace: () => ({ hit: true, fraction: 0.1 }) },
     } as unknown as BotVision;
     const random = vi.spyOn(Math, "random").mockReturnValue(0);
     try {
@@ -76,6 +76,7 @@ describe("heard-enemy pursuit movement", () => {
     const geometry = {
       isWalkable: () => true,
       collisionWorld: {
+        pointContents: () => 0,
         trace: (from: { x: number; y: number }, to: { y: number }) => ({
           hit: to.y < from.y && from.x > 50,
           fraction: to.y < from.y && from.x > 50 ? 0.5 : 1,

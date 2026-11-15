@@ -330,6 +330,9 @@ export const BOT_NAV_MOVEMENT_FINGERPRINT = [
   // Jump pad destination nodes moved from the aim point to the simulated landing.
   "jumppad-landing:2",
   "teleport-carry:1",
+  // Patches of a standing func_explosive collide, so a graph has to route
+  // around the bomb-site machinery on wbomb1 rather than through it.
+  "explosive-patches:1",
   `gap-jump:${GAP_JUMP_MIN}`,
   `clearance:${CLEARANCE_RAYS}:${NODE_CLEARANCE}:${NODE_PUSH_MAX}:${NODE_PUSH_STEP}:${EDGE_CLEARANCE_STEP}:${EDGE_CLEARANCE}:${EDGE_WALL_COST}:${CLEARANCE_LIFT}`,
   BOT_MOVEMENT_ANALYZER_FINGERPRINT,

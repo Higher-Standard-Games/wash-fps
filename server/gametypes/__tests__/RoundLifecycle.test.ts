@@ -423,3 +423,28 @@ describe("the ready gate", () => {
     expect(m.phase).toBe(MatchPhase.Countdown);
   });
 });
+
+describe("between rounds", () => {
+  it("counts down to the next round through the round end and the freeze", () => {
+    const m = liveMatch();
+    // The first freeze follows no round, and a live round is not between rounds
+    expect(m.toSnapshot().nextRoundIn).toBeUndefined();
+    m.endRound("udon");
+    // Round end (5) and the next freeze (5) still to go
+    expect(m.toSnapshot().nextRoundIn).toBe(10);
+    m.update(2);
+    expect(m.toSnapshot().nextRoundIn).toBe(8);
+    skipIntermission(m);
+    expect(m.phase).toBe(MatchPhase.Countdown);
+    expect(m.toSnapshot().nextRoundIn).toBeCloseTo(5, 0);
+    m.transition(MatchPhase.Active);
+    expect(m.toSnapshot().nextRoundIn).toBeUndefined();
+  });
+
+  it("sends nothing of it in a mode without rounds", () => {
+    const m = new MatchState("Duel", { ...SND, roundBased: false }, true);
+    m.addPlayer(1 as never);
+    m.transition(MatchPhase.Countdown);
+    expect(m.toSnapshot().nextRoundIn).toBeUndefined();
+  });
+});

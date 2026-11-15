@@ -88,6 +88,10 @@ export class MatchStateManager {
   private _roundState: string | null = null;
   private _objective: ObjectiveSnapshot | null = null;
   private _roundResult: RoundResult | null = null;
+  /** The newest round result seen, kept after the server clears it at the next freeze. */
+  private _lastRoundResult: RoundResult | null = null;
+  /** Seconds until the next round goes live, between rounds; null otherwise. */
+  private _nextRoundIn: number | null = null;
   /** A timeout holding the match, or its count back in; null while it runs. */
   private _pause: MatchPause | null = null;
   /** A campaign match holds everyone still through its opening countdown too. */
@@ -146,6 +150,8 @@ export class MatchStateManager {
       .getSweepBackend()
       ?.brushModels?.restore(this.bomb?.disabledModels ?? []);
     this._roundResult = event.roundResult ?? null;
+    if (this._roundResult) this._lastRoundResult = this._roundResult;
+    this._nextRoundIn = typeof event.nextRoundIn === "number" ? event.nextRoundIn : null;
     this._explosion = event.explosion ?? null;
 
     // Fire phase change callbacks
@@ -215,6 +221,17 @@ export class MatchStateManager {
   /** How the last round ended. Set only during the round-end intermission. */
   get roundResult(): RoundResult | null {
     return this._roundResult;
+  }
+  /** How the newest decided round ended, through the next round's freeze too. */
+  get lastRoundResult(): RoundResult | null {
+    return this._lastRoundResult;
+  }
+  /**
+   * Between rounds, seconds until the next round goes live (round end and
+   * freeze together); null otherwise, and from an older server or recording.
+   */
+  get nextRoundIn(): number | null {
+    return this._nextRoundIn;
   }
   /**
    * A detonation to play out. Repeated for about a second after it fires, so
@@ -437,6 +454,8 @@ export class MatchStateManager {
     this._objective = null;
     this._explosion = null;
     this._round = 0;
+    this._lastRoundResult = null;
+    this._nextRoundIn = null;
     getCollisionManager().getSweepBackend()?.brushModels?.reset();
     this._phase = MatchPhase.Warmup;
     this._timeRemaining = 0;

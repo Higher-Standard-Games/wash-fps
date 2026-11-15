@@ -9,7 +9,9 @@
 import { EngineStore } from "@babylonjs/core/Engines/engineStore";
 import type { PointLight } from "@babylonjs/core/Lights/pointLight";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import type { Scene } from "@babylonjs/core/scene";
 import { AudioManager } from "../../engine/AudioManager";
+import { setMatchPlaylist } from "../../engine/audio/MatchPlaylist";
 import { CameraSystem } from "../../engine/camera";
 import { setGameFrameHook } from "../../engine/camera/GameFrameHook";
 import { background, logRejection } from "../../engine/core/AsyncErrors";
@@ -44,8 +46,9 @@ import { getAmmoStatus } from "./client/AmmoStatus";
 import { BombRenderer } from "./client/BombRenderer";
 import { BombSiteMarkers } from "./client/BombSiteMarkers";
 import { Crosshair } from "./client/Crosshair";
-import { devLog } from "./client/DevLog";
+import { missionPlaylist } from "./client/campaign/CampaignMusic";
 import { campaignMatch } from "./client/campaign/CampaignSession";
+import { devLog } from "./client/DevLog";
 import type { DroppedWeaponRenderer } from "./client/DroppedWeaponRenderer";
 import { registerFPSActions } from "./client/FPSActions";
 import { FPSAnnouncer, type Lead, leadOf } from "./client/FPSAnnouncer";
@@ -598,40 +601,35 @@ export class Game {
       (fpsController as { levelView(): void }).levelView();
     }
 
-    // 5. Revalidate textures/materials — GPU may have dropped them while hidden
-    //    (async, runs in background — textures pop back in over 1-2 frames)
-    background(this.revalidateAfterTabReturn(), "Game");
+    // Nothing on the GPU is rebuilt here. A hidden tab keeps its GPU
+    // resources; only a lost context or device loses them, and that has its
+    // own handler (installContextLossHandlers).
   }
 
   /**
-   * Revalidate GPU resources after tab return.
-   * Separated from onTabReturn() because it's async.
-   * Also installs renderer-agnostic context loss/restore handlers on first call.
+   * Log a lost context and rebuild materials once Babylon has restored it.
+   * Babylon forwards both WebGL context events and WebGPU device loss through
+   * these engine observables and restores the backend itself. Installed once,
+   * on the first frame with a scene.
    */
   private _contextLossHandlersInstalled = false;
-  private async revalidateAfterTabReturn(): Promise<void> {
+  private installContextLossHandlers(scene: Scene): void {
+    this._contextLossHandlersInstalled = true;
+    const engine = scene.getEngine();
+    const backend = engine.isWebGPU ? "WebGPU" : "WebGL";
+    engine.onContextLostObservable.add(() => {
+      console.error(`[Game] ${backend} context lost — GPU resources destroyed`);
+    });
+    engine.onContextRestoredObservable.add(() => {
+      devLog(`[Game] ${backend} context restored — revalidating materials`);
+      background(this.revalidateAfterContextRestore(scene), "Game");
+    });
+    devLog("[Game] Renderer context loss/restore handlers installed");
+  }
+
+  private async revalidateAfterContextRestore(scene: Scene): Promise<void> {
+    if (scene.isDisposed) return;
     try {
-      const { CameraSystem } = await import("../../engine/camera/CameraSystem");
-      const scene = CameraSystem.getInstance().getCamera()?.getScene();
-      if (!scene) return;
-
-      // Babylon forwards both WebGL context events and WebGPU device loss
-      // through these engine observables and performs backend restoration.
-      if (!this._contextLossHandlersInstalled) {
-        const engine = scene.getEngine();
-        engine.onContextLostObservable.add(() => {
-          const backend = engine.isWebGPU ? "WebGPU" : "WebGL";
-          console.error(`[Game] ${backend} context lost — GPU resources destroyed`);
-        });
-        engine.onContextRestoredObservable.add(() => {
-          const backend = engine.isWebGPU ? "WebGPU" : "WebGL";
-          devLog(`[Game] ${backend} context restored — revalidating materials`);
-          void this.revalidateAfterTabReturn();
-        });
-        this._contextLossHandlersInstalled = true;
-        devLog("[Game] Renderer context loss/restore handlers installed");
-      }
-
       const { revalidateMaterials } = await import("../../engine/weapon/EffectPreloader");
       await revalidateMaterials(scene);
       devLog("[Game] Material revalidation complete");
@@ -803,17 +801,19 @@ export class Game {
       this.v2Client = new V2NetworkClient({ tickRate });
 
       // The renderer is created lazily on the first snapshot and then reused for
-      // A campaign mission draws its own models (any other match the
-      // settings') and its crew in green, and its server holds everyone
-      // through the opening countdown
-      const campaign = campaignMatch();
-      forcePlayerModels(campaign?.models ?? null, campaign?.botModels);
-      MatchStateManager.getInstance().setCampaignCountdown(campaign !== null);
-      setCampaignTeammates(campaign !== null);
       // the rest of the process, so a reconnect inherits the previous session's
       // ticks, teams and death state unless the session boundary clears them.
       this.remoteRenderer?.resetSession();
       rerollRandomEnemyModel();
+      // A campaign mission draws its own models (any other match the
+      // settings') and its crew in green, and its server holds everyone
+      // through the opening countdown
+      const campaign = campaignMatch();
+      forcePlayerModels(campaign?.models ?? null, campaign?.botModels, campaign?.botScales);
+      MatchStateManager.getInstance().setCampaignCountdown(campaign !== null);
+      setCampaignTeammates(campaign !== null);
+      // Some missions play a song of their own; every other match the game playlist
+      setMatchPlaylist(campaign ? missionPlaylist(campaign.missionId) : null);
 
       // Tell NetworkGameHost to skip its prediction - V2NetworkClient handles it
       networkHost.setExternalPrediction(true);
@@ -1727,6 +1727,11 @@ export class Game {
     }
     SlideDust.step(dustScene, dtSec);
     SlideDust.flush(dustScene);
+
+    if (!this._contextLossHandlersInstalled) {
+      const lossScene = CameraSystem.getInstance().getCamera()?.getScene();
+      if (lossScene) this.installContextLossHandlers(lossScene);
+    }
 
     // The S&D bomb. Lazily built once there is a scene, and a no-op in every
     // other mode — it hides itself when the objective snapshot has no bomb.

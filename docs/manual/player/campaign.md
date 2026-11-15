@@ -24,7 +24,38 @@ shows how many you have cleared.
 | 02 | Street Riot | `washoi_dm1` | Free for all | Four rioters, Easy |
 | 03 | Concrete Strike | `washoi_snd1` | Search & Destroy | You and four crew attack five riot cops, Medium |
 | 04 | Turf Duel | `washoi_dm2` | Duel | Glitch Queen, Medium |
-| 05-08 | Classified | | | |
+| 05 | Bot Trap | `washoi_dm18` | Survival | Waves of robot guards |
+| 06 | Siege Breaker | `washoi_amphi1` | Amphi | Heavy Siege Bot, two and a half times your size and faster, 200 health and 200 armor, Hard, a new kit every spawn; slime does not hurt it |
+| 07 | Depot Heist | `washoi_snd6` | Search & Destroy | You and four crew attack five spec-ops, Hard |
+| 08 | Road's End | `washoi_dm5` | Team Deathmatch | You alone against the Metropol Police duo, Insane |
+
+**Survival** (Bot Trap): you start with the blade and a machine gun, and arm
+yourself from the map, and you heal a point a second up to 100. Last the five
+minutes without dying to clear it; one death ends the match. The robots come armed in turn: one with a machine gun
+it can aim, the next with a machine gun it can only fire from the hip, the next
+with a grenade launcher, and round again; they pick nothing up. Every robot you kill brings the next, and they get more and
+tougher each minute:
+
+| Minute | Robots at once | Health of a robot spawning then |
+| --- | --- | --- |
+| 1 | 4 | 30 |
+| 2 | 5 | 40 |
+| 3 | 6 | 50 |
+| 4-5 | 7 | 50 |
+
+**Road's End** is a team deathmatch, one against two: first side to 15 frags,
+or the lead after ten minutes.
+
+## Music
+
+The operations page has its own song, the campaign opener, looping. Opening
+the page fades the lobby's music out and the opener in; leaving it, the
+lobby's song comes back from where it paused, and the opener carries on from
+where it paused next time. Three operations play a song of their own in place
+of the match music: Cartel Contract plays *Cartel Dreams*, and Siege Breaker
+and Road's End play *Boss Fight*, each looping. The others, and every match
+outside the campaign, play the usual match music. The lobby's speaker key
+silences the operations page's music too.
 
 ## Playing an operation
 
@@ -37,7 +68,8 @@ done.
 
 There is no warmup and no ready-up: as soon as you enter, a 10-second
 countdown starts ("get ready", then three, two, one), with everyone held at
-their spawn until it reaches zero.
+their spawn until it reaches zero. Over it, a yellow briefing in the upper left
+says what the operation asks: its goal, and the rules that decide it.
 
 In a campaign match you play the robot, and your opponents wear the operation's
 model (the Cartel King is the cartel model, the riot cops are police), whatever
@@ -48,12 +80,14 @@ whatever your colour, tint and outline settings.
 Concrete Strike is a sabotage run: your side attacks in every round, with no
 swap at the half. The first side to win 10 rounds wins the match, by any
 margin: 10-0 at the quickest, or 10-9. The match itself is an ordinary match of its
-mode; when it ends, **Return to lobby** brings you back to the operations page.
+mode; when it ends, **Back to the lobby** brings you back to the operations page.
 
 Win the match to clear the operation and unlock the next one. In free for all,
 winning means finishing first, ahead of everyone; a tie for first is a draw. A
-loss or a draw clears nothing; try again. Like any private match against bots,
-a campaign match counts toward your record and rating.
+loss or a draw clears nothing: **Retry** on the end screen plays the operation
+again at once, without its comic card. Like any private match against bots,
+a campaign match counts toward your record and rating, except Bot Trap and
+Road's End: Survival and team deathmatch have no rating of their own.
 
 A campaign match is yours alone: nobody can join it midway or watch it.
 

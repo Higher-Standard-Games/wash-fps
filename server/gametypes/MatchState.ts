@@ -107,6 +107,8 @@ export class MatchState {
   private _expectsHumans = false;
   /** Campaign match: how many people the lobby seated; null for any other match. */
   private _campaignHumans: number | null = null;
+  /** The side that wins a match by lasting to its time limit (Survival); null for any other match. */
+  private _survivors: TeamId | null = null;
   private _stats: Map<PlayerId, PlayerStats> = new Map();
   private readonly activeMillis = new Map<PlayerId, number>();
   /**
@@ -553,6 +555,51 @@ export class MatchState {
     if (this._phase === MatchPhase.Warmup) this._timeRemaining = this.config.warmupTimeout;
   }
 
+  /** Seconds into the live phase. */
+  get timeElapsed(): number {
+    return this._timeElapsed;
+  }
+
+  /** Replace the score and time limits (seconds) a campaign mission sets for its match. */
+  setLimits(limits: { scoreLimit?: number; timeLimit?: number }): void {
+    this.config = {
+      ...this.config,
+      ...(limits.scoreLimit !== undefined ? { scoreLimit: limits.scoreLimit } : {}),
+      ...(limits.timeLimit !== undefined ? { timeLimit: limits.timeLimit } : {}),
+    };
+  }
+
+  /**
+   * `team` wins the match by lasting to the time limit without a death: when
+   * time runs out it gets a point, or as many as put it one ahead of every
+   * other side, so lasting is a win whatever the frags; a death loses it
+   * (`survivorsFell`).
+   */
+  setSurvivors(team: TeamId): void {
+    this._survivors = team;
+  }
+
+  /**
+   * A survivor (`player`) has died: their side loses at once. The other side
+   * is put one ahead and the match ends. True when that happened; false for
+   * anyone else's death, and outside a live Survival match.
+   */
+  survivorsFell(player: PlayerId): boolean {
+    if (!this._survivors || this._phase !== MatchPhase.Active || this.getPlayerTeam(player) !== this._survivors)
+      return false;
+    const winners: TeamId = this._survivors === "udon" ? "soba" : "udon";
+    this.addTeamScore(winners, this.leadMargin(winners));
+    this.endMatch();
+    return true;
+  }
+
+  /** The points that put `team` one ahead of every other side, and at least one. */
+  private leadMargin(team: TeamId): number {
+    let others = 0;
+    for (const [other, score] of this._teamScores) if (other !== team) others = Math.max(others, score);
+    return Math.max(1, others + 1 - (this._teamScores.get(team) ?? 0));
+  }
+
   /** Whether a countdown holds everyone still: a round mode's freeze, or a campaign's opening. */
   get countdownFreezes(): boolean {
     return this.roundBased || this._campaignHumans !== null;
@@ -804,6 +851,7 @@ export class MatchState {
               this._overtimeCount++;
               console.log(`[MatchState] OVERTIME #${this._overtimeCount} — tied at the limit, +${extension}s`);
             } else {
+              if (this._survivors) this.addTeamScore(this._survivors, this.leadMargin(this._survivors));
               this.transition(MatchPhase.PostGame);
             }
           }
@@ -951,7 +999,21 @@ export class MatchState {
   /**
    * Create a lightweight snapshot for sending to clients
    */
+  /**
+   * Seconds until the next round goes live, through the whole gap between
+   * rounds: the round end, then the next round's freeze. Undefined outside it,
+   * including the first round's freeze, which follows no round.
+   */
+  private nextRoundIn(): number | undefined {
+    if (!this.roundBased) return undefined;
+    const left = Math.max(0, this._timeRemaining);
+    if (this._phase === MatchPhase.RoundEnd) return left + this.config.countdownDuration;
+    if (this._phase === MatchPhase.Countdown && this._round > 1) return left;
+    return undefined;
+  }
+
   toSnapshot(): MatchStateSnapshot {
+    const nextRoundIn = this.nextRoundIn();
     // Convert Maps to Records for simpler JSON serialization
     const teamScoresRec: Record<Exclude<TeamId, "ffa">, number> = {
       udon: this._teamScores.get("udon") || 0,
@@ -990,6 +1052,8 @@ export class MatchState {
       // than per-client directives. Bots read `teamRoles` to pick a behavioural
       // weight profile (BOT_WEIGHTS_AND_GOALS.md §4.3).
       round: this.roundBased ? this._round : undefined,
+      // Only between rounds, so every other snapshot is as it was
+      ...(nextRoundIn !== undefined ? { nextRoundIn } : {}),
       teamRoles: this.roundBased
         ? ({ [this.attackingTeam]: "attacker", [this.defendingTeam]: "defender" } as Record<string, string>)
         : undefined,

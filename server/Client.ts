@@ -10,6 +10,7 @@ import type { AdmissionGrant, AdmissionManifest } from "@engine/server/network/M
 import type { MatchResultReport } from "@engine/server/network/MatchResultReport";
 import type { ClientConnection } from "@engine/server/network/transport/WebSocketTransport";
 import type { GameState } from "../../../engine/network/core/GameState";
+import type { CampaignMatchRules } from "../../../lobby/types";
 import type { BotReference } from "../../../shared/ranking/BotReference";
 
 export interface GameServerConfig {
@@ -46,8 +47,12 @@ export interface GameServerConfig {
    * the mission.
    */
   campaign?: string;
-  /** Campaign S&D: the players' side attacks every round, first to the round limit wins. */
-  campaignSide?: "attack";
+  /**
+   * A campaign match's rules beyond map and gametype: S&D attack only, score
+   * and time limits, survival waves (read when the gametype is made), and
+   * bots bigger than a player, by name.
+   */
+  campaignRules?: CampaignMatchRules;
   /**
    * Record a training demo under this name: from the first human to join until
    * the last one leaves, a frame every server tick, into

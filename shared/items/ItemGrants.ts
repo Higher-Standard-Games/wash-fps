@@ -63,10 +63,11 @@ export function healthAfterPickup(current: number, kind: HealthKind): number {
 }
 
 /**
- * Overheal decay step: while health > HEALTH_MAX, bleed off `rate` HP (default
- * 1/sec) but never below HEALTH_MAX. Call once per second (server tick).
+ * Overheal decay step: while health > `max` (HEALTH_MAX, or a bigger body's
+ * own), bleed off `rate` HP (default 1/sec) but never below it. Call once per
+ * second (server tick).
  */
-export function decayOverheal(current: number, rate = 1): number {
-  if (current <= HEALTH_MAX) return current;
-  return Math.max(HEALTH_MAX, current - rate);
+export function decayOverheal(current: number, rate = 1, max = HEALTH_MAX): number {
+  if (current <= max) return current;
+  return Math.max(max, current - rate);
 }

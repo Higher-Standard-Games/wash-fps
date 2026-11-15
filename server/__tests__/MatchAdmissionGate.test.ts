@@ -140,7 +140,7 @@ describe("game-server match admission", () => {
         keyPath: "",
         matchAdmission: manifest,
         campaign: "concrete-sabotage",
-        campaignSide: "attack",
+        campaignRules: { attack: true },
       },
       new SearchAndDestroy(),
     );

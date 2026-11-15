@@ -1,7 +1,10 @@
 import type { PlayerId } from "@engine/server/ecs/types";
 import { MatchPhase } from "@shared/server/gametype";
 import { describe, expect, it } from "vitest";
+import { Amphi } from "../Amphi";
+import { GametypeController } from "../GametypeController";
 import { CAMPAIGN_START, MatchState } from "../MatchState";
+import { TeamDeathmatch } from "../TeamDeathmatch";
 
 const id = (n: number) => n as PlayerId;
 
@@ -118,5 +121,45 @@ describe("campaign start", () => {
     expect(at(campaign, 9, 9)).toBe(false);
     expect(at(campaign, 9, 10)).toBe(true);
     expect(at(normal, 10, 9)).toBe(false);
+  });
+
+  it("gives a mission's own frag and time limits to both the clock and the frag check", () => {
+    const controller = new GametypeController(new TeamDeathmatch());
+    controller.setCampaignLimits({ scoreLimit: 15, timeLimit: 600 });
+    expect((controller as unknown as { matchConfig: { scoreLimit: number } }).matchConfig.scoreLimit).toBe(15);
+    const state = controller.getMatchState();
+    state.transition(MatchPhase.Active);
+    expect(state.timeRemaining).toBe(600);
+  });
+
+  it("arms a random-kit bot differently at every spawn, and others as before", () => {
+    const controller = new GametypeController(new Amphi());
+    controller.setRandomKits((playerId) => playerId === (7 as PlayerId));
+    const spawn = (playerId: number, tick: number) =>
+      (
+        controller as unknown as {
+          spawnLoadout(playerId: PlayerId, entityId: number, tick: number): { weapons: string[] };
+        }
+      )
+        .spawnLoadout(playerId as PlayerId, 70, tick)
+        .weapons.join();
+    const kits = Array.from({ length: 12 }, (_, i) => spawn(7, 100 + i));
+    for (let i = 1; i < kits.length; i++) expect(kits[i]).not.toBe(kits[i - 1]);
+    expect(new Set(kits).size).toBeGreaterThan(2);
+    // Anyone else keeps one kit spawn after spawn
+    expect(spawn(8, 100)).toBe(spawn(8, 101));
+  });
+
+  it("spawns a boss with its own health and armor over its kit's", () => {
+    const controller = new GametypeController(new Amphi());
+    controller.setSpawnStats((playerId) => (playerId === (7 as PlayerId) ? { health: 150, armor: 150 } : undefined));
+    const spawn = (playerId: number) =>
+      (
+        controller as unknown as {
+          spawnLoadout(playerId: PlayerId, entityId: number, tick: number): { health: number; armor: number };
+        }
+      ).spawnLoadout(playerId as PlayerId, 70, 100);
+    expect(spawn(7)).toMatchObject({ health: 150, armor: 150 });
+    expect(spawn(8)).toMatchObject({ health: 100, armor: 100 });
   });
 });

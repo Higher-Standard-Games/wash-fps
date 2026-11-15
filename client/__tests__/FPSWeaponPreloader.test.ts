@@ -10,6 +10,7 @@ const hitscan = vi.hoisted(() => ({ preparePelletShader: vi.fn(async () => {}) }
 const numbers = vi.hoisted(() => ({ prepareShaders: vi.fn(async () => {}), dispose: vi.fn() }));
 const teleport = vi.hoisted(() => ({ prepare: vi.fn(async () => {}) }));
 const gibs = vi.hoisted(() => ({ prepareShaders: vi.fn(async () => {}), dispose: vi.fn() }));
+const spatter = vi.hoisted(() => ({ init: vi.fn(), prepareShaders: vi.fn(async () => {}) }));
 const lights = vi.hoisted(() => ({ init: vi.fn() }));
 const dust = vi.hoisted(() => ({ prepare: vi.fn(async () => {}) }));
 vi.mock("../SlideDust", () => ({ SlideDust: dust }));
@@ -19,6 +20,7 @@ vi.mock("../../../../engine/weapon/HitscanEffects", () => ({ getHitscanEffects: 
 vi.mock("../DamageNumbers", () => ({ DamageNumbers: { create: () => numbers } }));
 vi.mock("../TeleportEffect", () => ({ TeleportEffect: { getInstance: () => teleport } }));
 vi.mock("../GibSystem", () => ({ GibSystem: { create: () => gibs } }));
+vi.mock("../HitSpatter", () => ({ HitSpatter: { getInstance: () => spatter } }));
 vi.mock("../../../../engine/weapon/PointLightPool", () => ({ getPointLightPool: () => lights }));
 vi.mock("../../../../engine/loader/map/GpuPreparation", () => ({
   sceneGpuReady: vi.fn(),
@@ -60,6 +62,9 @@ describe("map-load weapon preload", () => {
     expect(gibs.prepareShaders).toHaveBeenCalledOnce();
     expect(gibs.dispose).toHaveBeenCalledOnce();
     expect(dust.prepare).toHaveBeenCalledWith(scene, undefined);
+    // Blood and sparks stay built for the match
+    expect(spatter.init).toHaveBeenCalledWith(scene);
+    expect(spatter.prepareShaders).toHaveBeenCalledOnce();
   });
 
   it("reports its progress from none to all of its steps, in order", async () => {

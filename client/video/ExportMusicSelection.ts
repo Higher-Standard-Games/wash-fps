@@ -1,6 +1,8 @@
 export interface ExportMusicSelection {
   path: string;
   startSeconds: number;
+  /** A full match: the chosen song again from its top each time it ends, in place of the game's songs. */
+  loop?: boolean;
 }
 
 export interface ExportMusicChoice {
@@ -65,6 +67,7 @@ export function matchMusicSchedule(
   playlist: ReadonlyArray<{ path: string; seconds: number }>,
   movieSeconds: number,
   random: () => number = Math.random,
+  loop = false,
 ): MusicSegment[] {
   musicPlaybackWindow(first.seconds, first.startSeconds, movieSeconds);
   const segments: MusicSegment[] = [];
@@ -76,7 +79,8 @@ export function matchMusicSchedule(
   };
   play(first.path, first.startSeconds, first.seconds);
   const same = (path: string) => path.toLowerCase() === first.path.toLowerCase();
-  const turns = playlist.filter((song) => !same(song.path) && song.seconds >= SHORTEST_SONG_SECONDS);
+  // Looping, the chosen song is the only one that follows
+  const turns = loop ? [] : playlist.filter((song) => !same(song.path) && song.seconds >= SHORTEST_SONG_SECONDS);
   if (turns.length === 0 && first.seconds >= SHORTEST_SONG_SECONDS) turns.push(first);
   for (let i = turns.length - 1; i > 0; i--) {
     const j = Math.floor(random() * (i + 1));

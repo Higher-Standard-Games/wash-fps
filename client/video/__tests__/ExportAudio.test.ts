@@ -107,4 +107,22 @@ describe("offline game sound timeline", () => {
     expect(await sink.playLoop3D("beam", null, {}, controller.signal)).toBeNull();
     expect(sink.snapshot(1).cues).toHaveLength(0);
   });
+
+  it("hears a campaign video's comic intro too: a listener every frame from the first", () => {
+    const camera = { position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: -1 }, up: { x: 0, y: 1, z: 0 } };
+    const record = (sampleIntro: boolean) => {
+      const capture = new ExportAudioCapture(async () => {}, 25 * 60);
+      capture.begin();
+      // 120 frames of comic, then 120 of match, at 60 a second
+      for (let i = 0; i < 240; i++) {
+        capture.setTime(i / 60, 1);
+        if (i >= 120 || sampleIntro) capture.sampleListener(camera);
+      }
+      const plan = capture.snapshot(4);
+      return () => new ExportAudioTimeline(plan.listeners, plan.duration);
+    };
+    // Skipping the comic's frames left the first sample late, and the mix refused the movie
+    expect(record(false)).toThrow("Invalid audio movie duration");
+    expect(record(true)).not.toThrow();
+  });
 });

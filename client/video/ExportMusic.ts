@@ -10,7 +10,9 @@ import {
 } from "./ExportMusicSelection";
 import { abortable } from "./MovieClock";
 
-const SOUNDTRACK_PACKAGE = "washoi_soundtrack.pk3";
+/** The packages whose songs an export may use: the OST, and the campaign's songs. */
+const SOUNDTRACK_PACKAGES = ["washoi_soundtrack.pk3", "washoi_campaign_soundtrack.pk3"];
+const isSoundtrack = (pk3: string | null | undefined) => !!pk3 && SOUNDTRACK_PACKAGES.includes(pk3.toLowerCase());
 const MAX_MUSIC_BYTES = 32 * 1024 * 1024;
 const MAX_MUSIC_PCM_BYTES = 192 * 1024 * 1024;
 /** The songs a match plays, shuffled. */
@@ -28,14 +30,14 @@ export async function loadExportMusicChoices(signal: AbortSignal): Promise<Expor
   signal.throwIfAborted();
   return index
     .findByPattern("*.mp3")
-    .filter(({ pk3 }) => pk3.toLowerCase() === SOUNDTRACK_PACKAGE)
+    .filter(({ pk3 }) => isSoundtrack(pk3))
     .map(({ file }) => ({ path: file, title: soundtrackTitle(file) }))
     .sort((a, b) => a.title.localeCompare(b.title));
 }
 
 /** Decode one OST song, within the music budgets. */
 async function decodeSong(path: string, signal: AbortSignal): Promise<AudioBuffer> {
-  if (PK3Index.getInstance().findFile(path)?.toLowerCase() !== SOUNDTRACK_PACKAGE)
+  if (!isSoundtrack(PK3Index.getInstance().findFile(path)))
     throw new Error("The selected song is not in the OST package.");
   const bytes = await abortable(AudioManager.getInstance().readSfxBytes(path), signal);
   if (bytes.byteLength > MAX_MUSIC_BYTES) throw new Error("The selected song exceeds the music-file budget.");
@@ -60,7 +62,7 @@ export async function prepareExportMusic(
 
 /**
  * A whole match's music: the selected song, then the game playlist's songs in
- * a shuffled turn until `movieSeconds`. Each song is decoded once here for its
+ * a shuffled turn until `movieSeconds`; looping, the selected song again instead. Each song is decoded once here for its
  * length, and again by the mix only while it sounds.
  */
 export async function prepareMatchMusic(
@@ -87,6 +89,8 @@ export async function prepareMatchMusic(
     { path: selection.path, startSeconds: selection.startSeconds, seconds: lengths.get(selection.path)! },
     paths.map((path) => ({ path, seconds: lengths.get(path)! })),
     movieSeconds,
+    Math.random,
+    selection.loop === true,
   );
   return { segments, load: decodeSong };
 }

@@ -181,6 +181,26 @@ export abstract class BaseGametype {
   /** GameServer tells the mode which players are people's, for modes that treat them differently. */
   setPersonCheck(_check: (entityId: number) => boolean): void {}
 
+  /** Tells the gametype which players are bots, by player id. The controller sets it. */
+  setBotCheck(_check: (playerId: PlayerId) => boolean): void {}
+
+  /** Tells the gametype the seconds played of the live match, for rules that change as it goes. The controller sets it. */
+  setMatchClock(_clock: () => number): void {}
+
+  /** Whether this player may pick up items (weapons, ammo, armor, health, powerups, dropped weapons). */
+  mayPickUp(_entityId: number): boolean {
+    return true;
+  }
+
+  /**
+   * Whether a dead player may come back now. Normally always; a gametype that
+   * keeps some of its players out (Survival's waves) holds them in the
+   * respawn queue until it lets them in.
+   */
+  mayRespawn(_entityId: number, _state: WorldState, _elapsedSeconds: number): boolean {
+    return true;
+  }
+
   /** A team chat line from a player, for modes that take calls from it. */
   onTeamChat(_entityId: number, _team: string, _text: string): void {}
 

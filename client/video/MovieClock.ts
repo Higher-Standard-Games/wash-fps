@@ -6,7 +6,9 @@ export const MATCH_MAX_SECONDS = 20 * 60;
 /** After a full match's last frame: the fade to black and the end card held. */
 export const MATCH_END_SECONDS = 5;
 /** The longest full-match movie: the longest recording and its end. */
-export const MATCH_MOVIE_MAX_SECONDS = MATCH_MAX_SECONDS + MATCH_END_SECONDS;
+/** Room for a campaign demo's comic card before its match. */
+export const MATCH_INTRO_MAX_SECONDS = 60;
+export const MATCH_MOVIE_MAX_SECONDS = MATCH_MAX_SECONDS + MATCH_END_SECONDS + MATCH_INTRO_MAX_SECONDS;
 
 /** Integer timestamps from a frame index avoid cumulative rounding drift. */
 export function movieFrame(index: number, fps = MOVIE_FPS) {

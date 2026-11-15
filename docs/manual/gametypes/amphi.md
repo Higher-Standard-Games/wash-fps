@@ -16,11 +16,15 @@ kills and receive their selected weapon set on each spawn.
 | Tied round | +1 minute overtime, repeated until one player leads at expiry |
 | Warmup | 2 minutes |
 | Countdown | 5 seconds |
-| Between rounds | 4 seconds |
+| Between rounds | 4 seconds, then the next round's 5-second freeze |
 | Post-game | 15 seconds |
 | Player respawn | 2 s minimum, 4 s automatic |
 | Self damage | Full |
 | Spawns | Furthest from the opponent |
+
+Between rounds the screen dims over the gap: the round's winner on a gold
+plate, the rounds each player has, and a count down to the next round going
+live.
 
 ## Picking a kit
 

@@ -25,6 +25,8 @@ const GAMETYPE_NAMES: Record<string, string> = {
   duel: "Duel",
   ffa: "Free For All",
   snd: "Search & Destroy",
+  tdm: "Team Deathmatch",
+  survival: "Survival",
 };
 
 /** The squad, cut out, to stand on the street in the page's banner. */
@@ -187,7 +189,7 @@ export class CampaignView {
     row.append(node);
 
     const art = el("div", "campaign-card__art");
-    if (story) {
+    if (story?.card) {
       const img = el("img", "campaign-card__img");
       // The whole card, at the size it is shown: the thumbnail on most screens, the full card on wide ones
       img.src = story.card.thumb;
@@ -199,6 +201,8 @@ export class CampaignView {
       art.append(img);
     }
     if (status === "locked") art.append(el("span", "campaign-card__stamp", "Classified"));
+    // An operation whose art is still being drawn shows its number in its place
+    else if (!story?.card) art.append(el("span", "campaign-card__stamp", `Operation ${two(number)}`));
     row.append(art);
 
     const info = el("div", "campaign-card__info");

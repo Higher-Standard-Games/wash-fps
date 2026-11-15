@@ -24,7 +24,7 @@ import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "../../../../shared/serve
 import type { WaterLevel } from "../../liquid/LiquidTypes";
 import { applyKnockbackDrag } from "../../simulation/Knockback";
 import type { AdvancedMovementResult } from "../../simulation/MovementConfig";
-import { MovementProfile as FPSMovementProfile } from "../../simulation/MovementProfile";
+import { DEFAULT_FPS_MOVEMENT_CONFIG, MovementProfile as FPSMovementProfile } from "../../simulation/MovementProfile";
 import { debugEnabled, debugLog } from "../DebugLog";
 import { type CombatSystem, DamageType, HitLocation } from "./CombatSystem";
 import { createLiquidEffectState, type LiquidEffectState, tickLiquidEffects } from "./LiquidWorldEffects";
@@ -204,6 +204,10 @@ export class FPSMovementSubsystem extends Subsystem {
 
   /** Per-entity speed bonus from weapon (e.g., +25 for blade) */
   private weaponSpeedBonuses: Map<number, number> = new Map();
+  /** How many times the normal speed each player moves at (a campaign boss); 1 for everyone else. */
+  private speedFactor: (entityId: EntityId) => number = () => 1;
+  /** Players slime and lava do not burn (a campaign boss), by entity. */
+  private liquidImmune: (entityId: EntityId) => boolean = () => false;
 
   /** Per-player air and burn timers. Dropped on death, so a respawn breathes. */
   private liquidEffects: Map<number, LiquidEffectState> = new Map();
@@ -502,7 +506,7 @@ export class FPSMovementSubsystem extends Subsystem {
 
     const effect = tickLiquidEffects(state, physics.waterLevel, isLava, isSlime, dt);
 
-    if (effect.burnDamage > 0) {
+    if (effect.burnDamage > 0 && !this.liquidImmune(entityId)) {
       this.combatSystem?.queueDamage({
         victimId: entityId,
         attackerId: entityId,
@@ -665,6 +669,16 @@ export class FPSMovementSubsystem extends Subsystem {
   /**
    * Set a per-entity speed bonus (called by WeaponSystem based on equipped weapon).
    */
+  /** Tell movement which players slime and lava do not burn, by entity. */
+  setLiquidImmune(immune: (entityId: EntityId) => boolean): void {
+    this.liquidImmune = immune;
+  }
+
+  /** Tell movement which players move faster than normal, by entity. */
+  setSpeedFactor(factor: (entityId: EntityId) => number): void {
+    this.speedFactor = factor;
+  }
+
   setSpeedBonus(entityId: number, bonus: number): void {
     this.weaponSpeedBonuses.set(entityId, bonus);
   }
@@ -807,6 +821,9 @@ export class FPSMovementSubsystem extends Subsystem {
       const profile = this.getProfile(entity.id);
       // Apply weapon speed bonus (e.g., blade = +25)
       profile.speedBonus = this.weaponSpeedBonuses.get(entity.id as number) ?? 0;
+      // A bigger body's stride: the extra speed of its factor, at running pace
+      const factor = this.speedFactor(entity.id);
+      if (factor !== 1) profile.speedBonus += (factor - 1) * DEFAULT_FPS_MOVEMENT_CONFIG.runSpeed;
 
       // ── SERVER-AUTHORITATIVE MOVEMENT: ONE STEP PER COMMAND ──────────────
       // Each command the client predicted is one movement step here, so the

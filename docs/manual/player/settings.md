@@ -215,7 +215,7 @@ green-weak or blue-yellow eye sees it. It is console-only and is not saved.
 
 ## Audio
 
-Two cards, **Music** and **Effects**, each with an on/off switch and a volume from 0 to 100% (`s_musicenabled` / `s_volume`, and `s_sfxenabled` / `s_sfxvolume`). Your music choice applies from startup: with music off, no map, lobby or menu starts a playlist, and turning it back on resumes the current one. To silence only the lobby's music, press the speaker key beside **Credits** on the Play page: it stays down while the lobby music is off, match music still plays, and your browser remembers the choice.
+Two cards, **Music** and **Effects**, each with an on/off switch and a volume from 0 to 100% (`s_musicenabled` / `s_volume`, and `s_sfxenabled` / `s_sfxvolume`). Your music choice applies from startup: with music off, no map, lobby or menu starts a playlist, and turning it back on resumes the current one. To silence only the lobby's music, press the speaker key beside **Credits** on the Play page: it stays down while the lobby music is off (the campaign page's music included), match music still plays, and your browser remembers the choice.
 
 The **Mix** card separately adjusts Effects, Players, Hit sound and Announcer (`cg_volume_effects`, `cg_volume_players`, `cg_volume_hitsound`, `cg_volume_announcer`) as shares of the Effects volume.
 
@@ -233,6 +233,7 @@ A few settings have no screen yet:
 | `cg_bobfrequency` | 0.03 | Bob speed, 0.01 – 0.06; higher is faster footsteps |
 | `cg_bobroll` | 0.35 | Roll tilt during the bob, in degrees, 0 – 2 |
 | `cg_boblean` | 1.0 | Forward lean while running fast, in degrees, 0 – 5 |
+| `cl_blood_splats` | 1 | Blood from hits leaves splats on the floor for a few seconds; 0 turns them off (the flying blood stays) |
 | `cl_gun` | 1 | Draws your own first-person gun; 0 hides it. Other players' guns are unaffected |
 | `cg_weaponfov` | 60 | Field of view of your own first-person gun, 50 – 120 degrees; higher draws it smaller and further away |
 | `cl_interp` | 0 | Snapshot interpolation delay in ms; 0 picks it automatically |

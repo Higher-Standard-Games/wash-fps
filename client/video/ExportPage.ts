@@ -58,6 +58,7 @@ document.body.innerHTML = `<div class="video-export-shell lobby-guide"><main cla
         <label class="video-export-label" for="video-export-song-start">Start from</label>
         <input id="video-export-song-start" type="text" value="0:00" placeholder="m:ss" aria-describedby="video-export-music-help" disabled>
       </div>
+      <label class="video-export-loop"><input id="video-export-loop" type="checkbox" disabled> Loop the song</label>
       <p id="video-export-music-help" class="video-export-help">Loading OST song list…</p>
     </div>
   </div>
@@ -84,6 +85,7 @@ const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
 const musicSelect = document.querySelector<HTMLSelectElement>("#video-export-music")!;
 const songStart = document.querySelector<HTMLInputElement>("#video-export-song-start")!;
 const musicHelp = document.querySelector<HTMLElement>("#video-export-music-help")!;
+const loopSong = document.querySelector<HTMLInputElement>("#video-export-loop")!;
 const catalogue = new AbortController();
 let musicReady = false;
 const sourceLabel = document.querySelector<HTMLElement>(".source")!;
@@ -161,6 +163,7 @@ function sync() {
     : "1080p · 60 FPS · MP4 · stereo game audio";
   musicSelect.disabled = !musicReady || busy;
   songStart.disabled = !musicSelect.value || busy;
+  loopSong.disabled = !musicSelect.value || busy || kind !== "match";
   cancel.disabled = !controller && !saveController;
   download.disabled = !result || saving;
   discard.disabled = !result || saving;
@@ -403,9 +406,10 @@ input.addEventListener("change", () => {
 /** The music line, for the chosen song and the kind of video. */
 function musicHelpText(): string {
   if (!musicSelect.value) return "Game audio only. Choose a song to add the OST.";
-  return kind === "match"
-    ? "Timestamp in the song. When it ends, the game's songs follow in a shuffled order, as in a match."
-    : "Timestamp in the song. Music plays continuously at normal speed.";
+  if (kind !== "match") return "Timestamp in the song. Music plays continuously at normal speed.";
+  return loopSong.checked
+    ? "Timestamp in the song. When it ends, it starts again from its top, for the whole match."
+    : "Timestamp in the song. When it ends, the game's songs follow in a shuffled order, as in a match.";
 }
 
 kindSelect.addEventListener("change", () => {
@@ -424,7 +428,11 @@ generate.addEventListener("click", () => {
   let music: ExportMusicSelection | undefined;
   if (musicSelect.value) {
     try {
-      music = { path: musicSelect.value, startSeconds: parseSongStart(songStart.value) };
+      music = {
+        path: musicSelect.value,
+        startSeconds: parseSongStart(songStart.value),
+        ...(kind === "match" && loopSong.checked ? { loop: true } : {}),
+      };
     } catch (error) {
       songStart.setCustomValidity(error instanceof Error ? error.message : "Choose a valid song timestamp.");
       songStart.reportValidity();
@@ -442,6 +450,9 @@ generate.addEventListener("click", () => {
     );
 });
 songStart.addEventListener("input", () => songStart.setCustomValidity(""));
+loopSong.addEventListener("change", () => {
+  musicHelp.textContent = musicHelpText();
+});
 musicSelect.addEventListener("change", () => {
   songStart.setCustomValidity("");
   musicHelp.textContent = musicHelpText();

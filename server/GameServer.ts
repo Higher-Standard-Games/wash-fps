@@ -68,6 +68,7 @@ import { CombatSystem } from "./systems/CombatSystem";
 import { DroppedWeaponSystem } from "./systems/DroppedWeaponSystem";
 // Subsystems
 import { FPSMovementSubsystem } from "./systems/FPSMovementSubsystem";
+import { bodySpeedFactor } from "./systems/HitScale";
 import { PickupSystem } from "./systems/PickupSystem";
 import { ProjectileSystem } from "./systems/ProjectileSystem";
 import { WeaponSystem } from "./systems/WeaponSystem";
@@ -171,6 +172,8 @@ export class GameServer {
   private needsPickupSync: Set<string> = new Set();
   /** Bot player ID → display name */
   private botNames: Map<PlayerId, string> = new Map();
+  /** Campaign bots bigger than a player, by name (`--campaign-rules` scales). */
+  private readonly campaignScales = new Map<string, number>();
   /** Timeouts: while paused the loop stands still; see MatchPause. */
   private readonly pause = new MatchPause();
   /** A timeout called for a dropped player ran out: their seat goes when play resumes. */
@@ -298,6 +301,12 @@ export class GameServer {
     // inside it rewinds by the wrong amount.
     this.lagCompensation = new LagCompensation({ ...LAG_COMPENSATION, tickRate: config.tickRate });
     this.weaponSystem.setLagCompensation(this.lagCompensation, this.timing.ticksPerSnapshot);
+    // A campaign boss is bigger to hit as well as to see
+    const hitScale = (entityId: EntityId) => this.campaignScaleOf(entityId);
+    this.lagCompensation.setCapsuleScale(hitScale);
+    this.weaponSystem.setHitScale(hitScale);
+    this.projectileSystem.setHitScale(hitScale);
+    this.physicsSystem.setSpeedFactor((entityId) => bodySpeedFactor(this.campaignScaleOf(entityId)));
     this.combatSystem = new CombatSystem();
     this.pickupSystem = new PickupSystem();
     this.droppedWeaponSystem = new DroppedWeaponSystem();
@@ -343,6 +352,7 @@ export class GameServer {
       return false;
     });
     this.gametypeController.setSubsystems(this.combatSystem, this.weaponSystem);
+    this.pickupSystem.setPickupFilter((entityId) => gt.mayPickUp(entityId));
     this.gametypeController.setMatchStartReset((state, tickNum) => this.resetWorldForMatch(state, tickNum));
     // Per-match server mode: post-game is terminal (lobby return flow).
     this.gametypeController.setMatchFlow(this.config.singleMatch ? "single" : "continuous");
@@ -352,9 +362,44 @@ export class GameServer {
       const people = new Set(grants.filter((grant) => !grant.isBot).map((grant) => grant.seatId ?? grant.tokenHash))
         .size;
       this.gametypeController.setCampaignStart(people);
-      if (this.config.campaignSide === "attack") {
-        const side = normalizeTeamId(grants.find((grant) => !grant.isBot)?.team);
-        if (side === "udon" || side === "soba") this.gametypeController.setCampaignAttackers(side);
+      const rules = this.config.campaignRules ?? {};
+      // The players' side, from their seats: who attacks, or who survives
+      const side = normalizeTeamId(grants.find((grant) => !grant.isBot)?.team);
+      const playersSide = side === "udon" || side === "soba" ? side : null;
+      if (rules.attack && playersSide) this.gametypeController.setCampaignAttackers(playersSide);
+      if (rules.survival && playersSide) this.gametypeController.setSurvivors(playersSide);
+      if (rules.scoreLimit !== undefined || rules.timeLimit !== undefined) {
+        this.gametypeController.setCampaignLimits({ scoreLimit: rules.scoreLimit, timeLimit: rules.timeLimit });
+      }
+      for (const [name, scale] of Object.entries(rules.scales ?? {})) {
+        if (Number.isFinite(scale) && scale > 0) this.campaignScales.set(name, scale);
+      }
+      const spawnStats = new Map(Object.entries(rules.spawnStats ?? {}));
+      if (spawnStats.size) {
+        this.gametypeController.setSpawnStats((playerId) => {
+          for (const client of this.clients.values()) {
+            if (client.playerId === playerId) return client.isBot ? spawnStats.get(client.playerName) : undefined;
+          }
+          return undefined;
+        });
+      }
+      const slimeImmune = new Set(rules.slimeImmune ?? []);
+      if (slimeImmune.size) {
+        this.physicsSystem.setLiquidImmune((entityId) => {
+          for (const client of this.clients.values()) {
+            if (client.entityId === entityId) return client.isBot === true && slimeImmune.has(client.playerName);
+          }
+          return false;
+        });
+      }
+      const randomKits = new Set(rules.randomKits ?? []);
+      if (randomKits.size) {
+        this.gametypeController.setRandomKits((playerId) => {
+          for (const client of this.clients.values()) {
+            if (client.playerId === playerId) return client.isBot === true && randomKits.has(client.playerName);
+          }
+          return false;
+        });
       }
     }
 
@@ -663,6 +708,15 @@ export class GameServer {
     const pvs = new ServerPVS(data);
     this.broadcaster.setPVS(pvs);
     debugLog("setup", () => `[GameServer] PVS configured: ${pvs.numClusters} clusters, enabled: ${pvs.enabled}`);
+  }
+
+  /** How many times a player's size this entity is: a campaign boss by its name, everyone else 1. */
+  private campaignScaleOf(entityId: EntityId): number {
+    if (this.campaignScales.size === 0) return 1;
+    for (const client of this.clients.values()) {
+      if (client.entityId === entityId) return this.campaignScales.get(client.playerName) ?? 1;
+    }
+    return 1;
   }
 
   getGametypeController(): GametypeController {

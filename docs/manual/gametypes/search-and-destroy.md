@@ -61,6 +61,16 @@ and their collision after the map's authored delay, revealing the damaged layout
 and throwing debris. The next round restores the intact site. Spectators joining
 after the explosion see the damaged layout without replaying old debris.
 
+The bomb is an EMP charge that glows purple, with a rippling lightning disc on
+each side. The carrier wears it on their back, where it glows brightest and
+casts a purple light (with `r_dynamiclight 1`, the default), so the carrier can be
+picked out at a distance. A dropped bomb bobs and turns above the floor.
+
+Wherever the bomb lies, a slowly turning glow on the floor around it, fading
+out to its edge, marks the 100 u in which it can be armed or defused: purple
+while it lies loose, amber once planted, and red and pulsing once armed,
+turning faster as the fuse runs down. An armed bomb also flashes on every beep.
+
 Attackers hear “in place” when the bomb is set down. Both sides hear the planted
 announcement when arming completes and the fuse starts.
 
@@ -141,9 +151,13 @@ Search & Destroy adds its own HUD elements:
   defender.
 - **Round timer and team scores** — the round clock, not a match clock.
 - **Site markers** — the two sites are marked in the world.
-- **Phase messages** — freeze, round start, round result.
-
-There is no countdown number during the freeze; the beep is the clock.
+- **Phase messages** — freeze, round start.
+- **Round intermission** — from a round's end to the next round going live,
+  the screen dims: what ended the round (bomb detonated, defused, time up), the
+  winning team on a gold plate, both teams' rounds, and "Get ready for the next
+  round" counting down the seconds left. It lifts as the round starts. A
+  detonation plays out for a second and a half before it comes up. The loadout
+  picker opens over it.
 
 ## Bots
 

@@ -102,6 +102,18 @@ describe("machinegun spread", () => {
     for (const angle of angles) expect(angle).toBeLessThanOrEqual(MACHINEGUN.spreadBloom!.adsMaxSpread + 1e-6);
   });
 
+  it("keeps the hip's spread when the spawn kit disables aiming down sights", () => {
+    const noSights = new WeaponSystem();
+    noSights.initializeWeaponFromLoadout(
+      1 as never,
+      { weapons: ["machinegun"], ammo: { machinegun: 999 }, health: 100, armor: 0, adsDisabled: true } as never,
+    );
+    const aimed = burst(noSights, 12, FIRE_BUTTON | ALT_FIRE_BUTTON);
+    const hip = burst(armed("machinegun"), 12);
+    // Holding aim changes nothing: the very shots a hipfire burst makes
+    expect(aimed.map((f) => [f.dirX, f.dirY, f.dirZ])).toEqual(hip.map((f) => [f.dirX, f.dirY, f.dirZ]));
+  });
+
   it("is the same shot for the same tick and shooter (demos and the re-sim reproduce it)", () => {
     const a = burst(armed("machinegun"), 6);
     const b = burst(armed("machinegun"), 6);

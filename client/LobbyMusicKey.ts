@@ -6,6 +6,10 @@
 
 import { AudioManager } from "../../../engine/AudioManager";
 import { MENU_PLAYLIST } from "../../../engine/audio/MenuPlaylist";
+import { CAMPAIGN_MENU_PLAYLIST } from "./campaign/CampaignMusic";
+
+/** The menus' playlists the key silences: the lobby's, and the campaign page's. */
+const MENU_PLAYLISTS = [MENU_PLAYLIST, CAMPAIGN_MENU_PLAYLIST];
 
 export const LOBBY_MUSIC_PREFERENCE = "washoi.lobby.musicMuted";
 
@@ -27,7 +31,7 @@ export function lobbyMusicMuted(): boolean {
 
 /** Mute or unmute the menus' music, and remember it. */
 export function setLobbyMusicMuted(muted: boolean): void {
-  AudioManager.getInstance().setPlaylistMuted(MENU_PLAYLIST, muted);
+  for (const playlist of MENU_PLAYLISTS) AudioManager.getInstance().setPlaylistMuted(playlist, muted);
   try {
     if (muted) localStorage.setItem(LOBBY_MUSIC_PREFERENCE, "true");
     else localStorage.removeItem(LOBBY_MUSIC_PREFERENCE);
@@ -48,7 +52,7 @@ export function createLobbyMusicKey(): HTMLButtonElement {
     key.innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">${muted ? SPEAKER_MUTED : SPEAKER}</svg>`;
   };
   const muted = lobbyMusicMuted();
-  AudioManager.getInstance().setPlaylistMuted(MENU_PLAYLIST, muted);
+  for (const playlist of MENU_PLAYLISTS) AudioManager.getInstance().setPlaylistMuted(playlist, muted);
   render(muted);
   key.addEventListener("click", () => {
     const next = key.getAttribute("aria-pressed") !== "true";

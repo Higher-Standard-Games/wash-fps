@@ -134,8 +134,9 @@ export class FPSPhaseMessage implements FPSHudWidget {
       );
     }
 
-    // During countdown: update the number with re-triggered animation
-    if (mgr.isCountdown()) {
+    // During countdown: update the number with re-triggered animation. Between
+    // rounds the intermission overlay counts down instead (FPSRoundResult)
+    if (mgr.isCountdown() && mgr.nextRoundIn === null) {
       const num = mgr.getCountdownNumber();
       if (num !== this.lastCountdown && num > 0) {
         this.lastCountdown = num;

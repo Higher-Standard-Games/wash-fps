@@ -265,7 +265,11 @@ export class HUDState {
     // calls everyone "spectator"; anyone with a body in the game is playing.
     const sideOf = (rawPlayerId: string) => (this.teamBased ? matchState.playerTeams?.[rawPlayerId] : undefined);
 
+    // A player the match holds out of play for now (a Survival robot waiting
+    // for its wave) is on the spectator roster too: listed there, not on a side
+    const waiting = new Set(matchState.spectators.map((spec) => spec.playerId));
     for (const [playerId, player] of state.players) {
+      if (waiting.has(playerId)) continue;
       const teamId = sideOf(clientKeyDisplayId(playerId));
       const standing = matchState.standings.find((entry) => entry.playerId === playerId);
       const final = matchState.isPostGame() ? standing : undefined;

@@ -11,6 +11,7 @@ import { initializeEntityDefs } from "../shared/entities";
 import { WEAPONS } from "../shared/entities/definitions/weapons/WeaponsTable";
 import { DamageNumbers } from "./DamageNumbers";
 import { GibSystem } from "./GibSystem";
+import { HitSpatter } from "./HitSpatter";
 import { SlideDust } from "./SlideDust";
 import { TeleportEffect } from "./TeleportEffect";
 
@@ -47,8 +48,8 @@ export async function preloadFPSWeapons(
   const view = preparedView ?? getWeaponViewManager();
   view.init(scene, camera);
   const weaponIds = Object.values(WEAPONS).map((weapon) => weapon.id);
-  // Each weapon, the projectiles, the six effects and the final GPU check.
-  const total = weaponIds.length + 8;
+  // Each weapon, the projectiles, the seven effects and the final GPU check.
+  const total = weaponIds.length + 9;
   let done = 0;
   const step = () => onProgress?.(++done, total);
   onProgress?.(0, total);
@@ -66,7 +67,7 @@ export async function preloadFPSWeapons(
   await getProjectileManager().prepare(scene, [...projectiles], signal);
   step();
   // What a fight draws first: slash trails, pellets, damage numbers, the
-  // teleport afterimage, gibs and slide dust. Their shaders compile here.
+  // teleport afterimage, gibs, slide dust and hit spatter. Their shaders compile here.
   await warmEffect("slash trail", () => view.prepareEffectShaders(signal), signal);
   step();
   await warmEffect("pellets", () => getHitscanEffects().preparePelletShader(signal), signal);
@@ -83,6 +84,11 @@ export async function preloadFPSWeapons(
     await warmEffect("gibs", () => gibs.prepareShaders(signal), signal);
     step();
     await warmEffect("slide dust", () => SlideDust.prepare(scene, signal), signal);
+    step();
+    // Blood and sparks stay built for the match: the system keeps its meshes per scene
+    const spatter = HitSpatter.getInstance();
+    spatter.init(scene);
+    await warmEffect("hit spatter", () => spatter.prepareShaders(signal), signal);
     step();
     // Compiled is not drawn: WebGPU builds a render pipeline on a mesh's first
     // draw. Everything hidden now (unheld weapons, pooled effects, projectile

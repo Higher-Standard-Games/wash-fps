@@ -26,6 +26,7 @@ import {
   type ArmorKind,
   armorAfterPickup,
   decayOverheal,
+  HEALTH_MAX,
   type HealthKind,
   healthAfterPickup,
 } from "../../shared/items/ItemGrants";
@@ -113,6 +114,9 @@ export class PickupSystem extends Subsystem {
   private readonly VERTICAL_RANGE_MIN = -48;
   private readonly VERTICAL_RANGE_MAX = 96;
 
+  /** Who may pick things up; everyone unless the gametype says otherwise. */
+  private mayPickUp: (entityId: EntityId) => boolean = () => true;
+
   // Track USE button edge detection per player (prevent multi-pickup)
   private useButtonPrev: Map<EntityId, boolean> = new Map();
 
@@ -125,6 +129,11 @@ export class PickupSystem extends Subsystem {
    */
   setWeaponSystem(ws: WeaponSystem): void {
     this.weaponSystem = ws;
+  }
+
+  /** Install the gametype's check on who may pick up items. */
+  setPickupFilter(mayPickUp: (entityId: EntityId) => boolean): void {
+    this.mayPickUp = mayPickUp;
   }
 
   /**
@@ -326,12 +335,12 @@ export class PickupSystem extends Subsystem {
       }
     }
 
-    // Overheal decay: once per second, bleed overhealed players
-    // (health > 100) back toward 100 at 1 HP/s.
+    // Overheal decay: once per second, bleed overhealed players (health > 100,
+    // or a player's own bigger maximum) back toward it at 1 HP/s.
     if (tickNum % TICK_RATE === 0) {
       for (const player of state.entitiesByType(EntityType.Player)) {
         if (!player.health || player.health.dead) continue;
-        const health = decayOverheal(player.health.health, 1);
+        const health = decayOverheal(player.health.health, 1, Math.max(HEALTH_MAX, player.health.maxHealth));
         // Write through the copy-on-write handle (and only on a change): the
         // entity from entitiesByType() may still be shared with an earlier tick
         if (health !== player.health.health) {
@@ -348,6 +357,7 @@ export class PickupSystem extends Subsystem {
     // Check each player against each active pickup
     for (const player of state.entitiesByType(EntityType.Player)) {
       if (!player.transform || !player.input || !player.health || player.health.dead) continue;
+      if (!this.mayPickUp(player.id)) continue;
 
       const px = player.transform.position.x;
       const py = player.transform.position.y;

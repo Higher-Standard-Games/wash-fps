@@ -245,6 +245,8 @@ export class ItemGoalPlanner {
       maxDistance: options.maxDistance,
       timing: weights.itemTiming > 0,
     });
+    // A Survival robot may pick nothing up (the server refuses it), so no item is a goal
+    if (state.matchState.gametypeName === "Survival") candidates = [];
     if (options.typeFilter) {
       const allowed = options.typeFilter;
       candidates = candidates.filter((c) => c.item !== undefined && allowed.has(c.item.type));

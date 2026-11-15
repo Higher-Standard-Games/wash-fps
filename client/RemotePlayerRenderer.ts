@@ -8,6 +8,7 @@ import {
 import { decodeLook } from "../shared/players/PlayerLook";
 import {
   forcedModelForName,
+  forcedScaleForName,
   PLAYER_MODEL_VOICES,
   playerModelChoice,
   registerPlayerModelSelection,
@@ -538,7 +539,9 @@ export class RemotePlayerRenderer {
   private createModelInstance(entityId: string): PlayerModelInstance | null {
     if (!this.modelManager?.isLoaded) return null;
     const choice = this.modelChoiceFor(entityId);
-    const instance = this.modelManager.createInstance(entityId, MODEL_SCALE, choice === "police" ? undefined : choice);
+    // A campaign boss is drawn bigger than a player
+    const scale = MODEL_SCALE * forcedScaleForName(this.names.get(entityId));
+    const instance = this.modelManager.createInstance(entityId, scale, choice === "police" ? undefined : choice);
     if (instance) instance.modelKey = choice;
     if (instance) {
       // Explicit opt-in for the engine's optional near-water reflection layer.
@@ -583,6 +586,11 @@ export class RemotePlayerRenderer {
       forcedModelForName(this.names.get(entityId)) ??
       playerModelChoice(this.isOwnBody(entityId) || this.resolvePlayerTeamSlot(entityId) === "ally" ? "ally" : "enemy")
     );
+  }
+
+  /** What a hit on this player knocks out (a robot sparks, anyone else bleeds), and how big their body is. */
+  hitBodyOf(entityId: string): { robot: boolean; scale: number } {
+    return { robot: this.modelChoiceFor(entityId) === "robot", scale: forcedScaleForName(this.names.get(entityId)) };
   }
 
   /** The voice of the model this player is drawn with, so a body always sounds like itself. */
@@ -820,6 +828,8 @@ export class RemotePlayerRenderer {
     const localTeam = applyRoster(this.teams, state.players.values(), localEntityId);
     if (localTeam !== undefined) this.localTeam = localTeam;
     applyLooks(this.looks, state.players.values());
+    // By name, as live: a campaign bot's own model and size are given by its name
+    for (const player of state.players.values()) this.names.set(player.entityId, player.name);
     const entities = extractEntities(state, localEntityId);
     this.demoTimeline?.push(state.tick, entities);
     this.lastLookaheadState = lookahead ? state : null;
@@ -1687,7 +1697,14 @@ export class RemotePlayerRenderer {
         continue;
       }
 
-      if (hitbox.model && hitbox.model.modelKey !== this.modelChoiceFor(entityId)) {
+      if (
+        hitbox.model &&
+        (hitbox.model.modelKey !== this.modelChoiceFor(entityId) ||
+          Math.abs(
+            (hitbox.model.modelScale ?? MODEL_SCALE) / (hitbox.model.modelScaleFactor ?? 1) -
+              MODEL_SCALE * forcedScaleForName(this.names.get(entityId)),
+          ) > 0.001)
+      ) {
         hitbox.weaponLoadGeneration = (hitbox.weaponLoadGeneration ?? 0) + 1;
         this.dropWeapon(hitbox);
         hitbox.weaponMuzzle = null;
@@ -1997,10 +2014,12 @@ export class RemotePlayerRenderer {
     // enough to match the shorter hitbox. Drop the model anchor to compensate.
     // Slide needs full -20 (Mixamo slide anim doesn't lower at all).
     // Crouch walk needs only -10 (Mixamo crouch walk partially lowers).
+    // A bigger body (a campaign boss) drops as much more as it is bigger
+    const bodyScale = forcedScaleForName(this.names.get(entityId));
     if (interp.sliding) {
-      feetY -= 20;
+      feetY -= 20 * bodyScale;
     } else if (interp.crouching) {
-      feetY -= 10;
+      feetY -= 10 * bodyScale;
     }
 
     inst.anchor.position.set(interp.x, feetY, interp.z);
@@ -2105,7 +2124,9 @@ export class RemotePlayerRenderer {
 
     // Scale animation speed to match movement speed (eliminate foot sliding)
     if (inst.masterGroup) {
-      const speed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz);
+      // A bigger body (a campaign boss) covers its size's multiple per stride
+      const stride = forcedScaleForName(this.names.get(entityId));
+      const speed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz) / stride;
       // Running legs and upper body each play at their own share of the speed-matched rate
       const running = animName === "run" || animName === "run_relaxed" || animName === "run_back";
       const runLegs = Number(Cvar.get("cl_player_run_legs") ?? RUN_LEGS_RATE);
@@ -2130,7 +2151,7 @@ export class RemotePlayerRenderer {
         const rightX = fwdZ;
         const rightZ = -fwdX;
         const rightDot = rightX * interp.vx + rightZ * interp.vz;
-        const lateralSpeed = Math.abs(rightDot);
+        const lateralSpeed = Math.abs(rightDot) / stride;
         const speedRatio = lateralSpeed / STRAFE_NATURAL_SPEED;
         inst.masterGroup.speedRatio = Math.max(0.3, Math.min(3.0, speedRatio));
       } else if (animName === "jump") {
@@ -2165,7 +2186,7 @@ export class RemotePlayerRenderer {
         // Crouch walk: speed proportional to horizontal velocity
         // When speed is very low (crouch idle), freeze on first frame
         // When walking backward, reverse the animation (negative speedRatio)
-        const crouchSpeed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz);
+        const crouchSpeed = Math.sqrt(interp.vx * interp.vx + interp.vz * interp.vz) / stride;
         if (crouchSpeed < IDLE_SPEED_THRESHOLD) {
           inst.masterGroup.speedRatio = 0; // Freeze first frame = crouch idle
         } else {
@@ -2186,7 +2207,7 @@ export class RemotePlayerRenderer {
         const rightX = fwdZ;
         const rightZ = -fwdX;
         const rightDot = rightX * interp.vx + rightZ * interp.vz;
-        const lateralSpeed = Math.abs(rightDot);
+        const lateralSpeed = Math.abs(rightDot) / stride;
         const crouchStrafeRatio = lateralSpeed / STRAFE_NATURAL_SPEED;
         inst.masterGroup.speedRatio = Math.max(0.3, Math.min(3.0, crouchStrafeRatio));
       } else {
@@ -2232,7 +2253,9 @@ export class RemotePlayerRenderer {
 
     const defScale = weaponDef.scale ?? 1.5;
     const isGlbWeapon = weaponDef.viewModel.viewModelFormat === "glb" || modelPath.toLowerCase().endsWith(".glb");
-    const visualScale = isGlbWeapon ? (weaponDef.viewModel.scale ?? defScale) : defScale;
+    // A campaign boss holds a weapon as much bigger as it is
+    const visualScale =
+      (isGlbWeapon ? (weaponDef.viewModel.scale ?? defScale) : defScale) * forcedScaleForName(this.names.get(entityId));
 
     // A parked weapon of this kind is already assembled: cloning one took 2–12 ms
     const parked = this.takeParkedWeapon(weaponId);
