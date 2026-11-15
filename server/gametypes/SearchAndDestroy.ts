@@ -115,6 +115,8 @@ export const COACH_PARTS = [
   "worker",
   "calls",
   "entry",
+  "retake",
+  "anchor",
 ] as const;
 export type CoachPart = (typeof COACH_PARTS)[number];
 /** Bots in the carrier's group, the carrier with them. */
@@ -179,6 +181,12 @@ const COVER_LEASH = 700;
 const SITE_QUIET_TICKS = 2 * TICK_RATE;
 /** An attacker this close to the bomb, seen by a defender, keeps the site from being quiet. */
 const SITE_WATCH_RADIUS = 900;
+/** A retake goes in with this much spare on the fuse past the farthest defender's walk and the defuse, ticks. */
+const RETAKE_SPARE_TICKS = 4 * TICK_RATE;
+/** Attackers seen this many at once near its site leave a lone anchor outnumbered. */
+const ANCHOR_OUTNUMBERED = 2;
+/** A teammate this close keeps an anchor from being alone, units. */
+const ANCHOR_HELP_RADIUS = 700;
 /** On the go, the carrier waits this long for the entry bot to go in first, ticks. */
 const ENTRY_LEAD_TICKS = 2 * TICK_RATE;
 /** The carrier waits for the entry patrolling this close to its staging point. */
@@ -368,6 +376,12 @@ export class SearchAndDestroy extends BaseGametype {
   private drops = 0;
   /** When the attack went in this round. */
   private goTick: number | null = null;
+  /** Attackers defenders see near each site, by site id, from the last spotting traces. */
+  private attackersSeenAtSite = new Map<number, number>();
+  /** Anchors holding back from a site they cannot hold alone. */
+  private anchorsBack = new Set<number>();
+  /** The way in each defender takes on the retake: its regroup point's lane, fixed when the retake goes. */
+  private retakeVia = new Map<number, Vec3Like[]>();
   /** The bot that goes into the site first on the go, ahead of the carrier. */
   private entryId: number | null = null;
   /** Answers to a person's commands, made on the next tick by a bot of their team. */
@@ -582,6 +596,9 @@ export class SearchAndDestroy extends BaseGametype {
     this.acks = [];
     this.goTick = null;
     this.entryId = null;
+    this.attackersSeenAtSite.clear();
+    this.anchorsBack.clear();
+    this.retakeVia.clear();
     this.attackPlan = null;
     this.attackSent = false;
     this.bombCarried = false;
@@ -1198,9 +1215,28 @@ export class SearchAndDestroy extends BaseGametype {
       const there = defenders.filter((d) =>
         points.some((p) => Math.hypot(d.position.x - p.x, d.position.z - p.z) <= REGROUP_RADIUS),
       ).length;
-      if (fuse <= RETAKE_GO_TICKS || points.length === 0 || there >= Math.min(2, defenders.length))
-        this.retakeGo = true;
+      // In together: once all are regrouped, or when the fuse leaves just time
+      // for the farthest to walk in and defuse, with RETAKE_SPARE_TICKS to spare
+      const bomb = this.bomb.position;
+      const farthest = defenders.reduce(
+        (most, d) => Math.max(most, Math.hypot(d.position.x - bomb.x, d.position.z - bomb.z)),
+        0,
+      );
+      const needed = (farthest / WORKER_RUN_SPEED) * TICK_RATE + DEFAULT_BOMB_RULES.defuseTicks + RETAKE_SPARE_TICKS;
+      const together = this.coaches(context.defendingTeam, "retake");
+      const goNow = together
+        ? fuse <= Math.max(RETAKE_GO_TICKS, needed) || there >= defenders.length
+        : fuse <= RETAKE_GO_TICKS || there >= Math.min(2, defenders.length);
+      if (goNow || points.length === 0) this.retakeGo = true;
+      // Each comes in by its own lane, so the retake arrives from more than one way
+      if (this.retakeGo && together) {
+        for (const d of defenders) {
+          const lane = this.regroupLaneOf(d.position)?.lane;
+          if (lane) this.retakeVia.set(d.entityId, [lane.staging]);
+        }
+      }
     }
+    this.planAnchors(attackers, defenders, context);
   }
 
   /** The site a defender is bound for: its own, or the spotted carrier's while rotating. */
@@ -1236,6 +1272,70 @@ export class SearchAndDestroy extends BaseGametype {
       );
     }
     return points;
+  }
+
+  /** The defend lane whose regroup point is nearest `from`, with that point; null without lanes. */
+  private regroupLaneOf(from: Vec3Like | null): { point: Vec3Like; lane: Lane } | null {
+    const site = this.bomb.siteId;
+    if (site === null) return null;
+    const points = this.regroupPoints();
+    const lanes = lanesInto(this.lanes, site, "defend");
+    if (points.length === 0 || lanes.length === 0) return null;
+    const point = this.nearestPoint(points, from);
+    if (!point) return null;
+    // The lane that point lies on: the one with it among its waypoints or as its staging point
+    const lane = lanes.find((l) => [...l.via, l.staging].some((p) => p.x === point.x && p.z === point.z)) ?? lanes[0];
+    return { point, lane };
+  }
+
+  /**
+   * How many attackers defenders see near each site, and which anchors are
+   * alone against ANCHOR_OUTNUMBERED or more of them: those hold back at the
+   * edge of their site until a teammate comes, rather than die alone.
+   */
+  private planAnchors(
+    attackers: readonly BombPlayerView[],
+    defenders: readonly BombPlayerView[],
+    context: GametypeTickContext,
+  ): void {
+    if (this.tick % SPOT_EVERY_TICKS !== 0 || !this.collision) return;
+    const eye = (p: Vec3Like): Vec3 => ({ x: p.x, y: p.y + EYE_HEIGHT, z: p.z });
+    this.attackersSeenAtSite.clear();
+    for (const site of this.sites) {
+      const spot = this.standingSpot(site);
+      const seen = attackers.filter(
+        (a) =>
+          Math.hypot(a.position.x - spot.x, a.position.z - spot.z) <= SITE_WATCH_RADIUS &&
+          defenders.some((d) => (this.collision?.trace(eye(d.position), eye(a.position)).fraction ?? 0) >= 1),
+      ).length;
+      this.attackersSeenAtSite.set(site.id, seen);
+    }
+    this.anchorsBack.clear();
+    if (this.bomb.phase === "planted" || this.bomb.isArmed || !this.coaches(context.defendingTeam, "anchor")) return;
+    for (const anchor of this.anchors) {
+      const at = this.positions.get(anchor);
+      const siteId = this.siteByDefender.get(anchor);
+      if (!at || siteId === undefined) continue;
+      const helped = defenders.some(
+        (d) => d.entityId !== anchor && Math.hypot(d.position.x - at.x, d.position.z - at.z) <= ANCHOR_HELP_RADIUS,
+      );
+      if (!helped && (this.attackersSeenAtSite.get(siteId) ?? 0) >= ANCHOR_OUTNUMBERED) {
+        this.anchorsBack.add(anchor);
+        // Its call brings the others: they rotate to the site as on a sighting of the carrier
+        this.spotted = { siteId, tick: this.tick };
+      }
+    }
+  }
+
+  /** Where an anchor holds back from `site`: the defend lane waypoint about REGROUP_BACK out, else null. */
+  private anchorBackPoint(site: BombSite): Vec3Like | null {
+    const spot = this.standingSpot(site);
+    const away = (p: Vec3Like) => Math.hypot(p.x - spot.x, p.z - spot.z);
+    const points = lanesInto(this.lanes, site.id, "defend").flatMap((l) => [...l.via, l.staging]);
+    if (points.length === 0) return null;
+    return points.reduce((best, p) =>
+      Math.abs(away(p) - REGROUP_BACK) < Math.abs(away(best) - REGROUP_BACK) ? p : best,
+    );
   }
 
   /** The ways defenders come into the armed site, for the attackers' crossfire: the defend lanes' staging points. */
@@ -1600,6 +1700,17 @@ export class SearchAndDestroy extends BaseGametype {
           }
         }
       }
+      for (const anchor of this.anchorsBack) {
+        const siteId = this.siteByDefender.get(anchor);
+        this.queueCall(
+          D,
+          `${r}:anchorback:${anchor}`,
+          `${this.attackersSeenAtSite.get(siteId ?? -1) ?? 2} on ${label(siteId ?? null)}, falling back, need help`,
+          anchor,
+          defenders,
+          true,
+        );
+      }
       this.defendGuards.forEach((id, i) => {
         const ground = this.guardGround(false, i);
         if (ground && near(id, ground.spot)) this.queueCall(D, `${r}:guard:${id}`, "Covering %L", id, defenders, true);
@@ -1728,6 +1839,27 @@ export class SearchAndDestroy extends BaseGametype {
           this.directive("snd_contest_plant", "move_to", bomb, DEFUSE_RADIUS, PRIORITY_DEFUSE, expiresAtTick, "never"),
         ];
       }
+      // Too far to get there before the arming completes: regroup for the retake instead of arriving alone
+      const at = this.positionOf(me);
+      const armLeft = DEFAULT_BOMB_RULES.armTicks * (1 - this.bomb.progress);
+      const walk = at ? (Math.hypot(at.x - bomb.x, at.z - bomb.z) / WORKER_RUN_SPEED) * TICK_RATE : 0;
+      const regroup =
+        me !== null && walk > armLeft + TICK_RATE && this.coaches(context.teamId, "retake")
+          ? this.regroupLaneOf(at)
+          : null;
+      if (regroup) {
+        return [
+          this.directive(
+            "snd_regroup",
+            "hold_area",
+            regroup.point,
+            REGROUP_RADIUS / 2,
+            PRIORITY_DEFUSE,
+            expiresAtTick,
+            "enemy_visible",
+          ),
+        ];
+      }
       if (me !== null && me === this.defuserId) {
         return [
           this.directive(
@@ -1806,7 +1938,7 @@ export class SearchAndDestroy extends BaseGametype {
                 PRIORITY_DEFUSE,
                 expiresAtTick,
                 "enemy_visible",
-                undefined,
+                this.retakeVia.get(me),
                 undefined,
                 COVER_LEASH,
               ),
@@ -1814,7 +1946,16 @@ export class SearchAndDestroy extends BaseGametype {
           }
           const interrupt = mustWork ? "never" : "enemy_visible";
           return [
-            this.directive("snd_defuse", "move_to", bomb, DEFUSE_RADIUS, PRIORITY_DEFUSE, expiresAtTick, interrupt),
+            this.directive(
+              "snd_defuse",
+              "move_to",
+              bomb,
+              DEFUSE_RADIUS,
+              PRIORITY_DEFUSE,
+              expiresAtTick,
+              interrupt,
+              mustWork ? undefined : this.retakeVia.get(me),
+            ),
           ];
         }
         const guard = me === null ? -1 : this.defendGuards.indexOf(me);
@@ -1829,7 +1970,7 @@ export class SearchAndDestroy extends BaseGametype {
             PRIORITY_DEFUSE,
             expiresAtTick,
             "enemy_visible",
-            undefined,
+            me === null ? undefined : this.retakeVia.get(me),
             undefined,
             COVER_LEASH,
           ),
@@ -1915,6 +2056,24 @@ export class SearchAndDestroy extends BaseGametype {
 
       const siteId = me === null ? null : this.defendSiteOf(me);
       const site = this.sites.find((s) => s.id === siteId) ?? this.sites[0];
+      // An anchor alone against several holds back at the edge of its site until help comes
+      const back = me !== null && this.anchorsBack.has(me) ? this.anchorBackPoint(site) : null;
+      if (back) {
+        return [
+          this.directive(
+            `snd_anchor_back_${site.id}`,
+            "hold_area",
+            back,
+            REGROUP_RADIUS / 2,
+            PRIORITY_HOLD + 0.05,
+            expiresAtTick,
+            "enemy_visible",
+            undefined,
+            this.standingSpot(site),
+            REGROUP_RADIUS,
+          ),
+        ];
+      }
       const hold = me === null ? undefined : this.holdOf.get(me);
       if (hold) {
         return [

@@ -338,6 +338,16 @@ export class BotVisionTracer {
     return distance(plain) - distance(jumped);
   }
 
+  /**
+   * Whether a straight run of `distance` along `yaw` clears the walls with the
+   * steering's margin to spare and has floor at its end: room for a move that
+   * cannot be steered much once begun, such as a slide.
+   */
+  runClear(position: Vec3, yaw: number, distance: number): boolean {
+    const probe = this.probe(position, yaw, distance, SWEEP_BOUNDS);
+    return probe.clear >= 1 && probe.floor;
+  }
+
   /** Whether a wall stands within `reach` of the hull at the origin's height, any way round. */
   wallWithin(position: Vec3, reach: number): boolean {
     const length = reach + HULL_HALF;

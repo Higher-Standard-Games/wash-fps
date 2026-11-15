@@ -3237,6 +3237,8 @@ export class StateMachineBrain extends BotBrain {
     const step = this._currentPath?.steps[this._currentPath.cursor] ?? null;
     if (this._currentPath && !step) return null;
     if (step && this._currentPath && !this._slideLaneOpen(state, this._currentPath, step)) return null;
+    // A slide barely steers once begun: its whole run must clear the walls with room to spare
+    if (this._tracer && !this._tracer.runClear(state.self.position, travelYaw(input), ROUTE_SLIDE_RUN)) return null;
 
     const context = this._getSequenceContext(state, step, input, true);
     if (!this._sequenceRuntime.start("route_crouchslide", context)) return null;
