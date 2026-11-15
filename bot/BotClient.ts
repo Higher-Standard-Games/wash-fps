@@ -76,6 +76,8 @@ export interface BotCommandSample {
   steeredOffWall: boolean;
   /** The decision's record, with BotOptions.trace on. */
   trace: DecisionTrace | null;
+  /** The brain's navigation summary: path step, running sequence (BotBrain.getNavigationDebug). */
+  navigation: string | null;
   /** The bot's own state from its last snapshot (live, not a copy). */
   self: Readonly<BotSelf>;
   tick: number;
@@ -784,6 +786,7 @@ export class BotClient extends EventEmitter {
       brainState: this._brain.getState(),
       steeredOffWall: this._brain.steeredOffWall(),
       trace: this._brain.lastTrace,
+      navigation: this._brain.getNavigationDebug(),
       self: this._gameState.self,
       tick: this._gameState.tick,
     });

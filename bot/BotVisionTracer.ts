@@ -48,6 +48,11 @@ const SWEEP_BOUNDS: AABB = {
   min: { x: -15 - WALL_MARGIN, y: -6, z: -15 - WALL_MARGIN },
   max: { x: 15 + WALL_MARGIN, y: 40, z: 15 + WALL_MARGIN },
 };
+/** The hull alone, for a move along a route line already built clear of the walls. */
+const HULL_BOUNDS: AABB = {
+  min: { x: -15, y: -6, z: -15 },
+  max: { x: 15, y: 40, z: 15 },
+};
 /** How far ahead the bot looks, in seconds of travel at its speed. */
 const LOOKAHEAD_SECONDS = 0.45;
 const MIN_LOOKAHEAD = 96;
@@ -60,13 +65,27 @@ const OFFSETS = [12, 24, 36, 50, 65, 80].map((d) => (d * Math.PI) / 180);
 const FLOOR_NORMAL_Y = 0.7;
 /** Floor is looked for this far under the end of a sweep, units. */
 const FLOOR_DEPTH = 80;
-/** Side rays for keeping off a wall, from the origin, units past the hull. */
-const SIDE_REACH = 64;
 const HULL_HALF = 16;
-/** A wall nearer the hull than this at one side leans the heading away. */
-const SIDE_GAP = 40;
-/** The most the lean turns the heading, radians. */
-const MAX_LEAN = (20 * Math.PI) / 180;
+/**
+ * The fan of rays that leans the heading off walls: angle off the heading,
+ * how hard a wall there pushes, and the gap from the hull inside which it
+ * starts to, as a share of the fan's reach (the ray nearly ahead sees a
+ * corner coming; the one square to the side only a wall close by).
+ */
+const FAN: readonly (readonly [number, number, number])[] = [
+  [(30 * Math.PI) / 180, 1, 1],
+  [(60 * Math.PI) / 180, 0.7, 0.6],
+  [(90 * Math.PI) / 180, 0.45, 0.35],
+];
+/** The fan reaches this far past the hull: the bot's travel in FAN_SECONDS, within bounds, units. */
+const FAN_SECONDS = 0.4;
+const FAN_MIN_REACH = 56;
+const FAN_MAX_REACH = 200;
+/** Radians of turn for a wall touching the hull on the fan's strongest ray. */
+const FAN_GAIN = 0.35;
+/** The most the lean turns the heading, radians; less along a route line, which must not be lost. */
+const MAX_LEAN = (30 * Math.PI) / 180;
+const LINE_LEAN = (15 * Math.PI) / 180;
 /** A side chosen to get round something is kept this long while it works, ticks. */
 const SIDE_COMMIT_TICKS = 50;
 /** Changing to the other side costs this much of a score. */
@@ -111,6 +130,12 @@ export interface SteerRequest {
   targetDistance?: number;
   /** The move means to go down off an edge: a ledge ahead is the way, not a hazard. */
   dropping?: boolean;
+  /**
+   * Following a route line, which was built clear of the walls: a smaller
+   * lean, and only what the hull itself would hit turns the bot. Leaning it
+   * far off the line loses the line.
+   */
+  onLine?: boolean;
 }
 
 export interface SteerResult {
@@ -141,10 +166,12 @@ export class BotVisionTracer {
     let reach = Math.min(MAX_LOOKAHEAD, Math.max(MIN_LOOKAHEAD, speed * LOOKAHEAD_SECONDS));
     if (request.targetDistance !== undefined) reach = Math.max(32, Math.min(reach, request.targetDistance + HULL_HALF));
 
-    const wanted = this.probe(request.position, request.yaw, reach);
+    const bounds = request.onLine ? HULL_BOUNDS : SWEEP_BOUNDS;
+    const wanted = this.probe(request.position, request.yaw, reach, bounds);
     const mindFloor = request.dropping !== true;
     if (wanted.clear >= 1 && (wanted.floor || !mindFloor)) {
-      return { yaw: request.yaw + this.lean(request.position, request.yaw), clear: 1, turned: false };
+      const lean = this.lean(request.position, request.yaw, speed, request.onLine ? LINE_LEAN : MAX_LEAN);
+      return { yaw: request.yaw + lean, clear: 1, turned: false };
     }
 
     const committed = this.side && request.tick < this.side.untilTick ? this.side.sign : 0;
@@ -153,7 +180,7 @@ export class BotVisionTracer {
     for (const offset of OFFSETS) {
       for (const sign of [-1, 1]) {
         const yaw = request.yaw + sign * offset;
-        const probe = this.probe(request.position, yaw, reach);
+        const probe = this.probe(request.position, yaw, reach, bounds);
         const score = this.score(probe, offset, sign, committed, mindFloor);
         if (score > best.score) best = { yaw, score, clear: probe.clear, sign };
       }
@@ -282,11 +309,14 @@ export class BotVisionTracer {
   }
 
   /** Sweep the hull `reach` along `yaw` from `from`, and look for floor at the end. */
-  private probe(from: Vec3, yaw: number, reach: number): Probe {
+  private probe(from: Vec3, yaw: number, reach: number, bounds: AABB): Probe {
     const dx = Math.sin(yaw);
     const dz = Math.cos(yaw);
     const end = { x: from.x + dx * reach, y: from.y, z: from.z + dz * reach };
-    const sweep = this.world.trace(from, end, SWEEP_BOUNDS);
+    let sweep = this.world.trace(from, end, bounds);
+    // Within the margin of a wall already, the wider box starts inside it and
+    // every heading would look blocked: the hull alone says which ways are open
+    if (sweep.fraction <= 0 && bounds !== HULL_BOUNDS) sweep = this.world.trace(from, end, HULL_BOUNDS);
     // Running up a ramp meets it like a wall; a surface facing up is floor
     const blocked = sweep.fraction < 1 && !(sweep.normal && sweep.normal.y >= FLOOR_NORMAL_Y);
     const clear = blocked ? sweep.fraction : 1;
@@ -295,24 +325,33 @@ export class BotVisionTracer {
     return { clear, floor: down.fraction < 1 };
   }
 
-  /** A small turn away from a wall close at one side, radians; 0 in the open or in a corridor's middle. */
-  private lean(from: Vec3, yaw: number): number {
-    const reach = HULL_HALF + SIDE_REACH;
-    const gap = (side: number) => {
-      const a = yaw + side * (Math.PI / 2);
-      const hit = this.world.trace(from, {
-        x: from.x + Math.sin(a) * reach,
-        y: from.y,
-        z: from.z + Math.cos(a) * reach,
-      });
-      return hit.fraction * reach - HULL_HALF;
-    };
-    const right = gap(1);
-    const left = gap(-1);
-    const nearest = Math.min(left, right);
-    if (nearest >= SIDE_GAP) return 0;
-    // Toward the side with more room, the harder the nearer the wall
-    const push = (SIDE_GAP - nearest) / SIDE_GAP;
-    return Math.sign(right - left) * push * MAX_LEAN;
+  /**
+   * A turn away from the walls ahead and at the sides, radians: a fan of rays
+   * either side of the heading, each wall pushing the harder the nearer it
+   * is and the more nearly ahead. Walls either side in a corridor push
+   * against each other, so the bot runs its middle; a corner coming up on
+   * one side turns it wide before it gets there. Surfaces facing up (ramps,
+   * stairs) do not push.
+   */
+  private lean(from: Vec3, yaw: number, speed: number, cap: number): number {
+    const room = Math.min(FAN_MAX_REACH, Math.max(FAN_MIN_REACH, speed * FAN_SECONDS));
+    const reach = HULL_HALF + room;
+    let turn = 0;
+    for (const [angle, weight, comfort] of FAN) {
+      for (const side of [-1, 1]) {
+        const a = yaw + side * angle;
+        const hit = this.world.trace(from, {
+          x: from.x + Math.sin(a) * reach,
+          y: from.y,
+          z: from.z + Math.cos(a) * reach,
+        });
+        if (hit.fraction >= 1 || (hit.normal && hit.normal.y >= FLOOR_NORMAL_Y)) continue;
+        const gap = hit.fraction * reach - HULL_HALF;
+        const push = Math.max(0, 1 - gap / (comfort * room));
+        // A wall on the right (+) turns the heading left (−)
+        turn -= side * weight * push;
+      }
+    }
+    return Math.max(-cap, Math.min(cap, turn * FAN_GAIN));
   }
 }

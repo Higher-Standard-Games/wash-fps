@@ -302,7 +302,8 @@ a spectator:
 | still by state | The four brain states with the most still time, as shares of time alive. |
 | still per bot | Each bot's still share. One bot far above the others is stuck somewhere. |
 | picked up | Health and armor points gained while alive, per bot-minute: how well the bots gather items. It rises and falls with how much damage they take, so compare it over several runs. |
-| running clear | Out of a fight and moving: the median gap from the bot's hull to the nearest wall, the share of that time within 8 and 24 units, and how often wall avoidance turned the heading. Then the share within 24 units in each brain state. |
+| running clear | Out of a fight and moving: the median gap from the bot's hull to the nearest wall, the share of that time within 8 and 24 units, and how often the steering turned the heading off something in the way. Then the share within 24 units in each brain state. |
+| within 8 u by | Where the time within 8 units of a wall was spent: on the ground or in the air, and in which movement sequence (or, with none, which brain state), as shares of that time. |
 | running speed | Out of a fight and moving: median speed, the share over 450 u/s and the share airborne. |
 | closest cells | The five 128-unit map cells with the most running time within 24 units of a wall, as shares of all running time. One cell far above the rest is one room worth looking at. |
 | view out of a fight | In HUNT, ITEM_RUN and RETREAT: the median distance the view sees (the longer of a level ray and one 10° up, so stairs do not count, out to 1500 units), and the share of that time it ends at a wall within 192 units. |
@@ -320,6 +321,7 @@ a spectator:
 | `--routes-root` | none; a folder whose `config/bot-routes` the bots read their learned routes from, to compare two route libraries |
 | `--trace` | off; traces every decision and adds what the bots were doing while they stood still, by cause, and their crouch changes by state |
 | `--trace-out` | none; also writes every decision's trace to this file, one JSON line each (implies `--trace`) |
+| `--fight-off` | none; habits the bots play without, comma separated (as `fightOff` in `bot:ab`), for before-and-after runs |
 
 ```bash
 npm --prefix src/games/fps run bot:motion -- --map washoi_dm1 --bots 4 --seconds 120
@@ -402,8 +404,11 @@ diagnosis none of them answers is played as Standard), and
 predictable opponent a strategist should beat. `"fightOff": ["unstick"]`
 plays without one of the bot's habits, to measure it: `cover` (cover peeking),
 `height` (taking a ledge above the enemy), `unstick` (turning round when
-blocked) and `itemcheck` (glancing at major item spots and dating a find
-from them). An arm's `"routesRoot"` is a folder holding a
+blocked), `itemcheck` (glancing at major item spots and dating a find
+from them), `holster` (putting the blade away for a gun out of a fight),
+`steer` (steering the feet clear of walls, `bot/BotVisionTracer.ts`; off, the
+older wall feelers steer navigation instead) and `tricks` (climbs and wall
+jumps the tracer checks for). An arm's `"routesRoot"` is a folder holding a
 `config/bot-routes` of its own: each arm has its own bot server, so two route
 libraries can be played against each other.
 

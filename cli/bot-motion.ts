@@ -182,6 +182,8 @@ interface Sample {
   /** Out of a fight and running: gap from the hull to the nearest wall; NaN otherwise. */
   clearance: number;
   steered: boolean;
+  /** The movement sequence running, or "-". */
+  sequence: string;
   x: number;
   z: number;
 }
@@ -245,6 +247,7 @@ function record(
     sight: roaming ? sightLine(world, sample.self, sample.sent.yaw) : Number.NaN,
     clearance: running ? clearanceAt(world, sample.self) : Number.NaN,
     steered: sample.steeredOffWall,
+    sequence: /sequence=(\S+)/.exec(sample.navigation ?? "")?.[1] ?? "-",
     x: sample.self.position.x,
     z: sample.self.position.z,
   });
@@ -284,6 +287,7 @@ interface Run {
   steered: boolean;
   speed: number;
   grounded: boolean;
+  sequence: string;
   cell: string;
 }
 
@@ -331,6 +335,7 @@ function analyse(samples: Sample[], decisions: Decision[], report: Report): void
         steered: b.steered,
         speed: b.speed,
         grounded: b.grounded,
+        sequence: b.sequence,
         cell: `${Math.round(b.x / CELL) * CELL},${Math.round(b.z / CELL) * CELL}`,
       });
     }
@@ -369,6 +374,18 @@ function printRunning(runs: Run[]): void {
   console.log(
     `  running clear   ${clear} u from walls (median), within 8 u ${share(runs, (r) => r.clearance < 8)}, within 24 u ${share(runs, (r) => r.clearance < 24)}; wall avoidance steering ${share(runs, (r) => r.steered)}`,
   );
+  // Where the bot runs within 8 u of a wall: on the ground or in the air, and in which sequence
+  const close = runs.filter((r) => r.clearance < 8);
+  const where = new Map<string, number>();
+  for (const r of close) {
+    const key = `${r.grounded ? "ground" : "air"} ${r.sequence === "-" ? r.state : r.sequence}`;
+    where.set(key, (where.get(key) ?? 0) + 1);
+  }
+  const top = [...where]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([key, n]) => `${key} ${((100 * n) / Math.max(1, close.length)).toFixed(0)}%`);
+  console.log(`  within 8 u by    ${top.join(", ")}`);
   const byState = [...ROAMING]
     .map((state) => [state, runs.filter((r) => r.state === state)] as const)
     .filter(([, rows]) => rows.length > 0)

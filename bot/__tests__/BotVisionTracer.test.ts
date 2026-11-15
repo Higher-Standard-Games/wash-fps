@@ -166,7 +166,17 @@ describe("BotVisionTracer", () => {
     const result = steer(new BoxWorld([floor, wall]), 0);
     expect(result?.turned).toBe(false);
     expect(result!.yaw).toBeGreaterThan(0);
-    expect(result!.yaw).toBeLessThan(0.25);
+    expect(result!.yaw).toBeLessThan(0.55);
+  });
+
+  it("runs on along a wall it is touching, rather than seeing every way blocked", () => {
+    // A wall 4 units off the hull on the left: inside the sweep's margin
+    const wall: Box = { min: { x: -60, y: 0, z: -500 }, max: { x: -20, y: 200, z: 500 } };
+    const result = steer(new BoxWorld([floor, wall]), 0);
+    expect(result?.clear).toBe(1);
+    expect(result?.turned).toBe(false);
+    // Leaning away from it
+    expect(result!.yaw).toBeGreaterThan(0);
   });
 
   it("keeps the side it chose while that side still runs clear", () => {

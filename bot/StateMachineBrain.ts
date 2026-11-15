@@ -166,7 +166,7 @@ const HIGH_GROUND_SEARCH_TICKS = 250;
 const COVER_MIN_RANGE = 350;
 
 /** Fight habits a head-to-head test can turn off (`BotOptions.fightOff`). */
-export type FightHabit = "cover" | "height" | "unstick" | "itemcheck" | "holster" | "steer";
+export type FightHabit = "cover" | "height" | "unstick" | "itemcheck" | "holster" | "steer" | "tricks";
 /** A heard enemy this close gets the gun for its distance readied, held this long. */
 const READY_RANGE = 1500;
 const READY_TICKS = 250;
@@ -400,6 +400,8 @@ export class StateMachineBrain extends BotBrain {
   private _routeLine: { path: NavPath; fromStep: number; line: RouteLine; stretch: number } | null = null;
   /** This decision ran along a route line; the feelers stand aside. */
   private _onRouteLine = false;
+  /** This decision's move is an exact line (a sequence, a trick's approach): not steered. */
+  private _exactMove = false;
   /** Keeps the feet clear of walls in every state (BotVisionTracer), made per collision world. */
   private _tracer: BotVisionTracer | null = null;
   private _tracerWorld: unknown = null;
@@ -811,6 +813,7 @@ export class StateMachineBrain extends BotBrain {
 
     // Dead → just wait (BotClient handles RequestSpawn)
     this._suppressTraversalAutomation = false;
+    this._exactMove = false;
     if (state.self.isDead) {
       this.currentState = BotState.SPAWN;
       this._interruptSequence(state, "dead", true);
@@ -877,7 +880,15 @@ export class StateMachineBrain extends BotBrain {
 
     if (this._sequenceRuntime.isActive) {
       const sequenceInput = this._tickActiveSequence(state);
-      if (sequenceInput) return this._recoverStalledNavigation(state, sequenceInput);
+      if (sequenceInput) {
+        // A slide along a route is ground movement at speed: steered like any run
+        const vision = this._lastBotVision;
+        const steered =
+          vision && this._sequenceRuntime.activeSequenceId === "route_crouchslide" && !this._fightOff.has("steer")
+            ? this._steer(sequenceInput, state, vision)
+            : sequenceInput;
+        return this._recoverStalledNavigation(state, steered);
+      }
     }
 
     if (stateChanged) {
@@ -922,7 +933,7 @@ export class StateMachineBrain extends BotBrain {
 
     // Keep the feet clear of walls, corners and ledges in every state. Not on
     // a verified approach to a trick, whose line is exact on purpose.
-    if (vision && !this._suppressTraversalAutomation) {
+    if (vision && !this._exactMove) {
       if (!this._fightOff.has("steer")) input = this._steer(input, state, vision);
       else if (!this._onRouteLine && this.currentState !== BotState.FIGHT && this.currentState !== BotState.DODGE) {
         // The feelers, for head-to-head tests: navigation only, and not on a
@@ -957,7 +968,7 @@ export class StateMachineBrain extends BotBrain {
       if (strafeInput) return strafeInput;
     }
 
-    if (vision && !this._suppressTraversalAutomation && !this._fightOff.has("steer")) {
+    if (vision && !this._exactMove && !this._fightOff.has("steer") && !this._fightOff.has("tricks")) {
       input = this._tryTricks(state, input);
     }
     this._lastJumpHeld = (input.buttons & InputButtons.JUMP) !== 0;
@@ -2096,7 +2107,9 @@ export class StateMachineBrain extends BotBrain {
     if (waypoint) return this._navigateTo(state, waypoint, urgent);
     const radius = this._holdRadius(goal, state);
     // Planting and defusing use move_to: those orders must stay still on arrival.
-    const patrol = goal.directive?.kind === "defend" || goal.directive?.kind === "hold_area";
+    // Escorting patrols round the player escorted, as it moves.
+    const patrol =
+      goal.directive?.kind === "defend" || goal.directive?.kind === "hold_area" || goal.directive?.kind === "escort";
     if (patrol && radius !== undefined && vec3Length(vec3Subtract(goal.position, state.self.position)) <= radius) {
       return this._guardPatrol(state, goal.id, goal.position, radius, goal.directive?.watch ?? null);
     }
@@ -2356,8 +2369,15 @@ export class StateMachineBrain extends BotBrain {
       this._sitePatrol = target ? { goalId, target, expires: state.tick + 4 * TICK_RATE, pauseUntil: 0 } : null;
     }
     if (!target) {
-      // Strafe across the way in, turning back every so often
-      const side = Math.floor(state.tick / GUARD_STRAFE_TICKS) % 2 === 0 ? 1 : -1;
+      // Strafe across the way in, turning back every so often, toward the side with room
+      const room = (sign: number) => {
+        const a = lookYaw + sign * (Math.PI / 2);
+        const world = this._lastBotVision?.collisionWorld;
+        if (!world) return 1;
+        return world.trace(self, { x: self.x + Math.sin(a) * 96, y: self.y, z: self.z + Math.cos(a) * 96 }).fraction;
+      };
+      const turn = Math.floor(state.tick / GUARD_STRAFE_TICKS) % 2 === 0 ? 1 : -1;
+      const side = room(turn) >= 0.5 || room(turn) >= room(-turn) ? turn : -turn;
       return {
         direction: { x: side, y: 0, z: 0 },
         pitch,
@@ -2726,6 +2746,7 @@ export class StateMachineBrain extends BotBrain {
     if (!result) return null;
 
     this._suppressTraversalAutomation = true;
+    this._exactMove = true;
     this._pathRecalcTimer = 0;
     if (result.status === "running") return result.input;
     this._cancelScript = true;
@@ -2824,6 +2845,7 @@ export class StateMachineBrain extends BotBrain {
       if (boost) return { status: "moving", input: boost };
 
       this._suppressTraversalAutomation = true;
+      this._exactMove = true;
       const target = distanceToStart > 56 ? step.from.position : (probe?.landing ?? step.to.position);
       return { status: "moving", input: this._moveTowardPrecise(state, target) };
     }
@@ -2855,6 +2877,7 @@ export class StateMachineBrain extends BotBrain {
     const distanceToEnd = vec3Length(vec3Subtract(step.to.position, state.self.position));
     if (step.requiresPreciseApproach && distanceToEnd < 256) {
       this._suppressTraversalAutomation = true;
+      this._exactMove = true;
       return { status: "moving", input: this._makePrecise(input) };
     }
 
@@ -3374,6 +3397,7 @@ export class StateMachineBrain extends BotBrain {
       velocity: self.velocity,
       grounded: self.isGrounded,
       yaw: moveYaw + keyTurn,
+      onLine: this._onRouteLine,
       ...(target
         ? {
             targetDistance: Math.hypot(target.x - self.position.x, target.z - self.position.z),
