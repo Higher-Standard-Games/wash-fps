@@ -63,3 +63,22 @@ describe("the PVS for bot sight", () => {
     expect(BotPvs.from({ ...map(true), visData: null } as never)).toBeNull();
   });
 });
+
+describe("a bot's own vision", () => {
+  it("keeps the map's PVS when forked for a bot", async () => {
+    const { BotVision } = await import("../BotVision");
+    const pvs = BotPvs.from(map(true) as never);
+    const traces: number[] = [];
+    const world = {
+      trace: () => {
+        traces.push(1);
+        return { hit: false };
+      },
+    } as never;
+    const vision = new BotVision(world, { mapName: "m", spawnPoints: [], pickupPositions: [] } as never, false, pvs);
+    // The two rooms cannot see each other: no trace, from the map's vision or a bot's
+    expect(vision.canSee({ x: -50, y: 0, z: 0 }, { x: 50, y: 0, z: 0 })).toBe(false);
+    expect(vision.fork().canSee({ x: -50, y: 0, z: 0 }, { x: 50, y: 0, z: 0 })).toBe(false);
+    expect(traces).toEqual([]);
+  });
+});

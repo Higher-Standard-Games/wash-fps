@@ -254,7 +254,7 @@ export class BotVision {
    * LOS cache and enemy tracks deliberately remain private to the new bot.
    */
   fork(): BotVision {
-    return new BotVision(this._collisionWorld, this._mapKnowledge, false);
+    return new BotVision(this._collisionWorld, this._mapKnowledge, false, this._pvs);
   }
 
   // ── Core LOS Check ──────────────────────────────────────────────────
