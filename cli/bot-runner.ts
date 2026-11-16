@@ -15,11 +15,14 @@
 import type { BotClient } from "../bot/BotClient";
 import { BotServer } from "../bot/BotServer";
 import type { FromRunner, ToRunner } from "../bot/runner/MatchRunnerProtocol";
+import { debugEnabled, debugLog } from "../server/DebugLog";
 
 /** A runner with no bots exits after this long, ms. */
 const RUNNER_IDLE_MS = 30_000;
 /** After its last bot leaves, a runner waits this long for another before exiting, ms. */
 const RUNNER_LAST_BOT_GRACE_MS = 3_000;
+/** With SHAG_DEBUG=memory, the runner logs its memory this often, ms. */
+const MEMORY_LOG_MS = 10_000;
 
 function serverUrl(): string {
   const args = process.argv.slice(2).filter((a) => a !== "--");
@@ -89,6 +92,18 @@ function main(): void {
   // The bot server is gone: so is the match's reason to play.
   process.on("disconnect", () => void shutDown(0));
   exitLater(RUNNER_IDLE_MS);
+  // SHAG_DEBUG=memory: what the match costs, every MEMORY_LOG_MS
+  if (debugEnabled("memory")) {
+    const mb = (n: number) => Math.round(n / 1048576);
+    setInterval(() => {
+      const m = process.memoryUsage();
+      debugLog(
+        "memory",
+        () =>
+          `[BotRunner] ${bots.size} bots: rss ${mb(m.rss)} MB, heap ${mb(m.heapUsed)} of ${mb(m.heapTotal)} MB, buffers ${mb(m.external)} MB`,
+      );
+    }, MEMORY_LOG_MS).unref();
+  }
   console.log(`[BotRunner] ${process.pid} playing for ${url}`);
 }
 

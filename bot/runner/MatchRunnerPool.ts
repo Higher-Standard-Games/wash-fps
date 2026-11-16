@@ -18,6 +18,16 @@ import type { FromRunner, ToRunner } from "./MatchRunnerProtocol";
 /** The runner's file in the bundled bot server, built beside it by build-servers.mjs. */
 const RUNNER_FILE = "bot-runner.mjs";
 
+/**
+ * A runner's heap. Its bots keep about 75 MB alive but make garbage fast, and
+ * left to itself V8 grows the young generation to collect less often: a
+ * 10-bot washoi_snd1 runner held 420 MB of RSS with a heap of 220-290 MB.
+ * With a 4 MB young generation it holds 173 MB, for the same snapshot cost;
+ * the old generation is capped well above what the bots keep, so a runner
+ * that outgrows it ends its own match, not the bot server.
+ */
+export const RUNNER_NODE_FLAGS = ["--max-semi-space-size=4", "--max-old-space-size=256"];
+
 /** How to start a runner: the executable and its arguments before the runner's own. */
 export interface RunnerCommand {
   file: string;
@@ -31,11 +41,11 @@ export interface RunnerCommand {
  */
 export function runnerCommand(): RunnerCommand | null {
   const bundled = fileURLToPath(new URL(`./${RUNNER_FILE}`, import.meta.url));
-  if (fs.existsSync(bundled)) return { file: process.execPath, args: [bundled] };
+  if (fs.existsSync(bundled)) return { file: process.execPath, args: [...RUNNER_NODE_FLAGS, bundled] };
   const viteNode = process.argv[1];
   const source = fileURLToPath(new URL("../../cli/bot-runner.ts", import.meta.url));
   if (viteNode?.endsWith("vite-node.mjs") && fs.existsSync(source)) {
-    return { file: process.execPath, args: [viteNode, source, "--"] };
+    return { file: process.execPath, args: [...RUNNER_NODE_FLAGS, viteNode, source, "--"] };
   }
   return null;
 }

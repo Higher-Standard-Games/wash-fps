@@ -1,4 +1,4 @@
-import { rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -41,6 +41,8 @@ const result = await build({
   },
 });
 await writeFile(path.join(staging, "meta.json"), JSON.stringify(result.metafile, null, 2));
+// The compiled world trace, beside the bundles that read it (WorldTraceWasm.ts)
+await copyFile(path.resolve(root, "src/engine/physics/WorldTrace.wasm"), path.join(staging, "WorldTrace.wasm"));
 
 // Windows briefly locks freshly written files (indexers, virus scanners), so a
 // rename can fail with EPERM/EBUSY for a moment after the build.

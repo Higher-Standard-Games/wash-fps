@@ -961,7 +961,8 @@ export async function createBotVision(mapName: string): Promise<BotVision | null
   console.log(`[BotVision] Brushes: ${bsp.brushes.length}, Planes: ${bsp.planes.length}`);
 
   // Create collision world
-  const collisionWorld = await createHeadlessCollisionWorld(bsp);
+  // Bots trace the most: the world part in WebAssembly, same answers
+  const collisionWorld = await createHeadlessCollisionWorld(bsp, { compiled: true });
   console.log(`[BotVision] CollisionWorld initialized`);
 
   // Extract map knowledge

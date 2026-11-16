@@ -300,7 +300,7 @@ or crash touches only its own bots, and the memory a match took goes when it
 ends. A runner reports each bot's rating identity and match report back to the
 bot server, which passes them on to the lobby and `bot-intel.db` as before.
 
-A bundled runner playing ten bots on `washoi_snd1` used 240–290 MB. Without
+A bundled runner playing ten bots on `washoi_snd1` holds about 175 MB: runners start with a 4 MB young generation (`RUNNER_NODE_FLAGS`), which cuts the heap V8 reserves from about 250 MB to 85 MB at the same snapshot cost, and trace the world in WebAssembly (`src/engine/physics/CompiledWorldTrace.ts`). `SHAG_DEBUG=memory` makes a runner log its memory every 10 s. Without
 the flag, every match's bots play in the bot server itself, sharing each map's
 vision for as long as the bot server runs.
 
