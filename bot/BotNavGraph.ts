@@ -327,7 +327,7 @@ const SPAWN_SETTLE_DROP = 512;
 /** A spawn whose walk origin is this far above where a player stands under it is in the air. */
 const SPAWN_FLOAT = 64;
 
-export const BOT_NAV_GRAPH_SCHEMA_VERSION = 4;
+export const BOT_NAV_GRAPH_SCHEMA_VERSION = 5;
 export const BOT_NAV_TRIGGER_RESOLVER_VERSION = 1;
 
 /** Bump this when edge generation or movement assumptions change. */
@@ -1118,9 +1118,9 @@ export class BotNavGraph {
   }
 
   /**
-   * The walk edges between two nodes: both ways along the straight line when
-   * it is clear and level enough, with the wall cost; else each way the walk
-   * flood finds on its own, because a staircase walked down can be walked up
+   * The walk edges between two nodes, each way on its own: along the straight
+   * line when it is clear and level enough, with the wall cost, else the way
+   * the walk flood finds, because a staircase walked down can be walked up
    * but a ledge cannot. The graph's own nodes and learned landings both link
    * through this.
    */
@@ -1134,38 +1134,38 @@ export class BotNavGraph {
     const heightDiff = Math.abs(a.position.y - b.position.y);
     const horizontalDist = Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z);
     const tag = opportunityId ? { opportunityId } : {};
-    if (heightDiff < WALK_HEIGHT_MAX && walk.straight(walkOrigin(a), walkOrigin(b))) {
-      const cost = dist + walk.wallCost(walkOrigin(a), walkOrigin(b));
-      return {
-        edges: [
-          { from: a.id, to: b.id, type: "walk", cost, ...tag },
-          { from: b.id, to: a.id, type: "walk", cost, ...tag },
-        ],
-        straight: true,
-      };
-    }
+    const level = heightDiff < WALK_HEIGHT_MAX;
     // Neighbours the straight sweep cannot connect: stairs and ramps that
     // climb more than a step between grid nodes, a crate in the way, a
-    // doorway off the line.
+    // doorway off the line. The walk flood finds those.
+    const floods = horizontalDist <= WALK_FLOOD_RADIUS && heightDiff <= horizontalDist + WALK_FLOOD_RISE_SLACK;
     const edges: NavEdge[] = [];
-    if (horizontalDist <= WALK_FLOOD_RADIUS && heightDiff <= horizontalDist + WALK_FLOOD_RISE_SLACK) {
-      for (const [from, to] of [
-        [a, b],
-        [b, a],
-      ] as const) {
-        const reach = walk.reach(from, to);
-        if (!reach) continue;
-        edges.push({
-          from: from.id,
-          to: to.id,
-          type: "walk",
-          cost: reach.distance,
-          ...(reach.via.length > 0 ? { via: reach.via } : {}),
-          ...tag,
-        });
+    let straight = 0;
+    // Each way is tested on its own: the sweep that walks off a ledge or down a
+    // step can be blocked coming back.
+    for (const [from, to] of [
+      [a, b],
+      [b, a],
+    ] as const) {
+      if (level && walk.straight(walkOrigin(from), walkOrigin(to))) {
+        const cost = dist + walk.wallCost(walkOrigin(from), walkOrigin(to));
+        edges.push({ from: from.id, to: to.id, type: "walk", cost, ...tag });
+        straight++;
+        continue;
       }
+      if (!floods) continue;
+      const reach = walk.reach(from, to);
+      if (!reach) continue;
+      edges.push({
+        from: from.id,
+        to: to.id,
+        type: "walk",
+        cost: reach.distance,
+        ...(reach.via.length > 0 ? { via: reach.via } : {}),
+        ...tag,
+      });
     }
-    return { edges, straight: false };
+    return { edges, straight: straight === 2 };
   }
 
   /** The walk checks on a map's vision: the hull sweep, the wall cost and the walk flood. */
@@ -1183,8 +1183,7 @@ export class BotNavGraph {
 
   /**
    * Edges that fail the checks they were built by: walk edges whose straight
-   * line or walk flood does not go (a straight walk is tested one way and
-   * added both), and learned routes whose start or landing
+   * line or walk flood does not go, and learned routes whose start or landing
    * cannot walk to its node. For `bot:routes --check`; a graph built by
    * `buildFromVision` and `addLearnedRoutes` with the map's walk test has none.
    */
