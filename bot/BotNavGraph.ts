@@ -596,7 +596,7 @@ export class BotNavGraph {
       added++;
     }
     this._buildAdjacency();
-    this._distanceMatrix = null;
+    this._distanceRows = [];
     this._forgetLookups();
     return added;
   }
@@ -839,8 +839,8 @@ export class BotNavGraph {
    * ledge beside it that nothing walks to; the floor under it is the goal.
    */
   private _findReachableNodeNear(start: NavNode, target: Vec3): NavNode | null {
-    const costs = this._ensureDistanceMatrix()[start.id];
-    if (!costs) return null;
+    const costs = this._distanceRow(start.id);
+    if (costs.length === 0) return null;
     let best: NavNode | null = null;
     let bestDist = GOAL_SNAP_RADIUS;
     for (const node of this._nodes) {
@@ -1248,27 +1248,27 @@ export class BotNavGraph {
       this._adjacency.get(edge.from)!.push(edge);
     }
     // Any structural change invalidates cached distances.
-    this._distanceMatrix = null;
+    this._distanceRows = [];
     this._forgetLookups();
   }
 
-  // ── All-pairs travel cost ───────────────────────────────────────
+  // ── Travel cost from a node ─────────────────────────────────────
 
   /**
-   * Exact graph distance between every pair of nodes, lazily computed.
+   * Exact graph distance from a node to every other, one row per source node,
+   * each computed the first time it is asked for and kept until the graph
+   * changes.
    *
-   * Goal scoring needs a travel estimate for EVERY candidate every decision,
-   * and running A* per candidate is the one thing that would make the goal
-   * arbiter too expensive (docs/research/BOT_WEIGHTS_AND_GOALS.md §7.4). The
-   * design anticipated landmark distances, but the graphs turned out small
-   * enough — 34-58 strategic nodes on shipped maps — that all-pairs is both
-   * exact and cheaper to reason about: ~58 Dijkstra runs over ~82 edges.
+   * Goal scoring needs a travel estimate for every candidate every decision,
+   * and A* per candidate would make the goal arbiter too expensive
+   * (docs/research/BOT_WEIGHTS_AND_GOALS.md §7.4); every estimate starts from
+   * the bot's own node, so one row answers a decision's. Building every row at
+   * once took 31 ms on washoi_snd1's 323 nodes, inside the first decision that
+   * asked; a row takes about a tenth of a millisecond.
    *
-   * Deliberately NOT persisted in the nav cache. At this size recomputing costs
-   * microseconds, so storing it would buy nothing and add a schema version to
-   * invalidate.
+   * Not persisted in the nav cache: learned routes change it after loading.
    */
-  private _distanceMatrix: Float64Array[] | null = null;
+  private _distanceRows: (Float64Array | undefined)[] = [];
   /**
    * findNearestNode by exact position. Item and objective positions are asked
    * for again with every decision, and the answer only changes with the nodes.
@@ -1286,16 +1286,16 @@ export class BotNavGraph {
     this._lastStanding = null;
   }
 
-  private _ensureDistanceMatrix(): Float64Array[] {
-    if (this._distanceMatrix) return this._distanceMatrix;
-
+  /** Graph distance from node `source` to every node (Infinity where none reaches); empty for no such node. */
+  private _distanceRow(source: number): Float64Array {
     const count = this._nodes.length;
-    const matrix: Float64Array[] = [];
-    for (let source = 0; source < count; source++) {
-      matrix.push(this._dijkstraFrom(source, count));
+    if (source < 0 || source >= count) return new Float64Array(0);
+    let row = this._distanceRows[source];
+    if (!row) {
+      row = this._dijkstraFrom(source, count);
+      this._distanceRows[source] = row;
     }
-    this._distanceMatrix = matrix;
-    return matrix;
+    return row;
   }
 
   /** Single-source shortest costs. Unreachable nodes stay Infinity. */
@@ -1353,8 +1353,7 @@ export class BotNavGraph {
     const arrival = vec3Distance(goal.position, to);
     if (start.id === goal.id) return approach + arrival;
 
-    const matrix = this._ensureDistanceMatrix();
-    const graphCost = matrix[start.id]?.[goal.id];
+    const graphCost = this._distanceRow(start.id)[goal.id];
     if (graphCost === undefined || !Number.isFinite(graphCost)) return null;
 
     // Snap distances at both ends: the bot is rarely standing exactly on a node,
