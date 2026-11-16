@@ -10,6 +10,7 @@ import { InputButtons, resolveDifficulty } from "../BotConfig";
 import { BotGameState } from "../BotGameState";
 import type { NavStep } from "../BotNavGraph";
 import type { BotVision } from "../BotVision";
+import type { BotNavigator } from "../navigation/BotNavigator";
 import { StateMachineBrain } from "../StateMachineBrain";
 
 const DEG = Math.PI / 180;
@@ -134,7 +135,7 @@ describe("a missed jump on the way to an item", () => {
     currentState: BotState;
     _life: { activeItemGoal: unknown };
     _activeSequenceStep: NavStep | null;
-    _blockedPickupIds: Map<number, number>;
+    _nav: BotNavigator;
     _startRecovery(state: BotGameState, stuck?: boolean): BotInput;
   };
 
@@ -147,22 +148,21 @@ describe("a missed jump on the way to an item", () => {
     b._life.activeItemGoal = goal;
     b._activeSequenceStep = step;
     b._startRecovery(state);
-    expect(b._blockedPickupIds.has(3)).toBe(false);
+    expect(b._nav.blockedPickupIds.has(3)).toBe(false);
 
     b._life.activeItemGoal = goal;
     b._startRecovery(state, true);
-    expect(b._blockedPickupIds.has(3)).toBe(true);
+    expect(b._nav.blockedPickupIds.has(3)).toBe(true);
   });
 
   it("is left out of routes for longer each time it is missed", () => {
     const b = brain() as unknown as {
-      _blockedNavEdges: Map<string, number>;
-      _cooldownNavStep(step: NavStep, tick: number): void;
+      _nav: BotNavigator;
     };
     const waits: number[] = [];
     for (let i = 0; i < 5; i++) {
-      b._cooldownNavStep(step, 0);
-      waits.push([...b._blockedNavEdges.values()][0]);
+      b._nav.cooldownStep(step, 0);
+      waits.push([...b._nav.blockedNavEdges.values()][0]);
     }
     expect(waits).toEqual([625, 1250, 2500, 5000, 5000]);
   });

@@ -36,14 +36,7 @@ import { vec3Distance, vec3Length, vec3Normalize, vec3Subtract } from "./BotGame
 import { BotLife } from "./BotLife";
 import { BotMood, type Mood, type MoodEvent } from "./BotMood";
 import { canInitiateSlide, PHYSICS } from "./BotMovementProfile";
-import {
-  type BotNavGraph,
-  type NavPath,
-  type NavPathOptions,
-  type NavStep,
-  navEdgeKey,
-  wallClearance,
-} from "./BotNavGraph";
+import type { BotNavGraph, NavPath, NavStep } from "./BotNavGraph";
 import { duelLeadReactionDelay } from "./BotReactionTuning";
 import {
   BotSequenceRegistry,
@@ -66,7 +59,14 @@ import { loadBaseline, payoffPriors } from "./intel/IntelBaseline";
 import { loadPeopleProfile, typicalStackAfter } from "./intel/PeopleProfile";
 import { planLedgeSlideJump } from "./LedgeSlideJump";
 import { inHarmfulLiquid, liquidEscapeTarget } from "./LiquidEscape";
-import { buildRouteLine, lineEndStep, pointAlong, type RouteWorld } from "./RouteLine";
+import {
+  BotNavigator,
+  type NavigatorHost,
+  PATH_ARRIVED_THRESHOLD,
+  PATH_RECALC_INTERVAL,
+  type PathFollowResult,
+} from "./navigation/BotNavigator";
+import { pointAlong } from "./RouteLine";
 import { ItemSlideApproachSequence } from "./sequences/ItemSlideApproachSequence";
 import { LearnedRouteSequence } from "./sequences/LearnedRouteSequence";
 import { LedgeSlideJumpSequence } from "./sequences/LedgeSlideJumpSequence";
@@ -108,10 +108,6 @@ const CHARGE_RELEASE_CONE = (12 * Math.PI) / 180;
 const CHARGE_AIM_GRACE_TICKS = Math.round(0.5 * TICK_RATE);
 /** A teammate's call of enemies is worth hunting this long, ticks. */
 const TEAM_SIGHTING_TICKS = 6 * TICK_RATE;
-/** An order's waypoint counts as passed within this, horizontally… */
-const VIA_RADIUS = 128;
-/** …and this, vertically. */
-const VIA_HEIGHT = 72;
 /** A blade charge is held out of a fight at most this long after it started. */
 const CHARGE_CARRY_TICKS = Math.round(2 * TICK_RATE);
 /** A held watch sweeps this far either side of the way in, radians, at this rate. */
@@ -277,28 +273,6 @@ const SPOT_STALE_TICKS = 8 * TICK_RATE;
 const SPOT_MIN_DISTANCE = 200;
 const SPOT_MAX_DISTANCE = 2000;
 
-// Path following
-const PATH_ARRIVED_THRESHOLD = 100; // Distance to consider "arrived" at a waypoint
-/** How far along its route a walking bot looks. */
-const ROUTE_LOOK_AHEAD = 250;
-/** Running a route line, the bot heads for the point this far along it. */
-const ROUTE_LINE_AHEAD = 64;
-/** At the line's end within this, the steps it covered are done. */
-const ROUTE_LINE_ARRIVED = 48;
-/** Further than this from its line, a bot was knocked off it and plans the line again. */
-const ROUTE_LINE_OFF = 128;
-/** Closer than this the look point says nothing about where the route goes. */
-const ROUTE_LOOK_MIN_DISTANCE = 32;
-type PathFollowResult =
-  | { status: "moving"; input: BotInput }
-  | { status: "complete" }
-  | { status: "blocked"; reason: string };
-
-const PATH_RECALC_INTERVAL = 120; // Recalculate path every ~2 seconds
-const NAV_EDGE_FAILURE_COOLDOWN_TICKS = 625;
-/** The cooldown doubles with each failure of the same edge, up to this many times. */
-const NAV_EDGE_FAILURE_MAX_SCALE = 8;
-
 const BOT_SLIDE_COOLDOWN_TICKS = Math.ceil((PHYSICS.SLIDE_COOLDOWN / 1000) * TICK_RATE);
 /** How far a route slide carries the bot on the heading it starts with, units. */
 const ROUTE_SLIDE_RUN = 320;
@@ -373,6 +347,8 @@ export class StateMachineBrain extends BotBrain {
   // ── Internal state ────────────────────────────────────────────────
   /** This life's route, goals and plans; a new one at each death (BotLife). */
   private _life = new BotLife();
+  /** Route following (navigation/BotNavigator). */
+  private readonly _nav = new BotNavigator(this._navigatorHost());
   private _huntYaw: number = 0;
   private _huntTimer: number = 0;
 
@@ -396,8 +372,6 @@ export class StateMachineBrain extends BotBrain {
   private _strafeDirection: number = 1; // 1 or -1
   /** Whether the feelers turned this decision's heading. */
   private _feelerSteered = false;
-  /** This decision ran along a route line; the feelers stand aside. */
-  private _onRouteLine = false;
   /** This decision's move is an exact line (a sequence, a trick's approach): not steered. */
   private _exactMove = false;
   /** Keeps the feet clear of walls in every state (BotVisionTracer), made per collision world. */
@@ -440,8 +414,6 @@ export class StateMachineBrain extends BotBrain {
   // Charged weapon cadence (blade alt-fire: hold, then release to shoot)
   /** Where a teammate last called enemies, and when. */
   private _teamSighting: { position: Vec3; tick: number } | null = null;
-  /** Progress along the current order's `via` waypoints. */
-  private _via: { id: string; next: number } | null = null;
   /** BotOptions.weights: multipliers on the gametype's profile. */
   private _weightScale: Partial<BotWeightProfile> = {};
   /** BotOptions.trace: a DecisionTrace per decision. */
@@ -454,7 +426,6 @@ export class StateMachineBrain extends BotBrain {
 
   // NavGraph pathfinding
   private _navGraph: BotNavGraph | null = null;
-  private _pathRecalcTimer: number = 0;
   private readonly _territory = new BotTerritory();
   private readonly _blocked = new BotBlockedMove();
   /** How many times a player's size this bot's body is; 1 but for a campaign boss. */
@@ -468,11 +439,7 @@ export class StateMachineBrain extends BotBrain {
   private readonly _sequenceRuntime = new BotSequenceRuntime(this._sequenceRegistry);
   private _activeSequenceStep: NavStep | null = null;
   private _lastDecisionTick: number = 0;
-  private readonly _blockedNavEdges = new Map<string, number>();
-  /** Times each nav edge has failed this bot, for the growing cooldown. */
-  private readonly _navEdgeFailures = new Map<string, number>();
 
-  private readonly _blockedPickupIds = new Map<number, number>();
   /** Goals (by id, for dropped items with no pickup id) on the same cooldown: id → retry tick. */
   private readonly _blockedGoalIds = new Map<string, number>();
 
@@ -518,8 +485,6 @@ export class StateMachineBrain extends BotBrain {
   // Store last vision result for use across state methods
   private _lastVision: VisionResult | null = null;
   private _lastBotVision: BotVision | null = null;
-  private _activeNavStep: NavStep["type"] | null = null;
-  private _pathBlockedReason: string | null = null;
   private _suppressTraversalAutomation: boolean = false;
   override steeredOffWall(): boolean {
     return this._feelerSteered;
@@ -538,13 +503,13 @@ export class StateMachineBrain extends BotBrain {
         : 0;
       return `${sequence} remaining=${remaining}${goal ? ` ${goal}` : ""}`;
     }
-    if (this._pathBlockedReason) return `blocked=${this._pathBlockedReason}${goal ? ` ${goal}` : ""}`;
-    if (!this._life.currentPath || !this._activeNavStep) {
+    if (this._nav.pathBlockedReason) return `blocked=${this._nav.pathBlockedReason}${goal ? ` ${goal}` : ""}`;
+    if (!this._life.currentPath || !this._nav.activeNavStep) {
       // No path to describe, but a scored goal choice is still worth surfacing.
       return goal;
     }
     const remaining = this._life.currentPath.steps.length - this._life.currentPath.cursor;
-    const nav = `step=${this._activeNavStep} remaining=${remaining}`;
+    const nav = `step=${this._nav.activeNavStep} remaining=${remaining}`;
     return goal ? `${nav} ${goal}` : nav;
   }
 
@@ -610,7 +575,7 @@ export class StateMachineBrain extends BotBrain {
       gated: (selection?.traces ?? []).length - passed.length,
       step: step ? { type: step.type, to: { ...step.to.position }, route: step.opportunityId } : null,
       sequence: sequence ?? null,
-      blocked: this._pathBlockedReason,
+      blocked: this._nav.pathBlockedReason,
       position: { ...self.position },
       speed: Math.round(Math.hypot(self.velocity.x, self.velocity.z)),
       grounded: self.isGrounded,
@@ -779,9 +744,9 @@ export class StateMachineBrain extends BotBrain {
     visionResult?: VisionResult | null,
     navGraph?: BotNavGraph | null,
   ): BotInput {
-    this._pathRecalcTimer++;
+    this._nav.pathRecalcTimer++;
     this._feelerSteered = false;
-    this._onRouteLine = false;
+    this._nav.onRouteLine = false;
     this._steerTarget = null;
     this._steerClear = 1;
     this._lastVision = visionResult ?? null;
@@ -852,7 +817,7 @@ export class StateMachineBrain extends BotBrain {
           vision && this._sequenceRuntime.activeSequenceId === "route_crouchslide" && !this._fightOff.has("steer")
             ? this._steer(sequenceInput, state, vision)
             : sequenceInput;
-        return this._recoverStalledNavigation(state, steered);
+        return this._nav.recoverStalledNavigation(state, steered);
       }
     }
 
@@ -894,13 +859,13 @@ export class StateMachineBrain extends BotBrain {
         break;
     }
 
-    input = this._recoverStalledNavigation(state, input);
+    input = this._nav.recoverStalledNavigation(state, input);
 
     // Keep the feet clear of walls, corners and ledges in every state. Not on
     // a verified approach to a trick, whose line is exact on purpose.
     if (vision && !this._exactMove) {
       if (!this._fightOff.has("steer")) input = this._steer(input, state, vision);
-      else if (!this._onRouteLine && this.currentState !== BotState.FIGHT && this.currentState !== BotState.DODGE) {
+      else if (!this._nav.onRouteLine && this.currentState !== BotState.FIGHT && this.currentState !== BotState.DODGE) {
         // The feelers, for head-to-head tests: navigation only, and not on a
         // route line, where they saw a wall beyond a corner and turned off it.
         input = this._applyFeelers(input, state, vision);
@@ -1684,7 +1649,7 @@ export class StateMachineBrain extends BotBrain {
             { position: target.predictedPosition },
             this._moveToward(state, { ...target.predictedPosition, y: state.self.position.y }, false),
           )
-        : this._navigateTo(state, territory ?? target.predictedPosition, false);
+        : this._nav.navigateTo(state, territory ?? target.predictedPosition, false);
     if (holdUpper) {
       input.moveYaw = travelYaw(input);
       input.yaw = Math.atan2(
@@ -1794,7 +1759,7 @@ export class StateMachineBrain extends BotBrain {
     // First out of the enemy's sight, then to health.
     if (this._lastVision?.visibleEnemies.length) {
       const wayOut = this._escapePoint(state);
-      if (wayOut) return this._navigateTo(state, wayOut, true);
+      if (wayOut) return this._nav.navigateTo(state, wayOut, true);
     } else this._life.escape = null;
 
     // Scored choice among HEALTH ONLY. Retreating is a specific intent, so the
@@ -1802,7 +1767,7 @@ export class StateMachineBrain extends BotBrain {
     // arbiter still beats "nearest": it accounts for overcap (a bubble at 98 HP
     // is worthless), route cost, and mega vs. medium.
     const healthGoal = this._selectItemGoal(state, RETREAT_ITEM_TYPES, true)?.goal;
-    if (healthGoal) return this._navigateTo(state, healthGoal.position, true);
+    if (healthGoal) return this._nav.navigateTo(state, healthGoal.position, true);
 
     // Try NavGraph path to nearest health (cached via _navigateToItem)
     if (this._navGraph) {
@@ -1812,21 +1777,21 @@ export class StateMachineBrain extends BotBrain {
 
     // Try vision's cover finding
     if (this._lastVision?.nearestCover) {
-      return this._navigateTo(state, this._lastVision.nearestCover, true);
+      return this._nav.navigateTo(state, this._lastVision.nearestCover, true);
     }
 
     // Try nearest health item from BSP knowledge
     if (this._lastBotVision) {
       const healthPos = this._lastBotVision.findNearestItem(state.self.position, "health", state.pickupActiveMask);
       if (healthPos) {
-        return this._navigateTo(state, healthPos, true);
+        return this._nav.navigateTo(state, healthPos, true);
       }
     }
 
     // Find nearest pickup (prefer health)
     const pickup = state.getNearestPickup(PICKUP_SEEK_RANGE);
     if (pickup) {
-      return this._navigateTo(state, pickup.position, true);
+      return this._nav.navigateTo(state, pickup.position, true);
     }
 
     // No pickup found → run away from nearest enemy
@@ -1873,7 +1838,7 @@ export class StateMachineBrain extends BotBrain {
       if (choice.stopover && !goal.directive) return this._navigateGoal(state, choice.stopover, false);
       const territory =
         !goal.directive && goal.position.y < state.self.position.y - 48 ? this._duelTerritory(state) : null;
-      return territory ? this._navigateTo(state, territory, false) : this._navigateGoal(state, goal, false);
+      return territory ? this._nav.navigateTo(state, territory, false) : this._navigateGoal(state, goal, false);
     }
 
     // Try NavGraph path to nearest item (weapon > health > armor > ammo)
@@ -1889,7 +1854,7 @@ export class StateMachineBrain extends BotBrain {
     if (this._lastVision) {
       const reachable = this._lastVision.pickups.find((p) => p.isReachable);
       if (reachable) {
-        return this._navigateTo(state, reachable.pickup.position, false);
+        return this._nav.navigateTo(state, reachable.pickup.position, false);
       }
     }
 
@@ -1897,14 +1862,14 @@ export class StateMachineBrain extends BotBrain {
     if (this._lastBotVision) {
       const weaponPos = this._lastBotVision.findNearestItem(state.self.position, "weapon", state.pickupActiveMask);
       if (weaponPos) {
-        return this._navigateTo(state, weaponPos, false);
+        return this._nav.navigateTo(state, weaponPos, false);
       }
     }
 
     // Fallback to raw state pickups
     const pickup = state.getNearestPickup(PICKUP_SEEK_RANGE);
     if (pickup) {
-      return this._navigateTo(state, pickup.position, false);
+      return this._nav.navigateTo(state, pickup.position, false);
     }
 
     // No pickups found → hunt
@@ -1917,7 +1882,7 @@ export class StateMachineBrain extends BotBrain {
     this._huntTimer++;
 
     const territory = this._duelTerritory(state);
-    if (territory) return this._navigateTo(state, territory, false);
+    if (territory) return this._nav.navigateTo(state, territory, false);
 
     // Prefer a scored goal over aimless patrol. Reached when the ladder falls
     // through to HUNT but the arbiter still has something worth doing — an
@@ -1928,16 +1893,16 @@ export class StateMachineBrain extends BotBrain {
     // Check if we know a last enemy position to investigate
     const huntTarget = this._getHuntTarget(state);
     if (huntTarget) {
-      return this._navigateTo(state, huntTarget, false);
+      return this._nav.navigateTo(state, huntTarget, false);
     }
 
     // NavGraph patrol: pick a random nav node to walk toward
     if (this._navGraph) {
       const nodes = this._navGraph.nodes;
-      if (nodes.length > 0 && (!this._life.huntPatrolTarget || this._pathRecalcTimer > PATH_RECALC_INTERVAL * 2)) {
+      if (nodes.length > 0 && (!this._life.huntPatrolTarget || this._nav.pathRecalcTimer > PATH_RECALC_INTERVAL * 2)) {
         const randomNode = nodes[Math.floor(Math.random() * nodes.length)];
         this._life.huntPatrolTarget = randomNode.position;
-        this._pathRecalcTimer = 0;
+        this._nav.pathRecalcTimer = 0;
       }
       if (this._life.huntPatrolTarget) {
         // Check if we've arrived at patrol target
@@ -1946,7 +1911,7 @@ export class StateMachineBrain extends BotBrain {
           this._life.huntPatrolTarget = null; // Pick new target next tick
           this._life.currentPath = null;
         } else {
-          return this._navigateTo(state, this._life.huntPatrolTarget, false);
+          return this._nav.navigateTo(state, this._life.huntPatrolTarget, false);
         }
       }
     }
@@ -2085,8 +2050,8 @@ export class StateMachineBrain extends BotBrain {
   }
 
   private _navigateGoal(state: BotGameState, goal: BotGoal, urgent: boolean): BotInput {
-    const waypoint = this._nextWaypoint(state, goal);
-    if (waypoint) return this._navigateTo(state, waypoint, urgent);
+    const waypoint = this._nav.nextWaypoint(state, goal);
+    if (waypoint) return this._nav.navigateTo(state, waypoint, urgent);
     const radius = this._holdRadius(goal, state);
     // Planting and defusing use move_to: those orders must stay still on arrival.
     // Escorting patrols round the player escorted, as it moves.
@@ -2100,39 +2065,11 @@ export class StateMachineBrain extends BotBrain {
     if (timed && radius !== undefined && vec3Length(vec3Subtract(goal.position, state.self.position)) <= radius) {
       if (state.matchState.gametypeName.toLowerCase() === "duel") {
         const patrol = this._duelTerritory(state, goal.position);
-        return patrol ? this._navigateTo(state, patrol, false) : this._startRecovery(state);
+        return patrol ? this._nav.navigateTo(state, patrol, false) : this._startRecovery(state);
       }
       return this._watchEntrances(state, goal.position);
     }
-    return this._navigateTo(state, goal.position, urgent, radius);
-  }
-
-  /**
-   * The next of an order's `via` waypoints not yet passed, or null once all
-   * are (or it has none). Passed means within VIA_RADIUS on the same floor;
-   * progress is kept per order, so a new order starts its lane over.
-   */
-  private _nextWaypoint(state: BotGameState, goal: BotGoal): Vec3 | null {
-    const via = goal.directive?.via;
-    if (!via || via.length === 0) {
-      this._via = null;
-      return null;
-    }
-    const id = goal.directive?.id ?? "";
-    let progress = this._via;
-    if (!progress || progress.id !== id) {
-      progress = { id, next: 0 };
-      this._via = progress;
-    }
-    const self = state.self.position;
-    while (progress.next < via.length) {
-      const point = via[progress.next];
-      const near =
-        Math.hypot(point.x - self.x, point.z - self.z) <= VIA_RADIUS && Math.abs(point.y - self.y) <= VIA_HEIGHT;
-      if (!near) return point;
-      progress.next++;
-    }
-    return null;
+    return this._nav.navigateTo(state, goal.position, urgent, radius);
   }
 
   private _duelTerritory(state: BotGameState, center?: Vec3): Vec3 | null {
@@ -2147,37 +2084,9 @@ export class StateMachineBrain extends BotBrain {
       state,
       this._navGraph,
       this._lastBotVision,
-      this._getNavPathOptions(state.tick),
+      this._nav.pathOptions(state.tick),
       center,
     );
-  }
-
-  /** Recover from a route that issues commands without actually going anywhere. */
-  private _recoverStalledNavigation(state: BotGameState, input: BotInput): BotInput {
-    // A bot standing still on purpose (holding a site, planting, waiting at
-    // staging) is not stuck; one with an order that is trying to move is,
-    // and an order is no reason to stay wedged against a wall all round.
-    const standing =
-      input.direction.x === 0 &&
-      input.direction.z === 0 &&
-      (input.buttons & (InputButtons.FORWARD | InputButtons.BACK | InputButtons.LEFT | InputButtons.RIGHT)) === 0;
-    if (standing || this.currentState === BotState.FIGHT || this.currentState === BotState.DODGE) {
-      this._life.navigationProgress = null;
-      return input;
-    }
-    const progress = this._life.navigationProgress;
-    const position = state.self.position;
-    if (
-      !progress ||
-      state.tick < progress.tick ||
-      Math.hypot(position.x - progress.position.x, position.z - progress.position.z) > 32 ||
-      (state.self.isGrounded && Math.abs(position.y - progress.position.y) > 48)
-    ) {
-      this._life.navigationProgress = { position: { ...position }, tick: state.tick };
-    } else if (state.tick - progress.tick >= 250 && (state.self.isGrounded || Math.abs(state.self.velocity.y) < 50)) {
-      return this._startRecovery(state, true);
-    }
-    return input;
   }
 
   /**
@@ -2211,7 +2120,7 @@ export class StateMachineBrain extends BotBrain {
     if (!fighting) return this._startRecovery(state, true, heading);
     // The route that led here is planned again, another way.
     const step = this._activeSequenceStep ?? this._life.currentPath?.steps[this._life.currentPath.cursor];
-    if (step) this._cooldownNavStep(step, state.tick);
+    if (step) this._nav.cooldownStep(step, state.tick);
     this._life.currentPath = null;
     this._life.pathTarget = null;
     this._interruptSequence(state, "blocked", true);
@@ -2286,9 +2195,9 @@ export class StateMachineBrain extends BotBrain {
   private _startRecovery(state: BotGameState, stuck = false, blockedHeading?: number): BotInput {
     this._cancelScript = true;
     const step = this._activeSequenceStep ?? this._life.currentPath?.steps[this._life.currentPath.cursor];
-    if (step) this._cooldownNavStep(step, state.tick);
+    if (step) this._nav.cooldownStep(step, state.tick);
     if (stuck && this.currentState !== BotState.CHASE && this._life.activeItemGoal?.pickupId !== undefined)
-      this._blockedPickupIds.set(this._life.activeItemGoal.pickupId, state.tick + PICKUP_FAILURE_COOLDOWN_TICKS);
+      this._nav.blockedPickupIds.set(this._life.activeItemGoal.pickupId, state.tick + PICKUP_FAILURE_COOLDOWN_TICKS);
     this._interruptSequence(state, "no_navigation_progress", true);
     this._itemGoalPlanner.reset();
     this._life.activeItemGoal = null;
@@ -2484,54 +2393,6 @@ export class StateMachineBrain extends BotBrain {
     };
   }
 
-  private _navigateTo(state: BotGameState, target: Vec3, urgent: boolean, holdRadius?: number): BotInput {
-    // Arrived, and the goal is a PLACE TO BE rather than a thing to touch.
-    //
-    // Everything else in this brain deliberately never sends a zero direction
-    // (see `_moveToward`), which means a bot is always running. That is right
-    // for fetching items and wrong for objectives: Search & Destroy plants only
-    // below 400 ups and arms only while you stay within 100 units of the bomb,
-    // so a bot that cannot stop cannot plant, cannot arm, and cannot defuse.
-    // Holding is the behaviour that makes objective modes playable at all.
-    if (holdRadius !== undefined && vec3Length(vec3Subtract(target, state.self.position)) <= holdRadius) {
-      return this._holdPosition(state, target);
-    }
-
-    if (!this._navGraph) {
-      return this._moveToward(state, target, urgent);
-    }
-
-    // Recalculate path periodically or if target changed significantly
-    const targetChanged = !this._life.pathTarget || vec3Length(vec3Subtract(target, this._life.pathTarget)) > 200;
-
-    if (targetChanged || !this._life.currentPath || this._pathRecalcTimer > PATH_RECALC_INTERVAL) {
-      this._life.currentPath = this._navGraph.findPath(
-        state.self.position,
-        target,
-        this._getNavPathOptions(state.tick),
-      );
-      this._life.pathTarget = target;
-      this._pathRecalcTimer = 0;
-    }
-
-    // If path found, follow waypoints
-    if (this._life.currentPath) {
-      const result = this._followCurrentPath(state, urgent);
-      if (result.status === "moving") return result.input;
-      if (result.status === "blocked") {
-        if (holdRadius === undefined) return this._startRecovery(state);
-        this._life.currentPath = null;
-        return this._moveToward(state, target, urgent);
-      }
-      // Path complete — clear it
-      this._life.currentPath = null;
-      this._dropUnreachableItemGoal(state, target);
-    }
-
-    // No path found — fall back to direct movement
-    return this._moveToward(state, target, urgent);
-  }
-
   /**
    * The route ended short of the item being fetched and there is no clear walk
    * from here to it: an item dropped down a ledge or behind a wall from the
@@ -2578,7 +2439,7 @@ export class StateMachineBrain extends BotBrain {
   private _blockItemGoal(goal: BotGoal, tick: number): void {
     const retry = tick + PICKUP_FAILURE_COOLDOWN_TICKS;
     this._blockedGoalIds.set(goal.id, retry);
-    if (goal.pickupId !== undefined) this._blockedPickupIds.set(goal.pickupId, retry);
+    if (goal.pickupId !== undefined) this._nav.blockedPickupIds.set(goal.pickupId, retry);
     this._itemGoalPlanner.reset();
     this._life.activeItemGoal = null;
   }
@@ -2617,8 +2478,8 @@ export class StateMachineBrain extends BotBrain {
     }
 
     // Expire failure cooldowns first so a previously-blocked item can return.
-    for (const [pickupId, retryTick] of this._blockedPickupIds) {
-      if (state.tick >= retryTick) this._blockedPickupIds.delete(pickupId);
+    for (const [pickupId, retryTick] of this._nav.blockedPickupIds) {
+      if (state.tick >= retryTick) this._nav.blockedPickupIds.delete(pickupId);
     }
     for (const [goalId, retryTick] of this._blockedGoalIds) {
       if (state.tick >= retryTick) this._blockedGoalIds.delete(goalId);
@@ -2628,7 +2489,7 @@ export class StateMachineBrain extends BotBrain {
     const result = this._itemGoalPlanner.select(state, {
       pickupPositions: pickupPositions ?? [],
       maxDistance: PICKUP_SEEK_RANGE,
-      blockedPickupIds: new Set(this._blockedPickupIds.keys()),
+      blockedPickupIds: new Set(this._nav.blockedPickupIds.keys()),
       blockedGoalIds: new Set(this._blockedGoalIds.keys()),
       typeFilter,
       ignoreDirectives,
@@ -2655,29 +2516,29 @@ export class StateMachineBrain extends BotBrain {
     const goalPickupId = this._life.currentPath?.nodes[this._life.currentPath.nodes.length - 1]?.pickupId;
     if (
       goalPickupId !== undefined &&
-      (state.pickupActiveMask[goalPickupId] === false || this._blockedPickupIds.has(goalPickupId))
+      (state.pickupActiveMask[goalPickupId] === false || this._nav.blockedPickupIds.has(goalPickupId))
     ) {
       this._life.currentPath = null;
       this._life.pathTarget = null;
-      this._pathRecalcTimer = PATH_RECALC_INTERVAL + 1;
+      this._nav.pathRecalcTimer = PATH_RECALC_INTERVAL + 1;
     }
 
     // Only recalculate item paths periodically
-    if (!this._life.currentPath || this._pathRecalcTimer > PATH_RECALC_INTERVAL) {
+    if (!this._life.currentPath || this._nav.pathRecalcTimer > PATH_RECALC_INTERVAL) {
       const itemPath = this._navGraph.findPathToItem(
         state.self.position,
         itemType,
         state.pickupActiveMask,
-        this._getNavPathOptions(state.tick),
+        this._nav.pathOptions(state.tick),
       );
       if (!itemPath) return null;
       this._life.currentPath = itemPath;
       this._life.pathTarget = itemPath.nodes[itemPath.nodes.length - 1]?.position ?? null;
-      this._pathRecalcTimer = 0;
+      this._nav.pathRecalcTimer = 0;
     }
 
     if (this._life.currentPath) {
-      const result = this._followCurrentPath(state, urgent);
+      const result = this._nav.followCurrentPath(state, urgent);
       if (result.status === "moving") return result.input;
       if (result.status === "blocked") return this._startRecovery(state);
       // Arrived at item — clear path
@@ -2685,34 +2546,6 @@ export class StateMachineBrain extends BotBrain {
     }
 
     return null;
-  }
-
-  private _getNavPathOptions(tick: number): NavPathOptions {
-    for (const [key, retryTick] of this._blockedNavEdges) {
-      if (tick >= retryTick) this._blockedNavEdges.delete(key);
-    }
-    for (const [pickupId, retryTick] of this._blockedPickupIds) {
-      if (tick >= retryTick) this._blockedPickupIds.delete(pickupId);
-    }
-    return {
-      blockedEdgeKeys: new Set(this._blockedNavEdges.keys()),
-      blockedPickupIds: new Set(this._blockedPickupIds.keys()),
-      canWalkTo: this._lastBotVision ? (from, to) => this._lastBotVision?.isWalkable(from, to) ?? true : undefined,
-    };
-  }
-
-  /**
-   * Leave a failed step out of routes for a while, longer each time the same
-   * one fails: a jump missed again and again is one this bot cannot make
-   * from where its routes take it, and retrying it every few seconds kept it
-   * from the item beyond.
-   */
-  private _cooldownNavStep(step: NavStep, tick: number): void {
-    const key = navEdgeKey(step.edge?.from ?? step.from.id, step.edge?.to ?? step.to.id, step.type);
-    const failures = (this._navEdgeFailures.get(key) ?? 0) + 1;
-    this._navEdgeFailures.set(key, failures);
-    const scale = Math.min(NAV_EDGE_FAILURE_MAX_SCALE, 2 ** (failures - 1));
-    this._blockedNavEdges.set(key, tick + NAV_EDGE_FAILURE_COOLDOWN_TICKS * scale);
   }
 
   private _getSequenceContext(
@@ -2759,7 +2592,7 @@ export class StateMachineBrain extends BotBrain {
 
     this._suppressTraversalAutomation = true;
     this._exactMove = true;
-    this._pathRecalcTimer = 0;
+    this._nav.pathRecalcTimer = 0;
     if (result.status === "running") return result.input;
     this._cancelScript = true;
 
@@ -2769,7 +2602,7 @@ export class StateMachineBrain extends BotBrain {
       if (result.status === "succeeded") {
         this._life.currentPath = null;
       } else if (result.reason === "pickup_missed" || result.reason === "timeout") {
-        this._blockedPickupIds.set(terminalItemTarget.pickupId, state.tick + PICKUP_FAILURE_COOLDOWN_TICKS);
+        this._nav.blockedPickupIds.set(terminalItemTarget.pickupId, state.tick + PICKUP_FAILURE_COOLDOWN_TICKS);
         this._life.currentPath = null;
       }
       return null;
@@ -2777,11 +2610,11 @@ export class StateMachineBrain extends BotBrain {
 
     const terminalStep = this._activeSequenceStep;
     this._activeSequenceStep = null;
-    this._activeNavStep = null;
+    this._nav.activeNavStep = null;
     if (result.status === "failed") {
       if (terminalStep) {
-        this._pathBlockedReason = `sequence:${result.sequenceId}:${result.reason ?? "failed"}`;
-        this._cooldownNavStep(terminalStep, state.tick);
+        this._nav.pathBlockedReason = `sequence:${result.sequenceId}:${result.reason ?? "failed"}`;
+        this._nav.cooldownStep(terminalStep, state.tick);
         this._life.currentPath = null;
         return this._startRecovery(state);
       }
@@ -2796,199 +2629,8 @@ export class StateMachineBrain extends BotBrain {
 
     this._activeSequenceStep = step;
     const input = this._tickActiveSequence(state);
-    if (this._pathBlockedReason) return { status: "blocked", reason: this._pathBlockedReason };
+    if (this._nav.pathBlockedReason) return { status: "blocked", reason: this._nav.pathBlockedReason };
     return input ? { status: "moving", input } : { status: "complete" };
-  }
-
-  /** Execute one traversal-aware step from the current A* path. */
-  private _followCurrentPath(state: BotGameState, urgent: boolean): PathFollowResult {
-    if (!this._navGraph || !this._life.currentPath) return { status: "complete" };
-
-    const lined = this._followRouteLine(state, urgent);
-    if (lined) return { status: "moving", input: lined };
-
-    const step = this._navGraph.getNextStep(state.self.position, this._life.currentPath, PATH_ARRIVED_THRESHOLD);
-    if (!step) {
-      this._activeNavStep = null;
-      this._pathBlockedReason = null;
-      return { status: "complete" };
-    }
-
-    this._activeNavStep = step.type;
-    this._pathBlockedReason = null;
-    const distanceToStart = vec3Length(vec3Subtract(step.from.position, state.self.position));
-
-    if (step.type === "teleporter") {
-      const sequenceResult = this._startNavSequence(state, step, "nav_traverse_teleporter");
-      if (sequenceResult) return sequenceResult;
-      return { status: "blocked", reason: "teleporter:missing_trigger_metadata" };
-    }
-
-    if (step.type === "jumppad") {
-      const sequenceResult = this._startNavSequence(state, step, "nav_traverse_jumppad");
-      if (sequenceResult) return sequenceResult;
-      return { status: "blocked", reason: "jumppad:missing_trigger_metadata" };
-    }
-
-    if (step.type === "fall") {
-      const probe = this._lastBotVision?.probeDrop(step.from.position, step.to.position);
-      if (probe && !probe.safe) {
-        this._cooldownNavStep(step, state.tick);
-        // A bad landing is bad from every ledge above it. Blocking only this
-        // edge sent the next route down the neighbouring one: the bot turned
-        // away, came back and turned away again.
-        if (probe.reason === "landing_obstructed" || probe.reason === "no_landing") {
-          for (const edge of this._navGraph.edges) {
-            if (edge.type === "fall" && edge.to === step.to.id) {
-              this._blockedNavEdges.set(
-                navEdgeKey(edge.from, edge.to, edge.type),
-                state.tick + NAV_EDGE_FAILURE_COOLDOWN_TICKS,
-              );
-            }
-          }
-        }
-        this._pathBlockedReason = `fall:${probe.reason}`;
-        this._activeNavStep = null;
-        this._life.currentPath = null;
-        return { status: "blocked", reason: this._pathBlockedReason };
-      }
-
-      const boost = this._tryStartLedgeSlideJump(this._moveToward(state, step.to.position, urgent), state);
-      if (boost) return { status: "moving", input: boost };
-
-      this._suppressTraversalAutomation = true;
-      this._exactMove = true;
-      const target = distanceToStart > 56 ? step.from.position : (probe?.landing ?? step.to.position);
-      return { status: "moving", input: this._moveTowardPrecise(state, target) };
-    }
-
-    if (step.type === "jump") {
-      const boost = this._tryStartLedgeSlideJump(this._moveToward(state, step.to.position, urgent), state);
-      if (boost) return { status: "moving", input: boost };
-    }
-
-    // A learned route is a script, not a jump: run it or not at all. Falling
-    // through to the blind jump below drops the bot off the ledge it was
-    // meant to wall-jump from.
-    if (step.type === "jump" && this._navGraph?.getLearnedRoute(step.opportunityId)) {
-      const sequenceResult = this._startNavSequence(state, step, "nav_learned_route");
-      if (sequenceResult) return sequenceResult;
-      return { status: "blocked", reason: "learned_route:not_started" };
-    }
-
-    if (step.type === "jump" && step.validated && step.opportunityId) {
-      const sequenceResult = this._startNavSequence(state, step, "nav_validated_jump");
-      if (sequenceResult) return sequenceResult;
-    }
-
-    const input = this._moveToward(state, step.to.position, urgent);
-    if (step.type === "jump" && state.self.isGrounded && distanceToStart < 180) {
-      input.buttons |= InputButtons.JUMP;
-    }
-
-    const distanceToEnd = vec3Length(vec3Subtract(step.to.position, state.self.position));
-    if (step.requiresPreciseApproach && distanceToEnd < 256) {
-      this._suppressTraversalAutomation = true;
-      this._exactMove = true;
-      return { status: "moving", input: this._makePrecise(input) };
-    }
-
-    this._lookAlongRoute(input, state, this._life.currentPath);
-    return { status: "moving", input };
-  }
-
-  /**
-   * Run the walking stretch of the route along its line (RouteLine), built
-   * once for the stretch: down the middle of rooms and round corners on the
-   * outside, through the corners of walks that bend, instead of node to node.
-   * Null where the route goes on with a jump, pad, drop or exact approach,
-   * which the step executor handles, or without map knowledge.
-   */
-  private _followRouteLine(state: BotGameState, urgent: boolean): BotInput | null {
-    const path = this._life.currentPath;
-    const vision = this._lastBotVision;
-    if (!path || !vision) {
-      this._life.routeLine = null;
-      return null;
-    }
-    const self = state.self.position;
-    let held = this._life.routeLine;
-    if (held && (held.path !== path || path.cursor < held.fromStep || path.cursor >= held.line.endStep)) held = null;
-    if (held) {
-      const nearest = pointAlong(held.line.points, self, 0, held.stretch).point;
-      if (Math.hypot(nearest.x - self.x, nearest.z - self.z) > ROUTE_LINE_OFF) held = null;
-    }
-    if (!held) {
-      if (lineEndStep(path, path.cursor) === path.cursor) {
-        this._life.routeLine = null;
-        return null;
-      }
-      const world: RouteWorld = {
-        walkable: (from, to) => vision.isWalkable(from, to),
-        clearance: (at, want) => wallClearance(vision.collisionWorld, at, want, 16),
-      };
-      held = { path, fromStep: path.cursor, line: buildRouteLine(self, path, path.cursor, world), stretch: 0 };
-    }
-    this._life.routeLine = held;
-    const points = held.line.points;
-    const end = points[points.length - 1];
-    // Arrived on the same floor: standing over the end, a storey up, is not there yet.
-    if (
-      Math.hypot(end.x - self.x, end.z - self.z) < ROUTE_LINE_ARRIVED &&
-      Math.abs(end.y - self.y) < ROUTE_LINE_ARRIVED
-    ) {
-      // The stretch is run: on to the step after it.
-      path.cursor = held.line.endStep;
-      this._life.routeLine = null;
-      return null;
-    }
-    const along = pointAlong(points, self, ROUTE_LINE_AHEAD, held.stretch);
-    held.stretch = along.stretch;
-    const input = this._moveToward(state, along.point, urgent);
-    // Look further along the same line, as a player looks round the corner.
-    const look = pointAlong(points, self, ROUTE_LOOK_AHEAD, held.stretch).point;
-    if (Math.hypot(look.x - self.x, look.z - self.z) >= ROUTE_LOOK_MIN_DISTANCE) {
-      const lookYaw = Math.atan2(look.x - self.x, look.z - self.z);
-      if (Math.abs(wrapAngle(lookYaw - input.yaw)) <= Math.PI / 2) {
-        input.moveYaw = input.yaw;
-        input.yaw = lookYaw;
-      }
-    }
-    this._activeNavStep = "walk";
-    this._pathBlockedReason = null;
-    this._onRouteLine = true;
-    return input;
-  }
-
-  /**
-   * Look a little way along the route rather than at the next waypoint, as a
-   * player does: the view eases round corners before reaching them instead of
-   * swinging at each node. Movement still heads for the waypoint.
-   */
-  private _lookAlongRoute(input: BotInput, state: BotGameState, path: NavPath): void {
-    const self = state.self.position;
-    let from = { x: self.x, z: self.z };
-    let left = ROUTE_LOOK_AHEAD;
-    for (let i = path.cursor; i < path.steps.length && left > 0; i++) {
-      const step = path.steps[i];
-      if (i > path.cursor && step.type !== "walk") break; // a jump or pad is looked at when reached
-      const to = step.to.position;
-      const length = Math.hypot(to.x - from.x, to.z - from.z);
-      if (length >= left) {
-        from = { x: from.x + ((to.x - from.x) * left) / length, z: from.z + ((to.z - from.z) * left) / length };
-        break;
-      }
-      left -= length;
-      from = { x: to.x, z: to.z };
-    }
-    const dx = from.x - self.x;
-    const dz = from.z - self.z;
-    if (Math.hypot(dx, dz) < ROUTE_LOOK_MIN_DISTANCE) return;
-    const lookYaw = Math.atan2(dx, dz);
-    const heading = input.yaw;
-    if (Math.abs(Math.atan2(Math.sin(lookYaw - heading), Math.cos(lookYaw - heading))) > Math.PI / 2) return;
-    input.moveYaw = heading;
-    input.yaw = lookYaw;
   }
 
   private _moveTowardPrecise(state: BotGameState, target: Vec3): BotInput {
@@ -3061,7 +2703,8 @@ export class StateMachineBrain extends BotBrain {
     const target = path?.nodes[path.nodes.length - 1] ?? null;
     if (!path || !step || !target || target.type !== "item" || target.pickupId === undefined) return null;
     if (step.type !== "walk" || path.cursor !== path.steps.length - 1) return null;
-    if (state.pickupActiveMask[target.pickupId] !== true || this._blockedPickupIds.has(target.pickupId)) return null;
+    if (state.pickupActiveMask[target.pickupId] !== true || this._nav.blockedPickupIds.has(target.pickupId))
+      return null;
 
     const targetDelta = vec3Subtract(target.position, state.self.position);
     const targetDistance = Math.hypot(targetDelta.x, targetDelta.z);
@@ -3291,7 +2934,7 @@ export class StateMachineBrain extends BotBrain {
       ...this._getSequenceContext(state, step, input, false, true, this._routeStrafeSide),
       ...lane,
       routeStrafeNext: (at: BotGameState) => {
-        this._advancePath(at);
+        this._nav.advancePath(at);
         return this._routeStrafeLane(at);
       },
     };
@@ -3299,16 +2942,6 @@ export class StateMachineBrain extends BotBrain {
     this._routeStrafeSide = this._routeStrafeSide === 1 ? -1 : 1;
     this._routeStrafeCooldownUntilTick = state.tick + BOT_STRAFE_RETRY_TICKS;
     return this._tickActiveSequence(state);
-  }
-
-  /**
-   * Bring the path up to where the bot is, as following it would: a sequence
-   * in the air passes waypoints the brain has not looked at.
-   */
-  private _advancePath(state: BotGameState): void {
-    if (!this._navGraph || !this._life.currentPath) return;
-    this._followRouteLine(state, false);
-    this._navGraph.getNextStep(state.self.position, this._life.currentPath, PATH_ARRIVED_THRESHOLD);
   }
 
   /**
@@ -3414,7 +3047,7 @@ export class StateMachineBrain extends BotBrain {
       velocity: self.velocity,
       grounded: self.isGrounded,
       yaw: moveYaw + keyTurn,
-      onLine: this._onRouteLine,
+      onLine: this._nav.onRouteLine,
       throughTriggers: this._routeUsesTrigger(),
       ...(target
         ? {
@@ -3723,6 +3356,37 @@ export class StateMachineBrain extends BotBrain {
   /** A teammate called enemies at a place (BotCallouts): somewhere to hunt. */
   override noteTeamSighting(position: Vec3, tick: number): void {
     this._teamSighting = { position: { ...position }, tick };
+  }
+
+  /** What the navigator reaches of this brain. */
+  private _navigatorHost(): NavigatorHost {
+    const brain = this;
+    return {
+      get life() {
+        return brain._life;
+      },
+      get navGraph() {
+        return brain._navGraph;
+      },
+      get vision() {
+        return brain._lastBotVision;
+      },
+      get currentState() {
+        return brain.currentState;
+      },
+      moveToward: (state, target, urgent) => this._moveToward(state, target, urgent),
+      moveTowardPrecise: (state, target) => this._moveTowardPrecise(state, target),
+      makePrecise: (input) => this._makePrecise(input),
+      holdPosition: (state, target) => this._holdPosition(state, target),
+      startRecovery: (state, stuck) => this._startRecovery(state, stuck),
+      dropUnreachableItemGoal: (state, target) => this._dropUnreachableItemGoal(state, target),
+      tryStartLedgeSlideJump: (input, state) => this._tryStartLedgeSlideJump(input, state),
+      startNavSequence: (state, step, sequenceId) => this._startNavSequence(state, step, sequenceId),
+      exactStep: () => {
+        this._suppressTraversalAutomation = true;
+        this._exactMove = true;
+      },
+    };
   }
 
   /**

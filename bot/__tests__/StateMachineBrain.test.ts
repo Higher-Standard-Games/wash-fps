@@ -6,6 +6,7 @@ import { BotGameState, type VisiblePlayer } from "../BotGameState";
 import { BotLife } from "../BotLife";
 import { BotNavGraph, type NavEdgeType, type NavPath } from "../BotNavGraph";
 import { getWeaponProfile } from "../BotWeaponProfile";
+import type { BotNavigator } from "../navigation/BotNavigator";
 import { StateMachineBrain } from "../StateMachineBrain";
 
 const difficulty: BotDifficulty = {
@@ -245,20 +246,14 @@ type TraversalHarness = {
   currentState: BotState;
   _navGraph: BotNavGraph | null;
   _life: { currentPath: NavPath | null };
-  _blockedNavEdges: Map<string, number>;
-  _blockedPickupIds: Map<number, number>;
+  _nav: BotNavigator;
   _tryStartItemSlideApproach: (input: BotInput, state: BotGameState) => BotInput | null;
-  _getNavPathOptions: (tick: number) => { blockedEdgeKeys: ReadonlySet<string> };
   _tryStartRouteCrouchslide: (input: BotInput, state: BotGameState) => BotInput | null;
   _tryStartRouteStrafeJump: (input: BotInput, state: BotGameState) => BotInput | null;
   _tickActiveSequence: (state: BotGameState) => BotInput | null;
   _lastBotVision: {
     probeDrop: () => { safe: boolean; reason: "no_landing"; fallDistance: number; landing: null };
   } | null;
-  _followCurrentPath: (
-    state: BotGameState,
-    urgent: boolean,
-  ) => { status: "moving"; input: BotInput } | { status: "complete" } | { status: "blocked"; reason: string };
 };
 
 function makeTraversal(edgeType: NavEdgeType): { graph: BotNavGraph; path: NavPath } {
@@ -330,7 +325,7 @@ it("starts the specialized slide only for an active final-lane pickup", () => {
   state.tick = 125;
   state.self.position.z = 700;
   brain._tickActiveSequence(state);
-  expect(brain._blockedPickupIds.has(3)).toBe(true);
+  expect(brain._nav.blockedPickupIds.has(3)).toBe(true);
   expect(brain._life.currentPath).toBeNull();
   state.self.position.z = 0;
   state.self.isSliding = false;
@@ -451,7 +446,7 @@ describe("StateMachineBrain traversal executors", () => {
       cursor: 0,
     };
 
-    const result = harness._followCurrentPath(state, false);
+    const result = harness._nav.followCurrentPath(state, false);
     if (result.status !== "moving") throw new Error(`expected to move, got ${result.status}`);
     // 150 units to the corner, then 100 along the next leg.
     expect(result.input.moveYaw).toBeCloseTo(0, 6);
@@ -594,7 +589,7 @@ describe("StateMachineBrain traversal executors", () => {
     harness._navGraph = graph;
     harness._life.currentPath = path;
 
-    const result = harness._followCurrentPath(state, false);
+    const result = harness._nav.followCurrentPath(state, false);
 
     expect(result.status).toBe("moving");
     if (result.status === "moving") expect(result.input.buttons & InputButtons.JUMP).not.toBe(0);
@@ -669,7 +664,7 @@ describe("StateMachineBrain traversal executors", () => {
     harness._navGraph = graph;
     harness._life.currentPath = path;
 
-    const result = harness._followCurrentPath(state, false);
+    const result = harness._nav.followCurrentPath(state, false);
 
     expect(result.status).toBe("moving");
     if (result.status === "moving") {
@@ -702,7 +697,7 @@ describe("StateMachineBrain traversal executors", () => {
     harness._navGraph = graph;
     harness._life.currentPath = path;
 
-    const result = harness._followCurrentPath(state, false);
+    const result = harness._nav.followCurrentPath(state, false);
     expect(result.status).toBe("moving");
     if (result.status === "moving") {
       expect(result.input.buttons & InputButtons.FORWARD).not.toBe(0);
@@ -730,7 +725,7 @@ describe("StateMachineBrain traversal executors", () => {
     harness._navGraph = graph;
     harness._life.currentPath = path;
 
-    expect(harness._followCurrentPath(state, false).status).toBe("moving");
+    expect(harness._nav.followCurrentPath(state, false).status).toBe("moving");
     expect(brain.getNavigationDebug()).toContain("sequence=nav_traverse_jumppad phase=activate");
 
     state.tick = 5;
@@ -758,14 +753,14 @@ describe("StateMachineBrain traversal executors", () => {
     harness._navGraph = graph;
     harness._life.currentPath = path;
 
-    expect(harness._followCurrentPath(state, false).status).toBe("moving");
+    expect(harness._nav.followCurrentPath(state, false).status).toBe("moving");
     state.tick = 40;
     harness._tickActiveSequence(state);
 
     expect(brain.isSequenceActive()).toBe(false);
     expect(brain.getNavigationDebug()).toBe("blocked=sequence:nav_traverse_teleporter:teleport_not_confirmed");
     expect(harness._life.currentPath).toBeNull();
-    expect(harness._blockedNavEdges.size).toBe(1);
+    expect(harness._nav.blockedNavEdges.size).toBe(1);
   });
 
   it("blocks a fall edge when the landing probe fails", () => {
@@ -779,11 +774,11 @@ describe("StateMachineBrain traversal executors", () => {
       probeDrop: () => ({ safe: false, reason: "no_landing", fallDistance: 128, landing: null }),
     };
 
-    expect(harness._followCurrentPath(state, false)).toEqual({ status: "blocked", reason: "fall:no_landing" });
+    expect(harness._nav.followCurrentPath(state, false)).toEqual({ status: "blocked", reason: "fall:no_landing" });
     expect(brain.getNavigationDebug()).toBe("blocked=fall:no_landing");
-    expect(harness._blockedNavEdges.size).toBe(1);
-    expect(harness._getNavPathOptions(624).blockedEdgeKeys.size).toBe(1);
-    expect(harness._getNavPathOptions(625).blockedEdgeKeys.size).toBe(0);
+    expect(harness._nav.blockedNavEdges.size).toBe(1);
+    expect(harness._nav.pathOptions(624).blockedEdgeKeys?.size).toBe(1);
+    expect(harness._nav.pathOptions(625).blockedEdgeKeys?.size).toBe(0);
   });
 });
 
