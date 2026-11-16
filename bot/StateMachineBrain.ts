@@ -398,8 +398,6 @@ export class StateMachineBrain extends BotBrain {
   private _feelerSteered = false;
   /** This decision ran along a route line; the feelers stand aside. */
   private _onRouteLine = false;
-  /** Riding a jump pad's throw the route did not ask for, to where it throws, until down again. */
-  private _padRide: { dest: Vec3 } | null = null;
   /** This decision's move is an exact line (a sequence, a trick's approach): not steered. */
   private _exactMove = false;
   /** Keeps the feet clear of walls in every state (BotVisionTracer), made per collision world. */
@@ -411,7 +409,6 @@ export class StateMachineBrain extends BotBrain {
   private _steerClear = 1;
   /** Next tick a climb or wall jump may be checked for; a climb under way holds forward to its target. */
   private _trickCheckTick = 0;
-  private _climb: { target: Vec3; untilTick: number } | null = null;
   /** A wall jump wants a fresh press: jump let go this decision, pressed on the next. */
   private _wallJumpPress = false;
   private _lastJumpHeld = false;
@@ -450,13 +447,6 @@ export class StateMachineBrain extends BotBrain {
   /** BotOptions.trace: a DecisionTrace per decision. */
   private _tracing = false;
   private _lastTrace: DecisionTrace | null = null;
-  private _chargeWeaponId: string | null = null;
-  private _chargeTargetId: string | null = null;
-  private _chargeStartTick: number | null = null;
-  private _chargeReleaseTick: number | null = null;
-
-  /** Tick ADS was first held with the weapon now up, while it stays held. */
-  private _adsSinceTick: number | null = null;
 
   // Random look-around for human-feel
   private _lookAroundTimer: number = 0;
@@ -464,12 +454,9 @@ export class StateMachineBrain extends BotBrain {
 
   // NavGraph pathfinding
   private _navGraph: BotNavGraph | null = null;
-  private _pathTarget: Vec3 | null = null;
   private _pathRecalcTimer: number = 0;
   private readonly _territory = new BotTerritory();
   private readonly _blocked = new BotBlockedMove();
-  /** Where a bot in slime or lava is heading to get out, and when that was chosen; null when dry. */
-  private _liquidEscape: { target: Vec3 | null; chosenTick: number } | null = null;
   /** How many times a player's size this bot's body is; 1 but for a campaign boss. */
   private _bodyScale = 1;
   /** Slime and lava do not hurt this bot (a campaign boss), so it does not get out of them. */
@@ -488,7 +475,6 @@ export class StateMachineBrain extends BotBrain {
   private readonly _blockedPickupIds = new Map<number, number>();
   /** Goals (by id, for dropped items with no pickup id) on the same cooldown: id → retry tick. */
   private readonly _blockedGoalIds = new Map<string, number>();
-  private _activeItemSlideTarget: { pickupId: number; position: Vec3 } | null = null;
 
   // Scored item-goal selection (docs/research/BOT_WEIGHTS_AND_GOALS.md Phase 1).
   // Replaces "nearest pickup wins" for WHICH item to fetch; the state ladder
@@ -828,7 +814,7 @@ export class StateMachineBrain extends BotBrain {
     const mandatory = this._selectMandatoryGoal(state);
     if (mandatory?.id !== this._life.mandatoryGoal?.id) {
       this._life.currentPath = null;
-      this._pathTarget = null;
+      this._life.pathTarget = null;
       this._interruptSequence(state, "objective_changed", true);
     }
     this._life.mandatoryGoal = mandatory;
@@ -1314,11 +1300,11 @@ export class StateMachineBrain extends BotBrain {
       const aimsDownSights =
         currentProfile.aimsDownSights && wantsFire && state.self.currentWeapon === selectedWeaponId;
       if (aimsDownSights) buttons |= InputButtons.ALT_FIRE;
-      if (!aimsDownSights || state.self.currentWeapon !== selectedWeaponId) this._adsSinceTick = null;
-      else this._adsSinceTick ??= state.tick;
+      if (!aimsDownSights || state.self.currentWeapon !== selectedWeaponId) this._life.adsSinceTick = null;
+      else this._life.adsSinceTick ??= state.tick;
       const aimReady =
         currentProfile.adsReadyTicks === 0 ||
-        (this._adsSinceTick !== null && state.tick - this._adsSinceTick >= currentProfile.adsReadyTicks);
+        (this._life.adsSinceTick !== null && state.tick - this._life.adsSinceTick >= currentProfile.adsReadyTicks);
 
       // Fire
       if (wantsFire && aimReady) {
@@ -1532,7 +1518,7 @@ export class StateMachineBrain extends BotBrain {
     if (
       (input.weaponSlot ?? 0) === 0 &&
       state.self.currentWeapon === "blade" &&
-      this._chargeStartTick === null &&
+      this._life.chargeStartTick === null &&
       !this._fightOff.has("holster")
     ) {
       const { slot } = selectBestWeapon(state.self.weapons, state.self.ammo, state.self.currentWeapon, HOLSTER_RANGE);
@@ -1568,9 +1554,14 @@ export class StateMachineBrain extends BotBrain {
       return { holdAltFire: false };
     }
 
-    const targetChanged = this._chargeTargetId !== enemy.playerId;
-    const weaponChanged = this._chargeWeaponId !== weaponId;
-    if (targetChanged || weaponChanged || this._chargeStartTick === null || this._chargeReleaseTick === null) {
+    const targetChanged = this._life.chargeTargetId !== enemy.playerId;
+    const weaponChanged = this._life.chargeWeaponId !== weaponId;
+    if (
+      targetChanged ||
+      weaponChanged ||
+      this._life.chargeStartTick === null ||
+      this._life.chargeReleaseTick === null
+    ) {
       // A charge starts only when the bot means to fire; once started it is
       // held through a moment's hesitation, because letting go before the
       // minimum cancels it on the server.
@@ -1578,15 +1569,15 @@ export class StateMachineBrain extends BotBrain {
         this._clearChargedProjectileFire();
         return { holdAltFire: false };
       }
-      this._chargeWeaponId = weaponId;
-      this._chargeTargetId = enemy.playerId;
-      this._chargeStartTick = state.tick;
+      this._life.chargeWeaponId = weaponId;
+      this._life.chargeTargetId = enemy.playerId;
+      this._life.chargeStartTick = state.tick;
 
       const chargeSpan = Math.max(0, profile.chargeMaxTicks - profile.chargeMinTicks);
       const skillHold = 0.35 + this.difficulty.predictionSkill * 0.4;
       const jitter = (Math.random() - 0.5) * 0.15;
       const holdTicks = Math.round(profile.chargeMinTicks + chargeSpan * Math.max(0, Math.min(1, skillHold + jitter)));
-      this._chargeReleaseTick = state.tick + Math.max(profile.chargeMinTicks, holdTicks);
+      this._life.chargeReleaseTick = state.tick + Math.max(profile.chargeMinTicks, holdTicks);
       return { holdAltFire: true };
     }
 
@@ -1596,8 +1587,8 @@ export class StateMachineBrain extends BotBrain {
     const off = Math.max(Math.abs(wrapAngle(aim.yaw - state.self.yaw)), Math.abs(aim.pitch - state.self.pitch));
     const onAim = off <= CHARGE_RELEASE_CONE;
     if (
-      state.tick >= this._chargeReleaseTick &&
-      (onAim || state.tick >= this._chargeReleaseTick + CHARGE_AIM_GRACE_TICKS)
+      state.tick >= this._life.chargeReleaseTick &&
+      (onAim || state.tick >= this._life.chargeReleaseTick + CHARGE_AIM_GRACE_TICKS)
     ) {
       this._clearChargedProjectileFire();
       return { holdAltFire: false };
@@ -1614,23 +1605,23 @@ export class StateMachineBrain extends BotBrain {
    * alt-fire otherwise ends the charge, on the server and here.
    */
   private _carryCharge(state: BotGameState, input: BotInput): void {
-    if ((input.buttons & InputButtons.ALT_FIRE) !== 0 || this._chargeStartTick === null) return;
+    if ((input.buttons & InputButtons.ALT_FIRE) !== 0 || this._life.chargeStartTick === null) return;
     const carried =
       !state.self.isDead &&
       this.currentState !== BotState.FIGHT &&
-      state.self.currentWeapon === this._chargeWeaponId &&
+      state.self.currentWeapon === this._life.chargeWeaponId &&
       !input.script &&
       (input.weaponSlot ?? 0) === 0 &&
-      state.tick - this._chargeStartTick < CHARGE_CARRY_TICKS;
+      state.tick - this._life.chargeStartTick < CHARGE_CARRY_TICKS;
     if (carried) input.buttons |= InputButtons.ALT_FIRE;
     else this._clearChargedProjectileFire();
   }
 
   private _clearChargedProjectileFire(): void {
-    this._chargeWeaponId = null;
-    this._chargeTargetId = null;
-    this._chargeStartTick = null;
-    this._chargeReleaseTick = null;
+    this._life.chargeWeaponId = null;
+    this._life.chargeTargetId = null;
+    this._life.chargeStartTick = null;
+    this._life.chargeReleaseTick = null;
   }
   // ── DODGE State ───────────────────────────────────────────────────
 
@@ -2222,7 +2213,7 @@ export class StateMachineBrain extends BotBrain {
     const step = this._activeSequenceStep ?? this._life.currentPath?.steps[this._life.currentPath.cursor];
     if (step) this._cooldownNavStep(step, state.tick);
     this._life.currentPath = null;
-    this._pathTarget = null;
+    this._life.pathTarget = null;
     this._interruptSequence(state, "blocked", true);
     this._cancelScript = true;
     this._strafeDirection = -this._strafeDirection;
@@ -2240,14 +2231,14 @@ export class StateMachineBrain extends BotBrain {
     const self = state.self;
     const world = this._lastBotVision?.collisionWorld;
     if (self.isDead || !world || this._liquidImmune || !inHarmfulLiquid(world, self.position)) {
-      this._liquidEscape = null;
+      this._life.liquidEscape = null;
       return input;
     }
-    if (!this._liquidEscape || state.tick - this._liquidEscape.chosenTick >= LIQUID_ESCAPE_REPLAN_TICKS) {
+    if (!this._life.liquidEscape || state.tick - this._life.liquidEscape.chosenTick >= LIQUID_ESCAPE_REPLAN_TICKS) {
       const target = liquidEscapeTarget(world, self.position, this._navGraph?.nodes ?? []);
-      this._liquidEscape = { target, chosenTick: state.tick };
+      this._life.liquidEscape = { target, chosenTick: state.tick };
     }
-    const target = this._liquidEscape.target;
+    const target = this._life.liquidEscape.target;
     const yaw = target ? Math.atan2(target.x - self.position.x, target.z - self.position.z) : travelYaw(input);
     // Jump held: it hops off the bottom and swims up
     const out = this._runOpen(input, yaw);
@@ -2302,7 +2293,7 @@ export class StateMachineBrain extends BotBrain {
     this._itemGoalPlanner.reset();
     this._life.activeItemGoal = null;
     this._life.currentPath = null;
-    this._pathTarget = null;
+    this._life.pathTarget = null;
     this._life.huntPatrolTarget = null;
     this._territory.reset();
     this._life.navigationProgress = { position: { ...state.self.position }, tick: state.tick };
@@ -2511,7 +2502,7 @@ export class StateMachineBrain extends BotBrain {
     }
 
     // Recalculate path periodically or if target changed significantly
-    const targetChanged = !this._pathTarget || vec3Length(vec3Subtract(target, this._pathTarget)) > 200;
+    const targetChanged = !this._life.pathTarget || vec3Length(vec3Subtract(target, this._life.pathTarget)) > 200;
 
     if (targetChanged || !this._life.currentPath || this._pathRecalcTimer > PATH_RECALC_INTERVAL) {
       this._life.currentPath = this._navGraph.findPath(
@@ -2519,7 +2510,7 @@ export class StateMachineBrain extends BotBrain {
         target,
         this._getNavPathOptions(state.tick),
       );
-      this._pathTarget = target;
+      this._life.pathTarget = target;
       this._pathRecalcTimer = 0;
     }
 
@@ -2667,7 +2658,7 @@ export class StateMachineBrain extends BotBrain {
       (state.pickupActiveMask[goalPickupId] === false || this._blockedPickupIds.has(goalPickupId))
     ) {
       this._life.currentPath = null;
-      this._pathTarget = null;
+      this._life.pathTarget = null;
       this._pathRecalcTimer = PATH_RECALC_INTERVAL + 1;
     }
 
@@ -2681,7 +2672,7 @@ export class StateMachineBrain extends BotBrain {
       );
       if (!itemPath) return null;
       this._life.currentPath = itemPath;
-      this._pathTarget = itemPath.nodes[itemPath.nodes.length - 1]?.position ?? null;
+      this._life.pathTarget = itemPath.nodes[itemPath.nodes.length - 1]?.position ?? null;
       this._pathRecalcTimer = 0;
     }
 
@@ -2747,8 +2738,8 @@ export class StateMachineBrain extends BotBrain {
       crouchslideReady,
       routeStrafeReady,
       routeStrafeSide,
-      itemSlideTarget: this._activeItemSlideTarget,
-      itemSlideReady: this._activeItemSlideTarget !== null,
+      itemSlideTarget: this._life.activeItemSlideTarget,
+      itemSlideReady: this._life.activeItemSlideTarget !== null,
     };
   }
 
@@ -2757,7 +2748,7 @@ export class StateMachineBrain extends BotBrain {
     if (interrupted) {
       this._cancelScript = true;
       this._activeSequenceStep = null;
-      this._activeItemSlideTarget = null;
+      this._life.activeItemSlideTarget = null;
     }
     return interrupted;
   }
@@ -2772,8 +2763,8 @@ export class StateMachineBrain extends BotBrain {
     if (result.status === "running") return result.input;
     this._cancelScript = true;
 
-    const terminalItemTarget = this._activeItemSlideTarget;
-    this._activeItemSlideTarget = null;
+    const terminalItemTarget = this._life.activeItemSlideTarget;
+    this._life.activeItemSlideTarget = null;
     if (result.sequenceId === "item_slide_approach" && terminalItemTarget) {
       if (result.status === "succeeded") {
         this._life.currentPath = null;
@@ -3097,10 +3088,10 @@ export class StateMachineBrain extends BotBrain {
     });
     if (allyBlocksLane) return null;
 
-    this._activeItemSlideTarget = { pickupId: target.pickupId, position: { ...target.position } };
+    this._life.activeItemSlideTarget = { pickupId: target.pickupId, position: { ...target.position } };
     const context = this._getSequenceContext(state, step, input);
     if (!this._sequenceRuntime.start("item_slide_approach", context)) {
-      this._activeItemSlideTarget = null;
+      this._life.activeItemSlideTarget = null;
       return null;
     }
     this._slideCooldownUntilTick = state.tick + BOT_SLIDE_COOLDOWN_TICKS;
@@ -3434,19 +3425,19 @@ export class StateMachineBrain extends BotBrain {
     });
     if (!result) {
       if (self.isGrounded) {
-        this._padRide = null;
+        this._life.padRide = null;
         return input;
       }
       // Thrown by a pad with no sequence flying it (one the route did not mean to
       // use, or one whose traversal gave up): fly on to where it throws, until
       // down again. Its throw ends at the ledge it serves, and a bot that steers
       // back toward its own way falls onto the pad and is thrown again.
-      if (!this._padRide && self.velocity.y > PAD_LAUNCH_SPEED && !this._sequenceRuntime.isActive) {
+      if (!this._life.padRide && self.velocity.y > PAD_LAUNCH_SPEED && !this._sequenceRuntime.isActive) {
         const pad = this._padUnder(self.position, vision);
-        if (pad) this._padRide = { dest: pad.dest };
+        if (pad) this._life.padRide = { dest: pad.dest };
       }
-      if (this._padRide) {
-        const dest = this._padRide.dest;
+      if (this._life.padRide) {
+        const dest = this._life.padRide.dest;
         const keep = InputButtons.FIRE | InputButtons.ALT_FIRE | InputButtons.CROUCH;
         return {
           ...input,
@@ -3478,7 +3469,7 @@ export class StateMachineBrain extends BotBrain {
       this.currentState === BotState.RETREAT ||
       this.currentState === BotState.CHASE;
     if (!tracer || !navigating || self.isDead) {
-      this._climb = null;
+      this._life.climb = null;
       this._wallJumpPress = false;
       return input;
     }
@@ -3494,10 +3485,10 @@ export class StateMachineBrain extends BotBrain {
     });
 
     // A climb under way: forward to its target until down again, for the ledge grab
-    const climb = this._climb;
+    const climb = this._life.climb;
     if (climb) {
       if (state.tick > climb.untilTick || (self.isGrounded && state.tick > climb.untilTick - CLIMB_HOLD_TICKS + 10)) {
-        this._climb = null;
+        this._life.climb = null;
       } else if (!self.isGrounded) {
         return forwardTo(climb.target, false);
       }
@@ -3514,7 +3505,7 @@ export class StateMachineBrain extends BotBrain {
       this._trickCheckTick = state.tick + TRICK_CHECK_TICKS;
       const top = tracer.climbByJump(self.position, self.velocity, toward(target));
       if (!top || top.y < self.position.y + CLIMB_RISE) return input;
-      this._climb = { target: { ...target }, untilTick: state.tick + CLIMB_HOLD_TICKS };
+      this._life.climb = { target: { ...target }, untilTick: state.tick + CLIMB_HOLD_TICKS };
       return forwardTo(target, true);
     }
 

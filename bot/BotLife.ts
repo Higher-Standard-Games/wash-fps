@@ -48,4 +48,22 @@ export class BotLife {
   recovery: { target: Vec3; until: number } | null = null;
   /** Blocked in a fight: the open way the bot runs, and until when. */
   unstick: { yaw: number; untilTick: number } | null = null;
+  // The body's moment: each clears itself in play, and none of it outlives a death
+  /** The route's target, to tell a new target from the one the route was found for. */
+  pathTarget: Vec3 | null = null;
+  /** A climb under way, held forward to its target until when. */
+  climb: { target: Vec3; untilTick: number } | null = null;
+  /** Riding a jump pad's throw the route did not ask for, to where it throws, until down again. */
+  padRide: { dest: Vec3 } | null = null;
+  /** Where a bot in slime or lava is heading to get out, and when that was chosen; null when dry. */
+  liquidEscape: { target: Vec3 | null; chosenTick: number } | null = null;
+  /** The item a slide approach is making for. */
+  activeItemSlideTarget: { pickupId: number; position: Vec3 } | null = null;
+  /** A charged shot held: with which weapon, at whom, since when, and when it is let go. */
+  chargeWeaponId: string | null = null;
+  chargeTargetId: string | null = null;
+  chargeStartTick: number | null = null;
+  chargeReleaseTick: number | null = null;
+  /** Tick ADS was first held with the weapon now up, while it stays held. */
+  adsSinceTick: number | null = null;
 }
