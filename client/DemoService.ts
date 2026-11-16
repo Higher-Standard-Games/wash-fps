@@ -38,6 +38,7 @@ import { DemoAnalyzer } from "../../../shared/demo/DemoAnalyzer";
 import type { RecordedInput } from "../../../shared/demo/DemoInputs";
 import { DemoReader } from "../../../shared/demo/DemoReader";
 import { isClientKey, toClientKey } from "../ClientEntityKey";
+import { maskHasPowerup } from "../shared/items/Powerups";
 import {
   CinematicDemoPlayer,
   type CinematicRecipe,
@@ -74,6 +75,12 @@ import { currentClip, HUDState } from "./HUDState";
 import { MatchStateManager } from "./MatchStateManager";
 import { forcePlayerModels } from "./PlayerModelSelection";
 import { setCampaignTeammates } from "./PlayerModelVisualSettings";
+import {
+  getQuadDamagePulse,
+  QUAD_DAMAGE_COLOR,
+  QUAD_VIEW_WEAPON_OUTLINE_MIN,
+  QUAD_VIEW_WEAPON_OUTLINE_RANGE,
+} from "./QuadDamageVisual";
 import { RagdollSystem } from "./RagdollSystem";
 import { demoEndCard, reelEndCard, reelTitle } from "./ReelCards";
 import type { RemotePlayerRenderer } from "./RemotePlayerRenderer";
@@ -1689,10 +1696,20 @@ export class DemoService {
       this._selectSpectateTarget(cameraTarget);
     }
 
-    if (!this._followedEntityId || !this.remoteRenderer) return;
+    const sample =
+      this._followedEntityId && this.remoteRenderer
+        ? this.remoteRenderer.getDemoEntitySample(this._followedEntityId)
+        : null;
+    // Their gun glows while they carry the quad, as the player's own does
+    const quad = maskHasPowerup(sample?.powerupMask ?? 0, "quad");
+    const pulse = getQuadDamagePulse(performance.now() / 1000);
+    this._demoWvm?.setPowerupOutlineOverride(
+      quad,
+      QUAD_DAMAGE_COLOR,
+      QUAD_VIEW_WEAPON_OUTLINE_MIN + QUAD_VIEW_WEAPON_OUTLINE_RANGE * pulse,
+    );
+    if (!this._followedEntityId || !sample) return;
     this._followed.setAiming(this._aimingEntities.has(this._followedEntityId));
-    const sample = this.remoteRenderer.getDemoEntitySample(this._followedEntityId);
-    if (!sample) return;
 
     this._followed.updateMotion(sample, {
       playheadTick: playback.playheadTick,

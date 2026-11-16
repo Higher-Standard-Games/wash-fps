@@ -163,6 +163,11 @@ export class DemoEntityTimeline {
       ledgeGrabPhase: lerpOptional(a.ledgeGrabPhase, b.ledgeGrabPhase, t),
       strafeInput: t < 0.5 ? a.strafeInput : b.strafeInput,
       forwardInput: t < 0.5 ? a.forwardInput : b.forwardInput,
+      aiming: t < 0.5 ? a.aiming : b.aiming,
+      waterLevel: t < 0.5 ? a.waterLevel : b.waterLevel,
+      onLadder: t < 0.5 ? a.onLadder : b.onLadder,
+      // The newer mask, as live play reads it: a quad taken or run out shows at once
+      powerupMask: b.powerupMask ?? a.powerupMask,
     };
   }
 }

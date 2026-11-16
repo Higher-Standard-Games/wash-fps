@@ -29,6 +29,25 @@ const familiesOf = (value: string) =>
       .toLowerCase(),
   );
 
+/** A selector's pseudo-elements: the element they belong to stands in for them. */
+const PSEUDO_ELEMENT =
+  /::?(?:before|after|marker|placeholder|selection|backdrop|first-line|first-letter)\b|::[\w-]+(?:\([^)]*\))?/g;
+
+/**
+ * Whether `selector` matches the page root, its body, any of `roots` or what
+ * they hold. Pseudo-elements are matched by their element; a selector the
+ * browser cannot match counts as shown.
+ */
+function shows(roots: Element[], selector: string): boolean {
+  const element = selector.replace(PSEUDO_ELEMENT, "");
+  try {
+    if (document.documentElement.matches(element) || document.body.matches(element)) return true;
+    return roots.some((root) => root.matches(element) || root.querySelector(element) !== null);
+  } catch {
+    return true;
+  }
+}
+
 /** The face CSS font matching picks for weight `want` among `weights`. */
 export function matchWeight(weights: readonly number[], want: number): number | undefined {
   const sorted = [...new Set(weights)].sort((a, b) => a - b);
@@ -63,6 +82,12 @@ const TIMING_KEYS = new Set(["offset", "computedOffset", "easing", "composite", 
  */
 export class HudFrameCapture {
   private styleKey = "";
+  /**
+   * Selectors of the rules nothing in the HUD matched at the last style
+   * refresh, left out of it: every frame decodes the whole style, and a
+   * smaller one decodes faster and leaves the browser less to collect.
+   */
+  private unshown: string[] = [];
   /** The image up to the HUD's markup, URL-encoded once per style change. */
   private opening = "";
   private readonly data = new Map<string, Promise<string>>();
@@ -144,7 +169,7 @@ export class HudFrameCapture {
     }
     html.append(body);
     // After the copy, which notes any character the fonts do not carry yet
-    await abortable(this.refreshStyle(), signal);
+    await abortable(this.refreshStyle(roots), signal);
     const markup = new XMLSerializer().serializeToString(html);
     if (this.last?.markup === markup) return this.last.image;
     // A data URL: an SVG image from a blob URL taints the canvas it is drawn on, and the encoder refuses it
@@ -259,11 +284,12 @@ export class HudFrameCapture {
   }
 
   /**
-   * The page's style as the image needs it: every rule but keyframes, with
+   * The page's style as the image needs it: every rule but keyframes and the
+   * rules nothing in the HUD matches (a match refreshes it), with
    * its fonts and pictures inlined (an image loads nothing), `:root` read as
    * the copy's own root, and the scale variables of the movie's size.
    */
-  private async refreshStyle(): Promise<void> {
+  private async refreshStyle(roots: Element[]): Promise<void> {
     const sheets = [...document.styleSheets];
     let key = String(sheets.length);
     for (const sheet of sheets) {
@@ -275,8 +301,10 @@ export class HudFrameCapture {
     }
     const scale = document.getElementById("ui-scale-variables")?.textContent ?? "";
     key += `:${scale.length}:${this.characters.size}:${this.shaped}:${this.faces.size}`;
-    if (key === this.styleKey) return;
+    const shown = (selectors: string[]) => selectors.map((selector) => (shows(roots, selector) ? 1 : 0)).join("");
+    if (`${key}|${shown(this.unshown)}` === this.styleKey) return;
     const parts: string[] = [];
+    const unshown: string[] = [];
     const fonts = new Map<string, { rule: CSSFontFaceRule; base: string }>();
     const collect = async (rules: CSSRuleList, base: string) => {
       for (const rule of rules) {
@@ -292,6 +320,10 @@ export class HudFrameCapture {
         let text = rule.cssText;
         if (rule instanceof CSSFontFaceRule) {
           fonts.set(text, { rule, base });
+          continue;
+        }
+        if (rule instanceof CSSStyleRule && !shows(roots, rule.selectorText)) {
+          unshown.push(rule.selectorText);
           continue;
         }
         for (const [, content] of text.matchAll(CONTENT_PATTERN))
@@ -329,7 +361,8 @@ export class HudFrameCapture {
         `<style>${escapeXml(parts.join("\n"))}</style>` +
         `<foreignObject x="0" y="0" width="${this.width}" height="${this.height}">`,
     )}`;
-    this.styleKey = key;
+    this.styleKey = `${key}|${shown(unshown)}`;
+    this.unshown = unshown;
     this.last = null;
   }
 

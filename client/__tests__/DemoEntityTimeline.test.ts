@@ -44,6 +44,17 @@ describe("DemoEntityTimeline", () => {
     expect(timeline.sample("player", 103)?.pitch).toBeCloseTo(0.2);
   });
 
+  it("keeps the held powerups, water and ladder between recorded ticks", () => {
+    const timeline = new DemoEntityTimeline();
+    timeline.push(100, frame("player", entity({ powerupMask: 0, waterLevel: 0, onLadder: false })));
+    timeline.push(104, frame("player", entity({ powerupMask: 1, waterLevel: 2, onLadder: true })));
+    // The newer mask at once; the rest from the nearer frame
+    expect(timeline.sample("player", 101)?.powerupMask).toBe(1);
+    expect(timeline.sample("player", 101)?.waterLevel).toBe(0);
+    expect(timeline.sample("player", 103)?.waterLevel).toBe(2);
+    expect(timeline.sample("player", 103)?.onLadder).toBe(true);
+  });
+
   it("uses shortest-path yaw interpolation", () => {
     const timeline = new DemoEntityTimeline();
     timeline.push(10, frame("player", entity({ yaw: Math.PI * 0.9 })));
