@@ -943,7 +943,8 @@ export async function createBotVision(mapName: string): Promise<BotVision | null
     return null;
   }
 
-  const bsp = BspLoader.load(bspBuffer);
+  // Collision and entities only: bots never read the render data (lightmaps, draw vertices)
+  const bsp = BspLoader.loadCollision(bspBuffer);
   console.log(`[BotVision] BSP parsed: ${bsp.header.isFBSP ? "FBSP" : "IBSP"} v${bsp.header.version}`);
   console.log(`[BotVision] Brushes: ${bsp.brushes.length}, Planes: ${bsp.planes.length}`);
 

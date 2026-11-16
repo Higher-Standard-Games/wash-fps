@@ -39,13 +39,21 @@ const DEFAULT_SPAWN_POINTS: Vec3[] = [
 // ── BSP Buffer Loading ──────────────────────────────────────────────────
 
 /**
- * Resolve BSP bytes through the pk3 index using the process data directories.
+ * Resolve BSP bytes through the pk3 index using the process data directories,
+ * through a transient pk3 loader that keeps nothing afterwards.
  * Return null when the map is unavailable or indexed validation rejects it.
  */
 export async function loadBspBuffer(mapName: string): Promise<ArrayBuffer | null> {
   const { resolveMapBspViaIndex } = await import("../../../../engine/loader/pk3/NodePk3");
+  const { PK3Loader } = await import("../../../../engine/loader/pk3/PK3Loader");
   try {
-    const indexed = await resolveMapBspViaIndex([path.resolve("./public/data"), path.resolve("./dist/data")], mapName);
+    // A loader of its own, as the game server's map loader has: the archive is let go
+    // with it once the BSP is out, instead of staying in the shared loader for good.
+    const indexed = await resolveMapBspViaIndex(
+      [path.resolve("./public/data"), path.resolve("./dist/data")],
+      mapName,
+      PK3Loader.createTransient(),
+    );
     if (!indexed) console.warn(`[BspDataLoader] Could not find BSP for map: ${mapName}`);
     return indexed;
   } catch (error) {
