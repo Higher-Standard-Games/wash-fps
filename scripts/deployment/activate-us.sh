@@ -19,9 +19,16 @@ sudo -u washoi rsync -a --delete --exclude data/ "$stage/client/" "$ROOT/release
 if [[ -d $stage/client/data ]]; then
   sudo -u washoi rsync -a --exclude demos/ --exclude washoi_textures.pk3 "$stage/client/data/" "$ROOT/releases/game/data/"
 fi
-systemctl restart washoi-lobby washoi-bots
+# With washoi-bots disabled the lobby seats bots itself and needs the match runner.
+services=(washoi-lobby)
+if systemctl is-enabled --quiet washoi-bots 2>/dev/null; then
+  services+=(washoi-bots)
+else
+  test -s "$ROOT/repos/shag/dist-server/bot-runner.mjs"
+fi
+systemctl restart "${services[@]}"
 sleep 3
-systemctl is-active --quiet washoi-lobby washoi-bots
+systemctl is-active --quiet "${services[@]}"
 sudo -u washoi /bin/bash -c 'printf "%s\n" "$1" > "$2/game.sha"; rm "$2/pending.sha"' -- "$sha" "$STATE"
 echo "activated $sha"
 # Each build stage is ~0.6 GB. Keep the activated stage and the newest earlier
