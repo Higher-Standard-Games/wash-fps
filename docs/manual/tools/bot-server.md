@@ -79,6 +79,7 @@ disconnect, socket close or socket error stops that timer.
 | `BotTrainer.ts` | Autonomous self-play training loop |
 | `DemoTrainingExtractor.ts` | Turns a `.shagdemo` recording into training frames |
 | `BotLobbyClient.ts` | Lobby integration — bots join rooms and ready up like humans |
+| `runner/MatchRunnerPool.ts` | With `--match-runners`: a child process per match that plays its bots |
 
 ## Difficulty Tiers
 
@@ -315,6 +316,22 @@ an explicit preset, the lobby chooses one near the player's private rating for
 that mode; new players fall back to medium. Standard presets have rating accounts
 used by the private ladder. A bot client still authenticates with its service
 secret, not a human account key; see [Ranked matches](../multiplayer/lobby.md#ranked-matches).
+
+### A process per match
+
+With `--match-runners`, the bot server keeps each bot's seat in its room but
+plays the match elsewhere. When the match starts, each bot's game connection
+goes to a **match runner** for that game server: a child process
+(`cli/bot-runner.ts`, `dist-server/bot-runner.mjs` in the bundle) that loads
+the map's vision and nav graph once for the match's bots and exits once its
+last bot has left. Two matches never share a runner, so one match's nav build
+or crash touches only its own bots, and the memory a match took goes when it
+ends. A runner reports each bot's rating identity and match report back to the
+bot server, which passes them on to the lobby and `bot-intel.db` as before.
+
+A bundled runner playing ten bots on `washoi_snd1` used 240–290 MB. Without
+the flag, every match's bots play in the bot server itself, sharing each map's
+vision for as long as the bot server runs.
 
 ## TODO
 

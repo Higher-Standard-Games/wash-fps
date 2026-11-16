@@ -35,13 +35,14 @@ import { background } from "../../../engine/core/AsyncErrors";
 import { BOT_SECRET_HEADER, secretMatches } from "../../../lobby/ServerData";
 import { BotClient, type BotClientState } from "./BotClient";
 import { type BotOptions, getNextBotName } from "./BotConfig";
-import { BotLobbyClient, type LobbyBotState } from "./BotLobbyClient";
+import { BotLobbyClient, type GameBotLauncher, type LobbyBotState } from "./BotLobbyClient";
 import { buildNavGraph } from "./BotNavBuilder";
 import { BotNavCacheStore } from "./BotNavCache";
 import type { BotNavGraph } from "./BotNavGraph";
 import { type BotVision, createBotVision } from "./BotVision";
 import type { IntelStore, MatchReport } from "./intel/IntelStore";
 import { loadLearnedRoutes } from "./LearnedRoutes";
+import type { MatchRunnerPool } from "./runner/MatchRunnerPool";
 
 // ── Control API Message Types ───────────────────────────────────────────
 
@@ -143,13 +144,23 @@ export class BotServer {
   /** Where bots' match reports go (bot/intel/IntelStore.ts); none in headless tools. */
   private _intel: IntelStore | null;
 
+  /** Match runners lobby bots play their matches in; null plays them in this process. */
+  private readonly _runners: MatchRunnerPool | null;
+
   /** Where the learned route libraries are read from (`<root>/config/bot-routes`); the working directory by default. */
   private readonly _routesRoot: string | undefined;
 
   constructor(
     port: number = 9100,
-    options: { secret?: string; modelDir?: string; intel?: IntelStore; routesRoot?: string } = {},
+    options: {
+      secret?: string;
+      modelDir?: string;
+      intel?: IntelStore;
+      routesRoot?: string;
+      runners?: MatchRunnerPool;
+    } = {},
   ) {
+    this._runners = options.runners ?? null;
     this._port = port;
     this._secret = options.secret;
     this._modelDir = options.modelDir;
@@ -212,6 +223,7 @@ export class BotServer {
 
     // Disconnect all bots
     await this.removeAllBots();
+    await this._runners?.stop();
 
     // Close control server
     if (this._wss) {
@@ -244,7 +256,7 @@ export class BotServer {
   /**
    * Spawn a new bot and connect it to a game server.
    */
-  async addBot(gameServerUrl: string, options?: Partial<BotOptions>): Promise<BotClient> {
+  async addBot(gameServerUrl: string, options?: Partial<BotOptions>, admissionTicket?: string): Promise<BotClient> {
     const botOptions = botOptionsFor(options, this._modelDir);
 
     const bot = new BotClient(botOptions);
@@ -256,7 +268,7 @@ export class BotServer {
     });
 
     try {
-      await bot.connect(gameServerUrl);
+      await bot.connect(gameServerUrl, admissionTicket);
       this._bots.set(bot.id, bot);
       console.log(`[BotServer] Bot ${bot.name} (${bot.id}) spawned → ${gameServerUrl}`);
 
@@ -292,6 +304,7 @@ export class BotServer {
         chat: options?.chat,
       },
       this._secret,
+      this._runners ? this._runnerLauncher(this._runners) : undefined,
     );
 
     // When lobby bot transitions to game, track the game BotClient
@@ -328,6 +341,21 @@ export class BotServer {
     } finally {
       this._pendingLobbyBots.delete(lobbyBot);
     }
+  }
+
+  /** Lobby bots' matches played in runners, their match reports stored here. */
+  private _runnerLauncher(runners: MatchRunnerPool): GameBotLauncher {
+    return (serverUrl, options, admissionTicket, events) =>
+      runners.launch(serverUrl, options, admissionTicket, {
+        ...events,
+        onReport: (report) => {
+          try {
+            this._intel?.record(report);
+          } catch (error) {
+            console.warn(`[BotServer] Could not store ${options.name}'s match report: ${(error as Error).message}`);
+          }
+        },
+      });
   }
 
   /**
@@ -484,6 +512,11 @@ export class BotServer {
     }));
 
     return [...direct, ...lobby];
+  }
+
+  /** Match runners alive, with their game server and bots. */
+  runnerStatus(): ReturnType<MatchRunnerPool["status"]> {
+    return this._runners?.status() ?? [];
   }
 
   // ── Control API ───────────────────────────────────────────────────

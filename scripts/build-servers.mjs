@@ -20,6 +20,8 @@ const result = await build({
     "bot-server": "src/games/fps/cli/bot-server.ts",
     // The nav graph build, in its own thread: BotNavBuilder starts it from beside bot-server.mjs
     "bot-nav-worker": "src/games/fps/bot/BotNavWorker.ts",
+    // One match's bots in a process of their own: MatchRunnerPool starts it from beside bot-server.mjs
+    "bot-runner": "src/games/fps/cli/bot-runner.ts",
     ServerBenchmarkClient: "src/cli/ServerBenchmarkClient.ts",
     ServerRuntimeProbe: "src/games/fps/cli/ServerRuntimeProbe.ts",
   },

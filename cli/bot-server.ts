@@ -23,6 +23,7 @@ import { runCli } from "../../../cli/_runCli";
 import { loadBotSecret, resolveDataDir } from "../../../lobby/ServerData";
 import { BotServer } from "../bot/BotServer";
 import { IntelStore } from "../bot/intel/IntelStore";
+import { MatchRunnerPool, runnerCommand } from "../bot/runner/MatchRunnerPool";
 
 // ── Parse Arguments ─────────────────────────────────────────────────────
 
@@ -37,6 +38,8 @@ interface BotServerArgs {
   dataDir?: string;
   /** Keep bots' match reports in <data-dir>/bot-intel.db (default on). */
   intel: boolean;
+  /** Play each lobby match's bots in a match runner of its own (bot/runner/MatchRunnerPool.ts). */
+  matchRunners: boolean;
 }
 
 function parseArgs(): BotServerArgs {
@@ -48,6 +51,7 @@ function parseArgs(): BotServerArgs {
     difficulty: "medium",
     gametype: "duel",
     intel: true,
+    matchRunners: false,
   };
 
   let namedFlagFound = false;
@@ -91,6 +95,10 @@ function parseArgs(): BotServerArgs {
         config.intel = false;
         namedFlagFound = true;
         break;
+      case "--match-runners":
+        config.matchRunners = true;
+        namedFlagFound = true;
+        break;
       case "--help":
       case "-h":
         printHelp();
@@ -131,6 +139,8 @@ Options:
   --data-dir <dir>    Server data directory holding the shared bot secret
                       and bot-intel.db (default: SERVER_DATA_DIR, else ./server-data)
   --no-intel          Do not keep bots' match reports in bot-intel.db
+  --match-runners     Play each lobby match's bots in a process of its own, which
+                      loads the map for them and exits with the match
   --help, -h          Show this help
 
 Examples:
@@ -161,10 +171,14 @@ async function main(): Promise<void> {
   const dataDir = resolveDataDir(config.dataDir);
   const intel = config.intel ? IntelStore.open(dataDir) : undefined;
   if (intel) console.log(`[BIS] Match reports: ${dataDir}/bot-intel.db`);
+  const command = config.matchRunners ? runnerCommand() : null;
+  if (config.matchRunners && !command) throw new Error("--match-runners: no bot-runner beside this bot server");
+  if (command) console.log("[BIS] Lobby matches play in match runners");
   const server = new BotServer(config.port, {
     secret: loadBotSecret(dataDir),
     modelDir: config.modelDir,
     intel,
+    runners: command ? new MatchRunnerPool(command) : undefined,
   });
   await server.start();
 
@@ -276,6 +290,9 @@ async function main(): Promise<void> {
           for (const bot of bots) {
             console.log(`  ${bot.name} [${bot.state}/${bot.brainState}] → ${bot.server}`);
           }
+        }
+        for (const runner of server.runnerStatus()) {
+          console.log(`  runner ${runner.pid} → ${runner.serverUrl}: ${runner.bots.join(", ") || "no bots"}`);
         }
         break;
       }

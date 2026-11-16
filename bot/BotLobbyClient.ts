@@ -6,7 +6,8 @@
  *   2. Authenticates with bot name
  *   3. Joins queue for specified gametype
  *   4. Auto-readies when placed in a lobby room
- *   5. When match starts (lobby:connect), creates BotClient to join game server
+ *   5. When match starts (lobby:connect), creates BotClient to join game server,
+ *      or with a launcher hands the match to its match runner (MatchRunnerPool)
  *
  * Usage:
  *   const lobbyBot = new BotLobbyClient({ name: 'Tanuki', difficulty: 'medium' });
@@ -30,8 +31,17 @@ import { BOT_LOBBY_JOIN_TIMEOUT_MS, waitForBotPreparation } from "../../../share
 import type { BotReference } from "../../../shared/ranking/BotReference";
 import { BotClient } from "./BotClient";
 import { type BotOptions, getNextBotName } from "./BotConfig";
+import type { RunnerBot, RunnerBotEvents } from "./runner/MatchRunnerPool";
 
 export type LobbyBotState = "disconnected" | "connecting" | "authenticated" | "in_lobby" | "in_match";
+
+/** Plays a lobby bot's match in another process (a match runner, MatchRunnerPool.launch). */
+export type GameBotLauncher = (
+  serverUrl: string,
+  options: BotOptions,
+  admissionTicket: string | undefined,
+  events: Pick<RunnerBotEvents, "onReference" | "onDisconnected">,
+) => Promise<RunnerBot>;
 
 export class BotLobbyClient {
   readonly id: string;
@@ -53,6 +63,9 @@ export class BotLobbyClient {
   // The game bot client created when match starts
   private _botClient: BotClient | null = null;
   private _preparedBot: BotClient | null = null;
+  /** The match being played in a runner, with a launcher. */
+  private _runnerBot: RunnerBot | null = null;
+  private readonly _launcher: GameBotLauncher | undefined;
   private _readyTimer: ReturnType<typeof setTimeout> | null = null;
   private _generation = 0;
   private _cancelConnect: (() => void) | null = null;
@@ -68,8 +81,9 @@ export class BotLobbyClient {
   /** The secret shared with the lobby; without it the lobby takes us for a player. */
   private _botSecret: string | undefined;
 
-  constructor(options?: Partial<BotOptions>, botSecret?: string) {
+  constructor(options?: Partial<BotOptions>, botSecret?: string, launcher?: GameBotLauncher) {
     this._botSecret = botSecret;
+    this._launcher = launcher;
     this.name = options?.name || getNextBotName();
     this.id = `lobby_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     this._difficulty = options?.difficulty || "medium";
@@ -385,6 +399,10 @@ export class BotLobbyClient {
       if (generation !== this._generation || this._state !== "in_match") return;
       let bot: BotClient | null = null;
       try {
+        if (this._launcher) {
+          await this._playInRunner(this._launcher, serverUrl, admissionTicket, generation);
+          return;
+        }
         bot = this._preparedBot ?? new BotClient(this._botOptions);
         if (bot !== this._preparedBot) bot.on("ratingReferenceChanged", this._referenceListener);
         this._preparedBot = null;
@@ -429,6 +447,43 @@ export class BotLobbyClient {
   }
 
   /**
+   * Hand the match to its runner. The bot prepared here gave the room its
+   * rating identity; the runner's own bot reports it from now on, and this
+   * one goes.
+   */
+  private async _playInRunner(
+    launch: GameBotLauncher,
+    serverUrl: string,
+    admissionTicket: string | undefined,
+    generation: number,
+  ): Promise<void> {
+    let playing: RunnerBot | null = null;
+    const runnerBot = await launch(
+      serverUrl,
+      { ...this._botOptions, team: this._lobbyTeam ?? this._botOptions.team },
+      admissionTicket,
+      {
+        onReference: (reference) => this._referenceListener(reference),
+        onDisconnected: () => {
+          console.log(`[LobbyBot:${this.name}] Game bot disconnected (match runner)`);
+          if (this._runnerBot === playing) this._runnerBot = null;
+        },
+      },
+    );
+    playing = runnerBot;
+    if (generation !== this._generation || this._state !== "in_match") {
+      await runnerBot.dispose();
+      return;
+    }
+    this._runnerBot = runnerBot;
+    const prepared = this._preparedBot;
+    this._preparedBot = null;
+    prepared?.removeListener("ratingReferenceChanged", this._referenceListener);
+    await prepared?.dispose();
+    console.log(`[LobbyBot:${this.name}] Game bot connected in a match runner as ${runnerBot.playerId}`);
+  }
+
+  /**
    * Disconnect from lobby and game.
    */
   async disconnect(): Promise<void> {
@@ -442,6 +497,10 @@ export class BotLobbyClient {
       this._botClient.removeListener("ratingReferenceChanged", this._referenceListener);
       await this._botClient.dispose();
       this._botClient = null;
+    }
+    if (this._runnerBot) {
+      await this._runnerBot.dispose();
+      this._runnerBot = null;
     }
     if (this._preparedBot) {
       this._preparedBot.removeListener("ratingReferenceChanged", this._referenceListener);
