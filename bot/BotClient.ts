@@ -39,6 +39,7 @@ import type { MatchReport } from "./intel/IntelStore";
 import { type FightHabit, StateMachineBrain } from "./StateMachineBrain";
 import type { StrategyId } from "./strategy/Strategist";
 import { teleportExitYaw } from "./TeleportExit";
+import { type BotTimings, TimeHistogram } from "./TimeHistogram";
 
 /** Most script commands sent in one timer firing, well under the server's input buffer. */
 const MAX_SCRIPT_BURST = 4;
@@ -126,6 +127,8 @@ export class BotClient extends EventEmitter {
 
   // 125Hz input loop (matches server tick rate)
   private _inputLoopTimer: ReturnType<typeof setInterval> | null = null;
+  /** What this bot's snapshots cost, all of each and its decision, since it was made. */
+  readonly timings: BotTimings = { snapshot: new TimeHistogram(), decide: new TimeHistogram() };
   private _lastBotInput: BotInput | null = null; // Cached AI decision, re-sent at 125Hz
   /** Team callouts: what this bot tells its team, and what it heard. */
   private readonly _callouts: BotCallouts;
@@ -575,6 +578,15 @@ export class BotClient extends EventEmitter {
   }
 
   private _handleSnapshot(data: Uint8Array): void {
+    const started = performance.now();
+    try {
+      this._processSnapshot(data);
+    } finally {
+      this.timings.snapshot.add(performance.now() - started);
+    }
+  }
+
+  private _processSnapshot(data: Uint8Array): void {
     try {
       const snapshot = this._snapshotReceiver.receive(data);
       if (!snapshot) return;
@@ -667,7 +679,9 @@ export class BotClient extends EventEmitter {
         this._lastVisionResult = this._vision.getVisibleState(this._gameState);
       }
 
+      const deciding = performance.now();
       let input = this._brain.decide(this._gameState, this._vision, this._lastVisionResult, this._navGraph);
+      this.timings.decide.add(performance.now() - deciding);
       this._aim.setDifficulty(this._brain.aimDifficulty);
       const fireSafety = applyFriendlyFireSafety(input, this._gameState);
       input = fireSafety.input;
