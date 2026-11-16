@@ -449,6 +449,7 @@ export class MatchStateManager {
   // Cleanup
   // ========================================================================
 
+  /** Back to a match not yet heard from; whoever listens for phase changes keeps listening. */
   reset(): void {
     this._pause = null;
     this._objective = null;
@@ -472,6 +473,16 @@ export class MatchStateManager {
     // one's names and scores until the first snapshot replaces them.
     this._spectators = [];
     this._standings = [];
+    this._teamScores = {};
+    this._playerTeams = {};
+    this._teamNames = {};
+    this._winner = null;
+    this._overtime = 0;
+    this._flow = "continuous";
+    this._teamRoles = {};
+    this._roundState = null;
+    this._roundResult = null;
+    this._campaignCountdown = false;
   }
 
   static destroy(): void {
