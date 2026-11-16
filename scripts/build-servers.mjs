@@ -18,6 +18,8 @@ const result = await build({
     "headless-netserver-v2": "src/games/fps/cli/headless-netserver-v2.ts",
     "lobby-server": "src/games/fps/cli/lobby-server.ts",
     "bot-server": "src/games/fps/cli/bot-server.ts",
+    // The nav graph build, in its own thread: BotNavBuilder starts it from beside bot-server.mjs
+    "bot-nav-worker": "src/games/fps/bot/BotNavWorker.ts",
     ServerBenchmarkClient: "src/cli/ServerBenchmarkClient.ts",
     ServerRuntimeProbe: "src/games/fps/cli/ServerRuntimeProbe.ts",
   },

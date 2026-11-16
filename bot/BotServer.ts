@@ -36,8 +36,9 @@ import { BOT_SECRET_HEADER, secretMatches } from "../../../lobby/ServerData";
 import { BotClient, type BotClientState } from "./BotClient";
 import { type BotOptions, getNextBotName } from "./BotConfig";
 import { BotLobbyClient, type LobbyBotState } from "./BotLobbyClient";
+import { buildNavGraph } from "./BotNavBuilder";
 import { BotNavCacheStore } from "./BotNavCache";
-import { BotNavGraph } from "./BotNavGraph";
+import type { BotNavGraph } from "./BotNavGraph";
 import { type BotVision, createBotVision } from "./BotVision";
 import type { IntelStore, MatchReport } from "./intel/IntelStore";
 import { loadLearnedRoutes } from "./LearnedRoutes";
@@ -131,6 +132,8 @@ export class BotServer {
   private _navGraphCache: Map<string, BotNavGraph> = new Map();
   // Pending vision loads to avoid duplicate BSP loading
   private _visionLoading: Map<string, Promise<BotVision | null>> = new Map();
+  /** Nav graphs being read or built, by map: one load each, however many bots ask. */
+  private _navLoading: Map<string, Promise<void>> = new Map();
 
   // Versioned on-disk cache for deterministic map geometry analysis.
   private _navCacheStore: BotNavCacheStore = new BotNavCacheStore();
@@ -365,36 +368,15 @@ export class BotServer {
         bot.setVision(vision.fork());
         console.log(`[BotServer] Vision loaded → ${bot.name} on map "${mapName}"`);
 
-        // Build NavGraph from vision (if not already cached)
-        let navGraph: BotNavGraph | null = this._navGraphCache.get(mapName) ?? null;
-        if (!navGraph) {
-          navGraph = this._navCacheStore.load(mapName, vision.mapKnowledge.mapFingerprint);
-          console.log(`[BotServer] NavGraph cache ${this._navCacheStore.lastDiagnostic}`);
-          if (!navGraph) {
-            navGraph = new BotNavGraph(mapName);
-            navGraph.buildFromVision(vision);
-            this._navCacheStore.save(navGraph, vision.mapKnowledge.mapFingerprint);
-            console.log(`[BotServer] NavGraph cache ${this._navCacheStore.lastDiagnostic}`);
-          }
-          // After the cache save: learned routes live in config/bot-routes and
-          // change without the map changing, so they are never cached.
-          const learned = navGraph.addLearnedRoutes(loadLearnedRoutes(mapName, this._routesRoot), (from, to) =>
-            vision.isWalkable(from, to),
-          );
-          this._navGraphCache.set(mapName, navGraph);
-          console.log(
-            `[BotServer] NavGraph built → ${navGraph.nodeCount} nodes, ${navGraph.edgeCount} edges, ${learned} learned routes`,
-          );
-        }
-        bot.setNavGraph(navGraph);
-
-        // Also set vision + navGraph for any other bots on the same map
+        bot.setNavGraph(this._navGraphCache.get(mapName) ?? null);
+        // Also set vision for any other bots on the same map
         for (const [, otherBot] of this._bots) {
           if (otherBot !== bot && otherBot.serverInfo?.map === mapName) {
             otherBot.setVision(vision.fork());
-            otherBot.setNavGraph(navGraph);
+            otherBot.setNavGraph(this._navGraphCache.get(mapName) ?? null);
           }
         }
+        if (!this._navGraphCache.has(mapName)) background(this._loadNavGraph(mapName, vision), "BotServer nav graph");
       } else {
         this._visionLoading.delete(mapName);
         console.warn(`[BotServer] Vision unavailable for map "${mapName}"`);
@@ -406,6 +388,34 @@ export class BotServer {
         err instanceof Error ? err.message : String(err),
       );
     }
+  }
+
+  /**
+   * The map's nav graph, from the disk cache or a build, handed to every bot on
+   * the map when it is ready; until then they play without one. A build runs in
+   * a worker thread (buildNavGraph), so it never stalls the bots already playing.
+   */
+  private _loadNavGraph(mapName: string, vision: BotVision): Promise<void> {
+    const loading = this._navLoading.get(mapName);
+    if (loading) return loading;
+    const load = (async () => {
+      let navGraph = this._navCacheStore.load(mapName, vision.mapKnowledge.mapFingerprint);
+      console.log(`[BotServer] NavGraph cache ${this._navCacheStore.lastDiagnostic}`);
+      navGraph ??= await buildNavGraph(mapName, vision);
+      if (!navGraph) return;
+      // After the cache: learned routes live in config/bot-routes and change
+      // without the map changing, so they are never cached.
+      const learned = navGraph.addLearnedRoutes(loadLearnedRoutes(mapName, this._routesRoot), (from, to) =>
+        vision.isWalkable(from, to),
+      );
+      this._navGraphCache.set(mapName, navGraph);
+      console.log(
+        `[BotServer] NavGraph ready → ${navGraph.nodeCount} nodes, ${navGraph.edgeCount} edges, ${learned} learned routes`,
+      );
+      for (const bot of this._bots.values()) if (bot.serverInfo?.map === mapName) bot.setNavGraph(navGraph);
+    })().finally(() => this._navLoading.delete(mapName));
+    this._navLoading.set(mapName, load);
+    return load;
   }
 
   /**
