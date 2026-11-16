@@ -31,6 +31,7 @@ import { BOT_LOBBY_JOIN_TIMEOUT_MS, waitForBotPreparation } from "../../../share
 import type { BotReference } from "../../../shared/ranking/BotReference";
 import { BotClient } from "./BotClient";
 import { type BotOptions, getNextBotName } from "./BotConfig";
+import { initialBotReference } from "./BotRatingIdentity";
 import type { RunnerBot, RunnerBotEvents } from "./runner/MatchRunnerPool";
 
 export type LobbyBotState = "disconnected" | "connecting" | "authenticated" | "in_lobby" | "in_match";
@@ -81,9 +82,18 @@ export class BotLobbyClient {
   /** The secret shared with the lobby; without it the lobby takes us for a player. */
   private _botSecret: string | undefined;
 
-  constructor(options?: Partial<BotOptions>, botSecret?: string, launcher?: GameBotLauncher) {
+  /** The lobby connection, when not a WebSocket to the lobby's URL (a seat in the lobby's own process). */
+  private readonly _openSocket: (() => WebSocket) | undefined;
+
+  constructor(
+    options?: Partial<BotOptions>,
+    botSecret?: string,
+    launcher?: GameBotLauncher,
+    openSocket?: () => WebSocket,
+  ) {
     this._botSecret = botSecret;
     this._launcher = launcher;
+    this._openSocket = openSocket;
     this.name = options?.name || getNextBotName();
     this.id = `lobby_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     this._difficulty = options?.difficulty || "medium";
@@ -126,30 +136,38 @@ export class BotLobbyClient {
     this._inviteToken = inviteToken || "";
     this._state = "connecting";
     // Authenticate the resolved runtime, never just a requested model directory.
-    const prepared = new BotClient(this._botOptions);
+    // A bot whose match plays in a runner, with no models to load, has its
+    // identity from its options alone: no brain is built here for it.
+    const prepared = this._launcher && !this._botOptions.modelDir ? null : new BotClient(this._botOptions);
     this._preparedBot = prepared;
-    const preparation = new AbortController();
-    const cancel = () => preparation.abort();
-    this._cancelConnect = cancel;
-    signal?.addEventListener("abort", cancel, { once: true });
-    try {
-      await waitForBotPreparation(prepared.referenceReady, preparation.signal);
-    } catch (error) {
-      if (this._preparedBot === prepared) {
-        this._preparedBot = null;
-        this._state = "disconnected";
+    if (prepared) {
+      const preparation = new AbortController();
+      const cancel = () => preparation.abort();
+      this._cancelConnect = cancel;
+      signal?.addEventListener("abort", cancel, { once: true });
+      try {
+        await waitForBotPreparation(prepared.referenceReady, preparation.signal);
+      } catch (error) {
+        if (this._preparedBot === prepared) {
+          this._preparedBot = null;
+          this._state = "disconnected";
+        }
+        void prepared.dispose();
+        throw error;
+      } finally {
+        signal?.removeEventListener("abort", cancel);
+        if (this._cancelConnect === cancel) this._cancelConnect = null;
       }
-      void prepared.dispose();
-      throw error;
-    } finally {
-      signal?.removeEventListener("abort", cancel);
-      if (this._cancelConnect === cancel) this._cancelConnect = null;
+      if (generation !== this._generation || !this._preparedBot) throw new Error("Bot lobby connection cancelled");
+      this._preparedBot.on("ratingReferenceChanged", this._referenceListener);
+    } else if (generation !== this._generation || signal?.aborted) {
+      this._state = "disconnected";
+      throw new Error("Bot lobby connection cancelled");
     }
-    if (generation !== this._generation || !this._preparedBot) throw new Error("Bot lobby connection cancelled");
-    this._preparedBot.on("ratingReferenceChanged", this._referenceListener);
+    const reference = prepared?.ratingReference ?? initialBotReference(this._botOptions);
 
     return new Promise<void>((resolve, reject) => {
-      const ws = new WebSocket(lobbyUrl);
+      const ws = this._openSocket ? this._openSocket() : new WebSocket(lobbyUrl);
       this._ws = ws;
       let settled = false;
 
@@ -169,8 +187,8 @@ export class BotLobbyClient {
         this._cancelConnect = null;
         this._state = "disconnected";
         if (this._preparedBot === prepared) this._preparedBot = null;
-        prepared.removeListener("ratingReferenceChanged", this._referenceListener);
-        void prepared.dispose();
+        prepared?.removeListener("ratingReferenceChanged", this._referenceListener);
+        void prepared?.dispose();
         ws.close();
         reject(error);
       };
@@ -197,7 +215,7 @@ export class BotLobbyClient {
           name: this.name,
           isBot: true,
           botSecret: this._botSecret,
-          botReference: this._preparedBot!.ratingReference,
+          botReference: reference,
         });
       });
 
