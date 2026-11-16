@@ -51,7 +51,7 @@ const SPLAT_LIFE = 6;
 const SPLAT_SHRINK = 1.5;
 /** How far below a hit the floor is looked for. */
 const FLOOR_REACH = 256;
-const FLOOR_TRACE = { radius: 0, contentMask: CollisionMasks.SHOT };
+const FLOOR_TRACE = { radius: 0, height: 0, contentMask: CollisionMasks.SHOT };
 
 /** The colours, one mesh each: two of blood, two of sparks, and the splat. */
 enum Shade {
