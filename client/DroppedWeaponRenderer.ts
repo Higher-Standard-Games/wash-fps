@@ -23,6 +23,7 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Observer } from "@babylonjs/core/Misc/observable";
 import type { Scene } from "@babylonjs/core/scene";
 import { background } from "../../../engine/core/AsyncErrors";
+import { presentationNow } from "../../../engine/core/PresentationTime";
 import { inPlay } from "../../../engine/input/PlayCapture";
 import { applySafeMaxSimultaneousLights } from "../../../engine/lighting/DynamicLightSafety";
 import { BspManager } from "../../../engine/loader/bsp/BspManager";
@@ -121,7 +122,7 @@ class DroppedWeaponVisual {
   /** Where the throw was one step ago, for drawing between steps */
   private readonly throwPrevious = new Vector3();
   private throwElapsed = 0;
-  private lastUpdateMs = performance.now();
+  private lastUpdateMs = presentationNow();
   /** Airborne spin (yaw), roll around the barrel (x) and end-over-end tumble (z), radians per second */
   private spin = (Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 4);
   private rollRate = (Math.random() < 0.5 ? -1 : 1) * (6 + Math.random() * 5);
@@ -327,7 +328,8 @@ class DroppedWeaponVisual {
 
   /** Update each frame: step the throw, place and turn the model. */
   update(): void {
-    const now = performance.now();
+    // The presentation clock: a demo export steps it frame by frame.
+    const now = presentationNow();
     const dt = Math.min(MAX_THROW_CATCHUP_SECONDS, (now - this.lastUpdateMs) / 1000);
     this.lastUpdateMs = now;
     const mesh = this.mesh;
@@ -345,9 +347,12 @@ class DroppedWeaponVisual {
       }
       between = this.throw.settled ? 1 : this.throwElapsed / ITEM_STEP_SECONDS;
     }
-    if (!mesh || this.useServerTransforms) return;
+    if (!mesh) return;
 
-    if (this.throw && !(this.throw.settled && this.serverSettled)) {
+    // A demo places the model where the server had it; it still spins as it flies.
+    if (this.useServerTransforms) {
+      // Placed by setServerPosition
+    } else if (this.throw && !(this.throw.settled && this.serverSettled)) {
       // The server's path, drawn between its steps
       const { x, y, z } = this.throw.position;
       const from = this.throwPrevious;
