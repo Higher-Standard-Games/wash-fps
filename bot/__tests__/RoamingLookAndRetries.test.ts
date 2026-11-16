@@ -43,7 +43,7 @@ function roomOpenToward(openYaw: number): BotVision {
 
 type Looker = {
   currentState: BotState;
-  _lookIntoOpenSpace(state: BotGameState, input: BotInput, vision: BotVision): void;
+  _look: { lookIntoOpenSpace(state: BotGameState, input: BotInput, vision: BotVision): void };
 };
 
 describe("looking round while running", () => {
@@ -53,7 +53,7 @@ describe("looking round while running", () => {
     const state = new BotGameState();
     state.self.position = { x: 0, y: 24, z: 0 };
     const input = running(0);
-    b._lookIntoOpenSpace(state, input, roomOpenToward(30 * DEG));
+    b._look.lookIntoOpenSpace(state, input, roomOpenToward(30 * DEG));
     expect(input.yaw).toBeCloseTo(30 * DEG, 6);
     expect(input.moveYaw).toBe(0);
   });
@@ -63,7 +63,7 @@ describe("looking round while running", () => {
     b.currentState = BotState.ITEM_RUN;
     const state = new BotGameState();
     const input = running(0);
-    b._lookIntoOpenSpace(state, input, roomOpenToward(0));
+    b._look.lookIntoOpenSpace(state, input, roomOpenToward(0));
     expect(input.yaw).toBe(0);
   });
 
@@ -72,11 +72,11 @@ describe("looking round while running", () => {
     b.currentState = BotState.HUNT;
     const state = new BotGameState();
     const firing = { ...running(0), buttons: InputButtons.FORWARD | InputButtons.FIRE };
-    b._lookIntoOpenSpace(state, firing, roomOpenToward(30 * DEG));
+    b._look.lookIntoOpenSpace(state, firing, roomOpenToward(30 * DEG));
     expect(firing.yaw).toBe(0);
     b.currentState = BotState.CHASE;
     const chasing = running(0);
-    b._lookIntoOpenSpace(state, chasing, roomOpenToward(30 * DEG));
+    b._look.lookIntoOpenSpace(state, chasing, roomOpenToward(30 * DEG));
     expect(chasing.yaw).toBe(0);
   });
 });
@@ -97,14 +97,14 @@ describe("checking a major item's spot in passing", () => {
     state.tick = 5000;
     state.self.position = { x: 0, y: 24, z: 0 };
     const input = running(0);
-    b._lookIntoOpenSpace(state, input, sightOf(true));
+    b._look.lookIntoOpenSpace(state, input, sightOf(true));
     expect(input.yaw).toBeCloseTo(45 * DEG, 6);
     expect(input.moveYaw).toBe(0);
     // Seen: the glance ends
     state.itemSpotSeenTick = new Map([[4, 5001]]);
     state.tick = 5001;
     const next = running(0);
-    b._lookIntoOpenSpace(state, next, sightOf(true));
+    b._look.lookIntoOpenSpace(state, next, sightOf(true));
     expect(next.yaw).toBe(0);
   });
 
@@ -119,7 +119,7 @@ describe("checking a major item's spot in passing", () => {
       state.tick = 5000;
       if (seen >= 0) state.itemSpotSeenTick = new Map([[4, seen]]);
       const input = running(0);
-      b._lookIntoOpenSpace(state, input, sightOf(clear));
+      b._look.lookIntoOpenSpace(state, input, sightOf(clear));
       expect(input.yaw).toBe(0);
     }
   });

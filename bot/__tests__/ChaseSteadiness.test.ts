@@ -250,9 +250,10 @@ describe("steering round a wall ahead", () => {
         },
       },
     } as unknown as BotVision;
-    const steer = (
-      brain as unknown as { _applyFeelers(i: BotInput, s: BotGameState, v: BotVision): BotInput }
-    )._applyFeelers.bind(brain);
+    const steering = (
+      brain as unknown as { _steering: { feelers(i: BotInput, s: BotGameState, v: BotVision): BotInput } }
+    )._steering;
+    const steer = steering.feelers.bind(steering);
     const turns: number[] = [];
     for (const tick of [0, 4, 8, 12]) {
       state.tick = tick;

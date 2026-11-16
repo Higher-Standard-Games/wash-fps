@@ -40,7 +40,6 @@ import type { BotNavGraph } from "./BotNavGraph";
 import { duelLeadReactionDelay } from "./BotReactionTuning";
 import { BotTerritory } from "./BotTerritory";
 import type { BotVision, EnemyTrack, VisionResult } from "./BotVision";
-import { BotVisionTracer, wallAheadSide } from "./BotVisionTracer";
 import { BotWeaponCombos, has, slotFor } from "./BotWeaponCombos";
 import { getWeaponProfile, selectBestWeapon, type WeaponProfile } from "./BotWeaponProfile";
 import { type DecisionTrace, TRACED_CANDIDATES } from "./DecisionTrace";
@@ -52,6 +51,7 @@ import { respawnTickOf } from "./goals/ItemGoalSource";
 import { loadBaseline, payoffPriors } from "./intel/IntelBaseline";
 import { loadPeopleProfile, typicalStackAfter } from "./intel/PeopleProfile";
 import { inHarmfulLiquid, liquidEscapeTarget } from "./LiquidEscape";
+import { BotSteering, type SteeringHost } from "./movement/BotSteering";
 import {
   BotNavigator,
   type NavigatorHost,
@@ -59,11 +59,11 @@ import {
   PATH_RECALC_INTERVAL,
 } from "./navigation/BotNavigator";
 import { BotTraversal, PICKUP_FAILURE_COOLDOWN_TICKS, type TraversalHost } from "./navigation/BotTraversal";
-import { sideTurnAngle } from "./sequences/RouteStrafeJumpSequence";
 import { canLunge } from "./sequences/SlideBladeSequence";
 import { MatchRead } from "./strategy/MatchRead";
 import { OpponentModel } from "./strategy/OpponentModel";
 import { applyStrategyWeights, STRATEGIES, Strategist, type Strategy, type StrategyId } from "./strategy/Strategist";
+import { BotLook, type LookHost } from "./view/BotLook";
 
 /** A weight profile with test multipliers applied (BotOptions.weights). */
 function scaleProfile(base: BotWeightProfile, scale: Partial<BotWeightProfile>): BotWeightProfile {
@@ -97,25 +97,6 @@ const TEAM_SIGHTING_TICKS = 6 * TICK_RATE;
 const CHARGE_CARRY_TICKS = Math.round(2 * TICK_RATE);
 /** A held watch sweeps this far either side of the way in, radians, at this rate. */
 const HOLD_SWEEP = 0.3;
-/** A move to a point this much lower than the bot means to drop off an edge, units. */
-const STEER_DROP_HEIGHT = 40;
-/** Rising faster than any jump, units/s: a jump pad has thrown the bot. */
-const PAD_LAUNCH_SPEED = 450;
-/** A target this much higher than the bot, behind something in the way, is worth a climb. */
-const CLIMB_RISE = 30;
-/** Climbs are looked for toward targets at most this far off, units. */
-const CLIMB_REACH = 500;
-/** The way ahead counts as in the way below this much clear run. */
-const CLIMB_BLOCKED = 0.7;
-/** A climb or wall jump is checked at most this often, ticks: each check runs the movement forward. */
-const TRICK_CHECK_TICKS = 20;
-const WALL_JUMP_CHECK_TICKS = 6;
-/** After a climbing jump, forward is held toward the target this long, for the ledge grab, ticks. */
-const CLIMB_HOLD_TICKS = 90;
-/** A wall jump is taken when it ends at least this much nearer the target than not jumping, units. */
-const WALL_JUMP_GAIN = 96;
-/** A wall this near the hull is one to wall jump from, units. */
-const WALL_JUMP_NEAR = 12;
 /** A guard picks its next patrol point once this close to the last, units. */
 const GUARD_POINT_REACHED = 56;
 /** Guard patrol points lie this far out from the spot, as shares of the order's radius. */
@@ -189,12 +170,6 @@ const MELEE_RANGE = 150;
 const CLOSE_RANGE = 400;
 
 // Feeler ray constants
-const FEELER_FORWARD_DIST = 300; // Forward ray distance
-const FEELER_SIDE_DIST = 200; // Side ray distance
-const FEELER_SIDE_ANGLE = Math.PI / 6; // 30° offset for side rays
-const FEELER_STEER_THRESHOLD = 0.6; // fraction below which we steer away
-/** A wall ahead keeps the bot turning the side it chose for this long. */
-const FEELER_SIDE_COMMIT_TICKS = 50;
 
 // Fading and escaping (see _shouldFade, _escapePoint)
 /** Damage taken in a fight that makes a fading strategy leave it. */
@@ -230,34 +205,6 @@ const SEEK_DESIRE_BASE = 0.2;
 /** Extra desire per unit of the gametype's aggression. */
 const SEEK_DESIRE_PER_AGGRESSION = 0.25;
 
-// Looking round while running (out of a fight)
-/** Calm, the view rests this far below where the brain looks: people look at the floor ahead. */
-const CALM_PITCH = (10 * Math.PI) / 180;
-/** Calm, the view never looks further down than this. */
-const CALM_MAX_PITCH = (45 * Math.PI) / 180;
-/** Furthest the view turns from where the bot runs to look into open space. */
-const LOOK_MAX_OFF_TRAVEL = (45 * Math.PI) / 180;
-const LOOK_STEP = (15 * Math.PI) / 180;
-/** Sight lines are scored out to this far, units. */
-const LOOK_RANGE = 1500;
-/** What looking the full LOOK_MAX_OFF_TRAVEL aside costs, of a score out of 1. */
-const LOOK_OFF_COST = 0.3;
-/** With nothing worth a glance, how soon to look for one again, ticks. */
-const LOOK_INTERVAL_TICKS = 50;
-/** How long a glance holds, ticks (±30%). */
-const GLANCE_TICKS = 85;
-/** Rest between glances, ticks (from 0.67 to 1.33 of it). */
-const GLANCE_REST_TICKS = 375;
-/** How much more open another direction must be to take over. */
-const LOOK_SWITCH_MARGIN = 0.2;
-/** What turning the view a quarter turn from where it is costs, of a score out of 1. */
-const LOOK_TURN_COST = 0.3;
-/** A major item's spot unseen this long is worth a look in passing, ticks. */
-const SPOT_STALE_TICKS = 8 * TICK_RATE;
-/** Spots are looked at from this far to as far as perception tells them apart (BotPerception). */
-const SPOT_MIN_DISTANCE = 200;
-const SPOT_MAX_DISTANCE = 2000;
-
 /** A route that ends further than this from its item has not reached it. */
 const UNREACHED_ITEM_DISTANCE = 64;
 /** Beside an item, horizontally, for longer than ITEM_CIRCLE_TICKS without taking it: it is out of reach. */
@@ -265,24 +212,6 @@ const ITEM_CIRCLE_RADIUS = 64;
 const ITEM_CIRCLE_TICKS = 125;
 /** A bot that needs an item chases a heard enemy only this close: round the next corner. */
 const SOUND_DIVERT_DISTANCE = 384;
-
-/** Rays this far up count too, so stairs ahead are not a wall. */
-const LOOK_UP_PITCH = (10 * Math.PI) / 180;
-
-/** How open the view is toward `yaw` from `eye`: 1 when nothing is within LOOK_RANGE. */
-function openFraction(vision: BotVision, eye: Vec3, yaw: number): number {
-  let best = 0;
-  for (const pitch of [0, LOOK_UP_PITCH]) {
-    const reach = LOOK_RANGE * Math.cos(pitch);
-    const end = {
-      x: eye.x + Math.sin(yaw) * reach,
-      y: eye.y + LOOK_RANGE * Math.sin(pitch),
-      z: eye.z + Math.cos(yaw) * reach,
-    };
-    best = Math.max(best, vision.collisionWorld.trace(eye, end).fraction);
-  }
-  return best;
-}
 
 /** An item goal, and an item worth taking on the way to it. */
 interface ItemGoalChoice {
@@ -303,6 +232,10 @@ export class StateMachineBrain extends BotBrain {
   private readonly _nav = new BotNavigator(this._navigatorHost());
   /** Traversal sequences and the route's slides and hops (navigation/BotTraversal). */
   private readonly _traversal = new BotTraversal(this._traversalHost());
+  /** Wall clearance, pad throws, climbs and wall jumps (movement/BotSteering). */
+  private readonly _steering = new BotSteering(this._steeringHost());
+  /** Glances while roaming and the calm look (view/BotLook). */
+  private readonly _look = new BotLook(this._lookHost());
   private _huntYaw: number = 0;
   private _huntTimer: number = 0;
 
@@ -324,24 +257,8 @@ export class StateMachineBrain extends BotBrain {
 
   // Movement variety
   private _strafeDirection: number = 1; // 1 or -1
-  /** Whether the feelers turned this decision's heading. */
-  private _feelerSteered = false;
   /** This decision's move is an exact line (a sequence, a trick's approach): not steered. */
   private _exactMove = false;
-  /** Keeps the feet clear of walls in every state (BotVisionTracer), made per collision world. */
-  private _tracer: BotVisionTracer | null = null;
-  private _tracerWorld: unknown = null;
-  /** The point this decision's movement makes for, when it has one: the tracer looks no further. */
-  private _steerTarget: Vec3 | null = null;
-  /** How clear the way ahead ran on the last steer, 0..1. */
-  private _steerClear = 1;
-  /** Next tick a climb or wall jump may be checked for; a climb under way holds forward to its target. */
-  private _trickCheckTick = 0;
-  /** A wall jump wants a fresh press: jump let go this decision, pressed on the next. */
-  private _wallJumpPress = false;
-  private _lastJumpHeld = false;
-  /** When a look at each major item's spot was last begun, by pickup id. */
-  private readonly _spotLooks = new Map<number, number>();
   /** What the bot knows of how the match is going (strategy/MatchRead.ts). */
   /** Player names by entity, from the last decision: people's stack curve is for people. */
   private _names: ReadonlyMap<string, string> = new Map();
@@ -425,7 +342,7 @@ export class StateMachineBrain extends BotBrain {
   private _lastBotVision: BotVision | null = null;
   private _suppressTraversalAutomation: boolean = false;
   override steeredOffWall(): boolean {
-    return this._feelerSteered;
+    return this._steering.steered;
   }
 
   override getNavigationDebug(): string | null {
@@ -647,33 +564,16 @@ export class StateMachineBrain extends BotBrain {
     navGraph?: BotNavGraph | null,
   ): BotInput {
     this._cancelScript = false;
+    // Whatever was decided, a blocked bot turns for open ground and one in slime
+    // or lava jumps for dry ground; a charge carries on and a calm bot looks down.
     const input = this._escapeLiquid(
       state,
       this._turnFromBlock(state, this._decide(state, vision, visionResult, navGraph)),
     );
     this._carryCharge(state, input);
     if (this._tracing) this._lastTrace = this._trace(state);
-    if (this._isCalm(state, input)) {
-      input.calm = true;
-      // People look a little down while running, at the floor ahead (BS-1: 11°).
-      input.pitch = Math.min(CALM_MAX_PITCH, input.pitch + CALM_PITCH);
-    }
+    this._look.calm(state, input);
     return this._cancelScript ? { ...input, cancelScript: true } : input;
-  }
-
-  /** Roaming with no enemy in sight and no scripted move: see `BotInput.calm`. */
-  private _isCalm(state: BotGameState, input: BotInput): boolean {
-    if (state.self.isDead || input.script || this._traversal.runtime.isActive) return false;
-    if ((input.buttons & (InputButtons.FIRE | InputButtons.ALT_FIRE)) !== 0) return false;
-    if ((this._lastVision?.visibleEnemies.length ?? 0) > 0) return false;
-    // A chase with the enemy out of sight turns toward where they were: a memory, not a sight.
-    return (
-      this.currentState === BotState.ITEM_RUN ||
-      this.currentState === BotState.HUNT ||
-      this.currentState === BotState.CHASE ||
-      this.currentState === BotState.RETREAT ||
-      this.currentState === BotState.IDLE
-    );
   }
 
   private _decide(
@@ -683,10 +583,8 @@ export class StateMachineBrain extends BotBrain {
     navGraph?: BotNavGraph | null,
   ): BotInput {
     this._nav.pathRecalcTimer++;
-    this._feelerSteered = false;
+    this._steering.begin();
     this._nav.onRouteLine = false;
-    this._steerTarget = null;
-    this._steerClear = 1;
     this._lastVision = visionResult ?? null;
     this._lastDecisionTick = state.tick;
     this._names = state.playerNames;
@@ -753,7 +651,7 @@ export class StateMachineBrain extends BotBrain {
         const vision = this._lastBotVision;
         const steered =
           vision && this._traversal.runtime.activeSequenceId === "route_crouchslide" && !this._fightOff.has("steer")
-            ? this._steer(sequenceInput, state, vision)
+            ? this._steering.steer(sequenceInput, state, vision)
             : sequenceInput;
         return this._nav.recoverStalledNavigation(state, steered);
       }
@@ -797,16 +695,36 @@ export class StateMachineBrain extends BotBrain {
         break;
     }
 
-    input = this._nav.recoverStalledNavigation(state, input);
+    return this._afterSteps(state, input, vision);
+  }
+
+  /**
+   * The after-steps, in this order, on what the state's executor chose:
+   *
+   * 1. Stall recovery, for a route that has stopped making progress.
+   * 2. Clearance: the feet are steered clear of walls, corners and ledges
+   *    (BotSteering), except on an exact line.
+   * 3. High ground, in a chase with the health for it.
+   * 4. The leash: a guard that a fight or chase has drawn past it heads back.
+   * 5. Readying the weapon for an enemy heard, out of a fight.
+   * 6. Traversal starts: a ledge slide-jump, an item slide, the route's
+   *    crouch-slide or strafe jump. One that starts takes the decision.
+   * 7. Tricks: climbs and wall jumps toward the point the bot makes for.
+   * 8. The look into open space while roaming (BotLook).
+   *
+   * Each may rewrite movement, view or buttons of what the earlier ones left.
+   */
+  private _afterSteps(state: BotGameState, chosen: BotInput, vision: BotVision | null | undefined): BotInput {
+    let input = this._nav.recoverStalledNavigation(state, chosen);
 
     // Keep the feet clear of walls, corners and ledges in every state. Not on
     // a verified approach to a trick, whose line is exact on purpose.
     if (vision && !this._exactMove) {
-      if (!this._fightOff.has("steer")) input = this._steer(input, state, vision);
+      if (!this._fightOff.has("steer")) input = this._steering.steer(input, state, vision);
       else if (!this._nav.onRouteLine && this.currentState !== BotState.FIGHT && this.currentState !== BotState.DODGE) {
         // The feelers, for head-to-head tests: navigation only, and not on a
         // route line, where they saw a wall beyond a corner and turned off it.
-        input = this._applyFeelers(input, state, vision);
+        input = this._steering.feelers(input, state, vision);
       }
     }
 
@@ -837,131 +755,12 @@ export class StateMachineBrain extends BotBrain {
     }
 
     if (vision && !this._exactMove && !this._fightOff.has("steer") && !this._fightOff.has("tricks")) {
-      input = this._tryTricks(state, input);
+      input = this._steering.tryTricks(state, input);
     }
-    this._lastJumpHeld = (input.buttons & InputButtons.JUMP) !== 0;
+    this._steering.lastJumpHeld = (input.buttons & InputButtons.JUMP) !== 0;
 
-    if (vision) this._lookIntoOpenSpace(state, input, vision);
+    if (vision) this._look.lookIntoOpenSpace(state, input, vision);
     return input;
-  }
-
-  /**
-   * Running out of a fight, glance now and then toward the most open
-   * direction near where it looks: a sight line down a hall rather than the
-   * wall a route corner points at. Between glances the view rests where the
-   * bot runs, as a player's does: recorded people have the view more than 20°
-   * off their movement 38% of the time running, and bots that held the most
-   * open direction all the time 55% (docs/research/BOT_STRATEGY_LAYER.md).
-   * A glance lasts GLANCE_TICKS and comes every GLANCE_REST_TICKS or so, when
-   * a direction is clearly more open than straight ahead. Movement keeps its
-   * heading; the view stays within a quarter turn of it.
-   */
-  private _lookIntoOpenSpace(state: BotGameState, input: BotInput, vision: BotVision): void {
-    const roaming =
-      this.currentState === BotState.HUNT ||
-      this.currentState === BotState.ITEM_RUN ||
-      this.currentState === BotState.RETREAT;
-    if (!roaming) {
-      this._life.look = null;
-      return;
-    }
-    // Not while firing or standing, nor in a scripted move; a hop or slide keeps the look.
-    const running =
-      (input.buttons & InputButtons.FORWARD) !== 0 &&
-      (input.buttons & (InputButtons.FIRE | InputButtons.ALT_FIRE)) === 0 &&
-      input.direction.x === 0 &&
-      input.direction.z > 0;
-    if (!running || this._traversal.runtime.isActive) return;
-    const travel = travelYaw(input);
-    const base = input.yaw;
-    const allowed = (off: number) => Math.abs(wrapAngle(base + off - travel)) <= Math.PI / 2;
-    const spot = this._life.look?.spot;
-    if (this._life.look && spot) {
-      // A look at an item's spot follows it, and ends once perception has seen it.
-      this._life.look.off = wrapAngle(bearingTo(state.self.position, spot.position) - base);
-      if ((state.itemSpotSeenTick.get(spot.pickupId) ?? -1) >= spot.sinceTick) this._life.look.untilTick = state.tick;
-    }
-    if (!this._life.look || this._life.look.off === 0) {
-      const check = this._fightOff.has("itemcheck") ? null : this._spotToCheck(state, base, allowed, vision);
-      if (check) {
-        this._spotLooks.set(check.pickupId, state.tick);
-        this._life.look = {
-          off: wrapAngle(bearingTo(state.self.position, check.position) - base),
-          untilTick: state.tick + GLANCE_TICKS,
-          spot: { ...check, sinceTick: state.tick },
-        };
-      }
-    }
-    if (
-      this._life.look &&
-      this._life.look.off !== 0 &&
-      (state.tick >= this._life.look.untilTick || !allowed(this._life.look.off))
-    ) {
-      // A glance ends: back to where the bot runs, for a rest of 2–4 s.
-      this._life.look = { off: 0, untilTick: state.tick + GLANCE_REST_TICKS * (0.67 + 0.67 * Math.random()) };
-    }
-    if (!this._life.look || state.tick >= this._life.look.untilTick) {
-      const eye = { x: state.self.position.x, y: state.self.position.y + 36, z: state.self.position.z };
-      // Turning from where the view is costs too: a route corner moves the
-      // way the bot runs, and choosing afresh from it swung the view across.
-      const score = (off: number) => {
-        const yaw = base + off;
-        return (
-          openFraction(vision, eye, yaw) -
-          (LOOK_OFF_COST * Math.abs(off)) / LOOK_MAX_OFF_TRAVEL -
-          (LOOK_TURN_COST * Math.abs(wrapAngle(yaw - state.self.yaw))) / (Math.PI / 2)
-        );
-      };
-      let bestOff = 0;
-      let bestScore = score(0) + LOOK_SWITCH_MARGIN;
-      for (let off = -LOOK_MAX_OFF_TRAVEL; off <= LOOK_MAX_OFF_TRAVEL + 1e-9; off += LOOK_STEP) {
-        if (Math.abs(off) < 1e-9 || !allowed(off)) continue;
-        const value = score(off);
-        if (value > bestScore) {
-          bestScore = value;
-          bestOff = off;
-        }
-      }
-      // Nothing worth a glance: look again in a moment.
-      this._life.look = {
-        off: bestOff,
-        untilTick: state.tick + (bestOff === 0 ? LOOK_INTERVAL_TICKS : GLANCE_TICKS * (0.7 + 0.6 * Math.random())),
-      };
-    }
-    input.moveYaw = travel;
-    input.yaw = base + this._life.look.off;
-  }
-
-  /**
-   * A major item's spot to look at in passing, as a player checks the Red
-   * Armor: one not seen for SPOT_STALE_TICKS, in sight from here and within a
-   * quarter turn of where the bot runs, the longest unseen first. Seeing it
-   * there or gone is what dates its next return.
-   */
-  private _spotToCheck(
-    state: BotGameState,
-    base: number,
-    allowed: (off: number) => boolean,
-    vision: BotVision,
-  ): { pickupId: number; position: Vec3 } | null {
-    const self = state.self.position;
-    let best: { pickupId: number; position: Vec3 } | null = null;
-    let bestSeen = Number.POSITIVE_INFINITY;
-    // A vision with no map knowledge (a stand-in) has no spots to look at.
-    for (const entry of vision.mapKnowledge?.pickupPositions ?? []) {
-      if (!isMajorItem(entry.type, entry.kind)) continue;
-      const seen = state.itemSpotSeenTick.get(entry.id) ?? Number.NEGATIVE_INFINITY;
-      if (state.tick - seen < SPOT_STALE_TICKS || seen >= bestSeen) continue;
-      if (state.tick - (this._spotLooks.get(entry.id) ?? Number.NEGATIVE_INFINITY) < SPOT_STALE_TICKS) continue;
-      const distance = vec3Distance(self, entry.position);
-      if (distance < SPOT_MIN_DISTANCE || distance > SPOT_MAX_DISTANCE) continue;
-      if (!allowed(wrapAngle(bearingTo(self, entry.position) - base))) continue;
-      const lift = { x: entry.position.x, y: entry.position.y - 24, z: entry.position.z };
-      if (!vision.canSeeFrom(self, lift)) continue;
-      best = { pickupId: entry.id, position: entry.position };
-      bestSeen = seen;
-    }
-    return best;
   }
 
   // ── State Evaluation ──────────────────────────────────────────────
@@ -2509,7 +2308,7 @@ export class StateMachineBrain extends BotBrain {
    *   for the server's strafejump air acceleration to activate
    */
   private _moveToward(state: BotGameState, target: Vec3, _urgent: boolean): BotInput {
-    this._steerTarget = target;
+    this._steering.target = target;
     const delta = vec3Subtract(target, state.self.position);
     const distance = vec3Length(delta);
     const targetYaw = distance < 1 ? state.self.yaw : Math.atan2(delta.x, delta.z);
@@ -2531,281 +2330,6 @@ export class StateMachineBrain extends BotBrain {
   }
 
   // ── Feeler Raycasts (Wall Avoidance) ──────────────────────────────
-
-  /**
-   * Turn the feet, not the view, onto the heading BotVisionTracer finds
-   * clear. The keys stay as the decision chose them: the move yaw turns so
-   * they carry the bot along the clear heading.
-   */
-  private _steer(input: BotInput, state: BotGameState, vision: BotVision): BotInput {
-    const keys = input.direction;
-    if (Math.hypot(keys.x, keys.z) < 0.01) return input;
-    if (!this._tracer || this._tracerWorld !== vision.collisionWorld) {
-      this._tracer = new BotVisionTracer(
-        vision.collisionWorld,
-        (vision.mapKnowledge?.triggerVolumes ?? []).filter((t) => t.type === "push" || t.type === "teleport"),
-      );
-      this._tracerWorld = vision.collisionWorld;
-    }
-    const keyTurn = Math.atan2(keys.x, keys.z);
-    const moveYaw = travelYaw(input);
-    const self = state.self;
-    const target = this._steerTarget;
-    const result = this._tracer.steer({
-      tick: state.tick,
-      position: self.position,
-      velocity: self.velocity,
-      grounded: self.isGrounded,
-      yaw: moveYaw + keyTurn,
-      onLine: this._nav.onRouteLine,
-      throughTriggers: this._routeUsesTrigger(),
-      ...(target
-        ? {
-            targetDistance: Math.hypot(target.x - self.position.x, target.z - self.position.z),
-            dropping: target.y < self.position.y - STEER_DROP_HEIGHT,
-          }
-        : {}),
-    });
-    if (!result) {
-      if (self.isGrounded) {
-        this._life.padRide = null;
-        return input;
-      }
-      // Thrown by a pad with no sequence flying it (one the route did not mean to
-      // use, or one whose traversal gave up): fly on to where it throws, until
-      // down again. Its throw ends at the ledge it serves, and a bot that steers
-      // back toward its own way falls onto the pad and is thrown again.
-      if (!this._life.padRide && self.velocity.y > PAD_LAUNCH_SPEED && !this._traversal.runtime.isActive) {
-        const pad = this._padUnder(self.position, vision);
-        if (pad) this._life.padRide = { dest: pad.dest };
-      }
-      if (this._life.padRide) {
-        const dest = this._life.padRide.dest;
-        const keep = InputButtons.FIRE | InputButtons.ALT_FIRE | InputButtons.CROUCH;
-        return {
-          ...input,
-          direction: { x: 0, y: 0, z: 1 },
-          moveYaw: Math.atan2(dest.x - self.position.x, dest.z - self.position.z),
-          buttons: (input.buttons & keep) | InputButtons.FORWARD,
-        };
-      }
-      return this._steerAir(input, state, vision);
-    }
-    this._steerClear = result.clear;
-    if (result.turned) this._feelerSteered = true;
-    return { ...input, moveYaw: result.yaw - keyTurn };
-  }
-
-  /**
-   * Tricks the tracer says work from here (BotVisionTracer.climbByJump,
-   * wallJumpGain), on the way to the point the bot makes for: a jump onto
-   * what stands in the way when the point is above it, and a wall jump when
-   * one ends nearer the point than falling on. Navigation only; a fight
-   * moves for the fight.
-   */
-  private _tryTricks(state: BotGameState, input: BotInput): BotInput {
-    const tracer = this._tracer;
-    const self = state.self;
-    const navigating =
-      this.currentState === BotState.HUNT ||
-      this.currentState === BotState.ITEM_RUN ||
-      this.currentState === BotState.RETREAT ||
-      this.currentState === BotState.CHASE;
-    if (!tracer || !navigating || self.isDead) {
-      this._life.climb = null;
-      this._wallJumpPress = false;
-      return input;
-    }
-    const toward = (target: Vec3) => Math.atan2(target.x - self.position.x, target.z - self.position.z);
-    const forwardTo = (target: Vec3, jump: boolean): BotInput => ({
-      ...input,
-      direction: { x: 0, y: 0, z: 1 },
-      moveYaw: toward(target),
-      buttons:
-        (input.buttons & ~(InputButtons.BACK | InputButtons.LEFT | InputButtons.RIGHT | InputButtons.CROUCH)) |
-        InputButtons.FORWARD |
-        (jump ? InputButtons.JUMP : 0),
-    });
-
-    // A climb under way: forward to its target until down again, for the ledge grab
-    const climb = this._life.climb;
-    if (climb) {
-      if (state.tick > climb.untilTick || (self.isGrounded && state.tick > climb.untilTick - CLIMB_HOLD_TICKS + 10)) {
-        this._life.climb = null;
-      } else if (!self.isGrounded) {
-        return forwardTo(climb.target, false);
-      }
-    }
-    const target = this._steerTarget;
-    if (!target) return input;
-
-    if (self.isGrounded) {
-      this._wallJumpPress = false;
-      const rise = target.y - self.position.y;
-      const far = Math.hypot(target.x - self.position.x, target.z - self.position.z);
-      if (rise < CLIMB_RISE || far > CLIMB_REACH || this._steerClear >= CLIMB_BLOCKED) return input;
-      if (state.tick < this._trickCheckTick) return input;
-      this._trickCheckTick = state.tick + TRICK_CHECK_TICKS;
-      const top = tracer.climbByJump(self.position, self.velocity, toward(target));
-      if (!top || top.y < self.position.y + CLIMB_RISE) return input;
-      this._life.climb = { target: { ...target }, untilTick: state.tick + CLIMB_HOLD_TICKS };
-      return forwardTo(target, true);
-    }
-
-    // In the air beside a wall: press for a wall jump that ends nearer the target
-    if (this._wallJumpPress) {
-      this._wallJumpPress = false;
-      return forwardTo(target, true);
-    }
-    if (state.tick < this._trickCheckTick || !tracer.wallWithin(self.position, WALL_JUMP_NEAR)) return input;
-    this._trickCheckTick = state.tick + WALL_JUMP_CHECK_TICKS;
-    const gain = tracer.wallJumpGain(self.position, self.velocity, toward(target), target);
-    if (gain === null || gain < WALL_JUMP_GAIN) return input;
-    // Jump held from the take-off would make this no fresh press: let go first
-    if (this._lastJumpHeld) {
-      this._wallJumpPress = true;
-      return forwardTo(target, false);
-    }
-    return forwardTo(target, true);
-  }
-
-  /**
-   * In the air, about to fly into a wall: a side key alone toward the open
-   * side, at the angle that turns the flight without losing speed
-   * (sideTurnAngle), instead of the keys the decision held. Jump, fire and
-   * crouch stay as they were.
-   */
-  private _steerAir(input: BotInput, state: BotGameState, vision: BotVision): BotInput {
-    const self = state.self;
-    const side = wallAheadSide(vision.collisionWorld, self.position, self.velocity);
-    if (side === 0) return input;
-    this._feelerSteered = true;
-    const speed = Math.hypot(self.velocity.x, self.velocity.z);
-    const wish = Math.atan2(self.velocity.x, self.velocity.z) + side * sideTurnAngle(speed);
-    const keep = InputButtons.JUMP | InputButtons.FIRE | InputButtons.ALT_FIRE | InputButtons.CROUCH;
-    return {
-      ...input,
-      direction: { x: side, y: 0, z: 0 },
-      // The key is a quarter turn off the move yaw
-      moveYaw: wish - side * (Math.PI / 2),
-      buttons: (input.buttons & keep) | (side < 0 ? InputButtons.LEFT : InputButtons.RIGHT),
-    };
-  }
-
-  /** The jump pad at or just below `position` (the bot leaves it within a tick of the throw), or null. */
-  private _padUnder(position: Vec3, vision: BotVision): { dest: Vec3 } | null {
-    const pads = (vision.mapKnowledge?.triggerVolumes ?? []).filter((t) => t.type === "push");
-    for (const pad of pads) {
-      const inside =
-        position.x >= pad.min.x - 32 &&
-        position.x <= pad.max.x + 32 &&
-        position.z >= pad.min.z - 32 &&
-        position.z <= pad.max.z + 32 &&
-        position.y >= pad.min.y - 32 &&
-        position.y <= pad.max.y + 96;
-      if (inside) return { dest: pad.dest };
-    }
-    return null;
-  }
-
-  /** Whether the route's current step goes to or through a jump pad or teleporter. */
-  private _routeUsesTrigger(): boolean {
-    const path = this._life.currentPath;
-    const step = path?.steps[path.cursor];
-    if (!step) return false;
-    return (
-      step.type === "jumppad" ||
-      step.type === "teleporter" ||
-      step.to.type === "jumppad" ||
-      step.to.type === "teleporter"
-    );
-  }
-
-  private _applyFeelers(input: BotInput, state: BotGameState, vision: BotVision): BotInput {
-    /**
-     * Cast 3 rays from bot position to detect nearby walls.
-     * If a wall is detected, steer the bot away from it.
-     * Runs after brain decision and adjusts heading without overriding state.
-     */
-
-    const pos = state.self.position;
-    const yaw = travelYaw(input);
-    const cw = vision.collisionWorld;
-
-    // Eye height offset
-    const eyePos = { x: pos.x, y: pos.y + 36, z: pos.z };
-
-    // Forward ray
-    const fwdEnd = {
-      x: eyePos.x + Math.sin(yaw) * FEELER_FORWARD_DIST,
-      y: eyePos.y,
-      z: eyePos.z + Math.cos(yaw) * FEELER_FORWARD_DIST,
-    };
-    const fwdResult = cw.trace(eyePos, fwdEnd);
-
-    // Forward-left ray (yaw - 30°)
-    const leftYaw = yaw - FEELER_SIDE_ANGLE;
-    const leftEnd = {
-      x: eyePos.x + Math.sin(leftYaw) * FEELER_SIDE_DIST,
-      y: eyePos.y,
-      z: eyePos.z + Math.cos(leftYaw) * FEELER_SIDE_DIST,
-    };
-    const leftResult = cw.trace(eyePos, leftEnd);
-
-    // Forward-right ray (yaw + 30°)
-    const rightYaw = yaw + FEELER_SIDE_ANGLE;
-    const rightEnd = {
-      x: eyePos.x + Math.sin(rightYaw) * FEELER_SIDE_DIST,
-      y: eyePos.y,
-      z: eyePos.z + Math.cos(rightYaw) * FEELER_SIDE_DIST,
-    };
-    const rightResult = cw.trace(eyePos, rightEnd);
-
-    // Determine steering adjustment
-    let yawAdjust = 0;
-    const fwdBlocked = fwdResult.hit && fwdResult.fraction < FEELER_STEER_THRESHOLD;
-    const leftBlocked = leftResult.hit && leftResult.fraction < FEELER_STEER_THRESHOLD;
-    const rightBlocked = rightResult.hit && rightResult.fraction < FEELER_STEER_THRESHOLD;
-
-    if (fwdBlocked) {
-      // Wall directly ahead — steer toward open side
-      if (leftBlocked && !rightBlocked) {
-        yawAdjust = 0.5; // Turn right
-      } else if (rightBlocked && !leftBlocked) {
-        yawAdjust = -0.5; // Turn left
-      } else if (leftBlocked && rightBlocked) {
-        // Walled in on all sides — turn hard (pick random side)
-        yawAdjust = this._strafeDirection > 0 ? 1.2 : -1.2;
-      } else {
-        // Forward blocked but sides open — steer toward more open side
-        const leftDist = leftResult.fraction;
-        const rightDist = rightResult.fraction;
-        yawAdjust = leftDist > rightDist ? -0.4 : 0.4;
-      }
-      // Turning away changes what the rays see, and choosing again from the
-      // new heading swung the bot left, right and left at the same wall.
-      const side = this._life.feelerSide;
-      const sideClosed = side && (side.sign > 0 ? rightBlocked && !leftBlocked : leftBlocked && !rightBlocked);
-      if (side && state.tick < side.untilTick && !sideClosed) {
-        yawAdjust = side.sign * Math.abs(yawAdjust);
-      } else {
-        this._life.feelerSide = { sign: Math.sign(yawAdjust), untilTick: state.tick + FEELER_SIDE_COMMIT_TICKS };
-      }
-    } else if (leftBlocked && !rightBlocked) {
-      yawAdjust = 0.2; // Gentle right
-    } else if (rightBlocked && !leftBlocked) {
-      yawAdjust = -0.2; // Gentle left
-    }
-
-    if (yawAdjust !== 0) {
-      this._feelerSteered = true;
-      // Steer the heading; a bot looking ahead along its route keeps looking there.
-      if (input.moveYaw !== undefined) input.moveYaw += yawAdjust;
-      else input.yaw += yawAdjust;
-    }
-
-    return input;
-  }
 
   private _updateLookAround(): void {
     this._lookAroundTimer++;
@@ -2891,7 +2415,7 @@ export class StateMachineBrain extends BotBrain {
         return brain.currentState;
       },
       get tracer() {
-        return brain._tracer;
+        return brain._steering.tracer;
       },
       get nav() {
         return brain._nav;
@@ -2904,6 +2428,50 @@ export class StateMachineBrain extends BotBrain {
         this._exactMove = true;
       },
       startRecovery: (state, stuck) => this._startRecovery(state, stuck),
+    };
+  }
+
+  /** What steering reaches of this brain. */
+  private _steeringHost(): SteeringHost {
+    const brain = this;
+    return {
+      get life() {
+        return brain._life;
+      },
+      get currentState() {
+        return brain.currentState;
+      },
+      get sequenceActive() {
+        return brain._traversal.runtime.isActive;
+      },
+      get onRouteLine() {
+        return brain._nav.onRouteLine;
+      },
+      get strafeDirection() {
+        return brain._strafeDirection;
+      },
+    };
+  }
+
+  /** What the look reaches of this brain. */
+  private _lookHost(): LookHost {
+    const brain = this;
+    return {
+      get life() {
+        return brain._life;
+      },
+      get currentState() {
+        return brain.currentState;
+      },
+      get sequenceActive() {
+        return brain._traversal.runtime.isActive;
+      },
+      get visionResult() {
+        return brain._lastVision;
+      },
+      get fightOff() {
+        return brain._fightOff;
+      },
     };
   }
 
@@ -2987,9 +2555,4 @@ export class StateMachineBrain extends BotBrain {
       weaponSlot: 0,
     };
   }
-}
-
-/** Yaw from `from` toward `to`, as the view measures it. */
-function bearingTo(from: Vec3, to: Vec3): number {
-  return Math.atan2(to.x - from.x, to.z - from.z);
 }
