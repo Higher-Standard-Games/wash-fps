@@ -7,6 +7,7 @@ import { BotLife } from "../BotLife";
 import { BotNavGraph, type NavEdgeType, type NavPath } from "../BotNavGraph";
 import { getWeaponProfile } from "../BotWeaponProfile";
 import type { BotNavigator } from "../navigation/BotNavigator";
+import type { BotTraversal } from "../navigation/BotTraversal";
 import { StateMachineBrain } from "../StateMachineBrain";
 
 const difficulty: BotDifficulty = {
@@ -247,10 +248,7 @@ type TraversalHarness = {
   _navGraph: BotNavGraph | null;
   _life: { currentPath: NavPath | null };
   _nav: BotNavigator;
-  _tryStartItemSlideApproach: (input: BotInput, state: BotGameState) => BotInput | null;
-  _tryStartRouteCrouchslide: (input: BotInput, state: BotGameState) => BotInput | null;
-  _tryStartRouteStrafeJump: (input: BotInput, state: BotGameState) => BotInput | null;
-  _tickActiveSequence: (state: BotGameState) => BotInput | null;
+  _traversal: BotTraversal;
   _lastBotVision: {
     probeDrop: () => { safe: boolean; reason: "no_landing"; fallDistance: number; landing: null };
   } | null;
@@ -316,15 +314,15 @@ it("starts the specialized slide only for an active final-lane pickup", () => {
     weaponSlot: 0,
   };
 
-  const slide = brain._tryStartItemSlideApproach(routeInput, state);
+  const slide = brain._traversal.tryStartItemSlideApproach(routeInput, state);
   expect(slide!.buttons & InputButtons.CROUCH).not.toBe(0);
   state.tick = 105;
   state.self.isSliding = true;
   state.self.position.z = 250;
-  brain._tickActiveSequence(state);
+  brain._traversal.tick(state);
   state.tick = 125;
   state.self.position.z = 700;
-  brain._tickActiveSequence(state);
+  brain._traversal.tick(state);
   expect(brain._nav.blockedPickupIds.has(3)).toBe(true);
   expect(brain._life.currentPath).toBeNull();
   state.self.position.z = 0;
@@ -335,7 +333,7 @@ it("starts the specialized slide only for an active final-lane pickup", () => {
   inactiveBrain._navGraph = graph;
   inactiveBrain._life.currentPath = path;
   state.pickupActiveMask = [false, false, false, false];
-  expect(inactiveBrain._tryStartItemSlideApproach(routeInput, state)).toBeNull();
+  expect(inactiveBrain._traversal.tryStartItemSlideApproach(routeInput, state)).toBeNull();
 });
 describe("StateMachineBrain traversal executors", () => {
   it("rejects a route slide before a sharp upcoming turn", () => {
@@ -380,7 +378,7 @@ describe("StateMachineBrain traversal executors", () => {
       buttons: InputButtons.FORWARD | InputButtons.SPRINT,
       weaponSlot: 0,
     };
-    expect(harness._tryStartRouteCrouchslide(input, state)).toBeNull();
+    expect(harness._traversal.tryStartRouteCrouchslide(input, state)).toBeNull();
     expect(brain.isSequenceActive()).toBe(false);
   });
 
@@ -416,7 +414,7 @@ describe("StateMachineBrain traversal executors", () => {
       buttons: InputButtons.FORWARD | InputButtons.SPRINT,
       weaponSlot: 0,
     };
-    expect(harness._tryStartRouteCrouchslide(input, state)).not.toBeNull();
+    expect(harness._traversal.tryStartRouteCrouchslide(input, state)).not.toBeNull();
     expect(brain.getNavigationDebug()).toContain("sequence=route_crouchslide");
   });
 
@@ -485,7 +483,7 @@ describe("StateMachineBrain traversal executors", () => {
       buttons: InputButtons.FORWARD | InputButtons.SPRINT,
       weaponSlot: 0,
     };
-    const takeoff = harness._tryStartRouteStrafeJump(input, state);
+    const takeoff = harness._traversal.tryStartRouteStrafeJump(input, state);
     expect(takeoff).not.toBeNull();
     expect(takeoff!.buttons & InputButtons.JUMP).not.toBe(0);
     expect(brain.getNavigationDebug()).toContain("sequence=route_strafe_jump phase=takeoff");
@@ -493,7 +491,7 @@ describe("StateMachineBrain traversal executors", () => {
     state.tick = 5;
     state.self.isGrounded = false;
     state.self.velocity = { x: 0, y: 300, z: 330 };
-    const airborne = harness._tickActiveSequence(state);
+    const airborne = harness._traversal.tick(state);
     expect(airborne).not.toBeNull();
     // Forward and a side key: the wish an eighth turn off the move yaw
     expect(airborne!.direction.z).toBeCloseTo(Math.SQRT1_2);
@@ -557,7 +555,7 @@ describe("StateMachineBrain traversal executors", () => {
       totalCost: 1100,
       cursor: 0,
     };
-    expect(harness._tryStartRouteStrafeJump(input, state)).toBeNull();
+    expect(harness._traversal.tryStartRouteStrafeJump(input, state)).toBeNull();
 
     harness._life.currentPath = {
       nodes: [start, corner],
@@ -577,7 +575,7 @@ describe("StateMachineBrain traversal executors", () => {
         distance: 301,
       },
     ];
-    expect(harness._tryStartRouteStrafeJump(input, state)).toBeNull();
+    expect(harness._traversal.tryStartRouteStrafeJump(input, state)).toBeNull();
     expect(brain.isSequenceActive()).toBe(false);
   });
 
@@ -710,7 +708,7 @@ describe("StateMachineBrain traversal executors", () => {
     state.tick = 5;
     state.self.position = { x: 3000, y: 25, z: 0 };
     state.self.isGrounded = false;
-    harness._tickActiveSequence(state);
+    harness._traversal.tick(state);
     graph.getNextStep(state.self.position, path);
     expect(brain.isSequenceActive()).toBe(false);
     expect(path.cursor).toBe(1);
@@ -732,12 +730,12 @@ describe("StateMachineBrain traversal executors", () => {
     state.self.isGrounded = false;
     state.self.velocity = { x: 600, y: 700, z: 0 };
     state.self.position = { x: 300, y: 100, z: 0 };
-    harness._tickActiveSequence(state);
+    harness._traversal.tick(state);
     expect(brain.getNavigationDebug()).toContain("phase=airborne");
 
     state.tick = 70;
     state.self.position = { x: 3000, y: 512, z: 0 };
-    harness._tickActiveSequence(state);
+    harness._traversal.tick(state);
     graph.getNextStep(state.self.position, path);
     expect(brain.isSequenceActive()).toBe(false);
     expect(path.cursor).toBe(1);
@@ -755,7 +753,7 @@ describe("StateMachineBrain traversal executors", () => {
 
     expect(harness._nav.followCurrentPath(state, false).status).toBe("moving");
     state.tick = 40;
-    harness._tickActiveSequence(state);
+    harness._traversal.tick(state);
 
     expect(brain.isSequenceActive()).toBe(false);
     expect(brain.getNavigationDebug()).toBe("blocked=sequence:nav_traverse_teleporter:teleport_not_confirmed");

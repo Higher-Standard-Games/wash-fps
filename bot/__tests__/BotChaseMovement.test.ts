@@ -100,7 +100,7 @@ describe("heard-enemy pursuit movement", () => {
 
   it("uses a strafe-jump hop at running speed when a slide is unavailable", () => {
     const { brain, state, graph, vision } = chase(400);
-    (brain as unknown as { _slideCooldownUntilTick: number })._slideCooldownUntilTick = 125;
+    (brain as unknown as { _traversal: { slideCooldownUntilTick: number } })._traversal.slideCooldownUntilTick = 125;
     const input = brain.decide(state, null, vision, graph);
     expect(brain.getState()).toBe(BotState.CHASE);
     expect(input.buttons & InputButtons.JUMP).not.toBe(0);

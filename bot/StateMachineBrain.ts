@@ -35,15 +35,9 @@ import type { BotGameState, Vec3, VisiblePlayer } from "./BotGameState";
 import { vec3Distance, vec3Length, vec3Normalize, vec3Subtract } from "./BotGameState";
 import { BotLife } from "./BotLife";
 import { BotMood, type Mood, type MoodEvent } from "./BotMood";
-import { canInitiateSlide, PHYSICS } from "./BotMovementProfile";
-import type { BotNavGraph, NavPath, NavStep } from "./BotNavGraph";
+import { PHYSICS } from "./BotMovementProfile";
+import type { BotNavGraph } from "./BotNavGraph";
 import { duelLeadReactionDelay } from "./BotReactionTuning";
-import {
-  BotSequenceRegistry,
-  BotSequenceRuntime,
-  type BotSequenceRuntimeTick,
-  type RouteStrafeLane,
-} from "./BotSequence";
 import { BotTerritory } from "./BotTerritory";
 import type { BotVision, EnemyTrack, VisionResult } from "./BotVision";
 import { BotVisionTracer, wallAheadSide } from "./BotVisionTracer";
@@ -57,25 +51,16 @@ import { ItemGoalPlanner } from "./goals/ItemGoalPlanner";
 import { respawnTickOf } from "./goals/ItemGoalSource";
 import { loadBaseline, payoffPriors } from "./intel/IntelBaseline";
 import { loadPeopleProfile, typicalStackAfter } from "./intel/PeopleProfile";
-import { planLedgeSlideJump } from "./LedgeSlideJump";
 import { inHarmfulLiquid, liquidEscapeTarget } from "./LiquidEscape";
 import {
   BotNavigator,
   type NavigatorHost,
   PATH_ARRIVED_THRESHOLD,
   PATH_RECALC_INTERVAL,
-  type PathFollowResult,
 } from "./navigation/BotNavigator";
-import { pointAlong } from "./RouteLine";
-import { ItemSlideApproachSequence } from "./sequences/ItemSlideApproachSequence";
-import { LearnedRouteSequence } from "./sequences/LearnedRouteSequence";
-import { LedgeSlideJumpSequence } from "./sequences/LedgeSlideJumpSequence";
-import { RouteCrouchslideSequence } from "./sequences/RouteCrouchslideSequence";
-import { RouteStrafeJumpSequence, sideTurnAngle } from "./sequences/RouteStrafeJumpSequence";
-import { canLunge, SlideBladeSequence } from "./sequences/SlideBladeSequence";
-import { TraverseJumppadSequence } from "./sequences/TraverseJumppadSequence";
-import { TraverseTeleporterSequence } from "./sequences/TraverseTeleporterSequence";
-import { ValidatedJumpSequence } from "./sequences/ValidatedJumpSequence";
+import { BotTraversal, PICKUP_FAILURE_COOLDOWN_TICKS, type TraversalHost } from "./navigation/BotTraversal";
+import { sideTurnAngle } from "./sequences/RouteStrafeJumpSequence";
+import { canLunge } from "./sequences/SlideBladeSequence";
 import { MatchRead } from "./strategy/MatchRead";
 import { OpponentModel } from "./strategy/OpponentModel";
 import { applyStrategyWeights, STRATEGIES, Strategist, type Strategy, type StrategyId } from "./strategy/Strategist";
@@ -273,18 +258,6 @@ const SPOT_STALE_TICKS = 8 * TICK_RATE;
 const SPOT_MIN_DISTANCE = 200;
 const SPOT_MAX_DISTANCE = 2000;
 
-const BOT_SLIDE_COOLDOWN_TICKS = Math.ceil((PHYSICS.SLIDE_COOLDOWN / 1000) * TICK_RATE);
-/** How far a route slide carries the bot on the heading it starts with, units. */
-const ROUTE_SLIDE_RUN = 320;
-/** The slide's run plus the room to come out of it at speed, units. */
-const ROUTE_SLIDE_REACH = 520;
-/** Every waypoint inside a route slide's run lies within this of its line. */
-const ROUTE_SLIDE_LANE = 64;
-const ITEM_SLIDE_MIN_DISTANCE = 260;
-const ITEM_SLIDE_MAX_DISTANCE = 760;
-const ITEM_SLIDE_MAX_VELOCITY_ERROR_RADIANS = Math.PI / 6;
-const ITEM_SLIDE_ALLY_RADIUS = 80;
-const PICKUP_FAILURE_COOLDOWN_TICKS = 625;
 /** A route that ends further than this from its item has not reached it. */
 const UNREACHED_ITEM_DISTANCE = 64;
 /** Beside an item, horizontally, for longer than ITEM_CIRCLE_TICKS without taking it: it is out of reach. */
@@ -322,33 +295,14 @@ interface ItemGoalChoice {
 /** RETREAT wants healing, not shopping — see ItemGoalPlannerOptions.typeFilter. */
 const RETREAT_ITEM_TYPES: ReadonlySet<string> = new Set(["health"]);
 
-const BOT_STRAFE_RETRY_TICKS = 30;
-/** A strafe jump needs a lane of route this long and wide, plain walking out to the reach. */
-const ROUTE_STRAFE_RUN = 240;
-const ROUTE_STRAFE_REACH = 640;
-/** A strafe-jump chain starts from this speed: walking pace, since a hop off it already gains. */
-const ROUTE_STRAFE_ENTRY_SPEED = 320;
-/** The most a hop chain's stretch of route line may turn in all. */
-const ROUTE_STRAFE_MAX_TURN = (120 * Math.PI) / 180;
-/** A hop steers for the route line this far ahead of the bot, units. */
-const ROUTE_STRAFE_STEER_AHEAD = 160;
-/** Without a route line: a straight lane of route this long and wide, plain walking to the reach. */
-const STRAIGHT_HOP_RUN = 480;
-const STRAIGHT_HOP_REACH = 640;
-const STRAIGHT_HOP_LANE = 96;
-/** The hop sequence ends this far before its target (RouteStrafeJumpSequence ENDPOINT_EXIT_DISTANCE). */
-const STRAIGHT_HOP_EXIT_MARGIN = 260;
-const ROUTE_STRAFE_ITEM_MIN_REMAINING_DISTANCE = 800;
-const ROUTE_STRAFE_MAX_VELOCITY_ERROR_RADIANS = Math.PI / 4;
-const ROUTE_STRAFE_ALLY_LOOKAHEAD = 600;
-const ROUTE_STRAFE_ALLY_RADIUS = 80;
-
 export class StateMachineBrain extends BotBrain {
   // ── Internal state ────────────────────────────────────────────────
   /** This life's route, goals and plans; a new one at each death (BotLife). */
   private _life = new BotLife();
   /** Route following (navigation/BotNavigator). */
   private readonly _nav = new BotNavigator(this._navigatorHost());
+  /** Traversal sequences and the route's slides and hops (navigation/BotTraversal). */
+  private readonly _traversal = new BotTraversal(this._traversalHost());
   private _huntYaw: number = 0;
   private _huntTimer: number = 0;
 
@@ -407,10 +361,7 @@ export class StateMachineBrain extends BotBrain {
   private _strategyLimit: readonly StrategyId[] | null = null;
 
   // Crouchslide cooldown. Sequence phases use authoritative server ticks.
-  private _slideCooldownUntilTick: number = 0;
 
-  private _routeStrafeCooldownUntilTick: number = 0;
-  private _routeStrafeSide: -1 | 1 = 1;
   // Charged weapon cadence (blade alt-fire: hold, then release to shoot)
   /** Where a teammate last called enemies, and when. */
   private _teamSighting: { position: Vec3; tick: number } | null = null;
@@ -432,12 +383,8 @@ export class StateMachineBrain extends BotBrain {
   private _bodyScale = 1;
   /** Slime and lava do not hurt this bot (a campaign boss), so it does not get out of them. */
   private _liquidImmune = false;
-  private _ledgeProbeTick = 0;
   private _leadReactionDelayMs = 0;
   private _cancelScript = false;
-  private readonly _sequenceRegistry = new BotSequenceRegistry();
-  private readonly _sequenceRuntime = new BotSequenceRuntime(this._sequenceRegistry);
-  private _activeSequenceStep: NavStep | null = null;
   private _lastDecisionTick: number = 0;
 
   /** Goals (by id, for dropped items with no pickup id) on the same cooldown: id → retry tick. */
@@ -469,15 +416,6 @@ export class StateMachineBrain extends BotBrain {
     // mistakeRate finally does something: an occasional runner-up pick.
     this._itemGoalPlanner = new ItemGoalPlanner(difficulty.mistakeRate);
     this._huntYaw = Math.random() * Math.PI * 2;
-    this._sequenceRegistry.register(new RouteCrouchslideSequence());
-    this._sequenceRegistry.register(new ValidatedJumpSequence());
-    this._sequenceRegistry.register(new ItemSlideApproachSequence());
-    this._sequenceRegistry.register(new TraverseTeleporterSequence());
-    this._sequenceRegistry.register(new RouteStrafeJumpSequence());
-    this._sequenceRegistry.register(new TraverseJumppadSequence());
-    this._sequenceRegistry.register(new LearnedRouteSequence());
-    this._sequenceRegistry.register(new SlideBladeSequence());
-    this._sequenceRegistry.register(new LedgeSlideJumpSequence());
   }
 
   // ── Main Decision Loop ────────────────────────────────────────────
@@ -496,7 +434,7 @@ export class StateMachineBrain extends BotBrain {
       : this._life.activeItemGoal
         ? this._itemGoalPlanner.explain
         : null;
-    const sequence = this._sequenceRuntime.getDebug(this._lastDecisionTick);
+    const sequence = this._traversal.runtime.getDebug(this._lastDecisionTick);
     if (sequence) {
       const remaining = this._life.currentPath
         ? this._life.currentPath.steps.length - this._life.currentPath.cursor
@@ -560,7 +498,7 @@ export class StateMachineBrain extends BotBrain {
     const passed = (selection?.traces ?? []).filter((t) => t.gate === 1).sort((a, b) => b.desire - a.desire);
     const path = this._life.currentPath;
     const step = path ? path.steps[path.cursor] : undefined;
-    const sequence = this._sequenceRuntime.getDebug(state.tick);
+    const sequence = this._traversal.runtime.getDebug(state.tick);
     const self = state.self;
     return {
       tick: state.tick,
@@ -695,11 +633,11 @@ export class StateMachineBrain extends BotBrain {
   }
 
   isSequenceActive(): boolean {
-    return this._sequenceRuntime.isActive;
+    return this._traversal.runtime.isActive;
   }
 
   isSequenceCommitted(): boolean {
-    return this._sequenceRuntime.isCommitted(this._lastDecisionTick);
+    return this._traversal.runtime.isCommitted(this._lastDecisionTick);
   }
 
   decide(
@@ -725,7 +663,7 @@ export class StateMachineBrain extends BotBrain {
 
   /** Roaming with no enemy in sight and no scripted move: see `BotInput.calm`. */
   private _isCalm(state: BotGameState, input: BotInput): boolean {
-    if (state.self.isDead || input.script || this._sequenceRuntime.isActive) return false;
+    if (state.self.isDead || input.script || this._traversal.runtime.isActive) return false;
     if ((input.buttons & (InputButtons.FIRE | InputButtons.ALT_FIRE)) !== 0) return false;
     if ((this._lastVision?.visibleEnemies.length ?? 0) > 0) return false;
     // A chase with the enemy out of sight turns toward where they were: a memory, not a sight.
@@ -769,7 +707,7 @@ export class StateMachineBrain extends BotBrain {
     this._exactMove = false;
     if (state.self.isDead) {
       this.currentState = BotState.SPAWN;
-      this._interruptSequence(state, "dead", true);
+      this._traversal.interrupt(state, "dead", true);
       this._startLife();
       // Clear vision cache on death
       if (vision) vision.clearCache();
@@ -780,7 +718,7 @@ export class StateMachineBrain extends BotBrain {
     if (mandatory?.id !== this._life.mandatoryGoal?.id) {
       this._life.currentPath = null;
       this._life.pathTarget = null;
-      this._interruptSequence(state, "objective_changed", true);
+      this._traversal.interrupt(state, "objective_changed", true);
     }
     this._life.mandatoryGoal = mandatory;
     const seesEnemy = this._lastVision ? this._lastVision.visibleEnemies.length > 0 : state.getNearestEnemy() !== null;
@@ -804,17 +742,17 @@ export class StateMachineBrain extends BotBrain {
     // Determine state based on priority
     const newState = this._evaluateState(state);
     const stateChanged = newState !== this.currentState;
-    if (this._sequenceRuntime.isActive && stateChanged) {
-      this._interruptSequence(state, `state:${newState}`);
+    if (this._traversal.runtime.isActive && stateChanged) {
+      this._traversal.interrupt(state, `state:${newState}`);
     }
 
-    if (this._sequenceRuntime.isActive) {
-      const sequenceInput = this._tickActiveSequence(state);
+    if (this._traversal.runtime.isActive) {
+      const sequenceInput = this._traversal.tick(state);
       if (sequenceInput) {
         // A slide along a route is ground movement at speed: steered like any run
         const vision = this._lastBotVision;
         const steered =
-          vision && this._sequenceRuntime.activeSequenceId === "route_crouchslide" && !this._fightOff.has("steer")
+          vision && this._traversal.runtime.activeSequenceId === "route_crouchslide" && !this._fightOff.has("steer")
             ? this._steer(sequenceInput, state, vision)
             : sequenceInput;
         return this._nav.recoverStalledNavigation(state, steered);
@@ -888,13 +826,13 @@ export class StateMachineBrain extends BotBrain {
     }
 
     if (!this._suppressTraversalAutomation) {
-      const ledgeJump = this._tryStartLedgeSlideJump(input, state);
+      const ledgeJump = this._traversal.tryStartLedgeSlideJump(input, state);
       if (ledgeJump) return ledgeJump;
-      const itemSlideInput = this._tryStartItemSlideApproach(input, state);
+      const itemSlideInput = this._traversal.tryStartItemSlideApproach(input, state);
       if (itemSlideInput) return itemSlideInput;
-      const routeSlideInput = this._tryStartRouteCrouchslide(input, state);
+      const routeSlideInput = this._traversal.tryStartRouteCrouchslide(input, state);
       if (routeSlideInput) return routeSlideInput;
-      const strafeInput = this._tryStartRouteStrafeJump(input, state);
+      const strafeInput = this._traversal.tryStartRouteStrafeJump(input, state);
       if (strafeInput) return strafeInput;
     }
 
@@ -933,7 +871,7 @@ export class StateMachineBrain extends BotBrain {
       (input.buttons & (InputButtons.FIRE | InputButtons.ALT_FIRE)) === 0 &&
       input.direction.x === 0 &&
       input.direction.z > 0;
-    if (!running || this._sequenceRuntime.isActive) return;
+    if (!running || this._traversal.runtime.isActive) return;
     const travel = travelYaw(input);
     const base = input.yaw;
     const allowed = (off: number) => Math.abs(wrapAngle(base + off - travel)) <= Math.PI / 2;
@@ -1137,15 +1075,15 @@ export class StateMachineBrain extends BotBrain {
    */
   private _tryStartSlideBlade(state: BotGameState, enemy: VisiblePlayer): BotInput | null {
     if (state.self.isSliding) this._lastSlideTick = state.tick;
-    if (this._sequenceRuntime.isActive || state.tick < this._lungeRollAfterTick) return null;
+    if (this._traversal.runtime.isActive || state.tick < this._lungeRollAfterTick) return null;
     if (state.tick - this._lastSlideTick < SLIDE_COOLDOWN_TICKS) return null;
     if (state.self.health < LUNGE_MIN_HEALTH) return null;
-    const context = { ...this._getSequenceContext(state, null), combatTarget: enemy };
+    const context = { ...this._traversal.context(state, null), combatTarget: enemy };
     if (!canLunge(context, enemy)) return null;
     this._lungeRollAfterTick = state.tick + LUNGE_REROLL_TICKS;
     if (Math.random() >= lungeChance(this.difficulty.dodgeSkill)) return null;
-    if (!this._sequenceRuntime.start("combat_slide_blade", context)) return null;
-    return this._tickActiveSequence(state);
+    if (!this._traversal.runtime.start("combat_slide_blade", context)) return null;
+    return this._traversal.tick(state);
   }
 
   private _executeFight(state: BotGameState): BotInput {
@@ -2119,11 +2057,11 @@ export class StateMachineBrain extends BotBrain {
       state.wasRecentlyDamaged(DODGE_REACT_TICKS);
     if (!fighting) return this._startRecovery(state, true, heading);
     // The route that led here is planned again, another way.
-    const step = this._activeSequenceStep ?? this._life.currentPath?.steps[this._life.currentPath.cursor];
+    const step = this._traversal.activeStep ?? this._life.currentPath?.steps[this._life.currentPath.cursor];
     if (step) this._nav.cooldownStep(step, state.tick);
     this._life.currentPath = null;
     this._life.pathTarget = null;
-    this._interruptSequence(state, "blocked", true);
+    this._traversal.interrupt(state, "blocked", true);
     this._cancelScript = true;
     this._strafeDirection = -this._strafeDirection;
     const yaw = this._openHeading(state, heading);
@@ -2194,11 +2132,11 @@ export class StateMachineBrain extends BotBrain {
    */
   private _startRecovery(state: BotGameState, stuck = false, blockedHeading?: number): BotInput {
     this._cancelScript = true;
-    const step = this._activeSequenceStep ?? this._life.currentPath?.steps[this._life.currentPath.cursor];
+    const step = this._traversal.activeStep ?? this._life.currentPath?.steps[this._life.currentPath.cursor];
     if (step) this._nav.cooldownStep(step, state.tick);
     if (stuck && this.currentState !== BotState.CHASE && this._life.activeItemGoal?.pickupId !== undefined)
       this._nav.blockedPickupIds.set(this._life.activeItemGoal.pickupId, state.tick + PICKUP_FAILURE_COOLDOWN_TICKS);
-    this._interruptSequence(state, "no_navigation_progress", true);
+    this._traversal.interrupt(state, "no_navigation_progress", true);
     this._itemGoalPlanner.reset();
     this._life.activeItemGoal = null;
     this._life.currentPath = null;
@@ -2548,91 +2486,6 @@ export class StateMachineBrain extends BotBrain {
     return null;
   }
 
-  private _getSequenceContext(
-    state: BotGameState,
-    step: NavStep | null = this._activeSequenceStep,
-    proposedInput: BotInput | null = null,
-    crouchslideReady: boolean = false,
-    routeStrafeReady: boolean = false,
-    routeStrafeSide: -1 | 1 = this._routeStrafeSide,
-  ) {
-    const opportunity =
-      step?.opportunityId && this._navGraph ? this._navGraph.getMovementOpportunity(step.opportunityId) : null;
-    return {
-      state,
-      vision: this._lastBotVision,
-      visionResult: this._lastVision,
-      navGraph: this._navGraph,
-      navStep: step,
-      movementOpportunity: opportunity,
-      learnedRoute: this._navGraph?.getLearnedRoute(step?.opportunityId) ?? null,
-      proposedInput,
-      difficulty: this.difficulty,
-      crouchslideReady,
-      routeStrafeReady,
-      routeStrafeSide,
-      itemSlideTarget: this._life.activeItemSlideTarget,
-      itemSlideReady: this._life.activeItemSlideTarget !== null,
-    };
-  }
-
-  private _interruptSequence(state: BotGameState, reason: string, force: boolean = false): boolean {
-    const interrupted = this._sequenceRuntime.interrupt(this._getSequenceContext(state), reason, force);
-    if (interrupted) {
-      this._cancelScript = true;
-      this._activeSequenceStep = null;
-      this._life.activeItemSlideTarget = null;
-    }
-    return interrupted;
-  }
-
-  private _tickActiveSequence(state: BotGameState): BotInput | null {
-    const result: BotSequenceRuntimeTick | null = this._sequenceRuntime.tick(this._getSequenceContext(state));
-    if (!result) return null;
-
-    this._suppressTraversalAutomation = true;
-    this._exactMove = true;
-    this._nav.pathRecalcTimer = 0;
-    if (result.status === "running") return result.input;
-    this._cancelScript = true;
-
-    const terminalItemTarget = this._life.activeItemSlideTarget;
-    this._life.activeItemSlideTarget = null;
-    if (result.sequenceId === "item_slide_approach" && terminalItemTarget) {
-      if (result.status === "succeeded") {
-        this._life.currentPath = null;
-      } else if (result.reason === "pickup_missed" || result.reason === "timeout") {
-        this._nav.blockedPickupIds.set(terminalItemTarget.pickupId, state.tick + PICKUP_FAILURE_COOLDOWN_TICKS);
-        this._life.currentPath = null;
-      }
-      return null;
-    }
-
-    const terminalStep = this._activeSequenceStep;
-    this._activeSequenceStep = null;
-    this._nav.activeNavStep = null;
-    if (result.status === "failed") {
-      if (terminalStep) {
-        this._nav.pathBlockedReason = `sequence:${result.sequenceId}:${result.reason ?? "failed"}`;
-        this._nav.cooldownStep(terminalStep, state.tick);
-        this._life.currentPath = null;
-        return this._startRecovery(state);
-      }
-      return null;
-    }
-    return null;
-  }
-
-  private _startNavSequence(state: BotGameState, step: NavStep, sequenceId: string): PathFollowResult | null {
-    const context = this._getSequenceContext(state, step);
-    if (!this._sequenceRuntime.start(sequenceId, context)) return null;
-
-    this._activeSequenceStep = step;
-    const input = this._tickActiveSequence(state);
-    if (this._nav.pathBlockedReason) return { status: "blocked", reason: this._nav.pathBlockedReason };
-    return input ? { status: "moving", input } : { status: "complete" };
-  }
-
   private _moveTowardPrecise(state: BotGameState, target: Vec3): BotInput {
     return this._makePrecise(this._moveToward(state, target, false));
   }
@@ -2679,349 +2532,6 @@ export class StateMachineBrain extends BotBrain {
 
   // ── Feeler Raycasts (Wall Avoidance) ──────────────────────────────
 
-  /** Slide only when a stable, active pickup closes a straight final walk lane. */
-  private _tryStartItemSlideApproach(input: BotInput, state: BotGameState): BotInput | null {
-    if (
-      state.self.isDead ||
-      this._sequenceRuntime.isActive ||
-      (this.currentState !== BotState.ITEM_RUN && this.currentState !== BotState.RETREAT) ||
-      !state.self.isGrounded ||
-      state.self.isSliding
-    )
-      return null;
-
-    const required = InputButtons.FORWARD | InputButtons.SPRINT;
-    const disallowed =
-      InputButtons.BACK | InputButtons.CROUCH | InputButtons.JUMP | InputButtons.FIRE | InputButtons.ALT_FIRE;
-    if ((input.buttons & required) !== required || (input.buttons & disallowed) !== 0) return null;
-
-    const horizontalSpeed = Math.hypot(state.self.velocity.x, state.self.velocity.z);
-    if (!canInitiateSlide(horizontalSpeed, state.tick >= this._slideCooldownUntilTick)) return null;
-
-    const path = this._life.currentPath;
-    const step = path?.steps[path.cursor] ?? null;
-    const target = path?.nodes[path.nodes.length - 1] ?? null;
-    if (!path || !step || !target || target.type !== "item" || target.pickupId === undefined) return null;
-    if (step.type !== "walk" || path.cursor !== path.steps.length - 1) return null;
-    if (state.pickupActiveMask[target.pickupId] !== true || this._nav.blockedPickupIds.has(target.pickupId))
-      return null;
-
-    const targetDelta = vec3Subtract(target.position, state.self.position);
-    const targetDistance = Math.hypot(targetDelta.x, targetDelta.z);
-    const maximumDistance = Math.min(
-      ITEM_SLIDE_MAX_DISTANCE,
-      horizontalSpeed * PHYSICS.SLIDE_SPEED_MULT * (PHYSICS.SLIDE_DURATION / 1000) + 120,
-    );
-    if (targetDistance < ITEM_SLIDE_MIN_DISTANCE || targetDistance > maximumDistance || Math.abs(targetDelta.y) > 96)
-      return null;
-
-    const targetDirection = vec3Normalize({ x: targetDelta.x, y: 0, z: targetDelta.z });
-    if (horizontalSpeed > 0.001) {
-      const velocityDot =
-        (state.self.velocity.x * targetDirection.x + state.self.velocity.z * targetDirection.z) / horizontalSpeed;
-      if (Math.acos(Math.max(-1, Math.min(1, velocityDot))) > ITEM_SLIDE_MAX_VELOCITY_ERROR_RADIANS) return null;
-    }
-
-    const allyBlocksLane = state.players.some((player) => {
-      if (player.relation !== "ally" || player.isDead) return false;
-      const relative = vec3Subtract(player.position, state.self.position);
-      const along = relative.x * targetDirection.x + relative.z * targetDirection.z;
-      const lateral = Math.abs(relative.x * targetDirection.z - relative.z * targetDirection.x);
-      return Math.abs(relative.y) <= 96 && along > 0 && along < targetDistance && lateral < ITEM_SLIDE_ALLY_RADIUS;
-    });
-    if (allyBlocksLane) return null;
-
-    this._life.activeItemSlideTarget = { pickupId: target.pickupId, position: { ...target.position } };
-    const context = this._getSequenceContext(state, step, input);
-    if (!this._sequenceRuntime.start("item_slide_approach", context)) {
-      this._life.activeItemSlideTarget = null;
-      return null;
-    }
-    this._slideCooldownUntilTick = state.tick + BOT_SLIDE_COOLDOWN_TICKS;
-    return this._tickActiveSequence(state);
-  }
-
-  /**
-   * Optional route-speed sequence that rejects unsafe geometry and preserves
-   * the state-machine fallback when authoritative slide entry is not confirmed.
-   * Runs after brain decision — adjusts heading, doesn't override state.
-   */
-  private _tryStartLedgeSlideJump(input: BotInput, state: BotGameState): BotInput | null {
-    if (
-      !this._lastBotVision ||
-      !state.self.isGrounded ||
-      this._sequenceRuntime.isActive ||
-      this.difficulty.strafeJumpSkill < 0.55 ||
-      state.tick < this._ledgeProbeTick ||
-      state.tick < this._slideCooldownUntilTick ||
-      (input.buttons & (InputButtons.FIRE | InputButtons.ALT_FIRE)) !== 0 ||
-      (input.buttons & (InputButtons.FORWARD | InputButtons.SPRINT)) !== (InputButtons.FORWARD | InputButtons.SPRINT)
-    )
-      return null;
-    const path = this._life.currentPath;
-    const step = path?.steps[path.cursor];
-    if (!path || !step) return null;
-    const next = step.type === "walk" ? path.steps[path.cursor + 1] : step;
-    if (!next || (next.type !== "fall" && next.type !== "jump")) return null;
-    this._ledgeProbeTick = state.tick + 31;
-    const plan = planLedgeSlideJump(state.self, input, next.to.position, this._lastBotVision.collisionWorld);
-    if (!plan) return null;
-    const context = { ...this._getSequenceContext(state, step, input), ledgeSlidePlan: plan };
-    if (!this._sequenceRuntime.start("ledge_slide_jump", context)) return null;
-    this._activeSequenceStep = next;
-    this._slideCooldownUntilTick = state.tick + BOT_SLIDE_COOLDOWN_TICKS;
-    return this._tickActiveSequence(state);
-  }
-
-  /**
-   * Is there room for a slide along the route? A slide holds its heading for
-   * ROUTE_SLIDE_RUN units and comes out fast: waypoints within the run must lie
-   * close to that line, those beyond it up to ROUTE_SLIDE_REACH within 45° of
-   * where it ends, and the run must be walkable. Waypoints may be close
-   * together: the bot slides past them (BotNavGraph.getNextStep leaves a
-   * passed one behind).
-   */
-  private _slideLaneOpen(state: BotGameState, path: NavPath, step: NavStep): boolean {
-    return this._laneOpen(state, path, step, ROUTE_SLIDE_RUN, ROUTE_SLIDE_REACH, ROUTE_SLIDE_LANE);
-  }
-
-  /**
-   * Is the route ahead a lane `run` long, `lane` wide, walkable, with only plain
-   * walking up to `reach` and no turn over 45° just after the run? Waypoints may
-   * be close together: the bot passes them (BotNavGraph.getNextStep).
-   */
-  private _laneOpen(
-    state: BotGameState,
-    path: NavPath,
-    step: NavStep,
-    run: number,
-    reach: number,
-    laneWidth: number,
-  ): boolean {
-    if (step.type !== "walk" || step.requiresPreciseApproach) return false;
-    const self = state.self.position;
-    const heading = { x: step.to.position.x - self.x, z: step.to.position.z - self.z };
-    const first = Math.hypot(heading.x, heading.z);
-    if (first < 1) return false;
-    const dx = heading.x / first;
-    const dz = heading.z / first;
-    let along = 0;
-    for (let i = path.cursor; i < path.steps.length; i++) {
-      const next = path.steps[i];
-      const point = next.to.position;
-      along = (point.x - self.x) * dx + (point.z - self.z) * dz;
-      if (along >= reach) break;
-      const lateral = Math.abs((point.x - self.x) * dz - (point.z - self.z) * dx);
-      // A jump, drop or precise approach inside the reach is no place for it,
-      // nor a turn inside the run. After the run the bot can turn up to 45°.
-      const lane = laneWidth + Math.max(0, along - run);
-      if (lateral > lane || next.type !== "walk" || next.requiresPreciseApproach) return false;
-    }
-    // A route ending inside the reach must still leave room for the run.
-    if (along < run) return false;
-    const vision = this._lastBotVision;
-    if (!vision) return true;
-    const end = { x: self.x + dx * run, y: self.y, z: self.z + dz * run };
-    return vision.isWalkable(self, end);
-  }
-
-  /**
-   * Where a hop chain can run: the route line being followed, when the next
-   * ROUTE_STRAFE_REACH of it is plain walking that turns at most
-   * ROUTE_STRAFE_MAX_TURN in all, and at least ROUTE_STRAFE_RUN of it is left.
-   * A chain steers along the line, so it may bend; a jump, drop or exact
-   * approach inside the reach is no place for one.
-   */
-  private _hopLine(state: BotGameState, path: NavPath): { points: readonly Vec3[]; end: Vec3 } | null {
-    const held = this._life.routeLine;
-    if (!held || held.path !== path) return null;
-    for (let i = path.cursor; i < Math.min(path.steps.length, held.line.endStep); i++) {
-      if (path.steps[i].type !== "walk" || path.steps[i].requiresPreciseApproach) return null;
-    }
-    const points = held.line.points;
-    const self = state.self.position;
-    const start = pointAlong(points, self, 0, held.stretch);
-    // Walk the line ahead: its length to the reach, and how much it turns.
-    let length = 0;
-    let turned = 0;
-    let previous = start.point;
-    let heading: number | null = null;
-    let end = start.point;
-    for (let i = start.stretch + 1; i < points.length && length < ROUTE_STRAFE_REACH; i++) {
-      const point = points[i];
-      const piece = Math.hypot(point.x - previous.x, point.z - previous.z);
-      if (piece < 1) continue;
-      const yaw = Math.atan2(point.x - previous.x, point.z - previous.z);
-      if (heading !== null) turned += Math.abs(wrapAngle(yaw - heading));
-      if (turned > ROUTE_STRAFE_MAX_TURN) break;
-      heading = yaw;
-      length += piece;
-      end = point;
-      previous = point;
-    }
-    if (length < ROUTE_STRAFE_RUN) return null;
-    return { points, end };
-  }
-
-  private _tryStartRouteCrouchslide(input: BotInput, state: BotGameState): BotInput | null {
-    if (state.self.isDead || this._sequenceRuntime.isActive) return null;
-    const movingForward = (input.buttons & InputButtons.FORWARD) !== 0 && (input.buttons & InputButtons.BACK) === 0;
-    const sprinting = (input.buttons & InputButtons.SPRINT) !== 0;
-    const horizontalSpeed = Math.sqrt(state.self.velocity.x ** 2 + state.self.velocity.z ** 2);
-    const cooldownExpired = state.tick >= this._slideCooldownUntilTick;
-
-    if (
-      !state.self.isGrounded ||
-      !movingForward ||
-      !sprinting ||
-      (input.buttons & (InputButtons.FIRE | InputButtons.ALT_FIRE)) !== 0 ||
-      !canInitiateSlide(horizontalSpeed, cooldownExpired)
-    ) {
-      return null;
-    }
-
-    const navigationSlide =
-      this.currentState === BotState.HUNT ||
-      this.currentState === BotState.ITEM_RUN ||
-      this.currentState === BotState.RETREAT ||
-      this.currentState === BotState.CHASE;
-    const dodgeSlide = this.currentState === BotState.DODGE && this.difficulty.dodgeSkill >= 0.35;
-
-    if (!navigationSlide && !dodgeSlide) return null;
-
-    const step = this._life.currentPath?.steps[this._life.currentPath.cursor] ?? null;
-    if (this._life.currentPath && !step) return null;
-    if (step && this._life.currentPath && !this._slideLaneOpen(state, this._life.currentPath, step)) return null;
-    // A slide barely steers once begun: its whole run must clear the walls with room to spare
-    if (this._tracer && !this._tracer.runClear(state.self.position, travelYaw(input), ROUTE_SLIDE_RUN)) return null;
-
-    const context = this._getSequenceContext(state, step, input, true);
-    if (!this._sequenceRuntime.start("route_crouchslide", context)) return null;
-    this._slideCooldownUntilTick = state.tick + BOT_SLIDE_COOLDOWN_TICKS;
-    return this._tickActiveSequence(state);
-  }
-
-  /**
-   * Starts a strafe-jump chain only after the route planner has established
-   * enough straight, unoccupied walk space. The chain asks again on every
-   * landing (`routeStrafeNext`), so a route change still ends it there.
-   */
-  private _tryStartRouteStrafeJump(input: BotInput, state: BotGameState): BotInput | null {
-    if (
-      state.self.isDead ||
-      this._sequenceRuntime.isActive ||
-      state.tick < this._routeStrafeCooldownUntilTick ||
-      this.difficulty.strafeJumpSkill < 0.35
-    ) {
-      return null;
-    }
-    if (!state.self.isGrounded || state.self.isSliding) return null;
-
-    const required = InputButtons.FORWARD | InputButtons.SPRINT;
-    const disallowed =
-      InputButtons.BACK |
-      InputButtons.LEFT |
-      InputButtons.RIGHT |
-      InputButtons.CROUCH |
-      InputButtons.FIRE |
-      InputButtons.ALT_FIRE;
-    if ((input.buttons & required) !== required || (input.buttons & disallowed) !== 0) return null;
-
-    const lane = this._routeStrafeLane(state);
-    if (!lane) return null;
-    const step = this._life.currentPath?.steps[this._life.currentPath.cursor] ?? null;
-    const context = {
-      ...this._getSequenceContext(state, step, input, false, true, this._routeStrafeSide),
-      ...lane,
-      routeStrafeNext: (at: BotGameState) => {
-        this._nav.advancePath(at);
-        return this._routeStrafeLane(at);
-      },
-    };
-    if (!this._sequenceRuntime.start("route_strafe_jump", context)) return null;
-    this._routeStrafeSide = this._routeStrafeSide === 1 ? -1 : 1;
-    this._routeStrafeCooldownUntilTick = state.tick + BOT_STRAFE_RETRY_TICKS;
-    return this._tickActiveSequence(state);
-  }
-
-  /**
-   * The open stretch of route a strafe jump may take from here, or null: a
-   * walk step with room ahead, at running speed and heading along it, and no
-   * ally in the way.
-   */
-  private _routeStrafeLane(state: BotGameState): RouteStrafeLane | null {
-    const navigationState =
-      this.currentState === BotState.HUNT ||
-      this.currentState === BotState.ITEM_RUN ||
-      this.currentState === BotState.RETREAT ||
-      this.currentState === BotState.CHASE;
-    if (!navigationState || state.self.isDead) return null;
-
-    const path = this._life.currentPath;
-    const step = path?.steps[path.cursor] ?? null;
-    if (!path || !step || step.type !== "walk" || step.requiresPreciseApproach) return null;
-
-    const routeDelta = vec3Subtract(step.to.position, state.self.position);
-    const remaining = Math.hypot(routeDelta.x, routeDelta.z);
-    // An open lane of route ahead, however many waypoints it passes, and room
-    // to stop before an item at its end.
-    const lastItemStep = this.currentState === BotState.ITEM_RUN && path.cursor === path.steps.length - 1;
-    if (lastItemStep && remaining < ROUTE_STRAFE_ITEM_MIN_REMAINING_DISTANCE) return null;
-    // Along the route line when one is held, else a straight lane of route.
-    const line =
-      this._hopLine(state, path) ??
-      (this._laneOpen(state, path, step, STRAIGHT_HOP_RUN, STRAIGHT_HOP_REACH, STRAIGHT_HOP_LANE)
-        ? { points: null, end: null }
-        : null);
-    if (!line) return null;
-
-    const routeDirection = vec3Normalize({ x: routeDelta.x, y: 0, z: routeDelta.z });
-    const horizontalSpeed = Math.hypot(state.self.velocity.x, state.self.velocity.z);
-    if (horizontalSpeed < ROUTE_STRAFE_ENTRY_SPEED) return null;
-    if (horizontalSpeed > 0.001) {
-      const velocityDotRoute =
-        (state.self.velocity.x * routeDirection.x + state.self.velocity.z * routeDirection.z) / horizontalSpeed;
-      const velocityError = Math.acos(Math.max(-1, Math.min(1, velocityDotRoute)));
-      if (velocityError > ROUTE_STRAFE_MAX_VELOCITY_ERROR_RADIANS) return null;
-    }
-
-    const allyBlocksRoute = state.players.some((player) => {
-      if (player.relation !== "ally" || player.isDead) return false;
-      const relative = vec3Subtract(player.position, state.self.position);
-      if (Math.abs(relative.y) > 96) return false;
-      const along = relative.x * routeDirection.x + relative.z * routeDirection.z;
-      if (along <= 0 || along >= Math.min(remaining, ROUTE_STRAFE_ALLY_LOOKAHEAD)) return false;
-      const lateral = Math.abs(relative.x * routeDirection.z - relative.z * routeDirection.x);
-      return lateral < ROUTE_STRAFE_ALLY_RADIUS;
-    });
-    if (allyBlocksRoute) return null;
-
-    const points = line.points;
-    const self = state.self.position;
-    return {
-      routeStrafeYaw: Math.atan2(routeDirection.x, routeDirection.z),
-      // Along a route line: steer with it to the end of the open stretch. On a
-      // straight lane: hold the heading to its end, past waypoints inside it.
-      routeStrafeEnd: line.end ?? {
-        x: self.x + routeDirection.x * (STRAIGHT_HOP_RUN + STRAIGHT_HOP_EXIT_MARGIN),
-        y: self.y,
-        z: self.z + routeDirection.z * (STRAIGHT_HOP_RUN + STRAIGHT_HOP_EXIT_MARGIN),
-      },
-      routeStrafeSteer: points
-        ? (at: Vec3) => {
-            const ahead = pointAlong(points, at, ROUTE_STRAFE_STEER_AHEAD).point;
-            return Math.atan2(ahead.x - at.x, ahead.z - at.z);
-          }
-        : null,
-      routeStrafeOffLine: points
-        ? (at: Vec3) => {
-            const near = pointAlong(points, at, 0).point;
-            return Math.hypot(near.x - at.x, near.z - at.z);
-          }
-        : null,
-    };
-  }
-
   /**
    * Turn the feet, not the view, onto the heading BotVisionTracer finds
    * clear. The keys stay as the decision chose them: the move yaw turns so
@@ -3065,7 +2575,7 @@ export class StateMachineBrain extends BotBrain {
       // use, or one whose traversal gave up): fly on to where it throws, until
       // down again. Its throw ends at the ledge it serves, and a bot that steers
       // back toward its own way falls onto the pad and is thrown again.
-      if (!this._life.padRide && self.velocity.y > PAD_LAUNCH_SPEED && !this._sequenceRuntime.isActive) {
+      if (!this._life.padRide && self.velocity.y > PAD_LAUNCH_SPEED && !this._traversal.runtime.isActive) {
         const pad = this._padUnder(self.position, vision);
         if (pad) this._life.padRide = { dest: pad.dest };
       }
@@ -3358,6 +2868,45 @@ export class StateMachineBrain extends BotBrain {
     this._teamSighting = { position: { ...position }, tick };
   }
 
+  /** What traversal reaches of this brain. */
+  private _traversalHost(): TraversalHost {
+    const brain = this;
+    return {
+      get life() {
+        return brain._life;
+      },
+      get navGraph() {
+        return brain._navGraph;
+      },
+      get vision() {
+        return brain._lastBotVision;
+      },
+      get visionResult() {
+        return brain._lastVision;
+      },
+      get difficulty() {
+        return brain.difficulty;
+      },
+      get currentState() {
+        return brain.currentState;
+      },
+      get tracer() {
+        return brain._tracer;
+      },
+      get nav() {
+        return brain._nav;
+      },
+      cancelScript: () => {
+        this._cancelScript = true;
+      },
+      exactStep: () => {
+        this._suppressTraversalAutomation = true;
+        this._exactMove = true;
+      },
+      startRecovery: (state, stuck) => this._startRecovery(state, stuck),
+    };
+  }
+
   /** What the navigator reaches of this brain. */
   private _navigatorHost(): NavigatorHost {
     const brain = this;
@@ -3380,8 +2929,8 @@ export class StateMachineBrain extends BotBrain {
       holdPosition: (state, target) => this._holdPosition(state, target),
       startRecovery: (state, stuck) => this._startRecovery(state, stuck),
       dropUnreachableItemGoal: (state, target) => this._dropUnreachableItemGoal(state, target),
-      tryStartLedgeSlideJump: (input, state) => this._tryStartLedgeSlideJump(input, state),
-      startNavSequence: (state, step, sequenceId) => this._startNavSequence(state, step, sequenceId),
+      tryStartLedgeSlideJump: (input, state) => this._traversal.tryStartLedgeSlideJump(input, state),
+      startNavSequence: (state, step, sequenceId) => this._traversal.startNav(state, step, sequenceId),
       exactStep: () => {
         this._suppressTraversalAutomation = true;
         this._exactMove = true;

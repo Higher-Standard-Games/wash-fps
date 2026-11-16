@@ -11,6 +11,7 @@ import { BotGameState } from "../BotGameState";
 import type { NavStep } from "../BotNavGraph";
 import type { BotVision } from "../BotVision";
 import type { BotNavigator } from "../navigation/BotNavigator";
+import type { BotTraversal } from "../navigation/BotTraversal";
 import { StateMachineBrain } from "../StateMachineBrain";
 
 const DEG = Math.PI / 180;
@@ -134,7 +135,7 @@ describe("a missed jump on the way to an item", () => {
   type Recovering = {
     currentState: BotState;
     _life: { activeItemGoal: unknown };
-    _activeSequenceStep: NavStep | null;
+    _traversal: BotTraversal;
     _nav: BotNavigator;
     _startRecovery(state: BotGameState, stuck?: boolean): BotInput;
   };
@@ -146,7 +147,7 @@ describe("a missed jump on the way to an item", () => {
     b.currentState = BotState.ITEM_RUN;
     const goal = { id: "item:pickup:3", kind: "item", pickupId: 3, position: { x: 400, y: 0, z: 0 } };
     b._life.activeItemGoal = goal;
-    b._activeSequenceStep = step;
+    b._traversal.activeStep = step;
     b._startRecovery(state);
     expect(b._nav.blockedPickupIds.has(3)).toBe(false);
 
