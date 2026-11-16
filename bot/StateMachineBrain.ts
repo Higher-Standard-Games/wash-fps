@@ -33,6 +33,7 @@ import {
 import { BotCoverPeek } from "./BotCoverPeek";
 import type { BotGameState, Vec3, VisiblePlayer } from "./BotGameState";
 import { vec3Distance, vec3Length, vec3Normalize, vec3Subtract } from "./BotGameState";
+import { BotLife } from "./BotLife";
 import { BotMood, type Mood, type MoodEvent } from "./BotMood";
 import { canInitiateSlide, PHYSICS } from "./BotMovementProfile";
 import {
@@ -65,7 +66,7 @@ import { loadBaseline, payoffPriors } from "./intel/IntelBaseline";
 import { loadPeopleProfile, typicalStackAfter } from "./intel/PeopleProfile";
 import { planLedgeSlideJump } from "./LedgeSlideJump";
 import { inHarmfulLiquid, liquidEscapeTarget } from "./LiquidEscape";
-import { buildRouteLine, lineEndStep, pointAlong, type RouteLine, type RouteWorld } from "./RouteLine";
+import { buildRouteLine, lineEndStep, pointAlong, type RouteWorld } from "./RouteLine";
 import { ItemSlideApproachSequence } from "./sequences/ItemSlideApproachSequence";
 import { LearnedRouteSequence } from "./sequences/LearnedRouteSequence";
 import { LedgeSlideJumpSequence } from "./sequences/LedgeSlideJumpSequence";
@@ -370,6 +371,8 @@ const ROUTE_STRAFE_ALLY_RADIUS = 80;
 
 export class StateMachineBrain extends BotBrain {
   // ── Internal state ────────────────────────────────────────────────
+  /** This life's route, goals and plans; a new one at each death (BotLife). */
+  private _life = new BotLife();
   private _huntYaw: number = 0;
   private _huntTimer: number = 0;
 
@@ -386,24 +389,13 @@ export class StateMachineBrain extends BotBrain {
   private readonly _mood = new BotMood();
   /** Kills and deaths since the last `takeMoodEvents`, for chat. */
   private _moodEvents: MoodEvent[] = [];
-  /** The gun got out for an enemy heard but not yet seen, and until when. */
-  private _readyWeapon: { weapon: string; until: number } | null = null;
   private _readyRollTick = 0;
-  private _highGroundSpot: Vec3 | null = null;
   private _highGroundSearchTick = 0;
 
   // Movement variety
   private _strafeDirection: number = 1; // 1 or -1
-  /** Side chosen round a wall ahead (+1 right, -1 left), and until when. */
-  private _feelerSide: { sign: number; untilTick: number } | null = null;
   /** Whether the feelers turned this decision's heading. */
   private _feelerSteered = false;
-  /**
-   * The line through the walking stretch of the current route (RouteLine),
-   * for the path it was built on from step `fromStep`, and the stretch of it
-   * the bot is on.
-   */
-  private _routeLine: { path: NavPath; fromStep: number; line: RouteLine; stretch: number } | null = null;
   /** This decision ran along a route line; the feelers stand aside. */
   private _onRouteLine = false;
   /** Riding a jump pad's throw the route did not ask for, to where it throws, until down again. */
@@ -423,12 +415,6 @@ export class StateMachineBrain extends BotBrain {
   /** A wall jump wants a fresh press: jump let go this decision, pressed on the next. */
   private _wallJumpPress = false;
   private _lastJumpHeld = false;
-  /** Where the view looks while running, relative to the way the bot runs, and until when. */
-  private _look: {
-    off: number;
-    untilTick: number;
-    spot?: { pickupId: number; position: Vec3; sinceTick: number };
-  } | null = null;
   /** When a look at each major item's spot was last begun, by pickup id. */
   private readonly _spotLooks = new Map<number, number>();
   /** What the bot knows of how the match is going (strategy/MatchRead.ts). */
@@ -442,8 +428,6 @@ export class StateMachineBrain extends BotBrain {
   private _strategy: Strategy = STRATEGIES.standard;
   /** The map and gametype whose baseline priors the strategist has. */
   private _priorsFor: string | null = null;
-  /** A way out of an enemy's sight being taken (see _escapePoint). */
-  private _escape: { point: Vec3; untilTick: number } | null = null;
   private _escapeRetryTick = 0;
   /** The opponent's habits in this match (strategy/OpponentModel.ts). */
   private readonly _opponents = new OpponentModel();
@@ -480,16 +464,10 @@ export class StateMachineBrain extends BotBrain {
 
   // NavGraph pathfinding
   private _navGraph: BotNavGraph | null = null;
-  private _currentPath: NavPath | null = null;
   private _pathTarget: Vec3 | null = null;
   private _pathRecalcTimer: number = 0;
-  private _huntPatrolTarget: Vec3 | null = null; // Separate from _pathTarget to avoid confusion
   private readonly _territory = new BotTerritory();
-  private _navigationProgress: { position: Vec3; tick: number } | null = null;
-  private _recovery: { target: Vec3; until: number } | null = null;
   private readonly _blocked = new BotBlockedMove();
-  /** Blocked in a fight: the open way the bot runs, and until when. */
-  private _unstick: { yaw: number; untilTick: number } | null = null;
   /** Where a bot in slime or lava is heading to get out, and when that was chosen; null when dry. */
   private _liquidEscape: { target: Vec3 | null; chosenTick: number } | null = null;
   /** How many times a player's size this bot's body is; 1 but for a campaign boss. */
@@ -510,8 +488,6 @@ export class StateMachineBrain extends BotBrain {
   private readonly _blockedPickupIds = new Map<number, number>();
   /** Goals (by id, for dropped items with no pickup id) on the same cooldown: id → retry tick. */
   private readonly _blockedGoalIds = new Map<string, number>();
-  /** The item goal the bot has been beside, and since when. */
-  private _itemCircle: { goalId: string; sinceTick: number } | null = null;
   private _activeItemSlideTarget: { pickupId: number; position: Vec3 } | null = null;
 
   // Scored item-goal selection (docs/research/BOT_WEIGHTS_AND_GOALS.md Phase 1).
@@ -519,9 +495,6 @@ export class StateMachineBrain extends BotBrain {
   // above still decides WHETHER to fetch one.
   private readonly _itemGoalPlanner: ItemGoalPlanner;
   private readonly _goalArbiterMode: GoalArbiterMode;
-  private _activeItemGoal: BotGoal | null = null;
-  private _mandatoryGoal: BotGoal | null = null;
-  private _sitePatrol: { goalId: string; target: Vec3; expires: number; pauseUntil: number } | null = null;
   /**
    * Per-decision memo for goal selection.
    *
@@ -567,22 +540,24 @@ export class StateMachineBrain extends BotBrain {
   }
 
   override getNavigationDebug(): string | null {
-    const goal = this._mandatoryGoal
-      ? `order=${this._mandatoryGoal.directive?.id}`
-      : this._activeItemGoal
+    const goal = this._life.mandatoryGoal
+      ? `order=${this._life.mandatoryGoal.directive?.id}`
+      : this._life.activeItemGoal
         ? this._itemGoalPlanner.explain
         : null;
     const sequence = this._sequenceRuntime.getDebug(this._lastDecisionTick);
     if (sequence) {
-      const remaining = this._currentPath ? this._currentPath.steps.length - this._currentPath.cursor : 0;
+      const remaining = this._life.currentPath
+        ? this._life.currentPath.steps.length - this._life.currentPath.cursor
+        : 0;
       return `${sequence} remaining=${remaining}${goal ? ` ${goal}` : ""}`;
     }
     if (this._pathBlockedReason) return `blocked=${this._pathBlockedReason}${goal ? ` ${goal}` : ""}`;
-    if (!this._currentPath || !this._activeNavStep) {
+    if (!this._life.currentPath || !this._activeNavStep) {
       // No path to describe, but a scored goal choice is still worth surfacing.
       return goal;
     }
-    const remaining = this._currentPath.steps.length - this._currentPath.cursor;
+    const remaining = this._life.currentPath.steps.length - this._life.currentPath.cursor;
     const nav = `step=${this._activeNavStep} remaining=${remaining}`;
     return goal ? `${nav} ${goal}` : nav;
   }
@@ -632,7 +607,7 @@ export class StateMachineBrain extends BotBrain {
   private _trace(state: BotGameState): DecisionTrace {
     const selection = this._itemGoalPlanner.lastSelection(state.tick);
     const passed = (selection?.traces ?? []).filter((t) => t.gate === 1).sort((a, b) => b.desire - a.desire);
-    const path = this._currentPath;
+    const path = this._life.currentPath;
     const step = path ? path.steps[path.cursor] : undefined;
     const sequence = this._sequenceRuntime.getDebug(state.tick);
     const self = state.self;
@@ -844,58 +819,35 @@ export class StateMachineBrain extends BotBrain {
     if (state.self.isDead) {
       this.currentState = BotState.SPAWN;
       this._interruptSequence(state, "dead", true);
-      this._currentPath = null; // Clear path on death
-      this._huntPatrolTarget = null;
-      // Drop goal commitment too — the item that was worth crossing the map for
-      // at 30 HP is a different proposition after respawning at 100.
-      this._itemGoalPlanner.reset();
-      this._activeItemGoal = null;
-      this._mandatoryGoal = null;
-      this._sitePatrol = null;
-      this._itemCircle = null;
-      this._feelerSide = null;
-      this._escape = null;
-      this._look = null;
-      this._routeLine = null;
-      this._combatMovement.reset();
-      this._coverPeek.reset();
-      this._weaponCombos.reset();
-      this._mood.endFight();
-      this._readyWeapon = null;
-      this._highGroundSpot = null;
-      this._territory.reset();
-      this._navigationProgress = null;
-      this._recovery = null;
-      this._blocked.reset();
-      this._unstick = null;
+      this._startLife();
       // Clear vision cache on death
       if (vision) vision.clearCache();
       return this._noInput(state);
     }
 
     const mandatory = this._selectMandatoryGoal(state);
-    if (mandatory?.id !== this._mandatoryGoal?.id) {
-      this._currentPath = null;
+    if (mandatory?.id !== this._life.mandatoryGoal?.id) {
+      this._life.currentPath = null;
       this._pathTarget = null;
       this._interruptSequence(state, "objective_changed", true);
     }
-    this._mandatoryGoal = mandatory;
+    this._life.mandatoryGoal = mandatory;
     const seesEnemy = this._lastVision ? this._lastVision.visibleEnemies.length > 0 : state.getNearestEnemy() !== null;
-    if (seesEnemy || state.wasRecentlyDamaged(DODGE_REACT_TICKS)) this._recovery = null;
-    if (this._recovery && state.tick < this._recovery.until && !mandatory) {
-      if (vec3Length(vec3Subtract(this._recovery.target, state.self.position)) > 24) {
-        const input = this._moveTowardPrecise(state, this._recovery.target);
+    if (seesEnemy || state.wasRecentlyDamaged(DODGE_REACT_TICKS)) this._life.recovery = null;
+    if (this._life.recovery && state.tick < this._life.recovery.until && !mandatory) {
+      if (vec3Length(vec3Subtract(this._life.recovery.target, state.self.position)) > 24) {
+        const input = this._moveTowardPrecise(state, this._life.recovery.target);
         if (!state.self.isGrounded) input.buttons |= InputButtons.CROUCH;
         return input;
       }
-      this._recovery = null;
+      this._life.recovery = null;
     }
     if (
       !state.directives.some(
-        (order) => `objective:${order.id}` === this._sitePatrol?.goalId && order.expiresAtTick > state.tick,
+        (order) => `objective:${order.id}` === this._life.sitePatrol?.goalId && order.expiresAtTick > state.tick,
       )
     ) {
-      this._sitePatrol = null;
+      this._life.sitePatrol = null;
     }
 
     // Determine state based on priority
@@ -926,8 +878,8 @@ export class StateMachineBrain extends BotBrain {
         this._mood.endFight();
       }
       this.currentState = newState;
-      this._currentPath = null; // Clear path on state change
-      this._huntPatrolTarget = null;
+      this._life.currentPath = null; // Clear path on state change
+      this._life.huntPatrolTarget = null;
     }
 
     // Execute current state
@@ -1021,7 +973,7 @@ export class StateMachineBrain extends BotBrain {
       this.currentState === BotState.ITEM_RUN ||
       this.currentState === BotState.RETREAT;
     if (!roaming) {
-      this._look = null;
+      this._life.look = null;
       return;
     }
     // Not while firing or standing, nor in a scripted move; a hop or slide keeps the look.
@@ -1034,28 +986,32 @@ export class StateMachineBrain extends BotBrain {
     const travel = travelYaw(input);
     const base = input.yaw;
     const allowed = (off: number) => Math.abs(wrapAngle(base + off - travel)) <= Math.PI / 2;
-    const spot = this._look?.spot;
-    if (this._look && spot) {
+    const spot = this._life.look?.spot;
+    if (this._life.look && spot) {
       // A look at an item's spot follows it, and ends once perception has seen it.
-      this._look.off = wrapAngle(bearingTo(state.self.position, spot.position) - base);
-      if ((state.itemSpotSeenTick.get(spot.pickupId) ?? -1) >= spot.sinceTick) this._look.untilTick = state.tick;
+      this._life.look.off = wrapAngle(bearingTo(state.self.position, spot.position) - base);
+      if ((state.itemSpotSeenTick.get(spot.pickupId) ?? -1) >= spot.sinceTick) this._life.look.untilTick = state.tick;
     }
-    if (!this._look || this._look.off === 0) {
+    if (!this._life.look || this._life.look.off === 0) {
       const check = this._fightOff.has("itemcheck") ? null : this._spotToCheck(state, base, allowed, vision);
       if (check) {
         this._spotLooks.set(check.pickupId, state.tick);
-        this._look = {
+        this._life.look = {
           off: wrapAngle(bearingTo(state.self.position, check.position) - base),
           untilTick: state.tick + GLANCE_TICKS,
           spot: { ...check, sinceTick: state.tick },
         };
       }
     }
-    if (this._look && this._look.off !== 0 && (state.tick >= this._look.untilTick || !allowed(this._look.off))) {
+    if (
+      this._life.look &&
+      this._life.look.off !== 0 &&
+      (state.tick >= this._life.look.untilTick || !allowed(this._life.look.off))
+    ) {
       // A glance ends: back to where the bot runs, for a rest of 2–4 s.
-      this._look = { off: 0, untilTick: state.tick + GLANCE_REST_TICKS * (0.67 + 0.67 * Math.random()) };
+      this._life.look = { off: 0, untilTick: state.tick + GLANCE_REST_TICKS * (0.67 + 0.67 * Math.random()) };
     }
-    if (!this._look || state.tick >= this._look.untilTick) {
+    if (!this._life.look || state.tick >= this._life.look.untilTick) {
       const eye = { x: state.self.position.x, y: state.self.position.y + 36, z: state.self.position.z };
       // Turning from where the view is costs too: a route corner moves the
       // way the bot runs, and choosing afresh from it swung the view across.
@@ -1078,13 +1034,13 @@ export class StateMachineBrain extends BotBrain {
         }
       }
       // Nothing worth a glance: look again in a moment.
-      this._look = {
+      this._life.look = {
         off: bestOff,
         untilTick: state.tick + (bestOff === 0 ? LOOK_INTERVAL_TICKS : GLANCE_TICKS * (0.7 + 0.6 * Math.random())),
       };
     }
     input.moveYaw = travel;
-    input.yaw = base + this._look.off;
+    input.yaw = base + this._life.look.off;
   }
 
   /**
@@ -1124,7 +1080,7 @@ export class StateMachineBrain extends BotBrain {
   private _evaluateState(state: BotGameState): BotState {
     // Non-interruptible work must reach the navigation executor before combat,
     // chase or item shopping can divert it. Death is handled by decide().
-    if (this._mandatoryGoal) return BotState.ITEM_RUN;
+    if (this._life.mandatoryGoal) return BotState.ITEM_RUN;
     // A hit holds the bot on its attacker long enough to turn round and
     // answer. Held only a quarter second, a bot shot in the back turned part
     // way and went back to its item, and a chaser shot it in the back again.
@@ -1523,18 +1479,21 @@ export class StateMachineBrain extends BotBrain {
    */
   private _highGround(state: BotGameState, enemy: VisiblePlayer): Vec3 | null {
     const self = state.self.position;
-    if (this._highGroundSpot && Math.hypot(this._highGroundSpot.x - self.x, this._highGroundSpot.z - self.z) < 48) {
-      this._highGroundSpot = null;
+    if (
+      this._life.highGroundSpot &&
+      Math.hypot(this._life.highGroundSpot.x - self.x, this._life.highGroundSpot.z - self.z) < 48
+    ) {
+      this._life.highGroundSpot = null;
     }
     if (state.tick >= this._highGroundSearchTick) {
       this._highGroundSearchTick = state.tick + HIGH_GROUND_SEARCH_TICKS;
       const vision = this._lastBotVision;
-      this._highGroundSpot =
+      this._life.highGroundSpot =
         vision && this._navGraph && enemy.distance <= 900 && Math.random() < this.difficulty.dodgeSkill
           ? findHighGround(this._navGraph.nodes, self, enemy.position, (from, to) => vision.canSee(from, to))
           : null;
     }
-    return this._highGroundSpot;
+    return this._life.highGroundSpot;
   }
 
   /**
@@ -1543,14 +1502,17 @@ export class StateMachineBrain extends BotBrain {
    * corner. Rolled every two seconds at `predictionSkill` odds.
    */
   private _readyForHeard(state: BotGameState, input: BotInput): void {
-    if (this._readyWeapon && (state.tick >= this._readyWeapon.until || !has(state, this._readyWeapon.weapon))) {
-      this._readyWeapon = null;
+    if (
+      this._life.readyWeapon &&
+      (state.tick >= this._life.readyWeapon.until || !has(state, this._life.readyWeapon.weapon))
+    ) {
+      this._life.readyWeapon = null;
     }
     const heard = state.heardEnemies.reduce<VisiblePlayer | null>(
       (near, enemy) => (!near || enemy.distance < near.distance ? enemy : near),
       null,
     );
-    if (!this._readyWeapon && heard && heard.distance <= READY_RANGE && state.tick >= this._readyRollTick) {
+    if (!this._life.readyWeapon && heard && heard.distance <= READY_RANGE && state.tick >= this._readyRollTick) {
       this._readyRollTick = state.tick + READY_TICKS;
       if (Math.random() < this.difficulty.predictionSkill) {
         const { slot } = selectBestWeapon(
@@ -1560,10 +1522,11 @@ export class StateMachineBrain extends BotBrain {
           heard.distance,
         );
         const weapon = slot > 0 ? state.self.weapons[slot - 1] : state.self.currentWeapon;
-        if (weapon) this._readyWeapon = { weapon, until: state.tick + READY_TICKS };
+        if (weapon) this._life.readyWeapon = { weapon, until: state.tick + READY_TICKS };
       }
     }
-    if (this._readyWeapon && (input.weaponSlot ?? 0) === 0) input.weaponSlot = slotFor(state, this._readyWeapon.weapon);
+    if (this._life.readyWeapon && (input.weaponSlot ?? 0) === 0)
+      input.weaponSlot = slotFor(state, this._life.readyWeapon.weapon);
     // Out of a fight, the blade goes away for a gun: whoever comes round the
     // next corner is more likely at mid range than in reach of a swing.
     if (
@@ -1806,9 +1769,9 @@ export class StateMachineBrain extends BotBrain {
     const threat = this._lastVision?.visibleEnemies[0]?.player.position ?? this._getHuntTarget(state);
     if (!threat) return null;
     const self = state.self.position;
-    if (this._escape && state.tick < this._escape.untilTick) {
-      if (vec3Length(vec3Subtract(this._escape.point, self)) > ESCAPE_REACHED) return this._escape.point;
-      this._escape = null;
+    if (this._life.escape && state.tick < this._life.escape.untilTick) {
+      if (vec3Length(vec3Subtract(this._life.escape.point, self)) > ESCAPE_REACHED) return this._life.escape.point;
+      this._life.escape = null;
       return null;
     }
     if (state.tick < this._escapeRetryTick) return null;
@@ -1831,7 +1794,7 @@ export class StateMachineBrain extends BotBrain {
       if (cost === null || (best && cost >= best.cost)) continue;
       best = { point: position, cost };
     }
-    this._escape = best ? { point: best.point, untilTick: state.tick + ESCAPE_HOLD_TICKS } : null;
+    this._life.escape = best ? { point: best.point, untilTick: state.tick + ESCAPE_HOLD_TICKS } : null;
     if (!best) this._escapeRetryTick = state.tick + ESCAPE_RETRY_TICKS;
     return best?.point ?? null;
   }
@@ -1841,7 +1804,7 @@ export class StateMachineBrain extends BotBrain {
     if (this._lastVision?.visibleEnemies.length) {
       const wayOut = this._escapePoint(state);
       if (wayOut) return this._navigateTo(state, wayOut, true);
-    } else this._escape = null;
+    } else this._life.escape = null;
 
     // Scored choice among HEALTH ONLY. Retreating is a specific intent, so the
     // candidate set is filtered rather than left open — but within health the
@@ -1900,9 +1863,9 @@ export class StateMachineBrain extends BotBrain {
   // ── ITEM_RUN State ────────────────────────────────────────────────
 
   private _executeItemRun(state: BotGameState): BotInput {
-    if (this._mandatoryGoal) {
-      const goal = this._mandatoryGoal;
-      this._activeItemGoal = goal;
+    if (this._life.mandatoryGoal) {
+      const goal = this._life.mandatoryGoal;
+      this._life.activeItemGoal = goal;
       return this._navigateGoal(state, goal, true);
     }
     // Scored choice first: value, denial, route and danger decide which item,
@@ -1980,19 +1943,19 @@ export class StateMachineBrain extends BotBrain {
     // NavGraph patrol: pick a random nav node to walk toward
     if (this._navGraph) {
       const nodes = this._navGraph.nodes;
-      if (nodes.length > 0 && (!this._huntPatrolTarget || this._pathRecalcTimer > PATH_RECALC_INTERVAL * 2)) {
+      if (nodes.length > 0 && (!this._life.huntPatrolTarget || this._pathRecalcTimer > PATH_RECALC_INTERVAL * 2)) {
         const randomNode = nodes[Math.floor(Math.random() * nodes.length)];
-        this._huntPatrolTarget = randomNode.position;
+        this._life.huntPatrolTarget = randomNode.position;
         this._pathRecalcTimer = 0;
       }
-      if (this._huntPatrolTarget) {
+      if (this._life.huntPatrolTarget) {
         // Check if we've arrived at patrol target
-        const distToPatrol = vec3Length(vec3Subtract(this._huntPatrolTarget, state.self.position));
+        const distToPatrol = vec3Length(vec3Subtract(this._life.huntPatrolTarget, state.self.position));
         if (distToPatrol < PATH_ARRIVED_THRESHOLD) {
-          this._huntPatrolTarget = null; // Pick new target next tick
-          this._currentPath = null;
+          this._life.huntPatrolTarget = null; // Pick new target next tick
+          this._life.currentPath = null;
         } else {
-          return this._navigateTo(state, this._huntPatrolTarget, false);
+          return this._navigateTo(state, this._life.huntPatrolTarget, false);
         }
       }
     }
@@ -2141,7 +2104,7 @@ export class StateMachineBrain extends BotBrain {
     if (patrol && radius !== undefined && vec3Length(vec3Subtract(goal.position, state.self.position)) <= radius) {
       return this._guardPatrol(state, goal.id, goal.position, radius, goal.directive?.watch ?? null);
     }
-    this._sitePatrol = null;
+    this._life.sitePatrol = null;
     const timed = !goal.directive && goal.respawnTick !== undefined && goal.respawnTick > state.tick;
     if (timed && radius !== undefined && vec3Length(vec3Subtract(goal.position, state.self.position)) <= radius) {
       if (state.matchState.gametypeName.toLowerCase() === "duel") {
@@ -2208,10 +2171,10 @@ export class StateMachineBrain extends BotBrain {
       input.direction.z === 0 &&
       (input.buttons & (InputButtons.FORWARD | InputButtons.BACK | InputButtons.LEFT | InputButtons.RIGHT)) === 0;
     if (standing || this.currentState === BotState.FIGHT || this.currentState === BotState.DODGE) {
-      this._navigationProgress = null;
+      this._life.navigationProgress = null;
       return input;
     }
-    const progress = this._navigationProgress;
+    const progress = this._life.navigationProgress;
     const position = state.self.position;
     if (
       !progress ||
@@ -2219,7 +2182,7 @@ export class StateMachineBrain extends BotBrain {
       Math.hypot(position.x - progress.position.x, position.z - progress.position.z) > 32 ||
       (state.self.isGrounded && Math.abs(position.y - progress.position.y) > 48)
     ) {
-      this._navigationProgress = { position: { ...position }, tick: state.tick };
+      this._life.navigationProgress = { position: { ...position }, tick: state.tick };
     } else if (state.tick - progress.tick >= 250 && (state.self.isGrounded || Math.abs(state.self.velocity.y) < 50)) {
       return this._startRecovery(state, true);
     }
@@ -2237,10 +2200,10 @@ export class StateMachineBrain extends BotBrain {
   private _turnFromBlock(state: BotGameState, input: BotInput): BotInput {
     if (this._fightOff.has("unstick")) return input;
     const self = state.self;
-    if (this._unstick && state.tick < this._unstick.untilTick && !self.isDead) {
-      return this._runOpen(input, this._unstick.yaw);
+    if (this._life.unstick && state.tick < this._life.unstick.untilTick && !self.isDead) {
+      return this._runOpen(input, this._life.unstick.yaw);
     }
-    this._unstick = null;
+    this._life.unstick = null;
     const asking =
       !self.isDead &&
       self.isGrounded &&
@@ -2256,15 +2219,15 @@ export class StateMachineBrain extends BotBrain {
       state.wasRecentlyDamaged(DODGE_REACT_TICKS);
     if (!fighting) return this._startRecovery(state, true, heading);
     // The route that led here is planned again, another way.
-    const step = this._activeSequenceStep ?? this._currentPath?.steps[this._currentPath.cursor];
+    const step = this._activeSequenceStep ?? this._life.currentPath?.steps[this._life.currentPath.cursor];
     if (step) this._cooldownNavStep(step, state.tick);
-    this._currentPath = null;
+    this._life.currentPath = null;
     this._pathTarget = null;
     this._interruptSequence(state, "blocked", true);
     this._cancelScript = true;
     this._strafeDirection = -this._strafeDirection;
     const yaw = this._openHeading(state, heading);
-    this._unstick = { yaw, untilTick: state.tick + UNSTICK_TICKS };
+    this._life.unstick = { yaw, untilTick: state.tick + UNSTICK_TICKS };
     return this._runOpen(input, yaw);
   }
 
@@ -2331,18 +2294,18 @@ export class StateMachineBrain extends BotBrain {
    */
   private _startRecovery(state: BotGameState, stuck = false, blockedHeading?: number): BotInput {
     this._cancelScript = true;
-    const step = this._activeSequenceStep ?? this._currentPath?.steps[this._currentPath.cursor];
+    const step = this._activeSequenceStep ?? this._life.currentPath?.steps[this._life.currentPath.cursor];
     if (step) this._cooldownNavStep(step, state.tick);
-    if (stuck && this.currentState !== BotState.CHASE && this._activeItemGoal?.pickupId !== undefined)
-      this._blockedPickupIds.set(this._activeItemGoal.pickupId, state.tick + PICKUP_FAILURE_COOLDOWN_TICKS);
+    if (stuck && this.currentState !== BotState.CHASE && this._life.activeItemGoal?.pickupId !== undefined)
+      this._blockedPickupIds.set(this._life.activeItemGoal.pickupId, state.tick + PICKUP_FAILURE_COOLDOWN_TICKS);
     this._interruptSequence(state, "no_navigation_progress", true);
     this._itemGoalPlanner.reset();
-    this._activeItemGoal = null;
-    this._currentPath = null;
+    this._life.activeItemGoal = null;
+    this._life.currentPath = null;
     this._pathTarget = null;
-    this._huntPatrolTarget = null;
+    this._life.huntPatrolTarget = null;
     this._territory.reset();
-    this._navigationProgress = { position: { ...state.self.position }, tick: state.tick };
+    this._life.navigationProgress = { position: { ...state.self.position }, tick: state.tick };
     this._blocked.reset();
     const self = state.self.position;
     const away = step
@@ -2361,7 +2324,7 @@ export class StateMachineBrain extends BotBrain {
           const floor = vision.collisionWorld.trace(target, { ...target, y: target.y - 64 });
           if (!floor.hit || floor.fraction >= 1) continue;
         }
-        this._recovery = { target, until: state.tick + 125 };
+        this._life.recovery = { target, until: state.tick + 125 };
         const input = this._moveTowardPrecise(state, target);
         if (!state.self.isGrounded) input.buttons |= InputButtons.CROUCH;
         return input;
@@ -2411,7 +2374,7 @@ export class StateMachineBrain extends BotBrain {
         )
       : 0;
 
-    const previous = this._sitePatrol;
+    const previous = this._life.sitePatrol;
     let target =
       previous?.goalId === goalId &&
       state.tick < previous.expires &&
@@ -2420,7 +2383,7 @@ export class StateMachineBrain extends BotBrain {
         : null;
     if (!target) {
       target = this._guardPoint(state, center, radius, look, previous?.goalId === goalId ? previous.target : null);
-      this._sitePatrol = target ? { goalId, target, expires: state.tick + 4 * TICK_RATE, pauseUntil: 0 } : null;
+      this._life.sitePatrol = target ? { goalId, target, expires: state.tick + 4 * TICK_RATE, pauseUntil: 0 } : null;
     }
     if (!target) {
       // Strafe across the way in, turning back every so often, toward the side with room
@@ -2550,23 +2513,27 @@ export class StateMachineBrain extends BotBrain {
     // Recalculate path periodically or if target changed significantly
     const targetChanged = !this._pathTarget || vec3Length(vec3Subtract(target, this._pathTarget)) > 200;
 
-    if (targetChanged || !this._currentPath || this._pathRecalcTimer > PATH_RECALC_INTERVAL) {
-      this._currentPath = this._navGraph.findPath(state.self.position, target, this._getNavPathOptions(state.tick));
+    if (targetChanged || !this._life.currentPath || this._pathRecalcTimer > PATH_RECALC_INTERVAL) {
+      this._life.currentPath = this._navGraph.findPath(
+        state.self.position,
+        target,
+        this._getNavPathOptions(state.tick),
+      );
       this._pathTarget = target;
       this._pathRecalcTimer = 0;
     }
 
     // If path found, follow waypoints
-    if (this._currentPath) {
+    if (this._life.currentPath) {
       const result = this._followCurrentPath(state, urgent);
       if (result.status === "moving") return result.input;
       if (result.status === "blocked") {
         if (holdRadius === undefined) return this._startRecovery(state);
-        this._currentPath = null;
+        this._life.currentPath = null;
         return this._moveToward(state, target, urgent);
       }
       // Path complete — clear it
-      this._currentPath = null;
+      this._life.currentPath = null;
       this._dropUnreachableItemGoal(state, target);
     }
 
@@ -2582,7 +2549,7 @@ export class StateMachineBrain extends BotBrain {
    * the node, turning it round every few tenths of a second.
    */
   private _dropUnreachableItemGoal(state: BotGameState, target: Vec3): void {
-    const goal = this._activeItemGoal;
+    const goal = this._life.activeItemGoal;
     const vision = this._lastBotVision;
     if (!goal || goal.directive || !vision) return;
     if (vec3Length(vec3Subtract(goal.position, target)) > 1) return;
@@ -2596,7 +2563,7 @@ export class StateMachineBrain extends BotBrain {
    * one on a lip above or below it, which it circled at full speed.
    */
   private _giveUpOnCircledItem(state: BotGameState): void {
-    const goal = this._activeItemGoal;
+    const goal = this._life.activeItemGoal;
     const self = state.self.position;
     // Waiting beside a major item for its return is item timing, not circling.
     const down = goal?.respawnTick !== undefined && goal.respawnTick > state.tick;
@@ -2606,13 +2573,13 @@ export class StateMachineBrain extends BotBrain {
       down ||
       Math.hypot(goal.position.x - self.x, goal.position.z - self.z) > ITEM_CIRCLE_RADIUS
     ) {
-      this._itemCircle = null;
+      this._life.itemCircle = null;
       return;
     }
-    if (this._itemCircle?.goalId !== goal.id) {
-      this._itemCircle = { goalId: goal.id, sinceTick: state.tick };
-    } else if (state.tick - this._itemCircle.sinceTick > ITEM_CIRCLE_TICKS) {
-      this._itemCircle = null;
+    if (this._life.itemCircle?.goalId !== goal.id) {
+      this._life.itemCircle = { goalId: goal.id, sinceTick: state.tick };
+    } else if (state.tick - this._life.itemCircle.sinceTick > ITEM_CIRCLE_TICKS) {
+      this._life.itemCircle = null;
       this._blockItemGoal(goal, state.tick);
     }
   }
@@ -2622,7 +2589,7 @@ export class StateMachineBrain extends BotBrain {
     this._blockedGoalIds.set(goal.id, retry);
     if (goal.pickupId !== undefined) this._blockedPickupIds.set(goal.pickupId, retry);
     this._itemGoalPlanner.reset();
-    this._activeItemGoal = null;
+    this._life.activeItemGoal = null;
   }
 
   /**
@@ -2681,7 +2648,7 @@ export class StateMachineBrain extends BotBrain {
       navGraph: this._navGraph,
     });
 
-    this._activeItemGoal = result.goal;
+    this._life.activeItemGoal = result.goal;
     this._goalMemoTick = state.tick;
     this._goalMemoKey = memoKey;
     this._goalMemoResult = result.goal ? { goal: result.goal, stopover: result.stopover, desire: result.desire } : null;
@@ -2694,18 +2661,18 @@ export class StateMachineBrain extends BotBrain {
   private _navigateToItem(state: BotGameState, itemType: string, urgent: boolean): BotInput | null {
     if (!this._navGraph) return null;
 
-    const goalPickupId = this._currentPath?.nodes[this._currentPath.nodes.length - 1]?.pickupId;
+    const goalPickupId = this._life.currentPath?.nodes[this._life.currentPath.nodes.length - 1]?.pickupId;
     if (
       goalPickupId !== undefined &&
       (state.pickupActiveMask[goalPickupId] === false || this._blockedPickupIds.has(goalPickupId))
     ) {
-      this._currentPath = null;
+      this._life.currentPath = null;
       this._pathTarget = null;
       this._pathRecalcTimer = PATH_RECALC_INTERVAL + 1;
     }
 
     // Only recalculate item paths periodically
-    if (!this._currentPath || this._pathRecalcTimer > PATH_RECALC_INTERVAL) {
+    if (!this._life.currentPath || this._pathRecalcTimer > PATH_RECALC_INTERVAL) {
       const itemPath = this._navGraph.findPathToItem(
         state.self.position,
         itemType,
@@ -2713,17 +2680,17 @@ export class StateMachineBrain extends BotBrain {
         this._getNavPathOptions(state.tick),
       );
       if (!itemPath) return null;
-      this._currentPath = itemPath;
+      this._life.currentPath = itemPath;
       this._pathTarget = itemPath.nodes[itemPath.nodes.length - 1]?.position ?? null;
       this._pathRecalcTimer = 0;
     }
 
-    if (this._currentPath) {
+    if (this._life.currentPath) {
       const result = this._followCurrentPath(state, urgent);
       if (result.status === "moving") return result.input;
       if (result.status === "blocked") return this._startRecovery(state);
       // Arrived at item — clear path
-      this._currentPath = null;
+      this._life.currentPath = null;
     }
 
     return null;
@@ -2809,10 +2776,10 @@ export class StateMachineBrain extends BotBrain {
     this._activeItemSlideTarget = null;
     if (result.sequenceId === "item_slide_approach" && terminalItemTarget) {
       if (result.status === "succeeded") {
-        this._currentPath = null;
+        this._life.currentPath = null;
       } else if (result.reason === "pickup_missed" || result.reason === "timeout") {
         this._blockedPickupIds.set(terminalItemTarget.pickupId, state.tick + PICKUP_FAILURE_COOLDOWN_TICKS);
-        this._currentPath = null;
+        this._life.currentPath = null;
       }
       return null;
     }
@@ -2824,7 +2791,7 @@ export class StateMachineBrain extends BotBrain {
       if (terminalStep) {
         this._pathBlockedReason = `sequence:${result.sequenceId}:${result.reason ?? "failed"}`;
         this._cooldownNavStep(terminalStep, state.tick);
-        this._currentPath = null;
+        this._life.currentPath = null;
         return this._startRecovery(state);
       }
       return null;
@@ -2844,12 +2811,12 @@ export class StateMachineBrain extends BotBrain {
 
   /** Execute one traversal-aware step from the current A* path. */
   private _followCurrentPath(state: BotGameState, urgent: boolean): PathFollowResult {
-    if (!this._navGraph || !this._currentPath) return { status: "complete" };
+    if (!this._navGraph || !this._life.currentPath) return { status: "complete" };
 
     const lined = this._followRouteLine(state, urgent);
     if (lined) return { status: "moving", input: lined };
 
-    const step = this._navGraph.getNextStep(state.self.position, this._currentPath, PATH_ARRIVED_THRESHOLD);
+    const step = this._navGraph.getNextStep(state.self.position, this._life.currentPath, PATH_ARRIVED_THRESHOLD);
     if (!step) {
       this._activeNavStep = null;
       this._pathBlockedReason = null;
@@ -2891,7 +2858,7 @@ export class StateMachineBrain extends BotBrain {
         }
         this._pathBlockedReason = `fall:${probe.reason}`;
         this._activeNavStep = null;
-        this._currentPath = null;
+        this._life.currentPath = null;
         return { status: "blocked", reason: this._pathBlockedReason };
       }
 
@@ -2935,7 +2902,7 @@ export class StateMachineBrain extends BotBrain {
       return { status: "moving", input: this._makePrecise(input) };
     }
 
-    this._lookAlongRoute(input, state, this._currentPath);
+    this._lookAlongRoute(input, state, this._life.currentPath);
     return { status: "moving", input };
   }
 
@@ -2947,14 +2914,14 @@ export class StateMachineBrain extends BotBrain {
    * which the step executor handles, or without map knowledge.
    */
   private _followRouteLine(state: BotGameState, urgent: boolean): BotInput | null {
-    const path = this._currentPath;
+    const path = this._life.currentPath;
     const vision = this._lastBotVision;
     if (!path || !vision) {
-      this._routeLine = null;
+      this._life.routeLine = null;
       return null;
     }
     const self = state.self.position;
-    let held = this._routeLine;
+    let held = this._life.routeLine;
     if (held && (held.path !== path || path.cursor < held.fromStep || path.cursor >= held.line.endStep)) held = null;
     if (held) {
       const nearest = pointAlong(held.line.points, self, 0, held.stretch).point;
@@ -2962,7 +2929,7 @@ export class StateMachineBrain extends BotBrain {
     }
     if (!held) {
       if (lineEndStep(path, path.cursor) === path.cursor) {
-        this._routeLine = null;
+        this._life.routeLine = null;
         return null;
       }
       const world: RouteWorld = {
@@ -2971,7 +2938,7 @@ export class StateMachineBrain extends BotBrain {
       };
       held = { path, fromStep: path.cursor, line: buildRouteLine(self, path, path.cursor, world), stretch: 0 };
     }
-    this._routeLine = held;
+    this._life.routeLine = held;
     const points = held.line.points;
     const end = points[points.length - 1];
     // Arrived on the same floor: standing over the end, a storey up, is not there yet.
@@ -2981,7 +2948,7 @@ export class StateMachineBrain extends BotBrain {
     ) {
       // The stretch is run: on to the step after it.
       path.cursor = held.line.endStep;
-      this._routeLine = null;
+      this._life.routeLine = null;
       return null;
     }
     const along = pointAlong(points, self, ROUTE_LINE_AHEAD, held.stretch);
@@ -3098,7 +3065,7 @@ export class StateMachineBrain extends BotBrain {
     const horizontalSpeed = Math.hypot(state.self.velocity.x, state.self.velocity.z);
     if (!canInitiateSlide(horizontalSpeed, state.tick >= this._slideCooldownUntilTick)) return null;
 
-    const path = this._currentPath;
+    const path = this._life.currentPath;
     const step = path?.steps[path.cursor] ?? null;
     const target = path?.nodes[path.nodes.length - 1] ?? null;
     if (!path || !step || !target || target.type !== "item" || target.pickupId === undefined) return null;
@@ -3157,7 +3124,7 @@ export class StateMachineBrain extends BotBrain {
       (input.buttons & (InputButtons.FORWARD | InputButtons.SPRINT)) !== (InputButtons.FORWARD | InputButtons.SPRINT)
     )
       return null;
-    const path = this._currentPath;
+    const path = this._life.currentPath;
     const step = path?.steps[path.cursor];
     if (!path || !step) return null;
     const next = step.type === "walk" ? path.steps[path.cursor + 1] : step;
@@ -3232,7 +3199,7 @@ export class StateMachineBrain extends BotBrain {
    * approach inside the reach is no place for one.
    */
   private _hopLine(state: BotGameState, path: NavPath): { points: readonly Vec3[]; end: Vec3 } | null {
-    const held = this._routeLine;
+    const held = this._life.routeLine;
     if (!held || held.path !== path) return null;
     for (let i = path.cursor; i < Math.min(path.steps.length, held.line.endStep); i++) {
       if (path.steps[i].type !== "walk" || path.steps[i].requiresPreciseApproach) return null;
@@ -3288,9 +3255,9 @@ export class StateMachineBrain extends BotBrain {
 
     if (!navigationSlide && !dodgeSlide) return null;
 
-    const step = this._currentPath?.steps[this._currentPath.cursor] ?? null;
-    if (this._currentPath && !step) return null;
-    if (step && this._currentPath && !this._slideLaneOpen(state, this._currentPath, step)) return null;
+    const step = this._life.currentPath?.steps[this._life.currentPath.cursor] ?? null;
+    if (this._life.currentPath && !step) return null;
+    if (step && this._life.currentPath && !this._slideLaneOpen(state, this._life.currentPath, step)) return null;
     // A slide barely steers once begun: its whole run must clear the walls with room to spare
     if (this._tracer && !this._tracer.runClear(state.self.position, travelYaw(input), ROUTE_SLIDE_RUN)) return null;
 
@@ -3328,7 +3295,7 @@ export class StateMachineBrain extends BotBrain {
 
     const lane = this._routeStrafeLane(state);
     if (!lane) return null;
-    const step = this._currentPath?.steps[this._currentPath.cursor] ?? null;
+    const step = this._life.currentPath?.steps[this._life.currentPath.cursor] ?? null;
     const context = {
       ...this._getSequenceContext(state, step, input, false, true, this._routeStrafeSide),
       ...lane,
@@ -3348,9 +3315,9 @@ export class StateMachineBrain extends BotBrain {
    * in the air passes waypoints the brain has not looked at.
    */
   private _advancePath(state: BotGameState): void {
-    if (!this._navGraph || !this._currentPath) return;
+    if (!this._navGraph || !this._life.currentPath) return;
     this._followRouteLine(state, false);
-    this._navGraph.getNextStep(state.self.position, this._currentPath, PATH_ARRIVED_THRESHOLD);
+    this._navGraph.getNextStep(state.self.position, this._life.currentPath, PATH_ARRIVED_THRESHOLD);
   }
 
   /**
@@ -3366,7 +3333,7 @@ export class StateMachineBrain extends BotBrain {
       this.currentState === BotState.CHASE;
     if (!navigationState || state.self.isDead) return null;
 
-    const path = this._currentPath;
+    const path = this._life.currentPath;
     const step = path?.steps[path.cursor] ?? null;
     if (!path || !step || step.type !== "walk" || step.requiresPreciseApproach) return null;
 
@@ -3609,7 +3576,7 @@ export class StateMachineBrain extends BotBrain {
 
   /** Whether the route's current step goes to or through a jump pad or teleporter. */
   private _routeUsesTrigger(): boolean {
-    const path = this._currentPath;
+    const path = this._life.currentPath;
     const step = path?.steps[path.cursor];
     if (!step) return false;
     return (
@@ -3683,12 +3650,12 @@ export class StateMachineBrain extends BotBrain {
       }
       // Turning away changes what the rays see, and choosing again from the
       // new heading swung the bot left, right and left at the same wall.
-      const side = this._feelerSide;
+      const side = this._life.feelerSide;
       const sideClosed = side && (side.sign > 0 ? rightBlocked && !leftBlocked : leftBlocked && !rightBlocked);
       if (side && state.tick < side.untilTick && !sideClosed) {
         yawAdjust = side.sign * Math.abs(yawAdjust);
       } else {
-        this._feelerSide = { sign: Math.sign(yawAdjust), untilTick: state.tick + FEELER_SIDE_COMMIT_TICKS };
+        this._life.feelerSide = { sign: Math.sign(yawAdjust), untilTick: state.tick + FEELER_SIDE_COMMIT_TICKS };
       }
     } else if (leftBlocked && !rightBlocked) {
       yawAdjust = 0.2; // Gentle right
@@ -3765,6 +3732,23 @@ export class StateMachineBrain extends BotBrain {
   /** A teammate called enemies at a place (BotCallouts): somewhere to hunt. */
   override noteTeamSighting(position: Vec3, tick: number): void {
     this._teamSighting = { position: { ...position }, tick };
+  }
+
+  /**
+   * A new life: nothing of the last one's route, goals and plans, and the
+   * helpers that keep per-life state of their own reset. Goal commitment goes
+   * too: the item worth crossing the map for at 30 HP is a different
+   * proposition after respawning at 100.
+   */
+  private _startLife(): void {
+    this._life = new BotLife();
+    this._itemGoalPlanner.reset();
+    this._combatMovement.reset();
+    this._coverPeek.reset();
+    this._weaponCombos.reset();
+    this._mood.endFight();
+    this._territory.reset();
+    this._blocked.reset();
   }
 
   /**

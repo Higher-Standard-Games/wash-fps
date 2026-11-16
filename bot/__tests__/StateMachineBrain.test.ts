@@ -5,6 +5,7 @@ import { type BotDifficulty, InputButtons } from "../BotConfig";
 import { BotGameState, type VisiblePlayer } from "../BotGameState";
 import { BotNavGraph, type NavEdgeType, type NavPath } from "../BotNavGraph";
 import { getWeaponProfile } from "../BotWeaponProfile";
+import { BotLife } from "../BotLife";
 import { StateMachineBrain } from "../StateMachineBrain";
 
 const difficulty: BotDifficulty = {
@@ -243,7 +244,7 @@ describe("StateMachineBrain movement", () => {
 type TraversalHarness = {
   currentState: BotState;
   _navGraph: BotNavGraph | null;
-  _currentPath: NavPath | null;
+  _life: { currentPath: NavPath | null };
   _blockedNavEdges: Map<string, number>;
   _blockedPickupIds: Map<number, number>;
   _tryStartItemSlideApproach: (input: BotInput, state: BotGameState) => BotInput | null;
@@ -308,7 +309,7 @@ it("starts the specialized slide only for an active final-lane pickup", () => {
   const brain = new StateMachineBrain(difficulty) as unknown as TraversalHarness;
   brain.currentState = BotState.ITEM_RUN;
   brain._navGraph = graph;
-  brain._currentPath = path;
+  brain._life.currentPath = path;
   const state = makeState({ velocity: { x: 0, y: 0, z: 420 } });
   state.players = [];
   state.pickupActiveMask = [false, false, false, true];
@@ -330,14 +331,14 @@ it("starts the specialized slide only for an active final-lane pickup", () => {
   state.self.position.z = 700;
   brain._tickActiveSequence(state);
   expect(brain._blockedPickupIds.has(3)).toBe(true);
-  expect(brain._currentPath).toBeNull();
+  expect(brain._life.currentPath).toBeNull();
   state.self.position.z = 0;
   state.self.isSliding = false;
 
   const inactiveBrain = new StateMachineBrain(difficulty) as unknown as TraversalHarness;
   inactiveBrain.currentState = BotState.ITEM_RUN;
   inactiveBrain._navGraph = graph;
-  inactiveBrain._currentPath = path;
+  inactiveBrain._life.currentPath = path;
   state.pickupActiveMask = [false, false, false, false];
   expect(inactiveBrain._tryStartItemSlideApproach(routeInput, state)).toBeNull();
 });
@@ -351,7 +352,7 @@ describe("StateMachineBrain traversal executors", () => {
     const exit = { id: 2, type: "floor" as const, position: { x: 400, y: 0, z: 400 } };
     const harness = brain as unknown as TraversalHarness;
     harness.currentState = BotState.HUNT;
-    harness._currentPath = {
+    harness._life.currentPath = {
       nodes: [start, corner, exit],
       steps: [
         {
@@ -399,7 +400,7 @@ describe("StateMachineBrain traversal executors", () => {
     }));
     const harness = brain as unknown as TraversalHarness;
     harness.currentState = BotState.HUNT;
-    harness._currentPath = {
+    harness._life.currentPath = {
       nodes,
       steps: nodes.slice(1).map((to, i) => ({
         from: nodes[i],
@@ -443,7 +444,7 @@ describe("StateMachineBrain traversal executors", () => {
     const harness = brain as unknown as TraversalHarness;
     harness.currentState = BotState.HUNT;
     harness._navGraph = new BotNavGraph("look-ahead");
-    harness._currentPath = {
+    harness._life.currentPath = {
       nodes: [start, corner, exit],
       steps: [walk(start, corner), walk(corner, exit)],
       totalCost: 800,
@@ -465,7 +466,7 @@ describe("StateMachineBrain traversal executors", () => {
     const end = { id: 1, type: "floor" as const, position: { x: 0, y: 0, z: 1000 } };
     const harness = brain as unknown as TraversalHarness;
     harness.currentState = BotState.HUNT;
-    harness._currentPath = {
+    harness._life.currentPath = {
       nodes: [start, end],
       steps: [
         {
@@ -515,7 +516,7 @@ describe("StateMachineBrain traversal executors", () => {
     const exit = { id: 2, type: "floor" as const, position: { x: 800, y: 0, z: 800 } };
     const harness = brain as unknown as TraversalHarness;
     harness.currentState = BotState.HUNT;
-    harness._currentPath = {
+    harness._life.currentPath = {
       nodes: [start, corner, exit],
       steps: [
         {
@@ -548,11 +549,11 @@ describe("StateMachineBrain traversal executors", () => {
       buttons: InputButtons.FORWARD | InputButtons.SPRINT,
       weaponSlot: 0,
     };
-    const longSteps = harness._currentPath.steps;
+    const longSteps = harness._life.currentPath.steps;
     // A square turn inside the run
     const nearCorner = { id: 3, type: "floor" as const, position: { x: 0, y: 0, z: 300 } };
     const nearExit = { id: 4, type: "floor" as const, position: { x: 800, y: 0, z: 300 } };
-    harness._currentPath = {
+    harness._life.currentPath = {
       nodes: [start, nearCorner, nearExit],
       steps: [
         { ...longSteps[0], to: nearCorner, cost: 300, horizontalDistance: 300 },
@@ -563,7 +564,7 @@ describe("StateMachineBrain traversal executors", () => {
     };
     expect(harness._tryStartRouteStrafeJump(input, state)).toBeNull();
 
-    harness._currentPath = {
+    harness._life.currentPath = {
       nodes: [start, corner],
       steps: longSteps.slice(0, 1),
       totalCost: 800,
@@ -591,7 +592,7 @@ describe("StateMachineBrain traversal executors", () => {
     const { graph, path } = makeTraversal("jump");
     const harness = brain as unknown as TraversalHarness;
     harness._navGraph = graph;
-    harness._currentPath = path;
+    harness._life.currentPath = path;
 
     const result = harness._followCurrentPath(state, false);
 
@@ -666,7 +667,7 @@ describe("StateMachineBrain traversal executors", () => {
     const harness = brain as unknown as TraversalHarness;
     harness.currentState = BotState.HUNT;
     harness._navGraph = graph;
-    harness._currentPath = path;
+    harness._life.currentPath = path;
 
     const result = harness._followCurrentPath(state, false);
 
@@ -699,7 +700,7 @@ describe("StateMachineBrain traversal executors", () => {
     const { graph, path } = makeTraversal("teleporter");
     const harness = brain as unknown as TraversalHarness;
     harness._navGraph = graph;
-    harness._currentPath = path;
+    harness._life.currentPath = path;
 
     const result = harness._followCurrentPath(state, false);
     expect(result.status).toBe("moving");
@@ -727,7 +728,7 @@ describe("StateMachineBrain traversal executors", () => {
     const { graph, path } = makeTraversal("jumppad");
     const harness = brain as unknown as TraversalHarness;
     harness._navGraph = graph;
-    harness._currentPath = path;
+    harness._life.currentPath = path;
 
     expect(harness._followCurrentPath(state, false).status).toBe("moving");
     expect(brain.getNavigationDebug()).toContain("sequence=nav_traverse_jumppad phase=activate");
@@ -755,7 +756,7 @@ describe("StateMachineBrain traversal executors", () => {
     const harness = brain as unknown as TraversalHarness;
     harness.currentState = BotState.HUNT;
     harness._navGraph = graph;
-    harness._currentPath = path;
+    harness._life.currentPath = path;
 
     expect(harness._followCurrentPath(state, false).status).toBe("moving");
     state.tick = 40;
@@ -763,7 +764,7 @@ describe("StateMachineBrain traversal executors", () => {
 
     expect(brain.isSequenceActive()).toBe(false);
     expect(brain.getNavigationDebug()).toBe("blocked=sequence:nav_traverse_teleporter:teleport_not_confirmed");
-    expect(harness._currentPath).toBeNull();
+    expect(harness._life.currentPath).toBeNull();
     expect(harness._blockedNavEdges.size).toBe(1);
   });
 
@@ -773,7 +774,7 @@ describe("StateMachineBrain traversal executors", () => {
     const { graph, path } = makeTraversal("fall");
     const harness = brain as unknown as TraversalHarness;
     harness._navGraph = graph;
-    harness._currentPath = path;
+    harness._life.currentPath = path;
     harness._lastBotVision = {
       probeDrop: () => ({ safe: false, reason: "no_landing", fallDistance: 128, landing: null }),
     };
@@ -907,7 +908,7 @@ describe("StateMachineBrain site patrol", () => {
         canSee: () => boolean;
       };
       _navigateGoal: (state: BotGameState, goal: import("../goals/BotGoal").BotGoal, urgent: boolean) => BotInput;
-      _sitePatrol: { target: { x: number; y: number; z: number } } | null;
+      _life: { sitePatrol: { target: { x: number; y: number; z: number } } | null };
     };
     h._navGraph = graph;
     h._lastBotVision = { isWalkable: () => true, canSee: () => true };
@@ -934,14 +935,16 @@ describe("StateMachineBrain site patrol", () => {
     expect(walking.direction.z).toBe(1);
     expect(walking.buttons & (InputButtons.JUMP | InputButtons.CROUCH)).toBe(0);
     expect(walking.buttons & InputButtons.SPRINT).not.toBe(0);
-    const first = { ...h._sitePatrol!.target };
+    const first = { ...h._life.sitePatrol!.target };
     expect(Math.hypot(first.x, first.z)).toBeLessThanOrEqual(384);
     state.self.position = first;
     state.tick = 1;
     // Arrived: on to another point at once, still running
     const next = h._navigateGoal(state, goal, false);
     expect(next.buttons & InputButtons.FORWARD).not.toBe(0);
-    expect(Math.hypot(h._sitePatrol!.target.x - first.x, h._sitePatrol!.target.z - first.z)).toBeGreaterThan(56);
+    expect(Math.hypot(h._life.sitePatrol!.target.x - first.x, h._life.sitePatrol!.target.z - first.z)).toBeGreaterThan(
+      56,
+    );
   });
   it("strafes when no safe walk exists, rather than walking through a wall or pit or standing", () => {
     const { h, state, goal } = harness();
@@ -949,7 +952,7 @@ describe("StateMachineBrain site patrol", () => {
     const input = h._navigateGoal(state, goal, false);
     expect(Math.abs(input.direction.x)).toBe(1);
     expect(input.buttons & (InputButtons.LEFT | InputButtons.RIGHT)).not.toBe(0);
-    expect(h._sitePatrol).toBeNull();
+    expect(h._life.sitePatrol).toBeNull();
   });
   it("stops patrolling when the order changes to planting or defusing", () => {
     const { h, state, goal } = harness();
@@ -957,6 +960,21 @@ describe("StateMachineBrain site patrol", () => {
     goal.directive!.kind = "move_to";
     goal.kind = "move_to";
     expect(h._navigateGoal(state, goal, true).buttons).toBe(0);
-    expect(h._sitePatrol).toBeNull();
+    expect(h._life.sitePatrol).toBeNull();
+  });
+});
+
+describe("a bot's life", () => {
+  it("leaves nothing of its route, goals and plans to the next one", () => {
+    const brain = new StateMachineBrain(difficulty);
+    const state = makeState({}, 700);
+    brain.decide(state);
+    const inner = brain as unknown as { _life: BotLife };
+    inner._life.huntPatrolTarget = { x: 1, y: 2, z: 3 };
+    inner._life.unstick = { yaw: 1, untilTick: 999 };
+    state.self.isDead = true;
+    state.tick += 10;
+    brain.decide(state);
+    expect(inner._life).toEqual(new BotLife());
   });
 });
