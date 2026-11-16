@@ -3,9 +3,9 @@ import { DEFAULT_VIEWHEIGHT } from "../../../../engine/physics/PlayerPhysicsCons
 import { type BotInput, BotState } from "../BotBrain";
 import { type BotDifficulty, InputButtons } from "../BotConfig";
 import { BotGameState, type VisiblePlayer } from "../BotGameState";
+import { BotLife } from "../BotLife";
 import { BotNavGraph, type NavEdgeType, type NavPath } from "../BotNavGraph";
 import { getWeaponProfile } from "../BotWeaponProfile";
-import { BotLife } from "../BotLife";
 import { StateMachineBrain } from "../StateMachineBrain";
 
 const difficulty: BotDifficulty = {
