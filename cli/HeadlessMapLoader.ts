@@ -68,7 +68,8 @@ export async function loadBspCollision(mapName: string, gamePath = "./game"): Pr
   console.log(`[Map] BSP parsed: ${bsp.header.isFBSP ? "FBSP" : "IBSP"} v${bsp.header.version}`);
   console.log(`[Map] Brushes: ${bsp.brushes.length}, Planes: ${bsp.planes.length}`);
 
-  const collision = await createHeadlessCollisionWorld(bsp);
+  // The world part of every trace in WebAssembly (CompiledWorldTrace), the same answers
+  const collision = await createHeadlessCollisionWorld(bsp, { compiled: true });
   markServerMemory("collision-ready", { map: mapName });
   console.log(`[Map] Collision world initialized`);
 
