@@ -25,11 +25,10 @@ import {
   InputButtons,
   resolveDifficulty,
 } from "./BotConfig";
-import type { BotEpisodeRecorder } from "./BotEpisodeRecorder";
 import { applyFriendlyFireSafety, holdFireOffAim } from "./BotFireSafety";
 import { BotGameState, type BotSelf } from "./BotGameState";
 import { BotPerception } from "./BotPerception";
-import { initialBotReference, modelDigest } from "./BotRatingIdentity";
+import { initialBotReference } from "./BotRatingIdentity";
 import { duelLeadReactionDelay } from "./BotReactionTuning";
 import { BOT_TICK_MS, decisionPhase, scheduleBotTick } from "./BotScheduler";
 import type { BotVision, VisionResult } from "./BotVision";
@@ -123,8 +122,6 @@ export class BotClient extends EventEmitter {
   private _lastPhase = -1;
   private _ratingReference: BotReference;
   private _disposed = false;
-  /** Resolves after model loading/fallback is known, before lobby authentication. */
-  readonly referenceReady: Promise<void>;
 
   // 125Hz input loop (matches server tick rate)
   /** Takes this bot's input loop off the shared timer (BotScheduler). */
@@ -168,7 +165,6 @@ export class BotClient extends EventEmitter {
   private _navGraph: import("./BotNavGraph").BotNavGraph | null = null;
 
   // Optional episode recorder for training data collection
-  private _recorder: BotEpisodeRecorder | null = null;
 
   // Logging
   private _logPrefix: string;
@@ -207,11 +203,6 @@ export class BotClient extends EventEmitter {
     this._perception = new BotPerception(this._difficulty);
     if (options.fightOff?.includes("itemcheck")) this._perception.setSpotWatch(false);
 
-    // If modelDir is specified, try to load HybridBrain (requires TF.js)
-    this.referenceReady = options.modelDir
-      ? this._initHybridBrain(options.modelDir, options.difficulty)
-      : Promise.resolve();
-
     // Create game state tracker
     this._gameState = new BotGameState();
 
@@ -222,62 +213,6 @@ export class BotClient extends EventEmitter {
     this._logPrefix = `[Bot:${this.name}]`;
   }
 
-  /**
-   * Try to load HybridBrain with TF.js models.
-   * Falls back to StateMachineBrain if @tensorflow/tfjs-node isn't available.
-   */
-  private _initHybridBrain(modelDir: string, difficulty: string | BotDifficulty): Promise<void> {
-    return Promise.all([import("./HybridBrain"), import("./ModelMetadata")])
-      .then(async ([{ HybridBrain }, { resolveModelDir }]) => {
-        if (this._disposed) return;
-        const hybrid = new HybridBrain(this._difficulty, Math.random, this._ratingReference.goalArbiter);
-        this._brain = hybrid;
-        // This difficulty's own weights if self-play left some, else the base set
-        const diffName = typeof difficulty === "string" ? difficulty : "medium";
-        const dir = resolveModelDir(modelDir, diffName);
-        const before = modelDigest(dir);
-        try {
-          await hybrid.loadModels(dir);
-        } catch (e) {
-          console.error(`${this._logPrefix} Failed to load models from ${dir}:`, e);
-        }
-        const after = modelDigest(dir);
-        if (this._disposed) {
-          hybrid.dispose();
-          return;
-        }
-        const tactical = hybrid.tacticalModel !== null;
-        const combat = hybrid.combatModel !== null;
-        this._setReference({
-          ...this._ratingReference,
-          model: {
-            status:
-              before !== after || ((tactical || combat) && after === null)
-                ? "unstable"
-                : tactical || combat
-                  ? "loaded"
-                  : "fallback",
-            digest: after,
-            tactical,
-            combat,
-          },
-        });
-      })
-      .catch(() => {
-        if (this._disposed) return;
-        this._setReference({
-          ...this._ratingReference,
-          model: { status: "fallback", digest: null, tactical: false, combat: false },
-        });
-        console.warn("");
-        console.warn(`${this._logPrefix} ⚠️  @tensorflow/tfjs-node not available — using pure StateMachineBrain`);
-        console.warn(
-          `${this._logPrefix} To enable neural AI, run: pnpm rebuild @tensorflow/tfjs-node --build-addon-from-source`,
-        );
-        console.warn("");
-      });
-  }
-
   // ── Public API ────────────────────────────────────────────────────
 
   get state(): BotClientState {
@@ -286,7 +221,7 @@ export class BotClient extends EventEmitter {
   get ratingReference(): BotReference {
     return canonicalBotReference(this._ratingReference);
   }
-  /** Lobby assignment is authoritative; model preparation can happen before it. */
+  /** Lobby assignment is authoritative. */
   setTeam(team: string | undefined): void {
     this._team = team;
   }
@@ -346,19 +281,6 @@ export class BotClient extends EventEmitter {
    */
   setNavGraph(navGraph: import("./BotNavGraph").BotNavGraph | null): void {
     this._navGraph = navGraph ?? null;
-  }
-
-  /**
-   * Set the episode recorder for training data collection.
-   * Call before connect() when using BotTrainer.
-   */
-  setRecorder(recorder: BotEpisodeRecorder | null): void {
-    this._recorder = recorder ?? null;
-  }
-
-  /** Get the current recorder (for BotTrainer access) */
-  get recorder(): BotEpisodeRecorder | null {
-    return this._recorder;
   }
 
   /**
@@ -473,15 +395,11 @@ export class BotClient extends EventEmitter {
     this._perception.reset();
   }
 
-  /** Disconnect and release brain resources once. */
+  /** Disconnect, once. */
   async dispose(): Promise<void> {
     if (this._disposed) return;
     this._disposed = true;
     await this.disconnect();
-    const brain = this._brain as BotBrain & { dispose?: () => void };
-    // A stalled native load cannot hold cancellation open. Its completion path
-    // disposes any late resources before publishing a rating reference.
-    if (this._ratingReference.model.status !== "loading") brain.dispose?.();
   }
 
   /** Update difficulty settings */
@@ -495,7 +413,7 @@ export class BotClient extends EventEmitter {
     this._brain.setDifficulty(this._difficulty);
     this._aim.setDifficulty(this._difficulty);
     this._perception.setDifficulty(this._difficulty);
-    this._setReference({ ...reference, model: this._ratingReference.model });
+    this._setReference(reference);
   }
 
   // ── Message Handling ──────────────────────────────────────────────
@@ -644,18 +562,6 @@ export class BotClient extends EventEmitter {
           "bot",
           () => `${this._logPrefix} Died! Waiting ${(this._respawnDelayMs / 1000).toFixed(1)}s to respawn...`,
         );
-
-        // Record the death transition frame (critical training signal!)
-        if (this._recorder) {
-          const deathInput: BotInput = {
-            buttons: 0,
-            direction: { x: 0, y: 0, z: 0 },
-            yaw: 0,
-            pitch: 0,
-            weaponSlot: 0,
-          };
-          this._recorder.recordTick(this._gameState, deathInput, this._vision, this._lastVisionResult);
-        }
       }
 
       // Server confirmed we're alive again after being dead
@@ -709,11 +615,6 @@ export class BotClient extends EventEmitter {
       // Start 125Hz input loop if not already running
       if (!this._inputLoopTimer) {
         this._startInputLoop();
-      }
-
-      // Record training frame (if recorder is attached)
-      if (this._recorder) {
-        this._recorder.recordTick(this._gameState, input, this._vision, this._lastVisionResult);
       }
 
       // Status line every 300 snapshots, with SHAG_DEBUG=bot

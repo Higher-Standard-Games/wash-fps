@@ -4,17 +4,13 @@ Bots in Washiki Washoi run as a **separate Node.js process** that connects to ga
 
 The bot system belongs to this game repository at `bot/`; in an assembled SHAG
 checkout that is `src/games/fps/bot/`. Its CLI is `cli/bot-server.ts`. Run commands
-from the assembled root so data, model and navigation-cache paths resolve there.
+from the assembled root so data and navigation-cache paths resolve there.
 The game-owned server build recipe produces `dist-server/bot-server.mjs`.
 
 Examples below start at the SHAG root. From `src/games/fps` you can instead use
 `npm run bot:server`; the launcher still uses the SHAG root as cwd. Dependencies
 are installed once at the SHAG root. `bot:server` builds its bundle before
 launching Node; `bot:server:dev` runs the source through `vite-node`.
-
-The optional neural backend still uses the assembled root's TensorFlow
-installation and Windows native-library fixup. Moving the source does not change
-the native-first/pure-JavaScript fallback or the model format.
 
 ## Running
 
@@ -72,12 +68,6 @@ disconnect, socket close or socket error stops that timer.
 | `BotSequence.ts`, `sequences/` | Multi-tick manoeuvres: strafe-jump routes, crouch-slides, jumppads, teleporters, validated jumps |
 | `goals/` | Goal sources, considerations and the arbiter that scores them |
 | `StateMachineBrain.ts` | The rule-based brain |
-| `HybridBrain.ts`, `TFBackend.ts` | The optional neural brain and its backend |
-| `BotInputNormalizer.ts` | Converts game state to neural-network input vectors |
-| `BotEpisodeRecorder.ts` | Records training episodes |
-| `BotRewardComputer.ts` | Computes reinforcement-learning rewards |
-| `BotTrainer.ts` | Autonomous self-play training loop |
-| `DemoTrainingExtractor.ts` | Turns a `.shagdemo` recording into training frames |
 | `BotLobbyClient.ts` | Lobby integration — bots join rooms and ready up like humans |
 | `runner/MatchRunnerPool.ts` | With `--match-runners`: a child process per match that plays its bots |
 
@@ -142,7 +132,7 @@ ordinary way: the reaction wait, then a fast turn. Between glances the view
 rests on the route ahead; every 2–4 s the bot glances for about 0.7 s toward a
 clearly more open direction within 45° of where it runs. Recorded people look
 like this: out of a fight their view turns about 35°/s while their movement
-weaves under it (`bot:demo-motion`, [Bot training](./bot-training.md)).
+weaves under it (`bot:demo-motion` measures it from demos).
 
 ### What a bot knows
 
@@ -262,45 +252,26 @@ humans only, so bot-only matches stay quiet. Each bot says at most one line per
 0.8–2.5 s after its moment, as if typed. Set `BOT_CHAT=0` on the bot server to turn it off; training
 runs always have it off.
 
-## Two AI Modes
+## The brain
 
-`BotBrain` is the interface; two brains implement it.
-
-1. **`StateMachineBrain`** — the rule-based brain, always available. What it
-   wants at any moment comes from the **goal layer** in `goals/`: goal sources
-   propose candidates (acquire an item, hunt, hold an area, defend, escort,
-   move to a place), each is scored by considerations, and `GoalArbiter` picks
-   one. It combines them as `gate × attraction × discount`, taking the best
-   reason rather than summing every reason, so a goal that is mediocre at
-   everything cannot outscore a goal that is decisive about one thing. The
-   arbiter's mode comes from `BOT_GOAL_ARBITER`: on by default, `legacy` to
-   fall back to the older scoring, `verbose` to have it explain itself.
-   Out of a fight a bot under 50 health or out of ammo goes for items; one
-   with 25 armor or more hunts. Under 25 armor it runs its item cycle while it
-   has no idea where an enemy is, and with an enemy to hunt it shops only for
-   an item the arbiter scores at least `0.2 + 0.25 × aggression`, where
-   `aggression` comes from the gametype's weight profile: Duel (0.5) shops for
-   most items, Deathmatch (0.8) for the good ones only.
-   Movement that takes more than a tick — a strafe-jump route, a crouch-slide
-   into an item, a jumppad or teleporter traversal — runs as a **sequence**
-   from `sequences/`, which the brain can interrupt.
-2. **`HybridBrain`** — optional TensorFlow.js networks layered on the rules.
-   Inputs come from `BotInputNormalizer`; outputs influence move, aim and fire.
-
-The neural mode is opt-in per bot. Without it, bots run the rules and the goal
-layer, and play competitively at Medium and Hard.
-
-## Training
-
-Two sources, one set of labels. Recorded human matches are where playing like a
-person comes from; self-play sharpens what is already there. Both are covered in
-[Bot Training](./bot-training.md), including what a demo has to hold to be worth
-training on, how a corpus is built, and how trained weights reach a bot in a
-room.
-
-The short version: `--models <dir>` tells the bot server where the weights are,
-and every bot it creates inherits that directory — including a bot a player adds
-from a room. A bot whose models will not load plays the rules.
+`BotBrain` is the interface; `StateMachineBrain` implements it, a rule-based
+brain. What it wants at any moment comes from the **goal layer** in `goals/`:
+goal sources propose candidates (acquire an item, hunt, hold an area, defend, escort,
+move to a place), each is scored by considerations, and `GoalArbiter` picks
+one. It combines them as `gate × attraction × discount`, taking the best
+reason rather than summing every reason, so a goal that is mediocre at
+everything cannot outscore a goal that is decisive about one thing. The
+arbiter's mode comes from `BOT_GOAL_ARBITER`: on by default, `legacy` to
+fall back to the older scoring, `verbose` to have it explain itself.
+Out of a fight a bot under 50 health or out of ammo goes for items; one
+with 25 armor or more hunts. Under 25 armor it runs its item cycle while it
+has no idea where an enemy is, and with an enemy to hunt it shops only for
+an item the arbiter scores at least `0.2 + 0.25 × aggression`, where
+`aggression` comes from the gametype's weight profile: Duel (0.5) shops for
+most items, Deathmatch (0.8) for the good ones only.
+Movement that takes more than a tick — a strafe-jump route, a crouch-slide
+into an item, a jumppad or teleporter traversal — runs as a **sequence**
+from `sequences/`, which the brain can interrupt.
 
 ## Joining a room
 

@@ -34,7 +34,6 @@ interface BotServerArgs {
   difficulty: string;
   lobbyUrl?: string;
   gametype: string;
-  modelDir?: string;
   dataDir?: string;
   /** Keep bots' match reports in <data-dir>/bot-intel.db (default on). */
   intel: boolean;
@@ -81,10 +80,6 @@ function parseArgs(): BotServerArgs {
       case "--gametype":
       case "-g":
         config.gametype = args[++i];
-        namedFlagFound = true;
-        break;
-      case "--models":
-        config.modelDir = args[++i];
         namedFlagFound = true;
         break;
       case "--data-dir":
@@ -135,7 +130,6 @@ Options:
   --gametype <id>     Gametype for lobby queue: duel, tdm, ffa (default: duel)
   --count <n>         Number of bots to auto-spawn (default: 3)
   --difficulty <lvl>  Bot difficulty: easy, medium, hard, insane (default: medium)
-  --models <dir>       Path to TF.js model directory for HybridBrain AI
   --data-dir <dir>    Server data directory holding the shared bot secret
                       and bot-intel.db (default: SERVER_DATA_DIR, else ./server-data)
   --no-intel          Do not keep bots' match reports in bot-intel.db
@@ -176,7 +170,6 @@ async function main(): Promise<void> {
   if (command) console.log("[BIS] Lobby matches play in match runners");
   const server = new BotServer(config.port, {
     secret: loadBotSecret(dataDir),
-    modelDir: config.modelDir,
     intel,
     runners: command ? new MatchRunnerPool(command) : undefined,
   });
@@ -196,7 +189,6 @@ async function main(): Promise<void> {
         }
         await server.addLobbyBot(config.lobbyUrl, config.gametype, {
           difficulty: config.difficulty,
-          modelDir: config.modelDir,
         });
       } catch (err) {
         console.error(`[BIS] Failed to spawn lobby bot ${i + 1}: ${err instanceof Error ? err.message : String(err)}`);
@@ -220,7 +212,6 @@ async function main(): Promise<void> {
         }
         await server.addBot(config.autoConnect, {
           difficulty: config.difficulty,
-          modelDir: config.modelDir,
         });
       } catch (err) {
         console.error(`[BIS] Failed to spawn bot ${i + 1}: ${err instanceof Error ? err.message : String(err)}`);

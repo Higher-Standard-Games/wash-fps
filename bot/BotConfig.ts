@@ -115,8 +115,6 @@ export interface BotOptions {
   difficulty: string | BotDifficulty;
   /** Team to join (undefined = auto-balance) */
   team?: string;
-  /** Path to TF.js model directory for HybridBrain (undefined = pure state machine) */
-  modelDir?: string;
   /**
    * Item-goal arbiter mode (docs/research/BOT_WEIGHTS_AND_GOALS.md §7.7).
    * Per-bot rather than process-wide so two bots can be A/B'd in one match via
@@ -228,32 +226,4 @@ export function resolveDifficulty(difficulty: string | BotDifficulty): BotDiffic
     return DIFFICULTY_PRESETS[difficulty] || DIFFICULTY_PRESETS.medium;
   }
   return difficulty;
-}
-
-// ── Difficulty Tier → Model Directory Mapping ───────────────────────────────
-
-/**
- * How many training rounds each difficulty tier needs.
- * Used by BotTrainer to save checkpoints at tier boundaries.
- *
- *   easy:   0 rounds   (fresh untrained models — pure state machine + noise)
- *   medium: 100 rounds (basic pattern recognition)
- *   hard:   500 rounds (strong tactical awareness)
- *   insane: 2000 rounds (near-optimal play)
- */
-export const DIFFICULTY_TRAINING_ROUNDS: Record<string, number> = {
-  easy: 0,
-  medium: 100,
-  hard: 500,
-  insane: 2000,
-};
-
-/**
- * Get all difficulty tiers in order of training progression.
- * Used by the trainer to save checkpoints at tier boundaries.
- */
-export function getDifficultyTiers(): Array<{ name: string; rounds: number }> {
-  return Object.entries(DIFFICULTY_TRAINING_ROUNDS)
-    .map(([name, rounds]) => ({ name, rounds }))
-    .sort((a, b) => a.rounds - b.rounds);
 }

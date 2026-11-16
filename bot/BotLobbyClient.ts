@@ -27,7 +27,7 @@ import type {
   LobbyTeamsShuffledMessage,
   WelcomeMessage,
 } from "../../../lobby/types";
-import { BOT_LOBBY_JOIN_TIMEOUT_MS, waitForBotPreparation } from "../../../shared/ranking/BotPreparation";
+import { BOT_LOBBY_JOIN_TIMEOUT_MS } from "../../../shared/ranking/BotPreparation";
 import type { BotReference } from "../../../shared/ranking/BotReference";
 import { BotClient } from "./BotClient";
 import { type BotOptions, getNextBotName } from "./BotConfig";
@@ -63,7 +63,6 @@ export class BotLobbyClient {
 
   // The game bot client created when match starts
   private _botClient: BotClient | null = null;
-  private _preparedBot: BotClient | null = null;
   /** The match being played in a runner, with a launcher. */
   private _runnerBot: RunnerBot | null = null;
   private readonly _launcher: GameBotLauncher | undefined;
@@ -101,7 +100,6 @@ export class BotLobbyClient {
       name: this.name,
       difficulty: this._difficulty,
       team: options?.team,
-      modelDir: options?.modelDir,
       goalArbiter: options?.goalArbiter,
     };
   }
@@ -135,36 +133,12 @@ export class BotLobbyClient {
     this._joinLobbyId = joinLobbyId || "";
     this._inviteToken = inviteToken || "";
     this._state = "connecting";
-    // Authenticate the resolved runtime, never just a requested model directory.
-    // A bot whose match plays in a runner, with no models to load, has its
-    // identity from its options alone: no brain is built here for it.
-    const prepared = this._launcher && !this._botOptions.modelDir ? null : new BotClient(this._botOptions);
-    this._preparedBot = prepared;
-    if (prepared) {
-      const preparation = new AbortController();
-      const cancel = () => preparation.abort();
-      this._cancelConnect = cancel;
-      signal?.addEventListener("abort", cancel, { once: true });
-      try {
-        await waitForBotPreparation(prepared.referenceReady, preparation.signal);
-      } catch (error) {
-        if (this._preparedBot === prepared) {
-          this._preparedBot = null;
-          this._state = "disconnected";
-        }
-        void prepared.dispose();
-        throw error;
-      } finally {
-        signal?.removeEventListener("abort", cancel);
-        if (this._cancelConnect === cancel) this._cancelConnect = null;
-      }
-      if (generation !== this._generation || !this._preparedBot) throw new Error("Bot lobby connection cancelled");
-      this._preparedBot.on("ratingReferenceChanged", this._referenceListener);
-    } else if (generation !== this._generation || signal?.aborted) {
+    if (signal?.aborted) {
       this._state = "disconnected";
       throw new Error("Bot lobby connection cancelled");
     }
-    const reference = prepared?.ratingReference ?? initialBotReference(this._botOptions);
+    // The rating identity is the bot's options: preset, goal arbiter, behaviour digest.
+    const reference = initialBotReference(this._botOptions);
 
     return new Promise<void>((resolve, reject) => {
       const ws = this._openSocket ? this._openSocket() : new WebSocket(lobbyUrl);
@@ -186,9 +160,6 @@ export class BotLobbyClient {
         signal?.removeEventListener("abort", abort);
         this._cancelConnect = null;
         this._state = "disconnected";
-        if (this._preparedBot === prepared) this._preparedBot = null;
-        prepared?.removeListener("ratingReferenceChanged", this._referenceListener);
-        void prepared?.dispose();
         ws.close();
         reject(error);
       };
@@ -237,10 +208,6 @@ export class BotLobbyClient {
         this._ws = null;
         if (this._readyTimer) clearTimeout(this._readyTimer);
         this._readyTimer = null;
-        const prepared = this._preparedBot;
-        this._preparedBot = null;
-        prepared?.removeListener("ratingReferenceChanged", this._referenceListener);
-        void prepared?.dispose();
         this._botClient?.removeListener("ratingReferenceChanged", this._referenceListener);
         this.onDisconnected?.();
       });
@@ -325,12 +292,10 @@ export class BotLobbyClient {
         // Slime and lava do not hurt a campaign boss, so it fights on in them
         if (connect.campaign?.slimeImmune?.includes(this.name)) {
           this._botOptions.liquidImmune = true;
-          this._preparedBot?.setLiquidImmune(true);
         }
         const bodyScale = connect.campaign?.botScales?.[this.name];
         if (bodyScale) {
           this._botOptions.bodyScale = bodyScale;
-          this._preparedBot?.setBodyScale(bodyScale);
         }
         background(this._connectToGameServer(serverUrl, connect.admissionTicket), "BotLobbyClient");
         break;
@@ -421,10 +386,8 @@ export class BotLobbyClient {
           await this._playInRunner(this._launcher, serverUrl, admissionTicket, generation);
           return;
         }
-        bot = this._preparedBot ?? new BotClient(this._botOptions);
-        if (bot !== this._preparedBot) bot.on("ratingReferenceChanged", this._referenceListener);
-        this._preparedBot = null;
-        await bot.referenceReady;
+        bot = new BotClient(this._botOptions);
+        bot.on("ratingReferenceChanged", this._referenceListener);
         if (generation !== this._generation || this._state !== "in_match") {
           await bot.dispose();
           return;
@@ -465,9 +428,8 @@ export class BotLobbyClient {
   }
 
   /**
-   * Hand the match to its runner. The bot prepared here gave the room its
-   * rating identity; the runner's own bot reports it from now on, and this
-   * one goes.
+   * Hand the match to its runner, whose own bot reports its rating identity
+   * from now on.
    */
   private async _playInRunner(
     launch: GameBotLauncher,
@@ -494,10 +456,6 @@ export class BotLobbyClient {
       return;
     }
     this._runnerBot = runnerBot;
-    const prepared = this._preparedBot;
-    this._preparedBot = null;
-    prepared?.removeListener("ratingReferenceChanged", this._referenceListener);
-    await prepared?.dispose();
     console.log(`[LobbyBot:${this.name}] Game bot connected in a match runner as ${runnerBot.playerId}`);
   }
 
@@ -519,11 +477,6 @@ export class BotLobbyClient {
     if (this._runnerBot) {
       await this._runnerBot.dispose();
       this._runnerBot = null;
-    }
-    if (this._preparedBot) {
-      this._preparedBot.removeListener("ratingReferenceChanged", this._referenceListener);
-      await this._preparedBot.dispose();
-      this._preparedBot = null;
     }
 
     // Leave lobby

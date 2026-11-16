@@ -9,16 +9,15 @@ import { botOptionsFor } from "../BotServer";
 
 describe("botOptionsFor", () => {
   it("passes every option through and fills in the defaults", () => {
-    const options = botOptionsFor({ difficulty: "hard", strategy: false, habitItem: "ra", chat: false }, "models");
+    const options = botOptionsFor({ difficulty: "hard", strategy: false, habitItem: "ra", chat: false });
     expect(options).toMatchObject({
       difficulty: "hard",
       strategy: false,
       habitItem: "ra",
       chat: false,
-      modelDir: "models",
     });
     expect(options.name).toBeTruthy();
-    expect(botOptionsFor(undefined, undefined).difficulty).toBe("medium");
+    expect(botOptionsFor(undefined).difficulty).toBe("medium");
   });
 });
 

@@ -31,8 +31,8 @@ const result = await build({
   platform: "node",
   target: "node24",
   format: "esm",
-  // TensorFlow loads native modules at run time and is imported dynamically.
-  external: ["ws", "@tensorflow/*"],
+  // ws loads optional native helpers at run time.
+  external: ["ws"],
   tsconfig: "tsconfig.json",
   sourcemap: "external",
   metafile: true,
