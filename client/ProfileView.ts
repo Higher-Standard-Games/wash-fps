@@ -24,7 +24,7 @@ import {
 import type { LobbyClient } from "../../../lobby/LobbyClient";
 import { DELETED_ACCOUNT_NAME, formatKey, KEY_LENGTH, normalizeKey } from "../../../lobby/PlayerIdentity";
 import type { GametypeInfo } from "../../../lobby/types";
-import type { RatingMode } from "../../../shared/ranking/RatingPolicy";
+import { isRatingMode, type RatingMode } from "../../../shared/ranking/RatingPolicy";
 import { switchFpsAccount } from "./FpsLobbyService";
 import { createSlot, judgeName, type Slot, wireKeySlot } from "./IdentityFields";
 import { buildIdentityFrame, identityScreen, narrowOntoRail, widenFromRail } from "./IdentityFrame";
@@ -524,7 +524,7 @@ export class ProfileView {
   }
 
   private async refreshStatsRecord(sequence: number): Promise<void> {
-    const modes = this.modes().filter((mode) => ["duel", "amphi", "ffa", "snd"].includes(mode.id));
+    const modes = this.modes().filter((mode) => isRatingMode(mode.id));
     const answers = await Promise.all(
       modes.map(async (mode) => ({
         mode,
