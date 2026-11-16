@@ -13,7 +13,7 @@ vi.mock("../BotNavBuilder", () => ({
     build.calls++;
     return new Promise((resolve) => {
       build.release = () =>
-        resolve({ mapName, nodeCount: 1, edgeCount: 0, addLearnedRoutes: () => 0 } as unknown as object);
+        resolve({ mapName, nodeCount: 1, edgeCount: 0, addLearnedRoutes: () => 0, walkTest: () => ({}) } as unknown as object);
     });
   },
 }));

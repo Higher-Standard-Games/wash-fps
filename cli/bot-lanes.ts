@@ -236,7 +236,7 @@ async function main(): Promise<void> {
   console.log = quiet;
   if (!bsp || !vision || !nav) throw new Error(`Could not load map "${map}"`);
   const walk = (a: Vec3, b: Vec3) => vision.isWalkable(a, b);
-  nav.addLearnedRoutes(loadLearnedRoutes(map), walk);
+  nav.addLearnedRoutes(loadLearnedRoutes(map), nav.walkTest(vision));
 
   const floorOf = (p: Vec3): Vec3 => {
     const hit = bsp.collision.trace({ ...p }, { x: p.x, y: p.y - 512, z: p.z });
