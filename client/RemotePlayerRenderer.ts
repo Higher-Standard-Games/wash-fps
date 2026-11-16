@@ -326,7 +326,12 @@ export class RemotePlayerRenderer {
   private _lastAnimLog: Map<string, number> = new Map();
 
   /** Per-playhead memo for getDemoEntitySample (followed entity is sampled 3×/frame). */
-  private _demoSampleCache: { entityId: string; tick: number; sample: InterpolatedEntity | null } | null = null;
+  private _demoSampleCache: {
+    entityId: string;
+    tick: number;
+    version: number;
+    sample: InterpolatedEntity | null;
+  } | null = null;
   private readonly voltaicMuzzleResolver: VoltaicRemoteStartResolver = (entityId, direction, result) =>
     this.getWeaponMuzzleWorldPositionToRef(entityId, direction, result);
 
@@ -1345,13 +1350,18 @@ export class RemotePlayerRenderer {
   /** Current deterministic demo sample for camera/diagnostic consumers. */
   getDemoEntitySample(entityId: string): InterpolatedEntity | null {
     // Memo: the followed entity is sampled by the spectator target provider,
-    // the POV update, AND render() within one frame — same (entity, playhead)
-    // → same result. Invalidated when the playhead moves.
-    if (this._demoSampleCache?.entityId === entityId && this._demoSampleCache.tick === this.demoPlayheadTick) {
-      return this._demoSampleCache.sample;
+    // the POV update, AND render() within one frame — same (entity, playhead,
+    // timeline) → same result. The frame's lookahead push lands after the
+    // frame's events have sampled: keyed on the timeline's version too, a
+    // sample taken before it is never served after it, so the camera's pose
+    // does not depend on which events happened to sample first.
+    const version = this.demoTimeline?.version ?? -1;
+    const cached = this._demoSampleCache;
+    if (cached?.entityId === entityId && cached.tick === this.demoPlayheadTick && cached.version === version) {
+      return cached.sample;
     }
     const sample = this.demoTimeline?.sample(entityId, this.demoPlayheadTick) ?? null;
-    this._demoSampleCache = { entityId, tick: this.demoPlayheadTick, sample };
+    this._demoSampleCache = { entityId, tick: this.demoPlayheadTick, version, sample };
     return sample;
   }
 
