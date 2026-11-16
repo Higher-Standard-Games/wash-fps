@@ -377,28 +377,22 @@ export class GameServer {
       const spawnStats = new Map(Object.entries(rules.spawnStats ?? {}));
       if (spawnStats.size) {
         this.gametypeController.setSpawnStats((playerId) => {
-          for (const client of this.clients.values()) {
-            if (client.playerId === playerId) return client.isBot ? spawnStats.get(client.playerName) : undefined;
-          }
-          return undefined;
+          const bot = this.campaignBot((client) => client.playerId === playerId);
+          return bot ? spawnStats.get(bot) : undefined;
         });
       }
       const slimeImmune = new Set(rules.slimeImmune ?? []);
       if (slimeImmune.size) {
         this.physicsSystem.setLiquidImmune((entityId) => {
-          for (const client of this.clients.values()) {
-            if (client.entityId === entityId) return client.isBot === true && slimeImmune.has(client.playerName);
-          }
-          return false;
+          const bot = this.campaignBot((client) => client.entityId === entityId);
+          return bot !== null && slimeImmune.has(bot);
         });
       }
       const randomKits = new Set(rules.randomKits ?? []);
       if (randomKits.size) {
         this.gametypeController.setRandomKits((playerId) => {
-          for (const client of this.clients.values()) {
-            if (client.playerId === playerId) return client.isBot === true && randomKits.has(client.playerName);
-          }
-          return false;
+          const bot = this.campaignBot((client) => client.playerId === playerId);
+          return bot !== null && randomKits.has(bot);
         });
       }
     }
@@ -713,10 +707,19 @@ export class GameServer {
   /** How many times a player's size this entity is: a campaign boss by its name, everyone else 1. */
   private campaignScaleOf(entityId: EntityId): number {
     if (this.campaignScales.size === 0) return 1;
+    const bot = this.campaignBot((client) => client.entityId === entityId);
+    return bot === null ? 1 : (this.campaignScales.get(bot) ?? 1);
+  }
+
+  /**
+   * The name of the client `which` picks, when it is a bot: a campaign gives
+   * its bots their rules by name, and a person with a bot's name gets none.
+   */
+  private campaignBot(which: (client: ClientInfo) => boolean): string | null {
     for (const client of this.clients.values()) {
-      if (client.entityId === entityId) return this.campaignScales.get(client.playerName) ?? 1;
+      if (which(client)) return client.isBot ? client.playerName : null;
     }
-    return 1;
+    return null;
   }
 
   getGametypeController(): GametypeController {

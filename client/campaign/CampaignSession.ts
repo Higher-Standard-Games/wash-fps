@@ -58,9 +58,15 @@ export function cacheCampaign(accountId: string, state: CampaignStateMessage): v
 /**
  * Keep how each mission's match is drawn (its models, its bots' own models and
  * sizes), by mission id, for its demos: a recording names only its mission.
+ * Added to what is kept, so a mission the lobby no longer runs still draws its
+ * old demos as they were.
  */
 export function cacheMissionLooks(missions: readonly CampaignMissionInfo[]): void {
-  writeJson(() => localStorage, LOOKS_KEY, Object.fromEntries(missions.map((m) => [m.id, lobbyCampaignInfo(m)])));
+  const kept = readJson<Record<string, LobbyCampaignInfo>>(() => localStorage, LOOKS_KEY) ?? {};
+  writeJson(() => localStorage, LOOKS_KEY, {
+    ...kept,
+    ...Object.fromEntries(missions.map((m) => [m.id, lobbyCampaignInfo(m)])),
+  });
 }
 
 /** How a mission's match is drawn, as this browser last heard from the lobby; null if never. */

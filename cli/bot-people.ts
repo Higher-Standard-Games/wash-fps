@@ -17,7 +17,7 @@ import { runCli } from "../../../cli/_runCli";
 import { DemoReader } from "../../../shared/demo/DemoReader";
 import { type PeopleProfile, STACK_AGE_BUCKET, savePeopleProfile, stackQuartiles } from "../bot/intel/PeopleProfile";
 import { toClientKey } from "../ClientEntityKey";
-import { isBotName } from "../shared/bot/BotNames";
+import { botNameTest } from "./_campaignBots";
 
 const TICK_RATE = 125;
 /** Buckets of `stackByAge`; the last holds everything older. */
@@ -34,6 +34,7 @@ function demoFiles(inputs: string[]): string[] {
 }
 
 async function main(): Promise<void> {
+  const isBot = botNameTest();
   const args = process.argv.slice(2).filter((a) => a !== "--");
   if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
     console.log("Usage: npm run bot:people -- <demo or folder>... [--dry-run]");
@@ -47,7 +48,7 @@ async function main(): Promise<void> {
     const reader = new DemoReader(new Uint8Array(fs.readFileSync(file)));
     const header = reader.readHeader();
     const people = new Set(
-      header.players.filter((p) => p.accountId !== undefined && !isBotName(p.name)).map((p) => toClientKey(p.playerId)),
+      header.players.filter((p) => p.accountId !== undefined && !isBot(p.name)).map((p) => toClientKey(p.playerId)),
     );
     if (people.size === 0) continue;
     demos++;

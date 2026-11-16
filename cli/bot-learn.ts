@@ -17,7 +17,7 @@ import { createBotVision } from "../bot/BotVision";
 import { type LearnedRoute, loadLearnedRoutes, saveLearnedRoutes } from "../bot/LearnedRoutes";
 import { buildTimeline, findTrickSegments, learnSegment } from "../bot/RouteLearner";
 import { resolveFPSDemoMap } from "../client/DemoMapAliases";
-import { isBotName } from "../shared/bot/BotNames";
+import { botNameTest } from "./_campaignBots";
 
 const TRAINING_DIR = path.join("public", "data", "demos", "training");
 
@@ -36,6 +36,7 @@ const near = (a: { x: number; y: number; z: number }, b: { x: number; y: number;
   Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) <= SAME_ROUTE;
 
 async function main(): Promise<void> {
+  const isBot = botNameTest();
   const args = process.argv.slice(2);
   const dryRun = args.includes("--dry-run");
   const demos = args.filter((a) => !a.startsWith("--")).map(resolveDemo);
@@ -60,7 +61,7 @@ async function main(): Promise<void> {
     byMap.set(mapName, learned);
     for (const player of header.players) {
       // People only: a bot's moves in a match are routes it already has.
-      if (isBotName(player.name)) continue;
+      if (isBot(player.name)) continue;
       const timeline = buildTimeline(frames, player.playerId);
       const segments = findTrickSegments(timeline, vision.collisionWorld);
       console.log(`${demo} (${header.map}), ${player.name}: ${segments.length} tricks`);

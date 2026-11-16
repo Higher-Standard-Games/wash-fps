@@ -7,7 +7,9 @@ import { missionPlaylist } from "../campaign/CampaignMusic";
 import {
   cacheCampaign,
   cachedCampaign,
+  cacheMissionLooks,
   campaignMatch,
+  missionLook,
   rememberCampaignMatch,
   requestCampaignRetry,
   takeCampaignRetry,
@@ -253,6 +255,14 @@ describe("campaign session", () => {
     registerPlayerModelSelection();
   });
   afterEach(() => forcePlayerModels(null));
+
+  it("keeps each mission's look for its demos, including a mission the lobby has since dropped", () => {
+    cacheMissionLooks(MISSIONS);
+    cacheMissionLooks([MISSIONS[1]]);
+    expect(missionLook("cartel-contract")?.missionId).toBe("cartel-contract");
+    expect(missionLook("street-riot")?.missionId).toBe("street-riot");
+    expect(missionLook("unknown")).toBeNull();
+  });
 
   it("keeps the account's progress for the next visit", () => {
     cacheCampaign("7", { type: "campaign:state", ...state(["cartel-contract"], 2) });

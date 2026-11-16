@@ -31,7 +31,7 @@ import {
   RUNNING_SPEED,
 } from "../bot/MotionStats";
 import { ensureClientKey } from "../ClientEntityKey";
-import { isBotName } from "../shared/bot/BotNames";
+import { botNameTest } from "./_campaignBots";
 import { loadBspCollision } from "./HeadlessMapLoader";
 
 const MAP_ALIASES: Record<string, string> = {
@@ -133,6 +133,7 @@ function samplesFor(
 }
 
 async function main(): Promise<void> {
+  const isBot = botNameTest();
   const args = parseArgs();
   const files = demoFiles(args.inputs);
   if (files.length === 0) throw new Error("No demos given");
@@ -157,7 +158,7 @@ async function main(): Promise<void> {
     const world = worlds.get(map) ?? null;
     const hasInputs = frames.some((f) => f.inputs.length > 0);
     for (const player of header.players) {
-      const group = isBotName(player.name) ? "bots" : "people";
+      const group = isBot(player.name) ? "bots" : "people";
       const totals = emptyTotals();
       console.log = () => {};
       try {

@@ -123,7 +123,9 @@ console.log("══════════════════════�
 console.log();
 
 const dataDir = resolveDataDir(dataDirArg);
-const players = PlayerStore.open(dataDir, isBotName);
+// Bot names are kept from accounts: the bot list's, and the campaign's, which the
+// lobby reads when it starts (asked at each rename, so after that)
+const players = PlayerStore.open(dataDir, (name) => isBotName(name) || server.isCampaignBotName(name));
 const results = MatchResultStore.open(dataDir);
 const settings = SettingsStore.open(dataDir);
 const campaign = CampaignStore.open(dataDir);
