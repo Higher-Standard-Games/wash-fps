@@ -264,11 +264,19 @@ everything cannot outscore a goal that is decisive about one thing. The
 arbiter's mode comes from `BOT_GOAL_ARBITER`: on by default, `legacy` to
 fall back to the older scoring, `verbose` to have it explain itself.
 Out of a fight a bot under 50 health or out of ammo goes for items; one
-with 25 armor or more hunts. Under 25 armor it runs its item cycle while it
-has no idea where an enemy is, and with an enemy to hunt it shops only for
-an item the arbiter scores at least `0.2 + 0.25 × aggression`, where
-`aggression` comes from the gametype's weight profile: Duel (0.5) shops for
-most items, Deathmatch (0.8) for the good ones only.
+with 25 armor or more hunts. Otherwise it weighs three things in the
+arbiter's terms and takes the best (`goals/RoamChoice.ts`): the arbiter's best
+item; hunting the latest sighting, worth `0.2 + 0.25 × aggression` when just
+seen and nothing once it is stale (2.4 s for its own sighting, 6 s for a
+teammate's call); and, in Duel, holding its territory, worth half the
+profile's `mapControl`. `aggression` comes from the gametype's weight
+profile, so Duel (0.5) shops for most items and Deathmatch (0.8) for the good
+ones only. (`scoredGoals: false` on a bot puts back the older ladder:
+items over that bar, then the territory, then any item goal, then the hunt.)
+
+A roaming bot decides on every second snapshot, about 31 a second
+(`DEFAULT_DECIDE_EVERY`; bots take turns); in a fight, a dodge or a movement
+sequence it decides on every one, and it sees and aims at full rate.
 Movement that takes more than a tick — a strafe-jump route, a crouch-slide
 into an item, a jumppad or teleporter traversal — runs as a **sequence**
 from `sequences/`, which the brain can interrupt.
@@ -290,19 +298,21 @@ secret, not a human account key; see [Ranked matches](../multiplayer/lobby.md#ra
 
 ### A process per match
 
-With `--match-runners`, the bot server keeps each bot's seat in its room but
-plays the match elsewhere. When the match starts, each bot's game connection
+The lobby seats bots itself by default (see the lobby guide, "Bots without a
+bot server"), and so does `bot:server --match-runners`: each bot's seat stays
+in its room but its match plays elsewhere. When the match starts, each bot's game connection
 goes to a **match runner** for that game server: a child process
 (`cli/bot-runner.ts`, `dist-server/bot-runner.mjs` in the bundle) that loads
 the map's vision and nav graph once for the match's bots and exits once its
 last bot has left. Two matches never share a runner, so one match's nav build
 or crash touches only its own bots, and the memory a match took goes when it
-ends. A runner reports each bot's rating identity and match report back to the
-bot server, which passes them on to the lobby and `bot-intel.db` as before.
+ends. A runner reports each bot's rating identity and match report back to
+whoever seated it (the lobby, or a bot server), which passes them on to the
+lobby and `bot-intel.db`.
 
-A bundled runner playing ten bots on `washoi_snd1` holds about 175 MB: runners start with a 4 MB young generation (`RUNNER_NODE_FLAGS`), which cuts the heap V8 reserves from about 250 MB to 85 MB at the same snapshot cost, and trace the world in WebAssembly (`src/engine/physics/CompiledWorldTrace.ts`). `SHAG_DEBUG=memory` makes a runner log its memory every 10 s. Without
-the flag, every match's bots play in the bot server itself, sharing each map's
-vision for as long as the bot server runs.
+A bundled runner playing ten bots on `washoi_snd1` holds about 175 MB: runners start with a 4 MB young generation (`RUNNER_NODE_FLAGS`), which cuts the heap V8 reserves from about 250 MB to 85 MB at the same snapshot cost, and trace the world in WebAssembly (`src/engine/physics/CompiledWorldTrace.ts`). `SHAG_DEBUG=memory` makes a runner log its memory every 10 s. A bot
+server started without `--match-runners` plays every match's bots in itself,
+sharing each map's vision for as long as it runs.
 
 ## TODO
 

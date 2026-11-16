@@ -20,6 +20,7 @@ import { BotCallouts, placePosition } from "./BotCallouts";
 import {
   type BotDifficulty,
   type BotOptions,
+  DEFAULT_DECIDE_EVERY,
   defaultBotChat,
   defaultGoalArbiterMode,
   InputButtons,
@@ -192,11 +193,11 @@ export class BotClient extends EventEmitter {
     if (options.habitItem) brain.setHabitItem(options.habitItem);
     if (options.strategies) brain.limitStrategies(options.strategies as StrategyId[]);
     if (options.weights) brain.scaleWeights(options.weights);
-    this._decideEvery = Math.max(1, Math.floor(options.decideEvery ?? 1));
+    this._decideEvery = Math.max(1, Math.floor(options.decideEvery ?? DEFAULT_DECIDE_EVERY));
     if (options.fightOff) brain.setFightOff(options.fightOff as FightHabit[]);
     if (options.bodyScale) brain.setBodyScale(options.bodyScale);
     if (options.liquidImmune) brain.setLiquidImmune(true);
-    if (options.scoredGoals) brain.setScoredGoals(true);
+    if (options.scoredGoals !== false) brain.setScoredGoals(true);
     if (options.trace) brain.setTracing(true);
     this._brain = brain;
     this._aim = new BotAimController(this._difficulty);

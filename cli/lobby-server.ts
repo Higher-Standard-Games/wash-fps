@@ -37,13 +37,14 @@ let resultsInfo = false;
 let ratingsInfo = false;
 let ratingsVerify = false;
 let resultsRecover = false;
-/** Seat invited bots in this process and play their matches in match runners: no bot server. */
-let botSeatsArg = false;
+/** Seat invited bots in this process and play their matches in match runners (no bot server), unless --bot-server. */
+let botSeatsArg = true;
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--results-info") resultsInfo = true;
   if (args[i] === "--results-recover") resultsRecover = true;
   if (args[i] === "--bot-seats") botSeatsArg = true;
+  if (args[i] === "--bot-server") botSeatsArg = false;
   if (args[i] === "--ratings-info") ratingsInfo = true;
   if (args[i] === "--ratings-verify") {
     ratingsInfo = true;
@@ -80,8 +81,9 @@ Options:
   --results-info     Read result counts/latest result without starting or changing the server
   --ratings-info     Read ranking journal counts and processing reasons without changing storage
   --ratings-verify   Also replay the applied rating journal read-only; fails if unavailable or divergent
-  --bot-seats        Seat invited bots in this process and play each match's
-                     bots in a match runner of its own; no bot:server needed
+  --bot-server       Ask a running bot:server for bots instead of seating them
+                     here (by default the lobby seats them and plays each
+                     match's bots in a match runner of its own)
   --results-recover  Retry signed result outbox reports into existing storage; requires explicit --data-dir
 `);
     process.exit(0);
@@ -145,7 +147,7 @@ if (!Number.isInteger(maxPlayers) || maxPlayers < 0) {
 const botSecret = loadBotSecret(dataDir);
 const runners = botSeatsArg ? runnerCommand() : null;
 if (botSeatsArg && !runners) {
-  console.error("--bot-seats: no bot-runner beside this lobby server");
+  console.error("No bot-runner beside this lobby server: build it, or start with --bot-server");
   process.exit(1);
 }
 const botIntel = runners ? IntelStore.open(dataDir) : undefined;

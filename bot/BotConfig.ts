@@ -108,6 +108,12 @@ export const DIFFICULTY_PRESETS: Record<string, BotDifficulty> = {
 
 // ── Bot Options (passed when spawning a bot) ────────────────────────────────
 
+/**
+ * Roaming bots decide on every second snapshot: a third fewer decisions in an
+ * S&D match with no difference in results (bot:ab), aim and fights at full rate.
+ */
+export const DEFAULT_DECIDE_EVERY = 2;
+
 export interface BotOptions {
   /** Display name for the bot */
   name: string;
@@ -156,16 +162,17 @@ export interface BotOptions {
   /** Slime and lava do not hurt this bot (a campaign boss): it fights on in them. Not part of the rating identity. */
   liquidImmune?: boolean;
   /**
-   * Decide on every n-th snapshot while roaming (1, the default: every one).
-   * A fight, a dodge and a running movement sequence decide on every snapshot
-   * whatever this is; perception and aim run on every snapshot and tick. Bots
-   * take turns (BotScheduler.decisionPhase), so a match's decisions spread
-   * over the snapshots. For head-to-head tests of the decision rate.
+   * Decide on every n-th snapshot while roaming (DEFAULT_DECIDE_EVERY when
+   * absent; 1 decides on every one). A fight, a dodge and a running movement
+   * sequence decide on every snapshot whatever this is; perception and aim
+   * run on every snapshot and tick. Bots take turns
+   * (BotScheduler.decisionPhase), so a match's decisions spread over the
+   * snapshots.
    */
   decideEvery?: number;
   /**
    * Choose between an item, a hunt and holding ground by score
-   * (goals/RoamChoice.ts) instead of the brain's ladder of rules, for
+   * (goals/RoamChoice.ts); false decides by the brain's ladder of rules, for
    * head-to-head tests. Not part of the rating identity.
    */
   scoredGoals?: boolean;
