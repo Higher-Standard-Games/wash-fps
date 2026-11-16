@@ -23,7 +23,15 @@ import {
 } from "../BotNavGraph";
 import type { BotVision } from "../BotVision";
 import type { BotGoal } from "../goals/BotGoal";
-import { buildRouteLine, lineEndStep, pointAlong, type RouteWorld } from "../RouteLine";
+import {
+  buildRouteLine,
+  lineEndStep,
+  nearestOnLine,
+  pointAlong,
+  type RouteLine,
+  type RouteWorld,
+  sharedRouteLine,
+} from "../RouteLine";
 
 export const PATH_RECALC_INTERVAL = 120; // Recalculate path every ~2 seconds
 export const PATH_ARRIVED_THRESHOLD = 100; // Distance to consider "arrived" at a waypoint
@@ -330,6 +338,31 @@ export class BotNavigator {
    * Null where the route goes on with a jump, pad, drop or exact approach,
    * which the step executor handles, or without map knowledge.
    */
+  /**
+   * A line for `path` from its cursor: the stretch's shared line
+   * (sharedRouteLine), joined where it passes nearest. A bot farther off it
+   * than ROUTE_LINE_OFF runs straight onto it first when it can, and otherwise
+   * gets a line of its own from where it stands.
+   */
+  private routeLineFor(
+    self: Vec3,
+    path: NavPath,
+    world: RouteWorld,
+  ): { path: NavPath; fromStep: number; line: RouteLine; stretch: number } {
+    const graph = this.host.navGraph;
+    const shared = graph ? sharedRouteLine(graph, path, path.cursor, world) : null;
+    if (shared) {
+      const join = nearestOnLine(shared.points, self);
+      if (join.distance <= ROUTE_LINE_OFF) return { path, fromStep: path.cursor, line: shared, stretch: join.stretch };
+      const onto = shared.points[join.stretch + 1];
+      if (onto && world.walkable(self, onto)) {
+        const line: RouteLine = { points: [self, ...shared.points.slice(join.stretch + 1)], endStep: shared.endStep };
+        return { path, fromStep: path.cursor, line, stretch: 0 };
+      }
+    }
+    return { path, fromStep: path.cursor, line: buildRouteLine(self, path, path.cursor, world), stretch: 0 };
+  }
+
   followRouteLine(state: BotGameState, urgent: boolean): BotInput | null {
     const path = this.host.life.currentPath;
     const vision = this.host.vision;
@@ -353,7 +386,7 @@ export class BotNavigator {
         walkable: (from, to) => vision.isWalkable(from, to),
         clearance: (at, want) => wallClearance(vision.collisionWorld, at, want, 16),
       };
-      held = { path, fromStep: path.cursor, line: buildRouteLine(self, path, path.cursor, world), stretch: 0 };
+      held = this.routeLineFor(self, path, world);
     }
     this.host.life.routeLine = held;
     const points = held.line.points;
