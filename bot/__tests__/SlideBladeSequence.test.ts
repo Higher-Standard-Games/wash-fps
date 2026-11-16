@@ -9,8 +9,8 @@ import { InputButtons } from "../BotConfig";
 import { BotGameState, type VisiblePlayer } from "../BotGameState";
 import { BotSequenceRegistry, BotSequenceRuntime } from "../BotSequence";
 import type { BotVision } from "../BotVision";
-import { lungeChance } from "../StateMachineBrain";
 import { canLunge, SlideBladeSequence } from "../sequences/SlideBladeSequence";
+import { lungeChance } from "../states/BotFight";
 
 function scene(enemyZ: number, walkable = true) {
   const state = new BotGameState();

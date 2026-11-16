@@ -1,4 +1,4 @@
-import { rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -18,6 +18,10 @@ const result = await build({
     "headless-netserver-v2": "src/games/fps/cli/headless-netserver-v2.ts",
     "lobby-server": "src/games/fps/cli/lobby-server.ts",
     "bot-server": "src/games/fps/cli/bot-server.ts",
+    // The nav graph build, in its own thread: BotNavBuilder starts it from beside bot-server.mjs
+    "bot-nav-worker": "src/games/fps/bot/BotNavWorker.ts",
+    // One match's bots in a process of their own: MatchRunnerPool starts it from beside bot-server.mjs
+    "bot-runner": "src/games/fps/cli/bot-runner.ts",
     ServerBenchmarkClient: "src/cli/ServerBenchmarkClient.ts",
     ServerRuntimeProbe: "src/games/fps/cli/ServerRuntimeProbe.ts",
   },
@@ -27,8 +31,8 @@ const result = await build({
   platform: "node",
   target: "node24",
   format: "esm",
-  // TensorFlow loads native modules at run time and is imported dynamically.
-  external: ["ws", "@tensorflow/*"],
+  // ws loads optional native helpers at run time.
+  external: ["ws"],
   tsconfig: "tsconfig.json",
   sourcemap: "external",
   metafile: true,
@@ -37,6 +41,8 @@ const result = await build({
   },
 });
 await writeFile(path.join(staging, "meta.json"), JSON.stringify(result.metafile, null, 2));
+// The compiled world trace, beside the bundles that read it (WorldTraceWasm.ts)
+await copyFile(path.resolve(root, "src/engine/physics/WorldTrace.wasm"), path.join(staging, "WorldTrace.wasm"));
 
 // Windows briefly locks freshly written files (indexers, virus scanners), so a
 // rename can fail with EPERM/EBUSY for a moment after the build.

@@ -69,6 +69,22 @@ The wrapper prefers built server bundles; without them it resolves the source
 entry in the new game directory or the alpha.2 engine directory. `--check lobby`
 or `--check bot` prints the selected command without starting a server.
 
+## Bots
+
+The lobby seats bots itself and plays each match's bots in a match runner
+(`dist-server/bot-runner.mjs`): a child process of the lobby that loads the
+map, plays the match and exits with it. Like match servers, runners count
+against `washoi-lobby`'s resource limits, about 175 MB per match with bots
+beside the match server's 120 MB, and their output goes to the lobby's
+journal. The lobby writes the bots' match reports to `bot-intel.db` in its
+`--data-dir`. Runners keep bot navigation caches in `.cache/bots/maps` under
+the working directory; a cache they cannot write is rebuilt at the start of
+each match. Bots, match servers and the browser trace collision with
+`WorldTrace.wasm`, which `build:server` copies beside the bundles.
+`washoi-bots` serves only a lobby started with `--bot-server`. Activation
+restarts it while it is enabled. Once it is disabled, activation leaves it
+alone and refuses to restart a lobby that has no `bot-runner.mjs`.
+
 Game commands use the game package when present. The alpha.2 fallback uses its
 existing root scripts, including `docs:fps:build`; a new game checkout uses
 `npm --prefix ... run docs:build`. This allows the operator update before the
@@ -110,7 +126,8 @@ checkout has none. `deploy-eu.sh` itself is still installed as
 2. Back up the actual persistent data, database, configuration and links. Never
    replace the checkout with an empty directory or delete ignored media.
 3. Normal deployment follows engine `main` automatically. Current backends use
-   bundles; successful builds replace them and restart lobby and bots even when
+   bundles; successful builds replace them and restart the lobby (and the bot
+   server, while enabled) even when
    players are connected. Allow for the deploy timer interval and build time.
 4. Write both full commit IDs to a temporary JSON file on the target host,
    validate it with `jq`, then atomically rename it to `release-pair.json`.
@@ -124,7 +141,7 @@ checkout has none. `deploy-eu.sh` itself is still installed as
    activation hook. After a successful activation it removes older stages,
    keeping the activated one and the newest earlier complete stage for
    rollback. EU publishes static surfaces and builds server bundles;
-   its activation hook restarts lobby and bots when the published fingerprint
+   its activation hook restarts the backend when the published fingerprint
    differs from the running backend.
 7. Verify game HTTP, lobby upgrade, representative media, account continuity
    and a real match before considering the application release deployed.
@@ -138,6 +155,36 @@ Media is copied separately without deletion; demos and the legacy shared
 texture archive are excluded from that copy. The canonical assets and live
 demos under `assets/data` remain in place. US retains its maintenance handshake
 gate during activation. Old staged builds are retained for rollback.
+
+## v1.0.0-beta.13 operator steps
+
+Bots move from `washoi-bots` into the lobby (see [Bots](#bots)). The release
+works with the installed scripts and units unchanged: activation still
+restarts both services, and the bot server starts and stays idle. On each
+host:
+
+1. **Before publishing**, check that `washoi-lobby` has room for runners:
+   `systemctl show washoi-lobby -p MemoryMax -p MemoryHigh -p TasksMax`
+   should allow a runner (about 175 MB) per bot match on top of its match
+   servers. If the units are sandboxed, give the lobby unit the write paths
+   the bot unit had, so runners can keep the navigation caches.
+2. **Publish** engine and game `main` as usual and let activation run.
+3. **Verify** in `journalctl -u washoi-lobby`: the lobby prints
+   `Bots: seated by the lobby, matches in match runners` at start, and a bot
+   match logs `[HeadlessBSPCollisionWorld] World trace: compiled (WebAssembly)`
+   from its runner. `pgrep -af bot-runner` lists a runner while the match
+   plays and none after it ends. Play a campaign mission and a quick play
+   with bots.
+4. **Install** this release's `activate-eu.sh` or `activate-us.sh` as
+   `/usr/local/sbin/washoi-activate`. Without it, activation keeps
+   restarting `washoi-bots` and fails once that is disabled.
+5. **Retire the bot server**: `systemctl disable --now washoi-bots`.
+
+To roll back to beta.12, run `systemctl enable --now washoi-bots` first:
+the older lobby asks the bot server for bots, and with the bot server enabled
+activation does not look for a runner. Without rolling back, a lobby whose
+bot seats misbehave can go back to the bot server: add `--bot-server` to its
+`ExecStart` and enable `washoi-bots`.
 
 ## 2026-10-24 operator cutover
 

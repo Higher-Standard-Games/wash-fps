@@ -13,15 +13,20 @@
  *   the game's movement does), and runs that got stuck or left the line;
  * - how many points the lines have against the routes' nodes.
  *
+ * With --check it reports instead the graph's edges, learned routes' included,
+ * that fail the walk test they were built by (BotNavGraph.checkEdges), and
+ * exits 1 if there are any: a stale nav cache, or learned routes whose start
+ * or landing no longer walks to its node.
+ *
  * No match is played; it takes seconds. Usage:
- *   npm run bot:routes -- --map washoi_dm2 [--turn 300] [--ahead 128]
+ *   npm run bot:routes -- --map washoi_dm2 [--turn 300] [--ahead 128] [--check]
  */
 
 import { runCli } from "../../../cli/_runCli";
 import { PLAYER_HULL, settle } from "../../../shared/collision/WalkFlood";
 import type { Vec3 } from "../bot/BotGameState";
 import { BotNavCacheStore } from "../bot/BotNavCache";
-import { BotNavGraph, type NavPath, wallClearance } from "../bot/BotNavGraph";
+import { BotNavGraph, type NavPath, type WalkTest, wallClearance } from "../bot/BotNavGraph";
 import { createBotVision } from "../bot/BotVision";
 import { loadLearnedRoutes } from "../bot/LearnedRoutes";
 import { buildRouteLine, pointAlong, type RouteWorld, standingOrigin } from "../bot/RouteLine";
@@ -45,10 +50,11 @@ interface Args {
   map: string;
   turn: number;
   ahead: number;
+  check: boolean;
 }
 
 function parseArgs(): Args {
-  const a: Args = { map: "washoi_dm2", turn: 300, ahead: 128 };
+  const a: Args = { map: "washoi_dm2", turn: 300, ahead: 128, check: false };
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
     const next = () => argv[++i];
@@ -62,9 +68,12 @@ function parseArgs(): Args {
       case "--ahead":
         a.ahead = Number(next()) || a.ahead;
         break;
+      case "--check":
+        a.check = true;
+        break;
       case "--help":
       case "-h":
-        console.log("Usage: npm run bot:routes -- [--map washoi_dm2] [--turn 300] [--ahead 128]");
+        console.log("Usage: npm run bot:routes -- [--map washoi_dm2] [--turn 300] [--ahead 128] [--check]");
         process.exit(0);
     }
   }
@@ -87,6 +96,33 @@ const pct = (part: number, whole: number) => `${((100 * part) / Math.max(1, whol
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 let timeoutLogs = 0;
 
+/** Report the edges that fail their walk test; the exit code: 1 when any do. */
+function checkEdges(map: string, nav: BotNavGraph, walk: WalkTest, learned: number): number {
+  const failures = nav.checkEdges(walk);
+  const routes = nav.edges.filter((e) => nav.getLearnedRoute(e.opportunityId)).length;
+  console.log(
+    `bot:routes --check ${map}: ${nav.nodeCount} nodes, ${nav.edgeCount} edges, ${learned} learned routes (${routes} edges)`,
+  );
+  if (failures.length === 0) {
+    console.log("  every edge passes its walk test");
+    return 0;
+  }
+  const byReason = new Map<string, number>();
+  for (const f of failures) byReason.set(f.reason, (byReason.get(f.reason) ?? 0) + 1);
+  for (const [reason, n] of [...byReason].sort((a, b) => b[1] - a[1]))
+    console.log(`  ${String(n).padStart(5)}  ${reason}`);
+  const at = (id: number) => {
+    const p = nav.nodes[id]?.position;
+    return p ? `(${Math.round(p.x)}, ${Math.round(p.y)}, ${Math.round(p.z)})` : "?";
+  };
+  for (const f of failures.slice(0, 20)) {
+    console.log(
+      `    ${f.edge.type} ${f.edge.from} ${at(f.edge.from)} -> ${f.edge.to} ${at(f.edge.to)}${f.edge.opportunityId ? ` ${f.edge.opportunityId}` : ""}: ${f.reason}`,
+    );
+  }
+  return 1;
+}
+
 async function main(): Promise<void> {
   const args = parseArgs();
   const quiet = console.log;
@@ -99,7 +135,12 @@ async function main(): Promise<void> {
   }
   console.log = quiet;
   if (!vision || !nav) throw new Error(`Could not load map "${args.map}"`);
-  nav.addLearnedRoutes(loadLearnedRoutes(args.map), (from, to) => vision.isWalkable(from, to));
+  const walkTest = nav.walkTest(vision);
+  const learned = nav.addLearnedRoutes(loadLearnedRoutes(args.map), walkTest);
+  if (args.check) {
+    process.exitCode = checkEdges(args.map, nav, walkTest, learned);
+    return;
+  }
   const world = vision.collisionWorld;
   const gapAt = (at: Vec3) => wallClearance(world, at, 64, 16).gap;
   const routeWorld: RouteWorld = {

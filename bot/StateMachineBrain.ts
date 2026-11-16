@@ -13,16 +13,12 @@
  * prediction skill, and other human-feel parameters.
  */
 
-import { DEFAULT_VIEWHEIGHT } from "../../../engine/physics/PlayerPhysicsConstants";
 import { DEFAULT_PHYSICS_TICK_RATE as TICK_RATE } from "../../../shared/server/simulation/physics/constants";
-import { scaledBodyHeight } from "../shared/BodyScale";
 import { isBotName } from "../shared/bot/BotNames";
-import { type BotWeightProfile, selectWeightProfile } from "../shared/bot/WeightProfiles";
+import { type BotWeightProfile, selectGametypeHabits, selectWeightProfile } from "../shared/bot/WeightProfiles";
 import type { PickupEntry } from "../shared/bsp/PickupTable";
-import { wrapAngle } from "./BotAimController";
 import { BotBlockedMove } from "./BotBlockedMove";
 import { BotBrain, type BotInput, BotState, type BrainMatchReport, travelYaw } from "./BotBrain";
-import { BotCombatMovement, findHighGround } from "./BotCombatMovement";
 import {
   type BotDifficulty,
   defaultGoalArbiterMode,
@@ -30,54 +26,35 @@ import {
   HIT_ATTENTION_MS,
   InputButtons,
 } from "./BotConfig";
-import { BotCoverPeek } from "./BotCoverPeek";
-import type { BotGameState, Vec3, VisiblePlayer } from "./BotGameState";
-import { vec3Distance, vec3Length, vec3Normalize, vec3Subtract } from "./BotGameState";
+import type { BotGameState, Vec3 } from "./BotGameState";
+import { vec3Distance, vec3Length, vec3Subtract } from "./BotGameState";
+import { BotLife } from "./BotLife";
 import { BotMood, type Mood, type MoodEvent } from "./BotMood";
-import { canInitiateSlide, PHYSICS } from "./BotMovementProfile";
-import {
-  type BotNavGraph,
-  type NavPath,
-  type NavPathOptions,
-  type NavStep,
-  navEdgeKey,
-  wallClearance,
-} from "./BotNavGraph";
+import type { BotNavGraph } from "./BotNavGraph";
 import { duelLeadReactionDelay } from "./BotReactionTuning";
-import {
-  BotSequenceRegistry,
-  BotSequenceRuntime,
-  type BotSequenceRuntimeTick,
-  type RouteStrafeLane,
-} from "./BotSequence";
 import { BotTerritory } from "./BotTerritory";
-import type { BotVision, EnemyTrack, VisionResult } from "./BotVision";
-import { BotVisionTracer, wallAheadSide } from "./BotVisionTracer";
-import { BotWeaponCombos, has, slotFor } from "./BotWeaponCombos";
-import { getWeaponProfile, selectBestWeapon, type WeaponProfile } from "./BotWeaponProfile";
+import type { BotVision, VisionResult } from "./BotVision";
+import { getWeaponProfile } from "./BotWeaponProfile";
 import { type DecisionTrace, TRACED_CANDIDATES } from "./DecisionTrace";
-import type { BotGoal } from "./goals/BotGoal";
+import type { BotGoal, ItemGoalChoice } from "./goals/BotGoal";
 import { isMajorItem } from "./goals/considerations/ItemFacts";
-import { collectDirectiveGoals } from "./goals/DirectiveGoalSource";
 import { ItemGoalPlanner } from "./goals/ItemGoalPlanner";
 import { respawnTickOf } from "./goals/ItemGoalSource";
+import { chooseRoam, holdDesire, huntDesire, type RoamPick } from "./goals/RoamChoice";
+import { InputClaims } from "./InputClaims";
 import { loadBaseline, payoffPriors } from "./intel/IntelBaseline";
 import { loadPeopleProfile, typicalStackAfter } from "./intel/PeopleProfile";
-import { planLedgeSlideJump } from "./LedgeSlideJump";
 import { inHarmfulLiquid, liquidEscapeTarget } from "./LiquidEscape";
-import { buildRouteLine, lineEndStep, pointAlong, type RouteLine, type RouteWorld } from "./RouteLine";
-import { ItemSlideApproachSequence } from "./sequences/ItemSlideApproachSequence";
-import { LearnedRouteSequence } from "./sequences/LearnedRouteSequence";
-import { LedgeSlideJumpSequence } from "./sequences/LedgeSlideJumpSequence";
-import { RouteCrouchslideSequence } from "./sequences/RouteCrouchslideSequence";
-import { RouteStrafeJumpSequence, sideTurnAngle } from "./sequences/RouteStrafeJumpSequence";
-import { canLunge, SlideBladeSequence } from "./sequences/SlideBladeSequence";
-import { TraverseJumppadSequence } from "./sequences/TraverseJumppadSequence";
-import { TraverseTeleporterSequence } from "./sequences/TraverseTeleporterSequence";
-import { ValidatedJumpSequence } from "./sequences/ValidatedJumpSequence";
+import { BotSteering, type SteeringHost } from "./movement/BotSteering";
+import { BotNavigator, type NavigatorHost, PATH_RECALC_INTERVAL } from "./navigation/BotNavigator";
+import { BotTraversal, PICKUP_FAILURE_COOLDOWN_TICKS, type TraversalHost } from "./navigation/BotTraversal";
+import { BotOrders, type OrdersHost } from "./orders/BotOrders";
+import { BotFight, type FightHost } from "./states/BotFight";
+import { BotRoam, PICKUP_SEEK_RANGE, type RoamHost } from "./states/BotRoam";
 import { MatchRead } from "./strategy/MatchRead";
 import { OpponentModel } from "./strategy/OpponentModel";
 import { applyStrategyWeights, STRATEGIES, Strategist, type Strategy, type StrategyId } from "./strategy/Strategist";
+import { BotLook, type LookHost } from "./view/BotLook";
 
 /** A weight profile with test multipliers applied (BotOptions.weights). */
 function scaleProfile(base: BotWeightProfile, scale: Partial<BotWeightProfile>): BotWeightProfile {
@@ -92,62 +69,10 @@ function scaleProfile(base: BotWeightProfile, scale: Partial<BotWeightProfile>):
 const LOW_HEALTH_THRESHOLD = 40;
 const RETREAT_HEALTH_THRESHOLD = 25;
 const FIGHT_RANGE = 2000;
-/** A chased enemy seen this recently is watched for rather than the route ahead. */
-const CHASE_WATCH_TICKS = Math.round(1.5 * TICK_RATE);
-/** Furthest the view turns from where the bot runs to watch a lost enemy. */
-const CHASE_WATCH_MAX_OFF_TRAVEL = (110 * Math.PI) / 180;
-const PICKUP_SEEK_RANGE = 1500;
-/** A bot timing an item waits this close to it, inside its pickup reach. */
-const TIMED_ITEM_HOLD_RADIUS = 40;
-/** How long a bot waiting at a timed item watches one way in. */
-const ENTRANCE_WATCH_TICKS = 375;
-/** A charged blast is let go within this of the aim (radians)… */
-const CHARGE_RELEASE_CONE = (12 * Math.PI) / 180;
-/** …or this many ticks after its planned release, on the aim or not. */
-const CHARGE_AIM_GRACE_TICKS = Math.round(0.5 * TICK_RATE);
 /** A teammate's call of enemies is worth hunting this long, ticks. */
 const TEAM_SIGHTING_TICKS = 6 * TICK_RATE;
-/** An order's waypoint counts as passed within this, horizontally… */
-const VIA_RADIUS = 128;
-/** …and this, vertically. */
-const VIA_HEIGHT = 72;
-/** A blade charge is held out of a fight at most this long after it started. */
-const CHARGE_CARRY_TICKS = Math.round(2 * TICK_RATE);
-/** A held watch sweeps this far either side of the way in, radians, at this rate. */
-const HOLD_SWEEP = 0.3;
-/** A move to a point this much lower than the bot means to drop off an edge, units. */
-const STEER_DROP_HEIGHT = 40;
-/** Rising faster than any jump, units/s: a jump pad has thrown the bot. */
-const PAD_LAUNCH_SPEED = 450;
-/** A target this much higher than the bot, behind something in the way, is worth a climb. */
-const CLIMB_RISE = 30;
-/** Climbs are looked for toward targets at most this far off, units. */
-const CLIMB_REACH = 500;
-/** The way ahead counts as in the way below this much clear run. */
-const CLIMB_BLOCKED = 0.7;
-/** A climb or wall jump is checked at most this often, ticks: each check runs the movement forward. */
-const TRICK_CHECK_TICKS = 20;
-const WALL_JUMP_CHECK_TICKS = 6;
-/** After a climbing jump, forward is held toward the target this long, for the ledge grab, ticks. */
-const CLIMB_HOLD_TICKS = 90;
-/** A wall jump is taken when it ends at least this much nearer the target than not jumping, units. */
-const WALL_JUMP_GAIN = 96;
-/** A wall this near the hull is one to wall jump from, units. */
-const WALL_JUMP_NEAR = 12;
-/** A guard picks its next patrol point once this close to the last, units. */
-const GUARD_POINT_REACHED = 56;
-/** Guard patrol points lie this far out from the spot, as shares of the order's radius. */
-const GUARD_RINGS = [0.45, 0.85] as const;
-/** Directions round the spot a guard tries for patrol points. */
-const GUARD_DIRECTIONS = 10;
-/** Patrol points are kept within this of a guard's radius, units, however large the order. */
-const GUARD_MIN_RADIUS = 96;
-const GUARD_MAX_RADIUS = 420;
-/** With nowhere to walk, a guard strafes and turns the way back this often, ticks. */
-const GUARD_STRAFE_TICKS = 90;
-/** Eye height for a guard's check that a patrol point sees the way in. */
-const GUARD_EYE = 40;
-const HOLD_SWEEP_RATE = 0.9;
+/** A bot's own sighting of an enemy is worth hunting for this long, ticks. */
+const ENEMY_SIGHTING_TICKS = 300;
 const DODGE_REACT_TICKS = 30; // React to damage within last 30 ticks
 /** Blocked in a fight, the bot runs the open way this long before the fight steers again. */
 const UNSTICK_TICKS = Math.round(0.5 * 125);
@@ -160,75 +85,15 @@ const BLOCKED_SPEED = 60;
 /** An enemy this close is what the bot is pressing against, not a wall. */
 const ENEMY_BODY_RANGE = 72;
 const MOVE_KEYS = InputButtons.FORWARD | InputButtons.BACK | InputButtons.LEFT | InputButtons.RIGHT;
-/** The slide's own cooldown plus its length, in server ticks, from the start of the last one. */
-const SLIDE_COOLDOWN_TICKS = Math.ceil(((PHYSICS.SLIDE_COOLDOWN + PHYSICS.SLIDE_DURATION) / 1000) * TICK_RATE);
-/** A lunge chance passed up is not rolled for again this soon. */
-const LUNGE_REROLL_TICKS = 125;
-/** Too hurt to dive in with a blade. */
-const LUNGE_MIN_HEALTH = 30;
-/** How often a bot with a splash weapon looks for a ledge to fight from. */
-const HIGH_GROUND_SEARCH_TICKS = 250;
-/** Cover is fought from at this range and further: closer, the fight is too quick for it. */
-const COVER_MIN_RANGE = 350;
 
 /** Fight habits a head-to-head test can turn off (`BotOptions.fightOff`). */
 export type FightHabit = "cover" | "height" | "unstick" | "itemcheck" | "holster" | "steer" | "tricks";
-/** A heard enemy this close gets the gun for its distance readied, held this long. */
-const READY_RANGE = 1500;
-const READY_TICKS = 250;
-/** Out of a fight, the gun put up in place of the blade is the best one at this range. */
-const HOLSTER_RANGE = 800;
-/** How far off a wild shot goes, and how far an item may be to glance at. */
-const WILD_SHOT_OFFSET = (5 * Math.PI) / 180;
-const ITEM_GLANCE_RANGE = 1200;
-/** Odds of taking a lunge chance, by dodgeSkill: never below 0.35 (Easy), 25% Medium, 60% Hard, 85% Insane. */
-const LUNGE_CHANCE_POINTS: readonly (readonly [number, number])[] = [
-  [0.35, 0],
-  [0.4, 0.25],
-  [0.7, 0.6],
-  [0.9, 0.85],
-];
-
-export function lungeChance(dodgeSkill: number): number {
-  const points = LUNGE_CHANCE_POINTS;
-  if (dodgeSkill < points[0][0]) return 0;
-  for (let i = 1; i < points.length; i++) {
-    const [x1, y1] = points[i];
-    if (dodgeSkill <= x1) {
-      const [x0, y0] = points[i - 1];
-      return y0 + ((y1 - y0) * (dodgeSkill - x0)) / (x1 - x0);
-    }
-  }
-  return points[points.length - 1][1];
-}
-const HUNT_DIRECTION_CHANGE_INTERVAL = 180; // Change hunt direction every ~3 sec at 60Hz
-
-const MELEE_RANGE = 150;
-const CLOSE_RANGE = 400;
 
 // Feeler ray constants
-const FEELER_FORWARD_DIST = 300; // Forward ray distance
-const FEELER_SIDE_DIST = 200; // Side ray distance
-const FEELER_SIDE_ANGLE = Math.PI / 6; // 30° offset for side rays
-const FEELER_STEER_THRESHOLD = 0.6; // fraction below which we steer away
-/** A wall ahead keeps the bot turning the side it chose for this long. */
-const FEELER_SIDE_COMMIT_TICKS = 50;
 
 // Fading and escaping (see _shouldFade, _escapePoint)
 /** Damage taken in a fight that makes a fading strategy leave it. */
 const FADE_DAMAGE = 40;
-/** An escape point lies this far away, units. */
-const ESCAPE_MIN = 192;
-const ESCAPE_MAX = 900;
-/** ... and no more toward the threat than this (cosine). */
-const ESCAPE_MAX_TOWARD = 0.2;
-/** Reached when this close, units; given up after ESCAPE_HOLD_TICKS. */
-const ESCAPE_REACHED = 64;
-const ESCAPE_HOLD_TICKS = 375;
-/** Nearest candidate nodes checked for sight and route cost. */
-const ESCAPE_CANDIDATES = 24;
-/** With no way out found, look again after this long. */
-const ESCAPE_RETRY_TICKS = 60;
 
 // Habits (see _contested)
 /** Match sense from which a bot contests the items its opponent keeps taking. */
@@ -248,68 +113,6 @@ const SEEK_DESIRE_BASE = 0.2;
 /** Extra desire per unit of the gametype's aggression. */
 const SEEK_DESIRE_PER_AGGRESSION = 0.25;
 
-// Looking round while running (out of a fight)
-/** Calm, the view rests this far below where the brain looks: people look at the floor ahead. */
-const CALM_PITCH = (10 * Math.PI) / 180;
-/** Calm, the view never looks further down than this. */
-const CALM_MAX_PITCH = (45 * Math.PI) / 180;
-/** Furthest the view turns from where the bot runs to look into open space. */
-const LOOK_MAX_OFF_TRAVEL = (45 * Math.PI) / 180;
-const LOOK_STEP = (15 * Math.PI) / 180;
-/** Sight lines are scored out to this far, units. */
-const LOOK_RANGE = 1500;
-/** What looking the full LOOK_MAX_OFF_TRAVEL aside costs, of a score out of 1. */
-const LOOK_OFF_COST = 0.3;
-/** With nothing worth a glance, how soon to look for one again, ticks. */
-const LOOK_INTERVAL_TICKS = 50;
-/** How long a glance holds, ticks (±30%). */
-const GLANCE_TICKS = 85;
-/** Rest between glances, ticks (from 0.67 to 1.33 of it). */
-const GLANCE_REST_TICKS = 375;
-/** How much more open another direction must be to take over. */
-const LOOK_SWITCH_MARGIN = 0.2;
-/** What turning the view a quarter turn from where it is costs, of a score out of 1. */
-const LOOK_TURN_COST = 0.3;
-/** A major item's spot unseen this long is worth a look in passing, ticks. */
-const SPOT_STALE_TICKS = 8 * TICK_RATE;
-/** Spots are looked at from this far to as far as perception tells them apart (BotPerception). */
-const SPOT_MIN_DISTANCE = 200;
-const SPOT_MAX_DISTANCE = 2000;
-
-// Path following
-const PATH_ARRIVED_THRESHOLD = 100; // Distance to consider "arrived" at a waypoint
-/** How far along its route a walking bot looks. */
-const ROUTE_LOOK_AHEAD = 250;
-/** Running a route line, the bot heads for the point this far along it. */
-const ROUTE_LINE_AHEAD = 64;
-/** At the line's end within this, the steps it covered are done. */
-const ROUTE_LINE_ARRIVED = 48;
-/** Further than this from its line, a bot was knocked off it and plans the line again. */
-const ROUTE_LINE_OFF = 128;
-/** Closer than this the look point says nothing about where the route goes. */
-const ROUTE_LOOK_MIN_DISTANCE = 32;
-type PathFollowResult =
-  | { status: "moving"; input: BotInput }
-  | { status: "complete" }
-  | { status: "blocked"; reason: string };
-
-const PATH_RECALC_INTERVAL = 120; // Recalculate path every ~2 seconds
-const NAV_EDGE_FAILURE_COOLDOWN_TICKS = 625;
-/** The cooldown doubles with each failure of the same edge, up to this many times. */
-const NAV_EDGE_FAILURE_MAX_SCALE = 8;
-
-const BOT_SLIDE_COOLDOWN_TICKS = Math.ceil((PHYSICS.SLIDE_COOLDOWN / 1000) * TICK_RATE);
-/** How far a route slide carries the bot on the heading it starts with, units. */
-const ROUTE_SLIDE_RUN = 320;
-/** The slide's run plus the room to come out of it at speed, units. */
-const ROUTE_SLIDE_REACH = 520;
-/** Every waypoint inside a route slide's run lies within this of its line. */
-const ROUTE_SLIDE_LANE = 64;
-const ITEM_SLIDE_MIN_DISTANCE = 260;
-const ITEM_SLIDE_MAX_DISTANCE = 760;
-const ITEM_SLIDE_MAX_VELOCITY_ERROR_RADIANS = Math.PI / 6;
-const ITEM_SLIDE_ALLY_RADIUS = 80;
-const PICKUP_FAILURE_COOLDOWN_TICKS = 625;
 /** A route that ends further than this from its item has not reached it. */
 const UNREACHED_ITEM_DISTANCE = 64;
 /** Beside an item, horizontally, for longer than ITEM_CIRCLE_TICKS without taking it: it is out of reach. */
@@ -318,119 +121,36 @@ const ITEM_CIRCLE_TICKS = 125;
 /** A bot that needs an item chases a heard enemy only this close: round the next corner. */
 const SOUND_DIVERT_DISTANCE = 384;
 
-/** Rays this far up count too, so stairs ahead are not a wall. */
-const LOOK_UP_PITCH = (10 * Math.PI) / 180;
-
-/** How open the view is toward `yaw` from `eye`: 1 when nothing is within LOOK_RANGE. */
-function openFraction(vision: BotVision, eye: Vec3, yaw: number): number {
-  let best = 0;
-  for (const pitch of [0, LOOK_UP_PITCH]) {
-    const reach = LOOK_RANGE * Math.cos(pitch);
-    const end = {
-      x: eye.x + Math.sin(yaw) * reach,
-      y: eye.y + LOOK_RANGE * Math.sin(pitch),
-      z: eye.z + Math.cos(yaw) * reach,
-    };
-    best = Math.max(best, vision.collisionWorld.trace(eye, end).fraction);
-  }
-  return best;
-}
-
-/** An item goal, and an item worth taking on the way to it. */
-interface ItemGoalChoice {
-  goal: BotGoal;
-  stopover: BotGoal | null;
-  /** The arbiter's score for `goal` (GoalArbiter: gate × attraction × discount). */
-  desire: number;
-}
-
-/** RETREAT wants healing, not shopping — see ItemGoalPlannerOptions.typeFilter. */
-const RETREAT_ITEM_TYPES: ReadonlySet<string> = new Set(["health"]);
-
-const BOT_STRAFE_RETRY_TICKS = 30;
-/** A strafe jump needs a lane of route this long and wide, plain walking out to the reach. */
-const ROUTE_STRAFE_RUN = 240;
-const ROUTE_STRAFE_REACH = 640;
-/** A strafe-jump chain starts from this speed: walking pace, since a hop off it already gains. */
-const ROUTE_STRAFE_ENTRY_SPEED = 320;
-/** The most a hop chain's stretch of route line may turn in all. */
-const ROUTE_STRAFE_MAX_TURN = (120 * Math.PI) / 180;
-/** A hop steers for the route line this far ahead of the bot, units. */
-const ROUTE_STRAFE_STEER_AHEAD = 160;
-/** Without a route line: a straight lane of route this long and wide, plain walking to the reach. */
-const STRAIGHT_HOP_RUN = 480;
-const STRAIGHT_HOP_REACH = 640;
-const STRAIGHT_HOP_LANE = 96;
-/** The hop sequence ends this far before its target (RouteStrafeJumpSequence ENDPOINT_EXIT_DISTANCE). */
-const STRAIGHT_HOP_EXIT_MARGIN = 260;
-const ROUTE_STRAFE_ITEM_MIN_REMAINING_DISTANCE = 800;
-const ROUTE_STRAFE_MAX_VELOCITY_ERROR_RADIANS = Math.PI / 4;
-const ROUTE_STRAFE_ALLY_LOOKAHEAD = 600;
-const ROUTE_STRAFE_ALLY_RADIUS = 80;
-
 export class StateMachineBrain extends BotBrain {
   // ── Internal state ────────────────────────────────────────────────
-  private _huntYaw: number = 0;
-  private _huntTimer: number = 0;
+  /** This life's route, goals and plans; a new one at each death (BotLife). */
+  private _life = new BotLife();
+  /** Route following (navigation/BotNavigator). */
+  private readonly _nav = new BotNavigator(this._navigatorHost());
+  /** Traversal sequences and the route's slides and hops (navigation/BotTraversal). */
+  private readonly _traversal = new BotTraversal(this._traversalHost());
+  /** Wall clearance, pad throws, climbs and wall jumps (movement/BotSteering). */
+  private readonly _steering = new BotSteering(this._steeringHost());
+  /** Glances while roaming and the calm look (view/BotLook). */
+  private readonly _look = new BotLook(this._lookHost());
+  /** The CHASE, RETREAT, ITEM_RUN and HUNT states (states/BotRoam). */
+  private readonly _roam = new BotRoam(this._roamHost());
+  /** The FIGHT and DODGE states, aim, charged shots and the fight's moves (states/BotFight). */
+  private readonly _fight = new BotFight(this._fightHost());
+  /** The gametype's orders: the goal they set, guard walks and the leash (orders/BotOrders). */
+  private readonly _orders = new BotOrders(this._ordersHost());
 
   // Slide-blade lunge: when this bot last slid, and when it may roll for a lunge again
-  private _lastSlideTick = Number.NEGATIVE_INFINITY;
-  private _lungeRollAfterTick = 0;
-  private readonly _combatMovement = new BotCombatMovement();
-  private readonly _coverPeek: BotCoverPeek;
-  /** When the bot last fired the weapon out, for peeking between shots. */
-  private _firedTick = Number.NEGATIVE_INFINITY;
   /** Fight habits turned off for head-to-head tests (`BotOptions.fightOff`). */
   private _fightOff: ReadonlySet<FightHabit> = new Set();
-  private readonly _weaponCombos = new BotWeaponCombos();
   private readonly _mood = new BotMood();
   /** Kills and deaths since the last `takeMoodEvents`, for chat. */
   private _moodEvents: MoodEvent[] = [];
-  /** The gun got out for an enemy heard but not yet seen, and until when. */
-  private _readyWeapon: { weapon: string; until: number } | null = null;
-  private _readyRollTick = 0;
-  private _highGroundSpot: Vec3 | null = null;
-  private _highGroundSearchTick = 0;
 
   // Movement variety
   private _strafeDirection: number = 1; // 1 or -1
-  /** Side chosen round a wall ahead (+1 right, -1 left), and until when. */
-  private _feelerSide: { sign: number; untilTick: number } | null = null;
-  /** Whether the feelers turned this decision's heading. */
-  private _feelerSteered = false;
-  /**
-   * The line through the walking stretch of the current route (RouteLine),
-   * for the path it was built on from step `fromStep`, and the stretch of it
-   * the bot is on.
-   */
-  private _routeLine: { path: NavPath; fromStep: number; line: RouteLine; stretch: number } | null = null;
-  /** This decision ran along a route line; the feelers stand aside. */
-  private _onRouteLine = false;
-  /** Riding a jump pad's throw the route did not ask for, to where it throws, until down again. */
-  private _padRide: { dest: Vec3 } | null = null;
-  /** This decision's move is an exact line (a sequence, a trick's approach): not steered. */
-  private _exactMove = false;
-  /** Keeps the feet clear of walls in every state (BotVisionTracer), made per collision world. */
-  private _tracer: BotVisionTracer | null = null;
-  private _tracerWorld: unknown = null;
-  /** The point this decision's movement makes for, when it has one: the tracer looks no further. */
-  private _steerTarget: Vec3 | null = null;
-  /** How clear the way ahead ran on the last steer, 0..1. */
-  private _steerClear = 1;
-  /** Next tick a climb or wall jump may be checked for; a climb under way holds forward to its target. */
-  private _trickCheckTick = 0;
-  private _climb: { target: Vec3; untilTick: number } | null = null;
-  /** A wall jump wants a fresh press: jump let go this decision, pressed on the next. */
-  private _wallJumpPress = false;
-  private _lastJumpHeld = false;
-  /** Where the view looks while running, relative to the way the bot runs, and until when. */
-  private _look: {
-    off: number;
-    untilTick: number;
-    spot?: { pickupId: number; position: Vec3; sinceTick: number };
-  } | null = null;
-  /** When a look at each major item's spot was last begun, by pickup id. */
-  private readonly _spotLooks = new Map<number, number>();
+  /** Who holds movement, view and buttons this decision (InputClaims). */
+  private readonly _claims = new InputClaims();
   /** What the bot knows of how the match is going (strategy/MatchRead.ts). */
   /** Player names by entity, from the last decision: people's stack curve is for people. */
   private _names: ReadonlyMap<string, string> = new Map();
@@ -442,9 +162,6 @@ export class StateMachineBrain extends BotBrain {
   private _strategy: Strategy = STRATEGIES.standard;
   /** The map and gametype whose baseline priors the strategist has. */
   private _priorsFor: string | null = null;
-  /** A way out of an enemy's sight being taken (see _escapePoint). */
-  private _escape: { point: Vec3; untilTick: number } | null = null;
-  private _escapeRetryTick = 0;
   /** The opponent's habits in this match (strategy/OpponentModel.ts). */
   private readonly _opponents = new OpponentModel();
   /** A test bot's fixation: it goes for every item of this kind (`BotOptions.habitItem`). */
@@ -452,76 +169,41 @@ export class StateMachineBrain extends BotBrain {
   private _strategyLimit: readonly StrategyId[] | null = null;
 
   // Crouchslide cooldown. Sequence phases use authoritative server ticks.
-  private _slideCooldownUntilTick: number = 0;
 
-  private _routeStrafeCooldownUntilTick: number = 0;
-  private _routeStrafeSide: -1 | 1 = 1;
   // Charged weapon cadence (blade alt-fire: hold, then release to shoot)
   /** Where a teammate last called enemies, and when. */
   private _teamSighting: { position: Vec3; tick: number } | null = null;
-  /** Progress along the current order's `via` waypoints. */
-  private _via: { id: string; next: number } | null = null;
   /** BotOptions.weights: multipliers on the gametype's profile. */
   private _weightScale: Partial<BotWeightProfile> = {};
   /** BotOptions.trace: a DecisionTrace per decision. */
   private _tracing = false;
   private _lastTrace: DecisionTrace | null = null;
-  private _chargeWeaponId: string | null = null;
-  private _chargeTargetId: string | null = null;
-  private _chargeStartTick: number | null = null;
-  private _chargeReleaseTick: number | null = null;
-
-  /** Tick ADS was first held with the weapon now up, while it stays held. */
-  private _adsSinceTick: number | null = null;
 
   // Random look-around for human-feel
-  private _lookAroundTimer: number = 0;
-  private _lookAroundYaw: number = 0;
 
   // NavGraph pathfinding
   private _navGraph: BotNavGraph | null = null;
-  private _currentPath: NavPath | null = null;
-  private _pathTarget: Vec3 | null = null;
-  private _pathRecalcTimer: number = 0;
-  private _huntPatrolTarget: Vec3 | null = null; // Separate from _pathTarget to avoid confusion
   private readonly _territory = new BotTerritory();
-  private _navigationProgress: { position: Vec3; tick: number } | null = null;
-  private _recovery: { target: Vec3; until: number } | null = null;
   private readonly _blocked = new BotBlockedMove();
-  /** Blocked in a fight: the open way the bot runs, and until when. */
-  private _unstick: { yaw: number; untilTick: number } | null = null;
-  /** Where a bot in slime or lava is heading to get out, and when that was chosen; null when dry. */
-  private _liquidEscape: { target: Vec3 | null; chosenTick: number } | null = null;
   /** How many times a player's size this bot's body is; 1 but for a campaign boss. */
   private _bodyScale = 1;
   /** Slime and lava do not hurt this bot (a campaign boss), so it does not get out of them. */
   private _liquidImmune = false;
-  private _ledgeProbeTick = 0;
+  /** Roam by score: see setScoredGoals. */
+  private _scoredGoals = false;
+  private _roamMemo: { tick: number; pick: RoamPick | null } | null = null;
   private _leadReactionDelayMs = 0;
   private _cancelScript = false;
-  private readonly _sequenceRegistry = new BotSequenceRegistry();
-  private readonly _sequenceRuntime = new BotSequenceRuntime(this._sequenceRegistry);
-  private _activeSequenceStep: NavStep | null = null;
   private _lastDecisionTick: number = 0;
-  private readonly _blockedNavEdges = new Map<string, number>();
-  /** Times each nav edge has failed this bot, for the growing cooldown. */
-  private readonly _navEdgeFailures = new Map<string, number>();
 
-  private readonly _blockedPickupIds = new Map<number, number>();
   /** Goals (by id, for dropped items with no pickup id) on the same cooldown: id → retry tick. */
   private readonly _blockedGoalIds = new Map<string, number>();
-  /** The item goal the bot has been beside, and since when. */
-  private _itemCircle: { goalId: string; sinceTick: number } | null = null;
-  private _activeItemSlideTarget: { pickupId: number; position: Vec3 } | null = null;
 
   // Scored item-goal selection (docs/research/BOT_WEIGHTS_AND_GOALS.md Phase 1).
   // Replaces "nearest pickup wins" for WHICH item to fetch; the state ladder
   // above still decides WHETHER to fetch one.
   private readonly _itemGoalPlanner: ItemGoalPlanner;
   private readonly _goalArbiterMode: GoalArbiterMode;
-  private _activeItemGoal: BotGoal | null = null;
-  private _mandatoryGoal: BotGoal | null = null;
-  private _sitePatrol: { goalId: string; target: Vec3; expires: number; pauseUntil: number } | null = null;
   /**
    * Per-decision memo for goal selection.
    *
@@ -538,20 +220,9 @@ export class StateMachineBrain extends BotBrain {
   constructor(difficulty: BotDifficulty, goalArbiterMode: GoalArbiterMode = defaultGoalArbiterMode()) {
     super(difficulty);
     this._goalArbiterMode = goalArbiterMode;
-    this._coverPeek = new BotCoverPeek(difficulty.dodgeSkill);
     this._strategist = new Strategist(difficulty.matchSense ?? 0.5);
     // mistakeRate finally does something: an occasional runner-up pick.
     this._itemGoalPlanner = new ItemGoalPlanner(difficulty.mistakeRate);
-    this._huntYaw = Math.random() * Math.PI * 2;
-    this._sequenceRegistry.register(new RouteCrouchslideSequence());
-    this._sequenceRegistry.register(new ValidatedJumpSequence());
-    this._sequenceRegistry.register(new ItemSlideApproachSequence());
-    this._sequenceRegistry.register(new TraverseTeleporterSequence());
-    this._sequenceRegistry.register(new RouteStrafeJumpSequence());
-    this._sequenceRegistry.register(new TraverseJumppadSequence());
-    this._sequenceRegistry.register(new LearnedRouteSequence());
-    this._sequenceRegistry.register(new SlideBladeSequence());
-    this._sequenceRegistry.register(new LedgeSlideJumpSequence());
   }
 
   // ── Main Decision Loop ────────────────────────────────────────────
@@ -559,31 +230,30 @@ export class StateMachineBrain extends BotBrain {
   // Store last vision result for use across state methods
   private _lastVision: VisionResult | null = null;
   private _lastBotVision: BotVision | null = null;
-  private _activeNavStep: NavStep["type"] | null = null;
-  private _pathBlockedReason: string | null = null;
-  private _suppressTraversalAutomation: boolean = false;
   override steeredOffWall(): boolean {
-    return this._feelerSteered;
+    return this._steering.steered;
   }
 
   override getNavigationDebug(): string | null {
-    const goal = this._mandatoryGoal
-      ? `order=${this._mandatoryGoal.directive?.id}`
-      : this._activeItemGoal
+    const goal = this._life.mandatoryGoal
+      ? `order=${this._life.mandatoryGoal.directive?.id}`
+      : this._life.activeItemGoal
         ? this._itemGoalPlanner.explain
         : null;
-    const sequence = this._sequenceRuntime.getDebug(this._lastDecisionTick);
+    const sequence = this._traversal.runtime.getDebug(this._lastDecisionTick);
     if (sequence) {
-      const remaining = this._currentPath ? this._currentPath.steps.length - this._currentPath.cursor : 0;
+      const remaining = this._life.currentPath
+        ? this._life.currentPath.steps.length - this._life.currentPath.cursor
+        : 0;
       return `${sequence} remaining=${remaining}${goal ? ` ${goal}` : ""}`;
     }
-    if (this._pathBlockedReason) return `blocked=${this._pathBlockedReason}${goal ? ` ${goal}` : ""}`;
-    if (!this._currentPath || !this._activeNavStep) {
+    if (this._nav.pathBlockedReason) return `blocked=${this._nav.pathBlockedReason}${goal ? ` ${goal}` : ""}`;
+    if (!this._life.currentPath || !this._nav.activeNavStep) {
       // No path to describe, but a scored goal choice is still worth surfacing.
       return goal;
     }
-    const remaining = this._currentPath.steps.length - this._currentPath.cursor;
-    const nav = `step=${this._activeNavStep} remaining=${remaining}`;
+    const remaining = this._life.currentPath.steps.length - this._life.currentPath.cursor;
+    const nav = `step=${this._nav.activeNavStep} remaining=${remaining}`;
     return goal ? `${nav} ${goal}` : nav;
   }
 
@@ -632,9 +302,9 @@ export class StateMachineBrain extends BotBrain {
   private _trace(state: BotGameState): DecisionTrace {
     const selection = this._itemGoalPlanner.lastSelection(state.tick);
     const passed = (selection?.traces ?? []).filter((t) => t.gate === 1).sort((a, b) => b.desire - a.desire);
-    const path = this._currentPath;
+    const path = this._life.currentPath;
     const step = path ? path.steps[path.cursor] : undefined;
-    const sequence = this._sequenceRuntime.getDebug(state.tick);
+    const sequence = this._traversal.runtime.getDebug(state.tick);
     const self = state.self;
     return {
       tick: state.tick,
@@ -649,7 +319,7 @@ export class StateMachineBrain extends BotBrain {
       gated: (selection?.traces ?? []).length - passed.length,
       step: step ? { type: step.type, to: { ...step.to.position }, route: step.opportunityId } : null,
       sequence: sequence ?? null,
-      blocked: this._pathBlockedReason,
+      blocked: this._nav.pathBlockedReason,
       position: { ...self.position },
       speed: Math.round(Math.hypot(self.velocity.x, self.velocity.z)),
       grounded: self.isGrounded,
@@ -657,6 +327,7 @@ export class StateMachineBrain extends BotBrain {
       health: self.health,
       armor: self.armor,
       weapon: self.currentWeapon,
+      movementOwner: this._claims.owner("movement"),
     };
   }
 
@@ -700,6 +371,11 @@ export class StateMachineBrain extends BotBrain {
   /** Slime and lava do not hurt this bot: it fights on in them. */
   setLiquidImmune(immune: boolean): void {
     this._liquidImmune = immune;
+  }
+
+  /** Roam by score (goals/RoamChoice.ts): see BotOptions.scoredGoals. */
+  setScoredGoals(on: boolean): void {
+    this._scoredGoals = on;
   }
 
   /** This bot's body is `scale` times a player's (a campaign boss): its shots leave from its own eye. */
@@ -768,12 +444,12 @@ export class StateMachineBrain extends BotBrain {
     return this._mood.retreatHealth(base) * this._strategy.stance.retreatScale;
   }
 
-  isSequenceActive(): boolean {
-    return this._sequenceRuntime.isActive;
+  override isSequenceActive(): boolean {
+    return this._traversal.runtime.isActive;
   }
 
   isSequenceCommitted(): boolean {
-    return this._sequenceRuntime.isCommitted(this._lastDecisionTick);
+    return this._traversal.runtime.isCommitted(this._lastDecisionTick);
   }
 
   decide(
@@ -783,33 +459,16 @@ export class StateMachineBrain extends BotBrain {
     navGraph?: BotNavGraph | null,
   ): BotInput {
     this._cancelScript = false;
+    // Whatever was decided, a blocked bot turns for open ground and one in slime
+    // or lava jumps for dry ground; a charge carries on and a calm bot looks down.
     const input = this._escapeLiquid(
       state,
       this._turnFromBlock(state, this._decide(state, vision, visionResult, navGraph)),
     );
-    this._carryCharge(state, input);
+    this._fight.carryCharge(state, input);
     if (this._tracing) this._lastTrace = this._trace(state);
-    if (this._isCalm(state, input)) {
-      input.calm = true;
-      // People look a little down while running, at the floor ahead (BS-1: 11°).
-      input.pitch = Math.min(CALM_MAX_PITCH, input.pitch + CALM_PITCH);
-    }
+    this._look.calm(state, input);
     return this._cancelScript ? { ...input, cancelScript: true } : input;
-  }
-
-  /** Roaming with no enemy in sight and no scripted move: see `BotInput.calm`. */
-  private _isCalm(state: BotGameState, input: BotInput): boolean {
-    if (state.self.isDead || input.script || this._sequenceRuntime.isActive) return false;
-    if ((input.buttons & (InputButtons.FIRE | InputButtons.ALT_FIRE)) !== 0) return false;
-    if ((this._lastVision?.visibleEnemies.length ?? 0) > 0) return false;
-    // A chase with the enemy out of sight turns toward where they were: a memory, not a sight.
-    return (
-      this.currentState === BotState.ITEM_RUN ||
-      this.currentState === BotState.HUNT ||
-      this.currentState === BotState.CHASE ||
-      this.currentState === BotState.RETREAT ||
-      this.currentState === BotState.IDLE
-    );
   }
 
   private _decide(
@@ -818,11 +477,9 @@ export class StateMachineBrain extends BotBrain {
     visionResult?: VisionResult | null,
     navGraph?: BotNavGraph | null,
   ): BotInput {
-    this._pathRecalcTimer++;
-    this._feelerSteered = false;
-    this._onRouteLine = false;
-    this._steerTarget = null;
-    this._steerClear = 1;
+    this._nav.pathRecalcTimer++;
+    this._steering.begin();
+    this._nav.onRouteLine = false;
     this._lastVision = visionResult ?? null;
     this._lastDecisionTick = state.tick;
     this._names = state.playerNames;
@@ -839,82 +496,58 @@ export class StateMachineBrain extends BotBrain {
     this._navGraph = navGraph ?? null;
 
     // Dead → just wait (BotClient handles RequestSpawn)
-    this._suppressTraversalAutomation = false;
-    this._exactMove = false;
+    this._claims.begin();
     if (state.self.isDead) {
       this.currentState = BotState.SPAWN;
-      this._interruptSequence(state, "dead", true);
-      this._currentPath = null; // Clear path on death
-      this._huntPatrolTarget = null;
-      // Drop goal commitment too — the item that was worth crossing the map for
-      // at 30 HP is a different proposition after respawning at 100.
-      this._itemGoalPlanner.reset();
-      this._activeItemGoal = null;
-      this._mandatoryGoal = null;
-      this._sitePatrol = null;
-      this._itemCircle = null;
-      this._feelerSide = null;
-      this._escape = null;
-      this._look = null;
-      this._routeLine = null;
-      this._combatMovement.reset();
-      this._coverPeek.reset();
-      this._weaponCombos.reset();
-      this._mood.endFight();
-      this._readyWeapon = null;
-      this._highGroundSpot = null;
-      this._territory.reset();
-      this._navigationProgress = null;
-      this._recovery = null;
-      this._blocked.reset();
-      this._unstick = null;
+      this._traversal.interrupt(state, "dead", true);
+      this._startLife();
       // Clear vision cache on death
       if (vision) vision.clearCache();
       return this._noInput(state);
     }
 
-    const mandatory = this._selectMandatoryGoal(state);
-    if (mandatory?.id !== this._mandatoryGoal?.id) {
-      this._currentPath = null;
-      this._pathTarget = null;
-      this._interruptSequence(state, "objective_changed", true);
+    const mandatory = this._orders.selectMandatoryGoal(state);
+    if (mandatory?.id !== this._life.mandatoryGoal?.id) {
+      this._life.currentPath = null;
+      this._life.pathTarget = null;
+      this._traversal.interrupt(state, "objective_changed", true);
     }
-    this._mandatoryGoal = mandatory;
+    this._life.mandatoryGoal = mandatory;
     const seesEnemy = this._lastVision ? this._lastVision.visibleEnemies.length > 0 : state.getNearestEnemy() !== null;
-    if (seesEnemy || state.wasRecentlyDamaged(DODGE_REACT_TICKS)) this._recovery = null;
-    if (this._recovery && state.tick < this._recovery.until && !mandatory) {
-      if (vec3Length(vec3Subtract(this._recovery.target, state.self.position)) > 24) {
-        const input = this._moveTowardPrecise(state, this._recovery.target);
+    if (seesEnemy || state.wasRecentlyDamaged(DODGE_REACT_TICKS)) this._life.recovery = null;
+    if (this._life.recovery && state.tick < this._life.recovery.until && !mandatory) {
+      if (vec3Length(vec3Subtract(this._life.recovery.target, state.self.position)) > 24) {
+        const input = this._moveTowardPrecise(state, this._life.recovery.target);
         if (!state.self.isGrounded) input.buttons |= InputButtons.CROUCH;
         return input;
       }
-      this._recovery = null;
+      this._life.recovery = null;
     }
     if (
       !state.directives.some(
-        (order) => `objective:${order.id}` === this._sitePatrol?.goalId && order.expiresAtTick > state.tick,
+        (order) => `objective:${order.id}` === this._life.sitePatrol?.goalId && order.expiresAtTick > state.tick,
       )
     ) {
-      this._sitePatrol = null;
+      this._life.sitePatrol = null;
     }
 
     // Determine state based on priority
     const newState = this._evaluateState(state);
     const stateChanged = newState !== this.currentState;
-    if (this._sequenceRuntime.isActive && stateChanged) {
-      this._interruptSequence(state, `state:${newState}`);
+    if (this._traversal.runtime.isActive && stateChanged) {
+      this._traversal.interrupt(state, `state:${newState}`);
     }
 
-    if (this._sequenceRuntime.isActive) {
-      const sequenceInput = this._tickActiveSequence(state);
+    if (this._traversal.runtime.isActive) {
+      const sequenceInput = this._traversal.tick(state);
       if (sequenceInput) {
         // A slide along a route is ground movement at speed: steered like any run
         const vision = this._lastBotVision;
         const steered =
-          vision && this._sequenceRuntime.activeSequenceId === "route_crouchslide" && !this._fightOff.has("steer")
-            ? this._steer(sequenceInput, state, vision)
+          vision && this._traversal.runtime.activeSequenceId === "route_crouchslide" && !this._fightOff.has("steer")
+            ? this._steering.steer(sequenceInput, state, vision)
             : sequenceInput;
-        return this._recoverStalledNavigation(state, steered);
+        return this._nav.recoverStalledNavigation(state, steered);
       }
     }
 
@@ -926,197 +559,109 @@ export class StateMachineBrain extends BotBrain {
         this._mood.endFight();
       }
       this.currentState = newState;
-      this._currentPath = null; // Clear path on state change
-      this._huntPatrolTarget = null;
+      this._life.currentPath = null; // Clear path on state change
+      this._life.huntPatrolTarget = null;
     }
 
     // Execute current state
     let input: BotInput;
     switch (this.currentState) {
       case BotState.FIGHT:
-        input = this._executeFight(state);
+        input = this._fight.fight(state);
         break;
       case BotState.CHASE:
-        input = this._executeChase(state);
+        input = this._roam.chase(state);
         break;
       case BotState.DODGE:
-        input = this._executeDodge(state);
+        input = this._fight.dodge(state);
         break;
       case BotState.RETREAT:
-        input = this._executeRetreat(state);
+        input = this._roam.retreat(state);
         break;
       case BotState.ITEM_RUN:
-        input = this._executeItemRun(state);
+        input = this._roam.itemRun(state);
         break;
       case BotState.HUNT:
-        input = this._executeHunt(state);
+        input = this._roam.hunt(state);
         break;
       default:
-        input = this._executeHunt(state);
+        input = this._roam.hunt(state);
         break;
     }
 
-    input = this._recoverStalledNavigation(state, input);
+    return this._afterSteps(state, input, vision);
+  }
 
-    // Keep the feet clear of walls, corners and ledges in every state. Not on
-    // a verified approach to a trick, whose line is exact on purpose.
-    if (vision && !this._exactMove) {
-      if (!this._fightOff.has("steer")) input = this._steer(input, state, vision);
-      else if (!this._onRouteLine && this.currentState !== BotState.FIGHT && this.currentState !== BotState.DODGE) {
+  /**
+   * The after-steps, in this order, on what the state's executor chose:
+   *
+   * 1. Stall recovery, for a route that has stopped making progress.
+   * 2. Clearance: the feet are steered clear of walls, corners and ledges
+   *    (BotSteering), except on an exact line.
+   * 3. High ground, in a chase with the health for it.
+   * 4. The leash: a guard that a fight or chase has drawn past it heads back.
+   * 5. Readying the weapon for an enemy heard, out of a fight.
+   * 6. Traversal starts: a ledge slide-jump, an item slide, the route's
+   *    crouch-slide or strafe jump. One that starts takes the decision.
+   * 7. Tricks: climbs and wall jumps toward the point the bot makes for.
+   * 8. The look into open space while roaming (BotLook).
+   *
+   * Corrections and takeovers of movement check who holds it (InputClaims).
+   */
+  private _afterSteps(state: BotGameState, chosen: BotInput, vision: BotVision | null | undefined): BotInput {
+    let input = this._nav.recoverStalledNavigation(state, chosen);
+
+    // Keep the feet clear of walls, corners and ledges in every state: a
+    // correction, so not on a line held exactly.
+    if (vision && this._claims.mayCorrect("movement")) {
+      if (!this._fightOff.has("steer")) input = this._steering.steer(input, state, vision);
+      else if (!this._nav.onRouteLine && this.currentState !== BotState.FIGHT && this.currentState !== BotState.DODGE) {
         // The feelers, for head-to-head tests: navigation only, and not on a
         // route line, where they saw a wall beyond a corner and turned off it.
-        input = this._applyFeelers(input, state, vision);
+        input = this._steering.feelers(input, state, vision);
       }
     }
 
+    // Combat orders answer the fight and take movement whoever holds it.
     const chase = this.currentState === BotState.CHASE ? this._lastVision?.chaseTarget : null;
     if (chase && state.self.health >= 50)
-      input = this._keepUpperGround(state, { position: chase.lastSeenPosition }, input);
+      input = this._fight.keepUpperGround(state, { position: chase.lastSeenPosition }, input);
     if (
       this.currentState === BotState.FIGHT ||
       this.currentState === BotState.CHASE ||
       this.currentState === BotState.DODGE
     ) {
-      input = this._applyLeash(state, input);
+      input = this._orders.applyLeash(state, input);
     }
 
     if (this.currentState !== BotState.FIGHT && this.currentState !== BotState.DODGE) {
-      this._readyForHeard(state, input);
+      this._fight.readyForHeard(state, input);
     }
 
-    if (!this._suppressTraversalAutomation) {
-      const ledgeJump = this._tryStartLedgeSlideJump(input, state);
+    // Traversal starts are takeovers: only on movement nobody holds.
+    if (this._claims.mayTakeOver("movement")) {
+      const ledgeJump = this._traversal.tryStartLedgeSlideJump(input, state);
       if (ledgeJump) return ledgeJump;
-      const itemSlideInput = this._tryStartItemSlideApproach(input, state);
+      const itemSlideInput = this._traversal.tryStartItemSlideApproach(input, state);
       if (itemSlideInput) return itemSlideInput;
-      const routeSlideInput = this._tryStartRouteCrouchslide(input, state);
+      const routeSlideInput = this._traversal.tryStartRouteCrouchslide(input, state);
       if (routeSlideInput) return routeSlideInput;
-      const strafeInput = this._tryStartRouteStrafeJump(input, state);
+      const strafeInput = this._traversal.tryStartRouteStrafeJump(input, state);
       if (strafeInput) return strafeInput;
     }
 
-    if (vision && !this._exactMove && !this._fightOff.has("steer") && !this._fightOff.has("tricks")) {
-      input = this._tryTricks(state, input);
+    if (
+      vision &&
+      this._claims.mayCorrect("movement") &&
+      !this._fightOff.has("steer") &&
+      !this._fightOff.has("tricks")
+    ) {
+      input = this._steering.tryTricks(state, input);
     }
-    this._lastJumpHeld = (input.buttons & InputButtons.JUMP) !== 0;
+    this._steering.lastJumpHeld = (input.buttons & InputButtons.JUMP) !== 0;
 
-    if (vision) this._lookIntoOpenSpace(state, input, vision);
+    if (vision) this._look.lookIntoOpenSpace(state, input, vision);
     return input;
-  }
-
-  /**
-   * Running out of a fight, glance now and then toward the most open
-   * direction near where it looks: a sight line down a hall rather than the
-   * wall a route corner points at. Between glances the view rests where the
-   * bot runs, as a player's does: recorded people have the view more than 20°
-   * off their movement 38% of the time running, and bots that held the most
-   * open direction all the time 55% (docs/research/BOT_STRATEGY_LAYER.md).
-   * A glance lasts GLANCE_TICKS and comes every GLANCE_REST_TICKS or so, when
-   * a direction is clearly more open than straight ahead. Movement keeps its
-   * heading; the view stays within a quarter turn of it.
-   */
-  private _lookIntoOpenSpace(state: BotGameState, input: BotInput, vision: BotVision): void {
-    const roaming =
-      this.currentState === BotState.HUNT ||
-      this.currentState === BotState.ITEM_RUN ||
-      this.currentState === BotState.RETREAT;
-    if (!roaming) {
-      this._look = null;
-      return;
-    }
-    // Not while firing or standing, nor in a scripted move; a hop or slide keeps the look.
-    const running =
-      (input.buttons & InputButtons.FORWARD) !== 0 &&
-      (input.buttons & (InputButtons.FIRE | InputButtons.ALT_FIRE)) === 0 &&
-      input.direction.x === 0 &&
-      input.direction.z > 0;
-    if (!running || this._sequenceRuntime.isActive) return;
-    const travel = travelYaw(input);
-    const base = input.yaw;
-    const allowed = (off: number) => Math.abs(wrapAngle(base + off - travel)) <= Math.PI / 2;
-    const spot = this._look?.spot;
-    if (this._look && spot) {
-      // A look at an item's spot follows it, and ends once perception has seen it.
-      this._look.off = wrapAngle(bearingTo(state.self.position, spot.position) - base);
-      if ((state.itemSpotSeenTick.get(spot.pickupId) ?? -1) >= spot.sinceTick) this._look.untilTick = state.tick;
-    }
-    if (!this._look || this._look.off === 0) {
-      const check = this._fightOff.has("itemcheck") ? null : this._spotToCheck(state, base, allowed, vision);
-      if (check) {
-        this._spotLooks.set(check.pickupId, state.tick);
-        this._look = {
-          off: wrapAngle(bearingTo(state.self.position, check.position) - base),
-          untilTick: state.tick + GLANCE_TICKS,
-          spot: { ...check, sinceTick: state.tick },
-        };
-      }
-    }
-    if (this._look && this._look.off !== 0 && (state.tick >= this._look.untilTick || !allowed(this._look.off))) {
-      // A glance ends: back to where the bot runs, for a rest of 2–4 s.
-      this._look = { off: 0, untilTick: state.tick + GLANCE_REST_TICKS * (0.67 + 0.67 * Math.random()) };
-    }
-    if (!this._look || state.tick >= this._look.untilTick) {
-      const eye = { x: state.self.position.x, y: state.self.position.y + 36, z: state.self.position.z };
-      // Turning from where the view is costs too: a route corner moves the
-      // way the bot runs, and choosing afresh from it swung the view across.
-      const score = (off: number) => {
-        const yaw = base + off;
-        return (
-          openFraction(vision, eye, yaw) -
-          (LOOK_OFF_COST * Math.abs(off)) / LOOK_MAX_OFF_TRAVEL -
-          (LOOK_TURN_COST * Math.abs(wrapAngle(yaw - state.self.yaw))) / (Math.PI / 2)
-        );
-      };
-      let bestOff = 0;
-      let bestScore = score(0) + LOOK_SWITCH_MARGIN;
-      for (let off = -LOOK_MAX_OFF_TRAVEL; off <= LOOK_MAX_OFF_TRAVEL + 1e-9; off += LOOK_STEP) {
-        if (Math.abs(off) < 1e-9 || !allowed(off)) continue;
-        const value = score(off);
-        if (value > bestScore) {
-          bestScore = value;
-          bestOff = off;
-        }
-      }
-      // Nothing worth a glance: look again in a moment.
-      this._look = {
-        off: bestOff,
-        untilTick: state.tick + (bestOff === 0 ? LOOK_INTERVAL_TICKS : GLANCE_TICKS * (0.7 + 0.6 * Math.random())),
-      };
-    }
-    input.moveYaw = travel;
-    input.yaw = base + this._look.off;
-  }
-
-  /**
-   * A major item's spot to look at in passing, as a player checks the Red
-   * Armor: one not seen for SPOT_STALE_TICKS, in sight from here and within a
-   * quarter turn of where the bot runs, the longest unseen first. Seeing it
-   * there or gone is what dates its next return.
-   */
-  private _spotToCheck(
-    state: BotGameState,
-    base: number,
-    allowed: (off: number) => boolean,
-    vision: BotVision,
-  ): { pickupId: number; position: Vec3 } | null {
-    const self = state.self.position;
-    let best: { pickupId: number; position: Vec3 } | null = null;
-    let bestSeen = Number.POSITIVE_INFINITY;
-    // A vision with no map knowledge (a stand-in) has no spots to look at.
-    for (const entry of vision.mapKnowledge?.pickupPositions ?? []) {
-      if (!isMajorItem(entry.type, entry.kind)) continue;
-      const seen = state.itemSpotSeenTick.get(entry.id) ?? Number.NEGATIVE_INFINITY;
-      if (state.tick - seen < SPOT_STALE_TICKS || seen >= bestSeen) continue;
-      if (state.tick - (this._spotLooks.get(entry.id) ?? Number.NEGATIVE_INFINITY) < SPOT_STALE_TICKS) continue;
-      const distance = vec3Distance(self, entry.position);
-      if (distance < SPOT_MIN_DISTANCE || distance > SPOT_MAX_DISTANCE) continue;
-      if (!allowed(wrapAngle(bearingTo(self, entry.position) - base))) continue;
-      const lift = { x: entry.position.x, y: entry.position.y - 24, z: entry.position.z };
-      if (!vision.canSeeFrom(self, lift)) continue;
-      best = { pickupId: entry.id, position: entry.position };
-      bestSeen = seen;
-    }
-    return best;
   }
 
   // ── State Evaluation ──────────────────────────────────────────────
@@ -1124,7 +669,7 @@ export class StateMachineBrain extends BotBrain {
   private _evaluateState(state: BotGameState): BotState {
     // Non-interruptible work must reach the navigation executor before combat,
     // chase or item shopping can divert it. Death is handled by decide().
-    if (this._mandatoryGoal) return BotState.ITEM_RUN;
+    if (this._life.mandatoryGoal) return BotState.ITEM_RUN;
     // A hit holds the bot on its attacker long enough to turn round and
     // answer. Held only a quarter second, a bot shot in the back turned part
     // way and went back to its item, and a chaser shot it in the back again.
@@ -1167,7 +712,7 @@ export class StateMachineBrain extends BotBrain {
     }
 
     // Ducked into cover between shots: still the same fight.
-    if (this.currentState === BotState.FIGHT && this._coverPeek.holding(state.tick)) return BotState.FIGHT;
+    if (this.currentState === BotState.FIGHT && this._fight.coverPeek.holding(state.tick)) return BotState.FIGHT;
 
     // Priority 2.5: Lost sight of enemy but tracking them → chase!
     // ...unless this fight's mistake is to forget them the moment they are gone.
@@ -1177,7 +722,7 @@ export class StateMachineBrain extends BotBrain {
     // the gap crosses the limit.
     const chaseTarget = this._lastVision?.chaseTarget;
     // A strategy that wants no fight lets an enemy out of sight go.
-    const leash = this._leashOrder(state);
+    const leash = this._orders.leashOrder(state);
     const pastLeash =
       chaseTarget !== null &&
       chaseTarget !== undefined &&
@@ -1222,240 +767,6 @@ export class StateMachineBrain extends BotBrain {
 
   // ── FIGHT State ───────────────────────────────────────────────────
 
-  /**
-   * Maybe lunge at `enemy` with a crouch-slide and the blade. Each chance is
-   * rolled once (then not again for a second), at odds from dodgeSkill: never
-   * on Easy, most of the time on Insane. The slide's own cooldown is kept here,
-   * from when this bot last stopped sliding.
-   */
-  private _tryStartSlideBlade(state: BotGameState, enemy: VisiblePlayer): BotInput | null {
-    if (state.self.isSliding) this._lastSlideTick = state.tick;
-    if (this._sequenceRuntime.isActive || state.tick < this._lungeRollAfterTick) return null;
-    if (state.tick - this._lastSlideTick < SLIDE_COOLDOWN_TICKS) return null;
-    if (state.self.health < LUNGE_MIN_HEALTH) return null;
-    const context = { ...this._getSequenceContext(state, null), combatTarget: enemy };
-    if (!canLunge(context, enemy)) return null;
-    this._lungeRollAfterTick = state.tick + LUNGE_REROLL_TICKS;
-    if (Math.random() >= lungeChance(this.difficulty.dodgeSkill)) return null;
-    if (!this._sequenceRuntime.start("combat_slide_blade", context)) return null;
-    return this._tickActiveSequence(state);
-  }
-
-  private _executeFight(state: BotGameState): BotInput {
-    // Find strongest enemy (from vision or fallback)
-    const enemy = this._lastVision?.visibleEnemies[0]?.player ?? state.getNearestEnemy();
-    if (!enemy) {
-      return this._executeHunt(state);
-    }
-
-    const lunge = this._tryStartSlideBlade(state, enemy);
-    if (lunge) return lunge;
-
-    // Select best weapon for distance (profile-based). The server switches before
-    // firing, so combat behavior can use the selected profile immediately.
-    let { slot: weaponSlot, profile: selectedProfile } = selectBestWeapon(
-      state.self.weapons,
-      state.self.ammo,
-      state.self.currentWeapon,
-      enemy.distance,
-    );
-    let selectedWeaponId = weaponSlot > 0 ? state.self.weapons[weaponSlot - 1] : state.self.currentWeapon;
-    let currentProfile = selectedProfile.id === "unknown" ? getWeaponProfile(selectedWeaponId) : selectedProfile;
-
-    const mistake = this._mood.mistake(state.tick);
-    if (mistake === "wrong_weapon" && state.self.currentWeapon) {
-      // Fights on with whatever was out
-      weaponSlot = 0;
-      selectedWeaponId = state.self.currentWeapon;
-      currentProfile = getWeaponProfile(selectedWeaponId);
-    }
-
-    // A combo (rocket into rail, riotgun or blade; a rail between plasma) overrides the distance pick
-    const combo =
-      mistake === "wrong_weapon"
-        ? null
-        : this._weaponCombos.choose(
-            state,
-            enemy,
-            this.difficulty.predictionSkill,
-            selectedWeaponId,
-            this._enemyEstimate(enemy.entityId),
-          );
-    if (combo) {
-      weaponSlot = slotFor(state, combo);
-      selectedWeaponId = combo;
-      currentProfile = getWeaponProfile(combo);
-    }
-
-    // Aim at enemy - use projectile prediction if needed.
-    const useProjectileAim =
-      (currentProfile.isProjectile || currentProfile.hasChargedProjectile) && currentProfile.projectileSpeed > 0;
-    let aim = useProjectileAim
-      ? this._aimAtTargetWithLead(state, enemy, currentProfile)
-      : this._aimAtTarget(state, enemy);
-
-    // Strafe while fighting: rhythm, dodges and hops from BotCombatMovement
-    const moves = this._combatMovement.step(state, this.aimDifficulty, enemy.distance);
-    let strafeInput = moves.strafe;
-    // At range, from the edge of cover: out to shoot, back while reloading.
-    const enemyInSight = this._lastVision
-      ? this._lastVision.visibleEnemies.some((e) => e.player.playerId === enemy.playerId)
-      : true;
-    const peek = this._peekFromCover(state, enemy, currentProfile, selectedWeaponId, aim.yaw, enemyInSight);
-    if (peek !== null && !this._combatMovement.dodging(state.tick)) strafeInput = peek;
-    const peeking = peek !== null;
-    if (strafeInput !== 0) this._strafeDirection = strafeInput;
-
-    // Build buttons
-    let buttons = 0;
-    // Out of sight in cover there is nothing to shoot at, and a rocket into the wall hits the bot.
-    let wantsFire = this._hasAmmoForWeapon(state, selectedWeaponId) && (enemyInSight || !peeking);
-
-    if (mistake === "wild_shot") {
-      // Fires before the aim is on: a few degrees off to one side
-      const side = this._mood.mistakeTick % 2 === 0 ? 1 : -1;
-      aim = { ...aim, yaw: aim.yaw + side * WILD_SHOT_OFFSET };
-    } else if (mistake === "item_glance") {
-      const item = state.getNearestPickup(ITEM_GLANCE_RANGE);
-      if (item) {
-        const dx = item.position.x - state.self.position.x;
-        const dz = item.position.z - state.self.position.z;
-        aim = { yaw: Math.atan2(dx, dz), pitch: 0 };
-        wantsFire = false;
-      }
-    }
-
-    // Weapon-aware combat behavior
-    if (currentProfile.isMelee) {
-      const chargeFire = this._updateChargedProjectileFire(
-        state,
-        enemy,
-        selectedWeaponId,
-        currentProfile,
-        aim,
-        wantsFire,
-      );
-
-      if (chargeFire.holdAltFire) {
-        buttons |= InputButtons.ALT_FIRE;
-      }
-
-      // Close range: swing. Mid range: keep pressure while charging/releasing the blade blast.
-      if (enemy.distance < MELEE_RANGE && wantsFire && !chargeFire.holdAltFire) {
-        buttons |= InputButtons.FIRE;
-      }
-
-      buttons |= InputButtons.FORWARD;
-      buttons |= InputButtons.SPRINT;
-    } else {
-      this._clearChargedProjectileFire();
-
-      // ADS whenever it tightens the shot; firing walks anyway, so aiming costs no speed.
-      // A weapon whose aim takes time to settle holds fire until the server
-      // counts the shot as aimed, which starts once that weapon is up.
-      // Only with that weapon up: alt-fire pressed while the blade is still
-      // out, mid-switch, starts a blade charge the switch then cancels.
-      const aimsDownSights =
-        currentProfile.aimsDownSights && wantsFire && state.self.currentWeapon === selectedWeaponId;
-      if (aimsDownSights) buttons |= InputButtons.ALT_FIRE;
-      if (!aimsDownSights || state.self.currentWeapon !== selectedWeaponId) this._adsSinceTick = null;
-      else this._adsSinceTick ??= state.tick;
-      const aimReady =
-        currentProfile.adsReadyTicks === 0 ||
-        (this._adsSinceTick !== null && state.tick - this._adsSinceTick >= currentProfile.adsReadyTicks);
-
-      // Fire
-      if (wantsFire && aimReady) {
-        buttons |= InputButtons.FIRE;
-      }
-
-      // Movement based on range
-      if (enemy.distance > CLOSE_RANGE) {
-        buttons |= InputButtons.FORWARD; // Close distance
-      } else if (enemy.distance < MELEE_RANGE) {
-        buttons |= InputButtons.BACK; // Too close for ranged, back up
-      }
-
-      // Back up from splash weapons at close range (avoid self-damage)
-      if (currentProfile.hasSplash && enemy.distance < 250) {
-        buttons |= InputButtons.BACK;
-        buttons &= ~InputButtons.FORWARD;
-      }
-    }
-
-    // Always sprint - arena FPS players strafe-run by default
-    buttons |= InputButtons.SPRINT;
-
-    if (strafeInput > 0) buttons |= InputButtons.RIGHT;
-    else if (strafeInput < 0) buttons |= InputButtons.LEFT;
-    if (moves.jump) buttons |= InputButtons.JUMP;
-    if (moves.crouch) buttons |= InputButtons.CROUCH;
-
-    if (wantsFire && (buttons & InputButtons.FIRE) !== 0 && state.self.currentWeapon === selectedWeaponId) {
-      if (state.tick - this._firedTick >= currentProfile.fireIntervalTicks) this._firedTick = state.tick;
-    }
-    // Using cover, the bot keeps its distance: walking in leaves the cover behind.
-    if (peeking) buttons &= ~(InputButtons.FORWARD | InputButtons.BACK);
-
-    // Movement direction
-    let forwardZ = 0;
-    if (currentProfile.isMelee) {
-      forwardZ = 1; // Always rush forward with melee
-    } else if (enemy.distance > CLOSE_RANGE) {
-      forwardZ = 1;
-    } else if (enemy.distance < MELEE_RANGE || (currentProfile.hasSplash && enemy.distance < 250)) {
-      forwardZ = -1;
-    }
-    if (peeking) forwardZ = 0;
-    let strafeX = peeking ? strafeInput : strafeInput * 0.5;
-
-    // With a splash weapon, take a ledge above the enemy when one is close
-    const ledge = currentProfile.hasSplash && !peeking ? this._highGround(state, enemy) : null;
-    if (ledge) {
-      const towardYaw = Math.atan2(ledge.x - state.self.position.x, ledge.z - state.self.position.z);
-      const off = towardYaw - aim.yaw;
-      forwardZ = Math.cos(off);
-      strafeX = Math.sin(off);
-      buttons &= ~(InputButtons.FORWARD | InputButtons.BACK);
-      buttons |= forwardZ >= 0 ? InputButtons.FORWARD : InputButtons.BACK;
-    }
-
-    return this._keepUpperGround(state, enemy, {
-      direction: { x: strafeX, y: 0, z: forwardZ },
-      pitch: aim.pitch,
-      yaw: aim.yaw,
-      buttons,
-      weaponSlot,
-    });
-  }
-
-  private _keepUpperGround(state: BotGameState, enemy: Pick<VisiblePlayer, "position">, input: BotInput): BotInput {
-    const vision = this._lastBotVision;
-    const self = state.self.position;
-    if (
-      !vision ||
-      !state.self.isGrounded ||
-      (this._fightOff.has("height") && state.matchState.gametypeName.toLowerCase() !== "duel") ||
-      self.y - enemy.position.y < 64
-    )
-      return input;
-    const heading = travelYaw(input) + Math.atan2(input.direction.x, input.direction.z);
-    for (const turn of [0, Math.PI / 2, -Math.PI / 2, Math.PI]) {
-      const yaw = heading + turn;
-      const target = { x: self.x + Math.sin(yaw) * 96, y: self.y, z: self.z + Math.cos(yaw) * 96 };
-      if (!vision.isWalkable(self, target)) continue;
-      const floor = vision.collisionWorld.trace(target, { ...target, y: target.y - 64 });
-      if (!floor.hit || floor.fraction >= 1) continue;
-      if (turn === 0) return input;
-      input.moveYaw = yaw;
-      input.direction = { x: 0, y: 0, z: 1 };
-      input.buttons &= ~(InputButtons.LEFT | InputButtons.RIGHT | InputButtons.BACK);
-      input.buttons |= InputButtons.FORWARD | InputButtons.SPRINT;
-      return input;
-    }
-    return input;
-  }
-
   override get aimDifficulty(): BotDifficulty {
     const difficulty = this._mood.aimDifficulty(this.difficulty);
     return this._leadReactionDelayMs
@@ -1479,305 +790,9 @@ export class StateMachineBrain extends BotBrain {
     return events;
   }
 
-  /**
-   * The strafe that fights from cover at range (BotCoverPeek), or null to
-   * fight in the open: close in, with the blade, or with the habit off.
-   */
-  private _peekFromCover(
-    state: BotGameState,
-    enemy: VisiblePlayer,
-    profile: WeaponProfile,
-    weaponId: string,
-    yaw: number,
-    inSight: boolean,
-  ): -1 | 0 | 1 | null {
-    const vision = this._lastBotVision;
-    if (
-      !vision ||
-      this._fightOff.has("cover") ||
-      profile.isMelee ||
-      enemy.distance < COVER_MIN_RANGE ||
-      !state.self.isGrounded ||
-      state.self.currentWeapon !== weaponId
-    ) {
-      this._coverPeek.reset();
-      return null;
-    }
-    const self = state.self.position;
-    const enemyEye = { x: enemy.position.x, y: enemy.position.y + DEFAULT_VIEWHEIGHT, z: enemy.position.z };
-    return this._coverPeek.step({
-      tick: state.tick,
-      self,
-      yaw,
-      hidden: (at) => !vision.canSee({ x: at.x, y: at.y + DEFAULT_VIEWHEIGHT, z: at.z }, enemyEye),
-      walkable: (to) => vision.isWalkable(self, to),
-      refireTicks: profile.fireIntervalTicks,
-      firedTick: this._firedTick,
-      visible: inSight,
-    });
-  }
-
-  /**
-   * A ledge to fight from, looked for every two seconds while the bot has a
-   * splash weapon and is not yet above the enemy. Dropped once reached.
-   */
-  private _highGround(state: BotGameState, enemy: VisiblePlayer): Vec3 | null {
-    const self = state.self.position;
-    if (this._highGroundSpot && Math.hypot(this._highGroundSpot.x - self.x, this._highGroundSpot.z - self.z) < 48) {
-      this._highGroundSpot = null;
-    }
-    if (state.tick >= this._highGroundSearchTick) {
-      this._highGroundSearchTick = state.tick + HIGH_GROUND_SEARCH_TICKS;
-      const vision = this._lastBotVision;
-      this._highGroundSpot =
-        vision && this._navGraph && enemy.distance <= 900 && Math.random() < this.difficulty.dodgeSkill
-          ? findHighGround(this._navGraph.nodes, self, enemy.position, (from, to) => vision.canSee(from, to))
-          : null;
-    }
-    return this._highGroundSpot;
-  }
-
-  /**
-   * Out of a fight, with an enemy heard close but not seen, get out the gun for
-   * the distance they were heard at, so it is ready when they come round the
-   * corner. Rolled every two seconds at `predictionSkill` odds.
-   */
-  private _readyForHeard(state: BotGameState, input: BotInput): void {
-    if (this._readyWeapon && (state.tick >= this._readyWeapon.until || !has(state, this._readyWeapon.weapon))) {
-      this._readyWeapon = null;
-    }
-    const heard = state.heardEnemies.reduce<VisiblePlayer | null>(
-      (near, enemy) => (!near || enemy.distance < near.distance ? enemy : near),
-      null,
-    );
-    if (!this._readyWeapon && heard && heard.distance <= READY_RANGE && state.tick >= this._readyRollTick) {
-      this._readyRollTick = state.tick + READY_TICKS;
-      if (Math.random() < this.difficulty.predictionSkill) {
-        const { slot } = selectBestWeapon(
-          state.self.weapons,
-          state.self.ammo,
-          state.self.currentWeapon,
-          heard.distance,
-        );
-        const weapon = slot > 0 ? state.self.weapons[slot - 1] : state.self.currentWeapon;
-        if (weapon) this._readyWeapon = { weapon, until: state.tick + READY_TICKS };
-      }
-    }
-    if (this._readyWeapon && (input.weaponSlot ?? 0) === 0) input.weaponSlot = slotFor(state, this._readyWeapon.weapon);
-    // Out of a fight, the blade goes away for a gun: whoever comes round the
-    // next corner is more likely at mid range than in reach of a swing.
-    if (
-      (input.weaponSlot ?? 0) === 0 &&
-      state.self.currentWeapon === "blade" &&
-      this._chargeStartTick === null &&
-      !this._fightOff.has("holster")
-    ) {
-      const { slot } = selectBestWeapon(state.self.weapons, state.self.ammo, state.self.currentWeapon, HOLSTER_RANGE);
-      const weapon = slot > 0 ? state.self.weapons[slot - 1] : undefined;
-      if (weapon && weapon !== "blade") input.weaponSlot = slot;
-    }
-  }
-
-  private _hasAmmoForWeapon(state: BotGameState, weaponId: string): boolean {
-    if (!weaponId) return true;
-    const ammo = state.self.ammo[weaponId];
-    return ammo === undefined || ammo > 0;
-  }
-
-  private _updateChargedProjectileFire(
-    state: BotGameState,
-    enemy: VisiblePlayer,
-    weaponId: string,
-    profile: WeaponProfile,
-    aim: { yaw: number; pitch: number },
-    wantsFire: boolean,
-  ): { holdAltFire: boolean } {
-    if (!profile.hasChargedProjectile || !weaponId || enemy.distance < MELEE_RANGE) {
-      this._clearChargedProjectileFire();
-      return { holdAltFire: false };
-    }
-
-    // If we are switching to this weapon, let the server confirm the switch before
-    // starting charge state. This keeps the cached 125Hz input loop from charging
-    // an old weapon for one snapshot interval.
-    if (state.self.currentWeapon && weaponId !== state.self.currentWeapon) {
-      this._clearChargedProjectileFire();
-      return { holdAltFire: false };
-    }
-
-    const targetChanged = this._chargeTargetId !== enemy.playerId;
-    const weaponChanged = this._chargeWeaponId !== weaponId;
-    if (targetChanged || weaponChanged || this._chargeStartTick === null || this._chargeReleaseTick === null) {
-      // A charge starts only when the bot means to fire; once started it is
-      // held through a moment's hesitation, because letting go before the
-      // minimum cancels it on the server.
-      if (!wantsFire) {
-        this._clearChargedProjectileFire();
-        return { holdAltFire: false };
-      }
-      this._chargeWeaponId = weaponId;
-      this._chargeTargetId = enemy.playerId;
-      this._chargeStartTick = state.tick;
-
-      const chargeSpan = Math.max(0, profile.chargeMaxTicks - profile.chargeMinTicks);
-      const skillHold = 0.35 + this.difficulty.predictionSkill * 0.4;
-      const jitter = (Math.random() - 0.5) * 0.15;
-      const holdTicks = Math.round(profile.chargeMinTicks + chargeSpan * Math.max(0, Math.min(1, skillHold + jitter)));
-      this._chargeReleaseTick = state.tick + Math.max(profile.chargeMinTicks, holdTicks);
-      return { holdAltFire: true };
-    }
-
-    // Release on the aim: a blast let go while the view is still turning
-    // misses. The charge stops growing at its maximum, so waiting costs only
-    // time, and after CHARGE_AIM_GRACE_TICKS it goes anyway.
-    const off = Math.max(Math.abs(wrapAngle(aim.yaw - state.self.yaw)), Math.abs(aim.pitch - state.self.pitch));
-    const onAim = off <= CHARGE_RELEASE_CONE;
-    if (
-      state.tick >= this._chargeReleaseTick &&
-      (onAim || state.tick >= this._chargeReleaseTick + CHARGE_AIM_GRACE_TICKS)
-    ) {
-      this._clearChargedProjectileFire();
-      return { holdAltFire: false };
-    }
-
-    return { holdAltFire: true };
-  }
-
-  /**
-   * A blade charge outlives the fight decision that started it: the enemy
-   * steps out of sight, or a hit sends the bot dodging, and a player keeps
-   * holding to let go when they are back. Carried up to CHARGE_CARRY_TICKS
-   * with the charging weapon still out; any decision that lets go of
-   * alt-fire otherwise ends the charge, on the server and here.
-   */
-  private _carryCharge(state: BotGameState, input: BotInput): void {
-    if ((input.buttons & InputButtons.ALT_FIRE) !== 0 || this._chargeStartTick === null) return;
-    const carried =
-      !state.self.isDead &&
-      this.currentState !== BotState.FIGHT &&
-      state.self.currentWeapon === this._chargeWeaponId &&
-      !input.script &&
-      (input.weaponSlot ?? 0) === 0 &&
-      state.tick - this._chargeStartTick < CHARGE_CARRY_TICKS;
-    if (carried) input.buttons |= InputButtons.ALT_FIRE;
-    else this._clearChargedProjectileFire();
-  }
-
-  private _clearChargedProjectileFire(): void {
-    this._chargeWeaponId = null;
-    this._chargeTargetId = null;
-    this._chargeStartTick = null;
-    this._chargeReleaseTick = null;
-  }
   // ── DODGE State ───────────────────────────────────────────────────
 
-  private _executeDodge(state: BotGameState): BotInput {
-    // Sidestep threats; jump or slide only when the combat controller requests it.
-    const enemyDistance = state.getNearestEnemy()?.distance ?? 0;
-    const moves = this._combatMovement.step(state, this.aimDifficulty, enemyDistance);
-    const side = moves.strafe;
-    if (side !== 0) this._strafeDirection = side;
-
-    let buttons = InputButtons.SPRINT;
-    if (moves.jump) buttons |= InputButtons.JUMP;
-    if (moves.crouch) buttons |= InputButtons.CROUCH;
-    buttons |= this._strafeDirection > 0 ? InputButtons.RIGHT : InputButtons.LEFT;
-    buttons |= InputButtons.FORWARD;
-
-    // Try to aim at nearest visible enemy while dodging
-    const enemy = this._lastVision?.visibleEnemies[0]?.player ?? state.getNearestEnemy();
-    let pitch = state.self.pitch;
-    let yaw = state.self.yaw;
-
-    if (enemy) {
-      const aim = this._aimAtTarget(state, enemy);
-      pitch = aim.pitch;
-      yaw = aim.yaw;
-      // Only fire if we have vision-confirmed LOS
-      if (this._lastVision?.visibleEnemies.some((e) => e.player.playerId === enemy.playerId)) {
-        buttons |= InputButtons.FIRE;
-      }
-    }
-
-    return {
-      direction: { x: this._strafeDirection, y: 0, z: 1 },
-      pitch,
-      yaw,
-      buttons,
-      weaponSlot: 0,
-    };
-  }
-
   // ── CHASE State — Pursuit after LOS break ──────────────────────────
-
-  private _executeChase(state: BotGameState): BotInput {
-    const target = this._lastVision?.chaseTarget;
-    if (!target) {
-      // No target to chase — fall back to hunt
-      return this._executeHunt(state);
-    }
-
-    // Move toward predicted (extrapolated) position using navGraph if available
-    const holdUpper =
-      state.matchState.gametypeName.toLowerCase() === "duel" &&
-      target.lastSeenPosition.y < state.self.position.y - 64 &&
-      state.self.health >= 50;
-    const territory = holdUpper ? this._duelTerritory(state) : null;
-    const input =
-      holdUpper && !territory
-        ? this._keepUpperGround(
-            state,
-            { position: target.predictedPosition },
-            this._moveToward(state, { ...target.predictedPosition, y: state.self.position.y }, false),
-          )
-        : this._navigateTo(state, territory ?? target.predictedPosition, false);
-    if (holdUpper) {
-      input.moveYaw = travelYaw(input);
-      input.yaw = Math.atan2(
-        target.predictedPosition.x - state.self.position.x,
-        target.predictedPosition.z - state.self.position.z,
-      );
-    } else {
-      this._watchLostEnemy(state, target, input);
-    }
-
-    // Only pre-fire when very close to predicted position (near corners)
-    const distToTarget = vec3Length(vec3Subtract(target.predictedPosition, state.self.position));
-    if (!holdUpper && distToTarget < 200 && target.confidence > 0.7) {
-      input.buttons |= InputButtons.FIRE;
-    }
-
-    // Select appropriate weapon (use last known distance)
-    const { slot: chaseSlot } = selectBestWeapon(
-      state.self.weapons,
-      state.self.ammo,
-      state.self.currentWeapon,
-      target.lastDistance,
-    );
-    if (chaseSlot > 0) {
-      input.weaponSlot = chaseSlot;
-    }
-
-    return input;
-  }
-
-  /**
-   * Keep looking where an enemy just went out of sight while running the
-   * route after them, as a player watches the corner. Looking along the route
-   * instead swung the view away and back each time sight came and went.
-   */
-  private _watchLostEnemy(state: BotGameState, target: EnemyTrack, input: BotInput): void {
-    if (target.source !== "visual" || state.tick - target.lastSeenTick > CHASE_WATCH_TICKS) return;
-    const delta = vec3Subtract(target.predictedPosition, this._getFireOrigin(state));
-    const horizontal = Math.hypot(delta.x, delta.z);
-    if (horizontal < 1) return;
-    const watchYaw = Math.atan2(delta.x, delta.z);
-    const moveYaw = travelYaw(input);
-    if (Math.abs(wrapAngle(watchYaw - moveYaw)) > CHASE_WATCH_MAX_OFF_TRAVEL) return;
-    input.moveYaw = moveYaw;
-    input.yaw = watchYaw;
-    input.pitch = -Math.atan2(delta.y, horizontal);
-  }
 
   // ── RETREAT State ─────────────────────────────────────────────────
 
@@ -1794,395 +809,24 @@ export class StateMachineBrain extends BotBrain {
     return !enemy || enemy.uncertainty > 0.5 || own <= enemy.stack;
   }
 
-  /**
-   * A way out of a known enemy's sight: the nearest route node, within reach,
-   * that the enemy cannot see from where it was last known and that does not
-   * lie toward it. Reached once and dropped; null with no enemy or no node.
-   */
-  private _escapePoint(state: BotGameState): Vec3 | null {
-    const graph = this._navGraph;
-    const vision = this._lastBotVision;
-    if (!graph || !vision) return null;
-    const threat = this._lastVision?.visibleEnemies[0]?.player.position ?? this._getHuntTarget(state);
-    if (!threat) return null;
-    const self = state.self.position;
-    if (this._escape && state.tick < this._escape.untilTick) {
-      if (vec3Length(vec3Subtract(this._escape.point, self)) > ESCAPE_REACHED) return this._escape.point;
-      this._escape = null;
-      return null;
-    }
-    if (state.tick < this._escapeRetryTick) return null;
-    const toThreat = vec3Normalize(vec3Subtract(threat, self));
-    const eye = { x: threat.x, y: threat.y + 36, z: threat.z };
-    const candidates: { position: Vec3; distance: number }[] = [];
-    for (const node of graph.nodes) {
-      const offset = vec3Subtract(node.position, self);
-      const distance = vec3Length(offset);
-      if (distance < ESCAPE_MIN || distance > ESCAPE_MAX) continue;
-      const away = (offset.x * toThreat.x + offset.z * toThreat.z) / Math.max(1, distance);
-      if (away <= ESCAPE_MAX_TOWARD) candidates.push({ position: node.position, distance });
-    }
-    // Sight lines and route costs for the nearest few only.
-    candidates.sort((a, b) => a.distance - b.distance);
-    let best: { point: Vec3; cost: number } | null = null;
-    for (const { position } of candidates.slice(0, ESCAPE_CANDIDATES)) {
-      if (vision.canSee(eye, { x: position.x, y: position.y + 36, z: position.z })) continue;
-      const cost = graph.estimateTravelCost(self, position);
-      if (cost === null || (best && cost >= best.cost)) continue;
-      best = { point: position, cost };
-    }
-    this._escape = best ? { point: best.point, untilTick: state.tick + ESCAPE_HOLD_TICKS } : null;
-    if (!best) this._escapeRetryTick = state.tick + ESCAPE_RETRY_TICKS;
-    return best?.point ?? null;
-  }
-
-  private _executeRetreat(state: BotGameState): BotInput {
-    // First out of the enemy's sight, then to health.
-    if (this._lastVision?.visibleEnemies.length) {
-      const wayOut = this._escapePoint(state);
-      if (wayOut) return this._navigateTo(state, wayOut, true);
-    } else this._escape = null;
-
-    // Scored choice among HEALTH ONLY. Retreating is a specific intent, so the
-    // candidate set is filtered rather than left open — but within health the
-    // arbiter still beats "nearest": it accounts for overcap (a bubble at 98 HP
-    // is worthless), route cost, and mega vs. medium.
-    const healthGoal = this._selectItemGoal(state, RETREAT_ITEM_TYPES, true)?.goal;
-    if (healthGoal) return this._navigateTo(state, healthGoal.position, true);
-
-    // Try NavGraph path to nearest health (cached via _navigateToItem)
-    if (this._navGraph) {
-      const result = this._navigateToItem(state, "health", true);
-      if (result) return result;
-    }
-
-    // Try vision's cover finding
-    if (this._lastVision?.nearestCover) {
-      return this._navigateTo(state, this._lastVision.nearestCover, true);
-    }
-
-    // Try nearest health item from BSP knowledge
-    if (this._lastBotVision) {
-      const healthPos = this._lastBotVision.findNearestItem(state.self.position, "health", state.pickupActiveMask);
-      if (healthPos) {
-        return this._navigateTo(state, healthPos, true);
-      }
-    }
-
-    // Find nearest pickup (prefer health)
-    const pickup = state.getNearestPickup(PICKUP_SEEK_RANGE);
-    if (pickup) {
-      return this._navigateTo(state, pickup.position, true);
-    }
-
-    // No pickup found → run away from nearest enemy
-    const enemy = state.getNearestEnemy();
-    if (enemy) {
-      // Move away from enemy (guard against same-position producing zero-length vector)
-      const rawDir = vec3Subtract(state.self.position, enemy.position);
-      const len = vec3Length(rawDir);
-      const awayDir = len > 0.01 ? vec3Normalize(rawDir) : { x: Math.random() - 0.5, y: 0, z: Math.random() - 0.5 };
-      const targetYaw = Math.atan2(awayDir.x, awayDir.z);
-
-      return {
-        direction: { x: 0, y: 0, z: 1 },
-        pitch: 0,
-        yaw: targetYaw,
-        buttons: InputButtons.FORWARD | InputButtons.SPRINT,
-        weaponSlot: 0,
-      };
-    }
-
-    // No enemy to run from → hunt
-    return this._executeHunt(state);
-  }
-
   // ── ITEM_RUN State ────────────────────────────────────────────────
-
-  private _executeItemRun(state: BotGameState): BotInput {
-    if (this._mandatoryGoal) {
-      const goal = this._mandatoryGoal;
-      this._activeItemGoal = goal;
-      return this._navigateGoal(state, goal, true);
-    }
-    // Scored choice first: value, denial, route and danger decide which item,
-    // instead of the fixed weapon > health > armor > ammo ordering below (which
-    // took the nearest of whichever type came first, so a 5 HP bubble could
-    // outrank Red Armor). Falls through to the legacy path when disabled or
-    // when nothing scores.
-    const choice = this._selectItemGoal(state);
-    // Only a DIRECTIVE goal holds on arrival. An item goal has to be touched,
-    // and a bot that stops next to a Red Armor never picks it up.
-    if (choice) {
-      const goal = choice.goal;
-      // An item worth having just off the way there is taken first.
-      if (choice.stopover && !goal.directive) return this._navigateGoal(state, choice.stopover, false);
-      const territory =
-        !goal.directive && goal.position.y < state.self.position.y - 48 ? this._duelTerritory(state) : null;
-      return territory ? this._navigateTo(state, territory, false) : this._navigateGoal(state, goal, false);
-    }
-
-    // Try NavGraph path to nearest item (weapon > health > armor > ammo)
-    // Uses cached _navigateToItem to avoid A* every tick
-    if (this._navGraph) {
-      for (const itemType of ["weapon", "health", "armor", "ammo"]) {
-        const result = this._navigateToItem(state, itemType, false);
-        if (result) return result;
-      }
-    }
-
-    // Prefer vision-verified reachable pickups
-    if (this._lastVision) {
-      const reachable = this._lastVision.pickups.find((p) => p.isReachable);
-      if (reachable) {
-        return this._navigateTo(state, reachable.pickup.position, false);
-      }
-    }
-
-    // Try BSP-known item positions
-    if (this._lastBotVision) {
-      const weaponPos = this._lastBotVision.findNearestItem(state.self.position, "weapon", state.pickupActiveMask);
-      if (weaponPos) {
-        return this._navigateTo(state, weaponPos, false);
-      }
-    }
-
-    // Fallback to raw state pickups
-    const pickup = state.getNearestPickup(PICKUP_SEEK_RANGE);
-    if (pickup) {
-      return this._navigateTo(state, pickup.position, false);
-    }
-
-    // No pickups found → hunt
-    return this._executeHunt(state);
-  }
 
   // ── HUNT State ────────────────────────────────────────────────────
 
-  private _executeHunt(state: BotGameState): BotInput {
-    this._huntTimer++;
-
-    const territory = this._duelTerritory(state);
-    if (territory) return this._navigateTo(state, territory, false);
-
-    // Prefer a scored goal over aimless patrol. Reached when the ladder falls
-    // through to HUNT but the arbiter still has something worth doing — an
-    // objective, or an item that did not meet _shouldSeekItems' cruder bar.
-    const goal = this._selectItemGoal(state)?.goal;
-    if (goal) return this._navigateGoal(state, goal, false);
-
-    // Check if we know a last enemy position to investigate
-    const huntTarget = this._getHuntTarget(state);
-    if (huntTarget) {
-      return this._navigateTo(state, huntTarget, false);
-    }
-
-    // NavGraph patrol: pick a random nav node to walk toward
-    if (this._navGraph) {
-      const nodes = this._navGraph.nodes;
-      if (nodes.length > 0 && (!this._huntPatrolTarget || this._pathRecalcTimer > PATH_RECALC_INTERVAL * 2)) {
-        const randomNode = nodes[Math.floor(Math.random() * nodes.length)];
-        this._huntPatrolTarget = randomNode.position;
-        this._pathRecalcTimer = 0;
-      }
-      if (this._huntPatrolTarget) {
-        // Check if we've arrived at patrol target
-        const distToPatrol = vec3Length(vec3Subtract(this._huntPatrolTarget, state.self.position));
-        if (distToPatrol < PATH_ARRIVED_THRESHOLD) {
-          this._huntPatrolTarget = null; // Pick new target next tick
-          this._currentPath = null;
-        } else {
-          return this._navigateTo(state, this._huntPatrolTarget, false);
-        }
-      }
-    }
-
-    // Fallback: random patrol — change direction periodically
-    if (this._huntTimer > HUNT_DIRECTION_CHANGE_INTERVAL) {
-      this._huntYaw += (Math.random() - 0.5) * Math.PI;
-      this._huntTimer = 0;
-    }
-
-    // Look around randomly (human-feel)
-    this._updateLookAround();
-
-    const buttons = InputButtons.FORWARD | InputButtons.SPRINT;
-
-    return {
-      direction: { x: 0, y: 0, z: 1 },
-      pitch: 0,
-      yaw: this._huntYaw + this._lookAroundYaw,
-      buttons,
-      weaponSlot: 0,
-    };
-  }
-
   // ── Aiming ────────────────────────────────────────────────────────
-
-  private _aimAtTarget(state: BotGameState, target: VisiblePlayer): { pitch: number; yaw: number } {
-    let targetPos = { ...target.position };
-
-    // Predict target position based on velocity (for projectile weapons)
-    if (this.difficulty.predictionSkill > 0) {
-      const prediction = this._predictTargetPosition(state, target);
-      targetPos = prediction;
-    }
-
-    // Weapons fire from the eye, not the player origin. Aim at the enemy origin
-    // from our fire origin so same-floor shots do not pass above the target.
-    const delta = vec3Subtract(targetPos, this._getFireOrigin(state));
-    const horizontalDist = Math.sqrt(delta.x * delta.x + delta.z * delta.z);
-    const perfectYaw = horizontalDist > 0.01 ? Math.atan2(delta.x, delta.z) : state.self.yaw;
-    const perfectPitch =
-      horizontalDist > 0.01 ? -Math.atan2(delta.y, horizontalDist) : delta.y > 0 ? -Math.PI / 2 : Math.PI / 2;
-
-    // Where to look, exactly: the client turns the view there at this
-    // difficulty's speed and adds its wandering error (BotAimController).
-    return { yaw: perfectYaw, pitch: perfectPitch };
-  }
-
-  private _predictTargetPosition(_state: BotGameState, target: VisiblePlayer): Vec3 {
-    // Estimate projectile travel time
-    const distance = target.distance;
-    const estimatedProjectileSpeed = 1400; // rough average projectile speed
-    const travelTime = distance / estimatedProjectileSpeed;
-
-    // Apply prediction with skill factor
-    const predFactor = this.difficulty.predictionSkill * travelTime;
-
-    return {
-      x: target.position.x + target.velocity.x * predFactor,
-      y: target.position.y + target.velocity.y * predFactor,
-      z: target.position.z + target.velocity.z * predFactor,
-    };
-  }
 
   // ── Weapon Selection ──────────────────────────────────────────────
 
-  /**
-   * Aim at target with projectile lead prediction.
-   * Uses the weapon's projectile speed to predict where the target will be.
-   */
-  private _aimAtTargetWithLead(
-    state: BotGameState,
-    target: VisiblePlayer,
-    profile: WeaponProfile,
-  ): { pitch: number; yaw: number } {
-    // Estimate travel time: distance / projectileSpeed
-    const travelTime = target.distance / (profile.projectileSpeed || 2500);
-
-    // Predicted position = current position + velocity * travelTime
-    const predicted: Vec3 = {
-      x: target.position.x + (target.velocity?.x ?? 0) * travelTime,
-      y: target.position.y + (target.velocity?.y ?? 0) * travelTime,
-      z: target.position.z + (target.velocity?.z ?? 0) * travelTime,
-    };
-
-    // Splash weapons: aim slightly lower (toward feet)
-    if (profile.hasSplash) {
-      predicted.y -= 20;
-    }
-
-    // Calculate angles from the actual weapon fire origin.
-    const diff = vec3Subtract(predicted, this._getFireOrigin(state));
-    const dist2D = Math.sqrt(diff.x * diff.x + diff.z * diff.z);
-
-    const yaw = Math.atan2(diff.x, diff.z);
-    const pitch = -Math.atan2(diff.y, dist2D);
-
-    // Turn speed and aim error are the client's (BotAimController), as in _aimAtTarget.
-    return { yaw, pitch };
-  }
-
   // ── Movement Helpers ──────────────────────────────────────────────
 
-  /** Where this bot's shots leave from: its eye, as the game server places it. */
-  private _getFireOrigin(state: BotGameState): Vec3 {
-    return {
-      x: state.self.position.x,
-      y: state.self.position.y + scaledBodyHeight(DEFAULT_VIEWHEIGHT, this._bodyScale),
-      z: state.self.position.z,
-    };
-  }
-
   /**
-   * Navigate to a target position using NavGraph pathfinding when available.
-   * Falls back to direct movement when no graph exists.
+   * A point on the bot's territory to make for (BotTerritory), round `center`
+   * when given, in a mode that keeps territory (GametypeHabits); null in
+   * others, or when hurt or out of ammo with no center.
    */
-  /**
-   * How close to a goal the bot stops and waits: a directive's own radius, or
-   * beside a timed item that is not back yet. Undefined for goals to touch.
-   */
-  private _holdRadius(goal: BotGoal, state: BotGameState): number | undefined {
-    if (goal.directive) return goal.radius;
-    if (goal.respawnTick !== undefined && goal.respawnTick > state.tick) return TIMED_ITEM_HOLD_RADIUS;
-    return undefined;
-  }
-
-  private _selectMandatoryGoal(state: BotGameState): BotGoal | null {
-    if (this._goalArbiterMode === "legacy") return null;
-    const weights = selectWeightProfile(state.matchState.gametypeName, state.getOwnRole(), state.matchState.roundState);
-    if (weights.objectivePush <= 0) return null;
-    const goals = collectDirectiveGoals(state).filter(
-      (goal) => goal.directive?.interrupt === "never" && Number.isFinite(goal.directive.priority),
-    );
-    goals.sort((a, b) => (b.directive?.priority ?? 0) - (a.directive?.priority ?? 0) || a.id.localeCompare(b.id));
-    return goals[0] ?? null;
-  }
-
-  private _navigateGoal(state: BotGameState, goal: BotGoal, urgent: boolean): BotInput {
-    const waypoint = this._nextWaypoint(state, goal);
-    if (waypoint) return this._navigateTo(state, waypoint, urgent);
-    const radius = this._holdRadius(goal, state);
-    // Planting and defusing use move_to: those orders must stay still on arrival.
-    // Escorting patrols round the player escorted, as it moves.
-    const patrol =
-      goal.directive?.kind === "defend" || goal.directive?.kind === "hold_area" || goal.directive?.kind === "escort";
-    if (patrol && radius !== undefined && vec3Length(vec3Subtract(goal.position, state.self.position)) <= radius) {
-      return this._guardPatrol(state, goal.id, goal.position, radius, goal.directive?.watch ?? null);
-    }
-    this._sitePatrol = null;
-    const timed = !goal.directive && goal.respawnTick !== undefined && goal.respawnTick > state.tick;
-    if (timed && radius !== undefined && vec3Length(vec3Subtract(goal.position, state.self.position)) <= radius) {
-      if (state.matchState.gametypeName.toLowerCase() === "duel") {
-        const patrol = this._duelTerritory(state, goal.position);
-        return patrol ? this._navigateTo(state, patrol, false) : this._startRecovery(state);
-      }
-      return this._watchEntrances(state, goal.position);
-    }
-    return this._navigateTo(state, goal.position, urgent, radius);
-  }
-
-  /**
-   * The next of an order's `via` waypoints not yet passed, or null once all
-   * are (or it has none). Passed means within VIA_RADIUS on the same floor;
-   * progress is kept per order, so a new order starts its lane over.
-   */
-  private _nextWaypoint(state: BotGameState, goal: BotGoal): Vec3 | null {
-    const via = goal.directive?.via;
-    if (!via || via.length === 0) {
-      this._via = null;
+  private _territoryPoint(state: BotGameState, center?: Vec3): Vec3 | null {
+    if (!selectGametypeHabits(state.matchState.gametypeName).keepsTerritory || !this._navGraph || !this._lastBotVision)
       return null;
-    }
-    const id = goal.directive?.id ?? "";
-    let progress = this._via;
-    if (!progress || progress.id !== id) {
-      progress = { id, next: 0 };
-      this._via = progress;
-    }
-    const self = state.self.position;
-    while (progress.next < via.length) {
-      const point = via[progress.next];
-      const near =
-        Math.hypot(point.x - self.x, point.z - self.z) <= VIA_RADIUS && Math.abs(point.y - self.y) <= VIA_HEIGHT;
-      if (!near) return point;
-      progress.next++;
-    }
-    return null;
-  }
-
-  private _duelTerritory(state: BotGameState, center?: Vec3): Vec3 | null {
-    if (state.matchState.gametypeName.toLowerCase() !== "duel" || !this._navGraph || !this._lastBotVision) return null;
     if (
       !center &&
       (state.self.health < 60 ||
@@ -2193,37 +837,9 @@ export class StateMachineBrain extends BotBrain {
       state,
       this._navGraph,
       this._lastBotVision,
-      this._getNavPathOptions(state.tick),
+      this._nav.pathOptions(state.tick),
       center,
     );
-  }
-
-  /** Recover from a route that issues commands without actually going anywhere. */
-  private _recoverStalledNavigation(state: BotGameState, input: BotInput): BotInput {
-    // A bot standing still on purpose (holding a site, planting, waiting at
-    // staging) is not stuck; one with an order that is trying to move is,
-    // and an order is no reason to stay wedged against a wall all round.
-    const standing =
-      input.direction.x === 0 &&
-      input.direction.z === 0 &&
-      (input.buttons & (InputButtons.FORWARD | InputButtons.BACK | InputButtons.LEFT | InputButtons.RIGHT)) === 0;
-    if (standing || this.currentState === BotState.FIGHT || this.currentState === BotState.DODGE) {
-      this._navigationProgress = null;
-      return input;
-    }
-    const progress = this._navigationProgress;
-    const position = state.self.position;
-    if (
-      !progress ||
-      state.tick < progress.tick ||
-      Math.hypot(position.x - progress.position.x, position.z - progress.position.z) > 32 ||
-      (state.self.isGrounded && Math.abs(position.y - progress.position.y) > 48)
-    ) {
-      this._navigationProgress = { position: { ...position }, tick: state.tick };
-    } else if (state.tick - progress.tick >= 250 && (state.self.isGrounded || Math.abs(state.self.velocity.y) < 50)) {
-      return this._startRecovery(state, true);
-    }
-    return input;
   }
 
   /**
@@ -2237,10 +853,10 @@ export class StateMachineBrain extends BotBrain {
   private _turnFromBlock(state: BotGameState, input: BotInput): BotInput {
     if (this._fightOff.has("unstick")) return input;
     const self = state.self;
-    if (this._unstick && state.tick < this._unstick.untilTick && !self.isDead) {
-      return this._runOpen(input, this._unstick.yaw);
+    if (this._life.unstick && state.tick < this._life.unstick.untilTick && !self.isDead) {
+      return this._runOpen(input, this._life.unstick.yaw);
     }
-    this._unstick = null;
+    this._life.unstick = null;
     const asking =
       !self.isDead &&
       self.isGrounded &&
@@ -2256,15 +872,15 @@ export class StateMachineBrain extends BotBrain {
       state.wasRecentlyDamaged(DODGE_REACT_TICKS);
     if (!fighting) return this._startRecovery(state, true, heading);
     // The route that led here is planned again, another way.
-    const step = this._activeSequenceStep ?? this._currentPath?.steps[this._currentPath.cursor];
-    if (step) this._cooldownNavStep(step, state.tick);
-    this._currentPath = null;
-    this._pathTarget = null;
-    this._interruptSequence(state, "blocked", true);
+    const step = this._traversal.activeStep ?? this._life.currentPath?.steps[this._life.currentPath.cursor];
+    if (step) this._nav.cooldownStep(step, state.tick);
+    this._life.currentPath = null;
+    this._life.pathTarget = null;
+    this._traversal.interrupt(state, "blocked", true);
     this._cancelScript = true;
     this._strafeDirection = -this._strafeDirection;
     const yaw = this._openHeading(state, heading);
-    this._unstick = { yaw, untilTick: state.tick + UNSTICK_TICKS };
+    this._life.unstick = { yaw, untilTick: state.tick + UNSTICK_TICKS };
     return this._runOpen(input, yaw);
   }
 
@@ -2277,14 +893,14 @@ export class StateMachineBrain extends BotBrain {
     const self = state.self;
     const world = this._lastBotVision?.collisionWorld;
     if (self.isDead || !world || this._liquidImmune || !inHarmfulLiquid(world, self.position)) {
-      this._liquidEscape = null;
+      this._life.liquidEscape = null;
       return input;
     }
-    if (!this._liquidEscape || state.tick - this._liquidEscape.chosenTick >= LIQUID_ESCAPE_REPLAN_TICKS) {
+    if (!this._life.liquidEscape || state.tick - this._life.liquidEscape.chosenTick >= LIQUID_ESCAPE_REPLAN_TICKS) {
       const target = liquidEscapeTarget(world, self.position, this._navGraph?.nodes ?? []);
-      this._liquidEscape = { target, chosenTick: state.tick };
+      this._life.liquidEscape = { target, chosenTick: state.tick };
     }
-    const target = this._liquidEscape.target;
+    const target = this._life.liquidEscape.target;
     const yaw = target ? Math.atan2(target.x - self.position.x, target.z - self.position.z) : travelYaw(input);
     // Jump held: it hops off the bottom and swims up
     const out = this._runOpen(input, yaw);
@@ -2331,18 +947,18 @@ export class StateMachineBrain extends BotBrain {
    */
   private _startRecovery(state: BotGameState, stuck = false, blockedHeading?: number): BotInput {
     this._cancelScript = true;
-    const step = this._activeSequenceStep ?? this._currentPath?.steps[this._currentPath.cursor];
-    if (step) this._cooldownNavStep(step, state.tick);
-    if (stuck && this.currentState !== BotState.CHASE && this._activeItemGoal?.pickupId !== undefined)
-      this._blockedPickupIds.set(this._activeItemGoal.pickupId, state.tick + PICKUP_FAILURE_COOLDOWN_TICKS);
-    this._interruptSequence(state, "no_navigation_progress", true);
+    const step = this._traversal.activeStep ?? this._life.currentPath?.steps[this._life.currentPath.cursor];
+    if (step) this._nav.cooldownStep(step, state.tick);
+    if (stuck && this.currentState !== BotState.CHASE && this._life.activeItemGoal?.pickupId !== undefined)
+      this._nav.blockedPickupIds.set(this._life.activeItemGoal.pickupId, state.tick + PICKUP_FAILURE_COOLDOWN_TICKS);
+    this._traversal.interrupt(state, "no_navigation_progress", true);
     this._itemGoalPlanner.reset();
-    this._activeItemGoal = null;
-    this._currentPath = null;
-    this._pathTarget = null;
-    this._huntPatrolTarget = null;
+    this._life.activeItemGoal = null;
+    this._life.currentPath = null;
+    this._life.pathTarget = null;
+    this._life.huntPatrolTarget = null;
     this._territory.reset();
-    this._navigationProgress = { position: { ...state.self.position }, tick: state.tick };
+    this._life.navigationProgress = { position: { ...state.self.position }, tick: state.tick };
     this._blocked.reset();
     const self = state.self.position;
     const away = step
@@ -2361,7 +977,7 @@ export class StateMachineBrain extends BotBrain {
           const floor = vision.collisionWorld.trace(target, { ...target, y: target.y - 64 });
           if (!floor.hit || floor.fraction >= 1) continue;
         }
-        this._recovery = { target, until: state.tick + 125 };
+        this._life.recovery = { target, until: state.tick + 125 };
         const input = this._moveTowardPrecise(state, target);
         if (!state.self.isGrounded) input.buttons |= InputButtons.CROUCH;
         return input;
@@ -2379,200 +995,6 @@ export class StateMachineBrain extends BotBrain {
    * Wait by a timed item looking at the ways in, a few seconds each, rather
    * than at the item: whoever comes for it arrives through one of them.
    */
-  /** Waiting for an item: on the move round it, watching the ways in. */
-  private _watchEntrances(state: BotGameState, item: Vec3): BotInput {
-    return this._guardPatrol(state, `item:${item.x},${item.z}`, item, TIMED_ITEM_HOLD_RADIUS, null);
-  }
-
-  /**
-   * Guarding: on the move round `center`, never standing. The guard runs
-   * between walkable points within `radius`, choosing ones that see the way
-   * in, and keeps its view on that way in (or on the ways into the spot) while
-   * it runs, as a player strafes about a doorway instead of standing in it.
-   * With nowhere to run, it strafes side to side facing the way in.
-   */
-  private _guardPatrol(
-    state: BotGameState,
-    goalId: string,
-    center: Vec3,
-    radius: number,
-    watch: Vec3 | null,
-  ): BotInput {
-    // These are verified walking segments, not approaches to a traversal trick.
-    this._suppressTraversalAutomation = true;
-    const self = state.self.position;
-    const look = watch ?? this._entranceToWatch(state, center);
-    const lookYaw = look ? Math.atan2(look.x - self.x, look.z - self.z) : state.self.yaw;
-    const sweep = Math.sin((state.tick / TICK_RATE) * HOLD_SWEEP_RATE) * HOLD_SWEEP;
-    const pitch = look
-      ? -Math.atan2(
-          look.y - (self.y + scaledBodyHeight(DEFAULT_VIEWHEIGHT, this._bodyScale)),
-          Math.hypot(look.x - self.x, look.z - self.z),
-        )
-      : 0;
-
-    const previous = this._sitePatrol;
-    let target =
-      previous?.goalId === goalId &&
-      state.tick < previous.expires &&
-      vec3Length(vec3Subtract(previous.target, self)) > GUARD_POINT_REACHED
-        ? previous.target
-        : null;
-    if (!target) {
-      target = this._guardPoint(state, center, radius, look, previous?.goalId === goalId ? previous.target : null);
-      this._sitePatrol = target ? { goalId, target, expires: state.tick + 4 * TICK_RATE, pauseUntil: 0 } : null;
-    }
-    if (!target) {
-      // Strafe across the way in, turning back every so often, toward the side with room
-      const room = (sign: number) => {
-        const a = lookYaw + sign * (Math.PI / 2);
-        const world = this._lastBotVision?.collisionWorld;
-        if (!world) return 1;
-        return world.trace(self, { x: self.x + Math.sin(a) * 96, y: self.y, z: self.z + Math.cos(a) * 96 }).fraction;
-      };
-      const turn = Math.floor(state.tick / GUARD_STRAFE_TICKS) % 2 === 0 ? 1 : -1;
-      const side = room(turn) >= 0.5 || room(turn) >= room(-turn) ? turn : -turn;
-      return {
-        direction: { x: side, y: 0, z: 0 },
-        pitch,
-        yaw: lookYaw + sweep,
-        moveYaw: lookYaw,
-        buttons: side < 0 ? InputButtons.LEFT : InputButtons.RIGHT,
-        weaponSlot: 0,
-      };
-    }
-    return {
-      direction: { x: 0, y: 0, z: 1 },
-      pitch,
-      yaw: lookYaw + sweep,
-      moveYaw: Math.atan2(target.x - self.x, target.z - self.z),
-      buttons: InputButtons.FORWARD | InputButtons.SPRINT,
-      weaponSlot: 0,
-    };
-  }
-
-  /**
-   * The next patrol point round `center`: walkable from here on this floor,
-   * away from the last one, and where the way in can be seen, if any can.
-   */
-  private _guardPoint(
-    state: BotGameState,
-    center: Vec3,
-    radius: number,
-    look: Vec3 | null,
-    last: Vec3 | null,
-  ): Vec3 | null {
-    const vision = this._lastBotVision;
-    if (!vision) return null;
-    const self = state.self.position;
-    const r = Math.max(GUARD_MIN_RADIUS, Math.min(GUARD_MAX_RADIUS, radius));
-    const offset = Math.random() * Math.PI * 2;
-    const candidates: { point: Vec3; score: number }[] = [];
-    for (const ring of GUARD_RINGS) {
-      for (let k = 0; k < GUARD_DIRECTIONS; k++) {
-        const a = offset + (k / GUARD_DIRECTIONS) * Math.PI * 2;
-        const point = { x: center.x + Math.sin(a) * r * ring, y: self.y, z: center.z + Math.cos(a) * r * ring };
-        if (vec3Length(vec3Subtract(point, self)) < 96) continue;
-        if (last && vec3Length(vec3Subtract(point, last)) < 96) continue;
-        if (!vision.isWalkable(self, point)) continue;
-        const sees =
-          look !== null && vision.canSee({ ...point, y: point.y + GUARD_EYE }, { ...look, y: look.y + GUARD_EYE });
-        candidates.push({ point, score: (sees ? 2 : 0) + Math.random() });
-      }
-    }
-    candidates.sort((a, b) => b.score - a.score);
-    return candidates[0]?.point ?? null;
-  }
-
-  /** One of the ways into `spot` on the nav graph, taken in turn over time; null if none. */
-  private _entranceToWatch(state: BotGameState, spot: Vec3): Vec3 | null {
-    const graph = this._navGraph;
-    const node = graph?.findNearestNode(spot);
-    if (!graph || !node) return null;
-    const ways = graph.edges
-      .filter((edge) => edge.to === node.id && edge.from !== node.id)
-      .map((edge) => graph.nodes.find((n) => n.id === edge.from)?.position)
-      .filter((position): position is Vec3 => position !== undefined)
-      .filter((position) => vec3Length(vec3Subtract(position, state.self.position)) > 64);
-    if (ways.length === 0) return null;
-    return ways[Math.floor(state.tick / ENTRANCE_WATCH_TICKS) % ways.length];
-  }
-
-  /** The guard order whose ground a fight or chase must not leave, if any. */
-  private _leashOrder(state: BotGameState): { center: Vec3; leash: number } | null {
-    let best: { center: Vec3; leash: number; priority: number } | null = null;
-    for (const order of state.directives) {
-      if (order.leash === undefined || order.target.type !== "position" || order.expiresAtTick <= state.tick) continue;
-      if (order.kind !== "hold_area" && order.kind !== "defend") continue;
-      if (!best || order.priority > best.priority) {
-        best = { center: order.target.position, leash: order.leash, priority: order.priority };
-      }
-    }
-    return best;
-  }
-
-  /**
-   * A guard in a fight that has drifted past its leash heads back while it
-   * keeps aiming: the fight is answered from the ground it was sent to hold.
-   */
-  private _applyLeash(state: BotGameState, input: BotInput): BotInput {
-    const order = this._leashOrder(state);
-    if (!order) return input;
-    const self = state.self.position;
-    if (Math.hypot(self.x - order.center.x, self.z - order.center.z) <= order.leash) return input;
-    const back = Math.atan2(order.center.x - self.x, order.center.z - self.z);
-    const keep = InputButtons.FIRE | InputButtons.ALT_FIRE | InputButtons.JUMP | InputButtons.CROUCH;
-    return {
-      ...input,
-      direction: { x: 0, y: 0, z: 1 },
-      moveYaw: back,
-      buttons: (input.buttons & keep) | InputButtons.FORWARD,
-    };
-  }
-
-  private _navigateTo(state: BotGameState, target: Vec3, urgent: boolean, holdRadius?: number): BotInput {
-    // Arrived, and the goal is a PLACE TO BE rather than a thing to touch.
-    //
-    // Everything else in this brain deliberately never sends a zero direction
-    // (see `_moveToward`), which means a bot is always running. That is right
-    // for fetching items and wrong for objectives: Search & Destroy plants only
-    // below 400 ups and arms only while you stay within 100 units of the bomb,
-    // so a bot that cannot stop cannot plant, cannot arm, and cannot defuse.
-    // Holding is the behaviour that makes objective modes playable at all.
-    if (holdRadius !== undefined && vec3Length(vec3Subtract(target, state.self.position)) <= holdRadius) {
-      return this._holdPosition(state, target);
-    }
-
-    if (!this._navGraph) {
-      return this._moveToward(state, target, urgent);
-    }
-
-    // Recalculate path periodically or if target changed significantly
-    const targetChanged = !this._pathTarget || vec3Length(vec3Subtract(target, this._pathTarget)) > 200;
-
-    if (targetChanged || !this._currentPath || this._pathRecalcTimer > PATH_RECALC_INTERVAL) {
-      this._currentPath = this._navGraph.findPath(state.self.position, target, this._getNavPathOptions(state.tick));
-      this._pathTarget = target;
-      this._pathRecalcTimer = 0;
-    }
-
-    // If path found, follow waypoints
-    if (this._currentPath) {
-      const result = this._followCurrentPath(state, urgent);
-      if (result.status === "moving") return result.input;
-      if (result.status === "blocked") {
-        if (holdRadius === undefined) return this._startRecovery(state);
-        this._currentPath = null;
-        return this._moveToward(state, target, urgent);
-      }
-      // Path complete — clear it
-      this._currentPath = null;
-      this._dropUnreachableItemGoal(state, target);
-    }
-
-    // No path found — fall back to direct movement
-    return this._moveToward(state, target, urgent);
-  }
 
   /**
    * The route ended short of the item being fetched and there is no clear walk
@@ -2582,7 +1004,7 @@ export class StateMachineBrain extends BotBrain {
    * the node, turning it round every few tenths of a second.
    */
   private _dropUnreachableItemGoal(state: BotGameState, target: Vec3): void {
-    const goal = this._activeItemGoal;
+    const goal = this._life.activeItemGoal;
     const vision = this._lastBotVision;
     if (!goal || goal.directive || !vision) return;
     if (vec3Length(vec3Subtract(goal.position, target)) > 1) return;
@@ -2596,7 +1018,7 @@ export class StateMachineBrain extends BotBrain {
    * one on a lip above or below it, which it circled at full speed.
    */
   private _giveUpOnCircledItem(state: BotGameState): void {
-    const goal = this._activeItemGoal;
+    const goal = this._life.activeItemGoal;
     const self = state.self.position;
     // Waiting beside a major item for its return is item timing, not circling.
     const down = goal?.respawnTick !== undefined && goal.respawnTick > state.tick;
@@ -2606,13 +1028,13 @@ export class StateMachineBrain extends BotBrain {
       down ||
       Math.hypot(goal.position.x - self.x, goal.position.z - self.z) > ITEM_CIRCLE_RADIUS
     ) {
-      this._itemCircle = null;
+      this._life.itemCircle = null;
       return;
     }
-    if (this._itemCircle?.goalId !== goal.id) {
-      this._itemCircle = { goalId: goal.id, sinceTick: state.tick };
-    } else if (state.tick - this._itemCircle.sinceTick > ITEM_CIRCLE_TICKS) {
-      this._itemCircle = null;
+    if (this._life.itemCircle?.goalId !== goal.id) {
+      this._life.itemCircle = { goalId: goal.id, sinceTick: state.tick };
+    } else if (state.tick - this._life.itemCircle.sinceTick > ITEM_CIRCLE_TICKS) {
+      this._life.itemCircle = null;
       this._blockItemGoal(goal, state.tick);
     }
   }
@@ -2620,9 +1042,9 @@ export class StateMachineBrain extends BotBrain {
   private _blockItemGoal(goal: BotGoal, tick: number): void {
     const retry = tick + PICKUP_FAILURE_COOLDOWN_TICKS;
     this._blockedGoalIds.set(goal.id, retry);
-    if (goal.pickupId !== undefined) this._blockedPickupIds.set(goal.pickupId, retry);
+    if (goal.pickupId !== undefined) this._nav.blockedPickupIds.set(goal.pickupId, retry);
     this._itemGoalPlanner.reset();
-    this._activeItemGoal = null;
+    this._life.activeItemGoal = null;
   }
 
   /**
@@ -2659,8 +1081,8 @@ export class StateMachineBrain extends BotBrain {
     }
 
     // Expire failure cooldowns first so a previously-blocked item can return.
-    for (const [pickupId, retryTick] of this._blockedPickupIds) {
-      if (state.tick >= retryTick) this._blockedPickupIds.delete(pickupId);
+    for (const [pickupId, retryTick] of this._nav.blockedPickupIds) {
+      if (state.tick >= retryTick) this._nav.blockedPickupIds.delete(pickupId);
     }
     for (const [goalId, retryTick] of this._blockedGoalIds) {
       if (state.tick >= retryTick) this._blockedGoalIds.delete(goalId);
@@ -2670,7 +1092,7 @@ export class StateMachineBrain extends BotBrain {
     const result = this._itemGoalPlanner.select(state, {
       pickupPositions: pickupPositions ?? [],
       maxDistance: PICKUP_SEEK_RANGE,
-      blockedPickupIds: new Set(this._blockedPickupIds.keys()),
+      blockedPickupIds: new Set(this._nav.blockedPickupIds.keys()),
       blockedGoalIds: new Set(this._blockedGoalIds.keys()),
       typeFilter,
       ignoreDirectives,
@@ -2681,7 +1103,7 @@ export class StateMachineBrain extends BotBrain {
       navGraph: this._navGraph,
     });
 
-    this._activeItemGoal = result.goal;
+    this._life.activeItemGoal = result.goal;
     this._goalMemoTick = state.tick;
     this._goalMemoKey = memoKey;
     this._goalMemoResult = result.goal ? { goal: result.goal, stopover: result.stopover, desire: result.desire } : null;
@@ -2694,343 +1116,39 @@ export class StateMachineBrain extends BotBrain {
   private _navigateToItem(state: BotGameState, itemType: string, urgent: boolean): BotInput | null {
     if (!this._navGraph) return null;
 
-    const goalPickupId = this._currentPath?.nodes[this._currentPath.nodes.length - 1]?.pickupId;
+    const goalPickupId = this._life.currentPath?.nodes[this._life.currentPath.nodes.length - 1]?.pickupId;
     if (
       goalPickupId !== undefined &&
-      (state.pickupActiveMask[goalPickupId] === false || this._blockedPickupIds.has(goalPickupId))
+      (state.pickupActiveMask[goalPickupId] === false || this._nav.blockedPickupIds.has(goalPickupId))
     ) {
-      this._currentPath = null;
-      this._pathTarget = null;
-      this._pathRecalcTimer = PATH_RECALC_INTERVAL + 1;
+      this._life.currentPath = null;
+      this._life.pathTarget = null;
+      this._nav.pathRecalcTimer = PATH_RECALC_INTERVAL + 1;
     }
 
     // Only recalculate item paths periodically
-    if (!this._currentPath || this._pathRecalcTimer > PATH_RECALC_INTERVAL) {
+    if (!this._life.currentPath || this._nav.pathRecalcTimer > PATH_RECALC_INTERVAL) {
       const itemPath = this._navGraph.findPathToItem(
         state.self.position,
         itemType,
         state.pickupActiveMask,
-        this._getNavPathOptions(state.tick),
+        this._nav.pathOptions(state.tick),
       );
       if (!itemPath) return null;
-      this._currentPath = itemPath;
-      this._pathTarget = itemPath.nodes[itemPath.nodes.length - 1]?.position ?? null;
-      this._pathRecalcTimer = 0;
+      this._life.currentPath = itemPath;
+      this._life.pathTarget = itemPath.nodes[itemPath.nodes.length - 1]?.position ?? null;
+      this._nav.pathRecalcTimer = 0;
     }
 
-    if (this._currentPath) {
-      const result = this._followCurrentPath(state, urgent);
+    if (this._life.currentPath) {
+      const result = this._nav.followCurrentPath(state, urgent);
       if (result.status === "moving") return result.input;
       if (result.status === "blocked") return this._startRecovery(state);
       // Arrived at item — clear path
-      this._currentPath = null;
+      this._life.currentPath = null;
     }
 
     return null;
-  }
-
-  private _getNavPathOptions(tick: number): NavPathOptions {
-    for (const [key, retryTick] of this._blockedNavEdges) {
-      if (tick >= retryTick) this._blockedNavEdges.delete(key);
-    }
-    for (const [pickupId, retryTick] of this._blockedPickupIds) {
-      if (tick >= retryTick) this._blockedPickupIds.delete(pickupId);
-    }
-    return {
-      blockedEdgeKeys: new Set(this._blockedNavEdges.keys()),
-      blockedPickupIds: new Set(this._blockedPickupIds.keys()),
-      canWalkTo: this._lastBotVision ? (from, to) => this._lastBotVision?.isWalkable(from, to) ?? true : undefined,
-    };
-  }
-
-  /**
-   * Leave a failed step out of routes for a while, longer each time the same
-   * one fails: a jump missed again and again is one this bot cannot make
-   * from where its routes take it, and retrying it every few seconds kept it
-   * from the item beyond.
-   */
-  private _cooldownNavStep(step: NavStep, tick: number): void {
-    const key = navEdgeKey(step.edge?.from ?? step.from.id, step.edge?.to ?? step.to.id, step.type);
-    const failures = (this._navEdgeFailures.get(key) ?? 0) + 1;
-    this._navEdgeFailures.set(key, failures);
-    const scale = Math.min(NAV_EDGE_FAILURE_MAX_SCALE, 2 ** (failures - 1));
-    this._blockedNavEdges.set(key, tick + NAV_EDGE_FAILURE_COOLDOWN_TICKS * scale);
-  }
-
-  private _getSequenceContext(
-    state: BotGameState,
-    step: NavStep | null = this._activeSequenceStep,
-    proposedInput: BotInput | null = null,
-    crouchslideReady: boolean = false,
-    routeStrafeReady: boolean = false,
-    routeStrafeSide: -1 | 1 = this._routeStrafeSide,
-  ) {
-    const opportunity =
-      step?.opportunityId && this._navGraph ? this._navGraph.getMovementOpportunity(step.opportunityId) : null;
-    return {
-      state,
-      vision: this._lastBotVision,
-      visionResult: this._lastVision,
-      navGraph: this._navGraph,
-      navStep: step,
-      movementOpportunity: opportunity,
-      learnedRoute: this._navGraph?.getLearnedRoute(step?.opportunityId) ?? null,
-      proposedInput,
-      difficulty: this.difficulty,
-      crouchslideReady,
-      routeStrafeReady,
-      routeStrafeSide,
-      itemSlideTarget: this._activeItemSlideTarget,
-      itemSlideReady: this._activeItemSlideTarget !== null,
-    };
-  }
-
-  private _interruptSequence(state: BotGameState, reason: string, force: boolean = false): boolean {
-    const interrupted = this._sequenceRuntime.interrupt(this._getSequenceContext(state), reason, force);
-    if (interrupted) {
-      this._cancelScript = true;
-      this._activeSequenceStep = null;
-      this._activeItemSlideTarget = null;
-    }
-    return interrupted;
-  }
-
-  private _tickActiveSequence(state: BotGameState): BotInput | null {
-    const result: BotSequenceRuntimeTick | null = this._sequenceRuntime.tick(this._getSequenceContext(state));
-    if (!result) return null;
-
-    this._suppressTraversalAutomation = true;
-    this._exactMove = true;
-    this._pathRecalcTimer = 0;
-    if (result.status === "running") return result.input;
-    this._cancelScript = true;
-
-    const terminalItemTarget = this._activeItemSlideTarget;
-    this._activeItemSlideTarget = null;
-    if (result.sequenceId === "item_slide_approach" && terminalItemTarget) {
-      if (result.status === "succeeded") {
-        this._currentPath = null;
-      } else if (result.reason === "pickup_missed" || result.reason === "timeout") {
-        this._blockedPickupIds.set(terminalItemTarget.pickupId, state.tick + PICKUP_FAILURE_COOLDOWN_TICKS);
-        this._currentPath = null;
-      }
-      return null;
-    }
-
-    const terminalStep = this._activeSequenceStep;
-    this._activeSequenceStep = null;
-    this._activeNavStep = null;
-    if (result.status === "failed") {
-      if (terminalStep) {
-        this._pathBlockedReason = `sequence:${result.sequenceId}:${result.reason ?? "failed"}`;
-        this._cooldownNavStep(terminalStep, state.tick);
-        this._currentPath = null;
-        return this._startRecovery(state);
-      }
-      return null;
-    }
-    return null;
-  }
-
-  private _startNavSequence(state: BotGameState, step: NavStep, sequenceId: string): PathFollowResult | null {
-    const context = this._getSequenceContext(state, step);
-    if (!this._sequenceRuntime.start(sequenceId, context)) return null;
-
-    this._activeSequenceStep = step;
-    const input = this._tickActiveSequence(state);
-    if (this._pathBlockedReason) return { status: "blocked", reason: this._pathBlockedReason };
-    return input ? { status: "moving", input } : { status: "complete" };
-  }
-
-  /** Execute one traversal-aware step from the current A* path. */
-  private _followCurrentPath(state: BotGameState, urgent: boolean): PathFollowResult {
-    if (!this._navGraph || !this._currentPath) return { status: "complete" };
-
-    const lined = this._followRouteLine(state, urgent);
-    if (lined) return { status: "moving", input: lined };
-
-    const step = this._navGraph.getNextStep(state.self.position, this._currentPath, PATH_ARRIVED_THRESHOLD);
-    if (!step) {
-      this._activeNavStep = null;
-      this._pathBlockedReason = null;
-      return { status: "complete" };
-    }
-
-    this._activeNavStep = step.type;
-    this._pathBlockedReason = null;
-    const distanceToStart = vec3Length(vec3Subtract(step.from.position, state.self.position));
-
-    if (step.type === "teleporter") {
-      const sequenceResult = this._startNavSequence(state, step, "nav_traverse_teleporter");
-      if (sequenceResult) return sequenceResult;
-      return { status: "blocked", reason: "teleporter:missing_trigger_metadata" };
-    }
-
-    if (step.type === "jumppad") {
-      const sequenceResult = this._startNavSequence(state, step, "nav_traverse_jumppad");
-      if (sequenceResult) return sequenceResult;
-      return { status: "blocked", reason: "jumppad:missing_trigger_metadata" };
-    }
-
-    if (step.type === "fall") {
-      const probe = this._lastBotVision?.probeDrop(step.from.position, step.to.position);
-      if (probe && !probe.safe) {
-        this._cooldownNavStep(step, state.tick);
-        // A bad landing is bad from every ledge above it. Blocking only this
-        // edge sent the next route down the neighbouring one: the bot turned
-        // away, came back and turned away again.
-        if (probe.reason === "landing_obstructed" || probe.reason === "no_landing") {
-          for (const edge of this._navGraph.edges) {
-            if (edge.type === "fall" && edge.to === step.to.id) {
-              this._blockedNavEdges.set(
-                navEdgeKey(edge.from, edge.to, edge.type),
-                state.tick + NAV_EDGE_FAILURE_COOLDOWN_TICKS,
-              );
-            }
-          }
-        }
-        this._pathBlockedReason = `fall:${probe.reason}`;
-        this._activeNavStep = null;
-        this._currentPath = null;
-        return { status: "blocked", reason: this._pathBlockedReason };
-      }
-
-      const boost = this._tryStartLedgeSlideJump(this._moveToward(state, step.to.position, urgent), state);
-      if (boost) return { status: "moving", input: boost };
-
-      this._suppressTraversalAutomation = true;
-      this._exactMove = true;
-      const target = distanceToStart > 56 ? step.from.position : (probe?.landing ?? step.to.position);
-      return { status: "moving", input: this._moveTowardPrecise(state, target) };
-    }
-
-    if (step.type === "jump") {
-      const boost = this._tryStartLedgeSlideJump(this._moveToward(state, step.to.position, urgent), state);
-      if (boost) return { status: "moving", input: boost };
-    }
-
-    // A learned route is a script, not a jump: run it or not at all. Falling
-    // through to the blind jump below drops the bot off the ledge it was
-    // meant to wall-jump from.
-    if (step.type === "jump" && this._navGraph?.getLearnedRoute(step.opportunityId)) {
-      const sequenceResult = this._startNavSequence(state, step, "nav_learned_route");
-      if (sequenceResult) return sequenceResult;
-      return { status: "blocked", reason: "learned_route:not_started" };
-    }
-
-    if (step.type === "jump" && step.validated && step.opportunityId) {
-      const sequenceResult = this._startNavSequence(state, step, "nav_validated_jump");
-      if (sequenceResult) return sequenceResult;
-    }
-
-    const input = this._moveToward(state, step.to.position, urgent);
-    if (step.type === "jump" && state.self.isGrounded && distanceToStart < 180) {
-      input.buttons |= InputButtons.JUMP;
-    }
-
-    const distanceToEnd = vec3Length(vec3Subtract(step.to.position, state.self.position));
-    if (step.requiresPreciseApproach && distanceToEnd < 256) {
-      this._suppressTraversalAutomation = true;
-      this._exactMove = true;
-      return { status: "moving", input: this._makePrecise(input) };
-    }
-
-    this._lookAlongRoute(input, state, this._currentPath);
-    return { status: "moving", input };
-  }
-
-  /**
-   * Run the walking stretch of the route along its line (RouteLine), built
-   * once for the stretch: down the middle of rooms and round corners on the
-   * outside, through the corners of walks that bend, instead of node to node.
-   * Null where the route goes on with a jump, pad, drop or exact approach,
-   * which the step executor handles, or without map knowledge.
-   */
-  private _followRouteLine(state: BotGameState, urgent: boolean): BotInput | null {
-    const path = this._currentPath;
-    const vision = this._lastBotVision;
-    if (!path || !vision) {
-      this._routeLine = null;
-      return null;
-    }
-    const self = state.self.position;
-    let held = this._routeLine;
-    if (held && (held.path !== path || path.cursor < held.fromStep || path.cursor >= held.line.endStep)) held = null;
-    if (held) {
-      const nearest = pointAlong(held.line.points, self, 0, held.stretch).point;
-      if (Math.hypot(nearest.x - self.x, nearest.z - self.z) > ROUTE_LINE_OFF) held = null;
-    }
-    if (!held) {
-      if (lineEndStep(path, path.cursor) === path.cursor) {
-        this._routeLine = null;
-        return null;
-      }
-      const world: RouteWorld = {
-        walkable: (from, to) => vision.isWalkable(from, to),
-        clearance: (at, want) => wallClearance(vision.collisionWorld, at, want, 16),
-      };
-      held = { path, fromStep: path.cursor, line: buildRouteLine(self, path, path.cursor, world), stretch: 0 };
-    }
-    this._routeLine = held;
-    const points = held.line.points;
-    const end = points[points.length - 1];
-    // Arrived on the same floor: standing over the end, a storey up, is not there yet.
-    if (
-      Math.hypot(end.x - self.x, end.z - self.z) < ROUTE_LINE_ARRIVED &&
-      Math.abs(end.y - self.y) < ROUTE_LINE_ARRIVED
-    ) {
-      // The stretch is run: on to the step after it.
-      path.cursor = held.line.endStep;
-      this._routeLine = null;
-      return null;
-    }
-    const along = pointAlong(points, self, ROUTE_LINE_AHEAD, held.stretch);
-    held.stretch = along.stretch;
-    const input = this._moveToward(state, along.point, urgent);
-    // Look further along the same line, as a player looks round the corner.
-    const look = pointAlong(points, self, ROUTE_LOOK_AHEAD, held.stretch).point;
-    if (Math.hypot(look.x - self.x, look.z - self.z) >= ROUTE_LOOK_MIN_DISTANCE) {
-      const lookYaw = Math.atan2(look.x - self.x, look.z - self.z);
-      if (Math.abs(wrapAngle(lookYaw - input.yaw)) <= Math.PI / 2) {
-        input.moveYaw = input.yaw;
-        input.yaw = lookYaw;
-      }
-    }
-    this._activeNavStep = "walk";
-    this._pathBlockedReason = null;
-    this._onRouteLine = true;
-    return input;
-  }
-
-  /**
-   * Look a little way along the route rather than at the next waypoint, as a
-   * player does: the view eases round corners before reaching them instead of
-   * swinging at each node. Movement still heads for the waypoint.
-   */
-  private _lookAlongRoute(input: BotInput, state: BotGameState, path: NavPath): void {
-    const self = state.self.position;
-    let from = { x: self.x, z: self.z };
-    let left = ROUTE_LOOK_AHEAD;
-    for (let i = path.cursor; i < path.steps.length && left > 0; i++) {
-      const step = path.steps[i];
-      if (i > path.cursor && step.type !== "walk") break; // a jump or pad is looked at when reached
-      const to = step.to.position;
-      const length = Math.hypot(to.x - from.x, to.z - from.z);
-      if (length >= left) {
-        from = { x: from.x + ((to.x - from.x) * left) / length, z: from.z + ((to.z - from.z) * left) / length };
-        break;
-      }
-      left -= length;
-      from = { x: to.x, z: to.z };
-    }
-    const dx = from.x - self.x;
-    const dz = from.z - self.z;
-    if (Math.hypot(dx, dz) < ROUTE_LOOK_MIN_DISTANCE) return;
-    const lookYaw = Math.atan2(dx, dz);
-    const heading = input.yaw;
-    if (Math.abs(Math.atan2(Math.sin(lookYaw - heading), Math.cos(lookYaw - heading))) > Math.PI / 2) return;
-    input.moveYaw = heading;
-    input.yaw = lookYaw;
   }
 
   private _moveTowardPrecise(state: BotGameState, target: Vec3): BotInput {
@@ -3056,7 +1174,7 @@ export class StateMachineBrain extends BotBrain {
    *   for the server's strafejump air acceleration to activate
    */
   private _moveToward(state: BotGameState, target: Vec3, _urgent: boolean): BotInput {
-    this._steerTarget = target;
+    this._steering.target = target;
     const delta = vec3Subtract(target, state.self.position);
     const distance = vec3Length(delta);
     const targetYaw = distance < 1 ? state.self.yaw : Math.atan2(delta.x, delta.z);
@@ -3078,642 +1196,6 @@ export class StateMachineBrain extends BotBrain {
   }
 
   // ── Feeler Raycasts (Wall Avoidance) ──────────────────────────────
-
-  /** Slide only when a stable, active pickup closes a straight final walk lane. */
-  private _tryStartItemSlideApproach(input: BotInput, state: BotGameState): BotInput | null {
-    if (
-      state.self.isDead ||
-      this._sequenceRuntime.isActive ||
-      (this.currentState !== BotState.ITEM_RUN && this.currentState !== BotState.RETREAT) ||
-      !state.self.isGrounded ||
-      state.self.isSliding
-    )
-      return null;
-
-    const required = InputButtons.FORWARD | InputButtons.SPRINT;
-    const disallowed =
-      InputButtons.BACK | InputButtons.CROUCH | InputButtons.JUMP | InputButtons.FIRE | InputButtons.ALT_FIRE;
-    if ((input.buttons & required) !== required || (input.buttons & disallowed) !== 0) return null;
-
-    const horizontalSpeed = Math.hypot(state.self.velocity.x, state.self.velocity.z);
-    if (!canInitiateSlide(horizontalSpeed, state.tick >= this._slideCooldownUntilTick)) return null;
-
-    const path = this._currentPath;
-    const step = path?.steps[path.cursor] ?? null;
-    const target = path?.nodes[path.nodes.length - 1] ?? null;
-    if (!path || !step || !target || target.type !== "item" || target.pickupId === undefined) return null;
-    if (step.type !== "walk" || path.cursor !== path.steps.length - 1) return null;
-    if (state.pickupActiveMask[target.pickupId] !== true || this._blockedPickupIds.has(target.pickupId)) return null;
-
-    const targetDelta = vec3Subtract(target.position, state.self.position);
-    const targetDistance = Math.hypot(targetDelta.x, targetDelta.z);
-    const maximumDistance = Math.min(
-      ITEM_SLIDE_MAX_DISTANCE,
-      horizontalSpeed * PHYSICS.SLIDE_SPEED_MULT * (PHYSICS.SLIDE_DURATION / 1000) + 120,
-    );
-    if (targetDistance < ITEM_SLIDE_MIN_DISTANCE || targetDistance > maximumDistance || Math.abs(targetDelta.y) > 96)
-      return null;
-
-    const targetDirection = vec3Normalize({ x: targetDelta.x, y: 0, z: targetDelta.z });
-    if (horizontalSpeed > 0.001) {
-      const velocityDot =
-        (state.self.velocity.x * targetDirection.x + state.self.velocity.z * targetDirection.z) / horizontalSpeed;
-      if (Math.acos(Math.max(-1, Math.min(1, velocityDot))) > ITEM_SLIDE_MAX_VELOCITY_ERROR_RADIANS) return null;
-    }
-
-    const allyBlocksLane = state.players.some((player) => {
-      if (player.relation !== "ally" || player.isDead) return false;
-      const relative = vec3Subtract(player.position, state.self.position);
-      const along = relative.x * targetDirection.x + relative.z * targetDirection.z;
-      const lateral = Math.abs(relative.x * targetDirection.z - relative.z * targetDirection.x);
-      return Math.abs(relative.y) <= 96 && along > 0 && along < targetDistance && lateral < ITEM_SLIDE_ALLY_RADIUS;
-    });
-    if (allyBlocksLane) return null;
-
-    this._activeItemSlideTarget = { pickupId: target.pickupId, position: { ...target.position } };
-    const context = this._getSequenceContext(state, step, input);
-    if (!this._sequenceRuntime.start("item_slide_approach", context)) {
-      this._activeItemSlideTarget = null;
-      return null;
-    }
-    this._slideCooldownUntilTick = state.tick + BOT_SLIDE_COOLDOWN_TICKS;
-    return this._tickActiveSequence(state);
-  }
-
-  /**
-   * Optional route-speed sequence that rejects unsafe geometry and preserves
-   * the state-machine fallback when authoritative slide entry is not confirmed.
-   * Runs after brain decision — adjusts heading, doesn't override state.
-   */
-  private _tryStartLedgeSlideJump(input: BotInput, state: BotGameState): BotInput | null {
-    if (
-      !this._lastBotVision ||
-      !state.self.isGrounded ||
-      this._sequenceRuntime.isActive ||
-      this.difficulty.strafeJumpSkill < 0.55 ||
-      state.tick < this._ledgeProbeTick ||
-      state.tick < this._slideCooldownUntilTick ||
-      (input.buttons & (InputButtons.FIRE | InputButtons.ALT_FIRE)) !== 0 ||
-      (input.buttons & (InputButtons.FORWARD | InputButtons.SPRINT)) !== (InputButtons.FORWARD | InputButtons.SPRINT)
-    )
-      return null;
-    const path = this._currentPath;
-    const step = path?.steps[path.cursor];
-    if (!path || !step) return null;
-    const next = step.type === "walk" ? path.steps[path.cursor + 1] : step;
-    if (!next || (next.type !== "fall" && next.type !== "jump")) return null;
-    this._ledgeProbeTick = state.tick + 31;
-    const plan = planLedgeSlideJump(state.self, input, next.to.position, this._lastBotVision.collisionWorld);
-    if (!plan) return null;
-    const context = { ...this._getSequenceContext(state, step, input), ledgeSlidePlan: plan };
-    if (!this._sequenceRuntime.start("ledge_slide_jump", context)) return null;
-    this._activeSequenceStep = next;
-    this._slideCooldownUntilTick = state.tick + BOT_SLIDE_COOLDOWN_TICKS;
-    return this._tickActiveSequence(state);
-  }
-
-  /**
-   * Is there room for a slide along the route? A slide holds its heading for
-   * ROUTE_SLIDE_RUN units and comes out fast: waypoints within the run must lie
-   * close to that line, those beyond it up to ROUTE_SLIDE_REACH within 45° of
-   * where it ends, and the run must be walkable. Waypoints may be close
-   * together: the bot slides past them (BotNavGraph.getNextStep leaves a
-   * passed one behind).
-   */
-  private _slideLaneOpen(state: BotGameState, path: NavPath, step: NavStep): boolean {
-    return this._laneOpen(state, path, step, ROUTE_SLIDE_RUN, ROUTE_SLIDE_REACH, ROUTE_SLIDE_LANE);
-  }
-
-  /**
-   * Is the route ahead a lane `run` long, `lane` wide, walkable, with only plain
-   * walking up to `reach` and no turn over 45° just after the run? Waypoints may
-   * be close together: the bot passes them (BotNavGraph.getNextStep).
-   */
-  private _laneOpen(
-    state: BotGameState,
-    path: NavPath,
-    step: NavStep,
-    run: number,
-    reach: number,
-    laneWidth: number,
-  ): boolean {
-    if (step.type !== "walk" || step.requiresPreciseApproach) return false;
-    const self = state.self.position;
-    const heading = { x: step.to.position.x - self.x, z: step.to.position.z - self.z };
-    const first = Math.hypot(heading.x, heading.z);
-    if (first < 1) return false;
-    const dx = heading.x / first;
-    const dz = heading.z / first;
-    let along = 0;
-    for (let i = path.cursor; i < path.steps.length; i++) {
-      const next = path.steps[i];
-      const point = next.to.position;
-      along = (point.x - self.x) * dx + (point.z - self.z) * dz;
-      if (along >= reach) break;
-      const lateral = Math.abs((point.x - self.x) * dz - (point.z - self.z) * dx);
-      // A jump, drop or precise approach inside the reach is no place for it,
-      // nor a turn inside the run. After the run the bot can turn up to 45°.
-      const lane = laneWidth + Math.max(0, along - run);
-      if (lateral > lane || next.type !== "walk" || next.requiresPreciseApproach) return false;
-    }
-    // A route ending inside the reach must still leave room for the run.
-    if (along < run) return false;
-    const vision = this._lastBotVision;
-    if (!vision) return true;
-    const end = { x: self.x + dx * run, y: self.y, z: self.z + dz * run };
-    return vision.isWalkable(self, end);
-  }
-
-  /**
-   * Where a hop chain can run: the route line being followed, when the next
-   * ROUTE_STRAFE_REACH of it is plain walking that turns at most
-   * ROUTE_STRAFE_MAX_TURN in all, and at least ROUTE_STRAFE_RUN of it is left.
-   * A chain steers along the line, so it may bend; a jump, drop or exact
-   * approach inside the reach is no place for one.
-   */
-  private _hopLine(state: BotGameState, path: NavPath): { points: readonly Vec3[]; end: Vec3 } | null {
-    const held = this._routeLine;
-    if (!held || held.path !== path) return null;
-    for (let i = path.cursor; i < Math.min(path.steps.length, held.line.endStep); i++) {
-      if (path.steps[i].type !== "walk" || path.steps[i].requiresPreciseApproach) return null;
-    }
-    const points = held.line.points;
-    const self = state.self.position;
-    const start = pointAlong(points, self, 0, held.stretch);
-    // Walk the line ahead: its length to the reach, and how much it turns.
-    let length = 0;
-    let turned = 0;
-    let previous = start.point;
-    let heading: number | null = null;
-    let end = start.point;
-    for (let i = start.stretch + 1; i < points.length && length < ROUTE_STRAFE_REACH; i++) {
-      const point = points[i];
-      const piece = Math.hypot(point.x - previous.x, point.z - previous.z);
-      if (piece < 1) continue;
-      const yaw = Math.atan2(point.x - previous.x, point.z - previous.z);
-      if (heading !== null) turned += Math.abs(wrapAngle(yaw - heading));
-      if (turned > ROUTE_STRAFE_MAX_TURN) break;
-      heading = yaw;
-      length += piece;
-      end = point;
-      previous = point;
-    }
-    if (length < ROUTE_STRAFE_RUN) return null;
-    return { points, end };
-  }
-
-  private _tryStartRouteCrouchslide(input: BotInput, state: BotGameState): BotInput | null {
-    if (state.self.isDead || this._sequenceRuntime.isActive) return null;
-    const movingForward = (input.buttons & InputButtons.FORWARD) !== 0 && (input.buttons & InputButtons.BACK) === 0;
-    const sprinting = (input.buttons & InputButtons.SPRINT) !== 0;
-    const horizontalSpeed = Math.sqrt(state.self.velocity.x ** 2 + state.self.velocity.z ** 2);
-    const cooldownExpired = state.tick >= this._slideCooldownUntilTick;
-
-    if (
-      !state.self.isGrounded ||
-      !movingForward ||
-      !sprinting ||
-      (input.buttons & (InputButtons.FIRE | InputButtons.ALT_FIRE)) !== 0 ||
-      !canInitiateSlide(horizontalSpeed, cooldownExpired)
-    ) {
-      return null;
-    }
-
-    const navigationSlide =
-      this.currentState === BotState.HUNT ||
-      this.currentState === BotState.ITEM_RUN ||
-      this.currentState === BotState.RETREAT ||
-      this.currentState === BotState.CHASE;
-    const dodgeSlide = this.currentState === BotState.DODGE && this.difficulty.dodgeSkill >= 0.35;
-
-    if (!navigationSlide && !dodgeSlide) return null;
-
-    const step = this._currentPath?.steps[this._currentPath.cursor] ?? null;
-    if (this._currentPath && !step) return null;
-    if (step && this._currentPath && !this._slideLaneOpen(state, this._currentPath, step)) return null;
-    // A slide barely steers once begun: its whole run must clear the walls with room to spare
-    if (this._tracer && !this._tracer.runClear(state.self.position, travelYaw(input), ROUTE_SLIDE_RUN)) return null;
-
-    const context = this._getSequenceContext(state, step, input, true);
-    if (!this._sequenceRuntime.start("route_crouchslide", context)) return null;
-    this._slideCooldownUntilTick = state.tick + BOT_SLIDE_COOLDOWN_TICKS;
-    return this._tickActiveSequence(state);
-  }
-
-  /**
-   * Starts a strafe-jump chain only after the route planner has established
-   * enough straight, unoccupied walk space. The chain asks again on every
-   * landing (`routeStrafeNext`), so a route change still ends it there.
-   */
-  private _tryStartRouteStrafeJump(input: BotInput, state: BotGameState): BotInput | null {
-    if (
-      state.self.isDead ||
-      this._sequenceRuntime.isActive ||
-      state.tick < this._routeStrafeCooldownUntilTick ||
-      this.difficulty.strafeJumpSkill < 0.35
-    ) {
-      return null;
-    }
-    if (!state.self.isGrounded || state.self.isSliding) return null;
-
-    const required = InputButtons.FORWARD | InputButtons.SPRINT;
-    const disallowed =
-      InputButtons.BACK |
-      InputButtons.LEFT |
-      InputButtons.RIGHT |
-      InputButtons.CROUCH |
-      InputButtons.FIRE |
-      InputButtons.ALT_FIRE;
-    if ((input.buttons & required) !== required || (input.buttons & disallowed) !== 0) return null;
-
-    const lane = this._routeStrafeLane(state);
-    if (!lane) return null;
-    const step = this._currentPath?.steps[this._currentPath.cursor] ?? null;
-    const context = {
-      ...this._getSequenceContext(state, step, input, false, true, this._routeStrafeSide),
-      ...lane,
-      routeStrafeNext: (at: BotGameState) => {
-        this._advancePath(at);
-        return this._routeStrafeLane(at);
-      },
-    };
-    if (!this._sequenceRuntime.start("route_strafe_jump", context)) return null;
-    this._routeStrafeSide = this._routeStrafeSide === 1 ? -1 : 1;
-    this._routeStrafeCooldownUntilTick = state.tick + BOT_STRAFE_RETRY_TICKS;
-    return this._tickActiveSequence(state);
-  }
-
-  /**
-   * Bring the path up to where the bot is, as following it would: a sequence
-   * in the air passes waypoints the brain has not looked at.
-   */
-  private _advancePath(state: BotGameState): void {
-    if (!this._navGraph || !this._currentPath) return;
-    this._followRouteLine(state, false);
-    this._navGraph.getNextStep(state.self.position, this._currentPath, PATH_ARRIVED_THRESHOLD);
-  }
-
-  /**
-   * The open stretch of route a strafe jump may take from here, or null: a
-   * walk step with room ahead, at running speed and heading along it, and no
-   * ally in the way.
-   */
-  private _routeStrafeLane(state: BotGameState): RouteStrafeLane | null {
-    const navigationState =
-      this.currentState === BotState.HUNT ||
-      this.currentState === BotState.ITEM_RUN ||
-      this.currentState === BotState.RETREAT ||
-      this.currentState === BotState.CHASE;
-    if (!navigationState || state.self.isDead) return null;
-
-    const path = this._currentPath;
-    const step = path?.steps[path.cursor] ?? null;
-    if (!path || !step || step.type !== "walk" || step.requiresPreciseApproach) return null;
-
-    const routeDelta = vec3Subtract(step.to.position, state.self.position);
-    const remaining = Math.hypot(routeDelta.x, routeDelta.z);
-    // An open lane of route ahead, however many waypoints it passes, and room
-    // to stop before an item at its end.
-    const lastItemStep = this.currentState === BotState.ITEM_RUN && path.cursor === path.steps.length - 1;
-    if (lastItemStep && remaining < ROUTE_STRAFE_ITEM_MIN_REMAINING_DISTANCE) return null;
-    // Along the route line when one is held, else a straight lane of route.
-    const line =
-      this._hopLine(state, path) ??
-      (this._laneOpen(state, path, step, STRAIGHT_HOP_RUN, STRAIGHT_HOP_REACH, STRAIGHT_HOP_LANE)
-        ? { points: null, end: null }
-        : null);
-    if (!line) return null;
-
-    const routeDirection = vec3Normalize({ x: routeDelta.x, y: 0, z: routeDelta.z });
-    const horizontalSpeed = Math.hypot(state.self.velocity.x, state.self.velocity.z);
-    if (horizontalSpeed < ROUTE_STRAFE_ENTRY_SPEED) return null;
-    if (horizontalSpeed > 0.001) {
-      const velocityDotRoute =
-        (state.self.velocity.x * routeDirection.x + state.self.velocity.z * routeDirection.z) / horizontalSpeed;
-      const velocityError = Math.acos(Math.max(-1, Math.min(1, velocityDotRoute)));
-      if (velocityError > ROUTE_STRAFE_MAX_VELOCITY_ERROR_RADIANS) return null;
-    }
-
-    const allyBlocksRoute = state.players.some((player) => {
-      if (player.relation !== "ally" || player.isDead) return false;
-      const relative = vec3Subtract(player.position, state.self.position);
-      if (Math.abs(relative.y) > 96) return false;
-      const along = relative.x * routeDirection.x + relative.z * routeDirection.z;
-      if (along <= 0 || along >= Math.min(remaining, ROUTE_STRAFE_ALLY_LOOKAHEAD)) return false;
-      const lateral = Math.abs(relative.x * routeDirection.z - relative.z * routeDirection.x);
-      return lateral < ROUTE_STRAFE_ALLY_RADIUS;
-    });
-    if (allyBlocksRoute) return null;
-
-    const points = line.points;
-    const self = state.self.position;
-    return {
-      routeStrafeYaw: Math.atan2(routeDirection.x, routeDirection.z),
-      // Along a route line: steer with it to the end of the open stretch. On a
-      // straight lane: hold the heading to its end, past waypoints inside it.
-      routeStrafeEnd: line.end ?? {
-        x: self.x + routeDirection.x * (STRAIGHT_HOP_RUN + STRAIGHT_HOP_EXIT_MARGIN),
-        y: self.y,
-        z: self.z + routeDirection.z * (STRAIGHT_HOP_RUN + STRAIGHT_HOP_EXIT_MARGIN),
-      },
-      routeStrafeSteer: points
-        ? (at: Vec3) => {
-            const ahead = pointAlong(points, at, ROUTE_STRAFE_STEER_AHEAD).point;
-            return Math.atan2(ahead.x - at.x, ahead.z - at.z);
-          }
-        : null,
-      routeStrafeOffLine: points
-        ? (at: Vec3) => {
-            const near = pointAlong(points, at, 0).point;
-            return Math.hypot(near.x - at.x, near.z - at.z);
-          }
-        : null,
-    };
-  }
-
-  /**
-   * Turn the feet, not the view, onto the heading BotVisionTracer finds
-   * clear. The keys stay as the decision chose them: the move yaw turns so
-   * they carry the bot along the clear heading.
-   */
-  private _steer(input: BotInput, state: BotGameState, vision: BotVision): BotInput {
-    const keys = input.direction;
-    if (Math.hypot(keys.x, keys.z) < 0.01) return input;
-    if (!this._tracer || this._tracerWorld !== vision.collisionWorld) {
-      this._tracer = new BotVisionTracer(
-        vision.collisionWorld,
-        (vision.mapKnowledge?.triggerVolumes ?? []).filter((t) => t.type === "push" || t.type === "teleport"),
-      );
-      this._tracerWorld = vision.collisionWorld;
-    }
-    const keyTurn = Math.atan2(keys.x, keys.z);
-    const moveYaw = travelYaw(input);
-    const self = state.self;
-    const target = this._steerTarget;
-    const result = this._tracer.steer({
-      tick: state.tick,
-      position: self.position,
-      velocity: self.velocity,
-      grounded: self.isGrounded,
-      yaw: moveYaw + keyTurn,
-      onLine: this._onRouteLine,
-      throughTriggers: this._routeUsesTrigger(),
-      ...(target
-        ? {
-            targetDistance: Math.hypot(target.x - self.position.x, target.z - self.position.z),
-            dropping: target.y < self.position.y - STEER_DROP_HEIGHT,
-          }
-        : {}),
-    });
-    if (!result) {
-      if (self.isGrounded) {
-        this._padRide = null;
-        return input;
-      }
-      // Thrown by a pad with no sequence flying it (one the route did not mean to
-      // use, or one whose traversal gave up): fly on to where it throws, until
-      // down again. Its throw ends at the ledge it serves, and a bot that steers
-      // back toward its own way falls onto the pad and is thrown again.
-      if (!this._padRide && self.velocity.y > PAD_LAUNCH_SPEED && !this._sequenceRuntime.isActive) {
-        const pad = this._padUnder(self.position, vision);
-        if (pad) this._padRide = { dest: pad.dest };
-      }
-      if (this._padRide) {
-        const dest = this._padRide.dest;
-        const keep = InputButtons.FIRE | InputButtons.ALT_FIRE | InputButtons.CROUCH;
-        return {
-          ...input,
-          direction: { x: 0, y: 0, z: 1 },
-          moveYaw: Math.atan2(dest.x - self.position.x, dest.z - self.position.z),
-          buttons: (input.buttons & keep) | InputButtons.FORWARD,
-        };
-      }
-      return this._steerAir(input, state, vision);
-    }
-    this._steerClear = result.clear;
-    if (result.turned) this._feelerSteered = true;
-    return { ...input, moveYaw: result.yaw - keyTurn };
-  }
-
-  /**
-   * Tricks the tracer says work from here (BotVisionTracer.climbByJump,
-   * wallJumpGain), on the way to the point the bot makes for: a jump onto
-   * what stands in the way when the point is above it, and a wall jump when
-   * one ends nearer the point than falling on. Navigation only; a fight
-   * moves for the fight.
-   */
-  private _tryTricks(state: BotGameState, input: BotInput): BotInput {
-    const tracer = this._tracer;
-    const self = state.self;
-    const navigating =
-      this.currentState === BotState.HUNT ||
-      this.currentState === BotState.ITEM_RUN ||
-      this.currentState === BotState.RETREAT ||
-      this.currentState === BotState.CHASE;
-    if (!tracer || !navigating || self.isDead) {
-      this._climb = null;
-      this._wallJumpPress = false;
-      return input;
-    }
-    const toward = (target: Vec3) => Math.atan2(target.x - self.position.x, target.z - self.position.z);
-    const forwardTo = (target: Vec3, jump: boolean): BotInput => ({
-      ...input,
-      direction: { x: 0, y: 0, z: 1 },
-      moveYaw: toward(target),
-      buttons:
-        (input.buttons & ~(InputButtons.BACK | InputButtons.LEFT | InputButtons.RIGHT | InputButtons.CROUCH)) |
-        InputButtons.FORWARD |
-        (jump ? InputButtons.JUMP : 0),
-    });
-
-    // A climb under way: forward to its target until down again, for the ledge grab
-    const climb = this._climb;
-    if (climb) {
-      if (state.tick > climb.untilTick || (self.isGrounded && state.tick > climb.untilTick - CLIMB_HOLD_TICKS + 10)) {
-        this._climb = null;
-      } else if (!self.isGrounded) {
-        return forwardTo(climb.target, false);
-      }
-    }
-    const target = this._steerTarget;
-    if (!target) return input;
-
-    if (self.isGrounded) {
-      this._wallJumpPress = false;
-      const rise = target.y - self.position.y;
-      const far = Math.hypot(target.x - self.position.x, target.z - self.position.z);
-      if (rise < CLIMB_RISE || far > CLIMB_REACH || this._steerClear >= CLIMB_BLOCKED) return input;
-      if (state.tick < this._trickCheckTick) return input;
-      this._trickCheckTick = state.tick + TRICK_CHECK_TICKS;
-      const top = tracer.climbByJump(self.position, self.velocity, toward(target));
-      if (!top || top.y < self.position.y + CLIMB_RISE) return input;
-      this._climb = { target: { ...target }, untilTick: state.tick + CLIMB_HOLD_TICKS };
-      return forwardTo(target, true);
-    }
-
-    // In the air beside a wall: press for a wall jump that ends nearer the target
-    if (this._wallJumpPress) {
-      this._wallJumpPress = false;
-      return forwardTo(target, true);
-    }
-    if (state.tick < this._trickCheckTick || !tracer.wallWithin(self.position, WALL_JUMP_NEAR)) return input;
-    this._trickCheckTick = state.tick + WALL_JUMP_CHECK_TICKS;
-    const gain = tracer.wallJumpGain(self.position, self.velocity, toward(target), target);
-    if (gain === null || gain < WALL_JUMP_GAIN) return input;
-    // Jump held from the take-off would make this no fresh press: let go first
-    if (this._lastJumpHeld) {
-      this._wallJumpPress = true;
-      return forwardTo(target, false);
-    }
-    return forwardTo(target, true);
-  }
-
-  /**
-   * In the air, about to fly into a wall: a side key alone toward the open
-   * side, at the angle that turns the flight without losing speed
-   * (sideTurnAngle), instead of the keys the decision held. Jump, fire and
-   * crouch stay as they were.
-   */
-  private _steerAir(input: BotInput, state: BotGameState, vision: BotVision): BotInput {
-    const self = state.self;
-    const side = wallAheadSide(vision.collisionWorld, self.position, self.velocity);
-    if (side === 0) return input;
-    this._feelerSteered = true;
-    const speed = Math.hypot(self.velocity.x, self.velocity.z);
-    const wish = Math.atan2(self.velocity.x, self.velocity.z) + side * sideTurnAngle(speed);
-    const keep = InputButtons.JUMP | InputButtons.FIRE | InputButtons.ALT_FIRE | InputButtons.CROUCH;
-    return {
-      ...input,
-      direction: { x: side, y: 0, z: 0 },
-      // The key is a quarter turn off the move yaw
-      moveYaw: wish - side * (Math.PI / 2),
-      buttons: (input.buttons & keep) | (side < 0 ? InputButtons.LEFT : InputButtons.RIGHT),
-    };
-  }
-
-  /** The jump pad at or just below `position` (the bot leaves it within a tick of the throw), or null. */
-  private _padUnder(position: Vec3, vision: BotVision): { dest: Vec3 } | null {
-    const pads = (vision.mapKnowledge?.triggerVolumes ?? []).filter((t) => t.type === "push");
-    for (const pad of pads) {
-      const inside =
-        position.x >= pad.min.x - 32 &&
-        position.x <= pad.max.x + 32 &&
-        position.z >= pad.min.z - 32 &&
-        position.z <= pad.max.z + 32 &&
-        position.y >= pad.min.y - 32 &&
-        position.y <= pad.max.y + 96;
-      if (inside) return { dest: pad.dest };
-    }
-    return null;
-  }
-
-  /** Whether the route's current step goes to or through a jump pad or teleporter. */
-  private _routeUsesTrigger(): boolean {
-    const path = this._currentPath;
-    const step = path?.steps[path.cursor];
-    if (!step) return false;
-    return (
-      step.type === "jumppad" ||
-      step.type === "teleporter" ||
-      step.to.type === "jumppad" ||
-      step.to.type === "teleporter"
-    );
-  }
-
-  private _applyFeelers(input: BotInput, state: BotGameState, vision: BotVision): BotInput {
-    /**
-     * Cast 3 rays from bot position to detect nearby walls.
-     * If a wall is detected, steer the bot away from it.
-     * Runs after brain decision and adjusts heading without overriding state.
-     */
-
-    const pos = state.self.position;
-    const yaw = travelYaw(input);
-    const cw = vision.collisionWorld;
-
-    // Eye height offset
-    const eyePos = { x: pos.x, y: pos.y + 36, z: pos.z };
-
-    // Forward ray
-    const fwdEnd = {
-      x: eyePos.x + Math.sin(yaw) * FEELER_FORWARD_DIST,
-      y: eyePos.y,
-      z: eyePos.z + Math.cos(yaw) * FEELER_FORWARD_DIST,
-    };
-    const fwdResult = cw.trace(eyePos, fwdEnd);
-
-    // Forward-left ray (yaw - 30°)
-    const leftYaw = yaw - FEELER_SIDE_ANGLE;
-    const leftEnd = {
-      x: eyePos.x + Math.sin(leftYaw) * FEELER_SIDE_DIST,
-      y: eyePos.y,
-      z: eyePos.z + Math.cos(leftYaw) * FEELER_SIDE_DIST,
-    };
-    const leftResult = cw.trace(eyePos, leftEnd);
-
-    // Forward-right ray (yaw + 30°)
-    const rightYaw = yaw + FEELER_SIDE_ANGLE;
-    const rightEnd = {
-      x: eyePos.x + Math.sin(rightYaw) * FEELER_SIDE_DIST,
-      y: eyePos.y,
-      z: eyePos.z + Math.cos(rightYaw) * FEELER_SIDE_DIST,
-    };
-    const rightResult = cw.trace(eyePos, rightEnd);
-
-    // Determine steering adjustment
-    let yawAdjust = 0;
-    const fwdBlocked = fwdResult.hit && fwdResult.fraction < FEELER_STEER_THRESHOLD;
-    const leftBlocked = leftResult.hit && leftResult.fraction < FEELER_STEER_THRESHOLD;
-    const rightBlocked = rightResult.hit && rightResult.fraction < FEELER_STEER_THRESHOLD;
-
-    if (fwdBlocked) {
-      // Wall directly ahead — steer toward open side
-      if (leftBlocked && !rightBlocked) {
-        yawAdjust = 0.5; // Turn right
-      } else if (rightBlocked && !leftBlocked) {
-        yawAdjust = -0.5; // Turn left
-      } else if (leftBlocked && rightBlocked) {
-        // Walled in on all sides — turn hard (pick random side)
-        yawAdjust = this._strafeDirection > 0 ? 1.2 : -1.2;
-      } else {
-        // Forward blocked but sides open — steer toward more open side
-        const leftDist = leftResult.fraction;
-        const rightDist = rightResult.fraction;
-        yawAdjust = leftDist > rightDist ? -0.4 : 0.4;
-      }
-      // Turning away changes what the rays see, and choosing again from the
-      // new heading swung the bot left, right and left at the same wall.
-      const side = this._feelerSide;
-      const sideClosed = side && (side.sign > 0 ? rightBlocked && !leftBlocked : leftBlocked && !rightBlocked);
-      if (side && state.tick < side.untilTick && !sideClosed) {
-        yawAdjust = side.sign * Math.abs(yawAdjust);
-      } else {
-        this._feelerSide = { sign: Math.sign(yawAdjust), untilTick: state.tick + FEELER_SIDE_COMMIT_TICKS };
-      }
-    } else if (leftBlocked && !rightBlocked) {
-      yawAdjust = 0.2; // Gentle right
-    } else if (rightBlocked && !leftBlocked) {
-      yawAdjust = -0.2; // Gentle left
-    }
-
-    if (yawAdjust !== 0) {
-      this._feelerSteered = true;
-      // Steer the heading; a bot looking ahead along its route keeps looking there.
-      if (input.moveYaw !== undefined) input.moveYaw += yawAdjust;
-      else input.yaw += yawAdjust;
-    }
-
-    return input;
-  }
-
-  private _updateLookAround(): void {
-    this._lookAroundTimer++;
-    const interval = this.difficulty.lookAroundInterval * 60; // Convert seconds to ticks
-    if (this._lookAroundTimer > interval) {
-      this._lookAroundYaw = (Math.random() - 0.5) * 0.5; // Small random look
-      this._lookAroundTimer = 0;
-    }
-  }
 
   // ── Decision Helpers ──────────────────────────────────────────────
 
@@ -3740,31 +1222,293 @@ export class StateMachineBrain extends BotBrain {
     if (state.self.armor < 25 && !this._getHuntTarget(state)) return true;
     const best = this._selectItemGoal(state);
     if (!best) return this._goalArbiterMode === "legacy" && state.self.armor < 25;
+    const pick = this._roamPick(state);
+    if (pick !== undefined) return pick === "item";
     const worth = (SEEK_DESIRE_BASE + SEEK_DESIRE_PER_AGGRESSION * this._weights(state).aggression) * stance.seekScale;
     return best.desire >= worth;
   }
 
   private _getHuntTarget(state: BotGameState): Vec3 | null {
-    // Go to last known enemy position (if recent)
-    let bestTarget: Vec3 | null = null;
-    let bestTick = 0;
+    return this._huntSighting(state)?.position ?? null;
+  }
 
+  /**
+   * The freshest enemy sighting (within ENEMY_SIGHTING_TICKS), else a
+   * teammate's call (within TEAM_SIGHTING_TICKS), with how fresh it is: 1 just
+   * seen, falling to 0 at the end of its window.
+   */
+  private _huntSighting(state: BotGameState): { position: Vec3; fresh: number } | null {
+    let best: { position: Vec3; fresh: number } | null = null;
+    let bestTick = 0;
     for (const [, data] of state.lastKnownEnemyPositions) {
-      if (data.tick > bestTick && state.tick - data.tick < 300) {
+      if (data.tick > bestTick && state.tick - data.tick < ENEMY_SIGHTING_TICKS) {
         bestTick = data.tick;
-        bestTarget = data.position;
+        best = { position: data.position, fresh: 1 - (state.tick - data.tick) / ENEMY_SIGHTING_TICKS };
       }
     }
-    // Else where a teammate last called enemies, while the call is fresh.
     const call = this._teamSighting;
-    if (!bestTarget && call && state.tick - call.tick < TEAM_SIGHTING_TICKS) bestTarget = call.position;
+    if (!best && call && state.tick - call.tick < TEAM_SIGHTING_TICKS)
+      best = { position: call.position, fresh: 1 - (state.tick - call.tick) / TEAM_SIGHTING_TICKS };
+    return best;
+  }
 
-    return bestTarget;
+  /**
+   * With scoredGoals, what roaming goes for (goals/RoamChoice.ts): the item
+   * arbiter's best goal, the freshest sighting or the territory, by desire.
+   * Undefined without scoredGoals: the ladder of rules decides.
+   */
+  private _roamPick(state: BotGameState): RoamPick | null | undefined {
+    if (!this._scoredGoals) return undefined;
+    if (this._roamMemo?.tick === state.tick) return this._roamMemo.pick;
+    const weights = this._weights(state);
+    const keeps = selectGametypeHabits(state.matchState.gametypeName).keepsTerritory;
+    const pick = chooseRoam({
+      item: this._selectItemGoal(state)?.desire ?? 0,
+      hunt: huntDesire(weights, this._strategy.stance.seekScale, this._huntSighting(state)?.fresh ?? 0),
+      hold: holdDesire(weights, keeps && this._territoryPoint(state) !== null),
+    });
+    this._roamMemo = { tick: state.tick, pick };
+    return pick;
   }
 
   /** A teammate called enemies at a place (BotCallouts): somewhere to hunt. */
   override noteTeamSighting(position: Vec3, tick: number): void {
     this._teamSighting = { position: { ...position }, tick };
+  }
+
+  /** What traversal reaches of this brain. */
+  private _traversalHost(): TraversalHost {
+    const brain = this;
+    return {
+      get life() {
+        return brain._life;
+      },
+      get navGraph() {
+        return brain._navGraph;
+      },
+      get vision() {
+        return brain._lastBotVision;
+      },
+      get visionResult() {
+        return brain._lastVision;
+      },
+      get difficulty() {
+        return brain.difficulty;
+      },
+      get currentState() {
+        return brain.currentState;
+      },
+      get tracer() {
+        return brain._steering.tracer;
+      },
+      get nav() {
+        return brain._nav;
+      },
+      cancelScript: () => {
+        this._cancelScript = true;
+      },
+      holdMovementExact: (owner) => this._claims.hold("movement", owner, "exact"),
+      startRecovery: (state, stuck) => this._startRecovery(state, stuck),
+    };
+  }
+
+  /** What steering reaches of this brain. */
+  private _steeringHost(): SteeringHost {
+    const brain = this;
+    return {
+      get life() {
+        return brain._life;
+      },
+      get currentState() {
+        return brain.currentState;
+      },
+      get sequenceActive() {
+        return brain._traversal.runtime.isActive;
+      },
+      get onRouteLine() {
+        return brain._nav.onRouteLine;
+      },
+      get strafeDirection() {
+        return brain._strafeDirection;
+      },
+    };
+  }
+
+  /** What the look reaches of this brain. */
+  private _lookHost(): LookHost {
+    const brain = this;
+    return {
+      get life() {
+        return brain._life;
+      },
+      get currentState() {
+        return brain.currentState;
+      },
+      get sequenceActive() {
+        return brain._traversal.runtime.isActive;
+      },
+      get visionResult() {
+        return brain._lastVision;
+      },
+      get fightOff() {
+        return brain._fightOff;
+      },
+    };
+  }
+
+  /** What following orders reaches of this brain. */
+  private _ordersHost(): OrdersHost {
+    const brain = this;
+    return {
+      get life() {
+        return brain._life;
+      },
+      get nav() {
+        return brain._nav;
+      },
+      get navGraph() {
+        return brain._navGraph;
+      },
+      get vision() {
+        return brain._lastBotVision;
+      },
+      get claims() {
+        return brain._claims;
+      },
+      get bodyScale() {
+        return brain._bodyScale;
+      },
+      get goalArbiterMode() {
+        return brain._goalArbiterMode;
+      },
+      territoryPoint: (...args) => brain._territoryPoint(...args),
+      startRecovery: (...args) => brain._startRecovery(...args),
+    };
+  }
+
+  /** What fighting reaches of this brain. */
+  private _fightHost(): FightHost {
+    const brain = this;
+    return {
+      get life() {
+        return brain._life;
+      },
+      get navGraph() {
+        return brain._navGraph;
+      },
+      get vision() {
+        return brain._lastBotVision;
+      },
+      get visionResult() {
+        return brain._lastVision;
+      },
+      get traversal() {
+        return brain._traversal;
+      },
+      get mood() {
+        return brain._mood;
+      },
+      get difficulty() {
+        return brain.difficulty;
+      },
+      get aimDifficulty() {
+        return brain.aimDifficulty;
+      },
+      get currentState() {
+        return brain.currentState;
+      },
+      get fightOff() {
+        return brain._fightOff;
+      },
+      get bodyScale() {
+        return brain._bodyScale;
+      },
+      get strafeDirection() {
+        return brain._strafeDirection;
+      },
+      set strafeDirection(value) {
+        brain._strafeDirection = value;
+      },
+      enemyEstimate: (...args) => brain._enemyEstimate(...args),
+      hunt: (...args) => brain._roam.hunt(...args),
+    };
+  }
+
+  /** What roaming reaches of this brain. */
+  private _roamHost(): RoamHost {
+    const brain = this;
+    return {
+      get life() {
+        return brain._life;
+      },
+      get nav() {
+        return brain._nav;
+      },
+      get navGraph() {
+        return brain._navGraph;
+      },
+      get vision() {
+        return brain._lastBotVision;
+      },
+      get visionResult() {
+        return brain._lastVision;
+      },
+      get difficulty() {
+        return brain.difficulty;
+      },
+      territoryPoint: (...args) => brain._territoryPoint(...args),
+      keepUpperGround: (...args) => brain._fight.keepUpperGround(...args),
+      fireOrigin: (...args) => brain._fight.fireOrigin(...args),
+      moveToward: (...args) => brain._moveToward(...args),
+      selectItemGoal: (...args) => brain._selectItemGoal(...args),
+      navigateToItem: (...args) => brain._navigateToItem(...args),
+      navigateGoal: (...args) => brain._orders.navigateGoal(...args),
+      huntTarget: (...args) => brain._getHuntTarget(...args),
+      roamPick: (...args) => brain._roamPick(...args),
+    };
+  }
+
+  /** What the navigator reaches of this brain. */
+  private _navigatorHost(): NavigatorHost {
+    const brain = this;
+    return {
+      get life() {
+        return brain._life;
+      },
+      get navGraph() {
+        return brain._navGraph;
+      },
+      get vision() {
+        return brain._lastBotVision;
+      },
+      get currentState() {
+        return brain.currentState;
+      },
+      moveToward: (state, target, urgent) => this._moveToward(state, target, urgent),
+      moveTowardPrecise: (state, target) => this._moveTowardPrecise(state, target),
+      makePrecise: (input) => this._makePrecise(input),
+      holdPosition: (state, target) => this._holdPosition(state, target),
+      startRecovery: (state, stuck) => this._startRecovery(state, stuck),
+      dropUnreachableItemGoal: (state, target) => this._dropUnreachableItemGoal(state, target),
+      tryStartLedgeSlideJump: (input, state) => this._traversal.tryStartLedgeSlideJump(input, state),
+      startNavSequence: (state, step, sequenceId) => this._traversal.startNav(state, step, sequenceId),
+      holdMovementExact: (owner) => this._claims.hold("movement", owner, "exact"),
+    };
+  }
+
+  /**
+   * A new life: nothing of the last one's route, goals and plans, and the
+   * helpers that keep per-life state of their own reset. Goal commitment goes
+   * too: the item worth crossing the map for at 30 HP is a different
+   * proposition after respawning at 100.
+   */
+  private _startLife(): void {
+    this._life = new BotLife();
+    this._itemGoalPlanner.reset();
+    this._fight.startLife();
+    this._mood.endFight();
+    this._territory.reset();
+    this._blocked.reset();
   }
 
   /**
@@ -3799,9 +1543,4 @@ export class StateMachineBrain extends BotBrain {
       weaponSlot: 0,
     };
   }
-}
-
-/** Yaw from `from` toward `to`, as the view measures it. */
-function bearingTo(from: Vec3, to: Vec3): number {
-  return Math.atan2(to.x - from.x, to.z - from.z);
 }

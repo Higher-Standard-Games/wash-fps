@@ -367,7 +367,7 @@ export class GameServer {
       const side = normalizeTeamId(grants.find((grant) => !grant.isBot)?.team);
       const playersSide = side === "udon" || side === "soba" ? side : null;
       if (rules.attack && playersSide) this.gametypeController.setCampaignAttackers(playersSide);
-      if (rules.survival && playersSide) this.gametypeController.setSurvivors(playersSide);
+      if (rules.survival && playersSide) this.gametypeController.setSurvivors(playersSide, rules.survival.lives ?? 1);
       if (rules.scoreLimit !== undefined || rules.timeLimit !== undefined) {
         this.gametypeController.setCampaignLimits({ scoreLimit: rules.scoreLimit, timeLimit: rules.timeLimit });
       }

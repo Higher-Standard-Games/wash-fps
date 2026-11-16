@@ -15,22 +15,23 @@ import { type BotReference, canonicalBotReference } from "../../../shared/rankin
 import { debugEnabled, debugLog } from "../server/DebugLog";
 import { isBotName } from "../shared/bot/BotNames";
 import { BotAimController } from "./BotAimController";
-import { type BotBrain, type BotInput, travelYaw } from "./BotBrain";
+import { type BotBrain, type BotInput, BotState, travelYaw } from "./BotBrain";
 import { BotCallouts, placePosition } from "./BotCallouts";
 import {
   type BotDifficulty,
   type BotOptions,
+  DEFAULT_DECIDE_EVERY,
   defaultBotChat,
   defaultGoalArbiterMode,
   InputButtons,
   resolveDifficulty,
 } from "./BotConfig";
-import type { BotEpisodeRecorder } from "./BotEpisodeRecorder";
 import { applyFriendlyFireSafety, holdFireOffAim } from "./BotFireSafety";
 import { BotGameState, type BotSelf } from "./BotGameState";
 import { BotPerception } from "./BotPerception";
-import { initialBotReference, modelDigest } from "./BotRatingIdentity";
+import { initialBotReference } from "./BotRatingIdentity";
 import { duelLeadReactionDelay } from "./BotReactionTuning";
+import { BOT_TICK_MS, decisionPhase, scheduleBotTick } from "./BotScheduler";
 import type { BotVision, VisionResult } from "./BotVision";
 import { pulseMeleeFire } from "./BotWeaponProfile";
 import { BotChat } from "./chat/BotChat";
@@ -39,6 +40,7 @@ import type { MatchReport } from "./intel/IntelStore";
 import { type FightHabit, StateMachineBrain } from "./StateMachineBrain";
 import type { StrategyId } from "./strategy/Strategist";
 import { teleportExitYaw } from "./TeleportExit";
+import { type BotTimings, TimeHistogram } from "./TimeHistogram";
 
 /** Most script commands sent in one timer firing, well under the server's input buffer. */
 const MAX_SCRIPT_BURST = 4;
@@ -121,11 +123,15 @@ export class BotClient extends EventEmitter {
   private _lastPhase = -1;
   private _ratingReference: BotReference;
   private _disposed = false;
-  /** Resolves after model loading/fallback is known, before lobby authentication. */
-  readonly referenceReady: Promise<void>;
 
   // 125Hz input loop (matches server tick rate)
-  private _inputLoopTimer: ReturnType<typeof setInterval> | null = null;
+  /** Takes this bot's input loop off the shared timer (BotScheduler). */
+  private _inputLoopTimer: (() => void) | null = null;
+  /** Decide on every n-th snapshot while roaming (BotOptions.decideEvery), on this bot's turn. */
+  private readonly _decideEvery: number;
+  private readonly _decisionPhase = decisionPhase();
+  /** What this bot's snapshots cost, all of each and its decision, since it was made. */
+  readonly timings: BotTimings = { snapshot: new TimeHistogram(), decide: new TimeHistogram() };
   private _lastBotInput: BotInput | null = null; // Cached AI decision, re-sent at 125Hz
   /** Team callouts: what this bot tells its team, and what it heard. */
   private readonly _callouts: BotCallouts;
@@ -160,7 +166,6 @@ export class BotClient extends EventEmitter {
   private _navGraph: import("./BotNavGraph").BotNavGraph | null = null;
 
   // Optional episode recorder for training data collection
-  private _recorder: BotEpisodeRecorder | null = null;
 
   // Logging
   private _logPrefix: string;
@@ -188,19 +193,16 @@ export class BotClient extends EventEmitter {
     if (options.habitItem) brain.setHabitItem(options.habitItem);
     if (options.strategies) brain.limitStrategies(options.strategies as StrategyId[]);
     if (options.weights) brain.scaleWeights(options.weights);
+    this._decideEvery = Math.max(1, Math.floor(options.decideEvery ?? DEFAULT_DECIDE_EVERY));
     if (options.fightOff) brain.setFightOff(options.fightOff as FightHabit[]);
     if (options.bodyScale) brain.setBodyScale(options.bodyScale);
     if (options.liquidImmune) brain.setLiquidImmune(true);
+    if (options.scoredGoals !== false) brain.setScoredGoals(true);
     if (options.trace) brain.setTracing(true);
     this._brain = brain;
     this._aim = new BotAimController(this._difficulty);
     this._perception = new BotPerception(this._difficulty);
     if (options.fightOff?.includes("itemcheck")) this._perception.setSpotWatch(false);
-
-    // If modelDir is specified, try to load HybridBrain (requires TF.js)
-    this.referenceReady = options.modelDir
-      ? this._initHybridBrain(options.modelDir, options.difficulty)
-      : Promise.resolve();
 
     // Create game state tracker
     this._gameState = new BotGameState();
@@ -212,62 +214,6 @@ export class BotClient extends EventEmitter {
     this._logPrefix = `[Bot:${this.name}]`;
   }
 
-  /**
-   * Try to load HybridBrain with TF.js models.
-   * Falls back to StateMachineBrain if @tensorflow/tfjs-node isn't available.
-   */
-  private _initHybridBrain(modelDir: string, difficulty: string | BotDifficulty): Promise<void> {
-    return Promise.all([import("./HybridBrain"), import("./ModelMetadata")])
-      .then(async ([{ HybridBrain }, { resolveModelDir }]) => {
-        if (this._disposed) return;
-        const hybrid = new HybridBrain(this._difficulty, Math.random, this._ratingReference.goalArbiter);
-        this._brain = hybrid;
-        // This difficulty's own weights if self-play left some, else the base set
-        const diffName = typeof difficulty === "string" ? difficulty : "medium";
-        const dir = resolveModelDir(modelDir, diffName);
-        const before = modelDigest(dir);
-        try {
-          await hybrid.loadModels(dir);
-        } catch (e) {
-          console.error(`${this._logPrefix} Failed to load models from ${dir}:`, e);
-        }
-        const after = modelDigest(dir);
-        if (this._disposed) {
-          hybrid.dispose();
-          return;
-        }
-        const tactical = hybrid.tacticalModel !== null;
-        const combat = hybrid.combatModel !== null;
-        this._setReference({
-          ...this._ratingReference,
-          model: {
-            status:
-              before !== after || ((tactical || combat) && after === null)
-                ? "unstable"
-                : tactical || combat
-                  ? "loaded"
-                  : "fallback",
-            digest: after,
-            tactical,
-            combat,
-          },
-        });
-      })
-      .catch(() => {
-        if (this._disposed) return;
-        this._setReference({
-          ...this._ratingReference,
-          model: { status: "fallback", digest: null, tactical: false, combat: false },
-        });
-        console.warn("");
-        console.warn(`${this._logPrefix} ⚠️  @tensorflow/tfjs-node not available — using pure StateMachineBrain`);
-        console.warn(
-          `${this._logPrefix} To enable neural AI, run: pnpm rebuild @tensorflow/tfjs-node --build-addon-from-source`,
-        );
-        console.warn("");
-      });
-  }
-
   // ── Public API ────────────────────────────────────────────────────
 
   get state(): BotClientState {
@@ -276,7 +222,7 @@ export class BotClient extends EventEmitter {
   get ratingReference(): BotReference {
     return canonicalBotReference(this._ratingReference);
   }
-  /** Lobby assignment is authoritative; model preparation can happen before it. */
+  /** Lobby assignment is authoritative. */
   setTeam(team: string | undefined): void {
     this._team = team;
   }
@@ -336,19 +282,6 @@ export class BotClient extends EventEmitter {
    */
   setNavGraph(navGraph: import("./BotNavGraph").BotNavGraph | null): void {
     this._navGraph = navGraph ?? null;
-  }
-
-  /**
-   * Set the episode recorder for training data collection.
-   * Call before connect() when using BotTrainer.
-   */
-  setRecorder(recorder: BotEpisodeRecorder | null): void {
-    this._recorder = recorder ?? null;
-  }
-
-  /** Get the current recorder (for BotTrainer access) */
-  get recorder(): BotEpisodeRecorder | null {
-    return this._recorder;
   }
 
   /**
@@ -463,15 +396,11 @@ export class BotClient extends EventEmitter {
     this._perception.reset();
   }
 
-  /** Disconnect and release brain resources once. */
+  /** Disconnect, once. */
   async dispose(): Promise<void> {
     if (this._disposed) return;
     this._disposed = true;
     await this.disconnect();
-    const brain = this._brain as BotBrain & { dispose?: () => void };
-    // A stalled native load cannot hold cancellation open. Its completion path
-    // disposes any late resources before publishing a rating reference.
-    if (this._ratingReference.model.status !== "loading") brain.dispose?.();
   }
 
   /** Update difficulty settings */
@@ -485,7 +414,7 @@ export class BotClient extends EventEmitter {
     this._brain.setDifficulty(this._difficulty);
     this._aim.setDifficulty(this._difficulty);
     this._perception.setDifficulty(this._difficulty);
-    this._setReference({ ...reference, model: this._ratingReference.model });
+    this._setReference(reference);
   }
 
   // ── Message Handling ──────────────────────────────────────────────
@@ -575,6 +504,15 @@ export class BotClient extends EventEmitter {
   }
 
   private _handleSnapshot(data: Uint8Array): void {
+    const started = performance.now();
+    try {
+      this._processSnapshot(data);
+    } finally {
+      this.timings.snapshot.add(performance.now() - started);
+    }
+  }
+
+  private _processSnapshot(data: Uint8Array): void {
     try {
       const snapshot = this._snapshotReceiver.receive(data);
       if (!snapshot) return;
@@ -625,18 +563,6 @@ export class BotClient extends EventEmitter {
           "bot",
           () => `${this._logPrefix} Died! Waiting ${(this._respawnDelayMs / 1000).toFixed(1)}s to respawn...`,
         );
-
-        // Record the death transition frame (critical training signal!)
-        if (this._recorder) {
-          const deathInput: BotInput = {
-            buttons: 0,
-            direction: { x: 0, y: 0, z: 0 },
-            yaw: 0,
-            pitch: 0,
-            weaponSlot: 0,
-          };
-          this._recorder.recordTick(this._gameState, deathInput, this._vision, this._lastVisionResult);
-        }
       }
 
       // Server confirmed we're alive again after being dead
@@ -659,15 +585,19 @@ export class BotClient extends EventEmitter {
       }
 
       // ── AI Decision ─────────────────────────────────────────────
-      // AI decides on each snapshot. The decision is cached and re-sent
-      // at 125Hz by the input loop (see _startInputLoop).
+      // AI decides on each snapshot, or each n-th while roaming
+      // (decideEvery). The decision is cached and re-sent at 125Hz by the
+      // input loop (see _startInputLoop), its view turning every tick.
+      if (this._skipsDecision()) return;
 
       // Run vision query if available
       if (this._vision) {
         this._lastVisionResult = this._vision.getVisibleState(this._gameState);
       }
 
+      const deciding = performance.now();
       let input = this._brain.decide(this._gameState, this._vision, this._lastVisionResult, this._navGraph);
+      this.timings.decide.add(performance.now() - deciding);
       this._aim.setDifficulty(this._brain.aimDifficulty);
       const fireSafety = applyFriendlyFireSafety(input, this._gameState);
       input = fireSafety.input;
@@ -686,11 +616,6 @@ export class BotClient extends EventEmitter {
       // Start 125Hz input loop if not already running
       if (!this._inputLoopTimer) {
         this._startInputLoop();
-      }
-
-      // Record training frame (if recorder is attached)
-      if (this._recorder) {
-        this._recorder.recordTick(this._gameState, input, this._vision, this._lastVisionResult);
       }
 
       // Status line every 300 snapshots, with SHAG_DEBUG=bot
@@ -727,10 +652,22 @@ export class BotClient extends EventEmitter {
   // command each tick. This matches how human clients send at 125Hz
   // via FPSController.commandAccumulator.
 
+  /**
+   * Whether this snapshot passes without a decision: with decideEvery above
+   * 1, while roaming with no sequence running, off this bot's turn. The last
+   * decision keeps being sent.
+   */
+  private _skipsDecision(): boolean {
+    if (this._decideEvery <= 1 || !this._lastBotInput) return false;
+    const state = this._brain.getState();
+    if (state === BotState.FIGHT || state === BotState.DODGE || this._brain.isSequenceActive()) return false;
+    return (this._tickCount + this._decisionPhase) % this._decideEvery !== 0;
+  }
+
   private _startInputLoop(): void {
     if (this._inputLoopTimer) return;
-    const TICK_MS = 8; // 125Hz = 1000/125 = 8ms
-    this._inputLoopTimer = setInterval(() => {
+    const TICK_MS = BOT_TICK_MS;
+    this._inputLoopTimer = scheduleBotTick(() => {
       if (!this._lastBotInput || this._isDead || this._state !== "playing") {
         this._script = null;
         this._paced = null;
@@ -766,7 +703,7 @@ export class BotClient extends EventEmitter {
         this._aim.reset(input.yaw, input.pitch);
       }
       if (script.sent >= script.inputs.length) this._script = null;
-    }, TICK_MS);
+    });
     console.log(`${this._logPrefix} Started 125Hz input loop`);
   }
 
@@ -829,7 +766,7 @@ export class BotClient extends EventEmitter {
 
   private _stopInputLoop(): void {
     if (this._inputLoopTimer) {
-      clearInterval(this._inputLoopTimer);
+      this._inputLoopTimer();
       this._inputLoopTimer = null;
     }
   }

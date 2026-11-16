@@ -87,7 +87,6 @@ export class LeaderboardView {
   /** Bumped when the connection or the lobby's answer may have changed: late replies are dropped. */
   private generation = 0;
 
-  private readonly kicker: HTMLElement;
   private readonly title: HTMLElement;
   private readonly ghost: HTMLElement;
   private readonly modeKeys = new Map<string, HTMLButtonElement>();
@@ -121,9 +120,8 @@ export class LeaderboardView {
 
     const head = el("header", "lobby__head-row");
     const heading = el("div");
-    this.kicker = el("div", "lobby__kicker");
     this.title = el("h1", "lobby__title");
-    heading.append(this.kicker, this.title);
+    heading.append(this.title);
     const modeRow = el("div", "lobby__modes");
     modeRow.setAttribute("role", "group");
     modeRow.setAttribute("aria-label", "Game mode");
@@ -317,7 +315,6 @@ export class LeaderboardView {
 
   private render(): void {
     const tab = TABS.find((item) => item.id === this.tab) ?? TABS[0];
-    this.kicker.textContent = `Leaderboard · ${this.mode.title}`;
     this.title.textContent = tab.name;
     for (const [id, key] of this.modeKeys) {
       key.classList.toggle("is-on", id === this.mode.id);

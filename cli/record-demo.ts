@@ -7,7 +7,6 @@
  *
  * Usage:
  *   npm run demo:record -- --map washoi_dm2 --bots 2 --seconds 30 --gametype duel
- *   npm run demo:record -- --map washoi_dm2 --bots 2 --seconds 60 --models ./models/human
  */
 
 import { MatchPhase } from "@shared/server/gametype";
@@ -29,8 +28,6 @@ interface Args {
   port: number;
   difficulty: string;
   gamePath: string;
-  /** Trained weights for the bots, as the bot server's own --models. */
-  modelDir?: string;
 }
 
 function parseArgs(): Args {
@@ -71,13 +68,10 @@ function parseArgs(): Args {
       case "--game":
         a.gamePath = args[++i];
         break;
-      case "--models":
-        a.modelDir = args[++i];
-        break;
       case "--help":
       case "-h":
         console.log(
-          "Usage: npm run demo:record -- --map <name> --bots <N> --seconds <S> [--gametype duel|amphi|ffa|snd|tdm] [--difficulty easy|medium|hard] [--models <dir>]",
+          "Usage: npm run demo:record -- --map <name> --bots <N> --seconds <S> [--gametype duel|amphi|ffa|snd|tdm] [--difficulty easy|medium|hard]",
         );
         process.exit(0);
     }
@@ -146,9 +140,7 @@ async function main(): Promise<void> {
   console.log(`[Record] Server up on ${url}`);
 
   // 3. Connect AI bots (they load map vision + fight).
-  // With --models the bots play with trained weights, which is how a trained
-  // model gets watched in a real match before anyone plays against it.
-  const botServer = new BotServer(args.port + 100, { modelDir: args.modelDir });
+  const botServer = new BotServer(args.port + 100);
   for (let i = 0; i < args.bots; i++) {
     try {
       if (i > 0) await wait(400);

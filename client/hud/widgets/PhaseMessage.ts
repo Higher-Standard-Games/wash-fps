@@ -144,7 +144,7 @@ export class FPSPhaseMessage implements FPSHudWidget {
       }
     }
 
-    // Overtime (duel): the phase doesn't change, so watch the counter — a tie
+    // Overtime (duel, team deathmatch): the phase doesn't change, so watch the counter — a tie
     // at the limit extends the match with a slam instead of ending it.
     const overtime = mgr.overtime;
     if (overtime !== this.lastOvertime) {

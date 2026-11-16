@@ -19,6 +19,9 @@ import { RatingStore } from "../../../lobby/RatingStore";
 import { loadBotSecret, resolveDataDir } from "../../../lobby/ServerData";
 import { describeServerRuntime } from "../../../lobby/ServerRuntime";
 import { SettingsStore } from "../../../lobby/SettingsStore";
+import { IntelStore } from "../bot/intel/IntelStore";
+import { MatchRunnerPool, runnerCommand } from "../bot/runner/MatchRunnerPool";
+import { RunnerBotSeats } from "../bot/runner/RunnerBotSeats";
 import { resolveFPSDemoMap } from "../client/DemoMapAliases";
 import { FPS_SERVER_APPLICATION } from "../server/FpsServerApplication";
 import { isBotName } from "../shared/bot/BotNames";
@@ -34,10 +37,14 @@ let resultsInfo = false;
 let ratingsInfo = false;
 let ratingsVerify = false;
 let resultsRecover = false;
+/** Seat invited bots in this process and play their matches in match runners (no bot server), unless --bot-server. */
+let botSeatsArg = true;
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--results-info") resultsInfo = true;
   if (args[i] === "--results-recover") resultsRecover = true;
+  if (args[i] === "--bot-seats") botSeatsArg = true;
+  if (args[i] === "--bot-server") botSeatsArg = false;
   if (args[i] === "--ratings-info") ratingsInfo = true;
   if (args[i] === "--ratings-verify") {
     ratingsInfo = true;
@@ -74,6 +81,9 @@ Options:
   --results-info     Read result counts/latest result without starting or changing the server
   --ratings-info     Read ranking journal counts and processing reasons without changing storage
   --ratings-verify   Also replay the applied rating journal read-only; fails if unavailable or divergent
+  --bot-server       Ask a running bot:server for bots instead of seating them
+                     here (by default the lobby seats them and plays each
+                     match's bots in a match runner of its own)
   --results-recover  Retry signed result outbox reports into existing storage; requires explicit --data-dir
 `);
     process.exit(0);
@@ -134,8 +144,17 @@ if (!Number.isInteger(maxPlayers) || maxPlayers < 0) {
   console.error(`--max-players must be a whole number, 0 for no cap (got "${maxPlayersArg}").`);
   process.exit(1);
 }
+const botSecret = loadBotSecret(dataDir);
+const runners = botSeatsArg ? runnerCommand() : null;
+if (botSeatsArg && !runners) {
+  console.error("No bot-runner beside this lobby server: build it, or start with --bot-server");
+  process.exit(1);
+}
+const botIntel = runners ? IntelStore.open(dataDir) : undefined;
+const botSeats = runners ? new RunnerBotSeats(new MatchRunnerPool(runners), botSecret, botIntel) : undefined;
 const server = new LobbyServer(port, new GameServerSpawner(undefined, FPS_SERVER_APPLICATION), {
-  botSecret: loadBotSecret(dataDir),
+  botSecret,
+  ...(botSeats ? { botSeats } : {}),
   resolveDemoMap: resolveFPSDemoMap,
   players,
   results,
@@ -144,6 +163,7 @@ const server = new LobbyServer(port, new GameServerSpawner(undefined, FPS_SERVER
   maxPlayers,
 });
 console.log(`  Data directory: ${dataDir}`);
+if (botSeats) console.log("  Bots: seated by the lobby, matches in match runners");
 
 server
   .start()
@@ -166,6 +186,8 @@ server
 process.on("SIGINT", async () => {
   console.log("\n[LobbyServer] Shutting down...");
   await server.stop();
+  await botSeats?.stop();
+  botIntel?.close();
   settings.close();
   campaign.close();
   results.close();
@@ -175,6 +197,8 @@ process.on("SIGINT", async () => {
 
 process.on("SIGTERM", async () => {
   await server.stop();
+  await botSeats?.stop();
+  botIntel?.close();
   settings.close();
   campaign.close();
   results.close();

@@ -148,7 +148,11 @@ export class FPSDeathScreen implements FPSHudWidget {
    * happened a minute earlier.
    */
   public update(state: HUDState): void {
-    if (!state.localDead) {
+    // A demo is the recorded player's screen: their death is the one to show,
+    // and the camera behind them is no hand-over to a teammate.
+    this.playback = state.playback;
+    const dead = state.playback ? state.dead : state.localDead;
+    if (!dead) {
       if (!this.wasAlive) {
         // Respawned — hide death screen
         this.wasAlive = true;
@@ -161,7 +165,7 @@ export class FPSDeathScreen implements FPSHudWidget {
 
     // Dead, and the camera has moved on to a teammate. Their fight owns the
     // screen; ours is over.
-    if (state.spectating !== "") {
+    if (!state.playback && state.spectating !== "") {
       if (!this.wasAlive) {
         this.stopCountdown();
         this.element.style.display = "none";
@@ -192,11 +196,14 @@ export class FPSDeathScreen implements FPSHudWidget {
     this.element.style.display = "";
   }
 
-  /** The newest kill feed entry for our death, if it is this one */
+  /** Showing a demo's recorded player rather than our own match. */
+  private playback = false;
+
+  /** The newest kill feed entry for our death (the recorded player's in a demo), if it is this one */
   private nameKiller(feed: readonly KillFeedEntry[]): void {
     for (let index = feed.length - 1; index >= 0; index--) {
       const entry = feed[index];
-      if (!entry.ofLocal) continue;
+      if (!(this.playback ? entry.ofViewed : entry.ofLocal)) continue;
       if (entry.timestamp < this.deathTime - DEATH_MATCH_WINDOW_MS) return;
       const { how, who } = obituary(entry);
       this.howEl.textContent = how;

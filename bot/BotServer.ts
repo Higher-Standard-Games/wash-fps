@@ -35,12 +35,14 @@ import { background } from "../../../engine/core/AsyncErrors";
 import { BOT_SECRET_HEADER, secretMatches } from "../../../lobby/ServerData";
 import { BotClient, type BotClientState } from "./BotClient";
 import { type BotOptions, getNextBotName } from "./BotConfig";
-import { BotLobbyClient, type LobbyBotState } from "./BotLobbyClient";
+import { BotLobbyClient, type GameBotLauncher, type LobbyBotState } from "./BotLobbyClient";
+import { buildNavGraph } from "./BotNavBuilder";
 import { BotNavCacheStore } from "./BotNavCache";
-import { BotNavGraph } from "./BotNavGraph";
+import type { BotNavGraph } from "./BotNavGraph";
 import { type BotVision, createBotVision } from "./BotVision";
 import type { IntelStore, MatchReport } from "./intel/IntelStore";
 import { loadLearnedRoutes } from "./LearnedRoutes";
+import type { MatchRunnerPool } from "./runner/MatchRunnerPool";
 
 // ── Control API Message Types ───────────────────────────────────────────
 
@@ -100,16 +102,15 @@ type ControlResponse =
 // ── BotServer ───────────────────────────────────────────────────────────
 
 /**
- * The options a bot is created with: every option asked for, with a name, a
- * difficulty and the server's model directory filled in. Every field passes
- * through, so an option added to BotOptions reaches the bot without a change here.
+ * The options a bot is created with: every option asked for, with a name and a
+ * difficulty filled in. Every field passes through, so an option added to
+ * BotOptions reaches the bot without a change here.
  */
-export function botOptionsFor(options: Partial<BotOptions> | undefined, modelDir: string | undefined): BotOptions {
+export function botOptionsFor(options: Partial<BotOptions> | undefined): BotOptions {
   return {
     ...options,
     name: options?.name || getNextBotName(),
     difficulty: options?.difficulty || "medium",
-    modelDir: options?.modelDir ?? modelDir,
   };
 }
 
@@ -119,11 +120,6 @@ export class BotServer {
   private _lobbyBots: Map<string, BotLobbyClient> = new Map();
   private _pendingLobbyBots = new Set<BotLobbyClient>();
   private _port: number;
-  /** Trained models a bot inherits unless its request names another directory.
-   *  Without this, a bot asked for over the control socket — which is what the
-   *  lobby's Add bot does — could never receive a model, because the lobby
-   *  sends only a difficulty. */
-  private _modelDir: string | undefined;
 
   // Vision cache: mapName → BotVision (shared across all bots on same map)
   private _visionCache: Map<string, BotVision> = new Map();
@@ -131,6 +127,8 @@ export class BotServer {
   private _navGraphCache: Map<string, BotNavGraph> = new Map();
   // Pending vision loads to avoid duplicate BSP loading
   private _visionLoading: Map<string, Promise<BotVision | null>> = new Map();
+  /** Nav graphs being read or built, by map: one load each, however many bots ask. */
+  private _navLoading: Map<string, Promise<void>> = new Map();
 
   // Versioned on-disk cache for deterministic map geometry analysis.
   private _navCacheStore: BotNavCacheStore = new BotNavCacheStore();
@@ -140,23 +138,26 @@ export class BotServer {
   /** Where bots' match reports go (bot/intel/IntelStore.ts); none in headless tools. */
   private _intel: IntelStore | null;
 
+  /** Match runners lobby bots play their matches in; null plays them in this process. */
+  private readonly _runners: MatchRunnerPool | null;
+
   /** Where the learned route libraries are read from (`<root>/config/bot-routes`); the working directory by default. */
   private readonly _routesRoot: string | undefined;
 
   constructor(
     port: number = 9100,
-    options: { secret?: string; modelDir?: string; intel?: IntelStore; routesRoot?: string } = {},
+    options: {
+      secret?: string;
+      intel?: IntelStore;
+      routesRoot?: string;
+      runners?: MatchRunnerPool;
+    } = {},
   ) {
+    this._runners = options.runners ?? null;
     this._port = port;
     this._secret = options.secret;
-    this._modelDir = options.modelDir;
     this._intel = options.intel ?? null;
     this._routesRoot = options.routesRoot;
-  }
-
-  /** Where trained models live, for every bot this server spawns. */
-  get modelDir(): string | undefined {
-    return this._modelDir;
   }
 
   /** The port the control API listens on; the real one when started on port 0. */
@@ -209,6 +210,7 @@ export class BotServer {
 
     // Disconnect all bots
     await this.removeAllBots();
+    await this._runners?.stop();
 
     // Close control server
     if (this._wss) {
@@ -241,8 +243,8 @@ export class BotServer {
   /**
    * Spawn a new bot and connect it to a game server.
    */
-  async addBot(gameServerUrl: string, options?: Partial<BotOptions>): Promise<BotClient> {
-    const botOptions = botOptionsFor(options, this._modelDir);
+  async addBot(gameServerUrl: string, options?: Partial<BotOptions>, admissionTicket?: string): Promise<BotClient> {
+    const botOptions = botOptionsFor(options);
 
     const bot = new BotClient(botOptions);
     this._recordReports(bot);
@@ -253,7 +255,7 @@ export class BotServer {
     });
 
     try {
-      await bot.connect(gameServerUrl);
+      await bot.connect(gameServerUrl, admissionTicket);
       this._bots.set(bot.id, bot);
       console.log(`[BotServer] Bot ${bot.name} (${bot.id}) spawned → ${gameServerUrl}`);
 
@@ -284,11 +286,11 @@ export class BotServer {
         name: options?.name || getNextBotName(),
         difficulty: options?.difficulty || "medium",
         team: options?.team,
-        modelDir: options?.modelDir ?? this._modelDir,
         goalArbiter: options?.goalArbiter,
         chat: options?.chat,
       },
       this._secret,
+      this._runners ? this._runnerLauncher(this._runners) : undefined,
     );
 
     // When lobby bot transitions to game, track the game BotClient
@@ -325,6 +327,21 @@ export class BotServer {
     } finally {
       this._pendingLobbyBots.delete(lobbyBot);
     }
+  }
+
+  /** Lobby bots' matches played in runners, their match reports stored here. */
+  private _runnerLauncher(runners: MatchRunnerPool): GameBotLauncher {
+    return (serverUrl, options, admissionTicket, events) =>
+      runners.launch(serverUrl, options, admissionTicket, {
+        ...events,
+        onReport: (report) => {
+          try {
+            this._intel?.record(report);
+          } catch (error) {
+            console.warn(`[BotServer] Could not store ${options.name}'s match report: ${(error as Error).message}`);
+          }
+        },
+      });
   }
 
   /**
@@ -365,36 +382,15 @@ export class BotServer {
         bot.setVision(vision.fork());
         console.log(`[BotServer] Vision loaded → ${bot.name} on map "${mapName}"`);
 
-        // Build NavGraph from vision (if not already cached)
-        let navGraph: BotNavGraph | null = this._navGraphCache.get(mapName) ?? null;
-        if (!navGraph) {
-          navGraph = this._navCacheStore.load(mapName, vision.mapKnowledge.mapFingerprint);
-          console.log(`[BotServer] NavGraph cache ${this._navCacheStore.lastDiagnostic}`);
-          if (!navGraph) {
-            navGraph = new BotNavGraph(mapName);
-            navGraph.buildFromVision(vision);
-            this._navCacheStore.save(navGraph, vision.mapKnowledge.mapFingerprint);
-            console.log(`[BotServer] NavGraph cache ${this._navCacheStore.lastDiagnostic}`);
-          }
-          // After the cache save: learned routes live in config/bot-routes and
-          // change without the map changing, so they are never cached.
-          const learned = navGraph.addLearnedRoutes(loadLearnedRoutes(mapName, this._routesRoot), (from, to) =>
-            vision.isWalkable(from, to),
-          );
-          this._navGraphCache.set(mapName, navGraph);
-          console.log(
-            `[BotServer] NavGraph built → ${navGraph.nodeCount} nodes, ${navGraph.edgeCount} edges, ${learned} learned routes`,
-          );
-        }
-        bot.setNavGraph(navGraph);
-
-        // Also set vision + navGraph for any other bots on the same map
+        bot.setNavGraph(this._navGraphCache.get(mapName) ?? null);
+        // Also set vision for any other bots on the same map
         for (const [, otherBot] of this._bots) {
           if (otherBot !== bot && otherBot.serverInfo?.map === mapName) {
             otherBot.setVision(vision.fork());
-            otherBot.setNavGraph(navGraph);
+            otherBot.setNavGraph(this._navGraphCache.get(mapName) ?? null);
           }
         }
+        if (!this._navGraphCache.has(mapName)) background(this._loadNavGraph(mapName, vision), "BotServer nav graph");
       } else {
         this._visionLoading.delete(mapName);
         console.warn(`[BotServer] Vision unavailable for map "${mapName}"`);
@@ -406,6 +402,35 @@ export class BotServer {
         err instanceof Error ? err.message : String(err),
       );
     }
+  }
+
+  /**
+   * The map's nav graph, from the disk cache or a build, handed to every bot on
+   * the map when it is ready; until then they play without one. A build runs in
+   * a worker thread (buildNavGraph), so it never stalls the bots already playing.
+   */
+  private _loadNavGraph(mapName: string, vision: BotVision): Promise<void> {
+    const loading = this._navLoading.get(mapName);
+    if (loading) return loading;
+    const load = (async () => {
+      let navGraph = this._navCacheStore.load(mapName, vision.mapKnowledge.mapFingerprint);
+      console.log(`[BotServer] NavGraph cache ${this._navCacheStore.lastDiagnostic}`);
+      navGraph ??= await buildNavGraph(mapName, vision);
+      if (!navGraph) return;
+      // After the cache: learned routes live in config/bot-routes and change
+      // without the map changing, so they are never cached.
+      const learned = navGraph.addLearnedRoutes(
+        loadLearnedRoutes(mapName, this._routesRoot),
+        navGraph.walkTest(vision),
+      );
+      this._navGraphCache.set(mapName, navGraph);
+      console.log(
+        `[BotServer] NavGraph ready → ${navGraph.nodeCount} nodes, ${navGraph.edgeCount} edges, ${learned} learned routes`,
+      );
+      for (const bot of this._bots.values()) if (bot.serverInfo?.map === mapName) bot.setNavGraph(navGraph);
+    })().finally(() => this._navLoading.delete(mapName));
+    this._navLoading.set(mapName, load);
+    return load;
   }
 
   /**
@@ -473,6 +498,11 @@ export class BotServer {
     }));
 
     return [...direct, ...lobby];
+  }
+
+  /** Match runners alive, with their game server and bots. */
+  runnerStatus(): ReturnType<MatchRunnerPool["status"]> {
+    return this._runners?.status() ?? [];
   }
 
   // ── Control API ───────────────────────────────────────────────────

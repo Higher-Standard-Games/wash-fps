@@ -106,6 +106,8 @@ interface ShotAim {
 
 /** Salt for a single-ray shot's spread seed, apart from the pellet seeds' shot counts. */
 const BULLET_SPREAD_SALT = 7919;
+/** Seed salt for the heading a death's weapon scatter starts from. */
+const DEATH_SCATTER_SALT = 6151;
 
 /**
  * Event emitted when a player starts or stops charging a weapon
@@ -857,15 +859,18 @@ export class WeaponSystem extends Subsystem {
     if (!this.droppedWeaponSystem) return;
 
     const toDrop = state.weapons.filter((w) => !isDefaultWeapon(w));
+    // The heading the scatter starts from, its own draw of the same seed.
+    const scatter = rngFrom(this.currentTick, eId as number, DEATH_SCATTER_SALT)() * Math.PI * 2;
     for (let i = 0; i < toDrop.length; i++) {
       const weaponId = toDrop[i];
       const weaponDef = WEAPONS[weaponId];
       const playerAmmo = this.ammoTotal(state.ammo.get(weaponId));
       // Cap dropped ammo at pickupAmmo (one clip worth)
       const ammo = weaponDef ? Math.min(playerAmmo, weaponDef.pickupAmmo ?? weaponDef.maxAmmo) : playerAmmo;
-      // Deterministic death scatter (seeded from tick+entity+slot, R3).
+      // Deterministic death scatter (seeded from tick+entity+slot, R3): the
+      // weapons spread evenly round a heading of their own each death.
       const rng = rngFrom(this.currentTick, eId as number, i);
-      const angle = (i / toDrop.length) * Math.PI * 2 + rng() * 0.5;
+      const angle = scatter + (i / toDrop.length) * Math.PI * 2 + rng() * 0.5;
       const hSpeed = 60 + rng() * 80;
       this.droppedWeaponSystem.queueDrop({
         weaponId,

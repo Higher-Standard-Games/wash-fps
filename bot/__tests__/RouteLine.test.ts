@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import type { Vec3 } from "../BotGameState";
 import type { NavNode, NavPath, NavStep } from "../BotNavGraph";
-import { buildRouteLine, lineEndStep, pointAlong, type RouteWorld } from "../RouteLine";
+import { buildRouteLine, lineEndStep, nearestOnLine, pointAlong, type RouteWorld, sharedRouteLine } from "../RouteLine";
 
 /** A corridor along x between walls at z = ±100; nothing else in it. */
 const corridor: RouteWorld = {
@@ -124,5 +124,45 @@ describe("following a line", () => {
 
   it("stops at the end", () => {
     expect(pointAlong(line, { x: 200, z: 190 }, 64).point).toEqual(line[2]);
+  });
+});
+
+describe("shared route lines", () => {
+  it("builds a stretch's line once per graph, from its own node, for every route over it", () => {
+    const graph = {};
+    const route = (): NavPath =>
+      path([
+        [0, 0],
+        [200, 10],
+        [400, 0],
+      ]);
+    const first = sharedRouteLine(graph, route(), 0, corridor);
+    // Another path object over the same nodes: the same line
+    expect(sharedRouteLine(graph, route(), 0, corridor)).toBe(first);
+    // Started at the stretch's first node, standing over it
+    expect(first.points[0]).toMatchObject({ x: 0, z: 0 });
+    // Another graph builds its own
+    expect(sharedRouteLine({}, route(), 0, corridor)).not.toBe(first);
+    // A different kind of step over the same nodes is another stretch
+    const jump = path(
+      [
+        [0, 0],
+        [200, 10],
+        [400, 0],
+      ],
+      [{}, { type: "jump" }],
+    );
+    expect(sharedRouteLine(graph, jump, 0, corridor)).not.toBe(first);
+  });
+
+  it("finds where a bot joins a line, over its whole length", () => {
+    const points = [
+      { x: 0, y: 24, z: 0 },
+      { x: 100, y: 24, z: 0 },
+      { x: 100, y: 24, z: 300 },
+      { x: 400, y: 24, z: 300 },
+    ];
+    expect(nearestOnLine(points, { x: 250, z: 290 })).toEqual({ stretch: 2, distance: 10 });
+    expect(nearestOnLine(points, { x: 50, z: -30 })).toEqual({ stretch: 0, distance: 30 });
   });
 });

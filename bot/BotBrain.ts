@@ -4,9 +4,8 @@
  * Defines the contract between BotClient and AI logic.
  * The brain receives game state each tick and returns input commands.
  *
- * Two brains implement it: StateMachineBrain, which is rule-based and driven by
- * the goal layer in goals/, and HybridBrain, which layers optional
- * TensorFlow.js networks on top of those rules.
+ * StateMachineBrain implements it: rule-based, driven by the goal layer in
+ * goals/.
  */
 
 import type { BotDifficulty } from "./BotConfig";
@@ -122,6 +121,10 @@ export abstract class BotBrain {
   /** Get current AI state (for debugging/logging) */
   getState(): BotState {
     return this.currentState;
+  }
+  /** Whether a movement sequence is running, which needs a decision every snapshot. */
+  isSequenceActive(): boolean {
+    return false;
   }
   /** Compact traversal state for periodic bot diagnostics. */
   getNavigationDebug(): string | null {

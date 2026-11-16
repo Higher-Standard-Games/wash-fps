@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { BotClient } from "../BotClient";
 import { DIFFICULTY_PRESETS } from "../BotConfig";
-import { initialBotReference, modelDigest } from "../BotRatingIdentity";
+import { initialBotReference } from "../BotRatingIdentity";
 
 let dir: string | undefined;
 afterEach(() => {
@@ -42,23 +42,5 @@ describe("runtime bot identities", () => {
     const copy = bot.ratingReference;
     copy.difficulty.aimAccuracy = 1;
     expect(bot.ratingReference.difficulty.aimAccuracy).toBe(0.25);
-  });
-  it("hashes model contents independently of directory location and notices replaced shards", () => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), "shag-bot-identity-"));
-    for (const name of ["first", "renamed"]) {
-      const head = path.join(dir, name, "combat");
-      fs.mkdirSync(head, { recursive: true });
-      fs.writeFileSync(path.join(head, "model.json"), "{}");
-      fs.writeFileSync(path.join(head, "weights.bin"), new Uint8Array([1, 2, 3]));
-    }
-    const original = modelDigest(path.join(dir, "first"));
-    expect(original).toMatch(/^[a-f0-9]{64}$/);
-    expect(modelDigest(path.join(dir, "renamed"))).toBe(original);
-    fs.writeFileSync(path.join(dir, "renamed", "combat", "weights.bin"), new Uint8Array([3, 2, 1]));
-    expect(modelDigest(path.join(dir, "renamed"))).not.toBe(original);
-    expect(modelDigest(path.join(dir, "missing"))).toBeNull();
-    expect(
-      initialBotReference({ name: "Model", difficulty: "medium", modelDir: path.join(dir, "first") }).model.status,
-    ).toBe("loading");
   });
 });

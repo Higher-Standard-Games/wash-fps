@@ -1101,13 +1101,10 @@ export class LobbyPanel extends GamePanel {
 
     const header = document.createElement("header");
     header.className = "lobby__heading";
-    const kicker = document.createElement("span");
-    kicker.className = "lobby__kicker";
-    kicker.textContent = "Play";
     const title = document.createElement("h1");
     title.className = "lobby__title";
     title.textContent = "Pick your fight";
-    header.append(kicker, title);
+    header.append(title);
     body.appendChild(header);
 
     const tiles = document.createElement("div");

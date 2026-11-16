@@ -381,6 +381,16 @@ export class BotPerception {
       this._items.set(id, { up: false, takenTick: Math.round(takenTick + off) });
     };
     const respawnTicks = (entry: PickupEntry) => Math.round(itemRespawnSeconds(entry.type, entry.kind) * TICK_RATE);
+    // A spot is asked about by more than one check below; this snapshot gives one answer each
+    const sight = new Map<number, boolean>();
+    const inSight = (entry: PickupEntry): boolean => {
+      let seen = sight.get(entry.id);
+      if (seen === undefined) {
+        seen = this._spotInSight(input, entry);
+        sight.set(entry.id, seen);
+      }
+      return seen;
+    };
     // Found gone: taken since the bot last saw it there, or some time in the last respawn period.
     const foundGone = (entry: PickupEntry) => {
       const seenUp = this._spotWatch ? this._seenUp.get(entry.id) : undefined;
@@ -417,7 +427,7 @@ export class BotPerception {
         continue;
       }
       if (!isMajorItem(entry.type, entry.kind)) continue;
-      if (!this._spotInSight(input, entry)) continue;
+      if (!inSight(entry)) continue;
       const taker = takerAt(state, entry.position) ?? lone;
       remember(entry.id, state.tick);
       if (taker) creditTake(state, taker, entry, state.tick);
@@ -426,7 +436,7 @@ export class BotPerception {
     // Major item spots in sight, every snapshot.
     if (this._spotWatch) {
       for (const entry of pickups) {
-        if (!isMajorItem(entry.type, entry.kind) || !this._spotInSight(input, entry)) continue;
+        if (!isMajorItem(entry.type, entry.kind) || !inSight(entry)) continue;
         this._spotSeen.set(entry.id, state.tick);
         const belief = this._items.get(entry.id);
         if (server[entry.id] ?? true) {
@@ -444,7 +454,7 @@ export class BotPerception {
     const order = wrong.length > 0 ? wrong : pickups;
     for (let n = 0; n < Math.min(MAX_ITEM_CHECKS, order.length); n++) {
       const entry = order[(this._itemCursor + n) % order.length];
-      if (!this._spotInSight(input, entry)) continue;
+      if (!inSight(entry)) continue;
       const up = server[entry.id] ?? true;
       const belief = this._items.get(entry.id);
       if (up) this._items.delete(entry.id);

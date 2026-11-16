@@ -65,33 +65,6 @@ function behaviorDigest(): string {
   return behavior;
 }
 
-/** Hash only metadata and model artifacts, not directory names or timestamps. */
-export function modelDigest(dir: string): string | null {
-  try {
-    const hash = createHash("sha256");
-    let files = 0;
-    const visit = (folder: string) => {
-      for (const entry of fs
-        .readdirSync(folder, { withFileTypes: true })
-        .sort((a, b) => a.name.localeCompare(b.name))) {
-        const file = path.join(folder, entry.name);
-        if (entry.isDirectory() && ["tactical", "combat"].includes(entry.name)) visit(file);
-        else if (entry.isFile() && (entry.name.endsWith(".json") || entry.name.endsWith(".bin"))) {
-          hash.update(path.relative(dir, file).split(path.sep).join("/"));
-          hash.update("\0");
-          hash.update(new Uint8Array(fs.readFileSync(file)));
-          hash.update("\0");
-          files++;
-        }
-      }
-    };
-    visit(dir);
-    return files ? hash.digest("hex") : null;
-  } catch {
-    return null;
-  }
-}
-
 export function initialBotReference(options: BotOptions): BotReference {
   const preset =
     typeof options.difficulty === "string"
@@ -105,6 +78,6 @@ export function initialBotReference(options: BotOptions): BotReference {
     difficulty: resolveDifficulty(typeof options.difficulty === "string" ? preset : options.difficulty),
     goalArbiter: options.goalArbiter ?? defaultGoalArbiterMode(),
     behavior: behaviorDigest(),
-    model: { status: options.modelDir ? "loading" : "none", digest: null, tactical: false, combat: false },
+    model: { status: "none", digest: null, tactical: false, combat: false },
   });
 }

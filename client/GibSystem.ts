@@ -174,7 +174,7 @@ interface ShadeBatches {
 }
 
 /** A shot-mask point trace, shared by every gib bounce test. */
-const GIB_TRACE = { radius: 0, contentMask: CollisionMasks.SHOT };
+const GIB_TRACE = { radius: 0, height: 0, contentMask: CollisionMasks.SHOT };
 
 export class GibSystem {
   private static instance: GibSystem | null = null;

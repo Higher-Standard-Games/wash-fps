@@ -108,6 +108,12 @@ export const DIFFICULTY_PRESETS: Record<string, BotDifficulty> = {
 
 // ── Bot Options (passed when spawning a bot) ────────────────────────────────
 
+/**
+ * Roaming bots decide on every second snapshot: a third fewer decisions in an
+ * S&D match with no difference in results (bot:ab), aim and fights at full rate.
+ */
+export const DEFAULT_DECIDE_EVERY = 2;
+
 export interface BotOptions {
   /** Display name for the bot */
   name: string;
@@ -115,8 +121,6 @@ export interface BotOptions {
   difficulty: string | BotDifficulty;
   /** Team to join (undefined = auto-balance) */
   team?: string;
-  /** Path to TF.js model directory for HybridBrain (undefined = pure state machine) */
-  modelDir?: string;
   /**
    * Item-goal arbiter mode (docs/research/BOT_WEIGHTS_AND_GOALS.md §7.7).
    * Per-bot rather than process-wide so two bots can be A/B'd in one match via
@@ -157,6 +161,21 @@ export interface BotOptions {
   bodyScale?: number;
   /** Slime and lava do not hurt this bot (a campaign boss): it fights on in them. Not part of the rating identity. */
   liquidImmune?: boolean;
+  /**
+   * Decide on every n-th snapshot while roaming (DEFAULT_DECIDE_EVERY when
+   * absent; 1 decides on every one). A fight, a dodge and a running movement
+   * sequence decide on every snapshot whatever this is; perception and aim
+   * run on every snapshot and tick. Bots take turns
+   * (BotScheduler.decisionPhase), so a match's decisions spread over the
+   * snapshots.
+   */
+  decideEvery?: number;
+  /**
+   * Choose between an item, a hunt and holding ground by score
+   * (goals/RoamChoice.ts); false decides by the brain's ladder of rules, for
+   * head-to-head tests. Not part of the rating identity.
+   */
+  scoredGoals?: boolean;
   /** Build a DecisionTrace with every decision, for tools (bot:motion --trace). */
   trace?: boolean;
   /**
@@ -214,32 +233,4 @@ export function resolveDifficulty(difficulty: string | BotDifficulty): BotDiffic
     return DIFFICULTY_PRESETS[difficulty] || DIFFICULTY_PRESETS.medium;
   }
   return difficulty;
-}
-
-// ── Difficulty Tier → Model Directory Mapping ───────────────────────────────
-
-/**
- * How many training rounds each difficulty tier needs.
- * Used by BotTrainer to save checkpoints at tier boundaries.
- *
- *   easy:   0 rounds   (fresh untrained models — pure state machine + noise)
- *   medium: 100 rounds (basic pattern recognition)
- *   hard:   500 rounds (strong tactical awareness)
- *   insane: 2000 rounds (near-optimal play)
- */
-export const DIFFICULTY_TRAINING_ROUNDS: Record<string, number> = {
-  easy: 0,
-  medium: 100,
-  hard: 500,
-  insane: 2000,
-};
-
-/**
- * Get all difficulty tiers in order of training progression.
- * Used by the trainer to save checkpoints at tier boundaries.
- */
-export function getDifficultyTiers(): Array<{ name: string; rounds: number }> {
-  return Object.entries(DIFFICULTY_TRAINING_ROUNDS)
-    .map(([name, rounds]) => ({ name, rounds }))
-    .sort((a, b) => a.rounds - b.rounds);
 }

@@ -8,6 +8,8 @@ mkdir -p "$scratch/bin" "$WASHOI_ROOT/.deploy-state" "$WASHOI_ROOT/releases/game
 cat >"$scratch/bin/systemctl" <<'MOCK'
 #!/usr/bin/env bash
 echo "$*" >>"$WASHOI_ROOT/systemctl.log"
+[[ $1 == is-enabled && -n ${WASHOI_BOTS_DISABLED:-} ]] && exit 1
+exit 0
 MOCK
 cat >"$scratch/bin/sudo" <<'MOCK'
 #!/usr/bin/env bash
@@ -29,6 +31,7 @@ mkdir -p "$stage/client/data" "$stage/server"
 echo client >"$stage/client/index.html"
 echo server >"$stage/server/lobby-server.mjs"
 echo bot >"$stage/server/bot-server.mjs"
+echo runner >"$stage/server/bot-runner.mjs"
 echo keep >"$WASHOI_ROOT/releases/game/data/demos/existing.demo"
 echo "$sha" >"$WASHOI_ROOT/.deploy-state/pending.sha"
 for old in oldest previous incomplete; do mkdir -p "$WASHOI_ROOT/.pending/$old/client"; done
@@ -47,4 +50,10 @@ bash "$scripts/activate-eu.sh"
 [[ $(grep -c '^restart ' "$WASHOI_ROOT/systemctl.log") == 2 ]]
 bash "$scripts/activate-eu.sh"
 [[ $(grep -c '^restart ' "$WASHOI_ROOT/systemctl.log") == 2 ]]
-echo 'PASS: occupied activation, US stage pruning, backend restarts, idempotence, maintenance cleanup and existing demo preservation'
+grep -qx 'restart washoi-lobby washoi-bots' "$WASHOI_ROOT/systemctl.log"
+rm "$WASHOI_ROOT/.deploy-state/backend.sha"
+WASHOI_BOTS_DISABLED=1 bash "$scripts/activate-eu.sh"
+[[ $(tail -n 2 "$WASHOI_ROOT/systemctl.log" | head -n 1) == 'restart washoi-lobby' ]]
+rm "$WASHOI_ROOT/.deploy-state/backend.sha" "$WASHOI_ROOT/repos/shag/dist-server/bot-runner.mjs"
+if WASHOI_BOTS_DISABLED=1 bash "$scripts/activate-eu.sh" 2>/dev/null; then echo 'FAIL: activated a lobby without its match runner'; exit 1; fi
+echo 'PASS: occupied activation, US stage pruning, backend restarts (with and without washoi-bots), idempotence, maintenance cleanup and existing demo preservation'

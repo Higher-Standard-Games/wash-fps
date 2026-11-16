@@ -99,10 +99,7 @@ export class LobbyWelcomeDialog {
     this.root.setAttribute("aria-modal", "true");
     this.root.setAttribute("aria-label", "Welcome to Washiki Washoi, terms of service and movement tips");
     const header = el("header", "lobby-guide__header");
-    header.append(
-      el("span", "lobby-guide__eyebrow", "WASHOI / READY TO PLAY"),
-      el("h1", "", "Welcome to Washiki Washoi!"),
-    );
+    header.append(el("h1", "", "Welcome to Washiki Washoi!"));
     const tablist = el("div", "lobby-guide__tabs");
     tablist.setAttribute("role", "tablist");
     tablist.setAttribute("aria-label", "Welcome guide");

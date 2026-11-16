@@ -33,6 +33,7 @@ import { signTest } from "../bot/AbStats";
 import type { BotOptions } from "../bot/BotConfig";
 import { BotServer } from "../bot/BotServer";
 import { isMajorItem } from "../bot/goals/considerations/ItemFacts";
+import { TimeHistogram, type TimeHistogramData } from "../bot/TimeHistogram";
 import { GameServer } from "../server/GameServer";
 import type { BaseGametype } from "../server/gametypes/BaseGametype";
 import { Deathmatch } from "../server/gametypes/Deathmatch";
@@ -76,6 +77,8 @@ export interface MatchResult {
   strategies?: { a: Record<string, number>; b: Record<string, number> };
   /** Search & Destroy: each round's winning arm (or null), the winner's role, how it ended, and whether a bomb was placed. */
   rounds?: { winner: "a" | "b" | null; role: string; reason: string; planted: boolean }[];
+  /** What each arm's bots spent per snapshot and per decision, every bot merged. */
+  timings?: Record<"a" | "b", { snapshot: TimeHistogramData; decide: TimeHistogramData }>;
 }
 
 /** The two Search & Destroy teams. */
@@ -261,6 +264,18 @@ async function playMatch(args: Args, port: number, aFirst: boolean, match: numbe
     }
     const result: MatchResult = { match, frags: { a: 0, b: 0 }, deaths: { a: 0, b: 0 }, strategies, majors };
     if (isTeamMode(args)) result.rounds = rounds;
+    const timings = {
+      a: { snapshot: new TimeHistogram(), decide: new TimeHistogram() },
+      b: { snapshot: new TimeHistogram(), decide: new TimeHistogram() },
+    };
+    for (const { arm, bot } of bots) {
+      timings[arm].snapshot.merge(bot.timings.snapshot);
+      timings[arm].decide.merge(bot.timings.decide);
+    }
+    result.timings = {
+      a: { snapshot: timings.a.snapshot.toJSON(), decide: timings.a.decide.toJSON() },
+      b: { snapshot: timings.b.snapshot.toJSON(), decide: timings.b.decide.toJSON() },
+    };
     for (const { arm, bot } of bots) {
       const id = (bot as unknown as { _gameState: { selfPlayerId: string } })._gameState.selfPlayerId;
       const row = board.get(id);
@@ -348,6 +363,22 @@ bot:ab — ${args.map} Search & Destroy, ${n} matches of ${args.seconds} s, ${ar
   const shown = (!Number.isNaN(half) && Math.abs(mean) > half) || p < 0.05;
   const stronger = winsA !== winsB ? winsA > winsB : mean > 0;
   console.log(`  verdict         ${shown ? (stronger ? "A is stronger" : "B is stronger") : "no difference shown"}`);
+}
+
+/** Per arm: what a bot's snapshot and decision cost, over every match. */
+function printTimings(results: MatchResult[]): void {
+  for (const arm of ["a", "b"] as const) {
+    const snapshot = new TimeHistogram();
+    const decide = new TimeHistogram();
+    for (const r of results) {
+      if (!r.timings) continue;
+      snapshot.merge(r.timings[arm].snapshot);
+      decide.merge(r.timings[arm].decide);
+    }
+    if (snapshot.count === 0) continue;
+    console.log(`  cost ${arm.toUpperCase()}          snapshot ${snapshot.summary()}`);
+    console.log(`                  decide   ${decide.summary()}`);
+  }
 }
 
 function summarize(args: Args, results: MatchResult[]): void {
@@ -455,6 +486,7 @@ async function main(): Promise<void> {
   }
   await Promise.all(runs);
   summarize(args, results);
+  printTimings(results);
 }
 
 void runCli(main).then(() => process.exit(process.exitCode ?? 0));

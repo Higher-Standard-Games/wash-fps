@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import JSZip from "jszip";
 import { afterEach, expect, it, vi } from "vitest";
+import { PK3Loader } from "../../../../../engine/loader/pk3/PK3Loader";
 import { extractMapData, extractSpawnPoints, loadBspBuffer } from "../BspDataLoader";
 
 const resolve = vi.hoisted(() => vi.fn());
@@ -16,7 +17,13 @@ it("resolves indexed maps from the process data directories, independent of this
   const bytes = new ArrayBuffer(8);
   resolve.mockResolvedValue(bytes);
   await expect(loadBspBuffer("test_map")).resolves.toBe(bytes);
-  expect(resolve).toHaveBeenCalledWith([path.resolve("./public/data"), path.resolve("./dist/data")], "test_map");
+  expect(resolve).toHaveBeenCalledWith(
+    [path.resolve("./public/data"), path.resolve("./dist/data")],
+    "test_map",
+    expect.any(PK3Loader),
+  );
+  // A loader of its own, so the archive is let go afterwards: not the shared one
+  expect(resolve.mock.calls[0][2]).not.toBe(PK3Loader.getInstance());
 });
 
 it("leaves an unindexed map unavailable even when a loose BSP exists", async () => {

@@ -41,6 +41,7 @@ import { wrapAngle } from "../bot/BotAimController";
 import type { BotCommandSample } from "../bot/BotClient";
 import { InputButtons } from "../bot/BotConfig";
 import { BotServer } from "../bot/BotServer";
+import { TimeHistogram } from "../bot/TimeHistogram";
 import { TraceStats } from "../bot/TraceStats";
 import { GameServer } from "../server/GameServer";
 import type { BaseGametype } from "../server/gametypes/BaseGametype";
@@ -443,6 +444,7 @@ async function main(): Promise<void> {
   const started = performance.now();
   const now = () => (performance.now() - started) / 1000;
   const logs: { samples: Sample[]; decisions: Decision[] }[] = [];
+  const added: { timings: { snapshot: TimeHistogram; decide: TimeHistogram } }[] = [];
   const unsubscribes: (() => void)[] = [];
   const traces = args.trace ? new TraceStats() : null;
   const traceOut = args.traceOut ? createWriteStream(args.traceOut) : null;
@@ -454,6 +456,7 @@ async function main(): Promise<void> {
       trace: args.trace,
       ...(args.fightOff.length > 0 ? { fightOff: args.fightOff } : {}),
     });
+    added.push(bot);
     const log = { samples: [] as Sample[], decisions: [] as Decision[] };
     logs.push(log);
     let lastTick = -1;
@@ -550,6 +553,13 @@ async function main(): Promise<void> {
     );
     console.log(`  picked up       ${(report.gainedPoints / botMinutes).toFixed(0)} health and armor per bot-minute`);
     console.log(`  deaths          ${(report.deaths / (args.seconds / 60)).toFixed(1)} per minute, all bots`);
+    const cost = { snapshot: new TimeHistogram(), decide: new TimeHistogram() };
+    for (const bot of added) {
+      cost.snapshot.merge(bot.timings.snapshot);
+      cost.decide.merge(bot.timings.decide);
+    }
+    console.log(`  cost per bot    snapshot ${cost.snapshot.summary()}`);
+    console.log(`                  decide   ${cost.decide.summary()}`);
     if (traces) for (const line of traces.lines()) console.log(line);
     if (args.traceOut) console.log(`  traces          ${args.traceOut}`);
     const top = [...report.byStates].sort((a, b) => b[1] - a[1]).slice(0, 8);

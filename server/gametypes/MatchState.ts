@@ -109,6 +109,9 @@ export class MatchState {
   private _campaignHumans: number | null = null;
   /** The side that wins a match by lasting to its time limit (Survival); null for any other match. */
   private _survivors: TeamId | null = null;
+  /** Lives each survivor has, and the deaths each has used in the live match. */
+  private _survivorLives = 1;
+  private readonly _survivorDeaths = new Map<PlayerId, number>();
   private _stats: Map<PlayerId, PlayerStats> = new Map();
   private readonly activeMillis = new Map<PlayerId, number>();
   /**
@@ -575,18 +578,24 @@ export class MatchState {
    * other side, so lasting is a win whatever the frags; a death loses it
    * (`survivorsFell`).
    */
-  setSurvivors(team: TeamId): void {
+  setSurvivors(team: TeamId, lives = 1): void {
     this._survivors = team;
+    this._survivorLives = Math.max(1, Math.floor(lives));
+    this._survivorDeaths.clear();
   }
 
   /**
-   * A survivor (`player`) has died: their side loses at once. The other side
-   * is put one ahead and the match ends. True when that happened; false for
-   * anyone else's death, and outside a live Survival match.
+   * A survivor (`player`) has died. With that their last life, their side
+   * loses at once: the other side is put one ahead and the match ends. True
+   * when that happened; false for a life left, anyone else's death, and
+   * outside a live Survival match.
    */
   survivorsFell(player: PlayerId): boolean {
     if (!this._survivors || this._phase !== MatchPhase.Active || this.getPlayerTeam(player) !== this._survivors)
       return false;
+    const deaths = (this._survivorDeaths.get(player) ?? 0) + 1;
+    this._survivorDeaths.set(player, deaths);
+    if (deaths < this._survivorLives) return false;
     const winners: TeamId = this._survivors === "udon" ? "soba" : "udon";
     this.addTeamScore(winners, this.leadMargin(winners));
     this.endMatch();
@@ -843,7 +852,7 @@ export class MatchState {
               this._roundTimeExpired = true;
               break;
             }
-            // Overtime (duel): a tie at the limit never ends the match — extend
+            // Overtime (duel, team deathmatch): a tie at the limit never ends the match — extend
             // it until someone takes the lead.
             if (this.config.overtimeOnDraw && this.isTiedAtTop()) {
               const extension = this.config.overtimeDuration ?? 60;

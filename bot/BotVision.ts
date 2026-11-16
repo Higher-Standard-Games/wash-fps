@@ -24,6 +24,7 @@ import type { Vec3 } from "../shared/bsp/BspDataLoader";
 import type { PickupEntry } from "../shared/bsp/PickupTable";
 import type { BotGameState, VisiblePickup, VisiblePlayer } from "./BotGameState";
 import { vec3Add, vec3Distance, vec3Length, vec3Normalize, vec3Scale, vec3Subtract } from "./BotGameState";
+import { BotPvs } from "./BotPvs";
 
 // ── Vision Result Types ─────────────────────────────────────────────────
 
@@ -217,9 +218,18 @@ export class BotVision {
   /** The enemy the last chase target selection chose. */
   private _chaseTargetId: string | null = null;
 
-  constructor(collisionWorld: CollisionWorld, mapKnowledge: MapKnowledgeData, logInitialization: boolean = true) {
+  /** The map's potentially visible set: sight lines it rules out are not traced (BotPvs). */
+  private readonly _pvs: BotPvs | null;
+
+  constructor(
+    collisionWorld: CollisionWorld,
+    mapKnowledge: MapKnowledgeData,
+    logInitialization: boolean = true,
+    pvs: BotPvs | null = null,
+  ) {
     this._collisionWorld = collisionWorld;
     this._mapKnowledge = mapKnowledge;
+    this._pvs = pvs;
 
     if (logInitialization) {
       console.log(`[BotVision] Initialized for map "${mapKnowledge.mapName}"`);
@@ -244,7 +254,7 @@ export class BotVision {
    * LOS cache and enemy tracks deliberately remain private to the new bot.
    */
   fork(): BotVision {
-    return new BotVision(this._collisionWorld, this._mapKnowledge, false);
+    return new BotVision(this._collisionWorld, this._mapKnowledge, false, this._pvs);
   }
 
   // ── Core LOS Check ──────────────────────────────────────────────────
@@ -258,6 +268,8 @@ export class BotVision {
    * @returns true if no geometry blocks the view
    */
   canSee(from: Vec3, to: Vec3): boolean {
+    // Clusters the compiler found no sight line between: the trace would be blocked
+    if (this._pvs && !this._pvs.mayBeVisible(from, to)) return false;
     const result = this._collisionWorld.trace(from, to);
     // fraction === 1 means the trace went the full distance without hitting anything
     return !result.hit;
@@ -943,12 +955,14 @@ export async function createBotVision(mapName: string): Promise<BotVision | null
     return null;
   }
 
-  const bsp = BspLoader.load(bspBuffer);
+  // Collision and entities only: bots never read the render data (lightmaps, draw vertices)
+  const bsp = BspLoader.loadCollision(bspBuffer);
   console.log(`[BotVision] BSP parsed: ${bsp.header.isFBSP ? "FBSP" : "IBSP"} v${bsp.header.version}`);
   console.log(`[BotVision] Brushes: ${bsp.brushes.length}, Planes: ${bsp.planes.length}`);
 
   // Create collision world
-  const collisionWorld = await createHeadlessCollisionWorld(bsp);
+  // Bots trace the most: the world part in WebAssembly, same answers
+  const collisionWorld = await createHeadlessCollisionWorld(bsp, { compiled: true });
   console.log(`[BotVision] CollisionWorld initialized`);
 
   // Extract map knowledge
@@ -973,5 +987,5 @@ export async function createBotVision(mapName: string): Promise<BotVision | null
     locations: extractLocations(bsp.entities as never),
   };
 
-  return new BotVision(collisionWorld, mapKnowledge);
+  return new BotVision(collisionWorld, mapKnowledge, true, BotPvs.from(bsp));
 }

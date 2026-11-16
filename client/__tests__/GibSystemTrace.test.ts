@@ -53,6 +53,8 @@ describe("GibSystem hero bounces", () => {
     });
     gibs.update(1 / 60);
     expect(collision.trace).toHaveBeenCalled();
+    // A point: a trace without a height is a player-sized column
+    expect(collision.trace.mock.calls[0][2]).toMatchObject({ radius: 0, height: 0 });
     expect(pick).not.toHaveBeenCalled();
     expect(hero.bounced).toBe(true);
     expect(hero.velY).toBeGreaterThan(0);

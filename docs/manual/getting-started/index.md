@@ -61,7 +61,7 @@ automatically, including `npm --prefix src/games/fps run build`. They run from
 the assembled root so media, storage and output paths keep the same meaning.
 Inside `src/games/fps`, the shorter `npm run dev` and `npm run build` also work.
 Install dependencies only at the engine root; the game package supplies commands
-and does not install another Babylon or TensorFlow dependency tree.
+and does not install another Babylon dependency tree.
 
 The engine's own `npm run dev` uses `SHAG_APP` or `.shag-application.json`;
 set `SHAG_APP=engine` there to open its example instead. Media remains under

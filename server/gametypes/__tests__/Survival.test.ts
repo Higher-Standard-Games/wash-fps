@@ -4,6 +4,7 @@ import { MatchPhase } from "@shared/server/gametype";
 import { describe, expect, it } from "vitest";
 import { MatchState } from "../MatchState";
 import { DEFAULT_SURVIVAL, Survival } from "../Survival";
+import { TeamDeathmatch } from "../TeamDeathmatch";
 
 /** Entities 1..n: entity 1 is the person, the rest robots; `dead` lists the dead ones. */
 function world(robots: number, dead: number[] = []): WorldState {
@@ -68,6 +69,20 @@ describe("survival", () => {
     expect(config.scoreLimit).toBe(0);
   });
 
+  it("never plays overtime: lasting is the win, tied or not", () => {
+    const state = new MatchState("Survival", survival().getMatchConfig(), true);
+    state.setSurvivors("soba");
+    state.addPlayer(1 as PlayerId);
+    state.setPlayerTeam(1 as PlayerId, "soba");
+    state.addPlayer(2 as PlayerId);
+    state.setPlayerTeam(2 as PlayerId, "udon");
+    state.transition(MatchPhase.Active);
+    state.update(300.1);
+    expect(state.overtimeCount).toBe(0);
+    expect(state.phase).toBe(MatchPhase.PostGame);
+    expect(state.teamScores.get("soba")).toBe(1);
+  });
+
   it("wins for the survivors when time runs out, frags or not", () => {
     const state = new MatchState(
       "Survival",
@@ -125,6 +140,26 @@ describe("survival", () => {
     expect(state.teamScores.get("udon")).toBe(13);
   });
 
+  it("lets a survivor with lives left come back, and loses at the death that uses the last", () => {
+    const state = new MatchState(
+      "Survival",
+      { warmupTimeout: 0, countdownDuration: 0, timeLimit: 300, scoreLimit: 0 },
+      true,
+    );
+    state.setSurvivors("soba", 2);
+    state.addPlayer(1 as PlayerId);
+    state.setPlayerTeam(1 as PlayerId, "soba");
+    state.addPlayer(3 as PlayerId);
+    state.setPlayerTeam(3 as PlayerId, "soba");
+    state.transition(MatchPhase.Active);
+    // Each player has lives of their own
+    expect(state.survivorsFell(1 as PlayerId)).toBe(false);
+    expect(state.survivorsFell(3 as PlayerId)).toBe(false);
+    expect(state.phase).toBe(MatchPhase.Active);
+    expect(state.survivorsFell(1 as PlayerId)).toBe(true);
+    expect(state.phase).toBe(MatchPhase.PostGame);
+  });
+
   it("heals people a point a second up to 100, and not robots", () => {
     const mode = survival();
     const bodies = [
@@ -163,5 +198,41 @@ describe("survival", () => {
     // A robot keeps its kit at its next spawn, and a person never gets one
     expect(kit(4)).toBe("glauncher");
     expect(mode.getSpawnLoadout(1 as PlayerId).adsDisabled).toBeUndefined();
+  });
+});
+
+describe("Team deathmatch time limit", () => {
+  function tdm(): MatchState {
+    // Road's End: no frag limit, ten minutes
+    const state = new MatchState("Team Deathmatch", new TeamDeathmatch().getMatchConfig(), true);
+    state.setLimits({ scoreLimit: 0, timeLimit: 600 });
+    state.addPlayer(1 as PlayerId);
+    state.setPlayerTeam(1 as PlayerId, "soba");
+    state.addPlayer(2 as PlayerId);
+    state.setPlayerTeam(2 as PlayerId, "udon");
+    state.transition(MatchPhase.Active);
+    return state;
+  }
+
+  it("plays on a minute at a time while the sides are tied", () => {
+    const state = tdm();
+    state.addTeamScore("soba", 4);
+    state.addTeamScore("udon", 4);
+    state.update(600.1);
+    expect(state.phase).toBe(MatchPhase.Active);
+    expect(state.overtimeCount).toBe(1);
+    state.addTeamScore("soba", 1);
+    state.update(60);
+    expect(state.phase).toBe(MatchPhase.PostGame);
+  });
+
+  it("ends at the limit when a side leads, with no frag limit before it", () => {
+    const state = tdm();
+    state.addTeamScore("udon", 80);
+    state.update(599);
+    expect(state.phase).toBe(MatchPhase.Active);
+    state.update(1.1);
+    expect(state.phase).toBe(MatchPhase.PostGame);
+    expect(state.overtimeCount).toBe(0);
   });
 });

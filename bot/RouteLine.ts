@@ -192,3 +192,54 @@ function lerp(a: Vec3, b: Vec3 | undefined, t: number): Vec3 {
   if (!b) return a;
   return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t };
 }
+
+/** Shared lines kept per graph; beyond this many a graph's are dropped and built again as asked for. */
+const SHARED_LINES_KEPT = 4096;
+const sharedLines = new WeakMap<object, Map<string, RouteLine>>();
+
+/**
+ * The line for a route's stretch from `fromStep`, started from that step's
+ * own node rather than from where a bot stands, so every bot running that
+ * stretch of the graph shares one: built the first time it is asked for, per
+ * graph (`owner`), and kept. A bot joins it at its nearest point
+ * (nearestOnLine).
+ */
+export function sharedRouteLine(owner: object, path: NavPath, fromStep: number, world: RouteWorld): RouteLine {
+  const endStep = lineEndStep(path, fromStep);
+  let key = String(path.steps[fromStep]?.from.id ?? -1);
+  // The nodes and the kind of each step: the line covers plain walks only
+  for (let i = fromStep; i < endStep; i++) key += `>${path.steps[i].to.id}`;
+  key += `/${endStep - fromStep}`;
+  if (endStep < path.steps.length) key += `|${path.steps[endStep].from.id}:${path.steps[endStep].type}`;
+  let lines = sharedLines.get(owner);
+  if (!lines) {
+    lines = new Map();
+    sharedLines.set(owner, lines);
+  }
+  const kept = lines.get(key);
+  if (kept) return kept;
+  const start = standingOrigin(path.steps[fromStep].from);
+  const line = buildRouteLine(start, path, fromStep, world);
+  if (lines.size >= SHARED_LINES_KEPT) lines.clear();
+  lines.set(key, line);
+  return line;
+}
+
+/** The stretch of `points` nearest `at`, over the whole line, and how far off it `at` is (horizontally). */
+export function nearestOnLine(
+  points: readonly Vec3[],
+  at: { x: number; z: number },
+): { stretch: number; distance: number } {
+  let best = { stretch: 0, distance: Number.POSITIVE_INFINITY };
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const lengthSq = dx * dx + dz * dz;
+    const t = lengthSq < 1 ? 1 : Math.max(0, Math.min(1, ((at.x - a.x) * dx + (at.z - a.z) * dz) / lengthSq));
+    const distance = Math.hypot(at.x - (a.x + dx * t), at.z - (a.z + dz * t));
+    if (distance < best.distance) best = { stretch: i, distance };
+  }
+  return best;
+}

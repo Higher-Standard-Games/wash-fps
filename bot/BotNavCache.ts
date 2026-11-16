@@ -238,7 +238,11 @@ export class BotNavCacheStore {
 
     try {
       fs.mkdirSync(this.rootDir, { recursive: true });
-      fs.writeFileSync(cachePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+      // Written beside and renamed over: a match runner reading the cache never
+      // sees half of one that another runner is writing.
+      const partial = `${cachePath}.${process.pid}.tmp`;
+      fs.writeFileSync(partial, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+      fs.renameSync(partial, cachePath);
       this.lastDiagnostic = `saved: ${cachePath}`;
       return true;
     } catch (error) {

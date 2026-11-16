@@ -10,6 +10,8 @@ import { InputButtons, resolveDifficulty } from "../BotConfig";
 import { BotGameState } from "../BotGameState";
 import type { NavStep } from "../BotNavGraph";
 import type { BotVision } from "../BotVision";
+import type { BotNavigator } from "../navigation/BotNavigator";
+import type { BotTraversal } from "../navigation/BotTraversal";
 import { StateMachineBrain } from "../StateMachineBrain";
 
 const DEG = Math.PI / 180;
@@ -41,7 +43,7 @@ function roomOpenToward(openYaw: number): BotVision {
 
 type Looker = {
   currentState: BotState;
-  _lookIntoOpenSpace(state: BotGameState, input: BotInput, vision: BotVision): void;
+  _look: { lookIntoOpenSpace(state: BotGameState, input: BotInput, vision: BotVision): void };
 };
 
 describe("looking round while running", () => {
@@ -51,7 +53,7 @@ describe("looking round while running", () => {
     const state = new BotGameState();
     state.self.position = { x: 0, y: 24, z: 0 };
     const input = running(0);
-    b._lookIntoOpenSpace(state, input, roomOpenToward(30 * DEG));
+    b._look.lookIntoOpenSpace(state, input, roomOpenToward(30 * DEG));
     expect(input.yaw).toBeCloseTo(30 * DEG, 6);
     expect(input.moveYaw).toBe(0);
   });
@@ -61,7 +63,7 @@ describe("looking round while running", () => {
     b.currentState = BotState.ITEM_RUN;
     const state = new BotGameState();
     const input = running(0);
-    b._lookIntoOpenSpace(state, input, roomOpenToward(0));
+    b._look.lookIntoOpenSpace(state, input, roomOpenToward(0));
     expect(input.yaw).toBe(0);
   });
 
@@ -70,11 +72,11 @@ describe("looking round while running", () => {
     b.currentState = BotState.HUNT;
     const state = new BotGameState();
     const firing = { ...running(0), buttons: InputButtons.FORWARD | InputButtons.FIRE };
-    b._lookIntoOpenSpace(state, firing, roomOpenToward(30 * DEG));
+    b._look.lookIntoOpenSpace(state, firing, roomOpenToward(30 * DEG));
     expect(firing.yaw).toBe(0);
     b.currentState = BotState.CHASE;
     const chasing = running(0);
-    b._lookIntoOpenSpace(state, chasing, roomOpenToward(30 * DEG));
+    b._look.lookIntoOpenSpace(state, chasing, roomOpenToward(30 * DEG));
     expect(chasing.yaw).toBe(0);
   });
 });
@@ -95,14 +97,14 @@ describe("checking a major item's spot in passing", () => {
     state.tick = 5000;
     state.self.position = { x: 0, y: 24, z: 0 };
     const input = running(0);
-    b._lookIntoOpenSpace(state, input, sightOf(true));
+    b._look.lookIntoOpenSpace(state, input, sightOf(true));
     expect(input.yaw).toBeCloseTo(45 * DEG, 6);
     expect(input.moveYaw).toBe(0);
     // Seen: the glance ends
     state.itemSpotSeenTick = new Map([[4, 5001]]);
     state.tick = 5001;
     const next = running(0);
-    b._lookIntoOpenSpace(state, next, sightOf(true));
+    b._look.lookIntoOpenSpace(state, next, sightOf(true));
     expect(next.yaw).toBe(0);
   });
 
@@ -117,7 +119,7 @@ describe("checking a major item's spot in passing", () => {
       state.tick = 5000;
       if (seen >= 0) state.itemSpotSeenTick = new Map([[4, seen]]);
       const input = running(0);
-      b._lookIntoOpenSpace(state, input, sightOf(clear));
+      b._look.lookIntoOpenSpace(state, input, sightOf(clear));
       expect(input.yaw).toBe(0);
     }
   });
@@ -132,9 +134,9 @@ const step = {
 describe("a missed jump on the way to an item", () => {
   type Recovering = {
     currentState: BotState;
-    _activeItemGoal: unknown;
-    _activeSequenceStep: NavStep | null;
-    _blockedPickupIds: Map<number, number>;
+    _life: { activeItemGoal: unknown };
+    _traversal: BotTraversal;
+    _nav: BotNavigator;
     _startRecovery(state: BotGameState, stuck?: boolean): BotInput;
   };
 
@@ -144,25 +146,24 @@ describe("a missed jump on the way to an item", () => {
     state.tick = 100;
     b.currentState = BotState.ITEM_RUN;
     const goal = { id: "item:pickup:3", kind: "item", pickupId: 3, position: { x: 400, y: 0, z: 0 } };
-    b._activeItemGoal = goal;
-    b._activeSequenceStep = step;
+    b._life.activeItemGoal = goal;
+    b._traversal.activeStep = step;
     b._startRecovery(state);
-    expect(b._blockedPickupIds.has(3)).toBe(false);
+    expect(b._nav.blockedPickupIds.has(3)).toBe(false);
 
-    b._activeItemGoal = goal;
+    b._life.activeItemGoal = goal;
     b._startRecovery(state, true);
-    expect(b._blockedPickupIds.has(3)).toBe(true);
+    expect(b._nav.blockedPickupIds.has(3)).toBe(true);
   });
 
   it("is left out of routes for longer each time it is missed", () => {
     const b = brain() as unknown as {
-      _blockedNavEdges: Map<string, number>;
-      _cooldownNavStep(step: NavStep, tick: number): void;
+      _nav: BotNavigator;
     };
     const waits: number[] = [];
     for (let i = 0; i < 5; i++) {
-      b._cooldownNavStep(step, 0);
-      waits.push([...b._blockedNavEdges.values()][0]);
+      b._nav.cooldownStep(step, 0);
+      waits.push([...b._nav.blockedNavEdges.values()][0]);
     }
     expect(waits).toEqual([625, 1250, 2500, 5000, 5000]);
   });

@@ -711,15 +711,8 @@
   user-select: none;
 }
 
-.lobby__kicker {
-  font: 700 12px / 1 var(--w-font-body, "Rajdhani", sans-serif);
-  letter-spacing: 0.32em;
-  text-transform: uppercase;
-  color: var(--accent);
-}
-
 .lobby__title {
-  margin: 8px 0 0;
+  margin: 0;
   font: 900 clamp(40px, 4.4vw, 74px) / 0.92 var(--w-font-display, "Orbitron", monospace);
   color: var(--cream);
   text-shadow: 5px 6px 0 hsl(250 50% 3%);
@@ -727,7 +720,7 @@
 
 /* ═══ Shared by the Leaderboard and Demos pages ═══ */
 
-/* ── A page head: kicker and title, and the modes in their own colours ── */
+/* ── A page head: the title, and the modes in their own colours ── */
 
 .lobby__head-row {
   display: flex;

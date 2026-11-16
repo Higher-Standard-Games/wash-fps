@@ -10,6 +10,7 @@ export const CAMPAIGN_MENU_PLAYLIST = "data/campaign.playlist.json";
 /** Missions that play a song of their own, by mission id; the rest play the game playlist. */
 const MISSION_PLAYLISTS: Readonly<Record<string, string>> = {
   "cartel-contract": "data/campaign_cartel.playlist.json",
+  "bot-trap": "data/campaign_survival.playlist.json",
   "siege-breaker": "data/campaign_boss.playlist.json",
   "road-ends": "data/campaign_boss.playlist.json",
 };

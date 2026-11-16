@@ -16,8 +16,6 @@
     "bot:server:dev": "node scripts/run-in-engine.mjs node node_modules/vite-node/vite-node.mjs src/games/fps/cli/bot-server.ts --",
     "bot:analyze": "node scripts/run-in-engine.mjs node node_modules/vite-node/vite-node.mjs src/games/fps/cli/bot-analyze.ts",
     "bot:learn": "node scripts/run-in-engine.mjs node node_modules/vite-node/vite-node.mjs src/games/fps/cli/bot-learn.ts --",
-    "bot:train": "node scripts/run-in-engine.mjs node node_modules/vite-node/vite-node.mjs src/games/fps/cli/bot-train.ts --",
-    "bot:bench": "node scripts/run-in-engine.mjs node node_modules/vite-node/vite-node.mjs src/games/fps/cli/bot-bench.ts --",
     "bot:motion": "node scripts/run-in-engine.mjs node node_modules/vite-node/vite-node.mjs src/games/fps/cli/bot-motion.ts --",
     "bot:demo-motion": "node scripts/run-in-engine.mjs node node_modules/vite-node/vite-node.mjs src/games/fps/cli/bot-demo-motion.ts --",
     "bot:ab": "node scripts/run-in-engine.mjs node node_modules/vite-node/vite-node.mjs src/games/fps/cli/bot-ab.ts --",

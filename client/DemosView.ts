@@ -143,7 +143,6 @@ export class DemosView {
   private readonly transferText = el("span", "dm-transfer__text");
   private readonly transferAction = createRaisedKey({ label: "Cancel", variants: ["sm", "cream", "inline"] });
 
-  private readonly kicker: HTMLElement;
   private readonly title: HTMLElement;
   private readonly rule: HTMLElement;
   private readonly modeKeys = new Map<string, HTMLButtonElement>();
@@ -184,9 +183,8 @@ export class DemosView {
 
     const head = el("header", "lobby__head-row");
     const heading = el("div");
-    this.kicker = el("div", "lobby__kicker");
     this.title = el("h1", "lobby__title");
-    heading.append(this.kicker, this.title);
+    heading.append(this.title);
     const modeRow = el("div", "lobby__modes");
     modeRow.setAttribute("role", "group");
     modeRow.setAttribute("aria-label", "Game mode");
@@ -497,12 +495,6 @@ export class DemosView {
 
   private render(): void {
     const tab = TABS.find((item) => item.id === this.tab) ?? TABS[0];
-    const mapLabel = this.map
-      ? mapName(this.archive.find((demo) => demo.map === this.map) ?? ({ map: this.map } as DemoInfo))
-      : "";
-    this.kicker.textContent = ["Demos", this.mode.id === "all" ? "All modes" : this.mode.title, mapLabel]
-      .filter(Boolean)
-      .join(" · ");
     this.title.textContent = tab.name;
     for (const [id, key] of this.modeKeys) {
       key.classList.toggle("is-on", id === this.mode.id);

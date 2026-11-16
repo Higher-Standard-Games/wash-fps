@@ -11,6 +11,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_WEIGHT_PROFILE,
+  selectGametypeHabits,
   selectWeightProfile,
   WEIGHT_PROFILES,
   weightProfileKey,
@@ -234,5 +235,26 @@ describe("gametype reaches the planner through match_state", () => {
   it("has no role in FFA, and does not invent one", () => {
     const state = makeState({ gametypeName: "Deathmatch" });
     expect(state.getOwnRole()).toBeNull();
+  });
+});
+
+describe("gametype habits", () => {
+  it("gives Duel its territory, its height and its lead handicap, by name in any case", () => {
+    expect(selectGametypeHabits("Duel")).toEqual({
+      keepsTerritory: true,
+      alwaysKeepsHeight: true,
+      leadReactionDelayMs: 40,
+    });
+    expect(selectGametypeHabits(" duel ")).toEqual(selectGametypeHabits("Duel"));
+  });
+
+  it("gives every other mode none of them", () => {
+    for (const name of ["Deathmatch", "Amphi", "Search & Destroy", "", null]) {
+      expect(selectGametypeHabits(name)).toEqual({
+        keepsTerritory: false,
+        alwaysKeepsHeight: false,
+        leadReactionDelayMs: 0,
+      });
+    }
   });
 });

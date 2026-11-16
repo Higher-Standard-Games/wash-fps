@@ -112,6 +112,8 @@ const WALL_JUMP_TICKS = 125;
 const MIN_CLIMB = 20;
 /** A flight rising this much faster than the same flight without the press had a wall jump, units/s. */
 const WALL_JUMP_RISE = 100;
+/** Ticks the two flights are stepped side by side before wallJumpGain runs them in full. */
+const WALL_JUMP_PROBE_TICKS = 8;
 
 /** One command of a rollout: where the keys point (world) and which are held. */
 export interface RolloutCommand {
@@ -281,21 +283,44 @@ export class BotVisionTracer {
     };
     for (let tick = 1; tick <= maxTicks; tick++) {
       const { yaw, buttons } = command(tick, at);
-      const input: MovementInput = {
-        direction: { x: Math.sin(yaw), y: 0, z: Math.cos(yaw) },
-        viewAngles: { pitch: 0, yaw },
-        buttons,
-        sequence: tick,
-        simStep: tick,
-        isPressed(button: number): boolean {
-          return (this.buttons & button) !== 0;
-        },
-      } as MovementInput;
-      const result = profile.simulate(at.position, at.velocity, input, 1 / ROLLOUT_RATE, this.world);
+      const result = simulateTick(profile, at, yaw, buttons, tick, this.world);
       at = { position: result.position, velocity: result.velocity, grounded: result.grounded, ticks: tick };
       if (stop?.(at)) break;
     }
     return at;
+  }
+
+  /**
+   * The two flights wallJumpGain compares, a few ticks side by side: true
+   * when they come to the same state (position, velocity, ground and the
+   * movement's own state) with no wall jump thrown, so the jump pressed in the
+   * air did nothing and, with the same keys from then on, never will: the
+   * gain is null. False, and the whole comparison runs, when they differ for
+   * WALL_JUMP_PROBE_TICKS or a wall jump throws the bot up meanwhile.
+   */
+  private noWallJump(start: { position: Vec3; velocity: Vec3; grounded: boolean }, yaw: number): boolean {
+    const plain = new MovementProfile();
+    const jumped = new MovementProfile();
+    plain.resetPhysicsState(false);
+    jumped.resetPhysicsState(false);
+    let a = { position: { ...start.position }, velocity: { ...start.velocity }, grounded: false };
+    let b = { position: { ...start.position }, velocity: { ...start.velocity }, grounded: false };
+    for (let tick = 1; tick <= WALL_JUMP_PROBE_TICKS; tick++) {
+      // wallJumpGain's launch test, made before each tick's step
+      if (tick > 1 && b.velocity.y > a.velocity.y + WALL_JUMP_RISE) return false;
+      a = step(plain, a, yaw, InputButtons.FORWARD, tick, this.world);
+      b = step(jumped, b, yaw, InputButtons.FORWARD | (tick === 1 ? InputButtons.JUMP : 0), tick, this.world);
+      // A landing ends a flight: the comparison's own stopping rule decides then
+      if ((tick > 2 && (a.grounded || b.grounded)) || a.grounded !== b.grounded) return false;
+      if (
+        tick > 1 &&
+        sameVec(a.position, b.position) &&
+        sameVec(a.velocity, b.velocity) &&
+        JSON.stringify(plain.saveState()) === JSON.stringify(jumped.saveState())
+      )
+        return true;
+    }
+    return false;
   }
 
   /**
@@ -323,6 +348,7 @@ export class BotVisionTracer {
   wallJumpGain(position: Vec3, velocity: Vec3, yaw: number, goal: Vec3): number | null {
     const landed = (at: RolloutEnd) => at.ticks > 2 && at.grounded;
     const start = { position, velocity, grounded: false };
+    if (this.noWallJump(start, yaw)) return null;
     const plainRise: number[] = [];
     const plain = this.rollout(
       start,
@@ -466,4 +492,43 @@ export class BotVisionTracer {
     }
     return Math.max(-cap, Math.min(cap, turn * FAN_GAIN));
   }
+}
+
+/** One tick of the game's movement from `at`, the keys moving along `yaw` and the view looking that way. */
+function simulateTick(
+  profile: MovementProfile,
+  at: { position: Vec3; velocity: Vec3 },
+  yaw: number,
+  buttons: number,
+  tick: number,
+  world: CollisionWorld,
+): { position: Vec3; velocity: Vec3; grounded: boolean } {
+  const input: MovementInput = {
+    direction: { x: Math.sin(yaw), y: 0, z: Math.cos(yaw) },
+    viewAngles: { pitch: 0, yaw },
+    buttons,
+    sequence: tick,
+    simStep: tick,
+    isPressed(button: number): boolean {
+      return (this.buttons & button) !== 0;
+    },
+  } as MovementInput;
+  return profile.simulate(at.position, at.velocity, input, 1 / ROLLOUT_RATE, world);
+}
+
+/** simulateTick, as a flight's next state. */
+function step(
+  profile: MovementProfile,
+  at: { position: Vec3; velocity: Vec3; grounded: boolean },
+  yaw: number,
+  buttons: number,
+  tick: number,
+  world: CollisionWorld,
+): { position: Vec3; velocity: Vec3; grounded: boolean } {
+  const result = simulateTick(profile, at, yaw, buttons, tick, world);
+  return { position: result.position, velocity: result.velocity, grounded: result.grounded };
+}
+
+function sameVec(a: Vec3, b: Vec3): boolean {
+  return a.x === b.x && a.y === b.y && a.z === b.z;
 }

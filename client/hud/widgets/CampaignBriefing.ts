@@ -12,6 +12,7 @@ import type { FPSHudWidget, HUDState } from "../HudWidget";
 export class FPSCampaignBriefing implements FPSHudWidget {
   private element: HTMLElement;
   private goal: HTMLElement;
+  private line: HTMLElement;
   private points: HTMLUListElement;
   /** The mission whose briefing is filled in; null while none is. */
   private missionId: string | null = null;
@@ -22,9 +23,11 @@ export class FPSCampaignBriefing implements FPSHudWidget {
     this.element.className = "fps-campaign-briefing";
     this.goal = document.createElement("div");
     this.goal.className = "fps-campaign-briefing__goal";
+    this.line = document.createElement("p");
+    this.line.className = "fps-campaign-briefing__line";
     this.points = document.createElement("ul");
     this.points.className = "fps-campaign-briefing__points";
-    this.element.append(this.goal, this.points);
+    this.element.append(this.goal, this.line, this.points);
   }
 
   public getElement(): HTMLElement {
@@ -35,10 +38,12 @@ export class FPSCampaignBriefing implements FPSHudWidget {
     const match = MatchStateManager.getInstance();
     // The opening countdown only: a round mode counts down again before every later round
     const missionId = match.isCountdown() && match.round <= 1 ? (campaignMatch()?.missionId ?? null) : null;
-    const briefing = missionId ? campaignStory(missionId)?.briefing : undefined;
-    if (briefing && missionId !== this.missionId) {
+    const story = missionId ? campaignStory(missionId) : null;
+    const briefing = story?.briefing;
+    if (story && briefing && missionId !== this.missionId) {
       this.missionId = missionId;
       this.goal.textContent = briefing.goal;
+      this.line.textContent = story.line;
       this.points.replaceChildren(
         ...briefing.points.map((point) => {
           const item = document.createElement("li");

@@ -31,14 +31,8 @@
     0 24px 70px #0009,
     inset 0 2px 0 #ffffff60;
 }
-.match-failure__eyebrow {
-  font: 800 12px var(--w-font-display, "Orbitron", monospace);
-  letter-spacing: 0.17em;
-  text-transform: uppercase;
-  opacity: 0.7;
-}
 .match-failure__title {
-  margin: 10px 0 14px;
+  margin: 0 0 14px;
   font: 900 clamp(26px, 3.4vw, 40px) / 1.1 var(--w-font-display, "Orbitron", monospace);
   letter-spacing: -0.03em;
 }

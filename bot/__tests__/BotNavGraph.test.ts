@@ -308,3 +308,29 @@ describe("a walk waypoint slid past", () => {
     expect(graph.getNextStep({ x: 30, y: 0, z: 300 }, path)?.to.id).toBe(1);
   });
 });
+
+describe("nearest node lookups", () => {
+  it("answer again from memory, and anew when the nodes change", () => {
+    const graph = new BotNavGraph("lookups");
+    graph.loadStaticData({
+      nodes: [
+        { id: 0, type: "floor", position: { x: 0, y: 0, z: 0 } },
+        { id: 1, type: "floor", position: { x: 1000, y: 0, z: 0 } },
+      ],
+      edges: [],
+    });
+    const target = { x: 700, y: 0, z: 0 };
+    expect(graph.findNearestNode(target)?.id).toBe(1);
+    expect(graph.findNearestNode(target)?.id).toBe(1);
+    expect(graph.estimateTravelCost({ x: 10, y: 0, z: 0 }, { x: 20, y: 0, z: 0 })).toBe(30);
+    graph.loadStaticData({
+      nodes: [
+        { id: 0, type: "floor", position: { x: 0, y: 0, z: 0 } },
+        { id: 1, type: "floor", position: { x: 1000, y: 0, z: 0 } },
+        { id: 2, type: "floor", position: { x: 690, y: 0, z: 0 } },
+      ],
+      edges: [],
+    });
+    expect(graph.findNearestNode(target)?.id).toBe(2);
+  });
+});

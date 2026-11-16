@@ -64,11 +64,12 @@ describe("campaign card", () => {
     );
   });
 
-  it("plays its own song only in the cartel and boss missions", () => {
+  it("plays its own song only in the cartel, survival and boss missions", () => {
     expect(missionPlaylist("cartel-contract")).toBe("data/campaign_cartel.playlist.json");
+    expect(missionPlaylist("bot-trap")).toBe("data/campaign_survival.playlist.json");
     expect(missionPlaylist("siege-breaker")).toBe("data/campaign_boss.playlist.json");
     expect(missionPlaylist("road-ends")).toBe("data/campaign_boss.playlist.json");
-    for (const id of ["street-riot", "concrete-sabotage", "glitch-duel", "bot-trap", "depot-heist"]) {
+    for (const id of ["street-riot", "concrete-sabotage", "glitch-duel", "depot-heist"]) {
       expect(missionPlaylist(id)).toBeNull();
     }
   });
@@ -218,9 +219,14 @@ describe("campaign page", () => {
     const start = vi.fn();
     const view = new CampaignView({ start });
     view.setState(state(["cartel-contract"], 2));
-    const cards = view.root.querySelectorAll(".campaign-card");
+    const cards = view.root.querySelectorAll(".campaign-card:not(.campaign-finale)");
     expect(cards).toHaveLength(8);
-    expect(view.root.querySelectorAll(".campaign-card--locked")).toHaveLength(6);
+    expect(view.root.querySelectorAll(".campaign-card--locked:not(.campaign-finale)")).toHaveLength(6);
+    // The finale stays classified until every operation is cleared
+    const finale = view.root.querySelector<HTMLElement>(".campaign-finale");
+    expect(finale?.classList.contains("campaign-card--locked")).toBe(true);
+    expect(finale?.querySelector("img")).toBeNull();
+    expect(finale?.dataset.from).toBe("locked");
     expect(view.progressHint()).toBe("1 / 8 cleared");
     // Cleared and next alike carry one bullet, the game mode's name
     expect([...view.root.querySelectorAll(".campaign-card__brief")].map((list) => list.textContent)).toEqual([
@@ -244,6 +250,50 @@ describe("campaign page", () => {
     view.setStartable(true);
     keys()[1].click();
     expect(start).toHaveBeenCalledWith(MISSIONS[1]);
+  });
+});
+
+describe("campaign finale", () => {
+  const ids = MISSIONS.map((m) => m.id);
+  const finished = { ...state(ids, 3), length: 3 };
+  afterEach(() => localStorage.clear());
+
+  it("shows the finale card under the last operation once every one is cleared", () => {
+    const view = new CampaignView({ start: vi.fn() });
+    view.setState(finished);
+    const finale = view.root.querySelector<HTMLElement>(".campaign-finale--complete");
+    expect(finale?.querySelector(".campaign-finale__title")?.textContent).toBe("Campaign complete!");
+    expect(finale?.querySelector("img")?.getAttribute("src")).toBe("/images/campaign/card9-thumb.webp");
+    expect(finale?.dataset.from).toBe("cleared");
+  });
+
+  it("reads a card panel by panel when it is clicked, without starting anything", () => {
+    const start = vi.fn();
+    const view = new CampaignView({ start });
+    view.setState(finished);
+    document.body.append(view.root);
+    view.root.querySelector<HTMLElement>(".campaign-card__art--readable")?.click();
+    const cutscene = document.querySelector(".campaign-cut");
+    expect(cutscene?.getAttribute("aria-label")).toBe("Operation 01: Cartel Contract");
+    expect(start).not.toHaveBeenCalled();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    cutscene?.remove();
+    // The finale's card reads the same way
+    view.root.querySelector<HTMLElement>(".campaign-finale__art")?.click();
+    const finale = document.querySelector(".campaign-cut");
+    expect(finale?.getAttribute("aria-label")).toBe("Finale: Campaign complete!");
+    // Esc reads to the end, which closes a card read from the page and stops its key listener
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    finale?.remove();
+    view.root.remove();
+  });
+
+  it("leaves a locked operation's card unreadable", () => {
+    const view = new CampaignView({ start: vi.fn() });
+    view.setState(state(["cartel-contract"], 2));
+    const readable = view.root.querySelectorAll(".campaign-card__art--readable");
+    // Two open operations have cards; the locked ones and the classified finale do not read
+    expect(readable).toHaveLength(2);
   });
 });
 

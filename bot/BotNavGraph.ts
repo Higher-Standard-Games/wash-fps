@@ -86,6 +86,26 @@ export interface NavEdge {
   via?: Vec3[];
 }
 
+/**
+ * The checks a walk edge passes, the same for the graph's own nodes and the
+ * landings of learned routes (BotNavGraph.walkTest builds them on a map's
+ * vision).
+ */
+export interface WalkTest {
+  /** A straight walk between two standing origins. */
+  straight(from: Vec3, to: Vec3): boolean;
+  /** Extra route cost for running close to walls on a straight walk. */
+  wallCost(from: Vec3, to: Vec3): number;
+  /** A short walk round what blocks the straight line (stairs, a crate, a doorway), or null. */
+  reach(from: NavNode, to: NavNode): { distance: number; via: Vec3[] } | null;
+}
+
+/** An edge that fails the checks it was built by, from `BotNavGraph.checkEdges`. */
+export interface EdgeCheckFailure {
+  edge: NavEdge;
+  reason: string;
+}
+
 export interface NavStep {
   from: NavNode;
   to: NavNode;
@@ -146,6 +166,8 @@ export function navEdgeKey(from: number, to: number, type: NavEdgeType): string 
 // ── Constants ───────────────────────────────────────────────────────
 
 /** Max distance between nodes to test for edges */
+/** Positions findNearestNode remembers before it starts over: far more than a map has items and marks. */
+const NEAREST_LOOKUPS_KEPT = 4096;
 const MAX_EDGE_DISTANCE = 1500;
 
 /** Max height diff for walk edges */
@@ -305,7 +327,7 @@ const SPAWN_SETTLE_DROP = 512;
 /** A spawn whose walk origin is this far above where a player stands under it is in the air. */
 const SPAWN_FLOAT = 64;
 
-export const BOT_NAV_GRAPH_SCHEMA_VERSION = 4;
+export const BOT_NAV_GRAPH_SCHEMA_VERSION = 5;
 export const BOT_NAV_TRIGGER_RESOLVER_VERSION = 1;
 
 /** Bump this when edge generation or movement assumptions change. */
@@ -508,13 +530,16 @@ export class BotNavGraph {
   /**
    * Add routes learned from demos (see LearnedRoutes.ts) as `jump` edges:
    * from the node a player stands at the route's start, to the node at its
-   * landing, or a new node there when none is near. With `canWalk`, start and
-   * landing nodes are ones walkable from the route's ends, a new landing node
-   * links only to nodes it can walk to, and a route whose new landing links to
-   * none is left out. Replaces any learned routes added before, so loading
-   * twice does not duplicate edges.
+   * landing, or a new node there when none is near. With `walk` (see
+   * `walkTest`), start and landing nodes are ones walkable from the route's
+   * ends, and a new landing node links to the nodes around it by the same walk
+   * edges the graph's own nodes have (`_walkEdges`); a route whose new
+   * landing links to none is left out. Without it, a landing links straight
+   * to every node in reach. Replaces any learned routes added before, so
+   * loading twice does not duplicate edges.
    */
-  addLearnedRoutes(routes: readonly LearnedRoute[], canWalk?: (from: Vec3, to: Vec3) => boolean): number {
+  addLearnedRoutes(routes: readonly LearnedRoute[], walk?: WalkTest): number {
+    const canWalk = walk ? (from: Vec3, to: Vec3) => walk.straight(from, to) : undefined;
     this._edges = this._edges.filter((edge) => !edge.opportunityId?.startsWith(LEARNED_PREFIX));
     this._learnedRoutes.clear();
     // Landing nodes from an earlier call go too; they sit after the graph's own.
@@ -543,7 +568,10 @@ export class BotNavGraph {
           if (reach > LEARNED_LANDING_LINK || Math.abs(node.position.y - landing.position.y) > LEARNED_LANDING_STEP) {
             continue;
           }
-          if (canWalk && !canWalk(walkOrigin(landing), walkOrigin(node))) continue;
+          if (walk) {
+            links.push(...this._walkEdges(landing, node, walk, LEARNED_LINK).edges);
+            continue;
+          }
           const cost = vec3Distance(node.position, landing.position);
           links.push({ from: landing.id, to: node.id, type: "walk", cost, opportunityId: LEARNED_LINK });
           links.push({ from: node.id, to: landing.id, type: "walk", cost, opportunityId: LEARNED_LINK });
@@ -568,7 +596,8 @@ export class BotNavGraph {
       added++;
     }
     this._buildAdjacency();
-    this._distanceMatrix = null;
+    this._distanceRows = [];
+    this._forgetLookups();
     return added;
   }
 
@@ -745,6 +774,10 @@ export class BotNavGraph {
    * Find the nearest NavNode to a world position.
    */
   findNearestNode(pos: Vec3): NavNode | null {
+    const key = `${pos.x},${pos.y},${pos.z}`;
+    const known = this._nearestByPosition.get(key);
+    if (known !== undefined) return known;
+    if (this._nearestByPosition.size >= NEAREST_LOOKUPS_KEPT) this._nearestByPosition.clear();
     let best: NavNode | null = null;
     let bestDist = Infinity;
 
@@ -756,6 +789,7 @@ export class BotNavGraph {
       }
     }
 
+    this._nearestByPosition.set(key, best);
     return best;
   }
 
@@ -769,6 +803,8 @@ export class BotNavGraph {
       STANDS_ON_SURFACE.has(node.type) ? walkOrigin(node) : node.position;
     const score = (origin: Vec3) => Math.hypot(pos.x - origin.x, pos.z - origin.z) + 2 * Math.abs(pos.y - origin.y);
     if (!canWalkTo) {
+      const last = this._lastStanding;
+      if (last && last.x === pos.x && last.y === pos.y && last.z === pos.z) return last.node;
       let best: NavNode | null = null;
       let bestScore = Number.POSITIVE_INFINITY;
       for (const node of this._nodes) {
@@ -778,6 +814,7 @@ export class BotNavGraph {
           best = node;
         }
       }
+      this._lastStanding = { x: pos.x, y: pos.y, z: pos.z, node: best };
       return best;
     }
     const scored = this._nodes.map((node) => {
@@ -802,8 +839,8 @@ export class BotNavGraph {
    * ledge beside it that nothing walks to; the floor under it is the goal.
    */
   private _findReachableNodeNear(start: NavNode, target: Vec3): NavNode | null {
-    const costs = this._ensureDistanceMatrix()[start.id];
-    if (!costs) return null;
+    const costs = this._distanceRow(start.id);
+    if (costs.length === 0) return null;
     let best: NavNode | null = null;
     let bestDist = GOAL_SNAP_RADIUS;
     for (const node of this._nodes) {
@@ -1009,7 +1046,7 @@ export class BotNavGraph {
   private _probeEdges(vision: BotVision): void {
     const nodeCount = this._nodes.length;
     const movementAnalyzer = new BotMovementAnalyzer(vision.collisionWorld);
-    const walks = new WalkReach(vision.collisionWorld);
+    const walk = this.walkTest(vision);
 
     for (let i = 0; i < nodeCount; i++) {
       for (let j = i + 1; j < nodeCount; j++) {
@@ -1022,38 +1059,12 @@ export class BotNavGraph {
         const heightDiff = Math.abs(a.position.y - b.position.y);
         const horizontalDist = Math.sqrt((a.position.x - b.position.x) ** 2 + (a.position.z - b.position.z) ** 2);
 
-        // Walk edge: low height diff + path clear
-        if (heightDiff < WALK_HEIGHT_MAX && vision.isWalkable(walkOrigin(a), walkOrigin(b))) {
-          const cost = dist + this._wallCost(vision.collisionWorld, walkOrigin(a), walkOrigin(b));
-          this._edges.push({ from: a.id, to: b.id, type: "walk", cost });
-          this._edges.push({ from: b.id, to: a.id, type: "walk", cost });
-          continue;
-        }
-
-        // Neighbours the straight sweep cannot connect: stairs and ramps that
-        // climb more than a step between grid nodes, a crate in the way, a
-        // doorway off the line. A short walk flood from each node finds them,
-        // each way on its own, because a staircase that can be walked down
-        // can be walked up but a ledge cannot.
-        const walked = new Set<NavNode>();
-        if (horizontalDist <= WALK_FLOOD_RADIUS && heightDiff <= horizontalDist + WALK_FLOOD_RISE_SLACK) {
-          for (const [from, to] of [
-            [a, b],
-            [b, a],
-          ] as const) {
-            const reach = walks.reach(from, to);
-            if (!reach) continue;
-            const via = this._corners(vision, reach.way);
-            this._edges.push({
-              from: from.id,
-              to: to.id,
-              type: "walk",
-              cost: reach.distance,
-              ...(via.length > 0 ? { via } : {}),
-            });
-            walked.add(from);
-          }
-        }
+        // Walk edges, straight or round what is in the way (_walkEdges). A
+        // straight walk both ways is all two nodes need.
+        const walks = this._walkEdges(a, b, walk);
+        this._edges.push(...walks.edges);
+        if (walks.straight) continue;
+        const walked = new Set<NavNode>(walks.edges.map((edge) => (edge.from === a.id ? a : b)));
 
         // Jumps: up or down a ledge walking cannot climb, and across a gap at
         // about the same height (a pit, a hole in the floor) that walking
@@ -1106,6 +1117,106 @@ export class BotNavGraph {
     this._addTriggerEdges();
   }
 
+  /**
+   * The walk edges between two nodes, each way on its own: along the straight
+   * line when it is clear and level enough, with the wall cost, else the way
+   * the walk flood finds, because a staircase walked down can be walked up
+   * but a ledge cannot. The graph's own nodes and learned landings both link
+   * through this.
+   */
+  private _walkEdges(
+    a: NavNode,
+    b: NavNode,
+    walk: WalkTest,
+    opportunityId?: string,
+  ): { edges: NavEdge[]; straight: boolean } {
+    const dist = vec3Distance(a.position, b.position);
+    const heightDiff = Math.abs(a.position.y - b.position.y);
+    const horizontalDist = Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z);
+    const tag = opportunityId ? { opportunityId } : {};
+    const level = heightDiff < WALK_HEIGHT_MAX;
+    // Neighbours the straight sweep cannot connect: stairs and ramps that
+    // climb more than a step between grid nodes, a crate in the way, a
+    // doorway off the line. The walk flood finds those.
+    const floods = horizontalDist <= WALK_FLOOD_RADIUS && heightDiff <= horizontalDist + WALK_FLOOD_RISE_SLACK;
+    const edges: NavEdge[] = [];
+    let straight = 0;
+    // Each way is tested on its own: the sweep that walks off a ledge or down a
+    // step can be blocked coming back.
+    for (const [from, to] of [
+      [a, b],
+      [b, a],
+    ] as const) {
+      if (level && walk.straight(walkOrigin(from), walkOrigin(to))) {
+        const cost = dist + walk.wallCost(walkOrigin(from), walkOrigin(to));
+        edges.push({ from: from.id, to: to.id, type: "walk", cost, ...tag });
+        straight++;
+        continue;
+      }
+      if (!floods) continue;
+      const reach = walk.reach(from, to);
+      if (!reach) continue;
+      edges.push({
+        from: from.id,
+        to: to.id,
+        type: "walk",
+        cost: reach.distance,
+        ...(reach.via.length > 0 ? { via: reach.via } : {}),
+        ...tag,
+      });
+    }
+    return { edges, straight: straight === 2 };
+  }
+
+  /** The walk checks on a map's vision: the hull sweep, the wall cost and the walk flood. */
+  walkTest(vision: BotVision): WalkTest {
+    const walks = new WalkReach(vision.collisionWorld);
+    return {
+      straight: (from, to) => vision.isWalkable(from, to),
+      wallCost: (from, to) => this._wallCost(vision.collisionWorld, from, to),
+      reach: (from, to) => {
+        const found = walks.reach(from, to);
+        return found ? { distance: found.distance, via: this._corners(vision, found.way) } : null;
+      },
+    };
+  }
+
+  /**
+   * Edges that fail the checks they were built by: walk edges whose straight
+   * line or walk flood does not go, and learned routes whose start or landing
+   * cannot walk to its node. For `bot:routes --check`; a graph built by
+   * `buildFromVision` and `addLearnedRoutes` with the map's walk test has none.
+   */
+  checkEdges(walk: WalkTest): EdgeCheckFailure[] {
+    const failures: EdgeCheckFailure[] = [];
+    for (const edge of this._edges) {
+      const from = this._nodes[edge.from];
+      const to = this._nodes[edge.to];
+      if (!from || !to) {
+        failures.push({ edge, reason: "missing node" });
+        continue;
+      }
+      if (edge.type === "walk") {
+        if (!edge.via && walk.straight(walkOrigin(from), walkOrigin(to))) continue;
+        if (walk.reach(from, to)) continue;
+        const reason = edge.via
+          ? "walk flood does not reach"
+          : walk.straight(walkOrigin(to), walkOrigin(from))
+            ? "straight walk goes only the other way"
+            : "straight walk blocked";
+        failures.push({ edge, reason });
+        continue;
+      }
+      const route = this.getLearnedRoute(edge.opportunityId);
+      if (!route) continue;
+      if (!walk.straight(route.start, walkOrigin(from)))
+        failures.push({ edge, reason: "route start cannot walk to its node" });
+      else if (!walk.straight(route.landing, walkOrigin(to)))
+        failures.push({ edge, reason: "landing cannot walk to its node" });
+    }
+    return failures;
+  }
+
   // ── Private: Trigger Edges ─────────────────────────────────────
 
   private _addTriggerEdges(): void {
@@ -1137,37 +1248,54 @@ export class BotNavGraph {
       this._adjacency.get(edge.from)!.push(edge);
     }
     // Any structural change invalidates cached distances.
-    this._distanceMatrix = null;
+    this._distanceRows = [];
+    this._forgetLookups();
   }
 
-  // ── All-pairs travel cost ───────────────────────────────────────
+  // ── Travel cost from a node ─────────────────────────────────────
 
   /**
-   * Exact graph distance between every pair of nodes, lazily computed.
+   * Exact graph distance from a node to every other, one row per source node,
+   * each computed the first time it is asked for and kept until the graph
+   * changes.
    *
-   * Goal scoring needs a travel estimate for EVERY candidate every decision,
-   * and running A* per candidate is the one thing that would make the goal
-   * arbiter too expensive (docs/research/BOT_WEIGHTS_AND_GOALS.md §7.4). The
-   * design anticipated landmark distances, but the graphs turned out small
-   * enough — 34-58 strategic nodes on shipped maps — that all-pairs is both
-   * exact and cheaper to reason about: ~58 Dijkstra runs over ~82 edges.
+   * Goal scoring needs a travel estimate for every candidate every decision,
+   * and A* per candidate would make the goal arbiter too expensive
+   * (docs/research/BOT_WEIGHTS_AND_GOALS.md §7.4); every estimate starts from
+   * the bot's own node, so one row answers a decision's. Building every row at
+   * once took 31 ms on washoi_snd1's 323 nodes, inside the first decision that
+   * asked; a row takes about a tenth of a millisecond.
    *
-   * Deliberately NOT persisted in the nav cache. At this size recomputing costs
-   * microseconds, so storing it would buy nothing and add a schema version to
-   * invalidate.
+   * Not persisted in the nav cache: learned routes change it after loading.
    */
-  private _distanceMatrix: Float64Array[] | null = null;
+  private _distanceRows: (Float64Array | undefined)[] = [];
+  /**
+   * findNearestNode by exact position. Item and objective positions are asked
+   * for again with every decision, and the answer only changes with the nodes.
+   */
+  private readonly _nearestByPosition = new Map<string, NavNode | null>();
+  /**
+   * The last standing node found without a walk check, by exact position: one
+   * decision asks for its bot's own once per item it weighs.
+   */
+  private _lastStanding: { x: number; y: number; z: number; node: NavNode | null } | null = null;
 
-  private _ensureDistanceMatrix(): Float64Array[] {
-    if (this._distanceMatrix) return this._distanceMatrix;
+  /** Drop the lookups above: the nodes changed. */
+  private _forgetLookups(): void {
+    this._nearestByPosition.clear();
+    this._lastStanding = null;
+  }
 
+  /** Graph distance from node `source` to every node (Infinity where none reaches); empty for no such node. */
+  private _distanceRow(source: number): Float64Array {
     const count = this._nodes.length;
-    const matrix: Float64Array[] = [];
-    for (let source = 0; source < count; source++) {
-      matrix.push(this._dijkstraFrom(source, count));
+    if (source < 0 || source >= count) return new Float64Array(0);
+    let row = this._distanceRows[source];
+    if (!row) {
+      row = this._dijkstraFrom(source, count);
+      this._distanceRows[source] = row;
     }
-    this._distanceMatrix = matrix;
-    return matrix;
+    return row;
   }
 
   /** Single-source shortest costs. Unreachable nodes stay Infinity. */
@@ -1225,8 +1353,7 @@ export class BotNavGraph {
     const arrival = vec3Distance(goal.position, to);
     if (start.id === goal.id) return approach + arrival;
 
-    const matrix = this._ensureDistanceMatrix();
-    const graphCost = matrix[start.id]?.[goal.id];
+    const graphCost = this._distanceRow(start.id)[goal.id];
     if (graphCost === undefined || !Number.isFinite(graphCost)) return null;
 
     // Snap distances at both ends: the bot is rarely standing exactly on a node,
