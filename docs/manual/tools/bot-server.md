@@ -69,7 +69,7 @@ disconnect, socket close or socket error stops that timer.
 | `goals/` | Goal sources, considerations and the arbiter that scores them |
 | `StateMachineBrain.ts` | The rule-based brain |
 | `BotLobbyClient.ts` | Lobby integration — bots join rooms and ready up like humans |
-| `runner/MatchRunnerPool.ts` | With `--match-runners`: a child process per match that plays its bots |
+| `runner/MatchRunnerPool.ts` | A child process per match that plays its bots (a match runner) |
 
 ## Difficulty Tiers
 
@@ -299,8 +299,8 @@ secret, not a human account key; see [Ranked matches](../multiplayer/lobby.md#ra
 ### A process per match
 
 The lobby seats bots itself by default (see the lobby guide, "Bots without a
-bot server"), and so does `bot:server --match-runners`: each bot's seat stays
-in its room but its match plays elsewhere. When the match starts, each bot's game connection
+bot server"); a `bot:server` does the same with the seats it holds. Each
+bot's seat stays in its room but its match plays elsewhere. When the match starts, each bot's game connection
 goes to a **match runner** for that game server: a child process
 (`cli/bot-runner.ts`, `dist-server/bot-runner.mjs` in the bundle) that loads
 the map's vision and nav graph once for the match's bots and exits once its
@@ -311,7 +311,7 @@ whoever seated it (the lobby, or a bot server), which passes them on to the
 lobby and `bot-intel.db`.
 
 A bundled runner playing ten bots on `washoi_snd1` holds about 175 MB: runners start with a 4 MB young generation (`RUNNER_NODE_FLAGS`), which cuts the heap V8 reserves from about 250 MB to 85 MB at the same snapshot cost, and trace the world in WebAssembly (`src/engine/physics/CompiledWorldTrace.ts`). `SHAG_DEBUG=memory` makes a runner log its memory every 10 s. A bot
-server started without `--match-runners` plays every match's bots in itself,
+server started with `--in-process` plays every match's bots in itself,
 sharing each map's vision for as long as it runs.
 
 ## TODO
