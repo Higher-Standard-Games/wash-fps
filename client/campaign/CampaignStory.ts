@@ -141,7 +141,7 @@ const STORIES: Record<string, CampaignStory> = {
     briefing: {
       goal: "Survive the bot trap!",
       points: [
-        "Last 5 minutes. One death ends the mission.",
+        "Last 5 minutes. You get one respawn: a second death ends the mission.",
         "You start with the blade and a machine gun: grab more from the map.",
         "More robots every minute, and tougher.",
         "You heal slowly while you live.",

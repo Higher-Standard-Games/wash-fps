@@ -12,9 +12,10 @@
  * kits handed out in turn (a machine gun that aims, one that fires from the
  * hip only, a grenade launcher), and picks nothing up. Players spawn with the blade and a machine gun, arm
  * themselves from the map, and heal a point a second up to 100 (overheal's
- * decay in reverse). The first player death loses the match; lasting to
- * the time limit wins it (the match state, told the players' side, settles
- * both).
+ * decay in reverse). A player who dies with lives left (the mission's
+ * `lives`) comes back; the death that uses a player's last loses the match,
+ * and lasting to the time limit wins it (the match state, told the players'
+ * side and their lives, settles both).
  */
 
 import type { WorldState } from "@engine/server/core/WorldState";

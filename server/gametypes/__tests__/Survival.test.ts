@@ -125,6 +125,26 @@ describe("survival", () => {
     expect(state.teamScores.get("udon")).toBe(13);
   });
 
+  it("lets a survivor with lives left come back, and loses at the death that uses the last", () => {
+    const state = new MatchState(
+      "Survival",
+      { warmupTimeout: 0, countdownDuration: 0, timeLimit: 300, scoreLimit: 0 },
+      true,
+    );
+    state.setSurvivors("soba", 2);
+    state.addPlayer(1 as PlayerId);
+    state.setPlayerTeam(1 as PlayerId, "soba");
+    state.addPlayer(3 as PlayerId);
+    state.setPlayerTeam(3 as PlayerId, "soba");
+    state.transition(MatchPhase.Active);
+    // Each player has lives of their own
+    expect(state.survivorsFell(1 as PlayerId)).toBe(false);
+    expect(state.survivorsFell(3 as PlayerId)).toBe(false);
+    expect(state.phase).toBe(MatchPhase.Active);
+    expect(state.survivorsFell(1 as PlayerId)).toBe(true);
+    expect(state.phase).toBe(MatchPhase.PostGame);
+  });
+
   it("heals people a point a second up to 100, and not robots", () => {
     const mode = survival();
     const bodies = [

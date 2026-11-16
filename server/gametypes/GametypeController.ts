@@ -294,9 +294,9 @@ export class GametypeController {
     return stats ? { ...loadout, ...stats } : loadout;
   }
 
-  /** `team` wins by lasting to the time limit (Survival). */
-  setSurvivors(team: TeamId): void {
-    this.matchState.setSurvivors(team);
+  /** `team` wins by lasting to the time limit, each player with `lives` (Survival). */
+  setSurvivors(team: TeamId, lives = 1): void {
+    this.matchState.setSurvivors(team, lives);
   }
 
   /**
@@ -644,7 +644,7 @@ export class GametypeController {
               this.matchState.recordStat(victim.ownerId, (s) => {
                 s.deaths++;
               });
-              // Survival: the side that must last loses with its first death
+              // Survival: the side that must last loses when one of them is out of lives
               if (this.matchState.survivorsFell(victim.ownerId)) {
                 console.log("[GametypeController] A survivor fell: the match is lost");
                 this.recordMatchWinner();

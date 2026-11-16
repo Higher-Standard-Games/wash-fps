@@ -31,7 +31,7 @@ shows how many you have cleared.
 
 **Survival** (Bot Trap): you start with the blade and a machine gun, and arm
 yourself from the map, and you heal a point a second up to 100. Last the five
-minutes without dying to clear it; one death ends the match. The robots come armed in turn: one with a machine gun
+minutes to clear it. You get one respawn: your second death ends the match. The robots come armed in turn: one with a machine gun
 it can aim, the next with a machine gun it can only fire from the hip, the next
 with a grenade launcher, and round again; they pick nothing up. Every robot you kill brings the next, and they get more and
 tougher each minute:
