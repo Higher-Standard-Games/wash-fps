@@ -461,15 +461,6 @@
   background: hsla(0, 0%, 100%, 0.16);
 }
 
-/* A full room is still worth reading, so it stays lit */
-.raised-key--room:disabled .raised-key__face {
-  filter: none;
-}
-
-.raised-key--room:disabled :is(.raised-key__label, .raised-key__hint) {
-  opacity: 0.7;
-}
-
 .lobby__rail-player {
   display: flex;
   flex: 0 0 auto;
@@ -1568,4 +1559,14 @@
     bottom: calc(var(--lobby-links-height, 96px) + 12px);
     width: auto;
   }
+}
+
+/* A full room in the room list is still worth reading, so it stays lit (after
+   the other keys' faces, which a room key never is) */
+.raised-key--room:disabled .raised-key__face {
+  filter: none;
+}
+
+.raised-key--room:disabled :is(.raised-key__label, .raised-key__hint) {
+  opacity: 0.7;
 }

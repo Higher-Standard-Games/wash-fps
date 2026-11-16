@@ -6,9 +6,7 @@ import { VIDEO_PRESETS } from "../SettingsModel";
 
 beforeEach(() => {
   localStorage.clear();
-  Reflect.set(Cvar, "cvars", new Map());
-  Reflect.set(Cvar, "initialized", false);
-  Reflect.set(Cvar, "consoleIntegration", null);
+  Cvar.clearAll();
   Reflect.set(RenderVars, "instance", undefined);
   vi.stubGlobal(
     "requestAnimationFrame",

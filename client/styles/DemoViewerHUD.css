@@ -53,21 +53,6 @@
   filter: none;
 }
 
-#demo-viewer-hud.is-min .dvh-controls > :not(.dvh-minimize) {
-  display: none;
-}
-
-#demo-viewer-hud.is-min .dvh-controls {
-  position: absolute;
-  right: 12px;
-  bottom: 10px;
-  min-height: 0;
-}
-
-#demo-viewer-hud.is-min .dvh-timeline {
-  height: 4px;
-}
-
 /* --- Timeline --- */
 
 .dvh-timeline {
@@ -185,6 +170,22 @@
   flex: 1;
 }
 
+/* Minimized: the controls tucked to the right of the thin timeline */
+#demo-viewer-hud.is-min .dvh-controls > :not(.dvh-minimize) {
+  display: none;
+}
+
+#demo-viewer-hud.is-min .dvh-controls {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  min-height: 0;
+}
+
+#demo-viewer-hud.is-min .dvh-timeline {
+  height: 4px;
+}
+
 /*
  * The bar's keys: the menu's raised 3D key (RaisedKey), all at one height.
  * Ink at rest; gold for what is on: play, the game HUD, the followed player.
@@ -224,6 +225,15 @@
   --key-text: hsl(250 45% 8%);
 }
 
+/* Wide enough for "0.25x", so the bar does not shift as the speed changes */
+.dvh-speed .raised-key__face {
+  min-width: 70px;
+}
+
+.dvh-speed .raised-key__label {
+  font-variant-numeric: tabular-nums;
+}
+
 .raised-key--bar.dvh-play .raised-key__face {
   min-width: 52px;
 }
@@ -235,15 +245,6 @@
 /* The game HUD switch while no player's eyes are on screen */
 .raised-key--bar.is-unavailable {
   opacity: 0.45;
-}
-
-/* Wide enough for "0.25x", so the bar does not shift as the speed changes */
-.dvh-speed .raised-key__face {
-  min-width: 70px;
-}
-
-.dvh-speed .raised-key__label {
-  font-variant-numeric: tabular-nums;
 }
 
 .dvh-time {

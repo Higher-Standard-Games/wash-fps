@@ -120,6 +120,7 @@
 .custom-block,
 .vp-doc div[class*="language-"],
 .pager-link {
+  /* biome-ignore lint/complexity/noImportantStyles: overrides VitePress's own radii, set by selectors of every specificity */
   border-radius: 2px !important;
 }
 .VPButton {

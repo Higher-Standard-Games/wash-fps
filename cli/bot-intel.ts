@@ -31,7 +31,7 @@ async function main(): Promise<void> {
     const only = option(args, "--map");
     const maps = [...new Set(store.maps().map((m) => m.map))].filter((m) => !only || m === only);
     if (maps.length === 0) {
-      console.log("bot:intel — no match reports" + (only ? ` for ${only}` : ""));
+      console.log(`bot:intel — no match reports${only ? ` for ${only}` : ""}`);
       return;
     }
     for (const map of maps) {

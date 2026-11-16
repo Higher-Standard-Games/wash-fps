@@ -85,7 +85,7 @@ async function main(): Promise<void> {
   console.log("  stack by seconds since spawn (median, middle half):");
   profile.stackByAge.forEach((q, i) => {
     const to = i === AGE_BUCKETS - 1 ? "+" : `–${(i + 1) * STACK_AGE_BUCKET}`;
-    console.log(`    ${i * STACK_AGE_BUCKET}${to} s`.padEnd(14) + `${q.median} (${q.q1}–${q.q3}), ${q.n} samples`);
+    console.log(`${`    ${i * STACK_AGE_BUCKET}${to} s`.padEnd(14)}${q.median} (${q.q1}–${q.q3}), ${q.n} samples`);
   });
   if (args.includes("--dry-run")) return;
   console.log(`  → ${savePeopleProfile(profile)}`);

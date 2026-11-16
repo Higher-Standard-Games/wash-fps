@@ -3,7 +3,9 @@
 import type { FreeCamera } from "@babylonjs/core/Cameras/freeCamera";
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import type { Scene } from "@babylonjs/core/scene";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ModelBounds } from "../../../../engine/editor/EditorModelAsset";
 import { EditorSession } from "../../../../engine/editor/EditorSession";
 import { clearGameEntityCatalog } from "../../../../engine/editor/EntityCatalog";
 import { registerFpsEditorCatalog } from "../FpsEditorCatalog";
@@ -53,6 +55,14 @@ import { createRoomTemplate } from "../../../../engine/editor/RoomTemplate";
 import { serverMapName } from "../../../../engine/editor/ServerMapOpen";
 import type { ShaggedApi } from "../../../../engine/editor/ShaggedApi";
 import { shaderBatches } from "../../../../engine/editor/TexturedPreview";
+
+/** The parts of a session these tests drive that it keeps to itself. */
+interface SessionInternals {
+  scene: Scene;
+  pickModel(path: string, bounds: ModelBounds | null): void;
+  selectObject(id: string | null, additive: boolean): void;
+}
+const internals = (session: EditorSession) => session as unknown as SessionInternals;
 
 const context = {
   scale: vi.fn(),
@@ -179,10 +189,10 @@ describe("editor DOM shell", () => {
       pointer("pointerdown", 120, 134);
       pointer("pointermove", 136, 118);
       expect(session.document.snapshot()).toEqual(before);
-      expect(session["scene"].getMeshByName("selection-a")).toBeTruthy();
+      expect(internals(session).scene.getMeshByName("selection-a")).toBeTruthy();
       session.root.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
       expect(session.document.snapshot()).toEqual(before);
-      expect(session["scene"].getMeshByName("selection-a")).toBeNull();
+      expect(internals(session).scene.getMeshByName("selection-a")).toBeNull();
       pointer("pointerdown", 120, 134);
       pointer("pointermove", 136, 118);
       pointer("pointerup", 136, 118);
@@ -834,7 +844,7 @@ describe("editor DOM shell", () => {
     document.body.appendChild(canvas);
     const session = new EditorSession(engine, canvas, vi.fn());
     const bounds = { min: { x: -16, y: -16, z: -8 }, max: { x: 16, y: 16, z: 24 } };
-    session["pickModel"]("models/props/crate.glb", bounds);
+    internals(session).pickModel("models/props/crate.glb", bounds);
     expect(session.root.querySelector<HTMLSelectElement>("[data-entity-class]")!.value).toBe("misc_model");
     expect(session.root.querySelector("[data-entity-short]")!.textContent).toBe("model");
     expect(session.root.querySelector('[data-action="entity"]')!.classList.contains("active")).toBe(true);
@@ -846,7 +856,7 @@ describe("editor DOM shell", () => {
       origin: { x: 64, y: 32, z: 8 },
       keys: { model: "models/props/crate.glb", modelscale: "1" },
     });
-    session["pickModel"]("models/objects/misc/barrel.md3", null);
+    internals(session).pickModel("models/objects/misc/barrel.md3", null);
     expect(session.document.snapshot().entities).toHaveLength(1);
     expect(session.document.snapshot().entities[0].keys.model).toBe("models/objects/misc/barrel.md3");
     session.document.undo();
@@ -1835,8 +1845,8 @@ describe("the Caulk key", () => {
       '[aria-label="Drawing tools"] [data-action="caulk"]',
     )!;
     const [first, second, third] = session.document.snapshot().brushes;
-    session["selectObject"](first.id, false);
-    session["selectObject"](second.id, true);
+    internals(session).selectObject(first.id, false);
+    internals(session).selectObject(second.id, true);
     caulkKey.click();
     const shaders = () => session.document.snapshot().brushes.map((brush) => brush.shader);
     expect(shaders().slice(0, 3)).toEqual(["common/caulk", "common/caulk", third.shader]);
@@ -1844,7 +1854,7 @@ describe("the Caulk key", () => {
     session.root.querySelector<HTMLButtonElement>('[data-action="undo"]')!.click();
     expect(shaders().slice(0, 2)).toEqual([first.shader, second.shader]);
 
-    session["selectObject"](null, false);
+    internals(session).selectObject(null, false);
     session.root.dispatchEvent(new KeyboardEvent("keydown", { key: "s", bubbles: true }));
     caulkKey.click();
     expect(session.root.querySelector('[aria-label="Drawing tools"] button.active')?.getAttribute("data-action")).toBe(

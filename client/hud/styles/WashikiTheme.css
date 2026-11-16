@@ -2834,8 +2834,13 @@ html[data-cl-hud="0"]
   flex-direction: column;
 }
 
-/* Team title: small stamped plate in team color */
+/* Team title: a small stamped plate in team color with the name and score on
+   it. The score is the point in a round mode, where it counts rounds won and
+   appears nowhere else on the board. */
 .fps-scoreboard-team-title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: calc(14px * var(--scoreboard-scale, var(--ui-scale, 1)));
   align-self: center;
   padding: calc(6px * var(--scoreboard-scale, var(--ui-scale, 1)))
     calc(24px * var(--scoreboard-scale, var(--ui-scale, 1))) calc(8px * var(--scoreboard-scale, var(--ui-scale, 1)));
@@ -2850,6 +2855,12 @@ html[data-cl-hud="0"]
   text-align: center;
   color: var(--w-cream);
   text-shadow: var(--w-ink-text-sm);
+}
+
+.fps-scoreboard-team-score {
+  font-size: calc(24px * var(--scoreboard-scale, var(--ui-scale, 1)));
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 
 /* Udon Team (blood) */
@@ -3586,6 +3597,30 @@ html[data-cl-hud="0"]
   color: hsl(255, 45%, 10%);
 }
 
+/* Readied: field goes confirm-green */
+.fps-ready-bar--ready {
+  background:
+    linear-gradient(115deg, hsla(145, 80%, 45%, 0.35), hsla(160, 60%, 14%, 0.94) 60%, var(--w-void)), var(--w-scan-cyan);
+  box-shadow: inset 0 0 0 1px hsla(140, 80%, 60%, 0.3);
+}
+
+.fps-ready-bar--ready .fps-ready-count {
+  background: linear-gradient(105deg, hsl(140, 75%, 52%), hsl(152, 70%, 38%));
+}
+
+/* Spectating: magenta accent, no count cell */
+.fps-ready-bar--spectating {
+  background:
+    linear-gradient(115deg, hsla(320, 90%, 60%, 0.26), hsla(285, 45%, 12%, 0.94) 55%, var(--w-void)), var(--w-scan-cyan);
+  box-shadow: inset 0 0 0 1px hsla(320, 80%, 70%, 0.25);
+}
+
+.fps-ready-bar--spectating .fps-ready-text {
+  padding: calc(10px * var(--ui-scale, 1)) calc(30px * var(--ui-scale, 1)) calc(12px * var(--ui-scale, 1));
+  letter-spacing: 0.3em;
+  color: hsl(320, 90%, 74%);
+}
+
 /* Give the warmup action more weight without enlarging the spectator plate. */
 .fps-ready-bar:not(.fps-ready-bar--spectating) {
   width: max-content;
@@ -3630,30 +3665,6 @@ html[data-cl-hud="0"]
   50% {
     transform: scale(1.08);
   }
-}
-
-/* Readied: field goes confirm-green */
-.fps-ready-bar--ready {
-  background:
-    linear-gradient(115deg, hsla(145, 80%, 45%, 0.35), hsla(160, 60%, 14%, 0.94) 60%, var(--w-void)), var(--w-scan-cyan);
-  box-shadow: inset 0 0 0 1px hsla(140, 80%, 60%, 0.3);
-}
-
-.fps-ready-bar--ready .fps-ready-count {
-  background: linear-gradient(105deg, hsl(140, 75%, 52%), hsl(152, 70%, 38%));
-}
-
-/* Spectating: magenta accent, no count cell */
-.fps-ready-bar--spectating {
-  background:
-    linear-gradient(115deg, hsla(320, 90%, 60%, 0.26), hsla(285, 45%, 12%, 0.94) 55%, var(--w-void)), var(--w-scan-cyan);
-  box-shadow: inset 0 0 0 1px hsla(320, 80%, 70%, 0.25);
-}
-
-.fps-ready-bar--spectating .fps-ready-text {
-  padding: calc(10px * var(--ui-scale, 1)) calc(30px * var(--ui-scale, 1)) calc(12px * var(--ui-scale, 1));
-  letter-spacing: 0.3em;
-  color: hsl(320, 90%, 74%);
 }
 
 /* Gametype Badge: styled in the Washoi Scoreline section (top-center tab). */
@@ -4272,20 +4283,6 @@ html[data-cl-hud="0"]
 
 .fps-bomb-status--attacking .fps-bomb-status-role {
   color: hsl(38, 92%, 62%);
-}
-
-/* Team header: name and score on one slab. The score is the point in a round
-   mode, where it counts rounds won and appears nowhere else on the board. */
-.fps-scoreboard-team-title {
-  display: inline-flex;
-  align-items: baseline;
-  gap: calc(14px * var(--scoreboard-scale, var(--ui-scale, 1)));
-}
-
-.fps-scoreboard-team-score {
-  font-size: calc(24px * var(--scoreboard-scale, var(--ui-scale, 1)));
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
 }
 
 /* ── Bomb plant/defuse meter, centre screen ──────────────────────────────
